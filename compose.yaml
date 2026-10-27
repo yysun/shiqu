@@ -1,0 +1,19 @@
+name: shiqu
+services:
+  shiqu:
+    build: .
+    init: true
+    ports:
+      - "127.0.0.1:${SHIQU_PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+      SHIQU_DATA_DIR: /data
+      WRANGLER_SEND_METRICS: "false"
+      CLOUDFLARE_CF_FETCH_ENABLED: "false"
+    volumes:
+      - shiqu_data:/data
+    restart: unless-stopped
+volumes:
+  shiqu_data:

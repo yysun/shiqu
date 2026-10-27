@@ -1,0 +1,227 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync,readdirSync} from 'node:fs';
+import {ReaderRepository} from '../lib/reader-repository.ts';
+import {advanceStory} from '../lib/reader-engine.ts';
+import {makeGenerator,suggestStories,GeminiError,safeGeminiError,configuredModels} from '../lib/reader-gemini.ts';
+import {view,selectionSchema} from '../lib/reader-model.ts';
+const original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶，栩栩然胡蝶也。',url:'https://zh.wikisource.org/zh-hans/莊子/齊物論',kind:'passage',provider:'维基文库',retrievedAt:'2026-10-26T00:00:00Z'};
+const selection={bookId:'zhuangzi',theme:'放下执念',length:8,voice:false};
+const plan={title:'谁在梦中',hook:'醒来后，他忽然不敢确定自己是谁。',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'用现代旁白重述梦蝶，画面细节为AI演绎。',reflection:'醒来之后，你更确定自己了吗？',characters:'Zhuang Zhou: adult male philosopher, plain blue-green robe, tied long black hair, calm face.',pages:Array.from({length:8},(_,i)=>({caption:'庄周做了一个梦，梦里的世界比醒着时还要清楚。',prompt:'Ancient Chinese philosopher in a calm garden, thoughtful adult face, scene number '+i}))};
+function setup(){const db=new DatabaseSync(':memory:');for(const file of readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())db.exec(readFileSync('drizzle/'+file,'utf8'));const adapter={prepare(query){let args=[];return {bind(...values){args=values;return this;},async first(){return db.prepare(query).get(...args)||null;},async all(){return {results:db.prepare(query).all(...args)};},async run(){const r=db.prepare(query).run(...args);return {meta:{changes:Number(r.changes)}};}};}};return {repo:new ReaderRepository(adapter),db};}
+function fake(){const calls=[];return {calls,async original(){return {source:structuredClone(original),message:'',searchUrl:''};},async plan(){calls.push('plan');return {value:structuredClone(plan),model:'fake-text',requestId:'test',usage:{input_tokens:10,output_tokens:20}};},async image(p,page,id){calls.push('image:'+page);return {value:`/api/reader/media/${id}/${page}.webp`,model:'fake-image',requestId:'test',usage:null};},async audio(text,id,page){calls.push('audio:'+page);return {value:`/api/reader/media/${id}/${page}.wav`,model:'fake-audio',requestId:'test',usage:null};},safeError(){return '生成暂时失败，已保留内容';}};}
+test('sessions are owner-scoped and client retries reuse a single session',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);await repo.create(id,'alice',selection);assert.equal((await repo.list('alice')).length,1);assert.equal((await repo.list('bob')).length,0);await assert.rejects(advanceStory(repo,g,'bob',id,1),e=>e.status===404);assert.deepEqual(g.calls,[]);});
+test('the database enforces ten stories per rolling 24 hours under concurrent starts',async()=>{
+ const {repo,db}=setup();const results=await Promise.allSettled(Array.from({length:14},()=>repo.create(crypto.randomUUID(),'alice',selection)));
+ assert.equal(results.filter(r=>r.status==='fulfilled').length,10);const rows=await repo.list('alice');assert.equal(rows.length,10);
+ assert.ok(results.filter(r=>r.status==='rejected').every(r=>r.reason.status===429&&r.reason.message.includes('10')));
+ assert.equal((await repo.create(rows[0].id,'alice',selection)).id,rows[0].id);
+ await repo.create(crypto.randomUUID(),'bob',selection);
+ db.prepare('UPDATE reader_sessions SET created_at=? WHERE id=?').run(new Date(Date.now()-86400000-1000).toISOString(),rows[0].id);
+ await repo.create(crypto.randomUUID(),'alice',selection);
+ await assert.rejects(repo.create(crypto.randomUUID(),'alice',selection),e=>e.status===429);
+ assert.equal((await repo.list('alice')).length,11);
+});
+test('concurrent advances cannot duplicate a paid planning request',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);let unlock;const hold=new Promise(r=>unlock=r);g.plan=async()=>{g.calls.push('plan');await hold;return {value:plan,model:'fake',requestId:null,usage:null};};const a=advanceStory(repo,g,'alice',id,1);await new Promise(r=>setImmediate(r));const b=await advanceStory(repo,g,'alice',id,1);assert.equal(b.state,'running');unlock();await a;assert.deepEqual(g.calls,['plan']);});
+test('only requested scenes are generated; completed scenes are reused and progress is separate',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);await repo.progress(id,'alice',0,true);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);assert.deepEqual(g.calls,['plan','image:0','image:1']);assert.equal((await repo.get(id,'alice')).saved,1);await assert.rejects(repo.progress(id,'alice',7,true),e=>e.status===400);});
+test('failure preserves good scenes, does not automatically retry, and limits explicit retries',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);let failures=0;g.image=async()=>{failures++;throw Error('provider failure');};let s=await advanceStory(repo,g,'alice',id,1);assert.equal(s.state,'failed');assert.ok(s.story.pages[0].image);await advanceStory(repo,g,'alice',id,1);assert.equal(failures,1);s=await advanceStory(repo,g,'alice',id,1,true);assert.equal(failures,2);assert.equal(s.retryAllowed,false);await advanceStory(repo,g,'alice',id,1,true);assert.equal(failures,2);});
+test('stale requests become explicit failures instead of silently issuing another call',async()=>{const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);db.prepare("UPDATE reader_sessions SET state='running',lock_token='expired',lock_until=1,step_key='plan',step_attempts=1 WHERE id=?").run(id);const s=await advanceStory(repo,g,'alice',id,0);assert.equal(s.state,'failed');assert.deepEqual(g.calls,[]);});
+test('an outdated checkpoint cannot acquire the same completed step again',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();const old=await repo.create(id,'alice',selection);await advanceStory(repo,g,'alice',id,0);assert.equal(await repo.acquire(old,{kind:'plan',page:0,key:'plan'}),null);});
+const png=Uint8Array.from([137,80,78,71,13,10,26,10,1,2,3,4]);
+const jpeg=Uint8Array.from([255,216,255,224,1,2,3,4]);
+const b64=b=>Buffer.from(b).toString('base64');
+test('generation saves the original before drawing and keeps it on later checkpoints and reads',async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),g=fake();let lookups=0;
+ g.original=async()=>{lookups++;return {source:original,message:'',searchUrl:''};};
+ await repo.create(id,'alice',selection);
+ const planned=await advanceStory(repo,g,'alice',id,1);
+ assert.equal(planned.story.sourceText,original.text);assert.equal(planned.story.sourceUrl,original.url);
+ assert.deepEqual(JSON.parse((await repo.get(id,'alice')).document).original,original);
+ assert.equal(planned.ready,0);
+ const draw=g.image;g.image=async(...args)=>{assert.deepEqual(JSON.parse((await repo.get(id,'alice')).document).original,original);return draw(...args);};
+ await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);
+ assert.equal(lookups,1);assert.equal(view(await repo.get(id,'alice')).story.sourceText,original.text);
+});
+test('unavailable original pauses before images and retry reuses the paid plan',async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),g=fake();let lookups=0;
+ g.original=async()=>++lookups===1?{source:null,message:'原文来源无法连接。',searchUrl:''}:{source:original,message:'',searchUrl:''};
+ await repo.create(id,'alice',selection);
+ const failed=await advanceStory(repo,g,'alice',id,1);
+ assert.equal(failed.state,'failed');assert.match(failed.error,/原文未能保存/);assert.deepEqual(g.calls,['plan']);
+ let doc=JSON.parse((await repo.get(id,'alice')).document);assert.ok(doc.plan);assert.equal(doc.usage.length,1);assert.equal(doc.original,undefined);
+ await advanceStory(repo,g,'alice',id,1);assert.equal(lookups,1);
+ const resumed=await advanceStory(repo,g,'alice',id,1,true);assert.equal(resumed.story.sourceText,original.text);assert.deepEqual(g.calls,['plan']);
+ await advanceStory(repo,g,'alice',id,1);assert.deepEqual(g.calls,['plan','image:0']);assert.equal(lookups,2);
+});
+test('legacy backfill preserves images and progress and rejects an outdated document or active generation',async()=>{
+ const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+ await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await repo.progress(id,'alice',0,true);
+ db.prepare("UPDATE reader_sessions SET document=json_remove(document,'$.original') WHERE id=?").run(id);
+ const old=await repo.get(id,'alice'),before=JSON.parse(old.document);
+ const updated=await repo.saveOriginal(old,original);assert.equal(updated.page,old.page);assert.equal(updated.saved,1);
+ assert.deepEqual(JSON.parse(updated.document),{...before,original});
+ await assert.rejects(repo.saveOriginal(old,original),e=>e.status===409);
+ db.prepare("UPDATE reader_sessions SET state='running' WHERE id=?").run(id);
+ await assert.rejects(repo.saveOriginal(await repo.get(id,'alice'),original),e=>e.status===409);
+});
+function memoryAssets(){const stored=new Map();return {stored,async get(k){const entry=stored.get(k);return entry?{async arrayBuffer(){return entry.bytes.slice().buffer;}}:null;},async put(k,bytes,options){stored.set(k,{bytes,options});}};}
+function geminiResponse(parts,extra={}){return new Response(JSON.stringify({candidates:[{content:{parts},finishReason:'STOP',...extra}],responseId:'test-response',usageMetadata:{totalTokenCount:10}}),{headers:{'Content-Type':'application/json'}});}
+test('Gemini plans structured scenes and Nano Banana carries the first picture into subsequent scenes',async()=>{
+ const requests=[],assets=memoryAssets();
+ const fetcher=async(url,init)=>{const body=JSON.parse(init.body);requests.push({url,init,body});return url.includes('nano-banana')?geminiResponse([{thought:true,inlineData:{mimeType:'image/png',data:b64(jpeg)}},{inlineData:{mimeType:'image/png',data:b64(png)}}]):geminiResponse([{thought:true,text:'hidden reasoning'},{text:JSON.stringify(plan)}]);};
+ const g=makeGenerator('unit-test-only',assets,{},fetcher),result=await g.plan(selection,'seed');
+ assert.equal(result.value.title,plan.title);assert.equal(result.requestId,'test-response');
+ assert.match(requests[0].url,/gemini-3.8-flash:generateContent$/);assert.equal(requests[0].body.store,false);
+ assert.equal(requests[0].init.headers['x-goog-api-key'],'unit-test-only');assert.ok(!requests[0].url.includes('unit-test-only'));
+ assert.equal(requests[0].body.generationConfig.responseFormat.text.schema.properties.pages.minItems,8);
+ const a=await g.image(plan,0,'test-id','');await g.image(plan,1,'test-id',a.value);
+ assert.equal(a.value,'/api/reader/media/test-id/0.png');assert.equal(assets.stored.size,2);
+ assert.equal(assets.stored.get('reader/test-id/0.png').options.httpMetadata.contentType,'image/png');
+ assert.deepEqual(requests[2].body.contents[0].parts[0],{inlineData:{mimeType:'image/png',data:b64(png)}});
+ assert.equal(requests[1].body.generationConfig.imageConfig.aspectRatio,'2:3');assert.equal(requests[1].body.generationConfig.imageConfig.imageSize,'1K');
+ await assert.rejects(g.audio('旁白','test-id',0));assert.equal(requests.length,3);
+});
+test('Gemini failures are redacted, not retried, and never fall back to a different paid provider',async()=>{
+ let count=0;const g=makeGenerator('unit-test-only',memoryAssets(),{},async()=>{count++;return new Response('sensitive provider detail',{status:429});});
+ await assert.rejects(g.plan(selection,'seed'));assert.equal(count,1);
+ assert.ok(!g.safeError(new Error('sensitive provider detail')).includes('sensitive'));
+ assert.match(safeGeminiError(new GeminiError('PROVIDER_ERROR',429)),/额度/);
+ assert.match(safeGeminiError(new GeminiError('PROVIDER_ERROR',402)),/计费状态和可用额度/);
+ assert.match(safeGeminiError(new DOMException('expired','TimeoutError')),/计费/);
+});
+test('book suggestions preserve selected book and custom theme; stale URL fields are ignored',async()=>{
+ let body;const result=await suggestStories('unit-test-only',{...selection,customBook:'https://example.org/old',theme:'一个小人物的选择'},{},async(url,init)=>{body=JSON.parse(init.body);return geminiResponse([{text:JSON.stringify({stories:[{title:'庄周梦蝶',description:'一个醒来后的疑问。'}],note:''})}]);});
+ assert.equal(result.stories[0].title,'庄周梦蝶');assert.equal(body.tools,undefined);
+ assert.deepEqual(JSON.parse(body.contents[0].parts[0].text),{book:'庄子',theme:'一个小人物的选择',excludeTitles:[]});
+});
+test('URL suggestions and plans fail closed when source retrieval is absent or failed',async()=>{
+ const selected={...selection,bookId:'other',customBook:'https://example.org/classic'};
+ const data={stories:[{title:'unverified',description:'unverified'}],note:''};
+ const transport=async()=>geminiResponse([{text:JSON.stringify(data)}]);
+ assert.equal((await suggestStories('unit-test-only',selected,{},transport)).stories.length,0);
+ const g=makeGenerator('unit-test-only',memoryAssets(),{},async()=>geminiResponse([{text:JSON.stringify(plan)}]));
+ await assert.rejects(g.plan(selected,'seed'),/SOURCE_UNAVAILABLE/);
+ let body;const result=await suggestStories('unit-test-only',selected,{},async(url,init)=>{body=JSON.parse(init.body);return geminiResponse([{text:JSON.stringify(data)}],{urlContextMetadata:{urlMetadata:[{retrievedUrl:selected.customBook,urlRetrievalStatus:'URL_RETRIEVAL_STATUS_SUCCESS'}]}});});
+ assert.equal(result.stories.length,1);assert.deepEqual(body.tools,[{urlContext:{}}]);
+});
+test('Nano Banana stores the actual MIME type and refuses missing anchors or invalid images',async()=>{
+ const assets=memoryAssets();let calls=0;
+ const g=makeGenerator('unit-test-only',assets,{},async()=>{calls++;return geminiResponse([{inlineData:{mimeType:'image/jpeg',data:b64(jpeg)}}]);});
+ const image=await g.image(plan,0,'test-id','');assert.match(image.value,/0.jpg$/);
+ assert.equal(assets.stored.get('reader/test-id/0.jpg').options.httpMetadata.contentType,'image/jpeg');
+ await assert.rejects(g.image(plan,1,'different-id',image.value),/MISSING_ANCHOR/);assert.equal(calls,1);
+ const bad=makeGenerator('unit-test-only',assets,{},async()=>geminiResponse([{inlineData:{mimeType:'image/png',data:b64(jpeg)}}]));
+ await assert.rejects(bad.image(plan,1,'test-id',''),/INVALID_MEDIA/);assert.equal(assets.stored.size,1);
+});
+test('blocked, truncated and malformed output never becomes a ready page or plan',async()=>{
+ const assets=memoryAssets();
+ for(const response of [()=>geminiResponse([],{finishReason:'SAFETY'}),()=>geminiResponse([{text:JSON.stringify(plan)}],{finishReason:'MAX_TOKENS'}),()=>geminiResponse([{text:'not JSON'}])]){
+  const g=makeGenerator('unit-test-only',assets,{},async()=>response());await assert.rejects(g.plan(selection,'seed'));
+ }
+ assert.equal(assets.stored.size,0);
+ assert.deepEqual(configuredModels({GEMINI_TEXT_MODEL:'gemini-3.6-flash',GEMINI_IMAGE_MODEL:'gemini-3.1-flash-image'}),{text:'gemini-3.6-flash',image:'gemini-3.1-flash-image'});
+});
+
+test('narration stays off even when an old client or saved session requests it',async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),g=fake();
+ await repo.create(id,'alice',{...selection,voice:true});
+ let result;
+ for(let i=0;i<9;i++)result=await advanceStory(repo,g,'alice',id,7);
+ assert.equal(result.state,'completed');
+ assert.equal(result.selection.voice,false);
+ assert.equal(result.story.voiceRequested,false);
+ assert.equal(g.calls.filter(x=>x.startsWith('audio:')).length,0);
+ assert.equal(g.calls.filter(x=>x.startsWith('image:')).length,8);
+});
+
+test('chosen art direction persists across resume and reaches every image call',async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),g=fake(),styles=[];
+ const original=g.image;g.image=async(...args)=>{styles.push(args[4]);return original(...args);};
+ await repo.create(id,'alice',{...selection,artStyle:'ink-wash'});
+ await advanceStory(repo,g,'alice',id,1);
+ await advanceStory(repo,g,'alice',id,1);
+ const resumed=await advanceStory(repo,g,'alice',id,1);
+ assert.equal(resumed.selection.artStyle,'ink-wash');assert.equal(resumed.story.artStyleLabel,'水墨写意');
+ assert.deepEqual(styles,['ink-wash','ink-wash']);
+ const oldId=crypto.randomUUID();await repo.create(oldId,'bob',selection);
+ assert.equal((await advanceStory(repo,g,'bob',oldId,0)).selection.artStyle,'ink-pencil');
+});
+test('new art styles pass validation and reach planning and image generation without pencil fallback',async()=>{
+ const styles=[['cinematic',/Photorealistic/],['watercolor',/watercolor storybook/],['gongbi',/gongbi painting/],['woodblock',/woodblock folk print/],['paper-cut',/paper-cut illustration/],['cartoon',/2D cartoon/],['line-art',/Minimalist line-art/],['chibi',/Cute chibi/],['3d-animation',/3D animated-film/],['clay',/clay stop-motion/],['classical-oil',/Classical figurative oil painting/]];
+ for(const [style,expected] of styles){
+  const requests=[];
+  const g=makeGenerator('unit-test-only',memoryAssets(),{},async(url,init)=>{const body=JSON.parse(init.body);requests.push(body);return url.includes('nano-banana')?geminiResponse([{inlineData:{mimeType:'image/png',data:b64(png)}}]):geminiResponse([{text:JSON.stringify(plan)}]);});
+  const choice=selectionSchema.parse({...selection,artStyle:style});
+  await g.plan(choice,'seed');await g.image(plan,0,'style-id','',choice.artStyle);
+  assert.match(JSON.parse(requests[0].contents[0].parts[0].text).artDirection,expected,style);
+  assert.match(requests[1].contents[0].parts[0].text,expected,style);
+  assert.ok(!requests[1].contents[0].parts[0].text.includes('textured colored pencil'),style);
+ }
+});
+
+test('five story choices are requested and accepted without inventing a missing source',async()=>{
+ let body;const choices=Array.from({length:5},(_,i)=>({title:'已知篇目'+i,description:'一个不剧透的故事简介。'}));
+ const result=await suggestStories('unit-test-only',selection,{},async(url,init)=>{body=JSON.parse(init.body);return geminiResponse([{text:JSON.stringify({stories:choices,note:''})}]);});
+ assert.equal(result.stories.length,5);
+ assert.equal(body.generationConfig.responseFormat.text.schema.properties.stories.maxItems,5);
+ assert.match(body.systemInstruction.parts[0].text,/推荐5个/);
+ const unknown=await suggestStories('unit-test-only',selection,{},async()=>geminiResponse([{text:JSON.stringify({stories:[],note:'请补充原文。'})}]));
+ assert.equal(unknown.stories.length,0);
+});
+
+test('production requirements persist on the story and reach planning and each picture',async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),g=fake(),prompts=[];
+ const productionPrompt='结尾不要直接提问，以一个无声动作收尾。';
+ g.plan=async s=>{prompts.push(s.productionPrompt);return {value:plan,model:'fake',requestId:null,usage:null};};
+ const image=g.image;g.image=async(...args)=>{prompts.push(args[5]);return image(...args);};
+ await repo.create(id,'alice',{...selection,productionPrompt});
+ for(let step=0;step<3;step++)await advanceStory(repo,g,'alice',id,1);
+ assert.deepEqual(prompts,[productionPrompt,productionPrompt,productionPrompt]);
+ assert.equal(view(await repo.get(id,'alice')).story.productionPrompt,productionPrompt);
+ assert.equal(selectionSchema.parse(selection).productionPrompt,'');
+ assert.throws(()=>selectionSchema.parse({...selection,productionPrompt:'x'.repeat(1201)}));
+ const requests=[];
+ const liveShape=makeGenerator('unit-test-only',memoryAssets(),{},async(url,init)=>{requests.push(JSON.parse(init.body));return url.includes('nano-banana')?geminiResponse([{inlineData:{mimeType:'image/png',data:b64(png)}}]):geminiResponse([{text:JSON.stringify(plan)}]);});
+ await liveShape.plan({...selection,productionPrompt},id);await liveShape.image(plan,0,id,'','ink-pencil',productionPrompt);
+ assert.equal(JSON.parse(requests[0].contents[0].parts[0].text).productionPrompt,productionPrompt);
+ assert.ok(requests[1].contents[0].parts[0].text.includes(productionPrompt));
+});
+
+
+test('new batches pass exclusions to Gemini and remove repeated or renamed titles',async()=>{
+ let body;const result=await suggestStories('unit-test-only',selection,{},async(url,init)=>{body=JSON.parse(init.body);return geminiResponse([{text:JSON.stringify({stories:[{title:'《庄周梦蝶》',description:'已看过。'},{title:'庖丁解牛',description:'新篇目。'},{title:'庖丁解牛',description:'重复。'}],note:''})}]);},['庄周梦蝶']);
+ assert.deepEqual(JSON.parse(body.contents[0].parts[0].text).excludeTitles,['庄周梦蝶']);
+ assert.deepEqual(result.stories.map(s=>s.title),['庖丁解牛']);
+ assert.ok(result.note);
+});
+
+test('soft deletion is owner-scoped, durable and does not erase content or release the daily quota',async()=>{
+ const {repo,db}=setup(),ids=Array.from({length:10},()=>crypto.randomUUID());for(const id of ids)await repo.create(id,'alice',selection);
+ const id=ids[0],g=fake();await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await repo.progress(id,'alice',0,true);
+ const before=await repo.get(id,'alice');assert.ok(before.last_read_at);
+ await assert.rejects(repo.remove(id,'bob'),e=>e.status===404);
+ const removed=await repo.remove(id,'alice');assert.equal(removed.storyId,id);assert.ok(removed.deletedAt);
+ assert.deepEqual({...await repo.remove(id,'alice')},removed);
+ assert.equal((await repo.list('alice')).some(s=>s.id===id),false);
+ await assert.rejects(repo.get(id,'alice'),e=>e.status===404);
+ await assert.rejects(repo.create(id,'alice',selection),e=>e.status===404);
+ await assert.rejects(repo.progress(id,'alice',0,false),e=>e.status===404);
+ await assert.rejects(repo.create(crypto.randomUUID(),'alice',selection),e=>e.status===429);
+ const stored=db.prepare('SELECT * FROM reader_sessions WHERE id=?').get(id);assert.equal(stored.document,before.document);assert.equal(stored.saved,1);assert.equal(stored.last_read_at,before.last_read_at);
+ assert.equal((await repo.deletions('bob')).length,0);assert.equal((await repo.deletions('alice')).length,1);
+ assert.equal(await repo.acquire(before,{kind:'image',page:1,key:'image:1'}),null);
+});
+test('deleting during a paid step retains its result but cannot resume or resurrect the story',async()=>{
+ const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+ let release;const hold=new Promise(resolve=>release=resolve);let started;const ready=new Promise(resolve=>started=resolve);
+ g.plan=async()=>{started();await hold;return {value:plan,model:'fake',requestId:'paid',usage:{tokens:10}};};
+ const operation=advanceStory(repo,g,'alice',id,0);await ready;await repo.remove(id,'alice');release();
+ await assert.rejects(operation,e=>e.status===404);
+ const stored=db.prepare('SELECT document,state FROM reader_sessions WHERE id=?').get(id);assert.equal(JSON.parse(stored.document).plan.title,plan.title);assert.equal(JSON.parse(stored.document).usage[0].requestId,'paid');assert.notEqual(stored.state,'running');
+ await assert.rejects(advanceStory(repo,g,'alice',id,0),e=>e.status===404);assert.equal((await repo.list('alice')).length,0);
+});
+test('removing a shared sample affects only that reader and retains the published original',async()=>{
+ const {repo,db}=setup();db.prepare("INSERT INTO stories(id,title,hook,book_id,theme,status,pages,reflection,source_text,source_url,adaptation_note,checks,created_at,updated_at) VALUES('shared','样篇','','liaozhai','','published','[]','','','','','{}','2026-01-01','2026-01-01')").run();
+ await repo.remove('shared','alice');assert.equal((await repo.deletions('alice'))[0].storyId,'shared');assert.equal((await repo.deletions('bob')).length,0);assert.equal(db.prepare("SELECT status FROM stories WHERE id='shared'").get().status,'published');
+});
