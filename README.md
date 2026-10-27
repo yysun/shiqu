@@ -1,12 +1,12 @@
-# 拾趣 · 本地版
+# Shiqu · Local Edition
 
-把古典故事改编成图文故事，支持阅读、分镜与制作要求查看、画风选择、PDF 导出、最近阅读、软删除与恢复。前端使用 React + Vite，后端使用 Node REST API；SQLite 和媒体文件保存在普通文件夹中。
+Turn classical Chinese stories into illustrated stories. Features include reading, storyboards and production notes, art style selection, PDF export, reading history, soft deletion, and restoration. The frontend uses React + Vite, with a Node REST API backend. SQLite data and media files live in an ordinary folder.
 
-运行不需要 Cloudflare、Wrangler、workerd、Next.js 或任何托管账号。AI 生成通过服务端连接 Google Gemini；不填密钥也可以阅读内置《种梨》样篇。
+Running the app requires no Cloudflare, Wrangler, workerd, Next.js, or hosting account. AI generation connects to Google Gemini from the server. Without an API key, you can still read the included *Planting Pears* sample.
 
-## Docker 启动
+## Start with Docker
 
-需要 Docker Engine / Docker Desktop 和 Docker Compose。首次构建需要下载镜像和依赖。
+Install Docker Engine or Docker Desktop, plus Docker Compose. The first build downloads the base image and dependencies.
 
 ```bash
 cp .env.example .env
@@ -14,9 +14,9 @@ mkdir -p data
 docker compose up --build -d
 ```
 
-打开 **http://localhost:3000**。在 `.env` 中填写 `GEMINI_API_KEY` 后，执行 `docker compose up -d --force-recreate` 启用生成。费用计入你的 Gemini 项目；模型可用性取决于账号权限与配额。
+Open **http://localhost:3000**. To enable generation, set `GEMINI_API_KEY` in `.env`, then run `docker compose up -d --force-recreate`. Usage is billed to your Gemini project; model availability depends on your account permissions and quota.
 
-Windows PowerShell：
+On Windows PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
@@ -24,67 +24,67 @@ New-Item -ItemType Directory -Force data
 docker compose up --build -d
 ```
 
-Linux 上先将 `.env` 中的 `SHIQU_UID`、`SHIQU_GID` 分别设为 `id -u`、`id -g` 的结果。挂载目录应由该用户拥有且可写。容器默认以非 root 的 `1000:1000` 运行，不会修改宿主目录的所有者，也不需要 `chmod 777`。macOS/Windows 的 Docker Desktop 通常可直接使用默认值。
+On Linux, set `SHIQU_UID` and `SHIQU_GID` in `.env` to the output of `id -u` and `id -g`, respectively. The mounted directory should be owned by that user and writable. The container runs as the non-root user `1000:1000` by default. It does not change ownership of host directories or require `chmod 777`. Docker Desktop on macOS and Windows can usually use the defaults.
 
-这是供本人电脑使用的单用户版本：服务端固定使用本地所有者身份，忽略调用者提供的身份头。Compose 只发布到 `127.0.0.1`；本版本不提供公网登录或多人隔离。不要直接对公网开放。
+This is a single-user edition for your own computer. The server uses a fixed local owner identity and ignores identity headers supplied by callers. Compose publishes only on `127.0.0.1`; this edition provides no public login or multi-user isolation. Do not expose it directly to the internet.
 
-## 数据目录与挂载
+## Data directory and mounts
 
-默认将项目旁边的 **`./data`** 挂到容器内 `/data`：
+By default, **`./data`** in the project directory is mounted at `/data` inside the container:
 
 ```text
 data/
-├── shiqu.sqlite       # 故事、生成检查点、阅读进度、删除记录
-├── shiqu.sqlite-wal   # 运行期间可能存在的 SQLite 日志
+├── shiqu.sqlite       # Stories, generation checkpoints, reading progress, deletion records
+├── shiqu.sqlite-wal   # SQLite journal files that may exist while the app is running
 ├── shiqu.sqlite-shm
 └── media/
-    ├── <上传文件>.png
-    └── reader/<故事ID>/
-        ├── 0.png      # 也可能是 jpg/webp
+    ├── <uploaded-file>.png
+    └── reader/<story-id>/
+        ├── 0.png      # May also be jpg or webp
         └── source.json
 ```
 
-首次启动自动执行迁移并加入样篇。重复启动不会覆盖已有故事或进度，也不会自动重试付费生成。
+The first startup applies database migrations and adds the sample story. Subsequent startups preserve existing stories and progress and do not automatically retry paid generation requests.
 
-换一个宿主目录，只需先创建目录，再修改 `.env`：
+To use another host directory, create it first, then update `.env`:
 
 ```dotenv
-SHIQU_HOST_DATA_DIR="/absolute/path/to/拾趣 data"
+SHIQU_HOST_DATA_DIR="/absolute/path/to/shiqu data"
 ```
 
-支持绝对路径与含空格的目录。`SHIQU_HOST_DATA_DIR` 控制宿主路径，容器内仍固定为 `/data`。目录必须提前存在，以免 Docker 默默创建 root 所有的目录。
+Absolute paths and paths containing spaces are supported. `SHIQU_HOST_DATA_DIR` selects the host folder; the container path remains `/data`. Create the directory beforehand so Docker does not silently create a root-owned folder.
 
-同一个数据目录只供一个应用实例使用。更换目录后运行：
+Use each data directory with only one application instance. After changing the directory, run:
 
 ```bash
 docker compose up -d --force-recreate
 ```
 
-`.env` 配置：
+Settings in `.env`:
 
-| 变量 | 用途 |
+| Variable | Purpose |
 | --- | --- |
-| `GEMINI_API_KEY` | 服务端 Gemini 密钥，可留空 |
-| `GEMINI_TEXT_MODEL` | 文本模型，默认 `gemini-3.8-flash` |
-| `GEMINI_IMAGE_MODEL` | 图片模型，默认 `gemini-nano-banana-2.1` |
-| `SHIQU_PORT` | 宿主端口，默认 `3000` |
-| `SHIQU_HOST_DATA_DIR` | Docker 挂载的宿主数据目录，默认 `./data` |
-| `SHIQU_UID` / `SHIQU_GID` | 容器运行身份，默认 `1000:1000` |
+| `GEMINI_API_KEY` | Server-side Gemini API key; may be left blank |
+| `GEMINI_TEXT_MODEL` | Text model; defaults to `gemini-3.8-flash` |
+| `GEMINI_IMAGE_MODEL` | Image model; defaults to `gemini-nano-banana-2.1` |
+| `SHIQU_PORT` | Host port; defaults to `3000` |
+| `SHIQU_HOST_DATA_DIR` | Host data directory mounted by Docker; defaults to `./data` |
+| `SHIQU_UID` / `SHIQU_GID` | Container user and group IDs; default to `1000:1000` |
 
-密钥只在服务端读取，不写入前端包、镜像或媒体目录。
+API keys are read only on the server. They are not included in the frontend bundle, container image, or media directory.
 
-## 从旧 Docker 版升级
+## Upgrade from the previous Docker edition
 
-旧版使用本地 D1/R2 兼容存储，不能直接把旧文件夹当成新的 `data` 使用。保留旧源码、镜像和数据；先停止旧服务，再导出旧卷并转换到一个新目录。
+The previous edition used local D1/R2-compatible storage. Its data folder cannot be used directly as the new `data` directory. Keep the old source, image, and data. Stop the old service, export its volume, and convert the data into a new directory.
 
-在**旧项目目录**执行（旧命名卷仍挂在 `/data`）：
+Run these commands in the **old project directory**, with the old named volume still mounted at `/data`:
 
 ```bash
 docker compose stop
 docker compose run --rm --no-deps --entrypoint tar shiqu -czf - -C /data . > legacy-data.tar.gz
 ```
 
-在**新项目目录**执行：
+In the **new project directory**, run:
 
 ```bash
 mkdir -p legacy-data
@@ -96,21 +96,21 @@ docker run --rm --user "$(id -u):$(id -g)" \
   shiqu:local node dist/server/import-legacy.js /legacy /output/data
 ```
 
-Windows 可先使用下方本地 Node 导入方式，或将上述 Docker 的绝对挂载路径与 UID/GID 改为适合本机的值。
+On Windows, use the local Node import method below, or adapt the Docker command's absolute mount paths and UID/GID values for your machine.
 
-也可以安装 Node 24、执行 `pnpm run setup` 和 `pnpm build` 后导入：
+Alternatively, install Node 24, run `pnpm run setup` and `pnpm build`, then import locally:
 
 ```bash
 pnpm import:legacy /absolute/path/to/legacy-data /absolute/path/to/new-data
 ```
 
-旧开发数据目录 `.data/dev` 同样可作为输入。目标必须不存在或为空；导入不会覆盖已有数据。导入器复制数据库与媒体，保留故事 ID、媒体地址、本地用户 ID、进度与生成状态，完成后才发布目标目录；它不需要安装旧运行时。源文件夹不会被改动。
+The previous development data directory, `.data/dev`, can also be used as input. The destination must not exist or must be empty; importing never overwrites existing data. The importer copies the database and media, preserving story IDs, media URLs, local user IDs, progress, and generation state. It publishes the destination directory only after conversion completes. The old runtime is not required, and the source folder is left unchanged.
 
-导入只支持本项目的单数据库、单媒体桶布局；遇到非空 SQLite WAL、缺失文件、未完成迁移或 multipart 媒体会停止并说明原因。不要删除 WAL 来绕过检查：先正常停止旧服务，让它完成数据库检查点。保留原卷，可随时用旧镜像恢复运行。
+Import supports this project's single-database, single-media-bucket layout. It stops with an explanation if it encounters a nonempty SQLite WAL, missing files, incomplete migrations, or multipart media objects. Do not delete WAL files to bypass the check: shut down the old service cleanly so it can checkpoint its database. Keep the original volume so you can return to the old image if needed.
 
-导入完成后把 `.env` 的 `SHIQU_HOST_DATA_DIR` 指向新目录，再启动新服务。验证原故事、图片和阅读进度后，再决定如何保留旧备份。
+After importing, point `SHIQU_HOST_DATA_DIR` in `.env` to the new directory and start the new service. Verify your existing stories, images, and reading progress before deciding how to retain the old backup.
 
-## 日常操作与备份
+## Daily operation and backups
 
 ```bash
 docker compose ps
@@ -119,9 +119,9 @@ docker compose down
 docker compose up -d
 ```
 
-停止或删除容器不会删除宿主数据目录。更新源码后运行 `docker compose up --build -d`。
+Stopping or removing containers does not delete the host data directory. After updating the source, run `docker compose up --build -d`.
 
-备份前停止服务，复制整个数据目录（包含可能存在的 SQLite 日志及媒体文件），随后重新启动：
+Before backing up, stop the service. Copy the entire data directory, including any SQLite journal files and media, then restart:
 
 ```bash
 docker compose stop
@@ -129,20 +129,20 @@ tar -czf shiqu-data-backup.tar.gz -C data .
 docker compose up -d
 ```
 
-使用自定义目录时，将命令中的 `data` 换成实际路径。恢复时先停止服务，将备份解压到一个空目录，再切换挂载路径。`.env` 需单独保管。不要在服务运行时只复制 `shiqu.sqlite`。
+If you use a custom directory, replace `data` in the command with its actual path. To restore, stop the service, extract the backup into an empty directory, and switch the mount path. Keep `.env` separately. Do not copy only `shiqu.sqlite` while the service is running.
 
-分发镜像：
+To distribute the image:
 
 ```bash
 docker save -o shiqu-image.tar shiqu:local
-# 目标机器：加载镜像，并准备 compose.yaml、.env 和数据目录
+# On the destination machine, load the image and prepare compose.yaml, .env, and the data directory.
 docker load -i shiqu-image.tar
 docker compose up -d --no-build
 ```
 
-## 本地开发与结构
+## Local development and project structure
 
-需要 Node 24（`.nvmrc`：24.22.1）和 pnpm 11.25.0。应用使用 Node 内置 SQLite；无需额外数据库服务或原生数据库插件。
+Use Node 24 (`.nvmrc` specifies 24.22.1) and pnpm 11.25.0. The app uses Node's built-in SQLite support; no separate database service or native database addon is required.
 
 ```bash
 nvm install
@@ -152,29 +152,29 @@ pnpm run setup
 pnpm dev
 ```
 
-开发入口为 **http://localhost:3000**。Vite 将 `/api` 转发到本机 Node API（默认端口 `3002`），保持同源请求。默认开发数据保存在 `.data/dev`，与 Docker 的 `./data` 分开。
+Open **http://localhost:3000**. Vite proxies `/api` to the local Node API, which uses port `3002` by default, keeping browser requests on the same origin. Development data defaults to `.data/dev`, separate from Docker's `./data` directory.
 
 ```bash
 pnpm dev --port 3001
-# API 端口冲突时：
+# If the API port is already in use:
 SHIQU_API_PORT=3003 pnpm dev
 ```
 
-停止服务使用 Ctrl+C。修改 `.env` 后重启；已有配置不会被 setup 覆盖。
+Press Ctrl+C to stop the service. Restart after changing `.env`. Setup preserves existing configuration.
 
 ```text
-client/       React 入口、界面与样式
-components/   可复用界面组件
-lib/          故事生成、阅读、验证与应用服务接口
-server/       Node HTTP、配置、SQLite、文件存储与旧数据导入
-db/          Drizzle SQLite 数据结构
-drizzle/     SQL 迁移
-public/       样篇、字体和图标
-scripts/      开发与构建入口
-docker/       样篇初始化 SQL、健康检查
+client/       React entry point, UI, and styles
+components/   Reusable UI components
+lib/          Story generation, reading, validation, and application service interfaces
+server/       Node HTTP, configuration, SQLite, file storage, and legacy import
+db/           Drizzle SQLite schema
+drizzle/      SQL migrations
+public/       Sample assets, fonts, and icons
+scripts/      Development and build entry points
+docker/       Sample initialization SQL and health check
 ```
 
-前端与后端分开构建、共用模型与验证代码，生产只需一个 Node 进程。应用逻辑通过显式服务接口访问数据库、媒体和模型请求，不依赖托管平台全局对象。
+The frontend and backend build separately and share models and validation code. Production runs in one Node process. Application logic accesses the database, media, and model requests through explicit service interfaces, without hosting-platform globals.
 
 ```bash
 pnpm test
@@ -184,10 +184,10 @@ pnpm build
 pnpm start
 ```
 
-`pnpm start` 默认绑定 `127.0.0.1:3000` 并读取 `./data`；可用服务端 `PORT`、`SHIQU_BIND_IP`、`SHIQU_DATA_DIR` 覆盖。Docker 内的值由 Compose 配置。
+`pnpm start` binds to `127.0.0.1:3000` and uses `./data` by default. Override these with the server-side variables `PORT`, `SHIQU_BIND_IP`, and `SHIQU_DATA_DIR`. Compose supplies the container settings.
 
-自动测试覆盖生成检查点、付费调用去重与重试、原文检索、SQLite 持久化、媒体上传、HTTP 边界和旧数据导入。测试使用模拟模型服务，不会调用付费 Gemini。
+Automated tests cover generation checkpoints, paid-call deduplication and retries, original-source retrieval, SQLite persistence, media uploads, HTTP boundaries, and legacy import. Tests use simulated model responses and do not make paid Gemini calls.
 
-## Sites 部署边界
+## Sites deployment boundary
 
-此版本针对 Docker 和普通 Node 主机。Sites 的服务端运行于 Cloudflare Workers，不能直接运行这里的 Node 进程或挂载本地目录。完整应用重新部署到 Sites 需要独立的 Worker、身份及 D1/R2 适配器；静态前端单独部署不能提供当前的生成与持久化功能。共享界面和应用逻辑可以复用，但此分支不包含该部署目标。
+This edition targets Docker and regular Node hosts. Sites runs its backend on Cloudflare Workers and cannot directly run this Node process or mount local directories. Deploying the full application to Sites requires separate Worker, identity, and D1/R2 adapters. Deploying only the static frontend does not provide the current generation and persistence features. The shared UI and application logic can be reused, but this branch does not include that deployment target.
