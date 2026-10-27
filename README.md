@@ -6,7 +6,7 @@
 
 ## 1. 启动
 
-先安装并启动 Docker Desktop，或在 Linux 安装 Docker Engine 和 Docker Compose。首次构建需要联网下载 Node 镜像和 npm 依赖，AI 生成需要能连接 Google Gemini 服务。
+先安装并启动 Docker Desktop，或在 Linux 安装 Docker Engine 和 Docker Compose。首次构建需要联网下载 Node 镜像和包依赖，AI 生成需要能连接 Google Gemini 服务。
 
 解压后进入 `shiqu` 文件夹，在终端执行：
 
@@ -97,7 +97,7 @@ docker compose up -d
 
 ## 4. 开发与验证
 
-Docker 使用 Node 24，依赖由 `pnpm-lock.yaml` 锁定。主要目录：
+本地开发和 Docker 构建使用 Node 24（`.nvmrc` 指定 24.22.1），依赖由 pnpm 11.25.0 和 `pnpm-lock.yaml` 锁定。开发不需要 Docker 或 VS Code 插件。主要目录：
 
 - `app/`、`components/`：页面和交互。
 - `lib/`：故事生成、阅读、画风、软删除和数据访问。
@@ -105,13 +105,65 @@ Docker 使用 Node 24，依赖由 `pnpm-lock.yaml` 锁定。主要目录：
 - `public/`：内置样篇和字体等静态资源。
 - `docker/`：启动、健康检查和幂等样篇初始化。
 
-容器运行后可执行已有测试和类型检查：
+### 本地开发
+
+安装 Node 24。使用 nvm 的 macOS/Linux 环境可直接在项目根目录运行：
 
 ```bash
-docker compose exec shiqu node --experimental-strip-types --test tests/*.test.mjs
-docker compose exec shiqu node node_modules/typescript/bin/tsc --noEmit
+nvm install
+nvm use
+corepack enable pnpm
+corepack install
 ```
 
-打包前已通过：43 项自动测试、TypeScript 检查、独立生产构建、自动数据库迁移、首页与样篇 API、阅读进度保存、图片上传读取，以及重启后的数据库/媒体持久化和样篇幂等初始化。
+首次准备开发环境：
 
-打包环境没有 Docker 引擎，因此没有执行真实的 `docker compose build/up`；已直接运行与容器相同的 Node 启动入口验证上述功能。新 Gemini 账号的模型权限和真实计费生成不在本次验证范围内。
+```bash
+pnpm run setup
+```
+
+Corepack 使用 `package.json` 指定的 pnpm 11.25.0。[Corepack 使用说明](https://github.com/nodejs/corepack#readme)。`pnpm run setup` 检查 Node 版本，仅在 `.env` 不存在时从 `.env.example` 创建，并使用冻结锁文件安装依赖。应用依赖位于项目的 `node_modules/`，pnpm 缓存位于 `.sites-runtime/`，已有 `.env` 不会被覆盖。使用完整的 `pnpm run setup` 命令调用本项目的初始化脚本。
+
+启动开发服务：
+
+```bash
+pnpm dev
+```
+
+打开 **http://localhost:3000**。启动时自动执行数据库迁移并幂等初始化样篇，源码修改支持热更新。无需 Gemini 密钥即可阅读样篇；填写或修改 `.env` 后重启服务即可启用对应配置。需要其他端口时运行 `pnpm dev --port 3001`；`.env` 中的 `SHIQU_PORT` 仅用于 Docker Compose。
+
+开发数据库和媒体文件保存在 `.data/dev/`，工具日志位于 `.wrangler/`，均不进入 Git 或 Docker 构建。开发数据与 Docker 的 `/data` 命名卷分开。停止开发服务使用 Ctrl+C，已有数据会保留。`wrangler.json` 统一定义开发服务、数据库迁移和生产构建使用的绑定，无需 Cloudflare 账号。
+
+日常验证和本地构建：
+
+```bash
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+拉取依赖变更后重新执行 `pnpm run setup`。新增依赖使用 `pnpm add <包名>`，开发工具使用 `pnpm add -D <包名>`，并提交更新后的 `package.json` 与 `pnpm-lock.yaml`。
+
+### 构建和运行分发镜像
+
+安装并启动 Docker 后，构建自包含的 `shiqu:local` 运行镜像：
+
+```bash
+pnpm build:runtime
+docker compose up -d
+```
+
+也可直接执行 `docker compose up --build -d`，不需要先在宿主机安装 Node 或项目依赖。镜像构建在 Docker 内完成，包含编译结果、生产依赖、迁移、样篇和启动脚本；不包含开发工具、应用源码目录、测试、`.env` 或本地数据。Wrangler/workerd 是本地 D1/R2 的运行时依赖，会随镜像保留。镜像启动时从外部读取环境变量，并将数据保存在 `/data`。
+
+分发到另一台同架构机器可使用：
+
+```bash
+docker save -o shiqu-image.tar shiqu:local
+# 在目标机器加载，再准备 .env 与 compose.yaml：
+docker load -i shiqu-image.tar
+docker compose up -d --no-build
+```
+
+镜像对应构建时的源码快照。源码更新后重新构建并执行 `docker compose up -d`，容器会使用新镜像，数据卷保留。
+
+已验证：43 项自动测试、TypeScript 检查、本地生产构建、本地开发服务的首次初始化与换端口重启，以及真实 Docker 镜像构建、非 root 运行、健康检查、样篇与图片读取、阅读进度保存和容器重启后的数据保留。真实 Gemini 计费生成需自行验证账号的模型权限与配额。

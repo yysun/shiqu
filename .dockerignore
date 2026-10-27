@@ -13,6 +13,7 @@ dist
 **/.dev.vars*
 *.pem
 *.zip
+*.tar
 *.tar.gz
 *.tsbuildinfo
 .DS_Store

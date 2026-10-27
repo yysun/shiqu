@@ -1,7 +1,10 @@
 name: shiqu
 services:
   shiqu:
-    build: .
+    image: shiqu:local
+    build:
+      context: .
+      target: runtime
     init: true
     ports:
       - "127.0.0.1:${SHIQU_PORT:-3000}:3000"

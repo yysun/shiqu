@@ -1,3 +1,4 @@
+// Initialize persisted local bindings and launch the compiled application with Wrangler.
 import {spawn,spawnSync} from 'node:child_process';
 import {readFileSync,writeFileSync,mkdirSync,chmodSync,existsSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
@@ -10,7 +11,7 @@ const port=Number(process.env.PORT||3000);
 if(!Number.isInteger(port)||port<1024||port>65535)throw Error('PORT must be between 1024 and 65535');
 mkdirSync(data,{recursive:true});
 const configPath=path.join(root,'dist/server/wrangler.json');
-if(!existsSync(configPath))throw Error('Build missing. Run npm run build before starting.');
+if(!existsSync(configPath))throw Error('Build missing. Run pnpm build before starting.');
 const config=JSON.parse(readFileSync(configPath,'utf8'));
 config.vars={...config.vars,ADMIN_USER_ID:'docker-local-owner'};
 for(const db of config.d1_databases||[])db.migrations_dir=path.join(root,'drizzle');
