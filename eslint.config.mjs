@@ -1,28 +1,10 @@
-import { defineConfig, globalIgnores } from "eslint/config";
-import nextVitals from "eslint-config-next/core-web-vitals";
-import nextTs from "eslint-config-next/typescript";
-
-const eslintConfig = defineConfig([
-  ...nextVitals,
-  ...nextTs,
-  globalIgnores([
-    "dist/**",
-    ".vinext/**",
-    ".wrangler/**",
-    ".sites-runtime/**",
-    "outputs/**",
-    "work/**",
-  ]),
-  {
-    files: ["components/ui/**/*.{ts,tsx}", "hooks/use-mobile.ts"],
-    rules: {
-      // These files are vendored verbatim from shadcn@4.17.0. Keep the
-      // registry source intact while applying the stricter rules to Site code.
-      "@typescript-eslint/no-unused-vars": "off",
-      "react-hooks/purity": "off",
-      "react-hooks/set-state-in-effect": "off",
-    },
-  },
-]);
-
-export default eslintConfig;
+// Lint project syntax without coupling the standalone app to a hosting framework.
+import js from '@eslint/js';
+import parser from '@typescript-eslint/parser';
+export default [
+ {ignores:['dist/**','node_modules/**','.data/**','data/**','.sites-runtime/**','.wrangler/**','outputs/**','work/**']},
+ {files:['**/*.{js,mjs}'],rules:{...js.configs.recommended.rules,'no-undef':'off','no-unused-vars':'off','no-empty':['error',{allowEmptyCatch:true}]}},
+ {files:['**/*.{ts,tsx,mts}'],languageOptions:{parser,parserOptions:{ecmaFeatures:{jsx:true}}},rules:{...js.configs.recommended.rules,'no-undef':'off','no-unused-vars':'off','no-empty':['error',{allowEmptyCatch:true}]}},
+ // PDF filenames intentionally strip control characters.
+ {files:['lib/reader-pdf.ts'],rules:{'no-control-regex':'off'}},
+];

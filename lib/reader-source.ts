@@ -74,8 +74,8 @@ function extract(title:string,html:string,book:string,chapter:string){
 }
 async function wiki(params:Record<string,string>,transport:typeof fetch){
  const url=new URL(api);url.search=new URLSearchParams({format:'json',formatversion:'2',...params}).toString();
- // workerd rejects redirect:"error" before sending. Manual mode preserves the no-redirect policy.
- const response=await transport(url.href,{headers:{'Accept':'application/json','User-Agent':'ShiquClassics/1.0 (https://yiyu-classics-lab.eric-sun739956.chatgpt.site)'},signal:AbortSignal.timeout(10000),redirect:'manual'});
+ // Inspect redirects without following them outside the fixed source host.
+ const response=await transport(url.href,{headers:{'Accept':'application/json','User-Agent':'ShiquClassics/1.0'},signal:AbortSignal.timeout(10000),redirect:'manual'});
  if(!response.ok)throw new SourceFetchError('SOURCE_HTTP_ERROR',response.status);
  const text=await response.text();if(text.length>2_000_000)throw new SourceFetchError('SOURCE_INVALID_RESPONSE');
  try{return JSON.parse(text);}catch{throw new SourceFetchError('SOURCE_INVALID_RESPONSE');}

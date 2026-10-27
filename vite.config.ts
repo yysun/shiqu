@@ -1,16 +1,5 @@
-// Share Worker bindings with local migration tools; keep development data checkout-local.
+// Build the browser application independently of the Node API server.
 import path from 'node:path';
-import vinext from 'vinext';
 import {defineConfig} from 'vite';
-import {cloudflare} from '@cloudflare/vite-plugin';
-
-// Standalone build: no Sites plugin, sign-in service or Cloudflare account needed.
-export default defineConfig({
- plugins:[vinext(),cloudflare({
-  viteEnvironment:{name:'rsc',childEnvironments:['ssr']},
-  inspectorPort:false,
-  configPath:'./wrangler.json',
-  persistState:{path:path.resolve(process.env.SHIQU_DATA_DIR||'.data/dev')},
- })],
- server:{strictPort:true},
-});
+import react from '@vitejs/plugin-react';
+export default defineConfig({plugins:[react()],resolve:{alias:{'@':path.resolve(import.meta.dirname)}},build:{outDir:'dist/client'},server:{strictPort:true}});

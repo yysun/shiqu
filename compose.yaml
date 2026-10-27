@@ -6,6 +6,7 @@ services:
       context: .
       target: runtime
     init: true
+    user: "${SHIQU_UID:-1000}:${SHIQU_GID:-1000}"
     ports:
       - "127.0.0.1:${SHIQU_PORT:-3000}:3000"
     env_file:
@@ -13,10 +14,11 @@ services:
     environment:
       PORT: "3000"
       SHIQU_DATA_DIR: /data
-      WRANGLER_SEND_METRICS: "false"
-      CLOUDFLARE_CF_FETCH_ENABLED: "false"
+      SHIQU_BIND_IP: 0.0.0.0
     volumes:
-      - shiqu_data:/data
+      - type: bind
+        source: ${SHIQU_HOST_DATA_DIR:-./data}
+        target: /data
+        bind:
+          create_host_path: false
     restart: unless-stopped
-volumes:
-  shiqu_data:

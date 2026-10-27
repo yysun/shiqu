@@ -17,3 +17,7 @@ dist
 *.tar.gz
 *.tsbuildinfo
 .DS_Store
+
+data
+.pnpm-store
+.docs

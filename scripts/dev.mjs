@@ -1,31 +1,19 @@
-// Initialize the local sample database and run the framework with hot reload.
-// Development data stays in this checkout; the runtime image uses its own /data volume.
-import './tool-env.mjs';
-import {spawnSync} from 'node:child_process';
-import {mkdirSync} from 'node:fs';
+// Run Vite and the watched REST server together; both terminate with the parent.
+import {createServer} from 'vite';
+import {context} from 'esbuild';
+import {spawn} from 'node:child_process';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
-
-const root = fileURLToPath(new URL('../', import.meta.url));
-process.chdir(root);
-process.env.SHIQU_DATA_DIR = path.resolve(process.env.SHIQU_DATA_DIR || '.data/dev');
-mkdirSync(process.env.SHIQU_DATA_DIR, {recursive: true});
-
-const wrangler = path.join(root, 'node_modules/wrangler/bin/wrangler.js');
-const common = ['--local', '--config', 'wrangler.json', '--persist-to', process.env.SHIQU_DATA_DIR];
-for (const args of [
-  ['d1', 'migrations', 'apply', 'DB', ...common],
-  ['d1', 'execute', 'DB', ...common, '--file', 'docker/seed.sql'],
-]) {
-  const result = spawnSync(process.execPath, [wrangler, ...args], {
-    env: {...process.env, CI: 'true'}, stdio: 'inherit',
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status || 1);
-}
-
-// Keep the framework in this process so Ctrl+C stops the full dev server.
-const cli = new URL('../node_modules/vinext/dist/cli.js', import.meta.url);
-process.argv = [process.execPath, fileURLToPath(cli), 'dev',
-  '--hostname', '127.0.0.1', '--port', '3000', ...process.argv.slice(2)];
-await import(cli.href);
+process.env.SHIQU_DATA_DIR=path.resolve(process.env.SHIQU_DATA_DIR||'.data/dev');
+const args=process.argv.slice(2),portIndex=args.indexOf('--port'),port=Number(portIndex<0?3000:args[portIndex+1]);
+if(!Number.isInteger(port)||port<1||port>65535)throw Error('Invalid --port');
+const apiPort=Number(process.env.SHIQU_API_PORT||3002);
+if(apiPort===port)throw Error('SHIQU_API_PORT must differ from the Vite port');
+const build=await context({entryPoints:['server/index.ts'],outfile:'dist/dev/server.js',bundle:true,platform:'node',format:'esm',target:'node24',packages:'external',sourcemap:true});
+await build.rebuild();await build.watch();
+const backend=spawn(process.execPath,['--env-file-if-exists=.env','--watch','dist/dev/server.js'],{stdio:'inherit',env:{...process.env,PORT:String(apiPort),SHIQU_BIND_IP:'127.0.0.1'}});
+const frontend=await createServer({server:{host:'127.0.0.1',port,strictPort:true,proxy:{'/api':{target:`http://127.0.0.1:${apiPort}`,changeOrigin:false}}}});
+let stopping=false;
+async function stop(code=0){if(stopping)return;stopping=true;backend.kill('SIGTERM');await Promise.all([frontend.close(),build.dispose()]);process.exitCode=code;}
+backend.on('exit',code=>{if(!stopping)void stop(code||1);});
+for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>void stop());
+await frontend.listen();frontend.printUrls();

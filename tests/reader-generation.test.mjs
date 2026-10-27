@@ -142,7 +142,7 @@ test('Gemini plans structured scenes and Nano Banana carries the first picture i
  assert.equal(requests[0].body.generationConfig.responseFormat.text.schema.properties.pages.minItems,8);
  const a=await g.image(plan,0,'test-id','');await g.image(plan,1,'test-id',a.value);
  assert.equal(a.value,'/api/reader/media/test-id/0.png');assert.equal(assets.stored.size,2);
- assert.equal(assets.stored.get('reader/test-id/0.png').options.httpMetadata.contentType,'image/png');
+ assert.equal(assets.stored.get('reader/test-id/0.png').options.contentType,'image/png');
  assert.deepEqual(requests[2].body.contents[0].parts[0],{inlineData:{mimeType:'image/png',data:b64(png)}});
  assert.equal(requests[1].body.generationConfig.imageConfig.aspectRatio,'2:3');assert.equal(requests[1].body.generationConfig.imageConfig.imageSize,'1K');
  await assert.rejects(g.audio('旁白','test-id',0));assert.equal(requests.length,3);
@@ -175,7 +175,7 @@ test('Nano Banana stores the actual MIME type and refuses missing anchors or inv
  const assets=memoryAssets();let calls=0;
  const g=makeGenerator('unit-test-only',assets,{},async()=>{calls++;return geminiResponse([{inlineData:{mimeType:'image/jpeg',data:b64(jpeg)}}]);});
  const image=await g.image(plan,0,'test-id','');assert.match(image.value,/0.jpg$/);
- assert.equal(assets.stored.get('reader/test-id/0.jpg').options.httpMetadata.contentType,'image/jpeg');
+ assert.equal(assets.stored.get('reader/test-id/0.jpg').options.contentType,'image/jpeg');
  await assert.rejects(g.image(plan,1,'different-id',image.value),/MISSING_ANCHOR/);assert.equal(calls,1);
  const bad=makeGenerator('unit-test-only',assets,{},async()=>geminiResponse([{inlineData:{mimeType:'image/png',data:b64(jpeg)}}]));
  await assert.rejects(bad.image(plan,1,'test-id',''),/INVALID_MEDIA/);assert.equal(assets.stored.size,1);

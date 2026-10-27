@@ -12,7 +12,7 @@ export const defaultModels={text:'gemini-3.8-flash',image:'gemini-nano-banana-2.
 type Models=typeof defaultModels;
 export interface Assets {
  get(key:string):Promise<{arrayBuffer():Promise<ArrayBuffer>}|null>;
- put(key:string,value:ArrayBuffer|Uint8Array,options:unknown):Promise<unknown>;
+ put(key:string,value:ArrayBuffer|Uint8Array,options:{contentType:string}):Promise<unknown>;
 }
 type Part={text?:string;thought?:boolean;inlineData?:{mimeType:string;data:string}};
 type UrlMetadata={retrievedUrl?:string;urlRetrievalStatus?:string;retrieved_url?:string;url_retrieval_status?:string};
@@ -143,7 +143,7 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
    let bytes:Uint8Array;try{bytes=Uint8Array.from(atob(output.data),c=>c.charCodeAt(0));}catch{throw new GeminiError('INVALID_MEDIA');}
    if(!bytes.length||bytes.length>12*1024*1024||mediaType(bytes)!==output.mimeType)throw new GeminiError('INVALID_MEDIA');
    const extension=imageTypes[output.mimeType as keyof typeof imageTypes],file=`${page}.${extension}`;
-   await assets.put(`reader/${id}/${file}`,bytes,{httpMetadata:{contentType:output.mimeType}});
+   await assets.put(`reader/${id}/${file}`,bytes,{contentType:output.mimeType});
    return {value:`/api/reader/media/${id}/${file}`,...metadata};
   },
   async audio(){throw new GeminiError('VOICE_DISABLED');},

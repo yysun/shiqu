@@ -46,3 +46,7 @@ yarn-error.log*
 
 # OS metadata
 .DS_Store
+
+# Host bind-mounted application data and local package cache
+/data/
+/.pnpm-store/
