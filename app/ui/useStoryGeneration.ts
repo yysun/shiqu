@@ -1,4 +1,5 @@
 'use client';
+// Advance saved checkpoints serially; failures resume only after an explicit reader action.
 import {useEffect,useRef,useState} from 'react';
 import {randomId,request} from './shared';
 import type {GeneratedStory,Selection,SessionView} from '@/lib/reader-model';
@@ -15,7 +16,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks){
  async function resume(sessionId:string,initialPage?:number){id.current=sessionId;retry.current=false;setError('');const s:SessionView=await request('reader/sessions/'+sessionId);if(id.current!==sessionId||removed.current.has(sessionId))return;setActive(s);collect(s);cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);if(s.story?.pages[0]?.image)cb.current.onStory(s.story,initialPage??s.page,s.saved);setWake(v=>v+1);}
  function leave(){id.current='';setActive(null);setBusy(false);setError('');}
  function remove(sessionId:string){removed.current.add(sessionId);if(id.current===sessionId)leave();setSessions(old=>old.filter(s=>s.id!==sessionId));}
- function retryStep(){retry.current=true;setError('');setWake(v=>v+1);}
+ function retryStep(){if(busy||pending.current||retry.current||!active?.retryAllowed||(active.retryAt||0)>Date.now())return;retry.current=true;setBusy(true);setError('');setWake(v=>v+1);}
  useEffect(()=>{
   const sessionId=active?.id;if(!sessionId)return;
   let cancelled=false;
@@ -39,7 +40,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks){
      pending.current=operation.catch(()=>{});s=await operation;
     }
    }catch(e){if(!cancelled&&id.current===sessionId)setError(e instanceof Error?e.message:'生成暂停，请重新打开故事继续。');}
-   finally{pending.current=null;if(!cancelled)setBusy(false);}
+   finally{pending.current=null;retry.current=false;if(!cancelled)setBusy(false);}
   }
   run();return()=>{cancelled=true;};
  },[active?.id,page,wake]);

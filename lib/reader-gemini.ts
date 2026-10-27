@@ -1,3 +1,4 @@
+// Generate story plans and media through Gemini, preserving safe errors and validated results.
 import {z} from 'zod';
 import {planSchema,readerBooks} from './reader-model.ts';
 import type {Plan,Selection} from './reader-model.ts';
@@ -69,7 +70,7 @@ export function safeGeminiError(error:unknown){
   if(error.status===404)return '所选模型暂不可用，请检查服务配置。';
   if(error.status===429)return '生成服务繁忙或额度暂不可用，已保留你的故事。';
  }
- if(error instanceof Error&&/timeout|abort/i.test(error.name))return '生成等待超时，已保留前面的内容。可手动重试；上次请求可能已经计费。';
+ if(error instanceof Error&&/timeout|abort/i.test(error.name))return '生成等待超时，已保留前面的内容。可手动重试。';
  return '这一步暂时没能生成，已保留前面的内容。可手动重试。';
 }
 function client(key:string,transport:typeof fetch){

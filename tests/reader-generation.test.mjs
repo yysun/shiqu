@@ -1,3 +1,4 @@
+// Exercise durable generation checkpoints, explicit recovery, and paid-call safeguards against SQLite.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
@@ -6,6 +7,7 @@ import {ReaderRepository} from '../lib/reader-repository.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
 import {makeGenerator,suggestStories,GeminiError,safeGeminiError,configuredModels} from '../lib/reader-gemini.ts';
 import {view,selectionSchema} from '../lib/reader-model.ts';
+import {paidRetryCooldownMs} from '../lib/reader-limits.ts';
 const original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶，栩栩然胡蝶也。',url:'https://zh.wikisource.org/zh-hans/莊子/齊物論',kind:'passage',provider:'维基文库',retrievedAt:'2026-10-26T00:00:00Z'};
 const selection={bookId:'zhuangzi',theme:'放下执念',length:8,voice:false};
 const plan={title:'谁在梦中',hook:'醒来后，他忽然不敢确定自己是谁。',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'用现代旁白重述梦蝶，画面细节为AI演绎。',reflection:'醒来之后，你更确定自己了吗？',characters:'Zhuang Zhou: adult male philosopher, plain blue-green robe, tied long black hair, calm face.',pages:Array.from({length:8},(_,i)=>({caption:'庄周做了一个梦，梦里的世界比醒着时还要清楚。',prompt:'Ancient Chinese philosopher in a calm garden, thoughtful adult face, scene number '+i}))};
@@ -25,7 +27,39 @@ test('the database enforces ten stories per rolling 24 hours under concurrent st
 });
 test('concurrent advances cannot duplicate a paid planning request',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);let unlock;const hold=new Promise(r=>unlock=r);g.plan=async()=>{g.calls.push('plan');await hold;return {value:plan,model:'fake',requestId:null,usage:null};};const a=advanceStory(repo,g,'alice',id,1);await new Promise(r=>setImmediate(r));const b=await advanceStory(repo,g,'alice',id,1);assert.equal(b.state,'running');unlock();await a;assert.deepEqual(g.calls,['plan']);});
 test('only requested scenes are generated; completed scenes are reused and progress is separate',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);await repo.progress(id,'alice',0,true);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);assert.deepEqual(g.calls,['plan','image:0','image:1']);assert.equal((await repo.get(id,'alice')).saved,1);await assert.rejects(repo.progress(id,'alice',7,true),e=>e.status===400);});
-test('failure preserves good scenes, does not automatically retry, and limits explicit retries',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);let failures=0;g.image=async()=>{failures++;throw Error('provider failure');};let s=await advanceStory(repo,g,'alice',id,1);assert.equal(s.state,'failed');assert.ok(s.story.pages[0].image);await advanceStory(repo,g,'alice',id,1);assert.equal(failures,1);s=await advanceStory(repo,g,'alice',id,1,true);assert.equal(failures,2);assert.equal(s.retryAllowed,false);await advanceStory(repo,g,'alice',id,1,true);assert.equal(failures,2);});
+function finishCooldown(db,id){db.prepare('UPDATE reader_sessions SET updated_at=? WHERE id=?').run(new Date(Date.now()-paidRetryCooldownMs-1).toISOString(),id);}
+test('paid image retries have no attempt cap, require a manual action and cooldown, and reuse saved work',async()=>{
+ const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+ await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);
+ const draw=g.image;let failures=0;g.image=async()=>{failures++;throw Error('provider failure');};
+ let s=await advanceStory(repo,g,'alice',id,1);
+ for(let attempt=1;attempt<=5;attempt++){
+  assert.equal(s.state,'failed');assert.equal(s.retryAllowed,true);assert.equal(s.retryMayCharge,true);
+  assert.ok(s.story.pages[0].image);assert.ok(s.retryAt>Date.now());assert.equal(failures,attempt);
+  await advanceStory(repo,g,'alice',id,1,true);assert.equal(failures,attempt); // Server blocks early retries.
+  finishCooldown(db,id);
+  await advanceStory(repo,g,'alice',id,1);assert.equal(failures,attempt); // Expiry never starts a request itself.
+  if(attempt<5)s=await advanceStory(repo,g,'alice',id,1,true);
+ }
+ g.image=draw;const resumed=await advanceStory(repo,g,'alice',id,1,true);
+ assert.equal(resumed.state,'idle');assert.equal(resumed.retryAt,null);assert.ok(resumed.story.pages[1].image);
+ assert.equal((await repo.get(id,'alice')).step_attempts,6);
+ assert.deepEqual(g.calls,['plan','image:0','image:1']);
+});
+test('planning can recover after the former cap and only one concurrent retry acquires the checkpoint',async()=>{
+ const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+ let calls=0;const planStory=g.plan;g.plan=async()=>{calls++;throw Error('temporary failure');};
+ await advanceStory(repo,g,'alice',id,0);
+ for(let attempt=0;attempt<3;attempt++){finishCooldown(db,id);await advanceStory(repo,g,'alice',id,0,true);}
+ assert.equal(calls,4);assert.equal(view(await repo.get(id,'alice')).retryAllowed,true);
+ finishCooldown(db,id);let release,started;const ready=new Promise(r=>started=r),hold=new Promise(r=>release=r);
+ g.plan=async(...args)=>{calls++;started();await hold;return planStory(...args);};
+ const first=advanceStory(repo,g,'alice',id,0,true);await ready;
+ const second=await advanceStory(repo,g,'alice',id,0,true);assert.equal(second.state,'running');assert.equal(calls,5);
+ release();const result=await first;assert.equal(result.state,'idle');assert.ok(result.story.sourceText);
+ assert.equal(result.retryAt,null);assert.deepEqual(g.calls,['plan']);
+});
+
 test('stale requests become explicit failures instead of silently issuing another call',async()=>{const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);db.prepare("UPDATE reader_sessions SET state='running',lock_token='expired',lock_until=1,step_key='plan',step_attempts=1 WHERE id=?").run(id);const s=await advanceStory(repo,g,'alice',id,0);assert.equal(s.state,'failed');assert.deepEqual(g.calls,[]);});
 test('an outdated checkpoint cannot acquire the same completed step again',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();const old=await repo.create(id,'alice',selection);await advanceStory(repo,g,'alice',id,0);assert.equal(await repo.acquire(old,{kind:'plan',page:0,key:'plan'}),null);});
 const png=Uint8Array.from([137,80,78,71,13,10,26,10,1,2,3,4]);
@@ -65,6 +99,37 @@ test('legacy backfill preserves images and progress and rejects an outdated docu
  db.prepare("UPDATE reader_sessions SET state='running' WHERE id=?").run(id);
  await assert.rejects(repo.saveOriginal(await repo.get(id,'alice'),original),e=>e.status===409);
 });
+test('saving a recovered original clears source failure while preserving an image failure for manual retry',async()=>{
+ const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+ g.original=async()=>({source:null,message:'暂时无法连接',searchUrl:''});
+ await advanceStory(repo,g,'alice',id,0);const failed=await repo.get(id,'alice'),before=JSON.parse(failed.document);
+ const recovered=await repo.saveOriginal(failed,original);
+ assert.equal(recovered.state,'idle');assert.equal(recovered.error,null);assert.deepEqual(JSON.parse(recovered.document).plan,before.plan);assert.deepEqual(g.calls,['plan']);
+ g.image=async()=>{throw Error('image failure');};await advanceStory(repo,g,'alice',id,0);
+ db.prepare("UPDATE reader_sessions SET document=json_remove(document,'$.original') WHERE id=?").run(id);
+ const imageFailed=await repo.get(id,'alice'),backfilled=await repo.saveOriginal(imageFailed,original);
+ assert.equal(backfilled.state,'failed');assert.equal(backfilled.error,imageFailed.error);
+});
+test('source recovery remains explicit after repeated outages and never repeats the paid plan',async()=>{
+ const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();let lookups=0,available=false;
+ g.original=async()=>{lookups++;return {source:available?original:null,message:'原文来源无法连接。',searchUrl:''};};
+ await repo.create(id,'alice',selection);
+ let result=await advanceStory(repo,g,'alice',id,0);
+ for(let attempt=0;attempt<4;attempt++){
+  assert.equal(result.state,'failed');assert.equal(result.retryAllowed,true);assert.equal(result.retryMayCharge,false);assert.equal(result.retryAt,null);
+  const before=lookups;await advanceStory(repo,g,'alice',id,0);assert.equal(lookups,before);
+  result=await advanceStory(repo,g,'alice',id,0,true);
+ }
+ assert.equal((await repo.get(id,'alice')).step_attempts,4);
+ available=true;result=await advanceStory(repo,g,'alice',id,0,true);
+ assert.equal(result.state,'idle');assert.equal(result.retryAllowed,true);assert.equal(result.story.sourceText,original.text);
+ assert.deepEqual(g.calls,['plan']);
+ await advanceStory(repo,g,'alice',id,0);assert.deepEqual(g.calls,['plan','image:0']);
+ assert.equal(JSON.parse((await repo.get(id,'alice')).document).usage.filter(u=>u.step==='plan').length,1);
+ // A source backfill must also unlock the next image after the old source cap was reached.
+ db.prepare("UPDATE reader_sessions SET state='failed',step_key='source',step_attempts=2 WHERE id=?").run(id);
+ assert.equal(view(await repo.get(id,'alice')).retryAllowed,true);
+});
 function memoryAssets(){const stored=new Map();return {stored,async get(k){const entry=stored.get(k);return entry?{async arrayBuffer(){return entry.bytes.slice().buffer;}}:null;},async put(k,bytes,options){stored.set(k,{bytes,options});}};}
 function geminiResponse(parts,extra={}){return new Response(JSON.stringify({candidates:[{content:{parts},finishReason:'STOP',...extra}],responseId:'test-response',usageMetadata:{totalTokenCount:10}}),{headers:{'Content-Type':'application/json'}});}
 test('Gemini plans structured scenes and Nano Banana carries the first picture into subsequent scenes',async()=>{
@@ -88,7 +153,8 @@ test('Gemini failures are redacted, not retried, and never fall back to a differ
  assert.ok(!g.safeError(new Error('sensitive provider detail')).includes('sensitive'));
  assert.match(safeGeminiError(new GeminiError('PROVIDER_ERROR',429)),/额度/);
  assert.match(safeGeminiError(new GeminiError('PROVIDER_ERROR',402)),/计费状态和可用额度/);
- assert.match(safeGeminiError(new DOMException('expired','TimeoutError')),/计费/);
+ const timeoutMessage=safeGeminiError(new DOMException('expired','TimeoutError'));
+ assert.match(timeoutMessage,/等待超时.*已保留.*手动重试/);assert.doesNotMatch(timeoutMessage,/费用|计费|收费/);
 });
 test('book suggestions preserve selected book and custom theme; stale URL fields are ignored',async()=>{
  let body;const result=await suggestStories('unit-test-only',{...selection,customBook:'https://example.org/old',theme:'一个小人物的选择'},{},async(url,init)=>{body=JSON.parse(init.body);return geminiResponse([{text:JSON.stringify({stories:[{title:'庄周梦蝶',description:'一个醒来后的疑问。'}],note:''})}]);});
@@ -224,4 +290,21 @@ test('deleting during a paid step retains its result but cannot resume or resurr
 test('removing a shared sample affects only that reader and retains the published original',async()=>{
  const {repo,db}=setup();db.prepare("INSERT INTO stories(id,title,hook,book_id,theme,status,pages,reflection,source_text,source_url,adaptation_note,checks,created_at,updated_at) VALUES('shared','样篇','','liaozhai','','published','[]','','','','','{}','2026-01-01','2026-01-01')").run();
  await repo.remove('shared','alice');assert.equal((await repo.deletions('alice'))[0].storyId,'shared');assert.equal((await repo.deletions('bob')).length,0);assert.equal(db.prepare("SELECT status FROM stories WHERE id='shared'").get().status,'published');
+});
+test('restoring clears only the owner deletion marker and preserves content, progress and generation state',async()=>{
+ const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+ await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await repo.progress(id,'alice',0,true);
+ const before=await repo.get(id,'alice');await repo.remove(id,'alice');
+ await assert.rejects(repo.restore(id,'bob'),e=>e.status===404);assert.equal((await repo.deletions('alice')).length,1);
+ assert.deepEqual(await repo.restore(id,'alice'),{storyId:id,restored:true});assert.deepEqual(await repo.get(id,'alice'),before);
+ assert.equal((await repo.list('alice')).some(s=>s.id===id),true);assert.equal((await repo.deletions('alice')).length,0);
+ assert.deepEqual(await repo.restore(id,'alice'),{storyId:id,restored:false});assert.deepEqual(g.calls,['plan','image:0']);
+ await repo.remove(id,'alice');db.prepare("UPDATE reader_sessions SET state='failed',error='原文暂时不可用' WHERE id=?").run(id);
+ await repo.restore(id,'alice');assert.equal((await repo.get(id,'alice')).state,'failed');assert.deepEqual(g.calls,['plan','image:0']);
+ await assert.rejects(repo.restore(crypto.randomUUID(),'alice'),e=>e.status===404);
+});
+test('restoring a shared story leaves other readers deletion markers in place',async()=>{
+ const {repo,db}=setup();db.prepare("INSERT INTO stories(id,title,hook,book_id,theme,status,pages,reflection,source_text,source_url,adaptation_note,checks,created_at,updated_at) VALUES('shared','样篇','','liaozhai','','published','[]','','','','','{}','2026-01-01','2026-01-01')").run();
+ await repo.remove('shared','alice');await repo.remove('shared','bob');await repo.restore('shared','alice');
+ assert.equal((await repo.deletions('alice')).length,0);assert.equal((await repo.deletions('bob')).length,1);assert.equal(db.prepare("SELECT status FROM stories WHERE id='shared'").get().status,'published');
 });

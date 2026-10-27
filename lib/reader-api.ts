@@ -1,3 +1,4 @@
+// Route authenticated reading, recovery, and generation operations within each reader's library.
 import {getDb} from '@/db';
 import {events} from '@/db/schema';
 import {env} from 'cloudflare:workers';
@@ -24,6 +25,7 @@ export async function readerApi(req:Request,path:string[]):Promise<Response>{
   const repo=new ReaderRepository(env.DB);
   if(path.join('/')==='deletions'&&req.method==='GET')return json(await repo.deletions(uid));
   if(path[0]==='library'&&path.length===2&&req.method==='DELETE'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.remove(id,uid));}
+  if(path[0]==='library'&&path.length===3&&path[2]==='restore'&&req.method==='POST'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.restore(id,uid));}
   if(path.join('/')==='suggestions'&&req.method==='POST'){
    if(!ready)throw new ReaderError(503,'AI 选题服务还未接通。你的输入已保留，接通后即可列出故事标题。');
    const {excludeTitles,...selection}=suggestionRequestSchema.parse(await body(req,28000));

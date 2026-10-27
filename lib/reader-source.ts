@@ -1,14 +1,28 @@
+// Resolve verified originals and canonical Wikisource chapters without inventing source text.
 import {Parser} from 'htmlparser2';
 import {Converter} from 'opencc-js';
 import {pearSource,sourceUrl as pearUrl} from './content.ts';
 import type {Plan,Selection} from './reader-model.ts';
-import type {OriginalSource,SourceResult} from './reader-source-types.ts';
+import type {OriginalSource,SourceResult,SourceFailure} from './reader-source-types.ts';
 import {verifiedPassages} from './reader-verified-passages.ts';
 
 const simplified=Converter({from:'t',to:'cn'}),traditional=Converter({from:'cn',to:'t'});
 const names:Record<string,string>={liaozhai:'聊斋志异',shishuo:'世说新语',zhuangzi:'庄子'};
 const normalize=(text:string)=>simplified(text).replace(/[\s《》〈〉「」『』“”‘’·•‧/（）()，,。:：]/g,'');
 const api='https://zh.wikisource.org/w/api.php';
+class SourceFetchError extends Error{code:SourceFailure['code'];status?:number;constructor(code:SourceFailure['code'],status?:number){super(code);this.code=code;this.status=status;}}
+function numberedChapter(book:string,citation:string){
+ const format=book==='西游记'?{unit:'回',width:3}:book==='儒林外史'?{unit:'回',width:2}:book==='搜神记'?{unit:'卷',width:2}:null;
+ if(!format)return '';
+ const number='[〇零一二三四五六七八九十百千两\\d]+';
+ const match=citation.match(new RegExp(`第(${number})${format.unit}`))||(format.unit==='卷'?citation.match(new RegExp(`卷(${number})`)):null);
+ if(!match)return '';
+ const value=match[1];let total=0,current=0;
+ if(/^\d+$/.test(value))total=Number(value);
+ else for(const char of value){const digit='零一二三四五六七八九'.indexOf(char==='〇'?'零':char==='两'?'二':char);if(digit>=0)current=digit;else{const unit=char==='十'?10:char==='百'?100:1000;total+=(current||1)*unit;current=0;}}
+ if(!/^\d+$/.test(value))total+=current;
+ return total>0&&total<=1000?`第${String(total).padStart(format.width,'0')}${format.unit}`:'';
+}
 export function sourceQuery(selection:Selection,plan:Plan){
  const custom=selection.customBook?.trim()||'';
  const reference=simplified(plan.sourceReference);
@@ -17,7 +31,8 @@ export function sourceQuery(selection:Selection,plan:Plan){
  const inBrackets=bracket.split(/[·•‧/]/).slice(1).join('/');
  const tail=reference.replace(/^.*?》/,'').replace(/[（(].*$/,'').replace(/^\s*第[一二三四五六七八九十百零〇\d]+则.*$/,'').trim();
  const chapter=(inBrackets||tail||selection.storyTitle||'').replace(/^\s*[·•‧/]/,'').trim().slice(0,80);
- return {book:simplified(book).replace(/[《》]/g,'').trim(),chapter};
+ const bookName=simplified(book).replace(/[《》]/g,'').trim();
+ return {book:bookName,chapter:numberedChapter(bookName,reference)||chapter};
 }
 export function sourceSearchUrl(selection:Selection,plan:Plan){const {book,chapter}=sourceQuery(selection,plan);return 'https://zh.wikisource.org/w/index.php?'+new URLSearchParams({search:`${book} ${chapter}`});}
 
@@ -59,9 +74,11 @@ function extract(title:string,html:string,book:string,chapter:string){
 }
 async function wiki(params:Record<string,string>,transport:typeof fetch){
  const url=new URL(api);url.search=new URLSearchParams({format:'json',formatversion:'2',...params}).toString();
- const response=await transport(url.href,{headers:{'Accept':'application/json','User-Agent':'ShiquClassics/1.0 (https://yiyu-classics-lab.eric-sun739956.chatgpt.site)'},signal:AbortSignal.timeout(10000),redirect:'error'});
- if(!response.ok)throw Error('SOURCE_UNAVAILABLE');
- const text=await response.text();if(text.length>2_000_000)throw Error('SOURCE_TOO_LARGE');return JSON.parse(text);
+ // workerd rejects redirect:"error" before sending. Manual mode preserves the no-redirect policy.
+ const response=await transport(url.href,{headers:{'Accept':'application/json','User-Agent':'ShiquClassics/1.0 (https://yiyu-classics-lab.eric-sun739956.chatgpt.site)'},signal:AbortSignal.timeout(10000),redirect:'manual'});
+ if(!response.ok)throw new SourceFetchError('SOURCE_HTTP_ERROR',response.status);
+ const text=await response.text();if(text.length>2_000_000)throw new SourceFetchError('SOURCE_INVALID_RESPONSE');
+ try{return JSON.parse(text);}catch{throw new SourceFetchError('SOURCE_INVALID_RESPONSE');}
 }
 export async function lookupOriginal(selection:Selection,plan:Plan,transport:typeof fetch=fetch):Promise<SourceResult>{
  const searchUrl=sourceSearchUrl(selection,plan),known=verifiedPassage(selection,plan);
@@ -81,5 +98,9 @@ export async function lookupOriginal(selection:Selection,plan:Plan,transport:typ
    for(const candidate of candidates){const parsed=await wiki({action:'parse',pageid:String(candidate.pageid),prop:'text|revid',variant:'zh-hans'},transport);source=parsed.parse?make(parsed.parse):null;if(source)break;}
   }
   return {source,message:source?'':'暂未找到与这篇故事对应的原典章节，可以通过出处检索继续查找。',searchUrl};
- }catch{return {source:null,message:'原文来源暂时无法连接，请稍后重试，或打开出处检索。',searchUrl};}
+ }catch(error){
+  const failure:SourceFailure=error instanceof SourceFetchError?{code:error.code,...(error.status?{status:error.status}:{})}:{code:error instanceof Error&&/timeout|abort/i.test(error.name)?'SOURCE_TIMEOUT':'SOURCE_NETWORK_ERROR'};
+  console.error('reader_source_lookup_failed',JSON.stringify(failure));
+  return {source:null,message:'原文来源暂时无法连接，请稍后重试，或打开出处检索。',searchUrl,failure};
+ }
 }

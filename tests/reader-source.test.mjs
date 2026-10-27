@@ -1,3 +1,4 @@
+// Source regressions cover citation resolution, checked outage excerpts, and book isolation.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {lookupOriginal,sourceQuery,originalBlocks,verifiedPassage} from '../lib/reader-source.ts';
@@ -5,6 +6,34 @@ import {saveStoryOriginal} from '../lib/reader-source-storage.ts';
 const selection={bookId:'shishuo',storyTitle:'曹娥碑',theme:'聪明与糊涂',length:10,voice:false};
 const plan={sourceReference:'《世说新语·捷悟》第1则（曹娥碑条）',pages:[{caption:'曹操与杨修一同走到曹娥碑前。'}]};
 const json=value=>new Response(JSON.stringify(value),{headers:{'Content-Type':'application/json'}});
+test('numbered citations resolve to the edition chapter title instead of prose page names',()=>{
+ for(const [bookId,reference,chapter] of [
+  ['西游记','《西游记》第一回 灵根育孕源流出 心性修持大道生','第001回'],
+  ['西游记','《西遊記·第三十七回》','第037回'],
+  ['西游记','《西游记》第一百回','第100回'],
+  ['搜神记','干宝《搜神记》卷一·成公智琼（弦超与成公智琼）','第01卷'],
+  ['搜神记','《搜神记》第十二卷','第12卷'],
+  ['儒林外史','《儒林外史》第三回','第03回'],
+ ])assert.deepEqual(sourceQuery({...selection,bookId},{sourceReference:reference,pages:[]}),{book:bookId,chapter});
+});
+test('the two deployed failures have revision-linked originals during a complete source outage',async()=>{
+ const cases=[['西游记','石猴出世与探寻水帘洞','《西游记》第一回 灵根育孕源流出 心性修持大道生','化作一个石猴','水帘洞'],['搜神记','弦超','干宝《搜神记》卷一·成公智琼（弦超与成公智琼）','魏济北郡从事掾弦超','克复旧好']];
+ for(const [bookId,storyTitle,sourceReference,start,end] of cases){
+  const result=await lookupOriginal({...selection,bookId,storyTitle},{sourceReference,pages:[]},async()=>{assert.fail('verified original must not depend on the remote API');});
+  assert.ok(result.source.text.includes(start));assert.ok(result.source.text.includes(end));assert.match(result.source.url,/oldid=\d+/);
+ }
+ assert.equal(verifiedPassage({...selection,bookId:'西游记',storyTitle:'其他故事'},{sourceReference:'《西游记》第一回',pages:[]}),null);
+ assert.equal(verifiedPassage({...selection,bookId:'聊斋志异',storyTitle:'弦超'},{sourceReference:'《聊斋志异》',pages:[]}),null);
+});
+test('numbered chapters can be fetched and accepted without invoking search',async()=>{
+ for(const [bookId,reference,title] of [['西游记','《西游记》第十回 附篇题名','西遊記/第010回'],['搜神记','《搜神记》卷二·另一篇','搜神記/第02卷']]){
+  let calls=0;const result=await lookupOriginal({...selection,bookId,storyTitle:'未缓存篇目'},{sourceReference:reference,pages:[]},async url=>{
+   calls++;assert.equal(new URL(url).searchParams.get('page'),title);
+   return json({parse:{title,text:'<p>这是一段属于所选古籍和编号章节的真实原文测试内容，长度足够验证章节匹配与提取。</p>'}});
+  });
+  assert.equal(calls,1);assert.equal(result.source.kind,'chapter');
+ }
+});
 test('generation persists source text and future calls reuse the story cache without external retrieval',async()=>{
  const stored=new Map();let writes=0;
  const assets={async get(key){const bytes=stored.get(key);return bytes?{async arrayBuffer(){return bytes.slice().buffer;}}:null;},async put(key,bytes){writes++;stored.set(key,bytes);}};
@@ -48,6 +77,13 @@ test('unavailable or mismatched source stays explicit and never becomes invented
  assert.equal(wrong.source,null);assert.match(wrong.message,/暂未找到/);
  let count=0;const limited=await lookupOriginal(selected,p,async()=>{count++;return new Response('',{status:429});});
  assert.equal(count,1);assert.equal(limited.source,null);assert.match(limited.message,/无法连接/);
+ assert.deepEqual(limited.failure,{code:'SOURCE_HTTP_ERROR',status:429});
+});
+test('source failures distinguish network, timeout and invalid response without exposing upstream details',async()=>{
+ const selected={...selection,bookId:'西游记',storyTitle:'高老庄'},p={sourceReference:'《西游记》第十八回',pages:[]};
+ for(const [transport,failure] of [[async()=>{throw Error('private network detail');},{code:'SOURCE_NETWORK_ERROR'}],[async()=>{throw new DOMException('private timeout detail','TimeoutError');},{code:'SOURCE_TIMEOUT'}],[async()=>new Response('<html>private provider detail</html>'),{code:'SOURCE_INVALID_RESPONSE'}]]){
+  const result=await lookupOriginal(selected,p,transport);assert.deepEqual(result.failure,failure);assert.doesNotMatch(JSON.stringify(result),/private/);
+ }
 });
 test('custom URLs cannot turn original lookup into arbitrary server-side fetches',async()=>{
  assert.deepEqual(sourceQuery({...selection,bookId:'other',customBook:'https://127.0.0.1/private'},{sourceReference:'《世说新语·捷悟》',pages:[]}),{book:'世说新语',chapter:'捷悟'});
