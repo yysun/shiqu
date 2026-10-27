@@ -1,4 +1,4 @@
-// Exercise durable generation checkpoints, explicit recovery, and paid-call safeguards against SQLite.
+// Exercise durable checkpoints, immediate automatic recovery, and paid-call safeguards against SQLite.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
@@ -7,12 +7,62 @@ import {ReaderRepository} from '../lib/reader-repository.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
 import {makeGenerator,suggestStories,GeminiError,safeGeminiError,configuredModels} from '../lib/reader-gemini.ts';
 import {view,selectionSchema} from '../lib/reader-model.ts';
-import {paidRetryCooldownMs} from '../lib/reader-limits.ts';
+import {runStoryGeneration} from '../lib/reader-generation.ts';
 const original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶，栩栩然胡蝶也。',url:'https://zh.wikisource.org/zh-hans/莊子/齊物論',kind:'passage',provider:'维基文库',retrievedAt:'2026-10-26T00:00:00Z'};
 const selection={bookId:'zhuangzi',theme:'放下执念',length:8,voice:false};
 const plan={title:'谁在梦中',hook:'醒来后，他忽然不敢确定自己是谁。',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'用现代旁白重述梦蝶，画面细节为AI演绎。',reflection:'醒来之后，你更确定自己了吗？',characters:'Zhuang Zhou: adult male philosopher, plain blue-green robe, tied long black hair, calm face.',pages:Array.from({length:8},(_,i)=>({caption:'庄周做了一个梦，梦里的世界比醒着时还要清楚。',prompt:'Ancient Chinese philosopher in a calm garden, thoughtful adult face, scene number '+i}))};
 function setup(){const db=new DatabaseSync(':memory:');for(const file of readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())db.exec(readFileSync('drizzle/'+file,'utf8'));const adapter={prepare(query){let args=[];return {bind(...values){args=values;return this;},async first(){return db.prepare(query).get(...args)||null;},async all(){return {results:db.prepare(query).all(...args)};},async run(){const r=db.prepare(query).run(...args);return {meta:{changes:Number(r.changes)}};}};}};return {repo:new ReaderRepository(adapter),db};}
 function fake(){const calls=[];return {calls,async original(){return {source:structuredClone(original),message:'',searchUrl:''};},async plan(){calls.push('plan');return {value:structuredClone(plan),model:'fake-text',requestId:'test',usage:{input_tokens:10,output_tokens:20}};},async image(p,page,id){calls.push('image:'+page);return {value:`/api/reader/media/${id}/${page}.webp`,model:'fake-image',requestId:'test',usage:null};},async audio(text,id,page){calls.push('audio:'+page);return {value:`/api/reader/media/${id}/${page}.wav`,model:'fake-audio',requestId:'test',usage:null};},safeError(){return '生成暂时失败，已保留内容';}};}
+function client(repo,g,id,overrides={}){
+ return {sessionId:id,throughPage:1,retries:new Map(),isActive:()=>true,onSession:()=>{},
+  sleep:async()=>assert.fail('Checkpoint retries must not wait for a countdown'),
+  request:async(path,method,data)=>method==='POST'?advanceStory(repo,g,'alice',id,data.throughPage,data.retry):view(await repo.get(id,'alice')),
+  ...overrides};
+}
+test('client automatically recovers planning, source and each image without delays or repeating completed work',async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+ const generatePlan=g.plan,draw=g.image,attempts=new Map();let plans=0,lookups=0;
+ g.plan=async(...args)=>{if(plans++===0)throw Error('temporary plan failure');return generatePlan(...args);};
+ g.original=async()=>++lookups===1?{source:null,message:'temporary outage',searchUrl:''}:{source:original,message:'',searchUrl:''};
+ g.image=async(...args)=>{const page=args[1],attempt=attempts.get(page)||0;attempts.set(page,attempt+1);if(attempt===0)throw Error('temporary image failure');return draw(...args);};
+ assert.equal(await runStoryGeneration(client(repo,g,id)),'');
+ assert.equal(plans,2);assert.equal(lookups,2);assert.deepEqual([...attempts.values()],[2,2]);
+ assert.deepEqual(g.calls,['plan','image:0','image:1']);
+ const result=view(await repo.get(id,'alice'));assert.equal(result.ready,2);assert.equal(result.state,'idle');
+});
+test('persistent failure exhausts two automatic retries and page changes cannot reset its budget',async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+ let attempts=0;const planStory=g.plan;g.plan=async()=>{attempts++;throw Error('persistent outage');};
+ const options=client(repo,g,id);
+ assert.equal(await runStoryGeneration(options),'生成暂时失败，已保留内容');assert.equal(attempts,3);
+ assert.equal(await runStoryGeneration({...options,throughPage:2}),'生成暂时失败，已保留内容');assert.equal(attempts,3);
+ g.plan=planStory;
+ assert.equal(await runStoryGeneration({...options,retries:new Map()}),'');
+ assert.deepEqual(g.calls,['plan','image:0','image:1']);
+});
+test('lost advance responses re-read the saved checkpoint and do not regenerate completed images',async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+ const options=client(repo,g,id),request=options.request;let dropped=false,reads=0;
+ options.request=async(...args)=>{if(args[1]!=='POST')reads++;const result=await request(...args);if(!dropped&&result.ready===1){dropped=true;throw Error('connection lost');}return result;};
+ assert.equal(await runStoryGeneration(options),'');assert.equal(reads,2);
+ assert.deepEqual(g.calls,['plan','image:0','image:1']);
+});
+test('transport outages are bounded and leaving a story stops automatic recovery',async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+ let calls=0;
+ assert.equal(await runStoryGeneration(client(repo,g,id,{request:async()=>{calls++;throw Error('offline');}})),'offline');assert.equal(calls,3);
+ let active=true;const options=client(repo,g,id,{isActive:()=>active}),request=options.request;
+ g.plan=async()=>{throw Error('temporary failure');};
+ options.request=async(...args)=>{const result=await request(...args);if(result.state==='failed')active=false;return result;};
+ assert.equal(await runStoryGeneration(options),'');assert.equal((await repo.get(id,'alice')).step_attempts,1);
+});
+test('running checkpoints are polled and leaving during a poll issues no further requests',async()=>{
+ const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+ db.prepare("UPDATE reader_sessions SET state='running',lock_token='in-flight',lock_until=? WHERE id=?").run(Date.now()+60000,id);
+ let active=true;
+ assert.equal(await runStoryGeneration(client(repo,g,id,{isActive:()=>active,sleep:async ms=>{assert.equal(ms,2000);active=false;}})),'');
+ assert.deepEqual(g.calls,[]);assert.equal((await repo.get(id,'alice')).state,'running');
+});
 test('sessions are owner-scoped and client retries reuse a single session',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);await repo.create(id,'alice',selection);assert.equal((await repo.list('alice')).length,1);assert.equal((await repo.list('bob')).length,0);await assert.rejects(advanceStory(repo,g,'bob',id,1),e=>e.status===404);assert.deepEqual(g.calls,[]);});
 test('the database enforces ten stories per rolling 24 hours under concurrent starts',async()=>{
  const {repo,db}=setup();const results=await Promise.allSettled(Array.from({length:14},()=>repo.create(crypto.randomUUID(),'alice',selection)));
@@ -27,18 +77,15 @@ test('the database enforces ten stories per rolling 24 hours under concurrent st
 });
 test('concurrent advances cannot duplicate a paid planning request',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);let unlock;const hold=new Promise(r=>unlock=r);g.plan=async()=>{g.calls.push('plan');await hold;return {value:plan,model:'fake',requestId:null,usage:null};};const a=advanceStory(repo,g,'alice',id,1);await new Promise(r=>setImmediate(r));const b=await advanceStory(repo,g,'alice',id,1);assert.equal(b.state,'running');unlock();await a;assert.deepEqual(g.calls,['plan']);});
 test('only requested scenes are generated; completed scenes are reused and progress is separate',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);await repo.progress(id,'alice',0,true);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);assert.deepEqual(g.calls,['plan','image:0','image:1']);assert.equal((await repo.get(id,'alice')).saved,1);await assert.rejects(repo.progress(id,'alice',7,true),e=>e.status===400);});
-function finishCooldown(db,id){db.prepare('UPDATE reader_sessions SET updated_at=? WHERE id=?').run(new Date(Date.now()-paidRetryCooldownMs-1).toISOString(),id);}
-test('paid image retries have no attempt cap, require a manual action and cooldown, and reuse saved work',async()=>{
- const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+test('paid image retries resume immediately when requested and reuse saved work',async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
  await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);
  const draw=g.image;let failures=0;g.image=async()=>{failures++;throw Error('provider failure');};
  let s=await advanceStory(repo,g,'alice',id,1);
  for(let attempt=1;attempt<=5;attempt++){
   assert.equal(s.state,'failed');assert.equal(s.retryAllowed,true);assert.equal(s.retryMayCharge,true);
-  assert.ok(s.story.pages[0].image);assert.ok(s.retryAt>Date.now());assert.equal(failures,attempt);
-  await advanceStory(repo,g,'alice',id,1,true);assert.equal(failures,attempt); // Server blocks early retries.
-  finishCooldown(db,id);
-  await advanceStory(repo,g,'alice',id,1);assert.equal(failures,attempt); // Expiry never starts a request itself.
+  assert.ok(s.story.pages[0].image);assert.equal(s.retryAt,null);assert.equal(failures,attempt);
+  await advanceStory(repo,g,'alice',id,1);assert.equal(failures,attempt); // Polling alone cannot duplicate a paid call.
   if(attempt<5)s=await advanceStory(repo,g,'alice',id,1,true);
  }
  g.image=draw;const resumed=await advanceStory(repo,g,'alice',id,1,true);
@@ -47,12 +94,12 @@ test('paid image retries have no attempt cap, require a manual action and cooldo
  assert.deepEqual(g.calls,['plan','image:0','image:1']);
 });
 test('planning can recover after the former cap and only one concurrent retry acquires the checkpoint',async()=>{
- const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
+ const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
  let calls=0;const planStory=g.plan;g.plan=async()=>{calls++;throw Error('temporary failure');};
  await advanceStory(repo,g,'alice',id,0);
- for(let attempt=0;attempt<3;attempt++){finishCooldown(db,id);await advanceStory(repo,g,'alice',id,0,true);}
+ for(let attempt=0;attempt<3;attempt++){await advanceStory(repo,g,'alice',id,0,true);}
  assert.equal(calls,4);assert.equal(view(await repo.get(id,'alice')).retryAllowed,true);
- finishCooldown(db,id);let release,started;const ready=new Promise(r=>started=r),hold=new Promise(r=>release=r);
+ let release,started;const ready=new Promise(r=>started=r),hold=new Promise(r=>release=r);
  g.plan=async(...args)=>{calls++;started();await hold;return planStory(...args);};
  const first=advanceStory(repo,g,'alice',id,0,true);await ready;
  const second=await advanceStory(repo,g,'alice',id,0,true);assert.equal(second.state,'running');assert.equal(calls,5);

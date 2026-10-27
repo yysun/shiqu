@@ -1,3 +1,2 @@
-// New-story quotas and the delay before explicitly retrying a failed paid step.
+// Limit new stories without delaying recovery of existing checkpoints.
 export const readerDailyLimit=10;
-export const paidRetryCooldownMs=10_000;
