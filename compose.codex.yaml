@@ -1,0 +1,15 @@
+# Opt-in subscription runtime. Login state is separate from story data and backups.
+services:
+  shiqu:
+    build:
+      target: runtime-codex
+    environment:
+      SHIQU_AI_PROVIDER: codex
+      SHIQU_CODEX_HOME: /codex-home
+      CODEX_BIN: codex
+    volumes:
+      - type: bind
+        source: ${SHIQU_CODEX_HOST_HOME:-./.data/codex-home}
+        target: /codex-home
+        bind:
+          create_host_path: false

@@ -2,7 +2,7 @@
 
 Turn classical Chinese stories into illustrated stories. Features include reading, storyboards and production notes, art style selection, PDF export, reading history, soft deletion, and restoration. The frontend uses React + Vite, with a Node REST API backend. SQLite data and media files live in an ordinary folder.
 
-Running the app requires no Cloudflare, Wrangler, workerd, Next.js, or hosting account. AI generation connects to Google Gemini from the server. Without an API key, you can still read the included *Planting Pears* sample.
+Running the app requires no Cloudflare, Wrangler, workerd, Next.js, or hosting account. AI generation uses Google Gemini by default, with optional Codex subscription support. Without an API key, you can still read the included *Planting Pears* sample.
 
 ## Start with Docker
 
@@ -27,6 +27,53 @@ docker compose up --build -d
 On Linux, set `SHIQU_UID` and `SHIQU_GID` in `.env` to the output of `id -u` and `id -g`, respectively. The mounted directory should be owned by that user and writable. The container runs as the non-root user `1000:1000` by default. It does not change ownership of host directories or require `chmod 777`. Docker Desktop on macOS and Windows can usually use the defaults.
 
 This is a single-user edition for your own computer. The server uses a fixed local owner identity and ignores identity headers supplied by callers. Compose publishes only on `127.0.0.1`; this edition provides no public login or multi-user isolation. Do not expose it directly to the internet.
+
+## Choose Gemini or a Codex subscription
+
+Gemini remains the default. To use your Codex subscription for story suggestions, planning, and scene images, set this in `.env`:
+
+```dotenv
+SHIQU_AI_PROVIDER=codex
+```
+
+On macOS or Linux, install the tested CLI and sign in with your ChatGPT account on the same machine and user that runs Shiqu. On Windows, use the Docker setup below or Gemini mode:
+
+```bash
+pnpm add -g @openai/codex@0.165.0
+pnpm run codex:login
+pnpm run codex:status
+pnpm dev
+```
+
+If pnpm reports that its global binary directory is missing, run `pnpm setup`, reopen your terminal, and repeat the install. If Codex is already installed, you can skip installation.
+
+Restart Shiqu after changing `.env`. Codex mode requires ChatGPT sign-in, not API-key login; it never falls back to Gemini or API billing. Text and images consume your shared Codex subscription limits. Image generation can consume those limits faster than text requests. Plan/workspace access and available quota still apply. See the official [authentication](https://learn.chatgpt.com/docs/auth), [app-server](https://learn.chatgpt.com/docs/app-server), and [image generation](https://learn.chatgpt.com/docs/image-generation) documentation.
+
+Optional settings:
+
+| Variable | Purpose |
+| --- | --- |
+| `CODEX_BIN` | Codex executable or absolute path; defaults to `codex` |
+| `CODEX_MODEL` | Optional text-model override; blank uses the Codex default |
+| `SHIQU_CODEX_HOME` | Optional dedicated CLI login directory; blank reuses the CLI default |
+| `SHIQU_CODEX_HOST_HOME` | Host login folder used by the Docker override below |
+
+The pnpm login/status commands read `.env` and automatically use `CODEX_BIN` and `SHIQU_CODEX_HOME`, matching the app. For a machine without a browser, run `pnpm run codex:login -- --device-auth`. No subscription tokens are placed in `.env` or passed to the browser.
+
+Codex mode supports book-name sources. Custom webpage URL sources require Gemini mode because the isolated Codex runner has no browser or web-fetch access. Original classical passages still use Shiqu's checked source retrieval. Existing stories, image references, art styles, production instructions, checkpoints, and the current retry behavior remain available.
+
+For Docker, use the optional Codex runtime and a **separate** writable login folder so the CLI can refresh its session:
+
+```bash
+mkdir -p data .data/codex-home
+docker compose -f compose.yaml -f compose.codex.yaml build
+docker compose -f compose.yaml -f compose.codex.yaml run --rm --no-deps shiqu pnpm run codex:login -- --device-auth
+docker compose -f compose.yaml -f compose.codex.yaml up -d
+```
+
+Device login must be enabled for your ChatGPT account/workspace. If it is unavailable, use the official [headless login alternatives](https://learn.chatgpt.com/docs/auth#login-on-headless-devices). Use the same two Compose files for later stop/start/update commands. Set Linux UID/GID as described above, and make both host folders writable by that identity. Override `SHIQU_CODEX_HOST_HOME` for another login-folder location.
+
+The login folder contains credentials: keep it private and separate from `/data`, never commit it or bake it into an image, and do not share it with other users. The runner disables command/file tools and inherited integrations, sends prompts over local stdio, and accepts only native image-result bytes. Requests are bounded; slow or unavailable generations return a recoverable error without changing providers.
 
 ## Data directory and mounts
 

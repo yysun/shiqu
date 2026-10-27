@@ -15,7 +15,9 @@
     "lint": "eslint .",
     "db:generate": "drizzle-kit generate",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "codex:login": "node --env-file-if-exists=.env scripts/codex-login.mjs login",
+    "codex:status": "node --env-file-if-exists=.env scripts/codex-login.mjs status"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

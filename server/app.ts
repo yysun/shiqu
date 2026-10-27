@@ -4,14 +4,17 @@ import {readFile,realpath,stat} from 'node:fs/promises';
 import {openDatabase} from './database.ts';
 import {FileMedia} from './media.ts';
 import {localOwnerId} from './config.ts';
+import {createReaderProvider} from './generation.ts';
+import type {ReaderProvider} from '../lib/reader-provider.ts';
 import {createApi} from '../lib/server.ts';
 import type {Services} from '../lib/services.ts';
 
 const types:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.woff':'font/woff','.woff2':'font/woff2','.ico':'image/x-icon'};
-export function createApplication(options:{root:string;dataDirectory:string;variables?:Record<string,string|undefined>;transport?:typeof fetch}){
- const local=openDatabase(options.dataDirectory,options.root);
+export function createApplication(options:{root:string;dataDirectory:string;variables?:Record<string,string|undefined>;transport?:typeof fetch;generation?:ReaderProvider}){
  const media=new FileMedia(path.join(options.dataDirectory,'media'));
- const services:Services={db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,transport:options.transport||fetch};
+ const generation=options.generation||createReaderProvider(options.variables||{},media,options.transport||fetch);
+ const local=openDatabase(options.dataDirectory,options.root);
+ const services:Services={db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,transport:options.transport||fetch,generation};
  const api=createApi(services),publicDirectory=path.resolve(options.root,'dist/client');
  return {services,close:()=>local.close(),async handle(request:Request){
   const url=new URL(request.url);

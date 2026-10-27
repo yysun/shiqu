@@ -6,7 +6,6 @@ import {ReaderRepository} from './reader-repository.ts';
 import {advanceStory} from './reader-engine.ts';
 import {suggestionRequestSchema} from './reader-suggestions.ts';
 import {ReaderError,selectionSchema,view} from './reader-model.ts';
-import {configuredModels,makeGenerator,suggestStories,safeGeminiError} from './reader-gemini.ts';
 import {sourceSearchUrl} from './reader-source.ts';
 import {saveStoryOriginal} from './reader-source-storage.ts';
 import type {Document} from './reader-model.ts';
@@ -14,11 +13,11 @@ const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache
 const uuid=z.string().uuid();
 async function body(req:Request,maxLength=4096){const s=await req.text();if(s.length>maxLength)throw new ReaderError(413,'请求太长了');try{return JSON.parse(s);}catch{throw new ReaderError(400,'请求格式不正确');}}
 export function createReaderApi(services:Services){
+const provider=services.generation;
+async function requireProvider(){const status=await provider.status();if(!status.configured)throw new ReaderError(503,status.message||'即时生成服务还未接通，请检查服务配置。');}
 return async function readerApi(req:Request,path:string[]):Promise<Response>{
  try{
-  const vars=services.variables,key=vars.GEMINI_API_KEY||'',models=configuredModels(vars);
-  const ready=!!(key&&services.database&&services.media);
-  if(path.join('/')==='status'&&req.method==='GET')return json({configured:ready,provider:'gemini',models,voiceEnabled:false});
+  if(path.join('/')==='status'&&req.method==='GET')return json(await provider.status());
   const uid=services.ownerId;if(!uid)throw new ReaderError(401,'请先登录，再开启属于你的故事。');
   const url=new URL(req.url);if(req.method!=='GET'){const origin=req.headers.get('origin');if(origin&&origin!==url.origin)throw new ReaderError(403,'不允许跨站请求');}
   if(!services.database)throw new ReaderError(503,'书架暂时不可用');
@@ -27,13 +26,13 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='library'&&path.length===2&&req.method==='DELETE'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.remove(id,uid));}
   if(path[0]==='library'&&path.length===3&&path[2]==='restore'&&req.method==='POST'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.restore(id,uid));}
   if(path.join('/')==='suggestions'&&req.method==='POST'){
-   if(!ready)throw new ReaderError(503,'AI 选题服务还未接通。你的输入已保留，接通后即可列出故事标题。');
+   await requireProvider();
    const {excludeTitles,...selection}=suggestionRequestSchema.parse(await body(req,28000));
-   try{return json(await suggestStories(key,selection,models,services.transport,excludeTitles));}catch(error){throw new ReaderError(502,safeGeminiError(error));}
+   try{return json(await provider.suggestions(selection,excludeTitles));}catch(error){if(error instanceof ReaderError)throw error;throw new ReaderError(502,provider.safeError(error));}
   }
   if(path[0]==='sessions'&&path.length===1){
    if(req.method==='GET')return json((await repo.list(uid)).map(view));
-   if(req.method==='POST'){if(!ready)throw new ReaderError(503,'即时生成服务还未接通，你的选择已保留。');const b=z.object({requestId:uuid,selection:selectionSchema}).parse(await body(req));return json(view(await repo.create(b.requestId,uid,b.selection)),201);}
+   if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema}).parse(await body(req));return json(view(await repo.create(b.requestId,uid,b.selection)),201);}
   }
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);
@@ -52,7 +51,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
    if(path[2]==='events'&&req.method==='POST'){const row=await repo.get(id,uid);const b=z.object({id:z.string().max(200),visitor:uuid,session:uuid,storyId:uuid,kind:z.enum(['start','page','complete','next','save','audio','feedback_positive','feedback_negative']),page:z.number().int().min(0).max(11).nullable(),mode:z.enum(['manual','audio']),cohort:z.enum(['internal','pilot'])}).parse(await body(req));const current=view(row);if(b.storyId!==id||(b.page!==null&&!current.story?.pages[b.page]?.image))throw new ReaderError(400,'这幅画面还没有展开');await services.db.insert(events).values({...b,createdAt:new Date().toISOString()}).onConflictDoNothing();return json({ok:true});}
    if(path[2]==='progress'&&req.method==='POST'){const b=z.object({page:z.number().int().min(0).max(11),saved:z.boolean()}).parse(await body(req));return json(view(await repo.progress(id,uid,b.page,b.saved)));}
-   if(path[2]==='advance'&&req.method==='POST'){if(!ready)throw new ReaderError(503,'即时生成服务暂时不可用');const b=z.object({throughPage:z.number().int().min(0).max(11),retry:z.boolean().default(false)}).parse(await body(req));const result=await advanceStory(repo,makeGenerator(key,services.media!,models,services.transport),uid,id,b.throughPage,b.retry);return json(result,result.state==='running'?202:200);}
+   if(path[2]==='advance'&&req.method==='POST'){await requireProvider();const b=z.object({throughPage:z.number().int().min(0).max(11),retry:z.boolean().default(false)}).parse(await body(req));const result=await advanceStory(repo,provider.generator(),uid,id,b.throughPage,b.retry);return json(result,result.state==='running'?202:200);}
   }
   if(path[0]==='media'&&path[1]&&path[2]&&path.length===3&&req.method==='GET'){
    const id=uuid.parse(path[1]);await repo.get(id,uid);if(!/^(?:[0-9]|1[01])\.(png|jpg|webp|wav)$/.test(path[2]))throw new ReaderError(404,'画面不存在');const object=await services.media?.get(`reader/${id}/${path[2]}`);if(!object)throw new ReaderError(404,'这幅还没有生成');const headers=new Headers({'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'});headers.set('Content-Type',object.contentType);return new Response(object.body,{headers});
