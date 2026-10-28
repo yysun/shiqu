@@ -4,6 +4,8 @@ Turn classical Chinese stories into illustrated stories. Features include readin
 
 Running the app requires no Cloudflare, Wrangler, workerd, Next.js, or hosting account. AI generation uses Google Gemini by default, with optional Codex subscription support. Without an API key, you can still read the included *Planting Pears* sample.
 
+Illustrations generate in groups of three as you read: pages 1–3 first, then 4–6 when you reach page 4. The final group stops at the story's end. The first picture generates alone as the character reference; later missing pictures generate up to three at a time, with either Gemini or Codex. Each finished picture saves immediately, so retries keep completed work and draw only missing scenes.
+
 ## Start with Docker
 
 Install Docker Engine or Docker Desktop, plus Docker Compose. The first build downloads the base image and dependencies.

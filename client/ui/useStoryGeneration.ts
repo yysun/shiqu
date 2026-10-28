@@ -1,8 +1,8 @@
 'use client';
-// Serialize checkpoint generation and keep transient failures inside the loading flow.
+// Request three-scene reading batches and keep transient failures inside the loading flow.
 import {useEffect,useRef,useState} from 'react';
 import {randomId,request} from './shared';
-import {runStoryGeneration} from '@/lib/reader-generation';
+import {requestedImageEnd,runStoryGeneration} from '@/lib/reader-generation';
 import type {GeneratedStory,Selection,SessionView} from '@/lib/reader-model';
 type Callbacks={onStory:(story:GeneratedStory,initialPage?:number,saved?:boolean)=>void;onProgress:(rows:{storyId:string;page:number;saved:number;updatedAt?:string|null}[])=>void};
 export function useStoryGeneration(page:number,callbacks:Callbacks){
@@ -25,7 +25,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks){
    if(pending.current)await pending.current;
    if(cancelled||id.current!==sessionId||removed.current.has(sessionId))return;
    setBusy(true);setError('');
-   const operation=runStoryGeneration({sessionId,throughPage:page+1,request,retries:retries.current,
+   const operation=runStoryGeneration({sessionId,throughPage:requestedImageEnd(page,active!.selection.length),request,retries:retries.current,
     isActive:()=>!cancelled&&id.current===sessionId&&!removed.current.has(sessionId),
     onSession:s=>{collect(s);setActive(s);if(s.story?.pages[0]?.image)cb.current.onStory(s.story);},
    });

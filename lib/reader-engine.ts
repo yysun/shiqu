@@ -1,10 +1,32 @@
+// Advance local story generation under one session lock, retaining every completed paid result.
 import {nextStep,planSchema,selectionSchema,view,ReaderError} from './reader-model.ts';
 import type {Document,Plan,Selection,SessionRow,Step} from './reader-model.ts';
 import type {ReaderRepository} from './reader-repository.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import type {SourceResult} from './reader-source-types.ts';
+import {readerImageBatchSize} from './reader-limits.ts';
 export type Generated<T>={value:T;model:string;requestId:string|null;usage:unknown};
 export interface StoryGenerator{plan(selection:Selection,id:string):Promise<Generated<Plan>>;original(selection:Selection,plan:Plan,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
+
+async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerator,row:SessionRow,token:string,doc:Document,selection:Selection,throughPage:number){
+ const pages=doc.plan!.pages.map((_,page)=>page).filter(page=>page<=throughPage&&!doc.images[page]);
+ // A new story establishes its reference alone; later requests may draw three missing scenes.
+ const batch=pages.slice(0,doc.images[0]?readerImageBatchSize:1);
+ const reference=doc.images[0]||'';
+ let writes=Promise.resolve();
+ const drawing=batch.map(async page=>{
+  const image=await generator.image(doc.plan!,page,row.id,reference,selection.artStyle,selection.productionPrompt);
+  doc.images[page]=image.value;
+  doc.usage.push({step:`image:${page}`,model:image.model,requestId:image.requestId,usage:image.usage});
+  // Queue immutable snapshots; once a write fails, skip later writes until final recovery.
+  const snapshot=structuredClone(doc);
+  writes=writes.then(()=>repo.saveImageProgress(row,token,snapshot));
+  await writes;
+ });
+ const outcomes=await Promise.allSettled(drawing);
+ for(const outcome of outcomes)if(outcome.status==='rejected')throw outcome.reason;
+}
+
 export async function advanceStory(repo:ReaderRepository,generator:StoryGenerator,uid:string,id:string,throughPage:number,retry=false){
  let row=await repo.get(id,uid);
  if(row.state==='running'){if(row.lock_until>Date.now())return view(row);row=await repo.stale(row);}
@@ -16,7 +38,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
   let generated:Generated<unknown>|undefined;
   if(step.kind==='plan'){const result=await generator.plan(selection,id);const plan=planSchema.parse(result.value);if(plan.pages.length!==selection.length)throw Error('PLAN_LENGTH');doc.plan=plan;generated=result;}
   else if(step.kind==='source'){/* Resume original retrieval without paying to re-plan. */}
-  else if(step.kind==='image'){const result=await generator.image(doc.plan!,step.page,id,doc.images[0]||'',selection.artStyle,selection.productionPrompt);doc.images[step.page]=result.value;generated=result;}
+  else if(step.kind==='image')await drawRequestedImages(repo,generator,row,token,doc,selection,throughPage);
   else{const result=await generator.audio(doc.plan!.pages[step.page].caption,id,step.page);doc.audio[step.page]=result.value;generated=result;}
   if(generated)doc.usage.push({step:step.key,model:generated.model,requestId:generated.requestId,usage:generated.usage});
   if(step.kind==='plan'||step.kind==='source'){

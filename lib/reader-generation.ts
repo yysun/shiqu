@@ -1,6 +1,11 @@
 // Resume checkpoints serially, hiding bounded transient retries from the reading flow.
 // Re-read after transport failures because an interrupted request may have saved its result.
 import type {SessionView} from './reader-model.ts';
+import {readerImageBatchSize} from './reader-limits.ts';
+
+export function requestedImageEnd(page:number,length:number){
+ return Math.min(length-1,(Math.floor(page/readerImageBatchSize)+1)*readerImageBatchSize-1);
+}
 
 type Options={
  sessionId:string;throughPage:number;
@@ -9,10 +14,10 @@ type Options={
  sleep?:(ms:number)=>Promise<void>;now?:()=>number;
 };
 export async function runStoryGeneration({sessionId,throughPage,request,retries,isActive,onSession,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),now=Date.now}:Options):Promise<string>{
- const path='reader/sessions/'+sessionId,started=now();
+ const path='reader/sessions/'+sessionId;
+ let lastProgress=now(),progress='';
  let session:SessionView|undefined,transportRetries=0;
  while(isActive()){
-  if(now()-started>360000)return '这一幅等待较久，请稍后重新打开故事继续。';
   try{
    session??=await request(path);
    if(!isActive())break;
@@ -21,6 +26,10 @@ export async function runStoryGeneration({sessionId,throughPage,request,retries,
    const end=Math.min(throughPage,s.selection.length-1);
    const needed=!s.story||s.story.pages.slice(0,end+1).some(p=>!p.image||(s.selection.voice&&!p.audio));
    if(!needed||s.state==='completed')return '';
+   // Out-of-order images count as progress even while the first missing scene stays unchanged.
+   const currentProgress=s.stage+':'+s.ready;
+   if(currentProgress!==progress){progress=currentProgress;lastProgress=now();}
+   if(now()-lastProgress>360000)return '这一幅等待较久，请稍后重新打开故事继续。';
    if(s.state==='running'){
     await sleep(2000);
     if(!isActive())break;
