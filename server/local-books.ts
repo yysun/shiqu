@@ -11,6 +11,7 @@ import type {OriginalSource} from '../lib/reader-source-types.ts';
 import {sourceQuery} from '../lib/reader-source.ts';
 import {Converter} from 'opencc-js';
 import {readerBooks} from '../lib/reader-books.ts';
+import {hasSourceAnomaly} from './local-source-quality.ts';
 import {parseWikiOriginal,parseShidianOriginal} from './local-book-html.ts';
 import type {HtmlOriginal} from './local-book-html.ts';
 import {parseErkeVolume} from './local-book-erke.ts';
@@ -22,7 +23,6 @@ export type LocalSection={id:string;title:string;units:LocalUnit[];url?:string;p
 type BookEntry={id:string;title:string;originalFile:string;originalFiles?:(Omit<HtmlOriginal,'sourceUrl'>&{sourceUrl?:string})[];format?:'wikisource-html'|'shidian-html';source:{url:string;provider:string;sha256:string};supplements:{file:string;sha256:string;sourceUrl:string;chapter:number;scope:string}[]};
 export type LocalBook={id:string;title:string;edition:string;url:string;provider:string;sections:LocalSection[];input:WholeBookInput};
 const aliases:Record<string,string>=Object.fromEntries(readerBooks.flatMap(book=>[[book.id,book.id],[book.title,book.id]]));
-const privateGlyph=/[\uE000-\uF8FF\uFFFD]|[\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u;
 // Normalize legacy chapter labels only. Never convert source body glyphs.
 const simplifiedLabel=Converter({from:'t',to:'cn'});
 function unavailable(){return new ReaderError(503,'本地书库文件缺失或版本校验失败，请检查随应用发布的书籍资料。');}
@@ -149,7 +149,7 @@ export class LocalBooks{
   const text=section.units.slice(first,last+1).map(u=>u.text).join('\n\n');
   const rangeUnits=section.units.slice(first,last+1),tagged=rangeUnits.every(unit=>unit.narrative!==undefined);
   const narrative=tagged?rangeUnits.some(unit=>unit.narrative):/[。！？!?，；：]/.test(text);
-  if(text.length<20||text.length>12000||!narrative||rangeUnits.some(unit=>unit.unreadable)||privateGlyph.test(text)||/[□\u0400-\u04ff]/u.test(text)||(book.id==='山海经'&&/【[^】]*(?:上|下|左|右)[^】]*(?:上|下|左|右)[^】]*】/.test(text))||(['山海经','酉阳杂俎','史记'].includes(book.id)&&/[⿰-⿿]|&KR[\w-]+;/.test(text)))throw invalid();
+  if(text.length<20||text.length>12000||!narrative||rangeUnits.some(unit=>unit.unreadable)||hasSourceAnomaly(text)||hasSourceAnomaly(section.title)||hasSourceAnomaly(book.title))throw invalid();
   const range=first===last?`第${first+1}${book.id==='shishuo'?'则':'段'}`:`第${first+1}–${last+1}段`;
   return {title:`《${book.title}·${section.title}》${legacyChapter?'':` · ${range}`}`,text,url:section.url||book.url,kind:legacyChapter?'chapter':'passage',provider:`本地书库 · ${section.provider||book.provider}`,retrievedAt:new Date().toISOString(),localSource:reference};
  }

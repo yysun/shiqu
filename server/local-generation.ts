@@ -5,6 +5,7 @@ import type {MediaStore} from '../lib/services.ts';
 import {ReaderError} from '../lib/reader-model.ts';
 import {freshSuggestions} from '../lib/reader-suggestions.ts';
 import {LocalBooks,localBookId} from './local-books.ts';
+import {hasSourceAnomaly} from './local-source-quality.ts';
 import {bookInputs} from './local-book-inputs.ts';
 import type {SuggestionBatch} from '../lib/reader-suggestions.ts';
 
@@ -62,7 +63,8 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
     async plan(selection,id,original){
      if(!localBookId(selection))return generator.plan(selection,id,original);
      if(!original?.localSource||!selection.source||(['edition','sectionId','firstUnit','lastUnit'] as const).some(key=>original.localSource![key]!==selection.source![key]))throw new ReaderError(400,'原文尚未在本地核对，请重新选择故事。');
-     // The checkpoint owns the exact verified version; retries keep that saved original.
+     if(hasSourceAnomaly(original.text)||hasSourceAnomaly(original.title))throw new ReaderError(400,'已存原文含未识别字形或缺文标记，请重新选择完整、可读的故事出处。原文记录已保留。');
+     // The checkpoint owns the exact verified version; readable retries keep that saved original.
      const result=await generator.plan(selection,id,original);
      return {...result,value:{...result.value,sourceReference:original.title}};
     },
