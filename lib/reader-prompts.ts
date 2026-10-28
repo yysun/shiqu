@@ -1,3 +1,16 @@
+// Keep storyboarding and frame composition aligned across reader and studio generation.
+export const storyboardDirection=`用影视分镜的思维编排静态连环画，不把原文逐段配图，也不为展示技法而机械轮换景别。
+根据原典自身的力量选择叙事方式：可以是悬念、期待、两难、关系变化、日常细节、幽默、遗憾或逐渐加重的代价，不必反转，不强迫读者先误判再醒悟。只有原故事适合反转或读者明确要求时才使用反转，并提前留下可回看的依据；不得凭空添加秘密、恶人、苦难或原著事件来制造刺激。
+每幅有明确的叙事作用，推动读者对处境的认识或情绪发生具体变化，也可通过一个动作细节让情绪停留；按故事需要安排信息的显露、人物的选择与行动后果。翻页可承接未完成的动作、视线或尚未揭示的结果，不必每页制造悬念。必要的因果必须清楚，不能靠故意藏掉关键事实制造困惑。全篇有疏密与轻重，避免每页同等信息量、同等情绪强度。
+先看全篇景别与画面功能的平衡：全景或远景建立处境、空间尺度与人物关系，中景承接互动和动作，近景与特写强调值得停留的表情或细节；环境画面可通过空间、光线、景物与物件状态映照人物处境，或承接时间与情绪。根据故事需要安排开合与呼吸，不一概特写，不连续用相似构图，也不强制每种景别都出现、固定比例或轮流使用。环境映照要来自具体情境，避免无关风景和套用悲伤下雨等符号。
+每幅只截取一个可见瞬间，突出一个叙事上的视觉重点；重点可以是一组人物与空间的关系，不等于只画一个物体或把背景清空。需要交代环境、人群或尺度时就给足全景，细节承载转折时才收紧。根据该幅作用选择景别、人物视点、遮挡或画外空间；可以只画手、物件、背影或空下来的场所，不必让全体人物、完整身体、环境和所有道具同时出现。动作、视线、人物距离、前后景与留白要服务这一个重点；次要信息可简化或留在画外，但保持人物、空间、关键物件与动作因果连续。
+旁白与画面互补：旁白补充必要的时间、因果或画面无法直接表达的内容，不逐项复述可见动作，不提前解释伏笔、宣布情绪或讲完寓意。关键转折与收尾可以用更短旁白，把阅读停顿交给画面。
+结尾先让事件得到必要的交代，再用适合该故事的具体动作、人物处境或物件留下余波；可以自然呼应前文，也可以直接停在结果，不强制首尾同构、物件回环或悬而不决。reflection保留为最后单独的一句简短余味，从本篇具体经历生发，可提问也可陈述；让读者回想前面的画面，不复述结局、不解释道理、不套通用金句或强行提问。`;
+
+export const imageCompositionDirection=`Stage this as ONE static storyboard frame with one dominant narrative focus and one visible instant, not a summary of the whole page or a sequence of actions. Follow the scene's chosen shot size, viewpoint, crop, subject placement and reveal/conceal decisions. Translate its narrative purpose into visible staging rather than written explanation. Film-storyboard thinking governs composition, not the rendering medium; retain the selected art style.
+Do not default to close-ups. A wide or establishing shot needs its spatial scale, environment, ensemble and character relationships; a medium shot needs readable interaction; a close-up needs its decisive detail. An environment-led frame can express the characters' situation through space, light, landscape or the state of objects, without adding a face or a generic symbolic effect. One narrative focus can be a relationship across a rich scene, not just one isolated object. Preserve the planned shot: do not crop a wide shot into a detail or strip away meaningful surroundings, and do not widen a close-up to fit full bodies, the whole cast or a complete environment.
+Show the people, body parts, props and setting needed for this shot. A hand, object detail, partial face, back view or empty setting can carry the entire frame when specified. Keep secondary detail subordinate through staging, contrast, simplification, occlusion or off-screen space, without deleting environmental context the shot needs. Use only the staging devices that help this frame; do not add dramatic effects or busy scenery by default. Respect what the frame leaves outside view and do not reveal hidden information early. Character descriptions define identity, not a mandatory cast list; preserve recognizable traits only where visible, without adding faces or people to prove consistency.`;
+
 const themeDirections:Record<string,string>={
  '给我一个反转':'开头制造一个可信的预期，中段埋下细节，结尾用有因果依据的反转改变读者对人物的判断，不靠突然出现的新信息。',
  '人情冷暖':'通过人物在利益、困境与日常往来中的选择，表现人情的温度与反差，让细微行动胜过直白评价。',
@@ -13,8 +26,8 @@ const themeDirections:Record<string,string>={
 };
 export function defaultProductionPrompt(theme:string){
  const topic=theme.trim();
- const direction=themeDirections[topic]||(topic&&topic!=='其他'?`围绕“${topic}”展开，安排具体冲突、人物选择与前后反差，让主题从情节中自然显现。`:'以人物选择与前后反差展开一个有余味的古典短故事。');
- return direction+'保留原典核心人物与事件，旁白简练、画面有变化，结尾留一个值得回味的问题，不直接讲大道理。';
+ const direction=themeDirections[topic]||(topic&&topic!=='其他'?`围绕“${topic}”展开，让主题从人物行动、关系与处境中自然显现。`:'从人物行动、关系与处境展开一个有余味的古典短故事。');
+ return direction+'保留原典核心人物与事件，按故事自身安排信息显露与情绪起伏，不强求反转。每幅一个瞬间、一个叙事重点，按需要平衡全景、中景、特写与环境映照，不一概特写，也不固定配比；旁白不重复解释画面。最后一句从具体情节留下余味，不直接讲大道理。';
 }
 export function promptAfterThemeChange(current:string,previousTheme:string,nextTheme:string){
  return !current.trim()||current===defaultProductionPrompt(previousTheme)?defaultProductionPrompt(nextTheme):current;
