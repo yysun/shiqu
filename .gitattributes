@@ -1,0 +1,2 @@
+# Source receipts hash exact bytes; checkout must preserve downloaded line endings.
+data/library/** -text

@@ -1,8 +1,10 @@
+// Validate suggestion batches and keep verified local receipts through browser history.
 import {z} from 'zod';
 import {selectionSchema} from './reader-model.ts';
+import {localSourceSchema} from './reader-local-contract.ts';
 
 export const suggestionRequestSchema=selectionSchema.extend({excludeTitles:z.array(z.string().min(1).max(100)).max(200).default([])});
-export const suggestionBatchSchema=z.object({stories:z.array(z.object({title:z.string().min(1).max(100),description:z.string().min(1).max(180)})).max(5),note:z.string().max(300)});
+export const suggestionBatchSchema=z.object({stories:z.array(z.object({title:z.string().min(1).max(100),description:z.string().min(1).max(180),source:localSourceSchema.optional(),sourceLabel:z.string().max(150).optional()})).max(5),note:z.string().max(300)});
 export type SuggestionBatch=z.infer<typeof suggestionBatchSchema>;
 export const maxSuggestionBatches=40;
 export function suggestionKey(bookId:string,customBook:string|undefined,theme:string){return JSON.stringify([bookId,bookId==='other'?(customBook||'').trim():'',theme.trim()]);}

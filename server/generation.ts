@@ -9,6 +9,7 @@ import type {MediaStore} from '../lib/services.ts';
 import type {ReaderProvider,ProviderStatus} from '../lib/reader-provider.ts';
 import {CodexError,createCodexRunner} from './codex-runner.ts';
 import type {CodexRunner} from './codex-runner.ts';
+import {localChoicesJson,localChoices,localReadingPrompt,localPlanConstraint} from '../lib/reader-local-contract.ts';
 
 function codexMessage(code:string){
  if(code==='CHATGPT_LOGIN_REQUIRED')return '请先运行 pnpm run codex:login，使用 ChatGPT 账号登录 Codex。订阅模式不会使用 API 密钥。';
@@ -25,7 +26,7 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
  if(name!=='gemini'&&name!=='codex')throw Error('SHIQU_AI_PROVIDER must be gemini or codex');
  if(name==='gemini'){
   const key=variables.GEMINI_API_KEY?.trim()||'',models=configuredModels(variables);
-  return {async status(){return {configured:!!key,provider:'gemini',models,voiceEnabled:false};},suggestions:(selection,excluded)=>suggestStories(key,selection,models,transport,excluded),generator:()=>makeGenerator(key,media,models,transport),safeError:safeGeminiError};
+  return {async status(){return {configured:!!key,provider:'gemini',models,voiceEnabled:false};},suggestions:(selection,excluded,localBook)=>suggestStories(key,selection,models,transport,excluded,localBook),generator:()=>makeGenerator(key,media,models,transport),safeError:safeGeminiError};
  }
  const codex=runner||createCodexRunner(variables),models={text:variables.CODEX_MODEL?.trim()||'codex-default',image:'codex-image-generation'};
  let cached:Promise<ProviderStatus>|undefined,expires=0;
@@ -39,14 +40,14 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
    if(!cached||Date.now()>=expires){expires=Date.now()+30000;cached=codex.status().then(result=>({...result,...(!result.configured?{message:codexMessage(result.reason||'CLI_UNAVAILABLE')}:{ }),provider:'codex' as const,models,voiceEnabled:false as const}));}
    return cached;
   },
-  async suggestions(selection,excluded){
-   const result=await codex.run({instructions:suggestionSystemPrompt,prompt:JSON.stringify({book:book(selection),theme:selection.theme,excludeTitles:excluded}),schema:choicesJson,timeoutMs:60000});
-   return freshSuggestions(suggestionBatchSchema.parse(JSON.parse(result.text)),excluded);
+  async suggestions(selection,excluded,localBook){
+   const result=await codex.run({instructions:localBook?localReadingPrompt(localBook):suggestionSystemPrompt,prompt:JSON.stringify({book:book(selection),theme:selection.theme,excludeTitles:excluded,...(localBook?{localBook}:{})}),schema:localBook?localChoicesJson:choicesJson,timeoutMs:localBook?120000:60000});
+   return freshSuggestions(localBook?localChoices(JSON.parse(result.text),localBook):suggestionBatchSchema.parse(JSON.parse(result.text)),excluded);
   },
   generator(){return {
    original:(selection,plan,id)=>saveStoryOriginal(media,selection,plan,id,transport),
-   async plan(selection,id){
-    const result=await codex.run({instructions:planSystemPrompt,prompt:JSON.stringify({book:book(selection),chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id}),schema:planJson(selection.length)});
+   async plan(selection,id,original){
+    const result=await codex.run({instructions:planSystemPrompt+(original?.localSource?'\n'+localPlanConstraint:''),prompt:JSON.stringify({book:book(selection),chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?.localSource?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})}),schema:planJson(selection.length)});
     const value=planSchema.parse(JSON.parse(result.text));if(value.pages.length!==selection.length)throw new CodexError('INVALID_PLAN');
     return {value,model:result.model,requestId:result.requestId,usage:result.usage};
    },

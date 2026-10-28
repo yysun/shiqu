@@ -6,6 +6,54 @@ Running the app requires no Cloudflare, Wrangler, workerd, Next.js, or hosting a
 
 Illustrations generate in groups of three as you read: pages 1–3 first, then 4–6 when you reach page 4. The final group stops at the story's end. The first picture generates alone as the character reference; later missing pictures generate up to three at a time, with either Gemini or Codex. Each finished picture saves immediately, so retries keep completed work and draw only missing scenes.
 
+## Book directory: 24 candidates
+
+The selectable directory contains 24 books. Their preferred original downloads,
+source links, hashes and known quality issues are versioned in
+[`data/library/`](data/library/catalog.json). Download research and duplicate copies
+remain under ignored `.data/book-source-research/`.
+
+| Scope | Books |
+| --- | --- |
+| Existing directory (11) | 聊斋志异、庄子、世说新语、西游记、三国演义、红楼梦、水浒传、儒林外史、山海经、列子、搜神记 |
+| Added: supernatural tales and curiosities (5) | 阅微草堂笔记、子不语、酉阳杂俎、太平广记、博物志 |
+| Added: vernacular stories (5) | 喻世明言、警世通言、醒世恒言、初刻拍案惊奇、二刻拍案惊奇 |
+| Added: historical figures and persuasion (2) | 史记、战国策 |
+| Added: everyday life (1) | 浮生六记 |
+
+All 24 directory books use local originals for theme selection and source verification.
+Short books enter one complete model request. Long books are read in original order in
+bounded batches (at most 100,000 characters each, two requests at a time), with overlapping
+context when a chapter crosses a batch boundary. Every batch must succeed. All verified
+candidates then participate in a bounded theme summary; the server accepts only existing
+candidate receipts. Large books take longer and incur multiple text-model calls.
+
+Source glyphs are preserved, including traditional characters; the model writes simplified
+Chinese stories. The server persists the chosen original before requesting storyboards,
+which receive only that verified passage. There is no RAG, embedding index, semantic
+retrieval, silent truncation, or public book API fallback for directory books. Unknown
+custom books retain the existing provider behavior.
+
+The edition hash and passage range travel with each selected story and saved original.
+Invalid, stale, cross-chapter, unreadable or unseen-batch ranges fail explicitly. Retrying
+uses saved originals. Existing stories remain readable; legacy backfill requires an
+unambiguous local chapter or named Liaozhai story.
+
+Shiji uses a single original JSON download pinned to its GitHub commit: 130 unique,
+nonempty chapters with no duplicate bodies, including the previously missing Zhao,
+Wei and Chen She chapters. Its ten tables mainly retain their prefaces, and unreadable
+glyphs remain explicitly marked. Twenty-five damaged/missing Taiping volumes are
+replaced with independently archived complete volumes. Erke volume 40 is also a
+separate supplement. Each supplement retains its actual source URL and byte hash;
+the composite edition includes every source hash. Mixed sources are not claimed to
+be one critical edition. Fusheng includes only the four surviving records; Honglou
+chapter labels distinguish the first 80 from the later 40. Local verification proves
+a range exists in the archived transcription, not that it has been fully proofread.
+
+The server reads the shipped library under the application root, separately from the
+SQLite/media directory. Docker includes it at `/app/data/library`, while `/data` remains
+the writable runtime mount. Directory metadata lives in `lib/reader-books.ts`.
+
 ## Start with Docker
 
 Install Docker Engine or Docker Desktop, plus Docker Compose. The first build downloads the base image and dependencies.

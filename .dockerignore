@@ -18,6 +18,8 @@ dist
 *.tsbuildinfo
 .DS_Store
 
-data
+data/*
+!data/library
+!data/library/**
 .pnpm-store
 .docs

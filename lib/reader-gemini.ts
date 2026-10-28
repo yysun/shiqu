@@ -9,6 +9,9 @@ import {choicesJson,planJson,suggestionSystemPrompt,planSystemPrompt,imagePrompt
 export {imageTypes} from './reader-generation-contract.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import {saveStoryOriginal} from './reader-source-storage.ts';
+import {localChoicesJson,localChoices,localReadingPrompt,localPlanConstraint} from './reader-local-contract.ts';
+import type {WholeBookInput} from './reader-local-contract.ts';
+import type {OriginalSource} from './reader-source-types.ts';
 
 export const defaultModels={text:'gemini-3.8-flash',image:'gemini-nano-banana-2.1'};
 type Models=typeof defaultModels;
@@ -94,23 +97,23 @@ function parseText(candidate:Candidate){
  if(!value)throw new GeminiError('INVALID_TEXT');
  try{return JSON.parse(value);}catch{throw new GeminiError('INVALID_JSON');}
 }
-export async function suggestStories(key:string,selection:Selection,config:Partial<Models>={},transport:typeof fetch=fetch,excludeTitles:string[]=[]){
+export async function suggestStories(key:string,selection:Selection,config:Partial<Models>={},transport:typeof fetch=fetch,excludeTitles:string[]=[],localBook?:WholeBookInput){
  const models={...defaultModels,...config},{book,url}=source(selection);
  const {candidate}=await client(key,transport)(models.text,textRequest(
-  suggestionSystemPrompt,
-  {book,theme:selection.theme,excludeTitles},choicesJson,url,2500),60000);
+  localBook?localReadingPrompt(localBook):suggestionSystemPrompt,
+  {book,theme:selection.theme,excludeTitles,...(localBook?{localBook}:{})},localBook?localChoicesJson:choicesJson,url,localBook?5000:2500),localBook?120000:60000);
  if(url&&!wasRead(candidate,url))return {stories:[],note:'暂时无法读取这个链接，请提供可公开访问的原文页面，或直接输入书名。'};
- return freshSuggestions(choicesSchema.parse(parseText(candidate)),excludeTitles);
+ return freshSuggestions(localBook?localChoices(parseText(candidate),localBook):choicesSchema.parse(parseText(candidate)),excludeTitles);
 }
 export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={},transport:typeof fetch=fetch):StoryGenerator{
  const models={...defaultModels,...config},generate=client(key,transport);
  return {
   original:(selection,plan,id)=>saveStoryOriginal(assets,selection,plan,id,transport),
-  async plan(selection:Selection,id:string){
+  async plan(selection:Selection,id:string,original?:OriginalSource){
    const {book,url}=source(selection);
    const {candidate,metadata}=await generate(models.text,textRequest(
-    planSystemPrompt,
-    {book,chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id},planJson(selection.length),url,8192));
+    planSystemPrompt+(original?.localSource?'\n'+localPlanConstraint:''),
+    {book,chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?.localSource?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})},planJson(selection.length),url,8192));
    if(url&&!wasRead(candidate,url))throw new GeminiError('SOURCE_UNAVAILABLE');
    const value=planSchema.parse(parseText(candidate));
    if(value.pages.length!==selection.length)throw new GeminiError('INVALID_PLAN');

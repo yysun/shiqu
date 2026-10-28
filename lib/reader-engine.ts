@@ -3,10 +3,10 @@ import {nextStep,planSchema,selectionSchema,view,ReaderError} from './reader-mod
 import type {Document,Plan,Selection,SessionRow,Step} from './reader-model.ts';
 import type {ReaderRepository} from './reader-repository.ts';
 import type {ArtStyleId} from './reader-styles.ts';
-import type {SourceResult} from './reader-source-types.ts';
+import type {OriginalSource,SourceResult} from './reader-source-types.ts';
 import {readerImageBatchSize} from './reader-limits.ts';
 export type Generated<T>={value:T;model:string;requestId:string|null;usage:unknown};
-export interface StoryGenerator{plan(selection:Selection,id:string):Promise<Generated<Plan>>;original(selection:Selection,plan:Plan,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
+export interface StoryGenerator{prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<Plan>>;original(selection:Selection,plan:Plan,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
 
 async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerator,row:SessionRow,token:string,doc:Document,selection:Selection,throughPage:number){
  const pages=doc.plan!.pages.map((_,page)=>page).filter(page=>page<=throughPage&&!doc.images[page]);
@@ -36,12 +36,18 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
  const token=await repo.acquire(row,step);if(!token)return view(await repo.get(id,uid));
  try{
   let generated:Generated<unknown>|undefined;
-  if(step.kind==='plan'){const result=await generator.plan(selection,id);const plan=planSchema.parse(result.value);if(plan.pages.length!==selection.length)throw Error('PLAN_LENGTH');doc.plan=plan;generated=result;}
+  if(step.kind==='plan'){
+   if(generator.prepareOriginal&&!doc.original){
+    const original=await generator.prepareOriginal(selection,id);
+    if(original){doc.original=original;await repo.saveImageProgress(row,token,structuredClone(doc));}
+   }
+   const result=await generator.plan(selection,id,doc.original);const plan=planSchema.parse(result.value);if(plan.pages.length!==selection.length)throw Error('PLAN_LENGTH');doc.plan=plan;generated=result;
+  }
   else if(step.kind==='source'){/* Resume original retrieval without paying to re-plan. */}
   else if(step.kind==='image')await drawRequestedImages(repo,generator,row,token,doc,selection,throughPage);
   else{const result=await generator.audio(doc.plan!.pages[step.page].caption,id,step.page);doc.audio[step.page]=result.value;generated=result;}
   if(generated)doc.usage.push({step:step.key,model:generated.model,requestId:generated.requestId,usage:generated.usage});
-  if(step.kind==='plan'||step.kind==='source'){
+  if((step.kind==='plan'||step.kind==='source')&&!doc.original){
    const result=await generator.original(selection,doc.plan!,id);
    if(!result.source)throw new ReaderError(503,'原文未能保存。'+result.message+' 故事编排已保留，可重试补全原文。');
    doc.original=result.source;

@@ -8,11 +8,13 @@ import {createReaderProvider} from './generation.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import {createApi} from '../lib/server.ts';
 import type {Services} from '../lib/services.ts';
+import {LocalBooks} from './local-books.ts';
+import {withLocalBooks} from './local-generation.ts';
 
 const types:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.woff':'font/woff','.woff2':'font/woff2','.ico':'image/x-icon'};
 export function createApplication(options:{root:string;dataDirectory:string;variables?:Record<string,string|undefined>;transport?:typeof fetch;generation?:ReaderProvider}){
  const media=new FileMedia(path.join(options.dataDirectory,'media'));
- const generation=options.generation||createReaderProvider(options.variables||{},media,options.transport||fetch);
+ const generation=options.generation||withLocalBooks(createReaderProvider(options.variables||{},media,options.transport||fetch),new LocalBooks(options.root),media);
  const local=openDatabase(options.dataDirectory,options.root);
  const services:Services={db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,transport:options.transport||fetch,generation};
  const api=createApi(services),publicDirectory=path.resolve(options.root,'dist/client');

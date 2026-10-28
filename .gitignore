@@ -48,5 +48,7 @@ yarn-error.log*
 .DS_Store
 
 # Host bind-mounted application data and local package cache
-/data/
+/data/*
+!/data/README.md
+!/data/library/
 /.pnpm-store/

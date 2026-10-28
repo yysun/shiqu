@@ -65,3 +65,6 @@ a.yu-ending-pdf,a.yu-settings-download{text-decoration:none}
 
 /* Keep checkpoint recovery controls consistent in the sheet and reading view. */
 .yu-retry-control{pointer-events:auto;margin-top:16px}.yu-retry-control small{display:block;font-size:11px;line-height:1.8;margin-bottom:10px}.yu-retry-control button:not(.yu-primary){background:#e3e8d3;color:#355333;border:0;border-radius:18px;padding:9px 18px;font-size:11px}.yu-retry-control button:disabled{opacity:.5;cursor:wait}.yu-generation-stage .yu-retry-control{color:#657e4f}.yu-reader-error .yu-retry-control button{margin-left:0;text-decoration:none}
+/* Reader layouts, book covers and reading controls; long titles fit the vertical cover. */
+.yu-book-cover>strong.yu-book-title-long{top:18px;font-size:15px;letter-spacing:1px}
+.yu-candidate-list>button>small{display:block;margin-top:9px;font-size:10px;line-height:1.6;color:#647959}

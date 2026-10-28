@@ -17,6 +17,7 @@ FROM node:24.22.1-bookworm-slim AS runtime
 WORKDIR /app
 COPY --from=production-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/data/library ./data/library
 COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --chown=node:node scripts/codex-login.mjs scripts/codex-env.mjs ./scripts/
 COPY --chown=node:node docker ./docker

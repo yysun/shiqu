@@ -1,4 +1,5 @@
 'use client';
+// Preserve source receipts; v7 discards receipts from the replaced Shanhai, Youyang and Shiji editions.
 import {useEffect,useRef,useState} from 'react';
 import {z} from 'zod';
 import type {Selection} from '@/lib/reader-model';
@@ -6,7 +7,7 @@ import {freshSuggestions,maxSuggestionBatches,suggestionBatchSchema,suggestionKe
 import type {SuggestionBatch} from '@/lib/reader-suggestions';
 import {request} from './shared';
 
-const storageKey='shiqu-suggestion-batches-v1';
+const storageKey='shiqu-suggestion-batches-v7';
 const historySchema=z.record(z.object({batches:z.array(suggestionBatchSchema).max(maxSuggestionBatches),index:z.number().int().min(0).max(maxSuggestionBatches-1)}));
 type History=z.infer<typeof historySchema>;
 export function useStorySuggestions(selection:Selection,theme:string){
@@ -23,7 +24,7 @@ export function useStorySuggestions(selection:Selection,theme:string){
   pending.current=true;setFinding(true);setError('');
   try{
    const excludeTitles=batches.flatMap(batch=>batch.stories.map(story=>story.title));
-   const result=suggestionBatchSchema.parse(await request('reader/suggestions','POST',{...selection,storyTitle:undefined,theme,excludeTitles}));
+   const result=suggestionBatchSchema.parse(await request('reader/suggestions','POST',{...selection,storyTitle:undefined,source:undefined,theme,excludeTitles}));
    const next:SuggestionBatch=freshSuggestions(result,excludeTitles);
    if(!next.stories.length&&batches.length){if(activeKey.current===key)setError(next.note);return false;}
    setHistory(old=>{const previous=old[key]?.batches||[];return {...old,[key]:{batches:[...previous,next],index:previous.length}};});

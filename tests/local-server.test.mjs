@@ -11,6 +11,7 @@ import {createHttpServer} from '../server/http.ts';
 import {openDatabase} from '../server/database.ts';
 import {FileMedia} from '../server/media.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
+import {LocalBooks} from '../server/local-books.ts';
 import {importLegacy} from '../server/import-legacy.ts';
 import {stories} from '../db/schema.ts';
 import {eq} from 'drizzle-orm';
@@ -81,9 +82,12 @@ test('media validates keys, MIME and symlinks; replacing files is atomic and lea
 test('real SQLite locks prevent duplicate paid requests through concurrent REST advances and survive restart',async t=>{
  const options=await fixture(t);let calls=0,release;const hold=new Promise(resolve=>release=resolve);
  const plan={title:'庄周梦蝶',hook:'梦醒之后',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'现代改编',reflection:'谁在梦中？',characters:'An adult Chinese philosopher in a plain linen robe in ancient China.',pages:Array.from({length:8},()=>({caption:'庄周梦见自己成为一只蝴蝶，自由自在地飞来飞去。',prompt:'An adult philosopher dreams of becoming a butterfly in an ancient garden.'}))};
+ await cp('data/library',path.join(options.root,'data/library'),{recursive:true});
+ const book=await new LocalBooks(options.root).book({bookId:'zhuangzi'}),section=book.sections[1],unit=section.units.at(-1);
+ const source={edition:book.edition,sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id};
  options.variables={GEMINI_API_KEY:'mock-only'};options.transport=async()=>{calls++;await hold;return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(plan)}]}}]});};
  let app=createApplication(options);const id=crypto.randomUUID();
- await request(app,'/api/reader/sessions','POST',{requestId:id,selection:{bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,voice:false}});
+ await request(app,'/api/reader/sessions','POST',{requestId:id,selection:{bookId:'zhuangzi',storyTitle:'庄周梦蝶',source,theme:'放下执念',length:8,voice:false}});
  const first=request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0});
  while(!calls)await new Promise(resolve=>setImmediate(resolve));
  const duplicate=await request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0});assert.equal(duplicate.status,202);assert.equal(calls,1);

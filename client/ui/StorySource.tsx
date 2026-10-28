@@ -1,4 +1,5 @@
 'use client';
+// Display saved originals and distinguish a locally verified passage from a remote excerpt.
 import {useEffect,useState} from 'react';
 import {ArrowRight,BookOpen,Loader2,RefreshCw} from 'lucide-react';
 import type {Story} from '@/lib/content';
@@ -28,7 +29,7 @@ export default function StorySource({story,book}:{story:Story;book:string}){
  return <><div className="yu-source-heading"><BookOpen size={24}/><div><h3>{original?.title||book||'故事出处'}</h3><p>{original?.kind==='chapter'?'原典章节节选 · 可上下滚动阅读':text?'原文节选':'故事原文'}</p></div></div>
  {loading?<div className="yu-source-status" role="status"><Loader2 size={19} className="spin"/>{saving?'正在保存原文…':'正在加载已保存的原文…'}</div>:text?<p className="yu-original">{text}</p>:<div className="yu-source-status" role="status"><p>{error||result?.message||'这篇故事暂未找到可核对的原文。'}</p><button onClick={saveOriginal}><RefreshCw size={15}/>补全并保存原文</button></div>}
  {(story.sourceUrl||original?.url)&&<a className="yu-source-link" href={story.sourceUrl||original?.url} target="_blank" rel="noreferrer">查看原典出处{original?.provider?' · '+original.provider:''}<ArrowRight size={16}/></a>}
- {original&&<p className="yu-source-reference">原文已随故事保存，可随时回看。</p>}
+ {original&&<p className="yu-source-reference">{original.localSource?'已核对本地篇章范围，原文已随故事保存。':'原文已随故事保存，可随时回看。'}</p>}
  {!loading&&!text&&result?.searchUrl&&<a className="yu-source-link" href={result.searchUrl} target="_blank" rel="noreferrer">查找原典出处<ArrowRight size={16}/></a>}
  {reference&&!text&&<p className="yu-source-reference">原典线索：{reference}</p>}
  {original?.kind==='chapter'&&<p className="yu-source-reference">此处展示对应章节的节选，可能包含同章其他故事；完整内容可查看原典出处。</p>}

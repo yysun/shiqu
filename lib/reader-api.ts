@@ -7,7 +7,6 @@ import {advanceStory} from './reader-engine.ts';
 import {suggestionRequestSchema} from './reader-suggestions.ts';
 import {ReaderError,selectionSchema,view} from './reader-model.ts';
 import {sourceSearchUrl} from './reader-source.ts';
-import {saveStoryOriginal} from './reader-source-storage.ts';
 import type {Document} from './reader-model.ts';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
 const uuid=z.string().uuid();
@@ -45,7 +44,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     if(req.method==='GET')return json({source:null,message:row.error||'这篇旧故事还没有保存原文，可以补全后继续阅读。',searchUrl});
     if(row.state==='running')throw new ReaderError(409,'故事正在生成，请稍后再补全原文。');
     if(!services.media)throw new ReaderError(503,'原文存储暂时不可用');
-    const result=await saveStoryOriginal(services.media,selection,doc.plan,id,services.transport);
+    const result=await provider.generator().original(selection,doc.plan,id);
     if(result.source)await repo.saveOriginal(row,result.source);
     return json(result);
    }
