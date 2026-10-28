@@ -1,6 +1,8 @@
 # Shiqu · Local Edition
 
-Turn classical Chinese stories into illustrated stories. Features include reading, storyboards and production notes, art style selection, PDF export, reading history, soft deletion, and restoration. The frontend uses React + Vite, with a Node REST API backend. SQLite data and media files live in an ordinary folder.
+Turn classical Chinese stories into illustrated stories. Features include reading, storyboards and production notes, art style selection, PDF and single-page PNG export, reading history, soft deletion, and restoration. The frontend uses React + Vite, with a Node REST API backend. SQLite data and media files live in an ordinary folder.
+
+Once all illustrations are ready, use Reading Preferences or the closing page to export a PDF or choose **一页输出（PNG）**. The PNG arranges the complete images, page numbers, captions, and final reflection in one overview, with a five-column, two-row layout for ten-page stories. Eight- and twelve-page stories adjust automatically. Export runs locally in the browser and makes no new AI requests.
 
 Running the app requires no Cloudflare, Wrangler, workerd, Next.js, or hosting account. AI generation uses Google Gemini by default, with optional Codex subscription support. Without an API key, you can still read the included *Planting Pears* sample.
 
