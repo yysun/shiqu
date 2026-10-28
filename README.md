@@ -1,64 +1,42 @@
-# Shiqu · Local Edition
+# 拾趣
 
-Turn classical Chinese stories into illustrated stories. Features include reading, storyboards and production notes, art style selection, PDF and single-page PNG export, reading history, soft deletion, and restoration. The frontend uses React + Vite, with a Node REST API backend. SQLite data and media files live in an ordinary folder.
+将中国古典故事改编为配有插图的故事。功能包括阅读、分镜和制作说明、美术风格选择、PDF 和单页 PNG 导出、阅读历史、软删除与恢复。前端使用 React + Vite，后端是 Node REST API。SQLite 数据和媒体文件保存在普通文件夹中。
 
-Once all illustrations are ready, use Reading Preferences or the closing page to export a PDF or choose **一页输出（PNG）**. The PNG arranges the complete images, page numbers, captions, and final reflection in one overview, with a five-column, two-row layout for ten-page stories. Eight- and twelve-page stories adjust automatically. Export runs locally in the browser and makes no new AI requests.
+全部插图生成后，可在「阅读偏好设置」或故事末页导出 PDF，或选择 **一页输出（PNG）**。PNG 会将全部图片、页码、说明文字和结尾感悟排在一张总览图中；十页故事采用五列两行布局，八页和十二页故事会自动调整。导出在浏览器本地完成，不会发起新的 AI 请求。
 
-Running the app requires no Cloudflare, Wrangler, workerd, Next.js, or hosting account. AI generation uses Google Gemini by default, with optional Codex subscription support. Without an API key, you can still read the included *Planting Pears* sample.
+运行应用无需 Cloudflare、Wrangler、workerd、Next.js 或托管服务账户。AI 生成功能默认使用 Google Gemini，也可选择使用 Codex 订阅。即使没有 API 密钥，也可以阅读内置的《种梨》示例。
 
-Illustrations generate in groups of three as you read: pages 1–3 first, then 4–6 when you reach page 4. The final group stops at the story's end. The first picture generates alone as the character reference; later missing pictures generate up to three at a time, with either Gemini or Codex. Each finished picture saves immediately, so retries keep completed work and draw only missing scenes.
+插图会随着阅读按每组三张生成：先生成第 1–3 页，到达第 4 页时再生成第 4–6 页。最后一组不会超出故事末尾。第一张图片会单独生成，作为角色参考；之后缺失的图片每次最多生成三张，可使用 Gemini 或 Codex。每张图片完成后都会立即保存，因此重试时会保留已完成的内容，只补生成缺失场景。
 
-## Book directory: 24 candidates
+## 书目目录：24 部候选作品
 
-The selectable directory contains 24 books. Their preferred original downloads,
-source links, hashes and known quality issues are versioned in
+可供选择的目录包含 24 部作品。优先采用的原文下载文件、来源链接、哈希值和已知质量问题均纳入版本管理，位于
 [`data/library/`](data/library/catalog.json). Download research and duplicate copies
-remain under ignored `.data/book-source-research/`.
+则保留在已忽略的 `.data/book-source-research/` 目录中。
 
-| Scope | Books |
+| 类别 | 书目 |
 | --- | --- |
-| Existing directory (11) | 聊斋志异、庄子、世说新语、西游记、三国演义、红楼梦、水浒传、儒林外史、山海经、列子、搜神记 |
-| Added: supernatural tales and curiosities (5) | 阅微草堂笔记、子不语、酉阳杂俎、太平广记、博物志 |
-| Added: vernacular stories (5) | 喻世明言、警世通言、醒世恒言、初刻拍案惊奇、二刻拍案惊奇 |
-| Added: historical figures and persuasion (2) | 史记、战国策 |
-| Added: everyday life (1) | 浮生六记 |
+| 志怪与博物（8） | 聊斋志异、山海经、搜神记、阅微草堂笔记、子不语、酉阳杂俎、太平广记、博物志 |
+| 古典小说（5） | 西游记、三国演义、红楼梦、水浒传、儒林外史 |
+| 白话小说（5） | 喻世明言、警世通言、醒世恒言、初刻拍案惊奇、二刻拍案惊奇 |
+| 诸子典籍（2） | 庄子、列子 |
+| 历史与策论（2） | 史记、战国策 |
+| 笔记小说（1） | 世说新语 |
+| 日常生活（1） | 浮生六记 |
 
-All 24 directory books use local originals for theme selection and source verification.
-Short books enter one complete model request. Long books are read in original order in
-bounded batches (at most 100,000 characters each, two requests at a time), with overlapping
-context when a chapter crosses a batch boundary. Every batch must succeed. All verified
-candidates then participate in a bounded theme summary; the server accepts only existing
-candidate receipts. Large books take longer and incur multiple text-model calls.
+目录中的 24 部作品都使用本地原文进行主题选择和来源核验。短篇会在一次完整的模型请求中处理。长篇会按原文顺序分批读取，每批最多 100,000 个字符，同时最多发起两个请求；章节跨越批次边界时会保留重叠上下文。所有批次都必须成功。之后，所有已核验的候选内容都会参与有长度限制的主题摘要；服务器只接受现有候选内容的凭据。篇幅较长的作品耗时更久，也会产生多次文本模型调用。
 
-Source glyphs are preserved, including traditional characters; the model writes simplified
-Chinese stories. The server persists the chosen original before requesting storyboards,
-which receive only that verified passage. There is no RAG, embedding index, semantic
-retrieval, silent truncation, or public book API fallback for directory books. Unknown
-custom books retain the existing provider behavior.
+原文字符会原样保留，包括繁体字；模型生成的故事使用简体中文。服务器会先保存选定的原文，再请求生成分镜；分镜请求只会收到已核验的对应原文段落。目录书目不会使用 RAG、嵌入索引、语义检索、静默截断或公开书籍 API 作为备用来源。未知自定义书目仍沿用现有的服务提供方行为。
 
-The edition hash and passage range travel with each selected story and saved original.
-Invalid, stale, cross-chapter, unreadable or unseen-batch ranges fail explicitly. Retrying
-uses saved originals. Existing stories remain readable; legacy backfill requires an
-unambiguous local chapter or named Liaozhai story.
+版本哈希和段落范围会随每个选定的故事及其保存的原文一起记录。无效、过期、跨章节、不可读或来自未读取批次的范围都会明确报错。重试时会使用已保存的原文。现有故事仍可正常阅读；旧数据回填必须能够明确对应到本地章节或具名的《聊斋》故事。
 
-Shiji uses a single original JSON download pinned to its GitHub commit: 130 unique,
-nonempty chapters with no duplicate bodies, including the previously missing Zhao,
-Wei and Chen She chapters. Its ten tables mainly retain their prefaces, and unreadable
-glyphs remain explicitly marked. Twenty-five damaged/missing Taiping volumes are
-replaced with independently archived complete volumes. Erke volume 40 is also a
-separate supplement. Each supplement retains its actual source URL and byte hash;
-the composite edition includes every source hash. Mixed sources are not claimed to
-be one critical edition. Fusheng includes only the four surviving records; Honglou
-chapter labels distinguish the first 80 from the later 40. Local verification proves
-a range exists in the archived transcription, not that it has been fully proofread.
+《史记》使用固定到特定 GitHub 提交版本的单份原始 JSON 下载：共 130 篇互不重复且内容非空的章节，不存在正文重复，并包含此前缺失的赵、魏和陈涉相关章节。十表大多只保留表序；无法辨认的字符会明确标记。二十五卷受损或缺失的《太平广记》内容已由独立存档的完整卷册替换。《二刻拍案惊奇》第四十卷也作为单独补充内容收录。每份补充内容均保留实际来源 URL 和字节哈希；合并版本包含所有来源哈希。我们不会将不同来源混称为同一校勘本。《浮生六记》仅收录现存的四篇；《红楼梦》章节标签会区分前八十回和后四十回。本地核验只能证明某个范围存在于存档转录文本中，并不代表该文本已完成全面校对。
 
-The server reads the shipped library under the application root, separately from the
-SQLite/media directory. Docker includes it at `/app/data/library`, while `/data` remains
-the writable runtime mount. Directory metadata lives in `lib/reader-books.ts`.
+服务器会从应用根目录读取随应用发布的书库，该目录与 SQLite/媒体目录分开。Docker 将书库放在 `/app/data/library`，而 `/data` 仍是可写的运行时挂载目录。目录元数据位于 `lib/reader-books.ts`。
 
-## Start with Docker
+## 使用 Docker 启动
 
-Install Docker Engine or Docker Desktop, plus Docker Compose. The first build downloads the base image and dependencies.
+请安装 Docker Engine 或 Docker Desktop，以及 Docker Compose。首次构建时会下载基础镜像和依赖项。
 
 ```bash
 cp .env.example .env
@@ -66,9 +44,9 @@ mkdir -p data
 docker compose up --build -d
 ```
 
-Open **http://localhost:3000**. To enable generation, set `GEMINI_API_KEY` in `.env`, then run `docker compose up -d --force-recreate`. Usage is billed to your Gemini project; model availability depends on your account permissions and quota.
+打开 **http://localhost:3000**。如需启用生成，请在 `.env` 中设置 `GEMINI_API_KEY`，然后运行 `docker compose up -d --force-recreate`。费用计入你的 Gemini 项目；模型是否可用取决于账户权限和配额。
 
-On Windows PowerShell:
+Windows PowerShell：
 
 ```powershell
 Copy-Item .env.example .env
@@ -76,19 +54,19 @@ New-Item -ItemType Directory -Force data
 docker compose up --build -d
 ```
 
-On Linux, set `SHIQU_UID` and `SHIQU_GID` in `.env` to the output of `id -u` and `id -g`, respectively. The mounted directory should be owned by that user and writable. The container runs as the non-root user `1000:1000` by default. It does not change ownership of host directories or require `chmod 777`. Docker Desktop on macOS and Windows can usually use the defaults.
+在 Linux 上，请将 `.env` 中的 `SHIQU_UID` 和 `SHIQU_GID` 分别设为 `id -u` 和 `id -g` 的输出。挂载目录应归该用户所有且可写。容器默认以非 root 用户 `1000:1000` 运行，不会更改主机目录的所有权，也不需要执行 `chmod 777`。macOS 和 Windows 上的 Docker Desktop 通常可以使用默认值。
 
-This is a single-user edition for your own computer. The server uses a fixed local owner identity and ignores identity headers supplied by callers. Compose publishes only on `127.0.0.1`; this edition provides no public login or multi-user isolation. Do not expose it directly to the internet.
+这是供个人电脑使用的单用户版本。服务器使用固定的本地所有者身份，并忽略调用方提供的身份标头。Compose 只在 `127.0.0.1` 上发布服务；本版本不提供公开登录或多用户隔离功能。请勿将其直接暴露到互联网。
 
-## Choose Gemini or a Codex subscription
+## 选择 Gemini 或 Codex 订阅
 
-Gemini remains the default. To use your Codex subscription for story suggestions, planning, and scene images, set this in `.env`:
+默认仍使用 Gemini。如需使用 Codex 订阅生成故事建议、规划和场景图片，请在 `.env` 中设置：
 
 ```dotenv
 SHIQU_AI_PROVIDER=codex
 ```
 
-On macOS or Linux, install the tested CLI and sign in with your ChatGPT account on the same machine and user that runs Shiqu. On Windows, use the Docker setup below or Gemini mode:
+在 macOS 或 Linux 上，请安装经过测试的 CLI，并使用运行 Shiqu 的同一台电脑和同一用户登录 ChatGPT 账户。在 Windows 上，请使用下方的 Docker 配置或 Gemini 模式：
 
 ```bash
 pnpm add -g @openai/codex@0.165.0
@@ -97,24 +75,24 @@ pnpm run codex:status
 pnpm dev
 ```
 
-If `pnpm` is not found, run `nvm use` and `corepack enable pnpm` first. If pnpm reports that its global binary directory is missing, run `(cd /tmp && pnpm setup)` so this project's own `setup` script does not intercept it, then run `source ~/.zshrc` (or reopen your terminal) and repeat the install. `pnpm setup` configures PATH; Corepack provides the pnpm executable. If Codex is already installed, you can skip installation.
+如果找不到 `pnpm`，请先运行 `nvm use` 和 `corepack enable pnpm`。如果 pnpm 提示缺少全局二进制目录，请运行 `(cd /tmp && pnpm setup)`，避免被本项目自己的 `setup` 脚本拦截；然后运行 `source ~/.zshrc`（或重新打开终端），再重复安装步骤。`pnpm setup` 会配置 PATH；Corepack 提供 pnpm 可执行文件。如果已经安装 Codex，可以跳过安装步骤。
 
-Restart Shiqu after changing `.env`. Codex mode requires ChatGPT sign-in, not API-key login; it never falls back to Gemini or API billing. Text and images consume your shared Codex subscription limits. Image generation can consume those limits faster than text requests. Plan/workspace access and available quota still apply. See the official [authentication](https://learn.chatgpt.com/docs/auth), [app-server](https://learn.chatgpt.com/docs/app-server), and [image generation](https://learn.chatgpt.com/docs/image-generation) documentation.
+修改 `.env` 后请重启 Shiqu。Codex 模式要求通过 ChatGPT 登录，而不是使用 API 密钥登录；它不会回退到 Gemini 或 API 计费。文本和图片生成共用 Codex 订阅额度，图片生成消耗额度的速度可能比文本请求更快。仍需满足套餐/工作区访问权限和可用配额要求。请参阅官方的[身份验证](https://learn.chatgpt.com/docs/auth)、[应用服务器](https://learn.chatgpt.com/docs/app-server)和[图片生成](https://learn.chatgpt.com/docs/image-generation)文档。
 
-Optional settings:
+可选设置：
 
-| Variable | Purpose |
+| 变量 | 用途 |
 | --- | --- |
-| `CODEX_BIN` | Codex executable or absolute path; defaults to `codex` |
-| `CODEX_MODEL` | Optional text-model override; blank uses the Codex default |
-| `SHIQU_CODEX_HOME` | Optional dedicated CLI login directory; blank reuses the CLI default |
-| `SHIQU_CODEX_HOST_HOME` | Host login folder used by the Docker override below |
+| `CODEX_BIN` | Codex 可执行文件或其绝对路径；默认为 `codex` |
+| `CODEX_MODEL` | 可选的文本模型覆盖值；留空时使用 Codex 默认模型 |
+| `SHIQU_CODEX_HOME` | 可选的 CLI 专用登录目录；留空时使用 CLI 默认目录 |
+| `SHIQU_CODEX_HOST_HOME` | 下方 Docker 配置使用的主机登录文件夹 |
 
-The pnpm login/status commands read `.env` and automatically use `CODEX_BIN` and `SHIQU_CODEX_HOME`, matching the app. For a machine without a browser, run `pnpm run codex:login -- --device-auth`. No subscription tokens are placed in `.env` or passed to the browser.
+pnpm 登录/状态命令会读取 `.env`，并自动使用 `CODEX_BIN` 和 `SHIQU_CODEX_HOME`，与应用保持一致。对于没有浏览器的设备，请运行 `pnpm run codex:login -- --device-auth`。订阅令牌不会写入 `.env`，也不会传给浏览器。
 
-Codex mode supports book-name sources. Custom webpage URL sources require Gemini mode because the isolated Codex runner has no browser or web-fetch access. Original classical passages still use Shiqu's checked source retrieval. Existing stories, image references, art styles, production instructions, checkpoints, and the current retry behavior remain available.
+Codex 模式支持书名来源。自定义网页 URL 来源需要使用 Gemini 模式，因为隔离的 Codex 运行器无法访问浏览器或网页抓取功能。古典原文段落仍通过 Shiqu 已核验的来源检索获取。现有故事、图片参考、美术风格、制作说明、检查点和当前重试行为均可继续使用。
 
-For Docker, use the optional Codex runtime and a **separate** writable login folder so the CLI can refresh its session:
+在 Docker 中使用 Codex 时，请启用可选的 Codex 运行环境，并使用一个**独立的**可写登录文件夹，以便 CLI 刷新会话：
 
 ```bash
 mkdir -p data .data/codex-home
@@ -123,13 +101,13 @@ docker compose -f compose.yaml -f compose.codex.yaml run --rm --no-deps shiqu pn
 docker compose -f compose.yaml -f compose.codex.yaml up -d
 ```
 
-Device login must be enabled for your ChatGPT account/workspace. If it is unavailable, use the official [headless login alternatives](https://learn.chatgpt.com/docs/auth#login-on-headless-devices). Use the same two Compose files for later stop/start/update commands. Set Linux UID/GID as described above, and make both host folders writable by that identity. Override `SHIQU_CODEX_HOST_HOME` for another login-folder location.
+你的 ChatGPT 账户/工作区必须启用设备登录。如果无法使用，请参阅官方的[无头设备登录替代方案](https://learn.chatgpt.com/docs/auth#login-on-headless-devices)。之后执行停止、启动或更新命令时，请继续使用相同的两个 Compose 文件。按上文说明设置 Linux UID/GID，并确保该身份可以写入两个主机文件夹。若要更换登录文件夹位置，可覆盖 `SHIQU_CODEX_HOST_HOME`。
 
-The login folder contains credentials: keep it private and separate from `/data`, never commit it or bake it into an image, and do not share it with other users. The runner disables command/file tools and inherited integrations, sends prompts over local stdio, and accepts only native image-result bytes. Requests are bounded; slow or unavailable generations return a recoverable error without changing providers.
+登录文件夹包含凭据：请妥善保管，并与 `/data` 分开；切勿将其提交到版本库、打包进镜像或与其他用户共享。运行器会禁用命令/文件工具和继承的集成，通过本地标准输入输出发送提示词，并且只接受原生图片结果字节。请求设有时限；生成缓慢或不可用时会返回可恢复的错误，不会切换服务提供方。
 
-## Data directory and mounts
+## 数据目录与挂载
 
-By default, **`./data`** in the project directory is mounted at `/data` inside the container:
+默认情况下，项目目录中的 **`./data`** 会挂载到容器内的 `/data`：
 
 ```text
 data/
@@ -143,47 +121,47 @@ data/
         └── source.json
 ```
 
-The first startup applies database migrations and adds the sample story. Subsequent startups preserve existing stories and progress and do not automatically retry paid generation requests.
+首次启动时会应用数据库迁移并添加示例故事。之后的启动会保留已有故事和阅读进度，也不会自动重试会产生费用的生成请求。
 
-To use another host directory, create it first, then update `.env`:
+如需使用其他主机目录，请先创建该目录，然后更新 `.env`：
 
 ```dotenv
 SHIQU_HOST_DATA_DIR="/absolute/path/to/shiqu data"
 ```
 
-Absolute paths and paths containing spaces are supported. `SHIQU_HOST_DATA_DIR` selects the host folder; the container path remains `/data`. Create the directory beforehand so Docker does not silently create a root-owned folder.
+支持绝对路径和包含空格的路径。`SHIQU_HOST_DATA_DIR` 用于选择主机文件夹；容器内路径仍为 `/data`。请提前创建目录，以免 Docker 悄悄创建由 root 所有的文件夹。
 
-Use each data directory with only one application instance. After changing the directory, run:
+每个数据目录只能供一个应用实例使用。更改目录后，请运行：
 
 ```bash
 docker compose up -d --force-recreate
 ```
 
-Settings in `.env`:
+`.env` 中的设置：
 
-| Variable | Purpose |
+| 变量 | 用途 |
 | --- | --- |
-| `GEMINI_API_KEY` | Server-side Gemini API key; may be left blank |
-| `GEMINI_TEXT_MODEL` | Text model; defaults to `gemini-3.8-flash` |
-| `GEMINI_IMAGE_MODEL` | Image model; defaults to `gemini-nano-banana-2.1` |
-| `SHIQU_PORT` | Host port; defaults to `3000` |
-| `SHIQU_HOST_DATA_DIR` | Host data directory mounted by Docker; defaults to `./data` |
-| `SHIQU_UID` / `SHIQU_GID` | Container user and group IDs; default to `1000:1000` |
+| `GEMINI_API_KEY` | 服务器端 Gemini API 密钥；可以留空 |
+| `GEMINI_TEXT_MODEL` | 文本模型；默认为 `gemini-3.8-flash` |
+| `GEMINI_IMAGE_MODEL` | 图片模型；默认为 `gemini-nano-banana-2.1` |
+| `SHIQU_PORT` | 主机端口；默认为 `3000` |
+| `SHIQU_HOST_DATA_DIR` | Docker 挂载的主机数据目录；默认为 `./data` |
+| `SHIQU_UID` / `SHIQU_GID` | 容器用户和组 ID；默认为 `1000:1000` |
 
-API keys are read only on the server. They are not included in the frontend bundle, container image, or media directory.
+API 密钥只会在服务器端读取，不会包含在前端构建产物、容器镜像或媒体目录中。
 
-## Upgrade from the previous Docker edition
+## 从旧版 Docker 版本升级
 
-The previous edition used local D1/R2-compatible storage. Its data folder cannot be used directly as the new `data` directory. Keep the old source, image, and data. Stop the old service, export its volume, and convert the data into a new directory.
+旧版本使用本地兼容 D1/R2 的存储。其数据文件夹不能直接用作新版的 `data` 目录。请保留旧版源码、镜像和数据。停止旧服务，导出其卷，并将数据转换到新目录。
 
-Run these commands in the **old project directory**, with the old named volume still mounted at `/data`:
+在旧命名卷仍挂载到 `/data` 时，于**旧项目目录**中运行以下命令：
 
 ```bash
 docker compose stop
 docker compose run --rm --no-deps --entrypoint tar shiqu -czf - -C /data . > legacy-data.tar.gz
 ```
 
-In the **new project directory**, run:
+在**新项目目录**中运行：
 
 ```bash
 mkdir -p legacy-data
@@ -195,21 +173,21 @@ docker run --rm --user "$(id -u):$(id -g)" \
   shiqu:local node dist/server/import-legacy.js /legacy /output/data
 ```
 
-On Windows, use the local Node import method below, or adapt the Docker command's absolute mount paths and UID/GID values for your machine.
+在 Windows 上，请使用下方的本地 Node 导入方式，或根据你的电脑调整 Docker 命令中的绝对挂载路径和 UID/GID 值。
 
-Alternatively, install Node 24, run `pnpm run setup` and `pnpm build`, then import locally:
+或者，安装 Node 24，运行 `pnpm run setup` 和 `pnpm build`，然后在本地导入：
 
 ```bash
 pnpm import:legacy /absolute/path/to/legacy-data /absolute/path/to/new-data
 ```
 
-The previous development data directory, `.data/dev`, can also be used as input. The destination must not exist or must be empty; importing never overwrites existing data. The importer copies the database and media, preserving story IDs, media URLs, local user IDs, progress, and generation state. It publishes the destination directory only after conversion completes. The old runtime is not required, and the source folder is left unchanged.
+也可以使用旧版开发数据目录 `.data/dev` 作为输入。目标目录必须不存在或为空；导入过程绝不会覆盖已有数据。导入器会复制数据库和媒体文件，并保留故事 ID、媒体 URL、本地用户 ID、阅读进度和生成状态。只有转换完成后才会发布目标目录。无需运行旧版运行环境，源文件夹也不会被修改。
 
-Import supports this project's single-database, single-media-bucket layout. It stops with an explanation if it encounters a nonempty SQLite WAL, missing files, incomplete migrations, or multipart media objects. Do not delete WAL files to bypass the check: shut down the old service cleanly so it can checkpoint its database. Keep the original volume so you can return to the old image if needed.
+导入功能支持本项目的单数据库、单媒体存储桶布局。如果遇到非空 SQLite WAL、文件缺失、迁移未完成或分片媒体对象，导入器会停止并说明原因。请勿删除 WAL 文件来绕过检查：应正常关闭旧服务，让它完成数据库检查点操作。请保留原始卷，以便需要时恢复使用旧镜像。
 
-After importing, point `SHIQU_HOST_DATA_DIR` in `.env` to the new directory and start the new service. Verify your existing stories, images, and reading progress before deciding how to retain the old backup.
+导入后，将 `.env` 中的 `SHIQU_HOST_DATA_DIR` 指向新目录并启动新服务。请先确认现有故事、图片和阅读进度无误，再决定如何保留旧备份。
 
-## Daily operation and backups
+## 日常操作与备份
 
 ```bash
 docker compose ps
@@ -218,9 +196,9 @@ docker compose down
 docker compose up -d
 ```
 
-Stopping or removing containers does not delete the host data directory. After updating the source, run `docker compose up --build -d`.
+停止或移除容器不会删除主机数据目录。更新源码后，请运行 `docker compose up --build -d`。
 
-Before backing up, stop the service. Copy the entire data directory, including any SQLite journal files and media, then restart:
+备份前请先停止服务。复制整个数据目录，包括可能存在的 SQLite 日志文件和媒体文件，然后重新启动服务：
 
 ```bash
 docker compose stop
@@ -228,20 +206,20 @@ tar -czf shiqu-data-backup.tar.gz -C data .
 docker compose up -d
 ```
 
-If you use a custom directory, replace `data` in the command with its actual path. To restore, stop the service, extract the backup into an empty directory, and switch the mount path. Keep `.env` separately. Do not copy only `shiqu.sqlite` while the service is running.
+如果使用自定义目录，请在命令中将 `data` 替换为实际路径。恢复时，先停止服务，将备份解压到空目录，再切换挂载路径。请单独保管 `.env`。服务运行时不要只复制 `shiqu.sqlite`。
 
-To distribute the image:
+分发镜像：
 
 ```bash
 docker save -o shiqu-image.tar shiqu:local
-# On the destination machine, load the image and prepare compose.yaml, .env, and the data directory.
+# 在目标机器上加载镜像，并准备 compose.yaml、.env 和数据目录。
 docker load -i shiqu-image.tar
 docker compose up -d --no-build
 ```
 
-## Local development and project structure
+## 本地开发与项目结构
 
-Use Node 24 (`.nvmrc` specifies 24.22.1) and pnpm 11.25.0. The app uses Node's built-in SQLite support; no separate database service or native database addon is required.
+请使用 Node 24（`.nvmrc` 指定 24.22.1）和 pnpm 11.25.0。应用使用 Node 内置的 SQLite 支持，无需单独的数据库服务或原生数据库扩展。
 
 ```bash
 nvm install
@@ -251,29 +229,29 @@ pnpm run setup
 pnpm dev
 ```
 
-Open **http://localhost:3000**. Vite proxies `/api` to the local Node API, which uses port `3002` by default, keeping browser requests on the same origin. Development data defaults to `.data/dev`, separate from Docker's `./data` directory.
+打开 **http://localhost:3000**。Vite 会将 `/api` 代理到本地 Node API，该 API 默认使用端口 `3002`，因此浏览器请求仍来自同一源。开发数据默认位于 `.data/dev`，与 Docker 使用的 `./data` 目录分开。
 
 ```bash
 pnpm dev --port 3001
-# If the API port is already in use:
+# 如果 API 端口已被占用：
 SHIQU_API_PORT=3003 pnpm dev
 ```
 
-Press Ctrl+C to stop the service. Restart after changing `.env`. Setup preserves existing configuration.
+按 Ctrl+C 停止服务。修改 `.env` 后请重启。Setup 会保留现有配置。
 
 ```text
-client/       React entry point, UI, and styles
-components/   Reusable UI components
-lib/          Story generation, reading, validation, and application service interfaces
-server/       Node HTTP, configuration, SQLite, file storage, and legacy import
-db/           Drizzle SQLite schema
-drizzle/      SQL migrations
-public/       Sample assets, fonts, and icons
-scripts/      Development and build entry points
-docker/       Sample initialization SQL and health check
+client/       React 入口、界面和样式
+components/   可复用的界面组件
+lib/          故事生成、阅读、校验和应用服务接口
+server/       Node HTTP、配置、SQLite、文件存储和旧版数据导入
+db/           Drizzle SQLite 架构
+drizzle/      SQL 迁移
+public/       示例资源、字体和图标
+scripts/      开发和构建入口
+docker/       示例初始化 SQL 和健康检查
 ```
 
-The frontend and backend build separately and share models and validation code. Production runs in one Node process. Application logic accesses the database, media, and model requests through explicit service interfaces, without hosting-platform globals.
+前端和后端分别构建，并共用模型和校验代码。生产环境在单个 Node 进程中运行。应用逻辑通过明确的服务接口访问数据库、媒体和模型请求，不依赖托管平台的全局变量。
 
 ```bash
 pnpm test
@@ -283,10 +261,10 @@ pnpm build
 pnpm start
 ```
 
-`pnpm start` binds to `127.0.0.1:3000` and uses `./data` by default. Override these with the server-side variables `PORT`, `SHIQU_BIND_IP`, and `SHIQU_DATA_DIR`. Compose supplies the container settings.
+`pnpm start` 默认绑定到 `127.0.0.1:3000` 并使用 `./data`。可通过服务器端变量 `PORT`、`SHIQU_BIND_IP` 和 `SHIQU_DATA_DIR` 覆盖这些设置。容器设置由 Compose 提供。
 
-Automated tests cover generation checkpoints, paid-call deduplication and retries, original-source retrieval, SQLite persistence, media uploads, HTTP boundaries, and legacy import. Tests use simulated model responses and do not make paid Gemini calls.
+自动化测试覆盖生成检查点、付费调用去重与重试、原文检索、SQLite 持久化、媒体上传、HTTP 边界和旧版数据导入。测试使用模拟模型响应，不会发起需付费的 Gemini 调用。
 
-## Sites deployment boundary
+## Sites 部署限制
 
-This edition targets Docker and regular Node hosts. Sites runs its backend on Cloudflare Workers and cannot directly run this Node process or mount local directories. Deploying the full application to Sites requires separate Worker, identity, and D1/R2 adapters. Deploying only the static frontend does not provide the current generation and persistence features. The shared UI and application logic can be reused, but this branch does not include that deployment target.
+此版本面向 Docker 和常规 Node 主机。Sites 在 Cloudflare Workers 上运行后端，无法直接运行此 Node 进程或挂载本地目录。要将完整应用部署到 Sites，需要单独实现 Worker、身份验证和 D1/R2 适配器。仅部署静态前端无法提供当前的生成和持久化功能。共享的界面和应用逻辑可以复用，但此分支不包含该部署目标。
