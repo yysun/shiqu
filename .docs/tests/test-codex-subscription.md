@@ -7,3 +7,7 @@
 5. CLI isolation: argv contains no user prompt; stdin contains only intended story data/instructions; child environment excludes all API/provider credentials. ChatGPT-only login restriction, bounded execution and unrelated tool disabling are verified. Duplicate REST advances acquire only one generation job.
 6. Local actual CLI probe: short structured text and one image only when needed to establish feasibility, using the existing ChatGPT sign-in. Record capability/network/permission failures honestly. No OpenAI API or Gemini billing fallback.
 7. Docker: default data bind remains unchanged. Optional Codex login mount is distinct from /data and uses non-root identity, missing mount is actionable, CLI exists in selected image, login/status commands work without exposing auth contents. Keys/auth are absent from image/source/frontend.
+
+## Executed evidence
+
+All seven scenarios are covered by the 74-test suite plus the bounded native CLI and Docker checks recorded in the plan. Full story generation and failure paths use fake subprocesses/transports; actual ChatGPT auth, structured text and a native image were verified separately. Docker used a fresh signed-out login folder; user device login and authenticated Docker inference were not executed. Local pnpm login/status home and flag forwarding were exercised with a fake executable; actual local `pnpm run codex:status` reported ChatGPT sign-in.

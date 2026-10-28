@@ -45,7 +45,7 @@ pnpm run codex:status
 pnpm dev
 ```
 
-If pnpm reports that its global binary directory is missing, run `pnpm setup`, reopen your terminal, and repeat the install. If Codex is already installed, you can skip installation.
+If `pnpm` is not found, run `nvm use` and `corepack enable pnpm` first. If pnpm reports that its global binary directory is missing, run `(cd /tmp && pnpm setup)` so this project's own `setup` script does not intercept it, then run `source ~/.zshrc` (or reopen your terminal) and repeat the install. `pnpm setup` configures PATH; Corepack provides the pnpm executable. If Codex is already installed, you can skip installation.
 
 Restart Shiqu after changing `.env`. Codex mode requires ChatGPT sign-in, not API-key login; it never falls back to Gemini or API billing. Text and images consume your shared Codex subscription limits. Image generation can consume those limits faster than text requests. Plan/workspace access and available quota still apply. See the official [authentication](https://learn.chatgpt.com/docs/auth), [app-server](https://learn.chatgpt.com/docs/app-server), and [image generation](https://learn.chatgpt.com/docs/image-generation) documentation.
 

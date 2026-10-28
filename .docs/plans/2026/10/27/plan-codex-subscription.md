@@ -20,7 +20,7 @@ The optional Docker target installs the pinned CLI with pnpm, runs as non-root, 
 - [x] Add provider selection, shared contracts, runner, generator, safe readiness/errors, first-scene references and checked original-source retrieval.
 - [x] Add subprocess/transport tests for auth, tool configuration, environment, validation, timeout/output cap, cleanup, provider routing and pnpm login helpers. Preserve checkpoint/retry regression coverage.
 - [x] Add optional Docker runtime/login mount, environment examples and English pnpm setup documentation.
-- [ ] Finish full tests/typecheck/lint/build and Docker runtime/mount verification; independent CR and acceptance review.
+- [x] Finish full tests/typecheck/lint/build and Docker runtime/mount verification; independent CR.
 
 ## Architecture review and feasibility evidence
 
@@ -33,3 +33,38 @@ AR review round: 3; reviewer: reused (migration_review).
 Official documentation: [auth](https://learn.chatgpt.com/docs/auth), [app-server](https://learn.chatgpt.com/docs/app-server), [image generation](https://learn.chatgpt.com/docs/image-generation). API-key provisioning does not apply to the requested subscription authentication.
 
 Pinned CLI 0.165.0: ChatGPT auth and structured output passed. A minimal live image job returned a native image result with 2,729,780 base64 characters; no image bytes or credentials were printed. Six inherited MCP servers were disabled and exposed zero tools. A dummy model request to read a sibling file reported that command tools were unavailable. Standalone command positive/negative controls both exited 134: inconclusive, not read-denial evidence. A separate live smoke using the implemented runner confirmed subscription auth and structured text. Full story generation remains simulated; Docker sign-in/inference requires the user's own login.
+
+## Implementation and verification
+
+Milestone `f60ebec` contains the implementation, tests and setup documentation.
+
+CR passed: no major findings.
+CR risk: non-low — subprocess execution, subscription credentials, provider routing and Docker deployment.
+CR review round: 1; reviewer: reused (migration_review).
+
+TT: Node 24.22.1 / pnpm 11.25.0, all 74 tests passed. Typecheck, lint, production build and diff whitespace checks passed. Test output: ignored `.data/codex-tests.log`; build output: ignored `.data/codex-build.log`. Full tests required localhost listeners outside the sandbox; the rerun passed. The subsequent login-message wording change is covered by final typecheck/lint and the Docker production rebuild.
+
+ET: subprocess/REST scenarios cover both providers, sign-in failure, native image/reference payloads, validation, output cap, process failure/timeout/cleanup and credential filtering. Existing retry/concurrency and source-verification suites passed. `pnpm run codex:status` found the existing ChatGPT login locally. The implemented runner live smoke passed subscription auth and structured text; earlier bounded native image capability was verified separately. No complete live story or Docker-authenticated inference was claimed.
+
+Docker: the optional image built with CLI 0.165.0. CLI and pnpm status ran offline as UID 1000; an empty login correctly returned Not logged in (exit 1). A no-network app container with isolated `/data` and `/codex-home` mounts returned unconfigured Codex status with CHATGPT_LOGIN_REQUIRED while the seeded sample remained readable. Merged Compose config selected runtime-codex and kept both bind mounts create_host_path=false. QA container removed. Initial pnpm runtime checks exposed unreadable root-store symlinks and missing lock/workspace metadata; both were fixed and the final image passed. Docker output: ignored `.data/codex-docker-build.log`.
+
+## Acceptance review
+
+1. **Provider selection — complete.** `SHIQU_AI_PROVIDER` selects Gemini or Codex for suggestions, planning, and images. Gemini remains the default; invalid values fail explicitly. Routing tests verify no Gemini fallback.
+
+2. **Subscription generation — complete.** The official pinned CLI requires ChatGPT authentication. Shared schemas/prompts and validation preserve page count, styles, production requirements, and first-scene attachments. Native image bytes are accepted; returned paths are ignored. Checked original retrieval remains intact. Custom webpage URLs are explicitly unsupported in Codex mode.
+
+3. **Readiness and safe failures — complete.** Missing CLI, signed-out/API-key authentication, and unsafe configuration produce unconfigured status without credential disclosure. Real signed-out Docker checks returned `CHATGPT_LOGIN_REQUIRED`, while sample reading remained available.
+
+4. **Execution boundary — complete.** Prompts travel through stdin in temporary jobs. Environment filtering excludes API/provider credentials; shell/file tools and dynamically discovered MCP integrations are disabled. Tests cover output limits, timeout/process failure, cleanup, invalid outputs, and path-only image rejection. Standalone sandbox exit `134` remains correctly classified as inconclusive.
+
+5. **Local and Docker setup — complete.** pnpm helpers share executable/login-home settings. The optional image contains CLI `0.165.0`, runs non-root, and uses distinct data/login mounts. Offline Docker status and merged Compose checks passed. Credentials were not copied into the image.
+
+6. **Retries, concurrency, and verification — complete.** Existing retry/checkpoint safeguards remain unchanged; bounded generation fits the lease budget. All 74 tests, typecheck, lint, and production build passed. CR passed with no major findings.
+
+Live evidence establishes local ChatGPT authentication, structured text, and native image capability separately. Full story generation remains simulated; authenticated Docker inference was not tested.
+
+VR risk: non-low — subprocess execution, credentials, provider routing, and Docker deployment.
+VR review round: 1; reviewer: reused.
+
+VR passed: all acceptance criteria complete.
