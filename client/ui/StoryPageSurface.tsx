@@ -1,13 +1,15 @@
-// Use native button activation for taps and keyboard input. A completed swipe,
-// drag, long press or canceled pointer must not also activate the next-page click.
+// Left-click/tap and keyboard activation advance; a mouse context click goes back.
+// Swipes, drags and touch long presses must not trigger an extra page turn.
 import {useRef,type PointerEvent} from 'react';
 import {swipePageDirection} from '@/lib/reader-navigation';
 
 export default function StoryPageSurface({onTurn,onDrag}:{onTurn:(direction:number)=>void;onDrag:(distance:number)=>void}){
  const pointer=useRef<{id:number;x:number;y:number;startedAt:number;travel:number}|null>(null);
  const suppressClick=useRef(false);
+ const pointerType=useRef('');
  function cancel(){pointer.current=null;suppressClick.current=true;onDrag(0);}
  function down(event:PointerEvent<HTMLButtonElement>){
+  pointerType.current=event.pointerType;
   if(!event.isPrimary||event.button!==0){cancel();return;}
   suppressClick.current=true;
   pointer.current={id:event.pointerId,x:event.clientX,y:event.clientY,startedAt:event.timeStamp,travel:0};
@@ -28,7 +30,8 @@ export default function StoryPageSurface({onTurn,onDrag}:{onTurn:(direction:numb
   suppressClick.current=!!direction||travel>8||event.timeStamp-start.startedAt>450;
   if(direction)onTurn(direction);
  }
- return <button type="button" className="yu-swipe-surface" aria-label="点击画面进入下一页，也可上下或左右滑动翻页"
+ return <button type="button" className="yu-swipe-surface" aria-label="点击画面进入下一页，右键返回上一页，也可上下或左右滑动翻页"
   onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel}
+  onContextMenu={event=>{if(event.button!==2||pointerType.current==='touch')return;event.preventDefault();cancel();onTurn(-1);}}
   onClick={event=>{if(event.detail===0||!suppressClick.current)onTurn(1);suppressClick.current=true;}}/>;
 }
