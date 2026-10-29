@@ -18,6 +18,8 @@ Both real Node processes opened the same physical database. Paired desktop 3000,
 
 Rollback requires stopping both entry points, restoring the archived library/runtime and private development.env backup, then restarting. Do not restore over live writers. Older desktop payloads cannot serve current queue artifact URLs.
 
+README now includes the shared database/media layout, desktop-plus-development port example, phone pairing workflow and migration/recovery instructions.
+
 ## Verification
 
 Node 24.22.1 / pnpm 11.25.0. Full suite: 222/222 tests; focused checks: 6/6; typecheck, lint, build and whitespace checks passed. Fixture tests cover separate SQLite connections, duplicate paid work, independent demand/shutdown, cross-entry progress/media, real Vite pairing and direct/raw/@fs/public-directory protections. Live verification used GET/pairing requests and requested no generation. Phone pairing QR and in-app screenshot are in `.data/evidence/shared-story-library/`; pairing tokens are intentionally omitted here. The full migration manifest/helper and test/live-verification logs remain there.

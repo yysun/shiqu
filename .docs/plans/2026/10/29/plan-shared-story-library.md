@@ -60,3 +60,5 @@ VR review round:1; reviewer:reused.
 ## Delivery
 
 DD finalized after the passing independent VR. GC includes only this story's completion report, REQ/AP/E2E evidence and the corrected shared-library instructions in README and desktop/README. Implementation milestones `fa5cc48` and `af740da` remain intact. The implementation is unchanged since passing CR/VR and the 222-test verification; documentation-only delivery requires no additional runtime test. Unrelated main-checkout changes remain outside the delivery commit.
+
+User requested a fuller README before final main-checkout delivery. README now documents the Application Support database/media layout, explicit path precedence, separate credentials/pairing, concurrent desktop/development ports, phone QR selection and safe legacy migration/recovery. This is documentation-only; the reviewed implementation and its verification remain unchanged.
