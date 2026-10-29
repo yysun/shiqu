@@ -36,6 +36,15 @@ export function useStoryGeneration(page:number,callbacks:Callbacks){
  }
  function leave(){id.current='';setActive(null);setBusy(false);setError('');}
  function remove(sessionId:string){removed.current.add(sessionId);if(id.current===sessionId)leave();setSessions(old=>old.filter(s=>s.id!==sessionId));}
+ async function refreshLibrary(restoredId?:string){
+  // A recovery reads snapshots only; resume() would create viewer demand and can dispatch generation.
+  const [rows,restored]:[SessionView[],SessionView|null]=await Promise.all([request('reader/sessions'),restoredId?request('reader/sessions/'+encodeURIComponent(restoredId)):Promise.resolve(null)]);
+  if(restored)removed.current.delete(restored.id);
+  const visible=(restored?[restored,...rows.filter(s=>s.id!==restored.id)]:rows).filter(s=>!removed.current.has(s.id));
+  setSessions(visible);setLibraryError('');
+  cb.current.onProgress(visible.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt})));
+  return visible;
+ }
  function retryStep(){if(busy||pending.current||!active?.retryAllowed)return;retries.current=new Map();setBusy(true);setError('');setWake(v=>v+1);}
  useEffect(()=>{
   const sessionId=active?.id;if(!sessionId)return;
@@ -54,5 +63,5 @@ export function useStoryGeneration(page:number,callbacks:Callbacks){
   }
   run();return()=>{cancelled=true;};
  },[active?.id,wake]);
- return {sessions,active,busy,error,connected,libraryLoading,libraryError,start,resume,leave,remove,retryStep,confirmFrameCount};
+ return {sessions,active,busy,error,connected,libraryLoading,libraryError,start,resume,leave,remove,refreshLibrary,retryStep,confirmFrameCount};
 }

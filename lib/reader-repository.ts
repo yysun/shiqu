@@ -12,7 +12,14 @@ export class ReaderRepository{
  constructor(db:Database){this.db=db;}
  async get(id:string,uid:string){const row=await this.db.prepare(`SELECT * FROM reader_sessions WHERE id = ? AND user_id = ? AND ${visible}`).bind(id,uid).first<SessionRow>();if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');return row;}
  async list(uid:string){return (await this.db.prepare(`SELECT * FROM reader_sessions WHERE user_id = ? AND ${visible} ORDER BY COALESCE(last_read_at,created_at) DESC LIMIT 80`).bind(uid).all<SessionRow>()).results;}
- async deletions(uid:string){return (await this.db.prepare('SELECT story_id AS storyId,deleted_at AS deletedAt FROM library_deletions WHERE user_id=?').bind(uid).all<{storyId:string;deletedAt:string}>()).results;}
+ async deletions(uid:string){
+  return (await this.db.prepare(`SELECT d.story_id AS storyId,d.deleted_at AS deletedAt,d.kind,
+   CASE WHEN d.kind='generated' THEN COALESCE(json_extract(s.document,'$.plan.title'),json_extract(s.selection,'$.storyTitle'),'未命名故事') ELSE COALESCE(p.title,'未命名故事') END AS title
+   FROM library_deletions d
+   LEFT JOIN reader_sessions s ON d.kind='generated' AND s.id=d.story_id AND s.user_id=d.user_id
+   LEFT JOIN stories p ON d.kind='published' AND p.id=d.story_id AND p.status='published'
+   WHERE d.user_id=? ORDER BY d.deleted_at DESC,d.story_id`).bind(uid).all<{storyId:string;deletedAt:string;kind:'generated'|'published';title:string}>()).results;
+ }
  async remove(id:string,uid:string){
   const existing=await this.db.prepare('SELECT story_id AS storyId,deleted_at AS deletedAt FROM library_deletions WHERE user_id=? AND story_id=?').bind(uid,id).first<{storyId:string;deletedAt:string}>();if(existing)return existing;
   const owned=await this.db.prepare('SELECT id FROM reader_sessions WHERE id=? AND user_id=?').bind(id,uid).first();
