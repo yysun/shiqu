@@ -4,7 +4,7 @@ import type {Services} from './services.ts';
 import {ReaderRepository} from './reader-repository.ts';
 import {stories,books,jobs,events,progress} from '../db/schema.ts';
 import {eq,and,desc,sql} from 'drizzle-orm';
-import {seedBooks,seedStory,type Story,type Page} from './content.ts';
+import {seedBooks,type Story,type Page} from './content.ts';
 import {storySchema,pageSchema,publishErrors} from './validation.ts';
 import {z} from 'zod';
 import {readerMaxFrames} from './reader-limits.ts';
@@ -44,7 +44,7 @@ const next={...s,...result,revision:s.revision+1,updatedAt:now()};const changed=
 return async function api(req:Request,path:string[]){if(path[0]==='reader')return readerApi(req,path.slice(1));try{const route=path.join('/');const db=getDb();const url=new URL(req.url);const method=req.method;
 if(!['GET','HEAD'].includes(method)){const origin=req.headers.get('origin');need(!origin||origin===url.origin,'不允许跨站写入',403);}
 if(route.startsWith('admin/'))admin(req);
-if(route==='admin/seed'&&method==='POST'){await db.insert(books).values(seedBooks).onConflictDoNothing();await db.insert(stories).values(serialize(seedStory())).onConflictDoNothing();return json({ok:true});}
+if(route==='admin/seed'&&method==='POST'){await db.insert(books).values(seedBooks).onConflictDoNothing();return json({ok:true});}
 if(route==='admin/status')return json({providers:providerStatus(),database:!!services.database,storage:!!services.media,privateLab:true});
 if(route==='books'&&method==='GET')return json(await db.select().from(books));
 if(route==='admin/books'&&method==='POST'){const b=z.object({title:z.string().min(1).max(100),author:z.string().max(100),era:z.string().max(50),sourceUrl:z.string().max(1000).refine(s=>!s||/^https:\/\//.test(s),'来源链接需为HTTPS'),excerpt:z.string().max(30000),note:z.string().max(1000)}).parse(await body(req));const row={...b,id:crypto.randomUUID()};await db.insert(books).values(row);return json(row);}

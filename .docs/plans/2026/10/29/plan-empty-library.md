@@ -20,4 +20,6 @@ Existing ordinary rows3desktop/1dev, sessions21desktop/20dev and progress counts
 
 ET: isolated Reader3317/3318 showed no demo card,24books, bookshelf0stories and创作第一篇故事 returning to discovery. No inference. FullTT initially found fixtures relying on seeds, now explicitly create synthetic saved stories; parallel rerun stalled on timing-sensitive desktop helper, sequential bounded rerun running. Final fixture corrections are a separate milestone.
 
-FinalTT:306/306passed, sequential boundedrun72.55seconds after fixing explicit saved-story fixtures. Finalpnpmtypecheck/lintpassed. CR passed: no major findings. CR risk:non-low; round1; reviewer:reused. ETscenario3 reconciled with permitted concurrent liveactivity; no product behavior changed. AllAPtaskscomplete. Await independentVR.
+FinalTT:306/306passed, sequential boundedrun72.55seconds after fixing explicit saved-story fixtures. Finalpnpmtypecheck/lintpassed. CR passed: no major findings. CR risk:non-low; round1; reviewer:reused. ETscenario3 reconciled with permitted concurrent liveactivity; no product behavior changed. AllAPtaskscomplete. VR passed: all acceptance criteria complete. VR risk:non-low; round1; reviewer:reused.
+
+DD complete: .docs/done/2026/10/29/empty-library.md includes the final VR verbatim. Final delivery includes the remaining lib/server.ts admin-seed fix and the empty-library records. Focused empty-library tests pass 2/2; final typecheck, lint and diff checks pass using Node 24.22.1 / pnpm 11.25.0. Historical Dongguo records and CHANGELOG are reconciled separately.
