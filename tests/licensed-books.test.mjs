@@ -9,6 +9,7 @@ const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 test('all17 uncertain editions are replaced and seven retained collections keep their original version hashes',async()=>{
  assert.equal(catalog.books.length,24);assert.equal(Object.keys(licensedBookSpecs).length,17);let replaced=0,retained=0;
  for(const e of catalog.books){const old=baseline[e.id],b=await library.book(choose(e.id));
+  if(e.source.url.includes('/kanripo/'))assert.match(e.source.attribution,/Kanripo/);else if(new URL(e.source.url).hostname==='zh.wikisource.org')assert.match(e.source.attribution,/维基文库/);
   if(!old.replaced){retained++;assert.equal(e.originalFile,old.originalFile);assert.equal(b.edition,old.sha256);continue;}
   replaced++;assert.notEqual(e.originalFile,old.originalFile);assert.notEqual(b.edition,old.sha256);await assert.rejects(access(path.join('data/library',old.originalFile)));
   assert.equal(e.source.license,'CC-BY-SA-4.0');assert.match(e.source.attribution,/贡献者/);assert.match(b.provider,/CC BY-SA 4.0/);assert.equal(b.sections.length,licensedBookSpecs[e.id].count);

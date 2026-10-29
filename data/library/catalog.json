@@ -4887,7 +4887,7 @@
         "hashScope": "有序originalFiles中file+TAB+sha256的换行串（末尾无换行）的SHA256",
         "license": "CC-BY-SA-4.0",
         "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
-        "attribution": "原作者及维基文库贡献者；逐页固定版本链接含作者历史入口。"
+        "attribution": "原作者及漢籍リポジトリ Kanripo 贡献者；组织声明 https://github.com/kanripo"
       },
       "knownIssues": [
         "繁体及异体原字，主要无现代标点，含元数据、页码与版面标记；运行时只剥离包装，不改字、不添标点。",
