@@ -1,3 +1,4 @@
+// Validate saved-story publication and media rules with synthetic records, independent of bundled content.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {storySchema,publishErrors,pageSchema} from '../lib/validation.ts';
