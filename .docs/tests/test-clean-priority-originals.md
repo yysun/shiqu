@@ -6,3 +6,5 @@
 4. 两书真实完整顺序通读每批均有输入证据，汇总只选已核对候选；SQLite和media原文在分镜调用前已保存，给模型的原文逐字相等，8页旁白简体；无外部书源/图片/音频请求。超时不得当部分阅读成功。太平没有新原件，不执行或冒称新版真实验证。
 5. 验证完成的真实故事在当前localhost书架可见，原文和分镜可由API读取，重复导入不重复，原有记录逐行不变；不导入自动化mock数据，不触发图片生成。
 6. 全部适用测试、typecheck、lint、普通build通过；其余21本的可读范围和旧原文检查点回归，无RAG，无Docker。
+
+执行结果：统一防线及两书原字/完整性/限定例外/legacy/存储回归通过；整合完整160项通过。真实ET：红楼120回11批4164单元、喻世40卷5批2441单元，16个完整输入均有实际响应哈希证明；2汇总、2分镜，模型gpt-6.1-sol，原文调用前已存SQLite/media，8页简体、无图音频。书架API与source API读回一致，saved=true，原有记录逐行不变，重复导入0新增。证据.data/evidence/clean-priority-originals/live/evidence.json、coverage-proof.json、bookshelf-api-final.json、bookshelf-import-idempotent.log。内置浏览器自动化不可用，未做屏幕级验收。太平迁移/新版真实验证未执行且未完成。
