@@ -1,6 +1,9 @@
 # Dongguo demo
 
-Base:94b38b1
+> Historical record — superseded by the [empty-library delivery](../../../../done/2026/10/29/empty-library.md).
+> Bundled demos and automatic story seeding were removed in `e404837`; the remaining admin-seed fix is committed in `6ebd117`. The completed criteria and verification below describe the earlier Dongguo milestone, not the current product. Existing saved stories remain supported.
+
+Historical implementation base: `1747f15` (parent of `b6eca68`; originally recorded as `94b38b1`).
 Risk: non-low — changes seed identities, persisted new-library content, source attribution and consumer UI references across components.
 
 Use a distinct dongguo sample ID and 中山狼传 excerpt book metadata (not a25th whole-library choice). Preserve old stories/images and avoid overwriting existing rows. Retain the independently licensed种梨 source fallback for historical reads, moving it out of demo ownership if needed. Derive SQL seed from the canonical story/book data and assert parity. Update all promoted-sample selectors/cover logic/admin text to the new demo.
@@ -19,10 +22,14 @@ AR round2 blocked on legacy ordinary-story page15 limits. Resolve by deriving st
 
 AR fixed: plan now covers30-frame progress, completion events and validation bounds; rerun result passed. AR risk: non-low — persisted sample and consumer routes; AR review round:3; reviewer:reused.
 
-SS: exact existing content and30 PNGs bundled;28 focused tests passed. Browser ET found stale pear text in RecentStories; card now derives title/source from its story. All30 frames, page30 reload/resume and ending verified in isolated in-app Reader preview (3317/3318); no user library writes. Full TT passed before this presentation-only correction; final typecheck/lint pending. Milestone commit pending.
+SS: exact existing content and30 PNGs bundled;28 focused tests passed. Browser ET found stale pear text in RecentStories; card now derives title/source from its story. All30 frames, page30 reload/resume and ending verified in isolated in-app Reader preview (3317/3318); no user library writes. Full TT passed before this presentation-only correction; final typecheck/lint passed afterward, as recorded below. Milestone: b6eca68.
 
-SS milestone:dc18f74. TT:284/284 passed, Node24.22.1/pnpm11.25.0. Final pnpm typecheck and pnpm lint passed after RecentStories correction; git diff --check passed. ET: in-app Reader preview3317 backed by isolated SQLite3318 verified initial demo title/source/art, all30frames, final-page reload/resume, exact ending reflection, original/source panel and final image rendered. Desktop Vite preview1420 also opened successfully against isolated library (desktop shelf lists generated sessions, so ordinary seeded demo is verified in Reader). No desktop/Docker package/build or paid generation used. Admin component currently has no mount in client/main.tsx; its corrected text/selector is typechecked and ordinary admin seed is API/integration tested, not claimed as a browser route.
+SS milestone:b6eca68. TT:284/284 passed, Node24.22.1/pnpm11.25.0. Final pnpm typecheck and pnpm lint passed after RecentStories correction; git diff --check passed. ET: in-app Reader preview3317 backed by isolated SQLite3318 verified initial demo title/source/art, all30frames, final-page reload/resume, exact ending reflection, original/source panel and final image rendered. Desktop Vite preview1420 also opened successfully against isolated library (desktop shelf lists generated sessions, so ordinary seeded demo is verified in Reader). No desktop/Docker package/build or paid generation used. Admin component currently has no mount in client/main.tsx; its corrected text/selector is typechecked and ordinary admin seed is API/integration tested, not claimed as a browser route.
 
 CR round1 blocked: source panel and PNG subtitle still used only the24-book choices and omitted demo metadata. Resolve with bookName(story) in Reader and DEMO_BOOK fallback in PNG layout, with export subtitle assertion; rerun focused export tests, browser source panel, typecheck/lint and affected independent CR.
 
 CR fixed: Dongguo source-panel and PNG attribution now use the demo-book fallback; rerun result passed. CR risk: non-low — shared reader/export consumers and persisted sample content. CR review round:2; reviewer:reused. Focused18/18 passed, final pnpm typecheck/lint passed. Browser source headings explicitly show中山狼传. Prior284/284 TT remains valid; targeted rerun covers changed export behavior, UI correction is browser verified.
+
+Attribution fix milestone:acedfa7. All AP tasks complete; independent VR passed in round1.
+
+DD complete: .docs/done/2026/10/29/dongguo-demo.md preserves the final VR verbatim. These tracking records are finalized as historical documentation; they do not restore the removed demo or reopen its requirements.
