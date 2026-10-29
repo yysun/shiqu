@@ -5,6 +5,7 @@ Readers need to choose a story, recognize its state, resume reading and recover 
 ## Acceptance criteria
 
 - [ ] Essential metadata across all four pages uses readable shared typography and foreground colors. Shelf metadata is at least 12px with measured text/background contrast of at least 4.5:1; reader metadata remains legible over the shaded scene.
+- [ ] Normal viewer narration gives more space to the artwork: 22px on desktop, 21px on phones with 1.65 line height. The optional larger-text setting remains available at 28px/26px.
 - [ ] Home exposes the current story's resume action and a prominent new-story action in the initial viewport at both the existing preview size and a representative 390×844 phone viewport.
 - [ ] Reader shelf deletion offers Undo; Me lists deleted stories with titles and restore controls, including after a reload. Restoration preserves original content, progress and favorites, and does not dispatch generation.
 - [ ] Bookshelf and Me describe library totals truthfully, including unfinished stories, rather than claiming every stored story has been read.
