@@ -1,0 +1,29 @@
+# Shared story library
+
+Base: f7229a3. Source work stays in the attached isolated worktree and is integrated into main without overwriting existing desktop/icon edits.
+
+1. Add a development library resolver which honors explicit SHIQU_DATA_DIR, otherwise reads only dataDirectory from native desktop_settings (never desktop_credentials), otherwise uses the native app-data library default. Load .env before selecting the development directory; leave Docker/explicit production paths intact. User explicitly requires development phone/LAN testing. Keep Vite reachable on0.0.0.0 but protect its API and pairing routes with the existing pairing/cookie gate on the backend. Proxy /desktop/ alongside /api; print fresh public-port pairing links/QR codes. Static development assets/HMR remain available; private APIs require same-origin pairing for both localhost and phone. Vite fs.strict remains enabled; retain its environment/certificate/Git denies and add denies for .data, backups, all SQLite sidecars, media/cache folders and the selected library directory (literal escaped absolute glob). Test direct, ?raw and /@fs private-file requests as unauthenticated clients, including a library inside the workspace, while normal assets/HMR still load. The API backend remains loopback-only. Unit-test platform defaults, configured desktop paths, overrides and corrupt settings.
+2. Add concurrent desktop/development integration coverage with separate SQLite connections and both authenticated/unwrapped entry points. Existing SQL-fenced jobs/session leases should exclude duplicate generation; test independent demand, visibility/progress/media and stopping one entry. If the probe finds a concurrency flaw, fix narrowly and re-review before enabling live sharing.
+3. Inspect actual source/target row collisions and media. Stop the native supervised runtime through its controller (releasing the native directory lock), and stop the development server gracefully before offline consolidation, retaining already-started results. Back up both complete libraries and desktop runtime. Build a staged target from the desktop library, migrate that staged DB, merge source rows transactionally with exact duplicate checks and latest-timestamp progress reconciliation only; generated-session or paid-media conflicts stop replacement. The known published sample collision (zhongli, different reflection/revision) preserves both: keep the desktop row and import the development variant under a deterministic new published-story ID; rewrite its imported progress/event/job/deletion story_id references and record the mapping. Do not rename titles or change either story content. Copy/verify media hashes, quick_check, all original IDs and counts before atomic destination replacement. Never overwrite or remove source .data/dev; retain pre-merge desktop directory as backup.
+4. Merge reviewed source into main, retain all unrelated files, rebuild the current reader and stage latest desktop Node runtime/client/migrations so the installed desktop supports immutable queue artifacts. Replace only the installed runtime while stopped, keeping native settings/UI and credentials. Set development SHIQU_DATA_DIR in its existing private .env to the shared absolute directory without echoing other values. The default resolver also prevents a new checkout silently creating a separate library.
+5. Restart desktop and development against the shared Application Support path, preserving provider settings and localhost reader URL. Check actual open SQLite paths and identical story/session IDs, 东郭先生 media/plan/source/queue, pairing protections and no repeated paid outputs. Open the current reader through the in-app browser. Existing browser automation setting may require disclosed headless fallback only for test fixtures.
+6. Run focused/full Node checks, lint/typecheck/build; no Rust source changes are planned. Review and record operational evidence, backups and limits.
+
+Checklist:
+- [x] Resolver/.env behavior and unit coverage.
+- [x] Concurrent shared-library fixture and lifecycle regression coverage.
+- [ ] Backups, collision audit, offline staged merge and full preservation verification.
+- [ ] Reviewed source integrated, compatible installed runtime, both current entry points configured/restarted.
+- [ ] Full automated checks and live read-only shared-library verification.
+
+E2E: .docs/tests/test-shared-story-library.md. Shared concurrent use requires the current fenced queue runtime on both servers; older installed desktop payloads must be upgraded before pointing at the merged store. No new credential reader beyond the single non-secret settings value. Rollback restores the archived target/runtime and the private env backup while writers are stopped; the source remains available throughout.
+
+AR round2 passed with loopback design. User then explicitly required LAN phone testing; AR round3 reviews reusing the existing pairing gate for development APIs rather than disabling LAN. Resolver tests3/3 currently pass. No live data migration yet.
+
+AR passed: no blocking architecture flaws.
+AR risk: non-low — shared persistence, LAN authentication, frontend filesystem access and live consolidation.
+AR review round:4; reviewer:reused.
+
+SS concurrent probe passed: two independent SQLite connections share shelves/progress/media; paired desktop rejects unpaired requests, shared demand issues one anchor/image per page, one viewer leaving and development stopping do not halt desktop. Resolver3/3 and paired LAN Vite file-exposure test pass. Source migration remains pending.
+
+SS source milestone: resolver, paired LAN development and Vite private-file restrictions implemented. Focused5/5 tests pass (real Vite, two SQLite connections); typecheck/lint/diff checks pass. One-time offline migration helper is at .data/evidence/shared-story-library/migrate.py, prepared for review before execution. Actual data/installed payload unchanged so far.

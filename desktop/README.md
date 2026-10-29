@@ -33,7 +33,7 @@ Codex 使用本机已登录的 CLI，可设置可执行文件、模型和登录�
 
 “检查连接”仅访问 Gemini 模型元数据，或执行 Codex 登录状态检查；不生成内容，不证明实际生成配额。检查前自动保存当前配置和密钥，再从数据库读取并检查；不会保留未保存的运行配置。服务运行期间必须先停止，才能更改配置或密钥。
 
-设置及密钥保存在系统应用配置目录的 `com.shiqu.desktop/desktop.sqlite`，独立于故事库，不读取项目 `.env`。首次使用会迁移旧版非密钥 `settings.json`，之后只读取数据库，不覆盖后续更改；旧文件保留不动。Unix 下应用配置目录/数据库权限为 0700/0600，Windows 使用用户配置目录的继承 ACL。备份数据库也会包含已保存的明文密钥。默认数据在系统应用数据目录下的 `library`。macOS 两者通常位于 `~/Library/Application Support/com.shiqu.desktop/`。更换数据目录切换书架，不会搬移文件。不要让 Docker/Node 和桌面版同时使用同一数据目录。
+设置及密钥保存在系统应用配置目录的 `com.shiqu.desktop/desktop.sqlite`，独立于故事库，不读取项目 `.env`。首次使用会迁移旧版非密钥 `settings.json`，之后只读取数据库，不覆盖后续更改；旧文件保留不动。Unix 下应用配置目录/数据库权限为 0700/0600，Windows 使用用户配置目录的继承 ACL。备份数据库也会包含已保存的明文密钥。默认数据在系统应用数据目录下的 `library`。macOS 两者通常位于 `~/Library/Application Support/com.shiqu.desktop/`。更换数据目录切换书架，不会搬移文件。开发版默认跟随此处的书库路径，也可通过 SHIQU_DATA_DIR 显式指定。共享前需备份、停服并合并已有独立书库；两端都必须使用当前持久队列版本。开发版手机访问同样需要配对；Vite 不提供私有书库文件。Docker 仍使用自己的显式挂载目录，不会自动合并。
 
 Codex 模式提供“推理档位”：跟随 Codex 默认、low、medium、high、xhigh、max。Sol 建议先选 low；具体支持取决于模型和 CLI。空值及旧配置缺少该字段时继续继承 CLI 配置。保存后在下次启动服务时生效，服务运行中不能修改。该选项用于应用内所有 Codex 请求，等价于 Node/Docker 的 `CODEX_REASONING_EFFORT`，但桌面版仍只读取自己的设置数据库。显式档位未被 CLI 采用时会报错，不会静默回退。
 

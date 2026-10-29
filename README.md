@@ -52,6 +52,12 @@
 
 服务器会从应用根目录读取随应用发布的书库，该目录与 SQLite/媒体目录分开。Docker 将书库放在 `/app/data/library`，而 `/data` 仍是可写的运行时挂载目录。目录元数据位于 `lib/reader-books.ts`。
 
+## 开发版与桌面版共用书架
+
+`pnpm dev` 先读取 `.env`；显式 `SHIQU_DATA_DIR` 优先，否则只从桌面设置读取书库路径，未配置时使用系统应用数据目录的 `com.shiqu.desktop/library`。macOS 默认是 `~/Library/Application Support/com.shiqu.desktop/library`。不会读取桌面保存的密钥。旧 `.data/dev` 不会自动覆盖或导入到共享书架；已有数据需先停服、备份并合并。
+
+开发版继续支持手机测试：Vite 对局域网开放，私有 API 使用与桌面版相同的配对机制；终端会显示本机配对链接及手机二维码。重启后需重新配对。旧书库、备份、SQLite、媒体及所选书库目录不能通过 Vite 文件、raw 或 @fs 路径读取。桌面版仍保留自己的配对与提供方设置；两端共享故事、媒体、阅读进度和持久任务，不共享登录凭证。并发共享需两端都使用包含持久队列与独立素材路由的当前版本，不能把旧桌面运行包直接指向新书库。
+
 ## 使用 Docker 启动
 
 请安装 Docker Engine 或 Docker Desktop，以及 Docker Compose。首次构建时会下载基础镜像和依赖项。
