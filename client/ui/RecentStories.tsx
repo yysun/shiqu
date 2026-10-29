@@ -1,8 +1,12 @@
 'use client';
+// Present recent stories with their saved art style, theme, and reading progress.
 import {useRef,useState} from 'react';
 import {ChevronLeft,ChevronRight,Play,BookOpen} from 'lucide-react';
 import type {Story} from '@/lib/content';
+import type {GeneratedStory} from '@/lib/reader-model';
 import type {recentHeroes} from '@/lib/reader-home';
+
+const isGenerated=(story:Story):story is GeneratedStory=>'generated'in story&&story.generated===true;
 
 type Props={items:ReturnType<typeof recentHeroes>;loading:boolean;bookName:(story:Story)=>string;onOpen:(story:Story,restart:boolean)=>void};
 export default function RecentStories({items,loading,bookName,onOpen}:Props){
@@ -21,7 +25,7 @@ export default function RecentStories({items,loading,bookName,onOpen}:Props){
    {items.map((item,i)=><button className="yu-feature" key={item.story.id} aria-label={(item.recent?'继续阅读':'开始阅读')+item.story.title} onClick={()=>onOpen(item.story,!item.recent)}>
     <img src={item.image} alt={item.story.title+'，第 '+(item.page+1)+' 幅'} draggable={false} loading={i===0?'eager':'lazy'}/><span className="yu-feature-wash"/>
     <span className="yu-feature-tag"><span/>{item.recent?'最近阅读 · '+bookName(item.story):'灵感来自《聊斋志异》'}</span>
-    <span className="yu-feature-copy"><small>{item.recent?`读到第 ${item.page+1} 幅 · ${item.story.theme}`:'种梨 · 一场看似慷慨的戏法'}</small><strong>{item.recent?item.story.title:<>一颗梨，<br/>能看清多少人心？</>}</strong><span className="yu-feature-bottom"><span>{item.recent?`继续阅读 · ${item.page+1} / ${item.story.pages.length} 幅`:`开始阅读 · ${item.story.pages.length} 幅`}</span><i><Play size={16} fill="currentColor"/></i></span></span>
+    <span className="yu-feature-copy"><small>{isGenerated(item.story)?(item.story.artStyleLabel||'未记录画风'):'体验样篇画风'}{item.story.theme&&` · ${item.story.theme}`}</small><strong>{item.recent?item.story.title:<>一颗梨，<br/>能看清多少人心？</>}</strong><span className="yu-feature-bottom"><span>{item.recent?`继续阅读 · ${item.page+1} / ${item.story.pages.length} 幅`:`开始阅读 · ${item.story.pages.length} 幅`}</span><i><Play size={16} fill="currentColor"/></i></span></span>
    </button>)}
   </div>
   {items.length>1&&<div className="yu-hero-controls"><button aria-label="上一个最近故事" disabled={active===0} onClick={()=>move(-1)}><ChevronLeft size={19}/></button><span aria-live="polite">最近阅读 · {active+1} / {items.length}</span><button aria-label="下一个最近故事" disabled={active===items.length-1} onClick={()=>move(1)}><ChevronRight size={19}/></button></div>}
