@@ -96,8 +96,8 @@ test('helper receives isolated config/environment, handles split output and stop
 test('helper missing, timeout and startup cancellation leave no process or config',nativeOnly,async t=>{
  await assert.rejects(startDesktopTunnel('http://127.0.0.1:12345','/missing/cloudflared'),/未找到 cloudflared/);
  const f=await fake(t,{ready:false});
- await assert.rejects(startDesktopTunnel('http://127.0.0.1:12345',f.binary,{timeoutMs:300}),/未能连接/);
- let info=await f.info();assert.equal(alive(info.pid),false);await assert.rejects(access(info.args[info.args.indexOf('--config')+1]));
+ const timedOut=assert.rejects(startDesktopTunnel('http://127.0.0.1:12345',f.binary,{timeoutMs:5000}),/未能连接/);
+ let info=await f.info();await timedOut;assert.equal(alive(info.pid),false);await assert.rejects(access(info.args[info.args.indexOf('--config')+1]));
  const second=await fake(t,{ready:false}),abort=new AbortController();
  const starting=startDesktopTunnel('http://127.0.0.1:12345',second.binary,{signal:abort.signal});const rejected=assert.rejects(starting,/取消/);
  info=await second.info();abort.abort();await rejected;assert.equal(alive(info.pid),false);

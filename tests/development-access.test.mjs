@@ -20,7 +20,8 @@ test('development LAN proxy allows direct access and protects preserved/private 
  await writeFile(path.join(root,'index.html'),'<html><body>development reader<script type="module" src="/main.js"></script></body></html>');await writeFile(path.join(root,'main.js'),'export const visible=true;');
  let protectedApi=async()=>new Response('not ready',{status:503});
  const backend=createHttpServer(request=>protectedApi(request));backend.listen(0,'127.0.0.1');await once(backend,'listening');
- t.after(()=>new Promise(resolve=>backend.close(resolve)));
+ // Vite proxy keep-alive sockets must close before its later teardown hook.
+ t.after(()=>new Promise(resolve=>{backend.close(resolve);backend.closeAllConnections();}));
  const apiPort=backend.address().port;
  const frontend=await createServer({configFile:false,root,logLevel:'silent',plugins:[protectDevelopmentLibrary(library)],server:developmentServerOptions({port:0,apiPort,library})});await frontend.listen();
  t.after(()=>frontend.close());
