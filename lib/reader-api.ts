@@ -27,6 +27,21 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path.join('/')==='suggestions'&&req.method==='POST'){
    await requireProvider();
    const {excludeTitles,...selection}=suggestionRequestSchema.parse(await body(req,28000));
+   if(req.headers.get('accept')==='application/x-ndjson'){
+    const abort=new AbortController(),encoder=new TextEncoder();
+    const stream=new ReadableStream<Uint8Array>({
+     start(controller){
+      const send=(event:unknown)=>{if(!abort.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
+      send({type:'progress',progress:{completed:0,total:1,completedChars:0,totalChars:0,stage:'reading'}});
+      void provider.suggestions(selection,excludeTitles,undefined,{signal:abort.signal,onProgress:progress=>send({type:'progress',progress})})
+       .then(batch=>send({type:'result',batch}))
+       .catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof ReaderError?error.message:provider.safeError(error)});})
+       .finally(()=>{if(!abort.signal.aborted)controller.close();});
+     },
+     cancel(){abort.abort();},
+    });
+    return new Response(stream,{headers:{'Content-Type':'application/x-ndjson','Cache-Control':'private, no-store','X-Accel-Buffering':'no'}});
+   }
    try{return json(await provider.suggestions(selection,excludeTitles));}catch(error){if(error instanceof ReaderError)throw error;throw new ReaderError(502,provider.safeError(error));}
   }
   if(path[0]==='sessions'&&path.length===1){

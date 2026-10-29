@@ -7,6 +7,9 @@ import {artRecommendationSchema} from './reader-art-recommendation.ts';
 export const suggestionRequestSchema=selectionSchema.extend({excludeTitles:z.array(z.string().min(1).max(100)).max(200).default([])});
 export const suggestionBatchSchema=z.object({stories:z.array(z.object({title:z.string().min(1).max(100),description:z.string().min(1).max(180),source:localSourceSchema.optional(),sourceLabel:z.string().max(150).optional(),artRecommendation:artRecommendationSchema.optional()})).max(5),note:z.string().max(300)});
 export type SuggestionBatch=z.infer<typeof suggestionBatchSchema>;
+export const suggestionProgressSchema=z.object({completed:z.number().int().min(0),total:z.number().int().min(1),completedChars:z.number().int().min(0),totalChars:z.number().int().min(0),stage:z.enum(['reading','selecting'])}).refine(p=>p.completed<=p.total&&p.completedChars<=p.totalChars);
+export type SuggestionProgress=z.infer<typeof suggestionProgressSchema>;
+export function suggestionReadingPercent(progress:SuggestionProgress){return progress.totalChars?Math.floor(progress.completedChars/progress.totalChars*100):null;}
 export const maxSuggestionBatches=40;
 export function suggestionKey(bookId:string,customBook:string|undefined,theme:string){return JSON.stringify([bookId,bookId==='other'?(customBook||'').trim():'',theme.trim()]);}
 export function titleKey(title:string){return title.normalize('NFKC').replace(/[\s《》〈〉「」『』·・:：，,。.!！?？]/g,'').toLowerCase();}

@@ -6,11 +6,13 @@ import os from 'node:os';
 import {readFile,mkdtemp,rm,writeFile,cp} from 'node:fs/promises';
 import {LocalBooks} from '../server/local-books.ts';
 import {bookInputs} from '../server/local-book-inputs.ts';
+import {indexInputLimit} from '../server/local-story-discovery.ts';
 import {withLocalBooks} from '../server/local-generation.ts';
 import {createApplication} from '../server/app.ts';
 import {FileMedia} from '../server/media.ts';
 const root=process.cwd(),library=new LocalBooks(root),catalog=JSON.parse(await readFile('data/library/catalog.json','utf8'));
 const counts=[12,33,36,100,120,120,120,56,18,8,20,25,24,30,500,10,40,40,40,40,40,130,33,4];
+const memory=()=>{const values=new Map();return {get:async key=>{const bytes=values.get(key);return bytes?{arrayBuffer:async()=>bytes.slice().buffer}:null;},put:async(key,bytes)=>{values.set(key,new Uint8Array(bytes));}};};
 const select=bookId=>({bookId,theme:'聪明与糊涂',artStyle:'ink-pencil',length:8,voice:false});
 const plan={title:'经过核对的故事',hook:'他会怎样选择？',sourceReference:'模型不能决定的出处',adaptationNote:'现代简体旁白改编',reflection:'你会如何选择？',characters:'An adult Chinese scholar in plain robes.',pages:Array.from({length:8},()=>({caption:'他停下脚步仔细观察，发现事情还有另一种解释。',prompt:'An adult scholar carefully observes a scene.'}))};
 function candidate(book,visible,offset=0){
@@ -55,17 +57,61 @@ test('original corruption and unreadable source ranges fail closed',async t=>{
 });
 
 test('all batches including the final batch participate in summary; foreign-batch or fabricated receipts are rejected',async()=>{
- const book=await library.book(select('太平广记')),parts=bookInputs(book);assert.ok(parts.length>5);let scanned=0,summarySeen=0;
- const base=fake();base.suggestions=async(s,excluded,input)=>{if(input.purpose==='candidate-summary'){const all=JSON.parse(input.text);summarySeen=all.length;return {stories:[all.at(-1)],note:''};}scanned++;return {stories:candidate(book,new Set([...input.text.matchAll(/\[([a-z]+-\d+-\d+)\]/g)].map(m=>m[1]))),note:''};};
- const provider=withLocalBooks(base,library,{put:async()=>{}}),batch=await provider.suggestions(select('太平广记'),[]);assert.equal(scanned,parts.length);assert.ok(summarySeen>5);assert.ok(parts.at(-1).visible.has(batch.stories[0].source.firstUnit));
+ const book=await library.book(select('太平广记')),parts=bookInputs(book,indexInputLimit);assert.ok(parts.length>5);let scanned=0,summarySeen=0;
+ const base=fake();base.suggestions=async(s,excluded,input)=>{if(input.purpose==='candidate-summary'){const all=JSON.parse(input.text);summarySeen=Math.max(summarySeen,all.length);return {stories:[all.at(-1)],note:''};}scanned++;return {stories:candidate(book,new Set([...input.text.matchAll(/\[([a-z]+-\d+-\d+)\]/g)].map(m=>m[1]))),note:''};};
+ const provider=withLocalBooks(base,library,memory()),batch=await provider.suggestions(select('太平广记'),[]);assert.equal(scanned,parts.length);assert.ok(summarySeen>5);assert.ok(parts.at(-1).visible.has(batch.stories[0].source.firstUnit));
  base.suggestions=async(s,excluded,input)=>{if(input.purpose==='candidate-summary')return {stories:[{...candidate(book)[0],source:{...candidate(book)[0].source,firstUnit:'fabricated'}}],note:''};return {stories:candidate(book,new Set([...input.text.matchAll(/\[([a-z]+-\d+-\d+)\]/g)].map(m=>m[1]))),note:''};};
- await assert.rejects(provider.suggestions(select('太平广记'),[]),e=>e.status===502);
+ await assert.rejects(withLocalBooks(base,library,memory()).suggestions(select('太平广记'),[]),e=>e.status===502);
  // Every part returning a valid range from the last part must not leak it through earlier parts.
- const last=candidate(book,parts.at(-1).visible)[0];let foreignCalls=0;base.suggestions=async()=>{foreignCalls++;return {stories:[last],note:''};};const foreign=await provider.suggestions(select('太平广记'),[]);assert.equal(foreignCalls,parts.length);assert.equal(foreign.stories.length,1);assert.match(foreign.note,/部分候选/);
+ const last=candidate(book,parts.at(-1).visible)[0];let foreignCalls=0;base.suggestions=async()=>{foreignCalls++;return {stories:[last],note:''};};const foreign=await withLocalBooks(base,library,memory()).suggestions(select('太平广记'),[]);assert.equal(foreignCalls,parts.length+1);assert.equal(foreign.stories.length,1);assert.match(foreign.note,/部分候选/);
 });
 
 test('a failed reading batch stops later dispatch and cannot return partial whole-book success',async()=>{
- const base=fake();let calls=0;base.suggestions=async()=>{calls++;throw Error('batch failed');};const provider=withLocalBooks(base,library,{put:async()=>{}});await assert.rejects(provider.suggestions(select('太平广记'),[]),/batch failed/);assert.ok(calls<=2);
+ const base=fake();let calls=0;base.suggestions=async()=>{calls++;throw Error('batch failed');};const provider=withLocalBooks(base,library,memory());await assert.rejects(provider.suggestions(select('太平广记'),[]),/batch failed/);assert.ok(calls<=2);
+});
+
+test('whole-book reading reports completed batches and stops dispatch after cancellation',async()=>{
+ const base=fake(),progress=[],abort=new AbortController(),releases=[];let calls=0;
+ base.suggestions=async()=>{calls++;await new Promise(resolve=>{releases.push(resolve);});return {stories:[],note:''};};
+ const provider=withLocalBooks(base,library,memory());
+ const pending=provider.suggestions(select('警世通言'),[],undefined,{signal:abort.signal,onProgress:p=>progress.push(p)});
+ // Wait until both workers are in flight, then finish them after cancellation.
+ while(calls<2)await new Promise(resolve=>setTimeout(resolve,1));
+ const rejected=assert.rejects(pending,e=>e.name==='AbortError');
+ abort.abort();releases.forEach(resolve=>resolve());await rejected;
+ base.suggestions=async()=>({stories:[],note:''});
+ const another=new AbortController();let completed=0;
+ const fast=withLocalBooks(base,library,memory());
+ await fast.suggestions(select('警世通言'),[],undefined,{signal:another.signal,onProgress:p=>{completed=p.completed;}});
+ assert.equal(completed,bookInputs(await library.book(select('警世通言')),indexInputLimit).length);assert.equal(progress[0].completed,0);assert.equal(progress[0].total,bookInputs(await library.book(select('警世通言')),indexInputLimit).length);assert.equal(progress[0].completedChars,0);assert.ok(progress[0].totalChars>0);assert.equal(progress[0].stage,'reading');
+ assert.equal(calls,2);
+});
+
+test('character progress weights unequal batches and deduplicates overlap even when workers finish out of order',async()=>{
+ const lengths=[10000,12000,9000,12000,8000,11000,7000,10000,1000];
+ const units=lengths.map((length,i)=>({id:`test-01-${i}`,text:(i===0?'𠮷':'字').repeat(length)+' \n\t'}));
+ const book={id:'test',title:'计数测试',edition:'test',sections:[{id:'test-01',title:'正文',units}],input:{title:'计数测试',edition:'test',text:units.map(u=>u.text).join('\n')}};
+ const parts=bookInputs(book,indexInputLimit),jobs=[],events=[];
+ assert.ok(parts.length>=3);
+ const base=fake();base.suggestions=async(s,e,input)=>{await new Promise(resolve=>jobs.push({input,resolve}));return {stories:[],note:''};};
+ const wrapped=withLocalBooks(base,{book:async()=>book},memory());
+ const pending=wrapped.suggestions(select('test'),[],undefined,{signal:new AbortController().signal,onProgress:p=>events.push(p)});
+ const waitFor=async condition=>{for(let tries=0;!condition();tries++){assert.ok(tries<1000,'reading worker did not advance');await new Promise(resolve=>setTimeout(resolve,1));}};
+ await waitFor(()=>jobs.length===2);
+ jobs[1].resolve();await waitFor(()=>events.length===2);
+ const counts=new Map(units.map((unit,i)=>[unit.id,lengths[i]]));
+ const secondChars=Array.from(parts[1].visible).reduce((sum,id)=>sum+counts.get(id),0),totalChars=lengths.reduce((sum,n)=>sum+n,0);
+ assert.equal(events[1].completedChars,secondChars);assert.equal(events[1].totalChars,totalChars);
+ assert.notEqual(secondChars/totalChars,1/parts.length);
+ jobs[0].resolve();
+ for(let i=2;i<parts.length;i++){await waitFor(()=>jobs.length>i);jobs[i].resolve();}
+ await pending;
+ const seen=new Set();let expected=0;
+ for(const [index,event] of events.entries()){
+  if(index>0){const part=parts[index===1?1:index===2?0:index-1];for(const id of part.visible)if(!seen.has(id)){seen.add(id);expected+=counts.get(id);}}
+  assert.equal(event.completedChars,expected);assert.equal(event.totalChars,totalChars);
+ }
+ assert.equal(events.at(-1).completedChars,totalChars);
 });
 
 test('all 24 books complete HTTP selection and persist original glyphs before storyboard generation',async t=>{

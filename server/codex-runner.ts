@@ -10,7 +10,7 @@ export {codexEnvironment} from '../scripts/codex-env.mjs';
 export class CodexError extends Error {constructor(code:string){super(code);this.name='CodexError';}}
 export type CodexJob={prompt:string;instructions:string;schema?:unknown;image?:{bytes:Uint8Array;contentType:string};generateImage?:boolean;timeoutMs?:number};
 export type CodexResult={text:string;image:string|null;model:string;requestId:string;usage:unknown};
-export interface CodexRunner {status():Promise<{configured:boolean;reason?:string}>;run(job:CodexJob):Promise<CodexResult>}
+export interface CodexRunner {status():Promise<{configured:boolean;reason?:string;model?:string}>;run(job:CodexJob):Promise<CodexResult>}
 const disabled=['shell_tool','unified_exec','view_image','browser_use','computer_use','plugins','remote_plugin','apps','hooks','multi_agent','code_mode','code_mode_only','code_mode_tool_search','tool_suggest'];
 export function codexArguments(directory:string){
  const args=['app-server','--listen','stdio://','-c','web_search="disabled"','-c','features.skip_host_skill_discovery=true','-c','features.code_mode_host=true','-c','features.image_generation=true','-c','default_permissions="shiqu-generation"','-c',`permissions.shiqu-generation.filesystem={ ":root" = "deny", ${JSON.stringify(directory)} = "read" }`];
@@ -35,7 +35,7 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
    const completion=new Promise<CodexResult>((resolve,reject)=>{failure=reject;
     child=spawn(binary,codexArguments(directory),{cwd:directory,env,stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32',windowsHide:true});
     exited=new Promise(resolve=>child!.once('close',()=>resolve()));
-    timer=setTimeout(()=>fail(new CodexError('TIMEOUT')),Math.min(options.timeoutMs||120000,job?.timeoutMs||(job?120000:10000)));
+    timer=setTimeout(()=>fail(new CodexError('TIMEOUT')),Math.min(options.timeoutMs||180000,job?.timeoutMs||(job?120000:10000)));
     child.once('error',()=>fail(new CodexError('CLI_UNAVAILABLE')));
     child.once('exit',()=>{if(!closed)fail(new CodexError('PROCESS_EXIT'));});
     // Raw output can contain prompts or authentication details: discard stderr and cap both streams.
@@ -78,7 +78,7 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
       if(account.account?.type!=='chatgpt')throw new CodexError('CHATGPT_LOGIN_REQUIRED');
       const config=await call('config/read',{});
       if(disabled.some(feature=>config.config?.features?.[feature]!==false)||config.config?.features?.code_mode_host===false||config.config?.features?.image_generation===false)throw new CodexError('UNSAFE_CONFIGURATION');
-      if(!job){closed=true;resolve({text:'',image:null,model:'',requestId:'',usage:null});return;}
+      if(!job){closed=true;resolve({text:'',image:null,model:model||(typeof config.config?.model==='string'?config.config.model:''),requestId:'',usage:null});return;}
       const servers=config.config?.mcp_servers||{};
       const thread=await call('thread/start',{cwd:directory,ephemeral:true,approvalPolicy:'never',modelProvider:'openai',...(model?{model}:{}),config:{forced_login_method:'chatgpt',mcp_servers:Object.fromEntries(Object.keys(servers).map(name=>[name,{enabled:false}]))},developerInstructions:job.instructions});
       if(thread.modelProvider!=='openai')throw new CodexError('UNSAFE_CONFIGURATION');
@@ -103,7 +103,7 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
   }
  }
  return {
-  async status(){try{await execute();return {configured:true};}catch(error){return {configured:false,reason:error instanceof CodexError?error.message:'CLI_UNAVAILABLE'};}},
+  async status(){try{const result=await execute();return {configured:true,...(result?.model?{model:result.model}:{})};}catch(error){return {configured:false,reason:error instanceof CodexError?error.message:'CLI_UNAVAILABLE'};}},
   async run(job){return (await execute(job))!;},
  };
 }

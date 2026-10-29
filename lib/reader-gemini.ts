@@ -9,7 +9,7 @@ import {choicesJson,planJson,suggestionSystemPrompt,planSystemPrompt,imagePrompt
 export {imageTypes} from './reader-generation-contract.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import {saveStoryOriginal} from './reader-source-storage.ts';
-import {localChoicesJson,localChoices,localReadingPrompt,localPlanConstraint} from './reader-local-contract.ts';
+import {localChoicesJson,localIndexJson,localChoices,localReadingPrompt,localPlanConstraint,localSuggestionPayload} from './reader-local-contract.ts';
 import type {WholeBookInput} from './reader-local-contract.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 
@@ -98,12 +98,13 @@ function parseText(candidate:Candidate){
  try{return JSON.parse(value);}catch{throw new GeminiError('INVALID_JSON');}
 }
 export async function suggestStories(key:string,selection:Selection,config:Partial<Models>={},transport:typeof fetch=fetch,excludeTitles:string[]=[],localBook?:WholeBookInput){
- const models={...defaultModels,...config},{book,url}=source(selection);
+ const models={...defaultModels,...config},{book,url}=source(selection),index=localBook?.purpose==='story-index';
  const {candidate}=await client(key,transport)(models.text,textRequest(
   localBook?localReadingPrompt(localBook):suggestionSystemPrompt,
-  {book,theme:selection.theme,excludeTitles,...(localBook?{localBook}:{})},localBook?localChoicesJson:choicesJson,url,localBook?5000:2500),localBook?120000:60000);
+  localSuggestionPayload(book,selection.theme,excludeTitles,localBook),index?localIndexJson:localBook?localChoicesJson:choicesJson,url,index?8000:localBook?5000:2500),index?180000:localBook?120000:60000);
  if(url&&!wasRead(candidate,url))return {stories:[],note:'暂时无法读取这个链接，请提供可公开访问的原文页面，或直接输入书名。'};
- return freshSuggestions(localBook?localChoices(parseText(candidate),localBook):choicesSchema.parse(parseText(candidate)),excludeTitles);
+ const batch=localBook?localChoices(parseText(candidate),localBook):choicesSchema.parse(parseText(candidate));
+ return index||localBook?.purpose==='candidate-summary'?batch:freshSuggestions(batch,excludeTitles);
 }
 export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={},transport:typeof fetch=fetch):StoryGenerator{
  const models={...defaultModels,...config},generate=client(key,transport);

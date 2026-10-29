@@ -26,7 +26,7 @@ for await(const line of createInterface({input:process.stdin})){
  const m=JSON.parse(line);log(m);if(!m.id)continue;
  let result={};
  if(m.method==='account/read')result={account:mode==='signed-out'?null:{type:mode==='api-key'?'apiKey':'chatgpt'}};
- if(m.method==='config/read')result={config:{features:Object.fromEntries(process.argv.flatMap((arg,i)=>arg==='--disable'?[[process.argv[i+1],false]]:[])),mcp_servers:{'inherited-private-server':{enabled:true}}}};
+ if(m.method==='config/read')result={config:{...(mode==='configured-model'?{model:'configured-text-model'}:{}),features:Object.fromEntries(process.argv.flatMap((arg,i)=>arg==='--disable'?[[process.argv[i+1],false]]:[])),mcp_servers:{'inherited-private-server':{enabled:true}}}};
  if(m.method==='thread/start')result={thread:{id:'fake-thread'},model:'test-codex-model',modelProvider:'openai'};
  if(m.method==='mcpServerStatus/list')result={data:mode==='unsafe'?[{tools:{read_secret:{}}}]:[{name:'inherited-private-server',tools:{}}],nextCursor:null};
  send({id:m.id,result});
@@ -58,6 +58,27 @@ test('signed-out and API-key Codex logins never start inference or fall back to 
   await assert.rejects(runner.run({instructions:'test',prompt:'test'}),error=>error.message==='CHATGPT_LOGIN_REQUIRED');assert.ok(!(await fake.log()).some(row=>row.method==='turn/start'));
  }
  const missing=createCodexRunner({CODEX_BIN:'/missing/codex'});assert.equal((await missing.status()).reason,'CLI_UNAVAILABLE');
+});
+
+test('status exposes the configured text model for cache identity without starting inference',async t=>{
+ const fake=await fakeCli(t,'configured-model'),runner=createCodexRunner({CODEX_BIN:fake.binary});
+ assert.equal((await runner.status()).model,'configured-text-model');
+ const provider=createReaderProvider({SHIQU_AI_PROVIDER:'codex'},assets(),fetch,runner);
+ assert.equal((await provider.status()).models.text,'configured-text-model');
+ assert.ok(!(await fake.log()).some(row=>row.method==='turn/start'));
+ const explicit=createCodexRunner({CODEX_BIN:fake.binary,CODEX_MODEL:'explicit-text-model'});
+ assert.equal((await explicit.status()).model,'explicit-text-model');
+});
+
+test('the runner honors longer index deadlines while an explicit shorter test limit still wins',async t=>{
+ const fake=await fakeCli(t),original=setTimeout,delays=[];
+ globalThis.setTimeout=(callback,delay,...args)=>{delays.push(delay);return original(callback,delay,...args);};
+ try{
+  await createCodexRunner({CODEX_BIN:fake.binary}).run({instructions:'JSON',prompt:'index fixture',timeoutMs:180000});
+  assert.ok(delays.includes(180000));delays.length=0;
+  await createCodexRunner({CODEX_BIN:fake.binary},{timeoutMs:2000}).run({instructions:'JSON',prompt:'index fixture',timeoutMs:180000});
+  assert.ok(delays.includes(2000));assert.ok(!delays.includes(180000));
+ }finally{globalThis.setTimeout=original;}
 });
 test('runner rejects unsafe tools, oversized output, process failure, missing image bytes and timeout, then removes jobs',async t=>{
  for(const [mode,code] of [['unsafe','UNSAFE_CONFIGURATION'],['tool','UNEXPECTED_TOOL'],['large','OUTPUT_LIMIT'],['exit','PROCESS_EXIT'],['path-only','IMAGE_UNAVAILABLE'],['hang','TIMEOUT']]){

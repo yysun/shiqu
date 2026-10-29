@@ -3,52 +3,24 @@
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
 import {ReaderError} from '../lib/reader-model.ts';
-import {freshSuggestions} from '../lib/reader-suggestions.ts';
 import {LocalBooks,localBookId} from './local-books.ts';
 import {hasSourceAnomaly,hasBlockingSourceAnomaly} from './local-source-quality.ts';
-import {bookInputs} from './local-book-inputs.ts';
-import type {SuggestionBatch} from '../lib/reader-suggestions.ts';
+import {discoverLocalStories} from './local-story-discovery.ts';
+import {StoryDiscoveryCache} from './story-discovery-cache.ts';
 
-export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:MediaStore):ReaderProvider{
+export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:MediaStore,cache=new StoryDiscoveryCache(media)):ReaderProvider{
  async function persist(source:NonNullable<Awaited<ReturnType<LocalBooks['selected']>>>,id:string){
   await media.put(`reader/${id}/source.json`,new TextEncoder().encode(JSON.stringify(source)),{contentType:'application/json'});
   return source;
  }
  return {
   status:()=>provider.status(),safeError:error=>provider.safeError(error),
-  async suggestions(selection,excluded){
+  async suggestions(selection,excluded,_localBook,reading){
+   reading?.signal.throwIfAborted();
    const book=await books.book(selection);
+   reading?.signal.throwIfAborted();
    if(!book)return provider.suggestions(selection,excluded);
-   const inputs=bookInputs(book),batches:SuggestionBatch[]=new Array(inputs.length);
-   let cursor=0,failure:unknown,rejected=0;
-   async function worker(){
-    while(cursor<inputs.length&&!failure){const index=cursor++,part=inputs[index];
-     try{
-      const batch=await provider.suggestions({...selection,source:undefined},excluded,part.input);
-      const stories=batch.stories.flatMap(story=>{try{
-       if(!story.source)throw Error();const original=books.resolve(book!,story.source);
-       const section=book!.sections.find(s=>s.id===story.source!.sectionId)!;
-       const first=section.units.findIndex(u=>u.id===story.source!.firstUnit),last=section.units.findIndex(u=>u.id===story.source!.lastUnit);
-       if(!section.units.slice(first,last+1).every(unit=>part.visible.has(unit.id)))throw Error();
-       return [{...story,sourceLabel:original.title}];
-      }catch{rejected++;return [];}});
-      batches[index]={stories,note:batch.note};
-     }catch(error){failure=error;}
-    }
-   }
-   await Promise.all(Array.from({length:Math.min(2,inputs.length)},worker));
-   if(failure)throw failure;
-   const key=(story:SuggestionBatch['stories'][number])=>{const s=story.source;return s?[s.edition,s.sectionId,s.firstUnit,s.lastUnit].join('|'):'';};
-   const seen=new Set<string>();const stories=batches.flatMap(batch=>batch.stories).filter(story=>{if(seen.has(key(story)))return false;seen.add(key(story));return true;});
-   let chosen=stories;
-   if(inputs.length>1&&stories.length>5){
-    const candidates=JSON.stringify(stories.map(({title,description,source,sourceLabel,artRecommendation})=>({title,description,source,sourceLabel,artRecommendation})));
-    const summary=await provider.suggestions({...selection,source:undefined},excluded,{title:book.title,edition:book.edition,text:candidates,purpose:'candidate-summary'});
-    const allowed=new Map(stories.map(story=>[key(story),story]));const selected=new Set<string>();
-    chosen=summary.stories.map(story=>{const receipt=key(story),candidate=allowed.get(receipt);if(!candidate||selected.has(receipt))throw new ReaderError(502,'全书候选汇总的出处无法核对，请重试。');selected.add(receipt);return candidate;});
-   }
-   const note=inputs.length>1?`已按顺序通读全部 ${inputs.length} 批本地原文，并核对候选出处。`:batches[0]?.note||'';
-   return freshSuggestions({stories:chosen.slice(0,5),note:(rejected?'部分候选的本地出处无法核对，已移除。':'')+note},excluded);
+   return discoverLocalStories(provider,books,cache,book,selection,excluded,reading);
   },
   generator(){
    const generator=provider.generator();

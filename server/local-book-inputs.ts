@@ -15,7 +15,12 @@ export function bookInputs(book:LocalBook,maxChars=100000):ReadingInput[]{
    const heading=rows.at(-1)?.section.id===section.id?'':`篇章 ${section.id}：${section.title}\n`;
    let length=row.unit.text.length+row.unit.id.length+heading.length+5;
    if(length>maxChars-5000)throw Error('Local unit exceeded bound');
-   if(rows.length&&size+length>maxChars-5000){flush();rows=rows.filter(x=>x.section.id===section.id).slice(-2);size=render(rows).length;length=row.unit.text.length+row.unit.id.length+(rows.length?0:heading.length)+5;}
+   if(rows.length&&size+length>maxChars-5000){
+    flush();rows=rows.filter(x=>x.section.id===section.id).slice(-2);
+    // Retain only context that fits alongside this complete unit under smaller index budgets.
+    while(rows.length&&render([...rows,row]).length>maxChars-5000)rows.shift();
+    size=render(rows).length;length=row.unit.text.length+row.unit.id.length+(rows.length?0:heading.length)+5;
+   }
    rows.push(row);size+=length;
   }
  }if(rows.length)flush();

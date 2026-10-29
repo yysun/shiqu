@@ -20,10 +20,13 @@ async function incoming(request:IncomingMessage){
 async function outgoing(response:Response,target:ServerResponse){
  target.statusCode=response.status;
  response.headers.forEach((value,key)=>target.setHeader(key,value));
+ target.flushHeaders();
  if(response.body){
   const reader=response.body.getReader();
+  const disconnected=()=>{void reader.cancel().catch(()=>{});};
+  target.once('close',disconnected);
   try{while(!target.destroyed){const {done,value}=await reader.read();if(done)break;if(!target.write(value))await Promise.race([once(target,'drain'),once(target,'close')]);}}
-  finally{await reader.cancel();}
+  finally{target.off('close',disconnected);await reader.cancel();}
  }
  target.end();
 }

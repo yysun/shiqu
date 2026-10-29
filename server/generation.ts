@@ -9,7 +9,7 @@ import type {MediaStore} from '../lib/services.ts';
 import type {ReaderProvider,ProviderStatus} from '../lib/reader-provider.ts';
 import {CodexError,createCodexRunner} from './codex-runner.ts';
 import type {CodexRunner} from './codex-runner.ts';
-import {localChoicesJson,localChoices,localReadingPrompt,localPlanConstraint} from '../lib/reader-local-contract.ts';
+import {localChoicesJson,localIndexJson,localChoices,localReadingPrompt,localPlanConstraint,localSuggestionPayload} from '../lib/reader-local-contract.ts';
 
 function codexMessage(code:string){
  if(code==='CHATGPT_LOGIN_REQUIRED')return '请先运行 pnpm run codex:login，使用 ChatGPT 账号登录 Codex。订阅模式不会使用 API 密钥。';
@@ -37,12 +37,14 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
  }
  const provider:ReaderProvider={
   status(){
-   if(!cached||Date.now()>=expires){expires=Date.now()+30000;cached=codex.status().then(result=>({...result,...(!result.configured?{message:codexMessage(result.reason||'CLI_UNAVAILABLE')}:{ }),provider:'codex' as const,models,voiceEnabled:false as const}));}
+   if(!cached||Date.now()>=expires){expires=Date.now()+30000;cached=codex.status().then(({model:configuredModel,...result})=>({...result,...(!result.configured?{message:codexMessage(result.reason||'CLI_UNAVAILABLE')}:{ }),provider:'codex' as const,models:{...models,text:configuredModel||models.text},voiceEnabled:false as const}));}
    return cached;
   },
   async suggestions(selection,excluded,localBook){
-   const result=await codex.run({instructions:localBook?localReadingPrompt(localBook):suggestionSystemPrompt,prompt:JSON.stringify({book:book(selection),theme:selection.theme,excludeTitles:excluded,...(localBook?{localBook}:{})}),schema:localBook?localChoicesJson:choicesJson,timeoutMs:localBook?120000:60000});
-   return freshSuggestions(localBook?localChoices(JSON.parse(result.text),localBook):suggestionBatchSchema.parse(JSON.parse(result.text)),excluded);
+   const index=localBook?.purpose==='story-index';
+   const result=await codex.run({instructions:localBook?localReadingPrompt(localBook):suggestionSystemPrompt,prompt:JSON.stringify(localSuggestionPayload(book(selection),selection.theme,excluded,localBook)),schema:index?localIndexJson:localBook?localChoicesJson:choicesJson,timeoutMs:index?180000:localBook?120000:60000});
+   const batch=localBook?localChoices(JSON.parse(result.text),localBook):suggestionBatchSchema.parse(JSON.parse(result.text));
+   return index||localBook?.purpose==='candidate-summary'?batch:freshSuggestions(batch,excluded);
   },
   generator(){return {
    original:(selection,plan,id)=>saveStoryOriginal(media,selection,plan,id,transport),

@@ -5,7 +5,7 @@ import {artRecommendationSchema,selectSuggestedStory} from '../lib/reader-art-re
 import {artStyleIds} from '../lib/reader-styles.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
 import {suggestionBatchSchema,freshSuggestions} from '../lib/reader-suggestions.ts';
-import {localChoices,localChoicesJson,localReadingPrompt} from '../lib/reader-local-contract.ts';
+import {localChoices,localChoicesJson,localIndexJson,localReadingPrompt} from '../lib/reader-local-contract.ts';
 import {choicesJson,suggestionSystemPrompt} from '../lib/reader-generation-contract.ts';
 import {createReaderProvider} from '../server/generation.ts';
 import {withLocalBooks} from '../server/local-generation.ts';
@@ -38,7 +38,7 @@ test('new stories adopt their recommendation, reselect preserves manual choice, 
 });
 
 test('all new provider response contracts require recommendations and local receipt validation retains them',()=>{
- for(const schema of [choicesJson,localChoicesJson]){
+ for(const schema of [choicesJson,localChoicesJson,localIndexJson]){
   const story=schema.properties.stories.items;
   assert.ok(story.required.includes('artRecommendation'));
   assert.deepEqual(story.properties.artRecommendation.properties.artStyle.enum,[...artStyleIds]);
@@ -49,11 +49,12 @@ test('all new provider response contracts require recommendations and local rece
  assert.equal(batch.stories[0].source.edition,source.edition);
  assert.match(suggestionSystemPrompt,/artRecommendation/);
  assert.match(localReadingPrompt(localBook),/具体故事内容/);
+ assert.match(localReadingPrompt({...localBook,purpose:'story-index'}),/artRecommendation/);
  assert.match(localReadingPrompt({...localBook,purpose:'candidate-summary'}),/原样复制/);
 });
 
 test('Gemini and Codex carry recommendations in the existing single suggestion call for all discovery modes',async()=>{
- for(const providerName of ['gemini','codex'])for(const mode of ['remote','local']){
+ for(const providerName of ['gemini','codex'])for(const mode of ['remote','local','story-index']){
   let calls=0;
   const result=job=>{
    calls++;
