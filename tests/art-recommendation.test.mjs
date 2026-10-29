@@ -79,7 +79,7 @@ test('whole-book selection keeps the original content-based recommendation throu
  const book={id:'山海经',title:'山海经',edition:source.edition,sections,input:{title:'山海经',edition:source.edition,text:'全'.repeat(120001)}};
  let summaryCalls=0;
  const books={book:async()=>book,resolve:(_book,receipt)=>({title:receipt.sectionId,text:'核对原文'})};
- const provider={status:async()=>({configured:true}),safeError:()=>'',generator:()=>({}),suggestions:async(_selection,_excluded,input)=>{
+ const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock'}}),safeError:()=>'',generator:()=>({}),suggestions:async(_selection,_excluded,input)=>{
   if(input.purpose==='candidate-summary'){
    summaryCalls++;
    const stories=JSON.parse(input.text);
@@ -90,7 +90,8 @@ test('whole-book selection keeps the original content-based recommendation throu
    title:'故事'+section.id,description:'真实故事简介',source:{edition:book.edition,sectionId:section.id,firstUnit:section.units[0].id,lastUnit:section.units[0].id},artRecommendation:recommendation,
   })),note:''};
  }};
- const batch=await withLocalBooks(provider,books,{}).suggestions(selection,[]);
+ const stored=new Map(),media={get:async key=>{const bytes=stored.get(key);return bytes?{arrayBuffer:async()=>bytes.slice().buffer}:null;},put:async(key,bytes)=>{stored.set(key,new Uint8Array(bytes));}};
+ const batch=await withLocalBooks(provider,books,media).suggestions(selection,[]);
  assert.equal(summaryCalls,1);assert.equal(batch.stories.length,1);
  assert.deepEqual(batch.stories[0].artRecommendation,recommendation);
  assert.equal(batch.stories[0].sourceLabel,'s5');
