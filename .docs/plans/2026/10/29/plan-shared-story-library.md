@@ -27,3 +27,7 @@ AR review round:4; reviewer:reused.
 SS concurrent probe passed: two independent SQLite connections share shelves/progress/media; paired desktop rejects unpaired requests, shared demand issues one anchor/image per page, one viewer leaving and development stopping do not halt desktop. Resolver3/3 and paired LAN Vite file-exposure test pass. Source migration remains pending.
 
 SS source milestone: resolver, paired LAN development and Vite private-file restrictions implemented. Focused5/5 tests pass (real Vite, two SQLite connections); typecheck/lint/diff checks pass. One-time offline migration helper is at .data/evidence/shared-story-library/migrate.py, prepared for review before execution. Actual data/installed payload unchanged so far.
+
+CR round1 blocked: Vite publicDir bypassed fs.deny, and final install lacked a reacquired native lock/manifest path binding. Fixed by rejecting public-nested libraries/private aliases/files before startup and testing real Vite; installing now binds CLI paths to the manifest and holds both old/new native directory locks during hash checks and swap. Development validates frontend before spawning shared-database child and cleans up failed startup. Focused6/6 pass. Verified stage/backups remain unchanged.
+CR risk: non-low — private LAN exposure and live persistent-store replacement.
+CR review round:1; reviewer:reused.
