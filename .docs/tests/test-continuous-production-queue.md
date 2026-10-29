@@ -8,3 +8,6 @@
 6. In the in-app browser against controlled local providers, open an existing generated story, observe first and later images update, navigate before the old three-page boundary, leave/reopen, and confirm continued progress with saved assets. Record browser/session and avoid claiming live-provider throughput.
 
 7. Start a narrative-detail story, for both auto count and numeric7. Only source/recommendation may run. Reopen and confirm the saved recommendation is reused; confirm7 (including the unchanged numeric case), then exactly one storyboard and images may run. A slow script lease renews and excludes legacy planning.
+
+
+Execution evidence (2026-10-29): all flows passed under controlled providers, real SQLite and FileMedia. Browser flow6 used isolated headless Chromium because in-app automation was disabled; this fallback and session distinction were disclosed before running it. Final Node suite216/216 and browser runtime errors0. Evidence paths are recorded in the implementation plan. No live-provider inference or throughput benchmark.

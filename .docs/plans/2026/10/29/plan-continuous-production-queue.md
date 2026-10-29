@@ -20,11 +20,11 @@ Use stable versioned job keys and idempotent publication. Retry only failed jobs
 - [x] Wire immediate production routes and app/server/desktop shutdown; retain legacy advance behavior.
 - [x] Switch reader hook to independent viewer leases, page-relative demand and one-second progress polling; keep bounded recovery and saved-story behavior.
 - [x] Add controlled-provider REST/SQLite integration tests and generic future voice/video extension coverage; update README/env examples.
-- [ ] Run full unit/integration tests, lint/typecheck/build and focused E2E scenarios; record actual evidence limits.
+- [x] Run full unit/integration tests, lint/typecheck/build and focused E2E scenarios; record actual evidence limits.
 
 ## Verification and risks
 
-E2E spec: `.docs/tests/test-continuous-production-queue.md`. Test uneven completions, global caps, first-image dependency, individual visibility, multi-viewer leave/expiry, deletion, publication failure/retry, checkpoint races, restart, leases, shutdown and future DAG handlers. Reuse real SQLite and provider adapters with controlled results; no live inference. Browser uses in-app tab and a local controlled provider harness. Additive migration preserves old data; rollback requires stopping new queue workers before older binaries, whose legacy session API continues to read stored documents. Multiple independent application processes against one directory are not a supported deployment; database claims still fence duplicate jobs.
+E2E spec: `.docs/tests/test-continuous-production-queue.md`. Test uneven completions, global caps, first-image dependency, individual visibility, multi-viewer leave/expiry, deletion, publication failure/retry, checkpoint races, restart, leases, shutdown and future DAG handlers. Reuse real SQLite and provider adapters with controlled results; no live inference. Browser prefers the in-app tab; its automation was disabled in Work settings, so the user-authorized fallback used isolated headless Chromium against a local controlled-provider harness. This is not verification of the user's existing browser session. Additive migration preserves old data; rollback requires stopping new queue workers before older binaries, whose legacy session API continues to read stored documents. Multiple independent application processes against one directory are not a supported deployment; database claims still fence duplicate jobs.
 
 ## AR round 1
 
@@ -63,3 +63,22 @@ Frame-count integration implemented with distinct prepare/script identities; bot
 CR blocked: deleted pending publication with an expired session lease could fault the scheduler; shrinking read-ahead demand could falsely report running; lost retry responses could spend budget against stale failure. Fixed via raw owner-scoped expired-session recovery, demand-eligible status, and GET recovery after transport failure. Added regressions; focused29/29 pass. Also distinguish publication retry in reader text and update count help for continuous lookahead.
 CR risk: non-low — durable paid work, scheduler availability, recovery and lifecycle.
 CR review round:1; reviewer:reused.
+
+
+## Final verification evidence
+
+CR fixed: deleted-session recovery no longer poisons the scheduler; backtracking reports an idle full buffer; lost retry responses re-read current state before spending further retry budget. Rerun result passed.
+CR risk: non-low — durable paid work, recovery, scheduler availability and lifecycle.
+CR review round: 2; reviewer: reused.
+
+TT passed: `pnpm test` 216/216, Node 24.22.1 / pnpm 11.25.0; no skipped/cancelled tests. `pnpm run typecheck`, `pnpm run lint`, `pnpm run build` and `git diff --check 3a07851` passed after the final source changes. No applicable Rust source or packaging change; Node desktop lifecycle coverage is included in the full suite.
+
+ET passed: all seven E2E specification flows are evidenced by the controlled REST/SQLite integration tests and generic extension tests. Isolated headless Chromium additionally exercised first-image gating, out-of-order visibility/refill, page-one demand enabling page eight before the old boundary, leaving/reopening without repeating outputs, count confirmation, and publication retry with one paid image result reused. No page runtime errors, no live inference. In-app browser automation was attempted but unavailable (`Local browser use is disabled in Work settings`); the separate test session was disclosed before use, following AGENTS.md fallback guidance. Five screenshots were saved and reading/publication-retry screens visually inspected.
+
+Local evidence: `.data/evidence/continuous-production-queue/tests.log`, `browser-check.mjs`, `browser.log`, `browser-result.json`, and screenshots `01-reference-pending.png` through `05-publication-retry.png`. Browser fixtures reused an existing bundled illustration; they do not establish generated visual quality or live throughput. No Docker build, paid call, push, or modification to primary-checkout icon work.
+
+VR passed: all acceptance criteria complete.
+VR risk: non-low — durable paid work, dependency scheduling, recovery and lifecycle.
+VR review round: 1; reviewer: reused.
+
+Delivery milestones: b55ec83 (queue implementation), f06453a (frame-count prerequisite integration), a12d0cc (review recovery fixes). Final delivery commits only verified story documentation. No source changes after the passing second CR or final verification.
