@@ -127,7 +127,9 @@ button.yu-swipe-surface{padding:0;border:0;background:transparent;cursor:default
 @media(max-width:540px){.yu-header{padding-top:max(18px,env(safe-area-inset-top));padding-bottom:14px}.yu-intro h1{font-size:28px}.yu-reader-top{padding-bottom:12px}.yu-scene-caption>p{font-size:21px}.yu-scene-caption.large>p{font-size:26px}}
 @media(max-height:740px){.yu-intro h1{font-size:25px}.yu-intro{padding-bottom:12px}.yu-recent-hero .yu-feature{height:200px}.yu-new-story-link{margin-top:6px}}
 
-/* Center taps hide metadata and controls; narration retains its position and contrast. */
+/* Center taps hide metadata and controls; narration moves down with safe-area spacing. */
 .yu-reader-top,.yu-reader-bottom{pointer-events:none}.yu-reader-top button,.yu-reader-bottom button,.yu-reader-bottom a{pointer-events:auto}
 .yu-metadata-hidden>.yu-reader-top,.yu-metadata-hidden>.yu-reader-bottom,.yu-metadata-hidden>.yu-scene-caption>.yu-scene-number{visibility:hidden}
+.yu-metadata-hidden>.yu-scene-shade{background:linear-gradient(180deg,transparent 40%,#10261f55 58%,#10261fe6 80%,#0d241cf5 100%)}
+.yu-metadata-hidden>.yu-scene-caption{bottom:calc(28px + env(safe-area-inset-bottom,0px))}
 .yu-scene-number{flex-wrap:wrap;row-gap:6px}.yu-scene-number>i{flex:none}.yu-scene-generation{display:inline-flex;align-items:center;gap:6px;min-width:0;font-family:system-ui,sans-serif;letter-spacing:0;overflow-wrap:anywhere}.yu-scene-generation svg{flex:none}

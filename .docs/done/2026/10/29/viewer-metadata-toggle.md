@@ -2,7 +2,7 @@
 
 ## Summary
 
-Tapping the middle half of a story page now toggles the title, metadata, page-number line and controls. Narrative text stays visible in its original position, with the artwork shade retained for readability. The outer quarters still turn pages. The metadata choice survives page turns and resets when opening another story; the ending screen keeps its controls visible.
+Tapping the middle half of a story page now toggles the title, metadata, page-number line and controls. Narrative text stays visible, aligned 28 px above the bottom plus the device safe-area inset when metadata is hidden. This mode removes the top shading and keeps only the bottom gradient for narrative readability. Showing metadata restores the original caption position and shading. The outer quarters still turn pages. The metadata choice survives page turns and resets when opening another story; the ending screen keeps its controls visible.
 
 Removed the navigation instruction line shown below the narration. Active generation now appears beside the page count, with a spinner and the current stage.
 
