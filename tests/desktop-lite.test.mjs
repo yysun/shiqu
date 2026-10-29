@@ -13,7 +13,7 @@ import {desktopAccess} from '../server/desktop-access.ts';
 import {desktopSettings,desktopVariables,testDesktopProvider,startDesktop} from '../server/desktop.ts';
 import {ownDesktopData} from '../server/desktop-owner.ts';
 
-const settings=directory=>({nodePath:process.execPath,dataDirectory:directory,port:3000,lanEnabled:false,provider:'gemini',textModel:'test-text',imageModel:'test-image',codexPath:'',codexModel:'',codexHome:''});
+const settings=directory=>({nodePath:process.execPath,dataDirectory:directory,port:3000,internetEnabled:false,cloudflaredPath:'',provider:'gemini',textModel:'test-text',imageModel:'test-image',codexPath:'',codexModel:'',codexHome:''});
 async function port(){const socket=createServer();socket.listen(0,'127.0.0.1');await once(socket,'listening');const value=socket.address().port;await new Promise(resolve=>socket.close(resolve));return value;}
 async function fixture(t){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu desktop test '));t.after(()=>rm(root,{recursive:true,force:true}));
@@ -64,14 +64,17 @@ test('desktop lifecycle preserves progress and direct access across restarts, de
  const url=new URL(running.status.url),origin=url.origin;
  assert.equal(running.status.url,origin);assert.equal(url.hash,'');assert.equal(url.pathname,'/');
  assert.equal((await fetch(origin)).status,200);
- assert.deepEqual(running.status.phoneUrls,[]);
+ assert.equal(running.status.publicUrl,'');
+ assert.equal(running.server.address().address,'0.0.0.0');
+ let lan=false;for(const link of running.status.phoneUrls){try{if((await fetch(link+'/api/stories',{signal:AbortSignal.timeout(1000)})).ok){lan=true;break;}}catch{}}
+ if(running.status.phoneUrls.length)assert.equal(lan,true);
  const stories=await (await fetch(origin+'/api/stories')).json();assert.ok(stories.length);
  await fetch(origin+'/api/me/progress',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({storyId:stories[0].id,page:3,saved:true})});
  await assert.rejects(startDesktop({...f.settings,port:await port()},'',f.root),/DATA_BUSY/);
  await running.stop();await assert.rejects(fetch(origin+'/api/stories'));
  running=await startDesktop(f.settings,'',f.root);assert.equal(running.status.url,origin);assert.equal((await fetch(origin+'/api/stories')).status,200);
  const progress=await (await fetch(origin+'/api/me/progress')).json();assert.equal(progress[0].page,3);assert.equal(progress[0].saved,1);
- await running.stop();const occupied=createServer();occupied.listen(f.settings.port,'127.0.0.1');await once(occupied,'listening');
+ await running.stop();const occupied=createServer();occupied.listen(f.settings.port,'0.0.0.0');await once(occupied,'listening');
  try{await assert.rejects(startDesktop(f.settings,'',f.root),{code:'EADDRINUSE'});}finally{await new Promise(resolve=>occupied.close(resolve));}
  running=await startDesktop(f.settings,'',f.root);assert.equal(running.status.running,true);
 });

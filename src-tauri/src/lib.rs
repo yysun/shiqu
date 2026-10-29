@@ -191,8 +191,8 @@ async fn start_server(
     let shared = state.0.clone();
     blocking(move || {
         let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
-        if let Some(runtime) = &control.runtime {
-            return Ok(runtime.status.clone());
+        if let Some(runtime) = &mut control.runtime {
+            return Ok(runtime.snapshot());
         }
         let store = open_store(&app, &mut control)?;
         let (settings, key) = provider_configuration(&store)?;
@@ -234,7 +234,7 @@ async fn server_status(state: tauri::State<'_, DesktopState>) -> Result<Value, S
         let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
         if let Some(runtime) = &mut control.runtime {
             match runtime.child.try_wait() {
-                Ok(None) => return Ok(runtime.status.clone()),
+                Ok(None) => return Ok(runtime.snapshot()),
                 _ => {
                     drop(control.runtime.take());
                     control.last_error = Some("服务已退出，请检查设置后重新启动。".into());
@@ -259,7 +259,7 @@ async fn test_provider(
         }
         let store = open_store(&app, &mut guard)?;
         let (settings, credential) = provider_configuration(&store)?;
-        let (mut child, result) =
+        let (mut child, result, _updates) =
             runtime::launch(&settings, &credential, &resource_root(&app)?, "test")?;
         drop(child.stdin.take());
         let _ = child.wait();

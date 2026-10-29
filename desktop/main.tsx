@@ -10,13 +10,13 @@ import {codexReasoningEfforts} from '../lib/codex-settings';
 import type {CodexReasoningEffort} from '../lib/codex-settings';
 import './styles.css';
 
-type Settings={nodePath:string;dataDirectory:string;port:number;lanEnabled:boolean;provider:'gemini'|'codex';textModel:string;imageModel:string;codexPath:string;codexModel:string;codexHome:string;codexReasoningEffort:CodexReasoningEffort};
+type Settings={nodePath:string;dataDirectory:string;port:number;internetEnabled:boolean;cloudflaredPath:string;provider:'gemini'|'codex';textModel:string;imageModel:string;codexPath:string;codexModel:string;codexHome:string;codexReasoningEffort:CodexReasoningEffort};
 type View={settings:Settings;keyPresent:boolean;credentialError:string|null;platform:string;edition:'standard'|'lite'};
-type Status={running:boolean;url?:string;phoneUrls:string[];error?:string};
+type Status={running:boolean;url?:string;phoneUrls:string[];publicUrl?:string;internetError?:string;error?:string};
 type NodeInfo={path:string;version:string;sqlite:boolean};
 type KeyAction='keep'|'replace'|'delete';
 const tabs=[['library','书架',BookOpen],['queue','生成队列',Layers3],['settings','设置',Settings2]] as const;
-const previewSettings:Settings={nodePath:'',dataDirectory:'桌面应用中保存的故事目录',port:3000,lanEnabled:false,provider:'gemini',textModel:'gemini-3.8-flash',imageModel:'gemini-nano-banana-2.1',codexPath:'',codexModel:'gpt-6.1-sol',codexHome:'',codexReasoningEffort:''};
+const previewSettings:Settings={nodePath:'',dataDirectory:'桌面应用中保存的故事目录',port:3000,internetEnabled:false,cloudflaredPath:'',provider:'gemini',textModel:'gemini-3.8-flash',imageModel:'gemini-nano-banana-2.1',codexPath:'',codexModel:'gpt-6.1-sol',codexHome:'',codexReasoningEffort:''};
 
 function Desktop(){
  const [tab,setTab]=useState<DesktopTab>('library');
@@ -32,7 +32,7 @@ function Desktop(){
   const timer=setInterval(()=>{if(inFlight)return;inFlight=true;void invoke<Status>('server_status').then(result=>{if(active)setStatus(result);}).catch(()=>{}).finally(()=>{inFlight=false;});},2000);
   return()=>{active=false;clearInterval(timer);};
  },[native]);
- useEffect(()=>{setPhone(current=>status.phoneUrls.includes(current)?current:status.phoneUrls[0]||'');},[status.phoneUrls.join('|')]);
+ useEffect(()=>{const links=[status.publicUrl,...status.phoneUrls].filter((link):link is string=>!!link);setPhone(current=>links.includes(current)?current:links[0]||'');},[status.publicUrl,status.phoneUrls.join('|')]);
  useEffect(()=>{let active=true;setQr('');if(phone)void QRCode.toDataURL(phone,{width:240,margin:2,color:{dark:'#193d30',light:'#ffffff'}}).then(value=>{if(active)setQr(value);}).catch(()=>setError('二维码生成失败，请复制访问链接。'));return()=>{active=false;};},[phone]);
  async function action(name:string,work:()=>Promise<void>){if(busy)return;setBusy(name);setError('');setMessage('');try{await work();}catch(e){setError(String(e));}finally{setBusy('');}}
  function update<K extends keyof Settings>(name:K,value:Settings[K]){setSettings(previous=>previous?{...previous,[name]:value}:previous);}
@@ -43,6 +43,7 @@ function Desktop(){
   setView(result);setSettings(result.settings);setKey('');setKeyAction('keep');setReveal(false);
  }
  async function copy(value:string){await navigator.clipboard.writeText(value);setMessage('访问链接已复制。');}
+ const links=[status.publicUrl,...status.phoneUrls].filter((link):link is string=>!!link),internet=!!phone&&phone===status.publicUrl;
  const locked=!native||!!busy||status.running,dirty=!!settings&&!!view&&(JSON.stringify(settings)!==JSON.stringify(view.settings)||keyAction!=='keep');
  return <main>
   <header className="app-header"><div className="brand"><div className="brand-mark" aria-hidden="true">拾</div><div><h1>拾趣 <span>{lite?'Lite':'桌面版'}</span></h1><p>在自己的电脑上，留一间故事书房。</p></div></div><span className="edition">桌面控制台</span></header>
@@ -97,10 +98,14 @@ function Desktop(){
     </section>
     <section className="card phone-card"><div className="section-heading"><span className="phone-glyph" aria-hidden="true">↗</span><div><h2>手机接着读</h2><p>无需安装手机应用。</p></div></div>
      <fieldset className="phone-sharing" disabled={locked}><legend className="sr-only">手机访问设置</legend>
-      <label className="switch-row"><input type="checkbox" checked={settings.lanEnabled} onChange={e=>update('lanEnabled',e.target.checked)}/><span><strong>允许手机在同一网络访问</strong><small>{status.running?'停止服务后可修改手机访问。':'启用后可通过 IP 和端口访问；同一网络中可连接的设备可使用书架和生成服务。'}</small></span></label>
+      <label className="switch-row"><input type="checkbox" checked={settings.internetEnabled} onChange={e=>update('internetEnabled',e.target.checked)}/><span><strong>允许互联网访问</strong><small>{status.running?'停止服务后可修改互联网访问。':'使用免费 Cloudflare 临时隧道，手机可在其他 Wi-Fi 或蜂窝网络中连接。无需账户或域名。'}</small></span></label>
+      {settings.internetEnabled&&<><label>cloudflared 可执行文件<input value={settings.cloudflaredPath} placeholder="留空自动查找，或填写绝对路径" onChange={e=>update('cloudflaredPath',e.target.value)} spellCheck={false}/></label><p className="help">需先安装 cloudflared。macOS：brew install cloudflared。Standard 与 Lite 均需另行安装。</p></>}
      </fieldset>
-     {status.running&&phone?<><div className="qr-wrap">{qr?<img src={qr} width="240" height="240" alt="扫描二维码，打开桌面书架"/>:<p>正在生成二维码…</p>}</div>{status.phoneUrls.length>1&&<label>网络地址<select aria-label="手机网络地址" value={phone} onChange={e=>setPhone(e.target.value)}>{status.phoneUrls.map(url=><option key={url} value={url}>{new URL(url).origin}</option>)}</select></label>}<p className="phone-url">{new URL(phone).origin}</p><button className="secondary full" onClick={()=>void action('复制链接',()=>copy(phone))}>复制手机访问链接</button></>:<div className="qr-placeholder"><span aria-hidden="true">▦</span><p>{settings.lanEnabled?(status.running?'未找到可用的局域网地址。':'启动服务后显示二维码。'):status.running?'请先停止服务，再启用上方的手机访问。':'启用上方的手机访问，保存并启动服务。'}</p></div>}
-     <p className="help network-note">电脑需保持唤醒，手机与电脑连接同一网络；防火墙需允许此端口。局域网使用 HTTP，请只在可信网络使用。直接访问 IP 和端口，无需配对；地址不变时重启后仍可使用。</p>
+     <p className="help lan-status">局域网访问始终开启 · 同一网络可直接连接</p>
+     {status.internetError&&<p className="error" role="status">{status.internetError}</p>}
+     {status.running&&phone?<>{links.length>1&&<label>访问方式<select aria-label="手机访问方式" value={phone} onChange={e=>setPhone(e.target.value)}>{links.map(url=><option key={url} value={url}>{url===status.publicUrl?'互联网 · ':'局域网 · '}{new URL(url).hostname}</option>)}</select></label>}<p className="phone-url">{internet?'互联网 · 私密配对链接':'局域网 · 直接访问'}</p><div className="qr-wrap">{qr?<img src={qr} width="240" height="240" alt={internet?'扫描私密二维码，通过互联网连接书架':'扫描二维码，通过局域网打开书架'}/>:<p>正在生成二维码…</p>}</div><p className="phone-url">{new URL(phone).origin}</p><button className="secondary full" onClick={()=>void action('复制链接',()=>copy(phone))}>{internet?'复制私密互联网链接':'复制局域网访问链接'}</button></>:<div className="qr-placeholder"><span aria-hidden="true">▦</span><p>{status.running?'未找到可用的访问地址。':'启动服务后显示二维码。'}</p></div>}
+     <p className="help network-note">电脑需保持唤醒，拾趣服务需保持运行。局域网使用 HTTP，仅限可信网络；可连接的设备共享书架和生成权限。</p>
+     {settings.internetEnabled&&<p className="help network-note">互联网通过 Cloudflare 转发 HTTPS。完整二维码和私密链接可授权访问书架与生成服务，请勿公开分享。配对有效期为 12 小时；停服立即失效，重启后需重新扫码。免费隧道地址会变化，无可用性保证。</p>}
     </section>
    </aside>
   </div>}

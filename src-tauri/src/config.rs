@@ -14,7 +14,13 @@ pub struct Settings {
     pub node_path: String,
     pub data_directory: String,
     pub port: u16,
-    pub lan_enabled: bool,
+    // Legacy input is ignored; LAN is always on and internet requires a new opt-in.
+    #[serde(default, skip_serializing, rename = "lanEnabled")]
+    pub _legacy_lan_enabled: bool,
+    #[serde(default)]
+    pub internet_enabled: bool,
+    #[serde(default)]
+    pub cloudflared_path: String,
     pub provider: String,
     pub text_model: String,
     pub image_model: String,
@@ -31,7 +37,9 @@ impl Settings {
             node_path: String::new(),
             data_directory: data.join("library").to_string_lossy().into(),
             port: 3000,
-            lan_enabled: false,
+            _legacy_lan_enabled: false,
+            internet_enabled: false,
+            cloudflared_path: String::new(),
             provider: "gemini".into(),
             text_model: "gemini-3.8-flash".into(),
             image_model: "gemini-nano-banana-2.1".into(),
@@ -66,6 +74,7 @@ impl Settings {
             return Err("请填写文本和图片模型。".into());
         }
         for value in [
+            &self.cloudflared_path,
             &self.node_path,
             &self.codex_path,
             &self.codex_home,
@@ -74,6 +83,9 @@ impl Settings {
             if value.len() > 4096 || value.contains(['\0', '\n', '\r']) {
                 return Err("文件路径无效。".into());
             }
+        }
+        if !self.cloudflared_path.is_empty() && !Path::new(&self.cloudflared_path).is_absolute() {
+            return Err("cloudflared 路径必须是可执行文件的绝对路径。".into());
         }
         if cfg!(windows) && self.provider == "codex" {
             return Err("当前 Codex 集成不支持原生 Windows；请选择 Gemini。".into());
@@ -333,6 +345,48 @@ mod tests {
         ));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+    #[test]
+    fn legacy_lan_never_enables_internet_and_new_settings_round_trip() {
+        let folder = folder();
+        let file = folder.join("desktop.sqlite");
+        let mut old = serde_json::to_value(Settings::defaults(&folder)).unwrap();
+        old.as_object_mut().unwrap().remove("internetEnabled");
+        old.as_object_mut().unwrap().remove("cloudflaredPath");
+        old["lanEnabled"] = serde_json::json!(true);
+        fs::write(folder.join("settings.json"), old.to_string()).unwrap();
+        let store = Store::open(&file, &folder).unwrap();
+        let mut settings = store.settings().unwrap();
+        assert!(!settings.internet_enabled);
+        assert_eq!(settings.cloudflared_path, "");
+        store
+            .db
+            .execute(
+                "UPDATE desktop_settings SET value=?1 WHERE id=1",
+                [old.to_string()],
+            )
+            .unwrap();
+        drop(store);
+        let mut store = Store::open(&file, &folder).unwrap();
+        assert!(!store.settings().unwrap().internet_enabled);
+        settings.internet_enabled = true;
+        settings.cloudflared_path = folder.join("cloudflared").to_string_lossy().into();
+        store.save(&settings, KeyChange::Keep).unwrap();
+        drop(store);
+        let mut store = Store::open(&file, &folder).unwrap();
+        assert!(store.settings().unwrap().internet_enabled);
+        assert_eq!(
+            store.settings().unwrap().cloudflared_path,
+            settings.cloudflared_path
+        );
+        assert!(serde_json::to_value(store.settings().unwrap())
+            .unwrap()
+            .get("lanEnabled")
+            .is_none());
+        settings.cloudflared_path = "relative/cloudflared".into();
+        assert!(store.save(&settings, KeyChange::Keep).is_err());
+        drop(store);
+        fs::remove_dir_all(folder).unwrap();
     }
     #[test]
     fn database_round_trip_delete_and_private_permissions() {

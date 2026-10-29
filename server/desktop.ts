@@ -11,13 +11,17 @@ import {createHttpServer} from './http.ts';
 import {desktopAccess} from './desktop-access.ts';
 import {ownDesktopData} from './desktop-owner.ts';
 import {phoneUrls} from './phone-access.ts';
+import {desktopRemote} from './desktop-remote.ts';
+import {startDesktopTunnel,TunnelError} from './desktop-tunnel.ts';
 import {createReaderProvider} from './generation.ts';
 import {stopCodexProcesses} from './codex-runner.ts';
 import {FileMedia} from './media.ts';
 import {codexReasoningEffortSchema} from '../lib/codex-settings.ts';
 
 export const desktopSettings=z.object({
- nodePath:z.string().max(4096).default(''),dataDirectory:z.string().min(1).max(4096),port:z.number().int().min(1024).max(65535),lanEnabled:z.boolean(),
+ nodePath:z.string().max(4096).default(''),dataDirectory:z.string().min(1).max(4096),port:z.number().int().min(1024).max(65535),
+ // Accept the old field only for migration; it never enables public access.
+ lanEnabled:z.boolean().optional(),internetEnabled:z.boolean().default(false),cloudflaredPath:z.string().max(4096).default(''),
  provider:z.enum(['gemini','codex']),textModel:z.string().regex(/^[\w.-]{1,100}$/),imageModel:z.string().regex(/^[\w.-]{1,100}$/),
  codexPath:z.string().max(4096),codexModel:z.string().regex(/^[\w.-]{0,100}$/),codexHome:z.string().max(4096),codexReasoningEffort:codexReasoningEffortSchema,
 }).strict();
@@ -41,21 +45,36 @@ export async function testDesktopProvider(settings:DesktopSettings,key:string,ro
   return {ok:true,message:'密钥和模型元数据可访问；未生成内容，不代表生成额度充足。'};
  }catch{return {ok:false,message:'连接超时或网络不可用；未生成内容。'};}
 }
-export async function startDesktop(settings:DesktopSettings,key:string,root:string){
+export async function startDesktop(settings:DesktopSettings,key:string,root:string,options:{signal?:AbortSignal;onStatus?:(status:unknown)=>void}={}){
  const release=await ownDesktopData(settings.dataDirectory);
- let app:ReturnType<typeof createApplication>|undefined,server:ReturnType<typeof createHttpServer>|undefined;
+ let app:ReturnType<typeof createApplication>|undefined,server:ReturnType<typeof createHttpServer>|undefined,remoteServer:ReturnType<typeof createHttpServer>|undefined,tunnel:Awaited<ReturnType<typeof startDesktopTunnel>>|undefined;
+ let stopped:Promise<void>|undefined;
+ const remote=desktopRemote(request=>app!.handle(request));
+ async function close(listener:typeof server){if(!listener)return;await new Promise<void>(resolve=>{listener.close(()=>resolve());listener.closeAllConnections();});}
+ function stop(){return stopped??=(async()=>{remote.revoke();await tunnel?.stop();app?.stopGeneration();await stopCodexProcesses();await Promise.all([close(remoteServer),close(server)]);await app?.close();await release();})();}
  try{
+  options.signal?.throwIfAborted();
   app=createApplication({root,dataDirectory:settings.dataDirectory,variables:desktopVariables(settings,key)});
-  const local=`http://127.0.0.1:${settings.port}`,phones=settings.lanEnabled?phoneUrls('0.0.0.0',settings.port):[];
+  const local=`http://127.0.0.1:${settings.port}`,phones=phoneUrls('0.0.0.0',settings.port);
   const access=desktopAccess(app.handle,{hosts:[new URL(local).host,...phones.map(url=>new URL(url).host)]});
-  server=createHttpServer(access.handle);server.listen(settings.port,settings.lanEnabled?'0.0.0.0':'127.0.0.1');await once(server,'listening');
-  let stopped:Promise<void>|undefined;
-  return {server,status:{running:true,pid:process.pid,url:local,phoneUrls:phones},stop(){
-   return stopped??=(async()=>{app!.stopGeneration();await stopCodexProcesses();await new Promise<void>(resolve=>{server!.close(()=>resolve());server!.closeAllConnections();});await app!.close();await release();})();
-  }};
- }catch(error){server?.close();app?.close();await release();throw error;}
+  server=createHttpServer(access.handle);server.listen(settings.port,'0.0.0.0');await once(server,'listening');
+  const status={running:true,pid:process.pid,url:local,phoneUrls:phones,publicUrl:'',internetError:''};
+  if(settings.internetEnabled){
+   remoteServer=createHttpServer(remote.handle);remoteServer.listen(0,'127.0.0.1');await once(remoteServer,'listening');
+   const address=remoteServer.address();if(!address||typeof address==='string')throw Error('TUNNEL_LISTENER');
+   tunnel=await startDesktopTunnel(`http://127.0.0.1:${address.port}`,settings.cloudflaredPath,{signal:options.signal});
+   options.signal?.throwIfAborted();status.publicUrl=remote.activate(tunnel.origin);
+   void tunnel.closed.then(async()=>{
+    remote.revoke();status.publicUrl='';
+    if(!stopped){status.internetError='公网隧道已断开，局域网仍可使用。停止并重新启动服务以重试。';options.onStatus?.({...status});}
+    await close(remoteServer);await tunnel?.stop();
+   });
+  }
+  options.signal?.throwIfAborted();return {server,status,stop};
+ }catch(error){await stop();throw error;}
 }
 export function desktopFailure(error:unknown){
+ if(error instanceof TunnelError)return error.message;
  const code=(error as NodeJS.ErrnoException)?.code,message=(error as Error)?.message;
  if(code==='EADDRINUSE')return '端口已被占用，请更换端口或停止其他实例。';
  if(message==='DATA_BUSY')return '此数据目录仍由另一个桌面服务使用，请等待它退出或选择其他目录。';
@@ -64,11 +83,12 @@ export function desktopFailure(error:unknown){
 }
 async function main(){
  const lines=createInterface({input:process.stdin,crlfDelay:Infinity});
+ const abort=new AbortController();
  let runtime:Awaited<ReturnType<typeof startDesktop>>|undefined,starting=false,closing=false,inputClosed=false;
  const send=(value:unknown)=>process.stdout.write(JSON.stringify(value)+'\n');
  async function stop(){if(closing)return;closing=true;if(runtime)await runtime.stop();else await stopCodexProcesses();process.exit(0);}
- lines.on('close',()=>{inputClosed=true;if(!starting)void stop();});
- for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{void stop();});
+ lines.on('close',()=>{inputClosed=true;abort.abort();if(!starting)void stop();});
+ for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{abort.abort();if(!starting)void stop();});
  process.on('exit',()=>stopCodexProcesses());
  // Discard raw exception/provider output: the parent receives only safe status messages.
  process.on('uncaughtException',()=>{send({error:'服务意外退出，请重新启动。'});void stop();});
@@ -81,7 +101,7 @@ async function main(){
     const input=z.object({action:z.enum(['start','test']),settings:desktopSettings,key:z.string().max(4096).default('')}).strict().parse(JSON.parse(line));
     const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
     if(input.action==='test'){send(await testDesktopProvider(input.settings,input.key,root));await stop();return;}
-    runtime=await startDesktop(input.settings,input.key,root);starting=false;
+    runtime=await startDesktop(input.settings,input.key,root,{signal:abort.signal,onStatus:send});starting=false;
     if(inputClosed){await stop();return;}
     send(runtime.status);
    }catch(error){send({error:desktopFailure(error)});starting=false;await stop();}

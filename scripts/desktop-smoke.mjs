@@ -40,9 +40,9 @@ try{
   assert.equal(createHash('sha256').update(await readFile(path.join(temporary,'node/LICENSE'))).digest('hex'),manifest.licenseSha256);
  }else{await assert.rejects(lstat(nativeDirectory),{code:'ENOENT'});}
  const catalog=JSON.parse(await readFile(path.join(root,'data/library/catalog.json'),'utf8'));assert.equal(catalog.books.length,24);
- const settings={nodePath:bundled?'/shiqu-system-node-must-not-be-used':process.execPath,dataDirectory:path.join(temporary,'library'),port:await port(),lanEnabled:true,provider:'gemini',textModel:'gemini-3.8-flash',imageModel:'gemini-nano-banana-2.1',codexPath:'',codexModel:'',codexHome:''};
+ const settings={nodePath:bundled?'/shiqu-system-node-must-not-be-used':process.execPath,dataDirectory:path.join(temporary,'library'),port:await port(),internetEnabled:false,cloudflaredPath:'',provider:'gemini',textModel:'gemini-3.8-flash',imageModel:'gemini-nano-banana-2.1',codexPath:'',codexModel:'',codexHome:''};
  const first=await start(settings),origin=new URL(first.url).origin;
- assert.equal(first.url,origin);
+ assert.equal(first.url,origin);assert.equal(first.publicUrl,'');
  const headers={};
  assert.equal((await request(origin+'/api/stories')).status,200);
  const stories=await (await request(origin+'/api/stories',{headers})).json();assert.ok(stories.length);

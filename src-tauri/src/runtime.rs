@@ -293,12 +293,38 @@ fn lock(directory: &Path) -> Result<File, String> {
     Ok(file)
 }
 
+// Read bounded status frames for both readiness and later tunnel disconnects.
+fn stream_status(output: impl Read, send: mpsc::Sender<Value>) {
+    let mut reader = BufReader::new(output);
+    loop {
+        let mut line = String::new();
+        match reader.by_ref().take(16385).read_line(&mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) if line.len() > 16384 || !line.ends_with('\n') => break,
+            Ok(_) => {
+                if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                    if send.send(value).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub struct Runtime {
     pub child: Child,
     pub status: Value,
+    updates: mpsc::Receiver<Value>,
     _ownership: File,
 }
 impl Runtime {
+    pub fn snapshot(&mut self) -> Value {
+        for status in self.updates.try_iter() {
+            self.status = status;
+        }
+        self.status.clone()
+    }
     pub fn stop(&mut self) {
         if let Some(mut input) = self.child.stdin.take() {
             let _ = input.write_all(b"{\"action\":\"stop\"}\n");
@@ -318,7 +344,7 @@ pub fn launch(
     key: &str,
     root: &Path,
     action: &str,
-) -> Result<(Child, Value), String> {
+) -> Result<(Child, Value, mpsc::Receiver<Value>), String> {
     settings.validate()?;
     let node = node_info(&settings.node_path, root)?;
     let entry = root.join("dist/server/desktop.js");
@@ -348,19 +374,11 @@ pub fn launch(
     let output = child.stdout.take().ok_or("无法打开服务状态流。")?;
     let (send, receive) = mpsc::channel();
     thread::spawn(move || {
-        let mut reader = BufReader::new(output.take(16384));
-        let mut line = String::new();
-        let result = reader.read_line(&mut line).map(|_| line);
-        let _ = send.send(result);
-        // Drain bounded protocol diagnostics; never display raw process output.
-        let mut discard = Vec::new();
-        let _ = reader.read_to_end(&mut discard);
+        stream_status(output, send);
     });
     let response = receive
-        .recv_timeout(Duration::from_secs(if action == "test" { 30 } else { 15 }))
-        .ok()
-        .and_then(Result::ok)
-        .and_then(|line| serde_json::from_str::<Value>(&line).ok());
+        .recv_timeout(Duration::from_secs(if action == "test" { 30 } else { 60 }))
+        .ok();
     let Some(response) = response else {
         drop(child.stdin.take());
         let _ = wait(&mut child, Duration::from_secs(8));
@@ -371,15 +389,16 @@ pub fn launch(
         let _ = wait(&mut child, Duration::from_secs(8));
         return Err(message.chars().take(200).collect());
     }
-    Ok((child, response))
+    Ok((child, response, receive))
 }
 
 pub fn start(settings: &Settings, key: &str, root: &Path) -> Result<Runtime, String> {
     let ownership = lock(Path::new(&settings.data_directory))?;
-    let (child, status) = launch(settings, key, root, "start")?;
+    let (child, status, updates) = launch(settings, key, root, "start")?;
     Ok(Runtime {
         child,
         status,
+        updates,
         _ownership: ownership,
     })
 }
@@ -426,6 +445,25 @@ mod tests {
             .unwrap()
             .contains("校验失败"));
         fs::remove_dir_all(folder).unwrap();
+    }
+    #[test]
+    fn status_stream_keeps_disconnect_updates_after_large_readiness_frame() {
+        let initial = json!({"running":true,"url":"http://127.0.0.1:3000","publicUrl":"https://test.trycloudflare.com/connect#private","padding":"x".repeat(12000)});
+        let disconnected = json!({"running":true,"url":"http://127.0.0.1:3000","publicUrl":"","internetError":"disconnected","padding":"x".repeat(12000)});
+        let (send, receive) = mpsc::channel();
+        stream_status(
+            std::io::Cursor::new(format!("{}\n{}\n", initial, disconnected)),
+            send,
+        );
+        assert_eq!(receive.recv().unwrap(), initial);
+        assert_eq!(receive.recv().unwrap(), disconnected);
+        assert!(receive.recv().is_err());
+        let (send, receive) = mpsc::channel();
+        stream_status(
+            std::io::Cursor::new(format!("{}\n{}\n", "x".repeat(17000), disconnected)),
+            send,
+        );
+        assert!(receive.recv().is_err());
     }
     #[test]
     fn rejects_wrong_node_and_sqlite_capabilities() {
