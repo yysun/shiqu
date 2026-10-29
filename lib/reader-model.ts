@@ -16,7 +16,7 @@ export type GeneratedStory=Story&{generated:true;original?:OriginalSource;source
 export type Document={plan:Plan|null;original?:OriginalSource;frameRecommendation?:FrameRecommendation;frameCountConfirmed?:boolean;images:string[];audio:string[];usage:{step:string;model:string;requestId:string|null;usage:unknown}[]};
 export type SessionRow={id:string;user_id:string;selection:string;document:string;state:'idle'|'running'|'failed'|'completed';error:string|null;step_key:string|null;step_attempts:number;lock_token:string|null;lock_until:number;page:number;saved:number;last_read_at:string|null;created_at:string;updated_at:string};
 export type Step={kind:'recommend'|'plan'|'source'|'image'|'audio';page:number;key:string};
-export type SessionView={id:string;selection:Selection;state:SessionRow['state'];error:string|null;retryAllowed:boolean;retryAt:number|null;retryMayCharge:boolean;retryStage?:'publication';stage:string;frameRecommendation:FrameRecommendation|null;awaitingFrameCount:boolean;ready:number;story:GeneratedStory|null;page:number;saved:boolean;lastReadAt:string|null;createdAt:string};
+export type SessionView={id:string;selection:Selection;state:SessionRow['state'];productionState?:'running'|'queued'|'paused';error:string|null;retryAllowed:boolean;retryAt:number|null;retryMayCharge:boolean;retryStage?:'publication';stage:string;frameRecommendation:FrameRecommendation|null;awaitingFrameCount:boolean;ready:number;story:GeneratedStory|null;page:number;saved:boolean;lastReadAt:string|null;createdAt:string};
 export function emptyDocument():Document{return {plan:null,images:[],audio:[],usage:[]};}
 export function nextStep(doc:Document,selection:Selection,through:number):Step|null{
  if(!doc.plan){

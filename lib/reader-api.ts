@@ -55,7 +55,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    try{return json(artRecommendationSchema.parse(await provider.recommendArt(selection)));}catch(error){if(error instanceof ReaderError)throw error;throw new ReaderError(502,provider.safeError(error));}
   }
   if(path[0]==='sessions'&&path.length===1){
-   if(req.method==='GET')return json((await repo.list(uid)).map(view));
+   if(req.method==='GET')return json(await Promise.all((await repo.list(uid)).map(row=>services.production&&row.state!=='completed'?services.production.snapshot(uid,row.id):view(row))));
    if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema}).parse(await body(req,32768));return json(view(await repo.create(b.requestId,uid,b.selection)),201);}
   }
   if(path[0]==='sessions'&&path[1]){

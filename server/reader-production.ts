@@ -90,8 +90,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const working=jobs.some(job=>job.state==='running'||job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'));
   if(failed&&!working)return {...session,state:'failed',error:failed.error,retryAllowed:true,retryMayCharge:failed.kind!=='image-publish',...(failed.kind==='image-publish'?{retryStage:'publication' as const}:{})};
   const demands=await this.demands(id),eligible=jobs.some(job=>job.state==='queued'&&demands.some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page));
-  if(session.state!=='failed'&&session.state!=='completed'&&(working||eligible))return {...session,state:'running'};
-  return session;
+  const productionState=working?'running':eligible?'queued':'paused';
+  if(session.state!=='failed'&&session.state!=='completed'&&(working||eligible))return {...session,state:'running',productionState};
+  // A saved session state alone cannot prove that the queue is still executing.
+  return {...session,productionState};
  }
  private spec(row:SessionRow,kind:string,pool:string,version:string,key:string,dependencies:string[],payload:unknown,priority:number):JobSpec{
   return {id:productionJobId(row.id,kind,version,key),sessionId:row.id,ownerId:row.user_id,kind,pool,version,dependencies,payload,priority};
