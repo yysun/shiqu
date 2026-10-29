@@ -39,6 +39,8 @@ VR passed: all acceptance criteria complete.
 
 本次仅补齐验证用例与执行证据，没有实现变更，CR round 2 继续有效。可进入 DD 与本轮最终提交，保留其他聊天的未提交改动。
 
-VR risk: non-low — 持久扫描状态机、跨章来源及并发取消。  
-VR review round: 2; reviewer: reused.  
+VR risk: non-low — 持久扫描状态机、跨章来源及并发取消。
+
+VR review round: 2; reviewer: reused.
+
 VR passed: all acceptance criteria complete.
