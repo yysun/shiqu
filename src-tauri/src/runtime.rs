@@ -302,7 +302,12 @@ fn stream_status(output: impl Read, send: mpsc::Sender<Value>) {
             Ok(0) | Err(_) => break,
             Ok(_) if line.len() > 16384 || !line.ends_with('\n') => break,
             Ok(_) => {
-                if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                if let Ok(mut value) = serde_json::from_str::<Value>(&line) {
+                    // Fatal diagnostics precede asynchronous Node cleanup. Keep the
+                    // React status contract valid while that process is still alive.
+                    if value.get("error").and_then(Value::as_str).is_some() {
+                        value = json!({"running":false,"phoneUrls":[],"publicUrl":"","error":value["error"]});
+                    }
                     if send.send(value).is_err() {
                         break;
                     }
@@ -462,6 +467,21 @@ mod tests {
         stream_status(
             std::io::Cursor::new(format!("{}\n{}\n", "x".repeat(17000), disconnected)),
             send,
+        );
+        assert!(receive.recv().is_err());
+    }
+    #[test]
+    fn status_stream_normalizes_fatal_diagnostics_during_cleanup() {
+        let initial = json!({"running":true,"url":"http://127.0.0.1:3000","phoneUrls":["http://192.168.1.2:3000"],"publicUrl":"https://test.trycloudflare.com/connect#private"});
+        let (send, receive) = mpsc::channel();
+        stream_status(
+            std::io::Cursor::new(format!("{}\n{{\"error\":\"fatal\"}}\n", initial)),
+            send,
+        );
+        assert_eq!(receive.recv().unwrap(), initial);
+        assert_eq!(
+            receive.recv().unwrap(),
+            json!({"running":false,"phoneUrls":[],"publicUrl":"","error":"fatal"})
         );
         assert!(receive.recv().is_err());
     }

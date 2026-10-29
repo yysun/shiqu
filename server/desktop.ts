@@ -57,6 +57,9 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
   app=createApplication({root,dataDirectory:settings.dataDirectory,variables:desktopVariables(settings,key)});
   const local=`http://127.0.0.1:${settings.port}`,phones=phoneUrls('0.0.0.0',settings.port);
   const access=desktopAccess(app.handle,{hosts:[new URL(local).host,...phones.map(url=>new URL(url).host)]});
+  // macOS can let a wildcard bind coexist with an occupied loopback port.
+  // Probe the advertised local endpoint first so its browser link cannot open another service.
+  server=createHttpServer(access.handle);server.listen(settings.port,'127.0.0.1');await once(server,'listening');await close(server);
   server=createHttpServer(access.handle);server.listen(settings.port,'0.0.0.0');await once(server,'listening');
   const status={running:true,pid:process.pid,url:local,phoneUrls:phones,publicUrl:'',internetError:''};
   if(settings.internetEnabled){

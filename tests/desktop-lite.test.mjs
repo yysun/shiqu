@@ -74,8 +74,11 @@ test('desktop lifecycle preserves progress and direct access across restarts, de
  await running.stop();await assert.rejects(fetch(origin+'/api/stories'));
  running=await startDesktop(f.settings,'',f.root);assert.equal(running.status.url,origin);assert.equal((await fetch(origin+'/api/stories')).status,200);
  const progress=await (await fetch(origin+'/api/me/progress')).json();assert.equal(progress[0].page,3);assert.equal(progress[0].saved,1);
- await running.stop();const occupied=createServer();occupied.listen(f.settings.port,'0.0.0.0');await once(occupied,'listening');
- try{await assert.rejects(startDesktop(f.settings,'',f.root),{code:'EADDRINUSE'});}finally{await new Promise(resolve=>occupied.close(resolve));}
+ await running.stop();
+ for(const host of ['127.0.0.1','0.0.0.0']){
+  const occupied=createServer();occupied.listen(f.settings.port,host);await once(occupied,'listening');
+  try{await assert.rejects(startDesktop(f.settings,'',f.root),{code:'EADDRINUSE'});}finally{await new Promise(resolve=>occupied.close(resolve));}
+ }
  running=await startDesktop(f.settings,'',f.root);assert.equal(running.status.running,true);
 });
 test('data ownership rejects a live Node owner and reclaims a demonstrably dead owner',async t=>{
