@@ -1,5 +1,5 @@
 'use client';
-// Preserve source receipts; v7 discards receipts from the replaced Shanhai, Youyang and Shiji editions.
+// Preserve source receipts; v8 discards receipts from the replaced Honglou and Yushi editions.
 import {useEffect,useRef,useState} from 'react';
 import {z} from 'zod';
 import type {Selection} from '@/lib/reader-model';
@@ -7,7 +7,7 @@ import {freshSuggestions,maxSuggestionBatches,suggestionBatchSchema,suggestionKe
 import type {SuggestionBatch} from '@/lib/reader-suggestions';
 import {request} from './shared';
 
-const storageKey='shiqu-suggestion-batches-v7';
+const storageKey='shiqu-suggestion-batches-v8';
 const historySchema=z.record(z.object({batches:z.array(suggestionBatchSchema).max(maxSuggestionBatches),index:z.number().int().min(0).max(maxSuggestionBatches-1)}));
 type History=z.infer<typeof historySchema>;
 export function useStorySuggestions(selection:Selection,theme:string){

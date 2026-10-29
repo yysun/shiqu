@@ -6,14 +6,15 @@ const plan={title:'可读原文的故事',hook:'他会如何选择？',sourceRef
 const provider=onPlan=>({status:async()=>({configured:true,provider:'codex',voiceEnabled:false,models:{text:'mock',image:'mock'}}),safeError:()=> '模拟错误',suggestions:async()=>({stories:[],note:''}),generator:()=>({plan:async(...args)=>{await onPlan?.(...args);return {value:structuredClone(plan),model:'mock',requestId:'mock',usage:null};},original:async()=>assert.fail('No public source lookup'),image:async()=>assert.fail('No image generation'),audio:async()=>assert.fail('No audio'),safeError:()=> '模拟错误'})});
 
 test('known unresolved source encodings and explicit omissions are rejected without normalizing text',()=>{
- const cases=['\ue000','\uf8ff',String.fromCodePoint(0xf0000),String.fromCodePoint(0x10fffd),'\ufffd','\ud800','\udfff','□','&KR0899;','&amp;KR2445;','&amp;amp;kr0001;','&CDP-8BF5;','⿰日月','Ё','Φ','プ','ぁ','【上鹿下旨】','【字形左“扌”右“闭”】','【上左“齿”右“可”，下“女”】','(下有/脱文)','（编者按：原缺。）'];
+ const cases=['\ue000','\uf8ff',String.fromCodePoint(0xf0000),String.fromCodePoint(0x10fffd),'\ufffd','\ud800','\udfff','□','&KR0899;','&amp;KR2445;','&amp;amp;kr0001;','&CDP-8BF5;','⿰日月','Ё','Φ','プ','ぁ','【上鹿下旨】','【字形左“扌”右“闭”】','【上左“齿”右“可”，下“女”】','(下有/脱文)','下有脫文。','（编者按：原缺。）'];
  for(const value of cases)assert.equal(hasSourceAnomaly('这段原文保留了一个异常位置：'+value+'，需要核对其真实原字。'),true,value);
+ assert.equal(hasSourceAnomaly('原文。下有脱文'),true);
  for(const value of ['𠮷𫠦𰻝𤣥䧿爲','【周日用曰：日当中向热者，炎气直下也。】','【净上，戴随上】【同下】','【上善若水下学上达】','【〈郭璞注：山南为阳，山北为阴。〉】','未知何人? 汉字与ASCII问号均保留。','者上天符命豈闕文乎','表略曰：此为原文中的奏表摘要。','A・B，+−，？！（原注）'])assert.equal(hasSourceAnomaly(value),false,value);
 });
 
 test('the four actual source ranges that previously passed now all fail closed',async()=>{
  for(const[bookId,sectionId,unitId]of [['太平广记','taiping-003','taiping-003-059'],['红楼梦','honglou-003','honglou-003-018'],['水浒传','shuihu-026','shuihu-026-027'],['醒世恒言','xingshi-004','xingshi-004-026']]){
-  const book=await library.book(select(bookId)),section=book.sections.find(s=>s.id===sectionId),unit=section.units.find(u=>u.id===unitId),before=unit.text;assert.throws(()=>library.resolve(book,reference(book,section,unit)),e=>e.status===400);assert.equal(unit.text,before);
+  const book=await library.book(select(bookId)),section=book.sections.find(s=>s.id===sectionId),unit=section.units.find(u=>u.id===unitId),before=unit.text,source=reference(book,section,unit);if(bookId==='红楼梦')source.edition='fdbf7963910834f5932dc491f44b83cee92f847f6ffc387c47bdaebb6b22bf04';assert.throws(()=>library.resolve(book,source),e=>e.status===400);assert.equal(unit.text,before);
  }
  const b=await library.book(select('太平广记')),s=b.sections[312],start=s.units.findIndex(u=>u.text.includes('下有/脱文'));assert.ok(start>0);assert.throws(()=>library.resolve(b,{edition:b.edition,sectionId:s.id,firstUnit:s.units[start-1].id,lastUnit:s.units[start].id}),e=>e.status===400);
 });

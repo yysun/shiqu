@@ -115,20 +115,128 @@
       "era": "清",
       "genre": "世情",
       "note": "繁华深处，皆是人情",
-      "scope": "一百二十回网络整理本；前八十回与后四十回应分开标注，具体底本待核",
-      "originalFile": "originals/06-红楼梦.md",
+      "scope": "程乙本120回，前80回与后40回保留同一命名电子版本；12件正文HTML及目录原件",
+      "originalFile": "originals/06-红楼梦-程乙本-维基文库",
       "source": {
-        "provider": "殆知阁",
-        "url": "https://github.com/daizhige-org/daizhigev20/blob/af7d930828c283a7fd27a51ba87aceeed0ad3faa/%E9%9B%86%E8%97%8F/%E5%B0%8F%E8%AF%B4/%E7%BA%A2%E6%A5%BC%E6%A2%A6.md",
-        "downloadUrl": "https://raw.githubusercontent.com/daizhige-org/daizhigev20/af7d930828c283a7fd27a51ba87aceeed0ad3faa/%E9%9B%86%E8%97%8F/%E5%B0%8F%E8%AF%B4/%E7%BA%A2%E6%A5%BC%E6%A2%A6.md",
-        "sha256": "fdbf7963910834f5932dc491f44b83cee92f847f6ffc387c47bdaebb6b22bf04",
-        "commit": "af7d930828c283a7fd27a51ba87aceeed0ad3faa"
+        "provider": "维基文库《紅樓夢（程乙本）》",
+        "url": "https://zh.wikisource.org/wiki/%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89",
+        "sha256": "4dbe192e89b80819a769366ac0c343dbb7c143467b0d5f4989b729d9dcee734f",
+        "snapshotDate": "2026-10-28",
+        "hashScope": "有序originalFiles中file+TAB+sha256的换行串（末尾无换行）的SHA256"
       },
       "knownIssues": [
-        "含 75 个私用区字形字符，需对照底本补字，未自动猜字。"
+        "第58回园林工作背景原件有1处IDS“⿰烏刂”，不删改、不猜字；仅固定版本/篇章/完整已审核语境允许引用，不以未知字承担关键情节。",
+        "程乙本为站点版本标识，未逐字核对古刻影像；保留上游标点、原字和署名许可包装。"
       ],
       "supplements": [],
-      "localGeneration": true
+      "localGeneration": true,
+      "originalFiles": [
+        {
+          "file": "001.html",
+          "sha256": "57c4798a788d5c294709302d779e9d3ad032c0e7efbe6a8a24e9dcb6bd266385",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89%2F%E7%AC%AC%E4%B8%80%E5%9B%9E%20%E8%87%B3%E7%AC%AC%E5%8D%81%E5%9B%9E&oldid=9685985",
+          "pageTitle": "紅樓夢（程乙本）/第一回 至第十回",
+          "requestedTitle": "紅樓夢（程乙本）/第一回 至第十回",
+          "revision": "9685985"
+        },
+        {
+          "file": "002.html",
+          "sha256": "2dde92a94300cafda0328aaf95f35853c3d30faf8af2f8c72e4e9a95af5ed089",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89%2F%E7%AC%AC%E5%8D%81%E4%B8%80%E5%9B%9E%20%E8%87%B3%E7%AC%AC%E4%BA%8C%E5%8D%81%E5%9B%9E&oldid=5438620",
+          "pageTitle": "紅樓夢（程乙本）/第十一回 至第二十回",
+          "requestedTitle": "紅樓夢（程乙本）/第十一回 至第二十回",
+          "revision": "5438620"
+        },
+        {
+          "file": "003.html",
+          "sha256": "2906c1c5a40494d38356f168ba188357083cded55b9ceac7bac461d8bfb43e63",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89%2F%E7%AC%AC%E4%BA%8C%E5%8D%81%E4%B8%80%E5%9B%9E%20%E8%87%B3%E7%AC%AC%E4%B8%89%E5%8D%81%E5%9B%9E&oldid=2598981",
+          "pageTitle": "紅樓夢（程乙本）/第二十一回 至第三十回",
+          "requestedTitle": "紅樓夢（程乙本）/第二十一回 至第三十回",
+          "revision": "2598981"
+        },
+        {
+          "file": "004.html",
+          "sha256": "45015290969f918e0f9257439ecf89194e9949a565c03d2b3af5c8a4e4ec045f",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89%2F%E7%AC%AC%E4%B8%89%E5%8D%81%E4%B8%80%E5%9B%9E%20%E8%87%B3%E7%AC%AC%E5%9B%9B%E5%8D%81%E5%9B%9E&oldid=2608677",
+          "pageTitle": "紅樓夢（程乙本）/第三十一回 至第四十回",
+          "requestedTitle": "紅樓夢（程乙本）/第三十一回 至第四十回",
+          "revision": "2608677"
+        },
+        {
+          "file": "005.html",
+          "sha256": "de81ad024a88567c80f4ae69d344a15a6ae6ea287b265c6ff42723610348bb23",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89%2F%E7%AC%AC%E5%9B%9B%E5%8D%81%E4%B8%80%E5%9B%9E%20%E8%87%B3%E7%AC%AC%E4%BA%94%E5%8D%81%E5%9B%9E&oldid=2608678",
+          "pageTitle": "紅樓夢（程乙本）/第四十一回 至第五十回",
+          "requestedTitle": "紅樓夢（程乙本）/第四十一回 至第五十回",
+          "revision": "2608678"
+        },
+        {
+          "file": "006.html",
+          "sha256": "e4d56652bc0c2ef6a572025399c3a80bc00c1e11a48778a9ee0256a3dca86100",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89%2F%E7%AC%AC%E4%BA%94%E5%8D%81%E4%B8%80%E5%9B%9E%20%E8%87%B3%E7%AC%AC%E5%85%AD%E5%8D%81%E5%9B%9E&oldid=2608679",
+          "pageTitle": "紅樓夢（程乙本）/第五十一回 至第六十回",
+          "requestedTitle": "紅樓夢（程乙本）/第五十一回 至第六十回",
+          "revision": "2608679"
+        },
+        {
+          "file": "007.html",
+          "sha256": "0e438c1ed19a734ba6579f4eb0d23f57b8dec5892cbf62970dab0b958f9412b0",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89%2F%E7%AC%AC%E5%85%AD%E5%8D%81%E4%B8%80%E5%9B%9E%20%E8%87%B3%E7%AC%AC%E4%B8%83%E5%8D%81%E5%9B%9E&oldid=2598979",
+          "pageTitle": "紅樓夢（程乙本）/第六十一回 至第七十回",
+          "requestedTitle": "紅樓夢（程乙本）/第六十一回 至第七十回",
+          "revision": "2598979"
+        },
+        {
+          "file": "008.html",
+          "sha256": "2fd0d29e5bd770b851a314cbce8d4766246ef8089081483a75e352a7c50284ef",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89%2F%E7%AC%AC%E4%B8%83%E5%8D%81%E4%B8%80%E5%9B%9E%20%E8%87%B3%E7%AC%AC%E5%85%AB%E5%8D%81%E5%9B%9E&oldid=2608674",
+          "pageTitle": "紅樓夢（程乙本）/第七十一回 至第八十回",
+          "requestedTitle": "紅樓夢（程乙本）/第七十一回 至第八十回",
+          "revision": "2608674"
+        },
+        {
+          "file": "009.html",
+          "sha256": "b6916273bb73e72b8f80f369d34eb7e8f441401aa1366d02f7cf4a07853d677c",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89%2F%E7%AC%AC%E5%85%AB%E5%8D%81%E4%B8%80%E5%9B%9E%20%E8%87%B3%E7%AC%AC%E4%B9%9D%E5%8D%81%E5%9B%9E&oldid=3667970",
+          "pageTitle": "紅樓夢（程乙本）/第八十一回 至第九十回",
+          "requestedTitle": "紅樓夢（程乙本）/第八十一回 至第九十回",
+          "revision": "3667970"
+        },
+        {
+          "file": "010.html",
+          "sha256": "239504942673212b4d2b50459e3eb6d745c2ec5f90599a279f729de1a72959e9",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89%2F%E7%AC%AC%E4%B9%9D%E5%8D%81%E4%B8%80%E5%9B%9E%20%E8%87%B3%E7%AC%AC%E4%B8%80%E7%99%BE%E5%9B%9E&oldid=2567955",
+          "pageTitle": "紅樓夢（程乙本）/第九十一回 至第一百回",
+          "requestedTitle": "紅樓夢（程乙本）/第九十一回 至第一百回",
+          "revision": "2567955"
+        },
+        {
+          "file": "011.html",
+          "sha256": "c4d7dd67a13ac7e3d868a21f8ce6c116cc8e7db99bb04d1f5c14e1dd76a8f0f1",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89%2F%E7%AC%AC%E4%B8%80%E7%99%BE%E9%9B%B6%E4%B8%80%E5%9B%9E%20%E8%87%B3%E7%AC%AC%E4%B8%80%E7%99%BE%E4%B8%80%E5%8D%81%E5%9B%9E&oldid=2567952",
+          "pageTitle": "紅樓夢（程乙本）/第一百零一回 至第一百一十回",
+          "requestedTitle": "紅樓夢（程乙本）/第一百零一回 至第一百一十回",
+          "revision": "2567952"
+        },
+        {
+          "file": "012.html",
+          "sha256": "d1f6dacc533537c79fe1aec0c7420f9773ee1f7f10cfb966b3b7b78749d9f8a6",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89%2F%E7%AC%AC%E4%B8%80%E7%99%BE%E5%8D%81%E4%B8%80%E5%9B%9E%20%E8%87%B3%E7%AC%AC%E4%B8%80%E7%99%BE%E4%BA%8C%E5%8D%81%E5%9B%9E&oldid=2567951",
+          "pageTitle": "紅樓夢（程乙本）/第一百十一回 至第一百二十回",
+          "requestedTitle": "紅樓夢（程乙本）/第一百十一回 至第一百二十回",
+          "revision": "2567951"
+        },
+        {
+          "file": "index.html",
+          "sha256": "72a06edf2e9b9cd20cc54b2a1b7213f54f702badca65c605f36d3d7e85898d85",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E7%B4%85%E6%A8%93%E5%A4%A2%EF%BC%88%E7%A8%8B%E4%B9%99%E6%9C%AC%EF%BC%89&oldid=2599000",
+          "pageTitle": "紅樓夢（程乙本）",
+          "requestedTitle": "紅樓夢（程乙本）",
+          "revision": "2599000"
+        }
+      ],
+      "format": "wikisource-html"
     },
     {
       "id": "水浒传",
@@ -2973,20 +3081,352 @@
       "era": "明",
       "genre": "世情",
       "note": "市井里的人情与转折",
-      "scope": "四十卷",
-      "originalFile": "originals/17-喻世明言.md",
+      "scope": "同一维基文库电子作品40卷及目录HTML，具体古刻底本未明确",
+      "originalFile": "originals/17-喻世明言-维基文库",
       "source": {
-        "provider": "殆知阁",
-        "url": "https://github.com/daizhige-org/daizhigev20/blob/af7d930828c283a7fd27a51ba87aceeed0ad3faa/%E9%9B%86%E8%97%8F/%E8%AF%9D%E6%9C%AC/%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80.md",
-        "downloadUrl": "https://raw.githubusercontent.com/daizhige-org/daizhigev20/af7d930828c283a7fd27a51ba87aceeed0ad3faa/%E9%9B%86%E8%97%8F/%E8%AF%9D%E6%9C%AC/%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80.md",
-        "sha256": "f032b1a830b34aa82a2ffe9558a797039a0ac45fdb050da6cc1b1418abc975b7",
-        "commit": "af7d930828c283a7fd27a51ba87aceeed0ad3faa"
+        "provider": "维基文库《喻世明言》",
+        "url": "https://zh.wikisource.org/wiki/%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80",
+        "sha256": "c6aa36dc88c7db80f7d370904434fff5a6a7e324e9dbc90787372053bbc01170",
+        "snapshotDate": "2026-10-28",
+        "hashScope": "有序originalFiles中file+TAB+sha256的换行串（末尾无换行）的SHA256"
       },
       "knownIssues": [
-        "含 67 个私用区字形字符，需对照底本补字，未自动猜字。"
+        "第37卷范道念佛的发声方式原件有1个PUA U+E853，原样保留；仅固定版本/篇章/完整已审核语境允许引用，不猜写该词。",
+        "统一电子作品不等于已确认同一古刻底本，具体刊本未注明，未逐字校勘。"
       ],
       "supplements": [],
-      "localGeneration": true
+      "localGeneration": true,
+      "originalFiles": [
+        {
+          "file": "001.html",
+          "sha256": "0af697da4e3e5f57460de10eceb44cde97139e439604b763ef6a91ae3171a9e0",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC01%E5%8D%B7&oldid=2044775",
+          "pageTitle": "喻世明言/第01卷",
+          "requestedTitle": "喻世明言/第01卷",
+          "revision": "2044775"
+        },
+        {
+          "file": "002.html",
+          "sha256": "1075cdfb25a0f84f0e559228b5f88b95715402556662eaecdb0646f2221e2d6c",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC02%E5%8D%B7&oldid=1566569",
+          "pageTitle": "喻世明言/第02卷",
+          "requestedTitle": "喻世明言/第02卷",
+          "revision": "1566569"
+        },
+        {
+          "file": "003.html",
+          "sha256": "4119fae61e396553dd9ad688102cd6c5f463c4b01ede9a8af19335ead0b95cb9",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC03%E5%8D%B7&oldid=1566570",
+          "pageTitle": "喻世明言/第03卷",
+          "requestedTitle": "喻世明言/第03卷",
+          "revision": "1566570"
+        },
+        {
+          "file": "004.html",
+          "sha256": "12aed9bfb527ad1f904f1fdab23835c91488a784b714c4d5ec0a2a944eea4e8b",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC04%E5%8D%B7&oldid=1566571",
+          "pageTitle": "喻世明言/第04卷",
+          "requestedTitle": "喻世明言/第04卷",
+          "revision": "1566571"
+        },
+        {
+          "file": "005.html",
+          "sha256": "a9ab9e017eac34bb10bcd41b6d7a800af6adf985b693debebd1f1ac954bc52e5",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC05%E5%8D%B7&oldid=1566572",
+          "pageTitle": "喻世明言/第05卷",
+          "requestedTitle": "喻世明言/第05卷",
+          "revision": "1566572"
+        },
+        {
+          "file": "006.html",
+          "sha256": "305b71294b765f3c219724d6111d86407afe7640f9a8d187e60b4c14421b2b0e",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC06%E5%8D%B7&oldid=1566573",
+          "pageTitle": "喻世明言/第06卷",
+          "requestedTitle": "喻世明言/第06卷",
+          "revision": "1566573"
+        },
+        {
+          "file": "007.html",
+          "sha256": "1706fa7d11dbf67649d0ba0779a1ab12ac6bf0d65da225e923762273db47da81",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC07%E5%8D%B7&oldid=1566574",
+          "pageTitle": "喻世明言/第07卷",
+          "requestedTitle": "喻世明言/第07卷",
+          "revision": "1566574"
+        },
+        {
+          "file": "008.html",
+          "sha256": "45ad4d1a09b04647efd6c546150c2c29e98b92be4c66d2b40b998fe15a58a5a2",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC08%E5%8D%B7&oldid=1566575",
+          "pageTitle": "喻世明言/第08卷",
+          "requestedTitle": "喻世明言/第08卷",
+          "revision": "1566575"
+        },
+        {
+          "file": "009.html",
+          "sha256": "cf28e6fa729d56a1da35a99345026982b7d7fbf6b0db7e61db31820416b69ab9",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC09%E5%8D%B7&oldid=1566576",
+          "pageTitle": "喻世明言/第09卷",
+          "requestedTitle": "喻世明言/第09卷",
+          "revision": "1566576"
+        },
+        {
+          "file": "010.html",
+          "sha256": "c170acc162db5bfd3b0fa72ba872a8de05b0333c8512bca06d856dcee7c07ce9",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC10%E5%8D%B7&oldid=1566577",
+          "pageTitle": "喻世明言/第10卷",
+          "requestedTitle": "喻世明言/第10卷",
+          "revision": "1566577"
+        },
+        {
+          "file": "011.html",
+          "sha256": "e3aa7324aa4747e3799216a666366c3bdd87d1227a0d238db166e6d5b5f6b6b6",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC11%E5%8D%B7&oldid=1566578",
+          "pageTitle": "喻世明言/第11卷",
+          "requestedTitle": "喻世明言/第11卷",
+          "revision": "1566578"
+        },
+        {
+          "file": "012.html",
+          "sha256": "23ee14142b1ee6292ff14260b73ffd55d083e54d068529c307a0749c5d4c7668",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC12%E5%8D%B7&oldid=1566579",
+          "pageTitle": "喻世明言/第12卷",
+          "requestedTitle": "喻世明言/第12卷",
+          "revision": "1566579"
+        },
+        {
+          "file": "013.html",
+          "sha256": "5936b3d8fba187ba39bc0dfd0a61bd56b5aa9ee5cbda3e0011ca45bde1e37ab3",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC13%E5%8D%B7&oldid=1566580",
+          "pageTitle": "喻世明言/第13卷",
+          "requestedTitle": "喻世明言/第13卷",
+          "revision": "1566580"
+        },
+        {
+          "file": "014.html",
+          "sha256": "c55afcbb6546f0fd1cb7986d5d54d3cdc4cf9b8cb2f1d021c26b6983c7ecc147",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC14%E5%8D%B7&oldid=1566581",
+          "pageTitle": "喻世明言/第14卷",
+          "requestedTitle": "喻世明言/第14卷",
+          "revision": "1566581"
+        },
+        {
+          "file": "015.html",
+          "sha256": "bdaacba29e164a1cee43f4ce94919eb02cb3140a5a92782877def52e2e6906f2",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC15%E5%8D%B7&oldid=1566582",
+          "pageTitle": "喻世明言/第15卷",
+          "requestedTitle": "喻世明言/第15卷",
+          "revision": "1566582"
+        },
+        {
+          "file": "016.html",
+          "sha256": "3c8b0a637546422317213d1b15356da6a43aeac9e2c4dddd29233ee0918507e1",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC16%E5%8D%B7&oldid=1566583",
+          "pageTitle": "喻世明言/第16卷",
+          "requestedTitle": "喻世明言/第16卷",
+          "revision": "1566583"
+        },
+        {
+          "file": "017.html",
+          "sha256": "d65bdacee130663ccf5ce6c0ac4a6e3b90402c4fc1b44bfac276bf197d4008d1",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC17%E5%8D%B7&oldid=1566584",
+          "pageTitle": "喻世明言/第17卷",
+          "requestedTitle": "喻世明言/第17卷",
+          "revision": "1566584"
+        },
+        {
+          "file": "018.html",
+          "sha256": "c96eaba6172503b4464586e9a80702a845f153e9cae24ba31960da94915d29ac",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC18%E5%8D%B7&oldid=1566585",
+          "pageTitle": "喻世明言/第18卷",
+          "requestedTitle": "喻世明言/第18卷",
+          "revision": "1566585"
+        },
+        {
+          "file": "019.html",
+          "sha256": "3de7c009eccacf74fc1d34b5c7810b56df5762c30d2f0d3e4a3e806e7dbcadd2",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC19%E5%8D%B7&oldid=1566586",
+          "pageTitle": "喻世明言/第19卷",
+          "requestedTitle": "喻世明言/第19卷",
+          "revision": "1566586"
+        },
+        {
+          "file": "020.html",
+          "sha256": "c5c4945fc16d8fc9cbf9667e075edb37033991441b4d6bc084d4aa7ce74d5d48",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC20%E5%8D%B7&oldid=1566587",
+          "pageTitle": "喻世明言/第20卷",
+          "requestedTitle": "喻世明言/第20卷",
+          "revision": "1566587"
+        },
+        {
+          "file": "021.html",
+          "sha256": "12994b4bb94e14e3c09686273d237b2f76d9640183da532206b9e3474951cc1b",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC21%E5%8D%B7&oldid=2334833",
+          "pageTitle": "喻世明言/第21卷",
+          "requestedTitle": "喻世明言/第21卷",
+          "revision": "2334833"
+        },
+        {
+          "file": "022.html",
+          "sha256": "528ced98176cd2cc93ea26c17d547d00992a239873ca7fa1ac1b519f9d86b02b",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC22%E5%8D%B7&oldid=1566589",
+          "pageTitle": "喻世明言/第22卷",
+          "requestedTitle": "喻世明言/第22卷",
+          "revision": "1566589"
+        },
+        {
+          "file": "023.html",
+          "sha256": "ea2d80427fa1c29717ec2d7b54a8e574e960778bc9934251583fdd4a77eec91f",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC23%E5%8D%B7&oldid=1566590",
+          "pageTitle": "喻世明言/第23卷",
+          "requestedTitle": "喻世明言/第23卷",
+          "revision": "1566590"
+        },
+        {
+          "file": "024.html",
+          "sha256": "32ff1e6611d9e3b22170a63c73decaeb00504728af90f7a3d759536a64b32314",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC24%E5%8D%B7&oldid=1566591",
+          "pageTitle": "喻世明言/第24卷",
+          "requestedTitle": "喻世明言/第24卷",
+          "revision": "1566591"
+        },
+        {
+          "file": "025.html",
+          "sha256": "c06516f2d42b9fd5e917d411d597a897432bb3baf7684fe985606af3a0e8556c",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC25%E5%8D%B7&oldid=1566592",
+          "pageTitle": "喻世明言/第25卷",
+          "requestedTitle": "喻世明言/第25卷",
+          "revision": "1566592"
+        },
+        {
+          "file": "026.html",
+          "sha256": "a97b230c6673befb7bf701f161e3c31288a5d3d5a95808abaf94aafe54ea8acc",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC26%E5%8D%B7&oldid=1566593",
+          "pageTitle": "喻世明言/第26卷",
+          "requestedTitle": "喻世明言/第26卷",
+          "revision": "1566593"
+        },
+        {
+          "file": "027.html",
+          "sha256": "e3f4e90320d5035e5540873d899e98f17a0e0751527bb4ffd5cf3985eb4d930f",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC27%E5%8D%B7&oldid=1566594",
+          "pageTitle": "喻世明言/第27卷",
+          "requestedTitle": "喻世明言/第27卷",
+          "revision": "1566594"
+        },
+        {
+          "file": "028.html",
+          "sha256": "75a5e352c39eaeaa1f33b874461054f776afe023686eb8f0de776abcd5c4e6b2",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC28%E5%8D%B7&oldid=1566595",
+          "pageTitle": "喻世明言/第28卷",
+          "requestedTitle": "喻世明言/第28卷",
+          "revision": "1566595"
+        },
+        {
+          "file": "029.html",
+          "sha256": "e8ee5937cf175bb6ed8b101c7c6bd9ee35470120c0129a364d47bd188010904a",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC29%E5%8D%B7&oldid=1566596",
+          "pageTitle": "喻世明言/第29卷",
+          "requestedTitle": "喻世明言/第29卷",
+          "revision": "1566596"
+        },
+        {
+          "file": "030.html",
+          "sha256": "b61f4f4fec7c476c1c35c07c1fb1c710e9588f4ee8a1072e9d01fe9998ebc58e",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC30%E5%8D%B7&oldid=1566597",
+          "pageTitle": "喻世明言/第30卷",
+          "requestedTitle": "喻世明言/第30卷",
+          "revision": "1566597"
+        },
+        {
+          "file": "031.html",
+          "sha256": "b878e2627820f327928b6d446a4e99b102965fbd83ab89e39d213d95ffe3a259",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC31%E5%8D%B7&oldid=1566598",
+          "pageTitle": "喻世明言/第31卷",
+          "requestedTitle": "喻世明言/第31卷",
+          "revision": "1566598"
+        },
+        {
+          "file": "032.html",
+          "sha256": "31875b017d75e17dff07ae6d55c316a98c65ac2be0fe579eaf08ab313d6705f4",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC32%E5%8D%B7&oldid=1566599",
+          "pageTitle": "喻世明言/第32卷",
+          "requestedTitle": "喻世明言/第32卷",
+          "revision": "1566599"
+        },
+        {
+          "file": "033.html",
+          "sha256": "e0d33c1299702445f314a8af93ac87eab3612003040f35c4dada86e835cfc217",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC33%E5%8D%B7&oldid=1566600",
+          "pageTitle": "喻世明言/第33卷",
+          "requestedTitle": "喻世明言/第33卷",
+          "revision": "1566600"
+        },
+        {
+          "file": "034.html",
+          "sha256": "427d6c1c378277cfe91e241c209636bf434b298b1f481782e93079ee3db88be1",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC34%E5%8D%B7&oldid=2043726",
+          "pageTitle": "喻世明言/第34卷",
+          "requestedTitle": "喻世明言/第34卷",
+          "revision": "2043726"
+        },
+        {
+          "file": "035.html",
+          "sha256": "de7c80b8cae0b4d1747cb0033b142e452f6faca481c68d4364fcecb27e3c366c",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC35%E5%8D%B7&oldid=2044838",
+          "pageTitle": "喻世明言/第35卷",
+          "requestedTitle": "喻世明言/第35卷",
+          "revision": "2044838"
+        },
+        {
+          "file": "036.html",
+          "sha256": "98911079180983eac4f68d7cf331055d80b992f0a1aaa5fd6c02f7d35e8ef0c5",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC36%E5%8D%B7&oldid=2604022",
+          "pageTitle": "喻世明言/第36卷",
+          "requestedTitle": "喻世明言/第36卷",
+          "revision": "2604022"
+        },
+        {
+          "file": "037.html",
+          "sha256": "1aef0f98790830c18ce9224ce9aa1835d6d43dff9f6a2e4dda705cb392a9deac",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC37%E5%8D%B7&oldid=2056491",
+          "pageTitle": "喻世明言/第37卷",
+          "requestedTitle": "喻世明言/第37卷",
+          "revision": "2056491"
+        },
+        {
+          "file": "038.html",
+          "sha256": "c64bb6055024050e2e0f9ab457ca9069801e39c9fd3239cd135101066c269f29",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC38%E5%8D%B7&oldid=2634185",
+          "pageTitle": "喻世明言/第38卷",
+          "requestedTitle": "喻世明言/第38卷",
+          "revision": "2634185"
+        },
+        {
+          "file": "039.html",
+          "sha256": "57ec4528998f520c0ff5ff26bf71606c5b4cfbf314c63c51f4d0b0c062cc2810",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC39%E5%8D%B7&oldid=2056495",
+          "pageTitle": "喻世明言/第39卷",
+          "requestedTitle": "喻世明言/第39卷",
+          "revision": "2056495"
+        },
+        {
+          "file": "040.html",
+          "sha256": "deb474e7b149212add78b8c5c61a85598b02f4900b3e9eca8d016f749e89afa2",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80%2F%E7%AC%AC40%E5%8D%B7&oldid=2056496",
+          "pageTitle": "喻世明言/第40卷",
+          "requestedTitle": "喻世明言/第40卷",
+          "revision": "2056496"
+        },
+        {
+          "file": "index.html",
+          "sha256": "dffee7561fc845f2a0ff8054c34d38e9c18b37d37f62b823f6d5552615143bef",
+          "sourceUrl": "https://zh.wikisource.org/w/index.php?title=%E5%96%BB%E4%B8%96%E6%98%8E%E8%A8%80&oldid=2334831",
+          "pageTitle": "喻世明言",
+          "requestedTitle": "喻世明言",
+          "revision": "2334831"
+        }
+      ],
+      "format": "wikisource-html"
     },
     {
       "id": "警世通言",

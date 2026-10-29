@@ -11,7 +11,8 @@ import type {OriginalSource} from '../lib/reader-source-types.ts';
 import {sourceQuery} from '../lib/reader-source.ts';
 import {Converter} from 'opencc-js';
 import {readerBooks} from '../lib/reader-books.ts';
-import {hasSourceAnomaly} from './local-source-quality.ts';
+import {hasSourceAnomaly,hasBlockingSourceAnomaly} from './local-source-quality.ts';
+import {parseWikiStories} from './local-book-wiki-stories.ts';
 import {parseWikiOriginal,parseShidianOriginal} from './local-book-html.ts';
 import type {HtmlOriginal} from './local-book-html.ts';
 import {parseErkeVolume} from './local-book-erke.ts';
@@ -75,11 +76,14 @@ export class LocalBooks{
    if(!file.startsWith(root+path.sep))throw unavailable();
    let edition:string,sections:LocalSection[];
    if(entry.originalFiles){
-    if(!['太平广记','二刻拍案惊奇','山海经','酉阳杂俎','史记'].includes(id)||entry.supplements?.length)throw unavailable();
+    if(!['太平广记','二刻拍案惊奇','山海经','酉阳杂俎','史记','红楼梦','喻世明言'].includes(id)||entry.supplements?.length)throw unavailable();
     const files=entry.originalFiles;
     let expected:string[];
     if(id==='太平广记')expected=[...Array.from({length:501},(_,n)=>`KR3l0118_${String(n).padStart(3,'0')}.txt`),'Readme.org'];
-    else if(id==='二刻拍案惊奇'){
+    else if(id==='红楼梦'||id==='喻世明言'){
+     if(entry.format!=='wikisource-html')throw unavailable();
+     expected=[...Array.from({length:id==='红楼梦'?12:40},(_,n)=>`${String(n+1).padStart(3,'0')}.html`),'index.html'];
+    }else if(id==='二刻拍案惊奇'){
      if(files.length!==40)throw unavailable();
      expected=files.map((item,index)=>{
       const match=item.file.match(/^(\d{2}) 卷(?:之)?([一二三四五六七八九十]+) .+\.txt$/);
@@ -98,10 +102,11 @@ export class LocalBooks{
     if(JSON.stringify(files.map(item=>item.file))!==JSON.stringify(expected)||JSON.stringify((await readdir(file)).sort())!==JSON.stringify(expected))throw unavailable();
     edition=createHash('sha256').update(files.map(item=>`${item.file}\t${item.sha256}`).join('\n')).digest('hex');
     if(edition!==entry.source.sha256)throw unavailable();
-    sections=[];const sourceGlyphs=new Map<string,string>();
+    sections=[];const sourceGlyphs=new Map<string,string>(),storyParts:{raw:string;item:HtmlOriginal}[]=[];
     for(const [index,item] of files.entries()){
      const original=await realpath(path.join(file,item.file));if(!original.startsWith(file+path.sep))throw unavailable();
      const bytes=await readFile(original);if(createHash('sha256').update(bytes).digest('hex')!==item.sha256)throw unavailable();
+     if(id==='红楼梦'||id==='喻世明言'){if(!item.sourceUrl)throw unavailable();storyParts.push({raw:bytes.toString('utf8'),item:item as HtmlOriginal});continue;}
      if(['山海经','酉阳杂俎','史记'].includes(id)){
       if(!item.sourceUrl)throw unavailable();
       if(item.file.endsWith('.png')){if(bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw unavailable();continue;}
@@ -114,13 +119,14 @@ export class LocalBooks{
      if(id==='二刻拍案惊奇')sections.push(parseErkeVolume(bytes.toString('utf8'),index+1,url));
      else{const number=Number(item.file.match(/_(\d+)\.txt$/)?.[1]);if(number>0)sections.push(parseWygVolume(bytes.toString('utf8'),number,url));}
     }
+    if(storyParts.length)sections=parseWikiStories(id,storyParts);
     if(id==='酉阳杂俎'){
      const images=files.filter(item=>item.file.endsWith('.png'));
      if(JSON.stringify([...sourceGlyphs.keys()].map(value=>`glyph-${value}.png`).sort())!==JSON.stringify(images.map(item=>item.file)))throw unavailable();
      for(const item of images){const url=new URL(item.sourceUrl!);if(url.protocol!=='https:'||!url.hostname.endsWith('.byteimg.com')||url.pathname!==sourceGlyphs.get(item.file.slice(6,-4)))throw unavailable();}
     }
    }else{
-    if(['山海经','酉阳杂俎','史记'].includes(id))throw unavailable();
+    if(['山海经','酉阳杂俎','史记','红楼梦','喻世明言'].includes(id))throw unavailable();
     const bytes=await readFile(file);edition=createHash('sha256').update(bytes).digest('hex');
     if(edition!==entry.source.sha256)throw unavailable();
     const textBody=bytes.toString('utf8');
@@ -149,7 +155,7 @@ export class LocalBooks{
   const text=section.units.slice(first,last+1).map(u=>u.text).join('\n\n');
   const rangeUnits=section.units.slice(first,last+1),tagged=rangeUnits.every(unit=>unit.narrative!==undefined);
   const narrative=tagged?rangeUnits.some(unit=>unit.narrative):/[。！？!?，；：]/.test(text);
-  if(text.length<20||text.length>12000||!narrative||rangeUnits.some(unit=>unit.unreadable)||hasSourceAnomaly(text)||hasSourceAnomaly(section.title)||hasSourceAnomaly(book.title))throw invalid();
+  if(text.length<20||text.length>12000||!narrative||rangeUnits.some(unit=>unit.unreadable)||hasBlockingSourceAnomaly(text,reference)||hasSourceAnomaly(section.title)||hasSourceAnomaly(book.title))throw invalid();
   const range=first===last?`第${first+1}${book.id==='shishuo'?'则':'段'}`:`第${first+1}–${last+1}段`;
   return {title:`《${book.title}·${section.title}》${legacyChapter?'':` · ${range}`}`,text,url:section.url||book.url,kind:legacyChapter?'chapter':'passage',provider:`本地书库 · ${section.provider||book.provider}`,retrievedAt:new Date().toISOString(),localSource:reference};
  }

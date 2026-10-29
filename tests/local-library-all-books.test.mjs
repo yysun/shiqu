@@ -39,7 +39,7 @@ test('all 24 catalogs load verified originals with complete chapters and exhaust
  for(const [index,title,opening] of [[8,'呂太后本紀','呂太后者'],[17,'高祖功臣侯者年表','太史公曰'],[42,'趙世家','趙氏之先'],[43,'魏世家','魏之先'],[47,'陳涉世家','陳勝者']]){assert.ok(shiji.sections[index].title.endsWith(title));assert.ok(shiji.sections[index].units.some(unit=>unit.text.includes(opening)),title);}
  assert.equal(shiji.edition,catalog.books.find(b=>b.id==='史记').source.sha256);
  const legacy=await library.legacy(select('史记'),{...plan,sourceReference:'《史记·陈涉世家》'});assert.match(legacy.text,/陳勝者/);assert.match(legacy.title,/陳涉世家/);assert.equal(legacy.kind,'chapter');
- const honglou=await library.book(select('红楼梦'));assert.match(honglou.sections[79].title,/前八十回/);assert.match(honglou.sections[80].title,/后四十回/);
+ const honglou=await library.book(select('红楼梦'));assert.match(honglou.sections[79].title,/第八十回/);assert.match(honglou.sections[80].title,/第八十一回/);assert.match(honglou.provider,/程乙本/);assert.match(catalog.books.find(b=>b.id==='红楼梦').scope,/前80回与后40回/);
  assert.doesNotMatch((await library.book(select('浮生六记'))).input.text,/卷五|卷六|\(佚\)/);
 });
 
