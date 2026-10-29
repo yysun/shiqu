@@ -1,4 +1,11 @@
+// Resolve reader edge clicks and directional gestures without skipping pages.
 export type WheelGesture={lastEvent:number;lastTurn:number;distance:number;axis:'x'|'y';committed:boolean};
+export function edgePageDirection(clientX:number,left:number,width:number):number{
+ if(width<=0)return 0;
+ const position=(clientX-left)/width;
+ if(position<0||position>1)return 0;
+ return position<=.25?-1:position>=.75?1:0;
+}
 export function newWheelGesture():WheelGesture{return {lastEvent:-Infinity,lastTurn:-Infinity,distance:0,axis:'x',committed:false};}
 export function swipePageDirection(x:number,y:number):number{
  const horizontal=Math.abs(x)>Math.abs(y)*1.3,vertical=Math.abs(y)>Math.abs(x)*1.3;

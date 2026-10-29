@@ -1,6 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {newWheelGesture,wheelPageDirection,swipePageDirection} from '../lib/reader-navigation.ts';
+import {newWheelGesture,wheelPageDirection,swipePageDirection,edgePageDirection} from '../lib/reader-navigation.ts';
+
+test('scene edge clicks use the outer quarters of the reader, not the viewport',()=>{
+ for(const [left,width] of [[400,480],[0,360],[90,240]]){
+  assert.equal(edgePageDirection(left,left,width),-1);
+  assert.equal(edgePageDirection(left+width*.25,left,width),-1);
+  assert.equal(edgePageDirection(left+width*.26,left,width),0);
+  assert.equal(edgePageDirection(left+width*.5,left,width),0);
+  assert.equal(edgePageDirection(left+width*.74,left,width),0);
+  assert.equal(edgePageDirection(left+width*.75,left,width),1);
+  assert.equal(edgePageDirection(left+width,left,width),1);
+  assert.equal(edgePageDirection(left-1,left,width),0);
+  assert.equal(edgePageDirection(left+width+1,left,width),0);
+ }
+ assert.equal(edgePageDirection(0,0,0),0);
+});
 import {defaultProductionPrompt,promptAfterThemeChange} from '../lib/reader-prompts.ts';
 
 test('trackpad rebound cannot reverse or skip a page within the same gesture',()=>{

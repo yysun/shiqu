@@ -1,12 +1,16 @@
-// Left-click/tap and keyboard activation advance; a mouse context click goes back.
+// Both mouse buttons and taps navigate by the outer quarter of the scene clicked.
 // Swipes, drags and touch long presses must not trigger an extra page turn.
-import {useRef,type PointerEvent} from 'react';
-import {swipePageDirection} from '@/lib/reader-navigation';
+import {useRef,type PointerEvent,type MouseEvent} from 'react';
+import {swipePageDirection,edgePageDirection} from '@/lib/reader-navigation';
 
 export default function StoryPageSurface({onTurn,onDrag}:{onTurn:(direction:number)=>void;onDrag:(distance:number)=>void}){
  const pointer=useRef<{id:number;x:number;y:number;startedAt:number;travel:number}|null>(null);
  const suppressClick=useRef(false);
  const pointerType=useRef('');
+ function edgeDirection(event:MouseEvent<HTMLButtonElement>){
+  const bounds=event.currentTarget.getBoundingClientRect();
+  return edgePageDirection(event.clientX,bounds.left,bounds.width);
+ }
  function cancel(){pointer.current=null;suppressClick.current=true;onDrag(0);}
  function down(event:PointerEvent<HTMLButtonElement>){
   pointerType.current=event.pointerType;
@@ -30,8 +34,8 @@ export default function StoryPageSurface({onTurn,onDrag}:{onTurn:(direction:numb
   suppressClick.current=!!direction||travel>8||event.timeStamp-start.startedAt>450;
   if(direction)onTurn(direction);
  }
- return <button type="button" className="yu-swipe-surface" aria-label="点击画面进入下一页，右键返回上一页，也可上下或左右滑动翻页"
+ return <button type="button" className="yu-swipe-surface" aria-label="点击画面左侧边缘返回上一页，右侧边缘进入下一页，鼠标左右键均可，也可上下或左右滑动翻页"
   onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel}
-  onContextMenu={event=>{if(event.button!==2||pointerType.current==='touch')return;event.preventDefault();cancel();onTurn(-1);}}
-  onClick={event=>{if(event.detail===0||!suppressClick.current)onTurn(1);suppressClick.current=true;}}/>;
+  onContextMenu={event=>{if(event.button!==2||pointerType.current==='touch')return;event.preventDefault();cancel();const direction=edgeDirection(event);if(direction)onTurn(direction);}}
+  onClick={event=>{if(event.detail===0)onTurn(1);else if(!suppressClick.current){const direction=edgeDirection(event);if(direction)onTurn(direction);}suppressClick.current=true;}}/>;
 }
