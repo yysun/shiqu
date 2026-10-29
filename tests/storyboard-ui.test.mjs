@@ -15,4 +15,10 @@ test('reader renders saved directory, batch range, honest progress and 80-frame 
  assert.match(status,/<progress aria-label="当前阶段进行中"><\/progress>/);assert.doesNotMatch(status,/<progress[^>]*value=/);
  const count=renderToStaticMarkup(createElement(Count,{recommendation:{count:80,reason:'展开关键动作与转折。'},disabled:false,onConfirm(){}}));
  assert.equal((count.match(/max="80"/g)||[]).length,2);assert.match(count,/生成 80 幅/);
+ const reviewing={...session,story:{pages:Array(45).fill({})},stage:'正在审核全篇分镜',generationProgress:{...session.generationProgress,phase:'review',reviewStatus:'pending',reviewRound:0}};
+ const review=renderToStaticMarkup(createElement(Status,{session:reviewing,busy:false,error:'',onRetry(){},onBack(){}}));
+ assert.match(review,/审核分镜/);assert.match(review,/审片通过后才开始绘图/);assert.doesNotMatch(review,/<progress[^>]*value=/);
+ const blocked={...reviewing,state:'failed',error:'第 2 幅动作不清楚。',retryStage:'review',retryAllowed:true,retryMayCharge:true,generationProgress:{...reviewing.generationProgress,reviewStatus:'blocked',repairTotal:1}};
+ const retry=renderToStaticMarkup(createElement(Status,{session:blocked,busy:false,error:blocked.error,onRetry(){},onBack(){}}));
+ assert.match(retry,/继续修订分镜/);assert.match(retry,/仍有 1 幅待修订/);assert.match(retry,/第 2 幅动作不清楚/);
 });

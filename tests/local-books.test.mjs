@@ -125,6 +125,16 @@ test('storyboard directory and batch calls both verify local source receipts bef
  }
  assert.equal(outlines,1);assert.equal(batches,1);
 });
+test('review and repair require the same verified local original as planning',async()=>{
+ const book=await library.book(selected),selection={...selected,source:ref(book)};let calls=0;
+ const base=fake();base.generator=()=>({...fake().generator(),async review(){calls++;return {value:{issues:[]},model:'mock',requestId:null,usage:null};},async repair(){calls++;return {value:[],model:'mock',requestId:null,usage:null};}});
+ const g=withLocalBooks(base,library,memory()).generator(),original=await g.prepareOriginal(selection,'review-receipt');
+ await g.review(selection,plan,original);await g.repair(selection,plan,original,[]);
+ for(const bad of [undefined,{...original,text:original.text+'□'},{...original,localSource:{...original.localSource,edition:'0'.repeat(64)}}]){
+  await assert.rejects(g.review(selection,plan,bad),e=>e.status===400);await assert.rejects(g.repair(selection,plan,bad,[]),e=>e.status===400);
+ }
+ assert.equal(calls,2);
+});
 test('explicit legacy backfill uses a local chapter and does not plan, draw, or fetch a public source',async t=>{
  const root=await directory(t),media=new FileMedia(path.join(root,'media')),provider=withLocalBooks(fake(),library,media),app=createApplication({root:process.cwd(),dataDirectory:root,generation:provider});t.after(()=>app.close());
  const repo=new ReaderRepository(app.services.database),id=crypto.randomUUID();await repo.create(id,'docker-local-owner',selected);

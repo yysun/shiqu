@@ -193,7 +193,8 @@ for(const provider of ['codex','gemini'])test(`${provider}: confirmation gates p
   assert.equal(f.control.recommendations.length,recommendations+1);assert.equal(f.control.plans.length,plans);assert.equal(f.control.calls.length,images);
   await f.json(`sessions/${id}/frame-count`,'POST',{count:7});await f.demand(id,viewer);
   await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.plans.length,plans+1);assert.equal(f.control.calls.length,images+7);
-  const jobs=await f.app.services.production.queue.jobs(id,'docker-local-owner');assert.equal(jobs.filter(j=>j.kind==='prepare').length,1);assert.equal(jobs.filter(j=>j.kind==='script'&&j.state==='succeeded').length,1);
+  const jobs=await f.app.services.production.queue.jobs(id,'docker-local-owner');assert.equal(jobs.filter(j=>j.kind==='prepare').length,1);assert.equal(jobs.filter(j=>j.kind==='script'&&j.state==='succeeded'&&JSON.parse(j.payload).stepKey==='').length,1);
+  assert.ok(jobs.some(j=>j.kind==='script'&&JSON.parse(j.payload).stepKey==='review:0'&&j.state==='succeeded'));assert.ok(jobs.some(j=>JSON.parse(j.payload).stepKey==='approved'&&j.state==='succeeded'));
  }
 });
 

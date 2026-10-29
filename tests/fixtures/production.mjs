@@ -16,7 +16,7 @@ function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{reso
 export async function productionFixture(t,provider='codex',variables={}){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu production ')),dataDirectory=path.join(root,'data');
  await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
- const control={calls:[],plans:[],outlines:[],batches:[],recommendations:[],hold:true,autoLength:8,active:0,maxActive:0,beforeText:null};
+ const control={calls:[],plans:[],outlines:[],batches:[],reviews:[],repairs:[],recommendations:[],hold:true,autoLength:8,active:0,maxActive:0,beforeText:null};
  async function image(prompt,reference){
   const page=Number(prompt.match(/Scene (\d+):/)[1])-1,gate=deferred(),call={page,reference,prompt,...gate,done:false,bytes:encoded};
   control.calls.push(call);control.active++;control.maxActive=Math.max(control.maxActive,control.active);
@@ -24,6 +24,8 @@ export async function productionFixture(t,provider='codex',variables={}){
  }
  async function planned(prompt,schema){
   const payload=JSON.parse(prompt);if(schema.properties.count){control.recommendations.push(payload);return {count:7,reason:'保留完整因果和关键转折。'};}
+  if(schema.properties.issues){control.reviews.push(payload);return await control.beforeText?.('review',payload,schema)??{issues:[]};}
+  if(payload.requestedPages){control.repairs.push(payload);return await control.beforeText?.('repair',payload,schema)??{pages:payload.requestedPages.map(page=>({page,...payload.plan.pages[page-1],prompt:payload.plan.pages[page-1].prompt+' Revised staging with one clear visible action.'}))};}
   const length=payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount,plan=makePlan(length);
   if(schema.properties.beats){control.outlines.push(payload);const override=await control.beforeText?.('outline',payload,schema);const {pages,...metadata}=plan;return override??{...metadata,beats:pages.map((_,i)=>`第 ${i+1} 幅的关键事件与动作。`)};}
   control.plans.push(payload);if(payload.batch)control.batches.push(payload);

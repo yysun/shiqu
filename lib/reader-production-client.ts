@@ -32,6 +32,7 @@ export async function runQueuedStoryGeneration({sessionId,viewerId,page,request,
     else{
      const currentPage=page(),retry=initialRetry||session?.state==='failed';
      if(retry&&session){
+      if(session.retryStage==='review'&&!initialRetry)return session.error||'分镜审片尚未通过，请手动继续修订。';
       const key=sessionId+':'+session.stage,attempts=retries.get(key)||0;
       if(!session.retryAllowed||attempts>=2)return session.error||'制作暂停，请重试继续。';
       retries.set(key,attempts+1);

@@ -5,7 +5,7 @@ import {ReaderRepository} from '../lib/reader-repository.ts';
 import type {Database} from '../lib/reader-repository.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
 import type {Generated} from '../lib/reader-engine.ts';
-import {ReaderError,selectionSchema,view,nextStep} from '../lib/reader-model.ts';
+import {ReaderError,selectionSchema,view,nextStep,reviewPassed} from '../lib/reader-model.ts';
 import type {Document,SessionRow,SessionView,ProductionAction} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
@@ -121,10 +121,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
   const preparing=selection.narrativeDetail&&!doc.frameCountConfirmed&&!doc.plan;
   // A distinct job owns each saved planning checkpoint; the empty key is the complete-script barrier.
-  const scriptKey=!preparing&&!doc.plan&&(doc.storyboard||selection.length==='auto'||selection.length>readerStoryboardBatchSize)?nextStep(doc,selection,0)?.key||'':'';
+  const scriptKey=!preparing&&(!doc.plan||!reviewPassed(doc))&&(doc.visualReview||doc.storyboard||selection.length==='auto'||selection.length>readerStoryboardBatchSize)?nextStep(doc,selection,0)?.key||'':doc.visualReview?'approved':'';
   const scriptVersion=inputVersion({selection}),script=this.spec(row,preparing?'prepare':'script','text',scriptVersion,scriptKey,[],{stepKey:scriptKey},-10);
-  await this.queue.enqueue(script,doc.plan&&doc.original?{pages:doc.plan.pages.length}:undefined);
-  if(!doc.plan||!doc.original)return;
+  await this.queue.enqueue(script,doc.plan&&doc.original&&reviewPassed(doc)?{pages:doc.plan.pages.length}:undefined);
+  if(!doc.plan||!doc.original||!reviewPassed(doc))return;
   if(doc.plan.pages.every((_,page)=>!!doc.images[page])){
    await this.database.prepare("UPDATE reader_sessions SET state='completed',error=NULL WHERE id=? AND user_id=? AND state='idle' AND document=?").bind(row.id,row.user_id,row.document).run();return;
   }
@@ -160,7 +160,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(job.kind==='image'&&jobs.some(job=>job.kind==='image-publish'&&job.state==='running'))return false;
   }
   if(job.pool==='text')return row.state!=='running'||row.lock_until<=this.clock();
-  if(!doc.plan||!doc.original)return false;
+  if(!doc.plan||!doc.original||!reviewPassed(doc))return false;
   return this.ownSession(row,local);
  }
  private async ownSession(row:SessionRow,allowDeleted:boolean){
@@ -183,7 +183,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private async script(job:ProductionJob){
   let row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
-  if(doc.plan&&doc.original)return {pages:doc.plan.pages.length};
+  if(doc.plan&&doc.original&&reviewPassed(doc))return {pages:doc.plan.pages.length};
   const selection=selectionSchema.parse(JSON.parse(row.selection)),stepKey=(JSON.parse(job.payload) as {stepKey?:string}).stepKey;
   // A crash can save a batch before settling its queue receipt. Never replay that paid call.
   if(stepKey&&stepKey!==nextStep(doc,selection,0)?.key)return {storyboardFrames:doc.storyboard?.pages.length||0};
@@ -191,6 +191,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(result.state==='failed')throw new ReaderError(503,result.error||'故事编排暂未完成');
   if(result.awaitingFrameCount)return {awaitingFrameCount:true};
   row=await this.raw(row.id,row.user_id);doc=JSON.parse(row.document) as Document;
+  if(doc.visualReview&&!reviewPassed(doc))return {review:doc.visualReview.status};
   if(doc.storyboard&&!doc.plan)return {storyboardFrames:doc.storyboard.pages.length};
   if(!doc.plan||!doc.original)throw new ReaderError(503,'故事仍在更新，请重试继续。');
   return {pages:doc.plan.pages.length};
@@ -198,6 +199,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async image(job:ProductionJob){
   const row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
   const {page}=JSON.parse(job.payload) as {page:number};
+  if(!reviewPassed(doc))throw new ReaderError(409,'分镜尚未通过审片，暂不生成图片。');
   if(doc.images[page])return {value:doc.images[page],model:'saved',requestId:null,usage:null};
   if(page>0&&!doc.images[0])throw new ReaderError(409,'角色参考尚未保存');
   return this.provider.generator().image(doc.plan!,page,row.id,doc.images[0]||'',selection.artStyle,selection.productionPrompt,inputVersion([job.id,job.lease_token]));

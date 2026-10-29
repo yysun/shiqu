@@ -7,8 +7,10 @@ import type {OriginalSource,SourceResult,SourceHint} from './reader-source-types
 import {frameRecommendationSchema} from './reader-frame-recommendation.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import {readerImageBatchSize,readerMaxFrames,readerStoryboardBatchSize} from './reader-limits.ts';
+import {newReview,reviewReportSchema,repairOutputSchema,pendingRepairs} from './reader-review.ts';
+import type {ReviewIssue,ReviewReport,RepairedPage} from './reader-review.ts';
 export type Generated<T>={value:T;model:string;requestId:string|null;usage:unknown};
-export interface StoryGenerator{prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;recommend?(selection:Selection,id:string,original:OriginalSource):Promise<Generated<FrameRecommendation>>;outline?(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<StoryboardOutline>>;planBatch?(selection:Selection,id:string,storyboard:Storyboard,original:OriginalSource):Promise<Generated<Plan['pages']>>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<Plan>>;original(selection:Selection,plan:SourceHint,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
+export interface StoryGenerator{prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;recommend?(selection:Selection,id:string,original:OriginalSource):Promise<Generated<FrameRecommendation>>;outline?(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<StoryboardOutline>>;planBatch?(selection:Selection,id:string,storyboard:Storyboard,original:OriginalSource):Promise<Generated<Plan['pages']>>;review?(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline):Promise<Generated<ReviewReport>>;repair?(selection:Selection,plan:Plan,original:OriginalSource,issues:ReviewIssue[],outline?:StoryboardOutline):Promise<Generated<RepairedPage[]>>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<Plan>>;original(selection:Selection,plan:SourceHint,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
 
 async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerator,row:SessionRow,token:string,doc:Document,selection:Selection,throughPage:number){
  const pages=doc.plan!.pages.map((_,page)=>page).filter(page=>page<=throughPage&&!doc.images[page]);
@@ -79,9 +81,34 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    }
   }
   else if(step.kind==='source'){/* Resume original retrieval without paying to re-plan. */}
+  else if(step.kind==='review'){
+   const review=doc.visualReview!;
+   if(review.status==='blocked'){
+    // Only an explicit retry can reach a blocked session; reuse the saved issues without a new audit.
+    if(!retry)throw new ReaderError(409,'分镜审片尚未通过，请手动继续修订。');
+    // Give the continuation its own generation so the later recheck cannot reuse this receipt.
+    review.round++;review.status='repair';review.repairs=0;review.repaired=[];
+   }else{
+    if(!generator.review)throw new ReaderError(503,'生成服务暂不支持分镜审片，请更新服务后重试。');
+    const result=await generator.review(selection,structuredClone(doc.plan!),doc.original!,doc.storyboard?.outline);
+    const report=reviewReportSchema(doc.plan!.pages.length).parse(result.value);
+    review.reports.push({round:review.round,issues:report.issues});review.round++;review.issues=report.issues;review.repaired=[];
+    review.status=!report.issues.length?'passed':review.repairs>=1?'blocked':'repair';generated=result;
+   }
+  }
+  else if(step.kind==='repair'){
+   if(!generator.repair)throw new ReaderError(503,'生成服务暂不支持分镜修订，请更新服务后重试。');
+   const review=doc.visualReview!,requested=pendingRepairs(review),issues=review.issues.filter(issue=>requested.includes(issue.page));
+   const result=await generator.repair(selection,structuredClone(doc.plan!),doc.original!,issues,doc.storyboard?.outline);
+   const pages=repairOutputSchema(requested).parse({pages:result.value}).pages,updated=structuredClone(doc.plan!);
+   for(const {page,caption,prompt} of pages)updated.pages[page-1]={caption,prompt};
+   doc.plan=planSchema.parse(updated);if(doc.storyboard)doc.storyboard.pages=structuredClone(doc.plan.pages);
+   review.repaired.push(...requested);if(!pendingRepairs(review).length){review.status='pending';review.repairs++;}generated=result;
+  }
   else if(step.kind==='image')await drawRequestedImages(repo,generator,row,token,doc,selection,throughPage);
   else{const result=await generator.audio(doc.plan!.pages[step.page].caption,id,step.page);doc.audio[step.page]=result.value;generated=result;}
   if(generated)doc.usage.push({step:step.key,model:generated.model,requestId:generated.requestId,usage:generated.usage});
+  if(step.kind==='plan'&&doc.plan&&!doc.visualReview&&generator.review&&generator.repair)doc.visualReview=newReview();
   if((step.kind==='plan'||step.kind==='source')&&!doc.original){
    // URL-backed legacy sessions first resolve a real citation through provider URL context.
    // Save that paid directory before source lookup so a source outage cannot replay inference.
@@ -89,6 +116,10 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    const result=await generator.original(selection,doc.plan||doc.storyboard!.outline,id);
    if(!result.source)throw new ReaderError(503,'原文未能保存。'+result.message+' 故事编排已保留，可重试补全原文。');
    doc.original=result.source;
+  }
+  if(doc.visualReview?.status==='blocked'){
+   const issues=doc.visualReview.issues,summary=issues.slice(0,3).map(issue=>`第 ${issue.page} 幅：${issue.problem}`).join('；');
+   throw new ReaderError(422,`分镜复核仍有 ${issues.length} 处问题，已停止绘图。${summary}。可手动继续修订。`);
   }
   return view(await repo.save(row,token,doc,!awaitingFrameCount(doc,selection)&&!nextStep(doc,selection,readerMaxFrames-1)));
  }catch(error){if(error instanceof ReaderError&&error.status===404)throw error;return view(await repo.save(row,token,doc,false,error instanceof ReaderError?error.message:generator.safeError(error)));}

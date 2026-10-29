@@ -36,3 +36,10 @@ test('unknown counts and timestamps stay unknown and durations include minutes',
  assert.equal(generationDuration(9),'9 秒');assert.equal(generationDuration(65),'1 分 05 秒');
  assert.equal(generationProgress(planning,5000).elapsed,0);
 });
+test('review and repair are distinct saved stages and drawing only becomes current after approval',()=>{
+ const session={...planning,story:{pages:Array(8).fill({})},generationProgress:{...planning.generationProgress,frameCount:8,phase:'review',reviewStatus:'pending',reviewRound:0}};
+ const review=generationProgress(session,20000);assert.equal(review.measured,false);assert.equal(review.steps[3].label,'审核分镜');assert.deepEqual(review.steps.map(s=>s.state),['done','done','done','current','pending']);
+ const repair=generationProgress({...session,generationProgress:{...session.generationProgress,phase:'repair',reviewStatus:'repair',repairCompleted:1,repairTotal:2}},20000);assert.equal(repair.steps[3].detail,'已修订 1 / 2 幅');
+ const failed=generationProgress({...session,state:'failed',error:'仍有问题',generationProgress:{...session.generationProgress,reviewStatus:'blocked',repairTotal:2}},20000);assert.equal(failed.steps[3].state,'failed');assert.equal(failed.steps[4].state,'pending');assert.equal(failed.steps[3].detail,'仍有 2 幅待修订');
+ const images=generationProgress({...session,generationProgress:{...session.generationProgress,phase:'image',reviewStatus:'passed'}},20000);assert.equal(images.measured,true);assert.equal(images.steps[3].state,'done');assert.equal(images.steps[4].state,'current');
+});

@@ -19,6 +19,13 @@ test('persistent failures have two automatic retries',async()=>{
  });
  assert.equal(result,'controlled failure');assert.equal(attempts,3);assert.equal(retries.get('story:drawing 8'),2);assert.equal(calls.at(-1).method,'DELETE');
 });
+test('quality review blockage stops automatic retries; explicit continue is dispatched exactly once',async()=>{
+ for(const initialRetry of [false,true]){
+  const calls=[];const blocked={...base,state:'failed',retryStage:'review',error:'分镜复核仍有问题。'};
+  const result=await runQueuedStoryGeneration({sessionId:'story',viewerId:'viewer',initialRetry,page:()=>0,retries:new Map(),isActive:()=>true,onSession:()=>{},sleep:async()=>{},request:async(path,method,body)=>{calls.push({method,body});return blocked;}});
+  assert.equal(result,blocked.error);assert.deepEqual(calls.filter(c=>c.method==='POST').map(c=>c.body.retry),[initialRetry]);assert.equal(calls.at(-1).method,'DELETE');
+ }
+});
 
 test('accepted but lost retry responses re-read progress before spending the next retry',async()=>{
  let time=0,retryPosts=0,reads=0;const retries=new Map(),calls=[];
