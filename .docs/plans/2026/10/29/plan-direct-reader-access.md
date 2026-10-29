@@ -23,3 +23,15 @@ Verification evidence:
 - Existing `pnpm desktop:preview` listener on 1420 reused in IAB; copy/QR help describes direct IP/port and no re-pairing.
 - Temporary desktop listener, disposable library, existing reader static assets: IAB opened root directly, restart on same port retained page 3 (UI showed 4/10), then plain LAN origin opened successfully. Status URLs were plain origins. No paid calls or personal-library mutations.
 - Initial sandbox listener failures and default Cargo resource-check failure were environmental and resolved with test-specific execution/configuration. Packaged smoke script updated/syntax checked; no packaged payload validation or physical phone scan claimed.
+
+Milestone commit: `65c148c` (all implementation and regression changes); verified before commit. Final verification documents committed on user request.
+
+CR passed: no major findings.
+CR risk: non-low — removes reader authentication on reachable local/LAN listeners as explicitly requested.
+CR review round: 1; reviewer: reused.
+
+Supplemental Standard native validation compiled successfully: 14/15 tests pass; `standard_uses_verified_bundle_and_ignores_saved_system_path` cannot pass without `desktop/resources/node/manifest.json` and its prepared Node binary. This unchanged test requires packaged assets; do not prepare/build solely for verification. Lite native 13/13 and affected HTTP 22/22 remain valid. Temporary listener, data and IAB tabs cleaned up; existing preview process left running.
+
+VR passed: all acceptance criteria complete.
+VR risk: non-low — direct LAN access grants reachable devices the shared reader and generation permissions.
+VR review round: 1; reviewer: reused.
