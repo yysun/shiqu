@@ -20,6 +20,7 @@ use tauri_plugin_opener::OpenerExt;
 struct Control {
     runtime: Option<runtime::Runtime>,
     last_error: Option<String>,
+    environment: config::EnvironmentImport,
 }
 #[derive(Clone, Default)]
 struct DesktopState(Arc<Mutex<Control>>);
@@ -41,21 +42,47 @@ fn resource_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .map_err(|_| "无法确定应用资源目录。")?
         .join("runtime"))
 }
-fn settings_view(app: &tauri::AppHandle) -> Result<Value, String> {
-    let (file, data) = config::directories(app)?;
-    let settings = config::load(&file, &data)?;
-    let (key_present, credential_error) = match config::key() {
-        Ok(key) => (!key.is_empty(), None),
-        Err(error) => (false, Some(error)),
-    };
+fn settings_view(app: &tauri::AppHandle, control: &mut Control) -> Result<Value, String> {
+    let store = open_store(app, control)?;
+    let settings = store.settings()?;
     Ok(
-        json!({"settings":settings,"keyPresent":key_present,"credentialError":credential_error,"platform":std::env::consts::OS,"edition":runtime::edition()}),
+        json!({"settings":settings,"keyPresent":store.key_present()?,"credentialError":control.environment.error,"platform":std::env::consts::OS,"edition":runtime::edition()}),
     )
+}
+fn open_store(app: &tauri::AppHandle, control: &mut Control) -> Result<config::Store, String> {
+    let (file, data) = config::directories(app)?;
+    let mut store = config::Store::open(&file, &data)?;
+    control
+        .environment
+        .initialize(&mut store, || match std::env::var("GEMINI_API_KEY") {
+            Ok(value) => Ok(Some(value)),
+            Err(std::env::VarError::NotPresent) => Ok(None),
+            Err(_) => Err(()),
+        })?;
+    Ok(store)
+}
+
+fn provider_configuration(store: &config::Store) -> Result<(Settings, String), String> {
+    let settings = store.settings()?;
+    let key = if settings.provider == "gemini" {
+        store.key()?
+    } else {
+        String::new()
+    };
+    Ok((settings, key))
 }
 
 #[tauri::command]
-async fn get_settings(app: tauri::AppHandle) -> Result<Value, String> {
-    blocking(move || settings_view(&app)).await
+async fn get_settings(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Value, String> {
+    let shared = state.0.clone();
+    blocking(move || {
+        let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
+        settings_view(&app, &mut control)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -68,15 +95,27 @@ async fn save_settings(
 ) -> Result<Value, String> {
     let shared = state.0.clone();
     blocking(move || {
-        let guard = shared.lock().map_err(|_| "服务控制器不可用。")?;
+        let mut guard = shared.lock().map_err(|_| "服务控制器不可用。")?;
         if guard.runtime.is_some() {
             return Err("请先停止服务，再修改设置或密钥。".into());
         }
-        settings.validate()?;
-        let (file, _) = config::directories(&app)?;
-        config::persist(&file, &settings)?;
-        config::edit_key(&key_action, &key)?;
-        settings_view(&app)
+        let replacement;
+        let change = match key_action.as_str() {
+            "keep" => config::KeyChange::Keep,
+            "replace" => {
+                replacement = config::validate_key(&key)?;
+                config::KeyChange::Set(&replacement)
+            }
+            "delete" => config::KeyChange::Delete,
+            _ => return Err("密钥操作无效。".into()),
+        };
+        let mut store = open_store(&app, &mut guard)?;
+        store.save(&settings, change)?;
+        if key_action != "keep" {
+            guard.environment.error = None;
+        }
+        drop(store);
+        settings_view(&app, &mut guard)
     })
     .await
 }
@@ -120,13 +159,8 @@ async fn start_server(
         if let Some(runtime) = &control.runtime {
             return Ok(runtime.status.clone());
         }
-        let (file, data) = config::directories(&app)?;
-        let settings = config::load(&file, &data)?;
-        let key = if settings.provider == "gemini" {
-            config::key()?
-        } else {
-            String::new()
-        };
+        let store = open_store(&app, &mut control)?;
+        let (settings, key) = provider_configuration(&store)?;
         match runtime::start(&settings, &key, &resource_root(&app)?) {
             Ok(runtime) => {
                 let result = runtime.status.clone();
@@ -181,26 +215,15 @@ async fn server_status(state: tauri::State<'_, DesktopState>) -> Result<Value, S
 async fn test_provider(
     app: tauri::AppHandle,
     state: tauri::State<'_, DesktopState>,
-    settings: Settings,
-    key_action: String,
-    key: String,
 ) -> Result<Value, String> {
     let shared = state.0.clone();
     blocking(move || {
-        let guard = shared.lock().map_err(|_| "服务控制器不可用。")?;
+        let mut guard = shared.lock().map_err(|_| "服务控制器不可用。")?;
         if guard.runtime.is_some() {
             return Err("请先停止服务，再测试配置。".into());
         }
-        let credential = if settings.provider == "codex" {
-            String::new()
-        } else {
-            match key_action.as_str() {
-                "keep" => config::key()?,
-                "replace" if key.len() <= 4096 && !key.contains(['\n', '\r', '\0']) => key,
-                "delete" => String::new(),
-                _ => return Err("密钥操作无效。".into()),
-            }
-        };
+        let store = open_store(&app, &mut guard)?;
+        let (settings, credential) = provider_configuration(&store)?;
         let (mut child, result) =
             runtime::launch(&settings, &credential, &resource_root(&app)?, "test")?;
         drop(child.stdin.take());
@@ -317,4 +340,41 @@ fn thread_stop(app: tauri::AppHandle, quit: bool) {
             app.exit(0);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn provider_commands_only_use_committed_database_configuration() {
+        let folder =
+            std::env::temp_dir().join(format!("shiqu-command-config-{}", std::process::id()));
+        let file = folder.join("desktop.sqlite");
+        let mut store = config::Store::open(&file, &folder).unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.text_model = "saved-model".into();
+        store
+            .save(&settings, config::KeyChange::Set("disposable-command-key"))
+            .unwrap();
+        drop(store);
+        let mut store = config::Store::open(&file, &folder).unwrap();
+        let (loaded, key) = provider_configuration(&store).unwrap();
+        assert_eq!(loaded.text_model, "saved-model");
+        assert_eq!(key, "disposable-command-key");
+        store.save(&settings, config::KeyChange::Delete).unwrap();
+        assert!(provider_configuration(&store).unwrap().1.is_empty());
+        #[cfg(not(windows))]
+        {
+            settings.provider = "codex".into();
+            store
+                .save(
+                    &settings,
+                    config::KeyChange::Set("ignored-in-subscription-mode"),
+                )
+                .unwrap();
+            assert!(provider_configuration(&store).unwrap().1.is_empty());
+        }
+        drop(store);
+        std::fs::remove_dir_all(folder).unwrap();
+    }
 }

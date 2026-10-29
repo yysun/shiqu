@@ -10,17 +10,30 @@ Standard 不要求电脑安装 Node。应用在执行内置运行时前校验 SH
 
 两个安装包都包含编译后的前端、服务器、生产依赖、迁移和 24 本原文；Standard 另含 Node 及其许可证/第三方声明。用户无需安装 pnpm 或运行依赖安装。项目原有的 tiktoken 分词器包含 WASM，用于 AI 输入预算估算；这不是将应用改为 WASM，普通 Node 后端仍然保留。Node、书库和依赖各占一定空间；Lite 只省去 Node 的分发大小。
 
-macOS 最低版本为 **13.5**，与当前捆绑 Node 的实际最低系统版本一致。在 Windows 上需要 WebView2；Linux 需要 WebKitGTK、托盘支持和可用的 Secret Service 凭据服务。现有 Codex 运行器不支持原生 Windows，Windows 桌面版请使用 Gemini。Gemini 生成仍需联网及有效的模型权限/配额。
+macOS 最低版本为 **13.5**，与当前捆绑 Node 的实际最低系统版本一致。在 Windows 上需要 WebView2；Linux 需要 WebKitGTK、托盘支持。现有 Codex 运行器不支持原生 Windows，Windows 桌面版请使用 Gemini。Gemini 生成仍需联网及有效的模型权限/配额。
 
 ## 设置与凭据
 
-Gemini 支持密钥输入、显示/隐藏当前输入、替换和删除，以及文本/图片模型配置。已存密钥只显示保存状态，不会重新返回设置窗口。密钥只保存在系统凭据存储：macOS Keychain、Windows Credential Manager、Linux Secret Service。凭据服务不可用时明确报错，不会回退到明文文件。
+Gemini 支持密钥输入、显示/隐藏当前输入、替换和删除，以及文本/图片模型配置。**密钥和设置始终保存在本机 SQLite 数据库，退出应用或重启电脑后继续使用。没有仅本次会话模式。数据库中的密钥是明文**，由本机文件权限保护，并非加密存储。两个版本都不再依赖 Keychain / Credential Manager / Secret Service。旧版凭据存储中的密钥不会自动导入或删除，请重新输入。
+
+设置界面只返回密钥是否已保存，不返回密钥内容。启动服务时，通过私有 stdin 管道发送给内置 Node，不通过参数、子进程环境、日志或 HTTP 配置端点发送。
+
+已有数据库密钥优先。每次完整启动桌面应用时，若数据库没有密钥，则从启动环境中的 `GEMINI_API_KEY` 导入并保存；在本次应用运行中删除后不会立刻再次导入。下一次完整启动仍可能从环境导入。环境格式错误只显示不含密钥的提示，仍可在设置中输入有效密钥保存。
+
+`PATH` 只用来查找程序，不存放 API 密钥。不执行 shell 或读取 `.zshrc` / `.env`。先在终端设置环境变量，再直接启动应用可执行文件：
+
+```bash
+export GEMINI_API_KEY='your-key'
+/Applications/Shiqu.app/Contents/MacOS/shiqu-desktop
+```
+
+应用必须完全退出后重新启动才能导入新的环境变量；已运行的单实例不会接受另一次启动的环境。Finder/Dock 启动通常不继承终端环境，推荐直接在设置窗口输入密钥。
 
 Codex 使用本机已登录的 CLI，可设置可执行文件、模型和登录目录。首次登录仍通过终端 `codex login` 完成；桌面连接检查可以验证登录状态。两个版本都不包含 Codex CLI。
 
-“检查连接”仅访问 Gemini 模型元数据，或执行 Codex 登录状态检查；不生成内容，不证明实际生成配额。检查可以使用尚未保存的输入，但不会替用户保存。服务运行期间必须先停止，才能更改配置或密钥。
+“检查连接”仅访问 Gemini 模型元数据，或执行 Codex 登录状态检查；不生成内容，不证明实际生成配额。检查前自动保存当前配置和密钥，再从数据库读取并检查；不会保留未保存的运行配置。服务运行期间必须先停止，才能更改配置或密钥。
 
-非密钥设置保存在系统应用配置目录的 `com.shiqu.desktop/settings.json`，不读取项目 `.env`。默认数据在系统应用数据目录下的 `library`。macOS 两者通常位于 `~/Library/Application Support/com.shiqu.desktop/`。更换数据目录切换书架，不会搬移文件。不要让 Docker/Node 和桌面版同时使用同一数据目录。
+设置及密钥保存在系统应用配置目录的 `com.shiqu.desktop/desktop.sqlite`，独立于故事库，不读取项目 `.env`。首次使用会迁移旧版非密钥 `settings.json`，之后只读取数据库，不覆盖后续更改；旧文件保留不动。Unix 下应用配置目录/数据库权限为 0700/0600，Windows 使用用户配置目录的继承 ACL。备份数据库也会包含已保存的明文密钥。默认数据在系统应用数据目录下的 `library`。macOS 两者通常位于 `~/Library/Application Support/com.shiqu.desktop/`。更换数据目录切换书架，不会搬移文件。不要让 Docker/Node 和桌面版同时使用同一数据目录。
 
 macOS 的“文稿”“桌面”等受保护目录可能等待系统文件访问授权；推荐使用默认应用数据目录。自定义目录请通过“选择”按钮选择，并在系统提示时由你决定是否授权。
 

@@ -1,4 +1,4 @@
-# The desktop shell supervises system Node; application services remain in TypeScript.
+# Native settings/credentials stay in private SQLite; the shell supervises bundled or system Node.
 [package]
 name = "shiqu-desktop"
 version = "0.1.0"
@@ -27,15 +27,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 fs2 = "0.4.3"
 sha2 = "0.10"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-keyring = { version = "=3.6.3", features = ["apple-native"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-keyring = { version = "=3.6.3", features = ["windows-native"] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-keyring = { version = "=3.6.3", features = ["sync-secret-service", "crypto-rust"] }
+rusqlite = { version = "=0.41.1", features = ["bundled"] }
 
 [profile.release]
 strip = true

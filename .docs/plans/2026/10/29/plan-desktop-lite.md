@@ -97,3 +97,40 @@ The disposable Keychain round trip was retried after unlock and still fails with
 Read-only host diagnosis: default credential store is login.keychain-db; the system command `security show-keychain-info` itself fails with SecKeychainCopySettings authentication error (exit 51), independently of Shiqu. No unlock command or credential change was attempted.
 
 Final VR round 2 supersedes the prior locked-Mac verdict: successful OS credential persistence, browser launch/pairing, and distinct second-instance focus remain unverified; final E2E/acceptance tasks remain open. Complete criteria: 1, 2, 6, 7, 9. Remaining criteria: 3, 4, 5, 8. Independent reviewer desktop_review; full verdict preserved verbatim in the delivery report.
+
+## Session and SQLite credentials amendment
+
+Current amendment starts from `e4a1106fe27337fa3a586acca7f9feb3be1b570c`; preserve original story base above. User authorized session-only keys, asked about PATH (resolve as launch GEMINI_API_KEY, not executable search), then requested keys/settings in a database. The credential design above is superseded: remove Keychain dependency entirely. Keep current native-only bridge and private stdin transport. Use pinned rusqlite with bundled native SQLite; no SQLite plugin exposed to webviews. Store native configuration in app-config `desktop.sqlite`, separate from the reader library. Unix directory/file permissions 0700/0600; Windows uses profile ACL inheritance. Keep SQLite rollback journal inside that directory, secure_delete on, memory temp storage, bounded busy timeout, explicit schema version, and parameterized statements. Save settings and optional persistent key in one transaction. Reject unsupported/corrupt databases with safe actionable errors; never overwrite them. Import legacy nonsecret settings.json only when no settings row exists; leave its file and existing Keychain credentials untouched.
+
+Credential resolution is explicit in-memory override > launch GEMINI_API_KEY > database key. A clear/delete action suppresses fallback until app quit. Explicit database save overrides environment during the current session; on fresh launch environment takes precedence. Session input defaults to no persistence; the optional local save control explicitly discloses plaintext storage. Remembering to database and deleting it must round-trip on this host, without Keychain. Settings reads return only active key presence/source and safe errors. Capture the environment only once, validate without echoing values, never run shell profiles, and don't pass the variable into Node's environment. Runtime stop/restart does not discard the native session override. Plaintext file/database backups are the stated persistence tradeoff.
+
+- [x] Implement native SQLite settings/credential store and one-time JSON migration, removing Keychain. Add transactional rollback, persistence, deletion, permission, corrupt/version/migration coverage.
+- [x] Wire get/save/start/test to the always-saved SQLite key, add once-per-launch environment seeding with database priority and safe invalid-input warnings, remove session/Keychain code and UI, and document persistent plaintext storage. Both Start and connection checks use committed configuration; the UI saves before checking.
+- [ ] Rebuild Standard, run full relevant Node/Rust suites, lint/typecheck/fmt and packaged smoke. Exercise packaged native session save/start/stop/restart/quit/relaunch, database save/relaunch/delete, and no plaintext session persistence using disposable non-provider keys. Record platform/browser limits and repeat independent CR/VR. Existing unrelated changes remain excluded.
+
+AR reopened for this credential/persistence change. Keychain integration is superseded by database round-trip evidence; existing browser/second-instance evidence gaps remain independent.
+
+AR passed: no blocking architecture flaws.
+
+AR risk: non-low — native credential source precedence, plaintext persistence, migration and secret transport.
+AR review round: 3; reviewer: reused (`desktop_review`, independent/read-only).
+
+Implementation must validate existing schema/version before mutating setup, apply the session override only after the transaction commits, keep invalid environment errors recoverable through explicit input, and distinguish clearing active credentials from deleting the stored database key. First SS probe compiles pinned rusqlite and proves transactions before dependent UI wiring.
+
+## Always-saved correction (supersedes session amendment)
+
+User removed session-only entirely. Retain the SQLite store, transaction/migration/permissions/error protection and Keychain removal. Remove the new session state/module and UI persistence selector; typed keys always persist. Native Control tracks only whether launch-environment import has been attempted and a safe import error, never a session credential override. On first native settings/start/test access per app launch, import GEMINI_API_KEY only if no saved database key exists; validate then commit it. Existing database keys win. Deletion cannot reimport until app relaunch. Invalid import is a value-free warning and does not block loading settings or saving a valid key. Do not execute shell profiles. Stored key is the only runtime source after initialization and still travels over private stdin. No memory-only credential mode remains.
+
+Replace the second amendment task with: wire get/save/start/test to the SQLite key, add bounded once-per-launch environment import and tests for database priority, invalid values and deletion/relaunch import behavior; remove session controls and document always-saved plaintext policy. E2E now verifies save/relaunch/delete and automatic environment seeding, without session lifetime scenarios. Reopen AR before dependent wiring. Prior bounded SQLite commit/rollback probe passed on pinned rusqlite 0.41.1. Early unit tests passed before this correction; they do not certify the corrected implementation.
+
+AR passed: no blocking architecture flaws
+AR risk: non-low — persistent plaintext credentials, native SQLite migration, environment import, and secret transport.
+AR review round: 4; reviewer: reused (`desktop_review`, independent/read-only).
+
+Native mutex serializes once-per-launch import with settings/start/test. Existing database wins; mark import attempted even when already stored, so deletion cannot restore it. Invalid environment must remain a safe warning, and explicit valid save clears it. Remove superseded session code/tests/UI.
+
+Always-saved implementation: bounded native rusqlite 0.41.1 commit/rollback probe passed. Corrected Standard Rust suite: 13 pass, no ignored credential integration. Lite suite: 11 pass. Node suite: 169 pass; lint/typecheck/fmt pass. Native/package checks follow. Concurrent story-frame-count changes under client/lib/server generation/tests and its docs are unrelated and excluded from desktop commits.
+
+CR fixed: connection checks now save pending edits first and read only committed SQLite configuration; rerun result passed.
+CR risk: non-low — persistent credentials, native configuration, and secret transport.
+CR review round: 5; reviewer: reused (`desktop_review`, independent/read-only).

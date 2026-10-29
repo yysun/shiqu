@@ -1,4 +1,4 @@
-// A local native control panel: settings travel over Tauri IPC, never the reader's HTTP API.
+// Native-only settings: keys always persist in private SQLite and never return in settings reads.
 import {useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {invoke,isTauri} from '@tauri-apps/api/core';
@@ -45,9 +45,10 @@ function Desktop(){
      <fieldset disabled={locked}><legend className="sr-only">生成服务设置</legend>
       <label>提供方<select value={settings.provider} onChange={e=>update('provider',e.target.value as Settings['provider'])}><option value="gemini">Gemini · API 密钥</option><option value="codex" disabled={view?.platform==='windows'}>Codex · ChatGPT 订阅{view?.platform==='windows'?'（Windows 暂不支持）':''}</option></select></label>
       {settings.provider==='gemini'?<>
-       <div className="label-row"><label htmlFor="api-key">Gemini API 密钥</label><span className={keyAction==='delete'?'key-state warning':'key-state'}>{keyAction==='delete'?'保存后移除':keyAction==='replace'?'等待保存':view?.keyPresent?'已安全保存':'未设置 · 可阅读示例'}</span></div>
-       <div className="input-row"><input id="api-key" type={reveal?'text':'password'} autoComplete="off" spellCheck={false} value={key} placeholder={view?.keyPresent?'输入新密钥以替换；留空保留现有密钥':'粘贴你的 Gemini API 密钥'} onChange={e=>{setKey(e.target.value);setKeyAction(e.target.value?'replace':'keep');}}/><button className="subtle" type="button" onClick={()=>setReveal(!reveal)} aria-label={reveal?'隐藏输入的密钥':'显示输入的密钥'}>{reveal?'隐藏':'显示'}</button></div>
-       <div className="key-help"><p className="help">密钥存入系统凭据存储。浏览器与手机无法读取。</p>{(view?.keyPresent||keyAction!=='keep')&&<button className="text-button danger" onClick={()=>{setKey('');setKeyAction(keyAction==='delete'?'keep':'delete');}}>{keyAction==='delete'?'撤销移除':'移除密钥'}</button>}</div>
+       <div className="label-row"><label htmlFor="api-key">Gemini API 密钥</label><span className={keyAction==='delete'?'key-state warning':'key-state'}>{keyAction==='delete'?'保存后删除':keyAction==='replace'?'等待保存到本机':view?.keyPresent?'已保存到本机数据库':'未设置 · 可阅读示例'}</span></div>
+       <div className="input-row"><input id="api-key" type={reveal?'text':'password'} autoComplete="off" spellCheck={false} value={key} placeholder={view?.keyPresent?'输入新密钥以替换；留空保留已保存密钥':'粘贴你的 Gemini API 密钥'} onChange={e=>{setKey(e.target.value);setKeyAction(e.target.value?'replace':'keep');}}/><button className="subtle" type="button" onClick={()=>setReveal(!reveal)} aria-label={reveal?'隐藏输入的密钥':'显示输入的密钥'}>{reveal?'隐藏':'显示'}</button></div>
+       <div className="key-help"><p className="help">密钥以明文保存在本机数据库，由系统文件权限保护。浏览器与手机无法读取。</p>{(view?.keyPresent||keyAction!=='keep')&&<button className="text-button danger" onClick={()=>{setKey('');setKeyAction(keyAction==='delete'?'keep':'delete');}}>{keyAction==='delete'?'撤销删除':'删除已保存的密钥'}</button>}</div>
+       <p className="help">未保存密钥时，启动环境中的 GEMINI_API_KEY 会自动保存。无需钥匙串。</p>
        {view?.credentialError&&<p className="error" role="alert">{view.credentialError}</p>}
        <div className="two-fields"><label>文本模型<input value={settings.textModel} onChange={e=>update('textModel',e.target.value)} spellCheck={false}/></label><label>图片模型<input value={settings.imageModel} onChange={e=>update('imageModel',e.target.value)} spellCheck={false}/></label></div>
       </>:<>
@@ -57,7 +58,7 @@ function Desktop(){
        <label>Codex 登录目录（可选）<div className="input-row"><input value={settings.codexHome} onChange={e=>update('codexHome',e.target.value)} placeholder="留空使用 CLI 默认目录"/><button className="subtle" onClick={()=>void action('选择目录',()=>browse('codexHome','codexHome'))}>选择</button></div></label>
        <p className="help">首次登录需先在终端执行 codex login；此处可检查登录状态。</p>
       </>}
-      <div className="test-row"><button className="secondary" onClick={()=>void action('检查连接',async()=>{const result=await invoke<{ok:boolean;message:string}>('test_provider',{settings,keyAction,key});if(result.ok)setMessage(result.message);else setError(result.message);})}>检查连接</button><span className="help">仅检查模型访问或登录状态，不生成内容。</span></div>
+      <div className="test-row"><button className="secondary" onClick={()=>void action('检查连接',async()=>{if(dirty)await save();const result=await invoke<{ok:boolean;message:string}>('test_provider');if(result.ok)setMessage(result.message);else setError(result.message);})}>检查连接</button><span className="help">检查前保存配置；仅检查访问或登录，不生成内容。</span></div>
      </fieldset>
     </section>
     <section className="card"><div className="section-heading"><span className="step">02</span><div><h2>本地运行</h2><p>运行时与故事数据，由你掌握。</p></div></div>

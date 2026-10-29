@@ -1,13 +1,12 @@
-// Persist only allowlisted nonsecret settings; API keys belong exclusively to the OS keyring.
+// Keep desktop settings and opt-in plaintext keys in private native SQLite, outside the reader library.
+// Version/schema checks precede mutations; settings and key edits commit together without Keychain.
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
-    io::Write,
     path::{Path, PathBuf},
+    time::Duration,
 };
-
-const SERVICE: &str = "com.shiqu.desktop";
-const ACCOUNT: &str = "gemini-api-key";
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -75,67 +74,228 @@ impl Settings {
     }
 }
 
-pub fn load(file: &Path, data: &Path) -> Result<Settings, String> {
-    let settings = match fs::read(file) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map_err(|_| "设置文件损坏，请备份后移除 settings.json。")?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::defaults(data),
-        Err(_) => return Err("无法读取桌面设置，请检查目录权限。".into()),
-    };
-    Ok(settings)
+const STORE_ERROR: &str = "无法读取或保存桌面数据库；请检查权限，或备份 desktop.sqlite 后重试。";
+const SCHEMA_ERROR: &str = "桌面数据库损坏或版本不兼容；请保留备份，使用兼容版本打开。";
+
+pub enum KeyChange<'a> {
+    Keep,
+    Set(&'a str),
+    Delete,
+}
+pub struct Store {
+    db: Connection,
 }
 
-pub fn persist(file: &Path, settings: &Settings) -> Result<(), String> {
-    settings.validate()?;
-    let parent = file.parent().ok_or("设置目录无效。")?;
-    fs::create_dir_all(parent).map_err(|_| "无法创建设置目录。")?;
-    let temporary = file.with_extension("json.tmp");
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let result = (|| -> std::io::Result<()> {
-        let mut output = options.open(&temporary)?;
-        output.write_all(&serde_json::to_vec_pretty(settings)?)?;
-        output.sync_all()?;
-        fs::rename(&temporary, file)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result.map_err(|_| "无法保存桌面设置，请检查目录权限。".into())
-}
-
-fn entry() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(SERVICE, ACCOUNT).map_err(|_| "无法打开系统凭据存储。".into())
-}
-pub fn key() -> Result<String, String> {
-    match entry()?.get_password() {
-        Ok(value) => Ok(value),
-        Err(keyring::Error::NoEntry) => Ok(String::new()),
-        Err(_) => Err("无法读取系统凭据存储；请解锁钥匙串或启动 Secret Service。".into()),
-    }
-}
-pub fn edit_key(action: &str, value: &str) -> Result<(), String> {
-    match action {
-        "keep" => Ok(()),
-        "replace"
-            if !value.trim().is_empty()
-                && value.len() <= 4096
-                && !value.contains(['\0', '\n', '\r']) =>
+impl Store {
+    pub fn open(file: &Path, data: &Path) -> Result<Self, String> {
+        let folder = file.parent().ok_or(STORE_ERROR)?;
+        fs::create_dir_all(folder).map_err(|_| STORE_ERROR)?;
+        if !fs::symlink_metadata(folder)
+            .map_err(|_| STORE_ERROR)?
+            .is_dir()
         {
-            entry()?
-                .set_password(value.trim())
-                .map_err(|_| "无法将密钥保存到系统凭据存储；未写入明文文件。".into())
+            return Err(STORE_ERROR.into());
         }
-        "delete" => match entry()?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(_) => Err("无法删除系统凭据，请先解锁凭据存储。".into()),
-        },
-        _ => Err("请填写有效的密钥或保留现有密钥。".into()),
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            fs::set_permissions(folder, fs::Permissions::from_mode(0o700))
+                .map_err(|_| STORE_ERROR)?;
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(file)
+            {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(_) => return Err(STORE_ERROR.into()),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(file)
+            {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(_) => return Err(STORE_ERROR.into()),
+            }
+        }
+        if !fs::symlink_metadata(file)
+            .map_err(|_| STORE_ERROR)?
+            .is_file()
+        {
+            return Err(STORE_ERROR.into());
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(file, fs::Permissions::from_mode(0o600))
+                .map_err(|_| STORE_ERROR)?;
+        }
+        let mut db = Connection::open_with_flags(
+            file,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|_| SCHEMA_ERROR)?;
+        db.busy_timeout(Duration::from_secs(2))
+            .map_err(|_| STORE_ERROR)?;
+        let version: i64 = db
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(|_| SCHEMA_ERROR)?;
+        if version == 0 {
+            let count: i64 = db
+                .query_row(
+                    "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|_| SCHEMA_ERROR)?;
+            if count != 0 {
+                return Err(SCHEMA_ERROR.into());
+            }
+        } else if version == 1 {
+            db.prepare("SELECT id, value FROM desktop_settings LIMIT 0")
+                .map_err(|_| SCHEMA_ERROR)?;
+            db.prepare("SELECT name, value FROM desktop_credentials LIMIT 0")
+                .map_err(|_| SCHEMA_ERROR)?;
+            let value: String = db
+                .query_row("SELECT value FROM desktop_settings WHERE id=1", [], |row| {
+                    row.get(0)
+                })
+                .map_err(|_| SCHEMA_ERROR)?;
+            let settings: Settings = serde_json::from_str(&value).map_err(|_| SCHEMA_ERROR)?;
+            settings.validate().map_err(|_| SCHEMA_ERROR)?;
+            let integrity: String = db
+                .pragma_query_value(None, "quick_check", |row| row.get(0))
+                .map_err(|_| SCHEMA_ERROR)?;
+            if integrity != "ok" {
+                return Err(SCHEMA_ERROR.into());
+            }
+        } else {
+            return Err(SCHEMA_ERROR.into());
+        }
+        db.execute_batch(
+            "PRAGMA journal_mode=DELETE; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY;",
+        )
+        .map_err(|_| STORE_ERROR)?;
+        if version == 0 {
+            let legacy = folder.join("settings.json");
+            let settings: Settings = match fs::read(&legacy) {
+                Ok(bytes) => serde_json::from_slice(&bytes)
+                    .map_err(|_| "旧 settings.json 损坏；请备份后修复或移走。")?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    Settings::defaults(data)
+                }
+                Err(_) => return Err(STORE_ERROR.into()),
+            };
+            settings.validate()?;
+            let value = serde_json::to_string(&settings).map_err(|_| STORE_ERROR)?;
+            let tx = db.transaction().map_err(|_| STORE_ERROR)?;
+            tx.execute_batch("CREATE TABLE desktop_settings (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL); CREATE TABLE desktop_credentials (name TEXT PRIMARY KEY CHECK(name='gemini'), value TEXT NOT NULL); PRAGMA user_version=1;").map_err(|_| STORE_ERROR)?;
+            tx.execute("INSERT INTO desktop_settings VALUES (1, ?1)", [&value])
+                .map_err(|_| STORE_ERROR)?;
+            tx.commit().map_err(|_| STORE_ERROR)?;
+        }
+        Ok(Self { db })
+    }
+    pub fn settings(&self) -> Result<Settings, String> {
+        let value: String = self
+            .db
+            .query_row("SELECT value FROM desktop_settings WHERE id=1", [], |row| {
+                row.get(0)
+            })
+            .map_err(|_| SCHEMA_ERROR)?;
+        let settings: Settings = serde_json::from_str(&value).map_err(|_| SCHEMA_ERROR)?;
+        settings.validate()?;
+        Ok(settings)
+    }
+    pub fn key(&self) -> Result<String, String> {
+        self.db
+            .query_row(
+                "SELECT value FROM desktop_credentials WHERE name='gemini'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(|key| key.unwrap_or_default())
+            .map_err(|_| STORE_ERROR.into())
+    }
+    pub fn key_present(&self) -> Result<bool, String> {
+        self.db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM desktop_credentials WHERE name='gemini')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| STORE_ERROR.into())
+    }
+    pub fn save(&mut self, settings: &Settings, key: KeyChange<'_>) -> Result<(), String> {
+        settings.validate()?;
+        let value = serde_json::to_string(settings).map_err(|_| STORE_ERROR)?;
+        let tx = self.db.transaction().map_err(|_| STORE_ERROR)?;
+        tx.execute("UPDATE desktop_settings SET value=?1 WHERE id=1", [&value])
+            .map_err(|_| STORE_ERROR)?;
+        match key {
+            KeyChange::Keep => {}
+            KeyChange::Set(key) => {
+                tx.execute("INSERT INTO desktop_credentials VALUES ('gemini', ?1) ON CONFLICT(name) DO UPDATE SET value=excluded.value", [key]).map_err(|_| STORE_ERROR)?;
+            }
+            KeyChange::Delete => {
+                tx.execute("DELETE FROM desktop_credentials WHERE name='gemini'", [])
+                    .map_err(|_| STORE_ERROR)?;
+            }
+        }
+        tx.commit().map_err(|_| STORE_ERROR.into())
+    }
+}
+
+pub fn validate_key(value: &str) -> Result<String, String> {
+    if value.trim().is_empty() || value.len() > 4096 || value.contains(['\0', '\n', '\r']) {
+        return Err("密钥格式无效；请填写单行、非空且不超过 4096 字节的密钥。".into());
+    }
+    Ok(value.trim().into())
+}
+
+// Capture/import at most once per app launch under the native command mutex. No session-only key.
+#[derive(Default)]
+pub struct EnvironmentImport {
+    attempted: bool,
+    pub error: Option<String>,
+}
+impl EnvironmentImport {
+    pub fn initialize(
+        &mut self,
+        store: &mut Store,
+        read: impl FnOnce() -> Result<Option<String>, ()>,
+    ) -> Result<(), String> {
+        if self.attempted {
+            return Ok(());
+        }
+        if !store.key_present()? {
+            let value = match read() {
+                Ok(Some(value)) if !value.trim().is_empty() => {
+                    validate_key(&value).map(Some).map_err(|_| ())
+                }
+                Ok(_) => Ok(None),
+                Err(()) => Err(()),
+            };
+            match value {
+                Ok(Some(value)) => store.save(&store.settings()?, KeyChange::Set(&value))?,
+                Ok(None) => {}
+                Err(()) => {
+                    self.error = Some(
+                        "启动环境中的 GEMINI_API_KEY 格式无效；请在设置中输入并保存有效密钥。"
+                            .into(),
+                    )
+                }
+            }
+        }
+        self.attempted = true;
+        Ok(())
     }
 }
 
@@ -149,55 +309,206 @@ pub fn directories(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String>
         .path()
         .app_data_dir()
         .map_err(|_| "无法确定数据目录。")?;
-    Ok((config.join("settings.json"), data))
+    Ok((config.join("desktop.sqlite"), data))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn settings_have_no_secret_field_and_reject_invalid_values() {
-        let mut settings = Settings::defaults(&std::env::temp_dir());
-        settings.validate().unwrap();
-        let value = serde_json::to_value(&settings).unwrap();
-        assert!(value.get("key").is_none());
-        let mut poisoned = value.clone();
-        poisoned["key"] = "should-never-persist".into();
-        assert!(serde_json::from_value::<Settings>(poisoned).is_err());
-        settings.text_model = "bad/model".into();
-        assert!(settings.validate().is_err());
-        settings.text_model = "valid-model".into();
-        settings.port = 80;
-        assert!(settings.validate().is_err());
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    fn folder() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "shiqu-store-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&path).unwrap();
+        path
     }
     #[test]
-    fn settings_persist_without_credentials() {
-        let folder = std::env::temp_dir().join(format!("shiqu-config-test-{}", std::process::id()));
-        let file = folder.join("settings.json");
-        let settings = Settings::defaults(&folder);
-        persist(&file, &settings).unwrap();
-        assert_eq!(
-            load(&file, &folder).unwrap().data_directory,
-            settings.data_directory
-        );
-        assert!(!fs::read_to_string(&file).unwrap().contains("apiKey"));
+    fn database_round_trip_delete_and_private_permissions() {
+        let folder = folder();
+        let file = folder.join("desktop.sqlite");
+        let mut store = Store::open(&file, &folder).unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.port = 43127;
+        store
+            .save(&settings, KeyChange::Set("disposable-db-key"))
+            .unwrap();
+        drop(store);
+        let mut store = Store::open(&file, &folder).unwrap();
+        assert_eq!(store.settings().unwrap().port, 43127);
+        assert_eq!(store.key().unwrap(), "disposable-db-key");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(&folder).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
+        store.save(&settings, KeyChange::Delete).unwrap();
+        drop(store);
+        let store = Store::open(&file, &folder).unwrap();
+        assert!(!store.key_present().unwrap());
+        assert!(store.key().unwrap().is_empty());
+        drop(store);
         fs::remove_dir_all(folder).unwrap();
     }
     #[test]
-    #[ignore = "Explicit disposable native credential-store integration test"]
-    fn disposable_keyring_round_trip() {
-        let item = keyring::Entry::new(
-            "com.shiqu.desktop.lite.test",
-            &format!("disposable-{}", std::process::id()),
+    fn migration_is_once_and_never_overwrites_database() {
+        let folder = folder();
+        let file = folder.join("desktop.sqlite");
+        let mut settings = Settings::defaults(&folder);
+        settings.port = 43128;
+        fs::write(
+            folder.join("settings.json"),
+            serde_json::to_vec(&settings).unwrap(),
         )
         .unwrap();
-        item.set_password("shiqu-disposable-not-a-provider-key")
+        let mut store = Store::open(&file, &folder).unwrap();
+        assert_eq!(store.settings().unwrap().port, 43128);
+        settings.port = 43129;
+        store.save(&settings, KeyChange::Keep).unwrap();
+        drop(store);
+        let store = Store::open(&file, &folder).unwrap();
+        assert_eq!(store.settings().unwrap().port, 43129);
+        drop(store);
+        fs::remove_dir_all(folder).unwrap();
+    }
+    #[test]
+    fn failed_key_write_rolls_back_settings_and_key() {
+        let folder = folder();
+        let mut store = Store::open(&folder.join("desktop.sqlite"), &folder).unwrap();
+        let mut settings = store.settings().unwrap();
+        store.save(&settings, KeyChange::Set("old")).unwrap();
+        store.db.execute_batch("CREATE TRIGGER fail_key BEFORE UPDATE ON desktop_credentials BEGIN SELECT RAISE(ABORT,'test-only'); END;").unwrap();
+        settings.port = 43130;
+        assert!(store.save(&settings, KeyChange::Set("new")).is_err());
+        assert_eq!(store.settings().unwrap().port, 3000);
+        assert_eq!(store.key().unwrap(), "old");
+        drop(store);
+        fs::remove_dir_all(folder).unwrap();
+    }
+    #[test]
+    fn corrupt_future_and_unknown_schema_are_preserved() {
+        for kind in ["corrupt", "future", "unknown", "invalid-v1"] {
+            let folder = folder();
+            let file = folder.join("desktop.sqlite");
+            if kind == "corrupt" {
+                fs::write(&file, b"original corrupt database").unwrap();
+            } else {
+                let db = Connection::open(&file).unwrap();
+                db.execute_batch(match kind {
+                    "future" => "PRAGMA user_version=9;",
+                    "unknown" => "CREATE TABLE unexpected (id);",
+                    _ => "PRAGMA user_version=1;",
+                })
+                .unwrap();
+            }
+            let before = fs::read(&file).unwrap();
+            assert!(Store::open(&file, &folder).is_err());
+            assert_eq!(fs::read(&file).unwrap(), before);
+            fs::remove_dir_all(folder).unwrap();
+        }
+    }
+    #[test]
+    fn environment_import_persists_once_and_database_wins() {
+        let folder = folder();
+        let file = folder.join("desktop.sqlite");
+        let mut store = Store::open(&file, &folder).unwrap();
+        let mut import = EnvironmentImport::default();
+        import
+            .initialize(&mut store, || Ok(Some("disposable-env-key".into())))
             .unwrap();
-        assert_eq!(
-            item.get_password().unwrap(),
-            "shiqu-disposable-not-a-provider-key"
-        );
-        item.delete_credential().unwrap();
-        assert!(matches!(item.get_password(), Err(keyring::Error::NoEntry)));
+        assert_eq!(store.key().unwrap(), "disposable-env-key");
+        store
+            .save(&store.settings().unwrap(), KeyChange::Delete)
+            .unwrap();
+        import
+            .initialize(&mut store, || panic!("must not reimport after deletion"))
+            .unwrap();
+        assert!(!store.key_present().unwrap());
+        let mut fresh = EnvironmentImport::default();
+        fresh
+            .initialize(&mut store, || Ok(Some("next-launch".into())))
+            .unwrap();
+        drop(store);
+        let mut store = Store::open(&file, &folder).unwrap();
+        let mut fresh = EnvironmentImport::default();
+        fresh
+            .initialize(&mut store, || {
+                panic!("saved database must beat environment")
+            })
+            .unwrap();
+        assert_eq!(store.key().unwrap(), "next-launch");
+        store
+            .save(&store.settings().unwrap(), KeyChange::Delete)
+            .unwrap();
+        fresh
+            .initialize(&mut store, || {
+                panic!("existing key also marks import attempted")
+            })
+            .unwrap();
+        assert!(!store.key_present().unwrap());
+        drop(store);
+        fs::remove_dir_all(folder).unwrap();
+    }
+    #[test]
+    fn malformed_environment_is_value_free_and_explicit_save_recovers() {
+        for value in [
+            Some("disposable-secret\ninvalid".into()),
+            Some("x".repeat(4097)),
+        ] {
+            let folder = folder();
+            let mut store = Store::open(&folder.join("desktop.sqlite"), &folder).unwrap();
+            let mut import = EnvironmentImport::default();
+            import.initialize(&mut store, || Ok(value)).unwrap();
+            assert!(!import.error.as_ref().unwrap().contains("disposable-secret"));
+            assert!(store.settings().is_ok());
+            assert!(!store.key_present().unwrap());
+            store
+                .save(
+                    &store.settings().unwrap(),
+                    KeyChange::Set(&validate_key(" valid ").unwrap()),
+                )
+                .unwrap();
+            assert_eq!(store.key().unwrap(), "valid");
+            drop(store);
+            fs::remove_dir_all(folder).unwrap();
+        }
+        for value in ["", " ", "bad\0key", "bad\rkey"] {
+            assert!(validate_key(value).is_err());
+        }
+    }
+    #[test]
+    fn settings_cannot_contain_secret_fields_or_invalid_values() {
+        let mut settings = Settings::defaults(&std::env::temp_dir());
+        let mut value = serde_json::to_value(&settings).unwrap();
+        value["key"] = "never-persist-as-settings".into();
+        assert!(serde_json::from_value::<Settings>(value).is_err());
+        settings.text_model = "bad/model".into();
+        assert!(settings.validate().is_err());
+        settings.text_model = "valid".into();
+        settings.port = 80;
+        assert!(settings.validate().is_err());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn symlink_database_is_rejected() {
+        use std::os::unix::fs::symlink;
+        let folder = folder();
+        let target = folder.join("outside");
+        fs::write(&target, b"untouched").unwrap();
+        let file = folder.join("desktop.sqlite");
+        symlink(&target, &file).unwrap();
+        assert!(Store::open(&file, &folder).is_err());
+        assert_eq!(fs::read(target).unwrap(), b"untouched");
+        fs::remove_dir_all(folder).unwrap();
     }
 }
