@@ -26,7 +26,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks){
    if(pending.current)await pending.current;
    if(cancelled||id.current!==sessionId||removed.current.has(sessionId))return;
    setBusy(true);setError('');
-   const operation=runStoryGeneration({sessionId,throughPage:requestedImageEnd(page,active!.selection.length),request,retries:retries.current,
+   const operation=runStoryGeneration({sessionId,throughPage:requestedImageEnd(page,active!.story?.pages.length??active!.selection.length),request,retries:retries.current,
     isActive:()=>!cancelled&&id.current===sessionId&&!removed.current.has(sessionId),
     onSession:s=>{collect(s);setActive(s);if(s.story?.pages[0]?.image)cb.current.onStory(s.story);},
    });

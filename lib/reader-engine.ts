@@ -4,7 +4,7 @@ import type {Document,Plan,Selection,SessionRow,Step} from './reader-model.ts';
 import type {ReaderRepository} from './reader-repository.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import type {OriginalSource,SourceResult} from './reader-source-types.ts';
-import {readerImageBatchSize} from './reader-limits.ts';
+import {readerImageBatchSize,readerMaxFrames} from './reader-limits.ts';
 export type Generated<T>={value:T;model:string;requestId:string|null;usage:unknown};
 export interface StoryGenerator{prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<Plan>>;original(selection:Selection,plan:Plan,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
 
@@ -41,7 +41,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     const original=await generator.prepareOriginal(selection,id);
     if(original){doc.original=original;await repo.saveImageProgress(row,token,structuredClone(doc));}
    }
-   const result=await generator.plan(selection,id,doc.original);const plan=planSchema.parse(result.value);if(plan.pages.length!==selection.length)throw Error('PLAN_LENGTH');doc.plan=plan;generated=result;
+   const result=await generator.plan(selection,id,doc.original);const plan=planSchema.parse(result.value);if(selection.length!=='auto'&&plan.pages.length!==selection.length)throw Error('PLAN_LENGTH');doc.plan=plan;generated=result;
   }
   else if(step.kind==='source'){/* Resume original retrieval without paying to re-plan. */}
   else if(step.kind==='image')await drawRequestedImages(repo,generator,row,token,doc,selection,throughPage);
@@ -52,6 +52,6 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    if(!result.source)throw new ReaderError(503,'原文未能保存。'+result.message+' 故事编排已保留，可重试补全原文。');
    doc.original=result.source;
   }
-  return view(await repo.save(row,token,doc,!nextStep(doc,selection,selection.length-1)));
+  return view(await repo.save(row,token,doc,!nextStep(doc,selection,readerMaxFrames-1)));
  }catch(error){if(error instanceof ReaderError&&error.status===404)throw error;return view(await repo.save(row,token,doc,false,error instanceof ReaderError?error.message:generator.safeError(error)));}
 }

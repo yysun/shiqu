@@ -4,10 +4,11 @@ import type {Story} from './content';
 import type {OriginalSource} from './reader-source-types.ts';
 import {artStyleIds,getArtStyle} from './reader-styles.ts';
 import {localSourceSchema} from './reader-local-contract.ts';
+import {readerMinFrames,readerMaxFrames} from './reader-limits.ts';
 export {readerBooks} from './reader-books.ts';
-export const selectionSchema=z.object({bookId:z.string().min(1).max(100),customBook:z.string().max(500).optional(),storyTitle:z.string().max(100).optional(),source:localSourceSchema.optional(),theme:z.string().trim().min(1).max(100),artStyle:z.enum(artStyleIds).default('ink-pencil'),productionPrompt:z.string().max(1200).default(''),length:z.union([z.literal(8),z.literal(10),z.literal(12)]),voice:z.boolean().default(false).transform(()=>false)});
+export const selectionSchema=z.object({bookId:z.string().min(1).max(100),customBook:z.string().max(500).optional(),storyTitle:z.string().max(100).optional(),source:localSourceSchema.optional(),theme:z.string().trim().min(1).max(100),artStyle:z.enum(artStyleIds).default('ink-pencil'),productionPrompt:z.string().max(1200).default(''),length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')]).default('auto'),voice:z.boolean().default(false).transform(()=>false)});
 export type Selection=z.infer<typeof selectionSchema>;
-export const planSchema=z.object({title:z.string().min(1).max(40),hook:z.string().min(1).max(100),sourceReference:z.string().min(1).max(150),adaptationNote:z.string().min(1).max(600),reflection:z.string().min(1).max(100),characters:z.string().min(20).max(2500),pages:z.array(z.object({caption:z.string().min(8).max(90),prompt:z.string().min(20).max(1800)})).min(8).max(12)});
+export const planSchema=z.object({title:z.string().min(1).max(40),hook:z.string().min(1).max(100),sourceReference:z.string().min(1).max(150),adaptationNote:z.string().min(1).max(600),reflection:z.string().min(1).max(100),characters:z.string().min(20).max(2500),pages:z.array(z.object({caption:z.string().min(8).max(90),prompt:z.string().min(20).max(1800)})).min(readerMinFrames).max(readerMaxFrames)});
 export type Plan=z.infer<typeof planSchema>;
 export type GeneratedStory=Story&{generated:true;original?:OriginalSource;sourceReference:string;voiceRequested:boolean;artStyleLabel:string;productionPrompt:string};
 export type Document={plan:Plan|null;original?:OriginalSource;images:string[];audio:string[];usage:{step:string;model:string;requestId:string|null;usage:unknown}[]};
@@ -18,13 +19,13 @@ export function emptyDocument():Document{return {plan:null,images:[],audio:[],us
 export function nextStep(doc:Document,selection:Selection,through:number):Step|null{
  if(!doc.plan)return {kind:'plan',page:0,key:'plan'};
  if(!doc.original)return {kind:'source',page:0,key:'source'};
- const end=Math.min(selection.length-1,Math.max(0,through));
+ const end=Math.min(doc.plan.pages.length-1,Math.max(0,through));
  for(let page=0;page<=end;page++){if(!doc.images[page])return {kind:'image',page,key:'image:'+page};}
  return null;
 }
 export function view(row:SessionRow):SessionView{
  const selection=selectionSchema.parse(JSON.parse(row.selection)),doc=JSON.parse(row.document) as Document,p=doc.plan;
- const step=nextStep(doc,selection,selection.length-1);
+ const step=nextStep(doc,selection,readerMaxFrames-1);
  const retryMayCharge=!!step&&step.kind!=='source';
  const retryAt=null;
  const stage=step?.kind==='plan'?'正在编排故事':step?.kind==='source'?'正在保存故事原文':step?.kind==='audio'?`正在配上第 ${step.page+1} 幅的声音`:step?`正在绘制第 ${step.page+1} 幅`:'故事已完整展开';

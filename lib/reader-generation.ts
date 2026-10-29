@@ -1,10 +1,10 @@
 // Resume checkpoints serially, hiding bounded transient retries from the reading flow.
 // Re-read after transport failures because an interrupted request may have saved its result.
 import type {SessionView} from './reader-model.ts';
-import {readerImageBatchSize} from './reader-limits.ts';
+import {readerImageBatchSize,readerMaxFrames} from './reader-limits.ts';
 
-export function requestedImageEnd(page:number,length:number){
- return Math.min(length-1,(Math.floor(page/readerImageBatchSize)+1)*readerImageBatchSize-1);
+export function requestedImageEnd(page:number,length:number|'auto'){
+ return Math.min((length==='auto'?readerMaxFrames:length)-1,(Math.floor(page/readerImageBatchSize)+1)*readerImageBatchSize-1);
 }
 
 type Options={
@@ -23,7 +23,7 @@ export async function runStoryGeneration({sessionId,throughPage,request,retries,
    if(!isActive())break;
    const s=session;
    onSession(s);
-   const end=Math.min(throughPage,s.selection.length-1);
+   const end=Math.min(throughPage,(s.story?.pages.length??(s.selection.length==='auto'?readerMaxFrames:s.selection.length))-1);
    const needed=!s.story||s.story.pages.slice(0,end+1).some(p=>!p.image||(s.selection.voice&&!p.audio));
    if(!needed||s.state==='completed')return '';
    // Out-of-order images count as progress even while the first missing scene stays unchanged.

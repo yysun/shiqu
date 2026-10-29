@@ -10,6 +10,7 @@ import {FileMedia} from '../server/media.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
 import {requestedImageEnd,runStoryGeneration} from '../lib/reader-generation.ts';
+import {selectionSchema} from '../lib/reader-model.ts';
 
 const png=Uint8Array.from([137,80,78,71,13,10,26,10,1,2,3,4]);
 const encoded=Buffer.from(png).toString('base64');
@@ -24,7 +25,8 @@ function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{reso
 async function fixture(t,provider='codex'){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu batches ')),dataDirectory=path.join(root,'data');
  await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
- const control={calls:[],pending:new Map(),hold:false};
+ const control={calls:[],plans:[],pending:new Map(),hold:false,autoLength:30,overridePlanLength:null};
+ function planned(payload,schema,instructions,budget){control.plans.push({payload,schema,instructions,budget});return makePlan(control.overridePlanLength??(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount));}
  async function image(prompt,reference){
   const page=Number(prompt.match(/Scene (\d+):/)[1])-1;
   control.calls.push({page,reference,prompt});
@@ -36,10 +38,10 @@ async function fixture(t,provider='codex'){
   const body=JSON.parse(options.body),parts=body.contents[0].parts;
   const output=body.generationConfig.responseModalities?
    {inlineData:{mimeType:'image/png',data:await image(parts.find(p=>p.text).text,parts.find(p=>p.inlineData)?.inlineData.data)}}:
-   {text:JSON.stringify(makePlan(JSON.parse(parts[0].text).exactPageCount))};
+   {text:JSON.stringify(planned(JSON.parse(parts[0].text),body.generationConfig.responseFormat.text.schema,body.systemInstruction.parts[0].text,body.generationConfig.maxOutputTokens))};
   return Response.json({candidates:[{finishReason:'STOP',content:{parts:[output]}}],responseId:'test',usageMetadata:{calls:1}});
  };
- const runner={async status(){return {configured:true};},async run(job){return {text:job.generateImage?'':JSON.stringify(makePlan(JSON.parse(job.prompt).exactPageCount)),image:job.generateImage?await image(job.prompt,job.image&&Buffer.from(job.image.bytes).toString('base64')):null,model:'controlled-codex',requestId:'test',usage:{calls:1}};}};
+ const runner={async status(){return {configured:true};},async run(job){return {text:job.generateImage?'':JSON.stringify(planned(JSON.parse(job.prompt),job.schema,job.instructions)),image:job.generateImage?await image(job.prompt,job.image&&Buffer.from(job.image.bytes).toString('base64')):null,model:'controlled-codex',requestId:'test',usage:{calls:1}};}};
  const media=new FileMedia(path.join(dataDirectory,'media'));
  const generation=createReaderProvider({SHIQU_AI_PROVIDER:provider,...(provider==='gemini'?{GEMINI_API_KEY:'test-only'}:{})},media,transport,runner);
  const options={root,dataDirectory,generation,transport};let app=createApplication(options);
@@ -53,18 +55,73 @@ async function fixture(t,provider='codex'){
  return {control,request,json,create,read,advance,generate,generation,get app(){return app;},restart(){app.close();app=createApplication(options);}};
 }
 
+test('new count defaults to auto and reader REST rejects invalid manual counts',async t=>{
+ const f=await fixture(t);
+ assert.equal(selectionSchema.parse({bookId:'zhuangzi',theme:'放下执念'}).length,'auto');
+ for(const length of [0,61,1.5,null,'30'])assert.equal((await f.request('sessions','POST',{requestId:crypto.randomUUID(),selection:{...selection,length}})).status,400);
+ for(const length of [8,10,12])assert.equal((await f.read(await f.create(length))).selection.length,length);
+});
+
 for(const provider of ['gemini','codex']){
- test(`${provider}: reading batches cover 8/10/12 pages, reuse saved pages and survive restart`,async t=>{
+ test(`${provider}: auto resolves to durable plan count, including a single frame`,async t=>{
   const f=await fixture(t,provider);
-  for(const length of [8,10,12]){
+  for(const length of [1,30]){
+   f.control.autoLength=length;
+   const id=await f.create('auto'),plans=f.control.plans.length;
+   assert.equal(await f.generate(id,0,'auto'),'');
+   const current=await f.read(id),job=f.control.plans.at(-1);
+   assert.equal(current.selection.length,'auto');assert.equal(current.story.pages.length,length);
+   assert.equal(job.payload.exactPageCount,'auto');assert.equal(job.schema.properties.pages.minItems,1);assert.equal(job.schema.properties.pages.maxItems,60);
+   assert.match(job.instructions,/auto时/);assert.match(job.instructions,/30至60幅/);
+   if(provider==='gemini')assert.ok(job.budget>=48000);
+   f.restart();
+   assert.equal(await f.generate(id,length-1,'auto'),'');
+   assert.equal(f.control.plans.length,plans+1);assert.equal((await f.read(id)).ready,length);
+   assert.equal((await f.read(id)).state,'completed');
+  }
+ });
+ test(`${provider}: exact lengths reject mismatched model output before images`,async t=>{
+  const f=await fixture(t,provider);
+  f.control.overridePlanLength=8;
+  await assert.rejects(f.generation.generator().plan(selectionSchema.parse({...selection,length:30}),'mismatch'));
+  const id=await f.create(60),failed=await f.advance(id,2);
+  assert.equal(failed.state,'failed');assert.equal(failed.story,null);assert.equal(f.control.calls.length,0);
+  assert.equal(f.control.plans.at(-1).schema.properties.pages.minItems,60);assert.equal(f.control.plans.at(-1).schema.properties.pages.maxItems,60);
+  f.control.overridePlanLength=null;
+  assert.equal((await f.advance(id,2,true)).story.pages.length,60);
+ });
+ test(`${provider}: frame 60 supports media, events, saved progress and restart`,async t=>{
+  const f=await fixture(t,provider),id=await f.create(60);
+  await f.generate(id,0,60);await f.generate(id,59,60);
+  assert.equal((await f.request(`media/${id}/59.png`)).status,200);
+  assert.equal((await f.json(`sessions/${id}/progress`,'POST',{page:59,saved:true})).page,59);
+  const event={id:crypto.randomUUID(),visitor:crypto.randomUUID(),session:crypto.randomUUID(),storyId:id,kind:'page',page:59,mode:'manual',cohort:'internal'};
+  assert.equal((await f.request(`sessions/${id}/events`,'POST',event)).status,200);
+  for(const suffix of ['progress','advance','events']){
+   const body=suffix==='progress'?{page:60,saved:true}:suffix==='advance'?{throughPage:60}:{...event,id:crypto.randomUUID(),page:60};
+   assert.equal((await f.request(`sessions/${id}/${suffix}`,'POST',body)).status,400);
+  }
+  for(const file of ['60.png','059.png','59.svg','-1.png','1.png/extra'])assert.equal((await f.request(`media/${id}/${file}`)).status,404);
+  const short=await f.create(1);await f.generate(short,0,1);
+  assert.equal((await f.request(`media/${short}/59.png`)).status,404);
+  assert.equal((await f.request(`sessions/${short}/progress`,'POST',{page:59,saved:true})).status,400);
+  assert.equal((await f.request(`sessions/${short}/events`,'POST',{...event,id:crypto.randomUUID(),storyId:short})).status,400);
+  const plans=f.control.plans.length,calls=f.control.calls.length;
+  f.restart();const restored=await f.read(id);
+  assert.equal(restored.page,59);assert.equal(restored.saved,true);assert.equal(restored.story.pages.length,60);
+  await f.generate(id,59,60);assert.equal(f.control.calls.length,calls);assert.equal(f.control.plans.length,plans);
+ });
+ test(`${provider}: reading batches cover 1/8/10/12/30/60 pages, reuse saved pages and survive restart`,async t=>{
+  const f=await fixture(t,provider);
+  for(const length of [1,8,10,12,30,60]){
    const id=await f.create(length),start=f.control.calls.length;
-   assert.equal(await f.generate(id,0,length),'');assert.equal((await f.read(id)).ready,3);
-   assert.deepEqual(f.control.calls.slice(start).map(c=>c.page).sort((a,b)=>a-b),[0,1,2]);
+   assert.equal(await f.generate(id,0,length),'');assert.equal((await f.read(id)).ready,Math.min(3,length));
+   assert.deepEqual(f.control.calls.slice(start).map(c=>c.page).sort((a,b)=>a-b),Array.from({length:Math.min(3,length)},(_,i)=>i));
    assert.equal(f.control.calls[start].reference,undefined);
    for(const call of f.control.calls.slice(start+1)){assert.equal(call.reference,encoded);assert.match(call.prompt,/quiet narration/);assert.match(call.prompt,/Art direction/);}
    for(const page of [0,1,2])assert.equal(await f.generate(id,page,length),'');
-   assert.equal(f.control.calls.length-start,3);
-   f.restart();assert.equal((await f.read(id)).ready,3);
+   assert.equal(f.control.calls.length-start,Math.min(3,length));
+   f.restart();assert.equal((await f.read(id)).ready,Math.min(3,length));
    for(let page=3;page<length;page+=3){assert.equal(await f.generate(id,page,length),'');assert.equal((await f.read(id)).ready,Math.min(page+3,length));}
    assert.equal((await f.read(id)).state,'completed');
    assert.deepEqual(f.control.calls.slice(start).map(c=>c.page).sort((a,b)=>a-b),Array.from({length},(_,i)=>i));

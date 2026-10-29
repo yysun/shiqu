@@ -50,7 +50,7 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
    original:(selection,plan,id)=>saveStoryOriginal(media,selection,plan,id,transport),
    async plan(selection,id,original){
     const result=await codex.run({instructions:planSystemPrompt+(original?.localSource?'\n'+localPlanConstraint:''),prompt:JSON.stringify({book:book(selection),chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?.localSource?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})}),schema:planJson(selection.length)});
-    const value=planSchema.parse(JSON.parse(result.text));if(value.pages.length!==selection.length)throw new CodexError('INVALID_PLAN');
+    const value=planSchema.parse(JSON.parse(result.text));if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new CodexError('INVALID_PLAN');
     return {value,model:result.model,requestId:result.requestId,usage:result.usage};
    },
    async image(plan,page,id,reference,style='ink-pencil',productionPrompt=''){
