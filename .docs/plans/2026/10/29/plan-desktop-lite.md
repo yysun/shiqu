@@ -106,7 +106,7 @@ Credential resolution is explicit in-memory override > launch GEMINI_API_KEY > d
 
 - [x] Implement native SQLite settings/credential store and one-time JSON migration, removing Keychain. Add transactional rollback, persistence, deletion, permission, corrupt/version/migration coverage.
 - [x] Wire get/save/start/test to the always-saved SQLite key, add once-per-launch environment seeding with database priority and safe invalid-input warnings, remove session/Keychain code and UI, and document persistent plaintext storage. Both Start and connection checks use committed configuration; the UI saves before checking.
-- [ ] Rebuild Standard, run full relevant Node/Rust suites, lint/typecheck/fmt and packaged smoke. Exercise packaged native session save/start/stop/restart/quit/relaunch, database save/relaunch/delete, and no plaintext session persistence using disposable non-provider keys. Record platform/browser limits and repeat independent CR/VR. Existing unrelated changes remain excluded.
+- [x] Rebuild Standard, run full relevant Node/Rust suites, lint/typecheck/fmt and packaged smoke. Exercise packaged native database save/start/stop/quit/relaunch/replacement/deletion and automatic-save connection checks with disposable values. Record limits and repeat independent CR/VR. Preserve unrelated work.
 
 AR reopened for this credential/persistence change. Keychain integration is superseded by database round-trip evidence; existing browser/second-instance evidence gaps remain independent.
 
@@ -134,3 +134,9 @@ Always-saved implementation: bounded native rusqlite 0.41.1 commit/rollback prob
 CR fixed: connection checks now save pending edits first and read only committed SQLite configuration; rerun result passed.
 CR risk: non-low — persistent credentials, native configuration, and secret transport.
 CR review round: 5; reviewer: reused (`desktop_review`, independent/read-only).
+
+SQLite milestone commit: `ed8e1bc`. Concurrent reader story commit `0dce9c3` is unrelated and was excluded from desktop review/changes. Final all-Node suite after that concurrent change: 176/176 pass. Corrected Standard Rust13 and LiteRust11 pass; lint/typecheck/fmt pass. Standard rebuilt unsigned (266.73 MiB). Actual package resource smoke passes relocation/no-system-Node, checksums/license,24books,pairing/LAN/media/progress/restart/shutdown, zero paid calls.
+
+Native always-saved E2E passes in the final app: one-time JSON settings migration; automatic environment key seeding; masked/reveal synthetic input; key/settings save to real SQLite with0700/0600 permissions; quit/relaunch persistence; saved DB key wins over environment; actual bundled server sees configured=true with no key in HTTP; Stop; connection-check auto-saves deletion before safe local no-key error; no environment reimport during same launch. Original configuration restored exactly afterward; temporary credential backup removed. No real key values were printed or sent to providers. Evidence `.data/desktop-lite-entry/sqlite-native-e2e.txt`. Database credential blocker resolved; browser/second-instance evidence gaps remain.
+
+Final VR round3 supersedes the earlier Keychain/session verdicts: criteria1,2,3,4,6,7,9 complete;5 and8 remain open for browser-driven launch/pairing and distinct second-instance focus. Independent reviewer desktop_review, non-low risk. Full final result preserved verbatim in delivery report. Credential storage is resolved. ZIP113.20MiB, SHA256 9bb37bba49c250408fb8dfdd21fded7dc85e9080ec04bfcf12dd6a802e53f014; integrity check passed. No source repair indicated.
