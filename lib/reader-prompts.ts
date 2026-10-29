@@ -5,7 +5,8 @@ export const storyboardDirection=`用影视分镜的思维编排静态连环画�
 先看全篇景别与画面功能的平衡：全景或远景建立处境、空间尺度与人物关系，中景承接互动和动作，近景与特写强调值得停留的表情或细节；环境画面可通过空间、光线、景物与物件状态映照人物处境，或承接时间与情绪。根据故事需要安排开合与呼吸，不一概特写，不连续用相似构图，也不强制每种景别都出现、固定比例或轮流使用。环境映照要来自具体情境，避免无关风景和套用悲伤下雨等符号。
 每幅只截取一个可见瞬间，突出一个叙事上的视觉重点；重点可以是一组人物与空间的关系，不等于只画一个物体或把背景清空。需要交代环境、人群或尺度时就给足全景，细节承载转折时才收紧。根据该幅作用选择景别、人物视点、遮挡或画外空间；可以只画手、物件、背影或空下来的场所，不必让全体人物、完整身体、环境和所有道具同时出现。动作、视线、人物距离、前后景与留白要服务这一个重点；次要信息可简化或留在画外，但保持人物、空间、关键物件与动作因果连续。
 旁白与画面互补：旁白补充必要的时间、因果或画面无法直接表达的内容，不逐项复述可见动作，不提前解释伏笔、宣布情绪或讲完寓意。关键转折与收尾可以用更短旁白，把阅读停顿交给画面。
-结尾先让事件得到必要的交代，再用适合该故事的具体动作、人物处境或物件留下余波；可以自然呼应前文，也可以直接停在结果，不强制首尾同构、物件回环或悬而不决。reflection保留为最后单独的一句简短余味，从本篇具体经历生发，可提问也可陈述；让读者回想前面的画面，不复述结局、不解释道理、不套通用金句或强行提问。`;
+结尾画面先让事件得到必要的交代，再用适合该故事的具体动作、人物处境或物件留下余波；可以自然呼应前文，也可以直接停在结果，不强制首尾同构、物件回环或悬而不决。
+reflection是故事之后最后单独的一句有寓意的总结或感想，用简洁的陈述句，从这篇故事中的人性、处境、关系或选择提炼一层认识，让读者带回自己的生活中体会。允许清楚地解释道理、总结教训或表达感想，无须为了含蓄而隐去观点；道理应由本篇的人物行为与结果自然推出，不能只喊脱离故事的口号。情节负责交代发生了什么，reflection负责说出这段经历说明了什么、值得体会什么，不要因为担心说教而只重复最后一个画面或物件。不要复述事件、换词概括结局、补写后续，也不要追问谁做了什么、结果如何或让读者回忆剧情。避免“你是否也……”式套话、空泛励志、强行升华，以及对人物简单判善恶；可以明确判断，也可以保留故事自身的复杂与矛盾。写完核对：这句话是否在情节之外增加了一层认识或道理，而且能由本篇具体的人物经历、关系或处境支撑；若只是重复剧情、提出情节问题，或换到任何故事都成立的漂亮话，就重写。`;
 
 export const imageCompositionDirection=`Stage this as ONE static storyboard frame with one dominant narrative focus and one visible instant, not a summary of the whole page or a sequence of actions. Follow the scene's chosen shot size, viewpoint, crop, subject placement and reveal/conceal decisions. Translate its narrative purpose into visible staging rather than written explanation. Film-storyboard thinking governs composition, not the rendering medium; retain the selected art style.
 Do not default to close-ups. A wide or establishing shot needs its spatial scale, environment, ensemble and character relationships; a medium shot needs readable interaction; a close-up needs its decisive detail. An environment-led frame can express the characters' situation through space, light, landscape or the state of objects, without adding a face or a generic symbolic effect. One narrative focus can be a relationship across a rich scene, not just one isolated object. Preserve the planned shot: do not crop a wide shot into a detail or strip away meaningful surroundings, and do not widen a close-up to fit full bodies, the whole cast or a complete environment.
@@ -27,7 +28,7 @@ const themeDirections:Record<string,string>={
 export function defaultProductionPrompt(theme:string){
  const topic=theme.trim();
  const direction=themeDirections[topic]||(topic&&topic!=='其他'?`围绕“${topic}”展开，让主题从人物行动、关系与处境中自然显现。`:'从人物行动、关系与处境展开一个有余味的古典短故事。');
- return direction+'保留原典核心人物与事件，按故事自身安排信息显露与情绪起伏，不强求反转。每幅一个瞬间、一个叙事重点，按需要平衡全景、中景、特写与环境映照，不一概特写，也不固定配比；旁白不重复解释画面。最后一句从具体情节留下余味，不直接讲大道理。';
+ return direction+'保留原典核心人物与事件，按故事自身安排信息显露与情绪起伏，不强求反转。每幅一个瞬间、一个叙事重点，按需要平衡全景、中景、特写与环境映照，不一概特写，也不固定配比；旁白不重复解释画面。最后一句从人物经历与处境中提炼有寓意的总结或感想，可以解释道理、总结教训，用陈述句留下可带回生活的认识；道理要由本篇故事支撑，不复述情节、不做情节提问。';
 }
 export function promptAfterThemeChange(current:string,previousTheme:string,nextTheme:string){
  return !current.trim()||current===defaultProductionPrompt(previousTheme)?defaultProductionPrompt(nextTheme):current;
