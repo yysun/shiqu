@@ -50,6 +50,28 @@ test('chapter mode stops after five and resumes the same block before advancing'
  const next=await run(f,cache,first.stories.map(s=>s.title),undefined,first.stories.map(s=>s.source),limits);
  assert.equal(next.stories.length,5);assert.equal(f.calls.length,2);assert.equal(f.calls[1].input.text,firstText);
 });
+test('a partial chapter batch returns immediately, survives restart, and continues only after its sources are excluded',async()=>{
+ const f=fixture(8,4,200),store=memory(),cache=new StoryDiscoveryCache(store);
+ const first=await run(f,cache,[],undefined,[],limits);
+ assert.equal(first.stories.length,4);assert.equal(f.calls.length,1);
+ const repeat=await run(f,new StoryDiscoveryCache(store),[],undefined,[],limits);
+ assert.deepEqual(repeat.stories,first.stories);assert.match(repeat.note,/缓存/);assert.equal(f.calls.length,1);
+ const next=await run(f,cache,[],undefined,first.stories.map(story=>story.source),limits);
+ assert.equal(next.stories.length,4);assert.equal(f.calls.length,2);
+ assert.notEqual(f.calls[0].input.text,f.calls[1].input.text);
+ assert.ok(next.stories.every(story=>!first.stories.some(old=>localSourceKey(old.source)===localSourceKey(story.source))));
+});
+test('a single story ends scanning without marking an unfinished block exhausted',async()=>{
+ const f=fixture(8,4,200),store=memory(),cache=new StoryDiscoveryCache(store),raw=f.provider.suggestions;
+ f.provider.suggestions=async(...args)=>({...await raw(...args),stories:[f.stories[0]],scan:state(false)});
+ const first=await run(f,cache,[],undefined,[],limits);
+ assert.equal(first.stories.length,1);assert.equal(f.calls.length,1);
+ const saved=[...store.values.values()].map(bytes=>JSON.parse(new TextDecoder().decode(bytes))).find(d=>d.value.pendingEvents).value;
+ assert.equal(saved.cursor,0);assert.equal(saved.exhausted,false);
+ f.provider.suggestions=raw;
+ const next=await run(f,cache,[],undefined,first.stories.map(story=>story.source),limits);
+ assert.equal(next.stories.length,3);assert.equal(f.calls.length,2);assert.equal(f.calls[0].input.text,f.calls[1].input.text);
+});
 test('reading manifests contain references only, persist across themes and reject corrupt coverage',async()=>{
  const f=fixture(8,12,80),store=memory(),cache=new StoryDiscoveryCache(store);
  const plan=await readingPlan(f.book,'codex',cache,limits);assert.ok(plan.blocks.length>1);
@@ -80,7 +102,7 @@ test('cross-chapter pending survives omission, accumulates evidence, and only a 
  };
  const batch=await run(f,cache,[],undefined,[],limits);
  assert.equal(batch.stories[0].source.continuations[1].sectionId,third.sectionId);
- assert.equal(f.calls.length,5); // A chapter omits the still-live event; later completion retains both earlier ranges.
+ assert.equal(f.calls.length,4); // Return the completed story without scanning another chapter to fill the page.
  const original=f.books.resolve(f.book,batch.stories[0].source);
  assert.ok(original.text.includes('第1回')&&original.text.includes('第4回'));
  const documents=[...store.values.values()].map(bytes=>JSON.parse(new TextDecoder().decode(bytes)));
@@ -137,16 +159,33 @@ test('all readers cancelling still saves the finished call and does not dispatch
  const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{started=true;await gate;return raw(...args);};
  const abort=new AbortController(),request=run(f,cache,[],{signal:abort.signal,onProgress:()=>{}},[],limits);
  await until(()=>started);abort.abort();await assert.rejects(request);release();await until(()=>f.calls.length===1);await new Promise(resolve=>setTimeout(resolve,10));
- const again=await run(f,new StoryDiscoveryCache(store),[],undefined,[],limits);assert.ok(again.stories.length);assert.equal(f.calls.length,2);assert.notEqual(f.calls[0].input.text,f.calls[1].input.text);assert.ok(again.stories.some(story=>story.source.sectionId==='chapter-0'));
+ const again=await run(f,new StoryDiscoveryCache(store),[],undefined,[],limits);assert.equal(again.stories.length,4);assert.equal(f.calls.length,1);assert.ok(again.stories.every(story=>story.source.sectionId==='chapter-0'));
 });
-test('a shared expansion is extended for a second reader with partially overlapping exclusions',async()=>{
+test('a second reader gets unseen stories from a shared expansion without waiting to fill five',async()=>{
  const f=fixture(),cache=new StoryDiscoveryCache(memory()),raw=f.provider.suggestions;let release,started=false;
  const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{if(!started){started=true;await gate;}return raw(...args);};
  const first=run(f,cache);await until(()=>started);
  const second=run(f,cache,[],undefined,f.stories.slice(0,3).map(story=>story.source));release();
  assert.equal((await first).stories.length,5);const batch=await second;
- assert.equal(batch.stories.length,5);assert.equal(f.calls.length,2);
+ assert.equal(batch.stories.length,2);assert.equal(f.calls.length,1);
  assert.ok(batch.stories.every(story=>!f.stories.slice(0,3).some(old=>localSourceKey(old.source)===localSourceKey(story.source))));
+});
+test('a waiting reader whose exclusions cover the shared batch continues scanning',async()=>{
+ const f=fixture(),cache=new StoryDiscoveryCache(memory()),raw=f.provider.suggestions;let release,started=false;
+ const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{if(!started){started=true;await gate;}return raw(...args);};
+ const first=run(f,cache);await until(()=>started);
+ const second=run(f,cache,[],undefined,f.stories.slice(0,5).map(story=>story.source));release();
+ assert.equal((await first).stories.length,5);const batch=await second;
+ assert.equal(batch.stories.length,5);assert.equal(f.calls.length,2);
+ assert.ok(batch.stories.every(story=>!f.stories.slice(0,5).some(old=>localSourceKey(old.source)===localSourceKey(story.source))));
+});
+test('a partial cached batch does not wait behind another readers model call',async()=>{
+ const f=fixture(8,4,200),cache=new StoryDiscoveryCache(memory());
+ const first=await run(f,cache,[],undefined,[],limits),raw=f.provider.suggestions;let release,started=false;
+ const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{started=true;await gate;return raw(...args);};
+ const next=run(f,cache,[],undefined,first.stories.map(story=>story.source),limits);await until(()=>started);
+ const cached=await run(f,cache,[],undefined,[],limits);assert.deepEqual(cached.stories,first.stories);assert.equal(cached.stories.length,4);assert.equal(f.calls.length,1);
+ release();assert.equal((await next).stories.length,4);
 });
 test('a complete cached page does not wait behind another readers model call',async()=>{
  const f=fixture(),cache=new StoryDiscoveryCache(memory());const first=await run(f,cache),raw=f.provider.suggestions;let release,started=false;
@@ -171,15 +210,16 @@ test('invalid and overlapping receipts are removed and cannot advance the curren
  const batch=await run(f,cache);assert.equal(batch.stories.length,1);assert.match(batch.note,/未能完整核对/);
  const docs=[...store.values.values()].map(bytes=>JSON.parse(new TextDecoder().decode(bytes)));assert.equal(docs.find(d=>d.value.pendingEvents).value.cursor,0);
 });
-test('FileMedia restart and authenticated JSON/streaming routes preserve cache and per-reader exclusions',async t=>{
+test('FileMedia restart and authenticated JSON/streaming routes preserve partial batches and per-reader exclusions',async t=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'shiqu-direct-reading-'));t.after(()=>rm(dir,{recursive:true,force:true}));
  const f=fixture(),media=new FileMedia(path.join(dir,'media'));
+ const raw=f.provider.suggestions;f.provider.suggestions=async(...args)=>{const result=await raw(...args);return {...result,stories:result.stories.slice(0,3)};};
  let app=createApplication({root:process.cwd(),dataDirectory:dir,generation:withLocalBooks(f.provider,f.books,media)});
  const request=(body,stream=false)=>app.handle(new Request('http://localhost/api/reader/suggestions',{method:'POST',headers:{'Content-Type':'application/json',...(stream?{Accept:'application/x-ndjson'}:{})},body:JSON.stringify({...selection,...body})}));
- const first=await (await request({})).json();assert.equal(first.stories.length,5);app.close();
+ const first=await (await request({})).json();assert.equal(first.stories.length,3);assert.equal(f.calls.length,1);app.close();
  app=createApplication({root:process.cwd(),dataDirectory:dir,generation:withLocalBooks(f.provider,f.books,new FileMedia(path.join(dir,'media')))});t.after(()=>app.close());
  const repeat=await (await request({})).json();assert.deepEqual(repeat.stories,first.stories);assert.equal(f.calls.length,1);
  const response=await request({excludeSources:first.stories.map(s=>s.source)},true);assert.match(response.headers.get('content-type'),/ndjson/);
  const events=(await response.text()).trim().split('\n').map(JSON.parse),next=events.find(e=>e.type==='result').batch;
- assert.equal(next.stories.length,5);assert.ok(next.stories.every(s=>!first.stories.some(old=>localSourceKey(old.source)===localSourceKey(s.source))));
+ assert.equal(next.stories.length,3);assert.equal(f.calls.length,2);assert.ok(next.stories.every(s=>!first.stories.some(old=>localSourceKey(old.source)===localSourceKey(s.source))));
 });

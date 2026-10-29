@@ -1,4 +1,5 @@
-// Select directly from originals on demand; keep theme progress and verified unfinished events.
+// Return available verified stories immediately; scan only until a nonempty batch is ready.
+// Keep theme progress and verified unfinished events across requests.
 // Shared work extends the common story pool; each reader's exclusions affect only their own view.
 import {z} from 'zod';
 import {localSourceSchema,localSourceKey,localReadingPrompt,localScanJson} from '../lib/reader-local-contract.ts';
@@ -90,15 +91,15 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  };
  let hit=true;
  while(true){
-  // A cached page must not wait behind another reader's in-flight expansion.
+  // Even a partial cached batch must not wait behind another reader's in-flight expansion.
   const cached=await cache.read(key,stateSchema,validate);
-  if(cached&&(visibleStories(cached.stories).length>=5||cached.exhausted))return response(cached,hit);
+  if(cached&&(visibleStories(cached.stories).length>0||cached.exhausted))return response(cached,hit);
   const {state,stalled}=await cache.shared(key,observer,async reading=>{
    let current=await cache.read(key,stateSchema,validate)||{stories:[],cursor:0,readThrough:0,pendingEvents:[],exhausted:false,rejected:false};
    let stalled=false;
    const progress=()=>reading.onProgress({completed:current.readThrough,total:plan.blocks.length,completedChars:plan.blocks.slice(0,current.readThrough).reduce((n,block)=>n+block.chars,0),totalChars,stage:'reading',mode:plan.manifest.mode});
    progress();
-   while(visibleStories(current.stories).length<5&&!current.exhausted){
+   while(!visibleStories(current.stories).length&&!current.exhausted){
     reading.signal.throwIfAborted();
     const {input,titles,visible}=scanRequest(current,current.cursor,Math.min(5,5-visibleStories(current.stories).length));
     if(requestTokens(input,theme,titles,status.provider)>limits.whole)throw new ReaderError(502,'跨章原文或已选记录超过本次输入预算，已保留进度；请换个主题。');
@@ -135,7 +136,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   });
   observer?.signal.throwIfAborted();
   const stories=visibleStories(state.stories).slice(0,5);
-  if(stories.length>=5||state.exhausted||state.rejected)return response(state,hit);
+  if(stories.length||state.exhausted||state.rejected)return response(state,hit);
   if(stalled)return {...response(state,hit),note:'本段尚未确认处理完，已保存找到的故事和原文位置，可重试继续。'};
   // A different waiting reader may need more than the shared expansion supplied.
  }
