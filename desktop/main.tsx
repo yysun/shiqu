@@ -73,7 +73,6 @@ function Desktop(){
       <label>故事数据目录<div className="input-row"><input value={settings.dataDirectory} onChange={e=>update('dataDirectory',e.target.value)}/><button className="subtle" onClick={()=>void action('选择目录',()=>browse('data','dataDirectory'))}>选择</button></div></label>
       <p className="help">保存 SQLite 和图片。更换目录会切换书架，不会搬移已有数据。</p>
       <label className="port-field">服务端口<input type="number" min="1024" max="65535" value={settings.port} onChange={e=>update('port',Number(e.target.value))}/></label>
-      <label className="switch-row"><input type="checkbox" checked={settings.lanEnabled} onChange={e=>update('lanEnabled',e.target.checked)}/><span><strong>允许手机在同一网络访问</strong><small>启用后显示配对二维码；配对设备可使用同一书架和生成服务。</small></span></label>
      </fieldset>
      <div className="save-row"><span className="help">{status.running?'停止服务后可修改设置。':dirty?'有尚未保存的更改。':'设置已同步。'}</span><button className="secondary" disabled={locked||!dirty} onClick={()=>void action('保存设置',async()=>{await save();setMessage('设置已保存。');})}>保存设置</button></div>
     </section>
@@ -86,7 +85,10 @@ function Desktop(){
      <div className="service-foot">关闭窗口后在托盘继续运行。<br/>退出应用会停止服务。</div>
     </section>
     <section className="card phone-card"><div className="section-heading"><span className="phone-glyph" aria-hidden="true">↗</span><div><h2>手机接着读</h2><p>无需安装手机应用。</p></div></div>
-     {status.running&&phone?<><div className="qr-wrap">{qr?<img src={qr} width="240" height="240" alt="扫描二维码，与桌面书架配对"/>:<p>正在生成二维码…</p>}</div>{status.phoneUrls.length>1&&<label>网络地址<select aria-label="手机网络地址" value={phone} onChange={e=>setPhone(e.target.value)}>{status.phoneUrls.map(url=><option key={url} value={url}>{new URL(url).origin}</option>)}</select></label>}<p className="phone-url">{new URL(phone).origin}</p><button className="secondary full" onClick={()=>void action('复制链接',()=>copy(phone))}>复制手机配对链接</button></>:<div className="qr-placeholder"><span aria-hidden="true">▦</span><p>{settings.lanEnabled?(status.running?'未找到可用的局域网地址。':'启动服务后显示二维码。'):'在本地运行设置中启用手机访问。'}</p></div>}
+     <fieldset className="phone-sharing" disabled={locked}><legend className="sr-only">手机访问设置</legend>
+      <label className="switch-row"><input type="checkbox" checked={settings.lanEnabled} onChange={e=>update('lanEnabled',e.target.checked)}/><span><strong>允许手机在同一网络访问</strong><small>{status.running?'停止服务后可修改手机访问。':'启用后显示配对二维码；配对设备可使用同一书架和生成服务。'}</small></span></label>
+     </fieldset>
+     {status.running&&phone?<><div className="qr-wrap">{qr?<img src={qr} width="240" height="240" alt="扫描二维码，与桌面书架配对"/>:<p>正在生成二维码…</p>}</div>{status.phoneUrls.length>1&&<label>网络地址<select aria-label="手机网络地址" value={phone} onChange={e=>setPhone(e.target.value)}>{status.phoneUrls.map(url=><option key={url} value={url}>{new URL(url).origin}</option>)}</select></label>}<p className="phone-url">{new URL(phone).origin}</p><button className="secondary full" onClick={()=>void action('复制链接',()=>copy(phone))}>复制手机配对链接</button></>:<div className="qr-placeholder"><span aria-hidden="true">▦</span><p>{settings.lanEnabled?(status.running?'未找到可用的局域网地址。':'启动服务后显示二维码。'):status.running?'请先停止服务，再启用上方的手机访问。':'启用上方的手机访问，保存并启动服务。'}</p></div>}
      <p className="help network-note">电脑需保持唤醒，手机与电脑连接同一网络；防火墙需允许此端口。局域网使用 HTTP，请只在可信网络使用。重启后需重新配对。</p>
     </section>
    </aside>
