@@ -131,12 +131,31 @@ test('tunnel entry pairs safely and helper exit clears public access while LAN s
  await until(async()=>{try{await fetch(target);return false;}catch{return true;}});
  await runtime.stop();await assert.rejects(fetch(runtime.status.url));
 });
-test('failed tunnel start releases the library lock and local port for a LAN-only retry',nativeOnly,async t=>{
+test('missing helper leaves direct local/LAN access running without pairing',nativeOnly,async t=>{
  const f=await fixture(t);
- await assert.rejects(startDesktop({...f.settings,cloudflaredPath:'/missing/cloudflared'},'',f.root),/未找到/);
- const runtime=await startDesktop({...f.settings,internetEnabled:false},'',f.root);t.after(()=>runtime.stop());
+ let runtime=await startDesktop({...f.settings,cloudflaredPath:'/missing/cloudflared'},'',f.root);t.after(()=>runtime.stop());
+ assert.equal(runtime.status.running,true);assert.equal(runtime.status.publicUrl,'');assert.match(runtime.status.internetError,/未找到 cloudflared/);assert.match(runtime.status.internetError,/无需配对 ID/);
  assert.equal((await fetch(runtime.status.url)).status,200);assert.equal(runtime.server.address().address,'0.0.0.0');
+ const stories=await (await fetch(runtime.status.url+'/api/stories')).json();assert.ok(stories.length);assert.equal(new URL(runtime.status.url).hash,'');
+ let lan=false;
+ for(const url of runtime.status.phoneUrls){
+  assert.equal(new URL(url).hash,'');assert.equal(new URL(url).pathname,'/');
+  try{const response=await fetch(url+'/api/stories',{signal:AbortSignal.timeout(1000)});if(response.ok){assert.equal(response.headers.get('set-cookie'),null);lan=true;break;}}catch{}
+ }
+ if(runtime.status.phoneUrls.length)assert.equal(lan,true);
+ const origin=runtime.status.url;
+ assert.equal((await fetch(origin+'/api/me/progress',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({storyId:stories[0].id,page:2,saved:true})})).status,200);
+ await runtime.stop();await assert.rejects(fetch(origin));
+ runtime=await startDesktop({...f.settings,internetEnabled:false},'',f.root);assert.equal((await fetch(runtime.status.url)).status,200);
  assert.match(desktopFailure(new Error('raw-private-data')),/服务启动失败/);
+});
+test('helper exiting before readiness closes only the remote entry and retains LAN',nativeOnly,async t=>{
+ const f=await fixture(t),helper=await fake(t,{ready:false});
+ await writeFile(helper.binary,(await readFile(helper.binary,'utf8')).replace('setInterval(()=>{},1000);','process.exit(1);'),{mode:0o755});
+ const runtime=await startDesktop({...f.settings,cloudflaredPath:helper.binary},'',f.root);t.after(()=>runtime.stop());
+ assert.equal(runtime.status.running,true);assert.equal(runtime.status.publicUrl,'');assert.match(runtime.status.internetError,/本机和局域网仍可使用/);
+ const info=await helper.info();assert.equal(alive(info.pid),false);await assert.rejects(access(info.args[info.args.indexOf('--config')+1]));
+ await assert.rejects(fetch(info.args[info.args.indexOf('--url')+1]));assert.equal((await fetch(runtime.status.url+'/api/stories')).status,200);
 });
 test('parent EOF during tunnel startup cancels helper before native forced-stop deadline', {...nativeOnly,timeout:15000},async t=>{
  const f=await fixture(t),helper=await fake(t,{ready:false}),entry=path.join(f.root,'dist/server/desktop.js');

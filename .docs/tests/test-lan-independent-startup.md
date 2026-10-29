@@ -1,0 +1,6 @@
+# LAN-independent startup E2E
+
+1. Disposable library, internet enabled, helper missing: start returns running true, publicUrl empty, actionable internetError. GET localhost and discovered LAN library/media succeeds without Cookie; URLs have no hash. Browser local progress mutation remains same-origin and does not call AI. Stop closes listeners/releases lock; restart works.
+2. Helper exits before readiness: same LAN fallback, helper PID gone/config removed, public listener unavailable. Startup AbortSignal/parent EOF instead aborts whole startup and leaves no local listener/ownership. Existing port conflicts remain fatal.
+3. In-app desktop preview: LAN explicitly says no pairing ID, internet remains opt-in, updated screenshot contains current controls without private credentials. Existing preview operations remain disabled.
+4. Installed Lite: user configuration has internet enabled but missing helper. Start reader without changing provider or invoking generation, verify internet-only warning, browser link, local URL and LAN direct-access QR; open reader through local browser action. No public tunnel is started. Leave requested app running. If user has changed state, inspect before acting and preserve unrelated settings.

@@ -101,7 +101,7 @@ function Desktop(){
       <label className="switch-row"><input type="checkbox" checked={settings.internetEnabled} onChange={e=>update('internetEnabled',e.target.checked)}/><span><strong>允许互联网访问</strong><small>{status.running?'停止服务后可修改互联网访问。':'使用免费 Cloudflare 临时隧道，手机可在其他 Wi-Fi 或蜂窝网络中连接。无需账户或域名。'}</small></span></label>
       {settings.internetEnabled&&<><label>cloudflared 可执行文件<input value={settings.cloudflaredPath} placeholder="留空自动查找，或填写绝对路径" onChange={e=>update('cloudflaredPath',e.target.value)} spellCheck={false}/></label><p className="help">需先安装 cloudflared。macOS：brew install cloudflared。Standard 与 Lite 均需另行安装。</p></>}
      </fieldset>
-     <p className="help lan-status">局域网访问始终开启 · 同一网络可直接连接</p>
+     <p className="help lan-status">局域网访问始终开启 · 无需配对 ID</p>
      {status.internetError&&<p className="error" role="status">{status.internetError}</p>}
      {status.running&&phone?<>{links.length>1&&<label>访问方式<select aria-label="手机访问方式" value={phone} onChange={e=>setPhone(e.target.value)}>{links.map(url=><option key={url} value={url}>{url===status.publicUrl?'互联网 · ':'局域网 · '}{new URL(url).hostname}</option>)}</select></label>}<p className="phone-url">{internet?'互联网 · 私密配对链接':'局域网 · 直接访问'}</p><div className="qr-wrap">{qr?<img src={qr} width="240" height="240" alt={internet?'扫描私密二维码，通过互联网连接书架':'扫描二维码，通过局域网打开书架'}/>:<p>正在生成二维码…</p>}</div><p className="phone-url">{new URL(phone).origin}</p><button className="secondary full" onClick={()=>void action('复制链接',()=>copy(phone))}>{internet?'复制私密互联网链接':'复制局域网访问链接'}</button></>:<div className="qr-placeholder"><span aria-hidden="true">▦</span><p>{status.running?'未找到可用的访问地址。':'启动服务后显示二维码。'}</p></div>}
      <p className="help network-note">电脑需保持唤醒，拾趣服务需保持运行。局域网使用 HTTP，仅限可信网络；可连接的设备共享书架和生成权限。</p>

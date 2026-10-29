@@ -63,15 +63,23 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
   server=createHttpServer(access.handle);server.listen(settings.port,'0.0.0.0');await once(server,'listening');
   const status={running:true,pid:process.pid,url:local,phoneUrls:phones,publicUrl:'',internetError:''};
   if(settings.internetEnabled){
-   remoteServer=createHttpServer(remote.handle);remoteServer.listen(0,'127.0.0.1');await once(remoteServer,'listening');
-   const address=remoteServer.address();if(!address||typeof address==='string')throw Error('TUNNEL_LISTENER');
-   tunnel=await startDesktopTunnel(`http://127.0.0.1:${address.port}`,settings.cloudflaredPath,{signal:options.signal});
-   options.signal?.throwIfAborted();status.publicUrl=remote.activate(tunnel.origin);
-   void tunnel.closed.then(async()=>{
-    remote.revoke();status.publicUrl='';
-    if(!stopped){status.internetError='公网隧道已断开，局域网仍可使用。停止并重新启动服务以重试。';options.onStatus?.({...status});}
-    await close(remoteServer);await tunnel?.stop();
-   });
+   try{
+    remoteServer=createHttpServer(remote.handle);remoteServer.listen(0,'127.0.0.1');await once(remoteServer,'listening');
+    const address=remoteServer.address();if(!address||typeof address==='string')throw Error('TUNNEL_LISTENER');
+    tunnel=await startDesktopTunnel(`http://127.0.0.1:${address.port}`,settings.cloudflaredPath,{signal:options.signal});
+    options.signal?.throwIfAborted();status.publicUrl=remote.activate(tunnel.origin);
+    void tunnel.closed.then(async()=>{
+     remote.revoke();status.publicUrl='';
+     if(!stopped){status.internetError='公网隧道已断开，本机和局域网仍可使用。停止并重新启动服务以重试。';options.onStatus?.({...status});}
+     await close(remoteServer);await tunnel?.stop();
+    });
+   }catch(error){
+    // Internet is optional: clean only its entry point. Parent shutdown still
+    // propagates to the outer handler and releases the complete runtime.
+    if(options.signal?.aborted)throw error;
+    remote.revoke();await tunnel?.stop();await close(remoteServer);remoteServer=undefined;
+    status.internetError=(error instanceof TunnelError?error.message:'公网隧道启动失败。')+' 本机和局域网仍可使用，无需配对 ID。';
+   }
   }
   options.signal?.throwIfAborted();return {server,status,stop};
  }catch(error){await stop();throw error;}

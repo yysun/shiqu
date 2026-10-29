@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 export class TunnelError extends Error{}
-const failed=()=>new TunnelError('免费公网隧道未能连接。请检查网络与 cloudflared，或关闭互联网访问后使用局域网。');
+const failed=()=>new TunnelError('免费公网隧道未能连接。请检查网络与 cloudflared。');
 async function executable(configured:string){
  if(configured&&!path.isAbsolute(configured))throw new TunnelError('cloudflared 路径必须是可执行文件的绝对路径。');
  const name=process.platform==='win32'?'cloudflared.exe':'cloudflared';
