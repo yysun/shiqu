@@ -34,3 +34,20 @@ CR review round: 2; reviewer: reused.
 TT: Node 24.22.1 / pnpm 11.25.0. All 38 non-development-access test files passed 304/304, with zero skips/cancellations; development-access passed 2/2 in an isolated TAP run. An earlier concurrent development-proxy run stalled and was terminated; the isolated rerun passed without story edits. Added upgrade/idempotence regression passed 1/1 afterward:307 distinct tests total. Application packaging/build commands were not run; existing desktop lifecycle integration tests compile temporary test helpers. No Docker build or paid provider request.
 
 ET: in-app browser3327/3328 on a temporary SQLite/media fixture. Enabled background from readable and pre-image shelf cards; paused while calls were held, drained four results, restarted service and reloaded: background/paused persisted and opening reader made no new calls. Reader settings stop and reader/background toggles preserved stopped. Explicit Resume completed the first 10-page story. A second story remained active in background after returning to shelf; fixture restart completed all 10 pages with no viewer demand. Progress sheet showed background intent, 0/10saved images, saved script/source and real stage timer. Desktop Vite preview1420 read the same isolated two-story fixture successfully. Screenshots: background-stopped.jpg and background-running.jpg under /Users/esun/.codex/visualizations/2026/10/29/01a1894a-05b4-7580-826c-8cce6927efaa/.
+
+SS fixes milestone: 9c3eb1c; CR round2 passed and final typecheck/lint/diff checks passed. Temporary browser tabs and both fixture/desktop-preview servers were closed after verification.
+
+1. **Complete — Persistent background mode.** Shelf and reader controls save the selected mode; restart and browser fixtures confirm persistence.
+2. **Complete — Whole-story generation without viewers.** Both controlled providers finish every missing page, reuse saved assets, respect the shared worker cap, and retain frame-count confirmation.
+3. **Complete — Manual pause/stop override.** Persisted controls block reader and legacy dispatch across restart. Explicit resume preserves mode; in-flight results save. Concurrent mode changes cannot overwrite a pause.
+4. **Complete — Restart recovery.** Queued and expired interrupted background work resumes with lease fencing. Successful outputs are reused; real failures await explicit Retry. Reader-only stories retain demand-driven behavior.
+5. **Complete — Isolation and deletion.** Owner/origin/input checks pass. Shared deletion trigger disarms reader and desktop background work; restoration cannot restart it.
+6. **Complete — UI and documentation.** Controls and status match saved intent. Inspected screenshots show running background progress and manually stopped state accurately. README documents mode-specific restart behavior and possible charges for interrupted requests.
+7. **Complete — Verification.** Reported 307 distinct tests pass, including upgrade/idempotence preservation. Final typecheck, lint, and diff checks pass. Isolated in-app flows and desktop Vite preview pass without paid requests, Docker builds, desktop packaging, or personal-library mutation.
+
+All plan tasks are complete. Reviewed implementation `453f923` and fixes/evidence `9c3eb1c`, based on `e404837`. CR round 2 passed; no unresolved findings.
+
+**VR passed: all acceptance criteria complete**
+
+VR risk: non-low — persistent paid intent, restart recovery, and concurrency.
+VR review round: 1; reviewer: reused.
