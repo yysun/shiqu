@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {productionFixture} from './fixtures/production.mjs';
+import {insertStory} from './fixtures/story.mjs';
 
 function withoutSaved({saved,...row}){return row;}
 test('pending and readable generated stories can be favorited without changing progress or starting generation',async t=>{
@@ -33,6 +34,7 @@ test('pending and readable generated stories can be favorited without changing p
 test('published favorites preserve existing reading progress and reject cross-origin, deleted and malformed requests',async t=>{
  const f=await productionFixture(t);
  const database=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));t.after(()=>database.close());
+ await insertStory(f.app);
  const stories=await (await f.app.handle(new Request('http://localhost/api/stories'))).json(),id=stories[0].id;
  const favorite=(saved,headers={})=>f.request(`library/${id}/favorite`,'POST',{saved},headers);
  assert.equal((await favorite(true)).status,200);

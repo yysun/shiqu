@@ -2,7 +2,7 @@
 import type {Story} from './content';
 import type {GeneratedStory} from './reader-model';
 import {readerBooks} from './reader-books.ts';
-import {DEMO_BOOK} from './demo-dongguo.ts';
+import {historicalBookTitle} from './story-book.ts';
 import {pdfFilename,wrapPdfText} from './reader-pdf.ts';
 
 const M=36,GAP=24,CARD=420,ART=630,LINE=42;
@@ -18,7 +18,7 @@ export function layoutStoryPng(story:Story,measure:(text:string,size:number)=>nu
  const wrap=(text:string,size:number,limit:number)=>wrapPdfText(text,limit,value=>measure(value,size));
  const title=wrap(`${story.title} · ${count}幅故事总览`,52,width-2*M);
  const generated='generated'in story&&story.generated===true?story as GeneratedStory:null;
- const book=(readerBooks.find(book=>book.id===story.bookId)||(story.bookId===DEMO_BOOK.id?DEMO_BOOK:undefined))?.title||'自选故事';
+ const book=readerBooks.find(book=>book.id===story.bookId)?.title||historicalBookTitle(story.bookId)||'自选故事';
  const subtitle=wrap([book,generated?.artStyleLabel,story.theme].filter(Boolean).join(' · '),26,width-2*M);
  const subtitleY=M+title.length*70+12;
  let y=subtitleY+subtitle.length*40+30;

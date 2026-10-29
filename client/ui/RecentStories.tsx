@@ -1,5 +1,5 @@
 'use client';
-// Present saved stories and the bundled demo with their own title, source and reading progress.
+// Present saved stories with their own title, source and reading progress.
 import {useRef,useState} from 'react';
 import {ChevronLeft,ChevronRight,Play,BookOpen} from 'lucide-react';
 import type {Story} from '@/lib/content';
@@ -14,7 +14,7 @@ export default function RecentStories({items,loading,bookName,onOpen}:Props){
  const [index,setIndex]=useState(0);
  const active=Math.min(index,Math.max(0,items.length-1));
  function move(delta:number){const el=track.current;if(el)el.scrollTo({left:Math.max(0,Math.min(items.length-1,active+delta))*el.clientWidth,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});}
- if(!items.length)return <div className="yu-feature-empty" role="status"><BookOpen size={32}/><strong>{loading?'正在打开故事…':'把下一篇故事留在这里'}</strong><p>{loading?'':'读过的故事会出现在这里，方便继续阅读。'}</p></div>;
+ if(!items.length)return <div className="yu-feature-empty" role="status"><BookOpen size={32}/><strong>{loading?'正在打开故事…':'把下一篇故事留在这里'}</strong><p>{loading?'':'选择一本书，开启你的第一篇故事。'}</p></div>;
  return <section className="yu-recent-hero" aria-label="最近阅读的故事">
   <div className="yu-hero-track" ref={track} onScroll={e=>setIndex(Math.round(e.currentTarget.scrollLeft/e.currentTarget.clientWidth))}
    onPointerDown={e=>{if(e.pointerType==='mouse'){drag.current={x:e.clientX,left:e.currentTarget.scrollLeft,moved:false};suppressClick.current=false;}}}
@@ -25,7 +25,7 @@ export default function RecentStories({items,loading,bookName,onOpen}:Props){
    {items.map((item,i)=><button className="yu-feature" key={item.story.id} aria-label={(item.recent?'继续阅读':'开始阅读')+item.story.title} onClick={()=>onOpen(item.story,!item.recent)}>
     <img src={item.image} alt={item.story.title+'，第 '+(item.page+1)+' 幅'} draggable={false} loading={i===0?'eager':'lazy'}/><span className="yu-feature-wash"/>
     <span className="yu-feature-tag"><span/>{item.recent?'最近阅读 · '+bookName(item.story):'灵感来自《'+bookName(item.story)+'》'}</span>
-    <span className="yu-feature-copy"><small>{item.story.theme&&`${item.story.theme} · `}{isGenerated(item.story)?(item.story.artStyleLabel||'未记录画风'):'体验样篇画风'}</small><strong>{item.story.title}</strong><span className="yu-feature-bottom"><span>{item.recent?`继续阅读 · ${item.page+1} / ${item.story.pages.length} 幅`:`开始阅读 · ${item.story.pages.length} 幅`}</span><i><Play size={16} fill="currentColor"/></i></span></span>
+    <span className="yu-feature-copy"><small>{item.story.theme&&`${item.story.theme} · `}{isGenerated(item.story)?(item.story.artStyleLabel||'未记录画风'):'未记录画风'}</small><strong>{item.story.title}</strong><span className="yu-feature-bottom"><span>{item.recent?`继续阅读 · ${item.page+1} / ${item.story.pages.length} 幅`:`开始阅读 · ${item.story.pages.length} 幅`}</span><i><Play size={16} fill="currentColor"/></i></span></span>
    </button>)}
   </div>
   {items.length>1&&<div className="yu-hero-controls"><button aria-label="上一个最近故事" disabled={active===0} onClick={()=>move(-1)}><ChevronLeft size={19}/></button><span aria-live="polite">最近阅读 · {active+1} / {items.length}</span><button aria-label="下一个最近故事" disabled={active===items.length-1} onClick={()=>move(1)}><ChevronRight size={19}/></button></div>}

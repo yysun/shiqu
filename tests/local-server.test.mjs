@@ -15,6 +15,7 @@ import {LocalBooks} from '../server/local-books.ts';
 import {importLegacy} from '../server/import-legacy.ts';
 import {stories} from '../db/schema.ts';
 import {eq} from 'drizzle-orm';
+import {makeStory} from './fixtures/story.mjs';
 
 async function fixture(t){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu node test '));t.after(()=>rm(root,{recursive:true,force:true}));
@@ -29,7 +30,9 @@ function request(app,url,method='GET',value,headers={}){
 }
 test('SQLite initialization and seed are idempotent and preserve edited rows and raw SQL checkpoints',async t=>{
  const options=await fixture(t);let app=createApplication(options);
- let sample=(await (await request(app,'/api/stories')).json())[0];assert.equal(sample.pages.length,30);
+ assert.deepEqual(await (await request(app,'/api/stories')).json(),[]);
+ const initial=makeStory();await app.services.db.insert(stories).values({...initial,pages:JSON.stringify(initial.pages),checks:JSON.stringify(initial.checks)});
+ let sample=(await (await request(app,'/api/stories')).json())[0];assert.equal(sample.pages.length,10);
  await app.services.db.update(stories).set({title:'preserved title'}).where(eq(stories.id,sample.id));
  await request(app,'/api/me/progress','POST',{storyId:sample.id,page:4,saved:true},{'oai-authenticated-user-id':'spoofed'});
  const repo=new ReaderRepository(app.services.database);const id=crypto.randomUUID();
@@ -98,7 +101,7 @@ test('real SQLite locks prevent duplicate paid requests through concurrent REST 
 async function legacyFixture(t){
  const options=await fixture(t),source=path.join(options.root,'legacy'),v3=path.join(source,'v3');
  await mkdir(path.join(v3,'d1/miniflare-D1DatabaseObject'),{recursive:true});await mkdir(path.join(v3,'r2/miniflare-R2BucketObject'),{recursive:true});await mkdir(path.join(v3,'r2/shiqu-media/blobs'),{recursive:true});
- const initial=openDatabase(options.dataDirectory,options.root);initial.sqlite.exec('PRAGMA wal_checkpoint(TRUNCATE)');initial.close();
+ const initial=openDatabase(options.dataDirectory,options.root);const saved=makeStory();await initial.db.insert(stories).values({...saved,pages:JSON.stringify(saved.pages),checks:JSON.stringify(saved.checks)});initial.sqlite.exec('PRAGMA wal_checkpoint(TRUNCATE)');initial.close();
  const databaseFile=path.join(v3,'d1/miniflare-D1DatabaseObject/database.sqlite');await cp(path.join(options.dataDirectory,'shiqu.sqlite'),databaseFile);
  const database=new DatabaseSync(databaseFile);database.exec("DROP TABLE app_migrations; CREATE TABLE d1_migrations(name TEXT);");for(const name of (await readdir('drizzle')).filter(f=>f.endsWith('.sql')))database.prepare('INSERT INTO d1_migrations VALUES(?)').run(name);
  database.exec("UPDATE stories SET title='imported story'; INSERT INTO progress VALUES('docker-local-owner:test','docker-local-owner','test',3,1,'2026-10-27')");database.close();

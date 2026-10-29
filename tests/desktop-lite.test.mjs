@@ -68,7 +68,7 @@ test('desktop lifecycle preserves progress and direct access across restarts, de
  assert.equal(running.server.address().address,'0.0.0.0');
  let lan=false;for(const link of running.status.phoneUrls){try{if((await fetch(link+'/api/stories',{signal:AbortSignal.timeout(1000)})).ok){lan=true;break;}}catch{}}
  if(running.status.phoneUrls.length)assert.equal(lan,true);
- const stories=await (await fetch(origin+'/api/stories')).json();assert.ok(stories.length);
+ const stories=await (await fetch(origin+'/api/stories')).json();assert.deepEqual(stories,[]);
  await fetch(origin+'/api/me/progress',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({storyId:stories[0].id,page:3,saved:true})});
  await assert.rejects(startDesktop({...f.settings,port:await port()},'',f.root),/DATA_BUSY/);
  await running.stop();await assert.rejects(fetch(origin+'/api/stories'));

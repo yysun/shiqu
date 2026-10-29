@@ -1,6 +1,5 @@
 // Merge reading positions by time; server snapshots separately own persisted favorite flags.
 import type {Story} from './content';
-import {DEMO_STORY_ID} from './demo-dongguo.ts';
 
 export type ReadingProgress={storyId:string;page:number;saved?:number;updatedAt?:string|null};
 export function mergeReadingProgress(...groups:ReadingProgress[][]){
@@ -21,8 +20,7 @@ export function recentHeroes(stories:Story[],lastReadId:string,progress:ReadingP
   return [{story,page,recent:true,image:story.pages[page]?.image||story.pages.find(page=>page.image)?.image||''}];
  }).slice(0,Math.max(0,limit));
  if(items.length)return items;
- const sample=stories.find(story=>story.id===DEMO_STORY_ID&&story.pages.some(page=>page.image));
- return sample?[{story:sample,page:0,recent:false,image:sample.pages[0].image}]:[];
+ return [];
 }
 // Kept for callers expecting one card.
 export function recentHero(stories:Story[],lastReadId:string,progress:ReadingProgress[]){

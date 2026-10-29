@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {productionFixture} from './fixtures/production.mjs';
+import {insertStory} from './fixtures/story.mjs';
 
 test('deleted generated stories retain titles, favorite flags and exact checkpoints through passive restoration',async t=>{
  const f=await productionFixture(t),id=await f.create();
@@ -34,6 +35,7 @@ test('recovery metadata does not expose foreign generated titles and supports pu
  assert.equal((await f.request(`library/${foreign}/restore`,'POST')).status,404);
  await f.json(`library/${pending}`,'DELETE');
  assert.equal((await f.json('deletions'))[0].title,'庄周梦蝶');
+ await insertStory(f.app);
  const stories=await (await f.app.handle(new Request('http://localhost/api/stories'))).json(),sample=stories[0];
  await f.json(`library/${sample.id}`,'DELETE');
  let rows=await f.json('deletions');assert.equal(rows.find(row=>row.storyId===sample.id).title,sample.title);assert.equal(rows.find(row=>row.storyId===sample.id).kind,'published');

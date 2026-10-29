@@ -1,6 +1,5 @@
-// Export finished stories with source labels that remain correct for new and historical samples.
+// Export saved stories with their original source labels, including historical ordinary records.
 import type {Story} from './content';
-import {DEMO_STORY_ID,DEMO_SOURCE_REFERENCE,DEMO_BOOK} from './demo-dongguo.ts';
 import type {GeneratedStory} from './reader-model';
 
 const W=900,H=1350,M=72;
@@ -8,7 +7,7 @@ const serif='"Noto Serif SC", "Songti SC", "STSong", serif';
 const sans='"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif';
 export function storySourceReference(story:Story){
  if('sourceReference'in story&&typeof story.sourceReference==='string')return story.sourceReference;
- if(story.id===DEMO_STORY_ID&&story.bookId===DEMO_BOOK.id)return DEMO_SOURCE_REFERENCE;
+ if(story.bookId==='zhongshanlang')return '《中山狼传》·马中锡《东田文集》';
  return story.id==='zhongli'&&story.bookId==='liaozhai'?'《聊斋志异·种梨》':'原典见出处链接';
 }
 export function pdfFilename(title:string){return (title.replace(/[<>:"/\\|?*\u0000-\u001f]/g,'').trim().slice(0,60)||'拾趣故事')+'-拾趣.pdf';}

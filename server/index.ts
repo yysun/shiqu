@@ -1,4 +1,4 @@
-// Run one local Node process; schema and sample initialization finish before listening.
+// Run one local Node process; schema and book metadata initialization finish before listening.
 import {createApplication} from './app.ts';
 import {createHttpServer} from './http.ts';
 import {serverConfig} from './config.ts';
