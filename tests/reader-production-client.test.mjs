@@ -1,7 +1,7 @@
 // Verify the browser's demand lifecycle without coupling tests to React rendering internals.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {observeStoryGeneration,runQueuedStoryGeneration} from '../lib/reader-production-client.ts';
+import {observeOnlyGeneration,observeStoryGeneration,runQueuedStoryGeneration} from '../lib/reader-production-client.ts';
 const base={id:'story',state:'idle',ready:7,stage:'drawing 8',selection:{length:8},retryAllowed:true,error:null,story:{pages:[]}};
 test('a full buffer keeps its viewer alive, page changes update demand, and leaving releases only that viewer',async()=>{
  let active=true,time=0,page=0,reads=0;const calls=[];
@@ -86,4 +86,15 @@ for(const fields of [{generationControl:'paused'},{generationControl:'stopped'},
   request:async(path,method,body)=>{calls.push({method,body});return {...base,state:'failed',...fields};},
  });
  assert.equal(result,'');assert.deepEqual(calls.map(c=>c.method),['POST','DELETE']);
+});
+
+test('mode changes and manual resume preserve failed stories as observations until explicit Retry',async()=>{
+ for(const generationMode of ['reader','background'])for(const generationControl of ['active','paused','stopped']){
+  const session={...base,state:'failed',generationMode,generationControl,error:'real provider failure'};
+  assert.equal(observeOnlyGeneration(session),true);
+  const calls=[];let active=true;
+  await observeStoryGeneration({sessionId:'story',request:async(...args)=>{calls.push(args);active=false;return session;},isActive:()=>active,onSession:()=>{},sleep:async()=>{}});
+  assert.deepEqual(calls,[['reader/sessions/story']]);
+ }
+ assert.equal(observeOnlyGeneration({...base,generationMode:'reader',generationControl:'active'}),false);
 });

@@ -2,7 +2,7 @@
 // Separate status inspection from viewer demand and publish saved artwork as it arrives.
 import {useEffect,useRef,useState} from 'react';
 import {randomId,request} from './shared';
-import {observeStoryGeneration,runQueuedStoryGeneration} from '@/lib/reader-production-client';
+import {observeOnlyGeneration,observeStoryGeneration,runQueuedStoryGeneration} from '@/lib/reader-production-client';
 import type {GeneratedStory,Selection,SessionView,ProductionAction} from '@/lib/reader-model';
 type Callbacks={onStory:(story:GeneratedStory,initialPage?:number,saved?:boolean)=>void;onProgress:(rows:{storyId:string;page:number;saved:number;updatedAt?:string|null}[])=>void};
 export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=false){
@@ -45,7 +45,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
    const s:SessionView=await request('reader/sessions/'+sessionId+'/production-control','POST',{action});
    collect(s);
    if(id.current===sessionId){
-    generationMode.current=s.generationControl==='active'&&s.generationMode!=='background'?'generate':'observe';
+    generationMode.current=observeOnlyGeneration(s)?'observe':'generate';
     retryRequested.current=false;setActive(s);setError(s.state==='failed'?s.error||'生成失败，请重试继续。':'');setWake(v=>v+1);
    }
   }catch(error){setControlError(error instanceof Error?error.message:'生成方式暂未保存，请重试。');}
@@ -96,7 +96,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
     collect(s);setActive(s);setBusy(!inspecting&&(generating||s.state==='failed'));setError(s.state==='failed'?(s.error||'生成失败，请重试继续。'):'');
     if(s.story?.pages[0]?.image){
      cb.current.onStory(s.story);
-     if(inspecting&&s.generationMode!=='background'&&(!s.generationControl||s.generationControl==='active')&&s.state!=='failed'&&s.state!=='completed'){generationMode.current='generate';setWake(v=>v+1);}
+     if(inspecting&&!observeOnlyGeneration(s)){generationMode.current='generate';setWake(v=>v+1);}
     }
    };
    const operation=inspecting?observeStoryGeneration({sessionId,request,isActive,onSession}):runQueuedStoryGeneration({sessionId,viewerId:randomId(),page:()=>currentPage.current,request,retries:retries.current,initialRetry,isActive,onSession});

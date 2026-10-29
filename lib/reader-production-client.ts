@@ -1,6 +1,10 @@
 // Renew one viewer's demand while polling individual checkpoints; page changes never cancel
 // server work. Manual control ends demand; durable background work is observed without retries.
 import type {SessionView} from './reader-model.ts';
+// Mode/control changes and passive reads must never turn a saved failure into a paid retry.
+export function observeOnlyGeneration(session:SessionView){
+ return session.state==='failed'||session.state==='completed'||session.generationMode==='background'||!!session.generationControl&&session.generationControl!=='active';
+}
 type Observation={sessionId:string;request:(path:string)=>Promise<SessionView>;isActive:()=>boolean;onSession:(session:SessionView)=>void;sleep?:(ms:number)=>Promise<void>};
 // Inspecting a saved failure or paused story never renews demand or retries paid work.
 export async function observeStoryGeneration({sessionId,request,isActive,onSession,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))}:Observation){

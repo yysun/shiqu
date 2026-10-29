@@ -3,6 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
+import {readFileSync,readdirSync} from 'node:fs';
+import {migrate} from '../server/database.ts';
 import {productionFixture,until,turn} from './fixtures/production.mjs';
 import {ReaderProductionCoordinator} from '../server/reader-production.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
@@ -137,4 +139,30 @@ test('startup reconciles a fully published background story whose final session 
  const db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));
  db.prepare("UPDATE reader_sessions SET state='running',lock_token='dead-finalizer',lock_until=1 WHERE id=?").run(id);db.close();
  await f.restart();await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.calls.length,8);assert.equal(f.control.plans.length,1);
+});
+
+test('a concurrent mode change cannot overwrite another window’s manual pause',async t=>{
+ const f=await productionFixture(t),id=await f.create(),repo=new ReaderRepository(f.app.services.database),get=repo.get.bind(repo);
+ let release,observed;const gate=new Promise(resolve=>release=resolve),read=new Promise(resolve=>observed=resolve);let first=true;
+ repo.get=async(...args)=>{const row=await get(...args);if(first){first=false;observed();await gate;}return row;};
+ const toggle=repo.control(id,owner,'background');await read;await control(f,id,'pause');release();await toggle;
+ const s=await f.read(id);assert.equal(s.generationMode,'background');assert.equal(s.generationControl,'paused');
+ await f.app.services.production.tick();assert.equal(f.control.calls.length,0);assert.equal(f.control.plans.length,0);
+});
+
+test('upgrading an existing library preserves checkpoints and gives old stories reader-mode defaults',t=>{
+ const db=new DatabaseSync(':memory:');t.after(()=>db.close());
+ db.exec('CREATE TABLE app_migrations(name TEXT PRIMARY KEY,applied_at TEXT NOT NULL)');
+ for(const file of readdirSync('drizzle').filter(name=>name.endsWith('.sql')&&!name.startsWith('0004')).sort()){
+  db.exec(readFileSync(path.join('drizzle',file),'utf8'));db.prepare('INSERT INTO app_migrations VALUES(?,?)').run(file,'before-upgrade');
+ }
+ db.prepare("INSERT INTO reader_sessions(id,user_id,selection,document,state,page,saved,created_at,updated_at) VALUES('legacy','owner','{}',?, 'idle',3,1,'created','updated')").run(JSON.stringify({plan:{title:'saved'},images:['saved.png'],usage:[{step:'image:0'}]}));
+ db.prepare("INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,created_at,updated_at) VALUES('job','legacy','owner','image','image','v','[]','{}','saved-result','succeeded',1,2)").run();
+ const before=db.prepare('SELECT * FROM reader_sessions').get(),job=db.prepare('SELECT * FROM production_jobs').get();
+ migrate(db,process.cwd());
+ const after=db.prepare('SELECT * FROM reader_sessions').get(),savedJob=db.prepare('SELECT * FROM production_jobs').get();
+ assert.deepEqual({...after,generation_mode:undefined,generation_control:undefined},{...before,generation_mode:undefined,generation_control:undefined});
+ assert.equal(after.generation_mode,'reader');assert.equal(after.generation_control,'active');
+ assert.deepEqual({...savedJob,interrupted:undefined},{...job,interrupted:undefined});assert.equal(savedJob.interrupted,0);
+ migrate(db,process.cwd());assert.deepEqual(db.prepare('SELECT * FROM reader_sessions').get(),after);
 });

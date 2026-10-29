@@ -50,10 +50,11 @@ export class ReaderRepository{
  async control(id:string,uid:string,action:ProductionAction){
   const row=await this.get(id,uid);
   if(row.state==='completed')throw new ReaderError(409,'故事已完整生成，无需更改生成方式。');
-  const mode=action==='background'||action==='reader'?action:row.generation_mode||'reader';
-  const control=action==='pause'?'paused':action==='stop'?'stopped':action==='resume'?'active':row.generation_control||'active';
-  await this.db.prepare(`UPDATE reader_sessions SET generation_mode=?,generation_control=? WHERE id=? AND user_id=? AND state!='completed' AND ${visible}`)
-   .bind(mode,control,id,uid).run();
+  // Mode changes must never replay a stale control value over another window's pause.
+  const field=action==='background'||action==='reader'?'generation_mode':'generation_control';
+  const value=action==='pause'?'paused':action==='stop'?'stopped':action==='resume'?'active':action;
+  await this.db.prepare(`UPDATE reader_sessions SET ${field}=? WHERE id=? AND user_id=? AND state!='completed' AND ${visible}`)
+   .bind(value,id,uid).run();
   return this.get(id,uid);
  }
  async saveOriginal(row:SessionRow,original:OriginalSource){
