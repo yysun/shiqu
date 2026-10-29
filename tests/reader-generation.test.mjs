@@ -64,16 +64,17 @@ test('running checkpoints are polled and leaving during a poll issues no further
  assert.deepEqual(g.calls,[]);assert.equal((await repo.get(id,'alice')).state,'running');
 });
 test('sessions are owner-scoped and client retries reuse a single session',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);await repo.create(id,'alice',selection);assert.equal((await repo.list('alice')).length,1);assert.equal((await repo.list('bob')).length,0);await assert.rejects(advanceStory(repo,g,'bob',id,1),e=>e.status===404);assert.deepEqual(g.calls,[]);});
-test('the database enforces ten stories per rolling 24 hours under concurrent starts',async()=>{
- const {repo,db}=setup();const results=await Promise.allSettled(Array.from({length:14},()=>repo.create(crypto.randomUUID(),'alice',selection)));
- assert.equal(results.filter(r=>r.status==='fulfilled').length,10);const rows=await repo.list('alice');assert.equal(rows.length,10);
- assert.ok(results.filter(r=>r.status==='rejected').every(r=>r.reason.status===429&&r.reason.message.includes('10')));
- assert.equal((await repo.create(rows[0].id,'alice',selection)).id,rows[0].id);
+test('new stories have no rolling daily cap, including concurrent starts',async()=>{
+ const {repo}=setup();const rows=await Promise.all(Array.from({length:25},()=>repo.create(crypto.randomUUID(),'alice',selection)));
+ assert.equal((await repo.list('alice')).length,25);
+ const retries=await Promise.all(Array.from({length:5},()=>repo.create(rows[0].id,'alice',{...selection,theme:'人情冷暖'})));
+ assert.ok(retries.every(row=>row.id===rows[0].id&&row.selection===rows[0].selection&&row.created_at===rows[0].created_at));
+ assert.equal((await repo.list('alice')).length,25);
+ await assert.rejects(repo.create(rows[0].id,'bob',selection),e=>e.status===404);
+ assert.equal((await repo.list('bob')).length,0);
  await repo.create(crypto.randomUUID(),'bob',selection);
- db.prepare('UPDATE reader_sessions SET created_at=? WHERE id=?').run(new Date(Date.now()-86400000-1000).toISOString(),rows[0].id);
  await repo.create(crypto.randomUUID(),'alice',selection);
- await assert.rejects(repo.create(crypto.randomUUID(),'alice',selection),e=>e.status===429);
- assert.equal((await repo.list('alice')).length,11);
+ assert.equal((await repo.list('alice')).length,26);
 });
 test('concurrent advances cannot duplicate a paid planning request',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);let unlock;const hold=new Promise(r=>unlock=r);g.plan=async()=>{g.calls.push('plan');await hold;return {value:plan,model:'fake',requestId:null,usage:null};};const a=advanceStory(repo,g,'alice',id,1);await new Promise(r=>setImmediate(r));const b=await advanceStory(repo,g,'alice',id,1);assert.equal(b.state,'running');unlock();await a;assert.deepEqual(g.calls,['plan']);});
 test('only requested scenes are generated; completed scenes are reused and progress is separate',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);await repo.progress(id,'alice',0,true);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);assert.deepEqual(g.calls,['plan','image:0','image:1']);assert.equal((await repo.get(id,'alice')).saved,1);await assert.rejects(repo.progress(id,'alice',7,true),e=>e.status===400);});
@@ -309,7 +310,7 @@ test('new batches pass exclusions to Gemini and remove repeated or renamed title
  assert.ok(result.note);
 });
 
-test('soft deletion is owner-scoped, durable and does not erase content or release the daily quota',async()=>{
+test('soft deletion is owner-scoped, durable and does not erase content or block new stories',async()=>{
  const {repo,db}=setup(),ids=Array.from({length:10},()=>crypto.randomUUID());for(const id of ids)await repo.create(id,'alice',selection);
  const id=ids[0],g=fake();await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await repo.progress(id,'alice',0,true);
  const before=await repo.get(id,'alice');assert.ok(before.last_read_at);
@@ -320,7 +321,7 @@ test('soft deletion is owner-scoped, durable and does not erase content or relea
  await assert.rejects(repo.get(id,'alice'),e=>e.status===404);
  await assert.rejects(repo.create(id,'alice',selection),e=>e.status===404);
  await assert.rejects(repo.progress(id,'alice',0,false),e=>e.status===404);
- await assert.rejects(repo.create(crypto.randomUUID(),'alice',selection),e=>e.status===429);
+ await repo.create(crypto.randomUUID(),'alice',selection);assert.equal((await repo.list('alice')).length,10);
  const stored=db.prepare('SELECT * FROM reader_sessions WHERE id=?').get(id);assert.equal(stored.document,before.document);assert.equal(stored.saved,1);assert.equal(stored.last_read_at,before.last_read_at);
  assert.equal((await repo.deletions('bob')).length,0);assert.equal((await repo.deletions('alice')).length,1);
  assert.equal(await repo.acquire(before,{kind:'image',page:1,key:'image:1'}),null);

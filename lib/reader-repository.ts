@@ -1,6 +1,5 @@
 // Persist owner-scoped checkpoints and serialize immediate retries without duplicating paid steps.
 import {emptyDocument,ReaderError,selectionSchema,awaitingFrameCount} from './reader-model.ts';
-import {readerDailyLimit} from './reader-limits.ts';
 import type {Selection,SessionRow,Document,Step} from './reader-model.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 // The interface keeps the same SQL testable against SQLite without a Worker runtime.
@@ -54,9 +53,9 @@ export class ReaderRepository{
   if(!result.meta.changes)throw new ReaderError(409,'故事正在更新，请稍后再保存原文。');
   return this.get(row.id,row.user_id);
  }
- async create(id:string,uid:string,selection:Selection){const now=new Date().toISOString(),cutoff=new Date(Date.now()-86400000).toISOString();const old=await this.db.prepare('SELECT * FROM reader_sessions WHERE id = ? AND user_id = ?').bind(id,uid).first<SessionRow>();if(old)return this.get(id,uid);
- await this.db.prepare(`INSERT INTO reader_sessions(id,user_id,selection,document,state,step_attempts,lock_until,page,saved,created_at,updated_at) SELECT ?,?,?,?,'idle',0,0,0,0,?,? WHERE (SELECT COUNT(*) FROM reader_sessions WHERE user_id = ? AND created_at >= ?) < ? ON CONFLICT(id) DO NOTHING`).bind(id,uid,JSON.stringify(selection),JSON.stringify(emptyDocument()),now,now,uid,cutoff,readerDailyLimit).run();
- const row=await this.db.prepare('SELECT * FROM reader_sessions WHERE id = ? AND user_id = ?').bind(id,uid).first<SessionRow>();if(!row)throw new ReaderError(429,`最近 24 小时已开启 ${readerDailyLimit} 篇新故事，请稍后再来。已开启的故事仍可继续阅读和生成。`);return row;}
+ async create(id:string,uid:string,selection:Selection){const now=new Date().toISOString();
+ await this.db.prepare(`INSERT INTO reader_sessions(id,user_id,selection,document,state,step_attempts,lock_until,page,saved,created_at,updated_at) VALUES(?,?,?,?,'idle',0,0,0,0,?,?) ON CONFLICT(id) DO NOTHING`).bind(id,uid,JSON.stringify(selection),JSON.stringify(emptyDocument()),now,now).run();
+ return this.get(id,uid);}
  async confirmFrameCount(id:string,uid:string,count:number){
   const row=await this.get(id,uid),selection=selectionSchema.parse(JSON.parse(row.selection)),doc=JSON.parse(row.document) as Document;
   if(doc.frameCountConfirmed&&selection.length===count)return row;

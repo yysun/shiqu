@@ -61,7 +61,6 @@ test('all 24 books complete HTTP selection and persist original glyphs before st
  app=createApplication({root,dataDirectory:data,generation:withLocalBooks(base,library,media)});t.after(()=>app.close());
  const request=async(route,body)=>{const r=await app.handle(new Request('http://localhost/api/reader/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}));const value=await r.json();assert.ok(r.ok,JSON.stringify(value));return value;};
  for(const entry of catalog.books){const selection=select(entry.id),batch=await request('suggestions',{...selection,excludeTitles:[]}),story=batch.stories[0];assert.ok(story,entry.id);const requestId=crypto.randomUUID();await request('sessions',{requestId,selection:{...selection,storyTitle:story.title,source:story.source}});const result=await request(`sessions/${requestId}/advance`,{throughPage:0});assert.notEqual(result.state,'failed',JSON.stringify(result));assert.equal(result.story.pages.length,8);assert.equal(result.story.original.text,library.resolve(await library.book(selection),story.source).text);assert.equal(result.story.original.localSource.edition,story.source.edition);assert.ok(result.story.pages.every(p=>!p.image));
-  // Age this isolated fixture out of the existing daily quota before testing the next book.
-  await app.services.database.prepare('UPDATE reader_sessions SET created_at=? WHERE id=?').bind('2020-01-01T00:00:00.000Z',requestId).run();}
+ }
  assert.equal(plans,24);
 });
