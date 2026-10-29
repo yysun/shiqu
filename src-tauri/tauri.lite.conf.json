@@ -1,0 +1,14 @@
+{
+  "productName": "Shiqu Lite",
+  "build": {
+    "features": [],
+    "beforeDevCommand": "pnpm run desktop:prepare:lite",
+    "beforeBuildCommand": "pnpm run desktop:prepare:lite"
+  },
+  "app": {
+    "windows": [{"label":"main","title":"拾趣 Lite","width":1040,"height":820,"minWidth":760,"minHeight":640}]
+  },
+  "bundle": {
+    "resources": {"../desktop/resources/node/":null}
+  }
+}

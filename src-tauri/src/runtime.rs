@@ -1,26 +1,119 @@
-// Discover/probe system Node and supervise a bounded private-stdin child without invoking a shell.
+// Select verified bundled Node for Standard or system Node for Lite, then supervise private stdin.
 use crate::config::Settings;
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+#[cfg(feature = "bundled-node")]
+use sha2::{Digest, Sha256};
+#[cfg(any(not(feature = "bundled-node"), test))]
+use std::path::PathBuf;
 use std::{
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
     process::{Child, Command, Stdio},
     sync::mpsc,
     thread,
     time::{Duration, Instant},
 };
 
-const PROBE: &str = "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync(':memory:');db.exec('CREATE TABLE probe(x)');db.prepare('SELECT 1').setReturnArrays(true);db.close();process.stdout.write(JSON.stringify({version:process.versions.node,path:process.execPath,sqlite:true}));";
+const PROBE: &str = "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync(':memory:');db.exec('CREATE TABLE probe(x)');db.prepare('SELECT 1').setReturnArrays(true);db.close();process.stdout.write(JSON.stringify({version:process.versions.node,path:process.execPath,sqlite:true,arch:process.arch,platform:process.platform}));";
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeInfo {
     pub path: String,
     pub version: String,
     pub sqlite: bool,
+    pub arch: String,
+    pub platform: String,
+}
+
+pub fn edition() -> &'static str {
+    if cfg!(feature = "bundled-node") {
+        "standard"
+    } else {
+        "lite"
+    }
+}
+
+#[cfg(feature = "bundled-node")]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BundleManifest {
+    version: String,
+    platform: String,
+    arch: String,
+    binary: String,
+    sha256: String,
+    license_sha256: String,
+}
+
+#[cfg(feature = "bundled-node")]
+fn digest(file: &Path) -> Result<String, String> {
+    let mut input = File::open(file).map_err(|_| "内置 Node 资源缺失，请重新安装拾趣。")?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 65536];
+    loop {
+        let size = input
+            .read(&mut buffer)
+            .map_err(|_| "无法校验内置 Node，请重新安装拾趣。")?;
+        if size == 0 {
+            break;
+        }
+        hash.update(&buffer[..size]);
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+
+pub fn node_info(explicit: &str, root: &Path) -> Result<NodeInfo, String> {
+    #[cfg(not(feature = "bundled-node"))]
+    {
+        let _ = root;
+        detect(explicit)
+    }
+    #[cfg(feature = "bundled-node")]
+    {
+        let _ = explicit; // A saved Lite setting must never override Standard's runtime.
+        let directory = root.parent().ok_or("应用资源目录无效。")?.join("node");
+        let manifest: BundleManifest = serde_json::from_slice(
+            &fs::read(directory.join("manifest.json"))
+                .map_err(|_| "内置 Node 清单缺失，请重新安装拾趣。")?,
+        )
+        .map_err(|_| "内置 Node 清单损坏，请重新安装拾趣。")?;
+        let binary = if cfg!(windows) { "node.exe" } else { "node" };
+        let platform = if cfg!(target_os = "macos") {
+            "darwin"
+        } else if cfg!(windows) {
+            "win32"
+        } else {
+            "linux"
+        };
+        let arch = if cfg!(target_arch = "aarch64") {
+            "arm64"
+        } else {
+            "x64"
+        };
+        let version = include_str!("../../.nvmrc").trim();
+        if manifest.version != version
+            || manifest.platform != platform
+            || manifest.arch != arch
+            || manifest.binary != binary
+        {
+            return Err("内置 Node 与应用版本或平台不匹配，请重新安装拾趣。".into());
+        }
+        let executable = directory.join(binary);
+        if digest(&executable)? != manifest.sha256
+            || digest(&directory.join("LICENSE"))? != manifest.license_sha256
+        {
+            return Err("内置 Node 校验失败，请重新安装拾趣。".into());
+        }
+        let info = probe(&executable).map_err(|_| "内置 Node 无法运行，请重新安装拾趣。")?;
+        if info.version != version || info.platform != platform || info.arch != arch {
+            return Err("内置 Node 版本或架构不兼容，请重新安装拾趣。".into());
+        }
+        Ok(info)
+    }
 }
 
 pub fn command(binary: &Path) -> Command {
@@ -119,6 +212,7 @@ fn validate_node(info: &NodeInfo) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(any(not(feature = "bundled-node"), test))]
 pub fn candidates() -> Vec<PathBuf> {
     let executable = if cfg!(windows) { "node.exe" } else { "node" };
     let mut paths: Vec<PathBuf> = std::env::var_os("PATH")
@@ -168,6 +262,7 @@ pub fn candidates() -> Vec<PathBuf> {
     }
     unique
 }
+#[cfg(any(not(feature = "bundled-node"), test))]
 pub fn detect(explicit: &str) -> Result<NodeInfo, String> {
     if !explicit.trim().is_empty() {
         let file = Path::new(explicit);
@@ -225,10 +320,10 @@ pub fn launch(
     action: &str,
 ) -> Result<(Child, Value), String> {
     settings.validate()?;
-    let node = detect(&settings.node_path)?;
+    let node = node_info(&settings.node_path, root)?;
     let entry = root.join("dist/server/desktop.js");
     if !entry.is_file() {
-        return Err("应用运行资源缺失，请重新安装 Lite。".into());
+        return Err("应用运行资源缺失，请重新安装拾趣。".into());
     }
     let mut child = command(Path::new(&node.path))
         .arg("--no-warnings")
@@ -292,24 +387,67 @@ pub fn start(settings: &Settings, key: &str, root: &Path) -> Result<Runtime, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "bundled-node")]
+    #[test]
+    fn standard_uses_verified_bundle_and_ignores_saved_system_path() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../desktop/resources/runtime");
+        let info = node_info("/shiqu-system-node-must-not-be-used", &root).unwrap();
+        assert_eq!(info.version, include_str!("../../.nvmrc").trim());
+        assert_eq!(
+            PathBuf::from(info.path),
+            fs::canonicalize(root.parent().unwrap().join("node").join(if cfg!(windows) {
+                "node.exe"
+            } else {
+                "node"
+            }))
+            .unwrap()
+        );
+    }
+    #[cfg(feature = "bundled-node")]
+    #[test]
+    fn standard_rejects_missing_or_modified_bundle_without_fallback() {
+        let folder =
+            std::env::temp_dir().join(format!("shiqu-integrity-test-{}", std::process::id()));
+        let root = folder.join("runtime");
+        let directory = folder.join("node");
+        assert!(node_info("/usr/local/bin/node", &root).is_err());
+        fs::create_dir_all(&directory).unwrap();
+        let binary = if cfg!(windows) { "node.exe" } else { "node" };
+        fs::write(
+            directory.join(binary),
+            b"modified executable must never run",
+        )
+        .unwrap();
+        fs::write(directory.join("LICENSE"), b"test license").unwrap();
+        let manifest = json!({"version":include_str!("../../.nvmrc").trim(),"platform":if cfg!(target_os="macos") { "darwin" } else if cfg!(windows) { "win32" } else { "linux" },"arch":if cfg!(target_arch="aarch64") { "arm64" } else { "x64" },"binary":binary,"sha256":"0".repeat(64),"licenseSha256":digest(&directory.join("LICENSE")).unwrap()});
+        fs::write(directory.join("manifest.json"), manifest.to_string()).unwrap();
+        assert!(node_info("/usr/local/bin/node", &root)
+            .err()
+            .unwrap()
+            .contains("校验失败"));
+        fs::remove_dir_all(folder).unwrap();
+    }
     #[test]
     fn rejects_wrong_node_and_sqlite_capabilities() {
         assert!(validate_node(&NodeInfo {
             path: "node".into(),
             version: "22.23.4".into(),
-            sqlite: true
+            sqlite: true,
+            ..Default::default()
         })
         .is_err());
         assert!(validate_node(&NodeInfo {
             path: "node".into(),
             version: "24.22.1".into(),
-            sqlite: false
+            sqlite: false,
+            ..Default::default()
         })
         .is_err());
         validate_node(&NodeInfo {
             path: "node".into(),
             version: "24.22.1".into(),
             sqlite: true,
+            ..Default::default()
         })
         .unwrap();
         assert!(detect("relative/node").is_err());

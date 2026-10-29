@@ -49,7 +49,7 @@ fn settings_view(app: &tauri::AppHandle) -> Result<Value, String> {
         Err(error) => (false, Some(error)),
     };
     Ok(
-        json!({"settings":settings,"keyPresent":key_present,"credentialError":credential_error,"platform":std::env::consts::OS,"edition":"lite"}),
+        json!({"settings":settings,"keyPresent":key_present,"credentialError":credential_error,"platform":std::env::consts::OS,"edition":runtime::edition()}),
     )
 }
 
@@ -82,8 +82,11 @@ async fn save_settings(
 }
 
 #[tauri::command]
-async fn detect_node(node_path: String) -> Result<runtime::NodeInfo, String> {
-    blocking(move || runtime::detect(&node_path)).await
+async fn detect_node(
+    app: tauri::AppHandle,
+    node_path: String,
+) -> Result<runtime::NodeInfo, String> {
+    blocking(move || runtime::node_info(&node_path, &resource_root(&app)?)).await
 }
 
 #[tauri::command]
@@ -272,7 +275,11 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&show_item, &stop_item, &quit_item])?;
             let mut tray = TrayIconBuilder::new()
                 .menu(&menu)
-                .tooltip("拾趣 Lite")
+                .tooltip(if runtime::edition() == "lite" {
+                    "拾趣 Lite"
+                } else {
+                    "拾趣"
+                })
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show(app),
                     "stop" | "quit" => {
@@ -296,10 +303,11 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("Desktop startup failed");
-    app.run(|app, event| {
-        if matches!(event, tauri::RunEvent::Exit) {
-            stop_control(app.state::<DesktopState>().inner());
-        }
+    app.run(|app, event| match event {
+        tauri::RunEvent::Exit => stop_control(app.state::<DesktopState>().inner()),
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen { .. } => show(app),
+        _ => {}
     });
 }
 fn thread_stop(app: tauri::AppHandle, quit: bool) {

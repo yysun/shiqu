@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const SERVICE: &str = "com.shiqu.desktop.lite";
+const SERVICE: &str = "com.shiqu.desktop";
 const ACCOUNT: &str = "gemini-api-key";
 
 #[derive(Clone, Serialize, Deserialize)]

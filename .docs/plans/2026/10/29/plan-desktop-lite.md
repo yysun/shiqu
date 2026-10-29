@@ -1,4 +1,4 @@
-# Desktop Lite implementation
+# Desktop editions implementation — Standard by default
 
 Story base: `baa0ee774841374d18a120264d20593e33a8ee97`.
 
@@ -6,13 +6,19 @@ Existing unrelated work: `.env.example`, README provider-model edits, home icons
 
 ## Architecture
 
-The Tauri window loads only bundled settings assets. Narrow native commands validate configuration, use OS keyring credentials, supervise a system-Node child, choose paths, and open only generated application URLs. It never loads a remote page into a privileged webview. Keep secrets out of persisted JSON and command responses. Node receives configuration over stdin, serves the existing reader behind a desktop-only pairing gate, emits bounded status over stdout, and stops when stdin closes. The normal server entry point remains unchanged.
+The Tauri window loads only bundled settings assets. Narrow native commands validate configuration, use OS keyring credentials, supervise a Node child, choose paths, and open only generated application URLs. Standard uses a compiled-in bundled-node feature and always launches the packaged pinned runtime. Lite disables that feature and uses the existing system-Node path logic. Neither loads a remote page into a privileged webview. Keep secrets out of persisted JSON and command responses. Node receives configuration over stdin, serves the existing reader behind a desktop-only pairing gate, emits bounded status over stdout, and stops when stdin closes. The normal server entry point and `pnpm start` remain unchanged.
 
-Bundle production dependency closure (including tiktoken WASM), not a developer checkout or Node binary. Discover Node from PATH and common install locations, allow an explicit path, then probe the actual runtime. Use Rust process management without shell interpolation, a single-instance plugin, and an exclusive per-data-directory lock. Store nonsecret configuration atomically. Keyring failure is an error, not permission to save plaintext.
+Bundle production dependency closure (including the repository's preexisting tokenizer WASM), not a developer checkout. Standard additionally copies the exact running Node 24.22.1 executable and installed license notices into a separate resource directory, checking build version/platform/architecture and writing provenance/checksums. Native runtime selection validates the bundled executable and never falls back. Lite omits that resource through an explicit configuration override and retains discovery/manual selection. Both use the same app identity/data format and are alternative installations. Use Rust process management without shell interpolation, a single-instance plugin, and an exclusive per-data-directory lock. Store nonsecret configuration atomically. Keyring failure is an error, not permission to save plaintext.
 
 Phone sharing binds LAN only when enabled. Pairing URLs carry a random per-run bearer in a fragment, exchange it for an HttpOnly SameSite session cookie, then remove the fragment. Verify Host/Origin, protect every application route, and leave no desktop settings HTTP endpoint. LAN links are trusted-network HTTP; sharing and sleep requirements are explicit in UI/docs. Closing the window hides it; explicit Quit stops the server.
 
 ## Ordered work
+
+The user's Standard request supersedes Lite-only delivery. Prior implementation and valid evidence are retained; architecture review is reopened for bundling and edition selection.
+
+- [x] First revised SS probe: verify the installed pinned Node executable, matching native architecture, and license notices can be staged independently and execute SQLite without a system Node PATH. Revisit AR if unavailable/mismatched.
+- [x] Make Standard the default Tauri/package build using `build.features: ["bundled-node"]` and bundled Node resources; retain a Lite override that clears the feature/resources and ensure Lite excludes the runtime. Exercise Rust tests in both feature modes. Add runtime-selection/missing-bundle tests and edition-aware settings.
+- [ ] Extend packaged smoke verification to relocate bundled Node, validate manifest/checksum, and run with no system Node PATH; preserve Lite checks. Update both-variant CI and desktop documentation.
 
 - [x] First SS probe: select installed Node 24.22.1, install a separate supported Rust toolchain without changing defaults, verify native Tauri compilation prerequisites, and prove production dependency packaging resolves SQLite/tokenizer/library assets from a standalone directory. Stop dependent work and revisit AR if the packaging/runtime premise fails.
 - [x] Add a desktop runtime entry and pairing gate with bounded stdin/stdout protocol, safe provider metadata tests, startup/shutdown/error handling, and HTTP security/runtime tests; preserve ordinary server contracts.
@@ -24,7 +30,7 @@ Phone sharing binds LAN only when enabled. Pairing URLs carry a random per-run b
 
 ## Verification
 
-`pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, desktop resource/UI build and macOS Lite packaging; Rust tests/checks/fmt using the separate pinned toolchain. Tests cover credential isolation, configuration validation, pairing cookie and origin/host boundaries, Node mismatch/missing executable, ready/error/EOF/stop lifecycle, duplicate locks, persisted progress, dependency closure, and no Node/secret/user-data in payload. E2E: `.docs/tests/test-desktop-lite.md`.
+`pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, both desktop resource/UI builds, macOS Standard packaging, and Lite exclusion validation; Rust checks/tests/fmt using the separate pinned toolchain. Add Standard no-system-Node execution and exact-version/checksum/license/architecture checks to prior credential, pairing, ownership, persistence, and lifecycle evidence. E2E: `.docs/tests/test-desktop-lite.md`.
 
 Cross-platform release builds require their respective OS runners; do not claim local macOS tests prove them. Keyring integration is verified with a disposable non-provider credential; no existing personal secret is inspected. Provider generation tests remain mocked; metadata checks never generate content.
 
@@ -46,4 +52,14 @@ SS evidence so far: Node 24.22.1; pnpm 11.25.0; separately installed Rust 1.93.0
 
 Credential integration limit: this host rejects new Keychain entries with OSStatus -25293. A disposable Rust integration attempt and a disposable value entered in the packaged UI both failed. The UI displayed the safe storage error; the test value was cleared, and the actual settings JSON was checked to contain no credential. No real provider key or paid call was used. Successful native credential-store writes cannot be claimed on this host.
 
-One initial packaged startup timed out; retry and direct execution of the packaged runtime succeeded. Retest final packaged startup/lifecycle before acceptance. Pending: independent CR, final native/packaged HTTP E2E, final evidence reconciliation.
+Lite milestone commit: `e06b1d3`; subsequent lifecycle/CI verification fixes are pending the next milestone. CR round 1 fixed CI resource preparation and Windows POSIX-fixture routing; round 2 passed affected lifecycle/smoke changes. Later native HTTP tests proved pairing, LAN access and progress writes with unprotected app-data storage. A prior hang/startup timeout was localized by process sampling to SQLite filesystem sync under macOS-protected Documents; app-data and relocated temporary directories resolve it. Window close kept the service alive; a macOS Reopen handler was added and awaits final UI retest. Native parent termination closes the supervised listener. Direct `pnpm start` smoke served reader/API with HTTP 200 and the sample, independently of Tauri.
+
+AR passed: no blocking architecture flaws.
+
+AR risk: non-low — bundled executable distribution, target compatibility, runtime integrity, and edition selection.
+
+AR review round: 2; reviewer: reused (`desktop_review`, independent/read-only).
+
+Standard review requires native target matching (reject cross/universal staging), checksum verification before execution, exact version/SQLite validation, explicit Lite resource exclusion after Standard staging, final packaged-byte verification, and license/provenance metadata. Existing keychain/browser/platform evidence limits remain; do not claim they were solved by changing packaging.
+
+Standard implementation evidence: staged Node 24.22.1 darwin/arm64 plus installed LICENSE and provenance/checksum manifest. Standalone executable SQLite probe succeeds with PATH containing no system Node. Standard Rust tests: six pass, one host-keyring integration test ignored separately; Lite Rust tests: four pass, same integration ignored. New native tests verify a saved system path is ignored and a missing/modified bundle fails before execution. Staged Standard smoke relocates Node and application resources and passes pairing/LAN/media/persistence/restart/shutdown with no system Node PATH and zero paid calls. Full Node suite now 169 passing; lint/typecheck/fmt pass. The copied macOS Node binary declares minimum OS 13.5, so the desktop bundle minimum was updated accordingly.

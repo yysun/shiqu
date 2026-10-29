@@ -2,13 +2,18 @@
 [package]
 name = "shiqu-desktop"
 version = "0.1.0"
-description = "Shiqu Lite desktop control panel"
+description = "Shiqu desktop control panel"
 edition = "2021"
 rust-version = "1.93"
 
 [lib]
 name = "shiqu_desktop"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# The default Tauri config enables this; Lite's override deliberately clears it.
+[features]
+default = []
+bundled-node = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -21,6 +26,7 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 fs2 = "0.4.3"
+sha2 = "0.10"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "=3.6.3", features = ["apple-native"] }

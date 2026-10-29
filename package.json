@@ -19,10 +19,15 @@
     "codex:login": "node --env-file-if-exists=.env scripts/codex-login.mjs login",
     "codex:status": "node --env-file-if-exists=.env scripts/codex-login.mjs status",
     "library:prepare": "node --env-file-if-exists=.env --experimental-strip-types scripts/prepare-reading-blocks.mjs",
-    "desktop:prepare": "pnpm build && pnpm exec vite build --config desktop/vite.config.ts && node scripts/desktop-resources.mjs",
+    "desktop:prepare": "pnpm build && pnpm exec vite build --config desktop/vite.config.ts && node scripts/desktop-resources.mjs && node scripts/desktop-node.mjs",
+    "desktop:prepare:lite": "pnpm build && pnpm exec vite build --config desktop/vite.config.ts && node scripts/desktop-resources.mjs --lite",
     "desktop:dev": "pnpm exec tauri dev",
     "desktop:build": "pnpm exec tauri build",
-    "desktop:test": "cargo test --manifest-path src-tauri/Cargo.toml --locked"
+    "desktop:build:lite": "pnpm exec tauri build --config src-tauri/tauri.lite.conf.json",
+    "desktop:dev:lite": "pnpm exec tauri dev --config src-tauri/tauri.lite.conf.json",
+    "desktop:test": "cd src-tauri && cargo test --locked --features bundled-node",
+    "desktop:test:lite": "cd src-tauri && cargo test --locked",
+    "desktop:smoke": "node scripts/desktop-smoke.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

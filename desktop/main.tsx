@@ -6,7 +6,7 @@ import QRCode from 'qrcode';
 import './styles.css';
 
 type Settings={nodePath:string;dataDirectory:string;port:number;lanEnabled:boolean;provider:'gemini'|'codex';textModel:string;imageModel:string;codexPath:string;codexModel:string;codexHome:string};
-type View={settings:Settings;keyPresent:boolean;credentialError:string|null;platform:string;edition:string};
+type View={settings:Settings;keyPresent:boolean;credentialError:string|null;platform:string;edition:'standard'|'lite'};
 type Status={running:boolean;url?:string;phoneUrls:string[];error?:string};
 type NodeInfo={path:string;version:string;sqlite:boolean};
 type KeyAction='keep'|'replace'|'delete';
@@ -15,10 +15,10 @@ function Desktop(){
  const [view,setView]=useState<View|null>(null),[settings,setSettings]=useState<Settings|null>(null),[status,setStatus]=useState<Status>({running:false,phoneUrls:[]});
  const [key,setKey]=useState(''),[keyAction,setKeyAction]=useState<KeyAction>('keep'),[reveal,setReveal]=useState(false),[node,setNode]=useState<NodeInfo|null>(null),[nodeError,setNodeError]=useState('');
  const [busy,setBusy]=useState(''),[message,setMessage]=useState(''),[error,setError]=useState(''),[phone,setPhone]=useState(''),[qr,setQr]=useState('');
- const native=isTauri();
+ const native=isTauri(),lite=view?.edition==='lite';
  async function checkNode(nodePath:string){try{const info=await invoke<NodeInfo>('detect_node',{nodePath});setNode(info);setNodeError('');return info;}catch(e){setNode(null);setNodeError(String(e));return null;}}
  useEffect(()=>{
-  if(!native){setError('请在拾趣 Lite 桌面应用中打开设置。');return;}
+  if(!native){setError('请在拾趣桌面应用中打开设置。');return;}
   void invoke<View>('get_settings').then(result=>{setView(result);setSettings(result.settings);void checkNode(result.settings.nodePath);}).catch(e=>setError(String(e)));
   let active=true,inFlight=false;
   const timer=setInterval(()=>{if(inFlight)return;inFlight=true;void invoke<Status>('server_status').then(result=>{if(active)setStatus(result);}).catch(()=>{}).finally(()=>{inFlight=false;});},2000);
@@ -37,8 +37,8 @@ function Desktop(){
  async function copy(value:string){await navigator.clipboard.writeText(value);setMessage('配对链接已复制。请只分享给可信设备。');}
  const locked=!!busy||status.running,dirty=!!settings&&!!view&&(JSON.stringify(settings)!==JSON.stringify(view.settings)||keyAction!=='keep');
  return <main>
-  <header className="app-header"><div className="brand"><div className="brand-mark" aria-hidden="true">拾</div><div><h1>拾趣 <span>Lite</span></h1><p>在自己的电脑上，留一间故事书房。</p></div></div><span className="edition">桌面控制台</span></header>
-  <div className="notice" role="status" aria-live="polite">{error?<span className="error">{error}</span>:message||'Lite 使用你安装的 Node 24。故事保存在电脑上，浏览器和手机共用同一书架。'}</div>
+  <header className="app-header"><div className="brand"><div className="brand-mark" aria-hidden="true">拾</div><div><h1>拾趣 <span>{lite?'Lite':'桌面版'}</span></h1><p>在自己的电脑上，留一间故事书房。</p></div></div><span className="edition">桌面控制台</span></header>
+  <div className="notice" role="status" aria-live="polite">{error?<span className="error">{error}</span>:message||(lite?'Lite 使用你安装的 Node 24。':'已内置 Node 24，无需另外安装。')+'故事保存在电脑上，浏览器和手机共用同一书架。'}</div>
   {!settings?<section className="card"><h2>{native?'正在读取设置…':'需要桌面应用'}</h2></section>:<div className="layout">
    <div className="settings-stack">
     <section className="card"><div className="section-heading"><span className="step">01</span><div><h2>生成服务</h2><p>选择故事与插图的生成方式。</p></div></div>
@@ -62,9 +62,9 @@ function Desktop(){
     </section>
     <section className="card"><div className="section-heading"><span className="step">02</span><div><h2>本地运行</h2><p>运行时与故事数据，由你掌握。</p></div></div>
      <fieldset disabled={locked}><legend className="sr-only">本地运行设置</legend>
-      <label>Node 可执行文件<div className="input-row"><input value={settings.nodePath} placeholder="自动检测 Node 24，或选择绝对路径" onChange={e=>{update('nodePath',e.target.value);setNode(null);}}/><button className="subtle" onClick={()=>void action('选择 Node',()=>browse('node','nodePath'))}>选择</button></div></label>
-      <div className="node-check"><span className={node?'success':'help'}>{node?`Node ${node.version} · SQLite 可用`:nodeError||'正在检测 Node 24…'}</span><button className="text-button" onClick={()=>void action('检测 Node',async()=>{await checkNode(settings.nodePath);})}>重新检测</button></div>
-      {node&&<p className="path-caption" title={node.path}>{node.path}</p>}
+      {lite?<label>Node 可执行文件<div className="input-row"><input value={settings.nodePath} placeholder="自动检测 Node 24，或选择绝对路径" onChange={e=>{update('nodePath',e.target.value);setNode(null);}}/><button className="subtle" onClick={()=>void action('选择 Node',()=>browse('node','nodePath'))}>选择</button></div></label>:<label>运行时<input value={node?`内置 Node ${node.version}`:'内置 Node 24'} readOnly/></label>}
+      <div className="node-check"><span className={node?'success':'help'}>{node?`Node ${node.version} · SQLite 可用`:nodeError||'正在检查 Node 24…'}</span><button className="text-button" onClick={()=>void action('检查运行时',async()=>{await checkNode(settings.nodePath);})}>{lite?'重新检测':'检查运行时'}</button></div>
+      {lite&&node&&<p className="path-caption" title={node.path}>{node.path}</p>}
       <label>故事数据目录<div className="input-row"><input value={settings.dataDirectory} onChange={e=>update('dataDirectory',e.target.value)}/><button className="subtle" onClick={()=>void action('选择目录',()=>browse('data','dataDirectory'))}>选择</button></div></label>
       <p className="help">保存 SQLite 和图片。更换目录会切换书架，不会搬移已有数据。</p>
       <label className="port-field">服务端口<input type="number" min="1024" max="65535" value={settings.port} onChange={e=>update('port',Number(e.target.value))}/></label>
@@ -76,7 +76,7 @@ function Desktop(){
    <aside className="service-stack">
     <section className="service-card"><div className="service-label"><span className={'status-dot '+(status.running?'live':'')}/>{status.running?'服务运行中':'服务已停止'}</div><h2>{status.running?'书房已打开。':'让故事开始。'}</h2><p>{status.running?'在浏览器阅读，或让手机加入。':'启动后，在你熟悉的浏览器里阅读。'}</p>
      {status.error&&!busy&&<p className="service-error" role="alert">{status.error}</p>}
-     <button className="primary" disabled={!!busy} onClick={()=>void action(status.running?'停止服务':'启动服务',async()=>{if(status.running)setStatus(await invoke<Status>('stop_server'));else{if(dirty)await save();const info=await checkNode(settings.nodePath);if(!info)throw Error('请先选择兼容的 Node 24。');setStatus(await invoke<Status>('start_server'));}})}>{busy?busy+'…':status.running?'停止服务':dirty?'保存并启动':'启动服务'}</button>
+     <button className="primary" disabled={!!busy} onClick={()=>void action(status.running?'停止服务':'启动服务',async()=>{if(status.running)setStatus(await invoke<Status>('stop_server'));else{if(dirty)await save();const info=await checkNode(settings.nodePath);if(!info)throw Error(lite?'请先选择兼容的 Node 24。':'内置运行时不可用，请检查运行时错误。');setStatus(await invoke<Status>('start_server'));}})}>{busy?busy+'…':status.running?'停止服务':dirty?'保存并启动':'启动服务'}</button>
      {status.running&&<><a className="browser-link" href={status.url} onClick={event=>{event.preventDefault();if(!busy)void action('打开浏览器',async()=>{await invoke('open_reader');});}}>在浏览器打开 ↗</a><button className="local-link" title="复制本机配对链接" onClick={()=>void action('复制链接',()=>copy(status.url!))}>{new URL(status.url!).origin} · 复制链接</button></>}
      <div className="service-foot">关闭窗口后在托盘继续运行。<br/>退出应用会停止服务。</div>
     </section>
@@ -86,7 +86,7 @@ function Desktop(){
     </section>
    </aside>
   </div>}
-  <footer><span>拾趣 Lite · 使用系统 Node · 不需要 Docker</span><button className="text-button" disabled={!!busy||!native} onClick={()=>void action('退出',async()=>{await invoke('quit_app');})}>退出拾趣</button></footer>
+  <footer><span>{lite?'拾趣 Lite · 使用系统 Node':'拾趣 · 内置 Node 24'} · 不需要 Docker</span><button className="text-button" disabled={!!busy||!native} onClick={()=>void action('退出',async()=>{await invoke('quit_app');})}>退出拾趣</button></footer>
  </main>;
 }
 createRoot(document.getElementById('root')!).render(<Desktop/>);
