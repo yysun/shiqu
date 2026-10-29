@@ -61,6 +61,12 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);
    if(path.length===2&&req.method==='GET')return json(services.production?await services.production.snapshot(uid,id):view(await repo.get(id,uid)));
+   if(path[2]==='production-control'&&path.length===3&&req.method==='POST'){
+    if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
+    const b=z.object({action:z.enum(['background','reader','pause','stop','resume'])}).strict().parse(await body(req));
+    if(b.action==='background'||b.action==='resume')await requireProvider();
+    return json(await services.production.control(uid,id,b.action));
+   }
    if(path[2]==='production'&&path.length===3){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     if(req.method==='POST'){

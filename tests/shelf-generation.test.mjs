@@ -17,6 +17,8 @@ test('shelf actions distinguish execution, queueing, user decisions, failure and
   [{state:'failed',productionState:'running',error:'编排超时'},'生成失败','查看详情'],
   [{state:'completed'},'故事已完整展开','开始阅读'],
   [{},'生成已暂停','查看详情'],
+  [{generationControl:'paused',productionState:'running'},'生成已暂停','查看详情'],
+  [{generationControl:'stopped',state:'failed'},'生成已停止','查看详情'],
  ];
  for(const [fields,message,action] of cases){
   const status=shelfGenerationStatus({...base,...fields});

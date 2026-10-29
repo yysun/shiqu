@@ -1,12 +1,12 @@
 // Coordinate reader demand with durable script, image and local publication jobs.
-// Only paid work needs a live viewer. Successful artifacts still publish after leaving/deletion.
+// Paid work needs fresh viewer demand or durable background intent; manual control overrides both.
 import {randomUUID} from 'node:crypto';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import type {Database} from '../lib/reader-repository.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
 import type {Generated} from '../lib/reader-engine.ts';
 import {ReaderError,selectionSchema,view,nextStep} from '../lib/reader-model.ts';
-import type {Document,SessionRow,SessionView} from '../lib/reader-model.ts';
+import type {Document,SessionRow,SessionView,ProductionAction} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
@@ -45,7 +45,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   this.clock=options.now||Date.now;this.repository=new ReaderRepository(database);
   this.queue=new ProductionQueue(database,{
    limits:{text:1,image:options.imageWorkers??3,local:2},now:this.clock,leaseMs:options.leaseMs,
-   canRun:job=>this.canRun(job),onSettled:()=>this.wake(),
+   canRun:job=>this.canRun(job),resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>this.wake(),
    safeError:(error,job)=>error instanceof ReaderError?error.message:job.kind==='image-publish'?'图片已生成，暂时无法展开。请重试继续。':this.provider.safeError(error),
    handlers:{
     prepare:{pool:'text',run:job=>this.script(job)},
@@ -54,15 +54,28 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     'image-publish':{pool:'local',drain:true,run:(job,context)=>this.publish(job,context.outputs)},
    },
   });
-  this.timer=setInterval(()=>this.wake(),options.tickMs||1000);this.timer.unref();
+  this.timer=setInterval(()=>this.wake(),options.tickMs||1000);this.timer.unref();this.wake();
  }
  private async raw(id:string,ownerId:string){
   const row=await this.database.prepare('SELECT * FROM reader_sessions WHERE id=? AND user_id=?').bind(id,ownerId).first<SessionRow>();
   if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');return row;
  }
  private async demands(id?:string){
-  return (await this.database.prepare(`SELECT * FROM production_demand WHERE runtime_id=? AND expires_at>?${id?' AND session_id=?':''}`)
+  const viewers=(await this.database.prepare(`SELECT * FROM production_demand WHERE runtime_id=? AND expires_at>?${id?' AND session_id=?':''}`)
    .bind(this.runtimeId,this.clock(),...(id?[id]:[])).all<Demand>()).results;
+  const background=(await this.database.prepare(`SELECT id,user_id FROM reader_sessions WHERE generation_mode='background' AND generation_control='active' AND state!='completed'
+   AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)${id?' AND id=?':''}`)
+   .bind(...(id?[id]:[])).all<{id:string;user_id:string}>()).results;
+  return [...viewers,...background.map(row=>({session_id:row.id,owner_id:row.user_id,viewer_id:'background',page:0,through_page:59,expires_at:Infinity,runtime_id:this.runtimeId}))];
+ }
+ private async resumeInterrupted(job:ProductionJob){
+  if(this.stopping||this.fault)return false;
+  const row=await this.raw(job.session_id,job.owner_id);
+  return row.generation_mode==='background'&&row.generation_control==='active'&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
+ }
+ async control(ownerId:string,id:string,action:ProductionAction){
+  if(this.stopping||this.fault)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
+  await this.repository.control(id,ownerId,action);this.wake();return this.snapshot(ownerId,id);
  }
  async managed(ownerId:string,id:string){return !!await this.database.prepare('SELECT id FROM production_jobs WHERE owner_id=? AND session_id=? LIMIT 1').bind(ownerId,id).first();}
  async request(ownerId:string,id:string,viewerId:string,page:number,retry=false){return this.demand(ownerId,id,viewerId,page,page+productionReadAhead,retry);}
@@ -70,6 +83,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async demand(ownerId:string,id:string,viewerId:string,page:number,throughPage:number,retry:boolean){
   if(this.stopping||this.fault)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
   const row=await this.repository.get(id,ownerId),doc=JSON.parse(row.document) as Document;
+  if(row.generation_control!=='active')return this.snapshot(ownerId,id);
   if(doc.plan&&page>=doc.plan.pages.length)throw new ReaderError(400,'请选择有效画幅');
   await this.database.prepare(`INSERT INTO production_demand(session_id,owner_id,viewer_id,page,through_page,expires_at,runtime_id) VALUES(?,?,?,?,?,?,?)
    ON CONFLICT(session_id,owner_id,viewer_id) DO UPDATE SET page=excluded.page,through_page=excluded.through_page,expires_at=excluded.expires_at,runtime_id=excluded.runtime_id`)
@@ -93,8 +107,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const working=active.length>0||jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'));
   if(failed&&!working)return {...session,state:'failed',error:failed.error,retryAllowed:true,retryMayCharge:failed.kind!=='image-publish',...(failed.kind==='image-publish'?{retryStage:'publication' as const}:{})};
   const demands=await this.demands(id),eligible=jobs.some(job=>job.state==='queued'&&demands.some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page));
-  const productionState=working?'running':eligible?'queued':'paused';
-  if(session.state!=='failed'&&session.state!=='completed'&&(working||eligible))return {...session,state:'running',productionState};
+  const manual=row.generation_control!=='active';
+  const productionState=manual?'paused':working?'running':eligible?'queued':'paused';
+  if(session.state!=='failed'&&session.state!=='completed'&&!manual&&(working||eligible))return {...session,state:'running',productionState};
   // A saved session state alone cannot prove that the queue is still executing.
   return {...session,productionState};
  }
@@ -107,6 +122,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const scriptVersion=inputVersion({selection}),script=this.spec(row,preparing?'prepare':'script','text',scriptVersion,'',[],{},-10);
   await this.queue.enqueue(script,doc.plan&&doc.original?{pages:doc.plan.pages.length}:undefined);
   if(!doc.plan||!doc.original)return;
+  if(doc.plan.pages.every((_,page)=>!!doc.images[page])){
+   await this.database.prepare("UPDATE reader_sessions SET state='completed',error=NULL WHERE id=? AND user_id=? AND state='idle' AND document=?").bind(row.id,row.user_id,row.document).run();return;
+  }
   // SQLite json_set cannot fill a missing array index out of order; reserve all slots first.
   if(doc.images.length<doc.plan.pages.length){
    const normalized=doc.plan.pages.map((_,page)=>doc.images[page]||'');
@@ -130,6 +148,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
   const local=job.kind==='image-publish';
   if(!local){
+   if(row.generation_control!=='active')return false;
    if(this.stopping||this.fault||!(await this.demands(row.id)).some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page))return false;
    if(await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first())return false;
    const jobs=await this.queue.jobs(row.id,row.user_id);
@@ -213,6 +232,12 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     .bind(now+(this.options.leaseMs||sessionLeaseMs),id,lease.ownerId,lease.token,now).run();
   }
   await this.queue.recoverExpired();
+  // A dead runtime cannot renew these locks. Preserve every live session/job lease across processes.
+  if(!this.stopping)await this.database.prepare(`UPDATE reader_sessions SET state='idle',lock_token=NULL,lock_until=0,error=NULL
+   WHERE state='running' AND lock_until<=? AND generation_mode='background' AND generation_control='active'
+   AND NOT EXISTS(SELECT 1 FROM production_jobs j WHERE j.session_id=reader_sessions.id AND j.owner_id=reader_sessions.user_id AND (j.state='failed' AND j.interrupted=0 OR j.state='running' AND j.lease_until>?))
+   AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)`)
+   .bind(this.clock(),this.clock()).run();
   const demands=await this.demands(),seen=new Set<string>();
   for(const demand of demands)if(!seen.has(demand.session_id)){
    seen.add(demand.session_id);

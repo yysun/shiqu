@@ -4,10 +4,10 @@ import {createHash,randomUUID} from 'node:crypto';
 import type {Database} from '../lib/reader-repository.ts';
 
 export type JobSpec={id:string;sessionId:string;ownerId:string;kind:string;pool:string;version:string;dependencies:string[];payload:unknown;priority:number};
-export type ProductionJob={id:string;session_id:string;owner_id:string;kind:string;pool:string;version:string;dependencies:string;payload:string;result:string|null;state:'queued'|'running'|'succeeded'|'failed';priority:number;attempts:number;lease_token:string|null;lease_until:number;error:string|null;created_at:number;updated_at:number};
+export type ProductionJob={id:string;session_id:string;owner_id:string;kind:string;pool:string;version:string;dependencies:string;payload:string;result:string|null;state:'queued'|'running'|'succeeded'|'failed';priority:number;attempts:number;lease_token:string|null;lease_until:number;error:string|null;interrupted:number;created_at:number;updated_at:number};
 export type JobContext={outputs:Record<string,unknown>;isCurrent:()=>Promise<boolean>};
 export type JobHandler={pool:string;drain?:boolean;run:(job:ProductionJob,context:JobContext)=>Promise<unknown>};
-type Options={limits:Record<string,number>;handlers:Record<string,JobHandler>;canRun?:(job:ProductionJob)=>Promise<boolean>;onSettled?:()=>void;safeError?:(error:unknown,job:ProductionJob)=>string;now?:()=>number;leaseMs?:number};
+type Options={limits:Record<string,number>;handlers:Record<string,JobHandler>;canRun?:(job:ProductionJob)=>Promise<boolean>;onSettled?:()=>void;resumeInterrupted?:(job:ProductionJob)=>Promise<boolean>;safeError?:(error:unknown,job:ProductionJob)=>string;now?:()=>number;leaseMs?:number};
 export function inputVersion(input:unknown){return createHash('sha256').update(JSON.stringify(input)).digest('hex');}
 export function productionJobId(scope:string,kind:string,version:string,key=''){return inputVersion([scope,kind,version,key]);}
 const ready=`NOT EXISTS (SELECT 1 FROM json_each(j.dependencies) d LEFT JOIN production_jobs parent ON parent.id=d.value WHERE parent.id IS NULL OR parent.state!='succeeded')`;
@@ -34,12 +34,18 @@ export class ProductionQueue{
  async job(id:string){return this.database.prepare('SELECT * FROM production_jobs WHERE id=?').bind(id).first<ProductionJob>();}
  async jobs(sessionId:string,ownerId:string){return (await this.database.prepare('SELECT * FROM production_jobs WHERE session_id=? AND owner_id=? ORDER BY created_at,id').bind(sessionId,ownerId).all<ProductionJob>()).results;}
  async retry(sessionId:string,ownerId:string){
-  await this.database.prepare("UPDATE production_jobs SET state='queued',error=NULL,lease_token=NULL,lease_until=0,updated_at=? WHERE session_id=? AND owner_id=? AND state='failed'").bind(this.clock(),sessionId,ownerId).run();
+  await this.database.prepare("UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,updated_at=? WHERE session_id=? AND owner_id=? AND state='failed'").bind(this.clock(),sessionId,ownerId).run();
  }
  async recoverExpired(){
-  // Interrupted paid calls have uncertain remote outcomes: require an explicit retry decision.
-  await this.database.prepare("UPDATE production_jobs SET state='failed',error=?,lease_token=NULL,lease_until=0,updated_at=? WHERE state='running' AND lease_until<=?")
-   .bind('上次生成已中断，已保留保存的结果。请重试继续。',this.clock(),this.clock()).run();
+  // Only explicitly opted-in background work can replay an uncertain remote attempt.
+  const expired=(await this.database.prepare("SELECT * FROM production_jobs WHERE (state='running' AND lease_until<=?) OR (state='failed' AND interrupted=1)").bind(this.clock()).all<ProductionJob>()).results;
+  for(const job of expired){
+   const resume=!!await this.options.resumeInterrupted?.(job);
+   if(job.state==='failed'&&!resume)continue;
+   await this.database.prepare(`UPDATE production_jobs SET state=?,error=?,interrupted=?,lease_token=NULL,lease_until=0,updated_at=?
+    WHERE id=? AND state=? AND lease_token IS ? AND lease_until=? AND (state!='running' OR lease_until<=?)`)
+    .bind(resume?'queued':'failed',resume?null:'上次生成已中断，已保留保存的结果。请重试继续。',resume?0:1,this.clock(),job.id,job.state,job.lease_token,job.lease_until,this.clock()).run();
+  }
  }
  async renew(){
   for(const [id,token] of this.tokens){
@@ -57,7 +63,7 @@ export class ProductionQueue{
     const running=await this.database.prepare("SELECT COUNT(*) AS n FROM production_jobs WHERE pool=? AND state='running' AND lease_until>?").bind(job.pool,this.clock()).first<{n:number}>();
     if(running!.n>=limit||this.tasks.has(job.id)||this.options.canRun&&!await this.options.canRun(job))continue;
     const token=randomUUID(),now=this.clock();
-    const claimed=await this.database.prepare(`UPDATE production_jobs AS j SET state='running',lease_token=?,lease_until=?,attempts=attempts+1,error=NULL,updated_at=?
+    const claimed=await this.database.prepare(`UPDATE production_jobs AS j SET state='running',lease_token=?,lease_until=?,attempts=attempts+1,error=NULL,interrupted=0,updated_at=?
      WHERE id=? AND state='queued' AND ${ready} AND (SELECT COUNT(*) FROM production_jobs WHERE pool=? AND state='running' AND lease_until>?)<?`)
      .bind(token,now+this.leaseMs,now,job.id,job.pool,now,limit).run();
     if(!claimed.meta.changes)continue;
@@ -83,7 +89,7 @@ export class ProductionQueue{
   }catch(error){
    // Only safe application messages are persisted; provider responses may contain private data.
    const message=this.options.safeError?.(error,job)||'制作暂时未完成，已保存的结果会保留。';
-   try{await this.database.prepare("UPDATE production_jobs SET state='failed',error=?,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token=?")
+   try{await this.database.prepare("UPDATE production_jobs SET state='failed',error=?,interrupted=0,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token=?")
     .bind(message,this.clock(),job.id,job.lease_token).run();}
    catch{this.stopping=true;}
   }

@@ -79,3 +79,11 @@ test('explicit retry sets retry on the first dispatch and never replays an uncer
  assert.equal(result,'');assert.deepEqual(calls.filter(c=>c.method==='POST').map(c=>c.body.retry),[true,false]);
  assert.equal(calls.at(-1).method,'DELETE');
 });
+
+for(const fields of [{generationControl:'paused'},{generationControl:'stopped'},{generationMode:'background'}])test(`viewer loop stops dispatch and automatic retries for ${JSON.stringify(fields)}`,async()=>{
+ const calls=[];
+ const result=await runQueuedStoryGeneration({sessionId:'story',viewerId:'viewer',page:()=>0,retries:new Map(),isActive:()=>true,onSession:()=>{},sleep:async()=>assert.fail('No demand renewal or automatic retry'),
+  request:async(path,method,body)=>{calls.push({method,body});return {...base,state:'failed',...fields};},
+ });
+ assert.equal(result,'');assert.deepEqual(calls.map(c=>c.method),['POST','DELETE']);
+});

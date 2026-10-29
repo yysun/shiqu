@@ -1,6 +1,6 @@
 // Persist owner-scoped checkpoints and serialize immediate retries without duplicating paid steps.
 import {emptyDocument,ReaderError,selectionSchema,awaitingFrameCount} from './reader-model.ts';
-import type {Selection,SessionRow,Document,Step} from './reader-model.ts';
+import type {Selection,SessionRow,Document,Step,ProductionAction} from './reader-model.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 // The interface keeps the same SQL testable against SQLite without a Worker runtime.
 export interface Database{prepare(query:string):Statement}
@@ -47,6 +47,15 @@ export class ReaderRepository{
   if(!published)throw new ReaderError(404,'这篇故事不在你的书架里');
   return {storyId:id,...published};
  }
+ async control(id:string,uid:string,action:ProductionAction){
+  const row=await this.get(id,uid);
+  if(row.state==='completed')throw new ReaderError(409,'故事已完整生成，无需更改生成方式。');
+  const mode=action==='background'||action==='reader'?action:row.generation_mode||'reader';
+  const control=action==='pause'?'paused':action==='stop'?'stopped':action==='resume'?'active':row.generation_control||'active';
+  await this.db.prepare(`UPDATE reader_sessions SET generation_mode=?,generation_control=? WHERE id=? AND user_id=? AND state!='completed' AND ${visible}`)
+   .bind(mode,control,id,uid).run();
+  return this.get(id,uid);
+ }
  async saveOriginal(row:SessionRow,original:OriginalSource){
   const recovered=row.state==='failed'&&(row.step_key==='source'||row.step_key==='plan');
   const result=await this.db.prepare("UPDATE reader_sessions SET document=json_set(document,'$.original',json(?)),state=CASE WHEN ? THEN 'idle' ELSE state END,error=CASE WHEN ? THEN NULL ELSE error END,updated_at=? WHERE id=? AND user_id=? AND document=? AND state!='running'").bind(JSON.stringify(original),recovered?1:0,recovered?1:0,new Date().toISOString(),row.id,row.user_id,row.document).run();
@@ -70,7 +79,7 @@ export class ReaderRepository{
   return this.get(id,uid);
  }
  async stale(row:SessionRow){await this.db.prepare("UPDATE reader_sessions SET state='failed',error=?,lock_token=NULL,updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_until<=?").bind('生成等待超时，已保留前面的内容。可手动重试。',new Date().toISOString(),row.id,row.user_id,Date.now()).run();return this.get(row.id,row.user_id);}
- async acquire(row:SessionRow,step:Step){const token=crypto.randomUUID(),now=Date.now();const r=await this.db.prepare(`UPDATE reader_sessions SET state='running',error=NULL,lock_token=?,lock_until=?,step_attempts=CASE WHEN step_key=? THEN step_attempts+1 ELSE 1 END,step_key=?,updated_at=? WHERE id=? AND user_id=? AND state=? AND document=? AND state!='running' AND ${visible}`).bind(token,now+180000,step.key,step.key,new Date(now).toISOString(),row.id,row.user_id,row.state,row.document).run();return r.meta.changes?token:null;}
+ async acquire(row:SessionRow,step:Step){const token=crypto.randomUUID(),now=Date.now();const r=await this.db.prepare(`UPDATE reader_sessions SET state='running',error=NULL,lock_token=?,lock_until=?,step_attempts=CASE WHEN step_key=? THEN step_attempts+1 ELSE 1 END,step_key=?,updated_at=? WHERE id=? AND user_id=? AND state=? AND document=? AND state!='running' AND generation_control='active' AND ${visible}`).bind(token,now+180000,step.key,step.key,new Date(now).toISOString(),row.id,row.user_id,row.state,row.document).run();return r.meta.changes?token:null;}
  async saveImageProgress(row:SessionRow,token:string,snapshot:Document){
   // Deletion hides the session but must still retain results of calls already in flight.
   const result=await this.db.prepare("UPDATE reader_sessions SET document=?,updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_token=?")

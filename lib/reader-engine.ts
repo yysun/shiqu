@@ -31,6 +31,7 @@ async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerato
 
 export async function advanceStory(repo:ReaderRepository,generator:StoryGenerator,uid:string,id:string,throughPage:number,retry=false,onAcquired?:(token:string)=>void){
  let row=await repo.get(id,uid);
+ if(row.generation_control&&row.generation_control!=='active')return view(row);
  if(row.state==='running'){if(row.lock_until>Date.now())return view(row);row=await repo.stale(row);}
  if(row.state==='failed'&&!retry)return view(row);
  const selection=selectionSchema.parse(JSON.parse(row.selection)),doc=JSON.parse(row.document) as Document;

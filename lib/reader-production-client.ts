@@ -1,5 +1,5 @@
 // Renew one viewer's demand while polling individual checkpoints; page changes never cancel
-// server work. Leaving releases only this viewer and the server drains already-paid results.
+// server work. Manual control ends demand; durable background work is observed without retries.
 import type {SessionView} from './reader-model.ts';
 type Observation={sessionId:string;request:(path:string)=>Promise<SessionView>;isActive:()=>boolean;onSession:(session:SessionView)=>void;sleep?:(ms:number)=>Promise<void>};
 // Inspecting a saved failure or paused story never renews demand or retries paid work.
@@ -39,7 +39,7 @@ export async function runQueuedStoryGeneration({sessionId,viewerId,page,request,
     }
     if(!isActive())break;
     transportRetries=0;onSession(session);
-    if(session.state==='completed'||session.awaitingFrameCount)return '';
+    if(session.state==='completed'||session.awaitingFrameCount||session.generationMode==='background'||session.generationControl&&session.generationControl!=='active')return '';
     const currentProgress=session.stage+':'+session.ready;
     if(currentProgress!==progress){progress=currentProgress;lastProgress=now();}
     if(session.state==='running'&&now()-lastProgress>360000)return '这一幅等待较久，请稍后重新打开故事继续。';
