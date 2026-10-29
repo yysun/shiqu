@@ -1,0 +1,21 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 113
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 8.4.1; tr. Crump 1979 no.138 p. 170 The treasury report
+# dating: 8110
+<pb:KR2e0003_tls_114-1a>¶
+** 114 靖郭君謂齊王
+
+靖郭君謂齊王曰：¶
+「五官之計，¶
+不可不日聽也
+而數覽。」¶
+王曰：¶
+「說五而厭之。」¶
+今與靖郭君。
+

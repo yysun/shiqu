@@ -1,0 +1,24 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 210
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 17.3.1, tr. Crump no 201, ed. Sha4ngha3igu3jí p. 553
+# dating: 8110
+<pb:KR2e0003_tls_211-1a>¶
+** 211 楚王后死
+
+楚王后死，¶
+未立后也。¶
+謂昭魚曰：¶
+「公何以不請立后也？」¶
+昭魚曰：¶「王不聽，¶
+是知困而交絕於后也。」¶
+「然則不買五雙珥，¶
+令其一善而獻之王，¶
+明日視善珥所在，¶
+因請立之。」
+

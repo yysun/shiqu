@@ -1,0 +1,33 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 176
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC,14.8.1, tr. Crump non179, ed. Sha4ngha3igu3jí p. 486
+# dating: 8110
+<pb:KR2e0003_tls_177-1a>¶
+** 177 江乙惡昭奚恤
+
+江乙惡昭奚恤，¶
+謂楚王曰：¶
+「人有以其狗為有執而愛之。¶
+其狗嘗溺井。¶
+其鄰人見狗之溺井也，¶
+欲入言之。¶
+狗惡之，¶
+當門而噬之。¶
+鄰人憚之，¶
+遂不得入言。¶
+
+# src: ZGC,14.8.2, tr. Crump non179, ed. Sha4ngha3igu3jí p. 486
+# dating: 8110
+邯鄲之難，¶
+楚進兵大梁，¶
+取矣。¶
+昭奚恤取魏之寶器，¶
+以居魏知之，¶
+故昭奚恤常惡臣之見王。」
+

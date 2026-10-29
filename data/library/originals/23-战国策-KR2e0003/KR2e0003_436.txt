@@ -1,0 +1,31 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 435
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 28. 15. 1;tr. Crump 1979 no.438, p.502, ed. Shanghai Guji p. 1030
+# dating: 8110
+<pb:KR2e0003_tls_436-1a>¶
+** 436 韓氏逐向晉於周
+
+韓氏逐向晉於周，¶
+周成恢為之謂魏王曰：¶
+「周必寬而反之，¶
+王何不為之先言，¶
+是王有向晉於周也。」¶
+
+# src: ZGC 28. 15. 2;tr. Crump 1979 no.438, p.502, ed. Shanghai Guji p. 1030
+# dating: 8110
+魏王曰：「諾。」¶
+成恢因為謂韓王曰：¶
+「逐向晉者韓也，¶
+而還之者魏也，¶
+豈如道韓反之哉！¶
+是魏有向晉於周，¶
+而韓王失之也。」¶
+韓王曰：「善。」¶
+亦因請復之。
+

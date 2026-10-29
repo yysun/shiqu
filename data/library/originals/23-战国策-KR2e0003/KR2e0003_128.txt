@@ -1,0 +1,43 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 127
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 9.1.1; tr. Crump 1979 no.141 p. 173, ed. Shanghaiguji p. 347 Ch'i prefers attacking an internally weakened Yen to aiding her ally Han
+# dating: 8110
+<pb:KR2e0003_tls_128-1a>¶
+** 128 韓齊為與國
+
+韓、¶齊為與國。¶
+張儀以秦、魏伐韓。¶
+齊王曰：¶
+「韓，¶
+吾與國也。¶
+秦伐之，¶
+吾將救之。」¶
+田臣思曰：¶
+「王之謀過矣，¶
+不如聽之。¶
+子噲與子之國，¶
+百姓不戴，¶
+諸侯弗與。¶
+
+# src: ZGC 9.1.2; tr. Crump 1979 no.141 p. 173, ed. Shanghaiguji p. 347
+# dating: 8110
+秦伐韓，¶
+楚、趙必救之，¶
+是天下以燕賜我也。」¶
+王曰：¶
+「善。」¶
+乃許韓使者而遣之。
+<pb:KR2e0003_tls_128-2a>¶
+韓自以得交於齊，¶
+遂與秦戰。¶
+楚、趙果遽起兵
+而救韓，¶
+齊因起兵攻燕，¶
+三十日而舉燕國。
+

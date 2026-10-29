@@ -1,0 +1,27 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 326
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 23.12.1; tr. Crump 1979 no. 307, p.3i2, ed. Shanghaiguji p. 833. Hui Shih's plan for the repatriation of a hostage prince
+# dating: 8110
+<pb:KR2e0003_tls_327-1a>¶
+** 327 惠施為韓魏交
+
+惠施為韓、魏交，¶
+令太子鳴為質於齊。¶
+王欲見之，¶
+朱倉謂王曰：¶
+「何不稱病？¶
+臣請說嬰子曰：¶
+『魏王之年長矣，¶
+今有疾，¶
+公不如歸太子以德之。¶
+不然，¶
+公子高在楚，¶
+楚將內而立之，¶
+是齊抱空質而行不義也。』」
+

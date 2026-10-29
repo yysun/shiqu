@@ -1,0 +1,46 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 74
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 5.1.1; tr. Crump 1979 no. 80, p 86 The duke of Hsüeh urges the destruction of Ch'i
+# dating: 8110
+<pb:KR2e0003_tls_075-1a>¶
+** 75 薛公為魏謂魏冉
+
+薛公為魏謂魏冉曰：¶
+「文聞秦王欲以呂禮收齊，¶
+以濟天下，¶
+君必輕矣。¶
+齊、秦相聚以臨三晉，¶
+禮必并相之，¶
+是君收齊
+以重呂禮也。¶
+齊免於天下之兵，¶
+其讎君必深。¶
+
+# src: ZGC 5.1.2; tr. Crump 1979 no. 80, p 86
+# dating: 8110
+君不如勸秦王令弊邑卒攻齊之事。¶
+齊破，¶
+文請以所得封君。¶
+齊破晉強，¶
+秦王畏晉之強也，¶
+必重君以取晉。¶
+齊予晉弊邑，¶
+而不能支秦，¶
+
+# src: ZGC 5.1.3; tr. Crump 1979 no. 80, p 86
+# dating: 8110
+晉必重君以事秦。¶
+是君破齊以為功，¶
+操晉以為重也。¶
+破齊定封，¶
+而秦、晉皆重君；¶
+若齊不破，¶
+呂禮復用，¶
+子必大窮矣。」
+

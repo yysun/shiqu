@@ -1,0 +1,82 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 268
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 21.1.1 tr. Crump no 2i3, ed. Sha4ngha3igu3jí p. 724
+# dating: 8110
+<pb:KR2e0003_tls_269-1a>¶
+** 269 為齊獻書趙王
+
+為齊獻書趙王，¶
+使臣與復丑曰：¶
+「臣一見，¶
+而能令王坐而天下致名寶。¶
+而臣竊怪王之不試見臣，¶
+而窮臣也。¶
+群臣必多以臣為不能者，¶
+故王重見臣也。¶
+
+# src: ZGC 21.1.2 tr. Crump no 2i3, ed. Sha4ngha3igu3jí p. 724
+# dating: 8110
+以臣為不能者
+非他，¶
+欲用王之兵，¶
+成其私者也。¶
+非然，¶
+則交有所偏者也；¶
+非然，¶
+則知不足者也；¶
+非然，¶
+則欲以天下之重恐王，¶
+而取行於王者也。¶
+
+# src: ZGC 21.1.3 tr. Crump no 2i3, ed. Sha4ngha3igu3jí p. 724
+# dating: 8110
+臣以齊循事王，¶
+王能亡燕，¶
+能亡韓、魏，
+能攻秦，¶
+能孤秦。¶
+
+# src: ZGC 21.1.4 tr. Crump no 2i3, ed. Sha4ngha3igu3jí p. 724
+# dating: 8110
+臣以為齊致尊名於王，¶
+天下孰敢不致尊名於王？¶
+臣以齊致地於王，¶
+天下孰敢不致地於王？¶
+臣以齊為王求名於燕及韓、魏，
+孰敢辭之？¶
+臣之能也，其前可見已。¶
+
+# src: ZGC 21.1.5 tr. Crump no 2i3, ed. Sha4ngha3igu3jí p. 724
+# dating: 8110
+齊先重王，¶
+故天下盡重王；¶
+無齊，¶
+天下必盡輕王也。¶
+
+# src: ZGC 21.1.6 tr. Crump no 2i3, ed. Sha4ngha3igu3jí p. 724
+# dating: 8110
+秦之彊，¶
+以無齊之故重王，¶
+燕、魏自以無齊故重王。¶
+今王無齊獨安得無重天下？¶
+
+# src: ZGC 21.1.7 tr. Crump no 2i3, ed. Sha4ngha3igu3jí p. 724
+# dating: 8110
+故勸王無齊者，¶
+非知不足也，¶
+則不忠者也。¶
+非然，¶
+則欲用王之兵成其私者也；¶
+非然，¶
+則欲輕王以天下之重，¶
+取行於王者也；¶
+非然，¶
+則位尊而能卑者也。¶
+願王之熟慮無齊之利害也。」
+

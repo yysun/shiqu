@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 327
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 23.13.1; tr. Crump 1979 no. 333, p.404, ed. Shanghaiguji p. 833. Planting willows
+# dating: 8110
+<pb:KR2e0003_tls_328-1a>¶
+** 328 田需貴於魏王
+
+田需貴於魏王，¶
+惠子曰：¶
+「子必善左右。¶
+今夫楊，¶
+橫樹之則生，¶
+倒樹之則生，¶
+折而樹之又生。¶
+然使十人樹楊，¶
+一人拔之，¶
+則無生楊矣。¶
+
+# src: ZGC 23.13.2; tr. Crump 1979 no. 333, p.404, ed. Shanghaiguji p. 833
+# dating: 8110
+故以十人之眾，¶
+樹易生之物，¶
+然而不勝一人者，¶
+何也？¶
+樹之難而去之易也。¶
+今子雖自樹於王，¶
+而欲去子者眾，¶
+則子必危矣。」
+

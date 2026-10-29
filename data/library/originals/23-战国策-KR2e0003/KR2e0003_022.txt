@@ -1,0 +1,31 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 21
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.22.1; tr. Crump 1979 no.32, p. 46 The sacred precincts
+# dating: 8110
+<pb:KR2e0003_tls_022-1a>¶
+** 22 趙取周之祭地
+
+趙取周之祭地，¶
+周君患之，¶
+告於鄭朝。¶
+鄭朝曰：¶
+「君勿患也，¶
+臣請以三十金復取之。」¶
+周君予之，¶
+鄭朝獻之趙太卜，¶
+因告以祭地事。¶
+
+# src: ZGC 1.22.2; tr. Crump 1979 no.32, p. 46
+# dating: 8110
+及王病，¶
+使卜之。¶
+太卜譴之曰：¶
+「周之祭地為祟。」¶
+趙乃還之。
+

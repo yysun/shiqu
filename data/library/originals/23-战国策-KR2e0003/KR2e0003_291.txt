@@ -1,0 +1,37 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 290
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.4.1 tr. Crump no 295, ed. Sha4ngha3igu3jí p. 777
+# dating: 8110
+<pb:KR2e0003_tls_291-1a>¶
+** 291 西門豹為鄴令
+
+西門豹為鄴令，¶
+而辭乎魏文侯。¶
+文侯曰：「子往矣，¶
+必就子之功，¶
+而成子之名。」¶
+西門豹曰：¶
+「敢問就功成名，¶
+亦有術乎？」¶
+
+# src: ZGC 22.4.2 tr. Crump no 295, ed. Sha4ngha3igu3jí p. 777
+# dating: 8110
+文侯曰：¶
+「有之。¶
+夫鄉邑老者而先受坐之士，¶
+子入而問其賢良之士而師事之，¶
+求其好掩人之美而揚人之醜者
+而參驗之。¶
+夫物多相類而非也，¶
+幽莠之幼也似禾，¶
+驪牛之黃也似虎，¶
+白骨疑象，¶
+武夫類玉，¶
+此皆似之而非者也。」
+

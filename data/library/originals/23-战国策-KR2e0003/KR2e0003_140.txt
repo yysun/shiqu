@@ -1,0 +1,37 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 139
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 10.5.1; tr. Crump 1979 no.149 p.184, ed. Shanghaiguji p. 377 Lord Meng-ch'ang's faults
+# dating: 8110
+<pb:KR2e0003_tls_140-1a>¶
+** 140 孟嘗君奉夏侯章
+
+孟嘗君奉夏侯章
+以四馬百人之食，¶
+遇之甚懽。¶
+夏侯章每言
+未嘗不毀孟嘗君也。¶
+或以告孟嘗君，¶
+孟嘗君曰：¶
+「文有以事夏侯公矣，¶
+勿言，¶
+董之。」¶
+
+# src: ZGC 10.5.2; tr. Crump 1979 no.149 p.184, ed. Shanghaiguji p. 377
+# dating: 8110
+繁菁以問夏侯公，¶
+夏侯公曰：¶
+「孟嘗君重非諸侯也，¶
+而奉我四馬百人之食。¶
+我無分寸之功而得此，¶
+然吾毀之以為之也。¶
+君所以得為長者，¶
+以吾毀之者也。¶
+吾以身為孟嘗君，¶
+豈得持言也。」
+

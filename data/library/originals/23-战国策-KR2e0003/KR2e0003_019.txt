@@ -1,0 +1,33 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 18
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.19.1; tr. Crump 1979 no.29, p. 43 Chou Tsui is given a plan which will make him joint minister in Han and Wei
+# dating: 8110
+<pb:KR2e0003_tls_019-1a>¶
+** 19 謂周最曰仇赫之相宋
+
+謂周最曰：¶
+「仇赫之相宋，¶
+將以觀秦之應趙、宋，
+敗三國。¶
+三國不敗，¶
+將興趙、宋合於東方以孤秦。¶
+亦將觀韓、魏之於齊也。¶
+不固，¶
+則將與宋敗三國，¶
+則賣趙、宋於三國。¶
+
+# src: ZGC 1.19.2; tr. Crump 1979 no.29, p. 43
+# dating: 8110
+公何不令人謂韓、魏之王曰：¶
+『欲秦、趙之相賣乎？¶
+何不合周最兼相，¶
+視之不可離，¶
+則秦、趙必相賣
+以合於王也。』」
+

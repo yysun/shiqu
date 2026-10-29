@@ -1,0 +1,28 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 402
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.7. 1; tr. Crump 1979 no.410, p.480, ed. Shanghai Guji p. 978
+# dating: 8110
+<pb:KR2e0003_tls_403-1a>¶
+** 403 謂公叔曰公欲得武遂於秦
+
+謂公叔曰：¶
+「公欲得武遂於秦，而不患楚之能揚河外也。¶
+公不如令人恐楚王，¶
+而令人為公求武遂於秦。¶
+謂楚王曰：¶
+『發重使為韓求武遂於秦。¶
+秦王聽，¶
+是令得行於萬乘之主也。¶
+韓得武遂以恨秦，¶
+毋秦患而得楚。¶
+韓，楚之縣而已。¶
+秦不聽，¶
+是秦、韓之怨深，¶
+而交楚也。』」
+

@@ -1,0 +1,29 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 104
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 7.3.1; tr. Crump 1979 no.78, p. 85 A dowager's partiality
+# dating: 8110
+<pb:KR2e0003_tls_105-1a>¶
+** 105 獻則謂公孫消
+
+獻則謂公孫消曰：¶
+「公，大臣之尊者也，¶
+數伐有功。¶
+所以不為相者，¶
+太后不善公也。¶
+辛戎者，¶
+太后之所親也。¶
+今亡於楚，¶
+在東周。¶
+公何不以秦、楚之重，¶
+資而相之於周乎？¶
+楚必便之矣。¶
+是辛戎有秦、楚之重，¶
+太后必悅公，¶
+公相必矣。」
+

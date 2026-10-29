@@ -1,0 +1,25 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 97
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 6.6.1; tr. Crump 1979 no. 50, p 60, ed. Shanghaiguji p. 236 Ching Li excused
+# dating: 8110
+<pb:KR2e0003_tls_098-1a>¶
+** 98 楚使者景鯉在秦
+
+楚使者景鯉在秦，¶
+從秦王與魏王遇於境。¶
+楚怒秦合，¶
+周㝡為楚王曰：¶
+「魏請無與楚遇
+而合於秦，¶
+是以鯉與之遇也。¶
+弊邑之於與遇善之，¶
+故齊不合也。」¶
+楚王因不罪景鯉
+而德周、¶秦。
+

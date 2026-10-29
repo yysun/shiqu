@@ -1,0 +1,24 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 341
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 24.9. 1; tr. Crump 1979 no. 348, p.421, ed. Shanghai Guji p. 877
+# dating: 8110
+<pb:KR2e0003_tls_342-1a>¶
+** 342 葉陽君約魏
+
+葉陽君約魏，¶
+魏王將封其子，¶
+謂魏王曰：¶
+「王嘗身濟漳，¶
+朝邯鄲，¶
+抱葛、¶薜、陰、成以為趙養邑，¶
+而趙無為王有也。¶
+王能又封其子問陽姑衣乎？¶
+臣為王不取也。」¶
+魏王乃止。
+

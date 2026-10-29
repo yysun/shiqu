@@ -1,0 +1,64 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 45
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 3.1.1; tr. Crump 1979 no.46, p. 54, ed. Shanghaiguji p. 75 A harsh lawgiver and his fate
+# dating: 8110
+<pb:KR2e0003_tls_046-1a>¶
+** 46 衛鞅亡魏入秦
+
+衛鞅亡魏入秦，¶
+孝公以為相，¶
+封之於商，¶
+號曰商君。¶
+商君治秦，¶
+法令至行，¶
+公平無私，¶
+罰不諱強大，¶
+賞不私親近，¶
+
+# src: ZGC 3.1.2; tr. Crump 1979 no.46, p. 54, ed. Shanghaiguji p. 75
+# dating: 8110
+法及太子，¶
+黥劓其傅。¶
+朞年之後，¶
+道不拾遺，¶
+民不妄取，¶
+兵革大強，¶
+諸侯畏懼。¶
+然刻深寡恩，¶
+特以強服之耳。
+
+# src: ZGC 3.1.2; tr. Crump 1979 no.46, p. 54, ed. Shanghaiguji p. 77
+# dating: 8110
+<pb:KR2e0003_tls_046-2a>孝公行之八年，¶
+疾且不起，¶
+欲傳商君，¶
+辭不受。¶
+孝公已死，¶
+惠王代後，¶
+蒞政
+有頃，¶
+商君告歸。
+
+# src: ZGC 3.1.3; tr. Crump 1979 no.46, p. 54, ed. Shanghaiguji p. 77
+# dating: 8110
+<pb:KR2e0003_tls_046-3a>¶
+人說惠王曰：¶
+「大臣太重者國危，¶
+左右太親者身危。¶
+今秦婦人嬰兒皆言商君之法，¶
+莫言大王之法。¶
+是商君反為主，¶
+大王更為臣也。¶
+且夫商君，¶
+固大王仇讎也，¶
+願大王圖之。」¶
+商君歸還，¶
+惠王車裂之，¶
+而秦人不憐。
+

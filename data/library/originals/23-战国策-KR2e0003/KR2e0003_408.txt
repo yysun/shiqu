@@ -1,0 +1,25 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 407
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.12. 1; tr. Crump 1979 no.413,p.4i1, ed. Shangha Guji p. 9i3
+# dating: 8110
+<pb:KR2e0003_tls_408-1a>¶
+** 408 齊明謂公叔
+
+齊明謂公叔曰：¶
+「齊逐幾瑟，¶
+楚善之。¶
+今楚欲善齊甚，¶
+公何不令齊王謂楚王：¶
+『王為我逐幾瑟以窮之。』¶
+楚聽，¶
+是齊、楚合，¶
+而幾瑟走也；¶
+楚王不聽，¶
+是有陰於韓也。」
+

@@ -1,0 +1,28 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 322
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 23.8.1; tr. Crump 1979 no. 331, p.403, ed. Shanghaiguji p. 833. The hsi-shou rids himself of some bother
+# dating: 8110
+<pb:KR2e0003_tls_323-1a>¶
+** 323 魏文子田需周宵相善
+
+魏文子、¶田需、周宵相善，¶
+欲罪犀首。¶
+犀首患之，¶
+謂魏王曰：¶
+「今所患者，¶
+齊也。¶
+嬰子言行於齊王，¶
+王欲得齊，¶
+則胡不召文子而相之？¶
+彼必務以齊事王。」¶
+王曰：¶
+「善。」¶
+因召文子而相之。¶
+犀首以倍田需、周宵。
+

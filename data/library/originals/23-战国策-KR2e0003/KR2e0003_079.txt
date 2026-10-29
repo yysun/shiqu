@@ -1,0 +1,23 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 78
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 5.5.1; tr. Crump 1979 no. i2, p 87, ed. Shanghaiguji p. 172 A fragment
+# dating: 8110
+<pb:KR2e0003_tls_079-1a>¶
+** 79 謂穰侯
+
+謂穰侯曰：¶
+「為君慮封，¶
+若於除
+宋罪，重
+齊怒；須
+殘伐亂宋，¶
+德強齊，¶
+定身封。¶
+此亦百世之時也已！」
+

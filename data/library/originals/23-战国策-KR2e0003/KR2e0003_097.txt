@@ -1,0 +1,49 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 96
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 6.5.1;. tr. Crump 1979 no. 49, p 59 Wei breaks a promise but is forced to keep it
+# dating: 8110
+<pb:KR2e0003_tls_097-1a>¶
+** 97 楚魏戰於陘山
+
+楚、¶魏戰於陘山。¶
+魏許秦以上洛，¶
+以絕秦於楚。¶
+魏戰勝，¶
+楚敗於南陽。¶
+秦責賂於魏，¶
+魏不與。¶
+
+# src: ZGC 6.5.2; tr. Crump 1979 no. 49, p 59
+# dating: 8110
+營淺謂秦王曰：¶
+「王何不謂楚王曰，¶
+魏許寡人以地，¶
+今戰勝，¶
+魏王倍寡人也。¶
+王何不與寡人遇。¶
+魏畏秦、楚之合，¶
+必與秦地矣。¶
+是魏勝楚而亡地於秦也；¶
+
+# src: ZGC 6.5.3; tr. Crump 1979 no. 49, p 59
+# dating: 8110
+是王以魏地德寡人，¶
+秦之楚者多資矣。¶
+魏弱，¶
+若不出地，¶
+則王攻其南，¶
+寡人絕其西，¶
+魏必危。」¶
+秦王曰：¶
+「善。」¶
+以是告楚。¶
+楚王揚言與秦遇，¶
+魏王聞之恐，¶
+效上洛於秦。
+

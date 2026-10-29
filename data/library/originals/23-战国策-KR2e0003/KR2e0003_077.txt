@@ -1,0 +1,50 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 76
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 5.3.1; tr. Crump 1979 no. 64, p 73, ed. Shanghaiguji p. 172 What is said in the east
+# dating: 8110
+<pb:KR2e0003_tls_077-1a>¶
+** 77 魏謂魏冉
+
+魏謂魏冉曰：¶
+「公聞東方之語乎？」¶
+曰：¶
+「弗聞也。」¶
+曰：¶
+「辛、¶張陽、¶
+毋澤說魏王、¶
+薛公、公叔也，¶
+曰：¶
+『臣戰，¶
+載主契國以與王約，¶
+必無患矣。¶
+若有敗之者，¶
+臣請挈領。¶
+
+# src: ZGC 5.3.2; tr. Crump 1979 no. 64, p 73, ed. Shanghaiguji p. 172
+# dating: 8110
+然而臣有患也。¶
+夫楚王之以其臣請挈領然
+而臣有患也。¶
+夫楚王之
+以其國依冉也，¶
+而事臣之主，¶
+此臣之甚患也。』¶
+今公東而因言於楚，¶
+是令張儀之言為禹，¶
+而務敗公之事也。¶
+
+# src: ZGC 5.3.3; tr. Crump 1979 no. 64, p 73, ed. Shanghaiguji p. 172
+# dating: 8110
+公不如反公國，¶
+德楚而觀薛公之為公也。¶
+觀三國之所求於秦而不能得者，¶
+請以號三國以自信也。¶
+觀張儀與澤之所不能得於薛公者也，¶
+而公請之以自重也。」
+

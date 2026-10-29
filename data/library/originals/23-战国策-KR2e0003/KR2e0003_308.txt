@@ -1,0 +1,41 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 307
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.21.1 tr. Crump no 312, ed. Sha4ngha3igu3jí p. 807
+# dating: 8110
+<pb:KR2e0003_tls_308-1a>¶
+** 308 魏王將相張儀
+
+魏王將相張儀，¶
+犀首弗利，¶
+故令人謂韓公叔曰：¶
+「張儀以合秦、魏矣。¶
+其言曰：¶
+『魏攻南陽，¶
+秦攻三川，¶
+韓氏必亡。』¶
+
+# src: ZGC 22.21.2 tr. Crump no 312, ed. Sha4ngha3igu3jí p. 807
+# dating: 8110
+且魏王所以貴張子者，¶
+欲得地，¶
+則韓之南陽舉矣。¶
+子盍少委焉，以
+為衍功，¶
+則秦、魏之交可廢矣。¶
+
+# src: ZGC 22.21.3 tr. Crump no 312, ed. Sha4ngha3igu3jí p. 807
+# dating: 8110
+如此，¶
+則魏必圖秦而棄儀，¶
+收韓而相衍。」¶
+公叔以為信，¶
+因而委之，¶
+犀首以為功，¶
+果相魏。
+

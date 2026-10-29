@@ -1,0 +1,41 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 44
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 2.17.1; tr. Crump 1979 no.12, p. 32, ed. Shanghaiguji p. 73 Chou's minister in Ch'in is insured against blame
+# dating: 8110
+<pb:KR2e0003_tls_045-1a>¶
+** 45 武敗
+
+武敗，¶
+周使周足之秦。¶
+或謂周足曰：¶
+「何不謂周君曰：¶
+『臣之秦，¶
+秦、周之交必惡。¶
+主君之臣，¶
+又秦重而欲相者，¶
+且惡臣於秦，¶
+而臣為不能使矣。¶
+臣願免而行。¶
+君因相之，¶
+彼得相，¶
+不惡周於秦矣。』¶
+
+# src: ZGC 2.17.2; tr. Crump 1979 no.12, p. 32, ed. Shanghaiguji p. 73
+# dating: 8110
+君重秦，¶
+故使相往，¶
+行而免，¶
+且輕秦也，¶
+公必不免。¶
+公言是而行，¶
+交善於秦，¶
+且公之成事也；¶
+交惡於秦，¶
+不善於公且誅矣。」
+

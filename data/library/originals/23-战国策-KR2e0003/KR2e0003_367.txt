@@ -1,0 +1,55 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 366
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25. 23. 1 ; tr. Crump 1979 no. 374, p. 446, ed. Shanghai Guji p. 911
+# dating: 8110
+<pb:KR2e0003_tls_367-1a>¶
+** 367 信陵君殺晉鄙
+
+信陵君殺晉鄙，¶
+救邯鄲，¶
+破秦人，¶
+存趙國，¶
+趙王自郊迎。¶
+
+# src: ZGC 25. 23. 2 ; tr. Crump 1979 no. 374, p. 446f, ed. Shanghai Guji p. 911
+# dating: 8110
+唐且謂信陵君曰：¶
+「臣聞之曰，¶
+事有不可知者，¶
+有不可不知者；¶
+有不可忘者，¶
+有不可不忘者。」¶
+
+# src: ZGC 25. 23. 3 ; tr. Crump 1979 no. 374, p. 447, ed. Shanghai Guji p. 911
+# dating: 8110
+信陵君曰：¶
+「何謂也？」¶
+對曰：¶
+「人之憎我也，¶
+不可不知也；¶
+吾憎人也，¶
+不可得而知也。¶
+人之有德於我也，¶
+不可忘也；¶
+吾有德於人也，¶
+不可不忘也。¶
+
+# src: ZGC 25. 23. 4 ; tr. Crump 1979 no. 374, p. 447, ed. Shanghai Guji p. 911
+# dating: 8110
+今君殺晉鄙，¶
+救邯鄲，¶
+破秦人，¶
+存趙國，¶
+此大德也。¶
+今趙王自郊迎，¶
+卒然見趙王，¶
+臣願君之忘之也。」¶
+信陵君曰：¶
+「無忌謹受教。」
+

@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 15
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.16.1; tr. Crump 1979 no. 38, p. 49 The Duke of Hsüeh advised to support Chou Tsui
+# dating: 8110
+<pb:KR2e0003_tls_016-1a>¶
+** 16 謂薛公
+
+謂薛公曰：¶
+「周最於齊王也
+而逐之，¶
+聽祝弗，¶
+相呂禮者，¶
+欲取秦。¶
+秦、齊合，¶
+弗與禮重矣。¶
+有周齊，¶
+秦必輕君。¶
+
+# src: ZGC 1.16.2; tr. Crump 1979 no. 38, p. 49
+# dating: 8110
+君弗如急北兵趨趙以秦、魏，
+收周最以為後行，¶
+且反齊王之信，¶
+又禁天下之率。¶
+齊無秦，¶
+天下果，¶
+弗必走，¶
+齊王誰與為其國？」
+

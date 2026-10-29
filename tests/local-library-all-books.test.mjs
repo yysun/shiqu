@@ -10,7 +10,7 @@ import {withLocalBooks} from '../server/local-generation.ts';
 import {createApplication} from '../server/app.ts';
 import {FileMedia} from '../server/media.ts';
 const root=process.cwd(),library=new LocalBooks(root),catalog=JSON.parse(await readFile('data/library/catalog.json','utf8'));
-const counts=[12,33,36,100,120,120,120,56,18,8,20,25,24,30,500,10,40,40,40,40,40,130,33,4];
+const counts=[12,33,36,101,120,120,120,56,18,8,20,25,24,30,500,10,40,40,40,40,40,130,501,4];
 const memory=()=>{const values=new Map();return {get:async key=>{const bytes=values.get(key);return bytes?{arrayBuffer:async()=>bytes.slice().buffer}:null;},put:async(key,bytes)=>{values.set(key,new Uint8Array(bytes));}};};
 const select=bookId=>({bookId,theme:'聪明与糊涂',artStyle:'ink-pencil',length:8,voice:false});
 const plan={title:'经过核对的故事',hook:'他会怎样选择？',sourceReference:'模型不能决定的出处',adaptationNote:'现代简体旁白改编',reflection:'你会如何选择？',characters:'An adult Chinese scholar in plain robes.',pages:Array.from({length:8},()=>({caption:'他停下脚步仔细观察，发现事情还有另一种解释。',prompt:'An adult scholar carefully observes a scene.'}))};
@@ -44,10 +44,10 @@ test('all 24 catalogs load verified originals with complete chapters and exhaust
  assert.doesNotMatch((await library.book(select('浮生六记'))).input.text,/卷五|卷六|\(佚\)/);
 });
 
-test('all catalogs use originals without cross-source supplements; Erke final play has a local TXT source',async()=>{
+test('all catalogs use originals without cross-source supplements; Erke final play has a pinned Wiki source',async()=>{
  assert.ok(catalog.books.every(entry=>entry.supplements.length===0));
  const erke=await library.book(select('二刻拍案惊奇')),section=erke.sections.at(-1),story=candidate({...erke,sections:[section]})[0],original=library.resolve(erke,story.source);
- assert.match(section.title,/杂剧/);assert.match(section.units.map(u=>u.text).join(''),/宋公明|宋三郎/);assert.match(original.url,/hanchuancaolu\/blob\/889b8873e34419ce9d519f50482f60d913a4ac20/);assert.ok(original.url.endsWith('.txt'));assert.match(original.provider,/漢川草廬/);
+ assert.match(section.title,/杂剧/);assert.match(section.units.map(u=>u.text).join(''),/宋公明|宋三郎/);assert.equal(new URL(original.url).hostname,'zh.wikisource.org');assert.equal(new URL(original.url).searchParams.get('title'),'二刻拍案驚奇/40');assert.match(original.provider,/维基文库/);
 });
 
 test('original corruption and unreadable source ranges fail closed',async t=>{

@@ -1,0 +1,32 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 26
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.27.1; tr. Crump 1979 no.36, p. 48 Chao Chien plans to escape assassination
+# dating: 8110
+<pb:KR2e0003_tls_027-1a>¶
+** 27 昭翦與東周惡
+
+昭翦與東周惡，¶
+或謂照翦曰：¶
+「為公畫陰計。」¶
+照翦曰：¶
+「何也？」¶
+「西周甚憎東周，¶
+嘗欲東周與楚惡，¶
+西周必令賊賊公，¶
+因宣言東周也，¶
+以西周之於王也。」¶
+
+# src: ZGC 1.27.2; tr. Crump 1979 no.36, p. 48
+# dating: 8110
+照翦曰：¶
+「善。¶
+吾又恐東周之賊己
+而以輕西周惡之於楚。」¶
+遽和東周。
+

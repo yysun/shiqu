@@ -1,0 +1,25 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 120
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 8.11.1; tr. Crump 1979 no.123 p. 155, ed. Shanghaiguji p. 319 Tsou Chi's protégés
+# dating: 8110
+<pb:KR2e0003_tls_121-1a>¶
+** 121 鄒忌事宣王
+
+鄒忌事宣王，¶
+仕人眾，¶
+宣王不悅。¶
+晏首貴而仕人寡，¶
+王悅之。¶
+鄒忌謂宣王曰：¶
+「忌聞以為有一子之孝，¶
+不如有五子之孝。¶
+今首之所進仕者，¶
+以幾何人？」¶
+宣王因以晏首壅塞之。
+

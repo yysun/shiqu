@@ -1,0 +1,28 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 306
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.20.1 tr. Crump no 311, ed. Sha4ngha3igu3jí p. 805
+# dating: 8110
+<pb:KR2e0003_tls_307-1a>¶
+** 307 張儀欲并相秦魏
+
+張儀欲并相秦、魏，
+故謂魏王曰：¶
+「儀請以秦攻三川，¶
+王以其間約南陽，¶
+韓氏亡。」¶
+
+# src: ZGC 22.20.2 tr. Crump no 311, ed. Sha4ngha3igu3jí p. 805
+# dating: 8110
+史厭謂趙獻曰：¶
+「公何不以楚佐儀求相之於魏，¶
+韓恐亡，¶
+必南走楚。¶
+儀兼相秦、魏，
+則公亦必并相楚、韓也。」
+

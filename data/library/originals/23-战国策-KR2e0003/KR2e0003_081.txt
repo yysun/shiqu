@@ -1,0 +1,34 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 80
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 5.7.1; tr. Crump 1979 no. i4, p 89 The king of Ch'in's mother cautions him against employing Lord Ch'eng -yang
+# dating: 8110
+<pb:KR2e0003_tls_081-1a>¶
+** 81 五國罷成睪
+
+五國罷成睪，¶
+秦王欲為成陽君求相韓、魏，
+韓、¶
+魏弗聽。¶
+秦太后為魏冉謂秦王曰：¶
+「成陽君以王之故，¶
+窮而居於齊，¶
+今王見其達而收之，¶
+亦能翕其心乎？」¶
+
+# src: ZGC 5.7.2; tr. Crump 1979 no. i4, p 89
+# dating: 8110
+王曰：¶
+「未也。」¶
+太后曰：¶
+「窮而不收，¶
+達而報之，¶
+恐不為王用；¶
+且收成陽君，¶
+失韓、魏之道也。」
+

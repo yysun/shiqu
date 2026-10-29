@@ -1,0 +1,45 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 251
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.7.1, tr. Crump no 272, ed. Sha4ngha3igu3jí p. 688
+# dating: 8110
+<pb:KR2e0003_tls_252-1a>¶
+** 252 魏使人因平原君請從於趙
+
+魏使人因平原君請從於趙。¶
+三言之，¶
+趙王不聽。¶
+出遇虞卿曰：¶
+「為入必語從。」¶
+
+# src: ZGC 20.7.2, tr. Crump no 272, ed. Sha4ngha3igu3jí p. 688
+# dating: 8110
+虞卿入，¶
+王曰：¶
+「今者平原君為魏請從，¶
+寡人不聽。¶
+其於子何如？」¶
+
+# src: ZGC 20.7.3, tr. Crump no 272, ed. Sha4ngha3igu3jí p. 688
+# dating: 8110
+虞卿曰：「魏過矣。」¶
+王曰：「然，¶
+故寡人不聽。」¶
+虞卿曰：「王亦過矣。」¶
+王曰：「何也？」¶
+曰：¶
+「凡強弱之舉事，¶
+強受其利，¶
+弱受其害。¶
+今魏求從，¶
+而王不聽，¶
+是魏求害，¶
+而王辭利也。¶
+臣故曰，魏過，¶
+王亦過矣。」
+

@@ -1,0 +1,23 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 174
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC, 14.6.1, tr. Crump no178, ed. Sha4ngha3igu3jí p. 4i4
+# dating: 8110
+<pb:KR2e0003_tls_175-1a>¶
+** 175 江尹欲惡昭奚恤於楚王
+
+江尹欲惡昭奚恤於楚王，¶
+而力不能，¶
+故為梁山陽君請封於楚。¶
+楚王曰：¶
+「諾。」¶
+昭奚恤曰：¶
+「山陽君無功於楚國，¶
+不當封。」¶
+江尹因得山陽君與之共惡昭奚恤。
+

@@ -1,0 +1,30 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 35
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 2.8.1; tr. Crump 1979 no.15, p. 34, ed. Shanghaiguji p. 59 Chou cunningly complies with powerful Ch'u in order to alarm Ch'u's rivals
+# dating: 8110
+<pb:KR2e0003_tls_036-1a>¶
+** 36 楚請道於二周之間
+
+楚請道於二周之間，¶
+以臨韓、魏，
+周君患之。¶
+蘇秦謂周君曰：¶
+「除道屬之於河，¶
+韓、魏必惡之。¶
+齊、秦恐楚之取九鼎也，¶
+必救韓、魏而攻楚。¶
+
+# src: ZGC 2.8.2; tr. Crump 1979 no.15, p. 34, ed. Shanghaiguji p. 59
+# dating: 8110
+楚不能守方城之外，¶
+安能道二周之間。¶
+若四國弗惡，¶
+君雖不欲與也，¶
+楚必將自取之矣。」
+

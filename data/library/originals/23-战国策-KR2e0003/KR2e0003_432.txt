@@ -1,0 +1,40 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 431
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 28. 11.1; tr. Crump 1979 no.435, p.500, ed. Shanghai Guji p. 1025
+# dating: 8110
+<pb:KR2e0003_tls_432-1a>¶
+** 432 韓珉相齊
+
+韓珉相齊，¶
+令吏逐公疇豎，¶
+大怒於周之留成陽君也。¶
+
+# src: ZGC 28. 11. 2; tr. Crump 1979 no.435, p.500, ed. Shanghai Guji p. 1025
+# dating: 8110
+謂韓珉曰：¶
+「公以二人者為賢人也，¶
+所入之國，¶
+因用之乎？¶
+則不如其處小國。¶
+何也？¶
+成陽君為秦去韓，¶
+公疇豎，¶
+楚王善之。¶
+今公因逐之，¶
+二人者必入秦、楚，
+必為公患。¶
+
+# src: ZGC 28. 11. 3; tr. Crump 1979 no.435, p.500, ed. Shanghai Guji p. 1025
+# dating: 8110
+且明公之不善於天下。¶
+天下之不善公者，¶
+與欲有求於齊者，¶
+且收之，¶
+以臨齊而市公。」
+

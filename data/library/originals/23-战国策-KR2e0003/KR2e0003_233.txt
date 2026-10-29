@@ -1,0 +1,42 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 232
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 18.12.1, tr. Crump no 235, ed. Sha4ngha3igu3jí p. 619
+# dating: 8110
+<pb:KR2e0003_tls_233-1a>¶
+** 233 蘇秦為趙王使於秦
+
+蘇秦為趙王使於秦，¶
+反，
+三日不得見。¶
+謂趙王曰：¶
+「秦乃者過柱山，¶
+有兩木焉。¶
+一蓋呼侶，¶
+一蓋哭。¶
+
+# src: ZGC 18.12.2, tr. Crump no 235, ed. Sha4ngha3igu3jí p. 619
+# dating: 8110
+問其故，¶
+對曰：¶
+『吾已大矣，¶
+年已長矣，¶
+吾苦夫匠人，¶
+且以繩墨案規矩刻鏤我。』¶
+一蓋曰：¶
+『此非吾所苦也，¶
+是故吾事也。¶
+吾所苦夫鐵鉆然，¶
+自入而出夫人者。』¶
+
+# src: ZGC 18.12.3, tr. Crump no 235, ed. Sha4ngha3igu3jí p. 619
+# dating: 8110
+今臣使於秦，¶
+而三日不見，¶
+無有謂臣為鐵鉆者乎？」
+

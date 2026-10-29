@@ -1,0 +1,40 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 494
+#+PROPERTY: CAT 1pre-han,歷史,古史
+<pb:KR2e0003_tls_495-1a>¶
+** 495 司馬憙使趙
+
+司馬憙使趙，¶
+為己求相中山。¶
+公孫弘陰知之。¶
+中山君出，¶
+司馬憙御，¶
+公孫弘參乘。¶
+
+# src: ZGC 33. 4. 2; tr. Crump 1979 no.492, p 578f, ed. Shanghai Guji p. 1177
+# dating: 8110
+弘曰：「為人臣，¶
+招大國之威，¶
+以為己求相，¶
+於君何如？」¶
+君曰：「吾食其肉，¶
+不以分人。」¶
+
+# src: ZGC 33. 4. 3; tr. Crump 1979 no.492, p 579, ed. Shanghai Guji p. 1177
+# dating: 8110
+司馬憙頓首於軾曰：¶
+「臣自知死至矣！」¶
+君曰：「何也？」¶
+「臣抵罪。」¶
+君曰：「行，¶
+吾知之矣。」¶
+居頃之，¶
+趙使來，¶
+為司馬憙求相。¶
+中山君大疑公孫弘，¶
+公孫弘走出。
+

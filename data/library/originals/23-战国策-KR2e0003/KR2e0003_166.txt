@@ -1,0 +1,28 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 165
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC, 13.7.2, tr. Crump no 114, ed. Sha4ngha3igu3jí p. 467
+# dating: 8110
+<pb:KR2e0003_tls_166-1a>¶
+** 166 濮上之事
+
+濮上之事，¶
+贅子死，¶
+章子走，¶
+盼子謂齊王曰：¶
+「不如易餘糧於宋，¶
+宋王必說，¶
+梁氏不敢過宋伐齊。¶
+齊固弱，¶
+是以餘糧收宋也。
+齊國復強，¶
+雖復責之宋，可；
+不償，¶
+因以為辭而攻之，¶
+亦可。」
+

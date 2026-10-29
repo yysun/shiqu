@@ -1,0 +1,47 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 346
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25. 3. 1; tr. Crump 1979 no. 368, p.443, ed. Shanghai Guji p. 889
+# dating: 8110
+<pb:KR2e0003_tls_347-1a>¶
+** 347 魏王問張旄
+
+魏王問張旄曰：¶
+「吾欲與秦攻韓，¶何如？」¶
+張旄對曰：¶「韓且坐而胥亡乎？¶
+且割而從天下乎？」¶
+王曰：¶
+「韓且割而從天下。」¶
+張旄曰：¶
+「韓怨魏乎？¶
+怨秦乎？」¶
+王曰：¶
+「怨魏。」¶
+
+# src: ZGC 25. 3. 2; tr. Crump 1979 no. 368, p.443, ed. Shanghai Guji p. 889
+# dating: 8110
+張旄曰：¶
+「韓強秦乎？¶
+強魏乎？」¶
+王曰：¶
+「強秦。」¶
+張旄曰：¶
+「韓且割而從其所強，¶
+與所不怨乎？¶
+且割而從其所不強，¶
+與其所怨乎？」¶
+王曰：¶
+「韓將割而從其所強，¶
+與其所不怨。」¶
+
+# src: ZGC 25. 3. 3; tr. Crump 1979 no. 368, p.443, ed. Shanghai Guji p. 889
+# dating: 8110
+張旄曰：¶
+「攻韓之事，¶
+王自知矣。」
+

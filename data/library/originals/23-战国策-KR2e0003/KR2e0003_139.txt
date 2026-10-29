@@ -1,0 +1,61 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 138
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 10.4.1; tr. Crump 1979 no.148 p.183, ed. Shanghaiguji p. 369 The ancestral temple
+# dating: 8110
+<pb:KR2e0003_tls_139-1a>¶
+** 139 孟嘗君在薛
+
+孟嘗君在薛，¶
+荊人攻之。¶
+淳于髡為齊使於荊，¶
+還反過薛。¶
+而孟嘗令人體貌
+而親郊迎之。¶
+謂淳于髡曰：¶
+「荊人攻薛，¶
+夫子弗憂，¶
+文無以復侍矣。」¶
+淳于髡曰：¶
+「敬聞命。」<pb:KR2e0003_tls_139-2a>¶
+
+# src: ZGC 10.4.2; tr. Crump 1979 no.148 p.184, ed. Shanghaiguji p. 369
+# dating: 8110
+至於齊，畢報。¶
+王曰：¶
+「何見於荊？」¶
+對曰：¶
+「荊甚固，¶
+而薛亦不量其力。」¶
+王曰：¶
+「何謂也？」¶
+對曰：¶
+「薛不量其力，¶
+而為先王立清廟。¶
+荊固而攻之，¶
+清廟必危。¶
+故曰薛不量力，¶
+而荊亦甚固。」¶
+
+# src: ZGC 10.4.3; tr. Crump 1979 no.148 p.184, ed. Shanghaiguji p. 377-
+# dating: 8110
+齊王和其顏色曰：¶
+「譆！¶
+先君之廟在焉！」¶
+疾興兵救之。
+<pb:KR2e0003_tls_139-3a>¶
+顛蹶之請，¶
+望拜之謁，¶
+雖得則薄矣。¶
+善說者，¶
+陳其勢，¶
+言其方，¶
+人之急也，¶
+若自在隘窘之中，¶
+豈用強力哉！
+

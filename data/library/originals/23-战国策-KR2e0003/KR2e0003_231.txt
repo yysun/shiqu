@@ -1,0 +1,32 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 230
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 18.10.1, tr. Crump no 254, ed. Sha4ngha3igu3jí p. 608
+# dating: 8110
+<pb:KR2e0003_tls_231-1a>¶
+** 231 齊攻宋奉陽君不欲
+
+齊攻宋，¶
+奉陽君不欲。¶
+客請奉陽君曰：¶
+「君之春秋高矣，¶
+而封地不定，¶
+不可不熟圖也。¶
+
+# src: ZGC 18.10.2, tr. Crump no 254, ed. Sha4ngha3igu3jí p. 608
+# dating: 8110
+秦之貪，韓、魏危，¶
+衛、楚正，¶
+中山之地薄，¶
+宋罪重，¶
+齊怒深，¶
+殘伐亂宋，¶
+定身封，¶
+德強齊，¶
+此百代之一時也。」
+

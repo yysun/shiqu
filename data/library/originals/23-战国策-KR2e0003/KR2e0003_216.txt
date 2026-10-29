@@ -1,0 +1,40 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 215
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 17.8.1, tr. Crump no 217, ed. Sha4ngha3igu3jí p. 564
+# dating: 8110
+<pb:KR2e0003_tls_216-1a>¶
+** 216 有獻不死之藥於荊王者
+
+有獻不死之藥於荊王者，¶
+謁者操以入。¶
+中射之士問曰：¶
+「可食乎？」¶
+曰：¶「可。」¶
+因奪而食之。¶
+
+# src: ZGC 17.8.2, tr. Crump no 217, ed. Sha4ngha3igu3jí p. 564
+# dating: 8110
+王怒，¶
+使人殺中射之士。¶
+中射之士使人說王曰：¶
+「臣問謁者，¶
+謁者曰可食，¶
+臣故食之。¶
+是臣無罪，¶
+而罪在謁者也。¶
+
+# src: ZGC 17.8.3, tr. Crump no 217, ed. Sha4ngha3igu3jí p. 564
+# dating: 8110
+且客獻不死之藥，¶
+臣食之而王殺臣，¶
+是死藥也。¶
+王殺無罪之臣，¶
+而明人之欺王。」¶
+王乃不殺。
+

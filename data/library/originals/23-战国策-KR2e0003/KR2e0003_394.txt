@@ -1,0 +1,38 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 393
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 26.21. 1; tr. Crump 1979 no.377, p.450,, ed. Shanghai Guji p. 962
+# dating: 8110
+<pb:KR2e0003_tls_394-1a>¶
+** 394 或謂魏王王儆四彊之內
+
+或謂魏王：
+「王儆四彊之內，¶
+其從於王者，¶
+十日之內，¶
+備不具者死。¶
+王因取其游之舟上擊之。¶
+臣為王之楚，¶
+王胥臣反，¶
+乃行。」¶
+
+# src: ZGC 26.21. 2; tr. Crump 1979 no.377, p.450, ed. Shanghai Guji p. 962
+# dating: 8110
+春申君聞之，¶
+謂使者曰：¶
+「子為我反，¶
+無見王矣。¶
+十日之內，¶
+數萬之眾，¶
+今涉魏境。」¶
+秦使聞之，¶
+以告秦王。¶
+秦王謂魏王曰：¶
+「大國有意，¶
+必來以是而足矣。」
+

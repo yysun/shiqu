@@ -1,0 +1,53 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 333
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 24.1.1; tr. Crump 1979 no. 344, p.415, ed. Shanghaiguji p. 851. Wei breaks a promise and gains five cities
+# dating: 8110
+<pb:KR2e0003_tls_334-1a>¶
+** 334 秦趙約而伐魏
+
+秦、¶趙約而伐魏，¶
+魏王患之。¶
+芒卯曰：¶
+「王勿憂也。¶
+臣請發張倚使謂趙王曰，¶
+夫鄴，¶
+寡人固刑弗有也。¶
+今大王收秦而攻魏，¶
+寡人請以鄴事大王。」¶
+趙王喜，¶
+召相國而命之曰：¶
+「魏王請以鄴事寡人，¶
+使寡人絕秦。」¶
+
+# src: ZGC 24.1.2; tr. Crump 1979 no. 344, p.415, ed. Shanghaiguji p. 851
+# dating: 8110
+相國曰：¶
+「收秦攻魏，¶
+利不過鄴。¶
+今不用兵而得鄴，¶
+請許魏。」<pb:KR2e0003_tls_334-2a>¶
+
+# src: ZGC 24.1.3; tr. Crump 1979 no. 344, p.415, ed. Shanghaiguji p. 851
+# dating: 8110
+張倚因謂趙王曰：¶
+「敝邑之吏效城者，¶
+已在鄴矣。¶
+大王且何以報魏？」¶
+趙王因令閉關絕秦。¶
+秦、趙大惡。
+<pb:KR2e0003_tls_334-3a>¶
+芒卯應趙使曰：¶
+「敝邑所以事大王者，¶
+為完鄴也。¶
+今郊鄴者，¶
+使者之罪也，¶
+卯不知也。」¶
+趙王恐魏承秦之怒，¶
+遽割五城以合於魏而支秦。
+

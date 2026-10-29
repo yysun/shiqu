@@ -1,0 +1,73 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 294
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.8.1 tr. Crump no 299, ed. Sha4ngha3igu3jí p. 7i3°
+# dating: 8110
+<pb:KR2e0003_tls_295-1a>¶
+** 295 魏公叔痤為魏將
+
+魏公叔痤為魏將，¶
+而與韓、趙戰澮北，¶
+禽樂祚。¶
+魏王說，迎郊，¶
+以賞田百萬祿之。¶
+公叔痤反走，再拜辭曰：¶
+
+# src: ZGC 22.8.2 tr. Crump no 299, ed. Sha4ngha3igu3jí p. 7i3
+# dating: 8110
+「夫使士卒不崩，¶
+直而不倚，¶
+撓揀而不辟者，¶
+此吳起餘教也，¶
+臣不能為也。¶
+
+# src: ZGC 22.8.3 tr. Crump no 299, ed. Sha4ngha3igu3jí p. 7i3
+# dating: 8110
+前脈形地之險阻，¶
+決利害之備，¶
+使三軍之士不迷惑者，¶
+巴寧、爨襄之力也。¶
+縣賞罰於前，¶
+使民昭然信之於後者，¶
+王之明法也。¶
+見敵之可也鼓之，¶
+不敢怠倦者，¶
+臣也。¶
+
+# src: ZGC 22.8.4 tr. Crump no 299, ed. Sha4ngha3igu3jí p. 7i3
+# dating: 8110
+王特為臣之右手不倦賞臣，¶
+何也？¶
+若以臣之有功，臣何力之有乎？」¶
+王曰：「善。」¶
+於是索吳起之後，¶
+賜之田二十萬。¶
+巴寧、爨襄田各十萬。
+
+# src: ZGC 22.8.5 tr. Crump no 299, ed. Sha4ngha3igu3jí p. 7i4
+# dating: 8110
+<pb:KR2e0003_tls_295-2a>¶
+王曰：「公叔豈非長者哉！¶
+既為寡人勝強敵矣，¶
+又不遺賢者之後，¶
+不揜能士之迹，¶
+公叔何可無益乎？」¶
+故又與田四十萬，¶
+加之百萬之上，¶
+使百四十萬。¶
+
+# src: ZGC 22.8.6 tr. Crump no 299, ed. Sha4ngha3igu3jí p. 7i4
+# dating: 8110
+故《老子》曰：¶
+「聖人無積，¶
+盡以為人，¶
+己愈有；¶
+既以與人，¶
+己愈多。」¶
+公叔當之矣。
+

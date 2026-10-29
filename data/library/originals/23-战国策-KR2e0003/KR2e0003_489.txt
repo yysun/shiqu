@@ -1,0 +1,48 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 488
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 32. 13. 1; tr. Crump 1979 no.487, p 572, ed. Shanghai Guji p. 1164
+# dating: 8110
+<pb:KR2e0003_tls_489-1a>¶
+** 489 衛嗣君病
+
+衛嗣君病。¶
+富術謂殷順且曰：¶
+「子聽吾言也以說君，¶
+勿益損也，¶
+君必善子。¶
+人生之所行，¶
+與死之心異。¶
+始君之所行於世者，¶
+食高麗也；¶
+所用者，¶
+緤錯、挐薄也。¶
+
+# src: ZGC 32. 13. 2; tr. Crump 1979 no.487, p 572, ed. Shanghai Guji p. 1164f
+# dating: 8110
+群臣盡以為君輕國而好高麗，¶
+必無與君言國事者。¶
+子謂君：『君之所行天下者甚謬。¶
+緤錯主斷於國，¶
+而挐薄輔之，¶
+自今以往者，¶
+公孫氏必不血食矣。』」<pb:KR2e0003_tls_489-2a>¶
+
+# src: ZGC 32. 14. 1; tr. Crump 1979 no.486, p 571f, ed. Shanghai Guji p. 1166
+# dating: 8110
+君曰：¶
+「善。」¶
+與之相印，¶
+曰：¶
+「我死，¶
+子制之。」¶
+嗣君死，¶
+殷順且以君令相公期。¶
+緤錯、¶
+挐薄之族皆逐也。
+

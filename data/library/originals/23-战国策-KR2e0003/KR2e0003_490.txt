@@ -1,0 +1,31 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 489
+#+PROPERTY: CAT 1pre-han,歷史,古史
+<pb:KR2e0003_tls_490-1a>¶
+** 490 衛嗣君時胥靡逃之魏
+
+衛嗣君時，¶
+胥靡逃之魏，¶
+衛贖之百金，¶
+不與。¶
+乃請以左氏。¶
+群臣諫曰：¶
+「以百金之地，¶
+贖一胥靡，¶
+無乃不可乎？」¶
+
+# src: ZGC 32. 14. 2; tr. Crump 1979 no.486, p 572, ed. Shanghai Guji p. 1166
+# dating: 8110
+君曰：「治無小，¶
+亂無大。¶
+教化喻於民，¶
+三百之城，¶
+足以為治；¶
+民無廉恥，¶
+雖有十左氏，¶
+將何以用之？」
+

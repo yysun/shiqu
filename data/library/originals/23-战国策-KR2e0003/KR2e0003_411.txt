@@ -1,0 +1,34 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 410
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.15. 1; tr. Crump 1979 no.416, p.4i3, ed. Shanghai Guji p. 985
+# dating: 8110
+<pb:KR2e0003_tls_411-1a>¶
+** 411 謂新城君曰
+
+謂新城君曰：¶
+「公叔、¶伯嬰恐秦、楚之內幾瑟也，¶
+公何不為韓求質子於楚？¶
+楚王聽而入質子於韓，¶
+則公叔、¶伯嬰必知秦、楚之不以幾瑟為事也，¶
+必以韓合於秦、楚矣。¶
+秦、楚挾韓以窘魏，¶
+魏氏不敢東，¶
+是齊孤也。¶
+
+# src: ZGC 27.15. 2; tr. Crump 1979 no.416, p.4i3, ed. Shanghai Guji p. 985
+# dating: 8110
+公又令秦求質子於楚，¶
+楚不聽，¶
+則怨結於韓。¶
+韓挾齊、魏以眄楚，¶
+楚王必重公矣。¶
+公挾秦、楚之重，¶
+以積德於韓，¶
+則公叔、伯嬰必以國事公矣。」
+

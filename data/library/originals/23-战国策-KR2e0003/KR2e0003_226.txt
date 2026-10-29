@@ -1,0 +1,36 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 225
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 18.5.1, tr. Crump no 233, ed. Sha4ngha3igu3jí p. 598
+# dating: 8110
+<pb:KR2e0003_tls_226-1a>¶
+** 226 魏文侯借道於趙攻中山
+
+魏文侯借道於趙攻中山。¶
+趙侯將不許。¶
+趙利曰：¶
+「過矣。¶
+魏攻中山而不能取，¶
+則魏必罷，¶
+罷則趙重。¶
+魏拔中山，¶
+必不能越趙而有中山矣。¶
+是用兵者，¶
+魏也；¶
+而得地者，¶
+趙也。¶
+
+# src: ZGC 18.5.2, tr. Crump no 233, ed. Sha4ngha3igu3jí p. 598
+# dating: 8110
+君不如許之，¶
+許之大勸，¶
+彼將知矣利之也，¶
+必輟。¶
+君不如借之道，¶
+而示之不得已。」
+

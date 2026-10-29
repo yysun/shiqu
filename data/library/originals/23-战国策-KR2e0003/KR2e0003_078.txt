@@ -1,0 +1,26 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 77
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 5.4.1; tr. Crump 1979 no. 87, p 91, ed. Shanghaiguji p. 172 A fragment
+# dating: 8110
+<pb:KR2e0003_tls_078-1a>¶
+** 78 謂魏冉曰和不成
+
+謂魏冉曰：¶
+「和不成，¶
+兵必出。¶
+白起者，¶
+且復將。¶
+戰勝，¶
+必窮公；¶
+不勝，¶
+必事趙從公。¶
+公又輕，¶
+公不若毋多，¶
+則疾到。」
+

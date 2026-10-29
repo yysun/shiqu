@@ -1,0 +1,33 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 24
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.25.1; tr. Crump 1979 no.34, p. 47 Chou told how a small state may be influental
+# dating: 8110
+<pb:KR2e0003_tls_025-1a>¶
+** 25 三國隘秦
+
+三國隘秦，¶
+周令其相之秦，¶
+以秦之輕也，¶
+留其行。¶
+有人謂相國曰：¶
+「秦之輕重，¶
+未可知也。¶
+
+# src: ZGC 1.25.2; tr. Crump 1979 no.34, p. 47
+# dating: 8110
+秦欲知三國之情，¶
+公不如遂見秦王曰：¶
+『請謂王聽東方之處。』¶
+秦必重公。¶
+是公重周，¶
+重周以取秦也。¶
+齊重故有周，¶
+而已取齊，¶
+是周常不失重國之交也。」
+

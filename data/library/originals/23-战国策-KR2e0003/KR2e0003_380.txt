@@ -1,0 +1,20 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 379
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 26. 9. 1; tr. Crump 1979 no. 389, p. 462, ed. Shanghai Guji p. 940
+# dating: 8110
+<pb:KR2e0003_tls_380-1a>¶
+** 380 楚昭獻相韓
+
+楚昭獻相韓。¶
+秦且攻韓，¶
+韓廢昭獻。¶
+昭獻令人謂公叔曰：¶
+「不如貴昭獻以固楚，¶
+秦必曰楚、韓合矣。」
+

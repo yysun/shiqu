@@ -1,0 +1,33 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 3
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.4.1; tr. Crump 1979 no. 23, p. 40 East Chou supplied with an argument to dissuade others from aiding West Chou
+# dating: 8110
+<pb:KR2e0003_tls_004-1a>¶
+** 4 東周與西周爭
+
+東周與西周爭，¶
+西周欲和於楚、韓。
+齊明謂東周君曰：¶
+「臣恐西周之與楚、韓寶，¶
+令之為己求地於東周也。¶
+不如謂楚、韓曰，¶
+西周之欲入寶，¶
+持二端。¶
+
+# src: ZGC 1.4.2; tr. Crump 1979 no. 23, p. 40
+# dating: 8110
+今東周之兵不急西周，¶
+西周之寶不入楚、韓。
+楚、¶韓欲得寶，¶
+即且趣我攻西周。¶
+西周寶出，¶
+是我為楚、韓取寶
+以德之也，¶
+西周弱矣。」
+

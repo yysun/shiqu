@@ -1,0 +1,86 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 293
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.7.1 tr. Crump no 298, ed. Sha4ngha3igu3jí p. 780
+# dating: 8110
+<pb:KR2e0003_tls_294-1a>¶
+** 294 魏武侯與諸大夫浮於西河
+
+魏武侯與諸大夫浮於西河，
+稱曰：¶
+「河山之險，¶
+豈不亦信固哉！」¶
+
+# src: ZGC 22.7.2 tr. Crump no 298, ed. Sha4ngha3igu3jí p. 780
+# dating: 8110
+曰：¶
+王鍾侍王，「此晉國之所以強也。¶
+若善脩之，¶
+則霸王之業具矣。」¶
+吳起對曰：¶「吾君之言，¶
+危國之道也；¶
+而子又附之，¶
+是危也。」¶
+武侯忿然曰：¶「子之言有說乎？」<pb:KR2e0003_tls_294-2a>¶
+
+# src: ZGC 22.7.3 tr. Crump no 298, ed. Sha4ngha3igu3jí p. 7i1
+# dating: 8110
+吳起對曰：¶
+「河山之險，¶
+信不足保也；¶
+是伯王之業，¶
+不從此也。¶
+昔者，¶
+三苗之居，¶
+左彭蠡之波，¶
+右有洞庭之水，¶
+文山在其南，¶
+而衡山在其北。¶
+恃此險也，¶
+為政不善，¶
+而禹放逐之。¶
+
+# src: ZGC 22.7.4 tr. Crump no 298, ed. Sha4ngha3igu3jí p. 7i1
+# dating: 8110
+夫夏桀之國，¶
+左天門之陰，¶
+而右天谿之陽，¶
+廬、睪在其北，¶
+伊、洛出其南。¶
+有此險也，¶
+然為政不善，¶
+而湯伐之。¶
+
+# src: ZGC 22.7.5 tr. Crump no 298, ed. Sha4ngha3igu3jí p. 7i1
+# dating: 8110
+殷紂之國，¶
+左孟門而右漳、釜，
+前帶河，¶
+後被山。¶
+有此險也，¶
+然為政不善，¶
+而武王伐之。¶
+
+# src: ZGC 22.7.6 tr. Crump no 298, ed. Sha4ngha3igu3jí p. 7i1
+# dating: 8110
+且君親從臣而勝降城，¶
+城非不高也，¶
+人民非不眾也，¶
+然而可得并者，¶
+政惡故也。¶
+從是觀之，¶
+地形險阻，¶
+奚足以霸王矣！」<pb:KR2e0003_tls_294-3a>¶
+
+# src: ZGC 22.7.7 tr. Crump no 298, ed. Sha4ngha3igu3jí p. 7i2
+# dating: 8110
+武侯曰：「善。¶
+吾乃今日聞聖人之言也！¶
+西河之政，¶
+專委之子矣。」
+

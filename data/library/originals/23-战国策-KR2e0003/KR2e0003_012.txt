@@ -1,0 +1,38 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 11
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.12.1; tr. Crump 1979 no. 42, p. 51 The citizen of the world
+# dating: 8110
+<pb:KR2e0003_tls_012-1a>¶
+** 12 溫人之周
+
+溫人之周，¶
+周不納。¶
+客即對曰：¶
+「主人也。」¶
+問其巷而不知也，¶
+吏因囚之。¶
+君使人問之曰：¶
+「子非周人，¶
+而自謂非客何也？」¶
+
+# src: ZGC 1.12.2; tr. Crump 1979 no. 42, p. 51
+# dating: 8110
+對曰：¶
+「臣少而誦《詩》，¶
+《詩》曰：¶
+『普天之下，¶
+莫非王土；¶
+率土之濱，¶
+莫非王臣。』¶
+今周君天下，¶
+則我天子之臣，¶
+而又為客哉？¶
+故曰主人。」¶
+君乃使吏出之。
+

@@ -1,0 +1,21 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 136
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 10.2.1; tr. Crump 1979 no.146292 p.182, ed. Shanghaiguji p. 369 The seven women and the seven earrings
+# dating: 8110
+<pb:KR2e0003_tls_137-1a>¶
+** 137 齊王夫人死
+
+齊王夫人死，¶
+有七孺子皆近。¶
+薛公欲知王所欲立，¶
+乃獻七珥，¶
+美其一，¶
+明日視美珥所在，¶
+勸王立為夫人。
+

@@ -1,0 +1,29 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 349
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25. 6. 1; tr. Crump 1979 no. 351, p. 424, ed. Shanghai Guji p. 892
+# dating: 8110
+<pb:KR2e0003_tls_350-1a>¶
+** 350 穰侯攻大梁
+
+穰侯攻大梁，¶
+乘北郢，¶
+魏王且從。¶
+謂穰侯曰：¶
+「君攻楚得宛、穰以廣陶，¶
+攻齊得剛、博以廣陶，¶
+得許、鄢陵以廣陶，¶
+秦王不問者，¶
+何也？¶
+以大梁之未亡也。¶
+今日大梁亡，¶
+許、鄢陵必議，¶
+議則君必窮。¶
+為君計者，¶
+勿攻便。」
+

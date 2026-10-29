@@ -1,0 +1,61 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 87
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 5.14.1; tr. Crump 1979 no. 101, p 113, ed. Shanghaiguji p. 202 The dogs and the bone
+# dating: 8110
+<pb:KR2e0003_tls_088-1a>¶
+** 88 天下之士合從相聚於趙
+
+天下之士，¶
+合從相聚於趙，¶
+而欲攻秦。¶
+秦相應侯曰：¶
+「王勿憂也，¶
+請令廢之。¶
+秦於天下之士非有怨也，¶
+相聚而攻秦者，¶
+以己欲富貴耳。¶
+
+# src: ZGC 5.14.2; tr. Crump 1979 no. 101, p 113, ed. Shanghaiguji p. 202
+# dating: 8110
+王見大王之狗，¶
+臥者臥，¶
+起者起，¶
+行者行，¶
+止者止，¶
+毋相與鬭者；¶
+投之一骨，¶
+輕起相牙者，¶
+何則？¶
+有爭意也。」¶
+
+# src: ZGC 5.14.3; tr. Crump 1979 no. 101, p 113, ed. Shanghaiguji p. 203
+# dating: 8110
+於是唐雎載音樂，¶
+予之五十金，¶
+居武安，¶
+高會相與飲，¶
+謂：¶
+「邯鄲人誰來取者？」¶
+於是其謀者固未可得予也，¶
+其可得與者，¶
+與之昆弟矣。
+
+# src: ZGC 5.14.4; tr. Crump 1979 no. 101, p 113, ed. Shanghaiguji p. 203
+# dating: 8110
+<pb:KR2e0003_tls_088-2a>¶
+「公與秦計功者，¶
+不問金之所之，¶
+金盡者功多矣。¶
+今令人復載五十金隨公。」¶
+唐雎行，¶
+行至武安，¶
+散不能三千金，¶
+天下之士，¶
+大相與鬭矣。
+

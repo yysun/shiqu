@@ -1,0 +1,33 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 71
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 4.14.1; tr. Crump 1979 no. 74, p 80 Kan Mao wants Wei to supervise a truce
+# dating: 8110
+<pb:KR2e0003_tls_072-1a>¶
+** 72 甘茂約秦魏而攻楚
+
+甘茂約秦、魏而攻楚。¶
+楚之相秦者屈蓋，¶
+為楚和於秦，¶
+秦啟關而聽楚使。¶
+甘茂謂秦王曰：¶
+「怵於楚
+而不使魏制和，¶
+楚必曰¶
+『『秦鬻魏』。¶
+不悅而合於楚，¶
+
+# src: ZGC 4.14.2; tr. Crump 1979 no. 74, p 80
+# dating: 8110
+楚、魏為一，¶
+國恐傷矣。¶
+王不如使魏制和，¶
+魏制和必悅。¶
+王不惡於魏，¶
+則寄地必多矣。」
+

@@ -1,0 +1,26 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 67
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 4.10.1; tr. Crump 1979 no. 70, p 78, ed. Shanghaiguji p. 156 Kan Mao rallies the king of Ch'in from his despair
+# dating: 8110
+<pb:KR2e0003_tls_068-1a>¶
+** 68 宜陽之役楚畔秦而合於韓
+
+宜陽之役，¶
+楚畔秦而合於韓。¶
+秦王懼。¶
+甘茂曰：¶
+「楚雖合韓，¶
+不為韓氏先戰；¶
+韓亦恐戰
+而楚有變其後。¶
+韓、楚必相御也。¶
+楚言與韓，¶
+而不餘怨於秦，¶
+臣是以知其御也。」
+

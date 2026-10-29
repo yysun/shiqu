@@ -1,0 +1,32 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 385
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 26. 14. 2; tr. Crump 1979 no. 396, p. 468f, ed. Shanghai Guji p. 946
+# dating: 8110
+<pb:KR2e0003_tls_386-1a>¶
+** 386 秦圍宜陽
+
+秦圍宜陽，¶
+游騰謂公仲曰：¶
+「公何不與趙藺、¶離石、祁，
+以質許地，¶
+則樓緩必敗矣。¶
+收韓、趙之兵以臨魏，¶
+樓鼻必敗矣。¶
+韓為一，¶
+魏必倍秦，¶
+甘茂必敗矣。¶
+
+# src: ZGC 26. 14. 3; tr. Crump 1979 no. 396, p. 469, ed. Shanghai Guji p. 946
+# dating: 8110
+以成陽資翟強於齊，¶
+楚必敗之。¶
+須秦必敗，¶
+秦失魏，¶
+宜陽必不拔矣。」
+

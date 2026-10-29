@@ -1,0 +1,72 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 33
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 2.6.1; tr. Crump 1979 no.13, p. 33, ed. Shanghaiguji p. 55- Po Ch'i and the parable of the archer
+# dating: 8110
+<pb:KR2e0003_tls_034-1a>¶
+** 34 蘇厲謂周君
+
+蘇厲謂周君曰：¶
+「敗韓、魏，
+殺武，
+攻趙，¶
+取藺、離石、祁者，¶
+皆白起。¶
+是攻用兵，¶
+又有天命也。¶
+
+# src: ZGC 2.6.2; tr. Crump 1979 no.13, p. 33, ed. Shanghaiguji p. 56-
+# dating: 8110
+今攻梁，¶
+梁必破，¶
+破則周危，¶
+君不若止之。¶
+謂白起曰：¶
+『楚有養由基者，¶
+善射；¶
+去柳葉者百步而射之，¶
+百發百中。¶
+左右皆曰善。¶
+
+# src: ZGC 2.6.3; tr. Crump 1979 no.13, p. 33, ed. Shanghaiguji p. 56-
+# dating: 8110
+有一人過曰，¶
+善射，¶
+可教射
+也矣。養由基曰，¶
+人皆善，¶
+子乃曰可教射，¶
+子何不代我射之也。¶
+客曰，¶
+我不能教子支左屈右。¶
+
+# src: ZGC 2.6.4; tr. Crump 1979 no.13, p. 33, ed. Shanghaiguji p. 56-
+# dating: 8110
+夫射柳葉者，¶
+百發百中，¶
+而不已善息，¶
+少焉氣力倦，¶
+弓撥矢鉤，¶
+一發不中，¶
+前功盡矣。¶
+今公破韓、魏，
+殺武，
+而北攻趙，¶
+取藺、離石、祁者，¶
+公也。¶
+
+# src: ZGC 2.6.5; tr. Crump 1979 no.13, p. 33, ed. Shanghaiguji p. 56-
+# dating: 8110
+公之功甚多。¶
+今公又以秦兵出塞，¶
+過兩周，¶
+踐韓而以攻梁，¶
+一攻而不得，¶
+前功盡滅，¶
+公不若稱病不出也。』」
+

@@ -1,0 +1,25 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 8
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.9; tr. Crump 1979 no. 37, p. 48 Chou Tsui's plan
+# dating: 8110
+<pb:KR2e0003_tls_009-1a>¶
+** 9 周最謂石禮
+
+周最謂石禮曰：¶
+「子何不以秦攻齊？¶
+臣請令齊相子，¶
+子以齊事秦，¶
+必無處矣。¶
+子因令周最居魏以共之，¶
+是天下制於子也。¶
+子東重於齊，¶
+西貴於秦，¶
+秦、齊合，¶
+則子常重矣。」
+

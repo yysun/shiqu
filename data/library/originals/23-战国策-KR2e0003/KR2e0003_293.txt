@@ -1,0 +1,29 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 292
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.6.1 tr. Crump no 297, ed. Sha4ngha3igu3jí p. 779
+# dating: 8110
+<pb:KR2e0003_tls_293-1a>¶
+** 293 魏文侯與田子方飲酒而稱樂
+
+魏文侯與田子方飲酒而稱樂。¶
+文侯曰：¶
+「鍾聲不比乎，¶
+左高。」¶
+田子方笑。¶
+文侯曰：¶
+「奚笑？」¶
+子方曰：¶
+「臣聞之，¶
+君明則樂官，不明則樂音。¶
+今君審於聲，¶
+臣恐君之聾於官也。」¶
+文侯曰：¶
+「善，¶
+敬聞命。」
+

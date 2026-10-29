@@ -1,0 +1,27 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 356
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25. 13. 1; tr. Crump 1979 no. 355, p. 427, ed. Shanghai Guji p. 902
+# dating: 8110
+<pb:KR2e0003_tls_357-1a>¶
+** 357 為魏謂楚王
+
+為魏謂楚王曰：¶
+「索攻魏於秦，¶
+秦必不聽王矣，¶
+是智困於秦，¶
+而交疏於魏也。¶
+楚、魏有怨，¶
+則秦重矣。¶
+故王不如順天下，¶
+遂伐齊，¶
+與魏便地，¶
+兵不傷，¶
+交不變，¶
+所欲必得矣。」
+

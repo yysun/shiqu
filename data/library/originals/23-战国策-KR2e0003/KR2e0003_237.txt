@@ -1,0 +1,42 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 236
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 18.16.1, tr. Crump no 251, ed. Sha4ngha3igu3jí p. 625
+# dating: 8110
+<pb:KR2e0003_tls_237-1a>¶
+** 237 趙王封孟嘗君以武城
+
+趙王封孟嘗君以武城。¶
+孟嘗君擇舍人以為武城吏，¶
+而遣之曰：¶
+「鄙語豈不曰，¶
+借車者馳之，¶
+借衣者被之哉？」¶
+皆對曰：¶
+「有之。」¶
+
+# src: ZGC 18.16.2, tr. Crump no 251, ed. Sha4ngha3igu3jí p. 625
+# dating: 8110
+孟嘗君曰：¶「文甚不取也。¶
+夫所借衣車者，¶
+非親友，¶
+則兄弟也。¶
+夫馳親友之車，¶
+被兄弟之衣，¶
+文以為不可。¶
+
+# src: ZGC 18.16.3, tr. Crump no 251, ed. Sha4ngha3igu3jí p. 625
+# dating: 8110
+今趙王不知文不肖，¶
+而封之以武城，¶
+願大夫之往也，¶
+毋伐樹木，¶
+毋發屋室，¶
+訾然使趙王悟而知文也。¶
+謹使可全而歸之。」
+

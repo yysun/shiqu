@@ -1,0 +1,51 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 311
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.24.1; tr. Crump, 343, p.414, ed. Shanghaiguji p. 812. A queen's anxiety for her lover stands Wei in good stead
+# dating: 8110
+<pb:KR2e0003_tls_312-1a>¶
+** 312 秦敗東周
+
+秦敗東周，¶
+與魏戰於伊闕，¶
+殺犀武。¶
+魏令公孫衍乘勝
+而留於境，¶
+請卑辭割地，以講於秦。¶
+為竇屢謂魏王曰：¶
+「臣不知衍之所以聽於秦之少多，¶
+然而臣能半衍之割，¶
+而令秦講於王。」¶
+
+# src: ZGC 22.24.2; tr. Crump, 343, p.414, ed. Shanghaiguji p. 812
+# dating: 8110
+王曰：¶
+「奈何？」¶
+對曰：¶
+「王不若與竇屢關內侯，¶
+而令趙。¶
+王重其行而厚奉之。¶
+
+# src: ZGC 22.24.3; tr. Crump, 343, p.414, ed. Shanghaiguji p. 813-
+# dating: 8110
+因揚言曰：¶
+『聞周、魏令竇屢以割魏於奉陽君，¶
+而聽秦矣。』¶
+夫周君、¶
+竇屢、¶
+奉陽君之與穰侯，¶
+貿首之仇也。¶
+今行和者，¶
+竇屢也；¶
+制割者，¶
+奉陽君也。¶
+太后恐其不因穰侯也，¶
+而欲敗之，¶
+必以少割請合於王，¶
+而和於東周與魏也。」
+

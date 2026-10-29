@@ -1,0 +1,26 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 411
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.16. 2; tr. Crump 1979 no.417, p.4i4, ed. Shanghai Guji p. 986
+# dating: 8110
+<pb:KR2e0003_tls_412-1a>¶
+** 412 胡衍之出幾瑟於楚
+
+胡衍之出幾瑟於楚也，¶
+教公仲謂魏王曰：¶
+「太子在楚，¶
+韓不敢離楚也。¶
+公何不試奉公子咎，¶
+而為之請太子。因令人謂楚王曰：¶
+『韓立公子咎而棄幾瑟，¶
+是王抱虛質也。¶
+王不如亟歸幾瑟。¶
+幾瑟入，¶
+必以韓權報讎於魏，¶
+而德王矣。』」
+

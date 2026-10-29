@@ -1,0 +1,34 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 13
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.14.1 tr. Crump 1979 no. 44, p. 52 Chou Tsui warns Chin T'ou
+# dating: 8110
+<pb:KR2e0003_tls_014-1a>¶
+** 14 周最謂金投
+
+周最謂金投曰：¶
+「公負令秦與強齊戰。¶
+戰勝，¶
+秦且收齊
+而封之，¶
+使無多割，¶
+而聽天下之戰；¶
+不勝，¶
+國大傷，¶
+不得不聽秦。¶
+秦盡韓、魏之上黨太原，¶
+西止秦之有已。¶
+
+# src: ZGC 1.14.2 tr. Crump 1979 no. 44, p. 52
+# dating: 8110
+秦地，¶
+天下之半也，¶
+制齊、楚、三晉之命，¶
+復國且身危，¶
+是何計之道也。」
+

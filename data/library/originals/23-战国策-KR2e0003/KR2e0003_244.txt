@@ -1,0 +1,56 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 243
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 19.6.1, tr. Crump no 241, ed. Sha4ngha3igu3jí p. 670
+# dating: 8110
+<pb:KR2e0003_tls_244-1a>¶
+** 244 趙燕後胡服
+
+趙燕後胡服，¶
+王令讓之曰：¶
+「事主之行，¶
+竭意盡力，¶
+微諫而不譁，¶
+應對而不怨，¶
+不逆上以自伐，¶
+不立私以為名。¶
+
+# src: ZGC 19.6.2, tr. Crump no 241, ed. Sha4ngha3igu3jí p. 670
+# dating: 8110
+子道順而不拂，¶
+臣行讓而不爭。¶
+子用私道者家必亂，¶
+臣用私義者國必危。¶
+反親以為行，¶
+慈父不子；¶
+逆主以自成，¶
+惠主不臣也。¶
+
+# src: ZGC 19.6.3, tr. Crump no 241, ed. Sha4ngha3igu3jí p. 670
+# dating: 8110
+寡人胡服，¶
+子獨弗服，¶
+逆主
+罪莫大焉。¶
+以從政為累，¶
+以逆主為高，¶
+行私莫大焉。¶
+故寡人恐親犯刑戮之罪，¶
+以明有司之法。」¶
+
+# src: ZGC 19.6.4, tr. Crump no 241, ed. Sha4ngha3igu3jí p. 670
+# dating: 8110
+趙燕再拜稽首曰：¶
+「前吏命胡服，¶
+施及賤臣，¶
+臣以失令過期，¶
+更不用侵辱教，¶
+王之惠也。¶
+臣敬循衣服，¶
+以待今日。」
+

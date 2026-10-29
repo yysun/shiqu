@@ -1,0 +1,51 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 61
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 4.4.1; tr. Crump 1979 no. 56, p 65, ed. Shanghaiguji p. 144 The ruler of the Yi-ch'ü
+# dating: 8110
+<pb:KR2e0003_tls_062-1a>¶
+** 62 義渠君之魏
+
+義渠君之魏，¶
+公孫衍謂義渠君曰：¶
+「道遠，¶
+臣不得復過矣，¶
+請謁事情。」¶
+義渠君曰：¶
+「願聞之。」¶
+對曰：¶
+「中國無事於秦，¶
+則秦且燒爇獲君之國；¶
+中國為有事於秦，¶
+則秦且輕使重幣，¶
+而事君之國也。」¶
+義渠君曰：¶
+「謹聞令。」<pb:KR2e0003_tls_062-2a>¶
+
+# src: ZGC 4.4.2; tr. Crump 1979 no. 56, p 65, ed. Shanghaiguji p. 144
+# dating: 8110
+居無幾何，¶
+五國伐秦。¶
+陳軫謂秦王曰：¶
+「義渠君者，¶
+蠻夷之賢君，¶
+王不如賂之以撫其心。」¶
+秦王曰：¶
+「善。」¶
+因以文繡千匹，¶
+好女百人，¶
+遺義渠君。
+
+# src: ZGC 4.4.3; tr. Crump 1979 no. 56, p 65, ed. Shanghaiguji p. 144
+# dating: 8110
+<pb:KR2e0003_tls_062-3a>¶
+義渠君致群臣而謀曰：¶
+「此乃公孫衍之所謂也。」¶
+因起兵襲秦，¶
+大敗秦人於李帛之下。
+

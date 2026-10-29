@@ -43,18 +43,26 @@ export function replacementPage(id:string,n:number){
  return `${base}/第${String(n).padStart(['西游记','三国演义','水浒传'].includes(id)?3:2,'0')}${['西游记','三国演义','水浒传','儒林外史'].includes(id)?'回':'卷'}`;
 }
 function wikiLabel(raw:string,title:string){
- const doc=parseDocument(raw);
- const visit=(node:typeof doc|typeof doc.children[number]):string|undefined=>{
-  if('attribs' in node&&node.name==='a'){
+ const doc=parseDocument(raw),candidates:{label:string;listed?:string}[]=[];
+ type Node=typeof doc|typeof doc.children[number];
+ const plain=(node:Node):string=>node.type==='text'?node.data:'children'in node?node.children.map(plain).join(''):'';
+ function visit(node:Node){
+  if('attribs'in node&&node.name==='a'){
    const href=node.attribs.href||'';
    if(href.startsWith('/wiki/')&&decodeURIComponent(href.slice(6)).replace(/_/g,' ')===title){
-    const plain=(n:typeof node|typeof doc.children[number]):string=>n.type==='text'?n.data:'children'in n?n.children.map(plain).join(''):'';
-    return plain(node).trim();
+    let listed:string|undefined;
+    for(let parent=node.parent;parent;parent=parent.parent)if('name'in parent&&parent.name==='li'){listed=plain(parent).replace(/\s+/g,' ').trim();break;}
+    candidates.push({label:plain(node).trim(),listed});
    }
   }
-  if('children'in node)for(const child of node.children){const label=visit(child);if(label)return label;}
- };
- const label=visit(doc);if(!label)throw Error('Missing indexed chapter link');return label;
+  if('children'in node)for(const child of node.children)visit(child);
+ }
+ visit(doc);
+ // Modern index introductions may also link to a chapter; prefer its numbered contents entry.
+ // Keep the full contents title, including text outside the anchor itself.
+ const listed=candidates.find(item=>item.listed&&/^(?:第|卷|附)/.test(item.listed));
+ const label=listed?.listed||candidates.find(item=>item.listed)?.listed||candidates[0]?.label;
+ if(!label)throw Error('Missing indexed chapter link');return label;
 }
 function validateWiki(raw:string,item:HtmlOriginal,expected:string){
  const identity=wikiIdentity(raw),url=new URL(item.sourceUrl);

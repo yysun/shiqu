@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 16
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.17.1; tr. Crump 1979 no. 39, p. 49 The king of Ch'i warned of the disadvantages of being Ch'in's ally
+# dating: 8110
+<pb:KR2e0003_tls_017-1a>¶
+** 17 齊聽祝弗
+
+齊聽祝弗，¶
+外周最。¶
+謂齊王曰：¶
+「逐周最、¶
+聽祝弗、¶
+相呂禮者，¶
+欲深取秦也。¶
+秦得天下，¶
+則伐齊深矣。¶
+
+# src: ZGC 1.17.2; tr. Crump 1979 no. 39, p. 49
+# dating: 8110
+夫齊合，¶
+則趙恐伐，¶
+故急兵以示秦。¶
+秦以趙攻，¶
+與之齊伐趙，¶
+其實同理，¶
+必不處矣。¶
+故用祝弗，¶
+即天下之理也。」
+

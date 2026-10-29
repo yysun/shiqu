@@ -1,0 +1,20 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 172
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC, 14.4.1, tr. Crump no,176,d. Sha4ngha3igu3jí p. 4i2
+# dating: 8110
+<pb:KR2e0003_tls_173-1a>¶
+** 173 昭奚恤與彭城君議於王前
+
+昭奚恤與彭城君議於王前，¶
+王召江乙而問焉。¶
+江乙曰：¶
+「二人之言皆善也，¶
+臣不敢言其後。¶
+此謂慮賢也。」
+

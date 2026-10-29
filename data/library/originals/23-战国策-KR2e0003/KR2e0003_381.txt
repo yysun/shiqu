@@ -1,0 +1,36 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 380
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 26. 10. 1; tr. Crump 1979 no. 390, p. 463, ed. Shanghai Guji p. 940
+# dating: 8110
+<pb:KR2e0003_tls_381-1a>¶
+** 381 秦攻陘
+
+秦攻陘，
+韓使人馳南陽之地。¶
+秦已馳，¶
+又攻陘，¶
+韓因割南陽之地。¶
+秦受地，¶
+又攻陘。¶
+陳軫謂秦王曰：¶
+「國形不便故馳，¶
+交不親故割。¶
+今割矣而交不親，¶
+馳矣而兵不止，¶
+臣恐山東之無以馳割事王者矣。¶
+
+# src: ZGC 26. 10. 2; tr. Crump 1979 no. 390, p. 463, ed. Shanghai Guji p. 940
+# dating: 8110
+且王求百金於三川而不可得，¶
+求千金於韓，¶
+一旦而具。¶
+今王攻韓，是
+絕上交而固私府也，¶
+竊為王弗取也。」
+

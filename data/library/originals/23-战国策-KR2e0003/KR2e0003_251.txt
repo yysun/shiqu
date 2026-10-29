@@ -1,0 +1,31 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 250
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.6.1, tr. Crump no 247, ed. Sha4ngha3igu3jí p. 686
+# dating: 8110
+<pb:KR2e0003_tls_251-1a>¶
+** 251 魏因富丁且合於秦
+
+魏因富丁且合於秦，¶
+趙恐，¶
+請效地於魏而聽薛公。¶
+教子欬謂李兌曰：¶
+
+# src: ZGC 20.6.2, tr. Crump no 247, ed. Sha4ngha3igu3jí p. 686
+# dating: 8110
+「趙畏橫之合也，¶
+故欲效地於魏而聽薛公。¶
+公不如令主父以地資周最，¶
+而請相之於魏。¶
+周最以天下辱秦者也，¶
+今相魏，¶
+魏、秦必虛矣。¶
+齊、魏雖勁，¶
+無秦不能傷趙。¶
+魏王聽，¶是輕齊也。¶秦、魏雖勁，無齊不能得趙。¶此利於趙而便於周最也。」
+

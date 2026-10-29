@@ -1,0 +1,41 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 144
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 10.10.1; tr. Crump 1979 no.127 p.159, ed. Shanghaiguji p. 388 Birds of a feather flock together
+# dating: 8110
+<pb:KR2e0003_tls_145-1a>¶
+** 145 淳于髡一日而見七人於宣王
+
+淳于髡一日而見七人於宣王。¶
+王曰：¶
+「子來，¶
+寡人聞之，¶
+千里而一士，¶
+是比肩而立；¶
+百世而一聖，¶
+若隨踵而至也。¶
+今子一朝而見七士，¶
+則士不亦眾乎？」¶
+
+# src: ZGC 10.10.2; tr. Crump 1979 no.127 p.159, ed. Shanghaiguji p. 388
+# dating: 8110
+淳于髡曰：¶
+「不然。¶
+夫鳥同翼者而聚居，¶
+獸同足者而俱行。¶
+今求柴葫、桔梗於沮澤，¶
+則累世不得一焉。¶
+及之睾黍、梁父之陰，¶
+則郄車而載耳。¶
+夫物各有疇，¶
+今髡賢者之疇也。¶
+王求士於髡，譬若挹水於河，¶
+而取火於燧也。¶
+髡將復見之，¶
+豈特七士也。」
+

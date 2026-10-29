@@ -1,0 +1,50 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 98
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 6.7.1; tr. Crump 1979 no.51, p 61, ed. Shanghaiguji p. 237 Ching Li talks himself out of ransom
+# dating: 8110
+<pb:KR2e0003_tls_099-1a>¶
+** 99 楚王使景鯉如秦
+
+楚王使景鯉如秦。¶
+客謂秦王曰：¶
+「景鯉，¶
+楚王使景所甚愛，¶
+王不如留之以市地。¶
+楚王聽，¶
+則不用兵而得地；¶
+楚王不聽，¶
+則殺景鯉，¶
+更不與
+不如景鯉留，¶
+是便計也。」¶
+秦王乃留景鯉。
+
+# src: ZGC 6.7.2; tr. Crump 1979 no.51, p 61, ed. Shanghaiguji p. 237
+# dating: 8110
+<pb:KR2e0003_tls_099-2a>¶
+景鯉使人說秦王曰：¶
+「臣見王之權輕天下，¶
+而地不可得也。¶
+臣之來使也，¶
+聞齊、魏皆且割地以事秦。¶
+所以然者，¶
+以秦與楚為昆弟國。¶
+
+# src: ZGC 6.7.3; tr. Crump 1979 no.51, p 61, ed. Shanghaiguji p. 237
+# dating: 8110
+今大王留臣，¶
+是示天下無楚也，¶
+齊、魏有何重於孤國也。¶
+楚知秦之孤，¶
+不與地，¶
+而外結交諸侯以圖，¶
+則社稷必危，¶
+不如出臣。」¶
+秦王乃出之。
+

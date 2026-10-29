@@ -1,0 +1,31 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 233
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 18.13.1, tr. Crump no 238, ed. Sha4ngha3igu3jí p. 621
+# dating: 8110
+<pb:KR2e0003_tls_234-1a>¶
+** 234 甘茂為秦約魏以攻韓宜陽
+
+甘茂為秦約魏以攻韓宜陽，¶
+又北之趙，¶
+冷向謂強國曰：¶
+「不如令趙拘甘茂，¶
+勿出，¶
+以與齊、韓、秦市。¶
+
+# src: ZGC 18.13.2, tr. Crump no 238, ed. Sha4ngha3igu3jí p. 621
+# dating: 8110
+齊王欲求救宜陽，¶
+必效縣狐氏。¶
+韓欲有宜陽，¶
+必以路涉、端氏賂趙。¶
+秦王欲得宜陽，¶
+不愛名寶，¶
+且拘茂也，¶
+且以置公孫赫、樗里疾。」
+

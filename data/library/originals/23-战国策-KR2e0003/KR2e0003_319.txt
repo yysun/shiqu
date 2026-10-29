@@ -1,0 +1,27 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 318
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 23.4.1; tr. Crump, 326, p.399, ed. Shanghaiguji p. 822. The hsi-shou has Shih Chü discredited
+# dating: 8110
+<pb:KR2e0003_tls_319-1a>¶
+** 319 史舉非犀首於王
+
+史舉非犀首於王。¶
+犀首欲窮之，¶
+謂張儀曰：¶
+「請令王讓先生以國，¶
+王為堯、舜矣；¶
+而先生弗受，¶
+亦許由也。¶
+衍請因令王
+致萬戶邑於先生。」¶
+張儀說，¶
+因令史舉數見犀首。¶
+王聞之而弗任也，¶
+史舉不辭而去。
+

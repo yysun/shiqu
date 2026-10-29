@@ -1,0 +1,44 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 4
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.5.1; tr. Crump 1979 no. 24, p. 40 West Chou opens the sluices and Su-tzu takes fees from both sides
+# dating: 8110
+<pb:KR2e0003_tls_005-1a>¶
+** 5 東周欲為稻
+
+東周欲為稻，¶
+西周不下水，¶
+東周患之。¶
+蘇子謂東周君曰：¶
+「臣請使西周下水可乎？」¶
+乃往見西周之君曰：¶
+「君之謀過矣！¶
+今不下水，¶
+所以富東周也。¶
+今其民皆種麥，¶
+無他種矣。¶
+
+# src: ZGC 1.5.2; tr. Crump 1979 no. 24, p. 40
+# dating: 8110
+君若欲害之，¶
+不若一為下水，¶
+以病其所種。¶
+下水，¶
+東周必復種稻；¶
+種稻而復奪之。¶
+若是，¶
+則東周之民可令一仰西周，¶
+而受命於君矣。」¶
+
+# src: ZGC 1.5.3; tr. Crump 1979 no. 24, p. 40
+# dating: 8110
+西周君曰：¶
+「善。」¶
+遂下水。¶
+蘇子亦得兩國之金也。
+

@@ -1,0 +1,44 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 495
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 33. 5.1; tr. Crump 1979 no.493, p 579, ed. Shanghai Guji p. 1177
+# dating: 8110
+<pb:KR2e0003_tls_496-1a>¶
+** 496 司馬憙三相中山
+
+司馬憙三相中山，
+陰簡難之。¶
+田簡謂司馬憙曰：¶
+「趙使者來屬耳，¶
+獨不可語陰簡之美乎？¶
+趙必請之，¶
+君與之，¶
+即公無內難矣。¶
+君弗與趙，¶
+公因勸君立之以為正妻。¶
+陰簡之德公，¶
+無所窮矣。」¶
+
+# src: ZGC 33. 5. 2; tr. Crump 1979 no.493, p 579f, ed. Shanghai Guji p. 1177f
+# dating: 8110
+果令趙請，¶
+君弗與。¶
+司馬憙曰：¶
+「君弗與趙，¶
+趙王必大怒；¶
+大怒則君必危矣。¶
+然則立以為妻，¶
+固無請人之妻不得而怨人者也。」<pb:KR2e0003_tls_496-2a>¶
+
+# src: ZGC 33. 6. 1; tr. Crump 1979 no.494, p 580, ed. Shanghai Guji p. 1178
+# dating: 8110
+田簡自謂取使，¶
+可以為司馬憙，¶
+可以為陰簡，¶
+可以令趙勿請也。
+

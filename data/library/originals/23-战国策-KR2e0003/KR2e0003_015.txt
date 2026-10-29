@@ -1,0 +1,20 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 14
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.15; tr. Crump 1979 no. 45, p. 53 The dialecticians of Chou
+# dating: 8110
+<pb:KR2e0003_tls_015-1a>¶
+** 15 石行秦謂大梁造
+
+石行秦謂大梁造曰：¶
+「欲決霸王之名，¶
+不如備兩周辯知之士。」¶
+謂周君曰：¶
+「君不如令辯知之士，¶
+為君爭於秦。」
+

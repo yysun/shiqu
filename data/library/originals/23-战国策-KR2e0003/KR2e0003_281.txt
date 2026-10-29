@@ -1,0 +1,80 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 280
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 21.13.1 tr. Crump no 288, ed. Sha4ngha3igu3jí p. 757
+# dating: 8110
+<pb:KR2e0003_tls_281-1a>¶
+** 281 客見趙王
+
+客見趙王曰：¶
+「臣聞王之使人買馬也，¶
+有之乎？」¶
+王曰：¶
+「有之。」¶
+「何故至今不遣？」¶
+王曰：¶
+「未得相馬之工也。」¶
+
+# src: ZGC 21.13.2 tr. Crump no 288, ed. Sha4ngha3igu3jí p. 757
+# dating: 8110
+對曰：「王何不遣建信君乎？」¶
+王曰：「建信君有國事，¶
+又不知相馬。」¶
+曰：¶
+「王何不遣紀姬乎？」¶
+王曰：「紀姬婦人也，¶
+不知相馬。」¶
+
+# src: ZGC 21.13.3 tr. Crump no 288, ed. Sha4ngha3igu3jí p. 757
+# dating: 8110
+對曰：「買馬而善，¶
+何補於國？」¶
+王曰：「無補於國。」¶
+「買馬而惡，¶
+何危於國？」¶
+王曰：「無危於國。」¶
+
+# src: ZGC 21.13.4 tr. Crump no 288, ed. Sha4ngha3igu3jí p. 757
+# dating: 8110
+對曰：「然則買馬善而若惡，¶
+皆無危補於國。¶
+然而王之買馬也，¶
+必將待工。¶
+今治天下，¶
+舉錯非也，¶
+國家為虛戾，¶
+而社稷不血食，¶
+
+# src: ZGC 21.13.5 tr. Crump no 288, ed. Sha4ngha3igu3jí p. 757
+# dating: 8110
+然而王不待工，¶
+而與建信君，¶
+何也？」¶
+趙王未之應也。¶
+
+# src: ZGC 21.13.6 tr. Crump no 288, ed. Sha4ngha3igu3jí p. 757
+# dating: 8110
+客曰：¶
+「燕郭之法，¶
+有所謂桑雍者，王知之乎？」¶
+王曰：「未之聞也。」¶
+
+# src: ZGC 21.13.7 tr. Crump no 288, ed. Sha4ngha3igu3jí p. 757
+# dating: 8110
+「所謂桑雍者，¶
+便辟左右之近者，¶
+及夫人優愛孺子也。¶
+此皆能乘王之醉昏，¶
+而求所欲於王者也。¶
+是能得之乎內，¶
+則大臣為之枉法於外矣。¶
+故日月暉於外，¶
+其賊在於內，¶
+謹備其所憎，¶
+而禍在於所愛。」
+

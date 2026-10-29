@@ -1,0 +1,26 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 7
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.8; tr. Crump 1979 no. 27, p. 42 Chou provisions Ch'u's enemies but appeases her resentment
+# dating: 8110
+<pb:KR2e0003_tls_008-1a>¶
+** 8 楚攻雍氏
+
+楚攻雍氏，¶
+周粻秦、韓，
+楚王怒周，¶
+周之君患之。¶
+為周謂楚王曰：¶
+「以王之強而怒周，¶
+周恐，¶
+必以國合於所與粟之國，¶
+則是勁王之敵也。¶
+故王不如速解周恐，¶
+彼前得罪而後得解，¶
+必厚事王矣。」
+

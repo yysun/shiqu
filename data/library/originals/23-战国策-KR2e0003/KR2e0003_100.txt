@@ -1,0 +1,116 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 99
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 6.8.1; tr. Crump 1979 no.111, p 141, ed. Shanghaiguji p. 238 Tun Jo offends a king and then does him great service
+# dating: 8110
+<pb:KR2e0003_tls_100-1a>¶
+** 100 秦王欲見頓弱
+
+秦王欲見頓弱，¶
+頓弱曰：¶
+「臣之義不參拜，¶
+王能使臣無拜，¶
+即可矣。¶
+不，
+即不見也。」¶
+
+# src: ZGC 6.8.2; tr. Crump 1979 no.111, p 141, ed. Shanghaiguji p. 238
+# dating: 8110
+秦王許之。¶
+於是頓子曰：¶
+「天下有
+其實而無其名者，¶
+有無其實而有其名者，¶
+有無其名又無其實者。¶
+王知之乎？」¶
+王曰：¶
+「弗知。」¶
+
+# src: ZGC 6.8.3; tr. Crump 1979 no.111, p 141, ed. Shanghaiguji p. 238
+# dating: 8110
+頓子曰：¶
+「有其實而無其名者，¶
+商人是也。¶
+無把銚推耨之勢，¶
+而有積粟之實，¶
+此有其實而無其名者也。¶
+無其實而有其名者，¶
+農夫是也。¶
+解凍而耕，¶
+暴背而耨，¶
+
+# src: ZGC 6.8.4; tr. Crump 1979 no.111, p 141, ed. Shanghaiguji p. 238
+# dating: 8110
+無積粟之實，¶
+此無其實而有其名者也。¶
+無其名又無其實者，¶
+王乃是也。¶
+已立為萬乘，¶
+無孝之名；¶
+以千里養，¶
+無孝之實。」¶
+秦王悖然而怒。
+
+# src: ZGC 6.8.5; tr. Crump 1979 no.111, p 142, ed. Shanghaiguji p. 239
+# dating: 8110
+<pb:KR2e0003_tls_100-2a>¶
+頓弱曰：¶
+「山東戰國有六，¶
+威不掩於山東，¶
+而掩於母，¶
+臣竊為大王不取也。」¶
+秦王曰：¶
+「山東之建國
+可兼與？」¶
+
+# src: ZGC 6.8.6; tr. Crump 1979 no.111, p 142, ed. Shanghaiguji p. 239
+# dating: 8110
+頓子曰：¶
+「韓，¶
+天下之咽喉；¶
+魏，
+天下之胸腹。¶
+王資臣萬金
+而遊，¶
+聽之韓、魏，
+入其社稷之臣於秦，¶
+即韓、魏從。¶
+韓、魏從，¶
+而天下可圖也。」¶
+
+# src: ZGC 6.8.7; tr. Crump 1979 no.111, p 142, ed. Shanghaiguji p. 239
+# dating: 8110
+秦王曰：¶
+「寡人之國貧，¶
+恐不能給也。」¶
+頓子曰：¶
+「天下未嘗無事也，¶
+非從即橫也。¶
+橫成，¶
+則秦帝；¶
+從成，¶
+即楚王。¶
+秦帝，¶
+即以天下恭養；¶
+楚王，¶
+即王雖有萬金，¶
+弗得私也。」¶
+
+# src: ZGC 6.8.8; tr. Crump 1979 no.111, p 142, ed. Shanghaiguji p. 239
+# dating: 8110
+秦王曰：¶
+「善。」¶
+乃資萬金，¶
+使東遊韓、魏，
+入其將相。¶
+北遊於燕、趙，
+而殺李牧。¶
+齊王入朝，¶
+四國必從，¶
+頓子之說也。
+

@@ -1,0 +1,74 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 31
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 2.4.1; tr. Crump 1979 no.6, p. 26, ed. Shanghaiguji p. 52 Su Tai frees Chou from a levy and wins a town for her
+# dating: 8110
+<pb:KR2e0003_tls_032-1a>¶
+** 32 雍氏之役
+
+雍氏之役，¶
+韓徵甲與粟於周。¶
+周君患之，¶
+告蘇代。¶
+蘇代曰：¶
+「何患焉？¶
+代能為君令韓不徵甲與粟於周，¶
+又能為君得高都。」¶
+
+# src: ZGC 2.4.2; tr. Crump 1979 no.6, p. 26, ed. Shanghaiguji p. 52
+# dating: 8110
+周君大悅曰：¶
+「子苟能，¶
+寡人請以國聽。」¶
+蘇代遂往見韓相國公中曰：¶
+「公不聞楚計乎？¶
+昭應謂楚王曰：¶
+『韓氏罷於兵，¶
+倉廩空，¶
+無以守城，¶
+吾收之以飢，¶
+不過一月必拔之。』¶
+
+# src: ZGC 2.4.3; tr. Crump 1979 no.6, p. 26, ed. Shanghaiguji p. 53
+# dating: 8110
+今圍雍氏五月不能拔，¶
+是楚病也。¶
+楚王始不信昭應之計矣，¶
+今公乃徵甲及粟於周，¶
+此告楚病也。¶
+昭應聞此，¶
+必勸楚王益兵守雍氏，¶
+雍氏必拔。」¶
+公中曰：¶
+「善。¶
+然吾使者已行矣。」¶
+代曰：¶
+「公何不以高都與周。」¶
+
+# src: ZGC 2.4.4; tr. Crump 1979 no.6, p. 26, ed. Shanghaiguji p. 53
+# dating: 8110
+公中怒曰：¶
+「吾無徵甲與粟於周，¶
+亦已多矣。¶
+何為與高都？」¶
+代曰：¶
+「與之高都，¶
+則周必折而入於韓，¶
+秦聞之必大怒，¶
+而焚周之節，¶
+不通其使，¶
+
+# src: ZGC 2.4.5; tr. Crump 1979 no.6, p. 26, ed. Shanghaiguji p. 53
+# dating: 8110
+是公以弊高都得完周也，¶
+何不與也？」¶
+公中曰：¶
+「善。」¶
+不徵甲與粟於周而與高都，¶
+楚卒不拔雍氏而去。
+

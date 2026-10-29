@@ -1,0 +1,28 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 358
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25. 15. 1; tr. Crump 1979 no. 357, p. 428, ed. Shanghai Guji p. 903
+# dating: 8110
+<pb:KR2e0003_tls_359-1a>¶
+** 359 成陽君欲以韓魏聽秦
+
+成陽君欲以韓、魏聽秦，¶
+魏王弗利。¶
+白圭謂魏王曰：¶
+「王不如陰侯人說成陽君曰：¶
+『君入秦，¶
+秦必留君，¶
+而以多割於韓矣。¶
+韓不聽，¶
+秦必留君，¶
+而伐韓矣。¶
+故君不如安行求質於秦。』¶
+成陽君必不入秦，¶
+秦、韓不敢合，¶
+則王重矣。」
+

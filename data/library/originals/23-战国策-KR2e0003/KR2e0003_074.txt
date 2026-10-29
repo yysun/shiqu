@@ -1,0 +1,39 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 73
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 4.16.1; tr. Crump 1979 no. 98, p 111, ed. Shanghaiguji p. 165 The queen of Ch'in an her lover
+# dating: 8110
+<pb:KR2e0003_tls_074-1a>¶
+** 74 秦宣太后愛魏醜夫
+
+秦宣太后愛魏醜夫。¶
+太后病將死，¶
+出令曰：¶
+「為我葬，¶
+必以魏子為殉。」¶
+魏子患之。¶
+庸芮為魏子說太后曰：¶
+「以死者為有知乎？」¶
+
+# src: ZGC 4.16.2; tr. Crump 1979 no. 98, p 111, ed. Shanghaiguji p. 165
+# dating: 8110
+太后曰：¶
+「無知也。」¶
+曰：¶
+「若太后之神靈，¶
+明知死者之無知矣，¶
+何為空以生所愛，¶
+葬於無知之死人哉！¶
+若死者有知，¶
+先王積怒之日久矣，¶
+太后救過不贍，¶
+何暇乃私魏醜夫乎？」¶
+太后曰：¶
+「善。」¶
+乃止。
+

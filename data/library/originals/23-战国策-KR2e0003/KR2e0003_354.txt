@@ -1,0 +1,49 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 353
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25. 10. 1; tr. Crump 1979 no. 365, p. 440f, ed. Shanghai Guji p. 899
+# dating: 8110
+<pb:KR2e0003_tls_354-1a>¶
+** 354 長平之役
+
+長平之役，¶
+平都君說魏王曰：¶
+「王胡不為從？」¶
+魏王曰：¶
+「秦許吾以垣雍。」¶
+平都君曰：¶
+「臣以垣雍為空割也。」¶
+魏王曰：¶
+「何謂也？」¶
+
+# src: ZGC 25. 10. 2; tr. Crump 1979 no. 365, p. 440f, ed. Shanghai Guji p. 899
+# dating: 8110
+平都君曰：¶
+「秦、趙久相持於長平之下而無決。¶
+天下合於秦，¶
+則無趙；¶
+合於趙，¶
+則無秦。¶
+秦恐王之變也，¶
+故以垣雍餌王也。¶
+秦戰勝趙，¶
+王敢責垣雍之割乎？¶
+
+# src: ZGC 25. 11. 1; tr. Crump 1979 no. 366, p. 441, ed. Shanghai Guji p. 900
+# dating: 8110
+王曰¶
+『不敢』。¶
+秦戰不勝趙，¶
+王能令韓出垣雍之割乎？¶
+王曰¶
+『不能』。¶
+臣故曰，¶
+垣雍空割也。」¶
+魏王曰：¶
+「善。」
+

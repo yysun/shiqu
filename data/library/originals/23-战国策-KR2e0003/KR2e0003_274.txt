@@ -1,0 +1,95 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 273
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 21.6.1 tr. Crump no 362, ed. Sha4ngha3igu3jí p. 748
+# dating: 8110
+<pb:KR2e0003_tls_274-1a>¶
+** 274 虞卿請趙王
+
+虞卿請趙王曰：¶
+「人之情，¶
+寧朝人乎？¶
+寧朝於人也？」¶
+趙王曰：¶
+「人亦寧朝人耳，¶
+何故寧朝於人？」¶
+
+# src: ZGC 21.6.2 tr. Crump no 362, ed. Sha4ngha3igu3jí p. 748
+# dating: 8110
+虞卿曰：¶
+「夫魏為從主，¶
+而違者范座也。¶
+今王能以百里之地，¶
+若萬戶之都，¶
+請殺范座於魏。¶
+范座死，¶
+則從事可移於趙。」¶
+
+# src: ZGC 21.6.3 tr. Crump no 362, ed. Sha4ngha3igu3jí p. 748
+# dating: 8110
+趙王曰：¶
+「善。」¶
+乃使人以百里之地，¶
+請殺范座於魏。¶
+魏王許諾，¶
+使司徒執范座，¶
+而未殺也。
+
+# src: ZGC 21.6.4 tr. Crump no 362, ed. Sha4ngha3igu3jí p. 749
+# dating: 8110
+<pb:KR2e0003_tls_274-2a>¶
+范座獻書魏王曰：¶
+「臣聞趙王以百里之地，¶
+請殺座之身。¶
+夫殺無罪范座，¶
+座薄故也；¶
+而得百里之地，¶
+大利也。¶
+臣竊為大王美之。¶
+
+# src: ZGC 21.6.5 tr. Crump no 362, ed. Sha4ngha3igu3jí p. 748
+# dating: 8110
+雖然，¶
+而有一焉，¶
+百里之地不可得，¶
+而死者不可復生也，¶
+則主必為天下笑矣！¶
+臣竊以為與其以死人市，¶
+不若以生人市使也。」<pb:KR2e0003_tls_274-3a>¶
+
+# src: ZGC 21.6.6 tr. Crump no 362, ed. Sha4ngha3igu3jí p. 749
+# dating: 8110
+又遺其後相信陵君書曰：¶
+「夫趙、魏，
+敵戰之國也。¶
+趙王以咫尺之書來，¶
+而魏王輕為之殺無罪之座，¶
+
+# src: ZGC 21.6.7 tr. Crump no 362, ed. Sha4ngha3igu3jí p. 749
+# dating: 8110
+座雖不肖，¶
+故魏之免相望也。¶
+嘗以魏之故，¶
+得罪於趙。¶
+
+# src: ZGC 21.6.8 tr. Crump no 362, ed. Sha4ngha3igu3jí p. 749
+# dating: 8110
+夫國內無用臣，¶
+外雖得地，¶
+勢不能守。¶
+莫如君矣。¶
+然今能守魏者，¶
+莫如君矣。王聽趙殺座之後，¶
+強秦襲趙之欲，¶
+倍趙之割，¶
+則君將何以止之？¶
+此君之累也。」¶
+信陵君曰：¶
+「善。」¶
+遽言之王而出之。
+

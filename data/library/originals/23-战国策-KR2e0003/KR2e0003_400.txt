@@ -1,0 +1,26 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 399
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.4. 1; tr. Crump 1979 no.407, p.478, ed. Shanghai Guji p. 975
+# dating: 8110
+<pb:KR2e0003_tls_400-1a>¶
+** 400 錡宣之教韓王取秦
+
+錡宣之教韓王取秦，¶
+曰：¶
+「為公叔具車百乘，¶
+言之楚，¶
+易三川。¶
+因令公仲謂秦王曰：¶
+『三川之言曰，¶
+秦王必取我。¶
+韓王之心，不可解矣。¶
+王何不試以襄子為質於韓，¶
+令韓王知王之不取三川也。』¶
+因以出襄子而德太子。」
+

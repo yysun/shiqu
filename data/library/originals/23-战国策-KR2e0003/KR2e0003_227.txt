@@ -1,0 +1,24 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 226
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 18.6.1, tr. Crump no 301 (2), ed. Sha4ngha3igu3jí p. 601
+# dating: 8110
+<pb:KR2e0003_tls_227-1a>¶
+** 227 秦韓圍梁燕趙救之
+
+秦、韓圍梁，¶
+燕、趙救之。¶
+謂山陽君曰：¶
+「秦戰而勝三國，¶
+秦必過周、韓而有梁。¶
+三國而勝秦，¶
+三國之力，¶
+雖不足以攻秦，¶
+足以拔鄭。¶
+計者不如構三國攻秦。」
+

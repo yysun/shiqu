@@ -1,0 +1,55 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 105
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 7.4.1; tr. Crump 1979 no.338, p. 408 Lou Wu is angered by the attempt to reverse his treaty
+# dating: 8110
+<pb:KR2e0003_tls_106-1a>¶
+** 106 樓約秦魏
+
+樓約秦、魏，
+魏太子為質，¶
+紛彊欲敗之。¶
+謂太后曰：¶
+「國與還者也，¶
+敗秦而利魏，¶
+魏必負之。¶
+負秦之日，¶
+太子為糞矣。」¶
+
+# src: ZGC 7.4.2; tr. Crump 1979 no.338, p. 408
+# dating: 8110
+太后坐王而泣。¶
+王因疑於太子，¶
+令之留於酸棗。¶
+樓子患之。¶
+昭衍為周之梁，¶
+樓子告之。¶
+昭衍見梁王，¶
+梁王曰：¶
+「何聞？」¶
+曰：¶
+「聞秦且伐魏。」¶
+王曰：¶
+「為期
+與我約矣。」¶
+
+# src: ZGC 7.4.3; tr. Crump 1979 no.338, p. 408, ed. Shanghaiguji p. 274
+# dating: 8110
+曰：¶
+「秦疑於王之約，¶
+以太子之留酸棗
+而不之秦。¶
+秦王之計曰：¶
+『魏不與我約，¶
+必攻我；¶
+我與其處
+而待之見攻，¶
+不如先伐之。』¶
+以秦彊折節而下與國，¶
+臣恐其害於東周。」
+

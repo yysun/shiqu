@@ -1,0 +1,26 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 406
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.11. 1; tr. Crump 1979 no.412, p.4i1, ed. Shanghai Guji p. 9i2
+# dating: 8110
+<pb:KR2e0003_tls_407-1a>¶
+** 407 韓公叔與幾瑟爭國中庶子強謂太子
+
+韓公叔與幾瑟爭國。¶
+中庶子強謂太子曰：¶
+「不若及齊師未入，¶
+急擊公叔。」¶
+太子曰：「不可。¶
+戰之於國中必分。」¶
+對曰：「事不成，¶
+身必危，¶
+尚何足以圖國之全為？」¶
+太子弗聽，¶
+齊師果入，¶
+太子出走。
+

@@ -1,0 +1,49 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 295
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.9.1 tr. Crump no 300, ed. Sha4ngha3igu3jí p. 785
+# dating: 8110
+<pb:KR2e0003_tls_296-1a>¶
+** 296 魏公叔痤病
+
+魏公叔痤病，¶
+惠王往問之。曰：¶
+「公叔病，¶
+即不可諱，¶
+將柰社稷何？」¶
+
+# src: ZGC 22.9.2 tr. Crump no 300, ed. Sha4ngha3igu3jí p. 785
+# dating: 8110
+公叔痤對曰：¶「痤有御庶子公孫鞅，¶
+願王以國事聽之也。¶
+為弗能聽，¶
+勿使出竟。」¶
+
+# src: ZGC 22.9.3 tr. Crump no 300, ed. Sha4ngha3igu3jí p. 785
+# dating: 8110
+王弗應，¶
+出而謂左右曰：¶
+「豈不悲哉！¶
+以公叔之賢，¶
+而謂寡人必以國事聽鞅，¶
+不亦悖乎！」<pb:KR2e0003_tls_296-2a>¶
+
+# src: ZGC 22.9.4 tr. Crump no 300, ed. Sha4ngha3igu3jí p. 786
+# dating: 8110
+公叔痤死，¶
+公孫鞅聞之，¶
+已葬，¶
+西之秦，¶
+孝公受而用之。¶
+秦果日以強，¶
+魏日以削。¶
+此非公叔之悖也，¶
+惠王之悖也。¶
+悖者之患，¶
+固以不悖者為悖。
+

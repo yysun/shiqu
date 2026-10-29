@@ -1,0 +1,48 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 208
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 17.1.1, tr. Crump no 224, ed. Sha4ngha3igu3jí p. 548
+# dating: 8110
+<pb:KR2e0003_tls_209-1a>¶
+** 209 或謂楚王
+
+或謂楚王曰：¶
+「臣聞
+從者欲合天下以朝大王，¶
+臣願大王聽之也。¶
+夫因詘為信，¶
+舊患有成，¶
+勇者義之。¶
+攝禍為福，¶
+裁少為多，¶
+知者官之。¶
+
+# src: ZGC 17.1.2, tr. Crump no 224, ed. Sha4ngha3igu3jí p. 548
+# dating: 8110
+夫報報之反，¶
+墨墨之化，¶
+唯大君能之。¶
+禍與福相貫，¶
+生與亡為鄰，¶
+不偏於死，¶
+不偏於生，¶
+不足以載大名。¶
+無所寇艾，¶
+不足以橫世。¶
+
+# src: ZGC 17.1.3, tr. Crump no 224, ed. Sha4ngha3igu3jí p. 548
+# dating: 8110
+夫秦捐德絕命之日久矣，¶
+而天下不知。¶
+今夫橫人嚂口利機，¶
+上干主心，¶
+下牟百姓，¶
+公舉而私取利，¶
+是以國權輕於鴻毛，¶
+而積禍重於丘山。」
+

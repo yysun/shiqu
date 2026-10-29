@@ -1,0 +1,30 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 276
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 21.9.1 tr. Crump no 2i4, ed. Sha4ngha3igu3jí p. 753
+# dating: 8110
+<pb:KR2e0003_tls_277-1a>¶
+** 277 趙使趙莊合從
+
+趙使趙莊合從，¶
+欲伐齊。¶
+齊請效地，¶
+趙因賤趙莊。¶
+
+# src: ZGC 21.9.2 tr. Crump no 2i4, ed. Sha4ngha3igu3jí p. 753
+# dating: 8110
+齊明為謂趙王曰：¶
+「齊畏從人之合也，¶
+故效地。¶
+今聞趙莊賤，¶
+張懃貴，¶
+齊必不效地矣。」¶
+趙王曰：¶
+「善。」¶
+乃召趙莊而貴之。
+

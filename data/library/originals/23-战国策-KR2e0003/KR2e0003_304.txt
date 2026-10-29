@@ -1,0 +1,30 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 303
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.17.1 tr. Crump no 330, ed. Sha4ngha3igu3jí p. 803
+# dating: 8110
+<pb:KR2e0003_tls_304-1a>¶
+** 304 張儀走之魏
+
+張儀走之魏，¶
+魏將迎之。¶
+張丑諫於王，¶
+欲勿內，¶
+不得於王。¶
+張丑退，¶
+復諫於王曰：¶
+
+# src: ZGC 22.17.2 tr. Crump no 330, ed. Sha4ngha3igu3jí p. 803
+# dating: 8110
+「王亦聞老妾事其主婦者乎？¶
+子長色衰，¶
+重家而已。¶
+今臣之事王，¶
+若老妾之事其主婦者。」¶
+魏王因不納張儀。
+

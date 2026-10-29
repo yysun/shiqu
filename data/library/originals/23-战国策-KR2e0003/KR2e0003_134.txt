@@ -1,0 +1,54 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 133
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 9.7.1; tr. Crump 1979 no.167 p. 216, ed. Shanghaiguji p. 360 The lips and the teeth
+# dating: 8110
+<pb:KR2e0003_tls_134-1a>¶
+** 134 秦攻趙長平
+
+秦攻趙長平，¶
+齊、楚救之。¶
+秦計曰：¶
+「齊、楚救趙，¶
+親，
+則將退兵；¶
+不親，¶
+則且遂攻之。」<pb:KR2e0003_tls_134-2a>¶
+
+# src: ZGC 9.7.2; tr. Crump 1979 no.167 p. 216, ed. Shanghaiguji p. 360
+# dating: 8110
+趙無以食，¶
+請粟於齊，¶
+而齊不聽。¶
+蘇秦謂齊王曰：¶
+「不如聽之以卻秦兵，¶
+不聽則秦兵不卻，¶
+是秦之計中，¶
+而齊、燕之計過矣。¶
+且趙之於燕、齊，
+隱蔽也，¶
+齒之有脣也，¶
+脣亡則齒寒。¶
+
+# src: ZGC 9.7.3; tr. Crump 1979 no.167 p. 216, ed. Shanghaiguji p. 360
+# dating: 8110
+今日亡趙，¶
+則明日及齊、楚矣。¶
+且夫救趙之務，¶
+宜若奉漏壅，¶
+沃燋釜。¶
+夫救趙，¶
+高義也；¶
+卻秦兵，¶
+顯名也。¶
+義救亡趙，¶
+威卻強秦兵，¶
+不務為此，¶
+而務愛粟，¶
+則為國計者過矣。」
+

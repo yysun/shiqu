@@ -1,0 +1,26 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 400
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.5. 1; tr. Crump 1979 no.409, p.479, ed. Shanghai Guji p. 976
+# dating: 8110
+<pb:KR2e0003_tls_401-1a>¶
+** 401 襄陵之役
+
+襄陵之役，¶
+畢長謂公叔曰：¶
+「請毋用兵，¶
+而楚、魏皆德公之國矣。¶
+夫楚欲置公子高，¶
+必以兵臨魏。¶
+公何不令人說昭子曰：¶
+『戰未必勝，¶
+請為子起兵以之魏。』¶
+子有辭以毋戰，¶
+於是以太子扁、¶
+昭揚、梁王皆德公矣。」
+

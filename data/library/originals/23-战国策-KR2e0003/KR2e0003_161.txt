@@ -1,0 +1,38 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 160
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC, 13.2.1, tr. Crump no160, ed. Sha4ngha3igu3jí p. 449
+# dating: 8110
+<pb:KR2e0003_tls_161-1a>¶
+** 161 王孫賈年十五
+事閔王
+王孫賈年十五，¶
+事閔王。王出走，¶
+失王之處。¶
+其母曰：¶
+“「女朝出而晚來，¶
+則吾倚門而望；¶
+女暮出而不還，¶
+則吾倚閭而望。¶
+女今事王，¶
+王出走，¶
+女不知其處，¶
+女尚何歸？」<pb:KR2e0003_tls_161-2a>¶
+
+# src: ZGC, 13.2.2, tr. Crump no160, ed. Sha4ngha3igu3jí p. 449
+# dating: 8110
+王孫賈乃入市中，¶
+曰：¶
+「淖齒亂齊國，¶
+殺閔王，¶
+欲與我誅者，¶
+袒右！」¶
+市人從者四百人，¶
+與之誅淖齒，¶
+刺而殺之。
+

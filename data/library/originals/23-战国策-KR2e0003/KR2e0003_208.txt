@@ -1,0 +1,39 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 207
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 16.10.1, tr. Crump no 221, ed. Sha4ngha3igu3jí p. 547
+# dating: 8110
+<pb:KR2e0003_tls_208-1a>¶
+** 208 唐且見春申君
+
+唐且見春申君曰：¶
+「齊人飾身修行得為益，¶
+然臣羞而不學也。¶
+不避絕江河，¶
+行千餘里來，¶
+竊慕大君之義，¶
+而善君之業。¶
+臣聞之，¶
+賁、諸懷錐刃
+而天下為勇，¶
+西施衣褐而天下稱美。¶
+
+# src: ZGC 16.10.2, tr. Crump no 221, ed. Sha4ngha3igu3jí p. 547
+# dating: 8110
+今君相萬乘之楚，¶
+禦中國之難，¶
+所欲者不成，¶
+所求者不得，¶
+臣等少也。¶
+夫梟棊之所以能為者，¶
+以散棊佐之也。¶
+夫一梟之不如不勝五散，¶
+亦明矣。¶
+今君何不為天下梟，¶
+而令臣等為散乎？」
+

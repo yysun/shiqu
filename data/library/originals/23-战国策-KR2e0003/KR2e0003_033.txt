@@ -1,0 +1,25 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 32
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 2.5.1; tr. Crump 1979 no.17, p. 35, ed. Shanghaiguji p. 54 Chou Tsui adviced on personal relations in the Ch'in court
+# dating: 8110
+<pb:KR2e0003_tls_033-1a>¶
+** 33 周君之秦
+
+周君之秦。¶
+謂周最曰：¶
+「不如譽秦王之孝也，¶
+因以應為太后養地。¶
+秦王、太后必喜，¶
+是公有秦也。¶
+交善，¶
+周君必以為公功；¶
+交惡，¶
+勸周君入秦者，¶
+必有罪矣。」
+

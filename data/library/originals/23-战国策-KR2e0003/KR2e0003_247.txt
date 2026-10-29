@@ -1,0 +1,25 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 246
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.2.1, tr. Crump no 244, ed. Sha4ngha3igu3jí p. 678
+# dating: 8110
+<pb:KR2e0003_tls_247-1a>¶
+** 247 趙使机郝之秦
+
+趙使机郝之秦，
+請相魏冉。¶
+宋突謂机郝曰：¶
+「秦不聽，¶
+樓緩必怨公。¶
+公不若陰辭樓子曰：¶
+『請無急秦王。』¶
+秦王見趙之相魏冉之不急也，¶
+且不聽公言也，¶
+是事而不成，¶
+魏冉固德公矣。」
+

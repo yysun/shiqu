@@ -1,0 +1,103 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 83
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 5.10.1; tr. Crump 1979 no. 95, p 107, ed. Shanghaiguji p. 192 Fan Chü persuades the king of Ch'in to assert his authority
+# dating: 8110
+<pb:KR2e0003_tls_084-1a>¶
+** 84 范睢曰臣居山東
+
+范睢曰：¶
+「臣居山東，¶
+聞齊之內有田單，¶
+不聞其王。¶
+聞秦之有太后、穰侯、¶
+涇陽、華陽，¶
+不聞其有王。¶
+夫擅國之謂王，¶
+能專利害之謂王，¶
+制殺生之威之謂王。¶
+
+# src: ZGC 5.10.1; tr. Crump 1979 no. 95, p 107
+# dating: 8110
+今太后擅行不顧，¶
+穰侯出使不報，¶
+涇陽、華陽擊斷無諱，¶
+四貴備而國不危者，¶
+未之有也。¶
+為此四者，¶
+下乃所謂無王已。¶
+然則權焉得不傾，¶
+而令焉得從王出乎？¶
+
+# src: ZGC 5.10.2; tr. Crump 1979 no. 95, p 107, ed. Shanghaiguji p. 192
+# dating: 8110
+臣聞：¶
+『善為國者，¶
+內固其威，¶
+而外重其權。』¶
+穰侯使者操王之重，¶
+決裂諸侯，¶
+剖符於天下，¶
+征敵伐國，¶
+莫敢不聽。¶
+
+# src: ZGC 5.10.3; tr. Crump 1979 no. 95, p 107, ed. Shanghaiguji p. 192
+# dating: 8110
+戰勝攻取，¶
+則利歸於陶；¶
+國弊，¶
+御於諸侯；¶
+戰敗，¶
+則怨結於百姓，¶
+而禍歸社稷。¶
+《詩》曰：¶
+『木實繁者
+披其枝，¶
+披其枝者傷其心。¶
+大其都者危其國，¶
+尊其臣者卑其主。』¶
+
+# src: ZGC 5.10.4; tr. Crump 1979 no. 95, p 107, ed. Shanghaiguji p. 192
+# dating: 8110
+淖齒管齊之權，¶
+縮閔王之筯，¶
+縣之廟梁，¶
+宿昔而死。¶
+
+# src: ZGC 5.10.5; tr. Crump 1979 no. 95, p 108, ed. Shanghaiguji p. 194
+# dating: 8110
+李兌用趙，¶
+減食主父，¶
+百日而餓死。¶
+今秦，¶
+太后、穰侯用事，¶
+高陵、涇陽佐之，¶
+卒無秦王，¶
+此亦淖齒、李兌之類已。¶
+臣今見王獨立於廟朝矣，¶
+且臣將恐後世之有秦國者，¶
+非王之子孫也。」<pb:KR2e0003_tls_084-2a>¶
+
+# src: ZGC 5.10.6; tr. Crump 1979 no. 95, p 108, ed. Shanghaiguji p. 194
+# dating: 8110
+秦王懼，¶
+於是乃廢太后，¶
+逐穰侯，¶
+出高陵，¶
+走涇陽於關外。
+
+# src: ZGC 5.10.7; tr. Crump 1979 no. 95, p 108, ed. Shanghaiguji p. 194
+# dating: 8110
+<pb:KR2e0003_tls_084-3a>¶
+昭王謂范睢曰：¶
+「昔者，¶
+齊公得管仲，¶
+時以為仲父。¶
+今吾得子，¶
+亦以為父。」
+

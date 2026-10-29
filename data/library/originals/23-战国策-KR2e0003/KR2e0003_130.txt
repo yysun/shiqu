@@ -1,0 +1,41 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 129
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 9.3.1; tr. Crump 1979 no.144 p. 177, ed. Shanghaiguji p. 351 Chang Yi's diplomacy is undone by the subtlety of a defeated rival
+# dating: 8110
+<pb:KR2e0003_tls_130-1a>¶
+** 130 犀首以梁為齊戰於承匡而不勝
+
+犀首以梁為齊戰於承匡
+而不勝。¶
+張儀謂梁王不用臣言以危國。¶
+梁王因相儀，¶
+儀以秦、梁之齊合橫親。¶
+犀首欲敗，¶
+謂衛君曰：¶
+「衍非有怨於儀也，¶
+值所以為國者不同耳。¶
+君必解衍。」¶
+
+# src: ZGC 9.3.2; tr. Crump 1979 no.144 p. 177, ed. Shanghaiguji p. 351
+# dating: 8110
+衛君為告儀，¶
+儀許諾，¶
+因與之參坐於衛君之前。¶
+犀首跪行，¶
+為儀千秋之祝。¶
+明日張子行，¶
+犀首送之至於齊疆。¶
+齊王聞之，¶
+怒於儀，¶
+曰：¶
+「衍也吾讎，¶
+而儀與之俱，¶
+是必與衍鬻吾國矣。」¶
+遂不聽。
+

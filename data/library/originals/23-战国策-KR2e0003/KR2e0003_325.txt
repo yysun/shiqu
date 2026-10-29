@@ -1,0 +1,39 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 324
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 23.10.1; tr. Crump 1979 no. 304, p.379, ed. Shanghaiguji p. 833. Kung-tzu and the heir of Wei
+# dating: 8110
+<pb:KR2e0003_tls_325-1a>¶
+** 325 魏惠王起境內眾
+
+魏惠王起境內眾，¶
+將太子申而攻齊。¶
+客謂公子理之傳曰：¶
+「何不令公子泣王太后，¶
+止太子之行？¶
+事成則樹德，¶
+不成則為王矣。¶
+太子年少，¶
+不習於兵。¶
+田朌宿將也，¶
+而孫子善用兵。¶
+
+# src: ZGC 23.10.2; tr. Crump 1979 no. 304, p.379, ed. Shanghaiguji p. 833
+# dating: 8110
+戰必不勝，¶
+不勝必禽。¶
+公子爭之於王，¶
+王聽公子，¶
+公子不封；¶
+不聽公子，¶
+太子必敗；¶
+敗，
+公子必立；¶
+立，
+必為王也。」
+

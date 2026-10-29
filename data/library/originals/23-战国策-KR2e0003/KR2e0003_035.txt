@@ -1,0 +1,30 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 34
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 2.7.1; tr. Crump 1979 no.14, p. 34, ed. Shanghaiguji p. 58 Chou averts Ch'u's wrath by incriminating a victorious general
+# dating: 8110
+<pb:KR2e0003_tls_035-1a>¶
+** 35 楚兵在山南
+
+楚兵在山南，¶
+吾得將為楚王屬怒於周。¶
+或謂周君曰：¶
+「不如令太子將軍正迎吾得於境，¶
+而君自郊迎，¶
+令天下皆知君之重吾得也。¶
+
+# src: ZGC 2.7.2; tr. Crump 1979 no.14, p. 34, ed. Shanghaiguji p. 58
+# dating: 8110
+因泄之楚，¶
+曰：¶
+『周君所以事吾得者器，¶
+必名曰謀楚。』¶
+王必求之，¶
+而吾得無效也，¶
+王必罪之。」
+

@@ -1,0 +1,59 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 116
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 8.7.1; tr. Crump 1979 no.120 p. 153, ed. Shanghaiguji p. 314 Ch'i delays until friend and foe are weakened and then makes both her vassals
+# dating: 8110
+<pb:KR2e0003_tls_117-1a>¶
+** 117 南梁之難
+
+南梁之難，¶
+韓氏請救於齊。¶
+田侯召大臣
+而謀曰：¶
+「早救之，¶
+孰與晚救之便？」¶
+
+# src: ZGC 8.7.2; tr. Crump 1979 no.120 p. 153, ed. Shanghaiguji p. 316-
+# dating: 8110
+張丐對曰：¶
+「晚救之，¶
+韓且折而入於魏，¶
+不如早救之。」¶
+田臣思曰：¶
+「不可。¶
+夫韓、魏之兵未弊，¶
+而我救之，¶
+我代韓而受魏之兵，¶
+顧反聽命於韓也。¶
+且夫魏有破韓之志，¶
+韓見且亡，¶
+必東愬於齊。¶
+
+# src: ZGC 8.7.3; tr. Crump 1979 no.120 p. 153, ed. Shanghaiguji p. 316-
+# dating: 8110
+我因陰結韓之親，¶
+而晚承魏之弊，¶
+則國可重，¶
+利可得，¶
+名可尊矣。」¶
+田侯曰：¶
+「善。」¶
+乃陰告韓使者而遣之。
+
+# src: ZGC 8.7.4; tr. Crump 1979 no.120 p. 154, ed. Shanghaiguji p. 316
+# dating: 8110
+<pb:KR2e0003_tls_117-2a>¶
+韓自以專有齊國，¶
+五戰五不勝，¶
+東愬於齊，¶
+齊因起兵擊魏，¶
+大破之馬陵。¶
+魏破韓弱，¶
+韓、魏之君因田嬰
+北面而朝田侯。
+

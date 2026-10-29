@@ -1,0 +1,31 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 263
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.19.1, tr. Crump no 278, ed. Sha4ngha3igu3jí p. 718
+# dating: 8110
+<pb:KR2e0003_tls_264-1a>¶
+** 264 苦成常謂建信君
+
+苦成常謂建信君曰：¶
+「天下合從，¶
+而獨以趙惡秦，¶
+何也？¶
+魏殺呂遺，¶
+而天下交之。¶
+今收河間，¶
+於是與殺呂遺何以異？¶
+
+# src: ZGC 20.19.2, tr. Crump no 278, ed. Sha4ngha3igu3jí p. 718
+# dating: 8110
+君唯釋虛偽疾，¶
+文信猶且知之也。¶
+從而有功乎，¶
+何患不得收河間？¶
+從而無功乎，¶
+收河間何益也？」
+

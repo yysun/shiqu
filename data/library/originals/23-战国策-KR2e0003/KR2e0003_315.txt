@@ -1,0 +1,27 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 314
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: Zhanguo ce 22.27.1 tr. Crump, 322, p.396, ed. Shanghaiguji p. 814. When the ox and the horse are yoked together
+# dating: 8110
+<pb:KR2e0003_tls_315-1a>¶
+** 315 公孫衍為魏將
+
+公孫衍為魏將，¶
+與其相田繻不善。¶
+季子為衍謂梁王曰：¶
+「王獨不見夫服牛驂驥乎？¶
+不可以行百步。¶
+今王以衍為可使將，¶
+故用之也；¶
+而聽相之計，¶
+是服牛驂驥也。¶
+牛馬俱死，¶
+而不能成其功，¶
+王之國必傷矣！¶
+願王察之。」
+

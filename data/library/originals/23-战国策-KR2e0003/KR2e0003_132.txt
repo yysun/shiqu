@@ -1,0 +1,27 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 131
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 9.5.1; tr. Crump 1979 no.135 p. 168, ed. Shanghaiguji p. 356 Purchasing peace
+# dating: 8110
+<pb:KR2e0003_tls_132-1a>¶
+** 132 秦攻趙
+
+秦攻趙。¶
+趙令樓緩以五城求講於秦，¶
+而與之伐齊。¶
+齊王恐，¶
+因使人以十城求講於秦。¶
+樓子恐，¶
+因以上黨二十四縣許秦王。¶
+趙足之齊，¶
+謂齊王曰：¶
+「王欲秦、趙之解乎？¶
+不如從合於趙，¶
+趙必倍秦。¶
+倍秦則齊無患矣。」
+

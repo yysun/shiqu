@@ -1,0 +1,39 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 86
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 5.13.1; tr. Crump 1979 no. 100, p 113, ed. Shanghaiguji p. 198 A dialect word
+# dating: 8110
+<pb:KR2e0003_tls_087-1a>¶
+** 87 應侯曰鄭人謂玉未理者璞
+
+應侯曰：¶
+「鄭人謂玉未理者璞，¶
+周人謂鼠未腊者朴。¶
+周人懷璞過鄭賈曰：¶
+『欲買朴乎？』¶
+鄭賈曰：¶
+『欲之。』¶
+
+# src: ZGC 5.13.2; tr. Crump 1979 no. 100, p 113, ed. Shanghaiguji p. 198
+# dating: 8110
+出其朴，¶
+視之，¶
+乃鼠也。¶
+因謝不取。¶
+今平原君自以賢，顯名於天下，¶
+
+# src: ZGC 5.13.3; tr. Crump 1979 no. 100, p 113, ed. Shanghaiguji p. 198
+# dating: 8110
+然降其主
+父沙丘而臣之。¶
+天下之王尚猶尊之，¶
+是天下之王
+不如鄭賈之智也，¶
+眩於名，¶
+不知其實也。」
+

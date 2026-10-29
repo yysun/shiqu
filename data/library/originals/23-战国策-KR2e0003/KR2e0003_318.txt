@@ -1,0 +1,53 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 317
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 23.3.1; tr. Crump, 325320, p.398, ed. Shanghaiguji p. 820. The king employs T'ien Hsü to wathch his other ministers
+# dating: 8110
+<pb:KR2e0003_tls_318-1a>¶
+** 318 蘇代為田需說魏王
+
+蘇代為田需說魏王曰：¶
+「臣請問文之為魏，¶
+孰與其為齊也？」¶
+王曰：¶
+「不如其為齊也。」¶
+「衍之為魏，¶
+孰與其為韓也？」¶
+王曰：¶
+「不如其為韓也。」¶
+
+# src: ZGC 23.3.2; tr. Crump, 325321, p.398, ed. Shanghaiguji p. 820
+# dating: 8110
+而蘇代曰：¶
+「衍將右韓而左魏，¶
+文將右齊而左魏。¶
+二人者，¶
+將用王之國，¶
+舉事於世，¶
+中道而不可，¶
+王且無所聞之矣。¶
+王之國雖滲樂而從之可也。¶
+王不如舍需於側，¶
+以稽二人者之所為。¶
+
+# src: ZGC 23.3.3; tr. Crump, 325323, p.398, ed. Shanghaiguji p. 820
+# dating: 8110
+二人者曰：¶
+『需非吾人也，¶
+吾舉事而不利於魏，¶
+需必挫我於王。』¶
+二人者必不敢有外心矣。¶
+二人者之所為之，¶
+利於魏與不利於魏，¶
+王厝需於側以稽之，¶
+臣以為身利
+而便於事。」¶
+王曰：¶
+「善。」¶
+果厝需於側。
+

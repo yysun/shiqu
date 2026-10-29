@@ -1,0 +1,29 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 388
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 26. 17.1; tr. Crump 1979 no. 392, p.465, ed. Shanghai Guji p. 952
+# dating: 8110
+<pb:KR2e0003_tls_389-1a>¶
+** 389 顏率見公仲
+
+顏率見公仲，¶
+公仲不見。¶
+顏率謂公仲之謁者曰：¶
+「公仲必以率為陽也，¶
+故不見率也。¶
+公仲好內，¶
+率曰好士；¶
+仲嗇於財，¶
+率曰散施；¶
+公仲無行，¶
+率曰好義。¶
+自今以來，¶
+率且正言之而已矣。」¶
+公仲之謁者以告公仲，¶
+公仲遽起而見之。
+

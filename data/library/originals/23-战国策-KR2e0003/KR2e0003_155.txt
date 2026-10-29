@@ -1,0 +1,41 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 154
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 11.8.1; tr. Crump no132, ed. Shanghaiguji p. 418-
+# dating: 8110
+<pb:KR2e0003_tls_155-1a>¶
+** 155 齊人見田駢
+
+齊人見田駢，¶
+曰：¶「聞先生高議，¶
+設為不宦，¶
+而願為役。」¶
+田駢曰：¶「子何聞之？」¶
+對曰：¶
+「臣聞之鄰人之女。」¶
+
+# src: ZGC 11.8.2, tr. Crump no132
+# dating: 8110
+田駢曰：¶
+「何謂也？」¶
+對曰：¶
+「臣鄰人之女，¶
+設為不嫁，¶
+行年三十而有七子，¶
+不嫁則不嫁，¶
+然嫁過畢矣。¶
+
+# src: ZGC 11.8.3, tr. Crump no132
+# dating: 8110
+今先生設為不宦，¶
+訾養千鍾，¶
+徒百人，¶
+不宦則然矣，¶
+而富過畢也」。¶
+田子辭。
+

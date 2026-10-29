@@ -1,0 +1,29 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 291
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.5.1 tr. Crump no 296, ed. Sha4ngha3igu3jí p. 778
+# dating: 8110
+<pb:KR2e0003_tls_292-1a>¶
+** 292 文侯與虞人期獵
+
+文侯與虞人期獵。¶
+是日，¶
+飲酒樂，天雨。¶
+文侯將出，¶
+左右曰：¶
+「今日飲酒樂，¶
+天又雨，¶
+公將焉之？」¶
+文侯曰：¶
+「吾與虞人期獵，¶
+雖樂，¶
+豈可不一會期哉！」¶
+乃往，¶
+身自罷之。¶
+魏於是乎始強。
+

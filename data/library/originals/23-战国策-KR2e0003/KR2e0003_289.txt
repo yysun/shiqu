@@ -1,0 +1,29 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 288
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.2.1 tr. Crump no 293, ed. Sha4ngha3igu3jí p. 755
+# dating: 8110
+<pb:KR2e0003_tls_289-1a>¶
+** 289 韓趙相難
+
+韓、¶趙相難。¶
+韓索兵於魏曰：¶
+「願得借師以伐趙。」¶
+魏文侯曰：¶「寡人與趙兄弟，¶
+不敢從。」¶
+趙又索兵以攻韓，¶
+文侯曰：¶「寡人與韓兄弟，¶
+不敢從。」¶
+
+# src: ZGC 22.2.2 tr. Crump no 293 (1), ed. Sha4ngha3igu3jí p. 755
+# dating: 8110
+二國不得兵，¶
+怒而反。¶
+已乃知文侯以講於己也，¶
+皆朝魏。
+

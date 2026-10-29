@@ -1,0 +1,20 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 372
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 26.2. 1; tr. Crump 1979 no. 3i4, p. 459, ed. Shanghai Guji p. 927（卷二十六·韓一）
+# dating: 8110
+<pb:KR2e0003_tls_373-1a>¶
+** 373 大成午從趙來
+
+大成午從趙來，¶
+謂申不害於韓曰：¶
+「子以韓重我於趙，¶
+請以趙重子於韓，¶
+是子有兩韓，¶
+而我有兩趙也。」
+

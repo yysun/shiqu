@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 235
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 18.15.1, tr. Crump no 271, ed. Sha4ngha3igu3jí p. 623
+# dating: 8110
+<pb:KR2e0003_tls_236-1a>¶
+** 236 或謂皮相國
+
+或謂皮相國曰：¶
+「魏殺呂遼而衛兵，¶
+亡其北陽而梁危，¶
+河間封不定而齊危，¶
+文信不得志，¶
+三晉倍之憂也。¶
+今魏恥未滅，¶
+趙患又起，¶
+文信侯之憂大矣。¶
+
+# src: ZGC 18.15.2, tr. Crump no 271, ed. Sha4ngha3igu3jí p. 623
+# dating: 8110
+齊不從，¶
+三晉之心疑矣。¶
+憂大者不計而構，¶
+心疑者事秦急。¶
+秦、魏之構，¶
+不待割而成。¶
+秦從楚、¶
+魏攻齊，獨吞趙，¶
+齊、趙必俱亡矣。」
+

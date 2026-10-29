@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 497
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 33. 7. 1; tr. Crump 1979 no.495, p 5i1, ed. Shanghai Guji p. 11i1
+# dating: 8110
+<pb:KR2e0003_tls_498-1a>¶
+** 498 主父欲伐中山
+
+主父欲伐中山，¶
+使李疵觀之。¶
+李疵曰：「可伐也。¶
+君弗攻，¶
+恐後天下。」¶
+主父曰：「何以？」¶
+
+# src: ZGC 33. 7. 2; tr. Crump 1979 no.495, p 5i2, ed. Shanghai Guji p. 11i1f
+# dating: 8110
+對曰：「中山之君，¶
+所傾蓋與車而朝窮閭隘巷之士者，¶
+七十家。」¶
+主父曰：「是賢君也，¶
+安可伐？」¶
+李疵曰：「不然。¶
+舉士，¶
+則民務名不存本；¶
+朝賢，¶
+則耕者惰而戰士懦。¶
+若此不亡者，¶
+未之有也。」
+

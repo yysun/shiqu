@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 373
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 26. 3. 1; tr. Crump 1979 no. 385, p. 459, ed. Shanghai Guji p. 928
+# dating: 8110
+<pb:KR2e0003_tls_374-1a>¶
+** 374 魏之圍邯鄲
+
+魏之圍邯鄲也，¶
+申不害始合於韓王，¶
+然未知王之所欲也，¶
+恐言而未必中於王也。¶
+王問申子曰：¶
+「吾誰與而可？」¶
+
+# src: ZGC 26. 3. 2; tr. Crump 1979 no. 385, p. 459, ed. Shanghai Guji p. 928
+# dating: 8110
+對曰：¶
+「此安危之要，¶
+國家之大事也。¶
+臣請深惟而苦思之。」¶
+乃微謂趙卓、韓鼂曰：¶
+「子皆國之辯士也，¶
+夫為人臣者，¶
+言可必用，¶
+盡忠而已矣。」¶
+二人各進議於王以事。¶
+申子微視王之所說以言於王，¶
+王大說之。
+

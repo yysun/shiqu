@@ -1,0 +1,30 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 374
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 26. 4. 1; tr. Crump 1979 no. 386, p. 460, ed. Shanghai Guji p. 928
+# dating: 8110
+<pb:KR2e0003_tls_375-1a>¶
+** 375 申子請仕其從兄官
+
+申子請仕其從兄官，¶
+昭侯不許也。¶
+申子有怨色。¶
+昭侯曰：¶
+「非所謂學於子者也。¶
+聽子之謁，¶
+而廢子之道乎？¶
+又亡其行子之術，¶
+而廢子之謁乎？¶
+子嘗教寡人循功勞，¶
+視次第。¶
+今有所求，¶
+此我將奚聽乎？」¶
+申子乃辟舍請罪，¶
+曰：¶
+「君真其人也！」
+

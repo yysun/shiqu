@@ -1,0 +1,28 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 68
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 4.11.1; tr. Crump 1979 no. 70, p 79, ed. Shanghaiguji p. 156 Kan Mao 's ingenious plan for dealing with disputants
+# dating: 8110
+<pb:KR2e0003_tls_069-1a>¶
+** 69 秦王謂甘茂
+
+秦王謂甘茂曰：¶
+「楚客來使者多健，¶
+與寡人爭辭，¶
+寡人數窮焉，¶
+為之奈何？」¶
+甘茂對曰：¶
+「王勿患也！¶
+其健者來使者，¶
+則王勿聽其事；¶
+其需弱者來使，¶
+則王必聽之。¶
+然則需弱者用，¶
+而健者不用矣！¶
+王因而制之。」
+

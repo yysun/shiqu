@@ -1,0 +1,36 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 278
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 21.11.1 tr. Crump no 286, ed. Sha4ngha3igu3jí p. 756
+# dating: 8110
+<pb:KR2e0003_tls_279-1a>¶
+** 279 馮忌為廬陵君謂趙王
+
+馮忌為廬陵君謂趙王曰：¶
+「王之逐廬陵君，¶
+為燕也。」¶
+王曰：「吾所以重者，¶
+無燕、秦也。」¶
+
+# src: ZGC 21.11.2 tr. Crump no 286, ed. Sha4ngha3igu3jí p. 756
+# dating: 8110
+對曰：「秦三以虞卿為言，¶
+而王不逐也。¶
+今燕一以廬陵君為言，¶
+而王逐之。¶
+是王輕強秦而重弱燕也。」¶
+
+# src: ZGC 21.11.3 tr. Crump no 286, ed. Sha4ngha3igu3jí p. 756
+# dating: 8110
+王曰：「吾非為燕也，¶
+吾固將逐之。」¶
+「然則王逐廬陵君，又不為燕也。¶
+行逐愛弟，¶
+又兼無燕、秦，
+臣竊為大王不取也。」
+

@@ -1,0 +1,81 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 249
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.5.1, tr. Crump no 246, ed. Sha4ngha3igu3jí p. 6i4
+# dating: 8110
+<pb:KR2e0003_tls_250-1a>¶
+** 250 富丁欲以趙合齊魏
+
+富丁欲以趙合齊、魏，
+樓緩欲以趙合秦、楚。
+富丁恐主父之聽樓緩而合秦、楚也。
+<pb:KR2e0003_tls_250-2a>¶
+司馬淺為富丁謂主父曰：¶
+
+# src: ZGC 20.5.2, tr. Crump no 246, ed. Sha4ngha3igu3jí p. 6i4
+# dating: 8110
+「不如以順齊。¶
+今我不順齊伐秦，¶
+秦、楚必合而攻韓、魏。
+韓、¶魏告急於齊，¶
+齊不欲伐秦，¶
+必以趙為辭，¶
+則伐秦者趙也，¶
+
+# src: ZGC 20.5.3, tr. Crump no 246, ed. Sha4ngha3igu3jí p. 6i4
+# dating: 8110
+韓、魏必怨趙。¶
+齊之兵不西，¶
+韓必聽秦違齊。¶
+違齊而親，¶
+兵必歸於趙矣。¶
+
+# src: ZGC 20.5.4, tr. Crump no 246, ed. Sha4ngha3igu3jí p. 6i4
+# dating: 8110
+今我順而齊不西，¶
+韓、魏必絕齊，¶
+絕齊則皆事我。¶
+且我順齊，¶
+齊無而西。¶
+日者，¶
+樓緩坐魏三月，¶
+不能散齊、魏之交。¶
+今我順而齊、魏果西，¶
+是罷齊敝秦也，¶
+趙必為天下重國。」¶
+
+# src: ZGC 20.5.5, tr. Crump no 246, ed. Sha4ngha3igu3jí p. 6i4
+# dating: 8110
+主父曰：¶
+「我與三國攻秦，¶
+是俱敝也。」¶
+
+# src: ZGC 20.5.6, tr. Crump no 246, ed. Sha4ngha3igu3jí p. 6i4
+# dating: 8110
+曰：¶
+「不然。¶
+我約三國而告之秦，¶
+以未構中山也。¶
+三國欲伐秦之果也，¶
+必聽我，¶
+欲和我。¶
+中山聽之，¶
+是我以王因饒中山而取地也。¶
+
+# src: ZGC 20.5.7, tr. Crump no 246, ed. Sha4ngha3igu3jí p. 6i4
+# dating: 8110
+中山不聽，¶
+三國必絕之，¶
+是中山孤也。¶
+三國不能和我，雖少出兵可也。¶
+我分兵而孤樂中山，¶
+中山必亡，¶
+我已亡中山，¶
+而以餘兵與三國攻秦，¶
+是我一舉而兩取地於秦、中山也。」
+

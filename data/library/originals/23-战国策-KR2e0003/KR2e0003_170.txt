@@ -1,0 +1,34 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 169
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC, 14.1.1, tr. Crump no 173 ed. Sha4ngha3igu3jí p. 477
+# dating: 8110
+<pb:KR2e0003_tls_170-1a>¶
+** 170 齊楚構難
+
+齊、¶楚構難，宋請中立。¶
+齊急宋，¶
+宋許之。¶
+子象為楚謂宋王曰：¶
+「楚以緩失宋，¶
+將法齊之急也。¶
+齊以急得宋，¶
+
+# src: ZGC, 14.1. 2, tr. Crump no 173 ed. Sha4ngha3igu3jí p. 477
+# dating: 8110
+後將常急矣。¶
+是從齊而攻楚，¶
+未必利也。¶
+齊戰勝楚，¶
+勢必危宋；¶
+不勝，¶
+是以弱宋干強楚也。¶
+而令兩萬乘之國，¶
+常以急求所欲，¶
+國必危矣。」
+

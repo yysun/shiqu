@@ -1,0 +1,36 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 179
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC,14.11. 1, tr. Crump no175, ed. Sha4ngha3igu3jí p. 490
+# dating: 8110
+<pb:KR2e0003_tls_180-1a>¶
+** 180 江乙為魏使於楚
+
+江乙為魏使於楚，¶
+謂楚王曰：¶
+「臣入竟，¶
+聞楚之俗，¶
+不蔽人之善，¶
+不言人之惡，¶
+誠有之乎？」¶
+王曰：¶「誠有之。」¶
+
+# src: ZGC,14.11. 2, tr. Crump no175, ed. Sha4ngha3igu3jí p. 490
+# dating: 8110
+江乙曰：¶
+「然則白公之亂，¶
+得無遂乎？¶
+誠如是，¶
+臣等之罪免矣。」¶
+楚王曰：¶「何也？」¶
+江乙曰：¶
+「州侯相楚，¶
+貴甚矣而主斷，¶
+左右俱曰『無有』，¶
+如出一口矣。」
+

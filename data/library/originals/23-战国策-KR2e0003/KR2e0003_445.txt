@@ -1,0 +1,26 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 444
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 29. 3. 1;tr. Crump 1979 no.444, 507, ed. Shanghai Guji p. 1044
+# dating: 8110
+<pb:KR2e0003_tls_445-1a>¶
+** 445 權之難燕再戰不勝
+
+權之難，¶
+燕再戰不勝，¶
+趙弗救。¶
+噲子謂文公曰：¶
+「不如以地請合於齊，¶
+趙必救我。¶
+若不吾救，¶
+不得不事。」¶
+文公曰：「善。」¶
+令郭任以地請講於齊。¶
+趙聞之，¶
+遂出兵救燕。
+

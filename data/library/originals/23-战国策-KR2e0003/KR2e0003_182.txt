@@ -1,0 +1,49 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 181
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 14.13.1, tr. Crump no 206, ed. Sha4ngha3igu3jí p. 493
+# dating: 8110
+<pb:KR2e0003_tls_182-1a>¶
+** 182 城渾出周
+
+城渾出周，¶
+三人偶行，¶
+南游於楚，¶
+至於新城。
+<pb:KR2e0003_tls_182-2a>¶
+城渾說其令曰：¶
+「鄭、魏者，¶
+楚之耎國；¶
+而秦，¶
+楚之強敵也。¶
+鄭、魏之弱，¶
+而楚以上梁應之；¶
+宜陽之大也，¶
+楚以弱新城圍之。¶
+
+# src: ZGC 14.13. 2, tr. Crump no 206, ed. Sha4ngha3igu3jí p. 493
+# dating: 8110
+蒲反、平陽相去百里，¶
+秦人一夜而襲之，¶
+安邑不知；¶
+新城、上梁相去五百里，¶
+秦人一夜而襲之，¶
+上梁亦不知也。¶
+今邊邑之所恃者，¶
+非江南泗上也。¶
+故楚王何不以新城為主郡也，¶
+邊邑甚利之。」<pb:KR2e0003_tls_182-3a>¶
+
+# src: ZGC 14.13.3, tr. Crump no 206, ed. Sha4ngha3igu3jí p. 494
+# dating: 8110
+新城公大說，¶
+乃為具駟馬乘車五百金之楚。¶
+城渾得之，¶
+遂南交於楚，¶
+楚王果以新城為主郡。
+

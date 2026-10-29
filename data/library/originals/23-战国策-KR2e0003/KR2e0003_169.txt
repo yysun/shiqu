@@ -1,0 +1,46 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 168
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC, 13.10.1, tr. Crump no 218 ed. Sha4ngha3igu3jí p. 475
+# dating: 8110
+<pb:KR2e0003_tls_169-1a>¶
+** 169 齊以淖君之亂
+
+齊以淖君之亂秦。¶
+其後秦欲取齊，¶
+故使蘇涓之楚，¶
+令任固之齊。¶
+齊明謂楚王曰：¶
+「秦王欲楚，¶
+不若其欲齊之甚也。¶
+其使涓來，¶
+以示齊之有楚，¶
+以資固於齊。¶
+
+# src: ZGC, 13.10.2, tr. Crump no 218 ed. Sha4ngha3igu3jí p. 475
+# dating: 8110
+齊見楚，¶
+必受固。¶
+是王之聽涓也，¶
+適為固驅以合齊、秦也。¶
+齊、秦合，¶
+非楚之利也。¶
+
+# src: ZGC, 13.10.3, tr. Crump no 218 ed. Sha4ngha3igu3jí p. 475
+# dating: 8110
+且夫涓來之辭，¶
+必非固之所以之齊之辭也。¶
+王不如令人以涓來之辭謾固於齊，¶
+齊、秦必不合。¶
+齊、秦不合，¶
+則王重矣。¶
+王欲收齊以攻秦，¶
+漢中可得也。¶
+王即欲以秦攻齊，¶
+淮、泗之間亦可得也。」
+

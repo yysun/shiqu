@@ -1,0 +1,50 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 262
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.18.1, tr. Crump no 277, ed. Sha4ngha3igu3jí p. 717
+# dating: 8110
+<pb:KR2e0003_tls_263-1a>¶
+** 263 或謂建信君之所以事王者
+
+或謂建信：¶
+「君之所以事王者，¶
+色也。𦱫¶
+𦱫之所以事王者，¶
+知也。¶
+色老而衰，¶
+知老而多。¶
+以日多之知，¶
+而逐衰惡之色，¶
+君必困矣。」¶
+
+# src: ZGC 20.18.2, tr. Crump no 277, ed. Sha4ngha3igu3jí p. 717
+# dating: 8110
+建信君曰：「奈何？」¶
+曰：¶
+「並驥而走者，¶
+五里而罷；¶
+乘驥而御之，¶
+不倦而取道多。¶
+君令乘獨斷之車，¶
+御獨斷之勢，¶
+以居邯鄲；¶
+令之內治國事，¶
+外刺諸侯，¶
+則之事有不言者矣。¶
+君因言王而重責之，¶
+之軸今折矣。」¶
+
+# src: ZGC 20.17.3, tr. Crump no 480, ed. Sha4ngha3igu3jí p. 715
+# dating: 8110
+建信君
+再拜受命，
+入言於王，¶
+厚任以事能，重責之。¶
+未期年而葺亡走矣。
+
+

@@ -1,0 +1,24 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 384
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 26. 14. 1; tr. Crump 1979 no. 71, p. 468, ed. Shanghai Guji p. 945
+# dating: 8110
+<pb:KR2e0003_tls_385-1a>¶
+** 385 宜陽之役
+
+宜陽之役，¶
+楊達謂公孫顯曰：¶
+「請為公以五萬攻西周，¶
+得之，¶
+是以九鼎印甘茂也。¶
+不然，¶
+秦攻西周，¶
+天下惡之，¶
+其救韓必疾，¶
+則茂事敗矣。」
+

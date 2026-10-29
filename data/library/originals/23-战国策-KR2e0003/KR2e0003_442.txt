@@ -1,0 +1,41 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 441
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 28. 21. 1;tr. Crump 1979 no.92, p.100, ed. Shanghai Guji p. 1036
+# dating: 8110
+<pb:KR2e0003_tls_442-1a>¶
+** 442 段干越人謂新城君
+
+段干越人謂新城君曰：¶
+「王良之弟子駕，¶
+云取千里馬，¶
+遇造父之弟子。¶
+造父之弟子曰：¶
+『馬不千里。』¶
+
+# src: ZGC 28.21. 2;tr. Crump 1979 no.92, p.101, ed. Shanghai Guji p. 1036
+# dating: 8110
+王良弟子曰：¶
+『馬，千里之馬也；¶
+服，
+千里之服也。¶
+而不能取千里，何也？』¶
+曰：¶
+『子纆牽長。¶
+故纆牽於事，¶
+萬分之一也，¶
+而難千里之行。』¶
+
+# src: ZGC 28. 21. 3;tr. Crump 1979 no.92, p.101, ed. Shanghai Guji p. 1034
+# dating: 8110
+今臣雖不肖，¶
+於秦亦萬分之一也，¶
+而相國見臣
+不釋塞者，¶
+是纆牽長也。」
+

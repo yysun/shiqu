@@ -1,0 +1,25 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 310
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.23.1 tr. Crump, 309, p. 385, ed. Shanghaiguji p. 812-. The king of Wei is shown the advantages of double dealing
+# dating: 8110
+<pb:KR2e0003_tls_311-1a>¶
+** 311 徐州之役
+
+徐州之役，¶
+犀首謂梁王曰：¶
+「何不陽與齊而陰結於楚？¶
+二國恃王，¶
+齊、楚必戰。¶
+齊戰勝楚，¶
+而與乘之，¶
+必取方城之外；¶
+楚戰勝齊敗，¶
+而與乘之，¶
+是太子之讎報矣。」
+

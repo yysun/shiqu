@@ -1,0 +1,28 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 485
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 32. 10. 1; tr. Crump 1979 no.4i3, p 569, ed. Shanghai Guji p. 1160
+# dating: 8110
+<pb:KR2e0003_tls_486-1a>¶
+** 486 智伯欲襲衛
+
+智伯欲襲衛，¶
+乃佯亡其太子，¶
+使奔衛。¶
+南文子曰：¶
+「太子顏為君子也，¶
+甚愛而有寵，¶
+非有大罪而亡，¶
+必有故。」¶
+使人迎之於境，¶
+曰：¶
+「車過五乘，¶
+慎勿納也。」¶
+智伯聞之，¶
+乃止。
+

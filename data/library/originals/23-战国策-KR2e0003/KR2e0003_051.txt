@@ -1,0 +1,24 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 50
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 3.6.1; tr. Crump 1979 no. 61, p.72, ed. Shanghaiguji p. 114 Kan Mao advised how to be rid of Chang Yi
+# dating: 8110
+<pb:KR2e0003_tls_051-1a>¶
+** 51 張儀欲假秦兵以救魏
+
+張儀欲假秦兵以救魏。¶
+左成謂甘茂曰：¶
+「子不予之。¶
+魏不反秦兵，¶
+張子不反秦。¶
+魏若反秦兵，¶
+張子得志於魏，¶
+不敢反於秦矣。¶
+張子不去秦，¶
+張子必高子。」
+

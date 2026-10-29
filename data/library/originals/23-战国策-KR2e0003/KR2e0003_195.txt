@@ -1,0 +1,41 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 194
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 15.6.1, tr. Crump no 194, ed. Sha4ngha3igu3jí p. 528
+# dating: 8110
+<pb:KR2e0003_tls_195-1a>¶
+** 195 楚王將出張子
+
+楚王將出張子，¶
+恐其敗己也，¶
+靳尚謂楚王曰：¶
+「臣請隨之。¶
+儀事王不善，¶
+臣請殺之。」<pb:KR2e0003_tls_195-2a>¶
+楚小臣，¶
+靳尚之仇也，¶
+謂張旄曰：¶
+「以張儀之知，¶
+而有秦、楚之用，¶
+君必窮矣。¶
+
+# src: ZGC 15.6.2, tr. Crump no 194, ed. Sha4ngha3igu3jí p. 528
+# dating: 8110
+君不如
+使人微要靳尚而刺之，¶
+楚王必大怒儀也。¶
+彼儀窮，¶
+則子重矣。¶
+楚、秦相難，¶
+則魏無患矣。」<pb:KR2e0003_tls_195-3a>¶
+張旄果令人要靳尚刺之。¶
+楚王大怒，¶
+秦構兵而戰。¶
+秦、楚爭事魏，¶
+張旄果大重。
+

@@ -1,0 +1,43 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 405
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.10. 1; tr. Crump 1979 no.411, p.480, ed. Shanghai Guji p. 9i1
+# dating: 8110
+<pb:KR2e0003_tls_406-1a>¶
+** 406 韓公叔與幾瑟爭國鄭強為楚王使於韓
+
+韓公叔與幾瑟爭國。¶
+鄭強為楚王使於韓，¶
+矯以新城、陽人合世子，¶
+以與公叔爭國。¶
+楚怒，¶
+將罪之。¶
+鄭疆曰：¶
+
+# src: ZGC 27.10. 2; tr. Crump 1979 no.411, p.480, ed. Shanghai Guji p. 9i1
+# dating: 8110
+「臣之矯與之，¶
+以為國也。¶
+臣曰，¶
+世子得新城、陽人，¶
+以與公叔爭國，¶
+而得全，¶
+魏必急韓氏；¶
+
+# src: ZGC 27.10. 3; tr. Crump 1979 no.411, p.480, ed. Shanghai Guji p. 9i1
+# dating: 8110
+韓氏急，¶
+必縣命於楚，¶
+又何新城、陽人敢索？¶
+若戰而不勝，¶
+走而不死，¶
+今且以至，¶
+又安敢言地？」¶
+楚王曰：「善。」¶
+乃弗罪。
+

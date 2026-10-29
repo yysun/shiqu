@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 65
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 4.8.1; tr. Crump 1979 no. 68, p 77 Kan Mao procures valour with gold and takes the town of Yi-yang
+# dating: 8110
+<pb:KR2e0003_tls_066-1a>¶
+** 66 甘茂攻宜陽
+
+甘茂攻宜陽，¶
+三鼓之而卒不上。¶
+秦之右將有尉對曰：¶
+「公不論兵，¶
+必大困。」¶
+甘茂曰：¶
+「我羈旅而得相秦者，¶
+我以宜陽餌王。¶
+
+# src: ZGC 4.8.2; tr. Crump 1979 no. 68, p 77
+# dating: 8110
+今攻宜陽而不拔，¶
+公孫衍、樗里疾挫我於內，¶
+而公中以韓窮我於外，¶
+是無伐之日已！¶
+請明日鼓之而不可下，¶
+因以宜陽之郭為墓。」¶
+於是出私金
+以益公賞。¶
+明日鼓之，¶
+宜陽拔。
+

@@ -1,0 +1,33 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 408
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.13. 1; tr. Crump 1979 no.414, p.4i1f, ed. Shanghai Guji p. 9i4
+# dating: 8110
+<pb:KR2e0003_tls_409-1a>¶
+** 409 公叔將殺幾瑟
+
+公叔將殺幾瑟也。¶
+謂公叔曰：¶
+「太子之重公也，¶
+畏幾瑟也。¶
+今幾瑟死，¶
+太子無患，¶
+必輕公。¶
+
+# src: ZGC 27.13. 2; tr. Crump 1979 no.414, p.4i2, ed. Shanghai Guji p. 9i4
+# dating: 8110
+韓大夫見王老，¶
+冀太子之用事也，¶
+固欲事之。¶
+太子外無幾瑟之患，¶
+而內收諸大夫以自輔也，¶
+公必輕矣。¶
+不如無殺幾瑟，¶
+以恐太子，¶
+太子必終身重公矣。」
+

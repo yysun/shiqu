@@ -1,0 +1,48 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 272
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 21.5.1 tr. Crump no 259,, ed. Sha4ngha3igu3jí p. 746
+# dating: 8110
+<pb:KR2e0003_tls_273-1a>¶
+** 273 樓緩將使伏事辭行
+
+樓緩將使，¶
+伏事，¶
+辭行，¶
+謂趙王曰：¶
+「臣雖盡力竭知，¶
+死不復見於王矣。」¶
+
+# src: ZGC 21.5.2 tr. Crump no 259, ed. Sha4ngha3igu3jí p. 746
+# dating: 8110
+王曰：¶「是何言也？¶
+固且為書而厚寄卿。」¶
+樓子曰：¶
+「王不聞公子牟夷之於宋乎？¶
+非肉不食。¶
+文張善宋，¶
+惡公子牟夷，¶
+寅然。¶
+
+# src: ZGC 21.5.4 tr. Crump no 259, ed. Sha4ngha3igu3jí p. 747
+# dating: 8110
+今臣之於王非宋之於公子牟夷也，¶
+而惡臣者過文張。¶
+故臣死不復見於王矣。」¶
+王曰：¶
+「子勉行矣，¶
+寡人與子有誓言矣。」
+樓子遂行。
+<pb:KR2e0003_tls_273-2a>¶
+後以中牟反，¶
+入梁。¶
+候者來言，¶
+而王弗聽，¶
+曰：¶
+「吾已與樓子有言矣。」
+

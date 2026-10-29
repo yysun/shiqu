@@ -1,0 +1,31 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 64
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 4.7.1; tr. Crump 1979 no. 67, p 77, ed. Shanghaiguji p. 153
+# dating: 8110
+<pb:KR2e0003_tls_065-1a>¶
+** 65 宜陽之役馮章謂秦王
+
+宜陽之役，¶
+馮章謂秦王曰：¶
+「不拔宜陽，¶
+韓、楚乘吾弊，¶
+國必危矣！¶
+不如許楚漢中以懽之。¶
+楚懽而不進，¶
+韓必孤，¶
+無奈秦何矣！」王曰：¶
+「善。」¶
+果使馮章許楚漢中，¶
+而拔宜陽。¶
+楚王以其言責漢中於馮章，¶
+馮章謂秦王曰：¶
+「王遂亡臣，¶
+固謂楚王曰：¶
+『寡人固無地而許楚王。』」
+

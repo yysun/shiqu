@@ -1,0 +1,23 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 2
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.3.1; tr. Crump 1979 no. 22, p. 39 Han dissuaded from intervening in the quarrel of East and West Chou
+# dating: 8110
+<pb:KR2e0003_tls_003-1a>¶
+** 3 東周與西周戰
+
+東周與西周戰，¶
+韓救西周。¶
+為東周謂韓王曰：¶
+「西周者，¶
+故天子之國也，¶
+多名器重寶。¶
+案兵而勿出，¶
+可以德東周，¶
+西周之寶可盡矣。」
+

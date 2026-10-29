@@ -1,0 +1,39 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 469
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 30. 12. 1; tr. Crump 1979 no.468,p 543, ed. Shanghai Guji p. 1115
+# dating: 8110
+<pb:KR2e0003_tls_470-1a>¶
+** 470 趙且伐燕
+
+趙且伐燕，¶
+蘇代為燕謂惠王曰：¶
+「今者臣來，¶
+過易水，¶
+蚌方出曝，¶
+而鷸啄其肉，¶
+蚌合而拑其喙。¶
+鷸曰：『今日不雨，¶
+明日不雨，¶
+即有死蚌。』¶
+蚌亦謂鷸曰：『今日不出，¶
+明日不出，¶
+即有死鷸。』¶
+兩者不肯相舍，¶
+漁者得而并禽之。¶
+
+# src: ZGC 30. 12. 2; tr. Crump 1979 no.468,p 543, ed. Shanghai Guji p. 1115
+# dating: 8110
+今趙且伐燕，¶
+燕、趙久相支，¶
+以弊大眾，¶
+臣恐強秦之為漁父也。¶
+故願王之熟計之也。」¶
+惠王曰：「善。」¶
+乃止。
+

@@ -11,8 +11,11 @@ rights that their respective rights holders have not granted.
 
 For the bundled book collection, see data/library/source-notices.md and
 data/library/catalog.json, together with notices in the original downloads.
-These records document provenance; they do not establish redistribution
-permission for sources whose applicable terms remain unconfirmed.
+The Wikisource and Kanripo transcription contributions retain CC BY-SA 4.0,
+including the third-party Zhongli excerpt embedded in lib/content.ts and the
+SQL seed. See data/library/licenses/CC-BY-SA-4.0.txt. Original authors and
+upstream contributors are credited in the catalog and original downloads.
+Project Gutenberg downloads retain their own accompanying notices and terms.
 
 Third-party dependency license texts and notices remain applicable. The
 Standard desktop edition also includes the Node.js distribution's LICENSE

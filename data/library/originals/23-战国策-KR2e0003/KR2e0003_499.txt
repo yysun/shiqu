@@ -1,0 +1,43 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 498
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 33. 8. 1; tr. Crump 1979 no.496, p 5i2, ed. Shanghai Guji p. 11i3
+# dating: 8110
+<pb:KR2e0003_tls_499-1a>¶
+** 499 中山君饗都士
+
+中山君饗都士，¶
+大夫司馬子期在焉。¶
+羊羹不遍，¶
+司馬子期怒而走於楚，說楚王伐中山，¶
+
+# src: ZGC 33. 8. 2; tr. Crump 1979 no.496, p 5i2, ed. Shanghai Guji p. 11i1
+# dating: 8110
+中山君亡。¶
+有二人挈戈而隨其後者，¶
+中山君顧謂二人：¶
+「子奚為者也？」¶
+二人對曰：「臣有父，¶
+嘗餓且死，¶
+君下壺餐餌之。¶
+臣父且死，¶
+曰：¶
+『中山有事，¶
+汝必死之。』¶
+故來死君也。」¶
+
+# src: ZGC 33. 8. 3; tr. Crump 1979 no.496, p 5i2, ed. Shanghai Guji p. 11i1
+# dating: 8110
+中山君喟然而仰歎曰：¶
+「與不期眾少，¶
+其於當厄；¶
+怨不期深淺，¶
+其於傷心。¶
+吾以一杯羊羹亡國，¶
+以一壺餐得士二人。」
+

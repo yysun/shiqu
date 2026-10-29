@@ -1,0 +1,36 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 298
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.12.1 tr. Crump no 329, ed. Sha4ngha3igu3jí p. 795
+# dating: 8110
+<pb:KR2e0003_tls_299-1a>¶
+** 299 齊魏約而伐楚
+
+齊、¶魏約而伐楚，¶
+魏以董慶為質於齊。¶
+楚攻齊，¶
+大敗之，¶
+而魏弗救。¶
+田嬰怒，¶
+將殺董慶。¶
+旰夷為董慶謂田嬰曰：¶
+
+# src: ZGC 22.12.2 tr. Crump no 329, ed. Sha4ngha3igu3jí p. 795
+# dating: 8110
+「楚攻齊，¶
+大敗之，¶
+而不敢深入者，¶
+以魏為將內之於齊
+而擊其後。¶
+今殺董慶，¶
+是示楚無魏也。¶
+魏怒合於楚，¶
+齊必危矣。¶
+不如貴董慶以善魏，¶
+而疑之於楚也。」
+

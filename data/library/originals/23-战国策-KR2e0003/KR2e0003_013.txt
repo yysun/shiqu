@@ -1,0 +1,33 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 12
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.13.1; tr. Crump 1979 no. 43, p. 52 Chin T'ou urged to support Chou Tsui
+# dating: 8110
+<pb:KR2e0003_tls_013-1a>¶
+** 13 或為周最謂金投
+
+或為周最謂金投曰：¶
+「秦以周最之齊疑天下，¶
+而又知趙之難子齊人戰，¶
+恐齊、韓之合，¶
+必先合於秦。¶
+秦、齊合，¶
+則公之國虛矣。¶
+
+# src: ZGC 1.13.2; tr. Crump 1979 no. 43, p. 52
+# dating: 8110
+公不如救齊，¶
+因佐秦而伐韓、魏，
+上黨長子趙之有
+已。¶
+公東收寶於秦，¶
+南取地於韓，¶
+魏因以因，¶
+徐為之東，¶
+則有合矣。」
+

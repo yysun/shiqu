@@ -1,0 +1,41 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 439
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 28. 19. 1;tr. Crump 1979 no.440, p.503, ed. Shanghai Guji p. 1034
+# dating: 8110
+<pb:KR2e0003_tls_440-1a>¶
+** 440 建信君輕韓熙
+
+建信君輕韓熙，¶
+趙敖為謂建信侯曰：¶
+「國形有之而存，¶
+無之而亡者，¶魏也。¶
+不可無而從者，¶韓也。¶
+
+# src: ZGC 28. 19. 2;tr. Crump 1979 no.440, p.503f, ed. Shanghai Guji p. 1034
+# dating: 8110
+今君之輕韓熙者，¶
+交善楚、魏也。¶
+秦見君之交反善於楚、魏也，¶
+其收韓必重矣。¶
+從則韓輕，¶
+橫則韓重，¶
+則無從輕矣。¶
+
+# src: ZGC 28. 19. 3;tr. Crump 1979 no.440, p.504, ed. Shanghai Guji p. 1034
+# dating: 8110
+秦出兵於三川，¶
+則南圍鄢，¶
+蔡、邵之道不通矣。¶
+魏急，¶
+其救趙必緩矣。¶
+秦舉兵破邯鄲，¶
+趙必亡矣。¶
+故君收韓，¶
+可以無舋。」
+

@@ -1,0 +1,39 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 192
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 15.4.1, tr. Crump no 205, ed. Sha4ngha3igu3jí p. 526
+# dating: 8110
+<pb:KR2e0003_tls_193-1a>¶
+** 193 四國伐楚
+
+四國伐楚，¶
+楚令昭雎將以距秦。¶
+楚王欲擊秦，¶
+昭侯不欲。¶
+桓臧為昭雎謂楚王曰：¶
+「雎戰勝，¶
+三國惡楚之強也，¶
+恐秦之變而聽楚也，¶
+必深攻楚以勁秦。¶
+秦王怒於戰不勝，¶
+必悉起而擊楚，¶
+是王與秦相罷，¶
+而以利三國也。¶
+
+# src: ZGC 15.4.2, tr. Crump no 205, ed. Sha4ngha3igu3jí p. 526
+# dating: 8110
+戰不勝秦，¶
+秦進兵而攻。¶
+不如益昭雎之兵，¶
+令之示秦必戰。¶
+秦王惡與楚相弊而令天下，¶
+秦可以少割而收害也。¶
+秦、楚之合，¶
+而燕、趙、魏不敢不聽，¶
+三國可定也。」
+

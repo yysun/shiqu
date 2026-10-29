@@ -1,0 +1,39 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 182
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 14.14.1, tr. Crump no 207, ed. Sha4ngha3igu3jí p. 495
+# dating: 8110
+<pb:KR2e0003_tls_183-1a>¶
+** 183 韓公叔有齊魏
+
+韓公叔有齊、魏，
+而太子有楚、秦
+以爭國。¶
+鄭申為楚使於韓，¶
+矯以新城、陽人予太子。¶
+楚王怒，¶
+將罪之。¶
+對曰：¶
+「臣矯予之，¶
+以為國也。¶
+
+# src: ZGC 14.14. 2, tr. Crump no 207, ed. Sha4ngha3igu3jí p. 495
+# dating: 8110
+臣為太子得新城、¶陽人，以與公叔爭國而得之。¶
+齊、魏必伐韓。¶
+韓氏急，¶
+必懸命於楚，¶
+又何新城、陽人之敢求？¶
+太子不勝，¶
+然而不死，¶
+今將倒冠而至，¶
+又安敢言地？」¶
+楚王曰：¶
+「善。」¶
+乃不罪也。
+

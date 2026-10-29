@@ -1,0 +1,27 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 464
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 30. 7. 1; tr. Crump 1979 no.462,p 535f, ed. Shanghai Guji p. 1100
+# dating: 8110
+<pb:KR2e0003_tls_465-1a>¶
+** 465 燕昭王且與天下伐齊
+
+燕昭王且與天下伐齊，¶
+而有齊人仕於燕者，¶
+昭王召而謂之曰：¶
+「寡人且與天下伐齊，¶
+旦暮出令矣。¶
+子必爭之，¶
+爭之而不聽，¶
+子因去而之齊。¶
+寡人有時復合和也，¶
+且以因子而事齊。」¶
+當此之時也，¶
+燕、齊不兩立，¶
+然而常獨欲有復收之之志若此也。
+

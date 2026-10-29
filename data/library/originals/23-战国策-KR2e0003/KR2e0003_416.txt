@@ -1,0 +1,24 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 415
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.20. 1; tr. Crump 1979 no.425, p.490f, ed. Shanghai Guji p. 990
+# dating: 8110
+<pb:KR2e0003_tls_416-1a>¶
+** 416 韓咎立為君而未定
+
+韓咎立為君而未定也，¶
+其弟在周，¶
+周欲以車百乘重而送之，¶
+恐韓咎入韓之不立也。¶
+綦母恢曰：¶
+「不如以百金從之，¶
+韓咎立，¶
+因也以為戒；¶
+不立，¶
+則曰來效賊也。」
+

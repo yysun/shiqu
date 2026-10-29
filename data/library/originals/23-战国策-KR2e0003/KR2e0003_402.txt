@@ -1,0 +1,25 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 401
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.6. 1; tr. Crump 1979 no.410, p.480, ed. Shanghai Guji p. 977
+# dating: 8110
+<pb:KR2e0003_tls_402-1a>¶
+** 402 公叔使馮君於秦
+
+公叔使馮君於秦，¶
+恐留，¶
+教陽向說秦王曰：¶
+「留馮君以善韓臣，¶
+非上知也。¶
+主君不如善馮君，¶
+而資之以秦。¶
+馮君廣王而不聽公叔，¶
+以與太子爭，¶
+則王澤布，¶
+而害於韓矣。」
+

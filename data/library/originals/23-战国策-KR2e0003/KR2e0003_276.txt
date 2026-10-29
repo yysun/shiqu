@@ -1,0 +1,28 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 275
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 21.8.1 tr. Crump no 248, ed. Sha4ngha3igu3jí p. 751
+# dating: 8110
+<pb:KR2e0003_tls_276-1a>¶
+** 276 三國攻秦趙攻中山
+
+三國攻秦，¶
+趙攻中山，¶
+取扶柳，¶
+五年以擅呼沱。¶
+齊人戎郭、宋突謂仇郝曰：¶
+
+# src: ZGC 21.8.2 tr. Crump no 248, ed. Sha4ngha3igu3jí p. 751
+# dating: 8110
+「不如盡歸中山之新地。¶
+中山案此言於齊曰，¶
+四國將假道於衛，¶
+以過章子之路。¶
+齊聞此，¶
+必效鼓。」
+

@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 476
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 32. 1 1; tr. Crump 1979 no.478, p 565, ed. Shanghai Guji p. 1144
+# dating: 8110
+<pb:KR2e0003_tls_477-1a>¶
+** 477 齊攻宋宋使臧子索救於荊
+
+齊攻宋，¶
+宋使臧子索救於荊。¶
+荊王大說，¶
+許救甚勸。¶
+臧子憂而反。¶
+其御曰：「索救而得，¶
+有憂色何也？」¶
+
+# src: ZGC 32.1. 2; tr. Crump 1979 no.478, p 565, ed. Shanghai Guji p. 1144
+# dating: 8110
+臧子曰：「宋小而齊大。¶
+夫救於小宋而惡於大齊，¶
+此王之所憂也；¶
+而荊王說甚，¶
+必以堅我。¶
+我堅而齊弊，¶
+荊之利也。」¶
+臧子乃歸。¶
+齊王果攻，¶
+拔宋五城，¶
+而荊王不至。
+

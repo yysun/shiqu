@@ -1,0 +1,32 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 110
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 8.2.1; tr. Crump 1979 no.136 p. 168, ed. Shanghaiguji p. 303
+# dating: 8110
+<pb:KR2e0003_tls_111-1a>¶
+** 111 楚威王戰勝於徐州
+
+楚威王戰勝於徐州，¶
+欲逐嬰子於齊。¶
+嬰子恐，¶
+張丑謂楚王曰：¶
+「王戰勝於徐州也，¶
+盼子不用也。¶
+盼子有功於國，¶
+百姓為之用。¶
+嬰子不善，¶
+而用申縳。¶
+申縳者，¶
+大臣與百姓弗為用，¶
+故王勝之也。¶
+今嬰子逐，¶
+盼子必用。¶
+復整其士卒以與王遇，¶
+必不便於王也。」¶
+楚王因弗逐。
+

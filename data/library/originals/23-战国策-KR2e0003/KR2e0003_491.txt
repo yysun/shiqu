@@ -1,0 +1,39 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 490
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 32. 15. 1; tr. Crump 1979 no.488, p 573, ed. Shanghai Guji p. 1167
+# dating: 8110
+<pb:KR2e0003_tls_491-1a>¶
+** 491 衛人迎新婦
+
+衛人迎新婦，¶
+婦上車，¶
+問：¶
+「驂馬，¶
+誰馬也？」¶
+御曰：「借之。」¶
+新婦謂僕曰：¶
+「拊驂，¶
+無笞服。」¶
+
+# src: ZGC 32. 15. 2; tr. Crump 1979 no.488, p 573, ed. Shanghai Guji p. 1167
+# dating: 8110
+車至門，¶
+扶，教送母：¶
+「滅竈，¶
+將失火。」¶
+入室見臼，¶
+曰：¶
+「徙之牖下，¶
+妨往來者。」¶
+主人笑之。¶
+此三言者，¶
+皆要言也，¶
+然而不免為笑者，¶
+蚤晚之時失也。
+

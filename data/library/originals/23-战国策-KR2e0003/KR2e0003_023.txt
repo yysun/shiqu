@@ -1,0 +1,37 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 22
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.23.1; tr. Crump 1979 no.33, p. 46 The parable of the fowler
+# dating: 8110
+<pb:KR2e0003_tls_023-1a>¶
+** 23 杜赫欲重景翠於周
+
+杜赫欲重景翠於周，¶
+謂周君曰：¶
+「君之國小，¶
+盡君子重寶珠玉以事諸侯，¶
+不可不察也。¶
+譬之如張羅者，¶
+張於無鳥之所，¶
+則終日無所得矣；¶
+張於多鳥處，¶
+則又駭鳥矣；¶
+
+# src: ZGC 1.23.2; tr. Crump 1979 no.33, p. 46
+# dating: 8110
+必張於有鳥無鳥之際，¶
+然後能多得鳥矣。¶
+今君將施於大人，¶
+大人輕君；¶
+施於小人，¶
+小人無可以求，¶
+又費財焉。¶
+君必施於今之窮士，¶
+不必且為大人者，¶
+故能得欲矣。」
+

@@ -1,0 +1,48 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 206
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 16.9.1, tr. Crump no 204, ed. Sha4ngha3igu3jí p. 546
+# dating: 8110
+<pb:KR2e0003_tls_207-1a>¶
+** 207 秦伐宜陽
+
+秦伐宜陽。¶
+楚王謂陳軫曰：¶
+「寡人聞韓侈巧士也，¶
+習諸侯事，¶
+殆能自免也。¶
+為其必免，¶
+吾欲先據之以加德焉。」¶
+
+# src: ZGC 16.9.2, tr. Crump no 204, ed. Sha4ngha3igu3jí p. 546
+# dating: 8110
+陳軫對曰：¶「舍之，¶王勿據也。¶
+以韓侈之知，¶
+於此困矣。¶
+今山澤之獸，¶
+無黠於麋。¶
+麋知獵者張罔，¶
+前而驅己也，¶
+因還走而冒人，¶
+至數。¶
+獵者知其詐，¶
+偽舉罔而進之，¶
+麋因得矣。
+
+# src: ZGC 16.9.3, tr. Crump no 204, ed. Sha4ngha3igu3jí p. 546
+# dating: 8110
+今諸侯明知此多詐，¶
+偽舉罔而進者必眾矣。¶
+舍之，¶
+王勿據也。¶
+韓侈之知，¶
+於此困矣。」¶
+楚王聽之，¶
+宜陽果拔。¶
+陳軫先知之也。
+

@@ -1,0 +1,52 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 85
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 5.12.1; tr. Crump 1979 no. 99, p 112, ed. Shanghaiguji p. 198 Attacking men and attacking territories
+# dating: 8110
+<pb:KR2e0003_tls_086-1a>¶
+** 86 秦攻韓圍陘
+
+秦攻韓，¶
+圍陘。¶
+范睢謂秦昭王曰：¶
+「有攻人者，¶
+有攻地者。¶
+
+# src: ZGC 5.12.2; tr. Crump 1979 no. 99, p 112, ed. Shanghaiguji p. 198
+# dating: 8110
+穰侯十攻魏而不得傷者，¶
+非秦弱而魏強也，¶
+其所攻者，¶
+地也。¶
+地者，¶
+人主所甚愛也。¶
+人主者，¶
+人臣之所樂為死也。¶
+攻人主之所愛，¶
+與樂死者鬭，¶
+故十攻而弗能勝也。¶
+
+# src: ZGC 5.12.3; tr. Crump 1979 no. 99, p 112, ed. Shanghaiguji p. 198
+# dating: 8110
+今王將攻韓圍陘，¶
+臣願王之毋獨攻其地，¶
+而攻其人也。¶
+王攻韓圍陘，¶
+以張儀為言。¶
+張儀之力多，¶
+且削地而以自贖於王，¶
+
+# src: ZGC 5.12.4; tr. Crump 1979 no. 99, p 112, ed. Shanghaiguji p. 198
+# dating: 8110
+幾割地而韓不盡；¶
+張儀之力少，¶
+則王逐張儀，¶
+而更與不如張儀者市。¶
+則王之所求於韓者，¶
+言可得也。」
+

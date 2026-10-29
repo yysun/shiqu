@@ -1,0 +1,36 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 183
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC14.15.1, tr. Crump no 208, ed. Sha4ngha3igu3jí p. 496
+# dating: 8110
+<pb:KR2e0003_tls_184-1a>¶
+** 184 楚杜赫說楚王以取趙
+
+楚杜赫說楚王以取趙。¶
+王且予之五大夫，¶
+而令私行。
+<pb:KR2e0003_tls_184-2a>¶
+陳軫謂楚王曰：¶
+“「赫不能得趙，¶
+五大夫不可收也，¶
+得賞無功也。¶
+得趙而王無加焉，¶
+是無善也。¶
+王不如以十乘行之，¶
+事成，¶
+予之五大夫。」¶
+
+# src: ZGC14.15. 2, tr. Crump no 208, ed. Sha4ngha3igu3jí p. 496°]®˜§Q•|°E∑°§@°^
+# dating: 8110
+王曰：¶
+「善。」¶
+乃以十乘行之。
+<pb:KR2e0003_tls_184-3a>¶
+杜赫怒而不行。¶
+陳軫謂王曰：「是不能得趙也。」
+

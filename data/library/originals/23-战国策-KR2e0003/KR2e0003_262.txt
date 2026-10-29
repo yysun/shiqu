@@ -1,0 +1,48 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 261
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.17.1, tr. Crump no 480, ed. Sha4ngha3igu3jí p. 715
+# dating: 8110
+<pb:KR2e0003_tls_262-1a>¶
+** 262 衛靈公近雍疸彌子瑕
+
+衛靈公近雍疸、彌子瑕。¶
+二人者，¶
+專君之勢以蔽左右。¶
+復塗偵謂君曰：¶
+「昔日臣夢見君。」¶
+
+# src: ZGC 20.17.2, tr. Crump no 480, ed. Sha4ngha3igu3jí p. 715
+# dating: 8110
+君曰：¶
+「子何夢？」¶
+曰：¶
+「夢見竈君。」¶
+君忿然作色曰：¶
+「吾聞夢見人君者，¶
+夢見日。¶
+今子曰夢見竈君而言君也，¶
+有說則可，¶
+無說則死。」¶
+
+# src: ZGC 20.17.3, tr. Crump no 480, ed. Sha4ngha3igu3jí p. 715
+# dating: 8110
+對曰：¶
+「日，¶
+并燭天下者也，¶
+一物不能蔽也。¶
+若竈則不然，¶
+前之人煬，¶
+則後之人無從見也。¶
+今臣疑人之有煬於君者也，¶
+是以夢見竈君。」¶
+君曰：「善。」¶
+於是，¶
+因廢雍疸、彌子瑕，¶
+而立司空狗。
+

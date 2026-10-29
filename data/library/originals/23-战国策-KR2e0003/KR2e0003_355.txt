@@ -1,0 +1,32 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 354
+#+PROPERTY: CAT 1pre-han,歷史,古史
+<pb:KR2e0003_tls_355-1a>¶
+** 355 樓梧約秦魏
+
+樓梧約秦、魏，
+將令秦王遇於境。¶
+謂魏王曰：¶
+「遇而無相，¶
+秦必置相。¶
+不聽之，¶
+則交惡於秦；¶
+聽之，¶
+則後王之臣，¶
+將皆務事諸侯之能令於王之上者。¶
+
+# src: ZGC 25. 11. 2; tr. Crump 1979 no. 366, p. 441f, ed. Shanghai Guji p. 900
+# dating: 8110
+且遇於秦而相秦者，¶
+是無齊也，¶
+秦必輕王之強矣。¶
+有齊者，¶
+不若相之，¶
+齊必喜，¶
+是以有雍者與秦遇，¶
+秦必重王矣。」
+

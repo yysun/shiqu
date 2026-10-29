@@ -1,0 +1,29 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 40
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 2.13;1 tr. Crump 1979 no.18, p. 36, ed. Shanghaiguji p. 67 Chou Tsui dissuades the king of Ch'in form attacking Chou
+# dating: 8110
+<pb:KR2e0003_tls_041-1a>¶
+** 41 秦欲攻周
+
+秦欲攻周，¶
+周最謂秦王曰：¶
+「為王之國計者，¶
+不攻周。¶
+攻周，實不足以利國，¶
+而聲畏天下。¶
+天下以聲畏秦，¶
+必東合於齊。¶
+兵弊於周，¶
+而合天下於齊，¶
+則秦孤而不王矣。¶
+是天下欲罷秦，¶
+故勸王攻周。¶
+秦與天下俱罷，¶
+則令不橫行於周矣。」
+

@@ -1,0 +1,28 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 301
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.15.1 tr. Crump no 314, ed. Sha4ngha3igu3jí p. 800
+# dating: 8110
+<pb:KR2e0003_tls_302-1a>¶
+** 302 張儀惡陳軫於魏王
+
+張儀惡陳軫於魏王曰：¶
+
+# src: ZGC 22.15.2 tr. Crump no 314, ed. Sha4ngha3igu3jí p. 800
+# dating: 8110
+「軫善事楚，¶
+為求壤地也，¶甚力之。」¶
+左華謂陳軫曰：¶
+「儀善於魏王，¶
+魏王甚愛之。¶
+公雖百說之，¶
+猶不聽也。¶
+公不如儀之言為資，而反於楚王。」¶
+陳軫曰：「善。」¶
+因使人先言於楚王。
+

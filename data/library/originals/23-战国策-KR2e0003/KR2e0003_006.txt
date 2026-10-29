@@ -1,0 +1,34 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 5
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.6.1; tr. Crump 1979 no. 25, p. 41 Protocol defended
+# dating: 8110
+<pb:KR2e0003_tls_006-1a>¶
+** 6 昭獻在陽翟
+
+昭獻在陽翟，¶
+周君將令相國往，¶
+相國將不欲。¶
+蘇厲為之謂周君曰：¶
+「楚王與魏王遇也，¶
+主君令陳封之楚，¶
+令向公之魏。¶
+楚、韓之遇也，¶
+主君令許公之楚，¶
+令向公之韓。¶
+
+# src: ZGC 1.6.2; tr. Crump 1979 no. 25, p. 41
+# dating: 8110
+今昭獻非人主也，¶
+而主君令相國往；¶
+若其王在陽翟，¶
+主君將令誰往？」¶
+周君曰：¶
+「善。」¶
+乃止其行。
+

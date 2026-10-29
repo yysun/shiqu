@@ -1,0 +1,69 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 332
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 23.18.1; tr. Crump 1979 no. 303, p.378, ed. Shanghaiguji p. 846. The king of Wei drinks with his royal visitors and hears edifying words from the Duke of Lu
+# dating: 8110
+<pb:KR2e0003_tls_333-1a>¶
+** 333 梁王魏嬰觴諸侯於范臺
+
+梁王魏嬰觴諸侯於范臺。¶
+酒酣，¶
+請魯君舉觴。¶
+魯君興，¶
+避席擇言曰：¶
+「昔者，¶
+帝女令儀狄作酒而美，¶
+進之禹，¶
+禹飲而甘之，¶
+遂疏儀狄，¶
+絕旨酒，¶
+曰：¶
+『後世必有以酒亡其國者。』¶
+
+# src: ZGC 23.18.2; tr. Crump 1979 no. 303, p.378, ed. Shanghaiguji p. i47-
+# dating: 8110
+齊桓公夜半不嗛，¶
+易牙乃煎敖燔炙，¶
+和調五味而進之，¶
+桓公食之而飽，¶
+至旦不覺，¶
+曰：¶
+『後世必有以味亡其國者。』¶
+晉文公得南之威，¶
+三日不聽朝，¶
+遂推南之威而遠之，¶
+曰：¶
+『後世必有以色亡其國者。』¶
+
+# src: ZGC 23.18.3; tr. Crump 1979 no. 303, p.378, ed. Shanghaiguji p. 847-
+# dating: 8110
+楚王登強臺而望崩山，¶
+左江而右湖，¶
+以臨彷徨，¶
+其樂忘死，¶
+遂盟強臺而弗登，¶
+曰：¶
+『後世必有以高臺陂池
+亡其國者。』¶
+
+# src: ZGC 23.18.4; tr. Crump 1979 no. 303, p.378, ed. Shanghaiguji p. 847-
+# dating: 8110
+今主君之尊，¶
+儀狄之酒也；¶
+主君之味，¶
+易牙之調也；¶
+左白台而右閭須，¶
+南威之美也；¶
+前夾林而後蘭臺，¶
+強臺之樂也。¶
+有一於此，¶
+足以亡其國。¶
+今主君兼此四者，¶
+可無戒與！」¶
+梁王稱善相屬。
+

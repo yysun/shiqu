@@ -1,0 +1,38 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 25
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.26.1; tr. Crump 1979 no.35, p. 47 A forged letter procures a traitor's death
+# dating: 8110
+<pb:KR2e0003_tls_026-1a>¶
+** 26 昌他亡西周
+
+昌他亡西周，¶
+之東周，¶
+盡輸西周之情於東周。¶
+東周大喜，¶
+西周大怒。¶
+馮旦曰：¶
+「臣能殺之。」¶
+君予金三十斤。¶
+馮旦使人操金與書，¶
+間遺昌他書曰：¶
+
+# src: ZGC 1.26.2; tr. Crump 1979 no.35, p. 47
+# dating: 8110
+「告昌他，¶
+事可成，¶
+勉成之；¶
+不可成，¶
+亟亡來亡來。¶
+事久且泄，¶
+自令身死。」¶
+因使人告東周之候曰：¶
+「今夕有姦人當入者矣。」¶
+候得而獻東周，¶
+東周立殺昌他。
+

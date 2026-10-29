@@ -1,0 +1,49 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 10
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.11.1; tr. Crump 1979 no. 41, p. 50 A good minister bears the blame for his master's faults
+# dating: 8110
+<pb:KR2e0003_tls_011-1a>¶
+** 11 周文君免士工師藉
+
+周文君免士工師藉，¶
+相呂倉，¶
+國人不說也。¶
+君有閔閔之心。
+
+# src: ZGC 1.11.2; tr. Crump 1979 no. 41, p. 50
+# dating: 8110
+<pb:KR2e0003_tls_011-2a>謂周文君曰：¶
+「國必有誹譽，¶
+忠臣令誹在己，¶
+譽在上。¶
+宋君奪民時以為臺，¶
+而民非之，¶
+無忠臣以掩蓋之也。¶
+子罕釋相為司空，¶
+民非子罕而善其君。¶
+
+# src: ZGC 1.11.3; tr. Crump 1979 no. 41, p. 50
+# dating: 8110
+齊桓公宮中七市，¶
+女閭七百，¶
+國人非之。¶
+管仲故為三歸之家，¶
+以掩桓公，¶
+非自傷於民也？¶
+《春秋》記臣弒君者以百數，¶
+皆大臣見譽者也。¶
+
+# src: ZGC 1.11.4; tr. Crump 1979 no. 41, p. 50
+# dating: 8110
+故大臣得譽，¶
+非國家之美也。¶
+故眾庶成彊，¶
+增積成山。」¶
+周君遂不免。
+

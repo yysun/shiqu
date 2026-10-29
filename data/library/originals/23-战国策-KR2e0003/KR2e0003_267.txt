@@ -1,0 +1,26 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 266
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.22.1, tr. Crump no 2i1, ed. Sha4ngha3igu3jí p. 722
+# dating: 8110
+<pb:KR2e0003_tls_267-1a>¶
+** 267 秦攻趙鼓鐸之音聞於北堂
+
+秦攻趙，¶
+鼓鐸之音聞於北堂。¶
+希卑曰：¶
+「夫秦之攻趙，¶
+不宜急如此。¶
+此召兵也。¶
+必有大臣欲衡者耳。¶
+王欲知其人，¶
+旦日贊群臣而訪之，¶
+先言橫者，¶
+則其人也。」¶
+建信君果先言橫。
+

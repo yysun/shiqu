@@ -1,0 +1,21 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 43
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 2.16.1; tr. Crump 1979 no.8, p. 29, ed. Shanghaiguji p. 72 Wei dissuaded from marching through West Chou
+# dating: 8110
+<pb:KR2e0003_tls_044-1a>¶
+** 44 三國攻秦反
+
+三國攻秦反，¶
+西周恐魏之藉道也。¶
+為西周謂魏王曰：¶
+「楚、宋不利秦之德三國也，¶
+彼且攻王之聚以利秦。」¶
+魏王懼，¶
+令軍設舍速東。
+

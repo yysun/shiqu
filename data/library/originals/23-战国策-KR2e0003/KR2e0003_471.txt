@@ -1,0 +1,33 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 470
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 30. 13. 1; tr. Crump 1979 no.463,p 543, ed. Shanghai Guji p. 1116
+# dating: 8110
+<pb:KR2e0003_tls_471-1a>¶
+** 471 齊魏爭燕
+
+齊、¶魏爭燕。¶
+齊謂燕王曰：¶
+「吾得趙矣。」¶
+魏亦謂燕王曰：¶
+「吾得趙矣。」¶
+燕無以決之，¶
+而未有適予也。¶
+
+# src: ZGC 30. 13. 2; tr. Crump 1979 no.463,p 543, ed. Shanghai Guji p. 1116
+# dating: 8110
+蘇子謂燕相曰：¶
+「臣聞辭卑而幣重者，¶
+失天下者也；¶
+辭倨而幣薄者，¶
+得天下者也。¶
+今魏之辭倨而幣薄。」¶
+燕因合於魏，¶
+得趙，¶
+齊遂北矣。
+

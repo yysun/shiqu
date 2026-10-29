@@ -1,0 +1,20 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 424
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 2. 6. 1 ; tr. Crump 1979 no.430, p.497, ed. Shanghai Guji p. 1016
+# dating: 8110
+<pb:KR2e0003_tls_425-1a>¶
+** 425 韓陽役於三川而欲歸
+
+韓陽役於三川而欲歸，¶
+足強為之說韓王曰：¶
+「三川服矣，¶
+王亦知之乎？¶
+役且共貴公子。」¶
+王於是召諸公子役於三川者而歸之。
+

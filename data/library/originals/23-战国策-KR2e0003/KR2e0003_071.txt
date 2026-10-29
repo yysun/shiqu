@@ -1,0 +1,38 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 70
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 4.13.1; tr. Crump 1979 no. 73, p 80 Kan Mao eliminates a rival by craft
+# dating: 8110
+<pb:KR2e0003_tls_071-1a>¶
+** 71 甘茂相秦
+
+甘茂相秦。¶
+秦王愛公孫衍，¶
+與之間有所立，¶
+因自謂之曰：¶
+「寡人且相子。」¶
+甘茂之吏道而聞之，¶
+以告甘茂。¶
+
+# src: ZGC 4.13.2; tr. Crump 1979 no. 73, p 80 Kan Mao eliminates a rival by craft
+# dating: 8110
+甘茂因入見王曰：¶
+「王得賢相，¶
+敢再拜賀。」¶
+王曰：¶
+「寡人託國於子，¶
+焉更得賢相？」¶
+對曰：¶
+「王且相犀首。」¶
+王曰：¶
+「子焉聞之？」¶
+對曰：¶
+「犀首告臣。」¶
+王怒於犀首之泄也，¶
+乃逐之。
+

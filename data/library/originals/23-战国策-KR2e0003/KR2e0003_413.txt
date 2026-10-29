@@ -1,0 +1,32 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 412
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.17. 1; tr. Crump 1979 no.418, p.4i4, ed. Shanghai Guji p. 987
+# dating: 8110
+<pb:KR2e0003_tls_413-1a>¶
+** 413 幾瑟亡之楚
+
+幾瑟亡之楚，¶
+楚將收秦而復之。¶
+謂羋戎曰：¶
+「廢公叔而相幾瑟者楚也。¶
+今幾瑟亡之楚，¶
+楚又收秦而復之，¶
+幾瑟入鄭之日，¶
+韓，
+楚之縣邑。¶
+
+# src: ZGC 27.17. 2; tr. Crump 1979 no.418, p.4i4, ed. Shanghai Guji p. 987
+# dating: 8110
+公不如令秦王賀伯嬰之立也。¶
+韓絕於楚，¶
+其事秦必疾，¶
+秦挾韓親魏，¶
+齊、楚後至者先亡。¶
+此王業也。」
+

@@ -1,0 +1,27 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 66
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 4.9.1; tr. Crump 1979 no. 69, p 78, ed. Shanghaiguji p. 155 Kan Mao before the walls of Yi-yang is advised against sparing his men
+# dating: 8110
+<pb:KR2e0003_tls_067-1a>¶
+** 67 宜陽未得
+
+宜陽未得，¶
+秦死傷者眾，¶
+甘茂欲息兵。¶
+左成謂甘茂曰：¶
+「公內攻於樗里疾、公孫衍，¶
+而外與韓侈為怨，¶
+今公用兵無功，¶
+公必窮矣。¶
+公不如進兵攻宜陽，¶
+宜陽拔，¶
+則公之功多矣。¶
+是樗里疾、公孫衍無事也，¶
+秦眾盡怨之深矣。」
+

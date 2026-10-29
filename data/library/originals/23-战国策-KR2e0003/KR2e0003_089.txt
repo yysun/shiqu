@@ -1,0 +1,57 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 88
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 5.15.2; tr. Crump 1979 no. 102, p 114, ed. Shanghaiguji p. 203
+# dating: 8110
+<pb:KR2e0003_tls_089-1a>¶
+** 89 謂應侯曰君禽馬服乎
+
+謂應侯曰：¶
+「君禽馬服乎？」¶
+曰：¶
+「然。」¶
+「又即圍邯鄲乎？」¶
+曰：¶
+「然。」¶
+「趙亡，¶
+秦王王矣，¶
+武安君為三公。¶
+
+# src: ZGC 5.15.3; tr. Crump 1979 no. 102, p 114, ed. Shanghaiguji p. 203
+# dating: 8110
+武安君所以為秦戰勝攻取者七十餘城，¶
+南亡鄢、郢、漢中，¶
+禽馬服之軍，¶
+不亡一甲，¶
+雖周呂望之功，¶
+亦不過此矣。¶
+趙亡，¶
+秦王王，¶
+武安君為三公，¶
+君能為之下乎？¶
+
+# src: ZGC 5.15.4; tr. Crump 1979 no. 102, p 114, ed. Shanghaiguji p. 203
+# dating: 8110
+雖欲無為之下，¶
+固不得之矣。¶
+秦嘗攻韓邢，¶
+困於上黨，¶
+上黨之民皆返為趙。¶
+
+# src: ZGC 5.15.5; tr. Crump 1979 no. 102, p 115, ed. Shanghaiguji p. 205
+# dating: 8110
+天下之民，¶
+不樂為秦民之日固久矣。¶
+今攻趙，¶
+北地入燕，¶
+東地入齊，¶
+南地入楚、魏，
+則秦所得不一幾何。¶
+故不如因而割之，¶
+因以為武安功。」
+

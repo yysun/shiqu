@@ -1,0 +1,37 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 284
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 21.17.1 tr. Crump no 289, ed. Sha4ngha3igu3jí p. 766
+# dating: 8110
+<pb:KR2e0003_tls_285-1a>¶
+** 285 秦召春平侯
+
+秦召春平侯，¶
+因留之。¶
+世鈞為之謂文信侯曰：¶
+「春平侯者，¶
+趙王之所甚愛也，¶
+而郎中甚妬之，¶
+故相與謀曰：¶
+『春平侯入秦，¶
+秦必留之。』¶
+故謀而入之秦。¶
+今君留之，¶
+是空絕趙，¶
+而郎中之計中也。¶
+
+# src: ZGC 21.17.2 tr. Crump no 289, ed. Sha4ngha3igu3jí p. 766
+# dating: 8110
+故君不如遣春平侯而留平都侯。¶
+春平侯者言行於趙王，¶
+必厚割趙以事君，¶
+而贖平都侯。」¶
+文信侯曰：¶
+「善。」¶
+因與接意而遣之。
+

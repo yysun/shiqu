@@ -1,0 +1,40 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 409
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.14. 1; tr. Crump 1979 no.415, p.4i2, ed. Shanghai Guji p. 985
+# dating: 8110
+<pb:KR2e0003_tls_410-1a>¶
+** 410 公叔且殺幾瑟
+
+公叔且殺幾瑟也，¶
+宋赫為謂公叔曰：¶
+「幾瑟之能為亂也，¶
+內得父兄，¶
+而外得秦、楚也。¶
+今公殺之，¶
+太子無患，¶
+必輕公。¶
+韓大夫知王之老而太子定，¶
+必陰事之。¶
+秦、楚若無韓，¶
+必陰事伯嬰。¶
+伯嬰亦幾瑟也。¶
+
+# src: ZGC 27.14. 2; tr. Crump 1979 no.415, p.4i2, ed. Shanghai Guji p. 985
+# dating: 8110
+公不如勿殺。¶
+伯嬰恐，¶
+必保於公。¶
+韓大夫不能必其不入也，¶
+必不敢輔伯嬰以為亂。¶
+秦、楚挾幾瑟以塞伯嬰，¶
+伯嬰外無秦、楚之權，¶
+內無父兄之眾，¶
+必不能為亂矣。¶
+此便於公。」
+

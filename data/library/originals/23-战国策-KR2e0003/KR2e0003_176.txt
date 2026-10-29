@@ -1,0 +1,32 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 175
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC, 14.7.1, tr. Crump non178b, ed. Sha4ngha3igu3jí p. 485
+# dating: 8110
+<pb:KR2e0003_tls_176-1a>¶
+** 176 魏氏惡昭奚恤於楚王
+
+魏氏惡昭奚恤於楚王，¶
+楚王告昭子。¶
+昭子曰：¶
+「臣朝夕以事聽命，¶
+而魏入吾君臣之間，¶
+臣大懼。¶
+
+# src: ZGC, 14.7.2, tr. Crump non178b, ed. Sha4ngha3igu3jí p. 485
+# dating: 8110
+臣非畏魏也！¶
+夫泄吾君臣之交，¶
+而天下信之，¶
+是其為人也近苦矣。¶
+夫苟不難為之外，¶
+豈忘為之內乎？¶
+臣之得罪無日矣。」¶
+王曰：¶「寡人知之，¶
+大夫何患？」
+

@@ -1,0 +1,63 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 38
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 2.11.1; tr. Crump 1979 no.11, p. 31, ed. Shanghaiguji p. 63 The ruler of Chou loses a battle and wins a park
+# dating: 8110
+<pb:KR2e0003_tls_039-1a>¶
+** 39 武敗於伊闕
+
+武敗於伊闕，¶
+周君之魏求救，¶
+魏王以上黨之急辭之。¶
+周君反，¶
+見梁囿而樂之也。¶
+綦母恢謂周君曰：¶
+「溫囿不下此，¶
+而又近。¶
+臣能為君取之。」¶
+
+# src: ZGC 2.11.2; tr. Crump 1979 no.11, p. 31, ed. Shanghaiguji p. 63
+# dating: 8110
+反見魏王，¶
+王曰：¶
+「周君怨寡人乎？」¶
+對曰：¶
+「不怨。¶
+且誰怨王？¶
+臣為王有患也。¶
+周君，¶
+謀主也。¶
+而設以國為王扞秦，¶
+而王無之扞也。¶
+臣見其必以國事秦也，¶
+秦悉塞外之兵，¶
+與周之眾，以攻南陽，¶
+而兩上黨絕矣。」¶
+
+# src: ZGC 2.11.3; tr. Crump 1979 no.11, p. 31, ed. Shanghaiguji p. 63
+# dating: 8110
+魏王曰：¶
+「然則柰何？」¶
+綦母恢曰：¶
+「周君形不小利，¶
+事秦而好小利。¶
+今王許戍三萬人與溫囿，¶
+周君得以為辭於父兄百姓，¶
+而利溫囿以為樂，¶
+必不合於秦。¶
+
+# src: ZGC 2.11.4; tr. Crump 1979 no.11, p. 31, ed. Shanghaiguji p. 64-
+# dating: 8110
+臣嘗聞溫囿之利，¶
+歲八十金，¶
+周君得溫囿，¶
+其以事王者，¶
+歲百二十金，¶
+是上黨每患而贏四十金。」¶
+魏王因使孟卯致溫囿於周君而許之戍也。
+

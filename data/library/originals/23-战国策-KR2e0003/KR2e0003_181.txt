@@ -1,0 +1,37 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 180
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC, 14.12.1, tr. Crump no1i2, ed. Sha4ngha3igu3jí p. 492
+# dating: 8110
+<pb:KR2e0003_tls_181-1a>¶
+** 181 郢人有獄三年不決
+
+郢人有獄三年不決者，
+故令請其宅，¶
+以卜其罪。¶
+客因為之謂昭奚恤曰：¶
+「郢人某氏之宅，¶臣願之。」¶
+昭奚恤曰：¶
+「郢人某氏，¶
+不當服罪，¶
+故其宅不得。」<pb:KR2e0003_tls_181-2a>¶
+
+# src: ZGC14.12.2, tr. Crump no1i2, ed. Sha4ngha3igu3jí p. 492
+# dating: 8110
+客辭而去。¶
+昭奚恤已而悔之，¶
+因謂客曰：¶
+「奚恤得事公，¶
+公何為以故與奚恤？」¶
+客曰：¶
+「非用故也。」¶
+曰：¶
+「謂而不得，¶
+有說色，¶
+非故如何也？」
+

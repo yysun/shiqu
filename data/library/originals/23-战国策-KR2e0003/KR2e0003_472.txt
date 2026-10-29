@@ -1,0 +1,63 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 471
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 31. 1. 1; tr. Crump 1979 no.220,p 266, ed. Shanghai Guji p. 1119
+# dating: 8110
+<pb:KR2e0003_tls_472-1a>¶
+** 472 齊韓魏共攻燕
+
+齊、¶韓、魏共攻燕，¶
+燕使太子請救於楚。¶
+楚王使景陽將而救之。¶
+暮舍，¶
+使左右司馬各營壁地，¶
+已，
+稙表。¶
+
+# src: ZGC 31. 1. 2; tr. Crump 1979 no.220,p 266, ed. Shanghai Guji p. 1119
+# dating: 8110
+景陽怒曰：¶
+「女所營者，¶
+水皆至滅表。¶
+此焉可以舍！」¶
+乃令徙。¶
+明日大雨，¶
+山水大出，¶
+所營者，¶
+水皆滅表。¶
+軍吏乃服。¶
+
+# src: ZGC 31. 1. 3; tr. Crump 1979 no.220,p 266, ed. Shanghai Guji p. 1119
+# dating: 8110
+於是遂不救燕，¶
+而攻魏雝丘，¶
+取之以與宋。¶
+三國懼，¶
+乃罷兵。¶
+
+# src: ZGC 30. 1. 4; tr. Crump 1979 no.220,p 266, ed. Shanghai Guji p. 1119
+# dating: 8110
+魏軍其西，¶
+齊軍其東，¶
+楚軍欲還不可得也。¶
+景陽乃開西和門，¶
+晝以車騎，¶
+暮以燭見，¶
+通使於魏。¶
+
+# src: ZGC 31. 1. 5; tr. Crump 1979 no.220,p 266f, ed. Shanghai Guji p. 1119
+# dating: 8110
+齊師怪之，¶
+以為燕、楚與魏謀之，¶
+乃引兵而去。¶
+齊兵已去，¶
+魏失其與國，¶
+無與共擊楚，¶
+乃夜遁。¶
+楚師乃還。
+

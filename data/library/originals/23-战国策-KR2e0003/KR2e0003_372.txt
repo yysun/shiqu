@@ -1,0 +1,41 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 371
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 26.1. 1; tr. Crump 1979 no. 3i2, p. 455, ed. Shanghai Guji p. 922
+# dating: 8110
+<pb:KR2e0003_tls_372-1a>¶
+** 372 三晉已破智氏
+
+三晉已破智氏，¶
+將分其地。¶
+
+# src: ZGC 26.1. 2; tr. Crump 1979 no. 3i2, p. 455, ed. Shanghai Guji p. 922（《戰國策》卷二十六·韓一)
+# dating: 8110
+段規謂韓王曰：¶
+「分地必取成皋。」¶
+韓王曰：「成皋，¶
+石溜之地也，¶
+寡人無所用之。」¶
+段規曰：¶
+「不然，¶
+臣聞一里之厚，¶
+而動千里之權者，¶
+地利也。¶
+萬人之眾，¶
+而破三軍者，¶
+不意也。¶
+王用臣言，¶
+則韓必取鄭矣。」¶
+
+# src: ZGC 26.1. 3; tr. Crump 1979 no. 3i2, p. 455, ed. Shanghai Guji p. 922（《戰國策》卷二十六·韓一)
+# dating: 8110
+王曰：「善。」¶
+果取成皋。¶
+至韓之取鄭也，¶
+果從成皋始。
+

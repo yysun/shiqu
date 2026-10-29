@@ -1,0 +1,58 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 255
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.11.1, tr. Crump no 267, ed. Sha4ngha3igu3jí p. 698
+# dating: 8110
+<pb:KR2e0003_tls_256-1a>¶
+** 256 秦攻趙平原君使人請救於魏
+
+秦攻趙，¶
+平原君使人請救於魏。¶
+信陵君發兵至邯鄲城下，¶
+秦兵罷。¶
+虞卿為平原君請益地，¶
+
+# src: ZGC 20.11.2, tr. Crump no 267, ed. Sha4ngha3igu3jí p. 698
+# dating: 8110
+謂趙王曰：¶
+「夫不鬭一卒，¶
+不頓一戟，¶
+而解二國患者，¶
+平原君之力也。¶
+
+# src: ZGC 20.11.3, tr. Crump no 267, ed. Sha4ngha3igu3jí p. 698
+# dating: 8110
+用人之力，¶
+而忘人之功，¶
+不可。」¶
+趙王曰：「善。」¶
+將益之地。¶
+公孫龍聞之，¶
+見平原君曰：¶
+
+# src: ZGC 20.11.4, tr. Crump no 267, ed. Sha4ngha3igu3jí p. 698
+# dating: 8110
+「君無覆軍殺將之功，¶
+而封以東武城。¶
+趙國豪傑之士，¶
+多在君之右，¶
+而君為相國者以親故。¶
+
+# src: ZGC 20.11.5, tr. Crump no 267, ed. Sha4ngha3igu3jí p. 698
+# dating: 8110
+夫君封以東武城不讓無功，¶
+佩趙國相印不辭無能，¶
+一解國患，¶
+欲求益地，¶
+是親戚受封，¶
+而國人計功也。¶
+為君計者，¶
+不如勿受便。」¶
+平原君曰：「謹受令。」¶
+乃不受封。
+

@@ -1,0 +1,40 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 140
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 10.6.1; tr. Crump 1979 no.150 p.185, ed. Shanghaiguji p. 377 Lord Meng-ch'ang and the three older men
+# dating: 8110
+<pb:KR2e0003_tls_141-1a>¶
+** 141 孟嘗君讌坐
+
+孟嘗君讌坐，¶
+謂三先生曰：¶
+「願聞先生有以補之闕者。」¶
+一人曰：¶
+「訾天下之主，¶
+有侵君者，¶
+臣請
+以臣之血湔其衽。」¶
+田瞀曰：¶
+「車軼之所能至，¶
+請掩足下之短者，¶
+誦足下之長；¶
+千乘之君與萬乘之相，¶
+其欲有君也，¶
+如使而弗及也。」¶
+
+# src: ZGC 10.6.2; tr. Crump 1979 no.150 p.185, ed. Shanghaiguji p. 380-
+# dating: 8110
+勝曰：
+「臣願以足下之府庫財物，¶
+收天下之士，¶
+能為君決
+疑應卒，若魏文侯之
+有田子方、¶
+段干木也。¶
+此臣之所為君取矣。」
+

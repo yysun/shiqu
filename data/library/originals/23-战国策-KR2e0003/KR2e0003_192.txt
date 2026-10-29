@@ -1,0 +1,25 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 191
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 15.3.1, tr. Crump no 212, ed. Sha4ngha3igu3jí p. 524
+# dating: 8110
+<pb:KR2e0003_tls_192-1a>¶
+** 192 術視伐楚
+
+術視伐楚，¶
+楚令昭鼠以十萬軍漢中。¶
+昭雎勝秦於重丘，¶
+蘇厲謂宛公昭鼠曰：¶
+「王欲昭雎之乘秦也，¶
+必分公之兵以益之。¶
+秦知公兵之分也，¶
+必出漢中。¶
+請為公令辛戎謂王曰：¶
+『秦兵且出漢中。』¶
+則公之兵全矣。」
+

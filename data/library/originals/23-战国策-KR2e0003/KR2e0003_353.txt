@@ -1,0 +1,26 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 352
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25. 9. 1; tr. Crump 1979 no. 364, p. 426, , ed. Shanghai Guji p. 897
+# dating: 8110
+<pb:KR2e0003_tls_353-1a>¶
+** 353 秦趙構難而戰
+
+秦、¶趙構難而戰。
+謂魏王曰：¶
+「不如齊、趙而構之秦。¶
+王不構趙，¶
+趙不以毀構矣；¶
+而構之秦，¶
+趙必復鬭，¶
+必重魏；¶
+是并制秦、趙之事也。¶
+王欲焉而收齊、趙攻荊，¶
+欲焉而收荊、趙攻齊，¶
+欲王之東長之待之也。」
+

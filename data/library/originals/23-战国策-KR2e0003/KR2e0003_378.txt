@@ -1,0 +1,31 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 377
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 26. 7. 1; tr. Crump 1979 no. 388, p. 462, ed. Shanghai Guji p. 937
+# dating: 8110
+<pb:KR2e0003_tls_378-1a>¶
+** 378 宣王謂摎留
+
+宣王謂摎留曰：¶
+「吾欲兩用公仲、公叔，¶
+其可乎？」¶
+對曰：¶
+「不可。¶
+晉用六卿而國分，¶
+簡公用田成、監止而簡公弒，¶
+魏兩用犀首、張儀而西河之外亡。¶
+
+# src: ZGC 26. 7. 2; tr. Crump 1979 no. 388, p. 462, ed. Shanghai Guji p. 937
+# dating: 8110
+今王兩用之，¶
+其多力者內樹其黨，¶
+其寡力者籍外權。¶
+群臣或內樹其黨以擅其主，¶
+或外為交以裂其地，¶
+則王之國必危矣。」
+

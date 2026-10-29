@@ -1,0 +1,27 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 265
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.21.1, tr. Crump no 280, ed. Sha4ngha3igu3jí p. 721
+# dating: 8110
+<pb:KR2e0003_tls_266-1a>¶
+** 266 魏尬謂建信君
+
+魏尬謂建信君曰：¶
+「人有置係蹄者而得虎。¶
+虎怒，¶
+決蹯而去。¶
+虎之情，非不愛其蹯也。¶
+然而不以環寸之蹯，¶
+害七尺之軀者，¶
+權也。¶
+今有國，¶
+非直七尺軀也。¶
+而君之身於王，¶
+非環寸之蹯也。¶
+願公之熟圖之也。」
+

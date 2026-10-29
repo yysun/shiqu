@@ -1,0 +1,39 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 267
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.23.1 tr. Crump no 2i2, ed. Sha4ngha3igu3jí p. 723
+# dating: 8110
+<pb:KR2e0003_tls_268-1a>¶
+** 268 齊人李伯見孝成王
+
+齊人李伯見孝成王。¶
+成王說之，¶
+以為代郡守。¶
+而居無幾何，¶
+人告之反。¶
+孝成王方饋，¶
+不墮食。¶
+無幾何，¶
+告者復至，¶
+孝成王不應。¶
+
+# src: ZGC 20.23.2 tr. Crump no 2i2, ed. Sha4ngha3igu3jí p. 723
+# dating: 8110
+已，
+乃使使者言：¶
+「齊舉兵擊燕，¶
+恐其以擊燕為名，¶
+而以兵襲趙，¶
+故發兵自備。¶
+今燕、齊已合，¶
+臣請要其敝，¶
+而地可多割。」¶
+自是之後，¶
+為孝成王從事於外者，¶
+無自疑於中者。
+

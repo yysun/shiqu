@@ -1,0 +1,24 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 403
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.8. 1; tr. Crump 1979 no.410, p.480, ed. Shanghai Guji p. 979
+# dating: 8110
+<pb:KR2e0003_tls_404-1a>¶
+** 404 謂公叔曰乘舟
+
+謂公叔曰：¶
+「乘舟，¶
+舟漏而弗塞，¶
+則舟沉矣。¶
+塞漏舟，¶
+而輕陽侯之波，¶
+則舟覆矣。¶
+今公自以辯於薛公而輕秦，¶
+是塞漏舟而輕陽侯之波也，¶
+願公之察也。」
+

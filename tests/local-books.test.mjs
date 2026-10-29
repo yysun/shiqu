@@ -40,7 +40,7 @@ test('only original downloads are versioned, preserve their bytes and have match
  assert.match(await readFile('Dockerfile','utf8'),/COPY --from=build.*\/app\/data\/library/);
 });
 test('the two whole-book inputs contain every parsed body unit, including the final passages',async()=>{
- for(const [id,sections,count,start,end] of [['zhuangzi',33,268,'北冥有鱼','是穷响以声'],['shishuo',36,1129,'陳仲舉言','不忍見行此事']]){
+ for(const [id,sections,count,start,end] of [['zhuangzi',33,1769,'北冥有魚','是窮響以聲'],['shishuo',36,1129,'陳仲舉言','不忍見行此事']]){
   const book=await library.book({...selected,bookId:id});assert.equal(book.sections.length,sections);assert.equal(book.sections.flatMap(s=>s.units).length,count);
   assert.match(book.input.text,new RegExp(start));assert.match(book.input.text,new RegExp(end));
   for(const section of book.sections)for(const unit of section.units){assert.ok(book.input.text.includes(`[${unit.id}]\n${unit.text}`));}
@@ -52,7 +52,7 @@ test('the two whole-book inputs contain every parsed body unit, including the fi
 });
 test('range verification rejects stale, cross-book, reversed, multi-anecdote and unreadable refs',async t=>{
  const book=await library.book(selected),reference=ref(book);
- assert.match(library.resolve(book,reference).text,/庄周梦/);
+ assert.match(library.resolve(book,reference).text,/莊周夢/);
  for(const bad of [{...reference,edition:'0'.repeat(64)},{...reference,sectionId:'shishuo-02'},{...reference,firstUnit:book.sections[0].units[0].id},{...reference,firstUnit:'missing'},{...reference,firstUnit:reference.lastUnit,lastUnit:book.sections[1].units[0].id}])assert.throws(()=>library.resolve(book,bad),e=>e.status===400);
  const shishuo=await library.book({...selected,bookId:'shishuo'});assert.throws(()=>library.resolve(shishuo,ref(shishuo,shishuo.sections[0],0,1)),e=>e.status===400);
  const section=shishuo.sections.find(s=>s.units.some(u=>/[\uE000-\uF8FF]/.test(u.text))),i=section.units.findIndex(u=>/[\uE000-\uF8FF]/.test(u.text));assert.throws(()=>library.resolve(shishuo,ref(shishuo,section,i)),e=>e.status===400);
@@ -67,7 +67,7 @@ test('direct whole-book choices preserve labels and reject duplicate and invalid
  };
  const provider=withLocalBooks(base,library,memory());await provider.suggestions(selected,[]);
  const batch=await provider.suggestions(selected,['先读一篇']);
- assert.equal(batch.stories.length,1);assert.match(batch.stories[0].sourceLabel,/庄子·齐物论/);assert.match(batch.note,/未能完整核对/);
+ assert.equal(batch.stories.length,1);assert.match(batch.stories[0].sourceLabel,/庄子·齊物論/);assert.match(batch.note,/未能完整核对/);
 });
 test('both providers directly select from the full original and only verified passages reach planning',async()=>{
  for(const name of ['gemini','codex']){
@@ -103,7 +103,7 @@ test('verified original reaches SQLite and media before a paid plan, and survive
  let calls=0;const base=fake();base.generator=()=>({...fake().generator(),async plan(s,id,original){calls++;const row=await repo.get(id,'test'),doc=JSON.parse(row.document);assert.equal(doc.original.text,original.text);assert.ok(await store.get(`reader/${id}/source.json`));if(calls===1)throw Error('mock plan failure');return {value:structuredClone(plan),model:'mock',requestId:'mock',usage:null};}});
  const generator=withLocalBooks(base,library,store).generator(),id=crypto.randomUUID();await repo.create(id,'test',selection);
  const failed=await advanceStory(repo,generator,'test',id,0);assert.equal(failed.state,'failed');assert.equal(failed.story,null);assert.ok(JSON.parse((await repo.get(id,'test')).document).original);
- const retried=await advanceStory(repo,generator,'test',id,0,true);assert.equal(calls,2);assert.match(retried.story.sourceText,/庄周梦/);assert.match(retried.story.sourceReference,/庄子·齐物论/);assert.deepEqual(retried.story.original.localSource,selection.source);
+ const retried=await advanceStory(repo,generator,'test',id,0,true);assert.equal(calls,2);assert.match(retried.story.sourceText,/莊周夢/);assert.match(retried.story.sourceReference,/庄子·齊物論/);assert.deepEqual(retried.story.original.localSource,selection.source);
 });
 test('storage failures or missing local receipts cannot issue paid storyboard requests',async t=>{
  for(const mode of ['storage','missing']){

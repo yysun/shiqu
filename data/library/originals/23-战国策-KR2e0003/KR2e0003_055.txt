@@ -1,0 +1,34 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 54
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 3.10.1; tr. Crump 1979 no. 52, p.61, ed. Shanghaiguji p. 123 Beyond Hsi-ho
+# dating: 8110
+<pb:KR2e0003_tls_055-1a>¶
+** 55 楚攻魏張儀謂秦王
+
+楚攻魏。¶
+張儀謂秦王曰：¶
+「不如與魏以勁之，¶
+魏戰勝，¶
+復聽於秦，¶
+必入西河之外；¶
+不勝，¶
+魏不能守，¶
+王必取之。」<pb:KR2e0003_tls_055-2a>¶
+
+# src: ZGC 3.10.2; tr. Crump 1979 no. 52, p.62, , ed. Shanghaiguji p. 123
+# dating: 8110
+王用儀言，¶
+取皮氏卒萬人，¶
+車百乘，¶
+以與魏。¶
+犀首戰勝威王，¶
+魏兵罷弊，¶
+恐畏秦，¶
+果獻西河之外。
+

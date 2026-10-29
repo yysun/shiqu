@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 53
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 3.9.1; tr. Crump 1979 no. 63, p.73, ed. Shanghaiguji p. 121 The Han-chung blight
+# dating: 8110
+<pb:KR2e0003_tls_054-1a>¶
+** 54 張儀欲以漢中與楚
+
+張儀欲以漢中與楚，¶
+請秦王曰：¶
+「有漢中，¶
+蠹。種樹不處者，¶
+人必害之；¶
+家有不宜之財，¶
+則傷本。¶
+漢中南邊為楚利，¶
+此國累也。」¶
+
+# src: ZGC 3.9.2; tr. Crump 1979 no. 63, p.73, ed. Shanghaiguji p. 121
+# dating: 8110
+甘茂謂王曰：¶
+「地大者，¶
+固多憂乎！¶
+天下有變，¶
+王割漢中以為和楚，¶
+楚必畔天下而與王。¶
+王今以漢中與楚，¶
+即天下有變，¶
+王何以市楚也？」
+

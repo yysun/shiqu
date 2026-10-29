@@ -1,0 +1,24 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 60
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 4.3.1; tr. Crump 1979 no. 60, p.72, ed. Shanghaiguji p. 140 Chang Yi out of favour and his enemies promoted
+# dating: 8110
+<pb:KR2e0003_tls_061-1a>¶
+** 61 秦惠王死公孫衍欲窮張儀
+
+秦惠王死，¶
+公孫衍欲窮張儀。¶
+李讎謂公孫衍曰：¶
+「不如召甘茂於魏，¶
+召公孫顯於韓，¶
+起樗里子於國。¶
+三人者，¶
+皆張儀之讎也，¶
+公用之，¶
+則諸侯必見張儀之無秦矣！」
+

@@ -1,0 +1,50 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 118
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 8.9.1; tr. Crump 1979 no.121 p. 154, ed. Shanghaiguji p. 319 T'ien Chi wins a battle, ignores advice, and is barred from entering his own country
+# dating: 8110
+<pb:KR2e0003_tls_119-1a>¶
+** 119 田忌為齊將
+
+田忌為齊將，¶
+係梁太子申，¶
+禽龐涓。¶
+孫子謂田忌
+曰：¶
+「將軍可以為大事乎？」¶
+田忌曰：¶
+「奈何？」¶
+
+# src: ZGC 8.9.2; tr. Crump 1979 no.121 p. 154, ed. Shanghaiguji p. 319
+# dating: 8110
+孫子曰：¶
+「將軍無解兵而入齊。¶
+使彼罷弊於先弱守
+於主。¶
+主者，¶
+循軼之途也，¶
+鎋擊摩車而相過。¶
+使彼罷弊先弱守於主，¶
+必一而當十，¶
+十而當百，¶
+百而當千。¶
+然後背太山，¶
+左濟，¶
+右天唐，¶
+軍重踵高宛，¶
+
+# src: ZGC 8.9.3. tr. Crump 1979 no.121 p. 154, ed. Shanghaiguji p. 319
+# dating: 8110
+使輕車銳騎衝雍門。若是，¶
+則齊君可正，¶
+而成侯可走。¶
+不然，¶
+則將軍不得入於齊矣。」¶
+田忌不聽，¶
+果不入齊。
+

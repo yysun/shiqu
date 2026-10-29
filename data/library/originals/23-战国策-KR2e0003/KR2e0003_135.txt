@@ -1,0 +1,33 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 134
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 9.8.1;tr. Crump 1979 no.168 p. 217, ed. Shanghaiguji p. 362 A lesson in foreign affairs
+# dating: 8110
+<pb:KR2e0003_tls_135-1a>¶
+** 135 或謂齊王
+
+或謂齊王曰：¶
+「周、韓西有強秦，¶
+東有趙、魏。
+秦伐周、韓之西，¶
+趙、魏不伐，¶
+周、韓為割，¶
+韓卻周害也。¶
+及韓卻周割之，¶
+趙、魏亦不免與秦為患矣。¶
+
+# src: ZGC 9.8.2; tr. Crump 1979 no.168 p. 217, ed. Shanghaiguji p. 362
+# dating: 8110
+今齊、¶秦伐趙、魏，
+則亦不果於趙、魏
+之應秦而伐周、韓。
+令齊入於秦而伐趙、魏，
+趙、¶魏亡之後，¶
+秦東面而伐齊，¶
+齊安得救天下乎！」
+

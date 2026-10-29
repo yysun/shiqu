@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 93
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 6.2.1; tr. Crump 1979 no. 86, p 91, ed. Shanghaiguji p. 223 The Ch'i woman
+# dating: 8110
+<pb:KR2e0003_tls_094-1a>¶
+** 94 薛公入魏而出齊女
+
+薛公入魏
+而出齊女。¶
+韓春謂秦王曰：¶
+「何不取為妻，¶
+以齊、秦劫魏，¶
+則上黨，¶
+秦之有也。¶
+
+# src: ZGC 6.2.2; tr. Crump 1979 no. 86, p 91, ed. Shanghaiguji p. 223
+# dating: 8110
+齊、秦合而立負芻，¶
+負芻立，
+其母在秦，¶
+則魏，秦之縣也已。¶
+呡欲以齊、秦劫魏而困薛公，¶
+佐欲定其弟，¶
+臣請為王因呡與佐也。¶
+魏懼而復之，¶
+負芻必以魏歿世事秦。¶
+齊女入魏而怨薛公，¶
+終以齊奉事王矣。」
+

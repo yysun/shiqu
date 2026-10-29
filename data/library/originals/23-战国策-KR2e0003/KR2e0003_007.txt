@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 6
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.7.1; tr. Crump 1979 no. 26, p. 41 Shih Yen tells Chou how to escape form a dilemma and gain territory from Han
+# dating: 8110
+<pb:KR2e0003_tls_007-1a>¶
+** 7 秦假道於周以伐韓
+
+秦假道於周以伐韓，¶
+周恐假之而惡於韓，¶
+不假而惡於秦。¶
+史黶謂周君曰：¶
+「君何不令人謂韓公叔曰：¶
+『秦敢絕塞而伐韓者，¶
+信東周也。¶
+公何不與周地，¶
+發重使使之楚，¶
+秦必疑，¶
+不信周，¶
+是韓不伐也。』」¶
+
+# src: ZGC 1.7.2; tr. Crump 1979 no. 26, p. 41
+# dating: 8110
+又謂秦王曰：¶
+「『韓強與周地，¶
+將以疑周於秦，¶
+寡人不敢弗受。』¶
+秦必無辭而令周弗受，¶
+是得地於韓而聽於秦也。」
+

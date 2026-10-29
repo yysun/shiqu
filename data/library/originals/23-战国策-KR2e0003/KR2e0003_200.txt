@@ -1,0 +1,37 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 199
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 16.2.1, tr. Crump no 1i3, ed. Sha4ngha3igu3jí p. 537
+# dating: 8110
+<pb:KR2e0003_tls_200-1a>¶
+** 200 蘇秦之楚
+
+蘇秦之楚，¶
+三日乃得見乎王。¶
+談卒，¶
+辭而行。¶
+楚王曰：¶
+「寡人聞先生，¶
+若聞古人。¶
+今先生乃不遠千里而臨寡人，¶
+曾不肯留，¶
+願聞其說。」¶
+
+# src: ZGC 16.2.2, tr. Crump no 1i3, ed. Sha4ngha3igu3jí p. 537°]®˜§Q§ª°E∑°§T°^
+# dating: 8110
+對曰：¶
+「楚國之食貴於玉，¶
+薪貴於桂，¶
+謁者難得見如鬼，
+王難得見如天帝。¶
+今令臣食玉炊桂，¶
+因鬼見帝。」¶
+王曰：¶
+「先生就舍，¶
+寡人聞命矣。」
+

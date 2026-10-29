@@ -1,0 +1,122 @@
+{
+  "liaozhai": {
+    "replaced": true,
+    "originalFile": "originals/01-聊斋志异.md",
+    "sha256": "5328d7fc80ca2b655cb8fdda5348b19288345fe261782f2b92d5682ad47ba316"
+  },
+  "zhuangzi": {
+    "replaced": true,
+    "originalFile": "originals/02-庄子.md",
+    "sha256": "325772fef3b5c855f51ac61096103ac92ef9cfe8d38a02d58eab7f73767d9e69"
+  },
+  "shishuo": {
+    "replaced": false,
+    "originalFile": "originals/03-世说新语.txt",
+    "sha256": "ca4497d57f79e61caf20db769be2159528b1808d36bd1400e4f4714ccf960cab"
+  },
+  "西游记": {
+    "replaced": true,
+    "originalFile": "originals/04-西游记.md",
+    "sha256": "075e3264e2ebd21c3830b4adcade41b2ab52a9fd4b5cd7ee31d6a862b6b4ae04"
+  },
+  "三国演义": {
+    "replaced": true,
+    "originalFile": "originals/05-三国演义.md",
+    "sha256": "8dd1da4cd00950dae1a52d57f870ccc7397a5caa5bf02b62c7c9aa95747f9e11"
+  },
+  "红楼梦": {
+    "replaced": false,
+    "originalFile": "originals/06-红楼梦-程乙本-维基文库",
+    "sha256": "4dbe192e89b80819a769366ac0c343dbb7c143467b0d5f4989b729d9dcee734f"
+  },
+  "水浒传": {
+    "replaced": true,
+    "originalFile": "originals/07-水浒传.md",
+    "sha256": "4b761ec0568847ce558b15657eb4332403bb657761b6402f852eb7ccda93b543"
+  },
+  "儒林外史": {
+    "replaced": true,
+    "originalFile": "originals/08-儒林外史.md",
+    "sha256": "f9a9fb423b05039dff0e43ed8c611c7f02f0cdf9acbfefe64ecad4fa1d022daa"
+  },
+  "山海经": {
+    "replaced": false,
+    "originalFile": "originals/09-山海经-维基文库",
+    "sha256": "4f296e39ddd0fbc6cfce63f1e92914d915687be03f8c173c8a910c9222015d08"
+  },
+  "列子": {
+    "replaced": true,
+    "originalFile": "originals/10-列子.md",
+    "sha256": "16e21998966a265cbdf6e7a8b2bcf7982e1c8b7db02742e23f07b3c39afba747"
+  },
+  "搜神记": {
+    "replaced": true,
+    "originalFile": "originals/11-搜神记.md",
+    "sha256": "47aad00b4a6884246c8b189985904577e8fbaaa665b51870a3d704b3a7dbb5c6"
+  },
+  "阅微草堂笔记": {
+    "replaced": true,
+    "originalFile": "originals/12-阅微草堂笔记.md",
+    "sha256": "30322169536ce79acc9f35714b508377fa0f05e330e8f42afd52c4ac18d24080"
+  },
+  "子不语": {
+    "replaced": false,
+    "originalFile": "originals/13-子不语.txt",
+    "sha256": "0c3287e68cbfa31149d45c606ec9cfff2bbe04d1d39285d26ece8ce49cdd74b3"
+  },
+  "酉阳杂俎": {
+    "replaced": true,
+    "originalFile": "originals/14-酉阳杂俎-识典",
+    "sha256": "b7d0dd89bec188da741a8d115e4d25331b53d5f59a26a34a51574490843d2beb"
+  },
+  "太平广记": {
+    "replaced": false,
+    "originalFile": "originals/15-太平广记-WYG",
+    "sha256": "27b41710d62f67ada2a9a4aa79886dc02aa6e91950b75cd827a2cae5578f19c7"
+  },
+  "博物志": {
+    "replaced": true,
+    "originalFile": "originals/16-博物志.md",
+    "sha256": "288b09c01a4e823d3098b60f1f2764995db699424a50b8225963fa907db416f8"
+  },
+  "喻世明言": {
+    "replaced": false,
+    "originalFile": "originals/17-喻世明言-维基文库",
+    "sha256": "c6aa36dc88c7db80f7d370904434fff5a6a7e324e9dbc90787372053bbc01170"
+  },
+  "警世通言": {
+    "replaced": true,
+    "originalFile": "originals/18-警世通言.md",
+    "sha256": "1152fc1351e471f81ca8d33810aa9e81d0829cf5fa8e85c37f7eaf8b5694e39f"
+  },
+  "醒世恒言": {
+    "replaced": true,
+    "originalFile": "originals/19-醒世恒言.md",
+    "sha256": "7df25db2b4fc421659af7506d4f517519ddaec49ef840c9c4f6e3c93c7d38717"
+  },
+  "初刻拍案惊奇": {
+    "replaced": true,
+    "originalFile": "originals/20-初刻拍案惊奇.md",
+    "sha256": "dbeb971137e3f5e2e5a026e72d78397bdc581a09d35327aeaa433d4b4e54695a"
+  },
+  "二刻拍案惊奇": {
+    "replaced": true,
+    "originalFile": "originals/21-二刻拍案惊奇-汉川草庐",
+    "sha256": "c1c842e57c6c54d5281570d16faf0f7d23e4fb2c9e98740e133a284deb126997"
+  },
+  "史记": {
+    "replaced": false,
+    "originalFile": "originals/22-史记三家注-维基文库",
+    "sha256": "cf7f278e6f12ad1ba598e6f24a6f8f71d81ff564739ecc8672dc49fb2879cbaa"
+  },
+  "战国策": {
+    "replaced": true,
+    "originalFile": "originals/23-战国策.md",
+    "sha256": "bda37a0460ddb89f95e341c055ee8f456f0b71cb11988fe302b6222601f65ca3"
+  },
+  "浮生六记": {
+    "replaced": true,
+    "originalFile": "originals/24-浮生六记.md",
+    "sha256": "85ec8540438935d625b15dc55c2348255f9ee83ad57f829b01788fe90d624fb2"
+  }
+}

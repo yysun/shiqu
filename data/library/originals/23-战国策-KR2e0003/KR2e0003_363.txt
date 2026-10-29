@@ -1,0 +1,31 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 362
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25.19. 1; tr. Crump 1979 no. 373, p. 446, ed. Shanghai Guji p. 907
+# dating: 8110
+<pb:KR2e0003_tls_363-1a>¶
+** 363 周肖謂宮他
+
+周肖謂宮他曰：¶
+「子為肖謂齊王曰，¶
+肖願為外臣。¶
+令齊資我於魏。」¶
+宮他曰：¶「不可，¶
+是示齊輕也。¶
+夫齊不以無魏者以害有魏者，¶
+
+# src: ZGC 25.19. 2; tr. Crump 1979 no. 373, p. 446, ed. Shanghai Guji p. 907
+# dating: 8110
+故公不如示有魏。¶
+公曰：¶
+『王之所求於魏者，¶
+臣請以魏聽。』¶
+齊必資公矣，¶
+是公有齊，¶
+以齊有魏也。」
+

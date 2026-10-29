@@ -1,0 +1,28 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 195
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 15.7.1, tr. Crump no 213, ed. Sha4ngha3igu3jí p. 530
+# dating: 8110
+<pb:KR2e0003_tls_196-1a>¶
+** 196 秦敗楚漢中
+
+秦敗楚漢中。¶
+楚王入秦，¶
+秦王留之。¶
+游騰為楚謂秦王曰：¶
+「王挾楚王，¶
+而與天下攻楚，¶
+則傷行矣。¶
+不與天下共攻之，¶
+則失利矣。¶
+王不如與之盟而歸之。¶
+楚王畏，¶
+必不敢倍盟。¶
+王因與三國攻之，¶
+義也。」
+

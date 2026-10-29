@@ -1,0 +1,27 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 355
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25. 12. 1; tr. Crump 1979 no. 354, p. 426, ed. Shanghai Guji p. 901
+# dating: 8110
+<pb:KR2e0003_tls_356-1a>¶
+** 356 芮宋欲絕秦趙之交
+
+芮宋欲絕秦、趙之交，¶
+故令魏氏收秦太后之養地秦王於秦。¶
+芮宋謂秦王曰：¶
+「魏委國於王，¶
+而王不受，¶
+故委國於趙也。¶
+李郝謂臣曰：¶
+『子言無秦，¶
+而養秦太后以地，¶
+是欺我也，¶
+故敝邑收之。』」¶
+秦王怒，¶
+遂絕趙也。
+

@@ -1,0 +1,46 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 425
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 29. 7. 1 ; tr. Crump 1979 no.431, p.498, ed. Shanghai Guji p. 1016
+# dating: 8110
+<pb:KR2e0003_tls_426-1a>¶
+** 426 秦大國
+
+秦，¶
+大國也。¶
+韓，
+小國也。¶
+韓甚疏秦。¶
+然而見親秦，¶
+計之，¶
+非金無以也，¶
+故賣美人。¶
+美人之賈貴，¶
+諸侯不能買，¶
+故秦買之三千金。¶
+韓因以其金事秦，¶
+
+# src: ZGC 28. 7. 2 ; tr. Crump 1979 no.431, p.498, ed. Shanghai Guji p. 1017
+# dating: 8110
+秦反得其金與韓之美人。¶
+韓之美人因言於秦曰：「韓甚疏秦。」¶
+從是觀之，¶
+韓亡美人與金，¶
+其疏秦乃始益明。¶
+
+# src: ZGC 28.7. 3 ; tr. Crump 1979 no.431, p.498, ed. Shanghai Guji p. 1017
+# dating: 8110
+故客有說韓者曰：¶
+「不如止淫用，¶
+以是為金以事秦，¶
+是金必行，¶
+而韓之疏秦不明。¶
+美人知內行者也，¶
+故善為計者，¶
+不見內行。」
+

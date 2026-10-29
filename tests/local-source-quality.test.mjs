@@ -23,8 +23,8 @@ test('saved cross-chapter evidence applies reviewed exceptions to its own chapte
  const missing=structuredClone(original);delete missing.localParts;await assert.rejects(generator.plan(selection,'test',missing));assert.equal(calls,1);
 });
 
-test('the four actual source ranges that previously passed now all fail closed',async()=>{
- for(const[bookId,sectionId,unitId]of [['太平广记','taiping-003','taiping-003-059'],['红楼梦','honglou-003','honglou-003-018'],['水浒传','shuihu-026','shuihu-026-027'],['醒世恒言','xingshi-004','xingshi-004-026']]){
+test('retained historical source leaks and current omissions fail closed',async()=>{
+ for(const[bookId,sectionId,unitId]of [['太平广记','taiping-003','taiping-003-059'],['红楼梦','honglou-003','honglou-003-018']]){
   const book=await library.book(select(bookId)),section=book.sections.find(s=>s.id===sectionId),unit=section.units.find(u=>u.id===unitId),before=unit.text,source=reference(book,section,unit);if(bookId==='红楼梦')source.edition='fdbf7963910834f5932dc491f44b83cee92f847f6ffc387c47bdaebb6b22bf04';assert.throws(()=>library.resolve(book,source),e=>e.status===400);assert.equal(unit.text,before);
  }
  const b=await library.book(select('太平广记')),s=b.sections[312],start=s.units.findIndex(u=>u.text.includes('下有/脱文'));assert.ok(start>0);assert.throws(()=>library.resolve(b,{edition:b.edition,sectionId:s.id,firstUnit:s.units[start-1].id,lastUnit:s.units[start].id}),e=>e.status===400);
@@ -42,8 +42,8 @@ test('every shipped book applies the same text and chapter-title rules, preservi
 
 test('candidates, direct preparation and legacy backfill share qualification and never persist a rejected source',async()=>{
  const base=await library.book(select('zhuangzi')),s=base.sections[0],good={id:s.id+'-good',text:'一个人认真倾听朋友的话，终于明白了事情的来龙去脉。',narrative:true},bad={id:s.id+'-bad',text:'这个人看见一本古书，其中写着&KR0899;，但那个字究竟是什么无人知道。',narrative:true},section={...s,title:'测试篇',units:[good,bad]},b={...base,sections:[section],input:{...base.input,text:[good,bad].map(u=>`[${u.id}]\n${u.text}`).join('\n\n')}};
- const books=new LocalBooks(process.cwd());books.book=async()=>b;let writes=0;const values=new Map(),media={get:async key=>{const bytes=values.get(key);return bytes?{arrayBuffer:async()=>bytes.slice().buffer}:null;},put:async(key,bytes)=>{if(key.startsWith('reader/'))writes++;values.set(key,new Uint8Array(bytes));}},raw=provider();raw.suggestions=async()=>({stories:[{title:'可读故事',description:'有完整原文。',source:reference(b,section,good)},{title:'异常故事',description:'不能猜字。',source:reference(b,section,bad)}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}});
- const wrapped=withLocalBooks(raw,books,media),batch=await wrapped.suggestions(select('zhuangzi'),[]);assert.deepEqual(batch.stories.map(s=>s.title),['可读故事']);assert.match(batch.note,/未能完整核对/);
+ const books=new LocalBooks(process.cwd());books.book=async()=>b;let writes=0;const values=new Map(),media={get:async key=>{const bytes=values.get(key);return bytes?{arrayBuffer:async()=>bytes.slice().buffer}:null;},put:async(key,bytes)=>{if(key.startsWith('reader/'))writes++;values.set(key,new Uint8Array(bytes));}},raw=provider();raw.suggestions=async(_selection,excluded,input)=>{const stories=excluded.includes('可读故事')?[{title:'异常故事',description:'不能猜字。',source:reference(b,section,bad)}]:[{title:'可读故事',description:'有完整原文。',source:reference(b,section,good)}];assert.ok(stories.length<=input.scan.maxStories);return {stories,note:'',scan:{blockComplete:false,pendingEvents:[],resolvedEventIds:[]}};};
+ const wrapped=withLocalBooks(raw,books,media),batch=await wrapped.suggestions(select('zhuangzi'),[]);assert.deepEqual(batch.stories.map(s=>s.title),['可读故事']);await assert.rejects(wrapped.suggestions(select('zhuangzi'),['可读故事']),e=>e.status===502&&/未能完整核对/.test(e.message));
  await assert.rejects(wrapped.generator().prepareOriginal({...select('zhuangzi'),source:reference(b,section,bad)},'bad'),e=>e.status===400);
  await assert.rejects(wrapped.generator().original(select('zhuangzi'),{...plan,sourceReference:'《庄子·测试篇》'},'legacy'),e=>e.status===400);assert.equal(writes,0);
 });

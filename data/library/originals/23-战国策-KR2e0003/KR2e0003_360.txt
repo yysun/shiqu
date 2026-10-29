@@ -1,0 +1,26 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 359
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25. 16. 1; tr. Crump 1979 no. 370, p. 444, ed. Shanghai Guji p. 905
+# dating: 8110
+<pb:KR2e0003_tls_360-1a>¶
+** 360 秦拔寧邑
+
+秦拔寧邑，¶
+魏王令之謂秦王曰：¶
+「王歸寧邑，¶
+吾請先天下構。」¶
+魏魏王曰：¶
+「王無聽。¶
+魏王見天下之不足恃也，¶
+故欲先構。¶
+夫亡寧者，¶
+宜割二寧以求構；¶
+夫得寧者，¶
+安能歸寧乎？」
+

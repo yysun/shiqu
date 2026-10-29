@@ -1,0 +1,56 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 258
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.14.1, tr. Crump no 275, ed. Sha4ngha3igu3jí p. 710
+# dating: 8110
+<pb:KR2e0003_tls_259-1a>¶
+** 259 說張相國
+
+說張相國曰：¶
+「君安能少趙人，¶
+而令趙人多君？¶
+君安能憎趙人，¶
+而令趙人愛君乎？¶
+夫膠漆，¶
+至¶〈䵑〉䵒也，¶
+而不能合遠；¶
+
+# src: ZGC 20.14.2, tr. Crump no 275, ed. Sha4ngha3igu3jí p. 710
+# dating: 8110
+鴻毛，¶
+至輕也，¶
+而不能自舉。¶
+夫飃於清風，¶
+則橫行四海。¶
+故事有簡而功成者，¶
+因也。¶
+
+# src: ZGC 20.14.3, tr. Crump no 275, ed. Sha4ngha3igu3jí p. 710
+# dating: 8110
+今趙萬乘之強國也，¶
+前漳、滏，
+右常山，¶
+左河間，¶
+北有代，¶
+帶甲百萬，¶
+嘗抑強齊，¶
+四十餘年而秦不能得所欲。¶
+由是觀之，¶
+趙之於天下也不輕。¶
+今君易萬乘之強趙，¶
+而慕思不可得之小梁，¶
+臣竊為君不取也。」¶
+
+# src: ZGC 20.14.4, tr. Crump no 275, ed. Sha4ngha3igu3jí p. 710
+# dating: 8110
+君曰：「善。」¶
+自是之後，¶
+眾人廣坐之中，¶
+未嘗不言趙人之長者也，¶
+未嘗不言趙俗之善者也。
+

@@ -1,0 +1,28 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 323
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 23.9.1; tr. Crump 1979 no. 332, p.404, ed. Shanghaiguji p. 833. Hui Shih makes sure of a welcome
+# dating: 8110
+<pb:KR2e0003_tls_324-1a>¶
+** 324 魏王令惠施之楚
+
+魏王令惠施之楚，¶
+令犀首之齊。¶
+鈞二子者，¶
+乘數鈞，¶
+將測交也。¶
+楚王聞之，¶
+施因令人先之楚，¶
+言曰：¶
+「魏王令犀首之齊，¶
+惠施之楚，¶
+鈞二子者，¶
+將測交也。」¶
+楚王聞之，¶
+因郊迎惠施。
+

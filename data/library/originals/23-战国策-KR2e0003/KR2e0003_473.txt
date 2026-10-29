@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 472
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 31. 2. 1; tr. Crump 1979 no.470,p 547, ed. Shanghai Guji p. 1120
+# dating: 8110
+<pb:KR2e0003_tls_473-1a>¶
+** 473 張丑為質於燕
+
+張丑為質於燕，¶
+燕王欲殺之，¶
+走且出境，¶
+境吏得丑。¶
+
+# src: ZGC 31. 2. 2; tr. Crump 1979 no.470f,p 547, ed. Shanghai Guji p. 1120
+# dating: 8110
+丑曰：「燕王所為將殺我者，¶
+人有言我有寶珠也，¶
+王欲得之。¶
+今我已亡之矣，¶
+而燕王不我信。¶
+今子且致我，¶
+我且言子之奪我珠而吞之，¶
+燕王必當殺子，¶
+刳子腹及子之腸矣。¶
+夫欲得之君，¶
+不可說以利。¶
+吾要且死，¶
+子腸亦且寸絕。」¶
+境吏恐而赦之。
+

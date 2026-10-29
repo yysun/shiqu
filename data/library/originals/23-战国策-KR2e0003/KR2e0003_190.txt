@@ -1,0 +1,39 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 189
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 15.1.1, tr. Crump no 210, ed. Sha4ngha3igu3jí p. 520
+# dating: 8110
+<pb:KR2e0003_tls_190-1a>¶
+** 190 魏相翟強死
+
+魏相翟強死。¶
+為甘茂謂楚王曰：¶
+「魏之幾相者，¶
+公子勁也。¶
+勁也相魏，¶
+魏、秦之交必善。¶
+秦、魏之交完，¶
+則楚輕矣。¶
+故王不如與齊約，¶
+相甘茂於魏。¶
+齊王好高人以名，¶
+今為其行人請魏之相，¶
+齊必喜。¶
+
+# src: ZGC 15.1.2, tr. Crump no 210, ed. Sha4ngha3igu3jí p. 520
+# dating: 8110
+魏氏不聽，¶
+交惡於齊；¶
+齊、魏之交惡，¶
+必爭事楚。¶
+魏氏聽，¶
+甘茂與樗里疾，¶
+貿首之讎也；¶
+而魏、秦之交必惡，¶
+又交重楚也。」
+

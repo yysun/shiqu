@@ -1,0 +1,33 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 213
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 17.6.1, tr. Crump no 203, ed. Sha4ngha3igu3jí p. 562
+# dating: 8110
+<pb:KR2e0003_tls_214-1a>¶
+** 214 或謂黃齊
+
+或謂黃齊曰：¶
+「人皆以謂公不善於富摯。¶
+公不聞老萊子之教孔子事君乎？¶
+示之其齒之堅也，¶
+六十而盡相靡也。¶
+今富摯能，¶
+而公重不相善也，¶
+是兩盡也。¶
+
+# src: ZGC 17.6.2, tr. Crump no 203, ed. Sha4ngha3igu3jí p. 562
+# dating: 8110
+諺曰：¶
+『見君之乘，¶
+下之；¶
+見杖，¶
+起之。』¶
+今也，¶王愛富摯，¶
+而公不善也，¶
+是不臣也。」
+

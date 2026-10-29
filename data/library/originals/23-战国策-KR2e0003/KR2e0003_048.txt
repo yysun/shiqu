@@ -1,0 +1,40 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 47
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 3.3.1; tr. Crump 1979 no.48, p. 59, ed. Shanghaiguji p. 92 The king of Ch'in resolves to disturb the game-cocks
+# dating: 8110
+<pb:KR2e0003_tls_048-1a>¶
+** 48 秦惠王謂寒泉子
+
+秦惠王謂寒泉子曰：¶
+「蘇秦欺寡人，¶
+欲以一人之智，¶
+反覆東山之君，¶
+從以欺秦。¶
+趙固負其眾，¶
+故先使蘇秦以幣帛約乎諸侯。¶
+
+# src: ZGC 3.3.2; tr. Crump 1979 no.48, p. 59, ed. Shanghaiguji p. 92
+# dating: 8110
+諸侯不可一，¶
+猶連鷄之不能俱止於棲之明矣。¶
+寡人忿然，¶
+含怒日久，¶
+吾欲使武安子起往喻意焉。」¶
+
+# src: ZGC 3.3.3; tr. Crump 1979 no.48, p. 59, ed. Shanghaiguji p. 92
+# dating: 8110
+寒泉子曰：¶
+「不可。¶
+夫攻城墮邑，¶
+請使武安子。¶
+善我國家使諸侯，¶
+請使客卿張儀。」¶
+秦惠王曰：¶
+「敬受命。」
+

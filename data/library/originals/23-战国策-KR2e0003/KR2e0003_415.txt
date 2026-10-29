@@ -1,0 +1,22 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 414
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.19. 1; tr. Crump 1979 no.420 , p.485, ed. Shanghai Guji p. 988, ed. Shanghai Guji p. 989
+# dating: 8110
+<pb:KR2e0003_tls_415-1a>¶
+** 415 楚令景鯉入韓
+
+楚令景鯉入韓，¶
+韓且內伯嬰於秦，¶
+景鯉患之。¶
+冷向謂伯嬰曰：¶
+「太子入秦，¶
+秦必留太子而合楚，¶
+以復幾瑟也，¶
+是太子反棄之。」
+

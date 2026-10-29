@@ -1,0 +1,37 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 347
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25. 4. 1; tr. Crump 1979 no. 369, p. 444, ed. Shanghai Guji p. 892
+# dating: 8110
+<pb:KR2e0003_tls_348-1a>¶
+** 348 客謂司馬食其
+
+客謂司馬食其曰：¶
+「慮久以天下為可一者，¶
+是不知天下者也。¶
+欲獨以魏支秦者，¶
+是又不知魏者也。¶
+謂茲公不知此兩者，¶
+又不知茲公者也。¶
+
+# src: ZGC 25. 4. 2; tr. Crump 1979 no. 369, p. 444, ed. Shanghai Guji p. 892
+# dating: 8110
+然而茲公為從，¶
+其說何也？¶
+從則茲公重，¶
+不從則茲公輕，¶
+茲公之處重也，¶
+不實為期。¶
+子何不疾及三國方堅也，¶
+自賣於秦，¶
+秦必受子。¶
+不然，¶
+橫者將圖子以合於秦，¶
+是取子之資，¶
+而以資子之讎也。」
+

@@ -1,0 +1,22 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 438
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 28. 18. 1;tr. Crump 1979 no.440, p.503, ed. Shanghai Guji p. 1033
+# dating: 8110
+<pb:KR2e0003_tls_439-1a>¶
+** 439 魏王為九里之盟
+
+魏王為九里之盟，¶
+且復天子。¶
+房喜謂韓王曰：¶
+「勿聽之也，¶
+大國惡有天子，¶
+而小國利之。¶
+王與大國弗聽，¶
+魏安能與小國立之。」
+

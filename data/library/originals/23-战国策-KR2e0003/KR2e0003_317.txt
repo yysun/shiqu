@@ -1,0 +1,47 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 316
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 23.2.1; tr. Crump, 324, p.397, ed. Shanghaiguji p. 817. The king's arms and legs
+# dating: 8110
+<pb:KR2e0003_tls_317-1a>¶
+** 317 犀首見梁君
+
+犀首見梁君曰：¶
+「臣盡力竭知，¶
+欲以為王廣土取尊名，¶
+田需從中敗君，¶
+王又聽之，¶
+是臣終無成功也。¶
+需亡，¶
+臣將侍；¶
+需侍，¶
+臣請亡。」¶
+
+# src: ZGC 23.2.2; tr. Crump, 324, p.397, ed. Shanghaiguji p. 817
+# dating: 8110
+王曰：¶
+「需，¶
+寡人之股掌之臣也。¶
+為子之不便也，¶
+殺之亡之，¶
+毋謂天下何，¶
+內之無若群臣何也！¶
+今吾為子外之，¶
+令毋敢入子之事。¶
+入子之事者，¶
+吾為子殺之亡之，¶
+胡如？」¶
+
+# src: ZGC 23.2.3; tr. Crump, 324, p.397, ed. Shanghaiguji p. 817
+# dating: 8110
+犀首許諾。¶
+於是東見田嬰，¶
+與之約結；¶
+召文子而相之魏，¶
+身相於韓。
+

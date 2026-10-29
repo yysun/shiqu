@@ -1,0 +1,41 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 304
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 22.18.1 tr. Crump no 316, ed. Sha4ngha3igu3jí p. 804
+# dating: 8110
+<pb:KR2e0003_tls_305-1a>¶
+** 305 張儀欲以魏合於秦韓
+
+張儀欲以魏合於秦、¶韓而攻齊、楚。
+惠施欲以魏合於齊、楚以案兵。¶
+人多為張子於王所。¶
+
+# src: ZGC 22.18.2 tr. Crump no 316, ed. Sha4ngha3igu3jí p. 804
+# dating: 8110
+惠子謂王曰：¶
+「小事也，¶
+謂可者謂不可者正半，¶
+況大事乎？¶
+以魏合於秦、¶韓而攻齊、楚，
+大事也，¶
+而王之群臣皆以為可。¶
+不知是其可也，¶
+如是其明耶？¶
+而群臣之知術也，¶
+如是其同耶？¶
+
+# src: ZGC 22.18.3 tr. Crump no 316, ed. Sha4ngha3igu3jí p. 804
+# dating: 8110
+是其可也，¶
+未如是其明也，¶
+而群臣之知術也，¶
+又非皆同也，¶
+是有其半塞也。¶
+所謂劫主者，¶
+失其半者也。」
+

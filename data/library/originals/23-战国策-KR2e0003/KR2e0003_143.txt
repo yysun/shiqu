@@ -1,0 +1,49 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 142
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 10.8.1; tr. Crump 1979 no.152 p.187, ed. Shanghaiguji p. 380 Lord Meng-ch'ang and the unpleasing retainer
+# dating: 8110
+<pb:KR2e0003_tls_143-1a>¶
+** 143 孟嘗君有舍人而弗悅
+
+孟嘗君有舍人而弗悅，¶
+欲逐之。¶
+魯連謂孟嘗君曰：¶
+「猿獮猴錯木據水，¶
+則不若魚鱉；¶
+歷險乘危，¶
+則騏驥不如狐狸。¶
+曹沫之奮三尺之劍，¶
+一軍不能當；¶
+使曹沫釋其三尺之劍，¶
+而操銚鎒與農夫居壟畝之中，¶
+則不若農夫。¶
+
+# src: ZGC 10.8.2; tr. Crump 1979 no.152 p.187, ed. Shanghaiguji p. 380
+# dating: 8110
+故物舍其所長，¶
+之其所短，¶
+堯亦有所不及矣。¶
+今使人而不能，¶
+則謂之不肖；¶
+教人而不能，¶
+則謂之拙。¶
+
+# src: ZGC 10.8.3; tr. Crump 1979 no.152 p.187, ed. Shanghaiguji p. 380
+# dating: 8110
+拙則罷之，¶
+不肖則棄之，¶
+使人有棄逐，¶
+不相與處，¶
+而來害相報
+者，¶
+豈非世之立教首也哉！」¶
+孟嘗君曰：¶
+「善。」¶
+乃弗逐。
+

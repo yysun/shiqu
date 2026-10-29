@@ -1,0 +1,59 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 248
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 20.4.1, tr. Crump no 257, ed. Sha4ngha3igu3jí p. 6i3
+# dating: 8110
+<pb:KR2e0003_tls_249-1a>¶
+** 249 秦攻趙藺離石祁拔
+
+秦攻趙，¶
+藺、離石、祁拔。¶
+趙以公子郚為質於秦，¶
+而請內焦、黎、牛狐之城，¶
+以易藺、¶
+離石、祁於趙。¶
+
+# src: ZGC 20.4.2, tr. Crump no 257, ed. Sha4ngha3igu3jí p. 6i3
+# dating: 8110
+趙背秦，¶
+不予焦、黎、牛狐。¶
+秦王怒，¶
+令公子繒請地。¶
+趙王乃令鄭朱對曰：¶
+
+# src: ZGC 20.4.3, tr. Crump no 257, ed. Sha4ngha3igu3jí p. 6i3
+# dating: 8110
+「夫藺、¶
+離石、祁之地，¶
+曠遠於趙，¶
+而近於大國。¶
+有先王之明與先臣之力，¶
+故能有之。¶
+今寡人不逮，¶
+其社稷之不能恤，¶
+安能收恤藺、¶
+離石、祁乎？¶
+寡人有不令之臣，¶
+實為此事也，¶
+非寡人之所敢知。」¶
+卒倍秦。
+
+# src: ZGC 20.4.4, tr. Crump no 257, ed. Sha4ngha3igu3jí p. 6i3
+# dating: 8110
+<pb:KR2e0003_tls_249-2a>¶
+秦王大怒，¶
+令衛胡易伐趙，¶
+攻閼與。¶
+趙奢將救之。¶
+魏令公子咎以銳師居安邑，¶
+以挾秦。¶
+秦敗於閼與，¶
+反攻魏幾，¶
+廉頗救幾，¶
+大敗秦師。
+

@@ -1,0 +1,56 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 55
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 3.11.1; tr. Crump 1979 no. 53, p.62, ed. Shanghaiguji p. 124 Chang Yi, the beautiful maid, and the handsome boy
+# dating: 8110
+<pb:KR2e0003_tls_056-1a>¶
+** 56 田莘之為陳軫說秦惠王
+
+田莘之為陳軫說秦惠王曰：¶
+「臣恐王之如郭君。¶
+夫晉獻公欲伐郭，¶
+而憚舟之僑存。¶
+荀息曰：¶
+『《周書》有言，¶
+美女破舌。』¶
+乃遺之女樂，¶
+以亂其政。¶
+舟之僑諫而不聽，¶
+遂去。¶
+因而伐郭，¶
+遂破之。¶
+
+# src: ZGC 3.11.2; tr. Crump 1979 no. 53, p.62, ed. Shanghaiguji p. 124
+# dating: 8110
+又欲伐虞，¶
+而憚宮之奇存。¶
+荀息曰：¶
+『《周書》有言，¶
+美男破老。』¶
+乃遺之美男，¶
+教之惡宮之奇。¶
+宮之奇以諫而不聽，¶
+遂亡。¶
+
+# src: ZGC 3.11.3; tr. Crump 1979 no. 53, p.62, ed. Shanghaiguji p. 124
+# dating: 8110
+因而伐虞，¶
+遂取之。¶
+今秦自以為王，¶
+能害王者之國者，¶
+楚也。¶
+楚智橫君之善用兵，¶
+用兵與陳軫之智，¶
+故驕張儀以五國。¶
+來，
+必惡是二人。¶
+願王勿聽也。」¶
+張儀果來辭，¶
+因言軫也，¶
+王怒而不聽。
+

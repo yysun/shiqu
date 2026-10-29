@@ -1,0 +1,19 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 350
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25. 7. 1; tr. Crump 1979 no. 352, p. 424f, ed. Shanghai Guji p. 894
+# dating: 8110
+<pb:KR2e0003_tls_351-1a>¶
+** 351 白珪謂新城君
+
+白珪謂新城君曰：¶
+「夜行者能無為姦，¶
+不能禁狗使無吠己也。¶
+故臣能無議君於王，¶
+不能禁人議臣於君也。」
+

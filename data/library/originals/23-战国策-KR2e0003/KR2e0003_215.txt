@@ -1,0 +1,34 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 214
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 17.7.1, tr. Crump no 216, ed. Sha4ngha3igu3jí p. 562
+# dating: 8110
+<pb:KR2e0003_tls_215-1a>¶
+** 215 長沙之難
+
+長沙之難，¶
+楚太子橫為質於齊。¶
+楚王死，¶
+薛公歸太子橫，¶
+因與韓、魏之兵，¶
+隨而攻東國。¶
+太子懼。¶
+
+# src: ZGC 17.7.2, tr. Crump no 216, ed. Sha4ngha3igu3jí p. 562
+# dating: 8110
+昭蓋曰：¶「不若令屈署以新東國為和於齊以動秦。¶
+秦恐齊之敗東國，¶
+而令行於天下也，¶
+必將救我。」¶
+太子曰：¶「善。」¶
+遽令屈署以東國為和於齊。¶
+秦王聞之懼，¶
+令辛戎告楚曰：¶
+「毋與齊東國，¶
+吾與子出兵矣。」
+

@@ -1,0 +1,96 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 59
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 4.2.1; tr. Crump 1979 no. 59, p.70, ed. Shanghaiguji p. 140 Ch'en Chen, the songs of Wu, and the quarrelling tigers
+# dating: 8110
+<pb:KR2e0003_tls_060-1a>¶
+** 60 楚絕齊齊舉兵伐楚
+
+楚絕齊，¶
+齊舉兵伐楚。¶
+陳軫謂楚王曰：¶
+「王不如以地東解於齊，¶
+西講於秦。」<pb:KR2e0003_tls_060-2a>¶
+
+# src: ZGC 4.2.2; tr. Crump 1979 no. 59, p.70, ed. Shanghaiguji p. 140
+# dating: 8110
+楚王使陳軫之秦，¶
+秦王謂軫曰：¶
+「子秦人也，¶
+寡人與子故也，¶
+寡人不佞，¶
+不能親國事也，¶
+故子棄寡人事楚王。¶
+今齊、楚相伐，¶
+或謂救之便，¶
+或謂救之不便，¶
+子獨不可以忠為子主計，¶
+以其餘為寡人乎？」¶
+
+# src: ZGC 4.2.3; tr. Crump 1979 no. 59, p.70, ed. Shanghaiguji p. 140
+# dating: 8110
+陳軫曰：¶
+「王獨不聞吳人之遊楚者乎？¶
+楚王甚愛之，¶
+病，
+故使人問之，¶
+曰：¶
+『誠病乎？¶
+意亦思乎？』¶
+左右曰：¶
+『臣不知其思與不思，¶
+誠思則將吳吟。』¶
+今軫將為王吳吟。¶
+王不聞夫管與之說乎？¶
+
+# src: ZGC 4.2.4; tr. Crump 1979 no. 59, p.70, ed. Shanghaiguji p. 140
+# dating: 8110
+有兩虎
+諍人而鬭者，¶
+管莊子將刺之，¶
+管與止之曰：¶
+『虎者，¶
+戾蟲；¶
+人者，¶
+甘餌也。¶
+今兩虎諍人而鬭，¶
+小者必死，¶
+大者必傷。¶
+
+# src: ZGC 4.2.5; tr. Crump 1979 no. 59, p.70, ed. Shanghaiguji p. 140
+# dating: 8110
+子待傷虎而刺之，¶
+則是一舉而兼兩虎也。¶
+無刺一虎之勞，¶
+而有刺兩虎之名。』¶
+齊、楚今戰，¶
+戰必敗。¶
+敗，
+王起兵救之，¶
+有救齊之利，¶
+而無伐楚之害。¶
+
+# src: ZGC 4.2.6; tr. Crump 1979 no. 59, p.70, ed. Shanghaiguji p. 140
+# dating: 8110
+計聽知覆逆者，¶
+唯王可也。¶
+計者，¶
+事之本也；¶
+聽者，¶
+存亡之機。¶
+計失而聽過，¶
+能有國者寡也。¶
+
+# src: ZGC 4.2.7; tr. Crump 1979 no. 59, p.70, ed. Shanghaiguji p. 140
+# dating: 8110
+故曰：¶
+『計有一二者
+難悖也，¶
+聽無失本末者
+難惑。』」
+

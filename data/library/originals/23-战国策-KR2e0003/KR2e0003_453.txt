@@ -1,0 +1,38 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 452
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 29. 11. 1;tr. Crump 1979 no.452, p 521, ed. Shanghai Guji p. 1064
+# dating: 8110
+<pb:KR2e0003_tls_453-1a>¶
+** 453 蘇代過魏
+
+蘇代過魏，¶
+魏為燕執代。¶
+齊使人謂魏王曰：¶
+「齊請以宋封涇陽君，¶
+秦不受。¶
+秦非不利有齊而得宋地也，¶
+不信齊王與蘇子也。¶
+
+# src: ZGC 29. 11. 2;tr. Crump 1979 no.452, p 521, ed. Shanghai Guji p. 1064
+# dating: 8110
+今齊、魏不和，¶
+如此其甚，¶
+則齊不欺秦。¶
+秦信齊，¶
+齊、秦合，¶
+涇陽君有宋地，¶
+非魏之利也。¶
+故王不如東蘇子，¶
+秦必疑而不信蘇子矣。¶
+齊、秦不合，¶
+天下無變，¶
+伐齊之形成矣。」¶
+於是出蘇伐之宋，¶
+宋善待之。
+

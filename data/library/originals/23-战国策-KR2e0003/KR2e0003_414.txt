@@ -1,0 +1,24 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 413
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 27.18.1; tr. Crump 1979 no.419, p.4i4f, ed. Shanghai Guji p. 988
+# dating: 8110
+<pb:KR2e0003_tls_414-1a>¶
+** 414 冷向謂韓咎
+
+冷向謂韓咎曰：¶
+「幾瑟亡在楚，¶
+楚王欲復之甚，¶
+令楚兵十餘萬在方城之外。¶
+臣請令楚築萬家之都於雍氏之旁，¶
+韓必起兵以禁之，¶
+公必將矣。¶
+公因以楚、韓之兵奉幾瑟而內之鄭，¶
+幾瑟得入而德公，¶
+必以韓、楚奉公矣。」
+

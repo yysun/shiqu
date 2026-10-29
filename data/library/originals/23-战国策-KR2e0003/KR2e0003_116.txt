@@ -1,0 +1,56 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 115
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 8.6.1; tr. Crump 1979 no.115 p. 148, ed. Shanghaiguji p. 314 Ch'i profits from the ruin of her ally
+# dating: 8110
+<pb:KR2e0003_tls_116-1a>¶
+** 116 邯鄲之難
+
+邯鄲之難，¶
+趙求救於齊。¶
+田侯召大臣
+而謀曰：¶
+「救趙孰
+與勿救？」¶
+鄒子曰：¶
+「不如勿救。」¶
+段干綸曰：¶
+「弗救，¶
+則我不利。」¶
+田侯曰：¶
+「何哉？」¶
+「夫魏氏兼邯鄲，¶
+其於齊何利哉！」¶
+
+# src: ZGC 8.6.2; tr. Crump 1979 no.115 p. 148, ed. Shanghaiguji p. 314
+# dating: 8110
+田侯曰：¶
+「善。」¶
+乃起兵，¶
+曰：¶
+「軍於邯鄲之郊。」¶
+段干綸曰：¶
+「臣之求利且不利者，¶
+非此也。¶
+夫救邯鄲，¶
+軍於其郊，¶
+是趙不拔而魏全也。¶
+故不如南攻襄陵以弊魏，¶
+邯鄲拔而承魏之弊，¶
+是趙破而魏弱也。」¶
+
+# src: ZGC 8.6.3; tr. Crump 1979 no.115 p. 148, ed. Shanghaiguji p. 314
+# dating: 8110
+田侯曰：¶
+「善。」¶
+乃起兵南攻襄陵。¶
+七月，¶
+邯鄲拔。¶
+齊因承魏之弊，¶
+大破之桂陵。
+

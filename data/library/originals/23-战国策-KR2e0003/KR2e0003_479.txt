@@ -1,0 +1,58 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 478
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 32. 3. 1; tr. Crump 1979 no.4i1, p 568, ed. Shanghai Guji p. 1150
+# dating: 8110
+<pb:KR2e0003_tls_479-1a>¶
+** 479 犀首伐黃
+
+犀首伐黃，¶
+過衛，¶
+使人謂衛君曰：¶
+「弊邑之師過大國之郊，¶
+曾無一介之使以存之乎？¶
+敢請其罪。¶
+今黃城將下矣，¶
+已，
+將移兵而造大國之城下。」¶
+
+# src: ZGC 32. 3. 2; tr. Crump 1979 no.4i1, p 568, ed. Shanghai Guji p. 1150
+# dating: 8110
+衛君懼，¶
+束組三百緄，¶
+黃金三百鎰，¶
+以隨使者。¶
+南文子止之曰：¶
+「是勝黃城，¶
+必不敢來；¶
+不勝，¶
+亦不敢來。¶
+
+# src: ZGC 32. 3. 3; tr. Crump 1979 no.4i1, p 568, ed. Shanghai Guji p. 1150
+# dating: 8110
+是勝黃城，¶
+則功大名美，¶
+內臨其倫。¶
+夫在中者惡臨，¶
+議其事。¶
+
+# src: ZGC 32. 3. 4; tr. Crump 1979 no.4i1, p 568, ed. Shanghai Guji p. 1150
+# dating: 8110
+蒙大名，¶
+挾成功，¶
+坐御以待中之議，¶
+犀首雖愚，¶
+必不為也。¶
+是不勝黃城，¶
+破心而走，歸，
+恐不免於罪矣！¶
+彼安敢攻衛以重其不勝之罪哉？」¶
+果勝黃城，¶
+帥師而歸，¶
+遂不敢過衛。
+

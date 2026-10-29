@@ -1,0 +1,21 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 440
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 28. 20. 1;tr. Crump 1979 no.91, p.100, ed. Shanghai Guji p. 1035
+# dating: 8110
+<pb:KR2e0003_tls_441-1a>¶
+** 441 段產謂新城君
+
+段產謂新城君曰：¶
+「夫宵行者能無為姦，¶
+而不能令狗無吠己。¶
+今臣處郎中，¶
+能無議君於王，¶
+而不能令人毋議臣於君。¶
+願君察之也。」
+

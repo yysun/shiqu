@@ -1,0 +1,58 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 56
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 3.12.1; tr. Crump 1979 no. 54, p.63 Ch'en Chen is defamed, but proves his loyalty
+# dating: 8110
+<pb:KR2e0003_tls_057-1a>¶
+** 57 張儀又惡陳軫於秦王
+
+張儀又惡陳軫於秦王，¶
+曰：¶
+「軫馳楚、秦之間，¶
+今楚不加善秦而善軫，¶
+然則是軫自為而不為國也。¶
+且軫欲去秦而之楚，¶
+王何不聽乎？」<pb:KR2e0003_tls_057-2a>¶
+
+# src: ZGC 3.12.2; tr. Crump 1979 no. 54, p.63, ed. Shanghaiguji p. 127
+# dating: 8110
+王謂陳軫曰：¶
+「吾聞子欲去秦而之楚，¶
+信乎？」¶
+陳軫曰：¶
+「然。」¶
+王曰：¶
+「儀之言果信也。」¶
+曰：¶
+「非獨儀知之也，¶
+行道之人皆知之。¶
+
+# src: ZGC 3.12.3; tr. Crump 1979 no. 54, p.63, ed. Shanghaiguji p. 127
+# dating: 8110
+曰：¶
+『孝己愛其親，¶
+天下欲以為子；¶
+子胥忠乎其君，¶
+天下欲以為臣。¶
+賣僕妾售乎閭巷者，¶
+良僕妾也；¶
+出婦嫁鄉曲者，¶
+良婦
+也。』¶
+吾不忠於君，¶
+楚亦何以軫為忠乎？¶
+
+# src: ZGC 3.12.4; tr. Crump 1979 no. 54, p.63, ed. Shanghaiguji p. 127
+# dating: 8110
+忠且見棄，¶
+吾不之楚，¶
+何適乎？」¶
+秦王曰：¶
+「善。」¶
+乃必之也。
+

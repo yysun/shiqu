@@ -1,0 +1,22 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 9
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 1.10; tr. Crump 1979 no. 40, p. 50 Kung-shih Chieh gets a word in first
+# dating: 8110
+<pb:KR2e0003_tls_010-1a>¶
+** 10 周相呂倉見客於周君
+
+周相呂倉
+見客於周君。¶
+前相工師藉恐客之傷己也，¶
+因令人謂周君曰：¶
+「客者，¶
+辯士也，¶
+然而所以不可者，¶
+好毀人。」
+

@@ -1,0 +1,27 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 283
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 21.16.1 tr. Crump no 243, ed. Sha4ngha3igu3jí p. 765
+# dating: 8110
+<pb:KR2e0003_tls_284-1a>¶
+** 284 魏敗楚於陘山
+
+魏敗楚於陘山，¶
+禽唐明。¶
+楚王懼，¶
+令昭應奉太子以委和於薛公。¶
+
+# src: ZGC 21.16.2 tr. Crump no 243, ed. Sha4ngha3igu3jí p. 765
+# dating: 8110
+主父欲敗之，¶
+乃結秦連楚、宋之交，¶
+令仇郝相宋，¶
+樓緩相秦。¶
+楚王禽趙、宋，
+魏之和卒敗。
+

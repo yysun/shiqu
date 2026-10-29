@@ -1,0 +1,21 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 480
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 32. 5. 1; tr. Crump 1979 no.476, p 563f, ed. Shanghai Guji p. 1154
+# dating: 8110
+<pb:KR2e0003_tls_481-1a>¶
+** 481 謂大尹曰
+
+謂大尹曰：
+「君日長矣，¶
+自知政，¶
+則公無事。¶
+公不如令楚賀君之孝，¶
+則君不奪太后之事矣，¶
+則公常用宋矣。」
+

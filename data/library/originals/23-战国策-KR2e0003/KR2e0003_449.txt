@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 448
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 29. 7. 1;tr. Crump 1979 no.455, p 523, ed. Shanghai Guji p. 1053
+# dating: 8110
+<pb:KR2e0003_tls_449-1a>¶
+** 449 宮他為燕使魏
+
+宮他為燕使魏，¶
+魏不聽，¶
+留之數月。¶
+客謂魏王曰：¶
+「不聽燕使何也？」¶
+曰：¶
+「以其亂也。」¶
+對曰：「湯之伐桀，¶
+欲其亂也。¶
+
+# src: ZGC 29. 7. 2;tr. Crump 1979 no.455, p 523, ed. Shanghai Guji p. 1052
+# dating: 8110
+故大亂者可得其地，¶
+小亂者可得其寶。¶
+今燕客之言曰：¶
+『事苟可聽，¶
+雖盡寶、地，
+猶為之也。』¶
+王何為不見？」¶
+魏王說，¶
+因見燕客而遣之。
+

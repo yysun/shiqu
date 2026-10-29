@@ -1,0 +1,55 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 443
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 29. 2. 1;tr. Crump 1979 no.442, 505, ed. Shanghai Guji p. 1041
+# dating: 8110
+<pb:KR2e0003_tls_444-1a>¶
+** 444 奉陽君李兌甚不取於蘇秦
+
+奉陽君李兌甚不取於蘇秦。¶
+蘇秦在燕，¶
+李兌因為蘇秦謂奉陽君曰：¶
+
+# src: ZGC 29. 2. 2;tr. Crump 1979 no.442, 505, ed. Shanghai Guji p. 1041
+# dating: 8110
+「齊、燕離則趙重，¶
+齊、燕合則趙輕。
+今君之齊，¶
+非趙之利也。¶
+臣竊為君不取也。」<pb:KR2e0003_tls_444-2a>¶
+
+# src: ZGC 29. 2. 3;tr. Crump 1979 no.442, 505, ed. Shanghai Guji p. 1041
+# dating: 8110
+奉陽君曰：¶
+「何吾合燕於齊？」<pb:KR2e0003_tls_444-3a>¶
+對曰：「夫制於燕者蘇子也。¶
+而燕弱國也，¶
+東不如齊，¶
+西不如趙，¶
+豈能東無齊、西無趙哉？¶
+而君甚不善蘇秦，¶
+蘇秦能抱弱燕而孤於天下哉？¶
+是驅燕而使合於齊也。¶
+
+# src: ZGC 29. 2. 4;tr. Crump 1979 no.442, 505f, ed. Shanghai Guji p. 1041
+# dating: 8110
+且燕亡國之餘也，¶
+其以權立，¶
+以重外，¶
+以事貴。¶
+故為君計，¶
+善蘇秦則取，¶
+不善亦取之，¶
+以疑燕、齊。
+燕、¶齊疑，¶
+則趙重矣。¶
+齊王疑蘇秦，¶
+則君多資。」<pb:KR2e0003_tls_444-4a>¶
+奉陽君曰：「善。」¶
+乃使使與蘇秦結交。
+

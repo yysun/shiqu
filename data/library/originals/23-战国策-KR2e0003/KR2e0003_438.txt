@@ -1,0 +1,22 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 437
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 28. 17. 1;tr. Crump 1979 no.379, p.451, ed. Shanghai Guji p. 1032
+# dating: 8110
+<pb:KR2e0003_tls_438-1a>¶
+** 438 安邑之御史死
+
+安邑之御史死，¶
+其次恐不得也。¶
+輸人為之謂安令曰：¶
+「公孫綦為人請御史於王，¶
+王曰：¶
+『彼固有次乎？¶
+吾難敗其法。』」¶
+因遽置之。
+

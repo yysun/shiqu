@@ -1,0 +1,41 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:39
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 484
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 32. 9. 1; tr. Crump 1979 no.4i2, p 569, ed. Shanghai Guji p. 1159
+# dating: 8110
+<pb:KR2e0003_tls_485-1a>¶
+** 485 智伯欲伐衛
+
+智伯欲伐衛，¶
+遺衛君野馬四百，¶
+白璧一。¶
+衛君大悅，¶
+群臣皆賀，¶
+南文子有憂色。¶
+
+# src: ZGC 32. 9. 2; tr. Crump 1979 no.4i2, p 569, ed. Shanghai Guji p. 1159
+# dating: 8110
+衛君曰：「大國大懽，¶
+而子有憂色何？」¶
+文子曰：「無功之賞，¶
+無力之禮，¶
+不可不察也。¶
+野馬四，¶
+百璧一，¶
+此小國之禮也，¶
+而大國致之，¶
+君其圖之。」¶
+
+# src: ZGC 32. 9. 3; tr. Crump 1979 no.4i2, p 569, ed. Shanghai Guji p. 1159
+# dating: 8110
+衛君以其言告邊境。¶
+智伯果起兵而襲衛，¶
+至境而反曰：¶
+「衛有賢人，¶
+先知吾謀也。」
+

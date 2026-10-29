@@ -1,0 +1,39 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 36
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 2.9.1; tr. Crump 1979 no.4, p. 25, ed. Shanghaiguji p. 60 Chou Tsui's value
+# dating: 8110
+<pb:KR2e0003_tls_037-1a>¶
+** 37 司寇布為周最謂周君
+
+司寇布為周最謂周君曰：¶
+「君使人告齊王以周最不肯為太子也，¶
+臣為君不取也。¶
+函冶氏為齊太公買良劍，¶
+公不知善，¶
+歸其劍而責之金。¶
+越人請買之千金，¶
+折而不賣。¶
+
+# src: ZGC 2.9.2; tr. Crump 1979 no.4, p. 25, ed. Shanghaiguji p. 60
+# dating: 8110
+將死，¶
+而屬其子曰：¶
+『必無獨知。』¶
+今君之使最為太子，¶
+獨知之契也，¶
+天下未有信之者也。¶
+臣恐齊王之為君實立果
+而讓之於最，¶
+以嫁之齊也。¶
+君為多巧，¶
+最為多詐，¶
+君何不買信貨哉？¶
+奉養無有愛於最也，¶
+使天下見之。」
+

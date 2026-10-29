@@ -1,0 +1,54 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 92
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 6.1.1; tr. Crump 1979 no. 85, p 90, ed. Shanghaiguji p. 223 The Three States persuade Ch'u to act against her own interest
+# dating: 8110
+<pb:KR2e0003_tls_093-1a>¶
+** 93 秦取楚漢中
+
+秦取楚漢中，¶
+再戰於藍田，¶
+大敗楚軍。¶
+韓、魏聞楚之困，¶
+乃南襲至鄧，¶
+楚王引歸。¶
+後三國謀攻楚，¶
+恐秦之救也，¶
+
+
+# src: ZGC 6.1.2; tr. Crump 1979 no. 85, p 90, ed. Shanghaiguji p. 223
+# dating: 8110
+或說薛公：¶
+「可發使告楚曰：¶
+『今三國之兵且去楚，¶
+楚能應而共攻秦，¶
+雖藍田豈難得哉！¶
+況於楚之故地？』¶
+楚疑於秦之未必救己也，¶
+而今三國之辭去，¶
+則楚之應之也必勸，¶
+是楚與三國謀出秦兵矣。¶
+秦為知之，¶
+必不救也。¶
+
+# src: ZGC 6.1.3; tr. Crump 1979 no. 85, p 90, ed. Shanghaiguji p. 223
+# dating: 8110
+三國疾攻楚，¶
+楚必走秦以急；¶
+秦愈不敢出，¶
+則是我離秦而攻楚也，¶
+兵必有功。」<pb:KR2e0003_tls_093-2a>¶
+薛公曰：¶
+「善。」¶
+遂發重使之楚，¶
+楚之應之果勸。¶
+於是三國并力攻楚，¶
+楚果告急於秦，¶
+秦遂不敢出兵。¶
+大臣有功。
+

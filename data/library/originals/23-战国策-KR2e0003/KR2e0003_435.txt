@@ -1,0 +1,35 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 434
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 28. 14. 1; tr. Crump 1979 no.191, p.240, ed. Shanghai Guji p. 1029
+# dating: 8110
+<pb:KR2e0003_tls_435-1a>¶
+** 435 秦招楚而伐齊
+
+秦招楚而伐齊，¶
+冷向謂陳軫曰：¶
+「秦王必外向。¶
+楚之齊者知西不合於秦，¶
+必且務以楚合於齊。¶
+齊、楚合，¶
+燕、趙不敢不聽。¶
+齊以四國敵秦，¶
+是齊不窮也。」¶
+
+# src: ZGC 28. 14. 2;tr. Crump 1979 no.191, p.240, ed. Shanghai Guji p. 1029
+# dating: 8110
+向曰：¶
+「秦王誠必欲伐齊乎？¶
+不如先收於楚之齊者，¶
+楚之齊者先務以楚合於齊，¶
+則楚必即秦矣。¶
+以強秦而有晉、楚，
+則燕、趙不敢不聽，¶
+是齊孤矣。¶
+向請為公說秦王。」
+

@@ -1,0 +1,36 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 39
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 2.12.1; tr. Crump 1979 no.9, p. 29, ed. Shanghaiguji p. 66 A dangerous exchange of territories is prevented
+# dating: 8110
+<pb:KR2e0003_tls_040-1a>¶
+** 40 韓魏易地
+
+韓、¶魏易地，¶
+西周弗利。¶
+樊餘謂楚王曰：¶
+「周必亡矣。¶
+韓、魏之易地，¶
+韓得二縣，¶
+魏亡二縣。¶
+所以為之者，¶
+盡包二周，¶
+多於二縣，¶
+九鼎存焉。¶
+
+# src: ZGC 2.12.2; tr. Crump 1979 no.9, p. 29, ed. Shanghaiguji p. 66
+# dating: 8110
+且魏有南陽、鄭地、三川而包二周，¶
+則楚方城之外危；¶
+韓兼兩上黨以臨趙，¶
+即趙羊腸以上危。¶
+故易成之曰，¶
+楚、趙皆輕。」¶
+楚王恐，¶
+因趙以止易也。
+

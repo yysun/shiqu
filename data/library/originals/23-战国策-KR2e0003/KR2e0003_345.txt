@@ -1,0 +1,64 @@
+# -*- mode: mandoku-view -*-
+#+TITLE: 戰國策
+#+DATE: 2016-08-10 10:18:38
+#+PROPERTY: ID KR2e0003
+#+PROPERTY: BASEEDITION tls
+#+PROPERTY: JUAN 344
+#+PROPERTY: CAT 1pre-han,歷史,古史
+
+# src: ZGC 25.1. 1; tr. Crump 1979 no. 341, p.412, ed. Shanghai Guji p. 8i3（《戰國策》卷二十五·魏四）
+# dating: 8110
+<pb:KR2e0003_tls_345-1a>¶
+** 345 獻書秦王
+
+獻書秦王曰：¶
+「昔竊聞大王之謀出事於梁，¶
+謀恐不出於計矣，¶
+願大王之熟計之也。¶
+
+# src: ZGC 25.1. 2; tr. Crump 1979 no. 341, p.412f, ed. Shanghai Guji p. 8i3（《戰國策》卷二十五·魏四）
+# dating: 8110
+梁者，¶
+山東之要也。¶
+有蛇於此，¶
+擊其尾，¶
+其首救；¶
+擊其首，¶
+其尾救；¶
+擊其中身，首尾皆救。¶
+
+# src: ZGC 25.1. 3; tr. Crump 1979 no. 341, p.413, ed. Shanghai Guji p. 8i3
+# dating: 8110
+今梁王，¶
+天下之中身也。¶
+秦攻梁者，¶
+是示天下要斷山東之脊也，¶
+是山東首尾皆救中身之時也。¶
+山東見亡必恐，¶
+恐必大合，¶
+山東尚強，¶
+臣見秦之必大憂可立而待也。¶
+
+# src: ZGC 25.1. 4; tr. Crump 1979 no. 341, p.413, ed. Shanghai Guji p. 8i3
+# dating: 8110
+臣竊為大王計，¶
+不如南出。¶
+事於南方，¶
+其兵弱，¶
+天下必能救，¶
+地可廣大，¶
+國可富，¶
+兵可強，¶
+主可尊。¶
+王不聞湯之伐桀乎？¶
+試之弱密須氏以為武教，¶
+得密須氏而湯之服桀矣。¶
+
+# src: ZGC 25.1. 5; tr. Crump 1979 no. 341, p.413, ed. Shanghai Guji p. 8i3
+# dating: 8110
+今秦國與山東為讎，¶
+不先以弱為武教，¶
+兵必大挫，¶
+國必大憂。」¶
+秦果南攻藍田、鄢、郢。
+
