@@ -4,7 +4,8 @@ import path from 'node:path';
 import {readFile,realpath,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {ReaderError} from '../lib/reader-model.ts';
-import type {Selection,Plan} from '../lib/reader-model.ts';
+import type {Selection} from '../lib/reader-model.ts';
+import type {SourceHint} from '../lib/reader-source-types.ts';
 import {sourceText} from './local-source-ranges.ts';
 import type {LocalSourceReference,WholeBookInput} from '../lib/reader-local-contract.ts';
 import type {OriginalSource} from '../lib/reader-source-types.ts';
@@ -155,7 +156,7 @@ export class LocalBooks{
   if(!selection.source)throw invalid();
   return this.resolve(book,selection.source);
  }
- async legacy(selection:Selection,plan:Plan){
+ async legacy(selection:Selection,plan:SourceHint){
   const book=await this.book(selection);if(!book)return null;
   if(selection.source)return this.resolve(book,selection.source);
   const query=sourceQuery(selection,plan);

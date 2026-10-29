@@ -23,6 +23,7 @@ export async function runStoryGeneration({sessionId,throughPage,request,retries,
    if(!isActive())break;
    const s=session;
    onSession(s);
+   if(s.awaitingFrameCount)return '';
    const end=Math.min(throughPage,(s.story?.pages.length??(s.selection.length==='auto'?readerMaxFrames:s.selection.length))-1);
    const needed=!s.story||s.story.pages.slice(0,end+1).some(p=>!p.image||(s.selection.voice&&!p.audio));
    if(!needed||s.state==='completed')return '';

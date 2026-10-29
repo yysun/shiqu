@@ -1,31 +1,35 @@
 # Story frame count
 
-Story base: `e4a1106fe27337fa3a586acca7f9feb3be1b570c`.
+Story base: `e4a1106fe27337fa3a586acca7f9feb3be1b570c`（保留原故事基线）。
+Correction base: `226ed02c23a2155a92ca16c37cdd2e160ed7a4b8`。此前已交付的自动/指定方案，本轮按用户 !! 修订；此前 AR/VR 对新方案失效。
 
-## Decisions and boundaries
+## Current decisions
 
-Preserve the existing persisted `selection.length` field: numeric 8/10/12 remain valid; extend to integer 1–60 or `auto` (new default). Persist the actual count in the existing plan pages, leaving `auto` intact as user intent. All runtime loops derive the resolved count from the saved plan; before planning, request only the first reading batch. No migration or extra model request.
+Selection 增加可选 narrativeDetail=brief/balanced/detailed；缺省保留旧会话路径，新 UI 默认 balanced，并不沿用旧 localStorage 的 numeric/auto 入口。Document 增加可选 frameRecommendation 和 frameCountConfirmed，保持现有 JSON 存储，无迁移。新流程为 recommend → 等待用户选数量 → plan → source/image；旧会话和已有 plan 不进入推荐。
 
-Providers share schema and prompt semantics: auto permits 1–60 with 30–60 narrative guidance; numeric requires exact count. Scale Gemini's plan output budget to the requested upper bound so 60 scenes are not constrained by the old 8192 token ceiling. Retain existing deadlines, locks, retries and three-image batching.
+recommend 使用既有 session lock。先调用本地 prepareOriginal，非本地来源通过既有 source resolver 以所选书与故事标题读取原文，原文保存后才调用轻量 count/reason schema。将原文来源 hint 缩窄为实际需要字段，不构造伪分镜。推荐与最终分镜都使用同一份保存原文；本地 wrapper 继续核对 source receipt。source unavailable 不靠模型记忆编造推荐。
 
-The UI edits only a not-yet-created selection. A separate automatic/specified control exposes a slider and numeric input with a remembered manual value (initially 36). Existing stories have no count editor, so no destructive replan confirmation is necessary.
+等待数量时 nextStep 返回空但不是 complete；SessionView 显式暴露 recommendation/awaitingFrameCount，客户端停止自动推进。新增 owner-scoped POST sessions/:id/frame-count，严格校验 1–60，用状态+document+selection CAS 原子保存 numeric length 与确认标志。相同确认幂等；冲突/运行/已有 plan 拒绝改写；advance 自身也不能绕过等待状态。保留原额度、租期、超时和失败重试。
 
-## Tasks
+初始配置只显示详略三个选项，主操作“推荐画幅数”。复用现有生成 Sheet，在推荐完成后显示理由、同步滑块/数字、“使用推荐数量”和“生成 N 幅”；不用额外确认弹窗。书架待生成项可回到同一选择阶段。初始选择和运行数量状态分离，避免旧偏好跳过新流程。
 
-- [x] Extend shared count limits, selection/plan validation, provider schema/prompts, and count-aware generation/resume paths in `lib/reader-model.ts`, `lib/reader-generation-contract.ts`, `lib/reader-engine.ts`, `lib/reader-gemini.ts`, `lib/reader-generation.ts`, `server/generation.ts`, `client/ui/useStoryGeneration.ts`.
-- [x] Extend reader advance/progress/events/media validation to frame 60 in `lib/reader-api.ts`, preserving per-story image readiness validation.
-- [x] Replace length presets in `client/ui/Reader.tsx` with an accessible count picker and matching styles; show automatic/single/count labels before creation.
-- [x] Add controlled provider/REST/resume regression scenarios for auto, 1, 30, 60, invalid counts, mismatched provider output, restart and high-index media/progress/events. Keep existing numeric coverage.
-- [x] Run applicable full Node test suite, typecheck, lint and local production build using Node 24.22.1 / pnpm 11.25.0; no Docker builds.
-- [x] Execute `.docs/tests/test-story-frame-count.md`, including browser picker verification with controlled local services.
+Providers 共享推荐 schema/prompt 与详略语义；不含固定数量映射或 30–60 配额。最终 plan 的 exactPageCount 使用确认数量，且包含 narrativeDetail；旧 auto 提示也移除 30–60 强导向。UI 保持窄屏布局和键盘/禁用语义。
 
-## Review and risks
+## Current tasks
 
-Risk: non-low — extends persisted selection semantics and public reader/provider boundaries across the client/server generation loop. Independent AR/CR/VR required. Existing numeric lengths remain compatible, but older binaries will not accept new auto/long sessions; rollback requires the updated reader or restoring a pre-feature data backup. More panels increase total generation cost and time; generation remains demand-driven.
+- [x] 扩展 model/contract/source hint、两 provider 与 local wrapper：详略、推荐 schema/prompt、同原文推荐与分镜；新旧兼容。
+- [x] 扩展 engine/repository/API：原文保存、recommend checkpoint、等待与完成判定、CAS 数量确认；支持失败重试、并发与幂等。
+- [x] 扩展 generation loop/hook、Reader 与 StoryFrameCount：详略先选、可恢复数量面板和精确生成；书架/刷新，锁定与移动布局。
+- [x] 新增受控 provider/REST/SQLite 回归：三档、1/60、非法输出/输入、来源失败、确认冲突、重启和重试；保留旧全套批次测试。
+- [ ] 更新 README；运行完整 pnpm test、typecheck、lint、production build（Node24.22.1 / pnpm11.25.0），无 Docker/安装包构建。
+- [ ] 执行 .docs/tests/test-story-frame-count.md：真实前端+隔离受控服务，可见默认/三档/建议/调整/确认/书架恢复及390宽布局。
 
-First SS probe: use controlled Gemini/Codex responses and real local SQLite to establish auto plans resolve counts and high-index reader requests work without live inference. A failure blocks dependent UI verification until the contract is repaired and reviewed.
+## Current risk / first probe
 
-## Evidence
+Non-low：新增持久检查点和确认接口，跨 UI/provider/reader generation 状态机。先以受控 Gemini/Codex、真实 SQLite 跑 recommend → 等待 → 原子确认 → 精确 plan；证实无图/分镜提前执行、重启复用和来源失败阻断后继续 UI。失败需修订并重新 AR。旧版本不识别新等待阶段，回滚需保留新版或恢复之前数据备份。
+
+## Previous delivery evidence (superseded where current decisions differ)
+
 
 SS feasibility probe passed: Node 24.22.1 / pnpm 11.25.0, 18 targeted tests using both actual provider adapters, real temporary SQLite and FileMedia. Auto plans of 1 and 30, exact 1/8/10/12/30/60, mismatch rejection, frame-60 media/progress/events and restart all passed. No live inference.
 
@@ -84,3 +88,18 @@ The timeout does not invalidate the existing feature criteria or prove that the 
 The live full-plan trial **failed**: no count or plan returned within 120 seconds. Record that explicitly. A successful count-only preview would not verify the production planning flow.
 
 Repeated full-plan timeouts would justify reopening runtime design. Increasing the deadline must account for the existing 180-second session lock.
+
+## Current AR
+
+AR passed: no blocking architecture flaws
+
+AR risk: non-low — adds a persisted recommendation checkpoint and atomic count confirmation across reader state, providers, source storage and UI.
+
+AR review round: 1; reviewer: new.
+
+Source boundary: custom URL input may lack the book/chapter hint previously supplied by a completed plan. The existing resolver must report unavailable rather than invent a recommendation. Document and test this limitation; no new arbitrary webpage fetcher is in scope. Local source receipt/anomaly checks cover recommendation as well as final planning.
+
+
+## Current implementation evidence
+
+First SS feasibility probe passed: 24 controlled provider/REST/SQLite tests, then 36 focused tests after adding local-source and lost-response coverage. Both providers use saved original → recommend → idle waiting → CAS confirmation → exact plan, with no early storyboard/images. Three detail values,1/60, invalid output/input, competing confirmation, missing URL source and restart/retry passed. Typecheck passed after UI wiring.

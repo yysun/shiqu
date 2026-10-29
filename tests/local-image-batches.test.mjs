@@ -25,8 +25,8 @@ function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{reso
 async function fixture(t,provider='codex'){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu batches ')),dataDirectory=path.join(root,'data');
  await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
- const control={calls:[],plans:[],pending:new Map(),hold:false,autoLength:30,overridePlanLength:null};
- function planned(payload,schema,instructions,budget){control.plans.push({payload,schema,instructions,budget});return makePlan(control.overridePlanLength??(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount));}
+ const control={calls:[],plans:[],pending:new Map(),hold:false,autoLength:30,overridePlanLength:null,recommendations:[],recommendation:{count:7,reason:'保留完整因果与关键转折，节奏适合这篇短寓言。'}};
+ function planned(payload,schema,instructions,budget){if(schema.properties.count){control.recommendations.push({payload,schema,instructions,budget});return control.recommendation;}control.plans.push({payload,schema,instructions,budget});return makePlan(control.overridePlanLength??(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount));}
  async function image(prompt,reference){
   const page=Number(prompt.match(/Scene (\d+):/)[1])-1;
   control.calls.push({page,reference,prompt});
@@ -72,7 +72,7 @@ for(const provider of ['gemini','codex']){
    const current=await f.read(id),job=f.control.plans.at(-1);
    assert.equal(current.selection.length,'auto');assert.equal(current.story.pages.length,length);
    assert.equal(job.payload.exactPageCount,'auto');assert.equal(job.schema.properties.pages.minItems,1);assert.equal(job.schema.properties.pages.maxItems,60);
-   assert.match(job.instructions,/auto时/);assert.match(job.instructions,/30至60幅/);
+   assert.match(job.instructions,/auto时/);assert.doesNotMatch(job.instructions,/30至60幅/);
    if(provider==='gemini')assert.ok(job.budget>=48000);
    f.restart();
    assert.equal(await f.generate(id,length-1,'auto'),'');
@@ -207,4 +207,66 @@ test('out-of-order progress renews inactivity while an unchanged stage still tim
  assert.equal(await runStoryGeneration(options),'');assert.ok(elapsed>360000);assert.equal(updates,4);
  session.state='running';session.ready=1;session.story.pages[1].image='';updates=0;
  assert.match(await runStoryGeneration({...options,request:async()=>structuredClone(session)}),/等待较久/);
+});
+
+
+for(const provider of ['gemini','codex']){
+ test(`${provider}: detail recommends from a saved original and waits for durable exact-count confirmation`,async t=>{
+  const f=await fixture(t,provider);
+  for(const [index,narrativeDetail] of ['brief','balanced','detailed'].entries()){
+   const id=crypto.randomUUID(),recs=f.control.recommendations.length,plans=f.control.plans.length,images=f.control.calls.length;
+   await f.json('sessions','POST',{requestId:id,selection:{...selection,length:'auto',narrativeDetail}});
+   assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:1})).status,409);
+   await f.generate(id,0,'auto');
+   let current=await f.read(id);assert.equal(current.state,'idle');assert.equal(current.awaitingFrameCount,true);assert.equal(current.retryAllowed,false);assert.equal(current.story,null);assert.equal(current.ready,0);
+   assert.deepEqual(current.frameRecommendation,f.control.recommendation);assert.equal(f.control.plans.length,plans);assert.equal(f.control.calls.length,images);
+   const rec=f.control.recommendations.at(-1);assert.equal(rec.payload.narrativeDetail,narrativeDetail);assert.match(rec.payload.verifiedOriginal.text,/昔者庄周/);assert.equal(rec.schema.properties.count.minimum,1);assert.equal(rec.schema.properties.count.maximum,60);assert.doesNotMatch(rec.instructions,/30至60|30–60/);
+   await f.advance(id,59);f.restart();await f.generate(id,0,'auto');assert.equal(f.control.recommendations.length,recs+1);
+   const count=index===1?60:1;
+   const confirmations=await Promise.all([f.request(`sessions/${id}/frame-count`,'POST',{count}),f.request(`sessions/${id}/frame-count`,'POST',{count})]);assert.ok(confirmations.every(r=>r.status===200));
+   assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:count===1?60:1})).status,409);
+   current=await f.read(id);assert.equal(current.awaitingFrameCount,false);assert.equal(current.selection.length,count);
+   f.restart();await f.generate(id,0,count);
+   const job=f.control.plans.at(-1);assert.equal(job.payload.narrativeDetail,narrativeDetail);assert.equal(job.payload.exactPageCount,count);assert.deepEqual(job.payload.verifiedOriginal,rec.payload.verifiedOriginal);assert.equal(job.schema.properties.pages.minItems,count);assert.equal((await f.read(id)).story.pages.length,count);
+   assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count})).status,200);assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:2})).status,409);
+   assert.equal(f.control.recommendations.length,recs+1);assert.equal(f.control.plans.length,plans+1);
+  }
+ });
+ test(`${provider}: invalid recommendations retain original for retry and never plan or draw`,async t=>{
+  const f=await fixture(t,provider);
+  for(const bad of [{count:0,reason:'无效数量'},{count:61,reason:'无效数量'},{count:1.5,reason:'无效数量'},{count:'7',reason:'无效数量'},{count:7,reason:'   '}]){
+   f.control.recommendation=bad;const id=crypto.randomUUID();await f.json('sessions','POST',{requestId:id,selection:{...selection,narrativeDetail:'balanced'}});
+   const failed=await f.advance(id,2);assert.equal(failed.state,'failed');assert.equal(failed.awaitingFrameCount,false);assert.equal(failed.frameRecommendation,null);
+   const row=await new ReaderRepository(f.app.services.database).get(id,f.app.services.ownerId);assert.ok(JSON.parse(row.document).original.text);
+   assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+  }
+  f.control.recommendation={count:1,reason:'短寓言保留一个关键瞬间。'};
+  const id=(await f.json('sessions'))[0].id;assert.equal((await f.advance(id,2,true)).awaitingFrameCount,true);
+ });
+}
+
+test('frame-count confirmation is owner-scoped, validates input, blocks running work and concurrent conflicts',async t=>{
+ const f=await fixture(t),id=crypto.randomUUID();
+ await f.json('sessions','POST',{requestId:id,selection:{...selection,narrativeDetail:'balanced'}});await f.advance(id,0);
+ for(const count of [0,61,1.5,'7',null])assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count})).status,400);
+ const repo=new ReaderRepository(f.app.services.database);await assert.rejects(repo.confirmFrameCount(id,'another-owner',7),e=>e.status===404);
+ const row=await repo.get(id,f.app.services.ownerId),token=await repo.acquire(row,{kind:'plan',page:0,key:'plan'});
+ assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:7})).status,409);await repo.save(row,token,JSON.parse(row.document),false);
+ const results=await Promise.all([f.request(`sessions/${id}/frame-count`,'POST',{count:1}),f.request(`sessions/${id}/frame-count`,'POST',{count:60})]);assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+ const current=await f.read(id);assert.ok([1,60].includes(current.selection.length));assert.equal(f.control.plans.length,0);
+});
+
+test('unverifiable URL originals fail before any recommendation or plan request',async t=>{
+ const f=await fixture(t,'gemini'),id=crypto.randomUUID();
+ await f.json('sessions','POST',{requestId:id,selection:{...selection,bookId:'other',customBook:'https://example.com/story',storyTitle:'未知故事',narrativeDetail:'balanced'}});
+ const failed=await f.advance(id,0);assert.equal(failed.state,'failed');assert.match(failed.error,/原文未能核对/);assert.equal(f.control.recommendations.length,0);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+});
+
+test('lost recommendation responses and concurrent advances reuse the saved suggestion without planning',async t=>{
+ const f=await fixture(t),id=crypto.randomUUID();await f.json('sessions','POST',{requestId:id,selection:{...selection,length:'auto',narrativeDetail:'balanced'}});
+ let lost=false;assert.equal(await f.generate(id,0,'auto',{request:async(pathname,method,body)=>{
+  const result=await f.json(pathname.replace(/^reader\//,''),method,body);
+  if(!lost&&method==='POST'&&result.awaitingFrameCount){lost=true;throw Error('lost recommendation response');}return result;
+ }}),'');assert.equal(lost,true);assert.equal(f.control.recommendations.length,1);
+ await Promise.all([f.advance(id,59),f.advance(id,59)]);assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });

@@ -115,3 +115,17 @@ test('explicit legacy backfill uses a local chapter and does not plan, draw, or 
  const row=await repo.get(id,'docker-local-owner');await app.services.database.prepare('UPDATE reader_sessions SET document=? WHERE id=?').bind(JSON.stringify({plan:{...plan,sourceReference:'《庄子·齐物论》'},images:[],audio:[],usage:[]}),id).run();
  const response=await app.handle(new Request(`http://localhost/api/reader/sessions/${id}/source`,{method:'POST'}));assert.equal(response.status,200);const body=await response.json();assert.equal(body.source.kind,'chapter');assert.match(body.source.provider,/本地书库/);assert.match(body.source.text,/北冥|南郭|庄周/);assert.equal(body.searchUrl,'');assert.equal((await repo.get(id,'docker-local-owner')).page,row.page);
 });
+
+test('local recommendation persists the exact original before inference and rejects tampered receipts or source anomalies',async t=>{
+ const root=await directory(t),db=openDatabase(root,process.cwd());t.after(()=>db.close());
+ const repo=new ReaderRepository(db.database),store=new FileMedia(path.join(root,'media')),book=await library.book(selected),selection={...selected,length:'auto',narrativeDetail:'balanced',source:ref(book)};
+ let calls=0;const base=fake();base.generator=()=>({...fake().generator(),async recommend(s,id,original){
+  calls++;assert.equal(JSON.parse((await repo.get(id,'test')).document).original.text,original.text);assert.ok(await store.get(`reader/${id}/source.json`));
+  return {value:{count:8,reason:'按这篇寓言的因果与转折完整叙述。'},model:'mock',requestId:'mock',usage:null};
+ }});
+ const generator=withLocalBooks(base,library,store).generator(),id=crypto.randomUUID();await repo.create(id,'test',selection);
+ const current=await advanceStory(repo,generator,'test',id,0);assert.equal(current.awaitingFrameCount,true);assert.equal(calls,1);assert.equal(current.story,null);
+ const original=JSON.parse((await repo.get(id,'test')).document).original;
+ await assert.rejects(generator.recommend({...selection,source:{...selection.source,edition:'0'.repeat(64)}},id,original),e=>e.status===400);
+ await assert.rejects(generator.recommend(selection,id,{...original,text:original.text+'□'}),e=>e.status===400);assert.equal(calls,1);
+});
