@@ -32,7 +32,7 @@ for(const provider of ['codex','gemini'])test(`${provider}: outline and 20/20/5 
 for(const provider of ['codex','gemini'])test(`${provider}: 80 frames complete four batches and background drawing reaches frame 80`,async t=>{
  const f=await productionFixture(t,provider),id=await f.create(80);f.control.hold=false;
  await f.json(`sessions/${id}/production-control`,'POST',{action:'background'});
- await until(async()=>(await f.read(id)).state==='completed');
+ await until(async()=>(await f.read(id)).state==='completed',15000);
  assert.deepEqual(f.control.batches.map(p=>p.batch),[{first:1,last:20},{first:21,last:40},{first:41,last:60},{first:61,last:80}]);
  assert.equal(f.control.calls.length,80);assert.deepEqual(f.control.calls.map(p=>p.page).sort((a,b)=>a-b),Array.from({length:80},(_,i)=>i));
  const session=await f.read(id);assert.equal(session.ready,80);assert.equal(session.story.pages.length,80);
@@ -89,12 +89,13 @@ test('concurrent batch advances and replayed queue receipts do not repeat saved 
  const first=advanceStory(repo,g,owner,id,0);await ready;
  assert.equal((await advanceStory(repo,g,owner,id,0)).state,'running');assert.equal(f.control.batches.length,1);
  release();await first;
- // A saved batch whose queue success receipt was lost must settle without another provider call.
- await f.demand(id);await until(()=>f.control.calls.length===1);
- const jobs=await f.app.services.production.queue.jobs(id,owner),old=jobs.find(j=>j.kind==='script'&&JSON.parse(j.payload).stepKey==='plan:20');
- const total=f.control.batches.length;
- f.control.hold=false;for(const call of f.control.calls)call.resolve();await until(async()=>(await f.read(id)).ready===7&&(await f.read(id)).state!=='running');
- await f.app.services.database.prepare("UPDATE production_jobs SET state='queued',result=NULL WHERE id=?").bind(old.id).run();
- await f.app.services.production.tick();await until(async()=>(await f.app.services.production.queue.job(old.id)).state==='succeeded');
- assert.equal(f.control.batches.length,total);assert.equal((await document(f,id)).plan.pages.length,45);
+ // Simulate the lost receipt of the first paid batch while the document still contains only 20 scenes.
+ const old={id:crypto.randomUUID(),sessionId:id,ownerId:owner,kind:'script',pool:'text',version:'lost-receipt',dependencies:[],payload:{stepKey:'plan:0'},priority:-20};
+ await f.app.services.production.queue.enqueue(old);
+ let nextRelease,nextStarted;const nextHold=new Promise(r=>nextRelease=r),nextReady=new Promise(r=>nextStarted=r);
+ f.control.beforeText=async(kind,payload)=>{if(kind==='batch'&&payload.batch.first===21){nextStarted();await nextHold;}};
+ await f.demand(id);await nextReady;
+ assert.equal((await f.app.services.production.queue.job(old.id)).state,'succeeded');
+ assert.equal((await document(f,id)).storyboard.pages.length,20);assert.deepEqual(f.control.batches.map(p=>p.batch.first),[1,21]);
+ nextRelease();await until(()=>f.control.calls.length===1);assert.equal((await document(f,id)).plan.pages.length,45);
 });

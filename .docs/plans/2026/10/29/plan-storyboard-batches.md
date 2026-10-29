@@ -11,6 +11,7 @@ Base: `93437e0e1db301e46af4185d845f42eee2b0c3b4`
 - [x] 按用户补充要求将总上限改为 80，消除后台队列 59 的硬编码；提示和输入、媒体、事件上限统一引用 readerMaxFrames。
 - [x] 增加边界、错误输出、重试、并发、暂停/重启、提供方传参和完整 HTTP 队列回归验证。
 - [ ] 使用 Node 24.22.1、pnpm 11.25.0 运行 typecheck、lint、全部单元/集成测试；按测试文档验证界面。
+- [ ] 用户追加真实计时：复用现有东郭原文与制作要求，以当前 Codex 设置运行目录及 4 批 80 幅，仅推进分镜步骤；保存每步和总计时，原故事保持不变，测试稿暂停在绘图之前。
 
 风险：队列任务键必须随检查点变化，不能将未完成分镜误当整篇脚本成功。批次输出需严格按剩余数量校验后才追加。提纲增加一次推理调用，不能将分批宣传为必然节省总时间。原文和用户字段仍只是资料。
 
@@ -21,3 +22,12 @@ AR risk: non-low — 跨提供方调用、JSON 检查点、队列依赖与 80 �
 SS 首个探针：Node 24.22.1 下 tests/storyboard-batches.test.mjs 的两提供方 45 幅 HTTP/SQLite 测试通过，保存数 0/20/40/45 且全部分镜完成前无图片调用，方案可行。
 
 SS 窄验证：storyboard-batches、storyboard-ui、local-books 共 34/34 通过；local-image-batches、reader-production、generation-progress 与首批 storyboard 测试共 54/54 通过。80 幅后台绘图、索引 79 媒体/事件/进度、暂停/停止/失去需求、重启、坏批次与精确重试均有真实 HTTP/SQLite 证据。浏览器由 Work 设置禁用，界面验证为实际 React 组件静态渲染。
+
+SS 里程碑提交：`54d8e4c`，分批目录、80 幅与受控回归；提交时 typecheck/lint 通过。
+
+CR fixed: 修复未完成旧 URL 会话在分镜目录前无法取得真实出处的问题；rerun result passed。
+
+CR risk: non-low — 来源校验、付费目录检查点、队列恢复及 80 幅边界。
+CR review round: 2; reviewer: reused
+
+旧 URL 目录继续使用 Gemini URL context，校验读取证据后先保存目录及用量，再凭真实出处核对原文；原文失败可独立重试，细化前仍必须有原文。新增 3 项 URL 回归和仅保存 20 幅的旧回执恢复测试。修复后窄套 98/98 通过；80 幅全后台测试使用 15 秒有界等待，其他场景仍为原来的 5 秒。首轮修复前全套 330/330；修复后全套运行中。

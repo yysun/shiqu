@@ -180,6 +180,33 @@ test('source recovery remains explicit after repeated outages and never repeats 
 });
 function memoryAssets(){const stored=new Map();return {stored,async get(k){const entry=stored.get(k);return entry?{async arrayBuffer(){return entry.bytes.slice().buffer;}}:null;},async put(k,bytes,options){stored.set(k,{bytes,options});}};}
 function geminiResponse(parts,extra={}){return new Response(JSON.stringify({candidates:[{content:{parts},finishReason:'STOP',...extra}],responseId:'test-response',usageMetadata:{totalTokenCount:10}}),{headers:{'Content-Type':'application/json'}});}
+for(const length of ['auto',45])test(`legacy URL ${length} resolves its directory through URL context and retains it through source failure`,async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),url='https://example.org/classic',requests=[],chosen=selectionSchema.parse({bookId:'other',customBook:url,storyTitle:'庄周梦蝶',theme:'放下执念',length});
+ const {pages,...metadata}=plan,outline={...metadata,beats:Array.from({length:45},(_,i)=>`故事第 ${i+1} 幅的事件。`)};
+ const g=makeGenerator('controlled',memoryAssets(),{},async(_url,init)=>{
+  const body=JSON.parse(init.body),payload=JSON.parse(body.contents[0].parts[0].text);requests.push({body,payload});
+  if(body.generationConfig.responseFormat.text.schema.properties.beats)return geminiResponse([{text:JSON.stringify(outline)}],{urlContextMetadata:{urlMetadata:[{retrievedUrl:url,urlRetrievalStatus:'URL_RETRIEVAL_STATUS_SUCCESS'}]}});
+  return geminiResponse([{text:JSON.stringify({pages:Array.from({length:20},()=>pages[0])})}]);
+ });
+ let lookups=0;g.original=async(_selection,hint)=>{
+  assert.equal(hint.sourceReference,outline.sourceReference);assert.doesNotMatch(hint.sourceReference,/https:/);
+  assert.equal(JSON.parse((await repo.get(id,'alice')).document).storyboard.outline.beats.length,45);
+  return {source:++lookups===1?null:original,message:'controlled outage',searchUrl:''};
+ };
+ await repo.create(id,'alice',chosen);
+ const failed=await advanceStory(repo,g,'alice',id,0);assert.equal(failed.state,'failed');assert.equal(requests.length,1);
+ assert.deepEqual(requests[0].body.tools,[{urlContext:{}}]);assert.equal(failed.retryMayCharge,false);assert.equal(failed.generationProgress.storyboardFrames,0);
+ await advanceStory(repo,g,'alice',id,0,true);assert.equal(requests.length,1);assert.equal(lookups,2);
+ const batch=await advanceStory(repo,g,'alice',id,0);assert.equal(batch.generationProgress.storyboardFrames,20);assert.equal(batch.story,null);
+ assert.equal(requests[1].body.tools,undefined);assert.equal(requests[1].payload.verifiedOriginal.text,original.text);
+});
+test('URL directory rejects missing URL context evidence without saving or starting a source lookup',async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),chosen=selectionSchema.parse({bookId:'other',customBook:'https://example.org/classic',theme:'放下执念',length:45});
+ const {pages,...metadata}=plan;let lookups=0;
+ const g=makeGenerator('controlled',memoryAssets(),{},async()=>geminiResponse([{text:JSON.stringify({...metadata,beats:Array(45).fill('目录事件。')})}]));
+ g.original=async()=>{lookups++;throw Error('must not run');};await repo.create(id,'alice',chosen);
+ assert.equal((await advanceStory(repo,g,'alice',id,0)).state,'failed');assert.equal(lookups,0);assert.equal(JSON.parse((await repo.get(id,'alice')).document).storyboard,undefined);
+});
 test('Gemini allows five-minute storyboards without extending image deadlines',async()=>{
  const timeouts=[],originalTimeout=AbortSignal.timeout;
  AbortSignal.timeout=function(ms){timeouts.push(ms);return originalTimeout.call(this,ms);};

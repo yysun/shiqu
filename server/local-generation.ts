@@ -47,7 +47,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
     ...(generator.outline?{async outline(selection,id,original){
      if(localBookId(selection))verifyOriginal(selection,original);
      const result=await generator.outline!(selection,id,original);
-     return {...result,value:{...result.value,sourceReference:original.title}};
+     return original?{...result,value:{...result.value,sourceReference:original.title}}:result;
     }} satisfies Pick<typeof generator,'outline'>:{}),
     ...(generator.planBatch?{async planBatch(selection,id,draft,original){
      if(localBookId(selection))verifyOriginal(selection,original);

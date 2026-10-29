@@ -27,6 +27,7 @@ export type GenerationProgress={sourceReady:boolean;frameCountConfirmed:boolean;
 export type SessionView={id:string;selection:Selection;generationMode?:GenerationMode;generationControl?:GenerationControl;state:SessionRow['state'];productionState?:'running'|'queued'|'paused';generationProgress?:GenerationProgress;error:string|null;retryAllowed:boolean;retryAt:number|null;retryMayCharge:boolean;retryStage?:'publication';stage:string;frameRecommendation:FrameRecommendation|null;awaitingFrameCount:boolean;ready:number;story:GeneratedStory|null;page:number;saved:boolean;lastReadAt:string|null;createdAt:string};
 export function emptyDocument():Document{return {plan:null,images:[],audio:[],usage:[]};}
 export function nextStep(doc:Document,selection:Selection,through:number):Step|null{
+ if(doc.storyboard&&!doc.original)return {kind:'source',page:0,key:'source'};
  if(!doc.plan){
   if(selection.narrativeDetail){
    if(!doc.frameRecommendation)return {kind:'recommend',page:0,key:'recommend'};

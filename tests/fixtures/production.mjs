@@ -11,7 +11,7 @@ export const encoded='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42m
 export const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,voice:false,artStyle:'ink-pencil',productionPrompt:'quiet narration'};
 export const makePlan=length=>({title:'庄周梦蝶',hook:'梦醒之后',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'现代改编',reflection:'谁在梦中？',characters:'An adult Chinese philosopher in a plain linen robe in ancient China.',pages:Array.from({length},(_,i)=>({caption:'庄周梦见自己成为一只蝴蝶，自由自在地飞来飞去。',prompt:`An adult philosopher dreams in an ancient garden, scene ${i}.`}))});
 export const turn=()=>new Promise(resolve=>setImmediate(resolve));
-export async function until(predicate){const end=Date.now()+5000;while(!await predicate()){assert.ok(Date.now()<end,'Timed out waiting for controlled production work');await turn();}}
+export async function until(predicate,timeoutMs=5000){const end=Date.now()+timeoutMs;while(!await predicate()){assert.ok(Date.now()<end,'Timed out waiting for controlled production work');await turn();}}
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
 export async function productionFixture(t,provider='codex',variables={}){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu production ')),dataDirectory=path.join(root,'data');

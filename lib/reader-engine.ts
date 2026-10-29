@@ -8,7 +8,7 @@ import {frameRecommendationSchema} from './reader-frame-recommendation.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import {readerImageBatchSize,readerMaxFrames,readerStoryboardBatchSize} from './reader-limits.ts';
 export type Generated<T>={value:T;model:string;requestId:string|null;usage:unknown};
-export interface StoryGenerator{prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;recommend?(selection:Selection,id:string,original:OriginalSource):Promise<Generated<FrameRecommendation>>;outline?(selection:Selection,id:string,original:OriginalSource):Promise<Generated<StoryboardOutline>>;planBatch?(selection:Selection,id:string,storyboard:Storyboard,original:OriginalSource):Promise<Generated<Plan['pages']>>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<Plan>>;original(selection:Selection,plan:SourceHint,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
+export interface StoryGenerator{prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;recommend?(selection:Selection,id:string,original:OriginalSource):Promise<Generated<FrameRecommendation>>;outline?(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<StoryboardOutline>>;planBatch?(selection:Selection,id:string,storyboard:Storyboard,original:OriginalSource):Promise<Generated<Plan['pages']>>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<Plan>>;original(selection:Selection,plan:SourceHint,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
 
 async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerator,row:SessionRow,token:string,doc:Document,selection:Selection,throughPage:number){
  const pages=doc.plan!.pages.map((_,page)=>page).filter(page=>page<=throughPage&&!doc.images[page]);
@@ -60,18 +60,13 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     if(original){doc.original=original;await repo.saveImageProgress(row,token,structuredClone(doc));}
    }
    if(doc.storyboard||generator.outline&&generator.planBatch&&(selection.length==='auto'||selection.length>readerStoryboardBatchSize)){
-    if(!doc.original){
-     const book=selection.bookId==='other'?selection.customBook:readerBooks.find(b=>b.id===selection.bookId)?.title||selection.bookId;
-     const result=await generator.original(selection,{sourceReference:`《${book||''}》${selection.storyTitle||''}`},id);
-     if(!result.source)throw new ReaderError(503,'原文未能核对，暂时无法编排分镜。'+result.message);
-     doc.original=result.source;await repo.saveImageProgress(row,token,structuredClone(doc));
-    }
     if(!doc.storyboard){
      if(!generator.outline)throw Error('STORYBOARD_UNAVAILABLE');
      const result=await generator.outline(selection,id,doc.original),outline=storyboardOutlineSchema.parse(result.value);
      if(selection.length!=='auto'&&outline.beats.length!==selection.length)throw Error('PLAN_LENGTH');
      doc.storyboard={outline,pages:[]};generated=result;
     }else{
+     if(!doc.original)throw new ReaderError(503,'原文尚未核对，暂时无法细化分镜。');
      if(!generator.planBatch)throw Error('STORYBOARD_UNAVAILABLE');
      const draft=doc.storyboard,count=Math.min(readerStoryboardBatchSize,draft.outline.beats.length-draft.pages.length);
      const result=await generator.planBatch(selection,id,structuredClone(draft),doc.original);
@@ -88,7 +83,10 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
   else{const result=await generator.audio(doc.plan!.pages[step.page].caption,id,step.page);doc.audio[step.page]=result.value;generated=result;}
   if(generated)doc.usage.push({step:step.key,model:generated.model,requestId:generated.requestId,usage:generated.usage});
   if((step.kind==='plan'||step.kind==='source')&&!doc.original){
-   const result=await generator.original(selection,doc.plan!,id);
+   // URL-backed legacy sessions first resolve a real citation through provider URL context.
+   // Save that paid directory before source lookup so a source outage cannot replay inference.
+   if(doc.storyboard)await repo.saveImageProgress(row,token,structuredClone(doc));
+   const result=await generator.original(selection,doc.plan||doc.storyboard!.outline,id);
    if(!result.source)throw new ReaderError(503,'原文未能保存。'+result.message+' 故事编排已保留，可重试补全原文。');
    doc.original=result.source;
   }

@@ -118,8 +118,10 @@ export async function recommendStoryArt(key:string,selection:Selection,original:
 export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={},transport:typeof fetch=fetch):StoryGenerator{
  const models={...defaultModels,...config},generate=client(key,transport);
  return {
-  ...storyboardGenerator(selection=>source(selection).book,async(instructions,payload,schema,maxOutputTokens)=>{
-   const {candidate,metadata}=await generate(models.text,textRequest(instructions,payload,schema,'',maxOutputTokens),readerStoryboardTimeoutMs);
+  ...storyboardGenerator(selection=>source(selection).book,async(instructions,payload,schema,maxOutputTokens,original)=>{
+   const book=(payload as {book:string}).book,url=!original&&/^https?:/i.test(book)?book:'';
+   const {candidate,metadata}=await generate(models.text,textRequest(instructions,payload,schema,url,maxOutputTokens),readerStoryboardTimeoutMs);
+   if(url&&!wasRead(candidate,url))throw new GeminiError('SOURCE_UNAVAILABLE');
    return {value:parseText(candidate),...metadata};
   }),
   original:(selection,plan,id)=>saveStoryOriginal(assets,selection,plan,id,transport),
