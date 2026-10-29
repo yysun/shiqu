@@ -15,7 +15,7 @@ export default function StoryFrameCount({recommendation,disabled,onConfirm}:{rec
    <input type="range" aria-label="目标幅数滑块" aria-valuetext={count===1?'单幅概述':`${count} 幅`} min={readerMinFrames} max={readerMaxFrames} step={1} value={count} onChange={e=>choose(Number(e.target.value))}/>
    <label><input type="number" aria-label="目标幅数输入" min={readerMinFrames} max={readerMaxFrames} step={1} value={count} onChange={e=>choose(e.target.valueAsNumber)} onBlur={e=>{e.target.value=String(count);}}/><span>幅</span></label>
   </div>
-  <p className="yu-count-help" aria-live="polite">{count===1?'单幅概述：用一个关键瞬间和旁白概括故事。':`按 ${count} 幅编排完整分镜，画面随阅读分批生成。`}</p>
+  <p className="yu-count-help" aria-live="polite">{count===1?'单幅概述：用一个关键瞬间和旁白概括故事。':`按 ${count} 幅编排完整分镜，画面会随阅读提前生成。`}</p>
   <button type="button" className="yu-count-reset" disabled={count===recommendation.count} onClick={()=>setCount(recommendation.count)}>使用推荐数量（{recommendation.count} 幅）</button>
   <button type="button" className="yu-primary" onClick={()=>onConfirm(count)}>{disabled?'正在开启…':count===1?'生成单幅概述':`生成 ${count} 幅`}</button>
  </fieldset></section>;

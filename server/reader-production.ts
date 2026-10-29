@@ -88,8 +88,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const row=await this.repository.get(id,ownerId),session=view(row);
   const jobs=await this.queue.jobs(id,ownerId),failed=jobs.find(job=>job.state==='failed');
   const working=jobs.some(job=>job.state==='running'||job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'));
-  if(failed&&!working)return {...session,state:'failed',error:failed.error,retryAllowed:true,retryMayCharge:failed.kind!=='image-publish'};
-  if(session.state!=='failed'&&session.state!=='completed'&&(working||(await this.demands(id)).length>0&&jobs.some(job=>job.state==='queued')))return {...session,state:'running'};
+  if(failed&&!working)return {...session,state:'failed',error:failed.error,retryAllowed:true,retryMayCharge:failed.kind!=='image-publish',...(failed.kind==='image-publish'?{retryStage:'publication' as const}:{})};
+  const demands=await this.demands(id),eligible=jobs.some(job=>job.state==='queued'&&demands.some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page));
+  if(session.state!=='failed'&&session.state!=='completed'&&(working||eligible))return {...session,state:'running'};
   return session;
  }
  private spec(row:SessionRow,kind:string,pool:string,version:string,key:string,dependencies:string[],payload:unknown,priority:number):JobSpec{
@@ -143,7 +144,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   if(row.state==='running'){
    if(row.lock_until>this.clock())return false;
-   await this.repository.stale(row);return false;
+   // Publication must recover a deleted story too; visible repository reads intentionally hide it.
+   await this.database.prepare("UPDATE reader_sessions SET state='failed',error=?,lock_token=NULL,lock_until=0,updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_until<=?")
+    .bind('上次制作已中断，已保留保存的结果。',new Date(this.clock()).toISOString(),row.id,row.user_id,this.clock()).run();return false;
   }
   const token=randomUUID(),now=this.clock();
   const acquired=await this.database.prepare(`UPDATE reader_sessions SET state='running',lock_token=?,lock_until=?,error=NULL,updated_at=?

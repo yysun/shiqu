@@ -6,6 +6,8 @@ import {advanceStory} from '../lib/reader-engine.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {configuredImageWorkers,ReaderProductionCoordinator} from '../server/reader-production.ts';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
+import {DatabaseSync} from 'node:sqlite';
+import path from 'node:path';
 
 for(const provider of ['codex','gemini'])test(`${provider}: early demand, single anchor, rolling refill, individual visibility and moving lookahead`,async t=>{
  const f=await productionFixture(t,provider),id=await f.create(),viewer=crypto.randomUUID();
@@ -166,4 +168,26 @@ test('slow script preparation renews its session lease and excludes a legacy pla
  const row=await new ReaderRepository(f.app.services.database).get(id,'docker-local-owner');assert.ok(row.lock_until>Date.now()+100000);
  const duplicate=await advanceStory(new ReaderRepository(f.app.services.database),generator(),'docker-local-owner',id,0,true);assert.equal(duplicate.state,'running');assert.equal(f.control.plans.length,0);
  release();await until(()=>f.control.calls.length===1);assert.equal(f.control.plans.length,1);
+});
+
+test('deleted pending publication with an expired pre-restart lease cannot poison another story',async t=>{
+ const f=await productionFixture(t),id=await f.create();f.control.hold=false;await f.demand(id);await until(async()=>(await f.read(id)).ready===7);
+ const jobs=await f.app.services.production.queue.jobs(id,'docker-local-owner'),publication=jobs.find(j=>j.kind==='image-publish'&&JSON.parse(j.payload).page===1);
+ await f.json(`library/${id}`,'DELETE');await f.app.close();
+ const db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));
+ db.prepare("UPDATE reader_sessions SET document=json_set(document,'$.images[1]',''),state='running',lock_token='dead-owner',lock_until=1 WHERE id=?").run(id);
+ db.prepare("UPDATE production_jobs SET state='queued',result=NULL WHERE id=?").run(publication.id);db.close();
+ await f.restart();const live=await f.create();await f.demand(live);
+ await until(async()=>(await f.read(live)).ready===7);
+ await until(async()=>{const row=await f.app.services.database.prepare('SELECT document FROM reader_sessions WHERE id=?').bind(id).first();return !!JSON.parse(row.document).images[1];});
+ assert.equal(f.control.calls.length,14);assert.equal((await f.request(`sessions/${id}`)).status,404);
+});
+
+test('shrinking lookahead after backtracking reports a full buffer idle despite outstanding later jobs',async t=>{
+ const f=await productionFixture(t),id=await f.create(30),viewer=crypto.randomUUID();f.control.hold=false;await f.demand(id,viewer);await until(async()=>(await f.read(id)).ready===7);
+ f.control.hold=true;await f.demand(id,viewer,10);await until(()=>f.control.active===3);
+ await f.demand(id,viewer,0);for(const call of f.control.calls)call.resolve();await until(()=>f.control.active===0);
+ await until(async()=>(await f.read(id)).state==='idle');
+ const jobs=await f.app.services.production.queue.jobs(id,'docker-local-owner');assert.ok(jobs.some(j=>j.kind==='image'&&j.state==='queued'&&JSON.parse(j.payload).page>6));
+ assert.equal((await f.read(id)).state,'idle');assert.equal(f.control.calls.length,10);
 });

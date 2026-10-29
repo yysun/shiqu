@@ -57,3 +57,9 @@ AR risk: non-low — confirmation persistence, job identity and paid-stage depen
 AR review round:4; reviewer:reused.
 
 Frame-count integration implemented with distinct prepare/script identities; both-provider confirmation/reopen and numeric-identical-confirmation tests pass. Final focused queue suite:26/26 pass before CR (full-suite TT and browser ET pending).
+
+## CR round1
+
+CR blocked: deleted pending publication with an expired session lease could fault the scheduler; shrinking read-ahead demand could falsely report running; lost retry responses could spend budget against stale failure. Fixed via raw owner-scoped expired-session recovery, demand-eligible status, and GET recovery after transport failure. Added regressions; focused29/29 pass. Also distinguish publication retry in reader text and update count help for continuous lookahead.
+CR risk: non-low — durable paid work, scheduler availability, recovery and lifecycle.
+CR review round:1; reviewer:reused.

@@ -12,12 +12,25 @@ test('a full buffer keeps its viewer alive, page changes update demand, and leav
  assert.equal(result,'');assert.ok(reads>5);assert.deepEqual(calls.filter(c=>c.method==='POST').map(c=>[c.time,c.body.page]),[[0,0],[3000,1]]);
  assert.deepEqual(calls.at(-1).body,{viewerId:'viewer-a'});assert.equal(calls.at(-1).method,'DELETE');
 });
-test('transient failures have two automatic retries and a transport failure does not replay a paid request',async()=>{
+test('persistent failures have two automatic retries',async()=>{
  let time=0,attempts=0;const calls=[],retries=new Map();
  const result=await runQueuedStoryGeneration({sessionId:'story',viewerId:'viewer',page:()=>0,retries,isActive:()=>true,onSession:()=>{},now:()=>time,sleep:async()=>{time+=1000;},
   request:async(path,method,body)=>{calls.push({method,body});if(method==='DELETE')return base;if(method==='POST')attempts++;return {...base,state:'failed',error:'controlled failure'};},
  });
  assert.equal(result,'controlled failure');assert.equal(attempts,3);assert.equal(retries.get('story:drawing 8'),2);assert.equal(calls.at(-1).method,'DELETE');
+});
+
+test('accepted but lost retry responses re-read progress before spending the next retry',async()=>{
+ let time=0,retryPosts=0,reads=0;const retries=new Map(),calls=[];
+ const result=await runQueuedStoryGeneration({sessionId:'story',viewerId:'viewer',page:()=>0,retries,isActive:()=>true,onSession:()=>{},now:()=>time,sleep:async()=>{time+=1000;},
+  request:async(path,method,body)=>{
+   calls.push({method,body});if(method==='DELETE')return base;
+   if(method==='POST'&&body.retry){retryPosts++;throw Error('response lost after acceptance');}
+   if(!method){reads++;if(retryPosts===2)return {...base,state:'completed'};}
+   return {...base,state:'failed',error:'stale failure'};
+  },
+ });
+ assert.equal(result,'');assert.equal(retryPosts,2);assert.equal(reads,2);assert.equal(retries.get('story:drawing 8'),2);assert.equal(calls.at(-1).method,'DELETE');
 });
 test('connection failure after starting demand still sends leave; lost leave falls back to server lease expiry',async()=>{
  let calls=0,sleeps=0;
