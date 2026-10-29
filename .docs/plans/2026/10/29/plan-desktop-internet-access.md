@@ -37,3 +37,32 @@ SS milestone: `a5c81b0` (feature, tests, migration and docs). Verification statu
 CR round 1: CR blocked: error-only runtime frames can crash the desktop UI. Independent reviewer found that Node fatal diagnostics may precede asynchronous shutdown, so replacing the complete status with {error} violates React phoneUrls requirements. Fixed by normalizing error frames to a complete stopped status; added readiness-then-fatal-error Rust regression. Also restored/preserved loopback port-conflict coverage alongside wildcard conflicts: macOS permits wildcard bind coexistence, so desktop startup now probes its advertised loopback endpoint before binding LAN. This preserves the original conflict contract rather than weakening the test.
 
 Post-fix evidence: focused Node desktop/internet tests 17/17; native Lite 16/16; typecheck/lint/fmt pass. User has said they will enable browser access; first retry still reported disabled, so rendered ET remains pending.
+
+CR fixed: fatal-error frames now retain a complete stopped-status shape; rerun result passed.
+CR risk: non-low — public authentication, helper lifecycle, native status transport and settings migration.
+CR review round: 2; reviewer: reused (independent internet_review).
+
+README final pass (requested by user before final commit): added network choice comparison, tunnel-vs-AI cost distinction, 45-second startup expectation and startup-failure LAN recovery. No implementation changes after review repair. Browser access still reports disabled on retry despite user intent to enable it.
+
+Latest native evidence after CR repair: Lite 16/16, bundled-node 17/17 with the same single staged-runtime-only test filtered. Remaining ET task is rendered in-app UI, not HTTP or lifecycle verification. REQ 1/2/4/5 checked; REQ 3/6 remain unchecked until browser evidence exists.
+
+## Final validation status
+
+VR incomplete: acceptance criteria 3 and 6 lack rendered in-app-browser evidence; the ET plan task remains incomplete.
+
+VR risk: non-low — public authentication, helper lifecycle, native status transport and settings migration.
+VR review round: 2; reviewer: reused
+
+1. **Complete — LAN always on.** The main desktop reader binds to `0.0.0.0`, retains direct localhost/LAN access, and advertises discovered LAN addresses. Lifecycle tests cover library persistence, LAN availability and both loopback/wildcard port conflicts.
+
+2. **Complete — Free, opt-in internet access.** Native and Node settings default internet access off; legacy `lanEnabled` values cannot enable it. Tests cover migration and persistence. The official `cloudflared` feasibility probe and live HTTPS fixture demonstrate an accountless Quick Tunnel without a purchased domain.
+
+3. **Incomplete — Rendered QR/link controls.** Implementation provides the public HTTPS pairing link, QR generation, copy action and LAN selector. Native protocol and live HTTP evidence support the link contract. README and desktop guidance cover helper installation, changing URLs, uptime, permissions and free-service limits. Actual rendered controls and QR behavior remain unverified because in-app browsing is disabled.
+
+4. **Complete — Public authentication and origin protection.** Tests cover cryptographic pairing/session separation, twelve-hour expiry, unpaired reader/API/media denial, native-route rejection, Host/Origin validation and forwarded-header handling. Live HTTPS evidence confirms secure cookie exchange, same-origin progress updates and foreign-origin denial. Remote responses uniformly prevent shared caching.
+
+5. **Complete — Cleanup and failure handling.** Fixtures cover missing/timed-out helpers, startup cancellation, parent EOF, helper termination, public revocation, native disconnect updates and continued LAN access. CR round 2 passed after fatal-error frames were normalized to a complete stopped-status shape; the new Rust regression protects the React contract.
+
+6. **Incomplete — Overall verification.** Recorded evidence includes the earlier full Node suite, latest focused Node checks 17/17, native Lite 16/16, bundled-node subset 17/17, typecheck, lint and formatting. Real HTTPS delivered disposable reader HTML, API data and the 3,215,143-byte seed image without paid generation or personal-library exposure. Required in-app-browser verification remains unavailable. One staged-runtime integrity test remains explicitly filtered because bundled Node resources are absent; no preparation, packaging or Docker build occurred.
+
+README verified by independent reviewer against final implementation. Source milestones a5c81b0 and e4d49a2 are local commits; final documentation commit records README and incomplete browser verification. RPD is not represented as fully passed.

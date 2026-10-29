@@ -9,3 +9,9 @@ Use disposable data, no credentials, no AI generation. UI uses pnpm desktop:prev
 5. Invalid helper path/startup failure produces safe actionable error and no listeners/process/data lock leak. Terminate helper after readiness: local/LAN remain usable, public URL is cleared and native UI status shows internet failure. Parent stdin EOF stops runtime/helper.
 
 Record actual checks/evidence and any external service blockers in plan/done.
+
+## Execution evidence
+- Cases 1, 4, 5: automated desktop/internet lifecycle fixtures passed, including both loopback/wildcard port conflicts, public revocation, helper timeout/missing/exit, startup EOF, native disconnect frames, data ownership and LAN persistence.
+- Case 3 HTTP boundary: real official cloudflared 2026.10.6 served seeded disposable library over HTTPS; fragment exchange produced Secure/HttpOnly/SameSite cookie; bare API/media 401; native settings 404; foreign Origin 403; same-origin progress write succeeded; reader HTML and 3,215,143-byte image delivered with private,no-store. System resolver returned ENOTFOUND initially; per-request Cloudflare DoH lookup was used without system changes. Incremental NDJSON gate behavior passed an automated stream fixture. Real phone/browser execution remains unverified.
+- Case 2 and rendered portions of case 3: BLOCKED. cua inventory/listTabs/getBrowser (including fresh session) report local browser use disabled in Work settings. Existing Vite preview at 127.0.0.1:1420 serves transformed current desktop source. User intends to enable browser access; permission has not become available to tools yet. No separate browser used.
+- Native Lite 16/16 and bundled-node 17/17 tests pass. One staged-runtime-only integrity test filtered because desktop/resources/node is absent; resource mapping omitted for tests via TAURI_CONFIG. No app preparation/build/package or Docker build performed.
