@@ -28,7 +28,7 @@ export class StoryDiscoveryCache{
  async read<T>(key:string,schema:z.ZodType<T>,valid:(value:T)=>boolean=()=>true):Promise<T|null>{
   let object;
   try{object=await this.store.get(`reader-cache/${discoveryHash(key)}.json`);}
-  catch{throw new ReaderError(503,'故事索引缓存暂时无法读取，请检查数据目录权限。');}
+  catch{throw new ReaderError(503,'故事缓存暂时无法读取，请检查数据目录权限。');}
   if(!object)return null;
   try{
    const data=envelope.parse(JSON.parse(new TextDecoder().decode(await object.arrayBuffer())));
@@ -39,7 +39,7 @@ export class StoryDiscoveryCache{
  }
  async write(key:string,value:unknown){
   try{await this.store.put(`reader-cache/${discoveryHash(key)}.json`,new TextEncoder().encode(JSON.stringify({version:1,key,value})),{contentType:'application/json'});}
-  catch{throw new ReaderError(503,'故事索引缓存暂时无法保存，请检查数据目录权限后重试。');}
+  catch{throw new ReaderError(503,'故事缓存暂时无法保存，请检查数据目录权限后重试。');}
  }
  async shared<T>(key:string,observer:ReadingObserver|undefined,work:(reading:ReadingObserver)=>Promise<T>):Promise<T>{
   observer?.signal.throwIfAborted();

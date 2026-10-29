@@ -7,7 +7,7 @@ import {readFile,mkdtemp,rm,access} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {LocalBooks} from '../server/local-books.ts';
 import {bookInputs} from '../server/local-book-inputs.ts';
-import {indexInputLimit} from '../server/local-story-discovery.ts';
+import {buildReadingPlan,hydrateReadingPlan} from '../server/story-reading-inputs.ts';
 import {withLocalBooks} from '../server/local-generation.ts';
 import {createReaderProvider} from '../server/generation.ts';
 import {createApplication} from '../server/app.ts';
@@ -59,39 +59,40 @@ test('range verification rejects stale, cross-book, reversed, multi-anecdote and
  const legacy=await library.legacy({...selected,bookId:'shishuo'},{sourceReference:'《世说新语·术解》',pages:[]});assert.match(legacy.title,/術解/);assert.ok(legacy.text.includes('術')||legacy.text.includes('之'));
  const missing=new LocalBooks(await directory(t));await assert.rejects(missing.book(selected),e=>e.status===503);
 });
-test('whole-book candidates carry verified labels and invalid or duplicate source ranges are removed',async()=>{
+test('direct whole-book choices preserve labels and reject duplicate and invalid receipts',async()=>{
  const book=await library.book(selected),reference=ref(book),base=fake();
- base.suggestions=async(selection,excluded,whole)=>{if(whole.purpose==='candidate-summary')return {stories:JSON.parse(whole.text).slice(0,5),note:''};assert.equal(whole.purpose,'story-index');if(!whole.text.includes(`[${reference.firstUnit}]`))return {stories:[],note:''};return {stories:[{title:'庄周梦蝶',description:'醒来后的疑问',source:reference},{title:'另起名字',description:'重复原文',source:reference},{title:'不存在的故事',description:'错误',source:{...reference,firstUnit:'missing'}}],note:''};};
- const provider=withLocalBooks(base,library,memory()),batch=await provider.suggestions(selected,[]);
- assert.equal(batch.stories.length,1);assert.match(batch.stories[0].sourceLabel,/庄子·齐物论/);assert.deepEqual(suggestionBatchSchema.parse(batch).stories[0].source,reference);assert.match(batch.note,/移除/);
+ base.suggestions=async()=>({stories:[{title:'庄周梦蝶',description:'醒来后的疑问',source:reference},{title:'另名',description:'重复原文',source:reference},{title:'错误',description:'不存在',source:{...reference,firstUnit:'missing'}}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}});
+ const batch=await withLocalBooks(base,library,memory()).suggestions(selected,[]);
+ assert.equal(batch.stories.length,1);assert.match(batch.stories[0].sourceLabel,/庄子·齐物论/);assert.match(batch.note,/未能完整核对/);
 });
-test('Gemini and Codex index every bounded book part and send only the verified passage to planning',async()=>{
+test('both providers directly select from the full original and only verified passages reach planning',async()=>{
  for(const name of ['gemini','codex']){
   const book=await library.book(selected),reference=ref(book),jobs=[],store=memory();
-  const result=job=>{jobs.push(job);return JSON.stringify(job.schema.properties.stories?{stories:[{title:'庄周梦蝶',description:'醒来后的疑问',source:{sectionId:reference.sectionId,firstUnit:reference.firstUnit,lastUnit:reference.lastUnit}}],note:''}:plan);};
+  const result=job=>{jobs.push(job);return JSON.stringify(job.schema.properties.stories?{stories:[{title:'庄周梦蝶',description:'醒来后的疑问',source:{sectionId:reference.sectionId,firstUnit:reference.firstUnit,lastUnit:reference.lastUnit,continuations:[]}}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}}:plan);};
   const runner={status:async()=>({configured:true}),run:async job=>({text:result(job),model:'mock',requestId:'mock',usage:null})};
-  const transport=async(url,init)=>{assert.match(String(url),/^https:\/\/generativelanguage.googleapis.com/);const request=JSON.parse(init.body);return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:result({prompt:request.contents[0].parts[0].text,schema:request.generationConfig.responseFormat.text.schema,instructions:request.systemInstruction.parts[0].text})}]}}]});};
+  const transport=async(url,init)=>{const request=JSON.parse(init.body);return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:result({prompt:request.contents[0].parts[0].text,schema:request.generationConfig.responseFormat.text.schema,instructions:request.systemInstruction.parts[0].text})}]}}]});};
   const provider=withLocalBooks(createReaderProvider({SHIQU_AI_PROVIDER:name,GEMINI_API_KEY:'mock-only'},store,transport,runner),library,store);
   const batch=await provider.suggestions(selected,[]),selection={...selected,source:batch.stories[0].source},generator=provider.generator();
   const original=await generator.prepareOriginal(selection,'test');await generator.plan(selection,'test',original);
-  const indexJobs=jobs.filter(job=>JSON.parse(job.prompt).localBook?.purpose==='story-index'),planned=JSON.parse(jobs.at(-1).prompt);
-  assert.equal(indexJobs.length,bookInputs(book,indexInputLimit).length);for(const section of book.sections)for(const unit of section.units)assert.ok(indexJobs.some(job=>JSON.parse(job.prompt).localBook.text.includes(`[${unit.id}]\n${unit.text}`)));assert.equal(planned.verifiedOriginal.text,original.text);assert.equal(planned.localBook,undefined);assert.ok(jobs.at(-1).prompt.length<book.input.text.length/5);assert.match(jobs.at(-1).instructions,/唯一情节依据/);assert.ok(store.values.has('reader/test/source.json'));
+  const readings=jobs.filter(job=>JSON.parse(job.prompt).localBook),planned=JSON.parse(jobs.at(-1).prompt);
+  assert.equal(readings.length,1);assert.equal(JSON.parse(readings[0].prompt).localBook.purpose,'scan');assert.equal(JSON.parse(readings[0].prompt).localBook.text,book.input.text);
+  assert.equal(planned.verifiedOriginal.text,original.text);assert.equal(planned.localBook,undefined);assert.ok(store.values.has('reader/test/source.json'));
  }
 });
-
-test('both providers build larger reusable indexes without theme, exclusions or production fields in the payload',async()=>{
- const book=await library.book(selected),reference=ref(book);
- for(const name of ['gemini','codex']){
-  let sent,schema,budget;
-  const stories=Array.from({length:12},(_,i)=>({title:`索引故事${i}`,description:'人物与事件的完整梗概。',source:{sectionId:reference.sectionId,firstUnit:reference.firstUnit,lastUnit:reference.lastUnit}}));
-  const payload=JSON.stringify({stories,note:''});
-  const runner={status:async()=>({configured:true}),run:async job=>{sent=JSON.parse(job.prompt);schema=job.schema;return {text:payload,model:'mock',requestId:'mock',usage:null};}};
-  const transport=async(url,init)=>{const data=JSON.parse(init.body);sent=JSON.parse(data.contents[0].parts[0].text);schema=data.generationConfig.responseFormat.text.schema;budget=data.generationConfig.maxOutputTokens;return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:payload}]}}]});};
-  const provider=createReaderProvider({SHIQU_AI_PROVIDER:name,GEMINI_API_KEY:'mock-only'},memory(),transport,runner);
-  const batch=await provider.suggestions({...selected,productionPrompt:'private production field'},['excluded title'],{...book.input,purpose:'story-index'});
-  assert.deepEqual(Object.keys(sent).sort(),['book','localBook']);assert.equal(batch.stories.length,12);assert.equal(schema.properties.stories.maxItems,12);
-  if(name==='gemini')assert.equal(budget,8000);
+test('token-based chapter manifests cover all shipped units without splitting small chapters',async()=>{
+ for(const bookId of ['聊斋志异','太平广记','红楼梦']){
+  const book=await library.book({...selected,bookId}),manifest=buildReadingPlan(book,'codex'),blocks=hydrateReadingPlan(book,manifest);
+  assert.equal(blocks.flatMap(b=>[...b.visible]).length,book.sections.flatMap(s=>s.units).length);
+  assert.ok(manifest.blocks.every(b=>b.tokens<=50000));assert.equal(manifest.mode,'chapters');
  }
+});
+test('cross-chapter references preserve both original ranges, reject tampering, and allow complete long stories',async()=>{
+ const book=await library.book(selected),first=ref(book,book.sections[0],0,0),last=ref(book,book.sections[1],0,0);
+ const source={...first,continuations:[{sectionId:last.sectionId,firstUnit:last.firstUnit,lastUnit:last.lastUnit}]};
+ const original=library.resolve(book,source);assert.ok(original.text.includes(book.sections[0].units[0].text));assert.ok(original.text.includes(book.sections[1].units[0].text));
+ for(const bad of [{...source,continuations:[{...source.continuations[0],lastUnit:'missing'}]},{...first,continuations:[{sectionId:first.sectionId,firstUnit:first.firstUnit,lastUnit:first.lastUnit}]}])assert.throws(()=>library.resolve(book,bad));
+ const jingshi=await library.book({...selected,bookId:'警世通言'}),chapter=jingshi.sections.find(s=>s.units.reduce((n,u)=>n+u.text.length,0)>12000);
+ const full=library.resolve(jingshi,ref(jingshi,chapter,0,chapter.units.length-1));assert.ok(full.text.length>12000);
 });
 test('verified original reaches SQLite and media before a paid plan, and survives plan failure/retry',async t=>{
  const root=await directory(t),db=openDatabase(root,process.cwd());t.after(()=>db.close());const repo=new ReaderRepository(db.database),store=new FileMedia(path.join(root,'media')),book=await library.book(selected),selection={...selected,source:ref(book)};

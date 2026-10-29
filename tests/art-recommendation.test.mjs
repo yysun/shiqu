@@ -5,7 +5,7 @@ import {artRecommendationSchema,selectSuggestedStory} from '../lib/reader-art-re
 import {artStyleIds} from '../lib/reader-styles.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
 import {suggestionBatchSchema,freshSuggestions} from '../lib/reader-suggestions.ts';
-import {localChoices,localChoicesJson,localIndexJson,localReadingPrompt} from '../lib/reader-local-contract.ts';
+import {localChoices,localChoicesJson,localScanJson,localReadingPrompt} from '../lib/reader-local-contract.ts';
 import {choicesJson,suggestionSystemPrompt} from '../lib/reader-generation-contract.ts';
 import {createReaderProvider} from '../server/generation.ts';
 import {withLocalBooks} from '../server/local-generation.ts';
@@ -38,7 +38,7 @@ test('new stories adopt their recommendation, reselect preserves manual choice, 
 });
 
 test('all new provider response contracts require recommendations and local receipt validation retains them',()=>{
- for(const schema of [choicesJson,localChoicesJson,localIndexJson]){
+ for(const schema of [choicesJson,localChoicesJson,localScanJson]){
   const story=schema.properties.stories.items;
   assert.ok(story.required.includes('artRecommendation'));
   assert.deepEqual(story.properties.artRecommendation.properties.artStyle.enum,[...artStyleIds]);
@@ -49,18 +49,18 @@ test('all new provider response contracts require recommendations and local rece
  assert.equal(batch.stories[0].source.edition,source.edition);
  assert.match(suggestionSystemPrompt,/artRecommendation/);
  assert.match(localReadingPrompt(localBook),/具体故事内容/);
- assert.match(localReadingPrompt({...localBook,purpose:'story-index'}),/artRecommendation/);
- assert.match(localReadingPrompt({...localBook,purpose:'candidate-summary'}),/原样复制/);
+ assert.match(localReadingPrompt({...localBook,purpose:'scan'}),/artRecommendation/);
+ assert.match(localReadingPrompt({...localBook,purpose:'scan'}),/未完事件/);
 });
 
 test('Gemini and Codex carry recommendations in the existing single suggestion call for all discovery modes',async()=>{
- for(const providerName of ['gemini','codex'])for(const mode of ['remote','local','story-index']){
+ for(const providerName of ['gemini','codex'])for(const mode of ['remote','local','scan']){
   let calls=0;
   const result=job=>{
    calls++;
    assert.match(job.instructions,/artRecommendation/);
    assert.ok(job.schema.properties.stories.items.required.includes('artRecommendation'));
-   return {stories:[candidate],note:''};
+   return {stories:[candidate],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};
   };
   const runner={status:async()=>({configured:true}),run:async job=>({text:JSON.stringify(result(job)),model:'mock',requestId:'mock',usage:null})};
   const transport=async(_url,init)=>{
@@ -69,31 +69,19 @@ test('Gemini and Codex carry recommendations in the existing single suggestion c
    return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(batch)}]}}]});
   };
   const provider=createReaderProvider({SHIQU_AI_PROVIDER:providerName,GEMINI_API_KEY:'mock-only'}, {},transport,runner);
-  const book=mode==='remote'?undefined:{title:'山海经',edition:source.edition,text:'原文全文',...(mode==='story-index'?{purpose:mode}:{})};
+  const book=mode==='remote'?undefined:{title:'山海经',edition:source.edition,text:'原文全文',...(mode==='scan'?{purpose:mode}:{})};
   const batch=await provider.suggestions(selection,[],book);
   assert.equal(calls,1);assert.deepEqual(batch.stories[0].artRecommendation,recommendation);
  }
 });
 
-test('whole-book selection keeps the original content-based recommendation through filtering and summary',async()=>{
- const sections=Array.from({length:6},(_,i)=>({id:'s'+i,title:'篇章'+i,units:[{id:'u'+i,text:'原'.repeat(20000)}]}));
- const book={id:'山海经',title:'山海经',edition:source.edition,sections,input:{title:'山海经',edition:source.edition,text:'全'.repeat(120001)}};
- let summaryCalls=0;
- const books={book:async()=>book,resolve:(_book,receipt)=>({title:receipt.sectionId,text:'核对原文'})};
+test('direct whole-book selection preserves the original content-based art recommendation',async()=>{
+ const sections=[{id:'s0',title:'篇章',units:[{id:'u0',text:'人物终于明白事情的真相，向朋友承认了自己的错误。',narrative:true}]}];
+ const book={id:'山海经',title:'山海经',edition:source.edition,sections,input:{title:'山海经',edition:source.edition,text:'篇章 s0：篇章\n[u0]\n'+sections[0].units[0].text}};
+ let calls=0;const books={book:async()=>book,resolve:(_book,receipt)=>({title:receipt.sectionId,text:'核对原文'})};
  const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock'}}),safeError:()=>'',generator:()=>({}),suggestions:async(_selection,_excluded,input)=>{
-  if(input.purpose==='candidate-summary'){
-   summaryCalls++;
-   const stories=JSON.parse(input.text);
-   assert.equal(stories.length,6);assert.ok(stories.every(story=>story.artRecommendation));
-   return {stories:[{...stories[5],artRecommendation:{artStyle:'clay',reason:'汇总不应覆盖原推荐'}}],note:''};
-  }
-  return {stories:sections.filter(section=>input.text.includes('['+section.units[0].id+']')).map(section=>({
-   title:'故事'+section.id,description:'真实故事简介',source:{edition:book.edition,sectionId:section.id,firstUnit:section.units[0].id,lastUnit:section.units[0].id},artRecommendation:recommendation,
-  })),note:''};
+  calls++;assert.equal(input.purpose,'scan');return {stories:[{title:'故事',description:'真实故事简介',source:{edition:book.edition,sectionId:'s0',firstUnit:'u0',lastUnit:'u0'},artRecommendation:recommendation}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};
  }};
  const stored=new Map(),media={get:async key=>{const bytes=stored.get(key);return bytes?{arrayBuffer:async()=>bytes.slice().buffer}:null;},put:async(key,bytes)=>{stored.set(key,new Uint8Array(bytes));}};
- const batch=await withLocalBooks(provider,books,media).suggestions(selection,[]);
- assert.equal(summaryCalls,1);assert.equal(batch.stories.length,1);
- assert.deepEqual(batch.stories[0].artRecommendation,recommendation);
- assert.equal(batch.stories[0].sourceLabel,'s5');
+ const batch=await withLocalBooks(provider,books,media).suggestions(selection,[]);assert.equal(calls,1);assert.equal(batch.stories.length,1);assert.deepEqual(batch.stories[0].artRecommendation,recommendation);assert.equal(batch.stories[0].sourceLabel,'s0');
 });

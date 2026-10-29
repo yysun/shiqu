@@ -1,5 +1,5 @@
 'use client';
-// Preserve source receipts; v8 discards receipts from the replaced Honglou and Yushi editions.
+// Preserve multi-chapter source receipts and each browser session's own discovery history.
 // Cancel obsolete discovery and keep progress scoped to the active book and theme.
 import {useEffect,useRef,useState} from 'react';
 import {z} from 'zod';
@@ -8,7 +8,7 @@ import {freshSuggestions,maxSuggestionBatches,suggestionBatchSchema,suggestionKe
 import type {SuggestionBatch,SuggestionProgress} from '@/lib/reader-suggestions';
 import {requestSuggestions} from '@/lib/reader-suggestion-request';
 
-const storageKey='shiqu-suggestion-batches-v8';
+const storageKey='shiqu-suggestion-batches-v9';
 const historySchema=z.record(z.object({batches:z.array(suggestionBatchSchema).max(maxSuggestionBatches),index:z.number().int().min(0).max(maxSuggestionBatches-1)}));
 type History=z.infer<typeof historySchema>;
 export function useStorySuggestions(selection:Selection,theme:string){
@@ -29,9 +29,10 @@ export function useStorySuggestions(selection:Selection,theme:string){
   const operation=new AbortController();pending.current=operation;setFinding(true);setProgress(null);setError('');
   try{
    const excludeTitles=batches.flatMap(batch=>batch.stories.map(story=>story.title));
-   const result=await requestSuggestions({...selection,storyTitle:undefined,source:undefined,theme,excludeTitles},operation.signal,value=>{if(pending.current===operation)setProgress(value);});
+   const excludeSources=batches.flatMap(batch=>batch.stories.flatMap(story=>story.source?[story.source]:[]));
+   const result=await requestSuggestions({...selection,storyTitle:undefined,source:undefined,theme,excludeTitles,excludeSources},operation.signal,value=>{if(pending.current===operation)setProgress(value);});
    if(operation.signal.aborted)return false;
-   const next:SuggestionBatch=freshSuggestions(result,excludeTitles);
+   const next:SuggestionBatch=freshSuggestions(result,excludeTitles,excludeSources);
    if(!next.stories.length&&batches.length){if(activeKey.current===key)setError(next.note);return false;}
    setHistory(old=>{const previous=old[key]?.batches||[];return {...old,[key]:{batches:[...previous,next],index:previous.length}};});
    return activeKey.current===key;

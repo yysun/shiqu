@@ -9,7 +9,7 @@ import type {MediaStore} from '../lib/services.ts';
 import type {ReaderProvider,ProviderStatus} from '../lib/reader-provider.ts';
 import {CodexError,createCodexRunner} from './codex-runner.ts';
 import type {CodexRunner} from './codex-runner.ts';
-import {localChoicesJson,localIndexJson,localChoices,localReadingPrompt,localPlanConstraint,localSuggestionPayload} from '../lib/reader-local-contract.ts';
+import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localPlanConstraint,localSuggestionPayload} from '../lib/reader-local-contract.ts';
 
 function codexMessage(code:string){
  if(code==='CHATGPT_LOGIN_REQUIRED')return '请先运行 pnpm run codex:login，使用 ChatGPT 账号登录 Codex。订阅模式不会使用 API 密钥。';
@@ -41,10 +41,10 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
    return cached;
   },
   async suggestions(selection,excluded,localBook){
-   const index=localBook?.purpose==='story-index';
-   const result=await codex.run({instructions:localBook?localReadingPrompt(localBook):suggestionSystemPrompt,prompt:JSON.stringify(localSuggestionPayload(book(selection),selection.theme,excluded,localBook)),schema:index?localIndexJson:localBook?localChoicesJson:choicesJson,timeoutMs:index?180000:localBook?120000:60000});
+   const scanning=localBook?.purpose==='scan';
+   const result=await codex.run({instructions:localBook?localReadingPrompt(localBook):suggestionSystemPrompt,prompt:JSON.stringify(localSuggestionPayload(book(selection),selection.theme,excluded,localBook)),schema:scanning?localScanJson:localBook?localChoicesJson:choicesJson,timeoutMs:localBook?120000:60000});
    const batch=localBook?localChoices(JSON.parse(result.text),localBook):suggestionBatchSchema.parse(JSON.parse(result.text));
-   return index||localBook?.purpose==='candidate-summary'?batch:freshSuggestions(batch,excluded);
+   return scanning?batch:freshSuggestions(batch,excluded);
   },
   generator(){return {
    original:(selection,plan,id)=>saveStoryOriginal(media,selection,plan,id,transport),

@@ -1,127 +1,135 @@
-// Build one verified, theme-independent story index, then select from bounded summaries.
-// Disk checkpoints outlive retries; neither a new theme nor another batch rereads originals.
+// Select directly from originals on demand; keep theme progress and verified unfinished events.
+// Shared work extends the common story pool; each reader's exclusions affect only their own view.
 import {z} from 'zod';
-import {localSourceSchema,localReadingPrompt,localIndexJson,localChoicesJson} from '../lib/reader-local-contract.ts';
-import {suggestionBatchSchema,titleKey,freshSuggestions} from '../lib/reader-suggestions.ts';
+import {localSourceSchema,localSourceKey,localReadingPrompt,localScanJson} from '../lib/reader-local-contract.ts';
+import type {LocalSourceReference,PendingEvent,WholeBookInput} from '../lib/reader-local-contract.ts';
+import {suggestionBatchSchema,titleKey} from '../lib/reader-suggestions.ts';
 import type {SuggestionBatch} from '../lib/reader-suggestions.ts';
 import {ReaderError} from '../lib/reader-model.ts';
 import type {Selection} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {LocalBook,LocalBooks} from './local-books.ts';
-import {bookInputs} from './local-book-inputs.ts';
 import {StoryDiscoveryCache,discoveryHash} from './story-discovery-cache.ts';
 import type {ReadingObserver} from './story-discovery-cache.ts';
+import {readingPlan,readingPlanKey,defaultReadingLimits} from './story-reading-inputs.ts';
+import type {ReadingLimits} from './story-reading-inputs.ts';
+import {requestTokens} from './story-token-budget.ts';
+import {sourceUnitIds,sourcesOverlap,sourceCovers,mergeSources} from './local-source-ranges.ts';
 
-export const indexInputLimit=40000,summaryInputLimit=30000;
 const storySchema=suggestionBatchSchema.shape.stories.element.extend({source:localSourceSchema});
-type IndexedStory=z.infer<typeof storySchema>;
-const indexSchema=z.object({stories:z.array(storySchema).max(50000),rejected:z.boolean()});
-const partSchema=indexSchema.extend({stories:z.array(storySchema).max(12)});
-const themeSchema=z.object({stories:z.array(storySchema).max(50000),exhausted:z.boolean(),note:z.string().max(300)});
-const receipt=(story:IndexedStory)=>JSON.stringify(story.source);
-function unique(stories:IndexedStory[]){const seen=new Set<string>();return stories.filter(story=>{const key=receipt(story);if(seen.has(key))return false;seen.add(key);return true;});}
-export function discoveryNamespace(book:LocalBook,provider:string,model:string){
- return discoveryHash(['story-discovery-v1',indexInputLimit,book.id,book.edition,discoveryHash(book.input.text),localReadingPrompt({...book.input,purpose:'story-index'}),localIndexJson,provider,model]);
+type Story=z.infer<typeof storySchema>;
+const pendingSchema=z.object({id:z.string().min(1).max(64),title:z.string().min(1).max(100),summary:z.string().min(1).max(1000),source:localSourceSchema});
+const stateSchema=z.object({stories:z.array(storySchema).max(50000),cursor:z.number().int().min(0),readThrough:z.number().int().min(0),pendingEvents:z.array(pendingSchema).max(16),exhausted:z.boolean(),rejected:z.boolean()});
+type State=z.infer<typeof stateSchema>;
+const failed=()=>new ReaderError(502,'本段选题未能完整核对，已保留进度，请重试或换个主题。');
+export function discoveryNamespace(book:LocalBook,provider:string,model:string,limits=defaultReadingLimits){
+ return discoveryHash(['direct-reading-v2',readingPlanKey(book,provider,limits),model,localReadingPrompt({...book.input,purpose:'scan'}),localScanJson]);
 }
-function qualified(books:LocalBooks,book:LocalBook,stories:IndexedStory[],visible?:Set<string>){
- for(const story of stories){
-  books.resolve(book,story.source);
-  if(visible){const section=book.sections.find(s=>s.id===story.source.sectionId)!;
-   const first=section.units.findIndex(u=>u.id===story.source.firstUnit),last=section.units.findIndex(u=>u.id===story.source.lastUnit);
-   if(!section.units.slice(first,last+1).every(unit=>visible.has(unit.id)))throw Error('Foreign batch source');
-  }
+function qualified(books:LocalBooks,book:LocalBook,source:LocalSourceReference,visible?:Set<string>){
+ books.resolve(book,source);
+ if(visible&&!sourceUnitIds(book,source).every(id=>visible.has(id)))throw failed();
+}
+function mergePending(books:LocalBooks,book:LocalBook,old:PendingEvent[],updates:PendingEvent[],resolved:string[],accepted:Story[],visible:Set<string>){
+ const result=new Map(old.map(event=>[event.id,event])),seen=new Set<string>();
+ if(new Set(resolved).size!==resolved.length)throw failed();
+ for(const id of resolved){
+  const event=result.get(id);
+  if(!event||!accepted.some(story=>sourceCovers(book,story.source,event.source)))throw failed();
+  result.delete(id);
  }
- return true;
+ for(const update of updates){
+  qualified(books,book,update.source,visible);
+  if(update.id&&(!old.some(event=>event.id===update.id)||resolved.includes(update.id)))throw failed();
+  const previous=update.id?result.get(update.id):[...result.values()].find(event=>sourcesOverlap(book,event.source,update.source));
+  const id=previous?.id||discoveryHash([localSourceKey(update.source),update.title]);
+  if(seen.has(id))throw failed();seen.add(id);
+  const event={...update,id,source:previous?mergeSources(book,previous.source,update.source):update.source};
+  qualified(books,book,event.source);
+  result.set(id,event);
+ }
+ if(result.size>16)throw failed();
+ return [...result.values()];
 }
-function totals(book:LocalBook){return new Map(book.sections.flatMap(section=>section.units.map(unit=>[unit.id,Array.from(unit.text.replace(/\s/gu,'')).length] as const)));}
-
-export async function discoverLocalStories(provider:ReaderProvider,books:LocalBooks,cache:StoryDiscoveryCache,book:LocalBook,selection:Selection,excluded:string[],observer?:ReadingObserver):Promise<SuggestionBatch>{
- const status=await provider.status(),namespace=discoveryNamespace(book,status.provider,status.models.text);
- const counts=totals(book),totalChars=Array.from(counts.values()).reduce((sum,n)=>sum+n,0);
- const indexKey=`${namespace}/index`,theme=selection.theme.normalize('NFKC').trim();
- const neutral:Selection={bookId:selection.bookId,customBook:selection.customBook,theme:'故事索引',artStyle:'ink-pencil',length:8,voice:false,productionPrompt:''};
- const index=await cache.shared(indexKey,observer,async reading=>{
-  const saved=await cache.read(indexKey,indexSchema,value=>qualified(books,book,value.stories));
-  if(saved)return saved;
-  const inputs=bookInputs(book,indexInputLimit),parts:z.infer<typeof partSchema>[]=new Array(inputs.length),seen=new Set<string>();
-  let cursor=0,completed=0,completedChars=0,failure:unknown,failed=false;
-  const report=()=>reading.onProgress({completed,total:inputs.length,completedChars,totalChars,stage:'reading'});
-  function finish(index:number,part:z.infer<typeof partSchema>){parts[index]=part;completed++;for(const id of inputs[index].visible)if(!seen.has(id)){seen.add(id);completedChars+=counts.get(id)||0;}report();}
-  // Recover all saved batches before dispatch so resumed progress starts at the true checkpoint.
-  for(let i=0;i<inputs.length;i++){
-   const part=await cache.read(`${namespace}/part/${discoveryHash(inputs[i].input.text)}`,partSchema,value=>qualified(books,book,value.stories,inputs[i].visible));
-   if(part)finish(i,part);
+export async function discoverLocalStories(provider:ReaderProvider,books:LocalBooks,cache:StoryDiscoveryCache,book:LocalBook,selection:Selection,excluded:string[],observer?:ReadingObserver,excludedSources:LocalSourceReference[]=[],limits:ReadingLimits=defaultReadingLimits):Promise<SuggestionBatch>{
+ const status=await provider.status(),plan=await readingPlan(book,status.provider,cache,limits);
+ const namespace=discoveryNamespace(book,status.provider,status.models.text,limits);
+ const theme=selection.theme.normalize('NFKC').trim(),key=namespace+'/theme/'+discoveryHash(theme);
+ const totalChars=plan.blocks.reduce((n,block)=>n+block.chars,0),excludedKeys=new Set(excludedSources.length?[]:excluded.map(titleKey));
+ const validExclusions=excludedSources.filter(source=>{try{qualified(books,book,source);return true;}catch{return false;}});
+ const visibleStories=(stories:Story[])=>{
+  const shown:Story[]=[];
+  for(const story of stories){
+   const title=titleKey(story.title);if(excludedKeys.has(title)||validExclusions.some(source=>sourcesOverlap(book,source,story.source)))continue;
+   if(shown.some(other=>sourcesOverlap(book,other.source,story.source)))continue;
+   shown.push(story);
   }
-  report();
-  async function worker(){
-   while(cursor<inputs.length&&!failed&&!reading.signal.aborted){
-    const i=cursor++;if(parts[i])continue;
-    try{
-     const result=await provider.suggestions(neutral,[],{...inputs[i].input,purpose:'story-index'});
-     const parsed=z.object({stories:z.array(suggestionBatchSchema.shape.stories.element).max(12),note:z.string().max(300)}).parse(result);
-     let rejected=false;
-     const stories=unique(parsed.stories.flatMap(candidate=>{
-      try{const story=storySchema.parse(candidate);qualified(books,book,[story],inputs[i].visible);return [{...story,sourceLabel:books.resolve(book,story.source).title}];}
-      catch{rejected=true;return [];}
-     }));
-     const part={stories,rejected};
-     // Save completed paid work even if the last waiting browser left during the call.
-     await cache.write(`${namespace}/part/${discoveryHash(inputs[i].input.text)}`,part);finish(i,part);
-    }catch(error){failure=error;failed=true;}
-   }
-  }
-  await Promise.all(Array.from({length:Math.min(2,inputs.length)},worker));
-  if(failed)throw failure;reading.signal.throwIfAborted();
-  const merged={stories:unique(parts.flatMap(part=>part.stories)),rejected:parts.some(part=>part.rejected)};
-  await cache.write(indexKey,merged);return merged;
- });
- observer?.signal.throwIfAborted();
- const all=new Map(index.stories.map(story=>[receipt(story),story]));
- const themeKey=`${namespace}/theme/${discoveryHash([theme,index.stories,summaryInputLimit,localReadingPrompt({...book.input,purpose:'candidate-summary'}),localChoicesJson])}`,excludedKeys=new Set(excluded.map(titleKey));
- let fromCache=true;
- const visible=(stories:IndexedStory[])=>{const seen=new Set(excludedKeys);return stories.filter(story=>{const key=titleKey(story.title);if(seen.has(key))return false;seen.add(key);return true;});};
+  return shown;
+ };
+ const validate=(state:State)=>{
+  if(state.cursor>plan.blocks.length||state.readThrough>plan.blocks.length||state.readThrough<state.cursor||state.readThrough>state.cursor+1||state.exhausted!==(state.cursor===plan.blocks.length))return false;
+  for(const story of state.stories)qualified(books,book,story.source);
+  const ids=new Set<string>();for(const event of state.pendingEvents){qualified(books,book,event.source);if(ids.has(event.id))return false;ids.add(event.id);}
+  return true;
+ };
+ const unitText=new Map(book.sections.flatMap(section=>section.units.map(unit=>[unit.id,unit.text] as const)));
+ const scanRequest=(current:State,cursor:number,maxStories=5)=>{
+  const block=plan.blocks[cursor],visible=new Set(block.visible);
+  const contextText=current.pendingEvents.map(event=>{
+   const ids=sourceUnitIds(book,event.source);for(const id of ids)visible.add(id);
+   return '未完事件 '+event.id+'\n'+books.resolve(book,event.source).title+'\n'+ids.map(id=>'['+id+']\n'+unitText.get(id)).join('\n\n');
+  }).join('\n\n');
+  const relevant=current.stories.filter(story=>sourceUnitIds(book,story.source).some(id=>visible.has(id)));
+  const input:WholeBookInput={title:book.title,edition:book.edition,text:block.text,purpose:'scan',scan:{maxStories,excludedSources:relevant.map(story=>story.source),pendingEvents:current.pendingEvents,contextText}};
+  return {input,titles:relevant.map(story=>story.title),visible};
+ };
+ let hit=true;
  while(true){
-  const result=await cache.shared(themeKey,observer,async reading=>{
-   const cached=await cache.read(themeKey,themeSchema,value=>value.stories.every(story=>all.has(receipt(story))&&titleKey(all.get(receipt(story))!.title)===titleKey(story.title)));
-   const pool=cached||{stories:[],exhausted:false,note:''};
-   if(visible(pool.stories).length>=5||pool.exhausted)return pool;
-   fromCache=false;
-   const known=new Set(pool.stories.map(receipt)),titles=new Set(pool.stories.map(story=>titleKey(story.title)));
-   const remaining=index.stories.filter(story=>!known.has(receipt(story))&&!titles.has(titleKey(story.title)));
-   const progress=()=>{reading.onProgress({completed:1,total:1,completedChars:totalChars,totalChars,stage:'selecting'});};
-   async function select(candidates:IndexedStory[]):Promise<IndexedStory[]>{
-    if(!candidates.length)return [];
-    const groups:IndexedStory[][]=[];let group:IndexedStory[]=[];
-    for(const candidate of candidates){
-     if(JSON.stringify([...group,candidate]).length>summaryInputLimit){if(!group.length)throw new ReaderError(502,'故事索引条目过长，请重建索引。');groups.push(group);group=[];}
-     group.push(candidate);
-    }if(group.length)groups.push(group);
-    const chosen:IndexedStory[]=[];
-    for(const items of groups){
-     reading.signal.throwIfAborted();progress();
-     const batch=suggestionBatchSchema.parse(await provider.suggestions({...neutral,theme},[],{title:book.title,edition:book.edition,text:JSON.stringify(items),purpose:'candidate-summary'}));
-     const allowed=new Map(items.map(story=>[receipt(story),story])),seen=new Set<string>();
-     for(const story of batch.stories){
-      if(!story.source)throw new ReaderError(502,'索引选题的出处无法核对，请重试。');
-      const key=receipt(story as IndexedStory),original=allowed.get(key);
-      if(!original||seen.has(key))throw new ReaderError(502,'索引选题的出处无法核对，请重试。');
-      seen.add(key);chosen.push({...original,description:story.description});
-     }
-     pool.note=batch.note;progress();
+  const state=await cache.shared(key,observer,async reading=>{
+   let current=await cache.read(key,stateSchema,validate)||{stories:[],cursor:0,readThrough:0,pendingEvents:[],exhausted:false,rejected:false};
+   const progress=()=>reading.onProgress({completed:current.readThrough,total:plan.blocks.length,completedChars:plan.blocks.slice(0,current.readThrough).reduce((n,block)=>n+block.chars,0),totalChars,stage:'reading',mode:plan.manifest.mode});
+   progress();
+   while(visibleStories(current.stories).length<5&&!current.exhausted){
+    reading.signal.throwIfAborted();
+    const {input,titles,visible}=scanRequest(current,current.cursor,Math.min(5,5-visibleStories(current.stories).length));
+    if(requestTokens(input,theme,titles,status.provider)>limits.whole)throw new ReaderError(502,'跨章原文或已选记录超过本次输入预算，已保留进度；请换个主题。');
+    hit=false;
+    const result=await provider.suggestions({...selection,theme,artStyle:'ink-pencil',productionPrompt:''},titles,input);
+    if(result.stories.length>input.scan!.maxStories)throw failed();
+    if(!result.scan||!Array.isArray(result.scan.pendingEvents)||!Array.isArray(result.scan.resolvedEventIds))throw failed();
+    const accepted:Story[]=[];let rejected=false;
+    for(const raw of result.stories){
+     try{
+      const story=storySchema.parse(raw);qualified(books,book,story.source,visible);
+      if(current.stories.some(old=>sourcesOverlap(book,old.source,story.source))||accepted.some(old=>sourcesOverlap(book,old.source,story.source))){rejected=true;continue;}
+      accepted.push({...story,sourceLabel:books.resolve(book,story.source).title.slice(0,150)});
+     }catch{rejected=true;}
     }
-    return groups.length>1?select(chosen.map(story=>all.get(receipt(story))!)):chosen;
+    const pending=mergePending(books,book,current.pendingEvents,result.scan.pendingEvents,result.scan.resolvedEventIds,accepted,visible);
+    const next:State={...current,stories:[...current.stories,...accepted],pendingEvents:pending,rejected,readThrough:Math.max(current.readThrough,current.cursor+1)};
+    // A full response only fills the current page; it is never proof that the block is exhausted.
+    if(!rejected&&result.stories.length<input.scan!.maxStories&&result.scan.blockComplete)next.cursor++;
+    next.exhausted=next.cursor===plan.blocks.length;
+    // Validate the next pending context before committing a cursor that cannot be resumed.
+    if(!next.exhausted&&next.pendingEvents.length){
+     const upcoming=scanRequest(next,next.cursor);
+     if(requestTokens(upcoming.input,theme,upcoming.titles,status.provider)>limits.whole)throw new ReaderError(502,'跨章上下文超过输入预算，旧进度已保留，请换个主题。');
+    }
+    await cache.write(key,next);current=next;progress();
+    if(reading.signal.aborted)break;
+    if(rejected||!accepted.length&&!result.scan.blockComplete){
+     if(visibleStories(current.stories).length)break;
+     throw failed();
+    }
    }
-   const chosen=await select(remaining);
-   pool.stories=unique([...pool.stories,...chosen]);
-   // Expand a shared pool independently of caller exclusions; only the final view filters them.
-   pool.exhausted=chosen.length<5||remaining.length<=chosen.length;
-   await cache.write(themeKey,pool);return pool;
+   return current;
   });
   observer?.signal.throwIfAborted();
-  const stories=visible(result.stories).slice(0,5);
-  if(stories.length>=5||result.exhausted||!index.stories.some(story=>!result.stories.some(known=>receipt(known)===receipt(story))&&!excludedKeys.has(titleKey(story.title)))){
-   const note=(index.rejected?'部分候选的本地出处无法核对，已移除。':'')+(fromCache?'已复用本地主题故事缓存。':`故事候选库已就绪（${index.stories.length} 个候选），已按主题筛选。`)+(stories.length<5?'当前索引中可确认的新故事不足 5 篇，可换主题继续。':'');
-   return freshSuggestions({stories,note:note.slice(0,300)},excluded);
+  const stories=visibleStories(state.stories).slice(0,5);
+  if(stories.length>=5||state.exhausted||state.rejected){
+   const note=(hit?'已复用本地主题故事缓存。':plan.manifest.mode==='whole'?'已直接根据全书原文选题。':'已按章回选题，换一批将从保存的位置继续。')+(state.rejected?'部分返回出处未能完整核对，已保留当前进度，可继续重试。':'')+(stories.length<5&&state.exhausted?'已检查完所给原文，当前主题可确认的新故事不足5篇。':'')+(state.exhausted&&state.pendingEvents.length?'部分跨章线索尚未确认完整，未作为故事推荐。':'');
+   return {stories,note:note.slice(0,300)};
   }
+  // A different waiting reader may need more than the shared expansion supplied.
+  if(stories.length)return {stories,note:'已保留当前原文位置，可换一批继续寻找。'};
  }
 }

@@ -5,13 +5,12 @@ import {readFile,realpath,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {ReaderError} from '../lib/reader-model.ts';
 import type {Selection,Plan} from '../lib/reader-model.ts';
-import {localSourceSchema} from '../lib/reader-local-contract.ts';
+import {sourceText} from './local-source-ranges.ts';
 import type {LocalSourceReference,WholeBookInput} from '../lib/reader-local-contract.ts';
 import type {OriginalSource} from '../lib/reader-source-types.ts';
 import {sourceQuery} from '../lib/reader-source.ts';
 import {Converter} from 'opencc-js';
 import {readerBooks} from '../lib/reader-books.ts';
-import {hasSourceAnomaly,hasBlockingSourceAnomaly} from './local-source-quality.ts';
 import {parseWikiStories} from './local-book-wiki-stories.ts';
 import {parseWikiOriginal,parseShidianOriginal} from './local-book-html.ts';
 import type {HtmlOriginal} from './local-book-html.ts';
@@ -148,16 +147,8 @@ export class LocalBooks{
   }catch(error){if(error instanceof ReaderError)throw error;throw unavailable();}
  }
  resolve(book:LocalBook,reference:LocalSourceReference,legacyChapter=false):OriginalSource{
-  const parsed=localSourceSchema.safeParse(reference);if(!parsed.success||parsed.data.edition!==book.edition)throw invalid();
-  const section=book.sections.find(s=>s.id===reference.sectionId);if(!section)throw invalid();
-  const first=section.units.findIndex(u=>u.id===reference.firstUnit),last=section.units.findIndex(u=>u.id===reference.lastUnit);
-  if(first<0||last<first||(!legacyChapter&&book.id==='shishuo'&&first!==last))throw invalid();
-  const text=section.units.slice(first,last+1).map(u=>u.text).join('\n\n');
-  const rangeUnits=section.units.slice(first,last+1),tagged=rangeUnits.every(unit=>unit.narrative!==undefined);
-  const narrative=tagged?rangeUnits.some(unit=>unit.narrative):/[。！？!?，；：]/.test(text);
-  if(text.length<20||text.length>12000||!narrative||rangeUnits.some(unit=>unit.unreadable)||hasBlockingSourceAnomaly(text,reference)||hasSourceAnomaly(section.title)||hasSourceAnomaly(book.title))throw invalid();
-  const range=first===last?`第${first+1}${book.id==='shishuo'?'则':'段'}`:`第${first+1}–${last+1}段`;
-  return {title:`《${book.title}·${section.title}》${legacyChapter?'':` · ${range}`}`,text,url:section.url||book.url,kind:legacyChapter?'chapter':'passage',provider:`本地书库 · ${section.provider||book.provider}`,retrievedAt:new Date().toISOString(),localSource:reference};
+  const {text,title,section}=sourceText(book,reference,legacyChapter);
+  return {title,text,url:section.url||book.url,kind:legacyChapter?'chapter':'passage',provider:`本地书库 · ${section.provider||book.provider}`,retrievedAt:new Date().toISOString(),localSource:reference};
  }
  async selected(selection:Selection){
   const book=await this.book(selection);if(!book)return null;

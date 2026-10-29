@@ -26,14 +26,14 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='library'&&path.length===3&&path[2]==='restore'&&req.method==='POST'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.restore(id,uid));}
   if(path.join('/')==='suggestions'&&req.method==='POST'){
    await requireProvider();
-   const {excludeTitles,...selection}=suggestionRequestSchema.parse(await body(req,28000));
+   const {excludeTitles,excludeSources,...selection}=suggestionRequestSchema.parse(await body(req,1048576));
    if(req.headers.get('accept')==='application/x-ndjson'){
     const abort=new AbortController(),encoder=new TextEncoder();
     const stream=new ReadableStream<Uint8Array>({
      start(controller){
       const send=(event:unknown)=>{if(!abort.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
       send({type:'progress',progress:{completed:0,total:1,completedChars:0,totalChars:0,stage:'reading'}});
-      void provider.suggestions(selection,excludeTitles,undefined,{signal:abort.signal,onProgress:progress=>send({type:'progress',progress})})
+      void provider.suggestions(selection,excludeTitles,undefined,{signal:abort.signal,onProgress:progress=>send({type:'progress',progress})},excludeSources)
        .then(batch=>send({type:'result',batch}))
        .catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof ReaderError?error.message:provider.safeError(error)});})
        .finally(()=>{if(!abort.signal.aborted)controller.close();});
@@ -42,11 +42,11 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     });
     return new Response(stream,{headers:{'Content-Type':'application/x-ndjson','Cache-Control':'private, no-store','X-Accel-Buffering':'no'}});
    }
-   try{return json(await provider.suggestions(selection,excludeTitles));}catch(error){if(error instanceof ReaderError)throw error;throw new ReaderError(502,provider.safeError(error));}
+   try{return json(await provider.suggestions(selection,excludeTitles,undefined,undefined,excludeSources));}catch(error){if(error instanceof ReaderError)throw error;throw new ReaderError(502,provider.safeError(error));}
   }
   if(path[0]==='sessions'&&path.length===1){
    if(req.method==='GET')return json((await repo.list(uid)).map(view));
-   if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema}).parse(await body(req));return json(view(await repo.create(b.requestId,uid,b.selection)),201);}
+   if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema}).parse(await body(req,32768));return json(view(await repo.create(b.requestId,uid,b.selection)),201);}
   }
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);

@@ -6,7 +6,6 @@ import os from 'node:os';
 import {readFile,mkdtemp,rm,writeFile,cp} from 'node:fs/promises';
 import {LocalBooks} from '../server/local-books.ts';
 import {bookInputs} from '../server/local-book-inputs.ts';
-import {indexInputLimit} from '../server/local-story-discovery.ts';
 import {withLocalBooks} from '../server/local-generation.ts';
 import {createApplication} from '../server/app.ts';
 import {FileMedia} from '../server/media.ts';
@@ -23,7 +22,7 @@ function candidate(book,visible,offset=0){
  }
  return valid.slice(offset,offset+5);
 }
-function fake(onPlan=async()=>{}){return {status:async()=>({configured:true,provider:'gemini',voiceEnabled:false,models:{text:'mock',image:'mock'}}),safeError:()=> '模拟错误',async suggestions(s,excluded,input){assert.ok(input);if(input.purpose==='candidate-summary'){const all=JSON.parse(input.text);return {stories:all.slice(-5),note:''};}const book=await library.book(s),visible=new Set([...input.text.matchAll(/\[([a-z]+-\d+-\d+)\]/g)].map(m=>m[1]));return {stories:candidate(book,visible),note:''};},generator:()=>({async plan(s,id,original){await onPlan(s,id,original);return {value:structuredClone(plan),model:'mock',requestId:'mock',usage:null};},original:async()=>assert.fail('No public book API'),image:async()=>assert.fail('No images'),audio:async()=>assert.fail('No audio'),safeError:()=> '模拟错误'})};}
+function fake(onPlan=async()=>{}){return {status:async()=>({configured:true,provider:'gemini',voiceEnabled:false,models:{text:'mock',image:'mock'}}),safeError:()=> '模拟错误',async suggestions(s,excluded,input){assert.ok(input);const book=await library.book(s),visible=new Set([...input.text.matchAll(/\[([a-z]+-\d+-\d+)\]/g)].map(m=>m[1]));return {stories:candidate(book,visible).slice(0,input.scan.maxStories),note:'',scan:{blockComplete:false,pendingEvents:[],resolvedEventIds:[]}};},generator:()=>({async plan(s,id,original){await onPlan(s,id,original);return {value:structuredClone(plan),model:'mock',requestId:'mock',usage:null};},original:async()=>assert.fail('No public book API'),image:async()=>assert.fail('No images'),audio:async()=>assert.fail('No audio'),safeError:()=> '模拟错误'})};}
 async function temp(t){const d=await mkdtemp(path.join(os.tmpdir(),'shiqu-library-'));t.after(()=>rm(d,{recursive:true,force:true}));return d;}
 
 test('all 24 catalogs load verified originals with complete chapters and exhaustive bounded inputs',async()=>{
@@ -54,64 +53,6 @@ test('all catalogs use originals without cross-source supplements; Erke final pl
 test('original corruption and unreadable source ranges fail closed',async t=>{
  const folder=await temp(t);await cp('data/library',path.join(folder,'data/library'),{recursive:true});const erkeEntry=catalog.books.find(entry=>entry.id==='二刻拍案惊奇');await writeFile(path.join(folder,'data/library',erkeEntry.originalFile,erkeEntry.originalFiles.at(-1).file),'broken');await assert.rejects(new LocalBooks(folder).book(select('二刻拍案惊奇')),e=>e.status===503);
  const shanhai=await library.book(select('山海经'));const section=shanhai.sections[0],unit=section.units.find(unit=>unit.narrative);const corrupted={...shanhai,sections:[{...section,units:[{...unit,text:'有獸焉，其狀如【上鹿下旨】，讀不出其原字，不可猜補。'}]}]};assert.throws(()=>library.resolve(corrupted,{edition:shanhai.edition,sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id}),e=>e.status===400);
-});
-
-test('all batches including the final batch participate in summary; foreign-batch or fabricated receipts are rejected',async()=>{
- const book=await library.book(select('太平广记')),parts=bookInputs(book,indexInputLimit);assert.ok(parts.length>5);let scanned=0,summarySeen=0;
- const base=fake();base.suggestions=async(s,excluded,input)=>{if(input.purpose==='candidate-summary'){const all=JSON.parse(input.text);summarySeen=Math.max(summarySeen,all.length);return {stories:[all.at(-1)],note:''};}scanned++;return {stories:candidate(book,new Set([...input.text.matchAll(/\[([a-z]+-\d+-\d+)\]/g)].map(m=>m[1]))),note:''};};
- const provider=withLocalBooks(base,library,memory()),batch=await provider.suggestions(select('太平广记'),[]);assert.equal(scanned,parts.length);assert.ok(summarySeen>5);assert.ok(parts.at(-1).visible.has(batch.stories[0].source.firstUnit));
- base.suggestions=async(s,excluded,input)=>{if(input.purpose==='candidate-summary')return {stories:[{...candidate(book)[0],source:{...candidate(book)[0].source,firstUnit:'fabricated'}}],note:''};return {stories:candidate(book,new Set([...input.text.matchAll(/\[([a-z]+-\d+-\d+)\]/g)].map(m=>m[1]))),note:''};};
- await assert.rejects(withLocalBooks(base,library,memory()).suggestions(select('太平广记'),[]),e=>e.status===502);
- // Every part returning a valid range from the last part must not leak it through earlier parts.
- const last=candidate(book,parts.at(-1).visible)[0];let foreignCalls=0;base.suggestions=async()=>{foreignCalls++;return {stories:[last],note:''};};const foreign=await withLocalBooks(base,library,memory()).suggestions(select('太平广记'),[]);assert.equal(foreignCalls,parts.length+1);assert.equal(foreign.stories.length,1);assert.match(foreign.note,/部分候选/);
-});
-
-test('a failed reading batch stops later dispatch and cannot return partial whole-book success',async()=>{
- const base=fake();let calls=0;base.suggestions=async()=>{calls++;throw Error('batch failed');};const provider=withLocalBooks(base,library,memory());await assert.rejects(provider.suggestions(select('太平广记'),[]),/batch failed/);assert.ok(calls<=2);
-});
-
-test('whole-book reading reports completed batches and stops dispatch after cancellation',async()=>{
- const base=fake(),progress=[],abort=new AbortController(),releases=[];let calls=0;
- base.suggestions=async()=>{calls++;await new Promise(resolve=>{releases.push(resolve);});return {stories:[],note:''};};
- const provider=withLocalBooks(base,library,memory());
- const pending=provider.suggestions(select('警世通言'),[],undefined,{signal:abort.signal,onProgress:p=>progress.push(p)});
- // Wait until both workers are in flight, then finish them after cancellation.
- while(calls<2)await new Promise(resolve=>setTimeout(resolve,1));
- const rejected=assert.rejects(pending,e=>e.name==='AbortError');
- abort.abort();releases.forEach(resolve=>resolve());await rejected;
- base.suggestions=async()=>({stories:[],note:''});
- const another=new AbortController();let completed=0;
- const fast=withLocalBooks(base,library,memory());
- await fast.suggestions(select('警世通言'),[],undefined,{signal:another.signal,onProgress:p=>{completed=p.completed;}});
- assert.equal(completed,bookInputs(await library.book(select('警世通言')),indexInputLimit).length);assert.equal(progress[0].completed,0);assert.equal(progress[0].total,bookInputs(await library.book(select('警世通言')),indexInputLimit).length);assert.equal(progress[0].completedChars,0);assert.ok(progress[0].totalChars>0);assert.equal(progress[0].stage,'reading');
- assert.equal(calls,2);
-});
-
-test('character progress weights unequal batches and deduplicates overlap even when workers finish out of order',async()=>{
- const lengths=[10000,12000,9000,12000,8000,11000,7000,10000,1000];
- const units=lengths.map((length,i)=>({id:`test-01-${i}`,text:(i===0?'𠮷':'字').repeat(length)+' \n\t'}));
- const book={id:'test',title:'计数测试',edition:'test',sections:[{id:'test-01',title:'正文',units}],input:{title:'计数测试',edition:'test',text:units.map(u=>u.text).join('\n')}};
- const parts=bookInputs(book,indexInputLimit),jobs=[],events=[];
- assert.ok(parts.length>=3);
- const base=fake();base.suggestions=async(s,e,input)=>{await new Promise(resolve=>jobs.push({input,resolve}));return {stories:[],note:''};};
- const wrapped=withLocalBooks(base,{book:async()=>book},memory());
- const pending=wrapped.suggestions(select('test'),[],undefined,{signal:new AbortController().signal,onProgress:p=>events.push(p)});
- const waitFor=async condition=>{for(let tries=0;!condition();tries++){assert.ok(tries<1000,'reading worker did not advance');await new Promise(resolve=>setTimeout(resolve,1));}};
- await waitFor(()=>jobs.length===2);
- jobs[1].resolve();await waitFor(()=>events.length===2);
- const counts=new Map(units.map((unit,i)=>[unit.id,lengths[i]]));
- const secondChars=Array.from(parts[1].visible).reduce((sum,id)=>sum+counts.get(id),0),totalChars=lengths.reduce((sum,n)=>sum+n,0);
- assert.equal(events[1].completedChars,secondChars);assert.equal(events[1].totalChars,totalChars);
- assert.notEqual(secondChars/totalChars,1/parts.length);
- jobs[0].resolve();
- for(let i=2;i<parts.length;i++){await waitFor(()=>jobs.length>i);jobs[i].resolve();}
- await pending;
- const seen=new Set();let expected=0;
- for(const [index,event] of events.entries()){
-  if(index>0){const part=parts[index===1?1:index===2?0:index-1];for(const id of part.visible)if(!seen.has(id)){seen.add(id);expected+=counts.get(id);}}
-  assert.equal(event.completedChars,expected);assert.equal(event.totalChars,totalChars);
- }
- assert.equal(events.at(-1).completedChars,totalChars);
 });
 
 test('all 24 books complete HTTP selection and persist original glyphs before storyboard generation',async t=>{
