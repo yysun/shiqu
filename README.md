@@ -20,6 +20,16 @@
 
 阅读时，鼠标左键、右键和轻点均按位置翻页：画面左侧 25% 返回上一页，右侧 25% 进入下一页，中间区域不翻页；第一页点左侧仍停在第一页。也可继续使用上下或左右滑动、滚轮和翻页箭头。拖动、长按或滑动结束不会额外触发一次点击翻页，原文、收藏、设置等按钮仍只执行各自操作。带总结句的结尾页沿用相同区域：左侧返回最后一幅，右侧像返回按钮一样回到打开故事前的主页或书架；结尾页的滚动和按钮操作不受影响。
 
+## 下载 macOS 版
+
+| Mac 处理器 | Standard（推荐，内置 Node） | Lite（需另装 Node 24） |
+| --- | --- | --- |
+| Apple Silicon（M 系列） | [下载 Standard](https://github.com/yysun/shiqu/releases/latest/download/shiqu-standard-macos-arm64.dmg) | [下载 Lite](https://github.com/yysun/shiqu/releases/latest/download/shiqu-lite-macos-arm64.dmg) |
+
+[最新版本与 SHA-256 校验文件](https://github.com/yysun/shiqu/releases/latest) · [所有版本](https://github.com/yysun/shiqu/releases)。下载链接随最新正式版本自动更新，首次发布成功后生效。目前 GitHub 仅提供 Apple Silicon（M 系列）Mac 安装包，不提供 Intel、Windows 或 Linux 安装包。
+
+安装包**未签名、未经过 Apple 公证**。打开 DMG 后，将应用拖入「应用程序」。首次启动若被 macOS 拦截，请在尝试打开后前往「系统设置 → 隐私与安全性」，按系统提示选择「仍要打开」；只为你信任的下载执行此操作。
+
 ## 书目目录：24 部候选作品
 
 可供选择的目录包含 24 部作品。优先采用的原文下载文件、来源链接、哈希值和已知质量问题均纳入版本管理，位于

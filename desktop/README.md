@@ -85,4 +85,27 @@ pnpm desktop:smoke
 
 `desktop:smoke` 将完整运行资源复制到仓库外的临时目录，使用一次性数据验证配对、局域网地址、示例图片、阅读进度、重启和退出；不调用付费生成。Standard 同时复制并验证内置 Node/许可证的最终字节哈希，使用无系统 Node 的 PATH 启动；Lite 检查 Node 目录不存在。可传入安装包内的 runtime 路径来验证实际打包内容。
 
-`pnpm dev` 默认跟随桌面书库设置，局域网私有 API 需配对；终端启动不依赖桌面 GUI 正在运行。`pnpm build`、`pnpm start` 和 Docker 入口继续独立运行，显式数据目录配置优先。`.github/workflows/desktop-lite.yml` 在对应 OS runner 上分别构建 Standard/Lite；Windows 运行桌面专项测试，现有 POSIX CLI 假程序的完整测试在 macOS/Linux 执行。未签名构建是开发产物；正式签名/公证分发时必须保证最终 Node 字节与清单一致，签名改变 Node 字节后需在最终应用签名前重新生成清单，并运行安装包 smoke 检查。
+`pnpm dev` 默认跟随桌面书库设置，局域网私有 API 需配对；终端启动不依赖桌面 GUI 正在运行。`pnpm build`、`pnpm start` 和 Docker 入口继续独立运行，显式数据目录配置优先。
+
+## GitHub macOS 发布
+
+[Desktop macOS 工作流](../.github/workflows/desktop-macos.yml) 仅在 Apple Silicon（`macos-15`）原生 runner 上打包 Standard/Lite，共两个未签名 DMG，不构建 Intel、Windows 或 Linux 版本。每个构建运行本地检查、原生测试及打包后资源的 smoke 检查。无需 Apple 证书、开发者账户或额外发布密钥；发布使用 GitHub 提供的 `GITHUB_TOKEN`，仅发布任务拥有 `contents: write` 权限。
+
+手动运行或匹配路径的 pull request 只上传 Actions artifacts，不创建 Release。推送 `vX.Y.Z` 正式版本标签后，两个构建全部成功才创建草稿、上传安装包和 `SHA256SUMS.txt`，最后自动公开发布。发布失败可重新运行并继续未发布的草稿；已公开的版本不会覆盖。暂不接受预发布标签。
+
+发布前将 `package.json`、`src-tauri/tauri.conf.json` 和 `src-tauri/Cargo.toml` 的版本更新为同一个 `X.Y.Z`，同步 `src-tauri/Cargo.lock` 中的本应用版本，并提交源码。然后推送对应标签，例如当前版本：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+标签所在提交必须包含该工作流及要发布的源码；GitHub 不会打包未提交的本地修改。每个版本使用新的标签。README 的 `/releases/latest/download/` 链接依赖以下固定文件名：
+
+```text
+shiqu-standard-macos-arm64.dmg
+shiqu-lite-macos-arm64.dmg
+SHA256SUMS.txt
+```
+
+安装包未签名、未公证，首次打开可能需要在 macOS「隐私与安全性」中允许。以后若加入正式签名/公证，必须保证最终 Node 字节与清单一致；签名改变 Node 字节后需在最终应用签名前重新生成清单，并运行安装包 smoke 检查。
