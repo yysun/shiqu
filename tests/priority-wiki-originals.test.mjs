@@ -1,8 +1,15 @@
 // Verify the two adopted editions, exact original glyphs, reviewed exceptions and source-integrity failures.
 import test from'node:test';import assert from'node:assert/strict';import{readFile,writeFile,readdir,mkdtemp,cp,rm,symlink}from'node:fs/promises';import path from'node:path';import os from'node:os';import{createHash}from'node:crypto';
 import{LocalBooks}from'../server/local-books.ts';import{parseWikiStories}from'../server/local-book-wiki-stories.ts';import{readWikiBody}from'../server/local-book-html.ts';import{hasSourceAnomaly,hasBlockingSourceAnomaly}from'../server/local-source-quality.ts';import{bookInputs}from'../server/local-book-inputs.ts';import{withLocalBooks}from'../server/local-generation.ts';
+import{localReadingPrompt}from'../lib/reader-local-contract.ts';
 const catalog=JSON.parse(await readFile('data/library/catalog.json')),library=new LocalBooks(process.cwd()),ids=['红楼梦','喻世明言'],selection=bookId=>({bookId,theme:'理解与体谅',length:8,voice:false,artStyle:'ink-pencil'}),entry=id=>catalog.books.find(b=>b.id===id),squash=s=>s.replace(/\s/g,''),parts=async id=>Promise.all(entry(id).originalFiles.map(async item=>({item,raw:await readFile(path.join('data/library',entry(id).originalFile,item.file),'utf8')})));
 const receipt=(b,s,u)=>({edition:b.edition,sectionId:s.id,firstUnit:u.id,lastUnit:u.id});
+
+test('legacy numeric chapter labels still locate the pinned original, and every reading path carries the same exception policy',async()=>{
+ const b=await library.book(selection('红楼梦'));
+ for(const [number,labels]of [[100,['第一零零回','第一○○回','第一百回']],[101,['第一零一回','第一○一回','第一百零一回']],[110,['第一一零回','第一一○回','第一百一十回']],[120,['第一二零回','第一二○回','第一百二十回']]])for(const label of labels){const original=await library.legacy(selection('红楼梦'),{sourceReference:`《红楼梦·${label}》`});assert.equal(original.localSource.sectionId,`honglou-${number}`);assert.equal(original.text,b.sections[number-1].units.map(u=>u.text).join('\n\n'));}
+ for(const purpose of [undefined,'story-index']){const prompt=localReadingPrompt({title:'红楼梦',edition:b.edition,text:'原文',purpose});assert.match(prompt,/红楼第58回/);assert.match(prompt,/喻世第37卷/);assert.match(prompt,/缺少完整上下文也不选/);}
+});
 
 test('all 120/40 chapters preserve every reading glyph, source heading and final verse from pinned originals',async()=>{
  for(const id of ids){const e=entry(id),b=await library.book(selection(id)),raw=await parts(id),honglou=id==='红楼梦';assert.equal(b.sections.length,honglou?120:40);assert.equal(raw.length,honglou?13:41);assert.equal(b.edition,e.source.sha256);

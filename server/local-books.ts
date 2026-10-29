@@ -171,8 +171,10 @@ export class LocalBooks{
   const chapter=query.chapter.replace(/篇$/,'');
   const normalize=(label:string)=>simplifiedLabel(label).replace(/[《》\s]/g,'').replace(/（.*?）/g,'').replace(/篇$/,'');
   const matches=book.sections.filter(s=>normalize(s.title)===normalize(chapter)||(book.id==='史记'&&normalize(s.title.split('·').at(-1)!)===normalize(chapter)));
-  const numbered=chapter.match(/第?([〇零一二三四五六七八九十百千0-9]+)[回卷]/);
-  const section=matches.length===1?matches[0]:numbered?book.sections.find(s=>normalize(s.title).startsWith(normalize(numbered[0]))):undefined;
+  const numbered=chapter.match(/第?([〇○零一二三四五六七八九十百千0-9]+)([回卷])/);
+  // Match numeric labels across editions (一零零 / 一○○ / 一百); preserve displayed source glyphs.
+  const numberedMatches=numbered?book.sections.filter(s=>{const match=s.title.match(/^第?([〇○零一二三四五六七八九十百千0-9]+)([回卷])/);return match&&match[2]===numbered[2]&&chapterNumber(match[1].replace(/○/g,'〇'))===chapterNumber(numbered[1].replace(/○/g,'〇'));}):[];
+  const section=matches.length===1?matches[0]:numberedMatches.length===1?numberedMatches[0]:undefined;
   if(!section){
    const named=book.sections.flatMap(s=>s.units.flatMap((unit,i)=>normalize(unit.text)===normalize(chapter)?[{section:s,index:i}]:[]));
    if(named.length!==1||book.id!=='liaozhai')throw invalid();
