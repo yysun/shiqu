@@ -64,22 +64,25 @@ test('reading manifests contain references only, persist across themes and rejec
 });
 test('cross-chapter pending survives omission, accumulates evidence, and only a covering complete story consumes it',async()=>{
  const f=fixture(8,4,200),store=memory(),cache=new StoryDiscoveryCache(store);let eventId;
- const first=f.stories[0].source,second=f.stories[4].source,third=f.stories[8].source;
+ const first=f.stories[0].source,second=f.stories[4].source,third=f.stories[12].source;
  const combined={...first,continuations:[{sectionId:second.sectionId,firstUnit:second.firstUnit,lastUnit:second.lastUnit},{sectionId:third.sectionId,firstUnit:third.firstUnit,lastUnit:third.lastUnit}]};
  f.provider.suggestions=async(s,e,input)=>{
   f.calls.push(input);
   if(f.calls.length===1)return {stories:[],note:'',scan:state(true,[{id:'',title:'未完事件',summary:'人物出发，尚未揭晓结果。',source:first}])};
   if(f.calls.length===2){eventId=input.scan.pendingEvents[0].id;assert.ok(input.scan.contextText.includes('['+first.firstUnit+']'));return {stories:[],note:'',scan:state(true,[{id:eventId,title:'未完事件',summary:'人物继续前行，仍未得知结果。',source:second}])};}
-  if(f.calls.length>=4)return {stories:[],note:'',scan:state(false)};
+  if(f.calls.length===3)return {stories:[],note:'',scan:state(true)};
+  if(f.calls.length>=5)return {stories:[],note:'',scan:state(false)};
   assert.equal(input.scan.pendingEvents[0].id,eventId);
+  assert.equal(input.scan.pendingEvents[0].source.continuations[0].sectionId,second.sectionId);
+  assert.ok(input.scan.contextText.includes('['+second.firstUnit+']'));
   assert.ok(input.scan.contextText.includes('['+first.firstUnit+']'));
   return {stories:[{title:'跨章完整事件',description:'出发之后，一次相逢改变了他的选择。',source:combined}],note:'',scan:state(false,[],[eventId])};
  };
  const batch=await run(f,cache,[],undefined,[],limits);
  assert.equal(batch.stories[0].source.continuations[1].sectionId,third.sectionId);
- assert.equal(f.calls.length,4); // The fourth call repeats a duplicate, preserving the verified first story.
+ assert.equal(f.calls.length,5); // A chapter omits the still-live event; later completion retains both earlier ranges.
  const original=f.books.resolve(f.book,batch.stories[0].source);
- assert.ok(original.text.includes('第1回')&&original.text.includes('第3回'));
+ assert.ok(original.text.includes('第1回')&&original.text.includes('第4回'));
  const documents=[...store.values.values()].map(bytes=>JSON.parse(new TextDecoder().decode(bytes)));
  const saved=documents.find(d=>d.value.pendingEvents);assert.deepEqual(saved.value.pendingEvents,[]);
 });

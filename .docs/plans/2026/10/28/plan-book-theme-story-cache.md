@@ -47,3 +47,12 @@ ET passed: 同应用localhost:3000真实接口阅微冷50.881秒、热0.569秒�
 后续接入书籍先下载并固定版本，再解析/预分块；本轮未实现通用外部下载器。
 
 最终TT：162/162通过（包含CR修复回归），最终typecheck/lint再次通过。UI首批、换批和回看各5篇、无重复、缓存说明准确、0控制台错误。交付阶段不需要再构建Docker或生成图像。
+
+VR round1 incomplete（证据缺口）：跨章回归名称含遗漏，但实际先创建、更新、消费后才空返回；未覆盖仍活跃pending被漏回。已补：第三章明确完成但pending为空，第四章断言原稳定ID及前两章原文均保留后才完成，第五次无进展暂停；针对性16/16通过。无实现变更，CR round2结论继续有效，完整TT重新收集该场景证据，待VR round2。
+
+VR证据补齐：修订后的跨章案例已在完整162/162中实际执行：创建→更新累积→第三章漏回且显式完成→第四章验证稳定ID和两份旧原文仍在后消费→第五次无进展。最终lint通过；没有实现变更、没有额外模型调用，CR round2保持有效。待独立VR round2确认。
+
+VR risk: non-low — 持久扫描状态机、跨章来源及并发取消。
+VR review round: 2; reviewer: reused.
+VR passed: all acceptance criteria complete. 独立cache_review确认，已补齐遗漏场景执行证据。
+DD：`.docs/done/2026/10/28/book-theme-story-cache.md`包含完整最终VR原文。GC仅提交本任务剩余测试与记录，保留其他聊天改动，不推送。
