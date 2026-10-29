@@ -4,9 +4,9 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.2.0](https://github.com/yysun/shiqu/releases/tag/v0.2.0) - 2026-10-29
 
-以下为当前源码相对初始版本记录的变化；尚未在此记录新版本发布。
+增加后台整篇生成与持久化任务控制，移除内置示例；保留已有书架数据。
 
 ### Added
 
@@ -25,7 +25,7 @@
 
 ## [0.1.0](https://github.com/yysun/shiqu/releases/tag/v0.1.0) - 2026-10-29
 
-首次发布记录；其中的示例说明保留为历史信息，当前开发版本的变化见 Unreleased。
+首次发布记录；其中的示例说明保留为历史信息，示例已在 0.2.0 移除。
 
 ### Added
 
