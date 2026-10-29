@@ -9,7 +9,7 @@ test('planning reports saved source, chosen count and elapsed attempt time witho
  assert.equal(progress.measured,false);assert.equal(progress.elapsed,65);assert.equal(progress.attempt,2);
  assert.deepEqual(progress.steps.map(step=>step.state),['done','done','current','pending']);
  assert.equal(progress.steps[1].detail,'32 幅');assert.equal(progress.steps[2].detail,'分镜尚未返回');
- assert.match(progress.note,/暂不提供百分比/);assert.equal(progress.slow,false);
+ assert.match(progress.note,/每批最多 20 幅/);assert.equal(progress.slow,false);
  assert.equal(generationProgress(planning,100000).slow,true);
  assert.equal(generationProgress({...planning,generationProgress:{...planning.generationProgress,startedAt:70000}},75000).elapsed,5);
 });

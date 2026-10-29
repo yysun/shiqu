@@ -1,14 +1,14 @@
 // Advance local story generation under one session lock, retaining every completed paid result.
-import {nextStep,planSchema,selectionSchema,view,ReaderError,awaitingFrameCount,readerBooks} from './reader-model.ts';
-import type {Document,Plan,Selection,SessionRow,Step} from './reader-model.ts';
+import {nextStep,planSchema,storyboardOutlineSchema,storyboardBatchSchema,selectionSchema,view,ReaderError,awaitingFrameCount,readerBooks} from './reader-model.ts';
+import type {Document,Plan,Selection,SessionRow,Storyboard,StoryboardOutline} from './reader-model.ts';
 import type {ReaderRepository} from './reader-repository.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import type {OriginalSource,SourceResult,SourceHint} from './reader-source-types.ts';
 import {frameRecommendationSchema} from './reader-frame-recommendation.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
-import {readerImageBatchSize,readerMaxFrames} from './reader-limits.ts';
+import {readerImageBatchSize,readerMaxFrames,readerStoryboardBatchSize} from './reader-limits.ts';
 export type Generated<T>={value:T;model:string;requestId:string|null;usage:unknown};
-export interface StoryGenerator{prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;recommend?(selection:Selection,id:string,original:OriginalSource):Promise<Generated<FrameRecommendation>>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<Plan>>;original(selection:Selection,plan:SourceHint,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
+export interface StoryGenerator{prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;recommend?(selection:Selection,id:string,original:OriginalSource):Promise<Generated<FrameRecommendation>>;outline?(selection:Selection,id:string,original:OriginalSource):Promise<Generated<StoryboardOutline>>;planBatch?(selection:Selection,id:string,storyboard:Storyboard,original:OriginalSource):Promise<Generated<Plan['pages']>>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<Plan>>;original(selection:Selection,plan:SourceHint,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
 
 async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerator,row:SessionRow,token:string,doc:Document,selection:Selection,throughPage:number){
  const pages=doc.plan!.pages.map((_,page)=>page).filter(page=>page<=throughPage&&!doc.images[page]);
@@ -59,7 +59,29 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     const original=await generator.prepareOriginal(selection,id);
     if(original){doc.original=original;await repo.saveImageProgress(row,token,structuredClone(doc));}
    }
-   const result=await generator.plan(selection,id,doc.original);const plan=planSchema.parse(result.value);if(selection.length!=='auto'&&plan.pages.length!==selection.length)throw Error('PLAN_LENGTH');doc.plan=plan;generated=result;
+   if(doc.storyboard||generator.outline&&generator.planBatch&&(selection.length==='auto'||selection.length>readerStoryboardBatchSize)){
+    if(!doc.original){
+     const book=selection.bookId==='other'?selection.customBook:readerBooks.find(b=>b.id===selection.bookId)?.title||selection.bookId;
+     const result=await generator.original(selection,{sourceReference:`《${book||''}》${selection.storyTitle||''}`},id);
+     if(!result.source)throw new ReaderError(503,'原文未能核对，暂时无法编排分镜。'+result.message);
+     doc.original=result.source;await repo.saveImageProgress(row,token,structuredClone(doc));
+    }
+    if(!doc.storyboard){
+     if(!generator.outline)throw Error('STORYBOARD_UNAVAILABLE');
+     const result=await generator.outline(selection,id,doc.original),outline=storyboardOutlineSchema.parse(result.value);
+     if(selection.length!=='auto'&&outline.beats.length!==selection.length)throw Error('PLAN_LENGTH');
+     doc.storyboard={outline,pages:[]};generated=result;
+    }else{
+     if(!generator.planBatch)throw Error('STORYBOARD_UNAVAILABLE');
+     const draft=doc.storyboard,count=Math.min(readerStoryboardBatchSize,draft.outline.beats.length-draft.pages.length);
+     const result=await generator.planBatch(selection,id,structuredClone(draft),doc.original);
+     const pages=[...draft.pages,...storyboardBatchSchema(count).parse({pages:result.value}).pages];
+     const plan=pages.length===draft.outline.beats.length?planSchema.parse({...draft.outline,pages}):null;
+     doc.storyboard={outline:draft.outline,pages};if(plan)doc.plan=plan;generated=result;
+    }
+   }else{
+    const result=await generator.plan(selection,id,doc.original);const plan=planSchema.parse(result.value);if(selection.length!=='auto'&&plan.pages.length!==selection.length)throw Error('PLAN_LENGTH');doc.plan=plan;generated=result;
+   }
   }
   else if(step.kind==='source'){/* Resume original retrieval without paying to re-plan. */}
   else if(step.kind==='image')await drawRequestedImages(repo,generator,row,token,doc,selection,throughPage);

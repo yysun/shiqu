@@ -44,6 +44,15 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
     if(hasStoredSourceAnomaly(original)||hasSourceAnomaly(original.title))throw new ReaderError(400,'已存原文含未识别字形或缺文标记，请重新选择完整、可读的故事出处。原文记录已保留。');
    }
    return {...generator,
+    ...(generator.outline?{async outline(selection,id,original){
+     if(localBookId(selection))verifyOriginal(selection,original);
+     const result=await generator.outline!(selection,id,original);
+     return {...result,value:{...result.value,sourceReference:original.title}};
+    }} satisfies Pick<typeof generator,'outline'>:{}),
+    ...(generator.planBatch?{async planBatch(selection,id,draft,original){
+     if(localBookId(selection))verifyOriginal(selection,original);
+     return generator.planBatch!(selection,id,draft,original);
+    }} satisfies Pick<typeof generator,'planBatch'>:{}),
     async prepareOriginal(selection,id){
      if(!localBookId(selection)){
       if(selection.source)throw new ReaderError(400,'出处与所选书籍不一致，请重新选择故事。');

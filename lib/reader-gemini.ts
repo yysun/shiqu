@@ -15,6 +15,7 @@ import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localPlan
 import type {WholeBookInput} from './reader-local-contract.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import {readerImageAsset,referenceImageKey} from './reader-image-assets.ts';
+import {storyboardGenerator} from './reader-storyboard.ts';
 import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from './reader-art-recommendation.ts';
 
 export const defaultModels={text:'gemini-3.8-flash',image:'gemini-nano-banana-2.1'};
@@ -117,6 +118,10 @@ export async function recommendStoryArt(key:string,selection:Selection,original:
 export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={},transport:typeof fetch=fetch):StoryGenerator{
  const models={...defaultModels,...config},generate=client(key,transport);
  return {
+  ...storyboardGenerator(selection=>source(selection).book,async(instructions,payload,schema,maxOutputTokens)=>{
+   const {candidate,metadata}=await generate(models.text,textRequest(instructions,payload,schema,'',maxOutputTokens),readerStoryboardTimeoutMs);
+   return {value:parseText(candidate),...metadata};
+  }),
   original:(selection,plan,id)=>saveStoryOriginal(assets,selection,plan,id,transport),
   async recommend(selection,id,original){
    const {candidate,metadata}=await generate(models.text,textRequest(frameRecommendationPrompt,frameRecommendationPayload(selection,original),frameRecommendationJson,'',2000));

@@ -13,6 +13,7 @@ import {CodexError,createCodexRunner} from './codex-runner.ts';
 import type {CodexRunner} from './codex-runner.ts';
 import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localPlanConstraint,localSuggestionPayload} from '../lib/reader-local-contract.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
+import {storyboardGenerator} from '../lib/reader-storyboard.ts';
 import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from '../lib/reader-art-recommendation.ts';
 
 function codexMessage(code:string){
@@ -58,6 +59,10 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
    return artRecommendationSchema.parse(JSON.parse(result.text));
   },
   generator(){return {
+   ...storyboardGenerator(book,async(instructions,payload,schema)=>{
+    const result=await codex.run({instructions,prompt:JSON.stringify(payload),schema,timeoutMs:readerStoryboardTimeoutMs});
+    return {value:JSON.parse(result.text),model:result.model,requestId:result.requestId,usage:result.usage};
+   }),
    original:(selection,plan,id)=>saveStoryOriginal(media,selection,plan,id,transport),
    async recommend(selection,id,original){
     const result=await codex.run({instructions:frameRecommendationPrompt,prompt:JSON.stringify(frameRecommendationPayload(selection,original)),schema:frameRecommendationJson});

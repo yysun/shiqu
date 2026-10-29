@@ -113,6 +113,18 @@ test('storage failures or missing local receipts cannot issue paid storyboard re
   const id=crypto.randomUUID();await repo.create(id,'test',selection);const row=await advanceStory(repo,withLocalBooks(base,library,media).generator(),'test',id,0);assert.equal(row.state,'failed');assert.equal(calls,0);assert.equal(row.story,null);
  }
 });
+test('storyboard directory and batch calls both verify local source receipts before inference',async()=>{
+ const book=await library.book(selected),selection={...selected,length:45,source:ref(book)},media=memory();let outlines=0,batches=0;
+ const base=fake();base.generator=()=>({...fake().generator(),async outline(){outlines++;return {value:{...plan,beats:Array(45).fill('梦醒之后，人物继续追问。')},model:'mock',requestId:null,usage:null};},async planBatch(){batches++;return {value:plan.pages,model:'mock',requestId:null,usage:null};}});
+ const g=withLocalBooks(base,library,media).generator(),original=await g.prepareOriginal(selection,'receipt-test');
+ const result=await g.outline(selection,'receipt-test',original),draft={outline:result.value,pages:[]};assert.equal(result.value.sourceReference,original.title);
+ await g.planBatch(selection,'receipt-test',draft,original);
+ for(const bad of [undefined,{...original,text:original.text+'□'},{...original,localSource:{...original.localSource,edition:'0'.repeat(64)}}]){
+  await assert.rejects(g.outline(selection,'receipt-test',bad),e=>e.status===400);
+  await assert.rejects(g.planBatch(selection,'receipt-test',draft,bad),e=>e.status===400);
+ }
+ assert.equal(outlines,1);assert.equal(batches,1);
+});
 test('explicit legacy backfill uses a local chapter and does not plan, draw, or fetch a public source',async t=>{
  const root=await directory(t),media=new FileMedia(path.join(root,'media')),provider=withLocalBooks(fake(),library,media),app=createApplication({root:process.cwd(),dataDirectory:root,generation:provider});t.after(()=>app.close());
  const repo=new ReaderRepository(app.services.database),id=crypto.randomUUID();await repo.create(id,'docker-local-owner',selected);

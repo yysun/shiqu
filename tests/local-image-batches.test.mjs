@@ -25,8 +25,13 @@ function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{reso
 async function fixture(t,provider='codex'){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu batches ')),dataDirectory=path.join(root,'data');
  await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
- const control={calls:[],plans:[],pending:new Map(),hold:false,autoLength:30,overridePlanLength:null,recommendations:[],recommendation:{count:7,reason:'保留完整因果与关键转折，节奏适合这篇短寓言。'}};
- function planned(payload,schema,instructions,budget){if(schema.properties.count){control.recommendations.push({payload,schema,instructions,budget});return control.recommendation;}control.plans.push({payload,schema,instructions,budget});return makePlan(control.overridePlanLength??(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount));}
+ const control={calls:[],plans:[],outlines:[],pending:new Map(),hold:false,autoLength:30,overridePlanLength:null,recommendations:[],recommendation:{count:7,reason:'保留完整因果与关键转折，节奏适合这篇短寓言。'}};
+ function planned(payload,schema,instructions,budget){
+  if(schema.properties.count){control.recommendations.push({payload,schema,instructions,budget});return control.recommendation;}
+  const record={payload,schema,instructions,budget},plan=makePlan(control.overridePlanLength??(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount));
+  if(schema.properties.beats){control.outlines.push(record);const {pages,...metadata}=plan;return {...metadata,beats:pages.map((_,i)=>`第 ${i+1} 幅的关键事件。`)};}
+  control.plans.push(record);return payload.batch?{pages:plan.pages.slice(payload.batch.first-1,payload.batch.last)}:plan;
+ }
  async function image(prompt,reference){
   const page=Number(prompt.match(/Scene (\d+):/)[1])-1;
   control.calls.push({page,reference,prompt});
@@ -58,7 +63,7 @@ async function fixture(t,provider='codex'){
 test('new count defaults to auto and reader REST rejects invalid manual counts',async t=>{
  const f=await fixture(t);
  assert.equal(selectionSchema.parse({bookId:'zhuangzi',theme:'放下执念'}).length,'auto');
- for(const length of [0,61,1.5,null,'30'])assert.equal((await f.request('sessions','POST',{requestId:crypto.randomUUID(),selection:{...selection,length}})).status,400);
+ for(const length of [0,81,1.5,null,'30'])assert.equal((await f.request('sessions','POST',{requestId:crypto.randomUUID(),selection:{...selection,length}})).status,400);
  for(const length of [8,10,12])assert.equal((await f.read(await f.create(length))).selection.length,length);
 });
 
@@ -71,12 +76,13 @@ for(const provider of ['gemini','codex']){
    assert.equal(await f.generate(id,0,'auto'),'');
    const current=await f.read(id),job=f.control.plans.at(-1);
    assert.equal(current.selection.length,'auto');assert.equal(current.story.pages.length,length);
-   assert.equal(job.payload.exactPageCount,'auto');assert.equal(job.schema.properties.pages.minItems,1);assert.equal(job.schema.properties.pages.maxItems,60);
+   const outline=f.control.outlines.at(-1);assert.equal(outline.payload.exactPageCount,'auto');assert.equal(outline.schema.properties.beats.minItems,1);assert.equal(outline.schema.properties.beats.maxItems,80);
+   assert.equal(job.payload.exactPageCount,length);assert.ok(job.schema.properties.pages.maxItems<=20);
    assert.match(job.instructions,/auto时/);assert.doesNotMatch(job.instructions,/30至60幅/);
-   if(provider==='gemini')assert.ok(job.budget>=48000);
+   if(provider==='gemini')assert.ok(job.budget<=16000);
    f.restart();
    assert.equal(await f.generate(id,length-1,'auto'),'');
-   assert.equal(f.control.plans.length,plans+1);assert.equal((await f.read(id)).ready,length);
+   assert.equal(f.control.plans.length,plans+Math.ceil(length/20));assert.equal((await f.read(id)).ready,length);
    assert.equal((await f.read(id)).state,'completed');
   }
  });
@@ -86,30 +92,30 @@ for(const provider of ['gemini','codex']){
   await assert.rejects(f.generation.generator().plan(selectionSchema.parse({...selection,length:30}),'mismatch'));
   const id=await f.create(60),failed=await f.advance(id,2);
   assert.equal(failed.state,'failed');assert.equal(failed.story,null);assert.equal(f.control.calls.length,0);
-  assert.equal(f.control.plans.at(-1).schema.properties.pages.minItems,60);assert.equal(f.control.plans.at(-1).schema.properties.pages.maxItems,60);
+  assert.equal(f.control.outlines.at(-1).schema.properties.beats.minItems,60);assert.equal(f.control.outlines.at(-1).schema.properties.beats.maxItems,60);
   f.control.overridePlanLength=null;
-  assert.equal((await f.advance(id,2,true)).story.pages.length,60);
+  let resumed=await f.advance(id,2,true);while(!resumed.story)resumed=await f.advance(id,2);assert.equal(resumed.story.pages.length,60);
  });
- test(`${provider}: frame 60 supports media, events, saved progress and restart`,async t=>{
-  const f=await fixture(t,provider),id=await f.create(60);
-  await f.generate(id,0,60);await f.generate(id,59,60);
-  assert.equal((await f.request(`media/${id}/59.png`)).status,200);
-  assert.equal((await f.json(`sessions/${id}/progress`,'POST',{page:59,saved:true})).page,59);
-  const event={id:crypto.randomUUID(),visitor:crypto.randomUUID(),session:crypto.randomUUID(),storyId:id,kind:'page',page:59,mode:'manual',cohort:'internal'};
+ test(`${provider}: frame 80 supports media, events, saved progress and restart`,async t=>{
+  const f=await fixture(t,provider),id=await f.create(80);
+  await f.generate(id,0,80);await f.generate(id,79,80);
+  assert.equal((await f.request(`media/${id}/79.png`)).status,200);
+  assert.equal((await f.json(`sessions/${id}/progress`,'POST',{page:79,saved:true})).page,79);
+  const event={id:crypto.randomUUID(),visitor:crypto.randomUUID(),session:crypto.randomUUID(),storyId:id,kind:'page',page:79,mode:'manual',cohort:'internal'};
   assert.equal((await f.request(`sessions/${id}/events`,'POST',event)).status,200);
   for(const suffix of ['progress','advance','events']){
-   const body=suffix==='progress'?{page:60,saved:true}:suffix==='advance'?{throughPage:60}:{...event,id:crypto.randomUUID(),page:60};
+   const body=suffix==='progress'?{page:80,saved:true}:suffix==='advance'?{throughPage:80}:{...event,id:crypto.randomUUID(),page:80};
    assert.equal((await f.request(`sessions/${id}/${suffix}`,'POST',body)).status,400);
   }
-  for(const file of ['60.png','059.png','59.svg','-1.png','1.png/extra'])assert.equal((await f.request(`media/${id}/${file}`)).status,404);
+  for(const file of ['80.png','079.png','79.svg','-1.png','1.png/extra'])assert.equal((await f.request(`media/${id}/${file}`)).status,404);
   const short=await f.create(1);await f.generate(short,0,1);
-  assert.equal((await f.request(`media/${short}/59.png`)).status,404);
-  assert.equal((await f.request(`sessions/${short}/progress`,'POST',{page:59,saved:true})).status,400);
+  assert.equal((await f.request(`media/${short}/79.png`)).status,404);
+  assert.equal((await f.request(`sessions/${short}/progress`,'POST',{page:79,saved:true})).status,400);
   assert.equal((await f.request(`sessions/${short}/events`,'POST',{...event,id:crypto.randomUUID(),storyId:short})).status,400);
   const plans=f.control.plans.length,calls=f.control.calls.length;
   f.restart();const restored=await f.read(id);
-  assert.equal(restored.page,59);assert.equal(restored.saved,true);assert.equal(restored.story.pages.length,60);
-  await f.generate(id,59,60);assert.equal(f.control.calls.length,calls);assert.equal(f.control.plans.length,plans);
+  assert.equal(restored.page,79);assert.equal(restored.saved,true);assert.equal(restored.story.pages.length,80);
+  await f.generate(id,79,80);assert.equal(f.control.calls.length,calls);assert.equal(f.control.plans.length,plans);
  });
  test(`${provider}: reading batches cover 1/8/10/12/30/60 pages, reuse saved pages and survive restart`,async t=>{
   const f=await fixture(t,provider);
@@ -220,21 +226,21 @@ for(const provider of ['gemini','codex']){
    await f.generate(id,0,'auto');
    let current=await f.read(id);assert.equal(current.state,'idle');assert.equal(current.awaitingFrameCount,true);assert.equal(current.retryAllowed,false);assert.equal(current.story,null);assert.equal(current.ready,0);
    assert.deepEqual(current.frameRecommendation,f.control.recommendation);assert.equal(f.control.plans.length,plans);assert.equal(f.control.calls.length,images);
-   const rec=f.control.recommendations.at(-1);assert.equal(rec.payload.narrativeDetail,narrativeDetail);assert.match(rec.payload.verifiedOriginal.text,/昔者庄周/);assert.equal(rec.schema.properties.count.minimum,1);assert.equal(rec.schema.properties.count.maximum,60);assert.doesNotMatch(rec.instructions,/30至60|30–60/);
+   const rec=f.control.recommendations.at(-1);assert.equal(rec.payload.narrativeDetail,narrativeDetail);assert.match(rec.payload.verifiedOriginal.text,/昔者庄周/);assert.equal(rec.schema.properties.count.minimum,1);assert.equal(rec.schema.properties.count.maximum,80);assert.doesNotMatch(rec.instructions,/30至60|30–60/);
    await f.advance(id,59);f.restart();await f.generate(id,0,'auto');assert.equal(f.control.recommendations.length,recs+1);
    const count=index===1?60:1;
    const confirmations=await Promise.all([f.request(`sessions/${id}/frame-count`,'POST',{count}),f.request(`sessions/${id}/frame-count`,'POST',{count})]);assert.ok(confirmations.every(r=>r.status===200));
    assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:count===1?60:1})).status,409);
    current=await f.read(id);assert.equal(current.awaitingFrameCount,false);assert.equal(current.selection.length,count);
    f.restart();await f.generate(id,0,count);
-   const job=f.control.plans.at(-1);assert.equal(job.payload.narrativeDetail,narrativeDetail);assert.equal(job.payload.exactPageCount,count);assert.deepEqual(job.payload.verifiedOriginal,rec.payload.verifiedOriginal);assert.equal(job.schema.properties.pages.minItems,count);assert.equal((await f.read(id)).story.pages.length,count);
+   const job=f.control.plans.at(-1);assert.equal(job.payload.narrativeDetail,narrativeDetail);assert.equal(job.payload.exactPageCount,count);assert.deepEqual(job.payload.verifiedOriginal,rec.payload.verifiedOriginal);assert.equal(job.schema.properties.pages.minItems,Math.min(20,count));assert.equal((await f.read(id)).story.pages.length,count);
    assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count})).status,200);assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:2})).status,409);
-   assert.equal(f.control.recommendations.length,recs+1);assert.equal(f.control.plans.length,plans+1);
+   assert.equal(f.control.recommendations.length,recs+1);assert.equal(f.control.plans.length,plans+Math.ceil(count/20));
   }
  });
  test(`${provider}: invalid recommendations retain original for retry and never plan or draw`,async t=>{
   const f=await fixture(t,provider);
-  for(const bad of [{count:0,reason:'无效数量'},{count:61,reason:'无效数量'},{count:1.5,reason:'无效数量'},{count:'7',reason:'无效数量'},{count:7,reason:'   '}]){
+  for(const bad of [{count:0,reason:'无效数量'},{count:81,reason:'无效数量'},{count:1.5,reason:'无效数量'},{count:'7',reason:'无效数量'},{count:7,reason:'   '}]){
    f.control.recommendation=bad;const id=crypto.randomUUID();await f.json('sessions','POST',{requestId:id,selection:{...selection,narrativeDetail:'balanced'}});
    const failed=await f.advance(id,2);assert.equal(failed.state,'failed');assert.equal(failed.awaitingFrameCount,false);assert.equal(failed.frameRecommendation,null);
    const row=await new ReaderRepository(f.app.services.database).get(id,f.app.services.ownerId);assert.ok(JSON.parse(row.document).original.text);
@@ -248,7 +254,7 @@ for(const provider of ['gemini','codex']){
 test('frame-count confirmation is owner-scoped, validates input, blocks running work and concurrent conflicts',async t=>{
  const f=await fixture(t),id=crypto.randomUUID();
  await f.json('sessions','POST',{requestId:id,selection:{...selection,narrativeDetail:'balanced'}});await f.advance(id,0);
- for(const count of [0,61,1.5,'7',null])assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count})).status,400);
+ for(const count of [0,81,1.5,'7',null])assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count})).status,400);
  const repo=new ReaderRepository(f.app.services.database);await assert.rejects(repo.confirmFrameCount(id,'another-owner',7),e=>e.status===404);
  const row=await repo.get(id,f.app.services.ownerId),token=await repo.acquire(row,{kind:'plan',page:0,key:'plan'});
  assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:7})).status,409);await repo.save(row,token,JSON.parse(row.document),false);

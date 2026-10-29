@@ -16,20 +16,27 @@ function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{reso
 export async function productionFixture(t,provider='codex',variables={}){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu production ')),dataDirectory=path.join(root,'data');
  await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
- const control={calls:[],plans:[],recommendations:[],hold:true,autoLength:8,active:0,maxActive:0};
+ const control={calls:[],plans:[],outlines:[],batches:[],recommendations:[],hold:true,autoLength:8,active:0,maxActive:0,beforeText:null};
  async function image(prompt,reference){
   const page=Number(prompt.match(/Scene (\d+):/)[1])-1,gate=deferred(),call={page,reference,prompt,...gate,done:false,bytes:encoded};
   control.calls.push(call);control.active++;control.maxActive=Math.max(control.maxActive,control.active);
   try{if(control.hold)await gate.promise;return call.bytes;}finally{call.done=true;control.active--;}
  }
- function planned(prompt,schema){const payload=JSON.parse(prompt);if(schema.properties.count){control.recommendations.push(payload);return {count:7,reason:'保留完整因果和关键转折。'};}control.plans.push(payload);return makePlan(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount);}
+ async function planned(prompt,schema){
+  const payload=JSON.parse(prompt);if(schema.properties.count){control.recommendations.push(payload);return {count:7,reason:'保留完整因果和关键转折。'};}
+  const length=payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount,plan=makePlan(length);
+  if(schema.properties.beats){control.outlines.push(payload);const override=await control.beforeText?.('outline',payload,schema);const {pages,...metadata}=plan;return override??{...metadata,beats:pages.map((_,i)=>`第 ${i+1} 幅的关键事件与动作。`)};}
+  control.plans.push(payload);if(payload.batch)control.batches.push(payload);
+  const override=await control.beforeText?.(payload.batch?'batch':'plan',payload,schema);
+  return override??(payload.batch?{pages:plan.pages.slice(payload.batch.first-1,payload.batch.last)}:plan);
+ }
  const transport=async(url,options)=>{
   assert.match(String(url),/^https:\/\/generativelanguage.googleapis.com\//,'No external source/inference request');
   const body=JSON.parse(options.body),parts=body.contents[0].parts;
-  const output=body.generationConfig.responseModalities?{inlineData:{mimeType:'image/png',data:await image(parts.find(p=>p.text).text,parts.find(p=>p.inlineData)?.inlineData.data)}}:{text:JSON.stringify(planned(parts[0].text,body.generationConfig.responseFormat.text.schema))};
+  const output=body.generationConfig.responseModalities?{inlineData:{mimeType:'image/png',data:await image(parts.find(p=>p.text).text,parts.find(p=>p.inlineData)?.inlineData.data)}}:{text:JSON.stringify(await planned(parts[0].text,body.generationConfig.responseFormat.text.schema))};
   return Response.json({candidates:[{finishReason:'STOP',content:{parts:[output]}}],responseId:'controlled',usageMetadata:{calls:1}});
  };
- const runner={async status(){return {configured:true};},async run(job){return {text:job.generateImage?'':JSON.stringify(planned(job.prompt,job.schema)),image:job.generateImage?await image(job.prompt,job.image&&Buffer.from(job.image.bytes).toString('base64')):null,model:'controlled',requestId:'controlled',usage:{calls:1}};}};
+ const runner={async status(){return {configured:true};},async run(job){return {text:job.generateImage?'':JSON.stringify(await planned(job.prompt,job.schema)),image:job.generateImage?await image(job.prompt,job.image&&Buffer.from(job.image.bytes).toString('base64')):null,model:'controlled',requestId:'controlled',usage:{calls:1}};}};
  const media=new FileMedia(path.join(dataDirectory,'media'));
  const generation=createReaderProvider({SHIQU_AI_PROVIDER:provider,...(provider==='gemini'?{GEMINI_API_KEY:'controlled'}:{})},media,transport,runner);
  const options={root,dataDirectory,generation,transport,variables};let app=createApplication(options);

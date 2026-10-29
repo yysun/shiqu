@@ -105,18 +105,18 @@ test('shutdown stops dispatch before draining in-flight outputs and closes SQLit
 
 test('queue routes validate input/origin and use server owner identity',async t=>{
  const f=await productionFixture(t),id=await f.create(),viewerId=crypto.randomUUID();
- for(const body of [{viewerId:'bad',page:0},{viewerId,page:60},{viewerId,page:-1},{viewerId,page:1.5}])assert.equal((await f.request(`sessions/${id}/production`,'POST',body)).status,400);
+ for(const body of [{viewerId:'bad',page:0},{viewerId,page:80},{viewerId,page:-1},{viewerId,page:1.5}])assert.equal((await f.request(`sessions/${id}/production`,'POST',body)).status,400);
  assert.equal((await f.request(`sessions/${id}/production`,'POST',{viewerId,page:0},{Origin:'https://evil.example'})).status,403);
  await assert.rejects(f.app.services.production.request('another-owner',id,viewerId,0),e=>e.status===404);
  assert.equal(await f.app.services.production.managed('another-owner',id),false);
 });
 
 test('reference validation accepts reordered same-story assets and rejects malformed or out-of-range paths',()=>{
- for(const page of [0,1,6,59])for(const extension of ['png','jpg','webp'])for(const artifactId of [undefined,'a'.repeat(64)]){
+ for(const page of [0,1,6,59,79])for(const extension of ['png','jpg','webp'])for(const artifactId of [undefined,'a'.repeat(64)]){
   const asset=readerImageAsset('story',page,extension,artifactId);
   assert.equal(referenceImageKey('story',asset.url),asset.key);
  }
- for(const file of ['60.png','-1.png','1.5.png','01.png','1.svg','artifacts/60-'+'a'.repeat(64)+'.png','artifacts/1-short.png','artifacts/1-'+'a'.repeat(64)+'.png/extra','../other/1.png','%2e%2e/1.png','1.png?other=1','1.png\n']){
+ for(const file of ['80.png','-1.png','1.5.png','01.png','1.svg','artifacts/80-'+'a'.repeat(64)+'.png','artifacts/1-short.png','artifacts/1-'+'a'.repeat(64)+'.png/extra','../other/1.png','%2e%2e/1.png','1.png?other=1','1.png\n']){
   assert.equal(referenceImageKey('story','/api/reader/media/story/'+file),null,file);
  }
  assert.equal(referenceImageKey('story','/api/reader/media/other/1.png'),null);
@@ -162,7 +162,7 @@ for(const provider of ['codex','gemini'])test(`${provider}: immutable attempts a
  f.control.calls[0].bytes=Buffer.concat([Buffer.from(encoded,'base64'),Buffer.from([1])]).toString('base64');f.control.calls[0].resolve();await original.queue.settle();
  assert.equal((await replacement.snapshot('docker-local-owner',id)).story.pages[0].image,saved);assert.deepEqual((await f.media.get(key)).body,before);
  const row=await f.app.services.database.prepare('SELECT document FROM reader_sessions WHERE id=?').bind(id).first();assert.equal(JSON.parse(row.document).usage.filter(u=>u.step==='image:0').length,1);
- for(const reference of [saved.replace(id,crypto.randomUUID()),saved.replace('/artifacts/','/artifacts/../'),saved.replace('/0-','/60-'),saved.replace('.png','.svg')]){
+ for(const reference of [saved.replace(id,crypto.randomUUID()),saved.replace('/artifacts/','/artifacts/../'),saved.replace('/0-','/80-'),saved.replace('.png','.svg')]){
   assert.equal(referenceImageKey(id,reference),null);const count=f.control.calls.length;
   await assert.rejects(f.generation.generator().image(JSON.parse(row.document).plan,1,id,reference));assert.equal(f.control.calls.length,count);
  }

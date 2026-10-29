@@ -10,6 +10,7 @@ import type {Document,SessionRow,SessionView,ProductionAction} from '../lib/read
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
+import {readerMaxFrames,readerStoryboardBatchSize} from '../lib/reader-limits.ts';
 import {productionReadAhead,productionViewerLeaseMs} from '../lib/reader-production.ts';
 import type {ReaderProduction} from '../lib/reader-production.ts';
 import {ProductionQueue,inputVersion,productionJobId} from './production-queue.ts';
@@ -66,7 +67,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const background=(await this.database.prepare(`SELECT id,user_id FROM reader_sessions WHERE generation_mode='background' AND generation_control='active' AND state!='completed'
    AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)${id?' AND id=?':''}`)
    .bind(...(id?[id]:[])).all<{id:string;user_id:string}>()).results;
-  return [...viewers,...background.map(row=>({session_id:row.id,owner_id:row.user_id,viewer_id:'background',page:0,through_page:59,expires_at:Infinity,runtime_id:this.runtimeId}))];
+  return [...viewers,...background.map(row=>({session_id:row.id,owner_id:row.user_id,viewer_id:'background',page:0,through_page:readerMaxFrames-1,expires_at:Infinity,runtime_id:this.runtimeId}))];
  }
  private async resumeInterrupted(job:ProductionJob){
   if(this.stopping||this.fault)return false;
@@ -87,7 +88,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(doc.plan&&page>=doc.plan.pages.length)throw new ReaderError(400,'请选择有效画幅');
   await this.database.prepare(`INSERT INTO production_demand(session_id,owner_id,viewer_id,page,through_page,expires_at,runtime_id) VALUES(?,?,?,?,?,?,?)
    ON CONFLICT(session_id,owner_id,viewer_id) DO UPDATE SET page=excluded.page,through_page=excluded.through_page,expires_at=excluded.expires_at,runtime_id=excluded.runtime_id`)
-   .bind(id,ownerId,viewerId,page,Math.min(59,throughPage),this.clock()+productionViewerLeaseMs,this.runtimeId).run();
+   .bind(id,ownerId,viewerId,page,Math.min(readerMaxFrames-1,throughPage),this.clock()+productionViewerLeaseMs,this.runtimeId).run();
   if(retry){
    await this.queue.recoverExpired();await this.queue.retry(id,ownerId);
    await this.database.prepare("UPDATE reader_sessions SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'").bind(id,ownerId).run();
@@ -119,7 +120,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async graph(row:SessionRow){
   const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
   const preparing=selection.narrativeDetail&&!doc.frameCountConfirmed&&!doc.plan;
-  const scriptVersion=inputVersion({selection}),script=this.spec(row,preparing?'prepare':'script','text',scriptVersion,'',[],{},-10);
+  // A distinct job owns each saved planning checkpoint; the empty key is the complete-script barrier.
+  const scriptKey=!preparing&&!doc.plan&&(doc.storyboard||selection.length==='auto'||selection.length>readerStoryboardBatchSize)?nextStep(doc,selection,0)?.key||'':'';
+  const scriptVersion=inputVersion({selection}),script=this.spec(row,preparing?'prepare':'script','text',scriptVersion,scriptKey,[],{stepKey:scriptKey},-10);
   await this.queue.enqueue(script,doc.plan&&doc.original?{pages:doc.plan.pages.length}:undefined);
   if(!doc.plan||!doc.original)return;
   if(doc.plan.pages.every((_,page)=>!!doc.images[page])){
@@ -181,10 +184,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async script(job:ProductionJob){
   let row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
   if(doc.plan&&doc.original)return {pages:doc.plan.pages.length};
+  const selection=selectionSchema.parse(JSON.parse(row.selection)),stepKey=(JSON.parse(job.payload) as {stepKey?:string}).stepKey;
+  // A crash can save a batch before settling its queue receipt. Never replay that paid call.
+  if(stepKey&&stepKey!==nextStep(doc,selection,0)?.key)return {storyboardFrames:doc.storyboard?.pages.length||0};
   const result=await advanceStory(this.repository,this.provider.generator(),row.user_id,row.id,0,true,token=>this.leases.set(row.id,{ownerId:row.user_id,token}));
   if(result.state==='failed')throw new ReaderError(503,result.error||'故事编排暂未完成');
   if(result.awaitingFrameCount)return {awaitingFrameCount:true};
   row=await this.raw(row.id,row.user_id);doc=JSON.parse(row.document) as Document;
+  if(doc.storyboard&&!doc.plan)return {storyboardFrames:doc.storyboard.pages.length};
   if(!doc.plan||!doc.original)throw new ReaderError(503,'故事仍在更新，请重试继续。');
   return {pages:doc.plan.pages.length};
  }
@@ -250,7 +257,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(jobs.some(job=>job.state==='running')||pendingLocal)continue;
    const row=await this.raw(id,lease.ownerId),doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
    const failed=jobs.find(job=>job.state==='failed');
-   await this.repository.save(row,lease.token,doc,!nextStep(doc,selection,59),failed?.error||null).catch(error=>{if(!(error instanceof ReaderError&&[404,409].includes(error.status)))throw error;});
+   await this.repository.save(row,lease.token,doc,!nextStep(doc,selection,readerMaxFrames-1),failed?.error||null).catch(error=>{if(!(error instanceof ReaderError&&[404,409].includes(error.status)))throw error;});
    this.leases.delete(id);
   }
  }
