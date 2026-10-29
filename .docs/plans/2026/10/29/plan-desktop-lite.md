@@ -87,3 +87,13 @@ VR risk: non-low — credentials, native process lifecycle, authenticated LAN ac
 VR review round: 1; reviewer: reused (`desktop_review`, independent/read-only).
 
 Complete criteria: 1, 6, 7, 9. Criteria 2–5 and 8 remain open to preserve the native/keyring/browser evidence gaps. Final detailed VR is recorded in `.docs/done/2026/10/29/desktop-standard.md`. No source repair is indicated by the review; progress on remaining checks requires user unlock/credential-store availability and browser automation access. Do not treat the built artifact or passing CR as full RPD acceptance.
+
+## Post-unlock native verification
+
+The user manually unlocked the Mac. The final Standard `.app` now passes native settings/runtime display (Node 24.22.1 and SQLite, no system selector), nonsecret settings save/relaunch persistence, safe no-key provider check, actual bundled-child startup, loopback-only listener with sharing off, Stop, close-to-background, reopening the same running window, and Quit while running. Process inspection confirms the child executable comes from `Shiqu.app/Contents/Resources/node/node`; Quit removes both processes and the port listener. Evidence: `.data/desktop-lite-entry/standard-native-final.txt`. This completes criterion 2. Reopen is proven; distinct second-instance focus is still unverified.
+
+The disposable Keychain round trip was retried after unlock and still fails with OSStatus -25293. Browser inventory still reports local browser use disabled in Work settings. Successful credential save/read/delete and browser-driven launch/pairing remain blocked. No source change is indicated; prior CR/TT and package checks remain current. Final E2E/acceptance tasks stay open.
+
+Read-only host diagnosis: default credential store is login.keychain-db; the system command `security show-keychain-info` itself fails with SecKeychainCopySettings authentication error (exit 51), independently of Shiqu. No unlock command or credential change was attempted.
+
+Final VR round 2 supersedes the prior locked-Mac verdict: successful OS credential persistence, browser launch/pairing, and distinct second-instance focus remain unverified; final E2E/acceptance tasks remain open. Complete criteria: 1, 2, 6, 7, 9. Remaining criteria: 3, 4, 5, 8. Independent reviewer desktop_review; full verdict preserved verbatim in the delivery report.
