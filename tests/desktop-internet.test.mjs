@@ -10,6 +10,8 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {createInterface} from 'node:readline';
 import {build} from 'esbuild';
+import {openDatabase} from '../server/database.ts';
+import {insertStory} from './fixtures/story.mjs';
 import {desktopRemote} from '../server/desktop-remote.ts';
 import {startDesktopTunnel} from '../server/desktop-tunnel.ts';
 import {desktopSettings,startDesktop,desktopFailure} from '../server/desktop.ts';
@@ -113,6 +115,7 @@ async function fixture(t){
  const root=await temporary(t);
  await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
  await mkdir(path.join(root,'dist/client'),{recursive:true});await writeFile(path.join(root,'dist/client/index.html'),'<html>temporary reader</html>');
+ const saved=openDatabase(path.join(root,'library'),root);await insertStory({services:{db:saved.db}});saved.close();
  return {root,settings:desktopSettings.parse({dataDirectory:path.join(root,'library'),port:await port(),provider:'gemini',textModel:'test',imageModel:'test',codexPath:'',codexModel:'',codexHome:'',internetEnabled:true})};
 }
 test('tunnel entry pairs safely and helper exit clears public access while LAN survives',nativeOnly,async t=>{
@@ -123,7 +126,7 @@ test('tunnel entry pairs safely and helper exit clears public access while LAN s
  const token=new URL(runtime.status.publicUrl).hash.slice(1);
  const paired=await tunnelRequest(target+'/connect',{method:'POST',headers,body:JSON.stringify({token})});assert.equal(paired.status,200);
  const Cookie=paired.headers.get('set-cookie').split(';')[0];
- const stories=await (await tunnelRequest(target+'/api/stories',{headers:{...headers,Cookie}})).json();assert.deepEqual(stories,[]);
+ const stories=await (await tunnelRequest(target+'/api/stories',{headers:{...headers,Cookie}})).json();assert.equal(stories.length,1);
  const changed=await tunnelRequest(target+'/api/me/progress',{method:'POST',headers:{...headers,Cookie,'Content-Type':'application/json'},body:JSON.stringify({storyId:stories[0].id,page:2,saved:true})});assert.equal(changed.status,200);
  process.kill(info.pid,'SIGTERM');await until(()=>updates.length);
  assert.equal(runtime.status.publicUrl,'');assert.match(updates[0].internetError,/局域网仍可使用/);
@@ -136,7 +139,7 @@ test('missing helper leaves direct local/LAN access running without pairing',nat
  let runtime=await startDesktop({...f.settings,cloudflaredPath:'/missing/cloudflared'},'',f.root);t.after(()=>runtime.stop());
  assert.equal(runtime.status.running,true);assert.equal(runtime.status.publicUrl,'');assert.match(runtime.status.internetError,/未找到 cloudflared/);assert.match(runtime.status.internetError,/无需配对 ID/);
  assert.equal((await fetch(runtime.status.url)).status,200);assert.equal(runtime.server.address().address,'0.0.0.0');
- const stories=await (await fetch(runtime.status.url+'/api/stories')).json();assert.deepEqual(stories,[]);assert.equal(new URL(runtime.status.url).hash,'');
+ const stories=await (await fetch(runtime.status.url+'/api/stories')).json();assert.equal(stories.length,1);assert.equal(new URL(runtime.status.url).hash,'');
  let lan=false;
  for(const url of runtime.status.phoneUrls){
   assert.equal(new URL(url).hash,'');assert.equal(new URL(url).pathname,'/');
