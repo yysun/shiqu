@@ -14,15 +14,16 @@ import {phoneUrls} from './phone-access.ts';
 import {createReaderProvider} from './generation.ts';
 import {stopCodexProcesses} from './codex-runner.ts';
 import {FileMedia} from './media.ts';
+import {codexReasoningEffortSchema} from '../lib/codex-settings.ts';
 
 export const desktopSettings=z.object({
  nodePath:z.string().max(4096).default(''),dataDirectory:z.string().min(1).max(4096),port:z.number().int().min(1024).max(65535),lanEnabled:z.boolean(),
  provider:z.enum(['gemini','codex']),textModel:z.string().regex(/^[\w.-]{1,100}$/),imageModel:z.string().regex(/^[\w.-]{1,100}$/),
- codexPath:z.string().max(4096),codexModel:z.string().regex(/^[\w.-]{0,100}$/),codexHome:z.string().max(4096),
+ codexPath:z.string().max(4096),codexModel:z.string().regex(/^[\w.-]{0,100}$/),codexHome:z.string().max(4096),codexReasoningEffort:codexReasoningEffortSchema,
 }).strict();
 export type DesktopSettings=z.infer<typeof desktopSettings>;
 export function desktopVariables(settings:DesktopSettings,key:string){
- return {SHIQU_AI_PROVIDER:settings.provider,GEMINI_API_KEY:key,GEMINI_TEXT_MODEL:settings.textModel,GEMINI_IMAGE_MODEL:settings.imageModel,CODEX_BIN:settings.codexPath||'codex',CODEX_MODEL:settings.codexModel,SHIQU_CODEX_HOME:settings.codexHome};
+ return {SHIQU_AI_PROVIDER:settings.provider,GEMINI_API_KEY:key,GEMINI_TEXT_MODEL:settings.textModel,GEMINI_IMAGE_MODEL:settings.imageModel,CODEX_BIN:settings.codexPath||'codex',CODEX_MODEL:settings.codexModel,SHIQU_CODEX_HOME:settings.codexHome,CODEX_REASONING_EFFORT:settings.codexReasoningEffort};
 }
 export async function testDesktopProvider(settings:DesktopSettings,key:string,root:string,transport:typeof fetch=fetch){
  if(settings.provider==='codex'){

@@ -49,6 +49,15 @@ test('desktop settings reject unknown secrets/invalid models and isolate environ
  assert.throws(()=>desktopSettings.parse({...valid,textModel:'../model'}));
  const vars=desktopVariables(valid,'private-only');assert.equal(vars.GEMINI_API_KEY,'private-only');assert.equal(vars.OPENAI_API_KEY,undefined);assert.equal(vars.SHIQU_DATA_DIR,undefined);
 });
+test('desktop effort defaults for old settings and maps explicit choices to the runner environment',()=>{
+ const legacy=settings('/tmp/library');
+ assert.equal(desktopSettings.parse(legacy).codexReasoningEffort,'');
+ for(const effort of ['','low','medium','high','xhigh','max']){
+  const parsed=desktopSettings.parse({...legacy,codexReasoningEffort:effort});
+  assert.equal(desktopVariables(parsed,'').CODEX_REASONING_EFFORT,effort);
+ }
+ for(const effort of ['light','LOW',null,'none'])assert.throws(()=>desktopSettings.parse({...legacy,codexReasoningEffort:effort}));
+});
 test('connection test uses only model metadata, does not echo credentials, and no-key checks never make requests',async()=>{
  const config=settings('/tmp/library');let calls=0;
  const none=await testDesktopProvider(config,'','/tmp',async()=>{calls++;throw Error();});assert.equal(none.ok,false);assert.equal(calls,0);

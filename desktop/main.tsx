@@ -3,9 +3,11 @@ import {useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {invoke,isTauri} from '@tauri-apps/api/core';
 import QRCode from 'qrcode';
+import {codexReasoningEfforts} from '../lib/codex-settings';
+import type {CodexReasoningEffort} from '../lib/codex-settings';
 import './styles.css';
 
-type Settings={nodePath:string;dataDirectory:string;port:number;lanEnabled:boolean;provider:'gemini'|'codex';textModel:string;imageModel:string;codexPath:string;codexModel:string;codexHome:string};
+type Settings={nodePath:string;dataDirectory:string;port:number;lanEnabled:boolean;provider:'gemini'|'codex';textModel:string;imageModel:string;codexPath:string;codexModel:string;codexHome:string;codexReasoningEffort:CodexReasoningEffort};
 type View={settings:Settings;keyPresent:boolean;credentialError:string|null;platform:string;edition:'standard'|'lite'};
 type Status={running:boolean;url?:string;phoneUrls:string[];error?:string};
 type NodeInfo={path:string;version:string;sqlite:boolean};
@@ -55,6 +57,8 @@ function Desktop(){
        <p className="help">使用本机已安装并登录的 Codex CLI。不会使用 API 密钥，也不会切换到 API 计费。</p>
        <label>Codex 可执行文件<div className="input-row"><input placeholder="留空使用 PATH 中的 codex" value={settings.codexPath} onChange={e=>update('codexPath',e.target.value)}/><button className="subtle" onClick={()=>void action('选择文件',()=>browse('codex','codexPath'))}>选择</button></div></label>
        <label>Codex 文本模型<input value={settings.codexModel} onChange={e=>update('codexModel',e.target.value)} placeholder="留空使用 CLI 默认模型"/></label>
+       <label>Codex 推理档位<select value={settings.codexReasoningEffort} onChange={e=>update('codexReasoningEffort',e.target.value as CodexReasoningEffort)}><option value="">跟随 Codex 默认</option>{codexReasoningEfforts.map(effort=><option value={effort} key={effort}>{effort}</option>)}</select></label>
+       <p className="help">Sol 建议先用 low；支持的档位取决于模型与 CLI。保存后在下次启动服务时生效。</p>
        <label>Codex 登录目录（可选）<div className="input-row"><input value={settings.codexHome} onChange={e=>update('codexHome',e.target.value)} placeholder="留空使用 CLI 默认目录"/><button className="subtle" onClick={()=>void action('选择目录',()=>browse('codexHome','codexHome'))}>选择</button></div></label>
        <p className="help">首次登录需先在终端执行 codex login；此处可检查登录状态。</p>
       </>}

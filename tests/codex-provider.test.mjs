@@ -20,14 +20,15 @@ async function fakeCli(t,mode='text'){
  const script=`#!${process.execPath}
 import {createInterface} from 'node:readline';import fs from 'node:fs';
 const mode=${JSON.stringify(mode)},capture=${JSON.stringify(capture)};
+const override=process.argv.find(arg=>arg.startsWith('model_reasoning_effort=')),effort=override?JSON.parse(override.split('=').slice(1).join('=')):'high';
 function log(data){fs.appendFileSync(capture,JSON.stringify(data)+'\\n');}function send(data){process.stdout.write(JSON.stringify(data)+'\\n');}
 log({args:process.argv.slice(2),cwd:process.cwd(),pid:process.pid,credentials:{OPENAI_API_KEY:!!process.env.OPENAI_API_KEY,CODEX_API_KEY:!!process.env.CODEX_API_KEY,GEMINI_API_KEY:!!process.env.GEMINI_API_KEY,CODEX_ACCESS_TOKEN:!!process.env.CODEX_ACCESS_TOKEN},home:process.env.CODEX_HOME});
 for await(const line of createInterface({input:process.stdin})){
  const m=JSON.parse(line);log(m);if(!m.id)continue;
  let result={};
  if(m.method==='account/read')result={account:mode==='signed-out'?null:{type:mode==='api-key'?'apiKey':'chatgpt'}};
- if(m.method==='config/read')result={config:{...(mode==='configured-model'?{model:'configured-text-model'}:{}),features:Object.fromEntries(process.argv.flatMap((arg,i)=>arg==='--disable'?[[process.argv[i+1],false]]:[])),mcp_servers:{'inherited-private-server':{enabled:true}}}};
- if(m.method==='thread/start')result={thread:{id:'fake-thread'},model:'test-codex-model',modelProvider:'openai'};
+ if(m.method==='config/read')result={config:{model_reasoning_effort:mode==='ignored-effort-config'?'high':effort,...(mode==='configured-model'?{model:'configured-text-model'}:{}),features:Object.fromEntries(process.argv.flatMap((arg,i)=>arg==='--disable'?[[process.argv[i+1],false]]:[])),mcp_servers:{'inherited-private-server':{enabled:true}}}};
+ if(m.method==='thread/start')result={thread:{id:'fake-thread'},model:'test-codex-model',modelProvider:'openai',reasoningEffort:mode==='ignored-effort-thread'?'high':effort};
  if(m.method==='mcpServerStatus/list')result={data:mode==='unsafe'?[{tools:{read_secret:{}}}]:[{name:'inherited-private-server',tools:{}}],nextCursor:null};
  send({id:m.id,result});
  if(m.method==='turn/start'){
@@ -58,6 +59,28 @@ test('signed-out and API-key Codex logins never start inference or fall back to 
   await assert.rejects(runner.run({instructions:'test',prompt:'test'}),error=>error.message==='CHATGPT_LOGIN_REQUIRED');assert.ok(!(await fake.log()).some(row=>row.method==='turn/start'));
  }
  const missing=createCodexRunner({CODEX_BIN:'/missing/codex'});assert.equal((await missing.status()).reason,'CLI_UNAVAILABLE');
+});
+
+test('explicit effort reaches CLI config and thread; omitted or blank effort keeps inherited high',async t=>{
+ for(const value of [undefined,'','   ','low','medium','high','xhigh','max',' low ']){
+  const fake=await fakeCli(t),effort=value?.trim()||'';
+  const runner=createCodexRunner({CODEX_BIN:fake.binary,CODEX_REASONING_EFFORT:value});
+  assert.equal((await runner.status()).configured,true);
+  await runner.run({instructions:'JSON',prompt:'effort fixture'});
+  const rows=await fake.log(),override=rows.find(row=>row.args).args.filter(arg=>arg.startsWith('model_reasoning_effort='));
+  assert.deepEqual(override,effort?[`model_reasoning_effort=${JSON.stringify(effort)}`]:[]);
+  assert.equal(rows.filter(row=>row.method==='turn/start').length,1,'status must not infer');
+ }
+});
+test('invalid effort fails before spawn and ignored config/thread fail before inference',async t=>{
+ for(const value of ['light','LOW','none','minimal','low\n-c injected=true'])assert.throws(()=>createCodexRunner({CODEX_BIN:'/must-not-start',CODEX_REASONING_EFFORT:value}),error=>error.message==='INVALID_REASONING_EFFORT');
+ for(const mode of ['ignored-effort-config','ignored-effort-thread']){
+  const fake=await fakeCli(t,mode),runner=createCodexRunner({CODEX_BIN:fake.binary,CODEX_REASONING_EFFORT:'low'});
+  await assert.rejects(runner.run({instructions:'JSON',prompt:'fixture'}),error=>error.message==='REASONING_EFFORT_UNAVAILABLE');
+  assert.ok(!(await fake.log()).some(row=>row.method==='turn/start'));
+  if(mode==='ignored-effort-config')assert.equal((await runner.status()).reason,'REASONING_EFFORT_UNAVAILABLE');
+ }
+ assert.match(safeCodexError(new CodexError('REASONING_EFFORT_UNAVAILABLE')),/推理档位/);
 });
 
 test('status exposes the configured text model for cache identity without starting inference',async t=>{

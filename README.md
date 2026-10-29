@@ -74,6 +74,8 @@ docker compose up --build -d
 
 ```dotenv
 SHIQU_AI_PROVIDER=codex
+CODEX_MODEL=gpt-6.1-sol
+CODEX_REASONING_EFFORT=low
 ```
 
 在 macOS 或 Linux 上，请安装经过测试的 CLI，并使用运行 Shiqu 的同一台电脑和同一用户登录 ChatGPT 账户。在 Windows 上，请使用下方的 Docker 配置或 Gemini 模式：
@@ -94,11 +96,14 @@ pnpm dev
 | 变量 | 用途 |
 | --- | --- |
 | `CODEX_BIN` | Codex 可执行文件或其绝对路径；默认为 `codex` |
-| `CODEX_MODEL` | 可选的文本模型覆盖值；留空时使用 Codex 默认模型 |
+| `CODEX_MODEL` | 故事选题、主题匹配和规划使用的文本模型；配置示例指定 `gpt-6.1-sol`，留空时使用 Codex 默认模型 |
+| `CODEX_REASONING_EFFORT` | Codex 推理档位：`low`、`medium`、`high`、`xhigh`、`max`；留空或省略时继承 CLI 配置，示例推荐 `low`。模型与 CLI 必须支持所选值，不支持时明确报错 |
 | `SHIQU_CODEX_HOME` | 可选的 CLI 专用登录目录；留空时使用 CLI 默认目录 |
 | `SHIQU_CODEX_HOST_HOME` | 下方 Docker 配置使用的主机登录文件夹 |
 
 pnpm 登录/状态命令会读取 `.env`，并自动使用 `CODEX_BIN` 和 `SHIQU_CODEX_HOME`，与应用保持一致。对于没有浏览器的设备，请运行 `pnpm run codex:login -- --device-auth`。订阅令牌不会写入 `.env`，也不会传给浏览器。
+
+修改模型或推理档位后需重启 Node 服务；Docker 配置需重新创建容器。推理档位覆盖仅作用于本应用启动的 Codex 进程，不修改全局 Codex 配置。选题、分镜和原生绘图请求共用此设置；既有缓存和已保存故事不会因此重新生成。桌面版不读取项目 `.env`，请在应用的 Codex 设置中选择推理档位并保存。
 
 Codex 模式支持书名来源。自定义网页 URL 来源需要使用 Gemini 模式，因为隔离的 Codex 运行器无法访问浏览器或网页抓取功能。古典原文段落仍通过 Shiqu 已核验的来源检索获取。现有故事、图片参考、美术风格、制作说明、检查点和当前重试行为均可继续使用。
 

@@ -20,6 +20,8 @@ pub struct Settings {
     pub image_model: String,
     pub codex_path: String,
     pub codex_model: String,
+    #[serde(default)]
+    pub codex_reasoning_effort: String,
     pub codex_home: String,
 }
 
@@ -35,10 +37,16 @@ impl Settings {
             image_model: "gemini-nano-banana-2.1".into(),
             codex_path: String::new(),
             codex_model: "gpt-6.1-sol".into(),
+            codex_reasoning_effort: String::new(),
             codex_home: String::new(),
         }
     }
     pub fn validate(&self) -> Result<(), String> {
+        if !["", "low", "medium", "high", "xhigh", "max"]
+            .contains(&self.codex_reasoning_effort.as_str())
+        {
+            return Err("请选择有效的 Codex 推理档位，或跟随 Codex 默认。".into());
+        }
         if self.port < 1024 || !["gemini", "codex"].contains(&self.provider.as_str()) {
             return Err("请选择有效的提供方与 1024–65535 之间的端口。".into());
         }
@@ -378,6 +386,50 @@ mod tests {
         drop(store);
         let store = Store::open(&file, &folder).unwrap();
         assert_eq!(store.settings().unwrap().port, 43129);
+        drop(store);
+        fs::remove_dir_all(folder).unwrap();
+    }
+    #[test]
+    fn reasoning_effort_reads_old_settings_and_persists_without_changing_keys() {
+        let folder = folder();
+        let file = folder.join("desktop.sqlite");
+        let mut old = serde_json::to_value(Settings::defaults(&folder)).unwrap();
+        old.as_object_mut().unwrap().remove("codexReasoningEffort");
+        fs::write(
+            folder.join("settings.json"),
+            serde_json::to_vec(&old).unwrap(),
+        )
+        .unwrap();
+        let store = Store::open(&file, &folder).unwrap();
+        assert_eq!(store.settings().unwrap().codex_reasoning_effort, "");
+        // Simulate an already-versioned database written by an older application.
+        store
+            .db
+            .execute(
+                "UPDATE desktop_settings SET value=?1 WHERE id=1",
+                [old.to_string()],
+            )
+            .unwrap();
+        drop(store);
+        let mut store = Store::open(&file, &folder).unwrap();
+        assert_eq!(store.settings().unwrap().codex_reasoning_effort, "");
+        let mut settings = store.settings().unwrap();
+        for effort in ["low", "medium", "high", "xhigh", "max", ""] {
+            settings.codex_reasoning_effort = effort.into();
+            store
+                .save(&settings, KeyChange::Set("disposable-effort-test-key"))
+                .unwrap();
+            drop(store);
+            store = Store::open(&file, &folder).unwrap();
+            assert_eq!(store.settings().unwrap().codex_reasoning_effort, effort);
+            assert_eq!(store.key().unwrap(), "disposable-effort-test-key");
+        }
+        for invalid in ["light", "LOW", "none", "low\n-c unsafe=true"] {
+            settings.codex_reasoning_effort = invalid.into();
+            assert!(store.save(&settings, KeyChange::Delete).is_err());
+            assert_eq!(store.settings().unwrap().codex_reasoning_effort, "");
+            assert_eq!(store.key().unwrap(), "disposable-effort-test-key");
+        }
         drop(store);
         fs::remove_dir_all(folder).unwrap();
     }

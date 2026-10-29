@@ -35,6 +35,11 @@ Codex 使用本机已登录的 CLI，可设置可执行文件、模型和登录�
 
 设置及密钥保存在系统应用配置目录的 `com.shiqu.desktop/desktop.sqlite`，独立于故事库，不读取项目 `.env`。首次使用会迁移旧版非密钥 `settings.json`，之后只读取数据库，不覆盖后续更改；旧文件保留不动。Unix 下应用配置目录/数据库权限为 0700/0600，Windows 使用用户配置目录的继承 ACL。备份数据库也会包含已保存的明文密钥。默认数据在系统应用数据目录下的 `library`。macOS 两者通常位于 `~/Library/Application Support/com.shiqu.desktop/`。更换数据目录切换书架，不会搬移文件。不要让 Docker/Node 和桌面版同时使用同一数据目录。
 
+Codex 模式提供“推理档位”：跟随 Codex 默认、low、medium、high、xhigh、max。Sol 建议先选 low；具体支持取决于模型和 CLI。空值及旧配置缺少该字段时继续继承 CLI 配置。保存后在下次启动服务时生效，服务运行中不能修改。该选项用于应用内所有 Codex 请求，等价于 Node/Docker 的 `CODEX_REASONING_EFFORT`，但桌面版仍只读取自己的设置数据库。显式档位未被 CLI 采用时会报错，不会静默回退。
+
+新版本保存后的设置包含 `codexReasoningEffort`；旧版程序可能拒绝未知字段，回退前请备份设置数据库。
+
+
 macOS 的“文稿”“桌面”等受保护目录可能等待系统文件访问授权；推荐使用默认应用数据目录。自定义目录请通过“选择”按钮选择，并在系统提示时由你决定是否授权。
 
 ## 浏览器与手机

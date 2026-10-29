@@ -5,6 +5,8 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createInterface} from 'node:readline';
 import {codexEnvironment} from '../scripts/codex-env.mjs';
+import {codexReasoningEffortSchema} from '../lib/codex-settings.ts';
+import type {CodexReasoningEffort} from '../lib/codex-settings.ts';
 export {codexEnvironment} from '../scripts/codex-env.mjs';
 
 export class CodexError extends Error {constructor(code:string){super(code);this.name='CodexError';}}
@@ -20,15 +22,19 @@ export function stopCodexProcesses(){
  const stopped=children.map(child=>new Promise<void>(resolve=>{child.once('close',()=>resolve());killChild(child);}));
  return Promise.all(stopped).then(()=>{});
 }
-export function codexArguments(directory:string){
+export function codexArguments(directory:string,effort:CodexReasoningEffort=''){
  const args=['app-server','--listen','stdio://','-c','web_search="disabled"','-c','features.skip_host_skill_discovery=true','-c','features.code_mode_host=true','-c','features.image_generation=true','-c','default_permissions="shiqu-generation"','-c',`permissions.shiqu-generation.filesystem={ ":root" = "deny", ${JSON.stringify(directory)} = "read" }`];
  for(const feature of disabled)args.push('--disable',feature);
+ if(effort)args.push('-c',`model_reasoning_effort=${JSON.stringify(effort)}`);
  return args;
 }
 type Message=Record<string,unknown>;
 export function createCodexRunner(variables:Record<string,string|undefined>,options:{environment?:NodeJS.ProcessEnv;timeoutMs?:number}={}):CodexRunner{
  const binary=variables.CODEX_BIN?.trim()||'codex',model=variables.CODEX_MODEL?.trim();
  if(model&&!/^[a-zA-Z0-9._-]{1,100}$/.test(model))throw new CodexError('INVALID_MODEL');
+ const setting=codexReasoningEffortSchema.safeParse(variables.CODEX_REASONING_EFFORT?.trim());
+ if(!setting.success)throw new CodexError('INVALID_REASONING_EFFORT');
+ const effort=setting.data;
  async function execute(job?:CodexJob):Promise<CodexResult|null>{
   const directory=await mkdtemp(path.join(tmpdir(),'shiqu-codex-'));
   let child:ReturnType<typeof spawn>|undefined,timer:ReturnType<typeof setTimeout>|undefined;
@@ -41,7 +47,7 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
   if(process.platform==='win32'){await rm(directory,{recursive:true,force:true});throw new CodexError('UNSUPPORTED_PLATFORM');}
   try{
    const completion=new Promise<CodexResult>((resolve,reject)=>{failure=reject;
-    child=spawn(binary,codexArguments(directory),{cwd:directory,env,stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32',windowsHide:true});
+    child=spawn(binary,codexArguments(directory,effort),{cwd:directory,env,stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32',windowsHide:true});
     activeChildren.add(child);child.once('close',()=>activeChildren.delete(child!));
     exited=new Promise(resolve=>child!.once('close',()=>resolve()));
     timer=setTimeout(()=>fail(new CodexError('TIMEOUT')),Math.min(options.timeoutMs||180000,job?.timeoutMs||(job?120000:10000)));
@@ -86,11 +92,13 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
       const account=await call('account/read',{refreshToken:false});
       if(account.account?.type!=='chatgpt')throw new CodexError('CHATGPT_LOGIN_REQUIRED');
       const config=await call('config/read',{});
+      if(effort&&config.config?.model_reasoning_effort!==effort)throw new CodexError('REASONING_EFFORT_UNAVAILABLE');
       if(disabled.some(feature=>config.config?.features?.[feature]!==false)||config.config?.features?.code_mode_host===false||config.config?.features?.image_generation===false)throw new CodexError('UNSAFE_CONFIGURATION');
       if(!job){closed=true;resolve({text:'',image:null,model:model||(typeof config.config?.model==='string'?config.config.model:''),requestId:'',usage:null});return;}
       const servers=config.config?.mcp_servers||{};
       const thread=await call('thread/start',{cwd:directory,ephemeral:true,approvalPolicy:'never',modelProvider:'openai',...(model?{model}:{}),config:{forced_login_method:'chatgpt',mcp_servers:Object.fromEntries(Object.keys(servers).map(name=>[name,{enabled:false}]))},developerInstructions:job.instructions});
       if(thread.modelProvider!=='openai')throw new CodexError('UNSAFE_CONFIGURATION');
+      if(effort&&thread.reasoningEffort!==effort)throw new CodexError('REASONING_EFFORT_UNAVAILABLE');
       threadId=thread.thread.id;actualModel=thread.model;
       const scoped=await call('mcpServerStatus/list',{threadId});
       if(scoped.nextCursor||scoped.data?.some((server:any)=>Object.keys(server.tools||{}).length||server.resources?.length||server.resourceTemplates?.length))throw new CodexError('UNSAFE_CONFIGURATION');
