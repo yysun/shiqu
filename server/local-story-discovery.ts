@@ -77,6 +77,8 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   return true;
  };
  const migrateLegacy=async()=>{
+  // A caller may have observed a stale cache miss before joining this migration flight.
+  const existing=await cache.read(key,stateSchema,validate);if(existing)return existing;
   const oldKey=legacyDiscoveryNamespace(book,status.provider,status.models.text)+'/theme/'+discoveryHash(theme);
   const saved=await cache.read(oldKey,stateSchema,value=>{
    for(const story of value.stories)qualified(books,book,story.source);

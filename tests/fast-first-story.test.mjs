@@ -71,6 +71,22 @@ test('legacy stories survive a missing manifest without trusting its numeric cur
  assert.equal(saved.cursor,0);assert.equal(saved.exhausted,false);
 });
 
+test('a delayed pre-migration cache miss cannot overwrite newer verified stories and cursor',async()=>{
+ const f=fixture(),store=memory(),cache=new StoryDiscoveryCache(store),theme=discoveryHash(selection.theme);
+ await cache.write(legacyDiscoveryNamespace(f.book,'codex','mock')+'/theme/'+theme,{stories:[f.stories[0]],cursor:0,readThrough:0,pendingEvents:[],exhausted:false,rejected:false});
+ const key=discoveryNamespace(f.book,'codex','mock')+'/theme/'+theme,filename='reader-cache/'+discoveryHash(key)+'.json';
+ let release,held=false;const gate=new Promise(resolve=>{release=resolve;}),get=store.get;
+ store.get=async key=>{const result=await get(key);if(key===filename&&!held){held=true;await gate;}return result;};
+ const slow=discoverLocalStories(f.provider,f.books,cache,f.book,selection,[]);
+ while(!held)await new Promise(resolve=>setTimeout(resolve,1));
+ const first=await discoverLocalStories(f.provider,f.books,cache,f.book,selection,[]);assert.equal(first.stories.length,1);
+ f.provider.suggestions=async()=>({stories:[f.stories[1]],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}});
+ await discoverLocalStories(f.provider,f.books,cache,f.book,selection,[],undefined,first.stories.map(s=>s.source));
+ const before=JSON.parse(new TextDecoder().decode(store.values.get(filename))).value;assert.equal(before.cursor,1);assert.equal(before.stories.length,2);
+ release();assert.equal((await slow).stories.length,2);
+ assert.deepEqual(JSON.parse(new TextDecoder().decode(store.values.get(filename))).value,before);
+});
+
 test('active chapters and checking stages validate without pretending an unfinished block is complete',()=>{
  const progress={completed:0,total:3,completedChars:0,totalChars:1000,stage:'checking',mode:'chapters',currentChapters:['第一回','第二回']};
  assert.deepEqual(suggestionProgressSchema.parse(progress),progress);
