@@ -1,11 +1,11 @@
 // Verify continuous production through REST, real SQLite/files, and both controlled providers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {productionFixture,until,turn,encoded} from './fixtures/production.mjs';
+import {productionFixture,until,turn,encoded,makePlan} from './fixtures/production.mjs';
 import {advanceStory} from '../lib/reader-engine.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {configuredImageWorkers,ReaderProductionCoordinator} from '../server/reader-production.ts';
-import {referenceImageKey} from '../lib/reader-image-assets.ts';
+import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 
@@ -111,6 +111,42 @@ test('queue routes validate input/origin and use server owner identity',async t=
  assert.equal(await f.app.services.production.managed('another-owner',id),false);
 });
 
+test('reference validation accepts reordered same-story assets and rejects malformed or out-of-range paths',()=>{
+ for(const page of [0,1,6,59])for(const extension of ['png','jpg','webp'])for(const artifactId of [undefined,'a'.repeat(64)]){
+  const asset=readerImageAsset('story',page,extension,artifactId);
+  assert.equal(referenceImageKey('story',asset.url),asset.key);
+ }
+ for(const file of ['60.png','-1.png','1.5.png','01.png','1.svg','artifacts/60-'+'a'.repeat(64)+'.png','artifacts/1-short.png','artifacts/1-'+'a'.repeat(64)+'.png/extra','../other/1.png','%2e%2e/1.png','1.png?other=1','1.png\n']){
+  assert.equal(referenceImageKey('story','/api/reader/media/story/'+file),null,file);
+ }
+ assert.equal(referenceImageKey('story','/api/reader/media/other/1.png'),null);
+});
+
+for(const provider of ['codex','gemini'])test(`${provider}: reordered story resumes at page 11 after restart without regenerating ten saved images`,async t=>{
+ const f=await productionFixture(t,provider,{SHIQU_IMAGE_WORKERS:'1'}),id=await f.create(30);
+ const images=Array(30).fill(''),bytes=Buffer.from(encoded,'base64');
+ // The original first image moved to page 7; the new first image retains its original filename.
+ for(const [page,originalPage] of [1,2,3,4,5,6,0,7,8,9].entries()){
+  const asset=readerImageAsset(id,originalPage,'png','a'.repeat(64));
+  await f.media.put(asset.key,bytes,{contentType:'image/png'});images[page]=asset.url;
+ }
+ const doc={plan:makePlan(30),original:{title:'庄周梦蝶',text:'庄周梦为胡蝶。',url:'https://example.com/original',kind:'passage',provider:'fixture',retrievedAt:new Date().toISOString()},images,audio:[],usage:[]};
+ await f.app.services.database.prepare("UPDATE reader_sessions SET document=?,state='failed',error='previous failure',page=10 WHERE id=?").bind(JSON.stringify(doc),id).run();
+ await f.restart();f.control.hold=true;
+ assert.equal((await f.read(id)).ready,10);assert.equal(f.control.calls.length,0);
+ const viewer=crypto.randomUUID();await f.demand(id,viewer,10,true);
+ await until(()=>f.control.calls.length===1);
+ assert.equal(f.control.calls[0].page,10);assert.equal(f.control.calls[0].reference,encoded);
+ await f.leave(id,viewer);f.control.calls[0].resolve();
+ await until(async()=>(await f.read(id)).ready===11);
+ const resumed=await f.read(id);
+ assert.deepEqual(resumed.story.pages.slice(0,10).map(p=>p.image),images.slice(0,10));
+ for(const image of images.slice(0,10))assert.deepEqual(Buffer.from((await f.media.get(referenceImageKey(id,image))).body),bytes);
+ assert.equal(f.control.calls.length,1);assert.equal(f.control.plans.length,0);
+ const stored=await f.app.services.database.prepare('SELECT document FROM reader_sessions WHERE id=?').bind(id).first();
+ assert.deepEqual(JSON.parse(stored.document).usage.map(u=>u.step),['image:10']);
+});
+
 for(const provider of ['codex','gemini'])test(`${provider}: immutable attempts and exact same-story anchor validation protect replacement bytes`,async t=>{
  const f=await productionFixture(t,provider),id=await f.create(),original=f.app.services.production;
  await f.demand(id);await until(()=>f.control.calls.length===1);original.stop();
@@ -126,10 +162,13 @@ for(const provider of ['codex','gemini'])test(`${provider}: immutable attempts a
  f.control.calls[0].bytes=Buffer.concat([Buffer.from(encoded,'base64'),Buffer.from([1])]).toString('base64');f.control.calls[0].resolve();await original.queue.settle();
  assert.equal((await replacement.snapshot('docker-local-owner',id)).story.pages[0].image,saved);assert.deepEqual((await f.media.get(key)).body,before);
  const row=await f.app.services.database.prepare('SELECT document FROM reader_sessions WHERE id=?').bind(id).first();assert.equal(JSON.parse(row.document).usage.filter(u=>u.step==='image:0').length,1);
- for(const reference of [saved.replace(id,crypto.randomUUID()),saved.replace('/artifacts/','/artifacts/../'),saved.replace('/0-','/1-'),saved.replace('.png','.svg')]){
+ for(const reference of [saved.replace(id,crypto.randomUUID()),saved.replace('/artifacts/','/artifacts/../'),saved.replace('/0-','/60-'),saved.replace('.png','.svg')]){
   assert.equal(referenceImageKey(id,reference),null);const count=f.control.calls.length;
   await assert.rejects(f.generation.generator().image(JSON.parse(row.document).plan,1,id,reference));assert.equal(f.control.calls.length,count);
  }
+ const count=f.control.calls.length;
+ await assert.rejects(f.generation.generator().image(JSON.parse(row.document).plan,1,id,saved.replace('/0-','/1-')));
+ assert.equal(f.control.calls.length,count,'A valid-looking but missing reference must fail before inference');
  f.control.hold=false;for(const call of f.control.calls)call.resolve();await replacement.close();
 });
 
