@@ -4,7 +4,7 @@
 
 The desktop left pane now opens generated stories in「书架」, with「生成队列」and「设置」tabs. Shelf and queue show source book, theme and art style from the shared SQLite library. The shelf supports search, favorite filtering, source-book grouping and confirmed deletion with undo. Summaries do not dispatch generation; deletion uses existing reader tombstones and preserves stories, media and checkpoints.
 
-The reader shelf supports the same search and grouping. Groups containing one story use a full-width card. Favorite/unfavorite and delete actions sit in the card's top-right corner, outside the reading button. Favorites work for unfinished and readable stories without moving reading progress or starting production. Server favorite flags replace stale browser cache flags while retaining newer reading positions.
+The reader shelf supports the same search and grouping. Groups containing one story use a full-width card. Favorite/unfavorite and delete actions sit in the card's top-right corner without a surrounding border, background or shadow, outside the reading button. Favorites work for unfinished and readable stories without moving reading progress or starting production. Server favorite flags replace stale browser cache flags while retaining newer reading positions. Home recent-story cards and the reader footer show theme before art style.
 
 Desktop UI development uses `pnpm desktop:preview` in the in-app browser. The reader uses `pnpm dev`. Independent Vite caches allow both previews to run together. Desktop preparation, bundling and Docker builds remain on demand.
 
@@ -15,6 +15,7 @@ Desktop UI development uses `pnpm desktop:preview` in the in-app browser. The re
 - `pnpm typecheck`, `pnpm lint` and `git diff --check` passed.
 - In-app browser verification covered desktop tabs, real summaries, temporary-library delete/undo, search/grouping and reader single-story layout. Reader favorite/unfavorite was checked for a readable and an unfinished story, including refresh persistence and favorite filtering. Test favorites were restored; reading positions and last-read timestamps were unchanged.
 - Latest reader layout screenshot: [shelf-card-actions.jpg](/Users/esun/.codex/visualizations/2026/10/29/01a187ff-2868-7570-999c-d29df8f6d8bb/shelf-card-actions.jpg).
+- Follow-up layout verification in the same in-app preview confirms borderless shelf actions and `爱情与错过 · 水墨写意` on the home card and reader footer. Screenshots: [shelf actions](/Users/esun/.codex/visualizations/2026/10/29/01a187ff-2868-7570-999c-d29df8f6d8bb/shelf-card-actions-borderless.jpg), [home](/Users/esun/.codex/visualizations/2026/10/29/01a187ff-2868-7570-999c-d29df8f6d8bb/home-theme-style-order.jpg), [reader](/Users/esun/.codex/visualizations/2026/10/29/01a187ff-2868-7570-999c-d29df8f6d8bb/reader-theme-style-order.jpg). Typecheck, targeted ESLint and whitespace checks passed after the follow-up; no production logic changed.
 - Existing CR conclusions remain valid: `CR passed: no major findings`. Delivery documentation adds no runtime changes.
 
 ## Final acceptance review
@@ -27,6 +28,7 @@ VR passed: all acceptance criteria complete
 | Shared generated-story shelf and queue show theme and art style | Complete | Shared SQL feeds Vite and native summaries; owner/deletion filtering and task counts pass fixture tests. Browsing does not start production. |
 | Search, source-book grouping and single-story full-width reader cards | Complete | Shared search/grouping tests pass; in-app browser confirms filtered source-book groups and the horizontal single-story card. |
 | Reversible shelf deletion and explicit card favorites | Complete | Native and Node delete/undo tests preserve checkpoints. Favorite API tests cover unfinished, generated and published stories, ownership, deleted entries, malformed bodies and foreign origins. Browser confirms persistent toggles and compact corner actions without changing reading progress. |
+| Borderless tool buttons and theme before art style | Complete | Card action container has no border, background or shadow. In-app screenshots confirm the shelf layout and theme-first labels on home cards and the reader footer. |
 | Clear historical favorites and prevent stale cache restoration | Complete | Requested reset cleared 15 historical favorites with a full pre-reset backup. Reconciliation regression tests pass. A later intentional favorite is preserved. |
 | Develop in-app and package only on demand | Complete | AGENTS.md and desktop documentation record the workflow. Verification used previews, local checks and source tests; no desktop or Docker package was built for this change. |
 
