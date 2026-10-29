@@ -1,3 +1,4 @@
+// Merge reading positions by time; server snapshots separately own persisted favorite flags.
 import type {Story} from './content';
 
 export type ReadingProgress={storyId:string;page:number;saved?:number;updatedAt?:string|null};
@@ -5,6 +6,10 @@ export function mergeReadingProgress(...groups:ReadingProgress[][]){
  const rows=new Map<string,ReadingProgress>();
  for(const group of groups)for(const row of group){const old=rows.get(row.storyId);if(!old||(Date.parse(row.updatedAt||'')||0)>(Date.parse(old.updatedAt||'')||0))rows.set(row.storyId,row);}
  return [...rows.values()].sort((a,b)=>(Date.parse(b.updatedAt||'')||0)-(Date.parse(a.updatedAt||'')||0));
+}
+export function reconcileReadingProgress(current:ReadingProgress[],authoritative:ReadingProgress[]){
+ const favorites=new Map(authoritative.filter(row=>row.saved!==undefined).map(row=>[row.storyId,row.saved]));
+ return mergeReadingProgress(current,authoritative).map(row=>favorites.has(row.storyId)?{...row,saved:favorites.get(row.storyId)}:row);
 }
 export function recentHeroes(stories:Story[],lastReadId:string,progress:ReadingProgress[],limit=10){
  const rows=mergeReadingProgress(progress);

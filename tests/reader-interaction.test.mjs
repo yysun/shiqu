@@ -1,3 +1,4 @@
+// Protect reading gestures, shelf navigation, and persisted reading/favorite reconciliation.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {newWheelGesture,wheelPageDirection,swipePageDirection,edgePageDirection} from '../lib/reader-navigation.ts';
@@ -90,4 +91,25 @@ test('recent carousel keeps ten distinct readable stories, newest reading first,
  assert.deepEqual(recentHeroes([],sample.id,progress),[]);
  assert.equal(recentHeroes([sample],'',[])[0].recent,false);
  const merged=mergeReadingProgress([{storyId:'s0',page:1,updatedAt:'2026-10-20'}],[{storyId:'s0',page:5,updatedAt:'2026-10-27'}]);assert.equal(merged[0].page,5);
+});
+
+import {reconcileReadingProgress} from '../lib/reader-home.ts';
+test('server favorite resets replace newer browser flags without discarding the latest reading position',()=>{
+ const cached=[{storyId:'generated',page:7,saved:1,updatedAt:'2026-10-29T12:00:00Z'}];
+ const server=[{storyId:'generated',page:3,saved:0,updatedAt:'2026-10-28T12:00:00Z'}];
+ const [row]=reconcileReadingProgress(cached,server);
+ assert.deepEqual(row,{...cached[0],saved:0});
+ assert.equal(reconcileReadingProgress(cached,[{...server[0],saved:1}])[0].saved,1);
+ assert.equal(reconcileReadingProgress(cached,[{storyId:'other',page:0,saved:0}]).find(row=>row.storyId==='generated').saved,1);
+});
+test('published and generated progress hydration reconcile favorite flags regardless of response order',()=>{
+ const local=[{storyId:'generated',page:7,saved:1,updatedAt:'2026-10-29'},{storyId:'published',page:3,saved:1,updatedAt:'2026-10-29'}];
+ const generated=[{storyId:'generated',page:1,saved:0,updatedAt:'2026-10-28'}],published=[{storyId:'published',page:0,saved:0,updatedAt:'2026-10-28'}];
+ for(const groups of [[generated,published],[published,generated]]){
+  let authoritative=[],visible=local;
+  for(const group of groups){authoritative=reconcileReadingProgress(authoritative,group);visible=reconcileReadingProgress(visible,authoritative);}
+  assert.ok(visible.every(row=>row.saved===0));
+  assert.equal(visible.find(row=>row.storyId==='generated').page,7);
+  assert.equal(visible.find(row=>row.storyId==='published').page,3);
+ }
 });

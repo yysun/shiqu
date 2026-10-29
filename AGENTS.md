@@ -13,3 +13,8 @@
 
 - Build or package Docker images only when the user explicitly requests it.
 - Do not automatically build Docker images after code changes or as part of routine verification. Use the applicable local checks instead.
+
+## Desktop Development
+
+- Develop and verify the desktop UI in the in-app browser using `pnpm desktop:preview` (Vite). Reuse the relevant existing tab.
+- Bundle or package the desktop application only when the user explicitly requests it. Do not run desktop preparation or build commands as routine verification; use local checks and browser verification instead.

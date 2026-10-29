@@ -25,6 +25,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path.join('/')==='deletions'&&req.method==='GET')return json(await repo.deletions(uid));
   if(path[0]==='library'&&path.length===2&&req.method==='DELETE'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.remove(id,uid));}
   if(path[0]==='library'&&path.length===3&&path[2]==='restore'&&req.method==='POST'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.restore(id,uid));}
+  if(path[0]==='library'&&path.length===3&&path[2]==='favorite'&&req.method==='POST'){const id=z.string().min(1).max(100).parse(path[1]);const b=z.object({saved:z.boolean()}).strict().parse(await body(req));return json(await repo.favorite(id,uid,b.saved));}
   if(path.join('/')==='suggestions'&&req.method==='POST'){
    await requireProvider();
    const {excludeTitles,excludeSources,...selection}=suggestionRequestSchema.parse(await body(req,1048576));

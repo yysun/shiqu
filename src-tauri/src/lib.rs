@@ -1,5 +1,6 @@
 // Keep desktop privileges in local-only native commands; reader/phone pages never load this bridge.
 mod config;
+mod library;
 mod runtime;
 
 use config::Settings;
@@ -81,6 +82,40 @@ async fn get_settings(
     blocking(move || {
         let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
         settings_view(&app, &mut control)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn library_summary(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Value, String> {
+    let shared = state.0.clone();
+    blocking(move || {
+        let directory = {
+            let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
+            open_store(&app, &mut control)?.settings()?.data_directory
+        };
+        library::summary(std::path::Path::new(&directory))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn set_library_story_deleted(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DesktopState>,
+    id: String,
+    deleted: bool,
+) -> Result<(), String> {
+    let shared = state.0.clone();
+    blocking(move || {
+        let directory = {
+            let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
+            open_store(&app, &mut control)?.settings()?.data_directory
+        };
+        library::set_deleted(std::path::Path::new(&directory), &id, deleted)
     })
     .await
 }
@@ -281,6 +316,8 @@ pub fn run() {
         .manage(DesktopState::default())
         .invoke_handler(tauri::generate_handler![
             get_settings,
+            library_summary,
+            set_library_story_deleted,
             save_settings,
             detect_node,
             choose_path,

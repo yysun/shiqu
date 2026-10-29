@@ -22,6 +22,7 @@
     "desktop:prepare": "pnpm build && pnpm exec vite build --config desktop/vite.config.ts && node scripts/desktop-resources.mjs && node scripts/desktop-node.mjs",
     "desktop:prepare:lite": "pnpm build && pnpm exec vite build --config desktop/vite.config.ts && node scripts/desktop-resources.mjs --lite",
     "desktop:dev": "pnpm exec tauri dev",
+    "desktop:preview": "vite --config desktop/vite.config.ts",
     "desktop:build": "pnpm exec tauri build",
     "desktop:build:lite": "pnpm exec tauri build --config src-tauri/tauri.lite.conf.json",
     "desktop:dev:lite": "pnpm exec tauri dev --config src-tauri/tauri.lite.conf.json",

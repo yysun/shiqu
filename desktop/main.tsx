@@ -1,8 +1,11 @@
-// Native-only settings: keys always persist in private SQLite and never return in settings reads.
+// Desktop tabs share shelf controls; native settings keep keys private and browser service controls disabled.
 import {useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {invoke,isTauri} from '@tauri-apps/api/core';
 import QRCode from 'qrcode';
+import {BookOpen,Layers3,Settings2} from 'lucide-react';
+import {LibraryPane} from './LibraryPane';
+import type {DesktopTab} from './LibraryPane';
 import {codexReasoningEfforts} from '../lib/codex-settings';
 import type {CodexReasoningEffort} from '../lib/codex-settings';
 import './styles.css';
@@ -12,15 +15,18 @@ type View={settings:Settings;keyPresent:boolean;credentialError:string|null;plat
 type Status={running:boolean;url?:string;phoneUrls:string[];error?:string};
 type NodeInfo={path:string;version:string;sqlite:boolean};
 type KeyAction='keep'|'replace'|'delete';
+const tabs=[['library','书架',BookOpen],['queue','生成队列',Layers3],['settings','设置',Settings2]] as const;
+const previewSettings:Settings={nodePath:'',dataDirectory:'桌面应用中保存的故事目录',port:3000,lanEnabled:false,provider:'gemini',textModel:'gemini-3.8-flash',imageModel:'gemini-nano-banana-2.1',codexPath:'',codexModel:'gpt-6.1-sol',codexHome:'',codexReasoningEffort:''};
 
 function Desktop(){
+ const [tab,setTab]=useState<DesktopTab>('library');
  const [view,setView]=useState<View|null>(null),[settings,setSettings]=useState<Settings|null>(null),[status,setStatus]=useState<Status>({running:false,phoneUrls:[]});
  const [key,setKey]=useState(''),[keyAction,setKeyAction]=useState<KeyAction>('keep'),[reveal,setReveal]=useState(false),[node,setNode]=useState<NodeInfo|null>(null),[nodeError,setNodeError]=useState('');
  const [busy,setBusy]=useState(''),[message,setMessage]=useState(''),[error,setError]=useState(''),[phone,setPhone]=useState(''),[qr,setQr]=useState('');
  const native=isTauri(),lite=view?.edition==='lite';
  async function checkNode(nodePath:string){try{const info=await invoke<NodeInfo>('detect_node',{nodePath});setNode(info);setNodeError('');return info;}catch(e){setNode(null);setNodeError(String(e));return null;}}
  useEffect(()=>{
-  if(!native){setError('请在拾趣桌面应用中打开设置。');return;}
+  if(!native){if(import.meta.env.DEV){setSettings(previewSettings);setView({settings:previewSettings,keyPresent:false,credentialError:null,platform:'preview',edition:'standard'});}else setError('请在拾趣桌面应用中打开。');return;}
   void invoke<View>('get_settings').then(result=>{setView(result);setSettings(result.settings);void checkNode(result.settings.nodePath);}).catch(e=>setError(String(e)));
   let active=true,inFlight=false;
   const timer=setInterval(()=>{if(inFlight)return;inFlight=true;void invoke<Status>('server_status').then(result=>{if(active)setStatus(result);}).catch(()=>{}).finally(()=>{inFlight=false;});},2000);
@@ -37,12 +43,15 @@ function Desktop(){
   setView(result);setSettings(result.settings);setKey('');setKeyAction('keep');setReveal(false);
  }
  async function copy(value:string){await navigator.clipboard.writeText(value);setMessage('配对链接已复制。请只分享给可信设备。');}
- const locked=!!busy||status.running,dirty=!!settings&&!!view&&(JSON.stringify(settings)!==JSON.stringify(view.settings)||keyAction!=='keep');
+ const locked=!native||!!busy||status.running,dirty=!!settings&&!!view&&(JSON.stringify(settings)!==JSON.stringify(view.settings)||keyAction!=='keep');
  return <main>
   <header className="app-header"><div className="brand"><div className="brand-mark" aria-hidden="true">拾</div><div><h1>拾趣 <span>{lite?'Lite':'桌面版'}</span></h1><p>在自己的电脑上，留一间故事书房。</p></div></div><span className="edition">桌面控制台</span></header>
-  <div className="notice" role="status" aria-live="polite">{error?<span className="error">{error}</span>:message||(lite?'Lite 使用你安装的 Node 24。':'已内置 Node 24，无需另外安装。')+'故事保存在电脑上，浏览器和手机共用同一书架。'}</div>
+  <div className="notice" role="status" aria-live="polite">{error?<span className="error">{error}</span>:message||(!native?'开发预览 · 使用本机书架，删除会同步阅读端；设置与服务操作需在桌面应用中使用。':(lite?'Lite 使用你安装的 Node 24。':'已内置 Node 24，无需另外安装。')+'故事保存在电脑上，浏览器和手机共用同一书架。')}</div>
   {!settings?<section className="card"><h2>{native?'正在读取设置…':'需要桌面应用'}</h2></section>:<div className="layout">
-   <div className="settings-stack">
+   <div className="desktop-left-pane">
+    <div className="desktop-tabs" role="tablist" aria-label="桌面工作区">{tabs.map(([id,label,Icon],index)=><button type="button" id={'tab-'+id} key={id} role="tab" aria-selected={tab===id} aria-controls={'panel-'+id} tabIndex={tab===id?0:-1} onClick={()=>setTab(id)} onKeyDown={event=>{const next=event.key==='ArrowRight'?(index+1)%tabs.length:event.key==='ArrowLeft'?(index+tabs.length-1)%tabs.length:event.key==='Home'?0:event.key==='End'?tabs.length-1:null;if(next===null)return;event.preventDefault();setTab(tabs[next][0]);document.getElementById('tab-'+tabs[next][0])?.focus();}}><Icon size={17}/>{label}</button>)}</div>
+    <div role="tabpanel" id={'panel-'+tab} aria-labelledby={'tab-'+tab} tabIndex={0}>
+    {tab!=='settings'?<LibraryPane key={tab} tab={tab} native={native} revision={view?.settings.dataDirectory||''}/>:<div className="settings-stack">
     <section className="card"><div className="section-heading"><span className="step">01</span><div><h2>生成服务</h2><p>选择故事与插图的生成方式。</p></div></div>
      <fieldset disabled={locked}><legend className="sr-only">生成服务设置</legend>
       <label>提供方<select value={settings.provider} onChange={e=>update('provider',e.target.value as Settings['provider'])}><option value="gemini">Gemini · API 密钥</option><option value="codex" disabled={view?.platform==='windows'}>Codex · ChatGPT 订阅{view?.platform==='windows'?'（Windows 暂不支持）':''}</option></select></label>
@@ -68,7 +77,7 @@ function Desktop(){
     <section className="card"><div className="section-heading"><span className="step">02</span><div><h2>本地运行</h2><p>运行时与故事数据，由你掌握。</p></div></div>
      <fieldset disabled={locked}><legend className="sr-only">本地运行设置</legend>
       {lite?<label>Node 可执行文件<div className="input-row"><input value={settings.nodePath} placeholder="自动检测 Node 24，或选择绝对路径" onChange={e=>{update('nodePath',e.target.value);setNode(null);}}/><button className="subtle" onClick={()=>void action('选择 Node',()=>browse('node','nodePath'))}>选择</button></div></label>:<label>运行时<input value={node?`内置 Node ${node.version}`:'内置 Node 24'} readOnly/></label>}
-      <div className="node-check"><span className={node?'success':'help'}>{node?`Node ${node.version} · SQLite 可用`:nodeError||'正在检查 Node 24…'}</span><button className="text-button" onClick={()=>void action('检查运行时',async()=>{await checkNode(settings.nodePath);})}>{lite?'重新检测':'检查运行时'}</button></div>
+      <div className="node-check"><span className={node?'success':'help'}>{node?`Node ${node.version} · SQLite 可用`:!native?'运行时检查需在桌面应用中使用。':nodeError||'正在检查 Node 24…'}</span><button className="text-button" onClick={()=>void action('检查运行时',async()=>{await checkNode(settings.nodePath);})}>{lite?'重新检测':'检查运行时'}</button></div>
       {lite&&node&&<p className="path-caption" title={node.path}>{node.path}</p>}
       <label>故事数据目录<div className="input-row"><input value={settings.dataDirectory} onChange={e=>update('dataDirectory',e.target.value)}/><button className="subtle" onClick={()=>void action('选择目录',()=>browse('data','dataDirectory'))}>选择</button></div></label>
       <p className="help">保存 SQLite 和图片。更换目录会切换书架，不会搬移已有数据。</p>
@@ -76,11 +85,13 @@ function Desktop(){
      </fieldset>
      <div className="save-row"><span className="help">{status.running?'停止服务后可修改设置。':dirty?'有尚未保存的更改。':'设置已同步。'}</span><button className="secondary" disabled={locked||!dirty} onClick={()=>void action('保存设置',async()=>{await save();setMessage('设置已保存。');})}>保存设置</button></div>
     </section>
+   </div>}
+    </div>
    </div>
    <aside className="service-stack">
     <section className="service-card"><div className="service-label"><span className={'status-dot '+(status.running?'live':'')}/>{status.running?'服务运行中':'服务已停止'}</div><h2>{status.running?'书房已打开。':'让故事开始。'}</h2><p>{status.running?'在浏览器阅读，或让手机加入。':'启动后，在你熟悉的浏览器里阅读。'}</p>
      {status.error&&!busy&&<p className="service-error" role="alert">{status.error}</p>}
-     <button className="primary" disabled={!!busy} onClick={()=>void action(status.running?'停止服务':'启动服务',async()=>{if(status.running)setStatus(await invoke<Status>('stop_server'));else{if(dirty)await save();const info=await checkNode(settings.nodePath);if(!info)throw Error(lite?'请先选择兼容的 Node 24。':'内置运行时不可用，请检查运行时错误。');setStatus(await invoke<Status>('start_server'));}})}>{busy?busy+'…':status.running?'停止服务':dirty?'保存并启动':'启动服务'}</button>
+     <button className="primary" disabled={!!busy||!native} onClick={()=>void action(status.running?'停止服务':'启动服务',async()=>{if(status.running)setStatus(await invoke<Status>('stop_server'));else{if(dirty)await save();const info=await checkNode(settings.nodePath);if(!info)throw Error(lite?'请先选择兼容的 Node 24。':'内置运行时不可用，请检查运行时错误。');setStatus(await invoke<Status>('start_server'));}})}>{busy?busy+'…':!native?'请在桌面应用中启动':status.running?'停止服务':dirty?'保存并启动':'启动服务'}</button>
      {status.running&&<><a className="browser-link" href={status.url} onClick={event=>{event.preventDefault();if(!busy)void action('打开浏览器',async()=>{await invoke('open_reader');});}}>在浏览器打开 ↗</a><button className="local-link" title="复制本机配对链接" onClick={()=>void action('复制链接',()=>copy(status.url!))}>{new URL(status.url!).origin} · 复制链接</button></>}
      <div className="service-foot">关闭窗口后在托盘继续运行。<br/>退出应用会停止服务。</div>
     </section>

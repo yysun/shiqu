@@ -26,6 +26,21 @@ export class ReaderRepository{
   const result=await this.db.prepare('DELETE FROM library_deletions WHERE user_id=? AND story_id=?').bind(uid,id).run();
   return {storyId:id,restored:result.meta.changes>0};
  }
+ async favorite(id:string,uid:string,saved:boolean){
+  // Favorites work before the first image and never move a reading checkpoint or enqueue production.
+  type FavoriteProgress={page:number;saved:number;updatedAt:string};
+  const generated=await this.db.prepare(`UPDATE reader_sessions SET saved=? WHERE id=? AND user_id=? AND ${visible} RETURNING page,saved,COALESCE(last_read_at,created_at) AS updatedAt`)
+   .bind(saved?1:0,id,uid).first<FavoriteProgress>();
+  if(generated)return {storyId:id,...generated};
+  const published=await this.db.prepare(`INSERT INTO progress(id,user_id,story_id,page,saved,updated_at)
+   SELECT ?,?,?,0,?,? FROM stories WHERE id=? AND status='published'
+   AND NOT EXISTS (SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=?)
+   ON CONFLICT(user_id,story_id) DO UPDATE SET saved=excluded.saved
+   RETURNING page,saved,updated_at AS updatedAt`)
+   .bind(uid+':'+id,uid,id,saved?1:0,new Date().toISOString(),id,uid).first<FavoriteProgress>();
+  if(!published)throw new ReaderError(404,'这篇故事不在你的书架里');
+  return {storyId:id,...published};
+ }
  async saveOriginal(row:SessionRow,original:OriginalSource){
   const recovered=row.state==='failed'&&(row.step_key==='source'||row.step_key==='plan');
   const result=await this.db.prepare("UPDATE reader_sessions SET document=json_set(document,'$.original',json(?)),state=CASE WHEN ? THEN 'idle' ELSE state END,error=CASE WHEN ? THEN NULL ELSE error END,updated_at=? WHERE id=? AND user_id=? AND document=? AND state!='running'").bind(JSON.stringify(original),recovered?1:0,recovered?1:0,new Date().toISOString(),row.id,row.user_id,row.document).run();
