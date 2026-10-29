@@ -1,0 +1,23 @@
+Shiqu (拾趣)
+Copyright 2026 Yiyi Sun
+
+Original project code and documentation are licensed under the Apache License,
+Version 2.0. See LICENSE for the full terms.
+
+Third-party software, book-source downloads, images, and other third-party
+materials retain their own applicable terms and attribution requirements.
+The project's Apache-2.0 license does not relicense those materials or grant
+rights that their respective rights holders have not granted.
+
+For the bundled book collection, see data/library/source-notices.md and
+data/library/catalog.json, together with notices in the original downloads.
+These records document provenance; they do not establish redistribution
+permission for sources whose applicable terms remain unconfirmed.
+
+Third-party dependency license texts and notices remain applicable. The
+Standard desktop edition also includes the Node.js distribution's LICENSE
+alongside the bundled Node executable.
+
+Generated stories, illustrations, and user-provided content are not licensed
+under Apache-2.0 merely because Shiqu produces or stores them. Applicable
+rights depend on the source material, contributions, and provider terms.

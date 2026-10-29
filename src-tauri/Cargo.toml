@@ -3,6 +3,7 @@
 name = "shiqu-desktop"
 version = "0.1.0"
 description = "Shiqu desktop control panel"
+license = "Apache-2.0"
 edition = "2021"
 rust-version = "1.93"
 
