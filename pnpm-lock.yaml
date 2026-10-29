@@ -53,6 +53,9 @@ importers:
       pdf-lib:
         specifier: 1.17.1
         version: 1.17.1
+      qrcode-terminal:
+        specifier: 0.12.0
+        version: 0.12.0
       radix-ui:
         specifier: ^1.6.7
         version: 1.6.7(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -99,6 +102,9 @@ importers:
       '@types/node':
         specifier: 22.19.19
         version: 22.19.19
+      '@types/qrcode-terminal':
+        specifier: 0.12.2
+        version: 0.12.2
       '@types/react':
         specifier: 19.2.14
         version: 19.2.14
@@ -2899,6 +2905,13 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+  '@types/qrcode-terminal@0.12.2':
+    resolution: {integrity: sha512-v+RcIEJ+Uhd6ygSQ0u5YYY7ZM+la7GgPbs0V/7l/kFs2uO4S8BcIUEMoP7za4DNIqNnUD5npf0A/7kBhrCKG5Q==}
+
+  qrcode-terminal@0.12.0:
+    resolution: {integrity: sha512-EXtzRZmC+YGmGlDFbXKxQiMZNwCLEO6BANKXG4iCtSIM0yqc/pappSx3RIKr4r0uh5JsBckOXeKrB3Iz7mdQpQ==}
+    hasBin: true
+
 snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
@@ -5288,3 +5301,7 @@ snapshots:
   yocto-queue@0.1.0: {}
 
   zod@3.25.76: {}
+
+  '@types/qrcode-terminal@0.12.2': {}
+
+  qrcode-terminal@0.12.0: {}

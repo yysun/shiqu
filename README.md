@@ -241,6 +241,8 @@ pnpm dev
 
 打开 **http://localhost:3000**。Vite 会将 `/api` 代理到本地 Node API，该 API 默认使用端口 `3002`，因此浏览器请求仍来自同一源。开发数据默认位于 `.data/dev`，与 Docker 使用的 `./data` 目录分开。
 
+`pnpm dev` 启动后会在终端打印局域网地址和二维码。手机与电脑连接同一 Wi-Fi 后，扫描二维码即可打开；指定 `--port` 时二维码会使用对应端口。开发前端监听所有 IPv4 网卡，API 仍只监听本机；请在可信网络使用。
+
 ```bash
 pnpm dev --port 3001
 # 如果 API 端口已被占用：
@@ -271,7 +273,7 @@ pnpm build
 pnpm start
 ```
 
-`pnpm start` 默认绑定到 `127.0.0.1:3000` 并使用 `./data`。可通过服务器端变量 `PORT`、`SHIQU_BIND_IP` 和 `SHIQU_DATA_DIR` 覆盖这些设置。容器设置由 Compose 提供。
+`pnpm start` 默认绑定到 `0.0.0.0:3000` 并使用 `./data`，启动后会在终端打印局域网地址和二维码。手机与电脑连接同一 Wi-Fi 后，扫描二维码即可打开。可通过服务器端变量 `PORT`、`SHIQU_BIND_IP` 和 `SHIQU_DATA_DIR` 覆盖这些设置；如需仅允许本机访问，设置 `SHIQU_BIND_IP=127.0.0.1`，此时不打印手机二维码。本版本没有登录隔离，请在可信网络使用。容器端口访问范围仍由 Compose 控制。
 
 自动化测试覆盖生成检查点、付费调用去重与重试、原文检索、SQLite 持久化、媒体上传、HTTP 边界和旧版数据导入。测试使用模拟模型响应，不会发起需付费的 Gemini 调用。
 
