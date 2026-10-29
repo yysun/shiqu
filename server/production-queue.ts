@@ -1,0 +1,94 @@
+// Schedule durable, versioned jobs in independent bounded pools. Dependencies consume saved
+// outputs; fenced leases prevent late completions from overwriting a replacement attempt.
+import {createHash,randomUUID} from 'node:crypto';
+import type {Database} from '../lib/reader-repository.ts';
+
+export type JobSpec={id:string;sessionId:string;ownerId:string;kind:string;pool:string;version:string;dependencies:string[];payload:unknown;priority:number};
+export type ProductionJob={id:string;session_id:string;owner_id:string;kind:string;pool:string;version:string;dependencies:string;payload:string;result:string|null;state:'queued'|'running'|'succeeded'|'failed';priority:number;attempts:number;lease_token:string|null;lease_until:number;error:string|null;created_at:number;updated_at:number};
+export type JobContext={outputs:Record<string,unknown>;isCurrent:()=>Promise<boolean>};
+export type JobHandler={pool:string;drain?:boolean;run:(job:ProductionJob,context:JobContext)=>Promise<unknown>};
+type Options={limits:Record<string,number>;handlers:Record<string,JobHandler>;canRun?:(job:ProductionJob)=>Promise<boolean>;onSettled?:()=>void;safeError?:(error:unknown,job:ProductionJob)=>string;now?:()=>number;leaseMs?:number};
+export function inputVersion(input:unknown){return createHash('sha256').update(JSON.stringify(input)).digest('hex');}
+export function productionJobId(scope:string,kind:string,version:string,key=''){return inputVersion([scope,kind,version,key]);}
+const ready=`NOT EXISTS (SELECT 1 FROM json_each(j.dependencies) d LEFT JOIN production_jobs parent ON parent.id=d.value WHERE parent.id IS NULL OR parent.state!='succeeded')`;
+
+export class ProductionQueue{
+ readonly database:Database;
+ readonly options:Options;
+ readonly tasks=new Map<string,Promise<void>>();
+ private tokens=new Map<string,string>();
+ private pumping=false;
+ private stopping=false;
+ private clock:()=>number;
+ private leaseMs:number;
+ constructor(database:Database,options:Options){
+  this.database=database;this.options=options;this.clock=options.now||Date.now;this.leaseMs=options.leaseMs||180000;
+  for(const limit of Object.values(options.limits))if(!Number.isInteger(limit)||limit<1)throw Error('INVALID_POOL_LIMIT');
+ }
+ async enqueue(spec:JobSpec,completed?:unknown){
+  const now=this.clock();
+  await this.database.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,priority,attempts,lease_until,created_at,updated_at)
+   VALUES(?,?,?,?,?,?,?,?,?,?,?,0,0,?,?) ON CONFLICT(id) DO UPDATE SET priority=excluded.priority`)
+   .bind(spec.id,spec.sessionId,spec.ownerId,spec.kind,spec.pool,spec.version,JSON.stringify(spec.dependencies),JSON.stringify(spec.payload),completed===undefined?null:JSON.stringify(completed),completed===undefined?'queued':'succeeded',spec.priority,now,now).run();
+ }
+ async job(id:string){return this.database.prepare('SELECT * FROM production_jobs WHERE id=?').bind(id).first<ProductionJob>();}
+ async jobs(sessionId:string,ownerId:string){return (await this.database.prepare('SELECT * FROM production_jobs WHERE session_id=? AND owner_id=? ORDER BY created_at,id').bind(sessionId,ownerId).all<ProductionJob>()).results;}
+ async retry(sessionId:string,ownerId:string){
+  await this.database.prepare("UPDATE production_jobs SET state='queued',error=NULL,lease_token=NULL,lease_until=0,updated_at=? WHERE session_id=? AND owner_id=? AND state='failed'").bind(this.clock(),sessionId,ownerId).run();
+ }
+ async recoverExpired(){
+  // Interrupted paid calls have uncertain remote outcomes: require an explicit retry decision.
+  await this.database.prepare("UPDATE production_jobs SET state='failed',error=?,lease_token=NULL,lease_until=0,updated_at=? WHERE state='running' AND lease_until<=?")
+   .bind('上次生成已中断，已保留保存的结果。请重试继续。',this.clock(),this.clock()).run();
+ }
+ async renew(){
+  for(const [id,token] of this.tokens){
+   await this.database.prepare("UPDATE production_jobs SET lease_until=? WHERE id=? AND lease_token=? AND state='running' AND lease_until>?")
+    .bind(this.clock()+this.leaseMs,id,token,this.clock()).run();
+  }
+ }
+ async pump(){
+  if(this.pumping)return;this.pumping=true;
+  try{
+   const candidates=(await this.database.prepare(`SELECT j.* FROM production_jobs j WHERE j.state='queued' AND ${ready} ORDER BY j.priority,j.created_at,j.id`).all<ProductionJob>()).results;
+   for(const job of candidates){
+    const handler=this.options.handlers[job.kind],limit=this.options.limits[job.pool];
+    if(!handler||handler.pool!==job.pool||!limit||(this.stopping&&!handler.drain))continue;
+    const running=await this.database.prepare("SELECT COUNT(*) AS n FROM production_jobs WHERE pool=? AND state='running' AND lease_until>?").bind(job.pool,this.clock()).first<{n:number}>();
+    if(running!.n>=limit||this.tasks.has(job.id)||this.options.canRun&&!await this.options.canRun(job))continue;
+    const token=randomUUID(),now=this.clock();
+    const claimed=await this.database.prepare(`UPDATE production_jobs AS j SET state='running',lease_token=?,lease_until=?,attempts=attempts+1,error=NULL,updated_at=?
+     WHERE id=? AND state='queued' AND ${ready} AND (SELECT COUNT(*) FROM production_jobs WHERE pool=? AND state='running' AND lease_until>?)<?`)
+     .bind(token,now+this.leaseMs,now,job.id,job.pool,now,limit).run();
+    if(!claimed.meta.changes)continue;
+    const task=this.execute({...job,state:'running',lease_token:token,lease_until:now+this.leaseMs,attempts:job.attempts+1},handler)
+     .finally(()=>{this.tasks.delete(job.id);this.tokens.delete(job.id);this.options.onSettled?.();});
+    this.tasks.set(job.id,task);this.tokens.set(job.id,token);
+   }
+  }finally{this.pumping=false;}
+ }
+ private async execute(job:ProductionJob,handler:JobHandler){
+  const isCurrent=async()=>!!await this.database.prepare("SELECT id FROM production_jobs WHERE id=? AND state='running' AND lease_token=? AND lease_until>?").bind(job.id,job.lease_token,this.clock()).first();
+  try{
+   const outputs:Record<string,unknown>={};
+   for(const id of JSON.parse(job.dependencies) as string[]){const parent=await this.job(id);if(parent?.state!=='succeeded')throw Error('DEPENDENCY_UNAVAILABLE');outputs[id]=JSON.parse(parent.result!);}
+   if(!await isCurrent())return;
+   // Demand or a sibling failure may change while a claim is being prepared.
+   if(this.stopping&&!handler.drain||this.options.canRun&&!await this.options.canRun(job)){
+    await this.database.prepare("UPDATE production_jobs SET state='queued',lease_token=NULL,lease_until=0 WHERE id=? AND state='running' AND lease_token=?").bind(job.id,job.lease_token).run();return;
+   }
+   const result=await handler.run(job,{outputs,isCurrent});
+   await this.database.prepare("UPDATE production_jobs SET state='succeeded',result=?,error=NULL,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token=? AND lease_until>?")
+    .bind(JSON.stringify(result??null),this.clock(),job.id,job.lease_token,this.clock()).run();
+  }catch(error){
+   // Only safe application messages are persisted; provider responses may contain private data.
+   const message=this.options.safeError?.(error,job)||'制作暂时未完成，已保存的结果会保留。';
+   try{await this.database.prepare("UPDATE production_jobs SET state='failed',error=?,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token=?")
+    .bind(message,this.clock(),job.id,job.lease_token).run();}
+   catch{this.stopping=true;}
+  }
+ }
+ stop(){this.stopping=true;}
+ get busy(){return this.tasks.size>0||this.pumping;}
+ async settle(){await Promise.allSettled([...this.tasks.values()]);}
+}

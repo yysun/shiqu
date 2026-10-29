@@ -6,7 +6,7 @@ import type {ArtStyleId} from './reader-styles.ts';
 import type {OriginalSource,SourceResult} from './reader-source-types.ts';
 import {readerImageBatchSize,readerMaxFrames} from './reader-limits.ts';
 export type Generated<T>={value:T;model:string;requestId:string|null;usage:unknown};
-export interface StoryGenerator{prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<Plan>>;original(selection:Selection,plan:Plan,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
+export interface StoryGenerator{prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<Plan>>;original(selection:Selection,plan:Plan,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
 
 async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerator,row:SessionRow,token:string,doc:Document,selection:Selection,throughPage:number){
  const pages=doc.plan!.pages.map((_,page)=>page).filter(page=>page<=throughPage&&!doc.images[page]);

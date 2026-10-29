@@ -1,3 +1,4 @@
+// Define persisted library content, reading checkpoints and durable production jobs/demand.
 import {sql} from 'drizzle-orm';
 import { sqliteTable, text, integer, real, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 export const books = sqliteTable('books', { id: text('id').primaryKey(), title: text('title').notNull(), author: text('author').notNull(), era: text('era').notNull(), sourceUrl: text('source_url').notNull(), excerpt: text('excerpt').notNull(), note: text('note').notNull() });
@@ -9,3 +10,10 @@ export const progress = sqliteTable('progress', { id: text('id').primaryKey(), u
 export const libraryDeletions=sqliteTable('library_deletions',{userId:text('user_id').notNull(),storyId:text('story_id').notNull(),kind:text('kind').notNull(),deletedAt:text('deleted_at').notNull()},t=>[uniqueIndex('library_deletions_user_story').on(t.userId,t.storyId)]);
 
 export const readerSessions=sqliteTable('reader_sessions',{id:text('id').primaryKey(),userId:text('user_id').notNull(),selection:text('selection').notNull(),document:text('document').notNull(),state:text('state').notNull().default('idle'),error:text('error'),stepKey:text('step_key'),stepAttempts:integer('step_attempts').notNull().default(0),lockToken:text('lock_token'),lockUntil:integer('lock_until').notNull().default(0),page:integer('page').notNull().default(0),saved:integer('saved').notNull().default(0),lastReadAt:text('last_read_at'),createdAt:text('created_at').notNull(),updatedAt:text('updated_at').notNull()},t=>[index('reader_user_created').on(t.userId,t.createdAt)]);
+
+export const productionJobs=sqliteTable('production_jobs',{
+ id:text('id').primaryKey(),sessionId:text('session_id').notNull(),ownerId:text('owner_id').notNull(),kind:text('kind').notNull(),pool:text('pool').notNull(),version:text('version').notNull(),dependencies:text('dependencies').notNull(),payload:text('payload').notNull(),result:text('result'),state:text('state').notNull().default('queued'),priority:integer('priority').notNull().default(0),attempts:integer('attempts').notNull().default(0),leaseToken:text('lease_token'),leaseUntil:integer('lease_until').notNull().default(0),error:text('error'),createdAt:integer('created_at').notNull(),updatedAt:integer('updated_at').notNull(),
+},t=>[index('production_ready').on(t.state,t.pool,t.priority),index('production_session').on(t.sessionId,t.ownerId)]);
+export const productionDemand=sqliteTable('production_demand',{
+ sessionId:text('session_id').notNull(),ownerId:text('owner_id').notNull(),viewerId:text('viewer_id').notNull(),page:integer('page').notNull(),throughPage:integer('through_page').notNull(),expiresAt:integer('expires_at').notNull(),runtimeId:text('runtime_id').notNull(),
+},t=>[uniqueIndex('production_viewer').on(t.sessionId,t.ownerId,t.viewerId),index('production_live_demand').on(t.runtimeId,t.expiresAt)]);

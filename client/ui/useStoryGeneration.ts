@@ -1,12 +1,13 @@
 'use client';
-// Request three-scene reading batches and keep transient failures inside the loading flow.
+// Maintain viewer demand independently of navigation and publish each saved image as it arrives.
 import {useEffect,useRef,useState} from 'react';
 import {randomId,request} from './shared';
-import {requestedImageEnd,runStoryGeneration} from '@/lib/reader-generation';
+import {runQueuedStoryGeneration} from '@/lib/reader-production-client';
 import type {GeneratedStory,Selection,SessionView} from '@/lib/reader-model';
 type Callbacks={onStory:(story:GeneratedStory,initialPage?:number,saved?:boolean)=>void;onProgress:(rows:{storyId:string;page:number;saved:number;updatedAt?:string|null}[])=>void};
 export function useStoryGeneration(page:number,callbacks:Callbacks){
  const cb=useRef(callbacks);cb.current=callbacks;
+ const currentPage=useRef(page);currentPage.current=page;
  const [sessions,setSessions]=useState<SessionView[]>([]),[active,setActive]=useState<SessionView|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[connected,setConnected]=useState(false),[wake,setWake]=useState(0);
  const [libraryLoading,setLibraryLoading]=useState(true),[libraryError,setLibraryError]=useState('');
  const removed=useRef(new Set<string>());
@@ -26,15 +27,15 @@ export function useStoryGeneration(page:number,callbacks:Callbacks){
    if(pending.current)await pending.current;
    if(cancelled||id.current!==sessionId||removed.current.has(sessionId))return;
    setBusy(true);setError('');
-   const operation=runStoryGeneration({sessionId,throughPage:requestedImageEnd(page,active!.story?.pages.length??active!.selection.length),request,retries:retries.current,
+   const operation=runQueuedStoryGeneration({sessionId,viewerId:randomId(),page:()=>currentPage.current,request,retries:retries.current,
     isActive:()=>!cancelled&&id.current===sessionId&&!removed.current.has(sessionId),
-    onSession:s=>{collect(s);setActive(s);if(s.story?.pages[0]?.image)cb.current.onStory(s.story);},
+    onSession:s=>{collect(s);setActive(s);setBusy(s.state==='running');if(s.story?.pages[0]?.image)cb.current.onStory(s.story);},
    });
    pending.current=operation;
    try{const message=await operation;if(!cancelled&&id.current===sessionId)setError(message);}
    finally{if(pending.current===operation)pending.current=null;if(!cancelled&&id.current===sessionId)setBusy(false);}
   }
   run();return()=>{cancelled=true;};
- },[active?.id,page,wake]);
+ },[active?.id,wake]);
  return {sessions,active,busy,error,connected,libraryLoading,libraryError,start,resume,leave,remove,retryStep};
 }

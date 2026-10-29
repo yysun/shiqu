@@ -52,7 +52,7 @@ test('failed migrations roll back DDL and can retry after the migration is corre
  const database=new DatabaseSync(path.join(dataDirectory,'shiqu.sqlite'));
  assert.equal(database.prepare("SELECT name FROM sqlite_master WHERE name='retry_probe'").get(),undefined);database.close();
  await writeFile(path.join(root,'drizzle/0003_test.sql'),'CREATE TABLE retry_probe(id TEXT);');
- const local=openDatabase(dataDirectory,root);assert.equal(local.sqlite.prepare('SELECT COUNT(*) AS n FROM app_migrations').get().n,4);local.close();
+ const local=openDatabase(dataDirectory,root);assert.equal(local.sqlite.prepare('SELECT COUNT(*) AS n FROM app_migrations').get().n,(await readdir(path.join(root,'drizzle'))).filter(name=>name.endsWith('.sql')).length);local.close();
 });
 test('HTTP serves SPA deep links and binary uploads, blocks origin writes, and never serves private data',async t=>{
  const options=await fixture(t),app=createApplication(options),server=createHttpServer(app.handle);

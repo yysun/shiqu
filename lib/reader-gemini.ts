@@ -13,6 +13,7 @@ import {saveStoryOriginal} from './reader-source-storage.ts';
 import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localPlanConstraint,localSuggestionPayload} from './reader-local-contract.ts';
 import type {WholeBookInput} from './reader-local-contract.ts';
 import type {OriginalSource} from './reader-source-types.ts';
+import {readerImageAsset,referenceImageKey} from './reader-image-assets.ts';
 
 export const defaultModels={text:'gemini-3.8-flash',image:'gemini-nano-banana-2.1'};
 type Models=typeof defaultModels;
@@ -121,13 +122,13 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
    if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new GeminiError('INVALID_PLAN');
    return {value,...metadata};
   },
-  async image(plan:Plan,page:number,id:string,reference:string,style:ArtStyleId='ink-pencil',productionPrompt=''){
+  async image(plan:Plan,page:number,id:string,reference:string,style:ArtStyleId='ink-pencil',productionPrompt='',artifactId?:string){
    const parts:Part[]=[];
    if(page>0&&reference){
     // Only load the existing first scene from this story's own bucket prefix.
-    const file=reference.split('/').pop()||'';
-    if(!/^0\.(png|jpg|webp)$/.test(file))throw new GeminiError('INVALID_ANCHOR');
-    const anchor=await assets.get(`reader/${id}/${file}`);if(!anchor)throw new GeminiError('MISSING_ANCHOR');
+    const key=referenceImageKey(id,reference);
+    if(!key)throw new GeminiError(reference.startsWith(`/api/reader/media/${id}/`)?'INVALID_ANCHOR':'MISSING_ANCHOR');
+    const anchor=await assets.get(key);if(!anchor)throw new GeminiError('MISSING_ANCHOR');
     const bytes=new Uint8Array(await anchor.arrayBuffer()),mimeType=mediaType(bytes);
     if(!mimeType||bytes.length>12*1024*1024)throw new GeminiError('INVALID_ANCHOR');
     parts.push({inlineData:{mimeType,data:encode(bytes)}});
@@ -138,9 +139,9 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
    if(!output||!(output.mimeType in imageTypes)||output.data.length>17*1024*1024)throw new GeminiError('INVALID_MEDIA');
    let bytes:Uint8Array;try{bytes=Uint8Array.from(atob(output.data),c=>c.charCodeAt(0));}catch{throw new GeminiError('INVALID_MEDIA');}
    if(!bytes.length||bytes.length>12*1024*1024||mediaType(bytes)!==output.mimeType)throw new GeminiError('INVALID_MEDIA');
-   const extension=imageTypes[output.mimeType as keyof typeof imageTypes],file=`${page}.${extension}`;
-   await assets.put(`reader/${id}/${file}`,bytes,{contentType:output.mimeType});
-   return {value:`/api/reader/media/${id}/${file}`,...metadata};
+   const asset=readerImageAsset(id,page,imageTypes[output.mimeType as keyof typeof imageTypes],artifactId);
+   await assets.put(asset.key,bytes,{contentType:output.mimeType});
+   return {value:asset.url,...metadata};
   },
   async audio(){throw new GeminiError('VOICE_DISABLED');},
   safeError:safeGeminiError,

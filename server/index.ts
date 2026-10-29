@@ -14,6 +14,7 @@ server.listen(config.port,config.host,()=>{
 let stopping=false;
 for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{
  if(stopping)return;stopping=true;
- server.close(()=>{app.close();process.exit(0);});
+ app.stopGeneration();
+ server.close(()=>{void Promise.resolve(app.close()).then(()=>process.exit(0));});
  server.closeIdleConnections();
 });

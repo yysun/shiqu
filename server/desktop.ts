@@ -51,7 +51,7 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
   server=createHttpServer(access.handle);server.listen(settings.port,settings.lanEnabled?'0.0.0.0':'127.0.0.1');await once(server,'listening');
   let stopped:Promise<void>|undefined;
   return {server,status:{running:true,pid:process.pid,url:`${local}/desktop/pair#${access.pairing}`,phoneUrls:phones.map(url=>`${url}/desktop/pair#${access.pairing}`)},stop(){
-   return stopped??=(async()=>{await stopCodexProcesses();await new Promise<void>(resolve=>{server!.close(()=>resolve());server!.closeAllConnections();});app!.close();await release();})();
+   return stopped??=(async()=>{app!.stopGeneration();await stopCodexProcesses();await new Promise<void>(resolve=>{server!.close(()=>resolve());server!.closeAllConnections();});await app!.close();await release();})();
   }};
  }catch(error){server?.close();app?.close();await release();throw error;}
 }
@@ -66,7 +66,7 @@ async function main(){
  const lines=createInterface({input:process.stdin,crlfDelay:Infinity});
  let runtime:Awaited<ReturnType<typeof startDesktop>>|undefined,starting=false,closing=false,inputClosed=false;
  const send=(value:unknown)=>process.stdout.write(JSON.stringify(value)+'\n');
- async function stop(){if(closing)return;closing=true;await stopCodexProcesses();await runtime?.stop();process.exit(0);}
+ async function stop(){if(closing)return;closing=true;if(runtime)await runtime.stop();else await stopCodexProcesses();process.exit(0);}
  lines.on('close',()=>{inputClosed=true;if(!starting)void stop();});
  for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{void stop();});
  process.on('exit',()=>stopCodexProcesses());
