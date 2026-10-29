@@ -1,0 +1,7 @@
+{
+  "$schema":"../gen/schemas/desktop-schema.json",
+  "identifier":"main",
+  "description":"Only the bundled settings window receives native IPC; reader browsers receive none.",
+  "windows":["main"],
+  "permissions":["core:default"]
+}

@@ -36,6 +36,10 @@
   "exclude": [
     "node_modules",
     "dist",
+    "desktop/dist",
+    "desktop/resources",
+    "src-tauri/target",
+    "src-tauri/gen",
     "data",
     ".data",
     ".sites-runtime",

@@ -12,6 +12,14 @@ export type CodexJob={prompt:string;instructions:string;schema?:unknown;image?:{
 export type CodexResult={text:string;image:string|null;model:string;requestId:string;usage:unknown};
 export interface CodexRunner {status():Promise<{configured:boolean;reason?:string;model?:string}>;run(job:CodexJob):Promise<CodexResult>}
 const disabled=['shell_tool','unified_exec','view_image','browser_use','computer_use','plugins','remote_plugin','apps','hooks','multi_agent','code_mode','code_mode_only','code_mode_tool_search','tool_suggest'];
+// Desktop shutdown must terminate detached CLI groups before releasing its data directory.
+const activeChildren=new Set<ReturnType<typeof spawn>>();
+function killChild(child:ReturnType<typeof spawn>){if(!child.pid)return;try{if(process.platform==='win32')child.kill('SIGKILL');else process.kill(-child.pid,'SIGKILL');}catch{/* Already exited. */}}
+export function stopCodexProcesses(){
+ const children=[...activeChildren];
+ const stopped=children.map(child=>new Promise<void>(resolve=>{child.once('close',()=>resolve());killChild(child);}));
+ return Promise.all(stopped).then(()=>{});
+}
 export function codexArguments(directory:string){
  const args=['app-server','--listen','stdio://','-c','web_search="disabled"','-c','features.skip_host_skill_discovery=true','-c','features.code_mode_host=true','-c','features.image_generation=true','-c','default_permissions="shiqu-generation"','-c',`permissions.shiqu-generation.filesystem={ ":root" = "deny", ${JSON.stringify(directory)} = "read" }`];
  for(const feature of disabled)args.push('--disable',feature);
@@ -27,13 +35,14 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
   let failure:(error:Error)=>void=()=>{},sequence=0,closed=false,bytes=0;
   const pending=new Map<number,{resolve:(value:any)=>void;reject:(error:Error)=>void}>();
   const env=codexEnvironment(variables.SHIQU_CODEX_HOME,options.environment);
-  function kill(){if(!child?.pid)return;try{if(process.platform==='win32')child.kill('SIGKILL');else process.kill(-child.pid,'SIGKILL');}catch{/* Process already exited. */}}
+  function kill(){if(child)killChild(child);}
   function fail(error:Error){if(closed)return;closed=true;failure(error);for(const p of pending.values())p.reject(error);pending.clear();kill();}
   let lines:ReturnType<typeof createInterface>|undefined,exited:Promise<void>|undefined;
   if(process.platform==='win32'){await rm(directory,{recursive:true,force:true});throw new CodexError('UNSUPPORTED_PLATFORM');}
   try{
    const completion=new Promise<CodexResult>((resolve,reject)=>{failure=reject;
     child=spawn(binary,codexArguments(directory),{cwd:directory,env,stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32',windowsHide:true});
+    activeChildren.add(child);child.once('close',()=>activeChildren.delete(child!));
     exited=new Promise(resolve=>child!.once('close',()=>resolve()));
     timer=setTimeout(()=>fail(new CodexError('TIMEOUT')),Math.min(options.timeoutMs||180000,job?.timeoutMs||(job?120000:10000)));
     child.once('error',()=>fail(new CodexError('CLI_UNAVAILABLE')));

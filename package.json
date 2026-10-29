@@ -18,12 +18,17 @@
     "typecheck": "tsc --noEmit",
     "codex:login": "node --env-file-if-exists=.env scripts/codex-login.mjs login",
     "codex:status": "node --env-file-if-exists=.env scripts/codex-login.mjs status",
-    "library:prepare": "node --env-file-if-exists=.env --experimental-strip-types scripts/prepare-reading-blocks.mjs"
+    "library:prepare": "node --env-file-if-exists=.env --experimental-strip-types scripts/prepare-reading-blocks.mjs",
+    "desktop:prepare": "pnpm build && pnpm exec vite build --config desktop/vite.config.ts && node scripts/desktop-resources.mjs",
+    "desktop:dev": "pnpm exec tauri dev",
+    "desktop:build": "pnpm exec tauri build",
+    "desktop:test": "cargo test --manifest-path src-tauri/Cargo.toml --locked"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@hookform/resolvers": "^5.7.1",
     "@shadcn/react": "^0.3.0",
+    "@tauri-apps/api": "2.12.4",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "^1.1.1",
@@ -36,6 +41,7 @@
     "next-themes": "^0.4.6",
     "opencc-js": "1.0.5",
     "pdf-lib": "1.17.1",
+    "qrcode": "1.5.4",
     "qrcode-terminal": "0.12.0",
     "radix-ui": "^1.6.7",
     "react": "19.2.6",
@@ -53,7 +59,9 @@
   "devDependencies": {
     "@eslint/js": "9.39.4",
     "@tailwindcss/postcss": "4.2.1",
+    "@tauri-apps/cli": "2.12.4",
     "@types/node": "22.19.19",
+    "@types/qrcode": "1.5.6",
     "@types/qrcode-terminal": "0.12.2",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",

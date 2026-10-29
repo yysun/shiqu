@@ -52,3 +52,9 @@ yarn-error.log*
 !/data/README.md
 !/data/library/
 /.pnpm-store/
+
+# Desktop build products and staged runtime resources (never source or personal configuration).
+/desktop/dist/
+/desktop/resources/
+/src-tauri/target/
+/src-tauri/gen/

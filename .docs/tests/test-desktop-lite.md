@@ -1,0 +1,12 @@
+# Desktop Lite E2E
+
+Use a packaged macOS app and disposable data/config directory where possible. Do not use a real API key or request paid generation. Record actual evidence and platform limits in the plan.
+
+1. Launch Lite without a usable Node. The settings window remains usable, identifies the requirement, and does not start a server. Select Node 22: validation rejects it. Select installed Node 24.22.1: validation reports the actual executable/version and SQLite success.
+2. Configure a disposable data directory and Gemini with no key. Save, quit, relaunch: nonsecret settings persist and the sample remains readable. Enter a disposable test key, reveal/mask it, save, then reload: only a saved-key indicator returns. Inspect config/payload/logs to confirm no plaintext key. Delete the credential and confirm its absence. A provider test without a key reports a safe local error and makes no request.
+3. Start with phone access disabled. Status becomes Running, Open in browser launches a generated localhost pairing link, the browser reaches the reader after exchange, and no LAN URL/QR is shown. An unpaired request to stories/media is rejected.
+4. Stop, enable phone sharing, restart. Show actual LAN URL(s) and scannable QR. Open one pairing link in the in-app browser (a separate simulated phone client when physical device unavailable), read the sample, write reading progress, restart/re-pair, and verify persisted progress. Wrong tokens, foreign Origin/Host, and old sessions fail. No settings/key endpoint exists.
+5. Stop the server and verify listener closes. Occupy the configured port and start: show a bounded actionable error and recover when the port is freed. Close the window: tray/background operation remains. Open another app instance: focus the original. Quit: server exits and listener closes, including on parent-input EOF/crash. Duplicate desktop data-directory lock is rejected.
+6. Inspect the packaged resources from outside the checkout: all runtime dependencies and books exist; no Node runtime, `.env`, API keys, personal data, developer `node_modules` symlinks, or package-manager dependency-install step. Run the packaged server against disposable storage to demonstrate resource independence.
+
+The LAN pairing browser check is not evidence of physical phone scanning or firewall traversal. macOS E2E is not Windows/Linux runtime verification. Document these limits.

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Shiqu Lite",
+  "version": "0.1.0",
+  "identifier": "com.shiqu.desktop.lite",
+  "build": {
+    "beforeDevCommand": "pnpm run desktop:prepare",
+    "beforeBuildCommand": "pnpm run desktop:prepare",
+    "frontendDist": "../desktop/dist"
+  },
+  "app": {
+    "windows": [{"label":"main","title":"拾趣 Lite","width":1040,"height":820,"minWidth":760,"minHeight":640}],
+    "security": {"csp":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"}
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/32x32.png","icons/128x128.png","icons/128x128@2x.png","icons/icon.icns","icons/icon.ico"],
+    "resources": {"../desktop/resources/runtime/":"runtime/"},
+    "macOS": {"minimumSystemVersion":"11.0"},
+    "linux": {"deb":{"depends":["libwebkit2gtk-4.1-0","libayatana-appindicator3-1","libsecret-1-0"]}}
+  }
+}
