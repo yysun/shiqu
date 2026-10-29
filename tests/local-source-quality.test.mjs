@@ -11,6 +11,17 @@ test('known unresolved source encodings and explicit omissions are rejected with
  assert.equal(hasSourceAnomaly('原文。下有脱文'),true);
  for(const value of ['𠮷𫠦𰻝𤣥䧿爲','【周日用曰：日当中向热者，炎气直下也。】','【净上，戴随上】【同下】','【上善若水下学上达】','【〈郭璞注：山南为阳，山北为阴。〉】','未知何人? 汉字与ASCII问号均保留。','者上天符命豈闕文乎','表略曰：此为原文中的奏表摘要。','A・B，+−，？！（原注）'])assert.equal(hasSourceAnomaly(value),false,value);
 });
+test('saved cross-chapter evidence applies reviewed exceptions to its own chapter and rejects tampered parts',async()=>{
+ const book=await library.book(select('红楼梦')),start=book.sections[0],end=book.sections.find(s=>s.id==='honglou-058');
+ const first=start.units.find(u=>{try{library.resolve(book,reference(book,start,u));return true;}catch{return false;}}),last=end.units.find(u=>u.text.includes('⿰烏刂樹'));
+ assert.ok(first&&last);
+ const source={...reference(book,start,first),continuations:[{sectionId:end.id,firstUnit:last.id,lastUnit:last.id}]},original=library.resolve(book,source);
+ assert.equal(original.localParts.length,2);assert.ok(original.text.includes('⿰烏刂樹'));
+ let calls=0;const generator=withLocalBooks(provider(()=>{calls++;}),library,{put:async()=>{},get:async()=>null}).generator(),selection={...select('红楼梦'),source};
+ await generator.plan(selection,'test',original);assert.equal(calls,1);
+ const damaged=structuredClone(original);damaged.localParts[1].sectionId=start.id;await assert.rejects(generator.plan(selection,'test',damaged));assert.equal(calls,1);
+ const missing=structuredClone(original);delete missing.localParts;await assert.rejects(generator.plan(selection,'test',missing));assert.equal(calls,1);
+});
 
 test('the four actual source ranges that previously passed now all fail closed',async()=>{
  for(const[bookId,sectionId,unitId]of [['太平广记','taiping-003','taiping-003-059'],['红楼梦','honglou-003','honglou-003-018'],['水浒传','shuihu-026','shuihu-026-027'],['醒世恒言','xingshi-004','xingshi-004-026']]){

@@ -1,5 +1,6 @@
 // Reject unresolved glyphs in the shipped Chinese corpus without correcting the original text.
 // Only explicit component layouts and editorial omissions are markers; ordinary annotations and stage cues remain valid.
+import type {OriginalSource} from '../lib/reader-source-types.ts';
 const damagedCodepoint=/[\uE000-\uF8FF\uFFFD□\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}\p{Script=Cyrillic}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Greek}\u2FF0-\u2FFF]/u;
 const unresolvedEntity=/&(?:amp;)*(?:KR[\w-]*|CDP[-\w]+);/iu;
 const componentLayout=/【(?:字形)?(?:左[\p{Script=Han}]{1,2}右[\p{Script=Han}]{1,2}|上[\p{Script=Han}]{1,2}下[\p{Script=Han}]{1,2})】|【(?:字形|□[：:])?(?:左|上)[^】\n]{0,35}[“「"][^】\n]{0,35}(?:右|下)[^】\n]{0,35}】/u;
@@ -18,4 +19,15 @@ export function hasBlockingSourceAnomaly(text:string,source?:{edition:string;sec
  let inspected=text;
  for(const rule of reviewed)if(source?.edition===rule.edition&&source.sectionId===rule.sectionId)inspected=inspected.replace(rule.context,rule.context.replace(rule.glyph,''));
  return hasSourceAnomaly(inspected);
+}
+// Historical retries use saved evidence, including the chapter identity of each continuation.
+// Check the parts against the exact saved text before allowing any chapter-scoped glyph exception.
+export function hasStoredSourceAnomaly(original:OriginalSource){
+ const source=original.localSource;
+ if(!source?.continuations?.length)return hasBlockingSourceAnomaly(original.text,source);
+ const sections=[source,...source.continuations],parts=original.localParts;
+ if(!parts)return hasBlockingSourceAnomaly(original.text,source);
+ if(parts.length!==sections.length||parts.some((part,i)=>part.sectionId!==sections[i].sectionId||typeof part.text!=='string'||typeof part.title!=='string'||hasSourceAnomaly(part.title)))return true;
+ if(parts.map(part=>`【出处：${part.title}】\n${part.text}`).join('\n\n')!==original.text)return true;
+ return parts.some(part=>hasBlockingSourceAnomaly(part.text,{edition:source.edition,sectionId:part.sectionId}));
 }

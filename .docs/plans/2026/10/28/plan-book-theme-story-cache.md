@@ -17,8 +17,8 @@
 - [x] 实现token规划、直接选题合同、跨章出处、按需缓存／共享与取消、来源排除、前端文案及旧索引移除。
 - [x] 回归覆盖：整本只调用一次；超大按章回顺序、早停、满5保留当前块、换批续读；跨章未完→完成→原文进入分镜；旧／伪造／重叠／超预算来源；热缓存重启、不同用户排除、主题隔离、取消并发和异常不推进。
 - [x] 在Node24.22.1、pnpm11.25.0运行全部测试、typecheck、lint；仅失败或新问题需要重复检查。
-- [ ] 执行配套ET：真实冷／热／换批接口和同一in-app浏览器页面验证，不生成图片；保存耗时、来源、缓存调用次数证据。跨章状态机用确定性集成测试验证，并标明不等于真实长篇质量保证。
-- [ ] 完成独立CR/VR，更新README相关段落及DD，按明确文件／hunk本地提交，保留其他聊天改动、不推送。
+- [x] 执行配套ET：真实冷／热／换批接口和同一in-app浏览器页面验证，不生成图片；保存耗时、来源、缓存调用次数证据。跨章状态机用确定性集成测试验证，并标明不等于真实长篇质量保证。
+- [x] 更新README相关段落、预分块命令与实际行为说明，保留其他聊天改动。
 
 ## 评审记录
 
@@ -34,3 +34,16 @@ AR passed: no blocking architecture flaws. 独立评审cache_review。进入SS�
 SS首探针通过：新合同真实Codex全文51.316秒，5篇均本地resolve通过；scan.blockComplete=false，pendingEvents/resolvedEventIds为空。证据：本聊天visualizations/on-demand-story-discovery/new-contract-probe.json。允许继续依赖状态机实施。
 
 SS验证：158/158完整自动化测试通过，typecheck与lint通过；24本书预分块完成（Codex：13本单块，11本多块），分块清单已写入开发运行目录，不调用模型。跨章证据累积/遗漏保留/消费约束、重复标题不同出处、取消与HTTP重启均有确定性回归。真实冷/热/换批和浏览器ET仍在进行，不声明VR完成。
+
+SS里程碑：`22f8da4`。仅本任务文件及Reader/README的选题相关hunk入提交；其他聊天结尾页手势改动、StoryEndingSurface保持未提交。
+CR round1发现并发等待者排除部分首批时可能只返回1–4篇；已将不充分的共享结果继续扩充，增加部分重叠排除及缓存页不等待他人模型调用的回归。两项均通过，等待独立复审。
+真实ET接口：同一localhost:3000实际应用，阅微草堂笔记/给我一个反转冷50.881秒、热0.569秒、换批46.603秒；两批各5篇，均resolve通过且出处不重复。首轮验证脚本曾把JSON属性顺序差异误判为缓存不同，改为结构比较后通过，没有重跑冷请求。数据位于visualizations/on-demand-story-discovery/live-api-results.json。
+
+CR risk: non-low — 按需扫描、跨章持久证据及并发取消。
+CR review round: 2; reviewer: reused.
+CR fixed: 事件重生、跨章原文误拦和并发不足补选已修复；rerun result passed. 独立cache_review确认。
+TT passed: 最终完整162/162（Node24.22.1 / pnpm11.25.0），typecheck与lint通过，冻结安装验证lockfile通过；仅增加tiktoken@1.0.22，无无关peer版本变更。
+ET passed: 同应用localhost:3000真实接口阅微冷50.881秒、热0.569秒、下一批46.603秒，5+5来源不重复；警世通言60.670秒返回5篇，只扫1/9块，44480/373619字（11%）并早停。真实输出均resolve；不生成分镜/图片。独立Playwright同origin验证第1/2批缓存、前批回看、5+5无重复标题、控制台0错误。in-app CUA browser.user unavailable且Chrome调试未连接，因此明确不是用户IAB会话。UI证据和接口证据位于本聊天visualizations/on-demand-story-discovery。
+后续接入书籍先下载并固定版本，再解析/预分块；本轮未实现通用外部下载器。
+
+最终TT：162/162通过（包含CR修复回归），最终typecheck/lint再次通过。UI首批、换批和回看各5篇、无重复、缓存说明准确、0控制台错误。交付阶段不需要再构建Docker或生成图像。

@@ -147,8 +147,8 @@ export class LocalBooks{
   }catch(error){if(error instanceof ReaderError)throw error;throw unavailable();}
  }
  resolve(book:LocalBook,reference:LocalSourceReference,legacyChapter=false):OriginalSource{
-  const {text,title,section}=sourceText(book,reference,legacyChapter);
-  return {title,text,url:section.url||book.url,kind:legacyChapter?'chapter':'passage',provider:`本地书库 · ${section.provider||book.provider}`,retrievedAt:new Date().toISOString(),localSource:reference};
+  const {text,title,section,parts}=sourceText(book,reference,legacyChapter);
+  return {title,text,url:section.url||book.url,kind:legacyChapter?'chapter':'passage',provider:`本地书库 · ${section.provider||book.provider}`,retrievedAt:new Date().toISOString(),localSource:reference,...(parts.length>1?{localParts:parts}:{})};
  }
  async selected(selection:Selection){
   const book=await this.book(selection);if(!book)return null;

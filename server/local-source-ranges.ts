@@ -40,5 +40,5 @@ export function sourceText(book:LocalBook,source:LocalSourceReference,legacyChap
  if(text.length<20||text.length>2000000||readingTokens(text)>wholeInputTokens||hasSourceAnomaly(book.title))throw invalid();
  const first=parts[0],last=parts.at(-1)!,range=first.first===first.last?`第${first.first+1}${book.id==='shishuo'?'则':'段'}`:`第${first.first+1}–${first.last+1}段`;
  const title=parts.length===1?`《${book.title}·${first.section.title}》${legacyChapter?'':` · ${range}`}`:`《${book.title}·${first.section.title} → ${last.section.title}》 · ${parts.length}段原文`;
- return {text,title,section:first.section as LocalSection};
+ return {text,title,section:first.section as LocalSection,parts:parts.map(part=>({sectionId:part.section.id,title:part.section.title,text:part.units.map(unit=>unit.text).join('\n\n')}))};
 }

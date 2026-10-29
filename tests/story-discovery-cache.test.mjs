@@ -112,6 +112,16 @@ test('another theme scans independently while presentation changes reuse the exi
  assert.notEqual(discoveryNamespace(f.book,'codex','mock2'),discoveryNamespace(f.book,'codex','mock'));
  assert.equal(first.stories.length,5);
 });
+test('a consumed event cannot be resurrected by returning the same source as a new empty-id pending',async()=>{
+ const f=fixture(8,4,200),store=memory(),cache=new StoryDiscoveryCache(store),first=f.stories[0].source;let calls=0;
+ f.provider.suggestions=async(s,e,input)=>{calls++;if(calls===1)return {stories:[],note:'',scan:state(true,[{id:'',title:'未完事件',summary:'事情还未结束。',source:first}])};
+  const later=f.stories[4].source,complete={...first,continuations:[{sectionId:later.sectionId,firstUnit:later.firstUnit,lastUnit:later.lastUnit}]};
+  return {stories:[{title:'完整故事',description:'人物终于看到了结果。',source:complete}],note:'',scan:state(true,[{id:'',title:'未完事件',summary:'仍未结束。',source:first}],[input.scan.pendingEvents[0].id])};
+ };
+ await assert.rejects(run(f,cache,[],undefined,[],limits));
+ const documents=[...store.values.values()].map(bytes=>JSON.parse(new TextDecoder().decode(bytes))),saved=documents.find(d=>d.value.pendingEvents);
+ assert.equal(saved.value.cursor,1);assert.equal(saved.value.pendingEvents.length,1);assert.equal(saved.value.stories.length,0);
+});
 test('concurrent requests share one expansion; one reader cancelling does not cancel the other',async()=>{
  const f=fixture(),cache=new StoryDiscoveryCache(memory()),raw=f.provider.suggestions;let release;
  const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{await gate;return raw(...args);};
@@ -125,6 +135,22 @@ test('all readers cancelling still saves the finished call and does not dispatch
  const abort=new AbortController(),request=run(f,cache,[],{signal:abort.signal,onProgress:()=>{}},[],limits);
  await until(()=>started);abort.abort();await assert.rejects(request);release();await until(()=>f.calls.length===1);await new Promise(resolve=>setTimeout(resolve,10));
  const again=await run(f,new StoryDiscoveryCache(store),[],undefined,[],limits);assert.ok(again.stories.length);assert.equal(f.calls.length,2);assert.notEqual(f.calls[0].input.text,f.calls[1].input.text);assert.ok(again.stories.some(story=>story.source.sectionId==='chapter-0'));
+});
+test('a shared expansion is extended for a second reader with partially overlapping exclusions',async()=>{
+ const f=fixture(),cache=new StoryDiscoveryCache(memory()),raw=f.provider.suggestions;let release,started=false;
+ const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{if(!started){started=true;await gate;}return raw(...args);};
+ const first=run(f,cache);await until(()=>started);
+ const second=run(f,cache,[],undefined,f.stories.slice(0,3).map(story=>story.source));release();
+ assert.equal((await first).stories.length,5);const batch=await second;
+ assert.equal(batch.stories.length,5);assert.equal(f.calls.length,2);
+ assert.ok(batch.stories.every(story=>!f.stories.slice(0,3).some(old=>localSourceKey(old.source)===localSourceKey(story.source))));
+});
+test('a complete cached page does not wait behind another readers model call',async()=>{
+ const f=fixture(),cache=new StoryDiscoveryCache(memory());const first=await run(f,cache),raw=f.provider.suggestions;let release,started=false;
+ const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{started=true;await gate;return raw(...args);};
+ const next=run(f,cache,[],undefined,first.stories.map(story=>story.source));await until(()=>started);
+ const cached=await run(f,cache);assert.equal(cached.stories.length,5);assert.equal(f.calls.length,1);
+ release();assert.equal((await next).stories.length,5);
 });
 test('cache write errors and malformed model state do not pretend success',async()=>{
  const f=fixture();await assert.rejects(run(f,new StoryDiscoveryCache({get:async()=>null,put:async()=>{throw Error('disk full');}})),/缓存.*保存/);assert.equal(f.calls.length,0);

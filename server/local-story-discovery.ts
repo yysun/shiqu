@@ -42,6 +42,7 @@ function mergePending(books:LocalBooks,book:LocalBook,old:PendingEvent[],updates
   if(update.id&&(!old.some(event=>event.id===update.id)||resolved.includes(update.id)))throw failed();
   const previous=update.id?result.get(update.id):[...result.values()].find(event=>sourcesOverlap(book,event.source,update.source));
   const id=previous?.id||discoveryHash([localSourceKey(update.source),update.title]);
+  if(resolved.includes(id)||resolved.some(done=>sourcesOverlap(book,old.find(event=>event.id===done)!.source,update.source)))throw failed();
   if(seen.has(id))throw failed();seen.add(id);
   const event={...update,id,source:previous?mergeSources(book,previous.source,update.source):update.source};
   qualified(books,book,event.source);
@@ -82,10 +83,19 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   const input:WholeBookInput={title:book.title,edition:book.edition,text:block.text,purpose:'scan',scan:{maxStories,excludedSources:relevant.map(story=>story.source),pendingEvents:current.pendingEvents,contextText}};
   return {input,titles:relevant.map(story=>story.title),visible};
  };
+ const response=(state:State,hit:boolean):SuggestionBatch=>{
+  const stories=visibleStories(state.stories).slice(0,5);
+  const note=(hit?'已复用本地主题故事缓存。':plan.manifest.mode==='whole'?'已直接根据全书原文选题。':'已按章回选题，换一批将从保存的位置继续。')+(state.rejected?'部分返回出处未能完整核对，已保留当前进度，可继续重试。':'')+(stories.length<5&&state.exhausted?'已检查完所给原文，当前主题可确认的新故事不足5篇。':'')+(state.exhausted&&state.pendingEvents.length?'部分跨章线索尚未确认完整，未作为故事推荐。':'');
+  return {stories,note:note.slice(0,300)};
+ };
  let hit=true;
  while(true){
-  const state=await cache.shared(key,observer,async reading=>{
+  // A cached page must not wait behind another reader's in-flight expansion.
+  const cached=await cache.read(key,stateSchema,validate);
+  if(cached&&(visibleStories(cached.stories).length>=5||cached.exhausted))return response(cached,hit);
+  const {state,stalled}=await cache.shared(key,observer,async reading=>{
    let current=await cache.read(key,stateSchema,validate)||{stories:[],cursor:0,readThrough:0,pendingEvents:[],exhausted:false,rejected:false};
+   let stalled=false;
    const progress=()=>reading.onProgress({completed:current.readThrough,total:plan.blocks.length,completedChars:plan.blocks.slice(0,current.readThrough).reduce((n,block)=>n+block.chars,0),totalChars,stage:'reading',mode:plan.manifest.mode});
    progress();
    while(visibleStories(current.stories).length<5&&!current.exhausted){
@@ -117,19 +127,16 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
     await cache.write(key,next);current=next;progress();
     if(reading.signal.aborted)break;
     if(rejected||!accepted.length&&!result.scan.blockComplete){
-     if(visibleStories(current.stories).length)break;
+     if(visibleStories(current.stories).length){stalled=true;break;}
      throw failed();
     }
    }
-   return current;
+   return {state:current,stalled};
   });
   observer?.signal.throwIfAborted();
   const stories=visibleStories(state.stories).slice(0,5);
-  if(stories.length>=5||state.exhausted||state.rejected){
-   const note=(hit?'已复用本地主题故事缓存。':plan.manifest.mode==='whole'?'已直接根据全书原文选题。':'已按章回选题，换一批将从保存的位置继续。')+(state.rejected?'部分返回出处未能完整核对，已保留当前进度，可继续重试。':'')+(stories.length<5&&state.exhausted?'已检查完所给原文，当前主题可确认的新故事不足5篇。':'')+(state.exhausted&&state.pendingEvents.length?'部分跨章线索尚未确认完整，未作为故事推荐。':'');
-   return {stories,note:note.slice(0,300)};
-  }
+  if(stories.length>=5||state.exhausted||state.rejected)return response(state,hit);
+  if(stalled)return {...response(state,hit),note:'本段尚未确认处理完，已保存找到的故事和原文位置，可重试继续。'};
   // A different waiting reader may need more than the shared expansion supplied.
-  if(stories.length)return {stories,note:'已保留当前原文位置，可换一批继续寻找。'};
  }
 }
