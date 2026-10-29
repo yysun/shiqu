@@ -1,35 +1,41 @@
-# Story frame count
+# Story frame count — narrative detail and recommendation
 
 ## Summary
 
-The reader no longer constrains new stories to 8/10/12 frames. New preferences default to model-decided pacing, with 30–60 narrative guidance and a validated 1–60 range. Readers can instead choose an exact count through synchronized native slider/number controls; one frame is labelled 单幅. Existing numeric preferences remain honored until changed.
+新故事先选简短/适中/详细（默认适中），再根据已保存原文推荐数量与一句理由。现有生成面板提供1–60同步滑块/数字、单幅概述和恢复推荐；用户确认后才生成精确数量的分镜及图片。新增可恢复推荐检查点和原子数量确认，避免刷新、并发和丢响应覆盖已确认选择。旧numeric/auto会话及已保存分镜继续沿原流程恢复，无数据库迁移。
 
-Saved plan pages determine actual reading/generation length without changing automatic intent or replanning on retry. Both provider adapters enforce manual counts; reader media, events and saved progress now reach frame60. Existing 8/10/12 sessions need no migration. Images remain demand-driven in existing batches.
-
-Implementation commits: `0dce9c3`, `aef4d33`.
+Implementation milestone: `3a07851`. This correction supersedes the earlier auto/manual entry in the original story; original milestones `0dce9c3` and `aef4d33` remain intact. Final delivery documentation is included in the user's subsequently authorized local commit; no push.
 
 ## Verification
 
-Node24.22.1 / pnpm11.25.0: full `pnpm test`176/176, typecheck, lint, local production build and whitespace checks passed. 18 controlled provider/REST tests cover auto1/30, exact1/8/10/12/30/60, mismatch rejection, saved plans, frame60 media/events/progress and restart. Separate-session Playwright E2E with temporary real SQLite and controlled generation verified picker keyboard/number/range behavior, creation lock, a single-frame read and ending, and 390px mobile layout. The in-app automation tool returned a disabled-in-Work error; its underlying cause is unknown, not evidence that the user is using Work or changed a setting.
+Independent AR/CR passed. Node24.22.1 / pnpm11.25.0: full187 tests, focused36 provider/source tests, typecheck, lint, production build and whitespace checks passed. Visible390px frontend used real local originals/SQLite and controlled Codex inference in a separate Playwright session; recommendation and final-plan contracts for both providers were tested separately. Screenshots: [detail options](../../../../../outputs/story-frame-count/detail-options-mobile.png), [recommendation](../../../../../outputs/story-frame-count/detail-recommendation-mobile.png).
 
-Independent AR and full CR passed; CSS repair passed a second CR. Final independent VR:
+UI verified default/three choices, old preference compatibility, reason, synchronized1/60 and keyboard/reset controls, one dialog/no overflow, shelf/reload recovery, disabled confirmation, lost confirmation response recovery with exactly one count1 plan/image, automatic failure exhaustion and manual retry. Initial fixture host rewrite was repaired in test setup; application origin checks remained intact. Temporary server/browser/data were closed and cleaned up.
+
+Final independent VR, verbatim:
 
 VR passed: all acceptance criteria complete
-VR risk: non-low — provider and persistence contracts.
-VR review round: 2; reviewer: reused.
 
-The timeout does not invalidate the existing feature criteria or prove that the deadline needs changing.
+VR risk: non-low — durable recommendation and count confirmation coordinate source retrieval, providers, SQLite state, REST and reader UI.
 
-The live full-plan trial **failed**: no count or plan returned within 120 seconds. Record that explicitly. A successful count-only preview would not verify the production planning flow.
+VR review round: 1; reviewer: reused.
 
-Repeated full-plan timeouts would justify reopening runtime design. Increasing the deadline must account for the existing 180-second session lock.
+1. Complete — New UI offers 简短 / 适中 / 详细, defaults to 适中, and prevents old numeric preferences from skipping the new flow. Shared instructions define narrative density without fixed counts or a 30–60 quota. Provider tests cover all three values.
+
+2. Complete — Gemini and Codex recommend an integer count and reason from the saved, verified original. Source failures and invalid recommendations stop before storyboard or image calls. Local receipt/anomaly tests protect recommendation input; final planning reuses the same original.
+
+3. Complete — The existing generation sheet presents the suggestion, synchronized 1–60 controls, 单幅概述 and restoration of the recommended count. UI ET verifies keyboard adjustment and disabled controls during confirmation. Backend waiting-state enforcement and exact-count validation prevent early or mismatched generation.
+
+4. Complete — Recommendation, original and confirmation persist across restart and shelf recovery. Controlled API/SQLite and UI evidence cover concurrent confirmations, repeated advances, lost responses, retry recovery and refresh without repeating completed work. Waiting remains idle and exits the automatic generation loop.
+
+5. Complete — Optional new fields preserve legacy numeric/auto sessions and saved plans without a migration. Existing regression coverage retains single/60-frame reading, media, events, progress, restart, first-image reference and later image batches.
+
+6. Complete — README documents the flow, extra text request, existing story quota and source limitations. Revised E2E scenarios are evidenced by real provider adapters with controlled responses, real SQLite/local originals and visible 390px frontend verification. Inspected screenshots show readable detail and recommendation controls.
+
+Recorded validation: full Node suite 187/187; focused provider/source suite 36/36; typecheck, lint, production build and whitespace checks passed. All current AP tasks are complete. Independent AR and CR remain valid; implementation has not changed since `3a07851`.
+
+No blocking findings. Review inspected artifacts, test output and screenshots without executing tests or editing files. Browser ET used a disclosed separate Playwright session because the in-app tool remained unavailable. Controlled inference establishes application behavior, not live-model narrative quality; unverifiable URL sources stop with an explicit source error. No Docker or desktop installer build was performed.
 
 ## Notes
 
-No database migration, Docker build or push. Unrelated concurrent desktop and icon work was preserved. Automatic count influences total generation time/cost; a real model can still fail or time out, and narrative/visual quality is not established by controlled tests.
-
-
-The user additionally requested a real Dongguo/wolf trial. A full plan under the production prompt/schema with configured `gpt-6.1-sol` timed out at the existing120-second limit. It returned no usable count or plan. This establishes a concrete runtime limit for this trial; it is not a successful full-plan verification. A separate count-only preview is distinct from the app's complete storyboard generation.
-
-
-The separate count-only preview succeeded in40.644s: `gpt-6.1-sol` recommended **58 frames** for the complete《中山狼传》. Nine beat allocations were4/9/5/8/6/10/7/4/5; the old apricot tree and old ox episodes contribute16 frames. This used the current30–60 guidance and is not an unbiased count. No images were generated. Evidence: `outputs/story-frame-count/dongguo-wolf-count-recommendation.json`; source: https://zh.wikisource.org/w/index.php?title=%E4%B8%AD%E5%B1%B1%E7%8B%BC%E5%82%B3&oldid=2578885 .
+The extra lightweight recommendation is a text request and uses the existing new-story quota; recovery does not create another session. Detail is narrative density, with no fixed count mapping or30–60 quota. Counts cannot change after confirmation. No actual inference, personal settings/story-data mutation, timeout/lease changes, Docker or desktop installer build. Current installed applications need a rebuilt package to expose these changes. Unknown/custom URL originals may be unavailable before planning and explicitly stop rather than receive a fabricated recommendation. Rollback to older code cannot interpret the new waiting state; preserve the updated reader or restore pre-feature data.

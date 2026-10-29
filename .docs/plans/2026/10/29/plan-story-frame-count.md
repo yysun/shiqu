@@ -21,8 +21,8 @@ Providers 共享推荐 schema/prompt 与详略语义；不含固定数量映射�
 - [x] 扩展 engine/repository/API：原文保存、recommend checkpoint、等待与完成判定、CAS 数量确认；支持失败重试、并发与幂等。
 - [x] 扩展 generation loop/hook、Reader 与 StoryFrameCount：详略先选、可恢复数量面板和精确生成；书架/刷新，锁定与移动布局。
 - [x] 新增受控 provider/REST/SQLite 回归：三档、1/60、非法输出/输入、来源失败、确认冲突、重启和重试；保留旧全套批次测试。
-- [ ] 更新 README；运行完整 pnpm test、typecheck、lint、production build（Node24.22.1 / pnpm11.25.0），无 Docker/安装包构建。
-- [ ] 执行 .docs/tests/test-story-frame-count.md：真实前端+隔离受控服务，可见默认/三档/建议/调整/确认/书架恢复及390宽布局。
+- [x] 更新 README；运行完整 pnpm test、typecheck、lint、production build（Node24.22.1 / pnpm11.25.0），无 Docker/安装包构建。
+- [x] 执行 .docs/tests/test-story-frame-count.md：真实前端+隔离受控服务，可见默认/三档/建议/调整/确认/书架恢复及390宽布局。
 
 ## Current risk / first probe
 
@@ -103,3 +103,29 @@ Source boundary: custom URL input may lack the book/chapter hint previously supp
 ## Current implementation evidence
 
 First SS feasibility probe passed: 24 controlled provider/REST/SQLite tests, then 36 focused tests after adding local-source and lost-response coverage. Both providers use saved original → recommend → idle waiting → CAS confirmation → exact plan, with no early storyboard/images. Three detail values,1/60, invalid output/input, competing confirmation, missing URL source and restart/retry passed. Typecheck passed after UI wiring.
+
+
+Current SS milestone: `3a07851` (`feat(reader): recommend frame counts from narrative detail before storyboarding`). Focused36/36, typecheck, lint and production build passed. Includes only this correction's files; unrelated icons remain uncommitted.
+
+CR passed: no major findings
+
+CR risk: non-low — introduces a persisted recommendation/confirmation stage across source retrieval, provider calls, SQLite state, REST and reader UI.
+
+CR review round: 1; reviewer: reused.
+
+Current TT: complete `pnpm test`187/187 passed on Node24.22.1 / pnpm11.25.0 (log `/tmp/shiqu-detail-full-tests.log`). Final source typecheck, lint, production build and whitespace check passed. No Rust changes, additional applicable native suites, Docker build or desktop installer build.
+
+Current ET: revised scenarios1–5 passed with controlled model results and real SQLite/local originals. Visible frontend at390×844 in separate Playwright session: legacy numeric60 preference still enters default适中; all three detail choices available; no count control before recommendation; detailed sent to recommendation; count7 suggestion/reason displayed with no plan/image jobs. Slider/number1/60, ArrowLeft→59, restore7 and 单幅概述 verified. One dialog, width=scrollWidth=390; screenshots inspected (`outputs/story-frame-count/detail-options-mobile.png`, `detail-recommendation-mobile.png`). Closing to shelf and browser reload restored the same suggestion without another provider call. Delayed confirmation locked number/slider/button. Simulated lost confirmation response recovered by GET and produced exactly one detailed plan withcount1 and one image. A second brief session failed3 automatic attempts, displayed retry, then recovered recommendation after manual retry; shelf/reload reopened this second session without another call. Controlled error/retry validation does not prove real model quality. Console clean after final reload except existing mobile meta deprecation; an intentional aborted confirmation generated the expected transport error earlier.
+
+ET setup correction: the first fixture proxy used Vite's default host rewrite, triggering the application's existing cross-site request rejection before selection. Fixed the fixture to preserve Host (changeOrigin:false), restarted isolated data and reran; no production security change. In-app browser inventory again returned `Local browser use is disabled in Work settings`; underlying cause remains unknown and no user setting was changed. Separate session was disclosed. UI fixture uses real local receipts/SQLite with controlled Codex adapter, no live inference or personal library.
+
+
+## Current VR / delivery
+
+VR passed: all acceptance criteria complete
+
+VR risk: non-low — durable recommendation and count confirmation coordinate source retrieval, providers, SQLite state, REST and reader UI.
+
+VR review round: 1; reviewer: reused.
+
+All six revised criteria complete. Full final independent result retained verbatim in .docs/done/2026/10/29/story-frame-count.md. DD complete; !! stopped before final GC. The user subsequently authorized committing the remaining delivery documentation locally. Temporary UI service, browser and SQLite fixture closed/removed; evidence screenshots retained in ignored outputs.
