@@ -12,6 +12,7 @@ import type {OriginalSource} from '../lib/reader-source-types.ts';
 import {sourceQuery} from '../lib/reader-source.ts';
 import {Converter} from 'opencc-js';
 import {readerBooks} from '../lib/reader-books.ts';
+import {loadLicensedCollection} from './local-book-licensed.ts';
 import {parseWikiStories} from './local-book-wiki-stories.ts';
 import {parseWikiOriginal,parseShidianOriginal} from './local-book-html.ts';
 import type {HtmlOriginal} from './local-book-html.ts';
@@ -21,7 +22,7 @@ import {parseAdditionalSections,additionalBookSpecs,localLines,supplementBody,ch
 
 export type LocalUnit={id:string;text:string;narrative?:boolean;unreadable?:boolean};
 export type LocalSection={id:string;title:string;units:LocalUnit[];url?:string;provider?:string};
-type BookEntry={id:string;title:string;originalFile:string;originalFiles?:(Omit<HtmlOriginal,'sourceUrl'>&{sourceUrl?:string})[];format?:'wikisource-html'|'shidian-html';source:{url:string;provider:string;sha256:string};supplements:{file:string;sha256:string;sourceUrl:string;chapter:number;scope:string}[]};
+type BookEntry={id:string;title:string;originalFile:string;originalFiles?:(Omit<HtmlOriginal,'sourceUrl'>&{sourceUrl?:string})[];format?:'wikisource-html'|'shidian-html'|'licensed-wikisource'|'kanripo-text';source:{url:string;provider:string;sha256:string};supplements:{file:string;sha256:string;sourceUrl:string;chapter:number;scope:string}[]};
 export type LocalBook={id:string;title:string;edition:string;url:string;provider:string;sections:LocalSection[];input:WholeBookInput};
 const aliases:Record<string,string>=Object.fromEntries(readerBooks.flatMap(book=>[[book.id,book.id],[book.title,book.id]]));
 // Normalize legacy chapter labels only. Never convert source body glyphs.
@@ -75,7 +76,10 @@ export class LocalBooks{
    const root=await realpath(this.directory),file=await realpath(path.join(root,entry.originalFile));
    if(!file.startsWith(root+path.sep))throw unavailable();
    let edition:string,sections:LocalSection[];
-   if(entry.originalFiles){
+   if(entry.format==='licensed-wikisource'||entry.format==='kanripo-text'){
+    if(entry.supplements?.length)throw unavailable();
+    ({edition,sections}=await loadLicensedCollection(file,entry as Parameters<typeof loadLicensedCollection>[1]));
+   }else if(entry.originalFiles){
     if(!['太平广记','二刻拍案惊奇','山海经','酉阳杂俎','史记','红楼梦','喻世明言'].includes(id)||entry.supplements?.length)throw unavailable();
     const files=entry.originalFiles;
     let expected:string[];
