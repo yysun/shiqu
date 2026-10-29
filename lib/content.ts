@@ -1,3 +1,4 @@
+// Define story content and the source-backed sample used to initialize a new library.
 export type Page = { caption: string; prompt: string; image: string; audio: string };
 export type Story = { id:string; title:string; hook:string; bookId:string; theme:string; status:'draft'|'review'|'published'; pages:Page[]; reflection:string; sourceText:string; sourceUrl:string; adaptationNote:string; checks:{source:boolean;plot:boolean;visual:boolean}; actualCost:number|null; currency:string; revision:number; createdAt:string; updatedAt:string };
 export const pearSource = '[historical third-party excerpt removed]';

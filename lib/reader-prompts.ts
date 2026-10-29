@@ -1,4 +1,4 @@
-// Keep storyboarding and frame composition aligned across reader and studio generation.
+// Keep storyboarding, source-grounded reflections and frame composition aligned across reader and studio generation.
 export const storyboardDirection=`用影视分镜的思维编排静态连环画，不把原文逐段配图，也不为展示技法而机械轮换景别。
 根据原典自身的力量选择叙事方式：可以是悬念、期待、两难、关系变化、日常细节、幽默、遗憾或逐渐加重的代价，不必反转，不强迫读者先误判再醒悟。只有原故事适合反转或读者明确要求时才使用反转，并提前留下可回看的依据；不得凭空添加秘密、恶人、苦难或原著事件来制造刺激。
 每幅有明确的叙事作用，推动读者对处境的认识或情绪发生具体变化，也可通过一个动作细节让情绪停留；按故事需要安排信息的显露、人物的选择与行动后果。翻页可承接未完成的动作、视线或尚未揭示的结果，不必每页制造悬念。必要的因果必须清楚，不能靠故意藏掉关键事实制造困惑。全篇有疏密与轻重，避免每页同等信息量、同等情绪强度。
@@ -6,7 +6,9 @@ export const storyboardDirection=`用影视分镜的思维编排静态连环画�
 每幅只截取一个可见瞬间，突出一个叙事上的视觉重点；重点可以是一组人物与空间的关系，不等于只画一个物体或把背景清空。需要交代环境、人群或尺度时就给足全景，细节承载转折时才收紧。根据该幅作用选择景别、人物视点、遮挡或画外空间；可以只画手、物件、背影或空下来的场所，不必让全体人物、完整身体、环境和所有道具同时出现。动作、视线、人物距离、前后景与留白要服务这一个重点；次要信息可简化或留在画外，但保持人物、空间、关键物件与动作因果连续。
 旁白与画面互补：旁白补充必要的时间、因果或画面无法直接表达的内容，不逐项复述可见动作，不提前解释伏笔、宣布情绪或讲完寓意。关键转折与收尾可以用更短旁白，把阅读停顿交给画面。
 结尾画面先让事件得到必要的交代，再用适合该故事的具体动作、人物处境或物件留下余波；可以自然呼应前文，也可以直接停在结果，不强制首尾同构、物件回环或悬而不决。
-reflection是故事之后最后单独的一句有寓意的总结或感想，用简洁的陈述句，从这篇故事中的人性、处境、关系或选择提炼一层认识，让读者带回自己的生活中体会。允许清楚地解释道理、总结教训或表达感想，无须为了含蓄而隐去观点；道理应由本篇的人物行为与结果自然推出，不能只喊脱离故事的口号。情节负责交代发生了什么，reflection负责说出这段经历说明了什么、值得体会什么，不要因为担心说教而只重复最后一个画面或物件。不要复述事件、换词概括结局、补写后续，也不要追问谁做了什么、结果如何或让读者回忆剧情。避免“你是否也……”式套话、空泛励志、强行升华，以及对人物简单判善恶；可以明确判断，也可以保留故事自身的复杂与矛盾。写完核对：这句话是否在情节之外增加了一层认识或道理，而且能由本篇具体的人物经历、关系或处境支撑；若只是重复剧情、提出情节问题，或换到任何故事都成立的漂亮话，就重写。`;
+reflection是故事之后最后单独的一句有寓意的总结或感想，用简洁的陈述句，从这篇故事中的人性、处境、关系或选择提炼一层认识，让读者带回自己的生活中体会。允许清楚地解释道理、总结教训或表达感想，无须为了含蓄而隐去观点；道理应由本篇的人物行为与结果自然推出，不能只喊脱离故事的口号。情节负责交代发生了什么，reflection负责说出这段经历说明了什么、值得体会什么，不要因为担心说教而只重复最后一个画面或物件。不要复述事件、换词概括结局、补写后续，也不要追问谁做了什么、结果如何或让读者回忆剧情。避免“你是否也……”式套话、空泛励志、强行升华，以及对人物简单判善恶；可以明确判断，也可以保留故事自身的复杂与矛盾。
+立意必须有情节依据，先校准立意，再润色语言。动笔前核对：谁主动做了什么，谁是被迫承受，哪些动机有原文依据，哪些后果实际发生；再选出由这些事实支撑的一层认识。不得偷换人物行为与意愿：被拿走不等于主动付出，沉默不等于宽容，失败不等于牺牲，畏惧或礼遇也不自动等于真心理解或尊重。核对因果与褒贬，不凭空制造善人、恶人或隐藏动机，不把先后发生写成必然因果，也不把人物受损解释成惩罚正当、把一次善行写成必有回报。以已核原文为事实依据，不能用改编时新增的表情、心理或情节反过来证明原文没有的立意；不靠猜补后续、虚构受益者或扩大因果来拔高。允许朴素，禁止为金句而硬套道理；结论的力度不得超过本篇证据，不将一种读法说成唯一寓意。
+成句后单独审查：这句话是否曲解了人物的行为、意愿或处境，是否说出了本篇没有证明的动机、后果或道理？有任一问题就重写；通过后再检查是否增加了一层可体会的认识、是否简洁有余味。若只是重复剧情、提出情节问题，或换到任何故事都成立的漂亮话，也要重写。这些核对用于修正最终一句，不额外输出分析或新增字段。`;
 
 export const imageCompositionDirection=`Stage this as ONE static storyboard frame with one dominant narrative focus and one visible instant, not a summary of the whole page or a sequence of actions. Follow the scene's chosen shot size, viewpoint, crop, subject placement and reveal/conceal decisions. Translate its narrative purpose into visible staging rather than written explanation. Film-storyboard thinking governs composition, not the rendering medium; retain the selected art style.
 Do not default to close-ups. A wide or establishing shot needs its spatial scale, environment, ensemble and character relationships; a medium shot needs readable interaction; a close-up needs its decisive detail. An environment-led frame can express the characters' situation through space, light, landscape or the state of objects, without adding a face or a generic symbolic effect. One narrative focus can be a relationship across a rich scene, not just one isolated object. Preserve the planned shot: do not crop a wide shot into a detail or strip away meaningful surroundings, and do not widen a close-up to fit full bodies, the whole cast or a complete environment.
@@ -28,7 +30,7 @@ const themeDirections:Record<string,string>={
 export function defaultProductionPrompt(theme:string){
  const topic=theme.trim();
  const direction=themeDirections[topic]||(topic&&topic!=='其他'?`围绕“${topic}”展开，让主题从人物行动、关系与处境中自然显现。`:'从人物行动、关系与处境展开一个有余味的古典短故事。');
- return direction+'保留原典核心人物与事件，按故事自身安排信息显露与情绪起伏，不强求反转。每幅一个瞬间、一个叙事重点，按需要平衡全景、中景、特写与环境映照，不一概特写，也不固定配比；旁白不重复解释画面。最后一句从人物经历与处境中提炼有寓意的总结或感想，可以解释道理、总结教训，用陈述句留下可带回生活的认识；道理要由本篇故事支撑，不复述情节、不做情节提问。';
+ return direction+'保留原典核心人物与事件，按故事自身安排信息显露与情绪起伏，不强求反转。每幅一个瞬间、一个叙事重点，按需要平衡全景、中景、特写与环境映照，不一概特写，也不固定配比；旁白不重复解释画面。最后一句从人物经历与处境中提炼有寓意的总结或感想，可以解释道理、总结教训，用陈述句留下可带回生活的认识；不复述情节、不做情节提问。先核对谁主动做了什么、动机是否有原文依据、后果是否实际发生，再提炼道理；不偷换意愿、不虚构动机、不扩大因果，不用改编新增情节证明立意。结论的力度不得超过本篇证据，允许朴素，不为金句强行拔高。成句后单独检查是否曲解人物、是否说出了故事没有证明的道理，有则重写，再润色语言与余味。';
 }
 export function promptAfterThemeChange(current:string,previousTheme:string,nextTheme:string){
  return !current.trim()||current===defaultProductionPrompt(previousTheme)?defaultProductionPrompt(nextTheme):current;
