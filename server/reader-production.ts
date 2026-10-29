@@ -85,9 +85,12 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   await this.database.prepare('DELETE FROM production_demand WHERE session_id=? AND owner_id=? AND viewer_id=? AND runtime_id=?').bind(id,ownerId,viewerId,this.runtimeId).run();this.wake();
  }
  async snapshot(ownerId:string,id:string):Promise<SessionView>{
-  const row=await this.repository.get(id,ownerId),session=view(row);
+  const row=await this.repository.get(id,ownerId),saved=view(row);
   const jobs=await this.queue.jobs(id,ownerId),failed=jobs.find(job=>job.state==='failed');
-  const working=jobs.some(job=>job.state==='running'||job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'));
+  const active=jobs.filter(job=>job.state==='running'&&job.lease_until>this.clock()).sort((a,b)=>a.updated_at-b.updated_at);
+  // Claim timestamps measure this attempt, rather than time since the story was first created.
+  const session={...saved,generationProgress:{...saved.generationProgress!,startedAt:active[0]?.updated_at??null,attempt:active[0]?.attempts??saved.generationProgress!.attempt}};
+  const working=active.length>0||jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'));
   if(failed&&!working)return {...session,state:'failed',error:failed.error,retryAllowed:true,retryMayCharge:failed.kind!=='image-publish',...(failed.kind==='image-publish'?{retryStage:'publication' as const}:{})};
   const demands=await this.demands(id),eligible=jobs.some(job=>job.state==='queued'&&demands.some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page));
   const productionState=working?'running':eligible?'queued':'paused';

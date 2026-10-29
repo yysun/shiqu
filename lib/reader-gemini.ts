@@ -1,7 +1,7 @@
 // Generate story plans and media through Gemini, preserving safe errors and validated results.
 import {z} from 'zod';
 import {frameRecommendationSchema,frameRecommendationJson,frameRecommendationPrompt,frameRecommendationPayload} from './reader-frame-recommendation.ts';
-import {readerMaxFrames} from './reader-limits.ts';
+import {readerMaxFrames,readerStoryboardTimeoutMs} from './reader-limits.ts';
 import {planSchema,readerBooks} from './reader-model.ts';
 import type {Plan,Selection} from './reader-model.ts';
 import type {StoryGenerator} from './reader-engine.ts';
@@ -126,7 +126,7 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
    const {book,url}=source(selection);
    const {candidate,metadata}=await generate(models.text,textRequest(
     planSystemPrompt+(original?.localSource?'\n'+localPlanConstraint:''),
-    {book,chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})},planJson(selection.length),original?'':url,Math.max(8192,(selection.length==='auto'?readerMaxFrames:selection.length)*800)));
+    {book,chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})},planJson(selection.length),original?'':url,Math.max(8192,(selection.length==='auto'?readerMaxFrames:selection.length)*800)),readerStoryboardTimeoutMs);
    if(url&&!original&&!wasRead(candidate,url))throw new GeminiError('SOURCE_UNAVAILABLE');
    const value=planSchema.parse(parseText(candidate));
    if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new GeminiError('INVALID_PLAN');

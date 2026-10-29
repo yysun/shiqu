@@ -93,14 +93,19 @@ test('status exposes the configured text model for cache identity without starti
  assert.equal((await explicit.status()).model,'explicit-text-model');
 });
 
-test('the runner honors longer index deadlines while an explicit shorter test limit still wins',async t=>{
+test('the runner honors five-minute storyboard deadlines while other defaults and explicit shorter limits remain',async t=>{
  const fake=await fakeCli(t),original=setTimeout,delays=[];
  globalThis.setTimeout=(callback,delay,...args)=>{delays.push(delay);return original(callback,delay,...args);};
  try{
-  await createCodexRunner({CODEX_BIN:fake.binary}).run({instructions:'JSON',prompt:'index fixture',timeoutMs:180000});
-  assert.ok(delays.includes(180000));delays.length=0;
-  await createCodexRunner({CODEX_BIN:fake.binary},{timeoutMs:2000}).run({instructions:'JSON',prompt:'index fixture',timeoutMs:180000});
-  assert.ok(delays.includes(2000));assert.ok(!delays.includes(180000));
+  for(const timeoutMs of [180000,300000]){
+   await createCodexRunner({CODEX_BIN:fake.binary}).run({instructions:'JSON',prompt:'storyboard fixture',timeoutMs});
+   assert.ok(delays.includes(timeoutMs));delays.length=0;
+  }
+  await createCodexRunner({CODEX_BIN:fake.binary}).run({instructions:'JSON',prompt:'default fixture'});
+  assert.ok(delays.includes(120000));delays.length=0;
+  await createCodexRunner({CODEX_BIN:fake.binary}).status();assert.ok(delays.includes(10000));delays.length=0;
+  await createCodexRunner({CODEX_BIN:fake.binary},{timeoutMs:2000}).run({instructions:'JSON',prompt:'storyboard fixture',timeoutMs:300000});
+  assert.ok(delays.includes(2000));assert.ok(!delays.includes(300000));
  }finally{globalThis.setTimeout=original;}
 });
 test('runner rejects unsafe tools, oversized output, process failure, missing image bytes and timeout, then removes jobs',async t=>{
@@ -122,8 +127,10 @@ test('provider defaults to Gemini, rejects invalid config and uses Codex for all
  const provider=createReaderProvider({SHIQU_AI_PROVIDER:'codex',GEMINI_API_KEY:'do-not-use'},store,async()=>{assert.fail('No Gemini request');},runner);
  assert.equal((await provider.status()).configured,true);assert.equal((await provider.suggestions(selection,[])).stories.length,1);
  const generator=provider.generator(),generated=await generator.plan(selection,'story');assert.equal(generated.model,'actual-codex');
+ assert.equal(jobs.at(-1).timeoutMs,300000);assert.equal(jobs[0].timeoutMs,60000);
  await generator.image(generated.value,0,'story','',selection.artStyle,'quiet narration');await generator.image(generated.value,1,'story','/api/reader/media/story/0.png',selection.artStyle,'quiet narration');
  assert.ok(store.values.has('reader/story/1.png'));assert.equal(jobs.at(-1).image.contentType,'image/png');assert.match(jobs.at(-1).prompt,/quiet narration/);assert.match(jobs.at(-1).prompt,/Art direction/);
+ assert.equal(jobs.at(-1).timeoutMs,undefined);
  await assert.rejects(provider.suggestions({...selection,bookId:'other',customBook:'http://127.0.0.1/private'},[]),error=>error.status===400);
  await assert.rejects(generator.image(plan,1,'story','/api/reader/media/other/not-anchor.png'),/INVALID_ANCHOR/);
  const before=jobs.length;assert.equal((await provider.suggestions(selection,['庄周梦蝶'])).stories.length,0);assert.equal(jobs.length,before+1);

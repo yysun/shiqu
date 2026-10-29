@@ -180,6 +180,15 @@ test('source recovery remains explicit after repeated outages and never repeats 
 });
 function memoryAssets(){const stored=new Map();return {stored,async get(k){const entry=stored.get(k);return entry?{async arrayBuffer(){return entry.bytes.slice().buffer;}}:null;},async put(k,bytes,options){stored.set(k,{bytes,options});}};}
 function geminiResponse(parts,extra={}){return new Response(JSON.stringify({candidates:[{content:{parts},finishReason:'STOP',...extra}],responseId:'test-response',usageMetadata:{totalTokenCount:10}}),{headers:{'Content-Type':'application/json'}});}
+test('Gemini allows five-minute storyboards without extending image deadlines',async()=>{
+ const timeouts=[],originalTimeout=AbortSignal.timeout;
+ AbortSignal.timeout=function(ms){timeouts.push(ms);return originalTimeout.call(this,ms);};
+ try{
+  const g=makeGenerator('unit-test-only',memoryAssets(),{},async(url)=>url.includes('nano-banana')?geminiResponse([{inlineData:{mimeType:'image/png',data:b64(png)}}]):geminiResponse([{text:JSON.stringify(plan)}]));
+  await g.plan(selection,'timeout-fixture');await g.image(plan,0,'timeout-fixture','');
+  assert.deepEqual(timeouts,[300000,120000]);
+ }finally{AbortSignal.timeout=originalTimeout;}
+});
 test('Gemini plans structured scenes and Nano Banana carries the first picture into subsequent scenes',async()=>{
  const requests=[],assets=memoryAssets();
  const fetcher=async(url,init)=>{const body=JSON.parse(init.body);requests.push({url,init,body});return url.includes('nano-banana')?geminiResponse([{thought:true,inlineData:{mimeType:'image/png',data:b64(jpeg)}},{inlineData:{mimeType:'image/png',data:b64(png)}}]):geminiResponse([{thought:true,text:'hidden reasoning'},{text:JSON.stringify(plan)}]);};

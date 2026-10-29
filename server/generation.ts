@@ -2,6 +2,7 @@
 import {frameRecommendationSchema,frameRecommendationJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
 import {configuredModels,makeGenerator,suggestStories,safeGeminiError,recommendStoryArt} from '../lib/reader-gemini.ts';
 import {planSchema,ReaderError} from '../lib/reader-model.ts';
+import {readerStoryboardTimeoutMs} from '../lib/reader-limits.ts';
 import {choicesJson,planJson,suggestionSystemPrompt,planSystemPrompt,imagePrompt,imageTypes,mediaType,storySource} from '../lib/reader-generation-contract.ts';
 import {freshSuggestions,suggestionBatchSchema} from '../lib/reader-suggestions.ts';
 import {getArtStyle} from '../lib/reader-styles.ts';
@@ -63,7 +64,7 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
     return {value:frameRecommendationSchema.parse(JSON.parse(result.text)),model:result.model,requestId:result.requestId,usage:result.usage};
    },
    async plan(selection,id,original){
-    const result=await codex.run({instructions:planSystemPrompt+(original?.localSource?'\n'+localPlanConstraint:''),prompt:JSON.stringify({book:book(selection),chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})}),schema:planJson(selection.length)});
+    const result=await codex.run({instructions:planSystemPrompt+(original?.localSource?'\n'+localPlanConstraint:''),prompt:JSON.stringify({book:book(selection),chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})}),schema:planJson(selection.length),timeoutMs:readerStoryboardTimeoutMs});
     const value=planSchema.parse(JSON.parse(result.text));if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new CodexError('INVALID_PLAN');
     return {value,model:result.model,requestId:result.requestId,usage:result.usage};
    },

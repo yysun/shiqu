@@ -1,8 +1,8 @@
 'use client';
-// Maintain viewer demand independently of navigation and publish each saved image as it arrives.
+// Separate status inspection from viewer demand and publish saved artwork as it arrives.
 import {useEffect,useRef,useState} from 'react';
 import {randomId,request} from './shared';
-import {runQueuedStoryGeneration} from '@/lib/reader-production-client';
+import {observeStoryGeneration,runQueuedStoryGeneration} from '@/lib/reader-production-client';
 import type {GeneratedStory,Selection,SessionView} from '@/lib/reader-model';
 type Callbacks={onStory:(story:GeneratedStory,initialPage?:number,saved?:boolean)=>void;onProgress:(rows:{storyId:string;page:number;saved:number;updatedAt?:string|null}[])=>void};
 export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=false){
@@ -14,10 +14,12 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
  const removed=useRef(new Set<string>());
  const creation=useRef<{signature:string;id:string}|null>(null);
  const id=useRef(''),pending=useRef<Promise<unknown>|null>(null),retries=useRef(new Map<string,number>());
+ const generationMode=useRef<'observe'|'generate'>('observe'),retryRequested=useRef(false);
  function collect(s:SessionView){if(removed.current.has(s.id))return;libraryChanges.current++;setSessions(old=>[s,...old.filter(x=>x.id!==s.id)]);}
  useEffect(()=>{live.current=true;request('reader/status').then(s=>{if(live.current)setConnected(s.configured);}).catch(()=>{});refreshLibrary().catch(()=>{}).finally(()=>{if(live.current)setLibraryLoading(false);});return()=>{live.current=false;libraryRead.current++;id.current='';};},[]);
- async function start(selection:Selection){const signature=JSON.stringify(selection);if(creation.current?.signature!==signature)creation.current={signature,id:randomId()};const requestId=creation.current.id;const s:SessionView=await request('reader/sessions','POST',{requestId,selection});creation.current=null;id.current=s.id;retries.current=new Map();setError('');setActive(s);collect(s);history.replaceState(null,'','/read?id='+s.id);setWake(v=>v+1);return s;}
- async function resume(sessionId:string,initialPage?:number){id.current=sessionId;retries.current=new Map();setError('');const s:SessionView=await request('reader/sessions/'+sessionId);if(id.current!==sessionId||removed.current.has(sessionId))return;setActive(s);collect(s);history.replaceState(null,'','/read?id='+s.id);cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);if(s.story?.pages[0]?.image)cb.current.onStory(s.story,initialPage??s.page,s.saved);setWake(v=>v+1);}
+ async function start(selection:Selection){const signature=JSON.stringify(selection);if(creation.current?.signature!==signature)creation.current={signature,id:randomId()};const requestId=creation.current.id;const s:SessionView=await request('reader/sessions','POST',{requestId,selection});creation.current=null;generationMode.current='generate';retryRequested.current=false;id.current=s.id;retries.current=new Map();setBusy(true);setError('');setActive(s);collect(s);history.replaceState(null,'','/read?id='+s.id);setWake(v=>v+1);return s;}
+ async function resume(sessionId:string,initialPage?:number,retry=false){id.current=sessionId;retries.current=new Map();setError('');const s:SessionView=await request('reader/sessions/'+sessionId);if(id.current!==sessionId||removed.current.has(sessionId))return;generationMode.current=retry||s.story?.pages[0]?.image&&s.state!=='failed'?'generate':'observe';retryRequested.current=retry;setBusy(retry);setError(!retry&&s.state==='failed'?(s.error||'生成失败，请重试继续。'):'');setActive(s);collect(s);history.replaceState(null,'','/read?id='+s.id);cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);if(s.story?.pages[0]?.image)cb.current.onStory(s.story,initialPage??s.page,s.saved);setWake(v=>v+1);}
+ async function retrySession(sessionId:string){await resume(sessionId,undefined,true);}
  async function confirmFrameCount(count:number){
   if(busy||pending.current||!active?.awaitingFrameCount)return;
   const sessionId=active.id;setBusy(true);setError('');
@@ -31,7 +33,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
     s=current;
    }
    if(id.current!==sessionId||removed.current.has(sessionId))return;
-   setActive(s);collect(s);retries.current=new Map();setWake(v=>v+1);
+   generationMode.current='generate';retryRequested.current=false;setActive(s);collect(s);retries.current=new Map();setWake(v=>v+1);
   }catch(error){if(id.current===sessionId)setError(error instanceof Error?error.message:'画幅数暂未保存，请再试一次。');}
   finally{if(id.current===sessionId)setBusy(false);}
  }
@@ -64,23 +66,30 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   window.addEventListener('focus',update);document.addEventListener('visibilitychange',update);
   return()=>{stopped=true;clearInterval(timer);window.removeEventListener('focus',update);document.removeEventListener('visibilitychange',update);if(live.current)setLibraryRefreshing(false);};
  },[watchShelf,libraryLoading,active?.id]);
- function retryStep(){if(busy||pending.current||!active?.retryAllowed)return;retries.current=new Map();setBusy(true);setError('');setWake(v=>v+1);}
+ function retryStep(){if(busy||pending.current&&generationMode.current!=='observe'||!active?.retryAllowed)return;generationMode.current='generate';retryRequested.current=true;retries.current=new Map();setBusy(true);setError('');setWake(v=>v+1);}
  useEffect(()=>{
   const sessionId=active?.id;if(!sessionId)return;
   let cancelled=false;
   async function run(){
    if(pending.current)await pending.current;
    if(cancelled||id.current!==sessionId||removed.current.has(sessionId))return;
-   setBusy(true);setError('');
-   const operation=runQueuedStoryGeneration({sessionId,viewerId:randomId(),page:()=>currentPage.current,request,retries:retries.current,
-    isActive:()=>!cancelled&&id.current===sessionId&&!removed.current.has(sessionId),
-    onSession:s=>{collect(s);setActive(s);setBusy(s.state==='running');if(s.story?.pages[0]?.image)cb.current.onStory(s.story);},
-   });
+   const inspecting=generationMode.current==='observe',initialRetry=retryRequested.current;retryRequested.current=false;
+   setBusy(!inspecting);
+   const isActive=()=>!cancelled&&id.current===sessionId&&!removed.current.has(sessionId);
+   const onSession=(s:SessionView)=>{
+    const generating=s.productionState?s.productionState==='running'||s.productionState==='queued':s.state==='running';
+    collect(s);setActive(s);setBusy(!inspecting&&(generating||s.state==='failed'));setError(s.state==='failed'?(s.error||'生成失败，请重试继续。'):'');
+    if(s.story?.pages[0]?.image){
+     cb.current.onStory(s.story);
+     if(inspecting&&s.state!=='failed'&&s.state!=='completed'){generationMode.current='generate';setWake(v=>v+1);}
+    }
+   };
+   const operation=inspecting?observeStoryGeneration({sessionId,request,isActive,onSession}):runQueuedStoryGeneration({sessionId,viewerId:randomId(),page:()=>currentPage.current,request,retries:retries.current,initialRetry,isActive,onSession});
    pending.current=operation;
    try{const message=await operation;if(!cancelled&&id.current===sessionId)setError(message);}
    finally{if(pending.current===operation)pending.current=null;if(!cancelled&&id.current===sessionId)setBusy(false);}
   }
   run();return()=>{cancelled=true;};
  },[active?.id,wake]);
- return {sessions,active,busy,error,connected,libraryLoading,libraryRefreshing,libraryError,start,resume,leave,remove,refreshLibrary,retryStep,confirmFrameCount};
+ return {sessions,active,busy,error,connected,libraryLoading,libraryRefreshing,libraryError,start,resume,retrySession,leave,remove,refreshLibrary,retryStep,confirmFrameCount};
 }

@@ -6,6 +6,7 @@ import path from 'node:path';
 import {createInterface} from 'node:readline';
 import {codexEnvironment} from '../scripts/codex-env.mjs';
 import {codexReasoningEffortSchema} from '../lib/codex-settings.ts';
+import {readerStoryboardTimeoutMs} from '../lib/reader-limits.ts';
 import type {CodexReasoningEffort} from '../lib/codex-settings.ts';
 export {codexEnvironment} from '../scripts/codex-env.mjs';
 
@@ -50,7 +51,7 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
     child=spawn(binary,codexArguments(directory,effort),{cwd:directory,env,stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32',windowsHide:true});
     activeChildren.add(child);child.once('close',()=>activeChildren.delete(child!));
     exited=new Promise(resolve=>child!.once('close',()=>resolve()));
-    timer=setTimeout(()=>fail(new CodexError('TIMEOUT')),Math.min(options.timeoutMs||180000,job?.timeoutMs||(job?120000:10000)));
+    timer=setTimeout(()=>fail(new CodexError('TIMEOUT')),Math.min(options.timeoutMs||readerStoryboardTimeoutMs,job?.timeoutMs||(job?120000:10000)));
     child.once('error',()=>fail(new CodexError('CLI_UNAVAILABLE')));
     child.once('exit',()=>{if(!closed)fail(new CodexError('PROCESS_EXIT'));});
     // Raw output can contain prompts or authentication details: discard stderr and cap both streams.

@@ -1,7 +1,7 @@
 // Verify the browser's demand lifecycle without coupling tests to React rendering internals.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {runQueuedStoryGeneration} from '../lib/reader-production-client.ts';
+import {observeStoryGeneration,runQueuedStoryGeneration} from '../lib/reader-production-client.ts';
 const base={id:'story',state:'idle',ready:7,stage:'drawing 8',selection:{length:8},retryAllowed:true,error:null,story:{pages:[]}};
 test('a full buffer keeps its viewer alive, page changes update demand, and leaving releases only that viewer',async()=>{
  let active=true,time=0,page=0,reads=0;const calls=[];
@@ -42,4 +42,40 @@ test('awaiting count confirmation releases demand without issuing storyboard or 
  const calls=[];
  const result=await runQueuedStoryGeneration({sessionId:'story',viewerId:'viewer',page:()=>0,retries:new Map(),isActive:()=>true,onSession:()=>{},sleep:async()=>assert.fail('Do not poll the confirmation gate'),request:async(path,method,body)=>{calls.push({method,body});return {...base,awaitingFrameCount:true};}});
  assert.equal(result,'');assert.deepEqual(calls.map(c=>c.method),['POST','DELETE']);
+});
+
+test('inspecting stopped and failed checkpoints only polls snapshots and reflects external changes',async()=>{
+ let active=true,reads=0;const calls=[],seen=[];
+ const states=['failed','idle','running','failed'];
+ const result=await observeStoryGeneration({sessionId:'story',isActive:()=>active,onSession:s=>seen.push([s.state,s.error]),sleep:async()=>{if(reads===states.length)active=false;},
+  request:async(...args)=>{calls.push(args);const state=states[reads++];return {...base,state,error:state==='failed'?'编排超时':null};},
+ });
+ assert.equal(result,'');assert.deepEqual(seen.map(([state])=>state),states);
+ assert.equal(seen[0][1],'编排超时');assert.equal(seen[2][1],null);
+ assert.deepEqual(calls,states.map(()=>['reader/sessions/story']));
+});
+test('inspection connection errors never dispatch work and late snapshots cannot update a closed dialog',async()=>{
+ let calls=0;
+ assert.equal(await observeStoryGeneration({sessionId:'story',isActive:()=>true,onSession:()=>assert.fail('No snapshot'),sleep:async()=>{},request:async(...args)=>{assert.equal(args.length,1);calls++;throw Error('offline');}}),'offline');
+ assert.equal(calls,3);
+ let active=true;
+ await observeStoryGeneration({sessionId:'story',isActive:()=>active,onSession:()=>assert.fail('Dialog closed'),request:async()=>{active=false;return base;},sleep:async()=>assert.fail('No further polling')});
+});
+test('inspecting a count confirmation releases the observation so the user can choose a frame count',async()=>{
+ let reads=0;
+ assert.equal(await observeStoryGeneration({sessionId:'story',isActive:()=>true,onSession:()=>{},request:async()=>{reads++;return {...base,awaitingFrameCount:true};},sleep:async()=>assert.fail('Do not keep the confirmation action busy')}),'');
+ assert.equal(reads,1);
+});
+test('explicit retry sets retry on the first dispatch and never replays an uncertain retry request',async()=>{
+ const calls=[];let first=true;
+ const result=await runQueuedStoryGeneration({sessionId:'story',viewerId:'viewer',initialRetry:true,page:()=>0,retries:new Map(),isActive:()=>true,onSession:()=>{},sleep:async()=>{},
+  request:async(path,method,body)=>{
+   calls.push({method,body});if(method==='DELETE')return base;
+   if(method==='POST'&&first){first=false;throw Error('lost accepted retry response');}
+   if(!method)return {...base,state:'running'};
+   return {...base,state:'completed'};
+  },
+ });
+ assert.equal(result,'');assert.deepEqual(calls.filter(c=>c.method==='POST').map(c=>c.body.retry),[true,false]);
+ assert.equal(calls.at(-1).method,'DELETE');
 });
