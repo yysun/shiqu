@@ -1,7 +1,8 @@
 'use client';
+// Share presentation helpers and the read-safe API transport across reader screens.
 import {useState} from 'react';
 import {BookOpen,ArrowUpRight,Loader2} from 'lucide-react';
-export async function request(path:string,method='GET',data?:unknown){const r=await fetch('/api/'+path,{method,headers:data instanceof FormData?{}:data?{'Content-Type':'application/json'}:{},body:data instanceof FormData?data:data?JSON.stringify(data):undefined});const value:any=await r.json();if(!r.ok)throw new Error(value.error||'请求失败');return value;}
+export {request} from '@/lib/reader-request';
 export function Brand({light=false}:{light?:boolean}){return <div className={'brand '+(light?'light':'')}><span className="brand-symbol"><BookOpen size={23}/></span><div><strong>拾趣</strong><small>古典故事实验室</small></div></div>;}
 export function Spinner(){return <Loader2 size={18} className="spin"/>;}
 export function Badge({status}:{status:string}){return <span className={'badge '+status}>{({published:'已发布',review:'待审核',draft:'草稿',running:'生成中',failed:'失败',succeeded:'已完成'} as any)[status]||status}</span>;}

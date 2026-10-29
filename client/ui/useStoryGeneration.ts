@@ -8,11 +8,12 @@ type Callbacks={onStory:(story:GeneratedStory,initialPage?:number,saved?:boolean
 export function useStoryGeneration(page:number,callbacks:Callbacks){
  const cb=useRef(callbacks);cb.current=callbacks;
  const [sessions,setSessions]=useState<SessionView[]>([]),[active,setActive]=useState<SessionView|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[connected,setConnected]=useState(false),[wake,setWake]=useState(0);
+ const [libraryLoading,setLibraryLoading]=useState(true),[libraryError,setLibraryError]=useState('');
  const removed=useRef(new Set<string>());
  const creation=useRef<{signature:string;id:string}|null>(null);
  const id=useRef(''),pending=useRef<Promise<unknown>|null>(null),retries=useRef(new Map<string,number>());
  function collect(s:SessionView){if(removed.current.has(s.id))return;setSessions(old=>[s,...old.filter(x=>x.id!==s.id)]);}
- useEffect(()=>{let live=true;request('reader/status').then(s=>{if(live)setConnected(s.configured);}).catch(()=>{});request('reader/sessions').then((rows:SessionView[])=>{if(!live)return;const visible=rows.filter(s=>!removed.current.has(s.id));setSessions(visible);cb.current.onProgress(visible.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt})));}).catch(()=>{});return()=>{live=false;id.current='';};},[]);
+ useEffect(()=>{let live=true;request('reader/status').then(s=>{if(live)setConnected(s.configured);}).catch(()=>{});request('reader/sessions').then((rows:SessionView[])=>{if(!live)return;const visible=rows.filter(s=>!removed.current.has(s.id));setSessions(visible);cb.current.onProgress(visible.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt})));}).catch(()=>{if(live)setLibraryError('书架暂时没有加载出来，请稍后重试。');}).finally(()=>{if(live)setLibraryLoading(false);});return()=>{live=false;id.current='';};},[]);
  async function start(selection:Selection){const signature=JSON.stringify(selection);if(creation.current?.signature!==signature)creation.current={signature,id:randomId()};const requestId=creation.current.id;const s:SessionView=await request('reader/sessions','POST',{requestId,selection});creation.current=null;id.current=s.id;retries.current=new Map();setError('');setActive(s);collect(s);history.replaceState(null,'','/read?id='+s.id);setWake(v=>v+1);return s;}
  async function resume(sessionId:string,initialPage?:number){id.current=sessionId;retries.current=new Map();setError('');const s:SessionView=await request('reader/sessions/'+sessionId);if(id.current!==sessionId||removed.current.has(sessionId))return;setActive(s);collect(s);cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);if(s.story?.pages[0]?.image)cb.current.onStory(s.story,initialPage??s.page,s.saved);setWake(v=>v+1);}
  function leave(){id.current='';setActive(null);setBusy(false);setError('');}
@@ -35,5 +36,5 @@ export function useStoryGeneration(page:number,callbacks:Callbacks){
   }
   run();return()=>{cancelled=true;};
  },[active?.id,page,wake]);
- return {sessions,active,busy,error,connected,start,resume,leave,remove,retryStep};
+ return {sessions,active,busy,error,connected,libraryLoading,libraryError,start,resume,leave,remove,retryStep};
 }
