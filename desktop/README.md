@@ -85,4 +85,4 @@ pnpm desktop:smoke
 
 `desktop:smoke` 将完整运行资源复制到仓库外的临时目录，使用一次性数据验证配对、局域网地址、示例图片、阅读进度、重启和退出；不调用付费生成。Standard 同时复制并验证内置 Node/许可证的最终字节哈希，使用无系统 Node 的 PATH 启动；Lite 检查 Node 目录不存在。可传入安装包内的 runtime 路径来验证实际打包内容。
 
-普通 `pnpm dev`、`pnpm build`、`pnpm start` 和 Docker 行为不变，终端启动不依赖桌面程序。`.github/workflows/desktop-lite.yml` 在对应 OS runner 上分别构建 Standard/Lite；Windows 运行桌面专项测试，现有 POSIX CLI 假程序的完整测试在 macOS/Linux 执行。未签名构建是开发产物；正式签名/公证分发时必须保证最终 Node 字节与清单一致，签名改变 Node 字节后需在最终应用签名前重新生成清单，并运行安装包 smoke 检查。
+`pnpm dev` 默认跟随桌面书库设置，局域网私有 API 需配对；终端启动不依赖桌面 GUI 正在运行。`pnpm build`、`pnpm start` 和 Docker 入口继续独立运行，显式数据目录配置优先。`.github/workflows/desktop-lite.yml` 在对应 OS runner 上分别构建 Standard/Lite；Windows 运行桌面专项测试，现有 POSIX CLI 假程序的完整测试在 macOS/Linux 执行。未签名构建是开发产物；正式签名/公证分发时必须保证最终 Node 字节与清单一致，签名改变 Node 字节后需在最终应用签名前重新生成清单，并运行安装包 smoke 检查。

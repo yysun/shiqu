@@ -12,9 +12,9 @@ Base: f7229a3. Source work stays in the attached isolated worktree and is integr
 Checklist:
 - [x] Resolver/.env behavior and unit coverage.
 - [x] Concurrent shared-library fixture and lifecycle regression coverage.
-- [ ] Backups, collision audit, offline staged merge and full preservation verification.
-- [ ] Reviewed source integrated, compatible installed runtime, both current entry points configured/restarted.
-- [ ] Full automated checks and live read-only shared-library verification.
+- [x] Backups, collision audit, offline staged merge and full preservation verification.
+- [x] Reviewed source integrated, compatible installed runtime, both current entry points configured/restarted.
+- [x] Full automated checks and live read-only shared-library verification.
 
 E2E: .docs/tests/test-shared-story-library.md. Shared concurrent use requires the current fenced queue runtime on both servers; older installed desktop payloads must be upgraded before pointing at the merged store. No new credential reader beyond the single non-secret settings value. Rollback restores the archived target/runtime and the private env backup while writers are stopped; the source remains available throughout.
 
@@ -31,3 +31,32 @@ SS source milestone: resolver, paired LAN development and Vite private-file rest
 CR round1 blocked: Vite publicDir bypassed fs.deny, and final install lacked a reacquired native lock/manifest path binding. Fixed by rejecting public-nested libraries/private aliases/files before startup and testing real Vite; installing now binds CLI paths to the manifest and holds both old/new native directory locks during hash checks and swap. Development validates frontend before spawning shared-database child and cleans up failed startup. Focused6/6 pass. Verified stage/backups remain unchanged.
 CR risk: non-low — private LAN exposure and live persistent-store replacement.
 CR review round:1; reviewer:reused.
+
+
+## Final verification and migration
+
+CR fixed: Vite now rejects public-directory library overlap, private aliases and private public files before startup, including an initially absent public directory. Final migration installation binds paths to the verified manifest and holds both old and staged native directory locks through checks and replacement. Rerun result passed.
+CR risk: non-low — LAN privacy, concurrent persistence and live store replacement.
+CR review round:2; reviewer:reused.
+
+TT passed: Node24.22.1 / pnpm11.25.0; full222/222 tests, no skipped/cancelled. Current typecheck, lint, build and diff whitespace checks passed. Focused6/6 includes real Vite HTTP/private-file/public-directory cases, resolver and two independent SQLite connections. No Rust source changes or Docker build.
+
+Operational ET passed. Native GUI was stopped, both SQLite files had no open writers/WAL and native locks were available. First promotion refused a changed source snapshot without overwriting either store; the refreshed stage checks source DB/media at both ends of staging as well as immediately before installation. Failed-path and held-native-lock probes refused installation without changes.
+
+Final backup: ~/Library/Application Support/com.shiqu.desktop/library-backups/20261029T133237Z. Archived original desktop: sibling library.before-shared-20261029T133237Z. The old development .data/dev remains intact. Verified354 source records,20 reader sessions (19visible+1deleted),292events,1progress,1tombstone,36production jobs and141 media hashes. Two published demo variants are preserved: desktopzhongli and mapped developmentzhongli-dev-d55e2f9be57d; imported references follow the mapping. Native configuration/credential DB unchanged during update; private.env backup mode0600 in backup directory. Both stores/runtime and rollback inputs retained.
+
+Compatible installed runtime was staged from current main sources, preserving21 existing changed files byte-for-byte. Only installed Node runtime/client/migrations were replaced; native UI/settings unchanged. Local ad-hoc signature refreshed with identifier/entitlements preserved and codesign --verify --deep passed; native GUI reopened and successfully started service. Source milestonesfa5cc48 andaf740da are fast-forwarded into main.
+
+Live development127.0.0.1:3001, desktop127.0.0.1:3000 and development LAN10.0.0.2:3001 return identical19 visible generated IDs and2 published variants. Both real Node processes open the same Application Support SQLite inode; neither opens old .data/dev. Unpaired APIs401, paired200; old development raw DB access denied. No HTTP generation requests were used for live verification. Latest saved东郭先生 retains30page script,10completed images and2610source characters, with exact script/source equality to backup and identical image SHA256 from all3 entry points.
+
+Existing in-app browser tab was reused, paired and restored to东郭先生. Reading image/script visible and screenshot saved. Phone pairing URL/QR generated; LAN requests verified from this host, no claim of a physical-phone test. App stays available with development API private on127.0.0.1:3002 and Vite/desktop LAN interfaces enabled with pairing.
+
+Local evidence: .data/evidence/shared-story-library/{tests.log,migrate.py,migration.json,live-verification.json,shared-reader.png,phone-pairing.png}. Runtime staging and private development log also exist under primary checkout .data/evidence/shared-story-library/. Pairing tokens and credentials are omitted from documentation.
+
+VR passed: all acceptance criteria complete.
+VR risk: non-low — shared persistence, authenticated LAN access, concurrent paid work and installed-runtime replacement.
+VR review round:1; reviewer:reused.
+
+## Delivery
+
+DD finalized after the passing independent VR. GC includes only this story's completion report, REQ/AP/E2E evidence and the corrected shared-library instructions in README and desktop/README. Implementation milestones `fa5cc48` and `af740da` remain intact. The implementation is unchanged since passing CR/VR and the 222-test verification; documentation-only delivery requires no additional runtime test. Unrelated main-checkout changes remain outside the delivery commit.
