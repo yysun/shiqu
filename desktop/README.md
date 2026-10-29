@@ -33,7 +33,7 @@ Codex 使用本机已登录的 CLI，可设置可执行文件、模型和登录�
 
 “检查连接”仅访问 Gemini 模型元数据，或执行 Codex 登录状态检查；不生成内容，不证明实际生成配额。检查前自动保存当前配置和密钥，再从数据库读取并检查；不会保留未保存的运行配置。服务运行期间必须先停止，才能更改配置或密钥。
 
-设置及密钥保存在系统应用配置目录的 `com.shiqu.desktop/desktop.sqlite`，独立于故事库，不读取项目 `.env`。首次使用会迁移旧版非密钥 `settings.json`，之后只读取数据库，不覆盖后续更改；旧文件保留不动。Unix 下应用配置目录/数据库权限为 0700/0600，Windows 使用用户配置目录的继承 ACL。备份数据库也会包含已保存的明文密钥。默认数据在系统应用数据目录下的 `library`。macOS 两者通常位于 `~/Library/Application Support/com.shiqu.desktop/`。更换数据目录切换书架，不会搬移文件。不要让 Docker/Node 和桌面版同时使用同一数据目录。
+设置及密钥保存在系统应用配置目录的 `com.shiqu.desktop/desktop.sqlite`，独立于故事库，不读取项目 `.env`。首次使用会迁移旧版非密钥 `settings.json`，之后只读取数据库，不覆盖后续更改；旧文件保留不动。Unix 下应用配置目录/数据库权限为 0700/0600，Windows 使用用户配置目录的继承 ACL。备份数据库也会包含已保存的明文密钥。默认数据在系统应用数据目录下的 `library`。macOS 两者通常位于 `~/Library/Application Support/com.shiqu.desktop/`。更换数据目录切换书架，不会搬移文件。开发版默认跟随此处的书库路径，也可通过 SHIQU_DATA_DIR 显式指定。共享前需备份、停服并合并已有独立书库；两端都必须使用当前持久队列版本。开发版手机访问同样需要配对；Vite 不提供私有书库文件。Docker 仍使用自己的显式挂载目录，不会自动合并。
 
 Codex 模式提供“推理档位”：跟随 Codex 默认、low、medium、high、xhigh、max。Sol 建议先选 low；具体支持取决于模型和 CLI。空值及旧配置缺少该字段时继续继承 CLI 配置。保存后在下次启动服务时生效，服务运行中不能修改。该选项用于应用内所有 Codex 请求，等价于 Node/Docker 的 `CODEX_REASONING_EFFORT`，但桌面版仍只读取自己的设置数据库。显式档位未被 CLI 采用时会报错，不会静默回退。
 
@@ -85,4 +85,4 @@ pnpm desktop:smoke
 
 `desktop:smoke` 将完整运行资源复制到仓库外的临时目录，使用一次性数据验证配对、局域网地址、示例图片、阅读进度、重启和退出；不调用付费生成。Standard 同时复制并验证内置 Node/许可证的最终字节哈希，使用无系统 Node 的 PATH 启动；Lite 检查 Node 目录不存在。可传入安装包内的 runtime 路径来验证实际打包内容。
 
-普通 `pnpm dev`、`pnpm build`、`pnpm start` 和 Docker 行为不变，终端启动不依赖桌面程序。`.github/workflows/desktop-lite.yml` 在对应 OS runner 上分别构建 Standard/Lite；Windows 运行桌面专项测试，现有 POSIX CLI 假程序的完整测试在 macOS/Linux 执行。未签名构建是开发产物；正式签名/公证分发时必须保证最终 Node 字节与清单一致，签名改变 Node 字节后需在最终应用签名前重新生成清单，并运行安装包 smoke 检查。
+`pnpm dev` 默认跟随桌面书库设置，局域网私有 API 需配对；终端启动不依赖桌面 GUI 正在运行。`pnpm build`、`pnpm start` 和 Docker 入口继续独立运行，显式数据目录配置优先。`.github/workflows/desktop-lite.yml` 在对应 OS runner 上分别构建 Standard/Lite；Windows 运行桌面专项测试，现有 POSIX CLI 假程序的完整测试在 macOS/Linux 执行。未签名构建是开发产物；正式签名/公证分发时必须保证最终 Node 字节与清单一致，签名改变 Node 字节后需在最终应用签名前重新生成清单，并运行安装包 smoke 检查。
