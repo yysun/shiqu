@@ -16,8 +16,8 @@ The current README and .env.example already have uncommitted Sol model example e
 - [x] Connect `codexReasoningEffort` through desktop TypeScript settings, native Rust defaults/validation/persistence and desktop dropdown (`server/desktop.ts`, `src-tauri/src/config.rs`, `desktop/main.tsx`).
 - [x] Extend fake CLI protocol, Node integration tests and Rust settings tests for explicit/inherited/mismatched/invalid values, actual desktop variable mapping, SQLite reopen and legacy field omission; preserve auth/tool restrictions.
 - [x] Document the setting in `.env.example`, `README.md`, `desktop/README.md`.
-- [ ] Run full Node test suite, typecheck, lint, production build, desktop UI build and both native feature test suites, Node24.22.1 / pnpm11.25.0. No Docker or installer build.
-- [ ] Execute `.docs/tests/test-codex-reasoning-effort.md` using controlled desktop UI and real native configuration tests; perform a bounded real CLI status-only probe for low without inference.
+- [x] Run full Node test suite, typecheck, lint, production build, desktop UI build and both native feature test suites, Node24.22.1 / pnpm11.25.0. No Docker or installer build.
+- [x] Execute `.docs/tests/test-codex-reasoning-effort.md` using controlled desktop UI and real native configuration tests; perform a bounded real CLI status-only probe for low without inference.
 
 ## Risks / review
 
@@ -37,3 +37,31 @@ AR review round: 1; reviewer: new.
 SS feasibility probe passed: installed CLI0.165.0, Node24.22.1, explicit low status-only returned configured=true/model=gpt-6.1-sol after effective config check. No turn/start or inference requested.
 
 Focused Node verification: 19/19 provider/desktop tests passed, including all explicit values, inheritance, config/thread mismatches and desktop variable mapping. Desktop frontend production build passed.
+
+
+SS milestone: `44c798f`, including the related preexisting Sol model examples. Focused Node19 tests, native persistence test, typecheck and desktop frontend build passed before CR (one test-only unused-mut warning subsequently removed).
+
+CR passed: no major findings
+
+CR risk: non-low — subprocess effort and persisted desktop settings cross CLI/Rust/Node/UI boundaries.
+
+CR review round: 1; reviewer: reused.
+
+TT: Node179/179; native Standard14/14 and Lite12/12 passed. Typecheck, lint, Node/client production build, desktop frontend build and whitespace checks passed. No dependency changes, Docker image or desktop installer build.
+
+ET: scenarios1–4 covered by fake protocol, actual status-only CLI probe, Node bridge tests and native real SQLite tests. Scenario5 passed in separate Playwright test session on the actual desktop frontend with controlled native IPC: inherited default, all options present, save-low/reload, save-before-check uses high, save-before-start uses xhigh, disabled while saving/running, provider switch hides but retains xhigh. In-app tool repeated its previously observed disabled-in-Work error; cause remains unknown. Native data/settings/credentials were untouched by browser fixture. Narrow layout is checked at the supported native minimum width760 (both Tauri configurations enforce minWidth760), not phone width390; existing desktop layout is not a phone surface.
+
+
+VR passed: all acceptance criteria complete
+VR risk: non-low — native persistence and explicit CLI configuration span Rust, Node and desktop UI.
+VR review round: 1; reviewer: reused.
+
+1. Complete — `CODEX_REASONING_EFFORT` accepts the five explicit values; unset/blank inherits. Invalid values fail before subprocess creation. Node tests cover all values and invalid inputs.
+2. Complete — Startup override, effective `config/read` and thread-effort verification enforce explicit settings before inference. Mismatch tests pass; real CLI status-only low probe confirms configuration propagation. Authentication and tool-isolation regression tests remain passing.
+3. Complete — Desktop selection persists through native settings, maps to the runner environment, and shares the existing save-before-start/check flow. Browser ET verifies selection, save/reload, provider switching and pending/running locks.
+4. Complete — Rust defaults missing fields in both legacy JSON and existing SQLite. Native reopen tests verify persistence and reject invalid settings before credential mutation.
+5. Complete — Env and desktop documentation explain entry points, inheritance, model compatibility and restart requirements.
+
+Recorded validation: Node 179/179, Standard native 14/14, Lite native 12/12; typecheck, lint, production and desktop UI builds, whitespace checks and scoped browser ET passed. All AP tasks are complete.
+
+No blocking findings. Review reused supplied test evidence and inspected artifacts/code without edits or test execution. Existing installed desktop packages were not rebuilt; real generation quality and every model/effort combination were not tested.
