@@ -24,3 +24,9 @@ test('connection failure after starting demand still sends leave; lost leave fal
  const message=await runQueuedStoryGeneration({sessionId:'story',viewerId:'viewer',page:()=>0,retries:new Map(),isActive:()=>true,onSession:()=>{},sleep:async()=>{sleeps++;},request:async()=>{calls++;throw Error('offline');}});
  assert.equal(message,'offline');assert.equal(calls,4);assert.equal(sleeps,2);
 });
+
+test('awaiting count confirmation releases demand without issuing storyboard or image requests',async()=>{
+ const calls=[];
+ const result=await runQueuedStoryGeneration({sessionId:'story',viewerId:'viewer',page:()=>0,retries:new Map(),isActive:()=>true,onSession:()=>{},sleep:async()=>assert.fail('Do not poll the confirmation gate'),request:async(path,method,body)=>{calls.push({method,body});return {...base,awaitingFrameCount:true};}});
+ assert.equal(result,'');assert.deepEqual(calls.map(c=>c.method),['POST','DELETE']);
+});

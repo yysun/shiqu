@@ -21,7 +21,7 @@ export async function runQueuedStoryGeneration({sessionId,viewerId,page,request,
     }else session=await request(path);
     if(!isActive())break;
     transportRetries=0;onSession(session);
-    if(session.state==='completed')return '';
+    if(session.state==='completed'||session.awaitingFrameCount)return '';
     const currentProgress=session.stage+':'+session.ready;
     if(currentProgress!==progress){progress=currentProgress;lastProgress=now();}
     if(session.state==='running'&&now()-lastProgress>360000)return '这一幅等待较久，请稍后重新打开故事继续。';

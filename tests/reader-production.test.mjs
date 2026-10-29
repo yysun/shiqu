@@ -141,3 +141,29 @@ test('publication must own its job token as well as the session token',async t=>
  const row=await f.app.services.database.prepare('SELECT document FROM reader_sessions WHERE id=?').bind(id).first();assert.equal(JSON.parse(row.document).images[0],'');assert.equal(JSON.parse(row.document).usage.filter(u=>u.step==='image:0').length,0);
  await f.app.services.database.prepare('UPDATE production_jobs SET lease_until=1 WHERE id=?').bind(job.id).run();
 });
+
+for(const provider of ['codex','gemini'])test(`${provider}: confirmation gates paid script/images for auto and identical numeric selections`,async t=>{
+ const f=await productionFixture(t,provider);f.control.hold=false;
+ for(const initial of ['auto',7]){
+  const id=await f.create(initial,{narrativeDetail:'balanced'}),viewer=crypto.randomUUID(),plans=f.control.plans.length,images=f.control.calls.length,recommendations=f.control.recommendations.length;
+  await f.demand(id,viewer);await until(async()=>(await f.read(id)).awaitingFrameCount);
+  assert.equal(f.control.plans.length,plans);assert.equal(f.control.calls.length,images);assert.equal(f.control.recommendations.length,recommendations+1);
+  await f.leave(id,viewer);await f.restart();await f.demand(id,viewer);await f.app.services.production.tick();
+  assert.equal(f.control.recommendations.length,recommendations+1);assert.equal(f.control.plans.length,plans);assert.equal(f.control.calls.length,images);
+  await f.json(`sessions/${id}/frame-count`,'POST',{count:7});await f.demand(id,viewer);
+  await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.plans.length,plans+1);assert.equal(f.control.calls.length,images+7);
+  const jobs=await f.app.services.production.queue.jobs(id,'docker-local-owner');assert.equal(jobs.filter(j=>j.kind==='prepare').length,1);assert.equal(jobs.filter(j=>j.kind==='script'&&j.state==='succeeded').length,1);
+ }
+});
+
+test('slow script preparation renews its session lease and excludes a legacy planner',async t=>{
+ const f=await productionFixture(t),id=await f.create();let release,started=false;
+ const gate=new Promise(resolve=>release=resolve),generator=f.generation.generator.bind(f.generation);
+ t.after(()=>release());
+ f.generation.generator=()=>{const value=generator();return {...value,async plan(...args){started=true;await gate;return value.plan(...args);}};};
+ await f.demand(id);await until(()=>started);
+ await f.app.services.database.prepare('UPDATE reader_sessions SET lock_until=? WHERE id=?').bind(Date.now()+1000,id).run();await f.app.services.production.tick();
+ const row=await new ReaderRepository(f.app.services.database).get(id,'docker-local-owner');assert.ok(row.lock_until>Date.now()+100000);
+ const duplicate=await advanceStory(new ReaderRepository(f.app.services.database),generator(),'docker-local-owner',id,0,true);assert.equal(duplicate.state,'running');assert.equal(f.control.plans.length,0);
+ release();await until(()=>f.control.calls.length===1);assert.equal(f.control.plans.length,1);
+});

@@ -1,12 +1,14 @@
 // Advance local story generation under one session lock, retaining every completed paid result.
-import {nextStep,planSchema,selectionSchema,view,ReaderError} from './reader-model.ts';
+import {nextStep,planSchema,selectionSchema,view,ReaderError,awaitingFrameCount,readerBooks} from './reader-model.ts';
 import type {Document,Plan,Selection,SessionRow,Step} from './reader-model.ts';
 import type {ReaderRepository} from './reader-repository.ts';
 import type {ArtStyleId} from './reader-styles.ts';
-import type {OriginalSource,SourceResult} from './reader-source-types.ts';
+import type {OriginalSource,SourceResult,SourceHint} from './reader-source-types.ts';
+import {frameRecommendationSchema} from './reader-frame-recommendation.ts';
+import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import {readerImageBatchSize,readerMaxFrames} from './reader-limits.ts';
 export type Generated<T>={value:T;model:string;requestId:string|null;usage:unknown};
-export interface StoryGenerator{prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<Plan>>;original(selection:Selection,plan:Plan,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
+export interface StoryGenerator{prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;recommend?(selection:Selection,id:string,original:OriginalSource):Promise<Generated<FrameRecommendation>>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<Plan>>;original(selection:Selection,plan:SourceHint,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
 
 async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerator,row:SessionRow,token:string,doc:Document,selection:Selection,throughPage:number){
  const pages=doc.plan!.pages.map((_,page)=>page).filter(page=>page<=throughPage&&!doc.images[page]);
@@ -27,16 +29,31 @@ async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerato
  for(const outcome of outcomes)if(outcome.status==='rejected')throw outcome.reason;
 }
 
-export async function advanceStory(repo:ReaderRepository,generator:StoryGenerator,uid:string,id:string,throughPage:number,retry=false){
+export async function advanceStory(repo:ReaderRepository,generator:StoryGenerator,uid:string,id:string,throughPage:number,retry=false,onAcquired?:(token:string)=>void){
  let row=await repo.get(id,uid);
  if(row.state==='running'){if(row.lock_until>Date.now())return view(row);row=await repo.stale(row);}
  if(row.state==='failed'&&!retry)return view(row);
  const selection=selectionSchema.parse(JSON.parse(row.selection)),doc=JSON.parse(row.document) as Document;
  const step=nextStep(doc,selection,throughPage);if(!step)return view(row);
  const token=await repo.acquire(row,step);if(!token)return view(await repo.get(id,uid));
+ onAcquired?.(token);
  try{
   let generated:Generated<unknown>|undefined;
-  if(step.kind==='plan'){
+  if(step.kind==='recommend'){
+   if(!doc.original){
+    let original=await generator.prepareOriginal?.(selection,id);
+    if(!original){
+     const book=selection.bookId==='other'?selection.customBook:readerBooks.find(b=>b.id===selection.bookId)?.title||selection.bookId;
+     const result=await generator.original(selection,{sourceReference:`《${book||''}》${selection.storyTitle||''}`},id);
+     if(!result.source)throw new ReaderError(503,'原文未能核对，暂时无法推荐画幅数。'+result.message);
+     original=result.source;
+    }
+    doc.original=original;await repo.saveImageProgress(row,token,structuredClone(doc));
+   }
+   if(!generator.recommend)throw new ReaderError(503,'生成服务暂不支持画幅建议，请更新服务后重试。');
+   const result=await generator.recommend(selection,id,doc.original);doc.frameRecommendation=frameRecommendationSchema.parse(result.value);generated=result;
+  }
+  else if(step.kind==='plan'){
    if(generator.prepareOriginal&&!doc.original){
     const original=await generator.prepareOriginal(selection,id);
     if(original){doc.original=original;await repo.saveImageProgress(row,token,structuredClone(doc));}
@@ -52,6 +69,6 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    if(!result.source)throw new ReaderError(503,'原文未能保存。'+result.message+' 故事编排已保留，可重试补全原文。');
    doc.original=result.source;
   }
-  return view(await repo.save(row,token,doc,!nextStep(doc,selection,readerMaxFrames-1)));
+  return view(await repo.save(row,token,doc,!awaitingFrameCount(doc,selection)&&!nextStep(doc,selection,readerMaxFrames-1)));
  }catch(error){if(error instanceof ReaderError&&error.status===404)throw error;return view(await repo.save(row,token,doc,false,error instanceof ReaderError?error.message:generator.safeError(error)));}
 }

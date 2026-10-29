@@ -1,11 +1,11 @@
-# Story frame count E2E
+# Story frame count E2E — revised detail → recommendation → count → storyboard
 
-Use actual provider adapters with controlled model responses, real temporary SQLite/FileMedia and REST. No live inference. Use the in-app browser against a separate temporary fixture app for visible controls; if disabled, explain the limitation and use a separate Playwright test session.
+Use real provider adapters with controlled model responses, real temporary SQLite/FileMedia and REST. No live inference or personal data. Prefer in-app browser; if its tool gate persists, disclose and use a separate Playwright test session.
 
-1. New selection without a count resolves to automatic. Invalid (0, 61, fractional, null, string number) values return 400. Legacy 8/10/12 stay accepted.
-2. For Gemini and Codex, create auto sessions. Observe a 1–60 schema and automatic narrative instruction, a model-chosen 30-page plan, persisted automatic selection and actual 30 pages. Restart; resume the last batch without another planning call. Verify a short automatic output is permitted.
-3. For each provider, request 1, 30 and 60. Observe exact output schema and persisted matching count; first image alone, later images at most three with first-image reference; final batch clamps to the actual story size. A mismatched plan fails before images.
-4. On a 60-frame story, read media index 59, record a page event and saved progress 59, then restart and restore page 59. Index 60 and unavailable/out-of-story images fail; malformed media paths fail. Reading previous completed pages causes no inference.
-5. In the available test browser, open story creation with a controlled candidate: automatic selected by default; manual begins at 36; slider/number synchronize at 1, 30 and 60; 1 shows 单幅; switching back to auto and manual remembers value. Inspect narrow viewport and focus/disabled semantics. Generate a single-frame story through the visible action, then reopen creation to confirm count editing applies only to new stories.
+1. New UI defaults to 适中 and offers 简短/详细; no fixed count presets or manual count before recommendation. Old saved numeric preferences do not skip this flow. Each detail reaches recommendation and plan prompts, with no 30–60 instruction.
+2. Each provider: create a new detail-enabled session; first advance saves verified original and count/reason, with zero plan/image requests. Repeated advance waits, remains idle and not complete. Restart reopens exact suggestion/original. A source failure returns recoverable failed state and makes no recommendation/plan/image request; invalid recommendations fail before planning.
+3. Confirm count via owner-scoped REST. Reject 0/61/fraction/string/null, wrong owner, missing recommendation, running checkpoint. Same count confirmation is idempotent; differing/concurrent choices cannot overwrite an accepted count. Only after confirm can a plan be requested, with exact chosen length and same original/detail. Restart/lost response reuses checkpoints. Invalid plan count fails before images.
+4. Browser at390px: choose story/detail, request recommendation, see reason and count; slider and number sync at1/60 and keyboard adjustment, 1 shows 单幅概述, restore recommended count. Confirm starts generation with locked controls and exact count. A second pending recommendation can be closed and reopened from shelf/reload with no repeat provider call. Inspect screen/focus/overflow, error/retry and no extra modal.
+5. Existing numeric8/10/12 and auto sessions resume directly from saved plan with no recommendation. Retain1/60 reading/batches/media/events/progress/restart regression tests, provider auth and source-isolation behavior.
 
-Record actual results in the plan/delivery note, distinguishing controlled inference from live model behavior.
+Record evidence and limits in current plan/delivery document; controlled results do not establish live-model narrative quality.

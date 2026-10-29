@@ -48,6 +48,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    canRun:job=>this.canRun(job),onSettled:()=>this.wake(),
    safeError:(error,job)=>error instanceof ReaderError?error.message:job.kind==='image-publish'?'图片已生成，暂时无法展开。请重试继续。':this.provider.safeError(error),
    handlers:{
+    prepare:{pool:'text',run:job=>this.script(job)},
     script:{pool:'text',run:job=>this.script(job)},
     image:{pool:'image',run:job=>this.image(job)},
     'image-publish':{pool:'local',drain:true,run:(job,context)=>this.publish(job,context.outputs)},
@@ -96,7 +97,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private async graph(row:SessionRow){
   const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
-  const scriptVersion=inputVersion({selection}),script=this.spec(row,'script','text',scriptVersion,'',[],{},-10);
+  const preparing=selection.narrativeDetail&&!doc.frameCountConfirmed&&!doc.plan;
+  const scriptVersion=inputVersion({selection}),script=this.spec(row,preparing?'prepare':'script','text',scriptVersion,'',[],{},-10);
   await this.queue.enqueue(script,doc.plan&&doc.original?{pages:doc.plan.pages.length}:undefined);
   if(!doc.plan||!doc.original)return;
   // SQLite json_set cannot fill a missing array index out of order; reserve all slots first.
@@ -122,14 +124,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
   const local=job.kind==='image-publish';
   if(!local){
-   if(this.stopping||this.fault||!(await this.demands(row.id)).some(d=>job.kind==='script'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page))return false;
+   if(this.stopping||this.fault||!(await this.demands(row.id)).some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page))return false;
    if(await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first())return false;
    const jobs=await this.queue.jobs(row.id,row.user_id);
    if(jobs.some(job=>job.state==='failed')||row.state==='failed')return false;
    // Apply backpressure until a completed image is published; a local failure must stop refill.
    if(job.kind==='image'&&jobs.some(job=>job.kind==='image-publish'&&job.state==='running'))return false;
   }
-  if(job.kind==='script')return row.state!=='running'||row.lock_until<=this.clock();
+  if(job.pool==='text')return row.state!=='running'||row.lock_until<=this.clock();
   if(!doc.plan||!doc.original)return false;
   return this.ownSession(row,local);
  }
@@ -137,7 +139,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const lease=this.leases.get(row.id);
   if(lease){
    if(row.state==='running'&&row.lock_token===lease.token&&row.lock_until>this.clock())return true;
-   this.leases.delete(row.id);return false;
+   this.leases.delete(row.id);
   }
   if(row.state==='running'){
    if(row.lock_until>this.clock())return false;
@@ -152,8 +154,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async script(job:ProductionJob){
   let row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
   if(doc.plan&&doc.original)return {pages:doc.plan.pages.length};
-  const result=await advanceStory(this.repository,this.provider.generator(),row.user_id,row.id,0,true);
+  const result=await advanceStory(this.repository,this.provider.generator(),row.user_id,row.id,0,true,token=>this.leases.set(row.id,{ownerId:row.user_id,token}));
   if(result.state==='failed')throw new ReaderError(503,result.error||'故事编排暂未完成');
+  if(result.awaitingFrameCount)return {awaitingFrameCount:true};
   row=await this.raw(row.id,row.user_id);doc=JSON.parse(row.document) as Document;
   if(!doc.plan||!doc.original)throw new ReaderError(503,'故事仍在更新，请重试继续。');
   return {pages:doc.plan.pages.length};

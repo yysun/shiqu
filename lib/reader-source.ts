@@ -2,8 +2,8 @@
 import {Parser} from 'htmlparser2';
 import {Converter} from 'opencc-js';
 import {pearSource,sourceUrl as pearUrl} from './content.ts';
-import type {Plan,Selection} from './reader-model.ts';
-import type {OriginalSource,SourceResult,SourceFailure} from './reader-source-types.ts';
+import type {Selection} from './reader-model.ts';
+import type {OriginalSource,SourceResult,SourceFailure,SourceHint} from './reader-source-types.ts';
 import {verifiedPassages} from './reader-verified-passages.ts';
 
 const simplified=Converter({from:'t',to:'cn'}),traditional=Converter({from:'cn',to:'t'});
@@ -23,7 +23,7 @@ function numberedChapter(book:string,citation:string){
  if(!/^\d+$/.test(value))total+=current;
  return total>0&&total<=1000?`第${String(total).padStart(format.width,'0')}${format.unit}`:'';
 }
-export function sourceQuery(selection:Selection,plan:Plan){
+export function sourceQuery(selection:Selection,plan:SourceHint){
  const custom=selection.customBook?.trim()||'';
  const reference=simplified(plan.sourceReference);
  const bracket=reference.match(/《([^》]+)》/)?.[1]||'';
@@ -34,13 +34,13 @@ export function sourceQuery(selection:Selection,plan:Plan){
  const bookName=simplified(book).replace(/[《》]/g,'').trim();
  return {book:bookName,chapter:numberedChapter(bookName,reference)||chapter};
 }
-export function sourceSearchUrl(selection:Selection,plan:Plan){const {book,chapter}=sourceQuery(selection,plan);return 'https://zh.wikisource.org/w/index.php?'+new URLSearchParams({search:`${book} ${chapter}`});}
+export function sourceSearchUrl(selection:Selection,plan:SourceHint){const {book,chapter}=sourceQuery(selection,plan);return 'https://zh.wikisource.org/w/index.php?'+new URLSearchParams({search:`${book} ${chapter}`});}
 
 // Verified public-domain passages also keep common reads available if the source service is down.
 // Cao E passage: https://zh.wikisource.org/w/index.php?title=世說新語/捷悟&oldid=1500322 (item 3, excluding commentary).
 const caoText='魏武尝过曹娥碑下，杨修从，碑背上见题作“黄绢幼妇，外孙齑臼”八字。魏武谓修曰：“解不？”答曰：“解。”魏武曰：“卿未可言，待我思之。”行三十里，魏武乃曰：“吾已得。”令修别记所知。修曰：“黄绢，色丝也，于字为绝。幼妇，少女也，于字为妙。外孙，女子也，于字为好。齑臼，受辛也，于字为辞。所谓‘绝妙好辞’也。”魏武亦记之，与修同，乃叹曰：“我才不及卿，乃觉三十里。”';
-export function verifiedPassage(selection:Selection,plan:Plan):OriginalSource|null{
- const {book}=sourceQuery(selection,plan),clues=normalize([plan.sourceReference,selection.storyTitle||'',plan.adaptationNote||'',...plan.pages.map(p=>p.caption)].join(' '));
+export function verifiedPassage(selection:Selection,plan:SourceHint):OriginalSource|null{
+ const {book}=sourceQuery(selection,plan),clues=normalize([plan.sourceReference,selection.storyTitle||'',plan.adaptationNote||'',...(plan.pages||[]).map(p=>p.caption)].join(' '));
  if(book==='世说新语'&&clues.includes('曹娥碑')&&(/杨修|杨脩/.test(clues)||clues.includes('绝妙好辞')))return {title:'《世说新语·捷悟》· 曹娥碑',text:caoText,url:'https://zh.wikisource.org/zh-hans/世說新語/捷悟',kind:'passage',provider:'维基文库',retrievedAt:new Date().toISOString()};
  if(book==='聊斋志异'&&normalize(plan.sourceReference).includes('种梨'))return {title:'《聊斋志异·种梨》',text:pearSource,url:pearUrl,kind:'passage',provider:'识典古籍',retrievedAt:new Date().toISOString()};
  const known=verifiedPassages.find(p=>p.book===book&&p.clues.every(clue=>clues.includes(clue)));
@@ -80,7 +80,7 @@ async function wiki(params:Record<string,string>,transport:typeof fetch){
  const text=await response.text();if(text.length>2_000_000)throw new SourceFetchError('SOURCE_INVALID_RESPONSE');
  try{return JSON.parse(text);}catch{throw new SourceFetchError('SOURCE_INVALID_RESPONSE');}
 }
-export async function lookupOriginal(selection:Selection,plan:Plan,transport:typeof fetch=fetch):Promise<SourceResult>{
+export async function lookupOriginal(selection:Selection,plan:SourceHint,transport:typeof fetch=fetch):Promise<SourceResult>{
  const searchUrl=sourceSearchUrl(selection,plan),known=verifiedPassage(selection,plan);
  if(known)return {source:known,message:'',searchUrl};
  const {book,chapter}=sourceQuery(selection,plan);

@@ -2,6 +2,8 @@
 // Verify and persist originals before any paid storyboard request; never fall back remotely.
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
+import type {Selection} from '../lib/reader-model.ts';
+import type {OriginalSource} from '../lib/reader-source-types.ts';
 import {ReaderError} from '../lib/reader-model.ts';
 import {LocalBooks,localBookId} from './local-books.ts';
 import {hasSourceAnomaly,hasStoredSourceAnomaly} from './local-source-quality.ts';
@@ -25,6 +27,10 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
   },
   generator(){
    const generator=provider.generator();
+   function verifyOriginal(selection:Selection,original:OriginalSource|undefined){
+    if(!original?.localSource||!selection.source||localSourceKey(original.localSource)!==localSourceKey(selection.source))throw new ReaderError(400,'原文尚未在本地核对，请重新选择故事。');
+    if(hasStoredSourceAnomaly(original)||hasSourceAnomaly(original.title))throw new ReaderError(400,'已存原文含未识别字形或缺文标记，请重新选择完整、可读的故事出处。原文记录已保留。');
+   }
    return {...generator,
     async prepareOriginal(selection,id){
      if(!localBookId(selection)){
@@ -33,13 +39,17 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
      }
      const original=await books.selected(selection);return persist(original!,id);
     },
+    async recommend(selection,id,original){
+     if(localBookId(selection))verifyOriginal(selection,original);
+     if(!generator.recommend)throw new ReaderError(503,'生成服务暂不支持画幅建议，请更新服务后重试。');
+     return generator.recommend(selection,id,original);
+    },
     async plan(selection,id,original){
      if(!localBookId(selection))return generator.plan(selection,id,original);
-     if(!original?.localSource||!selection.source||localSourceKey(original.localSource)!==localSourceKey(selection.source))throw new ReaderError(400,'原文尚未在本地核对，请重新选择故事。');
-     if(hasStoredSourceAnomaly(original)||hasSourceAnomaly(original.title))throw new ReaderError(400,'已存原文含未识别字形或缺文标记，请重新选择完整、可读的故事出处。原文记录已保留。');
+     verifyOriginal(selection,original);
      // The checkpoint owns the exact verified version; readable retries keep that saved original.
      const result=await generator.plan(selection,id,original);
-     return {...result,value:{...result.value,sourceReference:original.title}};
+     return {...result,value:{...result.value,sourceReference:original!.title}};
     },
     async original(selection,plan,id){
      if(!localBookId(selection))return generator.original(selection,plan,id);

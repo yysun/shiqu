@@ -10,7 +10,7 @@ Fixed three-page demand starts too late, wastes free slots behind slow calls, an
 - [ ] Jobs have stable identities, explicit dependencies, input versions and stored results. Duplicate requests cannot duplicate paid work. Retry resumes failed/missing stages without regenerating successful images when local publication fails. Restart preserves jobs/assets; ambiguous interrupted paid jobs require retry rather than silently replaying.
 - [ ] Session locks remain exclusive against legacy advance calls and are renewed during queue execution. Failures stop further paid dispatch for that story, retain settled results, and expose bounded recovery. Owner scope, deletion, original/source, style and production prompts remain intact.
 - [ ] A generic handler/pool contract supports independent future voice and motion jobs and video assembly dependencies. Deterministic extension tests demonstrate branching/dependencies and output reuse; production voice/video remains disabled.
-- [ ] Existing stories and legacy advance API continue to work. Document behavior, limits, recovery, migration and future extension boundaries; full applicable tests, lint/typecheck/build and focused REST/browser checks pass without paid provider calls or Docker builds.
+- [ ] Existing stories, the source/recommendation/count-confirmation gate, and legacy advance API continue to work. Document behavior, limits, recovery, migration and future extension boundaries; full applicable tests, lint/typecheck/build and focused REST/browser checks pass without paid provider calls or Docker builds.
 
 ## Constraints and non-goals
 

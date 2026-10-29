@@ -16,20 +16,20 @@ function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{reso
 export async function productionFixture(t,provider='codex',variables={}){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu production ')),dataDirectory=path.join(root,'data');
  await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
- const control={calls:[],plans:[],hold:true,autoLength:8,active:0,maxActive:0};
+ const control={calls:[],plans:[],recommendations:[],hold:true,autoLength:8,active:0,maxActive:0};
  async function image(prompt,reference){
   const page=Number(prompt.match(/Scene (\d+):/)[1])-1,gate=deferred(),call={page,reference,prompt,...gate,done:false,bytes:encoded};
   control.calls.push(call);control.active++;control.maxActive=Math.max(control.maxActive,control.active);
   try{if(control.hold)await gate.promise;return call.bytes;}finally{call.done=true;control.active--;}
  }
- function planned(prompt){const payload=JSON.parse(prompt);control.plans.push(payload);return makePlan(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount);}
+ function planned(prompt,schema){const payload=JSON.parse(prompt);if(schema.properties.count){control.recommendations.push(payload);return {count:7,reason:'保留完整因果和关键转折。'};}control.plans.push(payload);return makePlan(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount);}
  const transport=async(url,options)=>{
   assert.match(String(url),/^https:\/\/generativelanguage.googleapis.com\//,'No external source/inference request');
   const body=JSON.parse(options.body),parts=body.contents[0].parts;
-  const output=body.generationConfig.responseModalities?{inlineData:{mimeType:'image/png',data:await image(parts.find(p=>p.text).text,parts.find(p=>p.inlineData)?.inlineData.data)}}:{text:JSON.stringify(planned(parts[0].text))};
+  const output=body.generationConfig.responseModalities?{inlineData:{mimeType:'image/png',data:await image(parts.find(p=>p.text).text,parts.find(p=>p.inlineData)?.inlineData.data)}}:{text:JSON.stringify(planned(parts[0].text,body.generationConfig.responseFormat.text.schema))};
   return Response.json({candidates:[{finishReason:'STOP',content:{parts:[output]}}],responseId:'controlled',usageMetadata:{calls:1}});
  };
- const runner={async status(){return {configured:true};},async run(job){return {text:job.generateImage?'':JSON.stringify(planned(job.prompt)),image:job.generateImage?await image(job.prompt,job.image&&Buffer.from(job.image.bytes).toString('base64')):null,model:'controlled',requestId:'controlled',usage:{calls:1}};}};
+ const runner={async status(){return {configured:true};},async run(job){return {text:job.generateImage?'':JSON.stringify(planned(job.prompt,job.schema)),image:job.generateImage?await image(job.prompt,job.image&&Buffer.from(job.image.bytes).toString('base64')):null,model:'controlled',requestId:'controlled',usage:{calls:1}};}};
  const media=new FileMedia(path.join(dataDirectory,'media'));
  const generation=createReaderProvider({SHIQU_AI_PROVIDER:provider,...(provider==='gemini'?{GEMINI_API_KEY:'controlled'}:{})},media,transport,runner);
  const options={root,dataDirectory,generation,transport,variables};let app=createApplication(options);
@@ -38,7 +38,7 @@ export async function productionFixture(t,provider='codex',variables={}){
  t?.after(async()=>{app.stopGeneration();for(const coordinator of coordinators)coordinator.stop();control.hold=false;for(const call of control.calls)call.resolve();for(const coordinator of coordinators)await coordinator.close();await stop();await rm(root,{recursive:true,force:true});});
  function request(suffix,method='GET',body,headers={}){return app.handle(new Request('http://localhost/api/reader/'+suffix,{method,headers:{'Content-Type':'application/json',...headers},body:body===undefined?undefined:JSON.stringify(body)}));}
  async function json(suffix,method='GET',body){const response=await request(suffix,method,body);assert.ok(response.ok,`${response.status}: ${suffix}`);return response.json();}
- async function create(length=8){const id=crypto.randomUUID();await json('sessions','POST',{requestId:id,selection:{...selection,length}});return id;}
+ async function create(length=8,overrides={}){const id=crypto.randomUUID();await json('sessions','POST',{requestId:id,selection:{...selection,length,...overrides}});return id;}
  const demand=(id,viewerId=crypto.randomUUID(),page=0,retry=false)=>json(`sessions/${id}/production`,'POST',{viewerId,page,retry});
  const read=id=>json(`sessions/${id}`);
  const leave=(id,viewerId)=>json(`sessions/${id}/production`,'DELETE',{viewerId});
