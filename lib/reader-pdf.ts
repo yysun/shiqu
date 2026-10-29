@@ -1,9 +1,16 @@
+// Export finished stories with source labels that remain correct for new and historical samples.
 import type {Story} from './content';
+import {DEMO_STORY_ID,DEMO_SOURCE_REFERENCE,DEMO_BOOK} from './demo-dongguo.ts';
 import type {GeneratedStory} from './reader-model';
 
 const W=900,H=1350,M=72;
 const serif='"Noto Serif SC", "Songti SC", "STSong", serif';
 const sans='"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif';
+export function storySourceReference(story:Story){
+ if('sourceReference'in story&&typeof story.sourceReference==='string')return story.sourceReference;
+ if(story.id===DEMO_STORY_ID&&story.bookId===DEMO_BOOK.id)return DEMO_SOURCE_REFERENCE;
+ return story.id==='zhongli'&&story.bookId==='liaozhai'?'《聊斋志异·种梨》':'原典见出处链接';
+}
 export function pdfFilename(title:string){return (title.replace(/[<>:"/\\|?*\u0000-\u001f]/g,'').trim().slice(0,60)||'拾趣故事')+'-拾趣.pdf';}
 export function assertPdfReady(story:Story){if(!story.pages.length||story.pages.some(page=>!page.image))throw Error('等所有画面生成完成后，就能导出完整 PDF。');}
 export function wrapPdfText(text:string,width:number,measure:(text:string)=>number):string[]{
@@ -72,7 +79,7 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   }
   const generated='generated'in story&&story.generated===true?story as GeneratedStory:null;
   await block('留一点余味',story.reflection,40);
-  await block('原典线索',generated?.sourceReference||'《聊斋志异·种梨》');
+  await block('原典线索',storySourceReference(story));
   await block('关于这次改编',story.adaptationNote.replace('；当前可使用设备朗读试听。','。'));
   if(generated)await block('制作要求',generated.productionPrompt||'这篇故事未保存自定义制作要求。');
   if(story.sourceUrl)await block('出处链接',story.sourceUrl,23);

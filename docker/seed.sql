@@ -1,5 +1,5 @@
--- Initialize fresh libraries only; preserve existing stories and source snapshots on conflict.
--- Third-party 種梨 excerpt: Wikisource contributors, revision7908703, CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/
+-- Initialize the bundled existing Dongguo story only when missing; preserve edited and historical rows.
+-- Source: Ma Zhongxi and Wikisource contributors, revision2578885, CC BY-SA4.0; see data/library/dongguo-demo.json.
 INSERT INTO books (id,title,author,era,source_url,excerpt,note) VALUES ('liaozhai','聊斋志异','蒲松龄','清','https://zh.wikisource.org/w/index.php?title=%E8%81%8A%E9%BD%8B%E5%BF%97%E7%95%B0%2F%E7%AC%AC01%E5%8D%B7&oldid=7908703#種梨','有鄉人貨梨於市，頗甘芳，價騰貴。有道士破巾絮衣，丐於車前，鄉人咄之而不去，鄉人怒，加​​以叱罵。道士曰：「一車數百顆，老衲止丐其一，於居士亦無大損，何怒為？」觀者勸置劣者一枚，令去，鄉人執不肯。
 
 肆中傭保者，見喋聒不堪，遂出錢市一枚，付道士，道士拜謝，謂眾曰：「出家人不解吝惜，我有佳梨，請出供客。」或曰：「既有之，何不自食？」曰：「吾特需此核​​作種。」於是掬梨大啗，且盡，把核於手，解肩上鑱坎地上深數寸，納之，而覆以土，向市人索湯沃灌。好事者，於臨路店，索得沸瀋，道士接浸坎處。萬目攢視，見有勾萌出，漸大，俄成樹，枝葉扶疏，倏而花，倏而實，碩大芳馥，纍纍滿樹。道人乃即樹頭，摘賜觀者，頃刻而盡，已乃以鑱伐樹，丁丁良久乃斷，帶葉荷肩頭從容徐步而去。

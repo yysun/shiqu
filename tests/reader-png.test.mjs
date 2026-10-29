@@ -12,8 +12,8 @@ test('PNG export requires every image and produces a safe PNG filename',()=>{
  assert.equal(pngFilename('故事/名字?'),'故事名字-拾趣-一页.png');
 });
 
-test('contact sheets retain all frames in reading order for 4, 8, 10, 12 and 16 pages',()=>{
- for(const count of [4,8,10,12,16]){
+test('contact sheets retain all frames in reading order for 4, 8, 10, 12, 16 and 30 pages',()=>{
+ for(const count of [4,8,10,12,16,30]){
   const base=seedStory(),story={...base,pages:Array.from({length:count},(_,i)=>({...base.pages[i%10],caption:`第${i+1}幅：保留每一个故事细节。`}))};
   const layout=layoutStoryPng(story,measure);
   assert.equal(layout.cells.length,count);

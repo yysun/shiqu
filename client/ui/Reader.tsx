@@ -5,6 +5,7 @@ import {useEffect, useRef, useState} from 'react';
 import {ArrowLeft, ArrowRight, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, Compass, Download, Feather, Heart, Leaf, Moon, Play, RotateCcw, ImageDown, Settings2, Sparkles, UserRound, X, Loader2, FileDown, RefreshCw, Trash2} from 'lucide-react';
 import {randomId, request} from './shared';
 import type {Story} from '@/lib/content';
+import {DEMO_STORY_ID,DEMO_BOOK} from '@/lib/demo-dongguo';
 import type {GeneratedStory,Selection} from '@/lib/reader-model';
 import {readerBooks,type ReaderBook} from '@/lib/reader-books';
 import {useStoryGeneration} from './useStoryGeneration';
@@ -210,8 +211,8 @@ export default function Reader(){
  }
  const allStories=[...stories,...gen.sessions.flatMap(s=>s.story&&!stories.some(x=>x.id===s.id)?[s.story]:[])].filter(s=>!deletedIds.includes(s.id));
  const heroes=recentHeroes(allStories,deletedIds.includes(lastReadId)?'':lastReadId,progress.filter(p=>!deletedIds.includes(p.storyId)));
- const bookName=(s:Pick<Story,'id'|'bookId'>)=>(s.bookId==='other'?gen.sessions.find(session=>session.id===s.id)?.selection.customBook:'')||books.find(b=>b.id===s.bookId)?.title||s.bookId;
- const current=story?.pages[page],sample=stories.find(s=>s.id==='zhongli'),selectedBook=books.find(b=>b.id===selection.bookId)||choices[0];
+ const bookName=(s:Pick<Story,'id'|'bookId'>)=>(s.bookId==='other'?gen.sessions.find(session=>session.id===s.id)?.selection.customBook:'')||books.find(b=>b.id===s.bookId)?.title||(s.bookId===DEMO_BOOK.id?DEMO_BOOK.title:s.bookId);
+ const current=story?.pages[page],sample=stories.find(s=>s.id===DEMO_STORY_ID),selectedBook=books.find(b=>b.id===selection.bookId)||choices[0];
  const activeProgress=mergeReadingProgress(progress).filter(p=>!deletedIds.includes(p.storyId));
  const pendingStories=gen.sessions.filter(s=>!deletedIds.includes(s.id)&&!s.story?.pages[0]?.image);
  const shelf=activeProgress.flatMap(p=>{const s=allStories.find(s=>s.id===p.storyId);return s&&s.pages[0]?.image?[s]:[];});

@@ -12,8 +12,8 @@ rights that their respective rights holders have not granted.
 For the bundled book collection, see data/library/source-notices.md and
 data/library/catalog.json, together with notices in the original downloads.
 The Wikisource and Kanripo transcription contributions retain CC BY-SA 4.0,
-including the third-party Zhongli excerpt embedded in lib/content.ts and the
-SQL seed. See data/library/licenses/CC-BY-SA-4.0.txt. Original authors and
+including the historical Zhongli excerpt in lib/content.ts and the Zhongshan
+Lang Zhuan text in the existing Dongguo demo (lib/demo-dongguo.ts and SQL seed). See data/library/licenses/CC-BY-SA-4.0.txt. Original authors and
 upstream contributors are credited in the catalog and original downloads.
 Project Gutenberg downloads retain their own accompanying notices and terms.
 

@@ -2,7 +2,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import path from 'node:path';import os from 'node:os';
 import {readFile,writeFile,mkdtemp,cp,rm,access} from 'node:fs/promises';import {createHash} from 'node:crypto';
 import {LocalBooks} from '../server/local-books.ts';import {licensedBookSpecs,loadLicensedCollection,parseKanripoChapter} from '../server/local-book-licensed.ts';
-import {hasSourceAnomaly} from '../server/local-source-quality.ts';import {pearSource,sourceUrl,seedStory} from '../lib/content.ts';import {verifiedPassage} from '../lib/reader-source.ts';import {openDatabase} from '../server/database.ts';
+import {hasSourceAnomaly} from '../server/local-source-quality.ts';import {pearSource,sourceUrl} from '../lib/content.ts';import {verifiedPassage} from '../lib/reader-source.ts';
 const catalog=JSON.parse(await readFile('data/library/catalog.json','utf8')),baseline=JSON.parse(await readFile('tests/fixtures/publication-source-baseline.json','utf8')),library=new LocalBooks(process.cwd()),choose=bookId=>({bookId,theme:'人情冷暖',length:8,voice:false});
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
@@ -52,10 +52,7 @@ test('replacement collections reject changed identities, extra files and a trunc
  }
 });
 
-test('fresh SQLite and application seeds share the licensed three-paragraph Zhongli excerpt; existing rows survive reopen',async t=>{
- const book=await library.book(choose('liaozhai')),s=book.sections[0],n=s.units.findIndex(u=>u.text==='種梨');assert.ok(n>=0);assert.equal(pearSource,s.units.slice(n+1,n+4).map(u=>u.text).join('\n\n'));assert.doesNotMatch(pearSource,/異史氏曰/);assert.equal(new URL(sourceUrl).searchParams.get('oldid'),'7908703');assert.ok(sourceUrl.endsWith('#種梨'));assert.equal(seedStory().pages.length,10);
+test('the independently licensed historical Zhongli fallback remains available after changing demos',async()=>{
+ const book=await library.book(choose('liaozhai')),s=book.sections[0],n=s.units.findIndex(u=>u.text==='種梨');assert.ok(n>=0);assert.equal(pearSource,s.units.slice(n+1,n+4).map(u=>u.text).join('\n\n'));assert.doesNotMatch(pearSource,/異史氏曰/);assert.equal(new URL(sourceUrl).searchParams.get('oldid'),'7908703');assert.ok(sourceUrl.endsWith('#種梨'));
  const known=verifiedPassage(choose('liaozhai'),{sourceReference:'《聊斋志异·种梨》',pages:[]});assert.equal(known.text,pearSource);assert.match(known.provider,/CC BY-SA 4.0/);
- const folder=await mkdtemp(path.join(os.tmpdir(),'shiqu-seed-license-'));t.after(()=>rm(folder,{recursive:true,force:true}));let db=openDatabase(folder,process.cwd());
- const row=await db.database.prepare("SELECT source_text,source_url FROM stories WHERE id='zhongli'").first();assert.equal(row.source_text,pearSource);assert.equal(row.source_url,sourceUrl);
- await db.database.prepare("UPDATE stories SET source_text=?,source_url=? WHERE id='zhongli'").bind('已有用户原文，不改写。','https://example.org/historical').run();db.close();db=openDatabase(folder,process.cwd());t.after(()=>db.close());const saved=await db.database.prepare("SELECT source_text,source_url FROM stories WHERE id='zhongli'").first();assert.equal(saved.source_text,'已有用户原文，不改写。');assert.equal(saved.source_url,'https://example.org/historical');
 });

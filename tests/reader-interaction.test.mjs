@@ -71,7 +71,7 @@ test('home hero resumes the last viewed story and falls back for new or missing 
  assert.equal(recentHero([sample,last],'',[]).story.id,sample.id);
  assert.equal(recentHero([sample,last],'deleted-story',[]).recent,false);
  assert.equal(recentHero([],last.id,[]),null);
- assert.equal(recentHero([sample,last],last.id,[{storyId:last.id,page:99}]).page,9);
+ assert.equal(recentHero([sample,last],last.id,[{storyId:last.id,page:99}]).page,sample.pages.length-1);
 });
 
 

@@ -29,7 +29,7 @@ function request(app,url,method='GET',value,headers={}){
 }
 test('SQLite initialization and seed are idempotent and preserve edited rows and raw SQL checkpoints',async t=>{
  const options=await fixture(t);let app=createApplication(options);
- let sample=(await (await request(app,'/api/stories')).json())[0];assert.equal(sample.pages.length,10);
+ let sample=(await (await request(app,'/api/stories')).json())[0];assert.equal(sample.pages.length,30);
  await app.services.db.update(stories).set({title:'preserved title'}).where(eq(stories.id,sample.id));
  await request(app,'/api/me/progress','POST',{storyId:sample.id,page:4,saved:true},{'oai-authenticated-user-id':'spoofed'});
  const repo=new ReaderRepository(app.services.database);const id=crypto.randomUUID();
