@@ -42,7 +42,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
    const seen=new Set<string>();const stories=batches.flatMap(batch=>batch.stories).filter(story=>{if(seen.has(key(story)))return false;seen.add(key(story));return true;});
    let chosen=stories;
    if(inputs.length>1&&stories.length>5){
-    const candidates=JSON.stringify(stories.map(({title,description,source,sourceLabel})=>({title,description,source,sourceLabel})));
+    const candidates=JSON.stringify(stories.map(({title,description,source,sourceLabel,artRecommendation})=>({title,description,source,sourceLabel,artRecommendation})));
     const summary=await provider.suggestions({...selection,source:undefined},excluded,{title:book.title,edition:book.edition,text:candidates,purpose:'candidate-summary'});
     const allowed=new Map(stories.map(story=>[key(story),story]));const selected=new Set<string>();
     chosen=summary.stories.map(story=>{const receipt=key(story),candidate=allowed.get(receipt);if(!candidate||selected.has(receipt))throw new ReaderError(502,'全书候选汇总的出处无法核对，请重试。');selected.add(receipt);return candidate;});
