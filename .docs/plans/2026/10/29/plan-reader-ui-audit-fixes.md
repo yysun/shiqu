@@ -31,6 +31,8 @@ Milestone commits and verification results will be recorded here as completed.
 
 Implementation milestone: `6ceda2a` (`feat(reader): address four-page UI audit findings`). Includes the existing compact-card work. Focused tests, non-bundling suite, browser rendering, typecheck and lint passed before the milestone; independent CR follows.
 
+Viewer refinement milestone: `2f78624` (`fix(reader): balance viewer narration with the artwork`). PostCSS parsing and in-app desktop/phone measurements pass; preference unchanged.
+
 AR passed: no blocking architecture flaws
 
 AR risk: non-low — restoration crosses owner-scoped persistence metadata and frontend library reconciliation.
@@ -62,3 +64,17 @@ Independent CR covered the entire scoped diff since `f8a5e66`, the requirements/
 TT: 228/228 tests passed in the 31 non-bundling files; all applicable changed behavior is covered. The 7 native-runtime scenarios in `desktop-lite.test.mjs` were excluded because that file contains a bundling scenario and automatic approval required excluding it entirely. Typecheck, ESLint, PostCSS parsing and whitespace checks pass. No required suite is absent; no package or Docker build was run.
 
 ET: scenarios 1–6 passed in the existing in-app browser, including both specified viewport sizes, source/preferences/ending, explicit filter resets and two restoration paths. Evidence and limitations are recorded in `.docs/tests/test-reader-ui-audit-fixes.md`. Shared shelf metadata contrast is 5.40:1 on tag backgrounds and 5.70:1 on the card background. No physical-device or packaged-app claim is made.
+
+CR passed: no major findings
+
+CR risk: non-low — the full change retains owner-scoped recovery and cross-screen reconciliation; the latest refinement changes caption styling only.
+CR review round: 2; reviewer: reused
+
+Independent round two reviewed the complete scope through `2f78624`, including the added caption criterion and refreshed screenshots. Normal 22px/21px captions at 1.65 line height, optional 28px/26px text and unchanged stored preference are confirmed. Recovery and other behavior remain unchanged; the existing Node test evidence remains valid.
+
+VR passed: all acceptance criteria complete
+
+VR risk: non-low — owner-scoped recovery metadata, frontend library reconciliation and shared presentation affect all four screens.
+VR review round: 1; reviewer: reused
+
+Independent VR compared every criterion with the completed plan, source, tests and in-app evidence. The complete verdict is preserved verbatim in `.docs/done/2026/10/29/reader-ui-audit-fixes.md`. Requirements are checked complete. DD records final behavior, verification and evidence limits; GC includes the remaining delivery documents only, preserving the two implementation milestones and the unrelated README work.
