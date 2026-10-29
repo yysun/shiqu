@@ -13,10 +13,10 @@ Git base: 5b753fd
 
 无RAG，无Docker构建，无正文简繁转换或自动校勘。长书真实全量选题成本与等待时间较高，使用既有并发2/10万字符批次，不缩小测试范围冒充全书。已存会话原文保持原样，重新选题使用新版本。
 
-AR round1（独立复用reviewer）：AR passed: no blocking architecture flaws。SS probe .data/taiping-wyg-probe.json：500卷全部有正文起点、首尾卷题和叙事行，正文边界无未处理包装，203/437/446尾题变体匹配。
+AR round1（独立复用reviewer）：AR passed: no blocking architecture flaws。SS probe .data/evidence/taiping-wyg-probe.json：500卷全部有正文起点、首尾卷题和叙事行，正文边界无未处理包装，203/437/446尾题变体匹配。
 
-TT：pnpm test 102/102，typecheck、lint、pnpm build通过；.data/taiping-wyg-test.log与build.log。真实模型全书ET正在运行。
+TT：pnpm test 102/102，typecheck、lint、pnpm build通过；.data/evidence/taiping-wyg-test.log与build.log。真实模型全书ET正在运行。
 
 实施里程碑08c9015（原件、解析、回归及来源说明）。独立CR round1: CR passed: no major findings；risk non-low；reviewer reused。IAB现有localhost:3000页已重载，太平/聪明与糊涂选中，无旧候选，入口可用；截图taiping-wyg-selection.png。全书真实ET仍待结束。
 
-ET通过：.data/taiping-wyg-live/evidence.json，真实gemini-3.8-flash顺序36批（500卷81982单元），一次候选汇总保留5个本地已核对候选，最终8页简体分镜《斗量人间》，原字原文先存SQLite/media再发分镜；38次文本请求，无图片/音频/外部古籍请求。保留499卷候选，321旧缺卷候选也通过。无RAG/Docker。
+ET通过：.data/evidence/taiping-wyg-live/evidence.json，真实gemini-3.8-flash顺序36批（500卷81982单元），一次候选汇总保留5个本地已核对候选，最终8页简体分镜《斗量人间》，原字原文先存SQLite/media再发分镜；38次文本请求，无图片/音频/外部古籍请求。保留499卷候选，321旧缺卷候选也通过。无RAG/Docker。

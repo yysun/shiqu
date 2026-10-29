@@ -9,6 +9,6 @@
 - [x] 保持按原文顺序穷尽通读，不做RAG或外部书源回退。三书分别真实跑通全书选题→本地出处核对→8页简体分镜，先持久化原文再分镜；自动回归包含十表及各书尾部、其他21本。
 - [x] 数据及处理说明准确记录底本/校注/OCR与阙字限制，适用测试、typecheck、lint、普通build通过，不构建Docker，不请求图像生成/音频，原件字形PNG只是同源原文资料，运行时不外取。
 
-证据：最终TT .data/clean-three-test.log 112/112；typecheck/lint/build日志通过。原字/表格/字形图及异常路径见7项clean-three-originals回归；真实三书全流程及当前解析器/持久化原文复核均passed：.data/clean-three-live/evidence.json及final-source-recheck.json。三书分别1/2/21批覆盖938/1387/9117单元，8页简体分镜、先存原文、无外部书源/图像生成/音频请求均已断言。
+证据：最终TT .data/evidence/clean-three-test.log 112/112；typecheck/lint/build日志通过。原字/表格/字形图及异常路径见7项clean-three-originals回归；真实三书全流程及当前解析器/持久化原文复核均passed：.data/evidence/clean-three-live/evidence.json及final-source-recheck.json。三书分别1/2/21批覆盖938/1387/9117单元，8页简体分镜、先存原文、无外部书源/图像生成/音频请求均已断言。
 
 VR passed: all acceptance criteria complete。独立验收6项均complete、AP全完成，无遗留阻塞；完整逐项结果原样保存于.docs/done/2026/10/28/clean-three-originals.md。VR risk: non-low；VR review round: 1; reviewer: reused。

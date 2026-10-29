@@ -15,8 +15,8 @@ Risk: non-low。扩展既有原始文件集合加载边界并更换引用版本�
 
 AR round1（复用独立reviewer）：AR passed: no blocking architecture flaws。SS probe：40个下载blob与GitHub逐件一致，40卷题号相符，localLines字符完整等价，末卷九折与终句均在；证据研究档案parsing-probe.json。
 
-TT：针对性20/20、完整105/105测试通过；typecheck、lint、pnpm build通过（.data/erke-unified-focused.log、test.log、build.log）。ET真实全书5批已完成读取和汇总，分镜/末卷探针进行中，尚不记完成。
+TT：针对性20/20、完整105/105测试通过；typecheck、lint、pnpm build通过（.data/evidence/erke-unified-focused.log、test.log、build.log）。ET真实全书5批已完成读取和汇总，分镜/末卷探针进行中，尚不记完成。
 
 实施里程碑516da14。独立CR round1：CR passed: no major findings；risk non-low；reviewer reused。实现无后续变更。
 
-ET完成：.data/erke-unified-live/evidence.json为passed，真实gemini-3.8-flash。全书5批覆盖40卷1718单元、一次汇总、5核对候选；王朝议故事原文6670字符生成8页。第四十卷单卷独立输入12376字符，3核对候选；第五折《柴进智潜睿思殿》原文2250字符，另生成8页。共6读取/1汇总/2分镜请求；两次分镜前均断言SQLite/media已存原文，caption简体且原文逐字一致，无图像/语音/外部古籍请求。无RAG、无Docker。
+ET完成：.data/evidence/erke-unified-live/evidence.json为passed，真实gemini-3.8-flash。全书5批覆盖40卷1718单元、一次汇总、5核对候选；王朝议故事原文6670字符生成8页。第四十卷单卷独立输入12376字符，3核对候选；第五折《柴进智潜睿思殿》原文2250字符，另生成8页。共6读取/1汇总/2分镜请求；两次分镜前均断言SQLite/media已存原文，caption简体且原文逐字一致，无图像/语音/外部古籍请求。无RAG、无Docker。

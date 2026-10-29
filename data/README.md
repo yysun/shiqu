@@ -4,7 +4,7 @@
 
 只有 `library/` 与本说明纳入 Git。SQLite、媒体及其他运行文件仍由 `.gitignore` 排除。Docker 把书库复制到 `/app/data/library/`，运行数据挂载到 `/data`，两者独立。
 
-重复候选、对照网页、下载检查和早期整理脚本已完整移到 `.data/book-source-research/2026-10-28/` 留存，不进入 Git，也不是应用的依赖。
+重复候选、对照网页、下载检查和早期整理脚本已完整移到 `.data/research/book-source-research/2026-10-28/` 留存，不进入 Git，也不是应用的依赖。
 
 只保留下载原件，正文可直接显示繁体。服务端在内存中剥离包装并添加引用编号，不转换正文用字；LLM 直接读取原文并输出简体故事。
 

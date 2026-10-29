@@ -23,15 +23,15 @@ Risk: non-low。扩展已存书源集合格式、解析HTML正文及史记表格
 - AR fixed: 图片字留存、版本校验和拒选边界已纳入REQ/AP/ET；rerun result passed。
   AR risk: non-low — 图片字完整性与占位处理影响版本及可引用范围。
   AR review round: 4; reviewer: reused
-- 探针：.data/book-source-research/2026-10-28/clean-three/feasibility.json及youyang-glyphs-manifest.json。149件Wiki原件所选正文0PUA/KR/残IDS；十表1581行18555格/4203空格；识典1390段/51处35字图。
+- 探针：.data/research/book-source-research/2026-10-28/clean-three/feasibility.json及youyang-glyphs-manifest.json。149件Wiki原件所选正文0PUA/KR/残IDS；十表1581行18555格/4203空格；识典1390段/51处35字图。
 - 本地里程碑33cca48cefdc137991bfd8758cb258d0b74bc85d：原件迁移、解析、版本与测试；5a3b022d9c48ef5d9f468b74f5a7eccd14c0a213：明确标题及表格版式非叙事，拒绝元数据范围。均未推送。
 - CR fixed: 标题与表格版式不能再作为独立故事原文；rerun result passed。
   CR risk: non-low — 解析角色决定原文引用及分镜资格。
   CR review round: 2; reviewer: reused
-- TT：.data/clean-three-test.log，112/112；.data/clean-three-source-tests.log，7/7；typecheck/lint/普通build通过，build后恢复dist/dev/server.js供本地开发服务使用。
+- TT：.data/evidence/clean-three-test.log，112/112；.data/evidence/clean-three-source-tests.log，7/7；typecheck/lint/普通build通过，build后恢复dist/dev/server.js供本地开发服务使用。
 - ET：当前已配置Codex订阅，runner观测原文先保存与全文覆盖，不切换API计费。山海1批938单元及酉阳2批1387单元已各完成8页简体分镜；酉阳超时后复用原文检查点成功。史记21批9117单元及汇总→《管鲍之交》8页完成；三书全数成功。
-- 验证器对成功阅读响应按完整job哈希存于忽略目录verified-reading-cache，用于超时后避免重复验证调用；产品仍按原顺序处理全批次，未增加产品缓存/RAG。实际Codex响应、输入哈希和完成状态见.data/clean-three-live/evidence.json，最终21个独立输入哈希与21份真实响应缓存精确对应，未以部分阅读声称全书成功。
+- 验证器对成功阅读响应按完整job哈希存于忽略目录verified-reading-cache，用于超时后避免重复验证调用；产品仍按原顺序处理全批次，未增加产品缓存/RAG。实际Codex响应、输入哈希和完成状态见.data/evidence/clean-three-live/evidence.json，最终21个独立输入哈希与21份真实响应缓存精确对应，未以部分阅读声称全书成功。
 
-ET最终：.data/clean-three-live/evidence.json result=passed；独立重开当前解析器/SQLite/media核对见final-source-recheck.json，三书全单元覆盖938/1387/9117、输入批次1/2/21、8页简体及先存原文均通过，无图片/音频或外部书源请求。史记及酉阳曾遇Codex超时，保留原文/验证成功响应后继续，未将部分结果当全书成功。实际产品仍有120秒Codex等待上限，未为验证改动产品超时。
+ET最终：.data/evidence/clean-three-live/evidence.json result=passed；独立重开当前解析器/SQLite/media核对见final-source-recheck.json，三书全单元覆盖938/1387/9117、输入批次1/2/21、8页简体及先存原文均通过，无图片/音频或外部书源请求。史记及酉阳曾遇Codex超时，保留原文/验证成功响应后继续，未将部分结果当全书成功。实际产品仍有120秒Codex等待上限，未为验证改动产品超时。
 
 VR passed: all acceptance criteria complete。独立验收6项均complete、AP全完成，无遗留阻塞；完整逐项结果原样保存于.docs/done/2026/10/28/clean-three-originals.md。VR risk: non-low；VR review round: 1; reviewer: reused。

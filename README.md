@@ -12,7 +12,7 @@
 
 可供选择的目录包含 24 部作品。优先采用的原文下载文件、来源链接、哈希值和已知质量问题均纳入版本管理，位于
 [`data/library/`](data/library/catalog.json). Download research and duplicate copies
-则保留在已忽略的 `.data/book-source-research/` 目录中。
+则保留在已忽略的 `.data/research/book-source-research/` 目录中。
 
 | 类别 | 书目 |
 | --- | --- |

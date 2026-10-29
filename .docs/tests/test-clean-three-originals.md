@@ -10,4 +10,4 @@
 - 场景1/2/3与5：112项完整回归、7项针对性检查、typecheck/lint/普通build通过。表格全部18555格、4203空格、版式单元不可独立生成、各卷标题组合拒选、全文原字顺序/SSR小字/图片字位置及异常路径均覆盖；其他21本与原文检查点回归通过。
 - 场景4：当前Codex订阅真实完成山海1批938单元→《夸父逐日》、酉阳2批1387单元+汇总→《三足乌的祥瑞之争》、史记21批9117单元+汇总→《管鲍之交》，各8页简体分镜。SQLite/media原文在生成前已保存、请求原文与保存件相等、无外部书源/图像生成/音频请求均断言通过。
 - 真实调用有Codex超时：酉阳从原文检查点重试成功；史记从验证成功响应继续，不冒称部分阅读成功。验证缓存仅存在忽略研究目录，不改变产品行为；最终21个顺序输入哈希逐一匹配真实响应。
-- 最终使用新LocalBooks重开当前原件，复核全部候选可解析、已生成原文与当前SQLite及media相等、所有旁白简体、无图片，各书覆盖包含尾单元。证据：.data/clean-three-live/evidence.json及final-source-recheck.json；命令及记录脚本在.data/verify-clean-three-live.mjs、recheck-clean-three-live.mjs，不提交运行数据。
+- 最终使用新LocalBooks重开当前原件，复核全部候选可解析、已生成原文与当前SQLite及media相等、所有旁白简体、无图片，各书覆盖包含尾单元。证据：.data/evidence/clean-three-live/evidence.json及final-source-recheck.json；命令及记录脚本在.data/tools/verify-clean-three-live.mjs、recheck-clean-three-live.mjs，不提交运行数据。

@@ -27,7 +27,7 @@ VR passed: all acceptance criteria complete
 | 真实全书选题、核对及8页简体分镜，回归和常规检查通过 | complete | `gemini-3.8-flash`完成36次读取、1次汇总和1次分镜。卷31李珏故事原文770字符逐字相等，生成8页《斗量人间》，caption简体断言通过。针对性测试17/17、完整测试102/102；typecheck、lint、build通过。 |
 | 更新说明、不构建Docker，准确报告验证范围与限制 | complete | catalog、data说明及来源处理说明已更新，公开转录本未逐字校勘的限制。IAB截图确认太平和主题选中、新缓存无旧候选；选题及生成由真实HTTP流程验证。未调用图片、音频或构建Docker。 |
 
-证据：[真实全书验证](/Users/esun/Documents/Projects/shiqu-docker/.data/taiping-wyg-live/evidence.json)、[验证脚本](/Users/esun/Documents/Projects/shiqu-docker/.data/verify-taiping-wyg-live.mjs)、[测试日志](/Users/esun/Documents/Projects/shiqu-docker/.data/taiping-wyg-test.log)、[构建日志](/Users/esun/Documents/Projects/shiqu-docker/.data/taiping-wyg-build.log)、[IAB截图](/Users/esun/.codex/visualizations/2026/10/28/01a183af-85d1-7e92-9d75-31b17b3c0a66/taiping-wyg-selection.png)。
+证据：[真实全书验证](/Users/esun/Documents/Projects/shiqu-docker/.data/evidence/taiping-wyg-live/evidence.json)、[验证脚本](/Users/esun/Documents/Projects/shiqu-docker/.data/tools/verify-taiping-wyg-live.mjs)、[测试日志](/Users/esun/Documents/Projects/shiqu-docker/.data/evidence/taiping-wyg-test.log)、[构建日志](/Users/esun/Documents/Projects/shiqu-docker/.data/evidence/taiping-wyg-build.log)、[IAB截图](/Users/esun/.codex/visualizations/2026/10/28/01a183af-85d1-7e92-9d75-31b17b3c0a66/taiping-wyg-selection.png)。
 
 AP全部任务完成，无遗留阻塞。真实全书模型验证为Gemini；Codex沿用有效的模拟契约证据。旧候选版本失效，已保存会话的原文检查点继续复用。
 

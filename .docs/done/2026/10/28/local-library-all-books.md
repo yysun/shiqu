@@ -30,7 +30,7 @@ VR passed: all acceptance criteria complete
 | 完整性、错误路径及24本集成覆盖，区分真实与模拟 | complete | 全部24本选题至8页分镜为模拟HTTP验证。真实Gemini：列子整书、儒林全书分批与汇总各5候选及8页；二刻40单卷补件3候选及8页，来源URL正确。Codex仅模拟契约，未称真实验证。 |
 | test/typecheck/lint/build通过，遵守非目标 | complete | 最终测试99/99，typecheck/lint/build成功，开发bundle恢复。无RAG、向量库、Docker构建或运行；真实验证仅调用文本，未调用图片或音频。 |
 
-证据：[最终测试日志](/Users/esun/Documents/Projects/shiqu-docker/.data/local-library-test.log)、[构建日志](/Users/esun/Documents/Projects/shiqu-docker/.data/local-library-build.log)、[整书真实模型证据](/Users/esun/Documents/Projects/shiqu-docker/.data/local-library-all-live/evidence.json)、[补卷单卷真实模型证据](/Users/esun/Documents/Projects/shiqu-docker/.data/local-supplement-live/evidence.json)、[浏览器截图](/Users/esun/.codex/visualizations/2026/10/28/01a183af-85d1-7e92-9d75-31b17b3c0a66/all-books-local-candidates.png)。
+证据：[最终测试日志](/Users/esun/Documents/Projects/shiqu-docker/.data/evidence/local-library-test.log)、[构建日志](/Users/esun/Documents/Projects/shiqu-docker/.data/evidence/local-library-build.log)、[整书真实模型证据](/Users/esun/Documents/Projects/shiqu-docker/.data/evidence/local-library-all-live/evidence.json)、[补卷单卷真实模型证据](/Users/esun/Documents/Projects/shiqu-docker/.data/evidence/local-supplement-live/evidence.json)、[浏览器截图](/Users/esun/.codex/visualizations/2026/10/28/01a183af-85d1-7e92-9d75-31b17b3c0a66/all-books-local-candidates.png)。
 
 AP全部任务完成；AR第5轮、CR第4轮通过，无遗留阻塞。《史记》十表主要为表序、115个私用区字符及转录本未经逐字校勘的限制已公开，未宣称足本。
 

@@ -14,7 +14,7 @@
 - 沿用本次提示词实现的代码审查结论：`CR passed: no major findings`。
 - Codex 订阅实测：《种梨》生成《一颗梨的价钱》，会话 `7a06e3dd-fdd0-44b9-8bd4-d01dd567ca15`，最终 `state=completed`、`ready=10`。剧本实际模型为 `gpt-6.1-sol`，十幅图片记录均为 `codex-image-generation`。
 - 已逐幅检查原图，并在内置浏览器核对完成状态与余味页。第1、5幅全景，第3幅梨核特写，第8幅离场远景，第9幅空车俯视近景形成开合；第2幅伙计递梨与第6幅道士分梨形成对照，支撑结尾“满街笑声里，还有伙计买下的那一颗梨。”
-- 本机证据保存在 `.data/reviews/pear-codex-2026-10-28/`：`story.json`、`generation.json`、`contact-sheet.png`。这些是受 Git 忽略的本机生成物，不随提交分发。
+- 本机证据保存在 `.data/evidence/reviews/pear-codex-2026-10-28/`：`story.json`、`generation.json`、`contact-sheet.png`。这些是受 Git 忽略的本机生成物，不随提交分发。
 
 ### Final VR result
 

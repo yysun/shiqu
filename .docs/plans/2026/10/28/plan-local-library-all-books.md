@@ -25,7 +25,7 @@ Git base: `9d5b1a5f02b57f743ee8fa5eca80f8e5f92d387e`。入口已有上一故事�
 
 最终99/99测试通过；typecheck/lint/build通过，开发bundle恢复。受限环境原有3个loopback EPERM已在允许本地监听后通过，不属于产品故障。测试覆盖全部24本HTTP主题选题->核对原文->SQLite/media保存->8页分镜，模型模拟；Gemini/Codex既有整书与片段传递契约均覆盖。
 
-真实Gemini：列子整书与儒林全书分批各5个有效候选、各8页分镜，证据 `.data/local-library-all-live/evidence.json`；二刻40单卷补件选题3个有效候选、8页分镜及实际补件URL，证据 `.data/local-supplement-live/evidence.json`。补件实测仅单卷，不称整本实测；没有图片或音频调用。Codex仅模拟契约验证。
+真实Gemini：列子整书与儒林全书分批各5个有效候选、各8页分镜，证据 `.data/evidence/local-library-all-live/evidence.json`；二刻40单卷补件选题3个有效候选、8页分镜及实际补件URL，证据 `.data/evidence/local-supplement-live/evidence.json`。补件实测仅单卷，不称整本实测；没有图片或音频调用。Codex仅模拟契约验证。
 
 IAB当前localhost验证列子“聪明与糊涂”5候选、已核对出处、长书提示与加载状态。截图 `/Users/esun/.codex/visualizations/2026/10/28/01a183af-85d1-7e92-9d75-31b17b3c0a66/all-books-local-candidates.png`。
 

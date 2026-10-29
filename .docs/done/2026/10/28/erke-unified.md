@@ -26,7 +26,7 @@ VR passed: all acceptance criteria complete
 | 真实全书及末卷独立流程、其他书回归和常规检查 | complete | 全书汇总5候选，以6670字符原文生成8页；第四十卷独立输入12376字符，得到3候选，以第五折2250字符原文另生成8页。原文相等、caption简体断言通过。针对性20/20、全套105/105及typecheck、lint、build通过，包含太平和其他书回归。 |
 | 更新说明、清除旧候选、不构建Docker并准确报告限制 | complete | catalog及data说明明确“同一电子来源≠已确认同底本”、刊本未明、未收序/小引、未逐字校勘。缓存失效已落实。全书与单卷证据分开记录；无外部古籍、图片、音频请求，无RAG或Docker构建。 |
 
-证据：[真实验证结果](/Users/esun/Documents/Projects/shiqu-docker/.data/erke-unified-live/evidence.json)、[验证脚本](/Users/esun/Documents/Projects/shiqu-docker/.data/verify-erke-unified-live.mjs)、[针对性测试日志](/Users/esun/Documents/Projects/shiqu-docker/.data/erke-unified-focused.log)、[全套测试日志](/Users/esun/Documents/Projects/shiqu-docker/.data/erke-unified-test.log)、[构建日志](/Users/esun/Documents/Projects/shiqu-docker/.data/erke-unified-build.log)。
+证据：[真实验证结果](/Users/esun/Documents/Projects/shiqu-docker/.data/evidence/erke-unified-live/evidence.json)、[验证脚本](/Users/esun/Documents/Projects/shiqu-docker/.data/tools/verify-erke-unified-live.mjs)、[针对性测试日志](/Users/esun/Documents/Projects/shiqu-docker/.data/evidence/erke-unified-focused.log)、[全套测试日志](/Users/esun/Documents/Projects/shiqu-docker/.data/evidence/erke-unified-test.log)、[构建日志](/Users/esun/Documents/Projects/shiqu-docker/.data/evidence/erke-unified-build.log)。
 
 AP全部任务完成，无遗留阻塞。真实验证使用Gemini，共6次读取、1次汇总、2次分镜；未将单卷验证冒称全书验证。
 
