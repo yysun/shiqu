@@ -18,7 +18,7 @@ The user's Standard request supersedes Lite-only delivery. Prior implementation 
 
 - [x] First revised SS probe: verify the installed pinned Node executable, matching native architecture, and license notices can be staged independently and execute SQLite without a system Node PATH. Revisit AR if unavailable/mismatched.
 - [x] Make Standard the default Tauri/package build using `build.features: ["bundled-node"]` and bundled Node resources; retain a Lite override that clears the feature/resources and ensure Lite excludes the runtime. Exercise Rust tests in both feature modes. Add runtime-selection/missing-bundle tests and edition-aware settings.
-- [ ] Extend packaged smoke verification to relocate bundled Node, validate manifest/checksum, and run with no system Node PATH; preserve Lite checks. Update both-variant CI and desktop documentation.
+- [x] Extend packaged smoke verification to relocate bundled Node, validate manifest/checksum, and run with no system Node PATH; preserve Lite checks. Update both-variant CI and desktop documentation.
 
 - [x] First SS probe: select installed Node 24.22.1, install a separate supported Rust toolchain without changing defaults, verify native Tauri compilation prerequisites, and prove production dependency packaging resolves SQLite/tokenizer/library assets from a standalone directory. Stop dependent work and revisit AR if the packaging/runtime premise fails.
 - [x] Add a desktop runtime entry and pairing gate with bounded stdin/stdout protocol, safe provider metadata tests, startup/shutdown/error handling, and HTTP security/runtime tests; preserve ordinary server contracts.
@@ -63,3 +63,27 @@ AR review round: 2; reviewer: reused (`desktop_review`, independent/read-only).
 Standard review requires native target matching (reject cross/universal staging), checksum verification before execution, exact version/SQLite validation, explicit Lite resource exclusion after Standard staging, final packaged-byte verification, and license/provenance metadata. Existing keychain/browser/platform evidence limits remain; do not claim they were solved by changing packaging.
 
 Standard implementation evidence: staged Node 24.22.1 darwin/arm64 plus installed LICENSE and provenance/checksum manifest. Standalone executable SQLite probe succeeds with PATH containing no system Node. Standard Rust tests: six pass, one host-keyring integration test ignored separately; Lite Rust tests: four pass, same integration ignored. New native tests verify a saved system path is ignored and a missing/modified bundle fails before execution. Staged Standard smoke relocates Node and application resources and passes pairing/LAN/media/persistence/restart/shutdown with no system Node PATH and zero paid calls. Full Node suite now 169 passing; lint/typecheck/fmt pass. The copied macOS Node binary declares minimum OS 13.5, so the desktop bundle minimum was updated accordingly.
+
+Standard milestone commit: `65c5c4b`. Final unsigned macOS ARM64 Standard app built at `src-tauri/target/release/bundle/macos/Shiqu.app` (265.10 MiB uncompressed). Final app-resource smoke, not just staging, passes relocated bundled Node + checksum/license + 24 books + pairing/LAN/media/persistence/restart/shutdown with no system Node PATH and zero paid calls. Optional Lite was built after Standard using the override; final Lite app-resource smoke confirms no bundled Node or stale Node directory and the same functional checks. Default Standard staging was restored afterward.
+
+CR passed: no major findings
+
+CR risk: non-low — bundled runtime distribution, credential handling, process supervision, LAN authentication, and platform packaging.
+
+CR review round: 3; reviewer: reused (`desktop_review`, independent/read-only).
+
+TT: 169/169 Node tests pass; Standard Rust 6 pass, Lite Rust 4 pass (the separately attempted OS credential test remains environment-blocked); lint/typecheck/fmt, ordinary frontend/server build and both native macOS package builds pass. Direct `pnpm start` serves the reader and sample API independently, with zero paid calls.
+
+ET partial: prior Lite native settings, missing/Node22 rejection, Node24 detection, no-key connection error, key entry/reveal/fail-safe storage error, actual server start/stop, QR, local/LAN HTTP pairing, progress writes, background service and parent-termination cleanup were exercised. Standard final payload and runtime-selection tests pass. Before the native Standard launch check, computer use returned: “The Mac is locked and automatic unlock could not unlock it.” The user was asked to unlock manually. Standard native window/start/quit and final Reopen UI evidence are pending that state change. Browser automation is disabled in Work settings; browser-script/physical-phone checks remain unexecuted. Successful Keychain write/read/delete remains blocked by OSStatus -25293. Linux/Windows CI is configured but not executed locally.
+
+Delivery artifact: `outputs/Shiqu-Standard-macOS-arm64.zip` (~112 MiB compressed), containing the actual Standard `.app`. No signing or notarization was performed. Existing unrelated working-tree changes remain excluded from story commits.
+
+ZIP integrity: `unzip -tq` passed. SHA-256: `b61afd6913c400b67fec099c9dddaad69fab331b95f545a46011b3a17a37caa1`. The saved pre-task unrelated diff and current unrelated diff have the same SHA-256; global Rust default remains `stable-x86_64-apple-darwin`.
+
+VR incomplete: successful OS credential persistence, final native Standard UI/lifecycle, and browser-driven pairing remain unverified; two plan tasks remain open.
+
+VR risk: non-low — credentials, native process lifecycle, authenticated LAN access, and packaged runtime distribution.
+
+VR review round: 1; reviewer: reused (`desktop_review`, independent/read-only).
+
+Complete criteria: 1, 6, 7, 9. Criteria 2–5 and 8 remain open to preserve the native/keyring/browser evidence gaps. Final detailed VR is recorded in `.docs/done/2026/10/29/desktop-standard.md`. No source repair is indicated by the review; progress on remaining checks requires user unlock/credential-store availability and browser automation access. Do not treat the built artifact or passing CR as full RPD acceptance.
