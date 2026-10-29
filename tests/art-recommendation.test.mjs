@@ -37,8 +37,8 @@ test('new stories adopt their recommendation, reselect preserves manual choice, 
  assert.equal(selectSuggestedStory(manual,{...candidate,source:{...source,firstUnit:'new'}}).artStyle,'woodblock');
 });
 
-test('all new provider response contracts require recommendations and local receipt validation retains them',()=>{
- for(const schema of [choicesJson,localChoicesJson,localScanJson]){
+test('discovery defers art while existing recommendation contracts and receipts stay compatible',()=>{
+ for(const schema of [choicesJson,localChoicesJson]){
   const story=schema.properties.stories.items;
   assert.ok(story.required.includes('artRecommendation'));
   assert.deepEqual(story.properties.artRecommendation.properties.artStyle.enum,[...artStyleIds]);
@@ -49,17 +49,17 @@ test('all new provider response contracts require recommendations and local rece
  assert.equal(batch.stories[0].source.edition,source.edition);
  assert.match(suggestionSystemPrompt,/artRecommendation/);
  assert.match(localReadingPrompt(localBook),/具体故事内容/);
- assert.match(localReadingPrompt({...localBook,purpose:'scan'}),/artRecommendation/);
+ assert.doesNotMatch(localReadingPrompt({...localBook,purpose:'scan'}),/artRecommendation/);
+ assert.equal(localScanJson.properties.stories.items.properties.artRecommendation,undefined);
  assert.match(localReadingPrompt({...localBook,purpose:'scan'}),/未完事件/);
 });
 
-test('Gemini and Codex carry recommendations in the existing single suggestion call for all discovery modes',async()=>{
+test('Gemini and Codex omit art work during scans and preserve recommendations in other modes',async()=>{
  for(const providerName of ['gemini','codex'])for(const mode of ['remote','local','scan']){
   let calls=0;
   const result=job=>{
    calls++;
-   assert.match(job.instructions,/artRecommendation/);
-   assert.ok(job.schema.properties.stories.items.required.includes('artRecommendation'));
+   if(mode==='scan'){assert.doesNotMatch(job.instructions,/artRecommendation/);assert.equal(job.schema.properties.stories.items.properties.artRecommendation,undefined);}else{assert.match(job.instructions,/artRecommendation/);assert.ok(job.schema.properties.stories.items.required.includes('artRecommendation'));}
    return {stories:[candidate],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};
   };
   const runner={status:async()=>({configured:true}),run:async job=>({text:JSON.stringify(result(job)),model:'mock',requestId:'mock',usage:null})};

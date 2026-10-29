@@ -1,0 +1,13 @@
+# Faster first story and a visible reading state
+
+A new book/theme currently sends as much as a whole book or a 50k-token block, waits for a complete response, and gives little visual feedback. The reader should see meaningful activity immediately and choose the first verified story without waiting for more stories or art-direction work.
+
+- [ ] Cold local discovery uses ordered blocks of at most two chapters and a 12k-token body budget; books only use whole mode when the complete request fits that small budget. Oversized chapters split at stable source units without omissions; indivisible oversized units are handled explicitly without truncation.
+- [ ] Cold discovery requests one complete story first, returns it as soon as its source is verified, and resumes the unfinished block when the reader asks for more (up to five). Zero-result completed blocks continue; unfinished/no-progress and bad receipts cannot skip source text.
+- [ ] Existing verified theme stories remain available after the block-policy change. Migrate compatible saved progress conservatively using the old manifest, retain pending cross-chapter evidence, and never reinterpret an old block cursor as a new one. Changed book editions/models remain isolated.
+- [ ] During an uncached request, an accessible reading panel immediately shows an animated book and placeholder cards, the book/theme, actual active chapter labels once available, elapsed time, and cancellation. In-flight activity is indeterminate; only completed work may have a percentage. Reduced-motion and narrow screens work; existing choices stay usable during a later search.
+- [ ] Local discovery omits art recommendations from the model prompt/schema. Selecting a verified story requests its art recommendation separately without blocking selection or generation. Reuse recommendations, preserve manual style choices, ignore stale responses, and keep failures recoverable. Existing cached recommendations remain usable.
+- [ ] Both Codex subscription and Gemini paths preserve source validation and provider isolation; selected-source recommendations cannot use arbitrary/stale/cross-book receipts.
+- [ ] Focused regressions, full applicable Node suites, typecheck/lint, a real cold/hot API check, and browser flow/visual verification provide evidence. Report time to first verified story and limits; do not promise a fixed latency from a smaller input alone.
+
+Constraints: pnpm11.25.0 / Node24.22.1. Preserve original bytes, unrelated publication-source work, and existing generated stories. No Docker/desktop packaging, push, background prewarming, fabricated progress, unverified provisional stories, or new provider credentials. RPD includes local commits.

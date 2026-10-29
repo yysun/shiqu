@@ -17,7 +17,7 @@ const selection={bookId:'zhuangzi',theme:'给我一个反转',artStyle:'ink-penc
 const memory=()=>{const values=new Map();return {values,get:async key=>{const bytes=values.get(key);return bytes?{arrayBuffer:async()=>bytes.slice().buffer}:null;},put:async(key,bytes)=>{values.set(key,new Uint8Array(bytes));}};};
 const limits={whole:5000,chapter:1500};
 const state=(complete=true,pendingEvents=[],resolvedEventIds=[])=>({blockComplete:complete,pendingEvents,resolvedEventIds});
-function fixture(chapters=3,units=10,size=80){
+function fixture(chapters=2,units=10,size=80){
  const sections=Array.from({length:chapters},(_,i)=>({id:'chapter-'+i,title:'第'+(i+1)+'回',units:Array.from({length:units},(_,j)=>({id:'unit-'+i+'-'+String(j).padStart(3,'0'),text:'人物经历变故之后，才终于得知真相。'+'字'.repeat(size),narrative:true}))}));
  const book={id:'zhuangzi',title:'测试书',edition:'a'.repeat(64),url:'https://example.org/original',provider:'测试原文',sections,input:{title:'测试书',edition:'a'.repeat(64),text:sections.map(s=>'篇章 '+s.id+'：'+s.title+'\n'+s.units.map(u=>'['+u.id+']\n'+u.text).join('\n\n')).join('\n\n')}};
  const books=new LocalBooks(process.cwd());books.book=async()=>book;
@@ -33,32 +33,32 @@ function fixture(chapters=3,units=10,size=80){
 }
 async function until(condition){for(let i=0;!condition();i++){assert.ok(i<1000,'operation did not settle');await new Promise(resolve=>setTimeout(resolve,1));}}
 function run(f,cache,excluded=[],observer,seen=[],budget){return discoverLocalStories(f.provider,f.books,cache,f.book,selection,excluded,observer,seen,budget);}
-test('whole book directly selects five, hot hits and a new cache instance make no model calls',async()=>{
+test('whole book first selects one, then five on demand; hot hits and a new cache instance make no model calls',async()=>{
  const f=fixture(),store=memory(),cache=new StoryDiscoveryCache(store);
- const first=await run(f,cache);assert.equal(first.stories.length,5);assert.equal(f.calls.length,1);
+ const first=await run(f,cache);assert.equal(first.stories.length,1);assert.equal(f.calls.length,1);assert.equal(f.calls[0].input.scan.maxStories,1);
  assert.equal(f.calls[0].input.purpose,'scan');assert.equal(f.calls[0].selection.theme,selection.theme);assert.equal(f.calls[0].input.text,f.book.input.text);
  assert.match((await run(f,new StoryDiscoveryCache(store))).note,/缓存/);assert.equal(f.calls.length,1);
  const next=await run(f,cache,first.stories.map(s=>s.title),undefined,first.stories.map(s=>s.source));
  assert.equal(next.stories.length,5);assert.equal(f.calls.length,2);
  assert.ok(next.stories.every(s=>!first.stories.some(old=>localSourceKey(old.source)===localSourceKey(s.source))));
 });
-test('chapter mode stops after five and resumes the same block before advancing',async()=>{
+test('chapter mode returns one first and resumes the same block before advancing',async()=>{
  const f=fixture(8,12,80),cache=new StoryDiscoveryCache(memory()),events=[];
  const first=await run(f,cache,[],{signal:new AbortController().signal,onProgress:p=>events.push(p)},[],limits);
- assert.equal(first.stories.length,5);assert.equal(f.calls.length,1);const firstText=f.calls[0].input.text;
- assert.ok(events.at(-1).completedChars>0&&events.at(-1).completedChars<events.at(-1).totalChars);
+ assert.equal(first.stories.length,1);assert.equal(f.calls.length,1);const firstText=f.calls[0].input.text;
+ assert.equal(events.at(-1).completedChars,0);assert.equal(events[0].currentChapters.length,1);assert.ok(events.some(event=>event.stage==='checking'));
  const next=await run(f,cache,first.stories.map(s=>s.title),undefined,first.stories.map(s=>s.source),limits);
  assert.equal(next.stories.length,5);assert.equal(f.calls.length,2);assert.equal(f.calls[1].input.text,firstText);
 });
 test('a partial chapter batch returns immediately, survives restart, and continues only after its sources are excluded',async()=>{
  const f=fixture(8,4,200),store=memory(),cache=new StoryDiscoveryCache(store);
  const first=await run(f,cache,[],undefined,[],limits);
- assert.equal(first.stories.length,4);assert.equal(f.calls.length,1);
+ assert.equal(first.stories.length,1);assert.equal(f.calls.length,1);
  const repeat=await run(f,new StoryDiscoveryCache(store),[],undefined,[],limits);
  assert.deepEqual(repeat.stories,first.stories);assert.match(repeat.note,/缓存/);assert.equal(f.calls.length,1);
  const next=await run(f,cache,[],undefined,first.stories.map(story=>story.source),limits);
- assert.equal(next.stories.length,4);assert.equal(f.calls.length,2);
- assert.notEqual(f.calls[0].input.text,f.calls[1].input.text);
+ assert.equal(next.stories.length,3);assert.equal(f.calls.length,2);
+ assert.equal(f.calls[0].input.text,f.calls[1].input.text);
  assert.ok(next.stories.every(story=>!first.stories.some(old=>localSourceKey(old.source)===localSourceKey(story.source))));
 });
 test('a single story ends scanning without marking an unfinished block exhausted',async()=>{
@@ -135,7 +135,7 @@ test('another theme scans independently while presentation changes reuse the exi
  await wrapped.suggestions({...selection,theme:'人情冷暖'},[]);assert.equal(f.calls.length,2);assert.ok(f.calls.every(c=>c.input.purpose==='scan'));
  const changed={...f.book,edition:'b'.repeat(64)};assert.notEqual(discoveryNamespace(changed,'codex','mock'),discoveryNamespace(f.book,'codex','mock'));
  assert.notEqual(discoveryNamespace(f.book,'codex','mock2'),discoveryNamespace(f.book,'codex','mock'));
- assert.equal(first.stories.length,5);
+ assert.equal(first.stories.length,1);
 });
 test('a consumed event cannot be resurrected by returning the same source as a new empty-id pending',async()=>{
  const f=fixture(8,4,200),store=memory(),cache=new StoryDiscoveryCache(store),first=f.stories[0].source;let calls=0;
@@ -152,31 +152,33 @@ test('concurrent requests share one expansion; one reader cancelling does not ca
  const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{await gate;return raw(...args);};
  const one=new AbortController(),two=new AbortController();
  const a=run(f,cache,[],{signal:one.signal,onProgress:()=>{}}),b=run(f,cache,[],{signal:two.signal,onProgress:()=>{}});
- await new Promise(resolve=>setTimeout(resolve,10));one.abort();await assert.rejects(a);release();assert.equal((await b).stories.length,5);assert.equal(f.calls.length,1);
+ await new Promise(resolve=>setTimeout(resolve,10));one.abort();await assert.rejects(a);release();assert.equal((await b).stories.length,1);assert.equal(f.calls.length,1);
 });
 test('all readers cancelling still saves the finished call and does not dispatch another block',async()=>{
  const f=fixture(8,4,200),store=memory(),cache=new StoryDiscoveryCache(store),raw=f.provider.suggestions;let release,started=false;
  const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{started=true;await gate;return raw(...args);};
  const abort=new AbortController(),request=run(f,cache,[],{signal:abort.signal,onProgress:()=>{}},[],limits);
  await until(()=>started);abort.abort();await assert.rejects(request);release();await until(()=>f.calls.length===1);await new Promise(resolve=>setTimeout(resolve,10));
- const again=await run(f,new StoryDiscoveryCache(store),[],undefined,[],limits);assert.equal(again.stories.length,4);assert.equal(f.calls.length,1);assert.ok(again.stories.every(story=>story.source.sectionId==='chapter-0'));
+ const again=await run(f,new StoryDiscoveryCache(store),[],undefined,[],limits);assert.equal(again.stories.length,1);assert.equal(f.calls.length,1);assert.ok(again.stories.every(story=>story.source.sectionId==='chapter-0'));
 });
 test('a second reader gets unseen stories from a shared expansion without waiting to fill five',async()=>{
  const f=fixture(),cache=new StoryDiscoveryCache(memory()),raw=f.provider.suggestions;let release,started=false;
+ const seed=await run(f,cache),seen=seed.stories.map(story=>story.source);
  const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{if(!started){started=true;await gate;}return raw(...args);};
- const first=run(f,cache);await until(()=>started);
- const second=run(f,cache,[],undefined,f.stories.slice(0,3).map(story=>story.source));release();
+ const first=run(f,cache,[],undefined,seen);await until(()=>started);
+ const second=run(f,cache,[],undefined,f.stories.slice(0,4).map(story=>story.source));release();
  assert.equal((await first).stories.length,5);const batch=await second;
- assert.equal(batch.stories.length,2);assert.equal(f.calls.length,1);
+ assert.equal(batch.stories.length,2);assert.equal(f.calls.length,2);
  assert.ok(batch.stories.every(story=>!f.stories.slice(0,3).some(old=>localSourceKey(old.source)===localSourceKey(story.source))));
 });
 test('a waiting reader whose exclusions cover the shared batch continues scanning',async()=>{
  const f=fixture(),cache=new StoryDiscoveryCache(memory()),raw=f.provider.suggestions;let release,started=false;
+ const seed=await run(f,cache),seen=seed.stories.map(story=>story.source);
  const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{if(!started){started=true;await gate;}return raw(...args);};
- const first=run(f,cache);await until(()=>started);
- const second=run(f,cache,[],undefined,f.stories.slice(0,5).map(story=>story.source));release();
+ const first=run(f,cache,[],undefined,seen);await until(()=>started);
+ const second=run(f,cache,[],undefined,f.stories.slice(0,6).map(story=>story.source));release();
  assert.equal((await first).stories.length,5);const batch=await second;
- assert.equal(batch.stories.length,5);assert.equal(f.calls.length,2);
+ assert.equal(batch.stories.length,5);assert.equal(f.calls.length,3);
  assert.ok(batch.stories.every(story=>!f.stories.slice(0,5).some(old=>localSourceKey(old.source)===localSourceKey(story.source))));
 });
 test('a partial cached batch does not wait behind another readers model call',async()=>{
@@ -184,14 +186,14 @@ test('a partial cached batch does not wait behind another readers model call',as
  const first=await run(f,cache,[],undefined,[],limits),raw=f.provider.suggestions;let release,started=false;
  const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{started=true;await gate;return raw(...args);};
  const next=run(f,cache,[],undefined,first.stories.map(story=>story.source),limits);await until(()=>started);
- const cached=await run(f,cache,[],undefined,[],limits);assert.deepEqual(cached.stories,first.stories);assert.equal(cached.stories.length,4);assert.equal(f.calls.length,1);
- release();assert.equal((await next).stories.length,4);
+ const cached=await run(f,cache,[],undefined,[],limits);assert.deepEqual(cached.stories,first.stories);assert.equal(cached.stories.length,1);assert.equal(f.calls.length,1);
+ release();assert.equal((await next).stories.length,3);
 });
 test('a complete cached page does not wait behind another readers model call',async()=>{
- const f=fixture(),cache=new StoryDiscoveryCache(memory());const first=await run(f,cache),raw=f.provider.suggestions;let release,started=false;
+ const f=fixture(),cache=new StoryDiscoveryCache(memory());const seed=await run(f,cache);const first=await run(f,cache,[],undefined,seed.stories.map(story=>story.source)),raw=f.provider.suggestions;let release,started=false;
  const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{started=true;await gate;return raw(...args);};
- const next=run(f,cache,[],undefined,first.stories.map(story=>story.source));await until(()=>started);
- const cached=await run(f,cache);assert.equal(cached.stories.length,5);assert.equal(f.calls.length,1);
+ const next=run(f,cache,[],undefined,[...seed.stories,...first.stories].map(story=>story.source));await until(()=>started);
+ const cached=await run(f,cache);assert.equal(cached.stories.length,5);assert.equal(f.calls.length,2);
  release();assert.equal((await next).stories.length,5);
 });
 test('cache write errors and malformed model state do not pretend success',async()=>{
@@ -200,14 +202,14 @@ test('cache write errors and malformed model state do not pretend success',async
 });
 test('distinct sources sharing a display title remain available when excluding by source',async()=>{
  const f=fixture(),cache=new StoryDiscoveryCache(memory());f.stories.forEach(story=>{story.title='相同展示名';});
- const first=await run(f,cache);assert.equal(first.stories.length,5);
+ const first=await run(f,cache);assert.equal(first.stories.length,1);
  const next=await run(f,cache,['相同展示名'],undefined,first.stories.map(story=>story.source));
  assert.equal(next.stories.length,5);assert.ok(next.stories.every(story=>!first.stories.some(old=>localSourceKey(old.source)===localSourceKey(story.source))));
 });
 test('invalid and overlapping receipts are removed and cannot advance the current block',async()=>{
- const f=fixture(),store=memory(),cache=new StoryDiscoveryCache(store);
- f.provider.suggestions=async()=>({stories:[f.stories[0],{...f.stories[0],title:'换名重复'},{...f.stories[1],source:{...f.stories[1].source,firstUnit:'missing'}}],note:'',scan:state(true)});
- const batch=await run(f,cache);assert.equal(batch.stories.length,1);assert.match(batch.note,/未能完整核对/);
+ const f=fixture(),store=memory(),cache=new StoryDiscoveryCache(store),seed=await run(f,cache);
+ f.provider.suggestions=async()=>({stories:[f.stories[1],{...f.stories[1],title:'换名重复'},{...f.stories[2],source:{...f.stories[2].source,firstUnit:'missing'}}],note:'',scan:state(true)});
+ const batch=await run(f,cache,[],undefined,seed.stories.map(story=>story.source));assert.equal(batch.stories.length,1);assert.match(batch.note,/未能完整核对/);
  const docs=[...store.values.values()].map(bytes=>JSON.parse(new TextDecoder().decode(bytes)));assert.equal(docs.find(d=>d.value.pendingEvents).value.cursor,0);
 });
 test('FileMedia restart and authenticated JSON/streaming routes preserve partial batches and per-reader exclusions',async t=>{
@@ -216,7 +218,7 @@ test('FileMedia restart and authenticated JSON/streaming routes preserve partial
  const raw=f.provider.suggestions;f.provider.suggestions=async(...args)=>{const result=await raw(...args);return {...result,stories:result.stories.slice(0,3)};};
  let app=createApplication({root:process.cwd(),dataDirectory:dir,generation:withLocalBooks(f.provider,f.books,media)});
  const request=(body,stream=false)=>app.handle(new Request('http://localhost/api/reader/suggestions',{method:'POST',headers:{'Content-Type':'application/json',...(stream?{Accept:'application/x-ndjson'}:{})},body:JSON.stringify({...selection,...body})}));
- const first=await (await request({})).json();assert.equal(first.stories.length,3);assert.equal(f.calls.length,1);app.close();
+ const first=await (await request({})).json();assert.equal(first.stories.length,1);assert.equal(f.calls.length,1);app.close();
  app=createApplication({root:process.cwd(),dataDirectory:dir,generation:withLocalBooks(f.provider,f.books,new FileMedia(path.join(dir,'media')))});t.after(()=>app.close());
  const repeat=await (await request({})).json();assert.deepEqual(repeat.stories,first.stories);assert.equal(f.calls.length,1);
  const response=await request({excludeSources:first.stories.map(s=>s.source)},true);assert.match(response.headers.get('content-type'),/ndjson/);

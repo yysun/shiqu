@@ -1,6 +1,6 @@
 // Select a complete provider explicitly; subscription mode never falls back to API billing.
 import {frameRecommendationSchema,frameRecommendationJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
-import {configuredModels,makeGenerator,suggestStories,safeGeminiError} from '../lib/reader-gemini.ts';
+import {configuredModels,makeGenerator,suggestStories,safeGeminiError,recommendStoryArt} from '../lib/reader-gemini.ts';
 import {planSchema,ReaderError} from '../lib/reader-model.ts';
 import {choicesJson,planJson,suggestionSystemPrompt,planSystemPrompt,imagePrompt,imageTypes,mediaType,storySource} from '../lib/reader-generation-contract.ts';
 import {freshSuggestions,suggestionBatchSchema} from '../lib/reader-suggestions.ts';
@@ -12,6 +12,7 @@ import {CodexError,createCodexRunner} from './codex-runner.ts';
 import type {CodexRunner} from './codex-runner.ts';
 import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localPlanConstraint,localSuggestionPayload} from '../lib/reader-local-contract.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
+import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from '../lib/reader-art-recommendation.ts';
 
 function codexMessage(code:string){
  if(code==='INVALID_REASONING_EFFORT')return 'Codex 推理档位无效，请使用 low、medium、high、xhigh、max，或留空继承默认值。';
@@ -30,7 +31,7 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
  if(name!=='gemini'&&name!=='codex')throw Error('SHIQU_AI_PROVIDER must be gemini or codex');
  if(name==='gemini'){
   const key=variables.GEMINI_API_KEY?.trim()||'',models=configuredModels(variables);
-  return {async status(){return {configured:!!key,provider:'gemini',models,voiceEnabled:false};},suggestions:(selection,excluded,localBook)=>suggestStories(key,selection,models,transport,excluded,localBook),generator:()=>makeGenerator(key,media,models,transport),safeError:safeGeminiError};
+  return {async status(){return {configured:!!key,provider:'gemini',models,voiceEnabled:false};},suggestions:(selection,excluded,localBook)=>suggestStories(key,selection,models,transport,excluded,localBook),async recommendArt(selection,original){if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');return recommendStoryArt(key,selection,original,models,transport);},generator:()=>makeGenerator(key,media,models,transport),safeError:safeGeminiError};
  }
  const codex=runner||createCodexRunner(variables),models={text:variables.CODEX_MODEL?.trim()||'codex-default',image:'codex-image-generation'};
  let cached:Promise<ProviderStatus>|undefined,expires=0;
@@ -49,6 +50,11 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
    const result=await codex.run({instructions:localBook?localReadingPrompt(localBook):suggestionSystemPrompt,prompt:JSON.stringify(localSuggestionPayload(book(selection),selection.theme,excluded,localBook)),schema:scanning?localScanJson:localBook?localChoicesJson:choicesJson,timeoutMs:localBook?120000:60000});
    const batch=localBook?localChoices(JSON.parse(result.text),localBook):suggestionBatchSchema.parse(JSON.parse(result.text));
    return scanning?batch:freshSuggestions(batch,excluded);
+  },
+  async recommendArt(selection,original){
+   if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');
+   const result=await codex.run({instructions:selectedArtRecommendationPrompt,prompt:JSON.stringify(selectedArtRecommendationPayload(selection,original)),schema:artRecommendationJson,timeoutMs:60000});
+   return artRecommendationSchema.parse(JSON.parse(result.text));
   },
   generator(){return {
    original:(selection,plan,id)=>saveStoryOriginal(media,selection,plan,id,transport),

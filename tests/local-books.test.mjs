@@ -61,21 +61,25 @@ test('range verification rejects stale, cross-book, reversed, multi-anecdote and
 });
 test('direct whole-book choices preserve labels and reject duplicate and invalid receipts',async()=>{
  const book=await library.book(selected),reference=ref(book),base=fake();
- base.suggestions=async()=>({stories:[{title:'庄周梦蝶',description:'醒来后的疑问',source:reference},{title:'另名',description:'重复原文',source:reference},{title:'错误',description:'不存在',source:{...reference,firstUnit:'missing'}}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}});
- const batch=await withLocalBooks(base,library,memory()).suggestions(selected,[]);
+ base.suggestions=async(_selection,excluded,input)=>{
+  if(input.scan.maxStories===1)return {stories:[{title:'先读一篇',description:'首章中的故事',source:ref(book,book.sections[0],0)}],note:'',scan:{blockComplete:false,pendingEvents:[],resolvedEventIds:[]}};
+  return {stories:input.text.includes('['+reference.firstUnit+']')?[{title:'庄周梦蝶',description:'醒来后的疑问',source:reference},{title:'另名',description:'重复原文',source:reference},{title:'错误',description:'不存在',source:{...reference,firstUnit:'missing'}}]:[],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};
+ };
+ const provider=withLocalBooks(base,library,memory());await provider.suggestions(selected,[]);
+ const batch=await provider.suggestions(selected,['先读一篇']);
  assert.equal(batch.stories.length,1);assert.match(batch.stories[0].sourceLabel,/庄子·齐物论/);assert.match(batch.note,/未能完整核对/);
 });
 test('both providers directly select from the full original and only verified passages reach planning',async()=>{
  for(const name of ['gemini','codex']){
   const book=await library.book(selected),reference=ref(book),jobs=[],store=memory();
-  const result=job=>{jobs.push(job);return JSON.stringify(job.schema.properties.stories?{stories:[{title:'庄周梦蝶',description:'醒来后的疑问',source:{sectionId:reference.sectionId,firstUnit:reference.firstUnit,lastUnit:reference.lastUnit,continuations:[]}}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}}:plan);};
+  const result=job=>{jobs.push(job);return JSON.stringify(job.schema.properties.stories?{stories:JSON.parse(job.prompt).localBook.text.includes('['+reference.firstUnit+']')?[{title:'庄周梦蝶',description:'醒来后的疑问',source:{sectionId:reference.sectionId,firstUnit:reference.firstUnit,lastUnit:reference.lastUnit,continuations:[]}}]:[],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}}:plan);};
   const runner={status:async()=>({configured:true}),run:async job=>({text:result(job),model:'mock',requestId:'mock',usage:null})};
   const transport=async(url,init)=>{const request=JSON.parse(init.body);return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:result({prompt:request.contents[0].parts[0].text,schema:request.generationConfig.responseFormat.text.schema,instructions:request.systemInstruction.parts[0].text})}]}}]});};
   const provider=withLocalBooks(createReaderProvider({SHIQU_AI_PROVIDER:name,GEMINI_API_KEY:'mock-only'},store,transport,runner),library,store);
   const batch=await provider.suggestions(selected,[]),selection={...selected,source:batch.stories[0].source},generator=provider.generator();
   const original=await generator.prepareOriginal(selection,'test');await generator.plan(selection,'test',original);
   const readings=jobs.filter(job=>JSON.parse(job.prompt).localBook),planned=JSON.parse(jobs.at(-1).prompt);
-  assert.equal(readings.length,1);assert.equal(JSON.parse(readings[0].prompt).localBook.purpose,'scan');assert.equal(JSON.parse(readings[0].prompt).localBook.text,book.input.text);
+  const blocks=hydrateReadingPlan(book,buildReadingPlan(book,name)),chosenBlock=blocks.findIndex(block=>block.visible.has(reference.firstUnit));assert.equal(readings.length,chosenBlock+1);for(const [index,reading] of readings.entries()){assert.equal(JSON.parse(reading.prompt).localBook.purpose,'scan');assert.equal(JSON.parse(reading.prompt).localBook.scan.maxStories,1);assert.equal(JSON.parse(reading.prompt).localBook.text,blocks[index].text);}assert.ok(blocks[chosenBlock].visible.has(reference.firstUnit));
   assert.equal(planned.verifiedOriginal.text,original.text);assert.equal(planned.localBook,undefined);assert.ok(store.values.has('reader/test/source.json'));
  }
 });
@@ -83,7 +87,7 @@ test('token-based chapter manifests cover all shipped units without splitting sm
  for(const bookId of ['聊斋志异','太平广记','红楼梦']){
   const book=await library.book({...selected,bookId}),manifest=buildReadingPlan(book,'codex'),blocks=hydrateReadingPlan(book,manifest);
   assert.equal(blocks.flatMap(b=>[...b.visible]).length,book.sections.flatMap(s=>s.units).length);
-  assert.ok(manifest.blocks.every(b=>b.tokens<=50000));assert.equal(manifest.mode,'chapters');
+  assert.ok(manifest.blocks.every(b=>b.tokens<=12000));assert.ok(blocks.every(b=>b.chapters.length<=2));assert.equal(manifest.mode,'chapters');
  }
 });
 test('cross-chapter references preserve both original ranges, reject tampering, and allow complete long stories',async()=>{

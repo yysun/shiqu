@@ -8,8 +8,9 @@ import {ReaderError} from '../lib/reader-model.ts';
 import {LocalBooks,localBookId} from './local-books.ts';
 import {hasSourceAnomaly,hasStoredSourceAnomaly} from './local-source-quality.ts';
 import {discoverLocalStories} from './local-story-discovery.ts';
-import {StoryDiscoveryCache} from './story-discovery-cache.ts';
+import {StoryDiscoveryCache,discoveryHash} from './story-discovery-cache.ts';
 import {localSourceKey} from '../lib/reader-local-contract.ts';
+import {artRecommendationSchema,selectedArtRecommendationPrompt} from '../lib/reader-art-recommendation.ts';
 
 export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:MediaStore,cache=new StoryDiscoveryCache(media)):ReaderProvider{
  async function persist(source:NonNullable<Awaited<ReturnType<LocalBooks['selected']>>>,id:string){
@@ -24,6 +25,17 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
    reading?.signal.throwIfAborted();
    if(!book)return provider.suggestions(selection,excluded);
    return discoverLocalStories(provider,books,cache,book,selection,excluded,reading,excludedSources);
+  },
+  async recommendArt(selection){
+   const original=await books.selected(selection);
+   if(!original?.localSource||!selection.storyTitle)throw new ReaderError(400,'请先选择已核对出处的故事。');
+   if(!provider.recommendArt)throw new ReaderError(503,'画风推荐暂不可用，可以手动选择画风。');
+   const status=await provider.status(),key='selected-story-art/'+discoveryHash([selection.bookId,selection.customBook,original.localSource,selection.storyTitle,selection.theme,status.provider,status.models.text,selectedArtRecommendationPrompt]);
+   return cache.shared(key,undefined,async()=>{
+    const saved=await cache.read(key,artRecommendationSchema);if(saved)return saved;
+    const result=artRecommendationSchema.parse(await provider.recommendArt!(selection,original));
+    await cache.write(key,result);return result;
+   });
   },
   generator(){
    const generator=provider.generator();

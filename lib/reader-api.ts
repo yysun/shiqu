@@ -9,6 +9,7 @@ import {ReaderError,selectionSchema,view} from './reader-model.ts';
 import {sourceSearchUrl} from './reader-source.ts';
 import {readerMaxFrames} from './reader-limits.ts';
 import type {Document} from './reader-model.ts';
+import {artRecommendationSchema} from './reader-art-recommendation.ts';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
 const uuid=z.string().uuid();
 async function body(req:Request,maxLength=4096){const s=await req.text();if(s.length>maxLength)throw new ReaderError(413,'请求太长了');try{return JSON.parse(s);}catch{throw new ReaderError(400,'请求格式不正确');}}
@@ -45,6 +46,13 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     return new Response(stream,{headers:{'Content-Type':'application/x-ndjson','Cache-Control':'private, no-store','X-Accel-Buffering':'no'}});
    }
    try{return json(await provider.suggestions(selection,excludeTitles,undefined,undefined,excludeSources));}catch(error){if(error instanceof ReaderError)throw error;throw new ReaderError(502,provider.safeError(error));}
+  }
+  if(path.join('/')==='art-recommendation'&&req.method==='POST'){
+   await requireProvider();
+   const selection=selectionSchema.parse(await body(req,32768));
+   if(!selection.source||!selection.storyTitle)throw new ReaderError(400,'请先选择已核对出处的故事。');
+   if(!provider.recommendArt)throw new ReaderError(503,'画风推荐暂不可用，可以手动选择画风。');
+   try{return json(artRecommendationSchema.parse(await provider.recommendArt(selection)));}catch(error){if(error instanceof ReaderError)throw error;throw new ReaderError(502,provider.safeError(error));}
   }
   if(path[0]==='sessions'&&path.length===1){
    if(req.method==='GET')return json((await repo.list(uid)).map(view));

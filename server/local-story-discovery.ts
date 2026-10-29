@@ -2,7 +2,7 @@
 // Keep theme progress and verified unfinished events across requests.
 // Shared work extends the common story pool; each reader's exclusions affect only their own view.
 import {z} from 'zod';
-import {localSourceSchema,localSourceKey,localReadingPrompt,localScanJson} from '../lib/reader-local-contract.ts';
+import {localSourceSchema,localSourceKey,localReadingPrompt,localScanJson,legacyLocalReadingPrompt,legacyLocalScanJson} from '../lib/reader-local-contract.ts';
 import type {LocalSourceReference,PendingEvent,WholeBookInput} from '../lib/reader-local-contract.ts';
 import {suggestionBatchSchema,titleKey} from '../lib/reader-suggestions.ts';
 import type {SuggestionBatch} from '../lib/reader-suggestions.ts';
@@ -12,8 +12,8 @@ import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {LocalBook,LocalBooks} from './local-books.ts';
 import {StoryDiscoveryCache,discoveryHash} from './story-discovery-cache.ts';
 import type {ReadingObserver} from './story-discovery-cache.ts';
-import {readingPlan,readingPlanKey,defaultReadingLimits} from './story-reading-inputs.ts';
-import type {ReadingLimits} from './story-reading-inputs.ts';
+import {readingPlan,readingPlanKey,defaultReadingLimits,legacyReadingPlanKey,manifestSchema,hydrateReadingPlan} from './story-reading-inputs.ts';
+import type {ReadingLimits,ReadingBlock} from './story-reading-inputs.ts';
 import {requestTokens} from './story-token-budget.ts';
 import {sourceUnitIds,sourcesOverlap,sourceCovers,mergeSources} from './local-source-ranges.ts';
 
@@ -24,7 +24,10 @@ const stateSchema=z.object({stories:z.array(storySchema).max(50000),cursor:z.num
 type State=z.infer<typeof stateSchema>;
 const failed=()=>new ReaderError(502,'本段选题未能完整核对，已保留进度，请重试或换个主题。');
 export function discoveryNamespace(book:LocalBook,provider:string,model:string,limits=defaultReadingLimits){
- return discoveryHash(['direct-reading-v2',readingPlanKey(book,provider,limits),model,localReadingPrompt({...book.input,purpose:'scan'}),localScanJson]);
+ return discoveryHash(['direct-reading-v3',readingPlanKey(book,provider,limits),model,localReadingPrompt({...book.input,purpose:'scan'}),localScanJson]);
+}
+export function legacyDiscoveryNamespace(book:LocalBook,provider:string,model:string){
+ return discoveryHash(['direct-reading-v2',legacyReadingPlanKey(book,provider),model,legacyLocalReadingPrompt({...book.input,purpose:'scan'}),legacyLocalScanJson]);
 }
 function qualified(books:LocalBooks,book:LocalBook,source:LocalSourceReference,visible?:Set<string>){
  books.resolve(book,source);
@@ -73,6 +76,27 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   const ids=new Set<string>();for(const event of state.pendingEvents){qualified(books,book,event.source);if(ids.has(event.id))return false;ids.add(event.id);}
   return true;
  };
+ const migrateLegacy=async()=>{
+  const oldKey=legacyDiscoveryNamespace(book,status.provider,status.models.text)+'/theme/'+discoveryHash(theme);
+  const saved=await cache.read(oldKey,stateSchema,value=>{
+   for(const story of value.stories)qualified(books,book,story.source);
+   for(const event of value.pendingEvents)qualified(books,book,event.source);
+   return value.readThrough>=value.cursor&&value.readThrough<=value.cursor+1&&new Set(value.pendingEvents.map(event=>event.id)).size===value.pendingEvents.length;
+  });
+  if(!saved)return null;
+  const manifest=await cache.read(legacyReadingPlanKey(book,status.provider)+'/blocks',manifestSchema,value=>{hydrateReadingPlan(book,value);return true;});
+  let cursor=0;
+  if(manifest){
+   const oldBlocks=hydrateReadingPlan(book,manifest);
+   if(saved.cursor>oldBlocks.length||saved.readThrough>oldBlocks.length||saved.exhausted!==(saved.cursor===oldBlocks.length))return null;
+   // Only the old cursor proves completed coverage. A partial old block may be reread.
+   const completed=new Set(oldBlocks.slice(0,saved.cursor).flatMap(block=>[...block.visible]));
+   while(cursor<plan.blocks.length&&[...plan.blocks[cursor].visible].every(id=>completed.has(id)))cursor++;
+  }
+  const migrated={...saved,cursor,readThrough:cursor,exhausted:cursor===plan.blocks.length};
+  await cache.write(key,migrated);
+  return migrated;
+ };
  const unitText=new Map(book.sections.flatMap(section=>section.units.map(unit=>[unit.id,unit.text] as const)));
  const scanRequest=(current:State,cursor:number,maxStories=5)=>{
   const block=plan.blocks[cursor],visible=new Set(block.visible);
@@ -92,19 +116,20 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  let hit=true;
  while(true){
   // Even a partial cached batch must not wait behind another reader's in-flight expansion.
-  const cached=await cache.read(key,stateSchema,validate);
+  const cached=await cache.read(key,stateSchema,validate)||await cache.shared(key+'/migration',observer,()=>migrateLegacy());
   if(cached&&(visibleStories(cached.stories).length>0||cached.exhausted))return response(cached,hit);
   const {state,stalled}=await cache.shared(key,observer,async reading=>{
    let current=await cache.read(key,stateSchema,validate)||{stories:[],cursor:0,readThrough:0,pendingEvents:[],exhausted:false,rejected:false};
    let stalled=false;
-   const progress=()=>reading.onProgress({completed:current.readThrough,total:plan.blocks.length,completedChars:plan.blocks.slice(0,current.readThrough).reduce((n,block)=>n+block.chars,0),totalChars,stage:'reading',mode:plan.manifest.mode});
+   const progress=(stage:'reading'|'checking'='reading',block:ReadingBlock|undefined=plan.blocks[current.cursor])=>reading.onProgress({completed:current.cursor,total:plan.blocks.length,completedChars:plan.blocks.slice(0,current.cursor).reduce((n,block)=>n+block.chars,0),totalChars,stage,mode:plan.manifest.mode,currentChapters:block?.chapters||[]});
    progress();
    while(!visibleStories(current.stories).length&&!current.exhausted){
     reading.signal.throwIfAborted();
-    const {input,titles,visible}=scanRequest(current,current.cursor,Math.min(5,5-visibleStories(current.stories).length));
+    const {input,titles,visible}=scanRequest(current,current.cursor,current.stories.length?5:1);
     if(requestTokens(input,theme,titles,status.provider)>limits.whole)throw new ReaderError(502,'跨章原文或已选记录超过本次输入预算，已保留进度；请换个主题。');
     hit=false;
     const result=await provider.suggestions({...selection,theme,artStyle:'ink-pencil',productionPrompt:''},titles,input);
+    progress('checking');
     if(result.stories.length>input.scan!.maxStories)throw failed();
     if(!result.scan||!Array.isArray(result.scan.pendingEvents)||!Array.isArray(result.scan.resolvedEventIds))throw failed();
     const accepted:Story[]=[];let rejected=false;
@@ -116,9 +141,10 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
      }catch{rejected=true;}
     }
     const pending=mergePending(books,book,current.pendingEvents,result.scan.pendingEvents,result.scan.resolvedEventIds,accepted,visible);
-    const next:State={...current,stories:[...current.stories,...accepted],pendingEvents:pending,rejected,readThrough:Math.max(current.readThrough,current.cursor+1)};
+    const next:State={...current,stories:[...current.stories,...accepted],pendingEvents:pending,rejected};
     // A full response only fills the current page; it is never proof that the block is exhausted.
     if(!rejected&&result.stories.length<input.scan!.maxStories&&result.scan.blockComplete)next.cursor++;
+    next.readThrough=next.cursor;
     next.exhausted=next.cursor===plan.blocks.length;
     // Validate the next pending context before committing a cursor that cannot be resumed.
     if(!next.exhausted&&next.pendingEvents.length){

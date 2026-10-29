@@ -15,6 +15,7 @@ import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localPlan
 import type {WholeBookInput} from './reader-local-contract.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import {readerImageAsset,referenceImageKey} from './reader-image-assets.ts';
+import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from './reader-art-recommendation.ts';
 
 export const defaultModels={text:'gemini-3.8-flash',image:'gemini-nano-banana-2.1'};
 type Models=typeof defaultModels;
@@ -108,6 +109,10 @@ export async function suggestStories(key:string,selection:Selection,config:Parti
  if(url&&!wasRead(candidate,url))return {stories:[],note:'暂时无法读取这个链接，请提供可公开访问的原文页面，或直接输入书名。'};
  const batch=localBook?localChoices(parseText(candidate),localBook):choicesSchema.parse(parseText(candidate));
  return scanning?batch:freshSuggestions(batch,excludeTitles);
+}
+export async function recommendStoryArt(key:string,selection:Selection,original:OriginalSource,config:Models,transport:typeof fetch){
+ const {candidate}=await client(key,transport)(config.text,textRequest(selectedArtRecommendationPrompt,selectedArtRecommendationPayload(selection,original),artRecommendationJson,'',600));
+ return artRecommendationSchema.parse(parseText(candidate));
 }
 export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={},transport:typeof fetch=fetch):StoryGenerator{
  const models={...defaultModels,...config},generate=client(key,transport);
