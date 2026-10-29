@@ -47,10 +47,10 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
  try{
   app=createApplication({root,dataDirectory:settings.dataDirectory,variables:desktopVariables(settings,key)});
   const local=`http://127.0.0.1:${settings.port}`,phones=settings.lanEnabled?phoneUrls('0.0.0.0',settings.port):[];
-  const access=desktopAccess(app.handle,{hosts:[new URL(local).host,...phones.map(url=>new URL(url).host)],port:settings.port});
+  const access=desktopAccess(app.handle,{hosts:[new URL(local).host,...phones.map(url=>new URL(url).host)]});
   server=createHttpServer(access.handle);server.listen(settings.port,settings.lanEnabled?'0.0.0.0':'127.0.0.1');await once(server,'listening');
   let stopped:Promise<void>|undefined;
-  return {server,status:{running:true,pid:process.pid,url:`${local}/desktop/pair#${access.pairing}`,phoneUrls:phones.map(url=>`${url}/desktop/pair#${access.pairing}`)},stop(){
+  return {server,status:{running:true,pid:process.pid,url:local,phoneUrls:phones},stop(){
    return stopped??=(async()=>{app!.stopGeneration();await stopCodexProcesses();await new Promise<void>(resolve=>{server!.close(()=>resolve());server!.closeAllConnections();});await app!.close();await release();})();
   }};
  }catch(error){server?.close();app?.close();await release();throw error;}

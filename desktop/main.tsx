@@ -33,7 +33,7 @@ function Desktop(){
   return()=>{active=false;clearInterval(timer);};
  },[native]);
  useEffect(()=>{setPhone(current=>status.phoneUrls.includes(current)?current:status.phoneUrls[0]||'');},[status.phoneUrls.join('|')]);
- useEffect(()=>{let active=true;setQr('');if(phone)void QRCode.toDataURL(phone,{width:240,margin:2,color:{dark:'#193d30',light:'#ffffff'}}).then(value=>{if(active)setQr(value);}).catch(()=>setError('二维码生成失败，请复制配对链接。'));return()=>{active=false;};},[phone]);
+ useEffect(()=>{let active=true;setQr('');if(phone)void QRCode.toDataURL(phone,{width:240,margin:2,color:{dark:'#193d30',light:'#ffffff'}}).then(value=>{if(active)setQr(value);}).catch(()=>setError('二维码生成失败，请复制访问链接。'));return()=>{active=false;};},[phone]);
  async function action(name:string,work:()=>Promise<void>){if(busy)return;setBusy(name);setError('');setMessage('');try{await work();}catch(e){setError(String(e));}finally{setBusy('');}}
  function update<K extends keyof Settings>(name:K,value:Settings[K]){setSettings(previous=>previous?{...previous,[name]:value}:previous);}
  async function browse(kind:string,field:keyof Settings){const value=await invoke<string|null>('choose_path',{kind});if(value)update(field,value as never);}
@@ -42,7 +42,7 @@ function Desktop(){
   const result=await invoke<View>('save_settings',{settings,keyAction,key});
   setView(result);setSettings(result.settings);setKey('');setKeyAction('keep');setReveal(false);
  }
- async function copy(value:string){await navigator.clipboard.writeText(value);setMessage('配对链接已复制。请只分享给可信设备。');}
+ async function copy(value:string){await navigator.clipboard.writeText(value);setMessage('访问链接已复制。');}
  const locked=!native||!!busy||status.running,dirty=!!settings&&!!view&&(JSON.stringify(settings)!==JSON.stringify(view.settings)||keyAction!=='keep');
  return <main>
   <header className="app-header"><div className="brand"><div className="brand-mark" aria-hidden="true">拾</div><div><h1>拾趣 <span>{lite?'Lite':'桌面版'}</span></h1><p>在自己的电脑上，留一间故事书房。</p></div></div><span className="edition">桌面控制台</span></header>
@@ -92,15 +92,15 @@ function Desktop(){
     <section className="service-card"><div className="service-label"><span className={'status-dot '+(status.running?'live':'')}/>{status.running?'服务运行中':'服务已停止'}</div><h2>{status.running?'书房已打开。':'让故事开始。'}</h2><p>{status.running?'在浏览器阅读，或让手机加入。':'启动后，在你熟悉的浏览器里阅读。'}</p>
      {status.error&&!busy&&<p className="service-error" role="alert">{status.error}</p>}
      <button className="primary" disabled={!!busy||!native} onClick={()=>void action(status.running?'停止服务':'启动服务',async()=>{if(status.running)setStatus(await invoke<Status>('stop_server'));else{if(dirty)await save();const info=await checkNode(settings.nodePath);if(!info)throw Error(lite?'请先选择兼容的 Node 24。':'内置运行时不可用，请检查运行时错误。');setStatus(await invoke<Status>('start_server'));}})}>{busy?busy+'…':!native?'请在桌面应用中启动':status.running?'停止服务':dirty?'保存并启动':'启动服务'}</button>
-     {status.running&&<><a className="browser-link" href={status.url} onClick={event=>{event.preventDefault();if(!busy)void action('打开浏览器',async()=>{await invoke('open_reader');});}}>在浏览器打开 ↗</a><button className="local-link" title="复制本机配对链接" onClick={()=>void action('复制链接',()=>copy(status.url!))}>{new URL(status.url!).origin} · 复制链接</button></>}
+     {status.running&&<><a className="browser-link" href={status.url} onClick={event=>{event.preventDefault();if(!busy)void action('打开浏览器',async()=>{await invoke('open_reader');});}}>在浏览器打开 ↗</a><button className="local-link" title="复制本机访问链接" onClick={()=>void action('复制链接',()=>copy(status.url!))}>{new URL(status.url!).origin} · 复制链接</button></>}
      <div className="service-foot">关闭窗口后在托盘继续运行。<br/>退出应用会停止服务。</div>
     </section>
     <section className="card phone-card"><div className="section-heading"><span className="phone-glyph" aria-hidden="true">↗</span><div><h2>手机接着读</h2><p>无需安装手机应用。</p></div></div>
      <fieldset className="phone-sharing" disabled={locked}><legend className="sr-only">手机访问设置</legend>
-      <label className="switch-row"><input type="checkbox" checked={settings.lanEnabled} onChange={e=>update('lanEnabled',e.target.checked)}/><span><strong>允许手机在同一网络访问</strong><small>{status.running?'停止服务后可修改手机访问。':'启用后显示配对二维码；配对设备可使用同一书架和生成服务。'}</small></span></label>
+      <label className="switch-row"><input type="checkbox" checked={settings.lanEnabled} onChange={e=>update('lanEnabled',e.target.checked)}/><span><strong>允许手机在同一网络访问</strong><small>{status.running?'停止服务后可修改手机访问。':'启用后可通过 IP 和端口访问；同一网络中可连接的设备可使用书架和生成服务。'}</small></span></label>
      </fieldset>
-     {status.running&&phone?<><div className="qr-wrap">{qr?<img src={qr} width="240" height="240" alt="扫描二维码，与桌面书架配对"/>:<p>正在生成二维码…</p>}</div>{status.phoneUrls.length>1&&<label>网络地址<select aria-label="手机网络地址" value={phone} onChange={e=>setPhone(e.target.value)}>{status.phoneUrls.map(url=><option key={url} value={url}>{new URL(url).origin}</option>)}</select></label>}<p className="phone-url">{new URL(phone).origin}</p><button className="secondary full" onClick={()=>void action('复制链接',()=>copy(phone))}>复制手机配对链接</button></>:<div className="qr-placeholder"><span aria-hidden="true">▦</span><p>{settings.lanEnabled?(status.running?'未找到可用的局域网地址。':'启动服务后显示二维码。'):status.running?'请先停止服务，再启用上方的手机访问。':'启用上方的手机访问，保存并启动服务。'}</p></div>}
-     <p className="help network-note">电脑需保持唤醒，手机与电脑连接同一网络；防火墙需允许此端口。局域网使用 HTTP，请只在可信网络使用。重启后需重新配对。</p>
+     {status.running&&phone?<><div className="qr-wrap">{qr?<img src={qr} width="240" height="240" alt="扫描二维码，打开桌面书架"/>:<p>正在生成二维码…</p>}</div>{status.phoneUrls.length>1&&<label>网络地址<select aria-label="手机网络地址" value={phone} onChange={e=>setPhone(e.target.value)}>{status.phoneUrls.map(url=><option key={url} value={url}>{new URL(url).origin}</option>)}</select></label>}<p className="phone-url">{new URL(phone).origin}</p><button className="secondary full" onClick={()=>void action('复制链接',()=>copy(phone))}>复制手机访问链接</button></>:<div className="qr-placeholder"><span aria-hidden="true">▦</span><p>{settings.lanEnabled?(status.running?'未找到可用的局域网地址。':'启动服务后显示二维码。'):status.running?'请先停止服务，再启用上方的手机访问。':'启用上方的手机访问，保存并启动服务。'}</p></div>}
+     <p className="help network-note">电脑需保持唤醒，手机与电脑连接同一网络；防火墙需允许此端口。局域网使用 HTTP，请只在可信网络使用。直接访问 IP 和端口，无需配对；地址不变时重启后仍可使用。</p>
     </section>
    </aside>
   </div>}

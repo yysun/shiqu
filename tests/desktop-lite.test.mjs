@@ -1,4 +1,4 @@
-// Verify desktop-only authentication, private configuration, ownership, and real process cleanup without AI billing.
+// Verify direct desktop reader access, private configuration, ownership, and real process cleanup without AI billing.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,cp,readFile,writeFile,rm,symlink,access} from 'node:fs/promises';
@@ -21,27 +21,20 @@ async function fixture(t){
  await mkdir(path.join(root,'dist/client'),{recursive:true});await writeFile(path.join(root,'dist/client/index.html'),'<html>desktop reader</html>');
  return {root,settings:{...settings(path.join(root,'personal library')),port:await port()}};
 }
-async function pair(origin,fragment){
- const response=await fetch(origin+'/desktop/session',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({token:fragment.slice(1)})});
- assert.equal(response.status,200);const cookie=response.headers.get('set-cookie');assert.match(cookie,/HttpOnly; SameSite=Strict/);return cookie.split(';')[0];
-}
-test('pairing rejects unpaired access, wrong credentials, foreign origins/hosts, and exposes no desktop settings',async()=>{
- let calls=0;const gate=desktopAccess(async()=>{calls++;return Response.json({ok:true});},{hosts:['127.0.0.1:3000'],port:3000,token:'a'.repeat(64)});
+test('direct access needs no cookies and rejects foreign origins/hosts and native routes',async()=>{
+ let calls=0;const gate=desktopAccess(async()=>{calls++;return Response.json({ok:true});},{hosts:['127.0.0.1:3000']});
  const request=(url,options={})=>gate.handle(new Request(url,options)),origin='http://127.0.0.1:3000';
- for(const route of ['/','/api/stories','/api/reader/media/private/0.png','/sw.js'])assert.equal((await request(origin+route)).status,401);
- assert.equal(calls,0);
- assert.equal((await request('http://evil.example:3000/desktop/pair')).status,403);
- const page=await request(origin+'/desktop/pair');const html=await page.text();assert.ok(!html.includes('a'.repeat(64)));assert.match(html,/history.replaceState/);assert.match(page.headers.get('content-security-policy'),/frame-ancestors 'none'/);
- for(const [token,originHeader,status] of [['wrong',origin,401],['a'.repeat(64),'https://evil.example',403],['a'.repeat(64),'',403]]){
-  assert.equal((await request(origin+'/desktop/session',{method:'POST',headers:{Origin:originHeader},body:JSON.stringify({token})})).status,status);
+ for(const route of ['/','/api/stories','/api/reader/media/private/0.png','/sw.js']){
+  const response=await request(origin+route);assert.equal(response.status,200);assert.equal(response.headers.get('set-cookie'),null);
  }
- const response=await request(origin+'/desktop/session',{method:'POST',headers:{Origin:origin},body:JSON.stringify({token:'a'.repeat(64)})});
- const cookie=response.headers.get('set-cookie').split(';')[0];assert.ok(!cookie.includes('a'.repeat(64)));
- assert.equal((await request(origin+'/api/stories',{headers:{Cookie:cookie}})).status,200);
- assert.equal((await request(origin+'/api/stories',{method:'POST',headers:{Cookie:cookie,Origin:'http://evil.example'}})).status,403);
- assert.equal((await request(origin+'/desktop/settings',{headers:{Cookie:cookie}})).status,404);
- const restarted=desktopAccess(async()=>Response.json({ok:true}),{hosts:['127.0.0.1:3000'],port:3000});
- assert.equal((await restarted.handle(new Request(origin+'/api/stories',{headers:{Cookie:cookie}}))).status,401);
+ assert.equal(calls,4);
+ assert.equal((await request(origin+'/api/me/progress',{method:'POST',headers:{Origin:origin}})).status,200);
+ assert.equal((await request('http://evil.example:3000/api/stories')).status,403);
+ for(const method of ['GET','POST'])assert.equal((await request(origin+'/api/stories',{method,headers:{Origin:'http://evil.example'}})).status,403);
+ assert.equal((await request(origin+'/api/stories',{method:'POST'})).status,403);
+ for(const route of ['/desktop','/desktop/settings','/desktop/pair','/desktop/session'])assert.equal((await request(origin+route)).status,404);
+ const restarted=desktopAccess(async()=>Response.json({ok:true}),{hosts:['127.0.0.1:3000']});
+ assert.equal((await restarted.handle(new Request(origin+'/api/stories'))).status,200);
 });
 test('desktop settings reject unknown secrets/invalid models and isolate environment variables',()=>{
  const valid=settings('/tmp/library');desktopSettings.parse(valid);
@@ -66,16 +59,18 @@ test('connection test uses only model metadata, does not echo credentials, and n
  });assert.equal(result.ok,true);assert.equal(calls,2);assert.ok(!JSON.stringify(result).includes('private-test-key'));
  const failure=await testDesktopProvider(config,'private-test-key','/tmp',async()=>Response.json({error:'private-test-key'},{status:403}));assert.equal(failure.ok,false);assert.ok(!failure.message.includes('private-test-key'));
 });
-test('desktop lifecycle preserves progress, revokes sessions, detects busy data, and recovers after port conflicts',async t=>{
+test('desktop lifecycle preserves progress and direct access across restarts, detects busy data, and recovers after port conflicts',async t=>{
  const f=await fixture(t);let running=await startDesktop(f.settings,'',f.root);t.after(()=>running.stop());
- const url=new URL(running.status.url),origin=url.origin,cookie=await pair(origin,url.hash);
- const stories=await (await fetch(origin+'/api/stories',{headers:{Cookie:cookie}})).json();assert.ok(stories.length);
- await fetch(origin+'/api/me/progress',{method:'POST',headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({storyId:stories[0].id,page:3,saved:true})});
+ const url=new URL(running.status.url),origin=url.origin;
+ assert.equal(running.status.url,origin);assert.equal(url.hash,'');assert.equal(url.pathname,'/');
+ assert.equal((await fetch(origin)).status,200);
+ assert.deepEqual(running.status.phoneUrls,[]);
+ const stories=await (await fetch(origin+'/api/stories')).json();assert.ok(stories.length);
+ await fetch(origin+'/api/me/progress',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({storyId:stories[0].id,page:3,saved:true})});
  await assert.rejects(startDesktop({...f.settings,port:await port()},'',f.root),/DATA_BUSY/);
  await running.stop();await assert.rejects(fetch(origin+'/api/stories'));
- running=await startDesktop(f.settings,'',f.root);assert.equal((await fetch(origin+'/api/stories',{headers:{Cookie:cookie}})).status,401);
- const newCookie=await pair(origin,new URL(running.status.url).hash);
- const progress=await (await fetch(origin+'/api/me/progress',{headers:{Cookie:newCookie}})).json();assert.equal(progress[0].page,3);assert.equal(progress[0].saved,1);
+ running=await startDesktop(f.settings,'',f.root);assert.equal(running.status.url,origin);assert.equal((await fetch(origin+'/api/stories')).status,200);
+ const progress=await (await fetch(origin+'/api/me/progress')).json();assert.equal(progress[0].page,3);assert.equal(progress[0].saved,1);
  await running.stop();const occupied=createServer();occupied.listen(f.settings.port,'127.0.0.1');await once(occupied,'listening');
  try{await assert.rejects(startDesktop(f.settings,'',f.root),{code:'EADDRINUSE'});}finally{await new Promise(resolve=>occupied.close(resolve));}
  running=await startDesktop(f.settings,'',f.root);assert.equal(running.status.running,true);
@@ -102,8 +97,8 @@ test('parent EOF kills active detached Codex groups before releasing the data di
  const lines=createInterface({input:child.stdout});let diagnostics='';child.stderr.on('data',chunk=>diagnostics+=chunk);
  const ready=Promise.race([once(lines,'line'),once(child,'exit').then(([code])=>{throw Error('Desktop fixture exited '+code+': '+diagnostics.slice(0,1000));})]);child.stdin.write(JSON.stringify({action:'start',settings:{...f.settings,provider:'codex',codexPath:fake},key:''})+'\n');
  const [line]=await ready;const status=JSON.parse(line);assert.equal(status.running,true);
- const url=new URL(status.url),cookie=await pair(url.origin,url.hash);
- const request=fetch(url.origin+'/api/reader/status',{headers:{Cookie:cookie}}).catch(()=>null);
+ const url=new URL(status.url);assert.equal(status.url,url.origin);
+ const request=fetch(url.origin+'/api/reader/status').catch(()=>null);
  const pids=await until(async()=>{try{return JSON.parse(await readFile(pidFile,'utf8'));}catch{return null;}});
  assert.ok(alive(pids.parent));assert.ok(alive(pids.descendant));
  child.stdin.end();await Promise.race([once(child,'exit'),new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('EOF did not terminate Node')),10000);timer.unref();})]);await request;

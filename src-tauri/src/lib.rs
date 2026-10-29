@@ -279,7 +279,11 @@ fn open_reader(app: tauri::AppHandle, state: tauri::State<'_, DesktopState>) -> 
     let parsed = tauri::Url::parse(url).map_err(|_| "服务地址无效。")?;
     if parsed.scheme() != "http"
         || parsed.host_str() != Some("127.0.0.1")
-        || parsed.path() != "/desktop/pair"
+        || parsed.path() != "/"
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
     {
         return Err("服务地址无效。".into());
     }

@@ -25,7 +25,7 @@ async function start(settings){
  try{const ready=await result;assert.equal(ready.running,true,ready.error);return ready;}finally{clearTimeout(timeout);}
 }
 async function stop(){if(child&&child.exitCode===null){const exited=once(child,'exit');child.stdin.end();const timer=setTimeout(()=>child.kill('SIGKILL'),10000);try{await exited;}finally{clearTimeout(timer);}}}
-async function pair(link){const url=new URL(link),response=await request(url.origin+'/desktop/session',{method:'POST',headers:{Origin:url.origin,'Content-Type':'application/json'},body:JSON.stringify({token:url.hash.slice(1)})});assert.equal(response.status,200);return response.headers.get('set-cookie').split(';')[0];}
+
 try{
  await inspect(source);await cp(source,root,{recursive:true});
  const payload=JSON.parse(await readFile(path.join(root,'payload.json'),'utf8'));bundled=payload.nodeBundled;
@@ -42,21 +42,22 @@ try{
  const catalog=JSON.parse(await readFile(path.join(root,'data/library/catalog.json'),'utf8'));assert.equal(catalog.books.length,24);
  const settings={nodePath:bundled?'/shiqu-system-node-must-not-be-used':process.execPath,dataDirectory:path.join(temporary,'library'),port:await port(),lanEnabled:true,provider:'gemini',textModel:'gemini-3.8-flash',imageModel:'gemini-nano-banana-2.1',codexPath:'',codexModel:'',codexHome:''};
  const first=await start(settings),origin=new URL(first.url).origin;
- assert.equal((await request(origin+'/api/stories')).status,401);
- const cookie=await pair(first.url),headers={Cookie:cookie};
+ assert.equal(first.url,origin);
+ const headers={};
+ assert.equal((await request(origin+'/api/stories')).status,200);
  const stories=await (await request(origin+'/api/stories',{headers})).json();assert.ok(stories.length);
  assert.equal((await request(origin+stories[0].pages[0].image,{headers})).status,200);
  assert.equal((await request(origin+'/desktop/settings',{headers})).status,404);
  const provider=await (await request(origin+'/api/reader/status',{headers})).json();assert.equal(provider.configured,false);
  const saved=await request(origin+'/api/me/progress',{method:'POST',headers:{...headers,Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({storyId:stories[0].id,page:2,saved:true})});assert.equal(saved.status,200);
- let lanPaired=false;
+ let lanAccessible=false;
  for(const link of first.phoneUrls){
-  try{const lanCookie=await pair(link);const response=await request(new URL(link).origin+'/api/stories',{headers:{Cookie:lanCookie},signal:AbortSignal.timeout(3000)});if(response.ok){lanPaired=true;break;}}catch{/* Another interface may be a VPN or unavailable to this host. */}
+  try{assert.equal(link,new URL(link).origin);const response=await request(link+'/api/stories',{signal:AbortSignal.timeout(3000)});if(response.ok){lanAccessible=true;break;}}catch{/* Another interface may be a VPN or unavailable to this host. */}
  }
- if(first.phoneUrls.length)assert.ok(lanPaired,'At least one advertised LAN address must pair from the host');
+ if(first.phoneUrls.length)assert.ok(lanAccessible,'At least one advertised LAN address must be accessible from the host');
  await stop();await assert.rejects(request(origin+'/api/stories'));
- const second=await start(settings);assert.equal((await request(origin+'/api/stories',{headers})).status,401);
- const replacement=await pair(second.url),progress=await (await request(origin+'/api/me/progress',{headers:{Cookie:replacement}})).json();assert.equal(progress[0].page,2);
+ const second=await start(settings);assert.equal(second.url,origin);assert.equal((await request(origin+'/api/stories')).status,200);
+ const progress=await (await request(origin+'/api/me/progress')).json();assert.equal(progress[0].page,2);
  await stop();
- console.log(JSON.stringify({edition:payload.edition,node:process.version,relocated:true,nodeBundled:bundled,systemNodeOnPath:!bundled,books:catalog.books.length,stories:stories.length,pairing:true,lanPaired,persistence:true,shutdown:true,paidCalls:0}));
+ console.log(JSON.stringify({edition:payload.edition,node:process.version,relocated:true,nodeBundled:bundled,systemNodeOnPath:!bundled,books:catalog.books.length,stories:stories.length,directAccess:true,lanAccessible,persistence:true,shutdown:true,paidCalls:0}));
 }finally{await stop();await rm(temporary,{recursive:true,force:true});}
