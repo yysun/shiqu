@@ -2,7 +2,7 @@
 import {ArrowRight,Bookmark,BookOpen,ChevronDown,ChevronRight,Download,Feather,RefreshCw,Search,Trash2,X} from 'lucide-react';
 import type {Story} from '@/lib/content';
 import type {GeneratedStory,SessionView,ProductionAction} from '@/lib/reader-model';
-import StoryProductionControls from './StoryProductionControls';
+import StoryGenerationControl from './StoryGenerationControl';
 import type {ReadingProgress} from '@/lib/reader-home';
 import {getArtStyle} from '@/lib/reader-styles';
 import {groupShelfItems,matchesShelfSearch,shelfGroupings,type ShelfGrouping} from '@/lib/shelf-browser';
@@ -33,11 +33,11 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
     <div className="yu-shelf-card-toolbar"><small>{item.book}</small>{actions}</div>
     <button className="yu-shelf-card yu-shelf-card-details" aria-label={'继续阅读《'+item.title+'》'} onClick={()=>onOpen(story)}>{details}</button>
    </>:<>
-    {item.session&&session?<button className="yu-pending-story" aria-label={generation!.action+'《'+item.title+'》'} onClick={()=>onResume(session)}><Feather size={21}/><span><strong>{item.title}</strong><small role="status">{generation!.message}</small><small>{generation!.detail}</small><small>{item.book}</small><span className="yu-shelf-tags"><span title={item.theme}>{item.theme}</span><span title={item.artStyleLabel}>{item.artStyleLabel}</span></span></span><span className="yu-shelf-continue">{generation!.action} <ArrowRight size={15}/></span></button>:story&&<button className="yu-shelf-card" aria-label={'继续阅读《'+item.title+'》'} onClick={()=>onOpen(story)}>{cover}{details}</button>}
+    {item.session&&session?<button className="yu-pending-story" aria-label={generation!.action+'《'+item.title+'》'} onClick={()=>onResume(session)}><Feather size={21}/><span><strong>{item.title}</strong><small>{generation!.detail}</small><small>{item.book}</small><span className="yu-shelf-tags"><span title={item.theme}>{item.theme}</span><span title={item.artStyleLabel}>{item.artStyleLabel}</span></span></span><span className="yu-shelf-continue">{generation!.action} <ArrowRight size={15}/></span></button>:story&&<button className="yu-shelf-card" aria-label={'继续阅读《'+item.title+'》'} onClick={()=>onOpen(story)}>{cover}{details}</button>}
     {session&&generation&&(generation.group==='生成失败'||generation.group==='生成已暂停')&&session.retryAllowed&&(!session.generationControl||session.generationControl==='active')&&<div className="yu-pending-retry"><button type="button" disabled={refreshing||!!favoriteBusy} onClick={()=>onRetry(session)}>{generation.group==='生成失败'?'重试生成':'继续生成'} <ArrowRight size={15}/></button></div>}
     {actions}
    </>}
-   {session&&<StoryProductionControls session={session} busy={!!controlBusy} onControl={onControl}/>}
+   {session&&session.state!=='completed'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{session.story&&` · ${session.ready} / ${session.story.pages.length} 幅`}</span><StoryGenerationControl session={session} busy={!!controlBusy} onControl={onControl}/></div>}
   </div>;
  }
  return <section className="yu-shelf">
