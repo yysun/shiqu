@@ -69,7 +69,7 @@ test('local publication failure and legacy retry reuse the paid receipt and reco
  await f.demand(id);await until(()=>f.control.calls.length===1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
  f.control.calls.find(c=>c.page===1).resolve();await until(async()=>(await f.app.services.production.queue.jobs(id,'docker-local-owner')).some(j=>j.kind==='image-publish'&&j.state==='failed'));
  for(const call of f.control.calls)call.resolve();await until(async()=>(await f.read(id)).state==='failed');assert.equal(f.control.calls.length,4);
- const failed=await f.read(id);assert.equal(failed.retryMayCharge,false);assert.equal(failed.story.pages[1].image,'');
+ const failed=await f.read(id);assert.equal(failed.retryStage,'publication');assert.equal(failed.story.pages[1].image,'');
  blocked=false;f.control.hold=false;await f.json(`sessions/${id}/advance`,'POST',{throughPage:6,retry:true});
  await until(async()=>(await f.read(id)).ready===7);assert.equal(f.control.calls.filter(c=>c.page===1).length,1);
  const stored=await f.app.services.database.prepare('SELECT document FROM reader_sessions WHERE id=?').bind(id).first();assert.equal(JSON.parse(stored.document).usage.filter(u=>u.step==='image:1').length,1);

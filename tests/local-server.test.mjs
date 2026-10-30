@@ -129,3 +129,32 @@ test('import failure keeps destination absent and rejects live WAL, missing blob
   assert.equal((await readdir(f.root)).some(name=>name.startsWith('new data')),false);
  }
 });
+
+test('legacy accounting data stays on disk while story APIs create and edit without it',async t=>{
+ const options=await fixture(t);let app=createApplication(options);t.after(()=>app.close());
+ const initial=makeStory();initial.status='draft';
+ await app.services.db.insert(stories).values({...initial,actualCost:12.5,currency:'USD',pages:JSON.stringify(initial.pages),checks:JSON.stringify(initial.checks)});
+ let response=await request(app,'/api/admin/stories/'+initial.id);assert.equal(response.status,200);
+ const saved=await response.json();assert.equal('actualCost' in saved,false);assert.equal('currency' in saved,false);
+ response=await request(app,'/api/admin/stories/'+initial.id,'PUT',{...saved,title:'edited without billing',actualCost:999,currency:'CNY'});
+ assert.equal(response.status,200);assert.equal('actualCost' in await response.json(),false);
+ response=await request(app,'/api/admin/stories','POST',{title:'new story',bookId:'zhuangzi',theme:'test',sourceText:'',sourceUrl:''});
+ assert.equal(response.status,201);const created=await response.json();assert.equal('actualCost' in created,false);assert.equal('currency' in created,false);
+ response=await request(app,'/api/admin/generate','POST',{storyId:created.id,kind:'text',requestId:crypto.randomUUID()});assert.equal(response.status,503);
+ app.close();app=createApplication(options);
+ const persisted=await app.services.database.prepare('SELECT actual_cost,currency FROM stories WHERE id=?').bind(initial.id).first();
+ assert.deepEqual({...persisted},{actual_cost:12.5,currency:'USD'});
+ const reopened=await (await request(app,'/api/admin/stories/'+initial.id)).json();assert.equal(reopened.title,'edited without billing');assert.equal('actualCost' in reopened,false);
+});
+test('single-owner shelf returns more than 80 stories and keeps hidden stories excluded',async t=>{
+ const app=createApplication(await fixture(t));t.after(()=>app.close());const repo=new ReaderRepository(app.services.database),ids=[];
+ for(let i=0;i<85;i++){
+  const id=crypto.randomUUID();ids.push(id);
+  await repo.create(id,app.services.ownerId,{bookId:'zhuangzi',theme:'test',length:8,voice:false});
+ }
+ await repo.remove(ids[0],app.services.ownerId);
+ const response=await request(app,'/api/reader/sessions');assert.equal(response.status,200);const rows=await response.json();
+ assert.equal(rows.length,84);assert.equal(rows.some(row=>row.id===ids[0]),false);
+ await repo.restore(ids[0],app.services.ownerId);
+ assert.equal((await (await request(app,'/api/reader/sessions')).json()).length,85);
+});

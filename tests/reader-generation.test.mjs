@@ -84,7 +84,7 @@ test('paid image retries resume immediately when requested and reuse saved work'
  const draw=g.image;let failures=0;g.image=async()=>{failures++;throw Error('provider failure');};
  let s=await advanceStory(repo,g,'alice',id,1);
  for(let attempt=1;attempt<=5;attempt++){
-  assert.equal(s.state,'failed');assert.equal(s.retryAllowed,true);assert.equal(s.retryMayCharge,true);
+  assert.equal(s.state,'failed');assert.equal(s.retryAllowed,true);assert.notEqual(s.retryStage,'source');
   assert.ok(s.story.pages[0].image);assert.equal(s.retryAt,null);assert.equal(failures,attempt);
   await advanceStory(repo,g,'alice',id,1);assert.equal(failures,attempt); // Polling alone cannot duplicate a paid call.
   if(attempt<5)s=await advanceStory(repo,g,'alice',id,1,true);
@@ -163,7 +163,7 @@ test('source recovery remains explicit after repeated outages and never repeats 
  await repo.create(id,'alice',selection);
  let result=await advanceStory(repo,g,'alice',id,0);
  for(let attempt=0;attempt<4;attempt++){
-  assert.equal(result.state,'failed');assert.equal(result.retryAllowed,true);assert.equal(result.retryMayCharge,false);assert.equal(result.retryAt,null);
+  assert.equal(result.state,'failed');assert.equal(result.retryAllowed,true);assert.equal(result.retryStage,'source');assert.equal(result.retryAt,null);
   const before=lookups;await advanceStory(repo,g,'alice',id,0);assert.equal(lookups,before);
   result=await advanceStory(repo,g,'alice',id,0,true);
  }
@@ -194,7 +194,7 @@ for(const length of ['auto',45])test(`legacy URL ${length} resolves its director
  };
  await repo.create(id,'alice',chosen);
  const failed=await advanceStory(repo,g,'alice',id,0);assert.equal(failed.state,'failed');assert.equal(requests.length,1);
- assert.deepEqual(requests[0].body.tools,[{urlContext:{}}]);assert.equal(failed.retryMayCharge,false);assert.equal(failed.generationProgress.storyboardFrames,0);
+ assert.deepEqual(requests[0].body.tools,[{urlContext:{}}]);assert.equal(failed.retryStage,'source');assert.equal(failed.generationProgress.storyboardFrames,0);
  await advanceStory(repo,g,'alice',id,0,true);assert.equal(requests.length,1);assert.equal(lookups,2);
  const batch=await advanceStory(repo,g,'alice',id,0);assert.equal(batch.generationProgress.storyboardFrames,20);assert.equal(batch.story,null);
  assert.equal(requests[1].body.tools,undefined);assert.equal(requests[1].payload.verifiedOriginal.text,original.text);

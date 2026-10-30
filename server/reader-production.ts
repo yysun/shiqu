@@ -29,8 +29,10 @@ type Options={imageWorkers?:number;now?:()=>number;leaseMs?:number;tickMs?:numbe
 const sessionLeaseMs=180000;
 const maxAutomaticAttempts=3;
 const publicationYieldMs=15000;
-// This exact text marks a job for redraw on retry; the job table has no other place to record it.
-const lostImageMessage='这幅图片的文件已丢失或损坏。重试会重新绘制这一幅，可能再次消耗额度。';
+// The stable prefix also recognizes redraw checkpoints written by older releases.
+const lostImagePrefix='这幅图片的文件已丢失或损坏。';
+const lostImageError=(message:string|null)=>message?.startsWith(lostImagePrefix)===true;
+const lostImageMessage='这幅图片的文件已丢失或损坏。重试会重新绘制这一幅，已保存的其他画面会保留。';
 // Background order is by page. A viewer's anchor, current page and read-ahead sort ahead of all of it.
 function pagePriority(page:number,demand:Demand){
  const background=productionReadAhead+1+page;
@@ -137,14 +139,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  async snapshot(ownerId:string,id:string):Promise<SessionView>{
   const row=await this.repository.get(id,ownerId),saved=view(row);
-  const jobs=await this.currentJobs(row),failed=jobs.find(job=>job.state==='failed'&&job.error===lostImageMessage)||jobs.find(job=>job.state==='failed');
+  const jobs=await this.currentJobs(row),failed=jobs.find(job=>job.state==='failed'&&lostImageError(job.error))||jobs.find(job=>job.state==='failed');
   const active=jobs.filter(job=>job.state==='running'&&job.lease_until>this.clock()).sort((a,b)=>a.updated_at-b.updated_at);
   // Claim timestamps measure this attempt, rather than time since the story was first created.
   const session={...saved,generationProgress:{...saved.generationProgress!,startedAt:active[0]?.updated_at??null,attempt:active[0]?.attempts??saved.generationProgress!.attempt}};
   const working=active.length>0||jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'));
   if(failed&&!working){
-   const lost=failed.error===lostImageMessage;
-   return {...session,state:'failed',error:failed.error,retryAllowed:true,retryMayCharge:lost||failed.kind!=='image-publish',...(lost?{retryStage:'redraw' as const}:failed.kind==='image-publish'?{retryStage:'publication' as const}:{})};
+   const lost=lostImageError(failed.error);
+   return {...session,state:'failed',error:lost?lostImageMessage:failed.error,retryAllowed:true,...(lost?{retryStage:'redraw' as const}:failed.kind==='image-publish'?{retryStage:'publication' as const}:{})};
   }
   const demands=await this.demands(id),eligible=jobs.some(job=>job.state==='queued'&&demands.some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page));
   const manual=row.generation_control!=='active';
@@ -233,7 +235,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  // An explicit retry is the reader's consent to pay again, and a file that came back needs no redraw.
  private async recoverLostImages(row:SessionRow){
   const jobs=await this.currentJobs(row),pageOf=(job:ProductionJob)=>(JSON.parse(job.payload) as {page:number}).page;
-  for(const marked of jobs.filter(job=>job.state==='failed'&&job.error===lostImageMessage)){
+  for(const marked of jobs.filter(job=>job.state==='failed'&&lostImageError(job.error))){
    const publishing=marked.kind==='image-publish',page=publishing?pageOf(marked):0;
    const peers=jobs.filter(job=>job.version===marked.version&&job.pool!=='text'&&pageOf(job)===page);
    const image=peers.find(job=>job.kind==='image'),publication=peers.find(job=>job.kind==='image-publish');

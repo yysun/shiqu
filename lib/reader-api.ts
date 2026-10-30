@@ -1,4 +1,4 @@
-// Route authenticated reading, recovery, and generation operations within each reader's library.
+// Route reading, recovery and generation through the single local library.
 import {events} from '../db/schema.ts';
 import type {Services} from './services.ts';
 import {z} from 'zod';
@@ -23,7 +23,7 @@ async function requireProvider(){const status=await provider.status();if(!status
 return async function readerApi(req:Request,path:string[]):Promise<Response>{
  try{
   if(path.join('/')==='status'&&req.method==='GET')return json(await provider.status());
-  const uid=services.ownerId;if(!uid)throw new ReaderError(401,'请先登录，再开启属于你的故事。');
+  const uid=services.ownerId;
   const url=new URL(req.url);if(req.method!=='GET'){const origin=req.headers.get('origin');if(origin&&origin!==url.origin)throw new ReaderError(403,'不允许跨站请求');}
   if(!services.database)throw new ReaderError(503,'书架暂时不可用');
   const repo=new ReaderRepository(services.database);

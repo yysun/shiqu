@@ -47,7 +47,7 @@ test('recovery metadata does not expose foreign generated titles and supports pu
  assert.equal((await f.request('library/missing/restore','POST')).status,404);
 });
 
-test('an older restored story is passively readable even when absent from the capped session list',async t=>{
+test('an older restored story remains listed beyond 80 entries without starting production',async t=>{
  const f=await productionFixture(t),id=await f.create();
  const db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));t.after(()=>db.close());
  db.prepare(`UPDATE reader_sessions SET created_at='1990-01-01',updated_at='1990-01-01' WHERE id=?`).run(id);
@@ -55,7 +55,7 @@ test('an older restored story is passively readable even when absent from the ca
   SELECT ?,user_id,selection,document,state,page,saved,'2000-01-01','2000-01-01' FROM reader_sessions WHERE id=?`);
  for(let n=0;n<81;n++)insert.run(crypto.randomUUID(),id);
  await f.json(`library/${id}`,'DELETE');await f.json(`library/${id}/restore`,'POST');
- const rows=await f.json('sessions');assert.equal(rows.length,80);assert.equal(rows.some(row=>row.id===id),false);
+ const rows=await f.json('sessions');assert.equal(rows.length,82);assert.equal(rows.some(row=>row.id===id),true);
  assert.equal((await f.json(`sessions/${id}`)).id,id);
  assert.equal(db.prepare('SELECT count(*) AS n FROM production_jobs').get().n,0);
  assert.deepEqual([f.control.calls.length,f.control.plans.length,f.control.recommendations.length],[0,0,0]);

@@ -47,8 +47,10 @@ for(const [name,outcome] of Object.entries(unreadable))test(`a ${name} file at p
  const f=await productionFixture(t),id=await f.create(2);await until(()=>f.control.calls.length===1);
  loseFirstFile(f,0,outcome);
  f.control.hold=false;f.control.calls[0].resolve();await failed(f,id);
+ if(name==='missing')await database(f).prepare("UPDATE production_jobs SET error=? WHERE session_id=? AND state='failed'").bind('这幅图片的文件已丢失或损坏。重试会重新绘制这一幅，可能再次消耗额度。',id).run();
  const saved=await f.read(id);
- assert.match(saved.error,/重新绘制/);assert.equal(saved.retryMayCharge,true);assert.equal(saved.retryStage,'redraw');
+ assert.equal('retryMayCharge' in saved,false);assert.doesNotMatch(saved.error,/额度|计费/);
+ assert.match(saved.error,/重新绘制/);assert.equal(saved.retryStage,'redraw');
  await settled(f);await f.demand(id,crypto.randomUUID(),0,false);await settled(f);
  assert.equal(f.control.calls.length,1,'Polling, ticks and a non-retry request never redraw');
  assert.equal((await f.read(id)).state,'failed');
@@ -66,7 +68,7 @@ for(const damage of ['missing','corrupt'])test(`a ${damage} first image fails th
  f.control.calls[1].resolve();await failed(f,id);
  const saved=await f.read(id);
  assert.equal(f.control.calls.length,2,'The later page fails before any provider call');
- assert.match(saved.error,/重新绘制/);assert.equal(saved.retryMayCharge,true);assert.equal(saved.retryStage,'redraw');
+ assert.match(saved.error,/重新绘制/);assert.equal(saved.retryStage,'redraw');
  f.control.hold=false;await retry(f,id);await completed(f,id);
  assert.deepEqual([0,1,2,3].map(page=>pageCalls(f,page)),[2,1,1,1],'Only the first image is redrawn');
  const after=await document(f,id);
@@ -103,28 +105,28 @@ test('a file that comes back before the retry is published without paying again'
  assert.equal(pageCalls(f,0),1);
 });
 
-test('a read that throws stays transient: no charge warning and no redraw, even at retry',async t=>{
+test('a read that throws stays transient without redrawing, even at retry',async t=>{
  const f=await productionFixture(t),id=await f.create(2),store=f.app.services.media,get=store.get.bind(store);
  await until(()=>f.control.calls.length===1);
  let mode='throw';
  store.get=async key=>{if(key.includes('/artifacts/0-')){if(mode==='throw')throw Error('controlled disk read failure');if(mode==='lost')return null;}return get(key);};
  f.control.hold=false;f.control.calls[0].resolve();await failed(f,id);
  const saved=await f.read(id);
- assert.equal(saved.retryMayCharge,false);assert.equal(saved.retryStage,'publication');
+ assert.equal(saved.retryStage,'publication');
  // A marked job whose file can't be read at the retry must not pay either.
  mode='lost';await retry(f,id);await failed(f,id);assert.equal((await f.read(id)).retryStage,'redraw');
  mode='throw';await retry(f,id);await failed(f,id);assert.equal(pageCalls(f,0),1);
  mode='none';await retry(f,id);await completed(f,id);assert.equal(pageCalls(f,0),1);
 });
 
-test('mixed lost and transient failures warn about the charge',async t=>{
+test('mixed lost and transient failures prioritize the redraw action',async t=>{
  const f=await productionFixture(t),id=await f.create(4),store=f.app.services.media,get=store.get.bind(store);
  await until(()=>f.control.calls.length===1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
  store.get=async key=>{if(key.includes('/artifacts/1-'))throw Error('controlled disk read failure');if(key.includes('/artifacts/2-'))return null;return get(key);};
  for(const call of f.control.calls.slice(1))call.resolve();await failed(f,id);
  await until(async()=>(await jobs(f,id)).filter(job=>job.state==='failed').length>=2);
  const saved=await f.read(id);
- assert.match(saved.error,/重新绘制/);assert.equal(saved.retryMayCharge,true);assert.equal(saved.retryStage,'redraw');
+ assert.match(saved.error,/重新绘制/);assert.equal(saved.retryStage,'redraw');
 });
 
 test('an open story draws its first image, current page and read-ahead ahead of other work',async t=>{
@@ -192,7 +194,7 @@ test('without a reader, order stays by page across stories',async t=>{
 });
 
 test('the legacy client never retries a lost image automatically',async()=>{
- const lost={id:'story',state:'failed',retryStage:'redraw',retryAllowed:true,retryMayCharge:true,error:'这幅图片的文件已丢失或损坏。',stage:'drawing',ready:0,selection:{length:2},story:null};
+ const lost={id:'story',state:'failed',retryStage:'redraw',retryAllowed:true,error:'这幅图片的文件已丢失或损坏。',stage:'drawing',ready:0,selection:{length:2},story:null};
  let posts=0;
  const result=await runStoryGeneration({sessionId:'story',throughPage:1,retries:new Map(),isActive:()=>true,onSession:()=>{},sleep:async()=>{},request:async(path,method)=>{if(method==='POST')posts++;return lost;}});
  assert.match(result,/已丢失/);assert.equal(posts,0);

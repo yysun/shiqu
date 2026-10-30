@@ -148,7 +148,7 @@ test('a failed or hung priority report never interrupts status updates or exit',
  }
 });
 test('automatic retry stops on a lost image, and only an explicit retry goes through',async()=>{
- const lost={...base,state:'failed',retryStage:'redraw',retryAllowed:true,retryMayCharge:true,error:'这幅图片的文件已丢失或损坏。'};
+ const lost={...base,state:'failed',retryStage:'redraw',retryAllowed:true,error:'这幅图片的文件已丢失或损坏。'};
  for(const initialRetry of [false,true]){
   const posts=[];let reads=0;
   const result=await runQueuedStoryGeneration({sessionId:'story',viewerId:'viewer',page:()=>0,retries:new Map(),isActive:()=>true,onSession:()=>{},sleep:async()=>{},initialRetry,now:()=>0,

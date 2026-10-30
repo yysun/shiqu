@@ -1,6 +1,6 @@
 // Define story types, book metadata and verified source fallback; never seed finished stories.
 export type Page = { caption: string; prompt: string; image: string; audio: string };
-export type Story = { id:string; title:string; hook:string; bookId:string; theme:string; status:'draft'|'review'|'published'; pages:Page[]; reflection:string; sourceText:string; sourceUrl:string; adaptationNote:string; checks:{source:boolean;plot:boolean;visual:boolean}; actualCost:number|null; currency:string; revision:number; createdAt:string; updatedAt:string };
+export type Story = { id:string; title:string; hook:string; bookId:string; theme:string; status:'draft'|'review'|'published'; pages:Page[]; reflection:string; sourceText:string; sourceUrl:string; adaptationNote:string; checks:{source:boolean;plot:boolean;visual:boolean}; revision:number; createdAt:string; updatedAt:string };
 // Third-party excerpt: Wikisource contributors, CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
 // Three narrative paragraphs from 聊齋志異/第01卷 revision7908703; commentary excluded, original glyphs retained.
 export const pearSource = "有鄉人貨梨於市，頗甘芳，價騰貴。有道士破巾絮衣，丐於車前，鄉人咄之而不去，鄉人怒，加​​以叱罵。道士曰：「一車數百顆，老衲止丐其一，於居士亦無大損，何怒為？」觀者勸置劣者一枚，令去，鄉人執不肯。\n\n肆中傭保者，見喋聒不堪，遂出錢市一枚，付道士，道士拜謝，謂眾曰：「出家人不解吝惜，我有佳梨，請出供客。」或曰：「既有之，何不自食？」曰：「吾特需此核​​作種。」於是掬梨大啗，且盡，把核於手，解肩上鑱坎地上深數寸，納之，而覆以土，向市人索湯沃灌。好事者，於臨路店，索得沸瀋，道士接浸坎處。萬目攢視，見有勾萌出，漸大，俄成樹，枝葉扶疏，倏而花，倏而實，碩大芳馥，纍纍滿樹。道人乃即樹頭，摘賜觀者，頃刻而盡，已乃以鑱伐樹，丁丁良久乃斷，帶葉荷肩頭從容徐步而去。\n\n初道士作法時，鄉人亦雜眾中，引領注目，竟忘其業。道士既去，始顧車中，則梨已空矣，方悟適所俵散，皆己物也。又細視車上一靶亡，是新鑿斷者，心大憤恨。急跡之，轉過牆隅，則斷靶棄垣下，始知所伐梨本，即是物也。道士不知所在，一市粲然。";

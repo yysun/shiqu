@@ -5,7 +5,7 @@ import {artRecommendationSchema,selectSuggestedStory} from '../lib/reader-art-re
 import {artStyleIds} from '../lib/reader-styles.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
 import {suggestionBatchSchema,freshSuggestions} from '../lib/reader-suggestions.ts';
-import {localChoices,localChoicesJson,localScanJson,localReadingPrompt} from '../lib/reader-local-contract.ts';
+import {localChoices,localChoicesJson,localScanJson,localReadingPrompt,legacyLocalScanJson,legacyLocalReadingPrompt} from '../lib/reader-local-contract.ts';
 import {choicesJson,suggestionSystemPrompt} from '../lib/reader-generation-contract.ts';
 import {createReaderProvider} from '../server/generation.ts';
 import {withLocalBooks} from '../server/local-generation.ts';
@@ -49,6 +49,11 @@ test('discovery defers art while existing recommendation contracts and receipts 
  assert.equal(batch.stories[0].source.edition,source.edition);
  assert.match(suggestionSystemPrompt,/artRecommendation/);
  assert.match(localReadingPrompt(localBook),/具体故事内容/);
+ assert.match(localReadingPrompt(localBook),/baimiao（白描连环画/);
+ const legacyStyles=legacyLocalScanJson.properties.stories.items.properties.artRecommendation.properties.artStyle.enum;
+ assert.equal(legacyStyles.length,14);assert.equal(legacyStyles.includes('baimiao'),false);
+ assert.doesNotMatch(legacyLocalReadingPrompt({...localBook,purpose:'scan'}),/baimiao/);
+ assert.equal(artRecommendationSchema.parse({artStyle:'baimiao',reason:'墨线适合人物动作。'}).artStyle,'baimiao');
  assert.doesNotMatch(localReadingPrompt({...localBook,purpose:'scan'}),/artRecommendation/);
  assert.equal(localScanJson.properties.stories.items.properties.artRecommendation,undefined);
  assert.match(localReadingPrompt({...localBook,purpose:'scan'}),/未完事件/);
