@@ -1,9 +1,8 @@
+// Reuse saved script content in both the inline disclosure and the reader's standard sheet.
 import type {Story} from '@/lib/content';
 
-export default function StoryScript({story}:{story:Story}) {
- return <details className="yu-story-script">
-  <summary>查看剧本 <span>{story.pages.length} 幅分镜</span></summary>
-  <div className="yu-script-content">
+export default function StoryScript({story,standalone=false}:{story:Story;standalone?:boolean}) {
+ const content=<div className="yu-script-content">
    <h3>{story.title}</h3>
    {story.hook&&<p className="yu-script-intro">{story.hook}</p>}
    {story.pages.length?story.pages.map((scene,index)=><section className="yu-script-scene" key={index} aria-label={`第 ${index+1} 幅剧本`}>
@@ -13,6 +12,6 @@ export default function StoryScript({story}:{story:Story}) {
    </section>):<p>这篇故事还没有保存分镜剧本。</p>}
    {story.reflection&&<section className="yu-script-scene"><h4>余味</h4><p>{story.reflection}</p></section>}
    {story.adaptationNote&&<details className="yu-script-prompt"><summary>改编说明</summary><p>{story.adaptationNote}</p></details>}
-  </div>
- </details>;
+  </div>;
+ return standalone?content:<details className="yu-story-script"><summary>查看剧本 <span>{story.pages.length} 幅分镜</span></summary>{content}</details>;
 }
