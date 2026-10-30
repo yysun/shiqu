@@ -141,6 +141,7 @@ button.yu-swipe-surface{padding:0;border:0;background:transparent;cursor:default
 .yu-generation-stage>.yu-generation-description{font-size:12px;line-height:1.9;color:#617254;margin:14px 0 0}
 .yu-generation-stage.has-error .yu-generation-mark{color:#94694e;background:#f7f0e5;border-color:#e2d4bf}
 .yu-generation-progress{text-align:left;margin:22px 0 20px;padding:16px;border:1px solid #dce4d2;border-radius:14px;background:#f3f6ec;color:#526e45}
+.yu-generation-stage.is-compact{padding-top:0}.yu-generation-stage.is-compact .yu-generation-progress{margin-top:10px}
 .yu-generation-progress-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;margin-bottom:14px}
 .yu-generation-progress-heading>strong{font-size:12px;font-weight:500;color:#46613c}
 .yu-generation-progress-heading>span{display:flex;align-items:center;gap:4px;font-size:10px;line-height:1.6;color:#65775a;font-variant-numeric:tabular-nums}

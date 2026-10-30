@@ -22,7 +22,7 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
  const title=busy&&stopped?(session.state==='failed'?'正在重试生成':'正在请求生成'):error&&session.state!=='failed'?'暂时无法确认生成状态':status.message;
  const failed=!!error||status.group==='生成失败';
  const detail=session.generationControl&&session.generationControl!=='active'?'已保存的结果会保留，点击“恢复生成”后继续。已开始的任务仍会完成并保存。':status.detail;
- return <div className={'yu-generation-stage has-progress'+(moving?' is-generating':'')+(failed?' has-error':'')}>
+ return <div className={'yu-generation-stage has-progress'+(compact?' is-compact':'')+(moving?' is-generating':'')+(failed?' has-error':'')}>
   {(!compact||failed)&&<><div className="yu-generation-summary">
    <span className="yu-generation-mark" aria-hidden="true">{failed?<X size={23}/>:stopped?<Pause size={23}/>:session.state==='completed'?<Check size={23}/>:<Feather size={23}/>}</span>
    <div><p className="yu-generation-kicker">{failed?'需要处理':stopped?'进度已保留':session.state==='completed'?'制作完成':'把故事变成画面'}</p><h3>{title}</h3></div>

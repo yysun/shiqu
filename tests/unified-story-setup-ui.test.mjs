@@ -20,7 +20,11 @@ test('creation uses one navigable timeline without narrative-detail or expanded 
  const props={session,book:'庄子',busy:false,onAction:async()=>{},progress:{busy:false,controlBusy:false,error:'',onControl:async()=>{},onRetry:noop,onBack:noop}};
  const choosing={...session,intake:{...session.intake,phase:'choosing',selected:undefined}};
  const candidates=renderToStaticMarkup(createElement(Setup,{...props,session:choosing}));
- assert.match(candidates,/可选故事|选择这篇/);assert.doesNotMatch(candidates,/完整审片流程|确认制作并生成|<textarea|叙事详略/);
+ assert.match(candidates,/已找到 1 篇故事/);assert.doesNotMatch(candidates,/完整审片流程|确认制作并生成|<textarea|叙事详略|<select|候选批次/);
+ const collected={...choosing,intake:{...choosing.intake,batches:[...choosing.intake.batches,{stories:[{title:'佝偻承蜩',description:'追加找到的故事。'},{title:'庄周梦蝶',description:'同名但出处不同的选项。',sourceLabel:'另一处原文'}],note:''}]}};
+ const all=renderToStaticMarkup(createElement(Setup,{...props,session:collected}));
+ assert.match(all,/已找到 3 篇故事/);assert.match(all,/佝偻承蜩|追加找到的故事/);assert.match(all,/另一处原文/);assert.equal((all.match(/<strong>庄周梦蝶<\/strong>/g)||[]).length,2);assert.doesNotMatch(all,/<select|候选批次/);
+
  const paused=renderToStaticMarkup(createElement(Setup,{...props,session:{...choosing,generationControl:'paused'}}));
  assert.match(paused,/恢复生成/);
  const failed=renderToStaticMarkup(createElement(Setup,{...props,session:{...choosing,state:'failed',error:'受控提取失败',retryAllowed:true}}));
