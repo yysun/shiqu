@@ -1,4 +1,4 @@
-// Present saved creation intent through the same production timeline and editor as revisions.
+// Keep discovery in the story picker; a chosen story enters one continuous production flow.
 // Edits are saved as a draft on the side; only a recommendation or final confirmation starts work.
 // Search reports beside the selection and never holds up what is already chosen.
 import {useEffect,useRef,useState} from 'react';
@@ -13,9 +13,13 @@ import type {StoryEditorTab} from './StoryProductionEditor';
 import Sheet from './StorySheet';
 import StorySource from './StorySource';
 import StoryGenerationStatus from './StoryGenerationStatus';
+import StoryGenerationControl from './StoryGenerationControl';
+import StoryRetry from './StoryRetry';
 import './story-revision.css';
 type SetupTab=Exclude<StoryEditorTab,'script'>;
 type Props={session:SessionView;book:string;busy:boolean;onAction:(command:IntakeCommand)=>Promise<void>;progress:Omit<ComponentProps<typeof StoryGenerationStatus>,'session'|'timeline'|'stages'|'children'|'compact'>};
+// Stable titles prevent the initial discovery snapshot from flashing a production screen.
+export function storyCreationTitle(session:SessionView){return session.intake?(session.intake.selected?'故事流程':'选择故事'):session.story?.title||session.selection.storyTitle||'你的故事，正在展开';}
 const savedSettings=(session:SessionView)=>session.intake!.draft||{artStyle:session.selection.artStyle,productionPrompt:session.selection.productionPrompt,narrativeDetail:session.selection.narrativeDetail||'balanced' as const,length:session.frameRecommendation?.count||8};
 export default function StoryCreationSetup({session,book,busy,onAction,progress}:Props){
  const intake=session.intake!,saved=savedSettings(session),savedKey=JSON.stringify(saved);
@@ -37,7 +41,6 @@ export default function StoryCreationSetup({session,book,busy,onAction,progress}
  const candidates=intake.batches.flatMap((saved,batchIndex)=>saved.stories.map((candidate,index)=>({candidate,batchIndex,index})));
  const selected=intake.selected?intake.batches[intake.selected.batch]?.stories[intake.selected.index]:null;
  const preparable=!!selected&&intake.phase==='choosing'&&session.state!=='failed';
- const choosingOnly=!selected&&intake.phase==='choosing'&&session.state!=='failed'&&!session.error&&(!session.generationControl||session.generationControl==='active')&&!progress.error;
  const preferences={artStyle:settings.artStyle,productionPrompt:settings.productionPrompt,narrativeDetail:settings.narrativeDetail};
  async function act(command:IntakeCommand){
   setError('');
@@ -62,26 +65,31 @@ export default function StoryCreationSetup({session,book,busy,onAction,progress}
   <div className="yu-candidate-list">{candidates.map(({candidate,batchIndex,index})=><button type="button" key={`${batchIndex}:${index}`} aria-pressed={isSelected(batchIndex,index)} className={isSelected(batchIndex,index)?'selected':''} disabled={locked&&!isSelected(batchIndex,index)} onClick={()=>void select(batchIndex,index)}><strong>{candidate.title}</strong><span className="yu-candidate-description">{candidate.description}</span>{candidate.sourceLabel&&<small>{candidate.sourceLabel}</small>}<span className="yu-candidate-action">{isSelected(batchIndex,index)?'已选这篇':'选择这篇'}</span></button>)}</div>
   {!searching&&search.state!=='failed'&&(!candidates.length?<p className="yu-candidate-note">还没有找到符合主题的故事，可以继续查找，或换个主题。</p>:intake.batches.at(-1)?.stories.length===0&&<p className="yu-candidate-note">暂时没有找到更多故事，已找到的故事都在上方。</p>)}
  </>;
- const stages=generationProgress(session,Date.now()).steps.filter(step=>selected||step.id==='source').map(step=>{
-  if(step.id==='source')return ready?{...step,label:'原文与制作要求',detail:`画风：${getArtStyle(settings.artStyle).label}`}:intake.phase==='discovering'?step:{...step,detail:`已找到 ${candidates.length} 篇故事`};
-  return ready&&step.id==='count'?{...step,detail:`${settings.length} 幅 · 待确认`}:step;
+ const stages=generationProgress(session,Date.now()).steps.map(step=>{
+  if(ready&&step.id==='source')return {...step,label:'原文',detail:`画风：${getArtStyle(settings.artStyle).label}`};
+  if(ready&&step.id==='count')return {...step,detail:`${settings.length===session.frameRecommendation?.count?'建议 ':''}${settings.length} 幅 · 待确认`};
+  return step;
  });
- return <section className="yu-creation-setup" aria-label={selected?'制作确认':'选择故事'}>
+ return <section className="yu-creation-setup" aria-label={selected?'故事流程':'选择故事'}>
   <p className="yu-sheet-intro">《{book}》 · {session.selection.theme}</p>
-  {selected?<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3><button type="button" className="yu-revision-open" disabled={busy} onClick={()=>setChoosing(true)}>重新选择</button></div>:<p className="yu-count-help">书籍和主题已保存到书架，离开后可继续。</p>}
+  {selected?<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3><button type="button" className="yu-revision-open" disabled={!ready||busy} onClick={()=>setSourceOpen(true)}>原文</button></div>:<p className="yu-count-help">书籍和主题已保存到书架，离开后可继续。</p>}
   {search.state==='searching'&&(paused?<p role="status">查找已暂停，恢复生成后继续。已找到的故事都保留。</p>:<p role="status">正在寻找更多故事，已找到的故事会继续保留。{intake.progress?.currentChapters?.length?`正在翻阅：${intake.progress.currentChapters.join('、')}`:''}{intake.progress?.completedChars?`已读 ${intake.progress.completedChars.toLocaleString('zh-CN')} 字。`:''}</p>)}
   {search.state==='failed'&&<div className="yu-batch-error" role="alert"><p>这次查找未完成。{search.error}</p><p>已找到的故事和已选内容都保留，可以重试查找，也可以直接继续。</p>{selected&&findMore}</div>}
   {!editing&&remoteChoice}
   {!selected&&(intake.batches.length>0||search.state==='failed')&&candidateList}
-  {!choosingOnly&&<StoryGenerationStatus session={session} {...progress} compact={ready} stages={stages} timeline={ready?{
-   links:{source:[{label:'原文',onClick:()=>setSourceOpen(true)},{label:'制作要求',onClick:()=>setEditing('requirements')}]},
-   detailActions:{source:{label:'修改画风',onClick:()=>setEditing('style')}},
-   actions:{count:{label:'修改画幅数',onClick:()=>setEditing('count')}}
-  }:undefined}>
-  {ready&&<><button type="button" className="yu-primary" disabled={locked} onClick={()=>void act({action:'confirm',settings})}>{busy?'正在保存…':`确认制作并生成 ${settings.length} 幅`}</button></>}
-  {preparable&&<><button type="button" className="yu-primary" disabled={locked} onClick={()=>void act({action:'choose',batch:intake.selected!.batch,index:intake.selected!.index,settings:preferences})}>准备这篇</button><p className="yu-revision-note">读取原文并推荐幅数；确认制作前不编排分镜或绘图。</p></>}
-  </StoryGenerationStatus>}
-  {choosingOnly&&<button type="button" className="yu-generation-later" onClick={progress.onBack}>稍后从书架继续</button>}
+  {selected?<StoryGenerationStatus session={session} {...progress} compact={ready} stages={stages} timeline={{
+   links:{source:[{label:'重新选择故事',onClick:()=>{if(!busy)setChoosing(true);}},...(ready?[{label:'制作要求（可选）',onClick:()=>setEditing('requirements')}]:[])]},
+   detailActions:ready?{source:{label:'修改画风',onClick:()=>setEditing('style')}}:undefined,
+   actions:ready?{count:{label:'修改幅数',onClick:()=>setEditing('count')}}:undefined
+  }}>
+   {ready&&<><button type="button" className="yu-primary" disabled={locked} onClick={()=>void act({action:'confirm',settings})}>{busy?'正在保存…':'开始制作'}</button></>}
+   {preparable&&<button type="button" className="yu-primary" disabled={locked} onClick={()=>void act({action:'choose',batch:intake.selected!.batch,index:intake.selected!.index,settings:preferences})}>准备这篇</button>}
+  </StoryGenerationStatus>:<>
+   {(session.error||progress.error)&&<p className="yu-batch-error" role="alert">{progress.error||session.error}</p>}
+   {(session.state==='failed'||!!progress.error)&&<StoryRetry session={session} busy={progress.busy} onRetry={progress.onRetry}/>}
+   {paused&&<StoryGenerationControl session={session} busy={progress.controlBusy} onControl={progress.onControl}/>}
+   <button type="button" className="yu-generation-later" onClick={progress.onBack}>稍后从书架继续</button>
+  </>}
   {error&&<p className="yu-batch-error" role="alert">{error}</p>}
   {choosing&&<Sheet title="重新选择故事" busy={busy} onClose={()=>setChoosing(false)}>{candidateList}{error&&<p role="alert">{error}</p>}</Sheet>}
   {sourceOpen&&<Sheet title="故事原文" onClose={()=>setSourceOpen(false)}><StorySource sessionId={session.id} book={book}/></Sheet>}
