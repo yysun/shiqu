@@ -173,6 +173,16 @@ test('closing the story returns it to page order, and it keeps generating',async
  await completed(f,other);await completed(f,viewed);
 });
 
+test('a lost connection returns the story to background order, and it keeps generating',async t=>{
+ const f=await productionFixture(t),id=await f.create(10);await until(()=>f.control.calls.length===1);
+ const priority=async page=>(await jobs(f,id)).find(job=>job.kind==='image'&&JSON.parse(job.payload).page===page).priority;
+ await f.demand(id,crypto.randomUUID(),3);await production(f).tick();assert.equal(await priority(3),0);
+ // The reader never sends a leave; the server's lease simply runs out.
+ await database(f).prepare('UPDATE production_demand SET expires_at=0').run();await production(f).tick();
+ assert.equal(await priority(3),10);assert.equal(await priority(0),7);
+ f.control.hold=false;for(const call of f.control.calls)call.resolve();await completed(f,id);
+});
+
 test('without a reader, order stays by page across stories',async t=>{
  const f=await singleWorker(t),older=await f.create(5);await until(()=>f.control.calls.length===1);
  const newer=await f.create(5);await until(async()=>(await jobs(f,newer)).some(job=>job.kind==='image'));

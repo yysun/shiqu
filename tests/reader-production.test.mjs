@@ -49,6 +49,8 @@ test('expired viewer demand stops dispatch even if the browser never sends leave
  const f=await productionFixture(t),id=await f.createLegacyReader();await f.demand(id);await until(()=>f.control.calls.length===1);
  await f.app.services.database.prepare('UPDATE production_demand SET expires_at=0').run();f.control.calls[0].resolve();
  await until(async()=>(await f.read(id)).ready===1);await f.app.services.production.tick();assert.equal(f.control.calls.length,1);
+ // A claim shows in the job row at once; its provider call only appears after asynchronous file reads.
+ assert.equal((await f.app.services.production.queue.jobs(id,'docker-local-owner')).filter(job=>job.kind==='image'&&job.state==='running').length,0);
 });
 
 test('deletion hides a story immediately while retaining every in-flight image and receipt',async t=>{
