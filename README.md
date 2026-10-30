@@ -222,6 +222,16 @@ CODEX_MODEL=gpt-6.1-sol
 CODEX_REASONING_EFFORT=low
 ```
 
+文本任务独立分配推理预算：`SHIQU_REASONING_SUGGEST=medium`（选题）、`SHIQU_REASONING_ART=low`（画风）、`SHIQU_REASONING_FRAMES=medium`（画幅数）、`SHIQU_REASONING_OUTLINE=high`（提纲）、`SHIQU_REASONING_PLAN=high`（分镜）、`SHIQU_REASONING_REVIEW=high`（初审/复核）、`SHIQU_REASONING_REPAIR=high`（修订）。这些也是缺省值，可逐项覆盖；不自动升档。Codex 支持 low/medium/high/xhigh/max，具体取决于模型和 CLI；Gemini 支持 low/medium/high，不支持值报错，不静默降档。旧 `CODEX_REASONING_EFFORT` 仍用于未分类及图片工具调用，不再覆盖已分类文本任务，也不代表图片质量。已生成步骤不因改档重做；新选题和画风缓存按对应档位隔离。生成检查点用量记录中的 `reasoningEffort` 对 Codex 是线程确认值，对 Gemini 是请求值。
+
+显式真实审核对比（会使用现有 Codex 订阅；普通测试不会运行）：
+
+```bash
+pnpm exec node --env-file-if-exists=.env --experimental-strip-types scripts/compare-storyboard-reasoning.mjs --input /absolute/path/to/before-row.json --out .data/evidence/reasoning-comparison --model gpt-6.1-sol --effort medium
+```
+
+将 `--effort` 依次改为 high、xhigh，保持相同输入、模型和输出目录。输入为含 `selection`、`document` JSON 字符串的单条故事备份；脚本只审核，输出完整报告、实际档位、输入及请求哈希、用量和耗时，不生成图片、不写书库。成功结果再次运行直接复用；失败单独留档。各档一次只提供案例观察，不代表稳定优劣。
+
 其他变量见 [.env.example](.env.example)，修改后重启服务。无浏览器设备可用 `pnpm run codex:login -- --device-auth`。
 
 常用检查：

@@ -33,6 +33,21 @@ function fixture(chapters=2,units=10,size=80){
 }
 async function until(condition){for(let i=0;!condition();i++){assert.ok(i<1000,'operation did not settle');await new Promise(resolve=>setTimeout(resolve,1));}}
 function run(f,cache,excluded=[],observer,seen=[],budget){return discoverLocalStories(f.provider,f.books,cache,f.book,selection,excluded,observer,seen,budget);}
+test('suggestion effort isolates cached progress and unrelated review effort preserves cache hits',async()=>{
+ const f=fixture(),cache=new StoryDiscoveryCache(memory()),base=f.provider.status;
+ let suggest='medium',review='high';
+ f.provider.status=async()=>({...await base(),taskReasoningEfforts:{suggest,review}});
+ await run(f,cache);assert.equal(f.calls.length,1);
+ review='xhigh';await run(f,cache);assert.equal(f.calls.length,1);
+ suggest='high';await run(f,cache);assert.equal(f.calls.length,2);
+ suggest='medium';await run(f,cache);assert.equal(f.calls.length,2);
+});
+test('old caches without effort are not migrated into a newly configured effort namespace',async()=>{
+ const f=fixture(),cache=new StoryDiscoveryCache(memory()),base=f.provider.status;
+ await run(f,cache);assert.equal(f.calls.length,1);
+ f.provider.status=async()=>({...await base(),taskReasoningEfforts:{suggest:'medium'}});
+ await run(f,cache);assert.equal(f.calls.length,2);
+});
 test('whole book first selects one, then five on demand; hot hits and a new cache instance make no model calls',async()=>{
  const f=fixture(),store=memory(),cache=new StoryDiscoveryCache(store);
  const first=await run(f,cache);assert.equal(first.stories.length,1);assert.equal(f.calls.length,1);assert.equal(f.calls[0].input.scan.maxStories,1);

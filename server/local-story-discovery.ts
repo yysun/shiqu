@@ -23,8 +23,8 @@ const pendingSchema=z.object({id:z.string().min(1).max(64),title:z.string().min(
 const stateSchema=z.object({stories:z.array(storySchema).max(50000),cursor:z.number().int().min(0),readThrough:z.number().int().min(0),pendingEvents:z.array(pendingSchema).max(16),exhausted:z.boolean(),rejected:z.boolean()});
 type State=z.infer<typeof stateSchema>;
 const failed=()=>new ReaderError(502,'本段选题未能完整核对，已保留进度，请重试或换个主题。');
-export function discoveryNamespace(book:LocalBook,provider:string,model:string,limits=defaultReadingLimits){
- return discoveryHash(['direct-reading-v3',readingPlanKey(book,provider,limits),model,localReadingPrompt({...book.input,purpose:'scan'}),localScanJson]);
+export function discoveryNamespace(book:LocalBook,provider:string,model:string,limits=defaultReadingLimits,effort?:string){
+ return discoveryHash(['direct-reading-v3',readingPlanKey(book,provider,limits),model,localReadingPrompt({...book.input,purpose:'scan'}),localScanJson,...(effort?[effort]:[])]);
 }
 export function legacyDiscoveryNamespace(book:LocalBook,provider:string,model:string){
  return discoveryHash(['direct-reading-v2',legacyReadingPlanKey(book,provider),model,legacyLocalReadingPrompt({...book.input,purpose:'scan'}),legacyLocalScanJson]);
@@ -57,7 +57,7 @@ function mergePending(books:LocalBooks,book:LocalBook,old:PendingEvent[],updates
 }
 export async function discoverLocalStories(provider:ReaderProvider,books:LocalBooks,cache:StoryDiscoveryCache,book:LocalBook,selection:Selection,excluded:string[],observer?:ReadingObserver,excludedSources:LocalSourceReference[]=[],limits:ReadingLimits=defaultReadingLimits):Promise<SuggestionBatch>{
  const status=await provider.status(),plan=await readingPlan(book,status.provider,cache,limits);
- const namespace=discoveryNamespace(book,status.provider,status.models.text,limits);
+ const namespace=discoveryNamespace(book,status.provider,status.models.text,limits,status.taskReasoningEfforts?.suggest);
  const theme=selection.theme.normalize('NFKC').trim(),key=namespace+'/theme/'+discoveryHash(theme);
  const totalChars=plan.blocks.reduce((n,block)=>n+block.chars,0),excludedKeys=new Set(excludedSources.length?[]:excluded.map(titleKey));
  const validExclusions=excludedSources.filter(source=>{try{qualified(books,book,source);return true;}catch{return false;}});
@@ -79,6 +79,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const migrateLegacy=async()=>{
   // A caller may have observed a stale cache miss before joining this migration flight.
   const existing=await cache.read(key,stateSchema,validate);if(existing)return existing;
+  if(status.taskReasoningEfforts)return null; // Old caches have no proof of the requested reasoning effort.
   const oldKey=legacyDiscoveryNamespace(book,status.provider,status.models.text)+'/theme/'+discoveryHash(theme);
   const saved=await cache.read(oldKey,stateSchema,value=>{
    for(const story of value.stories)qualified(books,book,story.source);

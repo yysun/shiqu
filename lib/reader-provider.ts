@@ -5,7 +5,8 @@ import type {SuggestionBatch,SuggestionProgress} from './reader-suggestions.ts';
 import type {WholeBookInput,LocalScanResult,LocalSourceReference} from './reader-local-contract.ts';
 import type {ArtRecommendation} from './reader-art-recommendation.ts';
 import type {OriginalSource} from './reader-source-types.ts';
-export type ProviderStatus={configured:boolean;provider:'gemini'|'codex';models:{text:string;image:string};voiceEnabled:false;reason?:string;message?:string};
+import type {TaskReasoningEfforts} from './reader-reasoning.ts';
+export type ProviderStatus={configured:boolean;provider:'gemini'|'codex';models:{text:string;image:string};voiceEnabled:false;reason?:string;message?:string;taskReasoningEfforts?:TaskReasoningEfforts};
 export interface ReaderProvider {
  status():Promise<ProviderStatus>;
  suggestions(selection:Selection,excluded:string[],localBook?:WholeBookInput,reading?:{signal:AbortSignal;onProgress:(progress:SuggestionProgress)=>void},excludedSources?:LocalSourceReference[]):Promise<SuggestionBatch&{scan?:LocalScanResult}>;

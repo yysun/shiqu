@@ -18,7 +18,7 @@ export type StoryboardOutline=z.infer<typeof storyboardOutlineSchema>;
 export type Storyboard={outline:StoryboardOutline;pages:Plan['pages']};
 export const storyboardBatchSchema=(count:number)=>z.object({pages:planSchema.shape.pages.length(count)});
 export type GeneratedStory=Story&{generated:true;original?:OriginalSource;sourceReference:string;voiceRequested:boolean;artStyleLabel:string;productionPrompt:string};
-export type Document={plan:Plan|null;storyboard?:Storyboard;visualReview?:ReviewCheckpoint;original?:OriginalSource;frameRecommendation?:FrameRecommendation;frameCountConfirmed?:boolean;images:string[];audio:string[];usage:{step:string;model:string;requestId:string|null;usage:unknown}[]};
+export type Document={plan:Plan|null;storyboard?:Storyboard;visualReview?:ReviewCheckpoint;original?:OriginalSource;frameRecommendation?:FrameRecommendation;frameCountConfirmed?:boolean;images:string[];audio:string[];usage:{step:string;model:string;requestId:string|null;usage:unknown;reasoningEffort?:string}[]};
 export type GenerationMode='reader'|'background';
 export type GenerationControl='active'|'paused'|'stopped';
 export type ProductionAction='background'|'reader'|'pause'|'stop'|'resume';

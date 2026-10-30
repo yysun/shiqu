@@ -35,9 +35,11 @@ Codex 使用本机已登录的 CLI，可设置可执行文件、模型和登录�
 
 设置及密钥保存在系统应用配置目录的 `com.shiqu.desktop/desktop.sqlite`，独立于故事库，不读取项目 `.env`。首次使用会迁移旧版非密钥 `settings.json`，之后只读取数据库，不覆盖后续更改；旧文件保留不动。Unix 下应用配置目录/数据库权限为 0700/0600，Windows 使用用户配置目录的继承 ACL。备份数据库也会包含已保存的明文密钥。默认数据在系统应用数据目录下的 `library`。macOS 两者通常位于 `~/Library/Application Support/com.shiqu.desktop/`。更换数据目录切换书架，不会搬移文件。开发版默认跟随此处的书库路径，也可通过 SHIQU_DATA_DIR 显式指定。共享前需备份、停服并合并已有独立书库；两端都必须使用当前持久队列版本。开发版手机访问同样只需 IP 和端口；Vite 不提供私有书库文件。Docker 仍使用自己的显式挂载目录，不会自动合并。
 
-Codex 模式提供“推理档位”：跟随 Codex 默认、low、medium、high、xhigh、max。Sol 建议先选 low；具体支持取决于模型和 CLI。空值及旧配置缺少该字段时继续继承 CLI 配置。保存后在下次启动服务时生效，服务运行中不能修改。该选项用于应用内所有 Codex 请求，等价于 Node/Docker 的 `CODEX_REASONING_EFFORT`，但桌面版仍只读取自己的设置数据库。显式档位未被 CLI 采用时会报错，不会静默回退。
+设置提供七个独立文本任务档位：原文选题 medium、画风推荐 low、画幅数建议 medium、全篇提纲 high、详细分镜 high、审核与复核 high、定向修订 high。可分别调整，不自动升档；旧设置缺少 `taskReasoningEfforts` 时补这些推荐默认值。Gemini 可选 low/medium/high；Codex 另有 xhigh/max，具体支持取决于模型与 CLI。切换提供方后如存在不支持值，必须先调整才能保存，不静默降档。保存后下次启动服务生效，运行中不能修改。
 
-新版本保存后的设置包含 `codexReasoningEffort`；旧版程序可能拒绝未知字段，回退前请备份设置数据库。
+原 Codex 全局选项保留为“其他请求推理档位”，仅用于绘图工具等未分类请求，等价于 `CODEX_REASONING_EFFORT`；文本任务采用各自配置。空值继承 CLI 默认，不代表图片质量。桌面版只读取自己的设置数据库，再桥接为七个 `SHIQU_REASONING_*` 变量，不读取 Node/Docker 的 `.env`。显式 Codex 档位未被 config/read 和 thread/start 确认时会报错，不会静默回退。
+
+新版本保存后的设置包含 `codexReasoningEffort` 和 `taskReasoningEfforts`；旧版程序可能拒绝未知字段，升级前备份设置数据库，回退时恢复对应旧版备份。
 
 
 macOS 的“文稿”“桌面”等受保护目录可能等待系统文件访问授权；推荐使用默认应用数据目录。自定义目录请通过“选择”按钮选择，并在系统提示时由你决定是否授权。

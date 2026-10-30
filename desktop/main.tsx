@@ -8,15 +8,17 @@ import {LibraryPane} from './LibraryPane';
 import type {DesktopTab} from './LibraryPane';
 import {codexReasoningEfforts} from '../lib/codex-settings';
 import type {CodexReasoningEffort} from '../lib/codex-settings';
+import {taskReasoningDefaults,reasoningTasks,taskReasoningLabels,geminiReasoningEfforts} from '../lib/reader-reasoning';
+import type {TaskReasoningEfforts} from '../lib/reader-reasoning';
 import './styles.css';
 
-type Settings={nodePath:string;dataDirectory:string;port:number;internetEnabled:boolean;cloudflaredPath:string;provider:'gemini'|'codex';textModel:string;imageModel:string;codexPath:string;codexModel:string;codexHome:string;codexReasoningEffort:CodexReasoningEffort};
+type Settings={nodePath:string;dataDirectory:string;port:number;internetEnabled:boolean;cloudflaredPath:string;provider:'gemini'|'codex';textModel:string;imageModel:string;codexPath:string;codexModel:string;codexHome:string;codexReasoningEffort:CodexReasoningEffort;taskReasoningEfforts:TaskReasoningEfforts};
 type View={settings:Settings;keyPresent:boolean;credentialError:string|null;platform:string;edition:'standard'|'lite'};
 type Status={running:boolean;url?:string;phoneUrls:string[];publicUrl?:string;internetError?:string;error?:string};
 type NodeInfo={path:string;version:string;sqlite:boolean};
 type KeyAction='keep'|'replace'|'delete';
 const tabs=[['library','书架',BookOpen],['queue','生成队列',Layers3],['settings','设置',Settings2]] as const;
-const previewSettings:Settings={nodePath:'',dataDirectory:'桌面应用中保存的故事目录',port:3000,internetEnabled:false,cloudflaredPath:'',provider:'gemini',textModel:'gemini-3.8-flash',imageModel:'gemini-nano-banana-2.1',codexPath:'',codexModel:'gpt-6.1-sol',codexHome:'',codexReasoningEffort:''};
+const previewSettings:Settings={nodePath:'',dataDirectory:'桌面应用中保存的故事目录',port:3000,internetEnabled:false,cloudflaredPath:'',provider:'gemini',textModel:'gemini-3.8-flash',imageModel:'gemini-nano-banana-2.1',codexPath:'',codexModel:'gpt-6.1-sol',codexHome:'',codexReasoningEffort:'',taskReasoningEfforts:{...taskReasoningDefaults}};
 
 function Desktop(){
  const [tab,setTab]=useState<DesktopTab>('library');
@@ -67,11 +69,20 @@ function Desktop(){
        <p className="help">使用本机已安装并登录的 Codex CLI。不会使用 API 密钥，也不会切换到 API 计费。</p>
        <label>Codex 可执行文件<div className="input-row"><input placeholder="留空使用 PATH 中的 codex" value={settings.codexPath} onChange={e=>update('codexPath',e.target.value)}/><button className="subtle" onClick={()=>void action('选择文件',()=>browse('codex','codexPath'))}>选择</button></div></label>
        <label>Codex 文本模型<input value={settings.codexModel} onChange={e=>update('codexModel',e.target.value)} placeholder="留空使用 CLI 默认模型"/></label>
-       <label>Codex 推理档位<select value={settings.codexReasoningEffort} onChange={e=>update('codexReasoningEffort',e.target.value as CodexReasoningEffort)}><option value="">跟随 Codex 默认</option>{codexReasoningEfforts.map(effort=><option value={effort} key={effort}>{effort}</option>)}</select></label>
-       <p className="help">Sol 建议先用 low；支持的档位取决于模型与 CLI。保存后在下次启动服务时生效。</p>
+       <label>Codex 其他请求推理档位<select value={settings.codexReasoningEffort} onChange={e=>update('codexReasoningEffort',e.target.value as CodexReasoningEffort)}><option value="">跟随 Codex 默认</option>{codexReasoningEfforts.map(effort=><option value={effort} key={effort}>{effort}</option>)}</select></label>
+       <p className="help">用于绘图调用等未分类请求；文本任务采用下方各自的档位。文字推理档位不等于图片质量。</p>
        <label>Codex 登录目录（可选）<div className="input-row"><input value={settings.codexHome} onChange={e=>update('codexHome',e.target.value)} placeholder="留空使用 CLI 默认目录"/><button className="subtle" onClick={()=>void action('选择目录',()=>browse('codexHome','codexHome'))}>选择</button></div></label>
        <p className="help">首次登录需先在终端执行 codex login；此处可检查登录状态。</p>
       </>}
+      <div className="section-heading"><div><h3>按任务分配推理档位</h3><p>简单推荐优先速度，分镜与审核优先质量。</p></div></div>
+      <div className="two-fields">{reasoningTasks.map(task=>{
+       const options=settings.provider==='codex'?codexReasoningEfforts:geminiReasoningEfforts,value=settings.taskReasoningEfforts[task];
+       return <label key={task}>{taskReasoningLabels[task]}<select value={value} onChange={e=>update('taskReasoningEfforts',{...settings.taskReasoningEfforts,[task]:e.target.value as TaskReasoningEfforts[typeof task]})}>
+        {!(options as readonly string[]).includes(value)&&<option value={value} disabled>{value}（此提供方不支持，请调整）</option>}
+        {options.map(effort=><option value={effort} key={effort}>{effort}{effort===taskReasoningDefaults[task]?'（推荐）':''}</option>)}
+       </select></label>;
+      })}</div>
+      <p className="help">初审与复核使用同一档位。Gemini 支持 low、medium、high；Codex 的可用档位取决于模型与 CLI。保存后在下次启动服务时生效。</p>
       <div className="test-row"><button className="secondary" onClick={()=>void action('检查连接',async()=>{if(dirty)await save();const result=await invoke<{ok:boolean;message:string}>('test_provider');if(result.ok)setMessage(result.message);else setError(result.message);})}>检查连接</button><span className="help">检查前保存配置；仅检查访问或登录，不生成内容。</span></div>
      </fieldset>
     </section>

@@ -30,7 +30,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
    const original=await books.selected(selection);
    if(!original?.localSource||!selection.storyTitle)throw new ReaderError(400,'请先选择已核对出处的故事。');
    if(!provider.recommendArt)throw new ReaderError(503,'画风推荐暂不可用，可以手动选择画风。');
-   const status=await provider.status(),key='selected-story-art/'+discoveryHash([selection.bookId,selection.customBook,original.localSource,selection.storyTitle,selection.theme,status.provider,status.models.text,selectedArtRecommendationPrompt]);
+   const status=await provider.status(),key='selected-story-art/'+discoveryHash([selection.bookId,selection.customBook,original.localSource,selection.storyTitle,selection.theme,status.provider,status.models.text,selectedArtRecommendationPrompt,...(status.taskReasoningEfforts?[status.taskReasoningEfforts.art]:[])]);
    return cache.shared(key,undefined,async()=>{
     const saved=await cache.read(key,artRecommendationSchema);if(saved)return saved;
     const result=artRecommendationSchema.parse(await provider.recommendArt!(selection,original));

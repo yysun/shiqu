@@ -18,6 +18,8 @@ import {readerImageAsset,referenceImageKey} from './reader-image-assets.ts';
 import {imageDimensions} from './reader-image-dimensions.ts';
 import {storyboardGenerator} from './reader-storyboard.ts';
 import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from './reader-art-recommendation.ts';
+import {taskReasoningDefaults,geminiThinkingLevel} from './reader-reasoning.ts';
+import type {TaskReasoningEfforts,ReasoningEffort} from './reader-reasoning.ts';
 
 export const defaultModels={text:'gemini-3.8-flash',image:'gemini-nano-banana-2.1'};
 type Models=typeof defaultModels;
@@ -62,6 +64,7 @@ export function safeGeminiError(error:unknown){
  // Log only codes and validation paths, never raw provider messages, prompts or credentials.
  console.error('reader_generation_error',JSON.stringify(error instanceof GeminiError?{code:error.message,status:error.status}:error instanceof z.ZodError?{code:'INVALID_OUTPUT',fields:error.issues.map(i=>i.path.join('.'))}:{code:error instanceof Error?error.name:'UNKNOWN'}));
  if(error instanceof GeminiError){
+  if(error.message==='UNSUPPORTED_REASONING_EFFORT')return 'Gemini 文本任务仅支持 low、medium、high，请调整对应任务的推理档位。';
   if(error.message==='SOURCE_UNAVAILABLE')return '暂时无法读取这个链接，请换一个可公开访问的原文页面。';
   if(error.message==='INVALID_SOURCE')return '请填写有效的书名或公开网页链接。';
   if(error.message==='CONTENT_BLOCKED')return '这段内容暂时无法生成，请换一个故事再试。';
@@ -93,52 +96,53 @@ function client(key:string,transport:typeof fetch){
   return {result,candidate,metadata:{model:result.modelVersion||model,requestId:result.responseId||response.headers.get('x-request-id')||null,usage:result.usageMetadata||null}};
  };
 }
-function textRequest(system:string,data:unknown,schema:unknown,url:string,maxOutputTokens:number){
+function textRequest(system:string,data:unknown,schema:unknown,url:string,maxOutputTokens:number,effort:ReasoningEffort){
+ let thinkingLevel:string;try{thinkingLevel=geminiThinkingLevel(effort);}catch{throw new GeminiError('UNSUPPORTED_REASONING_EFFORT',400);}
  return {systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:JSON.stringify(data)}]}],
   ...(url?{tools:[{urlContext:{}}]}:{}),
-  generationConfig:{maxOutputTokens,thinkingConfig:{thinkingLevel:'LOW'},responseFormat:{text:{mimeType:'APPLICATION_JSON',schema}}}};
+  generationConfig:{maxOutputTokens,thinkingConfig:{thinkingLevel},responseFormat:{text:{mimeType:'APPLICATION_JSON',schema}}}};
 }
 function parseText(candidate:Candidate){
  const value=candidate.content?.parts?.filter(p=>!p.thought&&typeof p.text==='string').map(p=>p.text).join('');
  if(!value)throw new GeminiError('INVALID_TEXT');
  try{return JSON.parse(value);}catch{throw new GeminiError('INVALID_JSON');}
 }
-export async function suggestStories(key:string,selection:Selection,config:Partial<Models>={},transport:typeof fetch=fetch,excludeTitles:string[]=[],localBook?:WholeBookInput){
+export async function suggestStories(key:string,selection:Selection,config:Partial<Models>={},transport:typeof fetch=fetch,excludeTitles:string[]=[],localBook?:WholeBookInput,reasoning:TaskReasoningEfforts=taskReasoningDefaults){
  const models={...defaultModels,...config},{book,url}=source(selection),scanning=localBook?.purpose==='scan';
  const {candidate}=await client(key,transport)(models.text,textRequest(
   localBook?localReadingPrompt(localBook):suggestionSystemPrompt,
-  localSuggestionPayload(book,selection.theme,excludeTitles,localBook),scanning?localScanJson:localBook?localChoicesJson:choicesJson,url,scanning?10000:localBook?5000:2500),localBook?120000:60000);
+  localSuggestionPayload(book,selection.theme,excludeTitles,localBook),scanning?localScanJson:localBook?localChoicesJson:choicesJson,url,scanning?10000:localBook?5000:2500,reasoning.suggest),localBook?120000:60000);
  if(url&&!wasRead(candidate,url))return {stories:[],note:'暂时无法读取这个链接，请提供可公开访问的原文页面，或直接输入书名。'};
  const batch=localBook?localChoices(parseText(candidate),localBook):choicesSchema.parse(parseText(candidate));
  return scanning?batch:freshSuggestions(batch,excludeTitles);
 }
-export async function recommendStoryArt(key:string,selection:Selection,original:OriginalSource,config:Models,transport:typeof fetch){
- const {candidate}=await client(key,transport)(config.text,textRequest(selectedArtRecommendationPrompt,selectedArtRecommendationPayload(selection,original),artRecommendationJson,'',600));
+export async function recommendStoryArt(key:string,selection:Selection,original:OriginalSource,config:Models,transport:typeof fetch,reasoning:TaskReasoningEfforts=taskReasoningDefaults){
+ const {candidate}=await client(key,transport)(config.text,textRequest(selectedArtRecommendationPrompt,selectedArtRecommendationPayload(selection,original),artRecommendationJson,'',600,reasoning.art));
  return artRecommendationSchema.parse(parseText(candidate));
 }
-export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={},transport:typeof fetch=fetch):StoryGenerator{
+export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={},transport:typeof fetch=fetch,reasoning:TaskReasoningEfforts=taskReasoningDefaults):StoryGenerator{
  const models={...defaultModels,...config},generate=client(key,transport);
  return {
-  ...storyboardGenerator(selection=>source(selection).book,async(instructions,payload,schema,maxOutputTokens,original)=>{
+  ...storyboardGenerator(selection=>source(selection).book,async(task,instructions,payload,schema,maxOutputTokens,original)=>{
    const book=(payload as {book:string}).book,url=!original&&/^https?:/i.test(book)?book:'';
-   const {candidate,metadata}=await generate(models.text,textRequest(instructions,payload,schema,url,maxOutputTokens),readerStoryboardTimeoutMs);
+   const {candidate,metadata}=await generate(models.text,textRequest(instructions,payload,schema,url,maxOutputTokens,reasoning[task]),readerStoryboardTimeoutMs);
    if(url&&!wasRead(candidate,url))throw new GeminiError('SOURCE_UNAVAILABLE');
-   return {value:parseText(candidate),...metadata};
+   return {value:parseText(candidate),...metadata,reasoningEffort:reasoning[task]};
   }),
   original:(selection,plan,id)=>saveStoryOriginal(assets,selection,plan,id,transport),
   async recommend(selection,id,original){
-   const {candidate,metadata}=await generate(models.text,textRequest(frameRecommendationPrompt,frameRecommendationPayload(selection,original),frameRecommendationJson,'',2000));
-   return {value:frameRecommendationSchema.parse(parseText(candidate)),...metadata};
+   const {candidate,metadata}=await generate(models.text,textRequest(frameRecommendationPrompt,frameRecommendationPayload(selection,original),frameRecommendationJson,'',2000,reasoning.frames));
+   return {value:frameRecommendationSchema.parse(parseText(candidate)),...metadata,reasoningEffort:reasoning.frames};
   },
   async plan(selection:Selection,id:string,original?:OriginalSource){
    const {book,url}=source(selection);
    const {candidate,metadata}=await generate(models.text,textRequest(
     planSystemPrompt+(original?.localSource?'\n'+localPlanConstraint:''),
-    {book,chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})},planJson(selection.length),original?'':url,Math.max(8192,(selection.length==='auto'?readerMaxFrames:selection.length)*800)),readerStoryboardTimeoutMs);
+    {book,chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})},planJson(selection.length),original?'':url,Math.max(8192,(selection.length==='auto'?readerMaxFrames:selection.length)*800),reasoning.plan),readerStoryboardTimeoutMs);
    if(url&&!original&&!wasRead(candidate,url))throw new GeminiError('SOURCE_UNAVAILABLE');
    const value=planSchema.parse(parseText(candidate));
    if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new GeminiError('INVALID_PLAN');
-   return {value,...metadata};
+   return {value,...metadata,reasoningEffort:reasoning.plan};
   },
   async image(plan:Plan,page:number,id:string,reference:string,style:ArtStyleId='ink-pencil',productionPrompt='',artifactId?:string){
    const parts:Part[]=[];

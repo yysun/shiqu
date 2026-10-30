@@ -83,6 +83,19 @@ test('invalid effort fails before spawn and ignored config/thread fail before in
  assert.match(safeCodexError(new CodexError('REASONING_EFFORT_UNAVAILABLE')),/推理档位/);
 });
 
+test('per-job effort isolates parallel requests and does not change the runner fallback',async t=>{
+ const fake=await fakeCli(t),runner=createCodexRunner({CODEX_BIN:fake.binary,CODEX_REASONING_EFFORT:'low'});
+ const results=await Promise.all(['medium','high','xhigh'].map(reasoningEffort=>runner.run({instructions:'JSON',prompt:reasoningEffort,reasoningEffort})));
+ assert.deepEqual(results.map(result=>result.reasoningEffort),['medium','high','xhigh']);
+ assert.equal((await runner.run({instructions:'JSON',prompt:'fallback'})).reasoningEffort,'low');
+ const logs=await fake.log(),configs=logs.filter(row=>row.args).map(row=>row.args.find(arg=>arg.startsWith('model_reasoning_effort='))).sort();
+ assert.deepEqual(configs,['high','low','medium','xhigh'].map(effort=>`model_reasoning_effort=${JSON.stringify(effort)}`).sort());
+ await assert.rejects(runner.run({instructions:'JSON',prompt:'bad',reasoningEffort:'invalid'}),error=>error.message==='INVALID_REASONING_EFFORT');
+ const ignored=await fakeCli(t,'ignored-effort-thread');
+ await assert.rejects(createCodexRunner({CODEX_BIN:ignored.binary}).run({instructions:'JSON',prompt:'bad',reasoningEffort:'medium'}),error=>error.message==='REASONING_EFFORT_UNAVAILABLE');
+ assert.ok(!(await ignored.log()).some(row=>row.method==='turn/start'));
+});
+
 test('status exposes the configured text model for cache identity without starting inference',async t=>{
  const fake=await fakeCli(t,'configured-model'),runner=createCodexRunner({CODEX_BIN:fake.binary});
  assert.equal((await runner.status()).model,'configured-text-model');

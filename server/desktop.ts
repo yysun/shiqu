@@ -17,6 +17,7 @@ import {createReaderProvider} from './generation.ts';
 import {stopCodexProcesses} from './codex-runner.ts';
 import {FileMedia} from './media.ts';
 import {codexReasoningEffortSchema} from '../lib/codex-settings.ts';
+import {taskReasoningSchema,reasoningTasks,geminiReasoningEfforts} from '../lib/reader-reasoning.ts';
 
 export const desktopSettings=z.object({
  nodePath:z.string().max(4096).default(''),dataDirectory:z.string().min(1).max(4096),port:z.number().int().min(1024).max(65535),
@@ -24,10 +25,14 @@ export const desktopSettings=z.object({
  lanEnabled:z.boolean().optional(),internetEnabled:z.boolean().default(false),cloudflaredPath:z.string().max(4096).default(''),
  provider:z.enum(['gemini','codex']),textModel:z.string().regex(/^[\w.-]{1,100}$/),imageModel:z.string().regex(/^[\w.-]{1,100}$/),
  codexPath:z.string().max(4096),codexModel:z.string().regex(/^[\w.-]{0,100}$/),codexHome:z.string().max(4096),codexReasoningEffort:codexReasoningEffortSchema,
-}).strict();
+ taskReasoningEfforts:taskReasoningSchema,
+}).strict().superRefine((settings,ctx)=>{
+ if(settings.provider==='gemini')for(const task of reasoningTasks)if(!(geminiReasoningEfforts as readonly string[]).includes(settings.taskReasoningEfforts[task]))ctx.addIssue({code:z.ZodIssueCode.custom,path:['taskReasoningEfforts',task],message:'Gemini 仅支持 low、medium、high'});
+});
 export type DesktopSettings=z.infer<typeof desktopSettings>;
 export function desktopVariables(settings:DesktopSettings,key:string){
- return {SHIQU_AI_PROVIDER:settings.provider,GEMINI_API_KEY:key,GEMINI_TEXT_MODEL:settings.textModel,GEMINI_IMAGE_MODEL:settings.imageModel,CODEX_BIN:settings.codexPath||'codex',CODEX_MODEL:settings.codexModel,SHIQU_CODEX_HOME:settings.codexHome,CODEX_REASONING_EFFORT:settings.codexReasoningEffort};
+ const tasks=taskReasoningSchema.parse(settings.taskReasoningEfforts);
+ return {SHIQU_AI_PROVIDER:settings.provider,GEMINI_API_KEY:key,GEMINI_TEXT_MODEL:settings.textModel,GEMINI_IMAGE_MODEL:settings.imageModel,CODEX_BIN:settings.codexPath||'codex',CODEX_MODEL:settings.codexModel,SHIQU_CODEX_HOME:settings.codexHome,CODEX_REASONING_EFFORT:settings.codexReasoningEffort,...Object.fromEntries(reasoningTasks.map(task=>['SHIQU_REASONING_'+task.toUpperCase(),tasks[task]]))};
 }
 export async function testDesktopProvider(settings:DesktopSettings,key:string,root:string,transport:typeof fetch=fetch){
  if(settings.provider==='codex'){

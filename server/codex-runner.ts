@@ -11,8 +11,8 @@ import type {CodexReasoningEffort} from '../lib/codex-settings.ts';
 export {codexEnvironment} from '../scripts/codex-env.mjs';
 
 export class CodexError extends Error {constructor(code:string){super(code);this.name='CodexError';}}
-export type CodexJob={prompt:string;instructions:string;schema?:unknown;image?:{bytes:Uint8Array;contentType:string};generateImage?:boolean;timeoutMs?:number};
-export type CodexResult={text:string;image:string|null;model:string;requestId:string;usage:unknown};
+export type CodexJob={prompt:string;instructions:string;schema?:unknown;image?:{bytes:Uint8Array;contentType:string};generateImage?:boolean;timeoutMs?:number;reasoningEffort?:CodexReasoningEffort};
+export type CodexResult={text:string;image:string|null;model:string;requestId:string;usage:unknown;reasoningEffort?:string};
 export interface CodexRunner {status():Promise<{configured:boolean;reason?:string;model?:string}>;run(job:CodexJob):Promise<CodexResult>}
 const disabled=['shell_tool','unified_exec','view_image','browser_use','computer_use','plugins','remote_plugin','apps','hooks','multi_agent','code_mode','code_mode_only','code_mode_tool_search','tool_suggest'];
 // Desktop shutdown must terminate detached CLI groups before releasing its data directory.
@@ -35,8 +35,10 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
  if(model&&!/^[a-zA-Z0-9._-]{1,100}$/.test(model))throw new CodexError('INVALID_MODEL');
  const setting=codexReasoningEffortSchema.safeParse(variables.CODEX_REASONING_EFFORT?.trim());
  if(!setting.success)throw new CodexError('INVALID_REASONING_EFFORT');
- const effort=setting.data;
  async function execute(job?:CodexJob):Promise<CodexResult|null>{
+  const selected=codexReasoningEffortSchema.safeParse(job?.reasoningEffort??setting.data);
+  if(!selected.success)throw new CodexError('INVALID_REASONING_EFFORT');
+  const effort=selected.data;
   const directory=await mkdtemp(path.join(tmpdir(),'shiqu-codex-'));
   let child:ReturnType<typeof spawn>|undefined,timer:ReturnType<typeof setTimeout>|undefined;
   let failure:(error:Error)=>void=()=>{},sequence=0,closed=false,bytes=0;
@@ -58,7 +60,7 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
     const budget=(chunk:Buffer)=>{bytes+=chunk.length;if(bytes>32*1024*1024)fail(new CodexError('OUTPUT_LIMIT'));};
     child.stdout!.on('data',budget);child.stderr!.on('data',budget);
     child.stdin!.on('error',()=>fail(new CodexError('PROCESS_EXIT')));
-    let text='',image:string|null=null,threadId='',actualModel='',usage:unknown=null;
+    let text='',image:string|null=null,threadId='',actualModel='',actualEffort:string|undefined,usage:unknown=null;
     lines=createInterface({input:child.stdout!});
     lines.on('line',line=>{
      if(closed)return;let message:any;try{message=JSON.parse(line);}catch{fail(new CodexError('INVALID_PROTOCOL'));return;}
@@ -84,7 +86,7 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
      }
      if(message.method==='turn/completed'){
       if(message.params.turn.status!=='completed'){fail(new CodexError('GENERATION_FAILED'));return;}
-      closed=true;resolve({text,image,model:actualModel,requestId:message.params.turn.id,usage});
+      closed=true;resolve({text,image,model:actualModel,requestId:message.params.turn.id,usage,...(actualEffort?{reasoningEffort:actualEffort}:{})});
      }
     });
     void (async()=>{
@@ -100,6 +102,7 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
       const thread=await call('thread/start',{cwd:directory,ephemeral:true,approvalPolicy:'never',modelProvider:'openai',...(model?{model}:{}),config:{forced_login_method:'chatgpt',mcp_servers:Object.fromEntries(Object.keys(servers).map(name=>[name,{enabled:false}]))},developerInstructions:job.instructions});
       if(thread.modelProvider!=='openai')throw new CodexError('UNSAFE_CONFIGURATION');
       if(effort&&thread.reasoningEffort!==effort)throw new CodexError('REASONING_EFFORT_UNAVAILABLE');
+      actualEffort=thread.reasoningEffort;
       threadId=thread.thread.id;actualModel=thread.model;
       const scoped=await call('mcpServerStatus/list',{threadId});
       if(scoped.nextCursor||scoped.data?.some((server:any)=>Object.keys(server.tools||{}).length||server.resources?.length||server.resourceTemplates?.length))throw new CodexError('UNSAFE_CONFIGURATION');

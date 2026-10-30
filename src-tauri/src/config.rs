@@ -9,6 +9,46 @@ use std::{
 };
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskReasoningEfforts {
+    pub suggest: String,
+    pub art: String,
+    pub frames: String,
+    pub outline: String,
+    pub plan: String,
+    pub review: String,
+    pub repair: String,
+}
+
+impl Default for TaskReasoningEfforts {
+    fn default() -> Self {
+        Self {
+            suggest: "medium".into(),
+            art: "low".into(),
+            frames: "medium".into(),
+            outline: "high".into(),
+            plan: "high".into(),
+            review: "high".into(),
+            repair: "high".into(),
+        }
+    }
+}
+
+impl TaskReasoningEfforts {
+    fn values(&self) -> [&str; 7] {
+        [
+            &self.suggest,
+            &self.art,
+            &self.frames,
+            &self.outline,
+            &self.plan,
+            &self.review,
+            &self.repair,
+        ]
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
     pub node_path: String,
@@ -28,6 +68,8 @@ pub struct Settings {
     pub codex_model: String,
     #[serde(default)]
     pub codex_reasoning_effort: String,
+    #[serde(default)]
+    pub task_reasoning_efforts: TaskReasoningEfforts,
     pub codex_home: String,
 }
 
@@ -46,10 +88,21 @@ impl Settings {
             codex_path: String::new(),
             codex_model: "gpt-6.1-sol".into(),
             codex_reasoning_effort: String::new(),
+            task_reasoning_efforts: TaskReasoningEfforts::default(),
             codex_home: String::new(),
         }
     }
     pub fn validate(&self) -> Result<(), String> {
+        for effort in self.task_reasoning_efforts.values() {
+            let allowed = if self.provider == "gemini" {
+                &["low", "medium", "high"][..]
+            } else {
+                &["low", "medium", "high", "xhigh", "max"][..]
+            };
+            if !allowed.contains(&effort) {
+                return Err("任务推理档位无效；Gemini 仅支持 low、medium、high。".into());
+            }
+        }
         if !["", "low", "medium", "high", "xhigh", "max"]
             .contains(&self.codex_reasoning_effort.as_str())
         {
@@ -440,6 +493,57 @@ mod tests {
         drop(store);
         let store = Store::open(&file, &folder).unwrap();
         assert_eq!(store.settings().unwrap().port, 43129);
+        drop(store);
+        fs::remove_dir_all(folder).unwrap();
+    }
+    #[test]
+    fn task_efforts_migrate_old_settings_and_reject_invalid_saves_atomically() {
+        let folder = folder();
+        let file = folder.join("desktop.sqlite");
+        let mut old = serde_json::to_value(Settings::defaults(&folder)).unwrap();
+        old.as_object_mut().unwrap().remove("taskReasoningEfforts");
+        fs::write(
+            folder.join("settings.json"),
+            serde_json::to_vec(&old).unwrap(),
+        )
+        .unwrap();
+        let mut store = Store::open(&file, &folder).unwrap();
+        let mut settings = store.settings().unwrap();
+        assert_eq!(
+            settings.task_reasoning_efforts.values(),
+            ["medium", "low", "medium", "high", "high", "high", "high"]
+        );
+        settings.provider = "codex".into();
+        settings.task_reasoning_efforts.review = "xhigh".into();
+        settings.task_reasoning_efforts.art = "medium".into();
+        store
+            .save(&settings, KeyChange::Set("disposable-task-key"))
+            .unwrap();
+        drop(store);
+        let mut store = Store::open(&file, &folder).unwrap();
+        assert_eq!(
+            store.settings().unwrap().task_reasoning_efforts.review,
+            "xhigh"
+        );
+        assert_eq!(
+            store.settings().unwrap().task_reasoning_efforts.art,
+            "medium"
+        );
+        settings.provider = "gemini".into();
+        assert!(store.save(&settings, KeyChange::Delete).is_err());
+        assert_eq!(store.key().unwrap(), "disposable-task-key");
+        settings.provider = "codex".into();
+        settings.task_reasoning_efforts.plan = "invalid".into();
+        assert!(store.save(&settings, KeyChange::Delete).is_err());
+        assert_eq!(
+            store.settings().unwrap().task_reasoning_efforts.plan,
+            "high"
+        );
+        assert_eq!(store.key().unwrap(), "disposable-task-key");
+        let partial: TaskReasoningEfforts = serde_json::from_str(r#"{"review":"medium"}"#).unwrap();
+        assert_eq!(partial.review, "medium");
+        assert_eq!(partial.plan, "high");
+        assert!(serde_json::from_str::<TaskReasoningEfforts>(r#"{"unknown":"high"}"#).is_err());
         drop(store);
         fs::remove_dir_all(folder).unwrap();
     }
