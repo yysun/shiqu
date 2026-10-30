@@ -3,6 +3,8 @@ import {z} from 'zod';
 import {artStyleIds} from './reader-styles.ts';
 import {narrativeDetailSchema} from './reader-frame-recommendation.ts';
 import {readerMinFrames,readerMaxFrames} from './reader-limits.ts';
+import type {Document,Selection} from './reader-model.ts';
+import {localSourceKey} from './reader-source-key.ts';
 import type {SuggestionBatch,SuggestionProgress} from './reader-suggestions.ts';
 export type StoryIntake={phase:'discovering'|'choosing'|'preparing'|'confirming'|'confirmed';generation:number;creationHash:string;batches:SuggestionBatch[];selected?:{batch:number;index:number};progress?:SuggestionProgress;manualArt?:boolean;lastAction?:{id:string;hash:string}};
 export type IntakeView=Omit<StoryIntake,'creationHash'|'lastAction'>;
@@ -18,3 +20,17 @@ export type IntakeAction=z.infer<typeof intakeActionSchema>;
 
 type Command<T>=T extends unknown?Omit<T,'requestId'|'generation'>:never;
 export type IntakeCommand=Command<IntakeAction>;
+
+// Older discovery receipts kept the selected/prepared story but wrote the choice gate again.
+// Recover only that complete, matching checkpoint; reads must never commission preparation.
+export function effectiveIntakePhase(doc:Document,selection:Selection){
+ const intake=doc.intake,phase=intake?.phase;
+ if(phase!=='choosing'||!intake?.selected||doc.plan)return phase;
+ const candidate=intake.batches[intake.selected.batch]?.stories[intake.selected.index],count=doc.frameRecommendation?.count;
+ if(!candidate||candidate.title!==selection.storyTitle||typeof doc.original?.text!=='string'||!doc.original.text.trim()||typeof count!=='number'||!Number.isInteger(count)||count<readerMinFrames||count>readerMaxFrames||typeof doc.frameRecommendation?.reason!=='string'||!doc.frameRecommendation.reason.trim())return phase;
+ try{
+  const sources=[candidate.source,selection.source,doc.original.localSource].map(source=>source?localSourceKey(source):null);
+  if(sources.some(source=>source!==sources[0]))return phase;
+ }catch{return phase;}
+ return 'confirming' as const;
+}

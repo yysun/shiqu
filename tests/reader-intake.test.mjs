@@ -120,15 +120,15 @@ test('reselecting remote candidates prepares distinct originals through the real
  assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });
 
-test('finding another batch after preparation keeps observing discovery until the next choice gate',async t=>{
+test('finding another batch preserves the prepared story and observes through its confirmation gate',async t=>{
  const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');
  let release;f.generation.suggestions=async()=>{await new Promise(r=>release=r);return {stories:[],note:'暂无更多。'};};
  await setup(f,id,{action:'more'});await until(()=>release);const discovering=await f.read(id);
  assert.equal(discovering.intake.phase,'discovering');assert.equal(discovering.awaitingFrameCount,false);assert.equal(discovering.generationProgress.phase,'discover');assert.notEqual(shelfGenerationStatus(discovering).group,'待选画幅数');
  const observed=[];let polls=0;
- await observeStoryGeneration({sessionId:id,isActive:()=>true,onSession:s=>observed.push(s.intake.phase),request:async()=>{polls++;return f.read(id);},sleep:async()=>{release();await until(async()=>(await f.read(id)).intake.phase==='choosing');}});
- assert.equal(polls,2);assert.deepEqual(observed,['discovering','choosing']);assert.equal(shelfGenerationStatus(await f.read(id)).group,'待选故事');assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ await observeStoryGeneration({sessionId:id,isActive:()=>true,onSession:s=>observed.push(s.intake.phase),request:async()=>{polls++;return f.read(id);},sleep:async()=>{release();await until(async()=>(await f.read(id)).intake.phase==='confirming');}});
+ assert.equal(polls,2);assert.deepEqual(observed,['discovering','confirming']);assert.equal(shelfGenerationStatus(await f.read(id)).group,'待制作确认');assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });
 
 test('confirmed intake draws eighty frames once across four storyboard batches',async t=>{
@@ -138,4 +138,43 @@ test('confirmed intake draws eighty frames once across four storyboard batches',
  await until(async()=>(await f.read(id)).state==='completed',15000);
  assert.deepEqual(f.control.batches.map(p=>p.batch),[{first:1,last:20},{first:21,last:40},{first:41,last:60},{first:61,last:80}]);
  assert.equal(f.control.calls.length,80);assert.equal((await f.read(id)).ready,80);
+});
+
+
+test('legacy prepared choice receipts read as confirming without writes or paid work, and can confirm directly',async t=>{
+ const {readLibrarySummary}=await import('../desktop/library-preview.ts');
+ const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
+ await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');
+ await f.app.services.production.queue.settle();await f.app.services.production.tick();
+ await f.app.services.database.prepare("UPDATE reader_sessions SET document=json_set(document,'$.intake.phase','choosing') WHERE id=?").bind(id).run();
+ const before=await f.app.services.database.prepare('SELECT document FROM reader_sessions WHERE id=?').bind(id).first();
+ const s=await f.read(id);assert.equal(s.intake.phase,'confirming');assert.equal(s.generationProgress.phase,'production-confirmation');assert.equal(shelfGenerationStatus(s).group,'待制作确认');
+ const summary=readLibrarySummary(f.dataDirectory).stories.find(s=>s.id===id);assert.equal(summary.production.intakePhase,'confirming');assert.equal(summary.production.phase,'production-confirmation');
+ assert.equal((await f.app.services.database.prepare('SELECT document FROM reader_sessions WHERE id=?').bind(id).first()).document,before.document,'Reading normalizes the view, never the stored record');
+ assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ await setup(f,id,{action:'confirm',settings:{artStyle:s.selection.artStyle,productionPrompt:s.selection.productionPrompt,narrativeDetail:'balanced',length:4}},s);
+ await until(async()=>(await f.read(id)).state==='completed');assert.equal((await f.read(id)).ready,4);assert.equal(f.control.recommendations.length,1);
+});
+
+test('phase recovery compares local source ranges canonically and rejects partial or mismatched checkpoints',async t=>{
+ const {readLibrarySummary}=await import('../desktop/library-preview.ts');
+ const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
+ await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');await f.app.services.production.queue.settle();await f.app.services.production.tick();
+ const row=await f.app.services.database.prepare('SELECT document,selection FROM reader_sessions WHERE id=?').bind(id).first(),base=JSON.parse(row.document),selected=JSON.parse(row.selection);
+ const source={sectionId:'s1',firstUnit:'u1',lastUnit:'u2',continuations:[{sectionId:'s2',firstUnit:'u3',lastUnit:'u4'}],edition:'a'.repeat(64)};
+ base.intake.phase='choosing';base.intake.batches[0].stories[0].source=source;selected.source=source;
+ base.original.localSource={edition:source.edition,continuations:[{lastUnit:'u4',firstUnit:'u3',sectionId:'s2'}],lastUnit:'u2',firstUnit:'u1',sectionId:'s1'};
+ for(const [mutate,phase] of [
+  [()=>{},'confirming'],
+  [doc=>{delete doc.original;},'choosing'],
+  [doc=>{delete doc.frameRecommendation;},'choosing'],
+  [doc=>{doc.intake.selected.index=4;},'choosing'],
+  [doc=>{doc.intake.batches[0].stories[0].title='另一篇故事';},'choosing'],
+  [doc=>{doc.original.localSource.continuations[0].lastUnit='other-unit';},'choosing'],
+ ]){
+  const doc=structuredClone(base);mutate(doc);await f.app.services.database.prepare('UPDATE reader_sessions SET document=?,selection=? WHERE id=?').bind(JSON.stringify(doc),JSON.stringify(selected),id).run();
+  assert.equal((await f.read(id)).intake.phase,phase);
+  const summary=readLibrarySummary(f.dataDirectory).stories.find(s=>s.id===id);assert.equal(summary.production.intakePhase,phase);
+ }
+ assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });

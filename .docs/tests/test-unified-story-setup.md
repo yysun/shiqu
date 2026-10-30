@@ -9,3 +9,12 @@
 7. 从新建故事进入书籍/主题页，不出现制作要求；加入队列后等待独立候选窗口，候选态不显示制作确认或后续制作流程。第一次选择与重新选择共用批次/再找一批界面；选定后才进入“故事制作流程”。提取失败或暂停仍有重试/恢复入口。
 
 阶段执行：IAB已验证首次候选→选定→流程，原文只GET、共用三标签编辑、草稿关闭保留、换候选保留手改要求/水彩、再找一批后回看第一批、明确重新推荐→回到流程。最终确认4幅前，fixture基线为另一篇完成故事plans=1/images=4，当前任务ready=0；确认后总计plans=2/images=8、当前任务ready=4/completed，隐藏brief保留在最终POST和selection。原文补全POST为0。新旧弹窗关闭后body/root样式归空，焦点分别恢复制作要求/阅读偏好。375px流程和编辑无溢出，叙事详略不存在。证据.data/evidence/unified-story-setup/。
+
+增补执行：从首页选择庄子、聪明与糊涂→书籍主题页DOM无制作要求、textarea=0→加入队列→独立“选择故事”窗口，无后续制作流程→选中庄周梦蝶→“故事制作流程”，有原文/要求/画风/幅数入口且无叙事详略。候选状态的暂停/失败恢复由真实组件SSR断言覆盖。截图book-theme-phone.png、candidates-phone.png、flow-phone.png；three-step.json记录新增任务仍待确认、plans/images未增加，source POST始终0。
+
+8. 已有生成故事在第2幅、已收藏：点击统一重新选择，注入创建503应保留原页/收藏及阅读会话；解除故障再点，只产生一个新选题session，沿用book/theme偏好且清除原出处与标题。独立候选窗口与新建相同，原版仍在书架且原进度/收藏/原图不变。
+9. 故事已选且原文/幅数已准备后，再找一批再关闭候选：应回到待制作确认，保持旧故事、来源、幅数；新批保存但不要求再选。注入旧choosing+准备完成记录，阅读/桌面均待确认，明确最终确认可继续；不得静默增加推荐/计划/图片调用。
+
+最新ET：已有故事原版第2幅/已收藏，创建在服务端成功后丢响应503，界面保持原页、收藏和当前会话；重试请求UUID仍66ea0e02…，只新增一篇，原页/收藏/4个原图URL保持，见reselect-failed.json及后续reselect-success.json。pending卡片DOM中actionRows=0，原button可访问名仍含选择动作；收藏、暂停/恢复均不打开故事，点击主体才打开选择窗口（shelf-compact-phone.png）。
+
+状态恢复回归：17/17包括真实SQLite/FileMedia/coordinator、原文和幅数准备→more→confirming无额外推荐，旧choosing记录view与桌面SQL相同且读取不写库、可直接最终确认；本地续篇回执字段顺序相异仍相等，缺原文/建议、错误候选/标题/范围则保持choosing。真实599dd00e…仅只读API及IAB查看，已显示待制作确认，未点击确认或发起任何真实生成；截图real-story-confirmation.png。

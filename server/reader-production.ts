@@ -15,6 +15,7 @@ import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
+import {effectiveIntakePhase} from '../lib/reader-intake.ts';
 import {suggestionBatchSchema,freshSuggestions} from '../lib/reader-suggestions.ts';
 import {readerMaxFrames,readerStoryboardBatchSize} from '../lib/reader-limits.ts';
 import {productionReadAhead,productionViewerLeaseMs} from '../lib/reader-production.ts';
@@ -280,7 +281,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     writes=writes.then(()=>this.repository.saveImageProgress(row,token,snapshot));void writes.catch(()=>{});
    }},sources);
    await writes;
-   doc.intake.batches.push(freshSuggestions(suggestionBatchSchema.parse(result),titles,sources));doc.intake.phase='choosing';delete doc.intake.progress;
+   doc.intake.batches.push(freshSuggestions(suggestionBatchSchema.parse(result),titles,sources));doc.intake.phase='choosing';doc.intake.phase=effectiveIntakePhase(doc,selection)!;delete doc.intake.progress;
    await this.repository.save(row,token,doc,false);return {batches:doc.intake.batches.length};
   }catch(error){await writes.catch(()=>{});if(persistenceError(error)||error instanceof ReaderError&&error.status===404)throw error;const terminal=error instanceof ReaderError&&error.status<500;await this.repository.save(row,token,doc,false,this.stopping&&!terminal?null:error instanceof ReaderError?error.message:this.provider.safeError(error));throw error;}
  }

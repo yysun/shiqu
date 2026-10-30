@@ -2,6 +2,7 @@
 import {createHash} from 'node:crypto';
 import {emptyDocument,selectionSchema,ReaderError} from '../lib/reader-model.ts';
 import type {Document,Selection,SessionRow} from '../lib/reader-model.ts';
+import {effectiveIntakePhase} from '../lib/reader-intake.ts';
 import type {IntakeAction} from '../lib/reader-intake.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
 import {maxSuggestionBatches} from '../lib/reader-suggestions.ts';
@@ -19,6 +20,7 @@ export async function createIntake(repo:ReaderRepository,id:string,uid:string,in
 export async function changeIntake(repo:ReaderRepository,id:string,uid:string,action:IntakeAction):Promise<SessionRow>{
  const row=await repo.get(id,uid),doc=JSON.parse(row.document) as Document,intake=doc.intake,selection=selectionSchema.parse(JSON.parse(row.selection));
  if(!intake)throw new ReaderError(409,'这篇故事使用旧制作流程，请继续原来的步骤。');
+ intake.phase=effectiveIntakePhase(doc,selection)!;
  const fingerprint=hash(action);
  if(intake.lastAction?.id===action.requestId){if(intake.lastAction.hash!==fingerprint)throw new ReaderError(409,'此操作编号已用于其他内容。');return row;}
  if(intake.generation!==action.generation)throw new ReaderError(409,'制作内容已由另一次操作更新，请重新打开后继续。');
