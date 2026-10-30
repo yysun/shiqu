@@ -240,3 +240,33 @@ test('FileMedia restart and authenticated JSON/streaming routes preserve partial
  const events=(await response.text()).trim().split('\n').map(JSON.parse),next=events.find(e=>e.type==='result').batch;
  assert.equal(next.stories.length,3);assert.equal(f.calls.length,2);assert.ok(next.stories.every(s=>!first.stories.some(old=>localSourceKey(old.source)===localSourceKey(s.source))));
 });
+
+test('a draining reader waits for the call it ended, surfaces its failure, and leaves shared readers alone',async()=>{
+ const f=fixture(),cache=new StoryDiscoveryCache(memory()),abort=new AbortController(),provider=f.provider.suggestions;
+ let release,settled=false;
+ f.provider.suggestions=async(...args)=>{await new Promise(resolve=>release=resolve);const result=await provider(...args);settled=true;return result;};
+ const leaving=run(f,cache,[],{signal:abort.signal,drain:true,onProgress:()=>{}},[],limits);let left=false;void leaving.catch(()=>{left=true;});
+ await until(()=>release);abort.abort();await new Promise(resolve=>setTimeout(resolve,10));assert.equal(left,false,'The call is still using its worker slot');
+ release();await assert.rejects(leaving);assert.equal(settled,true);assert.equal(f.calls.length,1,'No further call after the stop');
+ // A failing call is not a clean stop: a killed call must count against the replay allowance.
+ const failing=fixture(),failed=new StoryDiscoveryCache(memory()),stop=new AbortController();let reject;
+ failing.provider.suggestions=()=>new Promise((_,no)=>reject=no);
+ const killed=run(failing,failed,[],{signal:stop.signal,drain:true,onProgress:()=>{}},[],limits);await until(()=>reject);stop.abort();reject(Error('PROCESS_EXIT'));
+ await assert.rejects(killed,/PROCESS_EXIT/);
+ // Another reader keeps the flight alive, so leaving does not wait for or end it.
+ const shared=fixture(),cacheShared=new StoryDiscoveryCache(memory()),one=new AbortController();let open;
+ const base=shared.provider.suggestions;shared.provider.suggestions=async(...args)=>{await new Promise(resolve=>open=resolve);return base(...args);};
+ const a=run(shared,cacheShared,[],{signal:one.signal,drain:true,onProgress:()=>{}},[],limits),b=run(shared,cacheShared,[],{signal:new AbortController().signal,onProgress:()=>{}},[],limits);
+ await until(()=>open);one.abort();await assert.rejects(a);open();assert.ok((await b).stories.length>0);assert.equal(shared.calls.length,1);
+});
+
+test('stopping and resuming a search reads on from its saved position',async()=>{
+ const f=fixture(),cache=new StoryDiscoveryCache(memory()),abort=new AbortController(),provider=f.provider.suggestions;
+ // An empty first block forces a second call, so a stop can land between the two.
+ let first=true;
+ f.provider.suggestions=async(s,e,input)=>{f.calls.push({input});if(first){first=false;abort.abort();return {stories:[],note:'',scan:state(true)};}f.calls.pop();return provider(s,e,input);};
+ await assert.rejects(run(f,cache,[],{signal:abort.signal,drain:true,onProgress:()=>{}},[],limits));
+ const before=f.calls.length,firstText=f.calls[0].input.text;assert.equal(before,1,'Only the call already started ran');
+ const result=await run(f,cache,[],{signal:new AbortController().signal,onProgress:()=>{}},[],limits);
+ assert.ok(result.stories.length>0);assert.notEqual(f.calls[1].input.text,firstText,'The finished block is not read again');
+});

@@ -8,6 +8,9 @@ interface Statement{bind(...values:unknown[]):Statement;first<T>():Promise<T|nul
 const visible="NOT EXISTS (SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)";
 // A failed write says nothing about the work, so callers must not report it as a provider failure.
 export const persistenceError=(error:unknown)=>(error as {code?:string}|null)?.code==='ERR_SQLITE_ERROR';
+// Workers own only the intake phase. Candidates, search and drafts change beside a running step,
+// and the generation fence on every write below rejects a worker whose selection was replaced.
+const workerDocument="CASE WHEN json_type(document,'$.intake')='object' THEN json_set(?,'$.intake',json(json_set(json_extract(document,'$.intake'),'$.phase',json_extract(?,'$.intake.phase')))) ELSE ? END";
 export class ReaderRepository{
  db:Database;
  constructor(db:Database){this.db=db;}
@@ -93,10 +96,10 @@ export class ReaderRepository{
  async acquire(row:SessionRow,step:Step){const token=crypto.randomUUID(),now=Date.now();const r=await this.db.prepare(`UPDATE reader_sessions SET state='running',error=NULL,lock_token=?,lock_until=?,step_attempts=CASE WHEN step_key=? THEN step_attempts+1 ELSE 1 END,step_key=?,updated_at=? WHERE id=? AND user_id=? AND state=? AND document=? AND state!='running' AND generation_control='active' AND ${visible}`).bind(token,now+180000,step.key,step.key,new Date(now).toISOString(),row.id,row.user_id,row.state,row.document).run();return r.meta.changes?token:null;}
  async saveImageProgress(row:SessionRow,token:string,snapshot:Document){
   // Deletion hides the session but must still retain results of calls already in flight.
-  const result=await this.db.prepare("UPDATE reader_sessions SET document=?,updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?")
-   .bind(JSON.stringify(snapshot),new Date().toISOString(),row.id,row.user_id,token,snapshot.intake?.generation??-1).run();
+  const saved=JSON.stringify(snapshot),result=await this.db.prepare(`UPDATE reader_sessions SET document=${workerDocument},updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?`)
+   .bind(saved,saved,saved,new Date().toISOString(),row.id,row.user_id,token,snapshot.intake?.generation??-1).run();
   if(result.meta.changes!==1)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
  }
- async save(row:SessionRow,token:string,doc:Document,complete:boolean,error:string|null=null){const r=await this.db.prepare("UPDATE reader_sessions SET document=?,state=?,error=?,lock_token=NULL,lock_until=0,updated_at=? WHERE id=? AND user_id=? AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?").bind(JSON.stringify(doc),error?'failed':complete?'completed':'idle',error,new Date().toISOString(),row.id,row.user_id,token,doc.intake?.generation??-1).run();if(!r.meta.changes)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');return this.get(row.id,row.user_id);}
+ async save(row:SessionRow,token:string,doc:Document,complete:boolean,error:string|null=null){const saved=JSON.stringify(doc),r=await this.db.prepare(`UPDATE reader_sessions SET document=${workerDocument},state=?,error=?,lock_token=NULL,lock_until=0,updated_at=? WHERE id=? AND user_id=? AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?`).bind(saved,saved,saved,error?'failed':complete?'completed':'idle',error,new Date().toISOString(),row.id,row.user_id,token,doc.intake?.generation??-1).run();if(!r.meta.changes)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');return this.get(row.id,row.user_id);}
  async progress(id:string,uid:string,page:number,saved:boolean){const row=await this.get(id,uid),doc=JSON.parse(row.document) as Document;if(!doc.plan||!doc.images[page])throw new ReaderError(400,'这幅画面还没有展开');await this.db.prepare(`UPDATE reader_sessions SET page=?,saved=?,last_read_at=? WHERE id=? AND user_id=? AND ${visible}`).bind(page,saved?1:0,new Date().toISOString(),id,uid).run();return this.get(id,uid);}
 }

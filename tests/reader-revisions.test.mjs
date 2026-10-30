@@ -92,13 +92,16 @@ test('invalid inputs, unchanged drafts, stale parent, and cross-owner IDs never 
  const fresh=await snapshot(f,id);const occupied=await f.request(`sessions/${id}/revisions`,'POST',{requestId:foreign,token:fresh.token,changes:{plan:base.plan}});assert.equal(occupied.status,409);assert.equal(writes,0);assert.equal(f.control.calls.length,before);
 });
 
-for(const kind of ['missing','corrupt','transient'])test(`reusable ${kind} asset stops the submission before publication or paid fallback`,async t=>{
+for(const kind of ['missing','corrupt','transient'])test(`reusable ${kind} asset ${kind==='transient'?'stops the submission':'is redrawn in the new version'}`,async t=>{
  const {f,id}=await completed(t),base=await snapshot(f,id),plan=structuredClone(base.plan);plan.reflection='梦醒后，自在的感觉仍然留在心里。';
  const get=f.app.services.media.get.bind(f.app.services.media),bad=base.images[3].replace('/api/reader/media/','reader/');
  f.app.services.media.get=async key=>{if(key!==bad)return get(key);if(kind==='missing')return null;if(kind==='transient')throw Error('controlled read error');return {contentType:'image/png',async arrayBuffer(){return new ArrayBuffer(4);}};};
- const before=f.control.calls.length,res=await f.request(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{plan}});assert.equal(res.ok,false);
- const rows=await f.app.services.database.prepare("SELECT id FROM reader_sessions WHERE json_extract(document,'$.revision.parentId')=?").bind(id).all();assert.equal(rows.results.length,0);assert.equal(f.control.calls.length,before);
- if(kind==='missing'){const style=await revise(f,id,{artStyle:'paper-cut'},base);await until(async()=>(await f.read(style.id)).state==='completed');assert.equal(f.control.calls.length-before,8);}
+ const before=f.control.calls.length,res=await f.request(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{plan}});
+ const rows=await f.app.services.database.prepare("SELECT id FROM reader_sessions WHERE json_extract(document,'$.revision.parentId')=?").bind(id).all();
+ if(kind==='transient'){assert.equal(res.status,503);assert.equal(rows.results.length,0);assert.equal(f.control.calls.length,before);return;}
+ assert.equal(res.status,201);const child=(await res.json()).id;f.app.services.media.get=get;
+ await until(async()=>(await f.read(child)).state==='completed');assert.equal(f.control.calls.length-before,1,'Only the unusable page is drawn again');
+ assert.equal((await f.read(id)).ready,8,'The original keeps what it has');
 });
 
 test('style changes preserve planning; requirements replan; count changes reuse exact scenes after planning',async t=>{

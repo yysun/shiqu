@@ -4,6 +4,8 @@
 // an unreadable story is skipped alone. Interrupted work resumes within a bounded replay allowance.
 // A lost image file is redrawn only on explicit retry. An open story's first image, current page
 // and read-ahead go first, and other stories yield while its publication frees the next slot.
+// Search runs beside a story's selection, without its lock: it stops when no longer wanted, and
+// its failures stay with the search unless a stop interrupted the call.
 import {randomUUID} from 'node:crypto';
 import {ReaderRepository,persistenceError} from '../lib/reader-repository.ts';
 import type {Database} from '../lib/reader-repository.ts';
@@ -15,16 +17,19 @@ import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
-import {effectiveIntakePhase} from '../lib/reader-intake.ts';
+import {effectiveIntakePhase,intakeSearch} from '../lib/reader-intake.ts';
+import type {IntakeSearch} from '../lib/reader-intake.ts';
 import {suggestionBatchSchema,freshSuggestions} from '../lib/reader-suggestions.ts';
+import type {SuggestionBatch,SuggestionProgress} from '../lib/reader-suggestions.ts';
 import {readerMaxFrames,readerStoryboardBatchSize} from '../lib/reader-limits.ts';
 import {productionReadAhead,productionViewerLeaseMs} from '../lib/reader-production.ts';
 import type {ReaderProduction} from '../lib/reader-production.ts';
-import {ProductionQueue,inputVersion,productionJobId} from './production-queue.ts';
+import {JobYield,ProductionQueue,inputVersion,productionJobId} from './production-queue.ts';
 import type {ProductionJob,JobSpec} from './production-queue.ts';
 
 type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;through_page:number;expires_at:number;runtime_id:string};
 type Lease={ownerId:string;token:string};
+type ActiveSearch={round:number;controller:AbortController;startedAt:number;progress?:SuggestionProgress};
 type Options={imageWorkers?:number;now?:()=>number;leaseMs?:number;tickMs?:number};
 const sessionLeaseMs=180000;
 const maxAutomaticAttempts=3;
@@ -33,6 +38,7 @@ const publicationYieldMs=15000;
 const lostImagePrefix='这幅图片的文件已丢失或损坏。';
 const lostImageError=(message:string|null)=>message?.startsWith(lostImagePrefix)===true;
 const lostImageMessage='这幅图片的文件已丢失或损坏。重试会重新绘制这一幅，已保存的其他画面会保留。';
+const searchRound=(job:ProductionJob)=>(JSON.parse(job.payload) as {searchRound?:number}).searchRound;
 // Background order is by page. A viewer's anchor, current page and read-ahead sort ahead of all of it.
 function pagePriority(page:number,demand:Demand){
  const background=productionReadAhead+1+page;
@@ -49,6 +55,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  readonly repository:ReaderRepository;
  private readonly runtimeId=randomUUID();
  private readonly leases=new Map<string,Lease>();
+ private readonly searches=new Map<string,ActiveSearch>();
  private readonly clock:()=>number;
  private timer:ReturnType<typeof setInterval>;
  private scheduled:ReturnType<typeof setImmediate>|undefined;
@@ -83,6 +90,16 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const row=await this.database.prepare('SELECT * FROM reader_sessions WHERE id=? AND user_id=?').bind(id,ownerId).first<SessionRow>();
   if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');return row;
  }
+ private searchCurrent(row:SessionRow,round:number|undefined){
+  const doc=JSON.parse(row.document) as Document;
+  if(!doc.intake||doc.plan||doc.intake.phase==='confirmed')return false;
+  const search=intakeSearch(doc.intake);return search.state==='searching'&&search.round===round;
+ }
+ // One rule for starting, resuming and stopping a search, so they cannot disagree and cycle.
+ private async searchRunnable(row:SessionRow,round:number|undefined){
+  if(this.stopping||!this.readable(row)||row.generation_control!=='active'||!this.searchCurrent(row,round))return false;
+  return !await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
+ }
  private currentJob(row:SessionRow,job:ProductionJob){const generation=(JSON.parse(row.document) as Document).intake?.generation;return generation===undefined||(JSON.parse(job.payload) as {setupGeneration?:number}).setupGeneration===generation;}
  private async currentJobs(row:SessionRow,saved?:ProductionJob[]){
   const jobs=saved||await this.queue.jobs(row.id,row.user_id),generation=(JSON.parse(row.document) as Document).intake?.generation;
@@ -109,6 +126,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // Attempts count every paid start, so a crash loop stops here and waits for an explicit retry.
   if(this.stopping||job.attempts>=maxAutomaticAttempts)return false;
   const row=await this.raw(job.session_id,job.owner_id);
+  if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
   if(!this.readable(row)||!this.currentJob(row,job))return false;
   return row.generation_mode==='background'&&row.generation_control==='active'&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
@@ -128,10 +146,27 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    ON CONFLICT(session_id,owner_id,viewer_id) DO UPDATE SET page=excluded.page,through_page=excluded.through_page,expires_at=excluded.expires_at,runtime_id=excluded.runtime_id`)
    .bind(id,ownerId,viewerId,page,Math.min(readerMaxFrames-1,throughPage),this.clock()+productionViewerLeaseMs,this.runtimeId).run();
   if(retry){
-   await this.queue.recoverExpired();await this.recoverLostImages(await this.raw(id,ownerId));await this.queue.retry(id,ownerId);
+   await this.queue.recoverExpired();await this.recoverLostImages(await this.raw(id,ownerId));await this.queue.retry(id,ownerId,doc.intake?.generation);
    await this.database.prepare("UPDATE reader_sessions SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'").bind(id,ownerId).run();
   }
   await this.graph(await this.raw(id,ownerId));
+  this.wake();return this.snapshot(ownerId,id);
+ }
+ // Let a blocked story draw on the reader's word. The review reads as passed first, and its
+ // finished checkpoints are removed rather than rerun: a script job would repair what was accepted.
+ async overrideReview(ownerId:string,id:string){
+  if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
+  const row=await this.repository.get(id,ownerId),doc=JSON.parse(row.document) as Document,review=doc.visualReview;
+  if(review?.status!=='blocked'&&!review?.overridden)throw new ReaderError(409,'这篇故事没有待处理的审片问题。');
+  if(review.status==='blocked'){
+   const saved=await this.database.prepare(`UPDATE reader_sessions SET document=json_remove(json_set(document,'$.visualReview.status','passed','$.visualReview.overridden',json('true')),'$.visualReview.stopReason'),state='idle',error=NULL,lock_token=NULL,lock_until=0,updated_at=?
+    WHERE id=? AND user_id=? AND state!='running' AND json_extract(document,'$.visualReview.status')='blocked' AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)`)
+    .bind(new Date(this.clock()).toISOString(),id,ownerId).run();
+   if(!saved.meta.changes)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
+  }
+  // Review checkpoints are finished, and a queued one would wait behind the drawing forever.
+  // Only text jobs: a repeated request must not touch a failed image. Blocked stories have none yet.
+  await this.database.prepare("DELETE FROM production_jobs WHERE session_id=? AND owner_id=? AND pool='text' AND kind!='discover' AND state IN('queued','failed')").bind(id,ownerId).run();
   this.wake();return this.snapshot(ownerId,id);
  }
  async leave(ownerId:string,id:string,viewerId:string){
@@ -142,7 +177,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const jobs=await this.currentJobs(row),failed=jobs.find(job=>job.state==='failed'&&lostImageError(job.error))||jobs.find(job=>job.state==='failed');
   const active=jobs.filter(job=>job.state==='running'&&job.lease_until>this.clock()).sort((a,b)=>a.updated_at-b.updated_at);
   // Claim timestamps measure this attempt, rather than time since the story was first created.
-  const session={...saved,generationProgress:{...saved.generationProgress!,startedAt:active[0]?.updated_at??null,attempt:active[0]?.attempts??saved.generationProgress!.attempt}};
+  const search=this.searches.get(id);
+  const session={...saved,...(saved.intake&&search?.progress?{intake:{...saved.intake,progress:search.progress}}:{}),generationProgress:{...saved.generationProgress!,startedAt:active[0]?.updated_at??search?.startedAt??null,attempt:active[0]?.attempts??saved.generationProgress!.attempt}};
   const working=active.length>0||jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'));
   if(failed&&!working){
    const lost=lostImageError(failed.error);
@@ -150,6 +186,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   const demands=await this.demands(id),eligible=jobs.some(job=>job.state==='queued'&&demands.some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page));
   const manual=row.generation_control!=='active';
+  // No story is chosen yet, so finding one is what this story is doing.
+  if(!manual&&saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching')return {...session,productionState:search?'running':'queued'};
   const productionState=manual?'paused':working?'running':eligible?'queued':'paused';
   if(session.state!=='failed'&&session.state!=='completed'&&!manual&&(working||eligible))return {...session,state:'running',productionState};
   // A saved session state alone cannot prove that the queue is still executing.
@@ -160,8 +198,17 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private async graph(row:SessionRow){
   const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
-  if(doc.intake?.phase==='discovering'){await this.queue.enqueue(this.spec(row,'discover','text',inputVersion({selection,generation:doc.intake.generation}),'',[],{setupGeneration:doc.intake.generation},-10));return;}
-  if(doc.intake&&['choosing','confirming'].includes(doc.intake.phase))return;
+  if(doc.intake){
+   const search=intakeSearch(doc.intake),searching=search.state==='searching'&&!doc.plan&&doc.intake.phase!=='confirmed';
+   // A record written by an older release has no stored search to fence its result against.
+   if(doc.intake.phase==='discovering'&&doc.intake.search?.state!=='searching'){
+    await this.database.prepare("UPDATE reader_sessions SET document=json_set(document,'$.intake.search',json(?)) WHERE id=? AND user_id=? AND json_extract(document,'$.intake.phase')='discovering' AND COALESCE(json_extract(document,'$.intake.search.round'),0)=?")
+     .bind(JSON.stringify({round:search.round+1,state:'searching'}),row.id,row.user_id,search.round).run();
+    return;
+   }
+   if(searching)await this.queue.enqueue(this.spec(row,'discover','text',String(search.round),'',[],{searchRound:search.round},-10));
+   if(['discovering','choosing','confirming'].includes(doc.intake.phase))return;
+  }
   const preparing=selection.narrativeDetail&&!doc.frameCountConfirmed&&!doc.plan;
   // A distinct job owns each saved planning checkpoint; the empty key is the complete-script barrier.
   const scriptKey=!preparing&&(!doc.plan||!reviewPassed(doc))&&(doc.visualReview||doc.storyboard||selection.length==='auto'||selection.length>readerStoryboardBatchSize)?nextStep(doc,selection,0)?.key||'':doc.visualReview?'approved':'';
@@ -193,6 +240,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private async canRun(job:ProductionJob){
   const row=await this.raw(job.session_id,job.owner_id);
+  if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
   if(!this.readable(row)||!this.currentJob(row,job))return false;
   const local=job.kind==='image-publish';
   if(!local){
@@ -268,24 +316,68 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    .bind(token,now+(this.options.leaseMs||sessionLeaseMs),new Date(now).toISOString(),row.id,row.user_id,row.state,row.document).run();
   if(acquired.meta.changes){this.leases.set(row.id,{ownerId:row.user_id,token});return true;}return false;
  }
+ private async finishSearch(id:string,ownerId:string,round:number,search:IntakeSearch,batch?:SuggestionBatch){
+  // The fence refuses a result that arrives after confirmation or after a crash already saved it.
+  const phase="'$.intake.phase',CASE WHEN json_extract(document,'$.intake.phase')='discovering' THEN 'choosing' ELSE json_extract(document,'$.intake.phase') END";
+  const updated=`json_set(document,'$.intake.search',json(?),${phase})`;
+  const saved=await this.database.prepare(`UPDATE reader_sessions SET document=${batch?`json_insert(${updated},'$.intake.batches[#]',json(?))`:updated},updated_at=?
+   WHERE id=? AND user_id=? AND json_extract(document,'$.intake.search.round')=? AND json_extract(document,'$.intake.search.state')='searching'`)
+   .bind(JSON.stringify(search),...(batch?[JSON.stringify(batch)]:[]),new Date(this.clock()).toISOString(),id,ownerId,round).run();
+  return saved.meta.changes>0;
+ }
  private async discover(job:ProductionJob){
-  const row=await this.repository.get(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
-  if(!this.currentJob(row,job)||doc.intake?.phase!=='discovering')return {obsolete:true};
-  const selection=selectionSchema.parse(JSON.parse(row.selection)),token=await this.repository.acquire(row,{kind:'discover',page:0,key:'discover:'+doc.intake.generation});
-  if(!token)throw new ReaderError(409,'选题任务状态已更新，请稍后重试。');
-  this.leases.set(row.id,{ownerId:row.user_id,token});
-  let writes=Promise.resolve();
+  const round=searchRound(job),row=await this.raw(job.session_id,job.owner_id);
+  if(round===undefined||!this.searchCurrent(row,round))return {obsolete:true};
+  if(!await this.searchRunnable(row,round))throw new JobYield();
+  const doc=JSON.parse(row.document) as Document,intake=doc.intake!,search=intakeSearch(intake),selection=selectionSchema.parse(JSON.parse(row.selection));
+  const excluded=intake.batches.flatMap(batch=>batch.stories),titles=excluded.map(story=>story.title),sources=excluded.flatMap(story=>story.source?[story.source]:[]);
+  const active:ActiveSearch={round,controller:new AbortController(),startedAt:this.clock()};this.searches.set(row.id,active);
   try{
-   const excluded=doc.intake.batches.flatMap(batch=>batch.stories),titles=excluded.map(story=>story.title),sources=excluded.flatMap(story=>story.source?[story.source]:[]);
-   const controller=new AbortController();
-   const result=await this.provider.suggestions(selection,titles,undefined,{signal:controller.signal,onProgress:progress=>{
-    doc.intake!.progress=progress;const snapshot=structuredClone(doc);
-    writes=writes.then(()=>this.repository.saveImageProgress(row,token,snapshot));void writes.catch(()=>{});
-   }},sources);
-   await writes;
-   doc.intake.batches.push(freshSuggestions(suggestionBatchSchema.parse(result),titles,sources));doc.intake.phase='choosing';doc.intake.phase=effectiveIntakePhase(doc,selection)!;delete doc.intake.progress;
-   await this.repository.save(row,token,doc,false);return {batches:doc.intake.batches.length};
-  }catch(error){await writes.catch(()=>{});if(persistenceError(error)||error instanceof ReaderError&&error.status===404)throw error;const terminal=error instanceof ReaderError&&error.status<500;await this.repository.save(row,token,doc,false,this.stopping&&!terminal?null:error instanceof ReaderError?error.message:this.provider.safeError(error));throw error;}
+   const result=await this.provider.suggestions(selection,titles,undefined,{signal:active.controller.signal,drain:true,onProgress:progress=>{active.progress=progress;}},sources);
+   const batch=freshSuggestions(suggestionBatchSchema.parse(result),titles,sources);
+   const saved=await this.finishSearch(row.id,row.user_id,round,{...search,state:'idle',error:null},batch);
+   return saved?{batches:intake.batches.length+1}:{obsolete:true};
+  }catch(error){
+   if(persistenceError(error))throw error;
+   if(!this.searchCurrent(await this.raw(row.id,row.user_id),round))return {obsolete:true};
+   const {signal}=active.controller,terminal=error instanceof ReaderError&&error.status<500;
+   // Stopping cleanly between calls spends no attempt. A call a stop killed did spend one.
+   if(signal.aborted&&error===signal.reason)throw new JobYield();
+   if(this.stopping&&!terminal)throw error;
+   if(signal.aborted&&!terminal)throw new JobYield();
+   await this.finishSearch(row.id,row.user_id,round,{...search,state:'failed',error:error instanceof ReaderError?error.message:this.provider.safeError(error)});
+   return {failed:true};
+  }finally{this.searches.delete(row.id);}
+ }
+ // Superseded work can never run again, so it should stop costing every scheduling pass.
+ // Covers every story, including those no viewer or background intent is scheduling right now.
+ private async pruneSuperseded(){
+  await this.database.prepare(`DELETE FROM production_jobs WHERE state IN('queued','failed') AND EXISTS(SELECT 1 FROM reader_sessions s WHERE s.id=production_jobs.session_id AND s.user_id=production_jobs.owner_id
+   AND CASE WHEN json_valid(s.document) AND json_type(s.document,'$.intake')='object' THEN
+    CASE WHEN production_jobs.kind='discover'
+     THEN COALESCE(json_extract(production_jobs.payload,'$.searchRound'),-1)!=CASE WHEN json_extract(s.document,'$.intake.search.state')='searching' THEN json_extract(s.document,'$.intake.search.round') ELSE -2 END
+     ELSE COALESCE(json_extract(production_jobs.payload,'$.setupGeneration'),-1)!=json_extract(s.document,'$.intake.generation') END
+    ELSE 0 END)`).run();
+ }
+ private async stopUnwantedSearches(){
+  for(const [id,search] of this.searches){
+   const row=await this.database.prepare('SELECT * FROM reader_sessions WHERE id=?').bind(id).first<SessionRow>();
+   if(!row||!await this.searchRunnable(row,search.round))search.controller.abort();
+  }
+ }
+ // A search job only stays failed when it can never resume. Report that as the search's failure.
+ private async settleFailedSearches(){
+  const failed=(await this.database.prepare("SELECT * FROM production_jobs WHERE kind='discover' AND state='failed'").all<ProductionJob>()).results;
+  for(const job of failed){
+   const row=await this.database.prepare('SELECT * FROM reader_sessions WHERE id=? AND user_id=?').bind(job.session_id,job.owner_id).first<SessionRow>(),round=searchRound(job);
+   if(row&&!this.readable(row))continue;
+   if(row&&round!==undefined&&this.searchCurrent(row,round)){
+    if(job.interrupted&&(job.attempts<maxAutomaticAttempts||!await this.searchRunnable(row,round)))continue;
+    const search=intakeSearch((JSON.parse(row.document) as Document).intake!);
+    await this.finishSearch(row.id,row.user_id,round,{...search,state:'failed',error:job.error});
+   }
+   await this.database.prepare("DELETE FROM production_jobs WHERE id=? AND state='failed'").bind(job.id).run();
+  }
  }
  private async script(job:ProductionJob){
   let row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
@@ -294,8 +386,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const selection=selectionSchema.parse(JSON.parse(row.selection)),stepKey=(JSON.parse(job.payload) as {stepKey?:string}).stepKey;
   // A crash can save a batch before settling its queue receipt. Never replay that paid call.
   if(stepKey&&stepKey!==nextStep(doc,selection,0)?.key)return {storyboardFrames:doc.storyboard?.pages.length||0};
-  let failure:unknown;
-  const result=await advanceStory(this.repository,this.provider.generator(),row.user_id,row.id,0,true,token=>this.leases.set(row.id,{ownerId:row.user_id,token}),error=>{failure=error;});
+  let failure:unknown,acquired=false;
+  const result=await advanceStory(this.repository,this.provider.generator(),row.user_id,row.id,0,true,token=>{acquired=true;this.leases.set(row.id,{ownerId:row.user_id,token});},error=>{failure=error;});
   if(result.state==='failed'){
    // The engine records its failure before the queue can classify it, so undo that for a stop.
    // A 4xx stays failed: replaying a blocked review would pay for repair without the reader asking.
@@ -303,6 +395,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(this.stopping&&!terminal)await this.database.prepare("UPDATE reader_sessions SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'").bind(row.id,row.user_id).run();
    throw terminal?failure:new ReaderError(503,result.error||'故事编排暂未完成');
   }
+  // A step was waiting but the story changed first. Nothing ran, so take it on the next turn.
+  if(!acquired&&result.retryAllowed)throw new JobYield();
   if(result.awaitingFrameCount)return {awaitingFrameCount:true};
   if(result.intake?.phase==='confirming')return {awaitingProductionConfirmation:true};
   row=await this.raw(row.id,row.user_id);doc=JSON.parse(row.document) as Document;
@@ -358,9 +452,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     .bind(now+(this.options.leaseMs||sessionLeaseMs),id,lease.ownerId,lease.token).run();
   }
   await this.queue.recoverExpired();
+  if(!this.stopping){await this.settleFailedSearches();await this.pruneSuperseded();}
+  await this.stopUnwantedSearches();
   // A dead runtime cannot renew these locks. Preserve every live session/job lease across processes.
   if(!this.stopping)await this.database.prepare(`UPDATE reader_sessions SET state='idle',lock_token=NULL,lock_until=0,error=NULL
-   WHERE state='running' AND lock_until<=? AND generation_mode='background' AND generation_control='active'
+   WHERE state='running' AND lock_until<=? AND generation_mode='background'
    AND NOT EXISTS(SELECT 1 FROM production_jobs j WHERE j.session_id=reader_sessions.id AND j.owner_id=reader_sessions.user_id AND (json_extract(CASE WHEN json_valid(reader_sessions.document) THEN reader_sessions.document ELSE '{}' END,'$.intake.generation') IS NULL OR json_extract(j.payload,'$.setupGeneration')=json_extract(CASE WHEN json_valid(reader_sessions.document) THEN reader_sessions.document ELSE '{}' END,'$.intake.generation')) AND (j.state='failed' AND j.interrupted=0 OR j.state='running' AND j.lease_until>?))
    AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)`)
    .bind(this.clock(),this.clock()).run();
@@ -385,7 +481,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    this.leases.delete(id);
   }
  }
- stop(){this.stopping=true;this.queue.stop();clearInterval(this.timer);}
+ stop(){this.stopping=true;this.queue.stop();clearInterval(this.timer);for(const search of this.searches.values())search.controller.abort();}
  get busy(){return !!this.ticking||this.queue.busy||this.leases.size>0;}
  async close(){
   this.stop();

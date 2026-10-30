@@ -6,19 +6,21 @@ import type {SessionView} from './reader-model.ts';
 export function observeOnlyGeneration(session:SessionView){
  return session.state==='failed'||session.state==='completed'||session.generationMode==='background'||!!session.generationControl&&session.generationControl!=='active';
 }
-type Observation={sessionId:string;request:(path:string,method?:string,data?:unknown)=>Promise<SessionView>;isActive:()=>boolean;onSession:(session:SessionView)=>void;focus?:{viewerId:string;page:()=>number};sleep?:(ms:number)=>Promise<void>;now?:()=>number};
+type Observation={sessionId:string;request:(path:string,method?:string,data?:unknown)=>Promise<SessionView>;isActive:()=>boolean;onSession:(session:SessionView)=>void;focus?:{viewerId:string;page:()=>number};watchChoices?:boolean;sleep?:(ms:number)=>Promise<void>;now?:()=>number};
 // Inspecting a saved failure or paused story never renews demand or retries paid work.
-export async function observeStoryGeneration({sessionId,request,isActive,onSession,focus,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),now=Date.now}:Observation){
+export async function observeStoryGeneration({sessionId,request,isActive,onSession,focus,watchChoices=false,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),now=Date.now}:Observation){
  const path='reader/sessions/'+sessionId;
- let failures=0,focusPage=-1,focusAt=-Infinity,focused=false,posting:Promise<unknown>|null=null;
+ let failures=0,focusPage=-1,focusAt=-Infinity,focused=false,posting:Promise<unknown>|null=null,waiting=false;
  try{
   while(isActive()){
    try{
     const session=await request(path);
     if(!isActive())break;
     failures=0;onSession(session);
-    if(session.state==='completed'||session.awaitingFrameCount||session.intake&&['choosing','confirming'].includes(session.intake.phase))return '';
-    if(focus&&session.generationMode==='background'&&session.generationControl==='active'&&session.state!=='failed'){
+    // A choice can wait on another device or a search, so an open page keeps following it.
+    const choosing=!!session.intake&&['choosing','confirming'].includes(session.intake.phase);waiting=choosing&&watchChoices;
+    if(session.state==='completed'||session.awaitingFrameCount||choosing&&!watchChoices&&session.intake?.search?.state!=='searching')return '';
+    if(focus&&!choosing&&session.generationMode==='background'&&session.generationControl==='active'&&session.state!=='failed'){
      // The reader's page can be left over from another story until this one has a first image.
      const pages=session.story?.pages,page=pages?.[0]?.image?Math.min(focus.page(),pages.length-1):0;
      if(!posting&&(page!==focusPage||now()-focusAt>=10000)){
@@ -27,7 +29,11 @@ export async function observeStoryGeneration({sessionId,request,isActive,onSessi
       posting=request(path+'/production','POST',{viewerId:focus.viewerId,page,retry:false}).catch(()=>{}).finally(()=>{posting=null;});
      }
     }
-   }catch(error){if(!isActive())break;if(++failures>=3)return error instanceof Error?error.message:'暂时无法更新生成状态，请稍后重新打开。';}
+   }catch(error){
+    if(!isActive())break;
+    // A connection can come back while a choice waits. A refusal, such as a deleted story, will not.
+    const status=(error as {status?:number}).status;
+    if(++failures>=3&&!(waiting&&(status===undefined||status>=500)))return error instanceof Error?error.message:'暂时无法更新生成状态，请稍后重新打开。';}
    await sleep(1000);
   }
   return '';

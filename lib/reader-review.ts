@@ -14,7 +14,7 @@ const categories=['caption','action','composition','progression','continuity','s
 const issueSchema=z.object({page:z.number().int().min(1),category:z.enum(categories),problem:z.string().trim().min(1).max(180),instruction:z.string().trim().min(1).max(400)});
 export type ReviewIssue=z.infer<typeof issueSchema>;
 export type ReviewReport={issues:ReviewIssue[]};
-export type ReviewCheckpoint={stopReason?:'limit'|'unchanged';history?:{round:number;requested:number[];changes:RepairedPage[]}[];status:'pending'|'repair'|'passed'|'blocked';round:number;repairs:number;issues:ReviewIssue[];repaired:number[];reports:{round:number;issues:ReviewIssue[]}[]};
+export type ReviewCheckpoint={overridden?:boolean;stopReason?:'limit'|'unchanged';history?:{round:number;requested:number[];changes:RepairedPage[]}[];status:'pending'|'repair'|'passed'|'blocked';round:number;repairs:number;issues:ReviewIssue[];repaired:number[];reports:{round:number;issues:ReviewIssue[]}[]};
 export type RepairedPage={page:number;caption:string;prompt:string};
 export function reviewReportSchema(count:number){return z.object({issues:z.array(issueSchema.extend({page:z.number().int().min(1).max(count)})).max(count)}).superRefine((report,ctx)=>{
  if(new Set(report.issues.map(issue=>issue.page)).size!==report.issues.length)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Duplicate review page'});

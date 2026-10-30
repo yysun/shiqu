@@ -245,7 +245,7 @@ test('a failed failure write does not stop the queue or report a provider failur
 test('a failed checkpoint save during script work is not a provider failure and recovers',async t=>{
  const logs=t.mock.method(console,'error',()=>{});
  const f=await productionFixture(t),p=production(f);f.control.hold=false;
- failWrites(p.repository,'SET document=?,state=?',1,'db');
+ failWrites(p.repository,'state=?,error=?,lock_token=NULL',1,'db');
  const id=await f.create(3);await until(()=>logs.mock.calls.some(call=>call.arguments[0]==='production_job_unsaved'));
  const job=(await jobs(f,id)).find(job=>job.pool==='text');
  assert.equal(job.state,'running');assert.equal(job.error,null);

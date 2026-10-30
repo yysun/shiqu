@@ -1,5 +1,7 @@
-// Fork edits into paused, owner-scoped sessions. Copy immutable media before one CAS
-// publishes the child; family epochs serialize competing drafts without altering originals.
+// Fork edits into paused sessions. Copy immutable media before one CAS publishes the child;
+// family epochs serialize competing drafts without altering originals. Only content a draft was
+// written against can conflict with it: saved images and progress never do. A file that is gone
+// cannot be reused and is redrawn; one that cannot be read right now stops the submission.
 import {createHash} from 'node:crypto';
 import {ReaderError,selectionSchema} from '../lib/reader-model.ts';
 import type {Document,SessionRow} from '../lib/reader-model.ts';
@@ -17,7 +19,7 @@ async function basis(repo:ReaderRepository,row:SessionRow){
  if(!doc.plan||!doc.original)throw new ReaderError(409,'完整分镜和原文保存后才可修订。');
  const rootId=doc.revision?.rootId||row.id;
  const epoch=(await repo.db.prepare(familyEpoch).bind(row.user_id,rootId,rootId).first<{epoch:number}>())!.epoch;
- const token=hash(JSON.stringify([row.selection,row.document,epoch]));
+ const token=hash(JSON.stringify([row.selection,doc.plan,epoch]));
  return {doc,rootId,epoch,token};
 }
 export async function revisionSnapshot(repo:ReaderRepository,id:string,ownerId:string):Promise<RevisionSnapshot>{
@@ -37,30 +39,28 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  const row=await repo.get(parentId,ownerId),{doc,rootId,epoch,token:current}=await basis(repo,row);
  if(current!==token)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
  const original={selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan!,images:doc.images};
- const {selection,plan}=checkedRevision(original,changes);
- const images:string[]=original.plan.pages.map(()=> '');
- const promised=plan?reusableRevisionImages(original,selection,plan):original.images;
+ const {selection,plan,impact}=checkedRevision(original,changes);
+ const images:string[]=original.plan.pages.map(()=> ''),lostPages:number[]=[];
  // Global image preferences cannot reuse old artwork. Other edits may reuse after planning.
  if(selection.artStyle===original.selection.artStyle&&selection.productionPrompt===original.selection.productionPrompt){
   for(let page=0;page<original.images.length;page++){
-   const value=original.images[page]||'',required=!!promised[page];
+   const value=original.images[page]||'';
    if(!value)continue;
-   const missing=()=>new ReaderError(409,`第 ${page+1} 幅原图已丢失或损坏，无法按预览复用。未创建新版，请先修复原图，或明确修改该幅画面后再提交重绘。`);
-   const key=referenceImageKey(parentId,value);if(!key){if(required)throw missing();continue;}
-   const asset=await media.get(key).catch(()=>{throw new ReaderError(503,`第 ${page+1} 幅原图暂时无法读取，未创建新版，请稍后重试。`);});if(!asset){if(required)throw missing();continue;}
+   const key=referenceImageKey(parentId,value);if(!key){lostPages.push(page);continue;}
+   const asset=await media.get(key).catch(()=>{throw new ReaderError(503,`第 ${page+1} 幅原图暂时无法读取，未创建新版，请稍后重试。`);});if(!asset){lostPages.push(page);continue;}
    const bytes=new Uint8Array(await asset.arrayBuffer()),type=mediaType(bytes);
-   if(!type){if(required)throw missing();continue;}
+   if(!type){lostPages.push(page);continue;}
    const target=readerImageAsset(requestId,page,imageTypes[type],hash(bytes));
    await media.put(target.key,bytes,{contentType:type});images[page]=target.url;
   }
  }
  const base={...original,images};
- const document:Document={plan,original:doc.original,frameCountConfirmed:true,visualReview:newReview(),images:[],audio:[],usage:[],revision:{parentId,rootId,number:epoch+1,baseToken:token,requestHash,handoff:true,base}};
+ const document:Document={plan,original:doc.original,frameCountConfirmed:true,visualReview:newReview(),images:[],audio:[],usage:[],revision:{parentId,rootId,number:epoch+1,baseToken:token,requestHash,handoff:true,base,...(impact.replan?{}:{previewedRedraw:impact.redraw}),...(lostPages.length?{lostPages}:{})}};
  if(plan)document.images=reusableRevisionImages(base,selection,plan);
  const now=new Date().toISOString();
  const inserted=await repo.db.prepare(`INSERT INTO reader_sessions(id,user_id,selection,document,generation_mode,generation_control,state,step_attempts,lock_until,page,saved,created_at,updated_at)
   SELECT ?,?,?,?,'background','paused','idle',0,0,0,0,?,? FROM reader_sessions p
-  WHERE p.id=? AND p.user_id=? AND p.document=? AND p.selection=?
+  WHERE p.id=? AND p.user_id=? AND json_extract(p.document,'$.plan')=json_extract(?,'$.plan') AND p.selection=?
   AND NOT EXISTS(SELECT 1 FROM library_deletions WHERE story_id=p.id AND user_id=p.user_id)
   AND (${familyEpoch.replace(' AS epoch','')})=?
   ON CONFLICT(id) DO NOTHING`)

@@ -1,12 +1,13 @@
 // Persist versioned discovery documents atomically and share work within this Node process.
 // Each caller may leave independently; settled model work is saved by the worker before it stops.
+// A draining caller that ends a flight waits for its call, so a freed worker slot is truly free.
 import {createHash} from 'node:crypto';
 import {z} from 'zod';
 import type {MediaStore} from '../lib/services.ts';
 import type {SuggestionProgress} from '../lib/reader-suggestions.ts';
 import {ReaderError} from '../lib/reader-model.ts';
 
-export type ReadingObserver={signal:AbortSignal;onProgress:(progress:SuggestionProgress)=>void};
+export type ReadingObserver={signal:AbortSignal;onProgress:(progress:SuggestionProgress)=>void;drain?:boolean};
 type Flight={controller:AbortController;promise:Promise<unknown>;listeners:Set<ReadingObserver|undefined>;progress?:SuggestionProgress;settled:boolean};
 const envelope=z.object({version:z.literal(1),key:z.string(),value:z.unknown()});
 export function discoveryHash(value:unknown){return createHash('sha256').update(JSON.stringify(value)).digest('hex');}
@@ -58,7 +59,19 @@ export class StoryDiscoveryCache{
   const listener=observer||{signal:new AbortController().signal,onProgress:()=>{}};
   flight.listeners.add(listener);
   if(flight.progress)listener.onProgress(flight.progress);
-  try{return await wait(flight.promise as Promise<T>,observer?.signal);}
-  finally{flight.listeners.delete(listener);if(!flight.listeners.size&&!flight.settled)flight.controller.abort();}
+  const current=flight;
+  const leave=async()=>{
+   current.listeners.delete(listener);
+   if(current.listeners.size||current.settled)return;
+   current.controller.abort();
+   // A call that failed for its own reason must count as that failure, not as a clean stop.
+   if(!observer?.drain)return;
+   const failure=await current.promise.then(()=>undefined,error=>error);
+   if(failure!==undefined&&failure!==current.controller.signal.reason)throw failure;
+  };
+  let value:T;
+  try{value=await wait(current.promise as Promise<T>,observer?.signal);}
+  catch(error){await leave();throw error;}
+  await leave();return value;
  }
 }

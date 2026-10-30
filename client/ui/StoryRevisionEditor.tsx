@@ -8,9 +8,10 @@ export function StoryRevisionActions({editor}:{editor:StoryRevisionEditorState})
  const impact=editor.impact;if(!impact)return null;
  return <section className="yu-revision-impact" aria-label="本次修改影响">
   <p role="status">{!impact.changed?'修改先保存在草稿，提交后才会生成新版。':impact.replan?`将重新编排 ${impact.total} 幅并审片。${impact.reusePending?'原图能否复用，待新分镜完成后逐幅比较。':`需重绘 ${impact.total} 幅。`}`:`保留分镜编排，重新审片；预计复用 ${impact.reused} 幅、重绘 ${impact.redraw} 幅。`}</p>
-  {impact.changed&&!impact.replan&&<small>审片若修改画面指令，只重绘新增受影响的画面。</small>}
+  {impact.changed&&!impact.replan&&<small>审片若修改画面指令，会增加重绘；首幅变化时全部重绘。</small>}
   {impact.conflict&&<div role="alert"><p>制作要求或画幅数的变化需要重新编排，会替换手改分镜。请选择保留哪类修改：</p><div className="yu-revision-conflict"><button type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,plan:undefined}))}>保留重新编排设置</button><button type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,productionPrompt:undefined,length:undefined}))}>保留手改分镜</button></div></div>}
   {editor.error&&<p role="alert">{editor.error}</p>}
+  {editor.conflict&&<div className="yu-revision-conflict-note" role="alert"><p>这篇故事的分镜、制作要求或版本已在别处更新。草稿仍在这里，不会自动合并；需要的内容可以先复制出来。</p><button type="button" className="yu-revision-reload" disabled={editor.busy} onClick={()=>void editor.load()}>丢弃草稿，载入最新</button></div>}
   <div className="yu-revision-buttons"><button type="button" className="yu-primary" disabled={!impact.changed||impact.conflict||editor.busy} onClick={()=>void editor.submit()}>{editor.busy?'正在保存新版…':'保存修改并加入队列'}</button><button type="button" disabled={editor.busy} onClick={editor.discard}>丢弃草稿</button></div>
   <small>原版保留；新版只执行必要步骤。提交后原版暂停新增任务，已开始的任务仍会保存到原版。</small>
  </section>;
@@ -35,7 +36,6 @@ export default function StoryRevisionEditor({editor}:{editor:StoryRevisionEditor
 
   </fieldset>
   <StoryRevisionActions editor={editor}/>
-  {!!editor.error&&<button type="button" className="yu-revision-reload" disabled={busy} onClick={()=>void editor.load()}>重新载入最新版本（丢弃草稿）</button>}
   <p className="yu-revision-note">关闭弹窗保留本次草稿；离开这篇故事后草稿会清除。</p>
  </div>;
 }

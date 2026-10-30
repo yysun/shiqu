@@ -13,6 +13,8 @@ export type JobContext={outputs:Record<string,unknown>;isCurrent:()=>Promise<boo
 export type JobHandler={pool:string;drain?:boolean;run:(job:ProductionJob,context:JobContext)=>Promise<unknown>};
 type Options={limits:Record<string,number>;handlers:Record<string,JobHandler>;canRun?:(job:ProductionJob)=>Promise<boolean>;onSettled?:()=>void;resumeInterrupted?:(job:ProductionJob)=>Promise<boolean>;safeError?:(error:unknown,job:ProductionJob)=>string;terminal?:(error:unknown,job:ProductionJob)=>boolean;now?:()=>number;leaseMs?:number};
 const interruptedMessage='上次生成已中断，已保留保存的结果。请重试继续。';
+// A handler that stopped without spending an attempt: the job waits in the queue for its next turn.
+export class JobYield extends Error{}
 export function inputVersion(input:unknown){return createHash('sha256').update(JSON.stringify(input)).digest('hex');}
 export function productionJobId(scope:string,kind:string,version:string,key=''){return inputVersion([scope,kind,version,key]);}
 const ready=`NOT EXISTS (SELECT 1 FROM json_each(j.dependencies) d LEFT JOIN production_jobs parent ON parent.id=d.value WHERE parent.id IS NULL OR parent.state!='succeeded')`;
@@ -38,9 +40,10 @@ export class ProductionQueue{
  }
  async job(id:string){return this.database.prepare('SELECT * FROM production_jobs WHERE id=?').bind(id).first<ProductionJob>();}
  async jobs(sessionId:string,ownerId:string){return (await this.database.prepare('SELECT * FROM production_jobs WHERE session_id=? AND owner_id=? ORDER BY created_at,id').bind(sessionId,ownerId).all<ProductionJob>()).results;}
- async retry(sessionId:string,ownerId:string){
-  // An explicit retry restores the automatic recovery allowance for the whole story.
-  await this.database.prepare("UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE session_id=? AND owner_id=? AND state IN('failed','queued')").bind(this.clock(),sessionId,ownerId).run();
+ async retry(sessionId:string,ownerId:string,generation?:number){
+  // An explicit retry restores the automatic recovery allowance for the story's current selection.
+  // Search is retried on its own, so a retried story never starts another round of it.
+  await this.database.prepare("UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE session_id=? AND owner_id=? AND state IN('failed','queued') AND kind!='discover' AND (? IS NULL OR json_extract(payload,'$.setupGeneration')=?)").bind(this.clock(),sessionId,ownerId,generation??null,generation??null).run();
  }
  // Run a finished job again from scratch. Only an explicit retry may decide to pay for this.
  async rerun(id:string){
@@ -104,6 +107,11 @@ export class ProductionQueue{
   try{result=await handler.run(job,{outputs,isCurrent});}
   catch(error){
    if(persistenceError(error)){unsaved(error);return;}
+   if(error instanceof JobYield){
+    try{await this.database.prepare("UPDATE production_jobs SET state='queued',attempts=attempts-1,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token=?").bind(this.clock(),job.id,job.lease_token).run();}
+    catch(writeError){unsaved(writeError);}
+    return;
+   }
    // A stop kills provider processes, so a failure now is not evidence about the work itself.
    const interrupted=this.stopping&&!handler.drain&&!this.options.terminal?.(error,job);
    // Only safe application messages are persisted; provider responses may contain private data.

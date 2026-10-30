@@ -5,19 +5,18 @@ import {planSchema,ReaderError} from './reader-model.ts';
 import type {Document,Plan,Selection} from './reader-model.ts';
 import {artStyleIds} from './reader-styles.ts';
 import {readerMinFrames,readerMaxFrames} from './reader-limits.ts';
+import {reusableRevisionImages} from './reader-revision-images.ts';
+import type {RevisionBase,RevisionRedraw} from './reader-revision-images.ts';
+export {reusableRevisionImages};
+export type {RevisionBase};
 
 export const revisionChangesSchema=z.object({productionPrompt:z.string().max(1200).optional(),artStyle:z.enum(artStyleIds).optional(),length:z.number().int().min(readerMinFrames).max(readerMaxFrames).optional(),plan:planSchema.optional()}).strict();
 export type RevisionChanges=z.infer<typeof revisionChangesSchema>;
-export type RevisionBase={selection:Selection;plan:Plan;images:string[]};
 export type RevisionInfo={parentId:string;rootId:string;number:number};
-export type RevisionRecord=RevisionInfo&{baseToken:string;requestHash:string;handoff?:boolean;base:RevisionBase};
+export type RevisionView=RevisionInfo&{redraw?:RevisionRedraw};
+export type RevisionRecord=RevisionInfo&{baseToken:string;requestHash:string;handoff?:boolean;base:RevisionBase;previewedRedraw?:number;lostPages?:number[]};
 export type RevisionSnapshot=RevisionBase&{token:string;epoch:number;revision?:RevisionInfo};
 export type RevisionImpact={changed:boolean;replan:boolean;review:boolean;reused:number;redraw:number;total:number;reusePending:boolean;conflict:boolean};
-export function reusableRevisionImages(base:RevisionBase,selection:Selection,plan:Plan){
- const stable=base.selection.artStyle===selection.artStyle&&base.selection.productionPrompt===selection.productionPrompt&&base.plan.characters===plan.characters;
- const anchor=stable&&!!base.images[0]&&base.plan.pages[0]?.prompt===plan.pages[0]?.prompt;
- return plan.pages.map((page,index)=>anchor&&base.plan.pages[index]?.prompt===page.prompt?base.images[index]||'':'');
-}
 export function revisionImpact(base:RevisionBase,changes:RevisionChanges):RevisionImpact{
  const selection={...base.selection,productionPrompt:changes.productionPrompt??base.selection.productionPrompt,artStyle:changes.artStyle??base.selection.artStyle};
  const requirements=selection.productionPrompt!==base.selection.productionPrompt;

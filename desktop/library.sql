@@ -28,6 +28,7 @@ WITH selected_sessions AS (
   sum(j.state = 'failed') AS failed, sum(j.state = 'succeeded') AS succeeded
  FROM production_jobs j JOIN reader_sessions r ON r.id=j.session_id AND r.user_id=j.owner_id
  WHERE json_extract(r.document,'$.intake.generation') IS NULL OR json_extract(j.payload,'$.setupGeneration')=json_extract(r.document,'$.intake.generation')
+  OR (j.kind='discover' AND j.state IN ('queued','running') AND json_extract(r.document,'$.intake.phase')='discovering')
  GROUP BY j.session_id, j.owner_id
 )
 SELECT json_object('stories', json_group_array(json(summary))) FROM (
@@ -47,6 +48,7 @@ SELECT json_object('stories', json_group_array(json(summary))) FROM (
    'repairBatches', json_array_length(s.document,'$.visualReview.history'),
    'repairPasses', json_extract(s.document,'$.visualReview.repairs'),
    'reviewStopReason', json_extract(s.document,'$.visualReview.stopReason'),
+   'reviewOverridden', json_extract(s.document,'$.visualReview.overridden'),
    'planReady', json(CASE WHEN json_type(s.document, '$.plan') = 'object' THEN 'true' ELSE 'false' END),
    'sourceReady', json(CASE WHEN json_type(s.document, '$.original') = 'object' THEN 'true' ELSE 'false' END),
    'frameCountConfirmed', json(CASE WHEN json_type(s.document, '$.plan') = 'object' OR json_type(s.document, '$.storyboard') = 'object' OR json_extract(s.document, '$.frameCountConfirmed') = 1 OR (json_type(s.selection, '$.narrativeDetail') IS NULL AND json_type(s.selection, '$.length') = 'integer') THEN 'true' ELSE 'false' END),

@@ -1,6 +1,6 @@
 // Advance local story generation under one session lock, retaining every paid result it can save.
 // A failed save is rethrown for recovery rather than recorded as a provider failure.
-import {nextStep,planSchema,storyboardOutlineSchema,storyboardBatchSchema,selectionSchema,view,ReaderError,productionComplete,readerBooks} from './reader-model.ts';
+import {blockedIssues,nextStep,planSchema,storyboardOutlineSchema,storyboardBatchSchema,selectionSchema,view,ReaderError,productionComplete,readerBooks} from './reader-model.ts';
 import type {Document,Plan,Selection,SessionRow,Storyboard,StoryboardOutline} from './reader-model.ts';
 import {persistenceError} from './reader-repository.ts';
 import type {ReaderRepository} from './reader-repository.ts';
@@ -124,7 +124,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    doc.original=result.source;
   }
   if(doc.visualReview?.status==='blocked'){
-   const issues=doc.visualReview.stopReason==='unchanged'?doc.visualReview.issues.filter(issue=>!doc.visualReview!.repaired.includes(issue.page)):doc.visualReview.issues,summary=issues.slice(0,3).map(issue=>`第 ${issue.page} 幅：${issue.problem}`).join('；');
+   const issues=blockedIssues(doc.visualReview),summary=issues.slice(0,3).map(issue=>`第 ${issue.page} 幅：${issue.problem}`).join('；');
    throw new ReaderError(422,`${doc.visualReview.stopReason==='unchanged'?'修订没有产生实际变化':`已自动修复 ${readerMaxAutomaticRepairs} 轮，复核未通过`}，仍有 ${issues.length} 处问题，已停止绘图。${summary}。可手动继续修订。`);
   }
   return view(await repo.save(row,token,doc,productionComplete(doc,selection)));

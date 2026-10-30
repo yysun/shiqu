@@ -3,3 +3,13 @@
 .yu-revision-fields{border:0;padding:0;margin:0;min-width:0}.yu-revision-field{display:flex;flex-direction:column;gap:8px;margin:16px 0;color:#526b43;font-size:13px}.yu-revision-field textarea{box-sizing:border-box;width:100%;min-width:0;resize:vertical;border:1px solid #cdd8c1;border-radius:9px;background:#f6f7ef;padding:12px;color:#324f36;font:inherit;line-height:1.8}.yu-revision-field small,.yu-revision-impact small,.yu-revision-note{font-size:11px;line-height:1.8;color:#758468}.yu-revision-script>section{border-top:1px solid #dfe5d2;padding:12px 0}.yu-revision-script h3{font-size:14px}.yu-revision-script summary{font-size:12px;padding:8px 0;cursor:pointer}.yu-revision-impact{padding:16px 0;border-top:1px solid #dfe5d2;margin-top:18px;font-size:13px;line-height:1.8}.yu-revision-impact p{margin:0 0 8px}.yu-revision-buttons,.yu-revision-conflict{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:14px 0}.yu-revision-buttons>.yu-primary{width:auto;flex:1;min-width:180px;margin:0;font-size:13px;padding:12px}.yu-revision-buttons>button:not(.yu-primary),.yu-revision-conflict>button,.yu-revision-reload,.yu-revision-open,.yu-version-links>button{border:0;background:none;color:#526b43;text-decoration:underline;text-underline-offset:3px;cursor:pointer;font:inherit;font-size:12px;padding:8px 0}.yu-revision-conflict{padding:8px 0}.yu-revision-note{margin-top:14px}.yu-version-links{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 14px;margin:8px 0 16px;font-size:12px;color:#758468}.yu-revision-open:focus-visible,.yu-revision-tabs>button:focus-visible,.yu-version-links>button:focus-visible{outline:2px solid #82996f;outline-offset:3px}.yu-revision-editor button:disabled,.yu-revision-buttons button:disabled{opacity:.5;cursor:default}
 
 .yu-revision-field select{border:1px solid #cdd8c1;border-radius:8px;background:#f6f7ef;color:#324f36;padding:10px;font:inherit;min-width:0;width:100%}
+
+.yu-review-tools{display:grid;gap:12px;margin:16px 0}
+.yu-review-tools h3{margin:0;font-size:15px}
+.yu-review-tools ul{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.yu-review-tools li{display:grid;gap:2px;font-size:14px}
+.yu-review-tools small{opacity:.72}
+.yu-review-override{justify-self:start}
+.yu-revision-conflict-note{display:grid;gap:8px;margin-top:12px}
+.yu-revision-conflict-note p{margin:0}
+.yu-reader-review-notice{position:absolute;z-index:6;top:calc(env(safe-area-inset-top,0px) + 92px);left:16px;right:16px;padding:10px 14px;border:0;border-radius:12px;background:var(--paper);color:var(--forest);font-size:14px;text-align:left}

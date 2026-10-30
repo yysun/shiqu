@@ -4,7 +4,7 @@ import type {ReactNode} from 'react';
 import {ArrowRight,BookOpen,Check,Clock3,Feather,Pause,X} from 'lucide-react';
 import type {ProductionAction,SessionView} from '@/lib/reader-model';
 import {shelfGenerationStatus} from '@/lib/shelf-generation';
-import {generationDuration,generationProgress} from '@/lib/generation-progress';
+import {generationDuration,generationProgress,redrawNotice} from '@/lib/generation-progress';
 import StoryRetry from './StoryRetry';
 import ProductionTimeline from './ProductionTimeline';
 import type {ProductionTimelineNavigation} from './ProductionTimeline';
@@ -28,6 +28,7 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
    <div><p className="yu-generation-kicker">{failed?'需要处理':stopped?'进度已保留':session.state==='completed'?'制作完成':'把故事变成画面'}</p><h3>{title}</h3></div>
   </div>
   <p className="yu-generation-description" role={failed?'alert':'status'}>{busy&&stopped?'请求确认后会自动更新进度。':error||detail}</p></>}
+  {session.revision?.redraw&&<p className="yu-revision-note" role="status">{redrawNotice(session.revision.redraw)}</p>}
   {(stopped||!!error)&&<StoryRetry session={session} busy={busy} onRetry={onRetry} primary/>}
   <section className="yu-generation-progress" aria-label="生成进展">
    <div className="yu-generation-progress-heading"><strong>{progress.measured?'画面生成进度':compact?'制作流程':'制作进度'}</strong><span>{moving&&progress.elapsed!==null?<><Clock3 size={12} aria-hidden="true"/>本阶段 {generationDuration(progress.elapsed)}</>:error&&session.state!=='failed'?'状态待同步':progress.queued?'排队中':stopped?'已保存的进度':session.state==='completed'?'已完成':session.intake?.phase==='confirming'?'待确认':session.intake?.phase==='choosing'?'待选择':'等待更新'}</span><StoryGenerationControl session={session} busy={controlBusy} onControl={onControl}/></div>

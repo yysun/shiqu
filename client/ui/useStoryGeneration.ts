@@ -31,6 +31,14 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   if(setupRequest.current?.signature!==signature)setupRequest.current={signature,body:{...command,requestId:randomId(),generation:active.intake.generation}};
   setupLock.current=true;setSetupBusy(true);
   try{const s:SessionView=await request(`reader/sessions/${sessionId}/setup`,'POST',setupRequest.current.body);setupRequest.current=null;if(id.current===sessionId){setActive(s);collect(s);setError('');setWake(v=>v+1);}}
+  catch(error){
+   // A rejected body stays rejected. Only a lost response may repeat it, so start again from what is saved now.
+   if((error as {status?:number}).status!==undefined){
+    setupRequest.current=null;
+    await request('reader/sessions/'+sessionId).then((s:SessionView)=>{if(id.current===sessionId){setActive(s);collect(s);}}).catch(()=>{});
+   }
+   throw error;
+  }
   finally{setupLock.current=false;setSetupBusy(false);}
  }
  async function retrySession(sessionId:string){await resume(sessionId,undefined,true);}
@@ -61,6 +69,15 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
     retryRequested.current=false;setActive(s);setError(s.state==='failed'?s.error||'生成失败，请重试继续。':'');setWake(v=>v+1);
    }
   }catch(error){setControlError(error instanceof Error?error.message:'生成方式暂未保存，请重试。');}
+  finally{controlLock.current=false;setControlBusy('');}
+ }
+ async function drawAnyway(sessionId:string){
+  if(controlLock.current)return;controlLock.current=true;setControlBusy(sessionId);setControlError('');
+  try{
+   const s:SessionView=await request(`reader/sessions/${sessionId}/review-override`,'POST',{});
+   collect(s);
+   if(id.current===sessionId){setActive(s);setError(s.state==='failed'?s.error||'生成失败，请重试继续。':'');setWake(v=>v+1);}
+  }catch(error){setControlError(error instanceof Error?error.message:'操作暂未保存，请重试。');}
   finally{controlLock.current=false;setControlBusy('');}
  }
  function leave(){id.current='';setActive(null);setBusy(false);setError('');}
@@ -111,12 +128,12 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
      if(inspecting&&!observeOnlyGeneration(s)){generationMode.current='generate';setWake(v=>v+1);}
     }
    };
-   const operation=inspecting?observeStoryGeneration({sessionId,request,isActive,onSession,focus:{viewerId:randomId(),page:()=>currentPage.current}}):runQueuedStoryGeneration({sessionId,viewerId:randomId(),page:()=>currentPage.current,request,retries:retries.current,initialRetry,isActive,onSession});
+   const operation=inspecting?observeStoryGeneration({sessionId,request,isActive,onSession,focus:{viewerId:randomId(),page:()=>currentPage.current},watchChoices:true}):runQueuedStoryGeneration({sessionId,viewerId:randomId(),page:()=>currentPage.current,request,retries:retries.current,initialRetry,isActive,onSession});
    pending.current=operation;
    try{const message=await operation;if(!cancelled&&id.current===sessionId)setError(message);}
    finally{if(pending.current===operation)pending.current=null;if(!cancelled&&id.current===sessionId)setBusy(false);}
   }
   run();return()=>{cancelled=true;};
  },[active?.id,wake]);
- return {setup,setupBusy,sessions,active,busy,error,connected,libraryLoading,libraryRefreshing,libraryError,start,resume,retrySession,leave,remove,refreshLibrary,retryStep,confirmFrameCount,control,controlBusy,controlError};
+ return {setup,setupBusy,sessions,active,busy,error,connected,libraryLoading,libraryRefreshing,libraryError,start,resume,retrySession,leave,remove,refreshLibrary,retryStep,confirmFrameCount,control,drawAnyway,controlBusy,controlError};
 }

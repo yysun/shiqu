@@ -78,6 +78,11 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
      return json(doc.revision?.handoff?await services.production.control(uid,row.id,'resume'):await services.production.snapshot(uid,row.id),201);
     }
    }
+   if(path[2]==='review-override'&&path.length===3&&req.method==='POST'){
+    if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
+    await requireProvider();
+    return json(await services.production.overrideReview(uid,id));
+   }
    if(path[2]==='production-control'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const b=z.object({action:z.enum(['background','reader','pause','stop','resume'])}).strict().parse(await body(req));

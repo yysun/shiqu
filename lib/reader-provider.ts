@@ -9,7 +9,7 @@ import type {TaskReasoningEfforts} from './reader-reasoning.ts';
 export type ProviderStatus={configured:boolean;provider:'gemini'|'codex';models:{text:string;image:string};voiceEnabled:false;reason?:string;message?:string;taskReasoningEfforts?:TaskReasoningEfforts};
 export interface ReaderProvider {
  status():Promise<ProviderStatus>;
- suggestions(selection:Selection,excluded:string[],localBook?:WholeBookInput,reading?:{signal:AbortSignal;onProgress:(progress:SuggestionProgress)=>void},excludedSources?:LocalSourceReference[]):Promise<SuggestionBatch&{scan?:LocalScanResult}>;
+ suggestions(selection:Selection,excluded:string[],localBook?:WholeBookInput,reading?:{signal:AbortSignal;onProgress:(progress:SuggestionProgress)=>void;drain?:boolean},excludedSources?:LocalSourceReference[]):Promise<SuggestionBatch&{scan?:LocalScanResult}>;
  recommendArt?(selection:Selection,original?:OriginalSource):Promise<ArtRecommendation>;
  generator():StoryGenerator;
  safeError(error:unknown):string;

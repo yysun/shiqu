@@ -41,10 +41,10 @@ test('creation/action replay are independent of progress; competing choices conf
  assert.equal((await f.request(`sessions/${id}/setup`,'POST',{...accepted,requestId:crypto.randomUUID()})).status,409);
 });
 
-test('obsolete failed and queued jobs do not block a new extraction generation',async t=>{
+test('a failed search stays with the search; obsolete jobs do not block the next one',async t=>{
  const f=await fixture(t);let failed=false;f.generation.suggestions=async()=>{f.discoveries.push(1);if(!failed){failed=true;throw Error('controlled failed extraction');}return batch;};
- const id=await create(f);await until(async()=>(await f.read(id)).state==='failed');const old=await f.read(id);
- await setup(f,id,{action:'more'},old);await until(async()=>(await f.read(id)).intake.phase==='choosing');assert.equal(f.discoveries.length,2);assert.equal((await f.read(id)).state,'idle');
+ const id=await create(f);await until(async()=>(await f.read(id)).intake.search.state==='failed');const old=await f.read(id);assert.equal(old.state,'idle');assert.equal(old.intake.phase,'choosing');assert.equal(shelfGenerationStatus(old).group,'待选故事');
+ await setup(f,id,{action:'more'},old);await until(async()=>(await f.read(id)).intake.search.state==='idle');assert.equal(f.discoveries.length,2);assert.equal((await f.read(id)).state,'idle');
  await f.app.services.production.queue.enqueue({id:crypto.randomUUID(),sessionId:id,ownerId:'docker-local-owner',kind:'discover',pool:'text',version:'stale',dependencies:[],payload:{setupGeneration:old.intake.generation},priority:-100});
  await f.app.services.production.tick();assert.equal(f.discoveries.length,2);assert.equal((await f.read(id)).intake.phase,'choosing');
  const other=await f.create(2);await until(async()=>(await f.read(other)).state==='completed');assert.equal(f.control.plans.length,1);
@@ -120,15 +120,15 @@ test('reselecting remote candidates prepares distinct originals through the real
  assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });
 
-test('finding another batch preserves the prepared story and observes through its confirmation gate',async t=>{
+test('finding another batch leaves the prepared story in place and observes until the search ends',async t=>{
  const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');
  let release;f.generation.suggestions=async()=>{await new Promise(r=>release=r);return {stories:[],note:'暂无更多。'};};
- await setup(f,id,{action:'more'});await until(()=>release);const discovering=await f.read(id);
- assert.equal(discovering.intake.phase,'discovering');assert.equal(discovering.awaitingFrameCount,false);assert.equal(discovering.generationProgress.phase,'discover');assert.notEqual(shelfGenerationStatus(discovering).group,'待选画幅数');
+ await setup(f,id,{action:'more'});await until(()=>release);const finding=await f.read(id);
+ assert.equal(finding.intake.phase,'confirming');assert.equal(finding.intake.search.state,'searching');assert.equal(finding.state,'idle');assert.equal(finding.awaitingFrameCount,false);assert.equal(finding.generationProgress.phase,'production-confirmation');assert.equal(shelfGenerationStatus(finding).group,'待制作确认');
  const observed=[];let polls=0;
- await observeStoryGeneration({sessionId:id,isActive:()=>true,onSession:s=>observed.push(s.intake.phase),request:async()=>{polls++;return f.read(id);},sleep:async()=>{release();await until(async()=>(await f.read(id)).intake.phase==='confirming');}});
- assert.equal(polls,2);assert.deepEqual(observed,['discovering','confirming']);assert.equal(shelfGenerationStatus(await f.read(id)).group,'待制作确认');assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ await observeStoryGeneration({sessionId:id,isActive:()=>true,onSession:s=>observed.push(s.intake.search.state),request:async()=>{polls++;return f.read(id);},sleep:async()=>{release();await until(async()=>(await f.read(id)).intake.search.state==='idle');}});
+ assert.equal(polls,2);assert.deepEqual(observed,['searching','idle']);assert.equal(shelfGenerationStatus(await f.read(id)).group,'待制作确认');assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });
 
 test('confirmed intake draws eighty frames once across four storyboard batches',async t=>{
