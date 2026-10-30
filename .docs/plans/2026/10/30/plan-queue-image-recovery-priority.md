@@ -35,15 +35,15 @@ The query starts from live viewers with a fixed join order, because scanning eve
 
 ## Tasks
 
-- [ ] First SS probe: confirm `tests/reader-production.test.mjs` still passes with the publication error change, since it covers transient read failures.
-- [ ] `server/production-queue.ts`: add `rerun`.
-- [ ] `server/reader-production.ts`: add `lostImageMessage` and the file checks in `publish` and `image`; add retry recovery in `demand`; report the lost state in `snapshot`; add the priority function in `graph` and the yield rule in `canRun`. Update the file header.
-- [ ] `lib/reader-model.ts`: add `'redraw'` to `retryStage`. `lib/reader-production-client.ts`, `lib/reader-generation.ts`: stop automatic retry on it.
-- [ ] `lib/reader-production-client.ts`: add `focus` to `observeStoryGeneration`. `client/ui/useStoryGeneration.ts`: pass it. Update both file headers.
-- [ ] `README.md`: state that a lost image can be redrawn on retry and that the open story is drawn first.
-- [ ] `tests/queue-image-recovery.test.mjs`: regressions for lost file at publication, lost and corrupt first image, restored file, transient read, mixed lost and transient failures, no redraw without retry, other pages not redrawn, and priority across stories, strict order through publications, page jump, closing, no-reader order, and `retry:false` against a just-failed or paused story starting nothing. Yield release: a paused or failed viewed story holds nothing, a viewer leaving ends the hold, a stuck publication stops holding after 15 seconds, a viewed anchor still drawing leaves spare workers free, and two viewed stories both finish.
-- [ ] `tests/reader-production-client.test.mjs`: focus is sent only for eligible snapshots, follows page changes, clamps stale pages, tolerates errors and a never-resolving POST, and leaves on exit. Automatic retry stops on `'redraw'`.
-- [ ] Execute `.docs/tests/test-queue-image-recovery-priority.md`.
+- [x] First SS probe: confirm `tests/reader-production.test.mjs` still passes with the publication error change, since it covers transient read failures.
+- [x] `server/production-queue.ts`: add `rerun`.
+- [x] `server/reader-production.ts`: add `lostImageMessage` and the file checks in `publish` and `image`; add retry recovery in `demand`; report the lost state in `snapshot`; add the priority function in `graph` and the yield rule in `canRun`. Update the file header.
+- [x] `lib/reader-model.ts`: add `'redraw'` to `retryStage`. `lib/reader-production-client.ts`, `lib/reader-generation.ts`: stop automatic retry on it.
+- [x] `lib/reader-production-client.ts`: add `focus` to `observeStoryGeneration`. `client/ui/useStoryGeneration.ts`: pass it. Update both file headers.
+- [x] `README.md`: state that a lost image can be redrawn on retry and that the open story is drawn first.
+- [x] `tests/queue-image-recovery.test.mjs`: regressions for lost file at publication, lost and corrupt first image, restored file, transient read, mixed lost and transient failures, no redraw without retry, other pages not redrawn, and priority across stories, strict order through publications, page jump, closing, no-reader order, and `retry:false` against a just-failed or paused story starting nothing. Yield release: a paused or failed viewed story holds nothing, a viewer leaving ends the hold, a stuck publication stops holding after 15 seconds, a viewed anchor still drawing leaves spare workers free, and two viewed stories both finish.
+- [x] `tests/reader-production-client.test.mjs`: focus is sent only for eligible snapshots, follows page changes, clamps stale pages, tolerates errors and a never-resolving POST, and leaves on exit. Automatic retry stops on `'redraw'`.
+- [x] Execute `.docs/tests/test-queue-image-recovery-priority.md`.
 
 ## Validation
 
@@ -66,3 +66,17 @@ AR review round: 2; reviewer: reused.
 SS milestone: 8db844d (queue, coordinator, client, regressions, README). Follow-ups after CR round 1: tests for the first-image and read-ahead clauses, invalid saved results, file-check strictness and the legacy client guard; the yield query now starts from live viewers.
 
 Browser check on Node 24.22.1, from the shared checkout at 8db844d plus the then-uncommitted follow-ups and unrelated story-revisions work: an open story reports to `/production` on opening and every 10 seconds alongside normal polling; Pause produces one further request (the viewer leaving, inferred from timing and the demand row) and none for the next 15 seconds; Resume makes the demand row live again; closing removes it while the story keeps running. Page changes were not exercised, because the fake Codex never produces a first image; they are covered by the observer tests. This used `scripts/dev.mjs` rather than `pnpm desktop:preview`, because the reader needs a real server and isolated data. Temporary library and fake Codex, so no paid call and no change to the real library.
+
+Follow-ups after CR round 2 (6a73774): a regression for an expired viewer lease, a tightened older expiry test, and doc corrections.
+
+CR passed: no major findings.
+CR risk: non-low — paid redraws and scheduling order.
+CR review round: 3; reviewer: reused.
+
+TT, in a clean worktree at 5277e90 on Node 24.22.1: 448 of 450 passed, with typecheck and lint passing. The two failures are outside this story. `tests/fast-first-story.test.mjs` is fixed on an unmerged branch (4708a84). `tests/development-access.test.mjs` hung in the clean worktree and passes in the main checkout. Later commits changed tests and docs only; those tests pass on 6a73774.
+
+ET: flows 1-6 pass through the repository tests listed in the done document.
+
+VR passed: all acceptance criteria complete.
+VR risk: non-low — paid redraws and scheduling order.
+VR review round: 2; reviewer: reused.
