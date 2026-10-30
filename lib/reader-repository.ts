@@ -77,6 +77,7 @@ export class ReaderRepository{
  return this.get(id,uid);}
  async confirmFrameCount(id:string,uid:string,count:number){
   const row=await this.get(id,uid),selection=selectionSchema.parse(JSON.parse(row.selection)),doc=JSON.parse(row.document) as Document;
+  if(doc.intake)throw new ReaderError(409,'请在制作确认中统一确认故事、画风、幅数和制作要求。');
   if(doc.frameCountConfirmed&&selection.length===count)return row;
   if(row.state==='running'||!awaitingFrameCount(doc,selection))throw new ReaderError(409,'画幅数已确定或故事正在更新，请重新打开后继续。');
   const updated=await this.db.prepare(`UPDATE reader_sessions SET selection=?,document=?,state='idle',error=NULL,updated_at=? WHERE id=? AND user_id=? AND state=? AND document=? AND selection=? AND ${visible}`)
@@ -92,10 +93,10 @@ export class ReaderRepository{
  async acquire(row:SessionRow,step:Step){const token=crypto.randomUUID(),now=Date.now();const r=await this.db.prepare(`UPDATE reader_sessions SET state='running',error=NULL,lock_token=?,lock_until=?,step_attempts=CASE WHEN step_key=? THEN step_attempts+1 ELSE 1 END,step_key=?,updated_at=? WHERE id=? AND user_id=? AND state=? AND document=? AND state!='running' AND generation_control='active' AND ${visible}`).bind(token,now+180000,step.key,step.key,new Date(now).toISOString(),row.id,row.user_id,row.state,row.document).run();return r.meta.changes?token:null;}
  async saveImageProgress(row:SessionRow,token:string,snapshot:Document){
   // Deletion hides the session but must still retain results of calls already in flight.
-  const result=await this.db.prepare("UPDATE reader_sessions SET document=?,updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_token=?")
-   .bind(JSON.stringify(snapshot),new Date().toISOString(),row.id,row.user_id,token).run();
+  const result=await this.db.prepare("UPDATE reader_sessions SET document=?,updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?")
+   .bind(JSON.stringify(snapshot),new Date().toISOString(),row.id,row.user_id,token,snapshot.intake?.generation??-1).run();
   if(result.meta.changes!==1)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
  }
- async save(row:SessionRow,token:string,doc:Document,complete:boolean,error:string|null=null){const r=await this.db.prepare('UPDATE reader_sessions SET document=?,state=?,error=?,lock_token=NULL,lock_until=0,updated_at=? WHERE id=? AND user_id=? AND lock_token=?').bind(JSON.stringify(doc),error?'failed':complete?'completed':'idle',error,new Date().toISOString(),row.id,row.user_id,token).run();if(!r.meta.changes)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');return this.get(row.id,row.user_id);}
+ async save(row:SessionRow,token:string,doc:Document,complete:boolean,error:string|null=null){const r=await this.db.prepare("UPDATE reader_sessions SET document=?,state=?,error=?,lock_token=NULL,lock_until=0,updated_at=? WHERE id=? AND user_id=? AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?").bind(JSON.stringify(doc),error?'failed':complete?'completed':'idle',error,new Date().toISOString(),row.id,row.user_id,token,doc.intake?.generation??-1).run();if(!r.meta.changes)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');return this.get(row.id,row.user_id);}
  async progress(id:string,uid:string,page:number,saved:boolean){const row=await this.get(id,uid),doc=JSON.parse(row.document) as Document;if(!doc.plan||!doc.images[page])throw new ReaderError(400,'这幅画面还没有展开');await this.db.prepare(`UPDATE reader_sessions SET page=?,saved=?,last_read_at=? WHERE id=? AND user_id=? AND ${visible}`).bind(page,saved?1:0,new Date().toISOString(),id,uid).run();return this.get(id,uid);}
 }

@@ -11,6 +11,8 @@ import {readerMaxFrames} from './reader-limits.ts';
 import type {Document} from './reader-model.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
 import {revisionChangesSchema} from './reader-revision.ts';
+import {intakeActionSchema} from './reader-intake.ts';
+import {createIntake,changeIntake} from '../server/reader-intake.ts';
 import {forkRevision,revisionSnapshot} from '../server/reader-revisions.ts';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
 const uuid=z.string().uuid();
@@ -59,11 +61,12 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='sessions'&&path.length===1){
    // One unreadable saved story must not take the whole shelf down with it.
    if(req.method==='GET')return json(await Promise.all((await repo.list(uid)).filter(readableStory).map(row=>services.production&&row.state!=='completed'?services.production.snapshot(uid,row.id):view(row))));
-   if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema}).parse(await body(req,32768));return json(view(await repo.create(b.requestId,uid,b.selection)),201);}
+   if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema,intake:z.boolean().optional()}).parse(await body(req,32768));return json(view(b.intake?await createIntake(repo,b.requestId,uid,b.selection):await repo.create(b.requestId,uid,b.selection)),201);}
   }
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);
    if(path.length===2&&req.method==='GET')return json(services.production?await services.production.snapshot(uid,id):view(await repo.get(id,uid)));
+   if(path[2]==='setup'&&path.length===3&&req.method==='POST'){await requireProvider();const action=intakeActionSchema.parse(await body(req,32768));await changeIntake(repo,id,uid,action);return json(services.production?await services.production.snapshot(uid,id):view(await repo.get(id,uid)));}
    if(path[2]==='revisions'&&path.length===3){
     if(req.method==='GET')return json(await revisionSnapshot(repo,id,uid));
     if(req.method==='POST'){
@@ -93,9 +96,9 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
    if(path[2]==='source'&&path.length===3&&['GET','POST'].includes(req.method)){
     const row=await repo.get(id,uid),selection=selectionSchema.parse(JSON.parse(row.selection)),doc=JSON.parse(row.document) as Document;
-    if(!doc.plan)throw new ReaderError(409,'故事还在编排，稍后即可查看原文。');
+    if(doc.original)return json({source:doc.original,message:'',searchUrl:doc.original.url});
+    if(!doc.plan)throw new ReaderError(409,'原文尚未保存，请稍后再查看。');
     const searchUrl=sourceSearchUrl(selection,doc.plan);
-    if(doc.original)return json({source:doc.original,message:'',searchUrl});
     if(req.method==='GET')return json({source:null,message:row.error||'这篇旧故事还没有保存原文，可以补全后继续阅读。',searchUrl});
     if(row.state==='running')throw new ReaderError(409,'故事正在生成，请稍后再补全原文。');
     if(!services.media)throw new ReaderError(503,'原文存储暂时不可用');

@@ -1,6 +1,6 @@
 // Advance local story generation under one session lock, retaining every paid result it can save.
 // A failed save is rethrown for recovery rather than recorded as a provider failure.
-import {nextStep,planSchema,storyboardOutlineSchema,storyboardBatchSchema,selectionSchema,view,ReaderError,awaitingFrameCount,readerBooks} from './reader-model.ts';
+import {nextStep,planSchema,storyboardOutlineSchema,storyboardBatchSchema,selectionSchema,view,ReaderError,productionComplete,readerBooks} from './reader-model.ts';
 import type {Document,Plan,Selection,SessionRow,Storyboard,StoryboardOutline} from './reader-model.ts';
 import {persistenceError} from './reader-repository.ts';
 import type {ReaderRepository} from './reader-repository.ts';
@@ -8,7 +8,7 @@ import type {ArtStyleId} from './reader-styles.ts';
 import type {OriginalSource,SourceResult,SourceHint} from './reader-source-types.ts';
 import {frameRecommendationSchema} from './reader-frame-recommendation.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
-import {readerImageBatchSize,readerMaxFrames,readerStoryboardBatchSize} from './reader-limits.ts';
+import {readerImageBatchSize,readerStoryboardBatchSize} from './reader-limits.ts';
 import {newReview,reviewReportSchema,repairOutputSchema,pendingRepairs} from './reader-review.ts';
 import {syncRevisionImages} from './reader-revision.ts';
 import type {ReviewIssue,ReviewReport,RepairedPage} from './reader-review.ts';
@@ -40,7 +40,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
  if(row.state==='running'){if(row.lock_until>Date.now())return view(row);row=await repo.stale(row);}
  if(row.state==='failed'&&!retry)return view(row);
  const selection=selectionSchema.parse(JSON.parse(row.selection)),doc=JSON.parse(row.document) as Document;
- const step=nextStep(doc,selection,throughPage);if(!step)return view(row);
+ const step=nextStep(doc,selection,throughPage);if(!step||step.kind==='discover')return view(row);
  const token=await repo.acquire(row,step);if(!token)return view(await repo.get(id,uid));
  onAcquired?.(token);
  try{
@@ -57,7 +57,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     doc.original=original;await repo.saveImageProgress(row,token,structuredClone(doc));
    }
    if(!generator.recommend)throw new ReaderError(503,'生成服务暂不支持画幅建议，请更新服务后重试。');
-   const result=await generator.recommend(selection,id,doc.original);doc.frameRecommendation=frameRecommendationSchema.parse(result.value);generated=result;
+   const result=await generator.recommend(selection,id,doc.original);doc.frameRecommendation=frameRecommendationSchema.parse(result.value);generated=result;if(doc.intake)doc.intake.phase='confirming';
   }
   else if(step.kind==='plan'){
    if(generator.prepareOriginal&&!doc.original){
@@ -125,6 +125,6 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    const issues=doc.visualReview.issues,summary=issues.slice(0,3).map(issue=>`第 ${issue.page} 幅：${issue.problem}`).join('；');
    throw new ReaderError(422,`分镜复核仍有 ${issues.length} 处问题，已停止绘图。${summary}。可手动继续修订。`);
   }
-  return view(await repo.save(row,token,doc,!awaitingFrameCount(doc,selection)&&!nextStep(doc,selection,readerMaxFrames-1)));
+  return view(await repo.save(row,token,doc,productionComplete(doc,selection)));
  }catch(error){if(error instanceof ReaderError&&error.status===404||persistenceError(error))throw error;onFailed?.(error);return view(await repo.save(row,token,doc,false,error instanceof ReaderError?error.message:generator.safeError(error)));}
 }
