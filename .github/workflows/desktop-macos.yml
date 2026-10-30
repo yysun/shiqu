@@ -1,4 +1,4 @@
-# Build native unsigned macOS packages; publish complete tag builds with stable download names.
+# Build shared assets once, then package both native macOS editions before publishing a release.
 name: Desktop macOS
 
 on:
@@ -13,14 +13,9 @@ permissions:
 
 jobs:
   build:
-    name: ${{ matrix.edition }} / macOS arm64
-    strategy:
-      fail-fast: false
-      matrix:
-        edition: [standard, lite]
+    name: Standard + Lite / macOS arm64
     runs-on: macos-15
     env:
-      EDITION: ${{ matrix.edition }}
       ARCH: arm64
     steps:
       - uses: actions/checkout@v4
@@ -57,48 +52,65 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
-      - name: Prepare edition resources for native tests
-        run: |
-          if [[ "$EDITION" == lite ]]; then
-            pnpm run desktop:prepare:lite
-          else
-            pnpm run desktop:prepare
-          fi
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
-      - name: Native tests
+      - name: Build shared reader, desktop UI, and runtime resources
         run: |
-          if [[ "$EDITION" == lite ]]; then
-            # Direct Cargo tests need the same config override as the Lite Tauri build.
-            TAURI_CONFIG="$(cat src-tauri/tauri.lite.conf.json)" pnpm run desktop:test:lite
-          else
-            pnpm run desktop:test
-          fi
-      - name: Build unsigned Standard DMG
-        if: matrix.edition == 'standard'
-        # Retain the .app for the packaged-resource smoke check; dmg alone removes it.
-        run: pnpm run desktop:build --ci --no-sign --bundles app,dmg
-      - name: Build unsigned Lite DMG
-        if: matrix.edition == 'lite'
-        run: pnpm run desktop:build:lite --ci --no-sign --bundles app,dmg
-      - name: Smoke test the packaged application resources
-        run: |
-          app_name=Shiqu
-          if [[ "$EDITION" == lite ]]; then app_name='Shiqu Lite'; fi
-          pnpm run desktop:smoke "src-tauri/target/release/bundle/macos/$app_name.app/Contents/Resources/runtime"
-      - name: Give the installer a stable download name
+          pnpm run build
+          pnpm exec vite build --config desktop/vite.config.ts
+          node scripts/desktop-resources.mjs
+      - name: Test and package Standard, then Lite
         run: |
           shopt -s nullglob
-          installers=(src-tauri/target/release/bundle/dmg/*.dmg)
-          if [[ ${#installers[@]} -ne 1 ]]; then
-            echo 'Expected exactly one DMG for this edition and architecture' >&2
-            exit 1
-          fi
           mkdir -p release-assets
-          cp "${installers[0]}" "release-assets/shiqu-$EDITION-macos-$ARCH.dmg"
+          for EDITION in standard lite; do
+            export EDITION
+            # Reuse the shared payload, changing only edition metadata and bundled Node.
+            node --input-type=module <<'NODE'
+          import {readFileSync,writeFileSync,rmSync} from 'node:fs';
+          const file = 'desktop/resources/runtime/payload.json';
+          const payload = JSON.parse(readFileSync(file, 'utf8'));
+          payload.edition = process.env.EDITION;
+          payload.nodeBundled = payload.edition === 'standard';
+          writeFileSync(file, JSON.stringify(payload, null, 2) + '\n');
+          if (!payload.nodeBundled) rmSync('desktop/resources/node', {recursive:true, force:true});
+          NODE
+            app_name=Shiqu
+            test_script=desktop:test
+            if [[ "$EDITION" == standard ]]; then
+              node scripts/desktop-node.mjs
+            else
+              app_name='Shiqu Lite'
+              test_script=desktop:test:lite
+            fi
+            # Use one edition config for Cargo and Tauri; shared assets are already prepared.
+            config="$(node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const config = process.env.EDITION === 'lite'
+            ? JSON.parse(readFileSync('src-tauri/tauri.lite.conf.json', 'utf8')) : {};
+          config.build = {...config.build, beforeBuildCommand:''};
+          process.stdout.write(JSON.stringify(config));
+          NODE
+            )"
+            TAURI_CONFIG="$config" pnpm run "$test_script"
+            # Retain the .app for smoke checks; dmg alone removes it.
+            pnpm run desktop:build --config "$config" --ci --no-sign --bundles app,dmg
+            pnpm run desktop:smoke "src-tauri/target/release/bundle/macos/$app_name.app/Contents/Resources/runtime"
+            installers=("src-tauri/target/release/bundle/dmg/${app_name}_"*.dmg)
+            if [[ ${#installers[@]} -ne 1 ]]; then
+              echo 'Expected exactly one DMG for this edition and architecture' >&2
+              exit 1
+            fi
+            cp "${installers[0]}" "release-assets/shiqu-$EDITION-macos-$ARCH.dmg"
+          done
       - uses: actions/upload-artifact@v4
         with:
-          name: shiqu-${{ matrix.edition }}-macos-arm64
-          path: release-assets/*.dmg
+          name: shiqu-standard-macos-arm64
+          path: release-assets/shiqu-standard-macos-arm64.dmg
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shiqu-lite-macos-arm64
+          path: release-assets/shiqu-lite-macos-arm64.dmg
           if-no-files-found: error
 
   release:

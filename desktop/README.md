@@ -101,7 +101,7 @@ pnpm desktop:smoke
 
 ## GitHub macOS 发布
 
-[Desktop macOS 工作流](../.github/workflows/desktop-macos.yml) 仅在 Apple Silicon（`macos-15`）原生 runner 上打包 Standard/Lite，共两个未签名 DMG，不构建 Intel、Windows 或 Linux 版本。每个构建运行本地检查、原生测试及打包后资源的 smoke 检查。无需 Apple 证书、开发者账户或额外发布密钥；发布使用 GitHub 提供的 `GITHUB_TOKEN`，仅发布任务拥有 `contents: write` 权限。
+[Desktop macOS 工作流](../.github/workflows/desktop-macos.yml) 在同一个 Apple Silicon（`macos-15`）原生 runner 上依次打包 Standard/Lite，共两个未签名 DMG，不构建 Intel、Windows 或 Linux 版本。依赖安装、类型检查、lint、JavaScript 测试、Rust 格式检查、阅读端与桌面 UI 构建及运行资源准备只执行一次。两版复用这些资源和 Cargo 编译缓存，各自运行原生测试、打包及资源 smoke 检查；Standard 添加内置 Node，Lite 移除 Node 并切换资源清单。CI 跳过 Tauri 中重复的准备钩子，本地打包命令仍自动准备资源。两版不再并行，任一失败都会阻止发布。无需 Apple 证书、开发者账户或额外发布密钥；发布使用 GitHub 提供的 `GITHUB_TOKEN`，仅发布任务拥有 `contents: write` 权限。
 
 手动运行或匹配路径的 pull request 只上传 Actions artifacts，不创建 Release。推送 `vX.Y.Z` 正式版本标签后，两个构建全部成功才创建草稿、上传安装包和 `SHA256SUMS.txt`，最后自动公开发布。发布失败可重新运行并继续未发布的草稿；已公开的版本不会覆盖。暂不接受预发布标签。
 
