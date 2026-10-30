@@ -1,0 +1,72 @@
+# Queue interruption resilience
+
+Requirement: `.docs/reqs/2026/10/30/req-queue-interruption-resilience.md`
+E2E spec: `.docs/tests/test-queue-interruption-resilience.md`
+
+Risk: non-low. This changes concurrency, availability and paid-work replay in the durable queue.
+Story base: a147e551b648f05b1d61382fdffd758dc2920936. Preserve unrelated release and task-reasoning-effort changes in the shared checkout, and commit story paths only.
+
+## Decisions
+
+**Interruption is a queue classification, not a provider error.** While the queue is stopping, a failing non-drain job is recorded with `interrupted=1` and the existing interruption message, unless a new `terminal(error,job)` option says otherwise. The coordinator's rule is that a `ReaderError` with a 4xx status is terminal. Publication jobs (`drain:true`) keep real failures, because they run to completion during shutdown.
+
+A genuine provider error that happens to arrive during a stop is therefore replayed on the next start. This is accepted: the replay allowance bounds it, and a real failure then persists because the service is no longer stopping.
+
+**Session state follows real failures only.** The session-save loop in `cycle()` ignores interrupted jobs. `script()` also needs two changes, because `advanceStory` writes `state='failed'` before the queue classifies the error:
+- A stop-time failure clears the row back to idle, unless the review is blocked.
+- A blocked review is thrown as 422, so the terminal rule keeps it failed. This is essential: `script()` always calls the engine with `retry=true`, so an automatic replay of a blocked review would pay for repair.
+
+Together these also fix Resume after a pause plus a lost lease.
+
+**Persistence errors are not job outcomes.** The success write moves out of the handler's `try`. If the success or failure write throws, the queue logs a safe code and leaves the job `running`. Its token leaves the map when the task settles, so the lease expires and the job recovers as an interruption, counted against the cap. The pre-handler section gets the same treatment, and a handler that rejects with a SQLite error (`ERR_SQLITE_ERROR`) counts as a persistence error too. Other errors raised inside a handler can still surface as that job's failure.
+
+**No latched fault.** Remove `fault` and the queue's self-`stop()`. The guard against paid dispatch with an unwritable database is the claim UPDATE, which runs before `execute`; if it throws, nothing starts and the tick fails. The next tick is the probe. A failed tick logs only on the transition into failure, using a safe code. `close()` logs tick errors and keeps draining, so a transient error cannot skip closing SQLite or releasing the desktop data lock.
+
+**Readability is checked explicitly, not inferred from exception types.** `Document` is never schema-validated, so valid JSON with the wrong shape throws `TypeError` from unrelated code. A pure `readableStory(row)` in `lib/reader-model.ts` wraps `view(row)` in a try/catch, and `view` parses the selection and document and touches their fields. Because it is called only on already-fetched rows, database errors can never be swallowed.
+- `cycle()` skips `graph` for unreadable rows, and the session-save loop releases their lease.
+- `canRun` returns false after its cheap gates, so paused and failed stories pay nothing extra. It parses the document only after this check, and the check comes before the text-pool return, so a `{}` document cannot get a paid plan call.
+- `GET /sessions` filters them out. The row stays in SQLite.
+- The coordinator logs each story ID once per runtime.
+
+**Tokens fence, not wall-clock time.** Recovery clears `lease_token`, and a replacement attempt writes a new one, so the token alone identifies the current attempt.
+- Remove `lease_until>?` and `lock_until>?` from renewal, `isCurrent`, job success, session renewal, the publication write and `ownSession`'s own-lease check.
+- `recoverExpired` skips jobs whose token this process holds. This covers API-driven recovery, such as a retry, that runs before the first tick after wake.
+
+This stays safe with two services on one library, because a service that loses its claim no longer matches the token. The desktop data lock rules out a second service for desktop; a shared-volume deployment may replay, as the requirement states.
+
+**Replay cap reuses `attempts`.** `resumeInterrupted` refuses when `attempts>=3`, so the job stays `failed` with `interrupted=1`, and the snapshot shows a retryable error. Claims are already counted before the handler runs, so crash loops count. `queue.retry` resets `attempts=0` on the story's failed and queued rows, and the pre-handler release decrements. The visible attempt count restarts after a manual retry, which reads correctly as a new run because the UI shows it only above 1. Rows from older versions counted released claims, so an inflated count can show a retryable error instead of resuming; this fails safe. No schema change is needed.
+
+## Tasks
+
+- [ ] `server/production-queue.ts`: add the `terminal` option and classify stop-time failures. Separate the success write and make outcome-write errors log and leave the job running. Remove `lease_until` from `renew`, `isCurrent` and the success write. Skip own tokens in `recoverExpired`. Remove the self-stop. Make `retry` reset attempts on failed and queued rows and the pre-handler release decrement them. Export the interruption message. Update the file header.
+- [ ] `lib/reader-model.ts`: add `readableStory`. `lib/reader-api.ts`: filter unreadable rows from `GET /sessions`.
+- [ ] `server/reader-production.ts`: remove `fault`. Add the safe tick log, and log and continue in `close()`. Skip unreadable stories in `cycle` and `canRun`. Add the replay cap. Provide `terminal`. Clear the stop-time row failure and use 422 for blocked reviews in `script`. Make session renewal, `ownSession` and the publication write token-only. Have the session-save loop use real failures only. Update the file header.
+- [ ] `tests/shelf-generation.test.mjs:90`: expect `attempts` to be 1 after an explicit retry.
+- [ ] `tests/queue-interruption.test.mjs`: controlled regressions for every acceptance criterion:
+  - Stop during image and script work, while active, paused and stopped; blocked review during stop.
+  - Transient tick error, thrown claim write, tick error during `close()`.
+  - Bad selection, `document='{}'`, `document='null'` and truncated JSON with a queued job, each with other stories completing and the shelf loading.
+  - Failed success write and failed failure write.
+  - Clock jump, late stale result across two queues, dead-runtime recovery, the cap, retry reset across a story, pre-handler release.
+- [ ] `tests/codex-provider.test.mjs`: prove that killing a running fake Codex process with `stopCodexProcesses` rejects the in-flight call, so the stop path above is the path real quits take.
+- [ ] `README.md`: state that stopping the service resumes interrupted work and that automatic recovery is bounded.
+- [ ] Execute `.docs/tests/test-queue-interruption-resilience.md`.
+
+## Validation
+
+Node 24.22.1 and pnpm per `.nvmrc`. Focused: `pnpm exec node --experimental-strip-types --test tests/queue-interruption.test.mjs`. Full suite, typecheck and lint belong to TT. No UI changes, so no browser pass is needed. No paid providers, Docker builds or desktop packaging.
+
+## Risks
+
+- **Replay cost:** a stop can replay an uncertain paid call, which the README already discloses. At most three attempts per job between manual retries.
+- **Lost outcome write:** a finished paid result is lost if its write fails, and recovery pays again. This needs a database failure at that moment and is bounded by the cap.
+- **Gemini quit:** in-flight fetches aren't aborted on stop, so a quit that kills Node before they drain recovers through lease expiry, up to 180 seconds later, rather than stop classification. Same outcome, later.
+- **Stop-time clear failing:** if the database also fails while `script()` clears the row, the story needs a manual retry.
+- **Hung handler:** a handler that never settles keeps its slot while the process lives. This is unchanged from today, and provider timeouts bound it.
+- **Rollback:** revert the commits. No persisted format changes, and older versions read the same rows.
+
+## Review log
+
+AR passed: no blocking architecture flaws.
+AR risk: non-low — durable paid-work replay, concurrency and availability.
+AR review round: 2; reviewer: reused.

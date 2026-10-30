@@ -87,6 +87,7 @@ test('viewing a saved failure preserves its attempt count until an explicit retr
   onSession:s=>{if(s.ready>0)active=false;},
   request:(path,method,body)=>f.json(path.replace(/^reader\//,''),method||'GET',body),
  });
- assert.equal(await attempts(),before+1);assert.equal(f.control.plans.length,1);
+ // An explicit retry starts a new run, so its count restarts rather than continuing from before.
+ assert.equal(await attempts(),1);assert.ok(before>=1);assert.equal(f.control.plans.length,1);
  assert.ok((await f.read(id)).ready>0);
 });

@@ -1,11 +1,13 @@
 // Coordinate reader demand with durable script, image and local publication jobs.
 // Paid work needs fresh viewer demand or durable background intent; manual control overrides both.
+// Scheduling errors never latch: a failed tick dispatches nothing and the next one retries, while
+// an unreadable story is skipped alone. Interrupted work resumes within a bounded replay allowance.
 import {randomUUID} from 'node:crypto';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import type {Database} from '../lib/reader-repository.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
 import type {Generated} from '../lib/reader-engine.ts';
-import {ReaderError,selectionSchema,view,nextStep,reviewPassed} from '../lib/reader-model.ts';
+import {ReaderError,readableStory,selectionSchema,view,nextStep,reviewPassed} from '../lib/reader-model.ts';
 import type {Document,SessionRow,SessionView,ProductionAction} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
@@ -20,6 +22,7 @@ type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;thro
 type Lease={ownerId:string;token:string};
 type Options={imageWorkers?:number;now?:()=>number;leaseMs?:number;tickMs?:number};
 const sessionLeaseMs=180000;
+const maxAutomaticAttempts=3;
 export function configuredImageWorkers(value?:string){
  if(!value?.trim())return 3;
  if(!/^[1-8]$/.test(value.trim()))throw Error('SHIQU_IMAGE_WORKERS must be an integer from 1 to 8');
@@ -36,7 +39,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private ticking:Promise<void>|undefined;
  private stopping=false;
  private closed=false;
- private fault=false;
+ private tickFailing=false;
+ private readonly unreadable=new Set<string>();
  private database:Database;
  private provider:ReaderProvider;
  private media:MediaStore;
@@ -48,6 +52,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    limits:{text:1,image:options.imageWorkers??3,local:2},now:this.clock,leaseMs:options.leaseMs,
    canRun:job=>this.canRun(job),resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>this.wake(),
    safeError:(error,job)=>error instanceof ReaderError?error.message:job.kind==='image-publish'?'图片已生成，暂时无法展开。请重试继续。':this.provider.safeError(error),
+   terminal:error=>error instanceof ReaderError&&error.status<500,
    handlers:{
     prepare:{pool:'text',run:job=>this.script(job)},
     script:{pool:'text',run:job=>this.script(job)},
@@ -69,20 +74,30 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    .bind(...(id?[id]:[])).all<{id:string;user_id:string}>()).results;
   return [...viewers,...background.map(row=>({session_id:row.id,owner_id:row.user_id,viewer_id:'background',page:0,through_page:readerMaxFrames-1,expires_at:Infinity,runtime_id:this.runtimeId}))];
  }
+ private readable(row:SessionRow){
+  if(readableStory(row))return true;
+  if(!this.unreadable.has(row.id)){this.unreadable.add(row.id);console.error('production_story_unreadable',JSON.stringify({id:row.id}));}
+  return false;
+ }
+ private tickFailed(error:unknown){
+  if(!this.tickFailing)console.error('production_tick_failed',JSON.stringify({code:(error as {code?:string}|null)?.code||(error instanceof Error?error.name:'UNKNOWN')}));
+  this.tickFailing=true;
+ }
  private async resumeInterrupted(job:ProductionJob){
-  if(this.stopping||this.fault)return false;
+  // Attempts count every paid start, so a crash loop stops here and waits for an explicit retry.
+  if(this.stopping||job.attempts>=maxAutomaticAttempts)return false;
   const row=await this.raw(job.session_id,job.owner_id);
   return row.generation_mode==='background'&&row.generation_control==='active'&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
  async control(ownerId:string,id:string,action:ProductionAction){
-  if(this.stopping||this.fault)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
+  if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
   await this.repository.control(id,ownerId,action);this.wake();return this.snapshot(ownerId,id);
  }
  async managed(ownerId:string,id:string){return !!await this.database.prepare('SELECT id FROM production_jobs WHERE owner_id=? AND session_id=? LIMIT 1').bind(ownerId,id).first();}
  async request(ownerId:string,id:string,viewerId:string,page:number,retry=false){return this.demand(ownerId,id,viewerId,page,page+productionReadAhead,retry);}
  async advance(ownerId:string,id:string,throughPage:number,retry:boolean){return this.demand(ownerId,id,'legacy-advance',0,throughPage,retry);}
  private async demand(ownerId:string,id:string,viewerId:string,page:number,throughPage:number,retry:boolean){
-  if(this.stopping||this.fault)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
+  if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
   const row=await this.repository.get(id,ownerId),doc=JSON.parse(row.document) as Document;
   if(row.generation_control!=='active')return this.snapshot(ownerId,id);
   if(doc.plan&&page>=doc.plan.pages.length)throw new ReaderError(400,'请选择有效画幅');
@@ -148,25 +163,27 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
  }
  private async canRun(job:ProductionJob){
-  const row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
+  const row=await this.raw(job.session_id,job.owner_id);
   const local=job.kind==='image-publish';
   if(!local){
    if(row.generation_control!=='active')return false;
-   if(this.stopping||this.fault||!(await this.demands(row.id)).some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page))return false;
+   if(this.stopping||!(await this.demands(row.id)).some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page))return false;
    if(await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first())return false;
    const jobs=await this.queue.jobs(row.id,row.user_id);
    if(jobs.some(job=>job.state==='failed')||row.state==='failed')return false;
    // Apply backpressure until a completed image is published; a local failure must stop refill.
    if(job.kind==='image'&&jobs.some(job=>job.kind==='image-publish'&&job.state==='running'))return false;
   }
+  if(!this.readable(row))return false;
   if(job.pool==='text')return row.state!=='running'||row.lock_until<=this.clock();
+  const doc=JSON.parse(row.document) as Document;
   if(!doc.plan||!doc.original||!reviewPassed(doc))return false;
   return this.ownSession(row,local);
  }
  private async ownSession(row:SessionRow,allowDeleted:boolean){
   const lease=this.leases.get(row.id);
   if(lease){
-   if(row.state==='running'&&row.lock_token===lease.token&&row.lock_until>this.clock())return true;
+   if(row.state==='running'&&row.lock_token===lease.token)return true;
    this.leases.delete(row.id);
   }
   if(row.state==='running'){
@@ -188,7 +205,13 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // A crash can save a batch before settling its queue receipt. Never replay that paid call.
   if(stepKey&&stepKey!==nextStep(doc,selection,0)?.key)return {storyboardFrames:doc.storyboard?.pages.length||0};
   const result=await advanceStory(this.repository,this.provider.generator(),row.user_id,row.id,0,true,token=>this.leases.set(row.id,{ownerId:row.user_id,token}));
-  if(result.state==='failed')throw new ReaderError(503,result.error||'故事编排暂未完成');
+  if(result.state==='failed'){
+   // The engine records its failure before the queue can classify it, so undo that for a stop.
+   // A blocked review stays failed: replaying it would pay for repair without the reader asking.
+   const blocked=result.retryStage==='review';
+   if(this.stopping&&!blocked)await this.database.prepare("UPDATE reader_sessions SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'").bind(row.id,row.user_id).run();
+   throw new ReaderError(blocked?422:503,result.error||'故事编排暂未完成');
+  }
   if(result.awaitingFrameCount)return {awaitingFrameCount:true};
   row=await this.raw(row.id,row.user_id);doc=JSON.parse(row.document) as Document;
   if(doc.visualReview&&!reviewPassed(doc))return {review:doc.visualReview.status};
@@ -218,15 +241,15 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const lease=this.leases.get(row.id);if(!lease)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
   const usage={step:`image:${page}`,model:result.model,requestId:result.requestId,usage:result.usage};
   const saved=await this.database.prepare(`UPDATE reader_sessions SET document=json_set(document,?, ?, '$.usage',json_insert(json_extract(document,'$.usage'),'$[#]',json(?))),updated_at=?
-   WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND lock_until>? AND COALESCE(json_extract(document,?),'')=''
-   AND EXISTS(SELECT id FROM production_jobs WHERE id=? AND state='running' AND lease_token=? AND lease_until>?)`)
-   .bind(`$.images[${page}]`,result.value,JSON.stringify(usage),new Date(this.clock()).toISOString(),row.id,row.user_id,lease.token,this.clock(),`$.images[${page}]`,job.id,job.lease_token,this.clock()).run();
+   WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND COALESCE(json_extract(document,?),'')=''
+   AND EXISTS(SELECT id FROM production_jobs WHERE id=? AND state='running' AND lease_token=?)`)
+   .bind(`$.images[${page}]`,result.value,JSON.stringify(usage),new Date(this.clock()).toISOString(),row.id,row.user_id,lease.token,`$.images[${page}]`,job.id,job.lease_token).run();
   if(saved.meta.changes!==1)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
   return {value:result.value};
  }
  wake(){
   if(this.closed||this.scheduled)return;
-  this.scheduled=setImmediate(()=>{this.scheduled=undefined;void this.tick().catch(()=>{this.fault=true;this.queue.stop();});});
+  this.scheduled=setImmediate(()=>{this.scheduled=undefined;void this.tick().then(()=>{this.tickFailing=false;},error=>this.tickFailed(error));});
  }
  async tick(){
   if(this.closed)return;if(this.ticking)return this.ticking;
@@ -237,8 +260,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   await this.queue.renew();
   for(const [id,lease] of this.leases){
    const now=this.clock();
-   await this.database.prepare("UPDATE reader_sessions SET lock_until=? WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND lock_until>?")
-    .bind(now+(this.options.leaseMs||sessionLeaseMs),id,lease.ownerId,lease.token,now).run();
+   await this.database.prepare("UPDATE reader_sessions SET lock_until=? WHERE id=? AND user_id=? AND state='running' AND lock_token=?")
+    .bind(now+(this.options.leaseMs||sessionLeaseMs),id,lease.ownerId,lease.token).run();
   }
   await this.queue.recoverExpired();
   // A dead runtime cannot renew these locks. Preserve every live session/job lease across processes.
@@ -250,15 +273,19 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const demands=await this.demands(),seen=new Set<string>();
   for(const demand of demands)if(!seen.has(demand.session_id)){
    seen.add(demand.session_id);
-   try{await this.graph(await this.repository.get(demand.session_id,demand.owner_id));}catch(error){if(!(error instanceof ReaderError&&error.status===404))throw error;}
+   try{const row=await this.repository.get(demand.session_id,demand.owner_id);if(this.readable(row))await this.graph(row);}catch(error){if(!(error instanceof ReaderError&&error.status===404))throw error;}
   }
   await this.queue.pump();
   for(const [id,lease] of this.leases){
    const jobs=await this.queue.jobs(id,lease.ownerId);
    const pendingLocal=jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'));
    if(jobs.some(job=>job.state==='running')||pendingLocal)continue;
-   const row=await this.raw(id,lease.ownerId),doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
-   const failed=jobs.find(job=>job.state==='failed');
+   const row=await this.raw(id,lease.ownerId);
+   // Releasing the lease lets the lock expire; the row itself is left untouched.
+   if(!this.readable(row)){this.leases.delete(id);continue;}
+   const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
+   // An interruption is not a story failure: the job resumes, and the row must not block it.
+   const failed=jobs.find(job=>job.state==='failed'&&!job.interrupted);
    await this.repository.save(row,lease.token,doc,!nextStep(doc,selection,readerMaxFrames-1),failed?.error||null).catch(error=>{if(!(error instanceof ReaderError&&[404,409].includes(error.status)))throw error;});
    this.leases.delete(id);
   }
@@ -269,8 +296,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   this.stop();
   if(this.scheduled){clearImmediate(this.scheduled);this.scheduled=undefined;}
   if(!this.busy){this.closed=true;return;}
-  if(this.ticking)await this.ticking;
-  do{await this.tick();await this.queue.settle();await this.tick();}while(this.queue.busy);
+  // A scheduling error must not skip closing SQLite; undrained publications resume at next start.
+  const attempt=(work:Promise<void>)=>work.catch(error=>this.tickFailed(error));
+  if(this.ticking)await attempt(this.ticking);
+  do{await attempt(this.tick());await this.queue.settle();await attempt(this.tick());}while(this.queue.busy);
   this.closed=true;
  }
 }

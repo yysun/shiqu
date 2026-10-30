@@ -49,3 +49,31 @@ test('expired work fails explicitly; enqueue and pump never silently replay it; 
  await queue.recoverExpired();await queue.enqueue(job);await queue.pump();assert.equal(calls,0);assert.equal((await queue.job(job.id)).state,'failed');
  await queue.retry('story','someone-else');await queue.pump();assert.equal(calls,0);await queue.retry('story','owner');await queue.pump();await queue.settle();assert.equal(calls,1);
 });
+
+test('a live attempt survives a clock jump; a second scheduler that recovers it fences the late result',async t=>{
+ const {adapter}=database(t);let now=100,release;const hold=new Promise(resolve=>release=resolve),job=spec('image','image');
+ const run=async()=>{await hold;return {asset:'late'};},options={limits:{image:1},now:()=>now,leaseMs:100,resumeInterrupted:async()=>true,handlers:{image:{pool:'image',run}}};
+ const live=new ProductionQueue(adapter,options),other=new ProductionQueue(adapter,options);
+ await live.enqueue(job);await live.pump();await turn();const {lease_token:token}=await live.job(job.id);
+ now=10000;await live.recoverExpired();assert.equal((await live.job(job.id)).state,'running','This process still owns its attempt');
+ await live.renew();assert.equal((await live.job(job.id)).lease_until,10100);assert.equal((await live.job(job.id)).lease_token,token);
+ now=20000;await other.recoverExpired();assert.equal((await live.job(job.id)).state,'queued','Another service cannot tell a sleeper from a dead one');
+ await live.renew();assert.equal((await live.job(job.id)).lease_until,0,'A recovered claim cannot be renewed');
+ release();await live.settle();const late=await live.job(job.id);assert.equal(late.state,'queued');assert.equal(late.result,null,'The late result is fenced out');
+});
+test('a stop-time failure is an interruption unless the handler says it is terminal or it drains',async t=>{
+ const {adapter}=database(t);const fail={};
+ const handler=pool=>({pool,run:async()=>{await new Promise(resolve=>fail[pool]=resolve);throw Error(pool);}});
+ const queue=new ProductionQueue(adapter,{limits:{a:1,b:1,c:1},terminal:error=>error.message==='b',handlers:{a:handler('a'),b:handler('b'),c:{...handler('c'),drain:true}}});
+ const jobs=['a','b','c'].map(kind=>spec(kind,kind));for(const job of jobs)await queue.enqueue(job);await queue.pump();await until(()=>fail.a&&fail.b&&fail.c);
+ queue.stop();Object.values(fail).forEach(resolve=>resolve());await queue.settle();
+ assert.deepEqual(await Promise.all(jobs.map(async job=>(await queue.job(job.id)).interrupted)),[1,0,0]);
+ assert.deepEqual(await Promise.all(jobs.map(async job=>(await queue.job(job.id)).state)),['failed','failed','failed']);
+});
+test('a claim released before its handler starts does not count as an attempt',async t=>{
+ const {adapter}=database(t);let allowed=[true,false],calls=0;const job=spec('image','image');
+ const queue=new ProductionQueue(adapter,{limits:{image:1},canRun:async()=>allowed.length?allowed.shift():true,handlers:{image:{pool:'image',run:async()=>{calls++;return 'saved';}}}});
+ await queue.enqueue(job);await queue.pump();await queue.settle();
+ const released=await queue.job(job.id);assert.equal(released.state,'queued');assert.equal(released.attempts,0);assert.equal(calls,0);
+ await queue.pump();await queue.settle();const done=await queue.job(job.id);assert.equal(done.state,'succeeded');assert.equal(done.attempts,1);assert.equal(calls,1);
+});

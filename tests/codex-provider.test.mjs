@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,chmod,rm,access,readdir,cp,mkdir} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {createCodexRunner,CodexError,codexEnvironment} from '../server/codex-runner.ts';
+import {createCodexRunner,CodexError,codexEnvironment,stopCodexProcesses} from '../server/codex-runner.ts';
 import {createReaderProvider,safeCodexError} from '../server/generation.ts';
 import {createApplication} from '../server/app.ts';
 import {planSchema,selectionSchema} from '../lib/reader-model.ts';
@@ -128,6 +128,13 @@ test('runner rejects unsafe tools, oversized output, process failure, missing im
   const spawned=(await fake.log()).find(row=>row.cwd);await assert.rejects(access(spawned.cwd));
  }
 });
+test('stopping Codex processes rejects the in-flight call, which is how a desktop quit reaches the queue',async t=>{
+ const fake=await fakeCli(t,'hang'),runner=createCodexRunner({CODEX_BIN:fake.binary},{timeoutMs:60000});
+ const call=runner.run({instructions:'test',prompt:'test',generateImage:true}),rejected=assert.rejects(call,error=>error instanceof CodexError&&error.message==='PROCESS_EXIT');
+ const end=Date.now()+10000;while(!(await fake.log().catch(()=>[])).some(row=>row.method==='turn/start')){assert.ok(Date.now()<end);await new Promise(resolve=>setTimeout(resolve,20));}
+ await stopCodexProcesses();await rejected;
+});
+
 test('runner accepts native image bytes and attaches the first scene without reading returned paths',async t=>{
  const fake=await fakeCli(t,'image'),runner=createCodexRunner({CODEX_BIN:fake.binary});
  const result=await runner.run({instructions:'image only',prompt:'scene',image:{bytes:png,contentType:'image/png'},generateImage:true});assert.deepEqual(Buffer.from(result.image,'base64'),Buffer.from(png));
