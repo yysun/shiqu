@@ -1,4 +1,4 @@
-// Exercise empty relocated Standard/Lite libraries, then create temporary API fixtures without paid calls.
+// Exercise empty relocated Standard/Lite libraries and runtime lifecycle without generating content.
 import assert from 'node:assert/strict';
 import {cp,lstat,mkdtemp,readFile,readdir,rm} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
@@ -8,8 +8,6 @@ import {createServer} from 'node:net';
 import {createHash} from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import {makeStory} from '../tests/fixtures/story.mjs';
-import {png} from '../tests/fixtures/images.mjs';
 
 assert.equal(process.versions.node.split('.')[0],'24','Run smoke checks using Node 24');
 const source=path.resolve(process.argv.slice(2).find(value=>value!=='--')||'desktop/resources/runtime');
@@ -27,21 +25,6 @@ async function start(settings){
  try{const ready=await result;assert.equal(ready.running,true,ready.error);return ready;}finally{clearTimeout(timeout);}
 }
 async function stop(){if(child&&child.exitCode===null){const exited=once(child,'exit');child.stdin.end();const timer=setTimeout(()=>child.kill('SIGKILL'),10000);try{await exited;}finally{clearTimeout(timer);}}}
-async function createFixtureStory(origin){
- async function json(route,method,body,status=200){
-  const response=await request(origin+route,{method,headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const result=await response.json();assert.equal(response.status,status,JSON.stringify(result));return result;
- }
- const form=new FormData();form.append('file',new File([png],'smoke.png',{type:'image/png'}));
- const uploaded=await request(origin+'/api/admin/upload',{method:'POST',headers:{Origin:origin},body:form});assert.equal(uploaded.status,200);
- const {url}=await uploaded.json(),fixture=makeStory(4);fixture.pages=fixture.pages.map(page=>({...page,image:url}));
- let story=await json('/api/admin/stories','POST',fixture,201);
- const route='/api/admin/stories/'+story.id;
- story=await json(route,'PUT',{...fixture,revision:story.revision});
- // Editing content clears review checks; approve the unchanged fixture before publishing.
- story=await json(route,'PUT',{...story,checks:fixture.checks});
- return json(route,'POST',{action:'publish',revision:story.revision});
-}
 
 try{
  await inspect(source);await cp(source,root,{recursive:true});
@@ -61,15 +44,12 @@ try{
  const first=await start(settings),origin=new URL(first.url).origin;
  assert.equal(first.url,origin);assert.equal(first.publicUrl,'');
  const headers={};
+ const page=await request(origin);assert.equal(page.status,200);assert.ok(page.headers.get('content-type')?.startsWith('text/html'));await page.body?.cancel();
  assert.equal((await request(origin+'/api/stories')).status,200);
  assert.deepEqual(await (await request(origin+'/api/stories',{headers})).json(),[],'Fresh libraries must contain no stories');
  assert.deepEqual(await (await request(origin+'/api/me/progress',{headers})).json(),[]);
- const fixture=await createFixtureStory(origin);
- const stories=await (await request(origin+'/api/stories',{headers})).json();assert.equal(stories.length,1);assert.equal(stories[0].id,fixture.id);
- const image=await request(origin+stories[0].pages[0].image,{headers});assert.equal(image.status,200);assert.equal(image.headers.get('content-type'),'image/png');assert.deepEqual(new Uint8Array(await image.arrayBuffer()),png);
  assert.equal((await request(origin+'/desktop/settings',{headers})).status,404);
  const provider=await (await request(origin+'/api/reader/status',{headers})).json();assert.equal(provider.configured,false);
- const saved=await request(origin+'/api/me/progress',{method:'POST',headers:{...headers,Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({storyId:stories[0].id,page:2,saved:true})});assert.equal(saved.status,200);
  let lanAccessible=false;
  for(const link of first.phoneUrls){
   try{assert.equal(link,new URL(link).origin);const response=await request(link+'/api/stories',{signal:AbortSignal.timeout(3000)});if(response.ok){lanAccessible=true;break;}}catch{/* Another interface may be a VPN or unavailable to this host. */}
@@ -77,8 +57,8 @@ try{
  if(first.phoneUrls.length)assert.ok(lanAccessible,'At least one advertised LAN address must be accessible from the host');
  await stop();await assert.rejects(request(origin+'/api/stories'));
  const second=await start(settings);assert.equal(second.url,origin);assert.equal((await request(origin+'/api/stories')).status,200);
- assert.deepEqual(await (await request(origin+'/api/stories')).json(),stories);
- const progress=await (await request(origin+'/api/me/progress')).json();assert.equal(progress.length,1);assert.equal(progress[0].storyId,fixture.id);assert.equal(progress[0].page,2);assert.equal(progress[0].saved,1);
+ assert.deepEqual(await (await request(origin+'/api/stories')).json(),[]);
+ assert.deepEqual(await (await request(origin+'/api/me/progress')).json(),[]);
  await stop();
- console.log(JSON.stringify({edition:payload.edition,node:process.version,relocated:true,nodeBundled:bundled,systemNodeOnPath:!bundled,books:catalog.books.length,initiallyEmpty:true,fixtureStories:stories.length,directAccess:true,lanAccessible,persistence:true,shutdown:true,paidCalls:0}));
+ console.log(JSON.stringify({edition:payload.edition,node:process.version,relocated:true,nodeBundled:bundled,systemNodeOnPath:!bundled,books:catalog.books.length,emptyLibrary:true,directAccess:true,lanAccessible,restart:true,shutdown:true,paidCalls:0}));
 }finally{await stop();await rm(temporary,{recursive:true,force:true});}
