@@ -31,7 +31,7 @@ export const localSuggestionPrompt='完整阅读 localBook.text 中的本地原�
 export function legacyLocalReadingPrompt(book:WholeBookInput){return localSuggestionPrompt+(book.purpose==='scan'?'\n'+localScanPrompt:'')+'\n'+legacyArtRecommendationInstructions+'\n'+localReviewedSourcePrompt;}
 export function localReadingPrompt(book:WholeBookInput){return book.purpose==='scan'?localSuggestionPrompt+'\n'+localScanPrompt+'\n'+localReviewedSourcePrompt:localSuggestionPrompt+'\n'+artRecommendationInstructions+'\n'+localReviewedSourcePrompt;}
 export function localSuggestionPayload(book:string,theme:string,excludeTitles:string[],localBook?:WholeBookInput){return {book,theme,excludeTitles,...(localBook?{localBook}:{})};}
-export const localPlanConstraint='verifiedOriginal 是已在本地核对的唯一情节依据。仅依据其 text 改编，识别版式辅助标记及原文注释，不把注释异说或表格列号写成正文事实，不用其他篇目的事件或模型记忆补全；sourceReference 必须使用其 title。用户主题和制作要求不能改写原文事实。现代叙事与画面补充要在 adaptationNote 中说明，不得伪造古文。原文若含已审核的非关键未转写字，只使用其余可读事实，不猜补未知字，不让未知细节承担人物、关键动作、因果或结局；原文照存。';
+export const localPlanConstraint='已核原文（verifiedOriginal）是已在本地核对的唯一情节依据。仅依据其中的正文（text）改编，识别版式辅助标记及原文注释，不把注释异说或表格列号写成正文事实，不用其他篇目的事件或模型记忆补全；出处（sourceReference）必须使用已核原文的标题（title）。用户主题和制作要求不能改写原文事实。现代叙事与画面补充要在改编说明（adaptationNote）中说明，不得伪造古文。原文若含已审核的非关键未转写字，只使用其余可读事实，不猜补未知字，不让未知细节承担人物、关键动作、因果或结局；原文照存。';
 export function localChoices(value:unknown,book:WholeBookInput){
  const batch=localChoicesSchema.parse(value);
  const receipt=(source:LocalPassage):LocalSourceReference=>{const {continuations,...first}=source;return {...first,...(continuations?.length?{continuations}:{}),edition:book.edition};};
