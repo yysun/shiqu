@@ -18,11 +18,12 @@ jobs:
     env:
       ARCH: arm64
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           architecture: arm64
+          package-manager-cache: false
       - name: Check native architecture and release version
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -102,12 +103,12 @@ jobs:
             fi
             cp "${installers[0]}" "release-assets/shiqu-$EDITION-macos-$ARCH.dmg"
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shiqu-standard-macos-arm64
           path: release-assets/shiqu-standard-macos-arm64.dmg
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shiqu-lite-macos-arm64
           path: release-assets/shiqu-lite-macos-arm64.dmg
@@ -125,7 +126,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: shiqu-*-macos-*
           merge-multiple: true
