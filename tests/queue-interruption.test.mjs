@@ -7,6 +7,7 @@ import {readdirSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import {productionFixture,until} from './fixtures/production.mjs';
 import {ReaderError} from '../lib/reader-model.ts';
+import {readerMaxAutomaticRepairs} from '../lib/reader-limits.ts';
 const owner='docker-local-owner';
 const production=f=>f.app.services.production;
 const database=f=>f.app.services.database;
@@ -114,14 +115,15 @@ test('a deterministic 4xx in script work during a stop stays failed without repl
 
 test('a blocked review during a stop stays failed and never repairs automatically',async t=>{
  const f=await productionFixture(t);let release;const gate=new Promise(resolve=>release=resolve);
- f.control.beforeText=async kind=>{if(kind==='review'){if(f.control.reviews.length===2)await gate;return {issues:[issue(2)]};}};
- const id=await f.create(3);await until(()=>f.control.reviews.length===2);
+ const finalAudit=readerMaxAutomaticRepairs+1;
+ f.control.beforeText=async kind=>{if(kind==='review'){if(f.control.reviews.length===finalAudit)await gate;return {issues:[issue(2)]};}};
+ const id=await f.create(3);await until(()=>f.control.reviews.length===finalAudit);
  f.app.stopGeneration();release();
  await until(async()=>(await jobs(f,id)).some(job=>job.state==='failed'));
  await f.restart();await production(f).tick();await production(f).tick();
  const saved=await f.read(id);
  assert.equal(saved.state,'failed');assert.equal(saved.retryStage,'review');
- assert.equal(f.control.repairs.length,1);assert.equal(f.control.reviews.length,2);assert.equal(f.control.calls.length,0);
+ assert.equal(f.control.repairs.length,readerMaxAutomaticRepairs);assert.equal(f.control.reviews.length,finalAudit);assert.equal(f.control.calls.length,0);
  assert.ok((await jobs(f,id)).some(job=>job.state==='failed'&&job.interrupted===0));
 });
 

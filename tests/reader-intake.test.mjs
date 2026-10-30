@@ -130,3 +130,12 @@ test('finding another batch after preparation keeps observing discovery until th
  await observeStoryGeneration({sessionId:id,isActive:()=>true,onSession:s=>observed.push(s.intake.phase),request:async()=>{polls++;return f.read(id);},sleep:async()=>{release();await until(async()=>(await f.read(id)).intake.phase==='choosing');}});
  assert.equal(polls,2);assert.deepEqual(observed,['discovering','choosing']);assert.equal(shelfGenerationStatus(await f.read(id)).group,'待选故事');assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });
+
+test('confirmed intake draws eighty frames once across four storyboard batches',async t=>{
+ const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
+ await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');
+ await setup(f,id,{action:'confirm',settings:{artStyle:'paper-cut',productionPrompt:'Complete causality without repeated scenes.',narrativeDetail:'detailed',length:80}});
+ await until(async()=>(await f.read(id)).state==='completed',15000);
+ assert.deepEqual(f.control.batches.map(p=>p.batch),[{first:1,last:20},{first:21,last:40},{first:41,last:60},{first:61,last:80}]);
+ assert.equal(f.control.calls.length,80);assert.equal((await f.read(id)).ready,80);
+});

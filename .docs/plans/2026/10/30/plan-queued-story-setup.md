@@ -59,3 +59,9 @@ AR review round: 4; reviewer: reused.
 CR round2修复：远程原文缓存按所选书籍、故事、出处回执和引用线索的SHA256分别保存；不再读取session级无绑定source.json。已保存doc.original检查点不变，同故事返回仍复用。真实FileMedia+远程HTML解析路径验证A→B→A分别使用正确原文、仅取两次、两次推荐均对应当前原文；遗留无绑定错误缓存不能被读取。
 
 legacy awaitingFrameCount仅用于无intake旧流程；coordinator单独识别intake.confirming为正常准备完成。confirming→more→discovering→choosing覆盖真实队列、观察循环和书架状态，避免旧幅数建议导致停止刷新。定向41/41、typecheck及修改文件lint通过。审核闭环、版本隔离结论仍交独立CR复核。
+
+CR fixed: both round-2 findings are resolved; rerun result passed.
+CR risk: non-low — source fidelity, durable lifecycle and paid generation gates.
+CR review round: 3; reviewer: reused.
+
+TT后续修复：世代过滤前先检查可读性，不能让null或截断document使整条队列tick抛错；SQL世代条件也对损坏JSON作安全解析。循环终态停机用例扩到3轮修复/4次审核，进度断言包含真实轮数。批量job筛选只解析一次session document，避免80幅故事逐job反复解析大分镜。原80幅分批/队列21项全部通过，新增intake确认80幅/四批/每幅只调用一次的回归。
