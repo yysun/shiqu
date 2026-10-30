@@ -1,14 +1,16 @@
-export const artStyleIds=['ink-pencil','ink-wash','vintage-comic','cinematic','watercolor','gongbi','woodblock','paper-cut','cartoon','line-art','chibi','3d-animation','clay','classical-oil'] as const;
+// Share selectable art styles and generation directions across the reader and AI providers.
+export const artStyleIds=['ink-pencil','ink-wash','vintage-comic','baimiao','cinematic','watercolor','gongbi','woodblock','paper-cut','cartoon','line-art','chibi','3d-animation','clay','classical-oil'] as const;
 export type ArtStyleId=typeof artStyleIds[number];
 export const artStyleGroups=[
  {label:'卡通与简笔',ids:['cartoon','line-art','chibi','ink-pencil','watercolor']},
  {label:'立体与写实',ids:['3d-animation','clay','cinematic']},
- {label:'古典与民艺',ids:['ink-wash','vintage-comic','gongbi','woodblock','paper-cut','classical-oil']},
+ {label:'古典与民艺',ids:['ink-wash','vintage-comic','baimiao','gongbi','woodblock','paper-cut','classical-oil']},
 ] as const satisfies ReadonlyArray<{label:string;ids:ReadonlyArray<ArtStyleId>}>;
 export const artStyles=[
  {id:'ink-pencil',label:'彩铅国漫',description:'温暖色彩，生动表情',prompt:'Chinese illustrated comic, expressive fine ink outlines and textured colored pencil on warm paper. Muted ochre and sage-green palette; lively, mature character faces. Clearly hand-drawn, not a photograph.'},
  {id:'ink-wash',label:'水墨写意',description:'墨色留白，古意悠长',prompt:'Traditional Chinese ink-wash painting on textured rice paper. Fluid brushwork, layered grey ink, restrained mineral green accents, poetic negative space and mist. Expressive readable character gestures. Not a pencil drawing or photograph.'},
  {id:'vintage-comic',label:'复古连环画',description:'黑白线描，旧书质感',prompt:'Vintage Chinese lianhuanhua book illustration. Monochrome black ink on ivory paper, meticulous pen linework and cross-hatching, natural adult proportions, period-accurate details and nostalgic printed-book texture. A single full scene, no panels; no colored-pencil fills.'},
+ {id:'baimiao',label:'白描连环画',description:'白纸墨线，疏密传神',prompt:'Traditional Chinese baimiao lianhuanhua illustration. Pure black ink contour lines on clean white paper, fluent controlled brush linework with varied weight and rhythm. Describe faces, garment folds, architecture and scenery through precise outlines and balanced line density, with generous unpainted space. Natural character proportions, expressive gestures and period-accurate details that preserve each character\'s story age and identity. One coherent narrative scene, no panels or lettering. No color fills, ink washes, tonal shading, dense cross-hatching, aged print texture, photography or 3D rendering.'},
  {id:'cinematic',label:'电影写实',description:'真实光影，仿佛入戏',prompt:'Photorealistic historical cinema still. Natural lifelike adult faces, tactile period clothing and scenery, soft cinematic lighting, restrained film color grading and shallow depth of field. No ink outlines, no drawn illustration, no modern props.'},
  {id:'watercolor',label:'水彩绘本',description:'轻盈晕染，柔和诗意',prompt:'Hand-painted watercolor storybook illustration on cold-pressed paper. Transparent washes, soft pigment blooms, warm light and delicate edges, with a restrained pastel palette. Expressive adult characters with natural proportions and readable gestures. Rich narrative scene, not a photograph, no heavy comic outlines.'},
  {id:'gongbi',label:'工笔重彩',description:'细笔勾勒，矿彩雅致',prompt:'Traditional Chinese gongbi painting with meticulous fine brush outlines and layered opaque mineral pigments on silk. Elegant cinnabar, malachite green and azurite blue, intricate period garments and precise architectural details. Natural adult proportions and expressive gestures, readable narrative composition. Not loose ink wash or photography.'},
