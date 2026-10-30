@@ -52,11 +52,17 @@ export class ReaderRepository{
  async control(id:string,uid:string,action:ProductionAction){
   const row=await this.get(id,uid);
   if(row.state==='completed')throw new ReaderError(409,'故事已完整生成，无需更改生成方式。');
+  // A revision is born paused. Persist the parent pause before making its child eligible;
+  // a crash between writes leaves a paused child that explicit resume can recover.
+  const revision=(JSON.parse(row.document) as Document).revision;
+  if(revision&&(action==='resume'||action==='background')){
+   await this.db.prepare("UPDATE reader_sessions SET generation_control='paused' WHERE id=? AND user_id=? AND state!='completed'").bind(revision.parentId,uid).run();
+  }
   // Resume always continues the whole story; other legacy actions change only their own field.
   const field=action==='background'||action==='reader'?'generation_mode':'generation_control';
   const value=action==='pause'?'paused':action==='stop'?'stopped':action==='resume'?'active':action;
   const assignment=action==='resume'?"generation_mode='background',generation_control=?":`${field}=?`;
-  await this.db.prepare(`UPDATE reader_sessions SET ${assignment} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}`)
+  await this.db.prepare(`UPDATE reader_sessions SET ${assignment}${revision&&action==='resume'?",document=json_remove(document,'$.revision.handoff')":''} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}`)
    .bind(value,id,uid).run();
   return this.get(id,uid);
  }

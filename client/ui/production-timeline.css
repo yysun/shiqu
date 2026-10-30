@@ -42,3 +42,5 @@ ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr))
 .production-stage-current[data-state=failed],.production-stage-current[data-state=failed]>strong{color:#855e43}
 
 @media(max-width:1100px){.production-timeline--horizontal .production-stage-copy>strong{min-height:2.8em}}
+
+.production-stage-detail-action{display:inline-flex;align-items:center;min-height:24px;padding:0;border:0;background:none;color:inherit;font:inherit;text-decoration:underline;text-decoration-color:#aabb98;text-underline-offset:3px;cursor:pointer}.production-stage-detail-action:focus-visible{outline:2px solid #82996f;outline-offset:3px;border-radius:3px}

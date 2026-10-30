@@ -10,6 +10,8 @@ import {sourceSearchUrl} from './reader-source.ts';
 import {readerMaxFrames} from './reader-limits.ts';
 import type {Document} from './reader-model.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
+import {revisionChangesSchema} from './reader-revision.ts';
+import {forkRevision,revisionSnapshot} from '../server/reader-revisions.ts';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
 const uuid=z.string().uuid();
 async function body(req:Request,maxLength=4096){const s=await req.text();if(s.length>maxLength)throw new ReaderError(413,'请求太长了');try{return JSON.parse(s);}catch{throw new ReaderError(400,'请求格式不正确');}}
@@ -62,6 +64,17 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);
    if(path.length===2&&req.method==='GET')return json(services.production?await services.production.snapshot(uid,id):view(await repo.get(id,uid)));
+   if(path[2]==='revisions'&&path.length===3){
+    if(req.method==='GET')return json(await revisionSnapshot(repo,id,uid));
+    if(req.method==='POST'){
+     await requireProvider();
+     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
+     const b=z.object({requestId:uuid,token:z.string().regex(/^[a-f0-9]{64}$/),changes:revisionChangesSchema}).strict().parse(await body(req,262144));
+     const row=await forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes);
+     const doc=JSON.parse(row.document) as Document;
+     return json(doc.revision?.handoff?await services.production.control(uid,row.id,'resume'):await services.production.snapshot(uid,row.id),201);
+    }
+   }
    if(path[2]==='production-control'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const b=z.object({action:z.enum(['background','reader','pause','stop','resume'])}).strict().parse(await body(req));
