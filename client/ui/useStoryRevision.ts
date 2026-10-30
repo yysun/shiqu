@@ -5,7 +5,8 @@ import {randomId,request} from './shared';
 import {checkedRevision,revisionImpact} from '@/lib/reader-revision';
 import type {RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
 import type {SessionView} from '@/lib/reader-model';
-export type RevisionTab='requirements'|'style'|'count'|'script';
+import type {StoryEditorTab} from './StoryProductionEditor';
+export type RevisionTab=StoryEditorTab;
 export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:SessionView)=>Promise<void>){
  const [tab,setTab]=useState<RevisionTab|null>(null),[base,setBase]=useState<RevisionSnapshot|null>(null),[changes,setChanges]=useState<RevisionChanges>({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const latest=useRef(storyId);latest.current=storyId;

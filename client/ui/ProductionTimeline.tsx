@@ -5,7 +5,8 @@ import {Check,Loader2,Minus,Pause,X} from 'lucide-react';
 import type {ProductionStage} from '../../lib/production-stages';
 import './production-timeline.css';
 type StageAction={label:string;onClick:()=>void};
-export default function ProductionTimeline({stages,moving=false,queued=false,layout='vertical',actions={},links={},detailActions={}}:{stages:ProductionStage[];moving?:boolean;queued?:boolean;layout?:'vertical'|'horizontal';actions?:Record<string,StageAction>;links?:Record<string,StageAction[]>;detailActions?:Record<string,StageAction>}){
+export type ProductionTimelineNavigation={actions?:Record<string,StageAction>;links?:Record<string,StageAction[]>;detailActions?:Record<string,StageAction>};
+export default function ProductionTimeline({stages,moving=false,queued=false,layout='vertical',actions={},links={},detailActions={}}:{stages:ProductionStage[];moving?:boolean;queued?:boolean;layout?:'vertical'|'horizontal';} & ProductionTimelineNavigation){
  const labels={pending:'待进行',current:queued?'等待中':moving?'进行中':'等待更新',done:'已完成',skipped:'无需执行',unavailable:'未启用',failed:'待处理',paused:'已暂停'};
  const stateLabel=(step:ProductionStage)=>step.id==='count'&&step.state==='current'&&!moving&&!queued?'待确认':labels[step.state];
  const focused=stages.find(step=>['current','failed','paused'].includes(step.state))||stages.find(step=>step.state==='pending')||stages.at(-1);

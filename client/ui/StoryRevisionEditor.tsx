@@ -1,11 +1,9 @@
 // Edit one local draft through existing controls, showing the dependency-based work before queueing.
 import {useState} from 'react';
-import StoryArtStylePicker from './StoryArtStylePicker';
-import {StoryFrameCountInput} from './StoryFrameCount';
-import type {StoryRevisionEditorState,RevisionTab} from './useStoryRevision';
+import StoryProductionEditor,{StoryEditorTabs} from './StoryProductionEditor';
+import type {StoryRevisionEditorState} from './useStoryRevision';
 import type {Plan} from '@/lib/reader-model';
 import './story-revision.css';
-const tabs:{id:RevisionTab;label:string}[]=[{id:'requirements',label:'制作要求'},{id:'style',label:'画风'},{id:'count',label:'画幅数'},{id:'script',label:'分镜'}];
 export function StoryRevisionActions({editor}:{editor:StoryRevisionEditorState}){
  const impact=editor.impact;if(!impact)return null;
  return <section className="yu-revision-impact" aria-label="本次修改影响">
@@ -25,11 +23,9 @@ export default function StoryRevisionEditor({editor}:{editor:StoryRevisionEditor
  const plan=changes.plan||base.plan;
  const updatePlan=(update:(plan:Plan)=>void)=>editor.setChanges(c=>{const next=structuredClone(c.plan||base.plan);update(next);return {...c,plan:next};});
  return <div className="yu-revision-editor">
-  <nav className="yu-revision-tabs" aria-label="修改内容">{tabs.map(tab=><button type="button" key={tab.id} aria-pressed={editor.tab===tab.id} onClick={()=>editor.setTab(tab.id)}>{tab.label}</button>)}</nav>
+  <StoryEditorTabs tab={editor.tab!} onChange={editor.setTab} script disabled={busy}/>
+  {editor.tab&&editor.tab!=='script'&&<StoryProductionEditor tab={editor.tab} settings={{artStyle:changes.artStyle??base.selection.artStyle,productionPrompt:changes.productionPrompt??base.selection.productionPrompt,length:changes.length??base.plan.pages.length}} disabled={busy} onChange={patch=>editor.setChanges(c=>({...c,...patch}))}/>}
   <fieldset disabled={busy} className="yu-revision-fields">
-   {editor.tab==='requirements'&&<label className="yu-revision-field">制作要求<textarea rows={7} maxLength={1200} value={changes.productionPrompt??base.selection.productionPrompt} onChange={e=>editor.setChanges(c=>({...c,productionPrompt:e.target.value}))}/><small>修改制作要求会重新编排故事和生成画面，原文保持不变。</small></label>}
-   {editor.tab==='style'&&<StoryArtStylePicker value={changes.artStyle??base.selection.artStyle} disabled={busy} onChange={artStyle=>editor.setChanges(c=>({...c,artStyle}))}/>}
-   {editor.tab==='count'&&<section><h3>画幅数</h3><StoryFrameCountInput count={changes.length??base.plan.pages.length} disabled={busy} onChange={length=>editor.setChanges(c=>({...c,length}))}/><p>修改幅数后重新编排完整故事，原图按新分镜的实际输入判断是否复用。</p></section>}
    {editor.tab==='script'&&<section className="yu-revision-script">
     <label className="yu-revision-field">选择分镜<select value={page} onChange={e=>setPage(Number(e.target.value))}>{plan.pages.map((_,index)=><option key={index} value={index}>第 {index+1} 幅</option>)}</select></label>
     <section aria-label={`修改第 ${page+1} 幅`}><h3>第 {page+1} 幅</h3><label className="yu-revision-field">旁白<textarea rows={3} minLength={8} maxLength={90} value={plan.pages[page].caption} onChange={e=>updatePlan(p=>{p.pages[page].caption=e.target.value;})}/></label><label className="yu-revision-field">画面提示词<textarea rows={5} minLength={20} maxLength={1800} value={plan.pages[page].prompt} onChange={e=>updatePlan(p=>{p.pages[page].prompt=e.target.value;})}/></label></section>

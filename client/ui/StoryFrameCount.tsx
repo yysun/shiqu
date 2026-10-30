@@ -1,11 +1,7 @@
 // Separate narrative preference from the model's durable count suggestion; confirm before drawing.
 import {useState} from 'react';
 import {readerMinFrames,readerMaxFrames} from '@/lib/reader-limits';
-import {narrativeDetails} from '@/lib/reader-frame-recommendation';
-import type {FrameRecommendation,NarrativeDetail} from '@/lib/reader-frame-recommendation';
-export function StoryNarrativeDetail({value,disabled,onChange}:{value:NarrativeDetail;disabled:boolean;onChange:(value:NarrativeDetail)=>void}){
- return <fieldset className="yu-frame-count" disabled={disabled}><legend className="yu-choice-label">叙事详略</legend><div className="yu-detail-options">{narrativeDetails.map(detail=><label key={detail.id} className={value===detail.id?'selected':''}><input type="radio" name="narrative-detail" value={detail.id} checked={value===detail.id} onChange={()=>onChange(detail.id)}/><strong>{detail.label}</strong><span>{detail.description}</span></label>)}</div><p className="yu-count-help">先按原文推荐画幅数，你可以再调整；短故事不凑数。</p></fieldset>;
-}
+import type {FrameRecommendation} from '@/lib/reader-frame-recommendation';
 export function StoryFrameCountInput({count,disabled,onChange}:{count:number;disabled:boolean;onChange:(count:number)=>void}){
  function choose(value:number){if(Number.isInteger(value)&&value>=readerMinFrames&&value<=readerMaxFrames)onChange(value);}
  return <div className="yu-count-controls">

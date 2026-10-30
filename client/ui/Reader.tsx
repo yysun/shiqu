@@ -22,6 +22,7 @@ import DeletedStories,{type DeletedStory} from './DeletedStories';
 import StorySource from './StorySource';
 import StoryScript from './StoryScript';
 import StoryCreationSetup from './StoryCreationSetup';
+import Sheet from './StorySheet';
 import StoryFrameCount from './StoryFrameCount';
 import {narrativeDetailSchema} from '@/lib/reader-frame-recommendation';
 import StoryRetry from './StoryRetry';
@@ -46,29 +47,6 @@ const exportOptions={
 const choices:Book[] = [...readerBooks,{id:'other',title:'其他',author:'书名或 URL',era:'自选',genre:'自选',note:'带上你自己的那本书'}];
 const moods:Selection['theme'][] = ['给我一个反转','人情冷暖','放下执念','聪明与糊涂','善意与误解','命运与选择','欲望与代价','勇气与成长','爱情与错过','幽默与讽刺','因果与报应','其他'];
 
-const sheetLocks=new Set<HTMLDialogElement>();
-let restoreSheetScroll:(()=>void)|null=null;
-function Sheet({title,onClose,children,busy=false}:{title:string;onClose:()=>void;children:React.ReactNode;busy?:boolean}) {
- const dialogRef=useRef<HTMLDialogElement>(null),contentRef=useRef<HTMLElement>(null);
- useEffect(()=>{
-  const dialog=dialogRef.current!,body=document.body,root=document.documentElement;
-  const prior=document.activeElement as HTMLElement;
-  if(!sheetLocks.size){
-   const scrollY=window.scrollY,priorUrl=location.href;
-   const bodyStyle={position:body.style.position,top:body.style.top,width:body.style.width,overflow:body.style.overflow},rootOverflow=root.style.overflow;
-   // One shared lock survives nested sheets closing together after a version switch.
-   Object.assign(body.style,{position:'fixed',top:`-${scrollY}px`,width:'100%',overflow:'hidden'});root.style.overflow='hidden';
-   restoreSheetScroll=()=>{Object.assign(body.style,bodyStyle);root.style.overflow=rootOverflow;window.scrollTo({top:location.href===priorUrl?scrollY:0,behavior:'instant'});};
-  }
-  sheetLocks.add(dialog);dialog.showModal();contentRef.current?.focus({preventScroll:true});
-  return()=>{
-   dialog.close();sheetLocks.delete(dialog);
-   if(!sheetLocks.size){restoreSheetScroll?.();restoreSheetScroll=null;}
-   if(prior?.isConnected)prior.focus({preventScroll:true});
-  };
- },[]);
- return <dialog className="yu-backdrop" ref={dialogRef} aria-label={title} aria-modal="true" onCancel={e=>{e.preventDefault();if(!busy)onClose();}} onClick={e=>{if(!busy&&e.target===e.currentTarget)onClose();}}><section className="yu-sheet" tabIndex={-1} ref={contentRef} aria-busy={busy}><div className="yu-handle"/><header><h2>{title}</h2><button className="yu-icon" disabled={busy} aria-label="关闭" onClick={onClose}><X size={21}/></button></header>{children}</section></dialog>;
-}
 
 export default function Reader(){
  const [stories,setStories]=useState<Story[]>([]),[books,setBooks]=useState<Book[]>(choices),[progress,setProgress]=useState<Progress[]>([]);
@@ -294,7 +272,7 @@ export default function Reader(){
  </>}
  {configure&&<Sheet title="这一篇，想怎样读？" busy={creating} onClose={()=>setConfigure(false)}><p className="yu-sheet-intro">选一本书，一种心情。先保存到队列并寻找候选，再确认故事、画风、幅数和制作要求。</p><div className="yu-choice-label">从哪本书出发</div><div className="yu-options">{choices.map(b=><button aria-pressed={selection.bookId===b.id} className={selection.bookId===b.id?'selected':''} key={b.id} onClick={()=>{setSelection(s=>({...s,bookId:b.id,storyTitle:undefined,source:undefined}));}}>{b.title}</button>)}</div>{selection.bookId==='other'&&<label className="yu-custom-input">书名或公开网页 URL<input maxLength={500} value={selection.customBook||''} placeholder="例如：三言二拍，或 https://…" onChange={e=>{setSelection(s=>({...s,customBook:e.target.value,storyTitle:undefined,source:undefined}));}}/></label>}<div className="yu-choice-label">想看什么</div><div className="yu-options">{moods.map(m=><button aria-pressed={selection.theme===m} key={m} className={selection.theme===m?'selected':''} onClick={()=>{setSelection(s=>({...s,theme:m,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme==='其他'?customTheme:s.theme,m==='其他'?customTheme:m),storyTitle:undefined,source:undefined}));}}>{m}</button>)}</div>{selection.theme==='其他'&&<label className="yu-custom-input">写下想看的主题<input maxLength={100} placeholder="例如：善良的人如何守住底线" value={customTheme} onChange={e=>{const value=e.target.value;setSelection(s=>({...s,productionPrompt:promptAfterThemeChange(s.productionPrompt,customTheme,value),storyTitle:undefined,source:undefined}));setCustomTheme(value);}}/></label>}<label className="yu-revision-field">已有制作要求（可选）<textarea rows={4} maxLength={1200} value={selection.productionPrompt} onChange={e=>setSelection(s=>({...s,productionPrompt:e.target.value}))}/></label><button className="yu-primary" disabled={creating} onClick={()=>void generate()}>{creating?'正在保存任务…':'加入队列并找故事'}<ArrowRight size={19}/></button><p className="yu-choice-footnote">《{selection.bookId==='other'?(selection.customBook||'自选书籍'):selectedBook.title}》 · {selection.theme==='其他'?customTheme:selection.theme}</p>{unavailable&&<div className="yu-unavailable" role="alert"><strong>任务暂未保存</strong><p>{unavailable}</p></div>}</Sheet>}
 
- {gen.active&&!story&&!configure&&<Sheet title={gen.active.intake&&gen.active.intake.phase!=='confirmed'?'故事与制作确认':gen.active.story?.title||gen.active.selection.storyTitle||'你的故事，正在展开'} busy={gen.setupBusy} onClose={()=>gen.leave()}>{gen.active.intake&&gen.active.intake.phase!=='confirmed'?<><StoryCreationSetup session={gen.active} book={bookName({id:gen.active.id,bookId:gen.active.selection.bookId})} busy={gen.setupBusy} onAction={gen.setup}/><StoryGenerationStatus session={gen.active} busy={gen.busy} controlBusy={!!gen.controlBusy} onControl={gen.control} error={gen.error} onRetry={gen.retryStep} onBack={()=>{gen.leave();setTab('shelf');}}/></>:gen.active.awaitingFrameCount&&gen.active.frameRecommendation?<><StoryFrameCount key={gen.active.id} recommendation={gen.active.frameRecommendation} disabled={gen.busy} onConfirm={gen.confirmFrameCount}/>{gen.error&&<p className="yu-batch-error" role="alert">{gen.error}</p>}<button className="yu-generation-later" onClick={()=>{gen.leave();setTab('shelf');}}>稍后从书架继续</button></>:<StoryGenerationStatus session={gen.active} busy={gen.busy} controlBusy={!!gen.controlBusy} onControl={gen.control} error={gen.error} onRetry={gen.retryStep} onBack={()=>{gen.leave();setTab('shelf');}}/>}{gen.active.revision&&<button type="button" className="yu-revision-open" onClick={()=>void switchVersion(gen.active!.revision!.rootId)}>阅读原版</button>}</Sheet>}
+ {gen.active&&!story&&!configure&&<Sheet title={gen.active.intake&&gen.active.intake.phase!=='confirmed'?'故事与制作确认':gen.active.story?.title||gen.active.selection.storyTitle||'你的故事，正在展开'} busy={gen.setupBusy} onClose={()=>gen.leave()}>{gen.active.intake&&gen.active.intake.phase!=='confirmed'?<><StoryCreationSetup session={gen.active} book={bookName({id:gen.active.id,bookId:gen.active.selection.bookId})} busy={gen.setupBusy} onAction={gen.setup} progress={{busy:gen.busy,controlBusy:!!gen.controlBusy,onControl:gen.control,error:gen.error,onRetry:gen.retryStep,onBack:()=>{gen.leave();setTab('shelf');}}}/></>:gen.active.awaitingFrameCount&&gen.active.frameRecommendation?<><StoryFrameCount key={gen.active.id} recommendation={gen.active.frameRecommendation} disabled={gen.busy} onConfirm={gen.confirmFrameCount}/>{gen.error&&<p className="yu-batch-error" role="alert">{gen.error}</p>}<button className="yu-generation-later" onClick={()=>{gen.leave();setTab('shelf');}}>稍后从书架继续</button></>:<StoryGenerationStatus session={gen.active} busy={gen.busy} controlBusy={!!gen.controlBusy} onControl={gen.control} error={gen.error} onRetry={gen.retryStep} onBack={()=>{gen.leave();setTab('shelf');}}/>}{gen.active.revision&&<button type="button" className="yu-revision-open" onClick={()=>void switchVersion(gen.active!.revision!.rootId)}>阅读原版</button>}</Sheet>}
  {source&&story&&<Sheet title="故事从哪里来" onClose={()=>setSource(false)}><StorySource key={story.id} story={story} book={bookName(story)}/></Sheet>}
  {script&&story&&<Sheet title="分镜剧本" onClose={()=>setScript(false)}>{isGenerated(story)&&<button type="button" className="yu-revision-open" onClick={()=>revision.open('script')}>修改分镜</button>}<StoryScript story={story} standalone/></Sheet>}
  {requirements&&story&&<Sheet title="制作要求" onClose={()=>setRequirements(false)}>{isGenerated(story)&&<button type="button" className="yu-revision-open" onClick={()=>revision.open('requirements')}>修改制作要求</button>}<section className="yu-saved-prompt" aria-label="本篇制作要求"><h3>{story.title}</h3><p>{isGenerated(story)?(story.productionPrompt||'这篇故事未保存自定义制作要求。'):'这是体验样篇，没有读者自定义的制作要求。'}</p>{isGenerated(story)&&story.productionPrompt&&<small>生成时使用的要求，已随这篇故事保存。</small>}</section></Sheet>}
