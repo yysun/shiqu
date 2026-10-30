@@ -4,6 +4,15 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.3.2](https://github.com/yysun/shiqu/releases/tag/v0.3.2) - 2026-10-30
+
+对齐桌面发布版本信息，修复空书库的打包冒烟检查。
+
+### Fixed
+
+- 统一应用、Tauri 和 Cargo 版本为 0.3.2，确保发布版本信息与 `v0.3.2` 标签一致，通过 CI 的版本一致性校验。
+- 桌面打包冒烟检查验证全新书库的空书架与空阅读进度，并检查前端、接口、局域网访问及服务重启；不依赖示例内容，不发起 AI 生成。
+
 ## [0.3.0](https://github.com/yysun/shiqu/releases/tag/v0.3.0) - 2026-10-30
 
 统一排队创作与修订流程，完善分镜审片、断点恢复和阅读优先生成，增加 ZIP 下载与分任务推理配置。
