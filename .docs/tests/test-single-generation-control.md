@@ -1,0 +1,7 @@
+# Single generation control flows
+
+1. New story, controlled provider held: create through normal API with no mode request; observe background/active and preparation without any viewer demand. Confirm frame count; leave the reader. Release responses and verify all missing images finish once.
+2. Hold calls, Pause beside progress; release in-flight results, verify no refill. Restart isolated server: controls/checkpoints stay paused; opening/reading cannot resume. Resume: all remaining images complete in background. No background checkbox/enable dialog anywhere on shelf, progress or reading preferences.
+3. Upgrade a pre-change SQLite library containing reader idle/running/manual paused/stopped/completed, background active/paused, deleted and failed stories. Apply migration twice; old reader jobs never start until Resume; existing background/manual intent and all documents/job receipts/leases remain unchanged. Resume a migrated reader with saved images; reuse them.
+4. Provider failure requires explicit Retry; pause/resume and passive polling never replay a real failed job. Deleted/restored stories remain disarmed. Verify existing ownership/origin/concurrency/live-lease tests.
+5. In-app browser against isolated fake providers: inspect real shelf/read preferences with unfinished story, verify absent background switch and secondary pause/resume beside progress. Capture screenshots; no production-library mutation or paid requests. Desktop files are unchanged; no packaging/build.

@@ -18,7 +18,7 @@ test('shelf actions distinguish execution, queueing, user decisions, failure and
   [{state:'completed'},'故事已完整展开','开始阅读'],
   [{},'生成已暂停','查看详情'],
   [{generationControl:'paused',productionState:'running'},'生成已暂停','查看详情'],
-  [{generationControl:'stopped',state:'failed'},'生成已停止','查看详情'],
+  [{generationControl:'stopped',state:'failed'},'生成已暂停','查看详情'],
  ];
  for(const [fields,message,action] of cases){
   const status=shelfGenerationStatus({...base,...fields});
@@ -30,7 +30,7 @@ test('shelf actions distinguish execution, queueing, user decisions, failure and
 });
 
 test('shelf refresh reports running and queued work without dispatch or viewer renewal',async t=>{
- const f=await productionFixture(t),a=await f.create(),b=await f.create();
+ const f=await productionFixture(t),a=await f.createLegacyReader(),b=await f.createLegacyReader();
  let release,started=false;const gate=new Promise(resolve=>{release=resolve;});t.after(()=>release());
  const generator=f.generation.generator.bind(f.generation);
  f.generation.generator=()=>{const g=generator();return {...g,async plan(...args){if(args[1]===a){started=true;await gate;}return g.plan(...args);}};};
@@ -58,9 +58,9 @@ test('shelf refresh reports running and queued work without dispatch or viewer r
 });
 
 test('shelf refresh exposes choice and failure states without retrying',async t=>{
- const f=await productionFixture(t),choice=await f.create('auto',{narrativeDetail:'balanced'});
+ const f=await productionFixture(t),choice=await f.createLegacyReader('auto',{narrativeDetail:'balanced'});
  await f.demand(choice);await until(async()=>(await f.read(choice)).awaitingFrameCount);
- const failed=await f.create(),generator=f.generation.generator.bind(f.generation);
+ const failed=await f.createLegacyReader(),generator=f.generation.generator.bind(f.generation);
  f.generation.generator=()=>({...generator(),async plan(){throw Error('controlled plan failure');}});
  await f.demand(failed);await until(async()=>(await f.read(failed)).state==='failed');
  const jobs=await f.app.services.production.queue.jobs(failed,'docker-local-owner');
@@ -72,7 +72,7 @@ test('shelf refresh exposes choice and failure states without retrying',async t=
 });
 
 test('viewing a saved failure preserves its attempt count until an explicit retry resumes generation',async t=>{
- const f=await productionFixture(t),id=await f.create(),generator=f.generation.generator.bind(f.generation);
+ const f=await productionFixture(t),id=await f.createLegacyReader(),generator=f.generation.generator.bind(f.generation);
  let fail=true;
  f.generation.generator=()=>{const g=generator();return {...g,async plan(...args){if(fail)throw Error('controlled timeout');return g.plan(...args);}};};
  await f.demand(id);await until(async()=>(await f.read(id)).state==='failed');

@@ -72,7 +72,7 @@ for(const name of ['codex','gemini']){
  });
 
  test(`${name}: queued dimension failure saves no image and waits for explicit retry`,async t=>{
-  const f=await productionFixture(t,name),id=await f.create(),viewer=crypto.randomUUID();
+  const f=await productionFixture(t,name),id=await f.createLegacyReader(),viewer=crypto.randomUUID();
   await f.demand(id,viewer);await until(()=>f.control.calls.length===1);
   f.control.calls[0].bytes=Buffer.from(imageBytes('square.png')).toString('base64');f.control.calls[0].resolve();
   await until(async()=>(await f.read(id)).state==='failed');

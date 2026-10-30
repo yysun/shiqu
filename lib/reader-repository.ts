@@ -50,10 +50,11 @@ export class ReaderRepository{
  async control(id:string,uid:string,action:ProductionAction){
   const row=await this.get(id,uid);
   if(row.state==='completed')throw new ReaderError(409,'故事已完整生成，无需更改生成方式。');
-  // Mode changes must never replay a stale control value over another window's pause.
+  // Resume always continues the whole story; other legacy actions change only their own field.
   const field=action==='background'||action==='reader'?'generation_mode':'generation_control';
   const value=action==='pause'?'paused':action==='stop'?'stopped':action==='resume'?'active':action;
-  await this.db.prepare(`UPDATE reader_sessions SET ${field}=? WHERE id=? AND user_id=? AND state!='completed' AND ${visible}`)
+  const assignment=action==='resume'?"generation_mode='background',generation_control=?":`${field}=?`;
+  await this.db.prepare(`UPDATE reader_sessions SET ${assignment} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}`)
    .bind(value,id,uid).run();
   return this.get(id,uid);
  }
@@ -64,7 +65,7 @@ export class ReaderRepository{
   return this.get(row.id,row.user_id);
  }
  async create(id:string,uid:string,selection:Selection){const now=new Date().toISOString();
- await this.db.prepare(`INSERT INTO reader_sessions(id,user_id,selection,document,state,step_attempts,lock_until,page,saved,created_at,updated_at) VALUES(?,?,?,?,'idle',0,0,0,0,?,?) ON CONFLICT(id) DO NOTHING`).bind(id,uid,JSON.stringify(selection),JSON.stringify(emptyDocument()),now,now).run();
+ await this.db.prepare(`INSERT INTO reader_sessions(id,user_id,selection,document,generation_mode,state,step_attempts,lock_until,page,saved,created_at,updated_at) VALUES(?,?,?,?,'background','idle',0,0,0,0,?,?) ON CONFLICT(id) DO NOTHING`).bind(id,uid,JSON.stringify(selection),JSON.stringify(emptyDocument()),now,now).run();
  return this.get(id,uid);}
  async confirmFrameCount(id:string,uid:string,count:number){
   const row=await this.get(id,uid),selection=selectionSchema.parse(JSON.parse(row.selection)),doc=JSON.parse(row.document) as Document;

@@ -49,8 +49,10 @@ export async function productionFixture(t,provider='codex',variables={}){
  function request(suffix,method='GET',body,headers={}){return app.handle(new Request('http://localhost/api/reader/'+suffix,{method,headers:{'Content-Type':'application/json',...headers},body:body===undefined?undefined:JSON.stringify(body)}));}
  async function json(suffix,method='GET',body){const response=await request(suffix,method,body);assert.ok(response.ok,`${response.status}: ${suffix}`);return response.json();}
  async function create(length=8,overrides={}){const id=crypto.randomUUID();await json('sessions','POST',{requestId:id,selection:{...selection,length,...overrides}});return id;}
+ // Deliberately model persisted clients from before whole-story generation became the default.
+ async function createLegacyReader(length=8,overrides={}){const id=await create(length,overrides);await app.services.database.prepare("UPDATE reader_sessions SET generation_mode='reader' WHERE id=?").bind(id).run();return id;}
  const demand=(id,viewerId=crypto.randomUUID(),page=0,retry=false)=>json(`sessions/${id}/production`,'POST',{viewerId,page,retry});
  const read=id=>json(`sessions/${id}`);
  const leave=(id,viewerId)=>json(`sessions/${id}/production`,'DELETE',{viewerId});
- return {root,dataDirectory,options,control,media,generation,request,json,create,demand,read,leave,stop,coordinators,get app(){return app;},async restart(){await stop();app=createApplication(options);}};
+ return {root,dataDirectory,options,control,media,generation,request,json,create,createLegacyReader,demand,read,leave,stop,coordinators,get app(){return app;},async restart(){await stop();app=createApplication(options);}};
 }

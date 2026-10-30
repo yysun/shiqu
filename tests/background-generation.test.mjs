@@ -13,12 +13,11 @@ import {setLibraryStoryDeleted} from '../desktop/library-preview.ts';
 const owner='docker-local-owner';
 const control=(f,id,action)=>f.json(`sessions/${id}/production-control`,'POST',{action});
 
-for(const provider of ['codex','gemini'])test(`${provider}: persisted background intent starts without viewers and completes every page`,async t=>{
+for(const provider of ['codex','gemini'])test(`${provider}: new stories generate every page without a viewer or a mode request`,async t=>{
  const f=await productionFixture(t,provider),id=await f.create(10);
- const initial=await f.read(id);assert.equal(initial.generationMode,'reader');assert.equal(initial.generationControl,'active');
- // A persisted user choice loaded at startup is the only demand; no production POST or reader exists.
- await f.app.services.database.prepare("UPDATE reader_sessions SET generation_mode='background' WHERE id=?").bind(id).run();
- await f.restart();await until(async()=>(await f.read(id)).state==='completed');
+ const initial=await f.read(id);assert.equal(initial.generationMode,'background');assert.equal(initial.generationControl,'active');
+ // The create response already carries durable intent; no mode request or viewer is involved.
+ f.control.hold=false;await until(async()=>(await f.read(id)).state==='completed');
  assert.equal(f.control.calls.length,10);assert.equal(f.control.plans.length,1);assert.ok(f.control.maxActive<=3);
  assert.equal((await f.app.services.database.prepare('SELECT COUNT(*) AS n FROM production_demand').first()).n,0);
  assert.equal((await f.read(id)).generationMode,'background');
@@ -48,6 +47,28 @@ test('manual pause also fences an unmanaged legacy session and direct engine acq
  await control(f,id,'resume');await f.demand(id);await until(()=>f.control.calls.length===1);
 });
 
+test('resume upgrades a paused reader story to whole-story work and reuses every saved image',async t=>{
+ const f=await productionFixture(t),id=await f.createLegacyReader(10),viewer=crypto.randomUUID();
+ f.control.hold=false;await f.demand(id,viewer);await until(async()=>(await f.read(id)).ready===7);
+ await control(f,id,'pause');await f.leave(id,viewer);const before=await f.read(id);
+ await f.restart();await f.app.services.production.tick();assert.equal(f.control.calls.length,7);
+ const resumed=await control(f,id,'resume');assert.equal(resumed.generationMode,'background');assert.equal(resumed.generationControl,'active');
+ await until(async()=>(await f.read(id)).state==='completed');const after=await f.read(id);
+ assert.equal(f.control.calls.length,10);assert.equal(f.control.plans.length,1);
+ assert.deepEqual(after.story.pages.slice(0,7).map(page=>page.image),before.story.pages.slice(0,7).map(page=>page.image));
+ assert.equal((await f.app.services.database.prepare('SELECT COUNT(*) AS n FROM production_demand').first()).n,0);
+});
+
+test('leaving a new story keeps it generating; a manual pause still survives restart',async t=>{
+ const f=await productionFixture(t),id=await f.create(10),viewer=crypto.randomUUID();
+ await f.demand(id,viewer);await until(()=>f.control.calls.length===1);await f.leave(id,viewer);
+ f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
+ await control(f,id,'pause');for(const call of f.control.calls)call.resolve();
+ await until(async()=>(await f.read(id)).ready===4&&(await f.read(id)).state!=='running');
+ await f.restart();await f.app.services.production.tick();assert.equal(f.control.calls.length,4);
+ await control(f,id,'resume');await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.calls.length,10);
+});
+
 for(const provider of ['codex','gemini'])test(`${provider}: shutdown drains saved images; startup resumes only the missing background pages`,async t=>{
  const f=await productionFixture(t,provider),id=await f.create(10);await control(f,id,'background');
  await until(()=>f.control.calls.length===1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
@@ -59,7 +80,7 @@ for(const provider of ['codex','gemini'])test(`${provider}: shutdown drains save
 });
 
 for(const paused of [false,true])test(`expired background attempts recover with saved control (${paused?'paused':'active'}) and never steal live claims`,async t=>{
- const f=await productionFixture(t),id=await f.create(10);f.control.hold=false;await f.demand(id);await until(async()=>(await f.read(id)).ready===7);await f.stop();
+ const f=await productionFixture(t),id=await f.createLegacyReader(10);f.control.hold=false;await f.demand(id);await until(async()=>(await f.read(id)).ready===7);await f.stop();
  const db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));
  db.prepare("UPDATE reader_sessions SET generation_mode='background',generation_control=?,state='running',lock_token='dead-session',lock_until=? WHERE id=?").run(paused?'paused':'active',Date.now()+60000,id);
  const image=db.prepare("SELECT id FROM production_jobs WHERE session_id=? AND kind='image' AND json_extract(payload,'$.page')=6").get(id);
@@ -85,6 +106,8 @@ test('background provider failures stay failed after restart until explicit retr
  const f=await productionFixture(t),id=await f.create(10);await control(f,id,'background');await until(()=>f.control.calls.length===1);f.control.calls[0].reject(Error('controlled failure'));
  await until(async()=>(await f.read(id)).state==='failed');await f.restart();await f.app.services.production.tick();
  assert.equal((await f.read(id)).state,'failed');assert.equal(f.control.calls.length,1);
+ await control(f,id,'pause');await control(f,id,'resume');await f.app.services.production.tick();
+ assert.equal((await f.read(id)).state,'failed');assert.equal(f.control.calls.length,1,'Pause/resume never retries a real provider failure');
  await f.demand(id,crypto.randomUUID(),0,true);await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.calls.length,11);
 });
 
@@ -104,7 +127,7 @@ test('background preparation retains count confirmation and does not plan or dra
 });
 
 test('background and foreground stories share the global image cap across coordinators',async t=>{
- const f=await productionFixture(t),a=await f.create(10),b=await f.create(10);
+ const f=await productionFixture(t),a=await f.create(10),b=await f.createLegacyReader(10);
  const second=new ReaderProductionCoordinator(f.app.services.database,f.generation,f.media);f.coordinators.push(second);
  await control(f,a,'background');await f.demand(b);await until(()=>f.control.calls.length===2);for(const call of f.control.calls)call.resolve();await until(()=>f.control.active===3);
  await second.tick();await turn();assert.equal(f.control.maxActive,3);
@@ -124,7 +147,7 @@ test('controls validate owner, origin, body and completed sessions; pause does n
 });
 
 for(const provider of ['codex','gemini'])test(`${provider}: an expired missing remote result resumes automatically but saved images do not repeat`,async t=>{
- const f=await productionFixture(t,provider),id=await f.create(10);f.control.hold=false;await f.demand(id);await until(async()=>(await f.read(id)).ready===7);await f.stop();
+ const f=await productionFixture(t,provider),id=await f.createLegacyReader(10);f.control.hold=false;await f.demand(id);await until(async()=>(await f.read(id)).ready===7);await f.stop();
  const db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));
  db.prepare("UPDATE reader_sessions SET generation_mode='background',document=json_set(document,'$.images[6]',''),state='running',lock_token='crashed',lock_until=1 WHERE id=?").run(id);
  db.prepare("UPDATE production_jobs SET state='running',result=NULL,lease_token='crashed',lease_until=1 WHERE session_id=? AND kind='image' AND json_extract(payload,'$.page')=6").run(id);
@@ -150,10 +173,10 @@ test('a concurrent mode change cannot overwrite another window’s manual pause'
  await f.app.services.production.tick();assert.equal(f.control.calls.length,0);assert.equal(f.control.plans.length,0);
 });
 
-test('upgrading an existing library preserves checkpoints and gives old stories reader-mode defaults',t=>{
+test('upgrading a pre-background library preserves checkpoints and pauses old stories',t=>{
  const db=new DatabaseSync(':memory:');t.after(()=>db.close());
  db.exec('CREATE TABLE app_migrations(name TEXT PRIMARY KEY,applied_at TEXT NOT NULL)');
- for(const file of readdirSync('drizzle').filter(name=>name.endsWith('.sql')&&!name.startsWith('0004')).sort()){
+ for(const file of readdirSync('drizzle').filter(name=>name.endsWith('.sql')&&name<'0004').sort()){
   db.exec(readFileSync(path.join('drizzle',file),'utf8'));db.prepare('INSERT INTO app_migrations VALUES(?,?)').run(file,'before-upgrade');
  }
  db.prepare("INSERT INTO reader_sessions(id,user_id,selection,document,state,page,saved,created_at,updated_at) VALUES('legacy','owner','{}',?, 'idle',3,1,'created','updated')").run(JSON.stringify({plan:{title:'saved'},images:['saved.png'],usage:[{step:'image:0'}]}));
@@ -162,7 +185,40 @@ test('upgrading an existing library preserves checkpoints and gives old stories 
  migrate(db,process.cwd());
  const after=db.prepare('SELECT * FROM reader_sessions').get(),savedJob=db.prepare('SELECT * FROM production_jobs').get();
  assert.deepEqual({...after,generation_mode:undefined,generation_control:undefined},{...before,generation_mode:undefined,generation_control:undefined});
- assert.equal(after.generation_mode,'reader');assert.equal(after.generation_control,'active');
+ assert.equal(after.generation_mode,'background');assert.equal(after.generation_control,'paused');
  assert.deepEqual({...savedJob,interrupted:undefined},{...job,interrupted:undefined});assert.equal(savedJob.interrupted,0);
  migrate(db,process.cwd());assert.deepEqual(db.prepare('SELECT * FROM reader_sessions').get(),after);
+});
+
+test('single-control upgrade preserves background intent, manual controls, failures, leases and receipts',t=>{
+ const db=new DatabaseSync(':memory:');t.after(()=>db.close());
+ db.exec('CREATE TABLE app_migrations(name TEXT PRIMARY KEY,applied_at TEXT NOT NULL)');
+ for(const file of readdirSync('drizzle').filter(name=>name.endsWith('.sql')&&name<'0005').sort()){
+  db.exec(readFileSync(path.join('drizzle',file),'utf8'));db.prepare('INSERT INTO app_migrations VALUES(?,?)').run(file,'before-upgrade');
+ }
+ const cases=[
+  ['idle','reader','active','idle','paused'],['running','reader','active','running','paused'],
+  ['failed','reader','active','failed','paused'],['paused','reader','paused','idle','paused'],
+  ['stopped','reader','stopped','idle','stopped'],['completed','reader','active','completed','active'],
+  ['background','background','active','idle','active'],['background-paused','background','paused','idle','paused'],
+  ['deleted','reader','active','idle','paused'],
+ ];
+ for(const [id,mode,control,state] of cases){
+  db.prepare(`INSERT INTO reader_sessions(id,user_id,selection,document,state,generation_mode,generation_control,page,saved,created_at,updated_at,lock_token,lock_until,error)
+   VALUES(?,'owner','{}',?,?,?, ?,3,1,'created','updated','live-lease',123456,'saved error')`)
+   .run(id,JSON.stringify({plan:{title:'saved'},images:['saved.png'],usage:[{step:'image:0'}]}),state,mode,control);
+  db.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,lease_token,lease_until,created_at,updated_at)
+   VALUES(?,?,'owner','image','image','v','[]','{}','saved-result','succeeded','job-lease',123456,1,2)`).run('job-'+id,id);
+ }
+ db.exec("INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) VALUES('owner','deleted','generated','saved deletion')");
+ const before=db.prepare('SELECT * FROM reader_sessions ORDER BY id').all(),jobs=db.prepare('SELECT * FROM production_jobs ORDER BY id').all();
+ migrate(db,process.cwd());
+ for(const [id,,,,expected] of cases){
+  const after=db.prepare('SELECT * FROM reader_sessions WHERE id=?').get(id),old=before.find(row=>row.id===id);
+  assert.equal(after.generation_mode,'background');assert.equal(after.generation_control,expected);
+  assert.deepEqual({...after,generation_mode:undefined,generation_control:undefined},{...old,generation_mode:undefined,generation_control:undefined});
+ }
+ assert.deepEqual(db.prepare('SELECT * FROM production_jobs ORDER BY id').all(),jobs);
+ const after=db.prepare('SELECT * FROM reader_sessions ORDER BY id').all();migrate(db,process.cwd());
+ assert.deepEqual(db.prepare('SELECT * FROM reader_sessions ORDER BY id').all(),after);
 });
