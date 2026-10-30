@@ -12,3 +12,22 @@
 
 /* Keep access choices readable alongside the QR, including narrow preview windows. */
 .lan-status{margin:0 0 14px;color:#56734e}.phone-card select{margin-bottom:12px}@media(max-width:650px){.layout{grid-template-columns:minmax(0,1fr)}main{padding:18px}.service-stack{min-width:0}}
+
+/* Queue progress follows saved production stages, rather than a changing count of scheduled jobs. */
+.queue-production-flow{margin:16px 0;padding:8px;border:1px solid #dfe6d5;border-radius:12px;background:#f5f8ef}
+.queue-detail{margin-top:12px}
+
+/* Actionable queue groups open by default; completed stories stay behind a compact disclosure. */
+.queue-group{margin-top:14px;border:1px solid #e1e6d8;border-radius:10px;background:#f8f9f3}
+.queue-group>summary{display:flex;align-items:center;gap:8px;min-height:48px;padding:10px 12px;list-style:none;cursor:pointer;color:#667b59;font-size:12px}
+.queue-group>summary::-webkit-details-marker{display:none}
+.queue-group>summary>svg{flex:none}
+.queue-group>summary>svg:first-child{transition:transform .15s}
+.queue-group[open]>summary>svg:first-child{transform:rotate(90deg)}
+.queue-group>summary>strong{font-weight:500}
+.queue-group>summary>span{margin-left:auto;flex:none;font-size:11px;color:#7d8b70}
+.queue-group>summary:focus-visible{outline:2px solid #5c774a;outline-offset:3px;border-radius:8px}
+.queue-group>div{padding:0 12px 4px;border-top:1px solid #e7ebdf}
+@media(prefers-reduced-motion:reduce){.queue-group>summary>svg:first-child{transition:none}}
+
+.queue-group-attention>summary{color:#855e43}.queue-group-active>summary{color:#35583e}
