@@ -12,7 +12,7 @@ import {advanceStory} from '../lib/reader-engine.ts';
 import {requestedImageEnd,runStoryGeneration} from '../lib/reader-generation.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
 
-const png=Uint8Array.from([137,80,78,71,13,10,26,10,1,2,3,4]);
+import {png} from './fixtures/images.mjs';
 const encoded=Buffer.from(png).toString('base64');
 const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,voice:false,artStyle:'ink-pencil',productionPrompt:'quiet narration'};
 const makePlan=length=>({title:'庄周梦蝶',hook:'梦醒之后',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'现代改编',reflection:'谁在梦中？',characters:'An adult Chinese philosopher in a plain linen robe in ancient China.',pages:Array.from({length},(_,i)=>({caption:'庄周梦见自己成为一只蝴蝶，自由自在地飞来飞去。',prompt:`An adult philosopher dreams in an ancient garden, scene ${i}.`}))});

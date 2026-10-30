@@ -1,4 +1,5 @@
 // Share story/image contracts across providers; shot direction stays independent of art style and cast identity.
+import {imageSizeDirection} from './reader-image-dimensions.ts';
 import {readerBooks,ReaderError} from './reader-model.ts';
 import type {Plan,Selection} from './reader-model.ts';
 import {getArtStyle} from './reader-styles.ts';
@@ -24,7 +25,7 @@ export function storySource(selection:Selection){
  if(!book)throw new ReaderError(400,'请填写有效的书名。');
  return {book,isUrl:/^https?:/i.test(book)};
 }
-export function imagePrompt(plan:Plan,page:number,style:ArtStyleId,productionPrompt:string,reference:boolean){return `Create ONE full-bleed portrait image of the specified scene, not a collage. Art direction (apply consistently and prioritize over conflicting scene styling): ${getArtStyle(style).prompt}
+export function imagePrompt(plan:Plan,page:number,style:ArtStyleId,productionPrompt:string,reference:boolean){return `Create ONE full-bleed portrait image of the specified scene, not a collage. ${imageSizeDirection} Art direction (apply consistently and prioritize over conflicting scene styling): ${getArtStyle(style).prompt}
 ${imageCompositionDirection}
 When characters are visible, preserve their story ages and expressive gestures; setting and props match the story era. No text, captions, letters, logos or speech bubbles. Keep the focal action or spatial relationship readable in the upper two thirds and the bottom quieter for UI narration; preserve the selected wide, medium or close framing and the environment it needs.
 Reader creative preferences (apply where relevant to this scene without changing the planned instant, shot framing, selected art direction or story; do not illustrate the whole story or its closing reflection here): ${JSON.stringify(productionPrompt)}.

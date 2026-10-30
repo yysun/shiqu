@@ -110,8 +110,7 @@ test('planning can recover after the former cap and only one concurrent retry ac
 
 test('stale requests become explicit failures instead of silently issuing another call',async()=>{const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);db.prepare("UPDATE reader_sessions SET state='running',lock_token='expired',lock_until=1,step_key='plan',step_attempts=1 WHERE id=?").run(id);const s=await advanceStory(repo,g,'alice',id,0);assert.equal(s.state,'failed');assert.deepEqual(g.calls,[]);});
 test('an outdated checkpoint cannot acquire the same completed step again',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();const old=await repo.create(id,'alice',selection);await advanceStory(repo,g,'alice',id,0);assert.equal(await repo.acquire(old,{kind:'plan',page:0,key:'plan'}),null);});
-const png=Uint8Array.from([137,80,78,71,13,10,26,10,1,2,3,4]);
-const jpeg=Uint8Array.from([255,216,255,224,1,2,3,4]);
+import {png,jpeg} from './fixtures/images.mjs';
 const b64=b=>Buffer.from(b).toString('base64');
 test('generation saves the original before drawing and keeps it on later checkpoints and reads',async()=>{
  const {repo}=setup(),id=crypto.randomUUID(),g=fake();let lookups=0;

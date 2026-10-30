@@ -13,10 +13,12 @@ import {CodexError,createCodexRunner} from './codex-runner.ts';
 import type {CodexRunner} from './codex-runner.ts';
 import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localPlanConstraint,localSuggestionPayload} from '../lib/reader-local-contract.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
+import {validImageDimensions,imageDimensionMessage} from '../lib/reader-image-dimensions.ts';
 import {storyboardGenerator} from '../lib/reader-storyboard.ts';
 import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from '../lib/reader-art-recommendation.ts';
 
 function codexMessage(code:string){
+ if(code==='INVALID_IMAGE_DIMENSIONS')return imageDimensionMessage;
  if(code==='INVALID_REASONING_EFFORT')return 'Codex 推理档位无效，请使用 low、medium、high、xhigh、max，或留空继承默认值。';
  if(code==='REASONING_EFFORT_UNAVAILABLE')return 'Codex 未采用指定推理档位，请检查 CLI 版本及模型支持后重试。';
  if(code==='CHATGPT_LOGIN_REQUIRED')return '请先运行 pnpm run codex:login，使用 ChatGPT 账号登录 Codex。订阅模式不会使用 API 密钥。';
@@ -85,6 +87,7 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
     if(!result.image)throw new CodexError('IMAGE_UNAVAILABLE');
     const bytes=new Uint8Array(Buffer.from(result.image,'base64')),contentType=mediaType(bytes);
     if(!contentType||!bytes.length||bytes.length>12*1024*1024)throw new CodexError('INVALID_IMAGE');
+    if(!validImageDimensions(bytes))throw new CodexError('INVALID_IMAGE_DIMENSIONS');
     const asset=readerImageAsset(id,page,imageTypes[contentType],artifactId);await media.put(asset.key,bytes,{contentType});
     return {value:asset.url,model:models.image,requestId:result.requestId,usage:result.usage};
    },

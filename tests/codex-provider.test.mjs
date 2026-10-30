@@ -10,7 +10,7 @@ import {createReaderProvider,safeCodexError} from '../server/generation.ts';
 import {createApplication} from '../server/app.ts';
 import {planSchema,selectionSchema} from '../lib/reader-model.ts';
 
-const png=Uint8Array.from([137,80,78,71,13,10,26,10,1,2,3,4]);
+import {png} from './fixtures/images.mjs';
 const selection=selectionSchema.parse({bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,voice:false});
 const plan={title:'庄周梦蝶',hook:'梦醒之后',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'现代改编',reflection:'谁在梦中？',characters:'An adult Chinese philosopher in a plain linen robe in ancient China.',pages:Array.from({length:8},()=>({caption:'庄周梦见自己成为一只蝴蝶，自由自在地飞来飞去。',prompt:'An adult philosopher dreams of becoming a butterfly in an ancient garden.'}))};
 function assets(){const values=new Map();return {values,async get(key){const item=values.get(key);return item?{body:item.bytes,contentType:item.contentType,async arrayBuffer(){return item.bytes.slice().buffer;}}:null;},async put(key,value,{contentType}){values.set(key,{bytes:new Uint8Array(value),contentType});}};}
