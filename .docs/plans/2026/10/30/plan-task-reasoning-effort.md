@@ -28,3 +28,5 @@ CodexJob 增加单次 reasoningEffort，execute 为该次计算 CLI 覆盖并检
 TT完整执行汇总386/388：一项现有legacy缓存哈希断言失败，基线函数与当前结果同为ed2dea...，与测试旧常量39814a...不符，证据preexisting-cache-test.json；未修改旧缓存算法或放宽该断言。另一项development-access用例110秒不退出，定向结束该测试子进程以收集完整汇总；源码无本任务修改，保留运行限制，不将完整套件声明为通过。额外30项任务/缓存检查全过。
 
 真实ET：medium31.798秒、high55.391秒、xhigh87.427秒，实际档位及模型均确认，三次requestSha256一致；保存独立结果，无图片或书库写入。20图SHA及当前修好配文/提示均未变。已成功medium结果重跑验证直接复用，不增加调用。详见 .docs/reports/2026/10/30/gourd-reasoning-comparison.md。
+
+SS里程碑：`a147e55`，本地提交，未推送。独立CR/VR复用review_reasoning；CR passed: no major findings；VR passed: all acceptance criteria complete。风险non-low，均第1轮reviewer reused。原完整测试的development-access独立2/2通过；随后完整测试以4进程/60秒超时重跑，开发服务器用例正常退出，仅余已证明的旧缓存黄金常量断言失败，见tests-bounded.log。此证据更新不改变源码或审查结论。
