@@ -26,3 +26,7 @@
 11. 制作确认页两条重复说明均不出现，确认按钮保留；重新选择后点击继续找故事，模拟慢请求时立即显示旋转图标和“正在查找…”，aria-busy=true且按钮禁用；请求结束及后台查找结束后恢复可点击，已找到故事保留。
 
 最后UI ET：确认页DOM两条文案均不存在且确认按钮存在（confirmation-clean-phone.png）。375px IAB查找慢请求期间实际观察animationName=spin、aria-busy=true、disabled=true，保留2项；截图find-loading-phone.png，临时网络延迟随后恢复。
+
+12. 已有空结果提示时点击继续找故事：请求等待和后台查找均隐藏旧提示，已找到候选保留；结束后只按最新结果显示说明。按钮无边框，44px点击区域、键盘焦点与加载指示保留。
+
+最终局部ET：375px IAB慢请求中loading=true/resultNotes=0/candidates=2，结束后loading=false且最新空结果说明恢复；无边框computed border=0px、min-height=44px，focus-visible规则存在。证据loading-without-stale-note.png、find-borderless-phone.png。网络及视口已恢复，临时页/服务已关闭。

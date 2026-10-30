@@ -89,3 +89,21 @@ CR review round: 4; reviewer: reused.
 
 用户最后的局部UI调整：删除制作确认页两条重复的“确认前不会生成”说明，保留确认按钮和生成/暂停后的说明；“继续找故事”从点击请求开始到服务端discovering结束持续显示Loader2旋转图标、“正在查找…”及aria-busy，期间禁用按钮。本地finding只覆盖more请求，finally清理；查找结果与付费门槛不变。两项是可逆局部UI修改，无新架构决定。
 - [x] 删除两条重复说明，补充持续查找指示并验证375px显示及完成恢复。IAB临时增加网络延迟验证请求尚未返回已出现spin图标、aria-busy=true、disabled=true；原两项仍保留。证据find-loading-phone.png；临时网络设置随后恢复。
+
+SS milestone 9682ad9：查找加载指示和重复说明清理。最终定向SSR2/2、typecheck、修改源码eslint及diff检查通过；慢请求结束后文字恢复继续找故事、aria-busy=false、disabled=false且spinner消失，原候选保留。临时网络/视口已恢复，临时页及服务已关闭。
+
+CR passed: no major findings.
+CR risk: non-low — shared creation UI and paid confirmation boundaries remain in scope.
+CR review round: 5; reviewer: reused.
+
+VR passed: all acceptance criteria complete.
+VR risk: non-low — shared editing, durable reselection, provenance and paid confirmation gates.
+VR review round: 1; reviewer: reused.
+完整验收映射见done文档。
+
+最终局部调整已 amend 至9682ad9：查找期间隐藏空候选/没有更多故事的旧结果提示，完成后按最新批次显示；继续找故事按钮border=0，保留44px点击高度、键盘focus-visible及旋转加载。IAB隔离库分别验证等待时notes=0、候选2项保留；完成后loading=false且最新空结果提示恢复。375px实际computed border=0px/min-height=44px，焦点样式保留。证据loading-without-stale-note.png、find-borderless-phone.png。定向SSR2/2、类型、源码eslint及diff检查通过；边框调整为CSS单属性，复用现有行为验证。
+
+CR passed: no major findings.
+CR risk: low — localized result-note visibility and button border; existing queue and persistence contracts unchanged.
+CR review round: 1; reviewer: not applicable.
+局部复核不推翻之前的独立CR/VR；DD保存完整独立最终VR及本次补充证据。GC只收尾本轮三个故事的文档，不包含并行发布文件。

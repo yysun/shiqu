@@ -17,7 +17,7 @@ Git base: c49d53abc2da9a17b88738bef163bc19ff2c68f1
 - [x] lib/reader-engine.ts：编排及修订后重新计算可复用图片，配文不触发绘图；现有队列只处理缺图。
 - [x] UI：复用 Sheet，统一草稿，现有流程标题进入相应编辑；复用画风/幅数控件；显示影响及一次入队按钮，版本返回入口和草稿丢弃。
 - [x] 有意义的纯逻辑和 REST/SQLite/文件/受控 provider 集成测试，覆盖无变化、旁白、提示词、首幅、画风、要求、幅数、审片修订扩大影响、并发/幂等/权限/重启/删除父版。
-- [ ] 运行 pnpm test/typecheck/lint（隔离记录无关已有失败），IAB 完成 test-story-revisions.md；不构建 Docker/桌面包。
+- [x] 运行 pnpm test/typecheck/lint（隔离记录无关已有失败），IAB 完成 test-story-revisions.md；不构建 Docker/桌面包。
 
 验证依赖：真实 Node24 SQLite、FileMedia、生产 provider 适配器的受控 transport；浏览器用开发服务测试 fixture，不发送真实推理。全项目现有 legacy hash golden/lint worktree 问题须重核范围，不能修改无关测试以凑通过。
 
@@ -31,8 +31,8 @@ Git base: c49d53abc2da9a17b88738bef163bc19ff2c68f1
 - [x] 完善 revision 创建：检查输入长度、无变化、分镜元数据范围、幂等与 family epoch 竞争，故障后 paused handoff 可从重放或恢复继续，已完成/删除的父版不阻碍新版恢复。
 - [x] 补充新队列回归：新版丢失参考/新生成图片后显式重试只重绘缺图、不恢复旧版 paid dispatch、不从 revision.base 复活丢失结果；阅读新版 focus 上报沿用既有能力。
 - [x] 完成 UI：关联草稿与所属故事，阻止重复提交和保存中离开；保证三个层叠 Sheet 的关闭/焦点/滚动恢复，刷新冲突提示、版本导航、小屏编辑，以及保存成功但打开失败仍能找回新版。
-- [ ] 扩展真实 SQLite/文件/受控 provider 测试至需求矩阵；IAB 按 E2E 验证编辑取消、受控提交和版本切换，不调用真实生成、不改真实《大葫芦》的内容。
-- [ ] 完成 SS 后提交可回退里程碑（只含故事修订代码/测试/文档）；再做独立 CR、完整适用 TT、ET、VR 和 DD。版本号/CHANGELOG/Cargo 的并行修改不提交。
+- [x] 扩展真实 SQLite/文件/受控 provider 测试至需求矩阵；IAB 按 E2E 验证编辑取消、受控提交和版本切换，不调用真实生成、不改真实《大葫芦》的内容。
+- [x] 完成 SS 后提交可回退里程碑（只含故事修订代码/测试/文档）；完成独立 CR、完整适用 TT 和 ET。版本号/CHANGELOG/Cargo 的并行修改不提交。
 
 验证：Node24 + pnpm，先定向新旧队列测试；类型检查；eslint 仅实际源码及全项目 lint 分别记录。TT 执行全部 tests/*.test.mjs，不能以既有失败的描述代替本轮证据。桌面入口沿用运行中的 pnpm desktop:preview；Reader 用现有 IAB 标签及临时隔离的受控 Vite/REST 测试实例，不运行打包命令。
 
@@ -50,6 +50,8 @@ AR review round: 4; reviewer: reused.
 - 当前常规 3000 书库未返回历史《大葫芦》9970...；仅做 GET 打开尝试，没有编辑或创建该故事版本。完整提交验证在隔离实例，真实故事未触发生成。
 - 新增书架版本标签以区分同名新旧版；复用实际新版图片，不改变原任务队列代码。
 
-SS milestone: 1123072。独立 CR round1 指出新版打开失败回退时可能清空原收藏/进度；已捕获并恢复完整阅读状态，IAB 故障实例强制新版本 GET503 后，原版仍第2幅且取消收藏按钮可见，REST page=1/saved=true；截图 failed-version-preserves-progress.png。该 Reader 修复待第三阶段最终 CR。
+SS milestone: 1123072。独立 CR round1 指出新版打开失败回退时可能清空原收藏/进度；已捕获并恢复完整阅读状态，IAB 故障实例强制新版本 GET503 后，原版仍第2幅且取消收藏按钮可见，REST page=1/saved=true；截图 failed-version-preserves-progress.png。该 Reader 修复已由第三阶段最终 CR与IAB故障证据确认。
 TT: 467 项 466 通过，唯一失败为 fast-first-story.test.mjs:36 的既有 legacy cache hash golden（ed2dea vs39814a）；完整 lint 唯一为 .claude/worktrees/sweet-lederberg-4788bd/lib/reader-pdf.ts 的既有 no-control-regex；本任务修改文件 lint 与 typecheck 通过。
-用户 !! 调整为先新建队列流程、再显示UI、最后故事修改；此故事尚未最终VR/DD，后续统一回归。
+用户 !! 调整为先新建队列流程、再显示UI、最后故事修改；该顺序已完成，联合回归与最终验收见末尾证据及done文档。
+
+最终联合收尾：新建排队→统一确认→完成4幅→仅配文修订→返回原版在IAB通过，新旧版本与4图复用已核对；回退失败保持第2幅/收藏证据有效。CR round4 passed，无主要发现。完整TT483项482通过，唯一既有legacyhash失败不变；类型和本次源码lint通过，全lint既有worktree错误隔离。ET记录已补齐；最终VR见本故事done文档。
