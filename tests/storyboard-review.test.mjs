@@ -115,3 +115,26 @@ for(const provider of ['codex','gemini'])test(`${provider}: targeted repair chec
  assert.notDeepEqual(after.plan.pages[1],before.pages[1]);const {pages:_,...metadata}=after.plan,{pages:__,...original}=before;assert.deepEqual(metadata,original);
  assert.deepEqual(after.usage.filter(u=>/review:|repair:/.test(u.step)).map(u=>u.step),['review:0','repair:1:2','review:1']);
 });
+
+for(const provider of ['codex','gemini'])test(`${provider}: caption-only issues across batches gate drawing and preserve scene prompts`,async t=>{
+ const f=await productionFixture(t,provider),id=await f.createLegacyReader(25);let before;
+ const caption='他飞过花丛，又落在一根轻轻摇动的枝条上。';
+ f.control.beforeText=async(kind,payload,schema)=>{
+  if(kind==='review'){
+   assert.equal(f.control.calls.length,0);
+   assert.ok(schema.properties.issues.items.properties.category.enum.includes('caption'));
+   if(f.control.reviews.length===1){
+    before=structuredClone(payload.plan);
+    return {issues:[2,21].map(page=>({page,category:'caption',problem:'相邻幅反复重新交代讲述者，打断连续叙事。',instruction:'沿用已建立的讲述语境，只修订配文，保留画面指令。'}))};
+   }
+   for(const page of [2,21])assert.equal(payload.plan.pages[page-1].caption,caption);
+  }
+  if(kind==='repair')return {pages:payload.requestedPages.map(page=>({page,caption,prompt:payload.plan.pages[page-1].prompt}))};
+ };
+ await f.demand(id);await until(()=>f.control.calls.length===1);
+ const after=await document(f,id);
+ assert.equal(after.visualReview.status,'passed');assert.equal(f.control.reviews.length,2);assert.equal(f.control.repairs.length,1);
+ assert.deepEqual(after.storyboard.pages,after.plan.pages);
+ for(let page=0;page<25;page++)assert.deepEqual(after.plan.pages[page],{...before.pages[page],...([1,20].includes(page)?{caption}:{})});
+ assert.deepEqual(after.usage.filter(u=>/review:|repair:/.test(u.step)).map(u=>u.step),['review:0','repair:1:2','review:1']);
+});
