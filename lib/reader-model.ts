@@ -55,7 +55,7 @@ export function nextStep(doc:Document,selection:Selection,through:number):Step|n
  return null;
 }
 export function productionComplete(doc:Document,selection:Selection){return (!doc.intake||doc.intake.phase==='confirmed')&&!awaitingFrameCount(doc,selection)&&!nextStep(doc,selection,readerMaxFrames-1);}
-export function awaitingFrameCount(doc:Document,selection:Selection){return !!selection.narrativeDetail&&!doc.plan&&!!doc.frameRecommendation&&!doc.frameCountConfirmed;}
+export function awaitingFrameCount(doc:Document,selection:Selection){return !doc.intake&&!!selection.narrativeDetail&&!doc.plan&&!!doc.frameRecommendation&&!doc.frameCountConfirmed;}
 export function view(row:SessionRow):SessionView{
  const selection=selectionSchema.parse(JSON.parse(row.selection)),doc=JSON.parse(row.document) as Document,p=doc.plan;
  const step=nextStep(doc,selection,readerMaxFrames-1);

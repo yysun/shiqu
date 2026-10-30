@@ -1,5 +1,7 @@
-// Persist verified originals through the application media storage port.
+// Persist verified originals per selected story/source, so reselecting within a session cannot
+// reuse another story's text. Saved document originals remain the checkpoint for legacy sessions.
 import {lookupOriginal,sourceSearchUrl} from './reader-source.ts';
+import {localSourceKey} from './reader-source-key.ts';
 import type {OriginalSource,SourceResult,SourceHint} from './reader-source-types.ts';
 import type {Selection} from './reader-model.ts';
 
@@ -9,12 +11,15 @@ export interface SourceAssets{
 }
 // Called during generation or an explicit legacy backfill, never on a reading GET.
 export async function saveStoryOriginal(assets:SourceAssets,selection:Selection,plan:SourceHint,id:string,transport:typeof fetch=fetch):Promise<SourceResult>{
- const key=`reader/${id}/source.json`,cached=await assets.get(key);
+ const identity=JSON.stringify([selection.bookId,selection.bookId==='other'?selection.customBook?.trim():null,selection.storyTitle?.trim(),selection.source?localSourceKey(selection.source):null,plan.sourceReference]);
+ const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(identity));
+ const fingerprint=Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
+ const key=`reader/${id}/sources/${fingerprint}.json`,cached=await assets.get(key);
  if(cached){
   try{
    const source=JSON.parse(new TextDecoder().decode(await cached.arrayBuffer())) as OriginalSource;
    if(source.text&&source.url&&source.title)return {source,message:'',searchUrl:sourceSearchUrl(selection,plan)};
-  }catch{/* A corrupt legacy cache can be replaced from the verified source. */}
+  }catch{/* A corrupt cache can be replaced from the verified source. */}
  }
  const result=await lookupOriginal(selection,plan,transport);
  if(result.source)await assets.put(key,new TextEncoder().encode(JSON.stringify(result.source)),{contentType:'application/json'});

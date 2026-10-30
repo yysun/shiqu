@@ -39,7 +39,7 @@ test('generation persists source text and future calls reuse the story cache wit
  const assets={async get(key){const bytes=stored.get(key);return bytes?{async arrayBuffer(){return bytes.slice().buffer;}}:null;},async put(key,bytes){writes++;stored.set(key,bytes);}};
  const noNetwork=async()=>{throw Error('must not make external requests');};
  const first=await saveStoryOriginal(assets,selection,plan,'existing-story',noNetwork);
- assert.equal(writes,1);assert.ok(stored.has('reader/existing-story/source.json'));
+ assert.equal(writes,1);assert.match([...stored.keys()][0],/^reader\/existing-story\/sources\/[a-f0-9]{64}\.json$/);
  const second=await saveStoryOriginal(assets,selection,{...plan,pages:[]},'existing-story',noNetwork);
  assert.deepEqual(second.source,first.source);assert.equal(writes,1);
 });

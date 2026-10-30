@@ -299,6 +299,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    throw terminal?failure:new ReaderError(503,result.error||'故事编排暂未完成');
   }
   if(result.awaitingFrameCount)return {awaitingFrameCount:true};
+  if(result.intake?.phase==='confirming')return {awaitingProductionConfirmation:true};
   row=await this.raw(row.id,row.user_id);doc=JSON.parse(row.document) as Document;
   if(doc.visualReview&&!reviewPassed(doc))return {review:doc.visualReview.status};
   if(doc.storyboard&&!doc.plan)return {storyboardFrames:doc.storyboard.pages.length};

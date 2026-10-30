@@ -2,9 +2,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,until,selection} from './fixtures/production.mjs';
+import {saveStoryOriginal} from '../lib/reader-source-storage.ts';
+import {observeStoryGeneration} from '../lib/reader-production-client.ts';
+import {shelfGenerationStatus} from '../lib/shelf-generation.ts';
 const batch={stories:[{title:'庄周梦蝶',description:'梦醒后的庄周思考自己的经历。',artRecommendation:{artStyle:'paper-cut',reason:'层次适合梦境。'}},{title:'大葫芦',description:'惠子与庄子谈论大葫芦的用处。'}],note:''};
 async function fixture(t){const f=await productionFixture(t);f.control.hold=false;f.discoveries=[];f.generation.suggestions=async(s,excluded,_local,reading)=>{f.discoveries.push({s,excluded});reading?.onProgress({completed:1,total:1,completedChars:100,totalChars:100,stage:'selecting'});return structuredClone(batch);};return f;}
-async function create(f,requestId=crypto.randomUUID()) {const s=await f.json('sessions','POST',{requestId,intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced'}});return s.id;}
+async function create(f,requestId=crypto.randomUUID(),overrides={}) {const s=await f.json('sessions','POST',{requestId,intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced',...overrides}});return s.id;}
 const setup=async(f,id,action,s)=>f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(s||await f.read(id)).intake.generation,...action});
 
 test('intent is saved before discovery; restart and waiting for story choice never commission scripts/images',async t=>{
@@ -94,4 +97,36 @@ test('native/preview shared summary follows intake gates and ignores obsolete jo
  await f.app.services.database.prepare("UPDATE production_jobs SET state='failed',error='private old failure' WHERE version='old'").run();
  let summary=readLibrarySummary(f.dataDirectory).stories.find(s=>s.id===id);assert.equal(summary.failed,0);assert.equal(summary.production.phase,'story-choice');assert.equal(summary.production.intakePhase,'choosing');assert.equal(productionSteps({...summary.production,total:null,ready:0})[1].label,'制作确认');
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');summary=readLibrarySummary(f.dataDirectory).stories.find(s=>s.id===id);assert.equal(summary.production.phase,'production-confirmation');assert.equal(summary.failed,0);assert.doesNotMatch(JSON.stringify(summary),/quiet narration|private old failure|梦为胡蝶/);
+});
+
+test('reselecting remote candidates prepares distinct originals through the real source cache, while returning to one reuses its text',async t=>{
+ const f=await fixture(t),titles=['第一篇','第二篇'];
+ f.generation.suggestions=async()=>({stories:titles.map(title=>({title,description:'来自所选古籍的独立故事。'})),note:''});
+ const generator=f.generation.generator.bind(f.generation),retrieved=[];
+ f.generation.generator=()=>({...generator(),original:(s,hint,id)=>saveStoryOriginal(f.media,s,hint,id,async url=>{
+  const page=new URL(url).searchParams.get('page');retrieved.push(page);
+  return Response.json({parse:{title:page,text:`<p>这是${page}的独立原文，人物和事件属于当前所选故事，不能被另一篇故事替代，字数足够核验章节出处。</p>`}});
+ })});
+ const id=await create(f,crypto.randomUUID(),{bookId:'other',customBook:'测试古籍'});await until(async()=>(await f.read(id)).intake.phase==='choosing');
+ // Unbound caches from before candidate reselection must never be mistaken for the chosen text.
+ await f.media.put(`reader/${id}/source.json`,new TextEncoder().encode(JSON.stringify({title:'旧缓存',text:'另一篇旧故事',url:'https://example.com/wrong'})),{contentType:'application/json'});
+ const originals=[];
+ for(const index of [0,1,0]){
+  await setup(f,id,{action:'choose',batch:0,index});await until(async()=>(await f.read(id)).intake.phase==='confirming');
+  const source=(await f.json(`sessions/${id}/source`)).source;originals.push(source);
+  assert.match(source.text,new RegExp(titles[index]));assert.equal(f.control.recommendations.at(-1).verifiedOriginal.text,source.text);
+ }
+ assert.notEqual(originals[0].text,originals[1].text);assert.deepEqual(originals[0],originals[2]);assert.equal(retrieved.length,2);
+ assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+});
+
+test('finding another batch after preparation keeps observing discovery until the next choice gate',async t=>{
+ const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
+ await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');
+ let release;f.generation.suggestions=async()=>{await new Promise(r=>release=r);return {stories:[],note:'暂无更多。'};};
+ await setup(f,id,{action:'more'});await until(()=>release);const discovering=await f.read(id);
+ assert.equal(discovering.intake.phase,'discovering');assert.equal(discovering.awaitingFrameCount,false);assert.equal(discovering.generationProgress.phase,'discover');assert.notEqual(shelfGenerationStatus(discovering).group,'待选画幅数');
+ const observed=[];let polls=0;
+ await observeStoryGeneration({sessionId:id,isActive:()=>true,onSession:s=>observed.push(s.intake.phase),request:async()=>{polls++;return f.read(id);},sleep:async()=>{release();await until(async()=>(await f.read(id)).intake.phase==='choosing');}});
+ assert.equal(polls,2);assert.deepEqual(observed,['discovering','choosing']);assert.equal(shelfGenerationStatus(await f.read(id)).group,'待选故事');assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });

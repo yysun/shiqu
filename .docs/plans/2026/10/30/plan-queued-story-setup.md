@@ -55,3 +55,7 @@ AR review round: 4; reviewer: reused.
 阶段2/3 SS证据：定向新建流程/审片闭环/修订/桌面共享SQL 55/55；类型和全部本次修改源码 lint 通过。阶段1 commit=e762a93。IAB3012：选《庄子》/聪明与糊涂/自定义要求，提取挂起时返回书架、刷新仍同session；选择后仅1次提取，0分镜/0绘图，原文已可查看；完整确认4幅后进入分镜并读到4幅剪纸故事。新增原文/候选历史、手改设置随新候选原子保存。桌面共享SQL补充当前generation过滤和新阶段/闭环实际计数，不暴露prompt或历史正文。
 
 既有修订 Reader失败回退修复保留完整收藏/阅读状态，IAB已有故障证据。剩余：最终新流程故事修订UI衔接、独立CR、完整TT/ET/VR/DD；不运行构建或推送。
+
+CR round2修复：远程原文缓存按所选书籍、故事、出处回执和引用线索的SHA256分别保存；不再读取session级无绑定source.json。已保存doc.original检查点不变，同故事返回仍复用。真实FileMedia+远程HTML解析路径验证A→B→A分别使用正确原文、仅取两次、两次推荐均对应当前原文；遗留无绑定错误缓存不能被读取。
+
+legacy awaitingFrameCount仅用于无intake旧流程；coordinator单独识别intake.confirming为正常准备完成。confirming→more→discovering→choosing覆盖真实队列、观察循环和书架状态，避免旧幅数建议导致停止刷新。定向41/41、typecheck及修改文件lint通过。审核闭环、版本隔离结论仍交独立CR复核。
