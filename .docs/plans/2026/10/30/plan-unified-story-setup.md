@@ -24,3 +24,18 @@ AR risk: non-low — shared creation/revision editing, paid confirmation gates a
 AR review round: 1; reviewer: reused.
 
 首个SS probe通过：reader-intake的真实队列原文先于plan、明确确认才生成场景1/1通过。抽取共享Sheet/编辑字段/标签及同一流程导航后，定向30/30（含intake12、revision16、原UI与新共享UI各1），typecheck和修改源码eslint通过。待确认采用紧凑流程展示，确认按钮放在流程后、返回书架之前，隐藏重复状态大标题；其余生成状态默认展示不变。
+
+用户增补：初始书籍/主题页移除制作要求字段（保留原有theme默认值/已存契约）；选题窗口标题按阶段为“正在寻找故事”/“选择故事”，选定后才叫“故事制作流程”。无已选故事且choosing时，仅展示同一candidateList、批次/再找一批与稍后返回书架，不再同时展示制作流程。已有选题的重新选择仍复用同一候选内容的Sheet。discover/failed/paused保留当前恢复控制，不能为简化候选页丢失错误重试；无队列或服务端变更。
+- [ ] 移除书籍/主题页制作要求，分离独立候选窗口与选后流程；渲染断言覆盖候选态不出现编辑和流程、原有失败恢复保留；IAB新建入口与候选边界补验。
+该增补AR待复核，依赖源代码尚未修改。
+
+SS milestone fbf539f（包括先前待提交紧凑画风依赖）。CR passed: no major findings.
+CR risk: non-low — shared creation/revision UI, paid confirmation gates and nested dialog lifecycle.
+CR review round: 1; reviewer: reused.
+完整TT首轮484项483通过，唯一为已知fast-first-story旧缓存hash断言；IAB最终确认4幅、隐藏brief及不提前生成、旧修订与双层弹窗锁已验证，见E2E记录。用户随后增补“书籍主题→独立选题→流程”待AR2后补实现和定向复验。
+
+增补 AR passed: no blocking architecture flaws.
+AR risk: non-low — shared UI state and paid confirmation boundaries remain in scope.
+AR review round: 2; reviewer: reused.
+
+已移除初始制作要求字段。无已选故事的候选等待态只显示候选；提取进行/失败/暂停只保留提取步骤及重试/恢复控制，避免展示尚不属于选题的后续制作阶段。已有选题仍按完整流程。增补渲染2/2、类型/lint通过；IAB从首页选择庄子/主题，书籍主题页0textarea且无“制作要求”，独立“选择故事”窗口无制作流程，选择后进入“故事制作流程”。截图book-theme-phone/candidates-phone，均375px。

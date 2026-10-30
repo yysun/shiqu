@@ -17,6 +17,15 @@ test('creation uses one navigable timeline without narrative-detail or expanded 
  for(const label of ['原文','制作要求','修改画风','修改画幅数'])assert.ok(html.includes(label),label);
  assert.doesNotMatch(html,/叙事详略|<textarea|type="radio"|不应铺开的候选介绍|修改分镜/);
  assert.match(html,/data-stage="plan" data-state="pending"/);assert.match(html,/data-stage="image" data-state="pending"/);
+ const props={session,book:'庄子',busy:false,onAction:async()=>{},progress:{busy:false,controlBusy:false,error:'',onControl:async()=>{},onRetry:noop,onBack:noop}};
+ const choosing={...session,intake:{...session.intake,phase:'choosing',selected:undefined}};
+ const candidates=renderToStaticMarkup(createElement(Setup,{...props,session:choosing}));
+ assert.match(candidates,/可选故事|选择这篇/);assert.doesNotMatch(candidates,/完整审片流程|确认制作并生成|<textarea|叙事详略/);
+ const paused=renderToStaticMarkup(createElement(Setup,{...props,session:{...choosing,generationControl:'paused'}}));
+ assert.match(paused,/恢复生成/);
+ const failed=renderToStaticMarkup(createElement(Setup,{...props,session:{...choosing,state:'failed',error:'受控提取失败',retryAllowed:true}}));
+ assert.match(failed,/重试|受控提取失败/);
+
  const createTabs=renderToStaticMarkup(createElement(Tabs,{tab:'style',onChange:noop})),revisionTabs=renderToStaticMarkup(createElement(Tabs,{tab:'script',onChange:noop,script:true}));
  assert.doesNotMatch(createTabs,/分镜/);assert.match(revisionTabs,/分镜/);
  const count=renderToStaticMarkup(createElement(Fields,{tab:'count',settings:{artStyle:'paper-cut',productionPrompt:'',length:80},disabled:true,creation:true,onChange:noop}));
