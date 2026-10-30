@@ -20,7 +20,7 @@ export function groupShelfItems<T extends ShelfMetadata&{processingStatus:string
  }
  const result=[...groups].map(([label,items])=>({label,items}));
  if(grouping==='status'){
-  const order=['生成中','等待生成','待选画幅数','生成已暂停','生成失败','已完成'];
+  const order=['生成中','等待生成','待选故事','待制作确认','待选画幅数','生成已暂停','生成失败','已完成'];
   result.sort((a,b)=>order.indexOf(a.label)-order.indexOf(b.label));
  }
  return result;

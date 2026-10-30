@@ -14,7 +14,7 @@ const categories=['caption','action','composition','progression','continuity','s
 const issueSchema=z.object({page:z.number().int().min(1),category:z.enum(categories),problem:z.string().trim().min(1).max(180),instruction:z.string().trim().min(1).max(400)});
 export type ReviewIssue=z.infer<typeof issueSchema>;
 export type ReviewReport={issues:ReviewIssue[]};
-export type ReviewCheckpoint={status:'pending'|'repair'|'passed'|'blocked';round:number;repairs:number;issues:ReviewIssue[];repaired:number[];reports:{round:number;issues:ReviewIssue[]}[]};
+export type ReviewCheckpoint={stopReason?:'limit'|'unchanged';history?:{round:number;requested:number[];changes:RepairedPage[]}[];status:'pending'|'repair'|'passed'|'blocked';round:number;repairs:number;issues:ReviewIssue[];repaired:number[];reports:{round:number;issues:ReviewIssue[]}[]};
 export type RepairedPage={page:number;caption:string;prompt:string};
 export function reviewReportSchema(count:number){return z.object({issues:z.array(issueSchema.extend({page:z.number().int().min(1).max(count)})).max(count)}).superRefine((report,ctx)=>{
  if(new Set(report.issues.map(issue=>issue.page)).size!==report.issues.length)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Duplicate review page'});
@@ -24,7 +24,7 @@ export function repairOutputSchema(pages:number[]){return z.object({pages:z.arra
  if(new Set(actual).size!==pages.length||actual.some(page=>!pages.includes(page)))ctx.addIssue({code:z.ZodIssueCode.custom,message:'Repair page set differs from requested pages'});
 });}
 export function pendingRepairs(review:ReviewCheckpoint){return [...new Set(review.issues.map(issue=>issue.page))].filter(page=>!review.repaired.includes(page)).sort((a,b)=>a-b).slice(0,readerStoryboardBatchSize);}
-export function newReview():ReviewCheckpoint{return {status:'pending',round:0,repairs:0,issues:[],repaired:[],reports:[]};}
+export function newReview():ReviewCheckpoint{return {history:[],status:'pending',round:0,repairs:0,issues:[],repaired:[],reports:[]};}
 
 const string=(maxLength:number)=>({type:'string',minLength:1,maxLength});
 export const reviewSystemPrompt=`你是独立的静态连环画审片编辑。阅读已核原文、全篇分镜和画风要求，审核配文与画面设计，尤其检查跨幅及跨批衔接。先逐幅检查配文，再按阅读顺序把全篇 caption 串起来连读，并结合 prompt 核对图文一致性。只报告实质妨碍阅读或违背事实的问题，不按个人口味要求重写，不为显得认真凑问题。病句、指代不清及打断连读的机械重复属于实质阅读问题，即使画面可执行也要修订。只返回规定 JSON，issues 为空才表示通过；每个问题用 1-based page 指向需要修订的幅号，同一幅的多项问题合并为一条，但 problem 和 instruction 必须覆盖该幅的全部实质问题，不能因找到重复转述就漏掉正文的含混表达。problem 引用具体配文或画面指令证据并指出其后果，instruction 给出该幅可执行的改法；相邻幅都必须改时分别列出。

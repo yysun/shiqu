@@ -8,7 +8,7 @@ import type {ArtStyleId} from './reader-styles.ts';
 import type {OriginalSource,SourceResult,SourceHint} from './reader-source-types.ts';
 import {frameRecommendationSchema} from './reader-frame-recommendation.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
-import {readerImageBatchSize,readerStoryboardBatchSize} from './reader-limits.ts';
+import {readerImageBatchSize,readerStoryboardBatchSize,readerMaxAutomaticRepairs} from './reader-limits.ts';
 import {newReview,reviewReportSchema,repairOutputSchema,pendingRepairs} from './reader-review.ts';
 import {syncRevisionImages} from './reader-revision.ts';
 import type {ReviewIssue,ReviewReport,RepairedPage} from './reader-review.ts';
@@ -90,13 +90,13 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     // Only an explicit retry can reach a blocked session; reuse the saved issues without a new audit.
     if(!retry)throw new ReaderError(409,'分镜审片尚未通过，请手动继续修订。');
     // Give the continuation its own generation so the later recheck cannot reuse this receipt.
-    review.round++;review.status='repair';review.repairs=0;review.repaired=[];
+    const partial=review.stopReason==='unchanged';review.round++;review.status='repair';review.repairs=0;if(!partial)review.repaired=[];delete review.stopReason;
    }else{
     if(!generator.review)throw new ReaderError(503,'生成服务暂不支持分镜审片，请更新服务后重试。');
     const result=await generator.review(selection,structuredClone(doc.plan!),doc.original!,doc.storyboard?.outline);
     const report=reviewReportSchema(doc.plan!.pages.length).parse(result.value);
     review.reports.push({round:review.round,issues:report.issues});review.round++;review.issues=report.issues;review.repaired=[];
-    review.status=!report.issues.length?'passed':review.repairs>=1?'blocked':'repair';generated=result;
+    review.status=!report.issues.length?'passed':review.repairs>=readerMaxAutomaticRepairs?'blocked':'repair';if(review.status==='blocked')review.stopReason='limit';else delete review.stopReason;generated=result;
    }
   }
   else if(step.kind==='repair'){
@@ -104,9 +104,11 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    const review=doc.visualReview!,requested=pendingRepairs(review),issues=review.issues.filter(issue=>requested.includes(issue.page));
    const result=await generator.repair(selection,structuredClone(doc.plan!),doc.original!,issues,doc.storyboard?.outline);
    const pages=repairOutputSchema(requested).parse({pages:result.value}).pages,updated=structuredClone(doc.plan!);
+   const changed=pages.filter(({page,caption,prompt})=>caption!==doc.plan!.pages[page-1].caption||prompt!==doc.plan!.pages[page-1].prompt);
+   (review.history??=[]).push({round:review.round,requested:[...requested],changes:structuredClone(changed)});
    for(const {page,caption,prompt} of pages)updated.pages[page-1]={caption,prompt};
    doc.plan=planSchema.parse(updated);if(doc.storyboard)doc.storyboard.pages=structuredClone(doc.plan.pages);
-   review.repaired.push(...requested);if(!pendingRepairs(review).length){review.status='pending';review.repairs++;}generated=result;
+   if(!changed.length){review.status='blocked';review.stopReason='unchanged';}else{review.repaired.push(...requested);if(!pendingRepairs(review).length){review.status='pending';review.repairs++;}}generated=result;
   }
   else if(step.kind==='image')await drawRequestedImages(repo,generator,row,token,doc,selection,throughPage);
   else{const result=await generator.audio(doc.plan!.pages[step.page].caption,id,step.page);doc.audio[step.page]=result.value;generated=result;}
@@ -122,8 +124,8 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    doc.original=result.source;
   }
   if(doc.visualReview?.status==='blocked'){
-   const issues=doc.visualReview.issues,summary=issues.slice(0,3).map(issue=>`第 ${issue.page} 幅：${issue.problem}`).join('；');
-   throw new ReaderError(422,`分镜复核仍有 ${issues.length} 处问题，已停止绘图。${summary}。可手动继续修订。`);
+   const issues=doc.visualReview.stopReason==='unchanged'?doc.visualReview.issues.filter(issue=>!doc.visualReview!.repaired.includes(issue.page)):doc.visualReview.issues,summary=issues.slice(0,3).map(issue=>`第 ${issue.page} 幅：${issue.problem}`).join('；');
+   throw new ReaderError(422,`${doc.visualReview.stopReason==='unchanged'?'修订没有产生实际变化':`已自动修复 ${readerMaxAutomaticRepairs} 轮，复核未通过`}，仍有 ${issues.length} 处问题，已停止绘图。${summary}。可手动继续修订。`);
   }
   return view(await repo.save(row,token,doc,productionComplete(doc,selection)));
  }catch(error){if(error instanceof ReaderError&&error.status===404||persistenceError(error))throw error;onFailed?.(error);return view(await repo.save(row,token,doc,false,error instanceof ReaderError?error.message:generator.safeError(error)));}

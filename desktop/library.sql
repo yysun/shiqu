@@ -1,10 +1,12 @@
 -- Read-only desktop summaries, shared by the native shell and loopback-only Vite preview.
 -- Match jobs and deletions by owner as well as story; never return prompts, keys, or job payloads.
 WITH job_counts AS (
- SELECT session_id, owner_id, count(*) AS jobs,
-  sum(state = 'queued') AS queued, sum(state = 'running') AS running,
-  sum(state = 'failed') AS failed, sum(state = 'succeeded') AS succeeded
- FROM production_jobs GROUP BY session_id, owner_id
+ SELECT j.session_id, j.owner_id, count(*) AS jobs,
+  sum(j.state = 'queued') AS queued, sum(j.state = 'running') AS running,
+  sum(j.state = 'failed') AS failed, sum(j.state = 'succeeded') AS succeeded
+ FROM production_jobs j JOIN reader_sessions r ON r.id=j.session_id AND r.user_id=j.owner_id
+ WHERE json_extract(r.document,'$.intake.generation') IS NULL OR json_extract(j.payload,'$.setupGeneration')=json_extract(r.document,'$.intake.generation')
+ GROUP BY j.session_id, j.owner_id
 )
 SELECT json_object('stories', json_group_array(json(summary))) FROM (
  SELECT json_object(
@@ -17,10 +19,19 @@ SELECT json_object('stories', json_group_array(json(summary))) FROM (
   'ready', (SELECT count(*) FROM json_each(s.document, '$.images') WHERE value IS NOT NULL AND value != ''),
   'total', coalesce(json_array_length(s.document, '$.plan.pages'), json_array_length(s.document, '$.storyboard.outline.beats'), CASE WHEN json_type(s.selection, '$.length') = 'integer' THEN json_extract(s.selection, '$.length') END, 0),
   'production', json_object(
+   'intakePhase', json_extract(s.document,'$.intake.phase'),
+   'candidateBatches', json_array_length(s.document,'$.intake.batches'),
+   'reviewAudits', json_array_length(s.document,'$.visualReview.reports'),
+   'repairBatches', json_array_length(s.document,'$.visualReview.history'),
+   'repairPasses', json_extract(s.document,'$.visualReview.repairs'),
+   'reviewStopReason', json_extract(s.document,'$.visualReview.stopReason'),
    'planReady', json(CASE WHEN json_type(s.document, '$.plan') = 'object' THEN 'true' ELSE 'false' END),
    'sourceReady', json(CASE WHEN json_type(s.document, '$.original') = 'object' THEN 'true' ELSE 'false' END),
    'frameCountConfirmed', json(CASE WHEN json_type(s.document, '$.plan') = 'object' OR json_type(s.document, '$.storyboard') = 'object' OR json_extract(s.document, '$.frameCountConfirmed') = 1 OR (json_type(s.selection, '$.narrativeDetail') IS NULL AND json_type(s.selection, '$.length') = 'integer') THEN 'true' ELSE 'false' END),
    'phase', CASE
+    WHEN json_extract(s.document,'$.intake.phase')='discovering' THEN 'discover'
+    WHEN json_extract(s.document,'$.intake.phase')='choosing' THEN 'story-choice'
+    WHEN json_extract(s.document,'$.intake.phase')='confirming' THEN 'production-confirmation'
     WHEN json_type(s.document, '$.storyboard') = 'object' AND json_type(s.document, '$.original') IS NOT 'object' THEN 'source'
     WHEN json_type(s.document, '$.plan') IS NOT 'object' THEN CASE
      WHEN json_type(s.selection, '$.narrativeDetail') IS NOT NULL AND json_type(s.document, '$.frameRecommendation') IS NOT 'object' THEN 'recommend'

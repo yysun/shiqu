@@ -11,6 +11,7 @@ type StorySummary={id:string;title:string;book:string;theme:string;artStyle:stri
 type Summary={stories:StorySummary[]};
 export type DesktopTab='library'|'queue'|'settings';
 const states:Record<string,string>={idle:'待继续',running:'生成中',failed:'已暂停',completed:'已完成'};
+function waitingLabel(story:StorySummary){return story.production?.intakePhase==='choosing'?'待选故事':story.production?.intakePhase==='confirming'?'待制作确认':states[story.state]||'待继续';}
 function date(value:string){return new Intl.DateTimeFormat('zh-CN',{month:'short',day:'numeric'}).format(new Date(value));}
 function StoryTags({story}:{story:StorySummary}){
  return <div className="story-tags"><span>主题 · {story.theme||'未记录'}</span><span>画风 · {getArtStyle(story.artStyle).label}</span></div>;
@@ -69,16 +70,16 @@ export function LibraryPane({tab,native,revision}:{tab:'library'|'queue';native:
    <div className="story-description">
     <div className="story-meta"><span>{story.book}</span>{!!story.saved&&<Heart size={12} fill="currentColor" aria-label="已收藏"/>}</div>
     <h3>{story.title}</h3><StoryTags story={story}/>
-    <div className="story-bottom"><span className={'story-state state-'+story.state}>{states[story.state]||'待继续'}</span><span>{story.total?`${story.ready} / ${story.total} 幅`:'等待编排'}<i>·</i>{date(story.updatedAt)}</span></div>
+    <div className="story-bottom"><span className={'story-state state-'+story.state}>{waitingLabel(story)}</span><span>{story.total?`${story.ready} / ${story.total} 幅`:'等待编排'}<i>·</i>{date(story.updatedAt)}</span></div>
    </div>
    <button className="story-delete" type="button" aria-label={'删除《'+story.title+'》'} title="从书架删除" disabled={mutating} onClick={()=>{setMutationError('');setDeleteTarget(story);}}><Trash2 size={15}/></button>
   </article>;
  }
  function queueCard(story:StorySummary){
   return <article className="desktop-queue-item" key={story.id}>
-    <div className="queue-item-heading"><div><h3>{story.title}</h3><p>{story.book}</p></div><span className={'story-state state-'+(needsAttention(story)?'failed':story.running?'running':story.state)}>{needsAttention(story)?'已暂停':story.running?'生成中':story.queued?'等待生成':states[story.state]||'待继续'}</span></div>
+    <div className="queue-item-heading"><div><h3>{story.title}</h3><p>{story.book}</p></div><span className={'story-state state-'+(needsAttention(story)?'failed':story.running?'running':story.state)}>{needsAttention(story)?'已暂停':story.running?'生成中':story.queued?'等待生成':waitingLabel(story)}</span></div>
     <StoryTags story={story}/>
-    <div className="queue-production-flow"><ProductionTimeline layout="horizontal" stages={productionSteps({...story.production,planReady:story.production?.planReady??story.total>0,total:story.total||null,ready:story.ready,activeState:needsAttention(story)?'failed':story.running||story.queued||story.production?.phase==='frame-count'?'current':'paused'})} moving={!needsAttention(story)&&story.running>0} queued={!story.running&&story.queued>0}/></div>
+    <div className="queue-production-flow"><ProductionTimeline layout="horizontal" stages={productionSteps({...story.production,planReady:story.production?.planReady??story.total>0,total:story.total||null,ready:story.ready,activeState:needsAttention(story)?'failed':story.running||story.queued||['frame-count','story-choice','production-confirmation'].includes(story.production?.phase||'')?'current':'paused'})} moving={!needsAttention(story)&&story.running>0} queued={!story.running&&story.queued>0}/></div>
     <div className="queue-detail"><span>{story.succeeded} / {story.jobs} 项任务完成</span><span>{story.ready} / {story.total} 幅画面</span></div><div className="queue-task-counts"><span>等待 {story.queued}</span><span>生成 {story.running}</span>{story.failed>0&&<span className="error">暂停 {story.failed}</span>}</div>
    </article>;
  }

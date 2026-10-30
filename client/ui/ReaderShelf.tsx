@@ -15,7 +15,7 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
  const sessionById=new Map(sessions.map(session=>[session.id,session]));
  const processingStatus=(story:Story)=>{const session=sessionById.get(story.id);return session?shelfGenerationStatus(session).group:story.pages.every(page=>!!page.image)?'已完成':'生成已暂停';};
  const items:ShelfItem[]=[
-  ...pending.map(session=>({processingStatus:shelfGenerationStatus(session).group,id:session.id,title:session.story?.title||session.selection.storyTitle||'还在展开的故事',book:bookName({id:session.id,bookId:session.selection.bookId}),theme:session.selection.theme,artStyleLabel:getArtStyle(session.selection.artStyle).label,story:null,session,page:session.page,saved:!!(progressById.get(session.id)?.saved??session.saved)})),
+  ...pending.map(session=>({processingStatus:shelfGenerationStatus(session).group,id:session.id,title:session.story?.title||session.selection.storyTitle||(session.intake?'等待选题的故事':'还在展开的故事'),book:bookName({id:session.id,bookId:session.selection.bookId}),theme:session.selection.theme,artStyleLabel:getArtStyle(session.selection.artStyle).label,story:null,session,page:session.page,saved:!!(progressById.get(session.id)?.saved??session.saved)})),
   ...stories.map(story=>({processingStatus:processingStatus(story),id:story.id,title:story.title,book:bookName(story),theme:story.theme,artStyleLabel:(story as GeneratedStory).generated?((story as GeneratedStory).artStyleLabel||'未记录画风'):'未记录画风',story,page:progressById.get(story.id)?.page||0,saved:!!progressById.get(story.id)?.saved})),
  ];
  const visible=items.filter(item=>(tab!=='saved'||item.saved)&&matchesShelfSearch(item,query));

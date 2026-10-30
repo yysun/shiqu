@@ -49,3 +49,7 @@ AR review round: 4; reviewer: reused.
 - IAB 隔离实例 3010/3011、真实 SQLite/FileMedia 与受控 provider：通过流程进入幅数/画风/分镜/要求草稿，冲突选择、纯配文 8 图复用/0 重绘预览，实际提交 child 第2版；计数 images=8、plans=1、reviews=2，原版配文保持；三个 Sheet 关闭后 body/root 样式全部还原。375px 无横向溢出。证据 .data/evidence/story-revisions/。
 - 当前常规 3000 书库未返回历史《大葫芦》9970...；仅做 GET 打开尝试，没有编辑或创建该故事版本。完整提交验证在隔离实例，真实故事未触发生成。
 - 新增书架版本标签以区分同名新旧版；复用实际新版图片，不改变原任务队列代码。
+
+SS milestone: 1123072。独立 CR round1 指出新版打开失败回退时可能清空原收藏/进度；已捕获并恢复完整阅读状态，IAB 故障实例强制新版本 GET503 后，原版仍第2幅且取消收藏按钮可见，REST page=1/saved=true；截图 failed-version-preserves-progress.png。该 Reader 修复待第三阶段最终 CR。
+TT: 467 项 466 通过，唯一失败为 fast-first-story.test.mjs:36 的既有 legacy cache hash golden（ed2dea vs39814a）；完整 lint 唯一为 .claude/worktrees/sweet-lederberg-4788bd/lib/reader-pdf.ts 的既有 no-control-regex；本任务修改文件 lint 与 typecheck 通过。
+用户 !! 调整为先新建队列流程、再显示UI、最后故事修改；此故事尚未最终VR/DD，后续统一回归。

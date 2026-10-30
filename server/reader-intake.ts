@@ -24,12 +24,13 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  if(intake.generation!==action.generation)throw new ReaderError(409,'制作内容已由另一次操作更新，请重新打开后继续。');
  if(row.state==='running')throw new ReaderError(409,'当前任务正在保存，请稍后再修改选择。');
  if(doc.plan||intake.phase==='confirmed')throw new ReaderError(409,'制作已确认；需要调整时请创建修订版本。');
+ if((action.action==='choose'||action.action==='more')&&action.settings){Object.assign(selection,action.settings);intake.manualArt=true;}
  if(action.action==='more'){
   if(intake.batches.length>=maxSuggestionBatches)throw new ReaderError(400,'已保存40批候选，请回看选择，或新建其他书籍与主题。');
   intake.phase='discovering';delete intake.progress;
  }else if(action.action==='choose'){
   const candidate=intake.batches[action.batch]?.stories[action.index];if(!candidate)throw new ReaderError(400,'请选择已保存的候选故事。');
-  if(intake.selected?.batch===action.batch&&intake.selected.index===action.index&&['preparing','confirming'].includes(intake.phase))return row;
+  if(!action.settings&&intake.selected?.batch===action.batch&&intake.selected.index===action.index&&['preparing','confirming'].includes(intake.phase))return row;
   selection.storyTitle=candidate.title;selection.source=candidate.source;
   if(!intake.manualArt&&candidate.artRecommendation)selection.artStyle=candidate.artRecommendation.artStyle;
   intake.selected={batch:action.batch,index:action.index};intake.phase='preparing';

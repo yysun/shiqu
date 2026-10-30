@@ -4,3 +4,4 @@ export const readerStoryboardBatchSize=20;
 export const readerMinFrames=1;
 export const readerMaxFrames=80;
 export const readerStoryboardTimeoutMs=5*60*1000;
+export const readerMaxAutomaticRepairs=3;

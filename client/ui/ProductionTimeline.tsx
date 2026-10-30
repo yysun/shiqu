@@ -1,5 +1,6 @@
 // Show saved production states, with optional navigation to existing reader content.
 import {Fragment} from 'react';
+import {readerMaxAutomaticRepairs} from '../../lib/reader-limits';
 import {Check,Loader2,Minus,Pause,X} from 'lucide-react';
 import type {ProductionStage} from '../../lib/production-stages';
 import './production-timeline.css';
@@ -14,5 +15,5 @@ export default function ProductionTimeline({stages,moving=false,queued=false,lay
  return <li key={step.id} data-stage={step.id} data-state={step.state} aria-current={['current','failed','paused'].includes(step.state)?'step':undefined} title={layout==='horizontal'?`${step.label} · ${stateLabel(step)}\n${step.detail}`:undefined}>
   {actions[step.id]&&!links[step.id]?.length?<button type="button" className="production-stage-action" aria-label={actions[step.id].label} onClick={actions[step.id].onClick}>{content}</button>:content}
  </li>;
- })}</ol>{layout==='horizontal'&&focused&&<p className="production-stage-current" data-state={focused.state} role="status"><strong>{focused.label} · {stateLabel(focused)}</strong><span>{focused.detail}</span></p>}</>;
+ })}</ol>{layout==='vertical'&&stages.some(step=>step.id==='review'&&step.state!=='unavailable')&&<p className="production-review-loop" aria-label="审核修复循环">审核 → 修复 → 全篇复核，未通过继续修复；最多自动 {readerMaxAutomaticRepairs} 轮，无变化或到上限则待处理。</p>}{layout==='horizontal'&&focused&&<p className="production-stage-current" data-state={focused.state} role="status"><strong>{focused.label} · {stateLabel(focused)}</strong><span>{focused.detail}</span></p>}</>;
 }

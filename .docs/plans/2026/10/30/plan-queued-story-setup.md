@@ -20,7 +20,7 @@ Git base: 1123072（原修订里程碑）；进入SS时已有的Reader失败恢�
 - [x] 首个 probe：受控provider完整suggestions返回持久化候选、离开重启仍待选择且image/plan调用为0；失败停止依赖实现并回AR。
 - [x] 实现 intake 类型、视图和repo原子动作/CAS，API创建flag和setup动作，封堵旧frame-count/advance绕过确认。
 - [x] coordinator增加discover handler、完整进度与候选检查点，原文/幅数准备及scriptVersion世代隔离；不占用等待用户的文本池。
-- [ ] 新建UI先选书籍主题再创建队列任务，替换页面临时选题流程；制作确认页复用样式/幅数/要求/原文内容；状态卡和书架正确展示与恢复，关闭不取消后台任务。
+- [x] 新建UI先选书籍主题再创建队列任务，替换页面临时选题流程；制作确认页复用样式/幅数/要求/原文内容；状态卡和书架正确展示与恢复，关闭不取消后台任务。
 - [ ] 队列/REST测试覆盖失败重试、崩溃保存、重启、同动作重放、并发选择、推荐更新、旧客户端绕过、空候选/40批边界、明确确认才绘图，保留旧队列与修订测试。
 - [ ] IAB隔离服务验证书籍主题先入书架、离开/刷新后继续、候选选择及统一确认；适用完整TT、类型/lint、独立CR/VR和DD，不打包。
 
@@ -39,3 +39,19 @@ AR risk: non-low — durable paid discovery, generation transitions and confirma
 AR review round: 2; reviewer: reused.
 
 阶段1 SS证据：reader-intake+reader-production 29/29；新建/重启待选/完整确认门槛、CAS选择、幂等、旧queued/failed世代隔离、失败准备替换、来源预览、40批/空结果均通过。新旧队列与修订联合71项曾有managed外部owner契约回归，已恢复原false行为，并以29项覆盖复测通过；其余70项当轮通过。后端typecheck和所改文件eslint通过。
+
+## 审核闭环补充（用户新增要求）
+
+在第一阶段后端流程继续补齐审片闭环，然后显示循环进度。将原一次自动修复扩为 readerMaxAutomaticRepairs=3：审核 → 定向修复（每批≤20幅）→全篇复核，未通过且repair轮数未达到3则继续；修复整个返回批次的caption/prompt均无实际变化时立即阻止绘图并待处理。达到3轮仍有问题同样阻止；手动继续复用保存issues，重置当前自动段计数但不清除历史报告。每次新审核有独立round/jobkey，不复用先前审核收据；文本池等待/暂停/停止与复用图失效继续沿用当前约束。
+
+UI 显示审核/修订轮数和循环说明；不能把每次复核当最终通过。测试：第2/3轮才解决、持续问题3轮后停、无变化立即停、多批修订后才能复核、手动继续/暂停重启、caption-only保持原图。旧单轮预期随需求更新，不放宽其他断言。该补充AR待审，源码未改。
+
+闭环AR round3补正：ReviewCheckpoint增加 stopReason=limit|unchanged 和只增不减的repairHistory（每批请求幅号与实际改动）。无变化停止时不把本批标为已修复，保留此前批次review.repaired；手动继续对unchanged保留已完成批次，只处理剩余幅号；对limit使用最新审核问题并清空本轮进度。每次手动继续仍推进job-key round防收据重用，但实际审核次数取reports.length，修复批次数取history.length，当前自动段完整修复轮数单独显示，不能拿job-key当真实轮次。修订history/付费usage在抛出blocked前入库。新增40问题：先20改动、后20无变化、继续只修后20再复核的精确回归。待AR round4。
+
+闭环 AR passed: no blocking architecture flaws.
+AR risk: non-low — paid repair loops, partial checkpoints and manual continuation.
+AR review round: 4; reviewer: reused.
+
+阶段2/3 SS证据：定向新建流程/审片闭环/修订/桌面共享SQL 55/55；类型和全部本次修改源码 lint 通过。阶段1 commit=e762a93。IAB3012：选《庄子》/聪明与糊涂/自定义要求，提取挂起时返回书架、刷新仍同session；选择后仅1次提取，0分镜/0绘图，原文已可查看；完整确认4幅后进入分镜并读到4幅剪纸故事。新增原文/候选历史、手改设置随新候选原子保存。桌面共享SQL补充当前generation过滤和新阶段/闭环实际计数，不暴露prompt或历史正文。
+
+既有修订 Reader失败回退修复保留完整收藏/阅读状态，IAB已有故障证据。剩余：最终新流程故事修订UI衔接、独立CR、完整TT/ET/VR/DD；不运行构建或推送。

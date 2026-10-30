@@ -72,3 +72,26 @@ test('empty batches stay selectable, cap at forty, and pause never dispatches di
  assert.equal(f.control.calls.length,0);assert.equal(f.control.plans.length,0);
  const other=await create(f);await f.json(`sessions/${other}/production-control`,'POST',{action:'pause'});await f.app.services.production.tick();assert.equal((await f.read(other)).generationControl,'paused');
 });
+
+test('display states distinguish queued extraction, waiting choice and full setup without false completion',async t=>{
+ const {generationProgress}=await import('../lib/generation-progress.ts'),{shelfGenerationStatus}=await import('../lib/shelf-generation.ts');
+ const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');let s=await f.read(id);
+ assert.equal(shelfGenerationStatus(s).group,'待选故事');let steps=generationProgress(s,Date.now()).steps;assert.equal(steps[0].label,'提取故事');assert.equal(steps[0].state,'done');assert.equal(steps[1].label,'制作确认');assert.equal(steps[1].state,'current');
+ await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');s=await f.read(id);assert.equal(shelfGenerationStatus(s).group,'待制作确认');assert.equal(s.state,'idle');assert.equal(s.retryAllowed,false);assert.equal(s.generationProgress.phase,'production-confirmation');
+});
+
+test('choosing a new candidate can carry unsaved manual preferences in the same atomic choice',async t=>{
+ const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
+ await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');
+ const source=(await f.json(`sessions/${id}/source`)).source,generator=f.generation.generator.bind(f.generation);f.generation.generator=()=>({...generator(),prepareOriginal:async()=>source});
+ await setup(f,id,{action:'choose',batch:0,index:1,settings:{artStyle:'watercolor',productionPrompt:'Do not discard my edits.',narrativeDetail:'detailed'}});await until(async()=>(await f.read(id)).intake.phase==='confirming');const s=await f.read(id);assert.equal(s.selection.productionPrompt,'Do not discard my edits.');assert.equal(s.selection.artStyle,'watercolor');assert.equal(s.selection.narrativeDetail,'detailed');
+});
+
+test('native/preview shared summary follows intake gates and ignores obsolete job failures without exposing content',async t=>{
+ const {readLibrarySummary}=await import('../desktop/library-preview.ts'),{productionSteps}=await import('../lib/production-stages.ts');
+ const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
+ await f.app.services.production.queue.enqueue({id:crypto.randomUUID(),sessionId:id,ownerId:'docker-local-owner',kind:'discover',pool:'text',version:'old',dependencies:[],payload:{setupGeneration:-1},priority:-100});
+ await f.app.services.database.prepare("UPDATE production_jobs SET state='failed',error='private old failure' WHERE version='old'").run();
+ let summary=readLibrarySummary(f.dataDirectory).stories.find(s=>s.id===id);assert.equal(summary.failed,0);assert.equal(summary.production.phase,'story-choice');assert.equal(summary.production.intakePhase,'choosing');assert.equal(productionSteps({...summary.production,total:null,ready:0})[1].label,'制作确认');
+ await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');summary=readLibrarySummary(f.dataDirectory).stories.find(s=>s.id===id);assert.equal(summary.production.phase,'production-confirmation');assert.equal(summary.failed,0);assert.doesNotMatch(JSON.stringify(summary),/quiet narration|private old failure|梦为胡蝶/);
+});

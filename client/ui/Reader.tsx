@@ -11,25 +11,19 @@ import {readerBooks,type ReaderBook} from '@/lib/reader-books';
 import {useStoryGeneration} from './useStoryGeneration';
 const isGenerated=(s:Story|null):s is GeneratedStory=>!!s&&'generated'in s&&s.generated===true;
 import {getArtStyle} from '@/lib/reader-styles';
-import StoryArtStylePicker from './StoryArtStylePicker';
 import StoryRevisionEditor,{StoryRevisionActions} from './StoryRevisionEditor';
 import {useStoryRevision} from './useStoryRevision';
-import {selectSuggestedStory,isSelectedStory} from '@/lib/reader-art-recommendation';
-import {StoryArtRecommendation} from './StoryArtRecommendation';
 import {defaultProductionPrompt,promptAfterThemeChange} from '@/lib/reader-prompts';
 import {recentHeroes,mergeReadingProgress,reconcileReadingProgress} from '@/lib/reader-home';
 import RecentStories from './RecentStories';
 import ReaderShelf from './ReaderShelf';
 import type {ShelfGrouping} from '@/lib/shelf-browser';
 import DeletedStories,{type DeletedStory} from './DeletedStories';
-import {useStorySuggestions} from './useStorySuggestions';
-import {StoryReadingState} from './StoryReadingState';
-import {useStoryArtRecommendation} from './useStoryArtRecommendation';
 import StorySource from './StorySource';
-import {localSourceKey} from '@/lib/reader-source-key';
 import StoryScript from './StoryScript';
-import StoryFrameCount,{StoryNarrativeDetail} from './StoryFrameCount';
-import {narrativeDetailSchema,narrativeDetails} from '@/lib/reader-frame-recommendation';
+import StoryCreationSetup from './StoryCreationSetup';
+import StoryFrameCount from './StoryFrameCount';
+import {narrativeDetailSchema} from '@/lib/reader-frame-recommendation';
 import StoryRetry from './StoryRetry';
 import StoryGenerationControl from './StoryGenerationControl';
 import StoryGenerationStatus from './StoryGenerationStatus';
@@ -92,18 +86,11 @@ export default function Reader(){
  const favoriteLock=useRef(false);
  const deleted=useRef(new Set<string>());
  const [customTheme,setCustomTheme]=useState('');
- const suggestions=useStorySuggestions(selection,selection.theme==='其他'?customTheme:selection.theme);
- const {candidates,finding,note:candidateNote}=suggestions;
- const selectedCandidate=suggestions.batches.flatMap(batch=>batch.stories).find(candidate=>isSelectedStory(selection,candidate));
- const hasSelectedStory=useRef(false);hasSelectedStory.current=!!selectedCandidate;
- const storyArt=useStoryArtRecommendation(configure&&!creating?selectedCandidate:undefined,{...selection,theme:selection.theme==='其他'?customTheme:selection.theme});
  const [exporting,setExporting]=useState<ExportFormat|null>(null),[exportProgress,setExportProgress]=useState(''),[pdfDownload,setPdfDownload]=useState<{url:string;filename:string;storyId:string}|null>(null),[pngDownload,setPngDownload]=useState<{url:string;filename:string;storyId:string}|null>(null),[zipDownload,setZipDownload]=useState<{url:string;filename:string;storyId:string}|null>(null);
  useEffect(()=>()=>{if(pdfDownload)URL.revokeObjectURL(pdfDownload.url);},[pdfDownload]);
  useEffect(()=>()=>{if(pngDownload)URL.revokeObjectURL(pngDownload.url);},[pngDownload]);
  useEffect(()=>()=>{if(zipDownload)URL.revokeObjectURL(zipDownload.url);},[zipDownload]);
- const exportLock=useRef(false),styleRef=useRef<HTMLElement>(null),candidateRef=useRef<HTMLDivElement>(null),readingRef=useRef<HTMLDivElement>(null);
- const [scrollRequest,setScrollRequest]=useState<{target:'styles'|'candidates'|'reading';stamp:number}|null>(null);
- useEffect(()=>{if(!configure||!scrollRequest)return;const target=scrollRequest.target==='styles'?styleRef.current:scrollRequest.target==='reading'?readingRef.current:candidateRef.current;if(!target)return;target.focus({preventScroll:true});const sheet=target.closest('.yu-sheet');if(sheet)sheet.scrollTo({top:sheet.scrollTop+target.getBoundingClientRect().top-sheet.getBoundingClientRect().top-20,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});},[scrollRequest,configure]);
+ const exportLock=useRef(false);
  const [drag,setDrag]=useState(0),[lastReadId,setLastReadId]=useState('');
  const [metadataVisible,setMetadataVisible]=useState(true);
  useEffect(()=>{setMetadataVisible(true);},[story?.id]);
@@ -121,8 +108,8 @@ export default function Reader(){
  const gen=useStoryGeneration(page,{onStory:(s,p,b)=>{if(deleted.current.has(s.id))return;setStory(s);setStories(old=>[s,...old.filter(x=>x.id!==s.id)]);if(p!==undefined){setPage(p);setSaved(!!b);}},onProgress:acceptServerProgress},tab==='shelf'&&!story&&!configure&&!favoriteBusy&&!deleting&&!restoring&&!shelfRefreshing);
  const revision=useStoryRevision(story&&isGenerated(story)?story.id:undefined,async next=>{await switchVersion(next.id);});
  async function switchVersion(id:string){
-  const previous=story;setSettings(false);setSource(false);setRequirements(false);setScript(false);revision.setTab(null);setStory(null);setPage(0);setEnded(false);gen.leave();
-  try{await gen.resume(id,0);}catch{setStory(previous);void gen.refreshLibrary().catch(()=>{});notify('这个版本暂时无法打开，已保存的新版可从书架继续。');}
+  const previous={story,page,saved,ended,drag,motion,seen:seen.current,session:session.current};setSettings(false);setSource(false);setRequirements(false);setScript(false);revision.setTab(null);setStory(null);setPage(0);setEnded(false);setSaved(false);setDrag(0);setMotion('forward');seen.current=new Set();session.current=randomId();gen.leave();
+  try{await gen.resume(id,0);}catch{setPage(previous.page);setSaved(previous.saved);setEnded(previous.ended);setDrag(previous.drag);setMotion(previous.motion);seen.current=previous.seen;session.current=previous.session;setStory(previous.story);void gen.refreshLibrary().catch(()=>{});notify('这个版本暂时无法打开，已保存的新版可从书架继续。');}
  }
  const visitor=useRef(''),session=useRef(''),seen=useRef(new Set<number>()),noticeTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const notify=(text:string)=>{setToast(text);if(noticeTimer.current)clearTimeout(noticeTimer.current);noticeTimer.current=setTimeout(()=>setToast(''),4000);};
@@ -183,8 +170,7 @@ export default function Reader(){
   finally{favoriteLock.current=false;setFavoriteBusy('');}
  }
 
- async function findStories(){setUnavailable('');setScrollRequest({target:'reading',stamp:Date.now()});if(await suggestions.find()&&!hasSelectedStory.current)setScrollRequest({target:'candidates',stamp:Date.now()});}
- function visitBatch(index:number){suggestions.goTo(index);setSelection(s=>({...s,storyTitle:undefined,source:undefined}));setUnavailable('');setScrollRequest({target:'candidates',stamp:Date.now()});}
+
  async function exportStory(format:ExportFormat){
   if(!story||exportLock.current)return;
   exportLock.current=true;setExporting(format);setExportProgress('正在准备'+format.toUpperCase());
@@ -205,7 +191,14 @@ export default function Reader(){
   }catch(e){notify(e instanceof Error?e.message:'导出失败，请保持联网后重试。');}
   finally{exportLock.current=false;setExporting(null);setExportProgress('');}
  }
- async function generate(){if(creating||!selectedCandidate)return;suggestions.cancel();setCreating(true);setUnavailable('');try{gen.leave();session.current=randomId();seen.current=new Set();setPage(0);setSaved(false);setStory(null);setEnded(false);await gen.start({...selection,length:'auto',narrativeDetail:selection.narrativeDetail||'balanced',source:selectedCandidate.source,voice:false,theme:selection.theme==='其他'?customTheme:selection.theme});setConfigure(false);}catch(e){setUnavailable(e instanceof Error?e.message:'暂时无法开启故事');}finally{setCreating(false);}}
+ async function generate(){
+  if(creating)return;const theme=selection.theme==='其他'?customTheme:selection.theme;
+  if(!theme.trim()||(selection.bookId==='other'&&!selection.customBook?.trim())){setUnavailable('请填写书名和主题。');return;}
+  setCreating(true);setUnavailable('');
+  try{gen.leave();session.current=randomId();seen.current=new Set();setPage(0);setSaved(false);setStory(null);setEnded(false);await gen.start({...selection,storyTitle:undefined,source:undefined,length:'auto',narrativeDetail:selection.narrativeDetail||'balanced',voice:false,theme},true);setConfigure(false);}
+  catch(e){setUnavailable(e instanceof Error?e.message:'任务暂未保存，请重试。');}finally{setCreating(false);}
+ }
+
  async function deleteStory(){
   if(!deleteTarget||deleting)return;const target=deleteTarget;setDeleting(true);setDeleteError('');
   try{
@@ -299,25 +292,9 @@ export default function Reader(){
  </main>
  <nav className="yu-tabbar" aria-label="主导航">{[{id:'discover',title:'发现',Icon:Compass},{id:'shelf',title:'书架',Icon:BookOpen},{id:'me',title:'我的',Icon:UserRound}].map(({id,title,Icon})=><button key={id} className={tab===id?'active':''} aria-current={tab===id?'page':undefined} onClick={()=>{setTab(id);window.scrollTo({top:0,behavior:'instant'});}}><Icon size={22} strokeWidth={tab===id?2:1.6}/><span>{title}</span>{tab===id&&<i/>}</button>)}</nav>
  </>}
- {configure&&<Sheet title="这一篇，想怎样读？" onClose={()=>{suggestions.cancel();setConfigure(false);}}><p className="yu-sheet-intro">选一本书，一种心情。找到喜欢的故事，再为它搭配画风。</p><div className="yu-choice-label">从哪本书出发</div><div className="yu-options">{choices.map(b=><button aria-pressed={selection.bookId===b.id} className={selection.bookId===b.id?'selected':''} key={b.id} onClick={()=>{setSelection(s=>({...s,bookId:b.id,storyTitle:undefined,source:undefined}));}}>{b.title}</button>)}</div>{selection.bookId==='other'&&<label className="yu-custom-input">书名或公开网页 URL<input maxLength={500} value={selection.customBook||''} placeholder="例如：三言二拍，或 https://…" onChange={e=>{setSelection(s=>({...s,customBook:e.target.value,storyTitle:undefined,source:undefined}));}}/></label>}<div className="yu-choice-label">想看什么</div><div className="yu-options">{moods.map(m=><button aria-pressed={selection.theme===m} key={m} className={selection.theme===m?'selected':''} onClick={()=>{setSelection(s=>({...s,theme:m,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme==='其他'?customTheme:s.theme,m==='其他'?customTheme:m),storyTitle:undefined,source:undefined}));}}>{m}</button>)}</div>{selection.theme==='其他'&&<label className="yu-custom-input">写下想看的主题<input maxLength={100} placeholder="例如：善良的人如何守住底线" value={customTheme} onChange={e=>{const value=e.target.value;setSelection(s=>({...s,productionPrompt:promptAfterThemeChange(s.productionPrompt,customTheme,value),storyTitle:undefined,source:undefined}));setCustomTheme(value);}}/></label>}{suggestions.batches.length===0&&!finding&&<button className="yu-primary yu-find-stories" disabled={!suggestions.ready} onClick={findStories}>看看有哪些故事<ArrowRight size={19}/></button>}
- {finding&&<div className="yu-reading-focus" tabIndex={-1} ref={readingRef}><StoryReadingState book={selection.bookId==='other'?(selection.customBook||'自选书籍'):selectedBook.title} theme={selection.theme==='其他'?customTheme:selection.theme} progress={suggestions.progress} elapsed={suggestions.elapsed} onCancel={suggestions.cancel} hasStories={candidates.length>0}/></div>}
- {suggestions.batches.length>0&&<div className="yu-candidates" ref={candidateRef} tabIndex={-1}>
- <div className="yu-batch-heading"><div><h3>{candidates.length?'挑一篇，读下去':'再找找，或换一种心情'}</h3><p className="yu-candidate-count">第 {suggestions.index+1} 批 · {candidates.length?`${candidates.length} 篇故事可选`:'暂未找到合适的故事'}</p></div>{!finding&&<button type="button" className="yu-refresh-batch" disabled={creating} onClick={findStories}><RefreshCw size={14}/>再找一批</button>}</div>
- {finding&&candidates.length>0&&<p className="yu-candidate-hint">不用等找完，喜欢哪篇就选哪篇。</p>}
- <div className="yu-candidate-list">{candidates.map((c,index)=>{
-  const selected=isSelectedStory(selection,c);
-  return <button type="button" key={c.source?localSourceKey(c.source):c.title} aria-pressed={selected} className={selected?'selected':''} disabled={creating} onClick={()=>{setSelection(s=>selectSuggestedStory(s,c));setScrollRequest({target:'styles',stamp:Date.now()});}}>
-   <span className="yu-candidate-eyebrow"><span>{String(index+1).padStart(2,'0')}</span>{c.sourceLabel&&<span><Check size={12} aria-hidden="true"/>出处已核对</span>}</span>
-   <strong>{c.title}</strong><span className="yu-candidate-description">{c.description}</span>
-   {c.sourceLabel&&<small className="yu-candidate-source">{c.sourceLabel}</small>}
-   <span className="yu-candidate-action">{selected?<><Check size={15} aria-hidden="true"/>已选这篇 · 搭配画风</>:<>选这篇，搭配画风<ArrowRight size={16} aria-hidden="true"/></>}</span>
-  </button>;
- })}</div>
- {candidateNote&&<p className="yu-candidate-note" role="status">{candidateNote}</p>}
- {suggestions.batches.length>1&&<nav className="yu-batch-nav" aria-label="故事推荐批次"><button disabled={suggestions.index===0||creating} onClick={()=>visitBatch(suggestions.index-1)}><ChevronLeft size={16}/>前一批</button><label><span className="sr-only">查看故事批次</span><select aria-label="查看故事批次" value={suggestions.index} disabled={creating} onChange={e=>visitBatch(Number(e.target.value))}>{suggestions.batches.map((_,i)=><option key={i} value={i}>第 {i+1} / {suggestions.batches.length} 批</option>)}</select></label><button disabled={suggestions.index===suggestions.batches.length-1||creating} onClick={()=>visitBatch(suggestions.index+1)}>后一批<ChevronRight size={16}/></button></nav>}</div>}
- {suggestions.error&&<p className="yu-batch-error" role="status">{suggestions.error}</p>}
- {!!selectedCandidate&&<section className="yu-story-preferences" aria-label="阅读方式" ref={styleRef} tabIndex={-1}><StoryNarrativeDetail value={selection.narrativeDetail||'balanced'} disabled={creating} onChange={narrativeDetail=>setSelection(s=>({...s,narrativeDetail,length:'auto'}))}/><h3>为这篇故事搭配画风</h3>{storyArt.busy&&<p className="yu-art-pending" role="status"><Loader2 size={14} className="spin"/>正在为这篇故事推荐画风，也可以直接手动选择。</p>}{storyArt.error&&<p className="yu-art-pending" role="status">画风推荐暂不可用，可以手动选择。<button type="button" onClick={storyArt.retry}>重试推荐</button></p>}{storyArt.recommendation&&<StoryArtRecommendation recommendation={storyArt.recommendation} selected={selection.artStyle} disabled={creating} onApply={()=>setSelection(s=>({...s,artStyle:storyArt.recommendation!.artStyle}))}/>}<StoryArtStylePicker value={selection.artStyle} disabled={creating} onChange={artStyle=>setSelection(s=>({...s,artStyle}))}/><div className="yu-production-field"><label htmlFor="production-prompt">制作要求</label><p id="production-prompt-help">根据“想看什么”预填，也可以写下你想要的节奏、反转或画面细节。</p><textarea id="production-prompt" aria-describedby="production-prompt-help" rows={5} maxLength={1200} disabled={creating} value={selection.productionPrompt} onChange={e=>setSelection(s=>({...s,productionPrompt:e.target.value}))}/><div className="yu-prompt-actions"><button type="button" disabled={creating} onClick={()=>setSelection(s=>({...s,productionPrompt:defaultProductionPrompt(s.theme==='其他'?customTheme:s.theme)}))}>恢复主题建议</button><span>{selection.productionPrompt.length} / 1200</span></div></div><button className="yu-primary" disabled={creating} onClick={generate}>{creating?<Loader2 size={18} className="spin"/>:<Sparkles size={18}/>} {creating?'正在开启':'推荐画幅数'}<ArrowRight size={19}/></button></section>}<p className="yu-choice-footnote">《{selection.bookId==='other'?(selection.customBook||'自选书籍'):selectedBook.title}》 · {selection.theme==='其他'?(customTheme||'自选主题'):selection.theme}{selectedCandidate?` · ${getArtStyle(selection.artStyle).label} · ${narrativeDetails.find(d=>d.id===(selection.narrativeDetail||'balanced'))?.label}`:''}</p>{unavailable&&<div className="yu-unavailable" role="status"><strong>这次还没能开启故事</strong><p>{unavailable}</p></div>}</Sheet>}
- {gen.active&&!story&&!configure&&<Sheet title={gen.active.story?.title||gen.active.selection.storyTitle||'你的故事，正在展开'} onClose={()=>gen.leave()}>{gen.active.awaitingFrameCount&&gen.active.frameRecommendation?<><StoryFrameCount key={gen.active.id} recommendation={gen.active.frameRecommendation} disabled={gen.busy} onConfirm={gen.confirmFrameCount}/>{gen.error&&<p className="yu-batch-error" role="alert">{gen.error}</p>}<button className="yu-generation-later" onClick={()=>{gen.leave();setTab('shelf');}}>稍后从书架继续</button></>:<StoryGenerationStatus session={gen.active} busy={gen.busy} controlBusy={!!gen.controlBusy} onControl={gen.control} error={gen.error} onRetry={gen.retryStep} onBack={()=>{gen.leave();setTab('shelf');}}/>}{gen.active.revision&&<button type="button" className="yu-revision-open" onClick={()=>void switchVersion(gen.active!.revision!.rootId)}>阅读原版</button>}</Sheet>}
+ {configure&&<Sheet title="这一篇，想怎样读？" busy={creating} onClose={()=>setConfigure(false)}><p className="yu-sheet-intro">选一本书，一种心情。先保存到队列并寻找候选，再确认故事、画风、幅数和制作要求。</p><div className="yu-choice-label">从哪本书出发</div><div className="yu-options">{choices.map(b=><button aria-pressed={selection.bookId===b.id} className={selection.bookId===b.id?'selected':''} key={b.id} onClick={()=>{setSelection(s=>({...s,bookId:b.id,storyTitle:undefined,source:undefined}));}}>{b.title}</button>)}</div>{selection.bookId==='other'&&<label className="yu-custom-input">书名或公开网页 URL<input maxLength={500} value={selection.customBook||''} placeholder="例如：三言二拍，或 https://…" onChange={e=>{setSelection(s=>({...s,customBook:e.target.value,storyTitle:undefined,source:undefined}));}}/></label>}<div className="yu-choice-label">想看什么</div><div className="yu-options">{moods.map(m=><button aria-pressed={selection.theme===m} key={m} className={selection.theme===m?'selected':''} onClick={()=>{setSelection(s=>({...s,theme:m,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme==='其他'?customTheme:s.theme,m==='其他'?customTheme:m),storyTitle:undefined,source:undefined}));}}>{m}</button>)}</div>{selection.theme==='其他'&&<label className="yu-custom-input">写下想看的主题<input maxLength={100} placeholder="例如：善良的人如何守住底线" value={customTheme} onChange={e=>{const value=e.target.value;setSelection(s=>({...s,productionPrompt:promptAfterThemeChange(s.productionPrompt,customTheme,value),storyTitle:undefined,source:undefined}));setCustomTheme(value);}}/></label>}<label className="yu-revision-field">已有制作要求（可选）<textarea rows={4} maxLength={1200} value={selection.productionPrompt} onChange={e=>setSelection(s=>({...s,productionPrompt:e.target.value}))}/></label><button className="yu-primary" disabled={creating} onClick={()=>void generate()}>{creating?'正在保存任务…':'加入队列并找故事'}<ArrowRight size={19}/></button><p className="yu-choice-footnote">《{selection.bookId==='other'?(selection.customBook||'自选书籍'):selectedBook.title}》 · {selection.theme==='其他'?customTheme:selection.theme}</p>{unavailable&&<div className="yu-unavailable" role="alert"><strong>任务暂未保存</strong><p>{unavailable}</p></div>}</Sheet>}
+
+ {gen.active&&!story&&!configure&&<Sheet title={gen.active.intake&&gen.active.intake.phase!=='confirmed'?'故事与制作确认':gen.active.story?.title||gen.active.selection.storyTitle||'你的故事，正在展开'} busy={gen.setupBusy} onClose={()=>gen.leave()}>{gen.active.intake&&gen.active.intake.phase!=='confirmed'?<><StoryCreationSetup session={gen.active} book={bookName({id:gen.active.id,bookId:gen.active.selection.bookId})} busy={gen.setupBusy} onAction={gen.setup}/><StoryGenerationStatus session={gen.active} busy={gen.busy} controlBusy={!!gen.controlBusy} onControl={gen.control} error={gen.error} onRetry={gen.retryStep} onBack={()=>{gen.leave();setTab('shelf');}}/></>:gen.active.awaitingFrameCount&&gen.active.frameRecommendation?<><StoryFrameCount key={gen.active.id} recommendation={gen.active.frameRecommendation} disabled={gen.busy} onConfirm={gen.confirmFrameCount}/>{gen.error&&<p className="yu-batch-error" role="alert">{gen.error}</p>}<button className="yu-generation-later" onClick={()=>{gen.leave();setTab('shelf');}}>稍后从书架继续</button></>:<StoryGenerationStatus session={gen.active} busy={gen.busy} controlBusy={!!gen.controlBusy} onControl={gen.control} error={gen.error} onRetry={gen.retryStep} onBack={()=>{gen.leave();setTab('shelf');}}/>}{gen.active.revision&&<button type="button" className="yu-revision-open" onClick={()=>void switchVersion(gen.active!.revision!.rootId)}>阅读原版</button>}</Sheet>}
  {source&&story&&<Sheet title="故事从哪里来" onClose={()=>setSource(false)}><StorySource key={story.id} story={story} book={bookName(story)}/></Sheet>}
  {script&&story&&<Sheet title="分镜剧本" onClose={()=>setScript(false)}>{isGenerated(story)&&<button type="button" className="yu-revision-open" onClick={()=>revision.open('script')}>修改分镜</button>}<StoryScript story={story} standalone/></Sheet>}
  {requirements&&story&&<Sheet title="制作要求" onClose={()=>setRequirements(false)}>{isGenerated(story)&&<button type="button" className="yu-revision-open" onClick={()=>revision.open('requirements')}>修改制作要求</button>}<section className="yu-saved-prompt" aria-label="本篇制作要求"><h3>{story.title}</h3><p>{isGenerated(story)?(story.productionPrompt||'这篇故事未保存自定义制作要求。'):'这是体验样篇，没有读者自定义的制作要求。'}</p>{isGenerated(story)&&story.productionPrompt&&<small>生成时使用的要求，已随这篇故事保存。</small>}</section></Sheet>}

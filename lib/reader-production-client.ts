@@ -17,7 +17,7 @@ export async function observeStoryGeneration({sessionId,request,isActive,onSessi
     const session=await request(path);
     if(!isActive())break;
     failures=0;onSession(session);
-    if(session.state==='completed'||session.awaitingFrameCount)return '';
+    if(session.state==='completed'||session.awaitingFrameCount||session.intake&&['choosing','confirming'].includes(session.intake.phase))return '';
     if(focus&&session.generationMode==='background'&&session.generationControl==='active'&&session.state!=='failed'){
      // The reader's page can be left over from another story until this one has a first image.
      const pages=session.story?.pages,page=pages?.[0]?.image?Math.min(focus.page(),pages.length-1):0;
