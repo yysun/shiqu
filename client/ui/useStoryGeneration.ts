@@ -1,5 +1,6 @@
 'use client';
 // Separate status inspection from viewer demand and publish saved artwork as it arrives.
+// An open story reports its page so that page is drawn first; that never starts or retries work.
 import {useEffect,useRef,useState} from 'react';
 import {randomId,request} from './shared';
 import {observeOnlyGeneration,observeStoryGeneration,runQueuedStoryGeneration} from '@/lib/reader-production-client';
@@ -99,7 +100,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
      if(inspecting&&!observeOnlyGeneration(s)){generationMode.current='generate';setWake(v=>v+1);}
     }
    };
-   const operation=inspecting?observeStoryGeneration({sessionId,request,isActive,onSession}):runQueuedStoryGeneration({sessionId,viewerId:randomId(),page:()=>currentPage.current,request,retries:retries.current,initialRetry,isActive,onSession});
+   const operation=inspecting?observeStoryGeneration({sessionId,request,isActive,onSession,focus:{viewerId:randomId(),page:()=>currentPage.current}}):runQueuedStoryGeneration({sessionId,viewerId:randomId(),page:()=>currentPage.current,request,retries:retries.current,initialRetry,isActive,onSession});
    pending.current=operation;
    try{const message=await operation;if(!cancelled&&id.current===sessionId)setError(message);}
    finally{if(pending.current===operation)pending.current=null;if(!cancelled&&id.current===sessionId)setBusy(false);}

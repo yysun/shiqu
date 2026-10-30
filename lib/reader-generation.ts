@@ -38,6 +38,7 @@ export async function runStoryGeneration({sessionId,throughPage,request,retries,
    const retry=s.state==='failed';
    if(retry){
     if(s.retryStage==='review')return s.error||'分镜审片尚未通过，请手动继续修订。';
+    if(s.retryStage==='redraw')return s.error||'这幅图片需要重新绘制，请手动重试。';
     const key=sessionId+':'+s.stage,attempts=retries.get(key)||0;
     if(!s.retryAllowed||attempts>=2)return s.error||'这一步暂时没有完成，请再试一次。';
     retries.set(key,attempts+1);

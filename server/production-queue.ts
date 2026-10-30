@@ -41,6 +41,10 @@ export class ProductionQueue{
   // An explicit retry restores the automatic recovery allowance for the whole story.
   await this.database.prepare("UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE session_id=? AND owner_id=? AND state IN('failed','queued')").bind(this.clock(),sessionId,ownerId).run();
  }
+ // Run a finished job again from scratch. Only an explicit retry may decide to pay for this.
+ async rerun(id:string){
+  await this.database.prepare("UPDATE production_jobs SET state='queued',result=NULL,error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE id=? AND state IN('succeeded','failed')").bind(this.clock(),id).run();
+ }
  async recoverExpired(){
   // Only explicitly opted-in background work can replay an uncertain remote attempt.
   const expired=(await this.database.prepare("SELECT * FROM production_jobs WHERE (state='running' AND lease_until<=?) OR (state='failed' AND interrupted=1)").bind(this.clock()).all<ProductionJob>()).results;
