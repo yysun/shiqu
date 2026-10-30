@@ -227,7 +227,7 @@ test('Gemini plans structured scenes and Nano Banana carries the first picture i
  assert.equal(a.value,'/api/reader/media/test-id/0.png');assert.equal(assets.stored.size,2);
  assert.equal(assets.stored.get('reader/test-id/0.png').options.contentType,'image/png');
  assert.deepEqual(requests[2].body.contents[0].parts[0],{inlineData:{mimeType:'image/png',data:b64(png)}});
- assert.equal(requests[1].body.generationConfig.imageConfig.aspectRatio,'2:3');assert.equal(requests[1].body.generationConfig.imageConfig.imageSize,'1K');
+ assert.equal(requests[1].body.generationConfig.imageConfig.aspectRatio,'9:16');assert.equal(requests[1].body.generationConfig.imageConfig.imageSize,'1K');
  await assert.rejects(g.audio('旁白','test-id',0));assert.equal(requests.length,3);
 });
 test('Gemini failures are redacted, not retried, and never fall back to a different paid provider',async()=>{

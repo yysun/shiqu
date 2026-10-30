@@ -153,7 +153,7 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
     parts.push({inlineData:{mimeType,data:encode(bytes)}});
    }
    parts.push({text:imagePrompt(plan,page,style,productionPrompt,!!reference)});
-   const {candidate,metadata}=await generate(models.image,{contents:[{role:'user',parts}],generationConfig:{responseModalities:['TEXT','IMAGE'],imageConfig:{aspectRatio:'2:3',imageSize:'1K'}}});
+   const {candidate,metadata}=await generate(models.image,{contents:[{role:'user',parts}],generationConfig:{responseModalities:['TEXT','IMAGE'],imageConfig:{aspectRatio:'9:16',imageSize:'1K'}}});
    const output=candidate.content?.parts?.find(p=>!p.thought&&p.inlineData)?.inlineData;
    if(!output||!(output.mimeType in imageTypes)||output.data.length>17*1024*1024)throw new GeminiError('INVALID_MEDIA');
    let bytes:Uint8Array;try{bytes=Uint8Array.from(atob(output.data),c=>c.charCodeAt(0));}catch{throw new GeminiError('INVALID_MEDIA');}

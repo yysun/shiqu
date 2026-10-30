@@ -1,16 +1,16 @@
 // Inspect generated image metadata before storage. This checks displayed dimensions,
 // including EXIF rotation, without decoding pixels or transforming existing artwork.
 export type ImageDimensions={width:number;height:number};
-export const imageTarget={width:1024,height:1536};
-export const geminiImageMinimum={width:832,height:1248};
-export const imageDimensionMessage='图片尺寸不符合要求：需要接近 2:3 的竖幅，Codex 至少 1024 × 1536，Gemini 至少 832 × 1248。未保存这次图片，已保留原有内容。';
-export const imageSizeDirection='Use a 2:3 portrait canvas; target 1024 x 1536 pixels where supported. Retain the provider-native 1K dimensions when exact pixel sizing is unavailable.';
+export const imageTarget={width:1152,height:2048};
+export const geminiImageMinimum={width:768,height:1344};
+export const imageDimensionMessage='图片尺寸不符合要求：需要接近 9:16 的竖幅，Codex 至少 1152 × 2048，Gemini 至少 768 × 1344。未保存这次图片，已保留原有内容。';
+export const imageSizeDirection='Use a 9:16 portrait canvas; target 1152 x 2048 pixels where supported. Retain the provider-native 1K dimensions when exact pixel sizing is unavailable.';
 
 export function imageRequestSize(value?:string){
- const size=value?.trim()||'1024x1536',match=/^([1-9]\d{0,5})x([1-9]\d{0,5})$/.exec(size);
+ const size=value?.trim()||'1152x2048',match=/^([1-9]\d{0,5})x([1-9]\d{0,5})$/.exec(size);
  if(!match)return null;
  const width=Number(match[1]),height=Number(match[2]);
- return width>=imageTarget.width&&height>=imageTarget.height&&width*3===height*2?{size,width,height}:null;
+ return width>=imageTarget.width&&height>=imageTarget.height&&width*16===height*9?{size,width,height}:null;
 }
 
 function metadata(bytes:Uint8Array):ImageDimensions|null{
@@ -98,7 +98,8 @@ function metadata(bytes:Uint8Array):ImageDimensions|null{
 export function imageDimensions(bytes:Uint8Array):ImageDimensions|null{
  try{return metadata(bytes);}catch{return null;}
 }
+// Allow 2% rounding for Gemini-native 9:16 canvases (768 × 1344 or 768 × 1376).
 export function validImageDimensions(bytes:Uint8Array,minimum:ImageDimensions=imageTarget){
  const dimensions=imageDimensions(bytes);
- return !!dimensions&&dimensions.width>=minimum.width&&dimensions.height>=minimum.height&&Math.abs(dimensions.width*3-dimensions.height*2)/(dimensions.height*2)<=0.01;
+ return !!dimensions&&dimensions.width>=minimum.width&&dimensions.height>=minimum.height&&Math.abs(dimensions.width*16-dimensions.height*9)/(dimensions.height*9)<=0.02;
 }

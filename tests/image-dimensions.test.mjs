@@ -8,16 +8,16 @@ import {productionFixture,makePlan,selection,until} from './fixtures/production.
 import {insertStory,makeStory} from './fixtures/story.mjs';
 
 const formats=[['portrait.png','image/png','.png'],['portrait.jpg','image/jpeg','.jpg'],['portrait-progressive.jpg','image/jpeg','.jpg'],['portrait.webp','image/webp','.webp'],['portrait-lossy.webp','image/webp','.webp'],['portrait-alpha.webp','image/webp','.webp']];
-const rejected=['square.png','landscape.png','small.png','rotated.png','rotated.jpg','rotated.webp'];
+const rejected=['square.png','landscape.png','small.png','rotated.png','rotated.jpg','rotated.webp','legacy-2-3.png'];
 test('real PNG, JPEG and all WebP dimension headers work with sliced byte buffers and EXIF rotation',()=>{
  for(const [name] of formats){
   const bytes=imageBytes(name),padded=new Uint8Array(bytes.length+8);padded.set(bytes,4);
-  assert.deepEqual(imageDimensions(padded.subarray(4,-4)),{width:1024,height:1536},name);
+  assert.deepEqual(imageDimensions(padded.subarray(4,-4)),{width:1152,height:2048},name);
   assert.equal(validImageDimensions(bytes),true,name);
   for(const end of [0,8,12,20,bytes.length-1])assert.equal(validImageDimensions(bytes.subarray(0,end)),false,`${name} truncated at ${end}`);
  }
  for(const name of rejected)assert.equal(validImageDimensions(imageBytes(name),geminiImageMinimum),false,name);
- for(const suffix of ['png','jpg','webp'])assert.deepEqual(imageDimensions(imageBytes('rotated.'+suffix)),{width:1536,height:1024});
+ for(const suffix of ['png','jpg','webp'])assert.deepEqual(imageDimensions(imageBytes('rotated.'+suffix)),{width:2048,height:1152});
  for(const name of ['gemini.png','native.png']){
   assert.equal(validImageDimensions(imageBytes(name),geminiImageMinimum),true);
   assert.equal(validImageDimensions(imageBytes(name)),false);
@@ -29,10 +29,10 @@ test('real PNG, JPEG and all WebP dimension headers work with sliced byte buffer
  const zero=new Uint8Array(png);zero.fill(0,16,20);assert.equal(validImageDimensions(zero),false);
 });
 
-test('size overrides require exact 2:3 portrait at the target or higher',()=>{
- assert.deepEqual(imageRequestSize(),{size:'1024x1536',width:1024,height:1536});
- assert.deepEqual(imageRequestSize(' 1280x1920 '),{size:'1280x1920',width:1280,height:1920});
- for(const size of ['auto','1024x1024','1536x1024','768x1152','1024x1365','0x0','1e3x1500','1024x1536 injected','999999999x1499999998'])assert.equal(imageRequestSize(size),null,size);
+test('size overrides require exact 9:16 portrait at the target or higher',()=>{
+ assert.deepEqual(imageRequestSize(),{size:'1152x2048',width:1152,height:2048});
+ assert.deepEqual(imageRequestSize(' 1440x2560 '),{size:'1440x2560',width:1440,height:2560});
+ for(const size of ['auto','1024x1536','1280x1920','1024x1024','1536x1024','768x1152','1024x1365','0x0','1e3x1500','1152x2048 injected','999999999x1499999998'])assert.equal(imageRequestSize(size),null,size);
 });
 
 function controlledProvider(name){
@@ -58,7 +58,7 @@ for(const name of ['codex','gemini']){
   for(const file of rejected){
    f.control.bytes=imageBytes(file);f.control.mime=file.endsWith('.jpg')?'image/jpeg':file.endsWith('.webp')?'image/webp':'image/png';
    await assert.rejects(f.generator.image(plan,0,'test',''),error=>{
-    assert.equal(error.message,'INVALID_IMAGE_DIMENSIONS');assert.match(f.provider.safeError(error),/2:3.*未保存/);return true;
+    assert.equal(error.message,'INVALID_IMAGE_DIMENSIONS');assert.match(f.provider.safeError(error),/9:16.*未保存/);return true;
    });
    assert.deepEqual([...f.stored.entries()],before);
   }
@@ -67,8 +67,8 @@ for(const name of ['codex','gemini']){
   f.control.bytes=imageBytes('gemini.png');
   if(name==='gemini')await f.generator.image(plan,0,'native','');else await assert.rejects(f.generator.image(plan,0,'native',''),/INVALID_IMAGE_DIMENSIONS/);
   const request=f.calls[0],prompt=name==='codex'?request.prompt:request.contents[0].parts[0].text;
-  assert.match(prompt,/2:3 portrait canvas/);assert.match(prompt,/1024 x 1536/);
-  if(name==='gemini')assert.deepEqual(request.generationConfig.imageConfig,{aspectRatio:'2:3',imageSize:'1K'});
+  assert.match(prompt,/9:16 portrait canvas/);assert.match(prompt,/1152 x 2048/);
+  if(name==='gemini')assert.deepEqual(request.generationConfig.imageConfig,{aspectRatio:'9:16',imageSize:'1K'});
  });
 
  test(`${name}: queued dimension failure saves no image and waits for explicit retry`,async t=>{
@@ -76,7 +76,7 @@ for(const name of ['codex','gemini']){
   await f.demand(id,viewer);await until(()=>f.control.calls.length===1);
   f.control.calls[0].bytes=Buffer.from(imageBytes('square.png')).toString('base64');f.control.calls[0].resolve();
   await until(async()=>(await f.read(id)).state==='failed');
-  let session=await f.read(id);assert.equal(session.ready,0);assert.match(session.error,/尺寸.*2:3/);assert.ok(session.story.pages.every(page=>!page.image));
+  let session=await f.read(id);assert.equal(session.ready,0);assert.match(session.error,/尺寸.*9:16/);assert.ok(session.story.pages.every(page=>!page.image));
   const jobs=await f.app.services.production.queue.jobs(id,'docker-local-owner'),failed=jobs.find(job=>job.kind==='image'&&job.state==='failed');assert.ok(failed);assert.equal(failed.result,null);
   await f.demand(id,viewer);await f.app.services.production.tick();assert.equal(f.control.calls.length,1);
   f.control.hold=false;await f.demand(id,viewer,0,true);await until(async()=>(await f.read(id)).ready===7);
@@ -98,23 +98,23 @@ async function adminFixture(t,size){
  async function saved(){return (await f.app.handle(new Request('http://localhost/api/admin/stories/'+story.id))).json();}
  return {...f,story,control,calls,writes,generate,saved};
 }
-test('admin default/override requests use 2:3, preserve actual MIME, and validate downloaded as well as inline images',async t=>{
+test('admin default/override requests use 9:16, preserve actual MIME, and validate downloaded as well as inline images',async t=>{
  const f=await adminFixture(t);
  f.control.bytes=jpeg;f.control.mime='image/jpeg';
  let response=await f.generate();assert.equal(response.status,200);let result=await response.json();
  assert.match(result.story.pages[0].image,/\.jpeg$/);assert.equal(f.writes[0][2].contentType,'image/jpeg');
- assert.equal(f.calls[0].body.size,'1024x1536');assert.match(f.calls[0].body.prompt,/portrait 2:3/);assert.doesNotMatch(f.calls[0].body.prompt,/3:4/);
- f.app.services.variables.IMAGE_SIZE='1280x1920';f.control.bytes=imageBytes('large.png');f.control.mime='image/png';f.control.download=true;
- response=await f.generate();assert.equal(response.status,200);assert.equal(f.calls[1].body.size,'1280x1920');assert.equal(f.calls[2].url,'https://images.example/result');
+ assert.equal(f.calls[0].body.size,'1152x2048');assert.match(f.calls[0].body.prompt,/portrait 9:16/);assert.doesNotMatch(f.calls[0].body.prompt,/3:4/);
+ f.app.services.variables.IMAGE_SIZE='1440x2560';f.control.bytes=imageBytes('large.png');f.control.mime='image/png';f.control.download=true;
+ response=await f.generate();assert.equal(response.status,200);assert.equal(f.calls[1].body.size,'1440x2560');assert.equal(f.calls[2].url,'https://images.example/result');
  f.control.bytes=png;const saved=await f.saved(),count=f.writes.length;
- response=await f.generate();assert.equal(response.status,502);assert.match((await response.json()).error,/1280 × 1920/);assert.deepEqual(await f.saved(),saved);assert.equal(f.writes.length,count);
+ response=await f.generate();assert.equal(response.status,502);assert.match((await response.json()).error,/1440 × 2560/);assert.deepEqual(await f.saved(),saved);assert.equal(f.writes.length,count);
 });
 
 test('admin rejects invalid overrides before transport and preserves prior page/revision on invalid dimensions',async t=>{
  const f=await adminFixture(t,'1024x1024');let response=await f.generate();assert.equal(response.status,503);assert.match((await response.json()).error,/IMAGE_SIZE/);assert.equal(f.calls.length,0);assert.equal(f.writes.length,0);
- f.app.services.variables.IMAGE_SIZE='1024x1536';
+ f.app.services.variables.IMAGE_SIZE='1152x2048';
  for(const file of [...rejected,'gemini.png']){
-  f.control.bytes=imageBytes(file);const before=await f.saved();response=await f.generate();assert.equal(response.status,502,file);assert.match((await response.json()).error,/尺寸.*2:3/);assert.deepEqual(await f.saved(),before);assert.equal(f.writes.length,0);
+  f.control.bytes=imageBytes(file);const before=await f.saved();response=await f.generate();assert.equal(response.status,502,file);assert.match((await response.json()).error,/尺寸.*9:16/);assert.deepEqual(await f.saved(),before);assert.equal(f.writes.length,0);
  }
  const jobs=await(await f.app.handle(new Request('http://localhost/api/admin/jobs'))).json();assert.ok(jobs.every(job=>job.status==='failed'));
 });
