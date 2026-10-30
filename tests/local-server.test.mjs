@@ -91,6 +91,7 @@ test('real SQLite locks prevent duplicate paid requests through concurrent REST 
  options.variables={GEMINI_API_KEY:'mock-only'};options.transport=async()=>{calls++;await hold;return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(plan)}]}}]});};
  let app=createApplication(options);const id=crypto.randomUUID();
  await request(app,'/api/reader/sessions','POST',{requestId:id,selection:{bookId:'zhuangzi',storyTitle:'庄周梦蝶',source,theme:'放下执念',length:8,voice:false}});
+ await app.services.database.prepare("UPDATE reader_sessions SET generation_mode='reader' WHERE id=?").bind(id).run();
  const first=request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0});
  while(!calls)await new Promise(resolve=>setImmediate(resolve));
  const duplicate=await request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0});assert.equal(duplicate.status,202);assert.equal(calls,1);

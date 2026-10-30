@@ -1,4 +1,4 @@
-// Verify reader-visible batch behavior through both local providers, file media and real SQLite.
+// Verify persisted legacy reader-mode batches independently of the new whole-story default.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,cp,rm} from 'node:fs/promises';
@@ -52,7 +52,7 @@ async function fixture(t,provider='codex'){
  const generation=createReaderProvider({SHIQU_AI_PROVIDER:provider,...(provider==='gemini'?{GEMINI_API_KEY:'test-only'}:{})},media,transport,runner);
  const options={root,dataDirectory,generation,transport};let app=createApplication(options);
  t.after(async()=>{app.close();await rm(root,{recursive:true,force:true});});
- function request(suffix,method='GET',body){return app.handle(new Request('http://localhost/api/reader/'+suffix,{method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)}));}
+ async function request(suffix,method='GET',body){const response=await app.handle(new Request('http://localhost/api/reader/'+suffix,{method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)}));if(suffix==='sessions'&&method==='POST'&&response.ok)await app.services.database.prepare("UPDATE reader_sessions SET generation_mode='reader' WHERE id=?").bind(body.requestId).run();return response;}
  async function json(suffix,method='GET',body){const response=await request(suffix,method,body);assert.ok(response.ok,`${response.status}: ${suffix}`);return response.json();}
  async function create(length=8){const id=crypto.randomUUID();await json('sessions','POST',{requestId:id,selection:{...selection,length}});return id;}
  const read=id=>json('sessions/'+id);

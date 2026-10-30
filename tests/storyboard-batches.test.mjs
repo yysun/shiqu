@@ -9,7 +9,7 @@ import {generationProgress} from '../lib/generation-progress.ts';
 const owner='docker-local-owner';
 const document=async(f,id)=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM reader_sessions WHERE id=?').bind(id).first()).document);
 for(const provider of ['codex','gemini'])test(`${provider}: outline and 20/20/5 checkpoints precede every image`,async t=>{
- const f=await productionFixture(t,provider),id=await f.create(45),observed=[];
+ const f=await productionFixture(t,provider),id=await f.createLegacyReader(45),observed=[];
  f.control.beforeText=async(kind,payload,schema)=>{
   if(kind==='review')return;
   const doc=await document(f,id);assert.equal(doc.plan,null);assert.equal(f.control.calls.length,0);
@@ -31,7 +31,7 @@ for(const provider of ['codex','gemini'])test(`${provider}: outline and 20/20/5 
 });
 
 for(const provider of ['codex','gemini'])test(`${provider}: 80 frames complete four batches and background drawing reaches frame 80`,async t=>{
- const f=await productionFixture(t,provider),id=await f.create(80);f.control.hold=false;
+ const f=await productionFixture(t,provider),id=await f.createLegacyReader(80);f.control.hold=false;
  await f.json(`sessions/${id}/production-control`,'POST',{action:'background'});
  await until(async()=>(await f.read(id)).state==='completed',15000);
  assert.deepEqual(f.control.batches.map(p=>p.batch),[{first:1,last:20},{first:21,last:40},{first:41,last:60},{first:61,last:80}]);
@@ -43,14 +43,14 @@ for(const provider of ['codex','gemini'])test(`${provider}: 80 frames complete f
 });
 
 for(const length of [1,20,21,40,60])test(`${length} frames use a single short plan or bounded batches`,async t=>{
- const f=await productionFixture(t),id=await f.create(length);await f.demand(id);await until(()=>f.control.calls.length===1);
+ const f=await productionFixture(t),id=await f.createLegacyReader(length);await f.demand(id);await until(()=>f.control.calls.length===1);
  assert.equal((await f.read(id)).story.pages.length,length);
  assert.equal(f.control.outlines.length,length<=20?0:1);assert.equal(f.control.plans.length,Math.ceil(length/20));
  if(length>20)assert.equal(f.control.batches.at(-1).batch.last,length);
 });
 
 for(const provider of ['codex','gemini'])for(const failure of ['outage','short','long','invalid'])test(`${provider}: ${failure} in the second batch keeps the first batch and retries only missing work`,async t=>{
- const f=await productionFixture(t,provider),id=await f.create(45);let blocked=true;
+ const f=await productionFixture(t,provider),id=await f.createLegacyReader(45);let blocked=true;
  f.control.beforeText=async(kind,payload)=>{
   if(kind!=='batch'||payload.batch.first!==21||!blocked)return;
   if(failure==='outage')throw Error('controlled outage');
@@ -68,7 +68,7 @@ for(const provider of ['codex','gemini'])for(const failure of ['outage','short',
 });
 
 for(const action of ['pause','stop','leave'])test(`${action} between batches retains 20 saved frames across restart`,async t=>{
- const f=await productionFixture(t),id=await f.create(45),viewer=crypto.randomUUID();let release,started;
+ const f=await productionFixture(t),id=await f.createLegacyReader(45),viewer=crypto.randomUUID();let release,started;
  const hold=new Promise(r=>release=r),ready=new Promise(r=>started=r);
  f.control.beforeText=async(kind,payload)=>{if(kind==='batch'&&payload.batch.first===1){started();await hold;}};
  await f.demand(id,viewer);await ready;
@@ -83,7 +83,7 @@ for(const action of ['pause','stop','leave'])test(`${action} between batches ret
 });
 
 test('concurrent batch advances and replayed queue receipts do not repeat saved paid work',async t=>{
- const f=await productionFixture(t),id=await f.create(45),repo=new ReaderRepository(f.app.services.database),g=f.generation.generator();
+ const f=await productionFixture(t),id=await f.createLegacyReader(45),repo=new ReaderRepository(f.app.services.database),g=f.generation.generator();
  await advanceStory(repo,g,owner,id,0); // Outline.
  let release,started;const hold=new Promise(r=>release=r),ready=new Promise(r=>started=r);
  f.control.beforeText=async(kind,payload)=>{if(kind==='batch'&&payload.batch.first===1){started();await hold;}};

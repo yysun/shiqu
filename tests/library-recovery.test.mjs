@@ -21,7 +21,7 @@ test('deleted generated stories retain titles, favorite flags and exact checkpoi
  assert.deepEqual(await f.json(`library/${id}/restore`,'POST'),{storyId:id,restored:true});
  assert.deepEqual(await f.json(`library/${id}/restore`,'POST'),{storyId:id,restored:false});
  assert.equal((await f.request(`sessions/${id}`)).status,200);
- assert.deepEqual(db.prepare('SELECT * FROM reader_sessions WHERE id=?').get(id),before);
+ assert.deepEqual({...db.prepare('SELECT * FROM reader_sessions WHERE id=?').get(id)},{...before,generation_control:'stopped'});
  assert.deepEqual(await f.json('deletions'),[]);
  assert.equal(db.prepare('SELECT count(*) AS n FROM production_jobs').get().n,0);
  assert.deepEqual([f.control.calls.length,f.control.plans.length,f.control.recommendations.length],[0,0,0]);

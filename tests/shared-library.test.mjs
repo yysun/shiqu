@@ -12,7 +12,7 @@ test('direct desktop and development share stories/media/progress and exclude du
   const response=await gate.handle(new Request('http://localhost/api/reader/'+suffix,{method,headers:{Origin:'http://localhost','Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)}));assert.ok(response.ok,`${suffix}:${response.status}`);return response.json();
  }
  assert.equal((await gate.handle(new Request('http://localhost/api/reader/sessions'))).status,200);
- const id=await f.create(),devViewer=crypto.randomUUID(),desktopViewer=crypto.randomUUID();
+ const id=await f.createLegacyReader(),devViewer=crypto.randomUUID(),desktopViewer=crypto.randomUUID();
  assert.ok((await request('sessions')).some(row=>row.id===id));
  await Promise.all([f.demand(id,devViewer),request(`sessions/${id}/production`,'POST',{viewerId:desktopViewer,page:0})]);
  await until(()=>f.control.calls.length===1);assert.equal(f.control.calls[0].page,0);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);

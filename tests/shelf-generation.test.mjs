@@ -10,6 +10,8 @@ test('shelf actions distinguish execution, queueing, user decisions, failure and
  const cases=[
   [{productionState:'running'},'正在编排故事','查看进度'],
   [{productionState:'queued',state:'running'},'等待生成','查看进度'],
+  [{generationMode:'background',generationControl:'active'},'等待生成','查看进度'],
+  [{generationMode:'background',awaitingFrameCount:true},'等待选择画幅数','选择画幅数'],
   [{productionState:'paused',state:'running'},'生成已暂停','查看详情'],
   [{awaitingFrameCount:true,productionState:'paused'},'等待选择画幅数','选择画幅数'],
   [{state:'failed',error:'服务暂时不可用'},'生成失败','查看详情'],

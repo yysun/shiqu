@@ -7,6 +7,6 @@ export function shelfGenerationStatus(session:SessionView){
  if(session.state==='completed')return {group:'已完成',message:'故事已完整展开',detail:'所有画面已保存。',action:'开始阅读'};
  if(session.awaitingFrameCount)return {group:'待选画幅数',message:'等待选择画幅数',detail:'选定画幅数后开始生成。',action:'选择画幅数'};
  if(session.productionState==='running'||!session.productionState&&session.state==='running')return {group:'生成中',message:session.stage,detail:'正在生成整篇，离开页面后继续，可随时暂停。',action:'查看进度'};
- if(session.productionState==='queued')return {group:'等待生成',message:'等待生成',detail:'已进入队列，轮到后自动开始。',action:'查看进度'};
+ if(session.productionState==='queued'||session.generationMode==='background')return {group:'等待生成',message:'等待生成',detail:'已进入队列，轮到后自动开始。',action:'查看进度'};
  return {group:'生成已暂停',message:'生成已暂停',detail:'点击“继续生成”后恢复，已保存的结果会保留。',action:'查看详情'};
 }

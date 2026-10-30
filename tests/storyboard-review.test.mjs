@@ -10,7 +10,7 @@ const owner='docker-local-owner';
 const document=async(f,id)=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM reader_sessions WHERE id=?').bind(id).first()).document);
 const issue=page=>({page,category:'action',problem:'本幅与前幅只有旁白变化，人物和道具状态完全重复。',instruction:'保留当前事件，以接触物件的手势和明确的动作结果表现这一步变化。'});
 for(const provider of ['codex','gemini'])test(`${provider}: review is a separate queued job and gates all drawing`,async t=>{
- const f=await productionFixture(t,provider),id=await f.create();let release,started;
+ const f=await productionFixture(t,provider),id=await f.createLegacyReader();let release,started;
  const hold=new Promise(r=>release=r),ready=new Promise(r=>started=r);
  f.control.beforeText=async kind=>{if(kind==='review'){started();await hold;}};
  await f.demand(id);await ready;
@@ -22,7 +22,7 @@ for(const provider of ['codex','gemini'])test(`${provider}: review is a separate
 });
 
 for(const provider of ['codex','gemini'])test(`${provider}: one automatic repair round then block; concurrent manual continue reuses saved issues`,async t=>{
- const f=await productionFixture(t,provider),id=await f.create(),viewer=crypto.randomUUID();let blocked=true;
+ const f=await productionFixture(t,provider),id=await f.createLegacyReader(),viewer=crypto.randomUUID();let blocked=true;
  f.control.beforeText=async kind=>kind==='review'?{issues:blocked?[issue(3)]:[]}:undefined;
  await f.demand(id,viewer);await until(async()=>(await f.read(id)).state==='failed');
  const stopped=await f.read(id);assert.equal(stopped.retryStage,'review');assert.equal(stopped.generationProgress.reviewStatus,'blocked');assert.match(stopped.error,/第 3 幅/);
@@ -41,7 +41,7 @@ test('legacy client does not automatically retry a quality blockage',async()=>{
 });
 
 test('21 requested repairs are saved as 20+1 and only then reviewed again',async t=>{
- const f=await productionFixture(t),id=await f.create(25);
+ const f=await productionFixture(t),id=await f.createLegacyReader(25);
  f.control.beforeText=async kind=>kind==='review'&&f.control.reviews.length===1?{issues:Array.from({length:21},(_,i)=>issue(i+1))}:undefined;
  await f.demand(id);await until(()=>f.control.calls.length===1);
  assert.deepEqual(f.control.repairs.map(p=>p.requestedPages.length),[20,1]);assert.equal(f.control.reviews.length,2);
@@ -49,7 +49,7 @@ test('21 requested repairs are saved as 20+1 and only then reviewed again',async
 });
 
 for(const malformed of ['duplicate','out-of-range'])test(`review ${malformed} pages fail validation without image requests`,async t=>{
- const f=await productionFixture(t),id=await f.create();let invalid=true;
+ const f=await productionFixture(t),id=await f.createLegacyReader();let invalid=true;
  f.control.beforeText=async kind=>kind==='review'?{issues:invalid?(malformed==='duplicate'?[issue(2),issue(2)]:[issue(9)]):[]}:undefined;
  await f.demand(id);await until(async()=>(await f.read(id)).state==='failed');
  assert.equal(f.control.calls.length,0);assert.equal((await document(f,id)).visualReview.round,0);
@@ -57,7 +57,7 @@ for(const malformed of ['duplicate','out-of-range'])test(`review ${malformed} pa
 });
 
 for(const malformed of ['missing','duplicate','extra','bad-caption'])test(`repair ${malformed} output cannot mutate the saved plan`,async t=>{
- const f=await productionFixture(t),id=await f.create();let invalid=true,before;
+ const f=await productionFixture(t),id=await f.createLegacyReader();let invalid=true,before;
  f.control.beforeText=async(kind,payload)=>{
   if(kind==='review'&&f.control.reviews.length===1){before=structuredClone(payload.plan);return {issues:[issue(2),issue(3)]};}
   if(kind==='repair'&&invalid){
@@ -70,7 +70,7 @@ for(const malformed of ['missing','duplicate','extra','bad-caption'])test(`repai
 });
 
 for(const phase of ['review','repair'])for(const action of ['pause','stop','leave'])test(`${phase} in flight drains on ${action} and resumes from saved checkpoints after restart`,async t=>{
- const f=await productionFixture(t),id=await f.create(),viewer=crypto.randomUUID();let release,started;
+ const f=await productionFixture(t),id=await f.createLegacyReader(),viewer=crypto.randomUUID();let release,started;
  const hold=new Promise(r=>release=r),ready=new Promise(r=>started=r);
  f.control.beforeText=async kind=>{
   if(kind===phase){started();await hold;}
@@ -86,13 +86,13 @@ for(const phase of ['review','repair'])for(const action of ['pause','stop','leav
 });
 
 test('old complete plans remain readable without a retroactive audit',async t=>{
- const f=await productionFixture(t),id=await f.create(),repo=new ReaderRepository(f.app.services.database);
+ const f=await productionFixture(t),id=await f.createLegacyReader(),repo=new ReaderRepository(f.app.services.database);
  const g=f.generation.generator();delete g.review;delete g.repair;
  await advanceStory(repo,g,owner,id,0);assert.equal((await document(f,id)).visualReview,undefined);
  await f.demand(id);await until(()=>f.control.calls.length===1);assert.equal(f.control.reviews.length,0);
 });
 test('a saved review whose queue receipt was lost is not paid twice',async t=>{
- const f=await productionFixture(t),id=await f.create(),repo=new ReaderRepository(f.app.services.database),g=f.generation.generator();
+ const f=await productionFixture(t),id=await f.createLegacyReader(),repo=new ReaderRepository(f.app.services.database),g=f.generation.generator();
  f.control.beforeText=async kind=>kind==='review'&&f.control.reviews.length===1?{issues:[issue(2)]}:undefined;
  await advanceStory(repo,g,owner,id,0);await advanceStory(repo,g,owner,id,0);assert.equal((await document(f,id)).visualReview.status,'repair');
  const stale={id:crypto.randomUUID(),sessionId:id,ownerId:owner,kind:'script',pool:'text',version:'lost-review-receipt',dependencies:[],payload:{stepKey:'review:0'},priority:-20};
@@ -101,7 +101,7 @@ test('a saved review whose queue receipt was lost is not paid twice',async t=>{
  assert.equal((await document(f,id)).usage.filter(u=>u.step==='review:0').length,1);
 });
 for(const provider of ['codex','gemini'])test(`${provider}: targeted repair checkpoints precede a fresh whole-plan review`,async t=>{
- const f=await productionFixture(t,provider),id=await f.create(25);let before;
+ const f=await productionFixture(t,provider),id=await f.createLegacyReader(25);let before;
  f.control.beforeText=async(kind,payload)=>{
   if(kind==='review'){
    assert.equal(f.control.calls.length,0);
