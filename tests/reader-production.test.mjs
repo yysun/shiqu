@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,until,turn,encoded,makePlan} from './fixtures/production.mjs';
+import {imageBytes} from './fixtures/images.mjs';
 import {advanceStory} from '../lib/reader-engine.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {configuredImageWorkers,ReaderProductionCoordinator} from '../server/reader-production.ts';
@@ -156,10 +157,12 @@ for(const provider of ['codex','gemini'])test(`${provider}: immutable attempts a
  const replacement=new ReaderProductionCoordinator(f.app.services.database,f.generation,f.app.services.media);
  f.coordinators.push(replacement);
  await replacement.request('docker-local-owner',id,crypto.randomUUID(),0,true);await until(()=>f.control.calls.length===2);
- f.control.calls[1].bytes=Buffer.concat([Buffer.from(encoded,'base64'),Buffer.from([2])]).toString('base64');f.control.calls[1].resolve();
+ // Distinct valid portrait bytes keep the race about fencing, not malformed-media rejection.
+ f.control.calls[1].bytes=Buffer.from(imageBytes('large.png')).toString('base64');f.control.calls[1].resolve();
  await until(async()=>(await replacement.snapshot('docker-local-owner',id)).ready===1);replacement.stop();
  const saved=(await replacement.snapshot('docker-local-owner',id)).story.pages[0].image,key=referenceImageKey(id,saved),before=(await f.media.get(key)).body;
- f.control.calls[0].bytes=Buffer.concat([Buffer.from(encoded,'base64'),Buffer.from([1])]).toString('base64');f.control.calls[0].resolve();await original.queue.settle();
+ assert.deepEqual(Buffer.from(before),Buffer.from(f.control.calls[1].bytes,'base64'));assert.notDeepEqual(Buffer.from(before),Buffer.from(encoded,'base64'));
+ f.control.calls[0].bytes=encoded;f.control.calls[0].resolve();await original.queue.settle();
  assert.equal((await replacement.snapshot('docker-local-owner',id)).story.pages[0].image,saved);assert.deepEqual((await f.media.get(key)).body,before);
  const row=await f.app.services.database.prepare('SELECT document FROM reader_sessions WHERE id=?').bind(id).first();assert.equal(JSON.parse(row.document).usage.filter(u=>u.step==='image:0').length,1);
  for(const reference of [saved.replace(id,crypto.randomUUID()),saved.replace('/artifacts/','/artifacts/../'),saved.replace('/0-','/80-'),saved.replace('.png','.svg')]){

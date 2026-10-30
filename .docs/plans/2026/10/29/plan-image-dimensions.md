@@ -27,3 +27,12 @@ SS probe passed: actual PNG, baseline JPEG, lossless/lossy WebP, 848 × 1264 and
 Focused regression: 33/33 passed (`tests/image-dimensions.test.mjs` plus `tests/local-image-batches.test.mjs`, 3.444 s). Initial adapter regression passed 57/59; two new assertions incorrectly queried a nonexistent queue output field, corrected to the persisted `result` column and verified by the passing focused suite. Typecheck and lint passed. Full suites and final reviews pending.
 
 Concurrent edits to `client/ui/Reader.tsx`, `client/ui/StoryReadingState.tsx` and `client/ui/reader.css` are outside this story; preserve them and exclude them from the story commit/review.
+
+Implementation milestone: `44cad54` (`feat(images): validate portrait dimensions before saving`).
+
+CR passed: no major findings
+
+CR risk: non-low — changes generated-media acceptance across Codex, Gemini and admin HTTP/storage boundaries.
+CR review round: 1; reviewer: reused
+
+Full TT initially passed 364/366. Two existing concurrency tests distinguished attempts by appending junk after PNG IEND, now rejected by metadata validation. Their fixtures use two distinct valid portrait images instead, explicitly verifying which bytes were saved and that late bytes differ; race/fencing assertions remain. Targeted queue and dimensions tests passed 31/31 (2.778 s), then the exact-byte precondition was strengthened for final full TT. No production changes were needed. Final full verification and affected CR rerun pending.
