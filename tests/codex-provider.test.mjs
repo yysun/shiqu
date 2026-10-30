@@ -8,6 +8,9 @@ import path from 'node:path';
 import {createCodexRunner,CodexError,codexEnvironment,stopCodexProcesses} from '../server/codex-runner.ts';
 import {createReaderProvider,safeCodexError} from '../server/generation.ts';
 import {createApplication} from '../server/app.ts';
+import {startDesktop} from '../server/desktop.ts';
+import {DatabaseSync} from 'node:sqlite';
+import {createServer} from 'node:net';
 import {planSchema,selectionSchema} from '../lib/reader-model.ts';
 
 import {png} from './fixtures/images.mjs';
@@ -133,6 +136,22 @@ test('stopping Codex processes rejects the in-flight call, which is how a deskto
  const call=runner.run({instructions:'test',prompt:'test',generateImage:true}),rejected=assert.rejects(call,error=>error instanceof CodexError&&error.message==='PROCESS_EXIT');
  const end=Date.now()+10000;while(!(await fake.log().catch(()=>[])).some(row=>row.method==='turn/start')){assert.ok(Date.now()<end);await new Promise(resolve=>setTimeout(resolve,20));}
  await stopCodexProcesses();await rejected;
+});
+
+test('a real desktop quit during Codex work is recorded as an interruption, not a provider failure',async t=>{
+ const fake=await fakeCli(t,'hang'),root=await mkdtemp(path.join(os.tmpdir(),'shiqu desktop quit '));t.after(()=>rm(root,{recursive:true,force:true}));
+ await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
+ await mkdir(path.join(root,'dist/client'),{recursive:true});await writeFile(path.join(root,'dist/client/index.html'),'<html></html>');
+ const socket=createServer();await new Promise(resolve=>socket.listen(0,'127.0.0.1',resolve));const port=socket.address().port;await new Promise(resolve=>socket.close(resolve));
+ const dataDirectory=path.join(root,'library'),running=await startDesktop({nodePath:process.execPath,dataDirectory,port,internetEnabled:false,cloudflaredPath:'',provider:'codex',textModel:'',imageModel:'',codexPath:fake.binary,codexModel:'',codexHome:path.join(root,'codex')},'',root);
+ t.after(()=>running.stop());
+ const id=crypto.randomUUID(),origin=new URL(running.status.url).origin,created=await fetch(origin+'/api/reader/sessions',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({requestId:id,selection:{...selection,bookId:'other',customBook:'一本未收录的书'}})});assert.equal(created.status,201);
+ const end=Date.now()+15000;while(!(await fake.log().catch(()=>[])).some(row=>row.method==='turn/start')){assert.ok(Date.now()<end,'Codex work never started: '+JSON.stringify(await(await fetch(origin+'/api/reader/sessions/'+id)).json()).slice(0,400));await new Promise(resolve=>setTimeout(resolve,20));}
+ await running.stop();
+ const saved=new DatabaseSync(path.join(dataDirectory,'shiqu.sqlite'));t.after(()=>saved.close());
+ const job=saved.prepare('SELECT state,interrupted,error FROM production_jobs WHERE session_id=?').get(id),session=saved.prepare('SELECT state,error FROM reader_sessions WHERE id=?').get(id);
+ assert.equal(job.state,'failed');assert.equal(job.interrupted,1,'A restart can resume this job');assert.doesNotMatch(job.error,/订阅|登录/);
+ assert.equal(session.state,'idle');assert.equal(session.error,null);
 });
 
 test('runner accepts native image bytes and attaches the first scene without reading returned paths',async t=>{

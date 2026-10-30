@@ -38,19 +38,19 @@ This stays safe with two services on one library, because a service that loses i
 
 ## Tasks
 
-- [ ] `server/production-queue.ts`: add the `terminal` option and classify stop-time failures. Separate the success write and make outcome-write errors log and leave the job running. Remove `lease_until` from `renew`, `isCurrent` and the success write. Skip own tokens in `recoverExpired`. Remove the self-stop. Make `retry` reset attempts on failed and queued rows and the pre-handler release decrement them. Export the interruption message. Update the file header.
-- [ ] `lib/reader-model.ts`: add `readableStory`. `lib/reader-api.ts`: filter unreadable rows from `GET /sessions`.
-- [ ] `server/reader-production.ts`: remove `fault`. Add the safe tick log, and log and continue in `close()`. Skip unreadable stories in `cycle` and `canRun`. Add the replay cap. Provide `terminal`. Clear the stop-time row failure and use 422 for blocked reviews in `script`. Make session renewal, `ownSession` and the publication write token-only. Have the session-save loop use real failures only. Update the file header.
-- [ ] `tests/shelf-generation.test.mjs:90`: expect `attempts` to be 1 after an explicit retry.
-- [ ] `tests/queue-interruption.test.mjs`: controlled regressions for every acceptance criterion:
+- [x] `server/production-queue.ts`: add the `terminal` option and classify stop-time failures. Separate the success write and make outcome-write errors log and leave the job running. Remove `lease_until` from `renew`, `isCurrent` and the success write. Skip own tokens in `recoverExpired`. Remove the self-stop. Make `retry` reset attempts on failed and queued rows and the pre-handler release decrement them. Update the file header.
+- [x] `lib/reader-model.ts`: add `readableStory`. `lib/reader-api.ts`: filter unreadable rows from `GET /sessions`.
+- [x] `server/reader-production.ts`: remove `fault`. Add the safe tick log, and log and continue in `close()`. Skip unreadable stories in `cycle` and `canRun`. Add the replay cap. Provide `terminal`. Clear the stop-time row failure and use 422 for blocked reviews in `script`. Make session renewal, `ownSession` and the publication write token-only. Have the session-save loop use real failures only. Update the file header.
+- [x] `tests/shelf-generation.test.mjs:90`: expect `attempts` to be 1 after an explicit retry.
+- [x] `tests/queue-interruption.test.mjs`: controlled regressions for every acceptance criterion:
   - Stop during image and script work, while active, paused and stopped; blocked review during stop.
   - Transient tick error, thrown claim write, tick error during `close()`.
   - Bad selection, `document='{}'`, `document='null'` and truncated JSON with a queued job, each with other stories completing and the shelf loading.
   - Failed success write and failed failure write.
   - Clock jump, late stale result across two queues, dead-runtime recovery, the cap, retry reset across a story, pre-handler release.
-- [ ] `tests/codex-provider.test.mjs`: prove that killing a running fake Codex process with `stopCodexProcesses` rejects the in-flight call, so the stop path above is the path real quits take.
-- [ ] `README.md`: state that stopping the service resumes interrupted work and that automatic recovery is bounded.
-- [ ] Execute `.docs/tests/test-queue-interruption-resilience.md`.
+- [x] `tests/codex-provider.test.mjs`: prove that killing a running fake Codex process with `stopCodexProcesses` rejects the in-flight call, and that the real `startDesktop` stop records an interruption, so the stop path above is the path real quits take.
+- [x] `README.md`: state that stopping the service resumes interrupted work and that automatic recovery is bounded.
+- [x] Execute `.docs/tests/test-queue-interruption-resilience.md`.
 
 ## Validation
 
@@ -70,3 +70,14 @@ Node 24.22.1 and pnpm per `.nvmrc`. Focused: `pnpm exec node --experimental-stri
 AR passed: no blocking architecture flaws.
 AR risk: non-low — durable paid-work replay, concurrency and availability.
 AR review round: 2; reviewer: reused.
+
+SS milestone: 1dfe462 (queue, coordinator, API, regressions, README). Verified with focused suites on Node 24.22.1.
+
+CR passed: no major findings.
+CR risk: non-low — durable paid-work replay, concurrency and availability.
+CR review round: 2; reviewer: reused.
+Follow-ups applied after round 1: drain and pre-tick regressions, real desktop stop test, parked-lease release, safe error-name logging. After round 2: session-save loop reads jobs before the row.
+
+TT: `pnpm test` on Node 24.22.1 ran 414 tests: 413 passed, 1 failed. The failure is `tests/fast-first-story.test.mjs` (`small reading plans cap chapters…`), a discovery-namespace hash assertion that also fails on a147e55 and 276b772, so it predates this story and is out of scope. Typecheck and lint pass.
+
+ET: flows 1-8 in `.docs/tests/test-queue-interruption-resilience.md` passed through `tests/queue-interruption.test.mjs`, `tests/production-queue.test.mjs` and `tests/codex-provider.test.mjs`, using controlled providers and a fake Codex process. No in-app browser pass: no UI changed. Laptop sleep is simulated by forcing leases past expiry; no real sleep, packaged desktop app or paid provider was used.

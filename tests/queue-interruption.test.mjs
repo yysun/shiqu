@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {readdirSync} from 'node:fs';
+import {DatabaseSync} from 'node:sqlite';
 import {productionFixture,until} from './fixtures/production.mjs';
 const owner='docker-local-owner';
 const production=f=>f.app.services.production;
@@ -118,6 +119,18 @@ test('a tick error during shutdown still closes the database, and work resumes n
  await completed(f,id);assert.equal(f.control.calls.filter(call=>call.page===0).length,1,'The saved image is reused');
 });
 
+test('one failed tick during shutdown does not stop the drain: finished work is still published',async t=>{
+ t.mock.method(console,'error',()=>{});
+ const f=await productionFixture(t),p=production(f),id=await f.create(3);await until(()=>f.control.calls.length===1);
+ const recover=p.queue.recoverExpired.bind(p.queue);let thrown=0;
+ p.queue.recoverExpired=async()=>{if(!thrown++)throw sqliteError();return recover();};
+ const closing=f.app.close();await until(()=>thrown>0);
+ f.control.calls[0].resolve();await closing;
+ const saved=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));
+ const {document,state}=saved.prepare('SELECT document,state FROM reader_sessions WHERE id=?').get(id);saved.close();
+ assert.ok(JSON.parse(document).images[0],'The paid image is published before close resolves');assert.equal(state,'idle');
+});
+
 for(const [name,corrupt] of [
  ['an unknown art style',"selection=json_set(selection,'$.artStyle','retired-style')"],
  ['a wrong-shape document',"document='{}'"],
@@ -136,6 +149,7 @@ for(const [name,corrupt] of [
  assert.equal(f.control.calls.filter(call=>call.done).length,4,'The unreadable story made no further paid call');
  assert.equal(logs.mock.calls.filter(call=>call.arguments[0]==='production_story_unreadable').length,1);
  assert.doesNotMatch(JSON.stringify(logs.mock.calls),/庄周|philosopher/);
+ await production(f).tick();assert.equal(production(f).leases.has(bad),false,'A parked story does not keep renewing its lock');
 });
 
 test('a queued text job for an unreadable document makes no paid plan call',async t=>{
@@ -201,6 +215,22 @@ test('a clock jump during a live call keeps its claims, saves its result and pay
  f.control.hold=false;f.control.calls[0].resolve();await completed(f,id);
  assert.equal(f.control.calls.filter(call=>call.page===0).length,1);
  assert.equal(readdirSync(path.join(f.dataDirectory,'media/reader',id,'artifacts')).length,2,'No discarded paid artifact is left behind');
+});
+
+test('results arriving after a clock jump, before any tick renews the claims, are still saved',async t=>{
+ const f=await productionFixture(t),store=f.app.services.media,get=store.get.bind(store),id=await f.create(2);
+ await until(()=>f.control.calls.length===1);
+ const image=await imageJob(f,id);
+ await expireClaims(f,id);f.control.calls[0].resolve();
+ await until(async()=>(await production(f).queue.job(image.id)).state==='succeeded');
+ // Hold publication open across a second jump so its own write also sees expired claims.
+ let release,entered=false;const gate=new Promise(resolve=>release=resolve);
+ store.get=async key=>{if(key.includes('/artifacts/0-')&&!entered){entered=true;await gate;}return get(key);};
+ await until(()=>entered);
+ await expireClaims(f,id);release();
+ f.control.hold=false;await completed(f,id);
+ assert.equal(f.control.calls.filter(call=>call.page===0).length,1);
+ assert.equal((await f.read(id)).error,null);
 });
 
 test('automatic recovery stops at three attempts, and a retry restores the allowance',async t=>{

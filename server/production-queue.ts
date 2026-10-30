@@ -84,7 +84,7 @@ export class ProductionQueue{
   const isCurrent=async()=>!!await this.database.prepare("SELECT id FROM production_jobs WHERE id=? AND state='running' AND lease_token=?").bind(job.id,job.lease_token).first();
   // A write that fails says nothing about the work. Leave the job running: its lease expires
   // once this task settles, and it recovers as an interruption against the replay cap.
-  const unsaved=(error:unknown)=>console.error('production_job_unsaved',JSON.stringify({id:job.id,code:(error as {code?:string}|null)?.code||'UNKNOWN'}));
+  const unsaved=(error:unknown)=>console.error('production_job_unsaved',JSON.stringify({id:job.id,code:(error as {code?:string}|null)?.code||(error instanceof Error?error.name:'UNKNOWN')}));
   const outputs:Record<string,unknown>={};
   try{
    for(const id of JSON.parse(job.dependencies) as string[]){const parent=await this.job(id);if(parent?.state!=='succeeded')throw Error('DEPENDENCY_UNAVAILABLE');outputs[id]=JSON.parse(parent.result!);}

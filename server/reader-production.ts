@@ -277,12 +277,12 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   await this.queue.pump();
   for(const [id,lease] of this.leases){
-   const jobs=await this.queue.jobs(id,lease.ownerId);
-   const pendingLocal=jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'));
-   if(jobs.some(job=>job.state==='running')||pendingLocal)continue;
-   const row=await this.raw(id,lease.ownerId);
+   // Read jobs before the row: no running job then proves nothing can change the document we save.
+   const jobs=await this.queue.jobs(id,lease.ownerId),row=await this.raw(id,lease.ownerId);
    // Releasing the lease lets the lock expire; the row itself is left untouched.
    if(!this.readable(row)){this.leases.delete(id);continue;}
+   const pendingLocal=jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'));
+   if(jobs.some(job=>job.state==='running')||pendingLocal)continue;
    const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
    // An interruption is not a story failure: the job resumes, and the row must not block it.
    const failed=jobs.find(job=>job.state==='failed'&&!job.interrupted);

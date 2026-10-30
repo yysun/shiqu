@@ -77,3 +77,10 @@ test('a claim released before its handler starts does not count as an attempt',a
  const released=await queue.job(job.id);assert.equal(released.state,'queued');assert.equal(released.attempts,0);assert.equal(calls,0);
  await queue.pump();await queue.settle();const done=await queue.job(job.id);assert.equal(done.state,'succeeded');assert.equal(done.attempts,1);assert.equal(calls,1);
 });
+test('a database error before the handler starts makes no paid call and is not a job failure',async t=>{
+ const logs=t.mock.method(console,'error',()=>{}),{adapter}=database(t);let checks=0,calls=0;const job=spec('image','image');
+ const queue=new ProductionQueue(adapter,{limits:{image:1},canRun:async()=>{if(++checks===2)throw Object.assign(Error('database is locked'),{code:'ERR_SQLITE_ERROR'});return true;},handlers:{image:{pool:'image',run:async()=>{calls++;return 'saved';}}}});
+ await queue.enqueue(job);await queue.pump();await queue.settle();
+ const saved=await queue.job(job.id);assert.equal(saved.state,'running');assert.equal(saved.error,null);assert.equal(calls,0);
+ assert.equal(logs.mock.calls[0].arguments[0],'production_job_unsaved');assert.match(logs.mock.calls[0].arguments[1],/ERR_SQLITE_ERROR/);assert.doesNotMatch(logs.mock.calls[0].arguments[1],/locked/);
+});
