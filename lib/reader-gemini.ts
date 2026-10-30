@@ -15,7 +15,7 @@ import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localPlan
 import type {WholeBookInput} from './reader-local-contract.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import {readerImageAsset,referenceImageKey} from './reader-image-assets.ts';
-import {validImageDimensions,geminiImageMinimum,imageDimensionMessage} from './reader-image-dimensions.ts';
+import {imageDimensions} from './reader-image-dimensions.ts';
 import {storyboardGenerator} from './reader-storyboard.ts';
 import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from './reader-art-recommendation.ts';
 
@@ -62,7 +62,6 @@ export function safeGeminiError(error:unknown){
  // Log only codes and validation paths, never raw provider messages, prompts or credentials.
  console.error('reader_generation_error',JSON.stringify(error instanceof GeminiError?{code:error.message,status:error.status}:error instanceof z.ZodError?{code:'INVALID_OUTPUT',fields:error.issues.map(i=>i.path.join('.'))}:{code:error instanceof Error?error.name:'UNKNOWN'}));
  if(error instanceof GeminiError){
-  if(error.message==='INVALID_IMAGE_DIMENSIONS')return imageDimensionMessage;
   if(error.message==='SOURCE_UNAVAILABLE')return '暂时无法读取这个链接，请换一个可公开访问的原文页面。';
   if(error.message==='INVALID_SOURCE')return '请填写有效的书名或公开网页链接。';
   if(error.message==='CONTENT_BLOCKED')return '这段内容暂时无法生成，请换一个故事再试。';
@@ -158,7 +157,7 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
    if(!output||!(output.mimeType in imageTypes)||output.data.length>17*1024*1024)throw new GeminiError('INVALID_MEDIA');
    let bytes:Uint8Array;try{bytes=Uint8Array.from(atob(output.data),c=>c.charCodeAt(0));}catch{throw new GeminiError('INVALID_MEDIA');}
    if(!bytes.length||bytes.length>12*1024*1024||mediaType(bytes)!==output.mimeType)throw new GeminiError('INVALID_MEDIA');
-   if(!validImageDimensions(bytes,geminiImageMinimum))throw new GeminiError('INVALID_IMAGE_DIMENSIONS');
+   if(!imageDimensions(bytes))throw new GeminiError('INVALID_MEDIA');
    const asset=readerImageAsset(id,page,imageTypes[output.mimeType as keyof typeof imageTypes],artifactId);
    await assets.put(asset.key,bytes,{contentType:output.mimeType});
    return {value:asset.url,...metadata};
