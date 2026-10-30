@@ -204,13 +204,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const selection=selectionSchema.parse(JSON.parse(row.selection)),stepKey=(JSON.parse(job.payload) as {stepKey?:string}).stepKey;
   // A crash can save a batch before settling its queue receipt. Never replay that paid call.
   if(stepKey&&stepKey!==nextStep(doc,selection,0)?.key)return {storyboardFrames:doc.storyboard?.pages.length||0};
-  const result=await advanceStory(this.repository,this.provider.generator(),row.user_id,row.id,0,true,token=>this.leases.set(row.id,{ownerId:row.user_id,token}));
+  let failure:unknown;
+  const result=await advanceStory(this.repository,this.provider.generator(),row.user_id,row.id,0,true,token=>this.leases.set(row.id,{ownerId:row.user_id,token}),error=>{failure=error;});
   if(result.state==='failed'){
    // The engine records its failure before the queue can classify it, so undo that for a stop.
-   // A blocked review stays failed: replaying it would pay for repair without the reader asking.
-   const blocked=result.retryStage==='review';
-   if(this.stopping&&!blocked)await this.database.prepare("UPDATE reader_sessions SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'").bind(row.id,row.user_id).run();
-   throw new ReaderError(blocked?422:503,result.error||'故事编排暂未完成');
+   // A 4xx stays failed: replaying a blocked review would pay for repair without the reader asking.
+   const terminal=failure instanceof ReaderError&&failure.status<500;
+   if(this.stopping&&!terminal)await this.database.prepare("UPDATE reader_sessions SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'").bind(row.id,row.user_id).run();
+   throw terminal?failure:new ReaderError(503,result.error||'故事编排暂未完成');
   }
   if(result.awaitingFrameCount)return {awaitingFrameCount:true};
   row=await this.raw(row.id,row.user_id);doc=JSON.parse(row.document) as Document;

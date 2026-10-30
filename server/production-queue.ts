@@ -3,6 +3,7 @@
 // Wall-clock expiry only reclaims attempts from dead services, so a live one survives sleep.
 // Stop-time and persistence errors recover as interruptions, never as job failures.
 import {createHash,randomUUID} from 'node:crypto';
+import {persistenceError} from '../lib/reader-repository.ts';
 import type {Database} from '../lib/reader-repository.ts';
 
 export type JobSpec={id:string;sessionId:string;ownerId:string;kind:string;pool:string;version:string;dependencies:string[];payload:unknown;priority:number};
@@ -11,7 +12,6 @@ export type JobContext={outputs:Record<string,unknown>;isCurrent:()=>Promise<boo
 export type JobHandler={pool:string;drain?:boolean;run:(job:ProductionJob,context:JobContext)=>Promise<unknown>};
 type Options={limits:Record<string,number>;handlers:Record<string,JobHandler>;canRun?:(job:ProductionJob)=>Promise<boolean>;onSettled?:()=>void;resumeInterrupted?:(job:ProductionJob)=>Promise<boolean>;safeError?:(error:unknown,job:ProductionJob)=>string;terminal?:(error:unknown,job:ProductionJob)=>boolean;now?:()=>number;leaseMs?:number};
 const interruptedMessage='上次生成已中断，已保留保存的结果。请重试继续。';
-const persistenceError=(error:unknown)=>(error as {code?:string}|null)?.code==='ERR_SQLITE_ERROR';
 export function inputVersion(input:unknown){return createHash('sha256').update(JSON.stringify(input)).digest('hex');}
 export function productionJobId(scope:string,kind:string,version:string,key=''){return inputVersion([scope,kind,version,key]);}
 const ready=`NOT EXISTS (SELECT 1 FROM json_each(j.dependencies) d LEFT JOIN production_jobs parent ON parent.id=d.value WHERE parent.id IS NULL OR parent.state!='succeeded')`;

@@ -1,6 +1,7 @@
 // Advance local story generation under one session lock, retaining every completed paid result.
 import {nextStep,planSchema,storyboardOutlineSchema,storyboardBatchSchema,selectionSchema,view,ReaderError,awaitingFrameCount,readerBooks} from './reader-model.ts';
 import type {Document,Plan,Selection,SessionRow,Storyboard,StoryboardOutline} from './reader-model.ts';
+import {persistenceError} from './reader-repository.ts';
 import type {ReaderRepository} from './reader-repository.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import type {OriginalSource,SourceResult,SourceHint} from './reader-source-types.ts';
@@ -31,7 +32,7 @@ async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerato
  for(const outcome of outcomes)if(outcome.status==='rejected')throw outcome.reason;
 }
 
-export async function advanceStory(repo:ReaderRepository,generator:StoryGenerator,uid:string,id:string,throughPage:number,retry=false,onAcquired?:(token:string)=>void){
+export async function advanceStory(repo:ReaderRepository,generator:StoryGenerator,uid:string,id:string,throughPage:number,retry=false,onAcquired?:(token:string)=>void,onFailed?:(error:unknown)=>void){
  let row=await repo.get(id,uid);
  if(row.generation_control&&row.generation_control!=='active')return view(row);
  if(row.state==='running'){if(row.lock_until>Date.now())return view(row);row=await repo.stale(row);}
@@ -122,5 +123,5 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    throw new ReaderError(422,`分镜复核仍有 ${issues.length} 处问题，已停止绘图。${summary}。可手动继续修订。`);
   }
   return view(await repo.save(row,token,doc,!awaitingFrameCount(doc,selection)&&!nextStep(doc,selection,readerMaxFrames-1)));
- }catch(error){if(error instanceof ReaderError&&error.status===404)throw error;return view(await repo.save(row,token,doc,false,error instanceof ReaderError?error.message:generator.safeError(error)));}
+ }catch(error){if(error instanceof ReaderError&&error.status===404||persistenceError(error))throw error;onFailed?.(error);return view(await repo.save(row,token,doc,false,error instanceof ReaderError?error.message:generator.safeError(error)));}
 }

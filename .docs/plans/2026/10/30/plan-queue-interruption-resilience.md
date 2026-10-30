@@ -8,17 +8,17 @@ Story base: a147e551b648f05b1d61382fdffd758dc2920936. Preserve unrelated release
 
 ## Decisions
 
-**Interruption is a queue classification, not a provider error.** While the queue is stopping, a failing non-drain job is recorded with `interrupted=1` and the existing interruption message, unless a new `terminal(error,job)` option says otherwise. The coordinator's rule is that a `ReaderError` with a 4xx status is terminal. Publication jobs (`drain:true`) keep real failures, because they run to completion during shutdown.
+**Interruption is a queue classification, not a provider error.** While the queue is stopping, a failing non-drain job is recorded with `interrupted=1` and the existing interruption message, unless a new `terminal(error,job)` option says otherwise. The coordinator's rule is that a `ReaderError` with a 4xx status is terminal. `advanceStory` reports its original error through `onFailed`, so `script()` keeps that status instead of flattening it to 503. Publication jobs (`drain:true`) keep real failures, because they run to completion during shutdown.
 
 A genuine provider error that happens to arrive during a stop is therefore replayed on the next start. This is accepted: the replay allowance bounds it, and a real failure then persists because the service is no longer stopping.
 
 **Session state follows real failures only.** The session-save loop in `cycle()` ignores interrupted jobs. `script()` also needs two changes, because `advanceStory` writes `state='failed'` before the queue classifies the error:
-- A stop-time failure clears the row back to idle, unless the review is blocked.
-- A blocked review is thrown as 422, so the terminal rule keeps it failed. This is essential: `script()` always calls the engine with `retry=true`, so an automatic replay of a blocked review would pay for repair.
+- A stop-time failure clears the row back to idle, unless the error is a 4xx.
+- A 4xx keeps its status, so the terminal rule keeps it failed. This is essential for a blocked review (422): `script()` always calls the engine with `retry=true`, so an automatic replay would pay for repair.
 
 Together these also fix Resume after a pause plus a lost lease.
 
-**Persistence errors are not job outcomes.** The success write moves out of the handler's `try`. If the success or failure write throws, the queue logs a safe code and leaves the job `running`. Its token leaves the map when the task settles, so the lease expires and the job recovers as an interruption, counted against the cap. The pre-handler section gets the same treatment, and a handler that rejects with a SQLite error (`ERR_SQLITE_ERROR`) counts as a persistence error too. Other errors raised inside a handler can still surface as that job's failure.
+**Persistence errors are not job outcomes.** The success write moves out of the handler's `try`. If the success or failure write throws, the queue logs a safe code and leaves the job `running`. Its token leaves the map when the task settles, so the lease expires and the job recovers as an interruption, counted against the cap. The pre-handler section gets the same treatment. A handler that rejects with a SQLite error (`ERR_SQLITE_ERROR`) counts as a persistence error too, and `advanceStory` rethrows that error rather than recording it as a story failure.
 
 **No latched fault.** Remove `fault` and the queue's self-`stop()`. The guard against paid dispatch with an unwritable database is the claim UPDATE, which runs before `execute`; if it throws, nothing starts and the tick fails. The next tick is the probe. A failed tick logs only on the transition into failure, using a safe code. `close()` logs tick errors and keeps draining, so a transient error cannot skip closing SQLite or releasing the desktop data lock.
 
@@ -78,6 +78,8 @@ CR risk: non-low — durable paid-work replay, concurrency and availability.
 CR review round: 2; reviewer: reused.
 Follow-ups applied after round 1: drain and pre-tick regressions, real desktop stop test, parked-lease release, safe error-name logging. After round 2: session-save loop reads jobs before the row.
 
-TT: `pnpm test` on Node 24.22.1 ran 414 tests: 413 passed, 1 failed. The failure is `tests/fast-first-story.test.mjs` (`small reading plans cap chapters…`), a discovery-namespace hash assertion that also fails on a147e55 and 276b772, so it predates this story and is out of scope. Typecheck and lint pass.
+TT: `pnpm test` on Node 24.22.1 ran 414 tests: 413 passed, 1 failed. The failure is `tests/fast-first-story.test.mjs` (`small reading plans cap chapters…`), a discovery-namespace hash assertion that also fails on a147e55 and 276b772, so it predates this story and is out of scope. Typecheck and lint pass. Later runs are recorded under VR round 1 below.
 
 ET: flows 1-8 in `.docs/tests/test-queue-interruption-resilience.md` passed through `tests/queue-interruption.test.mjs`, `tests/production-queue.test.mjs` and `tests/codex-provider.test.mjs`, using controlled providers and a fake Codex process. No in-app browser pass: no UI changed. Laptop sleep is simulated by forcing leases past expiry; no real sleep, packaged desktop app or paid provider was used.
+
+VR round 1: incomplete. A failed engine checkpoint save reported a provider failure, and a deterministic 4xx in script work replayed after a stop. Both are fixed through `onFailed` and the engine's persistence rethrow, with regressions added for those cases plus preparation, saved pages, and script work while paused or stopped.

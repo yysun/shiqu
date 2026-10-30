@@ -6,6 +6,8 @@ import type {OriginalSource} from './reader-source-types.ts';
 export interface Database{prepare(query:string):Statement}
 interface Statement{bind(...values:unknown[]):Statement;first<T>():Promise<T|null>;all<T>():Promise<{results:T[]}>;run():Promise<{meta:{changes:number}}>}
 const visible="NOT EXISTS (SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)";
+// A failed write says nothing about the work, so callers must not report it as a provider failure.
+export const persistenceError=(error:unknown)=>(error as {code?:string}|null)?.code==='ERR_SQLITE_ERROR';
 export class ReaderRepository{
  db:Database;
  constructor(db:Database){this.db=db;}

@@ -6,6 +6,7 @@ import path from 'node:path';
 import {readdirSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import {productionFixture,until} from './fixtures/production.mjs';
+import {ReaderError} from '../lib/reader-model.ts';
 const owner='docker-local-owner';
 const production=f=>f.app.services.production;
 const database=f=>f.app.services.database;
@@ -17,10 +18,16 @@ const sqliteError=()=>Object.assign(Error('database is locked'),{code:'ERR_SQLIT
 const issue=page=>({page,category:'action',problem:'本幅与前幅只有旁白变化，人物和道具状态完全重复。',instruction:'保留当前事件，以接触物件的手势和明确的动作结果表现这一步变化。'});
 const row=(f,id)=>database(f).prepare('SELECT state,error,document,selection FROM reader_sessions WHERE id=?').bind(id).first();
 // Fail matching statements on one owner's database handle until the returned function restores it.
-function failWrites(owner,match,times=Infinity){
- const real=owner.database;let left=times;
- owner.database={prepare(sql){if(left>0&&sql.includes(match)){left--;throw sqliteError();}return real.prepare(sql);}};
- return ()=>{owner.database=real;};
+function failWrites(owner,match,times=Infinity,field='database'){
+ const real=owner[field];let left=times;
+ owner[field]={prepare(sql){if(left>0&&sql.includes(match)){left--;throw sqliteError();}return real.prepare(sql);}};
+ return ()=>{owner[field]=real;};
+}
+// Hold one generator step open until the test ends it the way a killed process would.
+function gateGenerator(f,name){
+ let reject,calls=0,open=true;const gate=new Promise((_,no)=>reject=no),real=f.generation.generator.bind(f.generation);
+ f.generation.generator=()=>{const generator=real();return {...generator,async [name](...args){calls++;if(open)await gate;return generator[name](...args);}};};
+ return {kill(error){open=false;reject(error);},started:()=>calls};
 }
 // A service stop kills Codex after dispatch has stopped, so the in-flight call rejects.
 async function quit(f,call){
@@ -60,6 +67,49 @@ for(const action of ['pause','stop'])test(`quitting after ${action} keeps the co
  assert.equal(saved.generationControl,action==='pause'?'paused':'stopped');assert.equal(f.control.calls.length,1);
  assert.equal((await row(f,id)).state,'idle');
  await control(f,id,'resume');await completed(f,id);assert.equal(f.control.calls.length,4);
+});
+
+test('quitting during frame-count preparation resumes it without a retry',async t=>{
+ const f=await productionFixture(t);f.control.hold=false;
+ const {kill,started}=gateGenerator(f,'recommend');
+ const id=await f.create('auto',{narrativeDetail:'balanced'});await until(()=>started()===1);
+ f.app.stopGeneration();kill(Error('killed'));
+ await until(async()=>(await jobs(f,id)).some(job=>job.kind==='prepare'&&job.interrupted===1));
+ assert.equal((await row(f,id)).state,'idle');
+ await f.restart();await until(async()=>(await f.read(id)).awaitingFrameCount,8000);
+ assert.equal(f.control.recommendations.length,1);
+});
+
+test('quitting with saved pages redraws only the interrupted pages',async t=>{
+ const f=await productionFixture(t),id=await f.create(5);await until(()=>f.control.calls.length===1);
+ f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
+ f.app.stopGeneration();for(const call of f.control.calls.slice(1))call.reject(Error('killed'));await until(()=>f.control.calls.every(call=>call.done));
+ await f.restart();
+ await until(async()=>{const s=await f.read(id);assert.doesNotMatch(s.error||'',/订阅|登录/);return s.state==='completed';},15000);
+ assert.deepEqual([0,1,2,3,4].map(page=>f.control.calls.filter(call=>call.page===page).length),[1,2,2,2,1]);
+});
+
+for(const action of ['pause','stop'])test(`quitting after ${action} during script work keeps the control, and Resume plans again`,async t=>{
+ const f=await productionFixture(t);f.control.hold=false;let fail;const gate=new Promise((_,reject)=>fail=reject);
+ f.control.beforeText=async kind=>{if(kind==='plan')await gate;};
+ const id=await f.create(3);await until(()=>f.control.plans.length===1);
+ await control(f,id,action);f.app.stopGeneration();f.control.beforeText=null;fail(Error('killed'));
+ await until(async()=>(await jobs(f,id)).some(job=>job.interrupted===1));
+ await f.restart();await production(f).tick();
+ assert.equal((await row(f,id)).state,'idle');assert.equal((await f.read(id)).generationControl,action==='pause'?'paused':'stopped');assert.equal(f.control.plans.length,1);
+ await control(f,id,'resume');await completed(f,id);assert.equal(f.control.plans.length,2);
+});
+
+test('a deterministic 4xx in script work during a stop stays failed without replaying',async t=>{
+ const f=await productionFixture(t);f.control.hold=false;
+ const {kill,started}=gateGenerator(f,'plan');
+ const id=await f.create(3);await until(()=>started()===1);
+ f.app.stopGeneration();kill(new ReaderError(400,'原文尚未在本地核对，请重新选择故事。'));
+ await until(async()=>(await jobs(f,id)).some(job=>job.state==='failed'));
+ await f.restart();await production(f).tick();await production(f).queue.settle();await production(f).tick();
+ const job=(await jobs(f,id)).find(job=>job.pool==='text');
+ assert.equal(job.state,'failed');assert.equal(job.interrupted,0);assert.equal(job.attempts,1);assert.equal(started(),1,'Only an explicit retry may run it again');
+ const saved=await f.read(id);assert.equal(saved.state,'failed');assert.match(saved.error,/尚未在本地核对/);
 });
 
 test('a blocked review during a stop stays failed and never repairs automatically',async t=>{
@@ -188,6 +238,18 @@ test('a failed failure write does not stop the queue or report a provider failur
  await completed(f,other);
  await database(f).prepare('UPDATE production_jobs SET lease_until=1 WHERE id=?').bind(job.id).run();
  await completed(f,id);
+});
+
+test('a failed checkpoint save during script work is not a provider failure and recovers',async t=>{
+ const logs=t.mock.method(console,'error',()=>{});
+ const f=await productionFixture(t),p=production(f);f.control.hold=false;
+ failWrites(p.repository,'SET document=?,state=?',1,'db');
+ const id=await f.create(3);await until(()=>logs.mock.calls.some(call=>call.arguments[0]==='production_job_unsaved'));
+ const job=(await jobs(f,id)).find(job=>job.pool==='text');
+ assert.equal(job.state,'running');assert.equal(job.error,null);
+ const saved=await f.read(id);assert.notEqual(saved.state,'failed');assert.equal(saved.error,null);
+ await database(f).prepare('UPDATE production_jobs SET lease_until=1 WHERE id=?').bind(job.id).run();
+ await completed(f,id);assert.equal(f.control.plans.length,2,'The unsaved plan is the only replay');
 });
 
 test('a publication write error recovers without paying for the image again',async t=>{
