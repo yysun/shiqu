@@ -1,4 +1,5 @@
-// Advance local story generation under one session lock, retaining every completed paid result.
+// Advance local story generation under one session lock, retaining every paid result it can save.
+// A failed save is rethrown for recovery rather than recorded as a provider failure.
 import {nextStep,planSchema,storyboardOutlineSchema,storyboardBatchSchema,selectionSchema,view,ReaderError,awaitingFrameCount,readerBooks} from './reader-model.ts';
 import type {Document,Plan,Selection,SessionRow,Storyboard,StoryboardOutline} from './reader-model.ts';
 import {persistenceError} from './reader-repository.ts';

@@ -41,12 +41,13 @@ This stays safe with two services on one library, because a service that loses i
 - [x] `server/production-queue.ts`: add the `terminal` option and classify stop-time failures. Separate the success write and make outcome-write errors log and leave the job running. Remove `lease_until` from `renew`, `isCurrent` and the success write. Skip own tokens in `recoverExpired`. Remove the self-stop. Make `retry` reset attempts on failed and queued rows and the pre-handler release decrement them. Update the file header.
 - [x] `lib/reader-model.ts`: add `readableStory`. `lib/reader-api.ts`: filter unreadable rows from `GET /sessions`.
 - [x] `server/reader-production.ts`: remove `fault`. Add the safe tick log, and log and continue in `close()`. Skip unreadable stories in `cycle` and `canRun`. Add the replay cap. Provide `terminal`. Clear the stop-time row failure and use 422 for blocked reviews in `script`. Make session renewal, `ownSession` and the publication write token-only. Have the session-save loop use real failures only. Update the file header.
+- [x] `lib/reader-engine.ts`, `lib/reader-repository.ts`: rethrow SQLite errors and report the original error through `onFailed`.
 - [x] `tests/shelf-generation.test.mjs:90`: expect `attempts` to be 1 after an explicit retry.
 - [x] `tests/queue-interruption.test.mjs`: controlled regressions for every acceptance criterion:
-  - Stop during image and script work, while active, paused and stopped; blocked review during stop.
+  - Stop during image, script and preparation work, while active, paused and stopped; stop with saved pages; blocked review and deterministic 4xx during stop.
   - Transient tick error, thrown claim write, tick error during `close()`.
   - Bad selection, `document='{}'`, `document='null'` and truncated JSON with a queued job, each with other stories completing and the shelf loading.
-  - Failed success write and failed failure write.
+  - Failed success write, failure write, engine checkpoint save and publication write.
   - Clock jump, late stale result across two queues, dead-runtime recovery, the cap, retry reset across a story, pre-handler release.
 - [x] `tests/codex-provider.test.mjs`: prove that killing a running fake Codex process with `stopCodexProcesses` rejects the in-flight call, and that the real `startDesktop` stop records an interruption, so the stop path above is the path real quits take.
 - [x] `README.md`: state that stopping the service resumes interrupted work and that automatic recovery is bounded.
@@ -61,7 +62,7 @@ Node 24.22.1 and pnpm per `.nvmrc`. Focused: `pnpm exec node --experimental-stri
 - **Replay cost:** a stop can replay an uncertain paid call, which the README already discloses. At most three attempts per job between manual retries.
 - **Lost outcome write:** a finished paid result is lost if its write fails, and recovery pays again. This needs a database failure at that moment and is bounded by the cap.
 - **Gemini quit:** in-flight fetches aren't aborted on stop, so a quit that kills Node before they drain recovers through lease expiry, up to 180 seconds later, rather than stop classification. Same outcome, later.
-- **Stop-time clear failing:** if the database also fails while `script()` clears the row, the story needs a manual retry.
+- **Stop-time clear failing:** if the database also fails while `script()` clears the row, the provider message, which can be the subscription or login text, stays visible until a manual retry.
 - **Hung handler:** a handler that never settles keeps its slot while the process lives. This is unchanged from today, and provider timeouts bound it.
 - **Rollback:** revert the commits. No persisted format changes, and older versions read the same rows.
 
@@ -83,3 +84,13 @@ TT: `pnpm test` on Node 24.22.1 ran 414 tests: 413 passed, 1 failed. The failure
 ET: flows 1-8 in `.docs/tests/test-queue-interruption-resilience.md` passed through `tests/queue-interruption.test.mjs`, `tests/production-queue.test.mjs` and `tests/codex-provider.test.mjs`, using controlled providers and a fake Codex process. No in-app browser pass: no UI changed. Laptop sleep is simulated by forcing leases past expiry; no real sleep, packaged desktop app or paid provider was used.
 
 VR round 1: incomplete. A failed engine checkpoint save reported a provider failure, and a deterministic 4xx in script work replayed after a stop. Both are fixed through `onFailed` and the engine's persistence rethrow, with regressions added for those cases plus preparation, saved pages, and script work while paused or stopped.
+
+CR passed: no major findings.
+CR risk: non-low — durable paid-work replay, concurrency and availability.
+CR review round: 3; reviewer: reused.
+
+TT and ET after eac5712, on Node 24.22.1: `pnpm test` ran 420 tests, 419 passed; the one failure is the same `tests/fast-first-story.test.mjs` assertion. Typecheck and lint pass. Flows 1-8 pass.
+
+VR passed: all acceptance criteria complete.
+VR risk: non-low — durable paid-work replay, concurrency and availability.
+VR review round: 2; reviewer: reused.
