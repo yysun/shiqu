@@ -70,8 +70,8 @@ CR review round: 3; reviewer: reused.
 
 全部实现/ET任务已完成，最终typecheck及本次源码eslint通过，当前full-test-recovery.log为最终完整TT；早先完整TT484/483/1旧hash失败，最新增加两项状态恢复回归。真实599dd00e…仅通过GET及临时只读标签复核，显示制作确认；无真实确认/推荐/绘图。隔离服务和验证标签已关闭，故障文件已清除，保留用户原有页面。
 
-最新UI增补待AR5：StoryCreationSetup去掉batch本地状态、切批effect和select。将保存batches.flatMap成{candidate,batchIndex,index}列表，key和choose使用原二元索引，选择高亮仍匹配intake.selected。服务器批次、排除和40批上限不变；按钮改“继续找故事”，新结果追加而非替换，不客户端去重不同出处同名。列表显示找到总数；内部“本批不足5”提示不再混入，空/没有更多时用面向候选的说明。首次与重选继续共用candidateList，不改队列/确认/原文准备语义。
-- [ ] 合并全部候选列表并移除批次下拉；真实组件渲染两批候选均出现且无select，IAB验证追加后第一批仍可见、点击第二批项提交batch1/index0并准备正确原文。
+最新UI增补（已通过AR5与CR4）：StoryCreationSetup去掉batch本地状态、切批effect和select。将保存batches.flatMap成{candidate,batchIndex,index}列表，key和choose使用原二元索引，选择高亮仍匹配intake.selected。服务器批次、排除和40批上限不变；按钮改“继续找故事”，新结果追加而非替换，不客户端去重不同出处同名。列表显示找到总数；内部“本批不足5”提示不再混入，空/没有更多时用面向候选的说明。首次与重选继续共用candidateList，不改队列/确认/原文准备语义。
+- [x] 合并全部候选列表并移除批次下拉；真实组件渲染两批候选均出现且无select，IAB验证追加后第一批仍可见、点击第二批项提交batch1/index0并准备正确原文。
 
 上一稳定版本完整TT已结束：486项485通过，唯一同一既有fast-first-story缓存hash断言；新增候选UI增补随后定向复验。
 
@@ -82,3 +82,10 @@ AR review round: 5; reviewer: reused.
 候选累计列表已实现：SSR同时显示两批3项并保留同名不同出处选项，select=0。IAB逐次找到庄周梦蝶、佝偻承蜩，同列保留两项；点击后者准确提交batch1/index0，原文为庄子·达生（仲尼适楚），只推荐一次，无新增分镜/图片；再继续查找无新增仍保留选中及confirming。证据all-candidates.json和all-candidates-phone.png。首次/重新选择共用列表，后端批次及200项上限不变。
 
 间距补充（用户截图明确）：compact流程增加专用class，顶部padding35→0，卡片margin-top22→10，仅影响待确认简洁布局。375px实测标题底部到流程卡片26px，无横向溢出，截图tighter-flow-phone.png。其余生成状态页留白不变。
+
+SS milestone b854bfb。CR passed: no major findings.
+CR risk: non-low — candidate identity and shared confirmation UI remain in scope.
+CR review round: 4; reviewer: reused.
+
+用户最后的局部UI调整：删除制作确认页两条重复的“确认前不会生成”说明，保留确认按钮和生成/暂停后的说明；“继续找故事”从点击请求开始到服务端discovering结束持续显示Loader2旋转图标、“正在查找…”及aria-busy，期间禁用按钮。本地finding只覆盖more请求，finally清理；查找结果与付费门槛不变。两项是可逆局部UI修改，无新架构决定。
+- [x] 删除两条重复说明，补充持续查找指示并验证375px显示及完成恢复。IAB临时增加网络延迟验证请求尚未返回已出现spin图标、aria-busy=true、disabled=true；原两项仍保留。证据find-loading-phone.png；临时网络设置随后恢复。

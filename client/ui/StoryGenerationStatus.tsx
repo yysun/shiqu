@@ -39,6 +39,6 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
   </section>
   {children}
   <button type="button" className="yu-generation-back" onClick={onBack}><BookOpen size={17} aria-hidden="true"/>返回书架<ArrowRight size={17} aria-hidden="true"/></button>
-  <p className="yu-generation-exit-note">{session.intake&&session.intake.phase!=='confirmed'?'选题和制作内容会保存在书架，确认前不会生成分镜或画面。':session.state==='completed'?'完整故事已保存在书架。':stopped||failed?'已保存的内容会保留，可在书架中管理和继续生成。':'离开后继续生成整篇，可随时暂停或从书架查看进度。'}</p>
+  {(!session.intake||session.intake.phase==='confirmed')&&<p className="yu-generation-exit-note">{session.state==='completed'?'完整故事已保存在书架。':stopped||failed?'已保存的内容会保留，可在书架中管理和继续生成。':'离开后继续生成整篇，可随时暂停或从书架查看进度。'}</p>}
  </div>;
 }
