@@ -2,7 +2,7 @@
 // Coordinate story discovery, resumable generation, and the reading sheets.
 
 import {useEffect, useRef, useState} from 'react';
-import {ArrowLeft, ArrowRight, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, Compass, Download, Feather, Heart, Leaf, Moon, Play, RotateCcw, ImageDown, Settings2, Sparkles, UserRound, X, Loader2, FileDown, RefreshCw, Trash2} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, Compass, Download, Feather, Leaf, Moon, Play, RotateCcw, ImageDown, Settings2, Sparkles, UserRound, X, Loader2, FileDown, FileArchive, RefreshCw, Trash2} from 'lucide-react';
 import {randomId, request} from './shared';
 import type {Story} from '@/lib/content';
 import {historicalBookTitle} from '@/lib/story-book';
@@ -37,7 +37,12 @@ import './reader.css';
 
 type Book = ReaderBook;
 type Progress = {storyId:string; page:number; saved?:number; updatedAt?:string|null};
-type ExportFormat='pdf'|'png';
+type ExportFormat='pdf'|'png'|'zip';
+const exportOptions={
+ pdf:{label:'下载 PDF',description:'逐幅阅读',Icon:FileDown},
+ png:{label:'下载 PNG',description:'一页总览',Icon:ImageDown},
+ zip:{label:'下载 ZIP',description:'分镜 + 原图',Icon:FileArchive},
+};
 const choices:Book[] = [...readerBooks,{id:'other',title:'其他',author:'书名或 URL',era:'自选',genre:'自选',note:'带上你自己的那本书'}];
 const moods:Selection['theme'][] = ['给我一个反转','人情冷暖','放下执念','聪明与糊涂','善意与误解','命运与选择','欲望与代价','勇气与成长','爱情与错过','幽默与讽刺','因果与报应','其他'];
 
@@ -68,7 +73,7 @@ export default function Reader(){
  const [shelfRefreshing,setShelfRefreshing]=useState(false);
  const [tab,setTab]=useState('discover'),[shelfTab,setShelfTab]=useState('recent'),[story,setStory]=useState<Story|null>(null),[page,setPage]=useState(0),[ended,setEnded]=useState(false),[saved,setSaved]=useState(false);
  const [loading,setLoading]=useState(true),[loadError,setLoadError]=useState(''),[toast,setToast]=useState(''),[source,setSource]=useState(false),[configure,setConfigure]=useState(false),[unavailable,setUnavailable]=useState(''),[settings,setSettings]=useState(false);
- const [selection,setSelection]=useState<Selection>({bookId:'liaozhai',theme:'给我一个反转',artStyle:'ink-pencil',productionPrompt:defaultProductionPrompt('给我一个反转'),length:'auto',narrativeDetail:'balanced',voice:false}),[feedback,setFeedback]=useState(''),[largeText,setLargeText]=useState(false),[install,setInstall]=useState<any>(null),[motion,setMotion]=useState('forward'),[creating,setCreating]=useState(false);
+ const [selection,setSelection]=useState<Selection>({bookId:'liaozhai',theme:'给我一个反转',artStyle:'ink-pencil',productionPrompt:defaultProductionPrompt('给我一个反转'),length:'auto',narrativeDetail:'balanced',voice:false}),[largeText,setLargeText]=useState(false),[install,setInstall]=useState<any>(null),[motion,setMotion]=useState('forward'),[creating,setCreating]=useState(false);
  const [deletedIds,setDeletedIds]=useState<string[]>([]),[deleteTarget,setDeleteTarget]=useState<{id:string;title:string}|null>(null),[deleting,setDeleting]=useState(false),[deleteError,setDeleteError]=useState('');
  const [favoriteBusy,setFavoriteBusy]=useState('');
  const [deletedStories,setDeletedStories]=useState<DeletedStory[]>([]),[recoveryOpen,setRecoveryOpen]=useState(false),[recoveryLoading,setRecoveryLoading]=useState(false),[recoveryError,setRecoveryError]=useState(''),[restoring,setRestoring]=useState(''),[undoTarget,setUndoTarget]=useState<DeletedStory|null>(null);
@@ -81,9 +86,10 @@ export default function Reader(){
  const selectedCandidate=suggestions.batches.flatMap(batch=>batch.stories).find(candidate=>isSelectedStory(selection,candidate));
  const hasSelectedStory=useRef(false);hasSelectedStory.current=!!selectedCandidate;
  const storyArt=useStoryArtRecommendation(configure&&!creating?selectedCandidate:undefined,{...selection,theme:selection.theme==='其他'?customTheme:selection.theme});
- const [exporting,setExporting]=useState<ExportFormat|null>(null),[exportProgress,setExportProgress]=useState(''),[pdfDownload,setPdfDownload]=useState<{url:string;filename:string;storyId:string}|null>(null),[pngDownload,setPngDownload]=useState<{url:string;filename:string;storyId:string}|null>(null);
+ const [exporting,setExporting]=useState<ExportFormat|null>(null),[exportProgress,setExportProgress]=useState(''),[pdfDownload,setPdfDownload]=useState<{url:string;filename:string;storyId:string}|null>(null),[pngDownload,setPngDownload]=useState<{url:string;filename:string;storyId:string}|null>(null),[zipDownload,setZipDownload]=useState<{url:string;filename:string;storyId:string}|null>(null);
  useEffect(()=>()=>{if(pdfDownload)URL.revokeObjectURL(pdfDownload.url);},[pdfDownload]);
  useEffect(()=>()=>{if(pngDownload)URL.revokeObjectURL(pngDownload.url);},[pngDownload]);
+ useEffect(()=>()=>{if(zipDownload)URL.revokeObjectURL(zipDownload.url);},[zipDownload]);
  const exportLock=useRef(false),styleRef=useRef<HTMLElement>(null),candidateRef=useRef<HTMLDivElement>(null),readingRef=useRef<HTMLDivElement>(null);
  const [scrollRequest,setScrollRequest]=useState<{target:'styles'|'candidates'|'reading';stamp:number}|null>(null);
  useEffect(()=>{if(!configure||!scrollRequest)return;const target=scrollRequest.target==='styles'?styleRef.current:scrollRequest.target==='reading'?readingRef.current:candidateRef.current;if(!target)return;target.focus({preventScroll:true});const sheet=target.closest('.yu-sheet');if(sheet)sheet.scrollTo({top:sheet.scrollTop+target.getBoundingClientRect().top-sheet.getBoundingClientRect().top-20,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});},[scrollRequest,configure]);
@@ -116,7 +122,7 @@ export default function Reader(){
 
  function track(kind:string,s:Story|null=story,index:number|null=null){if(!s||!visitor.current||!session.current)return;request(isGenerated(s)?'reader/sessions/'+s.id+'/events':'events','POST',{id:session.current+':'+s.id+':'+kind+(index===null?'':':'+index),visitor:visitor.current,session:session.current,storyId:s.id,kind,page:index,mode:'manual',cohort:'internal'}).catch(()=>{});}
  function remember(s:Story,index:number,isSaved:boolean){if(deleted.current.has(s.id))return;authoritativeProgress.current=reconcileReadingProgress(authoritativeProgress.current,[{storyId:s.id,page:index,saved:isSaved?1:0,updatedAt:new Date().toISOString()}]);setLastReadId(s.id);try{localStorage.setItem('shiqu-last-read',s.id);}catch{}setProgress(pr=>{const rows=[{storyId:s.id,page:index,saved:isSaved?1:0,updatedAt:new Date().toISOString()},...pr.filter(p=>p.storyId!==s.id)];localStorage.setItem('yiyu-reading',JSON.stringify(rows));return rows;});request(isGenerated(s)?'reader/sessions/'+s.id+'/progress':'me/progress','POST',{storyId:s.id,page:index,saved:isSaved}).catch(()=>{});}
- function open(s:Story,restart=false){if(deleted.current.has(s.id))return;setDrag(0);if(isGenerated(s))gen.resume(s.id,restart?0:undefined).catch(e=>notify(e.message));else gen.leave();setConfigure(false);setUnavailable('');const pr=progress.find(p=>p.storyId===s.id);const index=restart?0:Math.min(pr?.page||0,s.pages.length-1);setPage(index);setStory(s);setSaved(!!pr?.saved);setEnded(false);setFeedback('');setMotion('forward');seen.current=new Set();session.current=randomId();history.replaceState(null,'','/read?id='+encodeURIComponent(s.id));track('start',s);window.scrollTo(0,0);}
+ function open(s:Story,restart=false){if(deleted.current.has(s.id))return;setDrag(0);if(isGenerated(s))gen.resume(s.id,restart?0:undefined).catch(e=>notify(e.message));else gen.leave();setConfigure(false);setUnavailable('');const pr=progress.find(p=>p.storyId===s.id);const index=restart?0:Math.min(pr?.page||0,s.pages.length-1);setPage(index);setStory(s);setSaved(!!pr?.saved);setEnded(false);setMotion('forward');seen.current=new Set();session.current=randomId();history.replaceState(null,'','/read?id='+encodeURIComponent(s.id));track('start',s);window.scrollTo(0,0);}
  function home(){setDrag(0);gen.leave();setStory(null);setEnded(false);setSource(false);history.replaceState(null,'','/');}
  function turn(delta:number){if(!story)return;if(!ended&&page===0&&delta<0)return;if(ended){if(delta<0){setDrag(0);setPage(story.pages.length-1);setEnded(false);setMotion('back');}else if(delta>0)home();return;}if(delta>0&&!story.pages[page]?.image){notify('这一幅还在绘制，稍等一下。');return;}setMotion(delta>0?'forward':'back');if(page+delta>=story.pages.length){setEnded(true);if(seen.current.size===story.pages.length)track('complete');}else setPage(p=>Math.max(0,p+delta));}
  function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']=selection.theme){setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme==='其他'?customTheme:s.theme,theme==='其他'?customTheme:theme),storyTitle:undefined,source:undefined}));setConfigure(true);setUnavailable('');}
@@ -163,8 +169,27 @@ export default function Reader(){
 
  async function findStories(){setUnavailable('');setScrollRequest({target:'reading',stamp:Date.now()});if(await suggestions.find()&&!hasSelectedStory.current)setScrollRequest({target:'candidates',stamp:Date.now()});}
  function visitBatch(index:number){suggestions.goTo(index);setSelection(s=>({...s,storyTitle:undefined,source:undefined}));setUnavailable('');setScrollRequest({target:'candidates',stamp:Date.now()});}
- async function exportStory(format:ExportFormat){if(!story||exportLock.current)return;exportLock.current=true;setExporting(format);setExportProgress(format==='png'?'正在准备一页 PNG':'正在准备 PDF');try{if(format==='png'){const {downloadStoryPng}=await import('@/lib/reader-png');const result=await downloadStoryPng(story,setExportProgress);setPngDownload({...result,storyId:story.id});notify('一页 PNG 已准备好；可点“下载一页 PNG”再次下载。');}else{const {downloadStoryPdf}=await import('@/lib/reader-pdf');const result=await downloadStoryPdf(story,setExportProgress);setPdfDownload({...result,storyId:story.id});notify('PDF 已准备好；可点“下载 PDF”再次下载。');}}catch(e){notify(e instanceof Error?e.message:'导出失败，请保持联网后重试。');}finally{exportLock.current=false;setExporting(null);setExportProgress('');}}
- async function generate(){if(creating||!selectedCandidate)return;suggestions.cancel();setCreating(true);setUnavailable('');try{gen.leave();session.current=randomId();seen.current=new Set();setFeedback('');setPage(0);setSaved(false);setStory(null);setEnded(false);await gen.start({...selection,length:'auto',narrativeDetail:selection.narrativeDetail||'balanced',source:selectedCandidate.source,voice:false,theme:selection.theme==='其他'?customTheme:selection.theme});setConfigure(false);}catch(e){setUnavailable(e instanceof Error?e.message:'暂时无法开启故事');}finally{setCreating(false);}}
+ async function exportStory(format:ExportFormat){
+  if(!story||exportLock.current)return;
+  exportLock.current=true;setExporting(format);setExportProgress('正在准备'+format.toUpperCase());
+  try{
+   if(format==='zip'){
+    const {downloadStoryZip}=await import('@/lib/reader-zip');
+    const result=await downloadStoryZip(story,setExportProgress);setZipDownload({...result,storyId:story.id});
+    notify('ZIP 已准备好，包含分镜和全部原图。');
+   }else if(format==='png'){
+    const {downloadStoryPng}=await import('@/lib/reader-png');
+    const result=await downloadStoryPng(story,setExportProgress);setPngDownload({...result,storyId:story.id});
+    notify('一页 PNG 已准备好，可再次下载。');
+   }else{
+    const {downloadStoryPdf}=await import('@/lib/reader-pdf');
+    const result=await downloadStoryPdf(story,setExportProgress);setPdfDownload({...result,storyId:story.id});
+    notify('PDF 已准备好，可再次下载。');
+   }
+  }catch(e){notify(e instanceof Error?e.message:'导出失败，请保持联网后重试。');}
+  finally{exportLock.current=false;setExporting(null);setExportProgress('');}
+ }
+ async function generate(){if(creating||!selectedCandidate)return;suggestions.cancel();setCreating(true);setUnavailable('');try{gen.leave();session.current=randomId();seen.current=new Set();setPage(0);setSaved(false);setStory(null);setEnded(false);await gen.start({...selection,length:'auto',narrativeDetail:selection.narrativeDetail||'balanced',source:selectedCandidate.source,voice:false,theme:selection.theme==='其他'?customTheme:selection.theme});setConfigure(false);}catch(e){setUnavailable(e instanceof Error?e.message:'暂时无法开启故事');}finally{setCreating(false);}}
  async function deleteStory(){
   if(!deleteTarget||deleting)return;const target=deleteTarget;setDeleting(true);setDeleteError('');
   try{
@@ -207,8 +232,14 @@ export default function Reader(){
  function askDelete(id:string,title:string){setDeleteError('');setDeleteTarget({id,title});}
  function exportControl(format:ExportFormat,className:string){
   if(!story)return null;
-  const download=format==='png'?pngDownload:pdfDownload,Icon=format==='png'?ImageDown:FileDown;
-  return download?.storyId===story.id?<a className={className} href={download.url} download={download.filename}><Icon size={19}/><span>{format==='png'?'下载一页 PNG':'下载 PDF'}</span></a>:<button className={className} disabled={!!exporting||!story.pages.length||story.pages.some(p=>!p.image)} onClick={()=>exportStory(format)}>{exporting===format?<Loader2 size={19} className="spin"/>:<Icon size={19}/>}<span>{exporting===format?exportProgress:format==='png'?'一页输出（PNG）':'导出故事 PDF'}</span></button>;
+  const download=format==='zip'?zipDownload:format==='png'?pngDownload:pdfDownload,{label,description,Icon}=exportOptions[format];
+  const busy=exporting===format;
+  const content=<>{busy?<Loader2 size={20} className="spin"/>:<Icon size={20}/>}<span>{busy?(format==='zip'?'打包中…':'导出中…'):label}<small>{description}</small></span></>;
+  return download?.storyId===story.id?<a className={className} href={download.url} download={download.filename}>{content}</a>:<button className={className} aria-busy={busy} disabled={!!exporting||!story.pages.length||story.pages.some(p=>!p.image)} onClick={()=>exportStory(format)}>{content}</button>;
+ }
+ function exportStatus(showReadiness=true){
+  if(!story)return null;
+  return <p className="yu-export-status" role="status">{exportProgress||(showReadiness&&story.pages.some(p=>!p.image)?`画面已完成 ${story.pages.filter(p=>p.image).length} / ${story.pages.length} 幅，全部生成后可下载。`:'')}</p>;
  }
  const allStories=[...stories,...gen.sessions.flatMap(s=>s.story&&!stories.some(x=>x.id===s.id)?[s.story]:[])].filter(s=>!deletedIds.includes(s.id));
  const heroes=recentHeroes(allStories,deletedIds.includes(lastReadId)?'':lastReadId,progress.filter(p=>!deletedIds.includes(p.storyId)));
@@ -228,10 +259,10 @@ export default function Reader(){
  {ended&&<div className="yu-scene-shade"/>}
  {!ended&&!current?.image&&<div className="yu-drawing" role="status"><div className="yu-drawing-orbit"><Feather size={35} strokeWidth={1}/></div><span>{gen.error?'画笔暂停了一下':'这一幅，正在展开'}</span><small>{gen.error||gen.active?.stage||'正在为你绘制画面'}</small>{gen.error&&gen.active&&<StoryRetry session={gen.active} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}
  <header className="yu-reader-top"><div className="yu-progress" aria-label={`第${page+1}幅，共${story.pages.length}幅`}>{story.pages.map((_,i)=><span key={i} className={i<=page?'read':''}/>)}</div><div className="yu-reader-heading"><button className="yu-glass" onClick={home} aria-label="返回发现"><ArrowLeft size={21}/></button><div><strong>{story.title}</strong><span>{bookName(story)}</span></div><button className="yu-glass" onClick={bookmark} aria-label={saved?'取消收藏':'收藏故事'}><Bookmark size={20} fill={saved?'currentColor':'none'}/></button><button className="yu-glass" onClick={()=>setSettings(true)} aria-label="阅读偏好"><Settings2 size={19}/></button></div></header>
- {ended?<StoryEndingSurface surfaceRef={endingRef} onTurn={turn} onDrag={setDrag} drag={drag}><div className="yu-ending-mark"><Leaf size={32} strokeWidth={1.3}/></div><p className="yu-kicker">故事到这里，余味留给你</p><h1>{story.reflection}</h1><div className="yu-end-line"/><p>有些故事的最后一页，<br/>其实在你的生活里。</p><div className="yu-feelings"><button disabled={!!feedback} aria-pressed={feedback==='positive'} onClick={()=>{setFeedback('positive');track('feedback_positive');}}><Heart size={18} fill={feedback==='positive'?'currentColor':'none'}/>有点余味</button><button disabled={!!feedback} aria-pressed={feedback==='negative'} onClick={()=>{setFeedback('negative');track('feedback_negative');}}>再想想</button></div><button className="yu-primary" onClick={()=>{home();choose();}}><Sparkles size={18}/>开启下一篇<ArrowRight size={19}/></button><div className="yu-ending-navigation"><button onClick={()=>turn(-1)}><ChevronLeft size={17}/>返回上一幅</button><button onClick={()=>open(story,true)}><RotateCcw size={16}/>从头再看</button></div>{exportControl('pdf','yu-ending-pdf')}{exportControl('png','yu-ending-pdf')}<button className="yu-end-source" onClick={()=>setSource(true)}>读一读原文 <ChevronRight size={13}/></button></StoryEndingSurface>:<>
+ {ended?<StoryEndingSurface surfaceRef={endingRef} onTurn={turn} onDrag={setDrag} drag={drag}><div className="yu-ending-mark"><Leaf size={32} strokeWidth={1.3}/></div><p className="yu-kicker">故事到这里，余味留给你</p><h1>{story.reflection}</h1><div className="yu-end-line"/><p>有些故事的最后一页，<br/>其实在你的生活里。</p><button className="yu-primary" onClick={()=>open(story,true)}><RotateCcw size={18}/>从头再看<ArrowRight size={19}/></button><div className="yu-ending-navigation"><button onClick={()=>turn(-1)}><ChevronLeft size={17}/>返回上一幅</button><button onClick={()=>{home();choose();}}><Sparkles size={16}/>开启下一篇</button></div><section className="yu-ending-downloads" aria-label="下载故事"><h2>把故事带走</h2><div className="yu-ending-formats">{exportControl('pdf','yu-ending-download')}{exportControl('png','yu-ending-download')}{exportControl('zip','yu-ending-download yu-download-zip')}</div>{exportStatus()}</section><button className="yu-end-source" onClick={()=>setSource(true)}>读一读原文 <ChevronRight size={13}/></button></StoryEndingSurface>:<>
  <StoryPageSurface onTurn={turn} onDrag={setDrag} onToggleMetadata={()=>setMetadataVisible(visible=>!visible)}/>
  <div className={'yu-scene-caption '+(largeText?'large':'')} key={'caption-'+page}><div className="yu-scene-number"><span>{String(page+1).padStart(2,'0')}</span><i/><span>{String(story.pages.length).padStart(2,'0')}</span>{isGenerated(story)&&gen.busy&&<span className="yu-scene-generation" role="status"><Loader2 size={12} className="spin"/>{gen.active?.stage||'正在生成'}</span>}</div><p>{current?.caption}</p>{gen.error&&current?.image&&<div className="yu-reader-error">{gen.error}{gen.active&&<StoryRetry session={gen.active} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}</div>
- <footer className="yu-reader-bottom"><button className="yu-source-button" onClick={()=>setSource(true)}><BookOpen size={17}/><span>原文</span></button><span className="yu-style-label" aria-label="本篇主题与画风"><Feather size={17} aria-hidden="true"/><span>{story.theme&&`${story.theme} · `}{isGenerated(story)?(story.artStyleLabel||'未记录画风'):'未记录画风'}</span></span><div className="yu-arrows"><button className="yu-glass" onClick={()=>page===0?home():turn(-1)} aria-label={page===0?'返回主页':'上一幅'}><ChevronLeft size={22}/></button><button className="yu-next" onClick={()=>turn(1)} aria-label={page===story.pages.length-1?'读完，回味':'下一幅'}>{page===story.pages.length-1?<Leaf size={20}/>:<ChevronRight size={23}/>}</button></div></footer>
+ <footer className="yu-reader-bottom"><button className="yu-source-button" onClick={()=>setSource(true)}><BookOpen size={17}/><span>原文</span></button><span className="yu-style-label" aria-label="本篇主题与画风"><Feather size={17} aria-hidden="true"/><span>{story.theme&&`${story.theme} · `}{isGenerated(story)?(story.artStyleLabel||'未记录画风'):'未记录画风'}</span></span><div className="yu-arrows"><button className="yu-reader-restart" onClick={()=>open(story,true)}>从头看</button><button className="yu-glass" onClick={()=>page===0?home():turn(-1)} aria-label={page===0?'返回主页':'上一幅'}><ChevronLeft size={22}/></button><button className="yu-next" onClick={()=>turn(1)} aria-label={page===story.pages.length-1?'读完，回味':'下一幅'}>{page===story.pages.length-1?<Leaf size={20}/>:<ChevronRight size={23}/>}</button></div></footer>
  </>}
  </main>:<>
  <header className="yu-header"><button className="yu-logo" onClick={()=>setTab('discover')} aria-label="拾趣，返回发现"><span><Feather size={22}/></span><strong>拾趣</strong><i/></button><span className="yu-header-note">片刻入戏，久久回味</span><button className="yu-avatar" onClick={()=>setTab('me')} aria-label="我的"><UserRound size={19}/></button></header>
@@ -273,7 +304,7 @@ export default function Reader(){
  {undoTarget&&!recoveryOpen&&<div className="yu-undo-notice" role="status"><div><span>已删除《{undoTarget.title}》</span>{recoveryError&&<small role="alert">{recoveryError}</small>}</div><button type="button" disabled={!!restoring} onClick={()=>void restoreStory(undoTarget)}><RotateCcw size={17}/>{restoring?'恢复中…':'撤销删除'}</button><button type="button" className="yu-undo-dismiss" aria-label="关闭撤销提示" disabled={!!restoring} onClick={()=>setUndoTarget(null)}><X size={18}/></button></div>}
  {deleteTarget&&<Sheet title="删除这篇故事？" onClose={()=>{if(!deleting)setDeleteTarget(null);}}><div className="yu-delete-confirm"><h3>{deleteTarget.title}</h3><p>将从首页、书架和收藏中移除。故事文件和阅读进度会保留，可撤销删除，也可在「我的 → 已删除的故事」中恢复。</p>{deleteError&&<p role="alert">{deleteError}</p>}<div><button className="yu-delete-cancel" disabled={deleting} onClick={()=>setDeleteTarget(null)}>保留故事</button><button className="yu-delete-submit" disabled={deleting} onClick={deleteStory}>{deleting?'正在删除…':'删除故事'}</button></div></div></Sheet>}
  {gen.controlError&&<div className="yu-toast" role="alert">{gen.controlError}</div>}
- {settings&&<Sheet title="舒服地读" onClose={()=>setSettings(false)}><div className="yu-setting-row"><div><strong>大一点的文字</strong><p>让画面上的旁白更容易读</p></div><button className={'yu-switch '+(largeText?'on':'')} role="switch" aria-checked={largeText} aria-label="大一点的文字" onClick={()=>{setLargeText(!largeText);localStorage.setItem('yiyu-large-text',largeText?'0':'1');}}><i/></button></div>{story&&<div className="yu-pdf-setting">{exportControl('pdf','yu-settings-download')}{exportControl('png','yu-settings-download')}<div className="yu-reading-generation-progress"><p role="status">{story.pages.some(p=>!p.image)?`画面已完成 ${story.pages.filter(p=>p.image).length} / ${story.pages.length} 幅，全部生成后可导出。`:'PDF 一幅一页；PNG 将全部画面、旁白和余味排成一页总览。'}</p>{gen.active?.id===story.id&&<StoryGenerationControl session={gen.active} busy={!!gen.controlBusy} onControl={gen.control}/>}</div></div>}{story&&<section className="yu-saved-prompt" aria-label="本篇制作要求"><h3>制作要求</h3><p>{isGenerated(story)?(story.productionPrompt||'这篇故事未保存自定义制作要求。'):'这是体验样篇，没有读者自定义的制作要求。'}</p>{isGenerated(story)&&story.productionPrompt&&<small>生成时使用的要求，已随这篇故事保存。</small>}</section>}{story&&<StoryScript story={story}/>}<p className="yu-settings-note">轻点画面左侧边缘返回上一页，右侧边缘进入下一页；鼠标左右键均遵循此规则，中间区域不翻页。总结页左侧返回最后一幅，右侧回到打开故事前的主页或书架。也可滑动、使用滚轮或箭头翻页。</p></Sheet>}
+ {settings&&<Sheet title="舒服地读" onClose={()=>setSettings(false)}><div className="yu-setting-row"><div><strong>大一点的文字</strong><p>让画面上的旁白更容易读</p></div><button className={'yu-switch '+(largeText?'on':'')} role="switch" aria-checked={largeText} aria-label="大一点的文字" onClick={()=>{setLargeText(!largeText);localStorage.setItem('yiyu-large-text',largeText?'0':'1');}}><i/></button></div>{story&&<div className="yu-pdf-setting">{exportControl('pdf','yu-settings-download')}{exportControl('png','yu-settings-download')}{exportControl('zip','yu-settings-download')}{exportStatus(false)}<div className="yu-reading-generation-progress"><p role="status">{story.pages.some(p=>!p.image)?`画面已完成 ${story.pages.filter(p=>p.image).length} / ${story.pages.length} 幅，全部生成后可导出。`:'PDF 逐幅阅读；PNG 一页总览；ZIP 包含分镜旁白、画面提示词和全部原图。'}</p>{gen.active?.id===story.id&&<StoryGenerationControl session={gen.active} busy={!!gen.controlBusy} onControl={gen.control}/>}</div></div>}{story&&<section className="yu-saved-prompt" aria-label="本篇制作要求"><h3>制作要求</h3><p>{isGenerated(story)?(story.productionPrompt||'这篇故事未保存自定义制作要求。'):'这是体验样篇，没有读者自定义的制作要求。'}</p>{isGenerated(story)&&story.productionPrompt&&<small>生成时使用的要求，已随这篇故事保存。</small>}</section>}{story&&<StoryScript story={story}/>}<p className="yu-settings-note">轻点画面左侧边缘返回上一页，右侧边缘进入下一页；鼠标左右键均遵循此规则，中间区域不翻页。总结页左侧返回最后一幅，右侧回到打开故事前的主页或书架。也可滑动、使用滚轮或箭头翻页。</p></Sheet>}
  {toast&&<div className="yu-toast" role="status"><Check size={16}/>{toast}</div>}
  </div></div>;
 }
