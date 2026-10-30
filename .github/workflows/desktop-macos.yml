@@ -68,16 +68,18 @@ jobs:
       - name: Native tests
         run: |
           if [[ "$EDITION" == lite ]]; then
-            pnpm run desktop:test:lite
+            # Direct Cargo tests need the same config override as the Lite Tauri build.
+            TAURI_CONFIG="$(cat src-tauri/tauri.lite.conf.json)" pnpm run desktop:test:lite
           else
             pnpm run desktop:test
           fi
       - name: Build unsigned Standard DMG
         if: matrix.edition == 'standard'
-        run: pnpm run desktop:build --ci --no-sign --bundles dmg
+        # Retain the .app for the packaged-resource smoke check; dmg alone removes it.
+        run: pnpm run desktop:build --ci --no-sign --bundles app,dmg
       - name: Build unsigned Lite DMG
         if: matrix.edition == 'lite'
-        run: pnpm run desktop:build:lite --ci --no-sign --bundles dmg
+        run: pnpm run desktop:build:lite --ci --no-sign --bundles app,dmg
       - name: Smoke test the packaged application resources
         run: |
           app_name=Shiqu
