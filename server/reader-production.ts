@@ -200,16 +200,17 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  // otherwise hand that free worker to other work for a full paid draw. The age limit bounds the hold.
  private async viewedPublicationPending(){
   const now=this.clock(),recent=now-publicationYieldMs;
-  return !!await this.database.prepare(`SELECT 1 FROM production_jobs p
-   JOIN production_jobs parent ON parent.id=json_extract(p.dependencies,'$[0]')
-   JOIN reader_sessions s ON s.id=p.session_id AND s.user_id=p.owner_id
-   WHERE p.kind='image-publish' AND (p.state='running' AND p.updated_at>? OR p.state='queued' AND parent.state='succeeded' AND parent.updated_at>?)
-   AND s.generation_control='active'
-   AND EXISTS(SELECT 1 FROM production_demand d WHERE d.session_id=s.id AND d.owner_id=s.user_id AND d.runtime_id=? AND d.expires_at>?)
+  // CROSS JOIN fixes the order: start from the few live viewers rather than scanning every job.
+  return !!await this.database.prepare(`SELECT 1 FROM production_demand d
+   CROSS JOIN reader_sessions s ON s.id=d.session_id AND s.user_id=d.owner_id
+   CROSS JOIN production_jobs p ON p.session_id=s.id AND p.owner_id=s.user_id
+   CROSS JOIN production_jobs parent ON parent.id=json_extract(p.dependencies,'$[0]')
+   WHERE d.runtime_id=? AND d.expires_at>? AND s.generation_control='active'
+   AND p.kind='image-publish' AND (p.state='running' AND p.updated_at>? OR p.state='queued' AND parent.state='succeeded' AND parent.updated_at>?)
    AND EXISTS(SELECT 1 FROM production_jobs i WHERE i.session_id=s.id AND i.owner_id=s.user_id AND i.kind='image' AND i.state='queued' AND i.priority<=?)
    AND NOT EXISTS(SELECT 1 FROM production_jobs f WHERE f.session_id=s.id AND f.owner_id=s.user_id AND f.state='failed')
    AND NOT EXISTS(SELECT 1 FROM library_deletions l WHERE l.story_id=s.id AND l.user_id=s.user_id) LIMIT 1`)
-   .bind(recent,recent,this.runtimeId,now,productionReadAhead).first();
+   .bind(this.runtimeId,now,recent,recent,productionReadAhead).first();
  }
  // Publication needs the bytes to match the saved type; a reference only needs what providers accept.
  private async fileLost(key:string,strict=false){

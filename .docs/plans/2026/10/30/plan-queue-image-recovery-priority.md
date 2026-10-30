@@ -4,11 +4,11 @@ Requirement: `.docs/reqs/2026/10/30/req-queue-image-recovery-priority.md`
 E2E spec: `.docs/tests/test-queue-image-recovery-priority.md`
 
 Risk: non-low. Retry can now pay for work that previously could not re-run, and scheduling order changes.
-Story base: c49d53ac4194e37ff2468161777ed829cafd23cc. Preserve the unrelated release, client UI and story-revisions changes in the shared checkout. `lib/reader-model.ts` overlaps with story-revisions on the `SessionView` line, so only this story's `retryStage` change is staged there. Final verification runs from a clean worktree of the commit.
+Story base: 9d429dfc4194e37ff2468161777ed829cafd23cc. Preserve the unrelated release, client UI and story-revisions changes in the shared checkout. `lib/reader-model.ts` overlaps with story-revisions on the `SessionView` line, so only this story's `retryStage` change is staged there. Final verification runs from a clean worktree of the commit.
 
 ## Decisions
 
-**Lost files are classified at the point of use, and consent comes from the retry.** Publication and the image handler both check the file and throw `ReaderError(409,lostImageMessage)` when it is missing or its bytes aren't a valid image. A read that throws stays a transient failure, as it does today. The saved message is what marks the job, because the job table has no other place for it and no migration is allowed. The snapshot prefers a marked job over other failed jobs, and reports `retryMayCharge:true` and a new `retryStage:'redraw'`, so the reader is told before clicking. `StoryRetry` already falls through to the right copy for that state, so no UI change is needed.
+**Lost files are classified at the point of use, and consent comes from the retry.** Publication and the image handler both check the file and throw `ReaderError(409,lostImageMessage)` when it is missing or its bytes aren't a valid image. A saved image result that isn't valid at all also counts as lost, replacing its old 502: that failure is deterministic and already stuck, and it can only pay after the warned retry. Rows with the old 502 or 503 text aren't marked, so their first retry re-runs publication and marks them, and the second redraws after showing the warning. A read that throws stays a transient failure, as it does today. The saved message is what marks the job, because the job table has no other place for it and no migration is allowed. The snapshot prefers a marked job over other failed jobs, and reports `retryMayCharge:true` and a new `retryStage:'redraw'`, so the reader is told before clicking. `StoryRetry` already falls through to the right copy for that state, so no UI change is needed.
 
 **Only a person can trigger a redraw.** `runQueuedStoryGeneration` and `runStoryGeneration` retry a failed story automatically up to twice, exempting only `retryStage:'review'`. Both stop on `'redraw'` too. Otherwise a reader-mode story, still reachable through `POST production-control {action:'reader'}`, would pay for redraws nobody asked for.
 
@@ -29,7 +29,7 @@ The minimum across demands is still used, and the existing per-tick upsert appli
 - a publication that is running, or queued with a succeeded parent
 - a queued image with `priority<=productionReadAhead`
 
-A publication only counts while it is under 15 seconds old, by the `updated_at` of the running publication or of its succeeded parent. That is the bound on the hold: viewer demand can't provide one, because an open reader keeps renewing it, and a stuck publication would otherwise stall image work for every story. Priorities at or below `productionReadAhead` only come from viewer demand. The rule sits in `canRun`'s non-local block before `ownSession`, so a refused job's story doesn't take a session lock. While a viewed anchor is still drawing, other stories may use spare workers, because nothing is held then. Running work is never cancelled.
+The query starts from live viewers with a fixed join order, because scanning every job would block the event loop on a large library. A publication only counts while it is under 15 seconds old, by the `updated_at` of the running publication or of its succeeded parent. That is the bound on the hold: viewer demand can't provide one, because an open reader keeps renewing it, and a stuck publication would otherwise stall image work for every story. Priorities at or below `productionReadAhead` only come from viewer demand. The rule sits in `canRun`'s non-local block before `ownSession`, so a refused job's story doesn't take a session lock. While a viewed anchor is still drawing, other stories may use spare workers, because nothing is held then. Running work is never cancelled.
 
 **The observer sends priority, not work.** `observeStoryGeneration` gets an optional `focus:{viewerId,page}`, where `page` is a getter. Only when a snapshot shows a background, active story that isn't failed, completed or waiting on a frame count, it sends `POST /production` with `retry:false` on a page change or every 10 seconds. The page is clamped to the story's last page, and is 0 until page 0 is published, because the reader's page can be left over from another story. The POST runs outside the poll with a single in-flight guard, so a slow or hung request can't stop status updates, and its errors are swallowed. `finally` waits at most 2 seconds for it using the injected `sleep`, then sends `DELETE` if it ever posted. The server's existing lease expiry covers a lost connection. The poll itself stays a one-argument GET, so existing observation tests still hold. A background active story is already authorised for every page, so this adds no paid work.
 
@@ -47,7 +47,7 @@ A publication only counts while it is under 15 seconds old, by the `updated_at` 
 
 ## Validation
 
-Node 24.22.1 and pnpm. Focused: `node --experimental-strip-types --test tests/queue-image-recovery.test.mjs tests/reader-production-client.test.mjs`. Full suite, typecheck and lint belong to TT. The hook wiring runs in the in-app browser only if the preview can use isolated data and a controlled provider. Otherwise it is covered by typecheck plus the observer tests, and this is disclosed.
+Node 24.22.1 and pnpm. Focused: `node --experimental-strip-types --test tests/queue-image-recovery.test.mjs tests/reader-production-client.test.mjs`. Full suite, typecheck and lint belong to TT. The hook wiring runs in the in-app browser against `scripts/dev.mjs` with a temporary `SHIQU_DATA_DIR` and a fake Codex that never finishes work.
 
 ## Risks
 
@@ -62,3 +62,7 @@ Node 24.22.1 and pnpm. Focused: `node --experimental-strip-types --test tests/qu
 AR passed: no blocking architecture flaws.
 AR risk: non-low — paid redraws and scheduling order.
 AR review round: 2; reviewer: reused.
+
+SS milestone: 8db844d (queue, coordinator, client, regressions, README). Follow-ups after CR round 1: tests for the first-image and read-ahead clauses, invalid saved results, file-check strictness and the legacy client guard; the yield query now starts from live viewers.
+
+Browser check on Node 24.22.1: an open story reports its page on opening and every 10 seconds alongside normal polling; Pause stops reports and ends the viewer; Resume restores it; closing removes the demand row while the story keeps running. Temporary library and fake Codex, so no paid call and no change to the real library.

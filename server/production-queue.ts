@@ -2,6 +2,7 @@
 // outputs; lease tokens prevent late completions from overwriting a replacement attempt.
 // Wall-clock expiry only reclaims attempts from dead services, so a live one survives sleep.
 // Stop-time and persistence errors recover as interruptions, never as job failures.
+// Finished jobs re-run only through an explicit rerun, which the caller must have consent for.
 import {createHash,randomUUID} from 'node:crypto';
 import {persistenceError} from '../lib/reader-repository.ts';
 import type {Database} from '../lib/reader-repository.ts';

@@ -4,8 +4,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {readdirSync} from 'node:fs';
-import {rm,writeFile} from 'node:fs/promises';
+import {readFile,rm,writeFile} from 'node:fs/promises';
 import {productionFixture,until} from './fixtures/production.mjs';
+import {runStoryGeneration} from '../lib/reader-generation.ts';
 const owner='docker-local-owner';
 const production=f=>f.app.services.production;
 const database=f=>f.app.services.database;
@@ -72,6 +73,28 @@ for(const damage of ['missing','corrupt'])test(`a ${damage} first image fails th
  assert.notEqual(after.images[0],before.images[0]);assert.ok(after.images.every(Boolean));
 });
 
+test('an invalid saved image result is treated as lost, and redraws only on explicit retry',async t=>{
+ const f=await productionFixture(t),id=await f.create(2),handlers=production(f).queue.options.handlers,run=handlers.image.run;
+ let broken=true;handlers.image.run=async(...args)=>{const result=await run(...args);if(!broken)return result;broken=false;return {...result,value:'/api/reader/media/elsewhere/0.png'};};
+ await until(()=>f.control.calls.length===1);
+ f.control.hold=false;f.control.calls[0].resolve();await failed(f,id);
+ assert.equal((await f.read(id)).retryStage,'redraw');await settled(f);assert.equal(f.control.calls.length,1);
+ await retry(f,id);await completed(f,id);assert.equal(pageCalls(f,0),2);
+});
+
+test('publication requires the bytes to match the file type; a reference only needs a usable image',async t=>{
+ const jpeg=new Uint8Array(await readFile('tests/fixtures/images/portrait.jpg'));
+ const f=await singleWorker(t),id=await f.create(3);await until(()=>f.control.calls.length===1);
+ loseFirstFile(f,0,()=>({body:jpeg,contentType:'image/png',async arrayBuffer(){return jpeg.slice().buffer;}}));
+ f.control.calls[0].resolve();await failed(f,id);assert.equal((await f.read(id)).retryStage,'redraw');
+ const second=await f.create(3);await until(()=>f.control.calls.length===2);
+ f.control.calls[1].resolve();await until(()=>f.control.calls.length===3);
+ // A legacy reference whose extension doesn't match its bytes works with providers today.
+ await writeFile(await artifact(f,second,0),jpeg);
+ f.control.calls[2].resolve();await until(()=>f.control.calls.length===4);
+ assert.notEqual((await f.read(second)).state,'failed');
+});
+
 test('a file that comes back before the retry is published without paying again',async t=>{
  const f=await productionFixture(t),id=await f.create(2);await until(()=>f.control.calls.length===1);
  const lost=loseFirstFile(f,0,unreadable.missing);
@@ -112,6 +135,25 @@ test('an open story draws its first image, current page and read-ahead ahead of 
  assert.deepEqual(order,['o0','v0','v3','v4','v5','v6','v7','v8','v9']);
 });
 
+test("a viewed first image goes ahead of an older story's waiting first image",async t=>{
+ const f=await singleWorker(t),busy=await f.create(3);await until(()=>f.control.calls.length===1);
+ const older=await f.create(3);await until(async()=>(await jobs(f,older)).some(job=>job.kind==='image'));
+ const viewed=await f.create(3);await until(async()=>(await jobs(f,viewed)).some(job=>job.kind==='image'));
+ await f.demand(viewed,crypto.randomUUID(),1);
+ assert.deepEqual(await drawOrder(f,{[busy]:'b',[older]:'o',[viewed]:'v'},2),['b0','v0']);
+});
+
+test('only the current page and six after it go ahead of unread stories',async t=>{
+ const f=await productionFixture(t),other=await f.create(4);await until(()=>f.control.calls.length===1);
+ const viewed=await f.create(12);await until(async()=>(await jobs(f,viewed)).some(job=>job.kind==='image'));
+ await f.demand(viewed,crypto.randomUUID(),3);await production(f).tick();
+ const priority=async(id,page)=>(await jobs(f,id)).find(job=>job.kind==='image'&&JSON.parse(job.payload).page===page).priority;
+ assert.equal(await priority(viewed,0),0);assert.equal(await priority(viewed,3),0);assert.equal(await priority(viewed,9),6);
+ assert.equal(await priority(viewed,2),9,'A page behind the reader keeps background order');
+ assert.equal(await priority(viewed,10),17,'A page past the read-ahead keeps background order');
+ assert.equal(await priority(other,0),7,"An unread story's first page sorts behind the read-ahead");
+});
+
 test('moving to another page changes what comes next without cancelling the running page',async t=>{
  const f=await singleWorker(t),id=await f.create(12);await until(()=>f.control.calls.length===1);
  const viewer=crypto.randomUUID();await f.demand(id,viewer,3);
@@ -137,6 +179,13 @@ test('without a reader, order stays by page across stories',async t=>{
  const order=await drawOrder(f,{[older]:'o',[newer]:'n'},3);
  assert.deepEqual(order.slice(0,2),['o0','n0'],"A new story's first page comes before an older story's second");
  assert.equal(order[2].slice(1),'1');
+});
+
+test('the legacy client never retries a lost image automatically',async()=>{
+ const lost={id:'story',state:'failed',retryStage:'redraw',retryAllowed:true,retryMayCharge:true,error:'这幅图片的文件已丢失或损坏。',stage:'drawing',ready:0,selection:{length:2},story:null};
+ let posts=0;
+ const result=await runStoryGeneration({sessionId:'story',throughPage:1,retries:new Map(),isActive:()=>true,onSession:()=>{},sleep:async()=>{},request:async(path,method)=>{if(method==='POST')posts++;return lost;}});
+ assert.match(result,/已丢失/);assert.equal(posts,0);
 });
 
 for(const state of ['failed','paused','stopped'])test(`a non-retry request against a ${state} story starts nothing`,async t=>{
