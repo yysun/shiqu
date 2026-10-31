@@ -7,13 +7,13 @@ pnpm run test:startup
 pnpm run test:pty
 ```
 
-`test:pty` requires Python 3.9+ on Linux/macOS and uses only the standard library. Windows runs the real CLI startup and database matrix; POSIX terminal tests are explicitly skipped there. `pnpm test` includes both suites. Tests never need API credentials or an installed Codex CLI.
+`test:pty` requires Python 3.9+ on Linux/macOS and uses only the standard library. On Windows, use the CLI startup and database matrix; POSIX terminal tests are explicitly skipped there. `pnpm test` includes both suites. Tests never need API credentials or an installed Codex CLI.
 
 ## Isolation
 
 Every new fixture owns an `os.tmpdir()` / Python temporary directory. CLI children receive an allowlisted environment, with HOME, USERPROFILE, APPDATA and XDG locations redirected into that fixture. No developer `.env`, shell API key, personal settings database or library is inherited. External fetch is disabled in CLI children; Codex in PTY tests points to a fixture executable that fails if invoked. HTTP assertions use loopback only.
 
-Fault injection, migration termination, SQL triggers, chmod and cleanup apply only to generated fixture paths. Databases and child processes close before their temporary directories are removed. Existing user databases are neither opened nor copied. No database artifacts or credentials are uploaded by CI.
+Fault injection, migration termination, SQL triggers, chmod and cleanup apply only to generated fixture paths. Databases and child processes close before their temporary directories are removed. Existing user databases are neither opened nor copied. Tests do not upload database artifacts or credentials.
 
 ## Matrix
 
@@ -29,12 +29,18 @@ Fault injection, migration termination, SQL triggers, chmod and cleanup apply on
 | SQLite lock and recovery | Open/save/reset blocked by another connection; bounded failure, unchanged saved state and successful operations after unlock |
 | Failed writes and migration | Trigger failure after a key write, trigger failure after migration DDL, killed migrator after real uncommitted DDL; original settings/key/schema recovered, integrity checked and clean upgrade succeeds |
 | Storage unavailable | Real POSIX permission denial for a non-root user; portable file-as-directory obstruction on every OS; no sibling data overwritten |
-| Native compatibility | Existing Rust tests cover TS/Rust interchange, v1 migration, stale-view CAS, key privacy and validation. `test:startup` itself exercises Node on each native OS, not the Tauri UI. |
+| Native compatibility | Existing Rust tests cover TS/Rust interchange, v1 migration, stale-view CAS, key privacy and validation. `test:startup` itself exercises Node on the current OS, not the Tauri UI. |
 
-POSIX permission assertions skip explicitly under Windows or root, where those permission semantics do not apply. They run on normal Linux/macOS CI users. A killed transaction is a process-crash test, not a simulation of a machine losing power.
+POSIX permission assertions skip explicitly under Windows or root, where those permission semantics do not apply. A killed transaction is a process-crash test, not a simulation of a machine losing power.
 
-## CI
+## Before npm publication
 
-[Startup configuration](../.github/workflows/startup-tests.yml) runs the same `pnpm run test:startup` command on Ubuntu, macOS and Windows, and `pnpm run test:pty` on Ubuntu/macOS with an explicitly installed Python version. It also runs typecheck/lint. It triggers for relevant pull requests, pushes to `main` or `codex/**`, and manual dispatch. It does not build Docker images, package installers, publish releases or use repository secrets.
+Run the local release checks without building or publishing:
 
-Native desktop packaging checks remain in the separate existing desktop workflow. Local macOS results alone do not establish a Windows/Linux CI pass; use the actual workflow run for those outcomes. Live provider account permissions and generation quota are outside these startup tests.
+```bash
+pnpm run npm:check
+```
+
+This runs typecheck, lint, the startup/database matrix, real PTY flows and release-gate regression tests. There is no hosted startup workflow. Local results establish behavior on the current OS; Windows/Linux native verification and live provider permissions/quota remain separate.
+
+For publication, use `pnpm run npm:publish`: it runs `npm:check`, builds a fresh tarball, smoke-tests that exact artifact, then publishes only if every step succeeds. `pnpm run npm:publish --dry-run` performs the same checks/build/smoke and passes `--dry-run` to the final publish command. See [npm release instructions](npm-publishing.md). The release wrapper remains in the private checkout; the consumer package has no release/install hooks.

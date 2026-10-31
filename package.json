@@ -23,6 +23,8 @@
     "build": "node scripts/build.mjs",
     "build:npm": "node scripts/build-npm.mjs",
     "npm:smoke": "node scripts/npm-smoke.mjs",
+    "npm:check": "pnpm typecheck && pnpm lint && pnpm run test:startup && pnpm run test:pty && pnpm exec node --experimental-strip-types --test tests/npm-publish.test.mjs",
+    "npm:publish": "node scripts/publish-npm.mjs",
     "build:runtime": "docker build --target runtime --tag shiqu:local .",
     "start": "node --env-file-if-exists=.env dist/server/index.js",
     "import:legacy": "node dist/server/import-legacy.js",
