@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 export function validateNodeTarget(version,pinned,platform,arch,environment=process.env){
- if(version!==pinned)throw Error(`Desktop Standard requires build Node ${pinned}; received ${version}. Use the pinned toolchain.`);
+ if(version!==pinned)throw Error(`Desktop requires build Node ${pinned}; received ${version}. Use the pinned toolchain.`);
  const targetPlatform=environment.TAURI_ENV_PLATFORM||platform,targetArch=environment.TAURI_ENV_ARCH||arch;
  const platforms={darwin:'darwin',windows:'win32',win32:'win32',linux:'linux'},architectures={aarch64:'arm64',arm64:'arm64',x86_64:'x64',x64:'x64'};
  const triple=environment.TAURI_ENV_TARGET_TRIPLE,triplePlatform=triple?.includes('apple-darwin')?'darwin':triple?.includes('windows')?'win32':triple?.includes('linux')?'linux':undefined;

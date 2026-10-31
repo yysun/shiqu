@@ -1,11 +1,10 @@
-// Select verified bundled Node for Standard or system Node for Lite, then supervise private stdin.
+// Verify bundled Node on every desktop launch, then supervise the runtime over private stdin.
 use crate::config::Settings;
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-#[cfg(feature = "bundled-node")]
 use sha2::{Digest, Sha256};
-#[cfg(any(not(feature = "bundled-node"), test))]
+#[cfg(test)]
 use std::path::PathBuf;
 use std::{
     fs::{self, File, OpenOptions},
@@ -29,15 +28,6 @@ pub struct NodeInfo {
     pub platform: String,
 }
 
-pub fn edition() -> &'static str {
-    if cfg!(feature = "bundled-node") {
-        "standard"
-    } else {
-        "lite"
-    }
-}
-
-#[cfg(feature = "bundled-node")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BundleManifest {
@@ -49,7 +39,6 @@ struct BundleManifest {
     license_sha256: String,
 }
 
-#[cfg(feature = "bundled-node")]
 fn digest(file: &Path) -> Result<String, String> {
     let mut input = File::open(file).map_err(|_| "内置 Node 资源缺失，请重新安装拾趣。")?;
     let mut hash = Sha256::new();
@@ -66,54 +55,45 @@ fn digest(file: &Path) -> Result<String, String> {
     Ok(format!("{:x}", hash.finalize()))
 }
 
-pub fn node_info(explicit: &str, root: &Path) -> Result<NodeInfo, String> {
-    #[cfg(not(feature = "bundled-node"))]
+pub fn node_info(_explicit: &str, root: &Path) -> Result<NodeInfo, String> {
+    let directory = root.parent().ok_or("应用资源目录无效。")?.join("node");
+    let manifest: BundleManifest = serde_json::from_slice(
+        &fs::read(directory.join("manifest.json"))
+            .map_err(|_| "内置 Node 清单缺失，请重新安装拾趣。")?,
+    )
+    .map_err(|_| "内置 Node 清单损坏，请重新安装拾趣。")?;
+    let binary = if cfg!(windows) { "node.exe" } else { "node" };
+    let platform = if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(windows) {
+        "win32"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    };
+    let version = include_str!("../../.nvmrc").trim();
+    if manifest.version != version
+        || manifest.platform != platform
+        || manifest.arch != arch
+        || manifest.binary != binary
     {
-        let _ = root;
-        detect(explicit)
+        return Err("内置 Node 与应用版本或平台不匹配，请重新安装拾趣。".into());
     }
-    #[cfg(feature = "bundled-node")]
+    let executable = directory.join(binary);
+    if digest(&executable)? != manifest.sha256
+        || digest(&directory.join("LICENSE"))? != manifest.license_sha256
     {
-        let _ = explicit; // A saved Lite setting must never override Standard's runtime.
-        let directory = root.parent().ok_or("应用资源目录无效。")?.join("node");
-        let manifest: BundleManifest = serde_json::from_slice(
-            &fs::read(directory.join("manifest.json"))
-                .map_err(|_| "内置 Node 清单缺失，请重新安装拾趣。")?,
-        )
-        .map_err(|_| "内置 Node 清单损坏，请重新安装拾趣。")?;
-        let binary = if cfg!(windows) { "node.exe" } else { "node" };
-        let platform = if cfg!(target_os = "macos") {
-            "darwin"
-        } else if cfg!(windows) {
-            "win32"
-        } else {
-            "linux"
-        };
-        let arch = if cfg!(target_arch = "aarch64") {
-            "arm64"
-        } else {
-            "x64"
-        };
-        let version = include_str!("../../.nvmrc").trim();
-        if manifest.version != version
-            || manifest.platform != platform
-            || manifest.arch != arch
-            || manifest.binary != binary
-        {
-            return Err("内置 Node 与应用版本或平台不匹配，请重新安装拾趣。".into());
-        }
-        let executable = directory.join(binary);
-        if digest(&executable)? != manifest.sha256
-            || digest(&directory.join("LICENSE"))? != manifest.license_sha256
-        {
-            return Err("内置 Node 校验失败，请重新安装拾趣。".into());
-        }
-        let info = probe(&executable).map_err(|_| "内置 Node 无法运行，请重新安装拾趣。")?;
-        if info.version != version || info.platform != platform || info.arch != arch {
-            return Err("内置 Node 版本或架构不兼容，请重新安装拾趣。".into());
-        }
-        Ok(info)
+        return Err("内置 Node 校验失败，请重新安装拾趣。".into());
     }
+    let info = probe(&executable).map_err(|_| "内置 Node 无法运行，请重新安装拾趣。")?;
+    if info.version != version || info.platform != platform || info.arch != arch {
+        return Err("内置 Node 版本或架构不兼容，请重新安装拾趣。".into());
+    }
+    Ok(info)
 }
 
 pub fn command(binary: &Path) -> Command {
@@ -190,7 +170,7 @@ pub fn probe(binary: &Path) -> Result<NodeInfo, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|_| "找不到或无法运行 Node。请选择 Node 24 可执行文件。")?;
+        .map_err(|_| "内置 Node 无法运行，请重新安装拾趣。")?;
     wait(&mut child, Duration::from_secs(8))?;
     let mut text = String::new();
     child
@@ -210,73 +190,6 @@ fn validate_node(info: &NodeInfo) -> Result<(), String> {
         return Err("需要 Node 24（推荐 24.22.1）及内置 SQLite；当前运行时不兼容。".into());
     }
     Ok(())
-}
-
-#[cfg(any(not(feature = "bundled-node"), test))]
-pub fn candidates() -> Vec<PathBuf> {
-    let executable = if cfg!(windows) { "node.exe" } else { "node" };
-    let mut paths: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|p| {
-            std::env::split_paths(&p)
-                .map(|dir| dir.join(executable))
-                .collect()
-        })
-        .unwrap_or_default();
-    for directory in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
-        paths.push(Path::new(directory).join(executable));
-    }
-    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
-        let home = PathBuf::from(home);
-        let mut versions = fs::read_dir(home.join(".nvm/versions/node"))
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|entry| entry.path())
-            .collect::<Vec<_>>();
-        versions.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
-        paths.extend(
-            versions
-                .into_iter()
-                .map(|version| version.join("bin").join(executable)),
-        );
-        paths.push(home.join(".volta/bin").join(executable));
-        paths.push(
-            home.join(".local/share/fnm/aliases/default/bin")
-                .join(executable),
-        );
-    }
-    for name in ["ProgramFiles", "LOCALAPPDATA", "NVM_SYMLINK"] {
-        if let Some(value) = std::env::var_os(name) {
-            paths.push(PathBuf::from(value).join(if name == "NVM_SYMLINK" {
-                PathBuf::from(executable)
-            } else {
-                PathBuf::from("nodejs").join(executable)
-            }));
-        }
-    }
-    let mut unique = Vec::new();
-    for file in paths {
-        if file.is_file() && !unique.contains(&file) {
-            unique.push(file);
-        }
-    }
-    unique
-}
-#[cfg(any(not(feature = "bundled-node"), test))]
-pub fn detect(explicit: &str) -> Result<NodeInfo, String> {
-    if !explicit.trim().is_empty() {
-        let file = Path::new(explicit);
-        if !file.is_absolute() {
-            return Err("请选择 Node 可执行文件的绝对路径。".into());
-        }
-        return probe(file);
-    }
-    for path in candidates() {
-        if let Ok(info) = probe(&path) {
-            return Ok(info);
-        }
-    }
-    Err("未检测到兼容的 Node 24。请安装 Node 24，或手动选择已有安装。".into())
 }
 
 fn lock(directory: &Path) -> Result<File, String> {
@@ -411,9 +324,8 @@ pub fn start(settings: &Settings, key: &str, root: &Path) -> Result<Runtime, Str
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "bundled-node")]
     #[test]
-    fn standard_uses_verified_bundle_and_ignores_saved_system_path() {
+    fn desktop_uses_verified_bundle_and_ignores_saved_system_path() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../desktop/resources/runtime");
         let info = node_info("/shiqu-system-node-must-not-be-used", &root).unwrap();
         assert_eq!(info.version, include_str!("../../.nvmrc").trim());
@@ -427,9 +339,8 @@ mod tests {
             .unwrap()
         );
     }
-    #[cfg(feature = "bundled-node")]
     #[test]
-    fn standard_rejects_missing_or_modified_bundle_without_fallback() {
+    fn desktop_rejects_missing_or_modified_bundle_without_fallback() {
         let folder =
             std::env::temp_dir().join(format!("shiqu-integrity-test-{}", std::process::id()));
         let root = folder.join("runtime");
@@ -508,7 +419,6 @@ mod tests {
             ..Default::default()
         })
         .unwrap();
-        assert!(detect("relative/node").is_err());
         assert!(probe(Path::new("/shiqu-missing-node")).is_err());
     }
     #[test]

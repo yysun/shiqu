@@ -1,4 +1,4 @@
-# Native settings/credentials stay in private SQLite; the shell supervises bundled or system Node.
+# Native settings/credentials stay in private SQLite; the shell supervises verified bundled Node.
 [package]
 name = "shiqu-desktop"
 version = "0.3.2"
@@ -10,11 +10,6 @@ rust-version = "1.93"
 [lib]
 name = "shiqu_desktop"
 crate-type = ["staticlib", "cdylib", "rlib"]
-
-# The default Tauri config enables this; Lite's override deliberately clears it.
-[features]
-default = []
-bundled-node = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

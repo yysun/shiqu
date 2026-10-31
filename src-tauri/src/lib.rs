@@ -47,7 +47,7 @@ fn settings_view(app: &tauri::AppHandle, control: &mut Control) -> Result<Value,
     let store = open_store(app, control)?;
     let settings = store.settings()?;
     Ok(
-        json!({"settings":settings,"keyPresent":store.key_present()?,"credentialError":control.environment.error,"platform":std::env::consts::OS,"edition":runtime::edition()}),
+        json!({"settings":settings,"keyPresent":store.key_present()?,"credentialError":control.environment.error,"platform":std::env::consts::OS}),
     )
 }
 fn open_store(app: &tauri::AppHandle, control: &mut Control) -> Result<config::Store, String> {
@@ -168,7 +168,7 @@ async fn choose_path(app: tauri::AppHandle, kind: String) -> Result<Option<Strin
     blocking(move || {
         let dialog = app.dialog().file();
         let chosen = match kind.as_str() {
-            "node" | "codex" => dialog.blocking_pick_file(),
+            "codex" => dialog.blocking_pick_file(),
             "data" | "codexHome" => dialog.blocking_pick_folder(),
             _ => return Err("文件选择类型无效。".into()),
         };
@@ -339,11 +339,7 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&show_item, &stop_item, &quit_item])?;
             let mut tray = TrayIconBuilder::new()
                 .menu(&menu)
-                .tooltip(if runtime::edition() == "lite" {
-                    "拾趣 Lite"
-                } else {
-                    "拾趣"
-                })
+                .tooltip("拾趣")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show(app),
                     "stop" | "quit" => {

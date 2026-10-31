@@ -1,4 +1,4 @@
-// A Standard installer must never ship a different Node version or a host binary for another target.
+// A desktop installer must never ship a different Node version or a host binary for another target.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateNodeTarget} from '../scripts/desktop-node.mjs';

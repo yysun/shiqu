@@ -4,9 +4,6 @@
   "version": "0.3.2",
   "identifier": "com.shiqu.desktop",
   "build": {
-    "features": [
-      "bundled-node"
-    ],
     "beforeDevCommand": "pnpm run desktop:prepare",
     "beforeBuildCommand": "pnpm run desktop:prepare",
     "frontendDist": "../desktop/dist"
@@ -15,7 +12,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "拾趣",
+        "title": "\u62fe\u8da3",
         "width": 1040,
         "height": 820,
         "minWidth": 760,
