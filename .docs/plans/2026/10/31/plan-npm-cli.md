@@ -1,0 +1,32 @@
+# npm CLI release
+
+Story base: `cc662b282652b4fc1d8c3d0938eaaaf62e832461`.
+
+## Design
+
+Keep the development checkout private. `pnpm build:npm` builds the reader, bundles a separate CLI server entry, stages an allowlisted package in `outputs/npm/package`, and creates its tarball in `outputs/npm`. Derive the release version and Node requirement from the root manifest; derive runtime dependencies from esbuild's external imports and reject undeclared imports. The staged manifest exposes `bin/shiqu.mjs`, public registry metadata, and no installation/build lifecycle scripts.
+
+The executable checks Node before dynamically importing the backend. A shared server startup module takes an explicit immutable asset root, leaving the existing source/Docker entry at `process.cwd()`. The CLI resolves its root from its installed module URL, parses arguments and explicit env files, resolves relative user paths from the caller's working directory, and chooses a dedicated OS user-data path when absent. It applies the existing `desktopAccess` Host/Origin boundary to its local/LAN listener. It prints the local URL and keeps serving until interrupted. It does not automatically open another application.
+
+No new dependencies. Keep original-book bytes and source/license notices. Do not copy `.env`, writable libraries, desktop resources, repository metadata, tests, or source code into the release. Runtime dependency WASM remains in its installed dependency package. Existing desktop build/resource scripts are unchanged.
+
+## Implementation and validation
+
+- [x] First SS probe: use pinned Node/pnpm to confirm build tooling and that the CLI bundle's external runtime imports can all be resolved to declared production dependencies. A missing runtime asset or dependency stops packaging until repaired.
+- [x] Add the version-checked executable, argument/default configuration, explicit installed asset root, and shared server lifecycle without changing existing startup defaults.
+- [x] Add release manifest metadata, build/pack scripts, fixed payload allowlist, and npm README/publishing documentation.
+- [x] Add focused CLI behavior tests and an isolated tarball installation smoke command that does not use the checkout's dependencies.
+- [ ] Run applicable JavaScript tests, typecheck, lint, release build, pack inspection, and installed-package E2E scenarios in `.docs/tests/test-npm-cli.md`.
+
+Tradeoffs: the complete book library makes the download larger, but keeps first-run behavior and source verification independent of a download service. npm package-name ownership and registry authentication are checked by the publisher at release time; preparation does not claim either. Native Windows Codex support remains outside this change; Gemini works without that runner. The smoke install may require registry access; report offline installation separately if it cannot be obtained.
+
+## Review and delivery evidence
+
+AR passed: no blocking architecture flaws
+
+AR risk: non-low — introduces a published executable, relocated runtime assets, and a persistent-data contract.
+AR review round: 1; reviewer: new (`npm_review`).
+
+Reviewer guidance accepted: reuse the existing Host/Origin middleware for the CLI and test foreign Host/Origin rejection. Consumer startup must invoke only Node/the installed executable, never pnpm or install hooks.
+
+SS probe passed on Node 24.22.1/pnpm 11.25.0. External imports resolve to six declared runtime dependencies: drizzle-orm, htmlparser2, opencc-js, qrcode-terminal, tiktoken, zod. The first packed release built successfully. Focused CLI tests pass (4); initial typecheck and lint pass. Node 22.23.4 rejects the executable with a clear Node 24 requirement. Installed-package verification is in progress; the isolated install and real tiktoken WASM invocation have passed. Full tests require local-network permission because sandboxed HTTP listeners fail with EPERM.

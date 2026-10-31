@@ -2,7 +2,18 @@
   "name": "shiqu-docker",
   "version": "0.3.2",
   "private": true,
+  "publishConfig": {
+    "name": "@apprun/shiqu"
+  },
   "license": "Apache-2.0",
+  "description": "Turn Chinese classics into illustrated stories in a local browser app.",
+  "author": "Yiyi Sun",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yysun/shiqu.git"
+  },
+  "homepage": "https://github.com/yysun/shiqu#readme",
+  "bugs": "https://github.com/yysun/shiqu/issues",
   "engines": {
     "node": ">=24 <25"
   },
@@ -10,6 +21,8 @@
     "setup": "node scripts/setup.mjs && pnpm install --frozen-lockfile",
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
+    "build:npm": "node scripts/build-npm.mjs",
+    "npm:smoke": "node scripts/npm-smoke.mjs",
     "build:runtime": "docker build --target runtime --tag shiqu:local .",
     "start": "node --env-file-if-exists=.env dist/server/index.js",
     "import:legacy": "node dist/server/import-legacy.js",
