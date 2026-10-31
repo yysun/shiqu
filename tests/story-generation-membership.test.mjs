@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {build} from 'esbuild';
+import {productionFixture,selection} from './fixtures/production.mjs';
 const compiled=build({stdin:{contents:"export {useStoryGeneration} from './client/ui/useStoryGeneration.ts';export {readSessions} from 'react';export {setTransport} from 'membership-transport';",resolveDir:process.cwd(),loader:'ts'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',plugins:[{
  name:'inert-hooks',setup(b){
   b.onResolve({filter:/^react$/},()=>({path:'hooks',namespace:'membership'}));
@@ -42,4 +43,40 @@ test('restoring a historical snapshot only admits members returned by the latest
  const h=await harness(t,async path=>path==='reader/sessions'?[latest]:root);
  await h.api.refreshLibrary(root.id);assert.deepEqual(h.readSessions(),[latest]);
  await h.api.resume(root.id);assert.deepEqual(h.readSessions(),[latest]);
+});
+
+test('a blocked address update does not reject a saved story or invite another creation',async t=>{
+ const f=await productionFixture(t),requests=[];
+ f.generation.suggestions=async()=>({stories:[],note:''});
+ const h=await harness(t,(path,method,body)=>{
+  requests.push(body.requestId);return f.json(path.slice('reader/'.length),method,body);
+ });
+ globalThis.history.replaceState=()=>{throw new DOMException('History navigation unavailable','SecurityError');};
+ const saved=await h.api.start({...selection,storyTitle:undefined,length:'auto'},true);
+ assert.equal(requests.length,1);
+ assert.deepEqual(h.readSessions().map(s=>s.id),[saved.id]);
+ assert.deepEqual((await f.json('sessions')).map(s=>s.id),[saved.id]);
+});
+
+test('a lost creation response retries the same saved story even when address updates are blocked',async t=>{
+ const f=await productionFixture(t),requests=[];
+ f.generation.suggestions=async()=>({stories:[],note:''});
+ const h=await harness(t,async(path,method,body)=>{
+  requests.push(body.requestId);const saved=await f.json(path.slice('reader/'.length),method,body);
+  if(requests.length===1)throw new TypeError('Lost response');
+  return saved;
+ });
+ globalThis.history.replaceState=()=>{throw new DOMException('History navigation unavailable','SecurityError');};
+ const input={...selection,storyTitle:undefined,length:'auto'};
+ await assert.rejects(h.api.start(input,true),/Lost response/);
+ const saved=await h.api.start(input,true);
+ assert.equal(requests.length,2);assert.equal(requests[0],requests[1]);
+ assert.deepEqual((await f.json('sessions')).map(s=>s.id),[saved.id]);
+});
+
+test('separate successful creation actions can still create independent stories',async t=>{
+ const requests=[];
+ const h=await harness(t,async(_path,_method,body)=>{requests.push(body.requestId);return {...root,id:body.requestId};});
+ await h.api.start(selection,true);await h.api.start(selection,true);
+ assert.equal(new Set(requests).size,2);assert.equal(h.readSessions().length,2);
 });
