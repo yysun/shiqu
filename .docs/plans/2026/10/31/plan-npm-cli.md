@@ -16,7 +16,7 @@ No new dependencies. Keep original-book bytes and source/license notices. Do not
 - [x] Add the version-checked executable, argument/default configuration, explicit installed asset root, and shared server lifecycle without changing existing startup defaults.
 - [x] Add release manifest metadata, build/pack scripts, fixed payload allowlist, and npm README/publishing documentation.
 - [x] Add focused CLI behavior tests and an isolated tarball installation smoke command that does not use the checkout's dependencies.
-- [ ] Run applicable JavaScript tests, typecheck, lint, release build, pack inspection, and installed-package E2E scenarios in `.docs/tests/test-npm-cli.md`.
+- [x] Run applicable JavaScript tests, typecheck, lint, release build, pack inspection, and installed-package E2E scenarios in `.docs/tests/test-npm-cli.md`.
 
 Tradeoffs: the complete book library makes the download larger, but keeps first-run behavior and source verification independent of a download service. npm package-name ownership and registry authentication are checked by the publisher at release time; preparation does not claim either. Native Windows Codex support remains outside this change; Gemini works without that runner. The smoke install may require registry access; report offline installation separately if it cannot be obtained.
 
@@ -39,3 +39,19 @@ CR risk: non-low — published executable, runtime packaging, and persistent-dat
 CR review round: 2; reviewer: reused (`npm_review`).
 
 Installed-tarball ET passed on macOS with Node 24.22.1: 1,968 allowlisted files, all 24 books byte-matched, runtime dependencies installed outside the checkout, tokenizer WASM exercised, installed command shim verified, HTML/JS/API served, foreign Hosts/Origins rejected, drafts persisted after SIGTERM/restart, env/flag/default paths checked, wildcard printed URL accepted, and runtime files stayed unchanged. No paid generation. Typecheck/lint pass after runtime changes. Full test rerun pending: the previous unrestricted run passed 570/571, with one existing 80-frame timing test timing out while release compression competed for CPU. The final run has no concurrent build.
+
+Fix milestone: `6b0f25e`. CR round 3 covered the final smoke-test repairs (real raw Host header, actual tarball inspection vs installer shims, Windows termination evidence limits) and passed.
+
+CR passed: no major findings
+
+CR risk: non-low — published executable, runtime packaging, and persistent-data behavior.
+CR review round: 3; reviewer: reused (`npm_review`).
+
+TT passed: final `pnpm test` run passed all 571 tests with 0 failures, skips, or cancellations in 37.7 seconds (`/tmp/shiqu-npm-tests-final.log`). No concurrent build was running. Previous HTTP sandbox restrictions and the concurrent-build timing failure did not recur. `pnpm typecheck` and final `pnpm lint` passed. ET passed via `pnpm npm:smoke --offline` outside the restricted sandbox (local HTTP listener and cached dependency installation), using the final tarball. Output: `outputs/npm/apprun-shiqu-0.3.2.tgz`, 31,859,686 bytes. Publication command syntax checked with pinned `pnpm publish --help`; no registry publication or authentication was attempted.
+
+VR passed: all acceptance criteria complete
+
+VR risk: non-low — published executable, runtime packaging, and persistent-data behavior.
+VR review round: 1; reviewer: reused (`npm_review`).
+
+All six acceptance criteria are complete; full criterion evidence and platform limitations are preserved in `.docs/done/2026/10/31/npm-cli.md`. Installed ET ran on macOS; Windows/Linux data paths have unit coverage, not claimed native ET. npm scope ownership, authentication, and version availability remain publisher checks. DD complete. The user subsequently requested the final delivery commit; preserve the implementation commits and commit only npm release evidence.
