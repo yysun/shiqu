@@ -29,6 +29,8 @@
     "lint": "eslint .",
     "db:generate": "drizzle-kit generate",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test:startup": "node --experimental-strip-types --test --test-concurrency=2 tests/npm-cli.test.mjs tests/cli-library.test.mjs tests/system-settings.test.mjs tests/startup-matrix.test.mjs tests/settings-faults.test.mjs",
+    "test:pty": "node --experimental-strip-types --test tests/startup-pty.test.mjs",
     "typecheck": "tsc --noEmit",
     "codex:login": "node --env-file-if-exists=.env scripts/codex-login.mjs login",
     "codex:status": "node --env-file-if-exists=.env scripts/codex-login.mjs status",
