@@ -77,6 +77,11 @@ test('API errors never expose response bodies, credentials or prompts',async t=>
    try{await f.provider.suggestions(selection,[]);}catch(error){caught=error;}
    assert.ok(caught instanceof OpenAIError);assert.equal(caught.status,status);assert.ok(!safeOpenAIError(caught).includes('test-only-key'));assert.equal(f.calls.length,1);
   }
+  for(const failure of [Error('private network text test-only-key'),new DOMException('private timeout text test-only-key','TimeoutError')]){
+   const f=await fixture(t,()=>{throw failure;});
+   await assert.rejects(f.provider.suggestions(selection,[]),error=>{const safe=safeOpenAIError(error);assert.ok(!safe.includes('test-only-key'));if(error.name==='TimeoutError')assert.match(safe,/超时/);return true;});
+   assert.equal(f.calls.length,1);
+  }
   assert.ok(!output.join('\n').includes('test-only-key'));assert.ok(!output.join('\n').includes('private provider'));
  }finally{console.error=old;}
 });
