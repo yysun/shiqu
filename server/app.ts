@@ -19,6 +19,7 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
  const imageWorkers=configuredImageWorkers(options.variables?.SHIQU_IMAGE_WORKERS);
  const local=openDatabase(options.dataDirectory,options.root);
  const production=new ReaderProductionCoordinator(local.database,generation,media,{imageWorkers});
+ if(options.variables?.SHIQU_AI_PROVIDER==='readonly')production.stop();
  const services:Services={db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,transport:options.transport||fetch,generation,production};
  const api=createApi(services),publicDirectory=path.resolve(options.root,'dist/client');
  let closed=false,closing:Promise<void>|undefined;

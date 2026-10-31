@@ -7,7 +7,7 @@ import {createServer} from 'node:net';
 import {get} from 'node:http';
 import {lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile} from 'node:fs/promises';
 import os from 'node:os';
-import {DatabaseSync} from 'node:sqlite';
+import {SystemSettingsStore} from '../server/system-settings.ts';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -49,7 +49,7 @@ async function freePort() {
 const runtimeEnv = {
   PATH:[path.dirname(process.execPath), ...(process.platform === 'win32' ? [path.join(process.env.SYSTEMROOT || 'C:\\Windows', 'System32')] : ['/usr/bin','/bin'])].join(path.delimiter),
   HOME:home, USERPROFILE:home, LOCALAPPDATA:path.join(home, 'local'), APPDATA:path.join(home, 'roaming'),
-  XDG_DATA_HOME:path.join(home, 'xdg'), SYSTEMROOT:process.env.SYSTEMROOT || '', SHIQU_AI_PROVIDER:'gemini',
+  XDG_DATA_HOME:path.join(home, 'xdg'), SYSTEMROOT:process.env.SYSTEMROOT || '', SHIQU_AI_PROVIDER:'readonly',
 };
 function command(bin, parameters) {
   return spawnSync(process.execPath, [bin, ...parameters], {cwd, env:runtimeEnv, encoding:'utf8', timeout:10000});
@@ -169,9 +169,8 @@ try {
   const configBase = process.platform === 'linux' ? path.join(home,'.config') : base;
   const settingsDirectory = path.join(configBase,'com.shiqu.desktop');
   await mkdir(settingsDirectory,{recursive:true});
-  const settingsDatabase = new DatabaseSync(path.join(settingsDirectory,'desktop.sqlite'));
-  settingsDatabase.exec('CREATE TABLE desktop_settings(id INTEGER PRIMARY KEY,value TEXT)');
-  settingsDatabase.prepare('INSERT INTO desktop_settings VALUES(1,?)').run(JSON.stringify({dataDirectory:defaultData}));settingsDatabase.close();
+  const sharedSettings = new SystemSettingsStore(path.join(settingsDirectory,'desktop.sqlite'),defaultData);
+  sharedSettings.save({dataDirectory:defaultData,libraryConfigured:true,provider:'readonly',providerConfigured:true});sharedSettings.close();
   await start(bin, ['--port',String(port)]);
   assert.ok(logs.includes(defaultData));await lstat(path.join(defaultData,'shiqu.sqlite'));await stop();
   assert.deepEqual((await readdir(cwd)).sort(), ['.env','selected.env']);

@@ -1,4 +1,5 @@
 // Select a complete provider explicitly; subscription mode never falls back to API billing.
+import {createOpenAIProvider} from './openai-provider.ts';
 import {frameRecommendationSchema,frameRecommendationJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
 import {configuredModels,makeGenerator,suggestStories,safeGeminiError,recommendStoryArt} from '../lib/reader-gemini.ts';
 import {storyDraftSchema,ReaderError} from '../lib/reader-model.ts';
@@ -32,7 +33,12 @@ function codexMessage(code:string){
 export function safeCodexError(error:unknown){const code=error instanceof CodexError?error.message:'INVALID_OUTPUT';console.error('codex_generation_error',JSON.stringify({code}));return codexMessage(code);}
 export function createReaderProvider(variables:Record<string,string|undefined>,media:MediaStore,transport:typeof fetch,runner?:CodexRunner):ReaderProvider{
  const name=variables.SHIQU_AI_PROVIDER?.trim()||'gemini';
- if(name!=='gemini'&&name!=='codex')throw Error('SHIQU_AI_PROVIDER must be gemini or codex');
+ if(name==='readonly'){
+  const unavailable=()=>{throw new ReaderError(503,'当前为只读模式，请通过 --configure 或桌面设置配置生成服务。');};
+  return {async status(){return {configured:false,provider:'readonly',models:{text:'',image:''},voiceEnabled:false};},suggestions:async()=>unavailable(),generator:()=>({plan:async()=>unavailable(),original:async()=>unavailable(),image:async()=>unavailable(),audio:async()=>unavailable(),reflection:async()=>unavailable(),reflectionCandidates:async()=>unavailable(),safeError:()=> '当前为只读模式，请先配置生成服务。'}),safeError:()=> '当前为只读模式，请先配置生成服务。'};
+ }
+ if(name==='openai')return createOpenAIProvider(variables,media,transport);
+ if(name!=='gemini'&&name!=='codex')throw Error('SHIQU_AI_PROVIDER must be gemini, codex, openai or readonly');
  const taskReasoningEfforts=configuredTaskReasoning(variables);
  if(name==='gemini'){
   const key=variables.GEMINI_API_KEY?.trim()||'',models=configuredModels(variables);

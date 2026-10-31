@@ -51,6 +51,14 @@ impl TaskReasoningEfforts {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
+    #[serde(default)]
+    pub library_configured: bool,
+    #[serde(default)]
+    pub provider_configured: bool,
+    #[serde(default = "openai_text_model")]
+    pub openai_text_model: String,
+    #[serde(default = "openai_image_model")]
+    pub openai_image_model: String,
     pub node_path: String,
     pub data_directory: String,
     pub port: u16,
@@ -73,9 +81,20 @@ pub struct Settings {
     pub codex_home: String,
 }
 
+fn openai_text_model() -> String {
+    "gpt-6.1-sol".into()
+}
+fn openai_image_model() -> String {
+    "gpt-image-2.5-sunburst".into()
+}
+
 impl Settings {
     pub fn defaults(data: &Path) -> Self {
         Self {
+            library_configured: false,
+            provider_configured: false,
+            openai_text_model: openai_text_model(),
+            openai_image_model: openai_image_model(),
             node_path: String::new(),
             data_directory: data.join("library").to_string_lossy().into(),
             port: 3000,
@@ -108,13 +127,21 @@ impl Settings {
         {
             return Err("请选择有效的 Codex 推理档位，或跟随 Codex 默认。".into());
         }
-        if self.port < 1024 || !["gemini", "codex"].contains(&self.provider.as_str()) {
+        if self.port < 1024
+            || !["gemini", "codex", "openai", "readonly"].contains(&self.provider.as_str())
+        {
             return Err("请选择有效的提供方与 1024–65535 之间的端口。".into());
         }
         if !Path::new(&self.data_directory).is_absolute() || self.data_directory.len() > 4096 {
             return Err("数据目录必须是有效的绝对路径。".into());
         }
-        for model in [&self.text_model, &self.image_model, &self.codex_model] {
+        for model in [
+            &self.text_model,
+            &self.image_model,
+            &self.codex_model,
+            &self.openai_text_model,
+            &self.openai_image_model,
+        ] {
             if model.len() > 100
                 || !model
                     .bytes()
@@ -123,7 +150,11 @@ impl Settings {
                 return Err("模型名称只能包含字母、数字、点、横线和下划线。".into());
             }
         }
-        if self.text_model.is_empty() || self.image_model.is_empty() {
+        if self.text_model.is_empty()
+            || self.image_model.is_empty()
+            || self.openai_text_model.is_empty()
+            || self.openai_image_model.is_empty()
+        {
             return Err("请填写文本和图片模型。".into());
         }
         for value in [
@@ -141,7 +172,9 @@ impl Settings {
             return Err("cloudflared 路径必须是可执行文件的绝对路径。".into());
         }
         if cfg!(windows) && self.provider == "codex" {
-            return Err("当前 Codex 集成不支持原生 Windows；请选择 Gemini。".into());
+            return Err(
+                "当前 Codex 集成不支持原生 Windows；请选择 OpenAI API、Gemini 或只读。".into(),
+            );
         }
         Ok(())
     }
@@ -216,11 +249,14 @@ impl Store {
         .map_err(|_| SCHEMA_ERROR)?;
         db.busy_timeout(Duration::from_secs(2))
             .map_err(|_| STORE_ERROR)?;
-        let version: i64 = db
+        let tx = db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|_| STORE_ERROR)?;
+        let version: i64 = tx
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|_| SCHEMA_ERROR)?;
         if version == 0 {
-            let count: i64 = db
+            let count: i64 = tx
                 .query_row(
                     "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
                     [],
@@ -230,49 +266,70 @@ impl Store {
             if count != 0 {
                 return Err(SCHEMA_ERROR.into());
             }
-        } else if version == 1 {
-            db.prepare("SELECT id, value FROM desktop_settings LIMIT 0")
-                .map_err(|_| SCHEMA_ERROR)?;
-            db.prepare("SELECT name, value FROM desktop_credentials LIMIT 0")
-                .map_err(|_| SCHEMA_ERROR)?;
-            let value: String = db
-                .query_row("SELECT value FROM desktop_settings WHERE id=1", [], |row| {
-                    row.get(0)
-                })
-                .map_err(|_| SCHEMA_ERROR)?;
-            let settings: Settings = serde_json::from_str(&value).map_err(|_| SCHEMA_ERROR)?;
-            settings.validate().map_err(|_| SCHEMA_ERROR)?;
-            let integrity: String = db
-                .pragma_query_value(None, "quick_check", |row| row.get(0))
-                .map_err(|_| SCHEMA_ERROR)?;
-            if integrity != "ok" {
-                return Err(SCHEMA_ERROR.into());
-            }
-        } else {
-            return Err(SCHEMA_ERROR.into());
-        }
-        db.execute_batch(
-            "PRAGMA journal_mode=DELETE; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY;",
-        )
-        .map_err(|_| STORE_ERROR)?;
-        if version == 0 {
             let legacy = folder.join("settings.json");
             let settings: Settings = match fs::read(&legacy) {
-                Ok(bytes) => serde_json::from_slice(&bytes)
-                    .map_err(|_| "旧 settings.json 损坏；请备份后修复或移走。")?,
+                Ok(bytes) => {
+                    let mut saved: Settings = serde_json::from_slice(&bytes)
+                        .map_err(|_| "旧 settings.json 损坏；请备份后修复或移走。")?;
+                    saved.library_configured = true;
+                    saved.provider_configured =
+                        saved.provider == "codex" || saved.provider == "readonly";
+                    saved
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     Settings::defaults(data)
                 }
                 Err(_) => return Err(STORE_ERROR.into()),
             };
             settings.validate()?;
-            let value = serde_json::to_string(&settings).map_err(|_| STORE_ERROR)?;
-            let tx = db.transaction().map_err(|_| STORE_ERROR)?;
-            tx.execute_batch("CREATE TABLE desktop_settings (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL); CREATE TABLE desktop_credentials (name TEXT PRIMARY KEY CHECK(name='gemini'), value TEXT NOT NULL); PRAGMA user_version=1;").map_err(|_| STORE_ERROR)?;
-            tx.execute("INSERT INTO desktop_settings VALUES (1, ?1)", [&value])
-                .map_err(|_| STORE_ERROR)?;
-            tx.commit().map_err(|_| STORE_ERROR)?;
+            tx.execute_batch("CREATE TABLE desktop_settings (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0); CREATE TABLE desktop_credentials (name TEXT PRIMARY KEY CHECK(name IN ('gemini','openai')), value TEXT NOT NULL); PRAGMA user_version=2;").map_err(|_| STORE_ERROR)?;
+            tx.execute(
+                "INSERT INTO desktop_settings (id,value) VALUES (1, ?1)",
+                [serde_json::to_string(&settings).map_err(|_| STORE_ERROR)?],
+            )
+            .map_err(|_| STORE_ERROR)?;
+        } else if version == 1 {
+            let value: String = tx
+                .query_row("SELECT value FROM desktop_settings WHERE id=1", [], |row| {
+                    row.get(0)
+                })
+                .map_err(|_| SCHEMA_ERROR)?;
+            let mut settings: Settings = serde_json::from_str(&value).map_err(|_| SCHEMA_ERROR)?;
+            settings.validate()?;
+            let key: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM desktop_credentials WHERE name='gemini' AND length(value)>0)", [], |row| row.get(0)).map_err(|_| SCHEMA_ERROR)?;
+            settings.library_configured = true;
+            settings.provider_configured = settings.provider == "codex" || key;
+            tx.execute_batch("ALTER TABLE desktop_settings ADD COLUMN revision INTEGER NOT NULL DEFAULT 0; ALTER TABLE desktop_credentials RENAME TO old_credentials; CREATE TABLE desktop_credentials (name TEXT PRIMARY KEY CHECK(name IN ('gemini','openai')), value TEXT NOT NULL); INSERT INTO desktop_credentials SELECT * FROM old_credentials; DROP TABLE old_credentials; PRAGMA user_version=2;").map_err(|_| STORE_ERROR)?;
+            tx.execute(
+                "UPDATE desktop_settings SET value=?1 WHERE id=1",
+                [serde_json::to_string(&settings).map_err(|_| STORE_ERROR)?],
+            )
+            .map_err(|_| STORE_ERROR)?;
+        } else if version != 2 {
+            return Err(SCHEMA_ERROR.into());
         }
+        let value: String = tx
+            .query_row("SELECT value FROM desktop_settings WHERE id=1", [], |row| {
+                row.get(0)
+            })
+            .map_err(|_| SCHEMA_ERROR)?;
+        serde_json::from_str::<Settings>(&value)
+            .map_err(|_| SCHEMA_ERROR)?
+            .validate()
+            .map_err(|_| SCHEMA_ERROR)?;
+        tx.prepare("SELECT id,value,revision FROM desktop_settings LIMIT 0")
+            .map_err(|_| SCHEMA_ERROR)?;
+        tx.prepare("SELECT name,value FROM desktop_credentials LIMIT 0")
+            .map_err(|_| SCHEMA_ERROR)?;
+        let integrity: String = tx
+            .pragma_query_value(None, "quick_check", |row| row.get(0))
+            .map_err(|_| SCHEMA_ERROR)?;
+        if integrity != "ok" {
+            return Err(SCHEMA_ERROR.into());
+        }
+        tx.commit().map_err(|_| STORE_ERROR)?;
+        db.execute_batch("PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY;")
+            .map_err(|_| STORE_ERROR)?;
         Ok(Self { db })
     }
     pub fn settings(&self) -> Result<Settings, String> {
@@ -286,42 +343,128 @@ impl Store {
         settings.validate()?;
         Ok(settings)
     }
-    pub fn key(&self) -> Result<String, String> {
+    pub fn revision(&self) -> Result<i64, String> {
         self.db
             .query_row(
-                "SELECT value FROM desktop_credentials WHERE name='gemini'",
+                "SELECT revision FROM desktop_settings WHERE id=1",
                 [],
+                |row| row.get(0),
+            )
+            .map_err(|_| STORE_ERROR.into())
+    }
+    // One SQLite statement binds the editable settings and revision to the same read snapshot.
+    pub fn settings_snapshot(&self) -> Result<(Settings, i64, bool, bool), String> {
+        let (value, revision, gemini, openai): (String, i64, bool, bool) = self.db.query_row(
+            "SELECT value,revision,EXISTS(SELECT 1 FROM desktop_credentials WHERE name='gemini' AND length(value)>0),EXISTS(SELECT 1 FROM desktop_credentials WHERE name='openai' AND length(value)>0) FROM desktop_settings WHERE id=1",
+            [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
+        ).map_err(|_| SCHEMA_ERROR)?;
+        let settings: Settings = serde_json::from_str(&value).map_err(|_| SCHEMA_ERROR)?;
+        settings.validate()?;
+        Ok((settings, revision, gemini, openai))
+    }
+    pub fn key_for(&self, provider: &str) -> Result<String, String> {
+        if !["gemini", "openai"].contains(&provider) {
+            return Ok(String::new());
+        }
+        self.db
+            .query_row(
+                "SELECT value FROM desktop_credentials WHERE name=?1",
+                [provider],
                 |row| row.get(0),
             )
             .optional()
             .map(|key| key.unwrap_or_default())
             .map_err(|_| STORE_ERROR.into())
     }
+    pub fn key(&self) -> Result<String, String> {
+        self.key_for(&self.settings()?.provider)
+    }
     pub fn key_present(&self) -> Result<bool, String> {
-        self.db
+        Ok(!self.key()?.is_empty())
+    }
+    pub fn save(&mut self, settings: &Settings, key: KeyChange<'_>) -> Result<(), String> {
+        self.save_at(settings, key, None)
+    }
+    pub fn save_at(
+        &mut self,
+        settings: &Settings,
+        key: KeyChange<'_>,
+        expected: Option<i64>,
+    ) -> Result<(), String> {
+        settings.validate()?;
+        let tx = self
+            .db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|_| STORE_ERROR)?;
+        let revision: i64 = tx
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM desktop_credentials WHERE name='gemini')",
+                "SELECT revision FROM desktop_settings WHERE id=1",
                 [],
                 |row| row.get(0),
             )
-            .map_err(|_| STORE_ERROR.into())
-    }
-    pub fn save(&mut self, settings: &Settings, key: KeyChange<'_>) -> Result<(), String> {
-        settings.validate()?;
-        let value = serde_json::to_string(settings).map_err(|_| STORE_ERROR)?;
-        let tx = self.db.transaction().map_err(|_| STORE_ERROR)?;
-        tx.execute("UPDATE desktop_settings SET value=?1 WHERE id=1", [&value])
             .map_err(|_| STORE_ERROR)?;
+        if expected.is_some_and(|value| value != revision) {
+            return Err("设置已由另一入口修改，请重新读取后保存。".into());
+        }
+        let value = serde_json::to_string(settings).map_err(|_| STORE_ERROR)?;
+        tx.execute(
+            "UPDATE desktop_settings SET value=?1,revision=revision+1 WHERE id=1",
+            [value],
+        )
+        .map_err(|_| STORE_ERROR)?;
         match key {
             KeyChange::Keep => {}
-            KeyChange::Set(key) => {
-                tx.execute("INSERT INTO desktop_credentials VALUES ('gemini', ?1) ON CONFLICT(name) DO UPDATE SET value=excluded.value", [key]).map_err(|_| STORE_ERROR)?;
+            KeyChange::Set(value) => {
+                if !["gemini", "openai"].contains(&settings.provider.as_str()) {
+                    return Err("所选服务不使用 API 密钥。".into());
+                }
+                let value = validate_key(value)?;
+                tx.execute("INSERT INTO desktop_credentials VALUES (?1,?2) ON CONFLICT(name) DO UPDATE SET value=excluded.value", [&settings.provider,&value]).map_err(|_| STORE_ERROR)?;
             }
             KeyChange::Delete => {
-                tx.execute("DELETE FROM desktop_credentials WHERE name='gemini'", [])
-                    .map_err(|_| STORE_ERROR)?;
+                tx.execute(
+                    "DELETE FROM desktop_credentials WHERE name=?1",
+                    [&settings.provider],
+                )
+                .map_err(|_| STORE_ERROR)?;
             }
         }
+        tx.commit().map_err(|_| STORE_ERROR.into())
+    }
+    pub fn reset_providers(&mut self) -> Result<(), String> {
+        let tx = self
+            .db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|_| STORE_ERROR)?;
+        let value: String = tx
+            .query_row("SELECT value FROM desktop_settings WHERE id=1", [], |row| {
+                row.get(0)
+            })
+            .map_err(|_| STORE_ERROR)?;
+        let mut settings: Settings = serde_json::from_str(&value).map_err(|_| SCHEMA_ERROR)?;
+        let defaults = Settings::defaults(
+            Path::new(&settings.data_directory)
+                .parent()
+                .ok_or(STORE_ERROR)?,
+        );
+        settings.provider = defaults.provider;
+        settings.provider_configured = false;
+        settings.text_model = defaults.text_model;
+        settings.image_model = defaults.image_model;
+        settings.openai_text_model = defaults.openai_text_model;
+        settings.openai_image_model = defaults.openai_image_model;
+        settings.codex_path.clear();
+        settings.codex_home.clear();
+        settings.codex_reasoning_effort.clear();
+        settings.codex_model = defaults.codex_model;
+        settings.task_reasoning_efforts = defaults.task_reasoning_efforts;
+        tx.execute_batch("DELETE FROM desktop_credentials")
+            .map_err(|_| STORE_ERROR)?;
+        tx.execute(
+            "UPDATE desktop_settings SET value=?1,revision=revision+1 WHERE id=1",
+            [serde_json::to_string(&settings).map_err(|_| STORE_ERROR)?],
+        )
+        .map_err(|_| STORE_ERROR)?;
         tx.commit().map_err(|_| STORE_ERROR.into())
     }
 }
@@ -331,45 +474,6 @@ pub fn validate_key(value: &str) -> Result<String, String> {
         return Err("密钥格式无效；请填写单行、非空且不超过 4096 字节的密钥。".into());
     }
     Ok(value.trim().into())
-}
-
-// Capture/import at most once per app launch under the native command mutex. No session-only key.
-#[derive(Default)]
-pub struct EnvironmentImport {
-    attempted: bool,
-    pub error: Option<String>,
-}
-impl EnvironmentImport {
-    pub fn initialize(
-        &mut self,
-        store: &mut Store,
-        read: impl FnOnce() -> Result<Option<String>, ()>,
-    ) -> Result<(), String> {
-        if self.attempted {
-            return Ok(());
-        }
-        if !store.key_present()? {
-            let value = match read() {
-                Ok(Some(value)) if !value.trim().is_empty() => {
-                    validate_key(&value).map(Some).map_err(|_| ())
-                }
-                Ok(_) => Ok(None),
-                Err(()) => Err(()),
-            };
-            match value {
-                Ok(Some(value)) => store.save(&store.settings()?, KeyChange::Set(&value))?,
-                Ok(None) => {}
-                Err(()) => {
-                    self.error = Some(
-                        "启动环境中的 GEMINI_API_KEY 格式无效；请在设置中输入并保存有效密钥。"
-                            .into(),
-                    )
-                }
-            }
-        }
-        self.attempted = true;
-        Ok(())
-    }
 }
 
 pub fn directories(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
@@ -516,12 +620,13 @@ mod tests {
         // Windows supports Gemini only; retain the extended Codex check on other hosts.
         let provider = if cfg!(windows) { "gemini" } else { "codex" };
         let review = if cfg!(windows) { "high" } else { "xhigh" };
-        settings.provider = provider.into();
-        settings.task_reasoning_efforts.review = review.into();
-        settings.task_reasoning_efforts.art = "medium".into();
         store
             .save(&settings, KeyChange::Set("disposable-task-key"))
             .unwrap();
+        settings.provider = provider.into();
+        settings.task_reasoning_efforts.review = review.into();
+        settings.task_reasoning_efforts.art = "medium".into();
+        store.save(&settings, KeyChange::Keep).unwrap();
         drop(store);
         let mut store = Store::open(&file, &folder).unwrap();
         assert_eq!(
@@ -535,7 +640,7 @@ mod tests {
         settings.provider = "gemini".into();
         settings.task_reasoning_efforts.review = "xhigh".into();
         assert!(store.save(&settings, KeyChange::Delete).is_err());
-        assert_eq!(store.key().unwrap(), "disposable-task-key");
+        assert_eq!(store.key_for("gemini").unwrap(), "disposable-task-key");
         settings.provider = provider.into();
         settings.task_reasoning_efforts.review = review.into();
         settings.task_reasoning_efforts.plan = "invalid".into();
@@ -544,7 +649,7 @@ mod tests {
             store.settings().unwrap().task_reasoning_efforts.plan,
             "high"
         );
-        assert_eq!(store.key().unwrap(), "disposable-task-key");
+        assert_eq!(store.key_for("gemini").unwrap(), "disposable-task-key");
         let partial: TaskReasoningEfforts = serde_json::from_str(r#"{"review":"medium"}"#).unwrap();
         assert_eq!(partial.review, "medium");
         assert_eq!(partial.plan, "high");
@@ -633,75 +738,6 @@ mod tests {
         }
     }
     #[test]
-    fn environment_import_persists_once_and_database_wins() {
-        let folder = folder();
-        let file = folder.join("desktop.sqlite");
-        let mut store = Store::open(&file, &folder).unwrap();
-        let mut import = EnvironmentImport::default();
-        import
-            .initialize(&mut store, || Ok(Some("disposable-env-key".into())))
-            .unwrap();
-        assert_eq!(store.key().unwrap(), "disposable-env-key");
-        store
-            .save(&store.settings().unwrap(), KeyChange::Delete)
-            .unwrap();
-        import
-            .initialize(&mut store, || panic!("must not reimport after deletion"))
-            .unwrap();
-        assert!(!store.key_present().unwrap());
-        let mut fresh = EnvironmentImport::default();
-        fresh
-            .initialize(&mut store, || Ok(Some("next-launch".into())))
-            .unwrap();
-        drop(store);
-        let mut store = Store::open(&file, &folder).unwrap();
-        let mut fresh = EnvironmentImport::default();
-        fresh
-            .initialize(&mut store, || {
-                panic!("saved database must beat environment")
-            })
-            .unwrap();
-        assert_eq!(store.key().unwrap(), "next-launch");
-        store
-            .save(&store.settings().unwrap(), KeyChange::Delete)
-            .unwrap();
-        fresh
-            .initialize(&mut store, || {
-                panic!("existing key also marks import attempted")
-            })
-            .unwrap();
-        assert!(!store.key_present().unwrap());
-        drop(store);
-        fs::remove_dir_all(folder).unwrap();
-    }
-    #[test]
-    fn malformed_environment_is_value_free_and_explicit_save_recovers() {
-        for value in [
-            Some("disposable-secret\ninvalid".into()),
-            Some("x".repeat(4097)),
-        ] {
-            let folder = folder();
-            let mut store = Store::open(&folder.join("desktop.sqlite"), &folder).unwrap();
-            let mut import = EnvironmentImport::default();
-            import.initialize(&mut store, || Ok(value)).unwrap();
-            assert!(!import.error.as_ref().unwrap().contains("disposable-secret"));
-            assert!(store.settings().is_ok());
-            assert!(!store.key_present().unwrap());
-            store
-                .save(
-                    &store.settings().unwrap(),
-                    KeyChange::Set(&validate_key(" valid ").unwrap()),
-                )
-                .unwrap();
-            assert_eq!(store.key().unwrap(), "valid");
-            drop(store);
-            fs::remove_dir_all(folder).unwrap();
-        }
-        for value in ["", " ", "bad\0key", "bad\rkey"] {
-            assert!(validate_key(value).is_err());
-        }
-    }
-    #[test]
     fn settings_cannot_contain_secret_fields_or_invalid_values() {
         let mut settings = Settings::defaults(&std::env::temp_dir());
         let mut value = serde_json::to_value(&settings).unwrap();
@@ -710,6 +746,12 @@ mod tests {
         settings.text_model = "bad/model".into();
         assert!(settings.validate().is_err());
         settings.text_model = "valid".into();
+        settings.openai_text_model.clear();
+        assert!(settings.validate().is_err());
+        settings.openai_text_model = openai_text_model();
+        settings.openai_image_model.clear();
+        assert!(settings.validate().is_err());
+        settings.openai_image_model = openai_image_model();
         settings.port = 80;
         assert!(settings.validate().is_err());
     }
@@ -740,6 +782,113 @@ mod tests {
         symlink(&target, &file).unwrap();
         assert!(Store::open(&file, &folder).is_err());
         assert_eq!(fs::read(target).unwrap(), b"untouched");
+        fs::remove_dir_all(folder).unwrap();
+    }
+    #[test]
+    fn version_one_migrates_preserving_keys_and_revision_rejects_stale_saves() {
+        let folder = folder();
+        let file = folder.join("desktop.sqlite");
+        let db = Connection::open(&file).unwrap();
+        db.execute_batch("CREATE TABLE desktop_settings(id INTEGER PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE desktop_credentials(name TEXT PRIMARY KEY CHECK(name='gemini'),value TEXT NOT NULL); PRAGMA user_version=1;").unwrap();
+        let mut old = serde_json::to_value(Settings::defaults(&folder)).unwrap();
+        for field in [
+            "providerConfigured",
+            "libraryConfigured",
+            "openaiTextModel",
+            "openaiImageModel",
+        ] {
+            old.as_object_mut().unwrap().remove(field);
+        }
+        db.execute(
+            "INSERT INTO desktop_settings VALUES(1,?1)",
+            [old.to_string()],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO desktop_credentials VALUES('gemini','fixture-gemini')",
+            [],
+        )
+        .unwrap();
+        drop(db);
+        let mut store = Store::open(&file, &folder).unwrap();
+        let mut settings = store.settings().unwrap();
+        assert!(settings.provider_configured);
+        assert!(settings.library_configured);
+        assert_eq!(store.key().unwrap(), "fixture-gemini");
+        let revision = store.revision().unwrap();
+        settings.provider = "openai".into();
+        store
+            .save_at(&settings, KeyChange::Set("fixture-openai"), Some(revision))
+            .unwrap();
+        assert_eq!(store.key_for("gemini").unwrap(), "fixture-gemini");
+        let (snapshot, seen_revision, has_gemini, has_openai) = store.settings_snapshot().unwrap();
+        assert_eq!(snapshot.provider, "openai");
+        assert!(has_gemini && has_openai);
+        let mut other = Store::open(&file, &folder).unwrap();
+        let mut newer = other.settings().unwrap();
+        newer.port = 3455;
+        other.save(&newer, KeyChange::Keep).unwrap();
+        assert!(store
+            .save_at(&snapshot, KeyChange::Keep, Some(seen_revision))
+            .is_err());
+        assert_eq!(store.settings_snapshot().unwrap().0.port, 3455);
+        drop(other);
+        assert!(store
+            .save_at(&settings, KeyChange::Delete, Some(revision))
+            .is_err());
+        assert_eq!(store.key().unwrap(), "fixture-openai");
+        settings.port = 3456;
+        store.save(&settings, KeyChange::Keep).unwrap();
+        store.reset_providers().unwrap();
+        assert_eq!(store.settings().unwrap().port, 3456);
+        assert_eq!(
+            store.settings().unwrap().data_directory,
+            settings.data_directory
+        );
+        assert!(!store.settings().unwrap().provider_configured);
+        assert!(store.key_for("openai").unwrap().is_empty());
+        assert!(store.key_for("gemini").unwrap().is_empty());
+        drop(store);
+        fs::remove_dir_all(folder).unwrap();
+    }
+    #[test]
+    fn typescript_and_native_share_the_actual_database_protocol() {
+        use std::process::Command;
+        let folder = folder();
+        let file = folder.join("desktop.sqlite");
+        let library = folder.join("library");
+        let module = Path::new(env!("CARGO_MANIFEST_DIR")).join("../server/system-settings.ts");
+        let script = r#"import {pathToFileURL} from 'node:url';const {SystemSettingsStore}=await import(pathToFileURL(process.argv[1]).href);const store=new SystemSettingsStore(process.argv[2],process.argv[3]);if(process.argv[4]==='write'){store.save({provider:'openai',providerConfigured:true,libraryConfigured:true},{provider:'openai',value:'interop-test-only'});}else{if(store.settings().provider!=='gemini'||store.key('gemini')!=='native-test-only'||store.key('openai')!=='interop-test-only')throw Error('Interop mismatch');store.save({port:3457});}store.close();"#;
+        let run = |phase: &str| {
+            let status = Command::new("node")
+                .args([
+                    "--experimental-strip-types",
+                    "--input-type=module",
+                    "-e",
+                    script,
+                ])
+                .arg(&module)
+                .arg(&file)
+                .arg(&library)
+                .arg(phase)
+                .status()
+                .unwrap();
+            assert!(status.success(), "TypeScript interoperability phase failed");
+        };
+        run("write");
+        let mut store = Store::open(&file, &folder).unwrap();
+        let mut settings = store.settings().unwrap();
+        assert_eq!(settings.provider, "openai");
+        assert_eq!(store.key().unwrap(), "interop-test-only");
+        settings.provider = "gemini".into();
+        store
+            .save(&settings, KeyChange::Set("native-test-only"))
+            .unwrap();
+        drop(store);
+        run("read");
+        let store = Store::open(&file, &folder).unwrap();
+        assert_eq!(store.settings().unwrap().port, 3457);
+        drop(store);
         fs::remove_dir_all(folder).unwrap();
     }
 }

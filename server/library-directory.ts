@@ -21,7 +21,8 @@ export function savedDesktopLibraryDirectory(options:LibraryLocationOptions={}){
   database=new DatabaseSync(settings,{readOnly:true});
   const row=database.prepare('SELECT value FROM desktop_settings WHERE id=1').get() as {value:string}|undefined;
   if(!row)throw Error('MISSING_SETTINGS');
-  const saved=JSON.parse(row.value) as {dataDirectory?:unknown};
+  const saved=JSON.parse(row.value) as {dataDirectory?:unknown;libraryConfigured?:unknown};
+  if(saved.libraryConfigured===false)return undefined;
   if(typeof saved.dataDirectory!=='string'||!paths.isAbsolute(saved.dataDirectory))throw Error('INVALID_LIBRARY_DIRECTORY');
   return paths.normalize(saved.dataDirectory);
  }catch{throw Error('无法读取桌面书库设置；请修复设置，或通过 --data-dir / SHIQU_DATA_DIR 指定书库。');}

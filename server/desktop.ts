@@ -16,34 +16,23 @@ import {startDesktopTunnel,TunnelError} from './desktop-tunnel.ts';
 import {createReaderProvider} from './generation.ts';
 import {stopCodexProcesses} from './codex-runner.ts';
 import {FileMedia} from './media.ts';
-import {codexReasoningEffortSchema} from '../lib/codex-settings.ts';
-import {taskReasoningSchema,reasoningTasks,geminiReasoningEfforts} from '../lib/reader-reasoning.ts';
+import {systemSettingsSchema,settingsVariables} from '../lib/system-settings.ts';
 
-export const desktopSettings=z.object({
- nodePath:z.string().max(4096).default(''),dataDirectory:z.string().min(1).max(4096),port:z.number().int().min(1024).max(65535),
- // Accept the old field only for migration; it never enables public access.
- lanEnabled:z.boolean().optional(),internetEnabled:z.boolean().default(false),cloudflaredPath:z.string().max(4096).default(''),
- provider:z.enum(['gemini','codex']),textModel:z.string().regex(/^[\w.-]{1,100}$/),imageModel:z.string().regex(/^[\w.-]{1,100}$/),
- codexPath:z.string().max(4096),codexModel:z.string().regex(/^[\w.-]{0,100}$/),codexHome:z.string().max(4096),codexReasoningEffort:codexReasoningEffortSchema,
- taskReasoningEfforts:taskReasoningSchema,
-}).strict().superRefine((settings,ctx)=>{
- if(settings.provider==='gemini')for(const task of reasoningTasks)if(!(geminiReasoningEfforts as readonly string[]).includes(settings.taskReasoningEfforts[task]))ctx.addIssue({code:z.ZodIssueCode.custom,path:['taskReasoningEfforts',task],message:'Gemini 仅支持 low、medium、high'});
-});
+export const desktopSettings=systemSettingsSchema;
 export type DesktopSettings=z.infer<typeof desktopSettings>;
-export function desktopVariables(settings:DesktopSettings,key:string){
- const tasks=taskReasoningSchema.parse(settings.taskReasoningEfforts);
- return {SHIQU_AI_PROVIDER:settings.provider,GEMINI_API_KEY:key,GEMINI_TEXT_MODEL:settings.textModel,GEMINI_IMAGE_MODEL:settings.imageModel,CODEX_BIN:settings.codexPath||'codex',CODEX_MODEL:settings.codexModel,SHIQU_CODEX_HOME:settings.codexHome,CODEX_REASONING_EFFORT:settings.codexReasoningEffort,...Object.fromEntries(reasoningTasks.map(task=>['SHIQU_REASONING_'+task.toUpperCase(),tasks[task]]))};
-}
+export function desktopVariables(settings:DesktopSettings,key:string){return settingsVariables(systemSettingsSchema.parse(settings),key);}
 export async function testDesktopProvider(settings:DesktopSettings,key:string,root:string,transport:typeof fetch=fetch){
  if(settings.provider==='codex'){
   const provider=createReaderProvider(desktopVariables(settings,key),new FileMedia(path.join(root,'unused')),transport);
   const status=await provider.status();return {ok:status.configured,message:status.configured?'Codex 已登录；此检查未生成内容。':status.message||'Codex 尚未连接。'};
  }
- if(!key)return {ok:false,message:'请先填写或保存 Gemini API 密钥。'};
+ if(settings.provider==='readonly')return {ok:true,message:'当前为只读模式，不调用生成服务。'};
+ if(!key)return {ok:false,message:'请先填写或保存 API 密钥。'};
  try{
   // Metadata only: no generation endpoint, prompt, or paid output.
-  for(const model of new Set([settings.textModel,settings.imageModel])){
-   const response=await transport(`https://generativelanguage.googleapis.com/v1beta/models/${model}`,{headers:{'x-goog-api-key':key},signal:AbortSignal.timeout(10000),redirect:'error'});
+  for(const model of new Set(settings.provider==='openai'?[settings.openaiTextModel,settings.openaiImageModel]:[settings.textModel,settings.imageModel])){
+   const openai=settings.provider==='openai';
+   const response=await transport(openai?`https://api.openai.com/v1/models/${model}`:`https://generativelanguage.googleapis.com/v1beta/models/${model}`,{headers:openai?{Authorization:'Bearer '+key}:{'x-goog-api-key':key},signal:AbortSignal.timeout(10000),redirect:'error'});
    if(!response.ok)return {ok:false,message:`模型访问检查失败（HTTP ${response.status}）。请检查密钥及模型权限。`};
    await response.body?.cancel();
   }

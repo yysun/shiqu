@@ -7,6 +7,8 @@ import path from 'node:path';
 import os from 'node:os';
 import {cliConfiguration,askLibraryDirectory} from '../server/cli-options.ts';
 import {desktopLibraryPaths} from '../server/library-directory.ts';
+import {SystemSettingsStore} from '../server/system-settings.ts';
+import {defaultSystemSettings} from '../lib/system-settings.ts';
 import {ownDesktopData} from '../server/desktop-owner.ts';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
@@ -16,12 +18,13 @@ async function fixture(t){
  t.after(()=>rm(home,{recursive:true,force:true}));
  return {home,cwd:home,platform:process.platform,variables:{},ask:async()=>{throw Error('Unexpected question');}};
 }
-async function desktopSettings(context, value){
+async function desktopSettings(context,value){
  const filename=desktopLibraryPaths(context).settings;
- await mkdir(path.dirname(filename),{recursive:true});
+ let parsed;try{parsed=JSON.parse(value);}catch{}
+ const defaults=defaultSystemSettings(parsed?.dataDirectory||path.join(context.home,'saved shelf'));
+ const store=new SystemSettingsStore(filename,defaults.dataDirectory);store.close();
  const db=new DatabaseSync(filename);
- db.exec('CREATE TABLE desktop_settings(id INTEGER PRIMARY KEY,value TEXT)');
- db.prepare('INSERT INTO desktop_settings VALUES(1,?)').run(value);db.close();
+ db.prepare('UPDATE desktop_settings SET value=? WHERE id=1').run(parsed?JSON.stringify({...defaults,provider:'readonly',providerConfigured:true,libraryConfigured:true,...parsed}):value);db.close();
  return filename;
 }
 
@@ -39,16 +42,16 @@ test('first-run confirmation is remembered, but desktop settings take priority l
  const context=await fixture(t),locations=desktopLibraryPaths(context);let questions=0;
  const result=await cliConfiguration({},{...context,ask:async suggestion=>{questions++;assert.equal(suggestion,locations.library);return 'my shelf';}});
  assert.equal(result.SHIQU_DATA_DIR,path.join(context.home,'my shelf'));assert.equal(questions,1);
- assert.deepEqual(JSON.parse(await readFile(locations.cliSelection,'utf8')),{dataDirectory:result.SHIQU_DATA_DIR});
+ const store=new SystemSettingsStore(locations.settings,locations.library);assert.equal(store.settings().dataDirectory,result.SHIQU_DATA_DIR);assert.equal(store.key('openai'),'');assert.equal(store.key('gemini'),'');store.close();
  assert.equal((await cliConfiguration({},context)).SHIQU_DATA_DIR,result.SHIQU_DATA_DIR);
- await assert.rejects(access(locations.settings));
+ await assert.rejects(access(locations.cliSelection));
  const desktop=path.join(context.home,'desktop preferred');await desktopSettings(context,JSON.stringify({dataDirectory:desktop}));
  assert.equal((await cliConfiguration({},context)).SHIQU_DATA_DIR,desktop);
 });
-test('accepting suggested directory does not create a desktop credential database',async t=>{
+test('accepting suggested directory stores only the directory in the shared settings database',async t=>{
  const context=await fixture(t),locations=desktopLibraryPaths(context);
  assert.equal((await cliConfiguration({},{...context,ask:async()=>''})).SHIQU_DATA_DIR,locations.library);
- await assert.rejects(access(locations.settings));await assert.rejects(access(locations.library));
+ const store=new SystemSettingsStore(locations.settings,locations.library);assert.equal(store.settings().libraryConfigured,true);assert.equal(store.key('gemini'),'');assert.equal(store.key('openai'),'');store.close();await assert.rejects(access(locations.library));
 });
 test('an existing default desktop library is found without a question or CLI settings write',async t=>{
  const context=await fixture(t),locations=desktopLibraryPaths(context);
@@ -107,7 +110,7 @@ async function freePort(){
 function cliProcess(root,args,home,variables={}){
  const source=new URL('../server/cli.ts',import.meta.url).href;
  const program=`import {runCli} from ${JSON.stringify(source)};try{await runCli(${JSON.stringify(root)},${JSON.stringify(args)});}catch(error){console.error(error.message);process.exitCode=1;}`;
- const child=spawn(process.execPath,['--experimental-strip-types','--input-type=module','-e',program],{cwd:root,env:{PATH:process.env.PATH,HOME:home,USERPROFILE:home,APPDATA:path.join(home,'roaming'),LOCALAPPDATA:path.join(home,'local'),SYSTEMROOT:process.env.SYSTEMROOT||'',SHIQU_AI_PROVIDER:'gemini',...variables},stdio:['ignore','pipe','pipe']});
+ const child=spawn(process.execPath,['--experimental-strip-types','--input-type=module','-e',program],{cwd:root,env:{PATH:process.env.PATH,HOME:home,USERPROFILE:home,APPDATA:path.join(home,'roaming'),LOCALAPPDATA:path.join(home,'local'),SYSTEMROOT:process.env.SYSTEMROOT||'',SHIQU_AI_PROVIDER:'readonly',...variables},stdio:['ignore','pipe','pipe']});
  let logs='';child.stdout.on('data',data=>{logs+=data;});child.stderr.on('data',data=>{logs+=data;});
  return {child,logs:()=>logs};
 }
@@ -187,4 +190,19 @@ test('CLI signal stops a hanging Codex request before draining HTTP and releasin
  await pending;
  for(const pid of [pids.parent,pids.descendant])assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
  const release=await ownDesktopData(directory);await release();
+});
+
+test('CLI reuses saved API configuration without prompts and reset clears only provider state', {timeout:15000},async t=>{
+ const context=await fixture(t),root=await processFixture(t),locations=desktopLibraryPaths({...context,variables:process.platform==='win32'?{APPDATA:path.join(context.home,'roaming')}:{}});
+ const store=new SystemSettingsStore(locations.settings,locations.library),directory=path.join(context.home,'saved shared shelf');
+ store.save({dataDirectory:directory,libraryConfigured:true,provider:'openai',providerConfigured:true},{provider:'openai',value:'test-only-saved-api-key'});store.close();
+ const port=await freePort(),current=cliProcess(root,['--port',String(port)],context.home,{SHIQU_AI_PROVIDER:undefined});t.after(()=>stopProcess(current));await ready(current);
+ const response=await fetch('http://127.0.0.1:'+port+'/api/reader/status'),status=await response.json();
+ assert.equal(status.provider,'openai');assert.equal(status.configured,true);assert.ok(!current.logs().includes('test-only-saved-api-key'));assert.ok(!current.logs().includes('选择生成服务'));
+ await stopProcess(current);
+ const configure=cliProcess(root,['--configure'],context.home,{SHIQU_AI_PROVIDER:undefined});assert.equal((await once(configure.child,'exit'))[0],1);assert.match(configure.logs(),/交互终端/);
+ const beforeReset=new SystemSettingsStore(locations.settings,locations.library);assert.equal(beforeReset.key('openai'),'test-only-saved-api-key');beforeReset.close();
+ await writeFile(path.join(directory,'preserved.txt'),'story data remains');
+ const reset=cliProcess(root,['--reset-providers'],context.home,{SHIQU_AI_PROVIDER:undefined});assert.equal((await once(reset.child,'exit'))[0],0);assert.match(reset.logs(),/--configure/);
+ const after=new SystemSettingsStore(locations.settings,locations.library);assert.equal(after.key('openai'),'');assert.equal(after.settings().providerConfigured,false);assert.equal(after.settings().dataDirectory,directory);after.close();assert.equal(await readFile(path.join(directory,'preserved.txt'),'utf8'),'story data remains');
 });

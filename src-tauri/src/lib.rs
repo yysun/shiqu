@@ -21,7 +21,6 @@ use tauri_plugin_opener::OpenerExt;
 struct Control {
     runtime: Option<runtime::Runtime>,
     last_error: Option<String>,
-    environment: config::EnvironmentImport,
 }
 #[derive(Clone, Default)]
 struct DesktopState(Arc<Mutex<Control>>);
@@ -45,30 +44,69 @@ fn resource_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 fn settings_view(app: &tauri::AppHandle, control: &mut Control) -> Result<Value, String> {
     let store = open_store(app, control)?;
-    let settings = store.settings()?;
+    let (settings, revision, gemini, openai) = store.settings_snapshot()?;
+    let key_present = match settings.provider.as_str() {
+        "gemini" => gemini,
+        "openai" => openai,
+        _ => false,
+    };
     Ok(
-        json!({"settings":settings,"keyPresent":store.key_present()?,"credentialError":control.environment.error,"platform":std::env::consts::OS}),
+        json!({"settings":settings,"revision":revision,"keyPresent":key_present,"providerKeys":{"gemini":gemini,"openai":openai},"runtimeConfigured":provider_configuration(&store).map(|(settings,key)| settings.provider=="codex" || settings.provider=="readonly" || !key.is_empty()).unwrap_or(false),"credentialError":null,"platform":std::env::consts::OS}),
     )
 }
-fn open_store(app: &tauri::AppHandle, control: &mut Control) -> Result<config::Store, String> {
+fn open_store(app: &tauri::AppHandle, _control: &mut Control) -> Result<config::Store, String> {
     let (file, data) = config::directories(app)?;
-    let mut store = config::Store::open(&file, &data)?;
-    control
-        .environment
-        .initialize(&mut store, || match std::env::var("GEMINI_API_KEY") {
-            Ok(value) => Ok(Some(value)),
-            Err(std::env::VarError::NotPresent) => Ok(None),
-            Err(_) => Err(()),
-        })?;
-    Ok(store)
+    config::Store::open(&file, &data)
 }
-
+// Invocation overrides never mutate the saved settings or import environment credentials.
 fn provider_configuration(store: &config::Store) -> Result<(Settings, String), String> {
-    let settings = store.settings()?;
-    let key = if settings.provider == "gemini" {
-        store.key()?
-    } else {
-        String::new()
+    provider_configuration_with(store, |name| std::env::var(name).ok())
+}
+fn provider_configuration_with(
+    store: &config::Store,
+    read: impl Fn(&str) -> Option<String>,
+) -> Result<(Settings, String), String> {
+    let mut settings = store.settings()?;
+    if let Some(value) = read("SHIQU_AI_PROVIDER") {
+        settings.provider = value;
+    }
+    for (name, target) in [
+        ("GEMINI_TEXT_MODEL", &mut settings.text_model),
+        ("GEMINI_IMAGE_MODEL", &mut settings.image_model),
+        ("OPENAI_TEXT_MODEL", &mut settings.openai_text_model),
+        ("OPENAI_IMAGE_MODEL", &mut settings.openai_image_model),
+        ("CODEX_MODEL", &mut settings.codex_model),
+        ("CODEX_BIN", &mut settings.codex_path),
+        ("SHIQU_CODEX_HOME", &mut settings.codex_home),
+        (
+            "CODEX_REASONING_EFFORT",
+            &mut settings.codex_reasoning_effort,
+        ),
+    ] {
+        if let Some(value) = read(name) {
+            *target = value;
+        }
+    }
+    let mut efforts =
+        serde_json::to_value(&settings.task_reasoning_efforts).map_err(|_| "任务推理设置无效。")?;
+    for task in [
+        "suggest", "art", "frames", "outline", "plan", "review", "repair",
+    ] {
+        if let Some(value) = read(&format!("SHIQU_REASONING_{}", task.to_uppercase())) {
+            efforts[task] = value.into();
+        }
+    }
+    settings.task_reasoning_efforts =
+        serde_json::from_value(efforts).map_err(|_| "任务推理设置无效。")?;
+    settings.validate()?;
+    let name = match settings.provider.as_str() {
+        "openai" => Some("OPENAI_API_KEY"),
+        "gemini" => Some("GEMINI_API_KEY"),
+        _ => None,
+    };
+    let key = match name.and_then(&read) {
+        Some(value) => config::validate_key(&value)?,
+        None => store.key_for(&settings.provider)?,
     };
     Ok((settings, key))
 }
@@ -124,7 +162,8 @@ async fn set_library_story_deleted(
 async fn save_settings(
     app: tauri::AppHandle,
     state: tauri::State<'_, DesktopState>,
-    settings: Settings,
+    mut settings: Settings,
+    expected_revision: Option<i64>,
     key_action: String,
     key: String,
 ) -> Result<Value, String> {
@@ -145,12 +184,39 @@ async fn save_settings(
             _ => return Err("密钥操作无效。".into()),
         };
         let mut store = open_store(&app, &mut guard)?;
-        store.save(&settings, change)?;
-        if key_action != "keep" {
-            guard.environment.error = None;
-        }
+        settings.library_configured = true;
+        settings.provider_configured = match settings.provider.as_str() {
+            "gemini" | "openai" => {
+                if key_action == "replace" {
+                    true
+                } else if key_action == "delete" {
+                    false
+                } else {
+                    !store.key_for(&settings.provider)?.is_empty()
+                }
+            }
+            _ => true,
+        };
+        store.save_at(&settings, change, expected_revision)?;
         drop(store);
         settings_view(&app, &mut guard)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn reset_providers(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Value, String> {
+    let shared = state.0.clone();
+    blocking(move || {
+        let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
+        if control.runtime.is_some() {
+            return Err("请先停止服务，再重置配置。".into());
+        }
+        open_store(&app, &mut control)?.reset_providers()?;
+        settings_view(&app, &mut control)
     })
     .await
 }
@@ -196,6 +262,9 @@ async fn start_server(
         }
         let store = open_store(&app, &mut control)?;
         let (settings, key) = provider_configuration(&store)?;
+        if !["readonly", "codex"].contains(&settings.provider.as_str()) && key.is_empty() {
+            return Err("请先配置生成服务，或选择只读模式。".into());
+        }
         match runtime::start(&settings, &key, &resource_root(&app)?) {
             Ok(runtime) => {
                 let result = runtime.status.clone();
@@ -323,6 +392,7 @@ pub fn run() {
             library_summary,
             set_library_story_deleted,
             save_settings,
+            reset_providers,
             detect_node,
             choose_path,
             start_server,
@@ -395,22 +465,58 @@ mod tests {
             .unwrap();
         drop(store);
         let mut store = config::Store::open(&file, &folder).unwrap();
-        let (loaded, key) = provider_configuration(&store).unwrap();
+        let (loaded, key) = provider_configuration_with(&store, |_| None).unwrap();
         assert_eq!(loaded.text_model, "saved-model");
         assert_eq!(key, "disposable-command-key");
         store.save(&settings, config::KeyChange::Delete).unwrap();
-        assert!(provider_configuration(&store).unwrap().1.is_empty());
+        assert!(provider_configuration_with(&store, |_| None)
+            .unwrap()
+            .1
+            .is_empty());
         #[cfg(not(windows))]
         {
             settings.provider = "codex".into();
-            store
-                .save(
-                    &settings,
-                    config::KeyChange::Set("ignored-in-subscription-mode"),
-                )
-                .unwrap();
-            assert!(provider_configuration(&store).unwrap().1.is_empty());
+            store.save(&settings, config::KeyChange::Keep).unwrap();
+            assert!(provider_configuration_with(&store, |_| None)
+                .unwrap()
+                .1
+                .is_empty());
         }
+        drop(store);
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+    #[test]
+    fn provider_environment_is_invocation_only_and_does_not_import_credentials() {
+        let folder =
+            std::env::temp_dir().join(format!("shiqu-provider-env-{}", std::process::id()));
+        let file = folder.join("desktop.sqlite");
+        let mut store = config::Store::open(&file, &folder).unwrap();
+        let settings = store.settings().unwrap();
+        store
+            .save(&settings, config::KeyChange::Set("saved-gemini"))
+            .unwrap();
+        let revision = store.revision().unwrap();
+        let (effective, key) = provider_configuration_with(&store, |name| match name {
+            "SHIQU_AI_PROVIDER" => Some("openai".into()),
+            "OPENAI_API_KEY" => Some("env-only-key".into()),
+            "OPENAI_TEXT_MODEL" => Some("env-model".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(effective.provider, "openai");
+        assert_eq!(effective.openai_text_model, "env-model");
+        assert_eq!(key, "env-only-key");
+        assert_eq!(store.settings().unwrap().provider, "gemini");
+        assert!(store.key_for("openai").unwrap().is_empty());
+        assert_eq!(store.revision().unwrap(), revision);
+        assert!(
+            provider_configuration_with(&store, |name| if name == "GEMINI_API_KEY" {
+                Some("private-invalid\nkey".into())
+            } else {
+                None
+            })
+            .is_err()
+        );
         drop(store);
         std::fs::remove_dir_all(folder).unwrap();
     }
