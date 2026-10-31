@@ -4,12 +4,11 @@ import {invoke} from '@tauri-apps/api/core';
 import {BookOpen,Check,ChevronRight,Clock3,Heart,Layers3,RefreshCw,Search,Sparkles,Trash2,Undo2} from 'lucide-react';
 import {getArtStyle} from '../lib/reader-styles';
 import {groupShelfByBook,matchesShelfSearch} from '../lib/shelf-browser';
-import {productionSteps,type ProductionCheckpoint} from '../lib/production-stages';
+import {productionSteps} from '../lib/production-stages';
+import type {StorySummary} from './library-summary';
+import {useLibrarySummary} from './useLibrarySummary';
 import ProductionTimeline from '../client/ui/ProductionTimeline';
 
-type StorySummary={id:string;title:string;book:string;theme:string;artStyle:string;state:string;saved:number;page:number;ready:number;total:number;updatedAt:string;jobs:number;queued:number;running:number;failed:number;succeeded:number;production?:ProductionCheckpoint};
-type Summary={stories:StorySummary[]};
-export type DesktopTab='library'|'queue'|'reader'|'settings';
 const states:Record<string,string>={idle:'待继续',running:'生成中',failed:'已暂停',completed:'已完成'};
 function waitingLabel(story:StorySummary){return story.production?.intakePhase==='discovering'?'等待找故事':story.production?.intakePhase==='choosing'?'待选故事':story.production?.intakePhase==='confirming'?'待制作确认':states[story.state]||'待继续';}
 function date(value:string){return new Intl.DateTimeFormat('zh-CN',{month:'short',day:'numeric'}).format(new Date(value));}
@@ -17,24 +16,10 @@ function StoryTags({story}:{story:StorySummary}){
  return <div className="story-tags"><span>主题 · {story.theme||'未记录'}</span><span>画风 · {getArtStyle(story.artStyle).label}</span></div>;
 }
 export function LibraryPane({tab,native,revision}:{tab:'library'|'queue';native:boolean;revision:string}){
- const [summary,setSummary]=useState<Summary|null>(null),[error,setError]=useState(''),[refresh,setRefresh]=useState(0),[loading,setLoading]=useState(true);
+ const {summary,error,loading,refresh}=useLibrarySummary(native,revision);
  const [search,setSearch]=useState(''),[filter,setFilter]=useState('all'),[groupBy,setGroupBy]=useState('book');
  const [deleteTarget,setDeleteTarget]=useState<StorySummary|null>(null),[undo,setUndo]=useState<StorySummary|null>(null),[mutating,setMutating]=useState(false),[mutationError,setMutationError]=useState('');
  const dialog=useRef<HTMLDialogElement>(null),mutationLock=useRef(false),refreshButton=useRef<HTMLButtonElement>(null);
- useEffect(()=>{
-  let active=true,inFlight=false;
-  setSummary(null);setLoading(true);setError('');
-  async function load(){
-   if(inFlight)return;inFlight=true;
-   try{
-    const data=native?await invoke<Summary>('library_summary'):await fetch('/__desktop/library',{cache:'no-store'}).then(async response=>{if(!response.ok)throw Error('无法读取本地书架，请检查数据目录及数据库版本。');return response.json() as Promise<Summary>;});
-    if(active){setSummary(data);setError('');}
-   }catch(e){if(active)setError(String(e instanceof Error?e.message:e));}
-   finally{inFlight=false;if(active)setLoading(false);}
-  }
-  void load();const timer=setInterval(()=>void load(),4000);
-  return()=>{active=false;clearInterval(timer);};
- },[native,revision,refresh]);
  useEffect(()=>{if(deleteTarget){if(!dialog.current?.open)dialog.current?.showModal();}else dialog.current?.close();},[deleteTarget]);
  useEffect(()=>{setUndo(null);setDeleteTarget(null);setMutationError('');},[revision]);
  async function changeDeleted(story:StorySummary,deleted:boolean){
@@ -46,11 +31,11 @@ export function LibraryPane({tab,native,revision}:{tab:'library'|'queue';native:
     const response=await fetch('/__desktop/library/'+encodeURIComponent(story.id),{method:deleted?'DELETE':'PUT'});
     if(!response.ok)throw Error('故事暂时无法更新，请重试。');
    }
-   setDeleteTarget(null);setUndo(deleted?story:null);setRefresh(value=>value+1);refreshButton.current?.focus();
+   setDeleteTarget(null);setUndo(deleted?story:null);refresh();refreshButton.current?.focus();
   }catch(e){setMutationError(String(e instanceof Error?e.message:e));}
   finally{mutationLock.current=false;setMutating(false);}
  }
- const stories=summary?.stories||[],queue=stories.filter(story=>story.jobs>0||['running','failed'].includes(story.state));
+ const stories=summary?.stories||[],queue=stories.filter(story=>story.jobs>0||story.state!=='completed');
  const needsAttention=(story:StorySummary)=>story.failed>0||story.state==='failed';
  const pending=(story:StorySummary)=>!needsAttention(story)&&(story.running>0||story.queued>0||story.state==='running');
  const completed=(story:StorySummary)=>story.state==='completed'&&!needsAttention(story)&&!pending(story);
@@ -84,7 +69,7 @@ export function LibraryPane({tab,native,revision}:{tab:'library'|'queue';native:
    </article>;
  }
  return <section className="collection-pane">
-  <div className="collection-heading"><div><p className="pane-kicker">{tab==='library'?'留在这里的故事':'故事正在慢慢展开'}</p><h2>{tab==='library'?'书架':'生成队列'}<span>{source.length}</span></h2><p>{tab==='library'?'读过的、收藏的，还有未完的故事。':'查看每篇故事的生成进度与任务状态。'}</p></div><button ref={refreshButton} className="refresh-button" aria-label="刷新本地数据" onClick={()=>setRefresh(value=>value+1)} disabled={loading}><RefreshCw size={16}/></button></div>
+  <div className="collection-heading"><div><p className="pane-kicker">{tab==='library'?'留在这里的故事':'故事正在慢慢展开'}</p><h2>{tab==='library'?'书架':'生成队列'}<span>{source.length}</span></h2><p>{tab==='library'?'读过的、收藏的，还有未完的故事。':'查看每篇故事的生成进度与任务状态。'}</p></div><button ref={refreshButton} className="refresh-button" aria-label="刷新本地数据" onClick={()=>refresh()} disabled={loading}><RefreshCw size={16}/></button></div>
   {tab==='library'?<>
    <div className="library-search"><Search size={16}/><input aria-label="搜索书架" placeholder="搜索故事、原典、主题或画风" value={search} onChange={event=>setSearch(event.target.value)}/></div>
    <div className="library-view-controls"><div className="collection-filters" aria-label="书架筛选">{[['all','全部故事'],['saved','我的收藏']].map(([value,label])=><button key={value} aria-pressed={filter===value} onClick={()=>setFilter(value)}>{label}</button>)}</div><label className="group-control"><span className="sr-only">书架分组</span><select aria-label="书架分组" value={groupBy} onChange={event=>setGroupBy(event.target.value)}><option value="book">按书名分组</option><option value="none">不分组</option></select></label></div>
@@ -93,7 +78,7 @@ export function LibraryPane({tab,native,revision}:{tab:'library'|'queue';native:
    <div className="collection-filters" aria-label="队列筛选">{[['all','全部'],['active','进行中'],['failed','需要处理']].map(([value,label])=><button key={value} aria-pressed={filter===value} onClick={()=>setFilter(value)}>{label}</button>)}</div>
   </>}
   {undo&&<div className="library-undo" role="status"><span>已从书架删除《{undo.title}》</span><button type="button" onClick={()=>void changeDeleted(undo,false)} disabled={mutating}><Undo2 size={14}/>{mutating?'恢复中…':'撤销'}</button></div>}
-  {(error||mutationError&&!deleteTarget)&&<div className="collection-error" role="alert">{error||mutationError}<button className="text-button" onClick={()=>{setMutationError('');setRefresh(value=>value+1);}}>重新加载</button></div>}
+  {(error||mutationError&&!deleteTarget)&&<div className="collection-error" role="alert">{error||mutationError}<button className="text-button" onClick={()=>{setMutationError('');refresh();}}>重新加载</button></div>}
   {loading&&!summary?<div className="collection-empty" role="status"><RefreshCw size={28}/><h3>正在打开{tab==='library'?'书架':'队列'}…</h3></div>:visible.length?
    tab==='library'?groupBy==='book'?<div className="book-groups">{groupShelfByBook(visible).map(({book,items:rows})=><details className="book-group" key={book} open><summary><ChevronRight size={15}/><BookOpen size={15}/><h3>{book}</h3><span>{rows.length} 篇</span></summary><div className="story-list">{rows.map(storyCard)}</div></details>)}</div>:<div className="story-list">{visible.map(storyCard)}</div>:
    <div className="queue-list">{queueGroups.filter(group=>group.items.length>0).map(({id,label,items,Icon})=><details key={id} className={"queue-group queue-group-"+id+(id==='completed'?' queue-completed':'')} open={id!=='completed'?true:undefined}><summary><ChevronRight size={15} aria-hidden="true"/><Icon size={15} aria-hidden="true"/><strong>{label}</strong><span>{items.length} 篇</span></summary><div>{items.map(queueCard)}</div></details>)}</div>:

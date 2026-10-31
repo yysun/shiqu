@@ -1,12 +1,13 @@
-// Desktop tabs share shelf controls and an isolated local reader; native settings keep keys private.
-import {useEffect,useState} from 'react';
+// The desktop manages the local service; reading opens in the browser and credentials stay native.
+import {useEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {invoke,isTauri} from '@tauri-apps/api/core';
 import QRCode from 'qrcode';
-import {BookOpen,Layers3,Settings2,Sparkles} from 'lucide-react';
+import {LayoutDashboard,Layers3,Server,Settings2} from 'lucide-react';
 import {LibraryPane} from './LibraryPane';
-import {ReaderPane} from './ReaderPane';
-import type {DesktopTab} from './LibraryPane';
+import {OverviewPane} from './OverviewPane';
+import {localReaderUrl} from './reader-url';
+import type {ServiceState} from './library-summary';
 import {codexReasoningEfforts} from '../lib/codex-settings';
 import {taskReasoningDefaults,reasoningTasks,taskReasoningLabels,geminiReasoningEfforts} from '../lib/reader-reasoning';
 import {defaultSystemSettings} from '../lib/system-settings';
@@ -18,34 +19,40 @@ type View={settings:Settings;revision:number;keyPresent:boolean;providerKeys:{ge
 type Status={running:boolean;url?:string;phoneUrls:string[];publicUrl?:string;internetError?:string;error?:string};
 type NodeInfo={path:string;version:string;sqlite:boolean};
 type KeyAction='keep'|'replace'|'delete';
-const tabs=[['library','书架',BookOpen],['queue','生成队列',Layers3],['reader','阅读与创作',Sparkles],['settings','设置',Settings2]] as const;
+type DesktopTab='overview'|'queue'|'settings';
+const tabs=[['overview','概览',LayoutDashboard],['queue','生成队列',Layers3],['settings','设置',Settings2]] as const;
 const previewSettings=defaultSystemSettings('桌面应用中保存的故事目录');
 
 function Desktop(){
- const [tab,setTab]=useState<DesktopTab>('library');
- const [readerVisited,setReaderVisited]=useState(false);
- function selectTab(value:DesktopTab){if(value==='reader')setReaderVisited(true);setTab(value);}
+ const [tab,setTab]=useState<DesktopTab>('overview');
  const [view,setView]=useState<View|null>(null),[settings,setSettings]=useState<Settings|null>(null),[status,setStatus]=useState<Status>({running:false,phoneUrls:[]});
  const [key,setKey]=useState(''),[keyAction,setKeyAction]=useState<KeyAction>('keep'),[reveal,setReveal]=useState(false),[node,setNode]=useState<NodeInfo|null>(null),[nodeError,setNodeError]=useState('');
  const [busy,setBusy]=useState(''),[message,setMessage]=useState(''),[error,setError]=useState(''),[phone,setPhone]=useState(''),[qr,setQr]=useState('');
  const native=isTauri();
+ const [statusKnown,setStatusKnown]=useState(false),[statusReadError,setStatusReadError]=useState('');
+ const statusEpoch=useRef(0);
+ const actionInFlight=useRef(false);
+ function acceptStatus(result:Status){statusEpoch.current++;setStatus(result);setStatusKnown(true);setStatusReadError('');}
  async function checkNode(nodePath:string){try{const info=await invoke<NodeInfo>('detect_node',{nodePath});setNode(info);setNodeError('');return info;}catch(e){setNode(null);setNodeError(String(e));return null;}}
  useEffect(()=>{
   if(!native){if(import.meta.env.DEV){setSettings(previewSettings);setView({settings:previewSettings,keyPresent:false,credentialError:null,platform:'preview',revision:0,providerKeys:{gemini:false,openai:false},runtimeConfigured:false});}else setError('请在拾趣桌面应用中打开。');return;}
   void invoke<View>('get_settings').then(result=>{setView(result);setSettings(result.settings);if(!result.settings.providerConfigured&&!result.runtimeConfigured)setTab('settings');void checkNode(result.settings.nodePath);}).catch(e=>setError(String(e)));
   let active=true,inFlight=false;
-  const timer=setInterval(()=>{if(inFlight)return;inFlight=true;void invoke<Status>('server_status').then(result=>{if(active)setStatus(result);}).catch(()=>{}).finally(()=>{inFlight=false;});},2000);
+  function readStatus(){if(inFlight)return;inFlight=true;const epoch=statusEpoch.current;void invoke<Status>('server_status').then(result=>{if(active&&epoch===statusEpoch.current){setStatus(result);setStatusKnown(true);setStatusReadError('');}}).catch(()=>{if(active&&epoch===statusEpoch.current){setStatusKnown(false);setStatusReadError('暂时无法读取服务状态，正在重试。');}}).finally(()=>{inFlight=false;});}
+  readStatus();const timer=setInterval(readStatus,2000);
   return()=>{active=false;clearInterval(timer);};
  },[native]);
  useEffect(()=>{const links=[status.publicUrl,...status.phoneUrls].filter((link):link is string=>!!link);setPhone(current=>links.includes(current)?current:links[0]||'');},[status.publicUrl,status.phoneUrls.join('|')]);
  useEffect(()=>{let active=true;setQr('');if(phone)void QRCode.toDataURL(phone,{width:240,margin:2,color:{dark:'#193d30',light:'#ffffff'}}).then(value=>{if(active)setQr(value);}).catch(()=>setError('二维码生成失败，请复制访问链接。'));return()=>{active=false;};},[phone]);
- async function action(name:string,work:()=>Promise<void>){if(busy)return;setBusy(name);setError('');setMessage('');try{await work();}catch(e){setError(String(e));}finally{setBusy('');}}
+ async function action(name:string,work:()=>Promise<void>){if(actionInFlight.current)return;actionInFlight.current=true;setBusy(name);setError('');setMessage('');try{await work();}catch(e){setError(String(e));}finally{actionInFlight.current=false;setBusy('');}}
+ function openReader(){if(!busy)void action('打开浏览器',async()=>{await invoke('open_reader');});}
  function update<K extends keyof Settings>(name:K,value:Settings[K]){setSettings(previous=>previous?{...previous,[name]:value}:previous);}
  async function browse(kind:string,field:keyof Settings){const value=await invoke<string|null>('choose_path',{kind});if(value)update(field,value as never);}
  async function save(){
-  if(!settings)return;
+  if(!settings)throw Error('设置尚未加载。');
   const result=await invoke<View>('save_settings',{settings,keyAction,key,expectedRevision:view?.revision});
   setView(result);setSettings(result.settings);setKey('');setKeyAction('keep');setReveal(false);
+  return result;
  }
  function selectProvider(provider:ProviderName){
   setKey('');setKeyAction('keep');setReveal(false);
@@ -55,15 +62,30 @@ function Desktop(){
  const links=[status.publicUrl,...status.phoneUrls].filter((link):link is string=>!!link),internet=!!phone&&phone===status.publicUrl;
  const apiProvider=settings?.provider==='gemini'||settings?.provider==='openai',openai=settings?.provider==='openai',keyPresent=settings?.provider==='gemini'?!!view?.providerKeys.gemini:settings?.provider==='openai'?!!view?.providerKeys.openai:false;
  const locked=!native||!!busy||status.running,dirty=!!settings&&!!view&&(JSON.stringify(settings)!==JSON.stringify(view.settings)||keyAction!=='keep');
- return <main className={tab==='reader'?'reader-workspace':undefined}>
+ const configured=!!(view?.settings.providerConfigured||view?.runtimeConfigured);
+ const serviceState:ServiceState=!native?'preview':!statusKnown?statusReadError?'unavailable':'loading':status.running?'running':'stopped';
+ const previewReaderUrl=import.meta.env.DEV?localReaderUrl(import.meta.env.VITE_DESKTOP_READER_URL,window.location.href):null;
+ async function startService(){
+  if(!settings)throw Error('设置尚未加载。');
+  const saved=dirty?(await save()).settings:settings;
+  const info=await checkNode(saved.nodePath);if(!info)throw Error('内置运行时不可用，请检查运行时错误。');
+  const started=await invoke<Status>('start_server');acceptStatus(started);
+  if(!started.running)throw Error(started.error||'服务尚未成功启动，请检查设置后重试。');
+ }
+ function launchReader(){
+  if(!native||busy)return;
+  if(!configured){setTab('settings');return;}
+  if(!statusKnown)return;
+  void action(status.running?'打开拾趣':'启动并打开拾趣',async()=>{if(!status.running)await startService();await invoke('open_reader');});
+ }
+ return <main className={'desktop-console'+(tab==='overview'?' overview-workspace':'')}>
   <header className="app-header"><div className="brand"><div className="brand-mark" aria-hidden="true">拾</div><div><h1>拾趣 <span>桌面版</span></h1><p>在自己的电脑上，留一间故事书房。</p></div></div><span className="edition">桌面控制台</span></header>
-  <div className="notice" role="status" aria-live="polite">{error?<span className="error">{error}</span>:message||(!native?'开发预览 · 使用本机书架，删除会同步阅读端；设置与服务操作需在桌面应用中使用。':'已内置 Node 24，无需另外安装。'+'故事保存在电脑上，浏览器和手机共用同一书架。')}</div>
+  {(error||message)&&<div className="notice" role="status" aria-live="polite">{error?<span className="error">{error}</span>:message}</div>}
   {!settings?<section className="card"><h2>{native?'正在读取设置…':'需要桌面应用'}</h2></section>:<div className="layout">
    <div className="desktop-left-pane">
-    <div className="desktop-tabs" role="tablist" aria-label="桌面工作区">{tabs.map(([id,label,Icon],index)=><button type="button" id={'tab-'+id} key={id} role="tab" aria-selected={tab===id} aria-controls={'panel-'+id} tabIndex={tab===id?0:-1} onClick={()=>selectTab(id)} onKeyDown={event=>{const next=event.key==='ArrowRight'?(index+1)%tabs.length:event.key==='ArrowLeft'?(index+tabs.length-1)%tabs.length:event.key==='Home'?0:event.key==='End'?tabs.length-1:null;if(next===null)return;event.preventDefault();selectTab(tabs[next][0]);document.getElementById('tab-'+tabs[next][0])?.focus();}}><Icon size={17}/>{label}</button>)}</div>
-    <div role="tabpanel" id="panel-reader" aria-labelledby="tab-reader" tabIndex={0} hidden={tab!=='reader'}>{readerVisited&&<ReaderPane native={native} running={status.running} url={status.url} previewUrl={import.meta.env.DEV?import.meta.env.VITE_DESKTOP_READER_URL:undefined}/>}</div>
-    {tab!=='reader'&&<div role="tabpanel" id={'panel-'+tab} aria-labelledby={'tab-'+tab} tabIndex={0}>
-    {tab!=='settings'?<LibraryPane key={tab} tab={tab} native={native} revision={view?.settings.dataDirectory||''}/>:<div className="settings-stack">
+    <div className="desktop-tabs" role="tablist" aria-label="桌面工作区">{tabs.map(([id,label,Icon],index)=><button type="button" id={'tab-'+id} key={id} role="tab" aria-selected={tab===id} aria-controls={'panel-'+id} tabIndex={tab===id?0:-1} onClick={()=>setTab(id)} onKeyDown={event=>{const next=event.key==='ArrowRight'?(index+1)%tabs.length:event.key==='ArrowLeft'?(index+tabs.length-1)%tabs.length:event.key==='Home'?0:event.key==='End'?tabs.length-1:null;if(next===null)return;event.preventDefault();setTab(tabs[next][0]);document.getElementById('tab-'+tabs[next][0])?.focus();}}><Icon size={17}/>{label}</button>)}</div>
+    <div role="tabpanel" id={'panel-'+tab} aria-labelledby={'tab-'+tab} tabIndex={0}>
+    {tab==='overview'?<OverviewPane native={native} state={serviceState} busy={busy} configured={configured} settings={view?.settings||settings} previewUrl={previewReaderUrl} onLaunch={launchReader} onQueue={()=>setTab('queue')} onSettings={()=>setTab('settings')}/>:tab==='queue'?<LibraryPane tab="queue" native={native} revision={view?.settings.dataDirectory||''}/>:<div className="settings-stack">
     <section className="card">{!view?.settings.providerConfigured&&!view?.runtimeConfigured&&<p className="help" role="status">首次使用，请选择生成服务并保存；也可选择只读模式。配置与 CLI 共用，保存后无需再次设置。</p>}<div className="section-heading"><span className="step">01</span><div><h2>生成服务</h2><p>选择故事与插图的生成方式。</p></div></div>
      <fieldset disabled={locked}><legend className="sr-only">生成服务设置</legend>
       <label>提供方<select value={settings.provider} onChange={e=>selectProvider(e.target.value as ProviderName)}><option value="gemini">Gemini · API 密钥</option><option value="openai">OpenAI API · API 密钥（单独计费）</option><option value="readonly">只读 · 不生成内容</option><option value="codex" disabled={view?.platform==='windows'}>Codex · ChatGPT 订阅{view?.platform==='windows'?'（Windows 暂不支持）':''}</option></select></label>
@@ -107,14 +129,16 @@ function Desktop(){
      <div className="save-row"><button className="text-button" disabled={locked} onClick={()=>void action('重新读取',async()=>{const result=await invoke<View>('get_settings');setView(result);setSettings(result.settings);setKey('');setKeyAction('keep');})}>重新读取设置</button><span className="help">{status.running?'停止服务后可修改设置。':dirty?'有尚未保存的更改。':'设置已同步。'}</span><button className="secondary" disabled={locked||!dirty} onClick={()=>void action('保存设置',async()=>{await save();setMessage('设置已保存。');})}>保存设置</button></div>
     </section>
    </div>}
-    </div>}
+    </div>
    </div>
    <aside className="service-stack">
-    <section className="service-card"><div className="service-label"><span className={'status-dot '+(status.running?'live':'')}/>{status.running?'服务运行中':'服务已停止'}</div><h2>{status.running?'书房已打开。':'让故事开始。'}</h2><p>{status.running?'打开「阅读与创作」，或让浏览器、手机加入。':'启动后，在「阅读与创作」里翻开故事。'}</p>
-     {status.error&&!busy&&<p className="service-error" role="alert">{status.error}</p>}
-     <button id="desktop-service-toggle" className="primary" disabled={!!busy||!native} onClick={()=>void action(status.running?'停止服务':'启动服务',async()=>{if(status.running)setStatus(await invoke<Status>('stop_server'));else{if(dirty)await save();const info=await checkNode(settings.nodePath);if(!info)throw Error('内置运行时不可用，请检查运行时错误。');setStatus(await invoke<Status>('start_server'));}})}>{busy?busy+'…':!native?'请在桌面应用中启动':status.running?'停止服务':dirty?'保存并启动':'启动服务'}</button>
-     {status.running&&<><a className="browser-link" href={status.url} onClick={event=>{event.preventDefault();if(!busy)void action('打开浏览器',async()=>{await invoke('open_reader');});}}>在浏览器打开 ↗</a><button className="local-link" title="复制本机访问链接" onClick={()=>void action('复制链接',()=>copy(status.url!))}>{new URL(status.url!).origin} · 复制链接</button></>}
-     <div className="service-foot">关闭窗口后在托盘继续运行。<br/>退出应用会停止服务。</div>
+    <section className="runtime-card"><div className="runtime-heading"><span><Server size={20} strokeWidth={1.5}/></span><div><h2>本机服务</h2><p>电脑是故事的家。</p></div></div>
+     <div className={'runtime-state is-'+serviceState}><span aria-hidden="true"/>{serviceState==='running'?'服务运行中':serviceState==='stopped'?'服务已停止':serviceState==='preview'?'开发预览 · 原生服务未连接':serviceState==='loading'?'正在读取服务状态':'服务状态暂不可用'}</div>
+     <dl className="runtime-facts"><div><dt>运行时</dt><dd>{!native?'在桌面应用中检查':node?`Node ${node.version} · 就绪`:nodeError?'运行时不可用':'正在检查…'}</dd></div><div><dt>故事目录</dt><dd className="runtime-path">{view?.settings.dataDirectory||settings.dataDirectory}</dd></div>{serviceState==='running'&&status.url&&<div><dt>访问地址</dt><dd><button className="text-button" onClick={()=>void action('复制链接',()=>copy(status.url!))}>{new URL(status.url).origin}</button></dd></div>}</dl>
+     {(status.error||statusReadError)&&!busy&&<p className="runtime-error" role="alert">{statusReadError||status.error}</p>}
+     <button id="desktop-service-toggle" className={'runtime-toggle'+(status.running?' is-stop':'')} disabled={!!busy||!native||configured&&!statusKnown} onClick={()=>{if(!configured){setTab('settings');return;}void action(status.running?'停止服务':'启动服务',async()=>{if(status.running)acceptStatus(await invoke<Status>('stop_server'));else await startService();});}}>{busy?busy+'…':!native?'服务操作请在桌面应用中使用':!configured?'先完成设置':status.running?'停止服务':'仅启动服务'}</button>
+     {serviceState==='running'&&<button className="runtime-browser" type="button" disabled={!!busy} onClick={openReader}>在浏览器打开 ↗</button>}
+     <p className="runtime-foot">关闭窗口后留在托盘。退出应用时停止服务。</p>
     </section>
     <section className="card phone-card"><div className="section-heading"><span className="phone-glyph" aria-hidden="true">↗</span><div><h2>手机接着读</h2><p>无需安装手机应用。</p></div></div>
      <fieldset className="phone-sharing" disabled={locked}><legend className="sr-only">手机访问设置</legend>
@@ -123,7 +147,7 @@ function Desktop(){
      </fieldset>
      <p className="help lan-status">局域网访问始终开启 · 无需配对 ID</p>
      {status.internetError&&<p className="error" role="status">{status.internetError}</p>}
-     {status.running&&phone?<>{links.length>1&&<label>访问方式<select aria-label="手机访问方式" value={phone} onChange={e=>setPhone(e.target.value)}>{links.map(url=><option key={url} value={url}>{url===status.publicUrl?'互联网 · ':'局域网 · '}{new URL(url).hostname}</option>)}</select></label>}<p className="phone-url">{internet?'互联网 · 私密配对链接':'局域网 · 直接访问'}</p><div className="qr-wrap">{qr?<img src={qr} width="240" height="240" alt={internet?'扫描私密二维码，通过互联网连接书架':'扫描二维码，通过局域网打开书架'}/>:<p>正在生成二维码…</p>}</div><p className="phone-url">{new URL(phone).origin}</p><button className="secondary full" onClick={()=>void action('复制链接',()=>copy(phone))}>{internet?'复制私密互联网链接':'复制局域网访问链接'}</button></>:<div className="qr-placeholder"><span aria-hidden="true">▦</span><p>{status.running?'未找到可用的访问地址。':'启动服务后显示二维码。'}</p></div>}
+     {serviceState==='running'&&phone?<>{links.length>1&&<label>访问方式<select aria-label="手机访问方式" value={phone} onChange={e=>setPhone(e.target.value)}>{links.map(url=><option key={url} value={url}>{url===status.publicUrl?'互联网 · ':'局域网 · '}{new URL(url).hostname}</option>)}</select></label>}<p className="phone-url">{internet?'互联网 · 私密配对链接':'局域网 · 直接访问'}</p><div className="qr-wrap">{qr?<img src={qr} width="240" height="240" alt={internet?'扫描私密二维码，通过互联网连接书架':'扫描二维码，通过局域网打开书架'}/>:<p>正在生成二维码…</p>}</div><p className="phone-url">{new URL(phone).origin}</p><button className="secondary full" onClick={()=>void action('复制链接',()=>copy(phone))}>{internet?'复制私密互联网链接':'复制局域网访问链接'}</button></>:<div className="qr-placeholder"><span aria-hidden="true">▦</span><p>{status.running?'未找到可用的访问地址。':'启动服务后显示二维码。'}</p></div>}
      <p className="help network-note">电脑需保持唤醒，拾趣服务需保持运行。局域网使用 HTTP，仅限可信网络；可连接的设备共享书架和生成权限。</p>
      {settings.internetEnabled&&<p className="help network-note">互联网通过 Cloudflare 转发 HTTPS。完整二维码和私密链接可授权访问书架与生成服务，请勿公开分享。配对有效期为 12 小时；停服立即失效，重启后需重新扫码。免费隧道地址会变化，无可用性保证。</p>}
     </section>
