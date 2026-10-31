@@ -35,7 +35,8 @@ export function startServer({root, variables = process.env, localAccess = false}
   }
   for (const signal of ['SIGINT','SIGTERM'] as const) process.on(signal, stop);
   server.listen(config.port, config.host, () => {
-    const host = config.host.includes(':') ? `[${config.host}]` : config.host;
+    const browserHost = config.host === '0.0.0.0' ? '127.0.0.1' : config.host === '::' ? '::1' : config.host;
+    const host = browserHost.includes(':') ? `[${browserHost}]` : browserHost;
     console.log(`拾趣: http://${host}:${config.port} — data: ${config.dataDirectory}`);
     printPhoneAccess(urls);
   });

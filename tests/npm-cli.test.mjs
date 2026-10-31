@@ -8,12 +8,12 @@ import {runCli} from '../server/cli.ts';
 import {parseCliOptions, cliConfiguration} from '../server/cli-options.ts';
 
 test('CLI accepts named options, equals syntax, and help/version aliases', () => {
-  assert.deepEqual(parseCliOptions(['--port','3100','--host=0.0.0.0','--data-dir','../my shelf','--env-file=./private.env']), {
+  assert.deepEqual(parseCliOptions(['--port','3100','--host=0.0.0.0','--data-dir','../my shelf','--config=./private.env']), {
     port:'3100', host:'0.0.0.0', dataDirectory:'../my shelf', envFile:'./private.env',
   });
   assert.deepEqual(parseCliOptions(['-h']), {help:true});
   assert.deepEqual(parseCliOptions(['--version']), {version:true});
-  for (const args of [['--wat'],['story'],['toString'],['--port'],['--host='],['--data-dir','--port'],['--host','-h'],['--env-file']]) assert.throws(()=>parseCliOptions(args));
+  for (const args of [['--wat'],['story'],['toString'],['--port'],['--host='],['--data-dir','--port'],['--host','-h'],['--config']]) assert.throws(()=>parseCliOptions(args));
   for (const value of ['0','65536','-1','1.5','NaN','3e3','']) assert.throws(()=>parseCliOptions(['--port='+value]), /port/);
   assert.equal(parseCliOptions(['--port=65535']).port, '65535');
 });
@@ -45,14 +45,14 @@ test('help and version do not load an env file, initialize SQLite, or create a l
   const directory = await mkdtemp(path.join(os.tmpdir(), 'shiqu cli help '));
   t.after(()=>rm(directory, {recursive:true, force:true}));
   const output = [], log = console.log;
-  await assert.rejects(runCli(directory, ['--env-file',path.join(directory,'missing.env')]), /ENOENT/);
+  await assert.rejects(runCli(directory, ['--config',path.join(directory,'missing.env')]), /ENOENT/);
   console.log = message=>output.push(message);
   try {
-    await runCli(directory, ['--help','--env-file',path.join(directory,'missing.env'),'--data-dir',directory]);
+    await runCli(directory, ['--help','--config',path.join(directory,'missing.env'),'--data-dir',directory]);
     assert.match(output[0], /Usage: shiqu/);
     assert.deepEqual(await readdir(directory), []);
     const root = path.resolve(import.meta.dirname, '..');
-    await runCli(root, ['-v','--env-file',path.join(directory,'missing.env')]);
+    await runCli(root, ['-v','--config',path.join(directory,'missing.env')]);
     assert.equal(output[1], JSON.parse(await readFile(path.join(root,'package.json'),'utf8')).version);
     assert.deepEqual(await readdir(directory), []);
   } finally { console.log = log; }

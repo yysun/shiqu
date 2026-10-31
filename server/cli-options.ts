@@ -1,9 +1,10 @@
 // Resolve CLI configuration from the caller's directory, keeping persistent data out of npm caches.
+// --config avoids Node's own --env-file option being consumed before the executable can validate it.
 import path from 'node:path';
 import {homedir} from 'node:os';
 
 export type CliOptions = {help?:boolean;version?:boolean;port?:string;host?:string;dataDirectory?:string;envFile?:string};
-const flags:Record<string,keyof CliOptions> = {'--port':'port','--host':'host','--data-dir':'dataDirectory','--env-file':'envFile'};
+const flags:Record<string,keyof CliOptions> = {'--port':'port','--host':'host','--data-dir':'dataDirectory','--config':'envFile'};
 
 export function parseCliOptions(args:string[]):CliOptions {
   const options:CliOptions = {};

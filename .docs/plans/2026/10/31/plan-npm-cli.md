@@ -30,3 +30,12 @@ AR review round: 1; reviewer: new (`npm_review`).
 Reviewer guidance accepted: reuse the existing Host/Origin middleware for the CLI and test foreign Host/Origin rejection. Consumer startup must invoke only Node/the installed executable, never pnpm or install hooks.
 
 SS probe passed on Node 24.22.1/pnpm 11.25.0. External imports resolve to six declared runtime dependencies: drizzle-orm, htmlparser2, opencc-js, qrcode-terminal, tiktoken, zod. The first packed release built successfully. Focused CLI tests pass (4); initial typecheck and lint pass. Node 22.23.4 rejects the executable with a clear Node 24 requirement. Installed-package verification is in progress; the isolated install and real tiktoken WASM invocation have passed. Full tests require local-network permission because sandboxed HTTP listeners fail with EPERM.
+
+Implementation milestone: `f6f6250` (verification in progress). Runtime probing showed that Node 24.22.1 intercepts `--env-file` even after a script filename; the application option is therefore `--config <env-file>`, parsed with `node:util.parseEnv`. This preserves explicit loading, caller-relative paths, environment precedence, and controllable errors. CR round 1 identified wildcard binds printing a disallowed Host; the shared server now prints loopback for wildcard binds, and the installed smoke scenario checks that URL.
+
+CR fixed: wildcard binds now print allowed loopback URLs; rerun result passed.
+
+CR risk: non-low — published executable, runtime packaging, and persistent-data behavior.
+CR review round: 2; reviewer: reused (`npm_review`).
+
+Installed-tarball ET passed on macOS with Node 24.22.1: 1,968 allowlisted files, all 24 books byte-matched, runtime dependencies installed outside the checkout, tokenizer WASM exercised, installed command shim verified, HTML/JS/API served, foreign Hosts/Origins rejected, drafts persisted after SIGTERM/restart, env/flag/default paths checked, wildcard printed URL accepted, and runtime files stayed unchanged. No paid generation. Typecheck/lint pass after runtime changes. Full test rerun pending: the previous unrestricted run passed 570/571, with one existing 80-frame timing test timing out while release compression competed for CPU. The final run has no concurrent build.

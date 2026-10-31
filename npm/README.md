@@ -42,7 +42,7 @@ GEMINI_API_KEY=your-key
 ```
 
 ```bash
-shiqu --env-file /path/to/shiqu.env
+shiqu --config /path/to/shiqu.env
 ```
 
 No `.env` is loaded automatically; existing shell variables take precedence over the file. CLI flags take precedence over both. The package includes `.env.example` with further model and reasoning settings. Codex generation uses your existing login and subscription quota; Gemini uses your API quota. Codex generation currently supports macOS and Linux; use Gemini on native Windows.
@@ -60,7 +60,7 @@ shiqu --version
 | `--port` | `PORT` | `3000` |
 | `--host` | `SHIQU_BIND_IP` | `127.0.0.1` |
 | `--data-dir` | `SHIQU_DATA_DIR` | OS user-data directory below |
-| `--env-file` | — | No file |
+| `--config` | — | No env file |
 
 Default library locations:
 

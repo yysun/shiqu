@@ -11,7 +11,7 @@ Start 拾趣 and open the printed URL in your browser. Requires Node 24.
   --port <number>       HTTP port (PORT, default: 3000)
   --host <address>      Bind address (SHIQU_BIND_IP, default: 127.0.0.1)
   --data-dir <path>     Persistent library (SHIQU_DATA_DIR, default: OS user-data directory)
-  --env-file <path>     Load this env file; existing environment variables take precedence
+  --config <env-file>   Load this env file; existing environment variables take precedence
   -h, --help           Show help
   -v, --version        Show version
 

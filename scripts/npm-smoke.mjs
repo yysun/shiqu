@@ -4,6 +4,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {once} from 'node:events';
 import {createServer} from 'node:net';
+import {get} from 'node:http';
 import {lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -68,7 +69,11 @@ async function stop() {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
   const running = child, exited = once(running, 'exit'); running.kill('SIGTERM');
   const timer = setTimeout(()=>running.kill('SIGKILL'), 10000);
-  try { const [code, signal] = await exited; assert.equal(code, 0, `Unclean exit (${signal}): ${logs}`); }
+  try {
+    const [code, signal] = await exited;
+    // Windows child.kill terminates directly; the following restart still verifies SQLite recovery.
+    if (process.platform !== 'win32' || signal !== 'SIGTERM') assert.equal(code, 0, `Unclean exit (${signal}): ${logs}`);
+  }
   finally { clearTimeout(timer); }
 }
 async function request(url, options = {}) { return fetch(url, {...options, signal:AbortSignal.timeout(5000)}); }
@@ -114,7 +119,9 @@ try {
   }
   assert.equal(command(bin, ['--version']).stdout.trim(), source.version);
   assert.match(command(bin, ['--help']).stdout, /Usage: shiqu/);
-  for (const parameters of [['--unknown'],['--port'],['--port=0'],['--env-file=absent.env']]) {
+  assert.equal(command(bin, ['--version','--config=absent.env']).stdout.trim(), source.version);
+  assert.match(command(bin, ['--help','--config=absent.env']).stdout, /Usage: shiqu/);
+  for (const parameters of [['--unknown'],['--port'],['--port=0'],['--config=absent.env']]) {
     const result = command(bin, parameters); assert.equal(result.status, 1, result.stderr); assert.match(result.stderr, /shiqu:/);
   }
   assert.deepEqual(await readdir(home), []);
@@ -123,7 +130,7 @@ try {
   await writeFile(path.join(cwd,'.env'), 'SHIQU_AI_PROVIDER=invalid\n');
   await writeFile(path.join(cwd,'selected.env'), 'PORT=1\nSHIQU_DATA_DIR=env library\nSHIQU_BIND_IP=invalid-host\n');
   const port = await freePort(), origin = 'http://127.0.0.1:' + port;
-  const parameters = ['--env-file','selected.env','--port',String(port),'--host','127.0.0.1','--data-dir','../saved library'];
+  const parameters = ['--config','selected.env','--port',String(port),'--host','127.0.0.1','--data-dir','../saved library'];
   await start(bin, parameters);
   assert.ok(logs.includes(path.join(temporary,'saved library')));
   const response = await request(origin), html = await response.text(); assert.equal(response.status, 200); assert.match(html, /<html/);
@@ -132,7 +139,12 @@ try {
   assert.equal((await request(origin + '/api/books')).status, 200);
   for (const endpoint of ['/api/stories','/api/me/progress','/api/reader/sessions']) assert.deepEqual(await (await request(origin + endpoint)).json(), []);
   assert.equal((await (await request(origin + '/api/reader/status')).json()).configured, false);
-  assert.equal((await request(origin, {headers:{Host:'foreign.example'}})).status, 403);
+  const foreignHostStatus = await new Promise((resolve, reject)=>{
+    const request = get(origin, {headers:{Host:'foreign.example'}}, response=>{response.resume();resolve(response.statusCode);});
+    request.setTimeout(5000, ()=>request.destroy(Error('Foreign Host check timed out.')));
+    request.on('error', reject);
+  });
+  assert.equal(foreignHostStatus, 403);
   assert.equal((await request(origin + '/api/admin/stories', {method:'POST',headers:{Origin:'https://foreign.example'}})).status, 403);
   assert.equal((await request(origin + '/api/admin/stories', {method:'POST'})).status, 403);
   const draft = await request(origin + '/api/admin/stories', {method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({title:'Survives npm cache cleanup',bookId:'zhuangzi',theme:'test',sourceText:'',sourceUrl:''})});
@@ -141,9 +153,12 @@ try {
   const drafts = await (await request(origin + '/api/admin/stories')).json(); assert.equal(drafts[0].id, saved.id); assert.equal(drafts[0].title, saved.title);
   await stop();
   // Env-file settings are used when no flag overrides them; shell variables still win over the file.
-  await start(bin, ['--env-file','selected.env'], {PORT:String(port), SHIQU_BIND_IP:'127.0.0.1'});
+  await start(bin, ['--config','selected.env'], {PORT:String(port), SHIQU_BIND_IP:'127.0.0.1'});
   assert.ok(logs.includes(path.join(cwd,'env library'))); assert.equal((await request(origin)).status, 200); await stop();
   await rm(path.join(cwd,'env library'), {recursive:true, force:true});
+  await start(bin, ['--port',String(port),'--host','0.0.0.0','--data-dir','../saved library']);
+  assert.ok(logs.includes('拾趣: ' + origin), 'Wildcard binds must print an allowed loopback URL.');
+  assert.equal((await request(origin)).status, 200); await stop();
   // Default persistence must go under the test user's OS data directory, never under the package or cwd.
   await start(bin, ['--port',String(port)]);
   const defaultData = process.platform === 'darwin' ? path.join(home,'Library/Application Support/shiqu/library')
