@@ -18,8 +18,8 @@ Git base: `3e3f2f0d7d37d9557835f2234a6f626444f2bf4b`
 - [x] 扩展 reader-revision / reader-revision-images / reader-revisions / reader-api，支持暂停的未完成分镜快照、明确暂停保存、幂等与安全接替；增加受控真实 SQLite/文件/队列回归。
 - [x] 更新 StoryCreationSetup、StoryRevisionEditor、useStoryRevision、Reader，开放暂停编辑并保留草稿，统一确认后重选入口、明确保存与继续；去掉历史版本列表。
 - [x] 更新 reader-repository 列表、阅读端缓存筛选和 desktop/library.sql：每族只显示最新提交，保存收藏，删除/恢复无旧版回退；增加 API/桌面/渲染回归。
-- [ ] TT：运行 pnpm typecheck、pnpm lint、完整 pnpm test，必要时原生 Rust 测试验证共享 SQL。排除 Docker 与桌面准备/打包。
-- [ ] ET：执行 `.docs/tests/test-paused-editing-latest-version.md`，受控生成及隔离数据库验证关键流程，浏览器验证 UI。
+- [x] TT：运行 pnpm typecheck、pnpm lint、完整 pnpm test，必要时原生 Rust 测试验证共享 SQL。排除 Docker 与桌面准备/打包。
+- [x] ET：执行 `.docs/tests/test-paused-editing-latest-version.md`，受控生成及隔离数据库验证关键流程，浏览器验证 UI。
 
 ## 验证与风险
 覆盖准备阶段暂停草稿、分镜调用未结束时提交新版、暂停保存后重放、显式恢复、样式/要求/幅数失效规则、同名独立故事、历史访问不改变最新版、最新失败/暂停不回退、删除恢复、重启及双端一致。旧分镜晚到导致草稿冲突应明确提示，不自动覆盖。
@@ -45,3 +45,18 @@ CR review round: 1; reviewer: reused
 发现并修复：历史单独读取/恢复不应添加书架成员；接替最终化使用 handoff 条件，仅执行一次，迟到重复请求不改变用户后来的暂停/恢复。新增真实 hook 成员回归 3 项、交错重复提交 2 项，局部通过。
 
 TT 首轮 558/559，通过但 80 幅用例在并行原生编译时超时；局部重跑通过。以 --test-concurrency=4 运行完整套件 561/561 通过（包含交错提交修复），随后新增 hook 3 项单独通过。默认原生测试缺打包 node 资源；使用项目 Lite 配置的 TAURI_CONFIG 运行 desktop:test:lite，17 项通过，无桌面准备或打包。
+
+
+## 最终实现与验证
+- SS 修复 milestones：`e256358`（历史读取隔离与 handoff 条件最终化）、`40c8c81`（同步调度接口）。并行任务独立提交 `1755f5b`，不属于本故事。
+- CR fixed: 历史读取/恢复不再添加书架成员；修订接替通过 `handoff=1` 条件只最终化一次；补齐 `ReaderProduction.control` 可选参数契约。rerun result passed
+- CR risk: non-low — 修订持久化、接替并发及双端最新版一致性。
+- CR review round: 2; reviewer: reused（独立 reviewer）。接口修正后主代理 pnpm typecheck / pnpm lint 均通过。
+- TT：Node 24.22.1 / pnpm 11.25.0。`pnpm exec node --experimental-strip-types --test --test-concurrency=4 tests/*.test.mjs`，564/564 通过，日志 `.data/evidence/paused-editing-latest-version/tests-verified.log`。保留原有用例与超时，不削弱断言。
+- 原生：以现有 `src-tauri/tauri.lite.conf.json` 设置 TAURI_CONFIG，执行 `pnpm run desktop:test:lite`，17/17；使用 Lite 的资源排除解决默认命令缺少打包 node 目录，未运行准备或打包。日志 `desktop-lite-tests.log`。
+- ET：独立 Playwright，会话区别于 IAB；IAB 被 Work 设置禁用。隔离受控 SQLite/媒体、Vite 阅读端 4310、`pnpm desktop:preview` 1420，全程无真实模型请求。详细结果见 E2E 文档。
+
+## 最终验收
+VR passed: all acceptance criteria complete
+VR risk: non-low — 修订持久化、生成接替并发、历史隔离与双端最新版一致性。
+VR review round: 1; reviewer: reused（独立 reviewer）。完整逐项结论见 DD，七项验收和六项执行任务全部完成。临时浏览器标签、预览服务及隔离数据库已清理。

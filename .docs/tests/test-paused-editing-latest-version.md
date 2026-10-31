@@ -10,3 +10,15 @@
 6. UI：生成前、生成中途、阅读设置均可找到适用编辑入口；保存暂停后的明确恢复控件可见；无历史版本列表；确认制作后重新选故事另开流程。
 
 记录每项的实际观察、测试文件/命令及浏览器会话限制于完成报告。
+
+
+## ET 实际结果（2026-10-31）
+- 环境：IAB 因 Work 设置禁用。独立 Playwright 会话验证隔离测试库；受控 provider + 真实REST/SQLite/媒体/队列。阅读 Vite 4310，桌面以 `pnpm desktop:preview` 1420。未调用真实生成，未使用日常书架。
+- 场景1：真实组件渲染与受控 worker 回归完成。暂停准备中的字段可打开；后台推荐收尾后服务器草稿保留；重选候选保持paused、plans/images=0。
+- 场景2：UI 原版分镜调用仍阻塞时，三标签修改要求/水彩/3幅；关闭再开草稿数值3仍在。提交201：root原故事、number=2、control=paused、story=null；图片调用仍为基线4。编辑和书架截图 `editor-mobile.png` / `latest-shelf-mobile.png`。
+- 场景3：释放旧调用，明确点击恢复后最新版 completed、ready=3、pages=3、watercolor、自定义要求正确；总图片调用4→7。`resumed-reading-mobile.png`。随后在阅读偏好修改剪纸，影响摘要显示保留分镜、重绘3；提交第3版paused，3幅分镜保留且ready=0。
+- 场景4：第2版暂停时书架共2篇，含独立同名原故事；第3版重选另建流程后共3篇。历史原版深链打开并返回书架仍3张；搜索旧水彩0/3、新剪纸2/3（最新版与独立重选流程）。桌面摘要仅三个最新ID，与阅读端一致。`desktop-latest.png`。390px无横向溢出，编辑截图文字/操作可见。全套含564项、原生17项通过，含重启与并发故障条件。
+- 场景5：通过真实UI删除第3版→2张、刷新仍2张；撤销后3张，第3版存在、第2版不存在，恢复control=stopped，无自动生成。`restored-latest-mobile.png`。
+- 场景6：暂停制作中的四入口、阅读设置内三标签均可用，保存后恢复控件可见；历史切换入口数0；重选创建新的候选流程，继承book/theme/style、revision=null，图片调用数不增加。
+
+证据目录 `.data/evidence/paused-editing-latest-version/`（本地忽略目录），含最终测试、原生测试、fixture配置与截图。临时服务和数据库在验收后清理；截图/日志保留。首次UI提交因测试代理Origin配置不匹配被403拒绝，修正隔离fixture的changeOrigin:false后上述成功路径通过，产品跨站防护未修改。
