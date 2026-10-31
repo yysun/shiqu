@@ -121,7 +121,7 @@ function Desktop(){
     <section className="card"><div className="section-heading"><span className="step">02</span><div><h2>本地运行</h2><p>运行时与故事数据，由你掌握。</p></div></div>
      <fieldset disabled={locked}><legend className="sr-only">本地运行设置</legend>
       <label>运行时<input value={node?`内置 Node ${node.version}`:'内置 Node 24'} readOnly/></label>
-      <div className="node-check"><span className={node?'success':'help'}>{node?`Node ${node.version} · SQLite 可用`:!native?'运行时检查需在桌面应用中使用。':nodeError||'正在检查 Node 24…'}</span><button className="text-button" onClick={()=>void action('检查运行时',async()=>{await checkNode(settings.nodePath);})}>检查运行时</button></div>
+      <div className="node-check"><span className={node?'success':'help'}>{node?`Node ${node.version} · SQLite 可用`:!native?'—':nodeError||'正在检查 Node 24…'}</span><button className="text-button" onClick={()=>void action('检查运行时',async()=>{await checkNode(settings.nodePath);})}>检查运行时</button></div>
       <label>故事数据目录<div className="input-row"><input value={settings.dataDirectory} onChange={e=>update('dataDirectory',e.target.value)}/><button className="subtle" onClick={()=>void action('选择目录',()=>browse('data','dataDirectory'))}>选择</button></div></label>
       <p className="help">保存 SQLite 和图片。更换目录会切换书架，不会搬移已有数据。</p>
       <label className="port-field">服务端口<input type="number" min="1024" max="65535" value={settings.port} onChange={e=>update('port',Number(e.target.value))}/></label>
@@ -133,10 +133,10 @@ function Desktop(){
    </div>
    <aside className="service-stack">
     <section className="runtime-card"><div className="runtime-heading"><span><Server size={20} strokeWidth={1.5}/></span><div><h2>本机服务</h2><p>电脑是故事的家。</p></div></div>
-     <div className={'runtime-state is-'+serviceState}><span aria-hidden="true"/>{serviceState==='running'?'服务运行中':serviceState==='stopped'?'服务已停止':serviceState==='preview'?'开发预览 · 原生服务未连接':serviceState==='loading'?'正在读取服务状态':'服务状态暂不可用'}</div>
-     <dl className="runtime-facts"><div><dt>运行时</dt><dd>{!native?'在桌面应用中检查':node?`Node ${node.version} · 就绪`:nodeError?'运行时不可用':'正在检查…'}</dd></div><div><dt>故事目录</dt><dd className="runtime-path">{view?.settings.dataDirectory||settings.dataDirectory}</dd></div>{serviceState==='running'&&status.url&&<div><dt>访问地址</dt><dd><button className="text-button" onClick={()=>void action('复制链接',()=>copy(status.url!))}>{new URL(status.url).origin}</button></dd></div>}</dl>
+     {serviceState!=='preview'&&<div className={'runtime-state is-'+serviceState}><span aria-hidden="true"/>{serviceState==='running'?'服务运行中':serviceState==='stopped'?'服务已停止':serviceState==='loading'?'正在读取服务状态':'服务状态暂不可用'}</div>}
+     <dl className="runtime-facts"><div><dt>运行时</dt><dd>{!native?'—':node?`Node ${node.version} · 就绪`:nodeError?'运行时不可用':'正在检查…'}</dd></div><div><dt>故事目录</dt><dd className="runtime-path">{native?view?.settings.dataDirectory||settings.dataDirectory:'—'}</dd></div>{serviceState==='running'&&status.url&&<div><dt>访问地址</dt><dd><button className="text-button" onClick={()=>void action('复制链接',()=>copy(status.url!))}>{new URL(status.url).origin}</button></dd></div>}</dl>
      {(status.error||statusReadError)&&!busy&&<p className="runtime-error" role="alert">{statusReadError||status.error}</p>}
-     <button id="desktop-service-toggle" className={'runtime-toggle'+(status.running?' is-stop':'')} disabled={!!busy||!native||configured&&!statusKnown} onClick={()=>{if(!configured){setTab('settings');return;}void action(status.running?'停止服务':'启动服务',async()=>{if(status.running)acceptStatus(await invoke<Status>('stop_server'));else await startService();});}}>{busy?busy+'…':!native?'服务操作请在桌面应用中使用':!configured?'先完成设置':status.running?'停止服务':'仅启动服务'}</button>
+     <button id="desktop-service-toggle" className={'runtime-toggle'+(status.running?' is-stop':'')} disabled={!!busy||!native||configured&&!statusKnown} onClick={()=>{if(!configured){setTab('settings');return;}void action(status.running?'停止服务':'启动服务',async()=>{if(status.running)acceptStatus(await invoke<Status>('stop_server'));else await startService();});}}>{busy?busy+'…':!native?'启动服务':!configured?'先完成设置':status.running?'停止服务':'启动服务'}</button>
      {serviceState==='running'&&<button className="runtime-browser" type="button" disabled={!!busy} onClick={openReader}>在浏览器打开 ↗</button>}
      <p className="runtime-foot">关闭窗口后留在托盘。退出应用时停止服务。</p>
     </section>

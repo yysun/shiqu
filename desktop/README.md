@@ -82,7 +82,7 @@ Windows 本地构建需安装 Microsoft C++ Build Tools 的「使用 C++ 的桌�
 
 桌面构建会运行现有 `pnpm build`、单独编译设置 UI，将应用运行资源复制到 `desktop/resources/runtime`，再将构建所用的 **精确 Node 24.22.1 可执行文件和原发行版 LICENSE** 复制到 `desktop/resources/node`，记录版本、平台、架构、来源及 SHA-256。构建环境必须使用完整官方 Node 发行版及同架构的 Rust 工具链；不支持跨平台/跨架构、universal 或 musl 打包，遇到不匹配会停止。安装桌面版时不下载 Node；Windows 缺失 WebView2 时仍需联网安装它。
 
-为保留已有下载链接，产物继续使用 `shiqu-standard-*` 文件名，不再提供其他桌面版本。产物在 `src-tauri/target/release/bundle/`；macOS 可用 `pnpm desktop:build --bundles app` 只生成 `.app`。不构建 Docker 镜像。
+安装包使用 `shiqu-standard-*` 文件名，产物在 `src-tauri/target/release/bundle/`；macOS 可用 `pnpm desktop:build --bundles app` 只生成 `.app`。不构建 Docker 镜像。
 
 本地检查（不准备或打包桌面资源；缺少内置 Node 时，`desktop:test` 的已准备资源用例须留待 CI 或显式准备后验证）：
 
@@ -98,7 +98,7 @@ pnpm desktop:smoke
 
 `desktop:smoke` 将完整运行资源复制到仓库外的临时目录，验证新书架与阅读进度为空、阅读页面与 API 可访问、始终开启的局域网地址（互联网关闭）、重启和退出；不创建故事、不上传图片、不检查示例，也不调用付费生成。同时复制并验证内置 Node/许可证的最终字节哈希，使用无系统 Node 的 PATH 启动。可传入安装包内的 runtime 路径来验证实际打包内容。
 
-CLI 复用共享数据库中的书库目录，没有时可导入原 `cli-library.json` 或查找已有默认书库，否则询问后存入共享数据库。CLI 不运行 `desktop.ts` 或 Tauri；只复用存储/提供方核心。CLI 与桌面服务使用共享 Node 事务锁与 owner 标记，拒绝同一目录的另一个运行服务。旧 CLI 独立书库不会自动搬移；可用 `--data-dir` 指定。旧轻量桌面用户可换装当前版，旧 `nodePath` 继续兼容但不能覆盖内置 Node。
+CLI 复用共享数据库中的书库目录，没有时可导入原 `cli-library.json` 或查找已有默认书库，否则询问后存入共享数据库。CLI 不运行 `desktop.ts` 或 Tauri；只复用存储/提供方核心。CLI 与桌面服务使用共享 Node 事务锁与 owner 标记，拒绝同一目录的另一个运行服务。旧 CLI 独立书库不会自动搬移；可用 `--data-dir` 指定。历史设置中的 `nodePath` 字段继续兼容，但不能覆盖内置 Node。
 
 `pnpm dev` 默认跟随桌面书库设置，局域网 API 可直接访问，所有可连接地址的设备共享书架和生成权限；终端启动不依赖桌面 GUI 正在运行。`pnpm build`、`pnpm start` 和 Docker 入口继续独立运行，显式数据目录配置优先。
 

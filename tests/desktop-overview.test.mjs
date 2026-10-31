@@ -46,8 +46,8 @@ test('overview renders honest loading and service states, browser-only reading, 
  const unavailable=render({state:'unavailable'});assert.match(unavailable,/服务状态暂不可用/);assert.match(unavailable,/disabled=""/);
  assert.match(render({state:'stopped'}),/启动并打开拾趣/);assert.match(render({state:'running'}),/打开拾趣/);assert.match(render({configured:false}),/完成设置/);
  const environmentOnly=render({configured:true,settings:defaultSystemSettings('/test/library')});assert.match(environmentOnly,/本次启动使用环境配置/);assert.doesNotMatch(environmentOnly,/已保存的生成配置/);
- const preview=render({native:false,state:'preview',previewUrl:'http://127.0.0.1:3010/'});assert.match(preview,/<a[^>]+href="http:\/\/127\.0\.0\.1:3010\/"[^>]+target="_blank"[^>]+rel="noopener noreferrer"/);assert.match(preview,/桌面开发预览/);assert.match(preview,/在桌面应用中查看或修改/);
- assert.match(render({native:false,state:'preview'}),/预览未连接阅读端/);assert.doesNotMatch(render({native:false,state:'preview'}),/href=/);
+ const preview=render({native:false,state:'preview',previewUrl:'http://127.0.0.1:3010/'});assert.match(preview,/<a[^>]+href="http:\/\/127\.0\.0\.1:3010\/"[^>]+target="_blank"[^>]+rel="noopener noreferrer"/);assert.doesNotMatch(preview,/预览|原生服务未连接|VITE_DESKTOP_READER_URL|在桌面应用中查看或修改|服务尚未启动|本机服务运行中/);
+ assert.match(render({native:false,state:'preview'}),/阅读端尚未连接，请先启动拾趣服务。/);assert.doesNotMatch(render({native:false,state:'preview'}),/href=/);
 });
 
 test('native console no longer grants loopback frame access or remote capabilities',()=>{
