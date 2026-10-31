@@ -45,6 +45,7 @@ test('overview renders honest loading and service states, browser-only reading, 
  const loading=render({});assert.match(loading,/正在读取服务状态/);assert.match(loading,/正在打开本机书库/);assert.equal((loading.match(/<strong>—<\/strong>/g)||[]).length,4);assert.doesNotMatch(loading,/<iframe/);assert.match(loading,/本机生成记录/);assert.match(loading,/已保存 · 只读模式/);
  const unavailable=render({state:'unavailable'});assert.match(unavailable,/服务状态暂不可用/);assert.match(unavailable,/disabled=""/);
  assert.match(render({state:'stopped'}),/启动并打开拾趣/);assert.match(render({state:'running'}),/打开拾趣/);assert.match(render({configured:false}),/完成设置/);
+ const environmentOnly=render({configured:true,settings:defaultSystemSettings('/test/library')});assert.match(environmentOnly,/本次启动使用环境配置/);assert.doesNotMatch(environmentOnly,/已保存的生成配置/);
  const preview=render({native:false,state:'preview',previewUrl:'http://127.0.0.1:3010/'});assert.match(preview,/<a[^>]+href="http:\/\/127\.0\.0\.1:3010\/"[^>]+target="_blank"[^>]+rel="noopener noreferrer"/);assert.match(preview,/桌面开发预览/);assert.match(preview,/在桌面应用中查看或修改/);
  assert.match(render({native:false,state:'preview'}),/预览未连接阅读端/);assert.doesNotMatch(render({native:false,state:'preview'}),/href=/);
 });
