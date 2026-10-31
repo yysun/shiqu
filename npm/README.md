@@ -1,18 +1,43 @@
 # 拾趣 · Shiqu
 
-Turn Chinese classics into your own illustrated storybooks. Read in your browser, generate with a logged-in Codex CLI or a Gemini API key, and keep stories and images on your computer.
+Turn Chinese classics into your own illustrated storybooks. Read in your browser, generate with a logged-in Codex CLI, OpenAI API, or Gemini, and keep stories, images, and reading progress on your computer.
+
+## CLI or desktop app?
+
+**Choose the desktop app for everyday use; choose the CLI if you already have Node 24, prefer a terminal, or need scripted startup.**
+
+| Your situation | Recommended entry point |
+| --- | --- |
+| You want graphical settings, library and queue management, and no separate Node installation | Desktop app: includes Node 24 and service controls |
+| You already have Node 24 and want one-command startup without installing a desktop app | CLI: `npx @apprun/shiqu`; keep the terminal running and press Ctrl+C to stop |
+| You want generation and reading access to continue after closing the control window | Desktop app: stays in the system tray until you stop the service or quit the app |
+| You need startup parameters, environment overrides, or non-interactive operation | CLI: prepare provider configuration and a library path in advance |
+| You use Linux, an Intel Mac, or Windows ARM64 | CLI: install Node 24 yourself; no desktop installer is provided for these platforms. Windows supports API providers or read-only mode |
+| You want QR codes for phone access or built-in internet tunnel controls | Desktop app: internet access requires a separate cloudflared installation. CLI supports trusted LAN access with `--host 0.0.0.0`, without a built-in internet tunnel |
+
+**Shared features:** Both entry points provide the same browser interface for story creation, generation queues, pause/resume, reading, library organization, and PDF / PNG export. The desktop window adds library, queue, settings, and service controls; full reading and story creation happen in the browser. Both support OpenAI API, Gemini, and read-only mode. Codex generation is supported on macOS / Linux and requires a separately installed, logged-in Codex CLI; the Shiqu CLI and Codex CLI are different tools.
+
+**Shared settings and data:** Under the same local user account, both entry points reuse saved provider settings and API keys. With the same library directory, they share stories, images, and reading progress. Neither requires the other to be running.
+
+### Switching between CLI and desktop
+
+1. **Stop the current service.** Press Ctrl+C in the CLI, or stop the service / quit the desktop app. Closing the desktop window alone does not stop the service.
+2. **Use matching versions and the same library directory.** Check the CLI version with `npx @apprun/shiqu --version`; use `npx @apprun/shiqu@<version>` to select a published version matching the desktop app. Explicit `--data-dir` / `SHIQU_DATA_DIR` overrides apply only to that invocation and do not change the saved directory.
+3. **Start the other entry point.** Saved provider settings and keys are reused. Changes to shared settings take effect in an already-running service only after it restarts.
+
+**Only one service can run against a library at a time, even on different ports.** Switching entry points needs no data copy. Choosing another directory opens another library; it does not move or merge data. Back up before upgrading or downgrading, as older versions may not read newer settings or data. See the [full user guide](https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md).
 
 ## Run
 
-Requires **Node 24** (recommended: 24.22.1). After this package is published:
+Requires **Node 24** (recommended: 24.22.1) and its bundled npm / npx. No separate pnpm installation is needed:
 
 ```bash
-pnpm dlx @apprun/shiqu
+npx @apprun/shiqu
 ```
 
-Open the printed URL, normally `http://127.0.0.1:3000`. Stop with Ctrl+C. No checkout, build, Docker, or desktop app is needed.
+On first use, npx may ask to download the package; confirm to continue. Open the printed URL, normally `http://127.0.0.1:3000`. Keep the terminal running; stop with Ctrl+C. No checkout, build, Docker, or desktop app is needed.
 
-For a permanent command:
+If you already use pnpm, `pnpm dlx @apprun/shiqu` starts the same app. You can also install it globally with pnpm for a permanent `shiqu` command:
 
 ```bash
 pnpm add -g @apprun/shiqu
@@ -26,8 +51,8 @@ No environment variables are required for interactive setup. After finding or ch
 Settings and provider-specific keys are shared with the desktop app in the separate private `desktop.sqlite`, outside story libraries. Saved configurations do not prompt again. Keys are plaintext protected by local filesystem permissions (0700 directory / 0600 database on Unix); do not share settings backups. Keys never appear in HTTP responses or settings views.
 
 ```bash
-shiqu --configure
-shiqu --reset-providers
+npx @apprun/shiqu --configure
+npx @apprun/shiqu --reset-providers
 ```
 
 `--configure` selects/edits a profile, retains that profile's saved key on blank input, saves only a completed setup, and exits. Switching profiles preserves other providers' models/keys. `--reset-providers` removes saved provider settings and keys, preserving libraries/network settings and all stories. It reopens setup in a terminal, or exits with guidance when non-interactive. Already-running servers keep their startup snapshot until restarted.
@@ -49,7 +74,7 @@ OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst
 Other choices: `SHIQU_AI_PROVIDER=codex` after `codex login`, `SHIQU_AI_PROVIDER=gemini` with `GEMINI_API_KEY`, or `SHIQU_AI_PROVIDER=readonly` with no key.
 
 ```bash
-shiqu --config /path/to/shiqu.env
+npx @apprun/shiqu --config /path/to/shiqu.env
 ```
 
 No `.env` is loaded automatically. Existing shell variables beat the selected file; CLI flags beat both. Non-interactive startup requires saved settings or a complete provider override, and a discoverable/explicit library path. No prompt waits indefinitely. The package includes `.env.example` with optional settings.
@@ -57,9 +82,9 @@ No `.env` is loaded automatically. Existing shell variables beat the selected fi
 ## Options and data
 
 ```bash
-shiqu --port 3100 --data-dir ./my-library
-shiqu --host 0.0.0.0
-shiqu --version
+npx @apprun/shiqu --port 3100 --data-dir ./my-library
+npx @apprun/shiqu --host 0.0.0.0
+npx @apprun/shiqu --version
 ```
 
 | Option | Environment | Default |
@@ -72,7 +97,7 @@ shiqu --version
 Library selection:
 
 1. An explicit `--data-dir` wins over `SHIQU_DATA_DIR` from the shell or selected env file.
-2. Otherwise reuse the desktop app's saved library directory, creating it if necessary. Only the directory setting is read; desktop credentials remain private.
+2. Otherwise reuse the library directory saved in the shared CLI / desktop settings, creating it if necessary. Provider settings and keys are reused separately during provider setup; they are not stored in the story library.
 3. Without shared saved settings, import a prior CLI `cli-library.json` directory if present, otherwise look for an existing database in the desktop default library directory.
 4. If none is found, ask which directory to use or create. Enter accepts the suggested desktop default. Cancel/EOF creates no library; non-interactive first use must supply `--data-dir`.
 

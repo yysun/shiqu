@@ -2,6 +2,7 @@
 
 [返回 README](../README.md) · [开发指南](development.md)
 
+- [如何选择](#如何选择)
 - [CLI 启动](#cli-启动)
 - [桌面版入门](#桌面版入门)
 - [在手机上阅读](#在手机上阅读)
@@ -10,15 +11,44 @@
 - [常见问题](#常见问题)
 - [书库与画风说明](#书库与画风说明)
 
+## 如何选择
+
+**日常使用优先选桌面版；已有 Node 24、习惯终端或需要脚本启动时选 CLI。** 两者使用相同的浏览器阅读与制作界面，主要区别在运行环境、服务启停和手机访问管理。
+
+| 使用场景 | 推荐入口与条件 |
+| --- | --- |
+| 希望安装后直接使用，通过图形界面配置服务、管理书架和查看队列 | 桌面版，内置 Node，无需另装运行环境 |
+| 已有 Node 24，想用一条命令启动，不安装桌面应用 | CLI：`npx @apprun/shiqu`；终端需保持运行，Ctrl+C 停服 |
+| 希望关闭控制窗口后仍继续生成和提供阅读服务 | 桌面版：关闭窗口后留在托盘，停止服务或退出拾趣才会停服 |
+| 需要脚本启动、自定义端口或目录、环境变量及非交互运行 | CLI：非交互时需提前准备服务配置与书库路径 |
+| 使用 Linux、Intel Mac 或 Windows ARM64 | CLI：目前没有对应桌面安装包，需自行安装 Node 24；Windows 使用 API 服务或只读 |
+| 希望手机扫码或跨网络访问 | 桌面版提供二维码和互联网隧道控制，隧道需另装 cloudflared；CLI 可用 `--host 0.0.0.0` 开放可信局域网，不内置互联网隧道 |
+
+### 共同功能与配置
+
+- **制作与阅读：** 两种入口都支持选书、主题、画风、生成队列、暂停与恢复、阅读和书架整理，以及 PDF / PNG 导出。完整阅读与故事制作在浏览器中进行，桌面窗口另提供书架、队列、设置和服务控制。
+- **生成服务：** 两种入口都支持 OpenAI API、Gemini 与只读；Codex 生成在 macOS / Linux 可用，需另行安装并登录 Codex CLI，Windows 使用 API 服务或只读。这里的拾趣 CLI 与 Codex CLI 是两个不同工具。
+- **本地数据：** 同一本机用户下共用已保存的服务配置和 API 密钥；使用同一书库目录时，共享故事、图片与阅读进度。两种入口都不需要对方正在运行。
+
+### 在 CLI 与桌面版之间切换
+
+1. **先停止当前服务。** CLI 按 Ctrl+C；桌面版点击「停止服务」或选择「退出拾趣」。仅关闭桌面窗口不会停服。
+2. **使用相同版本，确认书库目录一致。** CLI 默认复用共享设置中的目录；显式 `--data-dir` / `SHIQU_DATA_DIR` 只覆盖本次运行，不更改已保存目录。CLI 可用 `--version` 查看版本，也可用 `npx @apprun/shiqu@<版本号>` 指定与桌面版一致的已发布版本。
+3. **从另一入口启动。** 已保存的服务配置会直接复用，无需重新输入密钥。修改共享配置后，已运行的服务需重启才会采用新配置。
+
+**同一书库不能同时由两个服务运行，即使端口不同也会拒绝启动。** 切换入口不需要复制数据；选择不同目录只会打开另一个书架，不会自动搬移或合并。旧版本可能无法读取新版设置或数据，升级和降级前请先备份。
+
 ## CLI 启动
 
-适合已经安装 Node 24 的用户，推荐版本 24.22.1。CLI 只启动独立的本地 HTTP 服务，不启动 Tauri 或桌面控制进程；无需下载或运行桌面应用，也无需克隆代码：
+需要 Node 24，推荐版本 24.22.1，以及随附的 npm / npx，无需另装 pnpm。CLI 启动本地服务；无需下载或运行桌面应用，也无需克隆代码：
 
 ```bash
-pnpm dlx @apprun/shiqu
+npx @apprun/shiqu
 ```
 
-打开打印的网址，通常是 `http://127.0.0.1:3000`。保持终端运行；按 Ctrl+C 停止服务。也可全局安装后使用 `shiqu`：
+首次使用时，npx 可能询问是否下载软件包，确认后启动。打开打印的网址，通常是 `http://127.0.0.1:3000`。保持终端运行；按 Ctrl+C 停止服务。
+
+已使用 pnpm 的用户也可运行 `pnpm dlx @apprun/shiqu`，功能相同；或全局安装后使用 `shiqu`：
 
 ```bash
 pnpm add -g @apprun/shiqu
@@ -35,8 +65,8 @@ shiqu
 首次非交互启动必须指定目录；CLI 不会静默创建一个新的默认空书架。桌面配置损坏时会报错，可修复设置或显式指定目录，避免误以为原书架丢失。
 
 ```bash
-shiqu --data-dir /absolute/path/to/library
-shiqu --port 3100 --host 0.0.0.0
+npx @apprun/shiqu --data-dir /absolute/path/to/library
+npx @apprun/shiqu --port 3100 --host 0.0.0.0
 ```
 
 CLI 与桌面版使用相同的数据库、图片和阅读进度格式；切换前先停止另一入口，使用相同版本。同一书库已被占用时启动会失败。选择不同目录只会切换书架，不会搬移或合并数据。
@@ -59,8 +89,8 @@ CLI 与桌面版共用配置目录中的 `desktop.sqlite`，库目录保存在�
 API 密钥输入隐藏；已保存该服务的密钥时，回车保留。模型回车使用已保存值或默认值。OpenAI 默认文本模型为 `gpt-6.1-sol`，图片模型为 `gpt-image-2.5-sunburst`；实际使用仍需账户具备相应模型权限与额度。新配置只在整个问答完成后保存；取消或输入结束不会保存部分服务配置。
 
 ```bash
-shiqu --configure
-shiqu --reset-providers
+npx @apprun/shiqu --configure
+npx @apprun/shiqu --reset-providers
 ```
 
 `--configure` 重新选择或修改服务并保存，然后退出。切换服务保留其他服务的模型和密钥。`--reset-providers` 清除所有已保存的服务选择、模型和 API 密钥，保留故事、阅读进度、书库及网络设置；终端中会重新询问，非交互环境则重置后退出并提示再配置。重置影响后续启动；已运行服务仍使用其启动时的配置，需停止并重新启动。
@@ -82,7 +112,7 @@ OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst
 其他服务分别使用 `SHIQU_AI_PROVIDER=codex`，或 `SHIQU_AI_PROVIDER=gemini` 与 `GEMINI_API_KEY`。无人值守只阅读可用 `SHIQU_AI_PROVIDER=readonly`。
 
 ```bash
-shiqu --config /absolute/path/to/shiqu.env
+npx @apprun/shiqu --config /absolute/path/to/shiqu.env
 ```
 
 不自动读取当前目录的 `.env`；已有环境变量优先于显式配置文件，命令行参数优先于两者。非交互运行必须已有可用保存配置，或完整指定服务；不会等待终端输入。新环境也要显式提供书库路径。更多变量见 [.env.example](../.env.example)。
@@ -97,7 +127,7 @@ macOS 要求 **13.5 或更新版本**。Windows 安装包要求 **Windows 10/11 
 
 ### 下载与安装
 
-[最新版本与 SHA-256 校验文件](https://github.com/yysun/shiqu/releases/latest) · [所有版本](https://github.com/yysun/shiqu/releases)。下载链接随最新正式版本自动更新，首次发布成功后生效。提供 Apple Silicon（M 系列）Mac 与 Windows x64 安装包，不提供 Intel Mac、Windows ARM64 或 Linux 安装包。Windows 链接在包含本次改动的正式版本发布后生效；此前可从 Actions 手动构建获取。
+[最新版本与 SHA-256 校验文件](https://github.com/yysun/shiqu/releases/latest) · [所有版本](https://github.com/yysun/shiqu/releases)。下载链接随最新正式版本自动更新，首次发布成功后生效。提供 Apple Silicon（M 系列）Mac 与 Windows x64 安装包，不提供 Intel Mac、Windows ARM64 或 Linux 安装包。Windows 链接在 0.4.0 或更新正式版本发布后生效；此前可从 Actions 手动构建获取。
 
 安装包**未签名、未经过 Apple 公证**。打开 DMG 后，将应用拖入「应用程序」。首次启动若被 macOS 拦截，请在尝试打开后前往「系统设置 → 隐私与安全性」，按系统提示选择「仍要打开」；只为你信任的下载执行此操作。
 

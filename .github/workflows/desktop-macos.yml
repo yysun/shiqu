@@ -63,7 +63,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
         if: runner.os == 'macOS'
-      # Codex CLI integration fixtures use Unix executables; Windows ships Gemini only.
+      # Codex CLI integration fixtures use Unix executables; Windows supports API providers and read-only.
       - name: Test Windows desktop runtime
         if: runner.os == 'Windows'
         run: node --experimental-strip-types --test tests/desktop-*.test.mjs tests/library-directory.test.mjs
@@ -166,7 +166,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --verify-tag --draft \
               --title "Shiqu $RELEASE_TAG" --generate-notes \
-              --notes 'Unsigned installers for macOS Apple Silicon (arm64, macOS 13.5+) and Windows x64 (Windows 10/11). Both desktop installers include Node 24. Windows supports Gemini only and needs WebView2 (downloaded by the installer if missing). macOS apps are not notarized; Windows SmartScreen may show a warning. SHA-256 checksums for both installers are included in SHA256SUMS.txt.'
+              --notes 'Unsigned installers for macOS Apple Silicon (arm64, macOS 13.5+) and Windows x64 (Windows 10/11). Both desktop installers include Node 24. Windows supports OpenAI API, Gemini, and read-only mode and needs WebView2 (downloaded by the installer if missing). macOS apps are not notarized; Windows SmartScreen may show a warning. SHA-256 checksums for both installers are included in SHA256SUMS.txt.'
           fi
           gh release upload "$RELEASE_TAG" shiqu-standard-macos-arm64.dmg shiqu-standard-windows-x64-setup.exe SHA256SUMS.txt --clobber
           gh release edit "$RELEASE_TAG" --draft=false

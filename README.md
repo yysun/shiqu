@@ -6,7 +6,23 @@
 
 macOS / Linux 可使用已登录的 Codex CLI（订阅额度）；也支持 OpenAI API 和 Gemini（API 密钥），Windows 可使用这两种 API 服务。首次运行从空书架开始，连接生成服务后创作第一篇故事。
 
-[CLI 启动](#cli-启动) · [下载桌面版](#下载与快速开始) · [使用指南](.docs/user-guide.md) · [开发指南](.docs/development.md)
+[如何选择](#如何选择) · [CLI 启动](#cli-启动) · [下载桌面版](#下载与快速开始) · [使用指南](.docs/user-guide.md) · [开发指南](.docs/development.md)
+
+## 如何选择
+
+**日常使用优先选桌面版；已有 Node 24、习惯终端或需要脚本启动时选 CLI。**
+
+| 使用场景 | 推荐入口 |
+| --- | --- |
+| 希望安装后直接使用，图形配置服务、管理书架和队列，关闭窗口后继续运行 | 桌面版：内置 Node，支持托盘启停 |
+| 已有 Node 24，想用一条命令启动，不安装桌面应用 | CLI：`npx @apprun/shiqu` |
+| 需要自定义启动参数、环境变量或非交互运行 | CLI |
+| 使用 Linux、Intel Mac 或 Windows ARM64，目前没有对应桌面安装包 | CLI：需自行安装 Node 24；Windows 使用 API 服务或只读 |
+| 希望手机扫码访问，或通过内置隧道控制跨网络访问 | 桌面版：互联网访问需另装 cloudflared；CLI 可手动开放局域网 |
+
+**共同功能：** 两种入口都在浏览器中提供完整的故事制作、阅读、书架整理与 PDF / PNG 导出，支持相同的生成服务（受操作系统限制）。桌面窗口额外提供书架、队列、设置与服务控制，完整阅读和制作仍在浏览器中进行。
+
+**切换限制：** 同一本机用户下，两种入口共用已保存的服务配置与 API 密钥，使用同一书库目录时共享故事、图片和阅读进度。切换时使用相同版本、确认目录一致，并先停止另一入口的服务；仅关闭桌面窗口不会停服。同一书库不能同时运行两个服务，换端口也不行。更换目录不会搬移或合并数据。[详细切换步骤](.docs/user-guide.md#在-cli-与桌面版之间切换)。
 
 ## 界面预览
 
@@ -52,11 +68,13 @@ macOS / Linux 可使用已登录的 Codex CLI（订阅额度）；也支持 Open
 
 ## CLI 启动
 
-已有 **Node 24**（推荐 24.22.1）时，可直接启动浏览器版：
+已有 **Node 24**（推荐 24.22.1）及随附的 npm / npx 时，可直接启动浏览器版，无需另装 pnpm：
 
 ```bash
-pnpm dlx @apprun/shiqu
+npx @apprun/shiqu
 ```
+
+已使用 pnpm 的用户也可运行 `pnpm dlx @apprun/shiqu`，功能相同。
 
 CLI 优先寻找桌面版保存的书库目录，目录不存在时自动创建；没有桌面设置时，先复用 CLI 已确认目录或已有桌面默认书库；仍未找到才询问，并记住选择。打开终端打印的网址即可阅读，按 Ctrl+C 停止。首次未配置时会询问 Codex / OpenAI API / Gemini / 只读，API 密钥输入隐藏。配置保存在与桌面版共用的设置数据库，之后无需再问；`--configure` 修改服务，`--reset-providers` 清除已保存服务配置。环境变量可仅覆盖本次运行。详见[CLI 使用说明](.docs/user-guide.md#cli-启动)。
 
@@ -64,7 +82,7 @@ CLI 优先寻找桌面版保存的书库目录，目录不存在时自动创建�
 
 桌面版统一内置 **Node 24**，无需自行配置运行环境；提供图形设置、托盘启停与手机访问入口。已有 Lite 用户可直接换装桌面版，原设置和书库保留。
 
-支持 **Apple Silicon（M 系列）Mac**（macOS **13.5+**）与 **Windows 10/11 x64**。Windows 需要 WebView2，缺失时安装程序会联网下载。Intel Mac、Windows ARM64 和 Linux 暂无安装包。Windows 下载在包含相应支持的正式版本发布后生效。
+支持 **Apple Silicon（M 系列）Mac**（macOS **13.5+**）与 **Windows 10/11 x64**。Windows 需要 WebView2，缺失时安装程序会联网下载。Intel Mac、Windows ARM64 和 Linux 暂无安装包。Windows 下载在 0.4.0 或更新正式版本发布后生效。
 
 [下载 macOS DMG](https://github.com/yysun/shiqu/releases/latest/download/shiqu-standard-macos-arm64.dmg) · [下载 Windows 安装程序](https://github.com/yysun/shiqu/releases/latest/download/shiqu-standard-windows-x64-setup.exe) · [版本与校验文件](https://github.com/yysun/shiqu/releases/latest)
 

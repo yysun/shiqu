@@ -95,8 +95,8 @@ CLI 复用共享数据库中的书库目录，没有时可导入原 `cli-library
 发布前将 `package.json`、`src-tauri/tauri.conf.json` 和 `src-tauri/Cargo.toml` 的版本更新为同一个 `X.Y.Z`，同步 `src-tauri/Cargo.lock` 中的本应用版本，并提交源码。然后推送对应标签，例如当前版本：
 
 ```bash
-git tag v0.3.2
-git push origin v0.3.2
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 标签所在提交必须包含该工作流及要发布的源码；GitHub 不会打包未提交的本地修改。每个版本使用新的标签。README 的 `/releases/latest/download/` 链接依赖以下固定文件名：
@@ -107,4 +107,4 @@ shiqu-standard-windows-x64-setup.exe
 SHA256SUMS.txt
 ```
 
-Windows 下载链接在包含本次工作流修改的正式版本发布后生效。Windows 安装包未签名，SmartScreen 可能提示风险；仅对确认可信的下载选择「更多信息 → 仍要运行」。macOS 安装包未签名、未公证，首次打开可能需要在「隐私与安全性」中允许。以后若加入正式签名/公证，必须保证最终 Node 字节与清单一致；签名改变 Node 字节后需在最终应用签名前重新生成清单，并运行安装包 smoke 检查。
+Windows 下载链接在 0.4.0 或更新正式版本发布后生效。Windows 安装包未签名，SmartScreen 可能提示风险；仅对确认可信的下载选择「更多信息 → 仍要运行」。macOS 安装包未签名、未公证，首次打开可能需要在「隐私与安全性」中允许。以后若加入正式签名/公证，必须保证最终 Node 字节与清单一致；签名改变 Node 字节后需在最终应用签名前重新生成清单，并运行安装包 smoke 检查。

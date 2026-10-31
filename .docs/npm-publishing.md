@@ -19,14 +19,16 @@ pnpm npm:smoke
 `npm:smoke` installs the actual tarball into a temporary directory using pnpm, then invokes the installed executable directly from an unrelated directory. It needs access to the npm registry or a populated pnpm store. It checks the packaged assets/book sources, HTTP/API, configuration, persistence after restart, desktop-compatible library discovery, first-run non-interactive errors, access boundaries, and clean shutdown without invoking a generation provider. Pass a tarball path to check a specific artifact:
 
 ```bash
-pnpm npm:smoke /absolute/path/to/apprun-shiqu-0.3.2.tgz
+pnpm npm:smoke /absolute/path/to/apprun-shiqu-0.4.0.tgz
 ```
 
 Use `pnpm npm:smoke --offline` when the dependencies are already in the pnpm store.
 
 ## Publish
 
-Set the intended release version in the root `package.json`. Authenticate to npm with an account authorized to publish under `@apprun`, then use the local release command:
+Set the intended release version in the root `package.json` and update `CHANGELOG.md`. For a shared CLI / desktop release, keep `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `shiqu-desktop` entry in `src-tauri/Cargo.lock` at the same version.
+
+Commit the release changes and use the configured publication branch (pnpm defaults to `main`). The release command retains pnpm's clean-working-tree and branch checks, including for dry runs. Authenticate to npm with an account authorized to publish under `@apprun`, then use the local release command:
 
 ```bash
 pnpm run npm:publish
@@ -48,4 +50,4 @@ pnpm run npm:publish --dry-run
 
 There is no hosted startup CI requirement. Package-name ownership, existing registry versions, and npm authentication remain the publisher's responsibility. Root `pnpm publish` is intentionally blocked by `private: true`; publishing the generated tarball directly bypasses this local release command. The consumer package contains no release/install hooks.
 
-Consumer commands and configuration are in [the npm README](../npm/README.md), which becomes the release package's README. After publication, users can run `pnpm dlx @apprun/shiqu` with Node 24. Library selection follows the shared desktop/CLI settings database, migrating a prior CLI directory JSON when needed, otherwise finding or asking. First provider setup saves a profile with hidden API-key input; `--configure` and `--reset-providers` manage the shared settings. Non-interactive fresh runs require an explicit library and complete provider environment (or read-only).
+Consumer commands and configuration are in [the npm README](../npm/README.md), which becomes the release package's README. After publication, users can run `npx @apprun/shiqu` with Node 24; `pnpm dlx @apprun/shiqu` is an equivalent option for pnpm users. Library selection follows the shared desktop/CLI settings database, migrating a prior CLI directory JSON when needed, otherwise finding or asking. First provider setup saves a profile with hidden API-key input; `--configure` and `--reset-providers` manage the shared settings. Non-interactive fresh runs require an explicit library and complete provider environment (or read-only).
