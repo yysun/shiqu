@@ -2,7 +2,7 @@
 
 **还有剩余的 Codex token？不妨用来读读故事。**
 
-写代码之余，把已有的 Codex 订阅额度用来选故事、改编和配图，让中国古典故事变成自己的插画故事书。使用本机已登录的 Codex CLI，无需另配 API 密钥；也支持 Gemini。
+写代码之余，把已有的 Codex 订阅额度用来选故事、改编和配图，让中国古典故事变成自己的插画故事书。macOS 可使用本机已登录的 Codex CLI，无需另配 API 密钥；Windows 使用 Gemini。
 
 从《聊斋志异》《西游记》《庄子》等 24 部作品中挑选故事，选择画风和篇幅，在电脑或手机上阅读，也可以导出 PDF 或一张长图保存。故事、图片和阅读进度保存在你的电脑上。
 
@@ -16,7 +16,7 @@ Codex 文本和图片生成共用订阅额度，图片可能消耗得更快；�
   - [界面预览](#界面预览)
   - [桌面版入门](#桌面版入门)
     - [选择版本](#选择版本)
-    - [下载 macOS 版](#下载-macos-版)
+    - [下载与安装](#下载与安装)
     - [第一次打开](#第一次打开)
     - [配置生成服务](#配置生成服务)
   - [在手机上阅读](#在手机上阅读)
@@ -42,22 +42,24 @@ Codex 文本和图片生成共用订阅额度，图片可能消耗得更快；�
 
 **已有 Node 24、想用 Codex 订阅读故事？推荐 Lite。使用 Gemini，或不想配置 Node？推荐 Standard。** 请选择与你的系统和处理器匹配的桌面安装包。
 
-| 版本     | 推荐给谁                            | 运行环境与生成服务                                                        | Apple Silicon（M 系列）Mac 下载                                                                         |
-| -------- | ----------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Lite     | 已有 Node 24 的 Codex 订阅用户      | 使用电脑上的 Node 24（推荐 24.22.1）；Codex CLI 需自行安装并登录          | [下载 Lite](https://github.com/yysun/shiqu/releases/latest/download/shiqu-lite-macos-arm64.dmg)         |
-| Standard | Gemini 用户，或不想配置 Node 的用户 | 已内置 Node 24；Gemini 需 API 密钥，使用 Codex 时仍需另装并登录 Codex CLI | [下载 Standard](https://github.com/yysun/shiqu/releases/latest/download/shiqu-standard-macos-arm64.dmg) |
+| 版本     | 推荐给谁                            | 运行环境与生成服务                                                        | Apple Silicon（M 系列）Mac 下载                                                                         | Windows x64 下载 |
+| -------- | ----------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --- |
+| Lite     | 已有 Node 24 的 Codex 订阅用户      | 使用电脑上的 Node 24（推荐 24.22.1）；Codex CLI 需自行安装并登录          | [下载 Lite](https://github.com/yysun/shiqu/releases/latest/download/shiqu-lite-macos-arm64.dmg)         | [下载 Lite](https://github.com/yysun/shiqu/releases/latest/download/shiqu-lite-windows-x64-setup.exe) |
+| Standard | Gemini 用户，或不想配置 Node 的用户 | 已内置 Node 24；Gemini 需 API 密钥，使用 Codex 时仍需另装并登录 Codex CLI | [下载 Standard](https://github.com/yysun/shiqu/releases/latest/download/shiqu-standard-macos-arm64.dmg) | [下载 Standard](https://github.com/yysun/shiqu/releases/latest/download/shiqu-standard-windows-x64-setup.exe) |
 
-**两个版本均支持 Codex 和 Gemini，区别只是是否内置 Node，并非提供方专用版。** Node 是拾趣的运行环境，Codex CLI 是可选的 AI 生成工具。两个版本都不包含 Codex CLI；已经能使用 Codex，也不代表电脑上已有 Lite 所需的 Node 24。尚未安装 Node 24 的 Codex 用户，或不确定选哪个时，仍推荐 Standard。使用 Gemini 则不需要 Codex CLI。
+**macOS 两版均支持 Codex 和 Gemini，Windows 两版仅支持 Gemini；Standard 与 Lite 的区别是是否内置 Node。** Node 是拾趣的运行环境，Codex CLI 是可选的 AI 生成工具。两个版本都不包含 Codex CLI；已经能使用 Codex，也不代表电脑上已有 Lite 所需的 Node 24。尚未安装 Node 24 的 Codex 用户，或不确定选哪个时，仍推荐 Standard。使用 Gemini 则不需要 Codex CLI。
 
-macOS 要求 **13.5 或更新版本**。Windows 需要 WebView2，生成服务请选择 Gemini；原生 Windows 暂不支持 Codex。Linux 需要 WebKitGTK 和托盘支持。
+macOS 要求 **13.5 或更新版本**。Windows 安装包要求 **Windows 10/11 x64**，需要 WebView2（缺失时安装程序会联网下载），生成服务请选择 Gemini；拾趣的原生 Windows Codex 集成尚未适配。Linux 需要 WebKitGTK 和托盘支持。
 
 Standard 和 Lite 共用设置及故事数据，是替代安装的两个版本，不要同时运行。
 
-### 下载 macOS 版
+### 下载与安装
 
-[最新版本与 SHA-256 校验文件](https://github.com/yysun/shiqu/releases/latest) · [所有版本](https://github.com/yysun/shiqu/releases)。下载链接随最新正式版本自动更新，首次发布成功后生效。目前 GitHub 仅提供 Apple Silicon（M 系列）Mac 安装包，不提供 Intel、Windows 或 Linux 安装包。
+[最新版本与 SHA-256 校验文件](https://github.com/yysun/shiqu/releases/latest) · [所有版本](https://github.com/yysun/shiqu/releases)。下载链接随最新正式版本自动更新，首次发布成功后生效。提供 Apple Silicon（M 系列）Mac 与 Windows x64 安装包，不提供 Intel Mac、Windows ARM64 或 Linux 安装包。Windows 链接在包含本次改动的正式版本发布后生效；此前可从 Actions 手动构建获取。
 
 安装包**未签名、未经过 Apple 公证**。打开 DMG 后，将应用拖入「应用程序」。首次启动若被 macOS 拦截，请在尝试打开后前往「系统设置 → 隐私与安全性」，按系统提示选择「仍要打开」；只为你信任的下载执行此操作。
+
+Windows：运行 `-setup.exe`，按提示安装到当前用户。安装包未签名，SmartScreen 可能提示风险；仅对确认可信的下载选择「更多信息 → 仍要运行」。Lite 先安装 Node 24（推荐 24.22.1）；未检测到时，在设置中选择 `C:\Program Files\nodejs\node.exe` 或实际安装路径。Windows 的默认设置目录为 `%APPDATA%\com.shiqu.desktop\`，默认故事目录为其中的 `library`。
 
 ### 第一次打开
 
@@ -73,7 +75,7 @@ Standard 和 Lite 共用设置及故事数据，是替代安装的两个版本�
 | 方式   | 你需要准备                                                          | 费用与限制                                             |
 | ------ | ------------------------------------------------------------------- | ------------------------------------------------------ |
 | Gemini | 有效的 Gemini API 密钥，在「设置」中填写                            | 按你的 Gemini 项目计费，需要相应模型权限和配额         |
-| Codex  | 本机安装并通过 ChatGPT 账户登录的 Codex CLI，在「设置」中选择 Codex | 使用订阅额度，文本和图片共用额度；需要套餐或工作区支持 |
+| Codex  | macOS 本机安装并通过 ChatGPT 账户登录的 Codex CLI，在「设置」中选择 Codex | 使用订阅额度，文本和图片共用额度；需要套餐或工作区支持 |
 
 Codex CLI 不包含在桌面安装包中。首次使用需在终端运行 `codex login`；如果应用找不到它，可在设置中选择可执行文件。模型可留空以使用 CLI 默认值；使用 Sol 时，推理档位建议先选 `low`。Codex 不会回退到 Gemini 或 API 计费，自定义网页来源请改用 Gemini。
 
