@@ -211,7 +211,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   const preparing=selection.narrativeDetail&&!doc.frameCountConfirmed&&!doc.plan;
   // A distinct job owns each saved planning checkpoint; the empty key is the complete-script barrier.
-  const scriptKey=!preparing&&(!doc.plan||!reviewPassed(doc))&&(doc.visualReview||doc.storyboard||selection.length==='auto'||selection.length>readerStoryboardBatchSize)?nextStep(doc,selection,0)?.key||'':doc.visualReview?'approved':'';
+  const scriptKey=!preparing&&(!doc.plan||!reviewPassed(doc))&&(doc.visualReview||doc.draft||doc.storyboard||selection.length==='auto'||selection.length>readerStoryboardBatchSize)?nextStep(doc,selection,0)?.key||'':doc.visualReview?'approved':'';
   const setup=doc.intake?{setupGeneration:doc.intake.generation}:{};
   const scriptVersion=inputVersion({selection,...setup}),script=this.spec(row,preparing?'prepare':'script','text',scriptVersion,scriptKey,[],{stepKey:scriptKey,...setup},-10);
   await this.queue.enqueue(script,doc.plan&&doc.original&&reviewPassed(doc)?{pages:doc.plan.pages.length}:undefined);
@@ -401,6 +401,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(result.intake?.phase==='confirming')return {awaitingProductionConfirmation:true};
   row=await this.raw(row.id,row.user_id);doc=JSON.parse(row.document) as Document;
   if(doc.visualReview&&!reviewPassed(doc))return {review:doc.visualReview.status};
+  if(doc.draft)return {storyboardFrames:doc.draft.pages.length,reflectionPending:true};
   if(doc.storyboard&&!doc.plan)return {storyboardFrames:doc.storyboard.pages.length};
   if(!doc.plan||!doc.original)throw new ReaderError(503,'故事仍在更新，请重试继续。');
   return {pages:doc.plan.pages.length};

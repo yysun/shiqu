@@ -18,7 +18,7 @@ export function generationProgress(session:SessionView,now:number){
  if(!session.intake&&!countReady&&session.frameRecommendation)steps[1].detail=`建议 ${session.frameRecommendation.count} 幅`;
  const elapsed=running&&meta?.startedAt!==null&&meta?.startedAt!==undefined&&Number.isFinite(meta.startedAt)?Math.max(0,Math.floor((now-meta.startedAt)/1000)):null;
  const measured=phase==='image'&&total!==null;
- const note=phase==='review'?'正在检查全篇动作、画面、叙事递进与衔接；审片通过后才开始绘图。':phase==='repair'?`审核 → 定向修复 → 全篇复核，未通过继续循环；最多自动修复 ${readerMaxAutomaticRepairs} 轮，无变化则停下待处理。`:phase==='plan'?(meta?.storyboardBatch?`分镜目录已保存；每批最多 ${readerStoryboardBatchSize} 幅，当前编排第 ${meta.storyboardBatch.first}–${meta.storyboardBatch.last} 幅；完成一批保存一批。`:session.selection.length==='auto'||typeof session.selection.length==='number'&&session.selection.length>readerStoryboardBatchSize?`先确定全篇分镜目录，再按每批最多 ${readerStoryboardBatchSize} 幅编排并保存。`:'分镜完成后一次性返回，暂不提供百分比。'):phase==='image'?'只统计已生成并保存的画面。':'完成的步骤会自动更新。';
+ const note=phase==='reflection'?'完整分镜已保存，正在结合原文和最终结局撰写结语；之后一起审核。':phase==='review'?'正在检查全篇动作、画面、叙事递进、衔接与结语；审片通过后才开始绘图。':phase==='repair'?`审核 → 定向修复 → 全篇复核，未通过继续循环；最多自动修复 ${readerMaxAutomaticRepairs} 轮，无变化则停下待处理。`:phase==='plan'?(meta?.storyboardBatch?`分镜目录已保存；每批最多 ${readerStoryboardBatchSize} 幅，当前编排第 ${meta.storyboardBatch.first}–${meta.storyboardBatch.last} 幅；完成一批保存一批。`:session.selection.length==='auto'||typeof session.selection.length==='number'&&session.selection.length>readerStoryboardBatchSize?`先确定全篇分镜目录，再按每批最多 ${readerStoryboardBatchSize} 幅编排并保存。`:'分镜完成后一次性返回，暂不提供百分比。'):phase==='image'?'只统计已生成并保存的画面。':'完成的步骤会自动更新。';
  return {running,queued,steps,elapsed,attempt:meta?.attempt||0,measured,total,ready,note,slow:phase==='plan'&&elapsed!==null&&elapsed>=90};
 }
 

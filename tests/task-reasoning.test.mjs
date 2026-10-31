@@ -5,7 +5,7 @@ import {createReaderProvider} from '../server/generation.ts';
 import {configuredTaskReasoning,taskReasoningDefaults,reasoningTasks} from '../lib/reader-reasoning.ts';
 import {desktopSettings,desktopVariables} from '../server/desktop.ts';
 import {withLocalBooks} from '../server/local-generation.ts';
-import {makePlan,selection as baseSelection,productionFixture,until} from './fixtures/production.mjs';
+import {makePlan,makeReflectionCandidates,selection as baseSelection,productionFixture,until} from './fixtures/production.mjs';
 
 const selection={...baseSelection,length:8},plan=makePlan(8),{pages,...metadata}=plan;
 const outline={...metadata,beats:pages.map((_,i)=>`第${i+1}幅的动作。`)};
@@ -13,6 +13,7 @@ const original={title:'已核原文',text:'庄周梦为胡蝶。',url:'https://e
 const issue={page:2,category:'caption',problem:'机械重复转述。',instruction:'只修配文。'};
 const override={suggest:'high',art:'medium',frames:'low',outline:'medium',plan:'low',review:'medium',repair:'low'};
 function output(payload,schema){
+ if(schema.properties.candidates)return {candidates:makeReflectionCandidates(plan.reflection)};
  if(schema.properties.stories)return {stories:[],note:''};
  if(schema.properties.artStyle)return {artStyle:'ink-pencil',reason:'适合本篇动作。'};
  if(schema.properties.count)return {count:8,reason:'保留完整因果。'};
@@ -35,9 +36,11 @@ for(const name of ['codex','gemini'])for(const custom of [false,true])test(`${na
  assert.equal((await g.recommend(selection,'test',original)).reasoningEffort,efforts.frames);
  await g.outline(selection,'test',original);await g.planBatch(selection,'test',{outline,pages:[]},original);
  assert.equal((await g.plan(selection,'test',original)).reasoningEffort,efforts.plan);
+ assert.equal((await g.reflectionCandidates(selection,plan,original)).reasoningEffort,efforts.plan);
+ assert.equal((await g.reflection(selection,plan,original,{reflection:plan.reflection,issues:[]})).reasoningEffort,efforts.repair);
  assert.equal((await g.review(selection,plan,original)).reasoningEffort,efforts.review);
  assert.equal((await g.repair(selection,plan,original,[issue])).reasoningEffort,efforts.repair);
- assert.deepEqual(calls,['suggest','art','frames','outline','plan','plan','review','repair'].map(task=>efforts[task]));
+ assert.deepEqual(calls,['suggest','art','frames','outline','plan','plan','plan','repair','review','repair'].map(task=>efforts[task]));
  assert.deepEqual((await provider.status()).taskReasoningEfforts,efforts);
 });
 

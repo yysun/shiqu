@@ -17,10 +17,10 @@ export function productionStages(input:Input):ProductionStage[]{
  const count=total===null?'':` / ${total}`;
  const batch=input.storyboardBatch||(!planReady&&input.storyboardFrames!=null&&total!==null&&input.storyboardFrames<total?{first:input.storyboardFrames+1,last:Math.min(input.storyboardFrames+readerStoryboardBatchSize,total)}:null);
  return [
-  {id:'plan',label:'分批分镜',state:planReady?'done':active(phase==='plan'),detail:planReady?`${total===null?'全篇':total+' 幅'}分镜已保存`:batch?`已保存 ${input.storyboardFrames||0}${count} 幅分镜 · 当前第 ${batch.first}–${batch.last} 幅`:input.storyboardFrames!=null?`已保存 ${input.storyboardFrames}${count} 幅分镜`:'等待完整分镜返回'},
-  {id:'review',label:'全篇审片',state:reviewState,detail:legacy?'旧故事未启用审片':reviewState==='done'?(passed&&!repaired?'初审通过':'全篇审片已完成'):phase==='review'&&!rechecking?'检查全篇及跨批衔接':'等待分镜完成'},
-  {id:'repair',label:'定向修订',state:repairState,detail:legacy?'旧故事未启用审片':repairState==='skipped'?'初审通过，无需修订':phase==='repair'?`第 ${(input.repairPasses||0)+1} 轮 · 已修订 ${repairCompleted} / ${repairTotal} 幅`:repairState==='done'?typeof input.repairBatches==='number'?`已完成 ${input.repairBatches} 批定向修订`:'问题幅号已定向修订':'仅在审片发现问题时执行'},
-  {id:'recheck',label:'复核',state:recheckState,detail:legacy?'旧故事未启用审片':blocked?`仍有 ${repairTotal} 幅待修订，绘图已阻止`:input.reviewOverridden?'未解决的问题由你确认放行':recheckState==='skipped'?'初审通过，无需复核':passed?`复核通过 · 已审核 ${input.reviewAudits??reviewRound} 次`:rechecking?`正在第 ${(input.reviewAudits??reviewRound)+1} 次全篇审核`:'修订后重新审片'},
+  {id:'plan',label:'分批分镜',state:planReady?'done':active(phase==='plan'||phase==='reflection'),detail:phase==='reflection'?'完整分镜已保存，正在撰写结语':planReady?`${total===null?'全篇':total+' 幅'}分镜已保存`:batch?`已保存 ${input.storyboardFrames||0}${count} 幅分镜 · 当前第 ${batch.first}–${batch.last} 幅`:input.storyboardFrames!=null?`已保存 ${input.storyboardFrames}${count} 幅分镜`:'等待完整分镜返回'},
+  {id:'review',label:'全篇审片',state:reviewState,detail:legacy?'旧故事未启用审片':reviewState==='done'?(passed&&!repaired?'初审通过':'全篇审片已完成'):phase==='review'&&!rechecking?'检查分镜、跨批衔接与结语':'等待分镜与结语完成'},
+  {id:'repair',label:'定向修订',state:repairState,detail:legacy?'旧故事未启用审片':repairState==='skipped'?'初审通过，无需修订':phase==='repair'?`第 ${(input.repairPasses||0)+1} 轮 · 已修订 ${repairCompleted} / ${repairTotal} 项`:repairState==='done'?typeof input.repairBatches==='number'?`已完成 ${input.repairBatches} 批定向修订`:'问题幅号已定向修订':'仅在审片发现问题时执行'},
+  {id:'recheck',label:'复核',state:recheckState,detail:legacy?'旧故事未启用审片':blocked?`仍有 ${repairTotal} 项待修订，绘图已阻止`:input.reviewOverridden?'未解决的问题由你确认放行':recheckState==='skipped'?'初审通过，无需复核':passed?`复核通过 · 已审核 ${input.reviewAudits??reviewRound} 次`:rechecking?`正在第 ${(input.reviewAudits??reviewRound)+1} 次全篇审核`:'修订后重新审片'},
   {id:'image',label:'绘图',state:planReady&&(legacy||passed)&&total!==null&&total>0&&ready>=total?'done':active(phase==='image'&&planReady&&(legacy||passed)),detail:blocked?'待继续修订，绘图已阻止':reviewStatus&&!passed?'等待审片通过':total===null?`已保存 ${ready} 幅`:`${ready} / ${total} 幅画面已保存`},
  ];
 }

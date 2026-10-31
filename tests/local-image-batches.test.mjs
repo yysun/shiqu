@@ -27,7 +27,9 @@ async function fixture(t,provider='codex'){
  await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
  const control={calls:[],plans:[],outlines:[],pending:new Map(),hold:false,autoLength:30,overridePlanLength:null,recommendations:[],recommendation:{count:7,reason:'保留完整因果与关键转折，节奏适合这篇短寓言。'}};
  function planned(payload,schema,instructions,budget){
-  if(schema.properties.issues)return {issues:[]};
+  if(schema.properties.issues)return {issues:[],...(payload.reflectionCandidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识。'}}:{})};
+  if(schema.properties.candidates)return {candidates:[makePlan(1).reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']};
+  if(payload.draft)return {reflection:makePlan(1).reflection};
   if(schema.properties.count){control.recommendations.push({payload,schema,instructions,budget});return control.recommendation;}
   const record={payload,schema,instructions,budget},plan=makePlan(control.overridePlanLength??(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount));
   if(schema.properties.beats){control.outlines.push(record);const {pages,...metadata}=plan;return {...metadata,beats:pages.map((_,i)=>`第 ${i+1} 幅的关键事件。`)};}
@@ -79,7 +81,7 @@ for(const provider of ['gemini','codex']){
    assert.equal(current.selection.length,'auto');assert.equal(current.story.pages.length,length);
    const outline=f.control.outlines.at(-1);assert.equal(outline.payload.exactPageCount,'auto');assert.equal(outline.schema.properties.beats.minItems,1);assert.equal(outline.schema.properties.beats.maxItems,80);
    assert.equal(job.payload.exactPageCount,length);assert.ok(job.schema.properties.pages.maxItems<=20);
-   assert.match(job.instructions,/auto时/);assert.doesNotMatch(job.instructions,/30至60幅/);
+   assert.match(job.instructions,/自动（auto）时/);assert.doesNotMatch(job.instructions,/30至60幅/);
    if(provider==='gemini')assert.ok(job.budget<=16000);
    f.restart();
    assert.equal(await f.generate(id,length-1,'auto'),'');
@@ -138,6 +140,7 @@ for(const provider of ['gemini','codex']){
  test(`${provider}: anchor runs alone; later scenes overlap and publish under one lock`,async t=>{
   const f=await fixture(t,provider),id=await f.create();f.control.hold=true;
   await f.advance(id,2); // Plan and original, without images.
+  await f.advance(id,2); // Write the ending from all saved scenes.
   await f.advance(id,2); // The independent review must pass before the anchor request.
   const anchor=f.advance(id,2);await until(()=>f.control.calls.length===1);
   assert.equal(f.control.calls[0].page,0);await turn();assert.equal(f.control.calls.length,1);

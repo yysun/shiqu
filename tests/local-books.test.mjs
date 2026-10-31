@@ -23,7 +23,7 @@ const selected=selectionSchema.parse({bookId:'zhuangzi',theme:'放下执念',sto
 const plan={title:'梦醒之后',hook:'谁在梦中？',sourceReference:'模型不可信的出处',adaptationNote:'现代旁白改编',reflection:'梦与醒之间呢？',characters:'An adult Chinese philosopher in plain robes.',pages:Array.from({length:8},()=>({caption:'庄周梦见自己成为蝴蝶，在天地间自在飞翔。',prompt:'An adult philosopher dreams of a butterfly.'}))};
 function ref(book,section=book.sections[1],first=section.units.length-1,last=first){return {edition:book.edition,sectionId:section.id,firstUnit:section.units[first].id,lastUnit:section.units[last].id};}
 function memory(){const values=new Map();return {values,async put(key,bytes){values.set(key,new Uint8Array(bytes));},async get(key){const bytes=values.get(key);return bytes?{async arrayBuffer(){return bytes.slice().buffer;}}:null;}};}
-function fake(){return {status:async()=>({configured:true,provider:'gemini',voiceEnabled:false,models:{text:'mock',image:'mock'}}),safeError:()=> '模拟分镜失败',suggestions:async()=>({stories:[],note:''}),generator:()=>({plan:async()=>({value:structuredClone(plan),model:'mock',requestId:'mock',usage:null}),original:async()=>assert.fail('No public source lookup'),image:async(p,page,id)=>({value:`/api/reader/media/${id}/${page}.png`,model:'mock',requestId:'mock',usage:null}),audio:async()=>assert.fail('No audio'),safeError:()=> '模拟分镜失败'})};}
+function fake(){return {status:async()=>({configured:true,provider:'gemini',voiceEnabled:false,models:{text:'mock',image:'mock'}}),safeError:()=> '模拟分镜失败',suggestions:async()=>({stories:[],note:''}),generator:()=>({reflection:async()=>({value:plan.reflection,model:'mock',requestId:'mock',usage:null}),reflectionCandidates:async()=>({value:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。'],model:'mock',requestId:'mock',usage:null}),review:async(_s,_p,_o,_outline,candidates)=>({value:{issues:[],...(candidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识。'}}:{})},model:'mock',requestId:'mock',usage:null}),plan:async()=>({value:structuredClone(plan),model:'mock',requestId:'mock',usage:null}),original:async()=>assert.fail('No public source lookup'),image:async(p,page,id)=>({value:`/api/reader/media/${id}/${page}.png`,model:'mock',requestId:'mock',usage:null}),audio:async()=>assert.fail('No audio'),safeError:()=> '模拟分镜失败'})};}
 async function directory(t){const root=await mkdtemp(path.join(os.tmpdir(),'shiqu-local-books-'));t.after(()=>rm(root,{recursive:true,force:true}));return root;}
 
 test('only original downloads are versioned, preserve their bytes and have matching receipts',async()=>{
@@ -103,7 +103,8 @@ test('verified original reaches SQLite and media before a paid plan, and survive
  let calls=0;const base=fake();base.generator=()=>({...fake().generator(),async plan(s,id,original){calls++;const row=await repo.get(id,'test'),doc=JSON.parse(row.document);assert.equal(doc.original.text,original.text);assert.ok(await store.get(`reader/${id}/source.json`));if(calls===1)throw Error('mock plan failure');return {value:structuredClone(plan),model:'mock',requestId:'mock',usage:null};}});
  const generator=withLocalBooks(base,library,store).generator(),id=crypto.randomUUID();await repo.create(id,'test',selection);
  const failed=await advanceStory(repo,generator,'test',id,0);assert.equal(failed.state,'failed');assert.equal(failed.story,null);assert.ok(JSON.parse((await repo.get(id,'test')).document).original);
- const retried=await advanceStory(repo,generator,'test',id,0,true);assert.equal(calls,2);assert.match(retried.story.sourceText,/莊周夢/);assert.match(retried.story.sourceReference,/庄子·齊物論/);assert.deepEqual(retried.story.original.localSource,selection.source);
+ const draft=await advanceStory(repo,generator,'test',id,0,true);assert.equal(draft.story,null);
+ const retried=await advanceStory(repo,generator,'test',id,0);assert.equal(calls,2);assert.match(retried.story.sourceText,/莊周夢/);assert.match(retried.story.sourceReference,/庄子·齊物論/);assert.deepEqual(retried.story.original.localSource,selection.source);
 });
 test('storage failures or missing local receipts cannot issue paid storyboard requests',async t=>{
  for(const mode of ['storage','missing']){
@@ -125,15 +126,15 @@ test('storyboard directory and batch calls both verify local source receipts bef
  }
  assert.equal(outlines,1);assert.equal(batches,1);
 });
-test('review and repair require the same verified local original as planning',async()=>{
+test('ending, review and repair require the same verified local original as planning',async()=>{
  const book=await library.book(selected),selection={...selected,source:ref(book)};let calls=0;
- const base=fake();base.generator=()=>({...fake().generator(),async review(){calls++;return {value:{issues:[]},model:'mock',requestId:null,usage:null};},async repair(){calls++;return {value:[],model:'mock',requestId:null,usage:null};}});
+ const base=fake();base.generator=()=>({...fake().generator(),async reflectionCandidates(){calls++;return {value:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。'],model:'mock',requestId:null,usage:null};},async reflection(){calls++;return {value:plan.reflection,model:'mock',requestId:null,usage:null};},async review(){calls++;return {value:{issues:[]},model:'mock',requestId:null,usage:null};},async repair(){calls++;return {value:[],model:'mock',requestId:null,usage:null};}});
  const g=withLocalBooks(base,library,memory()).generator(),original=await g.prepareOriginal(selection,'review-receipt');
- await g.review(selection,plan,original);await g.repair(selection,plan,original,[]);
+ await g.reflectionCandidates(selection,plan,original);await g.reflection(selection,plan,original);await g.review(selection,plan,original);await g.repair(selection,plan,original,[]);
  for(const bad of [undefined,{...original,text:original.text+'□'},{...original,localSource:{...original.localSource,edition:'0'.repeat(64)}}]){
-  await assert.rejects(g.review(selection,plan,bad),e=>e.status===400);await assert.rejects(g.repair(selection,plan,bad,[]),e=>e.status===400);
+  await assert.rejects(g.reflectionCandidates(selection,plan,bad),e=>e.status===400);await assert.rejects(g.reflection(selection,plan,bad),e=>e.status===400);await assert.rejects(g.review(selection,plan,bad),e=>e.status===400);await assert.rejects(g.repair(selection,plan,bad,[]),e=>e.status===400);
  }
- assert.equal(calls,2);
+ assert.equal(calls,4);
 });
 test('explicit legacy backfill uses a local chapter and does not plan, draw, or fetch a public source',async t=>{
  const root=await directory(t),media=new FileMedia(path.join(root,'media')),provider=withLocalBooks(fake(),library,media),app=createApplication({root:process.cwd(),dataDirectory:root,generation:provider});t.after(()=>app.close());

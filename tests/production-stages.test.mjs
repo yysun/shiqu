@@ -25,7 +25,7 @@ test('seven steps distinguish initial review, targeted repair, recheck, skipped 
  assert.equal(states({phase:'review',activeState:'paused'})[3],'paused');
  assert.equal(states({phase:'repair',reviewStatus:'repair',activeState:'failed'})[4],'failed');
  const blocked=productionSteps({...base,phase:'review',reviewStatus:'blocked',reviewRound:2,repairTotal:2,activeState:'failed'});
- assert.equal(blocked[5].state,'failed');assert.match(blocked[5].detail,/仍有 2 幅待修订，绘图已阻止/);assert.equal(blocked[6].state,'pending');
+ assert.equal(blocked[5].state,'failed');assert.match(blocked[5].detail,/仍有 2 项待修订，绘图已阻止/);assert.equal(blocked[6].state,'pending');
  assert.equal(states({phase:'image',reviewStatus:'blocked',ready:45})[6],'pending');
  assert.equal(states({phase:'image',reviewStatus:'passed',reviewRound:2,ready:45})[6],'done');
 });

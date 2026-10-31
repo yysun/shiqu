@@ -22,7 +22,7 @@ test('reader renders saved directory, batch range, honest progress and 80-frame 
  assert.match(review,/全篇审片/);assert.match(review,/审片通过后才开始绘图/);assert.doesNotMatch(review,/<progress/);
  const blocked={...reviewing,state:'failed',error:'第 2 幅动作不清楚。',retryStage:'review',retryAllowed:true,generationProgress:{...reviewing.generationProgress,reviewStatus:'blocked',repairTotal:1}};
  const retry=renderToStaticMarkup(createElement(Status,{session:blocked,busy:false,error:blocked.error,onRetry(){},onBack(){}}));
- assert.match(retry,/继续修订分镜/);assert.match(retry,/仍有 1 幅待修订/);assert.match(retry,/第 2 幅动作不清楚/);
+ assert.match(retry,/继续修订分镜/);assert.match(retry,/仍有 1 项待修订/);assert.match(retry,/第 2 幅动作不清楚/);
  for(const [retryStage,label] of [['source','重试原文检索'],['publication','重试展开'],['review','继续修订分镜'],['redraw','重试生成'],[undefined,'重试生成']]){
   const action=renderToStaticMarkup(createElement(Retry,{session:{...blocked,retryStage},busy:false,onRetry(){}}));
   assert.match(action,new RegExp(label));assert.doesNotMatch(action,/收费|计费|额度/);

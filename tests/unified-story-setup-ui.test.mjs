@@ -32,6 +32,8 @@ test('discovery stays in the picker and selection opens one continuous story flo
  // The review tools stay reachable once a reused first image exists; a clean story has no need of them.
  const reviewProps={busy:false,error:'',onScript:noop,onEdit:noop,onDrawAnyway:noop},story=image=>({original:{},pages:[{image}]}),issue={page:3,problem:'配文含混。',instruction:'说清楚。'};
  assert.match(renderToStaticMarkup(createElement(Review,{...reviewProps,session:{story:story('/a.png'),reviewIssues:[issue]}})),/仍然绘制/);
+ const endingReview=renderToStaticMarkup(createElement(Review,{...reviewProps,session:{story:story('/a.png'),reviewIssues:[{...issue,page:0,category:'reflection'}]}}));
+ assert.match(endingReview,/<strong>结语<\/strong>/);assert.doesNotMatch(endingReview,/第 0 幅/);
  assert.equal(renderToStaticMarkup(createElement(Review,{...reviewProps,session:{story:story('/a.png')}})),'');
  const unreviewed=renderToStaticMarkup(createElement(Review,{...reviewProps,session:{story:story('')}}));assert.match(unreviewed,/查看分镜/);assert.doesNotMatch(unreviewed,/仍然绘制/);
  // Both the editor and the settings sheet show these actions, so a conflict cannot go unseen.

@@ -11,13 +11,14 @@ import {encoded} from './images.mjs';
 export {encoded};
 export const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,voice:false,artStyle:'ink-pencil',productionPrompt:'quiet narration'};
 export const makePlan=length=>({title:'庄周梦蝶',hook:'梦醒之后',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'现代改编',reflection:'谁在梦中？',characters:'An adult Chinese philosopher in a plain linen robe in ancient China.',pages:Array.from({length},(_,i)=>({caption:'庄周梦见自己成为一只蝴蝶，自由自在地飞来飞去。',prompt:`An adult philosopher dreams in an ancient garden, scene ${i}.`}))});
+export const makeReflectionCandidates=first=>[first,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。'];
 export const turn=()=>new Promise(resolve=>setImmediate(resolve));
 export async function until(predicate,timeoutMs=5000){const end=Date.now()+timeoutMs;while(!await predicate()){assert.ok(Date.now()<end,'Timed out waiting for controlled production work');await turn();}}
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
 export async function productionFixture(t,provider='codex',variables={}){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu production ')),dataDirectory=path.join(root,'data');
  await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
- const control={calls:[],plans:[],outlines:[],batches:[],reviews:[],repairs:[],recommendations:[],hold:true,autoLength:8,active:0,maxActive:0,beforeText:null};
+ const control={calls:[],plans:[],outlines:[],batches:[],reflections:[],reflectionRepairs:[],reviews:[],repairs:[],recommendations:[],hold:true,autoLength:8,active:0,maxActive:0,beforeText:null};
  async function image(prompt,reference){
   const page=Number(prompt.match(/Scene (\d+):/)[1])-1,gate=deferred(),call={page,reference,prompt,...gate,done:false,bytes:encoded};
   control.calls.push(call);control.active++;control.maxActive=Math.max(control.maxActive,control.active);
@@ -25,7 +26,11 @@ export async function productionFixture(t,provider='codex',variables={}){
  }
  async function planned(prompt,schema){
   const payload=JSON.parse(prompt);if(schema.properties.count){control.recommendations.push(payload);return {count:7,reason:'保留完整因果和关键转折。'};}
-  if(schema.properties.issues){control.reviews.push(payload);return await control.beforeText?.('review',payload,schema)??{issues:[]};}
+  if(schema.properties.issues){control.reviews.push(payload);return {...(payload.reflectionCandidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识，表达简洁。'}}:{}),...await control.beforeText?.('review',payload,schema)??{issues:[]}};}
+  if(payload.draft){
+   (payload.revision?control.reflectionRepairs:control.reflections).push(payload);
+   return await control.beforeText?.(payload.revision?'reflection-repair':'reflection',payload,schema)??(schema.properties.candidates?{candidates:makeReflectionCandidates(makePlan(1).reflection)}:{reflection:'梦醒之后，仍可以记住梦中的自在。'});
+  }
   if(payload.requestedPages){control.repairs.push(payload);return await control.beforeText?.('repair',payload,schema)??{pages:payload.requestedPages.map(page=>({page,...payload.plan.pages[page-1],prompt:payload.plan.pages[page-1].prompt+' Revised staging with one clear visible action.'}))};}
   const length=payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount,plan=makePlan(length);
   if(schema.properties.beats){control.outlines.push(payload);const override=await control.beforeText?.('outline',payload,schema);const {pages,...metadata}=plan;return override??{...metadata,beats:pages.map((_,i)=>`第 ${i+1} 幅的关键事件与动作。`)};}

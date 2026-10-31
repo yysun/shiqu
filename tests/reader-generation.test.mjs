@@ -12,7 +12,7 @@ const original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶�
 const selection={bookId:'zhuangzi',theme:'放下执念',length:8,voice:false};
 const plan={title:'谁在梦中',hook:'醒来后，他忽然不敢确定自己是谁。',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'用现代旁白重述梦蝶，画面细节为AI演绎。',reflection:'醒来之后，你更确定自己了吗？',characters:'Zhuang Zhou: adult male philosopher, plain blue-green robe, tied long black hair, calm face.',pages:Array.from({length:8},(_,i)=>({caption:'庄周做了一个梦，梦里的世界比醒着时还要清楚。',prompt:'Ancient Chinese philosopher in a calm garden, thoughtful adult face, scene number '+i}))};
 function setup(){const db=new DatabaseSync(':memory:');for(const file of readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())db.exec(readFileSync('drizzle/'+file,'utf8'));const adapter={prepare(query){let args=[];return {bind(...values){args=values;return this;},async first(){return db.prepare(query).get(...args)||null;},async all(){return {results:db.prepare(query).all(...args)};},async run(){const r=db.prepare(query).run(...args);return {meta:{changes:Number(r.changes)}};}};}};return {repo:new ReaderRepository(adapter),db};}
-function fake(){const calls=[];return {calls,async original(){return {source:structuredClone(original),message:'',searchUrl:''};},async plan(){calls.push('plan');return {value:structuredClone(plan),model:'fake-text',requestId:'test',usage:{input_tokens:10,output_tokens:20}};},async image(p,page,id){calls.push('image:'+page);return {value:`/api/reader/media/${id}/${page}.webp`,model:'fake-image',requestId:'test',usage:null};},async audio(text,id,page){calls.push('audio:'+page);return {value:`/api/reader/media/${id}/${page}.wav`,model:'fake-audio',requestId:'test',usage:null};},safeError(){return '生成暂时失败，已保留内容';}};}
+function fake(){const calls=[];return {calls,reflection:async()=>({value:plan.reflection,model:'mock',requestId:'mock',usage:null}),reflectionCandidates:async()=>({value:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。'],model:'mock',requestId:'mock',usage:null}),review:async(_s,_p,_o,_outline,candidates)=>({value:{issues:[],...(candidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识。'}}:{})},model:'mock',requestId:'mock',usage:null}),async original(){return {source:structuredClone(original),message:'',searchUrl:''};},async plan(){calls.push('plan');return {value:structuredClone(plan),model:'fake-text',requestId:'test',usage:{input_tokens:10,output_tokens:20}};},async image(p,page,id){calls.push('image:'+page);return {value:`/api/reader/media/${id}/${page}.webp`,model:'fake-image',requestId:'test',usage:null};},async audio(text,id,page){calls.push('audio:'+page);return {value:`/api/reader/media/${id}/${page}.wav`,model:'fake-audio',requestId:'test',usage:null};},safeError(){return '生成暂时失败，已保留内容';}};}
 function client(repo,g,id,overrides={}){
  return {sessionId:id,throughPage:1,retries:new Map(),isActive:()=>true,onSession:()=>{},
   sleep:async()=>assert.fail('Checkpoint retries must not wait for a countdown'),
@@ -77,10 +77,11 @@ test('new stories have no rolling daily cap, including concurrent starts',async(
  assert.equal((await repo.list('alice')).length,26);
 });
 test('concurrent advances cannot duplicate a paid planning request',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);let unlock;const hold=new Promise(r=>unlock=r);g.plan=async()=>{g.calls.push('plan');await hold;return {value:plan,model:'fake',requestId:null,usage:null};};const a=advanceStory(repo,g,'alice',id,1);await new Promise(r=>setImmediate(r));const b=await advanceStory(repo,g,'alice',id,1);assert.equal(b.state,'running');unlock();await a;assert.deepEqual(g.calls,['plan']);});
-test('only requested scenes are generated; completed scenes are reused and progress is separate',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);await repo.progress(id,'alice',0,true);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);assert.deepEqual(g.calls,['plan','image:0','image:1']);assert.equal((await repo.get(id,'alice')).saved,1);await assert.rejects(repo.progress(id,'alice',7,true),e=>e.status===400);});
+test('only requested scenes are generated; completed scenes are reused and progress is separate',async()=>{const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);await repo.progress(id,'alice',0,true);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);assert.deepEqual(g.calls,['plan','image:0','image:1']);assert.equal((await repo.get(id,'alice')).saved,1);await assert.rejects(repo.progress(id,'alice',7,true),e=>e.status===400);});
 test('paid image retries resume immediately when requested and reuse saved work',async()=>{
  const {repo}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
- await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);
+ await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);
+ await advanceStory(repo,g,'alice',id,1); // Candidate selection completes before drawing.
  const draw=g.image;let failures=0;g.image=async()=>{failures++;throw Error('provider failure');};
  let s=await advanceStory(repo,g,'alice',id,1);
  for(let attempt=1;attempt<=5;attempt++){
@@ -104,7 +105,8 @@ test('planning can recover after the former cap and only one concurrent retry ac
  g.plan=async(...args)=>{calls++;started();await hold;return planStory(...args);};
  const first=advanceStory(repo,g,'alice',id,0,true);await ready;
  const second=await advanceStory(repo,g,'alice',id,0,true);assert.equal(second.state,'running');assert.equal(calls,5);
- release();const result=await first;assert.equal(result.state,'idle');assert.ok(result.story.sourceText);
+ release();const draft=await first;assert.equal(draft.state,'idle');assert.equal(draft.story,null);
+ const result=await advanceStory(repo,g,'alice',id,0);assert.ok(result.story.sourceText);
  assert.equal(result.retryAt,null);assert.deepEqual(g.calls,['plan']);
 });
 
@@ -116,6 +118,7 @@ test('generation saves the original before drawing and keeps it on later checkpo
  const {repo}=setup(),id=crypto.randomUUID(),g=fake();let lookups=0;
  g.original=async()=>{lookups++;return {source:original,message:'',searchUrl:''};};
  await repo.create(id,'alice',selection);
+ const draft=await advanceStory(repo,g,'alice',id,1);assert.equal(draft.story,null);
  const planned=await advanceStory(repo,g,'alice',id,1);
  assert.equal(planned.story.sourceText,original.text);assert.equal(planned.story.sourceUrl,original.url);
  assert.deepEqual(JSON.parse((await repo.get(id,'alice')).document).original,original);
@@ -130,14 +133,15 @@ test('unavailable original pauses before images and retry reuses the paid plan',
  await repo.create(id,'alice',selection);
  const failed=await advanceStory(repo,g,'alice',id,1);
  assert.equal(failed.state,'failed');assert.match(failed.error,/原文未能保存/);assert.deepEqual(g.calls,['plan']);
- let doc=JSON.parse((await repo.get(id,'alice')).document);assert.ok(doc.plan);assert.equal(doc.usage.length,1);assert.equal(doc.original,undefined);
+ let doc=JSON.parse((await repo.get(id,'alice')).document);assert.ok(doc.draft);assert.equal(doc.plan,null);assert.equal(doc.usage.length,1);assert.equal(doc.original,undefined);
  await advanceStory(repo,g,'alice',id,1);assert.equal(lookups,1);
- const resumed=await advanceStory(repo,g,'alice',id,1,true);assert.equal(resumed.story.sourceText,original.text);assert.deepEqual(g.calls,['plan']);
- await advanceStory(repo,g,'alice',id,1);assert.deepEqual(g.calls,['plan','image:0']);assert.equal(lookups,2);
+ const sourceReady=await advanceStory(repo,g,'alice',id,1,true);assert.equal(sourceReady.story,null);
+ const resumed=await advanceStory(repo,g,'alice',id,1);assert.equal(resumed.story.sourceText,original.text);assert.deepEqual(g.calls,['plan']);
+ await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);assert.deepEqual(g.calls,['plan','image:0']);assert.equal(lookups,2);
 });
 test('legacy backfill preserves images and progress and rejects an outdated document or active generation',async()=>{
  const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
- await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await repo.progress(id,'alice',0,true);
+ await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await repo.progress(id,'alice',0,true);
  db.prepare("UPDATE reader_sessions SET document=json_remove(document,'$.original') WHERE id=?").run(id);
  const old=await repo.get(id,'alice'),before=JSON.parse(old.document);
  const updated=await repo.saveOriginal(old,original);assert.equal(updated.page,old.page);assert.equal(updated.saved,1);
@@ -152,7 +156,7 @@ test('saving a recovered original clears source failure while preserving an imag
  await advanceStory(repo,g,'alice',id,0);const failed=await repo.get(id,'alice'),before=JSON.parse(failed.document);
  const recovered=await repo.saveOriginal(failed,original);
  assert.equal(recovered.state,'idle');assert.equal(recovered.error,null);assert.deepEqual(JSON.parse(recovered.document).plan,before.plan);assert.deepEqual(g.calls,['plan']);
- g.image=async()=>{throw Error('image failure');};await advanceStory(repo,g,'alice',id,0);
+ g.image=async()=>{throw Error('image failure');};await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);
  db.prepare("UPDATE reader_sessions SET document=json_remove(document,'$.original') WHERE id=?").run(id);
  const imageFailed=await repo.get(id,'alice'),backfilled=await repo.saveOriginal(imageFailed,original);
  assert.equal(backfilled.state,'failed');assert.equal(backfilled.error,imageFailed.error);
@@ -169,9 +173,10 @@ test('source recovery remains explicit after repeated outages and never repeats 
  }
  assert.equal((await repo.get(id,'alice')).step_attempts,4);
  available=true;result=await advanceStory(repo,g,'alice',id,0,true);
- assert.equal(result.state,'idle');assert.equal(result.retryAllowed,true);assert.equal(result.story.sourceText,original.text);
+ assert.equal(result.state,'idle');assert.equal(result.retryAllowed,true);assert.equal(result.story,null);
+ result=await advanceStory(repo,g,'alice',id,0);assert.equal(result.story.sourceText,original.text);
  assert.deepEqual(g.calls,['plan']);
- await advanceStory(repo,g,'alice',id,0);assert.deepEqual(g.calls,['plan','image:0']);
+ await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);assert.deepEqual(g.calls,['plan','image:0']);
  assert.equal(JSON.parse((await repo.get(id,'alice')).document).usage.filter(u=>u.step==='plan').length,1);
  // A source backfill must also unlock the next image after the old source cap was reached.
  db.prepare("UPDATE reader_sessions SET state='failed',step_key='source',step_attempts=2 WHERE id=?").run(id);
@@ -290,6 +295,8 @@ test('chosen art direction persists across resume and reaches every image call',
  await repo.create(id,'alice',{...selection,artStyle:'ink-wash'});
  await advanceStory(repo,g,'alice',id,1);
  await advanceStory(repo,g,'alice',id,1);
+ await advanceStory(repo,g,'alice',id,1);
+ await advanceStory(repo,g,'alice',id,1);
  const resumed=await advanceStory(repo,g,'alice',id,1);
  assert.equal(resumed.selection.artStyle,'ink-wash');assert.equal(resumed.story.artStyleLabel,'水墨写意');
  assert.deepEqual(styles,['ink-wash','ink-wash']);
@@ -325,7 +332,7 @@ test('production requirements persist on the story and reach planning and each p
  g.plan=async s=>{prompts.push(s.productionPrompt);return {value:plan,model:'fake',requestId:null,usage:null};};
  const image=g.image;g.image=async(...args)=>{prompts.push(args[5]);return image(...args);};
  await repo.create(id,'alice',{...selection,productionPrompt});
- for(let step=0;step<3;step++)await advanceStory(repo,g,'alice',id,1);
+ for(let step=0;step<5;step++)await advanceStory(repo,g,'alice',id,1);
  assert.deepEqual(prompts,[productionPrompt,productionPrompt,productionPrompt]);
  assert.equal(view(await repo.get(id,'alice')).story.productionPrompt,productionPrompt);
  assert.equal(selectionSchema.parse(selection).productionPrompt,'');
@@ -347,7 +354,7 @@ test('new batches pass exclusions to Gemini and remove repeated or renamed title
 
 test('soft deletion is owner-scoped, durable and does not erase content or block new stories',async()=>{
  const {repo,db}=setup(),ids=Array.from({length:10},()=>crypto.randomUUID());for(const id of ids)await repo.create(id,'alice',selection);
- const id=ids[0],g=fake();await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await repo.progress(id,'alice',0,true);
+ const id=ids[0],g=fake();await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await repo.progress(id,'alice',0,true);
  const before=await repo.get(id,'alice');assert.ok(before.last_read_at);
  await assert.rejects(repo.remove(id,'bob'),e=>e.status===404);
  const removed=await repo.remove(id,'alice');assert.equal(removed.storyId,id);assert.ok(removed.deletedAt);
@@ -367,7 +374,7 @@ test('deleting during a paid step retains its result but cannot resume or resurr
  g.plan=async()=>{started();await hold;return {value:plan,model:'fake',requestId:'paid',usage:{tokens:10}};};
  const operation=advanceStory(repo,g,'alice',id,0);await ready;await repo.remove(id,'alice');release();
  await assert.rejects(operation,e=>e.status===404);
- const stored=db.prepare('SELECT document,state FROM reader_sessions WHERE id=?').get(id);assert.equal(JSON.parse(stored.document).plan.title,plan.title);assert.equal(JSON.parse(stored.document).usage[0].requestId,'paid');assert.notEqual(stored.state,'running');
+ const stored=db.prepare('SELECT document,state FROM reader_sessions WHERE id=?').get(id);assert.equal(JSON.parse(stored.document).draft.title,plan.title);assert.equal(JSON.parse(stored.document).usage[0].requestId,'paid');assert.notEqual(stored.state,'running');
  await assert.rejects(advanceStory(repo,g,'alice',id,0),e=>e.status===404);assert.equal((await repo.list('alice')).length,0);
 });
 test('removing a shared sample affects only that reader and retains the published original',async()=>{
@@ -376,7 +383,7 @@ test('removing a shared sample affects only that reader and retains the publishe
 });
 test('restoring preserves content and progress without reactivating deleted generation',async()=>{
  const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();await repo.create(id,'alice',selection);
- await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await repo.progress(id,'alice',0,true);
+ await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await repo.progress(id,'alice',0,true);
  const before=await repo.get(id,'alice');await repo.remove(id,'alice');
  await assert.rejects(repo.restore(id,'bob'),e=>e.status===404);assert.equal((await repo.deletions('alice')).length,1);
  assert.deepEqual(await repo.restore(id,'alice'),{storyId:id,restored:true});assert.deepEqual({...await repo.get(id,'alice')},{...before,generation_control:'stopped'});

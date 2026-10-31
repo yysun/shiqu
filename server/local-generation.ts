@@ -44,9 +44,17 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
     if(hasStoredSourceAnomaly(original)||hasSourceAnomaly(original.title))throw new ReaderError(400,'已存原文含未识别字形或缺文标记，请重新选择完整、可读的故事出处。原文记录已保留。');
    }
    return {...generator,
-    ...(generator.review?{async review(selection,plan,original,outline){
+    async reflection(selection,draft,original,revision){
      if(localBookId(selection))verifyOriginal(selection,original);
-     return generator.review!(selection,plan,original,outline);
+     return generator.reflection(selection,draft,original,revision);
+    },
+    async reflectionCandidates(selection,draft,original){
+     if(localBookId(selection))verifyOriginal(selection,original);
+     return generator.reflectionCandidates(selection,draft,original);
+    },
+    ...(generator.review?{async review(selection,plan,original,outline,candidates){
+     if(localBookId(selection))verifyOriginal(selection,original);
+     return generator.review!(selection,plan,original,outline,candidates);
     }} satisfies Pick<typeof generator,'review'>:{}),
     ...(generator.repair?{async repair(selection,plan,original,issues,outline){
      if(localBookId(selection))verifyOriginal(selection,original);

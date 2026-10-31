@@ -88,7 +88,7 @@ test('real SQLite locks prevent duplicate paid requests through concurrent REST 
  await cp('data/library',path.join(options.root,'data/library'),{recursive:true});
  const book=await new LocalBooks(options.root).book({bookId:'zhuangzi'}),section=book.sections[1],unit=section.units.at(-1);
  const source={edition:book.edition,sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id};
- options.variables={GEMINI_API_KEY:'mock-only'};options.transport=async()=>{calls++;await hold;return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(plan)}]}}]});};
+ options.variables={GEMINI_API_KEY:'mock-only'};options.transport=async(_url,init)=>{calls++;await hold;const body=JSON.parse(init.body),schema=body.generationConfig.responseFormat.text.schema;const result=schema.properties.candidates?{candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']}:plan;return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(result)}]}}]});};
  let app=createApplication(options);const id=crypto.randomUUID();
  await request(app,'/api/reader/sessions','POST',{requestId:id,selection:{bookId:'zhuangzi',storyTitle:'庄周梦蝶',source,theme:'放下执念',length:8,voice:false}});
  await app.services.database.prepare("UPDATE reader_sessions SET generation_mode='reader' WHERE id=?").bind(id).run();
@@ -96,7 +96,8 @@ test('real SQLite locks prevent duplicate paid requests through concurrent REST 
  while(!calls)await new Promise(resolve=>setImmediate(resolve));
  const duplicate=await request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0});assert.equal(duplicate.status,202);assert.equal(calls,1);
  release();assert.equal((await first).status,200);assert.equal(calls,1);app.close();app=createApplication(options);
- try{const row=await (await request(app,'/api/reader/sessions/'+id)).json();assert.equal(row.state,'idle');assert.ok(row.story.sourceText);assert.equal(row.story.pages[0].image,'');assert.equal(calls,1);}
+ try{const row=await (await request(app,'/api/reader/sessions/'+id)).json();assert.equal(row.state,'idle');assert.equal(row.story,null);assert.equal(row.generationProgress.phase,'reflection');assert.equal(calls,1);
+ const finished=await(await request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0})).json();assert.ok(finished.story.sourceText);assert.equal(finished.story.pages[0].image,'');assert.equal(calls,2);}
  finally{app.close();}
 });
 async function legacyFixture(t){

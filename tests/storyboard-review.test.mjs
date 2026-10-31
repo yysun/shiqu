@@ -1,7 +1,7 @@
 // Exercise paid text checkpoints, strict repair scopes and image gating through both provider adapters.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {productionFixture,until} from './fixtures/production.mjs';
+import {productionFixture,until,makePlan} from './fixtures/production.mjs';
 import {runStoryGeneration} from '../lib/reader-generation.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
@@ -86,15 +86,16 @@ for(const phase of ['review','repair'])for(const action of ['pause','stop','leav
 });
 
 test('old complete plans remain readable without a retroactive audit',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(),repo=new ReaderRepository(f.app.services.database);
- const g=f.generation.generator();delete g.review;delete g.repair;
- await advanceStory(repo,g,owner,id,0);assert.equal((await document(f,id)).visualReview,undefined);
+ const f=await productionFixture(t),id=await f.createLegacyReader();
+ const original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶。',url:'https://example.org',kind:'passage',provider:'saved',retrievedAt:'2026-10-31T00:00:00Z'};
+ await f.app.services.database.prepare('UPDATE reader_sessions SET document=? WHERE id=?').bind(JSON.stringify({plan:makePlan(8),original,images:[],audio:[],usage:[]}),id).run();
+ assert.equal((await document(f,id)).visualReview,undefined);
  await f.demand(id);await until(()=>f.control.calls.length===1);assert.equal(f.control.reviews.length,0);
 });
 test('a saved review whose queue receipt was lost is not paid twice',async t=>{
  const f=await productionFixture(t),id=await f.createLegacyReader(),repo=new ReaderRepository(f.app.services.database),g=f.generation.generator();
  f.control.beforeText=async kind=>kind==='review'&&f.control.reviews.length===1?{issues:[issue(2)]}:undefined;
- await advanceStory(repo,g,owner,id,0);await advanceStory(repo,g,owner,id,0);assert.equal((await document(f,id)).visualReview.status,'repair');
+ await advanceStory(repo,g,owner,id,0);await advanceStory(repo,g,owner,id,0);await advanceStory(repo,g,owner,id,0);assert.equal((await document(f,id)).visualReview.status,'repair');
  const stale={id:crypto.randomUUID(),sessionId:id,ownerId:owner,kind:'script',pool:'text',version:'lost-review-receipt',dependencies:[],payload:{stepKey:'review:0'},priority:-20};
  await f.app.services.production.queue.enqueue(stale);await f.demand(id);await until(()=>f.control.calls.length===1);
  assert.equal((await f.app.services.production.queue.job(stale.id)).state,'succeeded');assert.equal(f.control.reviews.length,2);assert.equal(f.control.repairs.length,1);

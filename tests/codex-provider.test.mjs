@@ -185,12 +185,14 @@ test('invalid Codex JSON, wrong page count and non-image results never reach sto
 });
 test('REST reports Codex readiness without a Gemini key and routes checkpoints through the selected provider',async t=>{
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu provider rest '));t.after(()=>rm(root,{recursive:true,force:true}));await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
- const store=assets();let calls=0;const runner={async status(){return {configured:true};},async run(job){calls++;return {text:JSON.stringify(plan),image:job.generateImage?Buffer.from(png).toString('base64'):null,model:'codex-test',requestId:'turn',usage:null};}};
+ const store=assets();let calls=0;const runner={async status(){return {configured:true};},async run(job){calls++;return {text:JSON.stringify(job.schema?.properties?.candidates?{candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']}:plan),image:job.generateImage?Buffer.from(png).toString('base64'):null,model:'codex-test',requestId:'turn',usage:null};}};
  const generation=createReaderProvider({SHIQU_AI_PROVIDER:'codex'},store,fetch,runner),app=createApplication({root,dataDirectory:path.join(root,'data'),generation});t.after(()=>app.close());
  const request=(pathname,method='GET',value)=>app.handle(new Request('http://localhost/api/reader/'+pathname,{method,headers:{'Content-Type':'application/json'},body:value?JSON.stringify(value):undefined}));
  const status=await(await request('status')).json();assert.equal(status.provider,'codex');assert.equal(status.configured,true);
  const id=crypto.randomUUID();assert.equal((await request('sessions','POST',{requestId:id,selection})).status,201);
- const result=await request(`sessions/${id}/advance`,'POST',{throughPage:0});assert.equal(result.status,200);const row=await result.json();assert.ok(row.story.sourceText);assert.equal(calls,1);
+ await app.services.database.prepare("UPDATE reader_sessions SET generation_mode='reader' WHERE id=?").bind(id).run();
+ const result=await request(`sessions/${id}/advance`,'POST',{throughPage:0});assert.equal(result.status,200);const row=await result.json();assert.equal(row.story,null);assert.equal(row.generationProgress.phase,'reflection');assert.equal(calls,1);
+ const finished=await(await request(`sessions/${id}/advance`,'POST',{throughPage:0})).json();assert.notEqual(finished.state,'failed',JSON.stringify(finished));assert.ok(finished.story.sourceText);assert.equal(calls,2);
 });
 
 test('pnpm login helper shares the configured home, strips API keys and rejects API-key login flags',async t=>{

@@ -2,12 +2,12 @@
 import {z} from 'zod';
 import {frameRecommendationSchema,frameRecommendationJson,frameRecommendationPrompt,frameRecommendationPayload} from './reader-frame-recommendation.ts';
 import {readerMaxFrames,readerStoryboardTimeoutMs} from './reader-limits.ts';
-import {planSchema,readerBooks} from './reader-model.ts';
+import {storyDraftSchema,readerBooks} from './reader-model.ts';
 import type {Plan,Selection} from './reader-model.ts';
 import type {StoryGenerator} from './reader-engine.ts';
 import {freshSuggestions,suggestionBatchSchema} from './reader-suggestions.ts';
 import {getArtStyle} from './reader-styles.ts';
-import {choicesJson,planJson,suggestionSystemPrompt,planSystemPrompt,imagePrompt,imageTypes,mediaType} from './reader-generation-contract.ts';
+import {choicesJson,storyDraftJson,storyDraftDirection,suggestionSystemPrompt,planSystemPrompt,imagePrompt,imageTypes,mediaType} from './reader-generation-contract.ts';
 export {imageTypes} from './reader-generation-contract.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import {saveStoryOriginal} from './reader-source-storage.ts';
@@ -137,10 +137,10 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
   async plan(selection:Selection,id:string,original?:OriginalSource){
    const {book,url}=source(selection);
    const {candidate,metadata}=await generate(models.text,textRequest(
-    planSystemPrompt+(original?.localSource?'\n'+localPlanConstraint:''),
-    {book,chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})},planJson(selection.length),original?'':url,Math.max(8192,(selection.length==='auto'?readerMaxFrames:selection.length)*800),reasoning.plan),readerStoryboardTimeoutMs);
+    planSystemPrompt+'\n'+storyDraftDirection+(original?.localSource?'\n'+localPlanConstraint:''),
+    {book,chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})},storyDraftJson(selection.length),original?'':url,Math.max(8192,(selection.length==='auto'?readerMaxFrames:selection.length)*800),reasoning.plan),readerStoryboardTimeoutMs);
    if(url&&!original&&!wasRead(candidate,url))throw new GeminiError('SOURCE_UNAVAILABLE');
-   const value=planSchema.parse(parseText(candidate));
+   const value=storyDraftSchema.parse(parseText(candidate));
    if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new GeminiError('INVALID_PLAN');
    return {value,...metadata,reasoningEffort:reasoning.plan};
   },

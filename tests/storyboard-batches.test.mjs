@@ -11,7 +11,7 @@ const document=async(f,id)=>JSON.parse((await f.app.services.database.prepare('S
 for(const provider of ['codex','gemini'])test(`${provider}: outline and 20/20/5 checkpoints precede every image`,async t=>{
  const f=await productionFixture(t,provider),id=await f.createLegacyReader(45),observed=[];
  f.control.beforeText=async(kind,payload,schema)=>{
-  if(kind==='review')return;
+  if(kind==='review'||kind==='reflection')return;
   const doc=await document(f,id);assert.equal(doc.plan,null);assert.equal(f.control.calls.length,0);
   observed.push(doc.storyboard?.pages.length??0);
   if(kind==='batch'){
