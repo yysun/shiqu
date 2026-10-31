@@ -90,7 +90,7 @@ export default function Reader(){
  const revision=useStoryRevision(story?(isGenerated(story)?story.id:undefined):gen.active&&(!gen.active.intake||gen.active.intake.phase==='confirmed')?gen.active.id:undefined,async next=>{await switchVersion(next.id);});
  async function switchVersion(id:string){
   const previous={story,page,saved,ended,drag,motion,seen:seen.current,session:session.current};setSettings(false);setSource(false);setRequirements(false);setScript(false);revision.setTab(null);setStory(null);setPage(0);setEnded(false);setSaved(false);setDrag(0);setMotion('forward');seen.current=new Set();session.current=randomId();gen.leave();
-  try{await gen.resume(id,0);}catch{setPage(previous.page);setSaved(previous.saved);setEnded(previous.ended);setDrag(previous.drag);setMotion(previous.motion);seen.current=previous.seen;session.current=previous.session;setStory(previous.story);void gen.refreshLibrary().catch(()=>{});notify('这个版本暂时无法打开，已保存的新版可从书架继续。');}
+  try{await gen.resume(id,0,false,true);}catch{setPage(previous.page);setSaved(previous.saved);setEnded(previous.ended);setDrag(previous.drag);setMotion(previous.motion);seen.current=previous.seen;session.current=previous.session;setStory(previous.story);void gen.refreshLibrary().catch(()=>{});notify('这个版本暂时无法打开，已保存的新版可从书架继续。');}
  }
  const visitor=useRef(''),session=useRef(''),seen=useRef(new Set<number>()),noticeTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const notify=(text:string)=>{setToast(text);if(noticeTimer.current)clearTimeout(noticeTimer.current);noticeTimer.current=setTimeout(()=>setToast(''),4000);};

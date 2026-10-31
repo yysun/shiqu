@@ -36,3 +36,12 @@ SS 探针：Node 24.22.1、pnpm 11.25.0、已安装 Vite 可执行；本地现�
 AR 边界：空分镜使用 IS 做 NULL 安全 CAS；未确认 intake 禁止修订；paused:false 保留旧请求指纹格式；paused:true 接替也必须暂停父版，重放不能恢复新版。
 
 SS 局部验证：pnpm typecheck / pnpm lint 通过；既有修订、intake、桌面摘要与真实组件渲染 35 项通过；新增暂停编辑/版本回归 6 项通过，新增 UI 断言通过。尚未运行完整 TT / ET。
+
+SS milestone: `5209717`，暂停编辑、持久化与最新版筛选；局部验证通过，最终验证待完成。
+
+CR blocked: 2 个版本一致性问题需要修复。
+CR risk: non-low — 并发接替与历史读取。
+CR review round: 1; reviewer: reused
+发现并修复：历史单独读取/恢复不应添加书架成员；接替最终化使用 handoff 条件，仅执行一次，迟到重复请求不改变用户后来的暂停/恢复。新增真实 hook 成员回归 3 项、交错重复提交 2 项，局部通过。
+
+TT 首轮 558/559，通过但 80 幅用例在并行原生编译时超时；局部重跑通过。以 --test-concurrency=4 运行完整套件 561/561 通过（包含交错提交修复），随后新增 hook 3 项单独通过。默认原生测试缺打包 node 资源；使用项目 Lite 配置的 TAURI_CONFIG 运行 desktop:test:lite，17 项通过，无桌面准备或打包。

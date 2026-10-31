@@ -75,7 +75,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
      const b=z.object({requestId:uuid,token:z.string().regex(/^[a-f0-9]{64}$/),changes:revisionChangesSchema,paused:z.boolean().default(false)}).strict().parse(await body(req,262144));
      const row=await forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes,b.paused);
      const doc=JSON.parse(row.document) as Document;
-     return json(doc.revision?.handoff?await services.production.control(uid,row.id,b.paused?'pause':'resume'):await services.production.snapshot(uid,row.id),201);
+     return json(doc.revision?.handoff?await services.production.control(uid,row.id,b.paused?'pause':'resume',true):await services.production.snapshot(uid,row.id),201);
     }
    }
    if(path[2]==='review-override'&&path.length===3&&req.method==='POST'){

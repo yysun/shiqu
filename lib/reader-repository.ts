@@ -57,12 +57,13 @@ export class ReaderRepository{
   if(!published)throw new ReaderError(404,'这篇故事不在你的书架里');
   return {storyId:id,...published};
  }
- async control(id:string,uid:string,action:ProductionAction){
+ async control(id:string,uid:string,action:ProductionAction,handoffOnly=false){
   const row=await this.get(id,uid);
+  const revision=(JSON.parse(row.document) as Document).revision;
+  if(handoffOnly&&!revision?.handoff)return row;
   if(row.state==='completed')throw new ReaderError(409,'故事已完整生成，无需更改生成方式。');
   // A revision is born paused. Persist the parent pause before making its child eligible;
   // a crash between writes leaves a paused child that explicit resume can recover.
-  const revision=(JSON.parse(row.document) as Document).revision;
   if(revision&&(action==='resume'||action==='background'||revision.handoff&&action==='pause')){
    await this.db.prepare("UPDATE reader_sessions SET generation_control='paused' WHERE id=? AND user_id=? AND state!='completed'").bind(revision.parentId,uid).run();
   }
@@ -70,7 +71,7 @@ export class ReaderRepository{
   const field=action==='background'||action==='reader'?'generation_mode':'generation_control';
   const value=action==='pause'?'paused':action==='stop'?'stopped':action==='resume'?'active':action;
   const assignment=action==='resume'?"generation_mode='background',generation_control=?":`${field}=?`;
-  await this.db.prepare(`UPDATE reader_sessions SET ${assignment}${revision&&(action==='resume'||action==='pause')?",document=json_remove(document,'$.revision.handoff')":''} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}`)
+  await this.db.prepare(`UPDATE reader_sessions SET ${assignment}${revision&&(action==='resume'||action==='pause')?",document=json_remove(document,'$.revision.handoff')":''} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}${handoffOnly?" AND json_extract(document,'$.revision.handoff')=1":''}`)
    .bind(value,id,uid).run();
   return this.get(id,uid);
  }

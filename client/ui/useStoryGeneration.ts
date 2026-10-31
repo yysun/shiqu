@@ -12,6 +12,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
  const cb=useRef(callbacks);cb.current=callbacks;
  const currentPage=useRef(page);currentPage.current=page;
  const [sessions,setSessions]=useState<SessionView[]>([]),[active,setActive]=useState<SessionView|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[connected,setConnected]=useState(false),[wake,setWake]=useState(0);
+ const librarySessions=useRef<SessionView[]>([]);
  const [libraryLoading,setLibraryLoading]=useState(true),[libraryRefreshing,setLibraryRefreshing]=useState(false),[libraryError,setLibraryError]=useState('');
  const live=useRef(true),libraryRead=useRef(0),libraryChanges=useRef(0),refreshingReads=useRef(0);
  const removed=useRef(new Set<string>());
@@ -20,10 +21,14 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
  const [controlBusy,setControlBusy]=useState(''),[controlError,setControlError]=useState('');
  const controlLock=useRef(false);
  const generationMode=useRef<'observe'|'generate'>('observe'),retryRequested=useRef(false);
- function collect(s:SessionView){if(removed.current.has(s.id))return;libraryChanges.current++;setSessions(old=>latestStoryVersions([s,...old.filter(x=>x.id!==s.id)]));}
+ function collect(s:SessionView,submitted=false){
+  // Only the list response or a new submission may add members; historical reads only update known cards.
+  if(removed.current.has(s.id)||!submitted&&!librarySessions.current.some(row=>row.id===s.id))return;
+  libraryChanges.current++;librarySessions.current=latestStoryVersions([s,...librarySessions.current.filter(x=>x.id!==s.id)]);setSessions(librarySessions.current);
+ }
  useEffect(()=>{live.current=true;request('reader/status').then(s=>{if(live.current)setConnected(s.configured);}).catch(()=>{});refreshLibrary().catch(()=>{}).finally(()=>{if(live.current)setLibraryLoading(false);});return()=>{live.current=false;libraryRead.current++;id.current='';};},[]);
- async function start(selection:Selection,intake=false){const signature=JSON.stringify([selection,intake]);if(creation.current?.signature!==signature)creation.current={signature,id:randomId()};const requestId=creation.current.id;const s:SessionView=await request('reader/sessions','POST',{requestId,selection,...(intake?{intake:true}:{})});creation.current=null;generationMode.current=observeOnlyGeneration(s)?'observe':'generate';retryRequested.current=false;id.current=s.id;retries.current=new Map();setBusy(!observeOnlyGeneration(s));setError('');setActive(s);collect(s);history.replaceState(null,'','/read?id='+s.id);setWake(v=>v+1);return s;}
- async function resume(sessionId:string,initialPage?:number,retry=false){id.current=sessionId;retries.current=new Map();setError('');const s:SessionView=await request('reader/sessions/'+sessionId);if(id.current!==sessionId||removed.current.has(sessionId))return;generationMode.current=(!s.generationControl||s.generationControl==='active')&&(retry||s.generationMode!=='background'&&s.story?.pages[0]?.image&&s.state!=='failed')?'generate':'observe';retryRequested.current=retry;setBusy(retry);setError(!retry&&s.state==='failed'?(s.error||'生成失败，请重试继续。'):'');setActive(s);collect(s);history.replaceState(null,'','/read?id='+s.id);cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);if(s.story?.pages[0]?.image)cb.current.onStory(s.story,initialPage??s.page,s.saved);setWake(v=>v+1);}
+ async function start(selection:Selection,intake=false){const signature=JSON.stringify([selection,intake]);if(creation.current?.signature!==signature)creation.current={signature,id:randomId()};const requestId=creation.current.id;const s:SessionView=await request('reader/sessions','POST',{requestId,selection,...(intake?{intake:true}:{})});creation.current=null;generationMode.current=observeOnlyGeneration(s)?'observe':'generate';retryRequested.current=false;id.current=s.id;retries.current=new Map();setBusy(!observeOnlyGeneration(s));setError('');setActive(s);collect(s,true);history.replaceState(null,'','/read?id='+s.id);setWake(v=>v+1);return s;}
+ async function resume(sessionId:string,initialPage?:number,retry=false,submitted=false){id.current=sessionId;retries.current=new Map();setError('');const s:SessionView=await request('reader/sessions/'+sessionId);if(id.current!==sessionId||removed.current.has(sessionId))return;generationMode.current=(!s.generationControl||s.generationControl==='active')&&(retry||s.generationMode!=='background'&&s.story?.pages[0]?.image&&s.state!=='failed')?'generate':'observe';retryRequested.current=retry;setBusy(retry);setError(!retry&&s.state==='failed'?(s.error||'生成失败，请重试继续。'):'');setActive(s);collect(s,submitted);history.replaceState(null,'','/read?id='+s.id);cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);if(s.story?.pages[0]?.image)cb.current.onStory(s.story,initialPage??s.page,s.saved);setWake(v=>v+1);}
  const setupLock=useRef(false),setupRequest=useRef<{signature:string;body:IntakeCommand&{requestId:string;generation:number}}|null>(null);
  const [setupBusy,setSetupBusy]=useState(false);
  async function setup(command:IntakeCommand){
@@ -82,7 +87,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   finally{controlLock.current=false;setControlBusy('');}
  }
  function leave(){id.current='';setActive(null);setBusy(false);setError('');}
- function remove(sessionId:string){libraryChanges.current++;removed.current.add(sessionId);if(id.current===sessionId)leave();setSessions(old=>old.filter(s=>s.id!==sessionId));}
+ function remove(sessionId:string){libraryChanges.current++;removed.current.add(sessionId);if(id.current===sessionId)leave();librarySessions.current=librarySessions.current.filter(s=>s.id!==sessionId);setSessions(librarySessions.current);}
  async function refreshLibrary(restoredId?:string,isCurrent:()=>boolean=()=>true,background=false){
   // A recovery reads snapshots only; resume() would create viewer demand and can dispatch generation.
   const read=++libraryRead.current,changes=libraryChanges.current;
@@ -91,9 +96,9 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   try{
    const [rows,restored]:[SessionView[],SessionView|null]=await Promise.all([request('reader/sessions'),restoredId?request('reader/sessions/'+encodeURIComponent(restoredId)):Promise.resolve(null)]);
    if(restored&&live.current&&read===libraryRead.current)removed.current.delete(restored.id);
-   const visible=(restored?[restored,...rows.filter(s=>s.id!==restored.id)]:rows).filter(s=>!removed.current.has(s.id));
+   const visible=rows.filter(s=>!removed.current.has(s.id));
    if(live.current&&isCurrent()&&read===libraryRead.current&&changes===libraryChanges.current){
-    setSessions(visible);setLibraryError('');
+    librarySessions.current=visible;setSessions(visible);setLibraryError('');
     cb.current.onProgress(visible.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt})));
    }
    return visible;

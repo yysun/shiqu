@@ -105,3 +105,22 @@ test('paused preparation saves settings beside a live call, then allows a differ
  const other=await setup({action:'choose',batch:0,index:1,settings});assert.equal(other.selection.storyTitle,'大葫芦');assert.equal(other.generationControl,'paused');
  assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });
+
+for(const paused of [true,false])test(`concurrent ${paused?'paused':'running'} submission replay cannot overwrite a later user control`,async t=>{
+ const f=await productionFixture(t);f.control.hold=false;const id=await f.create(3);await until(async()=>(await f.read(id)).state==='completed');f.control.hold=true;
+ const base=await f.json(`sessions/${id}/revisions`),requestId=crypto.randomUUID(),payload={requestId,token:base.token,changes:{artStyle:'paper-cut'},paused};
+ const production=f.app.services.production,control=production.control.bind(production);
+ let arrived=0,ready,release;const both=new Promise(resolve=>ready=resolve),delayed=new Promise(resolve=>release=resolve);t.after(()=>{ready();release();});
+ production.control=async(...args)=>{
+  if(args[1]===requestId&&args[3]){
+   arrived++;if(arrived===1)await both;else if(arrived===2){ready();await delayed;}
+  }
+  return control(...args);
+ };
+ const first=f.request(`sessions/${id}/revisions`,'POST',payload);await until(()=>arrived===1);
+ const second=f.request(`sessions/${id}/revisions`,'POST',payload);await until(()=>arrived===2);
+ assert.equal((await first).status,201);
+ await f.json(`sessions/${requestId}/production-control`,'POST',{action:paused?'resume':'pause'});
+ release();assert.equal((await second).status,201);
+ assert.equal((await f.read(requestId)).generationControl,paused?'active':'paused');
+});
