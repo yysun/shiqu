@@ -10,7 +10,7 @@ Start 拾趣 and open the printed URL in your browser. Requires Node 24.
 
   --port <number>       HTTP port (PORT, default: 3000)
   --host <address>      Bind address (SHIQU_BIND_IP, default: 127.0.0.1)
-  --data-dir <path>     Persistent library (SHIQU_DATA_DIR, default: OS user-data directory)
+  --data-dir <path>     Persistent library (SHIQU_DATA_DIR, saved desktop library, otherwise ask)
   --config <env-file>   Load this env file; existing environment variables take precedence
   -h, --help           Show help
   -v, --version        Show version
@@ -29,5 +29,5 @@ export async function runCli(root:string, args = process.argv.slice(2)) {
     for (const [key, value] of Object.entries(variables)) if (!(key in process.env)) process.env[key] = value;
   }
   const {startServer} = await import('./start.ts');
-  startServer({root, variables:cliConfiguration(options), localAccess:true});
+  return startServer({root, variables:await cliConfiguration(options), localAccess:true});
 }

@@ -93,7 +93,7 @@ export function desktopFailure(error:unknown){
  if(error instanceof TunnelError)return error.message;
  const code=(error as NodeJS.ErrnoException)?.code,message=(error as Error)?.message;
  if(code==='EADDRINUSE')return '端口已被占用，请更换端口或停止其他实例。';
- if(message==='DATA_BUSY')return '此数据目录仍由另一个桌面服务使用，请等待它退出或选择其他目录。';
+ if(message==='DATA_BUSY')return '此数据目录仍由另一个 CLI 或桌面服务使用，请等待它退出或选择其他目录。';
  if(code==='EACCES'||code==='EPERM')return '无法访问所选文件或数据目录，请检查权限。';
  return '服务启动失败。请确认 Node 24、应用资源和数据目录可用。';
 }

@@ -7,6 +7,7 @@ import {createServer} from 'node:net';
 import {get} from 'node:http';
 import {lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile} from 'node:fs/promises';
 import os from 'node:os';
+import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -159,11 +160,20 @@ try {
   await start(bin, ['--port',String(port),'--host','0.0.0.0','--data-dir','../saved library']);
   assert.ok(logs.includes('拾趣: ' + origin), 'Wildcard binds must print an allowed loopback URL.');
   assert.equal((await request(origin)).status, 200); await stop();
-  // Default persistence must go under the test user's OS data directory, never under the package or cwd.
+  // Fresh non-interactive use must ask for an explicit directory, not silently create a shelf.
+  const fresh = command(bin, ['--port',String(port)]);
+  assert.equal(fresh.status,1);assert.match(fresh.stderr,/--data-dir/);
+  const base = process.platform === 'darwin' ? path.join(home,'Library/Application Support')
+    : process.platform === 'win32' ? path.join(home,'roaming') : path.join(home,'xdg');
+  const defaultData = path.join(base,'com.shiqu.desktop/library');
+  const configBase = process.platform === 'linux' ? path.join(home,'.config') : base;
+  const settingsDirectory = path.join(configBase,'com.shiqu.desktop');
+  await mkdir(settingsDirectory,{recursive:true});
+  const settingsDatabase = new DatabaseSync(path.join(settingsDirectory,'desktop.sqlite'));
+  settingsDatabase.exec('CREATE TABLE desktop_settings(id INTEGER PRIMARY KEY,value TEXT)');
+  settingsDatabase.prepare('INSERT INTO desktop_settings VALUES(1,?)').run(JSON.stringify({dataDirectory:defaultData}));settingsDatabase.close();
   await start(bin, ['--port',String(port)]);
-  const defaultData = process.platform === 'darwin' ? path.join(home,'Library/Application Support/shiqu/library')
-    : process.platform === 'win32' ? path.join(home,'local/shiqu/library') : path.join(home,'xdg/shiqu/library');
-  assert.ok(logs.includes(defaultData)); await lstat(path.join(defaultData,'shiqu.sqlite')); await stop();
+  assert.ok(logs.includes(defaultData));await lstat(path.join(defaultData,'shiqu.sqlite'));await stop();
   assert.deepEqual((await readdir(cwd)).sort(), ['.env','selected.env']);
   assert.deepEqual(await files(installed, '', true), payload, 'Installed runtime files must remain immutable.');
   console.log(`npm smoke passed: ${manifest.name}@${manifest.version}; ${payload.length} files; all 24 books; isolated install, HTTP, access, persistence, restart, configuration, and shutdown.`);

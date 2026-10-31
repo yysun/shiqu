@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {runCli} from '../server/cli.ts';
 import {parseCliOptions, cliConfiguration} from '../server/cli-options.ts';
+import {desktopLibraryPaths} from '../server/library-directory.ts';
 
 test('CLI accepts named options, equals syntax, and help/version aliases', () => {
   assert.deepEqual(parseCliOptions(['--port','3100','--host=0.0.0.0','--data-dir','../my shelf','--config=./private.env']), {
@@ -18,27 +19,24 @@ test('CLI accepts named options, equals syntax, and help/version aliases', () =>
   assert.equal(parseCliOptions(['--port=65535']).port, '65535');
 });
 
-test('CLI flags override environment and relative data paths use the launch directory', () => {
+test('CLI flags override environment and relative data paths use the launch directory', async () => {
   const variables = {PORT:'3200', SHIQU_BIND_IP:'0.0.0.0', SHIQU_DATA_DIR:'env shelf', GEMINI_API_KEY:'preserved'};
   const context = {variables, platform:'linux', home:'/home/reader', cwd:'/launch folder'};
-  const configured = cliConfiguration(parseCliOptions(['--port=3300','--host=127.0.0.1','--data-dir=../saved shelf']), context);
+  const configured = await cliConfiguration(parseCliOptions(['--port=3300','--host=127.0.0.1','--data-dir=../saved shelf']), context);
   assert.equal(configured.PORT, '3300'); assert.equal(configured.SHIQU_BIND_IP, '127.0.0.1');
   assert.equal(configured.SHIQU_DATA_DIR, '/saved shelf'); assert.equal(configured.GEMINI_API_KEY, 'preserved');
   assert.equal(variables.SHIQU_DATA_DIR, 'env shelf');
-  assert.equal(cliConfiguration({}, context).SHIQU_DATA_DIR, '/launch folder/env shelf');
+  assert.equal((await cliConfiguration({}, context)).SHIQU_DATA_DIR, '/launch folder/env shelf');
 });
 
-test('CLI default library stays outside working directories and npm caches on every platform', () => {
-  const config = (platform, home, variables = {}, cwd = '/unrelated') => cliConfiguration({}, {platform, home, variables, cwd});
-  const linux = config('linux', '/home/reader');
-  assert.equal(linux.PORT, '3000'); assert.equal(linux.SHIQU_BIND_IP, '127.0.0.1');
-  assert.equal(linux.SHIQU_DATA_DIR, '/home/reader/.local/share/shiqu/library');
-  assert.equal(config('linux','/home/reader',{XDG_DATA_HOME:'/data'}).SHIQU_DATA_DIR, '/data/shiqu/library');
-  assert.equal(config('linux','/home/reader',{XDG_DATA_HOME:'relative'}).SHIQU_DATA_DIR, linux.SHIQU_DATA_DIR);
-  assert.equal(config('darwin','/Users/reader').SHIQU_DATA_DIR, '/Users/reader/Library/Application Support/shiqu/library');
-  assert.equal(config('win32','C:\\Users\\reader',{LOCALAPPDATA:'D:\\Local'},'C:\\launch').SHIQU_DATA_DIR, 'D:\\Local\\shiqu\\library');
-  assert.equal(config('win32','C:\\Users\\reader',{},'C:\\launch').SHIQU_DATA_DIR, 'C:\\Users\\reader\\AppData\\Local\\shiqu\\library');
-  assert.equal(cliConfiguration({dataDirectory:'..\\shelf'}, {platform:'win32',home:'C:\\Users\\reader',cwd:'C:\\launch',variables:{}}).SHIQU_DATA_DIR, 'C:\\shelf');
+test('CLI suggestions use the desktop app-data paths on every platform', () => {
+  const location = (platform, home, variables = {}) => desktopLibraryPaths({platform, home, variables});
+  assert.equal(location('linux','/home/reader').library, '/home/reader/.local/share/com.shiqu.desktop/library');
+  assert.equal(location('linux','/home/reader',{XDG_DATA_HOME:'/data'}).library, '/data/com.shiqu.desktop/library');
+  assert.equal(location('linux','/home/reader',{XDG_DATA_HOME:'relative',XDG_CONFIG_HOME:'relative'}).library, '/home/reader/.local/share/com.shiqu.desktop/library');
+  assert.equal(location('darwin','/Users/reader').library, '/Users/reader/Library/Application Support/com.shiqu.desktop/library');
+  assert.equal(location('win32','C:\\Users\\reader',{APPDATA:'D:\\Roaming'}).library, 'D:\\Roaming\\com.shiqu.desktop\\library');
+  assert.equal(location('win32','C:\\Users\\reader').library, 'C:\\Users\\reader\\AppData\\Roaming\\com.shiqu.desktop\\library');
 });
 
 test('help and version do not load an env file, initialize SQLite, or create a library', async t => {
