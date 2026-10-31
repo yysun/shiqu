@@ -37,7 +37,8 @@ export default function StoryCreationSetup({session,book,busy,onAction,progress}
  },[session.id,intake.generation,savedKey]);
  const search=intake.search,paused=!!session.generationControl&&session.generationControl!=='active';
  const searching=finding||search.state==='searching';
- const locked=busy||session.state==='running',ready=intake.phase==='confirming';
+ const locked=busy||session.state==='running'&&!paused,ready=intake.phase==='confirming';
+ const editable=ready||paused&&intake.phase==='preparing';
  const candidates=intake.batches.flatMap((saved,batchIndex)=>saved.stories.map((candidate,index)=>({candidate,batchIndex,index})));
  const selected=intake.selected?intake.batches[intake.selected.batch]?.stories[intake.selected.index]:null;
  const preparable=!!selected&&intake.phase==='choosing'&&session.state!=='failed';
@@ -62,7 +63,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,progress}
  const findMore=<button type="button" className="yu-refresh-batch" aria-busy={searching&&!paused} disabled={busy||searching||intake.batches.length>=40} onClick={()=>void act({action:'more'})}>{searching&&!paused&&<Loader2 size={14} className="spin" aria-hidden="true"/>}{searching?(paused?'恢复后继续查找':'正在查找…'):search.state==='failed'?'重试查找':'继续找故事'}</button>;
  const candidateList=<>
   <div className="yu-batch-heading"><h3>已找到 {candidates.length} 篇故事</h3>{findMore}</div>
-  <div className="yu-candidate-list">{candidates.map(({candidate,batchIndex,index})=><button type="button" key={`${batchIndex}:${index}`} aria-pressed={isSelected(batchIndex,index)} className={isSelected(batchIndex,index)?'selected':''} disabled={locked&&!isSelected(batchIndex,index)} onClick={()=>void select(batchIndex,index)}><strong>{candidate.title}</strong><span className="yu-candidate-description">{candidate.description}</span>{candidate.sourceLabel&&<small>{candidate.sourceLabel}</small>}<span className="yu-candidate-action">{isSelected(batchIndex,index)?'已选这篇':'选择这篇'}</span></button>)}</div>
+  <div className="yu-candidate-list">{candidates.map(({candidate,batchIndex,index})=><button type="button" key={`${batchIndex}:${index}`} aria-pressed={isSelected(batchIndex,index)} className={isSelected(batchIndex,index)?'selected':''} disabled={(busy||session.state==='running')&&!isSelected(batchIndex,index)} onClick={()=>void select(batchIndex,index)}><strong>{candidate.title}</strong><span className="yu-candidate-description">{candidate.description}</span>{candidate.sourceLabel&&<small>{candidate.sourceLabel}</small>}<span className="yu-candidate-action">{isSelected(batchIndex,index)?'已选这篇':'选择这篇'}</span></button>)}</div>
   {!searching&&search.state!=='failed'&&(!candidates.length?<p className="yu-candidate-note">还没有找到符合主题的故事，可以继续查找，或换个主题。</p>:intake.batches.at(-1)?.stories.length===0&&<p className="yu-candidate-note">暂时没有找到更多故事，已找到的故事都在上方。</p>)}
  </>;
  const stages=generationProgress(session,Date.now()).steps.map(step=>{
@@ -78,12 +79,12 @@ export default function StoryCreationSetup({session,book,busy,onAction,progress}
   {!editing&&remoteChoice}
   {!selected&&(intake.batches.length>0||search.state==='failed')&&candidateList}
   {selected?<StoryGenerationStatus session={session} {...progress} compact={ready} stages={stages} timeline={{
-   links:{source:[{label:'重新选择故事',onClick:()=>{if(!busy)setChoosing(true);}},...(ready?[{label:'制作要求（可选）',onClick:()=>setEditing('requirements')}]:[])]},
-   detailActions:ready?{source:{label:'修改画风',onClick:()=>setEditing('style')}}:undefined,
-   actions:ready?{count:{label:'修改幅数',onClick:()=>setEditing('count')}}:undefined
+   links:{source:[{label:'重新选择故事',onClick:()=>{if(!busy)setChoosing(true);}},...(editable?[{label:'制作要求（可选）',onClick:()=>setEditing('requirements')}]:[])]},
+   detailActions:editable?{source:{label:'修改画风',onClick:()=>setEditing('style')}}:undefined,
+   actions:editable?{count:{label:'修改幅数',onClick:()=>setEditing('count')}}:undefined
   }}>
-   {ready&&<><button type="button" className="yu-primary" disabled={locked} onClick={()=>void act({action:'confirm',settings})}>{busy?'正在保存…':'开始制作'}</button></>}
-   {preparable&&<button type="button" className="yu-primary" disabled={locked} onClick={()=>void act({action:'choose',batch:intake.selected!.batch,index:intake.selected!.index,settings:preferences})}>准备这篇</button>}
+   {ready&&<><button type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'confirm',settings})}>{busy?'正在保存…':'开始制作'}</button></>}
+   {preparable&&<button type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'choose',batch:intake.selected!.batch,index:intake.selected!.index,settings:preferences})}>准备这篇</button>}
   </StoryGenerationStatus>:<>
    {(session.error||progress.error)&&<p className="yu-batch-error" role="alert">{progress.error||session.error}</p>}
    {(session.state==='failed'||!!progress.error)&&<StoryRetry session={session} busy={progress.busy} onRetry={progress.onRetry}/>}
@@ -96,7 +97,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,progress}
   {editing&&<Sheet title="修改故事" busy={busy} onClose={closeEditor}>
    {remoteChoice}
    <StoryEditorTabs tab={editing} disabled={locked} onChange={tab=>{if(tab!=='script')setEditing(tab);}}/>
-   <StoryProductionEditor tab={editing} settings={settings} creation disabled={locked} recommendation={session.frameRecommendation} artRecommendation={selected?.artRecommendation} onChange={patch=>setSettings(s=>({...s,...patch}))} onRecommend={()=>void act({action:'recommend',settings:preferences})}/>
+   <StoryProductionEditor tab={editing} settings={settings} creation disabled={locked} recommendation={session.frameRecommendation} artRecommendation={selected?.artRecommendation} onChange={patch=>setSettings(s=>({...s,...patch}))} onRecommend={ready&&session.state!=='running'?()=>void act({action:'recommend',settings:preferences}):undefined}/>
    {error&&<p className="yu-batch-error" role="alert">{error}</p>}
    <button type="button" className="yu-primary" disabled={busy} onClick={closeEditor}>完成编辑</button><p className="yu-revision-note">设置会保存在这里，离开后也保留；确认制作后才开始生成。</p>
   </Sheet>}

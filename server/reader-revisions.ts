@@ -16,7 +16,8 @@ const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest(
 const familyEpoch=`SELECT COALESCE(MAX(COALESCE(json_extract(document,'$.revision.number'),1)),1) AS epoch FROM reader_sessions WHERE user_id=? AND (id=? OR json_extract(document,'$.revision.rootId')=?)`;
 async function basis(repo:ReaderRepository,row:SessionRow){
  const doc=JSON.parse(row.document) as Document;
- if(!doc.plan||!doc.original)throw new ReaderError(409,'完整分镜和原文保存后才可修订。');
+ if(doc.intake&&doc.intake.phase!=='confirmed')throw new ReaderError(409,'请在制作确认前保存设置草稿。');
+ if(!doc.plan&&row.generation_control!=='paused'&&row.generation_control!=='stopped')throw new ReaderError(409,'请先暂停生成，再修改制作内容。');
  const rootId=doc.revision?.rootId||row.id;
  const epoch=(await repo.db.prepare(familyEpoch).bind(row.user_id,rootId,rootId).first<{epoch:number}>())!.epoch;
  const token=hash(JSON.stringify([row.selection,doc.plan,epoch]));
@@ -24,10 +25,11 @@ async function basis(repo:ReaderRepository,row:SessionRow){
 }
 export async function revisionSnapshot(repo:ReaderRepository,id:string,ownerId:string):Promise<RevisionSnapshot>{
  const row=await repo.get(id,ownerId),{doc,epoch,token}=await basis(repo,row);
- return {selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan!,images:doc.images,token,epoch,...(doc.revision?{revision:{parentId:doc.revision.parentId,rootId:doc.revision.rootId,number:doc.revision.number}}:{})};
+ return {selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan,images:doc.images,...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{}),token,epoch,...(doc.revision?{revision:{parentId:doc.revision.parentId,rootId:doc.revision.rootId,number:doc.revision.number}}:{})};
 }
-export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,parentId:string,requestId:string,token:string,changes:RevisionChanges){
- const requestHash=hash(JSON.stringify([parentId,token,changes]));
+export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,parentId:string,requestId:string,token:string,changes:RevisionChanges,paused=false){
+ // Preserve fingerprints of requests saved before explicit paused submissions were added.
+ const requestHash=hash(JSON.stringify([parentId,token,changes,...(paused?[true]:[])]));
  const replay=async()=>{
   const existing=await repo.db.prepare('SELECT * FROM reader_sessions WHERE id=?').bind(requestId).first<SessionRow>();
   if(!existing)return null;
@@ -38,9 +40,9 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  const existing=await replay();if(existing)return existing;
  const row=await repo.get(parentId,ownerId),{doc,rootId,epoch,token:current}=await basis(repo,row);
  if(current!==token)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
- const original={selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan!,images:doc.images};
+ const original={selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan,images:doc.images,...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{})};
  const {selection,plan,impact}=checkedRevision(original,changes);
- const images:string[]=original.plan.pages.map(()=> ''),lostPages:number[]=[];
+ const images:string[]=original.plan?.pages.map(()=> '')||[],lostPages:number[]=[];
  // Global image preferences cannot reuse old artwork. Other edits may reuse after planning.
  if(selection.artStyle===original.selection.artStyle&&selection.productionPrompt===original.selection.productionPrompt){
   for(let page=0;page<original.images.length;page++){
@@ -55,16 +57,17 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
   }
  }
  const base={...original,images};
- const document:Document={plan,original:doc.original,frameCountConfirmed:true,visualReview:newReview(),images:[],audio:[],usage:[],revision:{parentId,rootId,number:epoch+1,baseToken:token,requestHash,handoff:true,base,...(impact.replan?{}:{previewedRedraw:impact.redraw}),...(lostPages.length?{lostPages}:{})}};
+ const document:Document={plan,original:doc.original,frameRecommendation:doc.frameRecommendation,frameCountConfirmed:true,visualReview:newReview(),images:[],audio:[],usage:[],revision:{parentId,rootId,number:epoch+1,baseToken:token,requestHash,handoff:true,base,...(impact.replan?{}:{previewedRedraw:impact.redraw}),...(lostPages.length?{lostPages}:{})}};
  if(plan)document.images=reusableRevisionImages(base,selection,plan);
  const now=new Date().toISOString();
- const inserted=await repo.db.prepare(`INSERT INTO reader_sessions(id,user_id,selection,document,generation_mode,generation_control,state,step_attempts,lock_until,page,saved,created_at,updated_at)
-  SELECT ?,?,?,?,'background','paused','idle',0,0,0,0,?,? FROM reader_sessions p
-  WHERE p.id=? AND p.user_id=? AND json_extract(p.document,'$.plan')=json_extract(?,'$.plan') AND p.selection=?
+ const inserted=await repo.db.prepare(`INSERT INTO reader_sessions(id,user_id,selection,document,generation_mode,generation_control,state,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
+  SELECT ?,?,?,?,'background','paused','idle',0,0,MIN(p.page,?),p.saved,p.last_read_at,?,? FROM reader_sessions p
+  WHERE p.id=? AND p.user_id=? AND json_extract(p.document,'$.plan') IS json_extract(?,'$.plan') AND p.selection=?
+  AND (json_extract(p.document,'$.plan') IS NOT NULL OR p.generation_control IN ('paused','stopped'))
   AND NOT EXISTS(SELECT 1 FROM library_deletions WHERE story_id=p.id AND user_id=p.user_id)
   AND (${familyEpoch.replace(' AS epoch','')})=?
   ON CONFLICT(id) DO NOTHING`)
-  .bind(requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),now,now,parentId,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch).run();
+  .bind(requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),impact.total-1,now,now,parentId,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch).run();
  if(!inserted.meta.changes){const raced=await replay();if(raced)return raced;throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');}
  return repo.get(requestId,ownerId);
 }

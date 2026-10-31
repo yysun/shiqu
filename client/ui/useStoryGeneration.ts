@@ -5,6 +5,7 @@ import {useEffect,useRef,useState} from 'react';
 import {randomId,request} from './shared';
 import {observeOnlyGeneration,observeStoryGeneration,runQueuedStoryGeneration} from '@/lib/reader-production-client';
 import type {IntakeCommand} from '@/lib/reader-intake';
+import {latestStoryVersions} from '@/lib/reader-versions';
 import type {GeneratedStory,Selection,SessionView,ProductionAction} from '@/lib/reader-model';
 type Callbacks={onStory:(story:GeneratedStory,initialPage?:number,saved?:boolean)=>void;onProgress:(rows:{storyId:string;page:number;saved:number;updatedAt?:string|null}[])=>void};
 export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=false){
@@ -19,7 +20,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
  const [controlBusy,setControlBusy]=useState(''),[controlError,setControlError]=useState('');
  const controlLock=useRef(false);
  const generationMode=useRef<'observe'|'generate'>('observe'),retryRequested=useRef(false);
- function collect(s:SessionView){if(removed.current.has(s.id))return;libraryChanges.current++;setSessions(old=>[s,...old.filter(x=>x.id!==s.id)]);}
+ function collect(s:SessionView){if(removed.current.has(s.id))return;libraryChanges.current++;setSessions(old=>latestStoryVersions([s,...old.filter(x=>x.id!==s.id)]));}
  useEffect(()=>{live.current=true;request('reader/status').then(s=>{if(live.current)setConnected(s.configured);}).catch(()=>{});refreshLibrary().catch(()=>{}).finally(()=>{if(live.current)setLibraryLoading(false);});return()=>{live.current=false;libraryRead.current++;id.current='';};},[]);
  async function start(selection:Selection,intake=false){const signature=JSON.stringify([selection,intake]);if(creation.current?.signature!==signature)creation.current={signature,id:randomId()};const requestId=creation.current.id;const s:SessionView=await request('reader/sessions','POST',{requestId,selection,...(intake?{intake:true}:{})});creation.current=null;generationMode.current=observeOnlyGeneration(s)?'observe':'generate';retryRequested.current=false;id.current=s.id;retries.current=new Map();setBusy(!observeOnlyGeneration(s));setError('');setActive(s);collect(s);history.replaceState(null,'','/read?id='+s.id);setWake(v=>v+1);return s;}
  async function resume(sessionId:string,initialPage?:number,retry=false){id.current=sessionId;retries.current=new Map();setError('');const s:SessionView=await request('reader/sessions/'+sessionId);if(id.current!==sessionId||removed.current.has(sessionId))return;generationMode.current=(!s.generationControl||s.generationControl==='active')&&(retry||s.generationMode!=='background'&&s.story?.pages[0]?.image&&s.state!=='failed')?'generate':'observe';retryRequested.current=retry;setBusy(retry);setError(!retry&&s.state==='failed'?(s.error||'生成失败，请重试继续。'):'');setActive(s);collect(s);history.replaceState(null,'','/read?id='+s.id);cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);if(s.story?.pages[0]?.image)cb.current.onStory(s.story,initialPage??s.page,s.saved);setWake(v=>v+1);}

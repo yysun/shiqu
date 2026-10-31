@@ -1,4 +1,5 @@
 -- Read-only desktop summaries, shared by the native shell and loopback-only Vite preview.
+-- A deleted latest submission still supersedes its history; reading an old version never promotes it.
 -- Match jobs and deletions by owner as well as story; never return prompts, keys, or job payloads.
 -- Recover complete choice checkpoints without writes; compare source-range leaves independent of key order.
 WITH selected_sessions AS (
@@ -80,5 +81,8 @@ SELECT json_object('stories', json_group_array(json(summary))) FROM (
  LEFT JOIN books b ON b.id = json_extract(s.selection, '$.bookId')
  LEFT JOIN job_counts j ON j.session_id = s.id AND j.owner_id = s.user_id
  WHERE NOT EXISTS (SELECT 1 FROM library_deletions d WHERE d.story_id = s.id AND d.user_id = s.user_id)
+ AND NOT EXISTS (SELECT 1 FROM reader_sessions newer WHERE newer.user_id=s.user_id
+  AND coalesce(json_extract(newer.document,'$.revision.rootId'),newer.id)=coalesce(json_extract(s.document,'$.revision.rootId'),s.id)
+  AND coalesce(json_extract(newer.document,'$.revision.number'),1)>coalesce(json_extract(s.document,'$.revision.number'),1))
  ORDER BY coalesce(s.last_read_at, s.created_at) DESC
 );

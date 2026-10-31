@@ -7,9 +7,9 @@ import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const noop=()=>{};
 test('discovery stays in the picker and selection opens one continuous story flow',async()=>{
- const bundle=await build({stdin:{contents:"export {default as Setup,storyCreationTitle} from './client/ui/StoryCreationSetup.tsx';export {default as Review} from './client/ui/StoryReviewTools.tsx';export {StoryRevisionActions as Actions} from './client/ui/StoryRevisionEditor.tsx';export {default as Fields,StoryEditorTabs as Tabs} from './client/ui/StoryProductionEditor.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'}});
+ const bundle=await build({stdin:{contents:"export {default as Paused} from './client/ui/StoryPausedEditing.tsx';export {default as Editor} from './client/ui/StoryRevisionEditor.tsx';export {default as Setup,storyCreationTitle} from './client/ui/StoryCreationSetup.tsx';export {default as Review} from './client/ui/StoryReviewTools.tsx';export {StoryRevisionActions as Actions} from './client/ui/StoryRevisionEditor.tsx';export {default as Fields,StoryEditorTabs as Tabs} from './client/ui/StoryProductionEditor.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'}});
  const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
- const {Setup,storyCreationTitle,Fields,Tabs,Review,Actions}=compiled.exports;
+ const {Setup,storyCreationTitle,Fields,Tabs,Review,Actions,Paused,Editor}=compiled.exports;
  const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'选择',artStyle:'paper-cut',productionPrompt:'清楚的旁白。',narrativeDetail:'brief',length:'auto',voice:false};
  const session={id:'creating',selection,state:'idle',ready:0,story:null,error:null,awaitingFrameCount:false,retryAllowed:false,generationMode:'background',generationControl:'active',frameRecommendation:{count:7,reason:'保留因果。'},intake:{phase:'confirming',generation:1,search:{state:'idle'},selected:{batch:0,index:0},batches:[{stories:[{title:'庄周梦蝶',description:'不应铺开的候选介绍。'}],note:''}]},generationProgress:{sourceReady:true,frameCountConfirmed:false,phase:'production-confirmation'}};
  const html=renderToStaticMarkup(createElement(Setup,{session,book:'庄子',busy:false,onAction:async()=>{},progress:{busy:false,controlBusy:false,error:'',onControl:async()=>{},onRetry:noop,onBack:noop}}));
@@ -57,6 +57,14 @@ test('discovery stays in the picker and selection opens one continuous story flo
  assert.match(preparing,/生成进展/);assert.match(preparing,/data-stage="count"/);assert.doesNotMatch(preparing,/>开始制作<\/button>/);
  const pausedPreparation=renderToStaticMarkup(createElement(Setup,{...props,session:{...session,state:'idle',generationControl:'paused',frameRecommendation:null,intake:{...session.intake,phase:'preparing'}}}));
  assert.match(pausedPreparation,/恢复生成/);assert.match(pausedPreparation,/生成进展/);
+ for(const label of ['制作要求（可选）','修改画风','修改幅数','重新选择故事'])assert.ok(pausedPreparation.includes(label),label);
+ const pausedWithoutPlan=renderToStaticMarkup(createElement(Paused,{session:{...session,generationControl:'paused'},busy:false,onEdit:noop,onReselect:noop}));
+ for(const label of ['修改制作要求','修改画风','修改画幅数','重新选择故事'])assert.ok(pausedWithoutPlan.includes(label),label);
+ assert.match(pausedWithoutPlan,/保存后仍暂停/);
+ assert.equal(renderToStaticMarkup(createElement(Paused,{session,busy:false,onEdit:noop,onReselect:noop})), '');
+ const emptyPlanEditor=renderToStaticMarkup(createElement(Editor,{editor:{base:{selection:{...selection,length:5},plan:null,images:[]},changes:{},tab:'count',busy:false,loading:false,setTab:noop,setChanges:noop,impact:{changed:true,replan:true,total:5},submit:noop,discard:noop}}));
+ assert.match(emptyPlanEditor,/value="5"/);assert.match(emptyPlanEditor,/保存修改，保持暂停/);assert.doesNotMatch(emptyPlanEditor,/>分镜<|保存修改并加入队列/);
+
  const transportFailure=renderToStaticMarkup(createElement(Setup,{...props,session:{...session,retryAllowed:true,intake:{...session.intake,phase:'preparing'}},progress:{...props.progress,error:'网络暂时不可用'}}));
  assert.match(transportFailure,/网络暂时不可用/);assert.match(transportFailure,/yu-retry-control/);
  const started=renderToStaticMarkup(createElement(Setup,{...props,session:{...session,state:'running',intake:{...session.intake,phase:'confirmed'},generationProgress:{...session.generationProgress,phase:'plan',frameCount:7,frameCountConfirmed:true}}}));

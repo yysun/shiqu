@@ -15,7 +15,12 @@ export class ReaderRepository{
  db:Database;
  constructor(db:Database){this.db=db;}
  async get(id:string,uid:string){const row=await this.db.prepare(`SELECT * FROM reader_sessions WHERE id = ? AND user_id = ? AND ${visible}`).bind(id,uid).first<SessionRow>();if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');return row;}
- async list(uid:string){return (await this.db.prepare(`SELECT * FROM reader_sessions WHERE user_id = ? AND ${visible} ORDER BY COALESCE(last_read_at,created_at) DESC`).bind(uid).all<SessionRow>()).results;}
+ // Count every newer submission, including deleted ones, so deletion never promotes history.
+ async list(uid:string){return (await this.db.prepare(`SELECT * FROM reader_sessions WHERE user_id = ? AND ${visible}
+  AND NOT EXISTS (SELECT 1 FROM reader_sessions newer WHERE newer.user_id=reader_sessions.user_id
+   AND COALESCE(json_extract(CASE WHEN json_valid(newer.document) THEN newer.document ELSE '{}' END,'$.revision.rootId'),newer.id)=COALESCE(json_extract(CASE WHEN json_valid(reader_sessions.document) THEN reader_sessions.document ELSE '{}' END,'$.revision.rootId'),reader_sessions.id)
+   AND COALESCE(json_extract(CASE WHEN json_valid(newer.document) THEN newer.document ELSE '{}' END,'$.revision.number'),1)>COALESCE(json_extract(CASE WHEN json_valid(reader_sessions.document) THEN reader_sessions.document ELSE '{}' END,'$.revision.number'),1))
+  ORDER BY COALESCE(last_read_at,created_at) DESC`).bind(uid).all<SessionRow>()).results;}
  async deletions(uid:string){
   return (await this.db.prepare(`SELECT d.story_id AS storyId,d.deleted_at AS deletedAt,d.kind,
    CASE WHEN d.kind='generated' THEN COALESCE(json_extract(s.document,'$.plan.title'),json_extract(s.selection,'$.storyTitle'),'未命名故事') ELSE COALESCE(p.title,'未命名故事') END AS title
@@ -58,14 +63,14 @@ export class ReaderRepository{
   // A revision is born paused. Persist the parent pause before making its child eligible;
   // a crash between writes leaves a paused child that explicit resume can recover.
   const revision=(JSON.parse(row.document) as Document).revision;
-  if(revision&&(action==='resume'||action==='background')){
+  if(revision&&(action==='resume'||action==='background'||revision.handoff&&action==='pause')){
    await this.db.prepare("UPDATE reader_sessions SET generation_control='paused' WHERE id=? AND user_id=? AND state!='completed'").bind(revision.parentId,uid).run();
   }
   // Resume always continues the whole story; other legacy actions change only their own field.
   const field=action==='background'||action==='reader'?'generation_mode':'generation_control';
   const value=action==='pause'?'paused':action==='stop'?'stopped':action==='resume'?'active':action;
   const assignment=action==='resume'?"generation_mode='background',generation_control=?":`${field}=?`;
-  await this.db.prepare(`UPDATE reader_sessions SET ${assignment}${revision&&action==='resume'?",document=json_remove(document,'$.revision.handoff')":''} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}`)
+  await this.db.prepare(`UPDATE reader_sessions SET ${assignment}${revision&&(action==='resume'||action==='pause')?",document=json_remove(document,'$.revision.handoff')":''} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}`)
    .bind(value,id,uid).run();
   return this.get(id,uid);
  }
