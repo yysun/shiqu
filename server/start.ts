@@ -29,8 +29,9 @@ export async function startServer({root,variables=process.env,localAccess=false}
   if(stopping)return;stopping=true;
   app.stopGeneration();
   const closed=new Promise<void>(resolve=>server.close(()=>resolve()));
-  server.closeIdleConnections();
-  void closed.then(closeApplication).then(()=>process.exit(0));
+  server.closeAllConnections();
+  // Cancel provider requests before waiting for their HTTP connections to drain.
+  void Promise.all([closed,stopCodexProcesses()]).then(closeApplication).then(()=>process.exit(0));
  }
  try{
   await new Promise<void>((resolve,reject)=>{

@@ -104,10 +104,10 @@ async function freePort(){
  server.listen(0,'127.0.0.1');await once(server,'listening');const port=server.address().port;
  await new Promise(resolve=>server.close(resolve));return port;
 }
-function cliProcess(root,args,home){
+function cliProcess(root,args,home,variables={}){
  const source=new URL('../server/cli.ts',import.meta.url).href;
  const program=`import {runCli} from ${JSON.stringify(source)};try{await runCli(${JSON.stringify(root)},${JSON.stringify(args)});}catch(error){console.error(error.message);process.exitCode=1;}`;
- const child=spawn(process.execPath,['--experimental-strip-types','--input-type=module','-e',program],{cwd:root,env:{PATH:process.env.PATH,HOME:home,USERPROFILE:home,APPDATA:path.join(home,'roaming'),LOCALAPPDATA:path.join(home,'local'),SYSTEMROOT:process.env.SYSTEMROOT||'',SHIQU_AI_PROVIDER:'gemini'},stdio:['ignore','pipe','pipe']});
+ const child=spawn(process.execPath,['--experimental-strip-types','--input-type=module','-e',program],{cwd:root,env:{PATH:process.env.PATH,HOME:home,USERPROFILE:home,APPDATA:path.join(home,'roaming'),LOCALAPPDATA:path.join(home,'local'),SYSTEMROOT:process.env.SYSTEMROOT||'',SHIQU_AI_PROVIDER:'gemini',...variables},stdio:['ignore','pipe','pipe']});
  let logs='';child.stdout.on('data',data=>{logs+=data;});child.stderr.on('data',data=>{logs+=data;});
  return {child,logs:()=>logs};
 }
@@ -168,4 +168,23 @@ test('non-interactive fresh CLI fails without creating configuration or business
  const locations=desktopLibraryPaths({...context,variables:process.platform==='win32'?{APPDATA:path.join(context.home,'roaming')}:{}});
  await assert.rejects(access(path.dirname(locations.cliSelection)));
  await assert.rejects(access(locations.library));
+});
+
+test('CLI signal stops a hanging Codex request before draining HTTP and releasing the library', {skip:process.platform==='win32',timeout:15000},async t=>{
+ const context=await fixture(t),root=await processFixture(t),directory=path.join(context.home,'shelf'),marker=path.join(root,'provider-pids.json'),fake=path.join(root,'fake codex');
+ await writeFile(fake,`#!/usr/bin/env node\nimport {writeFileSync} from 'node:fs';import {spawn} from 'node:child_process';const descendant=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});writeFileSync(${JSON.stringify(marker)},JSON.stringify({parent:process.pid,descendant:descendant.pid}));setInterval(()=>{},1000);`,{mode:0o755});
+ const port=await freePort(),current=cliProcess(root,['--port',String(port),'--data-dir',directory],context.home,{SHIQU_AI_PROVIDER:'codex',CODEX_BIN:fake});
+ t.after(()=>stopProcess(current));await ready(current);
+ const pending=fetch('http://127.0.0.1:'+port+'/api/reader/status',{signal:AbortSignal.timeout(10000)}).catch(()=>null);
+ let pids;
+ const deadline=Date.now()+5000;
+ while(Date.now()<deadline){try{pids=JSON.parse(await readFile(marker,'utf8'));break;}catch{await new Promise(resolve=>setTimeout(resolve,20));}}
+ assert.ok(pids,'Hanging provider process must be running before shutdown');
+ const stopped=once(current.child,'exit');current.child.kill('SIGTERM');
+ const timer=setTimeout(()=>current.child.kill('SIGKILL'),3000);
+ try{const [code,signal]=await stopped;assert.equal(code,0,'CLI must finish graceful shutdown rather than wait for provider timeout');assert.equal(signal,null);}
+ finally{clearTimeout(timer);}
+ await pending;
+ for(const pid of [pids.parent,pids.descendant])assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
+ const release=await ownDesktopData(directory);await release();
 });
