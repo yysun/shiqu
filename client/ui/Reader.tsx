@@ -100,7 +100,7 @@ export default function Reader(){
    const [published,,serverProgress]:[Story[],unknown,Progress[]]=await Promise.all([request('stories'),gen.refreshLibrary(),request('me/progress')]);
    setStories(old=>[...old.filter(s=>isGenerated(s)&&!deleted.current.has(s.id)),...published.filter(s=>!deleted.current.has(s.id))]);
    acceptServerProgress(serverProgress);setLoadError('');
-  }catch{notify('书架刷新失败，请重试。');}
+  }catch(error){notify(error instanceof Error?error.message:'书架刷新失败，请重试。');}
   finally{setShelfRefreshing(false);}
  }
 

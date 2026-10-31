@@ -13,7 +13,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
  const currentPage=useRef(page);currentPage.current=page;
  const [sessions,setSessions]=useState<SessionView[]>([]),[active,setActive]=useState<SessionView|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[connected,setConnected]=useState(false),[wake,setWake]=useState(0);
  const [libraryLoading,setLibraryLoading]=useState(true),[libraryRefreshing,setLibraryRefreshing]=useState(false),[libraryError,setLibraryError]=useState('');
- const live=useRef(true),libraryRead=useRef(0),libraryChanges=useRef(0);
+ const live=useRef(true),libraryRead=useRef(0),libraryChanges=useRef(0),refreshingReads=useRef(0);
  const removed=useRef(new Set<string>());
  const creation=useRef<{signature:string;id:string}|null>(null);
  const id=useRef(''),pending=useRef<Promise<unknown>|null>(null),retries=useRef(new Map<string,number>());
@@ -83,9 +83,11 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
  }
  function leave(){id.current='';setActive(null);setBusy(false);setError('');}
  function remove(sessionId:string){libraryChanges.current++;removed.current.add(sessionId);if(id.current===sessionId)leave();setSessions(old=>old.filter(s=>s.id!==sessionId));}
- async function refreshLibrary(restoredId?:string,isCurrent:()=>boolean=()=>true){
+ async function refreshLibrary(restoredId?:string,isCurrent:()=>boolean=()=>true,background=false){
   // A recovery reads snapshots only; resume() would create viewer demand and can dispatch generation.
-  const read=++libraryRead.current,changes=libraryChanges.current;setLibraryRefreshing(true);
+  const read=++libraryRead.current,changes=libraryChanges.current;
+  // Background snapshots keep cards current without locking the shelf's manual actions.
+  if(!background){refreshingReads.current++;setLibraryRefreshing(true);}
   try{
    const [rows,restored]:[SessionView[],SessionView|null]=await Promise.all([request('reader/sessions'),restoredId?request('reader/sessions/'+encodeURIComponent(restoredId)):Promise.resolve(null)]);
    if(restored&&live.current&&read===libraryRead.current)removed.current.delete(restored.id);
@@ -96,7 +98,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
    }
    return visible;
   }catch(error){if(live.current&&isCurrent()&&read===libraryRead.current)setLibraryError('书架刷新失败，请重试。');throw error;}
-  finally{if(live.current&&read===libraryRead.current)setLibraryRefreshing(false);}
+  finally{if(!background&&--refreshingReads.current===0&&live.current)setLibraryRefreshing(false);}
  }
  const refresh=useRef(refreshLibrary);refresh.current=refreshLibrary;
  useEffect(()=>{
@@ -104,11 +106,11 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   let stopped=false,inFlight=false;
   async function update(){
    if(stopped||inFlight||document.visibilityState==='hidden')return;
-   inFlight=true;try{await refresh.current(undefined,()=>!stopped);}catch{/* Keep saved cards visible; expose the retry beside them. */}finally{inFlight=false;}
+   inFlight=true;try{await refresh.current(undefined,()=>!stopped,true);}catch{/* Keep saved cards visible; expose the retry beside them. */}finally{inFlight=false;}
   }
   void update();const timer=setInterval(()=>void update(),4000);
   window.addEventListener('focus',update);document.addEventListener('visibilitychange',update);
-  return()=>{stopped=true;clearInterval(timer);window.removeEventListener('focus',update);document.removeEventListener('visibilitychange',update);if(live.current)setLibraryRefreshing(false);};
+  return()=>{stopped=true;clearInterval(timer);window.removeEventListener('focus',update);document.removeEventListener('visibilitychange',update);};
  },[watchShelf,libraryLoading,active?.id]);
  function retryStep(){if(busy||pending.current&&generationMode.current!=='observe'||!active?.retryAllowed)return;generationMode.current='generate';retryRequested.current=true;retries.current=new Map();setBusy(true);setError('');setWake(v=>v+1);}
  useEffect(()=>{
