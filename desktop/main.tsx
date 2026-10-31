@@ -1,10 +1,11 @@
-// Desktop tabs share shelf controls; native settings keep keys private and browser service controls disabled.
+// Desktop tabs share shelf controls and an isolated local reader; native settings keep keys private.
 import {useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {invoke,isTauri} from '@tauri-apps/api/core';
 import QRCode from 'qrcode';
-import {BookOpen,Layers3,Settings2} from 'lucide-react';
+import {BookOpen,Layers3,Settings2,Sparkles} from 'lucide-react';
 import {LibraryPane} from './LibraryPane';
+import {ReaderPane} from './ReaderPane';
 import type {DesktopTab} from './LibraryPane';
 import {codexReasoningEfforts} from '../lib/codex-settings';
 import {taskReasoningDefaults,reasoningTasks,taskReasoningLabels,geminiReasoningEfforts} from '../lib/reader-reasoning';
@@ -17,11 +18,13 @@ type View={settings:Settings;revision:number;keyPresent:boolean;providerKeys:{ge
 type Status={running:boolean;url?:string;phoneUrls:string[];publicUrl?:string;internetError?:string;error?:string};
 type NodeInfo={path:string;version:string;sqlite:boolean};
 type KeyAction='keep'|'replace'|'delete';
-const tabs=[['library','书架',BookOpen],['queue','生成队列',Layers3],['settings','设置',Settings2]] as const;
+const tabs=[['library','书架',BookOpen],['queue','生成队列',Layers3],['reader','阅读与创作',Sparkles],['settings','设置',Settings2]] as const;
 const previewSettings=defaultSystemSettings('桌面应用中保存的故事目录');
 
 function Desktop(){
  const [tab,setTab]=useState<DesktopTab>('library');
+ const [readerVisited,setReaderVisited]=useState(false);
+ function selectTab(value:DesktopTab){if(value==='reader')setReaderVisited(true);setTab(value);}
  const [view,setView]=useState<View|null>(null),[settings,setSettings]=useState<Settings|null>(null),[status,setStatus]=useState<Status>({running:false,phoneUrls:[]});
  const [key,setKey]=useState(''),[keyAction,setKeyAction]=useState<KeyAction>('keep'),[reveal,setReveal]=useState(false),[node,setNode]=useState<NodeInfo|null>(null),[nodeError,setNodeError]=useState('');
  const [busy,setBusy]=useState(''),[message,setMessage]=useState(''),[error,setError]=useState(''),[phone,setPhone]=useState(''),[qr,setQr]=useState('');
@@ -52,13 +55,14 @@ function Desktop(){
  const links=[status.publicUrl,...status.phoneUrls].filter((link):link is string=>!!link),internet=!!phone&&phone===status.publicUrl;
  const apiProvider=settings?.provider==='gemini'||settings?.provider==='openai',openai=settings?.provider==='openai',keyPresent=settings?.provider==='gemini'?!!view?.providerKeys.gemini:settings?.provider==='openai'?!!view?.providerKeys.openai:false;
  const locked=!native||!!busy||status.running,dirty=!!settings&&!!view&&(JSON.stringify(settings)!==JSON.stringify(view.settings)||keyAction!=='keep');
- return <main>
+ return <main className={tab==='reader'?'reader-workspace':undefined}>
   <header className="app-header"><div className="brand"><div className="brand-mark" aria-hidden="true">拾</div><div><h1>拾趣 <span>桌面版</span></h1><p>在自己的电脑上，留一间故事书房。</p></div></div><span className="edition">桌面控制台</span></header>
   <div className="notice" role="status" aria-live="polite">{error?<span className="error">{error}</span>:message||(!native?'开发预览 · 使用本机书架，删除会同步阅读端；设置与服务操作需在桌面应用中使用。':'已内置 Node 24，无需另外安装。'+'故事保存在电脑上，浏览器和手机共用同一书架。')}</div>
   {!settings?<section className="card"><h2>{native?'正在读取设置…':'需要桌面应用'}</h2></section>:<div className="layout">
    <div className="desktop-left-pane">
-    <div className="desktop-tabs" role="tablist" aria-label="桌面工作区">{tabs.map(([id,label,Icon],index)=><button type="button" id={'tab-'+id} key={id} role="tab" aria-selected={tab===id} aria-controls={'panel-'+id} tabIndex={tab===id?0:-1} onClick={()=>setTab(id)} onKeyDown={event=>{const next=event.key==='ArrowRight'?(index+1)%tabs.length:event.key==='ArrowLeft'?(index+tabs.length-1)%tabs.length:event.key==='Home'?0:event.key==='End'?tabs.length-1:null;if(next===null)return;event.preventDefault();setTab(tabs[next][0]);document.getElementById('tab-'+tabs[next][0])?.focus();}}><Icon size={17}/>{label}</button>)}</div>
-    <div role="tabpanel" id={'panel-'+tab} aria-labelledby={'tab-'+tab} tabIndex={0}>
+    <div className="desktop-tabs" role="tablist" aria-label="桌面工作区">{tabs.map(([id,label,Icon],index)=><button type="button" id={'tab-'+id} key={id} role="tab" aria-selected={tab===id} aria-controls={'panel-'+id} tabIndex={tab===id?0:-1} onClick={()=>selectTab(id)} onKeyDown={event=>{const next=event.key==='ArrowRight'?(index+1)%tabs.length:event.key==='ArrowLeft'?(index+tabs.length-1)%tabs.length:event.key==='Home'?0:event.key==='End'?tabs.length-1:null;if(next===null)return;event.preventDefault();selectTab(tabs[next][0]);document.getElementById('tab-'+tabs[next][0])?.focus();}}><Icon size={17}/>{label}</button>)}</div>
+    <div role="tabpanel" id="panel-reader" aria-labelledby="tab-reader" tabIndex={0} hidden={tab!=='reader'}>{readerVisited&&<ReaderPane native={native} running={status.running} url={status.url} previewUrl={import.meta.env.DEV?import.meta.env.VITE_DESKTOP_READER_URL:undefined}/>}</div>
+    {tab!=='reader'&&<div role="tabpanel" id={'panel-'+tab} aria-labelledby={'tab-'+tab} tabIndex={0}>
     {tab!=='settings'?<LibraryPane key={tab} tab={tab} native={native} revision={view?.settings.dataDirectory||''}/>:<div className="settings-stack">
     <section className="card">{!view?.settings.providerConfigured&&!view?.runtimeConfigured&&<p className="help" role="status">首次使用，请选择生成服务并保存；也可选择只读模式。配置与 CLI 共用，保存后无需再次设置。</p>}<div className="section-heading"><span className="step">01</span><div><h2>生成服务</h2><p>选择故事与插图的生成方式。</p></div></div>
      <fieldset disabled={locked}><legend className="sr-only">生成服务设置</legend>
@@ -103,12 +107,12 @@ function Desktop(){
      <div className="save-row"><button className="text-button" disabled={locked} onClick={()=>void action('重新读取',async()=>{const result=await invoke<View>('get_settings');setView(result);setSettings(result.settings);setKey('');setKeyAction('keep');})}>重新读取设置</button><span className="help">{status.running?'停止服务后可修改设置。':dirty?'有尚未保存的更改。':'设置已同步。'}</span><button className="secondary" disabled={locked||!dirty} onClick={()=>void action('保存设置',async()=>{await save();setMessage('设置已保存。');})}>保存设置</button></div>
     </section>
    </div>}
-    </div>
+    </div>}
    </div>
    <aside className="service-stack">
-    <section className="service-card"><div className="service-label"><span className={'status-dot '+(status.running?'live':'')}/>{status.running?'服务运行中':'服务已停止'}</div><h2>{status.running?'书房已打开。':'让故事开始。'}</h2><p>{status.running?'在浏览器阅读，或让手机加入。':'启动后，在你熟悉的浏览器里阅读。'}</p>
+    <section className="service-card"><div className="service-label"><span className={'status-dot '+(status.running?'live':'')}/>{status.running?'服务运行中':'服务已停止'}</div><h2>{status.running?'书房已打开。':'让故事开始。'}</h2><p>{status.running?'打开「阅读与创作」，或让浏览器、手机加入。':'启动后，在「阅读与创作」里翻开故事。'}</p>
      {status.error&&!busy&&<p className="service-error" role="alert">{status.error}</p>}
-     <button className="primary" disabled={!!busy||!native} onClick={()=>void action(status.running?'停止服务':'启动服务',async()=>{if(status.running)setStatus(await invoke<Status>('stop_server'));else{if(dirty)await save();const info=await checkNode(settings.nodePath);if(!info)throw Error('内置运行时不可用，请检查运行时错误。');setStatus(await invoke<Status>('start_server'));}})}>{busy?busy+'…':!native?'请在桌面应用中启动':status.running?'停止服务':dirty?'保存并启动':'启动服务'}</button>
+     <button id="desktop-service-toggle" className="primary" disabled={!!busy||!native} onClick={()=>void action(status.running?'停止服务':'启动服务',async()=>{if(status.running)setStatus(await invoke<Status>('stop_server'));else{if(dirty)await save();const info=await checkNode(settings.nodePath);if(!info)throw Error('内置运行时不可用，请检查运行时错误。');setStatus(await invoke<Status>('start_server'));}})}>{busy?busy+'…':!native?'请在桌面应用中启动':status.running?'停止服务':dirty?'保存并启动':'启动服务'}</button>
      {status.running&&<><a className="browser-link" href={status.url} onClick={event=>{event.preventDefault();if(!busy)void action('打开浏览器',async()=>{await invoke('open_reader');});}}>在浏览器打开 ↗</a><button className="local-link" title="复制本机访问链接" onClick={()=>void action('复制链接',()=>copy(status.url!))}>{new URL(status.url!).origin} · 复制链接</button></>}
      <div className="service-foot">关闭窗口后在托盘继续运行。<br/>退出应用会停止服务。</div>
     </section>

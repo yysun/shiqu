@@ -9,7 +9,7 @@ import ProductionTimeline from '../client/ui/ProductionTimeline';
 
 type StorySummary={id:string;title:string;book:string;theme:string;artStyle:string;state:string;saved:number;page:number;ready:number;total:number;updatedAt:string;jobs:number;queued:number;running:number;failed:number;succeeded:number;production?:ProductionCheckpoint};
 type Summary={stories:StorySummary[]};
-export type DesktopTab='library'|'queue'|'settings';
+export type DesktopTab='library'|'queue'|'reader'|'settings';
 const states:Record<string,string>={idle:'待继续',running:'生成中',failed:'已暂停',completed:'已完成'};
 function waitingLabel(story:StorySummary){return story.production?.intakePhase==='discovering'?'等待找故事':story.production?.intakePhase==='choosing'?'待选故事':story.production?.intakePhase==='confirming'?'待制作确认':states[story.state]||'待继续';}
 function date(value:string){return new Intl.DateTimeFormat('zh-CN',{month:'short',day:'numeric'}).format(new Date(value));}
