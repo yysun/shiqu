@@ -66,7 +66,7 @@ export async function cliConfiguration(options:CliOptions,context:CliContext={})
   }
   return {...variables,
     PORT:options.port??variables.PORT??'3000',
-    SHIQU_BIND_IP:options.host??variables.SHIQU_BIND_IP??'127.0.0.1',
+    SHIQU_BIND_IP:options.host??variables.SHIQU_BIND_IP??'0.0.0.0',
     SHIQU_DATA_DIR:directory,
   };
 }

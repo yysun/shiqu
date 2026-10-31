@@ -7,6 +7,8 @@ import path from 'node:path';
 import {runCli} from '../server/cli.ts';
 import {parseCliOptions, cliConfiguration} from '../server/cli-options.ts';
 import {desktopLibraryPaths} from '../server/library-directory.ts';
+import {phoneUrls} from '../server/phone-access.ts';
+import {startupFixture, freeStartupPort, startFixtureCli} from './fixtures/startup.mjs';
 
 test('CLI accepts named options, equals syntax, and help/version aliases', () => {
   assert.deepEqual(parseCliOptions(['--port','3100','--host=0.0.0.0','--data-dir','../my shelf','--config=./private.env']), {
@@ -29,6 +31,30 @@ test('CLI flags override environment and relative data paths use the launch dire
   assert.equal((await cliConfiguration({}, context)).SHIQU_DATA_DIR, '/launch folder/env shelf');
 });
 
+test('CLI defaults to LAN access and respects an explicit loopback environment', async () => {
+  const context = {variables:{SHIQU_DATA_DIR:'shelf'}, platform:'linux', home:'/home/reader', cwd:'/launch'};
+  assert.equal((await cliConfiguration({}, context)).SHIQU_BIND_IP, '0.0.0.0');
+  assert.equal((await cliConfiguration({}, {...context, variables:{...context.variables, SHIQU_BIND_IP:'127.0.0.1'}})).SHIQU_BIND_IP, '127.0.0.1');
+});
+
+for (const localOnly of [false, true]) test(`CLI startup serves the reader and prints phone QR codes only for LAN access (localOnly=${localOnly})`, {timeout:20000}, async t => {
+  const f = await startupFixture(t), port = await freeStartupPort();
+  const run = startFixtureCli(f, ['--port',String(port),'--data-dir',path.join(f.root,'shelf'),...(localOnly ? ['--host','127.0.0.1'] : [])], {SHIQU_AI_PROVIDER:'readonly'});
+  await run.ready();
+  const response = await fetch(`http://127.0.0.1:${port}`, {signal:AbortSignal.timeout(5000)});
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /isolated startup fixture/);
+  const urls = phoneUrls(localOnly ? '127.0.0.1' : '0.0.0.0', port);
+  if (urls.length) {
+    assert.match(run.output(), /Scan to open 拾趣 on your phone/);
+    assert.match(run.output(), /[▀▄█]/);
+    for (const url of urls) assert.ok(run.output().includes(url));
+    assert.equal((await fetch(urls[0]+'/api/stories', {signal:AbortSignal.timeout(5000)})).status, 200);
+  } else {
+    assert.doesNotMatch(run.output(), /Scan to open 拾趣 on your phone|[▀▄█]/);
+  }
+});
+
 test('CLI suggestions use the desktop app-data paths on every platform', () => {
   const location = (platform, home, variables = {}) => desktopLibraryPaths({platform, home, variables});
   assert.equal(location('linux','/home/reader').library, '/home/reader/.local/share/com.shiqu.desktop/library');
@@ -48,6 +74,8 @@ test('help and version do not load an env file, initialize SQLite, or create a l
   try {
     await runCli(directory, ['--help','--config',path.join(directory,'missing.env'),'--data-dir',directory]);
     assert.match(output[0], /Usage: shiqu/);
+    assert.match(output[0], /SHIQU_BIND_IP, default: 0\.0\.0\.0/);
+    assert.match(output[0], /--host 127\.0\.0\.1 for local-only access/);
     assert.deepEqual(await readdir(directory), []);
     const root = path.resolve(import.meta.dirname, '..');
     await runCli(root, ['-v','--config',path.join(directory,'missing.env')]);

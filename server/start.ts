@@ -25,6 +25,12 @@ export async function startServer({root,variables=process.env,localAccess=false}
    finally{await release();}
   })();
  }
+ function listen(host:string){
+  return new Promise<void>((resolve,reject)=>{
+   server.once('error',reject);
+   server.listen(config.port,host,()=>{server.off('error',reject);resolve();});
+  });
+ }
  function stop(){
   if(stopping)return;stopping=true;
   app.stopGeneration();
@@ -34,10 +40,12 @@ export async function startServer({root,variables=process.env,localAccess=false}
   void Promise.all([closed,stopCodexProcesses()]).then(closeApplication).then(()=>process.exit(0));
  }
  try{
-  await new Promise<void>((resolve,reject)=>{
-   server.once('error',reject);
-   server.listen(config.port,config.host,()=>{server.off('error',reject);resolve();});
-  });
+  // macOS permits wildcard and loopback binds to coexist; keep the printed local URL on this service.
+  if(config.host==='0.0.0.0'){
+   await listen('127.0.0.1');
+   await new Promise<void>(resolve=>server.close(()=>resolve()));
+  }
+  await listen(config.host);
  }catch(error){await closeApplication();throw error;}
  for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,stop);
  server.on('error',error=>{

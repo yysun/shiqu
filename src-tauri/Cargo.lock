@@ -3168,7 +3168,7 @@ dependencies = [
 
 [[package]]
 name = "shiqu-desktop"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "fs2",
  "rusqlite",

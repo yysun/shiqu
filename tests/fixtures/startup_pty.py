@@ -15,6 +15,7 @@ import tempfile
 import time
 import unittest
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 REPO = Path(sys.argv[1]).resolve()
 NODE = Path(sys.argv[2]).resolve()
@@ -75,6 +76,18 @@ class Terminal:
     def send(self, value):
         os.write(self.master, value.encode())
 
+    def request_json(self, url):
+        def request():
+            with urllib.request.urlopen(url, timeout=5) as response:
+                return json.load(response)
+
+        # A real terminal keeps draining output while a phone/browser makes an HTTP request.
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(request)
+            while not pending.done():
+                self.read()
+            return pending.result()
+
     def finish(self, expected=0):
         deadline = time.monotonic() + 10
         while self.child.poll() is None and time.monotonic() < deadline:
@@ -92,9 +105,10 @@ class Terminal:
             return
         if self.child.poll() is None:
             self.child.send_signal(signal.SIGTERM)
-            try:
-                self.child.wait(timeout=5)
-            except subprocess.TimeoutExpired:
+            deadline = time.monotonic() + 5
+            while self.child.poll() is None and time.monotonic() < deadline:
+                self.read()
+            if self.child.poll() is None:
                 # This process group belongs only to the child created above.
                 os.killpg(self.child.pid, signal.SIGKILL)
                 self.child.wait(timeout=5)
@@ -194,8 +208,7 @@ class StartupTerminalTests(unittest.TestCase):
                 self.choose(child, provider, "test-only-" + provider)
                 child.expect("拾趣: http://")
                 if provider != "codex":
-                    with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/reader/status", timeout=5) as response:
-                        status = json.load(response)
+                    status = child.request_json(f"http://127.0.0.1:{port}/api/reader/status")
                     self.assertEqual(status["provider"], provider)
                 self.assertNotIn(("test-only-" + provider).encode(), child.output)
                 child.close()

@@ -19,7 +19,7 @@ pnpm npm:smoke
 `npm:smoke` installs the actual tarball into a temporary directory using pnpm, then invokes the installed executable directly from an unrelated directory. It needs access to the npm registry or a populated pnpm store. It checks the packaged assets/book sources, HTTP/API, configuration, persistence after restart, desktop-compatible library discovery, first-run non-interactive errors, access boundaries, and clean shutdown without invoking a generation provider. Pass a tarball path to check a specific artifact:
 
 ```bash
-pnpm npm:smoke /absolute/path/to/apprun-shiqu-0.4.0.tgz
+pnpm npm:smoke /absolute/path/to/apprun-shiqu-0.4.1.tgz
 ```
 
 Use `pnpm npm:smoke --offline` when the dependencies are already in the pnpm store.

@@ -13,7 +13,8 @@ Turn Chinese classics into your own illustrated storybooks. Read in your browser
 | You want generation and reading access to continue after closing the control window | Desktop app: stays in the system tray until you stop the service or quit the app |
 | You need startup parameters, environment overrides, or non-interactive operation | CLI: prepare provider configuration and a library path in advance |
 | You use Linux, an Intel Mac, or Windows ARM64 | CLI: install Node 24 yourself; no desktop installer is provided for these platforms. Windows supports API providers or read-only mode |
-| You want QR codes for phone access or built-in internet tunnel controls | Desktop app: internet access requires a separate cloudflared installation. CLI supports trusted LAN access with `--host 0.0.0.0`, without a built-in internet tunnel |
+| You want phone access on the same Wi-Fi | Both entries: CLI prints phone QR codes on startup; desktop shows them in its control window |
+| You need built-in internet tunnel controls | Desktop app: requires a separate cloudflared installation. CLI has no built-in internet tunnel |
 
 **Shared features:** Both entry points provide the same browser interface for story creation, generation queues, pause/resume, reading, library organization, and PDF / PNG export. The desktop window adds library, queue, settings, and service controls; full reading and story creation happen in the browser. Both support OpenAI API, Gemini, and read-only mode. Codex generation is supported on macOS / Linux and requires a separately installed, logged-in Codex CLI; the Shiqu CLI and Codex CLI are different tools.
 
@@ -35,7 +36,7 @@ Requires **Node 24** (recommended: 24.22.1) and its bundled npm / npx. No separa
 npx @apprun/shiqu
 ```
 
-On first use, npx may ask to download the package; confirm to continue. Open the printed URL, normally `http://127.0.0.1:3000`. Keep the terminal running; stop with Ctrl+C. No checkout, build, Docker, or desktop app is needed.
+On first use, npx may ask to download the package; confirm to continue. Open the printed URL, normally `http://127.0.0.1:3000`, or scan a terminal QR code from a phone on the same trusted Wi-Fi. LAN access is enabled by default. Keep the terminal running; stop with Ctrl+C. No checkout, build, Docker, or desktop app is needed.
 
 If you already use pnpm, `pnpm dlx @apprun/shiqu` starts the same app. You can also install it globally with pnpm for a permanent `shiqu` command:
 
@@ -83,14 +84,14 @@ No `.env` is loaded automatically. Existing shell variables beat the selected fi
 
 ```bash
 npx @apprun/shiqu --port 3100 --data-dir ./my-library
-npx @apprun/shiqu --host 0.0.0.0
+pnpm dlx @apprun/shiqu --host 127.0.0.1
 npx @apprun/shiqu --version
 ```
 
 | Option | Environment | Default |
 | --- | --- | --- |
 | `--port` | `PORT` | `3000` |
-| `--host` | `SHIQU_BIND_IP` | `127.0.0.1` |
+| `--host` | `SHIQU_BIND_IP` | `0.0.0.0` (LAN access) |
 | `--data-dir` | `SHIQU_DATA_DIR` | Saved desktop library; otherwise find or ask below |
 | `--config` | — | No env file |
 
@@ -112,7 +113,7 @@ Relative paths resolve from the launch directory. Both entries use the same SQLi
 
 Older CLI releases used `shiqu/library` rather than `com.shiqu.desktop/library` (Windows used LOCALAPPDATA, falling back to APPDATA). Existing data is never moved or merged automatically; pass the old directory with `--data-dir` to continue using it. CLI and desktop now share saved credentials; explicit invocation overrides remain separate and are not saved.
 
-Loopback is the default. `--host 0.0.0.0` enables access from other devices on a trusted LAN; every connected device shares the library and generation permissions. Keep the computer awake while reading from a phone. This CLI does not provide the desktop app's internet tunnel or native control window.
+The CLI listens on `0.0.0.0` by default and prints LAN URLs and phone QR codes when a network interface is available. Every connected device shares the library and generation permissions; use a trusted LAN. Use `--host 127.0.0.1` (or `SHIQU_BIND_IP=127.0.0.1`) for local-only access without phone QR codes. Keep the computer awake while reading from a phone. This CLI does not provide the desktop app's internet tunnel or native control window.
 
 ## Sources and license
 

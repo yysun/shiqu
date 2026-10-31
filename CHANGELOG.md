@@ -4,6 +4,18 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## 0.4.1 - 2026-10-31
+
+### Changed
+
+- CLI 默认监听 `0.0.0.0`，启动后直接打印局域网地址和手机扫码二维码，无需额外指定 `--host`；仍可用 `--host 127.0.0.1` 或 `SHIQU_BIND_IP=127.0.0.1` 限制为本机访问。
+- 同步 CLI 帮助、README 与使用指南，说明默认局域网访问和所有连接设备共享书架及生成权限的行为。
+
+### Fixed
+
+- 启动时先探测本机端口，避免 macOS 允许通配地址与已占用的回环地址并存，导致打印的本机网址打开另一服务。
+- 终端交互测试在 HTTP 检查及退出期间持续读取输出，避免二维码填满伪终端缓冲区后阻塞服务。
+
 ## [0.4.0](https://github.com/yysun/shiqu/releases/tag/v0.4.0) - 2026-10-31
 
 新增免克隆代码的 CLI 启动入口与 Windows 桌面安装包，统一 CLI / 桌面服务配置，支持 OpenAI API，并完善暂停编辑、最新版书架和阅读导航。

@@ -1,7 +1,7 @@
 # Native settings/credentials stay in private SQLite; the shell supervises verified bundled Node.
 [package]
 name = "shiqu-desktop"
-version = "0.4.0"
+version = "0.4.1"
 description = "Shiqu desktop control panel"
 license = "Apache-2.0"
 edition = "2021"

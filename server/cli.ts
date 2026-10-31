@@ -12,7 +12,7 @@ const help = `Usage: shiqu [options]
 Start 拾趣 and open the printed URL in your browser. Requires Node 24.
 
   --port <number>       HTTP port (PORT, default: 3000)
-  --host <address>      Bind address (SHIQU_BIND_IP, default: 127.0.0.1)
+  --host <address>      Bind address (SHIQU_BIND_IP, default: 0.0.0.0)
   --data-dir <path>     Persistent library (SHIQU_DATA_DIR, saved desktop library, otherwise ask)
   --config <env-file>   Load this env file; existing environment variables take precedence
   --configure          Select/edit the shared saved provider, then exit
@@ -21,7 +21,8 @@ Start 拾趣 and open the printed URL in your browser. Requires Node 24.
   -v, --version        Show version
 
 Relative paths use the directory you launched from. No .env file is loaded automatically.
-Use --host 0.0.0.0 for trusted LAN access; connected devices share the library.
+LAN access and phone QR codes are enabled by default; use the same trusted Wi-Fi.
+Connected devices share the library. Use --host 127.0.0.1 for local-only access.
 Saved provider settings are shared with the desktop app. First use asks for setup.
 Environment/config overrides apply to this invocation only and are never saved automatically.
 `;
