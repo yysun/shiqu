@@ -1,5 +1,5 @@
-# Build shared assets once, then package both native macOS editions before publishing a release.
-name: Desktop macOS
+# Build shared assets once per native platform; publish only after all four installers pass.
+name: Desktop
 
 on:
   push:
@@ -13,16 +13,25 @@ permissions:
 
 jobs:
   build:
-    name: Standard + Lite / macOS arm64
-    runs-on: macos-15
+    name: Standard + Lite / ${{ matrix.platform }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: macos-15, platform: macos, arch: arm64}
+          - {os: windows-2022, platform: windows, arch: x64}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     env:
-      ARCH: arm64
+      ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          architecture: arm64
+          architecture: ${{ matrix.arch }}
           package-manager-cache: false
       - name: Check native architecture and release version
         env:
@@ -53,6 +62,11 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+        if: runner.os == 'macOS'
+      # Codex CLI integration fixtures use Unix executables; Windows ships Gemini only.
+      - name: Test Windows desktop runtime
+        if: runner.os == 'Windows'
+        run: node --experimental-strip-types --test tests/desktop-*.test.mjs tests/library-directory.test.mjs
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - name: Build shared reader, desktop UI, and runtime resources
         run: |
@@ -60,6 +74,7 @@ jobs:
           pnpm exec vite build --config desktop/vite.config.ts
           node scripts/desktop-resources.mjs
       - name: Test and package Standard, then Lite
+        if: runner.os == 'macOS'
         run: |
           shopt -s nullglob
           mkdir -p release-assets
@@ -103,19 +118,76 @@ jobs:
             fi
             cp "${installers[0]}" "release-assets/shiqu-$EDITION-macos-$ARCH.dmg"
           done
+      - name: Test, package, install, and smoke Windows Standard, then Lite
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # PowerShell does not throw on native nonzero exits by default.
+          function Invoke-Checked {
+            param([string]$Command, [string[]]$Arguments)
+            & $Command @Arguments
+            if ($LASTEXITCODE -ne 0) { throw "$Command failed with exit code $LASTEXITCODE" }
+          }
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          foreach ($edition in @('standard', 'lite')) {
+            $payloadPath = 'desktop/resources/runtime/payload.json'
+            $payload = Get-Content $payloadPath -Raw | ConvertFrom-Json
+            $payload.edition = $edition
+            $payload.nodeBundled = $edition -eq 'standard'
+            $payload | ConvertTo-Json -Depth 10 | Set-Content $payloadPath -Encoding utf8
+            $config = @{}
+            $testScript = 'desktop:test'
+            if ($edition -eq 'standard') {
+              Invoke-Checked node @('scripts/desktop-node.mjs')
+            } else {
+              Remove-Item desktop/resources/node -Recurse -Force
+              $config = Get-Content src-tauri/tauri.lite.conf.json -Raw | ConvertFrom-Json -AsHashtable
+              $testScript = 'desktop:test:lite'
+            }
+            # Platform config is auto-merged by Tauri; only skip the repeated preparation hook.
+            if (!$config.ContainsKey('build')) { $config.build = @{} }
+            $config.build.beforeBuildCommand = ''
+            $env:TAURI_CONFIG = $config | ConvertTo-Json -Depth 10 -Compress
+            $configPath = Join-Path $env:RUNNER_TEMP 'shiqu-tauri-ci.json'
+            $env:TAURI_CONFIG | Set-Content $configPath -Encoding utf8
+            Invoke-Checked pnpm @('run', $testScript)
+            Invoke-Checked pnpm @('run', 'desktop:build', '--config', $configPath, '--ci', '--no-sign', '--bundles', 'nsis')
+            $installers = @(Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe)
+            if ($installers.Count -ne 1) { throw 'Expected exactly one NSIS installer for this edition' }
+            $installer = $installers[0].FullName
+            $destination = Join-Path $env:RUNNER_TEMP "shiqu installed $edition"
+            # NSIS requires /D last, without quotes, even when the destination contains spaces.
+            $installed = Start-Process -FilePath $installer -ArgumentList "/S /D=$destination" -Wait -PassThru
+            if ($installed.ExitCode -ne 0) { throw "Installer failed: $($installed.ExitCode)" }
+            try {
+              if (!(Test-Path "$destination/shiqu-desktop.exe")) { throw 'Installed desktop executable is missing' }
+              Invoke-Checked pnpm @('run', 'desktop:smoke', "$destination/runtime")
+              Copy-Item $installer "release-assets/shiqu-$edition-windows-x64-setup.exe"
+            } finally {
+              $uninstaller = Join-Path $destination 'uninstall.exe'
+              if (Test-Path $uninstaller) {
+                # _?= keeps the NSIS uninstaller in this process so -Wait covers cleanup.
+                $removed = Start-Process -FilePath $uninstaller -ArgumentList "/S _?=$destination" -Wait -PassThru
+                if ($removed.ExitCode -ne 0) { throw "Uninstaller failed: $($removed.ExitCode)" }
+              }
+            }
+            # Keep each edition's discovery unambiguous on the next iteration.
+            Remove-Item $installer
+          }
       - uses: actions/upload-artifact@v6
         with:
-          name: shiqu-standard-macos-arm64
-          path: release-assets/shiqu-standard-macos-arm64.dmg
+          name: shiqu-standard-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-assets/shiqu-standard-*
           if-no-files-found: error
       - uses: actions/upload-artifact@v6
         with:
-          name: shiqu-lite-macos-arm64
-          path: release-assets/shiqu-lite-macos-arm64.dmg
+          name: shiqu-lite-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-assets/shiqu-lite-*
           if-no-files-found: error
 
   release:
-    name: Publish macOS release
+    name: Publish desktop release
     needs: build
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-15
@@ -128,7 +200,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v7
         with:
-          pattern: shiqu-*-macos-*
+          pattern: shiqu-*
           merge-multiple: true
           path: release-assets
       - name: Verify all downloads and generate checksums
@@ -136,8 +208,9 @@ jobs:
         run: |
           for edition in standard lite; do
             test -s "shiqu-$edition-macos-arm64.dmg"
+            test -s "shiqu-$edition-windows-x64-setup.exe"
           done
-          shasum -a 256 shiqu-*-macos-*.dmg > SHA256SUMS.txt
+          shasum -a 256 shiqu-*-macos-*.dmg shiqu-*-windows-*.exe > SHA256SUMS.txt
       - name: Upload all installers before publishing
         working-directory: release-assets
         run: |
@@ -149,7 +222,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --verify-tag --draft \
               --title "Shiqu $RELEASE_TAG" --generate-notes \
-              --notes 'Unsigned macOS installers for Apple Silicon (arm64). Standard includes Node; Lite requires Node 24. macOS 13.5 or later is required. These apps are not notarized; macOS may require approval in System Settings > Privacy & Security. SHA-256 checksums are included in SHA256SUMS.txt.'
+              --notes 'Unsigned installers for macOS Apple Silicon (arm64, macOS 13.5+) and Windows x64 (Windows 10/11). Standard includes Node; Lite requires Node 24. Windows supports Gemini only and needs WebView2 (downloaded by the installer if missing). macOS apps are not notarized; Windows SmartScreen may show a warning. SHA-256 checksums for all four installers are included in SHA256SUMS.txt.'
           fi
-          gh release upload "$RELEASE_TAG" ./*.dmg SHA256SUMS.txt --clobber
+          gh release upload "$RELEASE_TAG" ./*.dmg ./*.exe SHA256SUMS.txt --clobber
           gh release edit "$RELEASE_TAG" --draft=false

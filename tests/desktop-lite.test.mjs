@@ -40,13 +40,13 @@ test('direct access needs no cookies and rejects foreign origins/hosts and nativ
  assert.equal((await restarted.handle(new Request(origin+'/api/stories'))).status,200);
 });
 test('desktop settings reject unknown secrets/invalid models and isolate environment variables',()=>{
- const valid=settings('/tmp/library');desktopSettings.parse(valid);
+ const valid=settings(path.join(os.tmpdir(),'library'));desktopSettings.parse(valid);
  assert.throws(()=>desktopSettings.parse({...valid,key:'should-not-be-a-setting'}));
  assert.throws(()=>desktopSettings.parse({...valid,textModel:'../model'}));
  const vars=desktopVariables(valid,'private-only');assert.equal(vars.GEMINI_API_KEY,'private-only');assert.equal(vars.OPENAI_API_KEY,undefined);assert.equal(vars.SHIQU_DATA_DIR,undefined);
 });
 test('desktop effort defaults for old settings and maps explicit choices to the runner environment',()=>{
- const legacy=settings('/tmp/library');
+ const legacy=settings(path.join(os.tmpdir(),'library'));
  assert.equal(desktopSettings.parse(legacy).codexReasoningEffort,'');
  for(const effort of ['','low','medium','high','xhigh','max']){
   const parsed=desktopSettings.parse({...legacy,codexReasoningEffort:effort});
@@ -55,7 +55,7 @@ test('desktop effort defaults for old settings and maps explicit choices to the 
  for(const effort of ['light','LOW',null,'none'])assert.throws(()=>desktopSettings.parse({...legacy,codexReasoningEffort:effort}));
 });
 test('connection test uses only model metadata, does not echo credentials, and no-key checks never make requests',async()=>{
- const config=settings('/tmp/library');let calls=0;
+ const config=settings(path.join(os.tmpdir(),'library'));let calls=0;
  const none=await testDesktopProvider(config,'','/tmp',async()=>{calls++;throw Error();});assert.equal(none.ok,false);assert.equal(calls,0);
  const result=await testDesktopProvider(config,'private-test-key','/tmp',async(url,options)=>{
   calls++;assert.match(url,/\/models\/test-(text|image)$/);assert.equal(options.headers['x-goog-api-key'],'private-test-key');assert.equal(options.method,undefined);return Response.json({name:'model'});

@@ -418,7 +418,7 @@ mod tests {
         let info = node_info("/shiqu-system-node-must-not-be-used", &root).unwrap();
         assert_eq!(info.version, include_str!("../../.nvmrc").trim());
         assert_eq!(
-            PathBuf::from(info.path),
+            fs::canonicalize(PathBuf::from(info.path)).unwrap(),
             fs::canonicalize(root.parent().unwrap().join("node").join(if cfg!(windows) {
                 "node.exe"
             } else {

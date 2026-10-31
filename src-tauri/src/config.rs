@@ -513,8 +513,11 @@ mod tests {
             settings.task_reasoning_efforts.values(),
             ["medium", "low", "medium", "high", "high", "high", "high"]
         );
-        settings.provider = "codex".into();
-        settings.task_reasoning_efforts.review = "xhigh".into();
+        // Windows supports Gemini only; retain the extended Codex check on other hosts.
+        let provider = if cfg!(windows) { "gemini" } else { "codex" };
+        let review = if cfg!(windows) { "high" } else { "xhigh" };
+        settings.provider = provider.into();
+        settings.task_reasoning_efforts.review = review.into();
         settings.task_reasoning_efforts.art = "medium".into();
         store
             .save(&settings, KeyChange::Set("disposable-task-key"))
@@ -523,16 +526,18 @@ mod tests {
         let mut store = Store::open(&file, &folder).unwrap();
         assert_eq!(
             store.settings().unwrap().task_reasoning_efforts.review,
-            "xhigh"
+            review
         );
         assert_eq!(
             store.settings().unwrap().task_reasoning_efforts.art,
             "medium"
         );
         settings.provider = "gemini".into();
+        settings.task_reasoning_efforts.review = "xhigh".into();
         assert!(store.save(&settings, KeyChange::Delete).is_err());
         assert_eq!(store.key().unwrap(), "disposable-task-key");
-        settings.provider = "codex".into();
+        settings.provider = provider.into();
+        settings.task_reasoning_efforts.review = review.into();
         settings.task_reasoning_efforts.plan = "invalid".into();
         assert!(store.save(&settings, KeyChange::Delete).is_err());
         assert_eq!(
@@ -707,6 +712,22 @@ mod tests {
         settings.text_model = "valid".into();
         settings.port = 80;
         assert!(settings.validate().is_err());
+    }
+    #[cfg(windows)]
+    #[test]
+    fn windows_rejects_codex_without_changing_saved_gemini_settings() {
+        let folder = folder();
+        let mut store = Store::open(&folder.join("desktop.sqlite"), &folder).unwrap();
+        let mut settings = store.settings().unwrap();
+        store
+            .save(&settings, KeyChange::Set("windows-test-key"))
+            .unwrap();
+        settings.provider = "codex".into();
+        assert!(store.save(&settings, KeyChange::Delete).is_err());
+        assert_eq!(store.settings().unwrap().provider, "gemini");
+        assert_eq!(store.key().unwrap(), "windows-test-key");
+        drop(store);
+        fs::remove_dir_all(folder).unwrap();
     }
     #[cfg(unix)]
     #[test]

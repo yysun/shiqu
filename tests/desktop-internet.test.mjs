@@ -70,7 +70,7 @@ test('paired NDJSON responses preserve incremental reader output',async()=>{
 });
 test('legacy LAN settings never silently enable Internet access',()=>{
  for(const lanEnabled of [true,false]){
-  const settings=desktopSettings.parse({dataDirectory:'/tmp/library',port:3000,lanEnabled,provider:'gemini',textModel:'test',imageModel:'test',codexPath:'',codexModel:'',codexHome:''});
+  const settings=desktopSettings.parse({dataDirectory:path.join(os.tmpdir(),'library'),port:3000,lanEnabled,provider:'gemini',textModel:'test',imageModel:'test',codexPath:'',codexModel:'',codexHome:''});
   assert.equal(settings.internetEnabled,false);assert.equal(settings.cloudflaredPath,'');
  }
 });
