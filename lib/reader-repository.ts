@@ -65,15 +65,17 @@ export class ReaderRepository{
  async control(id:string,uid:string,action:ProductionAction,handoffOnly=false){
   const row=await this.get(id,uid);
   const revision=(JSON.parse(row.document) as Document).revision;
-  if((action==='resume'||action==='background')&&await this.superseded(id,uid))throw new ReaderError(409,latestVersionMessage);
+  const startsGeneration=action==='resume'||action==='background';
+  if(startsGeneration&&await this.superseded(id,uid))throw new ReaderError(409,latestVersionMessage);
   if(handoffOnly&&!revision?.handoff)return row;
   if(row.state==='completed')throw new ReaderError(409,'故事已完整生成，无需更改生成方式。');
   // Resume always continues the whole story; other legacy actions change only their own field.
   const field=action==='background'||action==='reader'?'generation_mode':'generation_control';
   const value=action==='pause'?'paused':action==='stop'?'stopped':action==='resume'?'active':action;
   const assignment=action==='resume'?"generation_mode='background',generation_control=?":`${field}=?`;
-  await this.db.prepare(`UPDATE reader_sessions SET ${assignment}${revision&&(action==='resume'||action==='pause')?",document=json_remove(document,'$.revision.handoff')":''} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}${handoffOnly?" AND json_extract(document,'$.revision.handoff')=1":''}`)
+  const result=await this.db.prepare(`UPDATE reader_sessions SET ${assignment}${revision&&(action==='resume'||action==='pause')?",document=json_remove(document,'$.revision.handoff')":''} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}${startsGeneration?` AND NOT ${supersededSql()}`:''}${handoffOnly?" AND json_extract(document,'$.revision.handoff')=1":''}`)
    .bind(value,id,uid).run();
+  if(startsGeneration&&!result.meta.changes&&await this.superseded(id,uid))throw new ReaderError(409,latestVersionMessage);
   return this.get(id,uid);
  }
  async saveOriginal(row:SessionRow,original:OriginalSource){

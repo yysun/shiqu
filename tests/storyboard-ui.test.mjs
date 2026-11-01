@@ -25,6 +25,10 @@ test('reader renders saved directory, batch range, honest progress and 80-frame 
  assert.match(retry,/继续自动修复/);assert.match(retry,/仍有 1 项待修订/);assert.match(retry,/第 2 幅动作不清楚/);
  const reviewProps={session:{...blocked,story:{original:{},pages:[{}]},reviewIssues:[{page:18,problem:'收尾缺少对应动作。',instruction:'补上掩面作哭状。'}],generationProgress:{...blocked.generationProgress,reviewStopReason:'limit',repairPasses:20,reviewAudits:21}},busy:false,error:'',onRetry(){},onScript(){},onEdit(){},onDrawAnyway(){}};
  const tools=renderToStaticMarkup(createElement(Review,reviewProps));
+ const trimmed={...reviewProps.session,story:{pages:[{image:'/api/reader/images/saved.webp'}]},generationProgress:{...reviewProps.session.generationProgress,sourceReady:true}};
+ const shelfTools=renderToStaticMarkup(createElement(Review,{...reviewProps,session:trimmed}));
+ assert.match(shelfTools,/收尾缺少对应动作/);assert.match(shelfTools,/继续自动修复/);
+ assert.equal(renderToStaticMarkup(createElement(Review,{...reviewProps,session:{...trimmed,story:null}})),'');
  assert.match(tools,/已完成 20 轮自动修复，复核仍未通过/);assert.match(tools,/已修复 20 轮 · 已审核 21 次/);
  assert.match(tools,/本次最多 20 轮/);assert.match(tools,/<button[^>]*class="yu-primary"[^>]*>.*继续自动修复/);assert.match(tools,/手动修改/);assert.match(tools,/跳过问题并绘图/);assert.match(tools,/<details><summary>修订建议/);
  const combined=renderToStaticMarkup(createElement(Status,{session:reviewProps.session,reviewActionsInContent:true,busy:false,error:blocked.error,onRetry(){},onBack(){}},createElement(Review,reviewProps)));

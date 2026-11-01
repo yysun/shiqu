@@ -201,6 +201,8 @@ Today's behaviour, checked on commit `8924e5d` with Node 24.22.1:
 ### Verification and documentation
 
 - [x] SS focused checks: `pnpm typecheck`, `pnpm lint`, and the 11 named regression files recorded in Evidence on Node 24.22.1.
+- [x] VR round 1 correction: fence `resume` and `background` control writes with the newest-version SQL predicate; a newer child inserted immediately before the UPDATE must produce 409 and preserve the parent row. Both HTTP interleavings reproduced 200 before the fix and now pass.
+- [x] Persist the trimmed-review and null-story rendering regressions in `tests/storyboard-ui.test.mjs`.
 - [ ] TT: the full `pnpm test` on Node 24.22.1 (standalone SS does not run TT).
 - [ ] Run [test-production-queue-hardening.md](../../../../tests/test-production-queue-hardening.md).
 - [x] Update `.docs/story-creation-editing-queue.md`: pool table, atomic publication flow, checkpoint reuse, stale-version rules and affected implementation links. Preserve unrelated development/user-guide edits.
@@ -269,6 +271,8 @@ CR risk: non-low — changes affect paid-work eligibility, concurrent scheduling
 CR review round: 1; reviewer: new
 
 Standalone SS stops here. TT, ET and acceptance/VR checkboxes remain downstream, not silently marked complete. Unrelated entry edits to `.docs/development.md` and `.docs/user-guide.md`, and concurrent `.gitignore`, `lib/reader-zip.ts`, `tests/reader-zip.test.mjs` changes were left unstaged and untouched.
+
+RPD resumed after the user's explicit continuation. Initial full TT passed 802 tests on Node 24.22.1 / pnpm 11.25.0. Independent VR round 1 found a control-write race: publication between the supersession lookup and resume/background UPDATE returned 200 and changed the old row. The paid-start guards still prevented old generation. Both real HTTP interleavings reproduced the defect; the UPDATE now includes the authoritative latest-version predicate, and a superseded refused write returns 409 without changing the old row. Focused revision/control verification passed 44 tests, typecheck and lint. Final TT, ET and independent review follow this correction; earlier TT does not certify the changed code.
 
 AR passed: no blocking architecture flaws (round 5, full review of this design by the reused independent reviewer). Its non-blocking corrections were applied afterward without another review round. They are the eligibility wording, the extra `demands`, `viewedPublicationPending` and `basis` checks, the old-version note, `wake()`, rollback SQL, test line numbers and scenario setups.
 

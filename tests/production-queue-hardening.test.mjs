@@ -29,6 +29,36 @@ test('derived eligibility includes deleted children and ignores corrupt unrelate
  await assert.rejects(repo.control(id,owner,'resume'),error=>error.status===409);
  assert.equal((await repo.list(owner)).some(row=>row.id===id),false);
 });
+for(const action of ['resume','background'])test(`concurrent publication fences ${action} control without changing the old version`,async t=>{
+ const {f,repo,id,owner}=await seeded(t);
+ const {ReaderProductionCoordinator}=await import('../server/reader-production.ts');
+ const coordinator=new ReaderProductionCoordinator(repo.db,f.generation,f.media,{tickMs:3600000});
+ coordinator.queue.pump=async()=>{};f.coordinators.push(coordinator);f.app.services.production=coordinator;
+ await repo.db.prepare("UPDATE reader_sessions SET generation_mode='reader' WHERE id=?").bind(id).run();
+ const before=await repo.get(id,owner),prepare=repo.db.prepare.bind(repo.db);
+ let published=false;
+ repo.db.prepare=sql=>{
+  const statement=prepare(sql);
+  if(sql.startsWith('UPDATE reader_sessions SET generation_mode')){
+   const run=statement.run.bind(statement);
+   statement.run=async()=>{
+    repo.db.prepare=prepare;
+    const child=crypto.randomUUID();await repo.create(child,owner,selection);
+    await prepare('UPDATE reader_sessions SET document=? WHERE id=?').bind(JSON.stringify({revision:{rootId:id,number:2}}),child).run();
+    published=true;
+    return run();
+   };
+  }
+  return statement;
+ };
+ t.after(()=>{repo.db.prepare=prepare;});
+ const response=await f.request(`sessions/${id}/production-control`,'POST',{action});
+ assert.equal(published,true);
+ assert.equal(response.status,409);
+ assert.match((await response.json()).error,/最新版本/);
+ assert.deepEqual(await repo.get(id,owner),before);
+ assert.equal(f.control.calls.length,0);
+});
 test('every old-version start point refuses without changing attempts or documents',async t=>{
  const {f,repo,id,owner}=await seeded(t);
  const child=crypto.randomUUID();await repo.create(child,owner,selection);
