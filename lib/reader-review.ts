@@ -1,4 +1,4 @@
-// Audit the title, scenes and separate ending against the full source; scope scene repairs by frame.
+// Audit the full main event, opening, title and ending; structural omissions stop frame-scoped repairs.
 import {normalizeProductionPrompt} from './reader-prompts.ts';
 import {z} from 'zod';
 import {planSchema,reflectionCandidatesSchema} from './reader-model.ts';
@@ -8,24 +8,25 @@ import type {OriginalSource} from './reader-source-types.ts';
 import type {Generated} from './reader-engine.ts';
 import {getArtStyle} from './reader-styles.ts';
 import {planSystemPrompt} from './reader-generation-contract.ts';
-import {narrativeMeaningDirection,reflectionMeaningDirection,editorialDirection,storyEditorialContext} from './reader-prompts.ts';
+import {narrativeMeaningDirection,reflectionMeaningDirection,editorialDirection,storyEditorialContext,storyScopeDirection,storyOpeningDirection} from './reader-prompts.ts';
 import {readerStoryboardBatchSize} from './reader-limits.ts';
 import {localPlanConstraint} from './reader-local-contract.ts';
 import type {ReasoningTask} from './reader-reasoning.ts';
 
 // Zero identifies the separate ending, never a frame. Positive saved frame IDs stay unchanged.
 const categories=['caption','action','composition','progression','continuity','source','style','reflection'] as const;
-const issueSchema=z.object({page:z.number().int().min(0),category:z.enum(categories),problem:z.string().trim().min(1).max(180),instruction:z.string().trim().min(1).max(400)});
+const issueSchema=z.object({page:z.number().int().min(0),category:z.enum(categories),problem:z.string().trim().min(1).max(180),instruction:z.string().trim().min(1).max(400),requiresReplan:z.boolean().optional()});
 export type ReviewIssue=z.infer<typeof issueSchema>;
 export type ReflectionChoice={index:number;reason:string};
 export type TitleReview={title:string;reason:string};
 export type ReviewReport={issues:ReviewIssue[];titleReview:TitleReview;reflectionChoice?:ReflectionChoice};
 // Historical review reports remain readable without title audit metadata.
-export type ReviewCheckpoint={overridden?:boolean;stopReason?:'limit'|'unchanged';history?:{round:number;requested:number[];changes:RepairedPage[];reflection?:string}[];status:'pending'|'repair'|'passed'|'blocked';round:number;repairs:number;issues:ReviewIssue[];repaired:number[];reports:{round:number;issues:ReviewIssue[];titleReview?:TitleReview&{previousTitle:string};reflectionChoice?:ReflectionChoice&{candidates:ReflectionCandidates}}[]};
+export type ReviewCheckpoint={overridden?:boolean;stopReason?:'limit'|'unchanged'|'replan';history?:{round:number;requested:number[];changes:RepairedPage[];reflection?:string}[];status:'pending'|'repair'|'passed'|'blocked';round:number;repairs:number;issues:ReviewIssue[];repaired:number[];reports:{round:number;issues:ReviewIssue[];titleReview?:TitleReview&{previousTitle:string};reflectionChoice?:ReflectionChoice&{candidates:ReflectionCandidates}}[]};
 export type RepairedPage={page:number;caption:string;prompt:string};
 export function reviewReportSchema(count:number,candidates?:ReflectionCandidates){return z.object({titleReview:z.object({title:planSchema.shape.title.trim().min(1),reason:z.string().trim().min(1).max(400)}),issues:z.array(issueSchema.extend({page:z.number().int().min(0).max(count)})).max(count+1),reflectionChoice:z.object({index:z.number().int().min(1).max(3),reason:z.string().trim().min(1).max(400)}).optional()}).superRefine((report,ctx)=>{
  if(new Set(report.issues.map(issue=>issue.page)).size!==report.issues.length)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Duplicate review page'});
  if(report.issues.some(issue=>(issue.page===0)!==(issue.category==='reflection')))ctx.addIssue({code:z.ZodIssueCode.custom,message:'Reflection issues must target the ending; frame issues require positive pages'});
+ if(report.issues.some(issue=>issue.requiresReplan&&(issue.page===0||issue.category!=='progression')))ctx.addIssue({code:z.ZodIssueCode.custom,message:'Replanning issues must identify a positive frame and progression problem'});
  if(!!candidates!==!!report.reflectionChoice)ctx.addIssue({code:z.ZodIssueCode.custom,message:'An ending choice is required only when candidates are supplied'});
 });}
 export function repairOutputSchema(pages:number[]){return z.object({pages:z.array(planSchema.shape.pages.element.extend({page:z.number().int().min(1)})).length(pages.length)}).superRefine((result,ctx)=>{
@@ -37,6 +38,7 @@ export function pendingRepairs(review:ReviewCheckpoint){
  const pages=pending.filter(page=>page>0).sort((a,b)=>a-b).slice(0,readerStoryboardBatchSize);
  return pages.length?pages:pending.includes(0)?[0]:[];
 }
+export const storyReplanMessage='故事主线或结局不完整，请修改制作要求或画幅数，重新编排故事。';
 export function newReview():ReviewCheckpoint{return {history:[],status:'pending',round:0,repairs:0,issues:[],repaired:[],reports:[]};}
 
 const string=(maxLength:number)=>({type:'string',minLength:1,maxLength});
@@ -46,6 +48,10 @@ const sourceFidelityDirection=`条件与适用范围：逐幅对照原文与前�
 发现上述问题时，使用原文忠实度（source）或配文（caption）类别，指出实际需要修改的幅，在问题说明（problem）中引用原文的条件或判断归属与配文的对应表达，说明删除了什么限定、把谁的看法变成了什么事实，以及会造成的误读；修订要求（instruction）指定补回哪层条件或归属，保留有效对白、潜台词和无问题的画面，不靠添加心理解说修补事实边界。即使该幅已发现语言或构图问题，也继续完成这两项核对，合并报告，不因修好一项就漏掉另一项。`;
 export const reviewSystemPrompt=`你是独立的静态连环画审片编辑，既校核准确性，也保护故事的表达。先完整阅读已核原文，再连读全篇配文（caption）并结合画面指令（prompt）理解画面，按“核心含义 → 分镜轻重 → 事实与连续性 → 语言”的顺序审核，不从逐句挑歧义开始。深化理解用于改善取舍和可见表达，不等于把理解到的含义全部写进旁白。
 表达方向：editorialContext 只参与标题审核和结语择优，不参与分镜、配文修订。分镜按原文与读者明确填写的制作要求审核，不因为选题主题缺少反转、成长、和解或某种寓意要求重写。
+${storyScopeDirection}
+${storyOpeningDirection}
+完整性先独立审核：先依据原文确认主事件的起因与自然终点，再检查 plan.pages 是否覆盖关键行动及其结果；有 outline 时也核对提纲是否已经截早，不能把错误提纲当作正确范围。不要仅核对已经写出的内容是否属实，也不要机械要求改编整章或所有支线。原文已有结果、分镜却停在铺垫、分离或中途冲突时，必须报告；不得因改编说明自称节选、选题名偏窄或换个标题就认可缺失。结语不能承载正文漏掉的情节。
+局部开场信息不足、缺少一句必要衔接等可在原有编排中修正的问题，按相应幅号报告，requiresReplan=false。主事件的重要阶段或结果整段缺失、必须重新分配全篇画幅才能修复时，报告 category="progression"、requiresReplan=true，page 标出截断或结构失衡最明显的一幅；problem 指明已核原文中遗漏的关键行动及结果，instruction 说明完整改编应覆盖的事件范围与应压缩的次要过程。此标记表示停止局部自动修补、要求重新编排，不能只要求末幅补一句结局、改结语或改标题。每条问题均返回 requiresReplan 布尔值，普通局部问题为 false。首幅开场也要按首次阅读者能否理解人物和当前处境审核，背景已经清楚时不为凑格式强加介绍。
 ${editorialDirection}
 标题审核：逐项核对当前标题与完整原文及 plan.pages 实际内容，区分定位片段名与完整故事范围。按入口规则检查准确性、可识别性及主题切入是否自然；不能为主题新增动机或把后续命运写进本篇。标题已经合适时保留，不为风格偏好改名；有范围不符、含混、误导或无依据扣题等实质问题时直接修正标题。返回 titleReview:{title,reason}，title 是审核后的最终标题，reason 简述保留的依据或原题具体问题与修正收益。修正后再次按原文与实际分镜核对，不改写其他元数据、分镜或配文，也不把标题问题记作某一画幅的问题。
 ${narrativeMeaningDirection}
@@ -59,7 +65,7 @@ ${reflectionMeaningDirection}
 相邻画面检查单独完成，不能因配文已有新论点或已经报告语言问题而跳过。对连续两幅分别指出可见瞬间与第一视觉焦点，比较主要动作、接触、物件状态和视线落点；相同场所、人物或景别本身不算错误。若两幅有不同论点，却仍是同一姿势对同一对象、焦点相同，仅换台词或景别，使用构图类别指出具体重复，保留两个论点，指定哪幅承载说话动作、哪幅承载动作结束、回应或另一可见焦点，不能只要求“换个角度”。若配文与画面合看也没有新任务，才按叙事推进问题处理。停顿有独立承接作用、动作收束或有意义的焦点转移时应保留，不机械要求每幅换姿势；仅写“平静、从容、留白”不足以排除重复。只有后幅需要改变时只报后幅；必须协同修改两幅时分别列出各幅问题与不同任务，不能要求修订器改动未列出的幅。
 类比检查：只读译写后的配文，能否指出两边分别是什么对象、状态或经历，作比较的关系是什么，“知道、不了解、相同、不同”等判断指向什么。常用字组成的对句仍可能含混，不因“已经现代化”就通过。引用具体含混处及原文关系，要求补最少必要对象或压缩重复举例；多组类比只重复支持同一论点时，允许保留完整易懂的一组，不要求每组都照译。原文中有独立论证层次、关键对应或人物口气的部分不能删；不得用心理解释或新增事实把比喻说圆。
 潜台词检查：结合前后幅的诱因、对白与可见反应判断读者能否理解，不要求每幅配文独立解释完整心理。语境已建立时，不因没有直说讥讽对象或情感动机而判错；旁白把本可体会的含义逐项解释、抹平言行反差时，应检查是否需要删减解说并保留必要事实。存在真实歧义时先用准确对白、最少语境或明确的反应解决，不能一律加“借此讥讽”“其实是因为”等解说，也不能以保留潜台词为由放过事实混淆。
-只报告有具体依据的实质表达损失、阅读障碍或事实错误，不按个人口味要求重写，不为显得认真凑问题。病句、指代不清及打断连读的机械重复仍须修订。只返回规定 JSON，字段名和类别枚举值保留规定的英文拼写，不输出核心分析或评分；问题列表（issues）为空才表示通过。画幅问题的幅号（page）从1开始；结语问题使用 category="reflection"、page=0，指向独立结束页。同一画幅或结语的多项问题合并为一条，问题说明（problem）和修订要求（instruction）覆盖该幅全部实质问题。问题说明引用原文、配文或画面指令证据并指出后果；修订要求必须说清删改哪句、保留哪句关键对白，或本幅应画谁在什么动作之后作出什么可见回应，以及哪些有效细节保持不变，不能只写“抓住核心”“加强冲突”“更有感染力”。需要相邻幅共同调整时逐幅列出各幅不同的可见瞬间，说明哪幅承接诱因、哪幅承接行动或回应，在保留事件顺序、总幅数与事实的前提下调整相关幅的画面重心；不能把结构问题降为一幅增加解释，也不能要求修订器改变未列出的幅或增删幅号。
+只报告有具体依据的实质表达损失、阅读障碍或事实错误，不按个人口味要求重写，不为显得认真凑问题。病句、指代不清及打断连读的机械重复仍须修订。只返回规定 JSON，字段名和类别枚举值保留规定的英文拼写，不输出核心分析或评分；问题列表（issues）为空才表示通过；需重新编排的问题也必须保留在 issues 中。画幅问题的幅号（page）从1开始；结语问题使用 category="reflection"、page=0，指向独立结束页。同一画幅或结语的多项问题合并为一条，问题说明（problem）和修订要求（instruction）覆盖该幅全部实质问题。问题说明引用原文、配文或画面指令证据并指出后果；修订要求必须说清删改哪句、保留哪句关键对白，或本幅应画谁在什么动作之后作出什么可见回应，以及哪些有效细节保持不变，不能只写“抓住核心”“加强冲突”“更有感染力”。需要相邻幅共同调整时逐幅列出各幅不同的可见瞬间，说明哪幅承接诱因、哪幅承接行动或回应，在保留事件顺序、总幅数与事实的前提下调整相关幅的画面重心；不能把结构问题降为一幅增加解释，也不能要求修订器改变未列出的幅或增删幅号。
 阅读结构：读者依次阅读 pages 中各幅配文，再在独立结束页阅读 plan.reflection。余味不属于末幅配文；制作要求中“最后一句”的总结或感想要求，应结合这个字段判断，不能因为末幅仍是对白、动作或停顿就认定缺少总结。结语问题使用 category="reflection"、page=0，针对当前结语的事实、立意或表达功能报告，可与画幅问题同时列出；不得把结语复制或塞进末幅，也不得用修改画幅来绕过结语修订。末幅自身有病句、事实错误或衔接问题时，仍按实际幅号报告。
 事实边界检查：${sourceFidelityDirection}
 语义检查：逐幅检查正文表达的关系，和重复标签检查分别完成。即使某幅已经因为机械转述需要修订，也要继续检查删掉标签后的句子是否说清谁对什么做了什么、哪种用途或操作失败、物件与容器或人物之间是什么关系。结合已核原文、该幅画面指令和相邻配文，判断读者会不会把操作受限误读成无处存放，把尺寸、位置、承受能力或用途混为一谈，或因对象、指代和必要成分被省略而无法理解动作与结果。存在实质歧义时，在问题说明点明可能的误读及上下文依据，修订要求用自然现代汉语说清具体关系，不能只删除转述标签、增加代词或照搬原来的含混说法。不要依赖读者自行翻译古文或阅读画面提示词来补足关键意思。允许自然省略、简洁表达和画面承担可见细节，只补影响理解的关系，不要求每幅复述背景或解释全部画面；上下文确实不足时不能猜补事实。
@@ -77,13 +83,13 @@ export function storyboardReviewGenerator(call:Call){
  return {
   async review(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,reflectionCandidates?:ReflectionCandidates){
    const candidates=reflectionCandidates?reflectionCandidatesSchema.parse(reflectionCandidates):undefined;
-   const count=plan.pages.length,schema={type:'object',properties:{titleReview:{type:'object',properties:{title:string(40),reason:string(400)},required:['title','reason'],additionalProperties:false},issues:{type:'array',maxItems:count+1,items:{type:'object',properties:{page:{type:'integer',minimum:0,maximum:count},category:{type:'string',enum:categories},problem:string(180),instruction:string(400)},required:['page','category','problem','instruction'],additionalProperties:false}},...(candidates?{reflectionChoice:{type:'object',properties:{index:{type:'integer',enum:[1,2,3]},reason:string(400)},required:['index','reason'],additionalProperties:false}}:{})},required:['issues','titleReview',...(candidates?['reflectionChoice']:[])],additionalProperties:false};
+   const count=plan.pages.length,schema={type:'object',properties:{titleReview:{type:'object',properties:{title:string(40),reason:string(400)},required:['title','reason'],additionalProperties:false},issues:{type:'array',maxItems:count+1,items:{type:'object',properties:{page:{type:'integer',minimum:0,maximum:count},category:{type:'string',enum:categories},problem:string(180),instruction:string(400),requiresReplan:{type:'boolean'}},required:['page','category','problem','instruction','requiresReplan'],additionalProperties:false}},...(candidates?{reflectionChoice:{type:'object',properties:{index:{type:'integer',enum:[1,2,3]},reason:string(400)},required:['index','reason'],additionalProperties:false}}:{})},required:['issues','titleReview',...(candidates?['reflectionChoice']:[])],additionalProperties:false};
    const result=await call('review',reviewSystemPrompt+(original.localSource?'\n'+localPlanConstraint:'')+(candidates?'\n本次候选择优要求优先于单句结语审核要求：'+reflectionChoiceDirection:''),{...payload(selection,plan,original,outline),editorialContext:storyEditorialContext(selection.theme),...(candidates?{reflectionCandidates:candidates}:{})},schema,16000,original);
    return {...result,value:reviewReportSchema(count,candidates).parse(result.value)};
   },
   async repair(selection:Selection,plan:Plan,original:OriginalSource,issues:ReviewIssue[],outline?:StoryboardOutline){
    const requestedPages=issues.map(issue=>issue.page);
-   if(requestedPages.some(page=>page<1)||!requestedPages.length||requestedPages.length>readerStoryboardBatchSize||new Set(requestedPages).size!==requestedPages.length)throw Error('INVALID_REPAIR_SCOPE');
+   if(issues.some(issue=>issue.requiresReplan)||requestedPages.some(page=>page<1)||!requestedPages.length||requestedPages.length>readerStoryboardBatchSize||new Set(requestedPages).size!==requestedPages.length)throw Error('INVALID_REPAIR_SCOPE');
    const schema={type:'object',properties:{pages:{type:'array',minItems:requestedPages.length,maxItems:requestedPages.length,items:{type:'object',properties:{page:{type:'integer',enum:requestedPages},caption:{type:'string',minLength:8,maxLength:90},prompt:{type:'string',minLength:20,maxLength:1800}},required:['page','caption','prompt'],additionalProperties:false}}},required:['pages'],additionalProperties:false};
    const result=await call('repair',planSystemPrompt+(original.localSource?'\n'+localPlanConstraint:'')+'\n事实边界检查：'+sourceFidelityDirection+'\n本次输出要求：'+repairDirection,{...payload(selection,plan,original,outline),issues,requestedPages},schema,Math.max(8192,requestedPages.length*800),original);
    return {...result,value:repairOutputSchema(requestedPages).parse(result.value).pages};

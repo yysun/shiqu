@@ -5,9 +5,10 @@ import {createRequire} from 'node:module';
 import {build} from 'esbuild';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
+import {defaultProductionPrompt} from '../lib/reader-prompts.ts';
 
 test('reader renders saved directory, batch range, honest progress and 80-frame controls',async()=>{
- const bundle=await build({stdin:{contents:"export {default as Status} from './client/ui/StoryGenerationStatus.tsx';export {default as Count} from './client/ui/StoryFrameCount.tsx';export {default as Retry} from './client/ui/StoryRetry.tsx';export {default as Review} from './client/ui/StoryReviewTools.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'}});
+ const bundle=await build({stdin:{contents:"export {default as Status} from './client/ui/StoryGenerationStatus.tsx';export {default as Count} from './client/ui/StoryFrameCount.tsx';export {default as Retry} from './client/ui/StoryRetry.tsx';export {default as Review} from './client/ui/StoryReviewTools.tsx';export {default as Editor} from './client/ui/StoryRevisionEditor.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'}});
  const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
  const {Status,Count,Retry,Review}=compiled.exports,session={id:'render',selection:{length:45},state:'running',productionState:'running',ready:0,story:null,error:null,stage:'正在编排第 21–40 幅分镜',awaitingFrameCount:false,frameRecommendation:null,generationProgress:{sourceReady:true,frameCountConfirmed:true,frameCount:45,phase:'plan',startedAt:Date.now(),attempt:1,storyboardFrames:20,storyboardBatch:{first:21,last:40}}};
  const status=renderToStaticMarkup(createElement(Status,{session,busy:false,error:'',onRetry(){},onBack(){}}));
@@ -35,6 +36,15 @@ test('reader renders saved directory, batch range, honest progress and 80-frame 
  assert.equal((combined.match(/继续自动修复/g)||[]).length,1,'Only the issue panel owns review recovery');assert.match(combined,/has-review-issues/);
  const unchanged=renderToStaticMarkup(createElement(Review,{...reviewProps,session:{...reviewProps.session,generationProgress:{reviewStopReason:'unchanged',repairPasses:1,reviewAudits:1}}}));
  assert.match(unchanged,/上次修订没有产生实际变化/);assert.doesNotMatch(unchanged,/复核仍未通过/);
+ const incomplete=renderToStaticMarkup(createElement(Review,{...reviewProps,onReplan(){},session:{...reviewProps.session,retryAllowed:false,reviewIssues:[{page:18,requiresReplan:true,problem:'缺少原文已有的结局。',instruction:'重新分配全篇画幅。'}],generationProgress:{reviewStopReason:'replan',repairPasses:0,reviewAudits:1}}}));
+ assert.match(incomplete,/调整要求并重新编排/);assert.match(incomplete,/整篇结构/);assert.match(incomplete,/局部自动修补与绘图已停止/);
+ assert.doesNotMatch(incomplete,/继续自动修复|手动修改第 18 幅|已完成 20 轮/);
+ const legacy=defaultProductionPrompt().replace('按原文自身的事件、人物与因果展开，不额外套入主题或要求反转。','用相遇、犹疑与错过的具体细节表现感情，克制煽情，让未说出口的话和选择留下余味。');
+ const editor={tab:'requirements',base:{selection:{artStyle:'chibi',theme:'爱情与错过',productionPrompt:legacy,length:18},plan:null},changes:{},impact:null,setTab(){},setChanges(){}};
+ const neutral=renderToStaticMarkup(createElement(compiled.exports.Editor,{editor}));
+ assert.match(neutral,/按原文自身的事件、人物与因果展开/);assert.doesNotMatch(neutral,/用相遇、犹疑与错过/);
+ const authored=renderToStaticMarkup(createElement(compiled.exports.Editor,{editor:{...editor,changes:{productionPrompt:'保留人物原话，并在第一幅介绍当前处境。'}}}));
+ assert.match(authored,/保留人物原话，并在第一幅介绍当前处境/);
  const oldLimit=renderToStaticMarkup(createElement(Review,{...reviewProps,session:{...reviewProps.session,generationProgress:{reviewStopReason:'limit',repairPasses:3,reviewAudits:4}}}));
  assert.match(oldLimit,/已完成 3 轮自动修复/);assert.match(oldLimit,/本次最多 20 轮/);
  for(const extra of [{busy:true},{session:{...reviewProps.session,retryAllowed:false}},{session:{...reviewProps.session,generationControl:'paused'}}]){

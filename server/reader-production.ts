@@ -8,6 +8,7 @@
 // story lock it stops when no longer wanted, and
 // its failures stay with the search unless a stop interrupted the call.
 // Only current image inputs may publish; their paid receipt can replace a stale version's slot.
+import {storyReplanMessage} from '../lib/reader-review.ts';
 import {randomUUID} from 'node:crypto';
 import {ReaderRepository,persistenceError,supersededSql,latestVersionMessage} from '../lib/reader-repository.ts';
 import type {Database} from '../lib/reader-repository.ts';
@@ -167,6 +168,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async demand(ownerId:string,id:string,viewerId:string,page:number,throughPage:number,retry:boolean){
   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
   const row=await this.repository.get(id,ownerId),doc=JSON.parse(row.document) as Document;
+  if(retry&&doc.visualReview?.status==='blocked'&&doc.visualReview.stopReason==='replan')throw new ReaderError(409,storyReplanMessage);
   if(row.generation_control!=='active'||await this.repository.superseded(id,ownerId))return this.snapshot(ownerId,id);
   if(doc.plan&&page>=doc.plan.pages.length)throw new ReaderError(400,'请选择有效画幅');
   await this.database.prepare(`INSERT INTO production_demand(session_id,owner_id,viewer_id,page,through_page,expires_at,runtime_id) VALUES(?,?,?,?,?,?,?)
@@ -211,7 +213,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const working=active.length>0||jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===jobDependencies(job)[0]&&parent.state==='succeeded'));
   if(failed&&!working){
    const lost=lostImageError(failed.error);
-   return {...session,state:'failed',error:lost?lostImageMessage:failed.error,retryAllowed:true,...(lost?{retryStage:'redraw' as const}:failed.kind==='image-publish'?{retryStage:'publication' as const}:{})};
+   return {...session,state:'failed',error:lost?lostImageMessage:failed.error,retryAllowed:saved.generationProgress?.reviewStopReason!=='replan',...(lost?{retryStage:'redraw' as const}:failed.kind==='image-publish'?{retryStage:'publication' as const}:{})};
   }
   const demands=await this.demands(id),eligible=jobs.some(job=>job.state==='queued'&&demands.some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page));
   const manual=row.generation_control!=='active';

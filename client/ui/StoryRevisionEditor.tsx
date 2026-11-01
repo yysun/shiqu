@@ -7,6 +7,7 @@ import {revisionFrameCount,revisionImpact} from '@/lib/reader-revision';
 import type {RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
 import {productionSteps} from '@/lib/production-stages';
 import {getArtStyle} from '@/lib/reader-styles';
+import {normalizeProductionPrompt} from '@/lib/reader-prompts';
 import './story-revision.css';
 export function revisionDraftSteps(base:RevisionSnapshot,changes:RevisionChanges){
  const impact=revisionImpact(base,changes);
@@ -40,7 +41,7 @@ export default function StoryRevisionEditor({editor,onDone,resuming=false,review
  const updatePlan=(update:(plan:Plan)=>void)=>editor.setChanges(c=>{const next=structuredClone(c.plan||base.plan);if(!next)return c;update(next);return {...c,plan:next};});
  return <div className="yu-revision-editor">
   <StoryEditorTabs tab={editor.tab!} onChange={editor.setTab} script={!!plan} disabled={busy}/>
-  {editor.tab&&editor.tab!=='script'&&<StoryProductionEditor tab={editor.tab} settings={{artStyle:changes.artStyle??base.selection.artStyle,productionPrompt:changes.productionPrompt??base.selection.productionPrompt,length:changes.length??revisionFrameCount(base)}} recommendation={base.frameRecommendation} disabled={busy} onChange={patch=>editor.setChanges(c=>({...c,...patch}))}/>}
+  {editor.tab&&editor.tab!=='script'&&<StoryProductionEditor tab={editor.tab} settings={{artStyle:changes.artStyle??base.selection.artStyle,productionPrompt:changes.productionPrompt??normalizeProductionPrompt(base.selection.productionPrompt,base.selection.theme),length:changes.length??revisionFrameCount(base)}} recommendation={base.frameRecommendation} disabled={busy} onChange={patch=>editor.setChanges(c=>({...c,...patch}))}/>}
   <fieldset disabled={busy} className="yu-revision-fields">
    {editor.tab==='script'&&plan&&<section className="yu-revision-script">
     <label className="yu-revision-field">选择分镜<select value={target} onChange={e=>editor.setScriptPage(Number(e.target.value))}>{plan.pages.map((_,index)=><option key={index} value={index+1}>第 {index+1} 幅</option>)}<option value={0}>结语</option></select></label>

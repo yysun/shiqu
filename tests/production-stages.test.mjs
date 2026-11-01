@@ -26,6 +26,9 @@ test('seven steps distinguish initial review, targeted repair, recheck, skipped 
  assert.equal(states({phase:'repair',reviewStatus:'repair',activeState:'failed'})[4],'failed');
  const blocked=productionSteps({...base,phase:'review',reviewStatus:'blocked',reviewRound:2,repairTotal:2,activeState:'failed'});
  assert.equal(blocked[5].state,'failed');assert.match(blocked[5].detail,/仍有 2 项待修订，绘图已阻止/);assert.equal(blocked[6].state,'pending');
+ const replan=productionSteps({...base,phase:'review',reviewStatus:'blocked',reviewStopReason:'replan',reviewRound:1,repairTotal:1});
+ assert.deepEqual(replan.map(s=>s.state),['done','done','done','failed','skipped','pending','pending']);
+ assert.match(replan[4].detail,/未执行局部修补/);assert.match(replan[6].detail,/等待重新编排/);
  assert.equal(states({phase:'image',reviewStatus:'blocked',ready:45})[6],'pending');
  assert.equal(states({phase:'image',reviewStatus:'passed',reviewRound:2,ready:45})[6],'done');
 });
@@ -45,6 +48,7 @@ test('native/preview SQL and reader show the same saved stages without exporting
    {name:'repair',doc:{original,plan,visualReview:review('repair',1,{issues:[{page:2},{page:21}],repaired:[2]})}},
    {name:'recheck',doc:{original,plan,visualReview:review('pending',1,{issues:[{page:2}],repaired:[2]})}},
    {name:'blocked',state:'failed',doc:{original,plan,visualReview:review('blocked',2,{issues:[{page:2}]})}},
+   {name:'replan',state:'failed',doc:{original,plan,visualReview:review('blocked',1,{stopReason:'replan',issues:[{page:45,requiresReplan:true}]})}},
    {name:'first-pass',doc:{original,plan,visualReview:review('passed',1)}},
    {name:'rechecked-pass',doc:{original,plan,visualReview:review('passed',2)}},
    {name:'legacy',doc:{original,plan}},

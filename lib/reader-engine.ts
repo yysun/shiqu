@@ -11,7 +11,7 @@ import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
 import type {ArtRecommendation} from './reader-art-recommendation.ts';
 import {readerImageBatchSize,readerStoryboardBatchSize,readerMaxAutomaticRepairs} from './reader-limits.ts';
-import {newReview,reviewReportSchema,repairOutputSchema,pendingRepairs} from './reader-review.ts';
+import {newReview,reviewReportSchema,repairOutputSchema,pendingRepairs,storyReplanMessage} from './reader-review.ts';
 import {syncRevisionImages} from './reader-revision.ts';
 import type {ReviewIssue,ReviewReport,RepairedPage} from './reader-review.ts';
 export type Generated<T>={value:T;model:string;requestId:string|null;usage:unknown;reasoningEffort?:string};
@@ -103,6 +103,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    const review=doc.visualReview!;
    if(review.status==='blocked'){
     // Only an explicit retry can reach a blocked session; reuse the saved issues without a new audit.
+    if(review.stopReason==='replan')throw new ReaderError(409,storyReplanMessage);
     if(!retry)throw new ReaderError(409,'分镜审片尚未通过，请手动继续修订。');
     // Give the continuation its own generation so the later recheck cannot reuse this receipt.
     const partial=review.stopReason==='unchanged';review.round++;review.status='repair';review.repairs=0;if(!partial)review.repaired=[];delete review.stopReason;
@@ -114,7 +115,8 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     const previousTitle=doc.plan!.title;doc.plan={...doc.plan!,title:report.titleReview.title};
     if(candidates&&report.reflectionChoice){doc.plan={...doc.plan!,reflection:candidates[report.reflectionChoice.index-1]};delete doc.reflectionCandidates;}
     review.reports.push({round:review.round,issues:report.issues,titleReview:{...report.titleReview,previousTitle},...(candidates&&report.reflectionChoice?{reflectionChoice:{...report.reflectionChoice,candidates}}:{})});review.round++;review.issues=report.issues;review.repaired=[];
-    review.status=!report.issues.length?'passed':review.repairs>=readerMaxAutomaticRepairs?'blocked':'repair';if(review.status==='blocked')review.stopReason='limit';else delete review.stopReason;generated=result;
+    const replan=report.issues.some(issue=>issue.requiresReplan);
+    review.status=!report.issues.length?'passed':replan||review.repairs>=readerMaxAutomaticRepairs?'blocked':'repair';if(review.status==='blocked')review.stopReason=replan?'replan':'limit';else delete review.stopReason;generated=result;
    }
   }
   else if(step.kind==='repair'){
@@ -151,6 +153,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    doc.original=result.source;
   }
   if(doc.visualReview?.status==='blocked'){
+   if(doc.visualReview.stopReason==='replan')throw new ReaderError(422,storyReplanMessage+' '+doc.visualReview.issues.filter(issue=>issue.requiresReplan).map(issue=>issue.problem).join('；'));
    const issues=blockedIssues(doc.visualReview),summary=issues.slice(0,3).map(issue=>`${issue.category==='reflection'?'结语':`第 ${issue.page} 幅`}：${issue.problem}`).join('；');
    throw new ReaderError(422,`${doc.visualReview.stopReason==='unchanged'?'修订没有产生实际变化':`已自动修复 ${readerMaxAutomaticRepairs} 轮，复核未通过`}，仍有 ${issues.length} 处问题，已停止绘图。${summary}。可手动继续修订。`);
   }
