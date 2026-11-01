@@ -241,6 +241,8 @@ SS runtime: existing `/Users/esun/.nvm/versions/node/v24.22.1/bin/node`, Node 24
 
 Milestone 1 verification: 47 existing production/revision/paused-version tests plus 3 new eligibility regressions passed; `pnpm typecheck` passed. Local milestone hash recorded after commit below.
 
+Milestone 1 commit: `25ed11a`. Milestone 2: atomic active/paused child insertion, immutable parent control, legacy handoff recovery and replay fencing implemented. Focused revision/paused-version/hardening tests: 30 passed; typecheck passed.
+
 AR passed: no blocking architecture flaws (round 5, full review of this design by the reused independent reviewer). Its non-blocking corrections were applied afterward without another review round. They are the eligibility wording, the extra `demands`, `viewedPublicationPending` and `basis` checks, the old-version note, `wake()`, rollback SQL, test line numbers and scenario setups.
 
 The rollback statement in Decision 9 was run on an in-memory SQLite database with a corrupt row, a completed family and another owner's row. It paused only the unfinished superseded versions.

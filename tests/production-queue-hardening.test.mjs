@@ -52,3 +52,22 @@ test('image start rechecks newest version after its first dispatch check',async 
  await assert.rejects(coordinator.image(job),error=>error.constructor.name==='JobYield');
  assert.equal(f.control.calls.length,0);
 });
+for(const paused of [true,false])test(`atomic fork publishes ${paused?'paused':'active'} child without parent writes; replay preserves later control`,async t=>{
+ const {f,repo,id,owner}=await seeded(t),base=await revisionSnapshot(repo,id,owner),child=crypto.randomUUID(),changes={artStyle:'paper-cut'};
+ await repo.db.prepare("UPDATE reader_sessions SET generation_control='active' WHERE id=?").bind(id).run();
+ const row=await forkRevision(repo,f.media,owner,id,child,base.token,changes,paused);
+ assert.equal(row.generation_control,paused?'paused':'active');
+ assert.equal(JSON.parse(row.document).revision.handoff,undefined);
+ assert.equal((await repo.get(id,owner)).generation_control,'active');
+ assert.equal(await repo.superseded(id,owner),true);
+ await repo.control(child,owner,paused?'resume':'pause');
+ const replay=await forkRevision(repo,f.media,owner,id,child,base.token,changes,paused);
+ assert.equal(replay.generation_control,paused?'active':'paused');
+});
+test('seeded legacy paused handoff still resumes and clears its flag without touching parent',async t=>{
+ const {f,repo,id,owner}=await seeded(t),base=await revisionSnapshot(repo,id,owner),child=crypto.randomUUID();
+ await forkRevision(repo,f.media,owner,id,child,base.token,{artStyle:'paper-cut'},true);
+ await repo.db.prepare("UPDATE reader_sessions SET document=json_set(document,'$.revision.handoff',json('true')) WHERE id=?").bind(child).run();
+ const resumed=await repo.control(child,owner,'resume',true);
+ assert.equal(resumed.generation_control,'active');assert.equal(JSON.parse(resumed.document).revision.handoff,undefined);
+});

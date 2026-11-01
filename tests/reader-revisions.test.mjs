@@ -121,20 +121,20 @@ test('review repair invalidates newly changed staging but preserves caption-only
  const start=f.control.calls.length,caption=await revise(f,next.id,{plan:narration},snap);await until(async()=>(await f.read(caption.id)).state==='completed');assert.equal(f.control.calls.length,start);
 });
 
-test('paused child handoff survives restart and deleted parent; lost activation response replays without duplicate copy or generation',async t=>{
+test('atomic active child survives restart and deleted parent; lost response replays without duplicate copy or generation',async t=>{
  const {f,id}=await completed(t),base=await snapshot(f,id),requestId=crypto.randomUUID(),changes={artStyle:'paper-cut'};
  const repo=new ReaderRepository(f.app.services.database),row=await forkRevision(repo,f.media,owner,id,requestId,base.token,changes);
- assert.equal(row.generation_control,'paused');await f.app.services.production.tick();assert.equal(f.control.calls.length,8);
- await f.json(`library/${id}`,'DELETE');await f.restart();assert.equal((await f.read(requestId)).generationControl,'paused');
+ assert.equal(row.generation_control,'active');
+ await f.json(`library/${id}`,'DELETE');await f.restart();assert.equal((await f.read(requestId)).generationControl,'active');
  const replay=await revise(f,id,changes,base,requestId);await until(async()=>(await f.read(replay.id)).state==='completed');assert.equal(f.control.calls.length,16);
  const again=await revise(f,id,changes,base,requestId);assert.equal(again.id,requestId);assert.equal(f.control.calls.length,16);
 });
 
-test('crash between parent pause and child activation leaves a recoverable paused child',async t=>{
+test('failed publication INSERT leaves no child and replay publishes one active version',async t=>{
  const {f,id}=await completed(t),base=await snapshot(f,id),changes={artStyle:'paper-cut'},requestId=crypto.randomUUID(),database=f.app.services.database;
  const prepare=database.prepare.bind(database);let injected=false;
- database.prepare=query=>{const statement=prepare(query);if(query.includes('document=json_remove(document')&&!injected){statement.run=async()=>{injected=true;throw Object.assign(Error('controlled crash'),{code:'ERR_SQLITE_ERROR'});};}return statement;};
- const failed=await f.request(`sessions/${id}/revisions`,'POST',{requestId,token:base.token,changes});assert.equal(failed.status,500);assert.equal(injected,true);assert.equal((await f.read(requestId)).generationControl,'paused');assert.equal(f.control.calls.length,8);
+ database.prepare=query=>{const statement=prepare(query);if(query.includes('INSERT INTO reader_sessions')&&!injected){statement.run=async()=>{injected=true;throw Object.assign(Error('controlled crash'),{code:'ERR_SQLITE_ERROR'});};}return statement;};
+ const failed=await f.request(`sessions/${id}/revisions`,'POST',{requestId,token:base.token,changes});assert.equal(failed.status,500);assert.equal(injected,true);assert.equal((await f.request(`sessions/${requestId}`)).status,404);assert.equal(f.control.calls.length,8);
  database.prepare=prepare;const child=await revise(f,id,changes,base,requestId);await until(async()=>(await f.read(child.id)).state==='completed');assert.equal(f.control.calls.length,16);
 });
 

@@ -68,11 +68,6 @@ export class ReaderRepository{
   if((action==='resume'||action==='background')&&await this.superseded(id,uid))throw new ReaderError(409,latestVersionMessage);
   if(handoffOnly&&!revision?.handoff)return row;
   if(row.state==='completed')throw new ReaderError(409,'故事已完整生成，无需更改生成方式。');
-  // A revision is born paused. Persist the parent pause before making its child eligible;
-  // a crash between writes leaves a paused child that explicit resume can recover.
-  if(revision&&(action==='resume'||action==='background'||revision.handoff&&action==='pause')){
-   await this.db.prepare("UPDATE reader_sessions SET generation_control='paused' WHERE id=? AND user_id=? AND state!='completed'").bind(revision.parentId,uid).run();
-  }
   // Resume always continues the whole story; other legacy actions change only their own field.
   const field=action==='background'||action==='reader'?'generation_mode':'generation_control';
   const value=action==='pause'?'paused':action==='stop'?'stopped':action==='resume'?'active':action;

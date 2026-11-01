@@ -109,13 +109,13 @@ test('paused preparation saves settings beside a live call, then allows a differ
 for(const paused of [true,false])test(`concurrent ${paused?'paused':'running'} submission replay cannot overwrite a later user control`,async t=>{
  const f=await productionFixture(t);f.control.hold=false;const id=await f.create(3);await until(async()=>(await f.read(id)).state==='completed');f.control.hold=true;
  const base=await f.json(`sessions/${id}/revisions`),requestId=crypto.randomUUID(),payload={requestId,token:base.token,changes:{artStyle:'paper-cut'},paused};
- const production=f.app.services.production,control=production.control.bind(production);
+ const production=f.app.services.production,snapshot=production.snapshot.bind(production);
  let arrived=0,ready,release;const both=new Promise(resolve=>ready=resolve),delayed=new Promise(resolve=>release=resolve);t.after(()=>{ready();release();});
- production.control=async(...args)=>{
-  if(args[1]===requestId&&args[3]){
+ production.snapshot=async(...args)=>{
+  if(args[1]===requestId){
    arrived++;if(arrived===1)await both;else if(arrived===2){ready();await delayed;}
   }
-  return control(...args);
+  return snapshot(...args);
  };
  const first=f.request(`sessions/${id}/revisions`,'POST',payload);await until(()=>arrived===1);
  const second=f.request(`sessions/${id}/revisions`,'POST',payload);await until(()=>arrived===2);

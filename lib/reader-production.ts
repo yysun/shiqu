@@ -3,6 +3,7 @@ import type {SessionView,ProductionAction} from './reader-model.ts';
 export const productionReadAhead=6;
 export const productionViewerLeaseMs=30000;
 export interface ReaderProduction{
+ wake():void;
  control(ownerId:string,id:string,action:ProductionAction,handoffOnly?:boolean):Promise<SessionView>;
  overrideReview(ownerId:string,id:string):Promise<SessionView>;
  request(ownerId:string,id:string,viewerId:string,page:number,retry?:boolean):Promise<SessionView>;
