@@ -214,6 +214,25 @@ test('clicking the selected story redoes nothing; a stale device can retry from 
  await phase(f,id,'confirming');await setup(f,id,{action:'confirm',settings:{...settings,length:2}});await until(async()=>(await f.read(id)).state==='completed');
 });
 
+test('queued preparation fills missing art before confirmation without duplicating work after a style update',async t=>{
+ const f=await fixture(t),source={edition:'a'.repeat(64),sectionId:'s0',firstUnit:'u0',lastUnit:'u0'};
+ f.generation.suggestions=async()=>({stories:[{title:'庄周梦蝶',description:'梦与醒。',source}],note:''});
+ const generator=f.generation.generator.bind(f.generation);let calls=0,frames=0,release;
+ f.generation.generator=()=>{const g=generator();return {...g,
+  prepareOriginal:async()=>({title:'齐物论',text:'昔者庄周梦为胡蝶。',localSource:source}),
+  recommendArt:async()=>{calls++;return {artStyle:'paper-cut',reason:'层叠纸影适合梦境。'};},
+  recommend:async(...args)=>{frames++;await new Promise(resolve=>{release=resolve;});return g.recommend(...args);}
+ };};
+ const id=await create(f);await phase(f,id,'choosing');await setup(f,id,{action:'choose',batch:0,index:0});
+ await until(()=>release);assert.equal((await f.read(id)).selection.artStyle,'paper-cut');
+ await f.app.services.production.tick();release();await phase(f,id,'confirming');
+ await f.app.services.production.queue.settle();await f.app.services.production.tick();
+ assert.equal(calls,1);assert.equal(frames,1);assert.equal(f.control.calls.length,0,'Confirmation still gates paid images');
+ await f.restart();const saved=await f.read(id);
+ assert.deepEqual(saved.intake.batches[0].stories[0].artRecommendation,{artStyle:'paper-cut',reason:'层叠纸影适合梦境。'});
+ assert.equal(saved.selection.artStyle,'paper-cut');assert.equal(saved.intake.phase,'confirming');
+});
+
 test('art recommendations apply until the reader really changes the style',async t=>{
  const f=await fixture(t),id=await prepared(f),first=await f.read(id);assert.equal(first.selection.artStyle,'paper-cut');
  await reuseSource(f,id);

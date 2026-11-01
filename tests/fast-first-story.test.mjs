@@ -101,6 +101,7 @@ test('selected-source recommendations validate before inference and share durabl
  const provider=withLocalBooks(f.provider,f.books,store),chosen={...selection,source:f.stories[0].source};
  const results=await Promise.all([provider.recommendArt(chosen),provider.recommendArt({...chosen,artStyle:'cinematic'})]);
  assert.deepEqual(results,[recommendation,recommendation]);assert.equal(calls,1);
+ assert.deepEqual(await provider.generator().recommendArt(chosen),recommendation);assert.equal(calls,1,'Preparation uses the same durable selected-source art cache');
  assert.deepEqual(await withLocalBooks(f.provider,f.books,store).recommendArt(chosen),recommendation);assert.equal(calls,1);
  for(const bad of [{...chosen,source:undefined},{...chosen,source:{...chosen.source,edition:'b'.repeat(64)}},{...chosen,source:{...chosen.source,sectionId:'foreign-book'}}])await assert.rejects(provider.recommendArt(bad));
  assert.equal(calls,1);

@@ -121,4 +121,6 @@ test('discovery stays in the picker and selection opens one continuous story flo
  assert.doesNotMatch(createTabs,/分镜/);assert.match(revisionTabs,/分镜/);
  const count=renderToStaticMarkup(createElement(Fields,{tab:'count',settings:{artStyle:'paper-cut',productionPrompt:'',length:80},disabled:true,creation:true,onChange:noop}));
  assert.match(count,/disabled/);assert.equal((count.match(/max="80"/g)||[]).length,2);assert.doesNotMatch(count,/保存修改并加入队列|叙事详略/);
+ const style=renderToStaticMarkup(createElement(Fields,{tab:'style',settings:{artStyle:'paper-cut',productionPrompt:'',length:7},artRecommendation:{artStyle:'woodblock',reason:'鲜明轮廓适合人物动作。'},disabled:false,creation:true,onChange:noop}));
+ assert.match(style,/推荐：木版年画/);assert.match(style,/鲜明轮廓适合人物动作。/);assert.match(style,/当前选择：剪纸艺术/);assert.match(style,/采用推荐/);
 });

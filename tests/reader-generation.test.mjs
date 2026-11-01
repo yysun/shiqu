@@ -8,6 +8,7 @@ import {advanceStory} from '../lib/reader-engine.ts';
 import {makeGenerator,suggestStories,GeminiError,safeGeminiError,configuredModels} from '../lib/reader-gemini.ts';
 import {view,selectionSchema} from '../lib/reader-model.ts';
 import {runStoryGeneration} from '../lib/reader-generation.ts';
+import {changeIntake} from '../server/reader-intake.ts';
 const original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶，栩栩然胡蝶也。',url:'https://zh.wikisource.org/zh-hans/莊子/齊物論',kind:'passage',provider:'维基文库',retrievedAt:'2026-10-26T00:00:00Z'};
 const selection={bookId:'zhuangzi',theme:'放下执念',length:8,voice:false};
 const plan={title:'谁在梦中',hook:'醒来后，他忽然不敢确定自己是谁。',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'用现代旁白重述梦蝶，画面细节为AI演绎。',reflection:'醒来之后，你更确定自己了吗？',characters:'Zhuang Zhou: adult male philosopher, plain blue-green robe, tied long black hair, calm face.',pages:Array.from({length:8},(_,i)=>({caption:'庄周做了一个梦，梦里的世界比醒着时还要清楚。',prompt:'Ancient Chinese philosopher in a calm garden, thoughtful adult face, scene number '+i}))};
@@ -397,4 +398,73 @@ test('restoring a shared story leaves other readers deletion markers in place',a
  const {repo,db}=setup();db.prepare("INSERT INTO stories(id,title,hook,book_id,theme,status,pages,reflection,source_text,source_url,adaptation_note,checks,created_at,updated_at) VALUES('shared','样篇','','liaozhai','','published','[]','','','','','{}','2026-01-01','2026-01-01')").run();
  await repo.remove('shared','alice');await repo.remove('shared','bob');await repo.restore('shared','alice');
  assert.equal((await repo.deletions('alice')).length,0);assert.equal((await repo.deletions('bob')).length,1);assert.equal(db.prepare("SELECT status FROM stories WHERE id='shared'").get().status,'published');
+});
+
+// Follow preparation through real SQLite, including edits made while art inference is running.
+async function artPreparation(){
+ const {repo,db}=setup(),id=crypto.randomUUID(),g=fake();
+ const source={edition:'a'.repeat(64),sectionId:'s0',firstUnit:'u0',lastUnit:'u0'};
+ const chosen=selectionSchema.parse({...selection,storyTitle:'梦蝶',source,narrativeDetail:'balanced',length:'auto'});
+ await repo.create(id,'alice',chosen);
+ const doc={plan:null,images:[],audio:[],usage:[],original:{...original,localSource:source},intake:{phase:'preparing',generation:0,creationHash:'test',selected:{batch:0,index:0},search:{round:1,state:'idle'},batches:[{stories:[{title:'梦蝶',description:'梦与醒。',source},{title:'大葫芦',description:'器物与用处。',source:{...source,firstUnit:'u1',lastUnit:'u1'}}],note:''}]}};
+ db.prepare('UPDATE reader_sessions SET document=? WHERE id=?').run(JSON.stringify(doc),id);
+ g.prepareOriginal=async s=>({...original,localSource:s.source});
+ g.recommend=async()=>({value:{count:7,reason:'保留完整因果。'},model:'mock',requestId:'frames',usage:null});
+ const read=()=>view(db.prepare('SELECT * FROM reader_sessions WHERE id=?').get(id));
+ const choose=async index=>{const current=read();await changeIntake(repo,id,'alice',{action:'choose',batch:0,index,generation:current.intake.generation,requestId:crypto.randomUUID(),settings:{artStyle:current.selection.artStyle,productionPrompt:'',narrativeDetail:'balanced'}});};
+ return {repo,db,id,g,read,choose};
+}
+
+test('preparation recommends each chosen story and durably reuses its art on reselection',async()=>{
+ const f=await artPreparation();let calls=0;
+ f.g.recommendArt=async(s,text)=>{calls++;assert.deepEqual(text.localSource,s.source);return {artStyle:s.storyTitle==='梦蝶'?'paper-cut':'woodblock',reason:`适合${s.storyTitle}的动作与意境。`};};
+ await advanceStory(f.repo,f.g,'alice',f.id,0);
+ let saved=f.read();assert.equal(saved.intake.phase,'confirming');assert.equal(saved.selection.artStyle,'paper-cut');assert.equal(saved.intake.batches[0].stories[0].artRecommendation.reason,'适合梦蝶的动作与意境。');
+ await f.choose(1);await advanceStory(f.repo,f.g,'alice',f.id,0);
+ saved=f.read();assert.equal(saved.selection.artStyle,'woodblock');assert.equal(saved.intake.batches[0].stories[1].artRecommendation.artStyle,'woodblock');
+ await f.choose(0);await advanceStory(new ReaderRepository(f.repo.db),f.g,'alice',f.id,0);
+ assert.equal(f.read().selection.artStyle,'paper-cut');assert.equal(calls,2,'Reselection reuses the persisted recommendation');
+ f.db.close();
+});
+
+test('an in-flight art result preserves a manual draft and concurrently appended search results',async()=>{
+ const f=await artPreparation();let release,started;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ f.g.recommendArt=async()=>{started();return new Promise(resolve=>{release=resolve;});};
+ const work=advanceStory(f.repo,f.g,'alice',f.id,0);await waiting;
+ const draft={artStyle:'cinematic',productionPrompt:'我的要求',narrativeDetail:'balanced',length:5};
+ await changeIntake(f.repo,f.id,'alice',{action:'draft',settings:draft,generation:0,requestId:crypto.randomUUID()});
+ const extra={stories:[{title:'追加的故事',description:'查找的新结果。'}],note:''};
+ f.db.prepare("UPDATE reader_sessions SET document=json_insert(document,'$.intake.batches[#]',json(?)) WHERE id=?").run(JSON.stringify(extra),f.id);
+ release({artStyle:'paper-cut',reason:'纸影适合梦境。'});await work;
+ const saved=f.read();assert.equal(saved.selection.artStyle,'ink-pencil','The saved draft owns the manual style until confirmation');assert.deepEqual(saved.intake.draft,draft);assert.deepEqual(saved.intake.batches[1],extra);assert.equal(saved.intake.batches[0].stories[0].artRecommendation.artStyle,'paper-cut');
+ await changeIntake(f.repo,f.id,'alice',{action:'confirm',settings:draft,generation:0,requestId:crypto.randomUUID()});
+ assert.equal(f.read().selection.artStyle,'cinematic');f.db.close();
+});
+
+test('a saved manual style survives later story recommendations',async()=>{
+ const f=await artPreparation();
+ f.db.prepare("UPDATE reader_sessions SET selection=json_set(selection,'$.artStyle','cinematic'),document=json_set(document,'$.intake.manualArt',json('true')) WHERE id=?").run(f.id);
+ f.g.recommendArt=async()=>({artStyle:'paper-cut',reason:'纸影适合梦境。'});
+ await advanceStory(f.repo,f.g,'alice',f.id,0);
+ assert.equal(f.read().selection.artStyle,'cinematic');assert.equal(f.read().intake.batches[0].stories[0].artRecommendation.artStyle,'paper-cut');f.db.close();
+});
+
+test('frame recommendation retries reuse saved art and art failures never pretend a default was recommended',async()=>{
+ const f=await artPreparation();let calls=0,frames=0,failArt=true;
+ f.g.recommendArt=async()=>{calls++;if(failArt)throw Error('art unavailable');return {artStyle:'woodblock',reason:'轮廓适合动作。'};};
+ f.g.recommend=async()=>{if(frames++===0)throw Error('frames unavailable');return {value:{count:7,reason:'保留完整因果。'},model:'mock',requestId:'frames',usage:null};};
+ await advanceStory(f.repo,f.g,'alice',f.id,0);
+ assert.equal(f.read().state,'failed');assert.equal(f.read().intake.batches[0].stories[0].artRecommendation,undefined);assert.equal(frames,0);
+ failArt=false;await advanceStory(f.repo,f.g,'alice',f.id,0,true);
+ assert.equal(f.read().state,'failed');assert.equal(f.read().selection.artStyle,'woodblock');
+ await advanceStory(new ReaderRepository(f.repo.db),f.g,'alice',f.id,0,true);
+ assert.equal(f.read().intake.phase,'confirming');assert.equal(calls,2,'Frame retry does not pay for art again');f.db.close();
+});
+
+test('a replaced generation rejects an in-flight art result',async()=>{
+ const f=await artPreparation();
+ f.g.recommendArt=async()=>{f.db.prepare("UPDATE reader_sessions SET document=json_set(document,'$.intake.generation',1),lock_token=NULL,state='idle' WHERE id=?").run(f.id);return {artStyle:'paper-cut',reason:'纸影适合梦境。'};};
+ await assert.rejects(advanceStory(f.repo,f.g,'alice',f.id,0),error=>error.status===409);
+ assert.equal(f.read().selection.artStyle,'ink-pencil');assert.equal(f.read().intake.batches[0].stories[0].artRecommendation,undefined);f.db.close();
 });

@@ -18,6 +18,17 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
   await media.put(`reader/${id}/source.json`,new TextEncoder().encode(JSON.stringify(source)),{contentType:'application/json'});
   return source;
  }
+ async function recommendArt(selection:Selection){
+  const original=await books.selected(selection);
+  if(!original?.localSource||!selection.storyTitle)throw new ReaderError(400,'请先选择已核对出处的故事。');
+  if(!provider.recommendArt)throw new ReaderError(503,'画风推荐暂不可用，可以手动选择画风。');
+  const status=await provider.status(),key='selected-story-art/'+discoveryHash([selection.bookId,selection.customBook,original.localSource,selection.storyTitle,selection.theme,status.provider,status.models.text,selectedArtRecommendationPrompt,...(status.taskReasoningEfforts?[status.taskReasoningEfforts.art]:[])]);
+  return cache.shared(key,undefined,async()=>{
+   const saved=await cache.read(key,artRecommendationSchema);if(saved)return saved;
+   const result=artRecommendationSchema.parse(await provider.recommendArt!(selection,original));
+   await cache.write(key,result);return result;
+  });
+ }
  return {
   status:()=>provider.status(),safeError:error=>provider.safeError(error),
   async suggestions(selection,excluded,_localBook,reading,excludedSources=[]){
@@ -28,17 +39,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
    const scope=selection.discoverySources?selectedChapterScope(books,book,selection.discoverySources):null;
    return discoverLocalStories(provider,books,cache,scope?.book||book,scope?{...selection,discoverySources:scope.discoverySources}:selection,excluded,reading,excludedSources);
   },
-  async recommendArt(selection){
-   const original=await books.selected(selection);
-   if(!original?.localSource||!selection.storyTitle)throw new ReaderError(400,'请先选择已核对出处的故事。');
-   if(!provider.recommendArt)throw new ReaderError(503,'画风推荐暂不可用，可以手动选择画风。');
-   const status=await provider.status(),key='selected-story-art/'+discoveryHash([selection.bookId,selection.customBook,original.localSource,selection.storyTitle,selection.theme,status.provider,status.models.text,selectedArtRecommendationPrompt,...(status.taskReasoningEfforts?[status.taskReasoningEfforts.art]:[])]);
-   return cache.shared(key,undefined,async()=>{
-    const saved=await cache.read(key,artRecommendationSchema);if(saved)return saved;
-    const result=artRecommendationSchema.parse(await provider.recommendArt!(selection,original));
-    await cache.write(key,result);return result;
-   });
-  },
+  recommendArt,
   generator(){
    const generator=provider.generator();
    function verifyOriginal(selection:Selection,original:OriginalSource|undefined){
@@ -53,6 +54,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
     }
    }
    return {...generator,
+    ...(provider.recommendArt?{recommendArt}:{}),
     async reflection(selection,draft,original,revision){
      if(localBookId(selection))verifyOriginal(selection,original);
      return generator.reflection(selection,draft,original,revision);

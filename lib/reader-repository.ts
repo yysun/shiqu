@@ -2,13 +2,15 @@
 import {emptyDocument,ReaderError,selectionSchema,awaitingFrameCount} from './reader-model.ts';
 import type {Selection,SessionRow,Document,Step,ProductionAction} from './reader-model.ts';
 import type {OriginalSource} from './reader-source-types.ts';
+import type {ArtRecommendation} from './reader-art-recommendation.ts';
 // The interface keeps the same SQL testable against SQLite without a Worker runtime.
 export interface Database{prepare(query:string):Statement}
 interface Statement{bind(...values:unknown[]):Statement;first<T>():Promise<T|null>;all<T>():Promise<{results:T[]}>;run():Promise<{meta:{changes:number}}>}
 const visible="NOT EXISTS (SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)";
 // A failed write says nothing about the work, so callers must not report it as a provider failure.
 export const persistenceError=(error:unknown)=>(error as {code?:string}|null)?.code==='ERR_SQLITE_ERROR';
-// Workers own only the intake phase. Candidates, search and drafts change beside a running step,
+// Full checkpoints own only the intake phase; art results merge through a targeted write.
+// Candidates, search and drafts change beside a running step,
 // and the generation fence on every write below rejects a worker whose selection was replaced.
 const workerDocument="CASE WHEN json_type(document,'$.intake')='object' THEN json_set(?,'$.intake',json(json_set(json_extract(document,'$.intake'),'$.phase',json_extract(?,'$.intake.phase')))) ELSE ? END";
 export class ReaderRepository{
@@ -100,6 +102,16 @@ export class ReaderRepository{
  }
  async stale(row:SessionRow){await this.db.prepare("UPDATE reader_sessions SET state='failed',error=?,lock_token=NULL,updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_until<=?").bind('生成等待超时，已保留前面的内容。可手动重试。',new Date().toISOString(),row.id,row.user_id,Date.now()).run();return this.get(row.id,row.user_id);}
  async acquire(row:SessionRow,step:Step){const token=crypto.randomUUID(),now=Date.now();const r=await this.db.prepare(`UPDATE reader_sessions SET state='running',error=NULL,lock_token=?,lock_until=?,step_attempts=CASE WHEN step_key=? THEN step_attempts+1 ELSE 1 END,step_key=?,updated_at=? WHERE id=? AND user_id=? AND state=? AND document=? AND state!='running' AND generation_control='active' AND ${visible}`).bind(token,now+180000,step.key,step.key,new Date(now).toISOString(),row.id,row.user_id,row.state,row.document).run();return r.meta.changes?token:null;}
+ async saveArtRecommendation(row:SessionRow,token:string,doc:Document,recommendation:ArtRecommendation){
+  const chosen=doc.intake?.selected;if(!chosen)throw new ReaderError(409,'请先选择故事。');
+  // Merge only this result; drafts and new search batches may have arrived during inference.
+  // Read manualArt in SQLite so a concurrent manual choice always wins.
+  const result=await this.db.prepare(`UPDATE reader_sessions SET document=json_set(document,?,json(?)),
+   selection=CASE WHEN COALESCE(json_extract(document,'$.intake.manualArt'),0)=0 THEN json_set(selection,'$.artStyle',?) ELSE selection END,updated_at=?
+   WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND json_extract(document,'$.intake.generation')=?`)
+   .bind(`$.intake.batches[${chosen.batch}].stories[${chosen.index}].artRecommendation`,JSON.stringify(recommendation),recommendation.artStyle,new Date().toISOString(),row.id,row.user_id,token,doc.intake!.generation).run();
+  if(result.meta.changes!==1)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
+ }
  async saveImageProgress(row:SessionRow,token:string,snapshot:Document){
   // Deletion hides the session but must still retain results of calls already in flight.
   const saved=JSON.stringify(snapshot),result=await this.db.prepare(`UPDATE reader_sessions SET document=${workerDocument},updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?`)
