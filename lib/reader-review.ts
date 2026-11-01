@@ -1,4 +1,5 @@
 // Audit scenes and the separate ending against the full source; scope scene repairs by frame.
+import {normalizeProductionPrompt} from './reader-prompts.ts';
 import {z} from 'zod';
 import {planSchema,reflectionCandidatesSchema} from './reader-model.ts';
 import type {Plan,Selection,StoryboardOutline,ReflectionCandidates} from './reader-model.ts';
@@ -41,7 +42,7 @@ const sourceFidelityDirection=`条件与适用范围：逐幅对照原文与前�
 主观判断与客观事实：对配文和画面中的每个实质判断，核对依据是叙述者确认、独立事件证明，还是人物的评价、感受、担忧、责怪、猜测或指控。原文只确认某人这样想、这样说或作出某种反应时，不能把判断内容写成叙述者确认的事实；某人的不满、抱怨、害怕或他人未反驳，都不足以证明对方确实有错或危险确实存在。可写人物实际的言行与反应，保留必要的“觉得、嫌、认为、担心”等归属或直接对白；已建立说话语境时自然承接，不逐句叠加转述标签。原文确有叙述者确认或独立事实支持时，也不要把事实降成猜测。画面指令（prompt）同样检查：不能借新增动作、表情或回忆画面，为未经证实的评价、指控或推断补造证据。
 发现上述问题时，使用原文忠实度（source）或配文（caption）类别，指出实际需要修改的幅，在问题说明（problem）中引用原文的条件或判断归属与配文的对应表达，说明删除了什么限定、把谁的看法变成了什么事实，以及会造成的误读；修订要求（instruction）指定补回哪层条件或归属，保留有效对白、潜台词和无问题的画面，不靠添加心理解说修补事实边界。即使该幅已发现语言或构图问题，也继续完成这两项核对，合并报告，不因修好一项就漏掉另一项。`;
 export const reviewSystemPrompt=`你是独立的静态连环画审片编辑，既校核准确性，也保护故事的表达。先完整阅读已核原文，再连读全篇配文（caption）并结合画面指令（prompt）理解画面，按“核心含义 → 分镜轻重 → 事实与连续性 → 语言”的顺序审核，不从逐句挑歧义开始。深化理解用于改善取舍和可见表达，不等于把理解到的含义全部写进旁白。
-主题使用：theme 是用户明确选择的主题，即使制作要求（productionPrompt）没有重述，也要结合它理解表达方向。原文决定结语能否成立，主题参与合格句之间的择优；结合具体制作要求，在准确、有意味且语言自然的候选中，优先保留能自然承接主题的一句。不能用贴合主题抵销事实错误、剧情复述或含混表达，也不因没有出现主题词就淘汰有据的表达。主题不是预设结论，不为迎合主题改写人物动机或原文结局；“给我一个反转”等叙事体验要求，不等于结语必须另造反转。主题与原文不能兼容时保留原文支持的认识，不强行套题。选择理由应说明原文依据与实际表达收益，主题确实影响取舍时简述对应关系，不用主题标签代替比较。
+表达方向：选题主题不参与分镜修订或结语择优。仅依据完整原文、全篇分镜与读者明确填写的制作要求（productionPrompt）判断表达收益；在准确、有意味且语言自然的合格候选中择优。不能预设主题结论，不因缺少反转、成长、和解或某种寓意要求重写，也不能为表达收益改写人物动机或原文结局。选择理由应说明原文依据与实际表达收益，不用主题标签代替比较。
 ${narrativeMeaningDirection}
 结语独立检查：先完整理解原文与全篇配文，再把末幅配文和 plan.reflection 连读。分别完成三项检查：事实和立意是否受完整经历约束；它是在提炼认识或感受，还是重述已知情节与动机；表达是否有不增加意味的解释和铺垫。不能因事实正确、出现故事细节或句子流畅，就略过后两项。
 ${reflectionMeaningDirection}
@@ -67,7 +68,7 @@ ${reflectionMeaningDirection}
 const repairDirection='本次只修订审核问题（issues）指出、且列在本轮指定幅号（requestedPages）中的画幅。返回 {pages:[{page,caption,prompt}]}，幅号从1开始，必须与本轮指定幅号一一对应，不得增删或重复编号。保留选定故事、总幅数、关键事件的先后顺序、人物身份、画风与全篇元数据，其他页不改。默认沿用目录对应事件；只有审核问题明确要求相邻幅共同调整时，才可在本批指定幅号范围内重新分配原有事件与反应的承载位置，不能改动范围外的幅，也不能丢掉关键言行。先结合原文和全篇理解问题涉及的核心张力与画幅作用，再落实修订；保留原稿有效对白的口气、条件、判断力度，以及言行反差、反应、停顿和收尾；采用原文默认译成自然的现代对白，今天仍易懂的原句可以保留，不能以保留关键原话为由照搬妨碍理解的古文，也不把潜台词解释掉。若审核问题要求相关幅共同调整，按指定的分配落实各自不同的瞬间和反应，不把结构修订变成单幅加长解释，不把未说出口的心意逐项翻译成旁白。画面相近的问题修完后，再对照相关相邻幅的主要动作、接触、物件状态、视线和第一焦点，确认指定的差异确实可见，不能只替换“安坐、端坐、松放”等近义词或换景别；有效停顿仍要保留。类比修订允许在不丢失独立论证层次的前提下压缩重复举例，不能把含混对句换成常用字后原样保留其歧义。余味（reflection）在所有画幅之后单独展示，不属于最后一幅配文（caption）；不能为满足总结或感想要求把它复制或改写进末幅，末幅可以自然结束在人物对白、动作或停顿。纯配文问题只修改配文，原样返回无问题的画面指令（prompt）；只有问题涉及画面时才修改相应画面指令，使其落实为具体可见瞬间、人物动作和空间关系。逐项解决同一幅的全部审核问题：去掉机械转述后，继续检查剩余正文的对象、指代、用途、操作、尺寸与空间关系是否清楚，依据原文和该幅画面指令消除会改变情节理解的歧义，不能只删标签或加代词后保留含混说法，也不把画面细节全部复述成旁白。区分事实歧义与有语境支持的潜台词：优先修准对白、最少必要语境或反应，说明谁做了什么而不强加动机；不要把“讲清楚”默认实现为添加“借此讥讽”“其实因为”等解说。结合全篇与前后相邻幅，把修订后的全篇配文按顺序连读，消除病句、指代不清、衔接生硬和机械转述；在回忆或故事入口及必要转场交代说法归属与时间，后续自然承接，不能因删去重复标签而改变事实归属。不能靠新增事件或转移问题到邻页来通过审核。只输出规定 JSON，不输出解释、评分或完整重写。';
 type Call=(task:ReasoningTask,instructions:string,payload:unknown,schema:unknown,maxOutputTokens:number,original?:OriginalSource)=>Promise<Generated<unknown>>;
 export function storyboardReviewGenerator(call:Call){
- function payload(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline){return {book:selection.customBook||selection.bookId,chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:plan.pages.length,productionPrompt:selection.productionPrompt,artDirection:getArtStyle(selection.artStyle).prompt,verifiedOriginal:{title:original.title,text:original.text,url:original.url},plan,...(outline?{outline}:{})};}
+ function payload(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline){return {book:selection.customBook||selection.bookId,chosenStory:selection.storyTitle,exactPageCount:plan.pages.length,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,verifiedOriginal:{title:original.title,text:original.text,url:original.url},plan,...(outline?{outline}:{})};}
  return {
   async review(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,reflectionCandidates?:ReflectionCandidates){
    const candidates=reflectionCandidates?reflectionCandidatesSchema.parse(reflectionCandidates):undefined;

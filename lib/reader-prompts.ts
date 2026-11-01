@@ -35,7 +35,8 @@ Make the planned action readable through body orientation, balance, weight, hand
 Do not default to close-ups. A wide or establishing shot needs its spatial scale, environment, ensemble and character relationships; a medium shot needs readable interaction; a close-up needs its decisive detail. An environment-led frame can express the characters' situation through space, light, landscape or the state of objects, without adding a face or a generic symbolic effect. One narrative focus can be a relationship across a rich scene, not just one isolated object. Preserve the planned shot: do not crop a wide shot into a detail or strip away meaningful surroundings, and do not widen a close-up to fit full bodies, the whole cast or a complete environment.
 Show the people, body parts, props and setting needed for this shot. A hand, object detail, partial face, back view or empty setting can carry the entire frame when specified. Keep secondary detail subordinate through staging, contrast, simplification, occlusion or off-screen space, without deleting environmental context the shot needs. Use only the staging devices that help this frame; do not add dramatic effects or busy scenery by default. Respect what the frame leaves outside view and do not reveal hidden information early. Character descriptions define identity, not a mandatory cast list; preserve recognizable traits only where visible, without adding faces or people to prove consistency.`;
 
-const themeDirections:Record<string,string>={
+// Recognize earlier automatic presets when restoring preferences; new stories share one source-faithful default.
+const legacyThemeDirections:Record<string,string>={
  '忠于原文':'按原文自身的事件、人物与因果展开，不额外套入主题或要求反转。',
  '给我一个反转':'开头制造一个可信的预期，中段埋下细节，结尾用有因果依据的反转改变读者对人物的判断，不靠突然出现的新信息。',
  '人情冷暖':'通过人物在利益、困境与日常往来中的选择，表现人情的温度与反差，让细微行动胜过直白评价。',
@@ -49,17 +50,22 @@ const themeDirections:Record<string,string>={
  '幽默与讽刺':'用人物言行与实际结果的反差制造幽默，讽刺落在处境与人性上；节奏轻快，避免堆砌现代网络笑话。',
  '因果与报应':'围绕人物行为与后果铺设清晰因果，让结果出人意料又能回看出伏笔，避免把复杂人性简单分成善恶。',
 };
-export function defaultProductionPrompt(theme:string){
- const topic=theme.trim();
- const direction=themeDirections[topic]||(topic&&topic!=='其他'?`围绕“${topic}”展开，让主题从人物行动、关系与处境中自然显现。`:'从人物行动、关系与处境展开一个有余味的古典短故事。');
- return direction+'保留原典核心人物与事件，默认按事件发生顺序讲述，不把后段冲突前置再回头补背景，不强求反转。每幅一个可见瞬间、一个叙事重点，相邻幅不重复同一次求助、威胁或解释；按需要平衡全景、中景、特写与环境映照，不一概特写，也不固定配比。旁白直接讲清动作、对话和必要因果，避免抽象评语与重复解释；画面提示只写静态可见内容，不写运镜、连续动作或无法画出的声音。主题必须服从原文事实，不为主题改写人物动机或结局。最后一句从人物经历与处境中提炼有寓意的总结或感想，可以解释道理、总结教训，用陈述句留下可带回生活的认识；不复述情节、不做情节提问。先核对谁主动做了什么、动机是否有原文依据、后果是否实际发生，再提炼道理；不偷换意愿、不虚构动机、不扩大因果，不用改编新增情节证明立意。结论的力度不得超过本篇证据，允许朴素，不为金句强行拔高。成句后单独检查是否曲解人物、是否说出了故事没有证明的道理，有则重写，再润色语言与余味。';
+const commonProductionDirection="保留原典核心人物与事件，默认按事件发生顺序讲述，不把后段冲突前置再回头补背景，不强求反转。每幅一个可见瞬间、一个叙事重点，相邻幅不重复同一次求助、威胁或解释；按需要平衡全景、中景、特写与环境映照，不一概特写，也不固定配比。旁白直接讲清动作、对话和必要因果，避免抽象评语与重复解释；画面提示只写静态可见内容，不写运镜、连续动作或无法画出的声音。主题必须服从原文事实，不为主题改写人物动机或结局。最后一句从人物经历与处境中提炼有寓意的总结或感想，可以解释道理、总结教训，用陈述句留下可带回生活的认识；不复述情节、不做情节提问。先核对谁主动做了什么、动机是否有原文依据、后果是否实际发生，再提炼道理；不偷换意愿、不虚构动机、不扩大因果，不用改编新增情节证明立意。结论的力度不得超过本篇证据，允许朴素，不为金句强行拔高。成句后单独检查是否曲解人物、是否说出了故事没有证明的道理，有则重写，再润色语言与余味。";
+export function defaultProductionPrompt(_theme=''){
+ return legacyThemeDirections['忠于原文']+commonProductionDirection;
 }
-export function promptAfterThemeChange(current:string,previousTheme:string,nextTheme:string){
- return !current.trim()||current===defaultProductionPrompt(previousTheme)?defaultProductionPrompt(nextTheme):current;
+export function normalizeProductionPrompt(current:string,theme:string){
+ const topic=theme.trim();
+ const legacyDirection=legacyThemeDirections[topic]||(topic&&topic!=='其他'?`围绕“${topic}”展开，让主题从人物行动、关系与处境中自然显现。`:'从人物行动、关系与处境展开一个有余味的古典短故事。');
+ return !current.trim()||current===legacyDirection+commonProductionDirection?defaultProductionPrompt():current;
+}
+export function promptAfterThemeChange(current:string,previousTheme:string,_nextTheme:string){
+ return normalizeProductionPrompt(current,previousTheme);
 }
 
-// Direct source selection has no theme step; discard inherited automatic theme directions, preserving authored requirements.
+// Direct source selection uses a shelf label independent of the shared source-faithful production direction.
+// Discard inherited automatic theme directions while preserving authored requirements.
 export function directStorySettings(currentPrompt:string,previousTheme:string){
- const theme='忠于原文';
+ const theme='原典故事';
  return {theme,productionPrompt:promptAfterThemeChange(currentPrompt,previousTheme,theme)};
 }

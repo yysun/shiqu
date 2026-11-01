@@ -1,4 +1,5 @@
 // Select a complete provider explicitly; subscription mode never falls back to API billing.
+import {normalizeProductionPrompt} from '../lib/reader-prompts.ts';
 import {createOpenAIProvider} from './openai-provider.ts';
 import {frameRecommendationSchema,frameRecommendationJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
 import {configuredModels,makeGenerator,suggestStories,safeGeminiError,recommendStoryArt} from '../lib/reader-gemini.ts';
@@ -78,7 +79,7 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
     return {value:frameRecommendationSchema.parse(JSON.parse(result.text)),model:result.model,requestId:result.requestId,usage:result.usage,reasoningEffort:result.reasoningEffort};
    },
    async plan(selection,id,original){
-    const result=await codex.run({instructions:planSystemPrompt+'\n'+storyDraftDirection+(original?.localSource?'\n'+localPlanConstraint:''),prompt:JSON.stringify({book:book(selection),chosenStory:selection.storyTitle,theme:selection.theme,exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:selection.productionPrompt||'',artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})}),schema:storyDraftJson(selection.length),timeoutMs:readerStoryboardTimeoutMs,reasoningEffort:taskReasoningEfforts.plan});
+    const result=await codex.run({instructions:planSystemPrompt+'\n'+storyDraftDirection+(original?.localSource?'\n'+localPlanConstraint:''),prompt:JSON.stringify({book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})}),schema:storyDraftJson(selection.length),timeoutMs:readerStoryboardTimeoutMs,reasoningEffort:taskReasoningEfforts.plan});
     const value=storyDraftSchema.parse(JSON.parse(result.text));if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new CodexError('INVALID_PLAN');
     return {value,model:result.model,requestId:result.requestId,usage:result.usage,reasoningEffort:result.reasoningEffort};
    },

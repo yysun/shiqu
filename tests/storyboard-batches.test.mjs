@@ -100,3 +100,26 @@ test('concurrent batch advances and replayed queue receipts do not repeat saved 
  assert.equal((await document(f,id)).storyboard.pages.length,20);assert.deepEqual(f.control.batches.map(p=>p.batch.first),[1,21]);
  nextRelease();await until(()=>f.control.calls.length===1);assert.equal((await document(f,id)).plan.pages.length,45);
 });
+
+for(const provider of ['codex','gemini'])test(`${provider}: selected-story stages discard discovery themes and replace only legacy automatic requirements`,async t=>{
+ const f=await productionFixture(t,provider),generator=f.generation.generator();
+ const {defaultProductionPrompt}=await import('../lib/reader-prompts.ts');
+ const faithful=defaultProductionPrompt(),shared=faithful.slice('按原文自身的事件、人物与因果展开，不额外套入主题或要求反转。'.length);
+ const legacy='让人物因执念陷入困境，再通过一次具体遭遇看见另一种可能；转变要自然，保留放下之前的挣扎。'+shared;
+ const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,artStyle:'ink-pencil',voice:false,productionPrompt:legacy};
+ const original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶。',url:'https://example.org',kind:'passage',provider:'controlled',retrievedAt:'2026-11-01'};
+ const seen=[];
+ f.control.beforeText=async(kind,payload)=>{seen.push(kind);assert.equal(payload.theme,undefined);assert.equal(payload.productionPrompt,faithful);assert.equal(payload.chosenStory,selection.storyTitle);};
+ await generator.recommend(selection,'test',original);
+ assert.equal(f.control.recommendations[0].productionPrompt,faithful);
+ const draft=(await generator.plan(selection,'test',original)).value;
+ const long={...selection,length:21},outline=(await generator.outline(long,'test',original)).value;
+ await generator.planBatch(long,'test',{outline,pages:[]},original);
+ await generator.reflectionCandidates(selection,draft,original);
+ assert.deepEqual(seen,['plan','outline','batch','reflection']);
+ const authored='围绕放下执念，保留原文对白；这里是我手写的具体要求。';
+ f.control.beforeText=async(_kind,payload)=>{assert.equal(payload.theme,undefined);assert.equal(payload.productionPrompt,authored);};
+ await generator.plan({...selection,productionPrompt:authored},'test',original);
+ assert.equal(selection.theme,'放下执念');assert.equal(selection.productionPrompt,legacy);
+ assert.equal(f.control.calls.length,0);
+});

@@ -25,6 +25,8 @@ test('OpenAI covers suggestions, artwork advice, counts, drafts, outlines, batch
  const f=await fixture(t,(_url,options)=>{
   const body=JSON.parse(options.body),schema=body.text.format.schema,payload=JSON.parse(body.input[0].content),plan=makePlan(payload.exactPageCount||8);
   assert.equal(body.store,false);assert.equal(body.text.format.type,'json_schema');assert.equal(body.text.format.strict,true);assert.equal(schema.additionalProperties,false);assert.ok(body.reasoning.effort);assert.ok(options.signal instanceof AbortSignal);
+  if(payload.verifiedOriginal&&!schema.properties.artStyle){assert.equal(payload.theme,undefined);assert.equal(payload.productionPrompt,selection.productionPrompt);}
+  if(schema.properties.stories)assert.equal(payload.theme,selection.theme);
   if(schema.properties.stories)return completed({stories:[{title:'庄周梦蝶',description:'梦与醒的边界。',artRecommendation:art,...(payload.localBook?{source:{sectionId:'chapter',firstUnit:'unit',lastUnit:'unit',continuations:[]}}:{})}],note:'',...(schema.properties.scan?{scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}}:{})});
   if(schema.properties.artStyle)return completed(art);
   if(schema.properties.count)return completed({count:8,reason:'保留故事的完整因果。'});

@@ -16,7 +16,7 @@ for(const provider of ['codex','gemini'])for(const index of [2,3])test(`${provid
   if(kind==='review'){
    const doc=await document(f,id);frames=structuredClone(doc.plan.pages);
    assert.deepEqual(doc.reflectionCandidates,candidates);assert.deepEqual(payload.reflectionCandidates,candidates);
-   assert.equal(payload.theme,(await f.read(id)).selection.theme);
+   assert.equal(payload.theme,undefined);
    assert.equal(payload.verifiedOriginal.text,doc.original.text);assert.equal(payload.plan.reflection,candidates[0]);
    assert.ok(schema.required.includes('reflectionChoice'));assert.equal(f.control.calls.length,0);
    return {issues:[],reflectionChoice:choice(index)};
@@ -84,14 +84,14 @@ test('candidate and choice schemas preserve the old single-ending report contrac
  assert.deepEqual(reviewReportSchema(8,candidates).parse({issues:[],reflectionChoice:choice(3)}).reflectionChoice,choice(3));
 });
 
-for(const provider of ['codex','gemini'])test(`${provider}: explicit theme reaches review and scene repair when custom requirements omit it`,async t=>{
+for(const provider of ['codex','gemini'])test(`${provider}: discovery theme stays out of review and repair while authored requirements survive`,async t=>{
  const f=await productionFixture(t,provider),g=f.generation.generator();
  const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,artStyle:'ink-pencil',voice:false,productionPrompt:'用简洁旁白讲述，保留原文事实。'};
  const plan=makePlan(8),original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶。',url:'https://example.org',kind:'passage',provider:'controlled',retrievedAt:'2026-10-31T00:00:00Z'};
  const seen=[];
  f.control.beforeText=async(kind,payload)=>{
   if(kind==='review'||kind==='repair'){
-   seen.push(kind);assert.equal(payload.theme,selection.theme);assert.equal(payload.productionPrompt,selection.productionPrompt);
+   seen.push(kind);assert.equal(payload.theme,undefined);assert.equal(payload.productionPrompt,selection.productionPrompt);
    assert.ok(!payload.productionPrompt.includes(selection.theme));assert.equal(payload.verifiedOriginal.text,original.text);
   }
  };

@@ -17,7 +17,7 @@ test('scene edge clicks use the outer quarters of the reader, not the viewport',
  }
  assert.equal(edgePageDirection(0,0,0),0);
 });
-import {defaultProductionPrompt,promptAfterThemeChange,directStorySettings} from '../lib/reader-prompts.ts';
+import {defaultProductionPrompt,normalizeProductionPrompt,promptAfterThemeChange,directStorySettings} from '../lib/reader-prompts.ts';
 
 test('trackpad rebound cannot reverse or skip a page within the same gesture',()=>{
  const gesture=newWheelGesture();
@@ -33,12 +33,20 @@ test('mouse wheel units, small movements and cross-axis jitter are handled consi
  assert.equal(wheelPageDirection(gesture,{time:520,x:80,y:10,mode:0,height:800}),0);
  assert.equal(wheelPageDirection(gesture,{time:540,x:0,y:40,mode:0,height:800}),1);
 });
-test('theme suggestions update automatically while reader-written requirements remain intact',()=>{
+test('themes share source-faithful production defaults while reader-written requirements remain intact',()=>{
  const original=defaultProductionPrompt('给我一个反转');
- assert.notEqual(original,defaultProductionPrompt('爱情与错过'));
+ assert.equal(original,defaultProductionPrompt('爱情与错过'));
+ assert.equal(original,defaultProductionPrompt('成年人重新开始'));
+ assert.equal(original,defaultProductionPrompt('忠于原文'));
  assert.equal(promptAfterThemeChange(original,'给我一个反转','爱情与错过'),defaultProductionPrompt('爱情与错过'));
  assert.equal(promptAfterThemeChange('旁白更克制，结尾不要提问。','给我一个反转','爱情与错过'),'旁白更克制，结尾不要提问。');
- assert.match(defaultProductionPrompt('成年人重新开始'),/成年人重新开始/);
+ assert.doesNotMatch(original,/成年人重新开始|开头制造一个可信的预期/);
+ const shared=original.slice('按原文自身的事件、人物与因果展开，不额外套入主题或要求反转。'.length);
+ const old='开头制造一个可信的预期，中段埋下细节，结尾用有因果依据的反转改变读者对人物的判断，不靠突然出现的新信息。'+shared;
+ assert.equal(normalizeProductionPrompt(old,'给我一个反转'),original);
+ assert.equal(promptAfterThemeChange(old,'给我一个反转','爱情与错过'),original);
+ assert.equal(normalizeProductionPrompt('围绕“成年人重新开始”展开，让主题从人物行动、关系与处境中自然显现。'+shared,'成年人重新开始'),original);
+ assert.equal(normalizeProductionPrompt(old+'但保留原文对白。','给我一个反转'),old+'但保留原文对白。');
 });
 
 
@@ -116,7 +124,7 @@ test('published and generated progress hydration reconcile favorite flags regard
 
 test('direct source selection drops inherited theme directions and preserves authored production requirements',()=>{
  const direct=directStorySettings(defaultProductionPrompt('给我一个反转'),'给我一个反转');
- assert.equal(direct.theme,'忠于原文');assert.match(direct.productionPrompt,/不额外套入主题或要求反转/);assert.doesNotMatch(direct.productionPrompt,/开头制造一个可信的预期/);
+ assert.equal(direct.theme,'原典故事');assert.match(direct.productionPrompt,/不额外套入主题或要求反转/);assert.doesNotMatch(direct.productionPrompt,/开头制造一个可信的预期/);
  assert.equal(directStorySettings('','').productionPrompt,direct.productionPrompt);
  assert.equal(directStorySettings('保持克制，保留原文结局。','其他').productionPrompt,'保持克制，保留原文结局。');
 });
