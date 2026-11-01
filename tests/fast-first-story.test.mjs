@@ -21,8 +21,8 @@ function fixture(){
  const sections=Array.from({length:6},(_,i)=>({id:'s'+i,title:'第'+(i+1)+'回',units:Array.from({length:2},(_,j)=>({id:'u'+i+'-'+j,text:'人物终于明白真相，作出自己的选择。'+'字'.repeat(80),narrative:true}))}));
  const book={id:'zhuangzi',title:'测试书',edition:'a'.repeat(64),url:'https://example.org/source',provider:'测试来源',sections,input:{title:'测试书',edition:'a'.repeat(64),text:sections.map(s=>'篇章 '+s.id+'：'+s.title+'\n'+s.units.map(u=>'['+u.id+']\n'+u.text).join('\n\n')).join('\n\n')}};
  const books=new LocalBooks(process.cwd());books.book=async()=>book;
- const stories=sections.flatMap(s=>s.units.map(u=>({title:u.id,description:'一次变故促成了新的选择。',source:{edition:book.edition,sectionId:s.id,firstUnit:u.id,lastUnit:u.id}})));
- const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'},voiceEnabled:false}),safeError:()=> '模拟服务失败',generator:()=>({}),suggestions:async()=>assert.fail('No discovery model call expected'),recommendArt:async()=>recommendation};
+ const stories=sections.flatMap(s=>s.units.map(u=>({title:u.id,description:'一次变故促成了新的选择。',summary:'人物经历事件、作出行动，事情得到完整结果。',source:{edition:book.edition,sectionId:s.id,firstUnit:u.id,lastUnit:u.id}})));
+ const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'},voiceEnabled:false}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes'}))}),safeError:()=> '模拟服务失败',generator:()=>({}),suggestions:async()=>assert.fail('No discovery model call expected'),recommendArt:async()=>recommendation};
  return {book,books,stories,provider};
 }
 
@@ -39,42 +39,38 @@ test('small reading plans cap chapters and preserve every unit, even when a whol
  assert.throws(()=>buildReadingPlan(f.book,'codex'),/Single source unit/);
 });
 
-test('legacy stories migrate without inference and old completed coverage maps conservatively to new blocks',async()=>{
+test('theme-filtered legacy coverage never skips uncatalogued original, and old files remain intact',async()=>{
  const f=fixture(),store=memory(),cache=new StoryDiscoveryCache(store),theme=discoveryHash(selection.theme);
  const oldBlocks=[f.book.sections.slice(0,3),f.book.sections.slice(3)].map(sections=>({ranges:sections.map(s=>({sectionId:s.id,firstUnit:s.units[0].id,lastUnit:s.units.at(-1).id})),tokens:1000}));
  await cache.write(legacyReadingPlanKey(f.book,'codex')+'/blocks',{mode:'chapters',blocks:oldBlocks});
- const pending={id:'pending',title:'尚未结束',summary:'人物仍在路上。',source:f.stories[4].source};
- const saved={stories:[f.stories[0],f.stories[1],f.stories[2]],cursor:1,readThrough:2,pendingEvents:[pending],exhausted:false,rejected:false};
- const oldKey=legacyDiscoveryNamespace(f.book,'codex','mock')+'/theme/'+theme;await cache.write(oldKey,saved);
- const oldBytes=store.values.get('reader-cache/'+discoveryHash(oldKey)+'.json').slice();
+ const oldKey=legacyDiscoveryNamespace(f.book,'codex','mock')+'/theme/'+theme;
+ await cache.write(oldKey,{stories:[f.stories[4]],cursor:1,readThrough:2,pendingEvents:[],exhausted:false,rejected:false});
+ const oldBytes=store.values.get('reader-cache/'+discoveryHash(oldKey)+'.json').slice();let calls=0;
+ f.provider.suggestions=async(s,_excluded,input)=>{calls++;assert.equal(s.theme,'');assert.equal(input.purpose,'catalog');assert.match(input.text,/\[u0-0\]/);return {stories:[f.stories[0]],note:'',scan:{blockComplete:false,pendingEvents:[],resolvedEventIds:[]}};};
  const batch=await discoverLocalStories(f.provider,f.books,cache,f.book,selection,[]);
- assert.deepEqual(batch.stories,saved.stories);
- const key=discoveryNamespace(f.book,'codex','mock')+'/theme/'+theme;
- const migrated=JSON.parse(new TextDecoder().decode(store.values.get('reader-cache/'+discoveryHash(key)+'.json'))).value;
- const blocks=hydrateReadingPlan(f.book,buildReadingPlan(f.book,'codex'));
- assert.equal(migrated.cursor,1);assert.equal(migrated.readThrough,1);assert.deepEqual(migrated.pendingEvents,[pending]);
- assert.ok(blocks[migrated.cursor].visible.has('u2-0'));assert.ok(blocks[migrated.cursor].visible.has('u3-0'));
+ assert.equal(calls,1);assert.deepEqual(batch.stories.map(story=>story.title),[f.stories[0].title]);
+ const key=discoveryNamespace(f.book,'codex','mock')+'/library';
+ const saved=JSON.parse(new TextDecoder().decode(store.values.get('reader-cache/'+discoveryHash(key)+'.json'))).value;
+ assert.equal(saved.cursor,0);assert.equal(saved.stories.length,1);assert.deepEqual(saved.pendingEvents,[]);
  assert.deepEqual(store.values.get('reader-cache/'+discoveryHash(oldKey)+'.json'),oldBytes);
- let calls=0;f.provider.suggestions=async(_selection,_excluded,input)=>{calls++;assert.match(input.text,/\[u2-0\]/);assert.match(input.scan.contextText,/\[u2-0\]/);return {stories:[f.stories[6]],note:'',scan:{blockComplete:false,pendingEvents:[],resolvedEventIds:[]}};};
- const next=await discoverLocalStories(f.provider,f.books,cache,f.book,selection,[],undefined,batch.stories.map(s=>s.source));
- assert.equal(calls,1);assert.equal(next.stories[0].source.sectionId,'s3');
  assert.notEqual(readingPlanKey(f.book,'codex'),legacyReadingPlanKey(f.book,'codex'));
  assert.notEqual(discoveryNamespace(f.book,'codex','other-model'),discoveryNamespace(f.book,'codex','mock'));
 });
 
-test('legacy stories survive a missing manifest without trusting its numeric cursor',async()=>{
+test('a legacy cache without manifest cannot supply the neutral catalog cursor or records',async()=>{
  const f=fixture(),store=memory(),cache=new StoryDiscoveryCache(store);
- await cache.write(legacyDiscoveryNamespace(f.book,'codex','mock')+'/theme/'+discoveryHash(selection.theme),{stories:[f.stories[0]],cursor:50,readThrough:50,pendingEvents:[],exhausted:false,rejected:false});
- const batch=await discoverLocalStories(f.provider,f.books,cache,f.book,selection,[]);assert.equal(batch.stories.length,1);
- const key=discoveryNamespace(f.book,'codex','mock')+'/theme/'+discoveryHash(selection.theme);
+ await cache.write(legacyDiscoveryNamespace(f.book,'codex','mock')+'/theme/'+discoveryHash(selection.theme),{stories:[f.stories[5]],cursor:50,readThrough:50,pendingEvents:[],exhausted:false,rejected:false});
+ f.provider.suggestions=async()=>({stories:[f.stories[0]],note:'',scan:{blockComplete:false,pendingEvents:[],resolvedEventIds:[]}});
+ const batch=await discoverLocalStories(f.provider,f.books,cache,f.book,selection,[]);assert.equal(batch.stories[0].title,f.stories[0].title);
+ const key=discoveryNamespace(f.book,'codex','mock')+'/library';
  const saved=JSON.parse(new TextDecoder().decode(store.values.get('reader-cache/'+discoveryHash(key)+'.json'))).value;
- assert.equal(saved.cursor,0);assert.equal(saved.exhausted,false);
+ assert.equal(saved.cursor,0);assert.equal(saved.exhausted,false);assert.equal(saved.stories.length,1);
 });
 
-test('a delayed pre-migration cache miss cannot overwrite newer verified stories and cursor',async()=>{
- const f=fixture(),store=memory(),cache=new StoryDiscoveryCache(store),theme=discoveryHash(selection.theme);
- await cache.write(legacyDiscoveryNamespace(f.book,'codex','mock')+'/theme/'+theme,{stories:[f.stories[0]],cursor:0,readThrough:0,pendingEvents:[],exhausted:false,rejected:false});
- const key=discoveryNamespace(f.book,'codex','mock')+'/theme/'+theme,filename='reader-cache/'+discoveryHash(key)+'.json';
+test('a delayed library cache miss cannot overwrite newly catalogued stories or progress',async()=>{
+ const f=fixture(),store=memory(),cache=new StoryDiscoveryCache(store);
+ f.provider.suggestions=async()=>({stories:[f.stories[0]],note:'',scan:{blockComplete:false,pendingEvents:[],resolvedEventIds:[]}});
+ const key=discoveryNamespace(f.book,'codex','mock')+'/library',filename='reader-cache/'+discoveryHash(key)+'.json';
  let release,held=false;const gate=new Promise(resolve=>{release=resolve;}),get=store.get;
  store.get=async key=>{const result=await get(key);if(key===filename&&!held){held=true;await gate;}return result;};
  const slow=discoverLocalStories(f.provider,f.books,cache,f.book,selection,[]);

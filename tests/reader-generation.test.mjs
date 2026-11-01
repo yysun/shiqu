@@ -322,7 +322,8 @@ test('five story choices are requested and accepted without inventing a missing 
  const result=await suggestStories('unit-test-only',selection,{},async(url,init)=>{body=JSON.parse(init.body);return geminiResponse([{text:JSON.stringify({stories:choices,note:''})}]);});
  assert.equal(result.stories.length,5);
  assert.equal(body.generationConfig.responseFormat.text.schema.properties.stories.maxItems,5);
- assert.match(body.systemInstruction.parts[0].text,/推荐5个/);
+ assert.match(body.systemInstruction.parts[0].text,/未提供时至多5篇/);
+ assert.match(body.systemInstruction.parts[0].text,/为1时只寻找一篇，找到即返回/);
  const unknown=await suggestStories('unit-test-only',selection,{},async()=>geminiResponse([{text:JSON.stringify({stories:[],note:'请补充原文。'})}]));
  assert.equal(unknown.stories.length,0);
 });

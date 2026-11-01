@@ -32,8 +32,9 @@ const original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶�
 const selection=selectionSchema.parse({bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,artStyle:'ink-pencil',productionPrompt:'保留明确对白；不补心理解说。'});
 const plan=makePlan(8),{reflection:_,...draft}=plan;void _;
 const issue={page:2,category:'caption',problem:'指代不清。',instruction:'只澄清说话者，保留画面。',requiresReplan:false};
-const candidate={title:plan.title,description:'人物经历梦与醒。',source,artRecommendation:{artStyle:'ink-pencil',reason:'适合人物表情。'}};
+const candidate={title:plan.title,description:'人物经历梦与醒。',summary:'庄周梦为胡蝶，醒后思考庄周与胡蝶的关系。',source,artRecommendation:{artStyle:'ink-pencil',reason:'适合人物表情。'}};
 function responseFor(payload,schema){
+ if(schema.properties.matches)return {matches:payload.stories.map(story=>({id:story.id,verdict:'yes'}))};
  if(schema.properties.stories)return {stories:[candidate],note:'',...(schema.properties.scan?{scan:{blockComplete:false,pendingEvents:[],resolvedEventIds:[]}}:{})};
  if(schema.properties.count)return {count:8,reason:'关键言行和回应各有空间。'};
  if(schema.properties.artStyle)return candidate.artRecommendation;
@@ -73,6 +74,8 @@ async function requestsFor(provider){
  const local={title:'庄子',edition:source.edition,text:'[u1] 昔者庄周梦为胡蝶。'+marker};
  await call('local',()=>p.suggestions(selection,[],local));
  for(const level of ['main','episodes'])await call('scan-'+level,()=>p.suggestions(selection,[],{...local,purpose:'scan',scan:{maxStories:5,excludedSources:[],pendingEvents:[],contextText:'',chapterStoryLevel:level}}));
+ await call('catalog',()=>p.suggestions(selection,[],{...local,purpose:'catalog',scan:{maxStories:1,excludedSources:[],pendingEvents:[],contextText:''}}));
+ await call('theme-match',()=>p.matchStories(selection.theme,[{id:'a'.repeat(64),title:candidate.title,summary:candidate.summary}]));
  await call('art',()=>p.recommendArt(selection,original));
  await call('frames',()=>g.recommend(selection,'fixed-id',original));
  await call('draft',()=>g.plan(selection,'fixed-id',original));
@@ -128,6 +131,9 @@ test('all providers send the same stage-specific instructions, data and strict o
  assert.ok(get('review-candidates').schema.properties.reflectionChoice);
  for(const stage of ['scan-main','scan-episodes']){assert.doesNotMatch(get(stage).instructions,/artRecommendation/);assert.equal(get(stage).schema.properties.stories.items.properties.artRecommendation,undefined);}
  assert.ok(get('local').schema.properties.stories.items.properties.artRecommendation);
+ assert.equal(get('catalog').payload.theme,undefined);assert.equal(get('catalog').payload.localBook.purpose,'catalog');assert.ok(get('catalog').schema.properties.stories.items.required.includes('summary'));
+ assert.equal(get('catalog').schema.properties.stories.items.properties.artRecommendation,undefined);assert.match(get('catalog').instructions,/不因读者主题过滤或改变故事边界/);
+ assert.equal(get('theme-match').payload.theme,selection.theme);assert.equal(get('theme-match').payload.stories[0].text,undefined);assert.deepEqual(get('theme-match').schema.properties.matches.items.properties.verdict.enum,['yes','no','review']);
  assert.match(get('image').prompt,/reference data/);assert.match(get('image').prompt,/Scene 1:/);
  assert.match(get('image').instructions,/native image generation tool directly/);
 });

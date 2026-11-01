@@ -8,12 +8,12 @@ import {selectionSchema} from '../lib/reader-model.ts';
 import {productionFixture,until,selection} from './fixtures/production.mjs';
 const books=new LocalBooks(process.cwd()),base=selectionSchema.parse({...selection,bookId:'三国演义',theme:'忠于原文',storyTitle:undefined,length:'auto',narrativeDetail:'balanced'});
 async function prepared(t){
- const f=await productionFixture(t);f.control.hold=false;
+ const f=await productionFixture(t);f.control.hold=false;f.generation.matchStories=async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes'}))});
  const book=await books.book(base),chapters=(await bookContents(books,base,'黄忠 定军山')).entries;
  const sources=chapters.map(entry=>entry.source),chosen=book.sections.find(section=>section.id===sources[1].sectionId);
  const source={edition:book.edition,sectionId:chosen.id,firstUnit:chosen.units[0].id,lastUnit:chosen.units[3].id};
  const inputs=[];let outside=false;
- f.generation.suggestions=async(_s,_excluded,input)=>{inputs.push(input);return {stories:_excluded.includes('黄忠取定军山')?[]:[{title:'黄忠取定军山',description:'老将与法正筹划进取。',source:outside?{...source,sectionId:book.sections[0].id,firstUnit:book.sections[0].units[0].id,lastUnit:book.sections[0].units[3].id}:source}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};};
+ f.generation.suggestions=async(_s,_excluded,input)=>{inputs.push(input);return {stories:_excluded.includes('黄忠取定军山')?[]:[{title:'黄忠取定军山',description:'老将与法正筹划进取。',summary:'人物经历事件、作出行动，事情得到完整结果。',source:outside?{...source,sectionId:book.sections[0].id,firstUnit:book.sections[0].units[0].id,lastUnit:book.sections[0].units[3].id}:source}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};};
  f.options.generation=withLocalBooks(f.generation,books,f.media);await f.restart();f.app.services.localBooks=books;
  const create=async(references=sources,id=crypto.randomUUID())=>{const s=await f.json('sessions','POST',{requestId:id,intake:true,selection:{...base,discoverySources:references}});await f.demand(s.id);return s;};
  return {...f,get app(){return f.app;},book,sources,source,inputs,create,setOutside(value){outside=value;}};
@@ -62,7 +62,7 @@ test('chapter scopes retain canonical ranges even when the chapter contains an i
 test('a story may span selected neighboring chapters and prepares their original parts intact',async t=>{
  const f=await prepared(t),a=f.book.sections.find(s=>s.id===f.sources[0].sectionId),b=f.book.sections.find(s=>s.id===f.sources[1].sectionId);
  const source={edition:f.book.edition,sectionId:a.id,firstUnit:a.units.at(-3).id,lastUnit:a.units.at(-1).id,continuations:[{sectionId:b.id,firstUnit:b.units[0].id,lastUnit:b.units[3].id}]};
- f.generation.suggestions=async()=>({stories:[{title:'跨章的定军山之战',description:'前后两回连贯的事件。',source}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}});
+ f.generation.suggestions=async()=>({stories:[{title:'跨章的定军山之战',description:'前后两回连贯的事件。',summary:'人物经历事件、作出行动，事情得到完整结果。',source}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}});
  const created=await f.create();await until(async()=>(await f.read(created.id)).intake.phase==='choosing');const saved=await f.read(created.id);
  await f.json(`sessions/${created.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:saved.intake.generation,action:'choose',batch:0,index:0});
  await until(async()=>(await f.read(created.id)).intake.phase==='confirming');
@@ -74,7 +74,7 @@ test('an explicit all-chapter scope has a distinct cache from whole-book discove
  const selected=selectedChapterScope(books,book,refs);assert.equal(selected.book.input.text,book.input.text);
  const section=book.sections[0],source={edition:book.edition,sectionId:section.id,firstUnit:section.units[0].id,lastUnit:section.units[3].id};let calls=0;
  const values=new Map(),media={async put(key,bytes){values.set(key,new Uint8Array(bytes));},async get(key){const bytes=values.get(key);return bytes?{async arrayBuffer(){return bytes.slice().buffer;}}:null;}};
- const provider=withLocalBooks({status:async()=>({configured:true,provider:'codex',models:{text:'scope-test',image:'mock'}}),safeError:()=> 'controlled',generator:()=>({}),suggestions:async()=>{calls++;return {stories:[{title:'首篇故事',description:'原文中的完整事件。',source}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};}},books,media);
+ const provider=withLocalBooks({status:async()=>({configured:true,provider:'codex',models:{text:'scope-test',image:'mock'}}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes'}))}),safeError:()=> 'controlled',generator:()=>({}),suggestions:async()=>{calls++;return {stories:[{title:'首篇故事',description:'原文中的完整事件。',summary:'人物经历事件、作出行动，事情得到完整结果。',source}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};}},books,media);
  await provider.suggestions(s,[]);assert.equal(calls,1);
  await provider.suggestions({...s,discoverySources:refs},[]);assert.equal(calls,2);
  await provider.suggestions({...s,discoverySources:[...refs].reverse()},[]);assert.equal(calls,2);

@@ -1,9 +1,8 @@
-// Return available verified stories immediately; scan only until a nonempty batch is ready.
-// Keep theme progress and verified unfinished events across requests.
-// Shared work extends the common story pool; each reader's exclusions affect only their own view.
-// Chapter selection returns a main story first and permits strictly nested episodes on later requests.
+// Persist theme-neutral stories before matching; never let a reader's theme or exclusions shape extraction.
+// Expand only until new stories exist, carrying verified unfinished events across blocks and cancellation.
+// Per-theme decisions live separately, and story summaries never replace original text in production.
 import {z} from 'zod';
-import {localSourceSchema,localSourceKey,localReadingPrompt,localScanJson,legacyLocalReadingPrompt,legacyLocalScanJson,localChapterStoriesPrompt} from '../lib/reader-local-contract.ts';
+import {localSourceSchema,localSourceKey,localReadingPrompt,localCatalogJson,legacyLocalReadingPrompt,legacyLocalScanJson,localChapterStoriesPrompt} from '../lib/reader-local-contract.ts';
 import type {LocalSourceReference,PendingEvent,WholeBookInput} from '../lib/reader-local-contract.ts';
 import {suggestionBatchSchema,titleKey} from '../lib/reader-suggestions.ts';
 import type {SuggestionBatch} from '../lib/reader-suggestions.ts';
@@ -13,19 +12,20 @@ import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {LocalBook,LocalBooks} from './local-books.ts';
 import {StoryDiscoveryCache,discoveryHash} from './story-discovery-cache.ts';
 import type {ReadingObserver} from './story-discovery-cache.ts';
-import {readingPlan,readingPlanKey,defaultReadingLimits,legacyReadingPlanKey,manifestSchema,hydrateReadingPlan} from './story-reading-inputs.ts';
+import {readingPlan,readingPlanKey,defaultReadingLimits,legacyReadingPlanKey} from './story-reading-inputs.ts';
 import type {ReadingLimits,ReadingBlock} from './story-reading-inputs.ts';
 import {requestTokens} from './story-token-budget.ts';
 import {sourceUnitIds,sourcesOverlap,sourceCovers,mergeSources} from './local-source-ranges.ts';
+import {matchLibraryStories} from './story-theme-matching.ts';
 
-const storySchema=suggestionBatchSchema.shape.stories.element.extend({source:localSourceSchema});
+const storySchema=suggestionBatchSchema.shape.stories.element.extend({source:localSourceSchema,summary:z.string().trim().min(1).max(1200)});
 type Story=z.infer<typeof storySchema>;
 const pendingSchema=z.object({id:z.string().min(1).max(64),title:z.string().min(1).max(100),summary:z.string().min(1).max(1000),source:localSourceSchema});
 const stateSchema=z.object({stories:z.array(storySchema).max(50000),cursor:z.number().int().min(0),readThrough:z.number().int().min(0),pendingEvents:z.array(pendingSchema).max(16),exhausted:z.boolean(),rejected:z.boolean()});
 type State=z.infer<typeof stateSchema>;
 const failed=()=>new ReaderError(502,'本段选题未能完整核对，已保留进度，请重试或换个主题。');
 export function discoveryNamespace(book:LocalBook,provider:string,model:string,limits=defaultReadingLimits,effort?:string){
- return discoveryHash(['direct-reading-v3',readingPlanKey(book,provider,limits),model,localReadingPrompt({...book.input,purpose:'scan'}),localScanJson,...(effort?[effort]:[])]);
+ return discoveryHash(['story-library-v1',readingPlanKey(book,provider,limits),model,localReadingPrompt({...book.input,purpose:'catalog'}),localCatalogJson,...(effort?[effort]:[])]);
 }
 export function legacyDiscoveryNamespace(book:LocalBook,provider:string,model:string){
  return discoveryHash(['direct-reading-v2',legacyReadingPlanKey(book,provider),model,legacyLocalReadingPrompt({...book.input,purpose:'scan'}),legacyLocalScanJson]);
@@ -61,12 +61,11 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const status=await provider.status(),plan=await readingPlan(book,status.provider,cache,limits);
  const chapterStories=!!selection.discoverySources;
  const namespace=discoveryNamespace(book,status.provider,status.models.text,limits,status.taskReasoningEfforts?.suggest)+(selection.discoverySources?'/scope/'+discoveryHash(selection.discoverySources.map(localSourceKey))+'/main-first/'+discoveryHash(localChapterStoriesPrompt):'');
- const theme=selection.theme.normalize('NFKC').trim(),key=namespace+'/theme/'+discoveryHash(theme);
+ const theme=selection.theme.normalize('NFKC').trim(),key=namespace+'/library';
  const totalChars=plan.blocks.reduce((n,block)=>n+block.chars,0),excludedKeys=new Set(excludedSources.length?[]:excluded.map(titleKey));
  const validExclusions=excludedSources.filter(source=>{try{qualified(books,book,source);return true;}catch{return false;}});
  const conflicts=(a:LocalSourceReference,b:LocalSourceReference)=>{
   if(!sourcesOverlap(book,a,b))return false;
-  if(!chapterStories)return true;
   // Equal coverage is a duplicate; neither covering the other is a crossing fragment.
   return sourceCovers(book,a,b)===sourceCovers(book,b,a);
  };
@@ -85,31 +84,6 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   const ids=new Set<string>();for(const event of state.pendingEvents){qualified(books,book,event.source);if(ids.has(event.id))return false;ids.add(event.id);}
   return true;
  };
- const migrateLegacy=async()=>{
-  if(selection.discoverySources)return null;
-  // A caller may have observed a stale cache miss before joining this migration flight.
-  const existing=await cache.read(key,stateSchema,validate);if(existing)return existing;
-  if(status.taskReasoningEfforts)return null; // Old caches have no proof of the requested reasoning effort.
-  const oldKey=legacyDiscoveryNamespace(book,status.provider,status.models.text)+'/theme/'+discoveryHash(theme);
-  const saved=await cache.read(oldKey,stateSchema,value=>{
-   for(const story of value.stories)qualified(books,book,story.source);
-   for(const event of value.pendingEvents)qualified(books,book,event.source);
-   return value.readThrough>=value.cursor&&value.readThrough<=value.cursor+1&&new Set(value.pendingEvents.map(event=>event.id)).size===value.pendingEvents.length;
-  });
-  if(!saved)return null;
-  const manifest=await cache.read(legacyReadingPlanKey(book,status.provider)+'/blocks',manifestSchema,value=>{hydrateReadingPlan(book,value);return true;});
-  let cursor=0;
-  if(manifest){
-   const oldBlocks=hydrateReadingPlan(book,manifest);
-   if(saved.cursor>oldBlocks.length||saved.readThrough>oldBlocks.length||saved.exhausted!==(saved.cursor===oldBlocks.length))return null;
-   // Only the old cursor proves completed coverage. A partial old block may be reread.
-   const completed=new Set(oldBlocks.slice(0,saved.cursor).flatMap(block=>[...block.visible]));
-   while(cursor<plan.blocks.length&&[...plan.blocks[cursor].visible].every(id=>completed.has(id)))cursor++;
-  }
-  const migrated={...saved,cursor,readThrough:cursor,exhausted:cursor===plan.blocks.length};
-  await cache.write(key,migrated);
-  return migrated;
- };
  const unitText=new Map(book.sections.flatMap(section=>section.units.map(unit=>[unit.id,unit.text] as const)));
  const scanRequest=(current:State,cursor:number,maxStories=5)=>{
   const block=plan.blocks[cursor],visible=new Set(block.visible);
@@ -125,31 +99,35 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   }
   if(chapterStories)relevant=current.stories.filter(story=>sourceUnitIds(book,story.source).some(id=>visible.has(id)));
   const chapterStoryLevel=chapterStories?(relevant.length?'episodes':'main'):undefined;
-  const input:WholeBookInput={title:book.title,edition:book.edition,text:block.text,purpose:'scan',scan:{maxStories:chapterStoryLevel==='main'?1:maxStories,excludedSources:relevant.map(story=>story.source),pendingEvents:current.pendingEvents,contextText:context.join('\n\n'),...(chapterStoryLevel?{chapterStoryLevel}:{})}};
+  const input:WholeBookInput={title:book.title,edition:book.edition,text:block.text,purpose:'catalog',scan:{maxStories:chapterStoryLevel==='main'?1:maxStories,excludedSources:relevant.map(story=>story.source),pendingEvents:current.pendingEvents,contextText:context.join('\n\n'),...(chapterStoryLevel?{chapterStoryLevel}:{})}};
   return {input,titles:relevant.map(story=>story.title),visible};
  };
- const response=(state:State,hit:boolean):SuggestionBatch=>{
-  const stories=visibleStories(state.stories).slice(0,batchLimit);
-  const note=(hit?'已复用本地主题故事缓存。':chapterStories?'已按先总故事、后小故事的顺序选题，可继续找故事。':plan.manifest.mode==='whole'?'已直接根据全书原文选题。':'已按章回选题，换一批将从保存的位置继续。')+(state.rejected?'部分返回出处未能完整核对，已保留当前进度，可继续重试。':'')+(stories.length<5&&state.exhausted?'已检查完所给原文，当前主题可确认的新故事不足5篇。':'')+(state.exhausted&&state.pendingEvents.length?'部分跨章线索尚未确认完整，未作为故事推荐。':'');
-  return {stories,note:note.slice(0,300)};
+ const progress=(current:State,stage:'reading'|'checking'|'selecting'='reading',reading:ReadingObserver|undefined=observer,block:ReadingBlock|undefined=plan.blocks[current.cursor])=>reading?.onProgress({completed:current.cursor,total:plan.blocks.length,completedChars:plan.blocks.slice(0,current.cursor).reduce((n,block)=>n+block.chars,0),totalChars,stage,mode:plan.manifest.mode,currentChapters:block?.chapters||[]});
+ const empty=():State=>({stories:[],cursor:0,readThrough:0,pendingEvents:[],exhausted:false,rejected:false});
+ const read=async()=>await cache.read(key,stateSchema,validate)||empty();
+ const response=(state:State,stories:Story[],hit:boolean):SuggestionBatch=>{
+  const note=(hit?'已复用本地故事库及主题判断缓存。':chapterStories?'已按先总故事、后小故事的顺序收录，再匹配主题。':'已逐篇收录原文故事并匹配主题。')+(state.rejected?'部分返回出处未能完整核对，已保留当前进度，可继续重试。':'')+(!stories.length&&state.exhausted?'已检查完所给原文，暂时没有更多符合主题的故事。':'')+(state.exhausted&&state.pendingEvents.length?'部分跨章线索尚未确认完整，未作为故事推荐。':'');
+  // The catalog's complete summary is internal. Selection/production retain only verified source references.
+  return suggestionBatchSchema.parse({stories:stories.slice(0,batchLimit),note:note.slice(0,300)});
  };
+ const extraction:Selection={bookId:selection.bookId,...(selection.bookId==='other'?{customBook:book.title}:{}),theme:'',artStyle:'ink-pencil',productionPrompt:'',length:'auto',voice:false};
  let hit=true;
  while(true){
-  // Even a partial cached batch must not wait behind another reader's in-flight expansion.
-  const cached=await cache.read(key,stateSchema,validate)||await cache.shared(key+'/migration',observer,()=>migrateLegacy());
-  if(cached&&(visibleStories(cached.stories).length>0||cached.exhausted))return response(cached,hit);
-  const {state,stalled}=await cache.shared(key,observer,async reading=>{
-   let current=await cache.read(key,stateSchema,validate)||{stories:[],cursor:0,readThrough:0,pendingEvents:[],exhausted:false,rejected:false};
-   let stalled=false;
-   const progress=(stage:'reading'|'checking'='reading',block:ReadingBlock|undefined=plan.blocks[current.cursor])=>reading.onProgress({completed:current.cursor,total:plan.blocks.length,completedChars:plan.blocks.slice(0,current.cursor).reduce((n,block)=>n+block.chars,0),totalChars,stage,mode:plan.manifest.mode,currentChapters:block?.chapters||[]});
-   progress();
-   while(!visibleStories(current.stories).length&&!current.exhausted){
+  observer?.signal.throwIfAborted();
+  const saved=await read(),candidates=visibleStories(saved.stories);
+  if(candidates.length)progress(saved,'selecting');
+  const matched=await matchLibraryStories(provider,cache,namespace,theme,candidates,story=>books.resolve(book,story.source).text,limits.whole,status.provider,observer);
+  if(matched.length||saved.exhausted)return response(saved,matched,hit);
+  const baseline=saved.stories.length;
+  await cache.shared(key,observer,async reading=>{
+   let current=await read();progress(current,'reading',reading);
+   // A simultaneous theme may already have extended the shared library while matching ran.
+   while(current.stories.length<=baseline&&!current.exhausted){
     reading.signal.throwIfAborted();
     const {input,titles,visible}=scanRequest(current,current.cursor,current.stories.length?batchLimit:1);
-    if(requestTokens(input,theme,titles,status.provider)>limits.whole)throw new ReaderError(502,'跨章原文或已选记录超过本次输入预算，已保留进度；请换个主题。');
-    hit=false;
-    const result=await provider.suggestions({...selection,theme,artStyle:'ink-pencil',productionPrompt:''},titles,input);
-    progress('checking');
+    if(requestTokens(input,'',titles,status.provider)>limits.whole)throw new ReaderError(502,'跨章原文或已入库记录超过本次输入预算，故事库和进度已保留，请缩小章节范围。');
+    const result=await provider.suggestions(extraction,titles,input);
+    progress(current,'checking',reading);
     if(result.stories.length>input.scan!.maxStories)throw failed();
     if(!result.scan||!Array.isArray(result.scan.pendingEvents)||!Array.isArray(result.scan.resolvedEventIds))throw failed();
     const accepted:Story[]=[];let rejected=false;
@@ -162,28 +140,18 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
     }
     const pending=mergePending(books,book,current.pendingEvents,result.scan.pendingEvents,result.scan.resolvedEventIds,accepted,visible);
     const next:State={...current,stories:[...current.stories,...accepted],pendingEvents:pending,rejected};
-    // A full response only fills the current page; it is never proof that the block is exhausted.
+    // A full response is not proof that all stories in this block have been catalogued.
     if(!rejected&&result.stories.length<input.scan!.maxStories&&result.scan.blockComplete)next.cursor++;
-    next.readThrough=next.cursor;
-    next.exhausted=next.cursor===plan.blocks.length;
-    // Validate the next pending context before committing a cursor that cannot be resumed.
+    next.readThrough=next.cursor;next.exhausted=next.cursor===plan.blocks.length;
     if(!next.exhausted&&next.pendingEvents.length){
      const upcoming=scanRequest(next,next.cursor);
-     if(requestTokens(upcoming.input,theme,upcoming.titles,status.provider)>limits.whole)throw new ReaderError(502,'跨章上下文超过输入预算，旧进度已保留，请换个主题。');
+     if(requestTokens(upcoming.input,'',upcoming.titles,status.provider)>limits.whole)throw new ReaderError(502,'跨章上下文超过输入预算，旧故事库和进度已保留，请缩小章节范围。');
     }
-    await cache.write(key,next);current=next;progress();
+    await cache.write(key,next);current=next;progress(current,'reading',reading);
     if(reading.signal.aborted)break;
-    if(rejected||!accepted.length&&!result.scan.blockComplete){
-     if(visibleStories(current.stories).length){stalled=true;break;}
-     throw failed();
-    }
+    if(!accepted.length&&(rejected||!result.scan.blockComplete))throw failed();
    }
-   return {state:current,stalled};
   });
-  observer?.signal.throwIfAborted();
-  const stories=visibleStories(state.stories).slice(0,batchLimit);
-  if(stories.length||state.exhausted||state.rejected)return response(state,hit);
-  if(stalled)return {...response(state,hit),note:'本段尚未确认处理完，已保存找到的故事和原文位置，可重试继续。'};
-  // A different waiting reader may need more than the shared expansion supplied.
+  hit=false;
  }
 }

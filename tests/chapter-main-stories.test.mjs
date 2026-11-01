@@ -16,7 +16,7 @@ const selection=selectionSchema.parse({bookId:'三国演义',theme:'忠于原文
 const scan=(blockComplete=false,pendingEvents=[],resolvedEventIds=[])=>({blockComplete,pendingEvents,resolvedEventIds});
 function memory(){const values=new Map();return {values,async get(key){const bytes=values.get(key);return bytes?{arrayBuffer:async()=>bytes.slice().buffer}:null;},async put(key,bytes){values.set(key,new Uint8Array(bytes));}};}
 function ref(book,section,first,last=first){return {edition:book.edition,sectionId:section.id,firstUnit:section.units[first].id,lastUnit:section.units[last].id};}
-function story(title,source){return {title,description:'围绕粮草危机展开的谋划与交锋。',source};}
+function story(title,source){return {title,description:'围绕粮草危机展开的谋划与交锋。',summary:'人物经历事件、作出行动，事情得到完整结果。',source};}
 
 for(const name of ['codex','gemini'])test(`${name}: chapter thirty offers Guandu before Xuyou and Wuchao, retaining both after restart`,async()=>{
  const book=await library.book(selection),section=book.sections[29],scope=ref(book,section,0,section.units.length-1);
@@ -24,7 +24,7 @@ for(const name of ['codex','gemini'])test(`${name}: chapter thirty offers Guandu
  const selected={...selection,discoverySources:[scope]},jobs=[],store=memory();
  const scoped=selectedChapterScope(library,book,[scope]).book,blocks=hydrateReadingPlan(scoped,buildReadingPlan(scoped,name));
  const result=job=>{
-  const payload=JSON.parse(job.prompt),input=payload.localBook;jobs.push({instructions:job.instructions,...payload});
+  const payload=JSON.parse(job.prompt);if(payload.stories)return JSON.stringify({matches:payload.stories.map(story=>({id:story.id,verdict:'yes'}))});const input=payload.localBook;jobs.push({instructions:job.instructions,...payload});
   assert.match(job.instructions,/chapterStoryLevel=main 时只返回一个/);assert.match(job.instructions,/chapterStoryLevel=episodes 时/);assert.match(job.instructions,/不能只缩短范围再推荐同一故事/);
   assert.ok(blocks.some(block=>block.text===input.text));
   assert.doesNotMatch(input.text,/\[sanguo-029-|\[sanguo-031-/);
@@ -62,7 +62,7 @@ function synthetic(){
  const sections=Array.from({length:4},(_,i)=>({id:`chapter-${i}`,title:`第${i+1}回`,units:Array.from({length:8},(_,j)=>({id:`unit-${i}-${j}`,text:'人物面对危机，谋划之后展开行动，终于得到结果。'+'字'.repeat(100),narrative:true}))}));
  const book={id:'sanguo',title:'测试书',edition:'a'.repeat(64),url:'https://example.org/original',provider:'原文',sections,input:{title:'测试书',edition:'a'.repeat(64),text:sections.map(s=>`篇章 ${s.id}：${s.title}\n`+s.units.map(u=>`[${u.id}]\n${u.text}`).join('\n\n')).join('\n\n')}};
  const sources=sections.map(s=>ref(book,s,0,7)),selected={...selection,discoverySources:sources},calls=[];
- const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'}}),safeError:()=>'',generator:()=>({}),suggestions:async()=>assert.fail('Set the controlled response')};
+ const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'}}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes'}))}),safeError:()=>'',generator:()=>({}),suggestions:async()=>assert.fail('Set the controlled response')};
  const cache=new StoryDiscoveryCache(memory()),limits={whole:20000,chapter:1600};
  const run=(excludedSources=[],excluded=[])=>discoverLocalStories(provider,library,cache,book,selected,excluded,undefined,excludedSources,limits);
  return {book,selected,provider,cache,limits,calls,run};

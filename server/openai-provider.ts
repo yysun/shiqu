@@ -11,7 +11,8 @@ import type {ReasoningEffort} from '../lib/reader-reasoning.ts';
 import {openaiDefaultModels} from '../lib/system-settings.ts';
 import {storyboardGenerator} from '../lib/reader-storyboard.ts';
 import {freshSuggestions,suggestionBatchSchema} from '../lib/reader-suggestions.ts';
-import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localSuggestionPayload} from '../lib/reader-local-contract.ts';
+import {localChoicesJson,localScanJson,localCatalogJson,localChoices,localReadingPrompt,localSuggestionPayload} from '../lib/reader-local-contract.ts';
+import {themeMatchPrompt,themeMatchPayload,themeMatchJson,themeMatchesSchema} from '../lib/reader-theme-match.ts';
 import {choicesJson,storyDraftJson,suggestionSystemPrompt,draftInstructions,imagePrompt,imageTypes,mediaType,storySource} from '../lib/reader-generation-contract.ts';
 import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from '../lib/reader-art-recommendation.ts';
 import {frameRecommendationSchema,frameRecommendationJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
@@ -76,10 +77,14 @@ export function createOpenAIProvider(variables:Record<string,string|undefined>,m
  return {
   async status(){return {configured:!!key,provider:'openai',models,voiceEnabled:false,taskReasoningEfforts:reasoning};},
   async suggestions(selection,excluded,localBook,reading){
-   const scanning=localBook?.purpose==='scan';
-   const result=await text(localBook?localReadingPrompt(localBook):suggestionSystemPrompt,localSuggestionPayload(book(selection),selection.theme,excluded,localBook,reading?.maxStories),scanning?localScanJson:localBook?localChoicesJson:choicesJson,reasoning.suggest,scanning?10000:localBook?5000:2500);
+   const scanning=localBook?.purpose==='scan'||localBook?.purpose==='catalog';
+   const result=await text(localBook?localReadingPrompt(localBook):suggestionSystemPrompt,localSuggestionPayload(book(selection),selection.theme,excluded,localBook,reading?.maxStories),localBook?.purpose==='catalog'?localCatalogJson:scanning?localScanJson:localBook?localChoicesJson:choicesJson,reasoning.suggest,scanning?10000:localBook?5000:2500);
    const batch=localBook?localChoices(result.value,localBook):suggestionBatchSchema.parse(result.value),fresh=scanning?batch:freshSuggestions(batch,excluded);
    return reading?.maxStories?{...fresh,stories:fresh.stories.slice(0,reading.maxStories)}:fresh;
+  },
+  async matchStories(theme,stories){
+   const result=await text(themeMatchPrompt,themeMatchPayload(theme,stories),themeMatchJson,reasoning.suggest,3000);
+   return themeMatchesSchema.parse(result.value);
   },
   async recommendArt(selection,original){
    if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');

@@ -31,6 +31,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
  }
  return {
   status:()=>provider.status(),safeError:error=>provider.safeError(error),
+  ...(provider.matchStories?{matchStories:provider.matchStories.bind(provider)}:{}),
   async suggestions(selection,excluded,_localBook,reading,excludedSources=[]){
    reading?.signal.throwIfAborted();
    const book=await books.book(selection);

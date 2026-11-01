@@ -21,9 +21,9 @@ function fixture(chapters=2,units=10,size=80){
  const sections=Array.from({length:chapters},(_,i)=>({id:'chapter-'+i,title:'第'+(i+1)+'回',units:Array.from({length:units},(_,j)=>({id:'unit-'+i+'-'+String(j).padStart(3,'0'),text:'人物经历变故之后，才终于得知真相。'+'字'.repeat(size),narrative:true}))}));
  const book={id:'zhuangzi',title:'测试书',edition:'a'.repeat(64),url:'https://example.org/original',provider:'测试原文',sections,input:{title:'测试书',edition:'a'.repeat(64),text:sections.map(s=>'篇章 '+s.id+'：'+s.title+'\n'+s.units.map(u=>'['+u.id+']\n'+u.text).join('\n\n')).join('\n\n')}};
  const books=new LocalBooks(process.cwd());books.book=async()=>book;
- const stories=sections.flatMap(s=>s.units.map((u,i)=>({title:s.id+'故事'+i,description:'一次变故，让人物重新认识事情的真相。',source:{edition:book.edition,sectionId:s.id,firstUnit:u.id,lastUnit:u.id}})));
+ const stories=sections.flatMap(s=>s.units.map((u,i)=>({title:s.id+'故事'+i,description:'一次变故，让人物重新认识事情的真相。',summary:'人物经历事件、作出行动，事情得到完整结果。',source:{edition:book.edition,sectionId:s.id,firstUnit:u.id,lastUnit:u.id}})));
  const calls=[];
- const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'},voiceEnabled:false}),safeError:()=> '模拟错误',generator:()=>({}),suggestions:async(s,excluded,input)=>{
+ const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'},voiceEnabled:false}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes'}))}),safeError:()=> '模拟错误',generator:()=>({}),suggestions:async(s,excluded,input)=>{
   calls.push({selection:s,excluded,input});
   const known=new Set(input.scan.excludedSources.map(localSourceKey));
   const available=stories.filter(story=>input.text.includes('['+story.source.firstUnit+']')&&!known.has(localSourceKey(story.source)));
@@ -62,7 +62,7 @@ test('old caches without effort are not migrated into a newly configured effort 
 test('whole book first selects one, then five on demand; hot hits and a new cache instance make no model calls',async()=>{
  const f=fixture(),store=memory(),cache=new StoryDiscoveryCache(store);
  const first=await run(f,cache);assert.equal(first.stories.length,1);assert.equal(f.calls.length,1);assert.equal(f.calls[0].input.scan.maxStories,1);
- assert.equal(f.calls[0].input.purpose,'scan');assert.equal(f.calls[0].selection.theme,selection.theme);assert.equal(f.calls[0].input.text,f.book.input.text);
+ assert.equal(f.calls[0].input.purpose,'catalog');assert.equal(f.calls[0].selection.theme,'');assert.equal(f.calls[0].input.text,f.book.input.text);
  assert.match((await run(f,new StoryDiscoveryCache(store))).note,/缓存/);assert.equal(f.calls.length,1);
  const next=await run(f,cache,first.stories.map(s=>s.title),undefined,first.stories.map(s=>s.source));
  assert.equal(next.stories.length,5);assert.equal(f.calls.length,2);
@@ -124,7 +124,7 @@ test('cross-chapter pending survives omission, accumulates evidence, and only a 
   assert.equal(input.scan.pendingEvents[0].source.continuations[0].sectionId,second.sectionId);
   assert.ok(input.scan.contextText.includes('['+second.firstUnit+']'));
   assert.ok(input.scan.contextText.includes('['+first.firstUnit+']'));
-  return {stories:[{title:'跨章完整事件',description:'出发之后，一次相逢改变了他的选择。',source:combined}],note:'',scan:state(false,[],[eventId])};
+  return {stories:[{title:'跨章完整事件',description:'出发之后，一次相逢改变了他的选择。',summary:'人物经历事件、作出行动，事情得到完整结果。',source:combined}],note:'',scan:state(false,[],[eventId])};
  };
  const batch=await run(f,cache,[],undefined,[],limits);
  assert.equal(batch.stories[0].source.continuations[1].sectionId,third.sectionId);
@@ -155,10 +155,10 @@ test('fake event consumption and merged pending overflow keep the previous curso
   const saved=documents.find(d=>d.value.pendingEvents);assert.equal(saved.value.cursor,1);assert.equal(saved.value.pendingEvents.length,initial.length);
  }
 });
-test('another theme scans independently while presentation changes reuse the existing theme cache',async()=>{
+test('another theme reuses the neutral library while presentation changes reuse its matching cache',async()=>{
  const f=fixture(),store=memory(),wrapped=withLocalBooks(f.provider,f.books,store);
  const first=await wrapped.suggestions(selection,[]);await wrapped.suggestions({...selection,artStyle:'watercolor',length:12},[]);assert.equal(f.calls.length,1);
- await wrapped.suggestions({...selection,theme:'人情冷暖'},[]);assert.equal(f.calls.length,2);assert.ok(f.calls.every(c=>c.input.purpose==='scan'));
+ await wrapped.suggestions({...selection,theme:'人情冷暖'},[]);assert.equal(f.calls.length,1);assert.ok(f.calls.every(c=>c.input.purpose==='catalog'&&c.selection.theme===''));
  const changed={...f.book,edition:'b'.repeat(64)};assert.notEqual(discoveryNamespace(changed,'codex','mock'),discoveryNamespace(f.book,'codex','mock'));
  assert.notEqual(discoveryNamespace(f.book,'codex','mock2'),discoveryNamespace(f.book,'codex','mock'));
  assert.equal(first.stories.length,1);
@@ -167,7 +167,7 @@ test('a consumed event cannot be resurrected by returning the same source as a n
  const f=fixture(8,4,200),store=memory(),cache=new StoryDiscoveryCache(store),first=f.stories[0].source;let calls=0;
  f.provider.suggestions=async(s,e,input)=>{calls++;if(calls===1)return {stories:[],note:'',scan:state(true,[{id:'',title:'未完事件',summary:'事情还未结束。',source:first}])};
   const later=f.stories[4].source,complete={...first,continuations:[{sectionId:later.sectionId,firstUnit:later.firstUnit,lastUnit:later.lastUnit}]};
-  return {stories:[{title:'完整故事',description:'人物终于看到了结果。',source:complete}],note:'',scan:state(true,[{id:'',title:'未完事件',summary:'仍未结束。',source:first}],[input.scan.pendingEvents[0].id])};
+  return {stories:[{title:'完整故事',description:'人物终于看到了结果。',summary:'人物经历事件、作出行动，事情得到完整结果。',source:complete}],note:'',scan:state(true,[{id:'',title:'未完事件',summary:'仍未结束。',source:first}],[input.scan.pendingEvents[0].id])};
  };
  await assert.rejects(run(f,cache,[],undefined,[],limits));
  const documents=[...store.values.values()].map(bytes=>JSON.parse(new TextDecoder().decode(bytes))),saved=documents.find(d=>d.value.pendingEvents);
@@ -193,7 +193,7 @@ test('a second reader gets unseen stories from a shared expansion without waitin
  const gate=new Promise(resolve=>{release=resolve;});f.provider.suggestions=async(...args)=>{if(!started){started=true;await gate;}return raw(...args);};
  const first=run(f,cache,[],undefined,seen);await until(()=>started);
  const second=run(f,cache,[],undefined,f.stories.slice(0,4).map(story=>story.source));release();
- assert.equal((await first).stories.length,5);const batch=await second;
+ const early=await first;assert.ok(early.stories.length>=1&&early.stories.length<=5);assert.ok(early.stories.every(story=>!seen.some(old=>localSourceKey(old)===localSourceKey(story.source))));const batch=await second;
  assert.equal(batch.stories.length,2);assert.equal(f.calls.length,2);
  assert.ok(batch.stories.every(story=>!f.stories.slice(0,3).some(old=>localSourceKey(old.source)===localSourceKey(story.source))));
 });

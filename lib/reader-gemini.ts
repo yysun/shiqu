@@ -12,7 +12,9 @@ import {choicesJson,storyDraftJson,suggestionSystemPrompt,draftInstructions,imag
 export {imageTypes} from './reader-generation-contract.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import {saveStoryOriginal} from './reader-source-storage.ts';
-import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localSuggestionPayload} from './reader-local-contract.ts';
+import {localChoicesJson,localScanJson,localCatalogJson,localChoices,localReadingPrompt,localSuggestionPayload} from './reader-local-contract.ts';
+import {themeMatchPrompt,themeMatchPayload,themeMatchJson,themeMatchesSchema} from './reader-theme-match.ts';
+import type {ThemeStory} from './reader-theme-match.ts';
 import type {WholeBookInput} from './reader-local-contract.ts';
 import {verifiedOriginalPayload} from './reader-source-types.ts';
 import type {OriginalSource} from './reader-source-types.ts';
@@ -110,14 +112,19 @@ function parseText(candidate:Candidate){
  try{return JSON.parse(value);}catch{throw new GeminiError('INVALID_JSON');}
 }
 export async function suggestStories(key:string,selection:Selection,config:Partial<Models>={},transport:typeof fetch=fetch,excludeTitles:string[]=[],localBook?:WholeBookInput,reasoning:TaskReasoningEfforts=taskReasoningDefaults,maxStories?:1){
- const models={...defaultModels,...config},{book,url}=source(selection),scanning=localBook?.purpose==='scan';
+ const models={...defaultModels,...config},{book,url}=source(selection),scanning=localBook?.purpose==='scan'||localBook?.purpose==='catalog';
  const {candidate}=await client(key,transport)(models.text,textRequest(
   localBook?localReadingPrompt(localBook):suggestionSystemPrompt,
-  localSuggestionPayload(book,selection.theme,excludeTitles,localBook,maxStories),scanning?localScanJson:localBook?localChoicesJson:choicesJson,url,scanning?10000:localBook?5000:2500,reasoning.suggest),localBook?120000:60000);
+  localSuggestionPayload(book,selection.theme,excludeTitles,localBook,maxStories),localBook?.purpose==='catalog'?localCatalogJson:scanning?localScanJson:localBook?localChoicesJson:choicesJson,url,scanning?10000:localBook?5000:2500,reasoning.suggest),localBook?120000:60000);
  if(url&&!wasRead(candidate,url))return {stories:[],note:'暂时无法读取这个链接，请提供可公开访问的原文页面，或直接输入书名。'};
  const batch=localBook?localChoices(parseText(candidate),localBook):choicesSchema.parse(parseText(candidate));
  const fresh=scanning?batch:freshSuggestions(batch,excludeTitles);
  return maxStories?{...fresh,stories:fresh.stories.slice(0,maxStories)}:fresh;
+}
+export async function matchStoryThemes(key:string,theme:string,stories:ThemeStory[],config:Partial<Models>={},transport:typeof fetch=fetch,reasoning:TaskReasoningEfforts=taskReasoningDefaults){
+ const models={...defaultModels,...config};
+ const {candidate}=await client(key,transport)(models.text,textRequest(themeMatchPrompt,themeMatchPayload(theme,stories),themeMatchJson,'',3000,reasoning.suggest),120000);
+ return themeMatchesSchema.parse(parseText(candidate));
 }
 export async function recommendStoryArt(key:string,selection:Selection,original:OriginalSource,config:Models,transport:typeof fetch,reasoning:TaskReasoningEfforts=taskReasoningDefaults){
  const {candidate}=await client(key,transport)(config.text,textRequest(selectedArtRecommendationPrompt,selectedArtRecommendationPayload(selection,original),artRecommendationJson,'',600,reasoning.art));

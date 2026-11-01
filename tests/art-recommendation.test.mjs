@@ -13,7 +13,7 @@ import {withLocalBooks} from '../server/local-generation.ts';
 const recommendation={artStyle:'woodblock',reason:'粗犷轮廓与鲜明套色适合追日的力量和山河尺度。'};
 const selection=selectionSchema.parse({bookId:'山海经',theme:'命运与选择',length:8});
 const source={edition:'a'.repeat(64),sectionId:'chapter',firstUnit:'unit',lastUnit:'unit'};
-const candidate={title:'夸父逐日',description:'追逐太阳的旅程。',source,artRecommendation:recommendation};
+const candidate={title:'夸父逐日',description:'追逐太阳的旅程。',summary:'原文中的人物经历变故并采取行动，事件得到明确结果。',source,artRecommendation:recommendation};
 
 test('recommendations validate real style IDs and bounded nonempty reasons, while old history still loads',()=>{
  assert.deepEqual(artRecommendationSchema.parse(recommendation),recommendation);
@@ -22,7 +22,7 @@ test('recommendations validate real style IDs and bounded nonempty reasons, whil
  assert.deepEqual(JSON.parse(JSON.stringify(batch)).stories[0].artRecommendation,recommendation);
  assert.deepEqual(freshSuggestions(batch,[]).stories[0].artRecommendation,recommendation);
  assert.equal(freshSuggestions(batch,['夸父逐日']).stories.length,0);
- assert.equal(suggestionBatchSchema.parse({stories:[{title:'旧候选',description:'旧简介'}],note:''}).stories[0].artRecommendation,undefined);
+ assert.equal(suggestionBatchSchema.parse({stories:[{title:'旧候选',description:'旧简介',summary:'原文中的人物经历变故并采取行动，事件得到明确结果。'}],note:''}).stories[0].artRecommendation,undefined);
 });
 
 test('new stories adopt their recommendation, reselect preserves manual choice, and another story replaces it',()=>{
@@ -33,7 +33,7 @@ test('new stories adopt their recommendation, reselect preserves manual choice, 
  assert.equal(selectSuggestedStory(manual,{...candidate,source:{lastUnit:'unit',firstUnit:'unit',sectionId:'chapter',edition:source.edition}}).artStyle,'cinematic');
  const second={...candidate,title:'另一篇',artRecommendation:{artStyle:'ink-wash',reason:'留白适合寓言。'}};
  assert.equal(selectSuggestedStory(manual,second).artStyle,'ink-wash');
- assert.equal(selectSuggestedStory(manual,{title:'旧候选',description:'无推荐'}).artStyle,'cinematic');
+ assert.equal(selectSuggestedStory(manual,{title:'旧候选',description:'无推荐',summary:'原文中的人物经历变故并采取行动，事件得到明确结果。'}).artStyle,'cinematic');
  assert.equal(selectSuggestedStory(manual,{...candidate,source:{...source,firstUnit:'new'}}).artStyle,'woodblock');
 });
 
@@ -84,8 +84,8 @@ test('direct whole-book selection preserves the original content-based art recom
  const sections=[{id:'s0',title:'篇章',units:[{id:'u0',text:'人物终于明白事情的真相，向朋友承认了自己的错误。',narrative:true}]}];
  const book={id:'山海经',title:'山海经',edition:source.edition,sections,input:{title:'山海经',edition:source.edition,text:'篇章 s0：篇章\n[u0]\n'+sections[0].units[0].text}};
  let calls=0;const books={book:async()=>book,resolve:(_book,receipt)=>({title:receipt.sectionId,text:'核对原文'})};
- const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock'}}),safeError:()=>'',generator:()=>({}),suggestions:async(_selection,_excluded,input)=>{
-  calls++;assert.equal(input.purpose,'scan');return {stories:[{title:'故事',description:'真实故事简介',source:{edition:book.edition,sectionId:'s0',firstUnit:'u0',lastUnit:'u0'},artRecommendation:recommendation}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};
+ const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock'}}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes'}))}),safeError:()=>'',generator:()=>({}),suggestions:async(_selection,_excluded,input)=>{
+  calls++;assert.equal(input.purpose,'catalog');return {stories:[{title:'故事',description:'真实故事简介',summary:'原文中的人物经历变故并采取行动，事件得到明确结果。',source:{edition:book.edition,sectionId:'s0',firstUnit:'u0',lastUnit:'u0'},artRecommendation:recommendation}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};
  }};
  const stored=new Map(),media={get:async key=>{const bytes=stored.get(key);return bytes?{arrayBuffer:async()=>bytes.slice().buffer}:null;},put:async(key,bytes)=>{stored.set(key,new Uint8Array(bytes));}};
  const batch=await withLocalBooks(provider,books,media).suggestions(selection,[]);assert.equal(calls,1);assert.equal(batch.stories.length,1);assert.deepEqual(batch.stories[0].artRecommendation,recommendation);assert.equal(batch.stories[0].sourceLabel,'s0');

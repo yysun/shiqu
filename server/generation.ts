@@ -3,7 +3,7 @@ import {normalizeProductionPrompt} from '../lib/reader-prompts.ts';
 import {verifiedOriginalPayload} from '../lib/reader-source-types.ts';
 import {createOpenAIProvider} from './openai-provider.ts';
 import {frameRecommendationSchema,frameRecommendationJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
-import {configuredModels,makeGenerator,suggestStories,safeGeminiError,recommendStoryArt} from '../lib/reader-gemini.ts';
+import {configuredModels,makeGenerator,suggestStories,safeGeminiError,recommendStoryArt,matchStoryThemes} from '../lib/reader-gemini.ts';
 import {storyDraftSchema,ReaderError} from '../lib/reader-model.ts';
 import {readerStoryboardTimeoutMs} from '../lib/reader-limits.ts';
 import {choicesJson,storyDraftJson,suggestionSystemPrompt,draftInstructions,imagePrompt,nativeImageInstructions,imageTypes,mediaType,storySource} from '../lib/reader-generation-contract.ts';
@@ -14,7 +14,8 @@ import type {MediaStore} from '../lib/services.ts';
 import type {ReaderProvider,ProviderStatus} from '../lib/reader-provider.ts';
 import {CodexError,createCodexRunner} from './codex-runner.ts';
 import type {CodexRunner} from './codex-runner.ts';
-import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localSuggestionPayload} from '../lib/reader-local-contract.ts';
+import {localChoicesJson,localScanJson,localCatalogJson,localChoices,localReadingPrompt,localSuggestionPayload} from '../lib/reader-local-contract.ts';
+import {themeMatchPrompt,themeMatchPayload,themeMatchJson,themeMatchesSchema} from '../lib/reader-theme-match.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {imageDimensions} from '../lib/reader-image-dimensions.ts';
 import {storyboardGenerator} from '../lib/reader-storyboard.ts';
@@ -44,7 +45,7 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
  const taskReasoningEfforts=configuredTaskReasoning(variables);
  if(name==='gemini'){
   const key=variables.GEMINI_API_KEY?.trim()||'',models=configuredModels(variables);
-  return {async status(){return {configured:!!key,provider:'gemini',models,voiceEnabled:false,taskReasoningEfforts};},suggestions:(selection,excluded,localBook,reading)=>suggestStories(key,selection,models,transport,excluded,localBook,taskReasoningEfforts,reading?.maxStories),async recommendArt(selection,original){if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');return recommendStoryArt(key,selection,original,models,transport,taskReasoningEfforts);},generator:()=>makeGenerator(key,media,models,transport,taskReasoningEfforts),safeError:safeGeminiError};
+  return {async status(){return {configured:!!key,provider:'gemini',models,voiceEnabled:false,taskReasoningEfforts};},suggestions:(selection,excluded,localBook,reading)=>suggestStories(key,selection,models,transport,excluded,localBook,taskReasoningEfforts,reading?.maxStories),matchStories:(theme,stories)=>matchStoryThemes(key,theme,stories,models,transport,taskReasoningEfforts),async recommendArt(selection,original){if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');return recommendStoryArt(key,selection,original,models,transport,taskReasoningEfforts);},generator:()=>makeGenerator(key,media,models,transport,taskReasoningEfforts),safeError:safeGeminiError};
  }
  const codex=runner||createCodexRunner(variables),models={text:variables.CODEX_MODEL?.trim()||'codex-default',image:'codex-image-generation'};
  let cached:Promise<ProviderStatus>|undefined,expires=0;
@@ -59,11 +60,15 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
    return cached;
   },
   async suggestions(selection,excluded,localBook,reading){
-   const scanning=localBook?.purpose==='scan';
-   const result=await codex.run({instructions:localBook?localReadingPrompt(localBook):suggestionSystemPrompt,prompt:JSON.stringify(localSuggestionPayload(book(selection),selection.theme,excluded,localBook,reading?.maxStories)),schema:scanning?localScanJson:localBook?localChoicesJson:choicesJson,timeoutMs:localBook?120000:60000,reasoningEffort:taskReasoningEfforts.suggest});
+   const scanning=localBook?.purpose==='scan'||localBook?.purpose==='catalog';
+   const result=await codex.run({instructions:localBook?localReadingPrompt(localBook):suggestionSystemPrompt,prompt:JSON.stringify(localSuggestionPayload(book(selection),selection.theme,excluded,localBook,reading?.maxStories)),schema:localBook?.purpose==='catalog'?localCatalogJson:scanning?localScanJson:localBook?localChoicesJson:choicesJson,timeoutMs:localBook?120000:60000,reasoningEffort:taskReasoningEfforts.suggest});
    const batch=localBook?localChoices(JSON.parse(result.text),localBook):suggestionBatchSchema.parse(JSON.parse(result.text));
    const fresh=scanning?batch:freshSuggestions(batch,excluded);
    return reading?.maxStories?{...fresh,stories:fresh.stories.slice(0,reading.maxStories)}:fresh;
+  },
+  async matchStories(theme,stories){
+   const result=await codex.run({instructions:themeMatchPrompt,prompt:JSON.stringify(themeMatchPayload(theme,stories)),schema:themeMatchJson,timeoutMs:120000,reasoningEffort:taskReasoningEfforts.suggest});
+   return themeMatchesSchema.parse(JSON.parse(result.text));
   },
   async recommendArt(selection,original){
    if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');

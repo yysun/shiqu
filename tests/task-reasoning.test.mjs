@@ -13,6 +13,7 @@ const original={title:'已核原文',text:'庄周梦为胡蝶。',url:'https://e
 const issue={page:2,category:'caption',problem:'机械重复转述。',instruction:'只修配文。'};
 const override={suggest:'high',art:'medium',frames:'low',outline:'medium',plan:'low',review:'medium',repair:'low'};
 function output(payload,schema){
+ if(schema.properties.matches)return {matches:payload.stories.map(story=>({id:story.id,verdict:'yes'}))};
  if(schema.properties.candidates)return {title:payload.draft.title,candidates:makeReflectionCandidates(plan.reflection)};
  if(schema.properties.stories)return {stories:[],note:''};
  if(schema.properties.artStyle)return {artStyle:'ink-pencil',reason:'适合本篇动作。'};
@@ -32,7 +33,7 @@ for(const name of ['codex','gemini'])for(const custom of [false,true])test(`${na
   return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(output(JSON.parse(body.contents[0].parts[0].text),body.generationConfig.responseFormat.text.schema))}]}}]});
  };
  const provider=createReaderProvider(variables,{},transport,runner),g=provider.generator();
- await provider.suggestions(selection,[]);await provider.recommendArt(selection,original);
+ await provider.suggestions(selection,[]);await provider.matchStories(selection.theme,[{id:'a'.repeat(64),title:'故事',summary:'完整因果和结局。'}]);await provider.recommendArt(selection,original);
  assert.equal((await g.recommend(selection,'test',original)).reasoningEffort,efforts.frames);
  await g.outline(selection,'test',original);await g.planBatch(selection,'test',{outline,pages:[]},original);
  assert.equal((await g.plan(selection,'test',original)).reasoningEffort,efforts.plan);
@@ -40,7 +41,7 @@ for(const name of ['codex','gemini'])for(const custom of [false,true])test(`${na
  assert.equal((await g.reflection(selection,plan,original,{reflection:plan.reflection,issues:[]})).reasoningEffort,efforts.repair);
  assert.equal((await g.review(selection,plan,original)).reasoningEffort,efforts.review);
  assert.equal((await g.repair(selection,plan,original,[issue])).reasoningEffort,efforts.repair);
- assert.deepEqual(calls,['suggest','art','frames','outline','plan','plan','plan','repair','review','repair'].map(task=>efforts[task]));
+ assert.deepEqual(calls,['suggest','suggest','art','frames','outline','plan','plan','plan','repair','review','repair'].map(task=>efforts[task]));
  assert.deepEqual((await provider.status()).taskReasoningEfforts,efforts);
 });
 
