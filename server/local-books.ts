@@ -20,8 +20,9 @@ import type {HtmlOriginal} from './local-book-html.ts';
 import {parseErkeVolume} from './local-book-erke.ts';
 import {parseWygVolume} from './local-book-wyg.ts';
 import {parseAdditionalSections,additionalBookSpecs,localLines,supplementBody,chapterNumber} from './local-book-parsers.ts';
+import {correctShishuo} from './local-book-corrections.ts';
 
-export type LocalUnit={id:string;text:string;narrative?:boolean;unreadable?:boolean};
+export type LocalUnit={id:string;text:string;narrative?:boolean;unreadable?:boolean;url?:string;provider?:string};
 export type LocalSection={id:string;title:string;units:LocalUnit[];url?:string;provider?:string};
 type BookEntry={id:string;title:string;originalFile:string;originalFiles?:(Omit<HtmlOriginal,'sourceUrl'>&{sourceUrl?:string})[];format?:'wikisource-html'|'shidian-html'|'licensed-wikisource'|'kanripo-text';source:{url:string;provider:string;sha256:string};supplements:{file:string;sha256:string;sourceUrl:string;chapter:number;scope:string}[]};
 export type LocalBook={id:string;title:string;edition:string;url:string;provider:string;sections:LocalSection[];input:WholeBookInput};
@@ -148,13 +149,15 @@ export class LocalBooks{
    }
    if(hashes.length>1)edition=createHash('sha256').update(hashes.join('\n')).digest('hex');
    if(entry.supplements?.length)sections.sort((a,b)=>a.id.localeCompare(b.id));
+   edition=correctShishuo(id,edition,sections);
    const text=sections.map(s=>`篇章 ${s.id}：${s.title}\n`+s.units.map(u=>`[${u.id}]\n${u.text}`).join('\n\n')).join('\n\n');
    return {id,title:entry.title,edition,url:entry.source.url,provider:entry.source.provider,sections,input:{title:entry.title,edition,text}};
   }catch(error){if(error instanceof ReaderError)throw error;throw unavailable();}
  }
  resolve(book:LocalBook,reference:LocalSourceReference,legacyChapter=false):OriginalSource{
   const {text,title,section,parts}=sourceText(book,reference,legacyChapter);
-  return {title,text,url:section.url||book.url,kind:legacyChapter?'chapter':'passage',provider:`本地书库 · ${section.provider||book.provider}`,retrievedAt:new Date().toISOString(),localSource:reference,...(parts.length>1?{localParts:parts}:{})};
+  const units=sourceParts(book,reference).flatMap(part=>part.units),providers=[...new Set([section.provider||book.provider,...units.flatMap(unit=>unit.provider?[unit.provider]:[])])];
+  return {title,text,url:(units.length===1?units[0].url:undefined)||section.url||book.url,kind:legacyChapter?'chapter':'passage',provider:`本地书库 · ${providers.join('；')}`,retrievedAt:new Date().toISOString(),localSource:reference,...(parts.length>1?{localParts:parts}:{})};
  }
  async selected(selection:Selection){
   const book=await this.book(selection);if(!book)return null;

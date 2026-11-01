@@ -52,7 +52,9 @@
 
 ## Project Gutenberg：2部
 
-《世说新语》：[ebook24047](https://www.gutenberg.org/ebooks/24047)；《子不语》：[ebook25245](https://www.gutenberg.org/ebooks/25245)。保留原TXT全文，包括制作人员、版权、许可和使用说明；本次未改动原件。运行时仅移除电子书包装及正文之外的序跋/收尾，不改变正文用字。
+《世说新语》：[ebook24047](https://www.gutenberg.org/ebooks/24047)；《子不语》：[ebook25245](https://www.gutenberg.org/ebooks/25245)。保留原TXT全文，包括制作人员、版权、许可和使用说明；本次未改动原件。运行时移除电子书包装及正文之外的序跋/收尾；除下述明确校记外，不改变正文用字。
+
+2026-11-01校记：《世说新语·捷悟》第3则（shishuo-11-003）原件作“外孫臼”及“臼，受辛也”，谜面虽称八字却仅七字。依据[维基文库《世說新語/捷悟》固定revision 1500322](https://zh.wikisource.org/w/index.php?title=世說新語/捷悟&oldid=1500322)，在内存中分别补为“外孫齏臼”及“齏臼，受辛也”，共补两字；其余异体字、标点和全书其他单元保持Gutenberg底本。校订依据署名刘义庆及维基文库贡献者，电子转录贡献按CC BY-SA 4.0使用，许可全文见上文。原件SHA不变；派生版edition包含原件哈希、段落编号、校订后全文和固定出处URL，避免旧发现缓存混用。仅本则原文展示校订来源，其余各则不改署名。历史已保存原文不批量改写；未保存原文的旧选题需要重新选择后使用新版。
 
 上游标示美国公有领域；美国之外应按适用法核对。Project Gutenberg名称、商标和附带电子书包装仍适用其[许可说明](https://www.gutenberg.org/policy/license.html)；不重新标为Apache-2.0。
 

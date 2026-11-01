@@ -46,7 +46,7 @@ test('the two whole-book inputs contain every parsed body unit, including the fi
   for(const section of book.sections)for(const unit of section.units){assert.ok(book.input.text.includes(`[${unit.id}]\n${unit.text}`));}
   assert.doesNotMatch(book.input.text,/Produced by|世[說说][舊旧][題题]一首[舊旧]跋二首|世[說说]新[語语]序目/);
   assert.equal((await library.book({...selected,bookId:'other',customBook:book.title})).edition,book.edition);
-  const metadata=JSON.parse(await readFile('data/library/catalog.json','utf8')).books.find(b=>b.id===id);assert.equal(book.edition,metadata.source.sha256);
+  const metadata=JSON.parse(await readFile('data/library/catalog.json','utf8')).books.find(b=>b.id===id);if(id==='shishuo')assert.notEqual(book.edition,metadata.source.sha256);else assert.equal(book.edition,metadata.source.sha256);
   if(id==='shishuo'){assert.ok(book.input.text.includes('陳仲舉言'));assert.ok(!book.input.text.includes('陈仲举言'));}
  }
 });

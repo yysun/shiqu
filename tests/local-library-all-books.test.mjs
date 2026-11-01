@@ -35,7 +35,7 @@ test('all 24 catalogs load verified originals with complete chapters and exhaust
   assert.doesNotMatch(book.input.text,/Produced by|End of Project Gutenberg|START OF THE PROJECT GUTENBERG|本書完/);
  }
  const zhuang=await library.book(select('zhuangzi')),shishuo=await library.book(select('shishuo'));
- assert.equal(zhuang.sections[0].units[0].id,'zhuangzi-01-001');assert.equal(shishuo.edition,catalog.books[2].source.sha256);assert.match(shishuo.input.text,/陳仲舉言/);
+ assert.equal(zhuang.sections[0].units[0].id,'zhuangzi-01-001');assert.notEqual(shishuo.edition,catalog.books[2].source.sha256);assert.match(shishuo.input.text,/陳仲舉言/);
  const shiji=await library.book(select('史记'));
  for(const [index,title,opening] of [[8,'呂太后本紀','呂太后者'],[17,'高祖功臣侯者年表','太史公曰'],[42,'趙世家','趙氏之先'],[43,'魏世家','魏之先'],[47,'陳涉世家','陳勝者']]){assert.ok(shiji.sections[index].title.endsWith(title));assert.ok(shiji.sections[index].units.some(unit=>unit.text.includes(opening)),title);}
  assert.equal(shiji.edition,catalog.books.find(b=>b.id==='史记').source.sha256);

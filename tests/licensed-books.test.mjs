@@ -6,11 +6,11 @@ import {hasSourceAnomaly} from '../server/local-source-quality.ts';import {pearS
 const catalog=JSON.parse(await readFile('data/library/catalog.json','utf8')),baseline=JSON.parse(await readFile('tests/fixtures/publication-source-baseline.json','utf8')),library=new LocalBooks(process.cwd()),choose=bookId=>({bookId,theme:'人情冷暖',length:8,voice:false});
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
-test('all17 uncertain editions are replaced and seven retained collections keep their original version hashes',async()=>{
+test('all17 uncertain editions are replaced and seven retained collections keep original bytes with explicit errata versions',async()=>{
  assert.equal(catalog.books.length,24);assert.equal(Object.keys(licensedBookSpecs).length,17);let replaced=0,retained=0;
  for(const e of catalog.books){const old=baseline[e.id],b=await library.book(choose(e.id));
   if(e.source.url.includes('/kanripo/'))assert.match(e.source.attribution,/Kanripo/);else if(new URL(e.source.url).hostname==='zh.wikisource.org')assert.match(e.source.attribution,/维基文库/);
-  if(!old.replaced){retained++;assert.equal(e.originalFile,old.originalFile);assert.equal(b.edition,old.sha256);continue;}
+  if(!old.replaced){retained++;assert.equal(e.originalFile,old.originalFile);if(e.id==='shishuo'){assert.equal(hash(await readFile(path.join('data/library',e.originalFile))),old.sha256);assert.notEqual(b.edition,old.sha256);}else assert.equal(b.edition,old.sha256);continue;}
   replaced++;assert.notEqual(e.originalFile,old.originalFile);assert.notEqual(b.edition,old.sha256);await assert.rejects(access(path.join('data/library',old.originalFile)));
   assert.equal(e.source.license,'CC-BY-SA-4.0');assert.match(e.source.attribution,/贡献者/);assert.match(b.provider,/CC BY-SA 4.0/);assert.equal(b.sections.length,licensedBookSpecs[e.id].count);
   const s=b.sections.find(s=>s.units.some(u=>{try{library.resolve(b,{edition:b.edition,sectionId:s.id,firstUnit:u.id,lastUnit:u.id});return true;}catch{return false;}}));assert.ok(s,e.id);
