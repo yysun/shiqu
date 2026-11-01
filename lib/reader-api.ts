@@ -34,7 +34,8 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='library'&&path.length===3&&path[2]==='favorite'&&req.method==='POST'){const id=z.string().min(1).max(100).parse(path[1]);const b=z.object({saved:z.boolean()}).strict().parse(await body(req));return json(await repo.favorite(id,uid,b.saved));}
   if(path[0]==='books'&&path.length===3&&path[2]==='contents'&&req.method==='GET'){
    if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
-   return json(await bookContents(services.localBooks,selectionSchema.parse({bookId:path[1],theme:'目录'})));
+   const query=z.string().max(200).parse(url.searchParams.get('q')||'');
+   return json(await bookContents(services.localBooks,selectionSchema.parse({bookId:path[1],theme:'目录'}),query));
   }
   if(path.join('/')==='suggestions'&&req.method==='POST'){
    await requireProvider();

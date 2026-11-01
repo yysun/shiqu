@@ -5,6 +5,7 @@ import type {MediaStore} from '../lib/services.ts';
 import type {Selection} from '../lib/reader-model.ts';
 import type {OriginalSource} from '../lib/reader-source-types.ts';
 import {ReaderError} from '../lib/reader-model.ts';
+import {selectedChapterScope} from './local-book-contents.ts';
 import {LocalBooks,localBookId} from './local-books.ts';
 import {hasSourceAnomaly,hasStoredSourceAnomaly} from './local-source-quality.ts';
 import {discoverLocalStories} from './local-story-discovery.ts';
@@ -23,8 +24,9 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
    reading?.signal.throwIfAborted();
    const book=await books.book(selection);
    reading?.signal.throwIfAborted();
-   if(!book)return provider.suggestions(selection,excluded);
-   return discoverLocalStories(provider,books,cache,book,selection,excluded,reading,excludedSources);
+   if(!book){if(selection.discoverySources)throw new ReaderError(400,'章节提取只支持本地书库。');return provider.suggestions(selection,excluded);}
+   const scope=selection.discoverySources?selectedChapterScope(books,book,selection.discoverySources):null;
+   return discoverLocalStories(provider,books,cache,scope?.book||book,scope?{...selection,discoverySources:scope.discoverySources}:selection,excluded,reading,excludedSources);
   },
   async recommendArt(selection){
    const original=await books.selected(selection);

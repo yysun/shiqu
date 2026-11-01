@@ -17,7 +17,7 @@ test('contents preserve named stories, single anecdotes and chapter receipts wit
  for(const entry of shishuo.entries.filter(entry=>entry.source))assert.equal(entry.source.firstUnit,entry.source.lastUnit);
  const chapter=await bookContents(books,choose('西游记'));assert.match(chapter.entries[0].title,/第一回/);assert.ok(chapter.entries[0].source);
  const book=await books.book(choose('zhuangzi')),section=book.sections[0];
- const blocked=indexBookContents(books,{...book,sections:[{...section,units:[{...section.units[0],text:'這段原文有□缺字，不能依據它編造故事。'}]}]});
+ const blocked=indexBookContents(books,{...book,id:'shishuo',sections:[{...section,units:[{...section.units[0],text:'這段原文有□缺字，不能依據它編造故事。'}]}]});
  assert.equal(blocked.entries[0].source,undefined);assert.match(blocked.entries[0].unavailable,/缺字/);
  await assert.rejects(bookContents(books,choose('unknown')),e=>e.status===400);
 });
@@ -53,4 +53,26 @@ test('contents search matches traditional text and full-width chapter punctuatio
  const entries=[{id:'a',title:'卷一（文淵閣本）',chapter:'卷一',excerpt:'種梨的故事。'}];
  for(const query of ['种梨','卷一（','卷一(','文渊阁','  種梨  ',''])assert.equal(matchingBookContents(entries,query).length,1,query);
  assert.equal(matchingBookContents(entries,'不存在').length,0);
+});
+
+test('multiword search matches every normalized term in any order across fields',()=>{
+ const entries=[{id:'hit',title:'黃忠破敵',chapter:'定軍山',excerpt:'原文。'},{id:'miss',title:'黃忠破敵',chapter:'長沙',excerpt:'原文。'}];
+ for(const query of ['黄忠 定军山','定軍山 黃忠','黃忠　定军山','  黄忠\t定軍山  '])assert.deepEqual(matchingBookContents(entries,query).map(e=>e.id),['hit'],query);
+ assert.equal(matchingBookContents(entries,'黄忠 不存在').length,0);
+});
+
+test('Three Kingdoms search finds Huang Zhong at Dingjun Mountain beyond the preview without exposing full chapters',async t=>{
+ const f=await productionFixture(t);f.app.services.localBooks=books;
+ const query=async value=>f.json('books/'+encodeURIComponent('三国演义')+'/contents?q='+encodeURIComponent(value));
+ const simplified=await query('黄忠 定军山'),traditional=await query('黃忠 定軍山'),reversed=await query('定軍山　黄忠');
+ const ids=result=>result.entries.map(entry=>entry.id);
+ assert.ok(simplified.entries.some(entry=>entry.title.startsWith('第七十一回')));
+ assert.deepEqual(ids(simplified),ids(traditional));assert.deepEqual(ids(simplified),ids(reversed));
+ const chapter=simplified.entries.find(entry=>entry.title.startsWith('第七十一回'));
+ assert.doesNotMatch(chapter.excerpt,/定軍山|定军山/);assert.ok(chapter.source);
+ for(const entry of simplified.entries){assert.ok(entry.excerpt.length<=100);assert.deepEqual(Object.keys(entry).sort(),['chapter','excerpt','id','kind','source','title']);}
+ assert.equal((await query('黄忠 不存在的山名')).entries.length,0);
+ assert.equal((await f.request('books/'+encodeURIComponent('三国演义')+'/contents?q='+encodeURIComponent('字'.repeat(201)))).status,400);
+ const titles=await query('第七十一回');assert.ok(titles.entries.some(entry=>entry.id===chapter.id));
+ assert.equal((await f.json('sessions')).length,0);assert.equal(f.control.recommendations.length,0);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });

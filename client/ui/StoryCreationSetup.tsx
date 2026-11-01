@@ -72,7 +72,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,progress}
   return step;
  });
  return <section className="yu-creation-setup" aria-label={selected?'故事流程':'选择故事'}>
-  <p className="yu-sheet-intro">《{book}》 · {session.selection.theme}</p>
+  <p className="yu-sheet-intro">《{book}》 · {session.selection.theme}{session.selection.discoverySources?.length?` · 已选 ${session.selection.discoverySources.length} 章`:''}</p>
   {selected?<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3><button type="button" className="yu-revision-open" disabled={!ready||busy} onClick={()=>setSourceOpen(true)}>原文</button></div>:<p className="yu-count-help">书籍和主题已保存到书架，离开后可继续。</p>}
   {search.state==='searching'&&(paused?<p role="status">查找已暂停，恢复生成后继续。已找到的故事都保留。</p>:<p role="status">正在寻找更多故事，已找到的故事会继续保留。{intake.progress?.currentChapters?.length?`正在翻阅：${intake.progress.currentChapters.join('、')}`:''}{intake.progress?.completedChars?`已读 ${intake.progress.completedChars.toLocaleString('zh-CN')} 字。`:''}</p>)}
   {search.state==='failed'&&<div className="yu-batch-error" role="alert"><p>这次查找未完成。{search.error}</p><p>已找到的故事和已选内容都保留，可以重试查找，也可以直接继续。</p>{selected&&findMore}</div>}

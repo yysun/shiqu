@@ -1,6 +1,6 @@
 // Save creation intent before extraction, and serialize each explicit choice independently of queue progress.
 // Search and setting drafts use targeted writes: neither replaces the selection or a running step's lock.
-import {directBookChoice} from './local-book-contents.ts';
+import {directBookChoice,selectedChapterScope} from './local-book-contents.ts';
 import type {LocalBooks} from './local-books.ts';
 import {createHash} from 'node:crypto';
 import {emptyDocument,selectionSchema,ReaderError} from '../lib/reader-model.ts';
@@ -12,9 +12,13 @@ import {maxSuggestionBatches} from '../lib/reader-suggestions.ts';
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const visible='NOT EXISTS(SELECT 1 FROM library_deletions WHERE story_id=reader_sessions.id AND user_id=reader_sessions.user_id)';
 export async function createIntake(repo:ReaderRepository,id:string,uid:string,input:Selection,books?:LocalBooks){
- if(input.source&&!books)throw new ReaderError(503,'本地书库暂不可用');
+ if(input.source&&input.discoverySources)throw new ReaderError(400,'请选择章节提取或直接故事，不能混用。');
+ if((input.source||input.discoverySources)&&!books)throw new ReaderError(503,'本地书库暂不可用');
+ const local=input.discoverySources?await books!.book(input):null;
+ if(input.discoverySources&&!local)throw new ReaderError(400,'章节提取只支持本地书库。');
+ const scope=local?selectedChapterScope(books!,local,input.discoverySources!):null;
  const choice=input.source?await directBookChoice(books!,input):null;
- const selection=selectionSchema.parse({...input,storyTitle:choice?.entry.title,source:choice?.entry.source,length:'auto',narrativeDetail:input.narrativeDetail||'balanced'});
+ const selection=selectionSchema.parse({...input,storyTitle:choice?.entry.title,source:choice?.entry.source,discoverySources:scope?.discoverySources,length:'auto',narrativeDetail:input.narrativeDetail||'balanced'});
  if(selection.bookId==='other'&&!selection.customBook?.trim())throw new ReaderError(400,'请先填写书名或 URL。');
  const creationHash=hash(selection),now=new Date().toISOString(),doc:Document={...emptyDocument(),intake:{phase:'discovering',generation:0,creationHash,batches:[],search:{round:1,state:'searching'}}};
  if(choice){doc.original=choice.original;doc.intake!.phase='preparing';doc.intake!.search={round:0,state:'idle'};doc.intake!.selected={batch:0,index:0};doc.intake!.batches=[{stories:[{title:choice.entry.title,description:choice.entry.excerpt,source:choice.entry.source,sourceLabel:choice.original.title.slice(0,150)}],note:''}];}

@@ -57,7 +57,7 @@ function mergePending(books:LocalBooks,book:LocalBook,old:PendingEvent[],updates
 }
 export async function discoverLocalStories(provider:ReaderProvider,books:LocalBooks,cache:StoryDiscoveryCache,book:LocalBook,selection:Selection,excluded:string[],observer?:ReadingObserver,excludedSources:LocalSourceReference[]=[],limits:ReadingLimits=defaultReadingLimits):Promise<SuggestionBatch>{
  const status=await provider.status(),plan=await readingPlan(book,status.provider,cache,limits);
- const namespace=discoveryNamespace(book,status.provider,status.models.text,limits,status.taskReasoningEfforts?.suggest);
+ const namespace=discoveryNamespace(book,status.provider,status.models.text,limits,status.taskReasoningEfforts?.suggest)+(selection.discoverySources?'/scope/'+discoveryHash(selection.discoverySources.map(localSourceKey)):'');
  const theme=selection.theme.normalize('NFKC').trim(),key=namespace+'/theme/'+discoveryHash(theme);
  const totalChars=plan.blocks.reduce((n,block)=>n+block.chars,0),excludedKeys=new Set(excludedSources.length?[]:excluded.map(titleKey));
  const validExclusions=excludedSources.filter(source=>{try{qualified(books,book,source);return true;}catch{return false;}});
@@ -77,6 +77,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   return true;
  };
  const migrateLegacy=async()=>{
+  if(selection.discoverySources)return null;
   // A caller may have observed a stale cache miss before joining this migration flight.
   const existing=await cache.read(key,stateSchema,validate);if(existing)return existing;
   if(status.taskReasoningEfforts)return null; // Old caches have no proof of the requested reasoning effort.
