@@ -8,7 +8,7 @@ Use the existing deterministic local book parser and resolver. A metadata-only c
 - [x] Add contents types/indexing, read endpoint and canonical direct-intake validation in server/local-book-contents.ts, server/app.ts, lib/services.ts, lib/reader-api.ts and server/reader-intake.ts.
 - [x] Add searchable picker and mode controls to client/ui/Reader.tsx with stale-response protection and matching reader styles.
 - [x] Add focused API/index/intake regression coverage; verify provenance, replay and absence of pre-confirmation discovery/storyboard/images.
-- [ ] Run pnpm typecheck, pnpm lint and full pnpm test under Node 24.22.1; execute .docs/tests/test-story-chapter-picker.md in the in-app browser using isolated data.
+- [x] Run pnpm typecheck, pnpm lint and full pnpm test under Node 24.22.1; execute .docs/tests/test-story-chapter-picker.md in the in-app browser using isolated data.
 
 First SS probe: load actual local books and index representative Liaozhai, Shishuo and chapter sources. Proceed only if deterministic ranges resolve within existing quality/token constraints; blocked sources must be visibly unavailable, never bypass verification.
 
@@ -44,3 +44,12 @@ CR review round: 2; reviewer: reused.
 Prior provenance/intake/replay conclusions remain valid.
 
 TT unrestricted default-concurrency result: 717 tests, 716 passed, one existing 80-frame production case hit its 15-second deadline during concurrent full-catalog parsing. The exact case passes alone in 4.49 seconds. Final full suite now running with --test-concurrency=2 to reduce resource contention; no production logic or timeout was changed.
+
+Search-fix milestone: d240e9f; independent affected CR2 passed. Provisional independent VR1 found every REQ criterion evidenced and no other gaps; only final full TT was pending. Temporary IAB viewport reset, verification tabs closed, controlled preview stopped. User's existing browser/server session was preserved.
+
+Final TT: Node24.22.1 / pnpm11.25.0, pnpm exec node --experimental-strip-types --test --test-concurrency=2 tests/*.test.mjs: 718/718 passed, 0 failed (exit0). Typecheck, lint and diff check passed. Full log: .data/evidence/story-chapter-picker/full-tests.log. All AP tasks complete. User guide now describes the default contents path and current shared confirmation controls.
+
+VR passed: all acceptance criteria complete.
+VR risk: non-low — source provenance, persistent intake identity and production confirmation gates.
+VR review round: 2; reviewer: reused.
+Full independent final acceptance mapping is preserved verbatim in the delivery report.
