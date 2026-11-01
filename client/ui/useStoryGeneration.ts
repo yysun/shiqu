@@ -58,6 +58,11 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   finally{setupLock.current=false;setSetupBusy(false);}
  }
  async function retrySession(sessionId:string){await resume(sessionId,undefined,true);}
+ async function renameTitle(sessionId:string,title:string){
+  const s:SessionView=await request(`reader/sessions/${sessionId}/title`,'POST',{title});
+  collect(s);
+  if(id.current===sessionId){setActive(s);if(s.story)cb.current.onStory(s.story);}
+ }
  async function confirmFrameCount(count:number){
   if(busy||pending.current||!active?.awaitingFrameCount)return;
   const sessionId=active.id;setBusy(true);setError('');
@@ -153,5 +158,5 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   }
   run();return()=>{cancelled=true;};
  },[active?.id,wake]);
- return {setup,setupBusy,sessions,active,busy,error,connected,libraryLoading,libraryRefreshing,libraryError,start,resume,retrySession,leave,remove,refreshLibrary,retryStep,confirmFrameCount,control,drawAnyway,controlBusy,controlError};
+ return {setup,setupBusy,sessions,active,busy,error,connected,libraryLoading,libraryRefreshing,libraryError,start,resume,retrySession,renameTitle,leave,remove,refreshLibrary,retryStep,confirmFrameCount,control,drawAnyway,controlBusy,controlError};
 }

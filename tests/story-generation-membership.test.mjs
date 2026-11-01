@@ -18,11 +18,11 @@ const compiled=build({stdin:{contents:"export {useStoryGeneration} from './clien
   `:`let transport;export const setTransport=value=>transport=value;export const request=(...args)=>transport(...args);export const randomId=()=>crypto.randomUUID();`}));
  }
 }]});
-async function harness(t,transport){
+async function harness(t,transport,callbacks={onStory(){},onProgress(){}}){
  const result=await compiled,module={exports:{}};new Function('require','module','exports',result.outputFiles[0].text)(createRequire(import.meta.url),module,module.exports);
  const previous=globalThis.history;globalThis.history={replaceState(){}};t.after(()=>{if(previous===undefined)delete globalThis.history;else globalThis.history=previous;});
  const {setTransport,readSessions,useStoryGeneration}=module.exports;setTransport(transport);
- return {api:useStoryGeneration(0,{onStory(){},onProgress(){}}),readSessions,setTransport};
+ return {api:useStoryGeneration(0,callbacks),readSessions,setTransport};
 }
 const root={id:'root',state:'idle',generationControl:'paused',generationMode:'background',page:0,saved:false,story:null};
 const latest={...root,id:'latest',revision:{rootId:'root',parentId:'root',number:2}};
@@ -72,6 +72,23 @@ test('a lost creation response retries the same saved story even when address up
  const saved=await h.api.start(input,true);
  assert.equal(requests.length,2);assert.equal(requests[0],requests[1]);
  assert.deepEqual((await f.json('sessions')).map(s=>s.id),[saved.id]);
+});
+
+test('renaming updates the shelf and active story without replaying reading progress or starting production',async t=>{
+ const initial={...root,story:{id:root.id,title:'旧故事名',pages:[{image:'/kept.png'}]},page:4,saved:true};
+ const renamed={...initial,story:{...initial.story,title:'新故事名'}},requests=[],stories=[],progress=[];
+ const h=await harness(t,async(path,method,body)=>{
+  requests.push({path,method,body});
+  return path==='reader/sessions'?[initial]:path.endsWith('/title')?renamed:initial;
+ },{onStory:(...args)=>stories.push(args),onProgress:rows=>progress.push(rows)});
+ await h.api.refreshLibrary();await h.api.resume(root.id);
+ assert.equal(h.readSessions()[0].story.title,'旧故事名');
+ requests.length=0;stories.length=0;progress.length=0;
+ await h.api.renameTitle(root.id,'新故事名');
+ assert.equal(h.readSessions()[0].story.title,'新故事名');
+ assert.deepEqual(requests,[{path:'reader/sessions/root/title',method:'POST',body:{title:'新故事名'}}]);
+ assert.deepEqual(stories,[[renamed.story]]);assert.deepEqual(progress,[]);
+ assert.equal(h.readSessions()[0].page,4);assert.equal(h.readSessions()[0].saved,true);
 });
 
 test('separate successful creation actions can still create independent stories',async t=>{

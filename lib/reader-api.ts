@@ -5,7 +5,7 @@ import {z} from 'zod';
 import {ReaderRepository,latestVersionMessage} from './reader-repository.ts';
 import {advanceStory} from './reader-engine.ts';
 import {suggestionRequestSchema} from './reader-suggestions.ts';
-import {ReaderError,readableStory,selectionSchema,view} from './reader-model.ts';
+import {ReaderError,readableStory,selectionSchema,displayTitleSchema,view} from './reader-model.ts';
 import {sourceSearchUrl} from './reader-source.ts';
 import {readerMaxFrames} from './reader-limits.ts';
 import type {Document,SessionView} from './reader-model.ts';
@@ -72,10 +72,15 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='sessions'&&path.length===1){
    // One unreadable saved story must not take the whole shelf down with it.
    if(req.method==='GET')return json(await Promise.all((await repo.list(uid)).filter(readableStory).map(async row=>shelfView(services.production&&row.state!=='completed'?await services.production.snapshot(uid,row.id):view(row)))));
-   if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema,intake:z.boolean().optional()}).parse(await body(req,32768));if(b.selection.discoverySources&&b.intake!==true)throw new ReaderError(400,'章节提取必须通过选题流程创建。');return json(view(b.intake?await createIntake(repo,b.requestId,uid,b.selection,services.localBooks):await repo.create(b.requestId,uid,b.selection)),201);}
+   if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema.omit({displayTitle:true}),intake:z.boolean().optional()}).parse(await body(req,32768));if(b.selection.discoverySources&&b.intake!==true)throw new ReaderError(400,'章节提取必须通过选题流程创建。');return json(view(b.intake?await createIntake(repo,b.requestId,uid,b.selection,services.localBooks):await repo.create(b.requestId,uid,b.selection)),201);}
   }
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);
+   if(path[2]==='title'&&path.length===3&&req.method==='POST'){
+    const parsed=z.object({title:displayTitleSchema}).strict().safeParse(await body(req));
+    if(!parsed.success)throw new ReaderError(400,parsed.error.issues[0].message);
+    return json(view(await repo.rename(id,uid,parsed.data.title)));
+   }
    if(path.length===2&&req.method==='GET')return json(services.production?await services.production.snapshot(uid,id):view(await repo.get(id,uid)));
    if(path[2]==='setup'&&path.length===3&&req.method==='POST'){await requireProvider();const action=intakeActionSchema.parse(await body(req,32768));await changeIntake(repo,id,uid,action);return json(services.production?await services.production.snapshot(uid,id):view(await repo.get(id,uid)));}
    if(path[2]==='revisions'&&path.length===3){

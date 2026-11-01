@@ -22,13 +22,21 @@ export class ReaderRepository{
  constructor(db:Database){this.db=db;}
  async superseded(id:string,uid:string){return !!await this.db.prepare(`SELECT id FROM reader_sessions WHERE id=? AND user_id=? AND ${supersededSql()}`).bind(id,uid).first();}
  async get(id:string,uid:string){const row=await this.db.prepare(`SELECT * FROM reader_sessions WHERE id = ? AND user_id = ? AND ${visible}`).bind(id,uid).first<SessionRow>();if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');return row;}
+ // Target selection metadata only: an in-flight generation checkpoint cannot overwrite this name.
+ async rename(id:string,uid:string,title:string){
+  await this.get(id,uid);
+  const result=await this.db.prepare(`UPDATE reader_sessions SET selection=json_set(selection,'$.displayTitle',?),updated_at=? WHERE id=? AND user_id=? AND json_type(document,'$.plan')='object' AND ${visible}`)
+   .bind(title,new Date().toISOString(),id,uid).run();
+  if(!result.meta.changes)throw new ReaderError(409,'分镜保存后才能修改故事名。');
+  return this.get(id,uid);
+ }
  // Count every newer submission, including deleted ones, so deletion never promotes history.
  async list(uid:string){return (await this.db.prepare(`SELECT * FROM reader_sessions WHERE user_id = ? AND ${visible}
   AND NOT ${supersededSql()}
   ORDER BY COALESCE(last_read_at,created_at) DESC`).bind(uid).all<SessionRow>()).results;}
  async deletions(uid:string){
   return (await this.db.prepare(`SELECT d.story_id AS storyId,d.deleted_at AS deletedAt,d.kind,
-   CASE WHEN d.kind='generated' THEN COALESCE(json_extract(s.document,'$.plan.title'),json_extract(s.selection,'$.storyTitle'),'未命名故事') ELSE COALESCE(p.title,'未命名故事') END AS title
+   CASE WHEN d.kind='generated' THEN COALESCE(json_extract(s.selection,'$.displayTitle'),json_extract(s.document,'$.plan.title'),json_extract(s.selection,'$.storyTitle'),'未命名故事') ELSE COALESCE(p.title,'未命名故事') END AS title
    FROM library_deletions d
    LEFT JOIN reader_sessions s ON d.kind='generated' AND s.id=d.story_id AND s.user_id=d.user_id
    LEFT JOIN stories p ON d.kind='published' AND p.id=d.story_id AND p.status='published'

@@ -263,3 +263,9 @@ button.yu-swipe-surface{padding:0;border:0;background:transparent;cursor:default
 
 /* Chapter selection uses native checkboxes within the searchable list. */
 .yu-source-chapter{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:10px;margin:0;padding:13px;border:1px solid #dce1d2;border-radius:10px;background:#fffdf6;color:#304c37;cursor:pointer;overflow-wrap:anywhere}.yu-source-chapter.selected{background:#edf3e5;border-color:#57774b}.yu-source-chapter input{width:18px;height:18px;margin:2px 0 0;accent-color:#57774b}.yu-source-chapter-copy{display:flex;flex-direction:column;gap:5px;min-width:0}.yu-source-chapter:has(input:disabled){opacity:.6;cursor:not-allowed}.yu-source-chapter:has(input:focus-visible){outline:2px solid #57774b;outline-offset:2px}
+
+/* Keep naming, favorites and deletion reachable without squeezing book labels on narrow cards. */
+.yu-shelf-card-toolbar{flex-wrap:wrap}
+.yu-shelf-card-toolbar>small{flex:1 0 6em}
+.yu-shelf-grid-single .yu-shelf-card>div>small,.yu-shelf-grid-single .yu-pending-story>span:not(.yu-shelf-continue)>strong{padding-right:140px}
+.yu-setting-row .yu-revision-open{flex-shrink:0}

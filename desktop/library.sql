@@ -35,7 +35,7 @@ WITH selected_sessions AS (
 SELECT json_object('stories', json_group_array(json(summary))) FROM (
  SELECT json_object(
   'id', s.id,
-  'title', coalesce(json_extract(s.document, '$.plan.title'), nullif(json_extract(s.selection, '$.storyTitle'), ''), '还在展开的故事'),
+  'title', coalesce(json_extract(s.selection, '$.displayTitle'), json_extract(s.document, '$.plan.title'), nullif(json_extract(s.selection, '$.storyTitle'), ''), '还在展开的故事'),
   'book', coalesce(b.title, json_extract(s.selection, '$.customBook'), json_extract(s.selection, '$.bookId')),
   'theme', json_extract(s.selection, '$.theme'),
   'artStyle', coalesce(json_extract(s.selection, '$.artStyle'), 'ink-pencil'),
