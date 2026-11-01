@@ -8,3 +8,5 @@ A chapter is a discovery scope, not a ready-made story. Readers must be able to 
 - [ ] Duplicate, stale, forged, cross-book, empty or excessive scopes fail before insertion; task replay is idempotent regardless of selection click order.
 - [ ] Chapters containing isolated quality issues may be scanned for valid stories; each extracted candidate still passes the existing source-quality and token gates. No source text is altered or sent in contents metadata.
 - [ ] Simplified/traditional full-text multiword search remains available, and existing saved direct tasks and theme discovery keep working. Controlled browser and automated checks do not call real paid providers or package applications.
+
+- [ ] Extracted stories persist in an on-disk shared cache keyed by canonical chapter scope, edition, theme and model settings. A new task after restart reuses the same results without another LLM call; chapter click order does not split the cache. Find-more excludes already offered stories and continues discovery.

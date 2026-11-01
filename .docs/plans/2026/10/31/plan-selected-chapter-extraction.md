@@ -19,3 +19,19 @@ AR risk: non-low — persisted chapter scopes affect LLM provenance, cache isola
 AR review round: 1; reviewer: new.
 
 SS probe passed: Three Kingdoms chapters70/71 retain edition/IDs, form one bounded reading block and use a different reading-plan key from the whole book. Focused tests12/12 pass, including cross-chapter receipts and full-book-vs-explicit-all-chapter cache isolation. Typecheck/lint pass. User refinement: native list checkboxes, selected count only, no stack. IAB verifies two checked rows, filtering retention, uncheck and Space-key recheck.
+
+User cache requirement: existing disk-backed StoryDiscoveryCache must reuse results across fresh tasks/wrappers/restarts and reversed chapter click order. Add explicit regression for this. Independent CR1 found the legacy non-intake create route could persist unvalidated discoverySources; reject this new field unless intake:true, preserving legacy requests without scope. Add omitted/false-intake fail-before-insert coverage.
+
+SS milestone:16d4575. First full TT passed727/727; cache-restart test and non-intake guard were added while that run was active, so run final full TT again against stable final inputs. Current focused13/13, typecheck/lint pass.
+
+AR passed: no blocking architecture flaws.
+AR risk: non-low — persisted scopes and shared extraction caches.
+AR review round: 2; reviewer: reused.
+
+CR fixed: reject scoped creation outside the intake flow; rerun result passed.
+CR risk: non-low — persisted scope validation, provenance and production gates.
+CR review round: 2; reviewer: reused.
+
+IAB ET: selected Three Kingdoms chapters70/71 through native checkboxes; filtering retains count, uncheck and keyboard Space toggle correctly. Submission reaches candidate list with no preparation: controlled counters discovery1/recommendation0/plan0/image0, request includes only sanguo-070/071 and original edition. Choosing candidate reaches confirmation; reload and find-more retain exact scope. A new task with reversed checkbox order receives cached candidates with discovery count still2 (the second prior call was explicit find-more), recommendation1/plan0/image0. No paid providers called.
+
+Remaining IAB ET passed: mode switch clears selections (checked0, CTA disabled), book switch clears chapter state, Liaozhai named story prepares directly and still waits at final confirmation. At390×844 document scrollWidth=390, native checkbox visible, selected-stack nodes0; screenshot visually inspected. Temporary viewport reset and verification tab closed; user's3000 tab preserved. Cache reuse also confirmed through second fresh IAB task with reversed selection order and unchanged LLM call counter.

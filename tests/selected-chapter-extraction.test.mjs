@@ -16,7 +16,7 @@ async function prepared(t){
  f.generation.suggestions=async(_s,_excluded,input)=>{inputs.push(input);return {stories:_excluded.includes('黄忠取定军山')?[]:[{title:'黄忠取定军山',description:'老将与法正筹划进取。',source:outside?{...source,sectionId:book.sections[0].id,firstUnit:book.sections[0].units[0].id,lastUnit:book.sections[0].units[3].id}:source}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};};
  f.options.generation=withLocalBooks(f.generation,books,f.media);await f.restart();f.app.services.localBooks=books;
  const create=(references=sources,id=crypto.randomUUID())=>f.json('sessions','POST',{requestId:id,intake:true,selection:{...base,discoverySources:references}});
- return {...f,book,sources,source,inputs,create,setOutside(value){outside=value;}};
+ return {...f,get app(){return f.app;},book,sources,source,inputs,create,setOutside(value){outside=value;}};
 }
 
 test('multiple selected chapters extract scoped stories before preparation, replay canonically and survive restart',async t=>{
@@ -41,6 +41,7 @@ test('forged, duplicate, empty, excessive, nonchapter and mixed scopes fail befo
  const invalid=[[],[...f.sources,...f.sources],[{...f.sources[0],edition:'0'.repeat(64)}],[{...f.sources[0],lastUnit:f.sources[0].firstUnit}],Array.from({length:25},()=>f.sources[0]),[named.source]];
  for(const discoverySources of invalid){const response=await f.request('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...base,discoverySources}});assert.equal(response.status,400);}
  assert.equal((await f.request('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...base,source:f.source,discoverySources:f.sources}})).status,400);
+ for(const intake of [undefined,false])assert.equal((await f.request('sessions','POST',{requestId:crypto.randomUUID(),...(intake===undefined?{}:{intake}),selection:{...base,discoverySources:f.sources}})).status,400);
  assert.equal((await f.json('sessions')).length,0);assert.equal(f.inputs.length,0);
 });
 
@@ -78,4 +79,11 @@ test('an explicit all-chapter scope has a distinct cache from whole-book discove
  await provider.suggestions({...s,discoverySources:refs},[]);assert.equal(calls,2);
  await provider.suggestions({...s,discoverySources:[...refs].reverse()},[]);assert.equal(calls,2);
  await provider.suggestions(s,[]);assert.equal(calls,2);
+});
+
+test('a fresh task and fresh discovery wrapper reuse persisted stories for the same chapter set without LLM calls',async t=>{
+ const f=await prepared(t),first=await f.create();await until(async()=>(await f.read(first.id)).intake.phase==='choosing');const calls=f.inputs.length,stories=(await f.read(first.id)).intake.batches[0].stories;
+ f.options.generation=withLocalBooks(f.generation,books,f.media);await f.restart();f.app.services.localBooks=books;
+ const second=await f.create([...f.sources].reverse());await until(async()=>(await f.read(second.id)).intake.phase==='choosing');
+ assert.notEqual(first.id,second.id);assert.equal(f.inputs.length,calls);assert.deepEqual((await f.read(second.id)).intake.batches[0].stories,stories);assert.match((await f.read(second.id)).intake.batches[0].note,/缓存/);assert.equal(f.control.recommendations.length,0);
 });

@@ -1,4 +1,4 @@
-// Bind whole-book suggestions and selected local originals to the existing provider.
+// Bind whole-book or selected-chapter discovery and verified originals to the existing provider.
 // Verify and persist originals before any paid storyboard request; never fall back remotely.
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
