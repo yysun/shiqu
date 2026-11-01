@@ -101,19 +101,19 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(this.stopping||!this.readable(row)||row.generation_control!=='active'||!this.searchCurrent(row,round))return false;
   return !await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
- private imageVersion(row:SessionRow){
+ private imageInputs(row:SessionRow){
   const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
   const scriptVersion=inputVersion({selection,...(doc.intake?{setupGeneration:doc.intake.generation}:{})});
-  return inputVersion({scriptVersion,plan:doc.plan,style:selection.artStyle,prompt:selection.productionPrompt});
+  return {generation:doc.intake?.generation,version:inputVersion({scriptVersion,plan:doc.plan,style:selection.artStyle,prompt:selection.productionPrompt})};
  }
- private currentJob(row:SessionRow,job:ProductionJob,version?:string){
-  const generation=(JSON.parse(row.document) as Document).intake?.generation;
+ private currentJob(row:SessionRow,job:ProductionJob,inputs=this.imageInputs(row)){
+  const {generation,version}=inputs;
   if(generation!==undefined&&(JSON.parse(job.payload) as {setupGeneration?:number}).setupGeneration!==generation)return false;
-  return !['image','image-publish'].includes(job.kind)||job.version===(version??this.imageVersion(row));
+  return !['image','image-publish'].includes(job.kind)||job.version===version;
  }
  private async currentJobs(row:SessionRow,saved?:ProductionJob[]){
-  const jobs=saved||await this.queue.jobs(row.id,row.user_id),version=this.imageVersion(row);
-  return jobs.filter(job=>this.currentJob(row,job,version));
+  const jobs=saved||await this.queue.jobs(row.id,row.user_id),inputs=this.imageInputs(row);
+  return jobs.filter(job=>this.currentJob(row,job,inputs));
  }
  private async demands(id?:string){
   const viewers=(await this.database.prepare(`SELECT * FROM production_demand WHERE runtime_id=? AND expires_at>?${id?' AND session_id=?':''}`)
@@ -238,7 +238,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   const demands=await this.demands(row.id);if(!demands.length)return;
   const end=Math.min(doc.plan.pages.length-1,Math.max(...demands.map(d=>d.through_page)));
-  const version=this.imageVersion(row);
+  const version=this.imageInputs(row).version;
   const anchor=productionJobId(row.id,'image-publish',version,'0');
   for(let page=0;page<=end;page++){
    const priority=Math.min(...demands.map(d=>pagePriority(page,d))),payload={page,...setup};
@@ -445,6 +445,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // Check before paying. A key that can't resolve keeps the provider's existing error.
   const reference=page>0?referenceImageKey(row.id,doc.images[0]):null;
   if(reference&&await this.fileLost(reference).catch(()=>false))throw new ReaderError(409,lostImageMessage);
+  if(!this.currentJob(await this.raw(job.session_id,job.owner_id),job))return {obsolete:true};
   return this.provider.generator().image(doc.plan!,page,row.id,doc.images[0]||'',selection.artStyle,selection.productionPrompt,inputVersion([job.id,job.lease_token]));
  }
  private async publish(job:ProductionJob,outputs:Record<string,unknown>){

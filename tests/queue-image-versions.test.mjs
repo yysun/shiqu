@@ -78,6 +78,23 @@ test('publication rechecks its version after an awaited file read',async t=>{
  assert.equal((await f.read(id)).state,'completed');assert.equal(f.control.calls.length,3);
 });
 
+test('a reference read cannot start paid drawing after the image inputs become obsolete',async t=>{
+ const f=await productionFixture(t,'codex',{SHIQU_IMAGE_WORKERS:'1'}),id=await f.create(2),store=f.app.services.media,get=store.get.bind(store);
+ await until(()=>f.control.calls.length===1);
+ let release,entered=false;const gate=new Promise(resolve=>release=resolve);t.after(()=>release());
+ store.get=async key=>{
+  if(!entered&&key.includes('/artifacts/0-')&&(await document(f,id)).images[0]){entered=true;await gate;}
+  return get(key);
+ };
+ f.control.calls[0].resolve();await until(()=>entered);
+ await f.app.services.database.prepare("UPDATE reader_sessions SET document=json_set(document,'$.plan.pages[1].prompt',json_extract(document,'$.plan.pages[1].prompt') || ' CURRENT_INPUT') WHERE id=?").bind(id).run();
+ await f.demand(id);release();await until(()=>f.control.calls.length===2);
+ assert.match(f.control.calls[1].prompt,/CURRENT_INPUT/);
+ f.control.hold=false;f.control.calls[1].resolve();await settled(f);
+ await until(async()=>(await f.read(id)).state==='completed');
+ assert.equal(f.control.calls.length,2,'Only the current page input reaches the provider');
+});
+
 test('sibling publications that read the same document both save without duplicate usage',async t=>{
  const f=await productionFixture(t),id=await f.create(3),database=f.app.services.database;
  await until(()=>f.control.calls.length===1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===3);
