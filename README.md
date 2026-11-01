@@ -4,7 +4,7 @@
 
 把中国古典故事变成自己的插画故事书：选书、选主题、选画风，在电脑或手机上阅读，也可以导出 PDF 或一张长图保存。故事、图片和阅读进度保存在你的电脑上。
 
-macOS / Linux 可使用已登录的 Codex CLI（订阅额度）；也支持 OpenAI API 和 Gemini（API 密钥），Windows 可使用这两种 API 服务。首次运行从空书架开始，连接生成服务后创作第一篇故事。
+首次运行从空书架开始，配置生成后端后创作第一篇故事。
 
 ## 书籍、主题与画风
 
@@ -20,32 +20,58 @@ macOS / Linux 可使用已登录的 Codex CLI（订阅额度）；也支持 Open
 
 ![拾趣手机界面：发现、选题、制作、书架与阅读](.docs/assets/screenshots.png)
 
-[如何选择](#如何选择) · [CLI 启动](#cli-启动) · [下载桌面版](#下载与快速开始) · [使用指南](.docs/user-guide.md) · [开发指南](.docs/development.md)
+[前后端架构](#前后端架构) · [如何选择后端](#如何选择后端) · [下载桌面版](#下载与快速开始) · [CLI 启动](#cli-启动) · [使用指南](.docs/user-guide.md) · [开发指南](.docs/development.md)
 
-## 如何选择
+## 前后端架构
 
-- **想省心，选[桌面版](#下载与快速开始)**：内置运行环境，安装即可使用。支持 M 系列 Mac 和 Windows x64。
-- **习惯终端，选 [CLI](#cli-启动)**：需自行安装 Node 24，也适合 Linux、Intel Mac 和 Windows ARM64 用户。
+拾趣由**浏览器前端、本机服务端和 AI 生成后端**组成。电脑和手机通过浏览器选书、制作、阅读与导出；本机 Node 服务管理书架和生成队列，调用所选的 Codex、OpenAI API 或 Gemini 生成文字与插图。桌面版与拾趣 CLI 是启动、配置这套本机服务的两种方式。
 
-两种方式都能制作、阅读和导出故事，也支持手机访问。拿不准就选桌面版。
+```mermaid
+flowchart TB
+    browser["浏览器前端 · React<br/>电脑 / 手机"]
 
-**生成服务**：有 Codex 订阅，可用订阅额度（限 macOS / Linux）；也可用 OpenAI API 或 Gemini，填写 API 密钥、单独计费。
+    subgraph local["你的电脑"]
+        desktop["拾趣桌面版<br/>内置 Node 运行环境"]
+        cli["拾趣 CLI<br/>自行安装 Node 24"]
+        server["拾趣服务端 · Node REST API<br/>书架 / 生成队列 / AI 后端选择"]
+        storage[("本地书库<br/>SQLite + 图片文件")]
+        codexCli["Codex CLI<br/>另行安装并登录"]
+        desktop -.->|启动与配置| server
+        cli -.->|启动与配置| server
+        server <-->|读取与保存| storage
+        server <-->|选择 Codex| codexCli
+    end
 
-已有书库、想换一种启动方式？先停止原服务，再按[切换步骤](.docs/user-guide.md#在-cli-与桌面版之间切换)操作。
+    subgraph cloud["云端 AI 生成服务 · 按配置选择一种"]
+        codex["Codex 服务<br/>订阅额度"]
+        openai["OpenAI API<br/>API 密钥 · 单独计费"]
+        gemini["Gemini API<br/>API 密钥 · 单独计费"]
+    end
 
-## CLI 启动
-
-已有 **Node 24**（推荐 24.22.1）及随附的 npm / npx 时，可直接启动浏览器版，无需另装 pnpm：
-
-```bash
-npx @apprun/shiqu
+    browser <-->|HTTP / REST API| server
+    codexCli <--> codex
+    server <-->|选择 OpenAI API| openai
+    server <-->|选择 Gemini| gemini
 ```
 
-已使用 pnpm 的用户也可运行 `pnpm dlx @apprun/shiqu`，功能相同。默认开放可信局域网，启动后打印手机扫码二维码；只允许本机访问时使用 `--host 127.0.0.1`。
+手机连接电脑上的拾趣服务，共享同一书架和生成后端，无需在手机上安装 Node、Codex CLI 或配置 API 密钥。故事、插图和阅读进度保存在电脑上；生成时所需的原文、提示词和参考图片会发送给所选 AI 服务。**只读模式**保留本地阅读与整理，不调用云端生成服务。
 
-CLI 优先寻找桌面版保存的书库目录，目录不存在时自动创建；没有桌面设置时，先复用 CLI 已确认目录或已有桌面默认书库；仍未找到才询问，并记住选择。打开终端打印的网址即可阅读，按 Ctrl+C 停止。首次未配置时会询问 Codex / OpenAI API / Gemini / 只读，API 密钥输入隐藏。配置保存在与桌面版共用的设置数据库，之后无需再问；`--configure` 修改服务，`--reset-providers` 清除已保存服务配置。环境变量可仅覆盖本次运行。详见[CLI 使用说明](.docs/user-guide.md#cli-启动)。
+## 如何选择后端
+
+根据已有的订阅、API 密钥和运行平台选择 AI 生成后端。桌面版和拾趣 CLI 都支持以下选择：
+
+| AI 生成后端 | 适合什么情况 | 如何接入 | 平台与费用 |
+| --- | --- | --- | --- |
+| **Codex** | 已有 Codex 订阅，想使用剩余额度 | 另行安装并登录 Codex CLI，在拾趣中选择 Codex | macOS / Linux；使用订阅额度 |
+| **OpenAI API** | 想通过 API 使用 OpenAI 的文本与图片模型 | 选择 OpenAI API，填写 API 密钥及文本、图片模型 | macOS / Linux / Windows；API 单独计费 |
+| **Gemini** | 使用 Gemini 生成，或需要从网页 URL 选题 | 选择 Gemini，填写 API 密钥及文本、图片模型 | macOS / Linux / Windows；按 Gemini API 项目计费 |
+| **只读** | 只阅读、整理已有书库 | 选择只读，无需登录或密钥 | macOS / Linux / Windows；不产生生成费用 |
+
+**在哪里选：** 桌面版在「设置」中选择服务并保存，再启动服务；CLI 首次运行会询问，也可运行 `pnpm dlx @apprun/shiqu --configure` 修改，完成后重新启动。两种入口共用已保存的服务配置；切换后端前先停止服务，新选择在下次启动时生效。详见[首次配置与修改服务](.docs/user-guide.md#首次配置与修改服务)。
 
 ## 下载与快速开始
+
+推荐使用桌面版，内置运行环境，安装即可使用。习惯终端，或使用 Linux、Intel Mac、Windows ARM64？可直接使用 [CLI 启动](#cli-启动)。两种方式都能制作、阅读和导出故事，也支持手机访问。
 
 桌面版内置 **Node 24**，无需自行配置运行环境；提供书库概览、生成队列、图形设置、托盘启停与手机访问入口。
 
@@ -64,6 +90,20 @@ macOS 支持 Codex、OpenAI API 和 Gemini，Windows 使用 OpenAI API 或 Gemin
 
 生成会在后台继续，可随时暂停、恢复。关闭桌面窗口后服务仍在托盘运行；选择「退出拾趣」才会停止。[完整安装与配置说明](.docs/user-guide.md#桌面版入门)。
 
+## CLI 启动
+
+已有 **Node 24**（推荐 24.22.1）及随附的 npm / npx 时，可直接启动浏览器版，无需另装 pnpm：
+
+```bash
+npx @apprun/shiqu
+```
+
+已使用 pnpm 的用户也可运行 `pnpm dlx @apprun/shiqu`，功能相同。默认开放可信局域网，启动后打印手机扫码二维码；只允许本机访问时使用 `--host 127.0.0.1`。
+
+CLI 优先寻找桌面版保存的书库目录，目录不存在时自动创建；没有桌面设置时，先复用 CLI 已确认目录或已有桌面默认书库；仍未找到才询问，并记住选择。打开终端打印的网址即可阅读，按 Ctrl+C 停止。首次未配置时会询问 Codex / OpenAI API / Gemini / 只读，API 密钥输入隐藏。配置保存在与桌面版共用的设置数据库，之后无需再问；`--configure` 修改服务，`--reset-providers` 清除已保存服务配置。环境变量可仅覆盖本次运行。详见[CLI 使用说明](.docs/user-guide.md#cli-启动)。
+
+已有书库、想在桌面版与 CLI 之间切换？先停止原服务，再按[切换步骤](.docs/user-guide.md#在-cli-与桌面版之间切换)操作。
+
 ## 手机阅读与导出
 
 - **同一 Wi-Fi**：桌面版在「手机接着读」中选择局域网地址并扫码；CLI 启动后直接扫描终端打印的二维码，或打开局域网地址。手机无需安装应用或配对。
@@ -72,6 +112,10 @@ macOS 支持 Codex、OpenAI API 和 Gemini，Windows 使用 OpenAI API 或 Gemin
 - **导出保存**：全部插图生成后，可导出 PDF 或一页 PNG 总览图；导出在浏览器本地完成，不增加 AI 请求。当前不提供配音或视频生成。
 
 手机访问期间，电脑需要保持唤醒，拾趣服务需要保持运行。
+
+## 发布你的拾趣作品
+
+想让更多人读到你的拾趣作品？欢迎到 [awesome-shiqu · 拾趣好故事](https://github.com/yysun/awesome-shiqu) 投稿发布。在拾趣中下载「分镜与图片 ZIP」，按[贡献指南](https://github.com/yysun/awesome-shiqu/blob/main/CONTRIBUTING.md)提交 PR；审核通过后，作品会收录到公开作品集，供大家在手机或电脑的浏览器中阅读。
 
 ## 使用前了解
 
