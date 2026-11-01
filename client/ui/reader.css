@@ -254,3 +254,6 @@ button.yu-swipe-surface{padding:0;border:0;background:transparent;cursor:default
 .yu-shelf-row-compact>.yu-shelf-generation-progress{padding:0}
 .yu-reading-generation-progress{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .yu-reading-generation-progress>p{margin:8px 0;font-size:11px;line-height:1.7;color:#6e7f60}
+
+/* A bounded, searchable contents list keeps long books usable in the setup sheet. */
+.yu-source-picker{margin:16px 0}.yu-source-entries{display:grid;gap:8px;max-height:360px;overflow:auto;overscroll-behavior:contain;margin-top:10px;padding:3px}.yu-source-entries>button{display:flex;flex-direction:column;align-items:flex-start;gap:5px;width:100%;min-height:44px;padding:13px;text-align:left;border:1px solid #dce1d2;border-radius:10px;background:#fffdf6;color:#304c37;overflow-wrap:anywhere}.yu-source-entries>button.selected{background:#edf3e5;border-color:#57774b}.yu-source-entries>button:focus-visible{outline:2px solid #57774b;outline-offset:1px}.yu-source-entries>button:disabled{opacity:.6;cursor:not-allowed}.yu-source-entries strong{font-size:14px}.yu-source-entries span,.yu-source-entries small{font-size:11px;line-height:1.7}.yu-source-entries b{font-size:11px;color:#526f43}

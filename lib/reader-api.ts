@@ -12,6 +12,7 @@ import type {Document} from './reader-model.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
 import {revisionChangesSchema} from './reader-revision.ts';
 import {intakeActionSchema} from './reader-intake.ts';
+import {bookContents} from '../server/local-book-contents.ts';
 import {createIntake,changeIntake} from '../server/reader-intake.ts';
 import {forkRevision,revisionSnapshot} from '../server/reader-revisions.ts';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
@@ -31,6 +32,10 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='library'&&path.length===2&&req.method==='DELETE'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.remove(id,uid));}
   if(path[0]==='library'&&path.length===3&&path[2]==='restore'&&req.method==='POST'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.restore(id,uid));}
   if(path[0]==='library'&&path.length===3&&path[2]==='favorite'&&req.method==='POST'){const id=z.string().min(1).max(100).parse(path[1]);const b=z.object({saved:z.boolean()}).strict().parse(await body(req));return json(await repo.favorite(id,uid,b.saved));}
+  if(path[0]==='books'&&path.length===3&&path[2]==='contents'&&req.method==='GET'){
+   if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
+   return json(await bookContents(services.localBooks,selectionSchema.parse({bookId:path[1],theme:'目录'})));
+  }
   if(path.join('/')==='suggestions'&&req.method==='POST'){
    await requireProvider();
    const {excludeTitles,excludeSources,...selection}=suggestionRequestSchema.parse(await body(req,1048576));
@@ -61,7 +66,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='sessions'&&path.length===1){
    // One unreadable saved story must not take the whole shelf down with it.
    if(req.method==='GET')return json(await Promise.all((await repo.list(uid)).filter(readableStory).map(row=>services.production&&row.state!=='completed'?services.production.snapshot(uid,row.id):view(row))));
-   if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema,intake:z.boolean().optional()}).parse(await body(req,32768));return json(view(b.intake?await createIntake(repo,b.requestId,uid,b.selection):await repo.create(b.requestId,uid,b.selection)),201);}
+   if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema,intake:z.boolean().optional()}).parse(await body(req,32768));return json(view(b.intake?await createIntake(repo,b.requestId,uid,b.selection,services.localBooks):await repo.create(b.requestId,uid,b.selection)),201);}
   }
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);

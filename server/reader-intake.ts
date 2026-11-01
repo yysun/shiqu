@@ -1,5 +1,7 @@
 // Save creation intent before extraction, and serialize each explicit choice independently of queue progress.
 // Search and setting drafts use targeted writes: neither replaces the selection or a running step's lock.
+import {directBookChoice} from './local-book-contents.ts';
+import type {LocalBooks} from './local-books.ts';
 import {createHash} from 'node:crypto';
 import {emptyDocument,selectionSchema,ReaderError} from '../lib/reader-model.ts';
 import type {Document,Selection,SessionRow} from '../lib/reader-model.ts';
@@ -9,10 +11,13 @@ import type {ReaderRepository} from '../lib/reader-repository.ts';
 import {maxSuggestionBatches} from '../lib/reader-suggestions.ts';
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const visible='NOT EXISTS(SELECT 1 FROM library_deletions WHERE story_id=reader_sessions.id AND user_id=reader_sessions.user_id)';
-export async function createIntake(repo:ReaderRepository,id:string,uid:string,input:Selection){
- const selection=selectionSchema.parse({...input,storyTitle:undefined,source:undefined,length:'auto',narrativeDetail:input.narrativeDetail||'balanced'});
+export async function createIntake(repo:ReaderRepository,id:string,uid:string,input:Selection,books?:LocalBooks){
+ if(input.source&&!books)throw new ReaderError(503,'本地书库暂不可用');
+ const choice=input.source?await directBookChoice(books!,input):null;
+ const selection=selectionSchema.parse({...input,storyTitle:choice?.entry.title,source:choice?.entry.source,length:'auto',narrativeDetail:input.narrativeDetail||'balanced'});
  if(selection.bookId==='other'&&!selection.customBook?.trim())throw new ReaderError(400,'请先填写书名或 URL。');
  const creationHash=hash(selection),now=new Date().toISOString(),doc:Document={...emptyDocument(),intake:{phase:'discovering',generation:0,creationHash,batches:[],search:{round:1,state:'searching'}}};
+ if(choice){doc.original=choice.original;doc.intake!.phase='preparing';doc.intake!.search={round:0,state:'idle'};doc.intake!.selected={batch:0,index:0};doc.intake!.batches=[{stories:[{title:choice.entry.title,description:choice.entry.excerpt,source:choice.entry.source,sourceLabel:choice.original.title.slice(0,150)}],note:''}];}
  await repo.db.prepare("INSERT INTO reader_sessions(id,user_id,selection,document,generation_mode,generation_control,state,step_attempts,lock_until,page,saved,created_at,updated_at) VALUES(?,?,?,?,'background','active','idle',0,0,0,0,?,?) ON CONFLICT(id) DO NOTHING")
   .bind(id,uid,JSON.stringify(selection),JSON.stringify(doc),now,now).run();
  const row=await repo.get(id,uid);

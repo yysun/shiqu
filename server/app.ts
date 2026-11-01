@@ -15,12 +15,13 @@ import {ReaderProductionCoordinator,configuredImageWorkers} from './reader-produ
 const types:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.woff':'font/woff','.woff2':'font/woff2','.ico':'image/x-icon'};
 export function createApplication(options:{root:string;dataDirectory:string;variables?:Record<string,string|undefined>;transport?:typeof fetch;generation?:ReaderProvider}){
  const media=new FileMedia(path.join(options.dataDirectory,'media'));
- const generation=options.generation||withLocalBooks(createReaderProvider(options.variables||{},media,options.transport||fetch),new LocalBooks(options.root),media);
+ const localBooks=new LocalBooks(options.root);
+ const generation=options.generation||withLocalBooks(createReaderProvider(options.variables||{},media,options.transport||fetch),localBooks,media);
  const imageWorkers=configuredImageWorkers(options.variables?.SHIQU_IMAGE_WORKERS);
  const local=openDatabase(options.dataDirectory,options.root);
  const production=new ReaderProductionCoordinator(local.database,generation,media,{imageWorkers});
  if(options.variables?.SHIQU_AI_PROVIDER==='readonly')production.stop();
- const services:Services={db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,transport:options.transport||fetch,generation,production};
+ const services:Services={db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,localBooks,transport:options.transport||fetch,generation,production};
  const api=createApi(services),publicDirectory=path.resolve(options.root,'dist/client');
  let closed=false,closing:Promise<void>|undefined;
  return {services,stopGeneration:()=>production.stop(),close(){
