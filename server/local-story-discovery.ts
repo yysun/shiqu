@@ -1,8 +1,9 @@
 // Return available verified stories immediately; scan only until a nonempty batch is ready.
 // Keep theme progress and verified unfinished events across requests.
 // Shared work extends the common story pool; each reader's exclusions affect only their own view.
+// Chapter selection returns a main story first and permits strictly nested episodes on later requests.
 import {z} from 'zod';
-import {localSourceSchema,localSourceKey,localReadingPrompt,localScanJson,legacyLocalReadingPrompt,legacyLocalScanJson} from '../lib/reader-local-contract.ts';
+import {localSourceSchema,localSourceKey,localReadingPrompt,localScanJson,legacyLocalReadingPrompt,legacyLocalScanJson,localChapterStoriesPrompt} from '../lib/reader-local-contract.ts';
 import type {LocalSourceReference,PendingEvent,WholeBookInput} from '../lib/reader-local-contract.ts';
 import {suggestionBatchSchema,titleKey} from '../lib/reader-suggestions.ts';
 import type {SuggestionBatch} from '../lib/reader-suggestions.ts';
@@ -57,15 +58,22 @@ function mergePending(books:LocalBooks,book:LocalBook,old:PendingEvent[],updates
 }
 export async function discoverLocalStories(provider:ReaderProvider,books:LocalBooks,cache:StoryDiscoveryCache,book:LocalBook,selection:Selection,excluded:string[],observer?:ReadingObserver,excludedSources:LocalSourceReference[]=[],limits:ReadingLimits=defaultReadingLimits):Promise<SuggestionBatch>{
  const status=await provider.status(),plan=await readingPlan(book,status.provider,cache,limits);
- const namespace=discoveryNamespace(book,status.provider,status.models.text,limits,status.taskReasoningEfforts?.suggest)+(selection.discoverySources?'/scope/'+discoveryHash(selection.discoverySources.map(localSourceKey)):'');
+ const chapterStories=!!selection.discoverySources;
+ const namespace=discoveryNamespace(book,status.provider,status.models.text,limits,status.taskReasoningEfforts?.suggest)+(selection.discoverySources?'/scope/'+discoveryHash(selection.discoverySources.map(localSourceKey))+'/main-first/'+discoveryHash(localChapterStoriesPrompt):'');
  const theme=selection.theme.normalize('NFKC').trim(),key=namespace+'/theme/'+discoveryHash(theme);
  const totalChars=plan.blocks.reduce((n,block)=>n+block.chars,0),excludedKeys=new Set(excludedSources.length?[]:excluded.map(titleKey));
  const validExclusions=excludedSources.filter(source=>{try{qualified(books,book,source);return true;}catch{return false;}});
+ const conflicts=(a:LocalSourceReference,b:LocalSourceReference)=>{
+  if(!sourcesOverlap(book,a,b))return false;
+  if(!chapterStories)return true;
+  // Equal coverage is a duplicate; neither covering the other is a crossing fragment.
+  return sourceCovers(book,a,b)===sourceCovers(book,b,a);
+ };
  const visibleStories=(stories:Story[])=>{
   const shown:Story[]=[];
   for(const story of stories){
-   const title=titleKey(story.title);if(excludedKeys.has(title)||validExclusions.some(source=>sourcesOverlap(book,source,story.source)))continue;
-   if(shown.some(other=>sourcesOverlap(book,other.source,story.source)))continue;
+   const title=titleKey(story.title);if(excludedKeys.has(title)||validExclusions.some(source=>conflicts(source,story.source)))continue;
+   if(shown.some(other=>conflicts(other.source,story.source)))continue;
    shown.push(story);
   }
   return shown;
@@ -104,17 +112,24 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const unitText=new Map(book.sections.flatMap(section=>section.units.map(unit=>[unit.id,unit.text] as const)));
  const scanRequest=(current:State,cursor:number,maxStories=5)=>{
   const block=plan.blocks[cursor],visible=new Set(block.visible);
-  const contextText=current.pendingEvents.map(event=>{
+  const context=current.pendingEvents.map(event=>{
    const ids=sourceUnitIds(book,event.source);for(const id of ids)visible.add(id);
    return '未完事件 '+event.id+'\n'+books.resolve(book,event.source).title+'\n'+ids.map(id=>'['+id+']\n'+unitText.get(id)).join('\n\n');
-  }).join('\n\n');
-  const relevant=current.stories.filter(story=>sourceUnitIds(book,story.source).some(id=>visible.has(id)));
-  const input:WholeBookInput={title:book.title,edition:book.edition,text:block.text,purpose:'scan',scan:{maxStories,excludedSources:relevant.map(story=>story.source),pendingEvents:current.pendingEvents,contextText}};
+  });
+  let relevant=current.stories.filter(story=>sourceUnitIds(book,story.source).some(id=>visible.has(id)));
+  if(chapterStories)for(const story of relevant){
+   // A main story may begin in an earlier block. Its original evidence remains available for episodes.
+   const ids=sourceUnitIds(book,story.source).filter(id=>!visible.has(id));
+   if(ids.length){for(const id of ids)visible.add(id);context.push('已选故事 '+story.title+'\n'+books.resolve(book,story.source).title+'\n'+ids.map(id=>'['+id+']\n'+unitText.get(id)).join('\n\n'));}
+  }
+  if(chapterStories)relevant=current.stories.filter(story=>sourceUnitIds(book,story.source).some(id=>visible.has(id)));
+  const chapterStoryLevel=chapterStories?(relevant.length?'episodes':'main'):undefined;
+  const input:WholeBookInput={title:book.title,edition:book.edition,text:block.text,purpose:'scan',scan:{maxStories:chapterStoryLevel==='main'?1:maxStories,excludedSources:relevant.map(story=>story.source),pendingEvents:current.pendingEvents,contextText:context.join('\n\n'),...(chapterStoryLevel?{chapterStoryLevel}:{})}};
   return {input,titles:relevant.map(story=>story.title),visible};
  };
  const response=(state:State,hit:boolean):SuggestionBatch=>{
   const stories=visibleStories(state.stories).slice(0,5);
-  const note=(hit?'已复用本地主题故事缓存。':plan.manifest.mode==='whole'?'已直接根据全书原文选题。':'已按章回选题，换一批将从保存的位置继续。')+(state.rejected?'部分返回出处未能完整核对，已保留当前进度，可继续重试。':'')+(stories.length<5&&state.exhausted?'已检查完所给原文，当前主题可确认的新故事不足5篇。':'')+(state.exhausted&&state.pendingEvents.length?'部分跨章线索尚未确认完整，未作为故事推荐。':'');
+  const note=(hit?'已复用本地主题故事缓存。':chapterStories?'已按先总故事、后小故事的顺序选题，可继续找故事。':plan.manifest.mode==='whole'?'已直接根据全书原文选题。':'已按章回选题，换一批将从保存的位置继续。')+(state.rejected?'部分返回出处未能完整核对，已保留当前进度，可继续重试。':'')+(stories.length<5&&state.exhausted?'已检查完所给原文，当前主题可确认的新故事不足5篇。':'')+(state.exhausted&&state.pendingEvents.length?'部分跨章线索尚未确认完整，未作为故事推荐。':'');
   return {stories,note:note.slice(0,300)};
  };
  let hit=true;
@@ -140,7 +155,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
     for(const raw of result.stories){
      try{
       const story=storySchema.parse(raw);qualified(books,book,story.source,visible);
-      if(current.stories.some(old=>sourcesOverlap(book,old.source,story.source))||accepted.some(old=>sourcesOverlap(book,old.source,story.source))){rejected=true;continue;}
+      if(current.stories.some(old=>conflicts(old.source,story.source))||accepted.some(old=>conflicts(old.source,story.source))){rejected=true;continue;}
       accepted.push({...story,sourceLabel:books.resolve(book,story.source).title.slice(0,150)});
      }catch{rejected=true;}
     }
