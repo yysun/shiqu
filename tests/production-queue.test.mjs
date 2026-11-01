@@ -12,21 +12,34 @@ function database(t){
 const spec=(kind,pool,dependencies=[],version='v1',key='')=>({id:productionJobId('story',kind,version,key),sessionId:'story',ownerId:'owner',kind,pool,version,dependencies,payload:{key},priority:0});
 test('search and text each have one independent worker beside image and local pools',async t=>{
  const {adapter}=database(t),calls=[],releases=[];
- const run=async job=>{calls.push(job.pool);await new Promise(resolve=>releases.push(resolve));return {};};
+ const run=async job=>{calls.push(job.pool);await new Promise(resolve=>releases.push({pool:job.pool,resolve}));return {};};
  const queue=new ProductionQueue(adapter,{limits:{search:1,text:1,image:3,local:2},handlers:{discover:{pool:'search',run},script:{pool:'text',run}}});
  for(let i=0;i<2;i++){await queue.enqueue(spec('discover','search',[],'v',String(i)));await queue.enqueue(spec('script','text',[],'v',String(i)));}
  await queue.pump();await until(()=>calls.length===2);
  assert.deepEqual(calls.sort(),['search','text']);
- queue.stop();releases.forEach(resolve=>resolve());await queue.settle();
+ releases.find(release=>release.pool==='text').resolve();
+ await until(async()=>(await queue.jobs('story','owner')).some(job=>job.pool==='text'&&job.state==='succeeded'));
+ await queue.pump();await until(()=>calls.length===3);assert.equal(calls.filter(pool=>pool==='search').length,1);
+ queue.stop();releases.forEach(release=>release.resolve());await queue.settle();
 });
 test('search pool migration upgrades queued and interrupted rows with stable ids and receipts',async t=>{
- const {adapter,db}=database(t),queue=new ProductionQueue(adapter,{limits:{search:1},handlers:{}});
+ const {adapter,db}=database(t),calls=[],queue=new ProductionQueue(adapter,{limits:{search:1},resumeInterrupted:async()=>true,handlers:{discover:{pool:'search',run:async job=>{calls.push(job.id);return {};}}}});
  for(const key of ['queued','interrupted'])await queue.enqueue(spec('discover','text',[],'old',key));
  db.exec("UPDATE production_jobs SET state='failed',interrupted=1 WHERE json_extract(payload,'$.key')='interrupted'");
  db.exec(readFileSync('drizzle/0008_search_pool.sql','utf8'));
  const jobs=await queue.jobs('story','owner');
  assert.ok(jobs.every(job=>job.pool==='search'));assert.equal(jobs.find(job=>job.interrupted).state,'failed');
  assert.equal(jobs.find(job=>job.state==='queued').id,productionJobId('story','discover','old','queued'));
+ await queue.recoverExpired();await queue.pump();await queue.settle();await queue.pump();await queue.settle();assert.equal(calls.length,2);
+});
+test('recovery contains an orphan callback failure once and still recovers another lease',async t=>{
+ const {adapter,db}=database(t),logs=[],error=console.error;console.error=(...args)=>logs.push(args);t.after(()=>{console.error=error;});
+ const queue=new ProductionQueue(adapter,{limits:{text:1},handlers:{},resumeInterrupted:async job=>{if(job.id==='orphan')throw Error('missing row');return true;}});
+ for(const id of ['orphan','valid'])await queue.enqueue({...spec('script','text'),id});
+ db.exec("UPDATE production_jobs SET state='running',lease_until=0");
+ await queue.recoverExpired();await queue.recoverExpired();
+ assert.equal((await queue.job('valid')).state,'queued');assert.equal((await queue.job('orphan')).state,'running');
+ assert.equal(logs.length,1);
 });
 test('voice/images branch after script; motion/processing feed video; assembly retry reuses every artifact',async t=>{
  const {adapter}=database(t),calls=[],gates=new Map();let failVideo=true;

@@ -9,7 +9,7 @@ export default function StoryReviewTools({session,busy,error,onScript,onEdit,onR
  const meta=session.generationProgress,paused=!!session.generationControl&&session.generationControl!=='active';
  const canRetry=session.retryAllowed&&!paused;
  const reason=meta?.reviewStopReason==='unchanged'?'上次修订没有产生实际变化，自动修复已停止。':meta?.reviewStopReason==='limit'?(typeof meta.repairPasses==='number'?`已完成 ${meta.repairPasses} 轮自动修复，复核仍未通过。`:'自动修复已到上限，复核仍未通过。'):'审片尚未通过，绘图已停止。';
- if(!session.story?.original||session.story.pages[0]?.image&&!issues.length)return null;
+ if(!session.story||!(session.story.original||session.generationProgress?.sourceReady)||session.story.pages[0]?.image&&!issues.length)return null;
  return <section className={'yu-review-tools'+(issues.length?' has-issues':'')} aria-label="分镜与审片问题">
   {issues.length>0&&<>
    <header className="yu-review-heading"><span>审片待处理</span><h3>还有 {issues.length} 项问题需要修订</h3><p>{reason}</p>{meta&&<p className="yu-review-counts">{typeof meta.repairPasses==='number'&&`已修复 ${meta.repairPasses} 轮`}{typeof meta.repairPasses==='number'&&typeof meta.reviewAudits==='number'&&' · '}{typeof meta.reviewAudits==='number'&&`已审核 ${meta.reviewAudits} 次`}</p>}</header>

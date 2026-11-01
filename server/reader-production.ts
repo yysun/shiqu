@@ -14,7 +14,7 @@ import type {Database} from '../lib/reader-repository.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
 import type {Generated} from '../lib/reader-engine.ts';
 import {ReaderError,readableStory,selectionSchema,view,nextStep,reviewPassed,productionComplete} from '../lib/reader-model.ts';
-import type {Document,SessionRow,SessionView,ProductionAction} from '../lib/reader-model.ts';
+import type {Document,SessionRow,SessionView,ProductionAction,Selection} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
@@ -26,12 +26,14 @@ import type {SuggestionBatch,SuggestionProgress} from '../lib/reader-suggestions
 import {readerMaxFrames,readerStoryboardBatchSize} from '../lib/reader-limits.ts';
 import {productionReadAhead,productionViewerLeaseMs} from '../lib/reader-production.ts';
 import type {ReaderProduction} from '../lib/reader-production.ts';
-import {JobYield,ProductionQueue,inputVersion,productionJobId} from './production-queue.ts';
+import {JobYield,ProductionQueue,inputVersion,productionJobId,jobDependencies} from './production-queue.ts';
 import type {ProductionJob,JobSpec} from './production-queue.ts';
 
 type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;through_page:number;expires_at:number;runtime_id:string};
 type Lease={ownerId:string;token:string};
 type ActiveSearch={round:number;controller:AbortController;startedAt:number;progress?:SuggestionProgress};
+type RebuildKey={document:string;selection:string;state:string;demands:string};
+type PruneKey={document:string;selection:string;queued:number;failed:number};
 type Options={imageWorkers?:number;now?:()=>number;leaseMs?:number;tickMs?:number};
 const sessionLeaseMs=180000;
 const maxAutomaticAttempts=3;
@@ -66,6 +68,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private closed=false;
  private tickFailing=false;
  private readonly unreadable=new Set<string>();
+ private readonly parsedRows=new Map<string,{document:string;selection:string;parsed:{doc:Document;selection:Selection}|null}>();
+ private readonly rebuildKeys=new Map<string,RebuildKey>();
+ private readonly pruneKeys=new Map<string,PruneKey>();
+ private supersededJobs=new Set<string>();
  private database:Database;
  private provider:ReaderProvider;
  private media:MediaStore;
@@ -76,6 +82,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   this.queue=new ProductionQueue(database,{
    limits:{search:1,text:1,image:options.imageWorkers??3,local:2},now:this.clock,leaseMs:options.leaseMs,
    canRun:job=>this.canRun(job),resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>this.wake(),
+   candidateFilter:`j.kind='image-publish' OR NOT EXISTS(SELECT 1 FROM reader_sessions s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND (s.generation_control!='active' OR EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id) OR (j.kind!='discover' AND s.state='failed')))`,
+   skipCandidate:job=>job.kind!=='image-publish'&&this.supersededJobs.has(job.session_id),
    safeError:(error,job)=>error instanceof ReaderError?error.message:job.kind==='image-publish'?'图片已生成，暂时无法展开。请重试继续。':this.provider.safeError(error),
    terminal:error=>error instanceof ReaderError&&error.status<500,
    handlers:{
@@ -104,7 +112,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return !await this.repository.superseded(row.id,row.user_id)&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
  private imageInputs(row:SessionRow){
-  const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
+  const {doc,selection}=this.parsed(row)!;
   const scriptVersion=inputVersion({selection,...(doc.intake?{setupGeneration:doc.intake.generation}:{})});
   return {generation:doc.intake?.generation,version:inputVersion({scriptVersion,plan:doc.plan,style:selection.artStyle,prompt:selection.productionPrompt})};
  }
@@ -125,8 +133,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    .bind(...(id?[id]:[])).all<{id:string;user_id:string}>()).results;
   return [...viewers,...background.map(row=>({session_id:row.id,owner_id:row.user_id,viewer_id:'background',page:0,through_page:readerMaxFrames-1,expires_at:Infinity,runtime_id:this.runtimeId}))];
  }
+ private parsed(row:SessionRow){
+  const previous=this.parsedRows.get(row.id);
+  if(previous&&previous.document===row.document&&previous.selection===row.selection)return previous.parsed;
+  const parsed=readableStory(row)?{doc:JSON.parse(row.document) as Document,selection:selectionSchema.parse(JSON.parse(row.selection))}:null;
+  this.parsedRows.set(row.id,{document:row.document,selection:row.selection,parsed});return parsed;
+ }
  private readable(row:SessionRow){
-  if(readableStory(row))return true;
+  if(this.parsed(row))return true;
   if(!this.unreadable.has(row.id)){this.unreadable.add(row.id);console.error('production_story_unreadable',JSON.stringify({id:row.id}));}
   return false;
  }
@@ -162,7 +176,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    await this.queue.recoverExpired();await this.recoverLostImages(await this.raw(id,ownerId));await this.queue.retry(id,ownerId,doc.intake?.generation);
    await this.database.prepare("UPDATE reader_sessions SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'").bind(id,ownerId).run();
   }
-  await this.graph(await this.raw(id,ownerId));
+  await this.pruneSuperseded(id);await this.graph(await this.raw(id,ownerId));
   this.wake();return this.snapshot(ownerId,id);
  }
  // Let a blocked story draw on the reader's word. The review reads as passed first, and its
@@ -194,7 +208,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // Claim timestamps measure this attempt, rather than time since the story was first created.
   const search=this.searches.get(id);
   const session={...saved,...(saved.intake&&search?.progress?{intake:{...saved.intake,progress:search.progress}}:{}),generationProgress:{...saved.generationProgress!,startedAt:active[0]?.updated_at??search?.startedAt??null,attempt:active[0]?.attempts??saved.generationProgress!.attempt}};
-  const working=active.length>0||jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'));
+  const working=active.length>0||jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===jobDependencies(job)[0]&&parent.state==='succeeded'));
   if(failed&&!working){
    const lost=lostImageError(failed.error);
    return {...session,state:'failed',error:lost?lostImageMessage:failed.error,retryAllowed:true,...(lost?{retryStage:'redraw' as const}:failed.kind==='image-publish'?{retryStage:'publication' as const}:{})};
@@ -212,7 +226,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return {id:productionJobId(row.id,kind,version,key),sessionId:row.id,ownerId:row.user_id,kind,pool,version,dependencies,payload,priority};
  }
  private async graph(row:SessionRow){
-  const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
+  const {doc,selection}=this.parsed(row)!;
   if(doc.intake){
    const search=intakeSearch(doc.intake),searching=search.state==='searching'&&!doc.plan&&doc.intake.phase!=='confirmed';
    // A record written by an older release has no stored search to fence its result against.
@@ -263,7 +277,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(row.generation_control!=='active')return false;
    if(this.stopping||!(await this.demands(row.id)).some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page))return false;
    if(await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first())return false;
-   const jobs=await this.currentJobs(row);
+   const jobs=await this.currentJobs(row,(await this.database.prepare("SELECT * FROM production_jobs WHERE session_id=? AND owner_id=? AND (state='failed' OR kind='image-publish' AND state='running')").bind(row.id,row.user_id).all<ProductionJob>()).results);
    if(jobs.some(job=>job.state==='failed')||row.state==='failed')return false;
    // Apply backpressure until a completed image is published; a local failure must stop refill.
    if(job.kind==='image'&&jobs.some(job=>job.kind==='image-publish'&&job.state==='running'))return false;
@@ -292,7 +306,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    const row=await this.raw(candidate.id,candidate.user_id);if(!this.readable(row))continue;
    const jobs=await this.currentJobs(row);
    if(jobs.some(job=>job.state==='failed')||!jobs.some(job=>job.kind==='image'&&job.state==='queued'&&job.priority<=productionReadAhead))continue;
-   if(jobs.some(job=>job.kind==='image-publish'&&(job.state==='running'&&job.updated_at>recent||job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'&&parent.updated_at>recent))))return true;
+   if(jobs.some(job=>job.kind==='image-publish'&&(job.state==='running'&&job.updated_at>recent||job.state==='queued'&&jobs.some(parent=>parent.id===jobDependencies(job)[0]&&parent.state==='succeeded'&&parent.updated_at>recent))))return true;
   }
   return false;
  }
@@ -373,26 +387,34 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  // Superseded work can never run again, so it should stop costing every scheduling pass.
  // Covers every story, including those no viewer or background intent is scheduling right now.
- private async pruneSuperseded(){
-  await this.database.prepare(`DELETE FROM production_jobs WHERE state IN('queued','failed') AND EXISTS(SELECT 1 FROM reader_sessions s WHERE s.id=production_jobs.session_id AND s.user_id=production_jobs.owner_id
+ private async pruneSuperseded(forceId?:string){
+  const candidates=(await this.database.prepare(`SELECT s.*,j.queued_count,j.failed_count FROM (
+   SELECT session_id,owner_id,COUNT(CASE WHEN state='queued' THEN 1 END) AS queued_count,COUNT(CASE WHEN state='failed' THEN 1 END) AS failed_count
+   FROM production_jobs WHERE state IN('queued','failed') GROUP BY session_id,owner_id
+   ) j JOIN reader_sessions s ON s.id=j.session_id AND s.user_id=j.owner_id`).all<SessionRow&{queued_count:number;failed_count:number}>()).results;
+  const seen=new Set<string>();
+  for(const row of candidates){
+   seen.add(row.id);
+   const key={document:row.document,selection:row.selection,queued:row.queued_count,failed:row.failed_count},previous=this.pruneKeys.get(row.id);
+   if(forceId!==row.id&&previous?.document===key.document&&previous.selection===key.selection&&previous.queued===key.queued&&previous.failed===key.failed||!this.readable(row))continue;
+   await this.database.prepare(`DELETE FROM production_jobs WHERE session_id=? AND owner_id=? AND state IN('queued','failed') AND EXISTS(SELECT 1 FROM reader_sessions s WHERE s.id=production_jobs.session_id AND s.user_id=production_jobs.owner_id
    AND CASE WHEN json_valid(s.document) AND json_type(s.document,'$.intake')='object' THEN
     CASE WHEN production_jobs.kind='discover'
      THEN COALESCE(json_extract(production_jobs.payload,'$.searchRound'),-1)!=CASE WHEN json_extract(s.document,'$.intake.search.state')='searching' THEN json_extract(s.document,'$.intake.search.round') ELSE -2 END
      ELSE COALESCE(json_extract(production_jobs.payload,'$.setupGeneration'),-1)!=json_extract(s.document,'$.intake.generation') END
-    ELSE 0 END)`).run();
-  const candidates=(await this.database.prepare("SELECT DISTINCT session_id,owner_id FROM production_jobs WHERE kind IN('image','image-publish') AND state IN('queued','failed')").all<{session_id:string;owner_id:string}>()).results;
-  for(const candidate of candidates){
-   const row=await this.find(candidate.session_id,candidate.owner_id);if(!row||!this.readable(row))continue;
+    ELSE 0 END)`).bind(row.id,row.user_id).run();
    const jobs=await this.queue.jobs(row.id,row.user_id),current=await this.currentJobs(row,jobs),ids=new Set(current.map(job=>job.id));
    const obsolete=jobs.filter(job=>['image','image-publish'].includes(job.kind)&&['queued','failed'].includes(job.state)&&!ids.has(job.id));
-   if(!obsolete.length)continue;
+   if(!obsolete.length){this.pruneKeys.set(row.id,key);continue;}
    // A current worker may have saved its error before the queue has recorded that failure.
    if(row.state==='failed'&&obsolete.some(job=>job.state==='failed'&&job.error===row.error)&&!current.some(job=>['failed','running'].includes(job.state))){
     await this.database.prepare("UPDATE reader_sessions SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed' AND error IS ? AND document=? AND selection=?")
      .bind(row.id,row.user_id,row.error,row.document,row.selection).run();
    }
    for(const job of obsolete)await this.database.prepare("DELETE FROM production_jobs WHERE id=? AND state IN('queued','failed')").bind(job.id).run();
+   this.pruneKeys.set(row.id,key);
   }
+  for(const id of this.pruneKeys.keys())if(!seen.has(id))this.pruneKeys.delete(id);
  }
  private async stopUnwantedSearches(){
   for(const [id,search] of this.searches){
@@ -469,7 +491,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private async publish(job:ProductionJob,outputs:Record<string,unknown>){
   if(!this.currentJob(await this.raw(job.session_id,job.owner_id),job))return {obsolete:true};
-  const {page}=JSON.parse(job.payload) as {page:number},parent=(JSON.parse(job.dependencies) as string[])[0];
+  const {page}=JSON.parse(job.payload) as {page:number},parent=jobDependencies(job)[0];
   const result=outputs[parent] as Generated<string>,prefix=`/api/reader/media/${job.session_id}/`,expected=new RegExp(`^(?:${page}\\.(png|jpg|webp)|artifacts/${page}-[a-f0-9]{64}\\.(png|jpg|webp))$`);
   if(typeof result?.value!=='string'||!result.value.startsWith(prefix)||!expected.test(result.value.slice(prefix.length)))throw new ReaderError(409,lostImageMessage);
   if(await this.fileLost(`reader/${job.session_id}/${result.value.slice(prefix.length)}`,true))throw new ReaderError(409,lostImageMessage);
@@ -497,6 +519,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   try{await work;}finally{if(this.ticking===work)this.ticking=undefined;}
  }
  private async cycle(){
+  await this.database.prepare('DELETE FROM production_demand WHERE expires_at<=?').bind(this.clock()).run();
   await this.queue.renew();
   for(const [id,lease] of this.leases){
    const now=this.clock();
@@ -521,8 +544,16 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const demands=await this.demands(),seen=new Set<string>();
   for(const demand of demands)if(!seen.has(demand.session_id)){
    seen.add(demand.session_id);
-   try{const row=await this.repository.get(demand.session_id,demand.owner_id);if(this.readable(row))await this.graph(row);}catch(error){if(!(error instanceof ReaderError&&error.status===404))throw error;}
+   try{
+    const row=await this.repository.get(demand.session_id,demand.owner_id);
+    const key={document:row.document,selection:row.selection,state:row.state,demands:JSON.stringify(demands.filter(d=>d.session_id===row.id&&d.owner_id===row.user_id).map(d=>[d.viewer_id,d.page,d.through_page]).sort())},previous=this.rebuildKeys.get(row.id);
+    if(this.readable(row)&&!(previous?.document===key.document&&previous.selection===key.selection&&previous.state===key.state&&previous.demands===key.demands)){await this.graph(row);this.rebuildKeys.set(row.id,key);}
+   }catch(error){if(!(error instanceof ReaderError&&error.status===404))throw error;}
   }
+  for(const id of this.rebuildKeys.keys())if(!seen.has(id))this.rebuildKeys.delete(id);
+  const superseded=(await this.database.prepare(`SELECT id FROM reader_sessions WHERE generation_control='active' AND EXISTS(SELECT 1 FROM production_jobs j WHERE j.session_id=reader_sessions.id AND j.owner_id=reader_sessions.user_id AND j.state='queued' AND j.kind!='image-publish' AND (j.kind='discover' OR reader_sessions.state!='failed')) AND ${supersededSql()}`).all<{id:string}>()).results;
+  this.supersededJobs=new Set(superseded.map(row=>row.id));
+  for(const id of this.parsedRows.keys())if(!seen.has(id)&&!this.pruneKeys.has(id)&&!this.leases.has(id))this.parsedRows.delete(id);
   await this.queue.pump();
   for(const [id,lease] of this.leases){
    // Read jobs before the row: no running job then proves nothing can change the document we save.
@@ -531,7 +562,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    // Releasing the lease lets the lock expire; the row itself is left untouched.
    if(!this.readable(row)){this.leases.delete(id);continue;}
    const jobs=await this.currentJobs(row,allJobs);
-   const pendingLocal=jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'));
+   const pendingLocal=jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===jobDependencies(job)[0]&&parent.state==='succeeded'));
    if(jobs.some(job=>job.state==='running')||pendingLocal)continue;
    const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
    // An interruption is not a story failure: the job resumes, and the row must not block it.

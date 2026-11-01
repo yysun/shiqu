@@ -8,7 +8,7 @@ import {suggestionRequestSchema} from './reader-suggestions.ts';
 import {ReaderError,readableStory,selectionSchema,view} from './reader-model.ts';
 import {sourceSearchUrl} from './reader-source.ts';
 import {readerMaxFrames} from './reader-limits.ts';
-import type {Document} from './reader-model.ts';
+import type {Document,SessionView} from './reader-model.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
 import {revisionChangesSchema} from './reader-revision.ts';
 import {intakeActionSchema} from './reader-intake.ts';
@@ -17,6 +17,11 @@ import {createIntake,changeIntake} from '../server/reader-intake.ts';
 import {forkRevision,revisionSnapshot} from '../server/reader-revisions.ts';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
 const uuid=z.string().uuid();
+export function shelfView(session:SessionView):SessionView{
+ if(!session.story)return session;
+ const story={...session.story};delete story.original;story.sourceText='';
+ return {...session,story};
+}
 async function body(req:Request,maxLength=4096){const s=await req.text();if(s.length>maxLength)throw new ReaderError(413,'请求太长了');try{return JSON.parse(s);}catch{throw new ReaderError(400,'请求格式不正确');}}
 export function createReaderApi(services:Services){
 const provider=services.generation;
@@ -66,7 +71,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   }
   if(path[0]==='sessions'&&path.length===1){
    // One unreadable saved story must not take the whole shelf down with it.
-   if(req.method==='GET')return json(await Promise.all((await repo.list(uid)).filter(readableStory).map(row=>services.production&&row.state!=='completed'?services.production.snapshot(uid,row.id):view(row))));
+   if(req.method==='GET')return json(await Promise.all((await repo.list(uid)).filter(readableStory).map(async row=>shelfView(services.production&&row.state!=='completed'?await services.production.snapshot(uid,row.id):view(row)))));
    if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema,intake:z.boolean().optional()}).parse(await body(req,32768));if(b.selection.discoverySources&&b.intake!==true)throw new ReaderError(400,'章节提取必须通过选题流程创建。');return json(view(b.intake?await createIntake(repo,b.requestId,uid,b.selection,services.localBooks):await repo.create(b.requestId,uid,b.selection)),201);}
   }
   if(path[0]==='sessions'&&path[1]){

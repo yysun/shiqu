@@ -11,12 +11,14 @@ export type JobSpec={id:string;sessionId:string;ownerId:string;kind:string;pool:
 export type ProductionJob={id:string;session_id:string;owner_id:string;kind:string;pool:string;version:string;dependencies:string;payload:string;result:string|null;state:'queued'|'running'|'succeeded'|'failed';priority:number;attempts:number;lease_token:string|null;lease_until:number;error:string|null;interrupted:number;created_at:number;updated_at:number};
 export type JobContext={outputs:Record<string,unknown>;isCurrent:()=>Promise<boolean>};
 export type JobHandler={pool:string;drain?:boolean;run:(job:ProductionJob,context:JobContext)=>Promise<unknown>};
-type Options={limits:Record<string,number>;handlers:Record<string,JobHandler>;canRun?:(job:ProductionJob)=>Promise<boolean>;onSettled?:()=>void;resumeInterrupted?:(job:ProductionJob)=>Promise<boolean>;safeError?:(error:unknown,job:ProductionJob)=>string;terminal?:(error:unknown,job:ProductionJob)=>boolean;now?:()=>number;leaseMs?:number};
+type Options={limits:Record<string,number>;handlers:Record<string,JobHandler>;candidateFilter?:string;skipCandidate?:(job:ProductionJob)=>boolean;canRun?:(job:ProductionJob)=>Promise<boolean>;onSettled?:()=>void;resumeInterrupted?:(job:ProductionJob)=>Promise<boolean>;safeError?:(error:unknown,job:ProductionJob)=>string;terminal?:(error:unknown,job:ProductionJob)=>boolean;now?:()=>number;leaseMs?:number};
 const interruptedMessage='上次生成已中断，已保留保存的结果。请重试继续。';
 // A handler that stopped without spending an attempt: the job waits in the queue for its next turn.
 export class JobYield extends Error{}
 export function inputVersion(input:unknown){return createHash('sha256').update(JSON.stringify(input)).digest('hex');}
 export function productionJobId(scope:string,kind:string,version:string,key=''){return inputVersion([scope,kind,version,key]);}
+const dependencyCache=new WeakMap<ProductionJob,string[]>();
+export function jobDependencies(job:ProductionJob){let value=dependencyCache.get(job);if(!value){value=JSON.parse(job.dependencies) as string[];dependencyCache.set(job,value);}return value;}
 const ready=`NOT EXISTS (SELECT 1 FROM json_each(j.dependencies) d LEFT JOIN production_jobs parent ON parent.id=d.value WHERE parent.id IS NULL OR parent.state!='succeeded')`;
 
 export class ProductionQueue{
@@ -78,9 +80,10 @@ export class ProductionQueue{
  async pump(){
   if(this.pumping)return;this.pumping=true;
   try{
-   const candidates=(await this.database.prepare(`SELECT j.* FROM production_jobs j WHERE j.state='queued' AND ${ready} ORDER BY j.priority,j.created_at,j.id`).all<ProductionJob>()).results;
+   const candidates=(await this.database.prepare(`SELECT j.* FROM production_jobs j WHERE j.state='queued' AND ${ready}${this.options.candidateFilter?` AND (${this.options.candidateFilter})`:''} ORDER BY j.priority,j.created_at,j.id`).all<ProductionJob>()).results;
    for(const job of candidates){
     try{
+    if(this.options.skipCandidate?.(job))continue;
     const handler=this.options.handlers[job.kind],limit=this.options.limits[job.pool];
     if(!handler||handler.pool!==job.pool||!limit||(this.stopping&&!handler.drain))continue;
     const running=await this.database.prepare("SELECT COUNT(*) AS n FROM production_jobs WHERE pool=? AND state='running' AND lease_until>?").bind(job.pool,this.clock()).first<{n:number}>();
@@ -104,7 +107,7 @@ export class ProductionQueue{
   const unsaved=(error:unknown)=>console.error('production_job_unsaved',JSON.stringify({id:job.id,code:(error as {code?:string}|null)?.code||(error instanceof Error?error.name:'UNKNOWN')}));
   const outputs:Record<string,unknown>={};
   try{
-   for(const id of JSON.parse(job.dependencies) as string[]){const parent=await this.job(id);if(parent?.state!=='succeeded')throw Error('DEPENDENCY_UNAVAILABLE');outputs[id]=JSON.parse(parent.result!);}
+   for(const id of jobDependencies(job)){const parent=await this.job(id);if(parent?.state!=='succeeded')throw Error('DEPENDENCY_UNAVAILABLE');outputs[id]=JSON.parse(parent.result!);}
    if(!await isCurrent())return;
    // Demand or a sibling failure may change while a claim is being prepared.
    if(this.stopping&&!handler.drain||this.options.canRun&&!await this.options.canRun(job)){

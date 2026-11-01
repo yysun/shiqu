@@ -149,60 +149,61 @@ Today's behaviour, checked on commit `8924e5d` with Node 24.22.1:
 
 ### Baseline
 
-- [ ] Confirm the recorded Git base and implement directly on `main`. Keep the three story documents here, use existing dependencies and restore missing dependencies with `pnpm install --frozen-lockfile` only when required. Select Node 24.22.1 explicitly because the default shell runs 22.23.4.
-- [ ] Rerun the review's reproductions against the worktree's code. They are `/private/tmp/claude-1227099725/-Users-esun-Documents-Projects-shiqu-docker/cc70a8c9-37d1-4ab6-9362-1636080b271c/scratchpad/review-repro.test.mjs` and `audit-flow.test.mjs` beside it. Copy the R9 part into the branch, because that directory belongs to this session, and take the repo root as a parameter, or the run measures the wrong code. Save the R9 results below, adding an unstubbed run with one blocked active story among 20 others, and a run with 20 blocked stories carrying a 20-round review history. If the pinned Node changes the reproduced results, or the flow differs from the section above, stop and update this plan.
+- [x] Confirm the recorded Git base and implement directly on `main`. Keep the three story documents here, use existing dependencies and restore missing dependencies with `pnpm install --frozen-lockfile` only when required. Select Node 24.22.1 explicitly because the default shell runs 22.23.4.
+- [x] Replace unavailable prior scratch reproductions with equivalent isolated controlled regressions and `tests/queue-hardening-cost.mjs`, whose source-root parameter measures either extracted recorded-base code or the checkout. Measure 20 paused, 20 unchanged active (pump stubbed), one blocked active among 20 paused stories (unstubbed), and 20 blocked stories with 20-round history. Record numerical costs below without claiming the missing scratch scripts were rerun. Runtime probes must stop dependent work if they reveal a materially different flow or architecture.
 
 ### Milestone 1: newest version only (AC1–AC6)
 
-- [ ] Add the JSON-safe family expressions and a superseded check in `lib/reader-repository.ts`, and use them in `list` and in `familyEpoch` in [reader-revisions.ts](../../../../../server/reader-revisions.ts).
-- [ ] Add the check to each start point in Decision 3, in `lib/reader-repository.ts`, [reader-production.ts](../../../../../server/reader-production.ts) and [reader-api.ts](../../../../../lib/reader-api.ts).
-- [ ] Apply Decisions 5 and 6 in `snapshot`, `control`, `overrideReview` and [StoryGenerationControl.tsx](../../../../../client/ui/StoryGenerationControl.tsx), and treat a superseded row as paused in `basis` and the fork INSERT.
-- [ ] Add regression tests that start each route on an old version whose row still says `active`, including the `repo.acquire` condition through a direct `/advance` on a row with no jobs. Add a fork landing between `canRun` and `image()`, a deleted newest version, a corrupt row, an interrupted old job, and an old version holding a viewer row while other stories wait to draw. Assert zero provider calls and unused attempts.
+- [x] Add the JSON-safe family expressions and a superseded check in `lib/reader-repository.ts`, and use them in `list` and in `familyEpoch` in [reader-revisions.ts](../../../../../server/reader-revisions.ts).
+- [x] Add the check to each start point in Decision 3, in `lib/reader-repository.ts`, [reader-production.ts](../../../../../server/reader-production.ts) and [reader-api.ts](../../../../../lib/reader-api.ts).
+- [x] Apply Decisions 5 and 6 in `snapshot`, `control`, `overrideReview` and [StoryGenerationControl.tsx](../../../../../client/ui/StoryGenerationControl.tsx), and treat a superseded row as paused in `basis` and the fork INSERT.
+- [x] Add regression tests that start each route on an old version whose row still says `active`, including the `repo.acquire` condition through a direct `/advance` on a row with no jobs. Add a fork landing between `canRun` and `image()`, a deleted newest version, a corrupt row, an interrupted old job, and an old version holding a viewer row while other stories wait to draw. Assert zero provider calls and unused attempts.
 
 ### Milestone 2: atomic publication (AC7–AC11, AC20)
 
-- [ ] Write the child's control directly in `forkRevision`, stop writing `revision.handoff` on new rows, remove the parent writes from `control`, and call `wake()` after a default submission. Keep the handoff branch for rows saved earlier.
-- [ ] Rewrite the tests that pin the old two-step design, keeping what they protect:
+- [x] Write the child's control directly in `forkRevision`, stop writing `revision.handoff` on new rows, remove the parent writes from `control`, and call `wake()` after a default submission. Keep the handoff branch for rows saved earlier.
+- [x] Rewrite the tests that pin the old two-step design, keeping what they protect:
   - `tests/reader-revisions.test.mjs:124`: restart, deleted parent and replay
   - `tests/reader-revisions.test.mjs:133`: crash recovery, now a failed INSERT publishes nothing, and a crash after it leaves one running version
   - `tests/paused-editing-versions.test.mjs:109-126`: replays must not override a later pause or resume
   - `tests/reader-revisions.test.mjs:58`: still passes, but its title describes the old handoff, so rename it
-- [ ] Add tests for an old in-flight request saving to the old version only, a finished old image publishing, a seeded old handoff row recovering, two corrections in a row, saving from a paused and blocked story, and a stale-tab retry and skip.
+- [x] Add tests for an old in-flight request saving to the old version only, a finished old image publishing, a seeded old handoff row recovering, two corrections in a row, saving from a paused and blocked story, and a stale-tab retry and skip.
 
 ### Milestone 3: four pools (AC12–AC14)
 
-- [ ] Add `drizzle/0008_search_pool.sql`. In `reader-production.ts`, add `search:1` to the limits, move the `discover` handler and its enqueue call to it, and update the header comment.
-- [ ] Add regression tests for AC12–AC14, covering queued and interrupted jobs saved with `pool='text'`. Update the tests that enqueue `discover` with `pool:'text'`, and the now-stale assertion message at `tests/story-flow-control.test.mjs:146`.
+- [x] Add `drizzle/0008_search_pool.sql`. In `reader-production.ts`, add `search:1` to the limits, move the `discover` handler and its enqueue call to it, and update the header comment.
+- [x] Add regression tests for AC12–AC14, covering queued and interrupted jobs saved with `pool='text'`. Update the tests that enqueue `discover` with `pool:'text'`, and the now-stale assertion message at `tests/story-flow-control.test.mjs:146`.
 
 ### Milestone 4: checkpoints and receipts (AC15–AC17)
 
-- [ ] Add the Decision 13 predicate and flag. Copy `storyboard` and `draft` into the child in `forkRevision`, and report the saved frame count in `revisionSnapshot`.
-- [ ] Update the replan branch of the impact message in [StoryRevisionEditor.tsx](../../../../../client/ui/StoryRevisionEditor.tsx) so it doesn't promise a replan in this case. The `reviewOnSave` wording stays as it is, because that path always has a plan.
-- [ ] Add regression tests for AC16 with a storyboard and with a draft-only short story, for AC17, and for AC15 across retry, restart and revision reuse with the new eligibility rule. Check the message in the in-app browser with `pnpm desktop:preview` or the reader preview, against an isolated data directory with no paid calls.
+- [x] Add the Decision 13 predicate and flag. Copy `storyboard` and `draft` into the child in `forkRevision`, and report the saved frame count in `revisionSnapshot`.
+- [x] Update the replan branch of the impact message in [StoryRevisionEditor.tsx](../../../../../client/ui/StoryRevisionEditor.tsx) so it doesn't promise a replan in this case. The `reviewOnSave` wording stays as it is, because that path always has a plan.
+- [x] Add regression tests for AC16 with a storyboard and with a draft-only short story, for AC17, and for AC15 across retry, restart and revision reuse with the new eligibility rule. Check the message in the in-app browser with `pnpm desktop:preview` or the reader preview, against an isolated data directory with no paid calls.
 
 ### Milestone 5: failure containment (AC18, AC19)
 
-- [ ] Add per-job containment to `pump` and `recoverExpired`, and make the coordinator's prune and lease loops tolerate a missing row.
-- [ ] Apply Decision 15 in `script()`.
-- [ ] Add regression tests for AC18 using ready orphaned `script`, `discover`, `image` and publication jobs, because a job with an unfinished parent never reaches `canRun`. Add tests for AC19, including a step that fails during deletion. Keep `tests/reader-generation.test.mjs:372` and `tests/local-image-batches.test.mjs:174` passing unchanged.
+- [x] Add per-job containment to `pump` and `recoverExpired`, and make the coordinator's prune and lease loops tolerate a missing row.
+- [x] Apply Decision 15 in `script()`.
+- [x] Add regression tests for AC18 using ready orphaned `script`, `discover`, `image` and publication jobs, because a job with an unfinished parent never reaches `canRun`. Add tests for AC19, including a step that fails during deletion. Keep `tests/reader-generation.test.mjs:372` and `tests/local-image-batches.test.mjs:174` passing unchanged.
 
 ### Milestone 6: optimization (AC21–AC25)
 
-- [ ] Add the candidate filter and superseded shortcut to the pump in [production-queue.ts](../../../../../server/production-queue.ts), and supply them from the coordinator. Check deletion markers for both background and reader modes, including rows still marked `active`, while exempting publication jobs.
-- [ ] Apply Decision 17 in `cycle` and `pruneSuperseded`. Reuse the parsed result for `readable` and `imageInputs` while a row's strings are unchanged.
-- [ ] Replace the repeated `JSON.parse` of job dependencies with one helper at the three call sites. Replace the full job load in `canRun` with a query for failed and running-publication rows.
-- [ ] Add a shelf-only view in `lib/reader-api.ts`, and change the guard in [StoryReviewTools.tsx](../../../../../client/ui/StoryReviewTools.tsx) to the exact form in Decision 18.
-- [ ] In [Reader.tsx](../../../../../client/ui/Reader.tsx), catch a rejected `retrySession` from the settings sheet's `onRetry` and show it through `StoryReviewTools`' `error` prop, clearing it on the next attempt. **继续自动修复** otherwise does nothing visible when the session can't load, and `notify` won't do: its toast renders beneath the modal sheet.
-- [ ] Add the expired-demand delete to `cycle`.
-- [ ] Add deterministic tests: no `canRun` calls for paused, deleted or superseded stories, including an `active` reader-mode row with a deletion marker and ready queued text, image and search jobs. Assert no provider calls or attempts used, while an already-paid image still publishes to that deleted story. Keep the orphaned-job coverage from AC18.
-- [ ] Add the remaining deterministic tests: at most 60 statements in a warm pass over 20 paused 80-frame stories, no job upserts on an unchanged tick, viewer renewal causes no rebuild, publication still runs while paused, a job that fails after its story changed is pruned, the shelf has no source text while the opened story does, a live viewer survives the cleanup, a trimmed shelf row with issues and a story shows the tools, and a `story:null, sourceReady:true` session renders nothing. Timing stays out of the test suite.
-- [ ] Rerun R9 against the AC21 and AC22 targets and record the results below. If a blocked active story is still a main cost, add a per-pump cache of refusals. If the shelf's version query is, record it as a follow-up.
+- [x] Add the candidate filter and superseded shortcut to the pump in [production-queue.ts](../../../../../server/production-queue.ts), and supply them from the coordinator. Check deletion markers for both background and reader modes, including rows still marked `active`, while exempting publication jobs.
+- [x] Apply Decision 17 in `cycle` and `pruneSuperseded`. Reuse the parsed result for `readable` and `imageInputs` while a row's strings are unchanged.
+- [x] Replace the repeated `JSON.parse` of job dependencies with one helper at the three call sites. Replace the full job load in `canRun` with a query for failed and running-publication rows.
+- [x] Add a shelf-only view in `lib/reader-api.ts`, and change the guard in [StoryReviewTools.tsx](../../../../../client/ui/StoryReviewTools.tsx) to the exact form in Decision 18.
+- [x] In [Reader.tsx](../../../../../client/ui/Reader.tsx), catch a rejected `retrySession` from the settings sheet's `onRetry` and show it through `StoryReviewTools`' `error` prop, clearing it on the next attempt. **继续自动修复** otherwise does nothing visible when the session can't load, and `notify` won't do: its toast renders beneath the modal sheet.
+- [x] Add the expired-demand delete to `cycle`.
+- [x] Add deterministic tests: no `canRun` calls for paused, deleted or superseded stories, including an `active` reader-mode row with a deletion marker and ready queued text, image and search jobs. Assert no provider calls or attempts used, while an already-paid image still publishes to that deleted story. Keep the orphaned-job coverage from AC18.
+- [x] Add the remaining deterministic tests: at most 60 statements in a warm pass over 20 paused 80-frame stories, no job upserts on an unchanged tick, viewer renewal causes no rebuild, publication still runs while paused, a job that fails after its story changed is pruned, the shelf has no source text while the opened story does, a live viewer survives the cleanup, a trimmed shelf row with issues and a story shows the tools, and a `story:null, sourceReady:true` session renders nothing. Timing stays out of the test suite.
+- [x] Rerun R9 against the AC21 and AC22 targets and record the results below. If a blocked active story is still a main cost, add a per-pump cache of refusals. If the shelf's version query is, record it as a follow-up.
 
 ### Verification and documentation
 
-- [ ] `pnpm typecheck`, `pnpm lint`, and the full `pnpm test` on Node 24.22.1.
+- [x] SS focused checks: `pnpm typecheck`, `pnpm lint`, and the 11 named regression files recorded in Evidence on Node 24.22.1.
+- [ ] TT: the full `pnpm test` on Node 24.22.1 (standalone SS does not run TT).
 - [ ] Run [test-production-queue-hardening.md](../../../../tests/test-production-queue-hardening.md).
-- [ ] If `.docs/story-creation-editing-queue.md` is on the branch by then, update what this work changes: the pool table, the publication flow, the stale-version rules and the implementation links. If it isn't, record the needed changes in the delivery notes.
+- [x] Update `.docs/story-creation-editing-queue.md`: pool table, atomic publication flow, checkpoint reuse, stale-version rules and affected implementation links. Preserve unrelated development/user-guide edits.
 
 ## Risks
 
@@ -226,14 +227,14 @@ Synthetic stories: 80 frames, 20k-character source. Targets are in AC21 and AC22
 |---|---|---|---|---|
 | 20 paused | Review (Node 22) | 860 | 2,848 | 1,915,141 |
 | 20 active, pump stubbed | Review (Node 22) | 276 | 3,327 | 1,915,201 |
-| 20 paused | Baseline (Node 24) | | | |
-| 20 active, pump stubbed | Baseline (Node 24) | | | |
-| 1 blocked active, unstubbed | Baseline (Node 24) | | | |
-| 20 blocked, 20-round history | Baseline (Node 24) | | | |
-| 20 paused | After fix | | | |
-| 20 active, pump stubbed | After fix | | | |
-| 1 blocked active, unstubbed | After fix | | | |
-| 20 blocked, 20-round history | After fix | | | |
+| 20 paused | Baseline (Node 24, stable earlier run) | 80.622 | 88 | 2,711,181 |
+| 20 active, pump stubbed | Baseline (Node 24, stable earlier run) | 108.698 | 3,327 | 2,711,181 |
+| 1 blocked active + 20 paused, unstubbed | Baseline (Node 24) | 82.122 | 96 | 2,846,922 |
+| 20 blocked, 20-round history | Baseline (Node 24) | 37.671 | 168 | 2,715,181 |
+| 20 paused | After fix | 5.263 | 9 | 308,121 |
+| 20 active, pump stubbed | After fix | 26.367 | 28 | 308,121 |
+| 1 blocked active + 20 paused, unstubbed | After fix | 7.091 | 10 | 323,709 |
+| 20 blocked, 20-round history | After fix | 62.877 | 29 | 312,121 |
 
 ## Evidence
 
@@ -248,6 +249,14 @@ Milestone 2 commit: `a2f8d2d`. Milestone 3 implements independent search:1/text:
 Milestone 3 commit: `28bbec9`; all 10 generic queue tests (including both new pins) passed. Milestone 4: shared saved-frame predicate and preview flag preserve storyboard/draft for style-only pre-plan revisions, with next-step checkpoint regression pins. Focused tests: 32 passed; typecheck passed. In-app browser rendered the actual `StoryRevisionActions` component on the reader Vite preview with an isolated 60-frame fixture: “保留已保存的分镜与草稿，只完成剩余编排并审片；需绘制 60 幅。” Desktop preview cannot resolve reader-only `@/lib` aliases; reader preview was used as allowed, without a backend or provider.
 
 Milestone 4 commit: `a06a628`. Milestone 5: pump/recovery contain non-persistence failures per job and log once; pruning and lease release tolerate absent rows; deleted script checkpoints yield without an attempt, while recorded genuine failures remain retryable. Focused hardening/queue/generation/local-image tests: 90 passed, including the unchanged direct-generation and local-image deletion cases; typecheck passed.
+
+Milestone 5 commit: `6ea16fd`. Milestone 6 implements grouped per-story pruning keys, row parsing and rebuild caches, candidate SQL filtering, queued superseded shortcuts, targeted failure/publication queries, dependency parsing reuse, shelf source trimming and expiry-only viewer cleanup. The settings review retry catches load failures in the visible sheet. In-app browser verified actual trimmed-row review tools (one visible review surface, retry button and error), a null-story/sourceReady fixture rendered zero children, and an old version showed its note instead of resume.
+
+Final focused command: `node --experimental-strip-types --test tests/production-queue-hardening.test.mjs tests/production-queue.test.mjs tests/reader-production.test.mjs tests/reader-revisions.test.mjs tests/paused-editing-versions.test.mjs tests/story-flow-control.test.mjs tests/storyboard-review.test.mjs tests/queue-interruption.test.mjs tests/reader-generation.test.mjs tests/local-image-batches.test.mjs tests/reader-intake.test.mjs`: **246 passed, 0 failed**. `pnpm typecheck` and `pnpm lint` passed. No full TT or scenario ET was executed.
+
+Costs are medians of five warm passes, with SQLite in memory, 80-frame controlled plans and 20k-character source text. The single blocked run includes 20 paused stories. The final paused baseline was noisy (median 245.980 ms, range 216.951–500.455), so the table conservatively uses the earlier stable 80.622 ms measurement of the identical fixture/base; final active baseline was 130.207 ms and the table similarly retains its earlier stable 108.698 ms. After paused range: 5.070–5.573 ms. **AC21: 9 <= 60 statements; 5.263 / 80.622 = 6.53% <= 10%. AC22: 28 / 3,327 = 0.84% <= 25%.** No `canRun` refusal cache was added because blocked non-search generation is already rejected by SQL before evaluation.
+
+Follow-up (outside this story's version-query scope): with 20 history-heavy blocked stories the shelf family query takes 62.902 ms and the cycle 62.877 ms; family eligibility scans, not provider dispatch, dominate this fixture, whose cycle is slower than its 37.671 ms baseline despite fewer statements. Shelf bytes fall from 2,715,181 to 312,121, but this work does not claim universal elapsed-time improvement.
 
 AR passed: no blocking architecture flaws (round 5, full review of this design by the reused independent reviewer). Its non-blocking corrections were applied afterward without another review round. They are the eligibility wording, the extra `demands`, `viewedPublicationPending` and `basis` checks, the old-version note, `wake()`, rollback SQL, test line numbers and scenario setups.
 

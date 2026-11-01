@@ -55,7 +55,7 @@ test('one scene change redraws only that image, with copied anchor; first scene 
  assert.equal(f.control.calls.length-start,8);assert.equal(next.revision.number,3);
 });
 
-test('late parent image writes remain isolated and handoff pauses additional old dispatch',async t=>{
+test('late parent image writes remain isolated and derived eligibility blocks additional old dispatch',async t=>{
  const f=await productionFixture(t),id=await f.create();await until(()=>f.control.calls.length===1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
  const base=await snapshot(f,id),plan=structuredClone(base.plan);plan.pages[5].caption='庄周想起梦中的蝴蝶，又望向窗外的花园。';
  const child=await revise(f,id,{plan},base);assert.equal((await f.read(id)).generationControl,'paused');
