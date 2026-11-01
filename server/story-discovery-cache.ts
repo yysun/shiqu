@@ -7,7 +7,7 @@ import type {MediaStore} from '../lib/services.ts';
 import type {SuggestionProgress} from '../lib/reader-suggestions.ts';
 import {ReaderError} from '../lib/reader-model.ts';
 
-export type ReadingObserver={signal:AbortSignal;onProgress:(progress:SuggestionProgress)=>void;drain?:boolean};
+export type ReadingObserver={signal:AbortSignal;onProgress:(progress:SuggestionProgress)=>void;drain?:boolean;maxStories?:1};
 type Flight={controller:AbortController;promise:Promise<unknown>;listeners:Set<ReadingObserver|undefined>;progress?:SuggestionProgress;settled:boolean};
 const envelope=z.object({version:z.literal(1),key:z.string(),value:z.unknown()});
 export function discoveryHash(value:unknown){return createHash('sha256').update(JSON.stringify(value)).digest('hex');}

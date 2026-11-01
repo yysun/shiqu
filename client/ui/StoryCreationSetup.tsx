@@ -1,6 +1,6 @@
 // Keep discovery in the story picker; a chosen story enters one continuous production flow.
 // Edits are saved as a draft on the side; only a recommendation or final confirmation starts work.
-// Search reports beside the selection and never holds up what is already chosen.
+// Discovery continues one story at a time while open, and stops when a story is chosen or the picker closes.
 import {useEffect,useRef,useState} from 'react';
 import type {ComponentProps} from 'react';
 import {Loader2} from 'lucide-react';
@@ -65,6 +65,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,progress}
   <div className="yu-batch-heading"><h3>已找到 {candidates.length} 篇故事</h3>{findMore}</div>
   <div className="yu-candidate-list">{candidates.map(({candidate,batchIndex,index})=><button type="button" key={`${batchIndex}:${index}`} aria-pressed={isSelected(batchIndex,index)} className={isSelected(batchIndex,index)?'selected':''} disabled={(busy||session.state==='running')&&!isSelected(batchIndex,index)} onClick={()=>void select(batchIndex,index)}><strong>{candidate.title}</strong><span className="yu-candidate-description">{candidate.description}</span>{candidate.sourceLabel&&<small>{candidate.sourceLabel}</small>}<span className="yu-candidate-action">{isSelected(batchIndex,index)?'已选这篇':'选择这篇'}</span></button>)}</div>
   {!searching&&search.state!=='failed'&&(!candidates.length?<p className="yu-candidate-note">还没有找到符合主题的故事，可以继续查找，或换个主题。</p>:intake.batches.at(-1)?.stories.length===0&&<p className="yu-candidate-note">暂时没有找到更多故事，已找到的故事都在上方。</p>)}
+  {intake.batches.length>=40&&<p className="yu-candidate-note">已达到候选保存上限，请从已找到的故事中选择，或换个主题。</p>}
  </>;
  const stages=generationProgress(session,Date.now()).steps.map(step=>{
   if(ready&&step.id==='source')return {...step,label:'原文',detail:`画风：${getArtStyle(settings.artStyle).label}`};
@@ -73,8 +74,8 @@ export default function StoryCreationSetup({session,book,busy,onAction,progress}
  });
  return <section className="yu-creation-setup" aria-label={selected?'故事流程':'选择故事'}>
   <p className="yu-sheet-intro">《{book}》 · {session.selection.theme}{session.selection.discoverySources?.length?` · 已选 ${session.selection.discoverySources.length} 章`:''}</p>
-  {selected?<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3><button type="button" className="yu-revision-open" disabled={!ready||busy} onClick={()=>setSourceOpen(true)}>原文</button></div>:<p className="yu-count-help">书籍和主题已保存到书架，离开后可继续。</p>}
-  {search.state==='searching'&&(paused?<p role="status">查找已暂停，恢复生成后继续。已找到的故事都保留。</p>:<p role="status">正在寻找更多故事，已找到的故事会继续保留。{intake.progress?.currentChapters?.length?`正在翻阅：${intake.progress.currentChapters.join('、')}`:''}{intake.progress?.completedChars?`已读 ${intake.progress.completedChars.toLocaleString('zh-CN')} 字。`:''}</p>)}
+  {selected?<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3><button type="button" className="yu-revision-open" disabled={!ready||busy} onClick={()=>setSourceOpen(true)}>原文</button></div>:<p className="yu-count-help">找到一篇就显示一篇，选中或离开后停止查找。已找到的故事会保留，重开后可继续。</p>}
+  {search.state==='searching'&&(paused?<p role="status">查找已暂停，恢复生成后继续。已找到的故事都保留。</p>:<p role="status">正在寻找更多故事，找到后逐篇显示，已有故事可以直接选择。{intake.progress?.currentChapters?.length?`正在翻阅：${intake.progress.currentChapters.join('、')}`:''}{intake.progress?.completedChars?`已读 ${intake.progress.completedChars.toLocaleString('zh-CN')} 字。`:''}</p>)}
   {search.state==='failed'&&<div className="yu-batch-error" role="alert"><p>这次查找未完成。{search.error}</p><p>已找到的故事和已选内容都保留，可以重试查找，也可以直接继续。</p>{selected&&findMore}</div>}
   {!editing&&remoteChoice}
   {!selected&&(intake.batches.length>0||search.state==='failed')&&candidateList}

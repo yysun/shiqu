@@ -35,7 +35,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
    reading?.signal.throwIfAborted();
    const book=await books.book(selection);
    reading?.signal.throwIfAborted();
-   if(!book){if(selection.discoverySources)throw new ReaderError(400,'章节提取只支持本地书库。');return provider.suggestions(selection,excluded);}
+   if(!book){if(selection.discoverySources)throw new ReaderError(400,'章节提取只支持本地书库。');return provider.suggestions(selection,excluded,undefined,reading,excludedSources);}
    const scope=selection.discoverySources?selectedChapterScope(books,book,selection.discoverySources):null;
    return discoverLocalStories(provider,books,cache,scope?.book||book,scope?{...selection,discoverySources:scope.discoverySources}:selection,excluded,reading,excludedSources);
   },

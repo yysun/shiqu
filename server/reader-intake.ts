@@ -28,15 +28,16 @@ export async function createIntake(repo:ReaderRepository,id:string,uid:string,in
  if((JSON.parse(row.document) as Document).intake?.creationHash!==creationHash)throw new ReaderError(409,'此创建编号已用于其他内容，请重新创建。');
  return row;
 }
-// Search stands outside the selection's generation, so another device's choice never rejects it.
-async function requestSearch(repo:ReaderRepository,row:SessionRow,doc:Document,requestId:string){
+// Manual search stands outside selection generations; automatic continuation must still be unselected at write time.
+async function requestSearch(repo:ReaderRepository,row:SessionRow,doc:Document,requestId:string,automatic=false){
  const intake=doc.intake!,search=intakeSearch(intake);
+ if(automatic&&(intake.selected||intake.phase!=='choosing'||search.state!=='idle'||!intake.batches.at(-1)?.stories.length))return row;
  if(search.state==='searching'||search.state==='idle'&&search.requestId===requestId)return row;
  if(doc.plan||intake.phase==='confirmed')throw new ReaderError(409,'制作已确认；需要调整时请创建修订版本。');
  if(intake.batches.length>=maxSuggestionBatches)throw new ReaderError(400,'已保存40批候选，请回看选择，或新建其他书籍与主题。');
  const next:IntakeSearch={round:search.round+1,state:'searching',requestId};
  await repo.db.prepare(`UPDATE reader_sessions SET document=json_set(document,'$.intake.search',json(?),'$.intake.phase',CASE WHEN json_type(document,'$.intake.selected')='object' THEN json_extract(document,'$.intake.phase') ELSE 'discovering' END),updated_at=?
-  WHERE id=? AND user_id=? AND COALESCE(json_extract(document,'$.intake.search.round'),0)=? AND json_extract(document,'$.intake.phase')!='confirmed' AND ${visible}`)
+  WHERE id=? AND user_id=? AND COALESCE(json_extract(document,'$.intake.search.round'),0)=? AND json_extract(document,'$.intake.phase')!='confirmed'${automatic?" AND json_type(document,'$.intake.selected') IS NOT 'object' AND json_extract(document,'$.intake.phase')='choosing' AND json_extract(document,'$.intake.search.state')='idle'":''} AND ${visible}`)
   .bind(JSON.stringify(next),new Date().toISOString(),row.id,row.user_id,search.round).run();
  // A lost race means another request started the same search.
  return repo.get(row.id,row.user_id);
@@ -45,7 +46,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  const row=await repo.get(id,uid),doc=JSON.parse(row.document) as Document,intake=doc.intake,selection=selectionSchema.parse(JSON.parse(row.selection));
  if(!intake)throw new ReaderError(409,'这篇故事使用旧制作流程，请继续原来的步骤。');
  intake.phase=effectiveIntakePhase(doc,selection)!;
- if(action.action==='more')return requestSearch(repo,row,doc,action.requestId);
+ if(action.action==='more')return requestSearch(repo,row,doc,action.requestId,action.automatic);
  const fingerprint=hash(action);
  if(intake.lastAction?.id===action.requestId){if(intake.lastAction.hash!==fingerprint)throw new ReaderError(409,'此操作编号已用于其他内容。');return row;}
  if(intake.generation!==action.generation)throw new ReaderError(409,'制作内容已由另一次操作更新，请重新打开后继续。');
@@ -67,6 +68,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   selection.storyTitle=candidate.title;selection.source=candidate.source;
   if(!intake.manualArt&&candidate.artRecommendation)selection.artStyle=candidate.artRecommendation.artStyle;
   intake.selected={batch:action.batch,index:action.index};intake.phase='preparing';
+  intake.search={...intakeSearch(intake),state:'idle',error:null};
   delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;selection.length='auto';
  }else{
   if(!intake.selected||intake.phase!=='confirming')throw new ReaderError(409,'请先选择故事并等待制作建议保存。');

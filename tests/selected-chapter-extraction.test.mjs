@@ -15,7 +15,7 @@ async function prepared(t){
  const inputs=[];let outside=false;
  f.generation.suggestions=async(_s,_excluded,input)=>{inputs.push(input);return {stories:_excluded.includes('黄忠取定军山')?[]:[{title:'黄忠取定军山',description:'老将与法正筹划进取。',source:outside?{...source,sectionId:book.sections[0].id,firstUnit:book.sections[0].units[0].id,lastUnit:book.sections[0].units[3].id}:source}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};};
  f.options.generation=withLocalBooks(f.generation,books,f.media);await f.restart();f.app.services.localBooks=books;
- const create=(references=sources,id=crypto.randomUUID())=>f.json('sessions','POST',{requestId:id,intake:true,selection:{...base,discoverySources:references}});
+ const create=async(references=sources,id=crypto.randomUUID())=>{const s=await f.json('sessions','POST',{requestId:id,intake:true,selection:{...base,discoverySources:references}});await f.demand(s.id);return s;};
  return {...f,get app(){return f.app;},book,sources,source,inputs,create,setOutside(value){outside=value;}};
 }
 
@@ -28,7 +28,7 @@ test('multiple selected chapters extract scoped stories before preparation, repl
  assert.ok(input.text.indexOf(f.sources[0].sectionId)<input.text.indexOf(f.sources[1].sectionId));
  assert.equal(f.control.recommendations.length,0);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
  assert.equal((await f.create(f.sources,id)).id,id);assert.equal((await f.json('sessions')).length,1);
- await f.restart();f.app.services.localBooks=books;saved=await f.read(id);assert.deepEqual(saved.selection.discoverySources,f.sources);
+ await f.restart();await f.demand(id);f.app.services.localBooks=books;saved=await f.read(id);assert.deepEqual(saved.selection.discoverySources,f.sources);
  await f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:saved.intake.generation,action:'choose',batch:0,index:0});
  await until(async()=>(await f.read(id)).intake.phase==='confirming');
  saved=await f.read(id);assert.deepEqual(saved.selection.source,f.source);assert.deepEqual(saved.selection.discoverySources,f.sources);assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);

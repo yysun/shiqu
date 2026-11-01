@@ -44,7 +44,7 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
  const taskReasoningEfforts=configuredTaskReasoning(variables);
  if(name==='gemini'){
   const key=variables.GEMINI_API_KEY?.trim()||'',models=configuredModels(variables);
-  return {async status(){return {configured:!!key,provider:'gemini',models,voiceEnabled:false,taskReasoningEfforts};},suggestions:(selection,excluded,localBook)=>suggestStories(key,selection,models,transport,excluded,localBook,taskReasoningEfforts),async recommendArt(selection,original){if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');return recommendStoryArt(key,selection,original,models,transport,taskReasoningEfforts);},generator:()=>makeGenerator(key,media,models,transport,taskReasoningEfforts),safeError:safeGeminiError};
+  return {async status(){return {configured:!!key,provider:'gemini',models,voiceEnabled:false,taskReasoningEfforts};},suggestions:(selection,excluded,localBook,reading)=>suggestStories(key,selection,models,transport,excluded,localBook,taskReasoningEfforts,reading?.maxStories),async recommendArt(selection,original){if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');return recommendStoryArt(key,selection,original,models,transport,taskReasoningEfforts);},generator:()=>makeGenerator(key,media,models,transport,taskReasoningEfforts),safeError:safeGeminiError};
  }
  const codex=runner||createCodexRunner(variables),models={text:variables.CODEX_MODEL?.trim()||'codex-default',image:'codex-image-generation'};
  let cached:Promise<ProviderStatus>|undefined,expires=0;
@@ -58,11 +58,12 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
    if(!cached||Date.now()>=expires){expires=Date.now()+30000;cached=codex.status().then(({model:configuredModel,...result})=>({...result,...(!result.configured?{message:codexMessage(result.reason||'CLI_UNAVAILABLE')}:{ }),provider:'codex' as const,models:{...models,text:configuredModel||models.text},voiceEnabled:false as const,taskReasoningEfforts}));}
    return cached;
   },
-  async suggestions(selection,excluded,localBook){
+  async suggestions(selection,excluded,localBook,reading){
    const scanning=localBook?.purpose==='scan';
-   const result=await codex.run({instructions:localBook?localReadingPrompt(localBook):suggestionSystemPrompt,prompt:JSON.stringify(localSuggestionPayload(book(selection),selection.theme,excluded,localBook)),schema:scanning?localScanJson:localBook?localChoicesJson:choicesJson,timeoutMs:localBook?120000:60000,reasoningEffort:taskReasoningEfforts.suggest});
+   const result=await codex.run({instructions:localBook?localReadingPrompt(localBook):suggestionSystemPrompt,prompt:JSON.stringify(localSuggestionPayload(book(selection),selection.theme,excluded,localBook,reading?.maxStories)),schema:scanning?localScanJson:localBook?localChoicesJson:choicesJson,timeoutMs:localBook?120000:60000,reasoningEffort:taskReasoningEfforts.suggest});
    const batch=localBook?localChoices(JSON.parse(result.text),localBook):suggestionBatchSchema.parse(JSON.parse(result.text));
-   return scanning?batch:freshSuggestions(batch,excluded);
+   const fresh=scanning?batch:freshSuggestions(batch,excluded);
+   return reading?.maxStories?{...fresh,stories:fresh.stories.slice(0,reading.maxStories)}:fresh;
   },
   async recommendArt(selection,original){
    if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');

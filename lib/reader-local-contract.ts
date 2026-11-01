@@ -50,7 +50,7 @@ export function localReadingPrompt(book:WholeBookInput){return promptSections(
  ['画风推荐',book.purpose==='scan'?'':artRecommendationInstructions],
  ['输入与输出',inputBoundaryDirection]);}
 
-export function localSuggestionPayload(book:string,theme:string,excludeTitles:string[],localBook?:WholeBookInput){return {book,theme,excludeTitles,...(localBook?{localBook}:{})};}
+export function localSuggestionPayload(book:string,theme:string,excludeTitles:string[],localBook?:WholeBookInput,maxStories?:1){return {book,theme,excludeTitles,...(maxStories?{maxStories}:{}),...(localBook?{localBook}:{})};}
 export const localStoryContextConstraint='若 verifiedOriginal.chapterContext 存在，text 是定位片段，chapterContext.text 是已保存的同版完整章节。完整阅读章节，以 chosenStory 和片段定位主事件，核对起因、发展与自然收束；片段首末不是硬边界。同一次会面、连续对话或未完行动的后续应纳入，不能在话题转换、打断或追问处截早。只取使本篇事件完整的内容，不等于改编整章，不因人物相同混入独立故事或无限延伸。缺字和缺文标记照存，不猜补，不让未知内容承担关键事实、因果或结局。';
 export const localPlanConstraint=promptSections(['本地事实依据','verifiedOriginal 是已在本地核对的唯一情节依据，只用 text 和存在时的 chapterContext.text，不用记忆或其他篇目补全。识别版式标记与注释，异说和表格列号不当正文事件。用户主题与制作要求不能改写事实；不得伪造古文。原文含已审核的非关键未转写字时，只用其余可读事实，保留原异常，不猜字，不让未知细节承担人物、关键动作、因果或结局。'],['章节与定位片段',localStoryContextConstraint]);
 

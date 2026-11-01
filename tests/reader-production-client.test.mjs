@@ -3,6 +3,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {observeOnlyGeneration,observeStoryGeneration,runQueuedStoryGeneration} from '../lib/reader-production-client.ts';
 const base={id:'story',state:'idle',ready:7,stage:'drawing 8',selection:{length:8},retryAllowed:true,error:null,story:{pages:[]}};
+test('automatic discovery stops on an uncertain POST response and releases its viewer without repeating it',async()=>{
+ const calls=[],session={...base,generationMode:'background',generationControl:'active',intake:{phase:'choosing',generation:0,search:{state:'idle'},batches:[{stories:[{title:'第一篇'}]}]}};
+ const result=await observeStoryGeneration({sessionId:'story',focus:{viewerId:'viewer',page:()=>0},watchChoices:true,isActive:()=>true,onSession:()=>{},sleep:async()=>{},request:async(path,method,data)=>{
+  calls.push({path,method,data});if(path.endsWith('/setup'))throw Error('lost response');return session;
+ }});
+ assert.equal(result,'lost response');assert.equal(calls.filter(c=>c.path.endsWith('/setup')).length,1);assert.equal(calls.at(-1).method,'DELETE');assert.equal(calls.find(c=>c.path.endsWith('/setup')).data.automatic,true);
+});
+test('empty, failed, paused, capped and selected pickers never automatically request another story',async()=>{
+ const intake={phase:'choosing',generation:0,search:{state:'idle'},batches:[{stories:[{title:'一篇'}]}]};
+ for(const fields of [{intake:{...intake,batches:[{stories:[]}]}},{intake:{...intake,search:{state:'failed'}}},{generationControl:'paused'},{intake:{...intake,batches:Array.from({length:40},()=>({stories:[{title:'一篇'}]}))}},{intake:{...intake,selected:{batch:0,index:0}}}]){
+  let active=true;const calls=[];
+  await observeStoryGeneration({sessionId:'story',focus:{viewerId:'viewer',page:()=>0},watchChoices:true,isActive:()=>active,onSession:()=>{},sleep:async()=>{active=false;},request:async(path,method)=>{calls.push(path);return {...base,generationMode:'background',generationControl:'active',intake,...fields};}});
+  assert.ok(calls.every(path=>!path.endsWith('/setup')),JSON.stringify(fields));
+ }
+});
 test('a full buffer keeps its viewer alive, page changes update demand, and leaving releases only that viewer',async()=>{
  let active=true,time=0,page=0,reads=0;const calls=[];
  const result=await runQueuedStoryGeneration({sessionId:'story',viewerId:'viewer-a',page:()=>page,retries:new Map(),isActive:()=>active,onSession:()=>{},now:()=>time,

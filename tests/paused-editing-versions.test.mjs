@@ -94,6 +94,7 @@ test('paused preparation saves settings beside a live call, then allows a differ
  let release,entered=false;const held=new Promise(resolve=>release=resolve),generator=f.generation.generator.bind(f.generation);
  f.generation.generator=()=>{const g=generator();return {...g,async recommend(...args){entered=true;await held;return g.recommend(...args);}};};
  t.after(()=>release());const id=crypto.randomUUID();await f.json('sessions','POST',{requestId:id,intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced'}});
+ await f.demand(id);
  await until(async()=>(await f.read(id)).intake.phase==='choosing');
  const setup=async action=>f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(id)).intake.generation,...action});
  await setup({action:'choose',batch:0,index:0});await until(()=>entered);

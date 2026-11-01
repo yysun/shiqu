@@ -110,6 +110,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  // One rule for starting, resuming and stopping a search, so they cannot disagree and cycle.
  private async searchRunnable(row:SessionRow,round:number|undefined){
   if(this.stopping||!this.readable(row)||row.generation_control!=='active'||!this.searchCurrent(row,round))return false;
+  // Background production does not authorize discovery after the picker has closed.
+  if(!await this.database.prepare('SELECT viewer_id FROM production_demand WHERE session_id=? AND owner_id=? AND runtime_id=? AND expires_at>? LIMIT 1').bind(row.id,row.user_id,this.runtimeId,this.clock()).first())return false;
   return !await this.repository.superseded(row.id,row.user_id)&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
  private imageInputs(row:SessionRow){
@@ -371,7 +373,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const excluded=intake.batches.flatMap(batch=>batch.stories),titles=excluded.map(story=>story.title),sources=excluded.flatMap(story=>story.source?[story.source]:[]);
   const active:ActiveSearch={round,controller:new AbortController(),startedAt:this.clock()};this.searches.set(row.id,active);
   try{
-   const result=await this.provider.suggestions(selection,titles,undefined,{signal:active.controller.signal,drain:true,onProgress:progress=>{active.progress=progress;}},sources);
+   const result=await this.provider.suggestions(selection,titles,undefined,{signal:active.controller.signal,drain:true,maxStories:1,onProgress:progress=>{active.progress=progress;}},sources);
    const batch=freshSuggestions(suggestionBatchSchema.parse(result),titles,sources);
    const saved=await this.finishSearch(row.id,row.user_id,round,{...search,state:'idle',error:null},batch);
    return saved?{batches:intake.batches.length+1}:{obsolete:true};

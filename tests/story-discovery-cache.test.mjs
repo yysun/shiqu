@@ -33,6 +33,17 @@ function fixture(chapters=2,units=10,size=80){
 }
 async function until(condition){for(let i=0;!condition();i++){assert.ok(i<1000,'operation did not settle');await new Promise(resolve=>setTimeout(resolve,1));}}
 function run(f,cache,excluded=[],observer,seen=[],budget){return discoverLocalStories(f.provider,f.books,cache,f.book,selection,excluded,observer,seen,budget);}
+test('continuous discovery returns one cached story at a time and then scans only one new story',async()=>{
+ const f=fixture(),store=memory(),cache=new StoryDiscoveryCache(store),first=await run(f,cache);
+ const seed=await run(f,cache,[],undefined,first.stories.map(s=>s.source));assert.equal(seed.stories.length,5);
+ const observer={signal:new AbortController().signal,maxStories:1,onProgress:()=>{}},seen=first.stories.map(s=>s.source);
+ for(const expected of seed.stories){
+  const batch=await run(f,new StoryDiscoveryCache(store),[],observer,seen);
+  assert.equal(batch.stories.length,1);assert.equal(batch.stories[0].title,expected.title);seen.push(batch.stories[0].source);
+ }
+ assert.equal(f.calls.length,2,'A five-story cache is consumed without new inference');
+ const next=await run(f,cache,[],observer,seen);assert.equal(next.stories.length,1);assert.equal(f.calls.length,3);assert.equal(f.calls.at(-1).input.scan.maxStories,1);
+});
 test('suggestion effort isolates cached progress and unrelated review effort preserves cache hits',async()=>{
  const f=fixture(),cache=new StoryDiscoveryCache(memory()),base=f.provider.status;
  let suggest='medium',review='high';

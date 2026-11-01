@@ -20,8 +20,8 @@ export function storyDraftJson(length:Selection['length']){
 export const storyDraftMetadataDirection='title 暂用准确简明的故事名，不套选题主题；最终标题将在完整分镜保存后与结语一起定稿。本阶段不生成 reflection，也不在元数据或末幅配文中提前写全篇结语。';
 export const storyDraftDirection='返回完整分镜及其元数据，字段以给定 schema 为准。'+storyDraftMetadataDirection;
 export const suggestionSystemPrompt=promptSections(
- ['任务','为古典漫画读者推荐5个互不重复、符合指定书籍和主题的真实故事。标题与不剧透的一句话简介用简体中文；排除 excludeTitles 中的篇目，不改名重复。只推荐，不生成完整故事。'],
- ['来源与不足处理','只推荐确知属于该书的篇目；不能确认5篇时少列并在 note 说明，不为凑数编造。不能确认该书时 stories 为空，note 请读者补充作者或原文链接。URL 来源必须用 URL context 读取页面，只依据成功读取的内容；打不开或内容不足时返回空数组并说明。'],
+ ['任务','为古典漫画读者推荐互不重复、符合指定书籍和主题的真实故事。maxStories 为本次数量上限，未提供时至多5篇；为1时只寻找一篇，找到即返回。标题与不剧透的一句话简介用简体中文；排除 excludeTitles 中的篇目，不改名重复。只推荐，不生成完整故事。'],
+ ['来源与不足处理','只推荐确知属于该书的篇目；不足数量上限时少列并在 note 说明，不为凑数编造。不能确认该书时 stories 为空，note 请读者补充作者或原文链接。URL 来源必须用 URL context 读取页面，只依据成功读取的内容；打不开或内容不足时返回空数组并说明。'],
  ['画风推荐',artRecommendationInstructions],['输入与输出',inputBoundaryDirection]);
 export const storyPlanningDirection=promptSections(
  ['故事与事实','面向成年读者，用简体中文改编指定经典中的 chosenStory，保持核心人物、事件与因果；没有选定故事时才按 theme 选题。选定后主题不进入分镜表达。只改编确知属于该书的故事；存在 verifiedOriginal 时，仅以 text 和存在时的 chapterContext.text 为事实依据，不用记忆补充情节。未提供已核原文的 URL 来源须经 URL context 读取，不能确认时拒绝编造。'],

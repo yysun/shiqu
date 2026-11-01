@@ -57,6 +57,7 @@ function mergePending(books:LocalBooks,book:LocalBook,old:PendingEvent[],updates
  return [...result.values()];
 }
 export async function discoverLocalStories(provider:ReaderProvider,books:LocalBooks,cache:StoryDiscoveryCache,book:LocalBook,selection:Selection,excluded:string[],observer?:ReadingObserver,excludedSources:LocalSourceReference[]=[],limits:ReadingLimits=defaultReadingLimits):Promise<SuggestionBatch>{
+ const batchLimit=observer?.maxStories||5;
  const status=await provider.status(),plan=await readingPlan(book,status.provider,cache,limits);
  const chapterStories=!!selection.discoverySources;
  const namespace=discoveryNamespace(book,status.provider,status.models.text,limits,status.taskReasoningEfforts?.suggest)+(selection.discoverySources?'/scope/'+discoveryHash(selection.discoverySources.map(localSourceKey))+'/main-first/'+discoveryHash(localChapterStoriesPrompt):'');
@@ -128,7 +129,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   return {input,titles:relevant.map(story=>story.title),visible};
  };
  const response=(state:State,hit:boolean):SuggestionBatch=>{
-  const stories=visibleStories(state.stories).slice(0,5);
+  const stories=visibleStories(state.stories).slice(0,batchLimit);
   const note=(hit?'已复用本地主题故事缓存。':chapterStories?'已按先总故事、后小故事的顺序选题，可继续找故事。':plan.manifest.mode==='whole'?'已直接根据全书原文选题。':'已按章回选题，换一批将从保存的位置继续。')+(state.rejected?'部分返回出处未能完整核对，已保留当前进度，可继续重试。':'')+(stories.length<5&&state.exhausted?'已检查完所给原文，当前主题可确认的新故事不足5篇。':'')+(state.exhausted&&state.pendingEvents.length?'部分跨章线索尚未确认完整，未作为故事推荐。':'');
   return {stories,note:note.slice(0,300)};
  };
@@ -144,7 +145,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
    progress();
    while(!visibleStories(current.stories).length&&!current.exhausted){
     reading.signal.throwIfAborted();
-    const {input,titles,visible}=scanRequest(current,current.cursor,current.stories.length?5:1);
+    const {input,titles,visible}=scanRequest(current,current.cursor,current.stories.length?batchLimit:1);
     if(requestTokens(input,theme,titles,status.provider)>limits.whole)throw new ReaderError(502,'跨章原文或已选记录超过本次输入预算，已保留进度；请换个主题。');
     hit=false;
     const result=await provider.suggestions({...selection,theme,artStyle:'ink-pencil',productionPrompt:''},titles,input);
@@ -180,7 +181,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
    return {state:current,stalled};
   });
   observer?.signal.throwIfAborted();
-  const stories=visibleStories(state.stories).slice(0,5);
+  const stories=visibleStories(state.stories).slice(0,batchLimit);
   if(stories.length||state.exhausted||state.rejected)return response(state,hit);
   if(stalled)return {...response(state,hit),note:'本段尚未确认处理完，已保存找到的故事和原文位置，可重试继续。'};
   // A different waiting reader may need more than the shared expansion supplied.

@@ -75,10 +75,11 @@ export function createOpenAIProvider(variables:Record<string,string|undefined>,m
  }
  return {
   async status(){return {configured:!!key,provider:'openai',models,voiceEnabled:false,taskReasoningEfforts:reasoning};},
-  async suggestions(selection,excluded,localBook){
+  async suggestions(selection,excluded,localBook,reading){
    const scanning=localBook?.purpose==='scan';
-   const result=await text(localBook?localReadingPrompt(localBook):suggestionSystemPrompt,localSuggestionPayload(book(selection),selection.theme,excluded,localBook),scanning?localScanJson:localBook?localChoicesJson:choicesJson,reasoning.suggest,scanning?10000:localBook?5000:2500);
-   const batch=localBook?localChoices(result.value,localBook):suggestionBatchSchema.parse(result.value);return scanning?batch:freshSuggestions(batch,excluded);
+   const result=await text(localBook?localReadingPrompt(localBook):suggestionSystemPrompt,localSuggestionPayload(book(selection),selection.theme,excluded,localBook,reading?.maxStories),scanning?localScanJson:localBook?localChoicesJson:choicesJson,reasoning.suggest,scanning?10000:localBook?5000:2500);
+   const batch=localBook?localChoices(result.value,localBook):suggestionBatchSchema.parse(result.value),fresh=scanning?batch:freshSuggestions(batch,excluded);
+   return reading?.maxStories?{...fresh,stories:fresh.stories.slice(0,reading.maxStories)}:fresh;
   },
   async recommendArt(selection,original){
    if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');

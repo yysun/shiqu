@@ -13,7 +13,7 @@ const owner='docker-local-owner';
 const batch={stories:[{title:'庄周梦蝶',description:'梦醒后的庄周思考自己的经历。',artRecommendation:{artStyle:'paper-cut',reason:'层次适合梦境。'}},{title:'大葫芦',description:'惠子与庄子谈论大葫芦的用处。',artRecommendation:{artStyle:'watercolor',reason:'适合。'}}],note:''};
 const settings={artStyle:'watercolor',productionPrompt:'my edits',narrativeDetail:'balanced'};
 async function fixture(t){const f=await productionFixture(t);f.control.hold=false;f.discoveries=[];f.generation.suggestions=async()=>{f.discoveries.push(1);return structuredClone(batch);};return f;}
-const create=async f=>(await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced'}})).id;
+const create=async f=>{const s=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced'}});await f.demand(s.id);return s.id;};
 const setup=async(f,id,action,s)=>f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(s||await f.read(id)).intake.generation,...action});
 const setupStatus=async(f,id,action)=>(await f.request(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(id)).intake.generation,...action})).status;
 const phase=(f,id,value)=>until(async()=>{await f.app.services.production.tick();return (await f.read(id)).intake.phase===value;});
@@ -199,13 +199,13 @@ test('a failed search leaves a prepared story confirmable without repeating any 
  await setup(f,id,{action:'confirm',settings:{...settings,length:2}});await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.recommendations.length,before);
 });
 
-test('a candidate can be chosen while a search runs, and the search carries on',async t=>{
+test('a candidate can be chosen while a search runs, and the late result is refused',async t=>{
  const f=await fixture(t),id=await create(f);await phase(f,id,'choosing');await searchIs(f,id,'idle');
  const held=heldSearch(f);await setup(f,id,{action:'more'});await until(()=>held.reading);
  const s=await f.read(id);assert.equal(s.intake.phase,'discovering');assert.equal(s.productionState,'running');assert.equal(s.state,'idle');
  const summaryRow=(await import('../desktop/library-preview.ts')).readLibrarySummary(f.dataDirectory).stories.find(row=>row.id===id);assert.equal(summaryRow.running,1,'Finding a story is what this story is doing');
  const chosen=await setup(f,id,{action:'choose',batch:0,index:1},s);assert.equal(chosen.intake.phase,'preparing');assert.equal(held.reading.signal.aborted,false);
- held.release();await searchIs(f,id,'idle');const after=await f.read(id);assert.equal(after.intake.batches.length,2);assert.equal(after.intake.phase,'preparing','The result does not move the phase of a chosen story');
+ held.release();await searchIs(f,id,'idle');const after=await f.read(id);assert.equal(after.intake.batches.length,1);assert.equal(after.intake.phase,'preparing','The late result cannot append or change the selected phase');
 });
 
 test('confirming ends the search: nothing queued starts and nothing late is added',async t=>{
@@ -285,7 +285,7 @@ for(const [name,stop] of [['pause',(f,id)=>f.json(`sessions/${id}/production-con
  assert.equal(f.discoveries.length,1,'It does not start again while unwanted');
  f.generation.suggestions=async()=>{f.discoveries.push(1);return structuredClone(batch);};
  if(name==='delete')await f.json(`library/${id}/restore`,'POST',{});
- await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});await f.demand(id);
  await until(async()=>{await f.app.services.production.tick();return (await f.read(id)).intake.search.state==='idle';});assert.equal(f.discoveries.length,2);
 });
 
@@ -301,7 +301,7 @@ test('a clean stop between calls resumes after restart without spending an attem
  f.generation.suggestions=async()=>{f.discoveries.push(1);return structuredClone(batch);};
  f.app.services.production.stop();await until(async()=>(await jobs(f,id,'discover'))[0].state==='queued');
  assert.equal((await jobs(f,id,'discover'))[0].attempts,0);
- await f.restart();await until(async()=>(await f.read(id)).intake.search.state==='idle');assert.equal((await f.read(id)).intake.phase,'choosing');assert.equal(f.discoveries.length,2);
+ await f.restart();await f.demand(id);await until(async()=>(await f.read(id)).intake.search.state==='idle');assert.equal((await f.read(id)).intake.phase,'choosing');assert.equal(f.discoveries.length,2);
 });
 
 test('a call killed by a stop counts as an interruption, resumes after restart and is capped',async t=>{
@@ -318,10 +318,10 @@ test('a call killed by a stop counts as an interruption, resumes after restart a
  }
  const f=await fixture(t),resumed=await killed(f);
  f.generation.suggestions=async()=>({stories:[],note:'暂无更多。'});
- await f.restart();await until(async()=>(await f.read(resumed.id)).intake.search.state==='idle');assert.equal((await f.read(resumed.id)).intake.batches.length,2);
+ await f.restart();await f.demand(resumed.id);await until(async()=>(await f.read(resumed.id)).intake.search.state==='idle');assert.equal((await f.read(resumed.id)).intake.batches.length,2);
  const g=await fixture(t),capped=await killed(g);
  await g.app.services.database.prepare('UPDATE production_jobs SET attempts=3 WHERE id=?').bind(capped.job.id).run();
- await g.restart();await searchIs(g,capped.id,'failed');
+ await g.restart();await g.demand(capped.id);await searchIs(g,capped.id,'failed');
  assert.equal((await jobs(g,capped.id,'discover')).some(job=>job.id===capped.job.id),false);assert.equal((await g.read(capped.id)).state,'idle');
 });
 

@@ -1,7 +1,9 @@
 // Renew one viewer's demand while polling individual checkpoints; page changes never cancel
 // server work. Manual control ends demand; durable background work is observed without retries,
 // and tells the server which page is open only so that page is drawn first.
+// An open picker also owns discovery demand and requests the next single story after each receipt.
 import type {SessionView} from './reader-model.ts';
+import {maxSuggestionBatches} from './reader-suggestions.ts';
 // Mode/control changes and passive reads must never turn a saved failure into a paid retry.
 export function observeOnlyGeneration(session:SessionView){
  return session.state==='failed'||session.state==='completed'||session.generationMode==='background'||!!session.generationControl&&session.generationControl!=='active';
@@ -20,7 +22,8 @@ export async function observeStoryGeneration({sessionId,request,isActive,onSessi
     // A choice can wait on another device or a search, so an open page keeps following it.
     const choosing=!!session.intake&&['choosing','confirming'].includes(session.intake.phase);waiting=choosing&&watchChoices;
     if(session.state==='completed'||session.awaitingFrameCount||choosing&&!watchChoices&&session.intake?.search?.state!=='searching')return '';
-    if(focus&&!choosing&&session.generationMode==='background'&&session.generationControl==='active'&&session.state!=='failed'){
+    const intake=session.intake,canDiscover=!!intake&&(intake.search.state==='searching'||watchChoices&&!intake.selected&&intake.phase==='choosing');
+    if(focus&&(canDiscover||!choosing&&session.generationMode==='background')&&session.generationControl==='active'&&session.state!=='failed'){
      // The reader's page can be left over from another story until this one has a first image.
      const pages=session.story?.pages,page=pages?.[0]?.image?Math.min(focus.page(),pages.length-1):0;
      if(!posting&&(page!==focusPage||now()-focusAt>=10000)){
@@ -28,6 +31,14 @@ export async function observeStoryGeneration({sessionId,request,isActive,onSessi
       // Priority is best effort, so a slow or failed request must never hold up status updates.
       posting=request(path+'/production','POST',{viewerId:focus.viewerId,page,retry:false}).catch(()=>{}).finally(()=>{posting=null;});
      }
+    }
+    if(focus&&watchChoices&&isActive()&&intake&&!intake.selected&&intake.phase==='choosing'&&intake.search.state==='idle'&&intake.batches.length<maxSuggestionBatches&&intake.batches.at(-1)?.stories.length&&session.generationControl==='active'&&session.state!=='failed'){
+     // A lost response must stop here, rather than retrying a paid request under a new identity.
+     try{
+      const next=await request(path+'/setup','POST',{action:'more',automatic:true,requestId:crypto.randomUUID(),generation:intake.generation});
+      if(!isActive())break;
+      onSession(next);
+     }catch(error){return error instanceof Error?error.message:'连续查找暂时中断，请重试继续。';}
     }
    }catch(error){
     if(!isActive())break;
