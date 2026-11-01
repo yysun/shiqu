@@ -1,6 +1,6 @@
 // Share shelf search and grouping across desktop and reader while preserving story order within groups.
 export type ShelfMetadata={title:string;book:string;theme:string;artStyleLabel:string};
-export const shelfGroupings=[{value:'book',label:'按书名分组'},{value:'theme',label:'按主题分组'},{value:'artStyle',label:'按画风分组'},{value:'status',label:'按处理状态分组'},{value:'none',label:'不分组'}] as const;
+export const shelfGroupings=[{value:'book',label:'按书名分组'},{value:'theme',label:'按主题分组'},{value:'artStyle',label:'按画风分组'},{value:'status',label:'按制作状态分组'},{value:'none',label:'不分组'}] as const;
 export type ShelfGrouping=typeof shelfGroupings[number]['value'];
 export function matchesShelfSearch(item:ShelfMetadata,query:string){
  const normalize=(value:string)=>value.normalize('NFKC').toLocaleLowerCase();

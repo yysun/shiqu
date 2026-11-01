@@ -35,10 +35,10 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
     <button className="yu-shelf-card yu-shelf-card-details" aria-label={'继续阅读《'+item.title+'》'} onClick={()=>onOpen(story)}>{details}</button>
    </>:<>
     {item.session&&session?<button className="yu-pending-story" aria-label={generation!.action+'《'+item.title+'》'} onClick={()=>onResume(session)}><Feather size={21}/><span><strong>{item.title}</strong><small>{generation!.detail}</small><small>{item.book}</small><span className="yu-shelf-tags"><span title={item.theme}>{item.theme}</span><span title={item.artStyleLabel}>{item.artStyleLabel}</span>{edition&&<span>{edition}</span>}</span></span></button>:story&&<button className="yu-shelf-card" aria-label={'继续阅读《'+item.title+'》'} onClick={()=>onOpen(story)}>{cover}{details}</button>}
-    {session&&generation&&(generation.group==='生成失败'||generation.group==='生成已暂停')&&session.retryAllowed&&(!session.generationControl||session.generationControl==='active')&&<div className="yu-pending-retry"><button type="button" disabled={refreshing||!!favoriteBusy} onClick={()=>onRetry(session)}>{generation.group==='生成失败'?'重试生成':'继续生成'} <ArrowRight size={15}/></button></div>}
+    {session&&generation&&generation.group==='生成已暂停'&&session.retryAllowed&&(!session.generationControl||session.generationControl==='active')&&<div className="yu-pending-retry"><button type="button" disabled={refreshing||!!favoriteBusy} onClick={()=>onRetry(session)}>继续生成 <ArrowRight size={15}/></button></div>}
     {actions}
    </>}
-   {session&&session.state!=='completed'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{session.story&&` · ${session.ready} / ${session.story.pages.length} 幅`}</span><StoryGenerationControl session={session} busy={!!controlBusy} onControl={onControl}/></div>}
+   {session&&session.state!=='completed'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{session.story&&` · ${session.ready} / ${session.story.pages.length} 幅`}</span>{generation!.group==='生成失败'?session.retryAllowed&&<button type="button" className="yu-generation-control" disabled={refreshing||!!favoriteBusy||!!controlBusy} onClick={()=>onRetry(session)}>重试生成</button>:<StoryGenerationControl session={session} busy={!!controlBusy} onControl={onControl}/>}</div>}
   </div>;
  }
  return <section className="yu-shelf">
