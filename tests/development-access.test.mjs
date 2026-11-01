@@ -1,4 +1,5 @@
 // A real LAN-capable Vite server must allow direct APIs and deny private direct/raw/@fs requests.
+// Close its writers before removing the temporary root so dependency scans cannot race cleanup.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm,symlink} from 'node:fs/promises';
@@ -13,18 +14,20 @@ import {developmentServerOptions,protectDevelopmentLibrary} from '../scripts/dev
 
 test('development LAN proxy allows direct access and protects preserved/private workspace stores',async t=>{
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu direct-development ')),library=path.join(root,'private-shelf[1]');
- t.after(()=>rm(root,{recursive:true,force:true}));
+ let frontend,backend;
+ t.after(async()=>{
+  if(backend)await new Promise(resolve=>{backend.close(resolve);backend.closeAllConnections();});
+  await frontend?.close();
+  await rm(root,{recursive:true,force:true});
+ });
  const privatePaths=['.data/dev/shiqu.sqlite','.data/dev/old-original.json','backups/private.json','media/reader/story/0.png','.env', 'private-shelf[1]/private.json'];
  for(const name of privatePaths){const file=path.join(root,name);await mkdir(path.dirname(file),{recursive:true});await writeFile(file,'private-library-content');}
  await mkdir(path.join(root,'public'));await writeFile(path.join(root,'public/visible.txt'),'public-asset');
  await writeFile(path.join(root,'index.html'),'<html><body>development reader<script type="module" src="/main.js"></script></body></html>');await writeFile(path.join(root,'main.js'),'export const visible=true;');
  let protectedApi=async()=>new Response('not ready',{status:503});
- const backend=createHttpServer(request=>protectedApi(request));backend.listen(0,'127.0.0.1');await once(backend,'listening');
- // Vite proxy keep-alive sockets must close before its later teardown hook.
- t.after(()=>new Promise(resolve=>{backend.close(resolve);backend.closeAllConnections();}));
+ backend=createHttpServer(request=>protectedApi(request));backend.listen(0,'127.0.0.1');await once(backend,'listening');
  const apiPort=backend.address().port;
- const frontend=await createServer({configFile:false,root,logLevel:'silent',plugins:[protectDevelopmentLibrary(library)],server:developmentServerOptions({port:0,apiPort,library})});await frontend.listen();
- t.after(()=>frontend.close());
+ frontend=await createServer({configFile:false,root,logLevel:'silent',plugins:[protectDevelopmentLibrary(library)],server:developmentServerOptions({port:0,apiPort,library})});await frontend.listen();
  const port=frontend.httpServer.address().port,origin=`http://127.0.0.1:${port}`;
  protectedApi=developmentAccess(async()=>Response.json({privateStory:true}),{SHIQU_DEV_FRONTEND_PORT:String(port)},apiPort);
  assert.equal(frontend.httpServer.address().address,'0.0.0.0');

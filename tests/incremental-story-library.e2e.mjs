@@ -167,3 +167,16 @@ test('a confirmed legacy intake stays confirmed and keeps its selected frame cou
  await advanceStory(repo,f.generation.generator(),'docker-local-owner',id,0);const result=await repo.get(id,'docker-local-owner'),saved=JSON.parse(result.document);
  assert.equal(saved.intake.phase,'confirmed');assert.equal(saved.original.storyBrief.verified,true);assert.equal(saved.draft.pages.length,2);assert.equal(JSON.parse(result.selection).length,2);assert.equal(saved.frameCountConfirmed,true);
 });
+
+for(const unverified of [false,true])test(`saved outline batches resume after synopsis preparation without repeating the outline (${unverified?'unverified brief':'missing summary'})`,async t=>{
+ const f=await productionFixture(t),id=await f.createLegacyReader(21),repo=new ReaderRepository(f.app.services.database),generator=f.generation.generator(),row=await repo.get(id,'docker-local-owner'),doc=JSON.parse(row.document),plan=makePlan(21),chosen=JSON.parse(row.selection);
+ const {pages,reflection,...metadata}=plan;void reflection;
+ doc.original=(await generator.original(chosen,{sourceReference:plan.sourceReference},id)).source;
+ if(unverified)doc.original.storyBrief={summary:'未经核对的摘要。',matchReason:'需要核对。',verified:false};
+ doc.storyboard={outline:{...metadata,summary:unverified?'已有提纲摘要。':'',beats:pages.map((_,i)=>`第${i+1}幅的原有提纲。`)},pages:pages.slice(0,20)};
+ await f.app.services.database.prepare('UPDATE reader_sessions SET document=? WHERE id=?').bind(JSON.stringify(doc),id).run();
+ f.control.beforeText=async kind=>kind==='recommend'?{storySummary:plan.summary,storyMatchReason:'依据真实原文的完整主线。'}:undefined;
+ await advanceStory(repo,generator,'docker-local-owner',id,0);if(unverified){assert.equal(f.control.batches.length,0);await advanceStory(repo,generator,'docker-local-owner',id,0);}
+ const saved=JSON.parse((await repo.get(id,'docker-local-owner')).document);assert.equal(saved.draft.summary,plan.summary);assert.deepEqual(saved.storyboard.outline.beats,doc.storyboard.outline.beats);assert.deepEqual(saved.draft.pages.slice(0,20),pages.slice(0,20));
+ assert.equal(f.control.recommendations.length,1);assert.equal(f.control.outlines.length,0);assert.equal(f.control.batches.length,1);assert.deepEqual(f.control.batches[0].batch,{first:21,last:21});
+});

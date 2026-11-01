@@ -20,3 +20,5 @@
 执行状态：修正后服务E2E10/10通过（`/tmp/shiqu-brief-e2e-final.log`），完整TT851/851通过（`/tmp/shiqu-brief-all-tests-final.log`），最新缓存/brief/提示词33/33通过。真实REST/队列/SQLite/FileMedia配合受控provider，验证资料传递、核对契约与失败防线；三provider定向覆盖场景10的开场指令。不增加UI或真实模型准确率承诺；旧3项E2E/846项证据只作历史记录。
 
 13. 创建非intake无摘要短篇/长篇任务，在模型调用日志中先出现原文准备/摘要recommend，保存summary后才plan/outline。注入原文/摘要失败不得发编排或绘图；重试复用已保存原文，编排失败后不重做摘要。旧confirmed任务补摘要不退回确认；已有outline.summary/成品读取不会额外付费。
+
+字段统一修正最终执行：完整TT857/857通过（`/tmp/shiqu-summary-all-tests-complete.log`），服务E2E16/16通过（`/tmp/shiqu-summary-e2e-final.log`），覆盖新增场景11/13的SQLite/媒体、回执发布、碰撞回滚、静态渲染、摘要前置与提纲续编；离线旧库导入由local-server回归覆盖。场景12实际迁移比较报告`/tmp/shiqu-summary-live-migration.json`。14项旧服务E2E与95项组合回归属于中间证据，以最终16项及完整857项为准。

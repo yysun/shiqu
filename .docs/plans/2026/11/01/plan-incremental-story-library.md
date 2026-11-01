@@ -133,7 +133,7 @@ VR review round: 2; reviewer: reused
 - [x] 修改Story/Plan、provider schema/指令、engine摘要复用、版本编辑和studio读写；更新所有现行消费端、导出和fixture。
 - [x] 实现SQL及媒体JSON升级迁移，覆盖共存优先、幂等、失败重试与导入；保留历史SQL与外部依赖中无关hook名称。
 - [x] 补迁移/新旧读写/元信息保护/ZIP/摘要复用/React展示回归，更新现行文档。
-- [ ] 运行typecheck、lint、完整TT与增量故事库服务E2E；保存真实证据。
+- [x] 运行typecheck、lint、完整TT与增量故事库服务E2E；保存真实证据。
 - [x] 对已备份实际书库执行升级，核对SQLite和JSON数据、原文/图片/状态/版本数量及缓存保留。
 
 E2E追加场景11/12；本轮不打包，不调用真实模型或改浏览器设置。单纯字段替换不引入新的创作功能、数据回填队列或自动付费阶段。
@@ -159,3 +159,19 @@ AR review round: 6; reviewer: reused
 SS：所有运行时故事字段已从hook改为summary；仅历史迁移与升级测试保留旧名，第三方React/process hook无关。分镜前兜底统一复用prepareRecommendation，保存独立summary用量，已确认任务保持确认和选定幅数。原文来源失败现发生在付费分镜之前；相关历史测试改为断言零编排，原来“先付费目录再找原文”的预期失效。95项定向（含14服务E2E）通过；完整首轮857项中25项旧适配器fixture/顺序预期失败，已补齐受控摘要响应并验证相关46/46通过；正在最终全量回归。typecheck通过。
 
 实际迁移：一致性备份后由同一openDatabase升级流程完成。72任务/3故事/2118作业数量不变，60份plan/11份outline/14份版本基线旧键删除；4份JSON迁移，828个图片作业派生ID/version及依赖重映射；已付费回执/状态/尝试次数保留，1144个二进制文件大小与mtime未变，9篇中性缓存摘要保留，旧文本没有标记成verified。逐表/逐文件比较报告`/tmp/shiqu-summary-live-migration.json`，开发服务3000/3002已恢复，GET书架200且可见故事只含summary，不含hook。浏览器仍禁用，不声称视觉检查。
+
+SS milestone: `a41b0d6` (`refactor: replace story hooks with summaries and migrate saved data`)；源码、迁移和实际书库升级完成。随后补充两项既有提纲兜底E2E，16/16通过（`/tmp/shiqu-summary-e2e-final.log`）。CR3独立完整复审通过；原文、队列指纹与回执、媒体迁移重试、摘要前置和现有提纲恢复均无重大问题。
+
+CR passed: no major findings
+CR risk: non-low — persisted schema and API changes, filesystem upgrade, paid receipt identities, import compatibility and generation ordering.
+CR review round: 3; reviewer: reused
+
+TT第二轮856/857通过，唯一失败为既有development-access测试先删临时根目录、后关闭Vite导致ENOTEMPTY并遗留端口，不属于生产功能失败。已将测试清理改成先关闭后端与Vite再删除目录，断言未放宽；单独2/2通过（`/tmp/shiqu-summary-dev-access-fixed.log`），最终全量重跑中。
+
+CR passed: no major findings
+CR risk: non-low — story retains schema, migration and paid-work boundaries; this followup changes test lifecycle and recovery coverage only.
+CR review round: 4; reviewer: reused
+
+TT最终`pnpm test`857/857通过，约43.7秒（`/tmp/shiqu-summary-all-tests-complete.log`）；typecheck与最新lint通过，diff检查通过。ET最终16/16服务级用例通过（`/tmp/shiqu-summary-e2e-final.log`），含已有提纲缺摘要与未核对brief的恢复，保留前20幅、不重做提纲。迁移5项、导入旧库用例、ZIP/React静态渲染与受控provider均有直接回归。浏览器因设置禁用未做视觉验收，真实模型语义准确率未实测。
+
+用户询问《黛玉剪香囊》时实际读取确认：其summary是旧hook迁移的两句引子，尚无verified制作摘要。本轮字段迁移保留旧文字，不声称给历史成品语义补全；未来新编排入口缺摘要时才先准备。
