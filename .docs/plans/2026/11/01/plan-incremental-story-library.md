@@ -24,8 +24,8 @@ Git base: `e51429b85b30a505e6b58873a4cccc3709170360`
 - [x] 重构本地扫描为主题无关的增量库，维持原文验证、未完事件、主/子故事、预算、共享取消和持久化；不信任旧主题游标。
 - [x] 实现批量摘要匹配、原文复核、正反缓存与并发合并，优先复用库再扩展；明确错误与进度文案。
 - [x] 更新已有缓存/主子故事/选章/provider契约测试，新增跨主题、未知复核、损坏缓存、失败恢复、并发与取消、原文分镜链路回归；更新README与流程说明。
-- [ ] 运行 pnpm typecheck、pnpm lint、pnpm test；使用 Node 24.22.1、pnpm 11.25.0，受控 provider 不使用真实凭证。
-- [ ] 执行 `.docs/tests/test-incremental-story-library.md` 对应的服务级端到端流程，验证新任务→两阶段发现→选中→原文准备→确认生成，及跨主题重启复用。
+- [x] 运行 pnpm typecheck、pnpm lint、pnpm test；使用 Node 24.22.1、pnpm 11.25.0，受控 provider 不使用真实凭证。
+- [x] 执行 `.docs/tests/test-incremental-story-library.md` 对应的服务级端到端流程，验证新任务→两阶段发现→选中→原文准备→确认生成，及跨主题重启复用。
 
 ## 验证与风险
 
@@ -41,3 +41,21 @@ AR review round: 1; reviewer: new
 实施细化：每个主题共享 flight 最多进行一次付费判断，先保存 yes/no/review 回执，下一轮才决定是否带原文复核；这样取消可在调用间停止，review 失败也不重付已完成判断。另一调用加入后重新核对自身尚缺的故事ID。命中部分已完成 yes 时立即返回，无需为了批次数量补齐。
 
 SS 验证：Node 24.22.1 / pnpm 11.25.0，typecheck/lint 通过；核心缓存/章节/升级隔离45项、新增库与匹配20项、跨provider/档位11项、全部书籍/来源/画风回归28项通过（共104项）。服务级3项有界流程探测通过，覆盖重启换主题复用、选中制作原文、review重试及流取消共享。完整TT/最终ET仍待阶段执行。
+
+SS milestone: `5efcd26` (`feat: build an incremental story library with cached theme matching`)；上述局部验证通过，正在独立CR，完整TT/ET尚未作为最终证据完成。
+
+CR passed: no major findings
+
+CR risk: non-low — persistent library semantics, paid matching, concurrent readers, and source boundaries.
+CR review round: 1; reviewer: reused
+
+TT：`pnpm test` 846/846 通过，约38.6秒，日志 `/tmp/shiqu-library-all-tests.log`。已通过 typecheck 与全局lint；新增最后两项JS回归另经定向eslint核对，无生产代码变更。未运行不相关的桌面原生测试或打包。
+
+ET：复用当前最终实现已通过的 `pnpm exec node --experimental-strip-types --test tests/incremental-story-library.e2e.mjs`，3/3服务级用例，日志 `/tmp/shiqu-library-e2e-probe.log`。同一已验证实现未发生后续生产代码变更，无需重复执行。范围包括真实REST、SQLite、队列、FileMedia与受控provider；不声称浏览器或真实模型准确率验证。
+
+VR passed: all acceptance criteria complete
+
+独立验收逐项核对8项标准全部complete；完整终审原文见 `.docs/done/2026/11/01/incremental-story-library.md`。
+
+VR risk: non-low — persistent catalog semantics, paid judgments, concurrent readers, and source integrity.
+VR review round: 1; reviewer: reused

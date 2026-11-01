@@ -9,3 +9,5 @@
 5. 选中B，准备原文和画幅建议；生成输入包含B对应原文/章节上下文，不包含库摘要替代文本；完整确认前不生成分镜或图像，确认后正常完成。
 
 补充故障用例：提取摘要缺失、非法source、重复/未知/缺失匹配ID、缓存损坏、缓存写失败、跨章未完、模型配置或原文版本改变、旧主题缓存游标不能越过未收录文本。
+
+执行证据：`tests/incremental-story-library.e2e.mjs` 的3项服务级端到端全部通过，覆盖场景1/2/3/5及场景4的双主题流取消；选中迟到结果/自动续找栅栏由同一完整测试集中的 continuous-story-discovery、story-flow-control 测试覆盖。补充故障由 incremental-story-library、story-discovery-cache、chapter-main-stories、fast-first-story、selected-chapter-extraction 等用例覆盖。最终完整测试846/846，服务E2E3/3。受控provider，不代表真实模型语义准确率或浏览器交互已验证。
