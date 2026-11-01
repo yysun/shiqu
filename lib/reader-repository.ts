@@ -7,6 +7,10 @@ import type {ArtRecommendation} from './reader-art-recommendation.ts';
 export interface Database{prepare(query:string):Statement}
 interface Statement{bind(...values:unknown[]):Statement;first<T>():Promise<T|null>;all<T>():Promise<{results:T[]}>;run():Promise<{meta:{changes:number}}>}
 const visible="NOT EXISTS (SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)";
+export const familyRoot=(alias:string)=>`COALESCE(json_extract(CASE WHEN json_valid(${alias}.document) THEN ${alias}.document ELSE '{}' END,'$.revision.rootId'),${alias}.id)`;
+export const familyNumber=(alias:string)=>`COALESCE(json_extract(CASE WHEN json_valid(${alias}.document) THEN ${alias}.document ELSE '{}' END,'$.revision.number'),1)`;
+export const supersededSql=(alias='reader_sessions')=>`EXISTS(SELECT 1 FROM reader_sessions newer WHERE newer.user_id=${alias}.user_id AND ${familyRoot('newer')}=${familyRoot(alias)} AND ${familyNumber('newer')}>${familyNumber(alias)})`;
+export const latestVersionMessage='这是旧版本，请打开书架中的最新版本继续生成。';
 // A failed write says nothing about the work, so callers must not report it as a provider failure.
 export const persistenceError=(error:unknown)=>(error as {code?:string}|null)?.code==='ERR_SQLITE_ERROR';
 // Full checkpoints own only the intake phase; art results merge through a targeted write.
@@ -16,12 +20,11 @@ const workerDocument="CASE WHEN json_type(document,'$.intake')='object' THEN jso
 export class ReaderRepository{
  db:Database;
  constructor(db:Database){this.db=db;}
+ async superseded(id:string,uid:string){return !!await this.db.prepare(`SELECT id FROM reader_sessions WHERE id=? AND user_id=? AND ${supersededSql()}`).bind(id,uid).first();}
  async get(id:string,uid:string){const row=await this.db.prepare(`SELECT * FROM reader_sessions WHERE id = ? AND user_id = ? AND ${visible}`).bind(id,uid).first<SessionRow>();if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');return row;}
  // Count every newer submission, including deleted ones, so deletion never promotes history.
  async list(uid:string){return (await this.db.prepare(`SELECT * FROM reader_sessions WHERE user_id = ? AND ${visible}
-  AND NOT EXISTS (SELECT 1 FROM reader_sessions newer WHERE newer.user_id=reader_sessions.user_id
-   AND COALESCE(json_extract(CASE WHEN json_valid(newer.document) THEN newer.document ELSE '{}' END,'$.revision.rootId'),newer.id)=COALESCE(json_extract(CASE WHEN json_valid(reader_sessions.document) THEN reader_sessions.document ELSE '{}' END,'$.revision.rootId'),reader_sessions.id)
-   AND COALESCE(json_extract(CASE WHEN json_valid(newer.document) THEN newer.document ELSE '{}' END,'$.revision.number'),1)>COALESCE(json_extract(CASE WHEN json_valid(reader_sessions.document) THEN reader_sessions.document ELSE '{}' END,'$.revision.number'),1))
+  AND NOT ${supersededSql()}
   ORDER BY COALESCE(last_read_at,created_at) DESC`).bind(uid).all<SessionRow>()).results;}
  async deletions(uid:string){
   return (await this.db.prepare(`SELECT d.story_id AS storyId,d.deleted_at AS deletedAt,d.kind,
@@ -62,6 +65,7 @@ export class ReaderRepository{
  async control(id:string,uid:string,action:ProductionAction,handoffOnly=false){
   const row=await this.get(id,uid);
   const revision=(JSON.parse(row.document) as Document).revision;
+  if((action==='resume'||action==='background')&&await this.superseded(id,uid))throw new ReaderError(409,latestVersionMessage);
   if(handoffOnly&&!revision?.handoff)return row;
   if(row.state==='completed')throw new ReaderError(409,'故事已完整生成，无需更改生成方式。');
   // A revision is born paused. Persist the parent pause before making its child eligible;
@@ -101,7 +105,7 @@ export class ReaderRepository{
   return this.get(id,uid);
  }
  async stale(row:SessionRow){await this.db.prepare("UPDATE reader_sessions SET state='failed',error=?,lock_token=NULL,updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_until<=?").bind('生成等待超时，已保留前面的内容。可手动重试。',new Date().toISOString(),row.id,row.user_id,Date.now()).run();return this.get(row.id,row.user_id);}
- async acquire(row:SessionRow,step:Step){const token=crypto.randomUUID(),now=Date.now();const r=await this.db.prepare(`UPDATE reader_sessions SET state='running',error=NULL,lock_token=?,lock_until=?,step_attempts=CASE WHEN step_key=? THEN step_attempts+1 ELSE 1 END,step_key=?,updated_at=? WHERE id=? AND user_id=? AND state=? AND document=? AND state!='running' AND generation_control='active' AND ${visible}`).bind(token,now+180000,step.key,step.key,new Date(now).toISOString(),row.id,row.user_id,row.state,row.document).run();return r.meta.changes?token:null;}
+ async acquire(row:SessionRow,step:Step){const token=crypto.randomUUID(),now=Date.now();const r=await this.db.prepare(`UPDATE reader_sessions SET state='running',error=NULL,lock_token=?,lock_until=?,step_attempts=CASE WHEN step_key=? THEN step_attempts+1 ELSE 1 END,step_key=?,updated_at=? WHERE id=? AND user_id=? AND state=? AND document=? AND state!='running' AND generation_control='active' AND ${visible} AND NOT ${supersededSql()}`).bind(token,now+180000,step.key,step.key,new Date(now).toISOString(),row.id,row.user_id,row.state,row.document).run();return r.meta.changes?token:null;}
  async saveArtRecommendation(row:SessionRow,token:string,doc:Document,recommendation:ArtRecommendation){
   const chosen=doc.intake?.selected;if(!chosen)throw new ReaderError(409,'请先选择故事。');
   // Merge only this result; drafts and new search batches may have arrived during inference.

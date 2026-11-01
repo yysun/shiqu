@@ -2,7 +2,7 @@
 import {events} from '../db/schema.ts';
 import type {Services} from './services.ts';
 import {z} from 'zod';
-import {ReaderRepository} from './reader-repository.ts';
+import {ReaderRepository,latestVersionMessage} from './reader-repository.ts';
 import {advanceStory} from './reader-engine.ts';
 import {suggestionRequestSchema} from './reader-suggestions.ts';
 import {ReaderError,readableStory,selectionSchema,view} from './reader-model.ts';
@@ -111,6 +111,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     if(!doc.plan)throw new ReaderError(409,'原文尚未保存，请稍后再查看。');
     const searchUrl=sourceSearchUrl(selection,doc.plan);
     if(req.method==='GET')return json({source:null,message:row.error||'这篇旧故事还没有保存原文，可以补全后继续阅读。',searchUrl});
+    if(await repo.superseded(id,uid))throw new ReaderError(409,latestVersionMessage);
     if(row.state==='running')throw new ReaderError(409,'故事正在生成，请稍后再补全原文。');
     if(!services.media)throw new ReaderError(503,'原文存储暂时不可用');
     const result=await provider.generator().original(selection,doc.plan,id);

@@ -8,7 +8,7 @@
 // its failures stay with the search unless a stop interrupted the call.
 // Only current image inputs may publish; their paid receipt can replace a stale version's slot.
 import {randomUUID} from 'node:crypto';
-import {ReaderRepository,persistenceError} from '../lib/reader-repository.ts';
+import {ReaderRepository,persistenceError,supersededSql,latestVersionMessage} from '../lib/reader-repository.ts';
 import type {Database} from '../lib/reader-repository.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
 import type {Generated} from '../lib/reader-engine.ts';
@@ -99,7 +99,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  // One rule for starting, resuming and stopping a search, so they cannot disagree and cycle.
  private async searchRunnable(row:SessionRow,round:number|undefined){
   if(this.stopping||!this.readable(row)||row.generation_control!=='active'||!this.searchCurrent(row,round))return false;
-  return !await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
+  return !await this.repository.superseded(row.id,row.user_id)&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
  private imageInputs(row:SessionRow){
   const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
@@ -116,10 +116,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return jobs.filter(job=>this.currentJob(row,job,inputs));
  }
  private async demands(id?:string){
-  const viewers=(await this.database.prepare(`SELECT * FROM production_demand WHERE runtime_id=? AND expires_at>?${id?' AND session_id=?':''}`)
+  const viewers=(await this.database.prepare(`SELECT * FROM production_demand WHERE runtime_id=? AND expires_at>? AND NOT EXISTS(SELECT 1 FROM reader_sessions s WHERE s.id=production_demand.session_id AND s.user_id=production_demand.owner_id AND ${supersededSql('s')})${id?' AND session_id=?':''}`)
    .bind(this.runtimeId,this.clock(),...(id?[id]:[])).all<Demand>()).results;
   const background=(await this.database.prepare(`SELECT id,user_id FROM reader_sessions WHERE generation_mode='background' AND generation_control='active' AND state!='completed'
-   AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)${id?' AND id=?':''}`)
+   AND NOT ${supersededSql()} AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)${id?' AND id=?':''}`)
    .bind(...(id?[id]:[])).all<{id:string;user_id:string}>()).results;
   return [...viewers,...background.map(row=>({session_id:row.id,owner_id:row.user_id,viewer_id:'background',page:0,through_page:readerMaxFrames-1,expires_at:Infinity,runtime_id:this.runtimeId}))];
  }
@@ -138,6 +138,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const row=await this.raw(job.session_id,job.owner_id);
   if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
   if(!this.readable(row)||!this.currentJob(row,job))return false;
+  if(job.kind!=='image-publish'&&await this.repository.superseded(row.id,row.user_id))return false;
   return row.generation_mode==='background'&&row.generation_control==='active'&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
  async control(ownerId:string,id:string,action:ProductionAction,handoffOnly=false){
@@ -150,7 +151,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async demand(ownerId:string,id:string,viewerId:string,page:number,throughPage:number,retry:boolean){
   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
   const row=await this.repository.get(id,ownerId),doc=JSON.parse(row.document) as Document;
-  if(row.generation_control!=='active')return this.snapshot(ownerId,id);
+  if(row.generation_control!=='active'||await this.repository.superseded(id,ownerId))return this.snapshot(ownerId,id);
   if(doc.plan&&page>=doc.plan.pages.length)throw new ReaderError(400,'请选择有效画幅');
   await this.database.prepare(`INSERT INTO production_demand(session_id,owner_id,viewer_id,page,through_page,expires_at,runtime_id) VALUES(?,?,?,?,?,?,?)
    ON CONFLICT(session_id,owner_id,viewer_id) DO UPDATE SET page=excluded.page,through_page=excluded.through_page,expires_at=excluded.expires_at,runtime_id=excluded.runtime_id`)
@@ -167,10 +168,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  async overrideReview(ownerId:string,id:string){
   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
   const row=await this.repository.get(id,ownerId),doc=JSON.parse(row.document) as Document,review=doc.visualReview;
+  if(await this.repository.superseded(id,ownerId))throw new ReaderError(409,latestVersionMessage);
   if(review?.status!=='blocked'&&!review?.overridden)throw new ReaderError(409,'这篇故事没有待处理的审片问题。');
   if(review.status==='blocked'){
    const saved=await this.database.prepare(`UPDATE reader_sessions SET document=json_remove(json_set(document,'$.visualReview.status','passed','$.visualReview.overridden',json('true')),'$.visualReview.stopReason'),state='idle',error=NULL,lock_token=NULL,lock_until=0,updated_at=?
-    WHERE id=? AND user_id=? AND state!='running' AND json_extract(document,'$.visualReview.status')='blocked' AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)`)
+    WHERE id=? AND user_id=? AND state!='running' AND NOT ${supersededSql()} AND json_extract(document,'$.visualReview.status')='blocked' AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)`)
     .bind(new Date(this.clock()).toISOString(),id,ownerId).run();
    if(!saved.meta.changes)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
   }
@@ -184,6 +186,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  async snapshot(ownerId:string,id:string):Promise<SessionView>{
   const row=await this.repository.get(id,ownerId),saved=view(row);
+  if(row.state!=='completed'&&await this.repository.superseded(id,ownerId))return {...saved,superseded:true,generationControl:'paused',productionState:'paused'};
   const jobs=await this.currentJobs(row),failed=jobs.find(job=>job.state==='failed'&&lostImageError(job.error))||jobs.find(job=>job.state==='failed');
   const active=jobs.filter(job=>job.state==='running'&&job.lease_until>this.clock()).sort((a,b)=>a.updated_at-b.updated_at);
   // Claim timestamps measure this attempt, rather than time since the story was first created.
@@ -254,6 +257,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(!this.readable(row)||!this.currentJob(row,job))return false;
   const local=job.kind==='image-publish';
   if(!local){
+   if(await this.repository.superseded(row.id,row.user_id))return false;
    if(row.generation_control!=='active')return false;
    if(this.stopping||!(await this.demands(row.id)).some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page))return false;
    if(await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first())return false;
@@ -277,7 +281,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    CROSS JOIN reader_sessions s ON s.id=d.session_id AND s.user_id=d.owner_id
    CROSS JOIN production_jobs p ON p.session_id=s.id AND p.owner_id=s.user_id
    CROSS JOIN production_jobs parent ON parent.id=json_extract(p.dependencies,'$[0]')
-   WHERE d.runtime_id=? AND d.expires_at>? AND s.generation_control='active'
+   WHERE d.runtime_id=? AND d.expires_at>? AND s.generation_control='active' AND NOT ${supersededSql('s')}
    AND p.kind='image-publish' AND (p.state='running' AND p.updated_at>? OR p.state='queued' AND parent.state='succeeded' AND parent.updated_at>?)
    AND EXISTS(SELECT 1 FROM production_jobs i WHERE i.session_id=s.id AND i.owner_id=s.user_id AND i.kind='image' AND i.state='queued' AND i.priority<=?)
    AND NOT EXISTS(SELECT 1 FROM library_deletions l WHERE l.story_id=s.id AND l.user_id=s.user_id)`)
@@ -446,6 +450,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const reference=page>0?referenceImageKey(row.id,doc.images[0]):null;
   if(reference&&await this.fileLost(reference).catch(()=>false))throw new ReaderError(409,lostImageMessage);
   if(!this.currentJob(await this.raw(job.session_id,job.owner_id),job))return {obsolete:true};
+  if(await this.repository.superseded(row.id,row.user_id))throw new JobYield();
   return this.provider.generator().image(doc.plan!,page,row.id,doc.images[0]||'',selection.artStyle,selection.productionPrompt,inputVersion([job.id,job.lease_token]));
  }
  private async publish(job:ProductionJob,outputs:Record<string,unknown>){

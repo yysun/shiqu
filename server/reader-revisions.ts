@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import {ReaderError,selectionSchema} from '../lib/reader-model.ts';
 import type {Document,SessionRow} from '../lib/reader-model.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
+import {familyRoot,familyNumber,supersededSql} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
 import {checkedRevision,reusableRevisionImages} from '../lib/reader-revision.ts';
 import type {RevisionChanges,RevisionSnapshot} from '../lib/reader-revision.ts';
@@ -13,11 +14,11 @@ import {newReview} from '../lib/reader-review.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
-const familyEpoch=`SELECT COALESCE(MAX(COALESCE(json_extract(document,'$.revision.number'),1)),1) AS epoch FROM reader_sessions WHERE user_id=? AND (id=? OR json_extract(document,'$.revision.rootId')=?)`;
+const familyEpoch=`SELECT COALESCE(MAX(${familyNumber('reader_sessions')}),1) AS epoch FROM reader_sessions WHERE user_id=? AND (id=? OR ${familyRoot('reader_sessions')}=?)`;
 async function basis(repo:ReaderRepository,row:SessionRow){
  const doc=JSON.parse(row.document) as Document;
  if(doc.intake&&doc.intake.phase!=='confirmed')throw new ReaderError(409,'请在制作确认前保存设置草稿。');
- if(!doc.plan&&row.generation_control!=='paused'&&row.generation_control!=='stopped')throw new ReaderError(409,'请先暂停生成，再修改制作内容。');
+ if(!doc.plan&&row.generation_control!=='paused'&&row.generation_control!=='stopped'&&!await repo.superseded(row.id,row.user_id))throw new ReaderError(409,'请先暂停生成，再修改制作内容。');
  const rootId=doc.revision?.rootId||row.id;
  const epoch=(await repo.db.prepare(familyEpoch).bind(row.user_id,rootId,rootId).first<{epoch:number}>())!.epoch;
  const token=hash(JSON.stringify([row.selection,doc.plan,epoch]));
@@ -63,7 +64,7 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  const inserted=await repo.db.prepare(`INSERT INTO reader_sessions(id,user_id,selection,document,generation_mode,generation_control,state,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
   SELECT ?,?,?,?,'background','paused','idle',0,0,MIN(p.page,?),p.saved,p.last_read_at,?,? FROM reader_sessions p
   WHERE p.id=? AND p.user_id=? AND json_extract(p.document,'$.plan') IS json_extract(?,'$.plan') AND p.selection=?
-  AND (json_extract(p.document,'$.plan') IS NOT NULL OR p.generation_control IN ('paused','stopped'))
+  AND (json_extract(p.document,'$.plan') IS NOT NULL OR p.generation_control IN ('paused','stopped') OR ${supersededSql('p')})
   AND NOT EXISTS(SELECT 1 FROM library_deletions WHERE story_id=p.id AND user_id=p.user_id)
   AND (${familyEpoch.replace(' AS epoch','')})=?
   ON CONFLICT(id) DO NOTHING`)
