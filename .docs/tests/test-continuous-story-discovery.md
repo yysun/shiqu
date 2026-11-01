@@ -9,3 +9,5 @@
 5. 返回空结果或模拟失败：停止自动查找，已有候选仍可选择，错误显示重试入口；暂停期间不派发查找。
 
 API/单元补充：两个查看者离开一个继续、最后一个离开停止；断连租约过期停止；选中与自动 more 竞争；缓存逐篇返回及取消后保存进度。
+
+执行状态：浏览器 E2E 未执行。`cua.getState()` 报 `Local browser use is disabled in Work settings`，无可用浏览器。受控集成测试已覆盖实际 observeStoryGeneration → REST → SQLite → 队列 → provider 路径的逐篇发布、选中拒绝迟到结果、离开/重开、多查看者、租约及 SQL 竞争，但不充当浏览器点击或视觉验证。

@@ -197,7 +197,7 @@ VR review round: 3; reviewer: reused
 - [x] 在三个短篇provider及共享outline/batch/reflection/repair输入边界去掉独立和嵌套摘要；保持审核可读摘要及未核对brief拒绝规则，不修改保存记录。
 - [x] 更新三provider与服务E2E回归：编排请求不含唯一摘要/理由标记，批次/结语/修订无嵌套summary；审核有完整摘要，原文和保存元数据保持，短篇/长篇及主题/原典均覆盖。
 - [x] 更新README、开发/使用指南和流程说明，明确当前阶段分工；历史里程碑保留。
-- [ ] 运行typecheck、lint、完整TT与现有增量故事库服务E2E，记录实际证据；不额外付费重跑模型或打包。
+- [x] 运行typecheck、lint、完整TT与现有增量故事库服务E2E，记录实际证据；不额外付费重跑模型或打包。
 
 本轮无UI改动，无需重开禁用的浏览器；原《黛玉剪香囊》和暂停的实跑对照版保持原数据。
 
@@ -209,3 +209,26 @@ AR risk: non-low — coordinated provider input contracts, production/review res
 AR review round: 7; reviewer: reused
 
 SS：原文编排/摘要审核职责及输入投影已落实；三provider短长篇、原典/主题、审核保留、前置拒绝和不可变保存共69项定向（含16服务E2E）通过，日志`/tmp/shiqu-source-focused.log`。typecheck和lint通过；首轮发现准备提示词残留单元素section，已修正并重新验证。尚待完整TT和独立CR/VR。
+
+SS milestone: `3b4c6e9` (`fix: plan storyboards from originals and reserve synopses for review`)。本轮只改生成/审核职责和请求投影，69项定向、typecheck/lint通过，不修改数据或真实故事。
+
+CR passed: no major findings
+
+独立CR5完整覆盖`e51429b..3b4c6e9`及本故事工作区，排除continuous-story-discovery文档。三provider与共享阶段无摘要回流、原对象不变、原文和其余元数据保留；审核原文优先，未核对guard和engine摘要保存保持，已有缓存/迁移/回执审查仍有效。完整TT待执行，不声明真实模型质量提升或浏览器验证。
+
+CR risk: non-low — coordinated provider contracts, production/review isolation, source-bound checkpoints and the story’s persistent-data and paid-receipt boundaries.
+CR review round: 5; reviewer: reused
+
+TT最终：`pnpm test` 857/857通过，约38.7秒（`/tmp/shiqu-source-all-tests.log`）。ET：`pnpm exec node --experimental-strip-types --test tests/incremental-story-library.e2e.mjs` 16/16通过（`/tmp/shiqu-source-e2e.log`）。typecheck/lint通过（`/tmp/shiqu-source-typecheck.log`、`/tmp/shiqu-source-lint.log`），diff检查通过。三provider捕获受控请求证实编排无独立/嵌套摘要，审核保留，原文/保存对象不变；不证明真实模型质量提升，无额外付费推理/浏览器/打包。
+
+VR passed: all acceptance criteria complete
+
+独立VR4逐项确认14项验收全部complete，最新编排/开场/验证标准已勾选。完整原文保存于本故事DD；CR5、最终TT857/857和ET16/16有效。按本轮修正完成到DD，无最终GC或push，保留SS里程碑`3b4c6e9`及本故事待提交收尾文档，无关continuous-story-discovery文档未纳入。
+
+VR risk: non-low — coordinated provider contracts, production/review isolation, source-bound preparation, persistent migrations and paid-receipt preservation.
+VR review round: 4; reviewer: reused
+
+
+用户后续授权《黛玉剪香囊》再次比较：源码未变，在隔离检查点复用原文/章节、制作设置及同一355字符核对摘要，以gpt-6.1-sol执行3次文字调用（plan/reflection/review），16幅、审核一次通过、0修订；编排请求不含摘要，审核有摘要，三版对照共48条配文。原版和上一份对照版不变，新副本暂停且无图片/语音、未增加生产作业。验证存于本地备份目录`daiyu-source-comparison-20261101T235102Z`，不纳入Git。该实测为单篇观察，不改变最终VR或宣称普遍质量提升。
+
+用户“DD GC”收尾：DD保留完整VR4原文并注明后续实测的时序；沿用源码`3b4c6e9`的完整TT/ET/typecheck/lint及CR/VR证据，仅提交本故事DD、AP、REQ和E2E执行记录四文档。既有continuous-story-discovery改动保持，不打包或push。

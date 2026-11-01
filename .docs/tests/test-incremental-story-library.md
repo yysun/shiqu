@@ -24,3 +24,8 @@
 字段统一修正最终执行：完整TT857/857通过（`/tmp/shiqu-summary-all-tests-complete.log`），服务E2E16/16通过（`/tmp/shiqu-summary-e2e-final.log`），覆盖新增场景11/13的SQLite/媒体、回执发布、碰撞回滚、静态渲染、摘要前置与提纲续编；离线旧库导入由local-server回归覆盖。场景12实际迁移比较报告`/tmp/shiqu-summary-live-migration.json`。14项旧服务E2E与95项组合回归属于中间证据，以最终16项及完整857项为准。
 
 14. 三provider分别在主题/原典模式使用带唯一summary/matchReason标记的已核对原文，并给plan/draft/outline加不同summary标记。捕获短篇、提纲、批次、结语、候选结语和修订请求：无storyBrief，嵌套的outline/draft/plan无summary标记；原文保持完整，提纲节点/前批画面/元数据保持，未核对brief仍在模型前拒绝。审核请求必须带完整storyBrief及原文，指令先按原文判断，再借摘要检查关键过程和终点；保存的summary不被删除，原对象不变。
+
+原文编排修正最终执行：TT857/857（`/tmp/shiqu-source-all-tests.log`），ET16/16（`/tmp/shiqu-source-e2e.log`），三provider及受影响流程组合69/69（`/tmp/shiqu-source-focused.log`）。场景14覆盖独立/嵌套摘要无回流、审核保留和原对象不变；既有准备/保存/迁移/恢复用例继续通过。受控模型验证输入契约，未重复付费模型质量对比或浏览器验证。
+
+
+后续用户授权的真实模型比较（独立于受控E2E）：《黛玉剪香囊》同原文/章节和制作设置，gpt-6.1-sol生成16幅原文编排版，3次文字调用，审核一次通过、0修订。实际请求验证plan无摘要、review使用同一355字符核对摘要；原版与上次摘要版未变，新暂停副本0图片/语音。证据为本地备份目录`daiyu-source-comparison-20261101T235102Z`中的verification.json、calls.json、requests与comparison.html。该单次实测不证明稳定质量差异；浏览器仍禁用，无视觉验收。

@@ -12,7 +12,7 @@ Git base: `891aa94bf13792c2a52b5d66b38efa44e539cbf2`
 - [x] 在服务端将查找限定为真实查看者需求，选中停止并拒绝迟到自动启动；保留显式重新选择时的手动查找。
 - [x] 观察循环在选择阶段续租、逐篇自动继续；离开释放需求，失败、空结果、暂停及上限停止自动循环。
 - [x] 更新选择界面状态与 README；已有候选可直接选择，不因自动查找锁住选择。
-- [ ] 增加生命周期、并发、单篇缓存与恢复测试；运行 typecheck、lint、完整 unit/integration suites。
+- [x] 增加生命周期、并发、单篇缓存与恢复测试；运行 typecheck、lint、完整 unit/integration suites。
 - [ ] 在 in-app browser 验证逐篇增加、选择停止、离开停止与重开恢复，执行 `.docs/tests/test-continuous-story-discovery.md`。
 
 验证使用 Node 24.22.1、pnpm 11.25.0。浏览器使用隔离数据及受控生成服务，避免真实推理费用。无需桌面源码变更；如验证桌面壳使用 pnpm desktop:preview，不准备或打包桌面。SS 首次浏览器可行性探测：`cua.getState()` 返回 `Local browser use is disabled in Work settings`，没有可用浏览器；不改变用户设置。浏览器 E2E 保留未完成，使用真实观察循环 + SQLite + 受控 provider 集成验证生命周期，不能替代视觉验证。
@@ -34,3 +34,21 @@ CR fixed: automatic continuation now uses the existing LAN-safe UUID implementat
 
 CR risk: non-low — discovery lifecycle and browser compatibility.
 CR review round: 2; reviewer: reused
+
+SS fix milestone: `e51429b` (`fix: support continuous discovery on LAN HTTP pages`)。
+
+TT：首次完整 826 项中 825 通过，唯一失败是 tests/reader-generation.test.mjs 旧提示词字面断言。更新为同时检查默认上限5与单篇上限1，保留默认输出数量及 schema 上限检查；局部通过。最终 `pnpm test`：826/826 通过（/tmp/shiqu-continuous-all-tests-final.log）；`pnpm typecheck`、`pnpm lint` 均通过。
+
+CR passed: no major findings
+
+CR risk: non-low — retained story scope covers paid discovery and concurrency.
+CR review round: 3; reviewer: reused
+
+ET：未执行；浏览器不可用，已记录探测结果。没有改用其他浏览器、修改用户设置或进行实际付费推理。
+
+VR incomplete: required in-app browser E2E remains unexecuted because local browser use is disabled.
+
+Implementation and controlled integration evidence satisfy the remaining criteria. Full verification passed: 826/826 tests, typecheck and lint. The first requirement and AP browser task correctly remain unchecked for actual browser display and interaction verification.
+
+VR risk: non-low — paid discovery lifecycle and concurrent selection.
+VR review round: 2; reviewer: reused

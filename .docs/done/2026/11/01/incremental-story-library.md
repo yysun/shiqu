@@ -1,31 +1,51 @@
-# 增量故事库与主题匹配
+# 增量故事库、主题匹配与摘要职责
 
 ## Summary
 
-过去换主题会重新通读原文。现在本地书籍逐篇收录与主题无关的完整故事摘要和出处，再独立匹配主题；当前不匹配的故事也保留，换主题和重启都可复用。正反判断均缓存，摘要不足时按真实原文复核。匹配失败不丢通用库或已完成判断，选中和离开仍停止后续工作。制作阶段继续读取已选故事原文与章节上下文，内部摘要不进入候选响应或分镜事实输入。
+故事识别与主题匹配分层缓存，匹配项保存理由及完整摘要；主题/原典两种准备流程依据真实原文核对摘要。所有首次编排入口缺摘要时先生成并保存，重试复用检查点。故事、提纲、版本、接口、展示和ZIP统一summary，旧hook经升级迁移，保留数据及付费回执。
+
+最新修正恢复原文驱动编排：短篇、提纲、批次、标题/结语及定向修订不接收独立或嵌套摘要；审核先按原文独立判断，再用摘要查范围、阶段和结局遗漏。第一页直接从原文提取必要背景。摘要保留准备、缓存、归档及审核用途。
 
 ## Verification
 
-Node 24.22.1 / pnpm 11.25.0：`pnpm test` 846/846；服务级 E2E 3/3；`pnpm typecheck`、`pnpm lint` 通过。独立AR、CR、VR均通过。
-
-VR passed: all acceptance criteria complete
-
-1. **Complete — Neutral story extraction.** Catalog payload omits the theme; required summaries and source ranges are validated. Tests cover retained nonmatches, nested stories, duplicate ranges, and crossing fragments.
-2. **Complete — Incremental discovery and stopping.** Cached candidates are matched first; extraction resumes only when needed. Existing lifecycle tests cover selection fencing, departure, lease expiry, and cross-chapter recovery.
-3. **Complete — Theme judgment and review.** Strict yes/no/review receipts require exact story IDs. Original-text review, unresolved uncertainty, budget rejection, retry, and completed-receipt persistence are covered.
-4. **Complete — Independent durable caches.** Cross-theme and restart tests prove reuse, including negative judgments and incremental additions. Source/configuration namespaces and separate matching-contract keys provide isolation.
-5. **Complete — Legacy and concurrency safety.** Old theme cursors cannot advance the new catalog; historical files remain intact. Shared extraction, independent theme decisions, differing matching batches, and cancellation are covered.
-6. **Complete — Provider compatibility.** Codex, Gemini, and OpenAI expose extraction and matching contracts. Matching uses the existing suggest effort; remote discovery remains supported without new dependencies or configuration.
-7. **Complete — Original-based production.** Service E2E verifies selected source preparation, chapter context, confirmation gates, and storyboard inputs containing originals rather than catalog summaries.
-8. **Complete — Verification and documentation.** All AP tasks are complete. Node 24.22.1 / pnpm 11.25.0: 846/846 unit/integration tests and 3/3 service E2E tests passed; typecheck and lint passed. Independent CR passed.
-
-Evidence covers backend behavior with controlled inference. No browser interaction or real-model semantic accuracy is claimed; this story changes no UI.
-
-VR risk: non-low — persistent catalog semantics, paid judgments, concurrent readers, and source integrity.
-VR review round: 1; reviewer: reused
+- `pnpm test` 857/857，约38.7秒；服务E2E16/16；三provider及受影响流程定向69/69。日志分别为`/tmp/shiqu-source-all-tests.log`、`/tmp/shiqu-source-e2e.log`、`/tmp/shiqu-source-focused.log`。
+- typecheck、lint、diff检查通过。Node24.22.1/pnpm11.25.0；独立AR7、完整CR5、VR4通过。
+- 实际书库升级复用一致性备份及逐表逐文件审计`/tmp/shiqu-summary-live-migration.json`，本轮不再执行迁移。
+- VR后，用户授权再次比较《黛玉剪香囊》：同一原文、章节上下文和制作设置，gpt-6.1-sol生成16幅文字分镜、结语候选及独立审核，共3次调用，审核一次通过、0修订。请求记录证实编排无摘要，审核复用同一355字符核对摘要；三版逐幅对照48条配文。单次质量比较不代表普遍提升。
 
 ## Notes
 
-通用库限本地可信原文，非本地书名/URL仍沿用既有推荐。旧主题缓存文件及历史候选保留，但旧游标不作为完整故事库的覆盖证明。使用现有 suggest 档位，无新依赖、配置或数据库迁移。未进行真实付费推理、浏览器实测、Docker构建或桌面打包。
+- Git base `e51429b`；实现里程碑包括`5efcd26`、`83f87cb`、`a41b0d6`、`c12499b`及本轮`3b4c6e9`。按用户“DD GC”提交本故事收尾文档；不push，既有continuous-story-discovery文档未纳入。
+- 原《黛玉剪香囊》和上一份摘要对照版保持原样；追加原文编排副本`d11aae9b-38be-4a28-a5fb-8f7d1f4bbd3a`暂停保存在书架，16幅、0图片/语音，未增加生产作业。原版旧引子仅改名为summary，不冒充语义补全。
+- 实测记录、三版对照与验证文件位于本地书库外备份目录`daiyu-source-comparison-20261101T235102Z`，不把书库或私有原文快照提交Git。
+- 受控推理证明契约和恢复行为，不证明真实模型质量提升；浏览器因设置禁用，未做视觉验收。没有打包。
 
-实现里程碑：`5efcd26`。最终提交只包含本故事验证文档；前一故事连续查找的未提交文档保持原状。
+## Final VR
+
+以下为追加真实模型比较前的最终验收原文；后续比较未修改实现或验收条件。
+
+VR passed: all acceptance criteria complete
+
+对照当前REQ、AP、E2E、`e51429b..3b4c6e9`实现、CR5及最终证据，14项验收标准全部complete：
+
+1. **中性提取：complete。** catalog不接收主题或制作偏好，保存完整摘要和可核对出处；包含主/子故事，拒绝重复范围及交叉碎片。
+2. **增量发现：complete。** 优先匹配已有库，必要时共享续读，找到匹配即返回；游标、未完事件、选中停止和离开取消均有回归。
+3. **主题判断：complete。** 严格验证yes/no/review及匹配ID；yes资料完整，review使用真实原文，失败不当作no且保留库。
+4. **缓存复用与隔离：complete。** 提取和主题回执分层持久化，配置及原文变化正确隔离；匹配契约变化不重扫中性库，旧布尔回执不冒充完整摘要。
+5. **历史缓存和并发：complete。** 不沿用无法证明覆盖的旧主题游标；并发主题共享提取，单个读者取消不终止其他读者所需工作。
+6. **三provider支持：complete。** Codex、Gemini、OpenAI具备提取、丰富主题回执和摘要核对；沿用suggest/frames及既有凭证配置，四篇匹配上限和输出预算有契约回归。
+7. **两种模式摘要准备：complete。** 主题候选、直接原典和旧式推荐均按真实原文核对或补齐摘要；缺结果阻止确认，重选、重启及重试保持来源绑定。
+8. **原文编排、摘要审核：complete。** 三provider短篇及共享outline/batch、标题/结语和repair不发送storyBrief或匹配理由；嵌套plan/draft/outline投影去掉summary。原文、节点、已有分镜及其余元数据保留，原对象不变。审核保留完整摘要，先独立检查原文，再借摘要查范围、阶段和结局遗漏；错误摘要服从原文。显式未核对brief仍在模型调用前拒绝。
+9. **开场与叙事规则：complete。** 第一页直接依据原文提取必要背景、人物关系和处境，不把全篇概述当开场、不提前泄露结局；无独立设局字段。既有节奏、因果、静态画面及连续性要求保留。
+10. **最终验证：complete。** `pnpm test`857/857通过，约38.7秒；独立服务E2E16/16通过；定向69/69、typecheck、lint及diff检查通过。最新输入隔离由三provider请求捕获和服务回归共同验证。
+11. **summary字段统一：complete。** 类型、模型输出、SQLite、API、编辑展示、版本保护和ZIP统一summary，无运行时hook别名；已核对摘要继续由engine保存为归档元数据。
+12. **迁移与付费回执安全：complete。** SQL9、媒体JSON、幂等重试、失败回滚及旧库导入的有效证据继续适用。图片身份和依赖同步迁移，已付费未发布回执复用，碰撞中止而不丢弃回执；本轮未修改这些边界。
+13. **实际书库升级：complete。** 备份及审计证明72任务、3故事、2118作业数量不变，828作业身份映射、4份JSON转换、1144个二进制文件大小及mtime不变、9篇中性摘要保留，无新增verified标记。本轮没有再次迁移或改写实际故事。
+14. **首次编排缺摘要兜底：complete。** 共享准备函数先保存核对摘要，再调用plan/outline；失败不进入编排或绘图，重试复用检查点。确认状态及幅数保持；已有提纲恢复不重复提纲，已有成品和普通读取不自动生成。
+
+全部AP任务已完成，CR5无未解决发现。最终日志为`/tmp/shiqu-source-all-tests.log`、`/tmp/shiqu-source-e2e.log`、`/tmp/shiqu-source-focused.log`及typecheck/lint日志；实际迁移复用`/tmp/shiqu-summary-live-migration.json`。
+
+受控测试证明阶段契约与恢复行为，不证明真实模型质量提升。浏览器仍禁用，未做视觉验收；未额外付费重跑《黛玉剪香囊》、打包或自动重做历史故事。历史旧引子迁移为summary仍不等于完整摘要的语义补写。
+
+VR risk: non-low — coordinated provider contracts, production/review isolation, source-bound preparation, persistent migrations and paid-receipt preservation.
+VR review round: 4; reviewer: reused
