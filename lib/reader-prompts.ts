@@ -36,6 +36,7 @@ Do not default to close-ups. A wide or establishing shot needs its spatial scale
 Show the people, body parts, props and setting needed for this shot. A hand, object detail, partial face, back view or empty setting can carry the entire frame when specified. Keep secondary detail subordinate through staging, contrast, simplification, occlusion or off-screen space, without deleting environmental context the shot needs. Use only the staging devices that help this frame; do not add dramatic effects or busy scenery by default. Respect what the frame leaves outside view and do not reveal hidden information early. Character descriptions define identity, not a mandatory cast list; preserve recognizable traits only where visible, without adding faces or people to prove consistency.`;
 
 const themeDirections:Record<string,string>={
+ '忠于原文':'按原文自身的事件、人物与因果展开，不额外套入主题或要求反转。',
  '给我一个反转':'开头制造一个可信的预期，中段埋下细节，结尾用有因果依据的反转改变读者对人物的判断，不靠突然出现的新信息。',
  '人情冷暖':'通过人物在利益、困境与日常往来中的选择，表现人情的温度与反差，让细微行动胜过直白评价。',
  '放下执念':'让人物因执念陷入困境，再通过一次具体遭遇看见另一种可能；转变要自然，保留放下之前的挣扎。',
@@ -55,4 +56,10 @@ export function defaultProductionPrompt(theme:string){
 }
 export function promptAfterThemeChange(current:string,previousTheme:string,nextTheme:string){
  return !current.trim()||current===defaultProductionPrompt(previousTheme)?defaultProductionPrompt(nextTheme):current;
+}
+
+// Direct source selection has no theme step; discard inherited automatic theme directions, preserving authored requirements.
+export function directStorySettings(currentPrompt:string,previousTheme:string){
+ const theme='忠于原文';
+ return {theme,productionPrompt:promptAfterThemeChange(currentPrompt,previousTheme,theme)};
 }

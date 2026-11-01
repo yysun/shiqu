@@ -17,7 +17,7 @@ test('scene edge clicks use the outer quarters of the reader, not the viewport',
  }
  assert.equal(edgePageDirection(0,0,0),0);
 });
-import {defaultProductionPrompt,promptAfterThemeChange} from '../lib/reader-prompts.ts';
+import {defaultProductionPrompt,promptAfterThemeChange,directStorySettings} from '../lib/reader-prompts.ts';
 
 test('trackpad rebound cannot reverse or skip a page within the same gesture',()=>{
  const gesture=newWheelGesture();
@@ -112,4 +112,11 @@ test('published and generated progress hydration reconcile favorite flags regard
   assert.equal(visible.find(row=>row.storyId==='generated').page,7);
   assert.equal(visible.find(row=>row.storyId==='published').page,3);
  }
+});
+
+test('direct source selection drops inherited theme directions and preserves authored production requirements',()=>{
+ const direct=directStorySettings(defaultProductionPrompt('给我一个反转'),'给我一个反转');
+ assert.equal(direct.theme,'忠于原文');assert.match(direct.productionPrompt,/不额外套入主题或要求反转/);assert.doesNotMatch(direct.productionPrompt,/开头制造一个可信的预期/);
+ assert.equal(directStorySettings('','').productionPrompt,direct.productionPrompt);
+ assert.equal(directStorySettings('保持克制，保留原文结局。','其他').productionPrompt,'保持克制，保留原文结局。');
 });
