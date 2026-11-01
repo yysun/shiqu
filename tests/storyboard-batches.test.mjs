@@ -109,7 +109,7 @@ for(const provider of ['codex','gemini'])test(`${provider}: selected-story stage
  const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,artStyle:'ink-pencil',voice:false,productionPrompt:legacy};
  const original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶。',url:'https://example.org',kind:'passage',provider:'controlled',retrievedAt:'2026-11-01'};
  const seen=[];
- f.control.beforeText=async(kind,payload)=>{seen.push(kind);assert.equal(payload.theme,undefined);assert.equal(payload.productionPrompt,faithful);assert.equal(payload.chosenStory,selection.storyTitle);};
+ f.control.beforeText=async(kind,payload)=>{seen.push(kind);assert.equal(payload.theme,undefined);assert.equal(payload.productionPrompt,faithful);assert.equal(payload.chosenStory,selection.storyTitle);assert.deepEqual(payload.editorialContext,kind==='reflection'?{mode:'theme',theme:selection.theme}:undefined);};
  await generator.recommend(selection,'test',original);
  assert.equal(f.control.recommendations[0].productionPrompt,faithful);
  const draft=(await generator.plan(selection,'test',original)).value;

@@ -23,7 +23,7 @@ for(const provider of ['codex','gemini'])for(const length of [8,25])test(`${prov
    assert.equal(doc.plan,null);assert.equal(doc.draft.pages.length,length);
    assert.equal(doc.draft.reflection,undefined);assert.equal(doc.storyboard?.outline.reflection,undefined);
    assert.deepEqual(payload.draft,doc.draft);assert.equal(payload.verifiedOriginal.text,doc.original.text);
-   assert.deepEqual(Object.keys(schema.properties),['candidates']);
+   assert.deepEqual(Object.keys(schema.properties),['title','candidates']);
    assert.equal(session.generationProgress.phase,'reflection');assert.equal(session.story,null);
    assert.match(generationProgress(session,0).steps[2].detail,/分镜已保存.*结语/);
    assert.equal(readLibrarySummary(f.dataDirectory).stories.find(s=>s.id===id).production.phase,'reflection');
@@ -117,8 +117,8 @@ test('saved ending receipts and concurrent advances cannot repeat a paid ending'
 
 test('review validation keeps ending issues separate from real frame numbers',()=>{
  const schema=reviewReportSchema(1);
- assert.deepEqual(schema.parse({issues:[endingIssue,{...endingIssue,page:1,category:'source'}]}).issues.length,2);
- for(const issues of [[{...endingIssue,page:1}],[{...endingIssue,category:'source'}],[endingIssue,endingIssue]])assert.throws(()=>schema.parse({issues}));
+ assert.deepEqual(schema.parse({titleReview:{title:'原典故事名',reason:'保留原题。'},issues:[endingIssue,{...endingIssue,page:1,category:'source'}]}).issues.length,2);
+ for(const issues of [[{...endingIssue,page:1}],[{...endingIssue,category:'source'}],[endingIssue,endingIssue]])assert.throws(()=>schema.parse({titleReview:{title:'原典故事名',reason:'保留原题。'},issues}));
 });
 
 test('repairing an ending in a revision retains all existing images',async t=>{

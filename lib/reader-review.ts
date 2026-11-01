@@ -1,4 +1,4 @@
-// Audit scenes and the separate ending against the full source; scope scene repairs by frame.
+// Audit the title, scenes and separate ending against the full source; scope scene repairs by frame.
 import {normalizeProductionPrompt} from './reader-prompts.ts';
 import {z} from 'zod';
 import {planSchema,reflectionCandidatesSchema} from './reader-model.ts';
@@ -8,7 +8,7 @@ import type {OriginalSource} from './reader-source-types.ts';
 import type {Generated} from './reader-engine.ts';
 import {getArtStyle} from './reader-styles.ts';
 import {planSystemPrompt} from './reader-generation-contract.ts';
-import {narrativeMeaningDirection,reflectionMeaningDirection} from './reader-prompts.ts';
+import {narrativeMeaningDirection,reflectionMeaningDirection,editorialDirection,storyEditorialContext} from './reader-prompts.ts';
 import {readerStoryboardBatchSize} from './reader-limits.ts';
 import {localPlanConstraint} from './reader-local-contract.ts';
 import type {ReasoningTask} from './reader-reasoning.ts';
@@ -18,10 +18,12 @@ const categories=['caption','action','composition','progression','continuity','s
 const issueSchema=z.object({page:z.number().int().min(0),category:z.enum(categories),problem:z.string().trim().min(1).max(180),instruction:z.string().trim().min(1).max(400)});
 export type ReviewIssue=z.infer<typeof issueSchema>;
 export type ReflectionChoice={index:number;reason:string};
-export type ReviewReport={issues:ReviewIssue[];reflectionChoice?:ReflectionChoice};
-export type ReviewCheckpoint={overridden?:boolean;stopReason?:'limit'|'unchanged';history?:{round:number;requested:number[];changes:RepairedPage[];reflection?:string}[];status:'pending'|'repair'|'passed'|'blocked';round:number;repairs:number;issues:ReviewIssue[];repaired:number[];reports:{round:number;issues:ReviewIssue[];reflectionChoice?:ReflectionChoice&{candidates:ReflectionCandidates}}[]};
+export type TitleReview={title:string;reason:string};
+export type ReviewReport={issues:ReviewIssue[];titleReview:TitleReview;reflectionChoice?:ReflectionChoice};
+// Historical review reports remain readable without title audit metadata.
+export type ReviewCheckpoint={overridden?:boolean;stopReason?:'limit'|'unchanged';history?:{round:number;requested:number[];changes:RepairedPage[];reflection?:string}[];status:'pending'|'repair'|'passed'|'blocked';round:number;repairs:number;issues:ReviewIssue[];repaired:number[];reports:{round:number;issues:ReviewIssue[];titleReview?:TitleReview&{previousTitle:string};reflectionChoice?:ReflectionChoice&{candidates:ReflectionCandidates}}[]};
 export type RepairedPage={page:number;caption:string;prompt:string};
-export function reviewReportSchema(count:number,candidates?:ReflectionCandidates){return z.object({issues:z.array(issueSchema.extend({page:z.number().int().min(0).max(count)})).max(count+1),reflectionChoice:z.object({index:z.number().int().min(1).max(3),reason:z.string().trim().min(1).max(400)}).optional()}).superRefine((report,ctx)=>{
+export function reviewReportSchema(count:number,candidates?:ReflectionCandidates){return z.object({titleReview:z.object({title:planSchema.shape.title.trim().min(1),reason:z.string().trim().min(1).max(400)}),issues:z.array(issueSchema.extend({page:z.number().int().min(0).max(count)})).max(count+1),reflectionChoice:z.object({index:z.number().int().min(1).max(3),reason:z.string().trim().min(1).max(400)}).optional()}).superRefine((report,ctx)=>{
  if(new Set(report.issues.map(issue=>issue.page)).size!==report.issues.length)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Duplicate review page'});
  if(report.issues.some(issue=>(issue.page===0)!==(issue.category==='reflection')))ctx.addIssue({code:z.ZodIssueCode.custom,message:'Reflection issues must target the ending; frame issues require positive pages'});
  if(!!candidates!==!!report.reflectionChoice)ctx.addIssue({code:z.ZodIssueCode.custom,message:'An ending choice is required only when candidates are supplied'});
@@ -38,12 +40,14 @@ export function pendingRepairs(review:ReviewCheckpoint){
 export function newReview():ReviewCheckpoint{return {history:[],status:'pending',round:0,repairs:0,issues:[],repaired:[],reports:[]};}
 
 const string=(maxLength:number)=>({type:'string',minLength:1,maxLength});
-const reflectionChoiceDirection='本次结语有三个候选（reflectionCandidates），按数组顺序编号1、2、3；plan.reflection 只是尚未选定时的占位，不表示推荐。先对照完整原文和分镜逐句判断成立与否，再在合格句中比较所保留的意味、准确程度、表达功能与语言取舍，选出最值得留下的一句。不要默认选第一句，不按长短、故事名词数量、修辞华丽或固定寓意排名；有据的不同读法可以成立，择优不等于只认可一种寓意。返回 reflectionChoice:{index,reason}，index 必须为现有候选编号，reason 简述所选句的原文依据及相对其余两句的具体优势；不能拼接、改写或另造第四句。有合格候选时，选定其中最优，不因淘汰句有问题或还能想到另一种说法而要求修订。结语的 reflection 问题只针对最终所选句；三个都不合格时也先选最接近要求的一句，并报告其具体问题，交给结语修订阶段处理。分镜仍按完整审核要求检查，择优不能跳过分镜审核。';
+const reflectionChoiceDirection='本次结语有三个候选（reflectionCandidates），按数组顺序编号1、2、3；plan.reflection 只是尚未选定时的占位，不表示推荐。先对照完整原文和分镜逐句判断成立与否，再在合格句中比较所保留的意味、准确程度、表达功能与语言取舍，选出最值得留下的一句。不要默认选第一句，不按长短、故事名词数量、修辞华丽或固定寓意排名；也不因覆盖更多情节、人物或支线，就优先选择更宽泛的一句。先比较判断是否明确、关系与分寸是否有原文依据、读完能带走什么，再结合入口规则选择表达角度。完整理解全篇不等于成句概括全篇；有据的不同读法可以成立，择优不等于只认可一种寓意。返回 reflectionChoice:{index,reason}，index 必须为现有候选编号，reason 简述所选句的原文依据及相对其余两句的具体优势；不能拼接、改写或另造第四句。有合格候选时，选定其中最优，不因淘汰句有问题或还能想到另一种说法而要求修订。结语的 reflection 问题只针对最终所选句；三个都不合格时也先选最接近要求的一句，并报告其具体问题，交给结语修订阶段处理。分镜仍按完整审核要求检查，择优不能跳过分镜审核。';
 const sourceFidelityDirection=`条件与适用范围：逐幅对照原文与前后语境，核对一个判断在什么条件下、对什么对象、在什么时间或情境中成立，属于已发生、可能发生还是假设中的后果。原文同时排除当前情境、谈论另一种情形时，要保留两者的区别；不能删掉条件后，把假设中的风险写成眼前实际的担忧或结果，也不能把局部判断扩大成一般事实。条件不一定写成“如果”，也可能由转折、对比、例外、否定或前句建立，不按关键词机械判错。前文已明确条件时可以自然承接；只有省略后会改变适用范围或造成实质误读才报告，修法补回最少必要条件、对象或情境，不强求每幅重复背景。
 主观判断与客观事实：对配文和画面中的每个实质判断，核对依据是叙述者确认、独立事件证明，还是人物的评价、感受、担忧、责怪、猜测或指控。原文只确认某人这样想、这样说或作出某种反应时，不能把判断内容写成叙述者确认的事实；某人的不满、抱怨、害怕或他人未反驳，都不足以证明对方确实有错或危险确实存在。可写人物实际的言行与反应，保留必要的“觉得、嫌、认为、担心”等归属或直接对白；已建立说话语境时自然承接，不逐句叠加转述标签。原文确有叙述者确认或独立事实支持时，也不要把事实降成猜测。画面指令（prompt）同样检查：不能借新增动作、表情或回忆画面，为未经证实的评价、指控或推断补造证据。
 发现上述问题时，使用原文忠实度（source）或配文（caption）类别，指出实际需要修改的幅，在问题说明（problem）中引用原文的条件或判断归属与配文的对应表达，说明删除了什么限定、把谁的看法变成了什么事实，以及会造成的误读；修订要求（instruction）指定补回哪层条件或归属，保留有效对白、潜台词和无问题的画面，不靠添加心理解说修补事实边界。即使该幅已发现语言或构图问题，也继续完成这两项核对，合并报告，不因修好一项就漏掉另一项。`;
 export const reviewSystemPrompt=`你是独立的静态连环画审片编辑，既校核准确性，也保护故事的表达。先完整阅读已核原文，再连读全篇配文（caption）并结合画面指令（prompt）理解画面，按“核心含义 → 分镜轻重 → 事实与连续性 → 语言”的顺序审核，不从逐句挑歧义开始。深化理解用于改善取舍和可见表达，不等于把理解到的含义全部写进旁白。
-表达方向：选题主题不参与分镜修订或结语择优。仅依据完整原文、全篇分镜与读者明确填写的制作要求（productionPrompt）判断表达收益；在准确、有意味且语言自然的合格候选中择优。不能预设主题结论，不因缺少反转、成长、和解或某种寓意要求重写，也不能为表达收益改写人物动机或原文结局。选择理由应说明原文依据与实际表达收益，不用主题标签代替比较。
+表达方向：editorialContext 只参与标题审核和结语择优，不参与分镜、配文修订。分镜按原文与读者明确填写的制作要求审核，不因为选题主题缺少反转、成长、和解或某种寓意要求重写。
+${editorialDirection}
+标题审核：逐项核对当前标题与完整原文及 plan.pages 实际内容，区分定位片段名与完整故事范围。按入口规则检查准确性、可识别性及主题切入是否自然；不能为主题新增动机或把后续命运写进本篇。标题已经合适时保留，不为风格偏好改名；有范围不符、含混、误导或无依据扣题等实质问题时直接修正标题。返回 titleReview:{title,reason}，title 是审核后的最终标题，reason 简述保留的依据或原题具体问题与修正收益。修正后再次按原文与实际分镜核对，不改写其他元数据、分镜或配文，也不把标题问题记作某一画幅的问题。
 ${narrativeMeaningDirection}
 结语独立检查：先完整理解原文与全篇配文，再把末幅配文和 plan.reflection 连读。分别完成三项检查：事实和立意是否受完整经历约束；它是在提炼认识或感受，还是重述已知情节与动机；表达是否有不增加意味的解释和铺垫。不能因事实正确、出现故事细节或句子流畅，就略过后两项。
 ${reflectionMeaningDirection}
@@ -73,8 +77,8 @@ export function storyboardReviewGenerator(call:Call){
  return {
   async review(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,reflectionCandidates?:ReflectionCandidates){
    const candidates=reflectionCandidates?reflectionCandidatesSchema.parse(reflectionCandidates):undefined;
-   const count=plan.pages.length,schema={type:'object',properties:{issues:{type:'array',maxItems:count+1,items:{type:'object',properties:{page:{type:'integer',minimum:0,maximum:count},category:{type:'string',enum:categories},problem:string(180),instruction:string(400)},required:['page','category','problem','instruction'],additionalProperties:false}},...(candidates?{reflectionChoice:{type:'object',properties:{index:{type:'integer',enum:[1,2,3]},reason:string(400)},required:['index','reason'],additionalProperties:false}}:{})},required:['issues',...(candidates?['reflectionChoice']:[])],additionalProperties:false};
-   const result=await call('review',reviewSystemPrompt+(original.localSource?'\n'+localPlanConstraint:'')+(candidates?'\n本次候选择优要求优先于单句结语审核要求：'+reflectionChoiceDirection:''),{...payload(selection,plan,original,outline),...(candidates?{reflectionCandidates:candidates}:{})},schema,16000,original);
+   const count=plan.pages.length,schema={type:'object',properties:{titleReview:{type:'object',properties:{title:string(40),reason:string(400)},required:['title','reason'],additionalProperties:false},issues:{type:'array',maxItems:count+1,items:{type:'object',properties:{page:{type:'integer',minimum:0,maximum:count},category:{type:'string',enum:categories},problem:string(180),instruction:string(400)},required:['page','category','problem','instruction'],additionalProperties:false}},...(candidates?{reflectionChoice:{type:'object',properties:{index:{type:'integer',enum:[1,2,3]},reason:string(400)},required:['index','reason'],additionalProperties:false}}:{})},required:['issues','titleReview',...(candidates?['reflectionChoice']:[])],additionalProperties:false};
+   const result=await call('review',reviewSystemPrompt+(original.localSource?'\n'+localPlanConstraint:'')+(candidates?'\n本次候选择优要求优先于单句结语审核要求：'+reflectionChoiceDirection:''),{...payload(selection,plan,original,outline),editorialContext:storyEditorialContext(selection.theme),...(candidates?{reflectionCandidates:candidates}:{})},schema,16000,original);
    return {...result,value:reviewReportSchema(count,candidates).parse(result.value)};
   },
   async repair(selection:Selection,plan:Plan,original:OriginalSource,issues:ReviewIssue[],outline?:StoryboardOutline){

@@ -78,20 +78,21 @@ test('all-rejected selection repairs only the selected sentence, then audits wit
 
 test('candidate and choice schemas preserve the old single-ending report contract',()=>{
  assert.deepEqual(reflectionCandidatesSchema.parse(candidates),candidates);
- assert.deepEqual(reviewReportSchema(8).parse({issues:[]}),{issues:[]});
- assert.throws(()=>reviewReportSchema(8,candidates).parse({issues:[]}));
- assert.throws(()=>reviewReportSchema(8).parse({issues:[],reflectionChoice:choice(1)}));
- assert.deepEqual(reviewReportSchema(8,candidates).parse({issues:[],reflectionChoice:choice(3)}).reflectionChoice,choice(3));
+ const titleReview={title:'庄周梦蝶',reason:'标题准确对应当前故事。'};
+ assert.deepEqual(reviewReportSchema(8).parse({issues:[],titleReview}),{issues:[],titleReview});
+ assert.throws(()=>reviewReportSchema(8,candidates).parse({issues:[],titleReview}));
+ assert.throws(()=>reviewReportSchema(8).parse({issues:[],titleReview,reflectionChoice:choice(1)}));
+ assert.deepEqual(reviewReportSchema(8,candidates).parse({issues:[],titleReview,reflectionChoice:choice(3)}).reflectionChoice,choice(3));
 });
 
-for(const provider of ['codex','gemini'])test(`${provider}: discovery theme stays out of review and repair while authored requirements survive`,async t=>{
+for(const provider of ['codex','gemini'])test(`${provider}: editorial theme reaches ending review but not scene repair, with authored requirements intact`,async t=>{
  const f=await productionFixture(t,provider),g=f.generation.generator();
  const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,artStyle:'ink-pencil',voice:false,productionPrompt:'用简洁旁白讲述，保留原文事实。'};
  const plan=makePlan(8),original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶。',url:'https://example.org',kind:'passage',provider:'controlled',retrievedAt:'2026-10-31T00:00:00Z'};
  const seen=[];
  f.control.beforeText=async(kind,payload)=>{
   if(kind==='review'||kind==='repair'){
-   seen.push(kind);assert.equal(payload.theme,undefined);assert.equal(payload.productionPrompt,selection.productionPrompt);
+   seen.push(kind);assert.equal(payload.theme,undefined);assert.deepEqual(payload.editorialContext,kind==='review'?{mode:'theme',theme:selection.theme}:undefined);assert.equal(payload.productionPrompt,selection.productionPrompt);
    assert.ok(!payload.productionPrompt.includes(selection.theme));assert.equal(payload.verifiedOriginal.text,original.text);
   }
  };

@@ -26,14 +26,14 @@ test('OpenAI covers suggestions, artwork advice, counts, drafts, outlines, batch
  const f=await fixture(t,(_url,options)=>{
   const body=JSON.parse(options.body),schema=body.text.format.schema,payload=JSON.parse(body.input[0].content),plan=makePlan(payload.exactPageCount||8);
   assert.equal(body.store,false);assert.equal(body.text.format.type,'json_schema');assert.equal(body.text.format.strict,true);assert.equal(schema.additionalProperties,false);assert.ok(body.reasoning.effort);assert.ok(options.signal instanceof AbortSignal);
-  if(payload.verifiedOriginal&&!schema.properties.artStyle){assert.equal(payload.theme,undefined);assert.equal(payload.productionPrompt,selection.productionPrompt);assert.deepEqual(payload.verifiedOriginal.chapterContext,contextualOriginal.chapterContext);assert.match(body.instructions,/定位片段首末不是改编的硬边界/);}
+  if(payload.verifiedOriginal&&!schema.properties.artStyle){assert.deepEqual(payload.editorialContext,schema.properties.candidates||schema.properties.issues||schema.properties.reflection?{mode:'theme',theme:selection.theme}:undefined);assert.equal(payload.theme,undefined);assert.equal(payload.productionPrompt,selection.productionPrompt);assert.deepEqual(payload.verifiedOriginal.chapterContext,contextualOriginal.chapterContext);assert.match(body.instructions,/定位片段首末不是改编的硬边界/);}
   if(schema.properties.stories)assert.equal(payload.theme,selection.theme);
   if(schema.properties.stories)return completed({stories:[{title:'庄周梦蝶',description:'梦与醒的边界。',artRecommendation:art,...(payload.localBook?{source:{sectionId:'chapter',firstUnit:'unit',lastUnit:'unit',continuations:[]}}:{})}],note:'',...(schema.properties.scan?{scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}}:{})});
   if(schema.properties.artStyle)return completed(art);
   if(schema.properties.count)return completed({count:8,reason:'保留故事的完整因果。'});
-  if(schema.properties.issues){assert.equal(body.reasoning.effort,'xhigh');return completed({issues:[]});}
+  if(schema.properties.issues){assert.equal(body.reasoning.effort,'xhigh');return completed({issues:[],titleReview:{title:payload.plan.title,reason:'标题准确对应当前故事。'}});}
   if(payload.requestedPages)return completed({pages:payload.requestedPages.map(page=>({page,...payload.plan.pages[page-1]}))});
-  if(schema.properties.candidates)return completed({candidates:['梦醒之后，仍可记住自在。','梦中有梦中的天地。','醒来未必失去一切。']});
+  if(schema.properties.candidates)return completed({title:payload.draft.title,candidates:['梦醒之后，仍可记住自在。','梦中有梦中的天地。','醒来未必失去一切。']});
   if(schema.properties.reflection)return completed({reflection:'梦醒之后，仍可记住自在。'});
   if(schema.properties.beats){const {pages,reflection,...rest}=plan;return completed({...rest,beats:pages.map((_,i)=>'第'+i+'幅的关键动作。')});}
   if(payload.batch)return completed({pages:plan.pages.slice(payload.batch.first-1,payload.batch.last)});
@@ -50,7 +50,7 @@ test('OpenAI covers suggestions, artwork advice, counts, drafts, outlines, batch
  const long={...selection,length:21},outline=(await generator.outline(long,'test',contextualOriginal)).value;
  assert.equal((await generator.planBatch(long,'test',{outline,pages:[]},contextualOriginal)).value.length,20);
  assert.equal((await generator.reflection(selection,makePlan(8),contextualOriginal)).value,'梦醒之后，仍可记住自在。');
- assert.equal((await generator.reflectionCandidates(selection,makePlan(8),contextualOriginal)).value.length,3);
+ assert.equal((await generator.reflectionCandidates(selection,makePlan(8),contextualOriginal)).value.candidates.length,3);
  assert.deepEqual((await generator.review(selection,makePlan(8),contextualOriginal)).value.issues,[]);
  assert.equal((await generator.repair(selection,makePlan(8),contextualOriginal,[{page:1,category:'composition',problem:'构图重复。',instruction:'调整本幅可见动作。'}])).value[0].page,1);
 });

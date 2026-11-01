@@ -67,7 +67,7 @@ for(const provider of ['codex','gemini'])test(`${provider}: complete chapters su
  await g.planBatch(selection,'chapter-context',{outline:outline.value,pages:[]},saved);
  const short={...selection,length:8},plan=(await g.plan(short,'chapter-context',saved)).value;
  assert.equal(plan.sourceReference,saved.chapterContext.title);
- const candidates=(await g.reflectionCandidates(short,plan,saved)).value;
+ const candidates=(await g.reflectionCandidates(short,plan,saved)).value.candidates;
  await g.reflection(short,plan,saved);
  await g.review(short,plan,saved,undefined,candidates);
  await g.repair(short,plan,saved,[{page:8,category:'progression',problem:'结尾缺少告辞。',instruction:'依据完整章节核对探病的自然收束。'}]);

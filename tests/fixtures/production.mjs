@@ -25,11 +25,13 @@ export async function productionFixture(t,provider='codex',variables={}){
   try{if(control.hold)await gate.promise;return call.bytes;}finally{call.done=true;control.active--;}
  }
  async function planned(prompt,schema){
-  const payload=JSON.parse(prompt);if(schema.properties.count){control.recommendations.push(payload);return {count:7,reason:'保留完整因果和关键转折。'};}
-  if(schema.properties.issues){control.reviews.push(payload);return {...(payload.reflectionCandidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识，表达简洁。'}}:{}),...await control.beforeText?.('review',payload,schema)??{issues:[]}};}
+  const payload=JSON.parse(prompt);if(schema.properties.artStyle)return {artStyle:'ink-pencil',reason:'与本篇人物动作及叙事相符。'};
+  if(schema.properties.count){control.recommendations.push(payload);return {count:7,reason:'保留完整因果和关键转折。'};}
+  if(schema.properties.issues){control.reviews.push(payload);return {titleReview:{title:payload.plan.title,reason:'标题准确对应当前故事。'},...(payload.reflectionCandidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识，表达简洁。'}}:{}),...await control.beforeText?.('review',payload,schema)??{issues:[]}};}
   if(payload.draft){
    (payload.revision?control.reflectionRepairs:control.reflections).push(payload);
-   return await control.beforeText?.(payload.revision?'reflection-repair':'reflection',payload,schema)??(schema.properties.candidates?{candidates:makeReflectionCandidates(makePlan(1).reflection)}:{reflection:'梦醒之后，仍可以记住梦中的自在。'});
+   const override=await control.beforeText?.(payload.revision?'reflection-repair':'reflection',payload,schema);
+   return schema.properties.candidates?{title:payload.draft.title,...override??{candidates:makeReflectionCandidates(makePlan(1).reflection)}}:override??{reflection:'梦醒之后，仍可以记住梦中的自在。'};
   }
   if(payload.requestedPages){control.repairs.push(payload);return await control.beforeText?.('repair',payload,schema)??{pages:payload.requestedPages.map(page=>({page,...payload.plan.pages[page-1],prompt:payload.plan.pages[page-1].prompt+' Revised staging with one clear visible action.'}))};}
   const length=payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount,plan=makePlan(length);

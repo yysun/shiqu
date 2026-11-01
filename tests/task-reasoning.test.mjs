@@ -13,11 +13,11 @@ const original={title:'已核原文',text:'庄周梦为胡蝶。',url:'https://e
 const issue={page:2,category:'caption',problem:'机械重复转述。',instruction:'只修配文。'};
 const override={suggest:'high',art:'medium',frames:'low',outline:'medium',plan:'low',review:'medium',repair:'low'};
 function output(payload,schema){
- if(schema.properties.candidates)return {candidates:makeReflectionCandidates(plan.reflection)};
+ if(schema.properties.candidates)return {title:payload.draft.title,candidates:makeReflectionCandidates(plan.reflection)};
  if(schema.properties.stories)return {stories:[],note:''};
  if(schema.properties.artStyle)return {artStyle:'ink-pencil',reason:'适合本篇动作。'};
  if(schema.properties.count)return {count:8,reason:'保留完整因果。'};
- if(schema.properties.issues)return {issues:[]};
+ if(schema.properties.issues)return {issues:[],titleReview:{title:payload.plan.title,reason:'标题准确对应当前故事。'}};
  if(payload.requestedPages)return {pages:payload.requestedPages.map(page=>({page,...plan.pages[page-1]}))};
  if(schema.properties.beats)return outline;
  if(payload.batch)return {pages:plan.pages.slice(payload.batch.first-1,payload.batch.last)};
