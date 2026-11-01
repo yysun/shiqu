@@ -9,7 +9,7 @@ test('ZIP requires every image and sanitizes the archive filename',()=>{
  const story=makeStory();
  assert.throws(()=>assertZipReady({...story,pages:[]}),/所有画面/);
  assert.throws(()=>assertZipReady({...story,pages:[{...story.pages[0],image:''}]}),/所有画面/);
- assert.equal(zipFilename('故事/名字?'),'故事名字-拾趣-分镜与图片.zip');
+ assert.equal(zipFilename('故事/名字?'),'故事名字.zip');
 });
 
 test('ZIP preserves original image bytes, matching scene order, captions and prompts',async t=>{

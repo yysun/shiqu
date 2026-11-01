@@ -4,7 +4,7 @@ import type {Story} from './content';
 import type {GeneratedStory} from './reader-model';
 import {pdfFilename,storySourceReference} from './reader-pdf.ts';
 
-export function zipFilename(title:string){return pdfFilename(title).replace(/\.pdf$/,'-分镜与图片.zip');}
+export function zipFilename(title:string){return pdfFilename(title).replace(/-拾趣\.pdf$/,'.zip');}
 export function assertZipReady(story:Story){
  if(!story.pages.length||story.pages.some(page=>!page.image))throw Error('等所有画面生成完成后，就能下载分镜与图片 ZIP。');
 }
