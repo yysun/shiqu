@@ -8,11 +8,11 @@ import type {Plan,Selection} from './reader-model.ts';
 import type {StoryGenerator} from './reader-engine.ts';
 import {freshSuggestions,suggestionBatchSchema} from './reader-suggestions.ts';
 import {getArtStyle} from './reader-styles.ts';
-import {choicesJson,storyDraftJson,storyDraftDirection,suggestionSystemPrompt,planSystemPrompt,imagePrompt,imageTypes,mediaType} from './reader-generation-contract.ts';
+import {choicesJson,storyDraftJson,suggestionSystemPrompt,draftInstructions,imagePrompt,imageTypes,mediaType} from './reader-generation-contract.ts';
 export {imageTypes} from './reader-generation-contract.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import {saveStoryOriginal} from './reader-source-storage.ts';
-import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localPlanConstraint,localSuggestionPayload} from './reader-local-contract.ts';
+import {localChoicesJson,localScanJson,localChoices,localReadingPrompt,localSuggestionPayload} from './reader-local-contract.ts';
 import type {WholeBookInput} from './reader-local-contract.ts';
 import {verifiedOriginalPayload} from './reader-source-types.ts';
 import type {OriginalSource} from './reader-source-types.ts';
@@ -139,7 +139,7 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
   async plan(selection:Selection,id:string,original?:OriginalSource){
    const {book,url}=source(selection);
    const {candidate,metadata}=await generate(models.text,textRequest(
-    planSystemPrompt+'\n'+storyDraftDirection+(original?.localSource?'\n'+localPlanConstraint:''),
+    draftInstructions(!!original?.localSource),
     {book,chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})},storyDraftJson(selection.length),original?'':url,Math.max(8192,(selection.length==='auto'?readerMaxFrames:selection.length)*800),reasoning.plan),readerStoryboardTimeoutMs);
    if(url&&!original&&!wasRead(candidate,url))throw new GeminiError('SOURCE_UNAVAILABLE');
    const value=storyDraftSchema.parse(parseText(candidate));
