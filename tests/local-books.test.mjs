@@ -118,7 +118,7 @@ test('storyboard directory and batch calls both verify local source receipts bef
  const book=await library.book(selected),selection={...selected,length:45,source:ref(book)},media=memory();let outlines=0,batches=0;
  const base=fake();base.generator=()=>({...fake().generator(),async outline(){outlines++;return {value:{...plan,beats:Array(45).fill('梦醒之后，人物继续追问。')},model:'mock',requestId:null,usage:null};},async planBatch(){batches++;return {value:plan.pages,model:'mock',requestId:null,usage:null};}});
  const g=withLocalBooks(base,library,media).generator(),original=await g.prepareOriginal(selection,'receipt-test');
- const result=await g.outline(selection,'receipt-test',original),draft={outline:result.value,pages:[]};assert.equal(result.value.sourceReference,original.title);
+ const result=await g.outline(selection,'receipt-test',original),draft={outline:result.value,pages:[]};assert.equal(result.value.sourceReference,original.chapterContext.title);
  await g.planBatch(selection,'receipt-test',draft,original);
  for(const bad of [undefined,{...original,text:original.text+'□'},{...original,localSource:{...original.localSource,edition:'0'.repeat(64)}}]){
   await assert.rejects(g.outline(selection,'receipt-test',bad),e=>e.status===400);

@@ -10,7 +10,7 @@ import {LocalBooks,localBookId} from './local-books.ts';
 import {hasSourceAnomaly,hasStoredSourceAnomaly} from './local-source-quality.ts';
 import {discoverLocalStories} from './local-story-discovery.ts';
 import {StoryDiscoveryCache,discoveryHash} from './story-discovery-cache.ts';
-import {localSourceKey} from '../lib/reader-local-contract.ts';
+import {localSourceKey,localSourceSchema,sourceRanges} from '../lib/reader-local-contract.ts';
 import {artRecommendationSchema,selectedArtRecommendationPrompt} from '../lib/reader-art-recommendation.ts';
 
 export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:MediaStore,cache=new StoryDiscoveryCache(media)):ReaderProvider{
@@ -44,6 +44,13 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
    function verifyOriginal(selection:Selection,original:OriginalSource|undefined){
     if(!original?.localSource||!selection.source||localSourceKey(original.localSource)!==localSourceKey(selection.source))throw new ReaderError(400,'原文尚未在本地核对，请重新选择故事。');
     if(hasStoredSourceAnomaly(original)||hasSourceAnomaly(original.title))throw new ReaderError(400,'已存原文含未识别字形或缺文标记，请重新选择完整、可读的故事出处。原文记录已保留。');
+    if(original.chapterContext){
+     const {title,text,source}=original.chapterContext,parsed=localSourceSchema.safeParse(source);
+     const anchors=sourceRanges(original.localSource),sections=new Set(anchors.map(range=>range.sectionId));
+     if(typeof title!=='string'||!title||hasSourceAnomaly(title)||typeof text!=='string'||!text.isWellFormed()||!parsed.success||parsed.data.edition!==original.localSource.edition)throw new ReaderError(400,'已存章节上下文无法核对，请重新选择故事。原文记录已保留。');
+     const ranges=sourceRanges(parsed.data);
+     if(ranges.length!==sections.size||new Set(ranges.map(range=>range.sectionId)).size!==sections.size||ranges.some(range=>!sections.has(range.sectionId))||[...ranges,...anchors].some(range=>![range.firstUnit,range.lastUnit].every(id=>text.includes(`[${id}]\n`))))throw new ReaderError(400,'已存章节上下文与故事定位不一致，请重新选择故事。原文记录已保留。');
+    }
    }
    return {...generator,
     async reflection(selection,draft,original,revision){
@@ -65,7 +72,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
     ...(generator.outline?{async outline(selection,id,original){
      if(localBookId(selection))verifyOriginal(selection,original);
      const result=await generator.outline!(selection,id,original);
-     return original?{...result,value:{...result.value,sourceReference:original.title}}:result;
+     return original?{...result,value:{...result.value,sourceReference:original.chapterContext?.title||original.title}}:result;
     }} satisfies Pick<typeof generator,'outline'>:{}),
     ...(generator.planBatch?{async planBatch(selection,id,draft,original){
      if(localBookId(selection))verifyOriginal(selection,original);
@@ -76,7 +83,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
       if(selection.source)throw new ReaderError(400,'出处与所选书籍不一致，请重新选择故事。');
       return generator.prepareOriginal?.(selection,id)||null;
      }
-     const original=await books.selected(selection);return persist(original!,id);
+     const original=await books.storyOriginal(selection);return persist(original!,id);
     },
     async recommend(selection,id,original){
      if(localBookId(selection))verifyOriginal(selection,original);
@@ -88,7 +95,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
      verifyOriginal(selection,original);
      // The checkpoint owns the exact verified version; readable retries keep that saved original.
      const result=await generator.plan(selection,id,original);
-     return {...result,value:{...result.value,sourceReference:original!.title}};
+     return {...result,value:{...result.value,sourceReference:original!.chapterContext?.title||original!.title}};
     },
     async original(selection,plan,id){
      if(!localBookId(selection))return generator.original(selection,plan,id);

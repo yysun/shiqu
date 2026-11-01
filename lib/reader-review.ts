@@ -3,6 +3,7 @@ import {normalizeProductionPrompt} from './reader-prompts.ts';
 import {z} from 'zod';
 import {planSchema,reflectionCandidatesSchema} from './reader-model.ts';
 import type {Plan,Selection,StoryboardOutline,ReflectionCandidates} from './reader-model.ts';
+import {verifiedOriginalPayload} from './reader-source-types.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import type {Generated} from './reader-engine.ts';
 import {getArtStyle} from './reader-styles.ts';
@@ -68,7 +69,7 @@ ${reflectionMeaningDirection}
 const repairDirection='本次只修订审核问题（issues）指出、且列在本轮指定幅号（requestedPages）中的画幅。返回 {pages:[{page,caption,prompt}]}，幅号从1开始，必须与本轮指定幅号一一对应，不得增删或重复编号。保留选定故事、总幅数、关键事件的先后顺序、人物身份、画风与全篇元数据，其他页不改。默认沿用目录对应事件；只有审核问题明确要求相邻幅共同调整时，才可在本批指定幅号范围内重新分配原有事件与反应的承载位置，不能改动范围外的幅，也不能丢掉关键言行。先结合原文和全篇理解问题涉及的核心张力与画幅作用，再落实修订；保留原稿有效对白的口气、条件、判断力度，以及言行反差、反应、停顿和收尾；采用原文默认译成自然的现代对白，今天仍易懂的原句可以保留，不能以保留关键原话为由照搬妨碍理解的古文，也不把潜台词解释掉。若审核问题要求相关幅共同调整，按指定的分配落实各自不同的瞬间和反应，不把结构修订变成单幅加长解释，不把未说出口的心意逐项翻译成旁白。画面相近的问题修完后，再对照相关相邻幅的主要动作、接触、物件状态、视线和第一焦点，确认指定的差异确实可见，不能只替换“安坐、端坐、松放”等近义词或换景别；有效停顿仍要保留。类比修订允许在不丢失独立论证层次的前提下压缩重复举例，不能把含混对句换成常用字后原样保留其歧义。余味（reflection）在所有画幅之后单独展示，不属于最后一幅配文（caption）；不能为满足总结或感想要求把它复制或改写进末幅，末幅可以自然结束在人物对白、动作或停顿。纯配文问题只修改配文，原样返回无问题的画面指令（prompt）；只有问题涉及画面时才修改相应画面指令，使其落实为具体可见瞬间、人物动作和空间关系。逐项解决同一幅的全部审核问题：去掉机械转述后，继续检查剩余正文的对象、指代、用途、操作、尺寸与空间关系是否清楚，依据原文和该幅画面指令消除会改变情节理解的歧义，不能只删标签或加代词后保留含混说法，也不把画面细节全部复述成旁白。区分事实歧义与有语境支持的潜台词：优先修准对白、最少必要语境或反应，说明谁做了什么而不强加动机；不要把“讲清楚”默认实现为添加“借此讥讽”“其实因为”等解说。结合全篇与前后相邻幅，把修订后的全篇配文按顺序连读，消除病句、指代不清、衔接生硬和机械转述；在回忆或故事入口及必要转场交代说法归属与时间，后续自然承接，不能因删去重复标签而改变事实归属。不能靠新增事件或转移问题到邻页来通过审核。只输出规定 JSON，不输出解释、评分或完整重写。';
 type Call=(task:ReasoningTask,instructions:string,payload:unknown,schema:unknown,maxOutputTokens:number,original?:OriginalSource)=>Promise<Generated<unknown>>;
 export function storyboardReviewGenerator(call:Call){
- function payload(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline){return {book:selection.customBook||selection.bookId,chosenStory:selection.storyTitle,exactPageCount:plan.pages.length,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,verifiedOriginal:{title:original.title,text:original.text,url:original.url},plan,...(outline?{outline}:{})};}
+ function payload(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline){return {book:selection.customBook||selection.bookId,chosenStory:selection.storyTitle,exactPageCount:plan.pages.length,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,verifiedOriginal:verifiedOriginalPayload(original),plan,...(outline?{outline}:{})};}
  return {
   async review(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,reflectionCandidates?:ReflectionCandidates){
    const candidates=reflectionCandidates?reflectionCandidatesSchema.parse(reflectionCandidates):undefined;

@@ -1,12 +1,13 @@
 // Read whole local books, assign deterministic citation units, and resolve receipts exactly.
-// Unit lookup verifies a model-selected range; it never selects stories by semantic search.
+// Unit lookup verifies a story anchor; generation also saves its complete chapters so anchors cannot truncate a story.
 import path from 'node:path';
 import {readFile,realpath,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {ReaderError} from '../lib/reader-model.ts';
 import type {Selection} from '../lib/reader-model.ts';
 import type {SourceHint} from '../lib/reader-source-types.ts';
-import {sourceText} from './local-source-ranges.ts';
+import {sourceText,sourceParts} from './local-source-ranges.ts';
+import {readingTokens,wholeInputTokens} from './story-token-budget.ts';
 import type {LocalSourceReference,WholeBookInput} from '../lib/reader-local-contract.ts';
 import type {OriginalSource} from '../lib/reader-source-types.ts';
 import {sourceQuery} from '../lib/reader-source.ts';
@@ -159,6 +160,20 @@ export class LocalBooks{
   const book=await this.book(selection);if(!book)return null;
   if(!selection.source)throw invalid();
   return this.resolve(book,selection.source);
+ }
+ async storyOriginal(selection:Selection){
+  const book=await this.book(selection);if(!book)return null;
+  if(!selection.source)throw invalid();
+  const original=this.resolve(book,selection.source);
+  // These collections already expose isolated stories; their surrounding volume is unrelated material.
+  if(book.id==='shishuo'||book.id==='liaozhai')return original;
+  const sections=[...new Map(sourceParts(book,selection.source).map(part=>[part.section.id,part.section])).values()];
+  const ranges=sections.map(section=>({sectionId:section.id,firstUnit:section.units[0].id,lastUnit:section.units.at(-1)!.id}));
+  const [first,...continuations]=ranges;
+  const title=sections.length===1?sections[0].title:sections[0].title+' → '+sections.at(-1)!.title;
+  const chapterContext={title:`《${book.title}·${title}》`,text:sections.map(section=>`篇章 ${section.id}：${section.title}\n`+section.units.map(unit=>`[${unit.id}]\n${unit.text}`).join('\n\n')).join('\n\n'),source:{...first,...(continuations.length?{continuations}:{}),edition:book.edition}};
+  if(chapterContext.text.length>2000000||readingTokens(original.text+JSON.stringify(chapterContext))>wholeInputTokens)throw new ReaderError(400,'故事涉及的完整章节超出单次制作范围，请选择涉及章节较少的故事；原文不会截断。');
+  return {...original,chapterContext};
  }
  async legacy(selection:Selection,plan:SourceHint){
   const book=await this.book(selection);if(!book)return null;

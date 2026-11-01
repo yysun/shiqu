@@ -1,5 +1,5 @@
 'use client';
-// Display saved originals and distinguish a locally verified passage from a remote excerpt.
+// Display saved full chapter context when available, retaining historical passage-only originals.
 import {useEffect,useState} from 'react';
 import {ArrowRight,BookOpen,Loader2,RefreshCw} from 'lucide-react';
 import type {Story} from '@/lib/content';
@@ -24,10 +24,10 @@ export default function StorySource({story,sessionId,book}:Props){
   finally{setLoading(false);setSaving(false);}
  }
  const original=(story&&generated?(story as GeneratedStory).original:undefined)||result?.source;
- const text=sourceText||original?.text||'';
+ const text=original?.chapterContext?.text||sourceText||original?.text||'';
  const reference=story&&generated?(story as GeneratedStory).sourceReference:'';
  const adaptation=(story?.adaptationNote||'确认制作后，基于已保存的原文进行改编。').replace('；当前可使用设备朗读试听。','。');
- return <><div className="yu-source-heading"><BookOpen size={24}/><div><h3>{original?.title||book||'故事出处'}</h3><p>{original?.kind==='chapter'?'原典章节节选 · 可上下滚动阅读':text?'原文节选':'故事原文'}</p></div></div>
+ return <><div className="yu-source-heading"><BookOpen size={24}/><div><h3>{original?.chapterContext?.title||original?.title||book||'故事出处'}</h3><p>{original?.chapterContext?'完整原典章节 · 可上下滚动阅读':original?.kind==='chapter'?'原典章节节选 · 可上下滚动阅读':text?'原文节选':'故事原文'}</p></div></div>
  {loading?<div className="yu-source-status" role="status"><Loader2 size={19} className="spin"/>{saving&&story?'正在保存原文…':'正在加载已保存的原文…'}</div>:text?<p className="yu-original">{text}</p>:<div className="yu-source-status" role="status"><p>{error||result?.message||'这篇故事暂未找到可核对的原文。'}</p><button onClick={saveOriginal}><RefreshCw size={15}/>{story?'补全并保存原文':'重新加载原文'}</button></div>}
  {(story?.sourceUrl||original?.url)&&<a className="yu-source-link" href={story?.sourceUrl||original?.url} target="_blank" rel="noreferrer">查看原典出处{original?.provider?' · '+original.provider:''}<ArrowRight size={16}/></a>}
  {original&&<p className="yu-source-reference">{original.localSource?'已核对本地篇章范围，原文已随故事保存。':'原文已随故事保存，可随时回看。'}</p>}

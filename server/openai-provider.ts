@@ -1,6 +1,7 @@
 // Use official OpenAI text/image APIs with isolated API billing and validated local reference images.
 // Never log provider bodies or credentials, fetch returned image URLs, retry, or fall back to another provider.
 import {normalizeProductionPrompt} from '../lib/reader-prompts.ts';
+import {verifiedOriginalPayload} from '../lib/reader-source-types.ts';
 import {z} from 'zod';
 import {ReaderError,storyDraftSchema} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
@@ -88,7 +89,7 @@ export function createOpenAIProvider(variables:Record<string,string|undefined>,m
    original:(selection,plan,id)=>saveStoryOriginal(media,selection,plan,id,transport),
    async recommend(selection,_id,original){const result=await text(frameRecommendationPrompt,frameRecommendationPayload(selection,original),frameRecommendationJson,reasoning.frames,2048);return {...result,value:frameRecommendationSchema.parse(result.value)};},
    async plan(selection,id,original){
-    const result=await text(planSystemPrompt+(original?.localSource?'\n'+localPlanConstraint:'')+'\n'+storyDraftDirection,{book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:{title:original.title,text:original.text,url:original.url}}:{})},storyDraftJson(selection.length),reasoning.plan,Math.max(8192,(selection.length==='auto'?20:selection.length)*800));
+    const result=await text(planSystemPrompt+(original?.localSource?'\n'+localPlanConstraint:'')+'\n'+storyDraftDirection,{book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})},storyDraftJson(selection.length),reasoning.plan,Math.max(8192,(selection.length==='auto'?20:selection.length)*800));
     const value=storyDraftSchema.parse(result.value);if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new OpenAIError('PLAN_LENGTH');return {...result,value};
    },
    async image(plan,page,id,reference,style='ink-pencil',productionPrompt='',artifactId){
