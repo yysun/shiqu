@@ -66,7 +66,8 @@ jobs:
       # Codex CLI integration fixtures use Unix executables; Windows supports API providers and read-only.
       - name: Test Windows desktop runtime
         if: runner.os == 'Windows'
-        run: node --experimental-strip-types --test tests/desktop-*.test.mjs tests/library-directory.test.mjs
+        timeout-minutes: 5
+        run: node --experimental-strip-types --test --test-timeout=60000 tests/desktop-*.test.mjs tests/library-directory.test.mjs
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - name: Build shared reader, desktop UI, and runtime resources
         run: |

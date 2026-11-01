@@ -63,7 +63,9 @@ test('connection test uses only model metadata, does not echo credentials, and n
  const failure=await testDesktopProvider(config,'private-test-key','/tmp',async()=>Response.json({error:'private-test-key'},{status:403}));assert.equal(failure.ok,false);assert.ok(!failure.message.includes('private-test-key'));
 });
 test('desktop lifecycle preserves progress and direct access across restarts, detects busy data, and recovers after port conflicts',async t=>{
- const f=await fixture(t);let running=await startDesktop(f.settings,'',f.root);t.after(()=>running.stop());
+ // Hooks run in registration order: Windows cannot remove an open SQLite library.
+ let running;t.after(()=>running?.stop());
+ const f=await fixture(t);running=await startDesktop(f.settings,'',f.root);
  const url=new URL(running.status.url),origin=url.origin;
  assert.equal(running.status.url,origin);assert.equal(url.hash,'');assert.equal(url.pathname,'/');
  assert.equal((await fetch(origin)).status,200);
@@ -85,11 +87,12 @@ test('desktop lifecycle preserves progress and direct access across restarts, de
  running=await startDesktop(f.settings,'',f.root);assert.equal(running.status.running,true);
 });
 test('data ownership rejects a live Node owner and reclaims a demonstrably dead owner',async t=>{
- const f=await fixture(t),directory=f.settings.dataDirectory;const release=await ownDesktopData(directory);
+ let release;t.after(()=>release?.());
+ const f=await fixture(t),directory=f.settings.dataDirectory;release=await ownDesktopData(directory);
  await assert.rejects(ownDesktopData(directory),/DATA_BUSY/);await release();
  const child=spawn(process.execPath,['-e','process.exit(0)']);await once(child,'exit');
  await writeFile(path.join(directory,'.desktop-owner.json'),JSON.stringify({pid:child.pid,id:'dead-owner'}));
- const replacement=await ownDesktopData(directory);await replacement();await assert.rejects(access(path.join(directory,'.desktop-owner.json')));
+ release=await ownDesktopData(directory);await release();await assert.rejects(access(path.join(directory,'.desktop-owner.json')));
 });
 
 async function until(check,timeout=10000){const end=Date.now()+timeout;while(Date.now()<end){const value=await check();if(value)return value;await new Promise(resolve=>setTimeout(resolve,20));}throw Error('Timed out waiting for process evidence');}
