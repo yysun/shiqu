@@ -258,6 +258,18 @@ Costs are medians of five warm passes, with SQLite in memory, 80-frame controlle
 
 Follow-up (outside this story's version-query scope): with 20 history-heavy blocked stories the shelf family query takes 62.902 ms and the cycle 62.877 ms; family eligibility scans, not provider dispatch, dominate this fixture, whose cycle is slower than its 37.671 ms baseline despite fewer statements. Shelf bytes fall from 2,715,181 to 312,121, but this work does not claim universal elapsed-time improvement.
 
+Milestone 6 commit: `080b61a`. All six implementation milestones are locally committed on `main`; the recorded base is unchanged. Both preview helpers were stopped and isolated browser fixtures removed. Owned scratch logs and the extracted baseline were removed. No branch/worktree, merge, push, paid call, real-library write, Docker build or desktop package was performed.
+
+Independent read-only CR covered the entire story scope since the recorded base, including persistence, migrations, cache invalidation, concurrency, eligibility, paid-work containment, compatibility, tests and evidence:
+
+CR passed: no major findings
+
+CR risk: non-low — changes affect paid-work eligibility, concurrent scheduling, persistence and migration behavior. Recorded verification evidence was reviewed; no tests or paid calls were executed. Full TT and ET remain pending.
+
+CR review round: 1; reviewer: new
+
+Standalone SS stops here. TT, ET and acceptance/VR checkboxes remain downstream, not silently marked complete. Unrelated entry edits to `.docs/development.md` and `.docs/user-guide.md`, and concurrent `.gitignore`, `lib/reader-zip.ts`, `tests/reader-zip.test.mjs` changes were left unstaged and untouched.
+
 AR passed: no blocking architecture flaws (round 5, full review of this design by the reused independent reviewer). Its non-blocking corrections were applied afterward without another review round. They are the eligibility wording, the extra `demands`, `viewedPublicationPending` and `basis` checks, the old-version note, `wake()`, rollback SQL, test line numbers and scenario setups.
 
 The rollback statement in Decision 9 was run on an in-memory SQLite database with a corrupt row, a completed family and another owner's row. It paused only the unfinished superseded versions.

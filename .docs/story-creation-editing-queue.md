@@ -217,7 +217,7 @@ flowchart LR
 
 新故事默认 `background + active`，确认后即使离开页面也继续整篇。旧 `reader` 模式才依赖活跃浏览器需求；需求每约 **10 秒**续期，**30 秒**失效，并带本次服务 `runtime_id`，重启不能凭旧浏览器需求擅自启动生成。
 
-**实现依据**：[执行池与并发配置](../server/reader-production.ts#L47)、[图构建](../server/reader-production.ts#L209)、[执行资格与让位](../server/reader-production.ts#L253)、[通用队列](../server/production-queue.ts#L22)、[阅读续期](../lib/reader-production-client.ts#L12)、[预读与需求期限](../lib/reader-production.ts#L3)。
+**实现依据**：[执行池、图构建、最新版本资格与让位](../server/reader-production.ts)、[通用队列与候选过滤](../server/production-queue.ts)、[阅读续期](../lib/reader-production-client.ts)、[预读与需求期限](../lib/reader-production.ts)。
 
 ## 6. 暂停、失败、重启与迟到结果怎么处理？
 
@@ -257,7 +257,7 @@ stateDiagram-v2
 
 这些机制避免常见重复调用，但**不是远端请求的“恰好一次”保证**：提供方接受了请求、而本地还没保存结果就中断，恢复可能再次消耗费用或额度。电脑休眠导致时钟跳变时，本进程仍持有的活跃任务不会只因到期就被自己重领。
 
-**实现依据**：[重试与租约](../server/production-queue.ts#L43)、[任务执行与结果条件写入](../server/production-queue.ts#L91)、[恢复资格](../server/reader-production.ts#L137)、[图片发布校验](../server/reader-production.ts#L453)、[服务收尾](../server/reader-production.ts#L519)。
+**实现依据**：[重试、租约、逐任务错误隔离与结果条件写入](../server/production-queue.ts)、[恢复资格、删除检查点处理、图片发布校验与服务收尾](../server/reader-production.ts)。
 
 ## 7. 状态保存在哪里，界面如何展示？
 
