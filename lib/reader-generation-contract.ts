@@ -12,7 +12,7 @@ import {localPlanConstraint} from './reader-local-contract.ts';
 const string=(minLength:number,maxLength:number)=>({type:'string',minLength,maxLength});
 const object=(properties:Record<string,unknown>)=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false});
 export const choicesJson=object({stories:{type:'array',maxItems:5,items:object({title:string(1,100),description:string(1,180),artRecommendation:artRecommendationJson})},note:string(0,300)});
-export const planJson=(length:Selection['length'])=>object({title:string(1,40),hook:string(1,100),sourceReference:string(1,150),adaptationNote:string(1,600),reflection:string(1,100),characters:string(20,2500),pages:{type:'array',minItems:length==='auto'?readerMinFrames:length,maxItems:length==='auto'?readerMaxFrames:length,items:object({caption:string(8,90),prompt:string(20,1800)})}});
+export const planJson=(length:Selection['length'])=>object({title:string(1,40),summary:string(1,1200),sourceReference:string(1,150),adaptationNote:string(1,600),reflection:string(1,100),characters:string(20,2500),pages:{type:'array',minItems:length==='auto'?readerMinFrames:length,maxItems:length==='auto'?readerMaxFrames:length,items:object({caption:string(8,90),prompt:string(20,1800)})}});
 export function storyDraftJson(length:Selection['length']){
  const full=planJson(length),{reflection:_,...properties}=full.properties;void _;
  return object(properties);
@@ -31,7 +31,7 @@ export const storyPlanningDirection=promptSections(
  ['事实边界',sourceFidelityDirection],
  ['幅数与制作要求',narrativeDetailInstructions+`全篇 exactPageCount 为数字时严格遵守；为 auto 时按关键事件、因果、转折与停顿决定 ${readerMinFrames} 至 ${readerMaxFrames} 幅，不预设常见数量区间，不为凑数重复或为压缩丢掉关键转折。只有1幅时，用一个核心瞬间配合旁白交代必要因果与结果，不拼入连续动作。productionPrompt 优先于默认叙事建议，仍服从原文事实及选定故事、总幅数、画风和 schema，不能为主题、误会、反转或温暖余味改变动机、行为性质或结局。`],
  ['输入与输出',inputBoundaryDirection]);
-export const storyMetadataDirection='sourceReference 写书名与篇名；有 chapterContext 时使用 chapterContext.title，否则使用 verifiedOriginal.title，不伪造古文或网址。adaptationNote 说明新增、压缩和改写，明确属于 AI 演绎。characters 用简体中文记录有依据的时代、年龄、外貌、服饰和辨识特征，必要物件写稳定外观，作为全篇身份依据；不重复画风、排线、光影或构图，不要求每幅全员或全身出场，也不阻止有原文依据的配角。';
+export const storyMetadataDirection='summary 是完整故事摘要，最多1200字，交代起因、关键行动、推进变化与实际结果，不是开场引子或计策目的；已提供核对后的 storyBrief.summary 时原样复用，不另写一份。sourceReference 写书名与篇名；有 chapterContext 时使用 chapterContext.title，否则使用 verifiedOriginal.title，不伪造古文或网址。adaptationNote 说明新增、压缩和改写，明确属于 AI 演绎。characters 用简体中文记录有依据的时代、年龄、外貌、服饰和辨识特征，必要物件写稳定外观，作为全篇身份依据；不重复画风、排线、光影或构图，不要求每幅全员或全身出场，也不阻止有原文依据的配角。';
 export const storyPageDirection=promptSections(
  ['配文','caption 正常目标8至55字，最多3个短句；必要时可超过55字，但不得超过 schema 的90字硬上限，不为凑字数解释画面。可用现代旁白、对白或两者。对白默认自然现代译写，保留原意、口气、条件与力度，今天仍易懂的原句可保留；不改成概括转述或潜台词解说。'],
  ['画面指令','prompt 默认用简体中文，专业术语可保留英文，不整段双语重复。每幅可独立生成：先写核心瞬间，再写动作或反应、接触与空间关系、当前物件状态，按本幅功能选择景别、视点、环境及画外信息。具体简洁，不填术语表，不以抽象情绪、运镜、泛泛“张口讲述”或长串否定句代替设计。重复本幅可见的必要位置和外观线索，使单独生成仍能衔接；局部特写不强塞全身衣着和全景。'],

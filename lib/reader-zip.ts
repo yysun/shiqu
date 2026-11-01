@@ -27,7 +27,7 @@ async function webpImage(blob:Blob,page:number){
 function storyboardText(story:Story,images:string[]){
  const generated='generated'in story&&story.generated===true?story as GeneratedStory:null;
  return [
-  `# ${story.title}`,story.hook,`主题：${story.theme}`,`出处：${storySourceReference(story)}`,
+  `# ${story.title}`,story.summary,`主题：${story.theme}`,`出处：${storySourceReference(story)}`,
   story.sourceUrl&&`出处链接：${story.sourceUrl}`,
   generated?.artStyleLabel&&`画风：${generated.artStyleLabel}`,
   generated?.productionPrompt&&`## 制作要求\n\n${generated.productionPrompt}`,
@@ -56,7 +56,7 @@ export async function createStoryZip(story:Story,onProgress:(text:string)=>void=
  files['分镜.md']=strToU8(storyboardText(story,images));
  const generated='generated'in story&&story.generated===true?story as GeneratedStory:null;
  files['故事.json']=strToU8(JSON.stringify({
-  id:story.id,title:story.title,hook:story.hook,bookId:story.bookId,theme:story.theme,
+  id:story.id,title:story.title,summary:story.summary,bookId:story.bookId,theme:story.theme,
   sourceReference:storySourceReference(story),sourceText:story.sourceText,sourceUrl:story.sourceUrl,
   artStyleLabel:generated?.artStyleLabel??null,productionPrompt:generated?.productionPrompt??'',
   generationModels:generated?.generationModels??[],

@@ -10,10 +10,10 @@ import {view,selectionSchema} from '../lib/reader-model.ts';
 import {runStoryGeneration} from '../lib/reader-generation.ts';
 import {changeIntake} from '../server/reader-intake.ts';
 const original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶，栩栩然胡蝶也。',url:'https://zh.wikisource.org/zh-hans/莊子/齊物論',kind:'passage',provider:'维基文库',retrievedAt:'2026-10-26T00:00:00Z'};
-const selection={bookId:'zhuangzi',theme:'放下执念',length:8,voice:false};
-const plan={title:'谁在梦中',hook:'醒来后，他忽然不敢确定自己是谁。',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'用现代旁白重述梦蝶，画面细节为AI演绎。',reflection:'醒来之后，你更确定自己了吗？',characters:'Zhuang Zhou: adult male philosopher, plain blue-green robe, tied long black hair, calm face.',pages:Array.from({length:8},(_,i)=>({caption:'庄周做了一个梦，梦里的世界比醒着时还要清楚。',prompt:'Ancient Chinese philosopher in a calm garden, thoughtful adult face, scene number '+i}))};
+const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,voice:false};
+const plan={title:'谁在梦中',summary:'醒来后，他忽然不敢确定自己是谁。',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'用现代旁白重述梦蝶，画面细节为AI演绎。',reflection:'醒来之后，你更确定自己了吗？',characters:'Zhuang Zhou: adult male philosopher, plain blue-green robe, tied long black hair, calm face.',pages:Array.from({length:8},(_,i)=>({caption:'庄周做了一个梦，梦里的世界比醒着时还要清楚。',prompt:'Ancient Chinese philosopher in a calm garden, thoughtful adult face, scene number '+i}))};
 function setup(){const db=new DatabaseSync(':memory:');for(const file of readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())db.exec(readFileSync('drizzle/'+file,'utf8'));const adapter={prepare(query){let args=[];return {bind(...values){args=values;return this;},async first(){return db.prepare(query).get(...args)||null;},async all(){return {results:db.prepare(query).all(...args)};},async run(){const r=db.prepare(query).run(...args);return {meta:{changes:Number(r.changes)}};}};}};return {repo:new ReaderRepository(adapter),db};}
-function fake(){const calls=[];return {calls,reflection:async()=>({value:plan.reflection,model:'mock',requestId:'mock',usage:null}),reflectionCandidates:async()=>({value:{title:plan.title,candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']},model:'mock',requestId:'mock',usage:null}),review:async(_s,_p,_o,_outline,candidates)=>({value:{issues:[],titleReview:{title:_p.title,reason:'标题准确对应当前故事。'},...(candidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识。'}}:{})},model:'mock',requestId:'mock',usage:null}),async original(){return {source:structuredClone(original),message:'',searchUrl:''};},async plan(){calls.push('plan');return {value:structuredClone(plan),model:'fake-text',requestId:'test',usage:{input_tokens:10,output_tokens:20}};},async image(p,page,id){calls.push('image:'+page);return {value:`/api/reader/media/${id}/${page}.webp`,model:'fake-image',requestId:'test',usage:null};},async audio(text,id,page){calls.push('audio:'+page);return {value:`/api/reader/media/${id}/${page}.wav`,model:'fake-audio',requestId:'test',usage:null};},safeError(){return '生成暂时失败，已保留内容';}};}
+function fake(){const calls=[];return {calls,recommend:async()=>({value:{count:8,reason:'完整讲述事件。',storySummary:plan.summary,storyMatchReason:'原文支持梦与醒的经历。'},model:'mock',requestId:'mock',usage:null}),reflection:async()=>({value:plan.reflection,model:'mock',requestId:'mock',usage:null}),reflectionCandidates:async()=>({value:{title:plan.title,candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']},model:'mock',requestId:'mock',usage:null}),review:async(_s,_p,_o,_outline,candidates)=>({value:{issues:[],titleReview:{title:_p.title,reason:'标题准确对应当前故事。'},...(candidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识。'}}:{})},model:'mock',requestId:'mock',usage:null}),async original(){return {source:structuredClone(original),message:'',searchUrl:''};},async plan(){calls.push('plan');return {value:structuredClone(plan),model:'fake-text',requestId:'test',usage:{input_tokens:10,output_tokens:20}};},async image(p,page,id){calls.push('image:'+page);return {value:`/api/reader/media/${id}/${page}.webp`,model:'fake-image',requestId:'test',usage:null};},async audio(text,id,page){calls.push('audio:'+page);return {value:`/api/reader/media/${id}/${page}.wav`,model:'fake-audio',requestId:'test',usage:null};},safeError(){return '生成暂时失败，已保留内容';}};}
 function client(repo,g,id,overrides={}){
  return {sessionId:id,throughPage:1,retries:new Map(),isActive:()=>true,onSession:()=>{},
   sleep:async()=>assert.fail('Checkpoint retries must not wait for a countdown'),
@@ -122,21 +122,20 @@ test('generation saves the original before drawing and keeps it on later checkpo
  const draft=await advanceStory(repo,g,'alice',id,1);assert.equal(draft.story,null);
  const planned=await advanceStory(repo,g,'alice',id,1);
  assert.equal(planned.story.sourceText,original.text);assert.equal(planned.story.sourceUrl,original.url);
- assert.deepEqual(JSON.parse((await repo.get(id,'alice')).document).original,original);
+ assert.deepEqual((({storyBrief,...source})=>source)(JSON.parse((await repo.get(id,'alice')).document).original),original);
  assert.equal(planned.ready,0);
- const draw=g.image;g.image=async(...args)=>{assert.deepEqual(JSON.parse((await repo.get(id,'alice')).document).original,original);return draw(...args);};
+ const draw=g.image;g.image=async(...args)=>{assert.deepEqual((({storyBrief,...source})=>source)(JSON.parse((await repo.get(id,'alice')).document).original),original);return draw(...args);};
  await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);
  assert.equal(lookups,1);assert.equal(view(await repo.get(id,'alice')).story.sourceText,original.text);
 });
-test('unavailable original pauses before images and retry reuses the paid plan',async()=>{
+test('unavailable original blocks summary and planning, and recovery saves each paid result once',async()=>{
  const {repo}=setup(),id=crypto.randomUUID(),g=fake();let lookups=0;
  g.original=async()=>++lookups===1?{source:null,message:'原文来源无法连接。',searchUrl:''}:{source:original,message:'',searchUrl:''};
- await repo.create(id,'alice',selection);
- const failed=await advanceStory(repo,g,'alice',id,1);
- assert.equal(failed.state,'failed');assert.match(failed.error,/原文未能保存/);assert.deepEqual(g.calls,['plan']);
- let doc=JSON.parse((await repo.get(id,'alice')).document);assert.ok(doc.draft);assert.equal(doc.plan,null);assert.equal(doc.usage.length,1);assert.equal(doc.original,undefined);
+ await repo.create(id,'alice',selection);const failed=await advanceStory(repo,g,'alice',id,1);
+ assert.equal(failed.state,'failed');assert.match(failed.error,/原文未能核对/);assert.deepEqual(g.calls,[]);
+ let doc=JSON.parse((await repo.get(id,'alice')).document);assert.equal(doc.draft,undefined);assert.equal(doc.plan,null);assert.equal(doc.usage.length,0);
  await advanceStory(repo,g,'alice',id,1);assert.equal(lookups,1);
- const sourceReady=await advanceStory(repo,g,'alice',id,1,true);assert.equal(sourceReady.story,null);
+ await advanceStory(repo,g,'alice',id,1,true);doc=JSON.parse((await repo.get(id,'alice')).document);assert.equal(doc.original.storyBrief.verified,true);assert.equal(doc.draft.summary,plan.summary);
  const resumed=await advanceStory(repo,g,'alice',id,1);assert.equal(resumed.story.sourceText,original.text);assert.deepEqual(g.calls,['plan']);
  await advanceStory(repo,g,'alice',id,1);await advanceStory(repo,g,'alice',id,1);assert.deepEqual(g.calls,['plan','image:0']);assert.equal(lookups,2);
 });
@@ -156,8 +155,8 @@ test('saving a recovered original clears source failure while preserving an imag
  g.original=async()=>({source:null,message:'暂时无法连接',searchUrl:''});
  await advanceStory(repo,g,'alice',id,0);const failed=await repo.get(id,'alice'),before=JSON.parse(failed.document);
  const recovered=await repo.saveOriginal(failed,original);
- assert.equal(recovered.state,'idle');assert.equal(recovered.error,null);assert.deepEqual(JSON.parse(recovered.document).plan,before.plan);assert.deepEqual(g.calls,['plan']);
- g.image=async()=>{throw Error('image failure');};await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);
+ assert.equal(recovered.state,'idle');assert.equal(recovered.error,null);assert.deepEqual(JSON.parse(recovered.document).plan,before.plan);assert.deepEqual(g.calls,[]);
+ g.image=async()=>{throw Error('image failure');};await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);await advanceStory(repo,g,'alice',id,0);
  db.prepare("UPDATE reader_sessions SET document=json_remove(document,'$.original') WHERE id=?").run(id);
  const imageFailed=await repo.get(id,'alice'),backfilled=await repo.saveOriginal(imageFailed,original);
  assert.equal(backfilled.state,'failed');assert.equal(backfilled.error,imageFailed.error);
@@ -172,7 +171,7 @@ test('source recovery remains explicit after repeated outages and never repeats 
   const before=lookups;await advanceStory(repo,g,'alice',id,0);assert.equal(lookups,before);
   result=await advanceStory(repo,g,'alice',id,0,true);
  }
- assert.equal((await repo.get(id,'alice')).step_attempts,4);
+ assert.equal((await repo.get(id,'alice')).step_attempts,5);
  available=true;result=await advanceStory(repo,g,'alice',id,0,true);
  assert.equal(result.state,'idle');assert.equal(result.retryAllowed,true);assert.equal(result.story,null);
  result=await advanceStory(repo,g,'alice',id,0);assert.equal(result.story.sourceText,original.text);
@@ -185,32 +184,27 @@ test('source recovery remains explicit after repeated outages and never repeats 
 });
 function memoryAssets(){const stored=new Map();return {stored,async get(k){const entry=stored.get(k);return entry?{async arrayBuffer(){return entry.bytes.slice().buffer;}}:null;},async put(k,bytes,options){stored.set(k,{bytes,options});}};}
 function geminiResponse(parts,extra={}){return new Response(JSON.stringify({candidates:[{content:{parts},finishReason:'STOP',...extra}],responseId:'test-response',usageMetadata:{totalTokenCount:10}}),{headers:{'Content-Type':'application/json'}});}
-for(const length of ['auto',45])test(`legacy URL ${length} resolves its directory through URL context and retains it through source failure`,async()=>{
+for(const length of ['auto',45])test(`legacy URL ${length} prepares source and summary before its directory and reuses them`,async()=>{
  const {repo}=setup(),id=crypto.randomUUID(),url='https://example.org/classic',requests=[],chosen=selectionSchema.parse({bookId:'other',customBook:url,storyTitle:'庄周梦蝶',theme:'放下执念',length});
  const {pages,...metadata}=plan,outline={...metadata,beats:Array.from({length:45},(_,i)=>`故事第 ${i+1} 幅的事件。`)};
  const g=makeGenerator('controlled',memoryAssets(),{},async(_url,init)=>{
-  const body=JSON.parse(init.body),payload=JSON.parse(body.contents[0].parts[0].text);requests.push({body,payload});
-  if(body.generationConfig.responseFormat.text.schema.properties.beats)return geminiResponse([{text:JSON.stringify(outline)}],{urlContextMetadata:{urlMetadata:[{retrievedUrl:url,urlRetrievalStatus:'URL_RETRIEVAL_STATUS_SUCCESS'}]}});
+  const body=JSON.parse(init.body),payload=JSON.parse(body.contents[0].parts[0].text),schema=body.generationConfig.responseFormat.text.schema;requests.push({body,payload});
+  if(schema.properties.count)return geminiResponse([{text:JSON.stringify({count:45,reason:'完整叙述。',storySummary:plan.summary,storyMatchReason:'按已核原文展开。'})}]);
+  if(schema.properties.beats)return geminiResponse([{text:JSON.stringify(outline)}]);
   return geminiResponse([{text:JSON.stringify({pages:Array.from({length:20},()=>pages[0])})}]);
  });
- let lookups=0;g.original=async(_selection,hint)=>{
-  assert.equal(hint.sourceReference,outline.sourceReference);assert.doesNotMatch(hint.sourceReference,/https:/);
-  assert.equal(JSON.parse((await repo.get(id,'alice')).document).storyboard.outline.beats.length,45);
-  return {source:++lookups===1?null:original,message:'controlled outage',searchUrl:''};
- };
- await repo.create(id,'alice',chosen);
- const failed=await advanceStory(repo,g,'alice',id,0);assert.equal(failed.state,'failed');assert.equal(requests.length,1);
- assert.deepEqual(requests[0].body.tools,[{urlContext:{}}]);assert.equal(failed.retryStage,'source');assert.equal(failed.generationProgress.storyboardFrames,0);
- await advanceStory(repo,g,'alice',id,0,true);assert.equal(requests.length,1);assert.equal(lookups,2);
- const batch=await advanceStory(repo,g,'alice',id,0);assert.equal(batch.generationProgress.storyboardFrames,20);assert.equal(batch.story,null);
- assert.equal(requests[1].body.tools,undefined);assert.equal(requests[1].payload.verifiedOriginal.text,original.text);
+ let lookups=0;g.original=async()=>({source:++lookups===1?null:original,message:'controlled outage',searchUrl:''});
+ await repo.create(id,'alice',chosen);const failed=await advanceStory(repo,g,'alice',id,0);assert.equal(failed.state,'failed');assert.equal(requests.length,0);assert.equal(failed.retryStage,'source');
+ await advanceStory(repo,g,'alice',id,0,true);assert.equal(requests.length,2);assert.equal(lookups,2);
+ for(const item of requests){assert.equal(item.body.tools,undefined);assert.equal(item.payload.verifiedOriginal.text,original.text);}
+ const saved=JSON.parse((await repo.get(id,'alice')).document);assert.equal(saved.original.storyBrief.verified,true);assert.equal(saved.storyboard.outline.summary,plan.summary);
+ const batch=await advanceStory(repo,g,'alice',id,0);assert.equal(batch.generationProgress.storyboardFrames,20);assert.equal(requests.length,3);assert.equal(lookups,2);
 });
-test('URL directory rejects missing URL context evidence without saving or starting a source lookup',async()=>{
- const {repo}=setup(),id=crypto.randomUUID(),chosen=selectionSchema.parse({bookId:'other',customBook:'https://example.org/classic',theme:'放下执念',length:45});
- const {pages,...metadata}=plan;let lookups=0;
- const g=makeGenerator('controlled',memoryAssets(),{},async()=>geminiResponse([{text:JSON.stringify({...metadata,beats:Array(45).fill('目录事件。')})}]));
- g.original=async()=>{lookups++;throw Error('must not run');};await repo.create(id,'alice',chosen);
- assert.equal((await advanceStory(repo,g,'alice',id,0)).state,'failed');assert.equal(lookups,0);assert.equal(JSON.parse((await repo.get(id,'alice')).document).storyboard,undefined);
+test('a URL without a verifiable original cannot start summary or directory inference',async()=>{
+ const {repo}=setup(),id=crypto.randomUUID(),chosen=selectionSchema.parse({bookId:'other',customBook:'https://example.org/classic',theme:'放下执念',length:45});let lookups=0,paid=0;
+ const g=makeGenerator('controlled',memoryAssets(),{},async()=>{paid++;assert.fail('No inference without an original');});
+ g.original=async()=>{lookups++;return {source:null,message:'未找到可核对的原文',searchUrl:''};};await repo.create(id,'alice',chosen);
+ assert.equal((await advanceStory(repo,g,'alice',id,0)).state,'failed');assert.equal(lookups,1);assert.equal(paid,0);assert.equal(JSON.parse((await repo.get(id,'alice')).document).storyboard,undefined);
 });
 test('Gemini allows five-minute storyboards without extending image deadlines',async()=>{
  const timeouts=[],originalTimeout=AbortSignal.timeout;
@@ -376,11 +370,11 @@ test('deleting during a paid step retains its result but cannot resume or resurr
  g.plan=async()=>{started();await hold;return {value:plan,model:'fake',requestId:'paid',usage:{tokens:10}};};
  const operation=advanceStory(repo,g,'alice',id,0);await ready;await repo.remove(id,'alice');release();
  await assert.rejects(operation,e=>e.status===404);
- const stored=db.prepare('SELECT document,state FROM reader_sessions WHERE id=?').get(id);assert.equal(JSON.parse(stored.document).draft.title,plan.title);assert.equal(JSON.parse(stored.document).usage[0].requestId,'paid');assert.notEqual(stored.state,'running');
+ const stored=db.prepare('SELECT document,state FROM reader_sessions WHERE id=?').get(id);assert.equal(JSON.parse(stored.document).draft.title,plan.title);assert.equal(JSON.parse(stored.document).usage.find(item=>item.step==='plan').requestId,'paid');assert.notEqual(stored.state,'running');
  await assert.rejects(advanceStory(repo,g,'alice',id,0),e=>e.status===404);assert.equal((await repo.list('alice')).length,0);
 });
 test('removing a shared sample affects only that reader and retains the published original',async()=>{
- const {repo,db}=setup();db.prepare("INSERT INTO stories(id,title,hook,book_id,theme,status,pages,reflection,source_text,source_url,adaptation_note,checks,created_at,updated_at) VALUES('shared','样篇','','liaozhai','','published','[]','','','','','{}','2026-01-01','2026-01-01')").run();
+ const {repo,db}=setup();db.prepare("INSERT INTO stories(id,title,summary,book_id,theme,status,pages,reflection,source_text,source_url,adaptation_note,checks,created_at,updated_at) VALUES('shared','样篇','','liaozhai','','published','[]','','','','','{}','2026-01-01','2026-01-01')").run();
  await repo.remove('shared','alice');assert.equal((await repo.deletions('alice'))[0].storyId,'shared');assert.equal((await repo.deletions('bob')).length,0);assert.equal(db.prepare("SELECT status FROM stories WHERE id='shared'").get().status,'published');
 });
 test('restoring preserves content and progress without reactivating deleted generation',async()=>{
@@ -396,7 +390,7 @@ test('restoring preserves content and progress without reactivating deleted gene
  await assert.rejects(repo.restore(crypto.randomUUID(),'alice'),e=>e.status===404);
 });
 test('restoring a shared story leaves other readers deletion markers in place',async()=>{
- const {repo,db}=setup();db.prepare("INSERT INTO stories(id,title,hook,book_id,theme,status,pages,reflection,source_text,source_url,adaptation_note,checks,created_at,updated_at) VALUES('shared','样篇','','liaozhai','','published','[]','','','','','{}','2026-01-01','2026-01-01')").run();
+ const {repo,db}=setup();db.prepare("INSERT INTO stories(id,title,summary,book_id,theme,status,pages,reflection,source_text,source_url,adaptation_note,checks,created_at,updated_at) VALUES('shared','样篇','','liaozhai','','published','[]','','','','','{}','2026-01-01','2026-01-01')").run();
  await repo.remove('shared','alice');await repo.remove('shared','bob');await repo.restore('shared','alice');
  assert.equal((await repo.deletions('alice')).length,0);assert.equal((await repo.deletions('bob')).length,1);assert.equal(db.prepare("SELECT status FROM stories WHERE id='shared'").get().status,'published');
 });
@@ -410,7 +404,7 @@ async function artPreparation(){
  const doc={plan:null,images:[],audio:[],usage:[],original:{...original,localSource:source},intake:{phase:'preparing',generation:0,creationHash:'test',selected:{batch:0,index:0},search:{round:1,state:'idle'},batches:[{stories:[{title:'梦蝶',description:'梦与醒。',source},{title:'大葫芦',description:'器物与用处。',source:{...source,firstUnit:'u1',lastUnit:'u1'}}],note:''}]}};
  db.prepare('UPDATE reader_sessions SET document=? WHERE id=?').run(JSON.stringify(doc),id);
  g.prepareOriginal=async s=>({...original,localSource:s.source});
- g.recommend=async()=>({value:{count:7,reason:'保留完整因果。'},model:'mock',requestId:'frames',usage:null});
+ g.recommend=async()=>({value:{count:7,reason:'保留完整因果。',storySummary:plan.summary,storyMatchReason:'按原典主线展开。'},model:'mock',requestId:'frames',usage:null});
  const read=()=>view(db.prepare('SELECT * FROM reader_sessions WHERE id=?').get(id));
  const choose=async index=>{const current=read();await changeIntake(repo,id,'alice',{action:'choose',batch:0,index,generation:current.intake.generation,requestId:crypto.randomUUID(),settings:{artStyle:current.selection.artStyle,productionPrompt:'',narrativeDetail:'balanced'}});};
  return {repo,db,id,g,read,choose};
@@ -454,7 +448,7 @@ test('a saved manual style survives later story recommendations',async()=>{
 test('frame recommendation retries reuse saved art and art failures never pretend a default was recommended',async()=>{
  const f=await artPreparation();let calls=0,frames=0,failArt=true;
  f.g.recommendArt=async()=>{calls++;if(failArt)throw Error('art unavailable');return {artStyle:'woodblock',reason:'轮廓适合动作。'};};
- f.g.recommend=async()=>{if(frames++===0)throw Error('frames unavailable');return {value:{count:7,reason:'保留完整因果。'},model:'mock',requestId:'frames',usage:null};};
+ f.g.recommend=async()=>{if(frames++===0)throw Error('frames unavailable');return {value:{count:7,reason:'保留完整因果。',storySummary:plan.summary,storyMatchReason:'按原典主线展开。'},model:'mock',requestId:'frames',usage:null};};
  await advanceStory(f.repo,f.g,'alice',f.id,0);
  assert.equal(f.read().state,'failed');assert.equal(f.read().intake.batches[0].stories[0].artRecommendation,undefined);assert.equal(frames,0);
  failArt=false;await advanceStory(f.repo,f.g,'alice',f.id,0,true);

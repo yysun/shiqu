@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {FileMedia,mediaTypes,mediaKey} from './media.ts';
 import {openDatabase} from './database.ts';
+import {storySummaryMigration} from './story-summary-migration.ts';
 
 async function exists(filename:string){try{return await lstat(filename);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}}
 async function files(directory:string):Promise<string[]>{
@@ -49,7 +50,7 @@ export async function importLegacy(sourceDirectory:string,targetDirectory:string
    }
    const names=database.prepare('SELECT name FROM d1_migrations').all().map(row=>String(row.name));
    const migrations=(await readdir(path.join(root,'drizzle'))).filter(f=>f.endsWith('.sql'));
-   if(migrations.some(name=>!names.includes(name)))throw Error('Legacy database migrations are incomplete; update the old edition before importing');
+   if(migrations.some(name=>name!==storySummaryMigration&&!names.includes(name)))throw Error('Legacy database migrations are incomplete; update the old edition before importing');
   }finally{database.close();}
   let objects=0;
   if(r2db.length){

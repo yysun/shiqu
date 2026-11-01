@@ -6,8 +6,9 @@ import {drizzle} from 'drizzle-orm/sqlite-proxy';
 import type {SQLInputValue} from 'node:sqlite';
 import type {Database} from '../lib/reader-repository.ts';
 import * as schema from '../db/schema.ts';
+import {storySummaryMigration,migrateStorySummary} from './story-summary-migration.ts';
 
-export function migrate(sqlite:DatabaseSync,root:string){
+export function migrate(sqlite:DatabaseSync,root:string,directory?:string){
  sqlite.exec('CREATE TABLE IF NOT EXISTS app_migrations(name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)');
  for(const name of readdirSync(path.join(root,'drizzle')).filter(f=>f.endsWith('.sql')).sort()){
   sqlite.exec('BEGIN IMMEDIATE');
@@ -15,7 +16,7 @@ export function migrate(sqlite:DatabaseSync,root:string){
    if(!sqlite.prepare('SELECT 1 FROM app_migrations WHERE name=?').get(name)){
     const legacy=sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='d1_migrations'").get();
     const applied=legacy&&sqlite.prepare('SELECT 1 FROM d1_migrations WHERE name=?').get(name);
-    if(!applied)sqlite.exec(readFileSync(path.join(root,'drizzle',name),'utf8'));
+    if(!applied){const sql=readFileSync(path.join(root,'drizzle',name),'utf8');if(name===storySummaryMigration)migrateStorySummary(sqlite,sql,directory);else sqlite.exec(sql);}
     sqlite.prepare('INSERT INTO app_migrations VALUES(?,?)').run(name,new Date().toISOString());
    }
    sqlite.exec('COMMIT');
@@ -27,7 +28,7 @@ export function openDatabase(directory:string,root:string){
  const sqlite=new DatabaseSync(path.join(directory,'shiqu.sqlite'));
  try{
   sqlite.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
-  migrate(sqlite,root);
+  migrate(sqlite,root,directory);
   sqlite.exec('BEGIN IMMEDIATE');
   try{sqlite.exec(readFileSync(path.join(root,'docker/seed.sql'),'utf8'));sqlite.exec('COMMIT');}
   catch(error){sqlite.exec('ROLLBACK');throw error;}

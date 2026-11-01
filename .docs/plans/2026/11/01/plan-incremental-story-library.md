@@ -38,8 +38,8 @@ ReaderProvider.matchStories 使用跨三个适配器的统一契约，输入一�
 - [x] 增加可选候选storyBrief及与原文绑定的核对记录；新intake标记briefRequired，使直接选原典及旧式推荐的新任务也在准备时生成完整摘要。扩展画幅建议条件契约核对/补齐并保存，缺结果阻止确认/规划，历史无标记记录兼容。
 - [x] 将核对摘要作为独立指导字段传入短篇、提纲、批次、结语、审核和修订payload，复用editorialContext区分主题与原典模式；继续原有开场等规则，更新三个provider、共享指令和响应预算。
 - [x] 补充缺摘要拒绝、cache只失效主题层、选中/重选/重启/失败恢复、错误摘要按原文修正、客户端伪造与短/长分镜契约回归；更新README及现行流程文档。
-- [ ] 运行 pnpm typecheck、pnpm lint、pnpm test；使用 Node 24.22.1、pnpm 11.25.0，受控provider无真实推理费用。
-- [ ] 执行修正后的服务E2E：候选理由/摘要→保存原文→摘要核对/修正→重启/确认→短/长分镜同时携带核对摘要与原文，保留跨主题复用。
+- [x] 运行 pnpm typecheck、pnpm lint、pnpm test；使用 Node 24.22.1、pnpm 11.25.0，受控provider无真实推理费用。
+- [x] 执行修正后的服务E2E：候选理由/摘要→保存原文→摘要核对/修正→重启/确认→短/长分镜同时携带核对摘要与原文，保留跨主题复用。
 
 ## 验证与风险
 
@@ -96,3 +96,66 @@ SS 修正验证：主题回执、候选brief、两种模式摘要检查点、生
 SS milestone: `83f87cb` (`fix: verify story synopses before storyboard production`)；修正源代码与测试已提交，独立CR及完整TT/最终ET进行中。
 
 TT首次全量845/851通过，6项失败均来自旧缓存测试假定主题一批判断5篇；AR2已批准丰富摘要后每批4篇，实际及时返回4篇并保留第5篇未判断项。修订测试继续断言一次收录5篇，已匹配4篇逐次消费，第5篇从库内判断、不重扫，耗尽后才新提取1篇；完整缓存页并发用例先消费尾项再启动新扩展，仍验证读缓存不被模型调用阻塞。缓存/三provider/提示词33/33通过（`/tmp/shiqu-brief-cache-fix.log`）；不为填满旧5篇预期增加付费调用或等待。独立CR明确当前intake两种模式摘要保证与兼容非intake API边界，已在REQ/AP/development写明。用户开场原话同步为“第一页结合摘要，从原文中提取必要背景做开场”。完整TT重跑中。
+
+SS follow-up milestone: `18396bf` (`fix: preserve cached tails across bounded theme matching`)；缓存尾项/并发回归与用户明确的原文开场措辞已提交，33项定向回归和最新lint通过。
+
+CR passed: no major findings
+
+独立完整复审覆盖Git base `e51429b` 至 `18396bf`：理由/摘要缓存与通用库隔离、两种intake模式核对检查点、直选原典/重试/重选/重启、缺结果防线、历史与非intake兼容、三provider预算及schema、各编排/审核/修订阶段摘要与原文独立输入、第一页背景规则、尾项与并发回归均无阻塞问题。已审61项准备回归、10项服务E2E和最新33项定向用例；真实模型语义准确率不由受控推理证明。
+
+CR risk: non-low — persistent rich receipts, source-bound verification, production guidance and compatibility boundaries.
+CR review round: 2; reviewer: reused
+
+TT最终：`pnpm test` 851/851通过，约38.9秒（`/tmp/shiqu-brief-all-tests-final.log`）；Node24.22.1/pnpm11.25.0，typecheck与最新lint通过，diff检查通过。首轮6项旧预期失败已修复，未弱化缓存/并发关键检查。
+
+ET最终：`pnpm exec node --experimental-strip-types --test tests/incremental-story-library.e2e.mjs` 10/10通过（`/tmp/shiqu-brief-e2e-final.log`）。真实REST/SQLite/队列/文件，受控provider；包括原典直选与历史兼容、主题复用、不确定性、取消、核对/纠正、重启、重选、缺字段与客户端伪造。后续18396bf仅调整等义开场措辞及测试预期/文档，所覆盖的运行行为未改变，复用该证据；最新措辞另由三provider定向用例核对。没有UI/浏览器或付费真实模型质量验证，没有打包。
+
+VR passed: all acceptance criteria complete
+
+独立终验10项标准均complete；逐项证据与完整最终VR原文见`.docs/done/2026/11/01/incremental-story-library.md`。所有AP任务完成；本轮按!!到DD，不执行最终GC，保留两次SS里程碑及交付文档待提交。
+
+VR risk: non-low — persistent rich receipts, source-bound synopsis verification, production guidance and compatibility boundaries.
+VR review round: 2; reviewer: reused
+
+## hook → summary 字段统一修正
+
+入口 `18396bf`，原故事Git base仍为`e51429b85b30a505e6b58873a4cccc3709170360`，保留此前里程碑和未提交的本故事交付记录；不纳入既有continuous-story-discovery文档。该修正改变API、持久化及展示字段，前轮验收不证明本轮完成，重新独立AR/CR/VR。用户最新指令明确只将hook改为summary，历史文字原样搬迁，不触发模型补写。风险non-low。
+
+正式Story、Plan/StoryDraft/Outline、studio API、编辑器与ZIP均使用summary；生成摘要上限与已有storyBrief统一1200字符。新intake路径的核对摘要在engine接收outline/draft时写入summary，防止模型另生成引子；按用户最新兜底要求，legacy无摘要且尚未开始编排时也先准备摘要；复用现有recommend调用及frames档位，缺摘要才新增这一必要调用。已有摘要不重复调用。现有第一页开场规则保持。
+
+新增`0009_story_summary.sql`，不改旧迁移：rename stories.hook列；迁移任务document的plan/draft/storyboard.outline/revision.base.plan四个已知故事快照，已有非空summary优先，删除hook。非法JSON跳过而不是破坏整库；不更改状态、锁、进度或图片。生产job不存故事元信息，但图片version哈希包含整个plan：迁移前后按同一selectionSchema/inputVersion公式计算旧新version，对当前image/image-publish作业事务性更新version和派生ID，并按映射更新依赖；保留state/result/attempts/lease及所有已付费回执，旧的过期版本保持过期。目标ID冲突则回滚，不丢弃任一回执。script版本不变。
+
+在同一升级门内迁移媒体reader/reader-cache内JSON对象的hook键：已有summary优先，无则保留旧文字；只改命中JSON，原子替换文件、不跟随symlink、不碰图片/原文文本，失败使SQL迁移回滚，已转换文件可在重试时幂等跳过。开库迁移在启动队列之前完成，常规GET无模型调用或临时兼容别名。使用迁移历史表一次性触发；离线导入在复制媒体后也经过openDatabase，获得相同迁移。
+
+实际书库SS第一步先读环境/进程确认唯一目录与运行情况，使用SQLite backup一致性备份及保存待改JSON原字节到书库外，才允许修改。当前观察：72条任务、60个plan、11个outline、14个版本基线hook；3条published故事；4个reader比较结果JSON有hook，缓存无hook且有9篇中性summary。执行完成核对字段消失、summary文字保留、数量/图片/原文/进度不变。同步dev可能自动热重启，应在修改前完成备份；不擅自关闭用户桌面应用。
+
+- [x] 有界探测：确认实际目录和迁移备份可用；探测in-app浏览器。如不可用，记录边界，以React静态渲染与服务E2E覆盖字段展示契约，不宣称视觉验收。
+- [x] 修改Story/Plan、provider schema/指令、engine摘要复用、版本编辑和studio读写；更新所有现行消费端、导出和fixture。
+- [x] 实现SQL及媒体JSON升级迁移，覆盖共存优先、幂等、失败重试与导入；保留历史SQL与外部依赖中无关hook名称。
+- [x] 补迁移/新旧读写/元信息保护/ZIP/摘要复用/React展示回归，更新现行文档。
+- [ ] 运行typecheck、lint、完整TT与增量故事库服务E2E；保存真实证据。
+- [x] 对已备份实际书库执行升级，核对SQLite和JSON数据、原文/图片/状态/版本数量及缓存保留。
+
+E2E追加场景11/12；本轮不打包，不调用真实模型或改浏览器设置。单纯字段替换不引入新的创作功能、数据回填队列或自动付费阶段。
+
+AR4初审通过，但随后发现图片作业version包含plan全部元数据，字段改名会使已付费未发布回执失配。因此暂停SS，追加上述作业身份/依赖迁移设计，返回AR复核；不以运行时hook别名解决。迁移E2E须覆盖已成功绘图但待发布的旧作业，升级后只发布已有回执，不再调用image。
+
+用户新增兜底“如果开始分镜时没有摘要则先做一个”，本轮再次扩展前置检查：保留显式准备阶段的recommend；无摘要的旧式入口在plan worker内部先运行同一个准备函数，并在首次plan/outline调用前保存摘要，保持原有advance与确认交互。recommend统一附未核对起点，输出核对summary并保存；非intake不增加新确认界面，已confirmed任务不退回confirming。原文沿用现有prepareOriginal/original查找，不凭空为未知篇目补故事；不能核对原文则失败，不先编排再找摘要。已有历史plan/draft/outline摘要复用，不自动重做成品。engine接收新outline/draft时复用已核对brief摘要。测试需补齐fake generator的recommend与count响应，以验证真实新增前置调用；paid请求次数的旧断言随新顺序明确更新，不关闭失败防线。
+
+AR passed: no blocking architecture flaws
+AR risk: non-low — persisted-field and API changes, filesystem migration, import compatibility, and live-library upgrade safety.
+AR review round: 4; reviewer: reused
+
+AR passed: no blocking architecture flaws
+AR risk: non-low — derived job identities, paid image receipts, dependency remapping and live-worker coordination.
+AR review round: 5; reviewer: reused
+
+SS独立前置探测已完成：桌面App未运行；已停止唯一开发服务（frontend3000/backend3002），lsof确认库无打开者。SQLite一致性备份及4份待改JSON原字节存于`/Users/esun/Library/Application Support/com.shiqu.desktop/library-backups/hook-to-summary-20261101T231623Z`；manifest记录146个JSON哈希与1144个二进制文件大小/mtime，库72任务/3故事/2118作业。浏览器重探仍返回`Local browser use is disabled in Work settings`。新兜底架构先返回AR6，源代码仍未修改；完成后恢复原dev端口。
+
+AR passed: no blocking architecture flaws
+AR risk: non-low — new generation ordering, paid-call prerequisites, checkpoint recovery and legacy entry points.
+AR review round: 6; reviewer: reused
+
+SS：所有运行时故事字段已从hook改为summary；仅历史迁移与升级测试保留旧名，第三方React/process hook无关。分镜前兜底统一复用prepareRecommendation，保存独立summary用量，已确认任务保持确认和选定幅数。原文来源失败现发生在付费分镜之前；相关历史测试改为断言零编排，原来“先付费目录再找原文”的预期失效。95项定向（含14服务E2E）通过；完整首轮857项中25项旧适配器fixture/顺序预期失败，已补齐受控摘要响应并验证相关46/46通过；正在最终全量回归。typecheck通过。
+
+实际迁移：一致性备份后由同一openDatabase升级流程完成。72任务/3故事/2118作业数量不变，60份plan/11份outline/14份版本基线旧键删除；4份JSON迁移，828个图片作业派生ID/version及依赖重映射；已付费回执/状态/尝试次数保留，1144个二进制文件大小与mtime未变，9篇中性缓存摘要保留，旧文本没有标记成verified。逐表/逐文件比较报告`/tmp/shiqu-summary-live-migration.json`，开发服务3000/3002已恢复，GET书架200且可见故事只含summary，不含hook。浏览器仍禁用，不声称视觉检查。

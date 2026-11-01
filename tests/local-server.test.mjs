@@ -84,20 +84,20 @@ test('media validates keys, MIME and symlinks; replacing files is atomic and lea
 });
 test('real SQLite locks prevent duplicate paid requests through concurrent REST advances and survive restart',async t=>{
  const options=await fixture(t);let calls=0,release;const hold=new Promise(resolve=>release=resolve);
- const plan={title:'庄周梦蝶',hook:'梦醒之后',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'现代改编',reflection:'谁在梦中？',characters:'An adult Chinese philosopher in a plain linen robe in ancient China.',pages:Array.from({length:8},()=>({caption:'庄周梦见自己成为一只蝴蝶，自由自在地飞来飞去。',prompt:'An adult philosopher dreams of becoming a butterfly in an ancient garden.'}))};
+ const plan={title:'庄周梦蝶',summary:'梦醒之后',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'现代改编',reflection:'谁在梦中？',characters:'An adult Chinese philosopher in a plain linen robe in ancient China.',pages:Array.from({length:8},()=>({caption:'庄周梦见自己成为一只蝴蝶，自由自在地飞来飞去。',prompt:'An adult philosopher dreams of becoming a butterfly in an ancient garden.'}))};
  await cp('data/library',path.join(options.root,'data/library'),{recursive:true});
  const book=await new LocalBooks(options.root).book({bookId:'zhuangzi'}),section=book.sections[1],unit=section.units.at(-1);
  const source={edition:book.edition,sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id};
- options.variables={GEMINI_API_KEY:'mock-only'};options.transport=async(_url,init)=>{calls++;await hold;const body=JSON.parse(init.body),schema=body.generationConfig.responseFormat.text.schema;const result=schema.properties.candidates?{title:plan.title,candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']}:plan;return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(result)}]}}]});};
+ options.variables={GEMINI_API_KEY:'mock-only'};options.transport=async(_url,init)=>{calls++;await hold;const body=JSON.parse(init.body),schema=body.generationConfig.responseFormat.text.schema;const result=schema.properties.count?{count:8,reason:'按完整故事编排。',storySummary:plan.summary,storyMatchReason:'按原文主线展开。'}:schema.properties.candidates?{title:plan.title,candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']}:plan;return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(result)}]}}]});};
  let app=createApplication(options);const id=crypto.randomUUID();
  await request(app,'/api/reader/sessions','POST',{requestId:id,selection:{bookId:'zhuangzi',storyTitle:'庄周梦蝶',source,theme:'放下执念',length:8,voice:false}});
  await app.services.database.prepare("UPDATE reader_sessions SET generation_mode='reader' WHERE id=?").bind(id).run();
  const first=request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0});
  while(!calls)await new Promise(resolve=>setImmediate(resolve));
  const duplicate=await request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0});assert.equal(duplicate.status,202);assert.equal(calls,1);
- release();assert.equal((await first).status,200);assert.equal(calls,1);app.close();app=createApplication(options);
- try{const row=await (await request(app,'/api/reader/sessions/'+id)).json();assert.equal(row.state,'idle');assert.equal(row.story,null);assert.equal(row.generationProgress.phase,'reflection');assert.equal(calls,1);
- const finished=await(await request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0})).json();assert.ok(finished.story.sourceText);assert.equal(finished.story.pages[0].image,'');assert.equal(calls,2);}
+ release();assert.equal((await first).status,200);assert.equal(calls,2);app.close();app=createApplication(options);
+ try{const row=await (await request(app,'/api/reader/sessions/'+id)).json();assert.equal(row.state,'idle');assert.equal(row.story,null);assert.equal(row.generationProgress.phase,'reflection');assert.equal(calls,2);
+ const finished=await(await request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0})).json();assert.ok(finished.story.sourceText);assert.equal(finished.story.pages[0].image,'');assert.equal(calls,3);}
  finally{app.close();}
 });
 async function legacyFixture(t){
@@ -119,6 +119,12 @@ test('offline importer preserves records, identities, media keys and source byte
  try{assert.equal((await (await request(app,'/api/stories')).json())[0].title,'imported story');assert.equal((await (await request(app,'/api/me/progress')).json())[0].userId,'docker-local-owner');assert.deepEqual((await app.services.media.get('reader/story/0.png')).body,fixture.bytes);}
  finally{app.close();}
  await assert.rejects(importLegacy(fixture.source,fixture.target,fixture.root),/empty/);
+});
+test('offline importer upgrades a pre-summary legacy database without requiring the local-only migration',async t=>{
+ const f=await legacyFixture(t),db=new DatabaseSync(f.databaseFile);
+ db.exec("ALTER TABLE stories RENAME COLUMN summary TO hook; DELETE FROM d1_migrations WHERE name='0009_story_summary.sql'");db.close();const before=await readFile(f.databaseFile);
+ await importLegacy(f.source,f.target,f.root);assert.deepEqual(await readFile(f.databaseFile),before);
+ const local=openDatabase(f.target,f.root);assert.ok(local.sqlite.prepare('PRAGMA table_info(stories)').all().some(column=>column.name==='summary'));assert.equal(local.sqlite.prepare('SELECT summary FROM stories').get().summary,makeStory().summary);local.close();
 });
 test('import failure keeps destination absent and rejects live WAL, missing blobs and unsupported multipart objects',async t=>{
  for(const mode of ['wal','blob','multipart']){

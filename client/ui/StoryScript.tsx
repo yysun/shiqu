@@ -4,7 +4,7 @@ import type {Story} from '@/lib/content';
 export default function StoryScript({story,standalone=false}:{story:Story;standalone?:boolean}) {
  const content=<div className="yu-script-content">
    <h3>{story.title}</h3>
-   {story.hook&&<p className="yu-script-intro">{story.hook}</p>}
+   {story.summary&&<p className="yu-script-intro">{story.summary}</p>}
    {story.pages.length?story.pages.map((scene,index)=><section className="yu-script-scene" key={index} aria-label={`第 ${index+1} 幅剧本`}>
     <h4>第 {index+1} 幅</h4>
     <p>{scene.caption||'这幅的旁白尚未保存。'}</p>

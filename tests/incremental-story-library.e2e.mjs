@@ -6,6 +6,9 @@ import {libraryFixture,selection} from './fixtures/story-library.mjs';
 import {withLocalBooks} from '../server/local-generation.ts';
 import {LocalBooks} from '../server/local-books.ts';
 import {bookContents} from '../server/local-book-contents.ts';
+import {ReaderRepository} from '../lib/reader-repository.ts';
+import {advanceStory} from '../lib/reader-engine.ts';
+import {makePlan} from './fixtures/production.mjs';
 
 async function fixture(t){
  const f=await productionFixture(t),library=libraryFixture();f.control.hold=false;
@@ -120,11 +123,47 @@ test('direct original selection skips matching but still prepares a complete sou
  for(const payload of [...f.control.plans,...f.control.reviews]){assert.deepEqual(payload.editorialContext,{mode:'source'});assert.equal(payload.storyBrief.summary,complete);assert.equal(payload.verifiedOriginal.text,original.text);}
 });
 
-test('historical direct selections without briefRequired retain the legacy advice contract',async t=>{
+test('historical direct selections without a synopsis prepare one before any new storyboard',async t=>{
  const f=await productionFixture(t),books=new LocalBooks(process.cwd());f.options.generation=withLocalBooks(f.generation,books,f.media);await f.restart();f.app.services.localBooks=books;
  f.app.services.production.stop();const entry=(await bookContents(books,{bookId:'shishuo',theme:'原典故事'})).entries[0];
  const saved=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{bookId:'shishuo',theme:'原典故事',source:entry.source,length:'auto',narrativeDetail:'balanced',artStyle:'ink-pencil',voice:false}});
  await f.app.services.database.prepare("UPDATE reader_sessions SET document=json_remove(document,'$.intake.briefRequired') WHERE id=?").bind(saved.id).run();
  await f.restart();f.app.services.localBooks=books;await until(async()=>(await f.read(saved.id)).intake.phase==='confirming');
- assert.equal((await f.json(`sessions/${saved.id}/source`)).source.storyBrief,undefined);assert.equal(f.control.recommendations[0].storyBrief,undefined);assert.equal(f.control.recommendations.length,1);
+ assert.equal((await f.json(`sessions/${saved.id}/source`)).source.storyBrief.verified,true);assert.ok(f.control.recommendations[0].storyBrief.summary);assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);
+});
+
+for(const length of [2,21])test(`missing synopsis is saved before a ${length}-frame plan and a planning retry does not regenerate it`,async t=>{
+ const f=await productionFixture(t),id=await f.createLegacyReader(length),repo=new ReaderRepository(f.app.services.database),generator=f.generation.generator();
+ let fail=true;const summary='庄周梦见自己成为蝴蝶，自在飞舞；醒来后发现自己仍是庄周，由此思考梦与醒、庄周与蝴蝶的区别和变化。';
+ f.control.beforeText=async(kind,payload)=>{
+  const doc=JSON.parse((await repo.get(id,'docker-local-owner')).document);
+  if(kind==='recommend'){assert.ok(doc.original.text);assert.equal(doc.original.storyBrief.verified,false);assert.equal(doc.plan,null);return {storySummary:summary,storyMatchReason:'原文支持梦醒后的追问。'};}
+  if(kind==='plan'||kind==='outline'){
+   assert.equal(doc.original.storyBrief.summary,summary);assert.equal(doc.original.storyBrief.verified,true);assert.equal(doc.usage.filter(item=>item.step==='summary').length,1);
+   if(fail)throw Error('controlled planning outage');
+   const value=makePlan(length);return kind==='plan'?{...value,summary:'不应另写的引子。'}:{...value,summary:'不应另写的引子。',beats:value.pages.map((_,i)=>`第${i+1}幅的动作和回应。`)};
+  }
+ };
+ const failed=await advanceStory(repo,generator,'docker-local-owner',id,0);assert.equal(failed.state,'failed');assert.equal(f.control.calls.length,0);assert.equal(f.control.recommendations.length,1);
+ fail=false;await advanceStory(repo,generator,'docker-local-owner',id,0,true);const doc=JSON.parse((await repo.get(id,'docker-local-owner')).document);
+ assert.equal((doc.draft||doc.storyboard.outline).summary,summary);assert.equal(Object.hasOwn(doc.draft||doc.storyboard.outline,'hook'),false);assert.equal(f.control.recommendations.length,1);assert.equal(doc.frameCountConfirmed,undefined);
+ await f.restart();assert.equal(f.control.recommendations.length,1);assert.equal((await f.read(id)).selection.length,length);
+});
+
+test('invalid missing-summary preparation blocks planning and retries with the saved original',async t=>{
+ const f=await productionFixture(t),id=await f.createLegacyReader(2),repo=new ReaderRepository(f.app.services.database),generator=f.generation.generator();let invalid=true;
+ f.control.beforeText=async kind=>kind==='recommend'&&invalid?{storySummary:undefined}:undefined;
+ await advanceStory(repo,generator,'docker-local-owner',id,0);const pending=JSON.parse((await repo.get(id,'docker-local-owner')).document);
+ assert.equal(pending.original.storyBrief.verified,false);assert.equal(f.control.plans.length,0);assert.equal(f.control.outlines.length,0);assert.equal(f.control.calls.length,0);
+ invalid=false;await advanceStory(repo,generator,'docker-local-owner',id,0,true);const ready=JSON.parse((await repo.get(id,'docker-local-owner')).document);
+ assert.equal(ready.original.text,pending.original.text);assert.equal(ready.original.storyBrief.verified,true);assert.equal(f.control.plans.length,0);
+ await advanceStory(repo,generator,'docker-local-owner',id,0);assert.equal(f.control.plans.length,1);assert.equal(f.control.recommendations.length,2);
+});
+
+test('a confirmed legacy intake stays confirmed and keeps its selected frame count while a missing synopsis is prepared',async t=>{
+ const f=await productionFixture(t),id=await f.createLegacyReader(2),repo=new ReaderRepository(f.app.services.database),row=await repo.get(id,'docker-local-owner'),doc=JSON.parse(row.document);
+ doc.frameCountConfirmed=true;doc.intake={phase:'confirmed',generation:0,creationHash:'legacy',selected:{batch:0,index:0},batches:[{stories:[{title:'庄周梦蝶',description:'梦醒之后的追问。'}],note:''}],search:{round:0,state:'idle'}};
+ await f.app.services.database.prepare('UPDATE reader_sessions SET document=? WHERE id=?').bind(JSON.stringify(doc),id).run();
+ await advanceStory(repo,f.generation.generator(),'docker-local-owner',id,0);const result=await repo.get(id,'docker-local-owner'),saved=JSON.parse(result.document);
+ assert.equal(saved.intake.phase,'confirmed');assert.equal(saved.original.storyBrief.verified,true);assert.equal(saved.draft.pages.length,2);assert.equal(JSON.parse(result.selection).length,2);assert.equal(saved.frameCountConfirmed,true);
 });

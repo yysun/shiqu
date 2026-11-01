@@ -49,50 +49,58 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
  onAcquired?.(token);
  try{
   let generated:Generated<unknown>|undefined;
-  if(step.kind==='recommend'){
+  // Both explicit preparation and the legacy planning fallback save the same verified checkpoint.
+  async function prepareRecommendation(ownedToken:string){
    if(!doc.original){
     let original=await generator.prepareOriginal?.(selection,id);
     if(!original){
      const book=selection.bookId==='other'?selection.customBook:readerBooks.find(b=>b.id===selection.bookId)?.title||selection.bookId;
      const result=await generator.original(selection,{sourceReference:`《${book||''}》${selection.storyTitle||''}`},id);
-     if(!result.source)throw new ReaderError(503,'原文未能核对，暂时无法推荐画幅数。'+result.message);
+     if(!result.source)throw new ReaderError(503,'原文未能核对，暂时无法准备故事摘要。'+result.message);
      original=result.source;
     }
-    doc.original=original;await repo.saveImageProgress(row,token,structuredClone(doc));
+    doc.original=structuredClone(original);await repo.saveImageProgress(row,ownedToken,structuredClone(doc));
    }
    const chosen=doc.intake?.selected,candidate=chosen?doc.intake!.batches[chosen.batch]?.stories[chosen.index]:undefined;
-   // Only the server's selected candidate supplies guidance; it is bound to this saved original.
-   const pendingBrief=candidate?.storyBrief||(doc.intake?.briefRequired&&candidate?{summary:candidate.description,matchReason:storyEditorialContext(selection.theme).mode==='source'?'直接选择原典故事，须按原文补齐完整主线，不额外套主题。':'已选中此故事，须对照原文确认具体主题依据并补齐完整主线。'}:undefined);
-   if(pendingBrief&&!doc.original.storyBrief){
+   // Candidate guidance or an explicit placeholder stays bound to the saved original until checked.
+   const pendingBrief=candidate?.storyBrief||{summary:candidate?.description||doc.storyboard?.outline.summary||'尚未准备完整摘要，请依据已核原文生成。',matchReason:storyEditorialContext(selection.theme).mode==='source'?'直接选择原典故事，须按原文补齐完整主线，不额外套主题。':'已选中此故事，须对照原文确认具体主题依据并补齐完整主线。'};
+   if(!doc.original.storyBrief){
     doc.original.storyBrief={...storyBriefSchema.parse(pendingBrief),verified:false};
-    await repo.saveImageProgress(row,token,structuredClone(doc));
+    await repo.saveImageProgress(row,ownedToken,structuredClone(doc));
    }
    if(candidate?.source&&!candidate.artRecommendation&&generator.recommendArt){
     const recommendation=artRecommendationSchema.parse(await generator.recommendArt(selection,doc.original));
-    await repo.saveArtRecommendation(row,token,doc,recommendation);
+    await repo.saveArtRecommendation(row,ownedToken,doc,recommendation);
     candidate.artRecommendation=recommendation;
    }
    if(!generator.recommend)throw new ReaderError(503,'生成服务暂不支持画幅建议，请更新服务后重试。');
    const result=await generator.recommend(selection,id,doc.original),recommendation=frameRecommendationOutputSchema(doc.original).parse(result.value);
    if(doc.original.storyBrief)doc.original.storyBrief={summary:recommendation.storySummary!,matchReason:recommendation.storyMatchReason!,verified:true};
-   doc.frameRecommendation=recommendation;generated=result;if(doc.intake)doc.intake.phase='confirming';
+   doc.frameRecommendation=recommendation;return result;
   }
+  if(step.kind==='recommend'){generated=await prepareRecommendation(token);if(doc.intake&&doc.intake.phase!=='confirmed')doc.intake.phase='confirming';}
   else if(step.kind==='plan'){
-   if((doc.original?.storyBrief||doc.intake?.briefRequired)&&!storyBriefVerified(doc.original))throw new ReaderError(409,'故事摘要尚未核对，请先准备制作。');
+   if(doc.original?.storyBrief&&!storyBriefVerified(doc.original)||!storyBriefVerified(doc.original)&&!doc.storyboard?.outline.summary?.trim()){
+    const result=await prepareRecommendation(token);
+    doc.usage.push({step:'summary',model:result.model,requestId:result.requestId,usage:result.usage,...(result.reasoningEffort?{reasoningEffort:result.reasoningEffort}:{})});
+    await repo.saveImageProgress(row,token,structuredClone(doc));
+   }
    if(generator.prepareOriginal&&!doc.original){
     const original=await generator.prepareOriginal(selection,id);
-    if(original){doc.original=original;await repo.saveImageProgress(row,token,structuredClone(doc));}
+    if(original){doc.original=structuredClone(original);await repo.saveImageProgress(row,token,structuredClone(doc));}
    }
    if(doc.storyboard||generator.outline&&generator.planBatch&&(selection.length==='auto'||selection.length>readerStoryboardBatchSize)){
     if(!doc.storyboard){
      if(!generator.outline)throw Error('STORYBOARD_UNAVAILABLE');
      const result=await generator.outline(selection,id,doc.original),outline=storyboardOutlineSchema.parse(result.value);
+     if(storyBriefVerified(doc.original))outline.summary=doc.original!.storyBrief!.summary;
      if(selection.length!=='auto'&&outline.beats.length!==selection.length)throw Error('PLAN_LENGTH');
      doc.storyboard={outline,pages:[]};generated=result;
     }else{
      if(!doc.original)throw new ReaderError(503,'原文尚未核对，暂时无法细化分镜。');
      if(!generator.planBatch)throw Error('STORYBOARD_UNAVAILABLE');
      const draft=doc.storyboard,count=Math.min(readerStoryboardBatchSize,draft.outline.beats.length-draft.pages.length);
+     if(storyBriefVerified(doc.original))draft.outline.summary=doc.original!.storyBrief!.summary;
      const result=await generator.planBatch(selection,id,structuredClone(draft),doc.original);
      const pages=[...draft.pages,...storyboardBatchSchema(count).parse({pages:result.value}).pages];
      const plan=pages.length===draft.outline.beats.length?storyDraftSchema.parse({...draft.outline,pages}):null;
@@ -100,7 +108,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     }
    }else{
     const result=await generator.plan(selection,id,doc.original);if(selection.length!=='auto'&&result.value.pages.length!==selection.length)throw Error('PLAN_LENGTH');
-    doc.draft=storyDraftSchema.parse(result.value);generated=result;
+    doc.draft=storyDraftSchema.parse(result.value);if(storyBriefVerified(doc.original))doc.draft.summary=doc.original!.storyBrief!.summary;generated=result;
    }
   }
   else if(step.kind==='reflection'){

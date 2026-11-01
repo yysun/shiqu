@@ -37,7 +37,7 @@ export function checkedRevision(base:RevisionBase,changes:RevisionChanges){
  if(changes.plan&&!base.plan)throw new ReaderError(400,'完整分镜保存后才可手动修改分镜。');
  if(!impact.changed)throw new ReaderError(400,'尚未修改内容，无需创建新版。');
  if(impact.conflict)throw new ReaderError(400,'重新编排与手动分镜不能同时提交，请选择保留哪一类修改。');
- if(changes.plan&&(['title','hook','sourceReference','adaptationNote'] as const).some(key=>changes.plan![key]!==base.plan![key]))throw new ReaderError(400,'本次仅修改分镜、人物与余味，原文出处和故事元信息保持不变。');
+ if(changes.plan&&(['title','summary','sourceReference','adaptationNote'] as const).some(key=>changes.plan![key]!==base.plan![key]))throw new ReaderError(400,'本次仅修改分镜、人物与余味，原文出处和故事元信息保持不变。');
  if(changes.plan&&changes.plan.pages.length!==base.plan!.pages.length)throw new ReaderError(400,'请通过画幅数调整数量，不要直接增删分镜。');
  const selection:Selection={...base.selection,productionPrompt:changes.productionPrompt??base.selection.productionPrompt,artStyle:changes.artStyle??base.selection.artStyle,length:changes.length??revisionFrameCount(base)};
  return {impact,selection,plan:impact.replan?null:structuredClone(changes.plan||base.plan)};

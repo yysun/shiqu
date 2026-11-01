@@ -15,7 +15,7 @@ import {selectionSchema} from '../lib/reader-model.ts';
 import {png} from './fixtures/images.mjs';
 const encoded=Buffer.from(png).toString('base64');
 const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,voice:false,artStyle:'ink-pencil',productionPrompt:'quiet narration'};
-const makePlan=length=>({title:'庄周梦蝶',hook:'梦醒之后',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'现代改编',reflection:'谁在梦中？',characters:'An adult Chinese philosopher in a plain linen robe in ancient China.',pages:Array.from({length},(_,i)=>({caption:'庄周梦见自己成为一只蝴蝶，自由自在地飞来飞去。',prompt:`An adult philosopher dreams in an ancient garden, scene ${i}.`}))});
+const makePlan=length=>({title:'庄周梦蝶',summary:'梦醒之后',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'现代改编',reflection:'谁在梦中？',characters:'An adult Chinese philosopher in a plain linen robe in ancient China.',pages:Array.from({length},(_,i)=>({caption:'庄周梦见自己成为一只蝴蝶，自由自在地飞来飞去。',prompt:`An adult philosopher dreams in an ancient garden, scene ${i}.`}))});
 const turn=()=>new Promise(resolve=>setImmediate(resolve));
 async function until(predicate){
  const deadline=Date.now()+3000;
@@ -30,7 +30,7 @@ async function fixture(t,provider='codex'){
   if(schema.properties.issues)return {issues:[],titleReview:{title:payload.plan.title,reason:'标题准确对应当前故事。'},...(payload.reflectionCandidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识。'}}:{})};
   if(schema.properties.candidates)return {title:payload.draft.title,candidates:[makePlan(1).reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']};
   if(payload.draft)return {reflection:makePlan(1).reflection};
-  if(schema.properties.count){control.recommendations.push({payload,schema,instructions,budget});return control.recommendation;}
+  if(schema.properties.count){control.recommendations.push({payload,schema,instructions,budget});return {...control.recommendation,...(schema.properties.storySummary?{storySummary:makePlan(1).summary,storyMatchReason:'原文支持梦与醒的经历。'}:{})};}
   const record={payload,schema,instructions,budget},plan=makePlan(control.overridePlanLength??(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount));
   if(schema.properties.beats){control.outlines.push(record);const {pages,...metadata}=plan;return {...metadata,beats:pages.map((_,i)=>`第 ${i+1} 幅的关键事件。`)};}
   control.plans.push(record);return payload.batch?{pages:plan.pages.slice(payload.batch.first-1,payload.batch.last)}:plan;
@@ -230,7 +230,7 @@ for(const provider of ['gemini','codex']){
    assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:1})).status,409);
    await f.generate(id,0,'auto');
    let current=await f.read(id);assert.equal(current.state,'idle');assert.equal(current.awaitingFrameCount,true);assert.equal(current.retryAllowed,false);assert.equal(current.story,null);assert.equal(current.ready,0);
-   assert.deepEqual(current.frameRecommendation,f.control.recommendation);assert.equal(f.control.plans.length,plans);assert.equal(f.control.calls.length,images);
+   assert.deepEqual({count:current.frameRecommendation.count,reason:current.frameRecommendation.reason},f.control.recommendation);assert.ok(current.frameRecommendation.storySummary);assert.equal(f.control.plans.length,plans);assert.equal(f.control.calls.length,images);
    const rec=f.control.recommendations.at(-1);assert.equal(rec.payload.narrativeDetail,narrativeDetail);assert.match(rec.payload.verifiedOriginal.text,/昔者庄周/);assert.equal(rec.schema.properties.count.minimum,1);assert.equal(rec.schema.properties.count.maximum,80);assert.doesNotMatch(rec.instructions,/30至60|30–60/);
    await f.advance(id,59);f.restart();await f.generate(id,0,'auto');assert.equal(f.control.recommendations.length,recs+1);
    const count=index===1?60:1;

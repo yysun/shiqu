@@ -56,7 +56,7 @@ test('ZIP converts PNG/JPEG at original dimensions, preserves WebP and matches s
  const json=JSON.parse(strFromU8(files['故事.json']));
  assert.deepEqual(json.generationModels,[{step:'plan',model:'test-text'},{step:'image:0',model:'test-image'}]);
  assert.ok(!strFromU8(files['故事.json']).includes('private'));
- for(const key of ['title','hook','bookId','theme','sourceText','sourceUrl','reflection','adaptationNote','revision','createdAt','updatedAt','artStyleLabel','productionPrompt'])assert.deepEqual(json[key],story[key]);
+ for(const key of ['title','summary','bookId','theme','sourceText','sourceUrl','reflection','adaptationNote','revision','createdAt','updatedAt','artStyleLabel','productionPrompt'])assert.deepEqual(json[key],story[key]);
  assert.equal(json.sourceReference,story.sourceReference);
  assert.equal(json.pages.length,12);
  for(let i=0;i<12;i++){
@@ -69,7 +69,7 @@ test('ZIP converts PNG/JPEG at original dimensions, preserves WebP and matches s
   assert.equal(fetched[i],`http://localhost:3000${story.pages[i].image}`);
  }
  assert.ok(script.indexOf('## 第 2 幅')<script.indexOf('## 第 10 幅'));
- for(const text of [story.title,story.hook,story.reflection,story.adaptationNote,story.sourceReference,story.productionPrompt,story.artStyleLabel])assert.ok(script.includes(text));
+ for(const text of [story.title,story.summary,story.reflection,story.adaptationNote,story.sourceReference,story.productionPrompt,story.artStyleLabel])assert.ok(script.includes(text));
  assert.ok(progress.includes('正在打包第 12 / 12 幅'));
  assert.equal(browser.canvases.length,8);
  assert.equal(browser.revoked.length,8);
