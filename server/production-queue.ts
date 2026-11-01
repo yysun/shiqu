@@ -28,6 +28,11 @@ export class ProductionQueue{
  private stopping=false;
  private clock:()=>number;
  private leaseMs:number;
+ private readonly unreadableJobs=new Set<string>();
+ private contain(job:ProductionJob,error:unknown){
+  if(persistenceError(error))throw error;
+  if(!this.unreadableJobs.has(job.id)){this.unreadableJobs.add(job.id);console.error('production_job_unreadable',JSON.stringify({id:job.id,code:(error as {code?:string})?.code||'UNKNOWN'}));}
+ }
  constructor(database:Database,options:Options){
   this.database=database;this.options=options;this.clock=options.now||Date.now;this.leaseMs=options.leaseMs||180000;
   for(const limit of Object.values(options.limits))if(!Number.isInteger(limit)||limit<1)throw Error('INVALID_POOL_LIMIT');
@@ -53,6 +58,7 @@ export class ProductionQueue{
   // Only explicitly opted-in background work can replay an uncertain remote attempt.
   const expired=(await this.database.prepare("SELECT * FROM production_jobs WHERE (state='running' AND lease_until<=?) OR (state='failed' AND interrupted=1)").bind(this.clock()).all<ProductionJob>()).results;
   for(const job of expired){
+   try{
    // This process is still running the attempt, so its clock jumped; the attempt is not abandoned.
    if(job.state==='running'&&this.tokens.get(job.id)===job.lease_token)continue;
    const resume=!!await this.options.resumeInterrupted?.(job);
@@ -60,6 +66,7 @@ export class ProductionQueue{
    await this.database.prepare(`UPDATE production_jobs SET state=?,error=?,interrupted=?,lease_token=NULL,lease_until=0,updated_at=?
     WHERE id=? AND state=? AND lease_token IS ? AND lease_until=? AND (state!='running' OR lease_until<=?)`)
     .bind(resume?'queued':'failed',resume?null:interruptedMessage,resume?0:1,this.clock(),job.id,job.state,job.lease_token,job.lease_until,this.clock()).run();
+   }catch(error){this.contain(job,error);}
   }
  }
  async renew(){
@@ -73,6 +80,7 @@ export class ProductionQueue{
   try{
    const candidates=(await this.database.prepare(`SELECT j.* FROM production_jobs j WHERE j.state='queued' AND ${ready} ORDER BY j.priority,j.created_at,j.id`).all<ProductionJob>()).results;
    for(const job of candidates){
+    try{
     const handler=this.options.handlers[job.kind],limit=this.options.limits[job.pool];
     if(!handler||handler.pool!==job.pool||!limit||(this.stopping&&!handler.drain))continue;
     const running=await this.database.prepare("SELECT COUNT(*) AS n FROM production_jobs WHERE pool=? AND state='running' AND lease_until>?").bind(job.pool,this.clock()).first<{n:number}>();
@@ -85,6 +93,7 @@ export class ProductionQueue{
     const task=this.execute({...job,state:'running',lease_token:token,lease_until:now+this.leaseMs,attempts:job.attempts+1},handler)
      .finally(()=>{this.tasks.delete(job.id);this.tokens.delete(job.id);this.options.onSettled?.();});
     this.tasks.set(job.id,task);this.tokens.set(job.id,token);
+    }catch(error){this.contain(job,error);}
    }
   }finally{this.pumping=false;}
  }

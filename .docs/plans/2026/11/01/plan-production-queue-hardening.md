@@ -247,6 +247,8 @@ Milestone 2 commit: `a2f8d2d`. Milestone 3 implements independent search:1/text:
 
 Milestone 3 commit: `28bbec9`; all 10 generic queue tests (including both new pins) passed. Milestone 4: shared saved-frame predicate and preview flag preserve storyboard/draft for style-only pre-plan revisions, with next-step checkpoint regression pins. Focused tests: 32 passed; typecheck passed. In-app browser rendered the actual `StoryRevisionActions` component on the reader Vite preview with an isolated 60-frame fixture: “保留已保存的分镜与草稿，只完成剩余编排并审片；需绘制 60 幅。” Desktop preview cannot resolve reader-only `@/lib` aliases; reader preview was used as allowed, without a backend or provider.
 
+Milestone 4 commit: `a06a628`. Milestone 5: pump/recovery contain non-persistence failures per job and log once; pruning and lease release tolerate absent rows; deleted script checkpoints yield without an attempt, while recorded genuine failures remain retryable. Focused hardening/queue/generation/local-image tests: 90 passed, including the unchanged direct-generation and local-image deletion cases; typecheck passed.
+
 AR passed: no blocking architecture flaws (round 5, full review of this design by the reused independent reviewer). Its non-blocking corrections were applied afterward without another review round. They are the eligibility wording, the extra `demands`, `viewedPublicationPending` and `basis` checks, the old-version note, `wake()`, rollback SQL, test line numbers and scenario setups.
 
 The rollback statement in Decision 9 was run on an in-memory SQLite database with a corrupt row, a completed family and another owner's row. It paused only the unfinished superseded versions.

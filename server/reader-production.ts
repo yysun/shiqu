@@ -88,8 +88,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   });
   this.timer=setInterval(()=>this.wake(),options.tickMs||1000);this.timer.unref();this.wake();
  }
+ private async find(id:string,ownerId:string){return this.database.prepare('SELECT * FROM reader_sessions WHERE id=? AND user_id=?').bind(id,ownerId).first<SessionRow>();}
  private async raw(id:string,ownerId:string){
-  const row=await this.database.prepare('SELECT * FROM reader_sessions WHERE id=? AND user_id=?').bind(id,ownerId).first<SessionRow>();
+  const row=await this.find(id,ownerId);
   if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');return row;
  }
  private searchCurrent(row:SessionRow,round:number|undefined){
@@ -381,7 +382,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     ELSE 0 END)`).run();
   const candidates=(await this.database.prepare("SELECT DISTINCT session_id,owner_id FROM production_jobs WHERE kind IN('image','image-publish') AND state IN('queued','failed')").all<{session_id:string;owner_id:string}>()).results;
   for(const candidate of candidates){
-   const row=await this.raw(candidate.session_id,candidate.owner_id);if(!this.readable(row))continue;
+   const row=await this.find(candidate.session_id,candidate.owner_id);if(!row||!this.readable(row))continue;
    const jobs=await this.queue.jobs(row.id,row.user_id),current=await this.currentJobs(row,jobs),ids=new Set(current.map(job=>job.id));
    const obsolete=jobs.filter(job=>['image','image-publish'].includes(job.kind)&&['queued','failed'].includes(job.state)&&!ids.has(job.id));
    if(!obsolete.length)continue;
@@ -420,8 +421,20 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const selection=selectionSchema.parse(JSON.parse(row.selection)),stepKey=(JSON.parse(job.payload) as {stepKey?:string}).stepKey;
   // A crash can save a batch before settling its queue receipt. Never replay that paid call.
   if(stepKey&&stepKey!==nextStep(doc,selection,0)?.key)return {storyboardFrames:doc.storyboard?.pages.length||0};
-  let failure:unknown,acquired=false;
-  const result=await advanceStory(this.repository,this.provider.generator(),row.user_id,row.id,0,true,token=>{acquired=true;this.leases.set(row.id,{ownerId:row.user_id,token});},error=>{failure=error;});
+  let failure:unknown,acquired:string|undefined,result:SessionView;
+  try{
+   result=await advanceStory(this.repository,this.provider.generator(),row.user_id,row.id,0,true,token=>{acquired=token;this.leases.set(row.id,{ownerId:row.user_id,token});},error=>{failure=error;});
+  }catch(error){
+   if(!(error instanceof ReaderError&&error.status===404))throw error;
+   const saved=await this.find(row.id,row.user_id);
+   if(failure){
+    const terminal=failure instanceof ReaderError&&failure.status<500;
+    if(this.stopping&&!terminal)await this.database.prepare("UPDATE reader_sessions SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'").bind(row.id,row.user_id).run();
+    throw terminal?failure:new ReaderError(503,saved?.error||this.provider.safeError(failure));
+   }
+   if(!acquired||saved&&saved.lock_token!==acquired)throw new JobYield();
+   throw error;
+  }
   if(result.state==='failed'){
    // The engine records its failure before the queue can classify it, so undo that for a stop.
    // A 4xx stays failed: replaying a blocked review would pay for repair without the reader asking.
@@ -513,7 +526,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   await this.queue.pump();
   for(const [id,lease] of this.leases){
    // Read jobs before the row: no running job then proves nothing can change the document we save.
-   const allJobs=await this.queue.jobs(id,lease.ownerId),row=await this.raw(id,lease.ownerId);
+   const allJobs=await this.queue.jobs(id,lease.ownerId),row=await this.find(id,lease.ownerId);
+   if(!row){this.leases.delete(id);continue;}
    // Releasing the lease lets the lock expire; the row itself is left untouched.
    if(!this.readable(row)){this.leases.delete(id);continue;}
    const jobs=await this.currentJobs(row,allJobs);

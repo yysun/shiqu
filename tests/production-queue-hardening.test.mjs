@@ -90,3 +90,31 @@ for(const kind of ['storyboard','draft'])test(`style-only pre-plan edit preserve
  }
  assert.equal(f.control.plans.length,0);assert.equal(f.control.outlines.length,0);
 });
+test('ready orphaned jobs in all four pools are contained and logged once while a valid job runs',async t=>{
+ const {f,repo,id,owner}=await seeded(t),{ReaderProductionCoordinator}=await import('../server/reader-production.ts');
+ const coordinator=new ReaderProductionCoordinator(repo.db,f.generation,f.media,{tickMs:3600000});f.coordinators.push(coordinator);
+ const logged=[],error=console.error;console.error=(...args)=>logged.push(args);t.after(()=>{console.error=error;});
+ let valid=0;coordinator.queue.options.handlers.script.run=async()=>{valid++;return {};};
+ for(const [kind,pool] of [['script','text'],['discover','search'],['image','image'],['image-publish','local']]){
+  await coordinator.queue.enqueue({id:`orphan-${kind}`,sessionId:'missing',ownerId:owner,kind,pool,version:'v',dependencies:[],payload:{},priority:-100});
+ }
+ await repo.db.prepare("UPDATE reader_sessions SET generation_control='active' WHERE id=?").bind(id).run();
+ await coordinator.queue.enqueue({id:'valid',sessionId:id,ownerId:owner,kind:'script',pool:'text',version:'v',dependencies:[],payload:{},priority:100});
+ await coordinator.queue.pump();await coordinator.queue.settle();await coordinator.queue.pump();
+ assert.equal(valid,1);assert.equal(logged.filter(args=>args[0]==='production_job_unreadable').length,4);
+ for(const kind of ['script','discover','image','image-publish'])assert.equal((await coordinator.queue.job(`orphan-${kind}`)).attempts,0);
+});
+for(const fails of [false,true])test(`delete during script ${fails?'failure stays retryable':'checkpoint yields and restore does not replay'}`,async t=>{
+ const {f,repo,id,owner}=await seeded(t,null),{ReaderProductionCoordinator}=await import('../server/reader-production.ts');
+ const coordinator=new ReaderProductionCoordinator(repo.db,f.generation,f.media,{tickMs:3600000});coordinator.queue.pump=async()=>{};f.coordinators.push(coordinator);
+ f.control.beforeText=async kind=>{if(kind==='plan'){await repo.remove(id,owner);if(fails)throw Error('controlled plan failure');}};
+ await repo.db.prepare("UPDATE reader_sessions SET generation_control='active' WHERE id=?").bind(id).run();
+ const job={session_id:id,owner_id:owner,kind:'script',pool:'text',payload:'{}',version:'v'};
+ await assert.rejects(coordinator.script(job),error=>fails?error instanceof Error&&error.constructor.name!=='JobYield':error.constructor.name==='JobYield');
+ await repo.restore(id,owner);const row=await repo.get(id,owner);
+ assert.equal(row.state,fails?'failed':'idle');
+ if(!fails){
+  assert.ok(JSON.parse(row.document).draft);await repo.control(id,owner,'resume');
+  await coordinator.script(job);assert.equal(f.control.plans.length,1);
+ }else assert.ok(row.error);
+});
