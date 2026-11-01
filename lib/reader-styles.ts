@@ -2,9 +2,9 @@
 export const artStyleIds=['ink-pencil','ink-wash','vintage-comic','baimiao','cinematic','watercolor','gongbi','woodblock','paper-cut','cartoon','line-art','chibi','3d-animation','clay','classical-oil'] as const;
 export type ArtStyleId=typeof artStyleIds[number];
 export const artStyleGroups=[
- {label:'卡通与简笔',ids:['cartoon','line-art','chibi','ink-pencil','watercolor']},
+ {label:'卡通与简笔',ids:['cartoon','line-art','chibi','ink-pencil','watercolor','ink-wash']},
  {label:'立体与写实',ids:['3d-animation','clay','cinematic']},
- {label:'古典与民艺',ids:['ink-wash','vintage-comic','baimiao','gongbi','woodblock','paper-cut','classical-oil']},
+ {label:'古典与民艺',ids:['vintage-comic','baimiao','gongbi','woodblock','paper-cut','classical-oil']},
 ] as const satisfies ReadonlyArray<{label:string;ids:ReadonlyArray<ArtStyleId>}>;
 export const artStyles=[
  {id:'ink-pencil',label:'彩铅国漫',description:'温暖色彩，生动表情',prompt:'Chinese illustrated comic, expressive fine ink outlines and textured colored pencil on warm paper. Muted ochre and sage-green palette; lively, mature character faces. Clearly hand-drawn, not a photograph.'},
