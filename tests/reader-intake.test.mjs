@@ -45,7 +45,7 @@ test('a failed search stays with the search; obsolete jobs do not block the next
  const f=await fixture(t);let failed=false;f.generation.suggestions=async()=>{f.discoveries.push(1);if(!failed){failed=true;throw Error('controlled failed extraction');}return batch;};
  const id=await create(f);await until(async()=>(await f.read(id)).intake.search.state==='failed');const old=await f.read(id);assert.equal(old.state,'idle');assert.equal(old.intake.phase,'choosing');assert.equal(shelfGenerationStatus(old).group,'待选故事');
  await setup(f,id,{action:'more'},old);await until(async()=>(await f.read(id)).intake.search.state==='idle');assert.equal(f.discoveries.length,2);assert.equal((await f.read(id)).state,'idle');
- await f.app.services.production.queue.enqueue({id:crypto.randomUUID(),sessionId:id,ownerId:'docker-local-owner',kind:'discover',pool:'text',version:'stale',dependencies:[],payload:{setupGeneration:old.intake.generation},priority:-100});
+ await f.app.services.production.queue.enqueue({id:crypto.randomUUID(),sessionId:id,ownerId:'docker-local-owner',kind:'discover',pool:'search',version:'stale',dependencies:[],payload:{setupGeneration:old.intake.generation},priority:-100});
  await f.app.services.production.tick();assert.equal(f.discoveries.length,2);assert.equal((await f.read(id)).intake.phase,'choosing');
  const other=await f.create(2);await until(async()=>(await f.read(other)).state==='completed');assert.equal(f.control.plans.length,1);
 });
@@ -93,7 +93,7 @@ test('choosing a new candidate can carry unsaved manual preferences in the same 
 test('native/preview shared summary follows intake gates and ignores obsolete job failures without exposing content',async t=>{
  const {readLibrarySummary}=await import('../desktop/library-preview.ts'),{productionSteps}=await import('../lib/production-stages.ts');
  const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
- await f.app.services.production.queue.enqueue({id:crypto.randomUUID(),sessionId:id,ownerId:'docker-local-owner',kind:'discover',pool:'text',version:'old',dependencies:[],payload:{setupGeneration:-1},priority:-100});
+ await f.app.services.production.queue.enqueue({id:crypto.randomUUID(),sessionId:id,ownerId:'docker-local-owner',kind:'discover',pool:'search',version:'old',dependencies:[],payload:{setupGeneration:-1},priority:-100});
  await f.app.services.database.prepare("UPDATE production_jobs SET state='failed',error='private old failure' WHERE version='old'").run();
  let summary=readLibrarySummary(f.dataDirectory).stories.find(s=>s.id===id);assert.equal(summary.failed,0);assert.equal(summary.production.phase,'story-choice');assert.equal(summary.production.intakePhase,'choosing');assert.equal(productionSteps({...summary.production,total:null,ready:0})[1].label,'制作确认');
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');summary=readLibrarySummary(f.dataDirectory).stories.find(s=>s.id===id);assert.equal(summary.production.phase,'production-confirmation');assert.equal(summary.failed,0);assert.doesNotMatch(JSON.stringify(summary),/quiet narration|private old failure|梦为胡蝶/);

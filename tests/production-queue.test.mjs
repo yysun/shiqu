@@ -10,6 +10,24 @@ function database(t){
  return {db,adapter:{prepare(sql){let args=[];return {bind(...values){args=values;return this;},async first(){return db.prepare(sql).get(...args)||null;},async all(){return {results:db.prepare(sql).all(...args)};},async run(){return {meta:{changes:Number(db.prepare(sql).run(...args).changes)}};}};}}};
 }
 const spec=(kind,pool,dependencies=[],version='v1',key='')=>({id:productionJobId('story',kind,version,key),sessionId:'story',ownerId:'owner',kind,pool,version,dependencies,payload:{key},priority:0});
+test('search and text each have one independent worker beside image and local pools',async t=>{
+ const {adapter}=database(t),calls=[],releases=[];
+ const run=async job=>{calls.push(job.pool);await new Promise(resolve=>releases.push(resolve));return {};};
+ const queue=new ProductionQueue(adapter,{limits:{search:1,text:1,image:3,local:2},handlers:{discover:{pool:'search',run},script:{pool:'text',run}}});
+ for(let i=0;i<2;i++){await queue.enqueue(spec('discover','search',[],'v',String(i)));await queue.enqueue(spec('script','text',[],'v',String(i)));}
+ await queue.pump();await until(()=>calls.length===2);
+ assert.deepEqual(calls.sort(),['search','text']);
+ queue.stop();releases.forEach(resolve=>resolve());await queue.settle();
+});
+test('search pool migration upgrades queued and interrupted rows with stable ids and receipts',async t=>{
+ const {adapter,db}=database(t),queue=new ProductionQueue(adapter,{limits:{search:1},handlers:{}});
+ for(const key of ['queued','interrupted'])await queue.enqueue(spec('discover','text',[],'old',key));
+ db.exec("UPDATE production_jobs SET state='failed',interrupted=1 WHERE json_extract(payload,'$.key')='interrupted'");
+ db.exec(readFileSync('drizzle/0008_search_pool.sql','utf8'));
+ const jobs=await queue.jobs('story','owner');
+ assert.ok(jobs.every(job=>job.pool==='search'));assert.equal(jobs.find(job=>job.interrupted).state,'failed');
+ assert.equal(jobs.find(job=>job.state==='queued').id,productionJobId('story','discover','old','queued'));
+});
 test('voice/images branch after script; motion/processing feed video; assembly retry reuses every artifact',async t=>{
  const {adapter}=database(t),calls=[],gates=new Map();let failVideo=true;
  const run=kind=>async(job,{outputs})=>{calls.push(kind);assert.equal(Object.keys(outputs).length,JSON.parse(job.dependencies).length);if(gates.has(kind))await gates.get(kind).promise;if(kind==='video'&&failVideo)throw Error('controlled export failure');return {asset:`${kind}.asset`};};

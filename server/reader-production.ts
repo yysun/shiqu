@@ -4,7 +4,8 @@
 // an unreadable story is skipped alone. Interrupted work resumes within a bounded replay allowance.
 // A lost image file is redrawn only on explicit retry. An open story's first image, current page
 // and read-ahead go first, and other stories yield while its publication frees the next slot.
-// Search runs beside a story's selection, without its lock: it stops when no longer wanted, and
+// Search has its own one-worker pool beside text, image and local publication; without the
+// story lock it stops when no longer wanted, and
 // its failures stay with the search unless a stop interrupted the call.
 // Only current image inputs may publish; their paid receipt can replace a stale version's slot.
 import {randomUUID} from 'node:crypto';
@@ -73,12 +74,12 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   this.database=database;this.provider=provider;this.media=media;this.options=options;
   this.clock=options.now||Date.now;this.repository=new ReaderRepository(database);
   this.queue=new ProductionQueue(database,{
-   limits:{text:1,image:options.imageWorkers??3,local:2},now:this.clock,leaseMs:options.leaseMs,
+   limits:{search:1,text:1,image:options.imageWorkers??3,local:2},now:this.clock,leaseMs:options.leaseMs,
    canRun:job=>this.canRun(job),resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>this.wake(),
    safeError:(error,job)=>error instanceof ReaderError?error.message:job.kind==='image-publish'?'图片已生成，暂时无法展开。请重试继续。':this.provider.safeError(error),
    terminal:error=>error instanceof ReaderError&&error.status<500,
    handlers:{
-    discover:{pool:'text',run:job=>this.discover(job)},
+    discover:{pool:'search',run:job=>this.discover(job)},
     prepare:{pool:'text',run:job=>this.script(job)},
     script:{pool:'text',run:job=>this.script(job)},
     image:{pool:'image',run:job=>this.image(job)},
@@ -219,7 +220,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
      .bind(JSON.stringify({round:search.round+1,state:'searching'}),row.id,row.user_id,search.round).run();
     return;
    }
-   if(searching)await this.queue.enqueue(this.spec(row,'discover','text',String(search.round),'',[],{searchRound:search.round},-10));
+   if(searching)await this.queue.enqueue(this.spec(row,'discover','search',String(search.round),'',[],{searchRound:search.round},-10));
    if(['discovering','choosing','confirming'].includes(doc.intake.phase))return;
   }
   const preparing=selection.narrativeDetail&&!doc.frameCountConfirmed&&!doc.plan;

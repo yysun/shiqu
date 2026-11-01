@@ -143,7 +143,7 @@ test('searching leaves preparation alone, and neither loses the other\'s saved s
  await setup(f,id,{action:'draft',settings:{...settings,length:5}},running);
  assert.equal((await f.read(id)).state,'running','A draft leaves the running step and its lock in place');
  release();await phase(f,id,'confirming');await searchIs(f,id,'idle');
- const s=await f.read(id);assert.equal(s.intake.batches.length,2,'The search ran once preparation freed the text slot');assert.deepEqual(s.intake.draft,{...settings,length:5},'The worker save kept the draft');assert.equal(s.frameRecommendation.count,7);assert.equal(f.discoveries.length,2);
+ const s=await f.read(id);assert.equal(s.intake.batches.length,2,'Search and preparation finish in independent pools');assert.deepEqual(s.intake.draft,{...settings,length:5},'The worker save kept the draft');assert.equal(s.frameRecommendation.count,7);assert.equal(f.discoveries.length,2);
 });
 
 test('a queued preparation survives a search requested before it starts',async t=>{
@@ -307,7 +307,7 @@ test('a call killed by a stop counts as an interruption, resumes after restart a
 test('an interrupted search on a paused story waits instead of failing',async t=>{
  const f=await fixture(t),id=await create(f);await phase(f,id,'choosing');await searchIs(f,id,'idle');
  await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});await setup(f,id,{action:'more'});
- await f.app.services.production.queue.enqueue({id:crypto.randomUUID(),sessionId:id,ownerId:owner,kind:'discover',pool:'text',version:'2',dependencies:[],payload:{searchRound:2},priority:-10});
+ await f.app.services.production.queue.enqueue({id:crypto.randomUUID(),sessionId:id,ownerId:owner,kind:'discover',pool:'search',version:'2',dependencies:[],payload:{searchRound:2},priority:-10});
  await f.app.services.database.prepare("UPDATE production_jobs SET state='failed',interrupted=1,attempts=3,error='上次生成已中断' WHERE session_id=? AND state='queued'").bind(id).run();
  await f.app.services.production.tick();assert.equal((await f.read(id)).intake.search.state,'searching');
 });
@@ -334,7 +334,7 @@ test('superseded jobs leave the queue on finished, paused and deleted stories to
  assert.ok((await jobs(f,done,'script')).every(job=>job.state==='succeeded'),'Current work is left alone');
  // A paused search of the current round stays, ready to resume.
  await setup(f,paused,{action:'more'});await f.json(`sessions/${paused}/production-control`,'POST',{action:'resume'});await f.json(`sessions/${paused}/production-control`,'POST',{action:'pause'});
- await production.queue.enqueue({id:crypto.randomUUID(),sessionId:paused,ownerId:owner,kind:'discover',pool:'text',version:'current',dependencies:[],payload:{searchRound:(await stored(f,paused)).intake.search.round},priority:-10});
+ await production.queue.enqueue({id:crypto.randomUUID(),sessionId:paused,ownerId:owner,kind:'discover',pool:'search',version:'current',dependencies:[],payload:{searchRound:(await stored(f,paused)).intake.search.round},priority:-10});
  await production.tick();assert.equal((await jobs(f,paused,'discover')).filter(job=>job.version==='current').length,1);
 });
 
