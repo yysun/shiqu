@@ -7,9 +7,9 @@ import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const noop=()=>{};
 test('discovery stays in the picker and selection opens one continuous story flow',async()=>{
- const bundle=await build({stdin:{contents:"export {default as Paused} from './client/ui/StoryPausedEditing.tsx';export {default as Editor} from './client/ui/StoryRevisionEditor.tsx';export {default as Setup,storyCreationTitle} from './client/ui/StoryCreationSetup.tsx';export {default as Review} from './client/ui/StoryReviewTools.tsx';export {StoryRevisionActions as Actions} from './client/ui/StoryRevisionEditor.tsx';export {default as Fields,StoryEditorTabs as Tabs} from './client/ui/StoryProductionEditor.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'}});
+ const bundle=await build({stdin:{contents:"export {default as Control} from './client/ui/StoryGenerationControl.tsx';export {default as Paused} from './client/ui/StoryPausedEditing.tsx';export {default as Editor,revisionDraftSteps} from './client/ui/StoryRevisionEditor.tsx';export {default as Setup,storyCreationTitle} from './client/ui/StoryCreationSetup.tsx';export {default as Review} from './client/ui/StoryReviewTools.tsx';export {StoryRevisionActions as Actions} from './client/ui/StoryRevisionEditor.tsx';export {default as Fields,StoryEditorTabs as Tabs} from './client/ui/StoryProductionEditor.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'}});
  const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
- const {Setup,storyCreationTitle,Fields,Tabs,Review,Actions,Paused,Editor}=compiled.exports;
+ const {Setup,storyCreationTitle,Fields,Tabs,Review,Actions,Paused,Editor,revisionDraftSteps,Control}=compiled.exports;
  const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'选择',artStyle:'paper-cut',productionPrompt:'清楚的旁白。',narrativeDetail:'brief',length:'auto',voice:false};
  const session={id:'creating',selection,state:'idle',ready:0,story:null,error:null,awaitingFrameCount:false,retryAllowed:false,generationMode:'background',generationControl:'active',frameRecommendation:{count:7,reason:'保留因果。'},intake:{phase:'confirming',generation:1,search:{state:'idle'},selected:{batch:0,index:0},batches:[{stories:[{title:'庄周梦蝶',description:'不应铺开的候选介绍。'}],note:''}]},generationProgress:{sourceReady:true,frameCountConfirmed:false,phase:'production-confirmation'}};
  const html=renderToStaticMarkup(createElement(Setup,{session,book:'庄子',busy:false,onAction:async()=>{},progress:{busy:false,controlBusy:false,error:'',onControl:async()=>{},onRetry:noop,onBack:noop}}));
@@ -48,6 +48,8 @@ test('discovery stays in the picker and selection opens one continuous story flo
  assert.match(searching,/正在寻找更多故事/);assert.match(searching,/开始制作/);assert.doesNotMatch(searching,/<button[^>]*disabled[^>]*>开始制作/);
  const pausedSearch=renderToStaticMarkup(createElement(Setup,{...props,session:{...session,generationControl:'paused',intake:{...session.intake,search:{state:'searching'}}}}));
  assert.match(pausedSearch,/查找已暂停/);assert.doesNotMatch(pausedSearch,/正在寻找更多故事/);
+ const pausedConfirmation=renderToStaticMarkup(createElement(Setup,{...props,session:{...session,generationControl:'paused'}}));
+ assert.equal((pausedConfirmation.match(/>恢复生成<\/button>/g)||[]).length,1);assert.doesNotMatch(pausedConfirmation,/>开始制作<\/button>/);
  const unprepared={...session,frameRecommendation:null,intake:{...session.intake,phase:'choosing'}};
  assert.match(renderToStaticMarkup(createElement(Setup,{...props,session:unprepared})),/准备这篇/);
  const failedPreparation=renderToStaticMarkup(createElement(Setup,{...props,session:{...unprepared,state:'failed',error:'准备失败。',retryAllowed:true,intake:{...session.intake,phase:'preparing'}}}));
@@ -58,12 +60,49 @@ test('discovery stays in the picker and selection opens one continuous story flo
  const pausedPreparation=renderToStaticMarkup(createElement(Setup,{...props,session:{...session,state:'idle',generationControl:'paused',frameRecommendation:null,intake:{...session.intake,phase:'preparing'}}}));
  assert.match(pausedPreparation,/恢复生成/);assert.match(pausedPreparation,/生成进展/);
  for(const label of ['制作要求（可选）','修改画风','修改幅数','重新选择故事'])assert.ok(pausedPreparation.includes(label),label);
- const pausedWithoutPlan=renderToStaticMarkup(createElement(Paused,{session:{...session,generationControl:'paused'},busy:false,onEdit:noop,onReselect:noop}));
- for(const label of ['修改制作要求','修改画风','修改画幅数','重新选择故事'])assert.ok(pausedWithoutPlan.includes(label),label);
- assert.match(pausedWithoutPlan,/保存后仍暂停/);
- assert.equal(renderToStaticMarkup(createElement(Paused,{session,busy:false,onEdit:noop,onReselect:noop})), '');
+ const pausedProps={session:{...session,intake:undefined,generationControl:'paused'},...props.progress,editor:{base:null,changes:{},impact:null,busy:false,open:noop},onReselect:noop};
+ const pausedWithoutPlan=renderToStaticMarkup(createElement(Paused,pausedProps));
+ const pausedTimeline=pausedWithoutPlan.match(/<ol .*?<\/ol>/s)[0];
+ for(const label of ['制作要求','修改画风','修改画幅数','重新选择故事'])assert.ok(pausedTimeline.includes(label),label);
+ assert.equal((pausedWithoutPlan.match(/>恢复生成<\/button>/g)||[]).length,1);
+ assert.match(pausedWithoutPlan,/<button type="button" class="yu-primary"[^>]*>恢复生成<\/button>/);
+ assert.doesNotMatch(pausedWithoutPlan,/暂停后修改|开始制作新版|yu-review-tools/);
+ assert.equal(renderToStaticMarkup(createElement(Paused,{...pausedProps,session})), '');
+ const opened=[],controls=[];
+ const pausedSurface=Paused({...pausedProps,editor:{...pausedProps.editor,open:tab=>opened.push(tab)}});
+ pausedSurface.props.timeline.links.source[1].onClick();pausedSurface.props.timeline.detailActions.source.onClick();pausedSurface.props.timeline.actions.count.onClick();
+ assert.deepEqual(opened,['requirements','style','count']);assert.deepEqual(controls,[]);
+ const resume=Control({session:pausedProps.session,busy:false,primary:true,onControl:async(id,action)=>controls.push([id,action])});
+ await resume.props.onClick();assert.deepEqual(controls,[[session.id,'resume']]);
+ // The shared control stays compact unless the flow dialog explicitly asks for a primary action.
+ const shelfControl=renderToStaticMarkup(createElement(Control,{session:pausedProps.session,busy:false,onControl:noop}));
+ assert.match(shelfControl,/class="yu-generation-control"/);assert.doesNotMatch(shelfControl,/class="yu-primary"/);
  const emptyPlanEditor=renderToStaticMarkup(createElement(Editor,{editor:{base:{selection:{...selection,length:5},plan:null,images:[]},changes:{},tab:'count',busy:false,loading:false,setTab:noop,setChanges:noop,impact:{changed:true,replan:true,total:5},submit:noop,discard:noop}}));
- assert.match(emptyPlanEditor,/value="5"/);assert.match(emptyPlanEditor,/保存修改，保持暂停/);assert.doesNotMatch(emptyPlanEditor,/>分镜<|保存修改并加入队列/);
+ assert.match(emptyPlanEditor,/value="5"/);assert.match(emptyPlanEditor,/开始制作新版/);assert.doesNotMatch(emptyPlanEditor,/保持暂停|恢复生成/);assert.doesNotMatch(emptyPlanEditor,/>分镜<|保存修改并加入队列/);
+
+ // Settings edits return to a draft preview; only the explicit production action submits.
+ const draftEditor={base:{selection:{...selection,length:5},plan:null,images:[]},changes:{length:30,artStyle:'ink-pencil'},tab:'count',busy:false,loading:false,setTab:noop,setChanges:noop,impact:{changed:true,replan:true,total:30},submit:noop,discard:noop};
+ const editing=renderToStaticMarkup(createElement(Editor,{editor:draftEditor,onDone:noop}));
+ assert.match(editing,/>完成编辑<\/button>/);assert.doesNotMatch(editing,/>开始制作新版<\/button>|保持暂停|恢复生成/);
+ const confirmation=renderToStaticMarkup(createElement(Actions,{editor:draftEditor}));
+ assert.match(confirmation,/>开始制作新版<\/button>/);assert.doesNotMatch(confirmation,/>完成编辑<\/button>|保持暂停|恢复生成/);
+ const pausedDraft=renderToStaticMarkup(createElement(Paused,{...pausedProps,editor:draftEditor}));
+ assert.match(pausedDraft,/30 幅 · 待确认/);assert.doesNotMatch(pausedDraft,/开始制作新版|暂停后修改/);
+ assert.equal((pausedDraft.match(/>恢复生成<\/button>/g)||[]).length,1);
+ const pausedEditor=renderToStaticMarkup(createElement(Editor,{editor:draftEditor,onDone:noop,resuming:true}));
+ assert.match(pausedEditor,/>完成编辑<\/button>/);assert.doesNotMatch(pausedEditor,/>恢复生成<\/button>|开始制作新版/);
+ const pausedConflict=renderToStaticMarkup(createElement(Paused,{...pausedProps,editor:{...draftEditor,conflict:true}}));
+ assert.match(pausedConflict,/<button type="button" class="yu-primary" disabled="">恢复生成<\/button>/);
+ const draftSteps=revisionDraftSteps(draftEditor.base,draftEditor.changes);
+ assert.equal(draftSteps.find(s=>s.id==='count').detail,'30 幅 · 待确认');
+ assert.equal(draftSteps.find(s=>s.id==='count').state,'current');
+ assert.equal(draftSteps.find(s=>s.id==='source').detail,'画风：彩铅国漫');
+ for(const id of ['plan','review','repair','recheck','image'])assert.equal(draftSteps.find(s=>s.id===id).state,'pending',id);
+ const savedPlan={pages:Array(5).fill({caption:'已保存的旁白。',prompt:'Saved scene.'})};
+ const styleSteps=revisionDraftSteps({...draftEditor.base,plan:savedPlan},{artStyle:'ink-pencil'});
+ assert.equal(styleSteps.find(s=>s.id==='plan').state,'done');assert.equal(styleSteps.find(s=>s.id==='review').state,'pending');assert.equal(styleSteps.find(s=>s.id==='image').state,'pending');
+ const manualSteps=revisionDraftSteps({...draftEditor.base,plan:savedPlan},{plan:{...savedPlan,reflection:'手改余味。'}});
+ assert.equal(manualSteps.find(s=>s.id==='plan').detail,'已修改分镜 · 待审片');
 
  const transportFailure=renderToStaticMarkup(createElement(Setup,{...props,session:{...session,retryAllowed:true,intake:{...session.intake,phase:'preparing'}},progress:{...props.progress,error:'网络暂时不可用'}}));
  assert.match(transportFailure,/网络暂时不可用/);assert.match(transportFailure,/yu-retry-control/);

@@ -1,23 +1,35 @@
-// Edit one local draft through existing controls, showing the dependency-based work before queueing.
+// Like creation, finish editing a local draft before explicitly starting the proposed production.
 import {useState} from 'react';
 import StoryProductionEditor,{StoryEditorTabs} from './StoryProductionEditor';
 import type {StoryRevisionEditorState} from './useStoryRevision';
 import type {Plan} from '@/lib/reader-model';
-import {revisionFrameCount} from '@/lib/reader-revision';
+import {revisionFrameCount,revisionImpact} from '@/lib/reader-revision';
+import type {RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
+import {productionSteps} from '@/lib/production-stages';
+import {getArtStyle} from '@/lib/reader-styles';
 import './story-revision.css';
-export function StoryRevisionActions({editor}:{editor:StoryRevisionEditorState}){
+export function revisionDraftSteps(base:RevisionSnapshot,changes:RevisionChanges){
+ const impact=revisionImpact(base,changes);
+ return productionSteps({sourceReady:true,frameCountConfirmed:false,planReady:!impact.replan,reviewStatus:'pending',phase:'frame-count',total:impact.total,ready:0}).map(step=>{
+  if(step.id==='source')return {...step,label:'原文与制作要求',detail:`画风：${getArtStyle(changes.artStyle??base.selection.artStyle).label}`};
+  if(step.id==='count')return {...step,detail:`${impact.total} 幅 · 待确认`};
+  if(step.id==='plan'&&changes.plan&&!impact.replan)return {...step,detail:'已修改分镜 · 待审片'};
+  return step;
+ });
+}
+export function StoryRevisionActions({editor,onDone,resuming=false}:{editor:StoryRevisionEditorState;onDone?:()=>void;resuming?:boolean}){
  const impact=editor.impact;if(!impact)return null;
  return <section className="yu-revision-impact" aria-label="本次修改影响">
-  <p role="status">{!impact.changed?'修改先保存在草稿，提交后才会生成新版。':impact.replan?`将重新编排 ${impact.total} 幅并审片。${impact.reusePending?'原图能否复用，待新分镜完成后逐幅比较。':`需重绘 ${impact.total} 幅。`}`:`保留分镜编排，重新审片；预计复用 ${impact.reused} 幅、重绘 ${impact.redraw} 幅。`}</p>
+  <p role="status">{!impact.changed?(resuming?'完成编辑后，恢复生成时继续制作。':'调整制作内容，确认后开始制作新版。'):impact.replan?`将重新编排 ${impact.total} 幅并审片。${impact.reusePending?'原图能否复用，待新分镜完成后逐幅比较。':`需重绘 ${impact.total} 幅。`}`:`保留分镜编排，重新审片；预计复用 ${impact.reused} 幅、重绘 ${impact.redraw} 幅。`}</p>
   {impact.changed&&!impact.replan&&<small>审片若修改画面指令，会增加重绘；首幅变化时全部重绘。</small>}
   {impact.conflict&&<div role="alert"><p>制作要求或画幅数的变化需要重新编排，会替换手改分镜。请选择保留哪类修改：</p><div className="yu-revision-conflict"><button type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,plan:undefined}))}>保留重新编排设置</button><button type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,productionPrompt:undefined,length:undefined}))}>保留手改分镜</button></div></div>}
   {editor.error&&<p role="alert">{editor.error}</p>}
   {editor.conflict&&<div className="yu-revision-conflict-note" role="alert"><p>这篇故事的分镜、制作要求或版本已在别处更新。草稿仍在这里，不会自动合并；需要的内容可以先复制出来。</p><button type="button" className="yu-revision-reload" disabled={editor.busy} onClick={()=>void editor.load()}>丢弃草稿，载入最新</button></div>}
-  <div className="yu-revision-buttons"><button type="button" className="yu-primary" disabled={!impact.changed||impact.conflict||editor.conflict||editor.busy} onClick={()=>void editor.submit()}>{editor.busy?'正在保存…':'保存修改，保持暂停'}</button><button type="button" disabled={editor.busy} onClick={editor.discard}>丢弃草稿</button></div>
-  <small>保存后仍暂停，恢复生成时应用修改。书架只显示最新版，旧内容在后台保留。</small>
+  <div className="yu-revision-buttons"><button type="button" className="yu-primary" disabled={editor.busy||!onDone&&(!impact.changed||impact.conflict||editor.conflict)} onClick={()=>{if(onDone)onDone();else void editor.submit();}}>{editor.busy?'正在提交…':onDone?'完成编辑':resuming?'恢复生成':'开始制作新版'}</button><button type="button" disabled={editor.busy} onClick={editor.discard}>丢弃草稿</button></div>
+  <small>{resuming?(onDone?'完成编辑后回到制作流程，点击“恢复生成”时应用修改。':'恢复生成时应用修改，已保存的内容保留。'):onDone?'完成编辑后回到制作流程，确认后才开始制作新版。':'开始制作后会自动编排、审片和绘图。书架显示最新版，原故事保留。'}</small>
  </section>;
 }
-export default function StoryRevisionEditor({editor}:{editor:StoryRevisionEditorState}){
+export default function StoryRevisionEditor({editor,onDone,resuming=false}:{editor:StoryRevisionEditorState;onDone?:()=>void;resuming?:boolean}){
  const [page,setPage]=useState(0);
  const {base,changes,busy,loading}=editor;
  if(loading)return <p role="status">正在载入已保存的制作内容…</p>;
@@ -36,7 +48,7 @@ export default function StoryRevisionEditor({editor}:{editor:StoryRevisionEditor
    </section>}
 
   </fieldset>
-  <StoryRevisionActions editor={editor}/>
+  <StoryRevisionActions editor={editor} onDone={onDone} resuming={resuming}/>
   <p className="yu-revision-note">关闭弹窗保留本次草稿；离开这篇故事后草稿会清除。</p>
  </div>;
 }

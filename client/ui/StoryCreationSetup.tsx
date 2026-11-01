@@ -78,17 +78,17 @@ export default function StoryCreationSetup({session,book,busy,onAction,progress}
   {search.state==='failed'&&<div className="yu-batch-error" role="alert"><p>这次查找未完成。{search.error}</p><p>已找到的故事和已选内容都保留，可以重试查找，也可以直接继续。</p>{selected&&findMore}</div>}
   {!editing&&remoteChoice}
   {!selected&&(intake.batches.length>0||search.state==='failed')&&candidateList}
-  {selected?<StoryGenerationStatus session={session} {...progress} compact={ready} stages={stages} timeline={{
+  {selected?<StoryGenerationStatus session={session} {...progress} compact={ready} control={ready?null:undefined} stages={stages} timeline={{
    links:{source:[{label:'重新选择故事',onClick:()=>{if(!busy)setChoosing(true);}},...(editable?[{label:'制作要求（可选）',onClick:()=>setEditing('requirements')}]:[])]},
    detailActions:editable?{source:{label:'修改画风',onClick:()=>setEditing('style')}}:undefined,
    actions:editable?{count:{label:'修改幅数',onClick:()=>setEditing('count')}}:undefined
   }}>
-   {ready&&<><button type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'confirm',settings})}>{busy?'正在保存…':'开始制作'}</button></>}
+   {ready&&<><button type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'confirm',settings})}>{busy?'正在保存…':paused?'恢复生成':'开始制作'}</button></>}
    {preparable&&<button type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'choose',batch:intake.selected!.batch,index:intake.selected!.index,settings:preferences})}>准备这篇</button>}
   </StoryGenerationStatus>:<>
    {(session.error||progress.error)&&<p className="yu-batch-error" role="alert">{progress.error||session.error}</p>}
    {(session.state==='failed'||!!progress.error)&&<StoryRetry session={session} busy={progress.busy} onRetry={progress.onRetry}/>}
-   {paused&&<StoryGenerationControl session={session} busy={progress.controlBusy} onControl={progress.onControl}/>}
+   {paused&&<StoryGenerationControl session={session} busy={progress.controlBusy} onControl={progress.onControl} primary/>}
    <button type="button" className="yu-generation-later" onClick={progress.onBack}>稍后从书架继续</button>
   </>}
   {error&&<p className="yu-batch-error" role="alert">{error}</p>}

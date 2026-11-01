@@ -40,7 +40,7 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
   lock.current=true;setBusy(true);setError('');
   try{
    const originId=storyId;
-   const session:SessionView=await request(`reader/sessions/${storyId}/revisions`,'POST',{requestId:submission.current.id,token:base.token,changes,paused:true});
+   const session:SessionView=await request(`reader/sessions/${storyId}/revisions`,'POST',{requestId:submission.current.id,token:base.token,changes});
    if(latest.current!==originId)return;
    setTab(null);setBase(null);setChanges({});submission.current=null;
    await callback.current(session);
