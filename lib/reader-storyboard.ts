@@ -3,6 +3,7 @@ import {normalizeProductionPrompt} from './reader-prompts.ts';
 import {storyboardOutlineSchema,storyboardBatchSchema,planSchema,storyPresentationSchema} from './reader-model.ts';
 import type {Selection,Storyboard,StoryDraft} from './reader-model.ts';
 import {verifiedOriginalPayload} from './reader-source-types.ts';
+import {storyBriefPayload} from './reader-story-brief.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import type {Generated} from './reader-engine.ts';
 import {readerStoryboardBatchSize,readerMinFrames,readerMaxFrames} from './reader-limits.ts';
@@ -26,7 +27,7 @@ const reflectionSystemPrompt=promptSections(
 const reflectionCandidatesDirection='本次先结合完整原文与实际分镜拟定最终标题（title），再一次生成三个结语候选，留给独立审核择优。三个候选各自完整成立，在有原文依据的观察角度、着重点或表达取舍上形成真实区别，不只调换词语，也不把一个意思拆成三句。不强行凑出三种寓意；原文只支持同一层认识时，可以比较这层认识的不同表达，但不能为求差异新增动机、事实或拔高判断。三个候选适用相同质量标准，不设置陪衬句，不排列名次，不推荐或解释。只返回 {title,candidates:[第一句,第二句,第三句]}，不得输出其他字段。';
 
 export function storyboardGenerator(book:(selection:Selection)=>string,call:Call){
- function payload(selection:Selection,id:string,original?:OriginalSource){return {book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})};}
+ function payload(selection:Selection,id:string,original?:OriginalSource){return {book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),...storyBriefPayload(original),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})};}
  function instructions(original:OriginalSource|undefined,stage:'outline'|'batch'){return promptSections(
   ['任务',stage==='outline'?'你是古典连环画编剧，本次只制定全篇提纲。':'你是古典连环画分镜导演，本次只细化指定批次。'],
   ['编排标准',storyPlanningDirection],

@@ -26,7 +26,7 @@ export async function productionFixture(t,provider='codex',variables={}){
  }
  async function planned(prompt,schema){
   const payload=JSON.parse(prompt);if(schema.properties.artStyle)return {artStyle:'ink-pencil',reason:'与本篇人物动作及叙事相符。'};
-  if(schema.properties.count){control.recommendations.push(payload);return {count:7,reason:'保留完整因果和关键转折。'};}
+  if(schema.properties.count){control.recommendations.push(payload);return {count:7,reason:'保留完整因果和关键转折。',...(schema.properties.storySummary?{storySummary:payload.storyBrief.summary,storyMatchReason:payload.storyBrief.matchReason,...await control.beforeText?.('recommend',payload,schema)}:{})};}
   if(schema.properties.issues){control.reviews.push(payload);return {titleReview:{title:payload.plan.title,reason:'标题准确对应当前故事。'},...(payload.reflectionCandidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识，表达简洁。'}}:{}),...await control.beforeText?.('review',payload,schema)??{issues:[]}};}
   if(payload.draft){
    (payload.revision?control.reflectionRepairs:control.reflections).push(payload);

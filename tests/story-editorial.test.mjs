@@ -1,4 +1,4 @@
-// Keep themes in title/ending editing only and prove independent title audit is durable and gates drawing.
+// Preserve theme/source context through scene work, then independently audit title and ending before drawing.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,until} from './fixtures/production.mjs';
@@ -11,7 +11,7 @@ for(const provider of ['codex','gemini'])for(const theme of ['放下执念','原
  const proposed=theme==='原典故事'?'梦中的片段':'放下所有执念才有自由',finalTitle=theme==='原典故事'?'庄周梦蝶':'梦醒，还认得自己吗';let savedDraft;
  f.control.beforeText=async(kind,payload,schema)=>{
   assert.equal(payload.theme,undefined);
-  if(['plan','outline','batch','repair'].includes(kind)){assert.equal(payload.editorialContext,undefined);return;}
+  if(['plan','outline','batch','repair'].includes(kind)){assert.deepEqual(payload.editorialContext,context);return;}
   if(kind==='reflection'){
    const doc=await document(f,id);savedDraft=structuredClone(doc.draft);
    assert.equal(doc.plan,null);assert.equal(doc.draft.pages.length,8);assert.equal(f.control.calls.length,0);

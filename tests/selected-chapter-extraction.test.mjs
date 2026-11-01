@@ -8,7 +8,7 @@ import {selectionSchema} from '../lib/reader-model.ts';
 import {productionFixture,until,selection} from './fixtures/production.mjs';
 const books=new LocalBooks(process.cwd()),base=selectionSchema.parse({...selection,bookId:'三国演义',theme:'忠于原文',storyTitle:undefined,length:'auto',narrativeDetail:'balanced'});
 async function prepared(t){
- const f=await productionFixture(t);f.control.hold=false;f.generation.matchStories=async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes'}))});
+ const f=await productionFixture(t);f.control.hold=false;f.generation.matchStories=async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。',summary:story.summary}))});
  const book=await books.book(base),chapters=(await bookContents(books,base,'黄忠 定军山')).entries;
  const sources=chapters.map(entry=>entry.source),chosen=book.sections.find(section=>section.id===sources[1].sectionId);
  const source={edition:book.edition,sectionId:chosen.id,firstUnit:chosen.units[0].id,lastUnit:chosen.units[3].id};
@@ -74,7 +74,7 @@ test('an explicit all-chapter scope has a distinct cache from whole-book discove
  const selected=selectedChapterScope(books,book,refs);assert.equal(selected.book.input.text,book.input.text);
  const section=book.sections[0],source={edition:book.edition,sectionId:section.id,firstUnit:section.units[0].id,lastUnit:section.units[3].id};let calls=0;
  const values=new Map(),media={async put(key,bytes){values.set(key,new Uint8Array(bytes));},async get(key){const bytes=values.get(key);return bytes?{async arrayBuffer(){return bytes.slice().buffer;}}:null;}};
- const provider=withLocalBooks({status:async()=>({configured:true,provider:'codex',models:{text:'scope-test',image:'mock'}}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes'}))}),safeError:()=> 'controlled',generator:()=>({}),suggestions:async()=>{calls++;return {stories:[{title:'首篇故事',description:'原文中的完整事件。',summary:'人物经历事件、作出行动，事情得到完整结果。',source}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};}},books,media);
+ const provider=withLocalBooks({status:async()=>({configured:true,provider:'codex',models:{text:'scope-test',image:'mock'}}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。',summary:story.summary}))}),safeError:()=> 'controlled',generator:()=>({}),suggestions:async()=>{calls++;return {stories:[{title:'首篇故事',description:'原文中的完整事件。',summary:'人物经历事件、作出行动，事情得到完整结果。',source}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};}},books,media);
  await provider.suggestions(s,[]);assert.equal(calls,1);
  await provider.suggestions({...s,discoverySources:refs},[]);assert.equal(calls,2);
  await provider.suggestions({...s,discoverySources:[...refs].reverse()},[]);assert.equal(calls,2);

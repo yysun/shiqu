@@ -22,7 +22,7 @@ function fixture(){
  const book={id:'zhuangzi',title:'测试书',edition:'a'.repeat(64),url:'https://example.org/source',provider:'测试来源',sections,input:{title:'测试书',edition:'a'.repeat(64),text:sections.map(s=>'篇章 '+s.id+'：'+s.title+'\n'+s.units.map(u=>'['+u.id+']\n'+u.text).join('\n\n')).join('\n\n')}};
  const books=new LocalBooks(process.cwd());books.book=async()=>book;
  const stories=sections.flatMap(s=>s.units.map(u=>({title:u.id,description:'一次变故促成了新的选择。',summary:'人物经历事件、作出行动，事情得到完整结果。',source:{edition:book.edition,sectionId:s.id,firstUnit:u.id,lastUnit:u.id}})));
- const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'},voiceEnabled:false}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes'}))}),safeError:()=> '模拟服务失败',generator:()=>({}),suggestions:async()=>assert.fail('No discovery model call expected'),recommendArt:async()=>recommendation};
+ const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'},voiceEnabled:false}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。',summary:story.summary}))}),safeError:()=> '模拟服务失败',generator:()=>({}),suggestions:async()=>assert.fail('No discovery model call expected'),recommendArt:async()=>recommendation};
  return {book,books,stories,provider};
 }
 

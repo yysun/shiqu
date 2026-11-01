@@ -1,8 +1,9 @@
 // Select a complete provider explicitly; subscription mode never falls back to API billing.
-import {normalizeProductionPrompt} from '../lib/reader-prompts.ts';
+import {normalizeProductionPrompt,storyEditorialContext} from '../lib/reader-prompts.ts';
 import {verifiedOriginalPayload} from '../lib/reader-source-types.ts';
+import {storyBriefPayload} from '../lib/reader-story-brief.ts';
 import {createOpenAIProvider} from './openai-provider.ts';
-import {frameRecommendationSchema,frameRecommendationJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
+import {frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
 import {configuredModels,makeGenerator,suggestStories,safeGeminiError,recommendStoryArt,matchStoryThemes} from '../lib/reader-gemini.ts';
 import {storyDraftSchema,ReaderError} from '../lib/reader-model.ts';
 import {readerStoryboardTimeoutMs} from '../lib/reader-limits.ts';
@@ -82,11 +83,11 @@ export function createReaderProvider(variables:Record<string,string|undefined>,m
    }),
    original:(selection,plan,id)=>saveStoryOriginal(media,selection,plan,id,transport),
    async recommend(selection,id,original){
-    const result=await codex.run({instructions:frameRecommendationPrompt,prompt:JSON.stringify(frameRecommendationPayload(selection,original)),schema:frameRecommendationJson,reasoningEffort:taskReasoningEfforts.frames});
-    return {value:frameRecommendationSchema.parse(JSON.parse(result.text)),model:result.model,requestId:result.requestId,usage:result.usage,reasoningEffort:result.reasoningEffort};
+    const result=await codex.run({instructions:frameRecommendationPrompt,prompt:JSON.stringify(frameRecommendationPayload(selection,original)),schema:frameRecommendationOutputJson(original),reasoningEffort:taskReasoningEfforts.frames});
+    return {value:frameRecommendationOutputSchema(original).parse(JSON.parse(result.text)),model:result.model,requestId:result.requestId,usage:result.usage,reasoningEffort:result.reasoningEffort};
    },
    async plan(selection,id,original){
-    const result=await codex.run({instructions:draftInstructions(!!original?.localSource),prompt:JSON.stringify({book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})}),schema:storyDraftJson(selection.length),timeoutMs:readerStoryboardTimeoutMs,reasoningEffort:taskReasoningEfforts.plan});
+    const result=await codex.run({instructions:draftInstructions(!!original?.localSource),prompt:JSON.stringify({book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),...storyBriefPayload(original),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})}),schema:storyDraftJson(selection.length),timeoutMs:readerStoryboardTimeoutMs,reasoningEffort:taskReasoningEfforts.plan});
     const value=storyDraftSchema.parse(JSON.parse(result.text));if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new CodexError('INVALID_PLAN');
     return {value,model:result.model,requestId:result.requestId,usage:result.usage,reasoningEffort:result.reasoningEffort};
    },

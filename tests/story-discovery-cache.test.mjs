@@ -23,7 +23,7 @@ function fixture(chapters=2,units=10,size=80){
  const books=new LocalBooks(process.cwd());books.book=async()=>book;
  const stories=sections.flatMap(s=>s.units.map((u,i)=>({title:s.id+'故事'+i,description:'一次变故，让人物重新认识事情的真相。',summary:'人物经历事件、作出行动，事情得到完整结果。',source:{edition:book.edition,sectionId:s.id,firstUnit:u.id,lastUnit:u.id}})));
  const calls=[];
- const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'},voiceEnabled:false}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes'}))}),safeError:()=> '模拟错误',generator:()=>({}),suggestions:async(s,excluded,input)=>{
+ const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'},voiceEnabled:false}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。',summary:story.summary}))}),safeError:()=> '模拟错误',generator:()=>({}),suggestions:async(s,excluded,input)=>{
   calls.push({selection:s,excluded,input});
   const known=new Set(input.scan.excludedSources.map(localSourceKey));
   const available=stories.filter(story=>input.text.includes('['+story.source.firstUnit+']')&&!known.has(localSourceKey(story.source)));

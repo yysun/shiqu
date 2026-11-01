@@ -4,7 +4,7 @@ import {readerBooks,ReaderError} from './reader-model.ts';
 import type {Plan,Selection} from './reader-model.ts';
 import {getArtStyle} from './reader-styles.ts';
 import type {ArtStyleId} from './reader-styles.ts';
-import {promptSections,inputBoundaryDirection,sourceFidelityDirection,narrativeMeaningDirection,storyboardDirection,imageCompositionDirection,storyScopeDirection,storyOpeningDirection} from './reader-prompts.ts';
+import {promptSections,inputBoundaryDirection,sourceFidelityDirection,narrativeMeaningDirection,storyboardDirection,imageCompositionDirection,storyScopeDirection,storyOpeningDirection,storyAdaptationDirection} from './reader-prompts.ts';
 import {artRecommendationJson,artRecommendationInstructions} from './reader-art-recommendation.ts';
 import {narrativeDetailInstructions} from './reader-frame-recommendation.ts';
 import {readerMinFrames,readerMaxFrames} from './reader-limits.ts';
@@ -24,7 +24,8 @@ export const suggestionSystemPrompt=promptSections(
  ['来源与不足处理','只推荐确知属于该书的篇目；不足数量上限时少列并在 note 说明，不为凑数编造。不能确认该书时 stories 为空，note 请读者补充作者或原文链接。URL 来源必须用 URL context 读取页面，只依据成功读取的内容；打不开或内容不足时返回空数组并说明。'],
  ['画风推荐',artRecommendationInstructions],['输入与输出',inputBoundaryDirection]);
 export const storyPlanningDirection=promptSections(
- ['故事与事实','面向成年读者，用简体中文改编指定经典中的 chosenStory，保持核心人物、事件与因果；没有选定故事时才按 theme 选题。选定后主题不进入分镜表达。只改编确知属于该书的故事；存在 verifiedOriginal 时，仅以 text 和存在时的 chapterContext.text 为事实依据，不用记忆补充情节。未提供已核原文的 URL 来源须经 URL context 读取，不能确认时拒绝编造。'],
+ ['故事与事实','面向成年读者，用简体中文改编指定经典中的 chosenStory，保持核心人物、事件与因果；没有选定故事时才按 theme 选题。选定后的主题与摘要指导有据的叙事呈现。只改编确知属于该书的故事；存在 verifiedOriginal 时，仅以 text 和存在时的 chapterContext.text 为事实依据，不用记忆补充情节。未提供已核原文的 URL 来源须经 URL context 读取，不能确认时拒绝编造。'],
+ ['主题与摘要',storyAdaptationDirection],
  ['范围与开场',storyScopeDirection+'\n'+storyOpeningDirection],
  ['叙事与轻重',narrativeMeaningDirection],['静态画面与衔接',storyboardDirection],
  ['事实边界',sourceFidelityDirection],

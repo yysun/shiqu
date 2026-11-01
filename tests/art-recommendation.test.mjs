@@ -84,7 +84,7 @@ test('direct whole-book selection preserves the original content-based art recom
  const sections=[{id:'s0',title:'篇章',units:[{id:'u0',text:'人物终于明白事情的真相，向朋友承认了自己的错误。',narrative:true}]}];
  const book={id:'山海经',title:'山海经',edition:source.edition,sections,input:{title:'山海经',edition:source.edition,text:'篇章 s0：篇章\n[u0]\n'+sections[0].units[0].text}};
  let calls=0;const books={book:async()=>book,resolve:(_book,receipt)=>({title:receipt.sectionId,text:'核对原文'})};
- const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock'}}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes'}))}),safeError:()=>'',generator:()=>({}),suggestions:async(_selection,_excluded,input)=>{
+ const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock'}}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。',summary:story.summary}))}),safeError:()=>'',generator:()=>({}),suggestions:async(_selection,_excluded,input)=>{
   calls++;assert.equal(input.purpose,'catalog');return {stories:[{title:'故事',description:'真实故事简介',summary:'原文中的人物经历变故并采取行动，事件得到明确结果。',source:{edition:book.edition,sectionId:'s0',firstUnit:'u0',lastUnit:'u0'},artRecommendation:recommendation}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};
  }};
  const stored=new Map(),media={get:async key=>{const bytes=stored.get(key);return bytes?{arrayBuffer:async()=>bytes.slice().buffer}:null;},put:async(key,bytes)=>{stored.set(key,new Uint8Array(bytes));}};

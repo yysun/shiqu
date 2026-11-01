@@ -34,7 +34,7 @@ const plan=makePlan(8),{reflection:_,...draft}=plan;void _;
 const issue={page:2,category:'caption',problem:'指代不清。',instruction:'只澄清说话者，保留画面。',requiresReplan:false};
 const candidate={title:plan.title,description:'人物经历梦与醒。',summary:'庄周梦为胡蝶，醒后思考庄周与胡蝶的关系。',source,artRecommendation:{artStyle:'ink-pencil',reason:'适合人物表情。'}};
 function responseFor(payload,schema){
- if(schema.properties.matches)return {matches:payload.stories.map(story=>({id:story.id,verdict:'yes'}))};
+ if(schema.properties.matches)return {matches:payload.stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。',summary:story.summary}))};
  if(schema.properties.stories)return {stories:[candidate],note:'',...(schema.properties.scan?{scan:{blockComplete:false,pendingEvents:[],resolvedEventIds:[]}}:{})};
  if(schema.properties.count)return {count:8,reason:'关键言行和回应各有空间。'};
  if(schema.properties.artStyle)return candidate.artRecommendation;
@@ -111,7 +111,7 @@ test('all providers send the same stage-specific instructions, data and strict o
   assert.match(get(stage).instructions,/资料/);
  }
  for(const stage of ['draft','outline','batch','repair']){
-  assert.equal(get(stage).payload.editorialContext,undefined);
+  assert.deepEqual(get(stage).payload.editorialContext,{mode:'theme',theme:selection.theme});
   assert.doesNotMatch(get(stage).instructions,/余味写给已经读完故事的人/);
   assert.doesNotMatch(get(stage).instructions,/优先于上述|优先于单句/);
  }

@@ -9,6 +9,7 @@ import type {OriginalSource} from './reader-source-types.ts';
 import {artStyleIds,getArtStyle} from './reader-styles.ts';
 import {localSourceSchema} from './reader-local-contract.ts';
 import {readerMinFrames,readerMaxFrames,readerStoryboardBatchSize} from './reader-limits.ts';
+import {storyBriefVerified} from './reader-story-brief.ts';
 import {narrativeDetailSchema} from './reader-frame-recommendation.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import type {ReviewCheckpoint,ReviewIssue} from './reader-review.ts';
@@ -50,6 +51,7 @@ export function nextStep(doc:Document,selection:Selection,through:number):Step|n
  if(doc.storyboard&&!doc.original)return {kind:'source',page:0,key:'source'};
  if(!doc.plan&&doc.draft)return {kind:doc.original?'reflection':'source',page:0,key:doc.original?'reflection':'source'};
  if(!doc.plan){
+  if((doc.original?.storyBrief||doc.intake?.briefRequired&&doc.intake.selected)&&!storyBriefVerified(doc.original))return {kind:'recommend',page:0,key:'recommend'};
   if(selection.narrativeDetail){
    if(!doc.frameRecommendation)return {kind:'recommend',page:0,key:'recommend'};
    if(!doc.frameCountConfirmed)return null;

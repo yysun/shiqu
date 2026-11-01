@@ -1,7 +1,8 @@
 // Use official OpenAI text/image APIs with isolated API billing and validated local reference images.
 // Never log provider bodies or credentials, fetch returned image URLs, retry, or fall back to another provider.
-import {normalizeProductionPrompt} from '../lib/reader-prompts.ts';
+import {normalizeProductionPrompt,storyEditorialContext} from '../lib/reader-prompts.ts';
 import {verifiedOriginalPayload} from '../lib/reader-source-types.ts';
+import {storyBriefPayload} from '../lib/reader-story-brief.ts';
 import {z} from 'zod';
 import {ReaderError,storyDraftSchema} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
@@ -12,10 +13,10 @@ import {openaiDefaultModels} from '../lib/system-settings.ts';
 import {storyboardGenerator} from '../lib/reader-storyboard.ts';
 import {freshSuggestions,suggestionBatchSchema} from '../lib/reader-suggestions.ts';
 import {localChoicesJson,localScanJson,localCatalogJson,localChoices,localReadingPrompt,localSuggestionPayload} from '../lib/reader-local-contract.ts';
-import {themeMatchPrompt,themeMatchPayload,themeMatchJson,themeMatchesSchema} from '../lib/reader-theme-match.ts';
+import {themeMatchPrompt,themeMatchPayload,themeMatchJson,themeMatchesSchema,themeMatchOutputTokens} from '../lib/reader-theme-match.ts';
 import {choicesJson,storyDraftJson,suggestionSystemPrompt,draftInstructions,imagePrompt,imageTypes,mediaType,storySource} from '../lib/reader-generation-contract.ts';
 import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from '../lib/reader-art-recommendation.ts';
-import {frameRecommendationSchema,frameRecommendationJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
+import {frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
 import {getArtStyle} from '../lib/reader-styles.ts';
 import {saveStoryOriginal} from '../lib/reader-source-storage.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
@@ -83,7 +84,7 @@ export function createOpenAIProvider(variables:Record<string,string|undefined>,m
    return reading?.maxStories?{...fresh,stories:fresh.stories.slice(0,reading.maxStories)}:fresh;
   },
   async matchStories(theme,stories){
-   const result=await text(themeMatchPrompt,themeMatchPayload(theme,stories),themeMatchJson,reasoning.suggest,3000);
+   const result=await text(themeMatchPrompt,themeMatchPayload(theme,stories),themeMatchJson,reasoning.suggest,themeMatchOutputTokens(stories.length));
    return themeMatchesSchema.parse(result.value);
   },
   async recommendArt(selection,original){
@@ -93,9 +94,9 @@ export function createOpenAIProvider(variables:Record<string,string|undefined>,m
   generator(){return {
    ...storyboardGenerator(book,(task,instructions,payload,schema,maxOutputTokens)=>text(instructions,payload,schema,reasoning[task],maxOutputTokens)),
    original:(selection,plan,id)=>saveStoryOriginal(media,selection,plan,id,transport),
-   async recommend(selection,_id,original){const result=await text(frameRecommendationPrompt,frameRecommendationPayload(selection,original),frameRecommendationJson,reasoning.frames,2048);return {...result,value:frameRecommendationSchema.parse(result.value)};},
+   async recommend(selection,_id,original){const result=await text(frameRecommendationPrompt,frameRecommendationPayload(selection,original),frameRecommendationOutputJson(original),reasoning.frames,original.storyBrief?4096:2048);return {...result,value:frameRecommendationOutputSchema(original).parse(result.value)};},
    async plan(selection,id,original){
-    const result=await text(draftInstructions(!!original?.localSource),{book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})},storyDraftJson(selection.length),reasoning.plan,Math.max(8192,(selection.length==='auto'?20:selection.length)*800));
+    const result=await text(draftInstructions(!!original?.localSource),{book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),...storyBriefPayload(original),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})},storyDraftJson(selection.length),reasoning.plan,Math.max(8192,(selection.length==='auto'?20:selection.length)*800));
     const value=storyDraftSchema.parse(result.value);if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new OpenAIError('PLAN_LENGTH');return {...result,value};
    },
    async image(plan,page,id,reference,style='ink-pencil',productionPrompt='',artifactId){

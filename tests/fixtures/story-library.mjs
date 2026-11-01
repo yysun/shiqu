@@ -17,7 +17,7 @@ export function libraryFixture(store=memory()){
    const seen=new Set(input.scan.excludedSources.map(localSourceKey)),available=stories.filter(story=>input.text.includes('['+story.source.firstUnit+']')&&!seen.has(localSourceKey(story.source)));
    return {stories:available.slice(0,input.scan.maxStories),note:'',scan:{blockComplete:available.length<input.scan.maxStories,pendingEvents:[],resolvedEventIds:[]}};
   },
-  async matchStories(theme,entries){calls.matches.push({theme,stories:structuredClone(entries)});return {matches:entries.map(story=>({id:story.id,verdict:control.decide(theme,story)}))};},
+  async matchStories(theme,entries){calls.matches.push({theme,stories:structuredClone(entries)});return {matches:entries.map(story=>{const verdict=control.decide(theme,story);return {id:story.id,verdict,reason:verdict==='yes'?'原文的行动与结果支持本次选题。':'当前资料未能明确支持主题。',summary:verdict==='yes'?story.summary:''};})};},
  };
  const cache=new StoryDiscoveryCache(store);
  const run=(theme=selection.theme,seen=[],observer)=>discoverLocalStories(provider,books,cache,book,{...selection,theme},[],observer,seen);

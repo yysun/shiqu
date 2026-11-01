@@ -6,7 +6,9 @@ import {persistenceError} from './reader-repository.ts';
 import type {ReaderRepository} from './reader-repository.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import type {OriginalSource,SourceResult,SourceHint} from './reader-source-types.ts';
-import {frameRecommendationSchema} from './reader-frame-recommendation.ts';
+import {frameRecommendationOutputSchema} from './reader-frame-recommendation.ts';
+import {storyBriefSchema,storyBriefVerified} from './reader-story-brief.ts';
+import {storyEditorialContext} from './reader-prompts.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
 import type {ArtRecommendation} from './reader-art-recommendation.ts';
@@ -59,15 +61,24 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     doc.original=original;await repo.saveImageProgress(row,token,structuredClone(doc));
    }
    const chosen=doc.intake?.selected,candidate=chosen?doc.intake!.batches[chosen.batch]?.stories[chosen.index]:undefined;
+   // Only the server's selected candidate supplies guidance; it is bound to this saved original.
+   const pendingBrief=candidate?.storyBrief||(doc.intake?.briefRequired&&candidate?{summary:candidate.description,matchReason:storyEditorialContext(selection.theme).mode==='source'?'直接选择原典故事，须按原文补齐完整主线，不额外套主题。':'已选中此故事，须对照原文确认具体主题依据并补齐完整主线。'}:undefined);
+   if(pendingBrief&&!doc.original.storyBrief){
+    doc.original.storyBrief={...storyBriefSchema.parse(pendingBrief),verified:false};
+    await repo.saveImageProgress(row,token,structuredClone(doc));
+   }
    if(candidate?.source&&!candidate.artRecommendation&&generator.recommendArt){
     const recommendation=artRecommendationSchema.parse(await generator.recommendArt(selection,doc.original));
     await repo.saveArtRecommendation(row,token,doc,recommendation);
     candidate.artRecommendation=recommendation;
    }
    if(!generator.recommend)throw new ReaderError(503,'生成服务暂不支持画幅建议，请更新服务后重试。');
-   const result=await generator.recommend(selection,id,doc.original);doc.frameRecommendation=frameRecommendationSchema.parse(result.value);generated=result;if(doc.intake)doc.intake.phase='confirming';
+   const result=await generator.recommend(selection,id,doc.original),recommendation=frameRecommendationOutputSchema(doc.original).parse(result.value);
+   if(doc.original.storyBrief)doc.original.storyBrief={summary:recommendation.storySummary!,matchReason:recommendation.storyMatchReason!,verified:true};
+   doc.frameRecommendation=recommendation;generated=result;if(doc.intake)doc.intake.phase='confirming';
   }
   else if(step.kind==='plan'){
+   if((doc.original?.storyBrief||doc.intake?.briefRequired)&&!storyBriefVerified(doc.original))throw new ReaderError(409,'故事摘要尚未核对，请先准备制作。');
    if(generator.prepareOriginal&&!doc.original){
     const original=await generator.prepareOriginal(selection,id);
     if(original){doc.original=original;await repo.saveImageProgress(row,token,structuredClone(doc));}

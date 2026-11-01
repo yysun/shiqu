@@ -13,7 +13,7 @@ const original={title:'已核原文',text:'庄周梦为胡蝶。',url:'https://e
 const issue={page:2,category:'caption',problem:'机械重复转述。',instruction:'只修配文。'};
 const override={suggest:'high',art:'medium',frames:'low',outline:'medium',plan:'low',review:'medium',repair:'low'};
 function output(payload,schema){
- if(schema.properties.matches)return {matches:payload.stories.map(story=>({id:story.id,verdict:'yes'}))};
+ if(schema.properties.matches)return {matches:payload.stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。',summary:story.summary}))};
  if(schema.properties.candidates)return {title:payload.draft.title,candidates:makeReflectionCandidates(plan.reflection)};
  if(schema.properties.stories)return {stories:[],note:''};
  if(schema.properties.artStyle)return {artStyle:'ink-pencil',reason:'适合本篇动作。'};

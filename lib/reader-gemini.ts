@@ -1,7 +1,7 @@
 // Generate story plans and media through Gemini, preserving safe errors and validated results.
-import {normalizeProductionPrompt} from './reader-prompts.ts';
+import {normalizeProductionPrompt,storyEditorialContext} from './reader-prompts.ts';
 import {z} from 'zod';
-import {frameRecommendationSchema,frameRecommendationJson,frameRecommendationPrompt,frameRecommendationPayload} from './reader-frame-recommendation.ts';
+import {frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from './reader-frame-recommendation.ts';
 import {readerMaxFrames,readerStoryboardTimeoutMs} from './reader-limits.ts';
 import {storyDraftSchema,readerBooks} from './reader-model.ts';
 import type {Plan,Selection} from './reader-model.ts';
@@ -13,10 +13,11 @@ export {imageTypes} from './reader-generation-contract.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import {saveStoryOriginal} from './reader-source-storage.ts';
 import {localChoicesJson,localScanJson,localCatalogJson,localChoices,localReadingPrompt,localSuggestionPayload} from './reader-local-contract.ts';
-import {themeMatchPrompt,themeMatchPayload,themeMatchJson,themeMatchesSchema} from './reader-theme-match.ts';
+import {themeMatchPrompt,themeMatchPayload,themeMatchJson,themeMatchesSchema,themeMatchOutputTokens} from './reader-theme-match.ts';
 import type {ThemeStory} from './reader-theme-match.ts';
 import type {WholeBookInput} from './reader-local-contract.ts';
 import {verifiedOriginalPayload} from './reader-source-types.ts';
+import {storyBriefPayload} from './reader-story-brief.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import {readerImageAsset,referenceImageKey} from './reader-image-assets.ts';
 import {imageDimensions} from './reader-image-dimensions.ts';
@@ -123,7 +124,7 @@ export async function suggestStories(key:string,selection:Selection,config:Parti
 }
 export async function matchStoryThemes(key:string,theme:string,stories:ThemeStory[],config:Partial<Models>={},transport:typeof fetch=fetch,reasoning:TaskReasoningEfforts=taskReasoningDefaults){
  const models={...defaultModels,...config};
- const {candidate}=await client(key,transport)(models.text,textRequest(themeMatchPrompt,themeMatchPayload(theme,stories),themeMatchJson,'',3000,reasoning.suggest),120000);
+ const {candidate}=await client(key,transport)(models.text,textRequest(themeMatchPrompt,themeMatchPayload(theme,stories),themeMatchJson,'',themeMatchOutputTokens(stories.length),reasoning.suggest),120000);
  return themeMatchesSchema.parse(parseText(candidate));
 }
 export async function recommendStoryArt(key:string,selection:Selection,original:OriginalSource,config:Models,transport:typeof fetch,reasoning:TaskReasoningEfforts=taskReasoningDefaults){
@@ -141,14 +142,14 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
   }),
   original:(selection,plan,id)=>saveStoryOriginal(assets,selection,plan,id,transport),
   async recommend(selection,id,original){
-   const {candidate,metadata}=await generate(models.text,textRequest(frameRecommendationPrompt,frameRecommendationPayload(selection,original),frameRecommendationJson,'',2000,reasoning.frames));
-   return {value:frameRecommendationSchema.parse(parseText(candidate)),...metadata,reasoningEffort:reasoning.frames};
+   const {candidate,metadata}=await generate(models.text,textRequest(frameRecommendationPrompt,frameRecommendationPayload(selection,original),frameRecommendationOutputJson(original),'',original.storyBrief?4096:2000,reasoning.frames));
+   return {value:frameRecommendationOutputSchema(original).parse(parseText(candidate)),...metadata,reasoningEffort:reasoning.frames};
   },
   async plan(selection:Selection,id:string,original?:OriginalSource){
    const {book,url}=source(selection);
    const {candidate,metadata}=await generate(models.text,textRequest(
     draftInstructions(!!original?.localSource),
-    {book,chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})},storyDraftJson(selection.length),original?'':url,Math.max(8192,(selection.length==='auto'?readerMaxFrames:selection.length)*800),reasoning.plan),readerStoryboardTimeoutMs);
+    {book,chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),...storyBriefPayload(original),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})},storyDraftJson(selection.length),original?'':url,Math.max(8192,(selection.length==='auto'?readerMaxFrames:selection.length)*800),reasoning.plan),readerStoryboardTimeoutMs);
    if(url&&!original&&!wasRead(candidate,url))throw new GeminiError('SOURCE_UNAVAILABLE');
    const value=storyDraftSchema.parse(parseText(candidate));
    if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new GeminiError('INVALID_PLAN');

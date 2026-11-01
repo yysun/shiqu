@@ -17,7 +17,7 @@ test('an irrelevant story is retained and another theme reuses it without extrac
  for(const call of f.calls.catalog){assert.equal(call.selection.theme,'');assert.equal(call.selection.productionPrompt,'');assert.equal(call.input.purpose,'catalog');assert.equal(localSuggestionPayload(f.book.title,'LEAK',[],call.input).theme,undefined);}
  const second=await f.run('知恩图报');assert.deepEqual(second.stories.map(s=>s.title),['乌龟报恩']);assert.equal(f.calls.catalog.length,2);
  const matches=f.calls.matches.length;await f.run(' 知恩图报 ');assert.equal(f.calls.matches.length,matches);
- assert.ok(documents(f).filter(doc=>doc.key.includes('/themes/')).some(doc=>Object.values(doc.value.decisions).includes('no')));
+ assert.ok(documents(f).filter(doc=>doc.key.includes('/themes/')).some(doc=>Object.values(doc.value.decisions).some(decision=>decision.verdict==='no')));
  assert.equal(second.stories[0].summary,undefined,'Full summaries stay internal');
 });
 
@@ -57,7 +57,7 @@ test('completed yes/no receipts survive a later failing original review in the s
 
 for(const kind of ['unknown','duplicate','missing'])test(`invalid ${kind} matching IDs cannot commit decisions or destroy the catalog`,async()=>{
  const f=libraryFixture();await f.run('收录');await f.run('收录',[f.stories[0].source]);
- f.provider.matchStories=async(_theme,stories)=>({matches:kind==='unknown'?stories.map(story=>({id:'b'.repeat(64),verdict:'yes'})):kind==='duplicate'?stories.map(()=>({id:stories[0].id,verdict:'yes'})):[{id:stories[0].id,verdict:'yes'}]});
+ f.provider.matchStories=async(_theme,stories)=>({matches:kind==='unknown'?stories.map(story=>({id:'b'.repeat(64),verdict:'yes',reason:'符合',summary:story.summary})):kind==='duplicate'?stories.map(()=>({id:stories[0].id,verdict:'yes',reason:'符合',summary:stories[0].summary})):[{id:stories[0].id,verdict:'yes',reason:'符合',summary:stories[0].summary}]});
  await assert.rejects(f.run('坏结果'),/逐篇核对/);assert.equal(library(f).stories.length,2);
  assert.ok(!documents(f).some(doc=>doc.key===themeDecisionKey(discoveryNamespace(f.book,'codex','mock',undefined,'medium'),'坏结果')));
 });
@@ -87,10 +87,10 @@ test('joining a matching flight for other IDs rechecks its own missing stories w
 
 test('a completed summary receipt survives cancellation and no original review starts until a new request',async()=>{
  const f=libraryFixture(),controller=new AbortController();
- f.provider.matchStories=async(theme,stories)=>{f.calls.matches.push({theme,stories});controller.abort();return {matches:stories.map(story=>({id:story.id,verdict:'review'}))};};
+ f.provider.matchStories=async(theme,stories)=>{f.calls.matches.push({theme,stories});controller.abort();return {matches:stories.map(story=>({id:story.id,verdict:'review',reason:'摘要不足，需核对原文。',summary:''}))};};
  await assert.rejects(f.run('核对主题',[],observer(controller)));assert.equal(f.calls.matches.length,1);assert.equal(f.calls.catalog.length,1);
- assert.ok(documents(f).some(doc=>doc.value.decisions?.[themeStoryId(f.stories[0])]==='review'));
- f.provider.matchStories=async(theme,stories)=>{f.calls.matches.push({theme,stories});assert.ok(stories[0].text);return {matches:stories.map(story=>({id:story.id,verdict:'yes'}))};};
+ assert.ok(documents(f).some(doc=>doc.value.decisions?.[themeStoryId(f.stories[0])]?.verdict==='review'));
+ f.provider.matchStories=async(theme,stories)=>{f.calls.matches.push({theme,stories});assert.ok(stories[0].text);return {matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。',summary:story.summary}))};};
  assert.equal((await f.run('核对主题')).stories[0].title,'乌龟报恩');assert.equal(f.calls.matches.length,2);
 });
 
@@ -111,7 +111,7 @@ test('original review exceeding budget retains review state without truncating o
  const f=libraryFixture();f.control.decide=()=> 'review';
  await assert.rejects(matchLibraryStories(f.provider,f.cache,'review-budget','主题',[f.stories[0]],()=> '字'.repeat(16000),10000,'codex'),/超过本次预算/);
  assert.equal(f.calls.matches.length,1);assert.equal(f.calls.matches[0].stories[0].text,undefined);
- assert.ok(documents(f).some(doc=>doc.value.decisions?.[themeStoryId(f.stories[0])]==='review'));
+ assert.ok(documents(f).some(doc=>doc.value.decisions?.[themeStoryId(f.stories[0])]?.verdict==='review'));
 });
 
 test('an all-negative theme stops at exhausted coverage, caches its negatives, and leaves stories for later themes',async()=>{

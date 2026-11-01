@@ -18,7 +18,7 @@ import {requestTokens} from './story-token-budget.ts';
 import {sourceUnitIds,sourcesOverlap,sourceCovers,mergeSources} from './local-source-ranges.ts';
 import {matchLibraryStories} from './story-theme-matching.ts';
 
-const storySchema=suggestionBatchSchema.shape.stories.element.extend({source:localSourceSchema,summary:z.string().trim().min(1).max(1200)});
+const storySchema=suggestionBatchSchema.shape.stories.element.omit({storyBrief:true}).extend({source:localSourceSchema,summary:z.string().trim().min(1).max(1200)});
 type Story=z.infer<typeof storySchema>;
 const pendingSchema=z.object({id:z.string().min(1).max(64),title:z.string().min(1).max(100),summary:z.string().min(1).max(1000),source:localSourceSchema});
 const stateSchema=z.object({stories:z.array(storySchema).max(50000),cursor:z.number().int().min(0),readThrough:z.number().int().min(0),pendingEvents:z.array(pendingSchema).max(16),exhausted:z.boolean(),rejected:z.boolean()});
@@ -107,7 +107,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const read=async()=>await cache.read(key,stateSchema,validate)||empty();
  const response=(state:State,stories:Story[],hit:boolean):SuggestionBatch=>{
   const note=(hit?'已复用本地故事库及主题判断缓存。':chapterStories?'已按先总故事、后小故事的顺序收录，再匹配主题。':'已逐篇收录原文故事并匹配主题。')+(state.rejected?'部分返回出处未能完整核对，已保留当前进度，可继续重试。':'')+(!stories.length&&state.exhausted?'已检查完所给原文，暂时没有更多符合主题的故事。':'')+(state.exhausted&&state.pendingEvents.length?'部分跨章线索尚未确认完整，未作为故事推荐。':'');
-  // The catalog's complete summary is internal. Selection/production retain only verified source references.
+  // Neutral catalog summaries stay internal; a matched production brief accompanies its source citation.
   return suggestionBatchSchema.parse({stories:stories.slice(0,batchLimit),note:note.slice(0,300)});
  };
  const extraction:Selection={bookId:selection.bookId,...(selection.bookId==='other'?{customBook:book.title}:{}),theme:'',artStyle:'ink-pencil',productionPrompt:'',length:'auto',voice:false};

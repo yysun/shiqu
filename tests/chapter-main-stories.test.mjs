@@ -24,7 +24,7 @@ for(const name of ['codex','gemini'])test(`${name}: chapter thirty offers Guandu
  const selected={...selection,discoverySources:[scope]},jobs=[],store=memory();
  const scoped=selectedChapterScope(library,book,[scope]).book,blocks=hydrateReadingPlan(scoped,buildReadingPlan(scoped,name));
  const result=job=>{
-  const payload=JSON.parse(job.prompt);if(payload.stories)return JSON.stringify({matches:payload.stories.map(story=>({id:story.id,verdict:'yes'}))});const input=payload.localBook;jobs.push({instructions:job.instructions,...payload});
+  const payload=JSON.parse(job.prompt);if(payload.stories)return JSON.stringify({matches:payload.stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。',summary:story.summary}))});const input=payload.localBook;jobs.push({instructions:job.instructions,...payload});
   assert.match(job.instructions,/chapterStoryLevel=main 时只返回一个/);assert.match(job.instructions,/chapterStoryLevel=episodes 时/);assert.match(job.instructions,/不能只缩短范围再推荐同一故事/);
   assert.ok(blocks.some(block=>block.text===input.text));
   assert.doesNotMatch(input.text,/\[sanguo-029-|\[sanguo-031-/);
@@ -62,7 +62,7 @@ function synthetic(){
  const sections=Array.from({length:4},(_,i)=>({id:`chapter-${i}`,title:`第${i+1}回`,units:Array.from({length:8},(_,j)=>({id:`unit-${i}-${j}`,text:'人物面对危机，谋划之后展开行动，终于得到结果。'+'字'.repeat(100),narrative:true}))}));
  const book={id:'sanguo',title:'测试书',edition:'a'.repeat(64),url:'https://example.org/original',provider:'原文',sections,input:{title:'测试书',edition:'a'.repeat(64),text:sections.map(s=>`篇章 ${s.id}：${s.title}\n`+s.units.map(u=>`[${u.id}]\n${u.text}`).join('\n\n')).join('\n\n')}};
  const sources=sections.map(s=>ref(book,s,0,7)),selected={...selection,discoverySources:sources},calls=[];
- const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'}}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes'}))}),safeError:()=>'',generator:()=>({}),suggestions:async()=>assert.fail('Set the controlled response')};
+ const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'}}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。',summary:story.summary}))}),safeError:()=>'',generator:()=>({}),suggestions:async()=>assert.fail('Set the controlled response')};
  const cache=new StoryDiscoveryCache(memory()),limits={whole:20000,chapter:1600};
  const run=(excludedSources=[],excluded=[])=>discoverLocalStories(provider,library,cache,book,selected,excluded,undefined,excludedSources,limits);
  return {book,selected,provider,cache,limits,calls,run};
