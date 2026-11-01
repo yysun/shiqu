@@ -207,3 +207,23 @@ Run these separately, because one version can't have a script step and an image 
 ## Unchanged behavior
 
 Run the existing queue, interruption, revision, intake, image recovery and flow-control suites. Paid results are not repeated, blocked reviews still need consent, and publications still drain during shutdown.
+
+## Execution evidence — 2026-11-01
+
+Controlled execution uses real application HTTP handlers, SQLite, filesystem media and stubbed provider adapters. It does not claim paid-provider crash guarantees or a manual device test. Final selected harness run: **250 passed, 0 failed, 0 skipped**; full unit/integration run: **805 passed**. Commands and the default-concurrency Vite hang are recorded in the [plan](../plans/2026/11/01/plan-production-queue-hardening.md#evidence).
+
+| Scenario group | Executed evidence and observed outcome |
+|---|---|
+| Newest version, deleted newest, stale controls, corrupt rows | [Hardening](../../tests/production-queue-hardening.test.mjs), [paused versions](../../tests/paused-editing-versions.test.mjs) and [revision](../../tests/reader-revisions.test.mjs) harnesses: old starts refused, attempts unchanged, deleted children never promote history, restore/resume works, corrupt unrelated rows stay contained. Two new HTTP races publish a child immediately before resume/background UPDATE: 409, unchanged parent, zero draws. |
+| Publication crash, default/paused, concurrent replay, old in-flight work, legacy handoff | Revision and paused-version harnesses exercise failed INSERT, restart after active INSERT, concurrent replay, later controls and version-local media/checkpoint writes. Hardening tests retain legacy handoff recovery. |
+| Four pools and upgrade | [Queue](../../tests/production-queue.test.mjs) migration/limit harness and [flow-control](../../tests/story-flow-control.test.mjs) HTTP harness: held search stays open while same-story preparation and another story finish; second search waits. Queued/interrupted migrated searches retain identity and resume. |
+| Missing work and pre-plan style edits | Revision, hardening, [review](../../tests/storyboard-review.test.mjs), [production](../../tests/reader-production.test.mjs), [generation](../../tests/reader-generation.test.mjs) and [local-image](../../tests/local-image-batches.test.mjs) harnesses: checkpoint/receipt reuse, 40/60 storyboard and short-draft preservation, requirement/count reset, correct next saved step and no repeated saved text/image charge. |
+| Missing session; deletion during successful/failed script | Hardening and [interruption](../../tests/queue-interruption.test.mjs) harnesses: all four orphan kinds log once without stopping valid work; restored saved steps continue without replay, genuine failures remain retryable. |
+| Manual correction, paused review, continue/skip | Flow-control, paused-version, revision and review harnesses: repeated correction leaves newest eligible, paused actions stay disabled, default corrected child reviews, repair cap/no-op checkpoints and explicit override remain intact. |
+| Candidate filtering, warm cost, renewal, late failure, expiry | Hardening harness plus recorded five-warm-pass cost probe: no evaluation of ineligible jobs, paid publication retained, zero unchanged upserts, late obsolete failure removed, only expired demand deleted. AC21/22 numeric targets passed. |
+| Trimmed shelf and actual opened source/export | Actual Reader in the in-app browser, isolated fixture: shelf had empty source text/no original with issues retained; opened source displayed 73 saved characters. ZIP 12,416 bytes unpacked to `图片/01.webp`, `图片/02.webp`, `分镜.md`, `故事.json`; PDF 187,029 bytes began `%PDF-`. |
+| Blocked first-image story fails to load | Intercepted only full-session GET with 503; normal browser clicks opened shelf card, review notice and issues/actions, then showed the controlled retry error inside the sheet. |
+| Blocked story with no image fails to load | Normal browser clicks showed the controlled load error; clicking the card again increased observed failed GET requests from 4 to 5. |
+| Review tools render | [UI render harness](../../tests/storyboard-ui.test.mjs): trimmed first-image row retains issues/tools; `story:null, sourceReady:true` renders an empty string; paused repair is disabled. |
+
+Browser interactions were automated normal clicks on a fresh visible tab; they were not manual phone/desktop testing. The initial hidden tab's synthetic clicks were superseded by this execution. Ancillary production/progress writes received fixture-only proxy-origin 403 responses; mutating production/revision/review routes were verified through the controlled HTTP harnesses, not claimed as browser-write evidence.

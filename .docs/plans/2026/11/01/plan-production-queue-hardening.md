@@ -203,8 +203,8 @@ Today's behaviour, checked on commit `8924e5d` with Node 24.22.1:
 - [x] SS focused checks: `pnpm typecheck`, `pnpm lint`, and the 11 named regression files recorded in Evidence on Node 24.22.1.
 - [x] VR round 1 correction: fence `resume` and `background` control writes with the newest-version SQL predicate; a newer child inserted immediately before the UPDATE must produce 409 and preserve the parent row. Both HTTP interleavings reproduced 200 before the fix and now pass.
 - [x] Persist the trimmed-review and null-story rendering regressions in `tests/storyboard-ui.test.mjs`.
-- [ ] TT: the full `pnpm test` on Node 24.22.1 (standalone SS does not run TT).
-- [ ] Run [test-production-queue-hardening.md](../../../../tests/test-production-queue-hardening.md).
+- [x] TT: all unit/integration files on Node 24.22.1. Final run uses `pnpm exec node --experimental-strip-types --test --test-concurrency=2 --test-timeout=60000 tests/*.test.mjs`; see resumed evidence for the default-concurrency Vite hang.
+- [x] Run [test-production-queue-hardening.md](../../../../tests/test-production-queue-hardening.md).
 - [x] Update `.docs/story-creation-editing-queue.md`: pool table, atomic publication flow, checkpoint reuse, stale-version rules and affected implementation links. Preserve unrelated development/user-guide edits.
 
 ## Risks
@@ -273,6 +273,18 @@ CR review round: 1; reviewer: new
 Standalone SS stops here. TT, ET and acceptance/VR checkboxes remain downstream, not silently marked complete. Unrelated entry edits to `.docs/development.md` and `.docs/user-guide.md`, and concurrent `.gitignore`, `lib/reader-zip.ts`, `tests/reader-zip.test.mjs` changes were left unstaged and untouched.
 
 RPD resumed after the user's explicit continuation. Initial full TT passed 802 tests on Node 24.22.1 / pnpm 11.25.0. Independent VR round 1 found a control-write race: publication between the supersession lookup and resume/background UPDATE returned 200 and changed the old row. The paid-start guards still prevented old generation. Both real HTTP interleavings reproduced the defect; the UPDATE now includes the authoritative latest-version predicate, and a superseded refused write returns 409 without changing the old row. Focused revision/control verification passed 44 tests, typecheck and lint. Final TT, ET and independent review follow this correction; earlier TT does not certify the changed code.
+
+Correction commit: `482d016`. An additional controlled HTTP/queue scenario in `tests/story-flow-control.test.mjs` proves a held search lets its own preparation and another story finish while a second search waits; it passed in isolation and in the final suites.
+
+Final TT: **805 passed, 0 failed, 0 skipped**, all unit/integration files, concurrency 2 with a 60-second per-file timeout (91.413 seconds overall). Before the extra scenario, default `pnpm test` passed 804 tests; a later default-concurrency run stalled in the unrelated Vite `development-access.test.mjs` file and was stopped. That file then passed both tests in isolation and in the final bounded-concurrency suite. No test assertions or application code were changed to bypass the hang.
+
+Final ET harness command: `pnpm exec node --experimental-strip-types --test tests/production-queue-hardening.test.mjs tests/production-queue.test.mjs tests/reader-production.test.mjs tests/reader-revisions.test.mjs tests/paused-editing-versions.test.mjs tests/story-flow-control.test.mjs tests/storyboard-review.test.mjs tests/queue-interruption.test.mjs tests/reader-generation.test.mjs tests/local-image-batches.test.mjs tests/reader-intake.test.mjs tests/storyboard-ui.test.mjs`: **250 passed, 0 failed, 0 skipped**. Final `pnpm typecheck` and `pnpm lint` passed.
+
+Actual Reader browser ET used an isolated SQLite/media fixture and controlled provider adapters on the reader Vite preview, not a real library. On a fresh visible in-app tab, normal Playwright clicks verified trimmed-shelf first-image fallback under full-session GET 503, review issues/actions, retry error inside the sheet, and the no-image error/card retry. Opened source displayed 73 saved characters; ZIP unpacked to two WebP images, Markdown and story JSON (12,416 bytes); PDF had the `%PDF-` signature (187,029 bytes). Initial hidden-tab synthetic clicks were not the final browser evidence. Fixture-only proxy-origin refusals affected ancillary production/progress writes; mutating endpoint contracts were instead verified by the real HTTP harnesses. Scenario mapping and observed outcomes are recorded in the ET specification.
+
+Final independent CR: `CR passed: no major findings`; CR risk: non-low — paid-work eligibility, concurrency, persistence and public API contracts; CR review round: 3; reviewer: reused.
+
+Final independent VR: `VR passed: all acceptance criteria complete`; VR risk: non-low — changes affect paid-work eligibility, concurrent scheduling, persistence, migration and public-reader behavior; VR review round: 4; reviewer: reused. All 25 ACs and all executable AP tasks are complete; the full final review is preserved verbatim in [DD](../../../../done/2026/11/01/production-queue-hardening.md#final-vr). Preview helpers stopped, browser routes removed and the explicitly owned temporary fixture/script cleaned up. No paid-provider request, real-library write, build/package or push.
 
 AR passed: no blocking architecture flaws (round 5, full review of this design by the reused independent reviewer). Its non-blocking corrections were applied afterward without another review round. They are the eligibility wording, the extra `demands`, `viewedPublicationPending` and `basis` checks, the old-version note, `wake()`, rollback SQL, test line numbers and scenario setups.
 

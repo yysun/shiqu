@@ -155,6 +155,27 @@ test('a queued preparation survives a search requested before it starts',async t
  await setup(f,id,{action:'confirm',settings:{...settings,length:2}});await until(async()=>(await f.read(id)).state==='completed');
 });
 
+test('a held search allows another story and its own preparation to finish while a second search waits',async t=>{
+ const f=await fixture(t),first=await create(f);await phase(f,first,'choosing');await searchIs(f,first,'idle');
+ const second=await create(f);await phase(f,second,'choosing');await searchIs(f,second,'idle');
+ const suggest=f.generation.suggestions.bind(f.generation);
+ let release,starts=0;
+ const held=new Promise(resolve=>release=resolve);
+ f.generation.suggestions=async(...args)=>{starts++;if(starts===1)await held;return suggest(...args);};
+ try{
+  await setup(f,first,{action:'more'});await until(()=>starts===1);
+  await setup(f,second,{action:'more'});
+  const other=await f.create(2);
+  await setup(f,first,{action:'choose',batch:0,index:0});
+  await phase(f,first,'confirming');await until(async()=>(await f.read(other)).state==='completed');
+  assert.equal(starts,1,'The second search must not start while the first is held');
+  assert.equal((await f.read(first)).frameRecommendation.count,7);
+  assert.equal((await f.read(other)).ready,2);
+ }finally{release();}
+ await searchIs(f,first,'idle');await searchIs(f,second,'idle');
+ assert.equal(starts,2);
+});
+
 test('observing a choice survives a dropped connection',async()=>{
  const {observeStoryGeneration}=await import('../lib/reader-production-client.ts');
  const waiting={state:'idle',intake:{phase:'confirming',search:{state:'idle'}}};let calls=0,active=true;

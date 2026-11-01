@@ -25,49 +25,49 @@ A review of story creation, editing and queue management reproduced these defect
 
 ### Newest version only
 
-- [ ] AC1: A version with a newer version in its family starts no new text step, image draw or source lookup, whichever route reaches it: the queue, `POST /advance`, `POST /production`, `POST /source`, recovery of an interrupted job, or a row whose control says `active`. A text step that already holds its lock may finish, including any calls within that step.
-- [ ] AC2: If a newer version appears after a job passes its first eligibility check, but before an image's provider call or a text step's lock, that work doesn't start and the job uses no attempt.
-- [ ] AC3: Deleting the newest version doesn't make an older version eligible. Restoring and resuming the newest version works.
-- [ ] AC4: A superseded unfinished version is reported as paused, never as running or queued. Its saved document is readable as before.
-- [ ] AC5: Resuming, or skipping review on, a superseded version returns 409 with a message pointing to the newest version, and changes nothing. Retrying one starts no work. The reader sees that it's an old version where the resume control would be, rather than a button that can only fail.
-- [ ] AC6: A corrupt saved row doesn't stop eligibility checks, scheduling or revisions for other stories in the reader API.
+- [x] AC1: A version with a newer version in its family starts no new text step, image draw or source lookup, whichever route reaches it: the queue, `POST /advance`, `POST /production`, `POST /source`, recovery of an interrupted job, or a row whose control says `active`. A text step that already holds its lock may finish, including any calls within that step.
+- [x] AC2: If a newer version appears after a job passes its first eligibility check, but before an image's provider call or a text step's lock, that work doesn't start and the job uses no attempt.
+- [x] AC3: Deleting the newest version doesn't make an older version eligible. Restoring and resuming the newest version works.
+- [x] AC4: A superseded unfinished version is reported as paused, never as running or queued. Its saved document is readable as before.
+- [x] AC5: Resuming, or skipping review on, a superseded version returns 409 with a message pointing to the newest version, and changes nothing. Retrying one starts no work. The reader sees that it's an old version where the resume control would be, rather than a button that can only fail.
+- [x] AC6: A corrupt saved row doesn't stop eligibility checks, scheduling or revisions for other stories in the reader API.
 
 ### Atomic publication
 
-- [ ] AC7: One database write publishes a new version and makes every older version ineligible. There is no moment, including after a crash, when both can start work.
-- [ ] AC8: A default submission starts running with no second write. A `paused:true` submission is saved without running.
-- [ ] AC9: Replaying the same submission returns the same version with no second copy of images or generation, and doesn't override a later pause or resume.
-- [ ] AC10: An old request already in flight when a new version is published can save its result to the old version. A finished old image can still publish, and neither reaches the new version.
-- [ ] AC11: A row saved earlier as a paused child awaiting handoff can still be recovered by replaying its submission, or by resuming it.
+- [x] AC7: One database write publishes a new version and makes every older version ineligible. There is no moment, including after a crash, when both can start work.
+- [x] AC8: A default submission starts running with no second write. A `paused:true` submission is saved without running.
+- [x] AC9: Replaying the same submission returns the same version with no second copy of images or generation, and doesn't override a later pause or resume.
+- [x] AC10: An old request already in flight when a new version is published can save its result to the old version. A finished old image can still publish, and neither reaches the new version.
+- [x] AC11: A row saved earlier as a paused child awaiting handoff can still be recovered by replaying its submission, or by resuming it.
 
 ### Four pools
 
-- [ ] AC12: While a search runs, another story's script step and the same story's preparation both start and can finish.
-- [ ] AC13: No more than one search runs at a time, at most one non-search text step runs at a time, and the image and local limits are unchanged.
-- [ ] AC14: A search saved before this change, whether queued or interrupted, still runs after upgrade.
+- [x] AC12: While a search runs, another story's script step and the same story's preparation both start and can finish.
+- [x] AC13: No more than one search runs at a time, at most one non-search text step runs at a time, and the image and local limits are unchanged.
+- [x] AC14: A search saved before this change, whether queued or interrupted, still runs after upgrade.
 
 ### Checkpoints and receipts
 
-- [ ] AC15: Paid results already saved are not paid for again after a retry, restart, crash replay, or job reprocessing. This covers text checkpoints, image receipts, publication retries and images reused by a new version.
-- [ ] AC16: A style-only edit made before the plan exists keeps the saved storyboard pages or draft, including a short story that has a draft and no storyboard. The new version doesn't pay for that work again, and the edit preview says so.
-- [ ] AC17: Requirement and frame-count edits before the plan exists still replan from scratch.
+- [x] AC15: Paid results already saved are not paid for again after a retry, restart, crash replay, or job reprocessing. This covers text checkpoints, image receipts, publication retries and images reused by a new version.
+- [x] AC16: A style-only edit made before the plan exists keeps the saved storyboard pages or draft, including a short story that has a draft and no storyboard. The new version doesn't pay for that work again, and the edit preview says so.
+- [x] AC17: Requirement and frame-count edits before the plan exists still replan from scratch.
 
 ### Failure containment
 
-- [ ] AC18: A queued text, search, image or publication job whose session row is missing doesn't stop other stories from running, and the failure is logged once for that job.
-- [ ] AC19: Deleting a story during a script step and restoring it shows no failure. After resume it finishes without repeating the paid step or needing a retry. A step that genuinely failed stays visible and retryable.
+- [x] AC18: A queued text, search, image or publication job whose session row is missing doesn't stop other stories from running, and the failure is logged once for that job.
+- [x] AC19: Deleting a story during a script step and restoring it shows no failure. After resume it finishes without repeating the paid step or needing a retry. A step that genuinely failed stays visible and retryable.
 
 ### Review-failure flow
 
-- [ ] AC20: The flow in `8924e5d` works on the newest version as it did before this change: continuing automatic repair, manual edits from an issue, saving and re-reviewing, and skipping review to draw. After repeated corrections, only the newest version can run.
+- [x] AC20: The flow in `8924e5d` works on the newest version as it did before this change: continuing automatic repair, manual edits from an issue, saving and re-reviewing, and skipping review to draw. After repeated corrections, only the newest version can run.
 
 ### Optimization
 
-- [ ] AC21: A scheduling pass doesn't evaluate queued text, image or search jobs of paused, deleted or superseded stories, or queued text and image jobs of stories already marked failed. Deletion is determined by the deletion marker, including reader-mode rows whose control still says `active`. Their publication jobs still run. With 20 paused 80-frame stories, a warm pass runs at most 60 statements and takes at most 10% of the baseline time.
-- [ ] AC22: A scheduling pass doesn't rewrite jobs for an active story whose saved state and viewers haven't changed, and a viewer's renewal alone doesn't count as a change. With 20 unchanged active 80-frame stories, a warm pass runs at most 25% of the baseline statements.
-- [ ] AC23: Superseded-input jobs that are queued or failed are still removed, including a job that fails after its story has already changed.
-- [ ] AC24: The shelf list no longer includes full source text. The source sheet and exports still work once a story is opened. When a blocked story with a saved first frame is opened in the reader, its review notice and tools stay available from shelf data even if its full session fails to load. A blocked story with no images behaves as it does today: a load failure shows a message, and tapping the card retries.
-- [ ] AC25: Expired viewer rows are removed automatically, and live viewers are unaffected.
+- [x] AC21: A scheduling pass doesn't evaluate queued text, image or search jobs of paused, deleted or superseded stories, or queued text and image jobs of stories already marked failed. Deletion is determined by the deletion marker, including reader-mode rows whose control still says `active`. Their publication jobs still run. With 20 paused 80-frame stories, a warm pass runs at most 60 statements and takes at most 10% of the baseline time.
+- [x] AC22: A scheduling pass doesn't rewrite jobs for an active story whose saved state and viewers haven't changed, and a viewer's renewal alone doesn't count as a change. With 20 unchanged active 80-frame stories, a warm pass runs at most 25% of the baseline statements.
+- [x] AC23: Superseded-input jobs that are queued or failed are still removed, including a job that fails after its story has already changed.
+- [x] AC24: The shelf list no longer includes full source text. The source sheet and exports still work once a story is opened. When a blocked story with a saved first frame is opened in the reader, its review notice and tools stay available from shelf data even if its full session fails to load. A blocked story with no images behaves as it does today: a load failure shows a message, and tapping the card retries.
+- [x] AC25: Expired viewer rows are removed automatically, and live viewers are unaffected.
 
 ## Constraints
 
