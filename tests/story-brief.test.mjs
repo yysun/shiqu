@@ -65,7 +65,7 @@ for(const provider of ['codex','gemini','openai'])test(`${provider}: brief verif
   for(const call of calls.slice(start)){
    assert.deepEqual(call.payload.editorialContext,context);assert.deepEqual(call.payload.storyBrief,brief);assert.equal(call.payload.verifiedOriginal.text,original.text);assert.equal(call.payload.verifiedOriginal.storyBrief,undefined);
    assert.doesNotMatch(call.instructions,/editorialContext 仅用于标题|选定后主题不进入分镜/);
-   if(!call.schema.properties.candidates){assert.match(call.instructions,/第一页开场/);assert.match(call.instructions,/静态/);assert.match(call.instructions,/连续性/);assert.match(call.instructions,/从中选取必要背景、人物关系和眼前处境，再回到原文核实/);assert.match(call.instructions,/不照搬全篇摘要/);assert.match(call.instructions,/不先剧透结局/);}
+   if(!call.schema.properties.candidates){assert.match(call.instructions,/第一页开场/);assert.match(call.instructions,/静态/);assert.match(call.instructions,/连续性/);assert.match(call.instructions,/结合摘要从原文中提取理解开局所需的必要背景、人物关系和眼前处境/);assert.match(call.instructions,/不照搬全篇摘要/);assert.match(call.instructions,/不先剧透结局/);}
   }
   await g.recommend(selection,'legacy',original);assert.deepEqual(calls.at(-1).schema.required,['count','reason']);if(provider!=='codex')assert.equal(calls.at(-1).limit,provider==='gemini'?2000:2048);
  }
