@@ -1,4 +1,4 @@
-// Package the saved storyboard and original images locally; never export a partial archive.
+// Package story JSON, the saved storyboard and original images locally; never export a partial archive.
 import {zipSync,strToU8} from 'fflate';
 import type {Story} from './content';
 import type {GeneratedStory} from './reader-model';
@@ -39,6 +39,16 @@ export async function createStoryZip(story:Story,onProgress:(text:string)=>void=
  }
  onProgress('正在整理分镜与保存 ZIP');
  files['分镜.md']=strToU8(storyboardText(story,images));
+ const generated='generated'in story&&story.generated===true?story as GeneratedStory:null;
+ files['故事.json']=strToU8(JSON.stringify({
+  id:story.id,title:story.title,hook:story.hook,bookId:story.bookId,theme:story.theme,
+  sourceReference:storySourceReference(story),sourceText:story.sourceText,sourceUrl:story.sourceUrl,
+  artStyleLabel:generated?.artStyleLabel??null,productionPrompt:generated?.productionPrompt??'',
+  generationModels:generated?.generationModels??[],
+  pages:story.pages.map((page,index)=>({caption:page.caption,prompt:page.prompt,image:images[index]})),
+  reflection:story.reflection,adaptationNote:story.adaptationNote,
+  revision:story.revision,createdAt:story.createdAt,updatedAt:story.updatedAt,
+ },null,2)+'\n');
  // Images are already compressed; storing them avoids expensive recompression on phones.
  return new Blob([zipSync(files,{level:0}) as BlobPart],{type:'application/zip'});
 }
