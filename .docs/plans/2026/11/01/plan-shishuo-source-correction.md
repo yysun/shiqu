@@ -26,3 +26,5 @@ Git base: d552c677c004fc4472ad80f9d94d988883e0d4dc。工作区已有大量用户
 - 真实REST核验：`.data/maintenance/story-original-rest-verification.json`；当前任务idle/paused/error=null、12幅；两篇旧故事completed、图片齐全，回执与original一致。
 - 再次审计全部36条可见记录：`.data/maintenance/story-original-audit-after.json`，无缺少本地出处、回执不匹配、已知字形/缺文异常；自选书固定外部出处按正常历史记录保留。
 - 浏览器在Work设置中被禁用；以真实REST与SQLite读取验证，无付费推理或绘图。
+
+SS里程碑提交：`f5865e7`（本地；742项测试、typecheck、lint通过，数据更新和REST检查完成）。
