@@ -19,10 +19,13 @@ const compiled=build({stdin:{contents:"export {useStoryRevision} from './client/
   `:`let transport;export const setTransport=value=>transport=value;export const request=(...args)=>transport(...args);export const randomId=()=>crypto.randomUUID();`}));
  }
 }]});
-async function harness(t,{loseResponse=false,paused=false}={}){
+const reviewIssue={page:3,category:'caption',problem:'第三幅配文含混。',instruction:'明确醒来后看见的事物。'};
+async function harness(t,{loseResponse=false,paused=false,blocked=false,initialTab='count',initialPage}={}){
  const f=await productionFixture(t);f.control.hold=paused;
+ if(blocked)f.control.beforeText=async(kind,payload)=>kind==='review'?{issues:[reviewIssue]}:kind==='repair'?{pages:payload.requestedPages.map(page=>({page,...payload.plan.pages[page-1]}))}:undefined;
  const id=await f.create(3);await f.demand(id);
- if(paused){await until(()=>f.control.calls.length>0);await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});}
+ if(blocked)await until(async()=>(await f.read(id)).state==='failed');
+ else if(paused){await until(()=>f.control.calls.length>0);await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});}
  else await until(async()=>(await f.read(id)).state==='completed');
  const bundle=await compiled,module={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),module,module.exports);
  const requests=[],submitted=[];
@@ -34,9 +37,43 @@ async function harness(t,{loseResponse=false,paused=false}={}){
   return response;
  });
  const render=()=>{beginRender();return useStoryRevision(id,async session=>{submitted.push(session);});};
- render().open('count');await until(()=>!!render().base);
+ render().open(initialTab,initialPage);await until(()=>!!render().base);
  return {f,id,requests,submitted,render};
 }
+
+for(const passes of [true,false])test(`saving manual review corrections re-audits first and ${passes?'continues drawing on approval':'keeps drawing blocked on rejection'}`,async t=>{
+ const h=await harness(t,{blocked:true,initialTab:'script',initialPage:3});
+ const before=await h.f.read(h.id),plan=structuredClone(h.render().base.plan);
+ plan.pages[2].caption='庄周醒来，看见窗外的花，仍记得梦中飞舞的感觉。';h.render().setChanges({plan});
+ let started,release;
+ const auditStarted=new Promise(resolve=>started=resolve),hold=new Promise(resolve=>release=resolve);
+ h.f.control.beforeText=async(kind,payload)=>{
+  if(kind==='review'){assert.equal(payload.plan.pages[2].caption,plan.pages[2].caption);started();await hold;return {issues:passes?[]:[reviewIssue]};}
+  if(kind==='repair')return {pages:payload.requestedPages.map(page=>({page,...payload.plan.pages[page-1]}))};
+ };
+ t.after(()=>release());
+ await h.render().submit();await auditStarted;
+ assert.equal(h.requests.length,1);assert.equal(h.submitted.length,1);assert.equal(h.f.control.calls.length,0,'No images before the fresh audit completes');
+ const child=h.submitted[0];assert.equal(child.generationControl,'active');assert.notEqual(child.id,h.id);assert.equal(h.render().tab,null);
+ release();await until(async()=>(await h.f.read(child.id)).state===(passes?'completed':'failed'));
+ const saved=await h.f.read(child.id);
+ assert.equal(saved.story.pages[2].caption,plan.pages[2].caption);assert.equal(h.f.control.calls.length,passes?3:0);
+ assert.equal(saved.generationProgress.reviewStatus,passes?'passed':'blocked');assert.equal(saved.generationProgress.reviewAudits,1);
+ assert.equal((await h.f.read(h.id)).story.pages[2].caption,before.story.pages[2].caption,'Original stays intact');
+});
+
+test('review edit targets survive initial loading, reopening and ending selection without submitting',async t=>{
+ const h=await harness(t,{initialTab:'script',initialPage:3});
+ assert.equal(h.render().tab,'script');assert.equal(h.render().scriptPage,3);
+ h.render().setChanges({plan:{...h.render().base.plan,reflection:'保留本次草稿。'}});
+ h.render().setScriptPage(2);h.render().setTab('requirements');h.render().setTab('script');
+ assert.equal(h.render().scriptPage,2);
+ h.render().setTab(null);h.render().open('script',1);
+ assert.equal(h.render().scriptPage,1);assert.equal(h.render().changes.plan.reflection,'保留本次草稿。');
+ h.render().open('script',0);assert.equal(h.render().scriptPage,0);
+ h.render().open('script');assert.equal(h.render().scriptPage,1);
+ assert.equal(h.requests.length,0);assert.equal(h.submitted.length,0);
+});
 
 test('completed story count edits remain a draft until confirmation starts the new version',async t=>{
  const h=await harness(t);

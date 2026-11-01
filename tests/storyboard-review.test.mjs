@@ -21,17 +21,17 @@ for(const provider of ['codex','gemini'])test(`${provider}: review is a separate
  assert.equal((await document(f,id)).visualReview.status,'passed');assert.equal(f.control.reviews.length,1);
 });
 
-for(const provider of ['codex','gemini'])test(`${provider}: three automatic repair rounds then block; concurrent manual continue reuses saved issues`,async t=>{
+for(const provider of ['codex','gemini'])test(`${provider}: twenty automatic repair rounds then block; concurrent manual continue reuses saved issues`,async t=>{
  const f=await productionFixture(t,provider),id=await f.createLegacyReader(),viewer=crypto.randomUUID();let blocked=true;
  f.control.beforeText=async kind=>kind==='review'?{issues:blocked?[issue(3)]:[]}:undefined;
  await f.demand(id,viewer);await until(async()=>(await f.read(id)).state==='failed');
  const stopped=await f.read(id);assert.equal(stopped.retryStage,'review');assert.equal(stopped.generationProgress.reviewStatus,'blocked');assert.match(stopped.error,/第 3 幅/);
- assert.equal(f.control.reviews.length,4);assert.equal(f.control.repairs.length,3);assert.equal(f.control.calls.length,0);
- await f.app.services.production.tick();await f.read(id);assert.equal(f.control.reviews.length,4);
+ assert.equal(f.control.reviews.length,21);assert.equal(f.control.repairs.length,20);assert.equal(f.control.calls.length,0);
+ await f.app.services.production.tick();await f.read(id);assert.equal(f.control.reviews.length,21);
  blocked=false;await Promise.all([f.demand(id,viewer,0,true),f.demand(id,crypto.randomUUID(),0,true)]);await until(()=>f.control.calls.length===1);
- assert.equal(f.control.repairs.length,4);assert.equal(f.control.reviews.length,5);assert.deepEqual(f.control.repairs.map(p=>p.requestedPages),[[3],[3],[3],[3]]);
- const doc=await document(f,id);assert.equal(doc.visualReview.status,'passed');assert.equal(doc.visualReview.reports.length,5);
- assert.deepEqual(doc.usage.filter(u=>u.step.startsWith('repair:')).map(u=>u.step),['repair:1:3','repair:2:3','repair:3:3','repair:5:3']);
+ assert.equal(f.control.repairs.length,21);assert.equal(f.control.reviews.length,22);assert.deepEqual(f.control.repairs.map(p=>p.requestedPages),Array.from({length:21},()=>[3]));
+ const doc=await document(f,id);assert.equal(doc.visualReview.status,'passed');assert.equal(doc.visualReview.reports.length,22);assert.equal(stopped.generationProgress.repairPasses,20);assert.equal(stopped.generationProgress.reviewStopReason,'limit');
+ assert.deepEqual(doc.usage.filter(u=>u.step.startsWith('repair:')).map(u=>u.step),[...Array.from({length:20},(_,i)=>`repair:${i+1}:3`),'repair:22:3']);
 });
 
 test('legacy client does not automatically retry a quality blockage',async()=>{
@@ -140,12 +140,12 @@ for(const provider of ['codex','gemini'])test(`${provider}: caption-only issues 
  assert.deepEqual(after.usage.filter(u=>/review:|repair:/.test(u.step)).map(u=>u.step),['review:0','repair:1:2','review:1']);
 });
 
-for(const provider of ['codex','gemini'])test(`${provider}: a second automatic repair and third full audit can pass without manual intervention`,async t=>{
+for(const provider of ['codex','gemini'])test(`${provider}: a new issue after the third repair is fixed automatically before drawing`,async t=>{
  const f=await productionFixture(t,provider),id=await f.createLegacyReader();
- f.control.beforeText=async kind=>kind==='review'?{issues:f.control.reviews.length<3?[issue(3)]:[]}:undefined;
+ f.control.beforeText=async kind=>kind==='review'?{issues:f.control.reviews.length<=3?[issue(3)]:f.control.reviews.length===4?[issue(8)]:[]}:undefined;
  await f.demand(id);await until(()=>f.control.calls.length===1);const doc=await document(f,id);
- assert.equal(f.control.reviews.length,3);assert.equal(f.control.repairs.length,2);assert.equal(doc.visualReview.status,'passed');assert.equal(doc.visualReview.history.length,2);
- assert.deepEqual(doc.usage.filter(u=>u.step.startsWith('review:')).map(u=>u.step),['review:0','review:1','review:2']);
+ assert.equal(f.control.reviews.length,5);assert.equal(f.control.repairs.length,4);assert.equal(doc.visualReview.status,'passed');assert.equal(doc.visualReview.history.length,4);assert.deepEqual(f.control.repairs.map(p=>p.requestedPages),[[3],[3],[3],[8]]);
+ assert.deepEqual(doc.usage.filter(u=>u.step.startsWith('review:')).map(u=>u.step),['review:0','review:1','review:2','review:3','review:4']);
 });
 
 test('no-op repair blocks immediately, saves the paid attempt and never draws',async t=>{

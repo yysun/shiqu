@@ -30,12 +30,23 @@ test('discovery stays in the picker and selection opens one continuous story flo
  const candidates=renderToStaticMarkup(createElement(Setup,{...props,session:choosing}));
  assert.match(candidates,/已找到 1 篇故事/);assert.doesNotMatch(candidates,/完整审片流程|开始制作|<textarea|叙事详略|<select|候选批次/);
  // The review tools stay reachable once a reused first image exists; a clean story has no need of them.
- const reviewProps={busy:false,error:'',onScript:noop,onEdit:noop,onDrawAnyway:noop},story=image=>({original:{},pages:[{image}]}),issue={page:3,problem:'配文含混。',instruction:'说清楚。'};
- assert.match(renderToStaticMarkup(createElement(Review,{...reviewProps,session:{story:story('/a.png'),reviewIssues:[issue]}})),/仍然绘制/);
+ const reviewProps={busy:false,error:'',onScript:noop,onEdit:noop,onRetry:noop,onDrawAnyway:noop},story=image=>({original:{},pages:[{image}]}),issue={page:3,problem:'配文含混。',instruction:'说清楚。'};
+ assert.match(renderToStaticMarkup(createElement(Review,{...reviewProps,session:{story:story('/a.png'),reviewIssues:[issue]}})),/跳过问题并绘图/);
  const endingReview=renderToStaticMarkup(createElement(Review,{...reviewProps,session:{story:story('/a.png'),reviewIssues:[{...issue,page:0,category:'reflection'}]}}));
  assert.match(endingReview,/<strong>结语<\/strong>/);assert.doesNotMatch(endingReview,/第 0 幅/);
  assert.equal(renderToStaticMarkup(createElement(Review,{...reviewProps,session:{story:story('/a.png')}})),'');
- const unreviewed=renderToStaticMarkup(createElement(Review,{...reviewProps,session:{story:story('')}}));assert.match(unreviewed,/查看分镜/);assert.doesNotMatch(unreviewed,/仍然绘制/);
+ const unreviewed=renderToStaticMarkup(createElement(Review,{...reviewProps,session:{story:story('')}}));assert.match(unreviewed,/查看分镜/);assert.doesNotMatch(unreviewed,/跳过问题并绘图/);
+ // Each issue carries its own saved frame number, including zero for the separate ending.
+ const targeted=[];
+ const reviewTree=Review({...reviewProps,onEdit:page=>targeted.push(page),session:{story:story(''),reviewIssues:[issue,{...issue,page:18},{...issue,page:0,category:'reflection'}]}});
+ const visit=node=>{
+  if(Array.isArray(node)){node.forEach(visit);return;}
+  if(!node?.props)return;
+  if(node.type==='button'&&node.props['aria-label']?.startsWith('手动修改'))node.props.onClick();
+  visit(node.props.children);
+ };
+ visit(reviewTree);assert.deepEqual(targeted,[3,18,0]);
+ const reviewMarkup=renderToStaticMarkup(reviewTree);assert.match(reviewMarkup,/aria-label="手动修改第 18 幅"/);assert.match(reviewMarkup,/aria-label="手动修改结语"/);
  // Both the editor and the settings sheet show these actions, so a conflict cannot go unseen.
  const conflict=renderToStaticMarkup(createElement(Actions,{editor:{impact:{changed:true,replan:false,reused:1,redraw:0,conflict:false},conflict:true,error:'',busy:false,submit:noop,discard:noop,load:noop,setChanges:noop}}));
  assert.match(conflict,/丢弃草稿，载入最新/);assert.match(conflict,/不会自动合并/);
@@ -79,6 +90,42 @@ test('discovery stays in the picker and selection opens one continuous story flo
  assert.match(shelfControl,/class="yu-generation-control"/);assert.doesNotMatch(shelfControl,/class="yu-primary"/);
  const emptyPlanEditor=renderToStaticMarkup(createElement(Editor,{editor:{base:{selection:{...selection,length:5},plan:null,images:[]},changes:{},tab:'count',busy:false,loading:false,setTab:noop,setChanges:noop,impact:{changed:true,replan:true,total:5},submit:noop,discard:noop}}));
  assert.match(emptyPlanEditor,/value="5"/);assert.match(emptyPlanEditor,/开始制作新版/);assert.doesNotMatch(emptyPlanEditor,/保持暂停|恢复生成/);assert.doesNotMatch(emptyPlanEditor,/>分镜<|保存修改并加入队列/);
+ const targetedPlan={pages:Array.from({length:20},(_,i)=>({caption:`第 ${i+1} 幅已保存的旁白。`,prompt:`Saved scene ${i+1}.`})),characters:'已保存的人物设定。',reflection:'已保存的余味。'};
+ const targetEditor={base:{selection,plan:targetedPlan,images:[]},changes:{},tab:'script',scriptPage:18,busy:false,loading:false,setTab:noop,setScriptPage:noop,setChanges:noop,impact:{changed:false,replan:false,total:20},submit:noop,discard:noop};
+ const targetMarkup=renderToStaticMarkup(createElement(Editor,{editor:targetEditor}));
+ assert.match(targetMarkup,/<option value="18" selected="">第 18 幅<\/option>/);assert.match(targetMarkup,/aria-label="修改第 18 幅"/);assert.match(targetMarkup,/>第 18 幅已保存的旁白。<\/textarea>/);assert.doesNotMatch(targetMarkup,/aria-label="修改第 1 幅"/);
+ const endingMarkup=renderToStaticMarkup(createElement(Editor,{editor:{...targetEditor,scriptPage:0}}));
+ assert.match(endingMarkup,/<option value="0" selected="">结语<\/option>/);assert.match(endingMarkup,/>已保存的余味。<\/textarea>/);assert.doesNotMatch(endingMarkup,/aria-label="修改第|画面提示词/);
+ const reviewIssues=[{page:18,category:'action',problem:'缺少第18幅的关键动作。',instruction:'补充第18幅的动作和反应。'},{page:3,category:'caption',problem:'第3幅旁白含混。',instruction:'第3幅补充明确的主语。'},{page:0,category:'reflection',problem:'结语超出了原文。',instruction:'结语收回到原文支持的判断。'}];
+ const referenced=renderToStaticMarkup(createElement(Editor,{editor:targetEditor,reviewIssues}));
+ assert.match(referenced,/<details open="" class="yu-revision-review" aria-label="第 18 幅审核意见"/);assert.match(referenced,/<dt>审核问题<\/dt><dd>缺少第18幅的关键动作。<\/dd>/);assert.match(referenced,/<dt>修订建议<\/dt><dd>补充第18幅的动作和反应。<\/dd>/);
+ assert.doesNotMatch(referenced,/第3幅旁白含混|结语超出了原文/);assert.ok(referenced.indexOf('缺少第18幅')<referenced.indexOf('aria-label="修改第 18 幅"'));
+ const switchedReview=renderToStaticMarkup(createElement(Editor,{editor:{...targetEditor,scriptPage:3},reviewIssues}));
+ assert.match(switchedReview,/第3幅旁白含混/);assert.match(switchedReview,/第3幅补充明确的主语/);assert.doesNotMatch(switchedReview,/缺少第18幅|结语超出了原文/);
+ const endingReference=renderToStaticMarkup(createElement(Editor,{editor:{...targetEditor,scriptPage:0},reviewIssues}));
+ assert.match(endingReference,/aria-label="结语审核意见"/);assert.match(endingReference,/结语超出了原文/);assert.match(endingReference,/结语收回到原文支持的判断/);assert.doesNotMatch(endingReference,/缺少第18幅|第3幅旁白含混/);
+ const cleanReview=renderToStaticMarkup(createElement(Editor,{editor:{...targetEditor,scriptPage:2},reviewIssues}));
+ assert.doesNotMatch(cleanReview,/yu-revision-review|审核问题|修订建议/);
+ const changedReview=renderToStaticMarkup(createElement(Editor,{editor:{...targetEditor,changes:{plan:{...targetedPlan,pages:targetedPlan.pages.map((p,i)=>i===17?{...p,caption:'手改后的第十八幅旁白。'}:p)}}},reviewIssues}));
+ assert.match(changedReview,/缺少第18幅的关键动作/);assert.match(changedReview,/手改后的第十八幅旁白/);
+ // Review corrections submit immediately even from settings or a paused editor with onDone.
+ for(const resuming of [false,true]){
+  const saving=renderToStaticMarkup(createElement(Editor,{editor:{...targetEditor,impact:{...targetEditor.impact,changed:true}},reviewIssues,onDone:noop,resuming}));
+  assert.match(saving,/>保存并重新审核<\/button>/);assert.match(saving,/保存后自动重新审片，通过后继续绘图/);assert.doesNotMatch(saving,/>完成编辑<\/button>|>恢复生成<\/button>|>开始制作新版<\/button>/);
+ }
+ let submitted=0,finished=0;
+ const saveTree=Actions({editor:{...targetEditor,impact:{...targetEditor.impact,changed:true},submit:()=>{submitted++;}},reviewOnSave:true,onDone:()=>{finished++;}});
+ const findPrimary=node=>{
+  if(Array.isArray(node))return node.map(findPrimary).find(Boolean);
+  if(!node?.props)return;
+  return node.type==='button'&&node.props.className==='yu-primary'?node:findPrimary(node.props.children);
+ };
+ findPrimary(saveTree).props.onClick();assert.equal(submitted,1);assert.equal(finished,0);
+ for(const state of [{impact:{...targetEditor.impact,changed:false}},{impact:{...targetEditor.impact,changed:true,conflict:true}},{impact:{...targetEditor.impact,changed:true},conflict:true},{impact:{...targetEditor.impact,changed:true},busy:true}]){
+  const disabled=Actions({editor:{...targetEditor,...state},reviewOnSave:true,onDone:noop});assert.equal(findPrimary(disabled).props.disabled,true);
+ }
+ const shorterMarkup=renderToStaticMarkup(createElement(Editor,{editor:{...targetEditor,changes:{plan:{...targetedPlan,pages:targetedPlan.pages.slice(0,3)}}}}));
+ assert.match(shorterMarkup,/aria-label="修改第 3 幅"/);
 
  // Settings edits return to a draft preview; only the explicit production action submits.
  const draftEditor={base:{selection:{...selection,length:5},plan:null,images:[]},changes:{length:30,artStyle:'ink-pencil'},tab:'count',busy:false,loading:false,setTab:noop,setChanges:noop,impact:{changed:true,replan:true,total:30},submit:noop,discard:noop};

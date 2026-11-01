@@ -152,6 +152,7 @@ button.yu-swipe-surface{padding:0;border:0;background:transparent;cursor:default
 .yu-generation-stage .yu-generation-back{display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;width:100%;padding:12px 16px;margin-top:20px;border:0;border-radius:10px;background:#36583e;color:#faf9f1;font:inherit;font-size:13px}
 .yu-generation-back>svg:last-child{margin-left:auto}
 .yu-generation-back>svg:first-child{margin-right:auto}
+.yu-generation-stage.has-review-issues>.yu-generation-back{background:transparent;border:1px solid #cdd8c1;color:#526b43}
 .yu-generation-stage>.yu-generation-exit-note{font-size:10px;line-height:1.8;text-align:center;margin:10px 0 0;color:#65775a}
 .yu-generation-back:focus-visible{outline:2px solid #4f7246;outline-offset:3px}
 @media(prefers-reduced-motion:reduce){.yu-generation-stage.has-progress *{animation:none!important;transition:none!important}}
