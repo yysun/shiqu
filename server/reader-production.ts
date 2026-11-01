@@ -6,6 +6,7 @@
 // and read-ahead go first, and other stories yield while its publication frees the next slot.
 // Search runs beside a story's selection, without its lock: it stops when no longer wanted, and
 // its failures stay with the search unless a stop interrupted the call.
+// Only current image inputs may publish; their paid receipt can replace a stale version's slot.
 import {randomUUID} from 'node:crypto';
 import {ReaderRepository,persistenceError} from '../lib/reader-repository.ts';
 import type {Database} from '../lib/reader-repository.ts';
@@ -100,10 +101,19 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(this.stopping||!this.readable(row)||row.generation_control!=='active'||!this.searchCurrent(row,round))return false;
   return !await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
- private currentJob(row:SessionRow,job:ProductionJob){const generation=(JSON.parse(row.document) as Document).intake?.generation;return generation===undefined||(JSON.parse(job.payload) as {setupGeneration?:number}).setupGeneration===generation;}
+ private imageVersion(row:SessionRow){
+  const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
+  const scriptVersion=inputVersion({selection,...(doc.intake?{setupGeneration:doc.intake.generation}:{})});
+  return inputVersion({scriptVersion,plan:doc.plan,style:selection.artStyle,prompt:selection.productionPrompt});
+ }
+ private currentJob(row:SessionRow,job:ProductionJob,version?:string){
+  const generation=(JSON.parse(row.document) as Document).intake?.generation;
+  if(generation!==undefined&&(JSON.parse(job.payload) as {setupGeneration?:number}).setupGeneration!==generation)return false;
+  return !['image','image-publish'].includes(job.kind)||job.version===(version??this.imageVersion(row));
+ }
  private async currentJobs(row:SessionRow,saved?:ProductionJob[]){
-  const jobs=saved||await this.queue.jobs(row.id,row.user_id),generation=(JSON.parse(row.document) as Document).intake?.generation;
-  return generation===undefined?jobs:jobs.filter(job=>(JSON.parse(job.payload) as {setupGeneration?:number}).setupGeneration===generation);
+  const jobs=saved||await this.queue.jobs(row.id,row.user_id),version=this.imageVersion(row);
+  return jobs.filter(job=>this.currentJob(row,job,version));
  }
  private async demands(id?:string){
   const viewers=(await this.database.prepare(`SELECT * FROM production_demand WHERE runtime_id=? AND expires_at>?${id?' AND session_id=?':''}`)
@@ -228,7 +238,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   const demands=await this.demands(row.id);if(!demands.length)return;
   const end=Math.min(doc.plan.pages.length-1,Math.max(...demands.map(d=>d.through_page)));
-  const version=inputVersion({scriptVersion,plan:doc.plan,style:selection.artStyle,prompt:selection.productionPrompt});
+  const version=this.imageVersion(row);
   const anchor=productionJobId(row.id,'image-publish',version,'0');
   for(let page=0;page<=end;page++){
    const priority=Math.min(...demands.map(d=>pagePriority(page,d))),payload={page,...setup};
@@ -263,16 +273,22 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async viewedPublicationPending(){
   const now=this.clock(),recent=now-publicationYieldMs;
   // CROSS JOIN fixes the order: start from the few live viewers rather than scanning every job.
-  return !!await this.database.prepare(`SELECT 1 FROM production_demand d
+  const candidates=(await this.database.prepare(`SELECT DISTINCT s.id,s.user_id FROM production_demand d
    CROSS JOIN reader_sessions s ON s.id=d.session_id AND s.user_id=d.owner_id
    CROSS JOIN production_jobs p ON p.session_id=s.id AND p.owner_id=s.user_id
    CROSS JOIN production_jobs parent ON parent.id=json_extract(p.dependencies,'$[0]')
    WHERE d.runtime_id=? AND d.expires_at>? AND s.generation_control='active'
    AND p.kind='image-publish' AND (p.state='running' AND p.updated_at>? OR p.state='queued' AND parent.state='succeeded' AND parent.updated_at>?)
    AND EXISTS(SELECT 1 FROM production_jobs i WHERE i.session_id=s.id AND i.owner_id=s.user_id AND i.kind='image' AND i.state='queued' AND i.priority<=?)
-   AND NOT EXISTS(SELECT 1 FROM production_jobs f WHERE f.session_id=s.id AND f.owner_id=s.user_id AND f.state='failed' AND (json_extract(CASE WHEN json_valid(s.document) THEN s.document ELSE '{}' END,'$.intake.generation') IS NULL OR json_extract(f.payload,'$.setupGeneration')=json_extract(CASE WHEN json_valid(s.document) THEN s.document ELSE '{}' END,'$.intake.generation')))
-   AND NOT EXISTS(SELECT 1 FROM library_deletions l WHERE l.story_id=s.id AND l.user_id=s.user_id) LIMIT 1`)
-   .bind(this.runtimeId,now,recent,recent,productionReadAhead).first();
+   AND NOT EXISTS(SELECT 1 FROM library_deletions l WHERE l.story_id=s.id AND l.user_id=s.user_id)`)
+   .bind(this.runtimeId,now,recent,recent,productionReadAhead).all<{id:string;user_id:string}>()).results;
+  for(const candidate of candidates){
+   const row=await this.raw(candidate.id,candidate.user_id);if(!this.readable(row))continue;
+   const jobs=await this.currentJobs(row);
+   if(jobs.some(job=>job.state==='failed')||!jobs.some(job=>job.kind==='image'&&job.state==='queued'&&job.priority<=productionReadAhead))continue;
+   if(jobs.some(job=>job.kind==='image-publish'&&(job.state==='running'&&job.updated_at>recent||job.state==='queued'&&jobs.some(parent=>parent.id===(JSON.parse(job.dependencies) as string[])[0]&&parent.state==='succeeded'&&parent.updated_at>recent))))return true;
+  }
+  return false;
  }
  // Publication needs the bytes to match the saved type; a reference only needs what providers accept.
  private async fileLost(key:string,strict=false){
@@ -358,6 +374,19 @@ export class ReaderProductionCoordinator implements ReaderProduction{
      THEN COALESCE(json_extract(production_jobs.payload,'$.searchRound'),-1)!=CASE WHEN json_extract(s.document,'$.intake.search.state')='searching' THEN json_extract(s.document,'$.intake.search.round') ELSE -2 END
      ELSE COALESCE(json_extract(production_jobs.payload,'$.setupGeneration'),-1)!=json_extract(s.document,'$.intake.generation') END
     ELSE 0 END)`).run();
+  const candidates=(await this.database.prepare("SELECT DISTINCT session_id,owner_id FROM production_jobs WHERE kind IN('image','image-publish') AND state IN('queued','failed')").all<{session_id:string;owner_id:string}>()).results;
+  for(const candidate of candidates){
+   const row=await this.raw(candidate.session_id,candidate.owner_id);if(!this.readable(row))continue;
+   const jobs=await this.queue.jobs(row.id,row.user_id),current=await this.currentJobs(row,jobs),ids=new Set(current.map(job=>job.id));
+   const obsolete=jobs.filter(job=>['image','image-publish'].includes(job.kind)&&['queued','failed'].includes(job.state)&&!ids.has(job.id));
+   if(!obsolete.length)continue;
+   // A current worker may have saved its error before the queue has recorded that failure.
+   if(row.state==='failed'&&obsolete.some(job=>job.state==='failed'&&job.error===row.error)&&!current.some(job=>['failed','running'].includes(job.state))){
+    await this.database.prepare("UPDATE reader_sessions SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed' AND error IS ? AND document=? AND selection=?")
+     .bind(row.id,row.user_id,row.error,row.document,row.selection).run();
+   }
+   for(const job of obsolete)await this.database.prepare("DELETE FROM production_jobs WHERE id=? AND state IN('queued','failed')").bind(job.id).run();
+  }
  }
  private async stopUnwantedSearches(){
   for(const [id,search] of this.searches){
@@ -408,6 +437,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private async image(job:ProductionJob){
   const row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
+  if(!this.currentJob(row,job))return {obsolete:true};
   const {page}=JSON.parse(job.payload) as {page:number};
   if(!reviewPassed(doc))throw new ReaderError(409,'分镜尚未通过审片，暂不生成图片。');
   if(doc.images[page])return {value:doc.images[page],model:'saved',requestId:null,usage:null};
@@ -418,21 +448,22 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return this.provider.generator().image(doc.plan!,page,row.id,doc.images[0]||'',selection.artStyle,selection.productionPrompt,inputVersion([job.id,job.lease_token]));
  }
  private async publish(job:ProductionJob,outputs:Record<string,unknown>){
+  if(!this.currentJob(await this.raw(job.session_id,job.owner_id),job))return {obsolete:true};
   const {page}=JSON.parse(job.payload) as {page:number},parent=(JSON.parse(job.dependencies) as string[])[0];
   const result=outputs[parent] as Generated<string>,prefix=`/api/reader/media/${job.session_id}/`,expected=new RegExp(`^(?:${page}\\.(png|jpg|webp)|artifacts/${page}-[a-f0-9]{64}\\.(png|jpg|webp))$`);
   if(typeof result?.value!=='string'||!result.value.startsWith(prefix)||!expected.test(result.value.slice(prefix.length)))throw new ReaderError(409,lostImageMessage);
   if(await this.fileLost(`reader/${job.session_id}/${result.value.slice(prefix.length)}`,true))throw new ReaderError(409,lostImageMessage);
   const row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
-  if(doc.images[page]){
-   if(doc.images[page]!==result.value)throw new ReaderError(409,'这幅图片已经更新，请重新打开故事。');
-   return {value:result.value};
-  }
+  if(!this.currentJob(row,job))return {obsolete:true};
+  if(doc.images[page]===result.value)return {value:result.value};
   const lease=this.leases.get(row.id);if(!lease)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
   const usage={step:`image:${page}`,model:result.model,requestId:result.requestId,usage:result.usage};
   const saved=await this.database.prepare(`UPDATE reader_sessions SET document=json_set(document,?, ?, '$.usage',json_insert(json_extract(document,'$.usage'),'$[#]',json(?))),updated_at=?
-   WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND COALESCE(json_extract(document,?),'')=''
+   WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND COALESCE(json_extract(document,?),'')=?
+   AND selection=? AND json_extract(document,'$.plan')=json_extract(?,'$.plan')
+   AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?
    AND EXISTS(SELECT id FROM production_jobs WHERE id=? AND state='running' AND lease_token=?)`)
-   .bind(`$.images[${page}]`,result.value,JSON.stringify(usage),new Date(this.clock()).toISOString(),row.id,row.user_id,lease.token,`$.images[${page}]`,job.id,job.lease_token).run();
+   .bind(`$.images[${page}]`,result.value,JSON.stringify(usage),new Date(this.clock()).toISOString(),row.id,row.user_id,lease.token,`$.images[${page}]`,doc.images[page]||'',row.selection,row.document,doc.intake?.generation??-1,job.id,job.lease_token).run();
   if(saved.meta.changes!==1)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
   return {value:result.value};
  }
@@ -456,11 +487,17 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(!this.stopping){await this.settleFailedSearches();await this.pruneSuperseded();}
   await this.stopUnwantedSearches();
   // A dead runtime cannot renew these locks. Preserve every live session/job lease across processes.
-  if(!this.stopping)await this.database.prepare(`UPDATE reader_sessions SET state='idle',lock_token=NULL,lock_until=0,error=NULL
-   WHERE state='running' AND lock_until<=? AND generation_mode='background'
-   AND NOT EXISTS(SELECT 1 FROM production_jobs j WHERE j.session_id=reader_sessions.id AND j.owner_id=reader_sessions.user_id AND (json_extract(CASE WHEN json_valid(reader_sessions.document) THEN reader_sessions.document ELSE '{}' END,'$.intake.generation') IS NULL OR json_extract(j.payload,'$.setupGeneration')=json_extract(CASE WHEN json_valid(reader_sessions.document) THEN reader_sessions.document ELSE '{}' END,'$.intake.generation')) AND (j.state='failed' AND j.interrupted=0 OR j.state='running' AND j.lease_until>?))
-   AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)`)
-   .bind(this.clock(),this.clock()).run();
+  if(!this.stopping){
+   const expired=(await this.database.prepare(`SELECT * FROM reader_sessions WHERE state='running' AND lock_until<=? AND generation_mode='background'
+    AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=reader_sessions.id AND d.user_id=reader_sessions.user_id)`).bind(this.clock()).all<SessionRow>()).results;
+   for(const row of expired){
+    if(!this.readable(row))continue;
+    const jobs=await this.currentJobs(row);
+    if(jobs.some(job=>job.state==='failed'&&!job.interrupted||job.state==='running'&&job.lease_until>this.clock()))continue;
+    await this.database.prepare("UPDATE reader_sessions SET state='idle',lock_token=NULL,lock_until=0,error=NULL WHERE id=? AND user_id=? AND state='running' AND lock_until<=? AND lock_token IS ? AND document=? AND selection=?")
+     .bind(row.id,row.user_id,this.clock(),row.lock_token,row.document,row.selection).run();
+   }
+  }
   const demands=await this.demands(),seen=new Set<string>();
   for(const demand of demands)if(!seen.has(demand.session_id)){
    seen.add(demand.session_id);

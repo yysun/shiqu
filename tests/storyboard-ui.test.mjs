@@ -23,9 +23,10 @@ test('reader renders saved directory, batch range, honest progress and 80-frame 
  const blocked={...reviewing,state:'failed',error:'第 2 幅动作不清楚。',retryStage:'review',retryAllowed:true,generationProgress:{...reviewing.generationProgress,reviewStatus:'blocked',repairTotal:1}};
  const retry=renderToStaticMarkup(createElement(Status,{session:blocked,busy:false,error:blocked.error,onRetry(){},onBack(){}}));
  assert.match(retry,/继续修订分镜/);assert.match(retry,/仍有 1 项待修订/);assert.match(retry,/第 2 幅动作不清楚/);
- for(const [retryStage,label] of [['source','重试原文检索'],['publication','重试展开'],['review','继续修订分镜'],['redraw','重试生成'],[undefined,'重试生成']]){
+ for(const [retryStage,label] of [['source','重试原文检索'],['publication','重试生成'],['review','继续修订分镜'],['redraw','重试生成'],[undefined,'重试生成']]){
   const action=renderToStaticMarkup(createElement(Retry,{session:{...blocked,retryStage},busy:false,onRetry(){}}));
   assert.match(action,new RegExp(label));assert.doesNotMatch(action,/收费|计费|额度/);
+  if(retryStage==='publication'){assert.match(action,/重试保存/);assert.doesNotMatch(action,/重试展开/);}
  }
  const drawing={...reviewing,ready:3,stage:'正在生成画面',generationProgress:{...reviewing.generationProgress,phase:'image',reviewStatus:'passed'}};
  const images=renderToStaticMarkup(createElement(Status,{session:drawing,busy:false,error:'',onRetry(){},onBack(){}}));
