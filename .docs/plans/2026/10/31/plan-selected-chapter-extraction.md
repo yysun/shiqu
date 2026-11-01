@@ -10,7 +10,7 @@ Contents distinguish chapter scopes from already isolated stories. Whole chapter
 - [x] Add scope schema/validation/canonicalization, chapter metadata, scoped provider discovery and cache isolation; preserve old direct creation.
 - [x] Add chapter multiselect with native row checkboxes and a count (no selected stack), search retention, book/mode reset and explicit extraction CTA. Named stories retain single direct selection.
 - [x] Add real-provider-wrapper/queued integration coverage for scope-only payloads, valid/invalid candidate receipts, cache isolation, replay, invalid inputs and confirmation gates.
-- [ ] Run typecheck, lint and full Node unit/integration suite; execute .docs/tests/test-selected-chapter-extraction.md in IAB with controlled providers.
+- [x] Run typecheck, lint and full Node unit/integration suite; execute .docs/tests/test-selected-chapter-extraction.md in IAB with controlled providers.
 
 First SS probe: verify selected Three Kingdoms chapters 70/71 form a bounded reading plan and preserve exact edition/IDs; ensure whole-book and selected-scope namespace keys differ before any dependent UI work.
 
@@ -35,3 +35,12 @@ CR review round: 2; reviewer: reused.
 IAB ET: selected Three Kingdoms chapters70/71 through native checkboxes; filtering retains count, uncheck and keyboard Space toggle correctly. Submission reaches candidate list with no preparation: controlled counters discovery1/recommendation0/plan0/image0, request includes only sanguo-070/071 and original edition. Choosing candidate reaches confirmation; reload and find-more retain exact scope. A new task with reversed checkbox order receives cached candidates with discovery count still2 (the second prior call was explicit find-more), recommendation1/plan0/image0. No paid providers called.
 
 Remaining IAB ET passed: mode switch clears selections (checked0, CTA disabled), book switch clears chapter state, Liaozhai named story prepares directly and still waits at final confirmation. At390×844 document scrollWidth=390, native checkbox visible, selected-stack nodes0; screenshot visually inspected. Temporary viewport reset and verification tab closed; user's3000 tab preserved. Cache reuse also confirmed through second fresh IAB task with reversed selection order and unchanged LLM call counter.
+
+Final TT: Node24.22.1 / pnpm11.25.0 full suite with --test-concurrency=2 passed728/728, zero failures/cancellations/skips,87.9s,exit0. Log:.data/evidence/selected-chapter-extraction/full-tests.log. Typecheck/lint/diff-check passed; all4 E2E scenarios passed. Fix milestone6b0ed83 preserves source validation and confirms on-disk cache reuse. All AP tasks complete.
+
+VR passed: all acceptance criteria complete.
+VR risk: non-low — persisted discovery scopes, source provenance, shared caching and production gates.
+VR review round: 2; reviewer: reused.
+Full independent final mapping is preserved verbatim in the delivery report.
+
+DD finalized: .docs/done/2026/10/31/selected-chapter-extraction.md preserves the complete independent final VR. GC scope contains only this story’s completed requirements, plan evidence and delivery report; source milestones16d4575/6b0ed83 and their current verification remain unchanged.
