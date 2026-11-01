@@ -1,4 +1,4 @@
-// Package story JSON, the saved storyboard and original images locally; never export a partial archive.
+// Package story JSON, storyboard and full-resolution WebP images locally; never export a partial archive.
 import {zipSync,strToU8} from 'fflate';
 import type {Story} from './content';
 import type {GeneratedStory} from './reader-model';
@@ -7,6 +7,22 @@ import {pdfFilename,storySourceReference} from './reader-pdf.ts';
 export function zipFilename(title:string){return pdfFilename(title).replace(/-拾趣\.pdf$/,'.zip');}
 export function assertZipReady(story:Story){
  if(!story.pages.length||story.pages.some(page=>!page.image))throw Error('等所有画面生成完成后，就能下载分镜与图片 ZIP。');
+}
+async function webpImage(blob:Blob,page:number){
+ if(blob.type.split(';')[0].trim().toLowerCase()==='image/webp')return blob;
+ const image=new Image(),url=URL.createObjectURL(blob);
+ let canvas:HTMLCanvasElement|undefined;
+ try{
+  image.src=url;await image.decode();
+  canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+  const context=canvas.getContext('2d');if(!context)throw Error('CANVAS_UNAVAILABLE');
+  context.drawImage(image,0,0);
+  return await new Promise<Blob>((resolve,reject)=>canvas!.toBlob(result=>{
+   if(!result?.size||result.type!=='image/webp')reject(Error('WEBP_UNAVAILABLE'));
+   else resolve(result);
+  },'image/webp',.85));
+ }catch{throw Error(`第 ${page+1} 幅画面转为 WebP 失败，请换用支持 WebP 导出的浏览器后重试。`);}
+ finally{image.src='';URL.revokeObjectURL(url);if(canvas){canvas.width=0;canvas.height=0;}}
 }
 function storyboardText(story:Story,images:string[]){
  const generated='generated'in story&&story.generated===true?story as GeneratedStory:null;
@@ -32,10 +48,9 @@ export async function createStoryZip(story:Story,onProgress:(text:string)=>void=
   if(!response.ok)throw Error(`第 ${index+1} 幅读取失败，请保持联网后重试。`);
   const blob=await response.blob();
   const mime=blob.type.split(';')[0].trim().toLowerCase();
-  const extension=({ 'image/png':'png','image/jpeg':'jpg','image/webp':'webp' } as Record<string,string>)[mime];
-  if(!extension||!blob.size)throw Error(`第 ${index+1} 幅画面暂不可用，无法打包 ZIP。`);
-  const filename=`图片/${String(index+1).padStart(digits,'0')}.${extension}`;
-  images.push(filename);files[filename]=new Uint8Array(await blob.arrayBuffer());
+  if(!['image/png','image/jpeg','image/webp'].includes(mime)||!blob.size)throw Error(`第 ${index+1} 幅画面暂不可用，无法打包 ZIP。`);
+  const webp=await webpImage(blob,index),filename=`图片/${String(index+1).padStart(digits,'0')}.webp`;
+  images.push(filename);files[filename]=new Uint8Array(await webp.arrayBuffer());
  }
  onProgress('正在整理分镜与保存 ZIP');
  files['分镜.md']=strToU8(storyboardText(story,images));
@@ -49,7 +64,7 @@ export async function createStoryZip(story:Story,onProgress:(text:string)=>void=
   reflection:story.reflection,adaptationNote:story.adaptationNote,
   revision:story.revision,createdAt:story.createdAt,updatedAt:story.updatedAt,
  },null,2)+'\n');
- // Images are already compressed; storing them avoids expensive recompression on phones.
+ // WebP is already compressed; avoid repeating compression while building the archive.
  return new Blob([zipSync(files,{level:0}) as BlobPart],{type:'application/zip'});
 }
 export async function downloadStoryZip(story:Story,onProgress:(text:string)=>void){

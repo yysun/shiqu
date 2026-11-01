@@ -1,10 +1,32 @@
-// Verify complete, ordered ZIP exports and fail-closed image retrieval.
+// Verify complete WebP ZIP exports, preserved dimensions and fail-closed retrieval/encoding.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {unzipSync,strFromU8} from 'fflate';
 import {makeStory} from './fixtures/story.mjs';
 import {assertZipReady,createStoryZip,zipFilename} from '../lib/reader-zip.ts';
 import {view} from '../lib/reader-model.ts';
+
+function browserImages(t){
+ const previous={Image:globalThis.Image,document:globalThis.document},urls=new Map(),canvases=[],revoked=[];
+ const controls={failure:null,canvases,revoked};
+ globalThis.Image=class{
+  naturalWidth=941;naturalHeight=1672;src='';
+  async decode(){if(controls.failure==='decode')throw Error('invalid image');this.bytes=new Uint8Array(await urls.get(this.src).arrayBuffer());}
+ };
+ globalThis.document={createElement(tag){
+  assert.equal(tag,'canvas');
+  const canvas={width:0,height:0,getContext(){return controls.failure==='context'?null:{drawImage(image,x,y){assert.equal(x,0);assert.equal(y,0);canvas.image=image;}};},toBlob(callback,type,quality){
+   assert.equal(type,'image/webp');assert.equal(quality,.85);
+   canvas.encodedSize=[canvas.width,canvas.height];
+   callback(controls.failure==='empty'?null:new Blob([Uint8Array.of(99,...canvas.image.bytes)],{type:controls.failure==='format'?'image/png':'image/webp'}));
+  }};
+  canvases.push(canvas);return canvas;
+ }};
+ t.mock.method(URL,'createObjectURL',blob=>{const url='blob:test-'+urls.size;urls.set(url,blob);return url;});
+ t.mock.method(URL,'revokeObjectURL',url=>revoked.push(url));
+ t.after(()=>{for(const [key,value] of Object.entries(previous))if(value===undefined)delete globalThis[key];else globalThis[key]=value;});
+ return controls;
+}
 
 test('ZIP requires every image and sanitizes the archive filename',()=>{
  const story=makeStory();
@@ -13,7 +35,8 @@ test('ZIP requires every image and sanitizes the archive filename',()=>{
  assert.equal(zipFilename('故事/名字?'),'故事名字.zip');
 });
 
-test('ZIP preserves original image bytes, matching scene order, captions and prompts',async t=>{
+test('ZIP converts PNG/JPEG at original dimensions, preserves WebP and matches scene metadata',async t=>{
+ const browser=browserImages(t);
  globalThis.location={origin:'http://localhost:3000'};
  t.after(()=>{delete globalThis.location;});
  const formats=['png','jpeg','webp'],bodies=Array.from({length:12},(_,i)=>new Uint8Array([i,4,8,15,16,23,42]));
@@ -37,8 +60,8 @@ test('ZIP preserves original image bytes, matching scene order, captions and pro
  assert.equal(json.sourceReference,story.sourceReference);
  assert.equal(json.pages.length,12);
  for(let i=0;i<12;i++){
-  const filename=`图片/${String(i+1).padStart(2,'0')}.${['png','jpg','webp'][i%3]}`;
-  assert.deepEqual(files[filename],bodies[i]);
+  const filename=`图片/${String(i+1).padStart(2,'0')}.webp`;
+  assert.deepEqual(files[filename],i%3===2?bodies[i]:Uint8Array.of(99,...bodies[i]));
   assert.deepEqual(json.pages[i],{caption:story.pages[i].caption,prompt:story.pages[i].prompt,image:filename});
   assert.ok(script.includes(`图片：${filename}`));
   assert.ok(script.includes(story.pages[i].caption));
@@ -48,9 +71,13 @@ test('ZIP preserves original image bytes, matching scene order, captions and pro
  assert.ok(script.indexOf('## 第 2 幅')<script.indexOf('## 第 10 幅'));
  for(const text of [story.title,story.hook,story.reflection,story.adaptationNote,story.sourceReference,story.productionPrompt,story.artStyleLabel])assert.ok(script.includes(text));
  assert.ok(progress.includes('正在打包第 12 / 12 幅'));
+ assert.equal(browser.canvases.length,8);
+ assert.equal(browser.revoked.length,8);
+ for(const canvas of browser.canvases){assert.deepEqual(canvas.encodedSize,[941,1672]);assert.equal(canvas.width,0);assert.equal(canvas.height,0);}
 });
 
 test('ZIP exports stories without generation metadata with an empty model list',async t=>{
+ browserImages(t);
  globalThis.location={origin:'http://localhost:3000'};
  t.after(()=>{delete globalThis.location;});
  t.mock.method(globalThis,'fetch',async()=>new Response('image',{headers:{'Content-Type':'image/png'}}));
@@ -58,7 +85,20 @@ test('ZIP exports stories without generation metadata with an empty model list',
  const json=JSON.parse(strFromU8(files['故事.json']));
  assert.equal(json.title,story.title);
  assert.deepEqual(json.generationModels,[]);
- assert.equal(json.pages[0].image,'图片/01.png');
+ assert.equal(json.pages[0].image,'图片/01.webp');
+});
+
+test('ZIP rejects failed decoding, missing canvas, empty encoding and PNG fallbacks',async t=>{
+ const browser=browserImages(t);
+ globalThis.location={origin:'http://localhost:3000'};
+ t.after(()=>{delete globalThis.location;});
+ t.mock.method(globalThis,'fetch',async()=>new Response('image',{headers:{'Content-Type':'image/png'}}));
+ for(const failure of ['decode','context','empty','format']){
+  browser.failure=failure;
+  await assert.rejects(createStoryZip(makeStory(1)),/第 1 幅.*WebP/);
+ }
+ assert.equal(browser.revoked.length,4);
+ assert.ok(browser.canvases.every(canvas=>canvas.width===0&&canvas.height===0));
 });
 
 test('ZIP rejects incomplete, foreign, failed, empty and non-image responses',async t=>{
