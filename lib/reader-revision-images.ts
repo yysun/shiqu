@@ -1,7 +1,7 @@
 // Decide which saved artwork a revision can reuse. Free of schema imports so that views can report it.
 import type {Plan,Selection} from './reader-model.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
-export type RevisionBase={selection:Selection;plan:Plan|null;images:string[];frameRecommendation?:FrameRecommendation};
+export type RevisionBase={selection:Selection;plan:Plan|null;images:string[];frameRecommendation?:FrameRecommendation;savedFrameCount?:number};
 export type RevisionRedraw={previewed:number;actual:number;reason:'first-lost'|'first-changed'|'lost'|'review'};
 export function reusableRevisionImages(base:RevisionBase,selection:Selection,plan:Plan){
  const previous=base.plan;if(!previous)return plan.pages.map(()=> '');

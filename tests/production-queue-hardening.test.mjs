@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {productionFixture,makePlan,selection} from './fixtures/production.mjs';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {revisionSnapshot,forkRevision} from '../server/reader-revisions.ts';
+import {revisionImpact} from '../lib/reader-revision.ts';
+import {nextStep} from '../lib/reader-model.ts';
 const original={title:'庄周梦蝶',text:'庄周梦为胡蝶。',url:'https://example.com',kind:'passage',provider:'fixture',retrievedAt:new Date().toISOString()};
 async function seeded(t,plan=makePlan(8)){
  const f=await productionFixture(t);f.app.stopGeneration();await f.app.services.production.close();
@@ -70,4 +72,21 @@ test('seeded legacy paused handoff still resumes and clears its flag without tou
  await repo.db.prepare("UPDATE reader_sessions SET document=json_set(document,'$.revision.handoff',json('true')) WHERE id=?").bind(child).run();
  const resumed=await repo.control(child,owner,'resume',true);
  assert.equal(resumed.generation_control,'active');assert.equal(JSON.parse(resumed.document).revision.handoff,undefined);
+});
+for(const kind of ['storyboard','draft'])test(`style-only pre-plan edit preserves ${kind}; requirements and counts discard it`,async t=>{
+ const {f,repo,id,owner}=await seeded(t,null),count=kind==='storyboard'?60:8,plan=makePlan(count),{pages,...metadata}=plan;
+ const saved=kind==='storyboard'?{storyboard:{outline:{...metadata,beats:pages.map((_,i)=>`第${i+1}幅关键动作`)},pages:pages.slice(0,40)}}:{draft:{...metadata,pages}};
+ await repo.db.prepare('UPDATE reader_sessions SET selection=?,document=? WHERE id=?').bind(JSON.stringify({...selection,length:count}),JSON.stringify({plan:null,original,images:[],audio:[],usage:[],...saved}),id).run();
+ const base=await revisionSnapshot(repo,id,owner);
+ assert.equal(base.savedFrameCount,count);assert.equal(revisionImpact(base,{artStyle:'paper-cut'}).preserveScript,true);
+ const child=await forkRevision(repo,f.media,owner,id,crypto.randomUUID(),base.token,{artStyle:'paper-cut'},true),doc=JSON.parse(child.document);
+ assert.deepEqual(doc[kind],saved[kind]);
+ assert.equal(nextStep(doc,JSON.parse(child.selection),0).key,kind==='storyboard'?'plan:40':'reflection');
+ for(const changes of [{productionPrompt:'new direction'},{length:count+1}]){
+  const current=await revisionSnapshot(repo,child.id,owner);
+  assert.equal(revisionImpact(current,changes).preserveScript,false);
+  const replanned=await forkRevision(repo,f.media,owner,child.id,crypto.randomUUID(),current.token,changes,true),fresh=JSON.parse(replanned.document);
+  assert.equal(fresh.draft,undefined);assert.equal(fresh.storyboard,undefined);
+ }
+ assert.equal(f.control.plans.length,0);assert.equal(f.control.outlines.length,0);
 });

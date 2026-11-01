@@ -15,6 +15,7 @@ import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts'
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 const familyEpoch=`SELECT COALESCE(MAX(${familyNumber('reader_sessions')}),1) AS epoch FROM reader_sessions WHERE user_id=? AND (id=? OR ${familyRoot('reader_sessions')}=?)`;
+const savedFrameCount=(doc:Document)=>doc.draft?.pages.length??doc.storyboard?.outline.beats.length;
 async function basis(repo:ReaderRepository,row:SessionRow){
  const doc=JSON.parse(row.document) as Document;
  if(doc.intake&&doc.intake.phase!=='confirmed')throw new ReaderError(409,'请在制作确认前保存设置草稿。');
@@ -26,7 +27,7 @@ async function basis(repo:ReaderRepository,row:SessionRow){
 }
 export async function revisionSnapshot(repo:ReaderRepository,id:string,ownerId:string):Promise<RevisionSnapshot>{
  const row=await repo.get(id,ownerId),{doc,epoch,token}=await basis(repo,row);
- return {selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan,images:doc.images,...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{}),token,epoch,...(doc.revision?{revision:{parentId:doc.revision.parentId,rootId:doc.revision.rootId,number:doc.revision.number}}:{})};
+ return {selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan,images:doc.images,savedFrameCount:savedFrameCount(doc),...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{}),token,epoch,...(doc.revision?{revision:{parentId:doc.revision.parentId,rootId:doc.revision.rootId,number:doc.revision.number}}:{})};
 }
 export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,parentId:string,requestId:string,token:string,changes:RevisionChanges,paused=false){
  // Preserve fingerprints of requests saved before explicit paused submissions were added.
@@ -41,7 +42,7 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  const existing=await replay();if(existing)return existing;
  const row=await repo.get(parentId,ownerId),{doc,rootId,epoch,token:current}=await basis(repo,row);
  if(current!==token)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
- const original={selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan,images:doc.images,...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{})};
+ const original={selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan,images:doc.images,savedFrameCount:savedFrameCount(doc),...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{})};
  const {selection,plan,impact}=checkedRevision(original,changes);
  const images:string[]=original.plan?.pages.map(()=> '')||[],lostPages:number[]=[];
  // Global image preferences cannot reuse old artwork. Other edits may reuse after planning.
@@ -60,6 +61,7 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  const base={...original,images};
  const document:Document={plan,original:doc.original,frameRecommendation:doc.frameRecommendation,frameCountConfirmed:true,visualReview:newReview(),images:[],audio:[],usage:[],revision:{parentId,rootId,number:epoch+1,baseToken:token,requestHash,base,...(impact.replan?{}:{previewedRedraw:impact.redraw}),...(lostPages.length?{lostPages}:{})}};
  if(plan)document.images=reusableRevisionImages(base,selection,plan);
+ if(impact.preserveScript){document.storyboard=doc.storyboard;document.draft=doc.draft;}
  const now=new Date().toISOString();
  const inserted=await repo.db.prepare(`INSERT INTO reader_sessions(id,user_id,selection,document,generation_mode,generation_control,state,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
   SELECT ?,?,?,?,'background',?,'idle',0,0,MIN(p.page,?),p.saved,p.last_read_at,?,? FROM reader_sessions p

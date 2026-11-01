@@ -21,7 +21,7 @@ export function StoryRevisionActions({editor,onDone,resuming=false,reviewOnSave=
  const impact=editor.impact;if(!impact)return null;
  const finish=reviewOnSave?undefined:onDone;
  return <section className="yu-revision-impact" aria-label="本次修改影响">
-  <p role="status">{!impact.changed?(reviewOnSave?'修改分镜后，保存并重新审核，通过后继续绘图。':resuming?'完成编辑后，恢复生成时继续制作。':'调整制作内容，确认后开始制作新版。'):impact.replan?`将重新编排 ${impact.total} 幅并审片。${impact.reusePending?'原图能否复用，待新分镜完成后逐幅比较。':`需重绘 ${impact.total} 幅。`}`:`保留分镜编排，重新审片；预计复用 ${impact.reused} 幅、重绘 ${impact.redraw} 幅。`}</p>
+  <p role="status">{!impact.changed?(reviewOnSave?'修改分镜后，保存并重新审核，通过后继续绘图。':resuming?'完成编辑后，恢复生成时继续制作。':'调整制作内容，确认后开始制作新版。'):impact.replan?impact.preserveScript?`保留已保存的分镜与草稿，只完成剩余编排并审片；需绘制 ${impact.total} 幅。`:`将重新编排 ${impact.total} 幅并审片。${impact.reusePending?'原图能否复用，待新分镜完成后逐幅比较。':`需重绘 ${impact.total} 幅。`}`:`保留分镜编排，重新审片；预计复用 ${impact.reused} 幅、重绘 ${impact.redraw} 幅。`}</p>
   {impact.changed&&!impact.replan&&<small>审片若修改画面指令，会增加重绘；首幅变化时全部重绘。</small>}
   {impact.conflict&&<div role="alert"><p>制作要求或画幅数的变化需要重新编排，会替换手改分镜。请选择保留哪类修改：</p><div className="yu-revision-conflict"><button type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,plan:undefined}))}>保留重新编排设置</button><button type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,productionPrompt:undefined,length:undefined}))}>保留手改分镜</button></div></div>}
   {editor.error&&<p role="alert">{editor.error}</p>}

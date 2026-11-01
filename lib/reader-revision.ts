@@ -16,8 +16,9 @@ export type RevisionInfo={parentId:string;rootId:string;number:number};
 export type RevisionView=RevisionInfo&{redraw?:RevisionRedraw};
 export type RevisionRecord=RevisionInfo&{baseToken:string;requestHash:string;handoff?:boolean;base:RevisionBase;previewedRedraw?:number;lostPages?:number[]};
 export type RevisionSnapshot=RevisionBase&{token:string;epoch:number;revision?:RevisionInfo};
-export type RevisionImpact={changed:boolean;replan:boolean;review:boolean;reused:number;redraw:number;total:number;reusePending:boolean;conflict:boolean};
+export type RevisionImpact={changed:boolean;replan:boolean;preserveScript:boolean;review:boolean;reused:number;redraw:number;total:number;reusePending:boolean;conflict:boolean};
 export const revisionFrameCount=(base:RevisionBase)=>base.plan?.pages.length??(typeof base.selection.length==='number'?base.selection.length:base.frameRecommendation?.count??8);
+export const preserveRevisionScript=(base:RevisionBase,changes:RevisionChanges)=>!base.plan&&base.savedFrameCount===revisionFrameCount(base)&&(changes.productionPrompt??base.selection.productionPrompt)===base.selection.productionPrompt&&(changes.length??revisionFrameCount(base))===revisionFrameCount(base);
 export function revisionImpact(base:RevisionBase,changes:RevisionChanges):RevisionImpact{
  const selection={...base.selection,productionPrompt:changes.productionPrompt??base.selection.productionPrompt,artStyle:changes.artStyle??base.selection.artStyle};
  const requirements=selection.productionPrompt!==base.selection.productionPrompt;
@@ -27,7 +28,7 @@ export function revisionImpact(base:RevisionBase,changes:RevisionChanges):Revisi
  const changed=requirements||count||manual||selection.artStyle!==base.selection.artStyle;
  const total=changes.length??revisionFrameCount(base);
  const reusable=plan?reusableRevisionImages(base,selection,plan).filter(Boolean).length:0;
- return {changed,replan,review:changed,reused:replan?0:reusable,redraw:replan?total:total-reusable,total,reusePending:!!base.plan&&replan&&!requirements&&selection.artStyle===base.selection.artStyle,conflict:replan&&manual};
+ return {changed,replan,preserveScript:preserveRevisionScript(base,changes),review:changed,reused:replan?0:reusable,redraw:replan?total:total-reusable,total,reusePending:!!base.plan&&replan&&!requirements&&selection.artStyle===base.selection.artStyle,conflict:replan&&manual};
 }
 export function checkedRevision(base:RevisionBase,changes:RevisionChanges){
  const parsed=revisionChangesSchema.safeParse(changes);
