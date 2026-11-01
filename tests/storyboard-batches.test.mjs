@@ -15,7 +15,7 @@ for(const provider of ['codex','gemini'])test(`${provider}: outline and 20/20/5 
   const doc=await document(f,id);assert.equal(doc.plan,null);assert.equal(f.control.calls.length,0);
   observed.push(doc.storyboard?.pages.length??0);
   if(kind==='batch'){
-   assert.deepEqual(payload.previousPages,doc.storyboard.pages);assert.deepEqual(payload.outline,doc.storyboard.outline);
+   assert.deepEqual(payload.previousPages,doc.storyboard.pages);const {summary:_,...sourceMetadata}=doc.storyboard.outline;void _;assert.deepEqual(payload.outline,sourceMetadata);
    assert.ok(payload.verifiedOriginal.text);assert.equal(payload.exactPageCount,45);
    assert.equal(schema.properties.pages.minItems,payload.batch.last-payload.batch.first+1);
    assert.equal(schema.properties.pages.maxItems,schema.properties.pages.minItems);

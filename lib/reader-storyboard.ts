@@ -3,7 +3,7 @@ import {normalizeProductionPrompt} from './reader-prompts.ts';
 import {storyboardOutlineSchema,storyboardBatchSchema,planSchema,storyPresentationSchema} from './reader-model.ts';
 import type {Selection,Storyboard,StoryDraft} from './reader-model.ts';
 import {verifiedOriginalPayload} from './reader-source-types.ts';
-import {storyBriefPayload} from './reader-story-brief.ts';
+import {assertStoryBriefReady,withoutStorySummary} from './reader-story-brief.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import type {Generated} from './reader-engine.ts';
 import {readerStoryboardBatchSize,readerMinFrames,readerMaxFrames} from './reader-limits.ts';
@@ -27,7 +27,7 @@ const reflectionSystemPrompt=promptSections(
 const reflectionCandidatesDirection='本次先结合完整原文与实际分镜拟定最终标题（title），再一次生成三个结语候选，留给独立审核择优。三个候选各自完整成立，在有原文依据的观察角度、着重点或表达取舍上形成真实区别，不只调换词语，也不把一个意思拆成三句。不强行凑出三种寓意；原文只支持同一层认识时，可以比较这层认识的不同表达，但不能为求差异新增动机、事实或拔高判断。三个候选适用相同质量标准，不设置陪衬句，不排列名次，不推荐或解释。只返回 {title,candidates:[第一句,第二句,第三句]}，不得输出其他字段。';
 
 export function storyboardGenerator(book:(selection:Selection)=>string,call:Call){
- function payload(selection:Selection,id:string,original?:OriginalSource){return {book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),...storyBriefPayload(original),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})};}
+ function payload(selection:Selection,id:string,original?:OriginalSource){assertStoryBriefReady(original);return {book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})};}
  function instructions(original:OriginalSource|undefined,stage:'outline'|'batch'){return promptSections(
   ['任务',stage==='outline'?'你是古典连环画编剧，本次只制定全篇提纲。':'你是古典连环画分镜导演，本次只细化指定批次。'],
   ['编排标准',storyPlanningDirection],
@@ -48,17 +48,17 @@ export function storyboardGenerator(book:(selection:Selection)=>string,call:Call
    const first=storyboard.pages.length+1,last=Math.min(first+readerStoryboardBatchSize-1,storyboard.outline.beats.length),count=last-first+1;
    if(count<1)throw Error('PLAN_LENGTH');
    const full=planJson(count),schema={type:'object',properties:{pages:full.properties.pages},required:['pages'],additionalProperties:false};
-   const result=await call('plan',instructions(original,'batch'),{...payload(selection,id,original),exactPageCount:storyboard.outline.beats.length,outline:storyboard.outline,batch:{first,last},previousPages:storyboard.pages},schema,Math.max(8192,count*800),original);
+   const result=await call('plan',instructions(original,'batch'),{...payload(selection,id,original),exactPageCount:storyboard.outline.beats.length,outline:withoutStorySummary(storyboard.outline),batch:{first,last},previousPages:storyboard.pages},schema,Math.max(8192,count*800),original);
    return {...result,value:storyboardBatchSchema(count).parse(result.value).pages};
   },
   async reflection(selection:Selection,draft:StoryDraft,original:OriginalSource,revision?:{reflection:string;issues:ReviewIssue[]}){
    const schema={type:'object',properties:{reflection:{type:'string',minLength:1,maxLength:100}},required:['reflection'],additionalProperties:false};
-   const result=await call(revision?'repair':'plan',reflectionSystemPrompt+'\n\n'+promptSections(['本地原文',original.localSource?localPlanConstraint:''],['本次输出','只返回 {reflection}，撰写或修订一句结语；保留标题及全部分镜，不输出候选或其他字段。']),{...payload(selection,'',original),editorialContext:storyEditorialContext(selection.theme),draft,...(revision?{revision}:{})},schema,4096,original);
+   const result=await call(revision?'repair':'plan',reflectionSystemPrompt+'\n\n'+promptSections(['本地原文',original.localSource?localPlanConstraint:''],['本次输出','只返回 {reflection}，撰写或修订一句结语；保留标题及全部分镜，不输出候选或其他字段。']),{...payload(selection,'',original),editorialContext:storyEditorialContext(selection.theme),draft:withoutStorySummary(draft),...(revision?{revision}:{})},schema,4096,original);
    return {...result,value:planSchema.pick({reflection:true}).parse(result.value).reflection};
   },
   async reflectionCandidates(selection:Selection,draft:StoryDraft,original:OriginalSource){
    const schema={type:'object',properties:{title:{type:'string',minLength:1,maxLength:40},candidates:{type:'array',minItems:3,maxItems:3,items:{type:'string',minLength:1,maxLength:100}}},required:['title','candidates'],additionalProperties:false};
-   const result=await call('plan',reflectionSystemPrompt+'\n\n'+promptSections(['本地原文',original.localSource?localPlanConstraint:''],['本次输出',reflectionCandidatesDirection]),{...payload(selection,'',original),editorialContext:storyEditorialContext(selection.theme),draft},schema,4096,original);
+   const result=await call('plan',reflectionSystemPrompt+'\n\n'+promptSections(['本地原文',original.localSource?localPlanConstraint:''],['本次输出',reflectionCandidatesDirection]),{...payload(selection,'',original),editorialContext:storyEditorialContext(selection.theme),draft:withoutStorySummary(draft)},schema,4096,original);
    return {...result,value:storyPresentationSchema.parse(result.value)};
   },
  };

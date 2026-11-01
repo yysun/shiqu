@@ -1,4 +1,4 @@
-// Verify rich matching receipts and source-bound production guidance across all provider request boundaries.
+// Verify rich matching receipts and source-only production and synopsis-assisted review across all provider request boundaries.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createReaderProvider} from '../server/generation.ts';
@@ -7,8 +7,8 @@ import {libraryFixture} from './fixtures/story-library.mjs';
 import {themeStoryId} from '../server/story-theme-matching.ts';
 import {makePlan,makeReflectionCandidates} from './fixtures/production.mjs';
 
-const summary='勇士为保护村民迎战猛虎，最终击退猛虎，平安返回村庄。';
-const matchReason='人物面对危险保护村民，其实际行动体现勇气。';
+const summary='勇士为保护村民迎战猛虎，最终击退猛虎，平安返回村庄。【核对摘要专用标记】';
+const matchReason='人物面对危险保护村民，其实际行动体现勇气。【匹配理由专用标记】';
 const brief={summary,matchReason};
 const original={title:'勇士护民',text:'勇士面对山中的猛虎仍向前行。他保护了村民，最终击退猛虎，平安返回村庄。',url:'https://example.org/original',kind:'passage',provider:'fixture',retrievedAt:'2026-11-01',localSource:{edition:'a'.repeat(64),sectionId:'s1',firstUnit:'u1',lastUnit:'u1'}};
 
@@ -29,7 +29,7 @@ test('rich matching information survives cache reuse and an old boolean receipt 
 });
 
 for(const provider of ['codex','gemini','openai'])test(`${provider}: brief verification, bounded output, theme/source guidance and original facts remain separate`,async()=>{
- const calls=[],plan=makePlan(2);
+ const calls=[],plan={...makePlan(2),summary:'归档剧本摘要专用标记'};
  const respond=(instructions,payload,schema,limit)=>{
   calls.push({instructions,payload,schema,limit});
   if(schema.properties.matches)return {matches:payload.stories.map(story=>({id:story.id,verdict:'yes',reason:matchReason,summary:story.summary}))};
@@ -38,7 +38,7 @@ for(const provider of ['codex','gemini','openai'])test(`${provider}: brief verif
   if(payload.requestedPages)return {pages:payload.requestedPages.map(page=>({page,...plan.pages[page-1]}))};
   if(schema.properties.candidates)return {title:plan.title,candidates:makeReflectionCandidates(plan.reflection)};
   if(schema.properties.reflection&&!schema.properties.pages)return {reflection:plan.reflection};
-  if(schema.properties.beats){const {pages,reflection,...metadata}=makePlan(21);void reflection;return {...metadata,beats:pages.map((_,i)=>'第'+i+'幅的行动和回应。')};}
+  if(schema.properties.beats){const {pages,reflection,...metadata}=makePlan(21);void reflection;return {...metadata,summary:'归档提纲摘要专用标记',beats:pages.map((_,i)=>'第'+i+'幅的行动和回应。')};}
   if(payload.batch)return {pages:makePlan(21).pages.slice(payload.batch.first-1,payload.batch.last)};
   return plan;
  };
@@ -60,13 +60,31 @@ for(const provider of ['codex','gemini','openai'])test(`${provider}: brief verif
   const ready={...original,storyBrief:{summary:checked.storySummary,matchReason:checked.storyMatchReason,verified:true}};
   const before=calls.length;await assert.rejects(g.plan(selection,'id',pending),/STORY_BRIEF_UNVERIFIED/);assert.equal(calls.length,before);
   const start=calls.length;const draft=(await g.plan(selection,'id',ready)).value;
-  const long={...selection,length:21},outline=(await g.outline(long,'id',ready)).value;await g.planBatch(long,'id',{outline,pages:[]},ready);
-  await g.review(selection,plan,ready);await g.repair(selection,plan,ready,[{page:1,category:'caption',problem:'指代不清。',instruction:'保留事实，说清对象。'}]);await g.reflectionCandidates(selection,draft,ready);
+  const long={...selection,length:21},outline=(await g.outline(long,'id',ready)).value,board={outline,pages:[]};
+  const snapshot=structuredClone({plan,draft,outline,ready});
+  const issues=[{page:1,category:'caption',problem:'指代不清。',instruction:'保留事实，说清对象。'}];
+  await g.planBatch(long,'id',board,ready);
+  await g.review(selection,plan,ready,outline);await g.repair(selection,plan,ready,issues,outline);
+  await g.reflectionCandidates(selection,draft,ready);await g.reflection(selection,draft,ready);
+  await g.reflection(selection,draft,ready,{reflection:plan.reflection,issues});
+  assert.deepEqual({plan,draft,outline,ready},snapshot);
   for(const call of calls.slice(start)){
-   assert.deepEqual(call.payload.editorialContext,context);assert.deepEqual(call.payload.storyBrief,brief);assert.equal(call.payload.verifiedOriginal.text,original.text);assert.equal(call.payload.verifiedOriginal.storyBrief,undefined);
-   assert.doesNotMatch(call.instructions,/editorialContext 仅用于标题|选定后主题不进入分镜/);
-   if(!call.schema.properties.candidates){assert.match(call.instructions,/第一页开场/);assert.match(call.instructions,/静态/);assert.match(call.instructions,/连续性/);assert.match(call.instructions,/结合摘要从原文中提取理解开局所需的必要背景、人物关系和眼前处境/);assert.match(call.instructions,/不照搬全篇摘要/);assert.match(call.instructions,/不先剧透结局/);}
+   const reviewing=!!call.schema.properties.issues;
+   assert.deepEqual(call.payload.editorialContext,context);assert.equal(call.payload.verifiedOriginal.text,original.text);assert.equal(call.payload.verifiedOriginal.storyBrief,undefined);
+   if(reviewing){
+    assert.deepEqual(call.payload.storyBrief,brief);assert.deepEqual(call.payload.plan,plan);assert.deepEqual(call.payload.outline,outline);
+    assert.match(call.instructions,/先依据完整原文与实际分镜，独立检查/);assert.match(call.instructions,/再参考已核对的 storyBrief.summary/);assert.match(call.instructions,/摘要与原文冲突时按原文裁决/);
+   }else{
+    assert.equal(call.payload.storyBrief,undefined);
+    for(const marker of ['核对摘要专用标记','匹配理由专用标记','归档剧本摘要专用标记','归档提纲摘要专用标记'])assert.ok(!JSON.stringify(call.payload).includes(marker),marker);
+    for(const key of ['outline','draft','plan'])if(call.payload[key]){const {summary:_,...expected}=snapshot[key];void _;assert.deepEqual(call.payload[key],expected);}
+    assert.doesNotMatch(call.instructions,/先参照摘要|摘要负责叙事主线/);
+   }
+   if(!call.payload.draft){assert.match(call.instructions,/第一页开场/);assert.match(call.instructions,/静态/);assert.match(call.instructions,/连续性/);assert.match(call.instructions,/从已核原文中提取理解开局所需的必要背景、人物关系和眼前处境/);assert.match(call.instructions,/不把全篇概述当作开场/);assert.match(call.instructions,/不先剧透结局/);}
   }
+  const guarded=calls.length;
+  for(const action of [()=>g.outline(long,'id',pending),()=>g.planBatch(long,'id',board,pending),()=>g.reflection(selection,draft,pending),()=>g.reflectionCandidates(selection,draft,pending),()=>g.review(selection,plan,pending,outline),()=>g.repair(selection,plan,pending,issues,outline)])await assert.rejects(action(),/STORY_BRIEF_UNVERIFIED/);
+  assert.equal(calls.length,guarded);
   await g.recommend(selection,'legacy',original);assert.deepEqual(calls.at(-1).schema.required,['count','reason']);if(provider!=='codex')assert.equal(calls.at(-1).limit,provider==='gemini'?2000:2048);
  }
 });

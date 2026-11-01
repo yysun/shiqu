@@ -4,12 +4,12 @@ import {z} from 'zod';
 import {planSchema,reflectionCandidatesSchema} from './reader-model.ts';
 import type {Plan,Selection,StoryboardOutline,ReflectionCandidates} from './reader-model.ts';
 import {verifiedOriginalPayload} from './reader-source-types.ts';
-import {storyBriefPayload} from './reader-story-brief.ts';
+import {storyBriefPayload,assertStoryBriefReady,withoutStorySummary} from './reader-story-brief.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import type {Generated} from './reader-engine.ts';
 import {getArtStyle} from './reader-styles.ts';
 import {storyPageDirection} from './reader-generation-contract.ts';
-import {promptSections,inputBoundaryDirection,sourceFidelityDirection,storyboardDirection,narrativeMeaningDirection,reflectionMeaningDirection,editorialDirection,storyEditorialContext,storyScopeDirection,storyOpeningDirection,storyAdaptationDirection} from './reader-prompts.ts';
+import {promptSections,inputBoundaryDirection,sourceFidelityDirection,storyboardDirection,narrativeMeaningDirection,reflectionMeaningDirection,editorialDirection,storyEditorialContext,storyScopeDirection,storyOpeningDirection,storySourceDirection,storyReviewDirection} from './reader-prompts.ts';
 import {readerStoryboardBatchSize} from './reader-limits.ts';
 import {localPlanConstraint} from './reader-local-contract.ts';
 import type {ReasoningTask} from './reader-reasoning.ts';
@@ -45,8 +45,8 @@ export function newReview():ReviewCheckpoint{return {history:[],status:'pending'
 const string=(maxLength:number)=>({type:'string',minLength:1,maxLength});
 const reflectionChoiceDirection='本次结语有三个候选（reflectionCandidates），按数组顺序编号1、2、3；plan.reflection 只是尚未选定时的占位，不表示推荐。先对照完整原文和分镜逐句判断成立与否，再在合格句中比较所保留的意味、准确程度、表达功能与语言取舍，选出最值得留下的一句。不要默认选第一句，不按长短、故事名词数量、修辞华丽或固定寓意排名；也不因覆盖更多情节、人物或支线，就优先选择更宽泛的一句。先比较判断是否明确、关系与分寸是否有原文依据、读完能带走什么，再结合入口规则选择表达角度。完整理解全篇不等于成句概括全篇；有据的不同读法可以成立，择优不等于只认可一种寓意。返回 reflectionChoice:{index,reason}，index 必须为现有候选编号，reason 简述所选句的原文依据及相对其余两句的具体优势；不能拼接、改写或另造第四句。有合格候选时，选定其中最优，不因淘汰句有问题或还能想到另一种说法而要求修订。结语的 reflection 问题只针对最终所选句；三个都不合格时也先选最接近要求的一句，并报告其具体问题，交给结语修订阶段处理。分镜仍按完整审核要求检查，择优不能跳过分镜审核。';
 export const reviewSystemPrompt=promptSections(
- ['任务与边界','你是独立的静态连环画审片编辑。完整阅读已核原文，再参照主题/原典模式及核对摘要，连读全篇 caption 并结合 prompt 审核，依次检查主题与摘要的有据呈现、核心含义、分镜轻重、事实与连续性、语言。保护原稿有效表达，理解不等于把潜台词都写进旁白。审核文字分镜的可执行性，不能声称看过未生成图片。'],
- ['主题与摘要审核',storyAdaptationDirection],
+ ['任务与边界','你是独立的静态连环画审片编辑。完整阅读已核原文，连读全篇 caption 并结合 prompt，独立检查核心含义、分镜轻重、事实与连续性、语言；再参考主题/原典模式及核对摘要检查范围、关键阶段与结局遗漏。保护原稿有效表达，理解不等于把潜台词都写进旁白。审核文字分镜的可执行性，不能声称看过未生成图片。'],
+ ['主题与摘要审核',storyReviewDirection],
  ['故事范围与开场',storyScopeDirection+'\n'+storyOpeningDirection],
  ['完整性与重新编排','独立依据原文确定主事件的起因和自然终点，再检查 plan.pages 是否覆盖关键行动及结果；有 outline 时也检查其是否截早，不把错误提纲当正确边界。原文已有结果、分镜却停在铺垫、分离或中途冲突时必须报告，不能用改编说明自称节选、定位名偏窄、改标题或结语补情节来通过；不机械要求全章或所有支线。整段重要阶段或结果缺失、必须重新分配全篇画幅时：category="progression"，requiresReplan=true，page 标出截断或失衡最明显的一幅；problem 指明原文遗漏的关键行动与结果，instruction 说明完整范围和可压缩的次要过程。此标记停止局部修补，不能要求末幅补一句结局。局部开场不足或一句衔接可修时 requiresReplan=false；背景已清楚不强加介绍。每条问题均返回该布尔值。'],
  ['共同叙事标准',narrativeMeaningDirection],
@@ -66,7 +66,7 @@ const repairSystemPrompt=promptSections(['任务','你是静态连环画修订�
 
 type Call=(task:ReasoningTask,instructions:string,payload:unknown,schema:unknown,maxOutputTokens:number,original?:OriginalSource)=>Promise<Generated<unknown>>;
 export function storyboardReviewGenerator(call:Call){
- function payload(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline){return {book:selection.customBook||selection.bookId,chosenStory:selection.storyTitle,editorialContext:storyEditorialContext(selection.theme),...storyBriefPayload(original),exactPageCount:plan.pages.length,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,verifiedOriginal:verifiedOriginalPayload(original),plan,...(outline?{outline}:{})};}
+ function payload(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,reviewing=true){assertStoryBriefReady(original);return {book:selection.customBook||selection.bookId,chosenStory:selection.storyTitle,editorialContext:storyEditorialContext(selection.theme),...(reviewing?storyBriefPayload(original):{}),exactPageCount:plan.pages.length,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,verifiedOriginal:verifiedOriginalPayload(original),plan:reviewing?plan:withoutStorySummary(plan),...(outline?{outline:reviewing?outline:withoutStorySummary(outline)}:{})};}
  return {
   async review(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,reflectionCandidates?:ReflectionCandidates){
    const candidates=reflectionCandidates?reflectionCandidatesSchema.parse(reflectionCandidates):undefined;
@@ -78,7 +78,7 @@ export function storyboardReviewGenerator(call:Call){
    const requestedPages=issues.map(issue=>issue.page);
    if(issues.some(issue=>issue.requiresReplan)||requestedPages.some(page=>page<1)||!requestedPages.length||requestedPages.length>readerStoryboardBatchSize||new Set(requestedPages).size!==requestedPages.length)throw Error('INVALID_REPAIR_SCOPE');
    const schema={type:'object',properties:{pages:{type:'array',minItems:requestedPages.length,maxItems:requestedPages.length,items:{type:'object',properties:{page:{type:'integer',enum:requestedPages},caption:{type:'string',minLength:8,maxLength:90},prompt:{type:'string',minLength:20,maxLength:1800}},required:['page','caption','prompt'],additionalProperties:false}}},required:['pages'],additionalProperties:false};
-   const result=await call('repair',repairSystemPrompt+'\n\n'+storyAdaptationDirection+(original.localSource?'\n\n## 本地原文\n'+localPlanConstraint:''),{...payload(selection,plan,original,outline),issues,requestedPages},schema,Math.max(8192,requestedPages.length*800),original);
+   const result=await call('repair',repairSystemPrompt+'\n\n'+storySourceDirection+(original.localSource?'\n\n## 本地原文\n'+localPlanConstraint:''),{...payload(selection,plan,original,outline,false),issues,requestedPages},schema,Math.max(8192,requestedPages.length*800),original);
    return {...result,value:repairOutputSchema(requestedPages).parse(result.value).pages};
   },
  };

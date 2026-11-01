@@ -36,7 +36,7 @@ test('cold theme discovery retains rejected stories; restart and new themes reus
  const advice=f.control.recommendations[0].verifiedOriginal;assert.equal(advice.text,original.text);assert.notEqual(advice.text,library.stories[1].summary);assert.equal(advice.summary,undefined);
  await f.json(`sessions/${first.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:prepared.intake.generation,action:'confirm',settings:{artStyle:'ink-pencil',productionPrompt:'保留明确行动。',narrativeDetail:'balanced',length:2}});
  await until(async()=>(await f.read(first.id)).state==='completed');assert.equal(f.control.calls.length,2);
- for(const payload of f.control.plans){assert.equal(payload.verifiedOriginal.text,original.text);assert.equal(payload.verifiedOriginal.summary,undefined);assert.ok(payload.verifiedOriginal.chapterContext);assert.equal(payload.storyBrief.summary,library.stories[1].summary);assert.deepEqual(payload.editorialContext,{mode:'theme',theme:'勇气'});}
+ for(const payload of f.control.plans){assert.equal(payload.verifiedOriginal.text,original.text);assert.equal(payload.verifiedOriginal.summary,undefined);assert.ok(payload.verifiedOriginal.chapterContext);assert.equal(payload.storyBrief,undefined);assert.deepEqual(payload.editorialContext,{mode:'theme',theme:'勇气'});}
  const extracted=library.calls.catalog.length;await restart();
  const other=await create(f,'知恩图报');assert.equal(other.intake.batches[0].stories[0].title,'乌龟报恩');assert.equal(library.calls.catalog.length,extracted);
  const matched=library.calls.matches.length;await restart();const again=await create(f,'知恩图报');assert.equal(again.intake.batches[0].stories[0].title,'乌龟报恩');assert.equal(library.calls.matches.length,matched);assert.equal(library.calls.catalog.length,extracted);
@@ -77,7 +77,7 @@ for(const [theme,length] of [['勇气',2],['原典故事',21]])test(`${theme}: a
  await f.json(`sessions/${first.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:saved.intake.generation,action:'confirm',settings:{artStyle:'ink-pencil',productionPrompt:'保留明确行动。',narrativeDetail:'balanced',length}});
  await until(async()=>(await f.read(first.id)).state==='completed');
  const context=theme==='原典故事'?{mode:'source'}:{mode:'theme',theme};
- for(const payload of [...f.control.outlines,...f.control.plans,...f.control.reviews]){assert.deepEqual(payload.storyBrief,{summary:complete,matchReason:reason});assert.deepEqual(payload.editorialContext,context);assert.equal(payload.verifiedOriginal.text,source.text);assert.equal(payload.verifiedOriginal.storyBrief,undefined);}
+ for(const payload of [...f.control.outlines,...f.control.plans,...f.control.reviews]){assert.deepEqual(payload.storyBrief,f.control.reviews.includes(payload)?{summary:complete,matchReason:reason}:undefined);if(payload.outline&&!f.control.reviews.includes(payload))assert.equal(payload.outline.summary,undefined);assert.deepEqual(payload.editorialContext,context);assert.equal(payload.verifiedOriginal.text,source.text);assert.equal(payload.verifiedOriginal.storyBrief,undefined);}
  if(length>20){assert.equal(f.control.outlines.length,1);assert.equal(f.control.batches.length,2);}
  assert.equal(f.control.recommendations.length,1,'Synopsis verification reuses the existing advice call');
 });
@@ -120,7 +120,7 @@ test('direct original selection skips matching but still prepares a complete sou
  assert.equal(original.storyBrief.verified,true);assert.equal(original.storyBrief.summary,complete);assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);
  await f.json(`sessions/${saved.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:ready.intake.generation,action:'confirm',settings:{artStyle:'ink-pencil',productionPrompt:'',narrativeDetail:'balanced',length:2}});
  await until(async()=>(await f.read(saved.id)).state==='completed');
- for(const payload of [...f.control.plans,...f.control.reviews]){assert.deepEqual(payload.editorialContext,{mode:'source'});assert.equal(payload.storyBrief.summary,complete);assert.equal(payload.verifiedOriginal.text,original.text);}
+ for(const payload of [...f.control.plans,...f.control.reviews]){assert.deepEqual(payload.editorialContext,{mode:'source'});assert.deepEqual(payload.storyBrief,f.control.reviews.includes(payload)?{summary:complete,matchReason:original.storyBrief.matchReason}:undefined);assert.equal(payload.verifiedOriginal.text,original.text);}
 });
 
 test('historical direct selections without a synopsis prepare one before any new storyboard',async t=>{

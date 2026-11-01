@@ -17,7 +17,7 @@ import {themeMatchPrompt,themeMatchPayload,themeMatchJson,themeMatchesSchema,the
 import type {ThemeStory} from './reader-theme-match.ts';
 import type {WholeBookInput} from './reader-local-contract.ts';
 import {verifiedOriginalPayload} from './reader-source-types.ts';
-import {storyBriefPayload} from './reader-story-brief.ts';
+import {assertStoryBriefReady} from './reader-story-brief.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import {readerImageAsset,referenceImageKey} from './reader-image-assets.ts';
 import {imageDimensions} from './reader-image-dimensions.ts';
@@ -146,10 +146,11 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
    return {value:frameRecommendationOutputSchema(original).parse(parseText(candidate)),...metadata,reasoningEffort:reasoning.frames};
   },
   async plan(selection:Selection,id:string,original?:OriginalSource){
+   assertStoryBriefReady(original);
    const {book,url}=source(selection);
    const {candidate,metadata}=await generate(models.text,textRequest(
     draftInstructions(!!original?.localSource),
-    {book,chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),...storyBriefPayload(original),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})},storyDraftJson(selection.length),original?'':url,Math.max(8192,(selection.length==='auto'?readerMaxFrames:selection.length)*800),reasoning.plan),readerStoryboardTimeoutMs);
+    {book,chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})},storyDraftJson(selection.length),original?'':url,Math.max(8192,(selection.length==='auto'?readerMaxFrames:selection.length)*800),reasoning.plan),readerStoryboardTimeoutMs);
    if(url&&!original&&!wasRead(candidate,url))throw new GeminiError('SOURCE_UNAVAILABLE');
    const value=storyDraftSchema.parse(parseText(candidate));
    if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new GeminiError('INVALID_PLAN');

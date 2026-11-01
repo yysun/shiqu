@@ -175,3 +175,37 @@ CR review round: 4; reviewer: reused
 TT最终`pnpm test`857/857通过，约43.7秒（`/tmp/shiqu-summary-all-tests-complete.log`）；typecheck与最新lint通过，diff检查通过。ET最终16/16服务级用例通过（`/tmp/shiqu-summary-e2e-final.log`），含已有提纲缺摘要与未核对brief的恢复，保留前20幅、不重做提纲。迁移5项、导入旧库用例、ZIP/React静态渲染与受控provider均有直接回归。浏览器因设置禁用未做视觉验收，真实模型语义准确率未实测。
 
 用户询问《黛玉剪香囊》时实际读取确认：其summary是旧hook迁移的两句引子，尚无verified制作摘要。本轮字段迁移保留旧文字，不声称给历史成品语义补全；未来新编排入口缺摘要时才先准备。
+
+SS follow-up milestone: `c12499b` (`test: verify summary recovery and close development fixtures safely`)；仅新增既有提纲恢复用例与修正测试清理顺序，CR4已复核，最终TT/ET通过。
+
+VR passed: all acceptance criteria complete
+
+独立终验14项全部complete；完整最终VR原文保存在本故事DD。用户最新问题已明确回答：黛玉剪香囊的summary仍为迁移旧引子，未语义补全，字段迁移不冒充完成核对。本轮完成到DD，无最终GC/push，保留里程碑与交付文档待提交；既有continuous-story-discovery文档保持原状。
+
+VR risk: non-low — persistent catalog and API contracts, source-bound synopsis preparation, filesystem migration, paid receipt identities and live-library preservation.
+VR review round: 3; reviewer: reused
+
+## 按原文编排、摘要只作审核参考
+
+当前修正入口`c12499b`，原故事base仍为`e51429b85b30a505e6b58873a4cccc3709170360`。已有未提交交付文档属本故事，continuous-story-discovery文档不纳入。风险non-low：三个provider的内部输入契约与阶段职责协调变化，但不改持久化/schema、缓存键、配置或付费调用顺序。重新独立AR/CR/VR；此前857项及16服务E2E属于上一输入契约。
+
+删除plan/outline/batch/reflection/candidates/repair中的storyBrief及匹配理由，保留现有未核对brief前置校验。批次传入outline时只去掉summary，保留节点、人物与其余元数据；结语传draft时、修订传plan/outline时同样去掉summary，避免嵌套回流。统一小型元数据投影函数不修改原对象。审核保留完整storyBrief、plan与outline，先原文独立核查，再借摘要发现范围/关键阶段/结局遗漏，冲突按原文裁决，不能用摘要改写分镜事实。
+
+共享指令拆分原文编排和摘要审核；准备推荐仍负责生成/核对摘要及原文幅数估算，不套审核指令。第一页只据原文提取必要背景。元数据summary继续保留在输出schema和已保存故事中，只作归档/审核，engine现有核对摘要覆盖逻辑不改；无需新的输出schema或数据迁移。标题结语按原文、实际分镜及既有editorialContext选择有据角度。已有提纲继续使用已付费节点，不自动重新编排。
+
+- [x] 修改共享编排/开场/审核指令，删除“先参照摘要再细化”和摘要指导主题分幅的冲突规则。
+- [x] 在三个短篇provider及共享outline/batch/reflection/repair输入边界去掉独立和嵌套摘要；保持审核可读摘要及未核对brief拒绝规则，不修改保存记录。
+- [x] 更新三provider与服务E2E回归：编排请求不含唯一摘要/理由标记，批次/结语/修订无嵌套summary；审核有完整摘要，原文和保存元数据保持，短篇/长篇及主题/原典均覆盖。
+- [x] 更新README、开发/使用指南和流程说明，明确当前阶段分工；历史里程碑保留。
+- [ ] 运行typecheck、lint、完整TT与现有增量故事库服务E2E，记录实际证据；不额外付费重跑模型或打包。
+
+本轮无UI改动，无需重开禁用的浏览器；原《黛玉剪香囊》和暂停的实跑对照版保持原数据。
+
+AR passed: no blocking architecture flaws
+
+独立AR7核查阶段隔离、不可变去summary投影及三provider前置拒绝防线；准备/保存/缓存/schema/付费顺序与已有故事保持，无迁移或额外付费重跑。输出summary只作归档，审核先原文再摘要查漏；原文优先。
+
+AR risk: non-low — coordinated provider input contracts, production/review responsibilities and paid-call validation boundaries.
+AR review round: 7; reviewer: reused
+
+SS：原文编排/摘要审核职责及输入投影已落实；三provider短长篇、原典/主题、审核保留、前置拒绝和不可变保存共69项定向（含16服务E2E）通过，日志`/tmp/shiqu-source-focused.log`。typecheck和lint通过；首轮发现准备提示词残留单元素section，已修正并重新验证。尚待完整TT和独立CR/VR。

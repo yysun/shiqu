@@ -15,7 +15,7 @@ for(const provider of ['codex','gemini'])for(const theme of ['放下执念','原
   if(kind==='reflection'){
    const doc=await document(f,id);savedDraft=structuredClone(doc.draft);
    assert.equal(doc.plan,null);assert.equal(doc.draft.pages.length,8);assert.equal(f.control.calls.length,0);
-   assert.deepEqual(payload.editorialContext,context);assert.deepEqual(payload.draft,savedDraft);
+   assert.deepEqual(payload.editorialContext,context);const {summary:_,...sourceMetadata}=savedDraft;void _;assert.deepEqual(payload.draft,sourceMetadata);
    assert.ok(schema.required.includes('title'));assert.ok(schema.required.includes('candidates'));
    return {title:proposed,candidates};
   }

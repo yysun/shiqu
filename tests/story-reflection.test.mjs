@@ -22,7 +22,7 @@ for(const provider of ['codex','gemini'])for(const length of [8,25])test(`${prov
    const doc=await document(f,id),session=await f.read(id);
    assert.equal(doc.plan,null);assert.equal(doc.draft.pages.length,length);
    assert.equal(doc.draft.reflection,undefined);assert.equal(doc.storyboard?.outline.reflection,undefined);
-   assert.deepEqual(payload.draft,doc.draft);assert.equal(payload.verifiedOriginal.text,doc.original.text);
+   const {summary:_,...sourceMetadata}=doc.draft;void _;assert.deepEqual(payload.draft,sourceMetadata);assert.equal(payload.verifiedOriginal.text,doc.original.text);
    assert.deepEqual(Object.keys(schema.properties),['title','candidates']);
    assert.equal(session.generationProgress.phase,'reflection');assert.equal(session.story,null);
    assert.match(generationProgress(session,0).steps[2].detail,/分镜已保存.*结语/);
