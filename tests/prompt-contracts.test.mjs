@@ -121,6 +121,7 @@ test('all providers send the same stage-specific instructions, data and strict o
  assert.equal(get('draft').schema.properties.reflection,undefined);
  assert.equal(get('draft').schema.properties.pages.items.properties.caption.maxLength,90);
  assert.match(get('draft').instructions,/目标8至55字/);assert.match(get('draft').instructions,/90字硬上限/);
+ assert.match(get('frames').instructions,/独立结束页不计入幅数/);
  assert.match(get('review').instructions,/requiresReplan=true/);assert.match(get('review').instructions,/普通|局部/);
  assert.ok(get('review').schema.properties.issues.items.required.includes('requiresReplan'));
  assert.equal(get('review').schema.properties.reflectionChoice,undefined);

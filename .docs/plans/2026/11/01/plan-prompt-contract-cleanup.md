@@ -21,7 +21,7 @@ Risk: non-low — 跨阶段、跨提供方的生产行为重构，会影响选�
 - [x] 整理共享规则和主生成/提纲/批次/结语/审核/修订提示词；保留不同阶段真正需要的约束。
 - [x] 整理其它活跃选题、幅数、画风、图像及旧管理端提示词；确认遗留缓存/预设文本独立冻结，并更新提供方拼装调用。
 - [x] 增加实际请求级别的回归检查，覆盖阶段隔离、输入边界、schema 一致、提供方一致、兼容指纹、用户自写要求保留；只调整因等价重述失效的文字断言。
-- [ ] 运行受影响和全量本地测试、`pnpm typecheck`、`pnpm lint`；不构建应用包。
+- [x] 运行受影响和全量本地测试、`pnpm typecheck`、`pnpm lint`；不构建应用包。
 - [ ] 完成相同输入/模型/档位的前后文字对比和人工判读，覆盖短篇、复杂故事、对白寓言、开放结尾/节选边界；记录旧稿截断拒绝、正常稿不过度误报、幅数不被机械压小的证据与局限。
 
 ## 验证与交付
@@ -34,7 +34,7 @@ AR risk: non-low — 跨阶段及三个提供方的提示词契约重构，影�
 AR review round: 1; reviewer: new
 
 复核要求：冻结 legacyLocalReadingPrompt 的全部传递文本；旧管理端显式保留结语规范；自写要求逐字保留；真实对比证据与本地测试分开。
-Implementation milestones: none.
+Implementation milestones: `f8fe1aa`（阶段契约重构；147项定向测试、3项新增契约测试、typecheck/lint通过，最终TT/ET尚待完成）。
 
 ## 风险
 
@@ -60,3 +60,17 @@ Codex runner 的工具权限/协议、URL读取与原文保存、朗读 caption�
 首个 SS 探针：现有 Codex 订阅 gpt-6.1-sol / frames=medium，连环计幅数推荐13秒成功；后续 before/after 同输入文字证据在 outputs/prompt-contract-cleanup-2026-11-01。测试和探针均无书库写入及真实绘图。
 
 定向验证：147项现有受影响测试通过；新增3项真实提供方请求拼装/兼容指纹/管理端契约测试通过。测试覆盖16种请求、3个提供方；测试桩不代表模型质量。
+
+
+TT第一轮817项：811通过，6项失败均为旧措辞字面断言（main/episodes、auto、片段边界、例外上下文），已改为保留相同语义的新断言；42项相关复跑全部通过。没有放宽运行时验证。
+
+ET发现幅数推荐理由曾提到给“独立结束页”留画幅；已明确 count 只计算故事画幅，结束页不计入，沿用现有运行时计数契约。最终真实复跑须覆盖幅数推荐；本地章节规则精简后，复跑复杂提纲和旧截断审核以确保请求对应最终文本。
+
+
+最终 TT：pnpm test 全量817/817通过（full-test-final.log）；pnpm typecheck 和 pnpm lint 通过（*-final.log）。未构建 Docker 或桌面应用。
+
+CR passed: no major findings
+CR risk: non-low — 提示词行为及跨提供方契约兼容。
+CR review round: 2; reviewer: reused
+
+第一轮审查覆盖全部实现；第二轮复核旧措辞断言与独立结束页计数澄清。真实模型验收仍待最终请求复跑和人工判读。

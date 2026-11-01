@@ -81,7 +81,7 @@ for(const provider of ['gemini','codex']){
    assert.equal(current.selection.length,'auto');assert.equal(current.story.pages.length,length);
    const outline=f.control.outlines.at(-1);assert.equal(outline.payload.exactPageCount,'auto');assert.equal(outline.schema.properties.beats.minItems,1);assert.equal(outline.schema.properties.beats.maxItems,80);
    assert.equal(job.payload.exactPageCount,length);assert.ok(job.schema.properties.pages.maxItems<=20);
-   assert.match(job.instructions,/自动（auto）时/);assert.doesNotMatch(job.instructions,/30至60幅/);
+   assert.match(job.instructions,/为 auto 时/);assert.match(job.instructions,/1 至 80 幅/);assert.doesNotMatch(job.instructions,/30至60幅/);
    if(provider==='gemini')assert.ok(job.budget<=16000);
    f.restart();
    assert.equal(await f.generate(id,length-1,'auto'),'');

@@ -25,7 +25,7 @@ for(const name of ['codex','gemini'])test(`${name}: chapter thirty offers Guandu
  const scoped=selectedChapterScope(library,book,[scope]).book,blocks=hydrateReadingPlan(scoped,buildReadingPlan(scoped,name));
  const result=job=>{
   const payload=JSON.parse(job.prompt),input=payload.localBook;jobs.push({instructions:job.instructions,...payload});
-  assert.match(job.instructions,/先总故事，后小故事/);assert.match(job.instructions,/不能只缩短原文范围/);
+  assert.match(job.instructions,/chapterStoryLevel=main 时只返回一个/);assert.match(job.instructions,/chapterStoryLevel=episodes 时/);assert.match(job.instructions,/不能只缩短范围再推荐同一故事/);
   assert.ok(blocks.some(block=>block.text===input.text));
   assert.doesNotMatch(input.text,/\[sanguo-029-|\[sanguo-031-/);
   if(input.scan.chapterStoryLevel==='main'&&!input.text.includes(`[${main.source.lastUnit}]`)){

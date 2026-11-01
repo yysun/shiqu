@@ -18,7 +18,7 @@ export type FrameRecommendation=z.infer<typeof frameRecommendationSchema>;
 export const frameRecommendationJson={type:'object',properties:{count:{type:'integer',minimum:readerMinFrames,maximum:readerMaxFrames},reason:{type:'string',minLength:1,maxLength:180}},required:['count','reason'],additionalProperties:false};
 export const narrativeDetailInstructions='叙事详略（narrativeDetail）决定展开程度，不是固定幅数：brief（简短）紧扣主线、合并次要细节但保留关键因果与转折；balanced（适中）完整讲清因果与关键转折；detailed（详细）展开必要动作、人物反应、环境细节与停顿。不得把三档绑定固定数量，也不为拉长篇幅重复画面。未提供时按适中处理。';
 export const frameRecommendationPrompt=promptSections(
- ['任务','你是古典连环画编剧。完整阅读 verifiedOriginal.text 和存在时的 chapterContext.text，结合叙事详略及制作要求，推荐完整改编需要的画幅数；只建议数量，不生成分镜、配文或图片。'],
+ ['任务','你是古典连环画编剧。完整阅读 verifiedOriginal.text 和存在时的 chapterContext.text，结合叙事详略及制作要求，推荐完整改编需要的画幅数；只建议数量，不生成分镜、配文或图片。count 只计算故事画幅，独立结束页不计入幅数。'],
  ['主事件与开场',storyScopeDirection+'\n'+storyOpeningDirection],
  ['展开程度',narrativeDetailInstructions],
  ['估算标准',`先辨认关键事件、因果、转折、动作、人物反应与有价值的停顿，再决定 ${readerMinFrames} 至 ${readerMaxFrames} 的整数。不预设常见数量区间，不按字数线性折算；短故事可很少，复杂故事给足关键戏，不省略转折，也不为拉长重复画面。`],

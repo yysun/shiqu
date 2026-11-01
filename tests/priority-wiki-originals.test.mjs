@@ -8,7 +8,7 @@ const receipt=(b,s,u)=>({edition:b.edition,sectionId:s.id,firstUnit:u.id,lastUni
 test('legacy numeric chapter labels still locate the pinned original, and every reading path carries the same exception policy',async()=>{
  const b=await library.book(selection('红楼梦'));
  for(const [number,labels]of [[100,['第一零零回','第一○○回','第一百回']],[101,['第一零一回','第一○一回','第一百零一回']],[110,['第一一零回','第一一○回','第一百一十回']],[120,['第一二零回','第一二○回','第一百二十回']]])for(const label of labels){const original=await library.legacy(selection('红楼梦'),{sourceReference:`《红楼梦·${label}》`});assert.equal(original.localSource.sectionId,`honglou-${number}`);assert.equal(original.text,b.sections[number-1].units.map(u=>u.text).join('\n\n'));}
- for(const purpose of [undefined,'scan']){const prompt=localReadingPrompt({title:'红楼梦',edition:b.edition,text:'原文',purpose});assert.match(prompt,/红楼第58回/);assert.match(prompt,/喻世第37卷/);assert.match(prompt,/缺少完整上下文也不选/);}
+ for(const purpose of [undefined,'scan']){const prompt=localReadingPrompt({title:'红楼梦',edition:b.edition,text:'原文',purpose});assert.match(prompt,/红楼第58回/);assert.match(prompt,/喻世第37卷/);assert.match(prompt,/缺少完整上下文时仍不选/);}
 });
 
 test('all 120/40 chapters preserve every reading glyph, source heading and final verse from pinned originals',async()=>{
