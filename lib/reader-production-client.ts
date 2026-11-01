@@ -4,6 +4,7 @@
 // An open picker also owns discovery demand and requests the next single story after each receipt.
 import type {SessionView} from './reader-model.ts';
 import {maxSuggestionBatches} from './reader-suggestions.ts';
+import {randomId} from './reader-random-id.ts';
 // Mode/control changes and passive reads must never turn a saved failure into a paid retry.
 export function observeOnlyGeneration(session:SessionView){
  return session.state==='failed'||session.state==='completed'||session.generationMode==='background'||!!session.generationControl&&session.generationControl!=='active';
@@ -35,7 +36,7 @@ export async function observeStoryGeneration({sessionId,request,isActive,onSessi
     if(focus&&watchChoices&&isActive()&&intake&&!intake.selected&&intake.phase==='choosing'&&intake.search.state==='idle'&&intake.batches.length<maxSuggestionBatches&&intake.batches.at(-1)?.stories.length&&session.generationControl==='active'&&session.state!=='failed'){
      // A lost response must stop here, rather than retrying a paid request under a new identity.
      try{
-      const next=await request(path+'/setup','POST',{action:'more',automatic:true,requestId:crypto.randomUUID(),generation:intake.generation});
+      const next=await request(path+'/setup','POST',{action:'more',automatic:true,requestId:randomId(),generation:intake.generation});
       if(!isActive())break;
       onSession(next);
      }catch(error){return error instanceof Error?error.message:'连续查找暂时中断，请重试继续。';}

@@ -3,6 +3,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {observeOnlyGeneration,observeStoryGeneration,runQueuedStoryGeneration} from '../lib/reader-production-client.ts';
 const base={id:'story',state:'idle',ready:7,stage:'drawing 8',selection:{length:8},retryAllowed:true,error:null,story:{pages:[]}};
+test('LAN HTTP without crypto.randomUUID still automatically requests the next story with a valid UUID',async()=>{
+ const descriptor=Object.getOwnPropertyDescriptor(crypto,'randomUUID');Object.defineProperty(crypto,'randomUUID',{value:undefined,configurable:true});
+ try{
+  let active=true,requestId;
+  const session={...base,generationMode:'background',generationControl:'active',intake:{phase:'choosing',generation:0,search:{state:'idle'},batches:[{stories:[{title:'第一篇'}]}]}};
+  assert.equal(await observeStoryGeneration({sessionId:'story',focus:{viewerId:'viewer',page:()=>0},watchChoices:true,isActive:()=>active,onSession:()=>{},sleep:async()=>{active=false;},request:async(path,_method,data)=>{if(path.endsWith('/setup'))requestId=data.requestId;return session;}}),'');
+  assert.match(requestId,/^[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/);
+ }finally{if(descriptor)Object.defineProperty(crypto,'randomUUID',descriptor);else delete crypto.randomUUID;}
+});
 test('automatic discovery stops on an uncertain POST response and releases its viewer without repeating it',async()=>{
  const calls=[],session={...base,generationMode:'background',generationControl:'active',intake:{phase:'choosing',generation:0,search:{state:'idle'},batches:[{stories:[{title:'第一篇'}]}]}};
  const result=await observeStoryGeneration({sessionId:'story',focus:{viewerId:'viewer',page:()=>0},watchChoices:true,isActive:()=>true,onSession:()=>{},sleep:async()=>{},request:async(path,method,data)=>{

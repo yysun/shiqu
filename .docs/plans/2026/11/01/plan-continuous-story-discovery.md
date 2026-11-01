@@ -25,3 +25,12 @@ AR review round: 1; reviewer: new
 主要风险：轮次重试重复付费、自动请求和选择竞争、一个查看者离开误停另一个、空结果自旋。通过服务端轮次保护、自动请求前置条件、真实查看者计数、空结果终止与受控集成测试覆盖。
 
 SS evidence：8 个相关测试文件共 114 项通过；`pnpm typecheck`、`pnpm lint` 通过。逐篇发布复用每秒快照轮询，通常 0–1 秒可见延迟，不是 SSE；前端收到本轮结果后请求下一轮。所有推理验证使用受控 provider，无真实付费调用。
+
+SS milestone: `3e982e2` (`feat: discover stories continuously while the picker is open`)，上述局部验证通过，完整 TT 和浏览器 E2E 尚未完成。
+
+CR 第一轮发现 LAN HTTP 缺少 `crypto.randomUUID` 会中断续找。修复：将已有 getRandomValues 兼容实现移到 lib/reader-random-id.ts 并保留 shared.tsx 重导出；新增缺少 randomUUID 的自动续找回归。局部 27 项测试通过。
+
+CR fixed: automatic continuation now uses the existing LAN-safe UUID implementation; rerun result passed.
+
+CR risk: non-low — discovery lifecycle and browser compatibility.
+CR review round: 2; reviewer: reused
