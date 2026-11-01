@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {LocalBooks} from '../server/local-books.ts';
 import {bookContents,indexBookContents} from '../server/local-book-contents.ts';
+import {matchingBookContents} from '../lib/reader-contents.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
 import {productionFixture,until,selection} from './fixtures/production.mjs';
 const books=new LocalBooks(process.cwd());
@@ -46,4 +47,10 @@ test('forged, stale, cross-book and non-catalog ranges fail before a task is sav
   const result=await f.request('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,bookId,source:ref}});assert.equal(result.status,400);
  }
  assert.equal((await f.json('sessions')).length,0);assert.equal(f.control.recommendations.length,0);
+});
+
+test('contents search matches traditional text and full-width chapter punctuation',()=>{
+ const entries=[{id:'a',title:'卷一（文淵閣本）',chapter:'卷一',excerpt:'種梨的故事。'}];
+ for(const query of ['种梨','卷一（','卷一(','文渊阁','  種梨  ',''])assert.equal(matchingBookContents(entries,query).length,1,query);
+ assert.equal(matchingBookContents(entries,'不存在').length,0);
 });
