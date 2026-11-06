@@ -240,6 +240,7 @@ test('PHONE-NAV-11: resizing across the switch keeps every back press to exactly
   await enter(page,url);await tab(page,'书架');await openFromShelf(page);await openSettings(page);
   await dialog(page,'故事设置').getByRole('button',{name:'修改故事名',exact:true}).click();await dialog(page,'修改故事名').waitFor();await settle(page);
   await size(page,900);await size(page,390,844);await dialog(page,'故事设置').waitFor();await page.waitForTimeout(300);
+  assert.equal(await dialog(page,'修改故事名').locator('.yu-sheet-return').textContent(),'返回「故事设置」','the label follows the re-raise');
   await back(page);assert.deepEqual(await openDialogs(page),['故事设置'],'rename closes first; 故事设置 stays');
   // 嵌套的设置子面板：选题阶段的故事原文跨档后仍先关闭
   await seedStory(f,{confirm:false});await enter(page,url);await tab(page,'书架');

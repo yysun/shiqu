@@ -36,7 +36,8 @@ test('STORY-LIFECYCLE-C002: all edit paths preserve one family, history and elig
    if(edit.script)await dialog(page,'分镜剧本').getByRole('button',{name:'修改分镜',exact:true}).click();
    editor=dialog(page,'修改故事');await edit.change(editor);const images=f.control.calls.length,previous=await f.read(current),before=f.control.plans.length;
    await editor.getByRole('button',{name:'完成编辑',exact:true}).click();assert.equal(f.control.calls.length,images);assert.equal(f.control.plans.length,before);
-   if(edit.script)await dialog(page,'分镜剧本').getByRole('button',{name:'关闭',exact:true}).click();
+   // 修改分镜会关闭分镜剧本（手机面板不超过两层）
+   if(edit.script)assert.equal(await dialog(page,'分镜剧本').count(),0);
    const next=await revisionResponse(page,()=>settings.getByRole('link',{name:'开始制作',exact:true}).click());await b.completed(next.id);current=next.id;const saved=await f.read(current);edit.check(saved);
    assert.equal(saved.revision.rootId,initial.id);await oneCard(f,current);assert.deepEqual((await f.read(previous.id)).story.pages,previous.story.pages);
    if(edit.reuse)assert.equal(f.control.calls.length,images,edit.name+' must preserve eligible image pixels');

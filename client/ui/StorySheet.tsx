@@ -32,7 +32,9 @@ export default function Sheet({title,onClose,children,busy=false}:{title:string;
   sheetLocks.add(dialog);dialog.showModal();historySteps.raised(dialog);contentRef.current?.focus({preventScroll:true});
   for(const nested of dialog.querySelectorAll<HTMLDialogElement>('dialog[open]')){nested.close();nested.showModal();historySteps.raised(nested);nested.querySelector<HTMLElement>('.yu-sheet')?.focus({preventScroll:true});}
   const unregister=historySteps.register({rank:3,close:()=>latest.current.onClose(),busy:()=>latest.current.busy,dirty,element:()=>dialog});
-  setUnder((dialog.parentElement?.closest('dialog')??historySteps.dialogBelow(dialog))?.getAttribute('aria-label')??null);
+  // 跨档切换后共享对话框被重新置顶，下层可能换成新挂载的面板，因此每次置顶都重新计算
+  const relabel=()=>setUnder((dialog.parentElement?.closest('dialog')??historySteps.dialogBelow(dialog))?.getAttribute('aria-label')??null);
+  relabel();dialog.addEventListener('shiqu-raised',relabel);
   // 不是本组件发起的关闭（重新置顶时 close 后立即 showModal，事件到达时对话框已重新打开）
   const forced=()=>{
    if(dialog.open)return;
@@ -42,7 +44,7 @@ export default function Sheet({title,onClose,children,busy=false}:{title:string;
   };
   dialog.addEventListener('close',forced);
   return()=>{
-   dialog.removeEventListener('close',forced);unregister();
+   dialog.removeEventListener('close',forced);dialog.removeEventListener('shiqu-raised',relabel);unregister();
    dialog.close();sheetLocks.delete(dialog);
    if(!sheetLocks.size){restoreSheetScroll?.();restoreSheetScroll=null;}
    if(prior?.isConnected)prior.focus({preventScroll:true});

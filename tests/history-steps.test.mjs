@@ -163,6 +163,14 @@ test('closing several steps in one go releases all their entries',()=>{
  assert.equal(b.index,1);b.back();assert.equal(b.left,true);
 });
 
+test('a release carries the app URL onto the entry it lands on, keeping that entry\'s hash',()=>{
+ const b=browser({url:'/read?id=a'});b.boot();b.step(0);b.commit();
+ b.click();const workspace=b.step(1);b.commit();b.click();const create=b.step(1);b.commit();
+ // 一次退出多层：home() 把当前条目改为 /，随后释放两个条目，落到阅读的基础条目
+ create.closeInApp();workspace.closeInApp();b.env.history.replaceState(b.env.history.state,'','/');b.commit();
+ assert.equal(b.index,1);assert.equal(b.entries[1].url,'/');
+});
+
 test('StrictMode re-registration in one commit changes no history',()=>{
  const b=browser();b.boot();
  b.click();const first=b.step(3);first.unregister();const again=b.step(3);b.commit();
@@ -188,7 +196,7 @@ test('the provider hash entry is reserved for the dialog that opens later, and b
 
 test('a directly loaded provider dialog is a base step',()=>{
  const b=browser({url:'/#provider-settings'});b.boot();
- b.step(3);b.commit();assert.equal(b.reg.atBase(),true);
+ b.step(3);b.commit();assert.equal(b.reg.snapshot().steps[0].base,true);assert.equal(b.reg.hashEntry(),false,'the close strips the hash in place');
 });
 
 test('reload makes the current entry the base; stale back skips every old entry in one press',()=>{
@@ -197,7 +205,7 @@ test('reload makes the current entry the base; stale back skips every old entry 
  b.click();b.step(0);b.commit();b.click();b.step(3);b.commit();
  // 重新加载：同一条目、同一组历史，新的文档
  const r=browser({entries:b.entries.map(e=>({...e})),storage,navigationType:'reload',nav:{}});
- const boot=r.boot();assert.ok(boot.rendered);assert.equal(r.reg.atBase(),true);
+ const boot=r.boot();assert.ok(boot.rendered);assert.equal(r.reg.snapshot().depth,r.reg.snapshot().baseDepth);
  r.step(0);r.commit();
  r.back();assert.equal(r.left,true,'one press left the app');
  assert.equal(r.index,0);

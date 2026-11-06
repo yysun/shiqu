@@ -1,7 +1,6 @@
 // Choose original scope before theme; restore saved source receipts when returning from extraction.
 // 传入 retainKey 时表单输入跨布局切换保留；Reader 在关闭新建或提交成功时清除。
 // 书、主题、自定义主题或原文范围与打开时不同时，隐藏的标记带 data-dirty（返回关闭前询问）。
-import {useState} from 'react';
 import {useRetainedState} from './useRetainedState';
 import {ArrowRight} from 'lucide-react';
 import type {Selection} from '@/lib/reader-model';
@@ -21,8 +20,8 @@ export default function StoryDiscoveryForm({selection,books,busy,error,onBookCha
  const [rangeOpen,setRangeOpen]=useRetainedState(part('range'),false);
  const [customTheme,setCustomTheme]=useRetainedState(part('theme'),custom?selection.theme:'');
  const local=draft.bookId!=='other';
- // 打开时的选择；挂载时取一次，跨布局重新挂载时由同一份选择重新得到
- const [opened]=useState(()=>JSON.stringify([{...selection,theme:custom?'其他':selection.theme},custom?selection.theme:'',selection.discoverySources||[],!!selection.discoverySources?.length]));
+ // 打开时的选择；与草稿一起保留，跨布局重新挂载后仍按打开时比较
+ const [opened]=useRetainedState(part('opened'),()=>JSON.stringify([{...selection,theme:custom?'其他':selection.theme},custom?selection.theme:'',selection.discoverySources||[],!!selection.discoverySources?.length]));
  const dirty=JSON.stringify([draft,customTheme,sources,limited])!==opened;
  function changeBook(bookId:string){
   setDraft(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}));

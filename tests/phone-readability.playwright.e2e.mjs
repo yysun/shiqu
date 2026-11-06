@@ -145,7 +145,8 @@ test('PHONE-READABILITY: every phone state has readable text, 44px targets, cont
   await step('review-issues-reader',async()=>{
    await b.reader(first.id);const settings=await b.settings();await settings.getByRole('link',{name:'查看分镜',exact:true}).click();
    await dialog(page,'分镜剧本').getByRole('button',{name:'修改分镜',exact:true}).click();const editor=dialog(page,'修改故事');await editor.getByLabel(/^旁白/).fill('庄周醒来，仍记得蝴蝶在花间飞过。');await editor.getByRole('button',{name:'完成编辑',exact:true}).click();
-   await dialog(page,'分镜剧本').getByRole('button',{name:'关闭',exact:true}).click();
+   // 修改分镜会关闭分镜剧本（手机面板不超过两层）
+   assert.equal(await dialog(page,'分镜剧本').count(),0);
    const [response]=await Promise.all([page.waitForResponse(r=>/\/api\/reader\/sessions\/[^/]+\/revisions$/.test(new URL(r.url()).pathname)&&r.request().method()==='POST'),settings.getByRole('link',{name:'开始制作',exact:true}).click()]);
    const revised=await response.json();await until(async()=>(await f.read(revised.id)).state==='failed',20000);
    await b.reader(revised.id);await page.locator('.yu-reader-review-notice').waitFor();await audit('review-issues-reader');

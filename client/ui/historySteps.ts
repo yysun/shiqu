@@ -4,7 +4,8 @@
 // - 基础步骤（首次用户输入之前打开、且其下全是基础步骤）不占条目，返回从不关闭它们。
 // - 其余步骤自下而上各占一个基础之上的条目；多出来的是“搭乘者”，返回关闭它后用 go(1) 恢复下层的条目。
 // - 打开时先采用待释放的条目；否则自上次 push 以来有过用户输入才 push（与 Chrome 的可跳过条目规则一致）。
-// - 应用内关闭后，在本次提交的被动效果全部执行完的微任务里结算，用 history.go(-n) 释放多余条目。
+// - 应用内关闭后，在本次提交的被动效果全部执行完的微任务里结算，用 history.go(-n) 释放多余条目；
+//   落点条目沿用释放前的路径与查询，使地址与应用状态一致。
 //   这依赖步骤在 useEffect（被动效果）里登记；改用 useLayoutEffect 会把一次提交拆成两次结算。
 // - 排序：先按层级（阅读 0、新建页或工作区 1、抽屉 2、面板或对话框 3），对话框再按置顶顺序（raised）。
 // - 过期条目（来自另一次加载）：页面加载时在渲染之前处理；同一文档内的过期返回跳出应用，过期前进弹回。
@@ -37,7 +38,7 @@ export const isStamp=(value:unknown):value is Stamp=>!!value&&typeof value==='ob
 export function createHistorySteps(env:HistoryEnv){
  let load=env.randomId(),depth=0,baseDepth=0,seq=0,raiseSeq=0;
  let inputSeq=0,pushedSeq=0,hadInput=false,inputUrl:string|null=null;
- let settleQueued=false,fallback:unknown=null;
+ let settleQueued=false,fallback:unknown=null,restoreDue=0,hashDepth=-1;
  let expected:{depth:number;then?:()=>void}|null=null;
  let onStart:(()=>void)|null=null;
  const steps:Step[]=[],raised=new WeakMap<Element,number>(),reservations:object[]=[];
@@ -53,8 +54,11 @@ export function createHistorySteps(env:HistoryEnv){
   settleQueued=false;
   // 自身的跳转落地后再结算
   if(expected)return;
+  // 返回关闭的是搭乘者时，下层步骤的条目已被消耗：提交完成后（连带关闭的步骤都已注销）再恢复
+  if(restoreDue){const extra=Math.min(owned().length-(depth-baseDepth),restoreDue);restoreDue=0;if(extra>0){go(extra);return;}}
   const excess=depth-baseDepth-owned().length-reservations.length;
-  if(excess>0)go(-excess);
+  // 释放后落到的条目沿用应用此刻的路径与查询（例如一次退出多层后应为 /），保留落点自己的哈希
+  if(excess>0){const path=env.location.href.split('#')[0];go(-excess,()=>{const target=path+env.location.hash;if(target!==env.location.href)env.history.replaceState(env.history.state,'',target);});}
   save();
  }
  function push(){
@@ -86,9 +90,7 @@ export function createHistorySteps(env:HistoryEnv){
   closeStep(top);
   // 多级后退（长按返回菜单）：每个条目关闭一步，遇到忙碌或有输入的步骤为止
   for(let i=1;i<delta;i++){const next=owned().at(-1);if(!next||next.busy?.()||next.dirty?.())break;closeStep(next);}
-  // 关闭的是搭乘者时，下层步骤的条目已被消耗，恢复它
-  const extra=Math.min(owned().length-(depth-baseDepth),delta);
-  if(extra>0)go(extra);else save();
+  restoreDue=delta;save();
  }
  // 应用第一条目之前是否有条目。Navigation API 只列同源条目：之前有同源条目即可离开；
  // 历史里另有跨源条目时无法判断它们在前还是在后，尝试离开并用计时回退；全部都是应用的条目则不能离开。
@@ -118,7 +120,7 @@ export function createHistorySteps(env:HistoryEnv){
   if(state.depth>from){depth=state.depth;go(-(state.depth-from));return;}
   depth=state.depth;
   if(blocked(open().at(-1))){go(from-state.depth);return;}
-  leave(state.depth,400,()=>restartLive(state.depth));
+  leave(state.depth,1000,()=>restartLive(state.depth));
  }
  function popstate(event:{state:unknown}){
   const state=event.state;
@@ -136,7 +138,7 @@ export function createHistorySteps(env:HistoryEnv){
  }
  function hashchange(){
   if(env.location.hash!=='#provider-settings'||isStamp(env.history.state))return;
-  depth++;env.history.replaceState(stamp(depth),'',env.location.href);
+  depth++;hashDepth=depth;env.history.replaceState(stamp(depth),'',env.location.href);
   // 预留给即将打开的设置对话框（可能晚几次提交才挂载）
   const token={};reservations.push(token);
   env.setTimeout(()=>{const i=reservations.indexOf(token);if(i>=0){reservations.splice(i,1);schedule();}},2000);
@@ -180,16 +182,17 @@ export function createHistorySteps(env:HistoryEnv){
    onStart=()=>{try{env.storage?.setItem(RESTART_KEY,'');}catch{}render();};
    expected={depth:0,then:()=>{restampStart();onStart?.();onStart=null;}};depth=0;env.history.go(-state.depth);
   };
-  depth=state.depth;leave(state.depth,1000,restart);
+  depth=state.depth;leave(state.depth,2000,restart);
   return false;
  }
  return {
   boot,register,popstate,hashchange,input,pageshow,
-  // 对话框每次 showModal（含重新置顶）后调用，记录置顶顺序
-  raised(el:Element){raised.set(el,++raiseSeq);},
+  // 对话框每次 showModal（含重新置顶）后调用，记录置顶顺序；派发 shiqu-raised 让面板更新返回标签
+  raised(el:Element){raised.set(el,++raiseSeq);el.dispatchEvent?.(new Event('shiqu-raised'));},
   // 在当前顺序里位于 el 下方、最近的对话框步骤
   dialogBelow(el:Element){const list=open().filter(s=>s.rank===3);const i=list.findIndex(s=>s.element?.()===el);const below=i<0?list.at(-1):list[i-1];return below?.element?.()??null;},
-  atBase:()=>depth===baseDepth,
+  // 当前条目是否由应用内的 #provider-settings 哈希导航产生（关闭时由释放去掉哈希，而不是就地改写）
+  hashEntry:()=>depth===hashDepth&&depth>baseDepth,
   onStartView(fn:(()=>void)|null){onStart=fn;},
   snapshot:()=>({load,depth,baseDepth,steps:open().map(s=>({rank:s.rank,base:s.base}))}),
  };
