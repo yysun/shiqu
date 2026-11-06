@@ -1,5 +1,6 @@
 // 手机可读性与触控区 E2E：在受控生产夹具中走遍手机界面的各个状态，逐状态测量字号、触控区、对比度与布局。
-// 每个状态在 360/390/430 做完整测量，在 320/540/768/1280 只测布局；所有状态测完后统一断言，失败清单写入证据目录。
+// 每个状态在 360/390/430 做完整测量，在 320/540/600/767 只测布局（全部是手机界面，不跨越 768×560 的结构切换；
+// 桌面布局由 desktop-responsive-layout E2E 覆盖）；所有状态测完后统一断言，失败清单写入证据目录。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -10,7 +11,7 @@ import {until} from './fixtures/production.mjs';
 import {checkoutFixture,startDevelopment,saveGoogle} from './fixtures/development.mjs';
 import {chromium} from 'playwright';
 
-const fullWidths=[360,390,430],layoutWidths=[320,540,768,1280],height=844;
+const fullWidths=[360,390,430],layoutWidths=[320,540,600,767],height=844;
 // 基线时已存在的省略号截断，由 M0 记录：生产行标题与错误摘要、书架标签与封面书名徽标。
 const truncationAllowlist=['yu-production-title>em','yu-production-error','yu-shelf-tags','yu-shelf-book-badge'];
 const dialog=(page,name)=>page.getByRole('dialog',{name,exact:true});
@@ -18,6 +19,8 @@ const phone={viewport:{width:390,height},hasTouch:true,isMobile:true};
 async function auditWidths(page,name,report,directory){
  for(const width of [...fullWidths,...layoutWidths]){
   await page.setViewportSize({width,height});await page.waitForTimeout(150);
+  // 等待有限次数的动画（面板淡入等）结束，避免在半透明时测量对比度
+  await page.waitForFunction(()=>document.getAnimations().every(a=>a.playState!=='running'||a.effect?.getComputedTiming().iterations===Infinity),null,{timeout:3000}).catch(()=>{});
   const result=await auditPhone(page,{checks:fullWidths.includes(width)?['text','targets','contrast','layout']:['layout']});
   report[name+'@'+width]={failures:failures(result,{truncationAllowlist}),contrast:result.contrast,truncated:result.layout.truncated};
   if(width===390)await page.screenshot({path:path.join(directory,name+'.png'),fullPage:true});

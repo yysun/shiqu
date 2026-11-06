@@ -1,4 +1,5 @@
 // Share native dialog focus and scroll locks across reading, creation and nested editing.
+// 父面板晚于子面板打开时（例如跨档切换在同一次提交里重新挂载嵌套面板），把已打开的子面板重新置顶，保证子面板在上。
 import {useEffect,useRef} from 'react';
 import {X} from 'lucide-react';
 
@@ -17,6 +18,7 @@ export default function Sheet({title,onClose,children,busy=false}:{title:string;
    restoreSheetScroll=()=>{Object.assign(body.style,bodyStyle);root.style.overflow=rootOverflow;window.scrollTo({top:location.href===priorUrl?scrollY:0,behavior:'instant'});};
   }
   sheetLocks.add(dialog);dialog.showModal();contentRef.current?.focus({preventScroll:true});
+  for(const nested of dialog.querySelectorAll<HTMLDialogElement>('dialog[open]')){nested.close();nested.showModal();nested.querySelector<HTMLElement>('.yu-sheet')?.focus({preventScroll:true});}
   return()=>{
    dialog.close();sheetLocks.delete(dialog);
    if(!sheetLocks.size){restoreSheetScroll?.();restoreSheetScroll=null;}

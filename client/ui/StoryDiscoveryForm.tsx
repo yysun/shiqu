@@ -1,5 +1,6 @@
 // Choose original scope before theme; restore saved source receipts when returning from extraction.
-import {useState} from 'react';
+// 传入 retainKey 时表单输入跨布局切换保留；Reader 在关闭新建或提交成功时清除。
+import {useRetainedState} from './useRetainedState';
 import {ArrowRight} from 'lucide-react';
 import type {Selection} from '@/lib/reader-model';
 import type {LocalSourceReference} from '@/lib/reader-local-contract';
@@ -10,12 +11,13 @@ import StoryChapterPicker from './StoryChapterPicker';
 import './story-discovery.css';
 
 export const discoveryThemes=['给我一个反转','人情冷暖','放下执念','聪明与糊涂','善意与误解','命运与选择','欲望与代价','勇气与成长','爱情与错过','幽默与讽刺','因果与报应','其他'];
-export default function StoryDiscoveryForm({selection,books,busy,error,onBookChange,onSubmit}:{selection:Selection;books:{id:string;title:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>}){
+export default function StoryDiscoveryForm({selection,books,busy,error,onBookChange,onSubmit,retainKey}:{selection:Selection;books:{id:string;title:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;retainKey?:string}){
+ const part=(name:string)=>retainKey&&retainKey+':'+name;
  const custom=selection.theme!=='原典故事'&&!discoveryThemes.includes(selection.theme);
- const [draft,setDraft]=useState({...selection,theme:custom?'其他':selection.theme});
- const [sources,setSources]=useState<LocalSourceReference[]>(selection.discoverySources||[]),[limited,setLimited]=useState(!!selection.discoverySources?.length);
- const [rangeOpen,setRangeOpen]=useState(false);
- const [customTheme,setCustomTheme]=useState(custom?selection.theme:'');
+ const [draft,setDraft]=useRetainedState(part('draft'),()=>({...selection,theme:custom?'其他':selection.theme}));
+ const [sources,setSources]=useRetainedState<LocalSourceReference[]>(part('sources'),selection.discoverySources||[]),[limited,setLimited]=useRetainedState(part('limited'),!!selection.discoverySources?.length);
+ const [rangeOpen,setRangeOpen]=useRetainedState(part('range'),false);
+ const [customTheme,setCustomTheme]=useRetainedState(part('theme'),custom?selection.theme:'');
  const local=draft.bookId!=='other';
  function changeBook(bookId:string){
   setDraft(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}));

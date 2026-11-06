@@ -1,0 +1,69 @@
+/* 桌面外壳（≥768×560）：顶部横向导航、流式主区、居中对话框，以及发现页与“我的”的桌面排布。
+   所有选择器都在 .yu-desktop 之下（:root:has(.yu-desktop) 与包裹作用域规则的 at-rule 除外）。
+   流式尺寸在 768px 从手机尺寸起步，跨断点时字号变化不超过 2px；1024px 处 CSS 重排，不重新挂载。 */
+/* desktop.css 先于 reader.css 加载，外层用 .yu-desktop.yu-world 压过手机的 .yu-world 留白与灰底 */
+.yu-desktop.yu-world{--d-gutter:clamp(24px,3.2vw,56px);--d-bar:64px;padding:0;min-height:100dvh;background:var(--yu-paper)}
+:root:has(.yu-desktop){scroll-padding-top:80px}
+.yu-desktop .yu-app{max-width:none;min-height:100dvh;margin:0;border-radius:0;box-shadow:none;padding-bottom:0;overflow:visible;background:var(--yu-paper)}
+
+/* 顶栏 */
+.yu-desktop .yu-topbar{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:clamp(16px,2.4vw,40px);height:var(--d-bar);padding:0 var(--d-gutter);background:#f7f6efeb;backdrop-filter:blur(10px);border-bottom:1px solid #e3e6da}
+.yu-desktop .yu-topbar-logo{display:flex;align-items:center;gap:10px;min-height:44px;padding:0;border:0;background:none;color:#244438}
+.yu-desktop .yu-topbar-logo>span{display:grid;place-items:center;width:34px;height:34px;border:1px solid #b4bea9;border-radius:10px 3px 10px 3px}
+.yu-desktop .yu-topbar-logo strong{font-family:var(--serif);font-weight:600;font-size:22px;letter-spacing:4px}
+.yu-desktop .yu-topbar nav{display:flex;align-items:center;gap:4px;flex:1;min-width:0}
+.yu-desktop .yu-topbar nav button,.yu-desktop .yu-topbar-create{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:0;border-radius:10px;background:none;color:var(--yu-meta);font-size:15px;white-space:nowrap}
+.yu-desktop .yu-topbar nav button[aria-current=page]{background:#e6ebdc;color:#244438;font-weight:600}
+.yu-desktop .yu-topbar-create{background:#35583e;color:#fffdf4;font-weight:500}
+.yu-desktop .yu-topbar-create[aria-current=page]{background:#294b33;box-shadow:inset 0 0 0 2px #c6ae80}
+.yu-desktop .yu-topbar button:focus-visible{outline:3px solid #c6ae80;outline-offset:2px}
+@media (hover:hover){
+ .yu-desktop .yu-topbar nav button:hover{background:#eef1e6;color:#244438}
+ .yu-desktop .yu-topbar-create:hover{background:#294b33}
+}
+
+/* 主区：流式宽度，最宽 1440px 并居中 */
+.yu-desktop .yu-desktop-main{width:100%;max-width:1440px;margin:0 auto;padding:clamp(20px,2.4vw,40px) var(--d-gutter) 56px}
+.yu-desktop .yu-desktop-main :is(p,li){max-width:45em}
+
+/* 发现：引导与浏览两组，1024px 起并排 */
+.yu-desktop .yu-discover{display:grid;gap:clamp(24px,3vw,48px)}
+.yu-desktop .yu-intro{padding-top:0}
+.yu-desktop .yu-intro h1{font-size:clamp(28px,calc(1.6vw + 15.7px),38px)}
+.yu-desktop .yu-discover .yu-section:first-child{margin-top:0}
+.yu-desktop .yu-books{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:clamp(14px,1.6vw,24px);overflow:visible;scroll-snap-type:none;padding-bottom:0}
+.yu-desktop .yu-books>button{min-width:0}
+.yu-desktop .yu-recent-hero .yu-feature{height:clamp(240px,28vw,340px)}
+@media (min-width:1024px){
+ .yu-desktop .yu-discover{grid-template-columns:minmax(0,5fr) minmax(0,7fr);align-items:start}
+ .yu-desktop .yu-discover-lead{position:sticky;top:calc(var(--d-bar) + 24px)}
+}
+
+/* 我的：1024px 起两栏，统计跨两栏；以下单栏限宽 */
+.yu-desktop .yu-profile{display:grid;gap:clamp(16px,2vw,28px);max-width:960px;margin:0 auto;padding-top:0}
+.yu-desktop .yu-profile>*{min-width:0}
+@media (max-width:1023px){.yu-desktop .yu-profile{max-width:720px}}
+@media (min-width:1024px){
+ .yu-desktop .yu-profile{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
+ .yu-desktop .yu-profile>section:first-child,.yu-desktop .yu-profile>:last-child{grid-column:1/-1}
+}
+
+/* 对话框：居中显示，提供方设置加宽 */
+.yu-desktop .yu-backdrop{align-items:center;padding:24px}
+.yu-desktop .yu-sheet{width:min(600px,100%);max-height:calc(100dvh - 48px);border-radius:20px;border-bottom:1px solid #fff9;padding-bottom:28px}
+.yu-desktop .yu-sheet .yu-handle{display:none}
+.yu-desktop .yu-sheet:has(.yu-provider-settings){width:min(820px,100%);padding-bottom:0}
+
+/* 提示与撤销条锚定在主区底部，不压住顶栏 */
+.yu-desktop .yu-toast{bottom:28px}
+.yu-desktop .yu-undo-notice{bottom:28px}
+
+/* 阅读：全窗口沉浸，不显示外壳顶栏 */
+.yu-desktop.yu-world.yu-reading-world{display:block;height:100dvh;padding:0;background:#172d22}
+.yu-desktop .yu-immersive{height:100dvh;max-height:none;max-width:none;border-radius:0;box-shadow:none;background:#172d22}
+
+/* 平板等粗指针设备：表单文字保持 16px，可点区域至少 44px */
+@media (any-pointer:coarse){
+ .yu-desktop :is(input,select,textarea){font-size:16px}
+ .yu-desktop .yu-topbar nav button,.yu-desktop .yu-topbar-create,.yu-desktop .yu-topbar-logo{min-height:44px}
+}

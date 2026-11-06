@@ -11,7 +11,8 @@ Setup:
 
 **Audit widths:**
 - **Full audit** (`text`, `targets`, `contrast` and `layout`): 360, 390 and 430.
-- **Layout only:** 320 and 540, plus 768 and 1280 (the floating 480px card).
+- **Layout only:** 320, 540, 600 and 767. These are all phone-tree widths. Since the responsive redesign, 768×560 and up is the desktop shell, which `tests/desktop-responsive-layout.playwright.e2e.mjs` covers. Staying below the switch also avoids the agreed exception that 作品还未署名 closes when the layout changes.
+- Before each measurement the audit waits for finite animations to finish (for example a sheet fading in), so contrast is never measured mid-fade.
 
 **Expected in every state, at every audit width:**
 - `text` is empty.

@@ -1,0 +1,18 @@
+/* 宽屏手机（541–767px，或高度不足 560px 的任意宽度）：手机界面铺满窗口，只补充铺满所需的规则。
+   手机规则来自放宽后的 (max-width:767px),(max-height:559px) 条件；本文件最后加载，同等特异性时覆盖它们。
+   所有规则都在这一媒体条件内，320–540px 不受影响。 */
+@media (min-width:541px) and (max-width:767px),(min-width:541px) and (max-height:559px){
+ /* 首页、书架、我的的内容列居中，最宽 600px */
+ .yu-header,.yu-home{max-width:600px;margin-inline:auto}
+ /* 面板本身仍铺满，内容列居中限宽 */
+ .yu-sheet>*{max-width:600px;margin-inline:auto}
+ /* 发现页的书不再横向滚动，宽度允许时每行放更多 */
+ .yu-books{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));overflow:visible;scroll-snap-type:none}
+ .yu-books>button{min-width:0}
+ /* 推荐卡片随内容列限宽 */
+ .yu-recent-hero{max-width:600px;margin-inline:auto}
+}
+@media (min-width:541px) and (max-height:559px){
+ /* 横屏手机：配文限宽并居中于画面 */
+ .yu-scene-caption{max-inline-size:30em;margin-inline:auto}
+}

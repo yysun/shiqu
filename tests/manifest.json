@@ -674,6 +674,23 @@
       ]
     },
     {
+      "file": "tests/desktop-css-scope.test.mjs",
+      "groups": [
+        "reader"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "code",
+      "gates": [],
+      "covers": []
+    },
+    {
       "file": "tests/desktop-internet.test.mjs",
       "groups": [
         "desktop"
@@ -713,6 +730,25 @@
       "covers": [
         "scripts/desktop-node.mjs"
       ]
+    },
+    {
+      "file": "tests/desktop-responsive-layout.playwright.e2e.mjs",
+      "groups": [
+        "reader"
+      ],
+      "level": "browser-e2e",
+      "cost": "heavy",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "e2e",
+      "pr": "affected",
+      "gates": [
+        "user-flows"
+      ],
+      "covers": []
     },
     {
       "file": "tests/desktop-runtime.test.mjs",
@@ -788,6 +824,25 @@
         "server/provider-runtime.ts",
         "server/provider-settings-access.ts",
         "server/system-settings.ts"
+      ]
+    },
+    {
+      "file": "tests/desktop-view.test.mjs",
+      "groups": [
+        "reader"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "code",
+      "gates": [],
+      "covers": [
+        "lib/desktop-view.ts"
       ]
     },
     {
@@ -2429,6 +2484,23 @@
         "release",
         "npm"
       ],
+      "covers": []
+    },
+    {
+      "file": "tests/retained-state-ui.test.mjs",
+      "groups": [
+        "reader"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "code",
+      "gates": [],
       "covers": []
     },
     {

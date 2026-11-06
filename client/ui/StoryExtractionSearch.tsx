@@ -1,11 +1,18 @@
 // Edit the extraction target with one contextual hint above its action; typing never starts a search.
-import {useEffect,useState} from 'react';
+// 传入 retainKey 时输入跨布局切换保留；只有会话或目标标题真正变化时才重置输入。
+import {useEffect} from 'react';
+import {useRetainedState,hasRetained,retainedValue,retain} from './useRetainedState';
 import './story-discovery.css';
 
-export default function StoryExtractionSearch({sessionId,title,local,busy,hasCandidates,onSearch}:{sessionId:string;title?:string;local:boolean;busy:boolean;hasCandidates:boolean;onSearch:(title:string)=>Promise<boolean>}){
- const [draft,setDraft]=useState(title||'');
- const [mode,setMode]=useState<'auto'|'input'>(title?'input':'auto');
- useEffect(()=>{setDraft(title||'');setMode(title?'input':'auto');},[sessionId,title]);
+export default function StoryExtractionSearch({sessionId,title,local,busy,hasCandidates,onSearch,retainKey}:{sessionId:string;title?:string;local:boolean;busy:boolean;hasCandidates:boolean;onSearch:(title:string)=>Promise<boolean>;retainKey?:string}){
+ const part=(name:string)=>retainKey&&retainKey+':'+name;
+ const [draft,setDraft]=useRetainedState(part('draft'),title||'');
+ const [mode,setMode]=useRetainedState<'auto'|'input'>(part('mode'),title?'input':'auto');
+ useEffect(()=>{
+  const source=sessionId+'\n'+(title||'');
+  if(hasRetained(part('for'))&&retainedValue(part('for')!)===source)return;
+  retain(part('for'),source);setDraft(title||'');setMode(title?'input':'auto');
+ },[sessionId,title]);
  const target=draft.trim();
  const invalid=busy||mode==='input'&&(!local||!target);
  return <form className="yu-extraction-query" aria-label="故事提取条件" onSubmit={event=>{event.preventDefault();if(!invalid)void onSearch(mode==='input'?target:'');}}>

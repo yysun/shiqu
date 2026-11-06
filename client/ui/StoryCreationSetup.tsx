@@ -2,9 +2,11 @@
 // Edits are saved as a draft on the side; only a recommendation or final confirmation starts work.
 // Discovery continues one story at a time while open, and stops when a story is chosen or the picker closes.
 // Extraction, preparation and human confirmation remain separate, with timings bound to real work.
+// 传入 retainKey 时，未保存的设置与打开的子面板跨布局切换保留；恢复后只要服务器保存值未变，就不提示“另一台设备更新了制作内容”。
 import StoryFlowAction from './StoryFlowAction';
 import {readingChapterLabel} from '@/lib/reader-suggestions';
 import {useEffect,useRef,useState} from 'react';
+import {useRetainedState,hasRetained,retainedValue,retain} from './useRetainedState';
 import type {ComponentProps} from 'react';
 import {ArrowLeft,Loader2} from 'lucide-react';
 import type {SessionView} from '@/lib/reader-model';
@@ -27,19 +29,23 @@ type Props={session:SessionView;book:string;busy:boolean;onAction:(command:Intak
 // Stable titles prevent the initial discovery snapshot from flashing a production screen.
 export function storyCreationTitle(session:SessionView){return session.intake?(session.intake.selected?'故事流程':'选择故事'):session.story?.title||session.selection.storyTitle||'你的故事，正在展开';}
 const savedSettings=(session:SessionView)=>session.intake!.draft||{artStyle:session.selection.artStyle,productionPrompt:session.selection.productionPrompt,...(session.selection.acceptancePrompt!==undefined?{acceptancePrompt:session.selection.acceptancePrompt}:{}),narrativeDetail:session.selection.narrativeDetail||'balanced' as const,length:'auto' as const};
-export default function StoryCreationSetup({session,book,busy,onAction,onBackToDiscovery,progress,onReplace}:Props&{onReplace?:(batch:number,index:number,settings:ProductionSettings)=>Promise<void>}){
+export default function StoryCreationSetup({session,book,busy,onAction,onBackToDiscovery,progress,onReplace,retainKey}:Props&{onReplace?:(batch:number,index:number,settings:ProductionSettings)=>Promise<void>;retainKey?:string}){
  const intake=session.intake!,saved={...savedSettings(session),length:'auto' as const},savedKey=JSON.stringify(saved);
  const targetTitle=session.selection.discovery?.mode==='title'?session.selection.discovery.title:undefined;
  const [error,setError]=useState('');
  const [finding,setFinding]=useState(false);
- const [editing,setEditing]=useState<SetupTab|null>(null),[choosing,setChoosing]=useState(false),[sourceOpen,setSourceOpen]=useState(false);
- const [settings,setSettings]=useState({...saved,length:'auto' as const}),[remote,setRemote]=useState(false);
- const baseline=useRef(savedKey),own=useRef(false),shown=useRef(session.id);
+ const part=(name:string)=>retainKey&&retainKey+':'+name;
+ const [editing,setEditing]=useRetainedState<SetupTab|null>(part('editing'),null),[choosing,setChoosing]=useRetainedState(part('choosing'),false),[sourceOpen,setSourceOpen]=useRetainedState(part('source'),false);
+ const [settings,setSettings]=useRetainedState(part('settings'),()=>({...saved,length:'auto' as const})),[remote,setRemote]=useRetainedState(part('remote'),false);
+ const baseline=useRef(hasRetained(part('baseline'))?retainedValue<string>(part('baseline')!):savedKey),own=useRef(false),shown=useRef(session.id);
+ // 布局切换后恢复的挂载：服务器保存值仍等于恢复的基线时保持原样（StrictMode 重复执行也不误报）。
+ const restoredBaseline=useRef(hasRetained(part('baseline'))?baseline.current:null);
  useEffect(()=>{
   const mine=own.current,same=shown.current===session.id;own.current=false;shown.current=session.id;
+  if(restoredBaseline.current!==null){if(savedKey===restoredBaseline.current)return;restoredBaseline.current=null;}
   // Another device changed what is saved. Unsaved edits stay until the reader decides between them.
   if(same&&!mine&&JSON.stringify(settings)!==baseline.current){setRemote(true);return;}
-  baseline.current=savedKey;setSettings({...saved,length:'auto'});setRemote(false);
+  baseline.current=savedKey;retain(part('baseline'),savedKey);setSettings({...saved,length:'auto'});setRemote(false);
   if(!same||mine){setSourceOpen(false);setEditing(null);setError('');}
  },[session.id,intake.generation,savedKey]);
  const search=intake.search,paused=!!session.generationControl&&session.generationControl!=='active';
@@ -96,7 +102,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  return <section className="yu-creation-setup" aria-label={selected?'故事流程':'选择故事'}>
   {!selected&&onBackToDiscovery&&<StoryFlowAction disabled={busy} onClick={onBackToDiscovery}><ArrowLeft size={14} aria-hidden="true"/>返回修改书籍、原文和主题</StoryFlowAction>}
   {!selected&&<StoryExtractionContext selection={session.selection} book={book}/>}
-  {!selected&&<StoryExtractionSearch sessionId={session.id} title={targetTitle} local={session.selection.bookId!=='other'} busy={busy} hasCandidates={candidates.length>0} onSearch={title=>act({action:'search',title})}/>}
+  {!selected&&<StoryExtractionSearch retainKey={retainKey&&'search:'+session.id} sessionId={session.id} title={targetTitle} local={session.selection.bookId!=='other'} busy={busy} hasCandidates={candidates.length>0} onSearch={title=>act({action:'search',title})}/>}
   {selected&&progress.showSummary!==false&&<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3></div>}
   {!selected&&extractionStatus}
   {!selected&&extractionError}
