@@ -60,6 +60,7 @@ import DesktopShell from './DesktopShell';
 import DesktopLibrary from './DesktopLibrary';
 import ShelfStoryDetail from './ShelfStoryDetail';
 import StoryWorkspace from './StoryWorkspace';
+import DesktopCreate from './DesktopCreate';
 import StoryGenerationControl from './StoryGenerationControl';
 import {shelfGenerationStatus} from '@/lib/shelf-generation';
 import {useDesktopLayout} from './useDesktopLayout';
@@ -120,6 +121,8 @@ export default function Reader(){
  const [selectedStoryId,setSelectedStoryId]=useState<string|null>(null);
  // 工作区里所选的分镜（1 起，0 为结语）；编辑分镜时改由修订编辑器的“选择分镜”决定
  const [workspaceFrame,setWorkspaceFrame]=useState(1);
+ // 新建表单的 key：选书或心情时递增，让桌面新建页的内联表单按新选择重新初始化
+ const [createSeed,setCreateSeed]=useState(0);
  const [selection,setSelection]=useState<Selection>(initialReaderSelection),[largeText,setLargeText]=useState(false),[motion,setMotion]=useState('forward'),[creating,setCreating]=useState(false);
  const [deletedIds,setDeletedIds]=useState<string[]>([]),[deleteTarget,setDeleteTarget]=useState<{id:string;title:string}|null>(null),[deleting,setDeleting]=useState(false),[deleteError,setDeleteError]=useState('');
  const [favoriteBusy,setFavoriteBusy]=useState('');
@@ -209,7 +212,7 @@ export default function Reader(){
  function backToShelf(){setSettings(false);setSource(false);setScript(false);revision.setTab(null);home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}
  function turn(delta:number){if(!story)return;if(!ended&&page===0&&delta<0)return;if(ended){if(delta<0){setDrag(0);setPage(story.pages.length-1);setEnded(false);setMotion('back');}else if(delta>0)home();return;}if(delta>0&&!story.pages[page]?.image){notify('这一幅还在绘制，稍等一下。');return;}setMotion(delta>0?'forward':'back');if(page+delta>=story.pages.length){setEnded(true);if(seen.current.size===story.pages.length)track('complete');}else setPage(p=>Math.max(0,p+delta));}
  function goToPage(index:number){if(!story)return;setDrag(0);setMotion(index>page?'forward':'back');setEnded(false);setPage(Math.max(0,Math.min(index,story.pages.length-1)));}
- function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){clearRetained('discovery');setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,source:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
+ function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){clearRetained('discovery');setCreateSeed(seed=>seed+1);setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,source:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
  // 关闭新建并丢弃表单草稿；新建面板关闭、顶栏离开与两条提交成功路径共用。
  function closeCreate(){setConfigure(false);setDiscoveryTarget(null);clearRetained('discovery');}
  // 离开工作区：清除各分区标志（修订草稿保留），再执行今天的关闭面板。
@@ -457,11 +460,16 @@ export default function Reader(){
  const discoverLead=<><section className="yu-intro"><div><p className="yu-kicker">把片刻，留给一个好故事</p><h1>今天，想遇见<br/>什么<span>故事</span>？</h1></div><span className="yu-stamp">古意<br/>新生</span></section>
  <RecentStories key={heroes.map(h=>h.story.id).join('|')} items={heroes} loading={libraryLoading} bookName={bookName} onOpen={open}/>
  <button className="yu-new-story-link" onClick={()=>choose()}><Sparkles size={16}/><span>生成我的故事</span><ArrowRight size={16}/></button></>;
- const discoverBrowse=<><section className="yu-section"><div className="yu-section-title"><h2>从一本书开始</h2><span>熟悉的经典，新的相遇</span></div><div className="yu-books">{choices.map((b,i)=><button key={b.id} onClick={()=>choose(b.id)} aria-label={'选择'+b.title}><span className={'yu-book-cover book-'+(i%3)}><span className="yu-book-border"/><small>{b.era} · {b.author}</small><strong className={b.title.length>5?'yu-book-title-long':undefined}>{b.title}</strong><i>{b.genre}</i><span className="yu-book-ornament">{i===0?<Moon size={44} strokeWidth={.7}/>:i===1?<Leaf size={52} strokeWidth={.7}/>:<Feather size={48} strokeWidth={.7}/>}</span></span><strong>{b.title}</strong><small>{b.note}</small></button>)}</div></section>
- <section className="yu-section yu-theme-section"><div className="yu-section-title"><h2>或者，跟着心情走</h2><Sparkles size={17}/></div><div className="yu-moods">{moods.map((m,i)=><button key={m} className={selection.theme===m?'selected':''} onClick={()=>{choose(selection.bookId,m);}}>{i===0&&<Sparkles size={13}/>} {m}</button>)}</div></section>
- <button className="yu-surprise" onClick={()=>{const b=choices[Math.floor(Math.random()*(choices.length-1))];choose(b.id,moods[Math.floor(Math.random()*(moods.length-1))]);}}><span><Feather size={24}/></span><div><strong>不挑了，给我一个故事</strong><small>让偶然替你翻开第一页</small></div><ArrowRight size={19}/></button>
- <div className="yu-generation-note"><Sparkles size={13}/><p>故事、画面与文字，由 AI 为这一次阅读生成。</p></div>
- {loading?<p className="yu-inline-status" role="status">正在打开书页…</p>:loadError?<div className="yu-inline-status" role="alert">{loadError}<button onClick={()=>location.reload()}>重新加载</button></div>:null}</>;
+ const discoverBooks=<section className="yu-section"><div className="yu-section-title"><h2>从一本书开始</h2><span>熟悉的经典，新的相遇</span></div><div className="yu-books">{choices.map((b,i)=><button key={b.id} onClick={()=>choose(b.id)} aria-label={'选择'+b.title}><span className={'yu-book-cover book-'+(i%3)}><span className="yu-book-border"/><small>{b.era} · {b.author}</small><strong className={b.title.length>5?'yu-book-title-long':undefined}>{b.title}</strong><i>{b.genre}</i><span className="yu-book-ornament">{i===0?<Moon size={44} strokeWidth={.7}/>:i===1?<Leaf size={52} strokeWidth={.7}/>:<Feather size={48} strokeWidth={.7}/>}</span></span><strong>{b.title}</strong><small>{b.note}</small></button>)}</div></section>;
+ const discoverMoods=<section className="yu-section yu-theme-section"><div className="yu-section-title"><h2>或者，跟着心情走</h2><Sparkles size={17}/></div><div className="yu-moods">{moods.map((m,i)=><button key={m} className={selection.theme===m?'selected':''} onClick={()=>{choose(selection.bookId,m);}}>{i===0&&<Sparkles size={13}/>} {m}</button>)}</div></section>;
+ const discoverSurprise=<button className="yu-surprise" onClick={()=>{const b=choices[Math.floor(Math.random()*(choices.length-1))];choose(b.id,moods[Math.floor(Math.random()*(moods.length-1))]);}}><span><Feather size={24}/></span><div><strong>不挑了，给我一个故事</strong><small>让偶然替你翻开第一页</small></div><ArrowRight size={19}/></button>;
+ const discoverNote=<div className="yu-generation-note"><Sparkles size={13}/><p>故事、画面与文字，由 AI 为这一次阅读生成。</p></div>;
+ const discoverStatus=loading?<p className="yu-inline-status" role="status">正在打开书页…</p>:loadError?<div className="yu-inline-status" role="alert">{loadError}<button onClick={()=>location.reload()}>重新加载</button></div>:null;
+ const discoverBrowse=<>{discoverBooks}
+ {discoverMoods}
+ {discoverSurprise}
+ {discoverNote}
+ {discoverStatus}</>;
  const shelfView=<ReaderShelf onControl={gen.control} controlBusy={gen.controlBusy} stories={shelf} pending={pendingStories} sessions={gen.sessions} progress={activeProgress} refreshing={shelfRefreshing||gen.libraryRefreshing} onRefresh={()=>{void refreshShelf();}} loading={loading||gen.libraryLoading} error={loadError||gen.libraryError} tab={shelfTab} onTab={changeShelfTab} query={shelfQuery} onQuery={changeShelfQuery} grouping={shelfGrouping} onGrouping={changeShelfGrouping} bookName={bookName} onOpen={open} onResume={session=>openWorkflow(session.id)} onRetry={session=>{setWorkflowTarget(session.id);setWorkflowError('');setStory(null);gen.retrySession(session.id).catch(e=>setWorkflowError(e.message));}} onDelete={askDelete} onFavorite={favoriteFromShelf} favoriteBusy={favoriteBusy} onCreate={()=>choose()} onDiscover={()=>setTab('discover')}/>;
  const profileView=<section className="yu-profile" aria-label="我的">
   <section className="yu-profile-group" aria-labelledby="profile-overview"><h2 id="profile-overview">故事概览</h2>
@@ -560,10 +568,14 @@ export default function Reader(){
   title={workflowSession?.selection.displayTitle||panelStory?.title||workflowSession?.selection.storyTitle||'故事设置'} section={view.section} sections={sections}
   onSection={showWorkspaceSection} onBack={leaveWorkspace} story={workspaceStory} frame={frame} onFrame={next=>editingFrames?revision.setScriptPage(next):setWorkspaceFrame(next)}
   issues={revisionSession?.reviewIssues||[]}>{workspaceContent}</StoryWorkspace></main>;
- // 桌面上仍以面板显示的：新建（M4 之前）与阅读侧栏（M5 之前）
- const desktopSheets=<>{configureSheet}{view.kind==='reader'&&<>{sourceSheet}{sceneSheet}</>}</>;
+ // 桌面新建页：选择在左（或上），内联表单在右（或下），与手机面板共用表单组件与属性。
+ const createPage=view.kind==='create'&&<main className="yu-home yu-desktop-main" data-main=""><DesktopCreate
+  choices={<>{discoverBooks}{discoverMoods}{discoverSurprise}</>}
+  form={<StoryDiscoveryForm key={createSeed} retainKey="discovery" selection={selection} books={choices} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}))} onSubmit={generate}/>}/></main>;
+ // 桌面上仍以面板显示的：阅读侧栏（M5 之前）
+ const desktopSheets=<>{view.kind==='reader'&&<>{sourceSheet}{sceneSheet}</>}</>;
  const desktopTree=<DesktopShell active={activeTopItem(view)} hidden={view.kind==='reader'} onNavigate={navigate}>
-  {view.kind==='workspace'?workspace:view.kind==='reader'?readerMain:<main className="yu-home yu-desktop-main" data-main="">{tabContent}</main>}
+  {view.kind==='workspace'?workspace:view.kind==='create'?createPage:view.kind==='reader'?readerMain:<main className="yu-home yu-desktop-main" data-main="">{tabContent}</main>}
   {desktopSheets}
  </DesktopShell>;
  const reading=desktop?view.kind==='reader':!!story;

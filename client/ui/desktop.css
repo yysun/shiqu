@@ -39,6 +39,17 @@
  .yu-desktop .yu-discover-lead{position:sticky;top:calc(var(--d-bar) + 24px)}
 }
 
+/* 新建页：选择与内联表单；1024px 起并排，表单栏粘性跟随 */
+.yu-desktop .yu-create{display:grid;gap:clamp(24px,3vw,48px)}
+.yu-desktop .yu-create-choices .yu-section:first-child{margin-top:0}
+.yu-desktop .yu-create-form{padding:clamp(20px,2.4vw,32px);border:1px solid #e3e6da;border-radius:20px;background:#fdfbf3;color:#3a563f;min-width:0}
+.yu-desktop .yu-create-form h1{font-family:var(--serif);font-size:clamp(22px,calc(.8vw + 15.9px),28px);font-weight:500;color:#244438;margin-bottom:6px}
+@media (min-width:1024px){
+ .yu-desktop .yu-create{grid-template-columns:minmax(0,6fr) minmax(0,5fr);align-items:start}
+ /* 最大高度扣除顶栏、上方 24px 与主区底部 56px 留白，滚到页底时粘性栏不会被推到顶栏下面 */
+.yu-desktop .yu-create-form{position:sticky;top:calc(var(--d-bar) + 24px);max-height:calc(100dvh - var(--d-bar) - 88px);overflow:auto}
+}
+
 /* 我的：1024px 起两栏，统计跨两栏；以下单栏限宽 */
 .yu-desktop .yu-profile{display:grid;gap:clamp(16px,2vw,28px);max-width:960px;margin:0 auto;padding-top:0}
 .yu-desktop .yu-profile>*{min-width:0}

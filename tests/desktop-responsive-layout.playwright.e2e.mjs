@@ -161,3 +161,46 @@ test('DESKTOP-LAYOUT-04: the story workspace keeps frames, editor, artwork and i
   await page.locator(`[data-story-id="${id}"].is-selected`).waitFor();
  });
 });
+
+test('DESKTOP-LAYOUT-06: create is a page beside the book choices, re-initializes on a new book and continues in the workspace',options,async t=>{
+ const b=await seededBrowser(t,'DRL-06',{viewport:{width:1280,height:800},completed:1});
+ await b.execute(async()=>{
+  const {page,url}=b,top=name=>page.locator('.yu-topbar nav').getByRole('button',{name}).click();
+  const form=page.locator('.yu-create-form'),choices=page.locator('.yu-create-choices');
+  const themes=form.getByRole('group',{name:'故事主题'}),books=form.getByRole('group',{name:'选择书籍'});
+  await page.goto(url);await top('发现');
+  await page.getByRole('button',{name:'选择庄子',exact:true}).click();
+  await form.waitFor();assert.equal(await page.getByRole('dialog').count(),0,'a page, not a sheet');
+  assert.ok(await choices.getByRole('button',{name:'选择列子',exact:true}).isVisible(),'the book list stays visible');
+  assert.equal(await books.getByRole('button',{name:'庄子',exact:true}).getAttribute('aria-pressed'),'true');
+  await themes.getByRole('button',{name:'其他',exact:true}).click();await form.getByLabel('写下想看的主题').fill('善意终有回响');
+  // 表单自己的选书不重新挂载：已输入的主题保留
+  await books.getByRole('button',{name:'列子',exact:true}).click();
+  assert.equal(await form.getByLabel('写下想看的主题').inputValue(),'善意终有回响');
+  // 左侧换一本书：表单按新书重新初始化
+  await choices.getByRole('button',{name:'选择山海经',exact:true}).click();
+  await page.waitForFunction(()=>![...document.querySelectorAll('.yu-create-form input')].some(input=>input.value==='善意终有回响'));
+  assert.equal(await books.getByRole('button',{name:'山海经',exact:true}).getAttribute('aria-pressed'),'true');
+  // 左侧选心情：主题随之更新，表单不关闭
+  await choices.locator('.yu-moods').getByRole('button',{name:/人情冷暖/}).click();
+  assert.equal(await themes.getByRole('button',{name:'人情冷暖',exact:true}).getAttribute('aria-pressed'),'true');
+  await page.screenshot({path:path.join(b.directory,'create-1280.png')});
+  // 新建页上再点“新建故事”不做任何事
+  await page.locator('.yu-topbar-create').click();
+  assert.equal(await themes.getByRole('button',{name:'人情冷暖',exact:true}).getAttribute('aria-pressed'),'true');
+  // 提交：与手机相同的请求，选题在工作区继续
+  await books.getByRole('button',{name:'庄子',exact:true}).click();
+  const created=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/reader/sessions'&&r.request().method()==='POST');
+  await form.getByRole('button',{name:'进入故事提取',exact:true}).click();
+  const request=(await created).request().postDataJSON();assert.equal(request.selection.bookId,'zhuangzi');assert.equal(request.selection.theme,'人情冷暖');
+  await page.locator('.yu-workspace').waitFor();await page.locator('.yu-workspace-center').getByRole('button',{name:/开始提取|按标题提取/}).first().waitFor();
+  // 从工作区点“新建故事”并提交：落到新的选题工作区，而不是停在“正在打开制作流程…”
+  await page.locator('.yu-topbar-create').click();await form.waitFor();
+  const second=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/reader/sessions'&&r.request().method()==='POST');
+  await form.getByRole('button',{name:'进入故事提取',exact:true}).click();const next=await(await second).json();
+  await page.locator('.yu-workspace-center').getByRole('button',{name:/开始提取|按标题提取/}).first().waitFor();
+  assert.equal(await page.getByText('正在打开制作流程…').count(),0);assert.ok(next.id);
+  // 从“不挑了”进入同样打开新建页
+  await top('发现');await page.locator('.yu-surprise').click();await form.waitFor();assert.equal(await page.getByRole('dialog').count(),0);
+ });
+});

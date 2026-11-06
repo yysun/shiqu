@@ -33,7 +33,8 @@
 /* ≥1024px：右侧停靠的粘性详情栏 */
 @media (min-width:1024px){
  .yu-desktop .yu-library{grid-template-columns:minmax(0,1fr) clamp(280px,24vw,360px)}
- .yu-desktop .yu-shelf-detail{position:sticky;top:calc(var(--d-bar) + 24px);max-height:calc(100dvh - var(--d-bar) - 48px);overflow:auto}
+ /* 最大高度扣除顶栏、上方 24px 与主区底部 56px 留白，滚到页底时粘性栏不会被推到顶栏下面 */
+.yu-desktop .yu-shelf-detail{position:sticky;top:calc(var(--d-bar) + 24px);max-height:calc(100dvh - var(--d-bar) - 88px);overflow:auto}
 }
 /* 768–1023px：右侧抽屉，未打开时不可见也不可聚焦 */
 @media (max-width:1023px){
