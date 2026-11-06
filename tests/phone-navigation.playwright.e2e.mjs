@@ -120,3 +120,157 @@ test('PHONE-NAV-07b: when the app is the tab\'s first page, a stale back shows t
   assert.equal(posts(b,before).length,0,'no reading event or resume POST');
  });
 });
+
+// 确认框：记录提示，按当前设定接受（放弃输入）或取消（继续编辑）
+function confirms(page){const seen=[];let reply=false;page.on('dialog',d=>{seen.push(d.message());void(reply?d.accept():d.dismiss());});return {seen,accept(value){reply=value;}};}
+const topNav=(page,name)=>page.locator('.yu-topbar nav').getByRole('button',{name}).click();
+const size=async(page,width,height=800)=>{await page.setViewportSize({width,height});await page.waitForTimeout(450);};
+
+test('PHONE-NAV-04: typed input asks through back, Escape and a forced close',options,async t=>{
+ const b=await seededBrowser(t,'PNAV-04',phone);
+ await b.execute(async()=>{
+  const {page,url}=b,ask=confirms(page);await enter(page,url);await tab(page,'发现');
+  const openCreation=async()=>{await page.getByRole('button',{name:'选择庄子',exact:true}).click();const sheet=dialog(page,'这一篇，想怎样读？');await sheet.waitFor();await settle(page);await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其他',exact:true}).click();await sheet.getByLabel('写下想看的主题').fill('守住底线');return sheet;};
+  let sheet=await openCreation();
+  await back(page);assert.equal(ask.seen.length,1,'back asks');assert.equal(await sheet.getByLabel('写下想看的主题').inputValue(),'守住底线','keep leaves the text');
+  ask.accept(true);await back(page);assert.equal(await sheet.count(),0,'discard closes it');ask.accept(false);
+  // Escape 走 cancel（Chrome Android 的返回也是）
+  sheet=await openCreation();await page.keyboard.press('Escape');await settle(page);
+  assert.equal(ask.seen.length,3,'Escape asks');assert.equal(await sheet.getByLabel('写下想看的主题').inputValue(),'守住底线');
+  // 浏览器强制关闭：重新打开并询问
+  await page.evaluate(()=>document.querySelector('dialog[aria-label="这一篇，想怎样读？"]').close());await settle(page);
+  assert.equal(ask.seen.length,4,'a forced close asks');assert.equal(await page.evaluate(()=>document.querySelector('dialog[aria-label="这一篇，想怎样读？"]').open),true,'and re-opens the sheet');
+  assert.equal(await sheet.getByLabel('写下想看的主题').inputValue(),'守住底线');
+  await sheet.getByRole('button',{name:'关闭',exact:true}).click();await settle(page);assert.equal(ask.seen.length,4,'close buttons keep today\'s behavior');
+  // 改名：有输入时返回询问，保存后返回不再询问
+  await tab(page,'书架');await openFromShelf(page);await openSettings(page);
+  await dialog(page,'故事设置').getByRole('button',{name:'修改故事名',exact:true}).click();const rename=dialog(page,'修改故事名');await rename.waitFor();await settle(page);
+  await rename.getByLabel('故事名',{exact:true}).fill('返回前的新名');
+  await back(page);assert.equal(ask.seen.length,5,'rename asks');assert.equal(await rename.count(),1);
+  await rename.getByRole('button',{name:'保存故事名',exact:true}).click();await rename.waitFor({state:'hidden'});await settle(page);
+  await back(page);assert.equal(ask.seen.length,5,'after saving, back does not ask');assert.deepEqual(await openDialogs(page),[],'back closed 故事设置');
+  assert.ok(ask.seen.every(message=>message==='放弃未保存的输入？'));
+ });
+});
+
+test('PHONE-NAV-05: a busy sheet stays open and consistent across back presses and forced closes',options,async t=>{
+ const b=await seededBrowser(t,'PNAV-05',phone);
+ await b.execute(async()=>{
+  const {page,url}=b;await enter(page,url);await tab(page,'书架');await openFromShelf(page);await openSettings(page);
+  await dialog(page,'故事设置').getByRole('button',{name:'修改故事名',exact:true}).click();const rename=dialog(page,'修改故事名');await rename.waitFor();await settle(page);
+  let release;const held=new Promise(resolve=>release=resolve);
+  await page.route('**/api/reader/sessions/*/title',async route=>{await held;await route.continue();});
+  await rename.getByLabel('故事名',{exact:true}).fill('忙碌中的新名');page.once('dialog',d=>d.dismiss());
+  await rename.getByRole('button',{name:'保存故事名',exact:true}).click();await rename.getByRole('button',{name:'正在保存…'}).waitFor();
+  const locked=()=>page.evaluate(()=>document.body.style.position==='fixed');
+  await back(page);await back(page);
+  assert.deepEqual(await openDialogs(page),['故事设置','修改故事名'],'the busy sheet stays open');assert.ok(await locked(),'scroll lock kept');
+  await page.evaluate(()=>document.querySelector('dialog[aria-label="修改故事名"]').close());await settle(page);
+  assert.deepEqual(await openDialogs(page),['故事设置','修改故事名'],'a forced close while busy re-opens it');
+  release();await rename.waitFor({state:'hidden'});await settle(page);
+  assert.deepEqual(await openDialogs(page),['故事设置']);assert.ok(await locked(),'故事设置 keeps the lock');
+  await back(page);assert.deepEqual(await openDialogs(page),[]);assert.equal(await locked(),false,'the lock is released');
+  assert.ok(await reading(page));await back(page);assert.equal(await reading(page),false);await back(page);assert.ok(left(page),'no dead press');
+ });
+});
+
+test('PHONE-NAV-09: sheet depth stays at two with return labels; swaps add no entries',options,async t=>{
+ const b=await seededBrowser(t,'PNAV-09',phone);
+ await b.execute(async()=>{
+  const {page,url}=b;await enter(page,url);await tab(page,'书架');await openFromShelf(page);await openSettings(page);
+  // 修改分镜：分镜剧本关闭，两层：故事设置 → 修改故事
+  await dialog(page,'故事设置').getByRole('link',{name:'查看分镜',exact:true}).click();await dialog(page,'分镜剧本').waitFor();await settle(page);
+  assert.match(await dialog(page,'分镜剧本').locator('.yu-sheet-return').textContent(),/返回「故事设置」/);
+  await dialog(page,'分镜剧本').getByRole('button',{name:'修改分镜',exact:true}).click();await dialog(page,'修改故事').waitFor();await settle(page);
+  assert.deepEqual(await openDialogs(page),['故事设置','修改故事']);
+  assert.equal(await dialog(page,'修改故事').locator('.yu-sheet-return').textContent(),'返回「故事设置」');
+  await back(page);assert.deepEqual(await openDialogs(page),['故事设置'],'back closes 修改故事');
+  // 替换选题：故事设置不在下面；取消后故事设置回来；只有一个服务端选题会话。今天的流程里选中候选即提交替换，
+  // 提交前没有可打开的设置子面板，因此第二层只能由嵌套面板计数间接保证（见场景 11 的嵌套子面板）。
+  const before=b.commands.length;
+  await dialog(page,'故事设置').getByText('替换选题',{exact:true}).first().click();const picker=dialog(page,'替换选题');await picker.getByRole('button',{name:'取消替换',exact:true}).waitFor();await settle(page);
+  assert.deepEqual(await openDialogs(page),['替换选题'],'替换选题 shows without 故事设置 underneath');
+  await picker.getByRole('button',{name:'取消替换',exact:true}).click();await dialog(page,'故事设置').waitFor();await settle(page);
+  assert.deepEqual(await openDialogs(page),['故事设置'],'取消替换 brings 故事设置 back');
+  const reselections=b.commands.slice(before).filter(c=>/\/reselection$/.test(c.path)&&c.method==='POST');
+  // 开发环境 StrictMode 会重跑打开效果，但沿用同一个 requestId，服务端只建一个选题会话
+  assert.equal(new Set(reselections.map(c=>c.body.requestId)).size,1,'one server-side reselection session');
+  await back(page);assert.deepEqual(await openDialogs(page),[],'back closes 故事设置');assert.ok(await reading(page));
+  await back(page);assert.equal(await reading(page),false,'the next back closes the reader');
+  await back(page);assert.ok(left(page),'and the next leaves the app: no dead press');
+ });
+});
+
+test('PHONE-NAV-10: medium and large tiers close drawers, the workspace and the create page one step at a time',options,async t=>{
+ const b=await seededBrowser(t,'PNAV-10',{viewport:{width:900,height:800},completed:2});
+ await b.execute(async()=>{
+  const {page,url,ids}=b,card=id=>page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`);
+  await enter(page,url);await topNav(page,'书架');
+  // 900：书架详情抽屉
+  await card(ids[0]).click();await page.locator('.yu-shelf-detail.is-open').waitFor();await settle(page);
+  await back(page);assert.equal(await page.locator('.yu-shelf-detail.is-open').count(),0,'back closes the drawer only');
+  assert.ok(await page.locator('.yu-library').isVisible());
+  // 1280：工作区返回书架并保留选中；新建页返回发现
+  await size(page,1280);await card(ids[0]).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'制作流程'}).click();await page.locator('.yu-workspace').waitFor();await settle(page);
+  await back(page);assert.equal(await page.locator('.yu-workspace').count(),0);assert.ok(await page.locator('.yu-library').isVisible(),'back returns to 书架');
+  assert.equal(await page.locator('.yu-shelf-row.is-selected').getAttribute('data-story-id'),ids[0],'selection kept');
+  await topNav(page,'发现');await page.locator('.yu-topbar-create').click();await page.locator('.yu-create-form').waitFor();await settle(page);
+  await back(page);assert.equal(await page.locator('.yu-create-form').count(),0);assert.ok(await page.locator('.yu-discover').isVisible(),'back returns to 发现');
+  // 1280 的停靠分镜列表在 900 变成抽屉：返回先关抽屉，再回到书架
+  await topNav(page,'书架');await card(ids[0]).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:/阅读|继续阅读|重读/}).first().click();await page.locator('.yu-reader').waitFor();await settle(page);
+  await page.getByRole('button',{name:'分镜列表',exact:true}).click();await page.locator('.yu-reader-panel').waitFor();await settle(page);
+  await size(page,900);
+  await back(page);assert.equal(await page.locator('.yu-reader-panel').count(),0,'back closes the drawer');assert.ok(await reading(page),'the reader stays');
+  await back(page);assert.equal(await reading(page),false,'the next back returns to 书架');assert.ok(await page.locator('.yu-library').isVisible());
+ });
+});
+
+test('PHONE-NAV-11: resizing across the switch keeps every back press to exactly one step',options,async t=>{
+ const b=await seededBrowser(t,'PNAV-11',{...phone,completed:1});
+ await b.execute(async()=>{
+  const {page,url,f}=b;await enter(page,url);await tab(page,'书架');await openFromShelf(page);await openSettings(page);
+  await dialog(page,'故事设置').getByText('制作要求',{exact:true}).first().click();await dialog(page,'修改故事').waitFor();await settle(page);
+  await size(page,1280);await page.locator('.yu-workspace').waitFor();await size(page,390,844);
+  await dialog(page,'修改故事').waitFor();
+  await back(page);assert.deepEqual(await openDialogs(page),['故事设置'],'first back closes 修改故事');
+  await back(page);assert.deepEqual(await openDialogs(page),[]);assert.ok(await reading(page));
+  await back(page);assert.equal(await reading(page),false);
+  await back(page);assert.ok(left(page),'no dead press, no skipped step');
+  // 改名叠在故事设置上：390 → 900 → 390 后，返回先关改名
+  await enter(page,url);await tab(page,'书架');await openFromShelf(page);await openSettings(page);
+  await dialog(page,'故事设置').getByRole('button',{name:'修改故事名',exact:true}).click();await dialog(page,'修改故事名').waitFor();await settle(page);
+  await size(page,900);await size(page,390,844);await dialog(page,'故事设置').waitFor();await page.waitForTimeout(300);
+  await back(page);assert.deepEqual(await openDialogs(page),['故事设置'],'rename closes first; 故事设置 stays');
+  // 嵌套的设置子面板：选题阶段的故事原文跨档后仍先关闭
+  await seedStory(f,{confirm:false});await enter(page,url);await tab(page,'书架');
+  await page.locator('.yu-production-row').first().click();const settings=dialog(page,'故事设置');await settings.waitFor();await settle(page);
+  const source=settings.getByRole('link',{name:'原文',exact:true});await until(async()=>await source.count()>0&&await source.first().getAttribute('aria-disabled')===null,20000);await source.first().click();await dialog(page,'故事原文').waitFor();await settle(page);
+  await size(page,1280);await size(page,390,844);await dialog(page,'故事原文').waitFor();await page.waitForTimeout(300);
+  await back(page);assert.deepEqual(await openDialogs(page),['故事设置'],'the sub-sheet closes, not its parent');
+ });
+});
+
+test('PHONE-NAV-08: the hash-opened provider dialog is a step; a direct load keeps today\'s close',{timeout:240000},async t=>{
+ const {checkoutFixture,startDevelopment}=await import('./fixtures/development.mjs');
+ const {chromium}=await import('playwright');
+ const f=await checkoutFixture(t);const server=await startDevelopment(t,f);
+ const browser=await chromium.launch({headless:true});t.after(()=>browser.close());
+ const page=await(await browser.newContext({viewport:{width:1280,height:800}})).newPage();page.setDefaultTimeout(15000);
+ const provider=dialog(page,'生成服务与模型');
+ await enter(page,server.origin);await page.locator('.yu-topbar').waitFor();await settle(page);
+ // 应用内设置哈希：返回关闭对话框，再返回离开应用
+ await page.evaluate(()=>{location.hash='provider-settings';});await provider.waitFor();await settle(page);
+ await back(page);assert.equal(await provider.count(),0,'back closes the dialog');assert.equal(left(page),false);
+ await back(page);assert.ok(left(page),'the next back leaves the app');
+ // 关闭按钮用掉哈希条目
+ await page.goto(server.origin);await page.locator('.yu-topbar').waitFor();await settle(page);
+ await page.evaluate(()=>{location.hash='provider-settings';});await provider.waitFor();await settle(page);
+ await provider.getByRole('button',{name:'关闭',exact:true}).first().click();await settle(page);
+ assert.equal(await provider.count(),0);assert.equal(new URL(page.url()).hash,'','the hash is removed');
+ await back(page);assert.ok(left(page),'no dead entry after the close button');
+ // 直接加载：关闭按钮留在应用里的“我的”
+ await page.goto(server.origin+'/#provider-settings');await provider.waitFor();await settle(page);
+ await provider.getByRole('button',{name:'关闭',exact:true}).first().click();await settle(page);
+ assert.equal(left(page),false,'stays in the app');assert.equal(new URL(page.url()).hash,'');
+ assert.equal(await page.locator('.yu-topbar nav').getByRole('button',{name:'我的'}).getAttribute('aria-current'),'page');
+});

@@ -1,5 +1,7 @@
 // Choose original scope before theme; restore saved source receipts when returning from extraction.
 // 传入 retainKey 时表单输入跨布局切换保留；Reader 在关闭新建或提交成功时清除。
+// 书、主题、自定义主题或原文范围与打开时不同时，隐藏的标记带 data-dirty（返回关闭前询问）。
+import {useState} from 'react';
 import {useRetainedState} from './useRetainedState';
 import {ArrowRight} from 'lucide-react';
 import type {Selection} from '@/lib/reader-model';
@@ -19,6 +21,9 @@ export default function StoryDiscoveryForm({selection,books,busy,error,onBookCha
  const [rangeOpen,setRangeOpen]=useRetainedState(part('range'),false);
  const [customTheme,setCustomTheme]=useRetainedState(part('theme'),custom?selection.theme:'');
  const local=draft.bookId!=='other';
+ // 打开时的选择；挂载时取一次，跨布局重新挂载时由同一份选择重新得到
+ const [opened]=useState(()=>JSON.stringify([{...selection,theme:custom?'其他':selection.theme},custom?selection.theme:'',selection.discoverySources||[],!!selection.discoverySources?.length]));
+ const dirty=JSON.stringify([draft,customTheme,sources,limited])!==opened;
  function changeBook(bookId:string){
   setDraft(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}));
   setSources([]);setLimited(false);setRangeOpen(false);onBookChange(bookId);
@@ -37,6 +42,7 @@ export default function StoryDiscoveryForm({selection,books,busy,error,onBookCha
   await onSubmit({...draft,discovery:{mode:'auto'},theme:theme||'原典故事',storyTitle:undefined,source:undefined,discoverySources:limited?(sources.length?sources:draft.source?[draft.source]:undefined):undefined,length:'auto',voice:false});
  }
  return <>
+  <span hidden data-dirty={dirty?'true':undefined}/>
   <p className="yu-sheet-intro">主题和原文范围都可选。进入故事提取窗口后，可以输入或修改标题，按标题查找。</p>
   <div className="yu-choice-label">从哪本书出发</div>
   <div className="yu-options" role="group" aria-label="选择书籍">{books.map(book=><button type="button" key={book.id} disabled={busy} aria-pressed={draft.bookId===book.id} className={draft.bookId===book.id?'selected':''} onClick={()=>changeBook(book.id)}>{book.title}</button>)}</div>

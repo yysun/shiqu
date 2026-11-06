@@ -1,4 +1,5 @@
 // Edit owner defaults and independent story snapshots; render public notices as untrusted text.
+// 编辑器有未保存更改时表单带 data-dirty，返回或 Escape 关闭前先询问。
 import {useEffect,useRef,useState} from 'react';
 import type {Story} from '@/lib/content';
 import {aiDisclosure,emptyPublication,hasPublicationAuthor,publicationSchema,rightsBoundary,watermarkFontSize,withPublicationDefaults} from '@/lib/story-publication';
@@ -69,7 +70,7 @@ export default function StoryPublicationEditor({story,publication=null,onSave,on
   const props={value:draft[key],maxLength,placeholder,disabled:busy,onChange:(event:React.ChangeEvent<HTMLInputElement|HTMLTextAreaElement>)=>{setDraft(old=>({...old,[key]:event.target.value}));setError('');}};
   return <label className="yu-custom-input">{label}{multiline?<textarea rows={3} {...props}/>:<input {...props}/>}</label>;
  }
- return <Sheet title={story?'署名与转载':'默认署名与转载说明'} onClose={onClose} busy={busy}><form className="yu-publication-editor" onSubmit={event=>{event.preventDefault();void save();}}>
+ return <Sheet title={story?'署名与转载':'默认署名与转载说明'} onClose={onClose} busy={busy}><form className="yu-publication-editor" data-dirty={changed?'true':undefined} onSubmit={event=>{event.preventDefault();void save();}}>
   {story&&<div className="yu-publication-heading"><p className="yu-publication-work">{story.title}</p><button type="button" className="yu-revision-open" disabled={busy} onClick={()=>void restoreDefaults()}>{restoring?'正在读取默认…':'恢复默认说明'}</button></div>}
   {restoreNote&&<p className="yu-count-help" role="status">{restoreNote}</p>}
   <p className="yu-count-help">{story?'仅修改这篇作品。导出时已填写的内容优先，留空项实时沿用「我的」默认说明。':'新故事会保存这份默认说明。导出时，单篇未填写的项目也会实时沿用这里的内容；单篇已填写的内容优先。'}</p>

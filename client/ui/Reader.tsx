@@ -10,6 +10,7 @@
 // 桌面视图由状态标志推导（lib/desktop-view），共享对话框跨档切换保留并重新置顶，草稿经 useRetainedState 保留。
 // 返回键：阅读、桌面新建页、工作区与阅读侧栏抽屉经 useHistoryStep 登记为步骤；替换 URL 时保留历史条目的状态。
 // 从书架或发现打开故事时记下列表滚动位置，返回时恢复（返回书架的按钮仍回到顶部）。
+// 手机面板不超过两层：修改分镜先关分镜剧本；替换选题期间不渲染故事设置，取消后恢复。
 
 import {pruneReadingCaches,type LibraryInventory} from '../reading-cache.ts';
 import StoryExportControl from './StoryExportControl';
@@ -336,6 +337,8 @@ export default function Reader(){
   catch(e){setUnavailable(e instanceof Error?e.message:'任务暂未保存，请重试。');}finally{setCreating(false);}
  }
 
+ // 修改分镜：先关闭分镜剧本再打开修改故事（同一次提交，沿用分镜剧本的历史条目），手机上面板不超过两层
+ function editScript(page?:number){setScript(false);revision.open('script',page);}
  function reselectStory(){
   const originId=story&&isGenerated(story)?story.id:gen.active?.id;
   if(!originId||reselectLock.current||creating||revision.busy||gen.active?.superseded)return;
@@ -447,7 +450,7 @@ export default function Reader(){
      actions:{count:{label:'修改叙事详略',onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:'查看分镜',onClick:()=>setScript(true)}}:{})}
     }:undefined}
     stages={revisionPending&&revision.base&&!revisionResuming?revisionDraftSteps(revision.base,revision.changes):undefined} editor={revision} onReselect={()=>void reselectStory()}
-    reviewTools={!revisionPending&&<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onScript={()=>setScript(true)} onEdit={page=>revision.open('script',page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review')?.id)} onDrawAnyway={()=>void gen.drawAnyway(workflowSession.id)}/>}
+    reviewTools={!revisionPending&&<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onScript={()=>setScript(true)} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review')?.id)} onDrawAnyway={()=>void gen.drawAnyway(workflowSession.id)}/>}
    />}
    {revisionPending&&!revisionResuming&&<StoryRevisionActions editor={revision} link/>}
   </>:<div role="status">{workflowError?<><p role="alert">{workflowError}</p><button type="button" onClick={()=>openWorkflow(workflowTarget!)}>重新加载制作流程</button></>:<p>正在打开制作流程…</p>}</div>);
@@ -518,11 +521,11 @@ export default function Reader(){
  const sceneSheet=sceneList&&story&&<Sheet title="分镜列表" onClose={()=>setSceneList(false)}><StorySceneList story={story} page={page} onSelect={index=>{goToPage(index);setSceneList(false);}}/></Sheet>;
  const phoneSheets=<>
  {configureSheet}
- {panelOpen&&!configure&&<StorySettingsPanel {...settingsProps} onClose={()=>{setSettings(false);closeWorkflow();}}/>}
+ {panelOpen&&!configure&&!reselectTarget&&<StorySettingsPanel {...settingsProps} onClose={()=>{setSettings(false);closeWorkflow();}}/>}
  {reviewHistoryId&&<Sheet title="审核记录" onClose={()=>setReviewHistoryId(null)}><StoryReviewHistory key={reviewHistoryId} sessionId={reviewHistoryId}/></Sheet>}
  {sourceSheet}
  {sceneSheet}
- {script&&scriptStory&&<Sheet title="分镜剧本" onClose={()=>setScript(false)}>{isGenerated(scriptStory)&&<button type="button" className="yu-revision-open" onClick={()=>revision.open('script')}>修改分镜</button>}<StoryScript story={scriptStory} standalone/></Sheet>}
+ {script&&scriptStory&&<Sheet title="分镜剧本" onClose={()=>setScript(false)}>{isGenerated(scriptStory)&&<button type="button" className="yu-revision-open" onClick={()=>editScript()}>修改分镜</button>}<StoryScript story={scriptStory} standalone/></Sheet>}
  {revision.tab&&<Sheet title="修改故事" busy={revision.busy} onClose={()=>{if(!revision.busy)revision.setTab(null);}}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming} onDone={revisionDone}/></Sheet>}
  </>;
  const phoneTree=<>

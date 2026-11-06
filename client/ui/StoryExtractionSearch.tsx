@@ -1,5 +1,6 @@
 // Edit the extraction target with one contextual hint above its action; typing never starts a search.
 // 传入 retainKey 时输入跨布局切换保留；只有会话或目标标题真正变化时才重置输入。
+// 输入的标题与目标标题不同时表单带 data-dirty（返回关闭前询问）。
 import {useEffect} from 'react';
 import {useRetainedState,hasRetained,retainedValue,retain} from './useRetainedState';
 import './story-discovery.css';
@@ -15,7 +16,8 @@ export default function StoryExtractionSearch({sessionId,title,local,busy,hasCan
  },[sessionId,title]);
  const target=draft.trim();
  const invalid=busy||mode==='input'&&(!local||!target);
- return <form className="yu-extraction-query" aria-label="故事提取条件" onSubmit={event=>{event.preventDefault();if(!invalid)void onSearch(mode==='input'?target:'');}}>
+ const dirty=mode==='input'&&target!==(title||'').trim();
+ return <form className="yu-extraction-query" aria-label="故事提取条件" data-dirty={dirty?'true':undefined} onSubmit={event=>{event.preventDefault();if(!invalid)void onSearch(mode==='input'?target:'');}}>
   <div className="yu-choice-label">标题方式</div>
   <div className="yu-options" role="group" aria-label="标题方式"><button type="button" disabled={busy} aria-pressed={mode==='auto'} className={mode==='auto'?'selected':''} onClick={()=>setMode('auto')}>自动标题</button><button type="button" disabled={busy||!local} aria-pressed={mode==='input'} className={mode==='input'?'selected':''} onClick={()=>setMode('input')}>输入标题</button></div>
   {mode==='input'&&<label className="yu-custom-input">故事标题<input disabled={busy||!local} required maxLength={100} value={draft} placeholder="例如：宋公明三败高俅" onChange={event=>setDraft(event.target.value)}/></label>}

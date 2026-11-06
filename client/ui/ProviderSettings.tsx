@@ -1,6 +1,7 @@
 // 生成服务与模型：保存的默认值用于新任务；已开始的步骤保持原配置，密钥只显示来源与存在状态。
 // 运维版式：顶部状态卡展示新任务配置及启动覆盖；提供方以卡片单选并标出密钥状态；
 // 各分区标记未保存更改；推理档位以分段控件逐项展示；底部常驻操作栏提供放弃更改、重新读取与保存。
+// 有未保存更改时表单带 data-dirty，返回或 Escape 关闭前先询问。
 // 关闭时只在对话框是基础步骤（直接加载哈希）时去掉 #provider-settings；应用内打开的哈希条目由历史步骤登记释放。
 import {useEffect,useRef,useState} from 'react';
 import {AlertTriangle,ChevronRight,Cpu,Image as ImageIcon,KeyRound,RefreshCw,RotateCcw,SlidersHorizontal,Type} from 'lucide-react';
@@ -146,7 +147,7 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
     <small>仅检查已保存配置及启动覆盖，不提交未保存的更改，不生成内容。</small>
    </aside>}
    {error?<p className="yu-batch-error" role="alert">{error}</p>:notice&&<p className="yu-provider-message" role="status">{notice}</p>}
-   <form onSubmit={e=>{e.preventDefault();void save();}}>
+   <form data-dirty={dirty?'true':undefined} onSubmit={e=>{e.preventDefault();void save();}}>
     {draft?<fieldset disabled={busy} aria-label="生成服务设置">
      <Group icon={<Type size={16}/>} title="文本服务" label="提供方与模型" changed={changed('provider',textModelField)||keyAction!=='keep'}>
       <Choices name="provider" label="文本服务" value={provider!} onChange={selectProvider} options={[...providerOptions,{value:'readonly',label:'只读',hint:'不调用生成服务'}]}/>
