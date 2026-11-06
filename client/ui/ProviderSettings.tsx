@@ -120,11 +120,10 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
   setImageKey(nextKey.imageKey);setImageKeyAction(nextKey.imageKeyAction);
   update('imageProvider',next);
  }
- async function savedAction(action:'check'|'reset'){
+ async function testConnection(){
   if(!view||saving.current)return;
-  if(action==='reset'&&!window.confirm('重置所有生成服务配置和密钥？故事、本机路径与网络设置都会保留；运行中的生成保持不变。'))return;
   saving.current=true;setBusy(true);setError('');setMessage('');
-  try{const result=await request('local/provider-settings','POST',{action,expectedRevision:view.revision});if(action==='reset'){adopt(result);setMessage(result.appliesToNewJobs?'生成设置已重置，新任务使用当前配置；启动覆盖仍优先。':'生成设置已重置并保存。');}else setMessage(result.message);}
+  try{const result=await request('local/provider-settings','POST',{action:'check',expectedRevision:view.revision});setMessage(result.message);}
   catch(e){setError(e instanceof Error?e.message:'操作失败，请重新读取设置。');}
   finally{saving.current=false;setBusy(false);}
  }
@@ -139,6 +138,11 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
     {runtime&&runtime.provider!=='readonly'?<RuntimeRows runtime={runtime}/>:<p>{runtime?'当前不调用任何生成服务。':'正在读取运行配置…'}</p>}
     {!!view?.overrides.length&&<details className="yu-provider-overrides"><summary><AlertTriangle size={14}/>查看覆盖项</summary><ul>{view.overrides.map(name=><li key={name}><code>{name}</code></li>)}</ul><p>移除对应的启动覆盖后，保存值才会生效。</p></details>}
    </section>
+   {view&&runtime?.configured===false&&runtime.provider!=='readonly'&&<aside className="yu-provider-diagnostics" aria-label="生成服务排查">
+    <p>生成服务尚未就绪，可测试已保存配置的连接。</p>
+    <button type="button" className="yu-provider-ghost" disabled={busy} onClick={()=>void testConnection()}>测试连接</button>
+    <small>仅检查已保存配置及启动覆盖，不提交未保存的更改，不生成内容。</small>
+   </aside>}
    {error?<p className="yu-batch-error" role="alert">{error}</p>:notice&&<p className="yu-provider-message" role="status">{notice}</p>}
    <form onSubmit={e=>{e.preventDefault();void save();}}>
     {draft?<fieldset disabled={busy} aria-label="生成服务设置">
@@ -167,7 +171,6 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
      {draft&&<button type="submit" className="yu-primary" disabled={!dirty||busy}>{saving.current?'正在保存…':dirty?'保存设置':'已保存'}</button>}
     </div>
    </form>
-   {view&&<div className="yu-provider-maintenance"><button type="button" className="yu-provider-ghost" disabled={busy} onClick={()=>void savedAction('check')}>检查已保存配置的连接</button><button type="button" className="yu-provider-ghost" disabled={busy} onClick={()=>void savedAction('reset')}>重置所有生成服务配置</button><p>检查只使用已保存配置及启动覆盖，不提交未保存的更改，不生成内容。</p></div>}
   </div>
  </Sheet>}</>;
 }

@@ -112,5 +112,7 @@
 }
 @media(max-width:360px){.yu-provider-actions{margin:0 -20px;padding-left:20px;padding-right:20px}}
 
-/* 首次使用提示始终可见，编辑入口仅在本机权限检查成功后出现。 */
-.yu-provider-setup{padding:12px 20px;background:#f3ebd8;color:#765e31;font-size:12px;line-height:1.7;display:flex;flex-wrap:wrap;gap:8px}.yu-provider-setup a{color:#315d42;text-decoration:underline}.yu-provider-maintenance{display:flex;flex-wrap:wrap;gap:12px;padding:14px 0 24px}.yu-provider-maintenance p{width:100%}
+/* 未就绪时提供局部排查入口，正常设置页不常驻运维按钮。 */
+.yu-provider-diagnostics{display:grid;justify-items:start;gap:8px;padding:12px;border:1px solid #e3d3a8;border-radius:10px;background:#faf3df}
+.yu-provider-diagnostics small{font-size:12px;color:var(--pv-meta)}
+.yu-provider-setup{padding:12px 20px;background:#f3ebd8;color:#765e31;font-size:12px;line-height:1.7;display:flex;flex-wrap:wrap;gap:8px}.yu-provider-setup a{color:#315d42;text-decoration:underline}

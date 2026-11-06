@@ -86,9 +86,14 @@ test('console-only desktop, lifecycle IPC and actual desktop browser settings',{
  await reader.getByText('已保存，新任务使用此配置。正在执行的任务继续使用原配置。',{exact:true}).waitFor();assert.equal(await reader.getByRole('button',{name:'重启服务',exact:true}).count(),0);assert.ok(await reader.getByRole('button',{name:'已保存',exact:true}).isDisabled());assert.equal(await reader.locator('input[type=password]').count(),0);assert.equal((await reader.content()).includes('synthetic-browser-key'),false);assert.equal(runtime.status.restartRequired,false);assert.equal(runtime.status.provider.provider,'openai');
  await reader.getByRole('button',{name:'重新读取设置',exact:true}).click();await reader.getByRole('textbox',{name:'文本模型',exact:true}).waitFor();
  assert.equal(await reader.getByRole('textbox',{name:'文本模型',exact:true}).inputValue(),'lan-browser-text');assert.equal(await reader.getByRole('textbox',{name:'图片模型',exact:true}).inputValue(),'lan-browser-image');
- await reader.getByRole('button',{name:'检查已保存配置的连接',exact:true}).click();await reader.getByText('连接检查通过；仅检查模型元数据或登录状态，未生成内容。').waitFor();
- reader.once('dialog',dialog=>dialog.accept());await reader.getByRole('button',{name:'重置所有生成服务配置',exact:true}).click();await reader.getByText('生成设置已重置，新任务使用当前配置；启动覆盖仍优先。').waitFor();
- const after=new SystemSettingsStore(file,native.dataDirectory,{existingOnly:true});assert.equal(after.settings().codexPath,native.codexPath);assert.equal(after.settings().codexHome,native.codexHome);assert.equal(after.key('openai'),'');after.close();
+ assert.equal(await reader.getByRole('button',{name:'测试连接',exact:true}).count(),0);assert.equal(await reader.getByRole('button',{name:'重置所有生成服务配置',exact:true}).count(),0);assert.equal(await reader.locator('.yu-provider-maintenance').count(),0);
+ const savedKeys=new SystemSettingsStore(file,native.dataDirectory,{existingOnly:true});assert.equal(savedKeys.settings().codexPath,native.codexPath);assert.equal(savedKeys.settings().codexHome,native.codexHome);assert.equal(savedKeys.key('openai'),'synthetic-browser-key');savedKeys.save({},{provider:'openai',value:null});savedKeys.close();
+ await reader.getByRole('button',{name:'重新读取设置',exact:true}).click();await reader.getByRole('region',{name:'运行状态'}).getByText('未配置',{exact:true}).waitFor();
+ await reader.getByRole('button',{name:'测试连接',exact:true}).click();await reader.getByText('请先配置生成服务并保存 API 密钥。',{exact:true}).waitFor();
+ assert.equal(await reader.getByRole('button',{name:'重置所有生成服务配置',exact:true}).count(),0);
+ await reader.screenshot({path:path.join(output,'provider-diagnostics.png'),fullPage:true});
+ const restored=new SystemSettingsStore(file,native.dataDirectory,{existingOnly:true});restored.save({},{provider:'openai',value:'synthetic-browser-key'});restored.close();
+ await reader.getByRole('button',{name:'重新读取设置',exact:true}).click();await reader.getByRole('region',{name:'运行状态'}).getByText('已配置',{exact:true}).waitFor();assert.equal(await reader.getByRole('button',{name:'测试连接',exact:true}).count(),0);
  for(const width of [1040,390]){await reader.setViewportSize({width,height:820});assert.ok(await reader.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await reader.screenshot({path:path.join(output,`lan-provider-settings-${width}.png`),fullPage:true});}
  await reader.getByRole('button',{name:'关闭',exact:true}).click();await reader.getByRole('button',{name:'生成服务与模型',exact:true}).click();await reader.getByRole('dialog',{name:'生成服务与模型'}).waitFor();
  await rename(file,file+'.held');await reader.goto((lan||runtime.status.url)+'/#provider-settings');await reader.reload();await reader.getByRole('dialog',{name:'生成服务与模型'}).waitFor();await reader.getByText('暂时无法读取或保存共享生成设置，请检查本机配置后重新读取。').waitFor();
@@ -98,7 +103,7 @@ test('console-only desktop, lifecycle IPC and actual desktop browser settings',{
  await reader.route('**/api/local/provider-settings',async route=>{const response=await route.fetch(),value=await response.json();delete value.appliesToNewJobs;await route.fulfill({response,json:value});});
  await reader.reload();await reader.getByRole('dialog',{name:'生成服务与模型'}).waitFor();await reader.getByText('当前服务配置',{exact:true}).waitFor();
  assert.equal(await reader.getByText('新任务配置',{exact:true}).count(),0);assert.equal((await reader.locator('.yu-provider-intro').innerText()).includes('无需重启'),false);
- reader.once('dialog',dialog=>dialog.accept());await reader.getByRole('button',{name:'重置所有生成服务配置',exact:true}).click();await reader.getByText('生成设置已重置并保存。',{exact:true}).waitFor();
+ assert.equal(await reader.getByRole('button',{name:'重置所有生成服务配置',exact:true}).count(),0);assert.equal(await reader.getByRole('button',{name:'测试连接',exact:true}).count(),0);
  assert.deepEqual(errors,[]);
  }catch(error){await page.screenshot({path:path.join(output,'failed-console.png'),fullPage:true}).catch(()=>{});console.log(await page.locator('body').innerText().catch(()=>''));throw error;}
 });
