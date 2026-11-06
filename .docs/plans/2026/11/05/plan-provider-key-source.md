@@ -36,3 +36,11 @@ AR review round: 2; reviewer: reused (`lan_settings_review`)。
 SS 实现完成：新任务源/固定代际/只读门控/来源UI已落到正式工作流。聚焦44/44（保存/覆盖/生产快照/旧错误/退出cache/配置故障读取）；实际dev+完整LAN浏览器2/2；typecheck/lint通过。没有新增restart handler、重启容器或配置热更新之外的启停权限。
 
 影响计划：172文件，full=true、native=true。触发项是必需的共享 `lib/reader-api.ts` 请求内快照绑定（不再是仅提示文字），此外生产调度接口本身也有变更。按现有规则执行，不绕过回退。独立worktree无并行手机修改或未登记测试。
+
+TT 首轮全量稳定80eea3f已完成：172文件、1445项，1443通过、2失败；失败均是全显式CLI且没有settings文件时，热读取误创建DB，违反原启动契约（/tmp/shiqu-live-provider-full.log）。已将内部变量源改为existingOnly，只有原显式分支回退启动变量；public settings GET保留既有显式访问行为。
+
+CR round1 blocked于capture=null直接API回退、旧响应UI误承诺热更新、残留文档重启说明。修正了null直接503与live status readiness，添加null/非法key直接API零调用及旧响应浏览器回归，文档统一。原全量中不受这些修正影响的通过证据复用；下一轮针对所有直接app/API消费者及CLI/UI/元数据测试验证，不重复已通过的无关生产矩阵。
+
+CR修正已完成：null capture不再回退live门面，直接付费请求立即503；live status把同次快照ready与提供方状态合并。内部变量读取existingOnly，缺/坏store仅原显式启动分支允许旁路。旧响应UI中性显示，不承诺热更新。剩余指南的重启规则已删除。typecheck/lint复核通过；完整CLI启动矩阵、local-server新null/非法key零调用与完整UI旧响应兼容回归通过（/tmp/shiqu-live-provider-corrections.log）。
+
+原生源码24/24与fmt已通过（1打包资源用例按既定source规则过滤），源不涉及Rust/IPC/存储格式。UI使用已知IAB禁用后的隔离Chromium；390/1040截图已查看，密钥来源、保存反馈及按钮无横溢。

@@ -94,6 +94,10 @@ test('console-only desktop, lifecycle IPC and actual desktop browser settings',{
  await rename(file,file+'.held');await reader.goto((lan||runtime.status.url)+'/#provider-settings');await reader.reload();await reader.getByRole('dialog',{name:'生成服务与模型'}).waitFor();await reader.getByText('暂时无法读取或保存共享生成设置，请检查本机配置后重新读取。').waitFor();
  assert.equal(existsSync(file),false);assert.equal(await reader.locator('input[type=password]').count(),0);
  await rename(file+'.held',file);await reader.getByRole('button',{name:'重新读取设置',exact:true}).click();await reader.getByRole('radiogroup',{name:'文本服务',exact:true}).waitFor();
+
+ await reader.route('**/api/local/provider-settings',async route=>{const response=await route.fetch(),value=await response.json();delete value.appliesToNewJobs;await route.fulfill({response,json:value});});
+ await reader.reload();await reader.getByRole('dialog',{name:'生成服务与模型'}).waitFor();await reader.getByText('当前服务配置',{exact:true}).waitFor();
+ assert.equal(await reader.getByText('新任务配置',{exact:true}).count(),0);assert.equal((await reader.locator('.yu-provider-intro').innerText()).includes('无需重启'),false);
  assert.deepEqual(errors,[]);
  }catch(error){await page.screenshot({path:path.join(output,'failed-console.png'),fullPage:true}).catch(()=>{});console.log(await page.locator('body').innerText().catch(()=>''));throw error;}
 });

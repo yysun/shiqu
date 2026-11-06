@@ -41,9 +41,13 @@ export function createReaderApi(services:Services){
 return async function readerApi(req:Request,path:string[]):Promise<Response>{
  let provider=services.generation;
  // 只在需要提供方的请求边界取快照，普通书架读取不依赖设置库是否可用。
- async function requireProvider(){if(services.commandOnly)return;provider=provider.capture?.()||provider;const status=await provider.status();if(!status.configured)throw new ReaderError(503,status.message||'请先配置生成服务：使用本机或可信局域网地址打开 我的 → 生成服务与模型。');}
+ async function requireProvider(){
+  if(services.commandOnly)return;
+  if(provider.capture){const captured=provider.capture();if(!captured)throw new ReaderError(503,'新任务生成服务未配置，请检查提供方和密钥。');provider=captured;}
+  const status=await provider.status();if(!status.configured)throw new ReaderError(503,status.message||'请先配置生成服务：使用本机或可信局域网地址打开 我的 → 生成服务与模型。');
+ }
  try{
-  if(path.join('/')==='status'&&req.method==='GET')return json(await (provider.capture?.()||provider).status());
+  if(path.join('/')==='status'&&req.method==='GET')return json(await provider.status());
   const uid=services.ownerId;
   const url=new URL(req.url);if(req.method!=='GET'){const origin=req.headers.get('origin');if(origin&&origin!==url.origin)throw new ReaderError(403,'不允许跨站请求');}
   if(!services.database)throw new ReaderError(503,'书架暂时不可用');

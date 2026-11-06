@@ -31,7 +31,7 @@ function RuntimeRows({runtime}:{runtime:Runtime}){
 }
 export function ProviderRuntimeSummary({runtime}:{runtime:Runtime|null}){
  const state=runtimeState(runtime);
- return <section className="yu-provider-summary" aria-label="新任务配置"><div><span>新任务使用</span><em className={`yu-provider-pill ${state.tone}`}>{state.label}</em></div>
+ return <section className="yu-provider-summary" aria-label="生成配置"><div><span>生成配置</span><em className={`yu-provider-pill ${state.tone}`}>{state.label}</em></div>
   {!runtime?<p role="status">正在读取生成配置…</p>:runtime.provider==='readonly'?<p>只读模式，不生成内容。</p>:<RuntimeRows runtime={runtime}/>}
   {runtime?.configured===false&&runtime.provider!=='readonly'&&<p>生成服务尚未接通。</p>}
  </section>;
@@ -131,9 +131,9 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
  return <>{showPrompt&&runtime?.configured===false&&!open&&<aside className="yu-provider-setup" role="status">请先配置生成服务。{access==='allowed'?<a href="#provider-settings">打开生成服务与模型</a>:<span>请使用本机或可信局域网地址打开 我的 → 生成服务与模型。</span>}</aside>}{showEntry&&access==='allowed'&&<button type="button" onClick={()=>{setOpen(true);void load();}}><Cpu size={20}/>生成服务与模型<ChevronRight size={18}/></button>}
  {open&&<Sheet title="生成服务与模型" busy={saving.current} onClose={()=>{setOpen(false);if(location.hash==='#provider-settings')history.replaceState(null,'',location.pathname+location.search);setKey('');setKeyAction('keep');setImageKey('');setImageKeyAction('keep');}}>
   <div className="yu-provider-settings">
-   <p className="yu-provider-intro">与桌面、CLI 和技能共用。保存后用于新任务，无需重启；正在执行的任务保持原配置。</p>
+   <p className="yu-provider-intro">{view?.appliesToNewJobs?'与桌面、CLI 和技能共用。保存后用于新任务，无需重启；正在执行的任务保持原配置。':'与桌面、CLI 和技能共用。这里编辑保存的默认生成配置。'}</p>
    <section className={`yu-provider-status ${state.tone}`} aria-label="运行状态">
-    <header><i className="yu-provider-dot"/><strong>{runtime?.provider==='readonly'?'只读模式':'新任务配置'}</strong><em className={`yu-provider-pill ${state.tone}`}>{state.label}</em>
+    <header><i className="yu-provider-dot"/><strong>{runtime?.provider==='readonly'?'只读模式':view?.appliesToNewJobs?'新任务配置':'当前服务配置'}</strong><em className={`yu-provider-pill ${state.tone}`}>{state.label}</em>
      {!!view?.overrides.length&&<em className="yu-provider-pill warn">{view.overrides.length} 项启动覆盖</em>}
     </header>
     {runtime&&runtime.provider!=='readonly'?<RuntimeRows runtime={runtime}/>:<p>{runtime?'当前不调用任何生成服务。':'正在读取运行配置…'}</p>}

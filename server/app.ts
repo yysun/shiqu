@@ -32,6 +32,7 @@ export function liveReaderProvider(initial:Variables,read:()=>Variables,create:(
  }
  return new Proxy(current,{get(_target,property){
   if(property==='capture')return ()=>{const next=snapshot();return next.ready?next.provider:null;};
+  if(property==='status'){const next=snapshot();return async()=>{const status=await next.provider.status();return next.ready?status:{...status,configured:false};};}
   const provider=['safeError','discoveryBusy','settleDiscovery'].includes(String(property))?current:snapshot().provider;
   const value=Reflect.get(provider,property);return typeof value==='function'?value.bind(provider):value;
  }});

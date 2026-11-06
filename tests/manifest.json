@@ -754,6 +754,8 @@
         "user-flows"
       ],
       "covers": [
+        "client/ui/ProviderSettings.css",
+        "client/ui/ProviderSettings.tsx",
         "lib/system-settings.ts",
         "server/desktop.ts",
         "server/provider-settings-access.ts",

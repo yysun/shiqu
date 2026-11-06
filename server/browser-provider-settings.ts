@@ -86,5 +86,5 @@ export function browserProviderSettings(options:{variables:Variables;overrides:V
    return json({error:'暂时无法读取或保存共享生成设置，请检查本机配置后重新读取。'},503);
   }finally{store?.close();}
  };
- return Object.assign(handler,{snapshot(){const store=openStore();try{return snapshot(store);}finally{store.close();}},variables(){const store=openStore();try{return variables(store);}finally{store.close();}}});
+ return Object.assign(handler,{snapshot(){const store=openStore();try{return snapshot(store);}finally{store.close();}},variables(){const store=new SystemSettingsStore(locations.settings,locations.library,{existingOnly:true});try{return variables(store);}finally{store.close();}}});
 }
