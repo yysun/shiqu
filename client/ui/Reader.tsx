@@ -8,6 +8,8 @@
 // “我的”统计在书库首次加载完成前显示占位，避免先显示 0。
 // 一个状态所有者、两种组合：手机树（今天的界面）与桌面外壳（≥768×560）读取同一组状态与处理函数；
 // 桌面视图由状态标志推导（lib/desktop-view），共享对话框跨档切换保留并重新置顶，草稿经 useRetainedState 保留。
+// 返回键：阅读、桌面新建页、工作区与阅读侧栏抽屉经 useHistoryStep 登记为步骤；替换 URL 时保留历史条目的状态。
+// 从书架或发现打开故事时记下列表滚动位置，返回时恢复（返回书架的按钮仍回到顶部）。
 
 import {pruneReadingCaches,type LibraryInventory} from '../reading-cache.ts';
 import StoryExportControl from './StoryExportControl';
@@ -64,7 +66,8 @@ import DesktopCreate from './DesktopCreate';
 import DesktopReader from './DesktopReader';
 import StoryGenerationControl from './StoryGenerationControl';
 import {shelfGenerationStatus} from '@/lib/shelf-generation';
-import {useDesktopLayout} from './useDesktopLayout';
+import {useDesktopLayout,useDrawerForm} from './useDesktopLayout';
+import {historySteps,useHistoryStep} from './historySteps';
 import {clearRetained} from './useRetainedState';
 import {desktopView,activeTopItem,topBarSteps,workspaceSections,type DesktopFlags,type ExitStep,type TopItem,type WorkspaceSection} from '@/lib/desktop-view';
 import './reader.css';
@@ -170,7 +173,7 @@ export default function Reader(){
  function forgetSetup(){clearRetained('setup:');clearRetained('search:');}
  function closeWorkflow(){
   forgetSetup();workflowFromReader.current=false;setWorkflowTarget(null);setWorkflowError('');
-  if(!story){gen.leave();history.replaceState(null,'','/');}
+  if(!story){gen.leave();history.replaceState(history.state,'','/');}
  }
  async function retryWorkflow(faultId?:string){
   setWorkflowError('');
@@ -209,9 +212,12 @@ export default function Reader(){
 
  function track(kind:string,s:Story|null=story,index:number|null=null){if(!s||!visitor.current||!session.current)return;request('reader/sessions/'+s.id+'/events','POST',{id:session.current+':'+s.id+':'+kind+(index===null?'':':'+index),visitor:visitor.current,session:session.current,storyId:s.id,kind,page:index,mode:'manual',cohort:'internal'}).catch(()=>{});}
  function remember(s:Story,index:number,isSaved:boolean){if(deleted.current.has(s.id))return;authoritativeProgress.current=reconcileReadingProgress(authoritativeProgress.current,[{storyId:s.id,page:index,saved:isSaved?1:0,updatedAt:new Date().toISOString()}]);setLastReadId(s.id);try{localStorage.setItem('shiqu-last-read',s.id);}catch{}setProgress(pr=>{const rows=[{storyId:s.id,page:index,saved:isSaved?1:0,updatedAt:new Date().toISOString()},...pr.filter(p=>p.storyId!==s.id)];localStorage.setItem('yiyu-reading',JSON.stringify(rows));return rows;});request('reader/sessions/'+s.id+'/progress','POST',{storyId:s.id,page:index,saved:isSaved}).catch(()=>{});}
- function open(s:Story,restart=false){if(deleted.current.has(s.id))return;setWorkflowTarget(null);setDrag(0);gen.resume(s.id,restart?0:undefined).catch(e=>notify(e.message));setConfigure(false);clearRetained('discovery');setUnavailable('');const pr=progress.find(p=>p.storyId===s.id);const index=restart?0:Math.min(pr?.page||0,s.pages.length-1);setPage(index);setStory(s);setSaved(!!pr?.saved);setEnded(false);setMotion('forward');seen.current=new Set();session.current=randomId();history.replaceState(null,'','/read?id='+encodeURIComponent(s.id));track('start',s);window.scrollTo(0,0);}
- function home(){forgetSetup();setWorkflowTarget(null);setWorkflowError('');setDrag(0);gen.leave();setStory(null);setEnded(false);setSource(false);history.replaceState(null,'','/');}
- function backToShelf(){setSettings(false);setSource(false);setScript(false);revision.setTab(null);home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}
+ function open(s:Story,restart=false){if(deleted.current.has(s.id))return;if(!story)listScroll.current=window.scrollY;setWorkflowTarget(null);setDrag(0);gen.resume(s.id,restart?0:undefined).catch(e=>notify(e.message));setConfigure(false);clearRetained('discovery');setUnavailable('');const pr=progress.find(p=>p.storyId===s.id);const index=restart?0:Math.min(pr?.page||0,s.pages.length-1);setPage(index);setStory(s);setSaved(!!pr?.saved);setEnded(false);setMotion('forward');seen.current=new Set();session.current=randomId();history.replaceState(history.state,'','/read?id='+encodeURIComponent(s.id));track('start',s);window.scrollTo(0,0);}
+ function home(){forgetSetup();setWorkflowTarget(null);setWorkflowError('');setDrag(0);gen.leave();setStory(null);setEnded(false);setSource(false);history.replaceState(history.state,'','/');}
+ // 返回阅读前所在列表的滚动位置；返回书架的按钮改为回到顶部
+ const listScroll=useRef<number|null>(null);
+ useLayoutEffect(()=>{if(!story&&listScroll.current!==null){const top=listScroll.current;listScroll.current=null;window.scrollTo({top,behavior:'instant'});}},[story]);
+ function backToShelf(){listScroll.current=null;setSettings(false);setSource(false);setScript(false);revision.setTab(null);home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}
  function turn(delta:number){if(!story)return;if(!ended&&page===0&&delta<0)return;if(ended){if(delta<0){setDrag(0);setPage(story.pages.length-1);setEnded(false);setMotion('back');}else if(delta>0)home();return;}if(delta>0&&!story.pages[page]?.image){notify('这一幅还在绘制，稍等一下。');return;}setMotion(delta>0?'forward':'back');if(page+delta>=story.pages.length){setEnded(true);if(seen.current.size===story.pages.length)track('complete');}else setPage(p=>Math.max(0,p+delta));}
  function goToPage(index:number){if(!story)return;setDrag(0);setMotion(index>page?'forward':'back');setEnded(false);setPage(Math.max(0,Math.min(index,story.pages.length-1)));}
  // 桌面新建页从“返回修改书籍”打开时，左侧选书、心情与“不挑了”只改选择，仍修改原任务的条件（与手机表单内选书一致）。
@@ -275,7 +281,7 @@ export default function Reader(){
  useEffect(()=>{
   const list=raised.current;if(!list)return;raised.current=null;
   // 推迟到下一帧（绘制之前）：开发环境 StrictMode 会在本效果之后重跑新面板的挂载效果，再次 showModal。
-  const frame=requestAnimationFrame(()=>{for(const {dialog,focus} of list)if(dialog.isConnected&&dialog.open){dialog.close();dialog.showModal();focus?.focus({preventScroll:true});}});
+  const frame=requestAnimationFrame(()=>{for(const {dialog,focus} of list)if(dialog.isConnected&&dialog.open){dialog.close();dialog.showModal();historySteps.raised(dialog);focus?.focus({preventScroll:true});}});
   return()=>cancelAnimationFrame(frame);
  },[desktop]);
  function bookmark(){if(!story)return;const value=!saved;setSaved(value);remember(story,page,value);if(value)track('save');notify(value?'收好了，下次接着看。':'已移出收藏');}
@@ -324,7 +330,9 @@ export default function Reader(){
     await gen.setup({action:'conditions',conditions:{bookId:input.bookId,customBook:input.customBook,theme:input.theme,discoverySources:input.discoverySources,productionPrompt:input.productionPrompt}});
     setSelection(input);closeCreate();return;
    }
-   setSelection(input);gen.leave();session.current=randomId();seen.current=new Set();setPage(0);setSaved(false);setStory(null);setEnded(false);await gen.start({...input,length:'auto',narrativeDetail:input.narrativeDetail||'balanced',voice:false},true);closeCreate();}
+   setSelection(input);gen.leave();session.current=randomId();seen.current=new Set();setPage(0);setSaved(false);setStory(null);setEnded(false);const started=await gen.start({...input,length:'auto',narrativeDetail:input.narrativeDetail||'balanced',voice:false},true);
+   // 与关闭新建同一次提交打开制作流程，使流程面板沿用新建面板的历史条目
+   setWorkflowTarget(started.id);closeCreate();}
   catch(e){setUnavailable(e instanceof Error?e.message:'任务暂未保存，请重试。');}finally{setCreating(false);}
  }
 
@@ -497,7 +505,7 @@ export default function Reader(){
  {!!readingSession?.reviewIssues?.length&&!settings&&<button type="button" className="yu-reader-review-notice" onClick={()=>openWorkflow(story.id)}>审片还有 {readingSession.reviewIssues.length} 处问题，已停止绘图。查看并处理</button>}
  {!ended&&!current?.image&&<div className="yu-drawing" role="status"><div className="yu-drawing-orbit"><Feather size={35} strokeWidth={1}/></div><span>{gen.error?'画笔暂停了一下':'这一幅，正在展开'}</span><small>{gen.error||gen.active?.stage||'正在为你绘制画面'}</small>{gen.error&&gen.active&&<StoryRetry session={gen.active} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}
  <header className="yu-reader-top"><div className="yu-progress" aria-label={`第${page+1}幅，共${story.pages.length}幅`}>{story.pages.map((_,i)=><span key={i} className={i<=page?'read':''}/>)}</div><div className="yu-reader-heading"><button className="yu-glass" onClick={home} aria-label="返回发现"><ArrowLeft size={21}/></button><div className="yu-reader-title"><div><strong>{story.title}</strong><span>{bookName(story)}{isGenerated(story)?' · AI 生成':''}</span></div><div className="yu-style-label" aria-label="本篇主题与画风">{story.theme&&<span>{story.theme}</span>}<span>{isGenerated(story)?(story.artStyleLabel||'未记录画风'):'未记录画风'}</span></div></div>{!ended&&<BookReferenceStar selected={bookReference.selected} disabled={bookReference.disabled} busy={bookReference.busy} onClick={bookReference.toggle}/>}<button className="yu-glass" onClick={bookmark} aria-label={saved?'取消收藏':'收藏故事'}><Bookmark size={20} fill={saved?'currentColor':'none'}/></button><button className="yu-glass" onClick={()=>openStorySettings(story)} aria-label="故事设置"><Settings2 size={19}/></button></div></header>
- {ended?<StoryEndingSurface surfaceRef={endingRef} onTurn={turn} onDrag={setDrag} drag={drag}><div className="yu-ending-mark"><Leaf size={32} strokeWidth={1.3}/></div><p className="yu-kicker">故事到这里，余味留给你</p><h1>{story.reflection}</h1><div className="yu-end-line"/><p>有些故事的最后一页，<br/>其实在你的生活里。</p><button className="yu-primary" onClick={()=>open(story,true)}><RotateCcw size={18}/>从头再看<ArrowRight size={19}/></button><div className="yu-ending-navigation"><button onClick={()=>turn(-1)}><ChevronLeft size={17}/>返回上一幅</button><button onClick={()=>{home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}}><BookOpen size={16}/>书架</button><button onClick={()=>{home();choose();}}><Sparkles size={16}/>开启下一篇</button></div><section className="yu-ending-downloads" aria-label="下载故事"><h2>把故事带走</h2><div className="yu-ending-formats">{exportControl('pdf','yu-ending-download')}{exportControl('png','yu-ending-download')}{exportControl('zip','yu-ending-download yu-download-zip')}</div>{exportStatus()}</section><StoryPublicationDetails story={story}/><button className="yu-end-source" onClick={()=>setSource(true)}>读一读原文 <ChevronRight size={13}/></button></StoryEndingSurface>:<>
+ {ended?<StoryEndingSurface surfaceRef={endingRef} onTurn={turn} onDrag={setDrag} drag={drag}><div className="yu-ending-mark"><Leaf size={32} strokeWidth={1.3}/></div><p className="yu-kicker">故事到这里，余味留给你</p><h1>{story.reflection}</h1><div className="yu-end-line"/><p>有些故事的最后一页，<br/>其实在你的生活里。</p><button className="yu-primary" onClick={()=>open(story,true)}><RotateCcw size={18}/>从头再看<ArrowRight size={19}/></button><div className="yu-ending-navigation"><button onClick={()=>turn(-1)}><ChevronLeft size={17}/>返回上一幅</button><button onClick={()=>{listScroll.current=null;home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}}><BookOpen size={16}/>书架</button><button onClick={()=>{home();choose();}}><Sparkles size={16}/>开启下一篇</button></div><section className="yu-ending-downloads" aria-label="下载故事"><h2>把故事带走</h2><div className="yu-ending-formats">{exportControl('pdf','yu-ending-download')}{exportControl('png','yu-ending-download')}{exportControl('zip','yu-ending-download yu-download-zip')}</div>{exportStatus()}</section><StoryPublicationDetails story={story}/><button className="yu-end-source" onClick={()=>setSource(true)}>读一读原文 <ChevronRight size={13}/></button></StoryEndingSurface>:<>
  <StoryPageSurface onTurn={turn} onDrag={setDrag} onToggleMetadata={()=>setMetadataVisible(visible=>!visible)}/>
  <div className={'yu-scene-caption '+(largeText?'large':'')} key={'caption-'+page}><div className="yu-scene-number"><span>{String(page+1).padStart(2,'0')}</span><i/><span>{String(story.pages.length).padStart(2,'0')}</span>{isGenerated(story)&&gen.busy&&<span className="yu-scene-generation" role="status"><Loader2 size={12} className="spin"/>{gen.active?.stage||'正在生成'}</span>}</div><p>{current?.caption}</p>{current?.image&&(gen.error||imageIssues[current.image]||!!readingSession?.faults?.length)&&<div className="yu-reader-error">{gen.error||imageIssues[current.image]}{isGenerated(story)&&imageIssues[current.image]&&<button type="button" onClick={()=>void inspectImage(story.id,page,current.image,true)}>重新检查图片</button>}{readingSession&&<StoryRetry session={readingSession} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}</div>
  <footer className="yu-reader-bottom"><button className="yu-source-button" onClick={()=>setSource(true)} aria-label="原文" title="原文"><BookOpen size={17}/><span>原文</span></button><button className="yu-glass" onClick={()=>setSceneList(true)} aria-label="分镜列表" title="分镜列表"><List size={20}/></button><div className="yu-arrows" role="group" aria-label="翻页"><button className="yu-glass" disabled={page===0} onClick={()=>goToPage(0)} aria-label="第一页" title="第一页"><ChevronsLeft size={22}/></button><button className="yu-glass" disabled={page===0} onClick={()=>turn(-1)} aria-label="上一页" title="上一页"><ChevronLeft size={22}/></button><button className="yu-next" onClick={()=>turn(1)} aria-label={page===story.pages.length-1?'读完，回味':'下一页'} title={page===story.pages.length-1?'读完，回味':'下一页'}><ChevronRight size={23}/></button><button className="yu-glass" disabled={page===story.pages.length-1} onClick={()=>goToPage(story.pages.length-1)} aria-label="最后一页" title="最后一页"><ChevronsRight size={22}/></button></div></footer>
@@ -587,6 +595,12 @@ export default function Reader(){
   {view.kind==='workspace'?workspace:view.kind==='create'?createPage:view.kind==='reader'?desktopReader:<main className="yu-home yu-desktop-main" data-main="">{tabContent}</main>}
 </DesktopShell>;
  const reading=desktop?view.kind==='reader':!!story;
+ // 返回键的非对话框步骤（层级：阅读 0、新建页或工作区 1、抽屉 2）；停靠的侧栏不是步骤
+ const drawerForm=useDrawerForm();
+ useHistoryStep(!!story,0,home);
+ useHistoryStep(desktop&&view.kind==='create',1,closeCreate,()=>!!document.querySelector('.yu-create-form [data-dirty="true"]'));
+ useHistoryStep(desktop&&view.kind==='workspace',1,leaveWorkspace);
+ useHistoryStep(desktop&&drawerForm&&view.kind==='reader'&&!!view.panel,2,()=>{setSource(false);setSceneList(false);});
 
  return <div className={'yu-world'+(reading?' yu-reading-world':'')+(desktop?' yu-desktop':'')} data-layout={desktop?'shell':'phone'}><div className={'yu-app'+(reading?' yu-immersive':'')}>
  <ProviderSettings onRuntime={setProviderRuntime} onAvailability={setProviderAllowed} openRequest={providerOpen} showEntry={false} showPrompt={!story}/>

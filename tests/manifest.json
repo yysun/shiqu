@@ -1458,6 +1458,25 @@
       ]
     },
     {
+      "file": "tests/history-steps.test.mjs",
+      "groups": [
+        "reader"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "code",
+      "gates": [],
+      "covers": [
+        "client/ui/historySteps.ts"
+      ]
+    },
+    {
       "file": "tests/image-dimensions.test.mjs",
       "groups": [
         "media"
@@ -1869,6 +1888,25 @@
         "lib/reader-revision.ts",
         "lib/reader-versions.ts"
       ]
+    },
+    {
+      "file": "tests/phone-navigation.playwright.e2e.mjs",
+      "groups": [
+        "reader"
+      ],
+      "level": "browser-e2e",
+      "cost": "heavy",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "e2e",
+      "pr": "affected",
+      "gates": [
+        "user-flows"
+      ],
+      "covers": []
     },
     {
       "file": "tests/phone-readability-css.test.mjs",

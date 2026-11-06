@@ -3,12 +3,14 @@
 // 左侧分镜列表，中间是当前分区的现有组件，右侧是所选分镜的画面、旁白与该幅的审片问题（0 表示结语）。
 // ≥1280px 三栏；1024–1279px 分镜列表变为上方横条，右栏缩小画面；768–1023px 右栏改为“画面与审核”抽屉。
 // 分区由 Reader 的状态标志推导，本组件只负责排布；画面抽屉的开合是唯一的本地状态。
+// 画面抽屉打开时是返回键的一步（层级 2）；停靠的右栏不是步骤。
 import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {ArrowLeft,Feather,PanelRight,X} from 'lucide-react';
 import type {Story} from '@/lib/content';
 import type {ReviewIssue} from '@/lib/reader-review';
 import type {WorkspaceSection} from '@/lib/desktop-view';
 import {useDrawerForm} from './useDesktopLayout';
+import {useHistoryStep} from './historySteps';
 import './StoryWorkspace.css';
 
 export const workspaceLabels:Record<WorkspaceSection,string>={flow:'制作流程',edit:'修改故事',script:'分镜剧本',history:'审核记录',source:'原文'};
@@ -22,6 +24,7 @@ export default function StoryWorkspace({title,section,sections,onSection,onBack,
  const [seenDrawer,setSeenDrawer]=useState(drawerForm);
  if(seenDrawer!==drawerForm){setSeenDrawer(drawerForm);if(drawerForm)setPreviewOpen(false);}
  useEffect(()=>{if(drawerForm&&focusInPreview.current){focusInPreview.current=false;toggle.current?.focus();}},[drawerForm]);
+ useHistoryStep(drawerForm&&previewOpen&&!!story,2,()=>{setPreviewOpen(false);toggle.current?.focus();});
  const pages=story?.pages||[],page=frame>0?pages[frame-1]:null,frameIssues=issues.filter(issue=>issue.page===frame);
  const preview=story&&<aside className={'yu-workspace-preview'+(previewOpen?' is-open':'')} aria-label="画面与审核" onKeyDown={event=>{if(event.key==='Escape'&&drawerForm&&previewOpen){event.stopPropagation();setPreviewOpen(false);toggle.current?.focus();}}}>
   {drawerForm&&<button type="button" className="yu-workspace-preview-close" aria-label="关闭画面与审核" onClick={()=>{setPreviewOpen(false);toggle.current?.focus();}}><X size={20}/></button>}

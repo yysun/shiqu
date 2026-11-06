@@ -2,6 +2,7 @@
 // Separate status inspection from viewer demand and publish saved artwork as it arrives.
 // An open story reports its page so that page is drawn first; that never starts or retries work.
 // Polls reuse unchanged session rows and the active snapshot, so idle polling does not re-render the reader.
+// 写入 /read?id= 时保留当前历史条目的状态（返回键步骤登记的标记）。
 import type {StoryPublication} from '@/lib/story-publication';
 import {useEffect,useRef,useState} from 'react';
 import {randomId,request} from './shared';
@@ -46,7 +47,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   creation.current=null;generationMode.current=observeOnlyGeneration(s)?'observe':'generate';retryRequested.current=false;id.current=s.id;retries.current=new Map();
   setBusy(!observeOnlyGeneration(s));setError('');setActive(s);collect(s,true);
   // The task is saved. A blocked URL update must not report failure and invite a duplicate submission.
-  try{history.replaceState(null,'','/read?id='+s.id);}catch{}
+  try{history.replaceState(history.state,'','/read?id='+s.id);}catch{}
   setWake(v=>v+1);return s;
  }
  function recoveryFor(s:SessionView,faultId?:string){
@@ -58,7 +59,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
  function adopt(s:SessionView,readOnly=false,initialPage?:number){
   id.current=s.id;passive.current=readOnly;generationMode.current=readOnly||observeOnlyGeneration(s)?'observe':'generate';retryRequested.current=false;
   setActive(s);collect(s,true);setBusy(false);setError(s.state==='failed'?s.error||'生成失败，请选择对应问题恢复。':'');
-  try{history.replaceState(null,'','/read?id='+s.id);}catch{}
+  try{history.replaceState(history.state,'','/read?id='+s.id);}catch{}
   cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);
   if(s.story?.pages[0]?.image)cb.current.onStory(s.story,initialPage,s.saved);setWake(v=>v+1);
  }
@@ -68,7 +69,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   if(retry)recoveryFor(s,faultId);
   generationMode.current=retry||!observeOnlyGeneration(s)?'generate':'observe';retryRequested.current=retry;
   setBusy(retry);setError(!retry&&s.state==='failed'?s.error||'生成失败，请选择对应问题恢复。':'');setActive(s);collect(s,submitted);
-  history.replaceState(null,'','/read?id='+s.id);cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);
+  history.replaceState(history.state,'','/read?id='+s.id);cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);
   if(s.story?.pages[0]?.image)cb.current.onStory(s.story,initialPage??s.page,s.saved);setWake(v=>v+1);
  }
  async function checkImage(sessionId:string,page:number,image:string){

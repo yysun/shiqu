@@ -1,9 +1,11 @@
 // 生成服务与模型：保存的默认值用于新任务；已开始的步骤保持原配置，密钥只显示来源与存在状态。
 // 运维版式：顶部状态卡展示新任务配置及启动覆盖；提供方以卡片单选并标出密钥状态；
 // 各分区标记未保存更改；推理档位以分段控件逐项展示；底部常驻操作栏提供放弃更改、重新读取与保存。
+// 关闭时只在对话框是基础步骤（直接加载哈希）时去掉 #provider-settings；应用内打开的哈希条目由历史步骤登记释放。
 import {useEffect,useRef,useState} from 'react';
 import {AlertTriangle,ChevronRight,Cpu,Image as ImageIcon,KeyRound,RefreshCw,RotateCcw,SlidersHorizontal,Type} from 'lucide-react';
 import Sheet from './StorySheet';
+import {historySteps} from './historySteps';
 import {request} from './shared';
 import {imageKeyDraftForProviderChange,type ProviderSettings as Settings,type ProviderSettingsSave,type ProviderSettingsView} from '@/lib/provider-settings';
 import {codexReasoningEfforts} from '@/lib/codex-settings';
@@ -128,7 +130,7 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
   finally{saving.current=false;setBusy(false);}
  }
  return <>{showPrompt&&runtime?.configured===false&&!open&&<aside className="yu-provider-setup" role="status">请先配置生成服务。{access==='allowed'?<a href="#provider-settings">打开生成服务与模型</a>:<span>请使用本机或可信局域网地址打开 我的 → 生成服务与模型。</span>}</aside>}{showEntry&&access==='allowed'&&<button type="button" onClick={()=>{setOpen(true);void load();}}><Cpu size={20}/>生成服务与模型<ChevronRight size={18}/></button>}
- {open&&<Sheet title="生成服务与模型" busy={saving.current} onClose={()=>{setOpen(false);if(location.hash==='#provider-settings')history.replaceState(null,'',location.pathname+location.search);setKey('');setKeyAction('keep');setImageKey('');setImageKeyAction('keep');}}>
+ {open&&<Sheet title="生成服务与模型" busy={saving.current} onClose={()=>{setOpen(false);if(location.hash==='#provider-settings'&&historySteps.atBase())history.replaceState(history.state,'',location.pathname+location.search);setKey('');setKeyAction('keep');setImageKey('');setImageKeyAction('keep');}}>
   <div className="yu-provider-settings">
    <p className="yu-provider-intro">{view?.appliesToNewJobs?'与桌面、CLI 和技能共用。保存后用于新任务，无需重启；正在执行的任务保持原配置。':'与桌面、CLI 和技能共用。这里编辑保存的默认生成配置。'}</p>
    <section className={`yu-provider-status ${state.tone}`} aria-label="运行状态">
