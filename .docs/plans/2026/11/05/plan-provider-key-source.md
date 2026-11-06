@@ -19,7 +19,7 @@ settings view保留keyPresent，增加keyOverrides布尔与appliesToNewJobs布�
 - [x] 实现handler变量源、app门面/共享发现cache、coordinator每任务capture与只读可恢复调度；移除未落地重启方案。
 - [x] 更新UI密钥来源/新任务配置/保存反馈与重新读取含义，同步文档/技能与既有测试覆盖清单。
 - [x] 独立worktree预览pnpm test:changed --plan，按实际影响执行JS/typecheck/lint/native及匹配E2E；CR/VR按skill独立审查，不绕过full回退。
-- [ ] 合入主工作区并核对生产API的Codex/Gemini下一任务配置与Gemini key存在，不测试真实推理。
+- [x] 合入主工作区并核对生产API的Codex/Gemini下一任务配置与Gemini key存在，不测试真实推理。
 
 场景：`.docs/tests/test-provider-key-source.md`。IAB已知被Work设置禁用，自动化必要时采用隔离Chromium并披露；不触碰用户浏览器、不打包。工作区node_modules软链接只供依赖复用，须从本地git exclude排除，不能导致未知路径回退。
 
@@ -48,3 +48,30 @@ CR修正已完成：null capture不再回退live门面，直接付费请求立�
 TT 修正闭环：完整CLI启动+direct API+旧响应UI 27/27通过；按manifest直接消费者20文件full flags复核218项，217通过，1个fresh-desktop断言只因提示文字不含既有“配置生成服务”短语失败。保留既有错误文案后，最终desktop/local-server/完整UI 26/26通过；UI同时补旧响应reset中性反馈，删除密钥文案不承诺旧服务热更新。最终typecheck/lint通过，原生24/24与fmt证据不受这些TS/文案修正影响。日志：/tmp/shiqu-live-provider-corrections.log、/tmp/shiqu-live-provider-consumers.log、/tmp/shiqu-live-provider-final.log。合并复用原全量1443个未受影响pass、已修复启动矩阵和所有修正受影响消费者；不声称原full命令退出0，也不重复未受影响的全书/提供方矩阵。
 
 CR round2：CR fixed: 已修正null快照门控、旧响应宣称、显式启动DB副作用及冲突文档；rerun result passed。CR risk: non-low；CR review round: 2; reviewer: reused。最后仅调整错误提示兼容及旧响应reset中性反馈，待最终复核。
+
+最终CR：CR passed: no major findings。CR risk: non-low — 新任务热读配置及凭据快照影响生产派发。CR review round: 3; reviewer: reused (`lan_settings_review`)。未重复测试的无关pass证据复用，最终受影响边界验证已闭环。
+
+SS milestones：80eea3f（热更新与来源UI）、6b580ef（门控/显式启动/兼容修正）、433e2af（最终UI反馈与文案兼容）。主工作区已从75f712f快进至433e2af，保留所有并行手机/文档修改，不推送。
+
+生产只读核对通过：保存text=codex、image=gemini、Gemini keyPresent=true，next runtime同为codex/gemini，appliesToNewJobs=true、restartRequired=false、revision仍5。显式持久化密钥和组合配置在用户授权时已保存，代码合并后的验证只GET元数据，没有发起真实推理或改变故事。开发watcher仅为代码升级重载一次，之后设置变更不重启应用/进程/SQLite。
+
+证据已保存在 `.data/evidence/provider-key-source/`（full-run.json、各日志及390/1040截图），原全量命令exit1及后续修正证据完整保留，不宣称原全量退出0。IAB被Work设置禁用，UI验证使用隔离Playwright；未验证物理手机、Windows或打包。非阻断已知限制：非法但非空启动key的设置摘要configured仍可能显示true；实际reader/status、保存keep校验与付费派发已拒绝，真实有效key路径不受影响。
+
+VR passed: all acceptance criteria complete
+
+VR risk: non-low — 生产任务配置热更新涉及凭据、错误与超时隔离。
+VR review round: 1; reviewer: reused
+
+1. **完成**：新任务使用共享保存配置，旧任务保留原模型、错误映射和超时，无需重启。
+2. **完成**：密钥来源区分明确，覆盖优先级与保密规则保持；Gemini 密钥已按授权保存。
+3. **完成**：保存、已保存、重新读取含义清楚；没有新增重启接口，旧响应兼容回归通过。
+4. **完成**：只读与缺密钥门控、恢复派发、本地发布、缓存排空和损坏配置隔离均有证据。
+5. **完成**：最终源与 CR 一致；全量失败已由修正回归闭环，静态与原生检查通过。生产仅 GET 核对 Codex/Gemini、密钥存在及新任务生效，未推理。
+
+未声明原全量命令成功退出。UI 使用隔离 Chromium；未验证物理手机、Windows 或打包。已记录的非法启动密钥摘要一致性问题仍为非阻断限制。
+
+未执行测试或修改文件。
+
+DD：`.docs/done/2026/11/05/provider-key-source.md`。DD 已完成；用户于 2026-11-06 请求 GC，最终验收与交付记录随本次文档提交完成，未推送。用户再次授权如需可重启，实际开发watcher已加载新代码，appliesToNewJobs已证实true，无需再中断服务。
+
+最终设置页操作收敛已由 `2134f0e` 交付，详见 [交付记录](../../../../done/2026/11/06/provider-settings-actions.md)。本次 GC 仅提交本线程完成的设置故事记录，不包含独立的响应式布局和手机导航草案。
