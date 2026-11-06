@@ -6,7 +6,8 @@ import {X} from 'lucide-react';
 import './desktop.css';
 
 export default function DesktopReader({stage,panel,title,onClose}:{stage:ReactNode;panel:ReactNode|null;title:string;onClose:()=>void}){
- return <div className={'yu-reader-layout'+(panel?' has-panel':'')}>
+ // 主内容区是整个阅读布局（舞台 + 侧栏）；侧栏停靠时收窄的是其中的舞台。
+ return <div className={'yu-reader-layout'+(panel?' has-panel':'')} data-main="">
   {stage}
   {panel&&<aside className="yu-reader-panel" aria-label={title}>
    <header><h2>{title}</h2><button type="button" aria-label={'关闭'+title} onClick={onClose}><X size={20}/></button></header>

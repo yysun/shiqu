@@ -22,8 +22,10 @@ export async function seedReviewedStory(f){
  await until(async()=>(await f.read(revised.id)).reviewIssues?.length>0,30000);
  f.control.beforeText=original;return revised.id;
 }
-export async function seedStory(f,{title='乌龟报恩',confirm=true,length=3}={}){
+// pick=false：只建任务，停在尚未选题的选题阶段（可见“返回修改书籍”）。
+export async function seedStory(f,{title='乌龟报恩',confirm=true,length=3,pick=true}={}){
  const saved=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{bookId:'zhuangzi',theme:'原典故事',artStyle:'ink-pencil',length:'auto',voice:false,productionPrompt:'',narrativeDetail:'balanced'}});
+ if(!pick)return saved.id;
  await f.startDiscovery(saved.id,title);await f.demand(saved.id,crypto.randomUUID());
  await until(async()=>(await f.read(saved.id)).intake?.phase==='choosing',20000);
  await f.json(`sessions/${saved.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(saved.id)).intake.generation,action:'choose',batch:0,index:0});

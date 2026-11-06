@@ -1,7 +1,7 @@
 /* 故事工作区：同一组元素按宽度重排，跨断点不重新挂载。各栏在两层页眉之下独立滚动。
    ≥1280px：分镜列表 · 中栏 · 画面与审核三栏；1024–1279px：分镜横条在上，中栏与缩小画面的右栏并排；
    768–1023px：分镜横条在上，中栏全宽，右栏为“画面与审核”抽屉。 */
-.yu-desktop .yu-desktop-main.yu-workspace-main{max-width:1600px;padding-top:16px;padding-bottom:16px}
+.yu-desktop .yu-desktop-main.yu-workspace-main{padding-top:16px;padding-bottom:16px}
 .yu-desktop .yu-workspace{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr);grid-template-areas:"header" "frames" "center";gap:14px;height:calc(100dvh - var(--d-bar) - 32px);min-height:420px}
 .yu-desktop .yu-workspace:not(.has-frames){grid-template-rows:auto minmax(0,1fr);grid-template-areas:"header" "center"}
 

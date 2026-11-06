@@ -273,7 +273,9 @@ export default function Reader(){
  },[desktop]);
  useEffect(()=>{
   const list=raised.current;if(!list)return;raised.current=null;
-  for(const {dialog,focus} of list)if(dialog.isConnected&&dialog.open){dialog.close();dialog.showModal();focus?.focus({preventScroll:true});}
+  // 推迟到下一帧（绘制之前）：开发环境 StrictMode 会在本效果之后重跑新面板的挂载效果，再次 showModal。
+  const frame=requestAnimationFrame(()=>{for(const {dialog,focus} of list)if(dialog.isConnected&&dialog.open){dialog.close();dialog.showModal();focus?.focus({preventScroll:true});}});
+  return()=>cancelAnimationFrame(frame);
  },[desktop]);
  function bookmark(){if(!story)return;const value=!saved;setSaved(value);remember(story,page,value);if(value)track('save');notify(value?'收好了，下次接着看。':'已移出收藏');}
  async function favoriteFromShelf(id:string,value:boolean){
