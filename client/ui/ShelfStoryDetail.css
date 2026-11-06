@@ -1,5 +1,5 @@
-/* 桌面书架与故事详情：网格按可用宽度自动排列；≥1024px 详情停靠为右侧粘性栏，768–1023px 为右侧抽屉。
-   抽屉与停靠是同一元素，只由 CSS 改变外观，跨断点不重新挂载。 */
+/* 桌面书架与故事详情：网格按可用宽度自动排列；≥1024px 详情停靠为右侧粘性栏，更窄时没有右栏（点卡片直接阅读）。
+   详情顶部是 9:16 的预览舞台（沿用阅读页的胶片与滑动层），旁白叠在画面底部；下方是阅读与故事设置两个按钮。 */
 .yu-desktop .yu-library{display:grid;gap:clamp(20px,2.4vw,40px);align-items:start}
 .yu-desktop .yu-library .yu-shelf-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:clamp(12px,1.4vw,20px)}
 .yu-desktop .yu-library .yu-shelf-row-readable.is-selected{border-color:#7e987a;box-shadow:0 0 0 2px #7e987a55}
@@ -8,26 +8,28 @@
 
 .yu-desktop .yu-shelf-detail{display:flex;flex-direction:column;gap:14px;padding:20px;border:1px solid #e3e6da;border-radius:16px;background:#fdfbf3;color:#304c37;min-width:0}
 .yu-desktop .yu-shelf-detail.is-empty{justify-content:center;min-height:240px;color:var(--yu-meta);text-align:center;border-style:dashed}
-.yu-desktop .yu-shelf-detail-cover{display:grid;place-items:center;aspect-ratio:3/4;max-height:min(360px,42vh);border-radius:12px;overflow:hidden;background:#e6ecda;color:#7e987a}
-.yu-desktop .yu-shelf-detail-cover img{width:100%;height:100%;object-fit:cover}
+.yu-desktop .yu-shelf-viewer{display:grid;gap:6px}
+.yu-desktop .yu-shelf-viewer.is-empty{place-items:center;aspect-ratio:9/16;max-height:min(480px,46vh);border-radius:12px;background:#e6ecda;color:#7e987a}
+.yu-desktop .yu-shelf-viewer-stage{position:relative;justify-self:center;height:min(480px,46vh);aspect-ratio:9/16;max-width:100%;border-radius:12px;overflow:hidden;background:#19392c;color:#f6f3e7}
+.yu-desktop .yu-shelf-viewer-stage .yu-film-frame .yu-scene{mask-image:none}
+.yu-desktop .yu-shelf-viewer-stage .yu-swipe-surface{border-radius:inherit}
+.yu-desktop .yu-shelf-viewer-stage .yu-swipe-surface:focus-visible{outline:3px solid #c6ae80;outline-offset:-3px}
+.yu-desktop .yu-shelf-viewer-pending{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:10px;color:#cdd8c1;font-size:13px}
+.yu-desktop .yu-shelf-viewer-caption{position:absolute;left:0;right:0;bottom:0;z-index:1;max-height:45%;overflow:hidden;margin:0;padding:40px 16px 14px;background:linear-gradient(to bottom,#10261f00,#10261fd9 40px,#0d241cf2);font-family:var(--serif);font-size:15px;line-height:1.75;white-space:pre-line;color:#fff9e9;pointer-events:none}
+.yu-desktop .yu-shelf-viewer-stage.is-caption-hidden .yu-shelf-viewer-caption{visibility:hidden}
+.yu-desktop .yu-shelf-viewer-nav{display:flex;align-items:center;justify-content:center;gap:12px;font-family:Georgia;font-size:13px;letter-spacing:1px;color:var(--yu-meta)}
+.yu-desktop .yu-shelf-viewer-nav button{display:grid;place-items:center;width:44px;height:44px;border:1px solid #dce3cf;border-radius:50%;background:transparent;color:#35583e}
+.yu-desktop .yu-shelf-viewer-nav button:disabled{opacity:.35}
 .yu-desktop .yu-shelf-detail h2{font-family:var(--serif);font-size:clamp(20px,calc(.6vw + 15.4px),24px);font-weight:600;line-height:1.4;overflow-wrap:anywhere}
-.yu-desktop .yu-shelf-detail h2:focus-visible{outline:3px solid #c6ae80;outline-offset:3px;border-radius:4px}
 .yu-desktop .yu-shelf-detail-meta{font-size:13px;color:var(--yu-meta);line-height:1.7}
 .yu-desktop .yu-shelf-detail-progress{display:grid;gap:6px;font-size:13px;color:var(--yu-meta)}
 .yu-desktop .yu-shelf-detail-status{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-radius:10px;background:#eef3e5;font-size:13px}
-.yu-desktop .yu-shelf-detail-primary{display:grid;gap:8px}
+.yu-desktop .yu-shelf-detail-primary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .yu-desktop .yu-shelf-detail-primary .yu-primary{display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px}
-.yu-desktop .yu-shelf-detail-secondary,.yu-desktop .yu-shelf-detail-manage button{display:flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px;border:1px solid #dce3cf;border-radius:10px;background:transparent;color:#35583e;font-size:14px;text-align:left}
-.yu-desktop .yu-shelf-detail-secondary{justify-content:center}
-/* 详情栏较窄，下载按钮单列排列，标签不折行 */
-.yu-desktop .yu-shelf-detail-downloads .yu-settings-formats{display:grid;grid-template-columns:1fr;gap:6px}
-.yu-desktop .yu-shelf-detail-downloads .yu-settings-download{justify-content:flex-start;min-height:48px;padding:8px 12px}
-.yu-desktop .yu-shelf-detail-manage{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.yu-desktop .yu-shelf-detail-manage .yu-shelf-detail-delete{color:#9a3f2a;border-color:#ecd3c9}
+.yu-desktop .yu-shelf-detail-secondary{display:flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px;border:1px solid #dce3cf;border-radius:10px;background:transparent;color:#35583e;font-size:14px;justify-content:center}
 .yu-desktop .yu-shelf-detail button:focus-visible{outline:3px solid #c6ae80;outline-offset:2px}
-.yu-desktop .yu-shelf-detail-close{position:absolute;top:12px;right:12px;display:grid;place-items:center;width:44px;height:44px;border:0;border-radius:50%;background:#eef0e5;color:#35583e}
 @media (hover:hover){
- .yu-desktop .yu-shelf-detail-secondary:hover,.yu-desktop .yu-shelf-detail-manage button:hover{background:#eef3e5}
+ .yu-desktop .yu-shelf-detail-secondary:hover,.yu-desktop .yu-shelf-viewer-nav button:hover:not(:disabled){background:#eef3e5}
 }
 
 /* ≥1024px：右侧停靠的粘性详情栏 */
@@ -36,10 +38,3 @@
  /* 最大高度扣除顶栏、上方 24px 与主区底部 56px 留白，滚到页底时粘性栏不会被推到顶栏下面 */
 .yu-desktop .yu-shelf-detail{position:sticky;top:calc(var(--d-bar) + 24px);max-height:calc(100dvh - var(--d-bar) - 88px);overflow:auto}
 }
-/* 768–1023px：右侧抽屉，未打开时不可见也不可聚焦 */
-@media (max-width:1023px){
- .yu-desktop .yu-shelf-detail{position:fixed;z-index:45;top:0;right:0;bottom:0;width:min(400px,88vw);padding-top:64px;border-radius:16px 0 0 16px;overflow:auto;box-shadow:-12px 0 40px #1b352526;transform:translateX(105%);visibility:hidden;transition:transform .22s ease,visibility 0s .22s}
- .yu-desktop .yu-shelf-detail.is-open{transform:none;visibility:visible;transition:transform .22s ease}
- .yu-desktop .yu-shelf-detail-scrim{position:fixed;inset:0;z-index:44;background:#142c2555}
-}
-@media (prefers-reduced-motion:reduce){.yu-desktop .yu-shelf-detail{transition:none}}

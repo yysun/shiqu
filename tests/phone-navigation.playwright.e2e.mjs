@@ -206,12 +206,12 @@ test('PHONE-NAV-10: medium and large tiers close drawers, the workspace and the 
  await b.execute(async()=>{
   const {page,url,ids}=b,card=id=>page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`);
   await enter(page,url);await topNav(page,'书架');
-  // 900：书架详情抽屉
-  await card(ids[0]).click();await page.locator('.yu-shelf-detail.is-open').waitFor();await settle(page);
-  await back(page);assert.equal(await page.locator('.yu-shelf-detail.is-open').count(),0,'back closes the drawer only');
+  // 900：书架没有右栏，点卡片打开阅读，返回回到书架
+  await card(ids[0]).click();await page.locator('.yu-reader').waitFor();await settle(page);
+  await back(page);assert.equal(await reading(page),false,'back closes the reader');
   assert.ok(await page.locator('.yu-library').isVisible());
   // 1280：工作区返回书架并保留选中；新建页返回发现
-  await size(page,1280);await card(ids[0]).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'制作流程'}).click();await page.locator('.yu-workspace').waitFor();await settle(page);
+  await size(page,1280);await card(ids[0]).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'故事设置'}).click();await page.locator('.yu-workspace').waitFor();await settle(page);
   await back(page);assert.equal(await page.locator('.yu-workspace').count(),0);assert.ok(await page.locator('.yu-library').isVisible(),'back returns to 书架');
   assert.equal(await page.locator('.yu-shelf-row.is-selected').getAttribute('data-story-id'),ids[0],'selection kept');
   await topNav(page,'发现');await page.locator('.yu-topbar-create').click();await page.locator('.yu-create-form').waitFor();await settle(page);

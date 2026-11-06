@@ -77,19 +77,29 @@ test('DESKTOP-LAYOUT-01: small tier keeps the phone UI; wider phone viewports go
  });
 });
 
-test('DESKTOP-LAYOUT-03: library selects into a docked panel, a drawer below 1024px, and keeps selection across reflow',options,async t=>{
+test('DESKTOP-LAYOUT-03: library selects into a docked panel at 1024px and up, opens the reader below it, and keeps selection across reflow',options,async t=>{
  const b=await seededBrowser(t,'DRL-03',{viewport:{width:1280,height:800},completed:3});
  await b.execute(async()=>{
   const {page,url}=b,top=name=>page.locator('.yu-topbar nav').getByRole('button',{name}).click();
   const cards=page.locator('.yu-shelf-row-readable'),detail=page.locator('.yu-shelf-detail');
   await page.goto(url);await top('书架');await cards.first().waitFor();
   assert.ok(await page.locator('.yu-library .yu-shelf-grid').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length)>1,'multi-column grid');
-  // 点击卡片：右侧停靠详情显示所选故事与全部操作
+  // 点击卡片：右侧停靠详情显示所选故事、预览与两个按钮（阅读、故事设置）；收藏、删除在卡片上，其余在故事设置里
   await cards.nth(0).locator('.yu-shelf-card-details').click();
   await detail.getByRole('heading',{level:2}).waitFor();
-  for(const name of ['阅读','制作流程','收藏','修改故事名','署名与转载','删除故事'])assert.ok(await detail.getByRole('button',{name}).count(),name);
-  for(const name of [/下载 PDF/,/下载 PNG/,/下载 ZIP/])assert.ok(await detail.getByRole('button',{name}).count());
+  for(const name of ['阅读','故事设置'])assert.ok(await detail.getByRole('button',{name,exact:true}).count(),name);
+  for(const name of ['收藏','修改故事名','署名与转载','删除故事',/下载 PDF/])assert.equal(await detail.getByRole('button',{name}).count(),0,String(name));
   assert.equal(await page.locator('.yu-reader').count(),0,'selecting never opens the reader');
+  // 详情顶部是故事预览：复用阅读页胶片，按钮、方向键都只在预览里翻页，不打开阅读、不改阅读进度
+  const viewer=detail.locator('.yu-shelf-viewer'),counter=viewer.locator('.yu-shelf-viewer-nav [aria-live]');
+  const progress=await cards.nth(0).locator('.yu-shelf-reading-meta').textContent();
+  await viewer.locator('.yu-scene.is-current').waitFor();
+  await viewer.locator('.yu-swipe-surface').focus();await page.keyboard.press('Home');assert.match(await counter.textContent(),/^01 \//);
+  await viewer.getByRole('button',{name:'下一幅',exact:true}).click();assert.match(await counter.textContent(),/^02 \//);
+  await viewer.locator('.yu-swipe-surface').focus();await page.keyboard.press('ArrowLeft');assert.match(await counter.textContent(),/^01 \//);
+  assert.ok(await viewer.locator('.yu-shelf-viewer-caption').count(),'the current caption is shown');
+  assert.equal(await page.locator('.yu-reader').count(),0,'paging the preview never opens the reader');
+  await page.waitForTimeout(500);assert.equal(await cards.nth(0).locator('.yu-shelf-reading-meta').textContent(),progress,'preview paging keeps reading progress');
   await page.screenshot({path:path.join(b.directory,'library-1280.png')});
   // 键盘：Tab 到下一张卡片，Enter 只选择
   await cards.nth(1).locator('.yu-shelf-card-details').focus();await page.keyboard.press('Enter');
@@ -103,26 +113,24 @@ test('DESKTOP-LAYOUT-03: library selects into a docked panel, a drawer below 102
   await cards.nth(0).locator('.yu-shelf-reading-footer').click();await page.locator('.yu-reader').waitFor();
   await page.getByRole('button',{name:'返回发现',exact:true}).click();await top('书架');await cards.first().waitFor();
 
-  // 中档 900：抽屉，打开时焦点在标题，Escape 关闭并把焦点还给卡片
+  // 中档 900：没有右栏，点卡片与手机一样直接打开全屏阅读，关闭阅读回到书架
   await page.setViewportSize({width:900,height:800});await page.waitForTimeout(300);
+  assert.equal(await detail.count(),0,'no right-hand panel below 1024px');
+  await page.screenshot({path:path.join(b.directory,'library-900.png')});
   const second=cards.nth(1).locator('.yu-shelf-card-details');
-  await second.click();await page.waitForFunction(()=>document.activeElement?.matches('.yu-shelf-detail h2'));
-  assert.equal(await page.locator('.yu-library-grid').evaluate(el=>el.inert),true,'grid is inert while the drawer is open');
-  await page.screenshot({path:path.join(b.directory,'library-drawer-900.png')});
-  await page.keyboard.press('Escape');
-  await page.waitForFunction(()=>!document.querySelector('.yu-shelf-detail.is-open')&&document.activeElement?.closest('.yu-shelf-row-readable')?.classList.contains('is-selected'));
-  // 打开抽屉后加宽到 1100：同一故事停靠显示，不重新加载
-  await second.click();await page.locator('.yu-shelf-detail.is-open').waitFor();
-  const title=await detail.getByRole('heading',{level:2}).textContent();
+  await second.click();await page.locator('.yu-reader').waitFor();
+  await page.getByRole('button',{name:'返回发现',exact:true}).click();await cards.first().waitFor();
+  // 1100 选中第二篇并把焦点放进右栏；变窄到 900 右栏卸载，焦点回到选中的卡片
   await page.setViewportSize({width:1100,height:800});await page.waitForTimeout(300);
-  assert.equal(await detail.getByRole('heading',{level:2}).textContent(),title);
-  assert.equal(await page.locator('.yu-library-grid').evaluate(el=>el.inert),false,'docked details never make the grid inert');
-  // 反向：1100 时焦点在卡片，变窄到 900 不弹出抽屉，网格不 inert，焦点与选中保留，Enter 打开抽屉
-  await second.focus();await page.setViewportSize({width:900,height:800});await page.waitForTimeout(300);
-  assert.equal(await page.locator('.yu-shelf-detail.is-open').count(),0,'a reflow never opens the drawer');
-  assert.equal(await page.locator('.yu-library-grid').evaluate(el=>el.inert),false);
-  assert.ok(await second.evaluate(el=>el===document.activeElement),'focus stays on the card');
-  await page.keyboard.press('Enter');await page.locator('.yu-shelf-detail.is-open').waitFor();
+  await second.click();await detail.getByRole('heading',{level:2}).waitFor();
+  await detail.getByRole('button',{name:'故事设置'}).focus();
+  await page.setViewportSize({width:900,height:800});await page.waitForTimeout(300);
+  assert.equal(await detail.count(),0);
+  assert.ok(await second.evaluate(el=>el===document.activeElement),'focus returns to the card');
+  // 加宽回 1100：选中保留，右栏显示同一篇
+  await page.setViewportSize({width:1100,height:800});await page.waitForTimeout(300);
+  assert.ok(await cards.nth(1).evaluate(el=>el.classList.contains('is-selected')),'selection kept across reflow');
+  await detail.getByRole('heading',{level:2}).waitFor();
  });
 });
 
@@ -137,7 +145,7 @@ test('DESKTOP-LAYOUT-04: the story workspace keeps frames, editor, artwork and i
   const workspace=page.locator('.yu-workspace'),center=page.locator('.yu-workspace-center'),preview=page.locator('.yu-workspace-preview');
   await page.goto(url);await top('书架');
   await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();
-  await page.locator('.yu-shelf-detail').getByRole('button',{name:'制作流程'}).click();
+  await page.locator('.yu-shelf-detail').getByRole('button',{name:'故事设置'}).click();
   await workspace.waitFor();
   await workspace.getByRole('navigation',{name:'工作区分区'}).getByRole('button',{name:'修改故事'}).click();
   await center.getByRole('button',{name:'分镜',exact:true}).click();
@@ -346,7 +354,7 @@ test('DESKTOP-LAYOUT-02: the top bar stays visible, never covers content, and ev
   for(let i=0;i<40&&!await cards.first().evaluate(el=>el===document.activeElement);i++)await page.keyboard.press('Shift+Tab');
   assert.ok((await cards.first().boundingBox()).y>=barBottom,'focused card fully below the bar');
   // 工作区 → 书架；再进工作区 → 发现
-  const openWorkspace=async()=>{await topNav(page,'书架');await cards.first().click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'制作流程'}).click();await page.locator('.yu-workspace').waitFor();};
+  const openWorkspace=async()=>{await topNav(page,'书架');await cards.first().click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'故事设置'}).click();await page.locator('.yu-workspace').waitFor();};
   await openWorkspace();assert.equal(await bar.locator('[aria-current=page]').count(),0,'no item is active in the workspace');
   await topNav(page,'书架');await page.locator('.yu-library').waitFor();assert.equal(await page.locator('.yu-workspace').count(),0);
   await openWorkspace();await topNav(page,'发现');await page.locator('.yu-discover').waitFor();assert.equal(await page.locator('.yu-workspace').count(),0);
@@ -373,22 +381,26 @@ test('DESKTOP-LAYOUT-08: modal dialogs open centered; toasts stay clear of the t
   await page.goto(url);await topNav(page,'我的');
   const groups=page.locator('.yu-profile-group');assert.equal(Math.round((await groups.nth(1).boundingBox()).y),Math.round((await groups.nth(2).boundingBox()).y),'two columns');
   for(const [entry,title] of [[/阅读偏好/,'舒服地读'],[/已删除的故事/,'已删除的故事']]){await page.getByRole('button',{name:entry}).click();await page.getByRole('dialog',{name:title,exact:true}).waitFor();await page.waitForTimeout(250);assert.ok(await centeredSheet(page,title),title);await closeTop(page);}
-  await topNav(page,'书架');await page.locator(`[data-story-id="${ids[0]}"] .yu-shelf-card-details`).click();
-  const detail=page.locator('.yu-shelf-detail'),before=commands.length;
-  for(const [label,title] of [['修改故事名','修改故事名'],['署名与转载','署名与转载'],['删除故事','删除这篇故事？']]){
-   await detail.getByRole('button',{name:label}).click();await page.getByRole('dialog',{name:title,exact:true}).waitFor();await page.waitForTimeout(250);
-   assert.ok(await centeredSheet(page,title),title);
-   if(title==='删除这篇故事？')await page.getByRole('button',{name:'保留故事',exact:true}).click();else await closeTop(page);
+  await topNav(page,'书架');
+  const card=page.locator(`[data-story-id="${ids[0]}"]`),before=commands.length;
+  // 卡片上的删除：确认框居中，保留故事
+  await card.getByRole('button',{name:/^删除《/}).click();await page.getByRole('dialog',{name:'删除这篇故事？',exact:true}).waitFor();await page.waitForTimeout(250);
+  assert.ok(await centeredSheet(page,'删除这篇故事？'),'删除这篇故事？');await page.getByRole('button',{name:'保留故事',exact:true}).click();
+  // 右栏“故事设置”（与阅读页设置按钮同一入口）里的改名、署名与下载也是居中对话框
+  await card.locator('.yu-shelf-card-details').click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'故事设置'}).click();await page.locator('.yu-workspace').waitFor();
+  const settings=page.locator('.yu-workspace-center');
+  for(const [label,title] of [['修改故事名','修改故事名'],['编辑署名与转载说明','署名与转载']]){
+   await settings.getByRole('button',{name:label,exact:true}).click();await page.getByRole('dialog',{name:title,exact:true}).waitFor();await page.waitForTimeout(250);
+   assert.ok(await centeredSheet(page,title),title);await closeTop(page);
   }
   assert.equal(commands.slice(before).filter(c=>/rename|publication|title|library\//.test(c.path)).length,0,'nothing saved');
-  await detail.getByRole('button',{name:/下载 PDF/}).click();await page.getByRole('dialog',{name:'作品还未署名',exact:true}).waitFor();await page.waitForTimeout(250);
+  await settings.getByRole('button',{name:/下载 PDF/}).click();await page.getByRole('dialog',{name:'作品还未署名',exact:true}).waitFor();await page.waitForTimeout(250);
   assert.ok(await centeredSheet(page,'作品还未署名'),'作品还未署名');await page.getByRole('dialog',{name:'作品还未署名',exact:true}).getByRole('button',{name:'取消',exact:true}).click();
-  await detail.getByRole('button',{name:'制作流程'}).click();await page.locator('.yu-workspace').waitFor();
-  await page.locator('.yu-workspace-center').getByText('替换选题',{exact:true}).first().click();await page.getByRole('dialog',{name:'替换选题',exact:true}).getByRole('button',{name:'取消替换',exact:true}).waitFor();await page.waitForTimeout(250);
+  await settings.getByText('替换选题',{exact:true}).first().click();await page.getByRole('dialog',{name:'替换选题',exact:true}).getByRole('button',{name:'取消替换',exact:true}).waitFor();await page.waitForTimeout(250);
   assert.ok(await centeredSheet(page,'替换选题'),'替换选题');await page.getByRole('dialog',{name:'替换选题',exact:true}).getByRole('button',{name:'取消替换',exact:true}).click();await page.waitForTimeout(300);
-  await topNav(page,'书架');await page.locator(`[data-story-id="${ids[0]}"] .yu-shelf-card-details`).click();
-  // 收藏触发提示：提示可见且不压住顶栏
-  await detail.getByRole('button',{name:'收藏'}).click();const toast=page.locator('.yu-toast');await toast.waitFor();
+  await topNav(page,'书架');
+  // 卡片上的收藏触发提示：提示可见且不压住顶栏
+  await card.getByRole('button',{name:/^收藏《/}).click();const toast=page.locator('.yu-toast');await toast.waitFor();
   const toastBox=await toast.boundingBox(),barBox=await page.locator('.yu-topbar').boundingBox();
   assert.ok(toastBox.y>barBox.y+barBox.height&&toastBox.y+toastBox.height<=800,'toast visible and clear of the bar');
   // 选题工作区里的“修改故事”与“故事原文”也是居中对话框
@@ -396,7 +408,7 @@ test('DESKTOP-LAYOUT-08: modal dialogs open centered; toasts stay clear of the t
   for(const [trigger,title] of [['原文','故事原文'],['制作要求','修改故事'],['重新选择故事','重新选择故事']]){await page.locator('.yu-workspace-center').getByText(trigger,{exact:true}).first().click();await page.getByRole('dialog',{name:title,exact:true}).waitFor();await page.waitForTimeout(250);assert.ok(await centeredSheet(page,title),title);await closeTop(page);}
   // 删除后的撤销条：可见且不压住顶栏
   await page.locator('.yu-workspace').getByRole('button',{name:'返回'}).click();await topNav(page,'书架');
-  await page.locator(`[data-story-id="${ids[0]}"] .yu-shelf-card-details`).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'删除故事'}).click();
+  await page.locator(`[data-story-id="${ids[0]}"]`).getByRole('button',{name:/^删除《/}).click();
   await page.getByRole('button',{name:'删除故事',exact:true}).last().click();const undo=page.locator('.yu-undo-notice');await undo.waitFor();
   const undoBox=await undo.boundingBox(),bar=await page.locator('.yu-topbar').boundingBox();assert.ok(undoBox.y>bar.y+bar.height&&undoBox.y+undoBox.height<=800,'undo notice visible and clear of the bar');
  });
@@ -412,9 +424,11 @@ test('DESKTOP-LAYOUT-09: tiers switch at 768, reflow at 1024 and 1280, and cap c
   await page.goto(url);
   await size(767);assert.equal(await layout(),'phone');await noOverflow('767');
   await size(768);assert.equal(await layout(),'shell');await page.locator('.yu-topbar').waitFor();await noOverflow('768');
-  // 书架详情：1023 抽屉，1024 停靠
-  await topNav(page,'书架');await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();
-  for(const [width,position] of [[1023,'fixed'],[1024,'sticky']]){await size(width);assert.equal(await page.locator('.yu-shelf-detail').evaluate(el=>getComputedStyle(el).position),position,`library details at ${width}`);await noOverflow('library '+width);}
+  // 书架详情：1024 停靠右栏，1023 没有右栏
+  await size(1024);await topNav(page,'书架');await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();
+  assert.equal(await page.locator('.yu-shelf-detail').evaluate(el=>getComputedStyle(el).position),'sticky','library details at 1024');await noOverflow('library 1024');
+  await size(1023);assert.equal(await page.locator('.yu-shelf-detail').count(),0,'no library details at 1023');await noOverflow('library 1023');
+  await size(1024);await page.locator('.yu-shelf-detail').waitFor();
   // 我的：1023 单栏，1024 两栏
   await topNav(page,'我的');const columns=()=>page.locator('.yu-profile').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length);
   await size(1023);assert.equal(await columns(),1);await size(1024);assert.equal(await columns(),2);
@@ -423,7 +437,7 @@ test('DESKTOP-LAYOUT-09: tiers switch at 768, reflow at 1024 and 1280, and cap c
   await size(1023);assert.ok((await form.boundingBox()).y>(await choices.boundingBox()).y+100,'stacked below 1024');
   await size(1024);assert.ok((await form.boundingBox()).x>(await choices.boundingBox()).x+100,'side by side at 1024');await noOverflow('create');
   // 工作区：1279 横条，1280 三栏
-  await topNav(page,'书架');await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'制作流程'}).click();await page.locator('.yu-workspace').waitFor();
+  await topNav(page,'书架');await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'故事设置'}).click();await page.locator('.yu-workspace').waitFor();
   const frames=page.locator('.yu-workspace-frames'),center=page.locator('.yu-workspace-center');
   await size(1279);assert.ok((await frames.boundingBox()).y+(await frames.boundingBox()).height<=(await center.boundingBox()).y+1,'strip above the center');
   await size(1280);assert.ok((await frames.boundingBox()).x+(await frames.boundingBox()).width<=(await center.boundingBox()).x+1,'list beside the center');await noOverflow('workspace');
@@ -442,7 +456,7 @@ test('DESKTOP-LAYOUT-10: resizing across the switch keeps views, drafts, frames 
  const b=await seededBrowser(t,'DRL-10',{viewport:{width:1280,height:800},completed:0});
  await b.execute(async()=>{
   const {page,url,f}=b,id=await seedReviewedStory(f),size=async(width,height=800)=>{await page.setViewportSize({width,height});await page.waitForTimeout(400);};
-  const openWorkspace=async()=>{await page.goto(url);await topNav(page,'书架');await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'制作流程'}).click();await page.locator('.yu-workspace').waitFor();};
+  const openWorkspace=async()=>{await page.goto(url);await topNav(page,'书架');await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'故事设置'}).click();await page.locator('.yu-workspace').waitFor();};
   // 旋转：工作区里打开“修改故事名”并输入，跨档两次后仍在最上层，焦点与输入保留
   await size(1133,744);await openWorkspace();await page.locator('.yu-workspace-center').getByRole('button',{name:'修改故事名',exact:true}).click();
   const rename=page.getByRole('dialog',{name:'修改故事名',exact:true});await rename.getByLabel('故事名',{exact:true}).fill('转屏后的故事名');
@@ -516,7 +530,7 @@ test('DESKTOP-LAYOUT-11: sweeping 320–2560px changes structure only at 768, ne
    {name:'discover',headings:['.yu-intro h1','.yu-generation-note p'],setup:async()=>{await page.goto(url);await topNav(page,'发现');}},
    {name:'shelf',headings:['.yu-shelf h1'],setup:async()=>{await page.goto(url);await topNav(page,'书架');}},
    {name:'me',headings:['.yu-profile-group h2'],setup:async()=>{await page.goto(url);await topNav(page,'我的');}},
-   {name:'workspace',headings:['.yu-revision-field'],setup:async()=>{await page.goto(url);await topNav(page,'书架');await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'制作流程'}).click();await page.locator('.yu-workspace').getByRole('navigation',{name:'工作区分区'}).getByRole('button',{name:'修改故事'}).click();await page.locator('.yu-workspace-center').getByRole('button',{name:'分镜',exact:true}).click();}},
+   {name:'workspace',headings:['.yu-revision-field'],setup:async()=>{await page.goto(url);await topNav(page,'书架');await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'故事设置'}).click();await page.locator('.yu-workspace').getByRole('navigation',{name:'工作区分区'}).getByRole('button',{name:'修改故事'}).click();await page.locator('.yu-workspace-center').getByRole('button',{name:'分镜',exact:true}).click();}},
    {name:'create',headings:['.yu-choice-label'],setup:async()=>{await page.goto(url);await page.locator('.yu-topbar-create').click();await page.locator('.yu-create-form').waitFor();}},
    {name:'reader',headings:['.yu-scene-caption>p'],setup:async()=>{await b.reader(id);await page.locator('.yu-scene.is-current').waitFor();await page.getByRole('button',{name:'分镜列表',exact:true}).click();}},
   ];
@@ -561,14 +575,14 @@ test('DESKTOP-LAYOUT-08b: the provider dialog is a wide centered dialog whose sa
  const top=await dialog.locator('.yu-provider-actions').boundingBox();assert.ok(top.y+top.height<=800,'actions visible at the top too');
 });
 
-test('DESKTOP-LAYOUT-03b: on a touch tablet in the medium tier, top-bar and drawer controls are 44px and form text is 16px',options,async t=>{
+test('DESKTOP-LAYOUT-03b: on a touch tablet in the medium tier, top-bar controls are 44px, form text is 16px and a story opens full screen',options,async t=>{
  const b=await seededBrowser(t,'DRL-03b',{viewport:{width:900,height:800},completed:1,touch:true});
  await b.execute(async()=>{
   const {page,url,ids}=b;await page.goto(url);
   assert.equal(await page.locator('.yu-world').getAttribute('data-layout'),'shell');
   for(const el of await page.locator('.yu-topbar button').all()){const box=await el.boundingBox();assert.ok(box.height>=44&&box.width>=44,'top-bar target 44px');}
   await topNav(page,'书架');assert.equal(await page.locator('.yu-shelf-search input').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)),16,'16px form text on coarse pointers');
-  await page.locator(`[data-story-id="${ids[0]}"] .yu-shelf-card-details`).click();await page.locator('.yu-shelf-detail.is-open').waitFor();await page.waitForTimeout(300);
-  for(const el of await page.locator('.yu-shelf-detail button').all())if(await el.isVisible()){const box=await el.boundingBox();assert.ok(box.height>=44,'drawer control at least 44px tall');}
+  await page.locator(`[data-story-id="${ids[0]}"] .yu-shelf-card-details`).click();await page.locator('.yu-reader').waitFor();
+  assert.equal(await page.locator('.yu-shelf-detail').count(),0,'no side panel; the reader takes the screen');
  });
 });

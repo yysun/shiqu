@@ -48,7 +48,7 @@ Setup:
    - **替换选题:** from 故事设置, 替换选题 shows without 故事设置 underneath. In today's flow, choosing a candidate inside 替换选题 submits the replacement, so no setup sub-sheet can open there before it; the two-level limit for nested setup sheets is covered by case 11's 故事原文. 取消替换 brings 故事设置 back, and the server holds one reselection session throughout. Counting back presses afterwards: one closes 故事设置, the next closes the reader, the next leaves the app, and none is dead.
    - **修改分镜 back count:** after 修改分镜, back closes 修改故事, the next closes 故事设置, and none is dead.
 10. **Medium and large steps.**
-    - **At 900:** library details drawer → back closes the drawer only.
+    - **At 900:** 书架 has no side panel, so a card opens the reader → back closes the reader and returns to 书架.
     - **At 1280:** workspace → back returns to 书架 with the selection kept. Create page → back returns to 发现.
     - **Reader at 1280 with the docked 分镜列表**, resized to 900 (it becomes a drawer): back closes the drawer, and the next back returns to 书架.
 11. **Resize keeps the history consistent.** Open 故事设置 and 修改故事 at 390, resize to 1280 (the workspace), then back to 390. Press back until the app is left. Each press closes exactly one step, and none is dead. Repeat with a nested setup sub-sheet open (an intake's 故事原文) across the switch: the first back closes the sub-sheet, not its parent. Repeat with rename open over 故事设置 across 390 → 900 → 390: the first back closes rename, and 故事设置 stays.

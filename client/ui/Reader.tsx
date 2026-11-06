@@ -547,18 +547,15 @@ export default function Reader(){
   exitToShell(steps);
   if(target==='create')choose();else{setTab(target);window.scrollTo({top:0,behavior:'instant'});}
  }
- // 桌面书架：网格选择故事，详情停靠或以抽屉显示；所有操作调用现有处理函数。
- const selectedStory=shelf.find(item=>item.id===selectedStoryId)||null;
+ // 桌面书架：≥1024px 网格选择故事，右栏停靠预览、阅读与故事设置（与阅读页设置按钮同一入口）；更窄时没有右栏，点卡片直接打开阅读。
+ const selectedStory=shelf.find(item=>item.id===selectedStoryId)||null,drawerForm=useDrawerForm();
  function storyDetail(target:Story){
   const row=progressById.get(target.id),session=gen.sessions.find(item=>item.id===target.id),generation=session&&session.state!=='completed'?shelfGenerationStatus(session):null;
   const status=generation&&<><span role="status">{generation.message}{session!.story&&` · ${session!.ready} / ${session!.story.pages.length} 幅`}</span>{generation.group==='生成失败'?(session!.retryAllowed&&<button type="button" className="yu-generation-control" disabled={!!gen.controlBusy} onClick={()=>{setWorkflowTarget(session!.id);setWorkflowError('');gen.retrySession(session!.id).catch(e=>setWorkflowError(e.message));}}>重试生成</button>):<StoryGenerationControl session={session!} busy={!!gen.controlBusy} onControl={gen.control}/>}</>;
-  return ({open:drawerOpen,drawerForm,onClose}:{open:boolean;drawerForm:boolean;onClose:()=>void})=><ShelfStoryDetail key={target.id} story={target} meta={[bookName(target),target.theme,isGenerated(target)?(target.artStyleLabel||'未记录画风'):'未记录画风']} page={row?.page||0} saved={!!row?.saved} status={status}
-   open={drawerOpen} drawerForm={drawerForm} onClose={onClose} onRead={restart=>open(target,restart)} onWorkflow={()=>openWorkflow(target.id)}
-   downloads={(['pdf','png','zip'] as const).map(format=>exportControl(format,'yu-settings-download',target))} exportStatus={exportProgress}
-   onFavorite={()=>void favoriteFromShelf(target.id,!row?.saved)} favoriteBusy={!!favoriteBusy}
-   onRename={isGenerated(target)?()=>setRenameTarget({id:target.id,title:target.title}):undefined} onPublication={isGenerated(target)?()=>setPublicationTarget(target):undefined} onDelete={()=>askDelete(target.id,target.title)}/>;
+  return <ShelfStoryDetail key={target.id} story={target} meta={[bookName(target),target.theme,isGenerated(target)?(target.artStyleLabel||'未记录画风'):'未记录画风']} page={row?.page||0} status={status}
+   onRead={restart=>open(target,restart)} onSettings={()=>openStorySettings(target)}/>;
  }
- const desktopLibrary=<DesktopLibrary selectedId={selectedStory?selectedStoryId:null} onSelect={setSelectedStoryId} shelf={select=>cloneElement(shelfView,{selectedId:selectedStoryId,onSelect:select})} detail={selectedStory?storyDetail(selectedStory):null}/>;
+ const desktopLibrary=<DesktopLibrary selectedId={selectedStory?selectedStoryId:null} shelf={drawerForm?shelfView:cloneElement(shelfView,{selectedId:selectedStoryId,onSelect:setSelectedStoryId})} detail={selectedStory?storyDetail(selectedStory):null}/>;
  const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover"><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></div>;
  // 工作区：分区由状态标志推导，切换分区只设置和清除这些标志（修订草稿保留）。
  // 回到“修改故事”时打开上次停留的编辑页签与分镜。
@@ -599,7 +596,6 @@ export default function Reader(){
 </DesktopShell>;
  const reading=desktop?view.kind==='reader':!!story;
  // 返回键的非对话框步骤（层级：阅读 0、新建页或工作区 1、抽屉 2）；停靠的侧栏不是步骤
- const drawerForm=useDrawerForm();
  useHistoryStep(!!story,0,home);
  useHistoryStep(desktop&&view.kind==='create',1,closeCreate,()=>!!document.querySelector('.yu-create-form [data-dirty="true"]'));
  useHistoryStep(desktop&&view.kind==='workspace',1,leaveWorkspace);

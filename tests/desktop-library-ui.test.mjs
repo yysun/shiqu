@@ -1,5 +1,6 @@
 // 桌面书架：传入 onSelect 时封面与标题按钮改为选择，底部“继续阅读/重读”与制作行仍直接打开；
-// 选中的故事被筛掉时清除选中；不传 onSelect 时标记不变。详情面板的每个操作调用对应处理函数。
+// 选中的故事被筛掉时清除选中；不传 onSelect 时封面与标题直接打开。详情右栏只有“阅读”与“故事设置”两个按钮，
+// 顶部预览查看器从已保存的那一幅开始，复用阅读页胶片并为未画好的画面显示占位。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
@@ -26,7 +27,7 @@ const byLabel=(tree,label)=>find(tree,node=>node.props?.['aria-label']===label)[
 test('without onSelect the shelf markup is unchanged: covers and titles open the story',()=>{
  const html=renderToStaticMarkup(createElement(Shelf,props({})));
  assert.match(html,/aria-label="打开《宝玉探病》"/);assert.match(html,/aria-label="阅读《宝玉探病》"/);
- assert.doesNotMatch(html,/选择《|data-story-id|is-selected|aria-pressed="(?:true|false)" class="yu-shelf-card/);
+ assert.doesNotMatch(html,/选择《|is-selected|aria-pressed="(?:true|false)" class="yu-shelf-card/);
 });
 
 test('with onSelect, covers and titles select; the reading footer and production rows still open',()=>{
@@ -55,23 +56,34 @@ test('the selection clears when its story is filtered out or deleted',()=>{
 });
 
 // 详情面板用最小 hook 替身直接调用，得到元素树后点击真实按钮
-const mini={name:'mini-react',setup(b){b.onResolve({filter:/^react$/},()=>({path:'react',namespace:'mini'}));b.onLoad({filter:/.*/,namespace:'mini'},()=>({loader:'js',contents:'export function useRef(v){return {current:v};}export function useEffect(){}export function useState(v){return [v,()=>{}];}'}));}};
+const mini={name:'mini-react',setup(b){b.onResolve({filter:/^react$/},()=>({path:'react',namespace:'mini'}));b.onLoad({filter:/.*/,namespace:'mini'},()=>({loader:'js',contents:'export function useRef(v){return {current:v};}export function useEffect(){}export function useState(v){return [typeof v==="function"?v():v,()=>{}];}export function memo(c){return c;}export function useSyncExternalStore(s,get){return get();}'}));}};
 const detailBundle=await build({stdin:{contents:"export {default} from './client/ui/ShelfStoryDetail.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,loader:{'.css':'empty'},platform:'node',format:'cjs',packages:'external',plugins:[mini]});
 const detailModule={exports:{}};new Function('require','module','exports',detailBundle.outputFiles[0].text)(createRequire(import.meta.url),detailModule,detailModule.exports);
 const text=node=>typeof node==='string'?node:Array.isArray(node)?node.map(text).join(''):node?.props?text(node.props.children):'';
-test('every detail action calls its handler',()=>{
+test('the detail panel offers only reading and story settings',()=>{
  const calls=[];const record=name=>(...args)=>calls.push([name,...args]);
- const detailProps={story:story('a','宝玉探病'),meta:['红楼梦','爱情与错过','国漫'],page:0,saved:false,open:true,drawerForm:true,onClose:record('close'),onRead:record('read'),onWorkflow:record('workflow'),downloads:createElement('span',null,'downloads'),exportStatus:'',onFavorite:record('favorite'),favoriteBusy:false,onRename:record('rename'),onPublication:record('publication'),onDelete:record('delete')};
+ const detailProps={story:story('a','宝玉探病'),meta:['红楼梦','爱情与错过','国漫'],page:0,onRead:record('read'),onSettings:record('settings')};
  const tree=detailModule.exports.default(detailProps);
- const button=label=>find(tree,node=>node.type==='button'&&(text(node)===label||node.props['aria-label']===label))[0];
- for(const label of ['阅读','制作流程','收藏','修改故事名','署名与转载','删除故事','关闭详情'])button(label).props.onClick();
- assert.deepEqual(calls,[['read',false],['workflow'],['favorite'],['rename'],['publication'],['delete'],['close']]);
- assert.equal(text(find(tree,node=>node.type==='section')[0]).includes('downloads'),true,'downloads are rendered');
- // 在抽屉里按 Escape 关闭
- find(tree,node=>node.type==='aside')[0].props.onKeyDown({key:'Escape',stopPropagation:noop});assert.equal(calls.at(-1)[0],'close');
- // 已读完时主按钮为“重读”并从头开始；停靠形式没有关闭按钮，Escape 不关闭
- calls.length=0;const docked=detailModule.exports.default({...detailProps,page:2,drawerForm:false});
- find(docked,node=>node.type==='button'&&text(node).includes('重读'))[0].props.onClick();assert.deepEqual(calls,[['read',true]]);
- assert.equal(find(docked,node=>node.props?.['aria-label']==='关闭详情').length,0);
- find(docked,node=>node.type==='aside')[0].props.onKeyDown({key:'Escape',stopPropagation:noop});assert.equal(calls.length,1);
+ const buttons=find(tree,node=>node.type==='button');
+ assert.deepEqual(buttons.map(text),['阅读','故事设置'],'downloads, favorite, rename, credits and delete live in settings or on the card');
+ for(const button of buttons)button.props.onClick();
+ assert.deepEqual(calls,[['read',false],['settings']]);
+ // 已读完时主按钮为“重读”并从头开始
+ calls.length=0;const finished=detailModule.exports.default({...detailProps,page:2});
+ find(finished,node=>node.type==='button'&&text(node).includes('重读'))[0].props.onClick();assert.deepEqual(calls,[['read',true]]);
+});
+
+test('the detail panel previews the story from its saved frame without opening the reader',async()=>{
+ const viewerOf=props=>find(detailModule.exports.default(props),node=>node.props?.pages&&'start'in node.props)[0];
+ const base={story:story('a','宝玉探病'),meta:[],onRead:noop,onSettings:noop};
+ assert.equal(viewerOf({...base,page:1}).props.start,1,'starts at the saved frame');
+ assert.equal(viewerOf({...base,page:9}).props.start,2,'clamps to the last frame');
+ const {default:Viewer}=await load("export {default} from './client/ui/ShelfStoryViewer.tsx';");
+ const pages=[{image:'/1.png',caption:'第一幅'},{image:'/2.png',caption:'第二幅'},{image:'',caption:'第三幅'}];
+ const second=renderToStaticMarkup(createElement(Viewer,{title:'宝玉探病',pages,start:1}));
+ assert.match(second,/translateX\(calc\(-100%/,'reuses the reader filmstrip at the start frame');
+ assert.match(second,/第二幅/);assert.match(second,/02 \/ 03/);assert.doesNotMatch(second,/还没有画好/);
+ assert.match(second,/class="yu-swipe-surface" aria-label="左侧边缘/,'reuses the reader swipe surface with the preview label');
+ assert.match(renderToStaticMarkup(createElement(Viewer,{title:'宝玉探病',pages,start:2})),/这一幅还没有画好/,'unpainted frames show a placeholder');
+ assert.match(renderToStaticMarkup(createElement(Viewer,{title:'宝玉探病',pages:[],start:0})),/yu-shelf-viewer is-empty/);
 });

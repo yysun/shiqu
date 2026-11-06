@@ -4,8 +4,9 @@
 // 显示名同样适用于未完成的故事；确认制作前，以已保存的设置草稿作为展示画风。
 // 封面上的收藏与删除按钮与阅读按钮互为兄弟节点，互不触发；已读完的“重读”从第一幅开始。
 // ReaderShelf 顶层不调用 Hook（测试会把它当普通函数调用），有状态的部分放在子组件中，行内容以 children 传入。
-// 桌面书架传入 onSelect：封面与标题按钮改为选中故事（“选择《…》”），底部“继续阅读/重读”仍直接打开；
-// 选中的故事被筛掉或删除时清除选中。不传 onSelect 时标记与手机完全一致。
+// 桌面宽档（≥1024px，有右栏）传入 onSelect：封面与标题按钮改为选中故事（“选择《…》”），底部“继续阅读/重读”仍直接打开；
+// 选中的故事被筛掉或删除时清除选中。不传 onSelect 时（手机与 768–1023px）封面与标题直接打开阅读。
+// 每张可阅读卡片都带 data-story-id，供焦点归还与测试定位。
 import {useEffect,useState,type ReactNode} from 'react';
 import {ArrowRight,Bookmark,BookOpen,ChevronDown,ChevronRight,Feather,Plus,RefreshCw,RotateCcw,Search,Trash2,X} from 'lucide-react';
 import type {Story} from '@/lib/content';
@@ -91,7 +92,7 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
   const total=story.pages.length,finished=total>0&&item.page+1>=total;
   const feedback=session&&session.state!=='completed'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{session.story&&` · ${session.ready} / ${session.story.pages.length} 幅`}</span>{control(session,generation!.group)}</div>;
   const selected=!!onSelect&&selectedId===item.id,pick=onSelect?()=>onSelect(item.id):()=>onOpen(story);
-  return <div className={'yu-shelf-row yu-shelf-row-readable'+(selected?' is-selected':'')} key={item.id} data-story-id={onSelect?item.id:undefined}>
+  return <div className={'yu-shelf-row yu-shelf-row-readable'+(selected?' is-selected':'')} key={item.id} data-story-id={item.id}>
    <div className="yu-shelf-cover-wrap">
     <button className="yu-shelf-cover" aria-label={(onSelect?'选择《':'打开《')+item.title+'》'} title={item.book} onClick={pick}>{story.pages[0].image?<img src={story.pages[0].image} alt="" loading="lazy"/>:<span className="yu-shelf-pending"><Feather size={25}/></span>}</button>
     <div className="yu-shelf-cover-overlay"><small className="yu-shelf-book-badge">{item.book}</small>{actions(item)}</div>
