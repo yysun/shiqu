@@ -170,7 +170,8 @@
         "server/desktop.ts",
         "scripts/desktop-resources.mjs",
         "scripts/desktop-runtime-packages.mjs",
-        "skills/shiqu/SKILL.md"
+        "skills/shiqu/SKILL.md",
+        "lib/system-settings.ts"
       ]
     },
     {
