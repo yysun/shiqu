@@ -1,4 +1,4 @@
-// 生成服务与模型：在本机编辑与桌面、CLI、技能共用的提供方默认值；已存密钥只回传是否存在，运行中的生成不受影响。
+// 生成服务与模型：在本机或可信局域网编辑与桌面、CLI、技能共用的提供方默认值；已存密钥只回传是否存在，运行中的生成不受影响。
 // 运维版式：顶部状态卡展示当前进程实际运行的服务、待重启与启动覆盖；提供方以卡片单选并标出密钥状态；
 // 各分区标记未保存更改；推理档位以分段控件逐项展示；底部常驻操作栏提供放弃更改、重新读取与保存。
 import {useEffect,useRef,useState} from 'react';
@@ -70,7 +70,7 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
   catch(e){
    if(live.current&&version===readVersion.current){
     const status=(e as {status?:number}).status;
-    if(status===403||status===404){setAccess('denied');setOpen(false);setView(null);setDraft(null);setError('请在运行服务的电脑上，使用本机回环地址打开生成服务设置。');}
+    if(status===403||status===404){setAccess('denied');setOpen(false);setView(null);setDraft(null);setError('请使用本机或可信局域网地址打开生成服务设置；互联网阅读入口不支持编辑。');}
     else {if(status===503){setAccess('allowed');setView(null);setDraft(null);}setError(e instanceof Error?e.message:'暂时无法读取生成设置。');}
    }
    // 运行配置属于公开阅读元数据，与本机编辑权限无关。
@@ -125,7 +125,7 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
   catch(e){setError(e instanceof Error?e.message:'操作失败，请重新读取设置。');}
   finally{saving.current=false;setBusy(false);}
  }
- return <>{showPrompt&&runtime?.configured===false&&!open&&<aside className="yu-provider-setup" role="status">请先配置生成服务。{access==='allowed'?<a href="#provider-settings">打开生成服务与模型</a>:<span>请在运行服务的电脑上，使用本机回环地址打开 我的 → 生成服务与模型。</span>}</aside>}{showEntry&&access==='allowed'&&<button type="button" onClick={()=>{setOpen(true);void load();}}><Cpu size={20}/>生成服务与模型<ChevronRight size={18}/></button>}
+ return <>{showPrompt&&runtime?.configured===false&&!open&&<aside className="yu-provider-setup" role="status">请先配置生成服务。{access==='allowed'?<a href="#provider-settings">打开生成服务与模型</a>:<span>请使用本机或可信局域网地址打开 我的 → 生成服务与模型。</span>}</aside>}{showEntry&&access==='allowed'&&<button type="button" onClick={()=>{setOpen(true);void load();}}><Cpu size={20}/>生成服务与模型<ChevronRight size={18}/></button>}
  {open&&<Sheet title="生成服务与模型" busy={saving.current} onClose={()=>{setOpen(false);if(location.hash==='#provider-settings')history.replaceState(null,'',location.pathname+location.search);setKey('');setKeyAction('keep');setImageKey('');setImageKeyAction('keep');}}>
   <div className="yu-provider-settings">
    <p className="yu-provider-intro">与桌面、CLI 和技能共用，保存后重启服务生效。</p>

@@ -1,4 +1,4 @@
-// 原生控制台通过私有 stdin 传入设置库位置及启动覆盖，生成设置只在本机浏览器编辑。
+// 原生控制台通过私有 stdin 传入设置库位置及启动覆盖，生成设置可在本机或可信局域网浏览器编辑。
 // 先完成书库升级再启动服务；退出撤销远程访问并在释放所有权前停止生成。
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';

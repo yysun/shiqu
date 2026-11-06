@@ -1,10 +1,12 @@
-// Exercise the production local-settings handler/store and original-peer guard without inference.
+// 验证正式设置处理器、原始网络来源及共享持久化边界，不调用推理。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {once} from 'node:events';
 import {get} from 'node:http';
+import {networkInterfaces} from 'node:os';
+import {privateNetworkAddress,providerSettingsNetworkAccess} from '../server/provider-settings-access.ts';
 import {existsSync} from 'node:fs';
 import {browserProviderSettings} from '../server/browser-provider-settings.ts';
 import {createHttpServer} from '../server/http.ts';
@@ -88,9 +90,9 @@ test('stale, malformed, invalid effort and unrelated-field writes fail without p
  response=await f.handler(new Request(origin+providerSettingsPath,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:'{replacement-secret'}),peer);assert.equal(response.status,400);await safeJson(response);
 });
 
-test('real peer, exact loopback hosts, origins and fetch-site guard settings without trusting forwarded headers',async t=>{
+test('real peers, exact interface hosts, origins and fetch-site guard settings without trusting forwarded headers',async t=>{
  const f=await fixture(t),current=await f.view(),before=await savedStartupState(f);
- for(const remoteAddress of ['192.0.2.3','::ffff:192.0.2.3',undefined]){
+ for(const remoteAddress of ['192.0.2.3','::ffff:192.0.2.3','10.1.2.3','::ffff:192.168.1.3',undefined]){
   assert.equal((await f.read({'X-Forwarded-For':'127.0.0.1'}, {remoteAddress})).status,403);
   assert.equal((await f.save(body(current),{'X-Forwarded-For':'127.0.0.1'}, {remoteAddress})).status,403);
  }
@@ -103,15 +105,43 @@ test('real peer, exact loopback hosts, origins and fetch-site guard settings wit
  assert.equal(loopbackAddress('::ffff:127.0.0.1'),true);assert.deepEqual(await savedStartupState(f),before);
 });
 
-test('Vite guard rejects original LAN peers even through normalized proxy path variants',()=>{
- let middleware;protectLocalProviderSettings('private-fixture-proof').configureServer({middlewares:{use(fn){middleware=fn;}}});
+test('Vite guard rejects public and loopback-spoofing LAN peers through normalized proxy paths',()=>{
+ let middleware;protectLocalProviderSettings('private-fixture-proof').configureServer({config:{server:{port:3456}},middlewares:{use(fn){middleware=fn;}}});
  for(const url of [providerSettingsPath,providerSettingsPath+'?x=1','/art/../api/local/provider-settings','/api/x/%2e%2e/local/provider-settings','/api/x/../../api/local/provider-settings']){
+  for(const remoteAddress of ['192.0.2.3','10.1.2.3']){
   let next=false,ended=false;const response={statusCode:200,setHeader(){},end(){ended=true;}};
-  middleware({url,socket:{remoteAddress:'192.0.2.3'},headers:{'x-forwarded-for':'127.0.0.1',[providerSettingsProofHeader]:'private-fixture-proof'}},response,()=>{next=true;});assert.equal(response.statusCode,403,url);assert.equal(ended,true);assert.equal(next,false);
+  middleware({url,socket:{remoteAddress},headers:{host:'127.0.0.1:3456','x-forwarded-for':'127.0.0.1',[providerSettingsProofHeader]:'private-fixture-proof'}},response,()=>{next=true;});assert.equal(response.statusCode,403,url);assert.equal(ended,true);assert.equal(next,false);
+  }
  }
- for(const [url,remoteAddress] of [[providerSettingsPath,'127.0.0.1'],['/api/reader/sessions','192.0.2.3']]){
-  let next=false;const headers={[providerSettingsProofHeader]:'forged-client-proof'};middleware({url,socket:{remoteAddress},headers}, {setHeader(){},end(){assert.fail('Reader or actual local request must pass');}},()=>{next=true;});assert.equal(next,true);if(url===providerSettingsPath)assert.equal(headers[providerSettingsProofHeader],'private-fixture-proof');
+ const lan=Object.values(networkInterfaces()).flat().find(entry=>entry&&!entry.internal&&entry.family==='IPv4'&&privateNetworkAddress(entry.address))?.address;
+ for(const [url,remoteAddress] of [[providerSettingsPath,'127.0.0.1'],['/api/reader/sessions','192.0.2.3'],...(lan?[[providerSettingsPath,lan]]:[])]){
+  let next=false;const headers={host:`${remoteAddress===lan?lan:'127.0.0.1'}:3456`,[providerSettingsProofHeader]:'forged-client-proof'};middleware({url,socket:{remoteAddress},headers}, {setHeader(){},end(){assert.fail('Reader or actual local request must pass');}},()=>{next=true;});assert.equal(next,true);if(url===providerSettingsPath)assert.equal(headers[providerSettingsProofHeader],'private-fixture-proof');
  }
+});
+
+test('private network boundaries include mapped addresses and normalized IPv6 hosts only on actual interfaces',()=>{
+ const interfaces={lan:[{address:'192.168.4.2',internal:false},{address:'fd00:0:0:0:0:0:0:2',internal:false},{address:'fe80::2%en0',internal:false},{address:'203.0.113.2',internal:false}]};
+ const access=providerSettingsNetworkAccess([3456],interfaces);
+ for(const address of ['10.0.0.1','172.16.0.1','172.31.255.254','192.168.4.8','169.254.1.2','fc00::1','fdff::1','fe80::1','febf::1','::ffff:192.168.4.8','::ffff:c0a8:408']){
+  assert.equal(privateNetworkAddress(address),true,address);assert.equal(access(address,'192.168.4.2:3456'),true,address);assert.equal(access(address,'127.0.0.1:3456'),false,address);
+ }
+ for(const address of [undefined,'','172.15.255.255','172.32.0.1','8.8.8.8','192.168.4.999','203.0.113.8','::','fec0::1','2001:db8::1','::ffff:203.0.113.8']){assert.equal(privateNetworkAddress(address),false,address);assert.equal(access(address,'192.168.4.2:3456'),false,address);}
+ assert.equal(access('fd00::8','[fd00::2]:3456'),true);assert.equal(access('::1','[fd00::2]:3456'),true);
+ for(const host of ['192.168.4.3:3456','192.168.4.2:9999','203.0.113.2:3456','[fe80::2]:3456','[fd00:0:0:0:0:0:0:2]:3456','evil.local:3456'])assert.equal(access('192.168.4.8',host),false,host);
+});
+
+test('LAN changes share revisions, preserve running configuration and never return saved credentials',async t=>{
+ const lan=Object.values(networkInterfaces()).flat().find(entry=>entry&&!entry.internal&&entry.family==='IPv4'&&privateNetworkAddress(entry.address))?.address;
+ if(!lan){t.skip('No private IPv4 interface');return;}
+ const f=await fixture(t),local=await f.view(),base=`http://${lan}:3456`,remote={remoteAddress:'10.45.1.2'};
+ const send=(settings,expectedRevision=local.revision,headers={})=>f.handler(new Request(base+providerSettingsPath,{method:'POST',headers:{Origin:base,'Content-Type':'application/json',...headers},body:JSON.stringify({settings,expectedRevision,keyAction:'replace',key:'replacement-secret'})}),remote);
+ let response=await f.handler(new Request(base+providerSettingsPath),remote);assert.equal(response.status,200);await safeJson(response);
+ response=await send({textModel:'lan-text-model'});assert.equal(response.status,200);const saved=await safeJson(response);
+ assert.equal(saved.runtime.models.text,'saved-google-text');assert.equal(saved.settings.textModel,'lan-text-model');assert.equal(saved.restartRequired,true);assert.equal(f.settingsStore.key('gemini'),'replacement-secret');
+ assert.equal((await f.save(body(local,{textModel:'stale-local-model'}))).status,409);
+ for(const headers of [{Origin:'https://evil.example'},{Origin:''},{'Sec-Fetch-Site':'cross-site'}])assert.equal((await send({textModel:'must-not-save'},saved.revision,headers)).status,403);
+ for(const remoteAddress of ['203.0.113.1',undefined])assert.equal((await f.handler(new Request(base+providerSettingsPath,{headers:{'X-Forwarded-For':lan}}),{remoteAddress})).status,403);
+ assert.equal(f.settingsStore.settings().textModel,'lan-text-model');
 });
 
 test('development settings fail closed behind legacy proxies or missing proof, while CLI stays direct',async t=>{
@@ -138,7 +168,9 @@ test('HTTP adapter supplies socket metadata; forwarded headers cannot change the
 
 test('browser CLI edits share the production store and leave runtime unchanged until restart',async t=>{
  const f=await startupFixture(t),store=f.store(),port=await freeStartupPort();store.save({provider:'gemini',providerConfigured:true,libraryConfigured:true,textModel:'cli-saved-text',imageModel:'cli-saved-image',port},{provider:'gemini',value:googleKey});store.close();
- const process=startFixtureCli(f);await process.ready();const base=`http://127.0.0.1:${port}`;
+ const process=startFixtureCli(f);await process.ready();
+ const lan=Object.values(networkInterfaces()).flat().find(entry=>entry&&!entry.internal&&entry.family==='IPv4'&&privateNetworkAddress(entry.address))?.address;
+ const base=`http://${lan||'127.0.0.1'}:${port}`;if(!lan)t.diagnostic('No private IPv4 interface; CLI LAN scenario unavailable.');
  let response=await fetch(base+providerSettingsPath);assert.equal(response.status,200);let current=await safeJson(response);assert.equal(current.restartRequired,false);
  response=await fetch(base+providerSettingsPath,{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify(body(current,{...current.settings,textModel:'cli-new-text'}))});assert.equal(response.status,200);current=await safeJson(response);assert.equal(current.restartRequired,true);assert.equal(current.runtime.models.text,'cli-saved-text');
  await process.stop();const state=await savedStartupState(f);assert.equal(state.settings.textModel,'cli-new-text');assert.equal(state.gemini,googleKey);

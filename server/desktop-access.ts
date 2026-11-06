@@ -1,5 +1,5 @@
-// Serve the reader directly on local/LAN addresses while rejecting foreign hosts/origins.
-// Native routes stay excluded; browser-CLI provider editing has a separate socket-level local gate.
+// 通过本机或局域网地址提供书架，拒绝外来 Host/Origin 和原生专属路由。
+// 生成设置单独校验真实套接字与实际私有接口地址。
 export function desktopAccess(handle:(request:Request)=>Promise<Response>,options:{hosts:string[]}){
  const hosts=new Set(options.hosts);
  const headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','Content-Type':'application/json; charset=utf-8'};

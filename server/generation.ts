@@ -86,7 +86,7 @@ export function withImageProvider(text:ReaderProvider,image:ReaderProvider):Read
 }
 function createSingleProvider(name:string,variables:Record<string,string|undefined>,media:MediaStore,transport:typeof fetch,runner?:CodexRunner):ReaderProvider{
  if(name==='readonly'){
-  const unavailable=()=>{throw new ReaderError(503,'当前为只读模式，请在运行服务的电脑上打开 我的 → 生成服务与模型。');};
+  const unavailable=()=>{throw new ReaderError(503,'当前为只读模式，请使用本机或可信局域网地址打开 我的 → 生成服务与模型。');};
   return {async status(){return {configured:false,provider:'readonly',models:{text:'',image:''},voiceEnabled:false};},suggestions:async()=>unavailable(),generator:()=>({plan:async()=>unavailable(),original:async()=>unavailable(),image:async()=>unavailable(),audio:async()=>unavailable(),reflection:async()=>unavailable(),reflectionCandidates:async()=>unavailable(),safeError:()=> '当前为只读模式，请先配置生成服务。'}),safeError:()=> '当前为只读模式，请先配置生成服务。'};
  }
  if(name==='openai')return createOpenAIProvider(variables,media,transport);

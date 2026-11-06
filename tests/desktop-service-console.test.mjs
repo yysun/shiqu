@@ -16,6 +16,7 @@ import {desktopRemote} from '../server/desktop-remote.ts';
 import {openDatabase} from '../server/database.ts';
 import {checkProviderVariables} from '../server/provider-runtime.ts';
 import {providerSettingsPath as route} from '../lib/provider-settings.ts';
+import {privateNetworkAddress} from '../server/provider-settings-access.ts';
 const failNetwork=async()=>{throw Error('禁止测试外网请求');};
 async function fixture(t,patch={},overrides={}){
  const f=await startupFixture(t),file=path.join(f.root,'native-config','desktop.sqlite'),library=path.join(f.root,'console-library');
@@ -59,16 +60,26 @@ test('saved connection check ignores drafts, checks metadata only; reset preserv
  store.save({port:3457});assert.equal((await send({action:'reset',expectedRevision:before.revision})).status,409);
  response=await send({action:'reset',expectedRevision:store.revision()});assert.equal(response.status,200);const view=await response.json(),after=store.settings();assert.equal(after.providerConfigured,false);assert.equal(after.codexPath,'/native/codex');assert.equal(after.codexHome,'/native/login');assert.equal(after.internetEnabled,true);assert.equal(after.cloudflaredPath,'/native/cloudflared');assert.equal(after.port,3457);assert.equal(after.dataDirectory,before.settings.dataDirectory);assert.equal(store.key('gemini'),'');assert.equal(view.runtime.models.text,'overridden-text');assert.equal(view.restartRequired,true);
 });
-test('real desktop HTTP denies foreign origin, LAN address, raw normalized paths and native-only fields',async t=>{
+test('real desktop HTTP allows private LAN hosts and denies foreign origins, normalized paths and native-only fields',async t=>{
  const f=await fixture(t),view=await(await f.read()).json();
  for(const headers of [{Origin:'https://foreign.example'},{'Sec-Fetch-Site':'cross-site'}])assert.equal((await fetch(f.base+route,{headers})).status,403);
  const foreignHost=await new Promise((resolve,reject)=>get(f.base,{path:route,headers:{Host:'192.0.2.1:'+f.settings.port,'X-Forwarded-For':'127.0.0.1'}},res=>{res.resume();res.on('end',()=>resolve(res.statusCode));}).on('error',reject));assert.equal(foreignHost,403);
- for(const link of f.runtime.status.phoneUrls)assert.equal((await fetch(link+route,{headers:{'X-Forwarded-For':'127.0.0.1'}})).status,403);
+ for(const link of f.runtime.status.phoneUrls)assert.equal((await fetch(link+route,{headers:{'X-Forwarded-For':'127.0.0.1'}})).status,privateNetworkAddress(new URL(link).hostname)?200:403);
  for(const rawPath of ['/art/../api/local/provider-settings','/api/x/%2e%2e/local/provider-settings']){
   const code=await new Promise((resolve,reject)=>get(f.base,{path:rawPath},res=>{res.resume();res.on('end',()=>resolve(res.statusCode));}).on('error',reject));assert.equal(code,403,rawPath);
  }
  for(const settings of [{codexPath:'/bad'},{codexHome:'/bad'},{dataDirectory:'/bad'},{port:9000},{internetEnabled:true},{nodePath:'/bad'},{cloudflaredPath:'/bad'}])assert.equal((await f.save(edit(view,settings))).status,400);
  assert.equal((await f.save(edit(view,{provider:'readonly'}))).status,200);assert.equal((await f.save(edit(view,{provider:'readonly'}))).status,409);
+});
+test('desktop LAN saves providers, keys and task settings while local stale saves conflict',async t=>{
+ const f=await fixture(t),link=f.runtime.status.phoneUrls.find(url=>privateNetworkAddress(new URL(url).hostname));
+ if(!link){t.skip('No private LAN interface');return;}
+ const local=await(await f.read()).json(),send=(view,settings)=>fetch(link+route,{method:'POST',headers:{Origin:link,'Content-Type':'application/json'},body:JSON.stringify(edit(view,settings,{keyAction:'replace',key:'synthetic-lan-key'}))});
+ let response=await send(local,{provider:'openai',openaiTextModel:'lan-text',openaiImageModel:'lan-image',taskReasoningEfforts:{plan:'low'}});assert.equal(response.status,200);const saved=await response.json();
+ assert.equal(saved.settings.provider,'openai');assert.equal(saved.settings.taskReasoningEfforts.plan,'low');assert.equal(saved.runtime.provider,local.runtime.provider);assert.equal(saved.restartRequired,true);assert.doesNotMatch(JSON.stringify(saved),/synthetic-lan-key|codexPath|dataDirectory/);
+ const store=f.store();assert.equal(store.key('openai'),'synthetic-lan-key');assert.equal(store.settings().openaiTextModel,'lan-text');store.close();
+ assert.equal((await f.save(edit(local,{provider:'readonly'}))).status,409);
+ assert.equal((await fetch(link+route,{method:'POST',headers:{Origin:'https://foreign.example','Content-Type':'application/json'},body:JSON.stringify(edit(saved,{provider:'readonly'}))})).status,403);
 });
 test('tunnel refuses generation settings before forwarding even with a loopback-looking request',async()=>{
  let calls=0;const remote=desktopRemote(async()=>{calls++;return Response.json({});});remote.activate('https://isolated-test.trycloudflare.com');

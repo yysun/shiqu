@@ -1,4 +1,4 @@
-// 本机生成设置共用原生设置库；只信任真实套接字及精确的回环 Host。
+// 本机与可信局域网的生成设置共用原生设置库；只信任真实套接字及实际接口 Host。
 // 保存、重置和检查采用已保存配置与启动覆盖；密钥仅在服务内使用。
 import {z} from 'zod';
 import {SystemSettingsStore} from './system-settings.ts';
@@ -10,10 +10,11 @@ import {loopbackAddress,providerSettingsSchema,providerSettingsSaveSchema,provid
 import type {ProviderSettingsView} from '../lib/provider-settings.ts';
 import type {HttpPeer} from './http.ts';
 import {providerSignature,runtimeConfiguration,providerOverrideNames,checkProviderVariables} from './provider-runtime.ts';
+import {providerSettingsNetworkAccess} from './provider-settings-access.ts';
 type Variables=Record<string,string|undefined>;
 
 export function browserProviderSettings(options:{variables:Variables;overrides:Variables;ports:number[];locations?:Pick<ReturnType<typeof desktopLibraryPaths>,'settings'|'library'>;proxyToken?:string;existingOnly?:boolean;transport?:typeof fetch}){
- const runtimeSignature=providerSignature(options.variables),locations=options.locations||desktopLibraryPaths(),hosts=new Set(options.ports.flatMap(port=>[`localhost:${port}`,`127.0.0.1:${port}`,`[::1]:${port}`]));
+ const runtimeSignature=providerSignature(options.variables),locations=options.locations||desktopLibraryPaths(),networkAccess=providerSettingsNetworkAccess(options.ports);
  const runtime=runtimeConfiguration(options.variables);
  const overrides=providerOverrideNames.filter(name=>typeof options.overrides[name]==='string');
  const headers={'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
@@ -25,9 +26,9 @@ export function browserProviderSettings(options:{variables:Variables;overrides:V
  const openStore=()=>new SystemSettingsStore(locations.settings,locations.library,{existingOnly:options.existingOnly});
  const handler=async(request:Request,peer:HttpPeer)=>{
   const url=new URL(request.url),origin=request.headers.get('origin');
-  const proxyVerified=options.proxyToken===undefined||!!options.proxyToken&&request.headers.get(providerSettingsProofHeader)===options.proxyToken;
+  const proxyVerified=options.proxyToken===undefined||!!options.proxyToken&&loopbackAddress(peer.remoteAddress)&&request.headers.get(providerSettingsProofHeader)===options.proxyToken;
   if(peer.rawPath!==undefined&&peer.rawPath!==providerSettingsPath)return json({error:'生成服务设置仅接受固定本机路径。'},403);
-  if(!proxyVerified||!loopbackAddress(peer.remoteAddress)||!hosts.has(url.host)||request.headers.get('sec-fetch-site')==='cross-site'||origin&&origin!==url.origin||request.method!=='GET'&&origin!==url.origin)return json({error:'生成服务设置仅可在本机同源页面中访问。'},403);
+  if(!proxyVerified||!networkAccess(peer.remoteAddress,url.host)||request.headers.get('sec-fetch-site')==='cross-site'||origin&&origin!==url.origin||request.method!=='GET'&&origin!==url.origin)return json({error:'请通过本机或可信局域网地址，在同源页面中访问生成服务设置。'},403);
   if(!['GET','POST'].includes(request.method))return json({error:'不支持的设置操作。'},405);
   let store:SystemSettingsStore|undefined;
   try{

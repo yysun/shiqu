@@ -316,7 +316,8 @@
         "user-flows"
       ],
       "covers": [
-        "lib/provider-settings.ts"
+        "lib/provider-settings.ts",
+        "server/provider-settings-access.ts"
       ]
     },
     {
@@ -344,7 +345,8 @@
         "server/browser-provider-settings.ts",
         "server/cli-setup.ts",
         "server/desktop.ts",
-        "server/http.ts"
+        "server/http.ts",
+        "server/provider-settings-access.ts"
       ]
     },
     {
@@ -754,6 +756,7 @@
       "covers": [
         "lib/system-settings.ts",
         "server/desktop.ts",
+        "server/provider-settings-access.ts",
         "server/system-settings.ts"
       ]
     },
@@ -781,6 +784,7 @@
         "server/desktop.ts",
         "server/library-backup.ts",
         "server/provider-runtime.ts",
+        "server/provider-settings-access.ts",
         "server/system-settings.ts"
       ]
     },

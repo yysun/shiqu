@@ -1,16 +1,18 @@
-// Keep LAN development available without serving private libraries through Vite's file paths.
+// 保持局域网开发可用，同时禁止通过 Vite 文件路径读取私有书库。
 import path from 'node:path';
 import {existsSync,realpathSync,readdirSync,lstatSync} from 'node:fs';
 import {normalizePath,isFileServingAllowed} from 'vite';
-import {providerSettingsPath,providerSettingsProofHeader,loopbackAddress} from '../lib/provider-settings.ts';
-// Vite proxies LAN traffic through loopback; authorize the original socket before any rewrite/proxy.
+import {providerSettingsPath,providerSettingsProofHeader} from '../lib/provider-settings.ts';
+import {providerSettingsNetworkAccess} from '../server/provider-settings-access.ts';
+// Vite 将局域网请求转为回环代理；必须在代理前校验原始套接字与接口 Host。
 export function protectLocalProviderSettings(proxyToken){
  if(!proxyToken)throw Error('Local provider settings require private proxy proof');
  return {name:'shiqu-local-provider-settings',configureServer(server){
+  const networkAccess=providerSettingsNetworkAccess([server.config.server.port]);
   server.middlewares.use((request,response,next)=>{
    if(new URL(request.url||'/', 'http://localhost').pathname===providerSettingsPath){
-    if(!loopbackAddress(request.socket.remoteAddress)){
-     response.statusCode=403;response.setHeader('Content-Type','application/json');response.setHeader('Cache-Control','no-store');response.end(JSON.stringify({error:'生成服务设置仅可在本机打开。'}));return;
+    if(!networkAccess(request.socket.remoteAddress,request.headers.host||'')){
+     response.statusCode=403;response.setHeader('Content-Type','application/json');response.setHeader('Cache-Control','no-store');response.end(JSON.stringify({error:'请使用本机或可信局域网地址打开生成服务设置。'}));return;
     }
     request.headers[providerSettingsProofHeader]=proxyToken;
    }
