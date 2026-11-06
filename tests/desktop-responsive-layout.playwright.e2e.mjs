@@ -224,6 +224,17 @@ test('DESKTOP-LAYOUT-06: create is a page beside the book choices, re-initialize
   assert.equal(await page.getByText('正在打开制作流程…').count(),0);assert.ok(next.id);
   // 从“不挑了”进入同样打开新建页
   await top('发现');await page.locator('.yu-surprise').click();await form.waitFor();assert.equal(await page.getByRole('dialog').count(),0);
+  // 返回修改书籍后在左侧换书：提交只修改原任务的条件，不新建任务
+  const intake=await seedStory(b.f,{pick:false});await page.goto(url);await top('书架');
+  await page.locator('.yu-production-row').filter({hasText:/等待选题|还在展开/}).first().click();await page.locator('.yu-workspace').waitFor();
+  await page.locator('.yu-workspace-center').getByText(/返回修改书籍/).first().click();await form.waitFor();
+  await choices.getByRole('button',{name:'选择列子',exact:true}).click();
+  assert.equal(await books.getByRole('button',{name:'列子',exact:true}).getAttribute('aria-pressed'),'true');
+  const posts=[];const track=r=>{if(r.request().method()==='POST'&&r.url().includes('/api/reader/sessions'))posts.push(new URL(r.url()).pathname);};page.on('response',track);
+  await form.getByRole('button',{name:'进入故事提取',exact:true}).click();await page.locator('.yu-workspace').waitFor();await page.waitForTimeout(500);page.off('response',track);
+  assert.ok(posts.includes(`/api/reader/sessions/${intake}/setup`),'updates the same intake: '+posts.join(','));
+  assert.ok(!posts.includes('/api/reader/sessions'),'creates no new story');
+  assert.equal((await b.f.read(intake)).selection.bookId,'列子');
  });
 });
 

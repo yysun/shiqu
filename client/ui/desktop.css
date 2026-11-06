@@ -24,7 +24,8 @@
 
 /* 主区：流式宽度，最宽 1440px 并居中 */
 .yu-desktop .yu-desktop-main{width:100%;max-width:1440px;margin:0 auto;padding:clamp(20px,2.4vw,40px) var(--d-gutter) 56px}
-.yu-desktop .yu-desktop-main :is(p,li){max-width:45em}
+/* 正文段落不超过约 45 字一行；列表行（分镜、流程）不受限 */
+.yu-desktop .yu-desktop-main p{max-width:45em}
 
 /* 发现：引导与浏览两组，1024px 起并排 */
 .yu-desktop .yu-discover{display:grid;gap:clamp(24px,3vw,48px)}

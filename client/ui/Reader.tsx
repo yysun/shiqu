@@ -169,7 +169,7 @@ export default function Reader(){
  // 工作区或面板关闭时，丢弃选题设置与标题输入的保留草稿（与今天卸载组件时一致）。
  function forgetSetup(){clearRetained('setup:');clearRetained('search:');}
  function closeWorkflow(){
-  forgetSetup();setWorkflowTarget(null);setWorkflowError('');
+  forgetSetup();workflowFromReader.current=false;setWorkflowTarget(null);setWorkflowError('');
   if(!story){gen.leave();history.replaceState(null,'','/');}
  }
  async function retryWorkflow(faultId?:string){
@@ -214,7 +214,8 @@ export default function Reader(){
  function backToShelf(){setSettings(false);setSource(false);setScript(false);revision.setTab(null);home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}
  function turn(delta:number){if(!story)return;if(!ended&&page===0&&delta<0)return;if(ended){if(delta<0){setDrag(0);setPage(story.pages.length-1);setEnded(false);setMotion('back');}else if(delta>0)home();return;}if(delta>0&&!story.pages[page]?.image){notify('这一幅还在绘制，稍等一下。');return;}setMotion(delta>0?'forward':'back');if(page+delta>=story.pages.length){setEnded(true);if(seen.current.size===story.pages.length)track('complete');}else setPage(p=>Math.max(0,p+delta));}
  function goToPage(index:number){if(!story)return;setDrag(0);setMotion(index>page?'forward':'back');setEnded(false);setPage(Math.max(0,Math.min(index,story.pages.length-1)));}
- function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){clearRetained('discovery');setCreateSeed(seed=>seed+1);setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,source:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
+ // 桌面新建页从“返回修改书籍”打开时，左侧选书、心情与“不挑了”只改选择，仍修改原任务的条件（与手机表单内选书一致）。
+ function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){clearRetained('discovery');setCreateSeed(seed=>seed+1);if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,source:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
  // 关闭新建并丢弃表单草稿；新建面板关闭、顶栏离开与两条提交成功路径共用。
  function closeCreate(){setConfigure(false);setDiscoveryTarget(null);clearRetained('discovery');}
  // 离开工作区：清除各分区标志（修订草稿保留），再执行今天的关闭面板。
@@ -550,7 +551,9 @@ export default function Reader(){
  const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover"><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></div>;
  // 工作区：分区由状态标志推导，切换分区只设置和清除这些标志（修订草稿保留）。
  // 回到“修改故事”时打开上次停留的编辑页签与分镜。
- const lastEditTab=useRef<NonNullable<typeof revision.tab>>('requirements');
+ const lastEditTab=useRef<NonNullable<typeof revision.tab>>('requirements'),lastEditFor=useRef(revision.sessionId);
+ // 换了故事就从“制作要求”开始，避免沿用上一篇的“分镜”页签而新故事尚无分镜
+ if(lastEditFor.current!==revision.sessionId){lastEditFor.current=revision.sessionId;lastEditTab.current='requirements';}
  if(revision.tab)lastEditTab.current=revision.tab;
  function showWorkspaceSection(next:WorkspaceSection){
   if(next!=='edit')revision.setTab(null);
