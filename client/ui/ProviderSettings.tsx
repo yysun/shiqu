@@ -48,7 +48,7 @@ function Group({icon,title,label,changed,children}:{icon:React.ReactNode;title:s
 }
 function KeyField({name,title,present,override,action,onAction,value,onValue}:{name:string;title:string;present:boolean;override?:'valid'|'invalid';action:KeyAction;onAction:(action:KeyAction)=>void;value:string;onValue:(value:string)=>void}){
  const fromStartup=override==='valid';
- const description=override==='invalid'?'启动配置中的密钥为空或格式不正确，并覆盖了本机保存值；请修正或移除该启动覆盖。':fromStartup?(action==='remove'?'保存后仅移除本机保存的密钥；启动配置提供的密钥仍会使用。':present?'本机已有保存密钥；当前启动密钥优先。替换保存值不会移除启动覆盖。':'密钥由启动配置提供，未保存到本机。新任务会沿用，之后启动时仍需提供。'):action==='remove'?'保存后移除本机密钥，后续任务将停止使用。':present||action==='replace'?'已存密钥不会显示或返回浏览器。':'尚未设置密钥，该服务暂时无法生成。';
+ const description=override==='invalid'?'启动配置中的密钥为空或格式不正确，并覆盖了本机保存值；请修正或移除该启动覆盖。':fromStartup?(action==='remove'?'保存后仅移除本机保存的密钥；启动配置提供的密钥仍会使用。':present?'本机已有保存密钥；当前启动密钥优先。替换保存值不会移除启动覆盖。':'密钥由启动配置提供，未保存到本机。新任务会沿用，之后启动时仍需提供。'):action==='remove'?'保存后移除本机保存的密钥；不会取消已经开始的任务。':present||action==='replace'?'已存密钥不会显示或返回浏览器。':'尚未设置密钥，该服务暂时无法生成。';
  return <div className="yu-provider-key">
   <div className="yu-provider-key-head"><span><KeyRound size={14}/>{title}</span><em className={`yu-provider-pill ${override==='invalid'||!present&&!fromStartup?'warn':'ok'}`}>{override==='invalid'?'启动密钥无效':fromStartup?present?'启动覆盖':'启动提供 · 未保存':present?'已保存':'未设置'}</em></div>
   <Choices name={name} label={`${title}操作`} variant="segments" value={action} onChange={onAction} options={[{value:'keep',label:present?'保留':fromStartup?'沿用启动密钥':'暂不设置'},{value:'replace',label:present?'替换':'输入密钥'},{value:'remove',label:'移除',disabled:!present}]}/>
@@ -124,7 +124,7 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
   if(!view||saving.current)return;
   if(action==='reset'&&!window.confirm('重置所有生成服务配置和密钥？故事、本机路径与网络设置都会保留；运行中的生成保持不变。'))return;
   saving.current=true;setBusy(true);setError('');setMessage('');
-  try{const result=await request('local/provider-settings','POST',{action,expectedRevision:view.revision});if(action==='reset'){adopt(result);setMessage('生成设置已重置，新任务使用当前配置；启动覆盖仍优先。');}else setMessage(result.message);}
+  try{const result=await request('local/provider-settings','POST',{action,expectedRevision:view.revision});if(action==='reset'){adopt(result);setMessage(result.appliesToNewJobs?'生成设置已重置，新任务使用当前配置；启动覆盖仍优先。':'生成设置已重置并保存。');}else setMessage(result.message);}
   catch(e){setError(e instanceof Error?e.message:'操作失败，请重新读取设置。');}
   finally{saving.current=false;setBusy(false);}
  }

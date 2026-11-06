@@ -43,7 +43,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
  // 只在需要提供方的请求边界取快照，普通书架读取不依赖设置库是否可用。
  async function requireProvider(){
   if(services.commandOnly)return;
-  if(provider.capture){const captured=provider.capture();if(!captured)throw new ReaderError(503,'新任务生成服务未配置，请检查提供方和密钥。');provider=captured;}
+  if(provider.capture){const captured=provider.capture();if(!captured)throw new ReaderError(503,'请先配置生成服务：使用本机或可信局域网地址打开 我的 → 生成服务与模型。');provider=captured;}
   const status=await provider.status();if(!status.configured)throw new ReaderError(503,status.message||'请先配置生成服务：使用本机或可信局域网地址打开 我的 → 生成服务与模型。');
  }
  try{

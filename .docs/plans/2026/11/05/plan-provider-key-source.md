@@ -18,7 +18,7 @@ settings view保留keyPresent，增加keyOverrides布尔与appliesToNewJobs布�
 - [x] 首项新SS探针：隔离正式app和生产协调器，保持一项旧配置任务在途，修改保存值后下一项任务使用新实例，旧任务不变；若无法固定快照则停止并回AR。
 - [x] 实现handler变量源、app门面/共享发现cache、coordinator每任务capture与只读可恢复调度；移除未落地重启方案。
 - [x] 更新UI密钥来源/新任务配置/保存反馈与重新读取含义，同步文档/技能与既有测试覆盖清单。
-- [ ] 独立worktree预览pnpm test:changed --plan，按实际影响执行JS/typecheck/lint/native及匹配E2E；CR/VR按skill独立审查，不绕过full回退。
+- [x] 独立worktree预览pnpm test:changed --plan，按实际影响执行JS/typecheck/lint/native及匹配E2E；CR/VR按skill独立审查，不绕过full回退。
 - [ ] 合入主工作区并核对生产API的Codex/Gemini下一任务配置与Gemini key存在，不测试真实推理。
 
 场景：`.docs/tests/test-provider-key-source.md`。IAB已知被Work设置禁用，自动化必要时采用隔离Chromium并披露；不触碰用户浏览器、不打包。工作区node_modules软链接只供依赖复用，须从本地git exclude排除，不能导致未知路径回退。
@@ -44,3 +44,7 @@ CR round1 blocked于capture=null直接API回退、旧响应UI误承诺热更新�
 CR修正已完成：null capture不再回退live门面，直接付费请求立即503；live status把同次快照ready与提供方状态合并。内部变量读取existingOnly，缺/坏store仅原显式启动分支允许旁路。旧响应UI中性显示，不承诺热更新。剩余指南的重启规则已删除。typecheck/lint复核通过；完整CLI启动矩阵、local-server新null/非法key零调用与完整UI旧响应兼容回归通过（/tmp/shiqu-live-provider-corrections.log）。
 
 原生源码24/24与fmt已通过（1打包资源用例按既定source规则过滤），源不涉及Rust/IPC/存储格式。UI使用已知IAB禁用后的隔离Chromium；390/1040截图已查看，密钥来源、保存反馈及按钮无横溢。
+
+TT 修正闭环：完整CLI启动+direct API+旧响应UI 27/27通过；按manifest直接消费者20文件full flags复核218项，217通过，1个fresh-desktop断言只因提示文字不含既有“配置生成服务”短语失败。保留既有错误文案后，最终desktop/local-server/完整UI 26/26通过；UI同时补旧响应reset中性反馈，删除密钥文案不承诺旧服务热更新。最终typecheck/lint通过，原生24/24与fmt证据不受这些TS/文案修正影响。日志：/tmp/shiqu-live-provider-corrections.log、/tmp/shiqu-live-provider-consumers.log、/tmp/shiqu-live-provider-final.log。合并复用原全量1443个未受影响pass、已修复启动矩阵和所有修正受影响消费者；不声称原full命令退出0，也不重复未受影响的全书/提供方矩阵。
+
+CR round2：CR fixed: 已修正null快照门控、旧响应宣称、显式启动DB副作用及冲突文档；rerun result passed。CR risk: non-low；CR review round: 2; reviewer: reused。最后仅调整错误提示兼容及旧响应reset中性反馈，待最终复核。
