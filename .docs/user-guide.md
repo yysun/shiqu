@@ -91,7 +91,7 @@ flowchart TB
 | --- | --- |
 | 希望安装后直接使用，通过图形界面配置服务、管理书架和查看队列 | 桌面版，内置 Node，无需另装运行环境 |
 | 已有 Node 24，想用一条命令启动，不安装桌面应用 | CLI：`npx @apprun/shiqu`；终端需保持运行，Ctrl+C 停服 |
-| 希望让 Codex 选题、制作、修改故事或批量导出、备份 | 安装拾趣技能，在 Codex 中调用 `$shiqu`；需要 Node 24，无需启动桌面、HTTP 服务或前端 |
+| 希望让 Codex 选题、制作、修改故事或批量导出、备份 | 普通启动自动准备技能，在 Codex 中调用 `$shiqu`；桌面内置 CLI 无需系统 npm，NPX 需要 Node 24；独立命令无需服务 |
 | 希望关闭控制窗口后仍继续生成和提供阅读服务 | 桌面版：关闭窗口后留在托盘，停止服务或退出拾趣才会停服 |
 | 需要脚本启动、自定义端口或目录、环境变量及非交互运行 | CLI：非交互时需提前准备服务配置与书库路径 |
 | 使用 Linux、Intel Mac 或 Windows ARM64 | CLI：目前没有对应桌面安装包，需自行安装 Node 24；Windows 使用 API 服务或只读 |
@@ -205,13 +205,13 @@ npx @apprun/shiqu --config /absolute/path/to/shiqu.env
 普通 NPX 服务或桌面「启动服务」成功后会尝试准备用户级技能；已有副本仅按原自动更新同意同步随包版本。桌面内置 Node/CLI，无需系统 npm。`skill auto-install [on|off]` 查询或保存启动集成偏好，`SHIQU_SKILL_AUTO_INSTALL=off` 只跳过本次，不改变 auto-update 同意。定制、停用和插件选择均保留，失败不阻止服务。独立 CLI 操作同库前仍需先安全停止占用服务。[安装、桌面运行时与更新说明](use-as-skill.md#启动自动安装与桌面-cli)。
 
 
-让 Codex 按拾趣技能完成任务：你描述要读什么、怎样改编、何时确认和输出到哪里，Codex 调用 CLI，故事仍保存到本地书库。选题、制作、编辑版本、离线预览、导出与备份恢复均可通过这种方式完成。需要 Node 24，无需启动桌面、HTTP 服务或前端。
+让 Codex 按拾趣技能完成任务：你描述要读什么、怎样改编、何时确认和输出到哪里，Codex 调用 CLI，故事仍保存到本地书库。选题、制作、编辑版本、离线预览、导出与备份恢复均可通过这种方式完成。桌面安装的技能使用内置 Node/CLI；其他安装使用 Node 24 与 npm/npx。执行独立命令时无需服务。
 
 可直接交给 Codex 的自然语言提示词见[通过 SKILL 使用拾趣](use-as-skill.md)，覆盖安装、配置、制作、修改、导出和维护。
 
 ### 安装与调用技能
 
-先选择技能的使用范围：
+普通 NPX 服务和桌面启动会准备用户级技能。需要手动安装时，先选择使用范围：
 
 ```bash
 # 当前用户的所有项目
@@ -226,7 +226,7 @@ npx @apprun/shiqu skill install --scope project
 | global | `~/.agents/skills/shiqu/SKILL.md` | 在多个项目中使用拾趣 |
 | project | 当前目录的 `.agents/skills/shiqu/SKILL.md` | 只在指定项目中提供技能 |
 
-必须显式指定范围；单独运行 `skill install` 不安装。安装复制独立文件，不依赖 npx 缓存。同内容重复安装无变化，不同内容或符号链接路径拒绝覆盖。安装会在技能目录记录版本、内容哈希和默认关闭的自动更新偏好。安装后的技能默认通过 `npx --yes @apprun/shiqu@<技能版本>` 调用配套 CLI，需要 Node 24 及随附的 npm/npx；不要求安装 pnpm，也不全局安装 shiqu 命令。用户明确指定其他启动器时沿用其选择。
+必须显式指定范围；单独运行 `skill install` 不安装。安装复制独立文件，不依赖 npx 缓存。同内容重复安装无变化，不同内容或符号链接路径拒绝覆盖。安装会在技能目录记录版本、内容哈希和默认关闭的自动更新偏好。技能优先校验并使用已登记的桌面内置 Node/CLI，无需系统 npm；其他安装通过 `npx --yes @apprun/shiqu@<技能版本>` 调用，需要 Node 24 及随附的 npm/npx；不要求安装 pnpm，也不全局安装 shiqu 命令。用户明确指定其他启动器时沿用其选择。
 
 安装后在 Codex 中调用 `$shiqu`，例如：
 
@@ -245,11 +245,11 @@ $shiqu 找到书库中的《故事名》，保留原文和可复用的图片，�
 
 技能以数据契约、业务规则和验收要求描述任务。Codex 可自行编写程序完成书库筛选、版本比较、报告和批量调度，通过当前 CLI 的 `help --json` 确认可用操作，按保存状态执行；简单任务可直接调用命令。自主程序使用参数数组与 JSON 输入，同一书库串行访问；数据库修改、生成、审核与作品导出由拾趣现有生产实现负责，不由临时程序重写。需要确认时停下，暂停或失败的故事不会隐式恢复。只想临时读取任务契约时可运行 `skill show`，让 Codex 读取其输出；npm 缓存中存在 SKILL.md 本身不会自动注册技能。新技能未出现时重启 Codex。
 
-若所用 npm 版本尚未包含新命令，可在源码目录运行 `pnpm cli skill install --scope global` 或 `--scope project`；同时告诉 Codex 在该源码目录使用 `pnpm cli`。源码入口及用户或项目的显式版本锁优先。发布包安装的技能通过 check 返回的 installedVersion 固定 CLI 版本，更新后切换到返回 version 对应的 `npx --yes @apprun/shiqu@<版本号>`，并重新查看该版本的帮助。
+若所用 npm 版本尚未包含新命令，可在源码目录运行 `pnpm cli skill install --scope global` 或 `--scope project`；同时告诉 Codex 在该源码目录使用 `pnpm cli`。源码入口及用户或项目的显式版本锁优先。没有桌面运行时记录的发布包技能通过 check 返回的 installedVersion 固定 CLI 版本，更新后切换到返回 version 对应的 `npx --yes @apprun/shiqu@<版本号>`，并重新查看该版本的帮助。
 
 ### 技能版本与升级
 
-Codex 每次启用技能时调用版本检查；检查只查询 npm 正式发布版本，不替换技能正文，正常结果缓存 24 小时，网络失败缓存 5 分钟。查询缓存位于 `~/.cache/shiqu/skill-version.json`（设置 XDG_CACHE_HOME 时位于其 shiqu 子目录），不反复改动项目安装记录。不安装后台服务，未调用技能时不会主动检查。
+Codex 每次启用技能时调用版本检查；检查只查询 npm 正式发布版本，不替换技能正文，正常结果缓存 24 小时，网络失败缓存 5 分钟。查询缓存位于 `~/.cache/shiqu/skill-version.json`（设置 XDG_CACHE_HOME 时位于其 shiqu 子目录），不反复改动项目安装记录。不安装后台服务，未调用技能时不会主动查询 npm。应用启动只核对随包版本；没有系统 npm 的桌面技能，通过更新桌面应用后再次启动，按原更新同意同步，不运行依赖 npx 的更新命令。
 
 ```bash
 npx @apprun/shiqu skill check

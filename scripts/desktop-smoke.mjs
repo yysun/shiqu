@@ -1,6 +1,6 @@
-// Exercise empty relocated desktop libraries and runtime lifecycle without generating content.
+// 用隔离用户目录验证搬迁运行时，避免启动技能集成写入真实用户目录。
 import assert from 'node:assert/strict';
-import {cp,lstat,mkdtemp,readFile,readdir,rm} from 'node:fs/promises';
+import {cp,lstat,mkdir,mkdtemp,readFile,readdir,rm} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
 import {once} from 'node:events';
@@ -12,12 +12,13 @@ import path from 'node:path';
 assert.equal(process.versions.node.split('.')[0],'24','Run smoke checks using Node 24');
 const source=path.resolve(process.argv.slice(2).find(value=>value!=='--')||'desktop/resources/runtime');
 const temporary=await mkdtemp(path.join(os.tmpdir(),'shiqu relocated desktop ')),root=path.join(temporary,'runtime');
+const home=path.join(temporary,'home');
 let child,binary=process.execPath;
 const request=(url,options={})=>fetch(url,{signal:AbortSignal.timeout(5000),...options});
 async function port(){const server=createServer();server.listen(0,'127.0.0.1');await once(server,'listening');const value=server.address().port;await new Promise(resolve=>server.close(resolve));return value;}
 async function inspect(directory){for(const name of await readdir(directory)){const file=path.join(directory,name),info=await lstat(file);assert.ok(!info.isSymbolicLink(),'Payload must not depend on checkout symlinks');assert.ok(!['.env','.data','shiqu.sqlite','settings.json','desktop.sqlite','desktop.sqlite-journal','desktop.sqlite-wal','desktop.sqlite-shm'].includes(name),'Unexpected private file: '+name);if(info.isDirectory())await inspect(file);else assert.ok(!['node','node.exe','pnpm','pnpm.exe'].includes(name),'Unexpected bundled runtime: '+name);}}
 async function start(settings){
- child=spawn(binary,['--no-warnings',path.join(root,'dist/server/desktop.js')],{cwd:root,env:{PATH:'/shiqu-no-system-node',HOME:os.homedir(),SYSTEMROOT:process.env.SYSTEMROOT||''},stdio:['pipe','pipe','pipe']});
+ child=spawn(binary,['--no-warnings',path.join(root,'dist/server/desktop.js')],{cwd:root,env:{PATH:'/shiqu-no-system-node',HOME:home,USERPROFILE:home,APPDATA:path.join(home,'roaming'),LOCALAPPDATA:path.join(home,'local'),SYSTEMROOT:process.env.SYSTEMROOT||''},stdio:['pipe','pipe','pipe']});
  child.stderr.resume();const lines=createInterface({input:child.stdout});
  const timeout=setTimeout(()=>child.kill('SIGTERM'),15000);
  const result=Promise.race([once(lines,'line').then(([line])=>JSON.parse(line)),once(child,'exit').then(()=>{throw Error('Packaged runtime exited before readiness');})]);
@@ -27,6 +28,7 @@ async function start(settings){
 async function stop(){if(child&&child.exitCode===null){const exited=once(child,'exit');child.stdin.end();const timer=setTimeout(()=>child.kill('SIGKILL'),10000);try{await exited;}finally{clearTimeout(timer);}}}
 
 try{
+ await mkdir(home);
  await inspect(source);await cp(source,root,{recursive:true});
  const payload=JSON.parse(await readFile(path.join(root,'payload.json'),'utf8'));assert.equal(payload.nodeBundled,true,'Desktop must bundle Node');
  const nativeDirectory=path.join(path.dirname(source),'node');
