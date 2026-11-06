@@ -2,11 +2,11 @@
 /* Source actions sit with extraction; a two-column settings group belongs to confirmation. */
 ol.production-timeline{list-style:none;padding:0;margin:0;display:grid;gap:5px;text-align:left}
 .production-timeline>li{display:flex;align-items:center;gap:10px;min-height:52px;padding:8px;border:1px solid transparent;border-radius:9px;font-size:12px;line-height:1.6;color:#718064}
-.production-stage-icon{display:grid;place-items:center;flex:none;width:24px;height:24px;border:1px solid #d3ddc7;border-radius:50%;font:11px system-ui,sans-serif}
+.production-stage-icon{display:grid;place-items:center;flex:none;width:24px;height:24px;border:1px solid #d3ddc7;border-radius:50%;font-family:system-ui,sans-serif;font-size:var(--yu-meta-size)}
 .production-stage-copy{display:flex;flex:1;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
 .production-stage-copy>strong{font:inherit;font-weight:500}
-.production-stage-copy>small{font-size:11px;line-height:1.7;color:#65765a}
-.production-stage-state{flex:none;font-size:10px;color:#607354}
+.production-stage-copy>small{font-size:var(--yu-meta-size);line-height:1.7;color:var(--yu-meta)}
+.production-stage-state{flex:none;font-size:var(--yu-meta-size);color:var(--yu-meta)}
 .production-stage-links{display:flex;flex-wrap:wrap;gap:0 4px;align-items:center}
 .production-stage-copy .story-flow-link{font-size:inherit}
 .production-timeline>li[data-state=done]{color:#536f42}
@@ -19,26 +19,26 @@ ol.production-timeline{list-style:none;padding:0;margin:0;display:grid;gap:5px;t
 .production-stage-spin{animation:production-stage-turn 1.2s linear infinite}
 @keyframes production-stage-turn{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.production-stage-spin{animation:none}}
-@media(max-width:380px){.production-timeline>li{gap:8px;padding:7px}.production-stage-state{font-size:9px}}
+@media(max-width:380px){.production-timeline>li{gap:8px;padding:7px}.production-stage-state{font-size:var(--yu-meta-size)}}
 
 /* Desktop cards keep seven milestones in one row and reserve detail for the active stage. */
 ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
-.production-timeline--horizontal>li{position:relative;flex-direction:column;justify-content:flex-start;gap:4px;min-width:0;min-height:0;padding:7px 2px;text-align:center;font-size:11px;line-height:1.4}
+.production-timeline--horizontal>li{position:relative;flex-direction:column;justify-content:flex-start;gap:4px;min-width:0;min-height:0;padding:7px 2px;text-align:center;font-size:var(--yu-meta-size);line-height:1.4}
 .production-timeline--horizontal .production-stage-icon{width:22px;height:22px;position:relative;z-index:1}
 .production-timeline--horizontal .production-stage-copy{flex:none;gap:0;width:100%}
 .production-timeline--horizontal .production-stage-copy>strong{display:flex;align-items:center;justify-content:center;min-height:1.4em}
 .production-timeline--horizontal .production-stage-copy>small{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.production-timeline--horizontal .production-stage-state{font-size:9px;line-height:1.4;overflow-wrap:anywhere}
+.production-timeline--horizontal .production-stage-state{font-size:var(--yu-meta-size);line-height:1.4;overflow-wrap:anywhere}
 .production-timeline--horizontal>li[data-state=current] .production-stage-icon{background:#436442;border-color:#436442;color:#fffdf5}
 .production-timeline--horizontal>li[data-state=current] strong,.production-timeline--horizontal>li[data-state=current] .production-stage-state{font-weight:600;color:#35583e}
 .production-timeline--horizontal>li[data-state=failed] .production-stage-icon{background:#855e43;border-color:#855e43;color:#fffdf5}
-.production-stage-current{display:flex;flex-wrap:wrap;gap:3px 10px;margin:6px 0 0;padding:6px 3px 0;border-top:1px solid #dfe6d5;font-size:11px;line-height:1.7;color:#607354;overflow-wrap:anywhere}
+.production-stage-current{display:flex;flex-wrap:wrap;gap:3px 10px;margin:6px 0 0;padding:6px 3px 0;border-top:1px solid #dfe6d5;font-size:var(--yu-meta-size);line-height:1.7;color:var(--yu-meta);overflow-wrap:anywhere}
 .production-stage-current>strong{font-weight:600;color:#35583e}
 .production-stage-current[data-state=failed],.production-stage-current[data-state=failed]>strong{color:#855e43}
 
 @media(max-width:1100px){.production-timeline--horizontal .production-stage-copy>strong{min-height:2.8em}}
 
-.production-review-loop{margin:10px 0 0;color:#758468;font-size:11px;line-height:1.8}
+.production-review-loop{margin:10px 0 0;color:var(--yu-meta);font-size:var(--yu-meta-size);line-height:1.8}
 
 /* Errors and their next actions stay beneath the owning checkpoint, outside navigation buttons. */
 .production-timeline>li.has-stage-content{flex-wrap:wrap}.production-stage-notice{display:grid;gap:8px;flex-basis:calc(100% - 34px);min-width:0;margin-left:34px;line-height:1.7}.production-acceptance-notice>strong{font-weight:600}.production-acceptance-notice>p{margin:6px 0}.production-acceptance-notice>button{min-height:40px}
@@ -49,12 +49,12 @@ ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr))
 .yu-extraction-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:baseline;gap:4px 16px}
 
 .production-stage-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;min-width:0}
-.production-stage-timing{display:inline-flex;align-items:center;gap:4px;margin:0;font-size:11px;line-height:1.7;color:#617254;font-variant-numeric:tabular-nums}
+.production-stage-timing{display:inline-flex;align-items:center;gap:4px;margin:0;font-size:var(--yu-meta-size);line-height:1.7;color:var(--yu-meta);font-variant-numeric:tabular-nums}
 .production-stage-footer>.story-flow-link{margin-left:auto}
 .production-stage-footer>.yu-retry-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:4px 12px;margin-left:auto}
 .production-stage-notice .yu-retry-control small{margin:0}
 .yu-recovery-status{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;color:#617254}
-.yu-recovery-detail{font-size:10px;color:#718064}.yu-recovery-detail>summary{cursor:pointer;text-decoration:underline;text-underline-offset:3px}.yu-recovery-detail[open]{flex-basis:100%}.yu-recovery-detail>p{margin:6px 0 0;overflow-wrap:anywhere}
+.yu-recovery-detail{font-size:var(--yu-meta-size);color:#718064}.yu-recovery-detail>summary{cursor:pointer;text-decoration:underline;text-underline-offset:3px}.yu-recovery-detail[open]{flex-basis:100%}.yu-recovery-detail>p{margin:6px 0 0;overflow-wrap:anywhere}
 .production-stage-notice .yu-retry-control>button{margin-top:8px}
 
 /* Finished checkpoints retain two-line content with tighter spacing and right-aligned timing. */
@@ -63,7 +63,7 @@ ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr))
 .production-stage-complete>.production-stage-copy>small{line-height:1.4}
 .production-stage-meta{display:flex;flex-direction:column;align-items:flex-end;align-self:flex-end;flex:none;gap:2px;max-width:55%;margin-left:auto;text-align:right}
 .production-stage-meta>.production-stage-timing{justify-content:flex-end}
-.production-stage-meta>.story-flow-link{font-size:11px}
+.production-stage-meta>.story-flow-link{font-size:var(--yu-meta-size)}
 .production-stage-complete>.production-stage-meta>.production-stage-timing{line-height:1.4}
 .production-timeline--horizontal .production-stage-meta{align-items:center;align-self:center;max-width:100%;margin-left:0}
 .production-stage-complete>.production-stage-notice{flex-basis:100%;margin-left:0}

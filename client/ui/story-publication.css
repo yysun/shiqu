@@ -1,6 +1,6 @@
 /* Keep long public notices readable on small screens and nested reading sheets. */
 .yu-publication{margin:20px 0;padding:16px 0;border-top:1px solid #a0af9140;text-align:left;font-size:13px;line-height:1.8;overflow-wrap:anywhere}
-.yu-publication h3{margin:0 0 10px;font-size:14px}.yu-publication p{margin:6px 0;white-space:pre-wrap}.yu-publication small{display:block;margin-top:12px;font-size:11px;opacity:.75}
+.yu-publication h3{margin:0 0 10px;font-size:14px}.yu-publication p{margin:6px 0;white-space:pre-wrap}.yu-publication small{display:block;margin-top:12px;font-size:var(--yu-meta-size);color:var(--yu-meta)}
 .yu-publication-editor textarea{display:block;box-sizing:border-box;width:100%;margin-top:8px;padding:13px;border:1px solid #cdd6c4;border-radius:10px;background:#fffdf5;color:#304c37;font:inherit;font-size:14px;line-height:1.7;resize:vertical}
 .yu-publication-editor input:focus-visible,.yu-publication-editor textarea:focus-visible{outline:2px solid #648354;outline-offset:2px}
 .yu-publication-summary{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 16px;padding:0 0 16px;color:var(--yu-meta);font-size:12px;line-height:1.7;overflow-wrap:anywhere}
@@ -22,3 +22,4 @@
 .yu-export-unsigned:disabled,.yu-export-unsigned[aria-disabled=true]{opacity:.5;cursor:default}
 .yu-export-credit-error{grid-column:1/-1;margin:4px 0 12px;font-size:12px;line-height:1.7;color:#806d45;overflow-wrap:anywhere}
 .yu-ending .yu-export-credit-error{color:#dfceb0}
+.yu-ending .yu-publication small{color:#a7ba9c}

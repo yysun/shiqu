@@ -9,9 +9,9 @@
 .yu-provider-settings :disabled{cursor:not-allowed}
 
 /* 状态胶囊：运行中 / 未接通 / 只读，以及待重启、密钥状态等标记 */
-.yu-provider-pill{display:inline-flex;align-items:center;gap:4px;flex:none;padding:2px 8px;border-radius:999px;font-size:11px;font-style:normal;font-weight:500;line-height:1.6;white-space:nowrap;background:var(--pv-idle-bg,#ecece3);color:var(--pv-idle,#78806f)}
-.yu-provider-pill.ok{background:var(--pv-ok-bg,#e4eedb);color:var(--pv-ok,#3f7a46)}
-.yu-provider-pill.warn{background:var(--pv-warn-bg,#f6ebd2);color:var(--pv-warn,#9a6414)}
+.yu-provider-pill{display:inline-flex;align-items:center;gap:4px;flex:none;padding:2px 8px;border-radius:999px;font-size:var(--yu-meta-size);font-style:normal;font-weight:500;line-height:1.6;white-space:nowrap;background:var(--pv-idle-bg,#ecece3);color:var(--pv-idle,#78806f)}
+.yu-provider-pill.ok{background:var(--pv-ok-bg,#e4eedb);color:#3c7342}
+.yu-provider-pill.warn{background:var(--pv-warn-bg,#f6ebd2);color:#8a5a12}
 
 /* 运行状态卡 */
 .yu-provider-status{display:grid;gap:10px;padding:14px 16px;border:1px solid var(--pv-line);border-left:4px solid var(--pv-idle);border-radius:12px;background:var(--pv-card)}
@@ -38,7 +38,7 @@
 .yu-provider-group,.yu-provider-efforts{display:grid;gap:12px;min-width:0;padding:16px;border:1px solid var(--pv-line);border-radius:12px;background:var(--pv-card)}
 .yu-provider-group>header,.yu-provider-efforts>summary{display:flex;align-items:center;gap:8px;color:var(--pv-ink)}
 .yu-provider-group h3{margin:0;font-size:15px;font-weight:600}
-.yu-provider-changed{margin-left:auto;padding:1px 8px;border-radius:999px;background:#e9e2f5;color:#5d4a8a;font-size:11px;font-style:normal;font-weight:500}
+.yu-provider-changed{margin-left:auto;padding:1px 8px;border-radius:999px;background:#e9e2f5;color:#5d4a8a;font-size:var(--yu-meta-size);font-style:normal;font-weight:500}
 
 /* 提供方卡片单选 */
 .yu-provider-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
@@ -49,14 +49,14 @@
 .yu-provider-cards>label:hover{border-color:#a9b998}
 .yu-provider-cards>label.selected{border-color:#5d7d4a;background:#eef3e6;box-shadow:inset 0 0 0 1px #5d7d4a}
 .yu-provider-cards strong{font-size:13px;font-weight:600;color:var(--pv-ink)}
-.yu-provider-cards small{font-size:11px;color:var(--pv-meta)}
-.yu-provider-cards em{justify-self:start;margin-top:4px;font-size:10px;padding:1px 6px}
+.yu-provider-cards small{font-size:var(--yu-meta-size);color:var(--yu-meta)}
+.yu-provider-cards em{justify-self:start;margin-top:4px;font-size:var(--yu-meta-size);padding:1px 6px}
 .yu-provider-cards>label:has(:disabled){opacity:.5;cursor:not-allowed}
 .yu-provider-cards>label:has(:focus-visible),.yu-provider-segments>label:has(:focus-visible){outline:2px solid #607e4b;outline-offset:2px}
 
 /* 分段控件：密钥操作与推理档位 */
 .yu-provider-segments{display:inline-flex;flex-wrap:nowrap;overflow-x:auto;gap:2px;padding:3px;border-radius:9px;background:#ebede2;justify-self:start;align-self:start;max-width:100%}
-.yu-provider-segments>label{display:flex;flex-direction:row;align-items:center;flex:none;white-space:nowrap;min-height:30px;padding:3px 12px;border-radius:7px;color:#66755d;font-size:12px;transition:background .15s,color .15s}
+.yu-provider-segments>label{display:flex;flex-direction:row;align-items:center;flex:none;white-space:nowrap;min-height:44px;padding:3px 12px;border-radius:7px;color:#66755d;font-size:12px;transition:background .15s,color .15s}
 .yu-provider-segments strong{font-weight:500}
 .yu-provider-segments>label:hover{color:var(--pv-ink)}
 .yu-provider-segments>label.selected{background:#fffdf6;color:var(--pv-ink);box-shadow:0 1px 3px #29452522}
@@ -72,7 +72,7 @@
 .yu-provider-key-head>span{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--pv-ink)}
 
 /* 推理档位 */
-.yu-provider-efforts>summary{cursor:pointer;list-style:none;min-height:24px}
+.yu-provider-efforts>summary{cursor:pointer;list-style:none;min-height:44px}
 .yu-provider-efforts>summary::-webkit-details-marker{display:none}
 .yu-provider-efforts>summary span{font-size:15px;font-weight:600}
 .yu-provider-efforts>summary small{font-size:12px;color:var(--pv-meta)}
@@ -84,17 +84,17 @@
 .yu-provider-effort-rows>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid #eceee4}
 .yu-provider-effort-rows>div>span{position:relative;font-size:13px;color:#4a6444}
 .yu-provider-effort-rows>div.changed>span::before{content:'';position:absolute;left:-10px;top:50%;width:5px;height:5px;margin-top:-2.5px;border-radius:50%;background:#7a62ad}
-.yu-provider-effort-rows .yu-provider-segments>label{min-height:26px;padding:2px 10px;font-size:11px}
+.yu-provider-effort-rows .yu-provider-segments>label{justify-content:center;min-width:44px;min-height:44px;padding:2px 10px;font-size:var(--yu-meta-size)}.yu-provider-effort-rows .yu-provider-segments>label:not(.selected):not(:hover){color:var(--yu-meta)}
 
 /* 常驻操作栏 */
 .yu-provider-actions{position:sticky;bottom:0;z-index:1;display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 -28px;padding:12px 28px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--pv-line);background:#faf9f1f2;backdrop-filter:blur(8px)}
 .yu-provider-actions>span{margin-right:auto;font-size:12px;color:var(--pv-meta)}
 .yu-provider-actions>span.dirty{display:flex;align-items:center;gap:6px;color:#5d4a8a;font-weight:500}
 .yu-provider-actions>span.dirty::before{content:'';width:7px;height:7px;border-radius:50%;background:#7a62ad}
-.yu-provider-ghost{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:40px;min-height:40px;padding:0 12px;border:1px solid #d4dcc7;border-radius:10px;background:#fffdf6;color:#4b693d;font:inherit;font-size:13px}
+.yu-provider-ghost{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:44px;min-height:44px;padding:0 12px;border:1px solid #d4dcc7;border-radius:10px;background:#fffdf6;color:#4b693d;font:inherit;font-size:13px}
 .yu-provider-ghost:hover:not(:disabled){border-color:#a9b998}
 .yu-provider-ghost:disabled{opacity:.5}
-.yu-provider-actions .yu-primary{width:auto;min-width:112px;min-height:40px;padding:8px 18px;font-size:13px;border-radius:10px}
+.yu-provider-actions .yu-primary{width:auto;min-width:112px;min-height:44px;padding:8px 18px;font-size:13px;border-radius:10px}
 .yu-provider-actions .yu-primary:disabled{opacity:.45}
 
 /* 资料页“当前运行”摘要 */

@@ -1,5 +1,6 @@
 /* One text-link treatment for navigation, editing and recovery throughout the flow. */
-.story-flow-link{display:inline-flex;align-items:center;gap:4px;padding:3px 0;color:#526b43;font:inherit;font-size:12px;line-height:1.6;text-decoration:underline;text-decoration-color:#aabb98;text-underline-offset:3px;cursor:pointer;overflow-wrap:anywhere}
+/* 流程链接常上下相邻，触控区直接做成 44×44，避免透明扩展区互相覆盖。 */
+.story-flow-link{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:44px;min-height:44px;padding:3px 0;color:#526b43;font:inherit;font-size:12px;line-height:1.6;text-decoration:underline;text-decoration-color:#aabb98;text-underline-offset:3px;cursor:pointer;overflow-wrap:anywhere}
 .story-flow-link:hover{text-decoration-color:currentColor;color:#294f31}
 .story-flow-link:focus-visible{outline:2px solid #82996f;outline-offset:3px;border-radius:3px}
 .story-flow-link[aria-disabled=true]{opacity:.5;cursor:default;text-decoration:none}
