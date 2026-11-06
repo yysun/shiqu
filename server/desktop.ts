@@ -1,6 +1,8 @@
 // 原生控制台通过私有 stdin 传入设置库位置与启动覆盖，保存的生成设置用于下一任务。
 // 先完成书库升级再启动服务；退出撤销远程访问并在释放所有权前停止生成。
 import path from 'node:path';
+import {ensureAgentSkill} from './agent-skill.ts';
+import type {AgentSkillStatus} from './agent-skill.ts';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createInterface} from 'node:readline';
 import {once} from 'node:events';
@@ -39,7 +41,7 @@ export function desktopProviderConfiguration(settings:DesktopSettings,key:string
  const store=new SystemSettingsStore(settingsFile,settings.dataDirectory,{existingOnly:true});
  try{return {variables:effectiveProviderVariables(store,overrides),locations:{settings:settingsFile,library:settings.dataDirectory}};}finally{store.close();}
 }
-export async function startDesktop(settings:DesktopSettings,key:string,root:string,options:{signal?:AbortSignal;onStatus?:(status:unknown)=>void;imageKey?:string;settingsFile?:string;overrides?:Record<string,string|undefined>;transport?:typeof fetch}={}){
+export async function startDesktop(settings:DesktopSettings,key:string,root:string,options:{signal?:AbortSignal;onStatus?:(status:unknown)=>void;imageKey?:string;settingsFile?:string;overrides?:Record<string,string|undefined>;transport?:typeof fetch;installAgentSkill?:boolean}={}){
  options.onStatus?.({running:false,phoneUrls:[],state:'upgrading'});
  const upgrade=ensureLibraryReady(settings.dataDirectory,root);
  const backup=upgrade?.backup||libraryUpgradeBackup(settings.dataDirectory);
@@ -62,7 +64,7 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
   // macOS 允许通配绑定与已占用回环端口共存，先探测本机地址，防止打开其他服务。
   server=createHttpServer(localHandle);server.listen(settings.port,'127.0.0.1');await once(server,'listening');await close(server);
   server=createHttpServer(localHandle);server.listen(settings.port,'0.0.0.0');await once(server,'listening');
-  const status={running:true,state:'running',pid:process.pid,url:local,phoneUrls:phones,publicUrl:'',internetError:'',backup};
+  const status:{running:boolean;state:string;pid:number;url:string;phoneUrls:string[];publicUrl:string;internetError:string;backup:typeof backup;agentSkill?:AgentSkillStatus}={running:true,state:'running',pid:process.pid,url:local,phoneUrls:phones,publicUrl:'',internetError:'',backup};
   function snapshot(){
    let provider;try{provider=providerSettings?.snapshot();}catch{return {...status,provider:runtimeConfiguration(configuration.variables),generating:app!.generating,settingsError:'无法读取共享生成设置，请检查本机配置后重试。'};}
    return {...status,provider:runtimeConfiguration(configuration.variables),generating:app!.generating,...(provider?{provider:provider.runtime,restartRequired:provider.restartRequired,overrides:provider.overrides}:{})};
@@ -86,6 +88,7 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
    }
   }
   options.signal?.throwIfAborted();recordDiagnostic(settings.dataDirectory,'service_started');
+  if(options.installAgentSkill)status.agentSkill=await ensureAgentSkill(root,{runtime:{node:process.execPath,cli:path.join(root,'dist/server/agent-cli.js')}});
   monitor=setInterval(()=>options.onStatus?.(snapshot()),1000);monitor.unref();
   return {server,get status(){return snapshot();},stop};
  }catch(error){recordDiagnostic(settings.dataDirectory,'service_start_failed',{code:safeErrorCode(error)});await stop();throw error;}
@@ -124,7 +127,7 @@ async function main(){
     const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
     if(input.action==='upgrade'){ensureLibraryReady(input.settings.dataDirectory,root);send({upgraded:true,started:false,backup:libraryUpgradeBackup(input.settings.dataDirectory)});await stop();return;}
     if(input.action==='test'){send(await testDesktopProvider(input.settings,input.key,root,fetch,input.imageKey));await stop();return;}
-    runtime=await startDesktop(input.settings,input.key,root,{signal:abort.signal,onStatus:send,imageKey:input.imageKey,settingsFile:input.settingsFile,overrides:input.overrides});starting=false;
+    runtime=await startDesktop(input.settings,input.key,root,{signal:abort.signal,onStatus:send,imageKey:input.imageKey,settingsFile:input.settingsFile,overrides:input.overrides,installAgentSkill:true});starting=false;
     if(inputClosed){await stop();return;}
     send(runtime.status);
    }catch(error){send({running:false,state:'failed',phoneUrls:[],error:desktopFailure(error)});starting=false;await stop();}

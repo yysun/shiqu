@@ -18,6 +18,7 @@ import {installDiagnostics} from './diagnostics.ts';
 import {diagnosticReport} from './diagnostics.ts';
 import {createLibraryBackup,verifyLibraryBackup,containsPath} from './library-backup.ts';
 import {bundledSkill,installSkill,checkSkill,updateSkill} from './cli-skill.ts';
+import {agentSkillPreference} from './agent-skill.ts';
 import {stopCodexProcesses} from './codex-runner.ts';
 import {stopClaudeProcesses} from './claude-runner.ts';
 import {readerBooks} from '../lib/reader-books.ts';
@@ -30,7 +31,7 @@ import type {LocalBooks} from './local-books.ts';
 
 const commandNames=new Set(['skill','help','init','status','catalog','books','themes','styles','stories','run','preview','export','backup','restore','verify-backup','diagnostics','config','api']);
 const commands=[
- ['skill show|install|check|update','Install with explicit --scope project|global; check auto-discovers copies and caches npm latest for 24h. --refresh retries; check --auto-update on|off saves consent. update copies only this CLI bundle, never local edits or downgrades.','skill check --auto-update on'],
+ ['skill show|install|check|update|auto-install','Normal app launch prepares the user skill; skill auto-install [on|off] reads/saves the startup preference without changing auto-update. Install with explicit --scope project|global; check auto-discovers copies and caches npm latest for 24h. --refresh retries; check --auto-update on|off saves consent. update copies only this CLI bundle, never local edits or downgrades.','skill check --auto-update on'],
  ['init','Optional: create the library directory and database at --data-dir (shiqu.sqlite plus media). Does not change the saved default; library commands also initialize automatically.','init --data-dir /private/library'],
  ['status','Library integrity/counts and runtime metadata; no cloud readiness request.','status'],
  ['catalog','Books, themes and styles. books contents BOOK --query words reads local sources.','books contents zhuangzi'],
@@ -100,8 +101,9 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  }
  if(command==='skill'){
   if(action==='show')return {appVersion,text:await bundledSkill(root)};
+  if(action==='auto-install'){need(!value('scope')&&!value('auto-update')&&!v.refresh&&!v.automatic&&p.length<=3&&(id===undefined||['on','off'].includes(id)),'INVALID_INPUT','Use skill auto-install [on|off] for this user.');return agentSkillPreference(id===undefined?undefined:id==='on',{home:context.home,variables:context.variables||process.env});}
   const scope=value('scope');need(scope===undefined||['project','global'].includes(scope),'SKILL_SCOPE_REQUIRED','Use --scope project|global.');
-  need(['install','check','update'].includes(action),'UNKNOWN_COMMAND','Use skill show|install|check|update.');
+  need(['install','check','update'].includes(action),'UNKNOWN_COMMAND','Use skill show|install|check|update|auto-install.');
   need(action==='check'||value('auto-update')===undefined&&!v.refresh,'INVALID_INPUT','--auto-update and --refresh apply only to skill check.');
   need(!v.automatic||action==='update','INVALID_INPUT','--automatic applies only to skill update.');
   const preference=value('auto-update');need(preference===undefined||['on','off'].includes(preference),'INVALID_INPUT','Use --auto-update on|off.');

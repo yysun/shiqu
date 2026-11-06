@@ -3,7 +3,7 @@ import {effectiveImageProvider,isApiProvider} from '../lib/system-settings.ts';
 import type {SystemSettings} from '../lib/system-settings.ts';
 import type {ProviderSettingsView} from '../lib/provider-settings';
 export type ServiceState='loading'|'unavailable'|'stopped'|'running'|'starting'|'upgrading'|'failed'|'preview';
-export type Status={running:boolean;state?:ServiceState;url?:string;phoneUrls:string[];publicUrl?:string;internetError?:string;error?:string;backup?:string;provider?:ProviderSettingsView['runtime'];restartRequired?:boolean;generating?:boolean;settingsError?:string};
+export type Status={running:boolean;state?:ServiceState;url?:string;phoneUrls:string[];publicUrl?:string;internetError?:string;error?:string;backup?:string;provider?:ProviderSettingsView['runtime'];restartRequired?:boolean;generating?:boolean;settingsError?:string;agentSkill?:{status:string;message?:string}};
 export const stateLabels:Record<ServiceState,string>={loading:'读取中',unavailable:'状态未知',stopped:'已停止',running:'运行中',starting:'正在启动',upgrading:'正在升级书库',failed:'启动失败',preview:'浏览器预览'};
 export function savedProvider(settings:SystemSettings,keys?:{gemini:boolean;openai:boolean}):ProviderSettingsView['runtime']{
  const provider=settings.provider,image=effectiveImageProvider(settings);

@@ -29,6 +29,7 @@ test('console renders lifecycle controls, saved/runtime summaries and safe upgra
  const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
  const settings=defaultSystemSettings('/isolated/library'),props={native:true,state:'stopped',status:{running:false,phoneUrls:[]},provider:savedProvider(settings),busy:'',nodeError:'',onStart(){},onStop(){},onRestart(){},onOpen(){},onSettings(){},previewUrl:null};
  const render=patch=>renderToStaticMarkup(createElement(compiled.exports.ServiceCard,{...props,...patch}));
+ assert.match(render({status:{running:true,phoneUrls:[],agentSkill:{status:'installed',message:'拾趣技能：已安装，可在 AI 助手中使用 $shiqu'}}}),/拾趣技能：已安装/);
  assert.match(render({}),/未配置生成服务/);assert.match(render({}),/启动服务/);assert.match(render({}),/已保存配置/);
  assert.doesNotMatch(render({}),/type="password"|生成队列|书架故事|role="tab/);
  assert.match(render({state:'upgrading',status:{running:false,backup:'/isolated/verified-backup'}}),/正在升级书库/);

@@ -1,4 +1,4 @@
-// Start the installed browser app with explicit assets, opt-in env loading, and persistent user data.
+// 正常服务启动成功后准备用户技能；帮助、维护与独立命令不隐式安装。
 import {inspectLibrary} from './library-schema.ts';
 import path from 'node:path';
 import {readFile} from 'node:fs/promises';
@@ -9,6 +9,7 @@ import {configureProvider,cliProviderConfiguration,providerReady} from './cli-se
 import {parseCliOptions, cliConfiguration} from './cli-options.ts';
 import {maintainLibrary} from './library-maintenance.ts';
 import {routeHeadless} from './headless-cli.ts';
+import {ensureAgentSkill,agentSkillMessage} from './agent-skill.ts';
 
 const help = `Usage: shiqu [options]
 
@@ -37,10 +38,13 @@ Relative paths use the directory you launched from. No .env file is loaded autom
 LAN access and phone QR codes are enabled by default; use the same trusted Wi-Fi.
 Connected devices share the library. Use --host 127.0.0.1 for local-only access.
 Saved provider settings are shared with the desktop app. First use asks for setup.
+A successful normal launch prepares the bundled user skill. Use skill auto-install off to opt out.
+SHIQU_SKILL_AUTO_INSTALL=off skips startup installation; existing update consent is preserved.
 Environment/config overrides apply to this invocation only and are never saved automatically.
 `;
 
 export async function runCli(root:string, args = process.argv.slice(2)) {
+  const start=async(options:Parameters<typeof import('./start.ts').startServer>[0])=>{const {startServer}=await import('./start.ts');const server=await startServer(options);console.log(agentSkillMessage(await ensureAgentSkill(root)));return server;};
   if(await routeHeadless(root,args))return;
   const options = parseCliOptions(args);
   if (options.help) { console.log(help); return; }
@@ -64,11 +68,10 @@ export async function runCli(root:string, args = process.argv.slice(2)) {
   const library=await cliConfiguration(options);
   inspectLibrary(library.SHIQU_DATA_DIR!);
   if((options.dataDirectory||process.env.SHIQU_DATA_DIR)&&process.env.SHIQU_AI_PROVIDER&&providerReady(library)){
-    const {startServer}=await import('./start.ts');return startServer({root,variables:library,localAccess:true,settingsOverrides:{...library},explicitSettingsBypass:true});
+    return start({root,variables:library,localAccess:true,settingsOverrides:{...library},explicitSettingsBypass:true});
   }
   const store=new SystemSettingsStore(locations.settings,locations.library);
   let variables:Record<string,string|undefined>;
   try{if(!options.port&&!process.env.PORT)library.PORT=String(store.settings().port);variables=await cliProviderConfiguration(store,library);}finally{store.close();}
-  const {startServer}=await import('./start.ts');
-  return startServer({root,variables,localAccess:true,settingsOverrides:{...library}});
+  return start({root,variables,localAccess:true,settingsOverrides:{...library}});
 }

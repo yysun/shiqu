@@ -10,6 +10,7 @@ export function ServiceCard({state,status,native,busy,provider,nodeVersion,nodeE
   <div className="service-label"><i className={status.running?'status-dot live':'status-dot'}/><span role="status">{stateLabels[state]}</span><span className="runtime-badge">{nodeVersion?`Node ${nodeVersion}`:nodeError?'运行时不可用':'内置运行时'}</span></div>
   <h2>故事在浏览器里，<br/>服务在这里。</h2><p>启动后，在电脑或手机上打开拾趣。</p>
   {(status.error||status.settingsError||nodeError)&&<p className="service-error" role="alert">{status.error||status.settingsError||nodeError}</p>}
+  {status.agentSkill?.message&&<p className="agent-skill-status" role="status">{status.agentSkill.message}</p>}
   <div className="service-actions">
    <button className="primary" disabled={locked||status.running} onClick={onStart}>{pending?stateLabels[state]+'…':'启动服务'}</button>
    <button className="secondary" disabled={locked||!status.running} onClick={onStop}>停止</button>

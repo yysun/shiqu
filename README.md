@@ -37,13 +37,13 @@ npx @apprun/shiqu
 
 ### 3. Skill：让 Codex 帮你制作
 
-需要 **Node 24**。运行一次，安装供当前用户各项目使用的技能：
+普通 NPX 服务或桌面「启动服务」成功后会自动准备当前用户的技能。桌面内置 CLI，无需系统 Node/npm；NPX 使用需要 **Node 24**。也可手动安装：
 
 ```bash
 npx @apprun/shiqu skill install --scope global
 ```
 
-安装后，Codex 通过 `npx --yes @apprun/shiqu@<技能版本>` 调用配套 CLI，无需另装 pnpm。技能安装只复制指引和版本记录，不会全局安装 `shiqu` 命令；源码开发仍使用 `pnpm cli`。
+安装后，Codex 优先使用已登记的桌面内置 Node/CLI，其他安装通过 `npx --yes @apprun/shiqu@<技能版本>` 调用，无需 pnpm。启动仅按已有自动更新同意同步随包技能，保留用户修改和宿主停用选择。`skill auto-install off` 关闭启动集成；`SHIQU_SKILL_AUTO_INSTALL=off` 仅跳过本次，不改变更新同意。不会全局安装 `shiqu` 命令；源码开发仍使用 `pnpm cli`。
 
 然后在 Codex 中说：
 
@@ -52,7 +52,7 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 先给我候选和制作方案，确认后再生成插图，完成后导出离线预览和公开 ZIP。
 ```
 
-无需启动桌面或浏览器服务。[提示词示例](.docs/use-as-skill.md)
+独立 CLI 无需服务；操作同一书库前先安全停止占用它的服务。[提示词示例](.docs/use-as-skill.md)
 
 
 

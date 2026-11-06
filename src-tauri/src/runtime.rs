@@ -97,8 +97,15 @@ pub fn node_info(_explicit: &str, root: &Path) -> Result<NodeInfo, String> {
 }
 
 pub fn command(binary: &Path) -> Command {
+    command_with_env(binary, |name| std::env::var_os(name))
+}
+
+fn command_with_env(
+    binary: &Path,
+    environment: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Command {
     let mut cmd = Command::new(binary);
-    // Do not inherit arbitrary Node injection flags or application/API credentials.
+    // 只继承启动所需的非密钥变量，不继承任意Node注入参数或应用/API凭据。
     cmd.env_clear();
     for name in [
         "PATH",
@@ -114,18 +121,20 @@ pub fn command(binary: &Path) -> Command {
         "WINDIR",
         "SSL_CERT_FILE",
         "CODEX_CA_CERTIFICATE",
+        "CODEX_HOME",
+        "SHIQU_SKILL_AUTO_INSTALL",
         "HTTP_PROXY",
         "HTTPS_PROXY",
         "NO_PROXY",
     ] {
-        if let Some(value) = std::env::var_os(name) {
+        if let Some(value) = environment(name) {
             cmd.env(name, value);
         }
     }
-    // A GUI-launched app may have no nvm PATH; also let Codex find the selected Node.
+    // 图形启动可能没有nvm路径；为子进程保留所选Node的目录。
     if let Some(parent) = binary.parent() {
         let mut paths = vec![parent.to_path_buf()];
-        if let Some(current) = std::env::var_os("PATH") {
+        if let Some(current) = environment("PATH") {
             paths.extend(std::env::split_paths(&current));
         }
         if let Ok(path) = std::env::join_paths(paths) {
@@ -396,6 +405,31 @@ mod tests {
         drop(send);
         assert!(startup_response(&receive, Duration::from_millis(1), |_| {}).is_none());
     }
+    #[test]
+    fn integration_environment_survives_without_node_injection_or_credentials() {
+        use std::ffi::{OsStr, OsString};
+        let cmd = command_with_env(Path::new("/isolated/node"), |name| match name {
+            "CODEX_HOME" => Some(OsString::from("/isolated/agent")),
+            "SHIQU_SKILL_AUTO_INSTALL" => Some(OsString::from("off")),
+            "NODE_OPTIONS" | "OPENAI_API_KEY" => Some(OsString::from("must-not-inherit")),
+            _ => None,
+        });
+        let environment: std::collections::BTreeMap<_, _> = cmd.get_envs().collect();
+        assert_eq!(
+            environment.get(OsStr::new("CODEX_HOME")).copied().flatten(),
+            Some(OsStr::new("/isolated/agent"))
+        );
+        assert_eq!(
+            environment
+                .get(OsStr::new("SHIQU_SKILL_AUTO_INSTALL"))
+                .copied()
+                .flatten(),
+            Some(OsStr::new("off"))
+        );
+        assert!(!environment.contains_key(OsStr::new("NODE_OPTIONS")));
+        assert!(!environment.contains_key(OsStr::new("OPENAI_API_KEY")));
+    }
+
     #[test]
     fn desktop_uses_verified_bundle_and_ignores_saved_system_path() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../desktop/resources/runtime");

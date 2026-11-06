@@ -30,13 +30,13 @@ npx @apprun/shiqu
 
 ### 3. Skill：让 Codex 帮你制作
 
-需要 **Node 24**。运行一次，安装供当前用户各项目使用的技能：
+普通 NPX 服务或桌面「启动服务」成功后会自动准备当前用户的技能。桌面内置 CLI，无需系统 Node/npm；NPX 使用需要 **Node 24**。也可手动安装：
 
 ```bash
 npx @apprun/shiqu skill install --scope global
 ```
 
-安装后，Codex 通过 `npx --yes @apprun/shiqu@<技能版本>` 调用配套 CLI，无需另装 pnpm。技能安装只复制指引和版本记录，不会全局安装 `shiqu` 命令；源码开发仍使用 `pnpm cli`。
+安装后，Codex 优先使用已登记的桌面内置 Node/CLI，其他安装通过 `npx --yes @apprun/shiqu@<技能版本>` 调用，无需 pnpm。启动仅按已有自动更新同意同步随包技能，保留用户修改和宿主停用选择。`skill auto-install off` 关闭启动集成；`SHIQU_SKILL_AUTO_INSTALL=off` 仅跳过本次，不改变更新同意。不会全局安装 `shiqu` 命令；源码开发仍使用 `pnpm cli`。
 
 然后在 Codex 中说：
 
@@ -45,7 +45,7 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 先给我候选和制作方案，确认后再生成插图，完成后导出离线预览和公开 ZIP。
 ```
 
-无需启动桌面或浏览器服务。[提示词示例](https://github.com/yysun/shiqu/blob/main/.docs/use-as-skill.md) · [技能安装与配置](https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md#无服务-cli-与-codex-技能)
+独立 CLI 无需服务；操作同一书库前先安全停止占用它的服务。[提示词示例](https://github.com/yysun/shiqu/blob/main/.docs/use-as-skill.md) · [技能安装与配置](https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md#无服务-cli-与-codex-技能)
 
 生成服务可选 Codex、OpenAI API 或 Gemini，也可选择只读。Codex 需 macOS / Linux，并另行安装和登录 Codex CLI；OpenAI API 与 Gemini 使用各自 API 密钥并单独计费。[如何选择后端](https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md#如何选择后端)
 
@@ -71,7 +71,7 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 | `stories reselect`, `stories replace`, `stories cancel-reselection` | 发起、应用或取消重新选题 |
 | `preview ID --output FILE` | 导出可独立打开的离线 HTML 预览 |
 | `export ID --format FORMAT --output FILE` | 导出 json、md、zip、pdf 或 png |
-| `skill show`, `skill install`, `skill check`, `skill update` | 查看、安装、检查或更新 Codex 技能 |
+| `skill show`, `skill install`, `skill check`, `skill update`, `skill auto-install` | 查看、安装、检查、更新技能或设置启动安装偏好 |
 | `config get`, `config set`, `config reset` | 查看、保存或重置共享生成服务配置 |
 | `backup DIR`, `verify-backup DIR`, `restore DIR`, `diagnostics FILE` | 备份、校验、恢复书库，或导出脱敏诊断 |
 | `api METHOD reader/ROUTE` | 在当前进程调用允许的 reader 接口 |

@@ -40,6 +40,14 @@ CLI 和桌面版使用同一份 `com.shiqu.desktop/desktop.sqlite`。桌面窗�
 
 OpenAI 默认文本模型 `gpt-6.1-sol`、图片模型 `gpt-image-2.5-sunburst`，可分别调整。API 生成使用独立提供方，不回退到 Codex/Gemini。文本任务推荐档位仍为选题 medium、画风 low、幅数 medium、提纲/分镜/审核/修订 high；Gemini 仅支持 low/medium/high，OpenAI API / Codex 的更高档位依模型权限。选择 Gemini 时会把不支持的更高任务档位恢复为该任务推荐值，之后可手动修改并保存。
 
+## 启动技能集成
+
+「启动服务」成功后会安装缺失的用户级技能，并在已有自动更新同意时同步随包版本。控制台显示准备结果；定制、未知来源、较新副本、宿主停用和已启用插件均保留，不修改宿主配置。失败不阻止服务；连接检查和书库升级不安装技能。
+
+桌面资源携带同版本 `skills/shiqu`、生产 `dist/server/agent-cli.js`、字体及平台依赖。技能目录的受管 `.shiqu-runtime.json` 登记绝对 Node/CLI 命令，助手校验版本与哈希后执行，无需系统 npm。移动桌面应用后重启服务以核对路径；无系统 npm 时通过更新桌面应用、按原同意在下次启动同步技能。直接 CLI 仍需先安全停止占用同一书库的服务，不支持 `--url`。
+
+`skill auto-install [on|off]` 查询/保存启动集成偏好，`SHIQU_SKILL_AUTO_INSTALL=off` 跳过本次；可通过登记的 CLI 命令执行，不要求 npx。它们独立于 auto-update，不删除已有技能。原生只透传集成所需的 `CODEX_HOME`、`SHIQU_SKILL_AUTO_INSTALL`，继续拒绝任意 Node 注入及密钥环境继承。
+
 ## 浏览器与手机
 
 桌面只负责本机服务。点击「启动服务」后再「在浏览器打开」，故事浏览、队列和制作均在浏览器中进行。关闭窗口继续托盘运行，退出停止服务。手机访问保留局域网二维码与可选私密互联网链接；生成设置只允许真实回环或私有网络来源、实际本机接口 Host 和同源提交，隧道即使转发到回环套接字也不能访问。

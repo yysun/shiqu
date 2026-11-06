@@ -202,6 +202,9 @@ npx @apprun/shiqu --config /absolute/path/to/shiqu.env
 
 ## 无服务 CLI 与 Codex 技能
 
+普通 NPX 服务或桌面「启动服务」成功后会尝试准备用户级技能；已有副本仅按原自动更新同意同步随包版本。桌面内置 Node/CLI，无需系统 npm。`skill auto-install [on|off]` 查询或保存启动集成偏好，`SHIQU_SKILL_AUTO_INSTALL=off` 只跳过本次，不改变 auto-update 同意。定制、停用和插件选择均保留，失败不阻止服务。独立 CLI 操作同库前仍需先安全停止占用服务。[安装、桌面运行时与更新说明](use-as-skill.md#启动自动安装与桌面-cli)。
+
+
 让 Codex 按拾趣技能完成任务：你描述要读什么、怎样改编、何时确认和输出到哪里，Codex 调用 CLI，故事仍保存到本地书库。选题、制作、编辑版本、离线预览、导出与备份恢复均可通过这种方式完成。需要 Node 24，无需启动桌面、HTTP 服务或前端。
 
 可直接交给 Codex 的自然语言提示词见[通过 SKILL 使用拾趣](use-as-skill.md)，覆盖安装、配置、制作、修改、导出和维护。

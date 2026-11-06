@@ -11,7 +11,9 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 ## 执行环境与协议
 
-- 使用 Node 24 及随附的 npm/npx。通过发布包安装的技能默认用 `npx --yes @apprun/shiqu` 调用 CLI；版本确定后使用 `npx --yes @apprun/shiqu@<version>`，版本选择见下方“版本检查与更新”。`skill install` 只安装技能正文与版本记录，不安装 pnpm 或全局 shiqu 命令。
+- 独立桌面技能先检查本次加载 SKILL.md 同目录的 `.shiqu-runtime.json`：schemaVersion 为 1、source 为 `@apprun/shiqu/desktop`、appVersion 与 `.shiqu-skill.json` 的安装版本一致，文件 SHA-256 匹配安装记录的 runtimeSha256。command 是两个绝对路径组成的 Node/CLI 参数数组；确认路径存在并通过 `help --json` 核对版本后，后续命令沿用该入口，无需系统 npm/npx。不要拼接 shell 命令。记录失效时报告并正常重启桌面以重新登记，不隐式安装运行环境；只有环境已有 Node 24/npm 且用户选择该入口时才使用 npx。
+
+- 没有有效桌面内置入口时，使用 Node 24 及随附的 npm/npx。通过发布包安装的技能默认用 `npx --yes @apprun/shiqu` 调用 CLI；版本确定后使用 `npx --yes @apprun/shiqu@<version>`，版本选择见下方“版本检查与更新”。`skill install` 只安装技能正文与版本记录，不安装 pnpm 或全局 shiqu 命令。
 - 源码项目沿用该源码目录的 `pnpm cli`；用户明确已安装 `shiqu` 命令或指定 `pnpm dlx` 等入口时沿用其选择。用户指定版本和项目版本锁优先，不因安装了技能就切换启动器或要求安装 pnpm。先读取所选入口的 `help --json`，核对 appVersion、当前输入与可用操作；下面是稳定语义，不是完整输入 Schema。
 - 所有书库操作使用同一绝对路径：显式 `--data-dir` 优先，其次 `SHIQU_DATA_DIR`、已保存位置和默认书库。首次访问自动建库并迁移，无需先 init；不因此更改默认位置或模型配置。书库被其他服务占用时报告占用，不绕过锁。
 - 自主程序使用进程 API 的可执行文件与参数数组，JSON 经 `--input -` 的 stdin 或私有文件传入；不要把标题、路径、原文、提示词拼接成 shell 命令。沿用入口及其工作目录，处理 stdout 与 stderr，设置有限超时。同一书库的 CLI 调用串行执行，避免独占开库冲突。
@@ -97,8 +99,12 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 ## 版本检查与更新
 
+普通 NPX 服务及桌面「启动服务」成功后会尝试安装随包的用户级技能到 `~/.agents/skills/shiqu`。启动只使用随包内容，不查询 npm 或下载新包；已有副本仅按原 auto-update 同意更新，不覆盖修改、未知来源或较新副本。尊重 Codex 宿主停用和已启用插件，不修改宿主配置；失败不阻止服务。帮助、配置、维护、独立子命令、开发服务和桌面测试/升级不隐式安装。
+
+`skill auto-install [on|off]` 查询/保存启动安装偏好；`SHIQU_SKILL_AUTO_INSTALL=off` 仅跳过本次启动。它们不删除技能、不改变 auto-update 同意，也不要求停服。插件包由宿主管理更新，不在插件缓存执行独立技能安装或更新。
+
 - 每次启用技能，用上述入口执行 `skill check`。它自动发现当前项目祖先目录（截至 Git 根）或全局安装；确认返回的 path 是本次加载的技能。返回 `not_installed` 时，说明未发现安装副本，沿用已读取的正文和当前入口，不为原任务隐式安装技能。若同名副本并存而发现结果不匹配，明确指定 `--scope project|global` 和安装根目录，不更新其他副本。查询缓存 24 小时，用户要求立即检查时加 `--refresh`。离线、旧 CLI 不支持检查或检查失败时简短说明，沿用可用版本继续原任务，不循环重试。
 - 默认只报告新版。仅用户明确要求开启/关闭自动更新时，执行 `skill check --auto-update on|off`（必要时指定范围）；不要从一次故事任务推断自动更新授权。
-- 无版本锁且 `autoUpdateReady` 为 true 时，以返回的 updateCwd 为工作目录执行 updateCommand 参数数组；它固定 npm 正式发布版本并带 `--automatic`，更新时会再次检查偏好。本地修改或未知来源副本不自动覆盖。用户明确要求单次更新但未开启自动更新时，也可执行返回的 updateCommand。
-- 更新成功后重新读取返回 path 的技能，默认用 `npx --yes @apprun/shiqu@<version> help --json` 核对返回 version 对应的 CLI，后续任务沿用该固定版本。未更新且无用户/项目版本锁、非源码入口时，已管理副本使用 `npx --yes @apprun/shiqu@<installedVersion>`，不随 latest 漂移；未获知安装版本时先通过 help/skill check 核对版本，再执行书库任务。用户明确指定其他启动器时保留启动器并固定相同版本；自定义副本或源码入口沿用用户选择并核对兼容性。更新失败保留现状，不手工覆盖或删除状态以绕过保护。
+- 桌面内置入口没有系统 npm/npx 时，新版通过更新桌面应用并重新启动来同步，保留自动更新同意；报告注册表发现的新版，不执行依赖 npx 的 updateCommand，也不自行安装 npm。其余无版本锁且 `autoUpdateReady` 为 true 时，以返回的 updateCwd 为工作目录执行 updateCommand 参数数组；它固定 npm 正式发布版本并带 `--automatic`，更新时会再次检查偏好。本地修改或未知来源副本不自动覆盖。用户明确要求单次更新但未开启自动更新时，也可执行返回的 updateCommand。
+- 更新成功后重新读取返回 path 的技能；有有效桌面运行时记录时继续使用同版本绝对命令，其余默认用 `npx --yes @apprun/shiqu@<version> help --json` 核对返回 version 对应的 CLI，后续任务沿用该固定版本。未更新且无用户/项目版本锁、非桌面/源码入口时，已管理副本使用 `npx --yes @apprun/shiqu@<installedVersion>`，不随 latest 漂移；未获知安装版本时先通过 help/skill check 核对版本，再执行书库任务。用户明确指定其他启动器时保留启动器并固定相同版本；自定义副本或源码入口沿用用户选择并核对兼容性。更新失败保留现状，不手工覆盖或删除状态以绕过保护。
 - `skill update --scope project|global` 只安装正在运行的 CLI 包自带技能，不自行寻找最新包。安装记录缺失时，仅与运行包正文完全相同的旧副本可用该版本 `skill install` 建立记录；不同内容需人工比较合并。检查/更新不操作书库或生成配置。

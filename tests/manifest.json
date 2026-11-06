@@ -143,6 +143,37 @@
       ]
     },
     {
+      "file": "tests/agent-skill-startup.test.mjs",
+      "groups": [
+        "startup",
+        "tooling",
+        "desktop"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "flows",
+      "pr": "affected",
+      "gates": [
+        "user-flows"
+      ],
+      "covers": [
+        "server/agent-skill.ts",
+        "server/agent-cli.ts",
+        "server/cli-skill.ts",
+        "server/cli.ts",
+        "server/headless-cli.ts",
+        "server/desktop.ts",
+        "scripts/desktop-resources.mjs",
+        "scripts/desktop-runtime-packages.mjs",
+        "skills/shiqu/SKILL.md"
+      ]
+    },
+    {
       "file": "tests/art-recommendation.test.mjs",
       "groups": [
         "preparation"
@@ -546,7 +577,8 @@
         "user-flows"
       ],
       "covers": [
-        "server/headless-cli.ts"
+        "server/headless-cli.ts",
+        "server/cli-skill.ts"
       ]
     },
     {
@@ -746,6 +778,28 @@
       "gates": [],
       "covers": [
         "scripts/desktop-node.mjs"
+      ]
+    },
+    {
+      "file": "tests/desktop-resources.test.mjs",
+      "groups": [
+        "desktop",
+        "media"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "flows",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "scripts/desktop-resources.mjs",
+        "scripts/desktop-runtime-packages.mjs",
+        "server/story-export.ts"
       ]
     },
     {
