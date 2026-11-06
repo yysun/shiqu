@@ -7,7 +7,8 @@ import path from 'node:path';
 import os from 'node:os';
 import {once} from 'node:events';
 import {DatabaseSync} from 'node:sqlite';
-import {createApplication} from '../server/app.ts';
+import {createApplication,liveReaderProvider} from '../server/app.ts';
+import {StoryDiscoveryCache} from '../server/story-discovery-cache.ts';
 import {createHttpServer} from '../server/http.ts';
 import {openDatabase} from '../server/database.ts';
 import {FileMedia} from '../server/media.ts';
@@ -151,4 +152,23 @@ test('single-owner shelf returns more than 80 stories and keeps hidden stories e
  assert.equal(rows.length,84);assert.equal(rows.some(row=>row.id===ids[0]),false);
  await repo.restore(ids[0],app.services.ownerId);
  assert.equal((await (await request(app,'/api/reader/sessions')).json()).length,85);
+});
+
+
+test('live configuration failures do not break shelf reads and readonly services remain able to accept settings',async t=>{
+ const options=await fixture(t);let fail=false,variables={...options.variables,SHIQU_AI_PROVIDER:'readonly'};
+ const app=createApplication({...options,variables,providerVariables:()=>{if(fail)throw Error('private-settings-failure');return variables;}});t.after(()=>app.close());
+ assert.equal((await(await request(app,'/api/reader/status')).json()).provider,'readonly');
+ variables={...variables,SHIQU_AI_PROVIDER:'gemini',GEMINI_API_KEY:'synthetic-key',GEMINI_TEXT_MODEL:'new-model'};
+ assert.equal((await(await request(app,'/api/reader/status')).json()).models.text,'new-model');assert.equal(app.services.production.stopping,false);
+ fail=true;assert.equal((await request(app,'/api/reader/status')).status,503);assert.equal((await request(app,'/api/reader/sessions')).status,200);
+});
+
+test('old discovery flights remain visible and settle without rereading broken live settings',async t=>{
+ const options=await fixture(t),cache=new StoryDiscoveryCache(new FileMedia(path.join(options.dataDirectory,'media')));let variables={SHIQU_AI_PROVIDER:'codex',CODEX_MODEL:'old'},fail=false,release;
+ const live=liveReaderProvider(variables,()=>{if(fail)throw Error('private-settings-failure');return variables;},values=>({status:async()=>({provider:'codex',models:{text:values.CODEX_MODEL,image:''}}),safeError:()=>values.CODEX_MODEL,discoveryBusy:()=>cache.busy,settleDiscovery:()=>cache.settle()}));
+ const flight=cache.shared('old-flight',undefined,()=>new Promise(resolve=>{release=resolve;}));
+ await new Promise(resolve=>setImmediate(resolve));variables={...variables,CODEX_MODEL:'new'};assert.equal((await live.status()).models.text,'new');assert.equal(live.discoveryBusy(),true);
+ fail=true;assert.equal(live.safeError(Error('controlled')),'new');let settled=false;const drain=live.settleDiscovery().then(()=>{settled=true;});await new Promise(resolve=>setImmediate(resolve));assert.equal(settled,false);
+ release('done');await Promise.all([drain,flight]);assert.equal(live.discoveryBusy(),false);assert.throws(()=>live.capture(),error=>error.status===503&&!error.message.includes('private-settings-failure'));
 });

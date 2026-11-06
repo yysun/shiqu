@@ -166,13 +166,14 @@ test('HTTP adapter supplies socket metadata; forwarded headers cannot change the
  assert.equal(result,200);assert.deepEqual(observed,['127.0.0.1']);
 });
 
-test('browser CLI edits share the production store and leave runtime unchanged until restart',async t=>{
+test('browser CLI edits apply to new jobs without restarting the process',async t=>{
  const f=await startupFixture(t),store=f.store(),port=await freeStartupPort();store.save({provider:'gemini',providerConfigured:true,libraryConfigured:true,textModel:'cli-saved-text',imageModel:'cli-saved-image',port},{provider:'gemini',value:googleKey});store.close();
  const process=startFixtureCli(f);await process.ready();
  const lan=Object.values(networkInterfaces()).flat().find(entry=>entry&&!entry.internal&&entry.family==='IPv4'&&privateNetworkAddress(entry.address))?.address;
  const base=`http://${lan||'127.0.0.1'}:${port}`;if(!lan)t.diagnostic('No private IPv4 interface; CLI LAN scenario unavailable.');
  let response=await fetch(base+providerSettingsPath);assert.equal(response.status,200);let current=await safeJson(response);assert.equal(current.restartRequired,false);
- response=await fetch(base+providerSettingsPath,{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify(body(current,{...current.settings,textModel:'cli-new-text'}))});assert.equal(response.status,200);current=await safeJson(response);assert.equal(current.restartRequired,true);assert.equal(current.runtime.models.text,'cli-saved-text');
+ response=await fetch(base+providerSettingsPath,{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify(body(current,{...current.settings,textModel:'cli-new-text'}))});assert.equal(response.status,200);current=await safeJson(response);assert.equal(current.restartRequired,false);assert.equal(current.appliesToNewJobs,true);assert.equal(current.runtime.models.text,'cli-new-text');
+ const active=await(await fetch(base+'/api/reader/status')).json();assert.equal(active.models.text,'cli-new-text');
  await process.stop();const state=await savedStartupState(f);assert.equal(state.settings.textModel,'cli-new-text');assert.equal(state.gemini,googleKey);
  const restarted=startFixtureCli(f);await restarted.ready();current=await (await fetch(base+providerSettingsPath)).json();assert.equal(current.runtime.models.text,'cli-new-text');assert.equal(current.restartRequired,false);await restarted.stop();
 });
@@ -185,7 +186,7 @@ test('Codex settings load and save without launching a slow or unavailable CLI r
  let response=await fetch(base+providerSettingsPath,{signal:AbortSignal.timeout(2000)});assert.equal(response.status,200);let current=await response.json();
  assert.equal(current.runtime.provider,'codex');assert.equal(current.runtime.models.text,'configured-codex-model');assert.equal(current.runtime.configured,undefined);assert.equal(existsSync(marker),false);
  response=await fetch(base+providerSettingsPath,{method:'POST',signal:AbortSignal.timeout(2000),headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify({settings:{codexModel:'next-codex-model'},expectedRevision:current.revision,keyAction:'keep'})});assert.equal(response.status,200);current=await response.json();
- assert.equal(current.settings.codexModel,'next-codex-model');assert.equal(current.runtime.models.text,'configured-codex-model');assert.equal(existsSync(marker),false);await cli.stop();
+ assert.equal(current.settings.codexModel,'next-codex-model');assert.equal(current.runtime.models.text,'next-codex-model');assert.equal(current.restartRequired,false);assert.equal(existsSync(marker),false);await cli.stop();
 });
 
 test('fully explicit CLI startup survives a corrupt saved store; settings failures stay safe',async t=>{
@@ -254,3 +255,34 @@ for(const image of ['gemini','openai'])for(const imageKeyAction of ['replace','r
   assert.equal(f.settingsStore.key(other),other==='gemini'?googleKey:openaiKey);
  });
 }
+
+
+test('startup Gemini key permits Codex text plus Gemini images without saving the key',async t=>{
+ const f=await fixture(t,{GEMINI_API_KEY:'synthetic-startup-key'});f.settingsStore.save({},{provider:'gemini',value:null});
+ const before=await f.view();assert.equal(before.keyPresent.gemini,false);assert.equal(before.keyOverrides.gemini,true);
+ const response=await f.save(body(before,{provider:'codex',imageProvider:'gemini'}));assert.equal(response.status,200);
+ const saved=await response.json();assert.equal(saved.settings.provider,'codex');assert.equal(saved.settings.imageProvider,'gemini');assert.equal(saved.keyPresent.gemini,false);assert.equal(saved.keyOverrides.gemini,true);assert.equal(f.settingsStore.key('gemini'),'');assert.equal(saved.runtime.provider,'gemini');assert.equal(saved.restartRequired,true);assert.ok(!JSON.stringify(saved).includes('synthetic-startup-key'));
+ const without=browserProviderSettings({variables:f.variables,overrides:{},ports:[3456],locations:f.locations});
+ const denied=await without(new Request(origin+providerSettingsPath,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(body(saved,{provider:'codex',imageProvider:'gemini'}))}),peer);assert.equal(denied.status,400);assert.equal(f.settingsStore.key('gemini'),'');
+});
+
+
+for(const provider of ['gemini','openai'])test(`${provider} startup keys obey override precedence and stay out of storage`,async t=>{
+ const keyName=provider==='gemini'?'GEMINI_API_KEY':'OPENAI_API_KEY',secret='synthetic-startup-only';
+ const f=await fixture(t,{[keyName]:secret});f.settingsStore.save({provider},{provider,value:null});
+ let view=await f.view();assert.equal(view.keyPresent[provider],false);assert.equal(view.keyOverrides[provider],true);
+ for(const settings of [{provider},{provider:'codex',imageProvider:provider}]){const response=await f.save(body(view,settings));assert.equal(response.status,200);view=await response.json();assert.equal(f.settingsStore.key(provider),'');assert.ok(!JSON.stringify(view).includes(secret));}
+ f.settingsStore.save({provider},{provider,value:'saved-key'});
+ for(const value of ['', ' ', 'invalid\nkey']){
+  const handler=browserProviderSettings({variables:f.variables,overrides:{[keyName]:value},ports:[3456],locations:f.locations,live:true});
+  const before=f.settingsStore.snapshot();const response=await handler(new Request(origin+providerSettingsPath,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(body(before,{provider}))}),peer);
+  assert.equal(response.status,400);assert.match((await response.json()).error,/启动密钥/);assert.equal(f.settingsStore.revision(),before.revision);assert.equal(f.settingsStore.key(provider),'saved-key');
+ }
+});
+
+test('live settings expose next-job variables but keep process paths and port fixed',async t=>{
+ const f=await fixture(t);const handler=browserProviderSettings({variables:{...f.variables,CODEX_BIN:'/launched/codex',PORT:'3456'},overrides:{},ports:[3456],locations:f.locations,live:true});
+ f.settingsStore.save({provider:'codex',imageProvider:'gemini',codexPath:'/next-launch/codex',port:4567,codexModel:'new-codex'});
+ const view=await(await handler(new Request(origin+providerSettingsPath),peer)).json();assert.equal(view.appliesToNewJobs,true);assert.equal(view.restartRequired,false);assert.equal(view.runtime.provider,'codex');assert.equal(view.runtime.models.text,'new-codex');
+ const variables=handler.variables();assert.equal(variables.CODEX_BIN,'/launched/codex');assert.equal(variables.PORT,'3456');assert.equal(variables.SHIQU_AI_PROVIDER,'codex');assert.equal(variables.GEMINI_API_KEY,googleKey);
+});

@@ -34,11 +34,11 @@ test('fresh desktop starts without generation setup; reader works and generation
  assert.equal(response.status,503);assert.match((await response.json()).error,/配置生成服务/);assert.deepEqual(await(await fetch(f.base+'/api/reader/sessions')).json(),[]);
  for(const route of ['/__desktop/library','/desktop/settings','/api/local/start','/api/local/quit'])assert.equal((await fetch(f.base+route)).status,404);
 });
-test('desktop uses the exact native store and invocation overrides; browser drift and supervisor summary agree',async t=>{
+test('desktop uses the exact native store and invocation overrides; new-job configuration and supervisor summary agree',async t=>{
  const f=await fixture(t,{provider:'gemini',providerConfigured:true,textModel:'saved-text'}, {GEMINI_API_KEY:'synthetic-override-key',GEMINI_TEXT_MODEL:'runtime-text',SHIQU_REASONING_PLAN:'medium'});
  let view=await(await f.read()).json();assert.equal(view.runtime.models.text,'runtime-text');assert.equal(view.runtime.taskReasoningEfforts.plan,'medium');assert.equal(view.restartRequired,false);assert.deepEqual(view.overrides,['GEMINI_API_KEY','GEMINI_TEXT_MODEL','SHIQU_REASONING_PLAN']);
  let response=await f.save(edit(view,{textModel:'new-saved-text'},{keyAction:'replace',key:'synthetic-saved-key'}));assert.equal(response.status,200);view=await response.json();assert.equal(view.restartRequired,false);assert.equal(f.runtime.status.restartRequired,false);
- response=await f.save(edit(view,{imageModel:'changed-image'}));view=await response.json();assert.equal(view.restartRequired,true);assert.equal(f.runtime.status.restartRequired,true);assert.equal(f.runtime.status.provider.models.text,'runtime-text');
+ response=await f.save(edit(view,{imageModel:'changed-image'}));view=await response.json();assert.equal(view.restartRequired,false);assert.equal(f.runtime.status.restartRequired,false);assert.equal(view.runtime.models.image,'changed-image');assert.equal(f.runtime.status.provider.models.text,'runtime-text');
  const store=f.store();assert.equal(store.settings().textModel,'new-saved-text');assert.equal(store.key('gemini'),'synthetic-saved-key');assert.equal(store.settings().port,f.settings.port);store.close();
  assert.equal(existsSync(f.locations.settings),false,'platform-derived settings store is never created');assert.doesNotMatch(JSON.stringify(view)+JSON.stringify(f.runtime.status),/synthetic-override-key|synthetic-saved-key/);
 });
@@ -76,7 +76,8 @@ test('desktop LAN saves providers, keys and task settings while local stale save
  if(!link){t.skip('No private LAN interface');return;}
  const local=await(await f.read()).json(),send=(view,settings)=>fetch(link+route,{method:'POST',headers:{Origin:link,'Content-Type':'application/json'},body:JSON.stringify(edit(view,settings,{keyAction:'replace',key:'synthetic-lan-key'}))});
  let response=await send(local,{provider:'openai',openaiTextModel:'lan-text',openaiImageModel:'lan-image',taskReasoningEfforts:{plan:'low'}});assert.equal(response.status,200);const saved=await response.json();
- assert.equal(saved.settings.provider,'openai');assert.equal(saved.settings.taskReasoningEfforts.plan,'low');assert.equal(saved.runtime.provider,local.runtime.provider);assert.equal(saved.restartRequired,true);assert.doesNotMatch(JSON.stringify(saved),/synthetic-lan-key|codexPath|dataDirectory/);
+ assert.equal(saved.settings.provider,'openai');assert.equal(saved.settings.taskReasoningEfforts.plan,'low');assert.equal(saved.runtime.provider,'openai');assert.equal(saved.restartRequired,false);assert.equal(saved.appliesToNewJobs,true);
+ assert.equal(f.runtime.status.provider.provider,'openai');assert.equal((await(await fetch(link+'/api/reader/status')).json()).models.text,'lan-text');assert.doesNotMatch(JSON.stringify(saved),/synthetic-lan-key|codexPath|dataDirectory/);
  const store=f.store();assert.equal(store.key('openai'),'synthetic-lan-key');assert.equal(store.settings().openaiTextModel,'lan-text');store.close();
  assert.equal((await f.save(edit(local,{provider:'readonly'}))).status,409);
  assert.equal((await fetch(link+route,{method:'POST',headers:{Origin:'https://foreign.example','Content-Type':'application/json'},body:JSON.stringify(edit(saved,{provider:'readonly'}))})).status,403);

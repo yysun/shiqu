@@ -87,7 +87,7 @@
 .yu-provider-effort-rows .yu-provider-segments>label{min-height:26px;padding:2px 10px;font-size:11px}
 
 /* 常驻操作栏 */
-.yu-provider-actions{position:sticky;bottom:0;z-index:1;display:flex;align-items:center;gap:8px;margin:0 -28px;padding:12px 28px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--pv-line);background:#faf9f1f2;backdrop-filter:blur(8px)}
+.yu-provider-actions{position:sticky;bottom:0;z-index:1;display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 -28px;padding:12px 28px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--pv-line);background:#faf9f1f2;backdrop-filter:blur(8px)}
 .yu-provider-actions>span{margin-right:auto;font-size:12px;color:var(--pv-meta)}
 .yu-provider-actions>span.dirty{display:flex;align-items:center;gap:6px;color:#5d4a8a;font-weight:500}
 .yu-provider-actions>span.dirty::before{content:'';width:7px;height:7px;border-radius:50%;background:#7a62ad}

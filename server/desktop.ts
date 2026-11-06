@@ -1,4 +1,4 @@
-// 原生控制台通过私有 stdin 传入设置库位置及启动覆盖，生成设置可在本机或可信局域网浏览器编辑。
+// 原生控制台通过私有 stdin 传入设置库位置与启动覆盖，保存的生成设置用于下一任务。
 // 先完成书库升级再启动服务；退出撤销远程访问并在释放所有权前停止生成。
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -54,9 +54,9 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
  function stop(){return stopped??=(async()=>{try{clearInterval(monitor);remote.revoke();await tunnel?.stop();app?.stopGeneration();await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);await Promise.all([close(remoteServer),close(server)]);await app?.close();}finally{recordDiagnostic(settings.dataDirectory,'service_stopped');removeDiagnostics();await release();}})();}
  try{
   options.signal?.throwIfAborted();
-  app=createApplication({root,dataDirectory:settings.dataDirectory,variables:configuration.variables,production:{autoStart:providerReady(configuration.variables)},transport:options.transport});
+  const providerSettings=configuration.locations?browserProviderSettings({variables:configuration.variables,overrides:options.overrides||{},live:true,ports:[settings.port],locations:configuration.locations,existingOnly:true,transport:options.transport}):undefined;
+  app=createApplication({root,dataDirectory:settings.dataDirectory,variables:configuration.variables,providerVariables:providerSettings?()=>providerSettings.variables():undefined,production:{autoStart:!!providerSettings||providerReady(configuration.variables)},transport:options.transport});
   const local=`http://127.0.0.1:${settings.port}`,phones=phoneUrls('0.0.0.0',settings.port);
-  const providerSettings=configuration.locations?browserProviderSettings({variables:configuration.variables,overrides:options.overrides||{},ports:[settings.port],locations:configuration.locations,existingOnly:true,transport:options.transport}):undefined;
   const access=desktopAccess(app.handle,{hosts:[new URL(local).host,`localhost:${settings.port}`,...phones.map(url=>new URL(url).host)]});
   const localHandle:Parameters<typeof createHttpServer>[0]=(request,peer)=>new URL(request.url).pathname===providerSettingsPath&&providerSettings?providerSettings(request,peer):access.handle(request);
   // macOS 允许通配绑定与已占用回环端口共存，先探测本机地址，防止打开其他服务。

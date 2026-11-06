@@ -84,6 +84,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private supersededJobs=new Set<string>();
  private database:Database;
  private provider:ReaderProvider;
+ private readonly jobProviders=new Map<string,ReaderProvider>();
  private media:MediaStore;
  private options:Options;
  constructor(database:Database,provider:ReaderProvider,media:MediaStore,options:Options={}){
@@ -93,10 +94,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   this.queue=new ProductionQueue(database,{
    targetSessionId:options.targetSessionId,
    limits:{search:1,text:1,image:options.imageWorkers??3,local:2},now:this.clock,leaseMs:options.leaseMs,
-   canRun:job=>this.canRun(job),resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>this.wake(),
+   canRun:job=>this.canRun(job),resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>{for(const id of this.jobProviders.keys())if(!this.queue.tasks.has(id))this.jobProviders.delete(id);this.wake();},
    candidateFilter:`j.kind='image-publish' OR NOT EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND (s.generation_control!='active' OR (s.state='failed' AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=s.id AND f.owner_id=s.user_id AND f.state='recovering' AND (f.command_id=j.recovery_id OR f.kind='interrupted' AND f.job_id=j.id))) OR EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)))`,
    skipCandidate:job=>!!options.targetSessionId&&job.session_id!==options.targetSessionId||!!options.stopBeforeImages&&['image','image-publish'].includes(job.kind)||job.kind!=='image-publish'&&this.supersededJobs.has(job.session_id),
-   safeError:(error,job)=>error instanceof ReaderError?error.message:job.kind==='image-publish'?'图片已生成，暂时无法展开。请重试继续。':this.provider.safeError(error),
+   safeError:(error,job)=>error instanceof ReaderError?error.message:job.kind==='image-publish'?'图片已生成，暂时无法展开。请重试继续。':(this.jobProviders.get(job.id)||this.provider).safeError(error),
    terminal:error=>error instanceof ReaderError&&error.status<500,
    handlers:{
     discover:{pool:'search',run:job=>this.discover(job)},
@@ -359,7 +360,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const phase=saved.generationProgress!.phase,parsed=this.parsed(row)!;
   const step=nextStep(parsed.doc,parsed.selection,readerMaxFrames-1);
   const current=active.find(job=>phase==='discover'?job.kind==='discover':phase==='image'?job.kind==='image':['prepare','script'].includes(job.kind)&&(!JSON.parse(job.payload).stepKey||JSON.parse(job.payload).stepKey===step?.key));
-  const startedAt=current?.updated_at??null,timeoutMs=this.provider.generationTimeoutMs?.(phase);
+  const timingProvider=current&&(this.jobProviders.get(current.id)||(!this.provider.capture?this.provider:undefined));
+  const startedAt=current?.updated_at??null,timeoutMs=timingProvider?.generationTimeoutMs?.(phase);
   const timeoutAt=startedAt!==null&&timeoutMs?startedAt+timeoutMs:null;
   const search=this.searches.get(id);
   const session={...saved,...(saved.intake&&search?.progress?{intake:{...saved.intake,progress:search.progress}}:{}),generationProgress:{...saved.generationProgress!,startedAt,timeoutAt,stageDurations:productionStageDurations(allJobs,parsed.selection),attempt:current?.attempts??saved.generationProgress!.attempt}};
@@ -436,6 +438,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private async canRun(job:ProductionJob){
   if(this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&['image','image-publish'].includes(job.kind))return false;
+  if(job.kind!=='image-publish'&&this.provider.capture&&!this.provider.capture())return false;
   const row=await this.raw(job.session_id,job.owner_id);
   if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
   if(!this.readable(row)||!this.currentJob(row,job))return false;
@@ -513,7 +516,13 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    .bind(JSON.stringify(search),...(batch?[JSON.stringify(batch)]:[]),new Date(this.clock()).toISOString(),id,ownerId,round).run();
   return saved.meta.changes>0;
  }
+ // 最终派发边界只读一次配置；与提前门控之间发生的只读切换不消费付费尝试。
+ private jobProvider(job:ProductionJob){
+  const provider=this.provider.capture?this.provider.capture():this.provider;
+  if(!provider)throw new JobYield();this.jobProviders.set(job.id,provider);return provider;
+ }
  private async discover(job:ProductionJob){
+  const provider=this.jobProvider(job);
   const round=searchRound(job),row=await this.raw(job.session_id,job.owner_id);
   if(round===undefined||!this.searchCurrent(row,round))return {obsolete:true};
   if(!await this.searchRunnable(row,round))throw new JobYield();
@@ -525,7 +534,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const excluded=intake.batches.flatMap(batch=>batch.stories),titles=excluded.map(story=>story.title),sources=excluded.flatMap(story=>story.source?[story.source]:[]);
   const active:ActiveSearch={round,controller:new AbortController(),startedAt:this.clock()};this.searches.set(row.id,active);
   try{
-   const result=await this.provider.suggestions(selection,titles,undefined,{signal:active.controller.signal,drain:true,maxStories:1,cycleId:search.cycleId,onProgress:progress=>{active.progress=progress;}},sources);
+   const result=await provider.suggestions(selection,titles,undefined,{signal:active.controller.signal,drain:true,maxStories:1,cycleId:search.cycleId,onProgress:progress=>{active.progress=progress;}},sources);
    const batch=freshSuggestions(suggestionBatchSchema.parse(result),titles,sources);
    const saved=await this.finishSearch(row.id,row.user_id,round,{...search,state:'idle',error:null},batch);
    return saved?{batches:intake.batches.length+1}:{obsolete:true};
@@ -537,7 +546,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(signal.aborted&&error===signal.reason)throw new JobYield();
    if(this.stopping&&!terminal)throw error;
    if(signal.aborted&&!terminal)throw new JobYield();
-   await this.finishSearch(row.id,row.user_id,round,{...search,state:'failed',error:error instanceof ReaderError?error.message:this.provider.safeError(error)});
+   await this.finishSearch(row.id,row.user_id,round,{...search,state:'failed',error:error instanceof ReaderError?error.message:provider.safeError(error)});
    return {failed:true};
   }finally{this.searches.delete(row.id);}
  }
@@ -596,6 +605,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
  }
  private async script(job:ProductionJob){
+  const provider=this.jobProvider(job);
   let row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
   if(!this.currentJob(row,job))return {obsolete:true};
   if(doc.plan&&doc.original&&reviewPassed(doc))return {pages:doc.plan.pages.length};
@@ -604,14 +614,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(stepKey&&stepKey!==nextStep(doc,selection,0)?.key)return {storyboardFrames:doc.storyboard?.pages.length||0};
   let failure:unknown,acquired:string|undefined,result:SessionView;
   try{
-   result=await advanceStory(this.repository,this.provider.generator(),row.user_id,row.id,0,true,token=>{acquired=token;this.leases.set(row.id,{ownerId:row.user_id,token});},error=>{failure=error;});
+   result=await advanceStory(this.repository,provider.generator(),row.user_id,row.id,0,true,token=>{acquired=token;this.leases.set(row.id,{ownerId:row.user_id,token});},error=>{failure=error;});
   }catch(error){
    if(!(error instanceof ReaderError&&error.status===404))throw error;
    const saved=await this.find(row.id,row.user_id);
    if(failure){
     const terminal=failure instanceof ReaderError&&failure.status<500;
     if(this.stopping&&!terminal)await this.database.prepare("UPDATE stories SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'").bind(row.id,row.user_id).run();
-    throw terminal?failure:new ReaderError(503,saved?.error||this.provider.safeError(failure));
+    throw terminal?failure:new ReaderError(503,saved?.error||provider.safeError(failure));
    }
    if(!acquired||saved&&saved.lock_token!==acquired)throw new JobYield();
    throw error;
@@ -638,6 +648,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return {pages:doc.plan.pages.length};
  }
  private async image(job:ProductionJob){
+  const provider=this.jobProvider(job);
   const row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
   if(!this.currentJob(row,job))return {obsolete:true};
   const {page}=JSON.parse(job.payload) as {page:number};
@@ -656,7 +667,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(reference&&await this.fileLost(reference).catch(()=>{throw new ReaderError(503,'参考图片暂时无法核对，请稍后重试；尚未开始绘图。');}))throw new ReaderError(409,lostImageMessage);
   if(!this.currentJob(await this.raw(job.session_id,job.owner_id),job))return {obsolete:true};
   if(await this.repository.superseded(row.id,row.user_id))throw new JobYield();
-  return this.provider.generator().image(doc.plan!,page,row.id,selectedReference,selection.artStyle,selection.productionPrompt,inputVersion([job.id,job.lease_token]));
+  return provider.generator().image(doc.plan!,page,row.id,selectedReference,selection.artStyle,selection.productionPrompt,inputVersion([job.id,job.lease_token]));
  }
  private async publish(job:ProductionJob,outputs:Record<string,unknown>){
   if(!this.currentJob(await this.raw(job.session_id,job.owner_id),job))return {obsolete:true};

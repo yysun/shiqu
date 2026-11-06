@@ -21,7 +21,7 @@ export function ServiceCard({state,status,native,busy,provider,nodeVersion,nodeE
   {status.backup&&<p className="backup-path">已校验的升级备份：{status.backup}</p>}
   <div className="provider-summary" aria-label={status.running?'当前运行配置':'已保存配置'}><div><strong>{status.running?'当前运行':'已保存配置'} · {provider.provider==='readonly'?'只读':provider.configured===false?'未配置生成服务':labels[provider.provider]||provider.provider}</strong>{status.restartRequired&&<span>待重启生效</span>}</div>
    {provider.provider!=='readonly'&&provider.configured!==false&&<p>文本：{labels[provider.provider]} · {provider.models.text}<br/>图片：{labels[provider.imageProvider||provider.provider]} · {provider.models.image}</p>}
-   <button className="text-button" disabled={locked||!status.running} onClick={onSettings}>生成服务与模型 ↗</button><p>在本机浏览器中配置；保存后重启服务生效。</p>
+   <button className="text-button" disabled={locked||!status.running} onClick={onSettings}>生成服务与模型 ↗</button><p>在浏览器中配置；保存后用于新任务，无需重启。</p>
   </div>
  </section>;
 }

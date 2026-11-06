@@ -1658,7 +1658,8 @@
         "server/http.ts",
         "server/import-legacy.ts",
         "server/local-books.ts",
-        "server/media.ts"
+        "server/media.ts",
+        "server/story-discovery-cache.ts"
       ]
     },
     {
@@ -2509,7 +2510,10 @@
       "suite": "flows",
       "pr": "affected",
       "gates": [],
-      "covers": []
+      "covers": [
+        "server/app.ts",
+        "server/reader-production.ts"
+      ]
     },
     {
       "file": "tests/separate-providers.test.mjs",

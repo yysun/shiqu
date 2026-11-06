@@ -1,5 +1,5 @@
-// 生成服务与模型：在本机或可信局域网编辑与桌面、CLI、技能共用的提供方默认值；已存密钥只回传是否存在，运行中的生成不受影响。
-// 运维版式：顶部状态卡展示当前进程实际运行的服务、待重启与启动覆盖；提供方以卡片单选并标出密钥状态；
+// 生成服务与模型：保存的默认值用于新任务；已开始的步骤保持原配置，密钥只显示来源与存在状态。
+// 运维版式：顶部状态卡展示新任务配置及启动覆盖；提供方以卡片单选并标出密钥状态；
 // 各分区标记未保存更改；推理档位以分段控件逐项展示；底部常驻操作栏提供放弃更改、重新读取与保存。
 import {useEffect,useRef,useState} from 'react';
 import {AlertTriangle,ChevronRight,Cpu,Image as ImageIcon,KeyRound,RefreshCw,RotateCcw,SlidersHorizontal,Type} from 'lucide-react';
@@ -21,7 +21,7 @@ type Option<T extends string>={value:T;label:string;hint?:string;badge?:{tone:To
 function runtimeState(runtime:Runtime|null):{tone:Tone;label:string}{
  if(!runtime)return {tone:'idle',label:'读取中'};
  if(runtime.provider==='readonly')return {tone:'idle',label:'只读'};
- return runtime.configured===false?{tone:'warn',label:'未接通'}:{tone:'ok',label:'运行中'};
+ return runtime.configured===false?{tone:'warn',label:'未配置'}:{tone:'ok',label:'已配置'};
 }
 function RuntimeRows({runtime}:{runtime:Runtime}){
  return <dl className="yu-provider-runtime">
@@ -31,7 +31,7 @@ function RuntimeRows({runtime}:{runtime:Runtime}){
 }
 export function ProviderRuntimeSummary({runtime}:{runtime:Runtime|null}){
  const state=runtimeState(runtime);
- return <section className="yu-provider-summary" aria-label="当前运行配置"><div><span>当前运行</span><em className={`yu-provider-pill ${state.tone}`}>{state.label}</em></div>
+ return <section className="yu-provider-summary" aria-label="新任务配置"><div><span>新任务使用</span><em className={`yu-provider-pill ${state.tone}`}>{state.label}</em></div>
   {!runtime?<p role="status">正在读取生成配置…</p>:runtime.provider==='readonly'?<p>只读模式，不生成内容。</p>:<RuntimeRows runtime={runtime}/>}
   {runtime?.configured===false&&runtime.provider!=='readonly'&&<p>生成服务尚未接通。</p>}
  </section>;
@@ -46,12 +46,14 @@ function Choices<T extends string>({name,label,value,options,onChange,variant='c
 function Group({icon,title,label,changed,children}:{icon:React.ReactNode;title:string;label:string;changed:boolean;children:React.ReactNode}){
  return <section className="yu-provider-group" aria-label={label}><header>{icon}<h3>{title}</h3>{changed&&<i className="yu-provider-changed">已修改</i>}</header>{children}</section>;
 }
-function KeyField({name,title,present,action,onAction,value,onValue}:{name:string;title:string;present:boolean;action:KeyAction;onAction:(action:KeyAction)=>void;value:string;onValue:(value:string)=>void}){
+function KeyField({name,title,present,override,action,onAction,value,onValue}:{name:string;title:string;present:boolean;override?:'valid'|'invalid';action:KeyAction;onAction:(action:KeyAction)=>void;value:string;onValue:(value:string)=>void}){
+ const fromStartup=override==='valid';
+ const description=override==='invalid'?'启动配置中的密钥为空或格式不正确，并覆盖了本机保存值；请修正或移除该启动覆盖。':fromStartup?(action==='remove'?'保存后仅移除本机保存的密钥；启动配置提供的密钥仍会使用。':present?'本机已有保存密钥；当前启动密钥优先。替换保存值不会移除启动覆盖。':'密钥由启动配置提供，未保存到本机。新任务会沿用，之后启动时仍需提供。'):action==='remove'?'保存后移除本机密钥，后续任务将停止使用。':present||action==='replace'?'已存密钥不会显示或返回浏览器。':'尚未设置密钥，该服务暂时无法生成。';
  return <div className="yu-provider-key">
-  <div className="yu-provider-key-head"><span><KeyRound size={14}/>{title}</span><em className={`yu-provider-pill ${present?'ok':'warn'}`}>{present?'已保存':'未设置'}</em></div>
-  <Choices name={name} label={`${title}操作`} variant="segments" value={action} onChange={onAction} options={[{value:'keep',label:present?'保留':'暂不设置'},{value:'replace',label:present?'替换':'输入密钥'},{value:'remove',label:'移除',disabled:!present}]}/>
+  <div className="yu-provider-key-head"><span><KeyRound size={14}/>{title}</span><em className={`yu-provider-pill ${override==='invalid'||!present&&!fromStartup?'warn':'ok'}`}>{override==='invalid'?'启动密钥无效':fromStartup?present?'启动覆盖':'启动提供 · 未保存':present?'已保存':'未设置'}</em></div>
+  <Choices name={name} label={`${title}操作`} variant="segments" value={action} onChange={onAction} options={[{value:'keep',label:present?'保留':fromStartup?'沿用启动密钥':'暂不设置'},{value:'replace',label:present?'替换':'输入密钥'},{value:'remove',label:'移除',disabled:!present}]}/>
   {action==='replace'&&<label className="yu-provider-field">新{title}<input type="password" autoComplete="off" spellCheck={false} value={value} onChange={e=>onValue(e.target.value)} required maxLength={4096} placeholder="粘贴后保存，之后不再显示"/></label>}
-  <p className={action==='remove'?'danger':undefined}>{action==='remove'?'保存后移除本机密钥，重启后停止使用。':present||action==='replace'?'已存密钥不会显示或返回浏览器。':'尚未设置密钥，该服务暂时无法生成。'}</p>
+  <p className={action==='remove'||override==='invalid'?'danger':undefined}>{description}</p>
  </div>;
 }
 export default function ProviderSettings({onRuntime,onAvailability,openRequest=0,showEntry=true,showPrompt=false}:{onRuntime?:(runtime:Runtime|null)=>void;onAvailability?:(allowed:boolean)=>void;openRequest?:number;showEntry?:boolean;showPrompt?:boolean}){
@@ -93,20 +95,21 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
  async function save(){
   if(!draft||!view||saving.current)return;saving.current=true;readVersion.current++;setBusy(true);setError('');setMessage('');
   try{
-   // null clears a previous separate image provider; omitted fields keep their saved values.
+   // null 清空旧的独立图片服务，未传入字段保留已存值。
    const result:ProviderSettingsView=await request('local/provider-settings','POST',{settings:{...draft,imageProvider:draft.imageProvider??null},expectedRevision:view.revision,keyAction,key,imageKeyAction,imageKey});
-   if(live.current){adopt(result);setMessage(result.restartRequired?'设置已保存。重启当前服务后生效。':'设置已保存到本机共享数据库。');}
+   if(live.current){adopt(result);setMessage(result.appliesToNewJobs?'已保存，新任务使用此配置。正在执行的任务继续使用原配置。':'设置已保存到本机共享数据库。');}
   }catch(e){if(live.current)setError(e instanceof Error?e.message:'设置暂未保存，请重新读取后再试。');}
   finally{saving.current=false;if(live.current)setBusy(false);}
  }
  const provider=draft?.provider,api=provider==='gemini'||provider==='openai',efforts=provider==='gemini'?geminiReasoningEfforts:codexReasoningEfforts;
  const imageProvider=draft?effectiveImageProvider(draft):null,separateImage=!!imageProvider&&imageProvider!==provider,imageApi=separateImage&&isApiProvider(imageProvider)?imageProvider:null;
  const dirty=!!draft&&!!view&&(JSON.stringify(draft)!==JSON.stringify(view.settings)||keyAction!=='keep'||imageKeyAction!=='keep');
- const notice=message||(view?.restartRequired?'已保存的设置尚未应用，重启服务后生效。':'');
+ const notice=message;
  const state=runtimeState(runtime),codexBlocked=view?.platform==='win32';
  const changed=(...fields:(keyof Settings)[])=>!!draft&&!!view&&fields.some(field=>JSON.stringify(draft[field])!==JSON.stringify(view.settings[field]));
  const textModelField=provider==='openai'?'openaiTextModel':provider==='codex'?'codexModel':'textModel',imageModelField=imageProvider==='openai'?'openaiImageModel':'imageModel';
- const keyBadge=(name:'gemini'|'openai'):Option<string>['badge']=>view?(view.keyPresent[name]?{tone:'ok',text:'密钥已存'}:{tone:'warn',text:'缺少密钥'}):undefined;
+ function keyOverride(name:'gemini'|'openai'):'valid'|'invalid'|undefined{return view?.keyOverrides&&view.overrides.includes(name==='gemini'?'GEMINI_API_KEY':'OPENAI_API_KEY')?view.keyOverrides[name]?'valid':'invalid':undefined;}
+ const keyBadge=(name:'gemini'|'openai'):Option<string>['badge']=>view?(keyOverride(name)==='invalid'?{tone:'warn',text:'启动密钥无效'}:keyOverride(name)==='valid'?{tone:'ok',text:'启动提供'}:view.keyPresent[name]?{tone:'ok',text:'密钥已存'}:{tone:'warn',text:'缺少密钥'}):undefined;
  const providerOptions:Option<NonNullable<Settings['imageProvider']>>[]=[{value:'gemini',label:'Gemini',hint:'Google API 计费',badge:keyBadge('gemini')},{value:'openai',label:'OpenAI',hint:'OpenAI API 计费',badge:keyBadge('openai')},{value:'codex',label:'Codex',hint:codexBlocked?'Windows 暂不支持':'ChatGPT 订阅额度',disabled:codexBlocked}];
  function discard(){if(view){adopt(view);setError('');setMessage('');}}
  function selectImageProvider(value:NonNullable<Settings['imageProvider']>|''){
@@ -121,17 +124,16 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
   if(!view||saving.current)return;
   if(action==='reset'&&!window.confirm('重置所有生成服务配置和密钥？故事、本机路径与网络设置都会保留；运行中的生成保持不变。'))return;
   saving.current=true;setBusy(true);setError('');setMessage('');
-  try{const result=await request('local/provider-settings','POST',{action,expectedRevision:view.revision});if(action==='reset'){adopt(result);setMessage('生成设置已重置，重启服务后生效。');}else setMessage(result.message);}
+  try{const result=await request('local/provider-settings','POST',{action,expectedRevision:view.revision});if(action==='reset'){adopt(result);setMessage('生成设置已重置，新任务使用当前配置；启动覆盖仍优先。');}else setMessage(result.message);}
   catch(e){setError(e instanceof Error?e.message:'操作失败，请重新读取设置。');}
   finally{saving.current=false;setBusy(false);}
  }
  return <>{showPrompt&&runtime?.configured===false&&!open&&<aside className="yu-provider-setup" role="status">请先配置生成服务。{access==='allowed'?<a href="#provider-settings">打开生成服务与模型</a>:<span>请使用本机或可信局域网地址打开 我的 → 生成服务与模型。</span>}</aside>}{showEntry&&access==='allowed'&&<button type="button" onClick={()=>{setOpen(true);void load();}}><Cpu size={20}/>生成服务与模型<ChevronRight size={18}/></button>}
  {open&&<Sheet title="生成服务与模型" busy={saving.current} onClose={()=>{setOpen(false);if(location.hash==='#provider-settings')history.replaceState(null,'',location.pathname+location.search);setKey('');setKeyAction('keep');setImageKey('');setImageKeyAction('keep');}}>
   <div className="yu-provider-settings">
-   <p className="yu-provider-intro">与桌面、CLI 和技能共用，保存后重启服务生效。</p>
+   <p className="yu-provider-intro">与桌面、CLI 和技能共用。保存后用于新任务，无需重启；正在执行的任务保持原配置。</p>
    <section className={`yu-provider-status ${state.tone}`} aria-label="运行状态">
-    <header><i className="yu-provider-dot"/><strong>{runtime?.provider==='readonly'?'只读模式':`生成服务${state.label}`}</strong>
-     {view?.restartRequired&&<em className="yu-provider-pill warn">待重启</em>}
+    <header><i className="yu-provider-dot"/><strong>{runtime?.provider==='readonly'?'只读模式':'新任务配置'}</strong><em className={`yu-provider-pill ${state.tone}`}>{state.label}</em>
      {!!view?.overrides.length&&<em className="yu-provider-pill warn">{view.overrides.length} 项启动覆盖</em>}
     </header>
     {runtime&&runtime.provider!=='readonly'?<RuntimeRows runtime={runtime}/>:<p>{runtime?'当前不调用任何生成服务。':'正在读取运行配置…'}</p>}
@@ -143,13 +145,13 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
      <Group icon={<Type size={16}/>} title="文本服务" label="提供方与模型" changed={changed('provider',textModelField)||keyAction!=='keep'}>
       <Choices name="provider" label="文本服务" value={provider!} onChange={selectProvider} options={[...providerOptions,{value:'readonly',label:'只读',hint:'不调用生成服务'}]}/>
       {provider!=='readonly'&&<label className="yu-provider-field">文本模型<input value={draft[textModelField]} onChange={e=>update(textModelField,e.target.value)} placeholder={provider==='codex'?'留空使用 CLI 默认模型':undefined} spellCheck={false} required={api}/></label>}
-      {api&&<KeyField name="key-action" title="API 密钥" present={!!view?.keyPresent[provider]} action={keyAction} onAction={value=>{setKeyAction(value);setKey('');setMessage('');}} value={key} onValue={setKey}/>}
+      {api&&<KeyField name="key-action" title="API 密钥" present={!!view?.keyPresent[provider]} override={keyOverride(provider)} action={keyAction} onAction={value=>{setKeyAction(value);setKey('');setMessage('');}} value={key} onValue={setKey}/>}
      </Group>
      {provider!=='readonly'&&<Group icon={<ImageIcon size={16}/>} title="图片服务" label="图片服务设置" changed={changed('imageProvider',imageModelField)||imageKeyAction!=='keep'}>
       <Choices name="image-provider" label="图片服务" value={draft.imageProvider||''} onChange={selectImageProvider} options={[{value:'',label:'与文本相同',hint:labels[provider!]},...providerOptions.filter(option=>option.value!==provider)]}/>
       {separateImage&&<p>只用于绘制插图；选题、分镜与审核仍使用文本服务，制作流程不变。</p>}
       {isApiProvider(imageProvider)?<label className="yu-provider-field">图片模型<input value={draft[imageModelField]} onChange={e=>update(imageModelField,e.target.value)} spellCheck={false} required/></label>:<p>使用本机已登录的 Codex CLI 和订阅额度绘图。</p>}
-      {imageApi?<KeyField name="image-key-action" title="图片服务 API 密钥" present={!!view?.keyPresent[imageApi]} action={imageKeyAction} onAction={value=>{setImageKeyAction(value);setImageKey('');setMessage('');}} value={imageKey} onValue={setImageKey}/>:!separateImage&&api&&<p>沿用文本服务的 API 密钥。</p>}
+      {imageApi?<KeyField name="image-key-action" title="图片服务 API 密钥" present={!!view?.keyPresent[imageApi]} override={keyOverride(imageApi)} action={imageKeyAction} onAction={value=>{setImageKeyAction(value);setImageKey('');setMessage('');}} value={imageKey} onValue={setImageKey}/>:!separateImage&&api&&<p>沿用文本服务的 API 密钥。</p>}
      </Group>}
      {provider!=='readonly'&&<details className="yu-provider-efforts"><summary><SlidersHorizontal size={16}/><span>推理档位</span><small>{reasoningTasks.length} 项任务</small>{changed('taskReasoningEfforts','codexReasoningEffort')&&<i className="yu-provider-changed">已修改</i>}</summary>
       <div className="yu-provider-effort-rows">
@@ -159,10 +161,10 @@ export default function ProviderSettings({onRuntime,onAvailability,openRequest=0
      </details>}
     </fieldset>:busy?<p role="status">正在读取本机设置…</p>:!error&&<p role="status">重新读取后可编辑设置。</p>}
     <div className="yu-provider-actions">
-     <span className={dirty?'dirty':undefined}>{dirty?'有未保存的更改':view?.restartRequired?'已保存，重启后生效':draft?'与已保存设置一致':''}</span>
-     <button type="button" className="yu-provider-ghost" aria-label="重新读取设置" title="重新读取设置" disabled={busy} onClick={()=>void load()}><RefreshCw size={16}/></button>
+     <span className={dirty?'dirty':undefined}>{dirty?'有未保存的更改':draft?'与已保存设置一致':''}</span>
+     <button type="button" className="yu-provider-ghost" aria-label="重新读取设置" title="只刷新表单，不重启服务" disabled={busy} onClick={()=>void load()}><RefreshCw size={16}/>重新读取</button>
      {dirty&&<button type="button" className="yu-provider-ghost" disabled={busy} onClick={discard}><RotateCcw size={16}/>放弃</button>}
-     {draft&&<button type="submit" className="yu-primary" disabled={!dirty||busy}>{saving.current?'正在保存…':'保存设置'}</button>}
+     {draft&&<button type="submit" className="yu-primary" disabled={!dirty||busy}>{saving.current?'正在保存…':dirty?'保存设置':'已保存'}</button>}
     </div>
    </form>
    {view&&<div className="yu-provider-maintenance"><button type="button" className="yu-provider-ghost" disabled={busy} onClick={()=>void savedAction('check')}>检查已保存配置的连接</button><button type="button" className="yu-provider-ghost" disabled={busy} onClick={()=>void savedAction('reset')}>重置所有生成服务配置</button><p>检查只使用已保存配置及启动覆盖，不提交未保存的更改，不生成内容。</p></div>}

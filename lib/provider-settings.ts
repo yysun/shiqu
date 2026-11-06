@@ -1,4 +1,4 @@
-// Browser provider settings share the desktop schema without exposing system paths or stored secrets.
+// 浏览器设置复用桌面协议；只返回密钥存在与启动来源，不暴露路径或凭据原文。
 import {z} from 'zod';
 import {systemSettingsSchema,effectiveImageProvider,isApiProvider} from './system-settings.ts';
 import type {ProviderStatus} from './reader-provider.ts';
@@ -11,7 +11,7 @@ export type ProviderSettings=z.infer<typeof providerSettingsSchema>;
 const providerSettingsPatchSchema=providerSettingsSchema.partial().extend({taskReasoningEfforts:taskReasoningSchema.removeDefault().partial().optional()});
 export const providerSettingsSaveSchema=z.object({settings:providerSettingsPatchSchema,expectedRevision:z.number().int().nonnegative(),keyAction:z.enum(['keep','replace','remove']),key:z.string().max(4096).default(''),imageKeyAction:z.enum(['keep','replace','remove']).default('keep'),imageKey:z.string().max(4096).default('')}).strict();
 export type ProviderSettingsSave=z.infer<typeof providerSettingsSaveSchema>;
-export type ProviderSettingsView={settings:ProviderSettings;revision:number;keyPresent:{gemini:boolean;openai:boolean};runtime:Pick<ProviderStatus,'provider'|'imageProvider'|'models'|'taskReasoningEfforts'>&{configured?:boolean};overrides:string[];restartRequired:boolean;platform:string};
+export type ProviderSettingsView={settings:ProviderSettings;revision:number;keyPresent:{gemini:boolean;openai:boolean};keyOverrides?:{gemini:boolean;openai:boolean};appliesToNewJobs?:boolean;runtime:Pick<ProviderStatus,'provider'|'imageProvider'|'models'|'taskReasoningEfforts'>&{configured?:boolean};overrides:string[];restartRequired:boolean;platform:string};
 export function loopbackAddress(address:string|undefined){return address==='127.0.0.1'||address==='::1'||address==='::ffff:127.0.0.1';}
 
 type ProviderSelection=Pick<ProviderSettings,'provider'|'imageProvider'>;

@@ -13,15 +13,32 @@ import {providerSignature,runtimeConfiguration,providerOverrideNames,checkProvid
 import {providerSettingsNetworkAccess} from './provider-settings-access.ts';
 type Variables=Record<string,string|undefined>;
 
-export function browserProviderSettings(options:{variables:Variables;overrides:Variables;ports:number[];locations?:Pick<ReturnType<typeof desktopLibraryPaths>,'settings'|'library'>;proxyToken?:string;existingOnly?:boolean;transport?:typeof fetch}){
+export function browserProviderSettings(options:{variables:Variables;overrides:Variables;ports:number[];live?:boolean;locations?:Pick<ReturnType<typeof desktopLibraryPaths>,'settings'|'library'>;proxyToken?:string;existingOnly?:boolean;transport?:typeof fetch}){
  const runtimeSignature=providerSignature(options.variables),locations=options.locations||desktopLibraryPaths(),networkAccess=providerSettingsNetworkAccess(options.ports);
  const runtime=runtimeConfiguration(options.variables);
  const overrides=providerOverrideNames.filter(name=>typeof options.overrides[name]==='string');
+ const keyNames={gemini:'GEMINI_API_KEY',openai:'OPENAI_API_KEY'} as const;
+ function validKey(value:string|undefined){try{validApiKey(value||'');return true;}catch{return false;}}
+ const keyOverrides={gemini:validKey(options.overrides.GEMINI_API_KEY),openai:validKey(options.overrides.OPENAI_API_KEY)};
+ // 显式空值同样覆盖已存密钥；保留操作按实际优先级校验，不把启动凭据写入数据库。
+ function usableKey(store:SystemSettingsStore,provider:keyof typeof keyNames){
+  const override=options.overrides[keyNames[provider]];
+  return validKey(typeof override==='string'?override:store.key(provider));
+ }
  const headers={'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
  const json=(value:unknown,status=200)=>Response.json(value,{status,headers});
+ // 只热更新生成配置，路径、端口及子进程登录目录继续使用本次启动值。
+ function variables(store:SystemSettingsStore){
+  const effective=effectiveProviderVariables(store,options.overrides),next={...options.variables};
+  for(const name of providerOverrideNames){
+   if(['CODEX_BIN','SHIQU_CODEX_HOME','CLAUDE_BIN','CLAUDE_CONFIG_DIR'].includes(name))continue;
+   if(effective[name]===undefined)delete next[name];else next[name]=effective[name];
+  }
+  return next;
+ }
  function snapshot(store:SystemSettingsStore){
-  const saved=store.snapshot(),effective=effectiveProviderVariables(store,options.overrides);
-  return {settings:providerSettingsSchema.strip().parse(saved.settings),revision:saved.revision,keyPresent:saved.keyPresent,runtime,overrides,restartRequired:providerSignature(effective)!==runtimeSignature,platform:process.platform} satisfies ProviderSettingsView;
+  const saved=store.snapshot(),effective=variables(store);
+  return {settings:providerSettingsSchema.strip().parse(saved.settings),revision:saved.revision,keyPresent:saved.keyPresent,keyOverrides,appliesToNewJobs:!!options.live,runtime:options.live?runtimeConfiguration(effective):runtime,overrides,restartRequired:!options.live&&providerSignature(effective)!==runtimeSignature,platform:process.platform} satisfies ProviderSettingsView;
  }
  const openStore=()=>new SystemSettingsStore(locations.settings,locations.library,{existingOnly:options.existingOnly});
  const handler=async(request:Request,peer:HttpPeer)=>{
@@ -53,8 +70,11 @@ export function browserProviderSettings(options:{variables:Variables;overrides:V
     const keys:KeyChange[]=[];
     if(api&&input.keyAction!=='keep')keys.push({provider,value:input.keyAction==='remove'?null:validApiKey(input.key)});
     if(imageApi&&input.imageKeyAction!=='keep')keys.push({provider:imageApi,value:input.imageKeyAction==='remove'?null:validApiKey(input.imageKey)});
-    if(api&&input.keyAction==='keep'&&!store.key(provider))return json({error:'请先为所选服务填写 API 密钥，或选择只读模式。'},400);
-    if(imageApi&&input.imageKeyAction==='keep'&&!store.key(imageApi))return json({error:'请先为图片服务填写 API 密钥，或改为与文本服务相同。'},400);
+    for(const [name,action,purpose] of [[api?provider:null,input.keyAction,'文本服务'],[imageApi,input.imageKeyAction,'图片服务']] as const){
+     if(!name||action!=='keep'||usableKey(store,name))continue;
+     const overridden=typeof options.overrides[keyNames[name]]==='string';
+     return json({error:overridden?`${purpose}的启动密钥为空或格式不正确，请修正启动配置并重启，或移除对应覆盖。`:`请先为${purpose}填写 API 密钥，或选择其他服务。`},400);
+    }
     // 未指定图片服务时显式清空旧值，避免保留之前的独立配置。
     store.save({...providerSettingsSchema.strip().parse(merged),imageProvider:merged.imageProvider??null,providerConfigured:true} as Partial<typeof merged>,keys,input.expectedRevision);
    }
@@ -66,5 +86,5 @@ export function browserProviderSettings(options:{variables:Variables;overrides:V
    return json({error:'暂时无法读取或保存共享生成设置，请检查本机配置后重新读取。'},503);
   }finally{store?.close();}
  };
- return Object.assign(handler,{snapshot(){const store=openStore();try{return snapshot(store);}finally{store.close();}}});
+ return Object.assign(handler,{snapshot(){const store=openStore();try{return snapshot(store);}finally{store.close();}},variables(){const store=openStore();try{return variables(store);}finally{store.close();}}});
 }

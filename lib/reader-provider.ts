@@ -11,6 +11,8 @@ import type {ThemeStory,ThemeMatches} from './reader-theme-match.ts';
 export type StoryReading={signal:AbortSignal;onProgress:(progress:SuggestionProgress)=>void;drain?:boolean;maxStories?:1;cycleId?:string;onCall?:DiscoveryContext['onCall']};
 export type ProviderStatus={configured:boolean;provider:'gemini'|'codex'|'claude'|'openai'|'deepseek'|'readonly';imageProvider?:'gemini'|'codex'|'openai';models:{text:string;image:string};voiceEnabled:false;reason?:string;message?:string;taskReasoningEfforts?:TaskReasoningEfforts;themeMatching?:{model:string;reasoningEffort:string}};
 export interface ReaderProvider {
+ // 动态服务在任务入口捕获不可变实例；只读或缺少凭据时不允许派发新的付费任务。
+ capture?():ReaderProvider|null;
  // Per-call limit for the active production step; local work has no provider deadline.
  generationTimeoutMs?:(phase:GenerationProgress['phase'])=>number|null;
  status():Promise<ProviderStatus>;

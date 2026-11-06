@@ -61,28 +61,37 @@ test('console-only desktop, lifecycle IPC and actual desktop browser settings',{
  // 浏览器前端只构建到临时目录，正式桌面启动器提供 HTTP；没有原生资源准备或安装包构建。
  console.log('ET: actual desktop HTTP browser');const f=await startupFixture(t),file=path.join(f.root,'native-config/desktop.sqlite'),store=new SystemSettingsStore(file,path.join(f.root,'library')),native=store.save({port:await freeStartupPort(),codexPath:'/native/codex',codexHome:'/native/login'});store.close();
  await build({configFile:path.resolve('vite.config.ts'),build:{outDir:path.join(f.root,'dist/client'),emptyOutDir:true},logLevel:'silent'});
- let runtime=await startDesktop(native,'',f.root,{settingsFile:file,transport:async()=>Response.json({})});f.defer(()=>runtime.stop());
+ let runtime=await startDesktop(native,'',f.root,{settingsFile:file,overrides:{GEMINI_API_KEY:'synthetic-startup-gemini'},transport:async()=>Response.json({})});f.defer(()=>runtime.stop());
  const lan=runtime.status.phoneUrls.find(url=>privateNetworkAddress(new URL(url).hostname));
  if(!lan)t.diagnostic('No private LAN interface; browser uses loopback.');
  const reader=await browser.newPage({viewport:{width:1040,height:820}});reader.setDefaultTimeout(10000);reader.on('pageerror',error=>errors.push(error.message));await reader.goto((lan||runtime.status.url)+'/');
  await reader.getByRole('navigation',{name:'主导航'}).getByRole('button',{name:'我的',exact:true}).click();
  await reader.getByRole('button',{name:'生成服务与模型',exact:true}).click();
  await reader.getByRole('dialog',{name:'生成服务与模型'}).waitFor();assert.equal(await reader.locator('input[type=password]').count(),0);assert.equal(await reader.getByLabel('Codex 可执行文件').count(),0);
+ await reader.getByText('启动提供 · 未保存',{exact:true}).waitFor();
+ await reader.getByRole('radiogroup',{name:'文本服务',exact:true}).getByText('Codex',{exact:true}).click();
+ await reader.getByRole('radiogroup',{name:'图片服务',exact:true}).getByText('Gemini',{exact:true}).click();
+ await reader.getByRole('button',{name:'保存设置',exact:true}).click();await reader.getByText('已保存，新任务使用此配置。正在执行的任务继续使用原配置。',{exact:true}).waitFor();
+ assert.equal(runtime.status.provider.provider,'codex');assert.equal(runtime.status.provider.imageProvider,'gemini');assert.equal(runtime.status.restartRequired,false);
+ const environmentOnly=new SystemSettingsStore(file,native.dataDirectory,{existingOnly:true});assert.equal(environmentOnly.key('gemini'),'');environmentOnly.close();assert.equal((await reader.content()).includes('synthetic-startup-gemini'),false);
+ await reader.setViewportSize({width:390,height:820});assert.ok(await reader.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await reader.screenshot({path:path.join(output,'provider-startup-key-390.png'),fullPage:true});await reader.setViewportSize({width:1040,height:820});
+
  await reader.getByRole('radiogroup',{name:'文本服务',exact:true}).getByText('OpenAI',{exact:true}).click();
+ await reader.getByRole('radiogroup',{name:'图片服务',exact:true}).getByText('与文本相同',{exact:true}).click();
  await reader.getByRole('textbox',{name:'文本模型',exact:true}).fill('lan-browser-text');
  await reader.getByRole('textbox',{name:'图片模型',exact:true}).fill('lan-browser-image');
  await reader.getByText('推理档位',{exact:true}).click();
  await reader.getByRole('radiogroup',{name:'详细分镜推理档位',exact:true}).getByText('low',{exact:true}).click();
  await reader.getByRole('radiogroup',{name:'API 密钥操作',exact:true}).getByText('输入密钥',{exact:true}).click();await reader.getByLabel('新API 密钥',{exact:true}).fill('synthetic-browser-key');await reader.getByRole('button',{name:'保存设置',exact:true}).click();
- await reader.getByText('待重启',{exact:true}).waitFor();assert.equal(await reader.locator('input[type=password]').count(),0);assert.equal((await reader.content()).includes('synthetic-browser-key'),false);assert.equal(runtime.status.restartRequired,true);assert.equal(runtime.status.provider.provider,'gemini');
+ await reader.getByText('已保存，新任务使用此配置。正在执行的任务继续使用原配置。',{exact:true}).waitFor();assert.equal(await reader.getByRole('button',{name:'重启服务',exact:true}).count(),0);assert.ok(await reader.getByRole('button',{name:'已保存',exact:true}).isDisabled());assert.equal(await reader.locator('input[type=password]').count(),0);assert.equal((await reader.content()).includes('synthetic-browser-key'),false);assert.equal(runtime.status.restartRequired,false);assert.equal(runtime.status.provider.provider,'openai');
  await reader.getByRole('button',{name:'重新读取设置',exact:true}).click();await reader.getByRole('textbox',{name:'文本模型',exact:true}).waitFor();
  assert.equal(await reader.getByRole('textbox',{name:'文本模型',exact:true}).inputValue(),'lan-browser-text');assert.equal(await reader.getByRole('textbox',{name:'图片模型',exact:true}).inputValue(),'lan-browser-image');
  await reader.getByRole('button',{name:'检查已保存配置的连接',exact:true}).click();await reader.getByText('连接检查通过；仅检查模型元数据或登录状态，未生成内容。').waitFor();
- reader.once('dialog',dialog=>dialog.accept());await reader.getByRole('button',{name:'重置所有生成服务配置',exact:true}).click();await reader.getByText('生成设置已重置，重启服务后生效。').waitFor();
+ reader.once('dialog',dialog=>dialog.accept());await reader.getByRole('button',{name:'重置所有生成服务配置',exact:true}).click();await reader.getByText('生成设置已重置，新任务使用当前配置；启动覆盖仍优先。').waitFor();
  const after=new SystemSettingsStore(file,native.dataDirectory,{existingOnly:true});assert.equal(after.settings().codexPath,native.codexPath);assert.equal(after.settings().codexHome,native.codexHome);assert.equal(after.key('openai'),'');after.close();
  for(const width of [1040,390]){await reader.setViewportSize({width,height:820});assert.ok(await reader.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await reader.screenshot({path:path.join(output,`lan-provider-settings-${width}.png`),fullPage:true});}
- await reader.getByRole('button',{name:'关闭',exact:true}).click();await reader.getByRole('link',{name:'打开生成服务与模型',exact:true}).click();await reader.getByRole('dialog',{name:'生成服务与模型'}).waitFor();
- await rename(file,file+'.held');await reader.reload();await reader.getByRole('dialog',{name:'生成服务与模型'}).waitFor();await reader.getByText('暂时无法读取或保存共享生成设置，请检查本机配置后重新读取。').waitFor();
+ await reader.getByRole('button',{name:'关闭',exact:true}).click();await reader.getByRole('button',{name:'生成服务与模型',exact:true}).click();await reader.getByRole('dialog',{name:'生成服务与模型'}).waitFor();
+ await rename(file,file+'.held');await reader.goto((lan||runtime.status.url)+'/#provider-settings');await reader.reload();await reader.getByRole('dialog',{name:'生成服务与模型'}).waitFor();await reader.getByText('暂时无法读取或保存共享生成设置，请检查本机配置后重新读取。').waitFor();
  assert.equal(existsSync(file),false);assert.equal(await reader.locator('input[type=password]').count(),0);
  await rename(file+'.held',file);await reader.getByRole('button',{name:'重新读取设置',exact:true}).click();await reader.getByRole('radiogroup',{name:'文本服务',exact:true}).waitFor();
  assert.deepEqual(errors,[]);
