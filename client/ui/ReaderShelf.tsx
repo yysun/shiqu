@@ -4,7 +4,9 @@
 // 显示名同样适用于未完成的故事；确认制作前，以已保存的设置草稿作为展示画风。
 // 封面上的收藏与删除按钮与阅读按钮互为兄弟节点，互不触发；已读完的“重读”从第一幅开始。
 // ReaderShelf 顶层不调用 Hook（测试会把它当普通函数调用），有状态的部分放在子组件中，行内容以 children 传入。
-import {useState,type ReactNode} from 'react';
+// 桌面书架传入 onSelect：封面与标题按钮改为选中故事（“选择《…》”），底部“继续阅读/重读”仍直接打开；
+// 选中的故事被筛掉或删除时清除选中。不传 onSelect 时标记与手机完全一致。
+import {useEffect,useState,type ReactNode} from 'react';
 import {ArrowRight,Bookmark,BookOpen,ChevronDown,ChevronRight,Feather,Plus,RefreshCw,RotateCcw,Search,Trash2,X} from 'lucide-react';
 import type {Story} from '@/lib/content';
 import type {GeneratedStory,SessionView,ProductionAction} from '@/lib/reader-model';
@@ -22,6 +24,11 @@ function usePersistentOpen(id:string){
  const [open,setOpen]=useState(()=>{try{return localStorage.getItem(storageKey)!=='0';}catch{return true;}});
  return [open,(next:boolean)=>{setOpen(next);try{localStorage.setItem(storageKey,next?'1':'0');}catch{}}] as const;
 }
+// 选中的故事不在当前可阅读列表中（被筛掉或删除）时清除选中。
+function SelectionGuard({selectedId,ids,onSelect}:{selectedId?:string|null;ids:string;onSelect:(id:string|null)=>void}){
+ useEffect(()=>{if(selectedId&&!ids.split('\n').includes(selectedId))onSelect(null);},[selectedId,ids]);
+ return null;
+}
 function ShelfGroup({id,children}:{id:string;children:ReactNode}){
  const [open,setOpen]=usePersistentOpen(id);
  return <details className="yu-shelf-book-group" open={open} onToggle={event=>setOpen(event.currentTarget.open)}>{children}</details>;
@@ -38,8 +45,8 @@ function ProductionGroup({needs,limit,children}:{needs:number;limit:number|null;
 }
 
 type ShelfItem={processingStatus:string;id:string;title:string;book:string;theme:string;artStyleLabel:string;story:Story|null;session?:SessionView;page:number;saved:boolean};
-type Props={onControl:(id:string,action:ProductionAction)=>Promise<void>;controlBusy:string;stories:Story[];pending:SessionView[];sessions:SessionView[];progress:ReadingProgress[];loading:boolean;refreshing:boolean;onRefresh:()=>void;error:string;tab:string;onTab:(tab:string)=>void;query:string;onQuery:(query:string)=>void;grouping:ShelfGrouping;onGrouping:(grouping:ShelfGrouping)=>void;bookName:(story:Pick<Story,'id'|'bookId'>)=>string;onOpen:(story:Story,restart?:boolean)=>void;onResume:(session:SessionView)=>void;onRetry:(session:SessionView)=>void;onDelete:(id:string,title:string)=>void;onFavorite:(id:string,saved:boolean)=>void;favoriteBusy:string;onCreate:()=>void;onDiscover:()=>void};
-export default function ReaderShelf({onControl,controlBusy,stories,pending,sessions,progress,loading,refreshing,onRefresh,error,tab,onTab,query,onQuery,grouping,onGrouping,bookName,onOpen,onResume,onRetry,onDelete,onFavorite,favoriteBusy,onCreate,onDiscover}:Props){
+type Props={onControl:(id:string,action:ProductionAction)=>Promise<void>;controlBusy:string;stories:Story[];pending:SessionView[];sessions:SessionView[];progress:ReadingProgress[];loading:boolean;refreshing:boolean;onRefresh:()=>void;error:string;tab:string;onTab:(tab:string)=>void;query:string;onQuery:(query:string)=>void;grouping:ShelfGrouping;onGrouping:(grouping:ShelfGrouping)=>void;bookName:(story:Pick<Story,'id'|'bookId'>)=>string;onOpen:(story:Story,restart?:boolean)=>void;onResume:(session:SessionView)=>void;onRetry:(session:SessionView)=>void;onDelete:(id:string,title:string)=>void;onFavorite:(id:string,saved:boolean)=>void;favoriteBusy:string;onCreate:()=>void;onDiscover:()=>void;selectedId?:string|null;onSelect?:(id:string|null)=>void};
+export default function ReaderShelf({onControl,controlBusy,stories,pending,sessions,progress,loading,refreshing,onRefresh,error,tab,onTab,query,onQuery,grouping,onGrouping,bookName,onOpen,onResume,onRetry,onDelete,onFavorite,favoriteBusy,onCreate,onDiscover,selectedId,onSelect}:Props){
  const progressById=new Map(progress.map(row=>[row.storyId,row]));
  const sessionById=new Map(sessions.map(session=>[session.id,session]));
  const processingStatus=(story:Story)=>{const session=sessionById.get(story.id);return session?shelfGenerationStatus(session).group:story.pages.every(page=>!!page.image)?'已完成':'生成已暂停';};
@@ -83,13 +90,14 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
   const story=item.story!,session=sessionById.get(item.id),generation=session?shelfGenerationStatus(session):null,number=edition(item,session);
   const total=story.pages.length,finished=total>0&&item.page+1>=total;
   const feedback=session&&session.state!=='completed'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{session.story&&` · ${session.ready} / ${session.story.pages.length} 幅`}</span>{control(session,generation!.group)}</div>;
-  return <div className="yu-shelf-row yu-shelf-row-readable" key={item.id}>
+  const selected=!!onSelect&&selectedId===item.id,pick=onSelect?()=>onSelect(item.id):()=>onOpen(story);
+  return <div className={'yu-shelf-row yu-shelf-row-readable'+(selected?' is-selected':'')} key={item.id} data-story-id={onSelect?item.id:undefined}>
    <div className="yu-shelf-cover-wrap">
-    <button className="yu-shelf-cover" aria-label={'打开《'+item.title+'》'} title={item.book} onClick={()=>onOpen(story)}>{story.pages[0].image?<img src={story.pages[0].image} alt="" loading="lazy"/>:<span className="yu-shelf-pending"><Feather size={25}/></span>}</button>
+    <button className="yu-shelf-cover" aria-label={(onSelect?'选择《':'打开《')+item.title+'》'} title={item.book} onClick={pick}>{story.pages[0].image?<img src={story.pages[0].image} alt="" loading="lazy"/>:<span className="yu-shelf-pending"><Feather size={25}/></span>}</button>
     <div className="yu-shelf-cover-overlay"><small className="yu-shelf-book-badge">{item.book}</small>{actions(item)}</div>
    </div>
    <div className="yu-shelf-card-body">
-    <button className="yu-shelf-card yu-shelf-card-details" aria-label={'阅读《'+item.title+'》'} onClick={()=>onOpen(story)}><h2>{item.title}</h2><span className="yu-shelf-tags"><span title={item.theme}>{item.theme}</span><span title={item.artStyleLabel}>{item.artStyleLabel}</span>{number&&<span>第 {number} 版</span>}</span></button>
+    <button className="yu-shelf-card yu-shelf-card-details" aria-label={(onSelect?'选择《':'阅读《')+item.title+'》'} aria-pressed={onSelect?selected:undefined} onClick={pick}><h2>{item.title}</h2><span className="yu-shelf-tags"><span title={item.theme}>{item.theme}</span><span title={item.artStyleLabel}>{item.artStyleLabel}</span>{number&&<span>第 {number} 版</span>}</span></button>
     {feedback}
     <button className={'yu-shelf-reading-footer'+(finished?' finished':'')} aria-label={(finished?'重读《':'继续阅读《')+item.title+'》'} onClick={()=>finished?onOpen(story,true):onOpen(story)}>
      <span className="yu-shelf-progress" aria-hidden="true"><i style={{width:`${total?Math.min(100,Math.round((item.page+1)/total*100)):0}%`}}/></span>
@@ -101,6 +109,7 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
  const savedCount=items.filter(item=>item.saved).length;
  const readableView=grouping!=='none'?<div className="yu-shelf-groups">{groupShelfItems(readable,grouping).map(({label,items})=><ShelfGroup key={grouping+':'+label} id={grouping+':'+label}><summary><ChevronRight size={16}/>{grouping==='book'&&<BookOpen size={16}/>}<h2>{label}</h2><span>{items.length} 篇</span></summary><div className="yu-shelf-grid">{items.map(card)}</div></ShelfGroup>)}</div>:<div className="yu-shelf-grid">{readable.map(card)}</div>;
  return <section className="yu-shelf">
+  {onSelect&&<SelectionGuard selectedId={selectedId} ids={readable.map(item=>item.id).join('\n')} onSelect={onSelect}/>}
   <h1>我的书架</h1>
   <div className="yu-shelf-search"><Search size={18} aria-hidden="true"/><input type="search" aria-label="搜索书架" placeholder="搜索故事、书名、主题或画风" value={query} onChange={event=>onQuery(event.target.value)}/>{query&&<button aria-label="清空搜索" onClick={()=>onQuery('')}><X size={16}/></button>}</div>
   <div className="yu-shelf-tabs"><button className={tab==='recent'?'active':''} aria-pressed={tab==='recent'} onClick={()=>onTab('recent')}>全部故事 <span>{items.length}</span></button><button className={tab==='saved'?'active':''} aria-pressed={tab==='saved'} onClick={()=>onTab('saved')}>我的收藏 <span>{savedCount}</span></button><button type="button" className="yu-shelf-create" onClick={onCreate}><Plus size={15} aria-hidden="true"/>新建故事</button></div>

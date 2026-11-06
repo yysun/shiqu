@@ -713,6 +713,23 @@
       ]
     },
     {
+      "file": "tests/desktop-library-ui.test.mjs",
+      "groups": [
+        "reader"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "code",
+      "gates": [],
+      "covers": []
+    },
+    {
       "file": "tests/desktop-node.test.mjs",
       "groups": [
         "desktop"

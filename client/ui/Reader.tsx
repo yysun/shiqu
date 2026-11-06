@@ -17,7 +17,7 @@ import BookReferenceStar from './BookReferenceStar';
 import ProviderSettings,{ProviderRuntimeSummary} from './ProviderSettings';
 import type {ProviderSettingsView} from '@/lib/provider-settings';
 import {useBookReference} from '../useBookReference';
-import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {ArrowLeft, ArrowRight, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Compass, Feather, Leaf, List, Moon, Play, RotateCcw, ImageDown, BookOpenText, Settings2, Sparkles, UserRound, X, Loader2, FileDown, FileArchive, RefreshCw, Trash2} from 'lucide-react';
 import {randomId, request} from './shared';
 import type {Story} from '@/lib/content';
@@ -57,6 +57,10 @@ import {createDragOffset} from './useDragOffset';
 import {keepSnapshot,shareRows} from '@/lib/reader-snapshots';
 import {newWheelGesture,wheelPageDirection,swipePageDirection} from '@/lib/reader-navigation';
 import DesktopShell from './DesktopShell';
+import DesktopLibrary from './DesktopLibrary';
+import ShelfStoryDetail from './ShelfStoryDetail';
+import StoryGenerationControl from './StoryGenerationControl';
+import {shelfGenerationStatus} from '@/lib/shelf-generation';
 import {useDesktopLayout} from './useDesktopLayout';
 import {clearRetained} from './useRetainedState';
 import {desktopView,activeTopItem,topBarSteps,type DesktopFlags,type ExitStep,type TopItem} from '@/lib/desktop-view';
@@ -111,6 +115,8 @@ export default function Reader(){
  const [providerRuntime,setProviderRuntime]=useState<ProviderSettingsView['runtime']|null>(null);
  const [sceneList,setSceneList]=useState(false);
  const desktop=useDesktopLayout();
+ // 桌面书架当前选中的故事（只在桌面使用）
+ const [selectedStoryId,setSelectedStoryId]=useState<string|null>(null);
  const [selection,setSelection]=useState<Selection>(initialReaderSelection),[largeText,setLargeText]=useState(false),[motion,setMotion]=useState('forward'),[creating,setCreating]=useState(false);
  const [deletedIds,setDeletedIds]=useState<string[]>([]),[deleteTarget,setDeleteTarget]=useState<{id:string;title:string}|null>(null),[deleting,setDeleting]=useState(false),[deleteError,setDeleteError]=useState('');
  const [favoriteBusy,setFavoriteBusy]=useState('');
@@ -506,7 +512,19 @@ export default function Reader(){
   exitToShell(steps);
   if(target==='create')choose();else{setTab(target);window.scrollTo({top:0,behavior:'instant'});}
  }
- const tabContent=tab==='shelf'?shelfView:tab==='me'?profileView:<div className="yu-discover"><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></div>;
+ // 桌面书架：网格选择故事，详情停靠或以抽屉显示；所有操作调用现有处理函数。
+ const selectedStory=shelf.find(item=>item.id===selectedStoryId)||null;
+ function storyDetail(target:Story){
+  const row=progressById.get(target.id),session=gen.sessions.find(item=>item.id===target.id),generation=session&&session.state!=='completed'?shelfGenerationStatus(session):null;
+  const status=generation&&<><span role="status">{generation.message}{session!.story&&` · ${session!.ready} / ${session!.story.pages.length} 幅`}</span>{generation.group==='生成失败'?(session!.retryAllowed&&<button type="button" className="yu-generation-control" disabled={!!gen.controlBusy} onClick={()=>{setWorkflowTarget(session!.id);setWorkflowError('');gen.retrySession(session!.id).catch(e=>setWorkflowError(e.message));}}>重试生成</button>):<StoryGenerationControl session={session!} busy={!!gen.controlBusy} onControl={gen.control}/>}</>;
+  return ({open:drawerOpen,drawerForm,onClose}:{open:boolean;drawerForm:boolean;onClose:()=>void})=><ShelfStoryDetail key={target.id} story={target} meta={[bookName(target),target.theme,isGenerated(target)?(target.artStyleLabel||'未记录画风'):'未记录画风']} page={row?.page||0} saved={!!row?.saved} status={status}
+   open={drawerOpen} drawerForm={drawerForm} onClose={onClose} onRead={restart=>open(target,restart)} onWorkflow={()=>openWorkflow(target.id)}
+   downloads={(['pdf','png','zip'] as const).map(format=>exportControl(format,'yu-settings-download',target))} exportStatus={exportProgress}
+   onFavorite={()=>void favoriteFromShelf(target.id,!row?.saved)} favoriteBusy={!!favoriteBusy}
+   onRename={isGenerated(target)?()=>setRenameTarget({id:target.id,title:target.title}):undefined} onPublication={isGenerated(target)?()=>setPublicationTarget(target):undefined} onDelete={()=>askDelete(target.id,target.title)}/>;
+ }
+ const desktopLibrary=<DesktopLibrary selectedId={selectedStory?selectedStoryId:null} onSelect={setSelectedStoryId} shelf={select=>cloneElement(shelfView,{selectedId:selectedStoryId,onSelect:select})} detail={selectedStory?storyDetail(selectedStory):null}/>;
+ const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover"><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></div>;
  const desktopTree=<DesktopShell active={activeTopItem(view)} hidden={!!story} onNavigate={navigate}>
   {story?readerMain:<main className="yu-home yu-desktop-main" data-main="">{tabContent}</main>}
   {phoneSheets}
