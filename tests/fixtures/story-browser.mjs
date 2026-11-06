@@ -15,7 +15,8 @@ import {libraryFixture} from './story-library.mjs';
 export const runId=process.env.SHIQU_E2E_RUN_ID||new Date().toISOString().replace(/[:.]/g,'-')+'-'+process.pid;
 export const runDirectory=path.resolve('.data/e2e',runId);
 async function reservePort(){const server=createHttpServer(async()=>new Response('reserved'));await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const port=server.address().port;await new Promise(resolve=>server.close(resolve));return port;}
-// contextOptions 供手机视口等场景覆盖浏览器上下文设置；省略时保持桌面默认。
+// contextOptions 供不同视口覆盖浏览器上下文设置。默认 767×1000：手机界面中最宽的一档，与重设计前桌面窗口里
+// 的手机卡片最接近；这些流程用例验证手机面板流程，桌面布局由 desktop-responsive-layout E2E 覆盖。
 export async function storyBrowser(t,caseId,contextOptions={}){
  const directory=path.join(runDirectory,caseId);await mkdir(directory,{recursive:true});
  const f=await productionFixture(undefined,'codex',{}, {parentDirectory:directory,retain:true}),library=libraryFixture();
@@ -36,7 +37,7 @@ export async function storyBrowser(t,caseId,contextOptions={}){
  await new Promise(resolve=>api.listen(0,'127.0.0.1',resolve));
  vite=await createServer({envFile:false,cacheDir:path.join(f.root,'vite-cache'),logLevel:'error',plugins:[protectDevelopmentLibrary(f.dataDirectory)],server:developmentServerOptions({port,apiPort:api.address().port,library:f.dataDirectory})});
  await vite.listen();browser=await chromium.launch({headless:true});
- const context=await browser.newContext({viewport:{width:1280,height:1000},...contextOptions});await context.tracing.start({screenshots:true,snapshots:true,sources:true});
+ const context=await browser.newContext({viewport:{width:767,height:1000},...contextOptions});await context.tracing.start({screenshots:true,snapshots:true,sources:true});
  await context.addInitScript(()=>localStorage.setItem('shiqu-last-tab','shelf'));
  const page=await context.newPage(),url=`http://127.0.0.1:${port}`,errors=[],transitions=[],commands=[];let result='PASS',failure,closed=false;
  page.setDefaultTimeout(10000);

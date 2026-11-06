@@ -33,7 +33,8 @@ test('title, theme and original scope are independently optional in the creation
  const vite=await createServer({envFile:false,cacheDir:path.join(f.root,'vite-cache'),logLevel:'error',server:{host:'127.0.0.1',port:uiPort,strictPort:true,proxy:{'/api':{target},'/art':{target}}}});
  await vite.listen();t.after(()=>vite.close());
  const browser=await chromium.launch({headless:true});t.after(()=>browser.close());
- const context=await browser.newContext({viewport:{width:1280,height:900}}),page=await context.newPage();
+ // 验证手机新建面板；桌面新建页由 desktop-responsive-layout E2E 覆盖
+ const context=await browser.newContext({viewport:{width:767,height:900}}),page=await context.newPage();
  await context.addInitScript(()=>localStorage.setItem('shiqu-last-tab','shelf'));
  const url=`http://127.0.0.1:${vite.httpServer.address().port}`;
  async function open(){
@@ -111,7 +112,7 @@ test('title, theme and original scope are independently optional in the creation
    await extraction.getByRole('region',{name:'已选原文与主题'}).scrollIntoViewIfNeeded();
    assert.equal(await extraction.evaluate(element=>element.scrollWidth<=element.clientWidth),true);
    await page.screenshot({path:path.join(evidenceDirectory,'extraction-auto-mobile.png')});
-   await page.setViewportSize({width:1280,height:900});
+   await page.setViewportSize({width:767,height:900});
   }
   if(flags===7){
    await page.setViewportSize({width:390,height:844});
@@ -127,7 +128,7 @@ test('title, theme and original scope are independently optional in the creation
    response=page.waitForResponse(response=>response.url().endsWith(`/api/reader/sessions/${saved.id}/setup`)&&response.request().method()==='POST'&&response.request().postDataJSON().action==='search');
    await extraction.getByRole('button',{name:'开始提取',exact:true}).click();
    assert.deepEqual((await(await response).json()).selection.discovery,{mode:'auto'});
-   await page.setViewportSize({width:1280,height:900});
+   await page.setViewportSize({width:767,height:900});
   }
  }
  // Selecting a book is a preference immediately, even when creation is cancelled before submission.
@@ -220,7 +221,7 @@ test('title, theme and original scope are independently optional in the creation
  await page.getByRole('button',{name:'书架',exact:true}).click();
  await page.reload();
  assert.equal((await f.json('sessions')).filter(session=>session.id===marginId).length,1);
- await page.setViewportSize({width:1280,height:900});
+ await page.setViewportSize({width:767,height:900});
  // The same editor is available inside a separate replacement draft; cancelling retains the parent.
  f.options.generation=f.generation;f.control.hold=false;
  f.generation.suggestions=async selection=>({stories:[{title:selection.discovery?.mode==='title'?selection.discovery.title:'重选候选',description:'可独立讲述的完整事件。'}],note:''});
