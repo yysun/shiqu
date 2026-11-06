@@ -45,7 +45,7 @@ import StoryReviewTools from './StoryReviewTools';
 import StoryReviewHistory from './StoryReviewHistory';
 import StoryPausedEditing from './StoryPausedEditing';
 import Sheet from './StorySheet';
-import StorySettingsPanel from './StorySettingsPanel';
+import StorySettingsPanel,{StorySettingsContent} from './StorySettingsPanel';
 import StoryFrameCount from './StoryFrameCount';
 import {narrativeDetailSchema} from '@/lib/reader-frame-recommendation';
 import StoryRetry from './StoryRetry';
@@ -59,11 +59,12 @@ import {newWheelGesture,wheelPageDirection,swipePageDirection} from '@/lib/reade
 import DesktopShell from './DesktopShell';
 import DesktopLibrary from './DesktopLibrary';
 import ShelfStoryDetail from './ShelfStoryDetail';
+import StoryWorkspace from './StoryWorkspace';
 import StoryGenerationControl from './StoryGenerationControl';
 import {shelfGenerationStatus} from '@/lib/shelf-generation';
 import {useDesktopLayout} from './useDesktopLayout';
 import {clearRetained} from './useRetainedState';
-import {desktopView,activeTopItem,topBarSteps,type DesktopFlags,type ExitStep,type TopItem} from '@/lib/desktop-view';
+import {desktopView,activeTopItem,topBarSteps,workspaceSections,type DesktopFlags,type ExitStep,type TopItem,type WorkspaceSection} from '@/lib/desktop-view';
 import './reader.css';
 // 宽屏手机规则必须最后加载（同等特异性时覆盖放宽后的手机规则）
 import './compact.css';
@@ -117,6 +118,8 @@ export default function Reader(){
  const desktop=useDesktopLayout();
  // 桌面书架当前选中的故事（只在桌面使用）
  const [selectedStoryId,setSelectedStoryId]=useState<string|null>(null);
+ // 工作区里所选的分镜（1 起，0 为结语）；编辑分镜时改由修订编辑器的“选择分镜”决定
+ const [workspaceFrame,setWorkspaceFrame]=useState(1);
  const [selection,setSelection]=useState<Selection>(initialReaderSelection),[largeText,setLargeText]=useState(false),[motion,setMotion]=useState('forward'),[creating,setCreating]=useState(false);
  const [deletedIds,setDeletedIds]=useState<string[]>([]),[deleteTarget,setDeleteTarget]=useState<{id:string;title:string}|null>(null),[deleting,setDeleting]=useState(false),[deleteError,setDeleteError]=useState('');
  const [favoriteBusy,setFavoriteBusy]=useState('');
@@ -149,7 +152,10 @@ export default function Reader(){
  const gen=useStoryGeneration(page,{onStory:(s,p,b)=>{if(deleted.current.has(s.id))return;setStory(old=>keepSnapshot(old,s));if(p!==undefined){setPage(p);setSaved(!!b);}},onProgress:acceptServerProgress},!loading&&tab==='shelf'&&!story&&!configure&&!favoriteBusy&&!deleting&&!restoring&&!shelfRefreshing);
  // Keep the same panel open when the first image arrives underneath it.
  useEffect(()=>{if(gen.active&&!story&&!configure&&!workflowTarget)setWorkflowTarget(gen.active.id);},[gen.active?.id,story?.id,configure,workflowTarget]);
+ // 记录打开制作流程时是否正在阅读：桌面上从书架打开的工作区会顺带载入故事，离开时应回到书架而不是阅读。
+ const workflowFromReader=useRef(false);
  function openWorkflow(id:string){
+  workflowFromReader.current=!!story;
   setSettings(false);setWorkflowError('');setWorkflowTarget(id);
   if(story?.id!==id)setStory(null);
   if(gen.active?.id!==id)void gen.resume(id,story?.id===id?page:undefined).catch(error=>setWorkflowError(error instanceof Error?error.message:'制作流程暂时无法打开，请重试。'));
@@ -207,7 +213,7 @@ export default function Reader(){
  // 关闭新建并丢弃表单草稿；新建面板关闭、顶栏离开与两条提交成功路径共用。
  function closeCreate(){setConfigure(false);setDiscoveryTarget(null);clearRetained('discovery');}
  // 离开工作区：清除各分区标志（修订草稿保留），再执行今天的关闭面板。
- function leaveWorkspace(){setScript(false);setReviewHistoryId(null);setSource(false);revision.setTab(null);setSettings(false);closeWorkflow();}
+ function leaveWorkspace(){const toShell=!workflowFromReader.current&&!!story;setScript(false);setReviewHistoryId(null);setSource(false);revision.setTab(null);setSettings(false);closeWorkflow();if(toShell)home();}
  function exitToShell(steps:ExitStep[]){for(const step of steps){if(step==='closeCreate')closeCreate();else if(step==='leaveWorkspace')leaveWorkspace();else home();}}
  useEffect(()=>{visitor.current=localStorage.getItem('yiyu-visitor')||randomId();localStorage.setItem('yiyu-visitor',visitor.current);try{setLargeText(localStorage.getItem('yiyu-large-text')==='1');}catch{}if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
  let active=true;
@@ -440,6 +446,14 @@ export default function Reader(){
  const favoriteCount=shelf.filter(s=>progressById.get(s.id)?.saved).length+pendingStories.filter(s=>progressById.get(s.id)?.saved??s.saved).length;
 
  // 共享片段：手机树与桌面外壳渲染同一份标记。
+ const settingsProps={
+  story:panelStory,session:workflowSession,busy:gen.setupBusy||revision.busy||creating,disabled:creating,onBack:backToShelf,
+  onRename:workflowSession||isGenerated(panelStory)?(id:string,title:string)=>setRenameTarget({id,title}):undefined,
+  downloads:(['pdf','png','zip'] as const).map(format=>exportControl(format,'yu-settings-download',panelStory)),
+  exportStatus:exportProgress,exporting:!!exporting,onPublicationEdit:isGenerated(panelStory)?()=>setPublicationTarget(panelStory):undefined,
+  workflow:workflowSession||workflowTarget?workflowContent:undefined,
+ };
+ const revisionDone=workflowTarget||settings||revisionResuming?()=>revision.setTab(null):undefined;
  const discoverLead=<><section className="yu-intro"><div><p className="yu-kicker">把片刻，留给一个好故事</p><h1>今天，想遇见<br/>什么<span>故事</span>？</h1></div><span className="yu-stamp">古意<br/>新生</span></section>
  <RecentStories key={heroes.map(h=>h.story.id).join('|')} items={heroes} loading={libraryLoading} bookName={bookName} onOpen={open}/>
  <button className="yu-new-story-link" onClick={()=>choose()}><Sparkles size={16}/><span>生成我的故事</span><ArrowRight size={16}/></button></>;
@@ -477,21 +491,17 @@ export default function Reader(){
  </main>;
 
  // 手机树：今天的界面与其专属面板。
+ const configureSheet=configure&&<Sheet title="这一篇，想怎样读？" busy={creating} onClose={closeCreate}><StoryDiscoveryForm retainKey="discovery" selection={selection} books={choices} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}))} onSubmit={generate}/></Sheet>;
+ const sourceSheet=source&&(story||gen.active)&&<Sheet title="故事从哪里来" onClose={()=>setSource(false)}>{story?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:<StorySource key={gen.active!.id} sessionId={gen.active!.id} book={bookName({id:gen.active!.id,bookId:gen.active!.selection.bookId})}/>}</Sheet>;
+ const sceneSheet=sceneList&&story&&<Sheet title="分镜列表" onClose={()=>setSceneList(false)}><StorySceneList story={story} page={page} onSelect={index=>{goToPage(index);setSceneList(false);}}/></Sheet>;
  const phoneSheets=<>
- {configure&&<Sheet title="这一篇，想怎样读？" busy={creating} onClose={closeCreate}><StoryDiscoveryForm retainKey="discovery" selection={selection} books={choices} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}))} onSubmit={generate}/></Sheet>}
- {panelOpen&&!configure&&<StorySettingsPanel
-  story={panelStory} session={workflowSession} busy={gen.setupBusy||revision.busy||creating} disabled={creating}
-  onClose={()=>{setSettings(false);closeWorkflow();}} onBack={backToShelf}
-  onRename={workflowSession||isGenerated(panelStory)?(id,title)=>setRenameTarget({id,title}):undefined}
-  downloads={(['pdf','png','zip'] as const).map(format=>exportControl(format,'yu-settings-download',panelStory))}
-  exportStatus={exportProgress} exporting={!!exporting} onPublicationEdit={isGenerated(panelStory)?()=>setPublicationTarget(panelStory):undefined}
-  workflow={workflowSession||workflowTarget?workflowContent:undefined}
- />}
+ {configureSheet}
+ {panelOpen&&!configure&&<StorySettingsPanel {...settingsProps} onClose={()=>{setSettings(false);closeWorkflow();}}/>}
  {reviewHistoryId&&<Sheet title="审核记录" onClose={()=>setReviewHistoryId(null)}><StoryReviewHistory key={reviewHistoryId} sessionId={reviewHistoryId}/></Sheet>}
- {source&&(story||gen.active)&&<Sheet title="故事从哪里来" onClose={()=>setSource(false)}>{story?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:<StorySource key={gen.active!.id} sessionId={gen.active!.id} book={bookName({id:gen.active!.id,bookId:gen.active!.selection.bookId})}/>}</Sheet>}
- {sceneList&&story&&<Sheet title="分镜列表" onClose={()=>setSceneList(false)}><StorySceneList story={story} page={page} onSelect={index=>{goToPage(index);setSceneList(false);}}/></Sheet>}
+ {sourceSheet}
+ {sceneSheet}
  {script&&scriptStory&&<Sheet title="分镜剧本" onClose={()=>setScript(false)}>{isGenerated(scriptStory)&&<button type="button" className="yu-revision-open" onClick={()=>revision.open('script')}>修改分镜</button>}<StoryScript story={scriptStory} standalone/></Sheet>}
- {revision.tab&&<Sheet title="修改故事" busy={revision.busy} onClose={()=>{if(!revision.busy)revision.setTab(null);}}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming} onDone={workflowTarget||settings||revisionResuming?()=>revision.setTab(null):undefined}/></Sheet>}
+ {revision.tab&&<Sheet title="修改故事" busy={revision.busy} onClose={()=>{if(!revision.busy)revision.setTab(null);}}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming} onDone={revisionDone}/></Sheet>}
  </>;
  const phoneTree=<>
  {story?readerMain:<>
@@ -525,11 +535,38 @@ export default function Reader(){
  }
  const desktopLibrary=<DesktopLibrary selectedId={selectedStory?selectedStoryId:null} onSelect={setSelectedStoryId} shelf={select=>cloneElement(shelfView,{selectedId:selectedStoryId,onSelect:select})} detail={selectedStory?storyDetail(selectedStory):null}/>;
  const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover"><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></div>;
- const desktopTree=<DesktopShell active={activeTopItem(view)} hidden={!!story} onNavigate={navigate}>
-  {story?readerMain:<main className="yu-home yu-desktop-main" data-main="">{tabContent}</main>}
-  {phoneSheets}
+ // 工作区：分区由状态标志推导，切换分区只设置和清除这些标志（修订草稿保留）。
+ // 回到“修改故事”时打开上次停留的编辑页签与分镜。
+ const lastEditTab=useRef<NonNullable<typeof revision.tab>>('requirements');
+ if(revision.tab)lastEditTab.current=revision.tab;
+ function showWorkspaceSection(next:WorkspaceSection){
+  if(next!=='edit')revision.setTab(null);
+  setScript(next==='script');
+  setReviewHistoryId(next==='history'?(workflowSession?.id??null):null);
+  setSource(next==='source');
+  if(next==='edit')revision.open(revision.tab||lastEditTab.current,revision.scriptPage);
+ }
+ const workspaceStory=scriptStory;
+ useEffect(()=>{setWorkspaceFrame(1);},[workspaceStory?.id]);
+ const editingFrames=revision.tab==='script';
+ const frame=editingFrames?revision.scriptPage:workspaceFrame;
+ const sections=workspaceSections({revisable:!!revision.sessionId,script:!!scriptStory,history:!!workflowSession&&(!workflowSession.intake||workflowSession.intake.phase==='confirmed'),source:!!story||!!workflowSession?.generationProgress?.sourceReady});
+ const workspaceContent=view.kind!=='workspace'?null:view.section==='edit'?<StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming} onDone={revisionDone}/>
+  :view.section==='script'&&scriptStory?<>{isGenerated(scriptStory)&&<button type="button" className="yu-revision-open" onClick={()=>revision.open('script',frame||1)}>修改分镜</button>}<StoryScript story={scriptStory} standalone/></>
+  :view.section==='history'&&reviewHistoryId?<StoryReviewHistory key={reviewHistoryId} sessionId={reviewHistoryId}/>
+  :view.section==='source'&&(story||gen.active)?(story?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:<StorySource key={gen.active!.id} sessionId={gen.active!.id} book={bookName({id:gen.active!.id,bookId:gen.active!.selection.bookId})}/>)
+  :StorySettingsContent(settingsProps);
+ const workspace=view.kind==='workspace'&&<main className="yu-home yu-desktop-main yu-workspace-main" data-main=""><StoryWorkspace key={workspaceStory?.id||workflowSession?.id||'workspace'}
+  title={workflowSession?.selection.displayTitle||panelStory?.title||workflowSession?.selection.storyTitle||'故事设置'} section={view.section} sections={sections}
+  onSection={showWorkspaceSection} onBack={leaveWorkspace} story={workspaceStory} frame={frame} onFrame={next=>editingFrames?revision.setScriptPage(next):setWorkspaceFrame(next)}
+  issues={revisionSession?.reviewIssues||[]}>{workspaceContent}</StoryWorkspace></main>;
+ // 桌面上仍以面板显示的：新建（M4 之前）与阅读侧栏（M5 之前）
+ const desktopSheets=<>{configureSheet}{view.kind==='reader'&&<>{sourceSheet}{sceneSheet}</>}</>;
+ const desktopTree=<DesktopShell active={activeTopItem(view)} hidden={view.kind==='reader'} onNavigate={navigate}>
+  {view.kind==='workspace'?workspace:view.kind==='reader'?readerMain:<main className="yu-home yu-desktop-main" data-main="">{tabContent}</main>}
+  {desktopSheets}
  </DesktopShell>;
- const reading=!!story;
+ const reading=desktop?view.kind==='reader':!!story;
 
  return <div className={'yu-world'+(reading?' yu-reading-world':'')+(desktop?' yu-desktop':'')} data-layout={desktop?'shell':'phone'}><div className={'yu-app'+(reading?' yu-immersive':'')}>
  <ProviderSettings onRuntime={setProviderRuntime} onAvailability={setProviderAllowed} openRequest={providerOpen} showEntry={false} showPrompt={!story}/>

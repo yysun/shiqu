@@ -51,3 +51,9 @@ export function exitSteps(f:DesktopFlags):ExitStep[]{
 export function topBarSteps(f:DesktopFlags,target:TopItem):ExitStep[]|null{
  return activeTopItem(desktopView(f))===target?null:exitSteps(f);
 }
+
+// 工作区分区标签：只显示今天有入口的分区。制作流程总在；修改故事需要可修订的版本；分镜剧本需要分镜；
+// 审核记录需要已确认制作的会话；原文需要已打开的故事或已核对的原文。
+export function workspaceSections(entry:{revisable:boolean;script:boolean;history:boolean;source:boolean}):WorkspaceSection[]{
+ return ['flow',...(entry.revisable?['edit' as const]:[]),...(entry.script?['script' as const]:[]),...(entry.history?['history' as const]:[]),...(entry.source?['source' as const]:[])];
+}

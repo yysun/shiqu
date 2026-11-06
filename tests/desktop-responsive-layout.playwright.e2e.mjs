@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {mkdir,writeFile} from 'node:fs/promises';
-import {seededBrowser} from './fixtures/desktop-layout.mjs';
+import {seededBrowser,seedReviewedStory} from './fixtures/desktop-layout.mjs';
 
 const options={timeout:600000};
 const dialog=(page,name)=>page.getByRole('dialog',{name,exact:true});
@@ -100,5 +100,64 @@ test('DESKTOP-LAYOUT-03: library selects into a docked panel, a drawer below 102
   assert.equal(await page.locator('.yu-library-grid').evaluate(el=>el.inert),false);
   assert.ok(await second.evaluate(el=>el===document.activeElement),'focus stays on the card');
   await page.keyboard.press('Enter');await page.locator('.yu-shelf-detail.is-open').waitFor();
+ });
+});
+
+// 元素完整处在视口内（工作区各栏不需要整页滚动即可同时看到）
+const inViewport=locator=>locator.evaluate(el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&r.top>=0&&r.left>=0&&r.bottom<=innerHeight+1&&r.right<=innerWidth+1;});
+
+test('DESKTOP-LAYOUT-04: the story workspace keeps frames, editor, artwork and issues together and survives reflow',options,async t=>{
+ const b=await seededBrowser(t,'DRL-04',{viewport:{width:1280,height:800},completed:0});
+ await b.execute(async()=>{
+  const {page,url,f}=b,id=await seedReviewedStory(f);
+  const top=name=>page.locator('.yu-topbar nav').getByRole('button',{name}).click();
+  const workspace=page.locator('.yu-workspace'),center=page.locator('.yu-workspace-center'),preview=page.locator('.yu-workspace-preview');
+  await page.goto(url);await top('书架');
+  await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();
+  await page.locator('.yu-shelf-detail').getByRole('button',{name:'制作流程'}).click();
+  await workspace.waitFor();
+  await workspace.getByRole('navigation',{name:'工作区分区'}).getByRole('button',{name:'修改故事'}).click();
+  await center.getByRole('button',{name:'分镜',exact:true}).click();
+  await page.locator('.yu-workspace-frames').getByRole('button',{name:'选择第 1 幅'}).click();
+  const caption=center.getByLabel(/^旁白/);await caption.fill('渔夫俯身伸手，把岸上的乌龟轻轻放回水中。');
+  // 1280×800：分镜列表、旁白编辑、第 1 幅画面与审片问题同屏可见，页面本身不滚动
+  for(const target of [page.locator('.yu-workspace-frames'),caption,preview.locator('img'),preview.getByText('受控审核：配文未说明可见行动。')])assert.ok(await inViewport(target),'visible together at 1280×800');
+  assert.ok(await page.evaluate(()=>document.scrollingElement.scrollHeight<=innerHeight+1),'panes scroll independently, not the page');
+  await page.screenshot({path:path.join(b.directory,'workspace-1280.png')});
+  // 切换分区再回来，草稿保留
+  const tabs=workspace.getByRole('navigation',{name:'工作区分区'});
+  await tabs.getByRole('button',{name:'分镜剧本'}).click();await center.locator('.yu-story-script,section,ol').first().waitFor();
+  await tabs.getByRole('button',{name:'审核记录'}).click();await page.waitForTimeout(300);
+  await tabs.getByRole('button',{name:'修改故事'}).click();
+  assert.equal(await center.getByLabel(/^旁白/).inputValue(),'渔夫俯身伸手，把岸上的乌龟轻轻放回水中。');
+  // 1024×768：分镜横条、旁白编辑与第 1 幅审片问题同屏，画面至少是缩略图
+  await page.setViewportSize({width:1024,height:768});await page.waitForTimeout(300);
+  for(const target of [page.locator('.yu-workspace-frames'),center.getByLabel(/^旁白/),preview.getByText('受控审核：配文未说明可见行动。'),preview.locator('img')])assert.ok(await inViewport(target),'visible together at 1024×768');
+  await page.screenshot({path:path.join(b.directory,'workspace-1024.png')});
+  // 768×1024：横条与编辑器可见；“画面与审核”抽屉显示画面与问题，关闭后草稿仍在
+  await page.setViewportSize({width:768,height:1024});await page.waitForTimeout(300);
+  assert.ok(await inViewport(page.locator('.yu-workspace-frames')));assert.ok(await inViewport(center.getByLabel(/^旁白/)));
+  await page.getByRole('button',{name:'画面与审核'}).click();await page.locator('.yu-workspace-preview.is-open').waitFor();await page.waitForTimeout(300);
+  await page.screenshot({path:path.join(b.directory,'workspace-768-drawer.png')});
+  assert.ok(await inViewport(preview.getByText('受控审核：配文未说明可见行动。')),'issue visible in the drawer');
+  await page.getByRole('button',{name:'关闭画面与审核'}).click();
+  assert.equal(await center.getByLabel(/^旁白/).inputValue(),'渔夫俯身伸手，把岸上的乌龟轻轻放回水中。');
+  // 1280 → 1100 → 900 → 1280：文字、所选分镜与编辑器滚动位置保留
+  await page.setViewportSize({width:1280,height:800});await page.waitForTimeout(200);
+  await center.evaluate(el=>{el.scrollTop=40;});const scroll=await center.evaluate(el=>el.scrollTop);
+  for(const width of [1100,900,1280]){await page.setViewportSize({width,height:800});await page.waitForTimeout(250);}
+  assert.equal(await center.getByLabel(/^旁白/).inputValue(),'渔夫俯身伸手，把岸上的乌龟轻轻放回水中。');
+  assert.equal(await page.locator('.yu-workspace-frames [aria-current=true]').getAttribute('aria-label'),'选择第 1 幅');
+  assert.equal(await center.evaluate(el=>el.scrollTop),scroll,'editor scroll position kept');
+  // 1100 时焦点在右栏，变窄到 900：焦点移到“画面与审核”，抽屉保持关闭
+  await page.setViewportSize({width:1100,height:800});await page.waitForTimeout(200);
+  await preview.locator('h2').evaluate(el=>{el.tabIndex=-1;el.focus();});
+  await page.setViewportSize({width:900,height:800});await page.waitForTimeout(300);
+  assert.equal(await page.locator('.yu-workspace-preview.is-open').count(),0);
+  assert.ok(await page.getByRole('button',{name:'画面与审核'}).evaluate(el=>el===document.activeElement),'focus moves to the toggle');
+  // 返回：回到书架，同一故事仍选中
+  await page.setViewportSize({width:1280,height:800});await page.waitForTimeout(200);
+  await workspace.getByRole('button',{name:'返回'}).click();
+  await page.locator(`[data-story-id="${id}"].is-selected`).waitFor();
  });
 });

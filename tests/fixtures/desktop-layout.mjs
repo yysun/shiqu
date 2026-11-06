@@ -6,6 +6,22 @@ import {storyBrowser} from './story-browser.mjs';
 import {until} from './production.mjs';
 
 // 按生产流程经 API 预置一篇故事：建任务 → 按标题提取 → 选择候选 → 确认制作；confirm=false 时停在确认前。
+// 带审片问题的已绘故事：先完成一篇故事，再经修订 API 只改第 1 幅配文；修订沿用原图，复审在第 1 幅留下问题而停止。
+// 返回修订后的版本 id，它有完整画面与 reviewIssues（与界面“修改分镜 → 开始制作”的结果相同）。
+export async function seedReviewedStory(f){
+ const original=f.control.beforeText,parent=await seedStory(f);
+ await until(async()=>(await f.read(parent)).state==='completed',30000);
+ f.control.beforeText=async(kind,payload,schema)=>{
+  if(kind==='review')return {...await original?.(kind,payload,schema),issues:[{page:1,category:'caption',problem:'受控审核：配文未说明可见行动。',instruction:'保留原文事件，明确第一幅的可见动作。'}]};
+  if(kind==='repair')return {pages:payload.requestedPages.map(page=>({page,...payload.plan.pages[page-1]}))};
+  return original?.(kind,payload,schema);
+ };
+ const snapshot=await f.json(`sessions/${parent}/revisions`);
+ const plan={...snapshot.plan,pages:snapshot.plan.pages.map((page,index)=>index===0?{...page,caption:'庄周醒来，仍记得蝴蝶在花间飞过。'}:page)};
+ const revised=await f.json(`sessions/${parent}/revisions`,'POST',{requestId:crypto.randomUUID(),token:snapshot.token,changes:{plan}});
+ await until(async()=>(await f.read(revised.id)).reviewIssues?.length>0,30000);
+ f.control.beforeText=original;return revised.id;
+}
 export async function seedStory(f,{title='乌龟报恩',confirm=true,length=3}={}){
  const saved=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{bookId:'zhuangzi',theme:'原典故事',artStyle:'ink-pencil',length:'auto',voice:false,productionPrompt:'',narrativeDetail:'balanced'}});
  await f.startDiscovery(saved.id,title);await f.demand(saved.id,crypto.randomUUID());

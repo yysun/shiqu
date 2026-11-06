@@ -60,3 +60,11 @@ test('clicking the active top-bar item does nothing',()=>{
  assert.deepEqual(topBarSteps({...base,configure:true},'shelf'),['closeCreate']);
  assert.deepEqual(topBarSteps({...base,panelOpen:true},'create'),['leaveWorkspace']);
 });
+
+test('workspace tabs show only the sections whose entry point exists today',async()=>{
+ const {workspaceSections}=await import('../lib/desktop-view.ts');
+ assert.deepEqual(workspaceSections({revisable:false,script:false,history:false,source:false}),['flow']);
+ assert.deepEqual(workspaceSections({revisable:true,script:true,history:true,source:true}),['flow','edit','script','history','source']);
+ // 选题阶段：还没有分镜与可修订版本，原文已核对时只多出“原文”
+ assert.deepEqual(workspaceSections({revisable:false,script:false,history:false,source:true}),['flow','source']);
+});
