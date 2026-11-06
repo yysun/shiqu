@@ -83,6 +83,7 @@ test('DESKTOP-LAYOUT-03: library selects into a docked panel, a drawer below 102
   const {page,url}=b,top=name=>page.locator('.yu-topbar nav').getByRole('button',{name}).click();
   const cards=page.locator('.yu-shelf-row-readable'),detail=page.locator('.yu-shelf-detail');
   await page.goto(url);await top('书架');await cards.first().waitFor();
+  assert.ok(await page.locator('.yu-library .yu-shelf-grid').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length)>1,'multi-column grid');
   // 点击卡片：右侧停靠详情显示所选故事与全部操作
   await cards.nth(0).locator('.yu-shelf-card-details').click();
   await detail.getByRole('heading',{level:2}).waitFor();
@@ -140,6 +141,9 @@ test('DESKTOP-LAYOUT-04: the story workspace keeps frames, editor, artwork and i
   await workspace.waitFor();
   await workspace.getByRole('navigation',{name:'工作区分区'}).getByRole('button',{name:'修改故事'}).click();
   await center.getByRole('button',{name:'分镜',exact:true}).click();
+  // 键盘：Tab 到分镜列表的按钮，Enter 选择
+  await page.locator('.yu-workspace-frames').getByRole('button',{name:'选择第 2 幅'}).focus();await page.keyboard.press('Enter');
+  assert.equal(await page.locator('.yu-workspace-frames [aria-current=true]').getAttribute('aria-label'),'选择第 2 幅');
   await page.locator('.yu-workspace-frames').getByRole('button',{name:'选择第 1 幅'}).click();
   const caption=center.getByLabel(/^旁白/);await caption.fill('渔夫俯身伸手，把岸上的乌龟轻轻放回水中。');
   // 1280×800：分镜列表、旁白编辑、第 1 幅画面与审片问题同屏可见，页面本身不滚动
@@ -260,15 +264,27 @@ test('DESKTOP-LAYOUT-07: the reader fills the window with a non-modal side panel
   await page.keyboard.press('ArrowLeft');await page.waitForFunction(()=>document.querySelector('.yu-progress').getAttribute('aria-label').startsWith('第1幅'));
   const box=await stage.boundingBox();await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.wheel(0,400);
   await page.waitForFunction(()=>document.querySelector('.yu-progress').getAttribute('aria-label').startsWith('第2幅'));
-  // 侧栏选分镜：翻到该页，侧栏保持打开
+  // 键盘选侧栏分镜；点击选分镜：翻到该页，侧栏保持打开
+  await panel.getByRole('button',{name:'跳转到第 1 幅'}).focus();await page.keyboard.press('Enter');assert.equal(await pageIndex(page),1);
   await panel.getByRole('button',{name:'跳转到第 3 幅'}).click();assert.equal(await pageIndex(page),3);assert.equal(await panel.count(),1);
   // 配文行宽不超过 30em（含大一点的文字）
   const measure=()=>page.locator('.yu-scene-caption>p').evaluate(p=>p.getBoundingClientRect().width/parseFloat(getComputedStyle(p).fontSize));
   assert.ok(await measure()<=30.5,'caption within 30em');
   await page.screenshot({path:path.join(b.directory,'reader-1440.png')});
+  // 大一点的文字：字号更大，行宽仍不超过 30em
+  const normalSize=await page.locator('.yu-scene-caption>p').evaluate(p=>parseFloat(getComputedStyle(p).fontSize));
+  await page.evaluate(()=>localStorage.setItem('yiyu-large-text','1'));await page.reload();await page.locator('.yu-scene.is-current').waitFor();
+  assert.ok(await page.locator('.yu-scene-caption>p').evaluate(p=>parseFloat(getComputedStyle(p).fontSize))>normalSize,'large text is larger');
+  assert.ok(await measure()<=30.5,'large caption within 30em');
+  await page.evaluate(()=>localStorage.setItem('yiyu-large-text','0'));await page.reload();await page.locator('.yu-scene.is-current').waitFor();
+  await page.getByRole('button',{name:'分镜列表',exact:true}).click();await panel.waitFor();
   // Escape：先关侧栏，再返回打开前的书架
   await page.keyboard.press('Escape');await panel.waitFor({state:'detached'});assert.equal(await stage.count(),1);
   await page.keyboard.press('Escape');await page.locator('.yu-shelf').waitFor();
+  // 结尾的“开启下一篇”打开新建页
+  await openFirstStory(page,url);await page.getByRole('button',{name:'最后一页',exact:true}).click();await page.locator('.yu-next').click();
+  await page.locator('.yu-ending').waitFor();await page.getByRole('button',{name:/开启下一篇/}).click();await page.locator('.yu-create-form').waitFor();
+  assert.equal(await page.getByRole('dialog').count(),0);
   // 画面比 480px 宽的手机阅读更高
   await page.setViewportSize({width:480,height:900});await b.reader(b.ids[0]);await page.locator('.yu-scene.is-current').waitFor();
   const narrow=await page.locator('.yu-scene.is-current').evaluate(img=>img.getBoundingClientRect().height);
@@ -365,13 +381,24 @@ test('DESKTOP-LAYOUT-08: modal dialogs open centered; toasts stay clear of the t
    if(title==='删除这篇故事？')await page.getByRole('button',{name:'保留故事',exact:true}).click();else await closeTop(page);
   }
   assert.equal(commands.slice(before).filter(c=>/rename|publication|title|library\//.test(c.path)).length,0,'nothing saved');
+  await detail.getByRole('button',{name:/下载 PDF/}).click();await page.getByRole('dialog',{name:'作品还未署名',exact:true}).waitFor();await page.waitForTimeout(250);
+  assert.ok(await centeredSheet(page,'作品还未署名'),'作品还未署名');await page.getByRole('dialog',{name:'作品还未署名',exact:true}).getByRole('button',{name:'取消',exact:true}).click();
+  await detail.getByRole('button',{name:'制作流程'}).click();await page.locator('.yu-workspace').waitFor();
+  await page.locator('.yu-workspace-center').getByText('替换选题',{exact:true}).first().click();await page.getByRole('dialog',{name:'替换选题',exact:true}).getByRole('button',{name:'取消替换',exact:true}).waitFor();await page.waitForTimeout(250);
+  assert.ok(await centeredSheet(page,'替换选题'),'替换选题');await page.getByRole('dialog',{name:'替换选题',exact:true}).getByRole('button',{name:'取消替换',exact:true}).click();await page.waitForTimeout(300);
+  await topNav(page,'书架');await page.locator(`[data-story-id="${ids[0]}"] .yu-shelf-card-details`).click();
   // 收藏触发提示：提示可见且不压住顶栏
   await detail.getByRole('button',{name:'收藏'}).click();const toast=page.locator('.yu-toast');await toast.waitFor();
   const toastBox=await toast.boundingBox(),barBox=await page.locator('.yu-topbar').boundingBox();
   assert.ok(toastBox.y>barBox.y+barBox.height&&toastBox.y+toastBox.height<=800,'toast visible and clear of the bar');
   // 选题工作区里的“修改故事”与“故事原文”也是居中对话框
   await seedStory(f,{confirm:false});await page.goto(url);await topNav(page,'书架');await page.locator('.yu-production-row').first().click();await page.locator('.yu-workspace').waitFor();
-  for(const [trigger,title] of [['原文','故事原文'],['制作要求','修改故事']]){await page.locator('.yu-workspace-center').getByText(trigger,{exact:true}).first().click();await page.getByRole('dialog',{name:title,exact:true}).waitFor();await page.waitForTimeout(250);assert.ok(await centeredSheet(page,title),title);await closeTop(page);}
+  for(const [trigger,title] of [['原文','故事原文'],['制作要求','修改故事'],['重新选择故事','重新选择故事']]){await page.locator('.yu-workspace-center').getByText(trigger,{exact:true}).first().click();await page.getByRole('dialog',{name:title,exact:true}).waitFor();await page.waitForTimeout(250);assert.ok(await centeredSheet(page,title),title);await closeTop(page);}
+  // 删除后的撤销条：可见且不压住顶栏
+  await page.locator('.yu-workspace').getByRole('button',{name:'返回'}).click();await topNav(page,'书架');
+  await page.locator(`[data-story-id="${ids[0]}"] .yu-shelf-card-details`).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'删除故事'}).click();
+  await page.getByRole('button',{name:'删除故事',exact:true}).last().click();const undo=page.locator('.yu-undo-notice');await undo.waitFor();
+  const undoBox=await undo.boundingBox(),bar=await page.locator('.yu-topbar').boundingBox();assert.ok(undoBox.y>bar.y+bar.height&&undoBox.y+undoBox.height<=800,'undo notice visible and clear of the bar');
  });
 });
 
@@ -489,9 +516,9 @@ test('DESKTOP-LAYOUT-11: sweeping 320–2560px changes structure only at 768, ne
    {name:'discover',headings:['.yu-intro h1','.yu-generation-note p'],setup:async()=>{await page.goto(url);await topNav(page,'发现');}},
    {name:'shelf',headings:['.yu-shelf h1'],setup:async()=>{await page.goto(url);await topNav(page,'书架');}},
    {name:'me',headings:['.yu-profile-group h2'],setup:async()=>{await page.goto(url);await topNav(page,'我的');}},
-   {name:'workspace',headings:[],setup:async()=>{await page.goto(url);await topNav(page,'书架');await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'制作流程'}).click();await page.locator('.yu-workspace').getByRole('navigation',{name:'工作区分区'}).getByRole('button',{name:'修改故事'}).click();await page.locator('.yu-workspace-center').getByRole('button',{name:'分镜',exact:true}).click();}},
-   {name:'create',headings:[],setup:async()=>{await page.goto(url);await page.locator('.yu-topbar-create').click();await page.locator('.yu-create-form').waitFor();}},
-   {name:'reader',headings:[],setup:async()=>{await b.reader(id);await page.locator('.yu-scene.is-current').waitFor();await page.getByRole('button',{name:'分镜列表',exact:true}).click();}},
+   {name:'workspace',headings:['.yu-revision-field'],setup:async()=>{await page.goto(url);await topNav(page,'书架');await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'制作流程'}).click();await page.locator('.yu-workspace').getByRole('navigation',{name:'工作区分区'}).getByRole('button',{name:'修改故事'}).click();await page.locator('.yu-workspace-center').getByRole('button',{name:'分镜',exact:true}).click();}},
+   {name:'create',headings:['.yu-choice-label'],setup:async()=>{await page.goto(url);await page.locator('.yu-topbar-create').click();await page.locator('.yu-create-form').waitFor();}},
+   {name:'reader',headings:['.yu-scene-caption>p'],setup:async()=>{await b.reader(id);await page.locator('.yu-scene.is-current').waitFor();await page.getByRole('button',{name:'分镜列表',exact:true}).click();}},
   ];
   const report={};
   for(const view of views){
@@ -532,4 +559,16 @@ test('DESKTOP-LAYOUT-08b: the provider dialog is a wide centered dialog whose sa
  const actions=await dialog.locator('.yu-provider-actions').boundingBox();assert.ok(actions.y>=0&&actions.y+actions.height<=800,'save and check stay visible after scrolling');
  await dialog.locator('.yu-sheet').evaluate(el=>{el.scrollTop=0;});await page.waitForTimeout(200);
  const top=await dialog.locator('.yu-provider-actions').boundingBox();assert.ok(top.y+top.height<=800,'actions visible at the top too');
+});
+
+test('DESKTOP-LAYOUT-03b: on a touch tablet in the medium tier, top-bar and drawer controls are 44px and form text is 16px',options,async t=>{
+ const b=await seededBrowser(t,'DRL-03b',{viewport:{width:900,height:800},completed:1,touch:true});
+ await b.execute(async()=>{
+  const {page,url,ids}=b;await page.goto(url);
+  assert.equal(await page.locator('.yu-world').getAttribute('data-layout'),'shell');
+  for(const el of await page.locator('.yu-topbar button').all()){const box=await el.boundingBox();assert.ok(box.height>=44&&box.width>=44,'top-bar target 44px');}
+  await topNav(page,'书架');assert.equal(await page.locator('.yu-shelf-search input').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)),16,'16px form text on coarse pointers');
+  await page.locator(`[data-story-id="${ids[0]}"] .yu-shelf-card-details`).click();await page.locator('.yu-shelf-detail.is-open').waitFor();await page.waitForTimeout(300);
+  for(const el of await page.locator('.yu-shelf-detail button').all())if(await el.isVisible()){const box=await el.boundingBox();assert.ok(box.height>=44,'drawer control at least 44px tall');}
+ });
 });
