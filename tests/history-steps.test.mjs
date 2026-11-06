@@ -46,6 +46,8 @@ function browser({state=null,url='/',navigationType='navigate',storage={},nav=fa
  }
  return {env,reg,entries,step,commit,settle,timers,prompts,
   get index(){return index;},get left(){return left;},stage,flush,queueBack(){pendingGo.push(-1);},
+  // 连续多次返回都在 React 提交之前到达
+  burst(n){for(let i=0;i<n;i++)traverse(-1);commit();},
   answer(value){answer=value;},
   click(){for(const fn of listeners.pointerdown??[])fn();},
   back(){traverse(-1);commit();},forward(){traverse(1);commit();},
@@ -169,6 +171,25 @@ test('a release carries the app URL onto the entry it lands on, keeping that ent
  // 一次退出多层：home() 把当前条目改为 /，随后释放两个条目，落到阅读的基础条目
  create.closeInApp();workspace.closeInApp();b.env.history.replaceState(b.env.history.state,'','/');b.commit();
  assert.equal(b.index,1);assert.equal(b.entries[1].url,'/');
+});
+
+test('a cascade close decides its restore after the commit, with no extra traversals',()=>{
+ const b=browser();b.boot();
+ b.click();const workspace=b.step(1);b.commit();
+ // 工作区载入故事后阅读才登记（没有新输入，是搭乘者）；关闭工作区会连带回到首页
+ const reader=b.step(0);b.commit();
+ const go=b.env.history.go;let calls=0;b.env.history.go=d=>{calls++;go(d);};
+ const close=workspace.unregister;workspace.unregister=()=>{close();reader.open=false;reader.unregister();};
+ b.back();assert.equal(workspace.open,false);assert.equal(reader.open,false);
+ assert.equal(b.index,1);assert.equal(calls,0,'no restore and release pair');
+});
+
+test('two quick back presses add up their restores',()=>{
+ const b=browser();b.boot();
+ b.click();const reader=b.step(0);b.commit();b.click();const sheet=b.step(3);b.commit();const rider=b.step(2);b.commit();
+ b.burst(2);
+ assert.equal(rider.open,false);assert.equal(sheet.open,false);assert.equal(reader.open,true);
+ assert.equal(b.index,2,'the reader keeps its entry');
 });
 
 test('StrictMode re-registration in one commit changes no history',()=>{

@@ -48,17 +48,19 @@ export function createHistorySteps(env:HistoryEnv){
  const raiseOf=(s:Step)=>{const el=s.element?.();return el?raised.get(el)??0:0;};
  const open=()=>steps.filter(s=>!s.closing).sort(order);
  const owned=()=>open().filter(s=>!s.base);
- function go(delta:number,then?:()=>void){depth+=delta;expected={depth,then};env.history.go(delta);}
+ // 自身跳转：记录预期落点；没有落地（例如目标条目已不存在）时 1 秒后放弃等待，避免结算永远停住
+ function go(delta:number,then?:()=>void){depth+=delta;const mine={depth,then};expected=mine;env.history.go(delta);env.setTimeout(()=>{if(expected===mine){expected=null;schedule();}},1000);}
  function schedule(){if(!settleQueued){settleQueued=true;env.queueMicrotask(settle);}}
  function settle(){
   settleQueued=false;
   // 自身的跳转落地后再结算
   if(expected)return;
+  if(depth<hashDepth)hashDepth=-1;
   // 返回关闭的是搭乘者时，下层步骤的条目已被消耗：提交完成后（连带关闭的步骤都已注销）再恢复
   if(restoreDue){const extra=Math.min(owned().length-(depth-baseDepth),restoreDue);restoreDue=0;if(extra>0){go(extra);return;}}
   const excess=depth-baseDepth-owned().length-reservations.length;
   // 释放后落到的条目沿用应用此刻的路径与查询（例如一次退出多层后应为 /），保留落点自己的哈希
-  if(excess>0){const path=env.location.href.split('#')[0];go(-excess,()=>{const target=path+env.location.hash;if(target!==env.location.href)env.history.replaceState(env.history.state,'',target);});}
+  if(excess>0){const path=env.location.href.split('#')[0];go(-excess,()=>{const hash=env.location.hash==='#provider-settings'&&depth!==hashDepth?'':env.location.hash,target=path+hash;if(target!==env.location.href)env.history.replaceState(env.history.state,'',target);});}
   save();
  }
  function push(){
@@ -90,7 +92,7 @@ export function createHistorySteps(env:HistoryEnv){
   closeStep(top);
   // 多级后退（长按返回菜单）：每个条目关闭一步，遇到忙碌或有输入的步骤为止
   for(let i=1;i<delta;i++){const next=owned().at(-1);if(!next||next.busy?.()||next.dirty?.())break;closeStep(next);}
-  restoreDue=delta;save();
+  restoreDue+=delta;save();
  }
  // 应用第一条目之前是否有条目。Navigation API 只列同源条目：之前有同源条目即可离开；
  // 历史里另有跨源条目时无法判断它们在前还是在后，尝试离开并用计时回退；全部都是应用的条目则不能离开。
