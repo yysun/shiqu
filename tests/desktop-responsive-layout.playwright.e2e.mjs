@@ -204,3 +204,73 @@ test('DESKTOP-LAYOUT-06: create is a page beside the book choices, re-initialize
   await top('发现');await page.locator('.yu-surprise').click();await form.waitFor();assert.equal(await page.getByRole('dialog').count(),0);
  });
 });
+
+// 回到第一幅（已在第一幅时按钮禁用）
+const toFirst=async page=>{const first=page.getByRole('button',{name:'第一页',exact:true});if(await first.isEnabled())await first.click();};
+const pageIndex=page=>page.locator('.yu-progress').getAttribute('aria-label').then(label=>Number(label.match(/第(\d+)幅/)[1]));
+async function openFirstStory(page,url){
+ await page.goto(url);await page.locator('.yu-topbar nav').getByRole('button',{name:'书架'}).click();
+ await page.locator('.yu-shelf-reading-footer').first().click();await page.locator('.yu-scene.is-current').waitFor();
+}
+
+test('DESKTOP-LAYOUT-07: the reader fills the window with a non-modal side panel that docks at 1024px',options,async t=>{
+ const b=await seededBrowser(t,'DRL-07',{viewport:{width:1440,height:900},completed:1});
+ await b.execute(async()=>{
+  const {page,url}=b,stage=page.locator('.yu-reader'),panel=page.locator('.yu-reader-panel');
+  await openFirstStory(page,url);await toFirst(page);
+  assert.equal(await page.locator('.yu-topbar').count(),0,'the immersive reader hides the top bar');
+  const art=async()=>page.locator('.yu-scene.is-current').evaluate(img=>{const s=img.closest('.yu-reader').getBoundingClientRect(),r=img.getBoundingClientRect();return {inside:r.left>=s.left-1&&r.right<=s.right+1&&r.top>=s.top-1&&r.bottom<=s.bottom+1,height:r.height};});
+  const wide=await art();assert.ok(wide.inside,'artwork box inside the stage');
+  // 侧栏打开时键盘、滚轮照常翻页
+  await page.getByRole('button',{name:'分镜列表',exact:true}).click();await panel.waitFor();
+  await page.keyboard.press('ArrowRight');await page.waitForFunction(()=>document.querySelector('.yu-progress').getAttribute('aria-label').startsWith('第2幅'));
+  await page.keyboard.press('ArrowLeft');await page.waitForFunction(()=>document.querySelector('.yu-progress').getAttribute('aria-label').startsWith('第1幅'));
+  const box=await stage.boundingBox();await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.wheel(0,400);
+  await page.waitForFunction(()=>document.querySelector('.yu-progress').getAttribute('aria-label').startsWith('第2幅'));
+  // 侧栏选分镜：翻到该页，侧栏保持打开
+  await panel.getByRole('button',{name:'跳转到第 3 幅'}).click();assert.equal(await pageIndex(page),3);assert.equal(await panel.count(),1);
+  // 配文行宽不超过 30em（含大一点的文字）
+  const measure=()=>page.locator('.yu-scene-caption>p').evaluate(p=>p.getBoundingClientRect().width/parseFloat(getComputedStyle(p).fontSize));
+  assert.ok(await measure()<=30.5,'caption within 30em');
+  await page.screenshot({path:path.join(b.directory,'reader-1440.png')});
+  // Escape：先关侧栏，再返回打开前的书架
+  await page.keyboard.press('Escape');await panel.waitFor({state:'detached'});assert.equal(await stage.count(),1);
+  await page.keyboard.press('Escape');await page.locator('.yu-shelf').waitFor();
+  // 画面比 480px 宽的手机阅读更高
+  await page.setViewportSize({width:480,height:900});await b.reader(b.ids[0]);await page.locator('.yu-scene.is-current').waitFor();
+  const narrow=await page.locator('.yu-scene.is-current').evaluate(img=>img.getBoundingClientRect().height);
+  assert.ok(wide.height>narrow,`artwork taller on desktop (${wide.height} > ${narrow})`);
+  // 中档 900：侧栏是覆盖舞台的抽屉，翻页与右侧边缘点击仍然有效；加宽到 1100 停靠并保留页码
+  await page.setViewportSize({width:900,height:800});await openFirstStory(page,url);await toFirst(page);
+  await page.getByRole('button',{name:'分镜列表',exact:true}).click();await panel.waitFor();
+  assert.equal(await panel.evaluate(el=>getComputedStyle(el).position),'fixed','a drawer over the stage');
+  await page.keyboard.press('ArrowRight');await page.waitForFunction(()=>document.querySelector('.yu-progress').getAttribute('aria-label').startsWith('第2幅'));
+  // 抽屉盖住舞台右缘；舞台不 inert，未被盖住的左缘点击照常翻回上一幅
+  const surface=await page.locator('.yu-swipe-surface').boundingBox();
+  await page.mouse.click(surface.x+8,surface.y+surface.height/2);
+  await page.waitForFunction(()=>document.querySelector('.yu-progress').getAttribute('aria-label').startsWith('第1幅'));
+  await page.keyboard.press('ArrowRight');await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(()=>document.querySelector('.yu-progress').getAttribute('aria-label').startsWith('第3幅'));
+  await page.screenshot({path:path.join(b.directory,'reader-900-drawer.png')});
+  await page.setViewportSize({width:1100,height:800});await page.waitForTimeout(300);
+  assert.equal(await panel.evaluate(el=>getComputedStyle(el).position),'static','docked beside the stage');
+  assert.ok((await stage.boundingBox()).width<1100-250,'the stage shrinks for the docked panel');
+  assert.equal(await pageIndex(page),3);
+ });
+});
+
+test('DESKTOP-LAYOUT-05: 故事设置 from the reader opens the workflow section and returns to the same page',options,async t=>{
+ const b=await seededBrowser(t,'DRL-05',{viewport:{width:1280,height:800},completed:1});
+ await b.execute(async()=>{
+  const {page,url}=b;await openFirstStory(page,url);
+  await page.getByRole('button',{name:'最后一页',exact:true}).click();assert.equal(await pageIndex(page),3);
+  await page.getByRole('button',{name:'原文',exact:true}).click();await page.locator('.yu-reader-panel').waitFor();
+  await page.getByRole('button',{name:'故事设置',exact:true}).click();
+  const tabs=page.locator('.yu-workspace').getByRole('navigation',{name:'工作区分区'});await tabs.waitFor();
+  assert.equal(await tabs.locator('[aria-current=page]').textContent(),'制作流程','opens the workflow, not 原文');
+  await tabs.getByRole('button',{name:'原文'}).click();await page.locator('.yu-workspace-center').getByText(/原文|出处/).first().waitFor();
+  await tabs.getByRole('button',{name:'制作流程'}).click();
+  await page.locator('.yu-workspace').getByRole('button',{name:'返回'}).click();
+  await page.locator('.yu-scene.is-current').waitFor();assert.equal(await pageIndex(page),3);assert.equal(await page.locator('.yu-reader-panel').count(),0);
+ });
+});

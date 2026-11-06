@@ -61,6 +61,7 @@ import DesktopLibrary from './DesktopLibrary';
 import ShelfStoryDetail from './ShelfStoryDetail';
 import StoryWorkspace from './StoryWorkspace';
 import DesktopCreate from './DesktopCreate';
+import DesktopReader from './DesktopReader';
 import StoryGenerationControl from './StoryGenerationControl';
 import {shelfGenerationStatus} from '@/lib/shelf-generation';
 import {useDesktopLayout} from './useDesktopLayout';
@@ -163,7 +164,8 @@ export default function Reader(){
   if(story?.id!==id)setStory(null);
   if(gen.active?.id!==id)void gen.resume(id,story?.id===id?page:undefined).catch(error=>setWorkflowError(error instanceof Error?error.message:'制作流程暂时无法打开，请重试。'));
  }
- function openStorySettings(next:Story){openWorkflow(next.id);}
+ // 桌面阅读的侧栏不是模态；打开故事设置前先关闭，否则工作区会落到“原文”分区。
+ function openStorySettings(next:Story){if(desktop){setSource(false);setSceneList(false);}openWorkflow(next.id);}
  // 工作区或面板关闭时，丢弃选题设置与标题输入的保留草稿（与今天卸载组件时一致）。
  function forgetSetup(){clearRetained('setup:');clearRetained('search:');}
  function closeWorkflow(){
@@ -236,9 +238,10 @@ export default function Reader(){
  return()=>{active=false;if(noticeTimer.current)clearTimeout(noticeTimer.current);};},[]);
  useEffect(()=>{if(story){if(!session.current)session.current=randomId();track('start',story);}},[story?.id]);
  useEffect(()=>{if(!story||ended||!story.pages[page]?.image)return;seen.current.add(page);track('page',story,page);remember(story,page,saved);const next=story.pages[page+1]?.image;if(next){const img=new Image();img.src=next;}},[story?.id,story?.pages[page]?.image,page,ended]);
- useEffect(()=>{function key(e:KeyboardEvent){if(!story||source||settings||workflowTarget||configure||sceneList)return;if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();turn(-1);}if(e.key==='Escape')home();}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[story,page,ended,source,settings,workflowTarget,configure,sceneList]);
+ // 手机上原文与分镜列表是模态面板，打开时不翻页；桌面侧栏不是模态，翻页照常，Escape 先关侧栏再返回。
+ useEffect(()=>{function key(e:KeyboardEvent){if(!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();turn(-1);}if(e.key==='Escape'){if(source||sceneList){setSource(false);setSceneList(false);}else home();}}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[story,page,ended,source,settings,workflowTarget,configure,sceneList,desktop]);
  useEffect(()=>{
-  const reader=readerRef.current;if(!reader||!story||source||settings||workflowTarget||configure||sceneList)return;
+  const reader=readerRef.current;if(!reader||!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;
   const gesture=wheelGesture.current;
   function wheel(e:WheelEvent){
    if(e.ctrlKey||e.metaKey)return; // Preserve browser zoom and trackpad pinch.
@@ -572,12 +575,12 @@ export default function Reader(){
  const createPage=view.kind==='create'&&<main className="yu-home yu-desktop-main" data-main=""><DesktopCreate
   choices={<>{discoverBooks}{discoverMoods}{discoverSurprise}</>}
   form={<StoryDiscoveryForm key={createSeed} retainKey="discovery" selection={selection} books={choices} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}))} onSubmit={generate}/>}/></main>;
- // 桌面上仍以面板显示的：阅读侧栏（M5 之前）
- const desktopSheets=<>{view.kind==='reader'&&<>{sourceSheet}{sceneSheet}</>}</>;
+ // 桌面阅读：舞台加可选侧栏（分镜列表或原文）；侧栏里选分镜只翻页，不关闭侧栏。
+ const readerPanel=view.kind!=='reader'||!story?null:view.panel==='scenes'?<StorySceneList story={story} page={page} onSelect={goToPage}/>:view.panel==='source'?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:null;
+ const desktopReader=view.kind==='reader'&&<DesktopReader stage={readerMain} panel={readerPanel} title={view.panel==='scenes'?'分镜列表':'故事从哪里来'} onClose={()=>{setSource(false);setSceneList(false);}}/>;
  const desktopTree=<DesktopShell active={activeTopItem(view)} hidden={view.kind==='reader'} onNavigate={navigate}>
-  {view.kind==='workspace'?workspace:view.kind==='create'?createPage:view.kind==='reader'?readerMain:<main className="yu-home yu-desktop-main" data-main="">{tabContent}</main>}
-  {desktopSheets}
- </DesktopShell>;
+  {view.kind==='workspace'?workspace:view.kind==='create'?createPage:view.kind==='reader'?desktopReader:<main className="yu-home yu-desktop-main" data-main="">{tabContent}</main>}
+</DesktopShell>;
  const reading=desktop?view.kind==='reader':!!story;
 
  return <div className={'yu-world'+(reading?' yu-reading-world':'')+(desktop?' yu-desktop':'')} data-layout={desktop?'shell':'phone'}><div className={'yu-app'+(reading?' yu-immersive':'')}>

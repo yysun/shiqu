@@ -73,6 +73,29 @@
 .yu-desktop.yu-world.yu-reading-world{display:block;height:100dvh;padding:0;background:#172d22}
 .yu-desktop .yu-immersive{height:100dvh;max-height:none;max-width:none;border-radius:0;box-shadow:none;background:#172d22}
 
+/* 阅读舞台：画面按窗口完整缩放并居中；配文块居中限宽（约 26 字一行），遮罩仍铺满舞台 */
+.yu-desktop .yu-reader-layout{position:relative;display:grid;grid-template-columns:minmax(0,1fr);height:100dvh;background:#172d22}
+.yu-desktop .yu-reader-layout>.yu-reader{height:100dvh;min-width:0}
+.yu-desktop .yu-film-frame{align-items:center}
+.yu-desktop .yu-film-frame .yu-scene{width:100%;height:100%;max-width:none;max-height:none;object-fit:contain}
+.yu-desktop .yu-scene-caption{left:0;right:0;margin-inline:auto;max-inline-size:min(calc(100% - 62px),40rem)}
+.yu-desktop .yu-scene-caption>p{max-inline-size:30em}
+.yu-desktop .yu-scene-caption::before{left:-50vw;right:-50vw}
+/* 侧栏：分镜列表或原文；不是模态，舞台照常翻页 */
+.yu-desktop .yu-reader-panel{display:flex;flex-direction:column;min-width:0;background:var(--yu-paper);color:#304c37}
+.yu-desktop .yu-reader-panel>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 16px 8px 20px;border-bottom:1px solid #e3e6da}
+.yu-desktop .yu-reader-panel h2{font-family:var(--serif);font-size:18px;font-weight:600}
+.yu-desktop .yu-reader-panel>header button{display:grid;place-items:center;width:44px;height:44px;border:0;border-radius:50%;background:#eef0e5;color:#35583e}
+.yu-desktop .yu-reader-panel>header button:focus-visible,.yu-desktop .yu-reader-panel button:focus-visible{outline:3px solid #c6ae80;outline-offset:2px}
+.yu-desktop .yu-reader-panel-body{flex:1;min-height:0;overflow:auto;padding:4px 20px 24px}
+@media (min-width:1024px){
+ .yu-desktop .yu-reader-layout.has-panel{grid-template-columns:minmax(0,1fr) clamp(280px,26vw,380px)}
+ .yu-desktop .yu-reader-panel{height:100dvh;border-left:1px solid #2c4a3b}
+}
+@media (max-width:1023px){
+ .yu-desktop .yu-reader-panel{position:fixed;z-index:20;top:0;right:0;bottom:0;width:min(380px,86vw);border-radius:16px 0 0 16px;box-shadow:-12px 0 40px #0b1d1566}
+}
+
 /* 平板等粗指针设备：表单文字保持 16px，可点区域至少 44px */
 @media (any-pointer:coarse){
  .yu-desktop :is(input,select,textarea){font-size:16px}
