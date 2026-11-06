@@ -33,6 +33,17 @@ function auditInPage({minimumText,targetSize,checks}){
  const controls=[...new Set([...root.querySelectorAll(interactive)].map(el=>el.closest('label')&&el.matches('input')?el.closest('label'):el))].filter(usable);
  if(checks.includes('targets')){
   const offsets=[-21,-10.5,0,10.5,21];
+  const cornerCut=(el,rect,x,y)=>{
+   if(x<rect.left||x>rect.right||y<rect.top||y>rect.bottom)return false;
+   const style=getComputedStyle(el),radius=(value,size)=>value.endsWith('%')?parseFloat(value)/100*size:parseFloat(value)||0;
+   for(const [prop,cx,cy,sx,sy] of [['borderTopLeftRadius',rect.left,rect.top,1,1],['borderTopRightRadius',rect.right,rect.top,-1,1],['borderBottomLeftRadius',rect.left,rect.bottom,1,-1],['borderBottomRightRadius',rect.right,rect.bottom,-1,-1]]){
+    const [h,v=h]=style[prop].split(' '),rx=Math.min(radius(h,rect.width),rect.width/2),ry=Math.min(radius(v,rect.height),rect.height/2);if(!rx||!ry)continue;
+    const ox=cx+sx*rx,oy=cy+sy*ry;
+    // 留 1px 容差：圆角边缘的抗锯齿像素可能不算命中。
+    if((x-ox)*sx<0&&(y-oy)*sy<0&&((x-ox)/Math.max(rx-1,0.5))**2+((y-oy)/Math.max(ry-1,0.5))**2>1)return true;
+   }
+   return false;
+  };
   for(const el of controls){
    if(el.matches('select,textarea'))continue;
    if(el.matches('summary')&&el.getBoundingClientRect().width>=0.9*(el.parentElement?.getBoundingClientRect().width||0))continue;
@@ -41,9 +52,10 @@ function auditInPage({minimumText,targetSize,checks}){
    const rect=el.getBoundingClientRect(),x=rect.left+rect.width/2,y=rect.top+rect.height/2,misses=[];
    for(const dy of offsets)for(const dx of offsets){
     const px=x+dx,py=y+dy;if(px<0||py<0||px>=viewport.width||py>=viewport.height)continue;
-    // 控件自身边框盒内的点视为命中：Chromium 命中测试会排除圆角之外的角落。
-    if(px>=rect.left&&px<=rect.right&&py>=rect.top&&py<=rect.bottom)continue;
-    const hit=document.elementFromPoint(px,py);if(!hit||(hit!==el&&!el.contains(hit)))misses.push({dx,dy,hit:hit?path(hit):null});
+    const hit=document.elementFromPoint(px,py);if(hit&&(hit===el||el.contains(hit)))continue;
+    // Chromium 命中测试排除圆角之外的角落；只豁免控件自身盒内被圆角裁掉的点。
+    if(cornerCut(el,rect,px,py))continue;
+    misses.push({dx,dy,hit:hit?path(hit):null});
    }
    if(misses.length)results.targets.push({path:path(el),label:label(el),size:[Math.round(rect.width),Math.round(rect.height)],misses:misses.length,first:misses[0]});
   }
@@ -61,7 +73,12 @@ function auditInPage({minimumText,targetSize,checks}){
    if(rect.left<Math.max(0,box.left)-1||rect.right>Math.min(viewport.width,box.right)+1)results.layout.clipped.push({path:path(el),label:label(el),left:Math.round(rect.left),right:Math.round(rect.right)});
   }
   const fixed=el=>{for(let node=el;node&&node!==document.body;node=node.parentElement)if(getComputedStyle(node).position==='fixed')return node;return null;};
-  const rects=controls.filter(el=>!xScroller(el)).map(el=>[el,el.getBoundingClientRect()]);
+  // 控件的触控盒：自身边框盒并上绝对定位的 ::after 扩展区。
+  // 绝对定位的偏移从内边距盒量起，需先减去边框。
+  const hitBox=el=>{const rect=el.getBoundingClientRect(),after=getComputedStyle(el,'::after');if(after.content==='none'||after.position!=='absolute')return rect;const px=v=>parseFloat(v)||0,own=getComputedStyle(el);
+   const box={left:rect.left+px(own.borderLeftWidth)+px(after.left),right:rect.right-px(own.borderRightWidth)-px(after.right),top:rect.top+px(own.borderTopWidth)+px(after.top),bottom:rect.bottom-px(own.borderBottomWidth)-px(after.bottom)};
+   const left=Math.min(rect.left,box.left),right=Math.max(rect.right,box.right),top=Math.min(rect.top,box.top),bottom=Math.max(rect.bottom,box.bottom);return {left,right,top,bottom,width:right-left,height:bottom-top};};
+  const rects=controls.filter(el=>!xScroller(el)).map(el=>[el,hitBox(el)]);
   for(let i=0;i<rects.length;i++)for(let j=i+1;j<rects.length;j++){
    const [a,ra]=rects[i],[b,rb]=rects[j];if(a.contains(b)||b.contains(a))continue;
    // 固定层（如底部标签栏）下方滚过的内容不算重叠。
@@ -95,7 +112,9 @@ function auditInPage({minimumText,targetSize,checks}){
    // 色标位置：px、% 或 calc(100% ± Npx)；向上的渐变从盒子底部量起。
    const offset=value=>{if(value===undefined)return null;const calc=value.match(/calc\(\s*([\d.]+)%\s*([+-])\s*([\d.]+)px\s*\)/);if(calc)return Number(calc[1])/100*box.height+(calc[2]==='-'?-1:1)*Number(calc[3]);return value.endsWith('%')?parseFloat(value)/100*box.height:parseFloat(value);};
    const stops=[...body.matchAll(/(rgba?\([^)]+\))\s*(calc\([^)]*\)|[-\d.]+(?:px|%))?/g)].map(m=>({color:parse(m[1]),at:offset(m[2])}));
-   stops.forEach((stop,i)=>{if(stop.at===null)stop.at=(stops.length===1?0:i/(stops.length-1))*box.height;stop.at=up?box.top+box.height-stop.at:box.top+stop.at;});
+   stops.forEach((stop,i)=>{if(stop.at===null)stop.at=(stops.length===1?0:i/(stops.length-1))*box.height;if(i>0)stop.at=Math.max(stop.at,stops[i-1].at);});
+   // 浏览器把小于前一个的色标位置钳制到前一个位置；先在渐变方向上钳制，再换算成纵坐标。
+   stops.forEach(stop=>{stop.at=up?box.top+box.height-stop.at:box.top+stop.at;});
    if(up)stops.reverse();
    if(!vertical)return stops.reduce((low,stop)=>stop.color.a<low.a?stop.color:low,stops[0].color);
    const sample=y=>{if(y<=stops[0].at)return stops[0].color;for(let i=1;i<stops.length;i++)if(y<=stops[i].at){const a=stops[i-1],b=stops[i],t=(y-a.at)/((b.at-a.at)||1);return {r:a.color.r+(b.color.r-a.color.r)*t,g:a.color.g+(b.color.g-a.color.g)*t,b:a.color.b+(b.color.b-a.color.b)*t,a:a.color.a+(b.color.a-a.color.a)*t};}return stops.at(-1).color;};
