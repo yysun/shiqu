@@ -12,6 +12,7 @@
 ## Agent Test Selection
 
 - Run `nvm use` first; test entry points warn when the Node major version differs from `engines`.
+- 仅调整离线建库实验脚本时（例如 `scripts/experiment-soushen-search.mjs`），本地验证以改动的脚本为范围，用临时 SQLite 或隔离数据副本执行受影响的命令。本条优先于下文的仓库级检查要求。涉及正式运行流程、共享模块或数据库迁移的改动，以及 CI 和发布验证，仍按常规规则执行。
 - While iterating, run `pnpm test:related` (or `--files <paths...>`, `--plan`) or a single file directly with `node --test tests/<file>`. It runs changed registered tests plus direct importers (the test, its `tests/` fixtures or the client/desktop components they import), path-literal references and `covers` consumers, all with fast flags and no evidence. It does not walk through `lib/`/`server/`, so it is not an impact check; an empty selection runs nothing and proves nothing.
 - Before handing off or committing, run `pnpm test:changed` once for working-tree impact checks. Preview with `pnpm test:changed --plan` (or `--json`). It includes staged, unstaged and untracked paths. Registered tests and test inputs with explicit consumers run those tests plus the integrity smoke. Production changes with domain coverage keep the small contracts and run affected suites with full provider/heavy flags.
 - Keep Playwright E2E out of routine change checks and PR runs, including full-source fallback. Run browser suites through explicit E2E commands or full qualification.

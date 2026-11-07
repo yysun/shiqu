@@ -1,17 +1,28 @@
 # 混合检索辅助故事提取验证
 
-在实验 worktree 里准备独立索引。应用从运行数据目录读取 `story-search.sqlite`。`refs` 使用现有主题、常见词和已制故事卡的标题。Ollama 只在制备索引和参考向量时使用。命令在目标不存在时安装独立索引。重新制备后，已安装的副本需要单独更新。
+在实验 worktree 中制备索引。制备脚本只写 `.data/soushen-search.sqlite`，应用从运行数据目录读取 `story-search.sqlite`。`events` 指定编号时仅处理样本，省略编号时处理全部可用条目。已校验的同版卡片可复用。难解古文可用 `events --review --codex-review <条目编号>` 复核已有卡。`refs` 从主题、标题、事件词和显式传入的查询生成离线参考向量。
 
 ```sh
-node scripts/experiment-soushen-search.mjs refs
-mkdir -p .data/dev-local
-if [ ! -e .data/dev-local/story-search.sqlite ]; then
-  sqlite3 .data/soushen-search.sqlite '.backup .data/dev-local/story-search.sqlite'
-  sqlite3 .data/dev-local/story-search.sqlite 'PRAGMA journal_mode=DELETE; PRAGMA quick_check;'
-fi
-pnpm dev local
+node scripts/experiment-soushen-search.mjs events soushen-016-182 soushen-008-004 soushen-008-010
+node scripts/experiment-soushen-search.mjs refs 求雨 下雨 止雨 求雨成功 雨停了 雨 复生 险些复生 即将复生
 ```
 
-1. 打开《搜神记》，输入「葛由」或「卖鬼赚钱」，触发自动提取。候选分别包含精确文字和语义命中，最终故事携带可解析的原文出处。
-2. 选择「爱情与错过」或输入「爱情」。运行时从 SQLite 读取参考向量。选择章节后重复，章节外的候选不进入模型。
-3. 对无参考向量的查询，运行时使用 JavaScript 文字匹配。候选不足或缺少独立索引时，顺序阅读从原有进度继续。
+在独立验证目录安装制备库的一致性 SQLite 快照。旧版基线与新版各用一个目录，从同一次制备复制测试查询向量，核对每个测试键的原始查询、模型摘要和向量哈希一致。切换运行快照前检查完整性、外键、版次和覆盖。运行时无需 Ollama。
+
+| 场景 | 动作 | 可观察结果 |
+| --- | --- | --- |
+| 制备中断 | 在小批次已提交部分条目后中断，用相同模型和输入重跑 | 同模型同契约的已校验卡复用，剩余条目继续处理，失败及空卡各自可追踪。全量结束后谈生原文支持的复生未遂事件仍在 |
+| 求雨 | 查「求雨」和「求雨成功」，包含有人祷告而未下雨、确实降雨和无人祷告的自然降雨原文 | 求雨可接受有行动的未遂事件。求雨成功要求祈求及降雨证据。自然降雨不能单凭结果判为求雨 |
+| 下雨 | 查「下雨」，对照只祷告和祷告后降雨的原文 | 原文实际降雨才符合。无论是否祷告，实际降雨都可以进入提取结果 |
+| 止雨 | 查「止雨」，对照自然雨停、风浪平息和主动行动。若未核到真实正例，另用标明的合成正例 | 主动止雨须有明确行动与意图。若原文还记载雨停，才可说止雨成功。自然雨停和风浪平息不作为主动止雨。只验证负例时，结论明确限于负例 |
+| 广义与其他主题 | 查「雨」「雨停了」「险些复生」「爱情与错过」和「卖鬼赚钱」 | 「雨」可召回多种雨情节，「雨停了」可包括自然雨停。既有代表性故事仍能找到，复生未遂不被写成成功 |
+| 书籍范围与退化 | 用 CLI 指定或省略书名查询。应用选定章节后重复，再分别试无参考向量和缺少索引 | CLI 返回排名、原文预览与出处。应用仅核对选定范围。未知参考词仍可文字匹配，索引缺失时应用继续顺序阅读 |
+
+CLI 对两份快照执行同一批命令，并记录前 14 和前 42 的命中。候选和正式提取结果分别记录，应用每条查询使用独立临时目录和空缓存，两组固定同一模型和设置，最多三轮或两分钟。逐条记录候选、已有目录或顺序阅读的实际来源及原文证据。超预算记为未判定。
+
+```sh
+node bin/shiqu.mjs books search "求雨" --brief
+pnpm cli books search '求雨' 搜神记 --data-dir "$INDEX_DIR" --limit 14
+pnpm cli books search '下雨' 搜神记 --data-dir "$INDEX_DIR" --limit 42
+pnpm cli books search '止雨' 搜神记 --data-dir "$INDEX_DIR" --limit 42
+```

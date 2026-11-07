@@ -12,6 +12,8 @@ import {rankStoryCardText,storyEmbeddingModel,storyEmbeddingQuery,storySearchKey
 import {groundedStoryEvents,storyEventsSchema,storyEventStatuses,storyEventText} from '../server/local-story-events.ts';
 import {createCodexRunner} from '../server/codex-runner.ts';
 import {LocalBooks} from '../server/local-books.ts';
+import {indexBookContents} from '../server/local-book-contents.ts';
+import {sourceParts} from '../server/local-source-ranges.ts';
 import {boundaryCandidates,layoutStoryStarts,partitionStoryUnits,reconcileBoundaryReviews,semanticBoundaryWindows,validateBoundaryDecisions,validateSemanticStarts} from '../server/local-story-segmentation.ts';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -153,9 +155,9 @@ function normalize(vector){
  return Float32Array.from(vector,value=>value/norm);
 }
 
-async function embed(texts,query=false){
+async function embed(texts,query=false,truncate=false){
  const input=query?texts.map(storyEmbeddingQuery):texts;
- const {embeddings}=await request('/api/embed',{model:vectorModel,input,truncate:false,keep_alive:'10m',options:{num_ctx:2048}});
+ const {embeddings}=await request('/api/embed',{model:vectorModel,input,truncate,keep_alive:'10m',options:{num_ctx:2048}});
  if(embeddings?.length!==texts.length)throw Error('向量条数不符');
  return embeddings.map(normalize);
 }
@@ -225,9 +227,24 @@ function total(rows){
  },{entries:0,cards:0,searchable:0,rawIndexed:0,available:0,blocked:0});
 }
 
-async function build(db){
+// 有正式篇目目录的聊斋直接沿用可核对的原文边界，分卷建库时只更新本卷。
+function catalogEntries(book,volume){
+ const books=new LocalBooks(root);
+ const volumes=new Map(book.sections.map((section,index)=>[section.id,index+1]));
+ const entries=indexBookContents(books,book).entries.filter(entry=>entry.source).map(entry=>{
+  const {section,units}=sourceParts(book,entry.source)[0];
+  return {id:entry.id,volume:volumes.get(section.id),label:section.title,url:section.url||book.url,
+   source:JSON.stringify(entry.source),text:units.map(unit=>unit.text).join(''),units,blocked:null};
+ });
+ return entries.filter(entry=>volume===undefined||entry.volume===volume);
+}
+
+async function build(db,{volume}={}){
  const digests=await modelDigests();
- const {entries,edition}=await segmentBook(db,indexedBookId,digests[chatModel]);
+ const edition=selectedBook.edition;
+ const entries=indexedBookId==='liaozhai'?catalogEntries(selectedBook,volume):
+  (await segmentBook(db,indexedBookId,digests[chatModel],{sectionFilter:volume===undefined?undefined:selectedBook.sections[volume-1].id})).entries;
+ if(!entries.length)throw Error('没有找到可索引的原文篇目');
  const identity=JSON.stringify({edition,digests,prompt:createHash('sha256').update(instruction).digest('hex'),version:cardVersion});
  const existing=db.prepare("SELECT value FROM metadata WHERE key='identity'").get();
  if(existing&&existing.value!==identity)throw Error('此索引的原文、模型或制卡契约有变更。请使用独立工作树重建索引。');
@@ -237,7 +254,8 @@ async function build(db){
   db.prepare("INSERT OR IGNORE INTO metadata VALUES ('indexed_book',?)").run(indexedBookId);
   const remove=db.prepare('DELETE FROM entries WHERE id=?');
   const activeIds=new Set(entries.map(row=>row.id));
-  for(const {id} of db.prepare('SELECT id FROM entries').all())if(!activeIds.has(id))remove.run(id);
+  const previous=db.prepare('SELECT id FROM entries WHERE ? IS NULL OR volume=?').all(volume??null,volume??null);
+  for(const {id} of previous)if(!activeIds.has(id))remove.run(id);
   const upsert=db.prepare(`INSERT INTO entries(id,volume,label,url,source,text,blocked) VALUES (?,?,?,?,?,?,?)
    ON CONFLICT(id) DO UPDATE SET source=excluded.source,text=excluded.text,blocked=excluded.blocked,
    title=NULL,summary=NULL,vector=NULL,raw_vector=NULL
@@ -262,11 +280,11 @@ async function build(db){
   db.exec('COMMIT');
  }catch(error){db.exec('ROLLBACK');throw error;}
  console.log('已核对条目和原文范围',JSON.stringify(total(stats(db))));
- const rows=db.prepare('SELECT id,text FROM entries WHERE raw_vector IS NULL AND blocked IS NULL ORDER BY id').all();
+ const rows=db.prepare('SELECT id,text FROM entries WHERE raw_vector IS NULL AND blocked IS NULL AND (? IS NULL OR volume=?) ORDER BY id').all(volume??null,volume??null);
  const save=db.prepare('UPDATE entries SET raw_vector=? WHERE id=?');
  for(let offset=0;offset<rows.length;offset+=24){
   const batch=rows.slice(offset,offset+24);
-  const vectors=await embed(batch.map(row=>row.text));
+  const vectors=await embed(batch.map(row=>row.text),false,indexedBookId==='liaozhai');
   db.exec('BEGIN IMMEDIATE');
   try{
    for(const [index,row] of batch.entries())save.run(new Uint8Array(vectors[index].buffer),row.id);
@@ -274,10 +292,10 @@ async function build(db){
   }catch(error){db.exec('ROLLBACK');throw error;}
   console.log(`已写入 ${offset+batch.length}/${rows.length} 条原文向量`);
  }
- const passages=db.prepare('SELECT story_id,first_unit,text FROM passages WHERE vector IS NULL ORDER BY story_id,first_unit').all();
+ const passages=db.prepare('SELECT story_id,first_unit,passages.text FROM passages JOIN entries ON entries.id=passages.story_id WHERE passages.vector IS NULL AND (? IS NULL OR entries.volume=?) ORDER BY story_id,first_unit').all(volume??null,volume??null);
  const savePassage=db.prepare('UPDATE passages SET vector=? WHERE story_id=? AND first_unit=? AND vector IS NULL');
  for(let offset=0;offset<passages.length;offset+=32){
-  const batch=passages.slice(offset,offset+32),vectors=await embed(batch.map(row=>row.text));
+  const batch=passages.slice(offset,offset+32),vectors=await embed(batch.map(row=>row.text),false,indexedBookId==='liaozhai');
   db.exec('BEGIN IMMEDIATE');
   try{
    for(const [index,row] of batch.entries())savePassage.run(new Uint8Array(vectors[index].buffer),row.story_id,row.first_unit);
@@ -306,6 +324,7 @@ async function buildCards(db,{pilot=false,model=chatModel,volume,ids=[],defaultB
  if(!pending.length)return;
  if(pending.some(row=>!row.hasRaw))throw Error('所选条目尚未完成原文索引，请先运行 build --raw');
  const generate=await cardGenerator(model,identity);
+ const titles=indexedBookId==='liaozhai'?new Map(indexBookContents(new LocalBooks(root),selectedBook).entries.map(entry=>[entry.id,entry.title])):new Map();
  const statement=db.prepare(`UPDATE entries SET title=?,summary=?,vector=?
   WHERE id=? AND source=? AND text=? AND vector IS NULL AND raw_vector IS NOT NULL AND blocked IS NULL`);
  const hasCard=db.prepare('SELECT 1 FROM entries WHERE id=? AND source=? AND text=? AND vector IS NOT NULL');
@@ -314,6 +333,11 @@ async function buildCards(db,{pilot=false,model=chatModel,volume,ids=[],defaultB
  let batchSize=defaultBatch,done=0;
  while(pending.length){
   const batch=pending.slice(0,batchSize);
+  if(indexedBookId==='liaozhai'){
+   let characters=0;
+   const overflow=batch.findIndex((row,index)=>(characters+=row.text.length)>5200&&index>0);
+   if(overflow>0)batch.length=overflow;
+  }
   const start=performance.now();
   try{
    const result=await cards(batch,generate);
@@ -323,7 +347,7 @@ async function buildCards(db,{pilot=false,model=chatModel,volume,ids=[],defaultB
    try{
     for(const [index,card] of result.entries()){
      const {id,source,text}=byId.get(card.id);
-     const {changes}=statement.run(card.title,card.summary,new Uint8Array(vectors[index].buffer),id,source,text);
+     const {changes}=statement.run(titles.get(id)||card.title,card.summary,new Uint8Array(vectors[index].buffer),id,source,text);
      if(!changes&&!hasCard.get(id,source,text))throw Error('原文范围已变更 '+id);
      written+=changes;
     }
@@ -707,7 +731,7 @@ async function buildReferences(db,extra=[]){
 
 const evaluationCases=async()=>JSON.parse(await readFile(new URL('../data/evals/story-discovery/soushen-search-queries.json',import.meta.url),'utf8'));
 const [mode='stats',...args]=process.argv.slice(2);
-const usage='用法：node scripts/experiment-soushen-search.mjs build [--pilot|--raw] | cards [--model 模型] [--volume 卷号 | 条目编号...] | events [--review] [--codex-review] [条目编号...] | refs [额外查询...] | stats | eval [--raw|--light-cards [--no-expand]|--text-only] | search [--light-cards [--no-expand]|--text-only] <白话问题> | list|candidates <白话问题> | segment <书名> [篇章]。各命令可用 --book <本地书名>，为该书使用独立的制备文件。';
+const usage='用法：node scripts/experiment-soushen-search.mjs build [--pilot|--raw] [--volume 卷号] | cards [--model 模型] [--volume 卷号 | 条目编号...] | events [--review] [--codex-review] [条目编号...] | refs [额外查询...] | stats | eval [--raw|--light-cards [--no-expand]|--text-only] | search [--light-cards [--no-expand]|--text-only] <白话问题> | list|candidates <白话问题> | segment <书名> [篇章]。各命令可用 --book <本地书名>，为该书使用独立的制备文件。';
 if(mode==='--help'||args.includes('--help')){
  console.log(usage);
  process.exit(0);
@@ -728,6 +752,13 @@ if(!expand&&(!['search','eval'].includes(mode)||!args.includes('--light-cards'))
  throw Error('--no-expand 只能与 --light-cards 一起使用');
 if(['search','eval'].includes(mode)&&lightCards&&(args.includes('--raw')||textOnly&&args.includes('--light-cards')))
  throw Error('每次只能选择一种检索模式');
+let buildOptions;
+if(mode==='build'){
+ const {values}=parseArgs({args,options:{raw:{type:'boolean'},pilot:{type:'boolean'},volume:{type:'string'}}});
+ const volume=values.volume===undefined?undefined:Number(values.volume);
+ if(volume!==undefined&&(!/^[0-9]+$/.test(values.volume)||!Number.isSafeInteger(volume)||volume<1||volume>selectedBook.sections.length))throw Error('--volume 必须是本书有效的卷号');
+ buildOptions={volume,raw:values.raw,pilot:values.pilot};
+}
 let cardOptions;
 if(mode==='cards'){
  const {values,positionals}=parseArgs({args,allowPositionals:true,options:{model:{type:'string',default:chatModel},volume:{type:'string'}}});
@@ -790,8 +821,8 @@ try{
   else if(mode==='refs')await buildReferences(db,args);
   else if(mode==='cards')await buildCards(db,cardOptions);
   else if(mode==='build'){
-   await build(db);
-   if(!args.includes('--raw'))await buildCards(db,{pilot:args.includes('--pilot'),defaultBatch:10});
+   await build(db,buildOptions);
+   if(!buildOptions.raw)await buildCards(db,{pilot:buildOptions.pilot,volume:buildOptions.volume,defaultBatch:10});
   }
   else{
    const [bookId,sectionFilter]=args.filter(arg=>arg!=='--all');
