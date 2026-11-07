@@ -144,7 +144,7 @@ export async function suggestStories(key:string,selection:Selection,config:Parti
   const fresh=scanning?batch:freshSuggestions(batch,excludeTitles);report({acceptedCount:fresh.stories.length});
   return maxStories?{...fresh,stories:fresh.stories.slice(0,maxStories)}:fresh;
  };
- return localBook?.purpose==='catalog'?discoveryCall({stage:'extraction',provider:'gemini',model:models.text,effort:reasoning.suggest,requestedCount:localBook.scan?.maxStories||1},context,run):run(()=>{});
+ return scanning?discoveryCall({stage:'extraction',provider:'gemini',model:models.text,effort:reasoning.suggest,requestedCount:localBook.scan?.maxStories||1},context,run):run(()=>{});
 }
 export async function matchStoryThemes(key:string,theme:string,stories:ThemeStory[],config:Partial<Models>={},transport:typeof fetch=fetch,context?:DiscoveryContext){
  const models={...defaultModels,...config};

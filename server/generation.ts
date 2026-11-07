@@ -121,7 +121,7 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
     const fresh=scanning?batch:freshSuggestions(batch,excluded);report({acceptedCount:fresh.stories.length});
     return reading?.maxStories?{...fresh,stories:fresh.stories.slice(0,reading.maxStories)}:fresh;
    };
-   return localBook?.purpose==='catalog'?discoveryCall({stage:'extraction',provider:name,model:models.text,effort:taskReasoningEfforts.suggest,requestedCount:localBook.scan?.maxStories||1},reading,run):run(()=>{});
+   return scanning?discoveryCall({stage:'extraction',provider:name,model:models.text,effort:taskReasoningEfforts.suggest,requestedCount:localBook.scan?.maxStories||1},reading,run):run(()=>{});
   },
   async matchStories(theme,stories,context){
    return discoveryCall({stage:'matching',provider:name,model:matchingModel,effort:themeMatchEffort,requestedCount:stories.length},context,async report=>{

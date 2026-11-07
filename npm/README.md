@@ -62,7 +62,7 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 | `stories list`, `stories get ID`, `stories current ID` | 查看故事列表、故事详情与当前版本 |
 | `stories create --input FILE` | 保存新故事的选题条件 |
 | `stories setup`, `stories search`, `stories choose`, `stories confirm` | 设置要求、查找候选、选择故事与确认制作 |
-| `run ID`, `stories run ID` | 制作指定故事；`--until` 可选 candidates、prepared、reviewed 或 completed |
+| `run ID`, `stories run ID` | 制作指定故事；`--until` 可选 candidates、prepared、reviewed 或 completed。若数据目录有独立 `story-search.sqlite`，提取会先核对检索命中的原文 |
 | `stories edit ID --input FILE` | 使用 `stories revisions ID` 返回的 token 保存修改版本 |
 | `stories pause`, `stories resume`, `stories stop` | 暂停、恢复或停止故事制作 |
 | `stories retry`, `stories override` | 重试当前故障，或明确跳过审核问题 |

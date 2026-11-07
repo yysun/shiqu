@@ -2046,6 +2046,47 @@
       ]
     },
     {
+      "file": "tests/local-story-search.test.mjs",
+      "groups": [
+        "discovery"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/local-story-search.ts",
+        "server/local-story-discovery.ts",
+        "server/local-generation.ts",
+        "tests/fixtures/story-library.mjs"
+      ]
+    },
+    {
+      "file": "tests/local-story-segmentation.test.mjs",
+      "groups": [
+        "books"
+      ],
+      "level": "contract",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/local-story-segmentation.ts"
+      ]
+    },
+    {
       "file": "tests/manual-extraction-start.test.mjs",
       "groups": [
         "discovery"

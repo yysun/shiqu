@@ -9,6 +9,7 @@ import {ReaderError} from '../lib/reader-model.ts';
 import {selectedChapterScope} from './local-book-contents.ts';
 import {LocalBooks,localBookId} from './local-books.ts';
 import {hasSourceAnomaly,hasStoredSourceAnomaly} from './local-source-quality.ts';
+import type {LocalStorySearch} from './local-story-search.ts';
 import {discoverLocalStories} from './local-story-discovery.ts';
 import {StoryDiscoveryCache,discoveryHash} from './story-discovery-cache.ts';
 import {measurementBusy,settleMeasurements} from './story-discovery-metrics.ts';
@@ -16,7 +17,7 @@ import {matchingBusy,settleMatching} from './story-theme-matching.ts';
 import {localSourceKey,localSourceSchema,sourceRanges} from '../lib/reader-local-contract.ts';
 import {artRecommendationSchema,selectedArtRecommendationPrompt} from '../lib/reader-art-recommendation.ts';
 
-export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:MediaStore,cache=new StoryDiscoveryCache(media)):ReaderProvider{
+export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:MediaStore,cache=new StoryDiscoveryCache(media),storySearch?:LocalStorySearch):ReaderProvider{
  async function persist(source:NonNullable<Awaited<ReturnType<LocalBooks['selected']>>>,id:string){
   await media.put(`reader/${id}/source.json`,new TextEncoder().encode(JSON.stringify(source)),{contentType:'application/json'});
   return source;
@@ -44,7 +45,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
    reading?.signal.throwIfAborted();
    if(!book){if(selection.discoverySources||selection.discovery?.mode==='title')throw new ReaderError(400,'章节或标题提取只支持本地书库。');return provider.suggestions(selection,excluded,undefined,reading,excludedSources);}
    const scope=selection.discoverySources?selectedChapterScope(books,book,selection.discoverySources):null;
-   const result=await discoverLocalStories(provider,books,cache,scope?.book||book,scope?{...selection,discoverySources:scope.discoverySources}:selection,excluded,reading,excludedSources);
+   const result=await discoverLocalStories(provider,books,cache,scope?.book||book,scope?{...selection,discoverySources:scope.discoverySources}:selection,excluded,reading,excludedSources,undefined,storySearch);
    // A single-story scope has sliced units; display paragraph positions from the full original.
    return scope?{...result,stories:result.stories.map(story=>({...story,sourceLabel:books.resolve(book,story.source!).title.slice(0,150)}))}:result;
   },

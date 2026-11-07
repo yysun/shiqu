@@ -7,11 +7,11 @@ import type {Selection} from '@/lib/reader-model';
 import type {LocalSourceReference} from '@/lib/reader-local-contract';
 import {localSourceKey} from '@/lib/reader-source-key';
 import type {BookContentEntry} from '@/lib/reader-contents';
-import {promptAfterThemeChange} from '@/lib/reader-prompts';
+import {discoveryThemePresets,promptAfterThemeChange} from '@/lib/reader-prompts';
 import StoryChapterPicker from './StoryChapterPicker';
 import './story-discovery.css';
 
-export const discoveryThemes=['给我一个反转','人情冷暖','放下执念','聪明与糊涂','善意与误解','命运与选择','欲望与代价','勇气与成长','爱情与错过','幽默与讽刺','因果与报应','其他'];
+export const discoveryThemes=[...discoveryThemePresets,'其他'];
 export default function StoryDiscoveryForm({selection,books,busy,error,onBookChange,onSubmit,retainKey}:{selection:Selection;books:{id:string;title:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;retainKey?:string}){
  const part=(name:string)=>retainKey&&retainKey+':'+name;
  const custom=selection.theme!=='原典故事'&&!discoveryThemes.includes(selection.theme);

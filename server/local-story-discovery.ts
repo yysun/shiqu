@@ -19,8 +19,11 @@ import type {ReadingObserver} from './story-discovery-cache.ts';
 import {readingPlan,readingPlanKey,manifestSchema,hydrateReadingPlan,defaultReadingLimits,legacyReadingPlanKey} from './story-reading-inputs.ts';
 import type {ReadingLimits,ReadingBlock} from './story-reading-inputs.ts';
 import {requestTokens} from './story-token-budget.ts';
-import {sourceUnitIds,sourcesOverlap,sourceCovers,mergeSources} from './local-source-ranges.ts';
+import {sourceParts,sourceUnitIds,sourcesOverlap,sourceCovers,mergeSources} from './local-source-ranges.ts';
 import {matchLibraryStories,hasUnknownJudgments} from './story-theme-matching.ts';
+import type {LocalStorySearch} from './local-story-search.ts';
+import {storyEditorialContext} from '../lib/reader-prompts.ts';
+import {discoveryCode} from '../lib/reader-discovery-call.ts';
 
 const storySchema=suggestionBatchSchema.shape.stories.element.omit({storyBrief:true,matchReason:true}).extend({source:localSourceSchema,continuedFrom:z.array(localSourceSchema).min(1).max(16).optional()});
 type Story=z.infer<typeof storySchema>;
@@ -75,7 +78,7 @@ function mergePending(books:LocalBooks,book:LocalBook,old:PendingEvent[],updates
  if(result.size>16)throw failed();
  return [...result.values()];
 }
-export async function discoverLocalStories(provider:ReaderProvider,books:LocalBooks,cache:StoryDiscoveryCache,book:LocalBook,selection:Selection,excluded:string[],observer?:ReadingObserver,excludedSources:LocalSourceReference[]=[],limits:ReadingLimits=defaultReadingLimits):Promise<SuggestionBatch>{
+export async function discoverLocalStories(provider:ReaderProvider,books:LocalBooks,cache:StoryDiscoveryCache,book:LocalBook,selection:Selection,excluded:string[],observer?:ReadingObserver,excludedSources:LocalSourceReference[]=[],limits:ReadingLimits=defaultReadingLimits,storySearch?:LocalStorySearch):Promise<SuggestionBatch>{
  observer={signal:observer?.signal||new AbortController().signal,onProgress:observer?.onProgress||(()=>{}),...observer,cycleId:observer?.cycleId||randomUUID()};
  const batchLimit=observer.maxStories||4;
  const targetTitle=selection.discovery?.mode==='title'?selection.discovery.title:undefined;
@@ -170,13 +173,85 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   return suggestionBatchSchema.parse({stories:stories.slice(0,batchLimit),note:note.slice(0,300)});
  };
  const extraction:Selection={bookId:selection.bookId,...(selection.bookId==='other'?{customBook:book.title}:{}),theme:'',artStyle:'ink-pencil',productionPrompt:'',length:'auto',voice:false};
- let hit=true;
+ // 候选阅读只用于本次提取。顺序阅读仍拥有自己的游标与跨章事件。
+ const fromCandidates=async(current:State):Promise<SuggestionBatch|undefined>=>{
+  const query=targetTitle||theme;
+  if(!query||chapterStories||!storySearch||!targetTitle&&storyEditorialContext(theme).mode==='source')return;
+  const ranges=await storySearch.candidates(book,query,observer.signal,!!targetTitle);
+  if(!ranges.length)return;
+  const exclusions=[...validExclusions,...current.stories.filter(story=>excludedKeys.has(titleKey(story.title))).map(story=>story.source)];
+  const inputFor=(text:string,cap:number):WholeBookInput=>({title:book.title,edition:book.edition,text,
+   purpose:targetTitle?'catalog':'scan',scan:{maxStories:cap,excludedSources:[],pendingEvents:[],contextText:'',...(targetTitle?{targetStoryTitle:targetTitle}:{})}});
+  const budget=Math.min(limits.whole,limits.chapter);
+  let groups:{source:LocalSourceReference;text:string}[]=[];
+  const batches:(typeof groups)[]=[];
+  for(const source of ranges){
+   if(exclusions.some(excluded=>sameRange(source,excluded)))continue;
+   const text=sourceParts(book,source).map(({section,units})=>`篇章 ${section.id}：${section.title}\n`+units.map(unit=>`[${unit.id}]\n${unit.text}`).join('\n\n')).join('\n\n');
+   if(requestTokens(inputFor(text,batchLimit),theme,excluded,status.provider)>budget)continue;
+   if(groups.length===14||groups.length&&requestTokens(inputFor([...groups.map(group=>group.text),text].join('\n\n'),batchLimit),theme,excluded,status.provider)>budget){
+    batches.push(groups);groups=[];
+    if(batches.length===3)break;
+   }
+   groups.push({source,text});
+  }
+  if(groups.length)batches.push(groups);
+  for(const batch of batches){
+   observer.signal.throwIfAborted();
+   progress(current,'reading');
+   const input=inputFor(batch.map(group=>group.text).join('\n\n'),targetTitle?1:batchLimit);
+   // 精确排除已显示的范围，同时保留同章节的其他故事。
+   input.scan!.excludedSources=exclusions.filter(source=>batch.some(group=>sourceCovers(book,group.source,source)));
+   if(requestTokens(input,theme,excluded,status.provider)>budget)continue;
+   const cacheKey='candidate-reading-v1/'+discoveryHash([namespace,targetTitle?'title':theme,localReadingPrompt(input),input,excluded]);
+   const validateStories=(rows:unknown[])=>{
+    const accepted:Story[]=[];
+    for(const raw of rows){
+     try{
+      const story=storySchema.omit({continuedFrom:true}).parse(raw);
+      if(!batch.some(group=>sourceCovers(book,group.source,story.source)))continue;
+      qualified(books,book,story.source);
+      if(exclusions.some(source=>sameRange(source,story.source))||accepted.some(other=>duplicate(other,story)))continue;
+      accepted.push({...story,sourceLabel:books.resolve(book,story.source).title.slice(0,150)});
+     }catch{/* 候选出处无法核对时，继续核对其他结果。 */}
+    }
+    return visibleStories(accepted);
+   };
+   let stories:Story[]|null;
+   try{stories=await cache.shared(cacheKey,observer,async reading=>{
+    const cached=validateStories(await cache.read(cacheKey,z.array(storySchema).max(input.scan!.maxStories))||[]);
+    if(cached.length)return cached;
+    const result=await provider.suggestions(targetTitle?extraction:selection,excluded,input,{...reading,maxStories:undefined});
+    progress(current,'checking',reading);
+    if(!result.scan||result.scan.invalid||result.scan.resolvedEventIds.length||result.stories.length>input.scan!.maxStories)return [];
+    // 标题有未完线索时交回连续阅读，以免下一批把另一段片段当成完整事件。
+    if(targetTitle&&result.scan.pendingEvents.length)return null;
+    const verified=validateStories(result.stories).filter(story=>!result.scan!.pendingEvents.some(event=>{
+     try{return sourcesOverlap(book,event.source,story.source);}catch{return true;}
+    }));
+    if(verified.length)await cache.write(cacheKey,verified);
+    return verified;
+   });}catch(error){observer.signal.throwIfAborted();if(discoveryCode(error)==='service')throw error;continue;}
+   if(stories===null)return;
+   if(stories.length){
+    await measurement.finish('matched');
+    return suggestionBatchSchema.parse({stories,note:'已从检索候选中提取故事并核对原文出处。'});
+   }
+  }
+ };
+ let hit=true,candidatesTried=false;
  try{while(true){
   observer?.signal.throwIfAborted();
   const saved=await read(),candidates=visibleStories(saved.stories);
   if(candidates.length)progress(saved,'selecting');
   const matched=targetTitle?candidates.map(story=>({...story,matchReason:'已依据所选原文核对指定故事，主题仅用于讲述重点。'})):await matchLibraryStories(provider,cache,namespace,theme,candidates,story=>books.resolve(book,story.source).text,limits.whole,status.provider,observer,{bookId:book.id,legacyNamespaces:[oldNamespace],retryUnknown:saved.exhausted,context:observer});
-  if(matched.length||saved.exhausted)return response(saved,matched,hit);
+  if(matched.length)return response(saved,matched,hit);
+  if(!candidatesTried){
+   candidatesTried=true;
+   const indexed=await fromCandidates(saved);
+   if(indexed)return indexed;
+  }
+  if(saved.exhausted)return response(saved,matched,hit);
   const baseline=saved.stories.length;
   await cache.shared(key,observer,async reading=>{
    let current=await read();progress(current,'reading',reading);
