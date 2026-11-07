@@ -1,7 +1,7 @@
 // Carry verified ranges and bounded unfinished events through direct, resumable reading.
 // Selected chapters identify their main event before discovering nested episodes.
 import {z} from 'zod';
-import {promptSections,inputBoundaryDirection} from './reader-prompts.ts';
+import {promptSections,inputBoundaryDirection,compoundDiscoveryThemeDirection} from './reader-prompts.ts';
 import {legacyLocalReadingTexts} from './reader-legacy-prompts.ts';
 import {artRecommendationSchema,artRecommendationJson,artRecommendationInstructions} from './reader-art-recommendation.ts';
 export const localRangeSchema=z.object({sectionId:z.string().min(1).max(40),firstUnit:z.string().min(1).max(60),lastUnit:z.string().min(1).max(60)});
@@ -60,6 +60,7 @@ export const localTitleStoriesPrompt=promptSections(
 export function localReadingPrompt(book:WholeBookInput){if(book.purpose==='catalog')return promptSections(['通用故事识别',localCatalogPrompt],['章节粒度',book.scan?.chapterStoryLevel?localChapterStoriesPrompt:''],['按标题提取',book.scan?.targetStoryTitle?localTitleStoriesPrompt:''],['已核对例外',localReviewedSourcePrompt],['输入与输出',inputBoundaryDirection]);return promptSections(
  ['任务',book.purpose==='scan'?'从所给本地原文按需扫描完整故事。':'从所给本地原文按主题推荐至多5个独立完整故事。'],
  ['共同选题标准',localSuggestionPrompt],
+ ['复合主题',compoundDiscoveryThemeDirection],
  ['扫描规则',book.purpose==='scan'?localScanPrompt:''],
  ['章节粒度',book.purpose==='scan'&&book.scan?.chapterStoryLevel?localChapterStoriesPrompt:''],
  ['按标题提取',book.scan?.targetStoryTitle?localTitleStoriesPrompt:''],

@@ -85,6 +85,47 @@ test('轻量卡梗概可离线召回，应用只把命中的原文交给提取�
  assert.deepEqual(await readFile(f.file),before);
 });
 
+test('双词预设优先召回两侧都命中的候选，再按原文核对两侧的关系',async t=>{
+ const f=await setup(t),section=f.book.sections[0],theme='欲望与代价';
+ const texts=[
+  '少年想独占金壶，主人答应送给他。后来城里失火，邻人的屋子烧了。',
+  '商人想独占金矿，遂卖屋凑钱。矿脉断绝，一无所获。',
+  '邻人欲得田地，尽出家资购之。地不可耕，遂无以为生。',
+  '他讲述愿望与交友，此篇只议交友。',
+ ];
+ section.units.splice(0,2,...texts.map((text,index)=>({id:'u'+(index+1),text,narrative:true})));
+ f.book.input.text=section.units.map(unit=>'['+unit.id+']\n'+unit.text).join('\n\n');
+ const db=new DatabaseSync(f.file);
+ try{
+  db.exec('ALTER TABLE entries ADD COLUMN summary TEXT; DELETE FROM passages; DELETE FROM entries; DELETE FROM query_vectors;');
+  db.prepare('INSERT INTO query_vectors VALUES (?,?,?)').run(storySearchKey(theme),'local-fixture',vector(1,0));
+  const insert=db.prepare('INSERT INTO entries (id,source,text,title,summary,raw_vector) VALUES (?,?,?,?,?,?)');
+  const cards=[
+   ['少年谈欲望','少年希望得到金壶。',null],
+   ['商人的代价','商人因欲望卖屋。',null],
+   ['邻人购地','邻人购得荒地，从此难以为生。',vector(1,0)],
+   ['闲谈','随笔。',null],
+  ];
+  for(const [index,unit] of section.units.entries()){
+   insert.run(unit.id,JSON.stringify({...f.stories[0].source,firstUnit:unit.id,lastUnit:unit.id}),unit.text,...cards[index]);
+  }
+ }finally{db.close();}
+ const runner={status:async()=>({configured:true,model:'mock'}),run:async job=>{
+  assert.match(job.instructions,/同一故事的原文必须支持两侧及其在情节中的联系/);
+  const input=JSON.parse(job.prompt);
+  assert.equal(input.theme,theme);
+  assert.deepEqual(input.stories.map(story=>story.title),['商人的代价','邻人购地','少年谈欲望']);
+  return {text:JSON.stringify({matches:input.stories.map(({id,text})=>({
+   id,verdict:id<=2?'direct':'no',reason:id<=2?'为求财产而花光家资。':'原文缺少两侧之间的联系。',
+   evidence:id<=2?[text.split('。')[0]]:[],
+  }))}),model:'mock',requestId:'test',usage:null};
+ }};
+ const provider=createReaderProvider({SHIQU_AI_PROVIDER:'codex'},f.store,fetch,runner);
+ const wrapped=withLocalBooks(provider,f.books,f.store,f.cache,f.search);
+ const result=await wrapped.suggestions({...selection,theme,discovery:{mode:'auto'}},[]);
+ assert.deepEqual(result.stories.map(story=>story.title),['商人的代价','邻人购地']);
+});
+
 test('语义片段参与召回，指定标题进入模型并保持独立于制作主题',async t=>{
  const f=await setup(t),inputs=[];
  f.provider.suggestions=async(s,_excluded,input)=>{

@@ -8,6 +8,7 @@ import {localSourceKey} from '../lib/reader-local-contract.ts';
 import type {LocalSourceReference} from '../lib/reader-local-contract.ts';
 import {themeMatchPrompt,themeMatchJson,themeMatchPayload,themeDecisionSchema,themeMatchBatchSize,themeStorySchema,themeMatchContract,themeMatchEffort,verifiedThemeMatch,verifiedThemeBatchSize,verifiedThemeDecision} from '../lib/reader-theme-match.ts';
 import type {ThemeStory,VerifiedThemeDecision} from '../lib/reader-theme-match.ts';
+import {compoundDiscoveryThemeTerms,compoundDiscoveryThemeDirection} from '../lib/reader-prompts.ts';
 import {discoveryCode} from '../lib/reader-discovery-call.ts';
 import type {DiscoveryContext} from '../lib/reader-discovery-call.ts';
 import {StoryDiscoveryCache,discoveryHash} from './story-discovery-cache.ts';
@@ -22,7 +23,7 @@ const empty=()=>({decisions:{},fingerprints:{},unknown:{}} as z.infer<typeof sav
 export const themeStoryId=(story:Story)=>discoveryHash([story.title.normalize('NFKC').trim(),localSourceKey(story.source)]);
 export const legacyThemeStoryId=(story:Story)=>discoveryHash([story.title,localSourceKey(story.source)]);
 export const legacyThemeDecisionKey=(namespace:string,theme:string,identity?:{model:string;reasoningEffort:string})=>namespace+'/themes/'+discoveryHash([theme.normalize('NFKC').trim(),frozen.themeMatchPrompt,frozen.themeMatchJson,...(identity?[identity]:[])]);
-export const themeDecisionKey=(namespace:string,theme:string,identity?:{model:string;reasoningEffort:string;provider?:string})=>namespace+'/themes/'+discoveryHash([theme.normalize('NFKC').trim(),themeMatchContract,...(identity?[identity]:[])]);
+export const themeDecisionKey=(namespace:string,theme:string,identity?:{model:string;reasoningEffort:string;provider?:string})=>namespace+'/themes/'+discoveryHash([theme.normalize('NFKC').trim(),themeMatchContract,...(compoundDiscoveryThemeTerms(theme).length?[compoundDiscoveryThemeDirection]:[]),...(identity?[identity]:[])]);
 type Query={service:string;cycle:string;done:boolean;failed?:boolean;found?:boolean;ids:Set<string>;observer?:ReadingObserver;error?:unknown;context?:DiscoveryContext};
 type Flight={promise:Promise<void>;readers:Set<Query>;callReaders?:Set<Query>;isolation?:{id:string;callId:string}};
 class Changes{
@@ -70,8 +71,8 @@ export async function matchLibraryStories<T extends Story>(provider:ReaderProvid
  const read=async()=>await cache.read(key,savedSchema)||empty();
  const fits=(input:ThemeStory[])=>readingTokens(themeMatchPrompt,providerName)+readingTokens(JSON.stringify(themeMatchPayload(theme,input)),providerName)+readingTokens(JSON.stringify(themeMatchJson),providerName)<=budget;
  const input=(entry:typeof entries[number])=>themeStorySchema.parse({id:entry.id,title:entry.story.title,text:entry.text});
- // Only the proven old original-based contract is imported, using the old serializer and IDs.
- for(const legacy of options.legacyNamespaces||[]){
+ // 双词预设需要重新核对两侧及其关系，其他主题仍可复用旧版原文判断。
+ for(const legacy of compoundDiscoveryThemeTerms(theme).length?[]:options.legacyNamespaces||[]){
   const old=await cache.read(legacyThemeDecisionKey(legacy,theme,{model:identity.model,reasoningEffort:identity.reasoningEffort}),z.object({decisions:z.record(z.string(),themeDecisionSchema)}));
   if(old)await cache.update(key,savedSchema,empty,current=>{
    for(const entry of entries){const decision=old.decisions[legacyThemeStoryId(entry.story)];if(decision&&decision.id===legacyThemeStoryId(entry.story)&&!current.decisions[entry.id]){current.decisions[entry.id]={...decision,id:entry.id};current.fingerprints[entry.id]=entry.fingerprint;}}

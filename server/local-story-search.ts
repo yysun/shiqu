@@ -96,7 +96,7 @@ export function rankStoryCardText<T extends CardText>(rows:readonly T[],phrase:s
  }).filter(({tier,score})=>tier||score).sort((a,b)=>b.tier-a.tier||b.score-a.score||a.row.id.localeCompare(b.row.id)).slice(0,limit);
 }
 
-function lexical(entry:Entry,phrase:string,terms:string[]){
+function lexical(entry:Entry,phrase:string,terms:readonly string[]){
  if(entry.title===phrase)return 200+phrase.length;
  if(entry.title.includes(phrase))return 100+phrase.length;
  if(entry.eventTerms.has(phrase))return 80+phrase.length;
@@ -211,7 +211,7 @@ export class LocalStorySearch{
   const hits=await this.lookupHits(book,query,signal,byTitle);
   return hits?.map(({source})=>source)??null;
  }
- async lookupHits(book:LocalBook,query:string,signal:AbortSignal,byTitle=false,limit=42,onRetrieval?:(route:NonNullable<SuggestionProgress['retrieval']>)=>void){
+ async lookupHits(book:LocalBook,query:string,signal:AbortSignal,byTitle=false,limit=42,onRetrieval?:(route:NonNullable<SuggestionProgress['retrieval']>)=>void,themeTerms:readonly string[]=[]){
   signal.throwIfAborted();
   const snapshot=await this.snapshotFor(book);
   signal.throwIfAborted();
@@ -220,17 +220,18 @@ export class LocalStorySearch{
   const phrase=storySearchKey(topic||query);
   if(!phrase)return [];
   const chars=Array.from(phrase);
-  const terms=[...new Set(chars.slice(1).map((char,index)=>chars[index]+char))];
+  const terms=themeTerms.length?themeTerms:[...new Set(chars.slice(1).map((char,index)=>chars[index]+char))];
   const scoped=snapshot.entries.flatMap(entry=>{
    try{sourceParts(book,entry.source);return [entry];}catch{return [];}
   });
   if(!scoped.length){onRetrieval?.('no-candidates');return [];}
   const needle=snapshot.references.get(storySearchKey(query))||snapshot.references.get(phrase);
   signal.throwIfAborted();
-  const scores=scoped.map(entry=>({entry,lexical:lexical(entry,phrase,terms),semantic:similarity(entry.vectors,needle)}));
+  const scores=scoped.map(entry=>({entry,lexical:lexical(entry,phrase,terms),semantic:similarity(entry.vectors,needle),
+   coverage:themeTerms.filter(term=>entry.title.includes(term)||entry.summary.includes(term)||entry.text.includes(term)||entry.eventText.includes(term)||entry.eventTerms.has(term)).length}));
   const exact=scores.filter(row=>row.lexical>=50).sort((a,b)=>b.lexical-a.lexical);
-  const text=scores.filter(row=>row.lexical>0).sort((a,b)=>b.lexical-a.lexical).slice(0,30);
-  const cards=rankStoryCardText(scoped.filter(entry=>entry.summary),phrase,30);
+  const text=scores.filter(row=>themeTerms.length?row.coverage>0:row.lexical>0).sort((a,b)=>b.coverage-a.coverage||b.lexical-a.lexical).slice(0,30);
+  const cards=themeTerms.length?[]:rankStoryCardText(scoped.filter(entry=>entry.summary),phrase,30);
   const semantic=scores.filter(row=>Number.isFinite(row.semantic)).sort((a,b)=>b.semantic-a.semantic).slice(0,limit>42?limit:40);
   onRetrieval?.(semantic.length?'hybrid':needle?'no-compatible-vectors':'no-query-vector');
   const fused=new Map<string,{entry:Entry;score:number}>();
@@ -243,7 +244,9 @@ export class LocalStorySearch{
   for(const {entry} of [...exact.slice(0,3),...semantic.slice(0,3),...ranked])base.set(localSourceKey(entry.source),entry);
   const primary=[...base.values()],cardEntries=cards.map(({row})=>row);
   // 原文和梗概描述常有重叠。轻量卡独立补入候选，避免同一事实重复计分。
-  const candidates=[...primary.slice(0,3),...cardEntries.slice(0,2),...primary.slice(3),...cardEntries.slice(2)];
+  // 两侧均有字词命中的候选优先；完整主题的向量仍可召回没有同词的故事。
+  const both=text.filter(row=>row.coverage===2).map(({entry})=>entry);
+  const candidates=[...both,...primary.slice(0,3),...cardEntries.slice(0,2),...primary.slice(3),...cardEntries.slice(2)];
   const unique=new Map(candidates.map(entry=>[localSourceKey(entry.source),entry]));
   return [...unique.values()].slice(0,limit).map(({source,displayTitle})=>({source,title:displayTitle}));
  }

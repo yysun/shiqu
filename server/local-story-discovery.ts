@@ -23,7 +23,7 @@ import {requestTokens} from './story-token-budget.ts';
 import {sourceParts,sourceUnitIds,sourcesOverlap,sourceCovers,mergeSources} from './local-source-ranges.ts';
 import {matchLibraryStories,hasUnknownJudgments,saveVerifiedThemeMatches,verifyThemeCandidates} from './story-theme-matching.ts';
 import type {LocalStorySearch} from './local-story-search.ts';
-import {storyEditorialContext} from '../lib/reader-prompts.ts';
+import {storyEditorialContext,compoundDiscoveryThemeTerms} from '../lib/reader-prompts.ts';
 import {discoveryCode} from '../lib/reader-discovery-call.ts';
 
 const storySchema=suggestionBatchSchema.shape.stories.element.omit({storyBrief:true,matchReason:true}).extend({source:localSourceSchema,continuedFrom:z.array(localSourceSchema).min(1).max(16).optional()});
@@ -94,6 +94,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const legacyNamespace=legacySummaryDiscoveryNamespace(book,status.provider,status.models.text,limits,status.taskReasoningEfforts?.suggest)+scope;
  // A requested title fixes the event. Only automatic discovery needs a theme judgment.
  const theme=selection.theme.normalize('NFKC').trim(),key=namespace+'/library';
+ const themeTerms=targetTitle?[]:compoundDiscoveryThemeTerms(theme);
  const totalChars=plan.blocks.reduce((n,block)=>n+block.chars,0),excludedKeys=new Set(excludedSources.length?[]:excluded.map(titleKey));
  const validExclusions=excludedSources.filter(source=>{try{qualified(books,book,source);return true;}catch{return false;}});
  const sameRange=(a:LocalSourceReference,b:LocalSourceReference)=>sourceCovers(book,a,b)&&sourceCovers(book,b,a);
@@ -186,7 +187,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  // 先核对主题候选池，展示上限只约束返回页，不限制模型审阅范围。
  const verifiedTheme=async(cached:Story[]):Promise<SuggestionBatch|undefined>=>{
   if(targetTitle||chapterStories||!provider.verifyThemeStories||!storySearch||storyEditorialContext(theme).mode==='source')return;
-  const candidates=await storySearch.lookupHits(book,theme,observer.signal,false,50,recordRetrieval);
+  const candidates=await storySearch.lookupHits(book,theme,observer.signal,false,50,recordRetrieval,themeTerms);
   const originals=new Map<string,string[]>();
   const stories=(candidates||[]).flatMap(({source,title})=>{
    try{
@@ -227,7 +228,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const fromCandidates=async(current:State,cached:Story[]):Promise<SuggestionBatch|undefined>=>{
   const query=targetTitle||theme;
   if(!query||chapterStories||!storySearch||!targetTitle&&(provider.verifyThemeStories||storyEditorialContext(theme).mode==='source'))return;
-  const ranges=(await storySearch.lookupHits(book,query,observer.signal,!!targetTitle,42,recordRetrieval))?.map(hit=>hit.source)||[];
+  const ranges=(await storySearch.lookupHits(book,query,observer.signal,!!targetTitle,42,recordRetrieval,themeTerms))?.map(hit=>hit.source)||[];
   if(!ranges.length)return;
   const exclusions=[...validExclusions,...current.stories.filter(story=>excludedKeys.has(titleKey(story.title))).map(story=>story.source)];
   const inputFor=(text:string,cap:number):WholeBookInput=>({title:book.title,edition:book.edition,text,
