@@ -88,6 +88,7 @@ Windows 本地构建需安装 Microsoft C++ Build Tools 的「使用 C++ 的桌�
 本地检查（不准备或打包桌面资源；缺少内置 Node 时，`desktop:test` 的已准备资源用例须留待 CI 或显式准备后验证）：
 
 ```bash
+pnpm test:related   # 开发迭代：只跑直接相关测试；交付前再运行 pnpm test:changed
 pnpm test
 pnpm typecheck
 pnpm lint

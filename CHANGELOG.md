@@ -4,6 +4,15 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Changed
+
+- 开发迭代新增 `pnpm test:related`：只以快速开关运行改动文件的直接导入者、引用其路径的测试与 `covers` 消费者。CSS 与组件改动约 1–2 秒，`lib/reader-review.ts` 约 13 秒；交付前仍运行一次 `pnpm test:changed`。
+- 被测试导入的夹具登记了消费者，改动夹具只选消费者而不再退回全量源码测试。
+- 组件渲染测试直接导入被测组件，可用 `node --test` 单独运行。
+- 测试入口在 Node 主版本与 `engines` 不符时提示。
+
 ## [0.10.0](https://github.com/yysun/shiqu/releases/tag/v0.10.0) - 2026-11-06
 
 浏览器按屏幕宽度组织制作与阅读：桌面并排处理，手机逐层返回；保存的生成配置直接用于新任务，启动时准备随包技能。

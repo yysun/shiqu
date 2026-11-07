@@ -1,5 +1,7 @@
 # 开发期测试提速
 
+Requirement: [req-fast-dev-tests.md](../../../../reqs/2026/11/06/req-fast-dev-tests.md)（实现后补写）
+
 Git base: `1d427c6` on `main`（SS 开始时确认）。
 
 Risk: non-low。测试选择属于基础设施边界，PR CI 与发布资格检查共用 `scripts/test-plan.mjs`；选漏会让回归晚到 CI 才暴露。不涉及产品 API、存储、CLI 或技能行为。
@@ -199,6 +201,7 @@ AR 第 3 轮建议已采纳：
 
 ### 里程碑提交
 
+- `948e31d` test: add test:related inner loop and route fixtures by consumers（任务 1.1、2、3、5、6 及 CR 修正）。TT 修正后受影响的 90 个用例通过，CR 第 2 轮 passed。
 - `aacb898` test(ui): import TSX components directly in render tests（任务 1.2、4.1、4.2）。上述 12 个文件已逐个直接运行验证，规划器契约 17/17 通过；全量 TT 尚未运行。
 
 ### 任务 3、6

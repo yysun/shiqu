@@ -13,7 +13,7 @@ Inventory date: 2026-11-05. Source base: `75a1331d3594edb140b13125d3fd278c12a164
 
 ## Implemented execution policy
 
-See [trigger rules and timing comparison](testing-triggers.md) and [developer commands](development.md). `pnpm test:changed` applies the CI impact planner to staged, unstaged and untracked changes; use `--plan` to preview. Shared checkouts can pass explicit task paths with `pnpm test:pr --files ...`.
+See [trigger rules and timing comparison](testing-triggers.md) and [developer commands](development.md). While iterating, `pnpm test:related` runs only direct importers, path-literal references and `covers` consumers of the changed paths with fast flags; it is not an impact check. A single file also runs directly with `node --test tests/<file>`. Before handoff, `pnpm test:changed` applies the CI impact planner to staged, unstaged and untracked changes; use `--plan` to preview. Shared checkouts can pass explicit task paths with `pnpm test:pr --files ...`.
 
 | Entry | Registered files | Policy |
 | --- | ---: | --- |
