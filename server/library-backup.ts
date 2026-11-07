@@ -10,7 +10,7 @@ const manifestName='shiqu-backup.json';
 const relative=z.string().min(1).max(2048).refine(s=>!path.isAbsolute(s)&&!s.includes('\\')&&!s.split('/').some(p=>!p||p==='.'||p==='..')&&!/[\x00-\x1f]/.test(s)); // eslint-disable-line no-control-regex
 const manifestSchema=z.object({format:z.literal('shiqu-library-backup'),version:z.literal(1),createdAt:z.string().datetime(),appVersion:z.string().max(80),files:z.array(z.object({path:relative,size:z.number().int().nonnegative(),sha256:z.string().regex(/^[a-f0-9]{64}$/)}).strict()).min(1).max(200000)}).strict();
 type Manifest=z.infer<typeof manifestSchema>;
-const runtimeFile=(name:string)=>name==='.diagnostics'||name.startsWith('.desktop')||['shiqu.sqlite-wal','shiqu.sqlite-shm','shiqu.sqlite-journal'].includes(name);
+const runtimeFile=(name:string)=>name==='.diagnostics'||name.startsWith('.desktop')||name.startsWith('.story-index-install-')||['shiqu.sqlite-wal','shiqu.sqlite-shm','shiqu.sqlite-journal'].includes(name);
 function directory(folder:string){const info=lstatSync(folder);if(info.isSymbolicLink()||!info.isDirectory())throw Error('BACKUP_UNSAFE_DIRECTORY');}
 export function canonicalPath(filename:string):string{
  let parent=path.resolve(filename);const suffix:string[]=[];

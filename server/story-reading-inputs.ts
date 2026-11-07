@@ -15,8 +15,8 @@ export type ReadingBlock={text:string;visible:Set<string>;chars:number;chapters:
 export type ReadingLimits={whole:number;chapter:number};
 export const defaultReadingLimits={whole:wholeInputTokens,chapter:chapterInputTokens};
 export const legacyReadingLimits={whole:400000,chapter:50000};
-function render(rows:Row[]){let previous='';return rows.map(({section,unit})=>{const heading=previous===section.id?'':`篇章 ${section.id}：${section.title}\n`;previous=section.id;return heading+`[${unit.id}]\n${unit.text}`;}).join('\n\n');}
-function ranges(rows:Row[]){const result:z.infer<typeof localRangeSchema>[]=[];for(const {section,unit} of rows){const last=result.at(-1);if(last?.sectionId===section.id)last.lastUnit=unit.id;else result.push({sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id});}return result;}
+function render(rows:Row[]){let previous='';return rows.map(({section,unit})=>{const heading=previous!==section.id?`篇章 ${section.id}：${section.title}\n`:section.sourceBreaks?.has(unit.id)?'【另一个已选原文段落】\n':'';previous=section.id;return heading+`[${unit.id}]\n${unit.text}`;}).join('\n\n');}
+function ranges(rows:Row[]){const result:z.infer<typeof localRangeSchema>[]=[];for(const {section,unit} of rows){const last=result.at(-1);if(last?.sectionId===section.id&&!section.sourceBreaks?.has(unit.id))last.lastUnit=unit.id;else result.push({sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id});}return result;}
 export function hydrateReadingPlan(book:LocalBook,manifest:ReadingManifest):ReadingBlock[]{
  const expected=book.sections.flatMap(s=>s.units.map(u=>u.id)),seen:string[]=[];
  const blocks=manifest.blocks.map(block=>{

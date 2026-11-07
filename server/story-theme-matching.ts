@@ -6,8 +6,8 @@ import {ReaderError} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import {localSourceKey} from '../lib/reader-local-contract.ts';
 import type {LocalSourceReference} from '../lib/reader-local-contract.ts';
-import {themeMatchPrompt,themeMatchJson,themeMatchPayload,themeDecisionSchema,themeMatchBatchSize,themeStorySchema,themeMatchContract} from '../lib/reader-theme-match.ts';
-import type {ThemeStory} from '../lib/reader-theme-match.ts';
+import {themeMatchPrompt,themeMatchJson,themeMatchPayload,themeDecisionSchema,themeMatchBatchSize,themeStorySchema,themeMatchContract,themeMatchEffort,verifiedThemeMatch,verifiedThemeBatchSize,verifiedThemeDecision} from '../lib/reader-theme-match.ts';
+import type {ThemeStory,VerifiedThemeDecision} from '../lib/reader-theme-match.ts';
 import {discoveryCode} from '../lib/reader-discovery-call.ts';
 import type {DiscoveryContext} from '../lib/reader-discovery-call.ts';
 import {StoryDiscoveryCache,discoveryHash} from './story-discovery-cache.ts';
@@ -175,4 +175,67 @@ export async function hasUnknownJudgments(provider:ReaderProvider,cache:StoryDis
  const status=await provider.status(),identity={...(status.themeMatching||{model:status.models.text,reasoningEffort:status.taskReasoningEfforts?.suggest||''}),provider:providerName};
  const key=themeDecisionKey('original-judgments/'+discoveryHash([bookId,providerName]),theme,identity),saved=await cache.read(key,savedSchema);
  return stories.some(story=>saved?.unknown[themeStoryId(story)]);
+}
+
+// 主题候选必须逐条给出判断。缓存与原文及契约绑定，未核对项留给下一次请求。
+const verifiedBatchSchema=z.array(verifiedThemeDecision).max(verifiedThemeBatchSize);
+const evidenceText=(text:string)=>text.replace(/[\p{P}\s]/gu,'');
+export async function verifyThemeCandidates<T extends Story>(provider:ReaderProvider,cache:StoryDiscoveryCache,theme:string,stories:T[],original:(story:T)=>string[],budget:number,status:Awaited<ReturnType<ReaderProvider['status']>>,observer:ReadingObserver){
+ const identity={model:status.models.text,reasoningEffort:themeMatchEffort};
+ const entries=stories.map(story=>{
+  const parts=original(story),input=themeStorySchema.parse({id:themeStoryId(story),title:story.title,text:parts.join('\n\n')});
+  return {story,input,evidenceParts:parts.map(evidenceText)};
+ });
+ const matches:{story:T;decision:VerifiedThemeDecision}[]=[];
+ let completed=0,checked=0;
+ const totalChars=entries.reduce((sum,entry)=>sum+entry.input.text.length,0);
+ let completedChars=0;
+ const progress=()=>observer.onProgress({completed,total:entries.length,completedChars,totalChars,stage:'checking',mode:'chapters'});
+ const fits=(batch:typeof entries)=>readingTokens(verifiedThemeMatch.prompt,status.provider)+readingTokens(JSON.stringify(verifiedThemeMatch.payload(theme,batch.map(entry=>entry.input))),status.provider)+readingTokens(JSON.stringify(verifiedThemeMatch.json),status.provider)<=budget;
+ progress();
+ for(let start=0;start<entries.length;){
+  observer.signal.throwIfAborted();
+  const batch=[entries[start++]];
+  if(fits(batch)){
+   while(start<entries.length&&batch.length<verifiedThemeBatchSize&&fits([...batch,entries[start]]))batch.push(entries[start++]);
+   const key='theme-candidate-verification-v1/'+discoveryHash([status.provider,identity,verifiedThemeMatch.prompt,verifiedThemeMatch.json,theme,batch.map(({input,evidenceParts})=>[input,evidenceParts])]);
+   const decisions=await cache.shared(key,observer,async reading=>{
+    const saved=await cache.read(key,verifiedBatchSchema)||[];
+    const valid=(decision:VerifiedThemeDecision)=>{
+     const entry=batch.find(item=>item.input.id===decision.id);
+     if(!entry)return false;
+     if(decision.verdict==='no')return true;
+     return decision.evidence.length>0&&decision.evidence.every(quote=>{
+      const value=evidenceText(quote);return value.length>=4&&entry.evidenceParts.some(part=>part.includes(value));
+     });
+    };
+    const accepted=new Map(saved.filter(valid).map(decision=>[decision.id,decision]));
+    for(let attempt=0;attempt<2;attempt++){
+     const remaining=batch.filter(entry=>!accepted.has(entry.input.id));
+     if(!remaining.length)break;
+     const release=await slot();
+     try{
+      reading.signal.throwIfAborted();
+      const response=await provider.verifyThemeStories!(theme,remaining.map(entry=>entry.input),{...reading,isolation:attempt>0});
+      const candidates=verifiedBatchSchema.parse(response.matches);
+      const ids=new Set(remaining.map(entry=>entry.input.id));
+      for(const decision of candidates)if(ids.has(decision.id)&&candidates.filter(row=>row.id===decision.id).length===1&&valid(decision))accepted.set(decision.id,decision);
+      if(accepted.size)await cache.write(key,[...accepted.values()]);
+     }catch(error){reading.signal.throwIfAborted();if(discoveryCode(error)==='service')throw error;}
+     finally{release();}
+    }
+    return [...accepted.values()];
+   });
+   checked+=decisions.length;
+   for(const {story,input} of batch){
+    const decision=decisions.find(item=>item.id===input.id);
+    if(decision&&decision.verdict!=='no')matches.push({story,decision});
+   }
+  }
+  completed+=batch.length;
+  completedChars+=batch.reduce((sum,entry)=>sum+entry.input.text.length,0);
+  progress();
+ }
+ const grade={direct:0,implicit:1,no:2};
+ return {checked,matches:matches.sort((a,b)=>grade[a.decision.verdict]-grade[b.decision.verdict])};
 }

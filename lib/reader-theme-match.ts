@@ -32,3 +32,38 @@ export function parseThemeMatches(value:unknown,stories:ThemeStory[]):ThemeMatch
  }
  return {matches};
 }
+
+export type ThemeMatchProtocol<T>={prompt:string;json:typeof themeMatchJson|typeof verifiedThemeJson;payload:(theme:string,stories:ThemeStory[])=>ReturnType<typeof themeMatchPayload>;parse:(value:unknown,stories:ThemeStory[])=>T;outputTokens:(count:number)=>number};
+export const binaryThemeMatch={prompt:themeMatchPrompt,json:themeMatchJson,payload:themeMatchPayload,parse:parseThemeMatches,outputTokens:themeMatchOutputTokens};
+
+export const verifiedThemeBatchSize=50;
+const verdicts=['direct','implicit','no'] as const;
+const verdictFields={verdict:z.enum(verdicts),reason:z.string().trim().min(1).max(95),evidence:z.array(z.string().trim().min(4).max(100)).max(3)};
+export const verifiedThemeDecision=z.object({id:themeStorySchema.shape.id,...verdictFields}).strict();
+export type VerifiedThemeDecision=z.infer<typeof verifiedThemeDecision>;
+export type VerifiedThemeMatches={matches:VerifiedThemeDecision[]};
+const verifiedThemeJson={type:'object',properties:{matches:{type:'array',minItems:0,maxItems:verifiedThemeBatchSize,items:{type:'object',properties:{id:{type:'integer',minimum:1,maximum:verifiedThemeBatchSize},verdict:{type:'string',enum:[...verdicts]},reason:{type:'string',minLength:1,maxLength:95},evidence:{type:'array',maxItems:3,items:{type:'string',minLength:4,maxLength:100}}},required:['id','verdict','reason','evidence'],additionalProperties:false}}},required:['matches'],additionalProperties:false};
+const verifiedThemePrompt=promptSections(
+ ['任务','逐篇读完所附原文，按主题筛选故事。每个编号独立判断并恰好返回一次。标题只用于定位；判断须依据本篇原文。'],
+ ['判定','原文明确记载符合主题的行动、关系或结果，判 direct。原文有具体情节支持但需要推断关键动机或联系，判 implicit。只有字词相近、普通冲突、宽泛报应或没有足够证据，判 no。判断动作、对象、因果和事实状态是否符合查询。'],
+ ['排除近似','先分清主题要求谁对谁做了什么、为何如此、是否发生。只发现前因、误会、指控、受害、查明真相、依法处置、后来自然遭祸，不能替代主题所要求的行为或动机。死者现身或索回物品也不能单独证明其在报复。隐含命中需要原文明示的行动与后果之间存在具体联系，单凭先后不够。'],
+ ['证据','每条 direct 或 implicit 附一到三段同篇连续原文，每段四到一百字。第一段优先引用最能证明主题的行动、动机或结果，关键因果分散时补引相关原文。只引前情或受害经过不足以支持正向判断。保留古字和繁简原样，不改写，不用省略号拼接。reason 用一句话说明情节和判断，最多九十五字，不能新增所引原文和上下文都没有写出的行为或结果。no 的 evidence 可为空。'],
+ ['输出','只返回 matches，每项为 id、verdict、reason、evidence。'],
+ ['输入与输出',inputBoundaryDirection]);
+function verifiedThemePayload(theme:string,stories:ThemeStory[]){
+ z.string().max(100).parse(theme);z.array(themeStorySchema).min(1).max(verifiedThemeBatchSize).parse(stories);
+ return {stories:stories.map((story,index)=>({id:index+1,title:story.title,text:story.text})),theme};
+}
+function parseVerifiedThemeMatches(value:unknown,stories:ThemeStory[]):VerifiedThemeMatches{
+ const raw=z.object({matches:z.array(z.unknown()).max(verifiedThemeBatchSize*2)}).parse(value);
+ const counts=new Map<unknown,number>();
+ for(const item of raw.matches){const id=(item as {id?:unknown})?.id;counts.set(id,(counts.get(id)||0)+1);}
+ const row=z.object({id:z.number().int().min(1).max(stories.length),...verdictFields}).strict();
+ return {matches:raw.matches.flatMap(item=>{
+  const parsed=row.safeParse(item);
+  if(!parsed.success||counts.get(parsed.data.id)!==1)return [];
+  const {id,...decision}=parsed.data;
+  return [{id:stories[id-1].id,...decision}];
+ })};
+}
+export const verifiedThemeMatch={prompt:verifiedThemePrompt,json:verifiedThemeJson,payload:verifiedThemePayload,parse:parseVerifiedThemeMatches,outputTokens:(count:number)=>Math.max(4096,count*240)};

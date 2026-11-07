@@ -55,7 +55,7 @@ test('out-of-scope model receipts fail closed; changing selected scope never reu
 test('chapter scopes retain canonical ranges even when the chapter contains an isolated unreadable unit',async()=>{
  const book=await books.book(base),section=book.sections[0],modified={...book,sections:[{...section,units:[{...section.units[0],text:'缺字□仍可扫描其余内容。'},...section.units.slice(1)]}]};
  const entry=indexBookContents(books,modified).entries[0];
- assert.equal(entry.kind,'chapter');assert.ok(entry.source);assert.equal(selectedChapterScope(books,modified,[entry.source]).book.sections.length,1);
+ assert.equal(entry.kind,'chapter');assert.ok(entry.source);assert.equal((await selectedChapterScope(books,modified,[entry.source])).book.sections.length,1);
  assert.throws(()=>books.resolve(modified,entry.source),e=>e.status===400);
 });
 
@@ -71,7 +71,7 @@ test('a story may span selected neighboring chapters and prepares their original
 
 test('an explicit all-chapter scope has a distinct cache from whole-book discovery',async()=>{
  const s=selectionSchema.parse({...base,bookId:'列子'}),book=await books.book(s),refs=(await bookContents(books,s)).entries.map(e=>e.source);
- const selected=selectedChapterScope(books,book,refs);assert.equal(selected.book.input.text,book.input.text);
+ const selected=await selectedChapterScope(books,book,refs);assert.equal(selected.book.input.text,book.input.text);
  const section=book.sections[0],source={edition:book.edition,sectionId:section.id,firstUnit:section.units[0].id,lastUnit:section.units[3].id};let calls=0;
  const values=new Map(),media={async put(key,bytes){values.set(key,new Uint8Array(bytes));},async get(key){const bytes=values.get(key);return bytes?{async arrayBuffer(){return bytes.slice().buffer;}}:null;}};
  const provider=withLocalBooks({status:async()=>({configured:true,provider:'codex',models:{text:'scope-test',image:'mock'}}),matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。'}))}),safeError:()=> 'controlled',generator:()=>({}),suggestions:async()=>{calls++;return {stories:[{title:'首篇故事',description:'原文中的完整事件。',summary:'人物经历事件、作出行动，事情得到完整结果。',source}],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};}},books,media);

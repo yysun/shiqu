@@ -16,7 +16,9 @@ import {openaiDefaultModels} from '../lib/system-settings.ts';
 import {storyboardGenerator} from '../lib/reader-storyboard.ts';
 import {freshSuggestions,suggestionBatchSchema} from '../lib/reader-suggestions.ts';
 import {localChoicesJson,localScanJson,localCatalogOutputJson,localCatalogOutputTokens,localChoices,localReadingPrompt,localSuggestionPayload} from '../lib/reader-local-contract.ts';
-import {themeMatchPrompt,themeMatchPayload,themeMatchJson,parseThemeMatches,themeMatchOutputTokens,themeMatchModel,themeMatchEffort} from '../lib/reader-theme-match.ts';
+import type {ThemeMatchProtocol,ThemeStory} from '../lib/reader-theme-match.ts';
+import type {DiscoveryContext} from '../lib/reader-discovery-call.ts';
+import {binaryThemeMatch,verifiedThemeMatch,themeMatchModel,themeMatchEffort} from '../lib/reader-theme-match.ts';
 import {choicesJson,storyDraftJson,suggestionSystemPrompt,draftInstructions,imagePrompt,imageTypes,mediaType,storySource} from '../lib/reader-generation-contract.ts';
 import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from '../lib/reader-art-recommendation.ts';
 import {frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
@@ -119,6 +121,11 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
  function book(selection:Parameters<ReaderProvider['suggestions']>[0]){
   const source=storySource(selection);if(source.isUrl)throw new ReaderError(400,label+' 模式请使用内置书籍或书名；网页 URL 来源请使用 Gemini。');return source.book;
  }
+ const checkThemes=<T extends {matches:unknown[]}>(theme:string,stories:ThemeStory[],context:DiscoveryContext|undefined,contract:ThemeMatchProtocol<T>,model=models.text)=>
+  discoveryCall({stage:'matching',provider,model,effort:matchingEffort,requestedCount:stories.length},context,async report=>{
+   const result=await text(contract.prompt,contract.payload(theme,stories),contract.json,matchingEffort,contract.outputTokens(stories.length),model);report(result);
+   const parsed=contract.parse(result.value,stories);report({acceptedCount:parsed.matches.length});return parsed;
+  });
  return {
   generationTimeoutMs:phase=>['recommend','plan','reflection','review','repair','image'].includes(phase)?timeoutMs:null,
   async status(){return {configured:!!key,provider,models,voiceEnabled:false,taskReasoningEfforts:reasoning,themeMatching:{model:matchingModel,reasoningEffort:matchingEffort},...(deepseek&&!key?{message:'请通过 DEEPSEEK_API_KEY 提供 DeepSeek 密钥；不会使用其他提供方的密钥。'}:{})};},
@@ -131,12 +138,8 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
    };
    return scanning?discoveryCall({stage:'extraction',provider,model:models.text,effort:reasoning.suggest,requestedCount:localBook.scan?.maxStories||1},reading,run):run(()=>{});
   },
-  async matchStories(theme,stories,context){
-   return discoveryCall({stage:'matching',provider,model:matchingModel,effort:matchingEffort,requestedCount:stories.length},context,async report=>{
-    const result=await text(themeMatchPrompt,themeMatchPayload(theme,stories),themeMatchJson,matchingEffort,themeMatchOutputTokens(stories.length),matchingModel);report(result);
-    const parsed=parseThemeMatches(result.value,stories);report({acceptedCount:parsed.matches.length});return parsed;
-   });
-  },
+  matchStories:(theme,stories,context)=>checkThemes(theme,stories,context,binaryThemeMatch,matchingModel),
+  verifyThemeStories:(theme,stories,context)=>checkThemes(theme,stories,context,verifiedThemeMatch),
   async recommendArt(selection,original){
    if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');
    const result=await text(selectedArtRecommendationPrompt,selectedArtRecommendationPayload(selection,original),artRecommendationJson,reasoning.art,2048);return artRecommendationSchema.parse(result.value);

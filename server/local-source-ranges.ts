@@ -14,8 +14,10 @@ export function sourceParts(book:LocalBook,source:LocalSourceReference){
   if(!section)throw invalid();
   const first=section.units.findIndex(u=>u.id===range.firstUnit),last=section.units.findIndex(u=>u.id===range.lastUnit);
   if(first<0||last<first||sectionIndex<previousSection||sectionIndex===previousSection&&first<=previousEnd)throw invalid();
+  const units=section.units.slice(first,last+1);
+  if(units.some((unit,index)=>index>0&&section.sourceBreaks?.has(unit.id)))throw invalid();
   previousSection=sectionIndex;previousEnd=last;
-  return {section,sectionIndex,first,last,units:section.units.slice(first,last+1)};
+  return {section,sectionIndex,first,last,units};
  });
 }
 export function sourceUnitIds(book:LocalBook,source:LocalSourceReference){return sourceParts(book,source).flatMap(part=>part.units.map(u=>u.id));}
@@ -24,7 +26,7 @@ export function sourceCovers(book:LocalBook,a:LocalSourceReference,b:LocalSource
 export function mergeSources(book:LocalBook,a:LocalSourceReference,b:LocalSourceReference):LocalSourceReference{
  const ids=new Set([...sourceUnitIds(book,a),...sourceUnitIds(book,b)]),ranges:{sectionId:string;firstUnit:string;lastUnit:string}[]=[];
  for(const section of book.sections){let range:typeof ranges[number]|undefined;
-  for(const unit of section.units){if(ids.has(unit.id)){if(range)range.lastUnit=unit.id;else {range={sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id};ranges.push(range);}}else range=undefined;}
+  for(const unit of section.units){if(section.sourceBreaks?.has(unit.id))range=undefined;if(ids.has(unit.id)){if(range)range.lastUnit=unit.id;else {range={sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id};ranges.push(range);}}else range=undefined;}
  }
  const [first,...continuations]=ranges;if(!first||ranges.length>24)throw invalid();
  return {...first,...(continuations.length?{continuations}:{}),edition:book.edition};

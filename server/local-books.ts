@@ -7,6 +7,7 @@ import {ReaderError} from '../lib/reader-model.ts';
 import type {Selection} from '../lib/reader-model.ts';
 import type {SourceHint} from '../lib/reader-source-types.ts';
 import {sourceText,sourceParts} from './local-source-ranges.ts';
+import type {LocalStorySearch} from './local-story-search.ts';
 import {readingTokens,wholeInputTokens} from './story-token-budget.ts';
 import type {LocalSourceReference,WholeBookInput} from '../lib/reader-local-contract.ts';
 import type {OriginalSource} from '../lib/reader-source-types.ts';
@@ -23,7 +24,7 @@ import {parseAdditionalSections,additionalBookSpecs,localLines,supplementBody,ch
 import {correctShishuo} from './local-book-corrections.ts';
 
 export type LocalUnit={id:string;text:string;narrative?:boolean;unreadable?:boolean;url?:string;provider?:string};
-export type LocalSection={id:string;title:string;units:LocalUnit[];url?:string;provider?:string};
+export type LocalSection={id:string;title:string;units:LocalUnit[];url?:string;provider?:string;sourceBreaks?:ReadonlySet<string>};
 type BookEntry={id:string;title:string;originalFile:string;originalFiles?:(Omit<HtmlOriginal,'sourceUrl'>&{sourceUrl?:string})[];format?:'wikisource-html'|'shidian-html'|'licensed-wikisource'|'kanripo-text';source:{url:string;provider:string;sha256:string};supplements:{file:string;sha256:string;sourceUrl:string;chapter:number;scope:string}[]};
 export type LocalBook={id:string;title:string;edition:string;url:string;provider:string;sections:LocalSection[];input:WholeBookInput};
 const aliases:Record<string,string>=Object.fromEntries(readerBooks.flatMap(book=>[[book.id,book.id],[book.title,book.id]]));
@@ -64,7 +65,8 @@ export function parseLocalSections(id:string,text:string):LocalSection[]{
 export class LocalBooks{
  private directory:string;
  private cache=new Map<string,Promise<LocalBook>>();
- constructor(root:string){this.directory=path.resolve(root,'data/library');}
+ readonly storySearch?:LocalStorySearch;
+ constructor(root:string,storySearch?:LocalStorySearch){this.directory=path.resolve(root,'data/library');this.storySearch=storySearch;}
  async book(selection:Selection):Promise<LocalBook|null>{
   const id=localBookId(selection);if(!id)return null;
   let pending=this.cache.get(id);

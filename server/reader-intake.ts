@@ -27,7 +27,7 @@ async function intakeSelection(input:Selection,books?:LocalBooks){
  if((input.source||input.discoverySources)&&!books)throw new ReaderError(503,'本地书库暂不可用');
  const local=input.discoverySources?await books!.book(input):null;
  if(input.discoverySources&&!local)throw new ReaderError(400,'章节提取只支持本地书库。');
- const scope=local?selectedChapterScope(books!,local,input.discoverySources!):null;
+ const scope=local?await selectedChapterScope(books!,local,input.discoverySources!):null;
  const choice=input.source?await directBookChoice(books!,input):null;
  const selection=selectionSchema.parse({...input,storyTitle:choice?.entry.title,source:choice?.entry.source,discoverySources:scope?.discoverySources,length:'auto',narrativeDetail:input.narrativeDetail||'balanced'});
  if(selection.bookId==='other'&&!selection.customBook?.trim())throw new ReaderError(400,'请先填写书名或 URL。');

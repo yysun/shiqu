@@ -53,7 +53,7 @@ for(const name of ['codex','gemini'])test(`${name}: chapter thirty offers Guandu
  const book=await library.book(selection),section=book.sections[29],scope=ref(book,section,0,section.units.length-1);
  const main=story('官渡之战',ref(book,section,0,32)),episodes=[story('许攸献计',ref(book,section,13,19)),story('火烧乌巢',ref(book,section,20,27))];
  const selected={...selection,discoverySources:[scope]},jobs=[],store=memory();
- const scoped=selectedChapterScope(library,book,[scope]).book,blocks=hydrateReadingPlan(scoped,buildReadingPlan(scoped,name));
+ const scoped=(await selectedChapterScope(library,book,[scope])).book,blocks=hydrateReadingPlan(scoped,buildReadingPlan(scoped,name));
  const result=job=>{
   const payload=JSON.parse(job.prompt);if(payload.stories)return JSON.stringify({matches:payload.stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。'}))});const input=payload.localBook;jobs.push({instructions:job.instructions,...payload});
   assert.match(job.instructions,/chapterStoryLevel=main 时只返回一个/);assert.match(job.instructions,/chapterStoryLevel=episodes 时/);assert.match(job.instructions,/不能只缩短范围再推荐同一故事/);

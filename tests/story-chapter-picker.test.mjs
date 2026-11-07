@@ -76,3 +76,22 @@ test('Three Kingdoms search finds Huang Zhong at Dingjun Mountain beyond the pre
  const titles=await query('第七十一回');assert.ok(titles.entries.some(entry=>entry.id===chapter.id));
  assert.equal((await f.json('sessions')).length,0);assert.equal(f.control.recommendations.length,0);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });
+
+test('章模式只返回整章，按原文筛选，并与已保存故事段落共存',async t=>{
+ const f=await productionFixture(t);f.app.services.localBooks=books;
+ const chapters=(await f.json('books/liaozhai/contents?view=chapters')).entries;
+ assert.ok(chapters.length>1);
+ assert.ok(chapters.every(entry=>entry.kind==='chapter'&&entry.source));
+ const filtered=(await f.json('books/liaozhai/contents?view=chapters&q='+encodeURIComponent('种梨'))).entries;
+ assert.deepEqual(filtered.map(entry=>entry.title),['第一卷']);
+ assert.equal((await f.json('books/liaozhai/contents?q='+encodeURIComponent('种梨'))).entries[0].title,'種梨');
+ const both=(await f.json('books/liaozhai/contents?view=scope')).entries;
+ const chapter=filtered[0],story=both.find(entry=>entry.title==='種梨');
+ assert.ok(both.some(entry=>entry.kind==='chapter'&&entry.title==='第一卷'));
+ assert.equal(new Set(both.map(entry=>entry.id)).size,both.length);
+ for(const discoverySources of [[chapter.source],[story.source]]){
+  const requestId=crypto.randomUUID(),selected={...choose('liaozhai'),storyTitle:undefined,discovery:{mode:'auto'},discoverySources};
+  const saved=await f.json('sessions','POST',{requestId,intake:true,selection:selected});
+  assert.deepEqual(saved.selection.discoverySources,discoverySources);
+ }
+});

@@ -7,7 +7,7 @@ import {verifiedOriginalPayload} from '../lib/reader-source-types.ts';
 import {assertStoryBriefReady} from '../lib/reader-story-brief.ts';
 import {createOpenAIProvider,createDeepSeekProvider} from './openai-provider.ts';
 import {frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
-import {configuredModels,makeGenerator,suggestStories,safeGeminiError,recommendStoryArt,matchStoryThemes} from '../lib/reader-gemini.ts';
+import {configuredModels,makeGenerator,suggestStories,safeGeminiError,recommendStoryArt,matchStoryThemes,verifyStoryThemes} from '../lib/reader-gemini.ts';
 import {storyDraftSchema,ReaderError} from '../lib/reader-model.ts';
 import {geminiGenerationTimeoutMs} from '../lib/reader-limits.ts';
 import {codexGenerationTimeoutMs} from '../lib/codex-settings.ts';
@@ -21,7 +21,9 @@ import {ClaudeError,createClaudeRunner} from './claude-runner.ts';
 import {CodexError,createCodexRunner} from './codex-runner.ts';
 import type {CodexRunner} from './codex-runner.ts';
 import {localChoicesJson,localScanJson,localCatalogOutputJson,localChoices,localReadingPrompt,localSuggestionPayload} from '../lib/reader-local-contract.ts';
-import {themeMatchPrompt,themeMatchPayload,themeMatchJson,parseThemeMatches,themeMatchModel,themeMatchEffort} from '../lib/reader-theme-match.ts';
+import type {ThemeMatchProtocol,ThemeStory} from '../lib/reader-theme-match.ts';
+import type {DiscoveryContext} from '../lib/reader-discovery-call.ts';
+import {binaryThemeMatch,verifiedThemeMatch,themeMatchModel,themeMatchEffort} from '../lib/reader-theme-match.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {imageDimensions} from '../lib/reader-image-dimensions.ts';
 import {storyboardGenerator} from '../lib/reader-storyboard.ts';
@@ -95,7 +97,7 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
  const taskReasoningEfforts=configuredTaskReasoning(variables);
  if(name==='gemini'){
   const key=variables.GEMINI_API_KEY?.trim()||'',models=configuredModels(variables);
-  return {generationTimeoutMs:phase=>['recommend','plan','reflection','review','repair','image'].includes(phase)?geminiGenerationTimeoutMs:null,async status(){return {configured:!!key,provider:'gemini',models,voiceEnabled:false,taskReasoningEfforts,themeMatching:{model:models.text,reasoningEffort:themeMatchEffort}};},suggestions:(selection,excluded,localBook,reading)=>suggestStories(key,selection,models,transport,excluded,localBook,taskReasoningEfforts,reading?.maxStories,reading),matchStories:(theme,stories,context)=>matchStoryThemes(key,theme,stories,models,transport,context),async recommendArt(selection,original){if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');return recommendStoryArt(key,selection,original,models,transport,taskReasoningEfforts);},generator:()=>makeGenerator(key,media,models,transport,taskReasoningEfforts),safeError:safeGeminiError};
+  return {generationTimeoutMs:phase=>['recommend','plan','reflection','review','repair','image'].includes(phase)?geminiGenerationTimeoutMs:null,async status(){return {configured:!!key,provider:'gemini',models,voiceEnabled:false,taskReasoningEfforts,themeMatching:{model:models.text,reasoningEffort:themeMatchEffort}};},suggestions:(selection,excluded,localBook,reading)=>suggestStories(key,selection,models,transport,excluded,localBook,taskReasoningEfforts,reading?.maxStories,reading),matchStories:(theme,stories,context)=>matchStoryThemes(key,theme,stories,models,transport,context),verifyThemeStories:(theme,stories,context)=>verifyStoryThemes(key,theme,stories,models,transport,context),async recommendArt(selection,original){if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');return recommendStoryArt(key,selection,original,models,transport,taskReasoningEfforts);},generator:()=>makeGenerator(key,media,models,transport,taskReasoningEfforts),safeError:safeGeminiError};
  }
  const claude=name==='claude',safeError=claude?safeClaudeError:safeCodexError,message=claude?(code:string)=>safeClaudeError(new ClaudeError(code)):codexMessage;
  const rawRunner=runner||(claude?createClaudeRunner(variables):createCodexRunner(variables)),cli:CodexRunner={status:()=>rawRunner.status(),run:job=>rawRunner.run({...job,instructions:formatSystemPrompt(job.instructions)})},models=claude?{text:variables.CLAUDE_MODEL?.trim()||'opus',image:''}:{text:variables.CODEX_MODEL?.trim()||'codex-default',image:'codex-image-generation'};
@@ -106,6 +108,11 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
   if(source.isUrl)throw new ReaderError(400,`${claude?'Claude Code':'Codex'} 订阅模式请填写书名；网页 URL 来源请使用 Gemini 模式。`);
   return source.book;
  }
+ const checkThemes=<T extends {matches:unknown[]}>(theme:string,stories:ThemeStory[],context:DiscoveryContext|undefined,contract:ThemeMatchProtocol<T>,model?:string)=>
+  discoveryCall({stage:'matching',provider:name,model:model||models.text,effort:themeMatchEffort,requestedCount:stories.length},context,async report=>{
+   const result=await cli.run({...(model?{model}:{}),instructions:contract.prompt,prompt:JSON.stringify(contract.payload(theme,stories)),schema:contract.json,timeoutMs:codexGenerationTimeoutMs,reasoningEffort:themeMatchEffort});report(result);
+   const parsed=contract.parse(JSON.parse(result.text),stories);report({acceptedCount:parsed.matches.length});return parsed;
+  });
  const provider:ReaderProvider={
   generationTimeoutMs:phase=>['recommend','plan','reflection','review','repair','image'].includes(phase)?codexGenerationTimeoutMs:null,
   status(){
@@ -123,12 +130,8 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
    };
    return scanning?discoveryCall({stage:'extraction',provider:name,model:models.text,effort:taskReasoningEfforts.suggest,requestedCount:localBook.scan?.maxStories||1},reading,run):run(()=>{});
   },
-  async matchStories(theme,stories,context){
-   return discoveryCall({stage:'matching',provider:name,model:matchingModel,effort:themeMatchEffort,requestedCount:stories.length},context,async report=>{
-    const result=await cli.run({model:matchingModel,instructions:themeMatchPrompt,prompt:JSON.stringify(themeMatchPayload(theme,stories)),schema:themeMatchJson,timeoutMs:codexGenerationTimeoutMs,reasoningEffort:themeMatchEffort});report(result);
-    const parsed=parseThemeMatches(JSON.parse(result.text),stories);report({acceptedCount:parsed.matches.length});return parsed;
-   });
-  },
+  matchStories:(theme,stories,context)=>checkThemes(theme,stories,context,binaryThemeMatch,matchingModel),
+  verifyThemeStories:(theme,stories,context)=>checkThemes(theme,stories,context,verifiedThemeMatch),
   async recommendArt(selection,original){
    if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');
    const result=await cli.run({instructions:selectedArtRecommendationPrompt,prompt:JSON.stringify(selectedArtRecommendationPayload(selection,original)),schema:artRecommendationJson,timeoutMs:codexGenerationTimeoutMs,reasoningEffort:taskReasoningEfforts.art});

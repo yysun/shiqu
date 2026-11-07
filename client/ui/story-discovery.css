@@ -5,10 +5,6 @@
 .yu-extraction-status{margin:0 0 18px;color:#45643b;font-size:13px;line-height:1.7;overflow-wrap:anywhere}
 .yu-extraction-status p{margin:0}
 .yu-extraction-status .yu-extraction-status-detail{margin-top:6px;color:#718260;font-size:12px}
-.yu-scope-selection{margin-top:12px;padding:12px;border:1px solid #dce1d2;border-radius:10px;overflow-wrap:anywhere}
-.yu-scope-selection>summary{cursor:pointer;font-size:12px;line-height:1.8}
-.yu-scope-selection>summary>span{margin-left:8px;font-size:var(--yu-meta-size);color:#718260}
-.yu-scope-complete{margin-top:12px;min-height:44px;padding:9px 14px;border:1px solid #afbf9b;border-radius:8px;background:#e7eddf;color:#45643b;font-size:12px}
 .yu-extraction-context{margin:10px 0 20px;padding:14px;border:1px solid #dce1d2;border-radius:12px;background:#f6f6ec;font-size:12px;line-height:1.8;overflow-wrap:anywhere}
 .yu-extraction-book{margin:0 0 10px;font-size:14px;font-weight:600}
 .yu-extraction-context dl{display:grid;grid-template-columns:60px minmax(0,1fr);gap:12px 10px;margin:0}

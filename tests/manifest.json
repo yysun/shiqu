@@ -2062,6 +2062,13 @@
       "gates": [],
       "covers": [
         "server/local-story-search.ts",
+        "server/headless-cli.ts",
+        "server/generation.ts",
+        "server/local-book-contents.ts",
+        "server/local-books.ts",
+        "server/media.ts",
+        "server/local-source-ranges.ts",
+        "server/local-story-events.ts",
         "server/local-story-discovery.ts",
         "server/local-generation.ts",
         "tests/fixtures/story-library.mjs"

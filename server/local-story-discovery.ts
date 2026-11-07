@@ -20,13 +20,15 @@ import {readingPlan,readingPlanKey,manifestSchema,hydrateReadingPlan,defaultRead
 import type {ReadingLimits,ReadingBlock} from './story-reading-inputs.ts';
 import {requestTokens} from './story-token-budget.ts';
 import {sourceParts,sourceUnitIds,sourcesOverlap,sourceCovers,mergeSources} from './local-source-ranges.ts';
-import {matchLibraryStories,hasUnknownJudgments} from './story-theme-matching.ts';
+import {matchLibraryStories,hasUnknownJudgments,verifyThemeCandidates} from './story-theme-matching.ts';
 import type {LocalStorySearch} from './local-story-search.ts';
 import {storyEditorialContext} from '../lib/reader-prompts.ts';
 import {discoveryCode} from '../lib/reader-discovery-call.ts';
 
 const storySchema=suggestionBatchSchema.shape.stories.element.omit({storyBrief:true,matchReason:true}).extend({source:localSourceSchema,continuedFrom:z.array(localSourceSchema).min(1).max(16).optional()});
 type Story=z.infer<typeof storySchema>;
+// 主题核对独立于顺序阅读，允许正常长度的 50 篇候选一次提交。
+const themeVerificationInputTokens=16000;
 const pendingSchema=z.object({id:z.string().min(1).max(64),title:z.string().min(1).max(100),source:localSourceSchema});
 const rejectionSchema=z.object({code:z.enum(['duplicate','no-new-evidence','invalid-source','no-progress','pending-resolution']),title:z.string().max(100).optional(),source:localSourceSchema.optional()});
 const stateSchema=z.object({stories:z.array(storySchema).max(50000),cursor:z.number().int().min(0),readThrough:z.number().int().min(0),pendingEvents:z.array(pendingSchema).max(16),exhausted:z.boolean(),rejected:z.boolean(),lastRejection:rejectionSchema.optional(),overlapDiagnostics:z.array(z.object({source:localSourceSchema,other:localSourceSchema,ratio:z.number().min(0).max(1)})).max(32).optional()});
@@ -173,10 +175,34 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   return suggestionBatchSchema.parse({stories:stories.slice(0,batchLimit),note:note.slice(0,300)});
  };
  const extraction:Selection={bookId:selection.bookId,...(selection.bookId==='other'?{customBook:book.title}:{}),theme:'',artStyle:'ink-pencil',productionPrompt:'',length:'auto',voice:false};
- // 候选阅读只用于本次提取。顺序阅读仍拥有自己的游标与跨章事件。
+ // 先核对主题候选池，展示上限只约束返回页，不限制模型审阅范围。
+ const verifiedTheme=async():Promise<SuggestionBatch|undefined>=>{
+  if(targetTitle||chapterStories||!provider.verifyThemeStories||!storySearch||storyEditorialContext(theme).mode==='source')return;
+  const candidates=await storySearch.lookupHits(book,theme,observer.signal,false,50);
+  const originals=new Map<string,string[]>();
+  const stories=(candidates||[]).flatMap(({source,title})=>{
+   try{
+    const original=books.resolve(book,source);
+    originals.set(localSourceKey(source),original.localParts?.map(part=>part.text)||[original.text]);
+    return [{title:title.replace(/\s+/gu,' ').trim().slice(0,100)||original.title.slice(0,100),description:'',source,sourceLabel:original.title.slice(0,150)}];
+   }catch(error){if(error instanceof ReaderError&&error.status===400)return [];throw error;}
+  });
+  if(!stories.length)return;
+  const {matches,checked}=await verifyThemeCandidates(provider,cache,theme,stories,story=>originals.get(localSourceKey(story.source))!,Math.min(limits.whole,themeVerificationInputTokens),status,observer);
+  const page=visibleStories(matches.map(({story,decision})=>{
+   const matchReason=(decision.verdict==='direct'?'明确符合：':'情节暗示：')+decision.reason;
+   const description=(matchReason+' 原文：'+decision.evidence[0]).slice(0,180);
+   return {...story,description,matchReason};
+  })).slice(0,batchLimit);
+  await measurement.finish(checked<stories.length?'incomplete':page.length?'matched':'none');
+  const note=`已核对 ${checked}/${stories.length} 条索引候选。`+(checked<stories.length?'部分候选未能核对，可继续重试。':'')+(page.length?'':checked<stories.length?'目前还没有确认的新结果。':'当前没有更多符合主题的候选。');
+  return suggestionBatchSchema.parse({stories:page,note});
+ };
+ // 指定标题和不具备逐条核对能力的服务沿用候选阅读。
+
  const fromCandidates=async(current:State):Promise<SuggestionBatch|undefined>=>{
   const query=targetTitle||theme;
-  if(!query||chapterStories||!storySearch||!targetTitle&&storyEditorialContext(theme).mode==='source')return;
+  if(!query||chapterStories||!storySearch||!targetTitle&&(provider.verifyThemeStories||storyEditorialContext(theme).mode==='source'))return;
   const ranges=await storySearch.candidates(book,query,observer.signal,!!targetTitle);
   if(!ranges.length)return;
   const exclusions=[...validExclusions,...current.stories.filter(story=>excludedKeys.has(titleKey(story.title))).map(story=>story.source)];
@@ -240,7 +266,11 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   }
  };
  let hit=true,candidatesTried=false;
- try{while(true){
+ try{
+ const verified=await verifiedTheme();
+ if(verified)return verified;
+ // 索引缺失或当前范围没有可用候选时，从已保存的原文阅读进度继续。
+ while(true){
   observer?.signal.throwIfAborted();
   const saved=await read(),candidates=visibleStories(saved.stories);
   if(candidates.length)progress(saved,'selecting');

@@ -19,6 +19,8 @@ No subcommand starts the browser service. For serverless agent commands and JSON
   shiqu help --json
   shiqu init --data-dir <directory>
   shiqu stories list --data-dir <directory>
+  shiqu books search 险些复生 搜神记 --data-dir <directory>
+  shiqu books index-import 搜神记 <file> --data-dir <directory>
   shiqu run <story-id> --until reviewed --timeout 900
 
   --port <number>       HTTP port (PORT, default: 3000)

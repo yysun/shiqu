@@ -58,11 +58,13 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 | `help --json` | 查看命令目录、参数、JSON 输入与示例 |
 | `init`, `status` | 显式初始化书库，或检查书库完整性与数量统计 |
 | `catalog`, `books`, `themes`, `styles` | 列出书籍、主题和画风 |
-| `books contents BOOK_ID --query TEXT` | 浏览或搜索书籍的本地目录，查询条件可省略 |
+| `books contents BOOK_ID --query TEXT` | 浏览或搜索书籍的章节和可用的故事段落，查询条件可省略 |
+| `books search TEXT [BOOK_ID] --limit 5` | 按标题、梗概、原文和可用参考向量检索故事候选。仅安装一本书的索引时可省略书名，返回原文预览与出处，无需启动服务或调用模型。加 `--brief` 只显示书名、索引中的故事标题、章节和段落 |
 | `stories list`, `stories get ID`, `stories current ID` | 查看故事列表、故事详情与当前版本 |
 | `stories create --input FILE` | 保存新故事的选题条件 |
 | `stories setup`, `stories search`, `stories choose`, `stories confirm` | 设置要求、查找候选、选择故事与确认制作 |
-| `run ID`, `stories run ID` | 制作指定故事；`--until` 可选 candidates、prepared、reviewed 或 completed。若数据目录有独立 `story-search.sqlite`，提取会先核对检索命中的原文 |
+| `books index-import BOOK_ID FILE --data-dir DIRECTORY` | 安装一本书的离线 SQLite 索引，核对书名、原文版次与出处后更新该书的索引 |
+| `run ID`, `stories run ID` | 制作指定故事；`--until` 可选 candidates、prepared、reviewed 或 completed。该书有索引时，提取会先核对候选原文。没有可用候选时逐章阅读选定范围 |
 | `stories edit ID --input FILE` | 使用 `stories revisions ID` 返回的 token 保存修改版本 |
 | `stories pause`, `stories resume`, `stories stop` | 暂停、恢复或停止故事制作 |
 | `stories retry`, `stories override` | 重试当前故障，或明确跳过审核问题 |
@@ -75,6 +77,14 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 | `config get`, `config set`, `config reset` | 查看、保存或重置共享生成服务配置 |
 | `backup DIR`, `verify-backup DIR`, `restore DIR`, `diagnostics FILE` | 备份、校验、恢复书库，或导出脱敏诊断 |
 | `api METHOD reader/ROUTE` | 在当前进程调用允许的 reader 接口 |
+
+源码工作树可离线为单本书生成索引。以《庄子》为例，依次执行以下命令。制备脚本使用本机 Ollama，安装后由拾趣读取该书索引。
+
+```bash
+node scripts/experiment-soushen-search.mjs build --book 庄子
+node scripts/experiment-soushen-search.mjs refs --book 庄子
+pnpm run cli books index-import 庄子 .data/story-index-build/zhuangzi.sqlite --data-dir .data/dev-local
+```
 
 只有显式 `run` 执行 AI 生成，其他命令只查看或保存状态。故事操作需传入故事 ID；选题操作还需 `--generation N`。JSON 输入使用 `--input FILE`，或用 `--input -` 从标准输入读取。各命令的必填字段与恢复规则见 `help --json`。
 

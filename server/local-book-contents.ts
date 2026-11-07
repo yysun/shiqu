@@ -6,24 +6,26 @@ import {contentSearchText,contentSearchTerms} from '../lib/reader-contents.ts';
 import type {BookContents,BookContentEntry} from '../lib/reader-contents.ts';
 import {localSourceKey} from '../lib/reader-local-contract.ts';
 import type {LocalBooks,LocalBook} from './local-books.ts';
+import {sourceParts} from './local-source-ranges.ts';
 const namedHeading=(text:string)=>/^[\p{Script=Han}0-9]{1,12}$/u.test(text);
 // A LocalBook is immutable and edition-bound; cache normalized text without exposing it in API responses.
 const searchIndexes=new WeakMap<LocalBook,Map<string,string>>();
-export function indexBookContents(books:LocalBooks,book:LocalBook,query=''):BookContents{
+export function indexBookContents(books:LocalBooks,book:LocalBook,query='',chaptersOnly=false):BookContents{
  const entries:BookContentEntry[]=[],terms=contentSearchTerms(query);
  let searchIndex=searchIndexes.get(book);if(!searchIndex){searchIndex=new Map();searchIndexes.set(book,searchIndex);}
+ const kind=!chaptersOnly&&(book.id==='liaozhai'||book.id==='shishuo')?'story':'chapter';
  for(const section of book.sections){
-  const starts=book.id==='shishuo'?section.units.map((_,i)=>i):book.id==='liaozhai'?section.units.flatMap((u,i)=>namedHeading(u.text)?[i]:[]):[0];
+  const starts=kind==='chapter'?[0]:book.id==='shishuo'?section.units.map((_,i)=>i):section.units.flatMap((u,i)=>namedHeading(u.text)?[i]:[]);
   for(const [n,first]of starts.entries()){
    const last=(starts[n+1]??section.units.length)-1,unit=section.units[first];if(!unit)continue;
-   const title=(book.id==='liaozhai'?unit.text:book.id==='shishuo'?`${section.title} · 第${first+1}则`:section.title).slice(0,100);
+   const title=(kind==='chapter'?section.title:book.id==='liaozhai'?unit.text:`${section.title} · 第${first+1}则`).slice(0,100);
    const source={edition:book.edition,sectionId:section.id,firstUnit:unit.id,lastUnit:section.units[last].id};
-   const body=section.units.slice(book.id==='liaozhai'?first+1:first,last+1).map(u=>u.text).join(' ');
+   const body=section.units.slice(kind==='story'&&book.id==='liaozhai'?first+1:first,last+1).map(u=>u.text).join(' ');
    if(terms.length){
-    let text=searchIndex.get(unit.id);if(text===undefined){text=contentSearchText(title+' '+section.title+' '+body);searchIndex.set(unit.id,text);}
+    const key=kind+':'+unit.id;
+    let text=searchIndex.get(key);if(text===undefined){text=contentSearchText(title+' '+section.title+' '+body);searchIndex.set(key,text);}
     if(!terms.every(term=>text.includes(term)))continue;
    }
-   const kind=book.id==='liaozhai'||book.id==='shishuo'?'story':'chapter';
    const entry:BookContentEntry={kind,id:unit.id,title,chapter:section.title,excerpt:body.slice(0,100)};
    try{if(kind==='story')books.resolve(book,source);entry.source=source;}
    catch(error){if(!(error instanceof ReaderError)||error.status!==400)throw error;entry.unavailable='原文含缺字、缺文或超出单次制作范围，暂不可选。';}
@@ -32,9 +34,25 @@ export function indexBookContents(books:LocalBooks,book:LocalBook,query=''):Book
  }
  return {bookId:book.id,title:book.title,entries};
 }
-export async function bookContents(books:LocalBooks,selection:Selection,query=''){
+export async function bookContents(books:LocalBooks,selection:Selection,query='',view?:'chapters'|'scope'){
  const book=await books.book(selection);if(!book)throw new ReaderError(400,'这本书暂不支持直接选择，请按主题找故事。');
- return indexBookContents(books,book,query);
+ if(view==='chapters')return indexBookContents(books,book,query,true);
+ const directory=indexBookContents(books,book,query);
+ const seen=new Set(directory.entries.flatMap(entry=>entry.source?[localSourceKey(entry.source)]:[]));
+ const chapters=new Map(book.sections.map(section=>[section.id,section.title]));
+ if(view==='scope'&&(book.id==='liaozhai'||book.id==='shishuo'))for(const entry of indexBookContents(books,book,query,true).entries){
+  const key=localSourceKey(entry.source!);
+  if(!seen.has(key)){directory.entries.push({...entry,id:'chapter:'+entry.id});seen.add(key);}
+ }
+ for(const {id,source,displayTitle} of await books.storySearch?.passages(book,contentSearchTerms(query))??[]){
+  const key=localSourceKey(source);if(seen.has(key))continue;
+  try{
+   const original=books.resolve(book,source);
+   directory.entries.push({kind:'story',id:'indexed:'+id,title:displayTitle.slice(0,100),chapter:chapters.get(source.sectionId)!,excerpt:original.text.slice(0,100),source});
+   seen.add(key);
+  }catch(error){if(!(error instanceof ReaderError)||error.status!==400)throw error;}
+ }
+ return directory;
 }
 export async function directBookChoice(books:LocalBooks,selection:Selection){
  const book=await books.book(selection);if(!book||!selection.source)throw new ReaderError(400,'请重新选择本地故事或章节。');
@@ -43,18 +61,35 @@ export async function directBookChoice(books:LocalBooks,selection:Selection){
  return {entry,original:books.resolve(book,entry.source)};
 }
 
-// Canonical scopes allow whole chapters or one catalog story, never arbitrary slices or gaps within a chapter.
-export function selectedChapterScope(books:LocalBooks,book:LocalBook,references:NonNullable<Selection['discoverySources']>){
+// 仅接受同版目录中的原文范围，重叠范围取并集，跳过的原文保留断点。
+export async function selectedChapterScope(books:LocalBooks,book:LocalBook,references:NonNullable<Selection['discoverySources']>){
  const requested=new Set(references.map(localSourceKey));
- if(!references.length||references.length>24||requested.size!==references.length)throw new ReaderError(400,'请选择1–24个不重复的章节。');
- const entries=indexBookContents(books,book).entries.filter(entry=>entry.source&&requested.has(localSourceKey(entry.source)));
- if(entries.length!==references.length)throw new ReaderError(400,'章节范围已失效，请重新选择同一本书的章节。');
- if(entries.some(entry=>entry.kind==='story')&&entries.length!==1)throw new ReaderError(400,'已有故事段落请单选；跨章故事请选择完整章节。');
- const discoverySources=entries.map(entry=>entry.source!),ids=new Set(discoverySources.map(source=>source.sectionId));
- const sections=book.sections.filter(section=>ids.has(section.id)).map(section=>{
-  const source=discoverySources.find(source=>source.sectionId===section.id)!;
-  return {...section,units:section.units.slice(section.units.findIndex(unit=>unit.id===source.firstUnit),section.units.findIndex(unit=>unit.id===source.lastUnit)+1)};
+ if(!references.length||references.length>24||requested.size!==references.length)throw new ReaderError(400,'请选择 1–24 段不重复的原文。');
+ const chapters=indexBookContents(books,book,'',true).entries;
+ const available=new Map(chapters.map(entry=>[localSourceKey(entry.source!),entry.source!]));
+ if([...requested].some(key=>!available.has(key))&&(book.id==='liaozhai'||book.id==='shishuo')){
+  for(const {source} of indexBookContents(books,book).entries)if(source&&!available.has(localSourceKey(source)))available.set(localSourceKey(source),source);
+ }
+ if([...requested].some(key=>!available.has(key))){
+  for(const {source} of await books.storySearch?.passages(book,[])??[]){
+   const key=localSourceKey(source);if(!requested.has(key)||available.has(key))continue;
+   try{books.resolve(book,source);available.set(key,source);}
+   catch(error){if(!(error instanceof ReaderError)||error.status!==400)throw error;}
+  }
+ }
+ const discoverySources=[...available].filter(([key])=>requested.has(key)).map(([,source])=>source);
+ if(discoverySources.length!==references.length)throw new ReaderError(400,'原文范围已失效，请重新选择同一本书的章节或故事段落。');
+ const selected=new Set(discoverySources.flatMap(source=>sourceParts(book,source).flatMap(part=>part.units.map(unit=>unit.id))));
+ const sections=book.sections.flatMap(section=>{
+  const sourceBreaks=new Set<string>();
+  const units=section.units.filter((unit,index)=>{
+   if(!selected.has(unit.id))return false;
+   if(index>0&&!selected.has(section.units[index-1].id))sourceBreaks.add(unit.id);
+   return true;
+  });
+  sourceBreaks.delete(units[0]?.id);
+  return units.length?[{...section,units,sourceBreaks}]:[];
  });
- const text=sections.map(section=>`篇章 ${section.id}：${section.title}\n`+section.units.map(unit=>`[${unit.id}]\n${unit.text}`).join('\n\n')).join('\n\n');
+ const text=sections.map(section=>`篇章 ${section.id}：${section.title}\n`+section.units.map(unit=>(section.sourceBreaks.has(unit.id)?'【另一个已选原文段落】\n':'')+`[${unit.id}]\n${unit.text}`).join('\n\n')).join('\n\n');
  return {discoverySources,book:{...book,sections,input:{...book.input,text}}};
 }

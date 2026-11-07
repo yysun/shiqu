@@ -27,7 +27,8 @@ import {themes} from '../lib/content.ts';
 import {emptyPublication} from '../lib/story-publication.ts';
 import {selectionSchema,reviewPassed,ReaderError} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
-import type {LocalBooks} from './local-books.ts';
+import {LocalBooks} from './local-books.ts';
+import {installStoryIndex,LocalStorySearch} from './local-story-search.ts';
 
 const commandNames=new Set(['skill','help','init','status','catalog','books','themes','styles','stories','run','preview','export','backup','restore','verify-backup','diagnostics','config','api']);
 const commands=[
@@ -35,6 +36,8 @@ const commands=[
  ['init','Optional: create the library directory and database at --data-dir (shiqu.sqlite plus media). Does not change the saved default; library commands also initialize automatically.','init --data-dir /private/library'],
  ['status','Library integrity/counts and runtime metadata; no cloud readiness request.','status'],
  ['catalog','Books, themes and styles. books contents BOOK --query words reads local sources.','books contents zhuangzi'],
+ ['books index-import','Install one book’s offline search index in the selected library directory.','books index-import 搜神记 FILE --data-dir /private/library'],
+ ['books search','Search offline story candidates. Specify a book when several indexes are installed. Returns ranked original excerpts and source references without inference.','books search 险些复生 搜神记 --limit 5 --brief'],
  ['stories list|get|current','Inspect saved stories and current-family versions.','stories get STORY_ID'],
  ['stories create','Save intake intent; input is a selection or {selection,intake:true,requestId}.','stories create --input selection.json --request-id UUID'],
  ['stories setup|search|choose|confirm','Persist intake actions with explicit --generation or input.generation; inference requires run.','stories choose ID --batch 0 --index 0 --generation N'],
@@ -71,8 +74,8 @@ const inputs={
 };
 type Context={cwd?:string;home?:string;generation?:ReaderProvider;localBooks?:LocalBooks;variables?:Record<string,string|undefined>;input?:unknown;signal?:AbortSignal;skill?:{transport?:typeof fetch;now?:()=>number}};
 function parse(args:string[]){return parseArgs({args,allowPositionals:true,strict:true,options:Object.fromEntries([
- ...['data-dir','from-data-dir','input','output','format','until','timeout','title','request-id','query','batch','index','scope','generation','auto-update'].map(k=>[k,{type:'string'}]),
- ...['json','help','allow-unsigned','include-prompts','no-intake','refresh','automatic','copy-images','no-copy-images','draft'].map(k=>[k,{type:'boolean'}]),
+ ...['data-dir','from-data-dir','input','output','format','until','timeout','title','request-id','query','batch','index','scope','generation','auto-update','limit'].map(k=>[k,{type:'string'}]),
+ ...['json','brief','help','allow-unsigned','include-prompts','no-intake','refresh','automatic','copy-images','no-copy-images','draft'].map(k=>[k,{type:'boolean'}]),
  ]) as Record<string,{type:'string'|'boolean'}>});}
 async function readInput(filename?:string){
  if(!filename)return {};
@@ -95,8 +98,8 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  const {values:v,positionals:p}=parse(args);const command=p[0]||'help',action=p[1],id=p[2],value=(name:string)=>typeof v[name]==='string'?v[name] as string:undefined;
  need(commandNames.has(command),'UNKNOWN_COMMAND','Use help --json for available commands.');
  const appVersion=JSON.parse(await readFile(path.join(root,'package.json'),'utf8')).version||'unknown';
- if(command==='help'||v.help)return {schemaVersion:1,appVersion,default:'No subcommand starts the existing browser service.',commands,inputs,options:{'--data-dir':'Private library, otherwise saved desktop/CLI location.','--input':'JSON file or - for stdin.','--output':'New output path; never overwrites.','--request-id':'Stable UUID for mutation replay; retain original generation/token/faultId and input.','--generation':'Required intake generation from stories get ID for setup/search/choose/confirm.','--until':'candidates|prepared|reviewed|completed (default completed).','--timeout':'Explicit run timeout in seconds, default 900, max 86400.','--allow-unsigned':'Explicitly permit an unsigned export.','--draft':'Copy an unreviewed saved storyboard as a paused independent text draft; no images.','--json':'Subcommands always return one JSON receipt on stdout.'},selectionExample:{bookId:'zhuangzi',theme:'原典故事',artStyle:'ink-pencil',narrativeDetail:'balanced'},editExample:{token:'from stories revisions ID',changes:{productionPrompt:'保留关键人物回应'}},runResults:['completed','candidates','prepared','choice','frame_count_required','already_prepared','already_selected','reviewed','paused','blocked','superseded'],execution:'Only explicit run performs inference. All other commands save or inspect local state.'};
- if(command==='catalog'||command==='themes'||command==='styles'||command==='books'&&action!=='contents'){
+ if(command==='help'||v.help)return {schemaVersion:1,appVersion,default:'No subcommand starts the existing browser service.',commands,inputs,options:{'--data-dir':'Private library, otherwise saved desktop/CLI location.','--input':'JSON file or - for stdin.','--query':'Query for books contents.','--limit':'Maximum results for books search (1–42, default 10).','--output':'New output path; never overwrites.','--request-id':'Stable UUID for mutation replay; retain original generation/token/faultId and input.','--generation':'Required intake generation from stories get ID for setup/search/choose/confirm.','--until':'candidates|prepared|reviewed|completed (default completed).','--timeout':'Explicit run timeout in seconds, default 900, max 86400.','--allow-unsigned':'Explicitly permit an unsigned export.','--draft':'Copy an unreviewed saved storyboard as a paused independent text draft; no images.','--brief':'Show book, indexed story title and source location for books search.','--json':'Return one JSON receipt on stdout (default).'},selectionExample:{bookId:'zhuangzi',theme:'原典故事',artStyle:'ink-pencil',narrativeDetail:'balanced'},editExample:{token:'from stories revisions ID',changes:{productionPrompt:'保留关键人物回应'}},runResults:['completed','candidates','prepared','choice','frame_count_required','already_prepared','already_selected','reviewed','paused','blocked','superseded'],execution:'Only explicit run performs inference. All other commands save or inspect local state.'};
+ if(command==='catalog'||command==='themes'||command==='styles'||command==='books'&&!['contents','search','index-import'].includes(action)){
   return command==='books'?readerBooks:command==='themes'?themes:command==='styles'?artStyles.map(({prompt,...style})=>style):{books:readerBooks,themes,styles:artStyles.map(({prompt,...style})=>style),styleGroups:artStyleGroups};
  }
  if(command==='skill'){
@@ -126,6 +129,44 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  }
  if(command==='verify-backup'){need(action,'BACKUP_PATH_REQUIRED','Specify a backup directory.');const verified=verifyLibraryBackup(path.resolve(action));return {verified:true,files:verified.files.length,createdAt:verified.createdAt};}
  const directory=path.resolve(value('data-dir')||variables.SHIQU_DATA_DIR||savedDesktopLibraryDirectory({variables})||locations.library);
+ // 检索只访问独立索引和随应用发布的原文，不初始化或锁定正式书库。
+ if(command==='books'&&action==='index-import'){
+  need(id&&p[3]&&p.length===4,'INVALID_INPUT','Use books index-import BOOK FILE.');
+  outputOutside(root,directory);
+  const books=context.localBooks||new LocalBooks(root),book=await books.book(selectionSchema.parse({bookId:id,theme:'原典故事'}));
+  need(book,'BOOK_NOT_FOUND','This book is unavailable in the local collection.');
+  try{return await installStoryIndex(directory,book,path.resolve(context.cwd||process.cwd(),p[3]));}
+  catch(error){if(error instanceof ReaderError)throw new CliCommandError('INVALID_STORY_INDEX',error.message);throw error;}
+ }
+ if(command==='books'&&action==='search'){
+  need(p.length<=4&&value('query')===undefined,'INVALID_INPUT','Use books search QUERY [BOOK]. Quote a query containing spaces.');
+  const query=id?.trim(),limit=Number(value('limit')??10);
+  need(query&&query.length<=200,'QUERY_REQUIRED','Specify a query of 1 to 200 characters.');
+  need(Number.isInteger(limit)&&limit>=1&&limit<=42,'INVALID_LIMIT','Use --limit between 1 and 42.');
+  const search=new LocalStorySearch(path.join(directory,'story-search.sqlite'));
+  const indexed=p[3]?[]:await search.indexedBooks();
+  need(p[3]||indexed,'SEARCH_INDEX_UNAVAILABLE','No readable story index.');
+  const bookId=p[3]||(indexed?.length===1?indexed[0]:undefined);
+  need(bookId&&bookId.length<=100,'BOOK_ID_REQUIRED','Specify a book for this index.');
+  const books=context.localBooks||new LocalBooks(root),book=await books.book(selectionSchema.parse({bookId,theme:'原典故事'}));
+  need(book,'BOOK_NOT_FOUND','This book is unavailable in the local collection.');
+  const ranges=await search.lookupHits(book,query,context.signal||new AbortController().signal);
+  need(ranges,'SEARCH_INDEX_UNAVAILABLE','No readable story index for this book edition.');
+  const results=[];
+  const lines=[];
+  for(const [index,{source,title}] of ranges.entries()){
+   try{
+    const original=books.resolve(book,source),chars=Array.from(original.text);
+    results.push({rank:index+1,source,sourceLabel:original.title,sourceUrl:original.url,excerpt:chars.slice(0,320).join(''),truncated:chars.length>320});
+    if(v.brief&&!v.json)lines.push(`${index+1}. ${title.replace(/\s+/gu,' ')||'无标题'} · ${original.title}`);
+    if(results.length===limit)break;
+   }catch(error){if(!(error instanceof ReaderError))throw error;}
+  }
+  if(v.brief&&!v.json){
+   return {text:[`《${book.title}》 · ${query} · ${results.length} 条结果`,...lines].join('\n')+'\n'};
+  }
+  return {bookId:book.id,bookTitle:book.title,edition:book.edition,query,results};
+ }
  if(command==='restore'){need(action&&value('data-dir'),'RESTORE_TARGET_REQUIRED','restore BACKUP requires explicit --data-dir NEW_DIRECTORY.');outputOutside(root,directory);const manifest=restoreAndUpgradeLibrary(path.resolve(action),directory,root);return {restored:true,path:directory,files:manifest.files.length,started:false};}
  if(command==='diagnostics'){
   const output=value('output')||action;need(output,'OUTPUT_REQUIRED','Specify --output NEW_FILE.');outputOutside(root,path.resolve(output));need(!containsPath(directory,path.resolve(output)),'PRIVATE_OUTPUT_REQUIRED','Diagnostic output must be outside the library.');
@@ -243,7 +284,7 @@ export async function routeHeadless(root:string,args:string[]){
  if(!commandNames.has(args[0])&&!(args[0]&&!args[0].startsWith('-'))&&!(args.includes('--json')&&args.includes('--help')))return false;
  const saved={log:console.log,info:console.info,warn:console.warn};
  console.log=console.info=console.warn=(...values:unknown[])=>console.error(...values);
- try{const data=await executeHeadless(root,args[0]?.startsWith('-')?['help',...args]:args);process.stdout.write(args[0]==='skill'&&args[1]==='show'&&!args.includes('--json')?(data as {text:string}).text:JSON.stringify({schemaVersion:1,ok:true,data})+'\n');}
+ try{const data=await executeHeadless(root,args[0]?.startsWith('-')?['help',...args]:args);const plainText=args[0]==='skill'&&args[1]==='show'||args[0]==='books'&&args[1]==='search'&&args.includes('--brief')&&!args.includes('--help');process.stdout.write(plainText&&!args.includes('--json')?(data as {text:string}).text:JSON.stringify({schemaVersion:1,ok:true,data})+'\n');}
  catch(error){
   const known=error instanceof CliCommandError,skillCode=(error as NodeJS.ErrnoException)?.code,code=known?error.code:typeof skillCode==='string'&&/^SKILL_[A-Z_]+$/.test(skillCode)?skillCode:(error as NodeJS.ErrnoException)?.code==='EEXIST'?'TARGET_EXISTS':(error as Error)?.message==='DATA_BUSY'?'LIBRARY_BUSY':(error as Error)?.name==='ZodError'?'INVALID_INPUT':'COMMAND_FAILED';
   const message=known?error.message:code==='TARGET_EXISTS'?'Output already exists.':code==='LIBRARY_BUSY'?'Stop all services using this library and retry.':code==='INVALID_INPUT'?'Input does not match the production schema.':/^(EXPORT_|BACKUP_|SKILL_)/.test((error as Error)?.message||'')?(error as Error).message:'Command failed; check paths, provider configuration and diagnostics.';

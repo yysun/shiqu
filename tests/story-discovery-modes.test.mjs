@@ -73,16 +73,14 @@ test('verified title results and their cached replay never depend on an availabl
  assert.deepEqual(restored.stories,first.stories);assert.equal(f.calls.catalog.length,1);
 });
 
-test('title plus a catalog story scopes inference to its exact passage and rejects mixed or forged excerpts',async()=>{
+test('title plus a catalog story scopes inference to its exact passage and rejects forged excerpts',async()=>{
  const selected=selectionSchema.parse({...selection,bookId:'liaozhai',discovery:{mode:'title',title:'种梨'}}),book=await library.book(selected);
  const contents=await bookContents(library,selected),entry=contents.entries.find(entry=>entry.title==='種梨');
- const scoped=selectedChapterScope(library,book,[entry.source]);
+ const scoped=await selectedChapterScope(library,book,[entry.source]);
  assert.ok(scoped.book.input.text.includes('種梨'));assert.ok(!scoped.book.input.text.includes('勞山道士'));
  assert.equal(localSourceKey(scoped.discoverySources[0]),localSourceKey(entry.source));
  assert.equal(scoped.book.sections[0].units.map(unit=>unit.text).join('\n\n'),library.resolve(book,entry.source).text);
- const next=contents.entries.find(other=>other.source&&other.id!==entry.id);
- assert.throws(()=>selectedChapterScope(library,book,[entry.source,next.source]),error=>error.status===400);
- assert.throws(()=>selectedChapterScope(library,book,[{...entry.source,lastUnit:entry.source.firstUnit}]),error=>error.status===400);
+ await assert.rejects(selectedChapterScope(library,book,[{...entry.source,lastUnit:entry.source.firstUnit}]),error=>error.status===400);
  let calls=0;
  const provider={status:async()=>({configured:true,provider:'codex',models:{text:'mock',image:'mock'}}),generator:()=>({}),safeError:()=>'',matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文支持指定故事。'}))}),suggestions:async(_selection,_excluded,input)=>{calls++;assert.ok(!input.text.includes('勞山道士'));assert.equal(input.scan.targetStoryTitle,'种梨');return {stories:[{title:'种梨',description:'道士与卖梨人相遇。',source:entry.source}],note:'',scan:scan()};}};
  const result=await withLocalBooks(provider,library,memory()).suggestions({...selected,discoverySources:[entry.source]},[]);
@@ -92,7 +90,10 @@ test('title plus a catalog story scopes inference to its exact passage and rejec
 
 test('title intent, scope and theme survive creation, replay, restart and choosing in the production API',async t=>{
  const f=await productionFixture(t),s=selectionSchema.parse({...selection,bookId:'liaozhai',storyTitle:undefined,theme:'欲望与代价',discovery:{mode:'title',title:'种梨'}});
- const entry=(await bookContents(library,s)).entries.find(entry=>entry.title==='種梨');s.discoverySources=[entry.source];
+ const entries=(await bookContents(library,s)).entries;
+ const entry=entries.find(entry=>entry.title==='種梨');
+ s.discoverySources=entries.filter(entry=>['種梨','勞山道士'].includes(entry.title)).map(entry=>entry.source);
+ assert.equal(s.discoverySources.length,2);
  f.generation.matchStories=async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'完整原文依据。'}))});
  f.generation.suggestions=async()=>({stories:[{title:'种梨',description:'人物围绕梨树发生交往。',source:entry.source}],note:'',scan:scan()});
  f.options.generation=withLocalBooks(f.generation,library,f.media);await f.restart();f.app.services.localBooks=library;

@@ -47,17 +47,16 @@ test('title, theme and original scope are independently optional in the creation
  for(let flags=0;flags<8;flags++){
   const title=!!(flags&1),theme=!!(flags&2),scope=!!(flags&4),sheet=await open();
   assert.equal(await sheet.getByLabel('故事标题',{exact:true}).count(),0);
-  assert.equal(await sheet.getByRole('group',{name:'原文范围'}).getByRole('button',{name:'自动',exact:true}).count(),1);
+  assert.equal(await sheet.getByRole('group',{name:'原文范围'}).getByRole('button',{name:'全书',exact:true}).count(),1);
   const scopePosition=await sheet.getByRole('group',{name:'原文范围'}).boundingBox(),themePosition=await sheet.getByRole('group',{name:'故事主题'}).boundingBox();
   assert.ok(scopePosition.y<themePosition.y,'Original scope should appear before theme');
   if(theme){await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其他',exact:true}).click();await sheet.getByLabel('写下想看的主题').fill('知恩图报');}
   if(scope){
-   await sheet.getByRole('group',{name:'原文范围'}).getByRole('button',{name:'选择章节或已有故事段落'}).click();await sheet.getByRole('checkbox',{name:'第一章',exact:true}).check();
-   await sheet.getByRole('button',{name:'完成原文选择',exact:true}).click();
-   assert.equal(await sheet.getByLabel('搜索故事或章节').isVisible(),false);
-   await sheet.locator('.yu-scope-selection>summary').click();
+   await sheet.getByRole('group',{name:'原文范围'}).getByRole('button',{name:'选择章节'}).click();await sheet.getByRole('checkbox',{name:'第一章',exact:true}).check();
+   await sheet.getByLabel('关键词筛选').fill('不存在的章节');
+   await sheet.getByText('没有匹配的章节。',{exact:false}).waitFor();
+   await sheet.getByLabel('关键词筛选').fill('');
    assert.equal(await sheet.getByRole('checkbox',{name:'第一章',exact:true}).isChecked(),true);
-   await sheet.getByRole('button',{name:'完成原文选择',exact:true}).click();
   }
   const gap=await sheet.getByRole('button',{name:'进入故事提取',exact:true}).evaluate(button=>button.getBoundingClientRect().top-button.previousElementSibling.getBoundingClientRect().bottom);
   assert.ok(gap>=23.5,`discovery button gap: ${gap}`);
@@ -82,7 +81,7 @@ test('title, theme and original scope are independently optional in the creation
   assert.equal(await extraction.getByLabel('故事标题',{exact:true}).count(),0);
   const context=extraction.getByRole('region',{name:'已选原文与主题'});
   if(scope)await context.getByText('第一章',{exact:true}).waitFor();
-  else assert.ok((await context.textContent()).includes('自动（未限定章节或段落）'));
+  else assert.ok((await context.textContent()).includes('全书'));
   assert.ok((await context.textContent()).includes(theme?'知恩图报':'不限定主题'));
   const contextPosition=await context.boundingBox(),modePosition=await extraction.getByRole('group',{name:'标题方式'}).boundingBox();
   assert.ok(contextPosition.y<modePosition.y,'Selected originals and theme should precede title mode');
@@ -143,21 +142,24 @@ test('title, theme and original scope are independently optional in the creation
  preference=page.getByRole('dialog',{name:'这一篇，想怎样读？'});
  assert.equal(await preference.getByRole('group',{name:'选择书籍'}).getByRole('button',{name:'水浒传',exact:true}).getAttribute('aria-pressed'),'true');
  await preference.getByRole('button',{name:'关闭',exact:true}).click();
- // A single catalog story can be a title-query scope, and clearing the title preserves that choice.
+ // 切换关键词时保留已勾选的章节，按标题提取时也保留这些范围。
  const real=new LocalBooks(process.cwd());library.books.book=selection=>real.book(selection);
  let sheet=await open();
  await sheet.getByRole('group',{name:'选择书籍'}).getByRole('button',{name:'聊斋志异',exact:true}).click();
- await sheet.getByRole('group',{name:'原文范围'}).getByRole('button',{name:'选择章节或已有故事段落'}).click();
- await sheet.getByLabel('搜索故事或章节').fill('种梨');
- await sheet.getByRole('button').filter({has:page.getByText('種梨',{exact:true})}).click();
- await sheet.getByRole('button',{name:'完成原文选择',exact:true}).click();
+ await sheet.getByRole('group',{name:'原文范围'}).getByRole('button',{name:'选择章节'}).click();
+ await sheet.getByLabel('关键词筛选').fill('种梨');
+ await sheet.getByRole('checkbox',{name:'第一卷',exact:true}).check();
+ await sheet.getByLabel('关键词筛选').fill('第二卷');
+ await sheet.getByRole('checkbox',{name:'第二卷',exact:true}).check();
+ await sheet.getByLabel('关键词筛选').fill('种梨');
+ assert.equal(await sheet.getByRole('checkbox',{name:'第一卷',exact:true}).isChecked(),true);
  await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'欲望与代价',exact:true}).click();
  const request=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/reader/sessions'&&response.request().method()==='POST');
  await sheet.getByRole('button',{name:'进入故事提取',exact:true}).click();
  const submitted=await request;assert.equal(submitted.status(),201);const selected=submitted.request().postDataJSON().selection;
- assert.deepEqual(selected.discovery,{mode:'auto'});assert.equal(selected.theme,'欲望与代价');assert.equal(selected.discoverySources.length,1);assert.equal(selected.source,undefined);
+ assert.deepEqual(selected.discovery,{mode:'auto'});assert.equal(selected.theme,'欲望与代价');assert.equal(selected.discoverySources.length,2);assert.equal(selected.source,undefined);
  const created=await submitted.json(),extraction=page.getByRole('dialog',{name:'故事设置',exact:true});
- await extraction.getByRole('region',{name:'已选原文与主题'}).getByText('種梨',{exact:true}).waitFor();
+ for(const title of ['第一卷','第二卷'])await extraction.getByRole('region',{name:'已选原文与主题'}).getByText(title,{exact:true}).waitFor();
  await extraction.getByRole('button',{name:'输入标题',exact:true}).click();
  await extraction.getByLabel('故事标题',{exact:true}).fill('种梨');
  const search=page.waitForResponse(response=>response.url().endsWith(`/api/reader/sessions/${created.id}/setup`)&&response.request().method()==='POST'&&response.request().postDataJSON().action==='search');
@@ -169,10 +171,9 @@ test('title, theme and original scope are independently optional in the creation
  // The actual three selected Water Margin chapters are listed, rather than just a range count.
  sheet=await open();
  await sheet.getByRole('group',{name:'选择书籍'}).getByRole('button',{name:'水浒传',exact:true}).click();
- await sheet.getByRole('group',{name:'原文范围'}).getByRole('button',{name:'选择章节或已有故事段落'}).click();
- await sheet.getByLabel('搜索故事或章节').fill('高太尉');
+ await sheet.getByRole('group',{name:'原文范围'}).getByRole('button',{name:'选择章节'}).click();
+ await sheet.getByLabel('关键词筛选').fill('高太尉');
  for(const chapter of ['第七十八回','第七十九回','第八十回'])await sheet.getByRole('checkbox',{name:new RegExp('^'+chapter+' ')}).check();
- await sheet.getByRole('button',{name:'完成原文选择',exact:true}).click();
  await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'欲望与代价',exact:true}).click();
  await sheet.getByRole('button',{name:'进入故事提取',exact:true}).click();
  const margin=page.getByRole('dialog',{name:'故事设置',exact:true}),chosen=margin.getByRole('region',{name:'已选原文与主题'});
@@ -193,11 +194,9 @@ test('title, theme and original scope are independently optional in the creation
  const returned=page.getByRole('dialog',{name:'这一篇，想怎样读？'});
  assert.equal(await returned.getByRole('group',{name:'选择书籍'}).getByRole('button',{name:'水浒传',exact:true}).getAttribute('aria-pressed'),'true');
  assert.equal(await returned.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'欲望与代价',exact:true}).getAttribute('aria-pressed'),'true');
- await returned.locator('.yu-scope-selection>summary').click();
- await returned.getByLabel('搜索故事或章节').fill('高太尉');
+ await returned.getByLabel('关键词筛选').fill('高太尉');
  for(const chapter of ['第七十八回','第七十九回','第八十回'])assert.equal(await returned.getByRole('checkbox',{name:new RegExp('^'+chapter+' ')}).isChecked(),true);
  await returned.getByRole('checkbox',{name:/^第七十九回 /}).uncheck();
- await returned.getByRole('button',{name:'完成原文选择',exact:true}).click();
  await returned.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其他',exact:true}).click();
  await returned.getByLabel('写下想看的主题').fill('江湖中的进退');
  const update=page.waitForResponse(response=>response.url().endsWith(`/api/reader/sessions/${marginId}/setup`)&&response.request().method()==='POST'&&response.request().postDataJSON().action==='conditions');

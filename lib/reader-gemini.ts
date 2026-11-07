@@ -17,8 +17,8 @@ export {imageTypes} from './reader-generation-contract.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import {saveStoryOriginal} from './reader-source-storage.ts';
 import {localChoicesJson,localScanJson,localCatalogOutputJson,localCatalogOutputTokens,localChoices,localReadingPrompt,localSuggestionPayload} from './reader-local-contract.ts';
-import {themeMatchPrompt,themeMatchPayload,themeMatchJson,parseThemeMatches,themeMatchOutputTokens,themeMatchEffort} from './reader-theme-match.ts';
-import type {ThemeStory} from './reader-theme-match.ts';
+import {binaryThemeMatch,verifiedThemeMatch,themeMatchEffort} from './reader-theme-match.ts';
+import type {ThemeStory,ThemeMatchProtocol} from './reader-theme-match.ts';
 import type {WholeBookInput} from './reader-local-contract.ts';
 import {verifiedOriginalPayload} from './reader-source-types.ts';
 import {assertStoryBriefReady} from './reader-story-brief.ts';
@@ -146,12 +146,19 @@ export async function suggestStories(key:string,selection:Selection,config:Parti
  };
  return scanning?discoveryCall({stage:'extraction',provider:'gemini',model:models.text,effort:reasoning.suggest,requestedCount:localBook.scan?.maxStories||1},context,run):run(()=>{});
 }
-export async function matchStoryThemes(key:string,theme:string,stories:ThemeStory[],config:Partial<Models>={},transport:typeof fetch=fetch,context?:DiscoveryContext){
+async function checkStoryThemes<T extends {matches:unknown[]}>(key:string,theme:string,stories:ThemeStory[],config:Partial<Models>,transport:typeof fetch,context:DiscoveryContext|undefined,contract:ThemeMatchProtocol<T>){
  const models={...defaultModels,...config};
  return discoveryCall({stage:'matching',provider:'gemini',model:models.text,effort:themeMatchEffort,requestedCount:stories.length},context,async report=>{
-  const {candidate,metadata}=await client(key,transport)(models.text,textRequest(models.text,themeMatchPrompt,themeMatchPayload(theme,stories),themeMatchJson,'',themeMatchOutputTokens(stories.length),themeMatchEffort),'suggest');report(metadata);
-  const parsed=parseThemeMatches(parseText(candidate),stories);report({acceptedCount:parsed.matches.length});return parsed;
+  const {candidate,metadata}=await client(key,transport)(models.text,textRequest(models.text,contract.prompt,contract.payload(theme,stories),contract.json,'',contract.outputTokens(stories.length),themeMatchEffort),'suggest');report(metadata);
+  const parsed=contract.parse(parseText(candidate),stories);report({acceptedCount:parsed.matches.length});return parsed;
  });
+}
+
+export function matchStoryThemes(key:string,theme:string,stories:ThemeStory[],config:Partial<Models>={},transport:typeof fetch=fetch,context?:DiscoveryContext){
+ return checkStoryThemes(key,theme,stories,config,transport,context,binaryThemeMatch);
+}
+export function verifyStoryThemes(key:string,theme:string,stories:ThemeStory[],config:Partial<Models>,transport:typeof fetch,context?:DiscoveryContext){
+ return checkStoryThemes(key,theme,stories,config,transport,context,verifiedThemeMatch);
 }
 
 export async function recommendStoryArt(key:string,selection:Selection,original:OriginalSource,config:Models,transport:typeof fetch,reasoning:TaskReasoningEfforts=taskReasoningDefaults){

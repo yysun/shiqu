@@ -13,7 +13,7 @@ export default function StoryExtractionContext({selection,book}:{selection:Selec
  useEffect(()=>{
   if(!sources.length)return;
   let live=true;
-  request('reader/books/'+encodeURIComponent(bookId)+'/contents').then((contents:BookContents)=>{
+  request('reader/books/'+encodeURIComponent(bookId)+'/contents?view=scope').then((contents:BookContents)=>{
    const directory=new Map(contents.entries.filter(entry=>entry.source).map(entry=>[localSourceKey(entry.source!),entry]));
    const entries=sources.flatMap(source=>{const entry=directory.get(localSourceKey(source));return entry?[entry]:[];});
    if(live)setLoaded({key,entries,...(entries.length!==sources.length?{error:'部分已选原文已更新，请返回核对原文范围。'}:{})});
@@ -23,7 +23,7 @@ export default function StoryExtractionContext({selection,book}:{selection:Selec
  const current=loaded?.key===key?loaded:null;
  return <section className="yu-extraction-context" aria-label="已选原文与主题">
   <p className="yu-extraction-book">《{book}》</p>
-  <dl><dt>原文范围</dt><dd>{!sources.length?'自动（未限定章节或段落）':!current?<span role="status">正在读取已选原文…</span>:<>
+  <dl><dt>原文范围</dt><dd>{!sources.length?'全书':!current?<span role="status">正在读取已选原文…</span>:<>
    {!!current.entries.length&&<ul>{current.entries.map(entry=><li key={entry.id}><strong>{entry.title}</strong>{entry.kind==='story'&&<p>{entry.excerpt}</p>}</li>)}</ul>}
    {current.error&&<div role="status"><p>{current.error}</p><button type="button" className="yu-context-retry" onClick={()=>setRetry(value=>value+1)}>重新加载原文名称</button></div>}
   </>}</dd><dt>主题</dt><dd>{selection.theme==='原典故事'?'不限定主题':selection.theme}</dd></dl>
