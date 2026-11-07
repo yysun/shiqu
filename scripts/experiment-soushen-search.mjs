@@ -333,7 +333,7 @@ async function buildCards(db,{pilot=false,model=chatModel,volume,ids=[],defaultB
  let batchSize=defaultBatch,done=0;
  while(pending.length){
   const batch=pending.slice(0,batchSize);
-  if(indexedBookId==='liaozhai'){
+  if(indexedBookId==='liaozhai'&&!model.startsWith('gpt-')){
    let characters=0;
    const overflow=batch.findIndex((row,index)=>(characters+=row.text.length)>5200&&index>0);
    if(overflow>0)batch.length=overflow;
@@ -783,6 +783,7 @@ async function openSearchDatabase(write){
   if(!info.isFile()||info.nlink!==1)throw Error('实验数据库必须是单独的普通文件');
   const existing=new DatabaseSync(dbPath,{readOnly:true});
   try{
+   existing.exec('PRAGMA busy_timeout=5000');
    const tables=existing.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
    if(tables.some(({name})=>!['metadata','entries','passages','boundary_reviews','boundary_plans','query_vectors','event_cards'].includes(name)))throw Error('该文件不是拾趣离线故事索引');
   }finally{existing.close();}
@@ -793,7 +794,7 @@ const write=['build','cards','segment','refs','events'].includes(mode);
 const db=await openSearchDatabase(write);
 try{
  if(write){
-  db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;
+  db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
   CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL) STRICT;
   CREATE TABLE IF NOT EXISTS entries(
    id TEXT PRIMARY KEY,volume INTEGER NOT NULL,label TEXT NOT NULL,url TEXT NOT NULL,source TEXT NOT NULL,text TEXT NOT NULL,
