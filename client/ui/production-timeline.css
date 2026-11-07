@@ -1,4 +1,4 @@
-/* 手机阅读与桌面队列共享制作阶段语义；设置内的操作保持至少 44px 的真实点击高度。 */
+/* 手机阅读与桌面队列共享制作阶段语义；故事设置里的文字和链接共用紧凑行高。 */
 /* 原文操作归入提取步骤，确认步骤使用两列设置组。 */
 ol.production-timeline{list-style:none;padding:0;margin:0;display:grid;gap:5px;text-align:left}
 .production-timeline>li{display:flex;align-items:center;gap:10px;min-height:52px;padding:8px;border:1px solid transparent;border-radius:9px;font-size:12px;line-height:1.6;color:#718064}
@@ -45,7 +45,7 @@ ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr))
 
 .production-stage-notice .yu-retry-control{margin:0}.production-stage-notice .yu-review-tools.has-issues{padding:0;border:0;background:none}.production-stage-notice .yu-review-tools{margin:8px 0}.production-stage-notice .yu-batch-error{margin:8px 0}.production-stage-notice>.yu-primary{margin-top:10px}
 .yu-confirmation-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));justify-items:start;align-items:baseline;gap:4px 16px;min-width:0}
-.yu-creation-setup [data-stage=count]>.production-stage-notice>.story-flow-link{justify-self:end}
+.yu-creation-setup [data-stage=count]>.production-stage-notice>.story-flow-link{justify-self:end;justify-content:flex-end}
 .yu-extraction-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:baseline;gap:4px 16px}
 
 .production-stage-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;min-width:0}
@@ -79,16 +79,18 @@ ol.production-timeline:not(.production-timeline--horizontal){--production-step-g
 .production-timeline:not(.production-timeline--horizontal)>li>.production-stage-notice{flex-basis:100%;margin-left:0}
 
 /* 故事设置的所有步骤共用标题行、详情行和操作行；完成状态不再另设缩进与行高。 */
-.yu-settings-flow .production-timeline:not(.production-timeline--horizontal){--production-step-gap:8px;--production-icon-top:12px}
-.yu-settings-flow .production-timeline:not(.production-timeline--horizontal)>li{display:grid;grid-template-columns:minmax(0,1fr) fit-content(45%);align-items:baseline;column-gap:12px;row-gap:0;min-height:0;padding:8px 8px 8px 42px;line-height:1.6}
+.yu-settings-flow .production-timeline:not(.production-timeline--horizontal){--production-step-gap:4px;--production-icon-top:5px;--production-setting-row:26px}
+.yu-settings-flow .production-timeline:not(.production-timeline--horizontal)>li{display:grid;grid-template-columns:minmax(0,1fr) fit-content(45%);grid-auto-rows:minmax(var(--production-setting-row),auto);align-items:center;column-gap:12px;row-gap:0;min-height:0;margin-right:-8px;padding:4px 8px 4px 42px;line-height:1.6}
 .yu-settings-flow .production-stage-copy,.yu-settings-flow .production-stage-meta{display:contents}
-.yu-settings-flow .production-stage-copy>strong{grid-area:1/1;display:flex;align-items:center;min-height:32px;line-height:1.6}
-.yu-settings-flow .production-stage-copy>small{grid-area:2/1;display:flex;align-items:center;min-height:32px;line-height:1.6}
-.yu-settings-flow .production-stage-state{grid-area:1/2;display:flex;align-items:center;min-height:32px;justify-self:end}
-.yu-settings-flow .production-stage-details{grid-area:2/2;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:0 8px;min-width:0;min-height:32px;text-align:right}
-.yu-settings-flow .production-stage-notice{grid-area:3/1/auto/-1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
+.yu-settings-flow .production-stage-copy>strong{grid-area:1/1;display:flex;align-items:center;line-height:1.6}
+.yu-settings-flow .production-stage-copy>small{grid-area:2/1;display:flex;align-items:center;line-height:1.6}
+.yu-settings-flow .production-stage-state{grid-area:1/2;display:flex;align-items:center;justify-self:end}
+.yu-settings-flow .production-stage-details{grid-area:2/2;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:0 8px;min-width:0;text-align:right}
+.yu-settings-flow .production-stage-notice:not(:empty){grid-area:3/1/auto/-1;display:flex;flex-wrap:wrap;align-items:center;gap:0 12px}
+.yu-settings-flow :is(.yu-confirmation-settings,.yu-extraction-actions,.yu-review-inspect,.production-stage-footer,.yu-retry-actions){row-gap:0}
+.yu-settings-flow .yu-review-inspect{flex-direction:row}
 .yu-settings-flow .production-stage-notice>*{flex-basis:100%}
 .yu-settings-flow .production-stage-notice>.yu-review-tools:not(.has-issues){flex:1 1 auto;min-width:0;margin:0}
-.yu-settings-flow .production-stage-notice>.production-stage-footer{flex:0 1 auto;margin-left:auto}
-.yu-settings-flow .production-timeline .story-flow-link{min-height:44px;padding:0}
+.yu-settings-flow .production-stage-notice>.production-stage-footer{flex:0 1 auto;align-self:flex-end;min-height:var(--production-setting-row);margin-left:auto}
+.yu-settings-flow .production-timeline:not(.production-timeline--horizontal) .story-flow-link{min-height:var(--production-setting-row);padding:0}
 .yu-settings-flow .production-stage-copy .story-flow-link{justify-content:flex-start}

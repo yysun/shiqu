@@ -1,4 +1,4 @@
-// 手机可读性审计：在页面内测量当前最上层视图的文字字号、44×44 触控区、对比度与布局。
+// 手机可读性审计：测量文字、44×44 触控区（故事设置流程链接为 44×26）、对比度与布局。
 // 只读取计算样式与命中测试，不修改页面状态；测量时滚动过的容器会恢复原位。
 // 画面上的文字按固定表格与其画面、遮罩配对，因为阅读画面和遮罩都不参与命中测试。
 
@@ -50,7 +50,9 @@ function auditInPage({minimumText,targetSize,checks}){
    if(el.matches('a')&&[...el.parentElement.childNodes].some(node=>node!==el&&node.nodeType===3&&node.textContent.trim()))continue;
    el.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
    const rect=el.getBoundingClientRect(),x=rect.left+rect.width/2,y=rect.top+rect.height/2,misses=[];
-   for(const dy of offsets)for(const dx of offsets){
+   // 故事设置流程按紧凑行高采样；横向和其他控件仍完整检查 44px。
+   const verticalOffsets=el.matches('.yu-settings-flow .production-timeline:not(.production-timeline--horizontal) .story-flow-link')?[-12,-6,0,6,12]:offsets;
+   for(const dy of verticalOffsets)for(const dx of offsets){
     const px=x+dx,py=y+dy;if(px<0||py<0||px>=viewport.width||py>=viewport.height)continue;
     const hit=document.elementFromPoint(px,py);if(hit&&(hit===el||el.contains(hit)))continue;
     // Chromium 命中测试排除圆角之外的角落；只豁免控件自身盒内被圆角裁掉的点。

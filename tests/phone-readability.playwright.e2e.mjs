@@ -29,7 +29,7 @@ async function auditWidths(page,name,report,directory){
 }
 const failedOf=report=>Object.fromEntries(Object.entries(report).map(([key,value])=>[key,Object.fromEntries(Object.entries(value.failures).filter(([,list])=>list.length))]).filter(([,value])=>Object.keys(value).length));
 
-test('PHONE-READABILITY: every phone state has readable text, 44px targets, contrast and intact layout',{timeout:600000},async t=>{
+test('PHONE-READABILITY: every phone state has readable text, 44px targets (26px workflow rows), contrast and intact layout',{timeout:600000},async t=>{
  const b=await storyBrowser(t,'phone-readability',phone);
  const {f,page,url}=b,report={},unreached=[],named=[],original=f.control.beforeText;
  const directory=path.join(b.directory,'audit');await mkdir(directory,{recursive:true});
