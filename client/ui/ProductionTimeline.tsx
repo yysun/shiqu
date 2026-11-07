@@ -1,5 +1,5 @@
 // Keep every checkpoint on a shared icon axis, with navigation and feedback under its step.
-// Review history belongs to the latest review checkpoint rather than the drawing footer.
+// 审核记录与耗时归入同一详情行，让故事设置里的所有步骤使用一致的对齐规则。
 import {Fragment} from 'react';
 import StoryFlowAction from './StoryFlowAction';
 import {generationDuration} from '@/lib/generation-progress';
@@ -23,7 +23,7 @@ export default function ProductionTimeline({stages,moving=false,queued=false,lay
  return <li key={step.id} className={[done?'production-stage-complete':'',layout==='vertical'&&stageContent[step.id]?'has-stage-content':''].filter(Boolean).join(' ')||undefined} data-stage={step.id} data-state={step.state} aria-current={['current','failed','paused'].includes(step.state)?'step':undefined} title={layout==='horizontal'?`${step.label} · ${stateLabel(step)}\n${step.detail}`:undefined}>
   <span className="production-stage-icon" aria-hidden="true">{step.state==='done'?<Check size={13}/>:step.state==='failed'?<X size={13}/>:step.state==='paused'?<Pause size={12}/>:step.state==='skipped'||step.state==='unavailable'?<Minus size={13}/>:step.state==='current'&&moving?<Loader2 size={14} className="production-stage-spin"/>:index+1}</span>
   <span className="production-stage-copy"><strong className={links[step.id]?.length?'production-stage-links':undefined}>{name}</strong><small>{detailActions[step.id]?<StoryFlowAction aria-label={detailActions[step.id].label} onClick={detailActions[step.id].onClick}>{step.detail}</StoryFlowAction>:step.detail}</small></span>
-  {(!done||timing||history)&&<span className="production-stage-meta">{!done&&<span className="production-stage-state">{stateLabel(step)}</span>}{timing&&<span className="production-stage-timing">{timing}</span>}{history&&<StoryFlowAction onClick={onHistory}>审核记录</StoryFlowAction>}</span>}
+  {(!done||timing||history)&&<span className="production-stage-meta">{!done&&<span className="production-stage-state">{stateLabel(step)}</span>}{(timing||history)&&<span className="production-stage-details">{timing&&<span className="production-stage-timing">{timing}</span>}{history&&<StoryFlowAction onClick={onHistory}>审核记录</StoryFlowAction>}</span>}</span>}
   {layout==='vertical'&&stageContent[step.id]&&<div className="production-stage-notice">{stageContent[step.id]}</div>}
  </li>;
  })}</ol>{layout==='vertical'&&!onHistory&&stages.some(step=>step.id==='review'&&step.state!=='unavailable')&&<p className="production-review-loop" aria-label="审核修复循环">审核 → 修复 → 全篇复核，未通过继续修复；最多自动 {readerMaxAutomaticRepairs} 轮，无变化或到上限则待处理。</p>}{layout==='horizontal'&&focused&&<p className="production-stage-current" data-state={focused.state} role="status"><strong>{focused.label} · {stateLabel(focused)}</strong><span>{focused.detail}</span></p>}</>;

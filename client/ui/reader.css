@@ -217,9 +217,9 @@ button.yu-page-surface{padding:0;border:0;background:transparent;cursor:default}
 .yu-source-chapter{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:10px;margin:0;padding:13px;border:1px solid #dce1d2;border-radius:10px;background:#fffdf6;color:#304c37;cursor:pointer;overflow-wrap:anywhere}.yu-source-chapter.selected{background:#edf3e5;border-color:#57774b}.yu-source-chapter input{width:18px;height:18px;margin:2px 0 0;accent-color:#57774b}.yu-source-chapter-copy{display:flex;flex-direction:column;gap:5px;min-width:0}.yu-source-chapter:has(input:disabled){opacity:.6;cursor:not-allowed}.yu-source-chapter:has(input:focus-visible){outline:2px solid #57774b;outline-offset:2px}
 
 .yu-setting-row .yu-revision-open{flex-shrink:0}
-.yu-setting-row.yu-story-name{padding-bottom:12px}
+.yu-setting-row.yu-story-name{padding:8px 0 12px}
 .yu-story-name>div{min-width:0}
-.yu-setting-row.yu-story-name p{margin-top:8px;font-family:var(--serif);font-size:20px;font-weight:500;line-height:1.5;color:#3a563f;overflow-wrap:anywhere}
+.yu-setting-row.yu-story-name p{margin-top:0;font-family:var(--serif);font-size:20px;font-weight:500;line-height:1.5;color:#3a563f;overflow-wrap:anywhere}
 
 /* Page stars identify the one saved reference for this book; bookmarks remain story favorites. */
 .yu-reference-star.is-selected{color:#f1cf78}.yu-reference-star:disabled{opacity:.4;cursor:default}
@@ -248,3 +248,11 @@ button.yu-page-surface{padding:0;border:0;background:transparent;cursor:default}
 :where(.yu-revision-open,.yu-source-link,.yu-avatar,.yu-logo,.yu-shelf-card-actions button,.yu-review-tools summary,.yu-sheet>button:not([class]),.yu-revision-buttons>button:not(.yu-primary)){position:relative}
 :where(.yu-revision-open,.yu-source-link,.yu-avatar,.yu-logo,.yu-shelf-card-actions button,.yu-review-tools summary,.yu-sheet>button:not([class]),.yu-revision-buttons>button:not(.yu-primary),.yu-switch)::after{content:"";position:absolute;inset:min(0px,calc((100% - 44px) / 2))}
 .yu-retry-control button,.yu-revision-tabs button{min-height:44px}
+
+/* 只隐藏故事设置的滚动条，滚动容器与原有输入方式保持可用。 */
+.yu-library-settings{scrollbar-width:none}
+.yu-library-settings::-webkit-scrollbar{display:none}
+
+/* 故事设置及其子面板始终使用小屏内容宽度；阅读页自己的侧栏不受影响。 */
+.yu-backdrop:is([aria-label="故事设置"],[aria-label="修改故事"],[aria-label="分镜剧本"],[aria-label="审核记录"],[aria-label="故事从哪里来"],[aria-label="故事原文"],[aria-label="重新选择故事"]) .yu-sheet{width:min(480px,100%);scrollbar-width:none}
+.yu-backdrop:is([aria-label="故事设置"],[aria-label="修改故事"],[aria-label="分镜剧本"],[aria-label="审核记录"],[aria-label="故事从哪里来"],[aria-label="故事原文"],[aria-label="重新选择故事"]) .yu-sheet::-webkit-scrollbar{display:none}

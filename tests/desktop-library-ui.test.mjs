@@ -1,5 +1,5 @@
 // 桌面书架：传入 onSelect 时封面与标题按钮改为选择，底部“继续阅读/重读”与制作行仍直接打开；
-// 选中的故事被筛掉时清除选中；不传 onSelect 时封面与标题直接打开。宽档右栏就是阅读页本身，由 E2E 覆盖。
+// 选中状态覆盖可阅读卡片与制作行；不传 onSelect 时封面与标题直接打开。右栏组合由浏览器验证。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
@@ -45,11 +45,23 @@ test('with onSelect, covers and titles select; the reading footer and production
 test('the selection clears when its story is filtered out or deleted',()=>{
  const guard=tree=>find(tree,node=>typeof node.type==='function'&&node.type.name==='SelectionGuard')[0];
  const kept=guard(Shelf(props({selectedId:'a',onSelect:noop})));
- assert.deepEqual(kept.props.ids.split('\n'),['a','b']);
+ assert.deepEqual(kept.props.ids.split('\n'),['p','a','b']);
  const filtered=guard(Shelf(props({selectedId:'a',onSelect:noop,query:'黛玉'})));
  assert.deepEqual(filtered.props.ids.split('\n'),['b'],'the filtered view no longer contains the selection');
  const deleted=guard(Shelf(props({selectedId:'a',onSelect:noop,stories:[story('b','黛玉葬花')]})));
  assert.ok(!deleted.props.ids.split('\n').includes('a'));
  // 守卫的效果：选中项不在列表中时调用 onSelect(null)
  const html=renderToStaticMarkup(createElement(Shelf,props({selectedId:'a',onSelect:noop,query:'黛玉'})));assert.doesNotMatch(html,/is-selected/);
+});
+
+test('production rows retain selection while opening their workflow independently of reading',()=>{
+ const resumed=[],opened=[];
+ const tree=Shelf(props({selectedId:'p',onSelect:noop,onResume:s=>resumed.push(s.id),onOpen:s=>opened.push(s.id)}));
+ const selected=find(tree,node=>node.props?.['data-story-id']==='p')[0];
+ assert.match(selected.props.className,/is-selected/);
+ const button=find(selected,node=>node.props?.className==='yu-pending-story')[0];
+ assert.equal(button.props['aria-pressed'],true);button.props.onClick();
+ assert.deepEqual(resumed,['p']);assert.deepEqual(opened,[]);
+ const guard=find(tree,node=>typeof node.type==='function'&&node.type.name==='SelectionGuard')[0];
+ assert.ok(guard.props.ids.split('\n').includes('p'));
 });

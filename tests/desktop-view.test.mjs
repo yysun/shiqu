@@ -33,6 +33,21 @@ test('workspace sections follow a total order; the first set flag wins',()=>{
  for(const flags of [{revisionTab:'requirements'},{script:true},{reviewHistoryId:'h'}])assert.equal(view(flags).kind,'workspace');
 });
 
+test('shelf production settings dock before and after artwork arrives; leaving still closes the workflow',()=>{
+ for(const story of [false,true]){
+  const flags={...base,tab:'shelf',panelOpen:true,docked:true,dockedWorkflow:true,story};
+  assert.deepEqual(desktopView(flags),{kind:'tab',tab:'shelf'});
+  assert.equal(activeTopItem(desktopView(flags)),'shelf');
+  assert.equal(topBarSteps(flags,'shelf'),null);
+  assert.deepEqual(topBarSteps(flags,'discover'),['leaveWorkspace',...(story?['home']:[])]);
+  for(const section of [{revisionTab:'requirements',expected:'edit'},{script:true,expected:'script'},{reviewHistoryId:'p',expected:'history'},{source:true,expected:'source'}]){
+   const {expected,...extra}=section;
+   assert.deepEqual(desktopView({...flags,...extra}),{kind:'workspace',section:expected});
+  }
+  assert.deepEqual(desktopView({...flags,configure:true}),{kind:'create'});
+ }
+});
+
 test('source alone selects the reader side panel; inside the workspace it is a section',()=>{
  assert.deepEqual(view({story:true,source:true}),{kind:'reader',panel:'source'});
  assert.deepEqual(view({story:true,sceneList:true}),{kind:'reader',panel:'scenes'});

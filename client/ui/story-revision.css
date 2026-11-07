@@ -53,3 +53,14 @@
 
 /* Full prompt records remain inspectable without stretching the production sheet. */
 .yu-prompt-details{display:grid;gap:14px;min-width:0;margin-top:18px}.yu-prompt-details details{min-width:0;border-top:1px solid var(--yu-line,#dedbd3);padding-top:12px}.yu-prompt-details summary{cursor:pointer;overflow-wrap:anywhere;font-size:14px;line-height:1.6}.yu-prompt-details details details{margin-top:12px}.yu-prompt-text{max-height:340px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 ui-monospace,monospace;background:var(--yu-paper,#f5f3ed);padding:14px;border-radius:8px;user-select:text}.yu-prompt-details li p{margin:6px 0}.yu-prompt-details h3{margin:0 0 8px}.yu-revision-tabs{flex-wrap:wrap}
+
+/* 修改故事统一使用紧凑间距：标题到页签 8px，页签到表单及表单分组之间 12px。 */
+.yu-backdrop[aria-label="修改故事"] .yu-revision-tabs{margin:8px 0 12px}
+.yu-backdrop[aria-label="修改故事"] .yu-revision-field{gap:6px;margin:12px 0}
+.yu-backdrop[aria-label="修改故事"] .yu-revision-tabs+.yu-revision-fields>:first-child,.yu-backdrop[aria-label="修改故事"] .yu-revision-script>.yu-revision-field:first-child{margin-top:0}
+.yu-backdrop[aria-label="修改故事"] .yu-revision-script>section{padding:8px 0}
+.yu-backdrop[aria-label="修改故事"] .yu-prompt-details{gap:12px;margin-top:12px}
+.yu-backdrop[aria-label="修改故事"] .yu-revision-review{margin:12px 0;padding:12px}
+.yu-backdrop[aria-label="修改故事"] .yu-revision-impact{margin-top:12px;padding:12px 0}
+.yu-backdrop[aria-label="修改故事"] .yu-revision-buttons{gap:8px;margin:12px 0}
+.yu-backdrop[aria-label="修改故事"] .yu-revision-note{margin-top:8px}

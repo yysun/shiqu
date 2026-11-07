@@ -15,7 +15,7 @@ const paused=(id,title)=>session(id,title,{generationControl:'paused'});
 function render({stories=[],pending=[],progress=[],...extra}={}){
  return renderToStaticMarkup(createElement(Shelf,{stories,pending,sessions:pending,progress,loading:false,refreshing:false,error:'',tab:'recent',query:'',grouping:'none',bookName:()=> '红楼梦',controlBusy:'',favoriteBusy:'',onControl:noop,onRetry:noop,onRefresh:noop,onTab:noop,onQuery:noop,onGrouping:noop,onOpen:noop,onResume:noop,onDelete:noop,onFavorite:noop,onCreate:noop,onDiscover:noop,...extra}));
 }
-const rows=html=>[...html.matchAll(/<li class="yu-production-row (\w+)">.*?<strong>(.*?)<\/strong>/g)].map(([,tone,title])=>`${tone}:${title}`);
+const rows=html=>[...html.matchAll(/<li class="yu-production-row (\w+)(?: is-selected)?"[^>]*>.*?<strong>(.*?)<\/strong>/g)].map(([,tone,title])=>`${tone}:${title}`);
 
 test('unfinished productions come first as rows, ordered by what needs the user, each with at most one control',()=>{
  const html=render({stories:[story('read','宝玉探病')],pending:[

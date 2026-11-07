@@ -1,5 +1,5 @@
-/* Keep the same stage semantics and readable layout in the phone reader and desktop queue. */
-/* Source actions sit with extraction; a two-column settings group belongs to confirmation. */
+/* 手机阅读与桌面队列共享制作阶段语义；设置内的操作保持至少 44px 的真实点击高度。 */
+/* 原文操作归入提取步骤，确认步骤使用两列设置组。 */
 ol.production-timeline{list-style:none;padding:0;margin:0;display:grid;gap:5px;text-align:left}
 .production-timeline>li{display:flex;align-items:center;gap:10px;min-height:52px;padding:8px;border:1px solid transparent;border-radius:9px;font-size:12px;line-height:1.6;color:#718064}
 .production-stage-icon{display:grid;place-items:center;flex:none;width:24px;height:24px;border:1px solid #d3ddc7;border-radius:50%;font-family:system-ui,sans-serif;font-size:var(--yu-meta-size)}
@@ -61,10 +61,11 @@ ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr))
 .production-timeline:not(.production-timeline--horizontal)>li.production-stage-complete{min-height:0;padding:5px 8px 5px 42px;gap:4px 12px;align-items:flex-end}
 .production-stage-complete>.production-stage-copy{flex-direction:column;align-items:flex-start;gap:0;line-height:1.4}
 .production-stage-complete>.production-stage-copy>small{line-height:1.4}
+.production-stage-details{display:contents}
 .production-stage-meta{display:flex;flex-direction:column;align-items:flex-end;align-self:flex-end;flex:none;gap:2px;max-width:55%;margin-left:auto;text-align:right}
-.production-stage-meta>.production-stage-timing{justify-content:flex-end}
-.production-stage-meta>.story-flow-link{font-size:var(--yu-meta-size)}
-.production-stage-complete>.production-stage-meta>.production-stage-timing{line-height:1.4}
+.production-stage-meta .production-stage-timing{justify-content:flex-end}
+.production-stage-meta .story-flow-link{font-size:var(--yu-meta-size)}
+.production-stage-complete>.production-stage-meta .production-stage-timing{line-height:1.4}
 .production-timeline--horizontal .production-stage-meta{align-items:center;align-self:center;max-width:100%;margin-left:0}
 .production-stage-complete>.production-stage-notice{flex-basis:100%;margin-left:0}
 .production-stage-notice:empty{display:none}
@@ -76,3 +77,18 @@ ol.production-timeline:not(.production-timeline--horizontal){--production-step-g
 .production-timeline:not(.production-timeline--horizontal)>li>.production-stage-icon{box-sizing:border-box;position:absolute;left:8px;top:var(--production-icon-top);width:var(--production-icon-size);height:var(--production-icon-size)}
 .production-timeline:not(.production-timeline--horizontal)>li:not(:last-child)::after{content:'';position:absolute;left:calc(8px + var(--production-icon-size)/2);top:calc(var(--production-icon-top) + var(--production-icon-size));width:1px;height:calc(100% + var(--production-step-gap) - var(--production-icon-size) + 2px);transform:translateX(-50%);background:#cbd7bf;pointer-events:none}
 .production-timeline:not(.production-timeline--horizontal)>li>.production-stage-notice{flex-basis:100%;margin-left:0}
+
+/* 故事设置的所有步骤共用标题行、详情行和操作行；完成状态不再另设缩进与行高。 */
+.yu-settings-flow .production-timeline:not(.production-timeline--horizontal){--production-step-gap:8px;--production-icon-top:12px}
+.yu-settings-flow .production-timeline:not(.production-timeline--horizontal)>li{display:grid;grid-template-columns:minmax(0,1fr) fit-content(45%);align-items:baseline;column-gap:12px;row-gap:0;min-height:0;padding:8px 8px 8px 42px;line-height:1.6}
+.yu-settings-flow .production-stage-copy,.yu-settings-flow .production-stage-meta{display:contents}
+.yu-settings-flow .production-stage-copy>strong{grid-area:1/1;display:flex;align-items:center;min-height:32px;line-height:1.6}
+.yu-settings-flow .production-stage-copy>small{grid-area:2/1;display:flex;align-items:center;min-height:32px;line-height:1.6}
+.yu-settings-flow .production-stage-state{grid-area:1/2;display:flex;align-items:center;min-height:32px;justify-self:end}
+.yu-settings-flow .production-stage-details{grid-area:2/2;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:0 8px;min-width:0;min-height:32px;text-align:right}
+.yu-settings-flow .production-stage-notice{grid-area:3/1/auto/-1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
+.yu-settings-flow .production-stage-notice>*{flex-basis:100%}
+.yu-settings-flow .production-stage-notice>.yu-review-tools:not(.has-issues){flex:1 1 auto;min-width:0;margin:0}
+.yu-settings-flow .production-stage-notice>.production-stage-footer{flex:0 1 auto;margin-left:auto}
+.yu-settings-flow .production-timeline .story-flow-link{min-height:44px;padding:0}
+.yu-settings-flow .production-stage-copy .story-flow-link{justify-content:flex-start}

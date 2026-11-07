@@ -760,7 +760,11 @@
       "suite": "unit",
       "pr": "code",
       "gates": [],
-      "covers": []
+      "covers": [
+        "client/ui/ReaderShelf.tsx",
+        "client/ui/DesktopLibrary.tsx",
+        "client/ui/DesktopLibrary.css"
+      ]
     },
     {
       "file": "tests/desktop-node.test.mjs",

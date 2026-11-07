@@ -1,11 +1,11 @@
 // 桌面视图由 Reader 现有的状态标志推导，不另存导航状态；手机与桌面读取同一组标志，跨档切换无需转换。
 // 优先级：新建 → 工作区（含分区）→ 阅读（含侧栏）→ 标签页。工作区分区按固定顺序取第一个已设置的标志。
-// docked：故事停靠在书架右栏阅读时仍是书架标签页（离开标签页时照常关闭故事）。
+// docked 与 dockedWorkflow：右栏阅读或故事设置保持书架标签页；编辑、原文等分区仍进入工作区。
 
 export type WorkspaceSection='flow'|'edit'|'script'|'history'|'source';
 export type DesktopFlags={
  configure:boolean;panelOpen:boolean;revisionTab:string|null;script:boolean;reviewHistoryId:string|null;
- source:boolean;sceneList:boolean;story:boolean;docked?:boolean;tab:string;
+ source:boolean;sceneList:boolean;story:boolean;docked?:boolean;dockedWorkflow?:boolean;tab:string;
 };
 export type DesktopView=
  |{kind:'create'}
@@ -26,7 +26,11 @@ export function workspaceSection(f:DesktopFlags):WorkspaceSection{
 
 export function desktopView(f:DesktopFlags):DesktopView{
  if(f.configure)return {kind:'create'};
- if(workspaceActive(f))return {kind:'workspace',section:workspaceSection(f)};
+ if(workspaceActive(f)){
+  const section=workspaceSection(f);
+  if(f.dockedWorkflow&&section==='flow')return {kind:'tab',tab:f.tab};
+  return {kind:'workspace',section};
+ }
  if(f.story&&!f.docked)return {kind:'reader',panel:f.sceneList?'scenes':f.source?'source':null};
  return {kind:'tab',tab:f.tab};
 }

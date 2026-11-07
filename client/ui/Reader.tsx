@@ -8,10 +8,10 @@
 // “我的”统计在书库首次加载完成前显示占位，避免先显示 0。
 // 一个状态所有者、两种组合：手机树（今天的界面）与桌面外壳（≥768×560）读取同一组状态与处理函数；
 // 桌面视图由状态标志推导（lib/desktop-view），共享对话框跨档切换保留并重新置顶，草稿经 useRetainedState 保留。
-// 返回键：阅读、桌面新建页、工作区与阅读侧栏抽屉经 useHistoryStep 登记为步骤；替换 URL 时保留历史条目的状态。
+// 返回键：阅读、桌面新建页与阅读侧栏抽屉经 useHistoryStep 登记；设置及子面板共用小屏对话框。
 // 从书架或发现打开故事时记下列表滚动位置，返回时恢复（返回书架的按钮仍回到顶部）。
 // 手机面板不超过两层：修改分镜先关分镜剧本；替换选题期间不渲染故事设置，取消后恢复。
-// 桌面宽档（≥1024px）书架：点卡片把同一个阅读组件停靠在网格右栏（docked），不是返回键步骤、地址留在书架；
+// 桌面宽档（≥1024px）书架：可阅读卡片在右栏阅读，制作中卡片在右栏打开故事设置；地址留在书架。
 // 全屏按钮展开为普通阅读（展开或打开原文/分镜列表时登记为步骤，返回收回右栏）；变窄时转为普通全屏阅读。
 // 停留在书架期间卡片顺序冻结，在右栏阅读不会让卡片跳到前面。
 
@@ -63,13 +63,12 @@ import {keepSnapshot,shareRows} from '@/lib/reader-snapshots';
 import {newWheelGesture,wheelPageDirection,swipePageDirection} from '@/lib/reader-navigation';
 import DesktopShell from './DesktopShell';
 import DesktopLibrary from './DesktopLibrary';
-import StoryWorkspace from './StoryWorkspace';
 import DesktopCreate from './DesktopCreate';
 import DesktopReader from './DesktopReader';
 import {useDesktopLayout,useDrawerForm} from './useDesktopLayout';
 import {historySteps,useHistoryStep} from './historySteps';
 import {clearRetained} from './useRetainedState';
-import {desktopView,activeTopItem,topBarSteps,workspaceSections,type DesktopFlags,type ExitStep,type TopItem,type WorkspaceSection} from '@/lib/desktop-view';
+import {desktopView,activeTopItem,topBarSteps,type DesktopFlags,type ExitStep,type TopItem} from '@/lib/desktop-view';
 import './reader.css';
 // 宽屏手机规则必须最后加载（同等特异性时覆盖放宽后的手机规则）
 import './compact.css';
@@ -121,10 +120,9 @@ export default function Reader(){
  const [providerRuntime,setProviderRuntime]=useState<ProviderSettingsView['runtime']|null>(null);
  const [sceneList,setSceneList]=useState(false);
  const desktop=useDesktopLayout(),drawerForm=useDrawerForm(),wide=desktop&&!drawerForm;
- // 书架右栏阅读：docked 表示当前故事是在书架右栏打开的，expanded 表示它暂时展开为全屏
+ // 书架右栏分别保留阅读和制作设置的入口，避免设置载入首幅图片后自动变成阅读。
  const [docked,setDocked]=useState(false),[expanded,setExpanded]=useState(false);
- // 工作区里所选的分镜（1 起，0 为结语）；编辑分镜时改由修订编辑器的“选择分镜”决定
- const [workspaceFrame,setWorkspaceFrame]=useState(1);
+ const [workflowDocked,setWorkflowDocked]=useState(false);
  // 新建表单的 key：选书或心情时递增，让桌面新建页的内联表单按新选择重新初始化
  const [createSeed,setCreateSeed]=useState(0);
  const [selection,setSelection]=useState<Selection>(initialReaderSelection),[largeText,setLargeText]=useState(false),[motion,setMotion]=useState('forward'),[creating,setCreating]=useState(false);
@@ -159,20 +157,22 @@ export default function Reader(){
  const gen=useStoryGeneration(page,{onStory:(s,p,b)=>{if(deleted.current.has(s.id))return;setStory(old=>keepSnapshot(old,s));if(p!==undefined){setPage(p);setSaved(!!b);}},onProgress:acceptServerProgress},!loading&&tab==='shelf'&&!story&&!configure&&!favoriteBusy&&!deleting&&!restoring&&!shelfRefreshing);
  // Keep the same panel open when the first image arrives underneath it.
  useEffect(()=>{if(gen.active&&!story&&!configure&&!workflowTarget)setWorkflowTarget(gen.active.id);},[gen.active?.id,story?.id,configure,workflowTarget]);
- // 记录打开制作流程时是否正在阅读：桌面上从书架打开的工作区会顺带载入故事，离开时应回到书架而不是阅读。
+ // 记录打开制作流程时是否正在阅读：从书架打开设置会顺带载入故事，离开时应回到书架而不是阅读。
  const workflowFromReader=useRef(false);
- function openWorkflow(id:string){
-  workflowFromReader.current=!!story;
+ function openWorkflow(id:string,dock=false){
+  workflowFromReader.current=!dock&&!!story;
+  setWorkflowDocked(dock);
+  if(dock){setDocked(false);setExpanded(false);setSource(false);setSceneList(false);setScript(false);setReviewHistoryId(null);revision.setTab(null);}
   setSettings(false);setWorkflowError('');setWorkflowTarget(id);
   if(story?.id!==id)setStory(null);
   if(gen.active?.id!==id)void gen.resume(id,story?.id===id?page:undefined).catch(error=>setWorkflowError(error instanceof Error?error.message:'制作流程暂时无法打开，请重试。'));
  }
  // 桌面阅读的侧栏不是模态；打开故事设置前先关闭，否则工作区会落到“原文”分区。
  function openStorySettings(next:Story){if(desktop){setSource(false);setSceneList(false);}openWorkflow(next.id);}
- // 工作区或面板关闭时，丢弃选题设置与标题输入的保留草稿（与今天卸载组件时一致）。
+ // 设置面板关闭时，丢弃选题设置与标题输入的保留草稿。
  function forgetSetup(){clearRetained('setup:');clearRetained('search:');}
  function closeWorkflow(){
-  forgetSetup();workflowFromReader.current=false;setWorkflowTarget(null);setWorkflowError('');
+  forgetSetup();workflowFromReader.current=false;setWorkflowTarget(null);setWorkflowDocked(false);setWorkflowError('');
   if(!story){gen.leave();history.replaceState(history.state,'','/');}
  }
  async function retryWorkflow(faultId?:string){
@@ -213,8 +213,8 @@ export default function Reader(){
 
  function track(kind:string,s:Story|null=story,index:number|null=null){if(!s||!visitor.current||!session.current)return;request('reader/sessions/'+s.id+'/events','POST',{id:session.current+':'+s.id+':'+kind+(index===null?'':':'+index),visitor:visitor.current,session:session.current,storyId:s.id,kind,page:index,mode:'manual',cohort:'internal'}).catch(()=>{});}
  function remember(s:Story,index:number,isSaved:boolean){if(deleted.current.has(s.id))return;authoritativeProgress.current=reconcileReadingProgress(authoritativeProgress.current,[{storyId:s.id,page:index,saved:isSaved?1:0,updatedAt:new Date().toISOString()}]);setLastReadId(s.id);try{localStorage.setItem('shiqu-last-read',s.id);}catch{}setProgress(pr=>{const rows=[{storyId:s.id,page:index,saved:isSaved?1:0,updatedAt:new Date().toISOString()},...pr.filter(p=>p.storyId!==s.id)];localStorage.setItem('yiyu-reading',JSON.stringify(rows));return rows;});request('reader/sessions/'+s.id+'/progress','POST',{storyId:s.id,page:index,saved:isSaved}).catch(()=>{});}
- function open(s:Story,restart=false,dock=false){if(deleted.current.has(s.id))return;if(!story&&!dock)listScroll.current=window.scrollY;setWorkflowTarget(null);setDrag(0);gen.resume(s.id,restart?0:undefined).catch(e=>notify(e.message));setConfigure(false);clearRetained('discovery');setUnavailable('');const pr=progress.find(p=>p.storyId===s.id);const index=restart?0:Math.min(pr?.page||0,s.pages.length-1);setPage(index);setStory(s);setSaved(!!pr?.saved);setEnded(false);setMotion('forward');seen.current=new Set();session.current=randomId();setDocked(dock);setExpanded(false);history.replaceState(history.state,'',dock?'/':'/read?id='+encodeURIComponent(s.id));track('start',s);if(!dock)window.scrollTo(0,0);}
- function home(){forgetSetup();setWorkflowTarget(null);setWorkflowError('');setDrag(0);gen.leave();setStory(null);setEnded(false);setSource(false);setDocked(false);setExpanded(false);history.replaceState(history.state,'','/');}
+ function open(s:Story,restart=false,dock=false){if(deleted.current.has(s.id))return;if(!story&&!dock)listScroll.current=window.scrollY;setWorkflowTarget(null);setWorkflowDocked(false);setDrag(0);gen.resume(s.id,restart?0:undefined).catch(e=>notify(e.message));setConfigure(false);clearRetained('discovery');setUnavailable('');const pr=progress.find(p=>p.storyId===s.id);const index=restart?0:Math.min(pr?.page||0,s.pages.length-1);setPage(index);setStory(s);setSaved(!!pr?.saved);setEnded(false);setMotion('forward');seen.current=new Set();session.current=randomId();setDocked(dock);setExpanded(false);history.replaceState(history.state,'',dock?'/':'/read?id='+encodeURIComponent(s.id));track('start',s);if(!dock)window.scrollTo(0,0);}
+ function home(){forgetSetup();setWorkflowTarget(null);setWorkflowDocked(false);setWorkflowError('');setDrag(0);gen.leave();setStory(null);setEnded(false);setSource(false);setDocked(false);setExpanded(false);history.replaceState(history.state,'','/');}
  // 右栏阅读：展开为全屏、收回右栏（同时关闭原文与分镜列表）；离开阅读时右栏故事只收回，不关闭
  function expand(){if(!story)return;setExpanded(true);history.replaceState(history.state,'','/read?id='+encodeURIComponent(story.id));}
  function collapse(){setExpanded(false);setSource(false);setSceneList(false);history.replaceState(history.state,'','/');}
@@ -238,7 +238,7 @@ export default function Reader(){
  function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){clearRetained('discovery');setCreateSeed(seed=>seed+1);if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,source:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
  // 关闭新建并丢弃表单草稿；新建面板关闭、顶栏离开与两条提交成功路径共用。
  function closeCreate(){setConfigure(false);setDiscoveryTarget(null);clearRetained('discovery');}
- // 离开工作区：清除各分区标志（修订草稿保留），再执行今天的关闭面板。
+ // 离开故事设置：清除子面板标志（修订草稿保留），再关闭制作流程。
  function leaveWorkspace(){const toShell=!workflowFromReader.current&&!!story;setScript(false);setReviewHistoryId(null);setSource(false);revision.setTab(null);setSettings(false);closeWorkflow();if(toShell)home();}
  function exitToShell(steps:ExitStep[]){for(const step of steps){if(step==='closeCreate')closeCreate();else if(step==='leaveWorkspace')leaveWorkspace();else home();}}
  useEffect(()=>{visitor.current=localStorage.getItem('yiyu-visitor')||randomId();localStorage.setItem('yiyu-visitor',visitor.current);try{setLargeText(localStorage.getItem('yiyu-large-text')==='1');}catch{}if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
@@ -261,9 +261,11 @@ export default function Reader(){
  useEffect(()=>{if(!story||ended||!story.pages[page]?.image)return;seen.current.add(page);track('page',story,page);remember(story,page,saved);const next=story.pages[page+1]?.image;if(next){const img=new Image();img.src=next;}},[story?.id,story?.pages[page]?.image,page,ended]);
  // 手机上原文与分镜列表是模态面板，打开时不翻页；桌面侧栏不是模态，翻页照常，Escape 先关侧栏再返回。
  // 右栏阅读只在书架、宽档且未展开时停靠；打开原文或分镜列表需要侧栏，暂时按全屏显示
- const dockedView=!!story&&docked&&!expanded&&wide&&tab==='shelf'&&!source&&!sceneList;
+ const dockedView=!!story&&docked&&!expanded&&wide&&tab==='shelf'&&(!source||!!workflowTarget)&&!sceneList;
+ const dockedWorkflow=!!workflowTarget&&workflowDocked&&wide&&tab==='shelf';
+ const dockedSettings=dockedWorkflow;
  // 生成钩子恢复会话后会写入 /read?id=；停靠时地址始终留在书架
- useEffect(()=>{if(dockedView&&location.pathname!=='/')history.replaceState(history.state,'','/');});
+ useEffect(()=>{if((dockedView||dockedSettings)&&(location.pathname!=='/'||location.search))history.replaceState(history.state,'','/');});
  // 停靠时方向键只在焦点位于右栏阅读里时翻页，Escape 把焦点还给卡片
  useEffect(()=>{function key(e:KeyboardEvent){if(!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;if(dockedView&&!readerRef.current?.contains(document.activeElement))return;if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();turn(-1);}if(e.key==='Escape'){if(dockedView)focusShelfCard(story.id);else if(source||sceneList){setSource(false);setSceneList(false);}else leaveReader();}}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[story,page,ended,source,settings,workflowTarget,configure,sceneList,desktop,dockedView,docked]);
  useEffect(()=>{
@@ -473,6 +475,8 @@ export default function Reader(){
   </>:<div role="status">{workflowError?<><p role="alert">{workflowError}</p><button type="button" onClick={()=>openWorkflow(workflowTarget!)}>重新加载制作流程</button></>:<p>正在打开制作流程…</p>}</div>);
 
  const panelOpen=!!(workflowTarget||(!story&&gen.active)||(settings&&story));
+ // 故事设置及其子面板在所有宽度共用小屏布局；书架右栏始终保留在子面板下面。
+ const settingsDialogOpen=panelOpen&&!configure&&!reselectTarget&&!dockedSettings;
  const panelStory=workflowSession?.story||story;
  const pendingStories=gen.sessions.filter(s=>!deletedIds.includes(s.id)&&!s.story?.pages[0]?.image);
  const latestShelf=activeProgress.flatMap(p=>{const s=allStories.find(s=>s.id===p.storyId);return s&&s.pages[0]?.image?[s]:[];});
@@ -543,12 +547,9 @@ export default function Reader(){
  const configureSheet=configure&&<Sheet title="这一篇，想怎样读？" busy={creating} onClose={closeCreate}><StoryDiscoveryForm retainKey="discovery" selection={selection} books={choices} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}))} onSubmit={generate}/></Sheet>;
  const sourceSheet=source&&(story||gen.active)&&<Sheet title="故事从哪里来" onClose={()=>setSource(false)}>{story?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:<StorySource key={gen.active!.id} sessionId={gen.active!.id} book={bookName({id:gen.active!.id,bookId:gen.active!.selection.bookId})}/>}</Sheet>;
  const sceneSheet=sceneList&&story&&<Sheet title="分镜列表" onClose={()=>setSceneList(false)}><StorySceneList story={story} page={page} onSelect={index=>{goToPage(index);setSceneList(false);}}/></Sheet>;
- const phoneSheets=<>
- {configureSheet}
- {panelOpen&&!configure&&!reselectTarget&&<StorySettingsPanel {...settingsProps} onClose={()=>{setSettings(false);closeWorkflow();}}/>}
+ const storySheets=<>
  {reviewHistoryId&&<Sheet title="审核记录" onClose={()=>setReviewHistoryId(null)}><StoryReviewHistory key={reviewHistoryId} sessionId={reviewHistoryId}/></Sheet>}
- {sourceSheet}
- {sceneSheet}
+ {(!desktop||panelOpen)&&sourceSheet}
  {script&&scriptStory&&<Sheet title="分镜剧本" onClose={()=>setScript(false)}>{isGenerated(scriptStory)&&<button type="button" className="yu-revision-open" onClick={()=>editScript()}>修改分镜</button>}<StoryScript story={scriptStory} standalone/></Sheet>}
  {revision.tab&&<Sheet title="修改故事" busy={revision.busy} onClose={()=>{if(!revision.busy)revision.setTab(null);}}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming} onDone={revisionDone}/></Sheet>}
  </>;
@@ -560,48 +561,23 @@ export default function Reader(){
  </main>
  <nav className="yu-tabbar" aria-label="主导航">{[{id:'discover',title:'发现',Icon:Compass},{id:'shelf',title:'书架',Icon:BookOpen},{id:'me',title:'我的',Icon:UserRound}].map(({id,title,Icon})=><button key={id} className={tab===id?'active':''} aria-current={tab===id?'page':undefined} onClick={()=>{setTab(id);window.scrollTo({top:0,behavior:'instant'});}}><Icon size={22} strokeWidth={tab===id?2:1.6}/><span>{title}</span>{tab===id&&<i/>}</button>)}</nav>
  </>}
- {phoneSheets}
+ {configureSheet}
+ {sceneSheet}
  </>;
 
- // 桌面外壳：视图由状态推导；新建页、工作区与阅读组合在后续里程碑替换，此前仍用手机面板（居中显示）。
- const flags:DesktopFlags={configure,panelOpen,revisionTab:revision.tab,script,reviewHistoryId,source,sceneList,story:!!story,docked:dockedView,tab};
- const view=desktopView(flags);
+ // 桌面只组合新建、阅读与标签页；故事设置及编辑、分镜、审核、原文始终使用共享对话框。
+ const flags:DesktopFlags={configure,panelOpen,revisionTab:revision.tab,script,reviewHistoryId,source,sceneList,story:!!story,docked:dockedView,dockedWorkflow,tab};
+ const view=desktopView({...flags,panelOpen:false,revisionTab:null,script:false,reviewHistoryId:null,source:panelOpen?false:source,docked:dockedView||dockedWorkflow});
  function navigate(target:TopItem){
   const steps=topBarSteps(flags,target);if(!steps)return;
   exitToShell(steps);
   if(target==='create')choose();else{setTab(target);window.scrollTo({top:0,behavior:'instant'});}
  }
- // 桌面书架：宽档点卡片（封面、标题或“接着看”）在右栏打开同一个阅读组件；更窄时点卡片直接全屏阅读
- const openDocked=(target:Story,restart=false)=>{if(dockedView&&story?.id===target.id&&!restart)return;open(target,restart,true);};
- const desktopLibrary=<DesktopLibrary reader={dockedView?readerMain:null} shelf={wide?cloneElement(shelfView,{selectedId:docked&&story?story.id:null,onSelect:(id:string|null)=>{const target=id&&shelf.find(item=>item.id===id);if(target)openDocked(target);},onOpen:openDocked}):shelfView}/>;
+ // 桌面书架：宽档可阅读卡片打开右栏阅读，制作中卡片打开同栏故事设置；窄档沿用整页入口。
+ const openDocked=(target:Story,restart=false)=>{if(dockedView&&!workflowTarget&&story?.id===target.id&&!restart)return;open(target,restart,true);};
+ const librarySettings=dockedSettings&&<section className="yu-library-settings" aria-label="故事设置"><header><h2>故事设置</h2><button type="button" className="yu-icon" aria-label="关闭故事设置" disabled={settingsProps.busy} onClick={backToShelf}><X size={20}/></button></header>{StorySettingsContent(settingsProps)}</section>;
+ const desktopLibrary=<DesktopLibrary reader={librarySettings||(dockedView?readerMain:null)} shelf={wide?cloneElement(shelfView,{selectedId:workflowDocked?workflowTarget:docked?story?.id:null,onSelect:(id:string|null)=>{const target=id&&shelf.find(item=>item.id===id);if(target)openDocked(target);},onOpen:openDocked,onResume:(session:SessionView)=>openWorkflow(session.id,true)}):shelfView}/>;
  const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover"><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></div>;
- // 工作区：分区由状态标志推导，切换分区只设置和清除这些标志（修订草稿保留）。
- // 回到“修改故事”时打开上次停留的编辑页签与分镜。
- const lastEditTab=useRef<NonNullable<typeof revision.tab>>('requirements'),lastEditFor=useRef(revision.sessionId);
- // 换了故事就从“制作要求”开始，避免沿用上一篇的“分镜”页签而新故事尚无分镜
- if(lastEditFor.current!==revision.sessionId){lastEditFor.current=revision.sessionId;lastEditTab.current='requirements';}
- if(revision.tab)lastEditTab.current=revision.tab;
- function showWorkspaceSection(next:WorkspaceSection){
-  if(next!=='edit')revision.setTab(null);
-  setScript(next==='script');
-  setReviewHistoryId(next==='history'?(workflowSession?.id??null):null);
-  setSource(next==='source');
-  if(next==='edit')revision.open(revision.tab||lastEditTab.current,revision.scriptPage);
- }
- const workspaceStory=scriptStory;
- useEffect(()=>{setWorkspaceFrame(1);},[workspaceStory?.id]);
- const editingFrames=revision.tab==='script';
- const frame=editingFrames?revision.scriptPage:workspaceFrame;
- const sections=workspaceSections({revisable:!!revision.sessionId,script:!!scriptStory,history:!!workflowSession&&(!workflowSession.intake||workflowSession.intake.phase==='confirmed'),source:!!story||!!workflowSession?.generationProgress?.sourceReady});
- const workspaceContent=view.kind!=='workspace'?null:view.section==='edit'?<StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming} onDone={revisionDone}/>
-  :view.section==='script'&&scriptStory?<>{isGenerated(scriptStory)&&<button type="button" className="yu-revision-open" onClick={()=>revision.open('script',frame||1)}>修改分镜</button>}<StoryScript story={scriptStory} standalone/></>
-  :view.section==='history'&&reviewHistoryId?<StoryReviewHistory key={reviewHistoryId} sessionId={reviewHistoryId}/>
-  :view.section==='source'&&(story||gen.active)?(story?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:<StorySource key={gen.active!.id} sessionId={gen.active!.id} book={bookName({id:gen.active!.id,bookId:gen.active!.selection.bookId})}/>)
-  :StorySettingsContent(settingsProps);
- const workspace=view.kind==='workspace'&&<main className="yu-home yu-desktop-main yu-workspace-main" data-main=""><StoryWorkspace key={workspaceStory?.id||workflowSession?.id||'workspace'}
-  title={workflowSession?.selection.displayTitle||panelStory?.title||workflowSession?.selection.storyTitle||'故事设置'} section={view.section} sections={sections}
-  onSection={showWorkspaceSection} onBack={leaveWorkspace} story={workspaceStory} frame={frame} onFrame={next=>editingFrames?revision.setScriptPage(next):setWorkspaceFrame(next)}
-  issues={revisionSession?.reviewIssues||[]}>{workspaceContent}</StoryWorkspace></main>;
  // 桌面新建页：选择在左（或上），内联表单在右（或下），与手机面板共用表单组件与属性。
  const createPage=view.kind==='create'&&<main className="yu-home yu-desktop-main" data-main=""><DesktopCreate
   choices={<>{discoverBooks}{discoverMoods}{discoverSurprise}</>}
@@ -610,20 +586,21 @@ export default function Reader(){
  const readerPanel=view.kind!=='reader'||!story?null:view.panel==='scenes'?<StorySceneList story={story} page={page} onSelect={goToPage}/>:view.panel==='source'?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:null;
  const desktopReader=view.kind==='reader'&&<DesktopReader stage={readerMain} panel={readerPanel} title={view.panel==='scenes'?'分镜列表':'故事从哪里来'} onClose={()=>{setSource(false);setSceneList(false);}}/>;
  const desktopTree=<DesktopShell active={activeTopItem(view)} hidden={view.kind==='reader'} onNavigate={navigate}>
-  {view.kind==='workspace'?workspace:view.kind==='create'?createPage:view.kind==='reader'?desktopReader:<main className="yu-home yu-desktop-main" data-main="">{tabContent}</main>}
+  {view.kind==='create'?createPage:view.kind==='reader'?desktopReader:<main className="yu-home yu-desktop-main" data-main="">{tabContent}</main>}
 </DesktopShell>;
  const reading=desktop?view.kind==='reader':!!story;
- // 返回键的非对话框步骤（层级：阅读 0、新建页或工作区 1、抽屉 2）；停靠的侧栏与书架右栏阅读不是步骤
- useHistoryStep(!!story&&!dockedView,0,leaveReader);
- // 变窄到没有右栏、且阅读正显示时，右栏故事转为普通全屏阅读（工作区或新建页打开期间保留，回到阅读时再判断）
+ // 返回键的非对话框步骤（阅读 0、新建页 1、抽屉 2）；设置和子面板由 Sheet 管理。
+ useHistoryStep(!!story&&!dockedView&&!dockedSettings,0,leaveReader);
+ // 变窄到没有右栏、且阅读正显示时，右栏故事转为普通全屏阅读（设置或新建页打开期间保留，回到阅读时再判断）
  useEffect(()=>{if(!wide&&docked&&view.kind==='reader'){setDocked(false);setExpanded(false);if(story)history.replaceState(history.state,'','/read?id='+encodeURIComponent(story.id));}},[wide,view.kind]);
  useHistoryStep(desktop&&view.kind==='create',1,closeCreate,()=>!!document.querySelector('.yu-create-form [data-dirty="true"]'));
- useHistoryStep(desktop&&view.kind==='workspace',1,leaveWorkspace);
  useHistoryStep(desktop&&drawerForm&&view.kind==='reader'&&!!view.panel,2,()=>{setSource(false);setSceneList(false);});
 
  return <div className={'yu-world'+(reading?' yu-reading-world':'')+(desktop?' yu-desktop':'')} data-layout={desktop?'shell':'phone'}><div className={'yu-app'+(reading?' yu-immersive':'')}>
  <ProviderSettings onRuntime={setProviderRuntime} onAvailability={setProviderAllowed} openRequest={providerOpen} showEntry={false} showPrompt={!story}/>
  {desktop?desktopTree:phoneTree}
+ {settingsDialogOpen&&<StorySettingsPanel {...settingsProps} onClose={()=>{setSettings(false);closeWorkflow();}}/>}
+ {storySheets}
  {reselectTarget&&<StoryReselection key={reselectTarget} parentId={reselectTarget} onSubmitted={next=>finishReselection(next)} onCancelled={(next,error)=>{if(next)finishReselection(next,true);else{reselectLock.current=false;setReselectTarget(null);backToShelf();void gen.refreshLibrary().catch(()=>{});if(error)notify(error);}}}/>}
  {recoveryOpen&&<Sheet title="已删除的故事" onClose={()=>{if(!restoring)setRecoveryOpen(false);}}><DeletedStories items={deletedStories} loading={recoveryLoading} error={recoveryError} busy={restoring} onRestore={item=>void restoreStory(item)} onRetry={()=>void loadDeletedStories()}/></Sheet>}
  {undoTarget&&!recoveryOpen&&<div className="yu-undo-notice" role="status"><div><span>已删除《{undoTarget.title}》</span>{recoveryError&&<small role="alert">{recoveryError}</small>}</div><button type="button" disabled={!!restoring} onClick={()=>void restoreStory(undoTarget)}><RotateCcw size={17}/>{restoring?'恢复中…':'撤销删除'}</button><button type="button" className="yu-undo-dismiss" aria-label="关闭撤销提示" disabled={!!restoring} onClick={()=>setUndoTarget(null)}><X size={18}/></button></div>}

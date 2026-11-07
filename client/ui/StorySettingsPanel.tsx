@@ -15,7 +15,7 @@ export function StorySettingsContent({story,session,busy,disabled,onBack,onRenam
  const storyId=session?.id||story?.id;
  const canDownload=!!story?.pages.length&&story.pages.every(page=>!!page.image);
  return <fieldset className="yu-revision-fields" disabled={disabled}>
-  <div className="yu-setting-row yu-story-name"><div><strong>故事名</strong><p>{title}</p></div><button type="button" className="yu-revision-open" disabled={!onRename||!storyId} onClick={()=>{if(onRename&&storyId)onRename(storyId,title);}}>修改故事名</button></div>
+  <div className="yu-setting-row yu-story-name"><div><p>{title}</p></div><button type="button" className="yu-revision-open" disabled={!onRename||!storyId} onClick={()=>{if(onRename&&storyId)onRename(storyId,title);}}>修改故事名</button></div>
   {canDownload&&<div className="yu-pdf-setting"><div className="yu-settings-formats" aria-label="下载故事">{downloads}</div><p className="yu-export-status" role="status">{exportStatus}</p>
    {story&&<StoryPublicationSummary story={story} onEdit={onPublicationEdit} disabled={exporting}/>}
   </div>}
