@@ -87,7 +87,9 @@ test('workflow event gates qualify main/tags and aggregate selected JS/native fa
  function enabled(name,github,needs={}){const condition=job(name).match(/^ {4}if: (.+)$/m)[1].replace(/^\$\{\{ | \}\}$/g,'');return new Function('github','needs','cancelled','startsWith',`return (${condition});`)(github,needs,()=>false,(value,prefix)=>value.startsWith(prefix));}
  const needs={scope:{outputs:{native:'false'}},checks:{result:'success'},build:{result:'success'}};
  for(const [event,ref,native,build,release] of [['pull_request','refs/pull/1/merge',false,false,false],['push','refs/heads/main',false,false,false],['push','refs/tags/v1.0.0',false,true,true],['workflow_dispatch','refs/heads/main',false,true,false]]){
-  const github={event_name:event,ref};assert.equal(enabled('javascript',github,needs),true);assert.equal(enabled('native',github,needs),native);assert.equal(enabled('checks',github,needs),true);assert.equal(enabled('build',github,needs),build);assert.equal(enabled('release',github,needs),release);
+  const github={event_name:event,ref},tag=event==='push'&&ref.startsWith('refs/tags/v');
+  const results=tag?{...needs,checks:{result:'skipped'}}:needs;
+  assert.equal(enabled('javascript',github,results),!tag);assert.equal(enabled('native',github,results),native);assert.equal(enabled('checks',github,results),!tag);assert.equal(enabled('build',github,results),build);assert.equal(enabled('release',github,results),release);
  }
  assert.ok(enabled('native',{event_name:'pull_request'}, {...needs,scope:{outputs:{}}}),'scope failure requests native coverage');
  assert.ok(enabled('native',{event_name:'pull_request'}, {...needs,scope:{outputs:{native:'true'}}}));
