@@ -1,3 +1,4 @@
+import type {SuggestionProgress} from '../lib/reader-suggestions.ts';
 // Persist theme-neutral stories before matching; never let a reader's theme or exclusions shape extraction.
 // Expand only until new stories exist, carrying verified unfinished events across blocks and cancellation.
 // Binary theme receipts read originals; old catalog ranges resume without generating summaries.
@@ -8,7 +9,6 @@ import {previousReadingPlanKey,previousDiscoveryNamespace,previousSummaryNamespa
 import {discoveryMeasurement} from './story-discovery-metrics.ts';
 import {localSourceSchema,localSourceKey,localReadingPrompt,localCatalogJson,legacyLocalReadingPrompt,legacyLocalScanJson,localChapterStoriesPrompt,localTitleStoriesPrompt,catalogStoryLimit} from '../lib/reader-local-contract.ts';
 import type {LocalSourceReference,PendingEvent,WholeBookInput} from '../lib/reader-local-contract.ts';
-import type {SuggestionProgress} from '../lib/reader-suggestions.ts';
 import {suggestionBatchSchema,titleKey} from '../lib/reader-suggestions.ts';
 import type {SuggestionBatch} from '../lib/reader-suggestions.ts';
 import {ReaderError} from '../lib/reader-model.ts';
@@ -21,7 +21,7 @@ import {readingPlan,readingPlanKey,manifestSchema,hydrateReadingPlan,defaultRead
 import type {ReadingLimits,ReadingBlock} from './story-reading-inputs.ts';
 import {requestTokens} from './story-token-budget.ts';
 import {sourceParts,sourceUnitIds,sourcesOverlap,sourceCovers,mergeSources} from './local-source-ranges.ts';
-import {matchLibraryStories,hasUnknownJudgments,verifyThemeCandidates} from './story-theme-matching.ts';
+import {matchLibraryStories,hasUnknownJudgments,saveVerifiedThemeMatches,verifyThemeCandidates} from './story-theme-matching.ts';
 import type {LocalStorySearch} from './local-story-search.ts';
 import {storyEditorialContext} from '../lib/reader-prompts.ts';
 import {discoveryCode} from '../lib/reader-discovery-call.ts';
@@ -148,6 +148,10 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const recordRetrieval=(route:NonNullable<SuggestionProgress['retrieval']>)=>{retrieval=route;reportStage('retrieving');};
  const progress=(current:State,stage:'reading'|'checking'|'selecting'='reading',reading:ReadingObserver|undefined=observer,block:ReadingBlock|undefined=plan.blocks[current.cursor])=>reading?.onProgress({completed:current.cursor,total:plan.blocks.length,completedChars:plan.blocks.slice(0,current.cursor).reduce((n,block)=>n+block.chars,0),totalChars,stage,retrieval,cachedMatches,mode:plan.manifest.mode,currentChapters:block?.chapters||[]});
  const empty=():State=>({stories:[],cursor:0,readThrough:0,pendingEvents:[],exhausted:false,rejected:false});
+ const saveScan=async(next:State)=>restore(await cache.update(key,stateEnvelope,empty,raw=>{
+  const saved=validate(raw)?restore(raw):empty();
+  return {...next,stories:[...next.stories,...saved.stories.filter(story=>!next.stories.some(item=>sameRange(item.source,story.source)))]};
+ }));
  const read=async()=>{
   const raw=await cache.read(key,stateEnvelope,validate);if(!raw)return empty();
   const restored=restore(raw);
@@ -180,7 +184,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  };
  const extraction:Selection={bookId:selection.bookId,...(selection.bookId==='other'?{customBook:book.title}:{}),theme:'',artStyle:'ink-pencil',productionPrompt:'',length:'auto',voice:false};
  // 先核对主题候选池，展示上限只约束返回页，不限制模型审阅范围。
- const verifiedTheme=async():Promise<SuggestionBatch|undefined>=>{
+ const verifiedTheme=async(cached:Story[]):Promise<SuggestionBatch|undefined>=>{
   if(targetTitle||chapterStories||!provider.verifyThemeStories||!storySearch||storyEditorialContext(theme).mode==='source')return;
   const candidates=await storySearch.lookupHits(book,theme,observer.signal,false,50,recordRetrieval);
   const originals=new Map<string,string[]>();
@@ -193,21 +197,37 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   });
   if(!stories.length)return;
   const {matches,checked}=await verifyThemeCandidates(provider,cache,theme,stories,story=>originals.get(localSourceKey(story.source))!,Math.min(limits.whole,themeVerificationInputTokens),status,{...observer,onProgress:value=>observer.onProgress({...value,stage:'verifying',retrieval,cachedMatches})});
-  const page=visibleStories(matches.map(({story,decision})=>{
+  const verified=matches.map(({story,decision})=>{
    const matchReason=(decision.verdict==='direct'?'明确符合：':'情节暗示：')+decision.reason;
    const description=(matchReason+' 原文：'+decision.evidence[0]).slice(0,180);
    return {...story,description,matchReason};
-  })).slice(0,batchLimit);
+  });
+  if(verified.length){
+   // 索引只证明这些故事与主题相符，不推进全书阅读游标。
+   await cache.update(key,stateEnvelope,empty,async raw=>{
+    const current=validate(raw)?restore(raw):empty();
+    const judgments=verified.map(({matchReason,...story})=>{
+     const existing=current.stories.find(item=>sameRange(item.source,story.source));
+     if(!existing)current.stories.push(story);
+     const saved=existing||story;
+     return {story:saved,reason:matchReason,text:books.resolve(book,saved.source).text};
+    });
+    await saveVerifiedThemeMatches(cache,book.id,theme,status,judgments);
+    return current;
+   });
+   await measurement.stored();
+  }
+  const page=visibleStories([...cached,...verified]).slice(0,batchLimit);
   await measurement.finish(checked<stories.length?'incomplete':page.length?'matched':'none');
   const note=`已核对 ${checked}/${stories.length} 条索引候选。`+(checked<stories.length?'部分候选未能核对，可继续重试。':'')+(page.length?'':checked<stories.length?'目前还没有确认的新结果。':'当前没有更多符合主题的候选。');
   return suggestionBatchSchema.parse({stories:page,note});
  };
  // 指定标题和不具备逐条核对能力的服务沿用候选阅读。
 
- const fromCandidates=async(current:State):Promise<SuggestionBatch|undefined>=>{
+ const fromCandidates=async(current:State,cached:Story[]):Promise<SuggestionBatch|undefined>=>{
   const query=targetTitle||theme;
   if(!query||chapterStories||!storySearch||!targetTitle&&(provider.verifyThemeStories||storyEditorialContext(theme).mode==='source'))return;
-   const ranges=(await storySearch.lookupHits(book,query,observer.signal,!!targetTitle,42,recordRetrieval))?.map(hit=>hit.source)||[];
+  const ranges=(await storySearch.lookupHits(book,query,observer.signal,!!targetTitle,42,recordRetrieval))?.map(hit=>hit.source)||[];
   if(!ranges.length)return;
   const exclusions=[...validExclusions,...current.stories.filter(story=>excludedKeys.has(titleKey(story.title))).map(story=>story.source)];
   const inputFor=(text:string,cap:number):WholeBookInput=>({title:book.title,edition:book.edition,text,
@@ -265,34 +285,35 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
    if(stories===null)return;
    if(stories.length){
     await measurement.finish('matched');
-    return suggestionBatchSchema.parse({stories,note:'已从检索候选中提取故事并核对原文出处。'});
+    return suggestionBatchSchema.parse({stories:visibleStories([...cached,...stories]).slice(0,batchLimit),note:'已从检索候选中提取故事并核对原文出处。'});
    }
   }
  };
- let hit=true,candidatesTried=false;
+ let hit=true;
  try{
  reportStage('cache');
- const initialStories=visibleStories((await read()).stories);
+ const initial=await read();
+ const matchingOptions={bookId:book.id,legacyNamespaces:[oldNamespace],context:observer};
  const original=(story:Story)=>books.resolve(book,story.source).text;
- const cached=targetTitle?initialStories:await matchLibraryStories(provider,cache,namespace,theme,initialStories,original,limits.whole,status.provider,observer,{bookId:book.id,legacyNamespaces:[oldNamespace],cacheOnly:true});
+ const initialStories=visibleStories(initial.stories);
+ const titleMatches=(stories:Story[])=>stories.map(story=>({...story,matchReason:'已依据所选原文核对指定故事，主题仅用于讲述重点。'}));
+ const cached=targetTitle?titleMatches(initialStories):await matchLibraryStories(provider,cache,namespace,theme,initialStories,original,limits.whole,status.provider,observer,{...matchingOptions,cacheOnly:true});
  cachedMatches=cached.length;
+ reportStage('cache');
+ if(cached.length>=batchLimit||targetTitle&&cached.length)return response(initial,cached,true);
  reportStage('retrieving');
- const verified=await verifiedTheme();
+ const verified=await verifiedTheme(cached);
  if(verified)return verified;
+ const indexed=await fromCandidates(initial,cached);
+ if(indexed)return indexed;
+ retrieval??='scan';
  // 索引缺失或当前范围没有可用候选时，从已保存的原文阅读进度继续。
  while(true){
   observer?.signal.throwIfAborted();
   const saved=await read(),candidates=visibleStories(saved.stories);
   if(candidates.length)progress(saved,'selecting');
-  const matched=targetTitle?candidates.map(story=>({...story,matchReason:'已依据所选原文核对指定故事，主题仅用于讲述重点。'})):await matchLibraryStories(provider,cache,namespace,theme,candidates,story=>books.resolve(book,story.source).text,limits.whole,status.provider,observer,{bookId:book.id,legacyNamespaces:[oldNamespace],retryUnknown:saved.exhausted,context:observer});
+  const matched=targetTitle?titleMatches(candidates):await matchLibraryStories(provider,cache,namespace,theme,candidates,original,limits.whole,status.provider,observer,{...matchingOptions,retryUnknown:saved.exhausted});
   if(matched.length)return response(saved,matched,hit);
-  if(!candidatesTried){
-   candidatesTried=true;
-   reportStage('retrieving');
-   const indexed=await fromCandidates(saved);
-   if(indexed)return indexed;
-   retrieval??='scan';
-  }
   if(saved.exhausted)return response(saved,matched,hit);
   const baseline=saved.stories.length;
   await cache.shared(key,observer,async reading=>{
@@ -325,7 +346,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
     catch{
      const independent=targetTitle?[]:accepted.filter(story=>!story.continuedFrom?.length||sourceUnitIds(book,story.source).some(id=>!initialCovered.has(id)));
      const lastRejection={code:'pending-resolution' as const};
-     await cache.write(key,{...current,stories:[...current.stories,...independent.map(({continuedFrom,...story})=>{void continuedFrom;return story;})],lastRejection});
+     await saveScan({...current,stories:[...current.stories,...independent.map(({continuedFrom,...story})=>{void continuedFrom;return story;})],lastRejection});
      if(independent.length){await measurement.stored();break;}
      throw new ReaderError(502,rejectionMessage(lastRejection));
     }
@@ -336,7 +357,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
     if(targetTitle&&accepted.length&&!pending.length)next.cursor=plan.blocks.length;
     next.readThrough=next.cursor;next.exhausted=next.cursor===plan.blocks.length;
     const advanced=next.cursor>current.cursor||pending.length<current.pendingEvents.length;
-    await cache.write(key,next);if(accepted.length)await measurement.stored();current=next;progress(current,'reading',reading);
+    current=await saveScan(next);if(accepted.length)await measurement.stored();progress(current,'reading',reading);
     if(reading.signal.aborted)break;
     if(!accepted.length&&lastRejection&&!advanced)throw new ReaderError(502,rejectionMessage(lastRejection));
    }

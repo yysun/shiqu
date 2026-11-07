@@ -42,9 +42,28 @@ async function changed(promise:Promise<void>,signal?:AbortSignal){
  if(!signal)return promise;signal.throwIfAborted();
  await new Promise<void>((resolve,reject)=>{const cancel=()=>{signal.removeEventListener('abort',cancel);reject(signal.reason);};signal.addEventListener('abort',cancel,{once:true});promise.then(()=>{signal.removeEventListener('abort',cancel);resolve();});});
 }
+function judgmentIdentity(status:Awaited<ReturnType<ReaderProvider['status']>>,provider:string){
+ return {...(status.themeMatching||{model:status.models.text,reasoningEffort:status.taskReasoningEfforts?.suggest||''}),provider};
+}
+function bookJudgmentNamespace(bookId:string,provider:string){return 'original-judgments/'+discoveryHash([bookId,provider]);}
+
+export async function saveVerifiedThemeMatches(cache:StoryDiscoveryCache,bookId:string,theme:string,status:Awaited<ReturnType<ReaderProvider['status']>>,matches:{story:Story;reason:string;text:string}[]){
+ const key=themeDecisionKey(bookJudgmentNamespace(bookId,status.provider),theme,judgmentIdentity(status,status.provider));
+ await cache.update(key,savedSchema,empty,current=>{
+  for(const {story,reason,text} of matches){
+   const id=themeStoryId(story);
+   current.decisions[id]=themeDecisionSchema.parse({id,verdict:'yes',reason});
+   current.fingerprints[id]=discoveryHash(text);
+   delete current.unknown[id];
+  }
+  return current;
+ });
+ coordinators.get(cache.identity)?.changes.notify();
+}
+
 export async function matchLibraryStories<T extends Story>(provider:ReaderProvider,cache:StoryDiscoveryCache,namespace:string,theme:string,stories:T[],original:(story:T)=>string,budget:number,providerName:string,observer?:ReadingObserver,options:{cacheOnly?:boolean;bookId?:string;legacyNamespaces?:string[];retryUnknown?:boolean;context?:DiscoveryContext}={}):Promise<(T&{matchReason:string})[]>{
- const status=await provider.status(),identity={...(status.themeMatching||{model:status.models.text,reasoningEffort:status.taskReasoningEfforts?.suggest||''}),provider:providerName};
- const key=themeDecisionKey(options.bookId?'original-judgments/'+discoveryHash([options.bookId,providerName]):namespace,theme,identity);
+ const status=await provider.status(),identity=judgmentIdentity(status,providerName);
+ const key=themeDecisionKey(options.bookId?bookJudgmentNamespace(options.bookId,providerName):namespace,theme,identity);
  const cycle=observer?.cycleId||randomUUID(),cycleKey='discovery-cycle/'+discoveryHash(cycle);
  if(!options.cacheOnly&&stories.length&&!provider.matchStories)throw new ReaderError(503,'当前生成服务暂不支持故事主题匹配，请更新服务后重试。');
  const entries=stories.map(story=>{const text=original(story);return {story,id:themeStoryId(story),text,fingerprint:discoveryHash(text)};});
@@ -173,8 +192,8 @@ export async function matchLibraryStories<T extends Story>(provider:ReaderProvid
  }finally{q.done=true;queries.delete(q);}
 }
 export async function hasUnknownJudgments(provider:ReaderProvider,cache:StoryDiscoveryCache,bookId:string,theme:string,stories:Story[],providerName:string){
- const status=await provider.status(),identity={...(status.themeMatching||{model:status.models.text,reasoningEffort:status.taskReasoningEfforts?.suggest||''}),provider:providerName};
- const key=themeDecisionKey('original-judgments/'+discoveryHash([bookId,providerName]),theme,identity),saved=await cache.read(key,savedSchema);
+ const status=await provider.status(),identity=judgmentIdentity(status,providerName);
+ const key=themeDecisionKey(bookJudgmentNamespace(bookId,providerName),theme,identity),saved=await cache.read(key,savedSchema);
  return stories.some(story=>saved?.unknown[themeStoryId(story)]);
 }
 

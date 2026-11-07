@@ -266,6 +266,13 @@ test('主题核对完整的 50 条索引候选，证据真实才按明确和暗�
  assert.equal(new Set(calls.flat()).size,50);
  assert.equal(observed.at(-1).completed,50);
  const reopened=open();
+ const lookup=f.search.lookupHits;
+ f.search.lookupHits=async()=>assert.fail('审核通过的候选已入库，无须查索引');
+ const warm=await reopened.suggestions(query,[],undefined,observer);
+ assert.deepEqual(warm.stories,first.stories);
+ assert.match(warm.note,/已复用本地故事库及主题判断缓存/);
+ assert.equal(calls.length,2);
+ f.search.lookupHits=lookup;
  const second=await reopened.suggestions(query,[],undefined,undefined,first.stories.map(story=>story.source));
  assert.deepEqual(second.stories.map(row=>row.title),['故事 24','故事 50','故事 1']);
  assert.match(second.stories.at(-1).matchReason,/情节暗示/);
@@ -339,5 +346,10 @@ test('主题核对在缺索引或文字无候选时读取指定章节原文',asy
   const result=await withLocalBooks(f.provider,f.books,f.store,f.cache,search).suggestions({...query,discoverySources:[scope]},[]);
   assert.deepEqual(result.stories.map(story=>story.source),[f.stories[0].source]);
   assert.ok(f.calls.catalog.length);
+  search.lookupHits=async()=>assert.fail('缓存已满足批次，无须查索引');
+  f.provider.matchStories=async()=>assert.fail('已有主题判断，无须调用模型');
+  const cached=await withLocalBooks(f.provider,f.books,f.store,f.cache,search).suggestions({...query,discoverySources:[scope]},[],undefined,{signal,maxStories:1,onProgress(){}});
+  assert.deepEqual(cached.stories.map(story=>story.source),[f.stories[0].source]);
+  assert.match(cached.note,/已复用本地故事库及主题判断缓存/);
  }
 });
