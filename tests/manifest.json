@@ -2568,7 +2568,9 @@
       "pr": "code",
       "gates": [],
       "covers": [
-        "lib/reader-home.ts"
+        "lib/reader-home.ts",
+        "client/ui/RecentStories.tsx",
+        "client/ui/Reader.tsx"
       ]
     },
     {

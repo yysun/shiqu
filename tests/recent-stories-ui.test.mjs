@@ -41,3 +41,41 @@ test('a story read to its last frame offers a restart instead of resuming',()=>{
  assert.match(html,new RegExp(`已读完 · 重读 · ${story.pages.length} 幅`));
  assert.doesNotMatch(html,/继续阅读/);
 });
+
+// 用真实组件的事件与观察器回调验证缩放，不依赖浏览器的滚动吸附实现。
+test('resize keeps the selected story before observer delivery and after remount',()=>{
+ const effects=[],refs=[];
+ const harness={exports:{}};
+ let cursor=0;
+ const require=createRequire(import.meta.url);
+ new Function('require','module','exports',bundle.outputFiles[0].text)(name=>name==='react'?{...require(name),useRef:value=>refs[cursor++]??(refs[cursor-1]={current:value}),useLayoutEffect:effect=>effects.push(effect)}:require(name),harness,harness.exports);
+ const Component=harness.exports.default;
+ const rows=[...items,{...items[0],story:{...story,id:'second-story'}}];
+ let selected='second-story',resize;
+ const oldObserver=globalThis.ResizeObserver;
+ globalThis.ResizeObserver=class{constructor(callback){resize=callback;}observe(){}disconnect(){}};
+ try{
+  function mount(){
+   cursor=0;refs.length=0;effects.length=0;
+   const tree=Component({items:rows,loading:false,bookName:()=>'',onOpen(){},activeStoryId:selected,onActiveStoryChange:id=>{selected=id;}});
+   const track=tree.props.children[0];
+   const el={clientWidth:400,scrollLeft:0,style:{},scrollTo({left}){this.scrollLeft=left;}};
+   track.props.ref.current=el;
+   effects.forEach(effect=>effect());
+   return {track,el};
+  }
+  let {track,el}=mount();
+  assert.equal(el.scrollLeft,400);
+  el.clientWidth=700;
+  track.props.onScroll({currentTarget:el});
+  assert.equal(selected,'second-story');assert.equal(el.scrollLeft,700);
+  el.clientWidth=320;resize();
+  assert.equal(el.scrollLeft,320);
+  track.props.onScroll({currentTarget:el});
+  assert.equal(selected,'second-story');
+  ({track,el}=mount());
+  assert.equal(el.scrollLeft,400);
+  el.scrollLeft=0;track.props.onScroll({currentTarget:el});
+  assert.equal(selected,story.id);
+ }finally{globalThis.ResizeObserver=oldObserver;}
+});

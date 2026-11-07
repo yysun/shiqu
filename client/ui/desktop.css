@@ -34,10 +34,17 @@
 .yu-desktop .yu-discover .yu-section:first-child{margin-top:0}
 .yu-desktop .yu-books{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:clamp(14px,1.6vw,24px);overflow:visible;scroll-snap-type:none;padding-bottom:0}
 .yu-desktop .yu-books>button{min-width:0}
-.yu-desktop .yu-recent-hero .yu-feature{height:clamp(240px,28vw,340px)}
 @media (min-width:1024px){
- .yu-desktop .yu-discover{grid-template-columns:minmax(0,5fr) minmax(0,7fr);align-items:start}
- .yu-desktop .yu-discover-lead{position:sticky;top:calc(var(--d-bar) + 24px)}
+ .yu-desktop .yu-discover{grid-template-columns:minmax(0,5fr) minmax(0,7fr);align-items:stretch}
+ /* 双栏时左栏占满可视高度，底部操作贴底，右栏可继续滚动。 */
+ .yu-desktop .yu-discover-lead{position:sticky;top:calc(var(--d-bar) + clamp(20px,2.4vw,40px));align-self:start;display:flex;flex-direction:column;min-width:0;height:calc(100dvh - var(--d-bar) - clamp(20px,2.4vw,40px) - 24px);min-height:560px}
+ .yu-desktop .yu-discover-lead .yu-intro,.yu-desktop .yu-discover-lead .yu-new-story-link{flex:none}
+ .yu-desktop .yu-discover-lead .yu-recent-hero{display:flex;flex-direction:column;flex:1;min-height:0}
+ .yu-desktop .yu-discover-lead .yu-hero-track{flex:1;min-height:320px}
+ .yu-desktop .yu-discover-lead .yu-feature{height:auto;min-height:320px;aspect-ratio:auto}
+ .yu-desktop .yu-discover-lead .yu-feature>img{position:absolute;inset:0}
+ .yu-desktop .yu-discover-lead .yu-hero-controls{flex:none}
+ .yu-desktop .yu-discover-lead>.yu-feature-empty{flex:1;min-height:320px}
 }
 
 /* 新建页：选择与内联表单；1024px 起并排，表单栏粘性跟随 */
