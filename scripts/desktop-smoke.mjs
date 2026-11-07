@@ -21,9 +21,16 @@ async function start(settings){
  child=spawn(binary,['--no-warnings',path.join(root,'dist/server/desktop.js')],{cwd:root,env:{PATH:'/shiqu-no-system-node',HOME:home,USERPROFILE:home,APPDATA:path.join(home,'roaming'),LOCALAPPDATA:path.join(home,'local'),SYSTEMROOT:process.env.SYSTEMROOT||''},stdio:['pipe','pipe','pipe']});
  child.stderr.resume();const lines=createInterface({input:child.stdout});
  const timeout=setTimeout(()=>child.kill('SIGTERM'),15000);
- const result=Promise.race([once(lines,'line').then(([line])=>JSON.parse(line)),once(child,'exit').then(()=>{throw Error('Packaged runtime exited before readiness');})]);
  child.stdin.write(JSON.stringify({action:'start',settings,key:''})+'\n');
- try{const ready=await result;assert.equal(ready.running,true,ready.error);return ready;}finally{clearTimeout(timeout);}
+ try{
+  // 启动协议先发送升级和启动进度；只在就绪或失败后结束等待。
+  for await(const line of lines){
+   const status=JSON.parse(line);
+   if(status.error||status.state==='failed')throw Error(status.error||'Packaged runtime failed to start');
+   if(status.running===true)return status;
+  }
+  throw Error('Packaged runtime exited before readiness');
+ }finally{clearTimeout(timeout);}
 }
 async function stop(){if(child&&child.exitCode===null){const exited=once(child,'exit');child.stdin.end();const timer=setTimeout(()=>child.kill('SIGKILL'),10000);try{await exited;}finally{clearTimeout(timer);}}}
 
