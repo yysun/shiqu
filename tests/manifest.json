@@ -2486,7 +2486,13 @@
       "gates": [
         "user-flows"
       ],
-      "covers": []
+      "covers": [
+        "client/ui/Reader.tsx",
+        "client/ui/StoryFilmstrip.tsx",
+        "client/ui/StoryPageSurface.tsx",
+        "client/ui/reader.css",
+        "lib/reader-navigation.ts"
+      ]
     },
     {
       "file": "tests/reader-suggestion-request.test.mjs",

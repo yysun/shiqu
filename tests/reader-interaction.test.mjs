@@ -1,4 +1,4 @@
-// Protect reading gestures, shelf navigation, and persisted reading/favorite reconciliation.
+// 验证阅读手势、书架导航与阅读进度、收藏状态的合并规则。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {newWheelGesture,wheelPageDirection,swipePageDirection,edgePageDirection} from '../lib/reader-navigation.ts';
@@ -26,12 +26,35 @@ test('trackpad rebound cannot reverse or skip a page within the same gesture',()
  for(let time=100;time<=1000;time+=100)assert.equal(move(time,time%200===0?-75:80),0);
  assert.equal(move(1400,-65),-1);
 });
-test('mouse wheel units, small movements and cross-axis jitter are handled consistently',()=>{
+test('mouse wheel units and small movements are handled consistently',()=>{
  const gesture=newWheelGesture();
  assert.equal(wheelPageDirection(gesture,{time:0,x:0,y:3,mode:1,height:800}),1);
- assert.equal(wheelPageDirection(gesture,{time:500,x:8,y:10,mode:0,height:800}),0);
- assert.equal(wheelPageDirection(gesture,{time:520,x:80,y:10,mode:0,height:800}),0);
- assert.equal(wheelPageDirection(gesture,{time:540,x:0,y:40,mode:0,height:800}),1);
+ assert.equal(wheelPageDirection(gesture,{time:500,x:0,y:10,mode:0,height:800}),0);
+ assert.equal(wheelPageDirection(gesture,{time:520,x:0,y:20,mode:0,height:800}),0);
+ assert.equal(wheelPageDirection(gesture,{time:540,x:0,y:30,mode:0,height:800}),1);
+ assert.equal(wheelPageDirection(gesture,{time:1000,x:0,y:-1,mode:2,height:800}),-1);
+});
+test('trackpad direction follows accumulated movement instead of initial cross-axis jitter',()=>{
+ for(const axis of ['x','y'])for(const direction of [-1,1]){
+  const gesture=newWheelGesture();
+  const move=(time,main,cross)=>wheelPageDirection(gesture,{time,x:axis==='x'?main:cross,y:axis==='y'?main:cross,mode:0,height:800});
+  assert.equal(move(0,direction*2,3),0);
+  assert.equal(move(16,direction*30,1),0);
+  assert.equal(move(32,direction*35,1),direction);
+ }
+});
+test('a separate quick flick is accepted after idle without an additional cooldown',()=>{
+ const gesture=newWheelGesture();
+ const move=(time,x)=>wheelPageDirection(gesture,{time,x,y:0,mode:0,height:800});
+ assert.equal(move(0,65),1);
+ assert.equal(move(16,5),0);
+ assert.equal(move(300,-65),-1);
+ assert.equal(move(316,-10),0);
+});
+test('ambiguous diagonal wheel movement waits for a clear direction',()=>{
+ const gesture=newWheelGesture();
+ assert.equal(wheelPageDirection(gesture,{time:0,x:65,y:65,mode:0,height:800}),0);
+ assert.equal(wheelPageDirection(gesture,{time:16,x:40,y:0,mode:0,height:800}),1);
 });
 test('themes share source-faithful production defaults while reader-written requirements remain intact',()=>{
  const original=defaultProductionPrompt('给我一个反转');

@@ -122,7 +122,7 @@ test('PHONE-READABILITY: every phone state has readable text, 44px targets, cont
    const stage=await page.locator('.yu-swipe-surface').boundingBox();
    let before=await index();await page.mouse.click(stage.x+stage.width-8,stage.y+stage.height/2);await until(async()=>await index()!==before);
    before=await index();await page.mouse.click(stage.x+8,stage.y+stage.height/2);await until(async()=>await index()!==before);
-   before=await index();await page.mouse.move(stage.x+stage.width/2,stage.y+stage.height/2);await page.mouse.down();await page.mouse.move(stage.x+stage.width/2-120,stage.y+stage.height/2,{steps:8});await page.mouse.up();await until(async()=>await index()!==before);
+   before=await index();await page.mouse.move(stage.x+stage.width*.8,stage.y+stage.height/2);await page.mouse.down();await page.mouse.move(stage.x+stage.width*.15,stage.y+stage.height/2,{steps:8});await page.mouse.up();await until(async()=>await index()!==before);
    const after=await index();await page.mouse.click(stage.x+stage.width/2,stage.y+stage.height/2);await page.locator('.yu-metadata-hidden').waitFor();assert.equal(await index(),after,'center tap toggles metadata without turning');
    await page.mouse.click(stage.x+stage.width/2,stage.y+stage.height/2);await page.locator('.yu-metadata-hidden').waitFor({state:'detached'});
    await page.getByRole('button',{name:'第一页',exact:true}).click();
