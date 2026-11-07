@@ -12,7 +12,7 @@ import StoryChapterPicker from './StoryChapterPicker';
 import './story-discovery.css';
 
 export const discoveryThemes=[...discoveryThemePresets,'其他'];
-export default function StoryDiscoveryForm({selection,books,busy,error,onBookChange,onSubmit,retainKey}:{selection:Selection;books:{id:string;title:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;retainKey?:string}){
+export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,retainKey}:{selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;retainKey?:string}){
  const part=(name:string)=>retainKey&&retainKey+':'+name;
  const custom=selection.theme!=='原典故事'&&!discoveryThemes.includes(selection.theme);
  const [draft,setDraft]=useRetainedState(part('draft'),()=>({...selection,theme:custom?'其他':selection.theme}));
@@ -20,12 +20,13 @@ export default function StoryDiscoveryForm({selection,books,busy,error,onBookCha
  const [customTheme,setCustomTheme]=useRetainedState(part('theme'),custom?selection.theme:'');
  const local=draft.bookId!=='other';
  const initialTitle=selection.discovery?.mode==='title'?selection.discovery.title:undefined;
- const [manualTitle,setManualTitle]=useRetainedState(part('manual-title'),true);
+ const initialManualTitle=selection.discovery?.mode==='title';
+ const [manualTitle,setManualTitle]=useRetainedState(part('manual-title'),initialManualTitle);
  const [title,setTitle]=useRetainedState(part('title'),initialTitle||'');
  const byTitle=local&&manualTitle;
  // 打开时的选择；与草稿一起保留，跨布局重新挂载后仍按打开时比较
  const [opened]=useRetainedState(part('opened'),()=>JSON.stringify([{...selection,theme:custom?'其他':selection.theme},custom?selection.theme:'',selection.discoverySources||[],!!selection.discoverySources?.length]));
- const dirty=JSON.stringify([draft,customTheme,sources,limited])!==opened||!manualTitle&&local||byTitle&&title!==(initialTitle||'');
+ const dirty=JSON.stringify([draft,customTheme,sources,limited])!==opened||local&&manualTitle!==initialManualTitle||byTitle&&title!==(initialTitle||'');
  function changeBook(bookId:string){
   setDraft(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}));
   setSources([]);setLimited(false);onBookChange(bookId);
@@ -54,7 +55,7 @@ export default function StoryDiscoveryForm({selection,books,busy,error,onBookCha
   <span hidden data-dirty={dirty?'true':undefined}/>
   <p className="yu-sheet-intro">主题和原文范围都可选。确认标题方式后，即可开始提取。</p>
   <div className="yu-choice-label">从哪本书出发</div>
-  <div className="yu-options" role="group" aria-label="选择书籍">{books.map(book=><button type="button" key={book.id} disabled={busy} aria-pressed={draft.bookId===book.id} className={draft.bookId===book.id?'selected':''} onClick={()=>changeBook(book.id)}>{book.title}</button>)}</div>
+  <div className="yu-options" role="group" aria-label="选择书籍">{books.map(book=><button type="button" key={book.id} disabled={busy} aria-pressed={draft.bookId===book.id} className={draft.bookId===book.id?'selected':''} onClick={()=>changeBook(book.id)}>{semanticIndexBooks?.some(index=>index.id===book.id)?<strong>{book.title}</strong>:book.title}</button>)}</div>
   {!local&&<label className="yu-custom-input">书名或公开网页 URL<input disabled={busy} maxLength={500} value={draft.customBook||''} placeholder="例如：三言二拍，或 https://…" onChange={event=>setDraft(old=>({...old,customBook:event.target.value}))}/></label>}
   {local&&<>
    <div className="yu-choice-label">原文范围（可选）</div>

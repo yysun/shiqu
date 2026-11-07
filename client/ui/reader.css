@@ -239,6 +239,7 @@ button.yu-page-surface{padding:0;border:0;background:transparent;cursor:default}
 /* Keep the shared workflow close to adjacent content without stacking credit and section spacing. */
 .yu-pdf-setting>.yu-publication-summary{padding-bottom:0}
 .yu-settings-flow{margin:12px 0;padding-top:8px;border-top:1px solid #dce3cf}
+.yu-settings-flow:first-child{margin-top:0;padding-top:0;border-top:0}
 .yu-story-name+.yu-settings-flow,.yu-pdf-setting+.yu-settings-flow{margin-top:0}
 
 

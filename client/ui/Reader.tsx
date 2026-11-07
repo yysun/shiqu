@@ -563,7 +563,7 @@ export default function Reader(){
  </ReaderTag>;
 
  // 手机树：今天的界面与其专属面板。
- const configureSheet=configure&&<Sheet title="这一篇，想怎样读？" busy={creating} onClose={closeCreate}><StoryDiscoveryForm retainKey="discovery" selection={selection} books={choices} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}))} onSubmit={generate}/></Sheet>;
+ const configureSheet=configure&&<Sheet title="这一篇，想怎样读？" busy={creating} onClose={closeCreate}><StoryDiscoveryForm retainKey="discovery" selection={selection} books={choices} semanticIndexBooks={semanticIndexBooks} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}))} onSubmit={generate}/></Sheet>;
  const sourceSheet=source&&(story||gen.active)&&<Sheet title="故事从哪里来" onClose={()=>setSource(false)}>{story?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:<StorySource key={gen.active!.id} sessionId={gen.active!.id} book={bookName({id:gen.active!.id,bookId:gen.active!.selection.bookId})}/>}</Sheet>;
  const sceneSheet=sceneList&&story&&<Sheet title="分镜列表" onClose={()=>setSceneList(false)}><StorySceneList story={story} page={page} onSelect={index=>{goToPage(index);setSceneList(false);}}/></Sheet>;
  const storySheets=<>
@@ -595,12 +595,12 @@ export default function Reader(){
  // 桌面书架：宽档可阅读卡片打开右栏阅读，制作中卡片打开同栏故事设置；窄档沿用整页入口。
  const openDocked=(target:Story,restart=false)=>{if(dockedView&&!workflowTarget&&story?.id===target.id&&!restart)return;open(target,restart,true);};
  const librarySettings=dockedSettings&&<section className="yu-library-settings" aria-label="故事设置"><header><h2>故事设置</h2><button type="button" className="yu-icon" aria-label="关闭故事设置" disabled={settingsProps.busy} onClick={backToShelf}><X size={20}/></button></header>{StorySettingsContent(settingsProps)}</section>;
- const desktopLibrary=<DesktopLibrary reader={librarySettings||(dockedView?readerMain:null)} shelf={wide?cloneElement(shelfView,{selectedId:workflowDocked?workflowTarget:docked?story?.id:null,onSelect:(id:string|null)=>{const target=id&&shelf.find(item=>item.id===id);if(target)openDocked(target);},onOpen:openDocked,onResume:(session:SessionView)=>openWorkflow(session.id,true)}):shelfView}/>;
+ const desktopLibrary=<DesktopLibrary onCreate={()=>choose()} reader={librarySettings||(dockedView?readerMain:null)} shelf={wide?cloneElement(shelfView,{selectedId:workflowDocked?workflowTarget:docked?story?.id:null,onSelect:(id:string|null)=>{const target=id&&shelf.find(item=>item.id===id);if(target)openDocked(target);},onOpen:openDocked,onResume:(session:SessionView)=>openWorkflow(session.id,true)}):shelfView}/>;
  const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover"><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></div>;
  // 桌面新建页：选择在左（或上），内联表单在右（或下），与手机面板共用表单组件与属性。
  const createPage=view.kind==='create'&&<main className="yu-home yu-desktop-main" data-main=""><DesktopCreate
   choices={<>{discoverBooks}{discoverMoods}{discoverSurprise}</>}
-  form={<StoryDiscoveryForm key={createSeed} retainKey="discovery" selection={selection} books={choices} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}))} onSubmit={generate}/>}/></main>;
+  form={<StoryDiscoveryForm key={createSeed} retainKey="discovery" selection={selection} books={choices} semanticIndexBooks={semanticIndexBooks} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}))} onSubmit={generate}/>}/></main>;
  // 桌面阅读：舞台加可选侧栏（分镜列表或原文）；侧栏里选分镜只翻页，不关闭侧栏。
  const readerPanel=view.kind!=='reader'||!story?null:view.panel==='scenes'?<StorySceneList story={story} page={page} onSelect={goToPage}/>:view.panel==='source'?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:null;
  const desktopReader=view.kind==='reader'&&<DesktopReader stage={readerMain} panel={readerPanel} title={view.panel==='scenes'?'分镜列表':'故事从哪里来'} onClose={()=>{setSource(false);setSceneList(false);}}/>;
