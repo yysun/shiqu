@@ -126,12 +126,29 @@ test('DESKTOP-LAYOUT-03: at 1024px and up a card opens the reader itself in the 
   await docked.getByRole('button',{name:'全屏阅读',exact:true}).click();await page.locator('.yu-reader-layout').waitFor();
   await page.evaluate(()=>history.back());await docked.waitFor();assert.equal(await page.locator('.yu-reader-layout').count(),0,'back collapses into the column');
 
-  // 中档 900：没有右栏，右栏里的故事转为普通全屏阅读；关闭后点卡片同样直接全屏阅读
+  // 跨宽度与高度往返时保留右栏选中项和页码；显式全屏不因放宽而收起。
+  for(const [width,height] of [[900,800],[390,800],[1280,500],[1023,800]]){
+   await page.setViewportSize({width,height});await dock.waitFor({state:'hidden'});await page.locator('.yu-reader').waitFor();
+   assert.equal(await dock.count(),0,'narrow or short windows hide the right column');
+   assert.match(await page.locator('.yu-reader .yu-progress').getAttribute('aria-label'),/^第2幅/);
+   await page.setViewportSize({width:1280,height:800});await docked.waitFor();await selected(ids[0]);
+   assert.match(await frame(),/^第2幅/,'resizing preserves the reading position');
+   assert.equal(new URL(page.url()).pathname,'/','the restored column stays on the shelf');
+  }
+  await docked.getByRole('button',{name:'全屏阅读',exact:true}).click();
+  await page.setViewportSize({width:900,height:800});await page.locator('.yu-reader-layout').waitFor();
+  await page.setViewportSize({width:1280,height:800});await page.locator('.yu-reader-layout').waitFor();
+  assert.equal(await dock.count(),0,'explicit fullscreen survives a resize round trip');
+  await page.getByRole('button',{name:'返回书架',exact:true}).click();await docked.waitFor();
+
+  // 中档 900：没有右栏，返回书架会关闭阅读；窄屏直接打开的故事也不会随放宽停靠。
   await page.setViewportSize({width:900,height:800});await page.locator('.yu-reader-layout').waitFor();
   assert.equal(await dock.count(),0,'no right-hand column below 1024px');
-  await page.getByRole('button',{name:'返回发现',exact:true}).click();await cards.first().waitFor();
+  await page.getByRole('button',{name:'返回书架',exact:true}).click();await cards.first().waitFor();
   await page.screenshot({path:path.join(b.directory,'library-900.png')});
   await cards.nth(1).locator('.yu-shelf-card-details').click();await page.locator('.yu-reader-layout').waitFor();
+  await page.setViewportSize({width:1280,height:800});await page.locator('.yu-reader-layout').waitFor();
+  assert.equal(await dock.count(),0,'a story opened fullscreen stays fullscreen');
   await page.getByRole('button',{name:'返回发现',exact:true}).click();await cards.first().waitFor();
  });
 });

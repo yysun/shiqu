@@ -12,7 +12,7 @@
 // 从书架或发现打开故事时记下列表滚动位置，返回时恢复（返回书架的按钮仍回到顶部）。
 // 手机面板不超过两层：修改分镜先关分镜剧本；替换选题期间不渲染故事设置，取消后恢复。
 // 桌面宽档（≥1024px）书架：可阅读卡片在右栏阅读，制作中卡片在右栏打开故事设置；地址留在书架。
-// 全屏按钮展开为普通阅读（展开或打开原文/分镜列表时登记为步骤，返回收回右栏）；变窄时转为普通全屏阅读。
+// 全屏按钮展开为普通阅读（展开或打开原文/分镜列表时登记为步骤，返回收回右栏）；变窄时全屏显示，放宽后恢复右栏与选中项。
 // 停留在书架期间卡片顺序冻结，在右栏阅读不会让卡片跳到前面。
 
 import {pruneReadingCaches,type LibraryInventory} from '../reading-cache.ts';
@@ -218,7 +218,7 @@ export default function Reader(){
  // 右栏阅读：展开为全屏、收回右栏（同时关闭原文与分镜列表）；离开阅读时右栏故事只收回，不关闭
  function expand(){if(!story)return;setExpanded(true);history.replaceState(history.state,'','/read?id='+encodeURIComponent(story.id));}
  function collapse(){setExpanded(false);setSource(false);setSceneList(false);history.replaceState(history.state,'','/');}
- function leaveReader(){if(docked)collapse();else home();}
+ function leaveReader(){if(docked&&wide)collapse();else home();}
  const focusShelfCard=(id:string)=>document.querySelector<HTMLElement>(`[data-story-id="${CSS.escape(id)}"] .yu-shelf-card-details`)?.focus();
  // 返回阅读前所在列表的滚动位置；返回书架的按钮改为回到顶部
  const listScroll=useRef<number|null>(null);
@@ -267,7 +267,7 @@ export default function Reader(){
  // 生成钩子恢复会话后会写入 /read?id=；停靠时地址始终留在书架
  useEffect(()=>{if((dockedView||dockedSettings)&&(location.pathname!=='/'||location.search))history.replaceState(history.state,'','/');});
  // 停靠时方向键只在焦点位于右栏阅读里时翻页，Escape 把焦点还给卡片
- useEffect(()=>{function key(e:KeyboardEvent){if(!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;if(dockedView&&!readerRef.current?.contains(document.activeElement))return;if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();turn(-1);}if(e.key==='Escape'){if(dockedView)focusShelfCard(story.id);else if(source||sceneList){setSource(false);setSceneList(false);}else leaveReader();}}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[story,page,ended,source,settings,workflowTarget,configure,sceneList,desktop,dockedView,docked]);
+ useEffect(()=>{function key(e:KeyboardEvent){if(!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;if(dockedView&&!readerRef.current?.contains(document.activeElement))return;if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();turn(-1);}if(e.key==='Escape'){if(dockedView)focusShelfCard(story.id);else if(source||sceneList){setSource(false);setSceneList(false);}else leaveReader();}}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[story,page,ended,source,settings,workflowTarget,configure,sceneList,desktop,wide,dockedView,docked]);
  useEffect(()=>{
   const reader=readerRef.current;if(!reader||!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;
   const gesture=wheelGesture.current;
@@ -591,8 +591,8 @@ export default function Reader(){
  const reading=desktop?view.kind==='reader':!!story;
  // 返回键的非对话框步骤（阅读 0、新建页 1、抽屉 2）；设置和子面板由 Sheet 管理。
  useHistoryStep(!!story&&!dockedView&&!dockedSettings,0,leaveReader);
- // 变窄到没有右栏、且阅读正显示时，右栏故事转为普通全屏阅读（设置或新建页打开期间保留，回到阅读时再判断）
- useEffect(()=>{if(!wide&&docked&&view.kind==='reader'){setDocked(false);setExpanded(false);if(story)history.replaceState(history.state,'','/read?id='+encodeURIComponent(story.id));}},[wide,view.kind]);
+ // 变窄时只同步阅读地址，保留停靠来源与手动全屏状态，放宽后由布局恢复右栏。
+ useEffect(()=>{if(!wide&&docked&&view.kind==='reader'&&story)history.replaceState(history.state,'','/read?id='+encodeURIComponent(story.id));},[wide,docked,view.kind,story?.id]);
  useHistoryStep(desktop&&view.kind==='create',1,closeCreate,()=>!!document.querySelector('.yu-create-form [data-dirty="true"]'));
  useHistoryStep(desktop&&drawerForm&&view.kind==='reader'&&!!view.panel,2,()=>{setSource(false);setSceneList(false);});
 
