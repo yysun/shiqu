@@ -1,14 +1,12 @@
 // 书架分区：未成书的制作任务以紧凑行排在可阅读故事之前，需要处理的优先且始终可见；可阅读卡片同尺寸并区分已读完。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
-import {build} from 'esbuild';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
+import './fixtures/tsx.mjs';
 
-const bundle=await build({stdin:{contents:"export {default} from './client/ui/ReaderShelf.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,loader:{'.css':'empty'},platform:'node',format:'cjs',packages:'external'});
-const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
-const Shelf=compiled.exports.default,noop=()=>{};
+const {default:Shelf}=await import('../client/ui/ReaderShelf.tsx');
+const noop=()=>{};
 const story=(id,title,frames=3)=>({id,bookId:'honglou',title,theme:'爱情与错过',pages:Array.from({length:frames},()=>({image:'/saved.png'}))});
 const session=(id,title,extra={})=>({id,selection:{bookId:'honglou',theme:'原典故事',artStyle:'chibi',storyTitle:title},state:'idle',error:null,ready:0,story:null,page:0,saved:false,stage:'正在编排故事',...extra});
 const paused=(id,title)=>session(id,title,{generationControl:'paused'});

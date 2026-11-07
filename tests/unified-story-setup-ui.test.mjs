@@ -1,15 +1,18 @@
 // Render real shared UI to guard the confirmation boundary and hide obsolete duplicate controls.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
-import {build} from 'esbuild';
+import './fixtures/tsx.mjs';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const noop=()=>{};
 test('discovery stays in the picker and selection opens one continuous story flow',async()=>{
- const bundle=await build({stdin:{contents:"export {default as Control} from './client/ui/StoryGenerationControl.tsx';export {default as Paused} from './client/ui/StoryPausedEditing.tsx';export {default as Editor,revisionDraftSteps} from './client/ui/StoryRevisionEditor.tsx';export {default as Setup,storyCreationTitle} from './client/ui/StoryCreationSetup.tsx';export {default as Review} from './client/ui/StoryReviewTools.tsx';export {StoryRevisionActions as Actions} from './client/ui/StoryRevisionEditor.tsx';export {default as Fields,StoryEditorTabs as Tabs} from './client/ui/StoryProductionEditor.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'}});
- const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
- const {Setup,storyCreationTitle,Fields,Tabs,Review,Actions,Paused,Editor,revisionDraftSteps,Control}=compiled.exports;
+ const {default:Control}=await import('../client/ui/StoryGenerationControl.tsx');
+ const {default:Paused}=await import('../client/ui/StoryPausedEditing.tsx');
+ const {default:Editor,revisionDraftSteps}=await import('../client/ui/StoryRevisionEditor.tsx');
+ const {default:Setup,storyCreationTitle}=await import('../client/ui/StoryCreationSetup.tsx');
+ const {default:Review}=await import('../client/ui/StoryReviewTools.tsx');
+ const {StoryRevisionActions:Actions}=await import('../client/ui/StoryRevisionEditor.tsx');
+ const {default:Fields,StoryEditorTabs:Tabs}=await import('../client/ui/StoryProductionEditor.tsx');
  const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'选择',artStyle:'paper-cut',productionPrompt:'清楚的旁白。',narrativeDetail:'brief',length:'auto',voice:false};
  const session={id:'creating',selection,state:'idle',ready:0,story:null,error:null,awaitingFrameCount:false,retryAllowed:false,generationMode:'background',generationControl:'active',frameRecommendation:{count:7,reason:'保留因果。'},intake:{phase:'confirming',generation:1,search:{state:'idle'},selected:{batch:0,index:0},batches:[{stories:[{title:'庄周梦蝶',description:'不应铺开的候选介绍。'}],note:''}]},generationProgress:{sourceReady:true,frameCountConfirmed:false,phase:'production-confirmation'}};
  const html=renderToStaticMarkup(createElement(Setup,{session,book:'庄子',busy:false,onAction:async()=>{},progress:{busy:false,controlBusy:false,error:'',onControl:async()=>{},onRetry:noop,onBack:noop}}));

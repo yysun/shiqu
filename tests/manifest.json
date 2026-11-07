@@ -325,7 +325,9 @@
       "gates": [],
       "covers": [
         "server/book-image-reference.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/tsx.mjs",
+        "client/ui/BookReferenceStar.tsx"
       ]
     },
     {
@@ -704,7 +706,9 @@
       "pr": "code",
       "gates": [],
       "covers": [
-        "lib/system-settings.ts"
+        "lib/system-settings.ts",
+        "tests/fixtures/tsx.mjs",
+        "desktop/ServiceCard.tsx"
       ]
     },
     {
@@ -766,7 +770,8 @@
       "covers": [
         "client/ui/ReaderShelf.tsx",
         "client/ui/DesktopLibrary.tsx",
-        "client/ui/DesktopLibrary.css"
+        "client/ui/DesktopLibrary.css",
+        "tests/fixtures/tsx.mjs"
       ]
     },
     {
@@ -2717,7 +2722,10 @@
       "suite": "unit",
       "pr": "code",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/tsx.mjs",
+        "client/ui/StoryReviewHistory.tsx"
+      ]
     },
     {
       "file": "tests/review-history.test.mjs",
@@ -2870,7 +2878,10 @@
       "suite": "flows",
       "pr": "affected",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/tsx.mjs",
+        "client/ui/ReaderShelf.tsx"
+      ]
     },
     {
       "file": "tests/shelf-browser.test.mjs",
@@ -2943,7 +2954,10 @@
       "suite": "unit",
       "pr": "code",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/tsx.mjs",
+        "client/ui/ReaderShelf.tsx"
+      ]
     },
     {
       "file": "tests/shelf-retry-ui.test.mjs",
@@ -2960,7 +2974,10 @@
       "suite": "unit",
       "pr": "code",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/tsx.mjs",
+        "client/ui/ReaderShelf.tsx"
+      ]
     },
     {
       "file": "tests/startup-cli-flow.test.mjs",
@@ -3603,7 +3620,16 @@
       "suite": "unit",
       "pr": "code",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/tsx.mjs",
+        "client/ui/StoryProductionEditor.tsx",
+        "client/ui/StoryPromptDetails.tsx",
+        "client/ui/StoryReviewTools.tsx",
+        "client/ui/StoryBackToShelf.tsx",
+        "client/ui/StoryGenerationStatus.tsx",
+        "client/ui/StoryCreationSetup.tsx",
+        "client/ui/StoryGenerationControl.tsx"
+      ]
     },
     {
       "file": "tests/story-requirements.test.mjs",
@@ -3681,7 +3707,14 @@
       "pr": "code",
       "gates": [],
       "covers": [
-        "lib/generation-progress.ts"
+        "lib/generation-progress.ts",
+        "tests/fixtures/tsx.mjs",
+        "client/ui/StoryProductionTimeline.tsx",
+        "client/ui/StoryGenerationControl.tsx",
+        "client/ui/StoryFlowAction.tsx",
+        "client/ui/StoryGenerationStatus.tsx",
+        "client/ui/StoryReviewTools.tsx",
+        "client/ui/StoryCreationSetup.tsx"
       ]
     },
     {
@@ -3748,7 +3781,9 @@
         "server/app.ts",
         "server/database.ts",
         "server/production-queue.ts",
-        "server/story-summary-migration.ts"
+        "server/story-summary-migration.ts",
+        "tests/fixtures/tsx.mjs",
+        "client/ui/StoryScript.tsx"
       ]
     },
     {
@@ -3884,7 +3919,13 @@
       "gates": [],
       "covers": [
         "lib/reader-prompts.ts",
-        "lib/reader-revision.ts"
+        "lib/reader-revision.ts",
+        "tests/fixtures/tsx.mjs",
+        "client/ui/StoryRevisionEditor.tsx",
+        "client/ui/StoryGenerationStatus.tsx",
+        "client/ui/StoryFrameCount.tsx",
+        "client/ui/StoryRetry.tsx",
+        "client/ui/StoryReviewTools.tsx"
       ]
     },
     {
@@ -4062,7 +4103,15 @@
       "suite": "unit",
       "pr": "code",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/tsx.mjs",
+        "client/ui/StoryGenerationControl.tsx",
+        "client/ui/StoryPausedEditing.tsx",
+        "client/ui/StoryRevisionEditor.tsx",
+        "client/ui/StoryCreationSetup.tsx",
+        "client/ui/StoryReviewTools.tsx",
+        "client/ui/StoryProductionEditor.tsx"
+      ]
     }
   ]
 }

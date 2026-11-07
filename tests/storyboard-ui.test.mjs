@@ -1,8 +1,7 @@
 // Render actual reader controls to verify batch progress and automatic frame arrangement without a browser.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
-import {build} from 'esbuild';
+import './fixtures/tsx.mjs';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {defaultProductionDirection} from '../lib/reader-prompts.ts';
@@ -10,9 +9,8 @@ import {revisionImpact} from '../lib/reader-revision.ts';
 import {makePlan,selection} from './fixtures/production.mjs';
 
 test('style-only revision UI preserves review progress and offers drawing without a fresh audit',async()=>{
- const bundle=await build({stdin:{contents:"export {StoryRevisionActions,revisionDraftSteps} from './client/ui/StoryRevisionEditor.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'}});
- const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
- const {StoryRevisionActions,revisionDraftSteps}=compiled.exports,base={selection,plan:makePlan(3),images:[],reviewStatus:'passed'},changes={artStyle:'paper-cut'};
+ const {StoryRevisionActions,revisionDraftSteps}=await import('../client/ui/StoryRevisionEditor.tsx');
+ const base={selection,plan:makePlan(3),images:[],reviewStatus:'passed'},changes={artStyle:'paper-cut'};
  const editor={base,changes,impact:revisionImpact(base,changes),busy:false,submit(){},discard(){}};
  const html=renderToStaticMarkup(createElement(StoryRevisionActions,{editor,reviewOnSave:true}));
  assert.match(html,/不重新审核/);assert.match(html,/审片已通过时直接重绘/);assert.match(html,/保存修改/);assert.doesNotMatch(html,/保存并重新审核|重新审片/);
@@ -25,9 +23,12 @@ test('style-only revision UI preserves review progress and offers drawing withou
 });
 
 test('reader renders saved directory, batch range, honest progress and automatic frame controls',async()=>{
- const bundle=await build({stdin:{contents:"export {default as Status} from './client/ui/StoryGenerationStatus.tsx';export {default as Count} from './client/ui/StoryFrameCount.tsx';export {default as Retry} from './client/ui/StoryRetry.tsx';export {default as Review} from './client/ui/StoryReviewTools.tsx';export {default as Editor} from './client/ui/StoryRevisionEditor.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'}});
- const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
- const {Status,Count,Retry,Review}=compiled.exports,session={id:'render',selection:{length:45},state:'running',productionState:'running',ready:0,story:null,error:null,stage:'正在编排第 21–40 幅分镜',awaitingFrameCount:false,frameRecommendation:null,generationProgress:{sourceReady:true,frameCountConfirmed:true,frameCount:45,phase:'plan',startedAt:Date.now(),attempt:1,storyboardFrames:20,storyboardBatch:{first:21,last:40}}};
+ const {default:Status}=await import('../client/ui/StoryGenerationStatus.tsx');
+ const {default:Count}=await import('../client/ui/StoryFrameCount.tsx');
+ const {default:Retry}=await import('../client/ui/StoryRetry.tsx');
+ const {default:Review}=await import('../client/ui/StoryReviewTools.tsx');
+ const {default:Editor}=await import('../client/ui/StoryRevisionEditor.tsx');
+ const session={id:'render',selection:{length:45},state:'running',productionState:'running',ready:0,story:null,error:null,stage:'正在编排第 21–40 幅分镜',awaitingFrameCount:false,frameRecommendation:null,generationProgress:{sourceReady:true,frameCountConfirmed:true,frameCount:45,phase:'plan',startedAt:Date.now(),attempt:1,storyboardFrames:20,storyboardBatch:{first:21,last:40}}};
  const status=renderToStaticMarkup(createElement(Status,{session,busy:false,error:'',onRetry(){},onBack(){}}));
  const timedSession={...session,generationProgress:{...session.generationProgress,startedAt:Date.now()-65000,timeoutAt:Date.now()+235000}};
  const timed=renderToStaticMarkup(createElement(Status,{session:timedSession,busy:false,error:'',onRetry(){},onBack(){}}));
@@ -63,9 +64,9 @@ test('reader renders saved directory, batch range, honest progress and automatic
  assert.doesNotMatch(incomplete,/继续自动修复|手动修改第 18 幅|已完成 20 轮/);
  const legacy=defaultProductionDirection.replace('按原文自身的事件、人物与因果展开，不额外套入主题或要求反转。','用相遇、犹疑与错过的具体细节表现感情，克制煽情，让未说出口的话和选择留下余味。');
  const editor={tab:'requirements',base:{selection:{artStyle:'chibi',theme:'爱情与错过',productionPrompt:legacy,length:18},plan:null},changes:{},impact:null,setTab(){},setChanges(){}};
- const neutral=renderToStaticMarkup(createElement(compiled.exports.Editor,{editor}));
+ const neutral=renderToStaticMarkup(createElement(Editor,{editor}));
  assert.doesNotMatch(neutral,/按原文自身的事件、人物与因果展开/);assert.doesNotMatch(neutral,/用相遇、犹疑与错过/);
- const authored=renderToStaticMarkup(createElement(compiled.exports.Editor,{editor:{...editor,changes:{productionPrompt:'保留人物原话，并在第一幅介绍当前处境。'}}}));
+ const authored=renderToStaticMarkup(createElement(Editor,{editor:{...editor,changes:{productionPrompt:'保留人物原话，并在第一幅介绍当前处境。'}}}));
  assert.match(authored,/保留人物原话，并在第一幅介绍当前处境/);
  const oldLimit=renderToStaticMarkup(createElement(Review,{...reviewProps,session:{...reviewProps.session,generationProgress:{reviewStopReason:'limit',repairPasses:3,reviewAudits:4}}}));
  assert.match(oldLimit,/已完成 3 轮自动修复/);assert.match(oldLimit,/本次最多 20 轮/);

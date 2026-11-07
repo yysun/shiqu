@@ -2,13 +2,11 @@
 // 选中状态覆盖可阅读卡片与制作行；不传 onSelect 时封面与标题直接打开。右栏组合由浏览器验证。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
-import {build} from 'esbuild';
+import './fixtures/tsx.mjs';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 
-const load=async contents=>{const bundle=await build({stdin:{contents,resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,loader:{'.css':'empty'},platform:'node',format:'cjs',packages:'external'});const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);return compiled.exports;};
-const {default:Shelf}=await load("export {default} from './client/ui/ReaderShelf.tsx';");
+const {default:Shelf}=await import('../client/ui/ReaderShelf.tsx');
 const noop=()=>{};
 const story=(id,title)=>({id,bookId:'honglou',title,theme:'爱情与错过',pages:Array.from({length:3},()=>({image:'/saved.png'}))});
 const session=(id,title)=>({id,selection:{bookId:'honglou',theme:'原典故事',artStyle:'chibi',storyTitle:title},state:'idle',error:null,ready:0,story:null,page:0,saved:false,stage:'正在编排故事'});

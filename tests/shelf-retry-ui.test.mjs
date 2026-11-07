@@ -1,14 +1,12 @@
 // Failed shelf cards must retry saved work, including readable compact cards, without pausing it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
-import {build} from 'esbuild';
+import './fixtures/tsx.mjs';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 
-const bundle=await build({stdin:{contents:"export {default} from './client/ui/ReaderShelf.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,loader:{'.css':'empty'},platform:'node',format:'cjs',packages:'external'});
-const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
-const Shelf=compiled.exports.default,noop=()=>{};
+const {default:Shelf}=await import('../client/ui/ReaderShelf.tsx');
+const noop=()=>{};
 const story={id:'failed-story',bookId:'honglou',title:'雪日探钗，黛玉含酸',theme:'爱情与错过',artStyleLabel:'软萌 Q 版',pages:Array.from({length:30},(_,i)=>({image:i<16?'/saved.png':''}))};
 const failed={id:story.id,selection:{bookId:story.bookId,theme:story.theme,artStyle:'chibi'},state:'failed',error:'绘图失败',retryAllowed:true,generationControl:'active',ready:16,story,page:1};
 function props(session=failed,extra={}){

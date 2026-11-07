@@ -2,16 +2,19 @@
 // Source actions, measured preparation and editable confirmation each stay with their own step.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
-import {build} from 'esbuild';
+import './fixtures/tsx.mjs';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {parseDocument,DomUtils} from 'htmlparser2';
 import {generationProgress} from '../lib/generation-progress.ts';
 
-const bundle=await build({stdin:{contents:"export {default as Timeline} from './client/ui/StoryProductionTimeline.tsx';export {default as Control} from './client/ui/StoryGenerationControl.tsx';export {default as Action} from './client/ui/StoryFlowAction.tsx';export {default as Status} from './client/ui/StoryGenerationStatus.tsx';export {default as Review} from './client/ui/StoryReviewTools.tsx';export {default as Setup} from './client/ui/StoryCreationSetup.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'}});
-const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
-const {Status,Review,Setup,Action,Timeline,Control}=compiled.exports,noop=()=>{};
+const {default:Timeline}=await import('../client/ui/StoryProductionTimeline.tsx');
+const {default:Control}=await import('../client/ui/StoryGenerationControl.tsx');
+const {default:Action}=await import('../client/ui/StoryFlowAction.tsx');
+const {default:Status}=await import('../client/ui/StoryGenerationStatus.tsx');
+const {default:Review}=await import('../client/ui/StoryReviewTools.tsx');
+const {default:Setup}=await import('../client/ui/StoryCreationSetup.tsx');
+const noop=()=>{};
 const base={id:'flow',selection:{bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'原典故事',length:4,artStyle:'ink-pencil',productionPrompt:'保留原文因果。'},state:'failed',generationControl:'active',ready:0,story:null,error:'分镜生成等待超时。',retryAllowed:true,generationProgress:{sourceReady:true,frameCountConfirmed:true,frameCount:4,phase:'plan',startedAt:0,attempt:1}};
 const defaults={busy:false,controlBusy:false,error:'',onControl:noop,onRetry:noop,onBack:noop};
 function render(session,extra={}){return renderToStaticMarkup(createElement(Status,{...defaults,session,...extra}));}

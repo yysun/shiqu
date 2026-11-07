@@ -13,8 +13,7 @@ import {selectionSchema} from '../lib/reader-model.ts';
 import {makePlan,selection,encoded,until} from './fixtures/production.mjs';
 import {makeStory} from './fixtures/story.mjs';
 import {historicalLibrary} from './fixtures/historical-library.mjs';
-import {transform} from 'esbuild';
-import {createRequire} from 'node:module';
+import './fixtures/tsx.mjs';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 
@@ -98,7 +97,6 @@ test('target job identity collisions abort the upgrade without discarding either
 });
 
 test('script disclosure renders the summary with the existing storyboard',async()=>{
- const file='client/ui/StoryScript.tsx',compiled=await transform(await readFile(file,'utf8'),{loader:'tsx',format:'cjs',jsx:'automatic'}),compiledModule={exports:{}};
- new Function('require','module','exports',compiled.code)(createRequire(import.meta.url),compiledModule,compiledModule.exports);
- const html=renderToStaticMarkup(createElement(compiledModule.exports.default,{story:makeStory(),standalone:true}));assert.match(html,/测试人物经历变故/);assert.match(html,/第 1 幅/);assert.doesNotMatch(html,/测试引子/);
+ const {default:StoryScript}=await import('../client/ui/StoryScript.tsx');
+ const html=renderToStaticMarkup(createElement(StoryScript,{story:makeStory(),standalone:true}));assert.match(html,/测试人物经历变故/);assert.match(html,/第 1 幅/);assert.doesNotMatch(html,/测试引子/);
 });

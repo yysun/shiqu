@@ -2,8 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {createRequire} from 'node:module';
-import {build} from 'esbuild';
+import './fixtures/tsx.mjs';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {savedProvider} from '../desktop/console-state.ts';
@@ -25,10 +24,9 @@ test('native console no longer grants loopback frame access or remote capabiliti
 });
 
 test('console renders lifecycle controls, saved/runtime summaries and safe upgrade backup without story controls',async()=>{
- const bundle=await build({stdin:{contents:"export {ServiceCard} from './desktop/ServiceCard.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external'});
- const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
+ const {ServiceCard}=await import('../desktop/ServiceCard.tsx');
  const settings=defaultSystemSettings('/isolated/library'),props={native:true,state:'stopped',status:{running:false,phoneUrls:[]},provider:savedProvider(settings),busy:'',nodeError:'',onStart(){},onStop(){},onRestart(){},onOpen(){},onSettings(){},previewUrl:null};
- const render=patch=>renderToStaticMarkup(createElement(compiled.exports.ServiceCard,{...props,...patch}));
+ const render=patch=>renderToStaticMarkup(createElement(ServiceCard,{...props,...patch}));
  assert.match(render({status:{running:true,phoneUrls:[],agentSkill:{status:'installed',message:'拾趣技能：已安装，可在 AI 助手中使用 $shiqu'}}}),/拾趣技能：已安装/);
  assert.match(render({}),/未配置生成服务/);assert.match(render({}),/启动服务/);assert.match(render({}),/已保存配置/);
  assert.doesNotMatch(render({}),/type="password"|生成队列|书架故事|role="tab/);

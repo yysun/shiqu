@@ -6,7 +6,7 @@ import {savedStory,star,unstar,owner} from './fixtures/book-reference.mjs';
 import {png,jpeg,encoded} from './fixtures/images.mjs';
 import {BookImageReferences,withBookReference} from '../server/book-image-reference.ts';
 import {createReaderProvider} from '../server/generation.ts';
-import {transform} from 'esbuild';import {createRequire} from 'node:module';import {createElement} from 'react';import {renderToStaticMarkup} from 'react-dom/server';
+import {transform} from 'esbuild';import {createRequire} from 'node:module';import './fixtures/tsx.mjs';import {createElement} from 'react';import {renderToStaticMarkup} from 'react-dom/server';
 
 test('stars replace across stories, cancel with tokens, survive restart, and never alter story checkpoints',async t=>{
  const f=await productionFixture(t),a=await savedStory(f),b=await savedStory(f,{page:1,bytes:jpeg}),other=await savedStory(f,{bookId:'三国演义'});
@@ -67,8 +67,8 @@ for(const provider of ['codex','gemini','openai'])test(`${provider}: first and l
 });
 
 test('star control renders distinct accessible states',async()=>{
- const compiled=await transform(await readFile('client/ui/BookReferenceStar.tsx','utf8'),{loader:'tsx',format:'cjs',jsx:'automatic'}),m={exports:{}};new Function('require','module','exports',compiled.code)(createRequire(import.meta.url),m,m.exports);
- const render=props=>renderToStaticMarkup(createElement(m.exports.default,{selected:false,disabled:false,busy:false,onClick:()=>{},...props}));
+ const {default:BookReferenceStar}=await import('../client/ui/BookReferenceStar.tsx');
+ const render=props=>renderToStaticMarkup(createElement(BookReferenceStar,{selected:false,disabled:false,busy:false,onClick:()=>{},...props}));
  assert.match(render({}),/每本书仅一幅/);assert.match(render({selected:true}),/aria-pressed="true"/);assert.match(render({busy:true}),/disabled=""/);assert.match(render({disabled:true}),/disabled=""/);
  const reader=await readFile('client/ui/Reader.tsx','utf8');assert.match(reader,/!ended&&<BookReferenceStar/);
 });

@@ -1,12 +1,16 @@
 // Render real shared controls to verify independent requirement editors and honest history/result labels.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
-import {build} from 'esbuild';
+import './fixtures/tsx.mjs';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-const bundle=await build({stdin:{contents:"export {default as Editor,StoryEditorTabs as Tabs} from './client/ui/StoryProductionEditor.tsx';export {PromptDetailsContent as Details} from './client/ui/StoryPromptDetails.tsx';export {default as Review} from './client/ui/StoryReviewTools.tsx';export {default as Back} from './client/ui/StoryBackToShelf.tsx';export {default as Status} from './client/ui/StoryGenerationStatus.tsx';export {default as Setup} from './client/ui/StoryCreationSetup.tsx';export {default as Control} from './client/ui/StoryGenerationControl.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'}});
-const module={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),module,module.exports);const {Editor,Tabs,Details,Review,Back,Status,Setup,Control}=module.exports;
+const {default:Editor,StoryEditorTabs:Tabs}=await import('../client/ui/StoryProductionEditor.tsx');
+const {PromptDetailsContent:Details}=await import('../client/ui/StoryPromptDetails.tsx');
+const {default:Review}=await import('../client/ui/StoryReviewTools.tsx');
+const {default:Back}=await import('../client/ui/StoryBackToShelf.tsx');
+const {default:Status}=await import('../client/ui/StoryGenerationStatus.tsx');
+const {default:Setup}=await import('../client/ui/StoryCreationSetup.tsx');
+const {default:Control}=await import('../client/ui/StoryGenerationControl.tsx');
 const render=(component,props)=>renderToStaticMarkup(createElement(component,props));
 const noop=()=>{},record={instructions:'系统约束 <script>bad()</script>',input:'{"productionPrompt":"保留对白"}',schema:{type:'object'}};
 const data={criteria:['可见反应','核对实际图像'],records:[{step:'plan',model:'controlled',originId:'old',index:0,record},{step:'review:0',model:'controlled',originId:'current',index:1,record}],results:[{criterion:1,status:'passed',pages:[2],evidence:'第二幅已有可见反应。'},{criterion:2,status:'unknown',pages:[],evidence:'文字分镜不能判断实际成图。'}],previews:{production:record,acceptance:record}};

@@ -1,15 +1,13 @@
 // Shelf metadata follows saved setup drafts without changing production inputs before confirmation.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
-import {build} from 'esbuild';
+import './fixtures/tsx.mjs';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {productionFixture,until,selection} from './fixtures/production.mjs';
 
-const bundle=await build({stdin:{contents:"export {default} from './client/ui/ReaderShelf.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,loader:{'.css':'empty'},platform:'node',format:'cjs',packages:'external'});
-const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
-const Shelf=compiled.exports.default,noop=()=>{};
+const {default:Shelf}=await import('../client/ui/ReaderShelf.tsx');
+const noop=()=>{};
 function render(session,extra={}){
  return renderToStaticMarkup(createElement(Shelf,{stories:[],pending:[session],sessions:[session],progress:[],loading:false,refreshing:false,error:'',tab:'recent',query:'',grouping:'none',bookName:()=> '庄子',controlBusy:'',favoriteBusy:'',onControl:noop,onRetry:noop,onRefresh:noop,onTab:noop,onQuery:noop,onGrouping:noop,onOpen:noop,onResume:noop,onDelete:noop,onFavorite:noop,onCreate:noop,onDiscover:noop,...extra}));
 }

@@ -1,13 +1,10 @@
 // Render the actual history view, including unknown results and missing before-text on mobile layouts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
-import {build} from 'esbuild';
+import './fixtures/tsx.mjs';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-const bundle=await build({stdin:{contents:"export {ReviewHistoryContent,ReviewHistoryEvent} from './client/ui/StoryReviewHistory.tsx';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'}});
-const compiled={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
-const {ReviewHistoryContent:Content,ReviewHistoryEvent:Event}=compiled.exports;
+const {ReviewHistoryContent:Content,ReviewHistoryEvent:Event}=await import('../client/ui/StoryReviewHistory.tsx');
 const base={id:'story',title:'测试故事',revision:2,parentId:'parent',status:'blocked',phase:'full',overridden:false,error:null,entries:[]};
 test('unknown acceptance results are visible and do not look like an approved audit',()=>{
  const entry={id:'full:0',kind:'review',title:'第1次全篇审核',outcome:'unknown',position:1,recordedAt:null,model:'fixture',issues:[],acceptance:[{criterion:1,text:'比较旧稿',status:'unknown',pages:[3],evidence:'未提供修订前分镜。'}]};
