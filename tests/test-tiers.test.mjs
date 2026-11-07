@@ -42,16 +42,17 @@ test('metadata ignores fixture-looking source text and rejects missing, duplicat
 });
 
 
-test('explicit source ownership retains every direct production import consumer with full flags',async()=>{
+test('explicit ownership retains production imports and known fixture consumers with full flags',async()=>{
  const ts=createRequire(import.meta.url)('typescript'),metadata=loadMetadata();
+ const knownFixtures=new Set(metadata.tests.flatMap(entry=>entry.covers).filter(file=>file.startsWith('tests/fixtures/')));
  for(const entry of metadata.tests){
   if(entry.level==='native')continue;
   const source=await readFile(entry.file,'utf8'),ast=ts.createSourceFile(entry.file,source,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS),imports=new Set();
-  function add(spec){if(!spec?.startsWith('.'))return;const file=path.posix.normalize(path.posix.join(path.posix.dirname(entry.file),spec));if(/^(?:server|lib|scripts|client|data)\//.test(file))imports.add(file);}
+  function add(spec){if(!spec?.startsWith('.'))return;const file=path.posix.normalize(path.posix.join(path.posix.dirname(entry.file),spec));if(/^(?:server|lib|scripts|client|data)\//.test(file)||knownFixtures.has(file))imports.add(file);}
   function visit(node){if(ts.isImportDeclaration(node)&&ts.isStringLiteral(node.moduleSpecifier))add(node.moduleSpecifier.text);if(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword&&ts.isStringLiteral(node.arguments[0]))add(node.arguments[0].text);ts.forEachChild(node,visit);}visit(ast);
   for(const file of imports){
    assert.ok(entry.covers.includes(file),entry.file+' must declare '+file);
-   const plan=createPlan(changeScope([file],metadata),metadata);if(!supported(entry))continue;
+   const plan=createPlan(changeScope([file],metadata),metadata,{includeBrowser:true});if(!supported(entry))continue;
    const selected=plan.tests.find(test=>test.file===entry.file);assert.ok(selected,entry.file+' is a consumer of '+file);assert.equal(selected.mode,'full');
   }
  }

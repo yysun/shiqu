@@ -467,7 +467,8 @@
       "covers": [
         "scripts/ci-scope.mjs",
         "scripts/test-metadata.mjs",
-        "scripts/test-plan.mjs"
+        "scripts/test-plan.mjs",
+        "tests/manifest.json"
       ]
     },
     {
@@ -721,7 +722,9 @@
       "suite": "unit",
       "pr": "code",
       "gates": [],
-      "covers": []
+      "covers": [
+        "client/ui/production-timeline.css"
+      ]
     },
     {
       "file": "tests/desktop-internet.test.mjs",
@@ -824,7 +827,10 @@
       "gates": [
         "user-flows"
       ],
-      "covers": []
+      "covers": [
+        "client/ui/production-timeline.css",
+        "tests/fixtures/phone-audit.mjs"
+      ]
     },
     {
       "file": "tests/desktop-runtime.test.mjs",
@@ -2004,7 +2010,9 @@
       "suite": "unit",
       "pr": "code",
       "gates": [],
-      "covers": []
+      "covers": [
+        "client/ui/production-timeline.css"
+      ]
     },
     {
       "file": "tests/phone-readability.playwright.e2e.mjs",
@@ -2023,7 +2031,10 @@
       "gates": [
         "user-flows"
       ],
-      "covers": []
+      "covers": [
+        "client/ui/production-timeline.css",
+        "tests/fixtures/phone-audit.mjs"
+      ]
     },
     {
       "file": "tests/priority-wiki-originals.test.mjs",
@@ -3984,7 +3995,8 @@
         "scripts/test-metadata.mjs",
         "scripts/test-plan.mjs",
         "scripts/test-pr.mjs",
-        "scripts/test-source.mjs"
+        "scripts/test-source.mjs",
+        "tests/manifest.json"
       ]
     },
     {
@@ -4005,7 +4017,8 @@
       "covers": [
         "scripts/test-metadata.mjs",
         "scripts/test-plan.mjs",
-        "scripts/test-tiers.mjs"
+        "scripts/test-tiers.mjs",
+        "tests/manifest.json"
       ]
     },
     {

@@ -54,8 +54,8 @@ export async function executePlan(plan,{root=process.cwd()}={}){
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const args=process.argv.slice(2),filesAt=args.indexOf('--files');
  if(args.slice(0,filesAt===-1?args.length:filesAt).some(arg=>!['--json','--plan','--full','--changed'].includes(arg)))throw Error('Usage: test-pr.mjs [--plan|--json] [--full|--changed|--files paths...]');
- const plan=createPlan(inputScope(args));
+ const plan=createPlan(inputScope(args),undefined,{includeBrowser:args.includes('--full')});
  if(args.includes('--json'))console.log(JSON.stringify(plan,null,2));
- else if(args.includes('--plan')){console.log(JSON.stringify({scope:plan.scope,native:plan.native,files:plan.tests.length,excluded:plan.excluded},null,2));for(const test of plan.tests)console.log(`${test.mode.padEnd(4)} ${test.level.padEnd(12)} ${test.file}`);}
+ else if(args.includes('--plan')){console.log(JSON.stringify({scope:plan.scope,native:plan.native,files:plan.tests.length,deferredBrowser:plan.deferredBrowser,excluded:plan.excluded},null,2));for(const test of plan.tests)console.log(`${test.mode.padEnd(4)} ${test.level.padEnd(12)} ${test.file}`);}
  else process.exitCode=await executePlan(plan);
 }

@@ -12,13 +12,13 @@ import {loadMetadata} from '../scripts/test-metadata.mjs';
 
 const files=plan=>plan.tests.map(test=>test.file);
 const extended=loadMetadata().tests.filter(entry=>entry.gates.includes('extended')).map(entry=>entry.file);
-test('documentation keeps smoke; every code PR keeps contracts and local-server boundaries',()=>{
+test('documentation keeps smoke; domain changes keep contracts and local-server boundaries',()=>{
  const docs=createPlan(changeScope(['README.md','.docs/reqs/example.md','LICENSE']));
  assert.deepEqual(files(docs),['tests/book-integrity-smoke.test.mjs']);assert.equal(docs.native,false);
  const ui=createPlan(changeScope(['client/ui/Reader.css']));
  for(const file of ['local-server','production-queue','story-generation-state-machine-commands','deepseek-provider','gemini-stage-schema','separate-providers','task-reasoning'])assert.ok(files(ui).includes(`tests/${file}.test.mjs`));
  for(const file of ['cli-library','startup-cli-flow','desktop-internet','local-books'])assert.ok(!files(ui).includes(`tests/${file}.test.mjs`));
- assert.ok(!ui.native);assert.ok(ui.tests.some(test=>test.level==='browser-e2e'));
+ assert.ok(!ui.native);assert.ok(ui.deferredBrowser.length);assert.ok(ui.tests.every(test=>test.level!=='browser-e2e'));
 });
 test('affected areas include their flows, heavy flags and all six service E2Es for core changes',()=>{
  for(const file of ['server/local-story-discovery.ts','lib/reader-review.ts','server/production-queue.ts','server/generation.ts','server/book-image-reference.ts']){
@@ -40,11 +40,29 @@ test('native and shared settings request native checks; unknown/schema/toolchain
  assert.equal(validScope({...fullScope(),books:false}),false);
  assert.equal(validScope({code:true,books:false,native:false,full:false,groups:[]}),false);
 });
-test('mixed changes are a union; changed tests select owners and supported platforms are explicit',()=>{
+test('known layout inputs and registered tests select only direct coverage plus smoke',()=>{
+ const smoke='tests/book-integrity-smoke.test.mjs',desktop='tests/desktop-responsive-layout.playwright.e2e.mjs',phone='tests/phone-readability.playwright.e2e.mjs';
+ const fixture='tests/fixtures/phone-audit.mjs',css='client/ui/production-timeline.css';
+ for(const [inputs,expected] of [[[fixture],[desktop,phone]],[[phone],[phone]],[[css,fixture,phone],[desktop,phone,'tests/desktop-css-scope.test.mjs','tests/phone-readability-css.test.mjs']], [['scripts/test-plan.mjs','tests/manifest.json'],['tests/ci-scope.test.mjs','tests/test-pr.test.mjs','tests/test-tiers.test.mjs']]]){
+  const scope=changeScope(inputs),plan=createPlan(JSON.parse(JSON.stringify(scope)));
+  const browser=expected.filter(file=>file===desktop||file===phone);
+  assert.deepEqual(new Set(files(plan)),new Set([smoke,...expected.filter(file=>!browser.includes(file))]),inputs.join(', '));
+  assert.deepEqual(new Set(plan.deferredBrowser),new Set(browser));
+  assert.ok(scope.code);assert.ok(!scope.full&&!plan.native);
+  assert.ok(plan.tests.filter(entry=>expected.includes(entry.file)).every(entry=>entry.mode==='full'));
+ }
+ const mixed=createPlan(changeScope([fixture,'server/system-settings.ts']));
+ const settings=createPlan(changeScope(['server/system-settings.ts']));
+ assert.deepEqual(new Set(files(mixed)),new Set(files(settings)));
+ assert.deepEqual(new Set(mixed.deferredBrowser),new Set([desktop,phone,...settings.deferredBrowser]));
+ assert.ok(mixed.native);
+ assert.ok(createPlan({...changeScope([fixture]),directTests:['tests/missing.test.mjs']}).scope.full);
+});
+test('mixed changes are a union and supported platforms are explicit',()=>{
  const plan=createPlan(changeScope(['client/ui/Reader.tsx','server/claude-runner.ts']));
  const union=new Set([...files(createPlan(changeScope(['client/ui/Reader.tsx']))),...files(createPlan(changeScope(['server/claude-runner.ts'])))]);
  assert.deepEqual(new Set(files(plan)),union);
- const owner=createPlan(changeScope(['tests/startup-cli-flow.test.mjs']));assert.ok(files(owner).includes('tests/cli-library.test.mjs'));assert.ok(!files(owner).includes('tests/desktop-internet.test.mjs'));
+ const owner=createPlan(changeScope(['tests/startup-cli-flow.test.mjs']));assert.deepEqual(files(owner),['tests/book-integrity-smoke.test.mjs','tests/startup-cli-flow.test.mjs']);
  const windows=createPlan(fullScope(),undefined,{platform:'win32'});assert.ok(windows.excluded.includes('tests/startup-pty.test.mjs'));assert.ok(windows.excluded.includes('tests/claude-provider.test.mjs'));
  assert.ok(!files(windows).includes('tests/startup-pty.test.mjs'));
 });

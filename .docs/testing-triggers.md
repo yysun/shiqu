@@ -1,6 +1,6 @@
 # Test triggers and cost
 
-The registry is `tests/manifest.json`; `scripts/test-plan.mjs` owns responsibility matching and unions. PR CI and local agents use the same planner. Explicit `covers` paths add direct consumers across domains; a maintainer AST check rejects undeclared production imports. This policy changes coverage as well as speed: affected production/browser flows now block relevant PRs rather than waiting for main.
+The registry is `tests/manifest.json`; `scripts/test-plan.mjs` owns responsibility matching and unions. PR CI and local agents use the same planner. Explicit `covers` paths add direct consumers across domains; a maintainer AST check rejects undeclared production imports. Routine change checks and PRs run source checks. Playwright runs through explicit E2E or full qualification.
 
 ## Commands for agents
 
@@ -11,39 +11,40 @@ pnpm typecheck
 pnpm lint
 ```
 
-`test:changed` includes staged, unstaged and untracked paths relative to HEAD. It tests the current working tree. For a shared checkout, inspect the preview and pass every path belonging to the task with `pnpm test:pr --files <paths...>`; concurrent desktop changes remain outside that task. A clean/failed comparison conservatively selects full coverage. `pnpm test:pr` without explicit paths reads CI scope or a `BASE...HEAD` diff; it does not assume an arbitrary default branch.
+`test:changed` includes staged, unstaged and untracked paths relative to HEAD. It tests the current working tree. For a shared checkout, inspect the preview and pass every path belonging to the task with `pnpm test:pr --files <paths...>`; concurrent changes remain outside that task. A clean/failed comparison conservatively selects full source coverage. `pnpm test:pr` without explicit paths reads CI scope or a `BASE...HEAD` diff; it does not assume an arbitrary default branch.
 
-Plan output lists files, execution levels, `fast`/`full` modes and unsupported-platform exclusions. Actual runs retain source identity, batch duration, selected files and exits under `.data/test-plans/`. `native: true` means native source checks are also required; the JS runner does not execute Cargo. `AGENTS.md` documents these rules.
+Plan output lists files, execution levels, `fast`/`full` modes, deferred Playwright files (`deferredBrowser`) and unsupported-platform exclusions. Full source fallback also defers Playwright. Use `pnpm test:e2e` for browser journeys or `pnpm test:pr --full` for qualification with every supported JS test. Actual runs retain source identity, batch duration, selected files and exits under `.data/test-plans/`. `native: true` means native source checks are also required; the JS runner does not execute Cargo. `AGENTS.md` documents these rules.
 
 Within each mode, source tests run first with at most two files in parallel, then browser E2E files run one at a time in a separate Node process. Vite/Chromium therefore cannot consume the controlled production tests' deadline budget. Every selected file still runs once with its original provider/heavy flags and assertions; a failed batch stops the run. Evidence records each batch's runtime class and concurrency.
 
 ## Trigger table
 
-Every PR runs the small integrity smoke. Every code PR also runs fast contracts and the local-server/queue/state safety set. The following additions run with full provider/heavy flags. Changed tests select their declared domains. Changed known sources also select every declared direct consumer; native consumers request native checks. Multiple domains form a union, and each selected file runs once.
+Every PR runs the small integrity smoke. Production changes with domain coverage also run fast contracts and the local-server/queue/state safety set. Registered JS tests select themselves. Stylesheets, test fixtures and test selection inputs with declared consumers select those tests. Direct selections join any domain coverage required by the same change. Selected tests run once with the full flags for affected files; native consumers request native checks.
 
 | Change responsibility | Additional coverage | Native source checks |
 | --- | --- | --- |
 | Documentation outside runtime/data/test directories | Integrity smoke only | No |
-| Client/public assets and reader helpers | Reader contracts and affected reader browser journeys | No |
-| Desktop UI and remote/network runtime | Desktop integration and console browser journey | `server/desktop.ts` native consumer and Rust changes: yes |
+| Registered JS test or explicitly owned stylesheet/test input | Changed tests and declared consumers, plus integrity smoke | Only for declared native consumers |
+| Client/public assets and reader helpers | Reader contracts and integration | No |
+| Desktop UI and remote/network runtime | Desktop integration | `server/desktop.ts` native consumer and Rust changes: yes |
 | CLI startup and invocation | Startup/CLI integration; production entry points also select production/tooling | Shared configuration: yes |
-| Saved/shared provider settings and configuration | Startup/provider/desktop integration and browser settings | macOS + Windows |
+| Saved/shared provider settings and configuration | Startup/provider/desktop integration | macOS + Windows |
 | Provider adapter or wire schema/reasoning | Provider contracts and controlled provider production flows | No |
 | Bundled books, local source readers/parsers and reading inputs | Full ten-file book suite plus discovery consumers | No |
-| Discovery/cache/theme matching | Discovery integration and browser journeys, full book group via reading-plan consumers, and all six extended service E2Es | No |
+| Discovery/cache/theme matching | Discovery integration, full book group via reading-plan consumers, and all six extended service E2Es | No |
 | Preparation, storyboard review, frame count, queue, generation or book references | Affected responsibility groups; all six extended service E2Es | Storage upgrade boundaries separately |
 | Images, publication and export | Media integration and reference consumers | No |
-| Library backup/recovery/maintenance/upgrade | Storage/startup integration and consolidation browser coverage | macOS + Windows |
+| Library backup/recovery/maintenance/upgrade | Storage/startup integration | macOS + Windows |
 | Rust source/configuration and desktop resource/runtime scripts | Native module consumers plus applicable desktop/storage JS | macOS + Windows |
-| Shared models/API schemas/prompts, DB schema/migrations, dependencies/Node, test/build/CI infrastructure, unknown paths or failed/empty comparison | All 172 JS files, full flags | macOS + Windows |
+| Shared models/API schemas/prompts, DB schema/migrations, dependencies/Node, unclassified test/build/CI infrastructure, unknown paths or failed/empty comparison | All registered source tests, full flags | macOS + Windows |
 
-Known component path patterns are listed in `scripts/test-plan.mjs`. New unclassified runtime files, deleted/unregistered tests and shared fixtures broaden to full coverage. Rename detection uses both old and new paths. Documentation inside `data/`, `tests/`, `skills/` and runtime directories is not automatically exempt.
+Known component path patterns are listed in `scripts/test-plan.mjs`. Direct selection requires exact `covers` entries. For example, `phone-audit.mjs` runs smoke and lists phone readability and desktop layout as deferred. Unclassified runtime files, deleted/unregistered tests and fixtures without declared consumers still broaden to full source coverage. Rename detection uses both old and new paths. Documentation inside `data/`, `tests/`, `skills/` and runtime directories is not automatically exempt.
 
-A code PR does not necessarily get faster. Core changes gain service/browser coverage; schema/dependency changes deliberately run full qualification. Optimizing these back to the old PR time would remove the coverage this policy adds.
+Core changes retain service E2Es; schema/dependency changes deliberately run full source coverage. Browser journeys remain available at the explicit E2E and full qualification gates.
 
-## Existing versus new PR selection
+## Initial rollout comparison
 
-Counts are files, not runtime test instances. Old counts refer to commit `75a1331d3594edb140b13125d3fd278c12a164a5`; new counts use the explicit metadata. Static checks remain on code PRs.
+These historical counts are files, not runtime test instances. They compare commit `75a1331d3594edb140b13125d3fd278c12a164a5` with the initial registry rollout, before file-level selection was added. Use the current plan command for current counts. Static checks remain on code PRs.
 
 | Example | Existing PR | New PR JS files | Added behavior |
 | --- | --- | ---: | --- |

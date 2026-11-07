@@ -1,4 +1,4 @@
-// 按责任域取并集；未知影响、共享模型和工具链变更回退全量，快慢模式保持文件只执行一次。
+// 已知测试输入按文件选测，生产变更按责任域取并集；未知影响仍回退全量。
 import {loadMetadata,groups,supported} from './test-metadata.mjs';
 export function fullScope(reason='unknown impact'){
  return {code:true,books:true,native:true,full:true,groups:[...groups],reasons:[reason]};
@@ -46,30 +46,45 @@ function documentation(file){
  if(/^(?:data|tests|scripts|server|lib|skills|db|drizzle)\//.test(file))return false;
  return /\.md$|^\.docs\/|^(?:LICENSE|NOTICE)$/.test(file);
 }
+// 只有已声明消费者的样式、夹具和测试调度输入才允许走文件级选择。
+const directInput=/^(?:(?:client|desktop)\/.+\.css|tests\/fixtures\/.+|tests\/manifest\.json|scripts\/(?:ci-scope|test-(?:metadata|plan|pr|source|tiers))\.mjs)$/;
 export function changeScope(files,metadata=loadMetadata()){
  if(!files.length)return fullScope('empty comparison');
- const selected=new Set(),reasons=[];let code=false,native=false;
+ const selected=new Set(),directTests=new Set(),reasons=[];let code=false,native=false;
+ const selectTest=entry=>{
+  if(entry.level==='native'){native=true;entry.groups.forEach(group=>selected.add(group));}
+  else directTests.add(entry.file);
+ };
  for(const file of files){
   if(typeof file!=='string'||file.includes('\\')||file.startsWith('/')||file.split('/').includes('..'))return fullScope('invalid path');
   if(documentation(file))continue;
   code=true;
   const test=metadata.tests.find(entry=>entry.file===file);
-  if(test){test.groups.forEach(group=>selected.add(group));native||=test.level==='native';reasons.push(file);continue;}
+  if(test){selectTest(test);reasons.push(file);continue;}
+  const consumers=metadata.tests.filter(entry=>entry.covers.includes(file));
+  if(directInput.test(file)&&consumers.length){consumers.forEach(selectTest);reasons.push(file);continue;}
   const rule=rules.find(([pattern])=>pattern.test(file));
   if(!rule||!rule[1])return fullScope(file);
   rule[1].forEach(group=>selected.add(group));native||=Boolean(rule[2]);
-  for(const consumer of metadata.tests.filter(entry=>entry.covers.includes(file))){consumer.groups.forEach(group=>selected.add(group));native||=consumer.level==='native';}
+  for(const consumer of consumers){consumer.groups.forEach(group=>selected.add(group));native||=consumer.level==='native';}
   reasons.push(file);
  }
- return {code,books:selected.has('books'),native,full:false,groups:[...selected].sort(),reasons};
+ return {code,books:selected.has('books'),native,full:false,groups:[...selected].sort(),reasons,...(directTests.size?{directTests:[...directTests].sort()}:{})};
 }
 export function validScope(scope){
- return scope&&['code','books','native','full'].every(key=>typeof scope[key]==='boolean')&&Array.isArray(scope.groups)&&new Set(scope.groups).size===scope.groups.length&&scope.groups.every(g=>groups.includes(g))&&(!scope.full||(scope.code&&scope.native&&groups.every(g=>scope.groups.includes(g))))&&(scope.code||(!scope.groups.length&&!scope.native&&!scope.books))&&(!scope.code||scope.groups.length>0)&&scope.books===scope.groups.includes('books');
+ if(!scope||!['code','books','native','full'].every(key=>typeof scope[key]==='boolean')||!Array.isArray(scope.groups)||new Set(scope.groups).size!==scope.groups.length||!scope.groups.every(g=>groups.includes(g)))return false;
+ const direct=scope.directTests===undefined?[]:scope.directTests;
+ return Array.isArray(direct)&&new Set(direct).size===direct.length&&direct.every(file=>typeof file==='string')&&(!scope.full||(scope.code&&scope.native&&groups.every(g=>scope.groups.includes(g))))&&(scope.code||(!scope.groups.length&&!direct.length&&!scope.native&&!scope.books))&&(!scope.code||scope.groups.length>0||direct.length>0)&&scope.books===scope.groups.includes('books');
 }
-export function createPlan(scope,metadata=loadMetadata(),{platform=process.platform}={}){
- if(!validScope(scope))scope=fullScope('missing/invalid scope');
+export function createPlan(scope,metadata=loadMetadata(),{platform=process.platform,includeBrowser=false}={}){
+ if(!validScope(scope)||scope.directTests?.some(file=>!metadata.tests.some(entry=>entry.file===file&&entry.level!=='native')))scope=fullScope('missing/invalid scope');
+ const direct=new Set(scope.directTests);
  const core=scope.groups.some(group=>['discovery','preparation','review','production'].includes(group));
- const selected=metadata.tests.filter(entry=>entry.level!=='native'&&(scope.full||entry.pr==='always'||scope.code&&(entry.pr==='code'||entry.groups.some(group=>scope.groups.includes(group))||core&&entry.gates.includes('extended'))));
- const tests=selected.filter(entry=>supported(entry,platform)).map(entry=>({file:entry.file,level:entry.level,mode:scope.full||entry.groups.some(group=>scope.groups.includes(group))||core&&entry.gates.includes('extended')?'full':'fast'}));
- return {version:1,platform,scope,native:scope.native,tests,excluded:selected.filter(entry=>!supported(entry,platform)).map(entry=>entry.file)};
+ const affected=entry=>direct.has(entry.file)||entry.groups.some(group=>scope.groups.includes(group))||core&&entry.gates.includes('extended');
+ const selected=metadata.tests.filter(entry=>entry.level!=='native'&&(scope.full||entry.pr==='always'||affected(entry)||scope.groups.length&&entry.pr==='code'));
+ const available=selected.filter(entry=>supported(entry,platform));
+ // 影响范围与执行门禁分开：未知影响回退全量源码检查，也不会隐式开启 Playwright。
+ const tests=available.filter(entry=>includeBrowser||entry.level!=='browser-e2e').map(entry=>({file:entry.file,level:entry.level,mode:scope.full||affected(entry)?'full':'fast'}));
+ const deferredBrowser=includeBrowser?[]:available.filter(entry=>entry.level==='browser-e2e').map(entry=>entry.file);
+ return {version:1,platform,scope,native:scope.native,tests,deferredBrowser,excluded:selected.filter(entry=>!supported(entry,platform)).map(entry=>entry.file)};
 }
