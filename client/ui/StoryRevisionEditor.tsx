@@ -6,16 +6,15 @@ import type {Plan} from '@/lib/reader-model';
 import type {ReviewIssue} from '@/lib/reader-review';
 import {revisionFrameCount,revisionImpact} from '@/lib/reader-revision';
 import type {RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
-import {productionSteps} from '@/lib/production-stages';
-import {getArtStyle} from '@/lib/reader-styles';
+import {productionSteps,type ProductionStage} from '@/lib/production-stages';
 import {normalizeProductionPrompt} from '@/lib/reader-prompts';
 import './story-revision.css';
-export function revisionDraftSteps(base:RevisionSnapshot,changes:RevisionChanges){
+export function revisionDraftSteps(base:RevisionSnapshot,changes:RevisionChanges,source?:ProductionStage){
  const impact=revisionImpact(base,changes);
  const reviewStatus=impact.review?'pending':base.reviewStatus;
  const phase=impact.replan?'frame-count':reviewStatus==='repair'?'repair':reviewStatus&&reviewStatus!=='passed'?'review':'image';
  return productionSteps({sourceReady:true,frameCountConfirmed:!impact.replan,planReady:!impact.replan,reviewStatus,phase,total:impact.total,ready:0}).map(step=>{
-  if(step.id==='source')return {...step,label:'原文与制作要求',detail:`画风：${getArtStyle(changes.artStyle??base.selection.artStyle).label}`};
+  if(step.id==='source'&&source)return source;
   if(step.id==='count'&&impact.replan)return {...step,detail:'按叙事详略编排 · 审核后确定数量'};
   if(step.id==='review'&&!impact.review)return {...step,detail:'沿用原审片进度，不重新审核'};
   if(step.id==='plan'&&changes.plan&&impact.review&&!impact.replan)return {...step,detail:'已修改分镜 · 待审片'};

@@ -16,8 +16,12 @@ import type {ProductionStage} from '@/lib/production-stages';
 import StoryGenerationControl from './StoryGenerationControl';
 import StoryFlowHeader from './StoryFlowHeader';
 import type {StoryFlowNavigation} from './StoryFlowHeader';
+import StoryFlowAction from './StoryFlowAction';
+import {getArtStyle} from '@/lib/reader-styles';
+import type {RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
+import {revisionDraftSteps} from './StoryRevisionEditor';
 
-export default function StoryGenerationStatus({session,busy,controlBusy,error,onControl,onRetry,onBack,onHistory,onAcceptance,navigation,timeline,stages,control,compact=false,reviewTools,stageContent,children,hideBack=false,showSummary=true}:{reviewTools?:ReactNode;stageContent?:Record<string,ReactNode>;compact?:boolean;children?:ReactNode;control?:ReactNode;timeline?:ProductionTimelineNavigation&Pick<ComponentProps<typeof StoryProductionTimeline>,'stageDurations'>;stages?:ProductionStage[];session:SessionView;busy:boolean;controlBusy:boolean;error:string;onControl:(id:string,action:ProductionAction)=>Promise<void>;onRetry:(faultId?:string)=>void;onBack:()=>void;hideBack?:boolean;showSummary?:boolean;onHistory?:()=>void;onAcceptance?:()=>void;navigation?:StoryFlowNavigation}){
+export default function StoryGenerationStatus({session,busy,controlBusy,error,onControl,onRetry,onBack,onHistory,onAcceptance,onEditStyle,navigation,timeline,stages,draft,control,compact=false,reviewTools,stageContent,children,hideBack=false,showSummary=true}:{reviewTools?:ReactNode;stageContent?:Record<string,ReactNode>;compact?:boolean;children?:ReactNode;control?:ReactNode;timeline?:ProductionTimelineNavigation&Pick<ComponentProps<typeof StoryProductionTimeline>,'stageDurations'>;stages?:ProductionStage[];draft?:{base:RevisionSnapshot;changes:RevisionChanges};session:SessionView;busy:boolean;controlBusy:boolean;error:string;onControl:(id:string,action:ProductionAction)=>Promise<void>;onRetry:(faultId?:string)=>void;onBack:()=>void;hideBack?:boolean;showSummary?:boolean;onHistory?:()=>void;onAcceptance?:()=>void;onEditStyle?:()=>void;navigation?:StoryFlowNavigation}){
  const status=shelfGenerationStatus(session),stopped=status.group==='生成失败'||status.group==='生成已暂停';
  const [,setNow]=useState(Date.now);
  const progress=generationProgress(session,Date.now()),moving=progress.running&&!error&&!stopped;
@@ -30,6 +34,12 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
  const failed=!!error||status.group==='生成失败';
  const paused=!!session.generationControl&&session.generationControl!=='active';
  const generationControl=control===undefined?(paused||!failed?<StoryGenerationControl session={session} busy={controlBusy} onControl={onControl} primary={paused} link/>:null):control;
+ const steps=draft?revisionDraftSteps(draft.base,draft.changes,progress.steps[0]):stages||progress.steps;
+ const displayedSteps=onEditStyle?steps.map(step=>step.id==='count'?{...step,label:'叙事详略、篇幅与画风'}:step):steps;
+ const content=onEditStyle?{...stageContent,count:<>
+  <span><StoryFlowAction aria-label="修改画风" disabled={paused&&controlBusy} onClick={onEditStyle}>画风：{getArtStyle(draft?.changes.artStyle??session.selection.artStyle).label}</StoryFlowAction></span>
+  {stageContent?.count}
+ </>}:stageContent;
  return <div className={'yu-generation-stage has-progress'+(compact||!showSummary?' is-compact':'')+(moving?' is-generating':'')+(failed?' has-error':'')+(session.reviewIssues?.length?' has-review-issues':'')}>
   {showSummary&&(!compact||failed)&&<div className="yu-generation-summary">
    <span className="yu-generation-mark" aria-hidden="true">{failed?<X size={23}/>:stopped?<Pause size={23}/>:session.state==='completed'?<Check size={23}/>:<Feather size={23}/>}</span>
@@ -37,7 +47,7 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
   </div>}
   <StoryFlowHeader title={progress.measured?'画面生成进度':'制作流程'} status={message} {...navigation}/>
   <section className="yu-generation-progress" aria-label="生成进展">
-   <StoryProductionTimeline session={session} busy={busy||controlBusy} error={error} onRetry={onRetry} onAcceptance={onAcceptance} reviewTools={reviewTools} stageContent={stageContent} onHistory={onHistory} stages={stages||progress.steps} moving={moving} queued={progress.queued} {...timeline} currentTiming={moving?<><Clock3 size={12} aria-hidden="true"/>{progress.remaining===null?'超时信息待同步':progress.remaining>0?`距超时 ${generationDuration(progress.remaining)}`:'已达超时，等待状态更新'}</>:undefined} currentContent={session.state!=='completed'?generationControl:null}/>
+   <StoryProductionTimeline session={session} busy={busy||controlBusy} error={error} onRetry={onRetry} onAcceptance={onAcceptance} reviewTools={reviewTools} stageContent={content} onHistory={onHistory} stages={displayedSteps} moving={moving} queued={progress.queued} {...timeline} currentTiming={moving?<><Clock3 size={12} aria-hidden="true"/>{progress.remaining===null?'超时信息待同步':progress.remaining>0?`距超时 ${generationDuration(progress.remaining)}`:'已达超时，等待状态更新'}</>:undefined} currentContent={session.state!=='completed'?generationControl:null}/>
   </section>
   {children}
   {!hideBack&&<StoryBackToShelf onBack={onBack} link/>}

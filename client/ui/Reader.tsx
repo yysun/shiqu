@@ -32,7 +32,7 @@ import {readerBooks,type ReaderBook} from '@/lib/reader-books';
 import {useStoryGeneration} from './useStoryGeneration';
 const isGenerated=(s:Story|null):s is GeneratedStory=>!!s&&'generated'in s&&s.generated===true;
 import {getArtStyle} from '@/lib/reader-styles';
-import StoryRevisionEditor,{StoryRevisionActions,revisionDraftSteps} from './StoryRevisionEditor';
+import StoryRevisionEditor,{StoryRevisionActions} from './StoryRevisionEditor';
 import {useStoryRevision} from './useStoryRevision';
 import {defaultProductionPrompt,promptAfterThemeChange} from '@/lib/reader-prompts';
 import {recentHeroes,mergeReadingProgress,reconcileReadingProgress} from '@/lib/reader-home';
@@ -462,13 +462,12 @@ export default function Reader(){
    </>:<GenerationSurface
     session={workflowSession} busy={gen.busy} controlBusy={!!gen.controlBusy||creating} onControl={gen.control} error={workflowError||gen.error} onRetry={retryWorkflow} onBack={backToShelf} hideBack showSummary={false}
     navigation={{source:{onClick:()=>setSource(true),disabled:!workflowSession.generationProgress?.sourceReady},reselect:{label:'替换选题',onClick:()=>void reselectStory(),disabled:creating||revision.busy||!!gen.controlBusy,title:'替换当前选题，书架保留一张卡片，旧结果保留历史'},reselecting:creating}}
-    onAcceptance={()=>revision.open('acceptance')} onHistory={()=>setReviewHistoryId(workflowSession.id)}
+    onAcceptance={()=>revision.open('acceptance')} onHistory={()=>setReviewHistoryId(workflowSession.id)} onEditStyle={()=>revision.open('style')}
     timeline={!revisionResuming?{
      links:{source:[{label:'制作要求',onClick:()=>revision.open('requirements')},{label:'验收要求',onClick:()=>revision.open('acceptance')}]},
-     detailActions:{source:{label:'修改画风',onClick:()=>revision.open('style')}},
      actions:{count:{label:'修改叙事详略',onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:'查看分镜',onClick:()=>setScript(true)}}:{})}
     }:undefined}
-    stages={revisionPending&&revision.base&&!revisionResuming?revisionDraftSteps(revision.base,revision.changes):undefined} editor={revision} onReselect={()=>void reselectStory()}
+    draft={revisionPending&&revision.base&&!revisionResuming?{base:revision.base,changes:revision.changes}:undefined} editor={revision} onReselect={()=>void reselectStory()}
     reviewTools={!revisionPending&&<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onScript={()=>setScript(true)} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review')?.id)} onDrawAnyway={()=>void gen.drawAnyway(workflowSession.id)}/>}
    />}
    {revisionPending&&!revisionResuming&&<StoryRevisionActions editor={revision} link/>}

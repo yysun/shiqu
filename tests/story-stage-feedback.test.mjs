@@ -47,6 +47,26 @@ test('embedded flows omit the repeated story name while retaining progress and f
  assert.doesNotMatch(paused,/yu-generation-summary|庄周梦蝶/);assert.match(paused,/恢复生成/);
 });
 
+test('style stays editable with narrative settings while extraction retains its progress and timing',()=>{
+ const session={...base,state:'running',productionState:'running',error:null,generationProgress:{...base.generationProgress,stageDurations:{source:19}}};
+ const settings={onEditStyle:noop};
+ const running=render(session,settings);
+ assert.match(stage(running,'source'),/已保存.*耗时 0分 19秒/s);
+ assert.match(stage(running,'count'),/叙事详略、篇幅与画风.*4 幅.*画风：彩铅国漫/s);
+ const completed={...session,state:'completed',intake:{phase:'confirmed',batches:Array(24).fill({})}};
+ for(const value of [completed,{...completed,state:'idle',generationControl:'paused'}]){
+  const markup=render(value,settings);
+  assert.match(stage(markup,'source'),/已保存 24 批候选.*耗时 0分 19秒/s);
+  assert.doesNotMatch(stage(markup,'source'),/画风/);
+  assert.match(stage(markup,'count'),/叙事详略、篇幅与画风.*制作内容已确认.*画风：彩铅国漫/s);
+  assert.match(markup,/<a[^>]*aria-label="修改画风"[^>]*>画风：彩铅国漫<\/a>/);
+ }
+ const draft={base:{selection:completed.selection,plan:null,images:[]},changes:{artStyle:'paper-cut'}};
+ const editing=render(completed,{...settings,draft});
+ assert.match(stage(editing,'source'),/已保存 24 批候选.*耗时 0分 19秒/s);
+ assert.match(stage(editing,'count'),/画风：剪纸艺术/);
+});
+
 test('a planning failure and retry are inside the planning step, once',()=>{
  const html=render(base);
  assert.match(stage(html,'plan'),/分镜生成等待超时。.*重试生成/s);

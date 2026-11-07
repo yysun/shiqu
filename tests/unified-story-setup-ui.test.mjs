@@ -91,7 +91,7 @@ test('discovery stays in the picker and selection opens one continuous story flo
  assert.equal(renderToStaticMarkup(createElement(Paused,{...pausedProps,session})), '');
  const opened=[],controls=[];
  const pausedSurface=Paused({...pausedProps,editor:{...pausedProps.editor,open:tab=>opened.push(tab)}});
- pausedSurface.props.timeline.links.source[0].onClick();pausedSurface.props.timeline.detailActions.source.onClick();pausedSurface.props.timeline.actions.count.onClick();
+ pausedSurface.props.timeline.links.source[0].onClick();pausedSurface.props.onEditStyle();pausedSurface.props.timeline.actions.count.onClick();
  assert.deepEqual(opened,['requirements','style','count']);assert.deepEqual(controls,[]);
  const resume=Control({session:pausedProps.session,busy:false,primary:true,onControl:async(id,action)=>controls.push([id,action])});
  await resume.props.onClick();assert.deepEqual(controls,[[session.id,'resume']]);
@@ -154,7 +154,7 @@ test('discovery stays in the picker and selection opens one continuous story flo
  const draftSteps=revisionDraftSteps(draftEditor.base,draftEditor.changes);
  assert.equal(draftSteps.find(s=>s.id==='count').detail,'按叙事详略编排 · 审核后确定数量');
  assert.equal(draftSteps.find(s=>s.id==='count').state,'current');
- assert.equal(draftSteps.find(s=>s.id==='source').detail,'画风：彩铅国漫');
+ assert.match(pausedDraft,/画风：彩铅国漫/);
  for(const id of ['plan','review','repair','recheck','image'])assert.equal(draftSteps.find(s=>s.id===id).state,'pending',id);
  const savedPlan={pages:Array(5).fill({caption:'已保存的旁白。',prompt:'Saved scene.'})};
  // Style-only revisions keep the saved review progress instead of re-reviewing (see storyboard-ui.test.mjs).
