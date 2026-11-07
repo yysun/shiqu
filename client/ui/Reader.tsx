@@ -108,12 +108,12 @@ export default function Reader(){
  }),[shelfTab,setShelfTab]=useState(()=>{try{return localStorage.getItem('shiqu-shelf-tab')==='saved'?'saved':'recent';}catch{return 'recent';}}),[story,setStory]=useState<Story|null>(null),[page,setPage]=useState(0),[ended,setEnded]=useState(false),[saved,setSaved]=useState(false);
  useEffect(()=>{try{localStorage.setItem('shiqu-last-tab',tab);}catch{}},[tab]);
  const [loading,setLoading]=useState(true),[loadError,setLoadError]=useState(''),[toast,setToast]=useState(''),[source,setSource]=useState(false),[configure,setConfigure]=useState(false),[unavailable,setUnavailable]=useState(''),[settings,setSettings]=useState(false);
- const [semanticIndexBooks,setSemanticIndexBooks]=useState<string[]>([]);
+ const [semanticIndexBooks,setSemanticIndexBooks]=useState<{id:string;cardCount:number}[]>([]);
  const browsingBooks=tab==='discover'||configure;
  useEffect(()=>{
   if(!browsingBooks)return;
   let active=true;
-  request('reader/books/semantic-indexes').then(({bookIds})=>{if(active&&Array.isArray(bookIds))setSemanticIndexBooks(bookIds);})
+  request('reader/books/semantic-indexes').then(({books})=>{if(active&&Array.isArray(books))setSemanticIndexBooks(books);})
    .catch(()=>{if(active)setSemanticIndexBooks([]);});
   return()=>{active=false;};
  },[browsingBooks]);
@@ -512,12 +512,13 @@ export default function Reader(){
  <RecentStories key={heroes.map(h=>h.story.id).join('|')} items={heroes} loading={libraryLoading} bookName={bookName} onOpen={open} activeStoryId={heroStoryId} onActiveStoryChange={setHeroStoryId}/>
  <button className="yu-new-story-link" onClick={()=>choose()}><Sparkles size={16}/><span>生成我的故事</span><ArrowRight size={16}/></button></>;
  const discoverBooks=<section className="yu-section"><div className="yu-section-title"><h2>从一本书开始</h2><span>熟悉的经典，新的相遇</span></div><div className="yu-books">{choices.map((b,i)=>{
-  const indexLabel=semanticIndexBooks.includes(b.id)?'yu-book-index-'+b.id:undefined;
+  const indexed=semanticIndexBooks.find(book=>book.id===b.id);
+  const indexLabel=indexed?'yu-book-index-'+b.id:undefined;
   return <button key={b.id} onClick={()=>choose(b.id)} aria-label={'选择'+b.title} aria-describedby={indexLabel}>
    <span className={'yu-book-cover book-'+(i%3)}>
     <span className="yu-book-border"/><small>{b.era} · {b.author}</small><strong className={b.title.length>5?'yu-book-title-long':undefined}>{b.title}</strong><i>{b.genre}</i>
     <span className="yu-book-ornament">{i===0?<Moon size={44} strokeWidth={.7}/>:i===1?<Leaf size={52} strokeWidth={.7}/>:<Feather size={48} strokeWidth={.7}/>}</span>
-    {indexLabel&&<span id={indexLabel} className="yu-book-index-label">语义索引</span>}
+    {indexed&&<span id={indexLabel} className="yu-book-index-label" title="支持语义检索">{indexed.cardCount.toLocaleString('zh-CN')}故事</span>}
    </span>
    <strong>{b.title}</strong><small>{b.note}</small>
   </button>;

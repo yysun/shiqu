@@ -170,14 +170,18 @@ export class LocalStorySearch{
   if(legacy?.bookId)ids.add(legacy.bookId);
   return ids.size||legacy?[...ids]:null;
  }
- async hasSemanticIndex(book:LocalBook){
+ async semanticIndexCardCount(book:LocalBook){
   const snapshot=await this.snapshotFor(book);
-  if(!snapshot?.references.size)return false;
+  if(!snapshot?.references.size)return 0;
   const dimensions=new Set([...snapshot.references.values()].map(vector=>vector.length));
-  return snapshot.entries.some(entry=>{
-   if(!entry.vectors.some(vector=>dimensions.has(vector.length)&&vector.every(Number.isFinite)&&vector.some(value=>value!==0)))return false;
-   try{sourceParts(book,entry.source);return true;}catch{return false;}
-  });
+  const sources=new Set<string>();
+  let hasVectors=false;
+  for(const entry of snapshot.entries){
+   try{sourceParts(book,entry.source);}catch{continue;}
+   sources.add(localSourceKey(entry.source));
+   hasVectors||=entry.vectors.some(vector=>dimensions.has(vector.length)&&vector.every(Number.isFinite)&&vector.some(value=>value!==0));
+  }
+  return hasVectors?sources.size:0;
  }
  // 目录只列出可供手动勾选的故事段落，查询不会修改已选范围。
  async passages(book:LocalBook,terms:readonly string[]){

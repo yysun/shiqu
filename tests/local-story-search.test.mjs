@@ -321,12 +321,12 @@ test('逐书导入可读取 WAL 提交，支持纯文字索引，更新或失败
  const search=new LocalStorySearch(join(directory,'story-search.sqlite'));
  const books=new LocalBooks(process.cwd(),search);books.book=async ({bookId})=>bookId===f.book.id?f.book:bookId===second.book.id?second.book:null;
  const cli=(...args)=>executeHeadless(process.cwd(),['books',...args,'--data-dir',directory],{localBooks:books,variables:{}});
- assert.deepEqual(await books.semanticIndexBookIds(),[]);
+ assert.deepEqual(await books.semanticIndexBooks(),[]);
  await cli('index-import',f.book.id,f.file);
  assert.deepEqual((await cli('search','乌龟','--limit','1')).results.map(row=>row.source),[f.stories[0].source]);
  await cli('index-import',second.book.id,secondFile);
- assert.deepEqual(await books.semanticIndexBookIds(),[f.book.id]);
- assert.equal(await search.hasSemanticIndex({...f.book,edition:'c'.repeat(64)}),false);
+ assert.deepEqual(await books.semanticIndexBooks(),[{id:f.book.id,cardCount:2}]);
+ assert.equal(await search.semanticIndexCardCount({...f.book,edition:'c'.repeat(64)}),0);
  assert.deepEqual(await search.lookup(second.book,'洪水中获救',signal),[source]);
  assert.deepEqual(await search.lookup(f.book,'爱情',signal),[f.stories[1].source]);
  await assert.rejects(cli('search','乌龟'),error=>error.code==='BOOK_ID_REQUIRED');
