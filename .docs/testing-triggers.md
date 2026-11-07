@@ -15,6 +15,8 @@ pnpm lint
 
 Plan output lists files, execution levels, `fast`/`full` modes and unsupported-platform exclusions. Actual runs retain source identity, batch duration, selected files and exits under `.data/test-plans/`. `native: true` means native source checks are also required; the JS runner does not execute Cargo. `AGENTS.md` documents these rules.
 
+Within each mode, source tests run first with at most two files in parallel, then browser E2E files run one at a time in a separate Node process. Vite/Chromium therefore cannot consume the controlled production tests' deadline budget. Every selected file still runs once with its original provider/heavy flags and assertions; a failed batch stops the run. Evidence records each batch's runtime class and concurrency.
+
 ## Trigger table
 
 Every PR runs the small integrity smoke. Every code PR also runs fast contracts and the local-server/queue/state safety set. The following additions run with full provider/heavy flags. Changed tests select their declared domains. Changed known sources also select every declared direct consumer; native consumers request native checks. Multiple domains form a union, and each selected file runs once.
@@ -76,6 +78,6 @@ The reported hosted baseline is 7s scope + 12s setup + 18s install + 15s typeche
 
 ## CI qualification
 
-`Shared checks` aggregates JavaScript and selected native jobs. Missing scope defaults to full JS and native checks. Main, version tags and manual runs qualify the exact current commit with all JS tests. The native PR matrix installs pinned Node/JS dependencies and Rust 1.93.0, disables bundle resources and uses the checked-in desktop HTML entry as compile-time frontend context, and excludes only `runtime::tests::desktop_uses_verified_bundle_and_ignores_saved_system_path`. Prepared-artifact builds retain complete Cargo testing and artifact smoke. Packaging remains tag/manual only and waits for successful source qualification. Local release/npm smoke gates retain their focused eight/seven files.
+`Shared checks` aggregates JavaScript and selected native jobs for PRs, main and manual runs. Missing PR scope defaults to full JS and native checks. Main and manual runs qualify the exact current commit with all JS tests. A version tag runs the full JS plan, typecheck and lint in the installed local pre-push hook; tag Actions start at native packaging. Both platforms retain complete Cargo testing and installer smoke before release publication. Manual packaging still requires successful Shared checks. The native PR matrix uses pinned Node/JS dependencies and Rust 1.93.0, disables bundle resources and uses the checked-in desktop HTML entry as compile-time frontend context, excluding only `runtime::tests::desktop_uses_verified_bundle_and_ignores_saved_system_path`. The explicit release smoke and npm gate retain their focused eight/seven files.
 
 Pnpm store caching is retained. Selected browser jobs cache Chromium; native jobs cache Cargo registry/git/build outputs with OS, architecture, Rust version, lockfiles and Node in the key. These caches do not contain user libraries or credentials. Windows behavior and GitHub scheduling require hosted validation; local macOS evidence does not claim otherwise.

@@ -14,7 +14,7 @@
 - After code changes, use `pnpm test:changed` for working-tree impact checks. Preview with `pnpm test:changed --plan` (or `--json`). It includes staged, unstaged and untracked paths, always keeps small contracts, and runs affected suites with full provider/heavy flags.
 - In a shared checkout, inspect the preview first. Use `pnpm test:pr --files <your changed paths...>` to scope verification to your own work; do not modify or include concurrent work merely to make a check pass.
 - Register new test files and their covered production sources (`covers`) in `tests/manifest.json`. Unknown paths, shared schemas, dependencies, Node/toolchain changes and failed/empty change detection select full source coverage. Do not bypass that fallback to save time.
-- Run `pnpm typecheck` and `pnpm lint` for code changes. Run applicable native source checks when the plan reports `native: true`; JS runner results alone do not prove native coverage. Main/release CI retains full qualification.
+- Run `pnpm typecheck` and `pnpm lint` for code changes. Run applicable native source checks when the plan reports `native: true`; JS runner results alone do not prove native coverage. Main and manual CI retain full JS qualification; the local tag hook runs it for releases and tag CI verifies native installers.
 
 ## CLI 与技能同步
 

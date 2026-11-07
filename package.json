@@ -20,7 +20,7 @@
   "scripts": {
     "setup": "node scripts/setup.mjs && pnpm install --frozen-lockfile && pnpm run hooks:install",
     "hooks:install": "node scripts/install-git-hooks.mjs",
-    "release:check": "pnpm typecheck && pnpm lint && pnpm test:e2e --gate=release && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
+    "release:check": "pnpm typecheck && pnpm lint && pnpm test:pr --full && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
     "build:npm": "node scripts/build-npm.mjs",

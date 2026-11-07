@@ -2601,7 +2601,9 @@
         "release"
       ],
       "covers": [
+        "scripts/pre-push.mjs",
         "scripts/test-metadata.mjs",
+        "scripts/test-pr.mjs",
         "scripts/test-story-e2e.mjs"
       ]
     },

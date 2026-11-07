@@ -8,10 +8,13 @@ import path from 'node:path';
 import {loadMetadata} from '../scripts/test-metadata.mjs';
 import {userFlowTests,extendedFlowTests,selectTests} from '../scripts/test-story-e2e.mjs';
 
-test('both local publication gates require the production-backed lifecycle E2E',async()=>{
+const fullOnly='tests/local-image-batches.test.mjs';
+
+test('the tag gate runs full qualification and the npm gate retains the production-backed lifecycle smoke',async()=>{
  const manifest=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
- for(const [name,gate] of [['release:check','release'],['npm:check','npm']]){
-  assert.ok(manifest.scripts[name].includes(`&& pnpm test:e2e --gate=${gate}`));
+ assert.match(manifest.scripts['release:check'],/^pnpm typecheck && pnpm lint && pnpm test:pr --full && cargo fmt\b/);
+ assert.match(manifest.scripts['npm:check'],/^pnpm typecheck && pnpm lint && pnpm test:e2e --gate=npm$/);
+ for(const name of ['release:check','npm:check']){
   assert.equal((manifest.scripts[name].match(/pnpm (?:run )?test\b/g)||[]).length,1,'one combined test invocation per gate');
  }
  assert.match(manifest.scripts['test:e2e'],/scripts\/test-story-e2e\.mjs/);
@@ -27,6 +30,7 @@ test('smoke gates stay focused while the explicit full selection preserves all r
  assert.match(manifest.scripts['test:full'],/test:e2e --gate=full$/);
  const full=await selectTests('full');
  assert.equal(full.length,new Set(full).size);assert.deepEqual(new Set(full),new Set(loadMetadata().tests.filter(entry=>entry.level!=='native'&&entry.platforms.includes(process.platform)).map(entry=>entry.file)));
+ assert.ok(full.includes(fullOnly));assert.ok(!(await selectTests('release')).includes(fullOnly));
  for(const gate of ['release','npm']){
   const selected=await selectTests(gate);
   assert.equal(selected.length,new Set(selected).size);
@@ -59,24 +63,28 @@ async function fixture(t,{failedFlow}={}){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu hook test '));t.after(()=>rm(root,{recursive:true,force:true}));
  const checkout=path.join(root,'checkout'),remote=path.join(root,'remote.git'),bin=path.join(root,'bin'),log=path.join(root,'checks.log');
  await mkdir(checkout);await mkdir(bin);await mkdir(path.join(checkout,'scripts'));await mkdir(path.join(checkout,'.githooks'));
- for(const file of ['scripts/pre-push.mjs','scripts/test-story-e2e.mjs','scripts/test-metadata.mjs','scripts/test-source.mjs','.githooks/pre-push'])await copyFile(new URL('../'+file,import.meta.url),path.join(checkout,file));
+ for(const file of ['scripts/pre-push.mjs','scripts/test-story-e2e.mjs','scripts/test-metadata.mjs','scripts/test-source.mjs','scripts/test-pr.mjs','scripts/test-plan.mjs','scripts/ci-scope.mjs','.githooks/pre-push'])await copyFile(new URL('../'+file,import.meta.url),path.join(checkout,file));
  // 发布与扩展执行器使用临时用例，验证失败传播时不递归运行真实套件。
  await mkdir(path.join(checkout,'tests'));
- for(const file of new Set(['tests/book-integrity-smoke.test.mjs',...userFlowTests,...extendedFlowTests,...await selectTests('release')]))await writeFile(path.join(checkout,file),`import test from 'node:test';\ntest('release flow probe',()=>{${file===failedFlow?"throw Error('CONTROLLED_USER_FLOW_FAILURE');":''}});\n`);
- const owned=new Set(['tests/book-integrity-smoke.test.mjs',...userFlowTests,...extendedFlowTests,...await selectTests('release')]);
+ const owned=new Set(['tests/book-integrity-smoke.test.mjs',fullOnly,...userFlowTests,...extendedFlowTests,...await selectTests('release')]);
+ for(const file of owned)await writeFile(path.join(checkout,file),`import test from 'node:test';\ntest(${JSON.stringify('release flow probe: '+file)},()=>{${file===failedFlow?"throw Error('CONTROLLED_USER_FLOW_FAILURE');":''}});\n`);
  const metadata=loadMetadata();await writeFile(path.join(checkout,'tests/manifest.json'),JSON.stringify({...metadata,tests:metadata.tests.filter(entry=>owned.has(entry.file))}));
  await chmod(path.join(checkout,'.githooks/pre-push'),0o755);
  await writeFile(path.join(checkout,'.nvmrc'),process.versions.node);
- await writeFile(path.join(checkout,'package.json'),JSON.stringify({packageManager:'pnpm@11.25.0'}));
+ const manifest=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
+ await writeFile(path.join(checkout,'package.json'),JSON.stringify({packageManager:manifest.packageManager,scripts:{'release:check':manifest.scripts['release:check']}}));
  await writeFile(path.join(checkout,'marker'),'tagged content');
  await writeFile(path.join(bin,'pnpm'),`#!/usr/bin/env node
 const fs=require('node:fs');
 const args=process.argv.slice(2);
-if(args[0]==='--version'){console.log('11.25.0');process.exit(0);}
+const manifest=JSON.parse(fs.readFileSync('package.json','utf8'));
+if(args[0]==='--version'){console.log(manifest.packageManager.slice(5));process.exit(0);}
 fs.appendFileSync(process.env.PRE_PUSH_LOG,JSON.stringify({args,marker:fs.readFileSync('marker','utf8'),cwd:process.cwd(),gitDir:process.env.GIT_DIR})+'\\n');
 if(args[0]==='run'&&process.env.PRE_PUSH_FAIL==='1')process.exit(1);
 if(args[0]==='run'&&args[1]==='release:check'&&process.env.PRE_PUSH_REAL_FLOWS==='1'){
- const result=require('node:child_process').spawnSync(process.execPath,['scripts/test-story-e2e.mjs','--gate=release'],{env:process.env,stdio:'inherit'});
+ const check=manifest.scripts['release:check'].split(' && ').find(command=>command.startsWith('pnpm test:pr '));
+ if(!check)throw Error('Missing full release plan');
+ const result=require('node:child_process').spawnSync(process.execPath,['scripts/test-pr.mjs',...check.split(' ').slice(2)],{env:process.env,stdio:'inherit'});
  process.exit(result.status??1);
 }
 `);
@@ -122,7 +130,7 @@ test('release pushes check the tagged snapshot once for lightweight and annotate
  assert.equal((f.git(['worktree','list','--porcelain']).stdout.match(/^worktree /gm)||[]).length,1);
 });
 
-for(const failedFlow of ['tests/headless-cli.test.mjs','tests/release-smoke.playwright.e2e.mjs','tests/story-generation-state-machine.e2e.mjs'])test('critical flow failure rejects a real v* tag push: '+failedFlow,{skip:process.platform==='win32'},async t=>{
+for(const failedFlow of ['tests/headless-cli.test.mjs','tests/release-smoke.playwright.e2e.mjs',fullOnly])test('full plan failure rejects a real v* tag push: '+failedFlow,{skip:process.platform==='win32'},async t=>{
  const f=await fixture(t,{failedFlow});f.git(['tag','v0.0.4']);
  await writeFile(path.join(f.checkout,'marker'),'uncommitted content');
  const pushed=f.git(['push','origin','v0.0.4'],{PRE_PUSH_REAL_FLOWS:'1'},false);
@@ -132,10 +140,10 @@ for(const failedFlow of ['tests/headless-cli.test.mjs','tests/release-smoke.play
  assert.equal((f.git(['worktree','list','--porcelain']).stdout.match(/^worktree /gm)||[]).length,1);
 });
 
-test('passing critical flows execute under an inherited test environment before a v* tag is accepted',{skip:process.platform==='win32'},async t=>{
+test('passing full qualification executes under an inherited test environment before a v* tag is accepted',{skip:process.platform==='win32'},async t=>{
  const f=await fixture(t);f.git(['tag','v0.0.5']);
  const pushed=f.git(['push','origin','v0.0.5'],{PRE_PUSH_REAL_FLOWS:'1'});
- assert.match(pushed.stdout+pushed.stderr,/release flow probe/);assert.match(pushed.stdout+pushed.stderr,/Story E2E PASS/);
+ assert.ok((pushed.stdout+pushed.stderr).includes('release flow probe: '+fullOnly));assert.match(pushed.stdout+pushed.stderr,/PR test plan:/);
  assert.match(f.git(['ls-remote','--tags','origin']).stdout,/refs\/tags\/v0\.0\.5/);
  assert.equal((f.git(['worktree','list','--porcelain']).stdout.match(/^worktree /gm)||[]).length,1);
 });

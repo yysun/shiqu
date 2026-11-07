@@ -10,18 +10,18 @@ import {executePlan,inputScope} from '../scripts/test-pr.mjs';
 import {createPlan,changeScope} from '../scripts/test-plan.mjs';
 import {loadMetadata} from '../scripts/test-metadata.mjs';
 
-test('PR executor runs files once with isolated fast/full flags and records a failing batch',async t=>{
+test('PR executor isolates browser files, preserves fast/full flags and records a failing batch',async t=>{
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu-plan-run-'));t.after(()=>rm(root,{recursive:true,force:true}));await mkdir(path.join(root,'tests'));
  const git=(...args)=>execFileSync('git',args,{cwd:root,stdio:'pipe'});git('init');git('config','user.name','Test');git('config','user.email','test@example.invalid');
- const names=['fast','full','failed'];
- for(const name of names)await writeFile(path.join(root,'tests',name+'.test.mjs'),`import test from 'node:test';import assert from 'node:assert/strict';import {appendFileSync} from 'node:fs';test('${name}',()=>{appendFileSync('receipts',JSON.stringify({name:'${name}',tier:process.env.SHIQU_TEST_TIER,books:process.env.SHIQU_TEST_BOOKS,run:process.env.SHIQU_E2E_RUN_ID,build:process.env.SHIQU_E2E_BUILD_ID})+'\\n');assert.equal(process.env.SHIQU_TEST_TIER,${name==='fast'?'undefined':"'full'"});assert.equal(process.env.SHIQU_TEST_BOOKS,undefined);${name==='failed'?"throw Error('CONTROLLED_PLAN_FAILURE');":''}});`);
+ const names=['fast','full','browser-a','browser-b','failed'];
+ for(const name of names)await writeFile(path.join(root,'tests',name+'.test.mjs'),`import test from 'node:test';import assert from 'node:assert/strict';import {appendFileSync,mkdirSync,rmdirSync} from 'node:fs';test('${name}',async()=>{${name.startsWith('browser')?"mkdirSync('browser-active');await new Promise(resolve=>setTimeout(resolve,150));rmdirSync('browser-active');":''}appendFileSync('receipts',JSON.stringify({name:'${name}',tier:process.env.SHIQU_TEST_TIER,books:process.env.SHIQU_TEST_BOOKS,run:process.env.SHIQU_E2E_RUN_ID,build:process.env.SHIQU_E2E_BUILD_ID})+'\\n');assert.equal(process.env.SHIQU_TEST_TIER,${name==='fast'?'undefined':"'full'"});assert.equal(process.env.SHIQU_TEST_BOOKS,undefined);${name==='failed'?"throw Error('CONTROLLED_PLAN_FAILURE');":''}});`);
  git('add','.');git('commit','-m','Fixture');
- const plan={version:1,platform:process.platform,scope:changeScope(['server/claude-runner.ts']),native:false,excluded:['unsupported'],tests:names.map(name=>({file:'tests/'+name+'.test.mjs',mode:name==='fast'?'fast':'full',level:'contract'}))};
+ const plan={version:1,platform:process.platform,scope:changeScope(['server/claude-runner.ts']),native:false,excluded:['unsupported'],tests:names.map(name=>({file:'tests/'+name+'.test.mjs',mode:name==='fast'?'fast':'full',level:name.startsWith('browser')||name==='failed'?'browser-e2e':'contract'}))};
  const saved={tier:process.env.SHIQU_TEST_TIER,books:process.env.SHIQU_TEST_BOOKS};process.env.SHIQU_TEST_TIER='full';process.env.SHIQU_TEST_BOOKS='1';
  try{assert.equal(await executePlan(plan,{root}),1);}finally{for(const [key,value] of [['SHIQU_TEST_TIER',saved.tier],['SHIQU_TEST_BOOKS',saved.books]]){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
- const receipts=(await readFile(path.join(root,'receipts'),'utf8')).trim().split('\n').map(JSON.parse);assert.deepEqual(new Set(receipts.map(row=>row.name)),new Set(names));assert.equal(receipts.length,3);
+ const receipts=(await readFile(path.join(root,'receipts'),'utf8')).trim().split('\n').map(JSON.parse);assert.deepEqual(receipts.map(row=>row.name),names);assert.equal(receipts.length,5);
  const directory=path.join(root,'.data/test-plans'),runs=await readdir(directory);assert.equal(runs.length,1);
- const report=JSON.parse(await readFile(path.join(directory,runs[0],'run.json'),'utf8'));assert.equal(report.exitCode,1);assert.deepEqual(report.tests,plan.tests);assert.deepEqual(report.excluded,['unsupported']);assert.deepEqual(report.batches.map(batch=>batch.mode),['fast','full']);assert.ok(receipts.every(row=>row.run===report.runId&&row.build===report.build));
+ const report=JSON.parse(await readFile(path.join(directory,runs[0],'run.json'),'utf8'));assert.equal(report.exitCode,1);assert.deepEqual(report.tests,plan.tests);assert.deepEqual(report.excluded,['unsupported']);assert.deepEqual(report.batches.map(({mode,runtime,concurrency})=>({mode,runtime,concurrency})),[{mode:'fast',runtime:'source',concurrency:2},{mode:'full',runtime:'source',concurrency:2},{mode:'full',runtime:'browser',concurrency:1}]);assert.ok(receipts.every(row=>row.run===report.runId&&row.build===report.build));
 });
 test('local changed mode includes staged, unstaged, untracked and both rename paths',async t=>{
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu-plan-diff-'));t.after(()=>rm(root,{recursive:true,force:true}));

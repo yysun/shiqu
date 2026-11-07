@@ -31,19 +31,21 @@ export async function executePlan(plan,{root=process.cwd()}={}){
  const log=createWriteStream(path.join(directory,'test.log'));
  let exitCode=0;
  console.log(`PR test plan: ${plan.tests.length} files; evidence ${directory}`);
- for(const mode of ['fast','full']){
-  const files=plan.tests.filter(test=>test.mode===mode).map(test=>test.file);if(!files.length)continue;
+ batchesLoop:for(const mode of ['fast','full'])for(const runtime of ['source','browser']){
+  const files=plan.tests.filter(test=>test.mode===mode&&(test.level==='browser-e2e')===(runtime==='browser')).map(test=>test.file);if(!files.length)continue;
+  // 浏览器文件独占执行，源码文件最多并行两个，避免 Vite/Chromium 挤占受控队列的等待预算。
+  const concurrency=runtime==='browser'?1:2;
   const env={...process.env,SHIQU_E2E_RUN_ID:runId,SHIQU_E2E_BUILD_ID:build};
   delete env.NODE_TEST_CONTEXT;delete env.SHIQU_TEST_TIER;delete env.SHIQU_TEST_BOOKS;
   if(mode==='full')env.SHIQU_TEST_TIER='full';
-  const start=performance.now(),child=spawn(process.execPath,['--experimental-strip-types','--test','--test-concurrency=4',...files],{cwd:root,env,stdio:['ignore','pipe','pipe']});
+  const start=performance.now(),child=spawn(process.execPath,['--experimental-strip-types','--test',`--test-concurrency=${concurrency}`,...files],{cwd:root,env,stdio:['ignore','pipe','pipe']});
   for(const [stream,target] of [[child.stdout,process.stdout],[child.stderr,process.stderr]])stream.on('data',chunk=>{target.write(chunk);log.write(chunk);});
   const stop=signal=>child.kill(signal),onInt=()=>stop('SIGINT'),onTerm=()=>stop('SIGTERM');
   process.once('SIGINT',onInt);process.once('SIGTERM',onTerm);
   const code=await new Promise(resolve=>{child.once('error',error=>{log.write(String(error));resolve(1);});child.once('exit',code=>resolve(code??1));});
   process.removeListener('SIGINT',onInt);process.removeListener('SIGTERM',onTerm);
-  batches.push({mode,files,exitCode:code,durationMs:Math.round(performance.now()-start)});
-  if(code){exitCode=code;break;}
+  batches.push({mode,runtime,concurrency,files,exitCode:code,durationMs:Math.round(performance.now()-start)});
+  if(code){exitCode=code;break batchesLoop;}
  }
  await new Promise(resolve=>log.end(resolve));
  await writeFile(path.join(directory,'run.json'),JSON.stringify({...plan,runId,build,commit,startedAt,finishedAt:new Date().toISOString(),batches,exitCode},null,2));

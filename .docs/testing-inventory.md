@@ -22,9 +22,9 @@ See [trigger rules and timing comparison](testing-triggers.md) and [developer co
 | `pnpm test:books` | 10 | Explicit suite; per-case fast/full switches remain available. |
 | `pnpm test:e2e` | 18 | Explicit gate membership; full flags. |
 | `pnpm test:e2e:extended` | 6 | Explicit gate membership; full flags. |
-| `release gate` | 8 | Explicit gate membership; full flags. |
+| `pnpm test:e2e --gate=release` | 8 | Standalone release smoke; full flags. |
 | `npm gate` | 7 | Explicit gate membership; full flags. |
-| `pnpm test:full` / main/tag/manual CI | 172 JS | Every file once, full flags; CI static checks and tag/native gates retained. |
+| `pnpm test:full` / main and manual CI / local tag gate | All supported JS | Every file once with full flags. Tag CI runs native tests and installer smoke checks. |
 | Code PR | Impact union | Small contracts and local-server/queue/state guards plus affected full-mode files. |
 | Documentation PR | 1 | Integrity smoke. |
 
