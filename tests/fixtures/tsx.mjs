@@ -1,6 +1,7 @@
 // 组件测试直接导入前端 TSX：仅为 client/ 与 desktop/ 下的导入方解析 @/ 别名并补全扩展名，
 // .tsx/.jsx 按 tsconfig 的 automatic JSX 转译，.css 为空模块。
 // .ts 仍交给 Node 原生类型剥离，server/ 与 lib/ 的解析保持生产行为，避免掩盖生产中会失败的导入。
+// 钩子只影响注册之后解析的模块：测试先静态导入本文件，再用 await import() 动态导入组件。
 import {registerHooks} from 'node:module';
 import {existsSync,readFileSync,statSync} from 'node:fs';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -15,7 +16,7 @@ const complete=base=>suffixes.map(suffix=>base+suffix).find(file=>existsSync(fil
 registerHooks({
  resolve(specifier,context,next){
   const parent=context.parentURL?.startsWith('file:')?fileURLToPath(context.parentURL):'';
-  if(frontend.some(directory=>parent.startsWith(directory))&&(specifier.startsWith('@/')||specifier.startsWith('.'))){
+  if(frontend.some(directory=>parent.startsWith(directory))&&!parent.includes(`${path.sep}node_modules${path.sep}`)&&(specifier.startsWith('@/')||specifier.startsWith('.'))){
    const file=complete(specifier.startsWith('@/')?path.join(root,specifier.slice(2)):path.resolve(path.dirname(parent),specifier));
    if(file)return {url:pathToFileURL(file).href,shortCircuit:true};
   }

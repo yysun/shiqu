@@ -1,6 +1,8 @@
 // 回归入口使用注册表并开启完整提供方及重型用例；显式文件参数保留原有用法。
 import {spawn} from 'node:child_process';
 import {loadMetadata,supported} from './test-metadata.mjs';
+import {warnNodeVersion} from './node-version.mjs';
+warnNodeVersion();
 const env={...process.env,SHIQU_TEST_TIER:'full'};
 // 嵌套执行时清除 Node 测试上下文。
 delete env.NODE_TEST_CONTEXT;

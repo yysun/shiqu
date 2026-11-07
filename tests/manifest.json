@@ -115,7 +115,10 @@
       ],
       "covers": [
         "lib/reader-review.ts",
-        "lib/reader-structure.ts"
+        "lib/reader-structure.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -139,7 +142,10 @@
         "lib/reader-revision-images.ts",
         "lib/reader-revision.ts",
         "lib/reader-structure.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -171,7 +177,8 @@
         "scripts/desktop-resources.mjs",
         "scripts/desktop-runtime-packages.mjs",
         "skills/shiqu/SKILL.md",
-        "lib/system-settings.ts"
+        "lib/system-settings.ts",
+        "tests/fixtures/startup.mjs"
       ]
     },
     {
@@ -219,7 +226,11 @@
         "lib/reader-engine.ts",
         "lib/reader-repository.ts",
         "server/database.ts",
-        "server/reader-production.ts"
+        "server/reader-production.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -239,7 +250,10 @@
       "gates": [],
       "covers": [
         "server/library-backup.ts",
-        "server/library-upgrade.ts"
+        "server/library-upgrade.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -282,7 +296,10 @@
         "server/local-story-discovery.ts",
         "server/story-discovery-cache.ts",
         "server/story-discovery-legacy.ts",
-        "server/story-reading-inputs.ts"
+        "server/story-reading-inputs.ts",
+        "tests/fixtures/story-discovery-v1.json",
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -304,7 +321,12 @@
       "gates": [
         "extended"
       ],
-      "covers": []
+      "covers": [
+        "tests/fixtures/book-reference.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
+      ]
     },
     {
       "file": "tests/book-reference-star.test.mjs",
@@ -327,7 +349,11 @@
         "server/book-image-reference.ts",
         "server/generation.ts",
         "tests/fixtures/tsx.mjs",
-        "client/ui/BookReferenceStar.tsx"
+        "client/ui/BookReferenceStar.tsx",
+        "tests/fixtures/book-reference.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -351,7 +377,9 @@
       ],
       "covers": [
         "lib/provider-settings.ts",
-        "server/provider-settings-access.ts"
+        "server/provider-settings-access.ts",
+        "tests/fixtures/development.mjs",
+        "tests/fixtures/startup.mjs"
       ]
     },
     {
@@ -380,7 +408,8 @@
         "server/cli-setup.ts",
         "server/desktop.ts",
         "server/http.ts",
-        "server/provider-settings-access.ts"
+        "server/provider-settings-access.ts",
+        "tests/fixtures/startup.mjs"
       ]
     },
     {
@@ -427,7 +456,11 @@
       "gates": [
         "extended"
       ],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
+      ]
     },
     {
       "file": "tests/character-continuity-edits.test.mjs",
@@ -448,7 +481,10 @@
         "lib/reader-review.ts",
         "lib/reader-revision-images.ts",
         "lib/reader-structure.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -491,7 +527,11 @@
       "gates": [],
       "covers": [
         "server/headless-cli.ts",
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -513,7 +553,10 @@
         "server/claude-runner.ts",
         "server/cli-setup.ts",
         "server/diagnostics.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -534,7 +577,9 @@
       "covers": [
         "server/local-book-html.ts",
         "server/local-book-inputs.ts",
-        "server/local-books.ts"
+        "server/local-books.ts",
+        "tests/fixtures/book-library.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -560,7 +605,8 @@
         "server/desktop.ts",
         "server/library-directory.ts",
         "server/media.ts",
-        "server/system-settings.ts"
+        "server/system-settings.ts",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -605,7 +651,8 @@
         "server/app.ts",
         "server/codex-runner.ts",
         "server/desktop.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/images.mjs"
       ]
     },
     {
@@ -626,7 +673,10 @@
       "covers": [
         "lib/reader-production-client.ts",
         "server/generation.ts",
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -647,7 +697,11 @@
       "gates": [],
       "covers": [
         "server/headless-cli.ts",
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -666,7 +720,10 @@
       "pr": "code",
       "gates": [],
       "covers": [
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -687,7 +744,10 @@
       "covers": [
         "lib/reader-responses-diagnostics.ts",
         "server/diagnostics.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -749,7 +809,8 @@
         "server/database.ts",
         "server/desktop-remote.ts",
         "server/desktop-tunnel.ts",
-        "server/desktop.ts"
+        "server/desktop.ts",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -812,7 +873,8 @@
       "covers": [
         "scripts/desktop-resources.mjs",
         "scripts/desktop-runtime-packages.mjs",
-        "server/story-export.ts"
+        "server/story-export.ts",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -834,7 +896,15 @@
       ],
       "covers": [
         "client/ui/production-timeline.css",
-        "tests/fixtures/phone-audit.mjs"
+        "tests/fixtures/phone-audit.mjs",
+        "tests/fixtures/desktop-layout.mjs",
+        "tests/fixtures/development.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/startup.mjs",
+        "tests/fixtures/story-browser.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -856,7 +926,9 @@
         "server/database.ts",
         "server/desktop-access.ts",
         "server/desktop-owner.ts",
-        "server/desktop.ts"
+        "server/desktop.ts",
+        "tests/fixtures/historical-library.mjs",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -882,7 +954,8 @@
         "lib/system-settings.ts",
         "server/desktop.ts",
         "server/provider-settings-access.ts",
-        "server/system-settings.ts"
+        "server/system-settings.ts",
+        "tests/fixtures/startup.mjs"
       ]
     },
     {
@@ -910,7 +983,10 @@
         "server/library-backup.ts",
         "server/provider-runtime.ts",
         "server/provider-settings-access.ts",
-        "server/system-settings.ts"
+        "server/system-settings.ts",
+        "tests/fixtures/historical-library.mjs",
+        "tests/fixtures/startup.mjs",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -967,7 +1043,8 @@
       "covers": [
         "scripts/development-server.mjs",
         "server/development-access.ts",
-        "server/http.ts"
+        "server/http.ts",
+        "tests/fixtures/startup.mjs"
       ]
     },
     {
@@ -1004,7 +1081,10 @@
       "gates": [
         "user-flows"
       ],
-      "covers": []
+      "covers": [
+        "tests/fixtures/development.mjs",
+        "tests/fixtures/startup.mjs"
+      ]
     },
     {
       "file": "tests/development-local.test.mjs",
@@ -1046,7 +1126,8 @@
         "lib/system-settings.ts",
         "server/desktop.ts",
         "server/diagnostics.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/startup.mjs"
       ]
     },
     {
@@ -1065,7 +1146,11 @@
       "pr": "affected",
       "gates": [],
       "covers": [
-        "server/local-book-contents.ts"
+        "server/local-book-contents.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -1084,7 +1169,11 @@
       "pr": "affected",
       "gates": [],
       "covers": [
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -1105,7 +1194,8 @@
       "covers": [
         "lib/reader-books.ts",
         "lib/reader-home.ts",
-        "server/app.ts"
+        "server/app.ts",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -1126,7 +1216,9 @@
       "covers": [
         "server/local-book-html.ts",
         "server/local-book-inputs.ts",
-        "server/local-books.ts"
+        "server/local-books.ts",
+        "tests/fixtures/book-library.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -1147,7 +1239,8 @@
       "covers": [
         "lib/reader-zip-content.ts",
         "lib/story-webp-metadata.ts",
-        "scripts/export-story.mjs"
+        "scripts/export-story.mjs",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -1194,7 +1287,10 @@
       "gates": [],
       "covers": [
         "lib/reader-review.ts",
-        "scripts/storyboard-evaluation.mjs"
+        "scripts/storyboard-evaluation.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1220,7 +1316,10 @@
         "lib/reader-repository.ts",
         "lib/reader-review.ts",
         "scripts/storyboard-evaluation.mjs",
-        "server/database.ts"
+        "server/database.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1243,7 +1342,10 @@
         "lib/reader-model.ts",
         "lib/reader-repository.ts",
         "lib/reader-review.ts",
-        "scripts/storyboard-evaluation.mjs"
+        "scripts/storyboard-evaluation.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1285,7 +1387,10 @@
         "lib/reader-prompts.ts",
         "lib/reader-review.ts",
         "server/generation.ts",
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1304,7 +1409,10 @@
       "pr": "code",
       "gates": [],
       "covers": [
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1345,7 +1453,10 @@
       "covers": [
         "lib/reader-gemini-diagnostics.ts",
         "server/diagnostics.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1367,7 +1478,10 @@
         "lib/reader-editorial.ts",
         "lib/reader-gemini-evidence.ts",
         "lib/reader-structure.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1389,7 +1503,10 @@
         "lib/reader-acceptance.ts",
         "lib/reader-editorial.ts",
         "lib/reader-review.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1415,7 +1532,11 @@
       "covers": [
         "server/generation.ts",
         "server/headless-cli.ts",
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -1434,7 +1555,10 @@
       "pr": "code",
       "gates": [],
       "covers": [
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1455,7 +1579,10 @@
       "covers": [
         "lib/reader-limits.ts",
         "lib/reader-structure.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1476,7 +1603,10 @@
       "covers": [
         "lib/codex-settings.ts",
         "lib/reader-limits.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1524,7 +1654,13 @@
         "lib/story-webp-metadata.ts",
         "server/app.ts",
         "server/headless-cli.ts",
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/startup.mjs",
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -1585,7 +1721,11 @@
       "gates": [],
       "covers": [
         "lib/reader-image-dimensions.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -1614,7 +1754,12 @@
         "server/local-generation.ts",
         "server/local-story-discovery.ts",
         "server/story-discovery-cache.ts",
-        "server/story-discovery-legacy.ts"
+        "server/story-discovery-legacy.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/pending-overlap.json"
       ]
     },
     {
@@ -1639,7 +1784,11 @@
         "server/story-discovery-cache.ts",
         "server/story-discovery-legacy.ts",
         "server/story-theme-matching.ts",
-        "server/story-token-budget.ts"
+        "server/story-token-budget.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -1682,7 +1831,13 @@
         "server/app.ts",
         "server/database.ts",
         "server/desktop-owner.ts",
-        "server/library-backup.ts"
+        "server/library-backup.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/historical-library.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/startup.mjs",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -1700,7 +1855,11 @@
       "suite": "flows",
       "pr": "affected",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
+      ]
     },
     {
       "file": "tests/licensed-books.test.mjs",
@@ -1721,7 +1880,9 @@
         "lib/reader-source.ts",
         "server/local-book-licensed.ts",
         "server/local-books.ts",
-        "server/local-source-quality.ts"
+        "server/local-source-quality.ts",
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/publication-source-baseline.json"
       ]
     },
     {
@@ -1742,7 +1903,8 @@
       "covers": [
         "server/local-book-corrections.ts",
         "server/local-books.ts",
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -1773,7 +1935,8 @@
         "server/local-generation.ts",
         "server/media.ts",
         "server/story-reading-inputs.ts",
-        "server/story-token-budget.ts"
+        "server/story-token-budget.ts",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -1793,7 +1956,11 @@
       "gates": [],
       "covers": [
         "lib/reader-model.ts",
-        "lib/reader-repository.ts"
+        "lib/reader-repository.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -1816,7 +1983,9 @@
         "server/local-book-inputs.ts",
         "server/local-books.ts",
         "server/local-generation.ts",
-        "server/media.ts"
+        "server/media.ts",
+        "tests/fixtures/book-library.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -1844,7 +2013,10 @@
         "server/import-legacy.ts",
         "server/local-books.ts",
         "server/media.ts",
-        "server/story-discovery-cache.ts"
+        "server/story-discovery-cache.ts",
+        "tests/fixtures/book-library.mjs",
+        "tests/fixtures/historical-library.mjs",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -1869,7 +2041,8 @@
         "server/local-books.ts",
         "server/local-generation.ts",
         "server/local-source-quality.ts",
-        "server/media.ts"
+        "server/media.ts",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -1888,7 +2061,10 @@
       "pr": "affected",
       "gates": [],
       "covers": [
-        "lib/reader-production-client.ts"
+        "lib/reader-production-client.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1913,7 +2089,8 @@
         "server/cli-options.ts",
         "server/cli.ts",
         "server/library-directory.ts",
-        "server/phone-access.ts"
+        "server/phone-access.ts",
+        "tests/fixtures/startup.mjs"
       ]
     },
     {
@@ -1958,7 +2135,10 @@
         "server/desktop.ts",
         "server/generation.ts",
         "server/media.ts",
-        "server/openai-provider.ts"
+        "server/openai-provider.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1978,7 +2158,10 @@
       "gates": [],
       "covers": [
         "lib/reader-revision.ts",
-        "lib/reader-versions.ts"
+        "lib/reader-versions.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -1998,7 +2181,16 @@
       "gates": [
         "user-flows"
       ],
-      "covers": []
+      "covers": [
+        "tests/fixtures/desktop-layout.mjs",
+        "tests/fixtures/development.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/startup.mjs",
+        "tests/fixtures/story-browser.mjs",
+        "tests/fixtures/story-library.mjs"
+      ]
     },
     {
       "file": "tests/phone-readability-css.test.mjs",
@@ -2038,7 +2230,14 @@
       ],
       "covers": [
         "client/ui/production-timeline.css",
-        "tests/fixtures/phone-audit.mjs"
+        "tests/fixtures/phone-audit.mjs",
+        "tests/fixtures/development.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/startup.mjs",
+        "tests/fixtures/story-browser.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -2063,7 +2262,9 @@
         "server/local-book-wiki-stories.ts",
         "server/local-books.ts",
         "server/local-generation.ts",
-        "server/local-source-quality.ts"
+        "server/local-source-quality.ts",
+        "tests/fixtures/book-library.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -2088,7 +2289,10 @@
         "lib/reader-review.ts",
         "lib/reader-revision.ts",
         "server/reader-production.ts",
-        "server/reader-revisions.ts"
+        "server/reader-revisions.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2107,7 +2311,10 @@
       "pr": "code",
       "gates": [],
       "covers": [
-        "server/production-queue.ts"
+        "server/production-queue.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2149,7 +2356,10 @@
         "lib/reader-local-contract.ts",
         "lib/reader-model.ts",
         "lib/reader-prompts.ts",
-        "server/generation.ts"
+        "server/generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2168,7 +2378,10 @@
       "pr": "affected",
       "gates": [],
       "covers": [
-        "lib/reader-generation.ts"
+        "lib/reader-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2188,7 +2401,10 @@
       "gates": [],
       "covers": [
         "lib/reader-image-assets.ts",
-        "lib/reader-model.ts"
+        "lib/reader-model.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2208,7 +2424,10 @@
       "gates": [],
       "covers": [
         "lib/reader-limits.ts",
-        "lib/reader-model.ts"
+        "lib/reader-model.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2232,7 +2451,8 @@
         "lib/reader-generation.ts",
         "lib/reader-model.ts",
         "lib/reader-repository.ts",
-        "server/reader-intake.ts"
+        "server/reader-intake.ts",
+        "tests/fixtures/images.mjs"
       ]
     },
     {
@@ -2252,7 +2472,8 @@
       "gates": [],
       "covers": [
         "lib/reader-image-dimensions.ts",
-        "server/reader-image-health.ts"
+        "server/reader-image-health.ts",
+        "tests/fixtures/images.mjs"
       ]
     },
     {
@@ -2274,7 +2495,11 @@
         "lib/generation-progress.ts",
         "lib/reader-production-client.ts",
         "lib/reader-source-storage.ts",
-        "lib/shelf-generation.ts"
+        "lib/shelf-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -2297,7 +2522,8 @@
         "lib/reader-navigation.ts",
         "lib/reader-pdf.ts",
         "lib/reader-prompts.ts",
-        "lib/reader-suggestions.ts"
+        "lib/reader-suggestions.ts",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -2316,7 +2542,8 @@
       "pr": "code",
       "gates": [],
       "covers": [
-        "lib/reader-png.ts"
+        "lib/reader-png.ts",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -2360,7 +2587,11 @@
         "lib/reader-repository.ts",
         "server/local-books.ts",
         "server/local-generation.ts",
-        "server/reader-production.ts"
+        "server/reader-production.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -2428,7 +2659,11 @@
       "covers": [
         "lib/reader-repository.ts",
         "lib/reader-revision.ts",
-        "server/reader-revisions.ts"
+        "server/reader-revisions.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -2511,7 +2746,13 @@
         "client/ui/StoryFilmstrip.tsx",
         "client/ui/StoryPageSurface.tsx",
         "client/ui/reader.css",
-        "lib/reader-navigation.ts"
+        "lib/reader-navigation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-browser.mjs",
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -2556,7 +2797,8 @@
         "lib/reader-prompt-records.ts",
         "lib/reader-zip.ts",
         "lib/story-webp-metadata.ts",
-        "scripts/export-story.mjs"
+        "scripts/export-story.mjs",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -2596,7 +2838,8 @@
       "covers": [
         "lib/reader-home.ts",
         "client/ui/RecentStories.tsx",
-        "client/ui/Reader.tsx"
+        "client/ui/Reader.tsx",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -2620,7 +2863,8 @@
         "scripts/pre-push.mjs",
         "scripts/test-metadata.mjs",
         "scripts/test-pr.mjs",
-        "scripts/test-story-e2e.mjs"
+        "scripts/test-story-e2e.mjs",
+        "scripts/node-version.mjs"
       ]
     },
     {
@@ -2646,7 +2890,14 @@
         "release",
         "npm"
       ],
-      "covers": []
+      "covers": [
+        "tests/fixtures/creation-lifecycle.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-browser.mjs",
+        "tests/fixtures/story-library.mjs"
+      ]
     },
     {
       "file": "tests/retained-state-ui.test.mjs",
@@ -2683,7 +2934,10 @@
       "covers": [
         "lib/reader-model.ts",
         "lib/reader-repository.ts",
-        "lib/reader-review.ts"
+        "lib/reader-review.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2704,7 +2958,10 @@
       "covers": [
         "lib/reader-model.ts",
         "lib/reader-repository.ts",
-        "lib/reader-review.ts"
+        "lib/reader-review.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2744,7 +3001,10 @@
       "gates": [],
       "covers": [
         "lib/reader-review-history.ts",
-        "lib/reader-review.ts"
+        "lib/reader-review.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2766,7 +3026,10 @@
         "lib/reader-model.ts",
         "server/local-book-contents.ts",
         "server/local-books.ts",
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2787,7 +3050,10 @@
       "gates": [],
       "covers": [
         "server/app.ts",
-        "server/reader-production.ts"
+        "server/reader-production.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2814,7 +3080,10 @@
         "server/generation.ts",
         "server/local-books.ts",
         "server/local-generation.ts",
-        "server/system-settings.ts"
+        "server/system-settings.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2840,7 +3109,8 @@
       ],
       "covers": [
         "lib/system-settings.ts",
-        "server/system-settings.ts"
+        "server/system-settings.ts",
+        "tests/fixtures/startup.mjs"
       ]
     },
     {
@@ -2860,7 +3130,10 @@
       "gates": [],
       "covers": [
         "server/app.ts",
-        "server/desktop-access.ts"
+        "server/desktop-access.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2880,7 +3153,10 @@
       "gates": [],
       "covers": [
         "tests/fixtures/tsx.mjs",
-        "client/ui/ReaderShelf.tsx"
+        "client/ui/ReaderShelf.tsx",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2917,7 +3193,12 @@
       "suite": "flows",
       "pr": "affected",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story.mjs"
+      ]
     },
     {
       "file": "tests/shelf-generation.test.mjs",
@@ -2936,7 +3217,10 @@
       "gates": [],
       "covers": [
         "lib/reader-production-client.ts",
-        "lib/shelf-generation.ts"
+        "lib/shelf-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -2994,7 +3278,9 @@
       "suite": "flows",
       "pr": "affected",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/startup.mjs"
+      ]
     },
     {
       "file": "tests/startup-matrix.test.mjs",
@@ -3013,7 +3299,8 @@
       "gates": [],
       "covers": [
         "server/cli-options.ts",
-        "server/cli-setup.ts"
+        "server/cli-setup.ts",
+        "tests/fixtures/startup.mjs"
       ]
     },
     {
@@ -3030,7 +3317,9 @@
       "suite": "flows",
       "pr": "affected",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/test-tier.mjs"
+      ]
     },
     {
       "file": "tests/story-brief.test.mjs",
@@ -3051,7 +3340,11 @@
         "lib/reader-prompts.ts",
         "lib/reader-theme-match.ts",
         "server/generation.ts",
-        "server/story-theme-matching.ts"
+        "server/story-theme-matching.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -3074,7 +3367,11 @@
         "lib/reader-model.ts",
         "server/local-book-contents.ts",
         "server/local-books.ts",
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -3096,7 +3393,10 @@
         "lib/reader-contents.ts",
         "lib/reader-model.ts",
         "server/local-book-contents.ts",
-        "server/local-books.ts"
+        "server/local-books.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -3117,7 +3417,11 @@
       "covers": [
         "lib/reader-engine.ts",
         "lib/reader-repository.ts",
-        "lib/reader-review.ts"
+        "lib/reader-review.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -3139,7 +3443,9 @@
         "lib/reader-local-contract.ts",
         "server/local-books.ts",
         "server/local-story-discovery.ts",
-        "server/story-discovery-cache.ts"
+        "server/story-discovery-cache.ts",
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/pending-overlap.json"
       ]
     },
     {
@@ -3208,7 +3514,11 @@
         "lib/reader-discovery-call.ts",
         "server/generation.ts",
         "server/story-discovery-cache.ts",
-        "server/story-discovery-metrics.ts"
+        "server/story-discovery-metrics.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -3231,7 +3541,11 @@
       "covers": [
         "server/http.ts",
         "server/local-books.ts",
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -3255,7 +3569,11 @@
         "server/generation.ts",
         "server/local-book-contents.ts",
         "server/local-books.ts",
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -3277,7 +3595,12 @@
       ],
       "covers": [
         "lib/reader-discovery-call.ts",
-        "server/local-story-discovery.ts"
+        "server/local-story-discovery.ts",
+        "tests/fixtures/discovery.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -3300,7 +3623,11 @@
         "server/local-story-discovery.ts",
         "server/story-discovery-cache.ts",
         "server/story-discovery-legacy.ts",
-        "server/story-theme-matching.ts"
+        "server/story-theme-matching.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -3319,7 +3646,11 @@
       "pr": "affected",
       "gates": [],
       "covers": [
-        "lib/reader-prompts.ts"
+        "lib/reader-prompts.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -3342,7 +3673,10 @@
       "covers": [
         "lib/generation-progress.ts",
         "lib/reader-production-client.ts",
-        "lib/shelf-generation.ts"
+        "lib/shelf-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -3360,7 +3694,11 @@
       "suite": "flows",
       "pr": "affected",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
+      ]
     },
     {
       "file": "tests/story-generation-state-machine-client.test.mjs",
@@ -3377,7 +3715,11 @@
       "suite": "flows",
       "pr": "affected",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
+      ]
     },
     {
       "file": "tests/story-generation-state-machine-commands.test.mjs",
@@ -3418,7 +3760,11 @@
       "gates": [
         "user-flows"
       ],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
+      ]
     },
     {
       "file": "tests/story-generation-state-machine-reselection.test.mjs",
@@ -3437,7 +3783,11 @@
       "gates": [
         "user-flows"
       ],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
+      ]
     },
     {
       "file": "tests/story-generation-state-machine.e2e.mjs",
@@ -3458,7 +3808,11 @@
         "release",
         "npm"
       ],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
+      ]
     },
     {
       "file": "tests/story-lifecycle.playwright.e2e.mjs",
@@ -3482,7 +3836,14 @@
       "gates": [
         "user-flows"
       ],
-      "covers": []
+      "covers": [
+        "tests/fixtures/creation-lifecycle.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-browser.mjs",
+        "tests/fixtures/story-library.mjs"
+      ]
     },
     {
       "file": "tests/story-matching-models.test.mjs",
@@ -3521,7 +3882,11 @@
       "covers": [
         "lib/reader-repository.ts",
         "lib/story-publication.ts",
-        "server/database.ts"
+        "server/database.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -3540,7 +3905,11 @@
       "pr": "code",
       "gates": [],
       "covers": [
-        "lib/story-publication.ts"
+        "lib/story-publication.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -3560,7 +3929,11 @@
       "gates": [],
       "covers": [
         "lib/reader-repository.ts",
-        "lib/story-publication.ts"
+        "lib/story-publication.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -3580,7 +3953,11 @@
       "gates": [],
       "covers": [
         "lib/reader-model.ts",
-        "lib/reader-review.ts"
+        "lib/reader-review.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -3602,7 +3979,11 @@
         "lib/generation-progress.ts",
         "lib/reader-engine.ts",
         "lib/reader-repository.ts",
-        "lib/reader-review.ts"
+        "lib/reader-review.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -3650,7 +4031,11 @@
         "lib/reader-acceptance.ts",
         "lib/reader-model.ts",
         "lib/reader-review.ts",
-        "lib/reader-revision.ts"
+        "lib/reader-revision.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -3668,7 +4053,11 @@
       "suite": "flows",
       "pr": "affected",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
+      ]
     },
     {
       "file": "tests/story-specific-requirements.test.mjs",
@@ -3688,7 +4077,11 @@
       "covers": [
         "lib/reader-generation-contract.ts",
         "lib/reader-prompts.ts",
-        "lib/reader-requirements.ts"
+        "lib/reader-requirements.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -3734,7 +4127,14 @@
       "gates": [
         "user-flows"
       ],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-browser.mjs",
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/story.mjs"
+      ]
     },
     {
       "file": "tests/story-storage-consolidation.test.mjs",
@@ -3758,7 +4158,10 @@
         "server/library-backup.ts",
         "server/library-schema.ts",
         "server/library-upgrade.ts",
-        "server/story-export.ts"
+        "server/story-export.ts",
+        "tests/fixtures/historical-library.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -3783,7 +4186,12 @@
         "server/production-queue.ts",
         "server/story-summary-migration.ts",
         "tests/fixtures/tsx.mjs",
-        "client/ui/StoryScript.tsx"
+        "client/ui/StoryScript.tsx",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/historical-library.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -3801,7 +4209,11 @@
       "suite": "unit",
       "pr": "code",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
+      ]
     },
     {
       "file": "tests/story-title.test.mjs",
@@ -3818,7 +4230,11 @@
       "suite": "flows",
       "pr": "affected",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
+      ]
     },
     {
       "file": "tests/story-webp-metadata.test.mjs",
@@ -3839,7 +4255,8 @@
         "lib/reader-image-dimensions.ts",
         "lib/story-publication.ts",
         "lib/story-watermark.ts",
-        "lib/story-webp-metadata.ts"
+        "lib/story-webp-metadata.ts",
+        "tests/fixtures/story.mjs"
       ]
     },
     {
@@ -3878,7 +4295,11 @@
         "lib/generation-progress.ts",
         "lib/reader-engine.ts",
         "lib/reader-prompts.ts",
-        "lib/reader-repository.ts"
+        "lib/reader-repository.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -3899,7 +4320,11 @@
       "covers": [
         "lib/reader-engine.ts",
         "lib/reader-generation.ts",
-        "lib/reader-repository.ts"
+        "lib/reader-repository.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -3925,7 +4350,10 @@
         "client/ui/StoryGenerationStatus.tsx",
         "client/ui/StoryFrameCount.tsx",
         "client/ui/StoryRetry.tsx",
-        "client/ui/StoryReviewTools.tsx"
+        "client/ui/StoryReviewTools.tsx",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -3973,7 +4401,9 @@
       "covers": [
         "server/local-book-inputs.ts",
         "server/local-book-wyg.ts",
-        "server/local-books.ts"
+        "server/local-books.ts",
+        "tests/fixtures/book-library.mjs",
+        "tests/fixtures/test-tier.mjs"
       ]
     },
     {
@@ -3992,7 +4422,11 @@
       "suite": "flows",
       "pr": "affected",
       "gates": [],
-      "covers": []
+      "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
+      ]
     },
     {
       "file": "tests/task-reasoning.test.mjs",
@@ -4013,7 +4447,10 @@
         "lib/reader-reasoning.ts",
         "server/desktop.ts",
         "server/generation.ts",
-        "server/local-generation.ts"
+        "server/local-generation.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -4037,7 +4474,9 @@
         "scripts/test-plan.mjs",
         "scripts/test-pr.mjs",
         "scripts/test-source.mjs",
-        "tests/manifest.json"
+        "tests/manifest.json",
+        "scripts/test-graph.mjs",
+        "scripts/node-version.mjs"
       ]
     },
     {
@@ -4059,7 +4498,8 @@
         "scripts/test-metadata.mjs",
         "scripts/test-plan.mjs",
         "scripts/test-tiers.mjs",
-        "tests/manifest.json"
+        "tests/manifest.json",
+        "scripts/test-graph.mjs"
       ]
     },
     {
@@ -4085,7 +4525,10 @@
         "lib/reader-model.ts",
         "lib/reader-repository.ts",
         "lib/reader-review.ts",
-        "server/production-queue.ts"
+        "server/production-queue.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {

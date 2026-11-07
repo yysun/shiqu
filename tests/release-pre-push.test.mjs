@@ -63,7 +63,7 @@ async function fixture(t,{failedFlow}={}){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu hook test '));t.after(()=>rm(root,{recursive:true,force:true}));
  const checkout=path.join(root,'checkout'),remote=path.join(root,'remote.git'),bin=path.join(root,'bin'),log=path.join(root,'checks.log');
  await mkdir(checkout);await mkdir(bin);await mkdir(path.join(checkout,'scripts'));await mkdir(path.join(checkout,'.githooks'));
- for(const file of ['scripts/pre-push.mjs','scripts/test-story-e2e.mjs','scripts/test-metadata.mjs','scripts/test-source.mjs','scripts/test-pr.mjs','scripts/test-plan.mjs','scripts/ci-scope.mjs','.githooks/pre-push'])await copyFile(new URL('../'+file,import.meta.url),path.join(checkout,file));
+ for(const file of ['scripts/pre-push.mjs','scripts/test-story-e2e.mjs','scripts/test-metadata.mjs','scripts/test-source.mjs','scripts/test-pr.mjs','scripts/test-plan.mjs','scripts/node-version.mjs','scripts/ci-scope.mjs','.githooks/pre-push'])await copyFile(new URL('../'+file,import.meta.url),path.join(checkout,file));
  // 发布与扩展执行器使用临时用例，验证失败传播时不递归运行真实套件。
  await mkdir(path.join(checkout,'tests'));
  const owned=new Set(['tests/book-integrity-smoke.test.mjs',fullOnly,...userFlowTests,...extendedFlowTests,...await selectTests('release')]);

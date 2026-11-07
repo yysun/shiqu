@@ -1,4 +1,5 @@
 // 已知测试输入按文件选测，生产变更按责任域取并集；未知影响仍回退全量。
+// createRelatedPlan 为开发内循环的相关计划，只用快速开关，与 PR/CI 计划分开。
 import {loadMetadata,groups,supported} from './test-metadata.mjs';
 export function fullScope(reason='unknown impact'){
  return {code:true,books:true,native:true,full:true,groups:[...groups],reasons:[reason]};
@@ -47,7 +48,7 @@ function documentation(file){
  return /\.md$|^\.docs\/|^(?:LICENSE|NOTICE)$/.test(file);
 }
 // 只有已声明消费者的样式、夹具和测试调度输入才允许走文件级选择。
-const directInput=/^(?:(?:client|desktop)\/.+\.css|tests\/fixtures\/.+|tests\/manifest\.json|scripts\/(?:ci-scope|test-(?:metadata|plan|pr|source|tiers))\.mjs)$/;
+const directInput=/^(?:(?:client|desktop)\/.+\.css|tests\/fixtures\/.+|tests\/manifest\.json|scripts\/(?:ci-scope|node-version|test-(?:graph|metadata|plan|pr|source|tiers))\.mjs)$/;
 export function changeScope(files,metadata=loadMetadata()){
  if(!files.length)return fullScope('empty comparison');
  const selected=new Set(),directTests=new Set(),reasons=[];let code=false,native=false;
@@ -75,6 +76,20 @@ export function validScope(scope){
  if(!scope||!['code','books','native','full'].every(key=>typeof scope[key]==='boolean')||!Array.isArray(scope.groups)||new Set(scope.groups).size!==scope.groups.length||!scope.groups.every(g=>groups.includes(g)))return false;
  const direct=scope.directTests===undefined?[]:scope.directTests;
  return Array.isArray(direct)&&new Set(direct).size===direct.length&&direct.every(file=>typeof file==='string')&&(!scope.full||(scope.code&&scope.native&&groups.every(g=>scope.groups.includes(g))))&&(scope.code||(!scope.groups.length&&!direct.length&&!scope.native&&!scope.books))&&(!scope.code||scope.groups.length>0||direct.length>0)&&scope.books===scope.groups.includes('books');
+}
+// 开发内循环：只运行改动的已登记测试及反查到的消费者，全部快速开关；不是资格检查，空集不扩大范围。
+export function createRelatedPlan(files,consumers,metadata=loadMetadata(),{platform=process.platform}={}){
+ const chosen=new Set([...consumers,...files.filter(file=>metadata.tests.some(entry=>entry.file===file))]);
+ const entries=metadata.tests.filter(entry=>chosen.has(entry.file));
+ const runnable=entries.filter(entry=>entry.level!=='native'&&entry.level!=='browser-e2e'&&supported(entry,platform));
+ const deferredBrowser=entries.filter(entry=>entry.level==='browser-e2e').map(entry=>entry.file);
+ const native=entries.some(entry=>entry.level==='native')||files.some(file=>file.startsWith('src-tauri/'));
+ const hints=[];
+ if(deferredBrowser.length)hints.push('浏览器用例请运行 pnpm test:e2e');
+ if(native)hints.push('原生代码请运行 pnpm desktop:test');
+ if(!runnable.length)hints.push('没有直接相关的测试：0 个文件被运行，间接受影响的测试未检查，这不代表通过。');
+ hints.push(runnable.length?'只包含直接相关测试；交付前运行一次 pnpm test:changed':'请运行 pnpm test:changed 检查完整影响面');
+ return {version:1,platform,related:true,files,native,tests:runnable.map(entry=>({file:entry.file,level:entry.level,mode:'fast'})),deferredBrowser,excluded:entries.filter(entry=>entry.level!=='native'&&!supported(entry,platform)).map(entry=>entry.file),hints};
 }
 export function createPlan(scope,metadata=loadMetadata(),{platform=process.platform,includeBrowser=false}={}){
  if(!validScope(scope)||scope.directTests?.some(file=>!metadata.tests.some(entry=>entry.file===file&&entry.level!=='native')))scope=fullScope('missing/invalid scope');

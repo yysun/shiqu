@@ -35,7 +35,7 @@ test('affected areas include their flows, heavy flags and all six service E2Es f
 });
 test('native and shared settings request native checks; unknown/schema/toolchain changes fail closed',()=>{
  for(const file of ['src-tauri/src/runtime.rs','server/system-settings.ts','lib/system-settings.ts'])assert.ok(changeScope([file]).native,file);
- for(const file of ['package.json','pnpm-lock.yaml','.nvmrc','.npmrc','tsconfig.json','.github/workflows/desktop-macos.yml','lib/reader-model.ts','lib/reader-prompts.ts','db/library-format.json','drizzle/0020.sql','server/new-feature.ts','tests/fixtures/production.mjs','tests/unregistered.test.mjs'])assert.ok(changeScope([file]).full,file);
+ for(const file of ['package.json','pnpm-lock.yaml','.nvmrc','.npmrc','tsconfig.json','.github/workflows/desktop-macos.yml','lib/reader-model.ts','lib/reader-prompts.ts','db/library-format.json','drizzle/0020.sql','server/new-feature.ts','tests/fixtures/startup_pty.py','tests/fixtures/story-discovery-preview.mjs','tests/unregistered.test.mjs'])assert.ok(changeScope([file]).full,file);
  assert.ok(changeScope([]).full);assert.ok(createPlan(undefined).scope.full);assert.ok(createPlan({code:false}).scope.full);
  assert.equal(validScope({...fullScope(),books:false}),false);
  assert.equal(validScope({code:true,books:false,native:false,full:false,groups:[]}),false);

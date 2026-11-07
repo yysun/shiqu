@@ -113,11 +113,15 @@ pnpm exec node --env-file-if-exists=.env --experimental-strip-types scripts/comp
 常用检查：
 
 ```bash
+pnpm test:related        # 开发迭代：只跑直接相关测试，快速开关，不写证据
+node --test tests/x.test.mjs # 直接运行单个测试文件（组件测试经 tests/fixtures/tsx.mjs 直接导入 TSX）
 pnpm test:changed --plan # 预览工作区影响范围，包括已暂存、未暂存及未跟踪文件
 pnpm test:changed        # 小型契约 + 受影响套件，相关文件开启完整提供方和重型开关
 pnpm typecheck
 pnpm lint
 ```
+
+开发迭代用 `pnpm test:related`（可加 `--files <paths...>`、`--plan`），交付或提交前运行一次 `pnpm test:changed`。`test:related` 选出改动的已登记测试，以及测试文件、其 `tests/` 夹具或它们导入的 `client/`/`desktop/` 组件直接导入改动文件的测试，再并上源码中出现改动路径的测试与 `covers` 消费者；不沿 `lib/`/`server/` 传递，因此不是影响检查。路径字面量识别仓库相对路径和 `./`、`../` 相对写法，模板字符串拼出的路径（如 `desktop-css-scope` 按名称拼接的 CSS 路径）无法识别。选出 0 个文件时只提示，不代表通过。`--plan`、`--json` 等参数须放在 `--files` 之前。删除或改名导致导入分析失败的测试会被选中。测试入口在 Node 主版本与 `engines` 不符时警告，先 `nvm use`。
 
 多人或多代理共享 checkout 时，先检查预览。只验证本任务可用 `pnpm test:pr --files server/claude-runner.ts tests/claude-provider.test.mjs`，传入本任务全部改动路径；不要替并行任务修改代码或隐藏未知影响的全量回退。无改动、Git 比较失败、未知路径、共享模型/提示词、数据库 schema、依赖或 Node/构建/测试基础设施变化会选择完整源码回归。
 

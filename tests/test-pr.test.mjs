@@ -1,4 +1,5 @@
-// 用最小真实 Node 子进程验证模式隔离、文件唯一执行、失败退出与工作区影响读取。
+// 用最小真实 Node 子进程验证模式隔离、文件唯一执行、失败退出与工作区影响读取；
+// 并在临时仓库验证 test:related 的直接导入者、路径字面量、covers 并集与 Node 版本提示。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,readdir,rm} from 'node:fs/promises';
@@ -61,4 +62,68 @@ test('source identity changes for migrations, books, assets, lockfiles and unkno
   assert.deepEqual(await sourceIdentity(root),initial);
  }
  await mkdir(path.join(root,'.data'));await writeFile(path.join(root,'.data/private.sqlite'),'private');assert.deepEqual(await sourceIdentity(root),initial);
+});
+
+test('related mode unions direct importers, path literals and covers with fast flags and never treats failures as empty',async t=>{
+ const {relatedTests}=await import('../scripts/test-graph.mjs');
+ const {createRelatedPlan}=await import('../scripts/test-plan.mjs');
+ const root=await mkdtemp(path.join(os.tmpdir(),'shiqu-related-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const original=loadMetadata(),smoke=original.tests.find(entry=>entry.file==='tests/book-integrity-smoke.test.mjs');
+ const entry=(file,extra={})=>({...structuredClone(smoke),file,pr:'affected',covers:[],...extra});
+ const sources={
+  'tests/book-integrity-smoke.test.mjs':"import test from 'node:test';test('smoke',()=>{});",
+  'tests/graph.test.mjs':"import test from 'node:test';import {value} from '../lib/a.ts';test('graph',()=>{if(value!==1)throw Error();});",
+  'tests/css.test.mjs':"import test from 'node:test';import {readFileSync} from 'node:fs';test('css',()=>readFileSync('client/x.css','utf8'));",
+  'tests/spawn.test.mjs':"import test from 'node:test';import {entry} from './fixtures/spawn.mjs';test('spawn',()=>{});",
+  'tests/fixture-user.test.mjs':"import test from 'node:test';import {made} from './fixtures/outer.mjs';test('fixture',()=>{});",
+  'tests/fixtures/outer.mjs':"export {made} from './inner.mjs';",'tests/fixtures/inner.mjs':"export {made} from '../../lib/c.ts';",'lib/c.ts':"export const made=true;",
+  'tests/owned.test.mjs':"import test from 'node:test';test('owned',()=>{});",
+  'tests/reads.test.mjs':"import test from 'node:test';test('reads',()=>new URL('./fixtures/data.json',import.meta.url));",'tests/fixtures/data.json':'{}',
+  'tests/journey.e2e.mjs':"import test from 'node:test';test('journey',()=>'client/x.css');",
+  'tests/fixtures/spawn.mjs':"export const entry='server/cli.ts';",
+  'tests/component.test.mjs':"import test from 'node:test';import {view} from '../client/view.mjs';test('component',()=>{});",
+  'client/view.mjs':"export {view} from './shared.mjs';",'client/shared.mjs':"export {view} from '../lib/d.ts';",'lib/d.ts':"export const view=1;",
+  'lib/a.ts':"export {value} from './b.ts';",'lib/b.ts':"export const value:number=1;",'client/x.css':'a{}','server/cli.ts':'','server/spawned.ts':'',
+ };
+ for(const [file,source] of Object.entries(sources)){await mkdir(path.dirname(path.join(root,file)),{recursive:true});await writeFile(path.join(root,file),source);}
+ const metadata={...original,tests:[smoke,entry('tests/graph.test.mjs'),entry('tests/css.test.mjs'),entry('tests/spawn.test.mjs'),entry('tests/fixture-user.test.mjs'),entry('tests/component.test.mjs'),entry('tests/owned.test.mjs',{covers:['server/spawned.ts']}),entry('tests/reads.test.mjs'),entry('tests/journey.e2e.mjs',{level:'browser-e2e',suite:'e2e',gates:['user-flows']})]};
+ await writeFile(path.join(root,'tests/manifest.json'),JSON.stringify(metadata));
+ const related=async files=>createRelatedPlan(files,await relatedTests(files,{root}),loadMetadata(root));
+ const files=plan=>plan.tests.map(test=>test.file);
+ // 测试直接导入的源码相关；只经源码中间模块传递的不再选中。
+ assert.deepEqual(files(await related(['lib/a.ts'])),['tests/graph.test.mjs']);
+ assert.deepEqual(files(await related(['lib/b.ts'])),[]);
+ // 经由 tests/ 夹具链直接导入的源码与夹具本身都相关。
+ assert.deepEqual(files(await related(['lib/c.ts'])),['tests/fixture-user.test.mjs']);
+ assert.deepEqual(files(await related(['tests/fixtures/inner.mjs'])),['tests/fixture-user.test.mjs']);
+ // 经由前端组件可达的共享组件及其直接导入相关，但不再沿 lib/ 继续传递。
+ assert.deepEqual(files(await related(['client/shared.mjs'])),['tests/component.test.mjs']);
+ assert.deepEqual(files(await related(['lib/d.ts'])),['tests/component.test.mjs']);
+ const css=await related(['client/x.css']);assert.deepEqual(files(css),['tests/css.test.mjs']);assert.deepEqual(css.deferredBrowser,['tests/journey.e2e.mjs']);assert.match(css.hints.join('\n'),/test:e2e/);
+ assert.deepEqual(files(await related(['server/cli.ts'])),['tests/spawn.test.mjs']);
+ assert.deepEqual(files(await related(['server/spawned.ts'])),['tests/owned.test.mjs']);
+ // 相对源码自身的 ./ 写法同样识别。
+ assert.deepEqual(files(await related(['tests/fixtures/data.json'])),['tests/reads.test.mjs']);
+ assert.deepEqual(files(await related(['tests/owned.test.mjs'])),['tests/owned.test.mjs']);
+ assert.ok((await related(['lib/a.ts','client/x.css'])).tests.every(test=>test.mode==='fast'));
+ const empty=await related(['README.md','src-tauri/src/runtime.rs']);assert.deepEqual(empty.tests,[]);assert.ok(empty.native);assert.match(empty.hints.join('\n'),/desktop:test[\s\S]*不代表通过[\s\S]*test:changed/);
+ // 删除被导入的模块会让构建失败，受影响入口仍须选中而不是得到空集。
+ await rm(path.join(root,'lib/b.ts'));assert.deepEqual(files(await related(['lib/b.ts'])),['tests/graph.test.mjs']);
+ await writeFile(path.join(root,'lib/b.ts'),sources['lib/b.ts']);
+ const cli=fileURLToPath(new URL('../scripts/test-pr.mjs',import.meta.url)),run=args=>spawnSync(process.execPath,[cli,'--related',...args],{cwd:root,encoding:'utf8',env:{...process.env,NODE_TEST_CONTEXT:''}});
+ const passed=run(['--files','lib/a.ts']);assert.equal(passed.status,0,passed.stderr);assert.match(passed.stdout,/Related tests: 1 files/);
+ assert.ok(!(await readdir(root)).includes('.data'),'related runs write no evidence');
+ assert.equal(run(['--files','README.md']).status,0);
+ assert.match(run(['--plan','--files','./client\\x.css']).stdout,/tests\/css\.test\.mjs/);
+ assert.notEqual(spawnSync(process.execPath,[cli,'--related','--full'],{cwd:root,encoding:'utf8'}).status,0);
+ await writeFile(path.join(root,'tests/new.test.mjs'),'');assert.notEqual(run(['--files','lib/a.ts']).status,0);
+});
+
+test('node version warning compares the engines major version',async t=>{
+ const {nodeVersionWarning}=await import('../scripts/node-version.mjs');
+ const root=await mkdtemp(path.join(os.tmpdir(),'shiqu-node-version-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ await writeFile(path.join(root,'package.json'),JSON.stringify({engines:{node:'>=24 <25'}}));
+ assert.match(nodeVersionWarning(root,'22.23.4'),/22\.23\.4.*>=24 <25.*nvm use/);
+ assert.equal(nodeVersionWarning(root,'24.0.1'),'');
+ assert.equal(nodeVersionWarning(path.join(root,'missing'),'22.0.0'),'');
 });

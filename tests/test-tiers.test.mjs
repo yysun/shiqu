@@ -1,4 +1,5 @@
-// 显式归属、注册表完整性与平台约束不能依赖测试源码中的夹具名称。
+// 显式归属、注册表完整性与平台约束不能依赖测试源码中的夹具名称；
+// 测试经由 tests/ 导入边可达的夹具必须登记为 covers，夹具改动才能只选消费者。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readdir,rm,readFile} from 'node:fs/promises';
@@ -57,4 +58,15 @@ test('explicit ownership retains production imports and known fixture consumers 
   }
  }
  for(const entry of metadata.tests.filter(entry=>entry.level==='native'))for(const source of entry.covers)assert.ok(changeScope([source],metadata).native,source+' requires '+entry.file);
+});
+
+test('every fixture reached through a test file or its fixtures is declared, so fixture edits select consumers',async()=>{
+ const {testImports}=await import('../scripts/test-graph.mjs'),metadata=loadMetadata();
+ const graph=await testImports(metadata.tests.filter(entry=>entry.level!=='native').map(entry=>entry.file));
+ for(const entry of metadata.tests.filter(entry=>entry.level!=='native')){
+  const found=graph.get(entry.file);assert.ok(found,entry.file+' must build');
+  for(const fixture of [...found.local].filter(file=>file.startsWith('tests/fixtures/')))assert.ok(entry.covers.includes(fixture),entry.file+' must declare '+fixture);
+ }
+ const consumers=createPlan(changeScope(['tests/fixtures/production.mjs'],metadata),metadata);
+ assert.equal(consumers.scope.full,false);assert.ok(consumers.tests.some(test=>test.file==='tests/storyboard-ui.test.mjs'&&test.mode==='full'));
 });

@@ -56,7 +56,8 @@
     "test:e2e": "node --experimental-strip-types scripts/test-story-e2e.mjs",
     "test:pr": "node scripts/test-pr.mjs",
     "test:plan": "node scripts/test-pr.mjs --plan",
-    "test:changed": "node scripts/test-pr.mjs --changed"
+    "test:changed": "node scripts/test-pr.mjs --changed",
+    "test:related": "node scripts/test-pr.mjs --related"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

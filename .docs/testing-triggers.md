@@ -5,11 +5,14 @@ The registry is `tests/manifest.json`; `scripts/test-plan.mjs` owns responsibili
 ## Commands for agents
 
 ```bash
+pnpm test:related        # inner loop: direct importers, path literals, covers; fast flags
 pnpm test:changed --plan
 pnpm test:changed
 pnpm typecheck
 pnpm lint
 ```
+
+`test:related` is the development inner loop, not an impact check. It selects changed registered tests plus tests whose own file, `tests/` fixtures or imported `client/`/`desktop/` components directly import a changed path, tests whose source names the path, and `covers` consumers. It does not walk through `lib/`/`server/` because shared fixtures make that nearly full coverage. Every selection runs with fast flags and writes no evidence. Path literals match repo-relative and `./`/`../` spellings; template-built paths (such as the CSS names assembled in `desktop-css-scope`) are not recognised. Put flags such as `--plan` before `--files`. An empty selection runs nothing and says so; entries whose imports no longer resolve are selected. Run `test:changed` once before handoff.
 
 `test:changed` includes staged, unstaged and untracked paths relative to HEAD. It tests the current working tree. For a shared checkout, inspect the preview and pass every path belonging to the task with `pnpm test:pr --files <paths...>`; concurrent changes remain outside that task. A clean/failed comparison conservatively selects full source coverage. `pnpm test:pr` without explicit paths reads CI scope or a `BASE...HEAD` diff; it does not assume an arbitrary default branch.
 
@@ -38,7 +41,7 @@ Every PR runs the small integrity smoke. Production changes with domain coverage
 | Rust source/configuration and desktop resource/runtime scripts | Native module consumers plus applicable desktop/storage JS | macOS + Windows |
 | Shared models/API schemas/prompts, DB schema/migrations, dependencies/Node, unclassified test/build/CI infrastructure, unknown paths or failed/empty comparison | All registered source tests, full flags | macOS + Windows |
 
-Known component path patterns are listed in `scripts/test-plan.mjs`. Direct selection requires exact `covers` entries. For example, `phone-audit.mjs` runs smoke and lists phone readability and desktop layout as deferred. Unclassified runtime files, deleted/unregistered tests and fixtures without declared consumers still broaden to full source coverage. Rename detection uses both old and new paths. Documentation inside `data/`, `tests/`, `skills/` and runtime directories is not automatically exempt.
+Known component path patterns are listed in `scripts/test-plan.mjs`. Direct selection requires exact `covers` entries. For example, `phone-audit.mjs` runs smoke and lists phone readability and desktop layout as deferred. Every `tests/fixtures/*.mjs` reached from a test, and path-read JSON fixtures, declare their consumers; `tests/test-tiers.test.mjs` checks ownership through `tests/` import edges, so fixture edits select consumers with full flags. Unclassified runtime files, deleted/unregistered tests and fixtures without declared consumers (manual preview harnesses, Python PTY helpers, `images/`) still broaden to full source coverage. Rename detection uses both old and new paths. Documentation inside `data/`, `tests/`, `skills/` and runtime directories is not automatically exempt.
 
 Core changes retain service E2Es; schema/dependency changes deliberately run full source coverage. Browser journeys remain available at the explicit E2E and full qualification gates.
 
