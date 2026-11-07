@@ -1,6 +1,6 @@
 # Phone navigation E2E
 
-Command: `node --experimental-strip-types --test tests/phone-navigation.playwright.e2e.mjs`. It also runs in `pnpm test:e2e`.
+Command: `pnpm exec node --experimental-strip-types --test tests/phone-navigation.playwright.e2e.mjs`. It also runs in `pnpm test:e2e`.
 
 Setup:
 - `seededBrowser` from `tests/fixtures/desktop-layout.mjs`: an isolated production fixture, stories seeded through the production API, and headless Chromium.
@@ -49,6 +49,6 @@ Setup:
    - **修改分镜 back count:** after 修改分镜, back closes 修改故事, the next closes 故事设置, and none is dead.
 10. **Medium and large steps.**
     - **At 900:** 书架 has no side panel, so a card opens the reader → back closes the reader and returns to 书架.
-    - **At 1280:** a card opens the story in 书架's right column; its ⚙ workspace → back returns to 书架 with the story still docked and selected. Create page → back returns to 发现.
+    - **At 1280:** a card opens the story in 书架's right column; its ⚙ opens the shared 故事设置 dialog over the docked reader → back closes only the dialog, keeping the reader docked and the story selected. Create page → back returns to 发现.
     - **Reader at 1280 with the docked 分镜列表**, opened from the story docked in 书架's right column (分镜列表 shows it full screen), resized to 900 (it becomes a drawer): back closes the drawer, and the next back returns to 书架.
-11. **Resize keeps the history consistent.** Open 故事设置 and 修改故事 at 390, resize to 1280 (the workspace), then back to 390. Press back until the app is left. Each press closes exactly one step, and none is dead. Repeat with a nested setup sub-sheet open (an intake's 故事原文) across the switch: the first back closes the sub-sheet, not its parent. Repeat with rename open over 故事设置 across 390 → 900 → 390: the first back closes rename, and 故事设置 stays.
+11. **Resize keeps the history consistent.** Open 故事设置 and 修改故事 at 390, resize to 1280 (the same two shared dialogs), then back to 390. Press back until the app is left. Each press closes exactly one step, and none is dead. Repeat with a nested setup sub-sheet open (an intake's 故事原文) across the switch: the first back closes the sub-sheet, not its parent. Repeat with rename open over 故事设置 across 390 → 900 → 390: the first back closes rename, and 故事设置 stays.

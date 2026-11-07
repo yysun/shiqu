@@ -1,6 +1,6 @@
 // 返回键 E2E：在受控生产夹具（隔离书库）中，用浏览器的返回与前进验证每次只关闭最上层的一步、
 // 应用内关闭不留死按、前进不重新打开、有输入时询问、忙碌时保持一致、重新加载后的过期条目被跳过，
-// 以及中大档的抽屉、新建页、工作区和跨档切换。场景编号对应 .docs/tests/test-phone-navigation.md。
+// 以及中大档的抽屉、新建页、共享设置对话框和跨档切换。场景编号对应 .docs/tests/test-phone-navigation.md。
 // 除 7b 外都先打开另一个源上的外部页面再进入应用，“离开应用”即回到外部页面。夹具的初始化脚本
 // 在 about:blank 上读取 localStorage 会抛错，因此不用空白页作为外部页面。
 import test from 'node:test';
@@ -20,7 +20,8 @@ async function forward(page){await page.goForward({waitUntil:'commit'}).catch(()
 // 外部页面：另一个端口（另一个源）上的静态页
 let outside='';
 test.before(async()=>{const server=createServer((_,response)=>{response.setHeader('content-type','text/html');response.end('<title>外部页面</title><p>外部页面</p>');});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));server.unref();outside=`http://127.0.0.1:${server.address().port}/outside`;});
-async function enter(page,target){await page.goto(outside);await page.goto(target);}
+// 隔离夹具首次启动会冷编译 Vite 模块；启动等待与后续导航操作的 10 秒断言上限分开。
+async function enter(page,target){await page.goto(outside);await page.goto(target,{timeout:30000});}
 const left=page=>page.url()===outside;
 const tab=(page,name)=>page.locator('.yu-tabbar').getByRole('button',{name:new RegExp(name)}).click();
 const reading=page=>page.locator('.yu-reader').count().then(n=>n>0);
@@ -201,7 +202,7 @@ test('PHONE-NAV-09: sheet depth stays at two with return labels; swaps add no en
  });
 });
 
-test('PHONE-NAV-10: medium and large tiers close drawers, the workspace and the create page one step at a time',options,async t=>{
+test('PHONE-NAV-10: medium and large tiers close drawers, settings and the create page one step at a time',options,async t=>{
  const b=await seededBrowser(t,'PNAV-10',{viewport:{width:900,height:800},completed:2});
  await b.execute(async()=>{
   const {page,url,ids}=b,card=id=>page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`);
@@ -210,9 +211,11 @@ test('PHONE-NAV-10: medium and large tiers close drawers, the workspace and the 
   await card(ids[0]).click();await page.locator('.yu-reader').waitFor();await settle(page);
   await back(page);assert.equal(await reading(page),false,'back closes the reader');
   assert.ok(await page.locator('.yu-library').isVisible());
-  // 1280：工作区返回书架并保留选中；新建页返回发现
-  await size(page,1280);await card(ids[0]).click();await page.locator('.yu-library-reader').getByRole('button',{name:'故事设置'}).click();await page.locator('.yu-workspace').waitFor();await settle(page);
-  await back(page);assert.equal(await page.locator('.yu-workspace').count(),0);assert.ok(await page.locator('.yu-library').isVisible(),'back returns to 书架');
+  // 1280：故事设置仍是共享对话框；返回只关闭设置，书架右栏阅读与选中保持。
+  await size(page,1280);await card(ids[0]).click();await page.locator('.yu-library-reader').getByRole('button',{name:'故事设置'}).click();await dialog(page,'故事设置').waitFor();await settle(page);
+  assert.deepEqual(await openDialogs(page),['故事设置']);assert.ok(await page.locator('.yu-library-reader .yu-reader').isVisible(),'settings retain the docked reader');
+  await back(page);assert.deepEqual(await openDialogs(page),[]);assert.ok(await page.locator('.yu-library').isVisible(),'back returns to 书架');
+  assert.ok(await page.locator('.yu-library-reader .yu-reader').isVisible(),'back closes only settings');
   assert.equal(await page.locator('.yu-shelf-row.is-selected').getAttribute('data-story-id'),ids[0],'selection kept');
   await topNav(page,'发现');await page.locator('.yu-topbar-create').click();await page.locator('.yu-create-form').waitFor();await settle(page);
   await back(page);assert.equal(await page.locator('.yu-create-form').count(),0);assert.ok(await page.locator('.yu-discover').isVisible(),'back returns to 发现');
@@ -230,7 +233,10 @@ test('PHONE-NAV-11: resizing across the switch keeps every back press to exactly
  await b.execute(async()=>{
   const {page,url,f}=b;await enter(page,url);await tab(page,'书架');await openFromShelf(page);await openSettings(page);
   await dialog(page,'故事设置').getByText('制作要求',{exact:true}).first().click();await dialog(page,'修改故事').waitFor();await settle(page);
-  await size(page,1280);await page.locator('.yu-workspace').waitFor();await size(page,390,844);
+  await size(page,1280);await dialog(page,'修改故事').waitFor();
+  assert.deepEqual(await openDialogs(page),['故事设置','修改故事'],'resizing preserves the same two dialog steps');
+  assert.equal(await page.locator('.yu-workspace').count(),0,'settings stay in shared dialogs at desktop widths');
+  await size(page,390,844);
   await dialog(page,'修改故事').waitFor();
   await back(page);assert.deepEqual(await openDialogs(page),['故事设置'],'first back closes 修改故事');
   await back(page);assert.deepEqual(await openDialogs(page),[]);assert.ok(await reading(page));
