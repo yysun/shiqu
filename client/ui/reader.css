@@ -133,6 +133,8 @@ button.yu-page-surface{padding:0;border:0;background:transparent;cursor:default}
 /* Shared reader metadata and recovery controls stay readable without changing the established card layouts. */
 .yu-world{--yu-meta:#59694f;--yu-action:#526747;--yu-meta-size:12px}
 .yu-header-note,.yu-kicker,.yu-section-title>span,.yu-books>button>small,.yu-profile-stats span,.yu-generation-note p,.yu-surprise small{font-size:var(--yu-meta-size);color:var(--yu-meta);line-height:1.6}
+.yu-book-cover:has(>.yu-book-index-label)>small{top:46px;left:22px}
+.yu-book-index-label{position:absolute;top:15px;left:-27px;width:98px;transform:rotate(-45deg);background:#e9dfbb;color:#344937;box-shadow:0 1px 3px #23382e40;font-size:var(--yu-meta-size);font-weight:600;line-height:19px;text-align:center;white-space:nowrap}
 .yu-header-note{letter-spacing:0}.yu-tabbar button{min-height:48px}.yu-tabbar button span{font-size:12px}.yu-tabbar button:not(.active){color:var(--yu-meta)}
 .yu-intro{padding:4px 0 18px}.yu-intro h1{font-size:30px;line-height:1.35;margin-top:7px}
 .yu-recent-hero .yu-feature{height:auto;aspect-ratio:2/3}.yu-feature-empty{height:220px}

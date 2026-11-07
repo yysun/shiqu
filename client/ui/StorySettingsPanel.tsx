@@ -11,11 +11,11 @@ import StoryBackToShelf from './StoryBackToShelf';
 
 type Props={story:Story|null;session?:SessionView|null;busy:boolean;disabled:boolean;onClose:()=>void;onBack:()=>void;onRename?:(id:string,title:string)=>void;downloads:ReactNode;exportStatus:string;exporting:boolean;onPublicationEdit?:()=>void;workflow?:ReactNode};
 export function StorySettingsContent({story,session,busy,disabled,onBack,onRename,downloads,exportStatus,exporting,onPublicationEdit,workflow}:Omit<Props,'onClose'>){
- const title=session?.selection.displayTitle||story?.title||session?.selection.storyTitle||'等待选择故事';
+ const title=session?.selection.displayTitle||story?.title||session?.selection.storyTitle||'未命名故事';
  const storyId=session?.id||story?.id;
  const canDownload=!!story?.pages.length&&story.pages.every(page=>!!page.image);
  return <fieldset className="yu-revision-fields" disabled={disabled}>
-  <div className="yu-setting-row yu-story-name"><div><p>{title}</p></div><button type="button" className="yu-revision-open" disabled={!onRename||!storyId} onClick={()=>{if(onRename&&storyId)onRename(storyId,title);}}>修改故事名</button></div>
+  {(!session?.intake||session.intake.selected||session.intake.phase==='confirmed')&&<div className="yu-setting-row yu-story-name"><div><p>{title}</p></div><button type="button" className="yu-revision-open" disabled={!onRename||!storyId} onClick={()=>{if(onRename&&storyId)onRename(storyId,title);}}>修改故事名</button></div>}
   {canDownload&&<div className="yu-pdf-setting"><div className="yu-settings-formats" aria-label="下载故事">{downloads}</div><p className="yu-export-status" role="status">{exportStatus}</p>
    {story&&<StoryPublicationSummary story={story} onEdit={onPublicationEdit} disabled={exporting}/>}
   </div>}

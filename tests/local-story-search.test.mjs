@@ -318,12 +318,15 @@ test('逐书导入可读取 WAL 提交，支持纯文字索引，更新或失败
  db.prepare('INSERT INTO metadata VALUES (?,?)').run('identity',JSON.stringify({edition:second.book.edition}));
  const source={...second.stories[0].source,edition:second.book.edition};
  db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,NULL)').run('u1',JSON.stringify(source),'漁夫與烏龜','烏龜報恩','洪水中获救');
- const books=new LocalBooks(process.cwd());books.book=async ({bookId})=>bookId===f.book.id?f.book:bookId===second.book.id?second.book:null;
- const cli=(...args)=>executeHeadless(process.cwd(),['books',...args,'--data-dir',directory],{localBooks:books,variables:{}});
  const search=new LocalStorySearch(join(directory,'story-search.sqlite'));
+ const books=new LocalBooks(process.cwd(),search);books.book=async ({bookId})=>bookId===f.book.id?f.book:bookId===second.book.id?second.book:null;
+ const cli=(...args)=>executeHeadless(process.cwd(),['books',...args,'--data-dir',directory],{localBooks:books,variables:{}});
+ assert.deepEqual(await books.semanticIndexBookIds(),[]);
  await cli('index-import',f.book.id,f.file);
  assert.deepEqual((await cli('search','乌龟','--limit','1')).results.map(row=>row.source),[f.stories[0].source]);
  await cli('index-import',second.book.id,secondFile);
+ assert.deepEqual(await books.semanticIndexBookIds(),[f.book.id]);
+ assert.equal(await search.hasSemanticIndex({...f.book,edition:'c'.repeat(64)}),false);
  assert.deepEqual(await search.lookup(second.book,'洪水中获救',signal),[source]);
  assert.deepEqual(await search.lookup(f.book,'爱情',signal),[f.stories[1].source]);
  await assert.rejects(cli('search','乌龟'),error=>error.code==='BOOK_ID_REQUIRED');

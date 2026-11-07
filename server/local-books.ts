@@ -3,7 +3,7 @@
 import path from 'node:path';
 import {readFile,realpath,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
-import {ReaderError} from '../lib/reader-model.ts';
+import {ReaderError,selectionSchema} from '../lib/reader-model.ts';
 import type {Selection} from '../lib/reader-model.ts';
 import type {SourceHint} from '../lib/reader-source-types.ts';
 import {sourceText,sourceParts} from './local-source-ranges.ts';
@@ -67,6 +67,16 @@ export class LocalBooks{
  private cache=new Map<string,Promise<LocalBook>>();
  readonly storySearch?:LocalStorySearch;
  constructor(root:string,storySearch?:LocalStorySearch){this.directory=path.resolve(root,'data/library');this.storySearch=storySearch;}
+ async semanticIndexBookIds(){
+  const search=this.storySearch;
+  if(!search)return [];
+  const installed=new Set(await search.indexedBooks());
+  const results=await Promise.allSettled(readerBooks.filter(({id})=>installed.has(id)).map(async ({id})=>{
+   const book=await this.book(selectionSchema.parse({bookId:id,theme:'目录'}));
+   return book&&await search.hasSemanticIndex(book)?id:null;
+  }));
+  return results.flatMap(result=>result.status==='fulfilled'&&result.value?[result.value]:[]);
+ }
  async book(selection:Selection):Promise<LocalBook|null>{
   const id=localBookId(selection);if(!id)return null;
   let pending=this.cache.get(id);

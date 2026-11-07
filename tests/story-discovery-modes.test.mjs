@@ -98,7 +98,8 @@ test('title intent, scope and theme survive creation, replay, restart and choosi
  f.generation.suggestions=async()=>({stories:[{title:'种梨',description:'人物围绕梨树发生交往。',source:entry.source}],note:'',scan:scan()});
  f.options.generation=withLocalBooks(f.generation,library,f.media);await f.restart();f.app.services.localBooks=library;
  const id=crypto.randomUUID(),body={requestId:id,intake:true,selection:s};
- await f.json('sessions','POST',body);await f.startDiscovery(id);await f.demand(id);await until(async()=>(await f.read(id)).intake.phase==='choosing');
+ const created=await f.json('sessions','POST',body);assert.equal(created.intake.search.state,'searching');
+ await f.demand(id);await until(async()=>(await f.read(id)).intake.phase==='choosing');
  assert.deepEqual((await f.read(id)).selection.discovery,s.discovery);assert.equal((await f.json('sessions','POST',body)).id,id);
  await f.restart();f.app.services.localBooks=library;let saved=await f.read(id);
  assert.deepEqual(saved.selection.discoverySources,s.discoverySources);assert.equal(saved.selection.theme,s.theme);

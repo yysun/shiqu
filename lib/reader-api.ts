@@ -69,6 +69,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(req.method==='POST'){const data=z.object({page:z.number().int().min(0).max(readerMaxFrames-1),starred:z.boolean(),token:uuid.optional()}).strict().parse(await body(req));return json(await references.set(id,data.page,data.starred,data.token));}
   }
   if(path[0]==='library'&&path.length===3&&path[2]==='favorite'&&req.method==='POST'){const id=z.string().min(1).max(100).parse(path[1]);const b=z.object({saved:z.boolean()}).strict().parse(await body(req));return json(await repo.favorite(id,uid,b.saved));}
+  if(path.join('/')==='books/semantic-indexes'&&req.method==='GET')return json({bookIds:await services.localBooks?.semanticIndexBookIds()??[]});
   if(path[0]==='books'&&path.length===3&&path[2]==='contents'&&req.method==='GET'){
    if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
    const query=z.string().max(200).parse(url.searchParams.get('q')||'');

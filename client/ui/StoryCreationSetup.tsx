@@ -63,6 +63,13 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   catch(e){own.current=false;setError(e instanceof Error?e.message:'操作暂未保存，请重试。');return false;}
   finally{if(command.action==='more'||command.action==='search')setFinding(false);}
  }
+ // 旧草稿可能停在尚未开始的状态，打开后沿用已保存的提取条件。
+ const startedDraft=useRef<string|null>(null);
+ useEffect(()=>{
+  if(onReplace||busy||paused||selected||search.state!=='idle'||intake.batches.length||startedDraft.current===session.id)return;
+  startedDraft.current=session.id;
+  void act({action:'more'});
+ },[session.id,busy,paused,selected,search.state,intake.batches.length,onReplace]);
  const isSelected=(batchIndex:number,index:number)=>intake.selected?.batch===batchIndex&&intake.selected.index===index;
  async function select(batchIndex:number,index:number){
   if(onReplace){await onReplace(batchIndex,index,{...settings,length:'auto'});return;}
@@ -122,10 +129,11 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  const extractionError=search.state==='failed'&&<div className="yu-batch-error" role="alert"><p>提取未完成。{search.error}</p><p>已找到的故事会保留，可以重试或直接选择。</p>{selected&&findMore}</div>;
  return <section className="yu-creation-setup" aria-label={selected?'故事流程':'选择故事'}>
   {!selected&&<StoryExtractionContext selection={session.selection} book={book} backAction={onBackToDiscovery&&<StoryFlowAction disabled={busy} onClick={onBackToDiscovery}><ArrowLeft size={14} aria-hidden="true"/>返回修改提取条件</StoryFlowAction>}/>}
-  {!selected&&<StoryExtractionSearch retainKey={retainKey&&'search:'+session.id} sessionId={session.id} title={targetTitle} local={session.selection.bookId!=='other'} busy={busy} hasCandidates={candidates.length>0} onSearch={title=>act({action:'search',title})}/>}
+  {!selected&&onReplace&&<StoryExtractionSearch retainKey={retainKey&&'search:'+session.id} sessionId={session.id} title={targetTitle} local={session.selection.bookId!=='other'} busy={busy} hasCandidates={candidates.length>0} onSearch={title=>act({action:'search',title})}/>}
   {selected&&progress.showSummary!==false&&<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3></div>}
   {!selected&&extractionStatus}
   {!selected&&extractionError}
+  {!selected&&!onReplace&&search.state==='idle'&&!intake.batches.length&&error&&<StoryFlowAction disabled={busy||finding} onClick={()=>void act({action:'more'})}>重试提取</StoryFlowAction>}
   {!selected&&!editing&&remoteChoice}
   {!selected&&(intake.batches.length>0||search.state==='failed')&&candidateList}
   {selected?<StoryGenerationStatus session={session} {...progress} navigation={undefined} compact={ready} control={ready?null:undefined} stages={stages} timeline={{stageDurations}} stageContent={{source:<>

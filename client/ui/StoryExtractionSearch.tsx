@@ -8,12 +8,12 @@ import './story-discovery.css';
 export default function StoryExtractionSearch({sessionId,title,local,busy,hasCandidates,onSearch,retainKey}:{sessionId:string;title?:string;local:boolean;busy:boolean;hasCandidates:boolean;onSearch:(title:string)=>Promise<boolean>;retainKey?:string}){
  const part=(name:string)=>retainKey&&retainKey+':'+name;
  const [draft,setDraft]=useRetainedState(part('draft'),title||'');
- const [mode,setMode]=useRetainedState<'auto'|'input'>(part('mode'),title?'input':'auto');
+ const [mode,setMode]=useRetainedState<'auto'|'input'>(part('mode'),local?'input':'auto');
  useEffect(()=>{
-  const source=sessionId+'\n'+(title||'');
+  const source=sessionId+'\n'+local+'\n'+(title||'');
   if(hasRetained(part('for'))&&retainedValue(part('for')!)===source)return;
-  retain(part('for'),source);setDraft(title||'');setMode(title?'input':'auto');
- },[sessionId,title]);
+  retain(part('for'),source);setDraft(title||'');setMode(local?'input':'auto');
+ },[sessionId,title,local]);
  const target=draft.trim();
  const invalid=busy||mode==='input'&&(!local||!target);
  const dirty=mode==='input'&&target!==(title||'').trim();

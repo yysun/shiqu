@@ -108,6 +108,15 @@ export default function Reader(){
  }),[shelfTab,setShelfTab]=useState(()=>{try{return localStorage.getItem('shiqu-shelf-tab')==='saved'?'saved':'recent';}catch{return 'recent';}}),[story,setStory]=useState<Story|null>(null),[page,setPage]=useState(0),[ended,setEnded]=useState(false),[saved,setSaved]=useState(false);
  useEffect(()=>{try{localStorage.setItem('shiqu-last-tab',tab);}catch{}},[tab]);
  const [loading,setLoading]=useState(true),[loadError,setLoadError]=useState(''),[toast,setToast]=useState(''),[source,setSource]=useState(false),[configure,setConfigure]=useState(false),[unavailable,setUnavailable]=useState(''),[settings,setSettings]=useState(false);
+ const [semanticIndexBooks,setSemanticIndexBooks]=useState<string[]>([]);
+ const browsingBooks=tab==='discover'||configure;
+ useEffect(()=>{
+  if(!browsingBooks)return;
+  let active=true;
+  request('reader/books/semantic-indexes').then(({bookIds})=>{if(active&&Array.isArray(bookIds))setSemanticIndexBooks(bookIds);})
+   .catch(()=>{if(active)setSemanticIndexBooks([]);});
+  return()=>{active=false;};
+ },[browsingBooks]);
  const [workflowTarget,setWorkflowTarget]=useState<string|null>(null),[workflowError,setWorkflowError]=useState('');
  const [script,setScript]=useState(false);
  const [discoveryTarget,setDiscoveryTarget]=useState<string|null>(null);
@@ -347,7 +356,7 @@ export default function Reader(){
   try{
    if(discoveryTarget){
     if(gen.active?.id!==discoveryTarget)throw Error('当前任务已切换，请重新打开后修改。');
-    await gen.setup({action:'conditions',conditions:{bookId:input.bookId,customBook:input.customBook,theme:input.theme,discoverySources:input.discoverySources,productionPrompt:input.productionPrompt}});
+    await gen.setup({action:'conditions',conditions:{discovery:input.discovery,bookId:input.bookId,customBook:input.customBook,theme:input.theme,discoverySources:input.discoverySources,productionPrompt:input.productionPrompt}});
     setSelection(input);closeCreate();return;
    }
    setSelection(input);gen.leave();session.current=randomId();seen.current=new Set();setPage(0);setSaved(false);setStory(null);setEnded(false);const started=await gen.start({...input,length:'auto',narrativeDetail:input.narrativeDetail||'balanced',voice:false},true);
@@ -502,7 +511,17 @@ export default function Reader(){
  const discoverLead=<><section className="yu-intro"><div><p className="yu-kicker">把片刻，留给一个好故事</p><h1>今天，想遇见<br/>什么<span>故事</span>？</h1></div><span className="yu-stamp">古意<br/>新生</span></section>
  <RecentStories key={heroes.map(h=>h.story.id).join('|')} items={heroes} loading={libraryLoading} bookName={bookName} onOpen={open} activeStoryId={heroStoryId} onActiveStoryChange={setHeroStoryId}/>
  <button className="yu-new-story-link" onClick={()=>choose()}><Sparkles size={16}/><span>生成我的故事</span><ArrowRight size={16}/></button></>;
- const discoverBooks=<section className="yu-section"><div className="yu-section-title"><h2>从一本书开始</h2><span>熟悉的经典，新的相遇</span></div><div className="yu-books">{choices.map((b,i)=><button key={b.id} onClick={()=>choose(b.id)} aria-label={'选择'+b.title}><span className={'yu-book-cover book-'+(i%3)}><span className="yu-book-border"/><small>{b.era} · {b.author}</small><strong className={b.title.length>5?'yu-book-title-long':undefined}>{b.title}</strong><i>{b.genre}</i><span className="yu-book-ornament">{i===0?<Moon size={44} strokeWidth={.7}/>:i===1?<Leaf size={52} strokeWidth={.7}/>:<Feather size={48} strokeWidth={.7}/>}</span></span><strong>{b.title}</strong><small>{b.note}</small></button>)}</div></section>;
+ const discoverBooks=<section className="yu-section"><div className="yu-section-title"><h2>从一本书开始</h2><span>熟悉的经典，新的相遇</span></div><div className="yu-books">{choices.map((b,i)=>{
+  const indexLabel=semanticIndexBooks.includes(b.id)?'yu-book-index-'+b.id:undefined;
+  return <button key={b.id} onClick={()=>choose(b.id)} aria-label={'选择'+b.title} aria-describedby={indexLabel}>
+   <span className={'yu-book-cover book-'+(i%3)}>
+    <span className="yu-book-border"/><small>{b.era} · {b.author}</small><strong className={b.title.length>5?'yu-book-title-long':undefined}>{b.title}</strong><i>{b.genre}</i>
+    <span className="yu-book-ornament">{i===0?<Moon size={44} strokeWidth={.7}/>:i===1?<Leaf size={52} strokeWidth={.7}/>:<Feather size={48} strokeWidth={.7}/>}</span>
+    {indexLabel&&<span id={indexLabel} className="yu-book-index-label">语义索引</span>}
+   </span>
+   <strong>{b.title}</strong><small>{b.note}</small>
+  </button>;
+ })}</div></section>;
  const discoverMoods=<section className="yu-section yu-theme-section"><div className="yu-section-title"><h2>或者，跟着心情走</h2><Sparkles size={17}/></div><div className="yu-moods">{moods.map((m,i)=><button key={m} className={selection.theme===m?'selected':''} onClick={()=>{choose(selection.bookId,m);}}>{i===0&&<Sparkles size={13}/>} {m}</button>)}</div></section>;
  const discoverSurprise=<button className="yu-surprise" onClick={()=>{const b=choices[Math.floor(Math.random()*(choices.length-1))];choose(b.id,moods[Math.floor(Math.random()*(moods.length-1))]);}}><span><Feather size={24}/></span><div><strong>不挑了，给我一个故事</strong><small>让偶然替你翻开第一页</small></div><ArrowRight size={19}/></button>;
  const discoverNote=<div className="yu-generation-note"><Sparkles size={13}/><p>故事、画面与文字，由 AI 为这一次阅读生成。</p></div>;

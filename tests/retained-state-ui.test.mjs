@@ -69,16 +69,29 @@ test('restored setup keeps unsaved edits without a remote-change notice; a real 
  clearRetained('setup:');
 });
 
+test('提取页直接继续旧草稿，已开始的任务不重复提交标题',async()=>{
+ const {Setup,mount}=await load();
+ const draft=session(settings);
+ draft.intake={...draft.intake,phase:'choosing',selected:undefined,batches:[]};
+ const actions=[];
+ const input={...props(draft),onAction:async command=>actions.push(command)};
+ const setup=mount(Setup,input);
+ const first=setup.render();
+ setup.render();
+ assert.deepEqual(actions,[{action:'more'}]);
+ assert.equal(contains(first,'按标题提取'),false);
+ assert.equal(contains(first,'正在提取'),true);
+ const running={...draft,intake:{...draft.intake,phase:'discovering',search:{state:'searching'}}};
+ mount(Setup,{...input,session:running}).render();
+ assert.equal(actions.length,1);
+});
+
 test('title search keeps typed input across a remount and resets only when the session or title changes',async()=>{
  const {Search,clearRetained,mount}=await load();
  const base={sessionId:'s1',title:undefined,local:true,busy:false,hasCandidates:false,onSearch:async()=>true,retainKey:'search:s1'};
  const input=tree=>contains(tree,'按标题提取');
  clearRetained('search:');
- let search=mount(Search,base);let tree=search.render();assert.equal(input(tree),false);
- // 用户切到“输入标题”并输入：直接改单元格（mode 与 draft 的 setter）
- const cells=search.cells();
- const draftIndex=cells.findIndex(cell=>cell==='');const modeIndex=cells.findIndex(cell=>cell==='auto');
- assert.ok(draftIndex>=0&&modeIndex>=0);
+ let search=mount(Search,base);let tree=search.render();assert.equal(input(tree),true);
  // 通过元素树里的按钮触发与界面相同的 setter
  const find=(node,predicate,seen=new Set())=>{if(!node||typeof node!=='object'||seen.has(node))return null;seen.add(node);if(predicate(node))return node;for(const value of Object.values(node.props??{})){for(const child of [value].flat(Infinity)){const found=find(child,predicate,seen);if(found)return found;}}return null;};
  find(tree,node=>node.props?.children==='输入标题').props.onClick();

@@ -36,6 +36,7 @@ async function intakeSelection(input:Selection,books?:LocalBooks){
 export async function createIntake(repo:ReaderRepository,id:string,uid:string,input:Selection,books?:LocalBooks,reselection?:ReselectionDraft,setupRequirements?:RequirementsSetup){
  const {selection,choice}=await intakeSelection(input,books);
  const creationHash=hash(selection),doc:Document={...emptyDocument(),intake:{phase:'choosing',generation:0,creationHash,batches:[],briefRequired:true,search:{round:0,state:'idle'}}};
+ if(input.discovery&&!choice&&!reselection){doc.intake!.phase='discovering';doc.intake!.search={round:1,state:'searching',cycleId:id};}
  if(choice){doc.original=choice.original;doc.intake!.phase='preparing';doc.intake!.search={round:0,state:'idle'};doc.intake!.selected={batch:0,index:0};doc.intake!.batches=[{stories:[{title:choice.entry.title,description:choice.entry.excerpt,source:choice.entry.source,sourceLabel:choice.original.title.slice(0,150)}],note:''}];}
  if(setupRequirements)doc.setupRequirements=setupRequirements;
  if(reselection){doc.reselection=reselection;doc.intake!.manualArt=true;}
@@ -71,13 +72,13 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  if(action.action==='conditions'){
   if(intake.selected||!['discovering','choosing'].includes(intake.phase))throw new ReaderError(409,'这篇故事已经选定，不能修改提取条件。');
   if(row.state==='running'&&row.lock_until>Date.now())throw new ReaderError(409,'当前任务正在保存，请稍后再修改提取条件。');
-  const {selection:next}=await intakeSelection(selectionSchema.parse({...selection,...action.conditions,customBook:action.conditions.customBook,discoverySources:action.conditions.discoverySources,discovery:{mode:'auto'},storyTitle:undefined,source:undefined,displayTitle:undefined}),books);
+  const {selection:next}=await intakeSelection(selectionSchema.parse({...selection,...action.conditions,customBook:action.conditions.customBook,discoverySources:action.conditions.discoverySources,discovery:action.conditions.discovery||{mode:'auto'},storyTitle:undefined,source:undefined,displayTitle:undefined}),books);
   const conditions=(value:Selection)=>JSON.stringify([value.bookId,value.customBook,value.theme,value.discoverySources,value.productionPrompt]);
-  if(conditions(next)===conditions(selection)){await recordNoop(repo.db,uid,id,action.requestId,'setup',fingerprint);return row;}
+  if(!action.conditions.discovery&&conditions(next)===conditions(selection)){await recordNoop(repo.db,uid,id,action.requestId,'setup',fingerprint);return row;}
   // Search rounds fence late extraction results; generations fence stale candidate selections.
   const round=intakeSearch(intake).round+1;
-  intake.phase='choosing';intake.generation++;intake.batches=[];
-  intake.search={round,state:'idle'};intake.lastAction={id:action.requestId,hash:fingerprint};
+  intake.phase=action.conditions.discovery?'discovering':'choosing';intake.generation++;intake.batches=[];
+  intake.search=action.conditions.discovery?{round,state:'searching',cycleId:action.requestId}:{round,state:'idle'};intake.lastAction={id:action.requestId,hash:fingerprint};
   delete intake.draft;delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
   const result=await repo.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
    WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${visible}`)
