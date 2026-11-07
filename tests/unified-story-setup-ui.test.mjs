@@ -27,7 +27,7 @@ test('discovery stays in the picker and selection opens one continuous story flo
   const waiting={...choosing,state:'running',intake:{...choosing.intake,phase,search:{state:'searching'},batches:[]}};
   assert.equal(storyCreationTitle(waiting),'选择故事');
   const opening=renderToStaticMarkup(createElement(Setup,{...props,session:waiting}));
-  assert.match(opening,/正在提取，找到的故事会逐篇显示/);assert.doesNotMatch(opening,/data-stage=|生成进展|制作故事|故事流程|yu-generation-stage/);
+  assert.match(opening,/正在准备提取/);assert.doesNotMatch(opening,/data-stage=|生成进展|制作故事|故事流程|yu-generation-stage/);
  }
  for(const phase of ['preparing','confirming','confirmed'])assert.equal(storyCreationTitle({...session,intake:{...session.intake,phase}}),'故事流程');
  const incomplete=renderToStaticMarkup(createElement(Setup,{...props,session:{...choosing,intake:{...choosing.intake,batches:[{stories:[],note:'原文已读完，但有未能判断的故事，主题检查尚不完整。'}]}}}));

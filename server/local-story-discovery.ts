@@ -8,6 +8,7 @@ import {previousReadingPlanKey,previousDiscoveryNamespace,previousSummaryNamespa
 import {discoveryMeasurement} from './story-discovery-metrics.ts';
 import {localSourceSchema,localSourceKey,localReadingPrompt,localCatalogJson,legacyLocalReadingPrompt,legacyLocalScanJson,localChapterStoriesPrompt,localTitleStoriesPrompt,catalogStoryLimit} from '../lib/reader-local-contract.ts';
 import type {LocalSourceReference,PendingEvent,WholeBookInput} from '../lib/reader-local-contract.ts';
+import type {SuggestionProgress} from '../lib/reader-suggestions.ts';
 import {suggestionBatchSchema,titleKey} from '../lib/reader-suggestions.ts';
 import type {SuggestionBatch} from '../lib/reader-suggestions.ts';
 import {ReaderError} from '../lib/reader-model.ts';
@@ -142,7 +143,10 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   const input:WholeBookInput={title:book.title,edition:book.edition,text:block.text,purpose:'catalog',scan:{maxStories:targetTitle||chapterStoryLevel==='main'?1:maxStories,excludedSources:relevant.map(story=>story.source),pendingEvents:current.pendingEvents,contextText:context.join('\n\n'),...(chapterStoryLevel?{chapterStoryLevel}:{}),...(targetTitle?{targetStoryTitle:targetTitle}:{})}};
   return {input,titles:relevant.map(story=>story.title),visible};
  };
- const progress=(current:State,stage:'reading'|'checking'|'selecting'='reading',reading:ReadingObserver|undefined=observer,block:ReadingBlock|undefined=plan.blocks[current.cursor])=>reading?.onProgress({completed:current.cursor,total:plan.blocks.length,completedChars:plan.blocks.slice(0,current.cursor).reduce((n,block)=>n+block.chars,0),totalChars,stage,mode:plan.manifest.mode,currentChapters:block?.chapters||[]});
+ let retrieval:SuggestionProgress['retrieval'],cachedMatches:number|undefined;
+ const reportStage=(stage:'cache'|'retrieving')=>observer.onProgress({completed:0,total:1,completedChars:0,totalChars:0,stage,retrieval,cachedMatches});
+ const recordRetrieval=(route:NonNullable<SuggestionProgress['retrieval']>)=>{retrieval=route;reportStage('retrieving');};
+ const progress=(current:State,stage:'reading'|'checking'|'selecting'='reading',reading:ReadingObserver|undefined=observer,block:ReadingBlock|undefined=plan.blocks[current.cursor])=>reading?.onProgress({completed:current.cursor,total:plan.blocks.length,completedChars:plan.blocks.slice(0,current.cursor).reduce((n,block)=>n+block.chars,0),totalChars,stage,retrieval,cachedMatches,mode:plan.manifest.mode,currentChapters:block?.chapters||[]});
  const empty=():State=>({stories:[],cursor:0,readThrough:0,pendingEvents:[],exhausted:false,rejected:false});
  const read=async()=>{
   const raw=await cache.read(key,stateEnvelope,validate);if(!raw)return empty();
@@ -178,7 +182,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  // 先核对主题候选池，展示上限只约束返回页，不限制模型审阅范围。
  const verifiedTheme=async():Promise<SuggestionBatch|undefined>=>{
   if(targetTitle||chapterStories||!provider.verifyThemeStories||!storySearch||storyEditorialContext(theme).mode==='source')return;
-  const candidates=await storySearch.lookupHits(book,theme,observer.signal,false,50);
+  const candidates=await storySearch.lookupHits(book,theme,observer.signal,false,50,recordRetrieval);
   const originals=new Map<string,string[]>();
   const stories=(candidates||[]).flatMap(({source,title})=>{
    try{
@@ -188,7 +192,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
    }catch(error){if(error instanceof ReaderError&&error.status===400)return [];throw error;}
   });
   if(!stories.length)return;
-  const {matches,checked}=await verifyThemeCandidates(provider,cache,theme,stories,story=>originals.get(localSourceKey(story.source))!,Math.min(limits.whole,themeVerificationInputTokens),status,observer);
+  const {matches,checked}=await verifyThemeCandidates(provider,cache,theme,stories,story=>originals.get(localSourceKey(story.source))!,Math.min(limits.whole,themeVerificationInputTokens),status,{...observer,onProgress:value=>observer.onProgress({...value,stage:'verifying',retrieval,cachedMatches})});
   const page=visibleStories(matches.map(({story,decision})=>{
    const matchReason=(decision.verdict==='direct'?'明确符合：':'情节暗示：')+decision.reason;
    const description=(matchReason+' 原文：'+decision.evidence[0]).slice(0,180);
@@ -203,7 +207,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const fromCandidates=async(current:State):Promise<SuggestionBatch|undefined>=>{
   const query=targetTitle||theme;
   if(!query||chapterStories||!storySearch||!targetTitle&&(provider.verifyThemeStories||storyEditorialContext(theme).mode==='source'))return;
-  const ranges=await storySearch.candidates(book,query,observer.signal,!!targetTitle);
+   const ranges=(await storySearch.lookupHits(book,query,observer.signal,!!targetTitle,42,recordRetrieval))?.map(hit=>hit.source)||[];
   if(!ranges.length)return;
   const exclusions=[...validExclusions,...current.stories.filter(story=>excludedKeys.has(titleKey(story.title))).map(story=>story.source)];
   const inputFor=(text:string,cap:number):WholeBookInput=>({title:book.title,edition:book.edition,text,
@@ -267,6 +271,12 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  };
  let hit=true,candidatesTried=false;
  try{
+ reportStage('cache');
+ const initialStories=visibleStories((await read()).stories);
+ const original=(story:Story)=>books.resolve(book,story.source).text;
+ const cached=targetTitle?initialStories:await matchLibraryStories(provider,cache,namespace,theme,initialStories,original,limits.whole,status.provider,observer,{bookId:book.id,legacyNamespaces:[oldNamespace],cacheOnly:true});
+ cachedMatches=cached.length;
+ reportStage('retrieving');
  const verified=await verifiedTheme();
  if(verified)return verified;
  // 索引缺失或当前范围没有可用候选时，从已保存的原文阅读进度继续。
@@ -278,8 +288,10 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   if(matched.length)return response(saved,matched,hit);
   if(!candidatesTried){
    candidatesTried=true;
+   reportStage('retrieving');
    const indexed=await fromCandidates(saved);
    if(indexed)return indexed;
+   retrieval??='scan';
   }
   if(saved.exhausted)return response(saved,matched,hit);
   const baseline=saved.stories.length;

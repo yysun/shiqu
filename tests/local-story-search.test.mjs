@@ -50,6 +50,9 @@ test('参考向量版本不符时繁简短词仍可召回未向量化故事',asy
   assert.match(input.text,/将搁浅的乌龟送回水中/);assert.doesNotMatch(input.text,/\[u2\]|漁夫與烏龜/);
   return {stories:[f.stories[0]],note:'',scan:done};
  };
+ const routes=[];
+ await f.search.lookupHits(f.book,'乌龟',signal,false,42,route=>routes.push(route));
+ assert.deepEqual(routes,['no-query-vector']);
  const result=await f.suggest('乌龟');
  assert.equal(inputs.length,1);
  assert.equal(result.stories[0].title,'乌龟报恩');

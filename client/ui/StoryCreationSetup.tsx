@@ -54,7 +54,6 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  const editable=ready||paused&&intake.phase==='preparing';
  const candidates=intake.batches.flatMap((saved,batchIndex)=>saved.stories.map((candidate,index)=>({candidate,batchIndex,index})));
  const selected=intake.selected?intake.batches[intake.selected.batch]?.stories[intake.selected.index]:null;
- const showExtractionStatus=search.state==='searching'&&(paused||!candidates.length||!!intake.progress?.currentChapters?.length||!!intake.progress?.completedChars);
  const preparable=!!selected&&intake.phase==='choosing'&&session.state!=='failed';
  const preferences={artStyle:settings.artStyle,productionPrompt:settings.productionPrompt,...(settings.acceptancePrompt!==undefined?{acceptancePrompt:settings.acceptancePrompt}:{}),narrativeDetail:settings.narrativeDetail};
  async function act(command:IntakeCommand){
@@ -97,11 +96,32 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   ];
   return [step];
  });
- const extractionStatus=showExtractionStatus&&<div className="yu-extraction-status" role="status">{(paused||!candidates.length)&&<p>{paused?'提取已暂停，恢复后继续。':'正在提取，找到的故事会逐篇显示。'}</p>}{!paused&&(!!intake.progress?.currentChapters?.length||!!intake.progress?.completedChars)&&<p className="yu-extraction-status-detail">{intake.progress.currentChapters?.length?`正在阅读：${readingChapterLabel(intake.progress.currentChapters)}`:''}{intake.progress.completedChars?` 已读 ${intake.progress.completedChars.toLocaleString('zh-CN')} 字。`:''}</p>}</div>;
+ const reading=intake.progress;
+ const extractionStep=reading?.stage==='cache'?'正在查找缓存':reading?.stage==='retrieving'?'正在检索候选故事':reading?.stage==='selecting'?'正在整理候选故事':reading?.stage==='verifying'?'正在逐篇核对检索候选':reading?.stage==='checking'?'正在核对原文与提取条件':reading?'正在阅读原文':'正在准备提取';
+ const retrievalLabels={
+  hybrid:'文字和向量联合检索',
+  'no-query-vector':'文字检索（缺少当前查询的向量）',
+  'no-compatible-vectors':'文字检索（候选没有兼容向量）',
+  'no-index':'当前版本无可用索引，改读原文',
+  'no-candidates':'索引无可用候选，改读原文',
+  scan:'按原文范围逐段读取',
+ };
+ const extractionStatus=searching&&<div className="yu-extraction-status" role="status">
+  <p><strong>{paused?'提取已暂停':extractionStep}</strong></p>
+  {!paused&&(reading?.retrieval||reading?.cachedMatches!==undefined)&&<p className="yu-extraction-status-detail">
+   {reading?.cachedMatches!==undefined&&<span>{reading.cachedMatches?`缓存命中 ${reading.cachedMatches} 篇`:'未命中已确认结果缓存'}</span>}
+   {reading?.retrieval&&<span>{reading.cachedMatches!==undefined?' · ':''}{retrievalLabels[reading.retrieval]}</span>}
+  </p>}
+  {!paused&&<p className="yu-extraction-status-detail">
+   {!!reading?.currentChapters?.length&&<span>{readingChapterLabel(reading.currentChapters)} · </span>}
+   {reading?.stage==='verifying'&&<span>已处理 {reading.completed} / {reading.total} 篇候选 · </span>}
+   {!!reading?.totalChars&&<span>已处理 {reading.completedChars.toLocaleString('zh-CN')} / {reading.totalChars.toLocaleString('zh-CN')} 字 · </span>}
+   已找到 {candidates.length} 篇
+  </p>}
+ </div>;
  const extractionError=search.state==='failed'&&<div className="yu-batch-error" role="alert"><p>提取未完成。{search.error}</p><p>已找到的故事会保留，可以重试或直接选择。</p>{selected&&findMore}</div>;
  return <section className="yu-creation-setup" aria-label={selected?'故事流程':'选择故事'}>
-  {!selected&&onBackToDiscovery&&<StoryFlowAction disabled={busy} onClick={onBackToDiscovery}><ArrowLeft size={14} aria-hidden="true"/>返回修改书籍、原文和主题</StoryFlowAction>}
-  {!selected&&<StoryExtractionContext selection={session.selection} book={book}/>}
+  {!selected&&<StoryExtractionContext selection={session.selection} book={book} backAction={onBackToDiscovery&&<StoryFlowAction disabled={busy} onClick={onBackToDiscovery}><ArrowLeft size={14} aria-hidden="true"/>返回修改提取条件</StoryFlowAction>}/>}
   {!selected&&<StoryExtractionSearch retainKey={retainKey&&'search:'+session.id} sessionId={session.id} title={targetTitle} local={session.selection.bookId!=='other'} busy={busy} hasCandidates={candidates.length>0} onSearch={title=>act({action:'search',title})}/>}
   {selected&&progress.showSummary!==false&&<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3></div>}
   {!selected&&extractionStatus}

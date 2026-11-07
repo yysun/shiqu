@@ -1,3 +1,4 @@
+import type {SuggestionProgress} from '../lib/reader-suggestions.ts';
 // 独立索引只提供候选出处。文字与向量分别排名，原文始终由本地书库读取。
 import {chmod,lstat,mkdir,mkdtemp,readdir,rename,rm} from 'node:fs/promises';
 import path from 'node:path';
@@ -197,11 +198,11 @@ export class LocalStorySearch{
   const hits=await this.lookupHits(book,query,signal,byTitle);
   return hits?.map(({source})=>source)??null;
  }
- async lookupHits(book:LocalBook,query:string,signal:AbortSignal,byTitle=false,limit=42){
+ async lookupHits(book:LocalBook,query:string,signal:AbortSignal,byTitle=false,limit=42,onRetrieval?:(route:NonNullable<SuggestionProgress['retrieval']>)=>void){
   signal.throwIfAborted();
   const snapshot=await this.snapshotFor(book);
   signal.throwIfAborted();
-  if(!snapshot||snapshot.edition!==book.edition)return null;
+  if(!snapshot||snapshot.edition!==book.edition){onRetrieval?.('no-index');return null;}
   const topic=byTitle?query:query.replace(/^(?:请|帮我|请帮我)?\s*(?:列一下|列出|找出?|有哪些)\s*/u,'').replace(/(?:的)?(?:故事|情节)(?:有哪些)?[？?。！!]*$/u,'').trim();
   const phrase=storySearchKey(topic||query);
   if(!phrase)return [];
@@ -210,7 +211,7 @@ export class LocalStorySearch{
   const scoped=snapshot.entries.flatMap(entry=>{
    try{sourceParts(book,entry.source);return [entry];}catch{return [];}
   });
-  if(!scoped.length)return [];
+  if(!scoped.length){onRetrieval?.('no-candidates');return [];}
   const needle=snapshot.references.get(storySearchKey(query))||snapshot.references.get(phrase);
   signal.throwIfAborted();
   const scores=scoped.map(entry=>({entry,lexical:lexical(entry,phrase,terms),semantic:similarity(entry.vectors,needle)}));
@@ -218,6 +219,7 @@ export class LocalStorySearch{
   const text=scores.filter(row=>row.lexical>0).sort((a,b)=>b.lexical-a.lexical).slice(0,30);
   const cards=rankStoryCardText(scoped.filter(entry=>entry.summary),phrase,30);
   const semantic=scores.filter(row=>Number.isFinite(row.semantic)).sort((a,b)=>b.semantic-a.semantic).slice(0,limit>42?limit:40);
+  onRetrieval?.(semantic.length?'hybrid':needle?'no-compatible-vectors':'no-query-vector');
   const fused=new Map<string,{entry:Entry;score:number}>();
   for(const lane of [text,semantic])lane.forEach(({entry},index)=>{
    const key=localSourceKey(entry.source),row=fused.get(key)||{entry,score:0};
