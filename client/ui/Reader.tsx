@@ -11,6 +11,9 @@
 // 返回键：阅读、桌面新建页、工作区与阅读侧栏抽屉经 useHistoryStep 登记为步骤；替换 URL 时保留历史条目的状态。
 // 从书架或发现打开故事时记下列表滚动位置，返回时恢复（返回书架的按钮仍回到顶部）。
 // 手机面板不超过两层：修改分镜先关分镜剧本；替换选题期间不渲染故事设置，取消后恢复。
+// 桌面宽档（≥1024px）书架：点卡片把同一个阅读组件停靠在网格右栏（docked），不是返回键步骤、地址留在书架；
+// 全屏按钮展开为普通阅读（展开或打开原文/分镜列表时登记为步骤，返回收回右栏）；变窄时转为普通全屏阅读。
+// 停留在书架期间卡片顺序冻结，在右栏阅读不会让卡片跳到前面。
 
 import {pruneReadingCaches,type LibraryInventory} from '../reading-cache.ts';
 import StoryExportControl from './StoryExportControl';
@@ -21,7 +24,7 @@ import ProviderSettings,{ProviderRuntimeSummary} from './ProviderSettings';
 import type {ProviderSettingsView} from '@/lib/provider-settings';
 import {useBookReference} from '../useBookReference';
 import {cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {ArrowLeft, ArrowRight, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Compass, Feather, Leaf, List, Moon, Play, RotateCcw, ImageDown, BookOpenText, Settings2, Sparkles, UserRound, X, Loader2, FileDown, FileArchive, RefreshCw, Trash2} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Maximize2, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Compass, Feather, Leaf, List, Moon, Play, RotateCcw, ImageDown, BookOpenText, Settings2, Sparkles, UserRound, X, Loader2, FileDown, FileArchive, RefreshCw, Trash2} from 'lucide-react';
 import {randomId, request} from './shared';
 import type {Story} from '@/lib/content';
 import type {GeneratedStory,Selection,SessionView} from '@/lib/reader-model';
@@ -61,12 +64,9 @@ import {keepSnapshot,shareRows} from '@/lib/reader-snapshots';
 import {newWheelGesture,wheelPageDirection,swipePageDirection} from '@/lib/reader-navigation';
 import DesktopShell from './DesktopShell';
 import DesktopLibrary from './DesktopLibrary';
-import ShelfStoryDetail from './ShelfStoryDetail';
 import StoryWorkspace from './StoryWorkspace';
 import DesktopCreate from './DesktopCreate';
 import DesktopReader from './DesktopReader';
-import StoryGenerationControl from './StoryGenerationControl';
-import {shelfGenerationStatus} from '@/lib/shelf-generation';
 import {useDesktopLayout,useDrawerForm} from './useDesktopLayout';
 import {historySteps,useHistoryStep} from './historySteps';
 import {clearRetained} from './useRetainedState';
@@ -121,9 +121,9 @@ export default function Reader(){
  useEffect(()=>{const open=()=>{if(location.hash==='#provider-settings'){setTab('me');setProviderOpen(n=>n+1);}};open();window.addEventListener('hashchange',open);return()=>window.removeEventListener('hashchange',open);},[]);
  const [providerRuntime,setProviderRuntime]=useState<ProviderSettingsView['runtime']|null>(null);
  const [sceneList,setSceneList]=useState(false);
- const desktop=useDesktopLayout();
- // 桌面书架当前选中的故事（只在桌面使用）
- const [selectedStoryId,setSelectedStoryId]=useState<string|null>(null);
+ const desktop=useDesktopLayout(),drawerForm=useDrawerForm(),wide=desktop&&!drawerForm;
+ // 书架右栏阅读：docked 表示当前故事是在书架右栏打开的，expanded 表示它暂时展开为全屏
+ const [docked,setDocked]=useState(false),[expanded,setExpanded]=useState(false);
  // 工作区里所选的分镜（1 起，0 为结语）；编辑分镜时改由修订编辑器的“选择分镜”决定
  const [workspaceFrame,setWorkspaceFrame]=useState(1);
  // 新建表单的 key：选书或心情时递增，让桌面新建页的内联表单按新选择重新初始化
@@ -213,8 +213,13 @@ export default function Reader(){
 
  function track(kind:string,s:Story|null=story,index:number|null=null){if(!s||!visitor.current||!session.current)return;request('reader/sessions/'+s.id+'/events','POST',{id:session.current+':'+s.id+':'+kind+(index===null?'':':'+index),visitor:visitor.current,session:session.current,storyId:s.id,kind,page:index,mode:'manual',cohort:'internal'}).catch(()=>{});}
  function remember(s:Story,index:number,isSaved:boolean){if(deleted.current.has(s.id))return;authoritativeProgress.current=reconcileReadingProgress(authoritativeProgress.current,[{storyId:s.id,page:index,saved:isSaved?1:0,updatedAt:new Date().toISOString()}]);setLastReadId(s.id);try{localStorage.setItem('shiqu-last-read',s.id);}catch{}setProgress(pr=>{const rows=[{storyId:s.id,page:index,saved:isSaved?1:0,updatedAt:new Date().toISOString()},...pr.filter(p=>p.storyId!==s.id)];localStorage.setItem('yiyu-reading',JSON.stringify(rows));return rows;});request('reader/sessions/'+s.id+'/progress','POST',{storyId:s.id,page:index,saved:isSaved}).catch(()=>{});}
- function open(s:Story,restart=false){if(deleted.current.has(s.id))return;if(!story)listScroll.current=window.scrollY;setWorkflowTarget(null);setDrag(0);gen.resume(s.id,restart?0:undefined).catch(e=>notify(e.message));setConfigure(false);clearRetained('discovery');setUnavailable('');const pr=progress.find(p=>p.storyId===s.id);const index=restart?0:Math.min(pr?.page||0,s.pages.length-1);setPage(index);setStory(s);setSaved(!!pr?.saved);setEnded(false);setMotion('forward');seen.current=new Set();session.current=randomId();history.replaceState(history.state,'','/read?id='+encodeURIComponent(s.id));track('start',s);window.scrollTo(0,0);}
- function home(){forgetSetup();setWorkflowTarget(null);setWorkflowError('');setDrag(0);gen.leave();setStory(null);setEnded(false);setSource(false);history.replaceState(history.state,'','/');}
+ function open(s:Story,restart=false,dock=false){if(deleted.current.has(s.id))return;if(!story&&!dock)listScroll.current=window.scrollY;setWorkflowTarget(null);setDrag(0);gen.resume(s.id,restart?0:undefined).catch(e=>notify(e.message));setConfigure(false);clearRetained('discovery');setUnavailable('');const pr=progress.find(p=>p.storyId===s.id);const index=restart?0:Math.min(pr?.page||0,s.pages.length-1);setPage(index);setStory(s);setSaved(!!pr?.saved);setEnded(false);setMotion('forward');seen.current=new Set();session.current=randomId();setDocked(dock);setExpanded(false);history.replaceState(history.state,'',dock?'/':'/read?id='+encodeURIComponent(s.id));track('start',s);if(!dock)window.scrollTo(0,0);}
+ function home(){forgetSetup();setWorkflowTarget(null);setWorkflowError('');setDrag(0);gen.leave();setStory(null);setEnded(false);setSource(false);setDocked(false);setExpanded(false);history.replaceState(history.state,'','/');}
+ // 右栏阅读：展开为全屏、收回右栏（同时关闭原文与分镜列表）；离开阅读时右栏故事只收回，不关闭
+ function expand(){if(!story)return;setExpanded(true);history.replaceState(history.state,'','/read?id='+encodeURIComponent(story.id));}
+ function collapse(){setExpanded(false);setSource(false);setSceneList(false);history.replaceState(history.state,'','/');}
+ function leaveReader(){if(docked)collapse();else home();}
+ const focusShelfCard=(id:string)=>document.querySelector<HTMLElement>(`[data-story-id="${CSS.escape(id)}"] .yu-shelf-card-details`)?.focus();
  // 返回阅读前所在列表的滚动位置；返回书架的按钮改为回到顶部
  const listScroll=useRef<number|null>(null);
  useLayoutEffect(()=>{if(!story&&listScroll.current!==null){const top=listScroll.current;listScroll.current=null;window.scrollTo({top,behavior:'instant'});}},[story]);
@@ -247,7 +252,12 @@ export default function Reader(){
  useEffect(()=>{if(story){if(!session.current)session.current=randomId();track('start',story);}},[story?.id]);
  useEffect(()=>{if(!story||ended||!story.pages[page]?.image)return;seen.current.add(page);track('page',story,page);remember(story,page,saved);const next=story.pages[page+1]?.image;if(next){const img=new Image();img.src=next;}},[story?.id,story?.pages[page]?.image,page,ended]);
  // 手机上原文与分镜列表是模态面板，打开时不翻页；桌面侧栏不是模态，翻页照常，Escape 先关侧栏再返回。
- useEffect(()=>{function key(e:KeyboardEvent){if(!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();turn(-1);}if(e.key==='Escape'){if(source||sceneList){setSource(false);setSceneList(false);}else home();}}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[story,page,ended,source,settings,workflowTarget,configure,sceneList,desktop]);
+ // 右栏阅读只在书架、宽档且未展开时停靠；打开原文或分镜列表需要侧栏，暂时按全屏显示
+ const dockedView=!!story&&docked&&!expanded&&wide&&tab==='shelf'&&!source&&!sceneList;
+ // 生成钩子恢复会话后会写入 /read?id=；停靠时地址始终留在书架
+ useEffect(()=>{if(dockedView&&location.pathname!=='/')history.replaceState(history.state,'','/');});
+ // 停靠时方向键只在焦点位于右栏阅读里时翻页，Escape 把焦点还给卡片
+ useEffect(()=>{function key(e:KeyboardEvent){if(!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;if(dockedView&&!readerRef.current?.contains(document.activeElement))return;if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();turn(-1);}if(e.key==='Escape'){if(dockedView)focusShelfCard(story.id);else if(source||sceneList){setSource(false);setSceneList(false);}else leaveReader();}}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[story,page,ended,source,settings,workflowTarget,configure,sceneList,desktop,dockedView,docked]);
  useEffect(()=>{
   const reader=readerRef.current;if(!reader||!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;
   const gesture=wheelGesture.current;
@@ -458,7 +468,12 @@ export default function Reader(){
  const panelOpen=!!(workflowTarget||(!story&&gen.active)||(settings&&story));
  const panelStory=workflowSession?.story||story;
  const pendingStories=gen.sessions.filter(s=>!deletedIds.includes(s.id)&&!s.story?.pages[0]?.image);
- const shelf=activeProgress.flatMap(p=>{const s=allStories.find(s=>s.id===p.storyId);return s&&s.pages[0]?.image?[s]:[];});
+ const latestShelf=activeProgress.flatMap(p=>{const s=allStories.find(s=>s.id===p.storyId);return s&&s.pages[0]?.image?[s]:[];});
+ // 宽档停留在书架期间冻结卡片顺序（书库加载完成后取快照，之后新出现的故事排在最前），离开书架后恢复按最近阅读排序
+ const shelfOrder=useRef<Map<string,number>|null>(null);
+ if(!(wide&&tab==='shelf'))shelfOrder.current=null;
+ else if(!shelfOrder.current&&!loading&&!gen.libraryLoading)shelfOrder.current=new Map(latestShelf.map((item,index)=>[item.id,index]));
+ const frozen=shelfOrder.current,shelf=frozen?[...latestShelf].sort((a,b)=>(frozen.get(a.id)??-1)-(frozen.get(b.id)??-1)):latestShelf;
 
  const shelfCount=shelf.length+pendingStories.length;
  const libraryLoading=loading||gen.libraryLoading;
@@ -502,18 +517,20 @@ export default function Reader(){
   </div></section>
   <ProviderRuntimeSummary runtime={providerRuntime}/>
  </section>;
- const readerMain=story&&<main className={'yu-reader'+(!metadataVisible&&!ended?' yu-metadata-hidden':'')} ref={readerRef} aria-label={'阅读'+story.title} data-main="">
+ // 停靠在书架右栏时阅读是书架主区里的一节（section，不带 data-main），其余时候是页面主区
+ const ReaderTag=dockedView?'section':'main';
+ const readerMain=story&&<ReaderTag className={'yu-reader'+(!metadataVisible&&!ended?' yu-metadata-hidden':'')} ref={readerRef} aria-label={'阅读'+story.title} data-main={dockedView?undefined:''}>
  {!ended&&<StoryFilmstrip pages={story.pages} page={page} drag={drag} reloads={imageReloads} onImageError={onFrameError} onImageLoad={onFrameLoad}/>}
  {ended&&<div className="yu-scene-shade"/>}
  {!!readingSession?.reviewIssues?.length&&!settings&&<button type="button" className="yu-reader-review-notice" onClick={()=>openWorkflow(story.id)}>审片还有 {readingSession.reviewIssues.length} 处问题，已停止绘图。查看并处理</button>}
  {!ended&&!current?.image&&<div className="yu-drawing" role="status"><div className="yu-drawing-orbit"><Feather size={35} strokeWidth={1}/></div><span>{gen.error?'画笔暂停了一下':'这一幅，正在展开'}</span><small>{gen.error||gen.active?.stage||'正在为你绘制画面'}</small>{gen.error&&gen.active&&<StoryRetry session={gen.active} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}
- <header className="yu-reader-top"><div className="yu-progress" aria-label={`第${page+1}幅，共${story.pages.length}幅`}>{story.pages.map((_,i)=><span key={i} className={i<=page?'read':''}/>)}</div><div className="yu-reader-heading"><button className="yu-glass" onClick={home} aria-label="返回发现"><ArrowLeft size={21}/></button><div className="yu-reader-title"><div><strong>{story.title}</strong><span>{bookName(story)}{isGenerated(story)?' · AI 生成':''}</span></div><div className="yu-style-label" aria-label="本篇主题与画风">{story.theme&&<span>{story.theme}</span>}<span>{isGenerated(story)?(story.artStyleLabel||'未记录画风'):'未记录画风'}</span></div></div>{!ended&&<BookReferenceStar selected={bookReference.selected} disabled={bookReference.disabled} busy={bookReference.busy} onClick={bookReference.toggle}/>}<button className="yu-glass" onClick={bookmark} aria-label={saved?'取消收藏':'收藏故事'}><Bookmark size={20} fill={saved?'currentColor':'none'}/></button><button className="yu-glass" onClick={()=>openStorySettings(story)} aria-label="故事设置"><Settings2 size={19}/></button></div></header>
+ <header className="yu-reader-top"><div className="yu-progress" aria-label={`第${page+1}幅，共${story.pages.length}幅`}>{story.pages.map((_,i)=><span key={i} className={i<=page?'read':''}/>)}</div><div className="yu-reader-heading">{dockedView?<button className="yu-glass" onClick={expand} aria-label="全屏阅读" title="全屏阅读"><Maximize2 size={19}/></button>:<button className="yu-glass" onClick={leaveReader} aria-label={docked?'返回书架':'返回发现'}><ArrowLeft size={21}/></button>}<div className="yu-reader-title"><div><strong>{story.title}</strong><span>{bookName(story)}{isGenerated(story)?' · AI 生成':''}</span></div><div className="yu-style-label" aria-label="本篇主题与画风">{story.theme&&<span>{story.theme}</span>}<span>{isGenerated(story)?(story.artStyleLabel||'未记录画风'):'未记录画风'}</span></div></div>{!ended&&<BookReferenceStar selected={bookReference.selected} disabled={bookReference.disabled} busy={bookReference.busy} onClick={bookReference.toggle}/>}<button className="yu-glass" onClick={bookmark} aria-label={saved?'取消收藏':'收藏故事'}><Bookmark size={20} fill={saved?'currentColor':'none'}/></button><button className="yu-glass" onClick={()=>openStorySettings(story)} aria-label="故事设置"><Settings2 size={19}/></button></div></header>
  {ended?<StoryEndingSurface surfaceRef={endingRef} onTurn={turn} onDrag={setDrag} drag={drag}><div className="yu-ending-mark"><Leaf size={32} strokeWidth={1.3}/></div><p className="yu-kicker">故事到这里，余味留给你</p><h1>{story.reflection}</h1><div className="yu-end-line"/><p>有些故事的最后一页，<br/>其实在你的生活里。</p><button className="yu-primary" onClick={()=>open(story,true)}><RotateCcw size={18}/>从头再看<ArrowRight size={19}/></button><div className="yu-ending-navigation"><button onClick={()=>turn(-1)}><ChevronLeft size={17}/>返回上一幅</button><button onClick={()=>{listScroll.current=null;home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}}><BookOpen size={16}/>书架</button><button onClick={()=>{home();choose();}}><Sparkles size={16}/>开启下一篇</button></div><section className="yu-ending-downloads" aria-label="下载故事"><h2>把故事带走</h2><div className="yu-ending-formats">{exportControl('pdf','yu-ending-download')}{exportControl('png','yu-ending-download')}{exportControl('zip','yu-ending-download yu-download-zip')}</div>{exportStatus()}</section><StoryPublicationDetails story={story}/><button className="yu-end-source" onClick={()=>setSource(true)}>读一读原文 <ChevronRight size={13}/></button></StoryEndingSurface>:<>
  <StoryPageSurface onTurn={turn} onDrag={setDrag} onToggleMetadata={()=>setMetadataVisible(visible=>!visible)}/>
  <div className={'yu-scene-caption '+(largeText?'large':'')} key={'caption-'+page}><div className="yu-scene-number"><span>{String(page+1).padStart(2,'0')}</span><i/><span>{String(story.pages.length).padStart(2,'0')}</span>{isGenerated(story)&&gen.busy&&<span className="yu-scene-generation" role="status"><Loader2 size={12} className="spin"/>{gen.active?.stage||'正在生成'}</span>}</div><p>{current?.caption}</p>{current?.image&&(gen.error||imageIssues[current.image]||!!readingSession?.faults?.length)&&<div className="yu-reader-error">{gen.error||imageIssues[current.image]}{isGenerated(story)&&imageIssues[current.image]&&<button type="button" onClick={()=>void inspectImage(story.id,page,current.image,true)}>重新检查图片</button>}{readingSession&&<StoryRetry session={readingSession} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}</div>
  <footer className="yu-reader-bottom"><button className="yu-source-button" onClick={()=>setSource(true)} aria-label="原文" title="原文"><BookOpen size={17}/><span>原文</span></button><button className="yu-glass" onClick={()=>setSceneList(true)} aria-label="分镜列表" title="分镜列表"><List size={20}/></button><div className="yu-arrows" role="group" aria-label="翻页"><button className="yu-glass" disabled={page===0} onClick={()=>goToPage(0)} aria-label="第一页" title="第一页"><ChevronsLeft size={22}/></button><button className="yu-glass" disabled={page===0} onClick={()=>turn(-1)} aria-label="上一页" title="上一页"><ChevronLeft size={22}/></button><button className="yu-next" onClick={()=>turn(1)} aria-label={page===story.pages.length-1?'读完，回味':'下一页'} title={page===story.pages.length-1?'读完，回味':'下一页'}><ChevronRight size={23}/></button><button className="yu-glass" disabled={page===story.pages.length-1} onClick={()=>goToPage(story.pages.length-1)} aria-label="最后一页" title="最后一页"><ChevronsRight size={22}/></button></div></footer>
  </>}
- </main>;
+ </ReaderTag>;
 
  // 手机树：今天的界面与其专属面板。
  const configureSheet=configure&&<Sheet title="这一篇，想怎样读？" busy={creating} onClose={closeCreate}><StoryDiscoveryForm retainKey="discovery" selection={selection} books={choices} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}))} onSubmit={generate}/></Sheet>;
@@ -540,22 +557,16 @@ export default function Reader(){
  </>;
 
  // 桌面外壳：视图由状态推导；新建页、工作区与阅读组合在后续里程碑替换，此前仍用手机面板（居中显示）。
- const flags:DesktopFlags={configure,panelOpen,revisionTab:revision.tab,script,reviewHistoryId,source,sceneList,story:!!story,tab};
+ const flags:DesktopFlags={configure,panelOpen,revisionTab:revision.tab,script,reviewHistoryId,source,sceneList,story:!!story,docked:dockedView,tab};
  const view=desktopView(flags);
  function navigate(target:TopItem){
   const steps=topBarSteps(flags,target);if(!steps)return;
   exitToShell(steps);
   if(target==='create')choose();else{setTab(target);window.scrollTo({top:0,behavior:'instant'});}
  }
- // 桌面书架：≥1024px 网格选择故事，右栏停靠预览、阅读与故事设置（与阅读页设置按钮同一入口）；更窄时没有右栏，点卡片直接打开阅读。
- const selectedStory=shelf.find(item=>item.id===selectedStoryId)||null,drawerForm=useDrawerForm();
- function storyDetail(target:Story){
-  const row=progressById.get(target.id),session=gen.sessions.find(item=>item.id===target.id),generation=session&&session.state!=='completed'?shelfGenerationStatus(session):null;
-  const status=generation&&<><span role="status">{generation.message}{session!.story&&` · ${session!.ready} / ${session!.story.pages.length} 幅`}</span>{generation.group==='生成失败'?(session!.retryAllowed&&<button type="button" className="yu-generation-control" disabled={!!gen.controlBusy} onClick={()=>{setWorkflowTarget(session!.id);setWorkflowError('');gen.retrySession(session!.id).catch(e=>setWorkflowError(e.message));}}>重试生成</button>):<StoryGenerationControl session={session!} busy={!!gen.controlBusy} onControl={gen.control}/>}</>;
-  return <ShelfStoryDetail key={target.id} story={target} meta={[bookName(target),target.theme,isGenerated(target)?(target.artStyleLabel||'未记录画风'):'未记录画风']} page={row?.page||0} status={status}
-   onRead={restart=>open(target,restart)} onSettings={()=>openStorySettings(target)}/>;
- }
- const desktopLibrary=<DesktopLibrary selectedId={selectedStory?selectedStoryId:null} shelf={drawerForm?shelfView:cloneElement(shelfView,{selectedId:selectedStoryId,onSelect:setSelectedStoryId})} detail={selectedStory?storyDetail(selectedStory):null}/>;
+ // 桌面书架：宽档点卡片（封面、标题或“接着看”）在右栏打开同一个阅读组件；更窄时点卡片直接全屏阅读
+ const openDocked=(target:Story,restart=false)=>{if(dockedView&&story?.id===target.id&&!restart)return;open(target,restart,true);};
+ const desktopLibrary=<DesktopLibrary reader={dockedView?readerMain:null} shelf={wide?cloneElement(shelfView,{selectedId:docked&&story?story.id:null,onSelect:(id:string|null)=>{const target=id&&shelf.find(item=>item.id===id);if(target)openDocked(target);},onOpen:openDocked}):shelfView}/>;
  const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover"><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></div>;
  // 工作区：分区由状态标志推导，切换分区只设置和清除这些标志（修订草稿保留）。
  // 回到“修改故事”时打开上次停留的编辑页签与分镜。
@@ -595,8 +606,10 @@ export default function Reader(){
   {view.kind==='workspace'?workspace:view.kind==='create'?createPage:view.kind==='reader'?desktopReader:<main className="yu-home yu-desktop-main" data-main="">{tabContent}</main>}
 </DesktopShell>;
  const reading=desktop?view.kind==='reader':!!story;
- // 返回键的非对话框步骤（层级：阅读 0、新建页或工作区 1、抽屉 2）；停靠的侧栏不是步骤
- useHistoryStep(!!story,0,home);
+ // 返回键的非对话框步骤（层级：阅读 0、新建页或工作区 1、抽屉 2）；停靠的侧栏与书架右栏阅读不是步骤
+ useHistoryStep(!!story&&!dockedView,0,leaveReader);
+ // 变窄到没有右栏、且阅读正显示时，右栏故事转为普通全屏阅读（工作区或新建页打开期间保留，回到阅读时再判断）
+ useEffect(()=>{if(!wide&&docked&&view.kind==='reader'){setDocked(false);setExpanded(false);if(story)history.replaceState(history.state,'','/read?id='+encodeURIComponent(story.id));}},[wide,view.kind]);
  useHistoryStep(desktop&&view.kind==='create',1,closeCreate,()=>!!document.querySelector('.yu-create-form [data-dirty="true"]'));
  useHistoryStep(desktop&&view.kind==='workspace',1,leaveWorkspace);
  useHistoryStep(desktop&&drawerForm&&view.kind==='reader'&&!!view.panel,2,()=>{setSource(false);setSceneList(false);});

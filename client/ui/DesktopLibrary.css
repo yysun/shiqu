@@ -1,0 +1,15 @@
+/* 桌面书架：网格按可用宽度自动排列；≥1024px 右侧是停靠的阅读栏（同一个阅读组件，粘性、填满窗口高度），
+   更窄时没有右栏（点卡片直接全屏阅读）。阅读组件是手机尺寸的排版，因此右栏宽度保持在 320–420px。 */
+.yu-desktop .yu-library{display:grid;gap:clamp(20px,2.4vw,40px);align-items:start}
+.yu-desktop .yu-library .yu-shelf-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:clamp(12px,1.4vw,20px)}
+.yu-desktop .yu-library .yu-shelf-row-readable.is-selected{border-color:#7e987a;box-shadow:0 0 0 2px #7e987a55}
+.yu-desktop .yu-library .yu-shelf-card-details[aria-pressed=true] h2{color:#294b33}
+@media (hover:hover){.yu-desktop .yu-library .yu-shelf-row-readable:hover{border-color:#cdd8c1}}
+
+@media (min-width:1024px){
+ .yu-desktop .yu-library{grid-template-columns:minmax(0,1fr) clamp(320px,28vw,420px)}
+ /* 高度扣除顶栏、上方 24px 与主区底部 56px 留白，滚到页底时粘性栏不会被推到顶栏下面 */
+ .yu-desktop .yu-library-reader{position:sticky;top:calc(var(--d-bar) + 24px);height:calc(100dvh - var(--d-bar) - 88px);min-height:480px;border-radius:16px;overflow:hidden;background:#19392c}
+ .yu-desktop .yu-library-reader>.yu-reader{height:100%}
+ .yu-desktop .yu-library-reader.is-empty{display:grid;place-items:center;padding:24px;border:1px dashed #d6dccb;background:#fdfbf3;color:var(--yu-meta);text-align:center}
+}

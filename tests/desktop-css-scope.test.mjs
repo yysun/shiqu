@@ -13,7 +13,7 @@ function rules(source){
  }
  return out;
 }
-const desktopFiles=['client/ui/desktop.css','client/ui/StoryWorkspace.css','client/ui/ShelfStoryDetail.css'].filter(existsSync);
+const desktopFiles=['client/ui/desktop.css','client/ui/StoryWorkspace.css','client/ui/DesktopLibrary.css'].filter(existsSync);
 
 test('every desktop rule is scoped under .yu-desktop',()=>{
  assert.ok(desktopFiles.includes('client/ui/desktop.css'));

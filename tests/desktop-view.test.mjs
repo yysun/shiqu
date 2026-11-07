@@ -1,4 +1,4 @@
-// 桌面视图推导：优先级、工作区分区顺序、原文与侧栏、顶栏离开步骤及点击当前项不生效。
+// 桌面视图推导：优先级、工作区分区顺序、原文与侧栏、书架右栏阅读、顶栏离开步骤及点击当前项不生效。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {desktopView,workspaceSection,activeTopItem,exitSteps,topBarSteps} from '../lib/desktop-view.ts';
@@ -11,6 +11,15 @@ test('precedence: create, then workspace, then reader, then tab',()=>{
  assert.deepEqual(view({panelOpen:true,story:true}),{kind:'workspace',section:'flow'});
  assert.deepEqual(view({story:true}),{kind:'reader',panel:null});
  assert.deepEqual(view({tab:'shelf'}),{kind:'tab',tab:'shelf'});
+});
+
+test('a story docked in the shelf keeps the shelf tab; leaving the tab still closes it',()=>{
+ const docked={story:true,docked:true,tab:'shelf'};
+ assert.deepEqual(view(docked),{kind:'tab',tab:'shelf'});
+ assert.equal(activeTopItem(view(docked)),'shelf');
+ assert.deepEqual(view({...docked,panelOpen:true}),{kind:'workspace',section:'flow'},'故事设置 from the docked reader opens the workspace');
+ assert.deepEqual(exitSteps({...base,...docked}),['home']);
+ assert.equal(topBarSteps({...base,...docked},'shelf'),null,'clicking 书架 again keeps the docked story');
 });
 
 test('workspace sections follow a total order; the first set flag wins',()=>{

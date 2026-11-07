@@ -211,14 +211,14 @@ test('PHONE-NAV-10: medium and large tiers close drawers, the workspace and the 
   await back(page);assert.equal(await reading(page),false,'back closes the reader');
   assert.ok(await page.locator('.yu-library').isVisible());
   // 1280：工作区返回书架并保留选中；新建页返回发现
-  await size(page,1280);await card(ids[0]).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:'故事设置'}).click();await page.locator('.yu-workspace').waitFor();await settle(page);
+  await size(page,1280);await card(ids[0]).click();await page.locator('.yu-library-reader').getByRole('button',{name:'故事设置'}).click();await page.locator('.yu-workspace').waitFor();await settle(page);
   await back(page);assert.equal(await page.locator('.yu-workspace').count(),0);assert.ok(await page.locator('.yu-library').isVisible(),'back returns to 书架');
   assert.equal(await page.locator('.yu-shelf-row.is-selected').getAttribute('data-story-id'),ids[0],'selection kept');
   await topNav(page,'发现');await page.locator('.yu-topbar-create').click();await page.locator('.yu-create-form').waitFor();await settle(page);
   await back(page);assert.equal(await page.locator('.yu-create-form').count(),0);assert.ok(await page.locator('.yu-discover').isVisible(),'back returns to 发现');
-  // 1280 的停靠分镜列表在 900 变成抽屉：返回先关抽屉，再回到书架
-  await topNav(page,'书架');await card(ids[0]).click();await page.locator('.yu-shelf-detail').getByRole('button',{name:/阅读|继续阅读|重读/}).first().click();await page.locator('.yu-reader').waitFor();await settle(page);
-  await page.getByRole('button',{name:'分镜列表',exact:true}).click();await page.locator('.yu-reader-panel').waitFor();await settle(page);
+  // 1280：书架右栏阅读里打开分镜列表（全屏并停靠侧栏），在 900 侧栏变成抽屉：返回先关抽屉，再回到书架
+  await topNav(page,'书架');await card(ids[0]).click();await page.locator('.yu-library-reader .yu-reader').waitFor();await settle(page);
+  await page.locator('.yu-library-reader').getByRole('button',{name:'分镜列表',exact:true}).click();await page.locator('.yu-reader-panel').waitFor();await settle(page);
   await size(page,900);
   await back(page);assert.equal(await page.locator('.yu-reader-panel').count(),0,'back closes the drawer');assert.ok(await reading(page),'the reader stays');
   await back(page);assert.equal(await reading(page),false,'the next back returns to 书架');assert.ok(await page.locator('.yu-library').isVisible());

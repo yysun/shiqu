@@ -1,16 +1,13 @@
-// 桌面书架：≥1024px 时 ReaderShelf 网格右侧停靠选中故事的预览与操作（右栏），始终显示当前选中的故事。
-// 768–1023px 没有右栏：Reader 不向书架传 onSelect，点卡片与手机一样直接打开全屏阅读，这里只渲染网格。
-// 变窄跨过 1024px 时右栏卸载；焦点若在右栏里，移回选中的卡片。右栏不是返回键的步骤。
-import {useEffect,useRef,type ReactNode} from 'react';
+// 桌面书架：≥1024px 时 ReaderShelf 网格右侧停靠阅读栏，显示在书架里打开的故事（就是阅读页本身，由 Reader 传入）；
+// 尚未打开故事时显示提示。768–1023px 没有右栏：Reader 不向书架传 onSelect，点卡片直接打开全屏阅读，这里只渲染网格。
+import type {ReactNode} from 'react';
 import {useDrawerForm} from './useDesktopLayout';
+import './DesktopLibrary.css';
 
-const focusCard=(id:string|null)=>{if(id)document.querySelector<HTMLElement>(`[data-story-id="${CSS.escape(id)}"] .yu-shelf-card-details`)?.focus();};
-export default function DesktopLibrary({selectedId,shelf,detail}:{selectedId:string|null;shelf:ReactNode;detail:ReactNode|null}){
- const docked=!useDrawerForm(),focusInDetail=useRef(false);
- // 右栏卸载时焦点会丢失，因此用 focusin 记录焦点是否在右栏里，再移回选中的卡片。
- useEffect(()=>{if(!docked&&focusInDetail.current){focusInDetail.current=false;focusCard(selectedId);}},[docked]);
- return <div className="yu-library" onFocus={event=>{focusInDetail.current=!!(event.target as HTMLElement).closest('.yu-shelf-detail');}}>
+export default function DesktopLibrary({shelf,reader}:{shelf:ReactNode;reader:ReactNode|null}){
+ const docked=!useDrawerForm();
+ return <div className="yu-library">
   <div className="yu-library-grid">{shelf}</div>
-  {docked&&(detail||<aside className="yu-shelf-detail is-empty"><p>选择一篇故事，在这里预览画面。</p></aside>)}
+  {docked&&(reader?<div className="yu-library-reader">{reader}</div>:<aside className="yu-library-reader is-empty"><p>选择一篇故事，在这里阅读。</p></aside>)}
  </div>;
 }
