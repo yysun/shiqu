@@ -6,10 +6,10 @@ const dialog=(page,name)=>page.getByRole('dialog',{name,exact:true});
 async function oneCard(f,id){assert.deepEqual((await f.json('sessions')).map(s=>s.id),[id]);}
 export async function creationLifecycle(t,caseId='C001'){
  const b=await storyBrowser(t,caseId);await b.execute(async()=>{
-  const {f,page,library}=b,initial=await b.create({prepare:false,theme:'知恩图报'});
-  const picker=dialog(page,'故事设置');await picker.getByRole('button',{name:'输入标题',exact:true}).click();await picker.getByLabel('故事标题',{exact:true}).fill('乌龟报恩');
-  assert.equal(library.calls.catalog.length,0);await b.screenshot('before-start');
-  await page.goto(b.url+'/?id='+initial.id);await dialog(page,'故事设置').getByRole('button',{name:'开始提取',exact:true}).waitFor();assert.equal(library.calls.catalog.length,0);
+  const {f,page}=b,initial=await b.create({prepare:false,theme:'知恩图报',title:'乌龟报恩'});
+  const candidate=()=>dialog(page,'故事设置').getByRole('button',{name:'选择 乌龟报恩',exact:true});
+  await candidate().waitFor();assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);await b.screenshot('before-selection');
+  await page.reload();await candidate().waitFor();
   await b.extract(initial,'乌龟报恩');assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
   await page.getByRole('link',{name:'制作要求',exact:true}).click();let editor=dialog(page,'修改故事');
   await editor.getByLabel(/^制作要求/).fill('保留完整因果，动作清楚。');

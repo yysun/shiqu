@@ -2112,6 +2112,7 @@
       "gates": [],
       "covers": [
         "lib/reader-production-client.ts",
+        "server/reader-intake.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs"
@@ -2280,6 +2281,7 @@
       ],
       "covers": [
         "client/ui/production-timeline.css",
+        "client/ui/story-discovery.css",
         "tests/fixtures/phone-audit.mjs",
         "tests/fixtures/development.mjs",
         "tests/fixtures/gemini-evidence.mjs",
@@ -2501,6 +2503,7 @@
         "lib/reader-generation.ts",
         "lib/reader-model.ts",
         "lib/reader-repository.ts",
+        "lib/reader-styles.ts",
         "server/reader-intake.ts",
         "tests/fixtures/images.mjs"
       ]

@@ -1,13 +1,13 @@
-// Prove idle creation and replacement never buy extraction until the existing search command is submitted.
+// 验证显式提取条件随创建启动，旧调用和替换草稿仍可等待手动提取。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,until,selection,turn} from './fixtures/production.mjs';
 import {observeStoryGeneration} from '../lib/reader-production-client.ts';
 
-test('creation, demand and restart stay idle until the user starts extraction',async t=>{
+test('creation without extraction conditions stays idle through demand and restart until a search command',async t=>{
  const f=await productionFixture(t);let calls=0;
  f.generation.suggestions=async()=>{calls++;return {stories:[{title:'庄周梦蝶',description:'一次梦与醒的经历。'}],note:''};};
- const body={requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,discovery:{mode:'auto'}}};
+ const body={requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined}};
  const created=await f.json('sessions','POST',body);
  assert.equal(created.intake.phase,'choosing');assert.equal(created.intake.search.state,'idle');assert.deepEqual(created.intake.batches,[]);
  for(let i=0;i<3;i++){await f.demand(created.id);await f.app.services.production.tick();}
@@ -23,6 +23,21 @@ test('creation, demand and restart stay idle until the user starts extraction',a
  saved=await f.read(created.id);assert.equal(calls,1);assert.equal(saved.intake.batches[0].stories[0].title,'庄周梦蝶');
  await f.json(`sessions/${created.id}/setup`,'POST',command);assert.equal(calls,1);
  assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+});
+
+test('creating with extraction conditions starts one discovery round across replay and restart',async t=>{
+ const f=await productionFixture(t);let calls=0;
+ f.generation.suggestions=async()=>{calls++;return {stories:[{title:'庄周梦蝶',description:'一次梦与醒的经历。'}],note:''};};
+ const body={requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,discovery:{mode:'auto'}}};
+ const created=await f.json('sessions','POST',body);
+ assert.equal(created.intake.phase,'discovering');assert.equal(created.intake.search.state,'searching');
+ assert.equal((await f.json('sessions','POST',body)).id,created.id);
+ await f.demand(created.id);await until(async()=>(await f.read(created.id)).intake.search.state==='idle');
+ await f.restart();await f.demand(created.id);await f.app.services.production.tick();
+ const saved=await f.read(created.id);
+ assert.deepEqual(saved.selection.discovery,body.selection.discovery);
+ assert.deepEqual(saved.intake.batches.flatMap(batch=>batch.stories.map(story=>story.title)),['庄周梦蝶']);
+ assert.equal(calls,1);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });
 
 test('opening and cancelling a replacement draft does not extract or change the original',async t=>{

@@ -8,6 +8,7 @@ import {advanceStory} from '../lib/reader-engine.ts';
 import {makeGenerator,suggestStories,GeminiError,safeGeminiError,configuredModels} from '../lib/reader-gemini.ts';
 import {view,selectionSchema} from '../lib/reader-model.ts';
 import {runStoryGeneration} from '../lib/reader-generation.ts';
+import {getArtStyle} from '../lib/reader-styles.ts';
 import {changeIntake} from '../server/reader-intake.ts';
 const original={title:'《庄子·齐物论》',text:'昔者庄周梦为胡蝶，栩栩然胡蝶也。',url:'https://zh.wikisource.org/zh-hans/莊子/齊物論',kind:'passage',provider:'维基文库',retrievedAt:'2026-10-26T00:00:00Z'};
 const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'放下执念',length:8,voice:false};
@@ -301,15 +302,18 @@ test('chosen art direction persists across resume and reaches every image call',
  assert.equal((await advanceStory(repo,g,'bob',oldId,0)).selection.artStyle,'ink-pencil');
 });
 test('new art styles pass validation and reach planning and image generation without pencil fallback',async()=>{
- const styles=[['cinematic',/Photorealistic/],['watercolor',/watercolor storybook/],['gongbi',/gongbi painting/],['woodblock',/woodblock folk print/],['paper-cut',/paper-cut illustration/],['cartoon',/2D cartoon/],['line-art',/Minimalist line-art/],['chibi',/Cute chibi/],['3d-animation',/3D animated-film/],['clay',/clay stop-motion/],['classical-oil',/Classical figurative oil painting/]];
- for(const [style,expected] of styles){
+ const styles=['cinematic','watercolor','gongbi','woodblock','paper-cut','cartoon','line-art','chibi','3d-animation','clay','classical-oil'];
+ const pencil=getArtStyle('ink-pencil').prompt;
+ for(const style of styles){
+  const expected=getArtStyle(style).prompt;
+  assert.notEqual(expected,pencil,style);
   const requests=[];
   const g=makeGenerator('unit-test-only',memoryAssets(),{},async(url,init)=>{const body=JSON.parse(init.body);requests.push(body);return url.includes('nano-banana')?geminiResponse([{inlineData:{mimeType:'image/png',data:b64(png)}}]):geminiResponse([{text:JSON.stringify(plan)}]);});
   const choice=selectionSchema.parse({...selection,artStyle:style});
   await g.plan(choice,'seed');await g.image(plan,0,'style-id','',choice.artStyle);
-  assert.match(JSON.parse(requests[0].contents[0].parts[0].text).artDirection,expected,style);
-  assert.match(requests[1].contents[0].parts[0].text,expected,style);
-  assert.ok(!requests[1].contents[0].parts[0].text.includes('textured colored pencil'),style);
+  assert.equal(JSON.parse(requests[0].contents[0].parts[0].text).artDirection,expected,style);
+  assert.ok(requests[1].contents[0].parts[0].text.includes(expected),style);
+  assert.ok(!requests[1].contents[0].parts[0].text.includes(pencil),style);
  }
 });
 

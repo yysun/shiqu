@@ -66,7 +66,7 @@ test('chapter mode returns one first and resumes the same block before advancing
  const f=fixture(8,12,80),cache=new StoryDiscoveryCache(memory()),events=[];
  const first=await run(f,cache,[],{signal:new AbortController().signal,onProgress:p=>events.push(p)},[],limits);
  assert.equal(first.stories.length,1);assert.equal(f.calls.length,1);const firstText=f.calls[0].input.text;
- assert.equal(events.at(-1).completedChars,0);assert.equal(events[0].currentChapters.length,1);assert.ok(events.some(event=>event.stage==='checking'));
+ assert.equal(events.at(-1).completedChars,0);assert.equal(events.find(event=>event.stage==='reading')?.currentChapters?.length,1);assert.ok(events.some(event=>event.stage==='checking'));
  const next=await run(f,cache,first.stories.map(s=>s.title),undefined,first.stories.map(s=>s.source),limits);
  assert.equal(next.stories.length,4);assert.equal(f.calls.length,2);assert.equal(f.calls[1].input.scan.maxStories,32);assert.equal(f.calls[1].input.text,firstText);
 });

@@ -61,7 +61,7 @@ test('PHONE-NAV-06: a creation submit reuses the entry for the workflow panel',o
  await b.execute(async()=>{
   const {page,url}=b;await enter(page,url);await tab(page,'发现');
   await page.getByRole('button',{name:'选择庄子',exact:true}).click();const sheet=dialog(page,'这一篇，想怎样读？');await sheet.waitFor();await settle(page);
-  await sheet.getByRole('button',{name:'进入故事提取',exact:true}).click();await dialog(page,'故事设置').waitFor();await settle(page);
+  await sheet.getByRole('button',{name:'开始提取',exact:true}).click();await dialog(page,'故事设置').waitFor();await settle(page);
   assert.deepEqual(await openDialogs(page),['故事设置']);
   await back(page);assert.deepEqual(await openDialogs(page),[],'back closes the workflow panel');assert.equal(left(page),false);
   await back(page);assert.ok(left(page),'the next back leaves the app');

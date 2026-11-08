@@ -67,11 +67,13 @@ test('STORY-LIFECYCLE-C004: failure survives observation and only a retry link a
 test('STORY-LIFECYCLE-C005: replacement waits, cancel conserves parent, choosing commits one new version',options,async t=>{
  const b=await storyBrowser(t,'C005');await b.execute(async()=>{
   const {f,page,library}=b,saved=await b.create();await b.confirm();await b.completed(saved.id);await b.reader(saved.id);const parent=await f.read(saved.id),calls=library.calls.catalog.length;
-  let settings=await b.workflow();await settings.getByRole('link',{name:'替换选题',exact:true}).click();let picker=dialog(page,'替换选题');await picker.getByRole('button',{name:'开始提取',exact:true}).waitFor();assert.equal(library.calls.catalog.length,calls);await oneCard(f,saved.id);await b.screenshot('replacement-waiting');
+  let settings=await b.workflow();await settings.getByRole('link',{name:'替换选题',exact:true}).click();let picker=dialog(page,'替换选题');
+  const search=picker.getByRole('button',{name:'按标题提取',exact:true});await search.waitFor();assert.equal(await search.isDisabled(),true);
+  assert.equal(library.calls.catalog.length,calls);await oneCard(f,saved.id);await b.screenshot('replacement-waiting');
   await picker.getByRole('button',{name:'取消替换',exact:true}).click();await picker.waitFor({state:'hidden'});await dialog(page,'故事设置').getByRole('list',{name:'完整审片流程'}).waitFor();assert.equal(await page.getByRole('dialog').count(),1,'Cancelling replacement returns to the original embedded settings');assert.deepEqual((await f.read(saved.id)).story,parent.story);await oneCard(f,saved.id);
   await b.reader(saved.id);settings=await b.workflow();await settings.getByRole('link',{name:'替换选题',exact:true}).click();picker=dialog(page,'替换选题');await picker.getByRole('button',{name:'输入标题',exact:true}).click();await picker.getByLabel('故事标题',{exact:true}).fill('勇士护民');await picker.getByRole('button',{name:'按标题提取',exact:true}).click();
   const response=page.waitForResponse(r=>/\/reselection\/[^/]+$/.test(new URL(r.url()).pathname)&&r.request().method()==='POST');
-  await picker.getByRole('button').filter({has:page.getByText('勇士护民',{exact:true})}).click();const next=await(await response).json();assert.notEqual(next.id,saved.id);await until(async()=>(await f.read(next.id)).intake.phase==='confirming',15000);await page.getByRole('link',{name:'开始制作',exact:true}).waitFor();assert.equal(f.control.calls.length,3);await oneCard(f,next.id);
+  await picker.getByRole('button',{name:'选择并替换 勇士护民',exact:true}).click();const next=await(await response).json();assert.notEqual(next.id,saved.id);await until(async()=>(await f.read(next.id)).intake.phase==='confirming',15000);await page.getByRole('link',{name:'开始制作',exact:true}).waitFor();assert.equal(f.control.calls.length,3);await oneCard(f,next.id);
   await b.confirm();await b.completed(next.id);assert.equal(f.control.calls.length,6);assert.deepEqual((await f.read(saved.id)).story,parent.story);assert.notEqual((await f.json(`sessions/${next.id}/source`)).source.text,(await f.json(`sessions/${saved.id}/source`)).source.text);await b.reader(next.id);await b.screenshot('replacement-completed');
  });
 });
@@ -168,10 +170,12 @@ test('STORY-LIFECYCLE-C008: all shelf and reader entries share one settings layo
    if(enabled)assert.equal(await panel.locator('.yu-settings-formats').evaluate(node=>!!(node.compareDocumentPosition(node.closest('fieldset').querySelector('.yu-settings-flow'))&Node.DOCUMENT_POSITION_FOLLOWING)),true,'Downloads stay above the workflow');
    assert.equal(await page.getByRole('dialog').count(),1);
   }
-  let panel=dialog(page,'故事设置');await downloads(panel,false);await panel.getByRole('button',{name:'开始提取',exact:true}).waitFor();
+  let panel=dialog(page,'故事设置');await downloads(panel,false);await panel.getByRole('region',{name:'选择故事',exact:true}).waitFor();
+  await panel.getByRole('button',{name:'选择 乌龟报恩',exact:true}).waitFor();
+  await until(async()=>(await f.read(saved.id)).intake.phase==='choosing',15000);
   await panel.getByRole('link',{name:'返回书架',exact:true}).click();
-  await page.getByRole('button',{name:'提取故事《等待选题的故事》',exact:true}).click();panel=dialog(page,'故事设置');
-  await panel.getByRole('button',{name:'开始提取',exact:true}).waitFor();await downloads(panel,false);assert.equal(f.control.calls.length,0);
+  await page.getByRole('button',{name:'选择故事《等待选题的故事》',exact:true}).click();panel=dialog(page,'故事设置');
+  await panel.getByRole('region',{name:'选择故事',exact:true}).waitFor();await downloads(panel,false);assert.equal(f.control.calls.length,0);
   await b.extract(saved);f.control.hold=true;await b.confirm();await until(()=>f.control.calls.length===1,15000);
   panel=dialog(page,'故事设置');const title=(await f.read(saved.id)).story.title;await panel.getByText(title,{exact:true}).waitFor();await downloads(panel,false);
   const expected=await layout(panel),images=f.control.calls.length;

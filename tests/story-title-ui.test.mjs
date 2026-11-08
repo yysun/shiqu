@@ -52,7 +52,7 @@ test('source-only sessions can open naming and their saved display names appear 
  const result=await compiled,module={exports:{}};
  new Function('require','module','exports',result.outputFiles[0].text)(createRequire(import.meta.url),module,module.exports);
  const {Panel,Shelf,beginRender}=module.exports;
- const session={id:'source-only',story:null,selection:{bookId:'西游记',storyTitle:'三打白骨精',displayTitle:'白虎岭上的误解',theme:'原典故事',artStyle:'ink-pencil'},state:'idle',generationControl:'paused',intake:{phase:'confirming'},page:0,saved:false};
+ const session={id:'source-only',story:null,selection:{bookId:'西游记',storyTitle:'三打白骨精',displayTitle:'白虎岭上的误解',theme:'原典故事',artStyle:'ink-pencil'},state:'idle',generationControl:'paused',intake:{phase:'confirming',selected:{batch:0,index:0}},page:0,saved:false};
  const names=[],props={story:null,session,busy:false,disabled:false,onRename:(...args)=>names.push(args)};
  const panel=Panel(props),button=find(panel,node=>node.type==='button'&&node.props.children==='修改故事名');
  assert.equal(button.props.disabled,false);button.props.onClick();

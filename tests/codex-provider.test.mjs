@@ -126,11 +126,35 @@ test('text and image jobs wait fifteen minutes without the old five-minute cap; 
   assert.ok(delays.includes(2000));assert.ok(!delays.includes(900000));
  }finally{globalThis.setTimeout=original;}
 });
-test('runner rejects unsafe tools, oversized output, process failure, missing image bytes and timeout, then removes jobs',async t=>{
- for(const [mode,code] of [['unsafe','UNSAFE_CONFIGURATION'],['tool','UNEXPECTED_TOOL'],['large','OUTPUT_LIMIT'],['exit','PROCESS_EXIT'],['path-only','IMAGE_UNAVAILABLE'],['hang','TIMEOUT']]){
-  const fake=await fakeCli(t,mode),runner=createCodexRunner({CODEX_BIN:fake.binary},{timeoutMs:mode==='hang'?2000:5000});
+test('runner rejects unsafe tools, oversized output, process failure and missing image bytes, then removes jobs',async t=>{
+ for(const [mode,code] of [['unsafe','UNSAFE_CONFIGURATION'],['tool','UNEXPECTED_TOOL'],['large','OUTPUT_LIMIT'],['exit','PROCESS_EXIT'],['path-only','IMAGE_UNAVAILABLE']]){
+  const fake=await fakeCli(t,mode),runner=createCodexRunner({CODEX_BIN:fake.binary},{timeoutMs:5000});
   await assert.rejects(runner.run({instructions:'test',prompt:'test',generateImage:true}),error=>error.message===code,mode);
   const spawned=(await fake.log()).find(row=>row.cwd);await assert.rejects(access(spawned.cwd));
+ }
+});
+test('runner times out a hanging turn and removes its job directory',{timeout:15000},async t=>{
+ const fake=await fakeCli(t,'hang'),timeoutMs=2000,runner=createCodexRunner({CODEX_BIN:fake.binary},{timeoutMs});
+ const realTimeout=setTimeout;
+ t.mock.timers.enable({apis:['setTimeout']});
+ const call=runner.run({instructions:'test',prompt:'test',generateImage:true});
+ void call.catch(()=>{});
+ try{
+  // 等子进程进入推理轮次再推进时钟，避免机器忙时把进程启动耗时当成推理超时。
+  const deadline=Date.now()+10000;
+  let rows=await fake.log().catch(()=>[]);
+  while(!rows.some(row=>row.method==='turn/start')){
+   assert.ok(Date.now()<deadline,'the fake CLI never received turn/start');
+   await new Promise(resolve=>realTimeout(resolve,20));
+   rows=await fake.log().catch(()=>[]);
+  }
+  t.mock.timers.tick(timeoutMs);
+  await assert.rejects(call,error=>error instanceof CodexError&&error.message==='TIMEOUT');
+  await assert.rejects(access(rows.find(row=>row.cwd).cwd));
+ }finally{
+  t.mock.timers.reset();
+  await stopCodexProcesses();
+  await call.catch(()=>{});
  }
 });
 test('stopping Codex processes rejects the in-flight call, which is how a desktop quit reaches the queue',async t=>{
