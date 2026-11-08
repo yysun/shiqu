@@ -141,8 +141,10 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
    const label=status==='match'?(targetTitle?'已核对':'符合'):status==='rejected'?'不符合':checkingIds.has(id)?'核对中':'待核对';
    return <li key={id} data-status={status}>
     <div className="yu-extraction-candidate-copy"><strong>{title}</strong>{summary&&<p>{summary}</p>}{sourceLabel&&<small>{sourceLabel}</small>}</div>
-    <span className="yu-extraction-candidate-status">{label}{matchScore!==undefined&&<span className="yu-extraction-candidate-score" aria-label={`主题贴合度 ${matchScore}%`}>{matchScore}%</span>}</span>
-    {choice&&<button type="button" aria-label={`${onReplace?'选择并替换':'选择'} ${title}`} aria-pressed={!!current} disabled={(busy||session.state==='running'&&intake.phase==='preparing')&&!current} onClick={()=>void select(choice.batch,choice.index)}>{current?'已选':onReplace?'选择并替换':'选择'}</button>}
+    <div className="yu-extraction-candidate-controls">
+     <span className="yu-extraction-candidate-status">{label}{matchScore!==undefined&&<span className="yu-extraction-candidate-score" aria-label={`主题贴合度 ${matchScore}%`}>{matchScore}%</span>}</span>
+     {choice&&<button type="button" aria-label={`${onReplace?'选择并替换':'选择'} ${title}`} aria-pressed={!!current} disabled={(busy||session.state==='running'&&intake.phase==='preparing')&&!current} onClick={()=>void select(choice.batch,choice.index)}>{current?'已选':onReplace?'选择并替换':'选择'}</button>}
+    </div>
    </li>;
   })}</ul>}
  </>;
