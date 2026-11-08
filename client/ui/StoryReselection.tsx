@@ -57,7 +57,7 @@ export default function StoryReselection({parentId,onSubmitted,onCancelled}:{par
    else setError('暂时无法读取最新状态，请重试取消；不会回滚旧快照。');
   }finally{lock.current=false;setBusy(false);}
  }
- return <Sheet title="替换选题" busy={busy} onClose={()=>void cancel()}>
+ return <Sheet title="替换选题" fixedHeight busy={busy} onClose={()=>void cancel()}>
   <p className="yu-sheet-intro">书架保留一张卡片，旧结果保留为历史。选择后先准备原文，再确认制作；原故事的暂停状态会保留。</p>
   {loading?<p role="status">正在打开选题…</p>:draft?<StoryCreationSetup session={draft} book={draft.selection.customBook||draft.selection.bookId} busy={busy} onAction={act} onReplace={replace} progress={{busy:false,controlBusy:busy,error:'',onControl:async()=>{},onRetry:()=>{},onBack:()=>void cancel()}}/>:<button type="button" onClick={()=>void open()}>重新打开选题</button>}
   {error&&<p role="alert">{error}</p>}

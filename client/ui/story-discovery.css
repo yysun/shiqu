@@ -2,9 +2,16 @@
 .yu-discovery-submit{margin-top:24px}
 .yu-extraction-query{margin:20px 0 26px}
 .yu-extraction-help{margin:12px 0 0;color:#718260;font-size:12px;line-height:1.7;text-align:left}
-.yu-extraction-status{margin:0 0 18px;padding:10px 12px;border-left:2px solid #a6b497;background:#f1f3e9;color:#45643b;font-size:13px;line-height:1.7;overflow-wrap:anywhere}
-.yu-extraction-status p{margin:0}
-.yu-extraction-status .yu-extraction-status-detail{margin-top:6px;color:#718260;font-size:12px}
+/* 候选增量写入时，抽屉顶边、状态栏和操作链接的位置保持固定。 */
+.yu-sheet.yu-sheet-fixed-height{box-sizing:border-box;height:min(760px,92dvh)}
+.yu-candidate-search{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;margin:0 0 12px}
+.yu-candidate-search-status{display:flex;align-items:center;gap:5px;min-height:44px;margin:0;color:#45643b;font-size:13px;font-weight:600;line-height:1.35}
+.yu-candidate-search-icon{display:flex;flex:0 0 14px}
+.yu-candidate-search-actions{display:grid;grid-template-columns:repeat(2,4.5em);column-gap:4px;font-size:12px}
+.yu-candidate-search-actions>.story-flow-link{white-space:nowrap}
+.yu-search-details{padding:12px;border-left:2px solid #a6b497;background:#f1f3e9;color:#45643b;font-size:13px;line-height:1.7;overflow-wrap:anywhere}
+.yu-search-details p{margin:0}
+.yu-search-details p+p{margin-top:6px}
 .yu-extraction-context{margin:0 0 14px;padding-bottom:12px;border-bottom:1px solid var(--yu-line,#dce1d2);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
 .yu-extraction-context .yu-setting-row.yu-story-name{padding:0 0 4px;border:0}
 .yu-extraction-meta-row{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:4px 12px}

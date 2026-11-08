@@ -27,13 +27,13 @@ test('discovery stays in the picker and selection opens one continuous story flo
   const waiting={...choosing,state:'running',intake:{...choosing.intake,phase,search:{state:'searching'},batches:[]}};
   assert.equal(storyCreationTitle(waiting),'选择故事');
   const opening=renderToStaticMarkup(createElement(Setup,{...props,session:waiting}));
-  assert.match(opening,/正在准备提取/);assert.doesNotMatch(opening,/data-stage=|生成进展|制作故事|故事流程|yu-generation-stage/);
+  assert.match(opening,/正在查找…/);assert.doesNotMatch(opening,/正在准备提取|已找到 0 篇|data-stage=|生成进展|制作故事|故事流程|yu-generation-stage/);
  }
  for(const phase of ['preparing','confirming','confirmed'])assert.equal(storyCreationTitle({...session,intake:{...session.intake,phase}}),'故事流程');
  const incomplete=renderToStaticMarkup(createElement(Setup,{...props,session:{...choosing,intake:{...choosing.intake,batches:[{stories:[],note:'原文已读完，但有未能判断的故事，主题检查尚不完整。'}]}}}));
- assert.match(incomplete,/未能判断的故事/);assert.doesNotMatch(incomplete,/还没有找到符合主题/);
+ assert.match(incomplete,/未找到故事/);assert.match(incomplete,/>查找详情<\/a>/);
  const candidates=renderToStaticMarkup(createElement(Setup,{...props,session:choosing}));
- assert.match(candidates,/已找到 1 篇故事/);assert.doesNotMatch(candidates,/完整审片流程|开始制作|<textarea|叙事详略|<select|候选批次/);
+ assert.match(candidates,/已找到 1 篇/);assert.doesNotMatch(candidates,/完整审片流程|开始制作|<textarea|叙事详略|<select|候选批次/);
  // The review tools stay reachable once a reused first image exists; a clean story has no need of them.
  const reviewProps={busy:false,error:'',onScript:noop,onEdit:noop,onRetry:noop,onDrawAnyway:noop},story=image=>({original:{},pages:[{image}]}),issue={page:3,problem:'配文含混。',instruction:'说清楚。'};
  assert.match(renderToStaticMarkup(createElement(Review,{...reviewProps,session:{story:story('/a.png'),reviewIssues:[issue]}})),/跳过问题并绘图/);
@@ -63,7 +63,7 @@ test('discovery stays in the picker and selection opens one continuous story flo
  const searching=renderToStaticMarkup(createElement(Setup,{...props,session:{...session,intake:{...session.intake,search:{state:'searching'}}}}));
  assert.doesNotMatch(searching,/正在寻找更多故事|正在提取，找到的故事会逐篇显示/);assert.match(searching,/开始制作/);assert.doesNotMatch(searching,/<button[^>]*disabled[^>]*>开始制作/);
  const pausedSearch=renderToStaticMarkup(createElement(Setup,{...props,session:{...session,generationControl:'paused',intake:{...session.intake,search:{state:'searching'}}}}));
- assert.match(pausedSearch,/提取已暂停/);assert.doesNotMatch(pausedSearch,/正在寻找更多故事/);
+ assert.match(pausedSearch,/重新选择故事/);assert.doesNotMatch(pausedSearch,/yu-candidate-search-status|正在准备提取/);
  const pausedConfirmation=renderToStaticMarkup(createElement(Setup,{...props,session:{...session,generationControl:'paused'}}));
  assert.match(pausedConfirmation,/>开始制作<\/(?:button|a)>/);assert.doesNotMatch(pausedConfirmation,/>恢复生成<\/a>/);
  const unprepared={...session,frameRecommendation:null,intake:{...session.intake,phase:'choosing'}};
@@ -169,10 +169,15 @@ test('discovery stays in the picker and selection opens one continuous story flo
  assert.match(started,/生成进展/);assert.match(started,/data-stage="plan"/);assert.doesNotMatch(started,/>开始制作<\/(?:button|a)>/);
  const collected={...choosing,intake:{...choosing.intake,batches:[...choosing.intake.batches,{stories:[{title:'佝偻承蜩',description:'追加找到的故事。'},{title:'庄周梦蝶',description:'同名但出处不同的选项。',sourceLabel:'另一处原文'}],note:''}]}};
  const all=renderToStaticMarkup(createElement(Setup,{...props,session:collected}));
- assert.match(all,/已找到 3 篇故事/);assert.match(all,/佝偻承蜩|追加找到的故事/);assert.match(all,/另一处原文/);assert.equal((all.match(/<strong>庄周梦蝶<\/strong>/g)||[]).length,2);assert.doesNotMatch(all,/<select|候选批次/);
+ assert.match(all,/已找到 3 篇/);assert.match(all,/佝偻承蜩|追加找到的故事/);assert.match(all,/另一处原文/);assert.equal((all.match(/<strong>庄周梦蝶<\/strong>/g)||[]).length,2);assert.doesNotMatch(all,/<select|候选批次/);
+ const collecting=renderToStaticMarkup(createElement(Setup,{...props,session:{...collected,intake:{...collected.intake,search:{state:'searching'},progress:{stage:'verifying',completed:1,total:2,completedChars:100,totalChars:200,currentChapters:['齐物论']}}}}));
+ assert.doesNotMatch(collecting,/齐物论|正在逐篇核对检索候选/);
+ assert.match(collecting,/正在查找… 已找到 3 篇<\/p>/);
+ assert.match(collecting,/<a[^>]*aria-disabled="true"[^>]*>继续查找<\/a>/);
+ assert.equal((collecting.match(/已找到 3 篇/g)||[]).length,1);
 
  const paused=renderToStaticMarkup(createElement(Setup,{...props,session:{...choosing,generationControl:'paused'}}));
- assert.match(paused,/恢复生成/);
+ assert.match(paused,/>恢复查找<\/a>/);assert.match(paused,/查找已暂停/);
  const failed=renderToStaticMarkup(createElement(Setup,{...props,session:{...choosing,state:'failed',error:'受控提取失败',retryAllowed:true}}));
  assert.match(failed,/重试|受控提取失败/);
 

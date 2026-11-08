@@ -24,5 +24,6 @@ export function StorySettingsContent({story,session,busy,disabled,onBack,onRenam
  </fieldset>;
 }
 export default function StorySettingsPanel(props:Props){
- return <Sheet title="故事设置" busy={props.busy} onClose={props.onClose}>{StorySettingsContent(props)}</Sheet>;
+ const intake=props.session?.intake;
+ return <Sheet title="故事设置" fixedHeight={!!intake&&!intake.selected&&intake.phase!=='confirmed'} busy={props.busy} onClose={props.onClose}>{StorySettingsContent(props)}</Sheet>;
 }

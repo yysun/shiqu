@@ -10,7 +10,7 @@ import {DISCARD_PROMPT,historySteps} from './historySteps';
 
 const sheetLocks=new Set<HTMLDialogElement>();
 let restoreSheetScroll:(()=>void)|null=null;
-export default function Sheet({title,onClose,children,busy=false}:{title:string;onClose:()=>void;children:React.ReactNode;busy?:boolean}) {
+export default function Sheet({title,onClose,children,busy=false,fixedHeight=false}:{title:string;onClose:()=>void;children:React.ReactNode;busy?:boolean;fixedHeight?:boolean}) {
  const dialogRef=useRef<HTMLDialogElement>(null),contentRef=useRef<HTMLElement>(null);
  const latest=useRef({onClose,busy});latest.current={onClose,busy};
  const [under,setUnder]=useState<string|null>(null);
@@ -50,5 +50,5 @@ export default function Sheet({title,onClose,children,busy=false}:{title:string;
    if(prior?.isConnected)prior.focus({preventScroll:true});
   };
  },[]);
- return <dialog className="yu-backdrop" ref={dialogRef} aria-label={title} aria-modal="true" onCancel={e=>{e.preventDefault();requestClose();}} onClick={e=>{if(!busy&&e.target===e.currentTarget)onClose();}}><section className="yu-sheet" tabIndex={-1} ref={contentRef} aria-busy={busy}><div className="yu-handle"/><header>{under?<div className="yu-sheet-title"><span className="yu-sheet-return">返回「{under}」</span><h2>{title}</h2></div>:<h2>{title}</h2>}<button className="yu-icon" disabled={busy} aria-label="关闭" onClick={onClose}><X size={21}/></button></header>{children}</section></dialog>;
+ return <dialog className="yu-backdrop" ref={dialogRef} aria-label={title} aria-modal="true" onCancel={e=>{e.preventDefault();requestClose();}} onClick={e=>{if(!busy&&e.target===e.currentTarget)onClose();}}><section className={fixedHeight?'yu-sheet yu-sheet-fixed-height':'yu-sheet'} tabIndex={-1} ref={contentRef} aria-busy={busy}><div className="yu-handle"/><header>{under?<div className="yu-sheet-title"><span className="yu-sheet-return">返回「{under}」</span><h2>{title}</h2></div>:<h2>{title}</h2>}<button className="yu-icon" disabled={busy} aria-label="关闭" onClick={onClose}><X size={21}/></button></header>{children}</section></dialog>;
 }

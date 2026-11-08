@@ -80,10 +80,41 @@ test('提取页直接继续旧草稿，已开始的任务不重复提交标题',
  setup.render();
  assert.deepEqual(actions,[{action:'more'}]);
  assert.equal(contains(first,'按标题提取'),false);
- assert.equal(contains(first,'正在提取'),true);
+ assert.equal(contains(first,'正在查找…'),true);
  const running={...draft,intake:{...draft.intake,phase:'discovering',search:{state:'searching'}}};
  mount(Setup,{...input,session:running}).render();
  assert.equal(actions.length,1);
+});
+
+test('查找详情与候选共用状态栏，切换视图不发起新查找',async()=>{
+ const {Setup,mount}=await load();
+ const draft=session(settings);
+ const batch={stories:[{title:'濠梁之辩'}],note:''};
+ const intake={...draft.intake,phase:'choosing',selected:undefined,batches:[batch]};
+ const actions=[];
+ const input={...props(draft),retainKey:undefined,onAction:async command=>actions.push(command)};
+ const snapshot=(search,more={})=>({...input,session:{...draft,intake:{...intake,search,...more}}});
+ const reading={stage:'verifying',completed:1,total:2,completedChars:100,totalChars:200,currentChapters:['齐物论']};
+ const running=snapshot({state:'searching'},{progress:reading});
+ const picker=mount(Setup,running);
+ function find(node,label){
+  if(Array.isArray(node))return node.map(child=>find(child,label)).find(Boolean);
+  if(!node?.props)return;
+  return node.props.children===label?node:find(node.props.children,label);
+ }
+ let tree=picker.render();
+ assert.equal(contains(tree,'正在查找… 已找到 1 篇'),true);
+ assert.equal(find(tree,'继续查找').props.disabled,true);
+ find(tree,'查找详情').props.onClick();tree=picker.render();
+ assert.equal(contains(tree,'齐物论 · 已处理 1 / 2 篇候选 · 已处理 100 / 200 字'),true);
+ assert.equal(contains(tree,'濠梁之辩'),false);
+ tree=picker.render(snapshot({state:'idle'},{batches:[batch,{stories:[],note:'原文已读完。'}]}));
+ assert.equal(contains(tree,'原文已读完。'),true);
+ find(tree,'返回候选').props.onClick();tree=picker.render();
+ assert.equal(contains(tree,'濠梁之辩'),true);
+ assert.deepEqual(actions,[]);
+ find(tree,'继续查找').props.onClick();
+ assert.deepEqual(actions,[{action:'more'}]);
 });
 
 test('title search keeps typed input across a remount and resets only when the session or title changes',async()=>{

@@ -4,7 +4,7 @@
 // Extraction, preparation and human confirmation remain separate, with timings bound to real work.
 // 传入 retainKey 时，未保存的设置与打开的子面板跨布局切换保留；恢复后只要服务器保存值未变，就不提示“另一台设备更新了制作内容”。
 import StoryFlowAction from './StoryFlowAction';
-import {readingChapterLabel} from '@/lib/reader-suggestions';
+import {maxSuggestionBatches,readingChapterLabel} from '@/lib/reader-suggestions';
 import {useEffect,useRef,useState} from 'react';
 import {useRetainedState,hasRetained,retainedValue,retain} from './useRetainedState';
 import type {ComponentProps} from 'react';
@@ -19,7 +19,6 @@ import Sheet from './StorySheet';
 import StoryBackToShelf from './StoryBackToShelf';
 import StorySource from './StorySource';
 import StoryGenerationStatus from './StoryGenerationStatus';
-import StoryGenerationControl from './StoryGenerationControl';
 import StoryRetry from './StoryRetry';
 import StoryExtractionSearch from './StoryExtractionSearch';
 import StoryExtractionContext from './StoryExtractionContext';
@@ -35,7 +34,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  const [error,setError]=useState('');
  const [finding,setFinding]=useState(false);
  const part=(name:string)=>retainKey&&retainKey+':'+name;
- const [editing,setEditing]=useRetainedState<SetupTab|null>(part('editing'),null),[choosing,setChoosing]=useRetainedState(part('choosing'),false),[sourceOpen,setSourceOpen]=useRetainedState(part('source'),false);
+ const [editing,setEditing]=useRetainedState<SetupTab|null>(part('editing'),null),[choosing,setChoosing]=useRetainedState(part('choosing'),false),[sourceOpen,setSourceOpen]=useRetainedState(part('source'),false),[searchDetailsOpen,setSearchDetailsOpen]=useRetainedState(part('search-details'),false);
  const [settings,setSettings]=useRetainedState(part('settings'),()=>({...saved,length:'auto' as const})),[remote,setRemote]=useRetainedState(part('remote'),false);
  const baseline=useRef(hasRetained(part('baseline'))?retainedValue<string>(part('baseline')!):savedKey),own=useRef(false),shown=useRef(session.id);
  // 布局切换后恢复的挂载：服务器保存值仍等于恢复的基线时保持原样（StrictMode 重复执行也不误报）。
@@ -81,14 +80,16 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  function adoptRemote(){baseline.current=savedKey;setSettings({...saved,length:'auto'});setRemote(false);}
  function keepEdits(){baseline.current=savedKey;setRemote(false);void act({action:'draft',settings});}
  const remoteChoice=remote&&<div className="yu-revision-conflict-note" role="status"><p>另一台设备更新了制作内容。你的修改还没有保存。</p><div className="yu-revision-buttons"><StoryFlowAction disabled={busy} onClick={adoptRemote}>采用最新内容</StoryFlowAction><StoryFlowAction disabled={busy} onClick={keepEdits}>保留我的修改</StoryFlowAction></div></div>;
- const findMore=(!targetTitle||search.state==='failed')&&<StoryFlowAction asLink={!!selected} type="button" className="yu-refresh-batch" aria-busy={searching&&!paused} disabled={busy||searching||intake.batches.length>=40} onClick={()=>void act({action:'more'})}>{searching&&!paused&&<Loader2 size={14} className="spin" aria-hidden="true"/>}{searching?(paused?'恢复后继续查找':'正在查找…'):search.state==='failed'?'重试查找':'继续找故事'}</StoryFlowAction>;
- const terminalBatch=intake.batches.at(-1),terminalNote=terminalBatch?.stories.length===0?terminalBatch.note:'';
- const candidateList=<>
-  <div className="yu-batch-heading"><h3>已找到 {candidates.length} 篇故事</h3>{findMore}</div>
-  <div className="yu-candidate-list">{candidates.map(({candidate,batchIndex,index})=><button type="button" key={`${batchIndex}:${index}`} aria-pressed={isSelected(batchIndex,index)} className={isSelected(batchIndex,index)?'selected':''} disabled={(busy||session.state==='running'&&intake.phase==='preparing')&&!isSelected(batchIndex,index)} onClick={()=>void select(batchIndex,index)}><strong>{candidate.title}</strong><span className="yu-candidate-description">{candidate.description}</span>{candidate.sourceLabel&&<small>{candidate.sourceLabel}</small>}<span className="yu-candidate-action">{isSelected(batchIndex,index)?'已选这篇':onReplace?'选择并替换':'选择这篇'}</span></button>)}</div>
-  {!searching&&search.state!=='failed'&&(!candidates.length||terminalBatch?.stories.length===0)&&<p className="yu-candidate-note">{terminalNote||(candidates.length?'暂时没有找到更多故事，已找到的故事都在上方。':'还没有找到符合主题的故事，可以继续查找，或换个主题。')}</p>}
-  {intake.batches.length>=40&&<p className="yu-candidate-note">已达到候选保存上限，请从已找到的故事中选择，或换个主题。</p>}
- </>;
+ const terminalBatch=intake.batches.at(-1);
+ const atLimit=intake.batches.length>=maxSuggestionBatches;
+ const failedSearch=search.state==='failed';
+ const initialRetry=!onReplace&&!selected&&!terminalBatch&&!!error;
+ const canResume=paused&&!selected&&!onReplace;
+ const searchLabel=paused?'查找已暂停':searching?'正在查找…':failedSearch||initialRetry?'查找未完成':atLimit?'已达候选上限':terminalBatch?.stories.length===0?(candidates.length?'暂无更多故事':'未找到故事'):candidates.length?'':onReplace?'等待提取':'正在提取…';
+ const searchSummary=[searchLabel,candidates.length?`已找到 ${candidates.length} 篇`:''].filter(Boolean).join(' ');
+ const canFindMore=failedSearch||initialRetry||!targetTitle;
+ const actionLabel=canResume?'恢复查找':failedSearch||initialRetry?'重试查找':'继续查找';
+ const searchAction=<StoryFlowAction disabled={busy||(canResume?progress.controlBusy:searching||paused||!terminalBatch&&!failedSearch&&!initialRetry)} onClick={()=>{if(canResume)return progress.onControl(session.id,'resume');void act({action:'more'});}}>{actionLabel}</StoryFlowAction>;
  // The service records preparation as count; confirmation is a human gate with no execution time.
  const {count:preparationSeconds,...workDurations}=session.generationProgress?.stageDurations||{};
  const stageDurations={...workDurations,...(preparationSeconds!==undefined?{prepare:preparationSeconds}:{})};
@@ -105,6 +106,11 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  });
  const reading=intake.progress;
  const extractionStep=reading?.stage==='cache'?'正在查找缓存':reading?.stage==='retrieving'?'正在检索候选故事':reading?.stage==='selecting'?'正在整理候选故事':reading?.stage==='verifying'?'正在逐篇核对检索候选':reading?.stage==='checking'?'正在核对原文与提取条件':reading?'正在阅读原文':'正在准备提取';
+ const extractionDetail=[
+  reading?.currentChapters?.length?readingChapterLabel(reading.currentChapters):null,
+  reading?.stage==='verifying'?`已处理 ${reading.completed} / ${reading.total} 篇候选`:null,
+  reading?.totalChars?`已处理 ${reading.completedChars.toLocaleString('zh-CN')} / ${reading.totalChars.toLocaleString('zh-CN')} 字`:null,
+ ].filter(Boolean).join(' · ');
  const retrievalLabels={
   hybrid:'文字和向量联合检索',
   'no-query-vector':'文字检索（缺少当前查询的向量）',
@@ -113,35 +119,43 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   'no-candidates':'索引无可用候选，改读原文',
   scan:'按原文范围逐段读取',
  };
- const extractionStatus=searching&&<div className="yu-extraction-status" role="status">
-  <p><strong>{paused?'提取已暂停':extractionStep}</strong></p>
-  {!paused&&(reading?.retrieval||reading?.cachedMatches!==undefined)&&<p className="yu-extraction-status-detail">
-   {reading?.cachedMatches!==undefined&&<span>{reading.cachedMatches?`缓存命中 ${reading.cachedMatches} 篇`:'未命中已确认结果缓存'}</span>}
-   {reading?.retrieval&&<span>{reading.cachedMatches!==undefined?' · ':''}{retrievalLabels[reading.retrieval]}</span>}
-  </p>}
-  {!paused&&<p className="yu-extraction-status-detail">
-   {!!reading?.currentChapters?.length&&<span>{readingChapterLabel(reading.currentChapters)} · </span>}
-   {reading?.stage==='verifying'&&<span>已处理 {reading.completed} / {reading.total} 篇候选 · </span>}
-   {!!reading?.totalChars&&<span>已处理 {reading.completedChars.toLocaleString('zh-CN')} / {reading.totalChars.toLocaleString('zh-CN')} 字 · </span>}
-   已找到 {candidates.length} 篇
-  </p>}
+ const searchDetail=<div className="yu-search-details" role="status">
+  <p><strong>{searchSummary}</strong></p>
+  {searching&&!paused&&<>
+   <p>{extractionStep}</p>
+   {(reading?.retrieval||reading?.cachedMatches!==undefined)&&<p>
+    {reading?.cachedMatches!==undefined&&(reading.cachedMatches?`缓存命中 ${reading.cachedMatches} 篇`:'未命中已确认结果缓存')}
+    {reading?.retrieval&&<>{reading.cachedMatches!==undefined?' · ':''}{retrievalLabels[reading.retrieval]}</>}
+   </p>}
+   {extractionDetail&&<p>{extractionDetail}</p>}
+  </>}
+  {failedSearch&&!searching&&<p>{search.error}{candidates.length?' 已找到的故事仍可选择。':''}</p>}
+  {!searching&&!paused&&!failedSearch&&terminalBatch?.stories.length===0&&<p>{terminalBatch.note||(candidates.length?'已找到的故事仍可选择。':'可以继续查找，或修改提取条件。')}</p>}
+  {atLimit&&<p>已达到候选保存上限，请从已找到的故事中选择，或修改提取条件。</p>}
  </div>;
- const extractionError=search.state==='failed'&&<div className="yu-batch-error" role="alert"><p>提取未完成。{search.error}</p><p>已找到的故事会保留，可以重试或直接选择。</p>{selected&&findMore}</div>;
+ const candidateList=<>
+  <div className="yu-candidate-search" aria-label="查找故事">
+   <p className="yu-candidate-search-status" role="status"><span className="yu-candidate-search-icon">{searching&&!paused&&<Loader2 size={14} className="spin" aria-hidden="true"/>}</span>{searchSummary}</p>
+   <div className="yu-candidate-search-actions">
+    <StoryFlowAction onClick={()=>setSearchDetailsOpen(open=>!open)}>{searchDetailsOpen?'返回候选':'查找详情'}</StoryFlowAction>
+    {(canResume||canFindMore&&!atLimit)&&searchAction}
+   </div>
+  </div>
+  {searchDetailsOpen?searchDetail:<div className="yu-candidate-list">{candidates.map(({candidate,batchIndex,index})=><button type="button" key={`${batchIndex}:${index}`} aria-pressed={isSelected(batchIndex,index)} className={isSelected(batchIndex,index)?'selected':''} disabled={(busy||session.state==='running'&&intake.phase==='preparing')&&!isSelected(batchIndex,index)} onClick={()=>void select(batchIndex,index)}><strong>{candidate.title}</strong><span className="yu-candidate-description">{candidate.description}</span>{candidate.sourceLabel&&<small>{candidate.sourceLabel}</small>}<span className="yu-candidate-action">{isSelected(batchIndex,index)?'已选这篇':onReplace?'选择并替换':'选择这篇'}</span></button>)}</div>}
+ </>;
+ const extractionError=failedSearch&&<div className="yu-batch-error" role="alert"><p>提取未完成。{search.error}</p><p>已找到的故事仍可选择。</p>{!atLimit&&searchAction}</div>;
  return <section className="yu-creation-setup" aria-label={selected?'故事流程':'选择故事'}>
-  {!selected&&<StoryExtractionContext selection={session.selection} book={book} backAction={onBackToDiscovery&&<StoryFlowAction disabled={busy} onClick={onBackToDiscovery}><ArrowLeft size={14} aria-hidden="true"/>返回修改提取条件</StoryFlowAction>}/>}
+  {!selected&&<StoryExtractionContext selection={session.selection} book={book} backAction={onBackToDiscovery&&<StoryFlowAction disabled={busy} onClick={onBackToDiscovery}><ArrowLeft size={14} aria-hidden="true"/>修改提取条件</StoryFlowAction>}/>}
   {!selected&&onReplace&&<StoryExtractionSearch retainKey={retainKey&&'search:'+session.id} sessionId={session.id} title={targetTitle} local={session.selection.bookId!=='other'} busy={busy} hasCandidates={candidates.length>0} onSearch={title=>act({action:'search',title})}/>}
   {selected&&progress.showSummary!==false&&<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3></div>}
-  {!selected&&extractionStatus}
-  {!selected&&extractionError}
-  {!selected&&!onReplace&&search.state==='idle'&&!intake.batches.length&&error&&<StoryFlowAction disabled={busy||finding} onClick={()=>void act({action:'more'})}>重试提取</StoryFlowAction>}
+  {!selected&&candidateList}
   {!selected&&!editing&&remoteChoice}
-  {!selected&&(intake.batches.length>0||search.state==='failed')&&candidateList}
   {selected?<StoryGenerationStatus session={session} {...progress} navigation={undefined} compact={ready} control={ready?null:undefined} stages={stages} timeline={{stageDurations}} stageContent={{source:<>
    <div className="yu-extraction-actions" role="group" aria-label="故事来源操作">
     <StoryFlowAction disabled={busy||!ready&&!session.generationProgress?.sourceReady} onClick={()=>setSourceOpen(true)}>原文</StoryFlowAction>
     <StoryFlowAction disabled={busy} onClick={()=>setChoosing(true)}>重新选择故事</StoryFlowAction>
    </div>
-   {extractionStatus}{extractionError}
+   {extractionError}
   </>,prepare:<>
    {preparable&&<StoryFlowAction type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'choose',batch:intake.selected!.batch,index:intake.selected!.index,settings:preferences})}>准备这篇</StoryFlowAction>}
   </>,count:<>
@@ -157,11 +171,10 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   </>}}/>:<>
    {(session.error||progress.error)&&<p className="yu-batch-error" role="alert">{progress.error||session.error}</p>}
    {(session.state==='failed'||!!progress.error)&&<StoryRetry session={session} busy={progress.busy} onRetry={progress.onRetry}/>}
-   {paused&&<StoryGenerationControl session={session} busy={progress.controlBusy} onControl={progress.onControl} primary/>}
    {!onReplace&&!progress.hideBack&&<StoryBackToShelf onBack={progress.onBack}/>}
   </>}
   {!selected&&error&&<p className="yu-batch-error" role="alert">{error}</p>}
-  {choosing&&<Sheet title="重新选择故事" busy={busy} onClose={()=>setChoosing(false)}>{candidateList}{error&&<p role="alert">{error}</p>}</Sheet>}
+  {choosing&&<Sheet title="重新选择故事" fixedHeight busy={busy} onClose={()=>{setSearchDetailsOpen(false);setChoosing(false);}}>{candidateList}{error&&<p role="alert">{error}</p>}</Sheet>}
   {sourceOpen&&<Sheet title="故事原文" onClose={()=>setSourceOpen(false)}><StorySource sessionId={session.id} book={book}/></Sheet>}
   {editing&&<Sheet title="修改故事" busy={busy} onClose={closeEditor}>
    {remoteChoice}
