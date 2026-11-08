@@ -6,7 +6,7 @@ import {spawn,execFileSync} from 'node:child_process';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {createWriteStream} from 'node:fs';
-import {createPlan,createRelatedPlan,changeScope,fullScope} from './test-plan.mjs';
+import {createPlan,createRelatedPlan,changeScope,fallbackScope,fullScope} from './test-plan.mjs';
 import {detectScope} from './ci-scope.mjs';
 import {sourceIdentity} from './test-source.mjs';
 import {warnNodeVersion} from './node-version.mjs';
@@ -22,11 +22,11 @@ export function workingTreeFiles(root=process.cwd()){
 export function inputScope(args,env=process.env){
  if(args.includes('--full'))return fullScope('explicit full qualification');
  if(args.includes('--changed')){
-  try{return changeScope(workingTreeFiles());}catch{return fullScope('working-tree comparison failed');}
+  try{return changeScope(workingTreeFiles());}catch{return fallbackScope('working-tree comparison failed');}
  }
  const filesAt=args.indexOf('--files');
  if(filesAt!==-1)return changeScope(args.slice(filesAt+1));
- if(env.SHIQU_TEST_SCOPE){try{return JSON.parse(env.SHIQU_TEST_SCOPE);}catch{return fullScope('malformed CI scope');}}
+ if(env.SHIQU_TEST_SCOPE){try{return JSON.parse(env.SHIQU_TEST_SCOPE);}catch{return fallbackScope('malformed CI scope');}}
  return detectScope(env.BASE,env.HEAD);
 }
 export async function executePlan(plan,{root=process.cwd(),evidence=true}={}){

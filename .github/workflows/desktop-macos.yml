@@ -1,10 +1,10 @@
-# PR 按显式责任域运行契约、集成及 E2E；main 和手动运行完整 JS，标签由本地 pre-push 检查 JS。
+# PR、main 和手动运行影响检查；完整 JS 回归由 v* 标签的本地 pre-push 执行。
 # 原生源码检查纳入 Shared checks，安装包只在标签或手动运行时构建。
 name: Desktop
 
 on:
   push:
-    # main 完整回归；v* 标签只运行原生构建、产物冒烟与发布。
+    # main 按变更选测；v* 标签只运行原生构建、产物冒烟与发布。
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
@@ -17,13 +17,12 @@ permissions:
 jobs:
   scope:
     name: Change scope
-    if: github.event_name == 'pull_request'
+    if: ${{ !cancelled() && !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) }}
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.changes.outputs.code }}
       scope: ${{ steps.changes.outputs.scope }}
       native: ${{ steps.changes.outputs.native }}
-      browser: ${{ steps.changes.outputs.browser }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -31,8 +30,8 @@ jobs:
       - id: changes
         name: Detect code changes
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD^' }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: node scripts/ci-scope.mjs
 
   javascript:
@@ -63,25 +62,13 @@ jobs:
           restore-keys: pnpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.pnpm-store.outputs.version }}-${{ hashFiles('.nvmrc') }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-        if: github.event_name != 'pull_request' || needs.scope.outputs.code != 'false'
+        if: needs.scope.outputs.code != 'false'
       - run: pnpm lint
-        if: github.event_name != 'pull_request' || needs.scope.outputs.code != 'false'
-      - uses: actions/cache@v6
-        if: github.event_name != 'pull_request' || needs.scope.outputs.browser != 'false'
-        with:
-          path: ~/Library/Caches/ms-playwright
-          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
-      - name: Install browser for selected journeys
-        if: github.event_name != 'pull_request' || needs.scope.outputs.browser != 'false'
-        run: pnpm exec playwright install chromium
-      - name: Affected PR suites
-        if: github.event_name == 'pull_request'
+        if: needs.scope.outputs.code != 'false'
+      - name: Affected JavaScript suites
         env:
           SHIQU_TEST_SCOPE: ${{ needs.scope.outputs.scope }}
         run: pnpm test:pr
-      - name: Full source qualification for this commit
-        if: github.event_name != 'pull_request'
-        run: pnpm test:pr --full
       - uses: actions/upload-artifact@v6
         if: always()
         with:

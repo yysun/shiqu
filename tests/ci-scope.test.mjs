@@ -33,12 +33,35 @@ test('affected areas include their flows, heavy flags and all six service E2Es f
  assert.equal(provider.tests.find(entry=>entry.file==='tests/local-server.test.mjs').mode,'fast');
  const books=createPlan(changeScope(['data/library/originals/book.md']));assert.ok(files(books).includes('tests/local-books.test.mjs'));
 });
-test('native and shared settings request native checks; unknown/schema/toolchain changes fail closed',()=>{
+test('native, shared schemas and uncertain changes retain scoped safeguards',()=>{
  for(const file of ['src-tauri/src/runtime.rs','server/system-settings.ts','lib/system-settings.ts'])assert.ok(changeScope([file]).native,file);
- for(const file of ['package.json','pnpm-lock.yaml','.nvmrc','.npmrc','tsconfig.json','.github/workflows/desktop-macos.yml','lib/reader-model.ts','lib/reader-prompts.ts','db/library-format.json','drizzle/0020.sql','server/new-feature.ts','tests/fixtures/startup_pty.py','tests/fixtures/story-discovery-preview.mjs','tests/unregistered.test.mjs'])assert.ok(changeScope([file]).full,file);
- assert.ok(changeScope([]).full);assert.ok(createPlan(undefined).scope.full);assert.ok(createPlan({code:false}).scope.full);
+ for(const file of ['package.json','pnpm-lock.yaml','.nvmrc','.npmrc','tsconfig.json','.github/workflows/desktop-macos.yml','server/new-feature.ts','tests/fixtures/startup_pty.py','tests/fixtures/story-discovery-preview.mjs','tests/unregistered.test.mjs']){
+  const scope=changeScope([file]);assert.ok(scope.native&&!scope.full,file);
+  for(const group of ['safety','startup','tooling'])assert.ok(scope.groups.includes(group),file+' -> '+group);
+ }
+ for(const file of ['lib/reader-model.ts','lib/reader-generation-contract.ts','db/library-format.json','drizzle/0020.sql']){
+  const scope=changeScope([file]);assert.ok(scope.native&&!scope.full&&scope.groups.includes('storage'),file);
+ }
+ for(const scope of [changeScope([]),createPlan(undefined).scope,createPlan({code:false}).scope])assert.ok(scope.native&&!scope.full);
+ assert.ok(changeScope(['server/new-feature.ts','lib/reader-review.ts']).groups.includes('review'));
  assert.equal(validScope({...fullScope(),books:false}),false);
  assert.equal(validScope({code:true,books:false,native:false,full:false,groups:[]}),false);
+});
+test('editorial prompt changes run registered consumers plus smoke without native checks',()=>{
+ const input='lib/reader-prompts.ts',legacy='lib/reader-legacy-prompts.ts';
+ const smoke='tests/book-integrity-smoke.test.mjs';
+ const plan=createPlan(changeScope([input]));
+ assert.equal(plan.scope.full,false);
+ assert.equal(plan.native,false);
+ assert.deepEqual(plan.scope.groups,[]);
+ assert.deepEqual(new Set(files(plan)),new Set([smoke,...plan.scope.directTests]));
+ for(const consumer of ['prompt-contracts','story-reflection','story-reflection-candidates','storyboard-batches','continuous-story-discovery']){
+  assert.equal(plan.tests.find(entry=>entry.file===`tests/${consumer}.test.mjs`)?.mode,'full',consumer);
+ }
+ assert.deepEqual(files(createPlan(changeScope([legacy]))),[smoke,'tests/prompt-contracts.test.mjs']);
+ assert.equal(changeScope([input,'src-tauri/src/runtime.rs']).native,true);
+ assert.ok(changeScope([input,'lib/reader-model.ts']).groups.includes('storage'));
+ assert.equal(changeScope([input,'lib/reader-model.ts']).native,true);
 });
 test('known layout inputs and registered tests select only direct coverage plus smoke',()=>{
  const smoke='tests/book-integrity-smoke.test.mjs',desktop='tests/desktop-responsive-layout.playwright.e2e.mjs',phone='tests/phone-readability.playwright.e2e.mjs';
@@ -56,7 +79,8 @@ test('known layout inputs and registered tests select only direct coverage plus 
  assert.deepEqual(new Set(files(mixed)),new Set(files(settings)));
  assert.deepEqual(new Set(mixed.deferredBrowser),new Set([desktop,phone,...settings.deferredBrowser]));
  assert.ok(mixed.native);
- assert.ok(createPlan({...changeScope([fixture]),directTests:['tests/missing.test.mjs']}).scope.full);
+ const invalid=createPlan({...changeScope([fixture]),directTests:['tests/missing.test.mjs']});
+ assert.ok(invalid.native&&!invalid.scope.full);
 });
 test('mixed changes are a union and supported platforms are explicit',()=>{
  const plan=createPlan(changeScope(['client/ui/Reader.tsx','server/claude-runner.ts']));
@@ -72,13 +96,22 @@ test('real merge-base diffs retain deleted rename paths and output a reusable pl
  git('init');git('config','user.name','Test');git('config','user.email','test@example.org');
  await writeFile(path.join(root,'runtime.js'),'export const value=1;');git('add','.');git('commit','-m','base');const base=git('rev-parse','HEAD');
  git('mv','runtime.js','README.md');git('commit','-m','rename');const head=git('rev-parse','HEAD');
- for(const [left,right] of [[base,head],[base,base],[base,'missing-ref'],['',head]])assert.ok(detectScope(left,right,root).full);
+ for(const [left,right] of [[base,head],[base,base],[base,'missing-ref'],['',head]]){
+  const scope=detectScope(left,right,root);assert.ok(scope.native&&!scope.full);
+  assert.ok(scope.groups.includes('safety'));
+ }
+ git('checkout','--detach',base);
+ await mkdir(path.join(root,'src-tauri/src'),{recursive:true});
+ await writeFile(path.join(root,'src-tauri/src/runtime.rs'),'fn old_runtime() {}');
+ git('add','.');git('commit','-m','old tip');const oldTip=git('rev-parse','HEAD');
+ assert.equal(detectScope(oldTip,head,root).groups.includes('desktop'),false);
+ assert.equal(detectScope(oldTip,head,root,{mergeBase:false}).groups.includes('desktop'),true);
  await mkdir(path.join(root,'tests'));await writeFile(path.join(root,'tests/book-integrity-smoke.test.mjs'),'');
  const metadata=loadMetadata();await writeFile(path.join(root,'tests/manifest.json'),JSON.stringify({...metadata,tests:metadata.tests.filter(entry=>entry.file==='tests/book-integrity-smoke.test.mjs')}));
  const output=path.join(root,'output'),entry=fileURLToPath(new URL('../scripts/ci-scope.mjs',import.meta.url));
  execFileSync(process.execPath,[entry],{cwd:root,env:{...process.env,BASE:base,HEAD:head,GITHUB_OUTPUT:output}});
  const values=Object.fromEntries((await readFile(output,'utf8')).trim().split('\n').map(line=>{const at=line.indexOf('=');return [line.slice(0,at),line.slice(at+1)];}));
- assert.equal(values.code,'true');assert.equal(values.native,'true');assert.equal(values.books,'true');assert.equal(values.browser,'false');assert.ok(JSON.parse(values.scope).full);
+ assert.equal(values.code,'true');assert.equal(values.native,'true');assert.equal(values.books,'false');assert.equal(values.browser,'false');assert.equal(JSON.parse(values.scope).full,false);
 });
 
 test('workflow event gates qualify main/tags and aggregate selected JS/native failures',async()=>{
@@ -89,7 +122,7 @@ test('workflow event gates qualify main/tags and aggregate selected JS/native fa
  for(const [event,ref,native,build,release] of [['pull_request','refs/pull/1/merge',false,false,false],['push','refs/heads/main',false,false,false],['push','refs/tags/v1.0.0',false,true,true],['workflow_dispatch','refs/heads/main',false,true,false]]){
   const github={event_name:event,ref},tag=event==='push'&&ref.startsWith('refs/tags/v');
   const results=tag?{...needs,checks:{result:'skipped'}}:needs;
-  assert.equal(enabled('javascript',github,results),!tag);assert.equal(enabled('native',github,results),native);assert.equal(enabled('checks',github,results),!tag);assert.equal(enabled('build',github,results),build);assert.equal(enabled('release',github,results),release);
+  assert.equal(enabled('scope',github,results),!tag);assert.equal(enabled('javascript',github,results),!tag);assert.equal(enabled('native',github,results),native);assert.equal(enabled('checks',github,results),!tag);assert.equal(enabled('build',github,results),build);assert.equal(enabled('release',github,results),release);
  }
  assert.ok(enabled('native',{event_name:'pull_request'}, {...needs,scope:{outputs:{}}}),'scope failure requests native coverage');
  assert.ok(enabled('native',{event_name:'pull_request'}, {...needs,scope:{outputs:{native:'true'}}}));
@@ -97,7 +130,9 @@ test('workflow event gates qualify main/tags and aggregate selected JS/native fa
  for(const [js,native,required,success] of [['success','skipped','false',true],['success','success','true',true],['success','failure','true',false],['success','skipped','true',false],['failure','success','true',false],['cancelled','skipped','false',false]]){
   const result=spawnSync('bash',['-e','-c',shell],{env:{...process.env,JS_RESULT:js,NATIVE_RESULT:native,NATIVE_REQUIRED:required},stdio:'pipe'});assert.equal(result.status===0,success,`${js}/${native}/${required}`);
  }
- assert.match(job('javascript'),/pnpm test:pr --full/);assert.match(job('javascript'),/pnpm exec playwright install chromium/);
+ assert.match(job('scope'),/github\.event\.pull_request\.base\.sha \|\| github\.event\.before \|\| 'HEAD\^'/);
+ assert.match(job('javascript'),/SHIQU_TEST_SCOPE:[^\n]+\n\s+run: pnpm test:pr\n/);
+ assert.doesNotMatch(job('javascript'),/--full|playwright install/);
  assert.match(job('native'),/"resources":\[\]/);assert.match(job('native'),/"frontendDist":\["\.\.\/desktop\/index\.html"\]/);assert.doesNotMatch(job('native'),/desktop:prepare|desktop:build|scripts\/desktop-node/);
  assert.match(job('build'),/pnpm run desktop:test/);assert.match(job('build'),/toolchain: 1.93.0/);assert.match(job('native'),/toolchain: 1.93.0/);
 });

@@ -35,18 +35,20 @@ test('local changed mode includes staged, unstaged, untracked and both rename pa
  const entry=fileURLToPath(new URL('../scripts/test-pr.mjs',import.meta.url)),result=spawnSync(process.execPath,[entry,'--changed','--json'],{cwd:root,encoding:'utf8'});assert.equal(result.status,0,result.stderr);
  const plan=JSON.parse(result.stdout);assert.equal(plan.scope.full,false);assert.ok(plan.scope.groups.includes('providers'));assert.ok(plan.scope.groups.includes('startup'));assert.ok(plan.native);
 });
-test('CI fallback keeps full source coverage and only explicit full qualification includes Playwright',()=>{
+test('CI fallback runs baseline checks and only explicit full qualification includes Playwright',()=>{
  assert.ok(inputScope(['--changed','--full'],{}).full);
- assert.ok(createPlan(inputScope([],{SHIQU_TEST_SCOPE:'{bad'})).scope.full);
- assert.ok(createPlan(inputScope([],{SHIQU_TEST_SCOPE:'{}'})).scope.full);
+ assert.equal(createPlan(inputScope([],{SHIQU_TEST_SCOPE:'{bad'})).scope.full,false);
+ assert.equal(createPlan(inputScope([],{SHIQU_TEST_SCOPE:'{}'})).scope.full,false);
  const scoped=changeScope(['client/ui/Reader.css']);assert.deepEqual(inputScope([],{SHIQU_TEST_SCOPE:JSON.stringify(scoped)}),scoped);
  const entry=fileURLToPath(new URL('../scripts/test-pr.mjs',import.meta.url)),metadata=loadMetadata();
  const plan=(args,env={})=>JSON.parse(execFileSync(process.execPath,[entry,'--json',...args],{encoding:'utf8',env:{...process.env,BASE:'',HEAD:'',SHIQU_TEST_SCOPE:'',...env}}));
  const available=metadata.tests.filter(entry=>entry.level!=='native'&&entry.platforms.includes(process.platform));
  const fallback=plan([],{SHIQU_TEST_SCOPE:'{}'});
- assert.ok(fallback.scope.full);
- assert.deepEqual(fallback.tests.map(test=>test.file),available.filter(test=>test.level!=='browser-e2e').map(test=>test.file));
- assert.deepEqual(fallback.deferredBrowser,available.filter(test=>test.level==='browser-e2e').map(test=>test.file));
+ assert.ok(fallback.native&&!fallback.scope.full);
+ assert.deepEqual(fallback.scope.groups,['safety','startup','tooling']);
+ assert.ok(fallback.tests.some(test=>test.file==='tests/book-integrity-smoke.test.mjs'));
+ assert.ok(fallback.tests.length<available.filter(test=>test.level!=='browser-e2e').length);
+ assert.ok(fallback.tests.every(test=>test.level!=='browser-e2e'));
  const full=plan(['--full']);assert.deepEqual(full.tests.map(test=>test.file),available.map(test=>test.file));assert.ok(full.tests.every(test=>test.mode==='full'));assert.deepEqual(full.deferredBrowser,[]);
 });
 

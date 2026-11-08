@@ -672,6 +672,7 @@
       "gates": [],
       "covers": [
         "lib/reader-production-client.ts",
+        "lib/reader-prompts.ts",
         "server/generation.ts",
         "server/local-generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
@@ -4001,6 +4002,7 @@
       "gates": [],
       "covers": [
         "lib/reader-model.ts",
+        "lib/reader-prompts.ts",
         "lib/reader-review.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
@@ -4026,6 +4028,7 @@
       "covers": [
         "lib/generation-progress.ts",
         "lib/reader-engine.ts",
+        "lib/reader-prompts.ts",
         "lib/reader-repository.ts",
         "lib/reader-review.ts",
         "tests/fixtures/gemini-evidence.mjs",
