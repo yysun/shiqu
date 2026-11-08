@@ -1,0 +1,77 @@
+# 标签推送前由本地 hook 完成全量回归，CI 验证实际发布的 CLI 压缩包。
+name: Publish npm package
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build and smoke-test npm tarball
+    if: github.repository == 'yysun/shiqu' && github.event.created
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      node-version: ${{ steps.release.outputs.node-version }}
+      tarball: ${{ steps.release.outputs.tarball }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Check release tag and package
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { appendFileSync, readFileSync } from 'node:fs';
+
+          const { version, publishConfig } = JSON.parse(readFileSync('package.json', 'utf8'));
+          assert.match(version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
+          assert.equal(process.env.RELEASE_TAG, `v${version}`, 'Tag must match package.json version');
+          assert.equal(publishConfig.name, '@apprun/shiqu');
+          appendFileSync(process.env.GITHUB_OUTPUT,
+            `node-version=${process.versions.node}\ntarball=apprun-shiqu-${version}.tgz\n`);
+          JS
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:npm
+      - name: Smoke-test the release tarball
+        env:
+          TARBALL: ${{ steps.release.outputs.tarball }}
+        run: pnpm run npm:smoke "outputs/npm/$TARBALL"
+      - uses: actions/upload-artifact@v6
+        id: upload
+        with:
+          name: npm-tarball-${{ github.run_attempt }}
+          path: outputs/npm/${{ steps.release.outputs.tarball }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish verified tarball to npm
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ needs.build.outputs.node-version }}
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+      - name: Publish through npm Trusted Publishing
+        env:
+          TARBALL: ${{ needs.build.outputs.tarball }}
+        run: npm publish "./$TARBALL" --access public --ignore-scripts

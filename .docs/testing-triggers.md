@@ -82,6 +82,8 @@ The reported hosted baseline is 7s scope + 12s setup + 18s install + 15s typeche
 
 ## CI qualification
 
+A new stable version tag also triggers [npm publishing](npm-publishing.md). Its Actions jobs smoke-test the packaged CLI before publication. The tag hook supplies the browser regression.
+
 `Shared checks` aggregates JavaScript and selected native jobs for PRs, main and manual runs. Missing PR scope defaults to full JS and native checks. Main and manual runs qualify the exact current commit with all JS tests. A version tag runs the full JS plan, typecheck and lint in the installed local pre-push hook; tag Actions start at native packaging. Both platforms retain complete Cargo testing and installer smoke before release publication. Manual packaging still requires successful Shared checks. The native PR matrix uses pinned Node/JS dependencies and Rust 1.93.0, disables bundle resources and uses the checked-in desktop HTML entry as compile-time frontend context, excluding only `runtime::tests::desktop_uses_verified_bundle_and_ignores_saved_system_path`. The explicit release smoke and npm gate retain their focused eight/seven files.
 
 Pnpm store caching is retained. Selected browser jobs cache Chromium; native jobs cache Cargo registry/git/build outputs with OS, architecture, Rust version, lockfiles and Node in the key. These caches do not contain user libraries or credentials. Windows behavior and GitHub scheduling require hosted validation; local macOS evidence does not claim otherwise.
