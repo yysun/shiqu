@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {createReaderProvider} from '../server/generation.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
-import {defaultProductionDirection,defaultProductionPrompt,normalizeProductionPrompt,titleDirection,storyScopeDirection,storyOpeningDirection,narrativeMeaningDirection,sourceFidelityDirection,storyboardDirection} from '../lib/reader-prompts.ts';
+import {defaultProductionDirection,defaultProductionPrompt,normalizeProductionPrompt,titleDirection,storyScopeDirection,storyOpeningDirection,narrativeMeaningDirection,reflectionMeaningDirection,sourceFidelityDirection,storyboardDirection} from '../lib/reader-prompts.ts';
 import {legacyProductionDirection} from '../lib/reader-legacy-prompts.ts';
 import {legacyLocalReadingPrompt,legacyLocalScanJson} from '../lib/reader-local-contract.ts';
 import {makePlan,makeReflectionCandidates,makeRequirements,encoded} from './fixtures/production.mjs';
@@ -150,7 +150,22 @@ test('all providers send the same stage-specific instructions, data and strict o
  for(const stage of ['draft','outline','review','review-candidates'])assert.equal(occurrences(get(stage).instructions,storyScopeDirection),1,stage);
  assert.equal(occurrences(get('batch').instructions,storyScopeDirection),0);
  assert.equal(occurrences(get('outline').instructions,storyboardDirection),0);
+ assert.match(get('outline').instructions,/末节点优先安排主事件已有的实际后果/);
+ for(const stage of ['draft','batch','batch-later','review','review-candidates','repair'])assert.match(get(stage).instructions,/最后一幅优先落在主事件已经发生的后果/,stage);
+ for(const stage of ['frame-review','review','review-candidates'])assert.match(get(stage).instructions,/若原文写出了决定性后果，分镜却停在发令、决定或预告/,stage);
+ for(const stage of ['review','review-candidates']){
+  const {instructions}=get(stage);
+  assert.match(instructions,/再验证所选结语是否准确提炼了其中一层/,stage);
+  assert.match(instructions,/须报告page=0、category=reflection，指出结语遗漏或误读了哪一层/,stage);
+ }
  for(const stage of ['candidates','review','review-candidates'])assert.equal(occurrences(get(stage).instructions,titleDirection),1,stage);
+ for(const stage of ['candidates','reflection','reflection-repair','review','review-candidates']){
+  const {instructions,payload}=get(stage);
+  assert.equal(occurrences(instructions,reflectionMeaningDirection),1,stage);
+  assert.match(instructions,/长篇小说选段[^：]*：用一句话收束本段结局/,stage);
+  assert.match(instructions,/独立短篇[^：]*：从关键言行与结果的反差深挖/,stage);
+  assert.equal(payload.book,stage.startsWith('review')?selection.bookId:'庄子',stage);
+ }
  for(const stage of ['draft','outline','batch','batch-later','reflection','reflection-repair','repair'])assert.equal(occurrences(get(stage).instructions,titleDirection),0,stage);
  assert.equal(occurrences(get('batch').instructions,storyOpeningDirection),1,'the first batch retains its opening guidance');
  assert.equal(get('batch-later').payload.batch.first,21);
