@@ -24,9 +24,12 @@ const simplified=Converter({from:'t',to:'cn'});
 const instruction='你是古文编目员。将各编号原文分别改写为一两句现代简体中文，约35至75字。先写起因，再写关键行动和结果；复杂情节可超过字数。涉及多人时，为每个关键行动写明谁做了什么、对谁做，保留委托、转折、否定和未遂。只复述原文事件，原文没有的信息不补；不用其他版本。不要加评论、寓意或真实性判断；神异情节照录为事件。输出一个 JSON 对象，键为原编号，值为白话摘要字符串。';
 const cardVersion=4;
 const passageVersion='unit-windows-v1';
-const wholeChapterBooks=new Set(['战国策','喻世明言']);
-const catalogStoryBooks=new Set(['liaozhai','shishuo','子不语',...wholeChapterBooks]);
-const longContextBooks=new Set(['战国策','zhuangzi','列子','子不语','阅微草堂笔记','喻世明言']);
+const newStoryCollections=new Set(['初刻拍案惊奇','警世通言','二刻拍案惊奇','醒世恒言']);
+const storyCollections=new Set(['喻世明言',...newStoryCollections]);
+const wholeChapterBooks=new Set(['战国策',...storyCollections]);
+const catalogStoryBooks=new Set(['liaozhai','shishuo','子不语','太平广记',...wholeChapterBooks]);
+const narrativeSelections=new Set(['酉阳杂俎','山海经','博物志','浮生六记']);
+const longContextBooks=new Set(['战国策','zhuangzi','列子','子不语','阅微草堂笔记','太平广记',...narrativeSelections,...storyCollections]);
 const shortStoryHeading=/^[\p{Script=Han}0-9]{1,12}$/u;
 
 async function request(path,body,timeoutMs=body===undefined?10000:240000){
@@ -125,7 +128,7 @@ async function segmentBook(db,bookId,modelDigest,{sectionFilter,generate=chatObj
  const sections=[];
  for(const [index,section] of book.sections.entries()){
   if(sectionFilter&&sectionFilter!==section.id&&sectionFilter!==section.title)continue;
-  let layoutStarts=book.id==='阅微草堂笔记'?section.units.map(unit=>unit.id):undefined;
+  let layoutStarts=book.id==='阅微草堂笔记'||narrativeSelections.has(book.id)?section.units.map(unit=>unit.id):undefined;
   if(catalogEntry?.format==='kanripo-text'&&section.url){
    const file=new URL(section.url).pathname.split('/').at(-1);
    if(catalogEntry.originalFiles?.some(original=>original.file===file)){
@@ -141,7 +144,8 @@ async function segmentBook(db,bookId,modelDigest,{sectionFilter,generate=chatObj
  const candidates=boundaryCandidates(sections);
  const initial=await readSemanticBoundaries(db,sections,book.edition,modelDigest,generate);
  if(initial.size!==candidates.length)throw Error('语义窗口未覆盖全部原文边界');
- const conflicts=candidates.filter(({id,layout,openClause})=>
+ // 博物志底本是无标点的固定行宽转录，完整上下文比逐行复核更适合判断续句。
+ const conflicts=book.id==='博物志'?[]:candidates.filter(({id,layout,openClause})=>
   layout==='unknown'||initial.get(id)!==(layout==='start')||(openClause&&initial.get(id)));
  const reviewed=await reviewBoundaries(db,conflicts,book.edition,modelDigest,generate);
  const decisions=reconcileBoundaryReviews(initial,conflicts,reviewed);
@@ -171,6 +175,30 @@ async function segmentBook(db,bookId,modelDigest,{sectionFilter,generate=chatObj
   db.exec('COMMIT');
  }catch(error){db.exec('ROLLBACK');throw error;}
  return {entries,edition:book.edition,candidates:candidates.length,reviewedConflicts:conflicts.length,joins:candidates.filter(({id,layout})=>layout==='start'&&decisions.get(id)===false).map(({id})=>id)};
+}
+
+const narrativeSelectionPrompt='判断每段原文能否独立作为一则故事或轶事。至少有可辨认的角色（含神怪）、发生的行动和明确的结果或转折。保留短小但完整的轶事、神话、生活片段；仅描述地理、外形、物产、风俗、医方、博物分类或引文出处，以及纯目录、残句，均选 0。原文混有注释时，以原文中有明确情节为准，不从注释或常识补结局。逐条输出 JSON 对象，键为原编号，值为 1 或 0。';
+async function selectNarratives(db,entries,book,modelDigest,generate){
+ const prompt=['山海经','博物志'].includes(book.id)
+  ?narrativeSelectionPrompt+' 必须能指出一次实际发生的事件。物种的习性、某国通行的风俗和惯常做法，即使有动作及先后顺序，也选 0。若条目以地理开头但另记具体神话事件，仍可选 1。'
+  :narrativeSelectionPrompt;
+ const usable=entries.filter(row=>!row.blocked);
+ const load=db.prepare('SELECT decisions FROM boundary_reviews WHERE fingerprint=?');
+ const save=db.prepare('INSERT OR IGNORE INTO boundary_reviews VALUES (?,?)');
+ for(let offset=0;offset<usable.length;offset+=16){
+  const batch=usable.slice(offset,offset+16);
+  const key=createHash('sha256').update(JSON.stringify([book.edition,modelDigest,prompt,batch.map(({id,text})=>[id,text])])).digest('hex');
+  const cached=load.get(key);
+  const input=Object.fromEntries(batch.map(({text},index)=>[String(index+1),text]));
+  const keys=Object.keys(input);
+  const format={type:'object',additionalProperties:false,required:keys,
+   properties:Object.fromEntries(keys.map(id=>[id,{type:'integer',enum:[0,1]}]))};
+  const result=cached?JSON.parse(cached.decisions):await generate(prompt,JSON.stringify(input),format,keys.length*16+80);
+  if(Object.keys(result).length!==keys.length||keys.some(id=>result[id]!==0&&result[id]!==1))throw Error('模型返回了无效的短篇筛选结果');
+  if(!cached)save.run(key,JSON.stringify(result));
+  for(const [index,row] of batch.entries())if(result[String(index+1)]===0)row.blocked='该原文范围未形成可独立制卡的故事。';
+  console.error(`已筛选 ${offset+batch.length}/${usable.length} 个原文范围${cached?'（复用）':''}`);
+ }
 }
 
 function normalize(vector){
@@ -228,7 +256,7 @@ async function cards(rows,generate){
  const format={type:'object',additionalProperties:false,required:keys,properties:Object.fromEntries(keys.map(key=>[key,{type:'string'}]))};
  const input=Object.fromEntries(keys.map((key,index)=>{
   const {text,label}=rows[index];
-  return [key,indexedBookId==='喻世明言'?{篇名:simplified(label),原文:simplified(text)}:simplified(text)];
+  return [key,storyCollections.has(indexedBookId)?{篇名:simplified(label),原文:simplified(text)}:simplified(text)];
  }));
  const output=await generate(cardInstruction,
   '要输出 '+rows.length+' 张，JSON 必须包含全部编号 '+keys.join('、')+'。原文：'+JSON.stringify(input),
@@ -237,7 +265,7 @@ async function cards(rows,generate){
   const value=output[key];
   if(typeof value!=='string')return [];
   const summary=simplified(value.trim());
-  if(summary.length<8||summary.length>(indexedBookId==='喻世明言'?420:230))return [];
+  if(summary.length<8||summary.length>(storyCollections.has(indexedBookId)?420:230))return [];
   const title=Array.from(summary.split(/[，。！？；：]/u,1)[0]).slice(0,22).join('');
   if(!title)return [];
   return [{id:rows[index].id,title,summary}];
@@ -297,6 +325,56 @@ function catalogEntries(book,volume){
  });
 }
 
+// 四库底本的四格缩进标出篇名。先核对转录行和正式原文单元完全一致，再采用边界。
+async function taipingEntries(book,volume){
+ const books=new LocalBooks(root);
+ const sections=book.sections.flatMap((section,i)=>volume===undefined||volume===i+1?[{section,volume:i+1}]:[]);
+ const entries=await Promise.all(sections.map(async ({section,volume:sectionVolume})=>{
+  const file=new URL(section.url).pathname.split('/').at(-1);
+  const raw=await readFile(resolve(root,'data/library/originals/15-太平广记-WYG',file),'utf8');
+  const lines=raw.split(/\r?\n/).filter(line=>!line.startsWith('#')&&!/^<pb:KR3l0118_WYG_\d+-\d+[ab]>¶$/.test(line))
+   .map(line=>line.replace(/¶$/,''));
+  const title=/^\u3000{4}[^\s]/u;
+  const first=lines.findIndex(line=>title.test(line));
+  const last=lines.findLastIndex(line=>/^\u3000[太大]平廣記[卷巻][〇零一二三四五六七八九十百千]+(?:\u3000.*)?$/.test(line));
+  const body=lines.slice(first,last).filter(line=>line.trim());
+  if(first<0||last<=first||body.length!==section.units.length||body.some((line,i)=>line.trim()!==section.units[i].text))
+   throw Error('太平广记版面与本地原文不一致 '+section.id);
+  const starts=body.flatMap((line,i)=>title.test(line)?[i]:[]);
+  return starts.map((start,i)=>{
+   const units=section.units.slice(start,starts[i+1]),id=units[0].id;
+   const source={edition:book.edition,sectionId:section.id,firstUnit:id,lastUnit:units.at(-1).id};
+   let blocked=null;
+   try{books.resolve(book,source);}catch(error){blocked=error.message;}
+   return {id,volume:sectionVolume,label:section.title,url:section.url||book.url,source:JSON.stringify(source),
+    text:units.map(unit=>unit.text).join(''),units,blocked};
+  });
+ }));
+ return entries.flat();
+}
+
+// 长话本按完整原文单元分窗，每段只嵌入一次，卷首、卷尾都保留。
+function longStoryPassages(units){
+ const passages=[];
+ let start=0,length=0;
+ for(const [index,unit] of units.entries()){
+  if(length&&length+unit.text.length>900){
+   passages.push(units.slice(start,index));
+   start=index;
+   length=0;
+  }
+  length+=unit.text.length;
+ }
+ passages.push(units.slice(start));
+ return passages;
+}
+
+// 截取卷首时保留完整生僻字，避免在代理对中间断开。
+function shortOriginalText(text){
+ const prefix=text.slice(0,1000);
+ return prefix.isWellFormed()?prefix:text.slice(0,1001);
+}
+
 async function build(db,{volume,boundaryModel}={}){
  const digests=await modelDigests();
  const edition=selectedBook.edition;
@@ -306,12 +384,15 @@ async function build(db,{volume,boundaryModel}={}){
  db.prepare("INSERT OR IGNORE INTO metadata VALUES ('identity',?)").run(identity);
  const existing=db.prepare("SELECT value FROM metadata WHERE key='identity'").get();
  if(existing.value!==identity)throw Error('此索引的原文、模型或制卡契约有变更。请使用独立工作树重建索引。');
- const entries=catalogStoryBooks.has(indexedBookId)?catalogEntries(selectedBook,volume):
+ const generate=boundaryModel?await codexJsonGenerator(boundaryModel):chatObject;
+ const entries=indexedBookId==='太平广记'?await taipingEntries(selectedBook,volume):
+  catalogStoryBooks.has(indexedBookId)?catalogEntries(selectedBook,volume):
   (await segmentBook(db,indexedBookId,boundaryDigest,{
    sectionFilter:volume===undefined?undefined:selectedBook.sections[volume-1].id,
-   generate:boundaryModel?await codexJsonGenerator(boundaryModel):chatObject,
+   generate,
   })).entries;
  if(!entries.length)throw Error('没有找到可索引的原文篇目');
+ if(narrativeSelections.has(indexedBookId))await selectNarratives(db,entries,selectedBook,boundaryDigest,generate);
  db.exec('BEGIN IMMEDIATE');
  try{
   db.prepare("INSERT OR IGNORE INTO metadata VALUES ('indexed_book',?)").run(indexedBookId);
@@ -325,15 +406,21 @@ async function build(db,{volume,boundaryModel}={}){
    WHERE entries.source IS NOT excluded.source OR entries.text IS NOT excluded.text OR entries.blocked IS NOT excluded.blocked`);
   for(const row of entries)upsert.run(row.id,row.volume,row.label,row.url,row.source,row.text,row.blocked);
   const oldPassages=db.prepare("SELECT value FROM metadata WHERE key='passage_version'").get();
-  if(oldPassages?.value!==passageVersion){
+  if(oldPassages?.value!==windowsVersion){
    db.exec('DELETE FROM passages');
-   db.prepare("INSERT OR REPLACE INTO metadata VALUES ('passage_version',?)").run(passageVersion);
+   db.prepare("INSERT OR REPLACE INTO metadata VALUES ('passage_version',?)").run(windowsVersion);
   }
   const stale=db.prepare('DELETE FROM passages WHERE story_id=? AND source_range<>?');
   const addPassage=db.prepare(`INSERT OR IGNORE INTO passages(story_id,first_unit,last_unit,source_range,text) VALUES (?,?,?,?,?)`);
   for(const row of entries){
    stale.run(row.id,row.source);
-   if(row.blocked||row.units.length<5)continue;
+   if(row.blocked)continue;
+   if(shortOriginalVectors&&row.text.length<=1000)continue;
+   if(usesWholeStoryWindows){
+    for(const part of longStoryPassages(row.units))addPassage.run(row.id,part[0].id,part.at(-1).id,row.source,part.map(unit=>unit.text).join(''));
+    continue;
+   }
+   if(row.units.length<5)continue;
    const width=4,step=2;
    for(let offset=0;offset<row.units.length-width+step;offset+=step){
     const part=row.units.slice(offset,offset+width);
@@ -343,12 +430,14 @@ async function build(db,{volume,boundaryModel}={}){
   db.exec('COMMIT');
  }catch(error){db.exec('ROLLBACK');throw error;}
  console.log('已核对条目和原文范围',JSON.stringify(total(stats(db))));
- const rows=db.prepare('SELECT id,text FROM entries WHERE raw_vector IS NULL AND blocked IS NULL AND (? IS NULL OR volume=?) ORDER BY id').all(volume??null,volume??null);
+ const rows=db.prepare('SELECT id,label,text FROM entries WHERE raw_vector IS NULL AND blocked IS NULL AND (? IS NULL OR volume=?) ORDER BY id').all(volume??null,volume??null);
  const save=db.prepare('UPDATE entries SET raw_vector=? WHERE id=?');
  for(let offset=0;offset<rows.length;offset+=24){
   const batch=rows.slice(offset,offset+24);
   // 长话本的开头向量只用于补充召回，完整情节由摘要和覆盖全卷的片段向量检索。
-  const vectors=await embed(batch.map(row=>row.text),false,indexedBookId==='liaozhai'||indexedBookId==='喻世明言');
+  const vectors=await embed(batch.map(row=>newStoryCollections.has(indexedBookId)?row.label+'\n'+row.text.slice(0,800)
+   :shortOriginalVectors?shortOriginalText(row.text):row.text),
+   false,indexedBookId==='liaozhai'||indexedBookId==='喻世明言');
   db.exec('BEGIN IMMEDIATE');
   try{
    for(const [index,row] of batch.entries())save.run(new Uint8Array(vectors[index].buffer),row.id);
@@ -388,7 +477,9 @@ async function buildCards(db,{pilot=false,model=chatModel,volume,ids=[],defaultB
  if(!pending.length)return;
  if(pending.some(row=>!row.hasRaw))throw Error('所选条目尚未完成原文索引，请先运行 build --raw');
  const generate=await cardGenerator(model,identity);
- const titles=indexedBookId==='子不语'
+ const titles=indexedBookId==='太平广记'
+  ?new Map(selectedBook.sections.flatMap(section=>section.units.filter(unit=>!unit.narrative).map(unit=>[unit.id,unit.text])))
+  :indexedBookId==='子不语'
   ?new Map(selectedBook.sections.flatMap(section=>section.units.filter(unit=>shortStoryHeading.test(unit.text)).map(unit=>[unit.id,unit.text])))
   :indexedBookId==='liaozhai'||wholeChapterBooks.has(indexedBookId)
    ?new Map(indexBookContents(new LocalBooks(root),selectedBook).entries.map(entry=>[entry.id,entry.title])):new Map();
@@ -397,11 +488,17 @@ async function buildCards(db,{pilot=false,model=chatModel,volume,ids=[],defaultB
  const hasCard=db.prepare('SELECT 1 FROM entries WHERE id=? AND source=? AND text=? AND vector IS NOT NULL');
  const byId=new Map(pending.map(row=>[row.id,row]));
  const remaining=pending.length;
- if(indexedBookId==='喻世明言')defaultBatch=1;
+ if(storyCollections.has(indexedBookId))defaultBatch=1;
+ else if(indexedBookId==='太平广记')defaultBatch=30;
  else if(indexedBookId==='子不语'||indexedBookId==='阅微草堂笔记')defaultBatch=12;
  let batchSize=defaultBatch,done=0;
  while(pending.length){
   const batch=pending.slice(0,batchSize);
+  if(indexedBookId==='太平广记'){
+   let length=0;
+   const overflow=batch.findIndex((row,index)=>(length+=row.text.length)>10000&&index>0);
+   if(overflow>0)batch.length=overflow;
+  }
   if(indexedBookId==='liaozhai'&&!model.startsWith('gpt-')){
    let characters=0;
    const overflow=batch.findIndex((row,index)=>(characters+=row.text.length)>5200&&index>0);
@@ -454,7 +551,7 @@ async function search(db,queries,limit=5,raw=false,withPassages=false,cardsOnly=
  const byStory=new Map();
  if(withPassages){
   const version=db.prepare("SELECT value FROM metadata WHERE key='passage_version'").get()?.value;
-  if(version!==passageVersion||db.prepare('SELECT 1 FROM passages WHERE vector IS NULL LIMIT 1').get()||
+  if(version!==windowsVersion||db.prepare('SELECT 1 FROM passages WHERE vector IS NULL LIMIT 1').get()||
    db.prepare('SELECT 1 FROM entries WHERE raw_vector IS NULL AND blocked IS NULL LIMIT 1').get())throw Error('事件索引未就绪，请运行 build --raw');
   for(const row of db.prepare('SELECT story_id,vector FROM passages WHERE vector IS NOT NULL').all()){
    const passages=byStory.get(row.story_id)||[];
@@ -812,13 +909,17 @@ if(bookFlag>=0)args.splice(bookFlag,2);
 const selectedBook=await new LocalBooks(root).book({bookId:bookName});
 if(!selectedBook)throw Error('找不到本地书籍 '+bookName);
 const indexedBookId=selectedBook.id;
+const shortOriginalVectors=indexedBookId==='太平广记'||narrativeSelections.has(indexedBookId);
+const usesWholeStoryWindows=newStoryCollections.has(indexedBookId)||shortOriginalVectors;
+const windowsVersion=usesWholeStoryWindows?'whole-story-windows-v1':passageVersion;
 const bookCardInstructions={
  shishuo:'保留原文的委托关系。例如“甲使人题字”应写成“甲让人题字”。原文只写拆毁时，结局写到拆毁为止。提交前逐则核对谁下令、谁执行、结局是否有原文依据。',
  战国策:'区分眼前的游说行动与说客引用的故事。用短句保留寓言中的关键动作和结果，例如谁借谁的威势、谁因此逃走。核对施事与受事，保留游说的实际结果。',
  阅微草堂笔记:'区分转述的异闻、当事人亲见和作者事后评论。只写原文交代的结果，保留原文的疑问、推测或未证实之处。',
  喻世明言:'每个输入包含篇名和全卷原文。先找篇名所指的主角及主事件，摘要只写与该主线有因果关系的行动。引子常先完整讲另一个人物的故事，即使相似也全部略去。用约120至190字交代人物关系、关键转折及结局，核对行动顺序及数量（如总数、余数和实际分到的数量）。',
 };
-const cardInstruction=bookCardInstructions[indexedBookId]?instruction+' '+bookCardInstructions[indexedBookId]:instruction;
+const bookCardInstruction=storyCollections.has(indexedBookId)?bookCardInstructions.喻世明言:bookCardInstructions[indexedBookId];
+const cardInstruction=bookCardInstruction?instruction+' '+bookCardInstruction:instruction;
 const dbPath=bookFlag<0?resolve(root,'.data/soushen-search.sqlite'):resolve(root,'.data/story-index-build',encodeURIComponent(indexedBookId)+'.sqlite');
 if(mode==='eval'&&indexedBookId!=='搜神记')throw Error('现有评测题只适用于搜神记');
 const textOnly=args.includes('--text-only'),lightCards=args.includes('--light-cards')||textOnly;
