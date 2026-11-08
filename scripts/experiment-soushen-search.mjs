@@ -24,6 +24,10 @@ const simplified=Converter({from:'t',to:'cn'});
 const instruction='你是古文编目员。将各编号原文分别改写为一两句现代简体中文，约35至75字。先写起因，再写关键行动和结果；复杂情节可超过字数。涉及多人时，为每个关键行动写明谁做了什么、对谁做，保留委托、转折、否定和未遂。只复述原文事件，原文没有的信息不补；不用其他版本。不要加评论、寓意或真实性判断；神异情节照录为事件。输出一个 JSON 对象，键为原编号，值为白话摘要字符串。';
 const cardVersion=4;
 const passageVersion='unit-windows-v1';
+const wholeChapterBooks=new Set(['战国策','喻世明言']);
+const catalogStoryBooks=new Set(['liaozhai','shishuo','子不语',...wholeChapterBooks]);
+const longContextBooks=new Set(['战国策','zhuangzi','列子','子不语','阅微草堂笔记','喻世明言']);
+const shortStoryHeading=/^[\p{Script=Han}0-9]{1,12}$/u;
 
 async function request(path,body,timeoutMs=body===undefined?10000:240000){
  const response=await fetch(host+path,body===undefined?{signal:AbortSignal.timeout(timeoutMs)}:{
@@ -43,7 +47,7 @@ async function modelDigests(names=[chatModel,vectorModel]){
 }
 
 const boundaryPrompt='独立判断「后」的第一行是不是新条目。先把「前」最后一行与「后」第一行连读：前行若在修饰语、动词、介词或领属词后尚未说完，后行补足它，就必须为 0；同一事件的行动、结果或补注延续也为 0。只有前一条已结束且后一行开启可独立的事件或条目，才为 1。单独的人物品评、事实或议论即使很短，也可以自成一条。人物相同不代表事件相同，人物变化也不代表事件结束。不要从编号推测边界。只输出 JSON 对象，按原编号给整数 0 或 1，不改写原文。';
-async function reviewBoundaries(db,candidates,edition,modelDigest){
+async function reviewBoundaries(db,candidates,edition,modelDigest,generate){
  const decisions=new Map();
  const load=db.prepare('SELECT decisions FROM boundary_reviews WHERE fingerprint=?');
  const save=db.prepare('INSERT OR IGNORE INTO boundary_reviews VALUES (?,?)');
@@ -58,7 +62,7 @@ async function reviewBoundaries(db,candidates,edition,modelDigest){
    const keys=Object.keys(input);
    const format={type:'object',additionalProperties:false,required:keys,
     properties:Object.fromEntries(keys.map(key=>[key,{type:'integer',enum:[0,1]}]))};
-   const answer=await chatObject(boundaryPrompt,JSON.stringify(input),format,keys.length*16+80);
+   const answer=await generate(boundaryPrompt,JSON.stringify(input),format,keys.length*16+80);
    if(Object.keys(answer).length!==keys.length||keys.some(key=>!Object.hasOwn(answer,key)))throw Error('模型返回的边界编号与输入不一致');
    value=Object.fromEntries(batch.map(({id},index)=>[id,answer[String(index+1)]]));
   }
@@ -70,7 +74,7 @@ async function reviewBoundaries(db,candidates,edition,modelDigest){
 }
 
 const semanticBoundaryPrompt='通读这段连续古文，找出新的独立条目从哪一行开始。延续同一事件、同一句、原因行动结果或补注的行都不是起点。多个独立事件即使人物相同也可另起；没有结束的事件不要截断。编号只是定位。前后邻文仅供判断，不可选为起点。只输出 JSON 对象 {"starts":[起始行编号]}，只从可选编号中选择，无起点用空数组。';
-async function readSemanticBoundaries(db,sections,edition,modelDigest){
+async function readSemanticBoundaries(db,sections,edition,modelDigest,generate){
  const windows=semanticBoundaryWindows(sections),decisions=new Map();
  const load=db.prepare('SELECT decisions FROM boundary_reviews WHERE fingerprint=?');
  const save=db.prepare('INSERT OR IGNORE INTO boundary_reviews VALUES (?,?)');
@@ -82,10 +86,10 @@ async function readSemanticBoundaries(db,sections,edition,modelDigest){
   else{
    const choices=window.units.flatMap(({id},i)=>window.ids.includes(id)?[i+1]:[]);
    const format={type:'object',additionalProperties:false,required:['starts'],properties:{
-    starts:{type:'array',items:{type:'integer',enum:choices},uniqueItems:true},
+    starts:{type:'array',items:{type:'integer',enum:choices}},
    }};
    const input={前文:window.before,原文:window.units.map(({text},i)=>[i+1,text]),后文:window.after,可选编号:choices};
-   const answer=await chatObject(semanticBoundaryPrompt,JSON.stringify(input),format,choices.length*5+70);
+   const answer=await generate(semanticBoundaryPrompt,JSON.stringify(input),format,choices.length*5+70);
    if(!Array.isArray(answer.starts)||answer.starts.some(i=>!choices.includes(i)))throw Error('模型返回了窗口之外的边界编号');
    starts=answer.starts.map(i=>window.units[i-1].id);
   }
@@ -96,7 +100,24 @@ async function readSemanticBoundaries(db,sections,edition,modelDigest){
  return decisions;
 }
 
-async function segmentBook(db,bookId,modelDigest,{sectionFilter}={}){
+// CHANT 和 TLS 的分节编号是排版提示，只有逐段与本地原文对齐时才采用。
+function editorialStoryStarts(units,raw){
+ const heading=/^\*\* \d+ .+$/m.exec(raw);
+ if(!heading)return undefined;
+ const blocks=raw.slice(heading.index+heading[0].length).split(/^# src: (?:ZHUANG|Liezi) (\d+\.\d+\.\d+)[^\n]*$/gmi);
+ if(blocks.length===1)return undefined;
+ const paragraphs=[],starts=[units[0].id];
+ for(let index=0;index<blocks.length;index+=2){
+  const text=blocks[index].replace(/^#.*$/gm,'').replace(/<pb:[^>]+>|¶/g,'');
+  const parts=text.split(/\n\s*\n/).map(part=>part.split('\n').map(line=>line.trim()).join('')).filter(Boolean);
+  if(parts.length&&paragraphs.length&&blocks[index-1]?.endsWith('.1')&&units[paragraphs.length])
+   starts.push(units[paragraphs.length].id);
+  paragraphs.push(...parts);
+ }
+ return paragraphs.length===units.length&&paragraphs.every((text,index)=>text===units[index].text)?starts:undefined;
+}
+
+async function segmentBook(db,bookId,modelDigest,{sectionFilter,generate=chatObject}={}){
  const books=new LocalBooks(root),book=await books.book({bookId});
  if(!book)throw Error('找不到本地书籍 '+bookId);
  const {books:catalog}=JSON.parse(await readFile(resolve(root,'data/library/catalog.json'),'utf8'));
@@ -104,26 +125,30 @@ async function segmentBook(db,bookId,modelDigest,{sectionFilter}={}){
  const sections=[];
  for(const [index,section] of book.sections.entries()){
   if(sectionFilter&&sectionFilter!==section.id&&sectionFilter!==section.title)continue;
-  let layoutStarts;
+  let layoutStarts=book.id==='阅微草堂笔记'?section.units.map(unit=>unit.id):undefined;
   if(catalogEntry?.format==='kanripo-text'&&section.url){
    const file=new URL(section.url).pathname.split('/').at(-1);
    if(catalogEntry.originalFiles?.some(original=>original.file===file)){
     const raw=await readFile(resolve(root,'data/library',catalogEntry.originalFile,file),'utf8');
     const lines=raw.split(/\r?\n/).filter(line=>!line.startsWith('#'))
      .map(line=>line.replace(/<pb:[^>]+>|¶/g,'')).filter(line=>line.trim());
-    layoutStarts=layoutStoryStarts(section.units,lines);
+    layoutStarts=editorialStoryStarts(section.units,raw)??layoutStoryStarts(section.units,lines);
    }
   }
   sections.push({...section,layoutStarts,volume:index+1});
  }
  if(!sections.length)throw Error('找不到指定篇章 '+sectionFilter);
  const candidates=boundaryCandidates(sections);
- const initial=await readSemanticBoundaries(db,sections,book.edition,modelDigest);
+ const initial=await readSemanticBoundaries(db,sections,book.edition,modelDigest,generate);
  if(initial.size!==candidates.length)throw Error('语义窗口未覆盖全部原文边界');
  const conflicts=candidates.filter(({id,layout,openClause})=>
   layout==='unknown'||initial.get(id)!==(layout==='start')||(openClause&&initial.get(id)));
- const reviewed=await reviewBoundaries(db,conflicts,book.edition,modelDigest);
+ const reviewed=await reviewBoundaries(db,conflicts,book.edition,modelDigest,generate);
  const decisions=reconcileBoundaryReviews(initial,conflicts,reviewed);
+ // 阅微的完整原版段落各自成则；相邻主题相似也不合并。
+ if(book.id==='阅微草堂笔记')for(const {id,before,layout} of candidates){
+  if(layout==='start'&&/[。！？][」』）”’]*$/u.test(before.trim()))decisions.set(id,true);
+ }
  const partitions=partitionStoryUnits(sections,decisions);
  const entries=[];
  const save=db.prepare(`INSERT OR REPLACE INTO boundary_plans
@@ -157,9 +182,20 @@ function normalize(vector){
 
 async function embed(texts,query=false,truncate=false){
  const input=query?texts.map(storyEmbeddingQuery):texts;
- const {embeddings}=await request('/api/embed',{model:vectorModel,input,truncate,keep_alive:'10m',options:{num_ctx:2048}});
+ const {embeddings}=await request('/api/embed',{model:vectorModel,input,truncate,keep_alive:'10m',
+  options:{num_ctx:longContextBooks.has(indexedBookId)?4096:2048}});
  if(embeddings?.length!==texts.length)throw Error('向量条数不符');
  return embeddings.map(normalize);
+}
+
+async function codexJsonGenerator(model){
+ const runner=createCodexRunner({...process.env,CODEX_MODEL:model});
+ const status=await runner.status();
+ if(!status.configured)throw Error(status.reason||'请先登录 Codex 订阅');
+ return async (system,user,schema)=>{
+  const result=await runner.run({model,reasoningEffort:'low',instructions:system,prompt:user,schema});
+  return JSON.parse(result.text);
+ };
 }
 
 async function cardGenerator(model,identity){
@@ -167,15 +203,7 @@ async function cardGenerator(model,identity){
  const deepseek=model==='deepseek-flash';
  const digests=await modelDigests(codex||deepseek?[vectorModel]:[vectorModel,model]);
  if(identity.digests?.[vectorModel]!==digests[vectorModel])throw Error('故事卡必须使用原索引的向量模型');
- if(codex){
-  const runner=createCodexRunner({...process.env,CODEX_MODEL:model});
-  const status=await runner.status();
-  if(!status.configured)throw Error(status.reason||'请先登录 Codex 订阅');
-  return async (system,user,schema)=>{
-   const result=await runner.run({model,reasoningEffort:'low',instructions:system,prompt:user,schema});
-   return JSON.parse(result.text);
-  };
- }
+ if(codex)return codexJsonGenerator(model);
  if(deepseek){
   const key=process.env.DEEPSEEK_API_KEY?.trim();
   if(!key)throw Error('请通过 DEEPSEEK_API_KEY 配置 DeepSeek');
@@ -198,15 +226,18 @@ async function cardGenerator(model,identity){
 async function cards(rows,generate){
  const keys=rows.map((_,index)=>String(index+1));
  const format={type:'object',additionalProperties:false,required:keys,properties:Object.fromEntries(keys.map(key=>[key,{type:'string'}]))};
- const input=Object.fromEntries(keys.map((key,index)=>[key,simplified(rows[index].text)]));
- const output=await generate(instruction,
+ const input=Object.fromEntries(keys.map((key,index)=>{
+  const {text,label}=rows[index];
+  return [key,indexedBookId==='喻世明言'?{篇名:simplified(label),原文:simplified(text)}:simplified(text)];
+ }));
+ const output=await generate(cardInstruction,
   '要输出 '+rows.length+' 张，JSON 必须包含全部编号 '+keys.join('、')+'。原文：'+JSON.stringify(input),
   format,rows.length*125+50);
  const parsed=keys.flatMap((key,index)=>{
   const value=output[key];
   if(typeof value!=='string')return [];
   const summary=simplified(value.trim());
-  if(summary.length<8||summary.length>230)return [];
+  if(summary.length<8||summary.length>(indexedBookId==='喻世明言'?420:230))return [];
   const title=Array.from(summary.split(/[，。！？；：]/u,1)[0]).slice(0,22).join('');
   if(!title)return [];
   return [{id:rows[index].id,title,summary}];
@@ -227,30 +258,62 @@ function total(rows){
  },{entries:0,cards:0,searchable:0,rawIndexed:0,available:0,blocked:0});
 }
 
-// 有正式篇目目录的聊斋直接沿用可核对的原文边界，分卷建库时只更新本卷。
-function catalogEntries(book,volume){
- const books=new LocalBooks(root);
- const volumes=new Map(book.sections.map((section,index)=>[section.id,index+1]));
- const entries=indexBookContents(books,book).entries.filter(entry=>entry.source).map(entry=>{
-  const {section,units}=sourceParts(book,entry.source)[0];
-  return {id:entry.id,volume:volumes.get(section.id),label:section.title,url:section.url||book.url,
-   source:JSON.stringify(entry.source),text:units.map(unit=>unit.text).join(''),units,blocked:null};
+// 子不语的独立篇名已是本地原文单元，范围从篇名到下一篇前。
+function namedStoryEntries(books,book,volume){
+ return book.sections.flatMap((section,index)=>{
+  if(volume!==undefined&&volume!==index+1)return [];
+  const starts=section.units.flatMap((unit,i)=>shortStoryHeading.test(unit.text)?[i]:[]);
+  if(starts[0]!==0)throw Error('未找到卷首篇名 '+section.id);
+  return starts.map((first,i)=>{
+   const units=section.units.slice(first,starts[i+1]),id=units[0].id;
+   const source={edition:book.edition,sectionId:section.id,firstUnit:id,lastUnit:units.at(-1).id};
+   let blocked=null;
+   try{books.resolve(book,source);}catch(error){blocked=error.message;}
+   return {id,volume:index+1,label:section.title,url:section.url||book.url,source:JSON.stringify(source),
+    text:units.map(unit=>unit.text).join(''),units,blocked};
+  });
  });
- return entries.filter(entry=>volume===undefined||entry.volume===volume);
 }
 
-async function build(db,{volume}={}){
+// 复用正式故事目录；以整篇或整卷制卡时仍核对完整原文范围。
+function catalogEntries(book,volume){
+ const books=new LocalBooks(root);
+ if(book.id==='子不语')return namedStoryEntries(books,book,volume);
+ const chapterIsStory=wholeChapterBooks.has(book.id);
+ const volumes=new Map(book.sections.map((section,index)=>[section.id,index+1]));
+ const sectionsByUnit=new Map(book.id==='shishuo'?book.sections.flatMap(section=>section.units.map(unit=>[unit.id,section.id])):[]);
+ return indexBookContents(books,book).entries.flatMap(entry=>{
+  const sectionId=entry.source?.sectionId??sectionsByUnit.get(entry.id);
+  const entryVolume=volumes.get(sectionId);
+  if((entry.kind!=='story'&&!chapterIsStory)||!sectionId||(volume!==undefined&&entryVolume!==volume))return [];
+  const source=entry.source??{edition:book.edition,sectionId,firstUnit:entry.id,lastUnit:entry.id};
+  const {section,units}=sourceParts(book,source)[0];
+  let blocked=null;
+  if(!entry.source||chapterIsStory){
+   try{books.resolve(book,source);}catch(error){blocked=error.message;}
+  }
+  return [{id:entry.id,volume:entryVolume,label:section.title,url:section.url||book.url,
+   source:JSON.stringify(source),text:units.map(unit=>unit.text).join(''),units,blocked}];
+ });
+}
+
+async function build(db,{volume,boundaryModel}={}){
  const digests=await modelDigests();
  const edition=selectedBook.edition;
- const entries=indexedBookId==='liaozhai'?catalogEntries(selectedBook,volume):
-  (await segmentBook(db,indexedBookId,digests[chatModel],{sectionFilter:volume===undefined?undefined:selectedBook.sections[volume-1].id})).entries;
- if(!entries.length)throw Error('没有找到可索引的原文篇目');
- const identity=JSON.stringify({edition,digests,prompt:createHash('sha256').update(instruction).digest('hex'),version:cardVersion});
+ const boundaryDigest=boundaryModel?`codex:${boundaryModel}:low`:digests[chatModel];
+ const identity=JSON.stringify({edition,digests,prompt:createHash('sha256').update(cardInstruction).digest('hex'),version:cardVersion,
+  ...(boundaryModel?{boundaryModel:boundaryDigest}:{})});
+ db.prepare("INSERT OR IGNORE INTO metadata VALUES ('identity',?)").run(identity);
  const existing=db.prepare("SELECT value FROM metadata WHERE key='identity'").get();
- if(existing&&existing.value!==identity)throw Error('此索引的原文、模型或制卡契约有变更。请使用独立工作树重建索引。');
+ if(existing.value!==identity)throw Error('此索引的原文、模型或制卡契约有变更。请使用独立工作树重建索引。');
+ const entries=catalogStoryBooks.has(indexedBookId)?catalogEntries(selectedBook,volume):
+  (await segmentBook(db,indexedBookId,boundaryDigest,{
+   sectionFilter:volume===undefined?undefined:selectedBook.sections[volume-1].id,
+   generate:boundaryModel?await codexJsonGenerator(boundaryModel):chatObject,
+  })).entries;
+ if(!entries.length)throw Error('没有找到可索引的原文篇目');
  db.exec('BEGIN IMMEDIATE');
  try{
-  db.prepare("INSERT OR IGNORE INTO metadata VALUES ('identity',?)").run(identity);
   db.prepare("INSERT OR IGNORE INTO metadata VALUES ('indexed_book',?)").run(indexedBookId);
   const remove=db.prepare('DELETE FROM entries WHERE id=?');
   const activeIds=new Set(entries.map(row=>row.id));
@@ -284,7 +347,8 @@ async function build(db,{volume}={}){
  const save=db.prepare('UPDATE entries SET raw_vector=? WHERE id=?');
  for(let offset=0;offset<rows.length;offset+=24){
   const batch=rows.slice(offset,offset+24);
-  const vectors=await embed(batch.map(row=>row.text),false,indexedBookId==='liaozhai');
+  // 长话本的开头向量只用于补充召回，完整情节由摘要和覆盖全卷的片段向量检索。
+  const vectors=await embed(batch.map(row=>row.text),false,indexedBookId==='liaozhai'||indexedBookId==='喻世明言');
   db.exec('BEGIN IMMEDIATE');
   try{
    for(const [index,row] of batch.entries())save.run(new Uint8Array(vectors[index].buffer),row.id);
@@ -310,7 +374,7 @@ async function build(db,{volume}={}){
 async function buildCards(db,{pilot=false,model=chatModel,volume,ids=[],defaultBatch=8}={}){
  const identity=JSON.parse(db.prepare("SELECT value FROM metadata WHERE key='identity'").get()?.value||'null');
  if(!identity?.edition)throw Error('请先用 build --raw 制备原文索引');
- const eligible=db.prepare('SELECT id,volume,source,text,vector IS NOT NULL AS hasCard,raw_vector IS NOT NULL AS hasRaw FROM entries WHERE blocked IS NULL ORDER BY volume<>11,volume,id').all();
+ const eligible=db.prepare('SELECT id,volume,source,text,label,vector IS NOT NULL AS hasCard,raw_vector IS NOT NULL AS hasRaw FROM entries WHERE blocked IS NULL ORDER BY volume<>11,volume,id').all();
  const selected=ids.length?eligible.filter(row=>ids.includes(row.id)):volume===undefined?eligible:eligible.filter(row=>row.volume===volume);
  if(!selected.length||ids.some(id=>!selected.some(row=>row.id===id)))throw Error('找不到指定卷或条目，或原文未通过出处校验');
  if(pilot){
@@ -324,12 +388,17 @@ async function buildCards(db,{pilot=false,model=chatModel,volume,ids=[],defaultB
  if(!pending.length)return;
  if(pending.some(row=>!row.hasRaw))throw Error('所选条目尚未完成原文索引，请先运行 build --raw');
  const generate=await cardGenerator(model,identity);
- const titles=indexedBookId==='liaozhai'?new Map(indexBookContents(new LocalBooks(root),selectedBook).entries.map(entry=>[entry.id,entry.title])):new Map();
+ const titles=indexedBookId==='子不语'
+  ?new Map(selectedBook.sections.flatMap(section=>section.units.filter(unit=>shortStoryHeading.test(unit.text)).map(unit=>[unit.id,unit.text])))
+  :indexedBookId==='liaozhai'||wholeChapterBooks.has(indexedBookId)
+   ?new Map(indexBookContents(new LocalBooks(root),selectedBook).entries.map(entry=>[entry.id,entry.title])):new Map();
  const statement=db.prepare(`UPDATE entries SET title=?,summary=?,vector=?
   WHERE id=? AND source=? AND text=? AND vector IS NULL AND raw_vector IS NOT NULL AND blocked IS NULL`);
  const hasCard=db.prepare('SELECT 1 FROM entries WHERE id=? AND source=? AND text=? AND vector IS NOT NULL');
  const byId=new Map(pending.map(row=>[row.id,row]));
  const remaining=pending.length;
+ if(indexedBookId==='喻世明言')defaultBatch=1;
+ else if(indexedBookId==='子不语'||indexedBookId==='阅微草堂笔记')defaultBatch=12;
  let batchSize=defaultBatch,done=0;
  while(pending.length){
   const batch=pending.slice(0,batchSize);
@@ -731,7 +800,7 @@ async function buildReferences(db,extra=[]){
 
 const evaluationCases=async()=>JSON.parse(await readFile(new URL('../data/evals/story-discovery/soushen-search-queries.json',import.meta.url),'utf8'));
 const [mode='stats',...args]=process.argv.slice(2);
-const usage='用法：node scripts/experiment-soushen-search.mjs build [--pilot|--raw] [--volume 卷号] | cards [--model 模型] [--volume 卷号 | 条目编号...] | events [--review] [--codex-review] [条目编号...] | refs [额外查询...] | stats | eval [--raw|--light-cards [--no-expand]|--text-only] | search [--light-cards [--no-expand]|--text-only] <白话问题> | list|candidates <白话问题> | segment <书名> [篇章]。各命令可用 --book <本地书名>，为该书使用独立的制备文件。';
+const usage='用法：node scripts/experiment-soushen-search.mjs build [--pilot|--raw] [--volume 卷号] [--boundary-model Codex模型] | cards [--model 模型] [--volume 卷号 | 条目编号...] | events [--review] [--codex-review] [条目编号...] | refs [额外查询...] | stats | eval [--raw|--light-cards [--no-expand]|--text-only] | search [--light-cards [--no-expand]|--text-only] <白话问题> | list|candidates <白话问题> | segment <书名> [篇章]。各命令可用 --book <本地书名>，为该书使用独立的制备文件。';
 if(mode==='--help'||args.includes('--help')){
  console.log(usage);
  process.exit(0);
@@ -743,6 +812,13 @@ if(bookFlag>=0)args.splice(bookFlag,2);
 const selectedBook=await new LocalBooks(root).book({bookId:bookName});
 if(!selectedBook)throw Error('找不到本地书籍 '+bookName);
 const indexedBookId=selectedBook.id;
+const bookCardInstructions={
+ shishuo:'保留原文的委托关系。例如“甲使人题字”应写成“甲让人题字”。原文只写拆毁时，结局写到拆毁为止。提交前逐则核对谁下令、谁执行、结局是否有原文依据。',
+ 战国策:'区分眼前的游说行动与说客引用的故事。用短句保留寓言中的关键动作和结果，例如谁借谁的威势、谁因此逃走。核对施事与受事，保留游说的实际结果。',
+ 阅微草堂笔记:'区分转述的异闻、当事人亲见和作者事后评论。只写原文交代的结果，保留原文的疑问、推测或未证实之处。',
+ 喻世明言:'每个输入包含篇名和全卷原文。先找篇名所指的主角及主事件，摘要只写与该主线有因果关系的行动。引子常先完整讲另一个人物的故事，即使相似也全部略去。用约120至190字交代人物关系、关键转折及结局，核对行动顺序及数量（如总数、余数和实际分到的数量）。',
+};
+const cardInstruction=bookCardInstructions[indexedBookId]?instruction+' '+bookCardInstructions[indexedBookId]:instruction;
 const dbPath=bookFlag<0?resolve(root,'.data/soushen-search.sqlite'):resolve(root,'.data/story-index-build',encodeURIComponent(indexedBookId)+'.sqlite');
 if(mode==='eval'&&indexedBookId!=='搜神记')throw Error('现有评测题只适用于搜神记');
 const textOnly=args.includes('--text-only'),lightCards=args.includes('--light-cards')||textOnly;
@@ -754,10 +830,13 @@ if(['search','eval'].includes(mode)&&lightCards&&(args.includes('--raw')||textOn
  throw Error('每次只能选择一种检索模式');
 let buildOptions;
 if(mode==='build'){
- const {values}=parseArgs({args,options:{raw:{type:'boolean'},pilot:{type:'boolean'},volume:{type:'string'}}});
+ const {values}=parseArgs({args,options:{raw:{type:'boolean'},pilot:{type:'boolean'},volume:{type:'string'},'boundary-model':{type:'string'}}});
  const volume=values.volume===undefined?undefined:Number(values.volume);
  if(volume!==undefined&&(!/^[0-9]+$/.test(values.volume)||!Number.isSafeInteger(volume)||volume<1||volume>selectedBook.sections.length))throw Error('--volume 必须是本书有效的卷号');
- buildOptions={volume,raw:values.raw,pilot:values.pilot};
+ const boundaryModel=values['boundary-model'];
+ if(boundaryModel!==undefined&&(!/^gpt-[a-zA-Z0-9._-]{1,96}$/.test(boundaryModel)||catalogStoryBooks.has(indexedBookId)))
+  throw Error('--boundary-model 只适用于语义切分，须指定 Codex 的 gpt-* 模型');
+ buildOptions={volume,raw:values.raw,pilot:values.pilot,boundaryModel};
 }
 let cardOptions;
 if(mode==='cards'){

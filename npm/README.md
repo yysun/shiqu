@@ -78,13 +78,16 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 | `backup DIR`, `verify-backup DIR`, `restore DIR`, `diagnostics FILE` | 备份、校验、恢复书库，或导出脱敏诊断 |
 | `api METHOD reader/ROUTE` | 在当前进程调用允许的 reader 接口 |
 
-源码工作树可离线为单本书生成索引。以《庄子》为例，依次执行以下命令。制备脚本使用本机 Ollama，安装后由拾趣读取该书索引。
+源码工作树可为单本书制备索引。《聊斋志异》《世说新语》《战国策》《子不语》《喻世明言》沿用已有篇目边界，其他书先用模型判断故事边界。《喻世明言》按整卷生成主故事摘要，并用片段向量覆盖全卷。制备脚本使用本机 Ollama 生成向量。以《世说新语》为例，单独调用 `cards` 可指定 Codex 订阅的 Luna 生成摘要。
 
 ```bash
-node scripts/experiment-soushen-search.mjs build --book 庄子
-node scripts/experiment-soushen-search.mjs refs --book 庄子
-pnpm run cli books index-import 庄子 .data/story-index-build/zhuangzi.sqlite --data-dir .data/dev-local
+node scripts/experiment-soushen-search.mjs build --raw --book 世说新语
+node scripts/experiment-soushen-search.mjs cards --book 世说新语 --model gpt-6-luna
+node scripts/experiment-soushen-search.mjs refs --book 世说新语
+pnpm run cli books index-import 世说新语 .data/story-index-build/shishuo.sqlite --data-dir .data/dev-local
 ```
+
+需要语义切分的书可在 `build --raw` 上加 `--boundary-model gpt-6-luna`。例如 `node scripts/experiment-soushen-search.mjs build --raw --book 庄子 --volume 3 --boundary-model gpt-6-luna` 只制备《养生主》。同一个索引后续建库须沿用切分模型。
 
 只有显式 `run` 执行 AI 生成，其他命令只查看或保存状态。故事操作需传入故事 ID；选题操作还需 `--generation N`。JSON 输入使用 `--input FILE`，或用 `--input -` 从标准输入读取。各命令的必填字段与恢复规则见 `help --json`。
 
