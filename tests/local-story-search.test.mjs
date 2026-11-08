@@ -14,6 +14,7 @@ import {bookContents,selectedChapterScope} from '../server/local-book-contents.t
 import {LocalBooks} from '../server/local-books.ts';
 import {FileMedia} from '../server/media.ts';
 import {sourceParts} from '../server/local-source-ranges.ts';
+import {verifyThemeCandidates} from '../server/story-theme-matching.ts';
 import {libraryFixture,selection} from './fixtures/story-library.mjs';
 
 const done={blockComplete:true,pendingEvents:[],resolvedEventIds:[]};
@@ -76,6 +77,7 @@ test('轻量卡梗概可离线召回，应用只把命中的原文交给提取�
   return {stories:[f.stories[1]],note:'',scan:done};
  };
  const before=await readFile(f.file);
+ assert.equal((await f.search.lookupHits(f.book,query,signal))[0].summary,'有人遭野兽袭击，勇士为陌生人挡住危险。');
  const command=await executeHeadless(process.cwd(),['books','search',query,'zhuangzi','--data-dir',dirname(f.file)],{localBooks:f.books,variables:{}});
  assert.deepEqual(command.results.map(row=>row.source),[f.stories[1].source]);
  assert.deepEqual((await f.suggest(query)).stories.map(row=>row.source),[f.stories[1].source]);
@@ -83,6 +85,30 @@ test('轻量卡梗概可离线召回，应用只把命中的原文交给提取�
  const restricted={...f.book,sections:[{...f.book.sections[0],units:f.book.sections[0].units.slice(0,1)}]};
  assert.deepEqual(await f.search.candidates(restricted,query,signal),[]);
  assert.deepEqual(await readFile(f.file),before);
+});
+
+test('两个选题页收到同一组有效回执，晚加入补核的选题页不重复调用模型',async()=>{
+ const f=libraryFixture(),status=await f.provider.status();
+ const originals=story=>[f.books.resolve(f.book,story.source).text];
+ const {promise:retryStarted,resolve:started}=Promise.withResolvers();
+ const {promise:retryFinished,resolve:finish}=Promise.withResolvers();
+ const {promise:lateReceipt,resolve:received}=Promise.withResolvers();
+ let calls=0;
+ f.provider.verifyThemeStories=async(_theme,stories)=>{
+  calls++;
+  if(calls>1){started();await retryFinished;return {matches:[]};}
+  const [story]=stories;
+  return {matches:[{id:story.id,verdict:'direct',reason:'原文的行动与结果支持本次选题。',evidence:[story.text.slice(0,12)]}]};
+ };
+ const observe={signal,onProgress:()=>{}};
+ const run=notify=>verifyThemeCandidates(f.provider,f.cache,'报恩',f.stories,originals,16000,status,observe,notify);
+ const first=run(async()=>{});
+ await retryStarted;
+ const second=run(async decisions=>{assert.equal(decisions.length,1);received();});
+ try{await lateReceipt;}
+ finally{finish();}
+ assert.deepEqual((await Promise.all([first,second])).map(result=>result.checked),[1,1]);
+ assert.equal(calls,2);
 });
 
 test('双词预设优先召回两侧都命中的候选，再按原文核对两侧的关系',async t=>{

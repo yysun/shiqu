@@ -14,7 +14,7 @@ test('discovery stays in the picker and selection opens one continuous story flo
  const {StoryRevisionActions:Actions}=await import('../client/ui/StoryRevisionEditor.tsx');
  const {default:Fields,StoryEditorTabs:Tabs}=await import('../client/ui/StoryProductionEditor.tsx');
  const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶',theme:'选择',artStyle:'paper-cut',productionPrompt:'清楚的旁白。',narrativeDetail:'brief',length:'auto',voice:false};
- const session={id:'creating',selection,state:'idle',ready:0,story:null,error:null,awaitingFrameCount:false,retryAllowed:false,generationMode:'background',generationControl:'active',frameRecommendation:{count:7,reason:'保留因果。'},intake:{phase:'confirming',generation:1,search:{state:'idle'},selected:{batch:0,index:0},batches:[{stories:[{title:'庄周梦蝶',description:'不应铺开的候选介绍。'}],note:''}]},generationProgress:{sourceReady:true,frameCountConfirmed:false,phase:'production-confirmation'}};
+ const session={id:'creating',selection,state:'idle',ready:0,story:null,error:null,awaitingFrameCount:false,retryAllowed:false,generationMode:'background',generationControl:'active',frameRecommendation:{count:7,reason:'保留因果。'},intake:{phase:'confirming',generation:1,search:{state:'idle'},selected:{batch:0,index:0},batches:[{stories:[{title:'庄周梦蝶',description:'不应铺开的候选介绍。',matchScore:79}],note:''}]},generationProgress:{sourceReady:true,frameCountConfirmed:false,phase:'production-confirmation'}};
  const html=renderToStaticMarkup(createElement(Setup,{session,book:'庄子',busy:false,onAction:async()=>{},progress:{busy:false,controlBusy:false,error:'',onControl:async()=>{},onRetry:noop,onBack:noop}}));
  assert.equal((html.match(/<ol /g)||[]).length,1);assert.match(html,/重新选择/);assert.match(html,/>开始制作<\/(?:button|a)>/);assert.match(html,/画风：剪纸艺术/);assert.match(html,/叙事详略：简短/);assert.match(html,/制作要求/);
  for(const label of ['原文','制作要求','修改画风','修改叙事详略'])assert.ok(html.includes(label),label);
@@ -31,9 +31,11 @@ test('discovery stays in the picker and selection opens one continuous story flo
  }
  for(const phase of ['preparing','confirming','confirmed'])assert.equal(storyCreationTitle({...session,intake:{...session.intake,phase}}),'故事流程');
  const incomplete=renderToStaticMarkup(createElement(Setup,{...props,session:{...choosing,intake:{...choosing.intake,batches:[{stories:[],note:'原文已读完，但有未能判断的故事，主题检查尚不完整。'}]}}}));
- assert.match(incomplete,/未找到故事/);assert.match(incomplete,/>查找详情<\/a>/);
+ assert.match(incomplete,/未找到故事/);assert.match(incomplete,/主题检查尚不完整/);assert.doesNotMatch(incomplete,/查找详情/);
  const candidates=renderToStaticMarkup(createElement(Setup,{...props,session:choosing}));
  assert.match(candidates,/已找到 1 篇/);assert.doesNotMatch(candidates,/完整审片流程|开始制作|<textarea|叙事详略|<select|候选批次/);
+ assert.match(candidates,/<ul class="yu-extraction-candidates" aria-label="候选故事">.*不应铺开的候选介绍。.*符合/s);
+ assert.match(candidates,/主题贴合度 79%/);
  // The review tools stay reachable once a reused first image exists; a clean story has no need of them.
  const reviewProps={busy:false,error:'',onScript:noop,onEdit:noop,onRetry:noop,onDrawAnyway:noop},story=image=>({original:{},pages:[{image}]}),issue={page:3,problem:'配文含混。',instruction:'说清楚。'};
  assert.match(renderToStaticMarkup(createElement(Review,{...reviewProps,session:{story:story('/a.png'),reviewIssues:[issue]}})),/跳过问题并绘图/);
@@ -171,7 +173,8 @@ test('discovery stays in the picker and selection opens one continuous story flo
  const all=renderToStaticMarkup(createElement(Setup,{...props,session:collected}));
  assert.match(all,/已找到 3 篇/);assert.match(all,/佝偻承蜩|追加找到的故事/);assert.match(all,/另一处原文/);assert.equal((all.match(/<strong>庄周梦蝶<\/strong>/g)||[]).length,2);assert.doesNotMatch(all,/<select|候选批次/);
  const collecting=renderToStaticMarkup(createElement(Setup,{...props,session:{...collected,intake:{...collected.intake,search:{state:'searching'},progress:{stage:'verifying',completed:1,total:2,completedChars:100,totalChars:200,currentChapters:['齐物论']}}}}));
- assert.doesNotMatch(collecting,/齐物论|正在逐篇核对检索候选/);
+ assert.match(collecting,/正在逐篇核对检索候选 · 齐物论/);
+ assert.doesNotMatch(collecting,/查找详情|返回候选/);
  assert.match(collecting,/正在查找… 已找到 3 篇<\/p>/);
  assert.match(collecting,/<a[^>]*aria-disabled="true"[^>]*>继续查找<\/a>/);
  assert.equal((collecting.match(/已找到 3 篇/g)||[]).length,1);

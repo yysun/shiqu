@@ -6,10 +6,13 @@ import {z} from 'zod';
 import type {MediaStore} from '../lib/services.ts';
 import type {DiscoveryContext} from '../lib/reader-discovery-call.ts';
 import type {SuggestionProgress} from '../lib/reader-suggestions.ts';
+import type {StoryReading} from '../lib/reader-provider.ts';
+import type {VerifiedThemeDecision} from '../lib/reader-theme-match.ts';
 import {ReaderError} from '../lib/reader-model.ts';
 
-export type ReadingObserver={signal:AbortSignal;onProgress:(progress:SuggestionProgress)=>void;drain?:boolean;maxStories?:1;cycleId?:string;onCall?:DiscoveryContext['onCall'];onCallStart?:DiscoveryContext['onCallStart']};
-type Flight={controller:AbortController;promise:Promise<unknown>;listeners:Set<ReadingObserver|undefined>;callListeners?:Set<ReadingObserver|undefined>;progress?:SuggestionProgress;settled:boolean};
+type VerificationUpdate={decisions:VerifiedThemeDecision[];checking?:string[]};
+export type ReadingObserver=StoryReading&{onCallStart?:DiscoveryContext['onCallStart'];onVerification?:(update:VerificationUpdate)=>void};
+type Flight={controller:AbortController;promise:Promise<unknown>;listeners:Set<ReadingObserver|undefined>;callListeners?:Set<ReadingObserver|undefined>;progress?:SuggestionProgress;verification?:VerificationUpdate;settled:boolean};
 const flightsByStore=new WeakMap<object,Map<string,Flight>>();
 const writesByStore=new WeakMap<object,Map<string,Promise<unknown>>>();
 const envelope=z.object({version:z.literal(1),key:z.string(),value:z.unknown()});
@@ -74,6 +77,9 @@ export class StoryDiscoveryCache{
    },onCall:event=>{for(const listener of current.listeners)listener?.onCall?.(event);},onProgress:progress=>{
     current.progress=progress;
     for(const listener of current.listeners)if(!listener?.signal.aborted)listener?.onProgress(progress);
+   },onVerification:update=>{
+    current.verification=update;
+    for(const listener of current.listeners)if(!listener?.signal.aborted)listener?.onVerification?.(update);
    }}));
    const finish=()=>{current.settled=true;if(this.flights.get(key)===current)this.flights.delete(key);};
    current.promise.then(finish,finish);this.flights.set(key,current);flight=current;
@@ -82,6 +88,7 @@ export class StoryDiscoveryCache{
   const listener=observer||{signal:new AbortController().signal,onProgress:()=>{}};
   flight.listeners.add(listener);flight.callListeners?.add(listener);
   if(flight.progress)listener.onProgress(flight.progress);
+  if(flight.verification)listener.onVerification?.(flight.verification);
   const current=flight;
   const leave=async()=>{
    current.listeners.delete(listener);

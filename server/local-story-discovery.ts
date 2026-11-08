@@ -10,7 +10,8 @@ import {discoveryMeasurement} from './story-discovery-metrics.ts';
 import {localSourceSchema,localSourceKey,localReadingPrompt,localCatalogJson,legacyLocalReadingPrompt,legacyLocalScanJson,localChapterStoriesPrompt,localTitleStoriesPrompt,catalogStoryLimit} from '../lib/reader-local-contract.ts';
 import type {LocalSourceReference,PendingEvent,WholeBookInput} from '../lib/reader-local-contract.ts';
 import {suggestionBatchSchema,titleKey} from '../lib/reader-suggestions.ts';
-import type {SuggestionBatch} from '../lib/reader-suggestions.ts';
+import type {IndexedStoryUpdate,SuggestionBatch} from '../lib/reader-suggestions.ts';
+import type {VerifiedThemeDecision} from '../lib/reader-theme-match.ts';
 import {ReaderError} from '../lib/reader-model.ts';
 import type {Selection} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
@@ -21,12 +22,12 @@ import {readingPlan,readingPlanKey,manifestSchema,hydrateReadingPlan,defaultRead
 import type {ReadingLimits,ReadingBlock} from './story-reading-inputs.ts';
 import {requestTokens} from './story-token-budget.ts';
 import {sourceParts,sourceUnitIds,sourcesOverlap,sourceCovers,mergeSources} from './local-source-ranges.ts';
-import {matchLibraryStories,hasUnknownJudgments,saveVerifiedThemeMatches,verifyThemeCandidates} from './story-theme-matching.ts';
+import {matchLibraryStories,hasUnknownJudgments,saveVerifiedThemeMatches,themeStoryId,verifyThemeCandidates} from './story-theme-matching.ts';
 import type {LocalStorySearch} from './local-story-search.ts';
 import {storyEditorialContext,compoundDiscoveryThemeTerms} from '../lib/reader-prompts.ts';
 import {discoveryCode} from '../lib/reader-discovery-call.ts';
 
-const storySchema=suggestionBatchSchema.shape.stories.element.omit({storyBrief:true,matchReason:true}).extend({source:localSourceSchema,continuedFrom:z.array(localSourceSchema).min(1).max(16).optional()});
+const storySchema=suggestionBatchSchema.shape.stories.element.omit({storyBrief:true,matchReason:true,matchScore:true}).extend({source:localSourceSchema,continuedFrom:z.array(localSourceSchema).min(1).max(16).optional()});
 type Story=z.infer<typeof storySchema>;
 // 主题核对独立于顺序阅读，允许正常长度的 50 篇候选一次提交。
 const themeVerificationInputTokens=16000;
@@ -118,6 +119,9 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   const stories:Story[]=[],pendingEvents:PendingEvent[]=[],ids=new Set<string>();
   for(const item of raw.stories)try{
    const story=storySchema.parse(item);qualified(books,book,story.source);
+   // 旧索引判断的描述含上一主题的理由。保留原文节选供其他主题使用。
+   const oldExcerpt=/^(?:明确符合|情节暗示)：.*? 原文：(.+)$/su.exec(story.description)?.[1];
+   if(oldExcerpt)story.description='原文节选：'+oldExcerpt;
    for(const source of story.continuedFrom||[]){qualified(books,book,source);if(!sourceCovers(book,story.source,source))throw failed();}
    stories.push(story);
   }catch{/* Remove only the invalid record, retaining the proven reading frontier. */}
@@ -188,30 +192,47 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const verifiedTheme=async(cached:Story[]):Promise<SuggestionBatch|undefined>=>{
   if(targetTitle||chapterStories||!provider.verifyThemeStories||!storySearch||storyEditorialContext(theme).mode==='source')return;
   const candidates=await storySearch.lookupHits(book,theme,observer.signal,false,50,recordRetrieval,themeTerms);
-  const originals=new Map<string,string[]>();
-  const stories=(candidates||[]).flatMap(({source,title})=>{
+  const originals=new Map<string,string[]>(),summaries=new Map<string,string>();
+  const stories=(candidates||[]).flatMap(({source,title,summary})=>{
    try{
     const original=books.resolve(book,source);
-    originals.set(localSourceKey(source),original.localParts?.map(part=>part.text)||[original.text]);
-    return [{title:title.replace(/\s+/gu,' ').trim().slice(0,100)||original.title.slice(0,100),description:'',source,sourceLabel:original.title.slice(0,150)}];
+    const key=localSourceKey(source);
+    originals.set(key,original.localParts?.map(part=>part.text)||[original.text]);
+    const text=original.text.replace(/\s+/gu,' ').trim();
+    const preview=summary||'原文节选：'+text.slice(0,100)+(text.length>100?'…':'');
+    if(observer.onIndexedCandidates)summaries.set(key,preview);
+    return [{title:title.replace(/\s+/gu,' ').trim().slice(0,100)||original.title.slice(0,100),description:preview.slice(0,180),source,sourceLabel:original.title.slice(0,150)}];
    }catch(error){if(error instanceof ReaderError&&error.status===400)return [];throw error;}
   });
   if(!stories.length)return;
-  const {matches,checked}=await verifyThemeCandidates(provider,cache,theme,stories,story=>originals.get(localSourceKey(story.source))!,Math.min(limits.whole,themeVerificationInputTokens),status,{...observer,onProgress:value=>observer.onProgress({...value,stage:'verifying',retrieval,cachedMatches})});
-  const verified=matches.map(({story,decision})=>{
+  const verifiedStory=(story:Story,decision:VerifiedThemeDecision)=>{
    const matchReason=(decision.verdict==='direct'?'明确符合：':'情节暗示：')+decision.reason;
-   const description=(matchReason+' 原文：'+decision.evidence[0]).slice(0,180);
-   return {...story,description,matchReason};
-  });
+   return {...story,matchReason,...(decision.matchScore!==undefined?{matchScore:decision.matchScore}:{})};
+  };
+  const publish=observer.onIndexedCandidates;
+  const indexed=publish&&new Map(stories.map(story=>[themeStoryId(story),story]));
+  const updates=new Map<string,IndexedStoryUpdate>();
+  if(publish&&indexed){
+   for(const [id,story] of indexed)updates.set(id,{id,title:story.title,summary:summaries.get(localSourceKey(story.source))});
+   await publish([...updates.values()]);
+  }
+  const {matches,checked}=await verifyThemeCandidates(provider,cache,theme,stories,story=>originals.get(localSourceKey(story.source))!,Math.min(limits.whole,themeVerificationInputTokens),status,{...observer,onProgress:value=>observer.onProgress({...value,stage:'verifying',retrieval,cachedMatches})},publish&&indexed?async decisions=>{
+   for(const decision of decisions){
+    const story=indexed.get(decision.id)!;
+    updates.set(decision.id,{...updates.get(decision.id)!,matchScore:decision.matchScore,judgment:decision.verdict==='no'?null:verifiedStory(story,decision)});
+   }
+   if(decisions.length)await publish([...updates.values()]);
+  }:undefined);
+  const verified=matches.map(({story,decision})=>verifiedStory(story,decision));
   if(verified.length){
    // 索引只证明这些故事与主题相符，不推进全书阅读游标。
    await cache.update(key,stateEnvelope,empty,async raw=>{
     const current=validate(raw)?restore(raw):empty();
-    const judgments=verified.map(({matchReason,...story})=>{
+    const judgments=verified.map(({matchReason,matchScore,...story})=>{
      const existing=current.stories.find(item=>sameRange(item.source,story.source));
      if(!existing)current.stories.push(story);
      const saved=existing||story;
-     return {story:saved,reason:matchReason,text:books.resolve(book,saved.source).text};
+     return {story:saved,reason:matchReason,matchScore,text:books.resolve(book,saved.source).text};
     });
     await saveVerifiedThemeMatches(cache,book.id,theme,status,judgments);
     return current;
@@ -301,10 +322,12 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const cached=targetTitle?titleMatches(initialStories):await matchLibraryStories(provider,cache,namespace,theme,initialStories,original,limits.whole,status.provider,observer,{...matchingOptions,cacheOnly:true});
  cachedMatches=cached.length;
  reportStage('cache');
- if(cached.length>=batchLimit||targetTitle&&cached.length)return response(initial,cached,true);
+ const readyCache=cached.length>=batchLimit||targetTitle&&cached.length;
+ if(readyCache&&!observer.onIndexedCandidates||targetTitle&&readyCache)return response(initial,cached,true);
  reportStage('retrieving');
  const verified=await verifiedTheme(cached);
  if(verified)return verified;
+ if(readyCache)return response(initial,cached,true);
  const indexed=await fromCandidates(initial,cached);
  if(indexed)return indexed;
  retrieval??='scan';

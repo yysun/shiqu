@@ -26,8 +26,9 @@ import {readableImage} from './reader-image-health.ts';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {effectiveIntakePhase,intakeSearch} from '../lib/reader-intake.ts';
 import type {IntakeSearch} from '../lib/reader-intake.ts';
-import {suggestionBatchSchema,freshSuggestions} from '../lib/reader-suggestions.ts';
-import type {SuggestionBatch,SuggestionProgress} from '../lib/reader-suggestions.ts';
+import {suggestionBatchSchema,freshSuggestions,maxSuggestionBatches} from '../lib/reader-suggestions.ts';
+import type {IndexedStoryCandidate,IndexedStoryUpdate,SuggestionBatch,SuggestionProgress} from '../lib/reader-suggestions.ts';
+import {localSourceKey} from '../lib/reader-source-key.ts';
 import {readerMaxFrames,readerStoryboardBatchSize} from '../lib/reader-limits.ts';
 import {productionReadAhead,productionViewerLeaseMs} from '../lib/reader-production.ts';
 import type {ReaderProduction} from '../lib/reader-production.ts';
@@ -364,7 +365,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const startedAt=current?.updated_at??null,timeoutMs=timingProvider?.generationTimeoutMs?.(phase);
   const timeoutAt=startedAt!==null&&timeoutMs?startedAt+timeoutMs:null;
   const search=this.searches.get(id);
-  const session={...saved,...(saved.intake&&search?.progress?{intake:{...saved.intake,progress:search.progress}}:{}),generationProgress:{...saved.generationProgress!,startedAt,timeoutAt,stageDurations:productionStageDurations(allJobs,parsed.selection),attempt:current?.attempts??saved.generationProgress!.attempt}};
+  const liveProgress=parsed.doc.intake&&search?.round===intakeSearch(parsed.doc.intake).round&&saved.intake?.search.state==='searching'?search.progress:undefined;
+  const session={...saved,...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),generationProgress:{...saved.generationProgress!,startedAt,timeoutAt,stageDurations:productionStageDurations(allJobs,parsed.selection),attempt:current?.attempts??saved.generationProgress!.attempt}};
   const working=active.length>0||jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===jobDependencies(job)[0]&&parent.state==='succeeded'));
   if(faults.length){
    const views=faults.map(fault=>this.faultView(row,fault,allJobs)),pending=views.find(f=>f.retryAllowed&&f.stage==='redraw')||views.find(f=>f.retryAllowed)||views[0];
@@ -507,14 +509,67 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    .bind(token,now+(this.options.leaseMs||sessionLeaseMs),new Date(now).toISOString(),row.id,row.user_id,row.state,row.document).run();
   if(acquired.meta.changes){this.leases.set(row.id,{ownerId:row.user_id,token});return true;}return false;
  }
- private async finishSearch(id:string,ownerId:string,round:number,search:IntakeSearch,batch?:SuggestionBatch){
+ private async finishSearch(id:string,ownerId:string,round:number,search:IntakeSearch,batch?:SuggestionBatch,clearIndexed=false){
   // The fence refuses a result that arrives after confirmation or after a crash already saved it.
   const phase="'$.intake.phase',CASE WHEN json_extract(document,'$.intake.phase')='discovering' THEN 'choosing' ELSE json_extract(document,'$.intake.phase') END";
   const updated=`json_set(document,'$.intake.search',json(?),${phase})`;
-  const saved=await this.database.prepare(`UPDATE stories SET document=${batch?`json_insert(${updated},'$.intake.batches[#]',json(?))`:updated},updated_at=?
+  const indexed=clearIndexed?`json_remove(${updated},'$.intake.indexedCandidates')`:updated;
+  const saved=await this.database.prepare(`UPDATE stories SET document=${batch?`json_insert(${indexed},'$.intake.batches[#]',json(?))`:indexed},updated_at=?
    WHERE id=? AND user_id=? AND json_extract(document,'$.intake.search.round')=? AND json_extract(document,'$.intake.search.state')='searching'`)
    .bind(JSON.stringify(search),...(batch?[JSON.stringify(batch)]:[]),new Date(this.clock()).toISOString(),id,ownerId,round).run();
   return saved.meta.changes>0;
+ }
+ // 状态和可选批次一起保存。复用已发布的坐标，避免重试或后台保存使选择指向另一篇。
+ private async saveIndexedCandidates(id:string,ownerId:string,round:number,updates:IndexedStoryUpdate[]){
+  for(let attempt=0;attempt<4;attempt++){
+   const row=await this.find(id,ownerId);
+   if(!row||!this.searchCurrent(row,round))return false;
+   const {intake}=JSON.parse(row.document) as Document;
+   const previous=new Map(intake!.indexedCandidates?.map(candidate=>[candidate.id,candidate]));
+   const batches=intake!.batches;
+   const choices=new Map<string,{batch:number;index:number}>();
+   for(const [batch,receipt] of batches.entries())for(const [index,story] of receipt.stories.entries()){
+    if(story.source)choices.set(localSourceKey(story.source),{batch,index});
+   }
+   const candidates=updates.map(({id,title,summary,matchScore,judgment}):IndexedStoryCandidate=>{
+    const saved=previous.get(id);
+    const info={id,title,...(summary?{summary}:{})};
+    const score=matchScore!==undefined?{matchScore}:{};
+    if(saved?.status==='rejected'||saved?.choice){
+     const sameVerdict=saved.status==='rejected'?judgment===null:!!judgment;
+     return {...saved,...info,...(sameVerdict?score:{})};
+    }
+    const candidate={...info,...score};
+    if(judgment===undefined)return {...candidate,status:saved?.status||'pending'};
+    if(judgment===null)return {...candidate,status:'rejected'};
+    const source=localSourceKey(judgment.source);
+    let choice=choices.get(source);
+    if(!choice){
+     let batch=batches.length-1;
+     if(!batches.length||batches[batch].stories.length>=5){
+      if(batches.length>=maxSuggestionBatches)batch=batches.findLastIndex(receipt=>receipt.stories.length<5);
+      else{batch=batches.length;batches.push({stories:[],note:''});}
+     }
+     if(batch<0)return {...candidate,status:'match'};
+     const stories=batches[batch].stories;
+     choice={batch,index:stories.length};
+     choices.set(source,choice);stories.push(judgment);
+    }
+    return {...candidate,status:'match',choice};
+   });
+   let scoresUpdated=false;
+   for(const {choice,matchScore} of candidates){
+    if(!choice||matchScore===undefined)continue;
+    const story=batches[choice.batch]?.stories[choice.index];
+    if(story&&story.matchScore!==matchScore){story.matchScore=matchScore;scoresUpdated=true;}
+   }
+   if(!scoresUpdated&&JSON.stringify(candidates)===JSON.stringify(intake!.indexedCandidates))return true;
+   const saved=await this.database.prepare(`UPDATE stories SET document=json_set(document,'$.intake.indexedCandidates',json(?),'$.intake.batches',json(?))
+    WHERE id=? AND user_id=? AND document=? AND NOT EXISTS (SELECT 1 FROM library_deletions WHERE story_id=stories.id AND user_id=stories.user_id)`)
+    .bind(JSON.stringify(candidates),JSON.stringify(batches),id,ownerId,row.document).run();
+   if(saved.meta.changes)return true;
+  }
+  throw new ReaderError(503,'候选进度暂未保存，请重试查找。');
  }
  // 最终派发边界只读一次配置；与提前门控之间发生的只读切换不消费付费尝试。
  private jobProvider(job:ProductionJob){
@@ -534,10 +589,20 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const excluded=intake.batches.flatMap(batch=>batch.stories),titles=excluded.map(story=>story.title),sources=excluded.flatMap(story=>story.source?[story.source]:[]);
   const active:ActiveSearch={round,controller:new AbortController(),startedAt:this.clock()};this.searches.set(row.id,active);
   try{
-   const result=await provider.suggestions(selection,titles,undefined,{signal:active.controller.signal,drain:true,maxStories:1,cycleId:search.cycleId,onProgress:progress=>{active.progress=progress;}},sources);
-   const batch=freshSuggestions(suggestionBatchSchema.parse(result),titles,sources);
-   const saved=await this.finishSearch(row.id,row.user_id,round,{...search,state:'idle',error:null},batch);
-   return saved?{batches:intake.batches.length+1}:{obsolete:true};
+   let published=false;
+   const onIndexedCandidates=this.options.targetSessionId?undefined:async(candidates:IndexedStoryUpdate[])=>{
+    if(!await this.saveIndexedCandidates(row.id,row.user_id,round,candidates))active.controller.abort();
+    active.controller.signal.throwIfAborted();
+    published=true;
+   };
+   const result=await provider.suggestions(selection,titles,undefined,{signal:active.controller.signal,drain:true,maxStories:1,cycleId:search.cycleId,onIndexedCandidates,onProgress:progress=>{active.progress=progress;}},sources);
+   const current=published?(JSON.parse((await this.raw(row.id,row.user_id)).document) as Document).intake!:intake;
+   const savedStories=published?current.batches.flatMap(batch=>batch.stories):excluded;
+   const batch=freshSuggestions(suggestionBatchSchema.parse(result),savedStories.map(story=>story.title),savedStories.flatMap(story=>story.source?[story.source]:[]));
+   // 逐批发布的匹配项已经保存。若旧缓存还提供了索引之外的候选，仍按原流程保留。
+   const append=current.batches.length<maxSuggestionBatches&&(!published||batch.stories.length>0);
+   const saved=await this.finishSearch(row.id,row.user_id,round,{...search,state:'idle',error:null},append?batch:undefined,!!onIndexedCandidates&&!published&&!!intake.indexedCandidates);
+   return saved?{batches:current.batches.length+Number(append)}:{obsolete:true};
   }catch(error){
    if(persistenceError(error))throw error;
    if(!this.searchCurrent(await this.raw(row.id,row.user_id),round))return {obsolete:true};

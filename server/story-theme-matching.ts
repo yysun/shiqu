@@ -6,9 +6,9 @@ import {ReaderError} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import {localSourceKey} from '../lib/reader-local-contract.ts';
 import type {LocalSourceReference} from '../lib/reader-local-contract.ts';
-import {themeMatchPrompt,themeMatchJson,themeMatchPayload,themeDecisionSchema,themeMatchBatchSize,themeStorySchema,themeMatchContract,themeMatchEffort,verifiedThemeMatch,verifiedThemeBatchSize,verifiedThemeDecision} from '../lib/reader-theme-match.ts';
+import {themeMatchPrompt,themeMatchJson,themeMatchPayload,themeDecisionSchema,themeMatchBatchSize,themeStorySchema,themeMatchContract,themeMatchEffort,themeScoreDirection,verifiedThemeMatch,verifiedThemeBatchSize,verifiedThemeDecision} from '../lib/reader-theme-match.ts';
 import type {ThemeStory,VerifiedThemeDecision} from '../lib/reader-theme-match.ts';
-import {compoundDiscoveryThemeTerms,compoundDiscoveryThemeDirection} from '../lib/reader-prompts.ts';
+import {compoundDiscoveryThemeTerms,compoundDiscoveryThemeDirection,storyEditorialContext} from '../lib/reader-prompts.ts';
 import {discoveryCode} from '../lib/reader-discovery-call.ts';
 import type {DiscoveryContext} from '../lib/reader-discovery-call.ts';
 import {StoryDiscoveryCache,discoveryHash} from './story-discovery-cache.ts';
@@ -23,7 +23,7 @@ const empty=()=>({decisions:{},fingerprints:{},unknown:{}} as z.infer<typeof sav
 export const themeStoryId=(story:Story)=>discoveryHash([story.title.normalize('NFKC').trim(),localSourceKey(story.source)]);
 export const legacyThemeStoryId=(story:Story)=>discoveryHash([story.title,localSourceKey(story.source)]);
 export const legacyThemeDecisionKey=(namespace:string,theme:string,identity?:{model:string;reasoningEffort:string})=>namespace+'/themes/'+discoveryHash([theme.normalize('NFKC').trim(),frozen.themeMatchPrompt,frozen.themeMatchJson,...(identity?[identity]:[])]);
-export const themeDecisionKey=(namespace:string,theme:string,identity?:{model:string;reasoningEffort:string;provider?:string})=>namespace+'/themes/'+discoveryHash([theme.normalize('NFKC').trim(),themeMatchContract,...(compoundDiscoveryThemeTerms(theme).length?[compoundDiscoveryThemeDirection]:[]),...(identity?[identity]:[])]);
+export const themeDecisionKey=(namespace:string,theme:string,identity?:{model:string;reasoningEffort:string;provider?:string})=>namespace+'/themes/'+discoveryHash([theme.normalize('NFKC').trim(),themeMatchContract,...(compoundDiscoveryThemeTerms(theme).length?[compoundDiscoveryThemeDirection]:[]),...(identity?[identity]:[]),...(storyEditorialContext(theme).mode==='theme'?[themeScoreDirection]:[])]);
 type Query={service:string;cycle:string;done:boolean;failed?:boolean;found?:boolean;ids:Set<string>;observer?:ReadingObserver;error?:unknown;context?:DiscoveryContext};
 type Flight={promise:Promise<void>;readers:Set<Query>;callReaders?:Set<Query>;isolation?:{id:string;callId:string}};
 class Changes{
@@ -48,12 +48,12 @@ function judgmentIdentity(status:Awaited<ReturnType<ReaderProvider['status']>>,p
 }
 function bookJudgmentNamespace(bookId:string,provider:string){return 'original-judgments/'+discoveryHash([bookId,provider]);}
 
-export async function saveVerifiedThemeMatches(cache:StoryDiscoveryCache,bookId:string,theme:string,status:Awaited<ReturnType<ReaderProvider['status']>>,matches:{story:Story;reason:string;text:string}[]){
+export async function saveVerifiedThemeMatches(cache:StoryDiscoveryCache,bookId:string,theme:string,status:Awaited<ReturnType<ReaderProvider['status']>>,matches:{story:Story;reason:string;text:string;matchScore?:number}[]){
  const key=themeDecisionKey(bookJudgmentNamespace(bookId,status.provider),theme,judgmentIdentity(status,status.provider));
  await cache.update(key,savedSchema,empty,current=>{
-  for(const {story,reason,text} of matches){
+  for(const {story,reason,text,matchScore} of matches){
    const id=themeStoryId(story);
-   current.decisions[id]=themeDecisionSchema.parse({id,verdict:'yes',reason});
+   current.decisions[id]=themeDecisionSchema.parse({id,verdict:'yes',reason,matchScore});
    current.fingerprints[id]=discoveryHash(text);
    delete current.unknown[id];
   }
@@ -62,8 +62,9 @@ export async function saveVerifiedThemeMatches(cache:StoryDiscoveryCache,bookId:
  coordinators.get(cache.identity)?.changes.notify();
 }
 
-export async function matchLibraryStories<T extends Story>(provider:ReaderProvider,cache:StoryDiscoveryCache,namespace:string,theme:string,stories:T[],original:(story:T)=>string,budget:number,providerName:string,observer?:ReadingObserver,options:{cacheOnly?:boolean;bookId?:string;legacyNamespaces?:string[];retryUnknown?:boolean;context?:DiscoveryContext}={}):Promise<(T&{matchReason:string})[]>{
+export async function matchLibraryStories<T extends Story>(provider:ReaderProvider,cache:StoryDiscoveryCache,namespace:string,theme:string,stories:T[],original:(story:T)=>string,budget:number,providerName:string,observer?:ReadingObserver,options:{cacheOnly?:boolean;bookId?:string;legacyNamespaces?:string[];retryUnknown?:boolean;context?:DiscoveryContext}={}):Promise<(T&{matchReason:string;matchScore?:number})[]>{
  const status=await provider.status(),identity=judgmentIdentity(status,providerName);
+ const themed=storyEditorialContext(theme).mode==='theme';
  const key=themeDecisionKey(options.bookId?bookJudgmentNamespace(options.bookId,providerName):namespace,theme,identity);
  const cycle=observer?.cycleId||randomUUID(),cycleKey='discovery-cycle/'+discoveryHash(cycle);
  if(!options.cacheOnly&&stories.length&&!provider.matchStories)throw new ReaderError(503,'当前生成服务暂不支持故事主题匹配，请更新服务后重试。');
@@ -80,7 +81,12 @@ export async function matchLibraryStories<T extends Story>(provider:ReaderProvid
   });
  }
  const initialSaved=await read();
- if(options.cacheOnly)return entries.filter(entry=>initialSaved.fingerprints[entry.id]===entry.fingerprint&&initialSaved.decisions[entry.id]?.verdict==='yes').map(entry=>({...entry.story,matchReason:initialSaved.decisions[entry.id].reason}));
+ const positives=(saved:typeof initialSaved)=>entries.flatMap(({id,fingerprint,story})=>{
+  const decision=saved.decisions[id];
+  if(saved.fingerprints[id]!==fingerprint||decision?.verdict!=='yes')return [];
+  return [{...story,matchReason:decision.reason,...(themed&&decision.matchScore!==undefined?{matchScore:decision.matchScore}:{})}];
+ });
+ if(options.cacheOnly)return positives(initialSaved);
  const hasUnshownYes=entries.some(entry=>initialSaved.fingerprints[entry.id]===entry.fingerprint&&initialSaved.decisions[entry.id]?.verdict==='yes');
  const initialCycle=():z.infer<typeof cycleSchema>=>({calls:{},retried:{},retryAllowed:!!options.retryUnknown&&!hasUnshownYes});
  const cycleState=await cache.update(cycleKey,cycleSchema,initialCycle,value=>value);
@@ -160,7 +166,7 @@ export async function matchLibraryStories<T extends Story>(provider:ReaderProvid
   while(true){
    observer?.signal.throwIfAborted();const notification=changes.promise,saved=await read();
    if(q.failed)throw q.error;
-   const matched=entries.filter(entry=>saved.fingerprints[entry.id]===entry.fingerprint&&saved.decisions[entry.id]?.verdict==='yes').map(entry=>({...entry.story,matchReason:saved.decisions[entry.id].reason}));
+   const matched=positives(saved);
    if(matched.length)return matched;
    const todo:typeof entries=[];let waiting=false;
    const retryReady=entries.every(entry=>saved.fingerprints[entry.id]===entry.fingerprint&&(saved.decisions[entry.id]||saved.unknown[entry.id]));
@@ -201,7 +207,7 @@ export async function hasUnknownJudgments(provider:ReaderProvider,cache:StoryDis
 // 主题候选必须逐条给出判断。缓存与原文及契约绑定，未核对项留给下一次请求。
 const verifiedBatchSchema=z.array(verifiedThemeDecision).max(verifiedThemeBatchSize);
 const evidenceText=(text:string)=>text.replace(/[\p{P}\s]/gu,'');
-export async function verifyThemeCandidates<T extends Story>(provider:ReaderProvider,cache:StoryDiscoveryCache,theme:string,stories:T[],original:(story:T)=>string[],budget:number,status:Awaited<ReturnType<ReaderProvider['status']>>,observer:ReadingObserver){
+export async function verifyThemeCandidates<T extends Story>(provider:ReaderProvider,cache:StoryDiscoveryCache,theme:string,stories:T[],original:(story:T)=>string[],budget:number,status:Awaited<ReturnType<ReaderProvider['status']>>,observer:ReadingObserver,onDecisions?:(decisions:VerifiedThemeDecision[])=>Promise<void>){
  const identity={model:status.models.text,reasoningEffort:themeMatchEffort};
  const entries=stories.map(story=>{
   const parts=original(story),input=themeStorySchema.parse({id:themeStoryId(story),title:story.title,text:parts.join('\n\n')});
@@ -211,7 +217,7 @@ export async function verifyThemeCandidates<T extends Story>(provider:ReaderProv
  let completed=0,checked=0;
  const totalChars=entries.reduce((sum,entry)=>sum+entry.input.text.length,0);
  let completedChars=0;
- const progress=()=>observer.onProgress({completed,total:entries.length,completedChars,totalChars,stage:'checking',mode:'chapters'});
+ const progress=(checkingCandidates?:string[])=>observer.onProgress({completed,total:entries.length,completedChars,totalChars,stage:'checking',mode:'chapters',...(checkingCandidates?{checkingCandidates}:{})});
  const fits=(batch:typeof entries)=>readingTokens(verifiedThemeMatch.prompt,status.provider)+readingTokens(JSON.stringify(verifiedThemeMatch.payload(theme,batch.map(entry=>entry.input))),status.provider)+readingTokens(JSON.stringify(verifiedThemeMatch.json),status.provider)<=budget;
  progress();
  for(let start=0;start<entries.length;){
@@ -220,20 +226,30 @@ export async function verifyThemeCandidates<T extends Story>(provider:ReaderProv
   if(fits(batch)){
    while(start<entries.length&&batch.length<verifiedThemeBatchSize&&fits([...batch,entries[start]]))batch.push(entries[start++]);
    const key='theme-candidate-verification-v1/'+discoveryHash([status.provider,identity,verifiedThemeMatch.prompt,verifiedThemeMatch.json,theme,batch.map(({input,evidenceParts})=>[input,evidenceParts])]);
-   const decisions=await cache.shared(key,observer,async reading=>{
+   const valid=(decision:VerifiedThemeDecision)=>{
+    const entry=batch.find(item=>item.input.id===decision.id);
+    if(!entry)return false;
+    if(decision.verdict==='no')return true;
+    return decision.evidence.length>0&&decision.evidence.every(quote=>{
+     const value=evidenceText(quote);return value.length>=4&&entry.evidenceParts.some(part=>part.includes(value));
+    });
+   };
+   let delivery=Promise.resolve(),published=0;
+   const listener:ReadingObserver=onDecisions?{...observer,onVerification:({decisions,checking})=>{
+    progress(checking);
+    if(decisions.length<=published)return;
+    published=decisions.length;
+    delivery=delivery.then(()=>onDecisions(decisions));
+    void delivery.catch(()=>{});
+   }}:observer;
+   // 首次核对与补核共用一次任务。每个选题页独立保存它收到的有效回执。
+   const decisions=await cache.shared(key,listener,async reading=>{
     const saved=await cache.read(key,verifiedBatchSchema)||[];
-    const valid=(decision:VerifiedThemeDecision)=>{
-     const entry=batch.find(item=>item.input.id===decision.id);
-     if(!entry)return false;
-     if(decision.verdict==='no')return true;
-     return decision.evidence.length>0&&decision.evidence.every(quote=>{
-      const value=evidenceText(quote);return value.length>=4&&entry.evidenceParts.some(part=>part.includes(value));
-     });
-    };
     const accepted=new Map(saved.filter(valid).map(decision=>[decision.id,decision]));
     for(let attempt=0;attempt<2;attempt++){
      const remaining=batch.filter(entry=>!accepted.has(entry.input.id));
      if(!remaining.length)break;
+     reading.onVerification?.({decisions:[...accepted.values()],checking:remaining.map(({input})=>input.id)});
      const release=await slot();
      try{
       reading.signal.throwIfAborted();
@@ -245,8 +261,10 @@ export async function verifyThemeCandidates<T extends Story>(provider:ReaderProv
      }catch(error){reading.signal.throwIfAborted();if(discoveryCode(error)==='service')throw error;}
      finally{release();}
     }
-    return [...accepted.values()];
-   });
+    const decisions=[...accepted.values()];
+    reading.onVerification?.({decisions});
+    return decisions;
+   }).finally(()=>delivery);
    checked+=decisions.length;
    for(const {story,input} of batch){
     const decision=decisions.find(item=>item.id===input.id);

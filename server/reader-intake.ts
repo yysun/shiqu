@@ -47,12 +47,12 @@ export async function createIntake(repo:ReaderRepository,id:string,uid:string,in
 // Manual search stands outside selection generations; automatic continuation must still be unselected at write time.
 async function requestSearch(repo:ReaderRepository,row:SessionRow,doc:Document,requestId:string,fingerprint:string,automatic=false){
  const intake=doc.intake!,search=intakeSearch(intake);
- if(automatic&&(intake.selected||intake.phase!=='choosing'||search.state!=='idle'||!intake.batches.at(-1)?.stories.length)||search.state==='searching'||search.state==='idle'&&search.requestId===requestId){await recordNoop(repo.db,row.user_id,row.id,requestId,'setup',fingerprint);return row;}
+ if(automatic&&(intake.indexedCandidates||intake.selected||intake.phase!=='choosing'||search.state!=='idle'||!intake.batches.at(-1)?.stories.length)||search.state==='searching'||search.state==='idle'&&search.requestId===requestId){await recordNoop(repo.db,row.user_id,row.id,requestId,'setup',fingerprint);return row;}
  if(doc.plan||intake.phase==='confirmed')throw new ReaderError(409,'制作已确认；需要调整时请创建修订版本。');
- if(intake.batches.length>=maxSuggestionBatches)throw new ReaderError(400,'已保存40批候选，请回看选择，或新建其他书籍与主题。');
+ if(!intake.indexedCandidates&&intake.batches.length>=maxSuggestionBatches)throw new ReaderError(400,'已保存40批候选，请回看选择，或新建其他书籍与主题。');
  const next:IntakeSearch={round:search.round+1,state:'searching',requestId,commandHash:fingerprint,cycleId:automatic?(search.cycleId||hash([row.id,search.round])):requestId};
  const changed=await repo.db.prepare(`UPDATE stories SET document=json_set(document,'$.intake.search',json(?),'$.intake.phase',CASE WHEN json_type(document,'$.intake.selected')='object' THEN json_extract(document,'$.intake.phase') ELSE 'discovering' END),updated_at=?
-  WHERE id=? AND user_id=? AND COALESCE(json_extract(document,'$.intake.search.round'),0)=? AND json_extract(document,'$.intake.phase')!='confirmed'${automatic?" AND json_type(document,'$.intake.selected') IS NOT 'object' AND json_extract(document,'$.intake.phase')='choosing' AND json_extract(document,'$.intake.search.state')='idle'":''} AND ${visible}`)
+  WHERE id=? AND user_id=? AND COALESCE(json_extract(document,'$.intake.search.round'),0)=? AND json_extract(document,'$.intake.phase')!='confirmed'${automatic?" AND json_type(document,'$.intake.indexedCandidates') IS NULL AND json_type(document,'$.intake.selected') IS NOT 'object' AND json_extract(document,'$.intake.phase')='choosing' AND json_extract(document,'$.intake.search.state')='idle'":''} AND ${visible}`)
   .bind(JSON.stringify(next),new Date().toISOString(),row.id,row.user_id,search.round).run();
  // A command that lost the CAS was accepted as a no-op; later replay cannot start a new round.
  if(!changed.meta.changes)await recordNoop(repo.db,row.user_id,row.id,requestId,'setup',fingerprint);
@@ -78,6 +78,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   // Search rounds fence late extraction results; generations fence stale candidate selections.
   const round=intakeSearch(intake).round+1;
   intake.phase=action.conditions.discovery?'discovering':'choosing';intake.generation++;intake.batches=[];
+  delete intake.indexedCandidates;
   intake.search=action.conditions.discovery?{round,state:'searching',cycleId:action.requestId}:{round,state:'idle'};intake.lastAction={id:action.requestId,hash:fingerprint};
   delete intake.draft;delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
   const result=await repo.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
@@ -97,6 +98,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   // The new round fences old paid results; the generation also fences stale candidate choices.
   selection.discovery=discovery;delete selection.storyTitle;delete selection.source;selection.length='auto';
   intake.phase='discovering';intake.generation++;intake.batches=[];
+  delete intake.indexedCandidates;
   intake.search={round:search.round+1,state:'searching',requestId:action.requestId,commandHash:fingerprint,cycleId:action.requestId};
   delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
   const result=await repo.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?

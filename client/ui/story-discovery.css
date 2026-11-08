@@ -7,11 +7,19 @@
 .yu-candidate-search{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;margin:0 0 12px}
 .yu-candidate-search-status{display:flex;align-items:center;gap:5px;min-height:44px;margin:0;color:#45643b;font-size:13px;font-weight:600;line-height:1.35}
 .yu-candidate-search-icon{display:flex;flex:0 0 14px}
-.yu-candidate-search-actions{display:grid;grid-template-columns:repeat(2,4.5em);column-gap:4px;font-size:12px}
+.yu-candidate-search-actions{font-size:12px}
 .yu-candidate-search-actions>.story-flow-link{white-space:nowrap}
-.yu-search-details{padding:12px;border-left:2px solid #a6b497;background:#f1f3e9;color:#45643b;font-size:13px;line-height:1.7;overflow-wrap:anywhere}
-.yu-search-details p{margin:0}
-.yu-search-details p+p{margin-top:6px}
+.yu-search-notice{margin:0 0 12px;color:#526749;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.yu-extraction-candidates{list-style:none;margin:0 0 12px;padding:0;border-top:1px solid #dce1d2}
+.yu-extraction-candidates>li{display:grid;grid-template-columns:minmax(0,1fr) 3.5em minmax(4.5em,auto);align-items:start;gap:8px;min-height:44px;padding:8px 0;border-bottom:1px solid #dce1d2;color:#304c37}
+.yu-extraction-candidate-copy{overflow-wrap:anywhere}
+.yu-extraction-candidate-copy strong{font-size:14px;line-height:1.5}
+.yu-extraction-candidate-copy p,.yu-extraction-candidate-copy small{display:block;margin:3px 0 0;color:#586655;font-size:12px;line-height:1.55}
+.yu-extraction-candidate-status{padding-top:3px;font-size:12px;color:#586655;white-space:nowrap}
+.yu-extraction-candidate-score{display:block;margin-top:3px;font-variant-numeric:tabular-nums}
+.yu-extraction-candidates [data-status="match"] .yu-extraction-candidate-status{color:#38633f;font-weight:600}
+.yu-extraction-candidates button{min-height:36px;padding:4px 8px;border:1px solid #9aad92;border-radius:8px;background:#f3f7ec;color:#304c37;font-size:12px;white-space:nowrap}
+.yu-extraction-candidates button:focus-visible{outline:2px solid #4f7246;outline-offset:2px}
 .yu-extraction-context{margin:0 0 14px;padding-bottom:12px;border-bottom:1px solid var(--yu-line,#dce1d2);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
 .yu-extraction-context .yu-setting-row.yu-story-name{padding:0 0 4px;border:0}
 .yu-extraction-meta-row{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:4px 12px}

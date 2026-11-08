@@ -2072,6 +2072,7 @@
         "server/local-story-events.ts",
         "server/local-story-discovery.ts",
         "server/local-generation.ts",
+        "server/story-theme-matching.ts",
         "tests/fixtures/story-library.mjs"
       ]
     },

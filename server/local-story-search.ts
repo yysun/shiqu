@@ -16,7 +16,7 @@ export const storyEmbeddingQuery=(text:string)=>`Instruct: Given a natural-langu
 const simplify=Converter({from:'t',to:'cn'});
 export const storySearchKey=(text:string)=>simplify(text.normalize('NFKC').toLowerCase()).replace(/[\p{P}\s]/gu,'');
 type CardText={id:string;title:string;summary:string};
-type Entry=CardText&{source:LocalSourceReference;text:string;displayTitle:string;vectors:Float32Array[];eventTerms:Set<string>;eventText:string};
+type Entry=CardText&{source:LocalSourceReference;text:string;displayTitle:string;displaySummary:string;vectors:Float32Array[];eventTerms:Set<string>;eventText:string};
 type Snapshot={stamp:string;edition:string;bookId?:string;references:Map<string,Float32Array>;entries:Entry[]};
 export const storyIndexDirectory='story-indexes';
 const indexFilename=(bookId:string)=>encodeURIComponent(bookId)+'.sqlite';
@@ -37,9 +37,9 @@ function load(file:string,stamp:string,strict=false):Snapshot|undefined{
     const source=localSourceSchema.parse(JSON.parse(String(row.source)));
     if(source.edition!==identity.edition)throw Error('索引条目的原文版本不一致');
     const vectors=[decode(row.raw_vector),decode(row.vector)].filter(value=>value!==undefined);
-    const id=String(row.id);
+    const id=String(row.id),displaySummary=String(row.summary??'').replace(/\s+/gu,' ').trim();
     entries.set(id,{id,source,text:storySearchKey(String(row.text)),title:storySearchKey(String(row.title||'')),
-     summary:storySearchKey(String(row.summary??'')),displayTitle:String(row.title??'').trim(),vectors,eventTerms:new Set(),eventText:''});
+     summary:storySearchKey(displaySummary),displaySummary,displayTitle:String(row.title??'').trim(),vectors,eventTerms:new Set(),eventText:''});
    }catch(error){if(strict)throw error; /* 旧索引读取时跳过损坏的记录。 */}
   }
   if(db.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='passages'").get()){
@@ -248,6 +248,6 @@ export class LocalStorySearch{
   const both=text.filter(row=>row.coverage===2).map(({entry})=>entry);
   const candidates=[...both,...primary.slice(0,3),...cardEntries.slice(0,2),...primary.slice(3),...cardEntries.slice(2)];
   const unique=new Map(candidates.map(entry=>[localSourceKey(entry.source),entry]));
-  return [...unique.values()].slice(0,limit).map(({source,displayTitle})=>({source,title:displayTitle}));
+  return [...unique.values()].slice(0,limit).map(({source,displayTitle,displaySummary})=>({source,title:displayTitle,...(displaySummary?{summary:displaySummary}:{})}));
  }
 }

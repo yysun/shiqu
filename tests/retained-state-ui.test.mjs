@@ -86,7 +86,7 @@ test('提取页直接继续旧草稿，已开始的任务不重复提交标题',
  assert.equal(actions.length,1);
 });
 
-test('查找详情与候选共用状态栏，切换视图不发起新查找',async()=>{
+test('候选的核对状态就地更新，只有通过的候选可以选择',async()=>{
  const {Setup,mount}=await load();
  const draft=session(settings);
  const batch={stories:[{title:'濠梁之辩'}],note:''};
@@ -94,8 +94,9 @@ test('查找详情与候选共用状态栏，切换视图不发起新查找',asy
  const actions=[];
  const input={...props(draft),retainKey:undefined,onAction:async command=>actions.push(command)};
  const snapshot=(search,more={})=>({...input,session:{...draft,intake:{...intake,search,...more}}});
- const reading={stage:'verifying',completed:1,total:2,completedChars:100,totalChars:200,currentChapters:['齐物论']};
- const running=snapshot({state:'searching'},{progress:reading});
+ const indexedCandidates=[{id:'a',title:'濠梁之辩',summary:'庄子与惠子在濠水桥上讨论鱼是否快乐。',status:'match',matchScore:86,choice:{batch:0,index:0}},{id:'b',title:'庄周梦蝶',status:'pending'},{id:'c',title:'鼓盆而歌',status:'rejected',matchScore:24},{id:'d',title:'庖丁解牛',status:'pending'}];
+ const reading={stage:'verifying',completed:2,total:4,completedChars:100,totalChars:200,checkingCandidates:['b']};
+ const running=snapshot({state:'searching'},{progress:reading,indexedCandidates});
  const picker=mount(Setup,running);
  function find(node,label){
   if(Array.isArray(node))return node.map(child=>find(child,label)).find(Boolean);
@@ -103,17 +104,21 @@ test('查找详情与候选共用状态栏，切换视图不发起新查找',asy
   return node.props.children===label?node:find(node.props.children,label);
  }
  let tree=picker.render();
- assert.equal(contains(tree,'正在查找… 已找到 1 篇'),true);
- assert.equal(find(tree,'继续查找').props.disabled,true);
- find(tree,'查找详情').props.onClick();tree=picker.render();
- assert.equal(contains(tree,'齐物论 · 已处理 1 / 2 篇候选 · 已处理 100 / 200 字'),true);
- assert.equal(contains(tree,'濠梁之辩'),false);
- tree=picker.render(snapshot({state:'idle'},{batches:[batch,{stories:[],note:'原文已读完。'}]}));
- assert.equal(contains(tree,'原文已读完。'),true);
- find(tree,'返回候选').props.onClick();tree=picker.render();
- assert.equal(contains(tree,'濠梁之辩'),true);
+ assert.equal(contains(tree,'已核对 2/4 · 1 条符合'),true);
+ assert.equal(contains(tree,'主题贴合度 86%'),true);
+ assert.equal(contains(tree,'主题贴合度 24%'),true);
+ for(const label of ['濠梁之辩','庄子与惠子在濠水桥上讨论鱼是否快乐。','庄周梦蝶','鼓盆而歌','庖丁解牛','核对中','待核对','不符合'])assert.equal(contains(tree,label),true,label);
+ assert.equal(contains(tree,'查找详情'),false);
+ assert.equal(contains(tree,'选择 庄周梦蝶'),false);
+ assert.equal(find(tree,'选择').props.disabled,false);
+ find(tree,'选择').props.onClick();
+ assert.deepEqual(actions,[{action:'choose',batch:0,index:0}]);
+ actions.length=0;
+ tree=picker.render(snapshot({state:'idle'},{indexedCandidates}));
+ assert.equal(contains(tree,'还有候选待核对，可以重试。'),true);
+ assert.equal(contains(tree,'核对中'),false);
  assert.deepEqual(actions,[]);
- find(tree,'继续查找').props.onClick();
+ find(tree,'重试核对').props.onClick();
  assert.deepEqual(actions,[{action:'more'}]);
 });
 
