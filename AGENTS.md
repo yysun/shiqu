@@ -59,6 +59,7 @@
 ## Canonical Story Storage
 
 - `stories` stores the current production model and every revision for every owner. `production_jobs`, `books` and the other support tables retain their separate responsibilities. Keep reader API paths, Session types/modules and `session_id` columns stable.
+- 用户授权修正本地书库中单篇已完成作品的标题、梗概等元数据时，如果能安全地直接改库，优先在数据库事务中修改指定版本的必要字段。写入前核对当前版本、书库就绪状态和任务状态，保留可验证的回滚快照。保留原有制作流程、版本、成图和任务完成记录；如果字段参与任务标识计算，在同一事务中同步关联，提交后重新读回确认。
 - Use `ensureLibraryReady()` through the production database initializer before accessing a library. Version checks precede ownership/diagnostic writes; desktop reads and mutations use the shared brief upgrade gate. Historical table names belong only to migration/import boundaries and explicit old-schema fixtures.
 - Upgrades require a verified whole-library safety backup. Keep its reported path; pending-journal recovery finishes before access. Never run migration tests or destructive probes against the user's library, and never restore an old backup directly into an active directory.
 - Later schema changes are ordinary `drizzle/` migrations that `ensureLibraryReady()` applies in place after a verified backup. Update `latestMigration` in `db/library-format.json` with each new migration so native reads wait for it, and bump `schemaVersion` only when apps that support the previous version must refuse the result.

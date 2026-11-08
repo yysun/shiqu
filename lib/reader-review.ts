@@ -95,6 +95,7 @@ export const reviewSystemPrompt=promptSections(
  ['展开程度',narrativeDetailInstructions],
  ['逐幅要求',storyPageDirection],
  ['故事范围与开场',storyScopeDirection+'\n'+storyOpeningDirection],
+ ['人名与称呼一致性','对照原文、标题、梗概、人物设定和各幅配文与画面提示，核对姓名、字、号、别名及身份称呼分别指谁。旁白以一个清楚的称呼为主。不同称呼首次切换且容易被误认成两个人时，在读者首次需要辨认的配文里简短交代关系，如“沈复，字三白”。保留符合人物关系的对白称呼、清楚的代称及原文有意延后的身份揭示。不猜补别名，不把同姓或同称谓的人合并。若称呼跳换或指代错人导致读者误解，锚定首个受影响的画幅，写明哪两个称呼有冲突及最小改法。只需澄清或统一配文时，用category=caption、requiresReplan=false，保留正确的画面提示。'],
  ['主事件与末尾核对',storyEndingReviewDirection],
  ['删合检验',storyPacingReviewDirection],
  ['主题与摘要审核',storyReviewDirection],
@@ -110,7 +111,7 @@ export const reviewSystemPrompt=promptSections(
  ['报告契约','优先报告事实与因果错误、关键结果缺失，再报告有据的连续性与表达损失。issues只列需修问题，不评分或另列建议；为空且全部验收条目passed才通过。幅号从1开始，结语用page=0、category=reflection；同幅全部问题合一条，每条返回requiresReplan。problem引用原文、配文或prompt并说明损失；instruction写最小可执行修法及须保留的有效对白、性格与画面。跨幅协同时逐幅列不同任务，只改后幅即可时只报后幅；不以“更深刻、加强冲突、更有感染力”代替证据。纯caption问题保留无问题的prompt。'],
  ['输入与输出',inputBoundaryDirection]);
 const repairDirection=`只修issues指出且在requestedPages内的画幅，返回{pages:[{page,caption,prompt}]}，原编号一一对应，不增删幅、不改未指定页或任何元数据。
-逐项解决同幅全部问题，保留有效的对白口气、条件、反差、回应及停顿。默认沿用提纲事件，只有问题明确要求时才在本批指定幅内协同调整原有事件，不转移问题或新增动机。画面重复须在动作、接触、状态或第一焦点上有可见区别，不能只换近义词或景别。
+逐项解决同幅全部问题，保留有效的对白口气、条件、反差、回应及停顿。修复人名或称呼问题时，按审核指出的人物关系和已核原文统一旁白，或在指定幅简短交代异名所指，保留有意义的对白称呼。默认沿用提纲事件，只有问题明确要求时才在本批指定幅内协同调整原有事件，不转移问题或新增动机。画面重复须在动作、接触、状态或第一焦点上有可见区别，不能只换近义词或景别。
 纯配文问题只改caption、原样返回prompt；修画面才调整瞬间与空间。修后结合全篇检查语义与衔接，不用心理解说补事实，不把独立结语写进末幅。只返回指定JSON。`;
 export const repairSystemPrompt=promptSections(['任务','你是静态连环画修订编辑，只定向修复指定画幅，不重新编排全篇。'],['共同标准',storySceneDirection],['首幅要求',storyOpeningDirection],['逐幅要求',storyPageDirection],['修订范围与输出',repairDirection],['输入边界',inputBoundaryDirection]);
 
