@@ -99,12 +99,13 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  const stageDurations={...workDurations,...(preparationSeconds!==undefined?{prepare:preparationSeconds}:{})};
  const prepared=ready||intake.phase==='confirmed';
  const narrativeLabel=settings.narrativeDetail==='brief'?'简短':settings.narrativeDetail==='detailed'?'详细':'适中';
+ const initialFrameCount=prepared?session.frameRecommendation?.count:undefined;
  const extractionContext=`《${book}》 · ${session.selection.theme==='原典故事'?'不限定主题':`主题：${session.selection.theme}`}${session.selection.discoverySources?.length?` · 已选 ${session.selection.discoverySources.length} 段原文`:''}`;
  const stages=generationProgress(session,Date.now()).steps.flatMap(step=>{
   if(step.id==='source')return [{...step,label:'提取故事',detail:extractionContext}];
   if(step.id==='count')return [
    {id:'prepare',label:'准备故事',state:prepared?'done' as const:step.state,detail:prepared?(session.frameRecommendation?.storySummary?'原文与梗概已核对':'原文与制作建议已保存'):preparable?'待准备这篇故事':'保存原文，核对梗概与制作建议'},
-   {...step,state:prepared?step.state:'pending' as const,detail:'画幅数由编排与审核确定'},
+   {...step,state:prepared?step.state:'pending' as const,detail:`${initialFrameCount===undefined?'':`模型初估 ${initialFrameCount} 幅 · `}画幅数由编排与审核确定`},
   ];
   return [step];
  });

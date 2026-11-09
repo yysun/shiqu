@@ -232,9 +232,11 @@ button.yu-page-surface{padding:0;border:0;background:transparent;cursor:default}
 .yu-source-chapter{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:10px;margin:0;padding:13px;border:1px solid #dce1d2;border-radius:10px;background:#fffdf6;color:#304c37;cursor:pointer;overflow-wrap:anywhere}.yu-source-chapter.selected{background:#edf3e5;border-color:#57774b}.yu-source-chapter input{width:18px;height:18px;margin:2px 0 0;accent-color:#57774b}.yu-source-chapter-copy{display:flex;flex-direction:column;gap:5px;min-width:0}.yu-source-chapter:has(input:disabled){opacity:.6;cursor:not-allowed}.yu-source-chapter:has(input:focus-visible){outline:2px solid #57774b;outline-offset:2px}
 
 .yu-setting-row .yu-revision-open{flex-shrink:0}
-.yu-setting-row.yu-story-name{padding:8px 0 12px}
+.yu-story-name{padding:8px 0 12px}
 .yu-story-name>div{min-width:0}
-.yu-setting-row.yu-story-name p{margin-top:0;font-family:var(--serif);font-size:20px;font-weight:500;line-height:1.5;color:#3a563f;overflow-wrap:anywhere}
+.yu-story-name>.yu-setting-row{padding:0}
+.yu-story-name>.yu-setting-row>p,.yu-setting-row.yu-story-name p{min-width:0;margin-top:0;font-family:var(--serif);font-size:20px;font-weight:500;line-height:1.5;color:#3a563f;overflow-wrap:anywhere}
+.yu-story-summary{margin:6px 0 0;color:var(--yu-meta);font-size:14px;line-height:1.7;overflow-wrap:anywhere}
 
 /* Page stars identify the one saved reference for this book; bookmarks remain story favorites. */
 .yu-reference-star.is-selected{color:#f1cf78}.yu-reference-star:disabled{opacity:.4;cursor:default}
