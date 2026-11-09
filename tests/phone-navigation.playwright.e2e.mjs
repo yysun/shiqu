@@ -217,7 +217,7 @@ test('PHONE-NAV-10: medium and large tiers close drawers, settings and the creat
   await back(page);assert.deepEqual(await openDialogs(page),[]);assert.ok(await page.locator('.yu-library').isVisible(),'back returns to 书架');
   assert.ok(await page.locator('.yu-library-reader .yu-reader').isVisible(),'back closes only settings');
   assert.equal(await page.locator('.yu-shelf-row.is-selected').getAttribute('data-story-id'),ids[0],'selection kept');
-  await topNav(page,'发现');await page.locator('.yu-topbar-create').click();await page.locator('.yu-create-form').waitFor();await settle(page);
+  await topNav(page,'发现');await page.locator('.yu-new-story-link').click();await page.locator('.yu-create-form').waitFor();await settle(page);
   await back(page);assert.equal(await page.locator('.yu-create-form').count(),0);assert.ok(await page.locator('.yu-discover').isVisible(),'back returns to 发现');
   // 1280：书架右栏阅读里打开分镜列表（全屏并停靠侧栏），在 900 侧栏变成抽屉：返回先关抽屉，再回到书架
   await topNav(page,'书架');await card(ids[0]).click();await page.locator('.yu-library-reader .yu-reader').waitFor();await settle(page);

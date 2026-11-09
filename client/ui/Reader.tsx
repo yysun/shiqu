@@ -23,7 +23,7 @@ import BookReferenceStar from './BookReferenceStar';
 import ProviderSettings,{ProviderRuntimeSummary} from './ProviderSettings';
 import type {ProviderSettingsView} from '@/lib/provider-settings';
 import {useBookReference} from '../useBookReference';
-import {cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
 import {ArrowLeft, ArrowRight, Maximize2, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Compass, Feather, Leaf, List, Moon, Play, RotateCcw, ImageDown, BookOpenText, Settings2, Sparkles, UserRound, X, Loader2, FileDown, FileArchive, RefreshCw, Trash2} from 'lucide-react';
 import {randomId, request} from './shared';
 import type {Story} from '@/lib/content';
@@ -635,7 +635,13 @@ export default function Reader(){
  // 桌面书架：宽档可阅读卡片打开右栏阅读，制作中卡片打开同栏故事设置；窄档沿用整页入口。
  const openDocked=(target:ShelfStory,restart=false)=>{if(!restart&&(opening===target.id||dockedView&&!workflowTarget&&story?.id===target.id))return;open(target,restart,true);};
  const librarySettings=dockedSettings&&<section className="yu-library-settings" aria-label="故事设置"><header><h2>故事设置</h2><button type="button" className="yu-icon" aria-label="关闭故事设置" disabled={settingsProps.busy} onClick={backToShelf}><X size={20}/></button></header>{StorySettingsContent(settingsProps)}</section>;
- const desktopLibrary=<DesktopLibrary onCreate={()=>choose()} reader={librarySettings||(dockedView?readerMain:wide&&docked?openingStory:null)} shelf={wide?cloneElement(shelfView,{selectedId:workflowDocked?workflowTarget:docked?(opening||story?.id):null,onSelect:(id:string|null)=>{const target=id&&shelf.find(item=>item.id===id);if(target)openDocked(target);},onOpen:openDocked,onResume:(session:ShelfSession)=>openWorkflow(session.id,true)}):shelfView}/>;
+ const sideContent=librarySettings||(dockedView?readerMain:docked?openingStory:null);
+ const desktopLibrary=wide?cloneElement(shelfView,{
+  selectedId:workflowDocked?workflowTarget:docked?(opening||story?.id):null,
+  onSelect:(id:string|null)=>{const target=id&&shelf.find(item=>item.id===id);if(target)openDocked(target);},
+  onOpen:openDocked,onResume:(session:ShelfSession)=>openWorkflow(session.id,true),onCreate:()=>navigate('create'),
+  productionDock:{active:!sideContent,show:backToShelf,layout:(grid:ReactNode,productions:ReactNode)=><DesktopLibrary shelf={grid} reader={sideContent} productions={productions}/>},
+ }):<DesktopLibrary shelf={shelfView}/>;
  const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover"><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></div>;
  // 桌面新建页：选择在左（或上），内联表单在右（或下），与手机面板共用表单组件与属性。
  const createPage=view.kind==='create'&&<main className="yu-home yu-desktop-main" data-main=""><DesktopCreate

@@ -1,7 +1,17 @@
 /* 书架：标题与搜索、带数量的标签页、视图栏；“制作中”紧凑行区域；可阅读故事两列等宽封面卡片。
    沿用阅读器配色（--yu-meta / --yu-action）、衬线标题与 12px 圆角；窄屏不出现横向滚动。 */
 .yu-shelf{min-height:calc(100dvh - 250px);padding-top:22px}
-.yu-shelf>h1{font-family:var(--serif);font-size:28px;font-weight:500;margin:6px 0 18px}
+.yu-shelf>h1,.yu-shelf-heading>h1{font-family:var(--serif);font-size:28px;font-weight:500;margin:6px 0 18px}
+
+.yu-shelf-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.yu-shelf-heading>h1{margin:0}
+.yu-shelf-heading-actions{display:flex;align-items:center;gap:8px}
+.yu-shelf-production-entry{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 10px;border:1px solid #dde5d2;border-radius:9px;background:#f8faf1;color:#35583e;font-size:13px;white-space:nowrap}
+.yu-shelf-production-entry[aria-pressed=true]{background:#eaf0df;border-color:#b9c9a9}
+.yu-shelf-production-entry>span{padding:0 5px;border-radius:999px;background:#dfe8d3;font-size:var(--yu-meta-size)}
+.yu-shelf-production-entry:disabled{opacity:.6;cursor:default}
+.yu-shelf-heading-actions>.yu-primary{width:auto;min-height:44px;padding:0 14px;gap:6px;white-space:nowrap}
+.yu-shelf-heading-actions>button:focus-visible{outline:2px solid #648354;outline-offset:2px}
 
 /* 搜索 */
 .yu-shelf-search{display:flex;align-items:center;gap:10px;border:1px solid #dce3d1;background:#fafbf4;border-radius:11px;padding:0 6px 0 13px;color:#8d9d7e;margin-bottom:8px}
@@ -42,17 +52,18 @@
 .yu-shelf-card-actions button:focus-visible{outline:2px solid #648354;outline-offset:2px}
 .yu-shelf-favorite>span{display:none}
 .yu-shelf-favorite.is-saved{background:#eaf0df}
-.yu-shelf .yu-generation-control{white-space:nowrap}
+.yu-shelf .yu-generation-control,.yu-library-productions .yu-generation-control{white-space:nowrap}
 
 /* 制作中区域 */
 .yu-production{margin-bottom:18px;border:1px solid #dfe5d2;border-radius:12px;background:#f3f5ea}
-.yu-production>summary{display:flex;align-items:center;gap:8px;min-height:48px;padding:4px 14px;cursor:pointer;list-style:none;color:#526e45}
+.yu-production>:is(summary,header){display:flex;align-items:center;gap:8px;min-height:48px;padding:4px 14px;cursor:pointer;list-style:none;color:#526e45}
+.yu-production>header{cursor:default}
 .yu-production>summary::-webkit-details-marker{display:none}
 .yu-production>summary>svg{flex:none;transition:transform .15s}
 .yu-production[open]>summary>svg{transform:rotate(90deg)}
-.yu-production>summary>h2{margin:0;font-family:var(--serif);font-size:16px;font-weight:500}
-.yu-production>summary>span{font-size:12px;color:var(--yu-meta)}
-.yu-production>summary>em{margin-left:auto;padding:1px 8px;border-radius:999px;background:#f6e7c8;color:#8a5a12;font-size:var(--yu-meta-size);font-style:normal;font-weight:500}
+.yu-production>:is(summary,header)>h2{margin:0;font-family:var(--serif);font-size:16px;font-weight:500}
+.yu-production>:is(summary,header)>span{font-size:12px;color:var(--yu-meta)}
+.yu-production>:is(summary,header)>em{margin-left:auto;padding:1px 8px;border-radius:999px;background:#f6e7c8;color:#8a5a12;font-size:var(--yu-meta-size);font-style:normal;font-weight:500}
 .yu-production>summary:focus-visible{outline:2px solid #648354;outline-offset:-2px;border-radius:12px}
 .yu-production>ul{display:grid;margin:0;padding:0 6px 6px;list-style:none}
 .yu-production-row{position:relative;display:flex;align-items:center;gap:4px;min-width:0;padding:2px 4px 2px 0;border-radius:10px;background:#fdfbf3}

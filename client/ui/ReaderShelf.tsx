@@ -8,7 +8,7 @@
 // 选中状态覆盖可阅读与制作中条目；不传 onSelect 时（手机与 768–1023px）封面与标题直接打开阅读。
 // 所有故事条目都带 data-story-id，供焦点归还与测试定位。
 import {useEffect,useState,type ReactNode} from 'react';
-import {ArrowRight,Bookmark,BookOpen,ChevronDown,ChevronRight,Feather,Plus,RefreshCw,RotateCcw,Search,Trash2,X} from 'lucide-react';
+import {ArrowRight,Bookmark,BookOpen,ChevronDown,ChevronRight,Feather,ListTodo,Plus,RefreshCw,RotateCcw,Search,Trash2,X} from 'lucide-react';
 import type {Story} from '@/lib/content';
 import type {ProductionAction} from '@/lib/reader-model';
 import type {ShelfSession,ShelfStory} from '@/lib/reader-shelf';
@@ -36,19 +36,22 @@ function ShelfGroup({id,children}:{id:string;children:ReactNode}){
  return <details className="yu-shelf-book-group" open={open} onToggle={event=>setOpen(event.currentTarget.open)}>{children}</details>;
 }
 // 行已按优先级排好序，截取前若干行即可保证需要处理的任务可见；“显示全部”不持久化。
-function ProductionGroup({needs,limit,children}:{needs:number;limit:number|null;children:ReactNode[]}){
+function ProductionGroup({needs,limit,children,docked=false}:{needs:number;limit:number|null;children:ReactNode[];docked?:boolean}){
  const [open,setOpen]=usePersistentOpen('production'),[all,setAll]=useState(false);
  const hidden=limit===null?0:Math.max(0,children.length-limit);
+ const heading=<><h2>制作中</h2><span>{children.length} 项</span>{needs>0&&<em>{needs} 项待处理</em>}</>;
+ const rows=<><ul>{hidden&&!all?children.slice(0,limit!):children}</ul>
+  {hidden>0&&<button type="button" className="yu-production-more" aria-expanded={all} onClick={()=>setAll(!all)}>{all?'收起':`显示全部 ${children.length} 项`}</button>}</>;
+ if(docked)return <section className="yu-production"><header>{heading}</header>{rows}</section>;
  return <details className="yu-production" open={open} onToggle={event=>setOpen(event.currentTarget.open)}>
-  <summary><ChevronRight size={16} aria-hidden="true"/><h2>制作中</h2><span>{children.length} 项</span>{needs>0&&<em>{needs} 项待处理</em>}</summary>
-  <ul>{hidden&&!all?children.slice(0,limit!):children}</ul>
-  {hidden>0&&<button type="button" className="yu-production-more" aria-expanded={all} onClick={()=>setAll(!all)}>{all?'收起':`显示全部 ${children.length} 项`}</button>}
+  <summary><ChevronRight size={16} aria-hidden="true"/>{heading}</summary>{rows}
  </details>;
 }
 
 type ShelfItem={processingStatus:string;id:string;title:string;book:string;theme:string;artStyleLabel:string;story:ShelfStory|null;session?:ShelfSession;page:number;saved:boolean};
-type Props={onControl:(id:string,action:ProductionAction)=>Promise<void>;controlBusy:string;stories:ShelfStory[];pending:ShelfSession[];sessions:ShelfSession[];progress:ReadingProgress[];loading:boolean;refreshing:boolean;onRefresh:()=>void;error:string;tab:string;onTab:(tab:string)=>void;query:string;onQuery:(query:string)=>void;grouping:ShelfGrouping;onGrouping:(grouping:ShelfGrouping)=>void;bookName:(story:Pick<Story,'id'|'bookId'>)=>string;onOpen:(story:ShelfStory,restart?:boolean)=>void;onResume:(session:ShelfSession)=>void;onRetry:(session:ShelfSession)=>void;onDelete:(id:string,title:string)=>void;onFavorite:(id:string,saved:boolean)=>void;favoriteBusy:string;onCreate:()=>void;onDiscover:()=>void;selectedId?:string|null;onSelect?:(id:string|null)=>void};
-export default function ReaderShelf({onControl,controlBusy,stories,pending,sessions,progress,loading,refreshing,onRefresh,error,tab,onTab,query,onQuery,grouping,onGrouping,bookName,onOpen,onResume,onRetry,onDelete,onFavorite,favoriteBusy,onCreate,onDiscover,selectedId,onSelect}:Props){
+type ProductionDock={active:boolean;show:()=>void;layout:(shelf:ReactNode,productions:ReactNode)=>ReactNode};
+type Props={productionDock?:ProductionDock;onControl:(id:string,action:ProductionAction)=>Promise<void>;controlBusy:string;stories:ShelfStory[];pending:ShelfSession[];sessions:ShelfSession[];progress:ReadingProgress[];loading:boolean;refreshing:boolean;onRefresh:()=>void;error:string;tab:string;onTab:(tab:string)=>void;query:string;onQuery:(query:string)=>void;grouping:ShelfGrouping;onGrouping:(grouping:ShelfGrouping)=>void;bookName:(story:Pick<Story,'id'|'bookId'>)=>string;onOpen:(story:ShelfStory,restart?:boolean)=>void;onResume:(session:ShelfSession)=>void;onRetry:(session:ShelfSession)=>void;onDelete:(id:string,title:string)=>void;onFavorite:(id:string,saved:boolean)=>void;favoriteBusy:string;onCreate:()=>void;onDiscover:()=>void;selectedId?:string|null;onSelect?:(id:string|null)=>void};
+export default function ReaderShelf({onControl,controlBusy,stories,pending,sessions,progress,loading,refreshing,onRefresh,error,tab,onTab,query,onQuery,grouping,onGrouping,bookName,onOpen,onResume,onRetry,onDelete,onFavorite,favoriteBusy,onCreate,onDiscover,selectedId,onSelect,productionDock}:Props){
  const progressById=new Map(progress.map(row=>[row.storyId,row]));
  const sessionById=new Map(sessions.map(session=>[session.id,session]));
  const processingStatus=(story:ShelfStory)=>{const session=sessionById.get(story.id);return session?shelfGenerationStatus(session).group:'已完成';};
@@ -111,16 +114,27 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
  }
  const savedCount=items.filter(item=>item.saved).length;
  const readableView=grouping!=='none'?<div className="yu-shelf-groups">{groupShelfItems(readable,grouping).map(({label,items})=><ShelfGroup key={grouping+':'+label} id={grouping+':'+label}><summary><ChevronRight size={16}/>{grouping==='book'&&<BookOpen size={16}/>}<h2>{label}</h2><span>{items.length} 篇</span></summary><div className="yu-shelf-grid">{items.map(card)}</div></ShelfGroup>)}</div>:<div className="yu-shelf-grid">{readable.map(card)}</div>;
- return <section className="yu-shelf">
+ const productionList=productions.length>0&&<ProductionGroup docked={!!productionDock} needs={needs} limit={query.trim()?null:Math.max(productionLimit,needs)}>{productions.map(productionRow)}</ProductionGroup>;
+ const shelf=<section className="yu-shelf">
   {onSelect&&<SelectionGuard selectedId={selectedId} ids={visible.map(item=>item.id).join('\n')} onSelect={onSelect}/>}
-  <h1>我的书架</h1>
+  {productionDock?<header className="yu-shelf-heading">
+   <h1>我的书架</h1>
+   <div className="yu-shelf-heading-actions">
+    <button type="button" className="yu-shelf-production-entry" aria-label="制作中" aria-description={`${productions.length} 项`} disabled={!productionList}
+     aria-pressed={!!productionList&&productionDock.active} aria-controls={productionList&&productionDock.active?'shelf-production-panel':undefined} onClick={productionDock.show}>
+     <ListTodo size={16} aria-hidden="true"/>制作中 <span aria-hidden="true">{productions.length}</span>
+    </button>
+    <button type="button" className="yu-primary" onClick={onCreate}><Plus size={16} aria-hidden="true"/>新建故事</button>
+   </div>
+  </header>:<h1>我的书架</h1>}
   <div className="yu-shelf-search"><Search size={18} aria-hidden="true"/><input type="search" aria-label="搜索书架" placeholder="搜索故事、书名、主题或画风" value={query} onChange={event=>onQuery(event.target.value)}/>{query&&<button aria-label="清空搜索" onClick={()=>onQuery('')}><X size={16}/></button>}</div>
-  <div className="yu-shelf-tabs"><button className={tab==='recent'?'active':''} aria-pressed={tab==='recent'} onClick={()=>onTab('recent')}>全部故事 <span>{items.length}</span></button><button className={tab==='saved'?'active':''} aria-pressed={tab==='saved'} onClick={()=>onTab('saved')}>我的收藏 <span>{savedCount}</span></button><button type="button" className="yu-shelf-create" onClick={onCreate}><Plus size={15} aria-hidden="true"/>新建故事</button></div>
+  <div className="yu-shelf-tabs"><button className={tab==='recent'?'active':''} aria-pressed={tab==='recent'} onClick={()=>onTab('recent')}>全部故事 <span>{items.length}</span></button><button className={tab==='saved'?'active':''} aria-pressed={tab==='saved'} onClick={()=>onTab('saved')}>我的收藏 <span>{savedCount}</span></button>{!productionDock&&<button type="button" className="yu-shelf-create" onClick={onCreate}><Plus size={15} aria-hidden="true"/>新建故事</button>}</div>
   <div className="yu-shelf-view"><div className="yu-shelf-result"><span role="status" aria-live="polite">{filtered?`找到 ${visible.length} / ${items.length} 篇`:`共 ${items.length} 篇故事`}</span>{filtered&&<button type="button" onClick={resetFilters}>清除筛选</button>}</div><button type="button" className="yu-shelf-refresh" onClick={onRefresh} disabled={refreshing||loading||!!favoriteBusy} aria-label="刷新书架" title={refreshing?'刷新中…':'刷新书架'} aria-busy={refreshing}><RefreshCw size={16} className={refreshing?'spin':undefined} aria-hidden="true"/></button><label><span className="sr-only">书架分组</span><select aria-label="书架分组" value={grouping} onChange={event=>onGrouping(event.target.value as ShelfGrouping)}>{shelfGroupings.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronDown size={14} aria-hidden="true"/></label></div>
   {loading?<p className="yu-inline-status" role="status">正在打开书架…</p>:error?<div className="yu-inline-status" role="alert">{error}<button onClick={onRefresh} disabled={refreshing}>重试刷新</button></div>:null}
-  {productions.length>0&&<ProductionGroup needs={needs} limit={query.trim()?null:Math.max(productionLimit,needs)}>{productions.map(productionRow)}</ProductionGroup>}
+  {!productionDock&&productionList}
   {readable.length?<>{productions.length>0&&<h2 className="yu-shelf-region-title">可阅读<span>{readable.length} 篇</span></h2>}{readableView}</>
    :productions.length?(!filtered&&<p className="yu-shelf-region-empty">还没有可阅读的故事，完成制作后会出现在这里。</p>)
    :loading||error?null:query.trim()?<div className="yu-empty"><Search size={32} strokeWidth={1.2}/><h2>还没找到这篇故事</h2><p>试试其他故事名、书名、主题或画风。</p><button className="yu-primary" onClick={()=>onQuery('')}>清空搜索</button></div>:<div className="yu-empty"><BookOpen size={35} strokeWidth={1}/><h2>{tab==='recent'?'你的故事，从这里开始':'值得回味的，先收起来'}</h2><p>{tab==='recent'?'已保存和待生成的故事都会留在这里。':'阅读时轻点书签，下次一眼找到。'}</p><button className="yu-primary" onClick={onDiscover}>创作第一篇故事 <ArrowRight size={17}/></button></div>}
  </section>;
+ return productionDock?productionDock.layout(shelf,productionList):shelf;
 }

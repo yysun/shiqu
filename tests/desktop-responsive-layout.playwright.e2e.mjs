@@ -78,6 +78,38 @@ test('DESKTOP-LAYOUT-01: small tier keeps the phone UI; wider phone viewports go
  });
 });
 
+test('wide shelf production sidebar shares the right column with reading and settings',options,async t=>{
+ const b=await seededBrowser(t,'shelf-production-sidebar',{viewport:{width:1280,height:800},completed:1});
+ await b.execute(async()=>{
+  const {page,url,f,ids}=b;
+  const task=await seedStory(f,{pick:false});
+  await page.goto(url);
+  const entry=page.getByRole('button',{name:'制作中',exact:true}),side=page.getByRole('complementary',{name:'制作中',exact:true});
+  const taskRow=page.locator(`[data-story-id="${task}"] .yu-pending-story`);
+  await side.locator(taskRow).waitFor();
+  const heading=page.locator('.yu-shelf-heading');
+  assert.equal(await heading.getByRole('button',{name:'新建故事',exact:true}).count(),1);
+  assert.equal(await heading.locator('.yu-primary').count(),1);
+  assert.equal(await entry.locator('span').textContent(),'1');
+  assert.equal(await page.locator('.yu-topbar-create,.yu-shelf-tabs .yu-shelf-create').count(),0);
+  assert.equal(await page.locator('.yu-library-grid .yu-production').count(),0);
+  assert.equal(await entry.getAttribute('aria-pressed'),'true');
+  await page.locator(`[data-story-id="${ids[0]}"] .yu-shelf-card-details`).click();
+  await page.locator('.yu-library-reader .yu-reader').waitFor();
+  assert.equal(await side.count(),0);assert.equal(await entry.getAttribute('aria-pressed'),'false');
+  await entry.click();await side.locator(taskRow).waitFor();
+  await taskRow.click();await storySettings(page).waitFor();
+  await entry.click();await side.locator(taskRow).waitFor();
+  await heading.getByRole('button',{name:'新建故事',exact:true}).click();
+  await page.locator('.yu-create-form').waitFor();
+  assert.equal(await page.locator('.yu-topbar-create').count(),1);
+  await topNav(page,'书架');
+  await page.setViewportSize({width:1023,height:800});
+  await page.locator('.yu-library-grid').locator(taskRow).waitFor();
+  assert.equal(await side.count(),0);assert.equal(await entry.count(),0);
+ });
+});
+
 test('DESKTOP-LAYOUT-03: at 1024px and up a card opens the reader itself in the right column; below it a card opens the full reader',options,async t=>{
  const b=await seededBrowser(t,'DRL-03',{viewport:{width:1280,height:800},completed:3});
  await b.execute(async()=>{
@@ -87,7 +119,7 @@ test('DESKTOP-LAYOUT-03: at 1024px and up a card opens the reader itself in the 
   const selected=id=>page.waitForFunction(id=>document.querySelector(`[data-story-id="${id}"]`)?.classList.contains('is-selected'),id);
   await page.goto(url);await top('书架');await cards.first().waitFor();
   assert.ok(await page.locator('.yu-library .yu-shelf-grid').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length)>1,'multi-column grid');
-  assert.equal(await page.locator('.yu-library-reader.is-empty').count(),1,'a hint until a story is opened');
+  assert.equal(await page.locator('.yu-library.has-side').count(),0,'no reserved right column without a story or task');
   const ids=await order();
   // 点卡片：阅读页本身停靠在右栏；顶栏仍在，地址留在书架，页面只有一个主区
   await cards.nth(1).locator('.yu-shelf-card-details').click();await docked.waitFor();await selected(ids[1]);
@@ -220,7 +252,7 @@ test('DESKTOP-LAYOUT-06: create is a page beside the book choices, re-initialize
   const request=(await created).request().postDataJSON();assert.equal(request.selection.bookId,'zhuangzi');assert.equal(request.selection.theme,'人情冷暖');
   await storySettings(page).getByRole('link',{name:'修改提取条件',exact:true}).waitFor();
   // 关闭设置后再次新建，新的选题设置正常载入。
-  await closeTop(page);await page.locator('.yu-topbar-create').click();await form.waitFor();
+  await closeTop(page);await top('发现');await page.locator('.yu-new-story-link').click();await form.waitFor();
   const second=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/reader/sessions'&&r.request().method()==='POST');
   await form.getByRole('button',{name:'开始提取',exact:true}).click();const next=await(await second).json();
   await storySettings(page).getByRole('link',{name:'修改提取条件',exact:true}).waitFor();
@@ -351,8 +383,8 @@ test('DESKTOP-LAYOUT-02: the top bar stays visible, never covers content, and ev
  await b.execute(async()=>{
   const {page,url,f,ids}=b,bar=page.locator('.yu-topbar'),current=()=>bar.locator('[aria-current=page]').textContent();
   await page.goto(url);
-  for(const [name,label] of [['发现','发现'],['书架','书架'],['我的','我的']]){await topNav(page,name);assert.equal(await current(),label);}
-  await page.locator('.yu-topbar-create').click();await page.locator('.yu-create-form').waitFor();assert.equal(await current(),'新建故事');
+  for(const [name,label] of [['发现','发现'],['书架','书架'],['我的','我的']]){await topNav(page,name);assert.equal(await current(),label);assert.equal(await bar.locator('.yu-topbar-create').count(),0);}
+  await topNav(page,'书架');await page.locator('.yu-shelf-heading .yu-primary').click();await page.locator('.yu-create-form').waitFor();assert.equal(await current(),'新建故事');
   // 书架滚到底：顶栏仍在，首行不被遮住；Shift+Tab 回到第一张卡片时卡片完全在顶栏之下
   await topNav(page,'书架');const barBottom=(await bar.boundingBox()).height;
   assert.ok((await page.locator('.yu-shelf h1').boundingBox()).y>=barBottom,'first row below the bar');
@@ -366,8 +398,8 @@ test('DESKTOP-LAYOUT-02: the top bar stays visible, never covers content, and ev
   await openEditor();assert.equal(await current(),'书架','the shelf remains underneath the settings sheets');
   await closeTop(page);await closeTop(page);await topNav(page,'书架');await page.locator('.yu-library').waitFor();
   await openEditor();await closeTop(page);await closeTop(page);await topNav(page,'发现');await page.locator('.yu-discover').waitFor();
-  // 新建页 → 我的
-  await page.locator('.yu-topbar-create').click();await page.locator('.yu-create-form').waitFor();await topNav(page,'我的');await page.locator('.yu-profile').waitFor();
+  // 从发现页正文进入新建，再切到我的。
+  await page.locator('.yu-new-story-link').click();await page.locator('.yu-create-form').waitFor();await topNav(page,'我的');await page.locator('.yu-profile').waitFor();
   // 选题工作区 → 返回修改书籍 → 书架：落到书架而不是工作区
   const intake=await seedStory(f,{pick:false});await page.goto(url);await topNav(page,'书架');
   await page.locator('.yu-production-row').first().click();await storySettings(page).waitFor();
@@ -377,7 +409,8 @@ test('DESKTOP-LAYOUT-02: the top bar stays visible, never covers content, and ev
   await b.reader(ids[0]);await page.locator('.yu-scene.is-current').waitFor();
   await page.getByRole('button',{name:'故事设置',exact:true}).click();await storySettings(page).waitFor();await closeTop(page);
   await page.getByRole('button',{name:'返回发现',exact:true}).click();
-  await page.locator('.yu-topbar-create').click();await page.locator('.yu-create-form').waitFor();
+  await topNav(page,'发现');
+  await page.locator('.yu-new-story-link').click();await page.locator('.yu-create-form').waitFor();
   await topNav(page,'发现');await page.locator('.yu-discover').waitFor();
   assert.equal(new URL(page.url()).pathname,'/');assert.equal(await page.locator('.yu-reader').count(),0);
  });
@@ -433,15 +466,17 @@ test('DESKTOP-LAYOUT-09: tiers switch at 768, reflow at 1024 and 1280, and cap c
   await page.goto(url);
   await size(767);assert.equal(await layout(),'phone');await noOverflow('767');
   await size(768);assert.equal(await layout(),'shell');await page.locator('.yu-topbar').waitFor();await noOverflow('768');
-  // 书架右栏阅读：1024 停靠为粘性右栏，1023 没有右栏
-  await size(1024);await topNav(page,'书架');assert.equal(await page.locator('.yu-library-reader').evaluate(el=>getComputedStyle(el).position),'sticky','library column at 1024');await noOverflow('library 1024');
-  await size(1023);assert.equal(await page.locator('.yu-library-reader').count(),0,'no library column at 1023');await noOverflow('library 1023');
+  // 制作列表在 1024px 停靠于右栏，1023px 回到书架。
+  await seedStory(f,{pick:false});
+  await size(1024);await page.reload();await topNav(page,'书架');
+  assert.equal(await page.locator('.yu-library-productions').evaluate(el=>getComputedStyle(el).position),'sticky','library column at 1024');await noOverflow('library 1024');
+  await size(1023);assert.equal(await page.locator('.yu-library-productions').count(),0,'no library column at 1023');await noOverflow('library 1023');
   await size(1024);
   // 我的：1023 单栏，1024 两栏
   await topNav(page,'我的');const columns=()=>page.locator('.yu-profile').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length);
   await size(1023);assert.equal(await columns(),1);await size(1024);assert.equal(await columns(),2);
   // 新建页：1023 上下，1024 左右
-  await page.locator('.yu-topbar-create').click();const form=page.locator('.yu-create-form'),choices=page.locator('.yu-create-choices');await form.waitFor();
+  await topNav(page,'书架');await page.locator('.yu-shelf-heading .yu-primary').click();const form=page.locator('.yu-create-form'),choices=page.locator('.yu-create-choices');await form.waitFor();
   await size(1023);assert.ok((await form.boundingBox()).y>(await choices.boundingBox()).y+100,'stacked below 1024');
   await size(1024);assert.ok((await form.boundingBox()).x>(await choices.boundingBox()).x+100,'side by side at 1024');await noOverflow('create');
   // 故事编辑在 1279、1280 都使用同一小屏面板，其他网页继续响应式重排。
@@ -483,7 +518,7 @@ test('DESKTOP-LAYOUT-10: resizing across the switch keeps views, drafts, frames 
   await closeTop(page);await closeTop(page);
   if(await page.getByRole('button',{name:'返回发现',exact:true}).count())await page.getByRole('button',{name:'返回发现',exact:true}).click();
   // 新建页的自定义主题：1280 → 390 → 1280
-  await page.locator('.yu-topbar-create').click();const form=page.locator('.yu-create-form');await form.waitFor();
+  await topNav(page,'发现');await page.locator('.yu-new-story-link').click();const form=page.locator('.yu-create-form');await form.waitFor();
   await form.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其他',exact:true}).click();await form.getByLabel('写下想看的主题').fill('跨档保留的主题');
   await size(390);const sheet=page.getByRole('dialog',{name:'这一篇，想怎样读？',exact:true});await sheet.waitFor();assert.equal(await sheet.getByLabel('写下想看的主题').inputValue(),'跨档保留的主题');
   await size(1280);assert.equal(await page.locator('.yu-create-form').getByLabel('写下想看的主题').inputValue(),'跨档保留的主题');
@@ -535,7 +570,7 @@ test('DESKTOP-LAYOUT-11: sweeping 320–2560px changes structure only at 768, ne
    {name:'shelf',headings:['.yu-shelf h1'],setup:async()=>{await page.goto(url);await topNav(page,'书架');}},
    {name:'me',headings:['.yu-profile-group h2'],setup:async()=>{await page.goto(url);await topNav(page,'我的');}},
    {name:'story-editor',headings:['.yu-revision-field'],setup:async()=>{await page.goto(url);await topNav(page,'书架');await page.locator(`[data-story-id="${id}"] .yu-shelf-card-details`).click();await page.locator('.yu-library-reader').getByRole('button',{name:'故事设置'}).click();await storySettings(page).getByText('制作要求',{exact:true}).first().click();await dialog(page,'修改故事').waitFor();await dialog(page,'修改故事').getByRole('button',{name:'分镜',exact:true}).click();}},
-   {name:'create',headings:['.yu-choice-label'],setup:async()=>{await page.goto(url);await page.locator('.yu-topbar-create').click();await page.locator('.yu-create-form').waitFor();}},
+   {name:'create',headings:['.yu-choice-label'],setup:async()=>{await page.goto(url);await topNav(page,'发现');await page.locator('.yu-new-story-link').click();await page.locator('.yu-create-form').waitFor();}},
    {name:'reader',headings:['.yu-scene-caption>p'],setup:async()=>{await b.reader(id);await page.locator('.yu-scene.is-current').waitFor();await page.getByRole('button',{name:'分镜列表',exact:true}).click();}},
   ];
   const report={};

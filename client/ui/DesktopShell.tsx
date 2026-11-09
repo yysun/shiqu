@@ -12,7 +12,7 @@ export default function DesktopShell({active,hidden,onNavigate,children}:{active
   {!hidden&&<header className="yu-topbar">
    <button type="button" className="yu-topbar-logo" onClick={()=>onNavigate('discover')} aria-label="拾趣，返回发现"><span><Feather size={20}/></span><strong>拾趣</strong></button>
    <nav aria-label="主导航">{tabs.map(({id,title,Icon})=><button key={id} type="button" aria-current={active===id?'page':undefined} onClick={()=>onNavigate(id)}><Icon size={18}/><span>{title}</span></button>)}</nav>
-   <button type="button" className="yu-topbar-create" aria-current={active==='create'?'page':undefined} onClick={()=>onNavigate('create')}><Sparkles size={17}/><span>新建故事</span></button>
+   {(active===null||active==='create')&&<button type="button" className="yu-topbar-create" aria-current={active==='create'?'page':undefined} onClick={()=>onNavigate('create')}><Sparkles size={17}/><span>新建故事</span></button>}
   </header>}
   {children}
  </>;

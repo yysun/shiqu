@@ -1,4 +1,4 @@
-/* 桌面书架：≥1024px 右栏停靠阅读或故事设置，设置正文独立滚动；窄档沿用整页入口。
+/* 桌面书架：≥1024px 右栏显示制作任务、停靠阅读或故事设置；窄档沿用整页入口。
    阅读组件使用手机排版，因此右栏宽度保持在 320–420px。 */
 .yu-desktop .yu-library{display:grid;gap:clamp(20px,2.4vw,40px);align-items:start}
 /* 书架标题只保留一层顶部留白，避免主区和书架自身的内边距叠加。 */
@@ -12,12 +12,13 @@
 @media (hover:hover){.yu-desktop .yu-library .yu-shelf-row-readable:hover{border-color:#cdd8c1}}
 
 @media (min-width:1024px){
- .yu-desktop .yu-library{grid-template-columns:minmax(0,1fr) clamp(320px,28vw,420px)}
+ .yu-desktop .yu-library.has-side{grid-template-columns:minmax(0,1fr) clamp(320px,28vw,420px)}
  /* 高度扣除顶栏、上方 24px 与主区底部 56px 留白，滚到页底时粘性栏不会被推到顶栏下面 */
  .yu-desktop .yu-library-reader{position:sticky;top:calc(var(--d-bar) + 24px);height:calc(100dvh - var(--d-bar) - 88px);min-height:480px;border-radius:16px;overflow:hidden;background:#19392c}
  .yu-desktop .yu-library-reader>.yu-reader{height:100%}
  .yu-desktop .yu-library-settings{height:100%;overflow:auto;padding:20px;background:#fdfbf3;color:var(--yu-ink);overflow-wrap:anywhere}
  .yu-desktop .yu-library-settings>header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px}
  .yu-desktop .yu-library-settings>header h2{margin:0;font-size:20px}
- .yu-desktop .yu-library-reader.is-empty{display:grid;place-items:center;padding:24px;border:1px dashed #d6dccb;background:#fdfbf3;color:var(--yu-meta);text-align:center}
+ .yu-desktop .yu-library-productions{position:sticky;top:calc(var(--d-bar) + 24px);max-height:calc(100dvh - var(--d-bar) - 48px);overflow:auto;border-radius:12px}
+ .yu-desktop .yu-library-productions .yu-production{margin-bottom:0}
 }
