@@ -9,3 +9,5 @@ Base commit `03a2c22f2de753f66bfc1b3b1c23e0f9023fa3b6`.
 - [x] Validate the workflow and tag rejection, execute an isolated tarball build, smoke and npm dry run, and run the required repository impact checks. Actionlint, typecheck, lint, 804 affected JS cases, and 25 native source tests passed.
 
 The local tag hook covers the browser gate. The workflow's authentication can only be verified when npm has the trust binding and GitHub runs a new release tag.
+
+Implementation commit `35eb309`. CR passed with no major findings. VR remains open for the first hosted publish.
