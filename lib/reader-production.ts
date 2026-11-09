@@ -1,5 +1,5 @@
 // Keep the browser contract independent of the server scheduler and future media handlers.
-import type {SessionView,ProductionAction} from './reader-model.ts';
+import type {SessionRow,SessionView,ProductionAction} from './reader-model.ts';
 import type {RecoveryRequest} from './reader-recovery.ts';
 export const productionReadAhead=6;
 export const productionViewerLeaseMs=30000;
@@ -11,6 +11,7 @@ export interface ReaderProduction{
  leave(ownerId:string,id:string,viewerId:string):Promise<void>;
  managed(ownerId:string,id:string):Promise<boolean>;
  advance(ownerId:string,id:string,throughPage:number,retry:boolean):Promise<SessionView>;
+ shelfSnapshot(row:SessionRow,saved:SessionView):Promise<SessionView>;
  snapshot(ownerId:string,id:string):Promise<SessionView>;
  recover(ownerId:string,id:string,command:RecoveryRequest):Promise<SessionView>;
  checkImage(ownerId:string,id:string,page:number,image:string):Promise<SessionView>;

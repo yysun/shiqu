@@ -6,7 +6,7 @@ import {insertReaderStory,makeStory} from './fixtures/story.mjs';
 import {png} from './fixtures/images.mjs';
 import {until} from './fixtures/production.mjs';
 
-for(const delayed of ['sessions','deletions'])test(`startup waits for ${delayed}, reads the library once, and ignores cached studio history`,async t=>{
+for(const delayed of ['library/shelf','deletions'])test(`startup waits for ${delayed}, reads the library once, and ignores cached studio history`,async t=>{
  const b=await storyBrowser(t,'reader-startup-'+delayed),{page,f,context,url}=b;
  const story=await insertReaderStory(f.app,{...makeStory(4),title:'当前书库故事',pages:makeStory(4).pages.map(p=>({...p,image:'/api/media/current.png'}))});
  await f.app.services.media.put('current.png',png,{contentType:'image/png'});
@@ -29,16 +29,18 @@ for(const delayed of ['sessions','deletions'])test(`startup waits for ${delayed}
  assert.equal(await page.getByText('把下一篇故事留在这里',{exact:true}).count(),0);
  release();
  await page.getByRole('button',{name:'继续阅读'+story.title,exact:true}).waitFor();
- assert.equal(requests.filter(path=>path==='/api/reader/sessions').length,1);
+ assert.equal(requests.filter(path=>path==='/api/reader/library/shelf').length,1);
  assert.equal(requests.filter(path=>path==='/api/reader/deletions').length,1);
+ assert.equal(requests.filter(path=>path.startsWith('/api/reader/sessions')).length,0);
  assert.equal(requests.filter(path=>/^\/api\/(admin|stories|books|me|events)(?:\/|$)/.test(path)).length,0);
  assert.equal(await page.getByText('一车梨的秘密',{exact:true}).count(),0);
  await b.screenshot('current-library-ready');
  assert.equal(f.control.calls.length,0);
 
- if(delayed==='sessions'){
+ if(delayed==='library/shelf'){
   await page.getByRole('button',{name:'继续阅读'+story.title,exact:true}).click();
   await page.getByRole('button',{name:'下一页',exact:true}).click();
+  assert.equal(requests.filter(path=>path==='/api/reader/sessions/'+story.id).length,1);
   await until(async()=>(await f.read(story.id)).page===1);
   await page.getByRole('button',{name:'收藏故事',exact:true}).click();
   await until(async()=>(await f.read(story.id)).saved===true);
@@ -54,6 +56,30 @@ for(const delayed of ['sessions','deletions'])test(`startup waits for ${delayed}
   const restored=await f.read(story.id);assert.equal(restored.page,1);assert.equal(restored.saved,true);
   assert.equal(f.control.calls.length,0);assert.equal(f.control.plans.length,0);
  }
+});
+
+test('an explicit card selection supersedes a deep link while startup inventory is pending',async t=>{
+ const {page,f,context,url}=await storyBrowser(t,'reader-deep-link-shelf-race');
+ const first=await insertReaderStory(f.app,{...makeStory(4),title:'入口故事'});
+ const second=await insertReaderStory(f.app,{...makeStory(4),title:'读者选中的故事'});
+ await context.addInitScript(()=>localStorage.setItem('shiqu-last-tab','shelf'));
+ let releaseInventory,releaseDetail;
+ const inventory=new Promise(resolve=>releaseInventory=resolve),detail=new Promise(resolve=>releaseDetail=resolve);
+ t.after(()=>{releaseInventory();releaseDetail();});
+ await page.route('**/api/reader/deletions?inventory=1',async route=>{await inventory;await route.continue();});
+ await page.route('**/api/reader/sessions/'+second.id,async route=>{await detail;await route.continue();});
+ const requests=[];page.on('request',req=>requests.push(new URL(req.url()).pathname));
+ await page.goto(url+'/read?id='+first.id,{waitUntil:'domcontentloaded'});
+ const selected=page.getByRole('button',{name:'继续阅读《'+second.title+'》',exact:true});
+ await selected.click();
+ await page.getByText('正在打开故事…',{exact:true}).waitFor();
+ const deletionResponse=page.waitForResponse(res=>res.url().includes('/api/reader/deletions?inventory=1'));
+ releaseInventory();await deletionResponse;
+ await page.getByText('正在打开书架…',{exact:true}).waitFor({state:'hidden'});
+ releaseDetail();
+ await page.getByRole('main',{name:'阅读'+second.title,exact:true}).waitFor();
+ assert.ok(!requests.includes('/api/reader/sessions/'+first.id));
+ assert.equal(requests.filter(path=>path==='/api/reader/sessions/'+second.id).length,1);
 });
 
 test('reader uses the discovery hero native scrolling model across docking, mouse and touch',async t=>{

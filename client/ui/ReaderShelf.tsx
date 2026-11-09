@@ -10,7 +10,8 @@
 import {useEffect,useState,type ReactNode} from 'react';
 import {ArrowRight,Bookmark,BookOpen,ChevronDown,ChevronRight,Feather,Plus,RefreshCw,RotateCcw,Search,Trash2,X} from 'lucide-react';
 import type {Story} from '@/lib/content';
-import type {GeneratedStory,SessionView,ProductionAction} from '@/lib/reader-model';
+import type {ProductionAction} from '@/lib/reader-model';
+import type {ShelfSession,ShelfStory} from '@/lib/reader-shelf';
 import StoryGenerationControl from './StoryGenerationControl';
 import type {ReadingProgress} from '@/lib/reader-home';
 import {getArtStyle} from '@/lib/reader-styles';
@@ -45,22 +46,22 @@ function ProductionGroup({needs,limit,children}:{needs:number;limit:number|null;
  </details>;
 }
 
-type ShelfItem={processingStatus:string;id:string;title:string;book:string;theme:string;artStyleLabel:string;story:Story|null;session?:SessionView;page:number;saved:boolean};
-type Props={onControl:(id:string,action:ProductionAction)=>Promise<void>;controlBusy:string;stories:Story[];pending:SessionView[];sessions:SessionView[];progress:ReadingProgress[];loading:boolean;refreshing:boolean;onRefresh:()=>void;error:string;tab:string;onTab:(tab:string)=>void;query:string;onQuery:(query:string)=>void;grouping:ShelfGrouping;onGrouping:(grouping:ShelfGrouping)=>void;bookName:(story:Pick<Story,'id'|'bookId'>)=>string;onOpen:(story:Story,restart?:boolean)=>void;onResume:(session:SessionView)=>void;onRetry:(session:SessionView)=>void;onDelete:(id:string,title:string)=>void;onFavorite:(id:string,saved:boolean)=>void;favoriteBusy:string;onCreate:()=>void;onDiscover:()=>void;selectedId?:string|null;onSelect?:(id:string|null)=>void};
+type ShelfItem={processingStatus:string;id:string;title:string;book:string;theme:string;artStyleLabel:string;story:ShelfStory|null;session?:ShelfSession;page:number;saved:boolean};
+type Props={onControl:(id:string,action:ProductionAction)=>Promise<void>;controlBusy:string;stories:ShelfStory[];pending:ShelfSession[];sessions:ShelfSession[];progress:ReadingProgress[];loading:boolean;refreshing:boolean;onRefresh:()=>void;error:string;tab:string;onTab:(tab:string)=>void;query:string;onQuery:(query:string)=>void;grouping:ShelfGrouping;onGrouping:(grouping:ShelfGrouping)=>void;bookName:(story:Pick<Story,'id'|'bookId'>)=>string;onOpen:(story:ShelfStory,restart?:boolean)=>void;onResume:(session:ShelfSession)=>void;onRetry:(session:ShelfSession)=>void;onDelete:(id:string,title:string)=>void;onFavorite:(id:string,saved:boolean)=>void;favoriteBusy:string;onCreate:()=>void;onDiscover:()=>void;selectedId?:string|null;onSelect?:(id:string|null)=>void};
 export default function ReaderShelf({onControl,controlBusy,stories,pending,sessions,progress,loading,refreshing,onRefresh,error,tab,onTab,query,onQuery,grouping,onGrouping,bookName,onOpen,onResume,onRetry,onDelete,onFavorite,favoriteBusy,onCreate,onDiscover,selectedId,onSelect}:Props){
  const progressById=new Map(progress.map(row=>[row.storyId,row]));
  const sessionById=new Map(sessions.map(session=>[session.id,session]));
- const processingStatus=(story:Story)=>{const session=sessionById.get(story.id);return session?shelfGenerationStatus(session).group:story.pages.every(page=>!!page.image)?'已完成':'生成已暂停';};
+ const processingStatus=(story:ShelfStory)=>{const session=sessionById.get(story.id);return session?shelfGenerationStatus(session).group:'已完成';};
  const items:ShelfItem[]=[
-  ...pending.map(session=>({processingStatus:shelfGenerationStatus(session).group,id:session.id,title:session.selection.displayTitle||session.story?.title||session.selection.storyTitle||(session.intake?'等待选题的故事':'还在展开的故事'),book:bookName({id:session.id,bookId:session.selection.bookId}),theme:session.selection.theme,artStyleLabel:getArtStyle((session.intake?.phase!=='confirmed'?session.intake?.draft?.artStyle:undefined)??session.selection.artStyle).label,story:null,session,page:session.page,saved:!!(progressById.get(session.id)?.saved??session.saved)})),
-  ...stories.map(story=>({processingStatus:processingStatus(story),id:story.id,title:story.title,book:bookName(story),theme:story.theme,artStyleLabel:(story as GeneratedStory).generated?((story as GeneratedStory).artStyleLabel||'未记录画风'):'未记录画风',story,page:progressById.get(story.id)?.page||0,saved:!!progressById.get(story.id)?.saved})),
+  ...pending.map(session=>({processingStatus:shelfGenerationStatus(session).group,id:session.id,title:session.selection.displayTitle||session.story?.title||session.selection.storyTitle||(session.intake?'等待选题的故事':'还在展开的故事'),book:bookName({id:session.id,bookId:session.selection.bookId}),theme:session.selection.theme,artStyleLabel:getArtStyle((session.intake?.phase!=='confirmed'?session.intake?.artStyle:undefined)??session.selection.artStyle).label,story:null,session,page:session.page,saved:!!(progressById.get(session.id)?.saved??session.saved)})),
+  ...stories.map(story=>({processingStatus:processingStatus(story),id:story.id,title:story.title,book:bookName(story),theme:story.theme,artStyleLabel:story.artStyleLabel||'未记录画风',story,page:progressById.get(story.id)?.page||0,saved:!!progressById.get(story.id)?.saved})),
  ];
  const visible=items.filter(item=>(tab!=='saved'||item.saved)&&matchesShelfSearch(item,query));
  const productions=sortShelfProductions(visible.filter(item=>!item.story),item=>item.processingStatus),readable=visible.filter(item=>item.story);
  const needs=productions.filter(item=>(shelfNeedsUserGroups as readonly string[]).includes(item.processingStatus)).length;
  const filtered=!!query.trim()||tab==='saved',busyAny=refreshing||!!favoriteBusy;
  function resetFilters(){onQuery('');onTab('recent');}
- function edition(item:ShelfItem,session?:SessionView){
+ function edition(item:ShelfItem,session?:ShelfSession){
   const number=session?.revision?.number||item.story?.revision||1;
   return number>1||sessions.some(s=>s.revision?.rootId===item.id)?`${number}`:'';
  }
@@ -68,7 +69,7 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
   return <div className="yu-shelf-card-actions"><button type="button" className={'yu-shelf-favorite'+(item.saved?' is-saved':'')} aria-label={(item.saved?'不再收藏':'收藏')+'《'+item.title+'》'} title={item.saved?'不再收藏':'收藏'} aria-pressed={item.saved} disabled={busyAny} onClick={()=>onFavorite(item.id,!item.saved)}><Bookmark size={17} fill={item.saved?'currentColor':'none'}/><span>{favoriteBusy===item.id?'保存中…':item.saved?'不再收藏':'收藏'}</span></button><button className="yu-delete-story" aria-label={'删除《'+item.title+'》'} title="删除故事" disabled={busyAny} onClick={()=>onDelete(item.id,item.title)}><Trash2 size={17}/></button></div>;
  }
  // 失败且可重试时只给“重试生成”；其余状态沿用暂停/恢复控制。
- function control(session:SessionView,group:string){
+ function control(session:ShelfSession,group:string){
   if(group==='生成失败')return session.retryAllowed?<button type="button" className="yu-generation-control" disabled={busyAny||!!controlBusy} onClick={()=>onRetry(session)}>重试生成</button>:null;
   return <StoryGenerationControl session={session} busy={!!controlBusy} onControl={onControl}/>;
  }
@@ -81,7 +82,7 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
   const selected=!!onSelect&&selectedId===item.id;
   return <li className={'yu-production-row '+tone+(selected?' is-selected':'')} key={item.id} data-story-id={item.id}>
    <button className="yu-pending-story" aria-label={generation.action+'《'+item.title+'》'} aria-pressed={onSelect?selected:undefined} onClick={()=>onResume(session)}>
-    <span className="yu-production-title"><strong>{item.title}</strong><em role="status">{generation.message}{session.story&&` · ${session.ready} / ${session.story.pages.length} 幅`}</em></span>
+    <span className="yu-production-title"><strong>{item.title}</strong><em role="status">{generation.message}{session.story&&` · ${session.ready} / ${session.story.frameCount} 幅`}</em></span>
     <small className="yu-shelf-tags">{[item.book,item.theme,item.artStyleLabel].filter(Boolean).map(text=><span key={text} title={text}>{text}</span>)}{number&&<span>第 {number} 版</span>}</small>
     {generation.group==='生成失败'&&session.error?<small className="yu-production-error">{session.error}</small>:<span className="sr-only">{generation.detail}</span>}
    </button>
@@ -90,12 +91,12 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
  }
  function card(item:ShelfItem){
   const story=item.story!,session=sessionById.get(item.id),generation=session?shelfGenerationStatus(session):null,number=edition(item,session);
-  const total=story.pages.length,finished=total>0&&item.page+1>=total;
-  const feedback=session&&session.state!=='completed'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{session.story&&` · ${session.ready} / ${session.story.pages.length} 幅`}</span>{control(session,generation!.group)}</div>;
+  const total=story.frameCount,finished=total>0&&item.page+1>=total;
+  const feedback=session&&session.state!=='completed'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{session.story&&` · ${session.ready} / ${session.story.frameCount} 幅`}</span>{control(session,generation!.group)}</div>;
   const selected=!!onSelect&&selectedId===item.id,pick=onSelect?()=>onSelect(item.id):()=>onOpen(story);
   return <div className={'yu-shelf-row yu-shelf-row-readable'+(selected?' is-selected':'')} key={item.id} data-story-id={item.id}>
    <div className="yu-shelf-cover-wrap">
-    <button className="yu-shelf-cover" aria-label={(onSelect?'选择《':'打开《')+item.title+'》'} title={item.book} onClick={pick}>{story.pages[0].image?<img src={story.pages[0].image} alt="" loading="lazy"/>:<span className="yu-shelf-pending"><Feather size={25}/></span>}</button>
+    <button className="yu-shelf-cover" aria-label={(onSelect?'选择《':'打开《')+item.title+'》'} title={item.book} onClick={pick}>{story.cover?<img src={story.cover} alt="" loading="lazy"/>:<span className="yu-shelf-pending"><Feather size={25}/></span>}</button>
     <div className="yu-shelf-cover-overlay"><small className="yu-shelf-book-badge">{item.book}</small>{actions(item)}</div>
    </div>
    <div className="yu-shelf-card-body">

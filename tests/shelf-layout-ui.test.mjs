@@ -7,7 +7,7 @@ import './fixtures/tsx.mjs';
 
 const {default:Shelf}=await import('../client/ui/ReaderShelf.tsx');
 const noop=()=>{};
-const story=(id,title,frames=3)=>({id,bookId:'honglou',title,theme:'爱情与错过',pages:Array.from({length:frames},()=>({image:'/saved.png'}))});
+const story=(id,title,frames=3)=>({id,bookId:'honglou',title,theme:'爱情与错过',frameCount:frames,cover:'/saved.png'});
 const session=(id,title,extra={})=>({id,selection:{bookId:'honglou',theme:'原典故事',artStyle:'chibi',storyTitle:title},state:'idle',error:null,ready:0,story:null,page:0,saved:false,stage:'正在编排故事',...extra});
 const paused=(id,title)=>session(id,title,{generationControl:'paused'});
 function render({stories=[],pending=[],progress=[],...extra}={}){

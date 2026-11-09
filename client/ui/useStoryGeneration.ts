@@ -11,20 +11,21 @@ import type {IntakeCommand} from '@/lib/reader-intake';
 import {latestStoryVersions} from '@/lib/reader-versions';
 import {keepSnapshot,shareRows} from '@/lib/reader-snapshots';
 import type {GeneratedStory,Selection,SessionView,ProductionAction} from '@/lib/reader-model';
+import {summarizeShelfSession,type ShelfSession,type ShelfChanges} from '@/lib/reader-shelf';
 import type {RecoveryRequest} from '@/lib/reader-recovery';
-type Callbacks={onStory:(story:GeneratedStory,initialPage?:number,saved?:boolean)=>void;onProgress:(rows:{storyId:string;page:number;saved:number;updatedAt?:string|null}[])=>void};
+type Callbacks={onStory:(story:GeneratedStory,initialPage?:number,saved?:boolean)=>void;onProgress:(rows:{storyId:string;page:number;saved:number;updatedAt?:string|null}[],fromShelf?:boolean)=>void};
 export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=false){
  const cb=useRef(callbacks);cb.current=callbacks;
  const currentPage=useRef(page);currentPage.current=page;
- const [sessions,setSessions]=useState<SessionView[]>([]),[active,setActive]=useState<SessionView|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[connected,setConnected]=useState(false),[wake,setWake]=useState(0);
- const librarySessions=useRef<SessionView[]>([]);
+ const [sessions,setSessions]=useState<ShelfSession[]>([]),[active,setActive]=useState<SessionView|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[connected,setConnected]=useState(false),[wake,setWake]=useState(0);
+ const librarySessions=useRef<ShelfSession[]>([]);
  // StrictMode replays startup effects; both runs share one initial library request.
- const startupLibrary=useRef<Promise<SessionView[]>|null>(null),libraryReadAt=useRef(0);
+ const startupLibrary=useRef<Promise<ShelfSession[]>|null>(null),libraryReadAt=useRef(0);
  const [libraryLoading,setLibraryLoading]=useState(true),[libraryRefreshing,setLibraryRefreshing]=useState(false),[libraryError,setLibraryError]=useState('');
  const live=useRef(true),libraryRead=useRef(0),libraryChanges=useRef(0),refreshingReads=useRef(0);
  const removed=useRef(new Set<string>());
  const creation=useRef<{signature:string;id:string}|null>(null);
- const id=useRef(''),pending=useRef<Promise<unknown>|null>(null),retries=useRef(new Map<string,number>());
+ const id=useRef(''),resumeRead=useRef(0),pending=useRef<Promise<unknown>|null>(null),retries=useRef(new Map<string,number>());
  const [controlBusy,setControlBusy]=useState(''),[controlError,setControlError]=useState('');
  const controlLock=useRef(false);
  const generationMode=useRef<'observe'|'generate'>('observe'),retryRequested=useRef(false);
@@ -35,9 +36,14 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
  function collect(s:SessionView,submitted=false){
   // Only the list response or a new submission may add members; historical reads only update known cards.
   if(removed.current.has(s.id)||!submitted&&!librarySessions.current.some(row=>row.id===s.id))return;
-  libraryChanges.current++;librarySessions.current=shareRows(librarySessions.current,latestStoryVersions([s,...librarySessions.current.filter(x=>x.id!==s.id)]),row=>row.id);setSessions(librarySessions.current);
+  const card=summarizeShelfSession(s),previous=librarySessions.current.find(row=>row.id===s.id);
+  const version=previous?.version;
+  if(previous&&keepSnapshot(previous,{...card,version})===previous)return;
+  libraryChanges.current++;
+  librarySessions.current=latestStoryVersions([card,...librarySessions.current.filter(row=>row.id!==s.id)]);
+  setSessions(librarySessions.current);
  }
- useEffect(()=>{live.current=true;request('reader/status').then(s=>{if(live.current)setConnected(s.configured);}).catch(()=>{});startupLibrary.current??=request('reader/sessions');refreshLibrary(undefined,()=>true,false,startupLibrary.current).catch(()=>{}).finally(()=>{if(live.current)setLibraryLoading(false);});return()=>{live.current=false;libraryRead.current++;id.current='';};},[]);
+ useEffect(()=>{live.current=true;request('reader/status').then(s=>{if(live.current)setConnected(s.configured);}).catch(()=>{});startupLibrary.current??=request('reader/library/shelf');refreshLibrary(startupLibrary.current).catch(()=>{}).finally(()=>{if(live.current)setLibraryLoading(false);});return()=>{live.current=false;libraryRead.current++;resumeRead.current++;id.current='';};},[]);
  async function start(selection:Selection,intake=false){
   passive.current=false;
   const signature=JSON.stringify([selection,intake]);
@@ -57,20 +63,21 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   recoveryCommand.current=command;return command;
  }
  function adopt(s:SessionView,readOnly=false,initialPage?:number){
-  id.current=s.id;passive.current=readOnly;generationMode.current=readOnly||observeOnlyGeneration(s)?'observe':'generate';retryRequested.current=false;
+  resumeRead.current++;id.current=s.id;passive.current=readOnly;generationMode.current=readOnly||observeOnlyGeneration(s)?'observe':'generate';retryRequested.current=false;
   setActive(s);collect(s,true);setBusy(false);setError(s.state==='failed'?s.error||'生成失败，请选择对应问题恢复。':'');
   try{history.replaceState(history.state,'','/read?id='+s.id);}catch{}
   cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);
   if(s.story?.pages[0]?.image)cb.current.onStory(s.story,initialPage,s.saved);setWake(v=>v+1);
  }
  async function resume(sessionId:string,initialPage?:number,retry=false,submitted=false,faultId?:string){
+  const read=++resumeRead.current;
   id.current=sessionId;passive.current=false;retries.current=new Map();setError('');
-  const s:SessionView=await request('reader/sessions/'+sessionId);if(id.current!==sessionId||removed.current.has(sessionId))return;
+  const s:SessionView=await request('reader/sessions/'+sessionId);if(read!==resumeRead.current||id.current!==sessionId||removed.current.has(sessionId))return;
   if(retry)recoveryFor(s,faultId);
   generationMode.current=retry||!observeOnlyGeneration(s)?'generate':'observe';retryRequested.current=retry;
   setBusy(retry);setError(!retry&&s.state==='failed'?s.error||'生成失败，请选择对应问题恢复。':'');setActive(s);collect(s,submitted);
   history.replaceState(history.state,'','/read?id='+s.id);cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);
-  if(s.story?.pages[0]?.image)cb.current.onStory(s.story,initialPage??s.page,s.saved);setWake(v=>v+1);
+  if(s.story?.pages[0]?.image)cb.current.onStory(s.story,Math.max(0,Math.min(initialPage??s.page,s.story.pages.length-1)),s.saved);setWake(v=>v+1);return s;
  }
  async function checkImage(sessionId:string,page:number,image:string){
   const key=JSON.stringify([sessionId,page,image]),existing=imageChecks.current.get(key);if(existing)return existing;
@@ -161,32 +168,44 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   }catch(error){setControlError(error instanceof Error?error.message:'操作暂未保存，请重试。');}
   finally{controlLock.current=false;setControlBusy('');}
  }
- function leave(){id.current='';setActive(null);setBusy(false);setError('');}
+ function leave(){resumeRead.current++;id.current='';setActive(null);setBusy(false);setError('');}
  function remove(sessionId:string){libraryChanges.current++;removed.current.add(sessionId);if(id.current===sessionId)leave();librarySessions.current=librarySessions.current.filter(s=>s.id!==sessionId);setSessions(librarySessions.current);}
- async function refreshLibrary(restoredId?:string,isCurrent:()=>boolean=()=>true,background=false,snapshot?:Promise<SessionView[]>){
-  // A recovery reads snapshots only; resume() would create viewer demand and can dispatch generation.
-  const read=++libraryRead.current,changes=libraryChanges.current;
-  // Background snapshots keep cards current without locking the shelf's manual actions.
-  if(!background){refreshingReads.current++;setLibraryRefreshing(true);}
-  try{
-   const [rows,restored]:[SessionView[],SessionView|null]=await Promise.all([snapshot||request('reader/sessions'),restoredId?request('reader/sessions/'+encodeURIComponent(restoredId)):Promise.resolve(null)]);
-   if(restored&&live.current&&read===libraryRead.current)removed.current.delete(restored.id);
-   const visible=rows.filter(s=>!removed.current.has(s.id));
-   if(live.current&&isCurrent()&&read===libraryRead.current&&changes===libraryChanges.current){
-    libraryReadAt.current=Date.now();librarySessions.current=shareRows(librarySessions.current,visible,row=>row.id);setSessions(librarySessions.current);setLibraryError('');
-    cb.current.onProgress(visible.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt})));
-   }
-   return visible;
-  }catch(error){if(live.current&&isCurrent()&&read===libraryRead.current)setLibraryError('书架刷新失败，请重试。');throw error;}
-  finally{if(!background&&--refreshingReads.current===0&&live.current)setLibraryRefreshing(false);}
+ function publishShelf(rows:ShelfSession[],updated:ShelfSession[]){
+  for(const row of updated)removed.current.delete(row.id);
+  libraryReadAt.current=Date.now();
+  librarySessions.current=shareRows(librarySessions.current,rows,row=>row.id);setSessions(librarySessions.current);setLibraryError('');
+  if(updated.length)cb.current.onProgress(updated.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt})),true);
  }
- const refresh=useRef(refreshLibrary);refresh.current=refreshLibrary;
+ async function refreshLibrary(snapshot?:Promise<ShelfSession[]>){
+  const read=++libraryRead.current,changes=libraryChanges.current;
+  refreshingReads.current++;setLibraryRefreshing(true);
+  try{
+   const rows:ShelfSession[]=await (snapshot||request('reader/library/shelf'));
+   if(live.current&&read===libraryRead.current&&changes===libraryChanges.current)publishShelf(rows,rows);
+   return rows;
+  }catch(error){if(live.current&&read===libraryRead.current)setLibraryError('书架刷新失败，请重试。');throw error;}
+  finally{if(--refreshingReads.current===0&&live.current)setLibraryRefreshing(false);}
+ }
+ async function refreshChanges(isCurrent:()=>boolean){
+  if(refreshingReads.current)return;
+  const read=++libraryRead.current,changes=libraryChanges.current,previous=librarySessions.current;
+  try{
+   const delta:ShelfChanges=await request('reader/library/shelf','POST',previous.map(row=>[row.id,row.version||'']),true);
+   if(!live.current||!isCurrent()||read!==libraryRead.current||changes!==libraryChanges.current)return;
+   if(!delta.changed.length&&!delta.removed.length){libraryReadAt.current=Date.now();setLibraryError('');return;}
+   const rows=new Map(previous.map(row=>[row.id,row]));
+   for(const id of delta.removed)rows.delete(id);
+   for(const row of delta.changed)rows.set(row.id,row);
+   publishShelf([...rows.values()],delta.changed);
+  }catch(error){if(live.current&&isCurrent()&&read===libraryRead.current)setLibraryError('书架刷新失败，请重试。');throw error;}
+ }
+ const refresh=useRef(refreshChanges);refresh.current=refreshChanges;
  useEffect(()=>{
   if(!watchShelf||libraryLoading||active?.id)return;
   let stopped=false,inFlight=false;
   async function update(){
    if(stopped||inFlight||document.visibilityState==='hidden')return;
-   inFlight=true;try{await refresh.current(undefined,()=>!stopped,true);}catch{/* Keep saved cards visible; expose the retry beside them. */}finally{inFlight=false;}
+   inFlight=true;try{await refresh.current(()=>!stopped);}catch{/* Keep saved cards visible; expose the retry beside them. */}finally{inFlight=false;}
   }
   // A fresh startup snapshot needs no immediate second database read.
   if(Date.now()-libraryReadAt.current>=4000)void update();const timer=setInterval(()=>void update(),4000);
@@ -205,7 +224,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
  async function retryStep(faultId?:string){if(!active?.retryAllowed)return;await recoverFault(active,faultId);}
 
  useEffect(()=>{
-  const sessionId=active?.id;if(!sessionId)return;
+  const sessionId=active?.id;if(!sessionId||active.state==='completed'&&!retryRequested.current)return;
   let cancelled=false;
   async function run(){
    if(pending.current)await pending.current;

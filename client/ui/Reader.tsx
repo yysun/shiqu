@@ -35,7 +35,8 @@ import {getArtStyle} from '@/lib/reader-styles';
 import StoryRevisionEditor,{StoryRevisionActions} from './StoryRevisionEditor';
 import {useStoryRevision} from './useStoryRevision';
 import {defaultProductionPrompt,promptAfterThemeChange} from '@/lib/reader-prompts';
-import {recentHeroes,mergeReadingProgress,reconcileReadingProgress} from '@/lib/reader-home';
+import type {ShelfSession,ShelfStory} from '@/lib/reader-shelf';
+import {recentShelfHeroes,mergeReadingProgress,reconcileReadingProgress} from '@/lib/reader-home';
 import RecentStories from './RecentStories';
 import ReaderShelf from './ReaderShelf';
 import {shelfGroupings,type ShelfGrouping} from '@/lib/shelf-browser';
@@ -103,7 +104,8 @@ export default function Reader(){
   try{const saved=localStorage.getItem('shiqu-shelf-grouping');return shelfGroupings.find(option=>option.value===saved)?.value||'none';}catch{return 'none';}
  });
  const [shelfRefreshing,setShelfRefreshing]=useState(false);
- const [tab,setTab]=useState<string>(()=>{
+ const [opening,setOpening]=useState<string|null>(null),openRead=useRef(0);
+ const [tab,updateTab]=useState<string>(()=>{
   try{const saved=localStorage.getItem('shiqu-last-tab');return saved==='shelf'||saved==='me'?saved:'discover';}catch{return 'discover';}
  }),[shelfTab,setShelfTab]=useState(()=>{try{return localStorage.getItem('shiqu-shelf-tab')==='saved'?'saved':'recent';}catch{return 'recent';}}),[story,setStory]=useState<Story|null>(null),[page,setPage]=useState(0),[ended,setEnded]=useState(false),[saved,setSaved]=useState(false);
  useEffect(()=>{try{localStorage.setItem('shiqu-last-tab',tab);}catch{}},[tab]);
@@ -153,23 +155,28 @@ export default function Reader(){
  useEffect(()=>{setMetadataVisible(true);setImageIssues({});setImageReloads({});setRedrawPage(null);},[story?.id]);
  const readerRef=useRef<HTMLElement>(null),endingRef=useRef<HTMLElement>(null);
  const wheelGesture=useRef(newWheelGesture());
- function acceptServerProgress(rows:Progress[]){
+ function acceptServerProgress(rows:Progress[],fromShelf=false){
+  if(fromShelf&&rows.some(row=>deleted.current.has(row.storyId))){
+   for(const row of rows)deleted.current.delete(row.storyId);
+   setDeletedIds([...deleted.current]);
+  }
   authoritativeProgress.current=reconcileReadingProgress(authoritativeProgress.current,rows);
   setProgress(old=>{
    let raw='[]',cached:Progress[]=[];try{raw=localStorage.getItem('yiyu-reading')||'[]';cached=JSON.parse(raw);}catch{}
-   // Shelf polls repeat the same rows; keep the old array so Reader skips the render and the storage write.
+   // 卡片状态变化但阅读进度相同时，跳过渲染和本地存储写入。
    const retained=reconcileReadingProgress(mergeReadingProgress(old,cached),authoritativeProgress.current);
    const merged=shareRows(old,retained.filter(p=>!deleted.current.has(p.storyId)),p=>p.storyId);
    const text=JSON.stringify(retained);if(text!==raw)try{localStorage.setItem('yiyu-reading',text);}catch{}
    return merged;
   });
  }
- const gen=useStoryGeneration(page,{onStory:(s,p,b)=>{if(deleted.current.has(s.id))return;setStory(old=>keepSnapshot(old,s));if(p!==undefined){setPage(p);setSaved(!!b);}},onProgress:acceptServerProgress},!loading&&tab==='shelf'&&!story&&!configure&&!favoriteBusy&&!deleting&&!restoring&&!shelfRefreshing);
+ const gen=useStoryGeneration(page,{onStory:(s,p,b)=>{if(deleted.current.has(s.id))return;setStory(old=>keepSnapshot(old,s));if(p!==undefined){setPage(p);setSaved(!!b);}},onProgress:acceptServerProgress},!loading&&tab==='shelf'&&!story&&!opening&&!configure&&!favoriteBusy&&!deleting&&!restoring&&!shelfRefreshing);
  // Keep the same panel open when the first image arrives underneath it.
  useEffect(()=>{if(gen.active&&!story&&!configure&&!workflowTarget)setWorkflowTarget(gen.active.id);},[gen.active?.id,story?.id,configure,workflowTarget]);
  // 记录打开制作流程时是否正在阅读：从书架打开设置会顺带载入故事，离开时应回到书架而不是阅读。
  const workflowFromReader=useRef(false);
  function openWorkflow(id:string,dock=false){
+  cancelOpening();
   workflowFromReader.current=!dock&&!!story;
   setWorkflowDocked(dock);
   if(dock){setDocked(false);setExpanded(false);setSource(false);setSceneList(false);setScript(false);setReviewHistoryId(null);revision.setTab(null);}
@@ -225,8 +232,28 @@ export default function Reader(){
 
  function track(kind:string,s:Story|null=story,index:number|null=null){if(!s||!visitor.current||!session.current)return;request('reader/sessions/'+s.id+'/events','POST',{id:session.current+':'+s.id+':'+kind+(index===null?'':':'+index),visitor:visitor.current,session:session.current,storyId:s.id,kind,page:index,mode:'manual',cohort:'internal'}).catch(()=>{});}
  function remember(s:Story,index:number,isSaved:boolean){if(deleted.current.has(s.id))return;authoritativeProgress.current=reconcileReadingProgress(authoritativeProgress.current,[{storyId:s.id,page:index,saved:isSaved?1:0,updatedAt:new Date().toISOString()}]);setLastReadId(s.id);try{localStorage.setItem('shiqu-last-read',s.id);}catch{}setProgress(pr=>{const rows=[{storyId:s.id,page:index,saved:isSaved?1:0,updatedAt:new Date().toISOString()},...pr.filter(p=>p.storyId!==s.id)];localStorage.setItem('yiyu-reading',JSON.stringify(rows));return rows;});request('reader/sessions/'+s.id+'/progress','POST',{storyId:s.id,page:index,saved:isSaved}).catch(()=>{});}
- function open(s:Story,restart=false,dock=false){if(deleted.current.has(s.id))return;if(!story&&!dock)listScroll.current=window.scrollY;setWorkflowTarget(null);setWorkflowDocked(false);setDrag(0);gen.resume(s.id,restart?0:undefined).catch(e=>notify(e.message));setConfigure(false);clearRetained('discovery');setUnavailable('');const pr=progress.find(p=>p.storyId===s.id);const index=restart?0:Math.min(pr?.page||0,s.pages.length-1);setPage(index);setStory(s);setSaved(!!pr?.saved);setEnded(false);setMotion('forward');seen.current=new Set();session.current=randomId();setDocked(dock);setExpanded(false);history.replaceState(history.state,'',dock?'/':'/read?id='+encodeURIComponent(s.id));track('start',s);if(!dock)window.scrollTo(0,0);}
- function home(){forgetSetup();setWorkflowTarget(null);setWorkflowDocked(false);setWorkflowError('');setDrag(0);gen.leave();setStory(null);setEnded(false);setSource(false);setDocked(false);setExpanded(false);history.replaceState(history.state,'','/');}
+ function open(target:Pick<Story,'id'>,restart=false,dock=false){
+  if(deleted.current.has(target.id))return;
+  const attempt=++openRead.current;
+  if(!story&&!dock)listScroll.current=window.scrollY;
+  gen.leave();setOpening(target.id);setStory(null);setWorkflowTarget(null);setWorkflowDocked(false);setDrag(0);
+  setConfigure(false);clearRetained('discovery');setUnavailable('');setEnded(false);setMotion('forward');
+  seen.current=new Set();session.current=randomId();setDocked(dock);setExpanded(false);
+  setSource(false);setSceneList(false);setScript(false);
+  void gen.resume(target.id,restart?0:undefined).then(loaded=>{
+   if(attempt!==openRead.current)return;
+   setOpening(null);
+   if(!loaded)return;
+   if(dock&&!loaded.story?.pages[0]?.image)setWorkflowDocked(true);
+   if(!dock)window.scrollTo(0,0);
+  }).catch(error=>{if(attempt===openRead.current){setOpening(null);notify(error.message);}});
+ }
+ function cancelOpening(){
+  openRead.current++;
+  if(opening){setOpening(null);gen.leave();}
+ }
+ function setTab(next:string){cancelOpening();updateTab(next);}
+ function home(){cancelOpening();forgetSetup();setWorkflowTarget(null);setWorkflowDocked(false);setWorkflowError('');setDrag(0);gen.leave();setStory(null);setEnded(false);setSource(false);setDocked(false);setExpanded(false);history.replaceState(history.state,'','/');}
  // 右栏阅读：展开为全屏、收回右栏（同时关闭原文与分镜列表）；离开阅读时右栏故事只收回，不关闭
  function expand(){if(!story)return;setExpanded(true);history.replaceState(history.state,'','/read?id='+encodeURIComponent(story.id));}
  function collapse(){setExpanded(false);setSource(false);setSceneList(false);history.replaceState(history.state,'','/');}
@@ -234,7 +261,7 @@ export default function Reader(){
  const focusShelfCard=(id:string)=>document.querySelector<HTMLElement>(`[data-story-id="${CSS.escape(id)}"] .yu-shelf-card-details`)?.focus();
  // 返回阅读前所在列表的滚动位置；返回书架的按钮改为回到顶部
  const listScroll=useRef<number|null>(null);
- useLayoutEffect(()=>{if(!story&&listScroll.current!==null){const top=listScroll.current;listScroll.current=null;window.scrollTo({top,behavior:'instant'});}},[story]);
+ useLayoutEffect(()=>{if(!story&&!opening&&listScroll.current!==null){const top=listScroll.current;listScroll.current=null;window.scrollTo({top,behavior:'instant'});}},[story,opening]);
  function backToShelf(){listScroll.current=null;setSettings(false);setSource(false);setScript(false);revision.setTab(null);home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}
  function turn(delta:number){if(!story)return;if(!ended&&page===0&&delta<0)return;if(ended){if(delta<0){setDrag(0);setPage(story.pages.length-1);setEnded(false);setMotion('back');}else if(delta>0)home();return;}if(delta>0&&!story.pages[page]?.image){notify('这一幅还在绘制，稍等一下。');return;}setMotion(delta>0?'forward':'back');if(page+delta>=story.pages.length){setEnded(true);if(seen.current.size===story.pages.length)track('complete');}else setPage(p=>Math.max(0,p+delta));}
  function goToPage(index:number){if(!story)return;setDrag(0);setMotion(index>page?'forward':'back');setEnded(false);setPage(Math.max(0,Math.min(index,story.pages.length-1)));}
@@ -247,13 +274,14 @@ export default function Reader(){
   if(seen.current.size===story.pages.length)track('complete');
  }
  // 桌面新建页从“返回修改书籍”打开时，左侧选书、心情与“不挑了”只改选择，仍修改原任务的条件（与手机表单内选书一致）。
- function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){clearRetained('discovery');setCreateSeed(seed=>seed+1);if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,source:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
+ function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){cancelOpening();clearRetained('discovery');setCreateSeed(seed=>seed+1);if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,source:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
  // 关闭新建并丢弃表单草稿；新建面板关闭、顶栏离开与两条提交成功路径共用。
  function closeCreate(){setConfigure(false);setDiscoveryTarget(null);clearRetained('discovery');}
  // 离开故事设置：清除子面板标志（修订草稿保留），再关闭制作流程。
  function leaveWorkspace(){const toShell=!workflowFromReader.current&&!!story;setScript(false);setReviewHistoryId(null);setSource(false);revision.setTab(null);setSettings(false);closeWorkflow();if(toShell)home();}
  function exitToShell(steps:ExitStep[]){for(const step of steps){if(step==='closeCreate')closeCreate();else if(step==='leaveWorkspace')leaveWorkspace();else home();}}
  useEffect(()=>{visitor.current=localStorage.getItem('yiyu-visitor')||randomId();localStorage.setItem('yiyu-visitor',visitor.current);try{setLargeText(localStorage.getItem('yiyu-large-text')==='1');}catch{}if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+ const entryId=new URLSearchParams(location.search).get('id'),entryRead=openRead.current;
  let active=true;
  startupDeletions.current??=request('reader/deletions?inventory=1');
  startupDeletions.current.then(async inventory=>{
@@ -265,8 +293,7 @@ export default function Reader(){
   const merged=reconcileReadingProgress(local,authoritativeProgress.current).filter(p=>cleaned.ids.has(p.storyId));
   setProgress(old=>reconcileReadingProgress(mergeReadingProgress(old,merged),authoritativeProgress.current).filter(p=>cleaned.ids.has(p.storyId)&&!deleted.current.has(p.storyId)));
   try{localStorage.setItem('yiyu-reading',JSON.stringify(merged));}catch{}
-  const id=new URLSearchParams(location.search).get('id');
-  if(id&&!deleted.current.has(id))gen.resume(id).catch(()=>{if(active)setLoadError('这篇故事暂时无法打开。');});
+  if(entryId&&entryRead===openRead.current)open({id:entryId});
  }).catch(()=>{if(active)setLoadError('故事暂时没有加载出来，请检查网络后再试。');}).finally(()=>{if(active)setLoading(false);});
  return()=>{active=false;if(noticeTimer.current)clearTimeout(noticeTimer.current);};},[]);
  useEffect(()=>{if(story){if(!session.current)session.current=randomId();track('start',story);}},[story?.id]);
@@ -405,7 +432,7 @@ export default function Reader(){
    setProgress(old=>{const rows=old.filter(p=>p.storyId!==target.id);try{localStorage.setItem('yiyu-reading',JSON.stringify(rows));}catch{}return rows;});
    if(lastReadId===target.id){setLastReadId('');try{localStorage.removeItem('shiqu-last-read');}catch{}}
    try{const cache=await caches.open('yiyu-offline-v1');await cache.delete('/offline-data/'+target.id);}catch{}
-   if(story?.id===target.id)home();setDeleteTarget(null);
+   if(story?.id===target.id||opening===target.id)home();setDeleteTarget(null);
   }catch(e){setDeleteError(e instanceof Error?e.message:'删除失败，请重试。');}finally{setDeleting(false);}
  }
  async function loadDeletedStories(){
@@ -424,9 +451,8 @@ export default function Reader(){
   try{
    pendingRestores.current.set(target.storyId,target);
    await request('reader/library/'+encodeURIComponent(target.storyId)+'/restore','POST');
-   const sessions=await gen.refreshLibrary(target.storyId);
+   await gen.refreshLibrary();
    deleted.current.delete(target.storyId);setDeletedIds([...deleted.current]);
-   acceptServerProgress(sessions.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt})));
    pendingRestores.current.delete(target.storyId);
    setDeletedStories(rows=>rows.filter(row=>row.storyId!==target.storyId));setUndoTarget(old=>old?.storyId===target.storyId?null:old);
    notify('已恢复《'+target.title+'》，可从书架继续。');
@@ -446,13 +472,13 @@ export default function Reader(){
   return <p className="yu-export-status" role="status">{exportProgress||(showReadiness&&story.pages.some(p=>!p.image)?`画面已完成 ${story.pages.filter(p=>p.image).length} / ${story.pages.length} 幅，全部生成后可下载。`:'')}</p>;
  }
  // Session lists contain only the newest submission; cached artwork must not resurrect older editions.
- const latestIds=new Set(gen.sessions.map(session=>session.id));
+ const shelfSessionsById=new Map(gen.sessions.map(session=>[session.id,session]));
  const allStories=gen.sessions.flatMap(s=>s.story?[s.story]:[]).filter(s=>!deletedIds.includes(s.id));
- const heroes=recentHeroes(allStories,deletedIds.includes(lastReadId)?'':lastReadId,progress.filter(p=>!deletedIds.includes(p.storyId)));
- const bookName=(s:Pick<Story,'id'|'bookId'>)=>(s.bookId==='other'?gen.sessions.find(session=>session.id===s.id)?.selection.customBook:'')||choices.find(b=>b.id===s.bookId)?.title||s.bookId;
+ const heroes=recentShelfHeroes(allStories,deletedIds.includes(lastReadId)?'':lastReadId,progress.filter(p=>!deletedIds.includes(p.storyId)));
+ const bookName=(s:Pick<Story,'id'|'bookId'>)=>(s.bookId==='other'?(gen.active?.id===s.id?gen.active:shelfSessionsById.get(s.id))?.selection.customBook:'')||choices.find(b=>b.id===s.bookId)?.title||s.bookId;
  const current=story?.pages[page];
- const activeProgress=mergeReadingProgress(progress,gen.sessions.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}))).filter(p=>!deletedIds.includes(p.storyId)&&latestIds.has(p.storyId));
- const readingSession=story?(gen.active?.id===story.id?gen.active:gen.sessions.find(session=>session.id===story.id)):undefined;
+ const activeProgress=mergeReadingProgress(progress,gen.sessions.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}))).filter(p=>!deletedIds.includes(p.storyId)&&shelfSessionsById.has(p.storyId));
+ const readingSession=story&&gen.active?.id===story.id?gen.active:undefined;
  const reviewStatus=readingSession?.generationProgress?.reviewStatus;
  const canRedraw=isGenerated(story)&&readingSession?.state==='completed'&&!readingSession.superseded&&(!reviewStatus||reviewStatus==='passed');
  const workflowSession=workflowTarget?(gen.active?.id===workflowTarget?gen.active:null):settings?readingSession:!story?gen.active:null;
@@ -491,8 +517,8 @@ export default function Reader(){
  // 故事设置及其子面板在所有宽度共用小屏布局；书架右栏始终保留在子面板下面。
  const settingsDialogOpen=panelOpen&&!configure&&!reselectTarget&&!dockedSettings;
  const panelStory=workflowSession?.story||story;
- const pendingStories=gen.sessions.filter(s=>!deletedIds.includes(s.id)&&!s.story?.pages[0]?.image);
- const latestShelf=activeProgress.flatMap(p=>{const s=allStories.find(s=>s.id===p.storyId);return s&&s.pages[0]?.image?[s]:[];});
+ const pendingStories=gen.sessions.filter(s=>!deletedIds.includes(s.id)&&!s.story?.cover);
+ const latestShelf=activeProgress.flatMap(p=>{const s=shelfSessionsById.get(p.storyId)?.story;return s?.cover?[s]:[];});
  // 宽档停留在书架期间冻结卡片顺序（书库加载完成后取快照，之后新出现的故事排在最前），离开书架后恢复按最近阅读排序
  const shelfOrder=useRef<Map<string,number>|null>(null);
  if(!(wide&&tab==='shelf'))shelfOrder.current=null;
@@ -537,7 +563,7 @@ export default function Reader(){
  {discoverSurprise}
  {discoverNote}
  {discoverStatus}</>;
- const shelfView=<ReaderShelf onControl={gen.control} controlBusy={gen.controlBusy} stories={shelf} pending={pendingStories} sessions={gen.sessions} progress={activeProgress} refreshing={shelfRefreshing||gen.libraryRefreshing} onRefresh={()=>{void refreshShelf();}} loading={loading||gen.libraryLoading} error={loadError||gen.libraryError} tab={shelfTab} onTab={changeShelfTab} query={shelfQuery} onQuery={changeShelfQuery} grouping={shelfGrouping} onGrouping={changeShelfGrouping} bookName={bookName} onOpen={open} onResume={session=>openWorkflow(session.id)} onRetry={session=>{setWorkflowTarget(session.id);setWorkflowError('');setStory(null);gen.retrySession(session.id).catch(e=>setWorkflowError(e.message));}} onDelete={askDelete} onFavorite={favoriteFromShelf} favoriteBusy={favoriteBusy} onCreate={()=>choose()} onDiscover={()=>setTab('discover')}/>;
+ const shelfView=<ReaderShelf onControl={gen.control} controlBusy={gen.controlBusy} stories={shelf} pending={pendingStories} sessions={gen.sessions} progress={activeProgress} refreshing={shelfRefreshing||gen.libraryRefreshing} onRefresh={()=>{void refreshShelf();}} loading={loading||gen.libraryLoading} error={loadError||gen.libraryError} tab={shelfTab} onTab={changeShelfTab} query={shelfQuery} onQuery={changeShelfQuery} grouping={shelfGrouping} onGrouping={changeShelfGrouping} bookName={bookName} onOpen={open} onResume={session=>openWorkflow(session.id)} onRetry={session=>{cancelOpening();setWorkflowTarget(session.id);setWorkflowError('');setStory(null);gen.retrySession(session.id).catch(e=>setWorkflowError(e.message));}} onDelete={askDelete} onFavorite={favoriteFromShelf} favoriteBusy={favoriteBusy} onCreate={()=>choose()} onDiscover={()=>setTab('discover')}/>;
  const profileView=<section className="yu-profile" aria-label="我的">
   <section className="yu-profile-group" aria-labelledby="profile-overview"><h2 id="profile-overview">故事概览</h2>
   <div className="yu-profile-stats" aria-busy={libraryLoading}>{[[shelfCount,'书架故事'],[favoriteCount,'已收藏'],[deletedStories.length,'已删除']].map(([count,label])=><div key={label}><strong>{libraryLoading?<span className="yu-profile-stat-loading" aria-label="正在统计">—</span>:count}</strong><span>{label}</span></div>)}</div>
@@ -585,11 +611,12 @@ export default function Reader(){
  {script&&scriptStory&&<Sheet title="分镜剧本" onClose={()=>setScript(false)}>{isGenerated(scriptStory)&&<button type="button" className="yu-revision-open" onClick={()=>editScript()}>修改分镜</button>}<StoryScript story={scriptStory} standalone/></Sheet>}
  {revision.tab&&<Sheet title="修改故事" busy={revision.busy} onClose={()=>{if(!revision.busy)revision.setTab(null);}}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming} onDone={revisionDone}/></Sheet>}
  </>;
+ const openingStory=opening&&<p className="yu-inline-status" role="status">正在打开故事…</p>;
  const phoneTree=<>
  {story?readerMain:<>
  <header className="yu-header"><button className="yu-logo" onClick={()=>setTab('discover')} aria-label="拾趣，返回发现"><span><Feather size={22}/></span><strong>拾趣</strong><i/></button><span className="yu-header-note">片刻入戏，久久回味</span><button className="yu-avatar" onClick={()=>setTab('me')} aria-label="我的"><UserRound size={19}/></button></header>
  <main className="yu-home" data-main="">
- {tab==='discover'?<>{discoverLead}{discoverBrowse}</>:tab==='shelf'?shelfView:profileView}
+ {openingStory}{tab==='discover'?<>{discoverLead}{discoverBrowse}</>:tab==='shelf'?shelfView:profileView}
  </main>
  <nav className="yu-tabbar" aria-label="主导航">{[{id:'discover',title:'发现',Icon:Compass},{id:'shelf',title:'书架',Icon:BookOpen},{id:'me',title:'我的',Icon:UserRound}].map(({id,title,Icon})=><button key={id} className={tab===id?'active':''} aria-current={tab===id?'page':undefined} onClick={()=>{setTab(id);window.scrollTo({top:0,behavior:'instant'});}}><Icon size={22} strokeWidth={tab===id?2:1.6}/><span>{title}</span>{tab===id&&<i/>}</button>)}</nav>
  </>}
@@ -606,9 +633,9 @@ export default function Reader(){
   if(target==='create')choose();else{setTab(target);window.scrollTo({top:0,behavior:'instant'});}
  }
  // 桌面书架：宽档可阅读卡片打开右栏阅读，制作中卡片打开同栏故事设置；窄档沿用整页入口。
- const openDocked=(target:Story,restart=false)=>{if(dockedView&&!workflowTarget&&story?.id===target.id&&!restart)return;open(target,restart,true);};
+ const openDocked=(target:ShelfStory,restart=false)=>{if(!restart&&(opening===target.id||dockedView&&!workflowTarget&&story?.id===target.id))return;open(target,restart,true);};
  const librarySettings=dockedSettings&&<section className="yu-library-settings" aria-label="故事设置"><header><h2>故事设置</h2><button type="button" className="yu-icon" aria-label="关闭故事设置" disabled={settingsProps.busy} onClick={backToShelf}><X size={20}/></button></header>{StorySettingsContent(settingsProps)}</section>;
- const desktopLibrary=<DesktopLibrary onCreate={()=>choose()} reader={librarySettings||(dockedView?readerMain:null)} shelf={wide?cloneElement(shelfView,{selectedId:workflowDocked?workflowTarget:docked?story?.id:null,onSelect:(id:string|null)=>{const target=id&&shelf.find(item=>item.id===id);if(target)openDocked(target);},onOpen:openDocked,onResume:(session:SessionView)=>openWorkflow(session.id,true)}):shelfView}/>;
+ const desktopLibrary=<DesktopLibrary onCreate={()=>choose()} reader={librarySettings||(dockedView?readerMain:wide&&docked?openingStory:null)} shelf={wide?cloneElement(shelfView,{selectedId:workflowDocked?workflowTarget:docked?(opening||story?.id):null,onSelect:(id:string|null)=>{const target=id&&shelf.find(item=>item.id===id);if(target)openDocked(target);},onOpen:openDocked,onResume:(session:ShelfSession)=>openWorkflow(session.id,true)}):shelfView}/>;
  const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover"><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></div>;
  // 桌面新建页：选择在左（或上），内联表单在右（或下），与手机面板共用表单组件与属性。
  const createPage=view.kind==='create'&&<main className="yu-home yu-desktop-main" data-main=""><DesktopCreate
@@ -618,11 +645,11 @@ export default function Reader(){
  const readerPanel=view.kind!=='reader'||!story?null:view.panel==='scenes'?<StorySceneList story={story} page={page} onSelect={goToPage}/>:view.panel==='source'?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:null;
  const desktopReader=view.kind==='reader'&&<DesktopReader stage={readerMain} panel={readerPanel} title={view.panel==='scenes'?'分镜列表':'故事从哪里来'} onClose={()=>{setSource(false);setSceneList(false);}}/>;
  const desktopTree=<DesktopShell active={activeTopItem(view)} hidden={view.kind==='reader'} onNavigate={navigate}>
-  {view.kind==='create'?createPage:view.kind==='reader'?desktopReader:<main className="yu-home yu-desktop-main" data-main="">{tabContent}</main>}
+  {view.kind==='create'?createPage:view.kind==='reader'?desktopReader:<main className="yu-home yu-desktop-main" data-main="">{(!docked||!wide||tab!=='shelf')&&openingStory}{tabContent}</main>}
 </DesktopShell>;
  const reading=desktop?view.kind==='reader':!!story;
  // 返回键的非对话框步骤（阅读 0、新建页 1、抽屉 2）；设置和子面板由 Sheet 管理。
- useHistoryStep(!!story&&!dockedView&&!dockedSettings,0,leaveReader);
+ useHistoryStep(!!story&&!dockedView&&!dockedSettings||!!opening&&!docked,0,leaveReader);
  // 变窄时只同步阅读地址，保留停靠来源与手动全屏状态，放宽后由布局恢复右栏。
  useEffect(()=>{if(!wide&&docked&&view.kind==='reader'&&story)history.replaceState(history.state,'','/read?id='+encodeURIComponent(story.id));},[wide,docked,view.kind,story?.id]);
  useHistoryStep(desktop&&view.kind==='create',1,closeCreate,()=>!!document.querySelector('.yu-create-form [data-dirty="true"]'));

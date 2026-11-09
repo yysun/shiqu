@@ -354,7 +354,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  async snapshot(ownerId:string,id:string):Promise<SessionView>{
   const row=await this.repository.get(id,ownerId),saved=view(row);
   if(row.state!=='completed'&&await this.repository.superseded(id,ownerId))return {...saved,superseded:true,generationControl:'paused',productionState:'paused'};
-  const allJobs=await this.queue.jobs(row.id,row.user_id),jobs=await this.currentJobs(row,allJobs),faults=await this.faults(row,jobs),failed=jobs.find(job=>job.state==='failed'&&lostImageError(job.error))||jobs.find(job=>job.state==='failed');
+  return this.snapshotView(row,saved,true);
+ }
+ // 书架已过滤旧版本，卡片也无需计算历次制作耗时。
+ async shelfSnapshot(row:SessionRow,saved:SessionView){
+  return this.snapshotView(row,saved,false);
+ }
+ private async snapshotView(row:SessionRow,saved:SessionView,includeTimings:boolean):Promise<SessionView>{
+  const id=row.id,allJobs=await this.queue.jobs(row.id,row.user_id),jobs=await this.currentJobs(row,allJobs),faults=await this.faults(row,jobs),failed=jobs.find(job=>job.state==='failed'&&lostImageError(job.error))||jobs.find(job=>job.state==='failed');
   const active=jobs.filter(job=>job.state==='running'&&job.lease_until>this.clock()).sort((a,b)=>a.updated_at-b.updated_at);
   // A background search must not supply the selected story step's clock. Renewals only
   // extend leases, leaving the persisted claim timestamp stable across screen visits.
@@ -366,7 +373,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const timeoutAt=startedAt!==null&&timeoutMs?startedAt+timeoutMs:null;
   const search=this.searches.get(id);
   const liveProgress=parsed.doc.intake&&search?.round===intakeSearch(parsed.doc.intake).round&&saved.intake?.search.state==='searching'?search.progress:undefined;
-  const session={...saved,...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),generationProgress:{...saved.generationProgress!,startedAt,timeoutAt,stageDurations:productionStageDurations(allJobs,parsed.selection),attempt:current?.attempts??saved.generationProgress!.attempt}};
+  const session={...saved,...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),generationProgress:{...saved.generationProgress!,startedAt,timeoutAt,...(includeTimings?{stageDurations:productionStageDurations(allJobs,parsed.selection)}:{}),attempt:current?.attempts??saved.generationProgress!.attempt}};
   const working=active.length>0||jobs.some(job=>job.kind==='image-publish'&&job.state==='queued'&&jobs.some(parent=>parent.id===jobDependencies(job)[0]&&parent.state==='succeeded'));
   if(faults.length){
    const views=faults.map(fault=>this.faultView(row,fault,allJobs)),pending=views.find(f=>f.retryAllowed&&f.stage==='redraw')||views.find(f=>f.retryAllowed)||views[0];

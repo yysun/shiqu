@@ -8,7 +8,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 
 const {default:Shelf}=await import('../client/ui/ReaderShelf.tsx');
 const noop=()=>{};
-const story=(id,title)=>({id,bookId:'honglou',title,theme:'爱情与错过',pages:Array.from({length:3},()=>({image:'/saved.png'}))});
+const story=(id,title)=>({id,bookId:'honglou',title,theme:'爱情与错过',frameCount:3,cover:'/saved.png'});
 const session=(id,title)=>({id,selection:{bookId:'honglou',theme:'原典故事',artStyle:'chibi',storyTitle:title},state:'idle',error:null,ready:0,story:null,page:0,saved:false,stage:'正在编排故事'});
 const props=extra=>({stories:[story('a','宝玉探病'),story('b','黛玉葬花')],pending:[session('p','待选题的故事')],sessions:[session('p','待选题的故事')],progress:[{storyId:'b',page:2}],loading:false,refreshing:false,error:'',tab:'recent',query:'',grouping:'none',bookName:()=>'红楼梦',controlBusy:'',favoriteBusy:'',onControl:noop,onRetry:noop,onRefresh:noop,onTab:noop,onQuery:noop,onGrouping:noop,onOpen:noop,onResume:noop,onDelete:noop,onFavorite:noop,onCreate:noop,onDiscover:noop,...extra});
 // 在元素树里查找节点

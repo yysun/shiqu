@@ -189,3 +189,41 @@ test('invalid live API-key overrides never dispatch direct suggestions or art re
  for(const route of ['suggestions','art-recommendation','sessions'])assert.equal((await request(app,'/api/reader/'+route,'POST',{})).status,503);
  assert.equal(calls,0);
 });
+
+test('shelf summarizes current editions and sends only changed cards or removals',async t=>{
+ const app=createApplication({...await fixture(t),variables:{SHIQU_AI_PROVIDER:'readonly'},production:{autoStart:false}});
+ t.after(()=>app.close());
+ const db=app.services.database,path='/api/reader/library/shelf';
+ const read=async(method='GET',body)=>{
+  const response=await request(app,path,method,body);assert.equal(response.status,200);return response.json();
+ };
+ const root=await insertReaderStory(app),next=await insertReaderStory(app,{...makeStory(4),title:'第二版'});
+ const draft=await insertReaderStory(app,{...makeStory(4),title:'制作中'});
+ const foreign=await insertReaderStory(app);
+ await db.prepare("UPDATE stories SET document=json_set(document,'$.revision',json(?)) WHERE id=?").bind(JSON.stringify({rootId:root.id,parentId:root.id,number:2}),next.id).run();
+ await db.prepare("UPDATE stories SET user_id='other-owner' WHERE id=?").bind(foreign.id).run();
+ await db.prepare("UPDATE stories SET state='idle',generation_control='paused' WHERE id=?").bind(draft.id).run();
+ await request(app,'/api/reader/sessions/'+next.id+'/progress','POST',{page:2,saved:false});
+ const cards=await read();
+ assert.deepEqual(new Set(cards.map(row=>row.id)),new Set([next.id,draft.id]));
+ const card=cards.find(row=>row.id===next.id);
+ assert.equal(card.story.frameCount,4);assert.equal(card.story.resumeImage,next.pages[2].image);
+ for(const key of ['pages','sourceText','original','productionPrompt'])assert.ok(!(key in card.story));
+ assert.ok(!('generationProgress' in card));
+ const detail=await(await request(app,'/api/reader/sessions/'+next.id)).json();
+ assert.deepEqual(detail.story.pages,next.pages);assert.equal(detail.story.sourceText,next.sourceText);
+ const known=cards.map(row=>[row.id,row.version]);
+ assert.deepEqual(await read('POST',known),{changed:[],removed:[]});
+ await request(app,'/api/reader/library/'+next.id+'/favorite','POST',{saved:true});
+ const favorite=await read('POST',known);
+ assert.deepEqual(favorite.changed.map(row=>[row.id,row.saved]),[[next.id,true]]);assert.deepEqual(favorite.removed,[]);
+ await db.prepare("UPDATE stories SET generation_control='stopped' WHERE id=?").bind(draft.id).run();
+ const changed=await read('POST',[[next.id,favorite.changed[0].version],known.find(([id])=>id===draft.id)]);
+ assert.deepEqual(changed.changed.map(row=>[row.id,row.generationControl]),[[draft.id,'stopped']]);
+ await request(app,'/api/reader/library/'+next.id,'DELETE');
+ const deleted=await read('POST',[[next.id,favorite.changed[0].version],[draft.id,changed.changed[0].version]]);
+ assert.deepEqual(deleted,{changed:[],removed:[next.id]});
+ await request(app,'/api/reader/library/'+next.id+'/restore','POST',{});
+ const restored=await read('POST',[[draft.id,changed.changed[0].version]]);
+ assert.deepEqual(restored.changed.map(row=>row.id),[next.id]);
+});

@@ -1,5 +1,6 @@
 // Merge reading positions by time; server snapshots separately own persisted favorite flags.
 import type {Story} from './content';
+import type {ShelfStory} from './reader-shelf.ts';
 
 export type ReadingProgress={storyId:string;page:number;saved?:number;updatedAt?:string|null};
 export function mergeReadingProgress(...groups:ReadingProgress[][]){
@@ -11,16 +12,26 @@ export function reconcileReadingProgress(current:ReadingProgress[],authoritative
  const favorites=new Map(authoritative.filter(row=>row.saved!==undefined).map(row=>[row.storyId,row.saved]));
  return mergeReadingProgress(current,authoritative).map(row=>favorites.has(row.storyId)?{...row,saved:favorites.get(row.storyId)}:row);
 }
-export function recentHeroes(stories:Story[],lastReadId:string,progress:ReadingProgress[],limit=10){
- const rows=mergeReadingProgress(progress);
+function recentCards<T extends {id:string}>(stories:T[],lastReadId:string,progress:ReadingProgress[],limit:number,preview:(story:T,page:number)=>{page:number;image:string}){
+ const rows=mergeReadingProgress(progress),byId=new Map(stories.map(story=>[story.id,story]));
  if(lastReadId&&!rows.some(row=>row.storyId===lastReadId))rows.unshift({storyId:lastReadId,page:0});
- const items=rows.flatMap(row=>{
-  const story=stories.find(story=>story.id===row.storyId&&story.pages.some(page=>page.image));if(!story)return [];
-  const page=Math.max(0,Math.min(row.page,story.pages.length-1));
-  return [{story,page,recent:true,image:story.pages[page]?.image||story.pages.find(page=>page.image)?.image||''}];
+ return rows.flatMap(row=>{
+  const story=byId.get(row.storyId);if(!story)return [];
+  const {page,image}=preview(story,row.page);
+  return image?[{story,page,recent:true,image}]:[];
  }).slice(0,Math.max(0,limit));
- if(items.length)return items;
- return [];
+}
+export function recentHeroes(stories:Story[],lastReadId:string,progress:ReadingProgress[],limit=10){
+ return recentCards(stories,lastReadId,progress,limit,(story,index)=>{
+  const page=Math.max(0,Math.min(index,story.pages.length-1));
+  return {page,image:story.pages[page]?.image||story.pages.find(frame=>frame.image)?.image||''};
+ });
+}
+export function recentShelfHeroes(stories:ShelfStory[],lastReadId:string,progress:ReadingProgress[],limit=10){
+ return recentCards(stories,lastReadId,progress,limit,(story,index)=>{
+  const page=Math.max(0,Math.min(index,story.frameCount-1));
+  return {page,image:page===story.resumePage?story.resumeImage:story.cover||story.resumeImage};
+ });
 }
 // Kept for callers expecting one card.
 export function recentHero(stories:Story[],lastReadId:string,progress:ReadingProgress[]){

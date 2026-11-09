@@ -71,6 +71,15 @@ export class ReaderRepository{
   AND json_type(CASE WHEN json_valid(document) THEN document ELSE '{}' END,'$.reselection') IS NULL
   AND NOT ${supersededSql()}
   ORDER BY COALESCE(last_read_at,created_at) DESC`).bind(uid).all<SessionRow>()).results;}
+ // 先计算所有版本的家族与序号，再过滤草稿和删除项，避免删除最新版本后露出旧版本。
+ async listShelf(uid:string){return (await this.db.prepare(`WITH editions AS MATERIALIZED (
+   SELECT id,${familyRoot('stories')} AS root,${familyNumber('stories')} AS revision,
+    json_type(CASE WHEN json_valid(document) THEN document ELSE '{}' END,'$.reselection') IS NULL AS submitted
+   FROM stories WHERE user_id=?
+  ), latest AS (SELECT root,max(revision) AS revision FROM editions GROUP BY root)
+  SELECT stories.* FROM editions JOIN latest USING(root,revision) JOIN stories USING(id)
+  WHERE editions.submitted AND ${visible}
+  ORDER BY COALESCE(last_read_at,created_at) DESC`).bind(uid).all<SessionRow>()).results;}
  async currentStoryIds(uid:string){return (await this.db.prepare('SELECT id FROM stories WHERE user_id=? ORDER BY id').bind(uid).all<{id:string}>()).results.map(row=>row.id);}
  async deletions(uid:string){
   return (await this.db.prepare(`SELECT d.story_id AS storyId,d.deleted_at AS deletedAt,d.kind,

@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {build} from 'esbuild';
+import {summarizeShelfSession} from '../lib/reader-shelf.ts';
 import {productionFixture,selection} from './fixtures/production.mjs';
 const compiled=build({stdin:{contents:"export {useStoryGeneration} from './client/ui/useStoryGeneration.ts';export {readSessions} from 'react';export {setTransport} from 'membership-transport';",resolveDir:process.cwd(),loader:'ts'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',plugins:[{
  name:'inert-hooks',setup(b){
@@ -24,25 +25,25 @@ async function harness(t,transport,callbacks={onStory(){},onProgress(){}}){
  const {setTransport,readSessions,useStoryGeneration}=module.exports;setTransport(transport);
  return {api:useStoryGeneration(0,callbacks),readSessions,setTransport};
 }
-const root={id:'root',state:'idle',generationControl:'paused',generationMode:'background',page:0,saved:false,story:null};
+const root={id:'root',selection,state:'idle',generationControl:'paused',generationMode:'background',page:0,saved:false,story:null};
 const latest={...root,id:'latest',revision:{rootId:'root',parentId:'root',number:2}};
 
 test('an initial history deep link does not invalidate the authoritative latest list',async t=>{
  let release;const pending=new Promise(resolve=>release=resolve);
- const h=await harness(t,async path=>path==='reader/sessions'?pending:root);
+ const h=await harness(t,async path=>path==='reader/library/shelf'?pending:root);
  const loading=h.api.refreshLibrary();await h.api.resume(root.id);assert.deepEqual(h.readSessions(),[]);
- release([latest]);await loading;assert.deepEqual(h.readSessions(),[latest]);
+ release([summarizeShelfSession(latest)]);await loading;assert.deepEqual(h.readSessions(),[summarizeShelfSession(latest)]);
 });
 
 test('reading history after deleting the latest card cannot resurrect the family',async t=>{
- const h=await harness(t,async path=>path==='reader/sessions'?[latest]:root);
+ const h=await harness(t,async path=>path==='reader/library/shelf'?[summarizeShelfSession(latest)]:root);
  await h.api.refreshLibrary();h.api.remove(latest.id);await h.api.resume(root.id);assert.deepEqual(h.readSessions(),[]);
 });
 
 test('restoring a historical snapshot only admits members returned by the latest list',async t=>{
- const h=await harness(t,async path=>path==='reader/sessions'?[latest]:root);
- await h.api.refreshLibrary(root.id);assert.deepEqual(h.readSessions(),[latest]);
- await h.api.resume(root.id);assert.deepEqual(h.readSessions(),[latest]);
+ const h=await harness(t,async path=>path==='reader/library/shelf'?[summarizeShelfSession(latest)]:root);
+ await h.api.refreshLibrary();assert.deepEqual(h.readSessions(),[summarizeShelfSession(latest)]);
+ await h.api.resume(root.id);assert.deepEqual(h.readSessions(),[summarizeShelfSession(latest)]);
 });
 
 test('a blocked address update does not reject a saved story or invite another creation',async t=>{
@@ -79,7 +80,7 @@ test('renaming updates the shelf and active story without replaying reading prog
  const renamed={...initial,story:{...initial.story,title:'新故事名'}},requests=[],stories=[],progress=[];
  const h=await harness(t,async(path,method,body)=>{
   requests.push({path,method,body});
-  return path==='reader/sessions'?[initial]:path.endsWith('/title')?renamed:initial;
+  return path==='reader/library/shelf'?[summarizeShelfSession(initial)]:path.endsWith('/title')?renamed:initial;
  },{onStory:(...args)=>stories.push(args),onProgress:rows=>progress.push(rows)});
  await h.api.refreshLibrary();await h.api.resume(root.id);
  assert.equal(h.readSessions()[0].story.title,'旧故事名');
@@ -96,4 +97,16 @@ test('separate successful creation actions can still create independent stories'
  const h=await harness(t,async(_path,_method,body)=>{requests.push(body.requestId);return {...root,id:body.requestId};});
  await h.api.start(selection,true);await h.api.start(selection,true);
  assert.equal(new Set(requests).size,2);assert.equal(h.readSessions().length,2);
+});
+
+test('a late detail cannot reopen a story after leaving or selecting the same card again',async t=>{
+ const first={...root,story:{id:root.id,title:'旧详情',pages:[{image:'/first.png'}]}};
+ const next={...first,story:{...first.story,title:'新详情'}};
+ let release,reads=0;
+ const pending=new Promise(resolve=>release=resolve),opened=[];
+ const h=await harness(t,async()=>++reads===1?pending:next,{onStory:story=>opened.push(story.title),onProgress(){}});
+ const stale=h.api.resume(root.id);h.api.leave();
+ await h.api.resume(root.id,0);
+ release(first);await stale;
+ assert.deepEqual(opened,['新详情']);
 });

@@ -5,8 +5,7 @@ class ResponseError extends Error{
  readonly status:number;
  constructor(message:string,status:number){super(message);this.status=status;}
 }
-export async function request(path:string,method='GET',data?:unknown){
- const read=method.toUpperCase()==='GET';
+export async function request(path:string,method='GET',data?:unknown,read=method.toUpperCase()==='GET'){
  const abort=read?new AbortController():undefined;
  const timer=abort?setTimeout(()=>abort.abort(),15000):undefined;
  try{

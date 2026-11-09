@@ -37,7 +37,7 @@ test('startup inventory removes retired offline payloads and retains hidden curr
  for(const id of [story.id,...hidden]){assert.ok(cache.keys.includes('/offline-data/'+id));assert.ok(cache.reading.some(row=>row.storyId===id));}
  for(const id of ['zhongli','dongguo','retired',foreign])assert.equal(cache.keys.includes('/offline-data/'+id),false);
  assert.ok(cache.keys.includes('/api/media/shared.png'));assert.notEqual(cache.last,'zhongli');
- assert.equal(requests.filter(p=>p==='/api/reader/sessions').length,1);
+ assert.equal(requests.filter(p=>p==='/api/reader/library/shelf').length,1);
  assert.equal(await page.getByText('一车梨的秘密',{exact:true}).count(),0);
  const defaultDeletions=await(await context.request.get(url+'/api/reader/deletions')).json();assert.ok(Array.isArray(defaultDeletions));
  await b.screenshot('canonical-cache-cleanup');assert.equal(f.control.calls.length,0);

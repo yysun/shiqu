@@ -2007,6 +2007,7 @@
       "pr": "code",
       "gates": [],
       "covers": [
+        "lib/reader-shelf.ts",
         "lib/reader-repository.ts",
         "server/app.ts",
         "server/database.ts",

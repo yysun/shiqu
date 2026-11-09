@@ -6,13 +6,14 @@ import {build} from 'esbuild';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {makeStory} from './fixtures/story.mjs';
-import {recentHeroes} from '../lib/reader-home.ts';
+import {recentShelfHeroes} from '../lib/reader-home.ts';
 
 const bundle=await build({entryPoints:['client/ui/RecentStories.tsx'],bundle:true,write:false,platform:'node',format:'cjs',packages:'external'});
 const compiled={exports:{}};
 new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
 const RecentStories=compiled.exports.default;
-const story=makeStory(),items=recentHeroes([story],story.id,[{storyId:story.id,page:2}]);
+const fixture=makeStory(),story={id:fixture.id,title:fixture.title,theme:fixture.theme,bookId:fixture.bookId,frameCount:fixture.pages.length,cover:fixture.pages[0].image,resumePage:2,resumeImage:fixture.pages[2].image};
+const items=recentShelfHeroes([story],story.id,[{storyId:story.id,page:2}]);
 const render=(loading,rows=items)=>renderToStaticMarkup(createElement(RecentStories,{items:rows,loading,bookName:()=> '聊斋志异',onOpen(){}}));
 
 test('loading hides both cached story cards and the first-use empty state',()=>{
@@ -35,10 +36,10 @@ test('settled history shows the resume card or the first-use empty state',()=>{
 });
 
 test('a story read to its last frame offers a restart instead of resuming',()=>{
- const last=story.pages.length-1,finished=recentHeroes([story],story.id,[{storyId:story.id,page:last}]);
+ const last=story.frameCount-1,finished=recentShelfHeroes([story],story.id,[{storyId:story.id,page:last}]);
  const html=renderToStaticMarkup(createElement(RecentStories,{items:finished,loading:false,bookName:()=> '聊斋志异',onOpen(){}}));
  assert.match(html,new RegExp(`aria-label="重读${story.title}"`));
- assert.match(html,new RegExp(`已读完 · 重读 · ${story.pages.length} 幅`));
+ assert.match(html,new RegExp(`已读完 · 重读 · ${story.frameCount} 幅`));
  assert.doesNotMatch(html,/继续阅读/);
 });
 

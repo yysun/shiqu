@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 // Route reading, recovery and generation through the single local library.
 import {productionStageDurations} from './production-timing.ts';
 import {publicationSchema} from './story-publication.ts';
@@ -29,6 +30,7 @@ import {createIntake,changeIntake} from '../server/reader-intake.ts';
 import {forkRevision,revisionSnapshot} from '../server/reader-revisions.ts';
 import {openReselection,commitReselection,cancelReselection} from '../server/reader-reselection.ts';
 import {replacementChoiceSchema} from './reader-reselection.ts';
+import {summarizeShelfSession,type ShelfSession,type ShelfChanges} from './reader-shelf.ts';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
 const uuid=z.string().uuid();
 export function shelfView(session:SessionView):SessionView{
@@ -61,6 +63,26 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
   }
   if(path.join('/')==='deletions'&&req.method==='GET')return json(new URL(req.url).searchParams.get('inventory')==='1'?{deletions:await repo.deletions(uid),currentStoryIds:await repo.currentStoryIds(uid),complete:true}:await repo.deletions(uid));
+  if(path.join('/')==='library/shelf'&&['GET','POST'].includes(req.method)){
+   const known=req.method==='POST'?new Map(z.array(z.tuple([uuid,z.string().max(64)])).parse(await body(req,12*1024*1024))):null;
+   const rows=await repo.listShelf(uid);
+   const cards=(await Promise.all(rows.map(async row=>{
+    // 已完成的故事没有实时制作状态。直接比较存档，轮询无需重新解码其分镜。
+    const savedVersion=row.state==='completed'?createHash('sha256').update(row.document).update('\0')
+     .update(JSON.stringify([row.id,row.selection,row.page,row.saved,row.last_read_at,row.created_at,row.generation_mode,row.generation_control,row.error]))
+     .digest('hex').slice(0,24):null;
+    if(savedVersion&&known?.get(row.id)===savedVersion){known.delete(row.id);return null;}
+    let saved:SessionView;
+    // 单个坏故事不应阻塞书架；完整会话仍由详情接口返回。
+    try{saved=view(row);}catch{return null;}
+    const card=summarizeShelfSession(services.production&&row.state!=='completed'?await services.production.shelfSnapshot(row,saved):saved);
+    const version=savedVersion||createHash('sha256').update(JSON.stringify(card)).digest('hex').slice(0,24);
+    const changed=known?.get(row.id)!==version;
+    known?.delete(row.id);
+    return changed?{...card,version}:null;
+   }))).filter((card):card is ShelfSession&{version:string}=>card!==null);
+   return json(known?{changed:cards,removed:[...known.keys()]} satisfies ShelfChanges:cards);
+  }
   if(path[0]==='library'&&path.length===2&&req.method==='DELETE'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.remove(id,uid));}
   if(path[0]==='library'&&path.length===3&&path[2]==='restore'&&req.method==='POST'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.restore(id,uid));}
   if(path[0]==='library'&&path.length===3&&path[2]==='reference'){
