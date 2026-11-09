@@ -86,7 +86,7 @@ test('提取页直接继续旧草稿，已开始的任务不重复提交标题',
  assert.equal(actions.length,1);
 });
 
-test('候选的核对状态就地更新，只有通过的候选可以选择',async()=>{
+test('候选的核对状态就地更新，各状态都可通过链接选择',async()=>{
  const {Setup,mount}=await load();
  const draft=session(settings);
  const batch={stories:[{title:'濠梁之辩'}],note:''};
@@ -94,14 +94,14 @@ test('候选的核对状态就地更新，只有通过的候选可以选择',asy
  const actions=[];
  const input={...props(draft),retainKey:undefined,onAction:async command=>actions.push(command)};
  const snapshot=(search,more={})=>({...input,session:{...draft,intake:{...intake,search,...more}}});
- const indexedCandidates=[{id:'a',title:'濠梁之辩',summary:'庄子与惠子在濠水桥上讨论鱼是否快乐。',status:'match',matchScore:86,choice:{batch:0,index:0}},{id:'b',title:'庄周梦蝶',status:'pending'},{id:'c',title:'鼓盆而歌',status:'rejected',matchScore:24},{id:'d',title:'庖丁解牛',status:'pending'}];
+ const indexedCandidates=[{id:'a',title:'濠梁之辩',summary:'庄子与惠子在濠水桥上讨论鱼是否快乐。',status:'match',matchScore:86,choice:{batch:0,index:0}},{id:'b',title:'庄周梦蝶',status:'pending',choice:{batch:0,index:1}},{id:'c',title:'鼓盆而歌',status:'rejected',matchScore:24,choice:{batch:0,index:2}},{id:'d',title:'庖丁解牛',status:'pending',choice:{batch:0,index:3}}];
  const reading={stage:'verifying',completed:2,total:4,completedChars:100,totalChars:200,checkingCandidates:['b']};
  const running=snapshot({state:'searching'},{progress:reading,indexedCandidates});
  const picker=mount(Setup,running);
  function find(node,label){
   if(Array.isArray(node))return node.map(child=>find(child,label)).find(Boolean);
   if(!node?.props)return;
-  return node.props.children===label?node:find(node.props.children,label);
+  return node.props['aria-label']===label||node.props.children===label?node:find(node.props.children,label);
  }
  let tree=picker.render();
  assert.equal(contains(tree,'已核对 2/4 · 1 条符合'),true);
@@ -109,17 +109,24 @@ test('候选的核对状态就地更新，只有通过的候选可以选择',asy
  assert.equal(contains(tree,'主题贴合度 24%'),true);
  for(const label of ['濠梁之辩','庄子与惠子在濠水桥上讨论鱼是否快乐。','庄周梦蝶','鼓盆而歌','庖丁解牛','核对中','待核对','不符合'])assert.equal(contains(tree,label),true,label);
  assert.equal(contains(tree,'查找详情'),false);
- assert.equal(contains(tree,'选择 庄周梦蝶'),false);
- assert.equal(find(tree,'选择').props.disabled,false);
- find(tree,'选择').props.onClick();
- assert.deepEqual(actions,[{action:'choose',batch:0,index:0}]);
+ for(const [index,row] of indexedCandidates.entries()){
+  const action=find(tree,'选择 '+row.title);
+  const link=action.type(action.props);
+  assert.equal(link.type,'a');
+  assert.equal(link.props['aria-disabled'],undefined);
+  link.props.onClick({preventDefault(){},currentTarget:{closest:()=>null}});
+  assert.deepEqual(actions[index],{action:'choose',batch:0,index});
+ }
  actions.length=0;
  tree=picker.render(snapshot({state:'idle'},{indexedCandidates}));
  assert.equal(contains(tree,'还有候选待核对，可以重试。'),true);
  assert.equal(contains(tree,'核对中'),false);
  assert.deepEqual(actions,[]);
- find(tree,'重试核对').props.onClick();
+ await find(tree,'重试核对').props.onClick();
  assert.deepEqual(actions,[{action:'more'}]);
+ const legacy=indexedCandidates.slice(0,3).map(({choice,...row})=>({...row,status:'rejected'}));
+ tree=picker.render(snapshot({state:'idle'},{indexedCandidates:legacy}));
+ assert.ok(find(tree,'重新读取候选'));
 });
 
 test('title search keeps typed input across a remount and resets only when the session or title changes',async()=>{

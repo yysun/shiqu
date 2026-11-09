@@ -213,13 +213,15 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   const indexed=publish&&new Map(stories.map(story=>[themeStoryId(story),story]));
   const updates=new Map<string,IndexedStoryUpdate>();
   if(publish&&indexed){
-   for(const [id,story] of indexed)updates.set(id,{id,title:story.title,summary:summaries.get(localSourceKey(story.source))});
+   for(const [id,story] of indexed)updates.set(id,{id,story,summary:summaries.get(localSourceKey(story.source)),status:'pending'});
    await publish([...updates.values()]);
   }
   const {matches,checked}=await verifyThemeCandidates(provider,cache,theme,stories,story=>originals.get(localSourceKey(story.source))!,Math.min(limits.whole,themeVerificationInputTokens),status,{...observer,onProgress:value=>observer.onProgress({...value,stage:'verifying',retrieval,cachedMatches})},publish&&indexed?async decisions=>{
    for(const decision of decisions){
     const story=indexed.get(decision.id)!;
-    updates.set(decision.id,{...updates.get(decision.id)!,matchScore:decision.matchScore,judgment:decision.verdict==='no'?null:verifiedStory(story,decision)});
+    const rejected=decision.verdict==='no';
+    updates.set(decision.id,{...updates.get(decision.id)!,status:rejected?'rejected':'match',
+     story:rejected?{...story,matchScore:decision.matchScore}:verifiedStory(story,decision)});
    }
    if(decisions.length)await publish([...updates.values()]);
   }:undefined);

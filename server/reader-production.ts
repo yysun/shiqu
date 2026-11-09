@@ -531,39 +531,34 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    for(const [batch,receipt] of batches.entries())for(const [index,story] of receipt.stories.entries()){
     if(story.source)choices.set(localSourceKey(story.source),{batch,index});
    }
-   const candidates=updates.map(({id,title,summary,matchScore,judgment}):IndexedStoryCandidate=>{
+   let batchesUpdated=false;
+   const candidates=updates.map(({id,story,summary,status}):IndexedStoryCandidate=>{
     const saved=previous.get(id);
-    const info={id,title,...(summary?{summary}:{})};
-    const score=matchScore!==undefined?{matchScore}:{};
-    if(saved?.status==='rejected'||saved?.choice){
-     const sameVerdict=saved.status==='rejected'?judgment===null:!!judgment;
-     return {...saved,...info,...(sameVerdict?score:{})};
-    }
-    const candidate={...info,...score};
-    if(judgment===undefined)return {...candidate,status:saved?.status||'pending'};
-    if(judgment===null)return {...candidate,status:'rejected'};
-    const source=localSourceKey(judgment.source);
-    let choice=choices.get(source);
+    const verdict=saved&&saved.status!=='pending'?saved.status:status;
+    const matchScore=(status===verdict?story.matchScore:undefined)??saved?.matchScore;
+    const source=localSourceKey(story.source);
+    let choice=saved?.choice||choices.get(source);
     if(!choice){
      let batch=batches.length-1;
-     if(!batches.length||batches[batch].stories.length>=5){
-      if(batches.length>=maxSuggestionBatches)batch=batches.findLastIndex(receipt=>receipt.stories.length<5);
-      else{batch=batches.length;batches.push({stories:[],note:''});}
+     if(batches.length>=maxSuggestionBatches)batch=batches.findLastIndex(receipt=>receipt.stories.length<5);
+     // 旧草稿可能已占满普通候选批次。追加索引候选时仍保留原来的选择坐标。
+     if(batch<0||batches[batch].stories.length>=5){
+      batch=batches.length;batches.push({stories:[],note:''});
      }
-     if(batch<0)return {...candidate,status:'match'};
      const stories=batches[batch].stories;
      choice={batch,index:stories.length};
-     choices.set(source,choice);stories.push(judgment);
+     choices.set(source,choice);stories.push({...story,matchScore});batchesUpdated=true;
     }
-    return {...candidate,status:'match',choice};
+    const stored=batches[choice.batch].stories[choice.index];
+    const matchReason=status===verdict?story.matchReason:undefined;
+    if((matchScore!==undefined&&stored.matchScore!==matchScore)||(matchReason&&stored.matchReason!==matchReason)){
+     if(matchScore!==undefined)stored.matchScore=matchScore;
+     if(matchReason)stored.matchReason=matchReason;
+     batchesUpdated=true;
+    }
+    return {id,title:story.title,...(summary?{summary}:{}),...(matchScore!==undefined?{matchScore}:{}),status:verdict,choice};
    });
-   let scoresUpdated=false;
-   for(const {choice,matchScore} of candidates){
-    if(!choice||matchScore===undefined)continue;
-    const story=batches[choice.batch]?.stories[choice.index];
-    if(story&&story.matchScore!==matchScore){story.matchScore=matchScore;scoresUpdated=true;}
-   }
-   if(!scoresUpdated&&JSON.stringify(candidates)===JSON.stringify(intake!.indexedCandidates))return true;
+   if(!batchesUpdated&&JSON.stringify(candidates)===JSON.stringify(intake!.indexedCandidates))return true;
    const saved=await this.database.prepare(`UPDATE stories SET document=json_set(document,'$.intake.indexedCandidates',json(?),'$.intake.batches',json(?))
     WHERE id=? AND user_id=? AND document=? AND NOT EXISTS (SELECT 1 FROM library_deletions WHERE story_id=stories.id AND user_id=stories.user_id)`)
     .bind(JSON.stringify(candidates),JSON.stringify(batches),id,ownerId,row.document).run();
@@ -599,7 +594,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    const current=published?(JSON.parse((await this.raw(row.id,row.user_id)).document) as Document).intake!:intake;
    const savedStories=published?current.batches.flatMap(batch=>batch.stories):excluded;
    const batch=freshSuggestions(suggestionBatchSchema.parse(result),savedStories.map(story=>story.title),savedStories.flatMap(story=>story.source?[story.source]:[]));
-   // 逐批发布的匹配项已经保存。若旧缓存还提供了索引之外的候选，仍按原流程保留。
+   // 索引候选已经保存。若旧缓存还提供了索引之外的候选，仍按原流程保留。
    const append=current.batches.length<maxSuggestionBatches&&(!published||batch.stories.length>0);
    const saved=await this.finishSearch(row.id,row.user_id,round,{...search,state:'idle',error:null},append?batch:undefined,!!onIndexedCandidates&&!published&&!!intake.indexedCandidates);
    return saved?{batches:current.batches.length+Number(append)}:{obsolete:true};

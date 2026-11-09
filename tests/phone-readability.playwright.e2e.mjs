@@ -76,7 +76,7 @@ test('PHONE-READABILITY: every phone state has readable text, 44px targets (26px
 
   // 3. 故事设置中的选题与确认。
   await step('intake',async()=>{
-   const picker=dialog(page,'故事设置');await picker.getByRole('button',{name:'选择 乌龟报恩',exact:true}).waitFor();await audit('intake-candidates');
+   const picker=dialog(page,'故事设置');await picker.getByRole('link',{name:'选择 乌龟报恩',exact:true}).waitFor();await audit('intake-candidates');
    await b.extract(first,'乌龟报恩');await audit('intake-confirming');
   });
   for(const [name,trigger,title] of [['setup-source','原文','故事原文'],['setup-editor','制作要求','修改故事'],['setup-reselect','重新选择故事','重新选择故事']])

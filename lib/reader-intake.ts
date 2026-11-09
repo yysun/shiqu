@@ -24,7 +24,7 @@ export const discoverySchema=z.discriminatedUnion('mode',[z.object({mode:z.liter
 export const intakeActionSchema=z.discriminatedUnion('action',[
  z.object({...common,action:z.literal('conditions'),conditions:z.object({discovery:discoverySchema.optional(),bookId:z.string().min(1).max(100),customBook:z.string().max(500).optional(),theme:z.string().trim().min(1).max(100),discoverySources:z.array(localSourceSchema).min(1).max(24).optional(),productionPrompt:z.string().max(1200)}).strict()}).strict(),
  z.object({...common,action:z.literal('search'),title:z.string().trim().max(100).regex(/^[^\r\n]*$/,'故事标题请写在一行内。')}).strict(),
- z.object({...common,action:z.literal('choose'),settings:setupSettingsSchema.optional(),batch:z.number().int().min(0).max(39),index:z.number().int().min(0).max(4)}).strict(),
+ z.object({...common,action:z.literal('choose'),settings:setupSettingsSchema.optional(),batch:z.number().int().nonnegative(),index:z.number().int().min(0).max(4)}).strict(),
  z.object({...common,action:z.literal('more'),automatic:z.boolean().optional(),settings:setupSettingsSchema.optional()}).strict(),
  z.object({...common,action:z.literal('recommend'),settings:setupSettingsSchema}).strict(),
  z.object({...common,action:z.literal('confirm'),settings:productionSettingsSchema}).strict(),

@@ -92,7 +92,7 @@ test('title, theme and original scope are independently optional in the creation
   assert.ok((await context.textContent()).includes(theme?'知恩图报':'不限定主题'));
   assert.ok((await context.textContent()).includes(title?'指定标题：乌龟报恩':'自动标题'));
   const candidates=extraction.getByRole('list',{name:'候选故事',exact:true});
-  await candidates.getByRole('button',{name:'选择 乌龟报恩',exact:true}).waitFor();
+  await candidates.getByRole('link',{name:'选择 乌龟报恩',exact:true}).waitFor();
   assert.ok((await context.boundingBox()).y<(await candidates.boundingBox()).y,'Extraction conditions precede candidates');
   if(flags>=6){
    await page.setViewportSize({width:390,height:844});

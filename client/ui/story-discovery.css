@@ -11,16 +11,17 @@
 .yu-candidate-search-actions>.story-flow-link{white-space:nowrap}
 .yu-search-notice{margin:0 0 12px;color:#526749;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
 .yu-extraction-candidates{list-style:none;margin:0 0 12px;padding:0;border-top:1px solid #dce1d2}
-.yu-extraction-candidates>li{display:grid;grid-template-columns:minmax(0,1fr) 4.5rem;align-items:start;gap:8px;min-height:44px;padding:8px 0;border-bottom:1px solid #dce1d2;color:#304c37}
+.yu-extraction-candidates>li{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 4.5rem;align-items:start;gap:8px;min-height:44px;padding:8px 0;border-bottom:1px solid #dce1d2;color:#304c37}
 .yu-extraction-candidate-copy{overflow-wrap:anywhere}
 .yu-extraction-candidate-copy strong{font-size:14px;line-height:1.5}
 .yu-extraction-candidate-copy p,.yu-extraction-candidate-copy small{display:block;margin:3px 0 0;color:#586655;font-size:12px;line-height:1.55}
 .yu-extraction-candidate-controls{display:grid;justify-items:end;gap:6px;text-align:right}
+.yu-extraction-candidate-controls>.story-flow-link{justify-content:flex-end}
+/* 整行复用同一个选择链接，键盘只需停在一处。 */
+.yu-extraction-candidate-controls>.story-flow-link:not([aria-disabled=true])::after{content:"";position:absolute;inset:0}
 .yu-extraction-candidate-status{padding-top:3px;font-size:12px;color:#586655;white-space:nowrap}
 .yu-extraction-candidate-score{display:block;margin-top:3px;font-variant-numeric:tabular-nums}
 .yu-extraction-candidates [data-status="match"] .yu-extraction-candidate-status{color:#38633f;font-weight:600}
-.yu-extraction-candidate-controls>button{min-width:44px;min-height:44px;padding:4px 5px;border:1px solid #9aad92;border-radius:8px;background:#f3f7ec;color:#304c37;font-size:12px;white-space:nowrap}
-.yu-extraction-candidates button:focus-visible{outline:2px solid #4f7246;outline-offset:2px}
 .yu-extraction-context{margin:0 0 14px;padding-bottom:12px;border-bottom:1px solid var(--yu-line,#dce1d2);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
 .yu-extraction-context .yu-setting-row.yu-story-name{padding:0 0 4px;border:0}
 .yu-extraction-meta-row{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:4px 12px}

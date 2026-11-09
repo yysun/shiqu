@@ -82,24 +82,25 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  function keepEdits(){baseline.current=savedKey;setRemote(false);void act({action:'draft',settings});}
  const remoteChoice=remote&&<div className="yu-revision-conflict-note" role="status"><p>另一台设备更新了制作内容。你的修改还没有保存。</p><div className="yu-revision-buttons"><StoryFlowAction disabled={busy} onClick={adoptRemote}>采用最新内容</StoryFlowAction><StoryFlowAction disabled={busy} onClick={keepEdits}>保留我的修改</StoryFlowAction></div></div>;
  const terminalBatch=intake.batches.at(-1);
- const atLimit=intake.batches.length>=maxSuggestionBatches&&(!indexed||intake.batches.every(batch=>batch.stories.length>=5));
+ const atLimit=!indexed&&intake.batches.length>=maxSuggestionBatches;
  const failedSearch=search.state==='failed';
  const initialRetry=!onReplace&&!selected&&!terminalBatch&&!!error;
  const canResume=paused&&!selected&&!onReplace;
  const indexedChecked=indexed?.filter(candidate=>candidate.status!=='pending').length??0;
  const indexedMatches=indexed?.filter(candidate=>candidate.status==='match').length??0;
  const incompleteIndex=!!indexed&&indexedChecked<indexed.length;
+ const missingChoices=indexed?.some(candidate=>!candidate.choice);
  const searchLabel=paused?'查找已暂停':searching?'正在查找…':failedSearch||initialRetry?'查找未完成':atLimit?'已达候选上限':terminalBatch?.stories.length===0?(candidates.length?'暂无更多故事':'未找到故事'):candidates.length?'':onReplace?'等待提取':'正在提取…';
  const searchSummary=indexed?`已核对 ${indexedChecked}/${indexed.length} · ${indexedMatches} 条符合`:[searchLabel,candidates.length?`已找到 ${candidates.length} 篇`:''].filter(Boolean).join(' ');
- const canFindMore=failedSearch||initialRetry||(indexed?incompleteIndex&&!searching:!targetTitle);
- const actionLabel=canResume?'恢复查找':indexed?'重试核对':failedSearch||initialRetry?'重试查找':'继续查找';
+ const canFindMore=failedSearch||initialRetry||(indexed?(incompleteIndex||missingChoices)&&!searching:!targetTitle);
+ const actionLabel=canResume?'恢复查找':missingChoices?'重新读取候选':indexed?'重试核对':failedSearch||initialRetry?'重试查找':'继续查找';
  const searchAction=<StoryFlowAction disabled={busy||(canResume?progress.controlBusy:searching||paused||!indexed&&!terminalBatch&&!failedSearch&&!initialRetry)} onClick={()=>{if(canResume)return progress.onControl(session.id,'resume');void act({action:'more'});}}>{actionLabel}</StoryFlowAction>;
  // The service records preparation as count; confirmation is a human gate with no execution time.
  const {count:preparationSeconds,...workDurations}=session.generationProgress?.stageDurations||{};
  const stageDurations={...workDurations,...(preparationSeconds!==undefined?{prepare:preparationSeconds}:{})};
  const prepared=ready||intake.phase==='confirmed';
- const narrativeLabel=settings.narrativeDetail==='brief'?'简短':settings.narrativeDetail==='detailed'?'详细':'适中';
  const initialFrameCount=prepared?session.frameRecommendation?.count:undefined;
+ const narrativeLabel=settings.narrativeDetail==='brief'?'简短':settings.narrativeDetail==='detailed'?'详细':'适中';
  const extractionContext=`《${book}》 · ${session.selection.theme==='原典故事'?'不限定主题':`主题：${session.selection.theme}`}${session.selection.discoverySources?.length?` · 已选 ${session.selection.discoverySources.length} 段原文`:''}`;
  const stages=generationProgress(session,Date.now()).steps.flatMap(step=>{
   if(step.id==='source')return [{...step,label:'提取故事',detail:extractionContext}];
@@ -118,7 +119,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   reading?.totalChars?`已处理 ${reading.completedChars.toLocaleString('zh-CN')} / ${reading.totalChars.toLocaleString('zh-CN')} 字`:null,
  ].filter(Boolean).join(' · ');
  const searchNotice=failedSearch&&!searching?search.error:indexed
-  ?paused?'查找已暂停，已核对的结果可以继续选择。':atLimit?'已达候选保存上限，可以从已保存的故事中选择。':!searching&&incompleteIndex?'还有候选待核对，可以重试。':null
+  ?paused?'查找已暂停，已保存的候选仍可选择。':!searching&&missingChoices?'这份旧草稿有候选未保存出处，重新读取后即可选择。':!searching&&incompleteIndex?'还有候选待核对，可以重试。':null
   :searching&&!paused&&reading?[extractionStep,extractionDetail].filter(Boolean).join(' · ')
    :!searching&&!paused&&terminalBatch?.stories.length===0?terminalBatch.note:null;
  const indexedChoices=new Set(indexed?.flatMap(({choice})=>choice?[`${choice.batch}:${choice.index}`]:[]));
@@ -144,7 +145,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
     <div className="yu-extraction-candidate-copy"><strong>{title}</strong>{summary&&<p>{summary}</p>}{sourceLabel&&<small>{sourceLabel}</small>}</div>
     <div className="yu-extraction-candidate-controls">
      <span className="yu-extraction-candidate-status">{label}{matchScore!==undefined&&<span className="yu-extraction-candidate-score" aria-label={`主题贴合度 ${matchScore}%`}>{matchScore}%</span>}</span>
-     {choice&&<button type="button" aria-label={`${onReplace?'选择并替换':'选择'} ${title}`} aria-pressed={!!current} disabled={(busy||session.state==='running'&&intake.phase==='preparing')&&!current} onClick={()=>void select(choice.batch,choice.index)}>{current?'已选':onReplace?'选择并替换':'选择'}</button>}
+     {choice&&<StoryFlowAction aria-label={`${onReplace?'选择并替换':'选择'} ${title}`} aria-current={current||undefined} disabled={(busy||session.state==='running'&&intake.phase==='preparing')&&!current} onClick={()=>select(choice.batch,choice.index)}>{current?'已选':onReplace?'选择并替换':'选择'}</StoryFlowAction>}
     </div>
    </li>;
   })}</ul>}

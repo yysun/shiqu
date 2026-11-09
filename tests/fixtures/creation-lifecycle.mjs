@@ -7,7 +7,7 @@ async function oneCard(f,id){assert.deepEqual((await f.json('sessions')).map(s=>
 export async function creationLifecycle(t,caseId='C001'){
  const b=await storyBrowser(t,caseId);await b.execute(async()=>{
   const {f,page}=b,initial=await b.create({prepare:false,theme:'知恩图报',title:'乌龟报恩'});
-  const candidate=()=>dialog(page,'故事设置').getByRole('button',{name:'选择 乌龟报恩',exact:true});
+  const candidate=()=>dialog(page,'故事设置').getByRole('link',{name:'选择 乌龟报恩',exact:true});
   await candidate().waitFor();assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);await b.screenshot('before-selection');
   await page.reload();await candidate().waitFor();
   await b.extract(initial,'乌龟报恩');assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);

@@ -74,7 +74,7 @@ export async function storyBrowser(t,caseId,contextOptions={}){
  }
  async function extract(saved,title){
   const picker=page.getByRole('dialog',{name:'故事设置',exact:true});
-  await picker.getByRole('button',{name:'选择 '+(title||'乌龟报恩'),exact:true}).click();
+  await picker.getByRole('link',{name:'选择 '+(title||'乌龟报恩'),exact:true}).click();
   await until(async()=>(await f.read(saved.id)).intake.phase==='confirming',15000);await page.getByRole('link',{name:'开始制作',exact:true}).waitFor();return f.read(saved.id);
  }
  async function confirm(){await page.getByRole('link',{name:'开始制作',exact:true}).click();}
