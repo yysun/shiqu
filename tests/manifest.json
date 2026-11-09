@@ -3749,6 +3749,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "lib/reader-shelf.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs"
