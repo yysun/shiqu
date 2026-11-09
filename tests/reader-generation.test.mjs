@@ -302,11 +302,13 @@ test('chosen art direction persists across resume and reaches every image call',
  assert.equal((await advanceStory(repo,g,'bob',oldId,0)).selection.artStyle,'ink-pencil');
 });
 test('new art styles pass validation and reach planning and image generation without pencil fallback',async()=>{
- const styles=['cinematic','watercolor','gongbi','woodblock','paper-cut','cartoon','line-art','chibi','3d-animation','clay','classical-oil'];
+ const lianhuanhuaStyles=['vintage-comic','baimiao'];
+ const styles=[...lianhuanhuaStyles,'cinematic','watercolor','gongbi','woodblock','paper-cut','cartoon','line-art','chibi','3d-animation','clay','classical-oil'];
  const pencil=getArtStyle('ink-pencil').prompt;
  for(const style of styles){
   const expected=getArtStyle(style).prompt;
   assert.notEqual(expected,pencil,style);
+  assert.equal(expected.includes('散点透视'),lianhuanhuaStyles.includes(style),style);
   const requests=[];
   const g=makeGenerator('unit-test-only',memoryAssets(),{},async(url,init)=>{const body=JSON.parse(init.body);requests.push(body);return url.includes('nano-banana')?geminiResponse([{inlineData:{mimeType:'image/png',data:b64(png)}}]):geminiResponse([{text:JSON.stringify(plan)}]);});
   const choice=selectionSchema.parse({...selection,artStyle:style});
