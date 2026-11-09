@@ -33,15 +33,15 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
  }
  function open(value:RevisionTab,page=1){setTab(value);if(value==='script')setScriptPage(page);if(loading)return;if(!base)void load();else void refresh();}
  function discard(){setBase(null);setChanges({});setTab(null);setError('');setConflict(false);submission.current=null;}
- async function submit(){
+ async function submit(submittedChanges=changes){
   if(!base||!storyId||lock.current)return;
-  try{checkedRevision(base,changes);}catch(e){setError(e instanceof Error?e.message:'请检查修改内容。');return;}
-  const signature=JSON.stringify([storyId,base.token,changes]);
+  try{checkedRevision(base,submittedChanges);}catch(e){setError(e instanceof Error?e.message:'请检查修改内容。');return;}
+  const signature=JSON.stringify([storyId,base.token,submittedChanges]);
   if(submission.current?.signature!==signature)submission.current={signature,id:randomId()};
   lock.current=true;setBusy(true);setError('');
   try{
    const originId=storyId;
-   const session:SessionView=await request(`reader/sessions/${storyId}/revisions`,'POST',{requestId:submission.current.id,token:base.token,changes});
+   const session:SessionView=await request(`reader/sessions/${storyId}/revisions`,'POST',{requestId:submission.current.id,token:base.token,changes:submittedChanges});
    if(latest.current!==originId)return;
    setTab(null);setBase(null);setChanges({});submission.current=null;
    await callback.current(session);

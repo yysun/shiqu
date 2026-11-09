@@ -128,6 +128,7 @@ export default function Reader(){
  useEffect(()=>{const open=()=>{if(location.hash==='#provider-settings'){setTab('me');setProviderOpen(n=>n+1);}};open();window.addEventListener('hashchange',open);return()=>window.removeEventListener('hashchange',open);},[]);
  const [providerRuntime,setProviderRuntime]=useState<ProviderSettingsView['runtime']|null>(null);
  const [sceneList,setSceneList]=useState(false);
+ const [redrawPage,setRedrawPage]=useState<number|null>(null);
  const desktop=useDesktopLayout(),drawerForm=useDrawerForm(),wide=desktop&&!drawerForm;
  // 书架右栏分别保留阅读和制作设置的入口，避免设置载入首幅图片后自动变成阅读。
  const [docked,setDocked]=useState(false),[expanded,setExpanded]=useState(false);
@@ -149,7 +150,7 @@ export default function Reader(){
  const exportLock=useRef(false),reselectLock=useRef(false);
  const [drag]=useState(createDragOffset),setDrag=drag.set,[lastReadId,setLastReadId]=useState('');
  const [metadataVisible,setMetadataVisible]=useState(true);
- useEffect(()=>{setMetadataVisible(true);setImageIssues({});setImageReloads({});},[story?.id]);
+ useEffect(()=>{setMetadataVisible(true);setImageIssues({});setImageReloads({});setRedrawPage(null);},[story?.id]);
  const readerRef=useRef<HTMLElement>(null),endingRef=useRef<HTMLElement>(null);
  const wheelGesture=useRef(newWheelGesture());
  function acceptServerProgress(rows:Progress[]){
@@ -192,9 +193,11 @@ export default function Reader(){
  const historyOwner=story?.id||gen.active?.id;
  useEffect(()=>{setReviewHistoryId(null);},[historyOwner]);
  const revision=useStoryRevision(story?story.id:gen.active&&(!gen.active.intake||gen.active.intake.phase==='confirmed')?gen.active.id:undefined,async next=>{await switchVersion(next.id);});
- async function switchVersion(id:string){
-  const previous={story,page,saved,ended,drag:drag.get(),motion,seen:seen.current,session:session.current,workflowTarget};setWorkflowTarget(id);setWorkflowError('');setSettings(false);setSource(false);setScript(false);revision.setTab(null);setStory(null);setPage(0);setEnded(false);setSaved(false);setDrag(0);setMotion('forward');seen.current=new Set();session.current=randomId();gen.leave();
-  try{await gen.resume(id,0,false,true);}catch{setPage(previous.page);setSaved(previous.saved);setEnded(previous.ended);setDrag(previous.drag);setMotion(previous.motion);seen.current=previous.seen;session.current=previous.session;setStory(previous.story);setWorkflowTarget(previous.workflowTarget);setWorkflowError('新版暂时无法打开，请重新加载制作流程。');void gen.refreshLibrary().catch(()=>{});notify('这个版本暂时无法打开，已保存的新版可从书架继续。');}
+ // 仅换图使用单独的修订草稿，保留故事设置里未提交的编辑。
+ const redraw=useStoryRevision(story?.id,async next=>{setRedrawPage(null);await switchVersion(next.id,redrawPage??0);});
+ async function switchVersion(id:string,initialPage=0){
+  const previous={story,page,saved,ended,drag:drag.get(),motion,seen:seen.current,session:session.current,workflowTarget};setWorkflowTarget(id);setWorkflowError('');setSettings(false);setSource(false);setScript(false);revision.setTab(null);setStory(null);setPage(initialPage);setEnded(false);setSaved(false);setDrag(0);setMotion('forward');seen.current=new Set();session.current=randomId();gen.leave();
+  try{await gen.resume(id,initialPage,false,true);}catch{setPage(previous.page);setSaved(previous.saved);setEnded(previous.ended);setDrag(previous.drag);setMotion(previous.motion);seen.current=previous.seen;session.current=previous.session;setStory(previous.story);setWorkflowTarget(previous.workflowTarget);setWorkflowError('新版暂时无法打开，请重新加载制作流程。');void gen.refreshLibrary().catch(()=>{});notify('这个版本暂时无法打开，已保存的新版可从书架继续。');}
  }
  const [heroStoryId,setHeroStoryId]=useState('');
  const visitor=useRef(''),session=useRef(''),seen=useRef(new Set<number>()),noticeTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -450,6 +453,8 @@ export default function Reader(){
  const current=story?.pages[page];
  const activeProgress=mergeReadingProgress(progress,gen.sessions.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}))).filter(p=>!deletedIds.includes(p.storyId)&&latestIds.has(p.storyId));
  const readingSession=story?(gen.active?.id===story.id?gen.active:gen.sessions.find(session=>session.id===story.id)):undefined;
+ const reviewStatus=readingSession?.generationProgress?.reviewStatus;
+ const canRedraw=isGenerated(story)&&readingSession?.state==='completed'&&!readingSession.superseded&&(!reviewStatus||reviewStatus==='passed');
  const workflowSession=workflowTarget?(gen.active?.id===workflowTarget?gen.active:null):settings?readingSession:!story?gen.active:null;
  const scriptStory=story||gen.active?.story||null;
  const revisionSession=readingSession||(!story?gen.active:null);
@@ -558,7 +563,15 @@ export default function Reader(){
  <header className="yu-reader-top"><div className="yu-progress" aria-label={`第${page+1}幅，共${story.pages.length}幅`}>{story.pages.map((_,i)=><span key={i} className={i<=page?'read':''}/>)}</div><div className="yu-reader-heading">{dockedView?<button className="yu-glass" onClick={expand} aria-label="全屏阅读" title="全屏阅读"><Maximize2 size={19}/></button>:<button className="yu-glass" onClick={leaveReader} aria-label={docked?'返回书架':'返回发现'}><ArrowLeft size={21}/></button>}<div className="yu-reader-title"><div><strong>{story.title}</strong><span>{bookName(story)}{isGenerated(story)?' · AI 生成':''}</span></div><div className="yu-style-label" aria-label="本篇主题与画风">{story.theme&&<span>{story.theme}</span>}<span>{isGenerated(story)?(story.artStyleLabel||'未记录画风'):'未记录画风'}</span></div></div>{!ended&&<BookReferenceStar selected={bookReference.selected} disabled={bookReference.disabled} busy={bookReference.busy} onClick={bookReference.toggle}/>}<button className="yu-glass" onClick={bookmark} aria-label={saved?'取消收藏':'收藏故事'}><Bookmark size={20} fill={saved?'currentColor':'none'}/></button><button className="yu-glass" onClick={()=>openStorySettings(story)} aria-label="故事设置"><Settings2 size={19}/></button></div></header>
  {!ended&&<>
  <div className={'yu-scene-caption '+(largeText?'large':'')} key={'caption-'+page}><div className="yu-scene-number"><span>{String(page+1).padStart(2,'0')}</span><i/><span>{String(story.pages.length).padStart(2,'0')}</span>{isGenerated(story)&&gen.busy&&<span className="yu-scene-generation" role="status"><Loader2 size={12} className="spin"/>{gen.active?.stage||'正在生成'}</span>}</div><p>{current?.caption}</p>{current?.image&&(gen.error||imageIssues[current.image]||!!readingSession?.faults?.length)&&<div className="yu-reader-error">{gen.error||imageIssues[current.image]}{isGenerated(story)&&imageIssues[current.image]&&<button type="button" onClick={()=>void inspectImage(story.id,page,current.image,true)}>重新检查图片</button>}{readingSession&&<StoryRetry session={readingSession} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}</div>
- <footer className="yu-reader-bottom"><button className="yu-source-button" onClick={()=>setSource(true)} aria-label="原文" title="原文"><BookOpen size={17}/><span>原文</span></button><button className="yu-glass" onClick={()=>setSceneList(true)} aria-label="分镜列表" title="分镜列表"><List size={20}/></button><div className="yu-arrows" role="group" aria-label="翻页"><button className="yu-glass" disabled={page===0} onClick={()=>goToPage(0)} aria-label="第一页" title="第一页"><ChevronsLeft size={22}/></button><button className="yu-glass" disabled={page===0} onClick={()=>turn(-1)} aria-label="上一页" title="上一页"><ChevronLeft size={22}/></button><button className="yu-next" onClick={()=>turn(1)} aria-label={page===story.pages.length-1?'读完，回味':'下一页'} title={page===story.pages.length-1?'读完，回味':'下一页'}><ChevronRight size={23}/></button><button className="yu-glass" disabled={page===story.pages.length-1} onClick={()=>goToPage(story.pages.length-1)} aria-label="最后一页" title="最后一页"><ChevronsRight size={22}/></button></div></footer>
+ <footer className="yu-reader-bottom"><button className="yu-source-button" onClick={()=>setSource(true)} aria-label="原文" title="原文"><BookOpen size={17}/><span>原文</span></button><button className="yu-glass" onClick={()=>setSceneList(true)} aria-label="分镜列表" title="分镜列表"><List size={20}/></button>
+  {canRedraw&&<button type="button" className="yu-glass yu-redraw-button" onClick={()=>{redraw.discard();setRedrawPage(page);void redraw.load();}} aria-label="重新生图" title="重新生图">
+   <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3.5M3 16l4.5-4.5 4 4"/>
+    <circle cx="8.5" cy="8" r="1"/>
+    <path d="M21 15a4.5 4.5 0 1 0 .6 4.5M21 11.5V15h-3.5"/>
+   </svg>
+  </button>}
+  <div className="yu-arrows" role="group" aria-label="翻页"><button className="yu-glass" disabled={page===0} onClick={()=>goToPage(0)} aria-label="第一页" title="第一页"><ChevronsLeft size={22}/></button><button className="yu-glass" disabled={page===0} onClick={()=>turn(-1)} aria-label="上一页" title="上一页"><ChevronLeft size={22}/></button><button className="yu-next" onClick={()=>turn(1)} aria-label={page===story.pages.length-1?'读完，回味':'下一页'} title={page===story.pages.length-1?'读完，回味':'下一页'}><ChevronRight size={23}/></button><button className="yu-glass" disabled={page===story.pages.length-1} onClick={()=>goToPage(story.pages.length-1)} aria-label="最后一页" title="最后一页"><ChevronsRight size={22}/></button></div></footer>
  </>}
  </ReaderTag>;
 
@@ -620,6 +633,15 @@ export default function Reader(){
  {desktop?desktopTree:phoneTree}
  {settingsDialogOpen&&<StorySettingsPanel {...settingsProps} onClose={()=>{setSettings(false);closeWorkflow();}}/>}
  {storySheets}
+ {story&&redrawPage!==null&&<Sheet title="重新生图" busy={redraw.busy} onClose={()=>setRedrawPage(null)}>
+  <p className="yu-sheet-intro">重新生成第 {redrawPage+1} 幅图片，可能消耗生图额度。新版沿用分镜和其他图片，原版保留。</p>
+  {redraw.loading&&<p role="status">正在载入制作内容…</p>}
+  {redraw.error&&<p role="alert">{redraw.error}</p>}
+  <div className="yu-revision-buttons">
+   {!redraw.loading&&!redraw.base?<button type="button" onClick={()=>void redraw.load()}>重新载入</button>:<button type="button" className="yu-primary" disabled={!redraw.base||redraw.loading||redraw.busy} onClick={()=>void redraw.submit({redrawPages:[redrawPage+1]})}>{redraw.busy?'正在提交…':'确认重新生图'}</button>}
+   <button type="button" disabled={redraw.busy} onClick={()=>setRedrawPage(null)}>取消</button>
+  </div>
+ </Sheet>}
  {reselectTarget&&<StoryReselection key={reselectTarget} parentId={reselectTarget} onSubmitted={next=>finishReselection(next)} onCancelled={(next,error)=>{if(next)finishReselection(next,true);else{reselectLock.current=false;setReselectTarget(null);backToShelf();void gen.refreshLibrary().catch(()=>{});if(error)notify(error);}}}/>}
  {recoveryOpen&&<Sheet title="已删除的故事" onClose={()=>{if(!restoring)setRecoveryOpen(false);}}><DeletedStories items={deletedStories} loading={recoveryLoading} error={recoveryError} busy={restoring} onRestore={item=>void restoreStory(item)} onRetry={()=>void loadDeletedStories()}/></Sheet>}
  {undoTarget&&!recoveryOpen&&<div className="yu-undo-notice" role="status"><div><span>已删除《{undoTarget.title}》</span>{recoveryError&&<small role="alert">{recoveryError}</small>}</div><button type="button" disabled={!!restoring} onClick={()=>void restoreStory(undoTarget)}><RotateCcw size={17}/>{restoring?'恢复中…':'撤销删除'}</button><button type="button" className="yu-undo-dismiss" aria-label="关闭撤销提示" disabled={!!restoring} onClick={()=>setUndoTarget(null)}><X size={18}/></button></div>}
