@@ -19,7 +19,7 @@
 - In a shared checkout, inspect the preview first. Use `pnpm test:pr --files <your changed paths...>` to scope verification to your own work; do not modify or include concurrent work merely to make a check pass.
 - Register new test files and their covered sources (`covers`) in `tests/manifest.json`, including every `tests/fixtures/*` file reached from the test; the registry contract checks fixture ownership through `tests/` import edges. Declare all direct consumers before scoping a shared test fixture or stylesheet to specific tests. Shared schemas use their affected domains. Unknown paths, dependency or toolchain changes, and failed or empty change detection add the safety, startup, and tooling suites and request native coverage.
 - Run `pnpm typecheck` and `pnpm lint` for code changes. Run applicable native source checks when the plan reports `native: true`; JS runner results alone do not prove native coverage. PR, main, and manual CI run affected JS suites. Tag CI verifies native installers.
-- 仅修改 `lib/reader-prompts.ts` 或 `lib/reader-legacy-prompts.ts` 时，运行登记在 `tests/manifest.json` 的直接消费者及完整性冒烟即可，无需全量回归或桌面原生测试。同时修改其他路径时，按影响计划取并集。
+- 仅调整提示词正文时（包括 `lib/reader-prompts.ts`、`lib/reader-legacy-prompts.ts` 和 `lib/reader-styles.ts` 的画风提示词），本地验证只跑 `tests/manifest.json` 登记的直接消费者及完整性冒烟。本条优先于仓库级影响检查要求。若同时改动提示词拼装、模型调用或其他代码，按这些改动的影响计划取并集。
 
 ## CLI 与技能同步
 
