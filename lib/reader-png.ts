@@ -22,7 +22,10 @@ export function layoutStoryPng(story:Story,measure:(text:string,size:number)=>nu
  const book=readerBooks.find(book=>book.id===story.bookId)?.title||'自选故事';
  const subtitle=wrap([book,generated?.artStyleLabel,story.theme].filter(Boolean).join(' · '),26,width-2*M);
  const subtitleY=M+title.length*70+12;
- let y=subtitleY+subtitle.length*40+30;
+ const summary=story.summary.trim()?wrap(story.summary,22,width-2*M-40):[];
+ const summaryY=subtitleY+subtitle.length*40+24;
+ const summaryHeight=summary.length?36+summary.length*34+32:0;
+ let y=summary.length?summaryY+summaryHeight+30:subtitleY+subtitle.length*40+30;
  const cells:{index:number;x:number;y:number;caption:string[]}[]=[];
  for(let start=0;start<count;start+=columns){
   const row=story.pages.slice(start,start+columns).map((page,i)=>({index:start+i,x:M+i*(CARD+GAP),y,caption:wrap(page.caption,26,CARD)}));
@@ -32,7 +35,7 @@ export function layoutStoryPng(story:Story,measure:(text:string,size:number)=>nu
  const footerY=y+6,reflection=wrap(story.reflection?`余味：${story.reflection}`:'故事到这里，余味留给你。',36,width-2*M);
  const credit=wrap(publicationCredit(story),22,width-2*M);
  const height=footerY+32+reflection.length*56+30+credit.length*32+24;
- return {width,height,columns,title,subtitle,subtitleY,cells,footerY,reflection,credit};
+ return {width,height,columns,title,subtitle,subtitleY,summary,summaryY,summaryHeight,cells,footerY,reflection,credit};
 }
 
 export async function createStoryPng(story:Story,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime()){
@@ -51,6 +54,11 @@ export async function createStoryPng(story:Story,onProgress:(text:string)=>void=
   }
   text(layout.title,M,M,52,70,'#263a2e');
   text(layout.subtitle,M,layout.subtitleY,26,40,'#6b7465');
+  if(layout.summary.length){
+   ctx.fillStyle='#ebe9df';ctx.fillRect(M,layout.summaryY,layout.width-2*M,layout.summaryHeight);
+   text(['故事梗概'],M+20,layout.summaryY+16,20,30,'#7b795f');
+   text(layout.summary,M+20,layout.summaryY+52,22,34,'#394c3e');
+  }
   for(const cell of layout.cells){
    onProgress(`正在整理第 ${cell.index+1} / ${story.pages.length} 幅`);
    const blob=await runtime.read(story.pages[cell.index].image,cell.index);
@@ -64,7 +72,7 @@ export async function createStoryPng(story:Story,onProgress:(text:string)=>void=
   ctx.strokeStyle='#c9cbbb';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(M,layout.footerY);ctx.lineTo(layout.width-M,layout.footerY);ctx.stroke();
   text(layout.reflection,M,layout.footerY+32,36,56,'#263a2e');
   text(layout.credit,M,layout.height-24-layout.credit.length*32,22,32,'#6b7465');
-  onProgress('正在保存一页 PNG');
+  onProgress('正在保存含故事梗概的一页 PNG');
   return await new Promise<Blob>((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('PNG 排版失败，请重试。')),'image/png'));
  }finally{canvas.width=0;canvas.height=0;}
 }

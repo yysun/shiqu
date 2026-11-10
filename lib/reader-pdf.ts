@@ -58,7 +58,7 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
    font(21,sans);ctx.fillStyle='#c7d1bc';ctx.fillText(publicationCredit(story),M,H-65,W-2*M);
    await addCanvas();
   }
-  onProgress('正在整理余味与出处');
+  onProgress('正在整理故事梗概、余味与出处');
   let y=0,appendix=0;
   function paper(){ctx.fillStyle='#f7f6ef';ctx.fillRect(0,0,W,H);font(22,sans);ctx.fillStyle='#7b8b74';ctx.fillText('拾趣  /  故事之后',M,50);ctx.textAlign='right';ctx.fillText(String(story.pages.length+1+appendix++).padStart(2,'0'),W-M,50);ctx.textAlign='left';y=140;}
   paper();
@@ -70,6 +70,7 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
    for(const line of content){if(y>H-110){await addCanvas();paper();font(size);}ctx.fillStyle='#2a493b';ctx.fillText(line,M,y);y+=size*1.75;}
    y+=40;
   }
+  await block('故事梗概',story.summary);
   await block('留一点余味',story.reflection,40);
   await block('原典线索',storySourceReference(story));
   await block('关于这次改编',story.adaptationNote.replace('；当前可使用设备朗读试听。','。'));
