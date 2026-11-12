@@ -112,13 +112,18 @@ test('PHONE-NAV-07b: when the app is the tab\'s first page, a stale back shows t
   assert.equal(await page.evaluate(()=>history.length),1,'the app is the tab\'s first entry');
   await tab(page,'书架');await openFromShelf(page);await openSettings(page);
   await page.reload();await page.getByRole('button',{name:'故事设置',exact:true}).waitFor();await settle(page);
-  const before=b.commands.length;
+  // 监听新标签页的写入请求。书架增量查询通过 POST 发送已知版本，只读取数据。
+  const writes=[];
+  page.on('request',request=>{
+   const path=new URL(request.url()).pathname;
+   if(request.method()==='POST'&&path.startsWith('/api/reader/')&&path!=='/api/reader/library/shelf')writes.push(path);
+  });
   await back(page);await page.waitForTimeout(800);
   assert.equal(await reading(page),false,'the start view shows');assert.equal(new URL(page.url()).pathname,'/');
   assert.ok(await page.locator('.yu-tabbar').isVisible(),'not a blank page');
   await back(page);await page.waitForTimeout(400);assert.equal(await reading(page),false,'a further back changes nothing in the app');
   await forward(page);await forward(page);assert.equal(await reading(page),false,'forward reopens nothing');
-  assert.equal(posts(b,before).length,0,'no reading event or resume POST');
+  assert.deepEqual(writes,[],'no reading event or resume POST');
  });
 });
 

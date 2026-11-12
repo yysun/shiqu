@@ -350,11 +350,12 @@ test('DESKTOP-LAYOUT-05: only story settings retain the phone layout at every vi
   await page.getByRole('button',{name:'原文',exact:true}).click();await page.locator('.yu-reader-panel').waitFor();
   await page.getByRole('button',{name:'故事设置',exact:true}).click();
   const settings=dialog(page,'故事设置');await settings.waitFor();
-  const title=await settings.locator('.yu-story-name p').textContent();
+  const titleRow=settings.locator('.yu-story-name > .yu-setting-row > p');
+  const title=await titleRow.textContent();
   for(const width of [1280,900,390,900,1440]){
    await page.setViewportSize({width,height:800});
    await settings.getByRole('button',{name:'修改故事名',exact:true}).waitFor();
-   assert.equal(await settings.locator('.yu-story-name p').textContent(),title);
+   assert.equal(await titleRow.textContent(),title);
    assert.equal(await page.locator('.yu-workspace').count(),0,'settings never turn into a multi-column workspace');
    assert.ok((await settings.locator('.yu-sheet').boundingBox()).width<=480,'phone content width');
    assert.equal(await settings.locator('.yu-settings-flow').count(),1,'the same production flow stays available');
