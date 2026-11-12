@@ -73,6 +73,7 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  if(changes.redrawPages){
   if(lostPages.length||original.images.length!==plan!.pages.length||original.images.some(image=>!image))throw new ReaderError(409,'原版图片不完整，未创建仅换图版本；请先恢复缺图。');
   document.revision!.redrawPages=[...changes.redrawPages];
+  if(changes.redrawNotes&&Object.keys(changes.redrawNotes).length)document.revision!.redrawNotes=changes.redrawNotes;
  }
  if(plan)syncRevisionImages(document,selection);
  if(!impact.review)document.reflectionCandidates=doc.reflectionCandidates;

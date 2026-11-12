@@ -65,7 +65,7 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 | `stories setup`, `stories search`, `stories choose`, `stories confirm` | 设置要求、查找候选、选择故事与确认制作 |
 | `books index-import BOOK_ID FILE --data-dir DIRECTORY` | 安装一本书的离线 SQLite 索引，核对书名、原文版次与出处后更新该书的索引 |
 | `run ID`, `stories run ID` | 制作指定故事；`--until` 可选 candidates、prepared、reviewed 或 completed。该书有索引时，提取会先核对候选原文。没有可用候选时逐章阅读选定范围。自动选题的双词预设须在同一篇原文中找到两侧及其联系，例如「善意与误解」须有善举及由此产生的误解。新复核的候选可带 `matchScore`（0 到 100），表示该篇故事的主题贴合度 |
-| `stories edit ID --input FILE` | 使用 `stories revisions ID` 返回的 token 保存修改版本 |
+| `stories edit ID --input FILE` | 使用 `stories revisions ID` 返回的 token 保存修改版本。用 `changes.redrawPages` 指定换图幅号，并可用 `changes.redrawNotes` 提供逐幅说明 |
 | `stories pause`, `stories resume`, `stories stop` | 暂停、恢复或停止故事制作 |
 | `stories retry`, `stories override` | 重试当前故障，或明确跳过审核问题 |
 | `stories rename`, `stories delete`, `stories restore`, `stories favorite`, `stories reference` | 改名、删除、恢复、收藏故事，或设置本书参考图 |

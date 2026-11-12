@@ -17,6 +17,7 @@ import {ReaderRepository,persistenceError,supersededSql,latestVersionMessage} fr
 import type {Database} from '../lib/reader-repository.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
 import type {Generated} from '../lib/reader-engine.ts';
+import {redrawImagePlan} from '../lib/reader-revision.ts';
 import {ReaderError,readableStory,selectionSchema,view,nextStep,reviewPassed,productionComplete} from '../lib/reader-model.ts';
 import type {Document,SessionRow,SessionView,ProductionAction,Selection} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
@@ -132,7 +133,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const {doc,selection}=this.parsed(row)!;
   const {displayTitle:_,...generationSelection}=selection;void _;
   const scriptVersion=inputVersion({selection:generationSelection,...(doc.intake?{setupGeneration:doc.intake.generation}:{})});
-  return {generation:doc.intake?.generation,version:inputVersion({scriptVersion,plan:doc.plan,style:selection.artStyle,prompt:selection.productionPrompt})};
+  return {generation:doc.intake?.generation,version:inputVersion({scriptVersion,plan:doc.plan,style:selection.artStyle,prompt:selection.productionPrompt,...(doc.revision?.redrawNotes?{redrawNotes:doc.revision.redrawNotes}:{})})};
  }
  private currentJob(row:SessionRow,job:ProductionJob,inputs=this.imageInputs(row)){
   const {generation,version}=inputs;
@@ -734,7 +735,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(reference&&await this.fileLost(reference).catch(()=>{throw new ReaderError(503,'参考图片暂时无法核对，请稍后重试；尚未开始绘图。');}))throw new ReaderError(409,lostImageMessage);
   if(!this.currentJob(await this.raw(job.session_id,job.owner_id),job))return {obsolete:true};
   if(await this.repository.superseded(row.id,row.user_id))throw new JobYield();
-  return provider.generator().image(doc.plan!,page,row.id,selectedReference,selection.artStyle,selection.productionPrompt,inputVersion([job.id,job.lease_token]));
+  return provider.generator().image(redrawImagePlan(doc.plan!,doc.revision,page),page,row.id,selectedReference,selection.artStyle,selection.productionPrompt,inputVersion([job.id,job.lease_token]));
  }
  private async publish(job:ProductionJob,outputs:Record<string,unknown>){
   if(!this.currentJob(await this.raw(job.session_id,job.owner_id),job))return {obsolete:true};

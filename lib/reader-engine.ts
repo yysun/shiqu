@@ -15,7 +15,7 @@ import {artRecommendationSchema} from './reader-art-recommendation.ts';
 import type {ArtRecommendation} from './reader-art-recommendation.ts';
 import {readerImageBatchSize,readerStoryboardBatchSize,readerMaxAutomaticRepairs} from './reader-limits.ts';
 import {newReview,parseFrameCountReport,reviewReportSchema,repairOutputSchema,pendingRepairs,storyReplanMessage} from './reader-review.ts';
-import {syncRevisionImages,reusableRevisionImages} from './reader-revision.ts';
+import {syncRevisionImages,reusableRevisionImages,redrawImagePlan} from './reader-revision.ts';
 import {applyStructuralEdits} from './reader-structure.ts';
 import type {StructuralEdits} from './reader-structure.ts';
 import {validateEditorialCoverage} from './reader-editorial.ts';
@@ -32,7 +32,7 @@ async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerato
  const reference=doc.images[0]||'';
  let writes=Promise.resolve();
  const drawing=batch.map(async page=>{
-  const image=await generator.image(doc.plan!,page,row.id,reference,selection.artStyle,selection.productionPrompt);
+  const image=await generator.image(redrawImagePlan(doc.plan!,doc.revision,page),page,row.id,reference,selection.artStyle,selection.productionPrompt);
   doc.images[page]=image.value;
   doc.usage.push({step:`image:${page}`,model:image.model,requestId:image.requestId,usage:image.usage,...(image.promptRecord?{promptRecord:image.promptRecord}:{})});
   // Queue immutable snapshots; once a write fails, skip later writes until final recovery.

@@ -14,11 +14,13 @@ import type {RevisionBase,RevisionRedraw} from './reader-revision-images.ts';
 export {reusableRevisionImages};
 export type {RevisionBase};
 
-export const revisionChangesSchema=z.object({productionPrompt:z.string().max(1200).optional(),acceptancePrompt:acceptancePromptSchema.optional(),artStyle:z.enum(artStyleIds).optional(),length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')]).optional(),narrativeDetail:narrativeDetailSchema.optional(),plan:planSchema.optional(),redrawPages:z.array(z.number().int().min(1).max(readerMaxFrames)).min(1).max(readerMaxFrames).refine(pages=>new Set(pages).size===pages.length,'重绘页码不能重复。').optional()}).strict();
+export const redrawNoteMaxLength=500;
+const redrawNotesSchema=z.record(z.string().regex(/^[1-9]\d*$/),z.string().trim().min(1).max(redrawNoteMaxLength));
+export const revisionChangesSchema=z.object({productionPrompt:z.string().max(1200).optional(),acceptancePrompt:acceptancePromptSchema.optional(),artStyle:z.enum(artStyleIds).optional(),length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')]).optional(),narrativeDetail:narrativeDetailSchema.optional(),plan:planSchema.optional(),redrawPages:z.array(z.number().int().min(1).max(readerMaxFrames)).min(1).max(readerMaxFrames).refine(pages=>new Set(pages).size===pages.length,'重绘页码不能重复。').optional(),redrawNotes:redrawNotesSchema.optional()}).strict();
 export type RevisionChanges=z.infer<typeof revisionChangesSchema>;
 export type RevisionInfo={parentId:string;rootId:string;number:number};
 export type RevisionView=RevisionInfo&{redraw?:RevisionRedraw};
-export type RevisionRecord=RevisionInfo&{kind?:'selection';selectionRequest?:string;baseToken:string;requestHash:string;handoff?:boolean;base:RevisionBase;previewedRedraw?:number;actualRedraw?:number;lostPages?:number[];redrawPages?:number[]};
+export type RevisionRecord=RevisionInfo&{kind?:'selection';selectionRequest?:string;baseToken:string;requestHash:string;handoff?:boolean;base:RevisionBase;previewedRedraw?:number;actualRedraw?:number;lostPages?:number[];redrawPages?:number[];redrawNotes?:RevisionChanges['redrawNotes']};
 export type RevisionSnapshot=RevisionBase&{token:string;epoch:number;reviewStatus?:ReviewCheckpoint['status'];revision?:RevisionInfo};
 export type RevisionImpact={changed:boolean;replan:boolean;preserveScript:boolean;review:boolean;reused:number;redraw:number;total:number;reusePending:boolean;conflict:boolean};
 export const revisionFrameCount=(base:RevisionBase)=>base.plan?.pages.length??(typeof base.selection.length==='number'?base.selection.length:base.frameRecommendation?.count??8);
@@ -38,9 +40,15 @@ export function revisionImpact(base:RevisionBase,changes:RevisionChanges):Revisi
 }
 export function checkedRevision(base:RevisionBase,changes:RevisionChanges){
  const parsed=revisionChangesSchema.safeParse(changes);
- if(!parsed.success){const issue=parsed.error.issues[0],page=issue.path.indexOf('pages');throw new ReaderError(400,page>=0?`第 ${Number(issue.path[page+1])+1} 幅内容长度不符合要求：旁白 8–90 字，画面提示词 20–1800 字。`:'请检查制作要求、人物设定及余味的内容长度。');}
+ if(!parsed.success){
+  const issue=parsed.error.issues[0],page=issue.path.indexOf('pages');
+  if(issue.path[0]==='redrawNotes')throw new ReaderError(400,`请填写有效的重绘幅号及说明，每条说明最多 ${redrawNoteMaxLength} 字。`);
+  throw new ReaderError(400,page>=0?`第 ${Number(issue.path[page+1])+1} 幅内容长度不符合要求：旁白 8–90 字，画面提示词 20–1800 字。`:'请检查制作要求、人物设定及余味的内容长度。');
+ }
+ const {redrawPages,redrawNotes}=parsed.data;
+ if(redrawNotes&&(!redrawPages||Object.keys(redrawNotes).some(page=>!redrawPages.includes(Number(page)))))throw new ReaderError(400,'重绘说明只能用于本次选中的画幅。');
  if(changes.redrawPages){
-  if(Object.keys(changes).some(key=>key!=='redrawPages'))throw new ReaderError(400,'仅换图不能同时修改文字、分镜或制作设置。');
+  if(Object.keys(changes).some(key=>key!=='redrawPages'&&key!=='redrawNotes'))throw new ReaderError(400,'仅换图不能同时修改文字、分镜或制作设置。');
   if(!base.plan||changes.redrawPages.some(page=>page>base.plan!.pages.length))throw new ReaderError(400,'重绘页码必须属于已保存的完整分镜。');
  }
  const impact=revisionImpact(base,changes);
@@ -54,4 +62,13 @@ export function checkedRevision(base:RevisionBase,changes:RevisionChanges){
 }
 export function syncRevisionImages(doc:Document,selection:Selection){
  if(doc.revision&&doc.plan)doc.images=reusableRevisionImages(doc.revision.base,selection,doc.plan).map((image,index)=>doc.revision!.redrawPages?.includes(index+1)?'':image);
+}
+
+// 只在绘图请求中应用说明，保留审核过的分镜与后续编辑的基准。
+export function redrawImagePlan(plan:Plan,revision:RevisionRecord|undefined,page:number):Plan{
+ const note=revision?.redrawNotes?.[page+1];
+ if(!note)return plan;
+ const pages=[...plan.pages],scene=pages[page];
+ pages[page]={...scene,prompt:scene.prompt+'\n本幅重绘说明（限于画面细节，沿用场景、人物和画风）：'+note};
+ return {...plan,pages};
 }

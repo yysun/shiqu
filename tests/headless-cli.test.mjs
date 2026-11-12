@@ -109,8 +109,9 @@ test('CLI image-only edit redraws selected pages after explicit resume/run and p
  const original=await call(['stories','get',id]),base=await call(['stories','revisions',id]);
  const readDoc=storyId=>{const db=inspect();try{return JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(storyId).document);}finally{db.close();}};
  const saved=readDoc(id),before={images:f.control.calls.length,reviews:f.control.reviews.length,plans:f.control.plans.length,frameReviews:f.control.frameReviews.length};
- const help=await call(['help','--json']),requestId=crypto.randomUUID(),input={...help.inputs.redraw.input,token:base.token,changes:{redrawPages:[1,3]}};
- for(const changes of [{redrawPages:[0]},{redrawPages:[4]},{redrawPages:[1,1]},{redrawPages:[1],artStyle:'clay'}]){
+ const help=await call(['help','--json']),requestId=crypto.randomUUID(),note=help.inputs.redraw.input.changes.redrawNotes[2];
+ const input={...help.inputs.redraw.input,token:base.token,changes:{redrawPages:[1,3],redrawNotes:{3:note}}};
+ for(const changes of [{redrawPages:[0]},{redrawPages:[4]},{redrawPages:[1,1]},{redrawPages:[1],artStyle:'clay'},{redrawNotes:{1:note}},{redrawPages:[1],redrawNotes:{2:note}},{redrawPages:[1],redrawNotes:{1:' '.repeat(4)}}]){
   await assert.rejects(call(['stories','edit',id],{token:base.token,changes}),error=>error.code==='INVALID_REQUEST');
  }
  assert.equal((await call(['stories','list'])).length,1);
@@ -120,6 +121,7 @@ test('CLI image-only edit redraws selected pages after explicit resume/run and p
  await call(['stories','resume',next]);assert.equal(f.control.calls.length,before.images);
  const done=await call(['run',next,'--timeout','10']);assert.equal(done.reason,'completed');assert.equal(done.session.ready,3);
  assert.deepEqual(f.control.calls.slice(before.images).map(call=>call.page).sort((a,b)=>a-b),[0,2]);
+ assert.deepEqual(f.control.calls.slice(before.images).filter(call=>call.prompt.includes(note)).map(call=>call.page),[2]);
  assert.equal(f.control.reviews.length,before.reviews);assert.equal(f.control.plans.length,before.plans);assert.equal(f.control.frameReviews.length,before.frameReviews);
  const doc=readDoc(next);assert.deepEqual(doc.plan,saved.plan);assert.deepEqual(doc.original,saved.original);assert.deepEqual(doc.visualReview,saved.visualReview);
  const bytes=page=>readFile(path.join(f.dataDirectory,'media',page.image.replace('/api/reader/media/','reader/')));
