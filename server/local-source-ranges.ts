@@ -31,9 +31,9 @@ export function mergeSources(book:LocalBook,a:LocalSourceReference,b:LocalSource
  const [first,...continuations]=ranges;if(!first||ranges.length>24)throw invalid();
  return {...first,...(continuations.length?{continuations}:{}),edition:book.edition};
 }
-export function sourceText(book:LocalBook,source:LocalSourceReference,legacyChapter=false){
+export function sourceText(book:LocalBook,source:LocalSourceReference,legacyChapter=false,allowCombined=false){
  const parts=sourceParts(book,source);
- if(!legacyChapter&&book.id==='shishuo'&&(parts.length!==1||parts[0].first!==parts[0].last))throw invalid();
+ if(!legacyChapter&&!allowCombined&&book.id==='shishuo'&&(parts.length!==1||parts[0].first!==parts[0].last))throw invalid();
  for(const part of parts){
   const text=part.units.map(u=>u.text).join('\n\n'),tagged=part.units.every(u=>u.narrative!==undefined);
   if((tagged?!part.units.some(u=>u.narrative):!/[。！？!?，；：]/.test(text))||part.units.some(u=>u.unreadable)||hasBlockingSourceAnomaly(text,{...source,sectionId:part.section.id})||hasSourceAnomaly(part.section.title))throw invalid();

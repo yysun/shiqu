@@ -40,12 +40,12 @@ export function indexBookContents(books:LocalBooks,book:LocalBook,query='',chapt
  }
  return {bookId:book.id,title:book.title,entries};
 }
-export async function bookContents(books:LocalBooks,selection:Selection,query='',view?:'chapters'|'stories'|'scope',page?:ContentsPage){
+export async function bookContents(books:LocalBooks,selection:Selection,query='',view?:'chapters'|'stories'|'scope',page?:ContentsPage,sectionId?:string){
  const book=await books.book(selection);if(!book)throw new ReaderError(400,'这本书暂不支持直接选择，请按主题找故事。');
  if(view==='chapters')return pageContents(indexBookContents(books,book,query,true),page);
  const directory=indexBookContents(books,book,query);
  // 故事卡可覆盖整章，按故事浏览时只按已列出的故事出处去重。
- if(view==='stories')directory.entries=directory.entries.filter(entry=>entry.kind==='story'&&entry.source);
+ if(view==='stories')directory.entries=directory.entries.filter(entry=>entry.kind==='story'&&entry.source&&(!sectionId||entry.source.sectionId===sectionId&&!entry.source.continuations?.length));
  const seen=new Set(directory.entries.flatMap(entry=>entry.source?[localSourceKey(entry.source)]:[]));
  const chapters=new Map(book.sections.map(section=>[section.id,section.title]));
  if(view==='scope'&&(book.id==='liaozhai'||book.id==='shishuo'))for(const entry of indexBookContents(books,book,query,true).entries){
@@ -53,11 +53,11 @@ export async function bookContents(books:LocalBooks,selection:Selection,query=''
   if(!seen.has(key)){directory.entries.push({...entry,id:'chapter:'+entry.id});seen.add(key);}
  }
  for(const {id,source,displayTitle,displaySummary} of await books.storySearch?.passages(book,contentSearchTerms(query))??[]){
-  const key=localSourceKey(source);if(seen.has(key))continue;
+  const key=localSourceKey(source);if(seen.has(key)||sectionId&&(source.sectionId!==sectionId||source.continuations?.length))continue;
   try{
    const original=books.resolve(book,source);
    const title=view==='stories'?displayTitle.replace(chapterNumberPrefix,''):displayTitle;
-   directory.entries.push({kind:'story',id:'indexed:'+id,title:title.slice(0,100),chapter:chapters.get(source.sectionId)!,excerpt:(view==='stories'&&displaySummary||original.text).slice(0,100),source});
+   directory.entries.push({kind:'story',id:'indexed:'+id,title:title.slice(0,100),chapter:chapters.get(source.sectionId)!,excerpt:view==='stories'&&displaySummary?displaySummary.slice(0,180):original.text.slice(0,100),source});
    seen.add(key);
   }catch(error){if(!(error instanceof ReaderError)||error.status!==400)throw error;}
  }
@@ -65,17 +65,26 @@ export async function bookContents(books:LocalBooks,selection:Selection,query=''
 }
 export async function directBookChoice(books:LocalBooks,selection:Selection){
  const book=await books.book(selection);if(!book||!selection.source)throw new ReaderError(400,'请重新选择本地故事或章节。');
- const key=localSourceKey(selection.source),entry=indexBookContents(books,book).entries.find(entry=>entry.source&&localSourceKey(entry.source)===key);
+ if(selection.sourceCard){
+  const original=books.resolve(book,selection.source);
+  return {entry:{...selection.sourceCard,excerpt:selection.sourceCard.description,source:selection.source},original};
+ }
+ const key=localSourceKey(selection.source),entry=indexBookContents(books,book).entries.find(entry=>entry.source&&localSourceKey(entry.source)===key)
+  ||indexBookContents(books,book,'',true).entries.find(entry=>entry.source&&localSourceKey(entry.source)===key);
  if(!entry?.source)throw new ReaderError(400,'所选故事或章节已失效，请重新选择。');
  return {entry,original:books.resolve(book,entry.source)};
 }
 
 // 仅接受同版目录中的原文范围，重叠范围取并集，跳过的原文保留断点。
-export async function selectedChapterScope(books:LocalBooks,book:LocalBook,references:NonNullable<Selection['discoverySources']>){
+export async function selectedChapterScope(books:LocalBooks,book:LocalBook,references:NonNullable<Selection['discoverySources']>,combine=false){
  const requested=new Set(references.map(localSourceKey));
  if(!references.length||references.length>24||requested.size!==references.length)throw new ReaderError(400,'请选择 1–24 段不重复的原文。');
  const chapters=indexBookContents(books,book,'',true).entries;
  const available=new Map(chapters.map(entry=>[localSourceKey(entry.source!),entry.source!]));
+ if(combine)for(const source of references){
+  if(!available.has(localSourceKey(source)))books.resolve(book,source);
+  available.set(localSourceKey(source),source);
+ }
  if([...requested].some(key=>!available.has(key))&&(book.id==='liaozhai'||book.id==='shishuo')){
   for(const {source} of indexBookContents(books,book).entries)if(source&&!available.has(localSourceKey(source)))available.set(localSourceKey(source),source);
  }
@@ -93,7 +102,7 @@ export async function selectedChapterScope(books:LocalBooks,book:LocalBook,refer
   const sourceBreaks=new Set<string>();
   const units=section.units.filter((unit,index)=>{
    if(!selected.has(unit.id))return false;
-   if(index>0&&!selected.has(section.units[index-1].id))sourceBreaks.add(unit.id);
+   if(section.sourceBreaks?.has(unit.id)||index>0&&!selected.has(section.units[index-1].id))sourceBreaks.add(unit.id);
    return true;
   });
   sourceBreaks.delete(units[0]?.id);
@@ -101,4 +110,15 @@ export async function selectedChapterScope(books:LocalBooks,book:LocalBook,refer
  });
  const text=sections.map(section=>`篇章 ${section.id}：${section.title}\n`+section.units.map(unit=>(section.sourceBreaks.has(unit.id)?'【另一个已选原文段落】\n':'')+`[${unit.id}]\n${unit.text}`).join('\n\n')).join('\n\n');
  return {discoverySources,book:{...book,sections,input:{...book.input,text}}};
+}
+
+// 按原文顺序合并选中的范围，保留未勾选段落之间的断点。
+export function combinedOriginal(books:LocalBooks,book:LocalBook,scope:Awaited<ReturnType<typeof selectedChapterScope>>){
+ const ranges=scope.book.sections.flatMap(section=>{
+  const starts=section.units.flatMap((unit,index)=>index===0||section.sourceBreaks?.has(unit.id)?[index]:[]);
+  return starts.map((start,index)=>({sectionId:section.id,firstUnit:section.units[start].id,lastUnit:section.units[(starts[index+1]??section.units.length)-1].id}));
+ });
+ const [first,...continuations]=ranges;
+ if(!first||continuations.length>23)throw new ReaderError(400,'请减少所选原文范围后重试。');
+ return books.resolve(book,{...first,edition:book.edition,...(continuations.length?{continuations}:{})},false,true);
 }

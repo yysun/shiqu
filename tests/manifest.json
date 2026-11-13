@@ -3153,7 +3153,8 @@
         "server/local-generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/story-library.mjs"
       ]
     },
     {
@@ -3664,6 +3665,11 @@
         "user-flows"
       ],
       "covers": [
+        "client/ui/StoryChapterPicker.tsx",
+        "client/ui/StoryCreationSetup.tsx",
+        "client/ui/StoryDiscoveryForm.tsx",
+        "client/ui/StorySettingsPanel.tsx",
+        "client/ui/readStorySearchStream.ts",
         "server/http.ts",
         "server/local-books.ts",
         "server/local-generation.ts",

@@ -166,20 +166,22 @@ export class LocalBooks{
    return {id,title:entry.title,edition,url:entry.source.url,provider:entry.source.provider,sections,input:{title:entry.title,edition,text}};
   }catch(error){if(error instanceof ReaderError)throw error;throw unavailable();}
  }
- resolve(book:LocalBook,reference:LocalSourceReference,legacyChapter=false):OriginalSource{
-  const {text,title,section,parts}=sourceText(book,reference,legacyChapter);
+ resolve(book:LocalBook,reference:LocalSourceReference,legacyChapter=false,allowCombined=false):OriginalSource{
+  const {text,title,section,parts}=sourceText(book,reference,legacyChapter,allowCombined);
   const units=sourceParts(book,reference).flatMap(part=>part.units),providers=[...new Set([section.provider||book.provider,...units.flatMap(unit=>unit.provider?[unit.provider]:[])])];
   return {title,text,url:(units.length===1?units[0].url:undefined)||section.url||book.url,kind:legacyChapter?'chapter':'passage',provider:`本地书库 · ${providers.join('；')}`,retrievedAt:new Date().toISOString(),localSource:reference,...(parts.length>1?{localParts:parts}:{})};
  }
  async selected(selection:Selection){
   const book=await this.book(selection);if(!book)return null;
   if(!selection.source)throw invalid();
-  return this.resolve(book,selection.source);
+  return this.resolve(book,selection.source,false,selection.discovery?.mode==='auto'&&selection.discovery.combine);
  }
  async storyOriginal(selection:Selection){
   const book=await this.book(selection);if(!book)return null;
   if(!selection.source)throw invalid();
-  const original=this.resolve(book,selection.source);
+  const combined=selection.discovery?.mode==='auto'&&selection.discovery.combine;
+  const original=this.resolve(book,selection.source,false,combined);
+  if(combined||selection.sourceCard)return original;
   // These collections already expose isolated stories; their surrounding volume is unrelated material.
   if(book.id==='shishuo'||book.id==='liaozhai')return original;
   const sections=[...new Map(sourceParts(book,selection.source).map(part=>[part.section.id,part.section])).values()];
@@ -192,7 +194,7 @@ export class LocalBooks{
  }
  async legacy(selection:Selection,plan:SourceHint){
   const book=await this.book(selection);if(!book)return null;
-  if(selection.source)return this.resolve(book,selection.source);
+  if(selection.source)return this.resolve(book,selection.source,false,selection.discovery?.mode==='auto'&&selection.discovery.combine);
   const query=sourceQuery(selection,plan);
   const chapter=query.chapter.replace(/篇$/,'');
   const normalize=(label:string)=>simplifiedLabel(label).replace(/[《》\s]/g,'').replace(/（.*?）/g,'').replace(/篇$/,'');

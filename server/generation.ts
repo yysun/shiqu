@@ -6,7 +6,7 @@ import {normalizeProductionPrompt,storyEditorialContext} from '../lib/reader-pro
 import {verifiedOriginalPayload} from '../lib/reader-source-types.ts';
 import {assertStoryBriefReady} from '../lib/reader-story-brief.ts';
 import {createOpenAIProvider,createDeepSeekProvider} from './openai-provider.ts';
-import {frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
+import {preparesSelectedStory,frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
 import {configuredModels,makeGenerator,suggestStories,safeGeminiError,recommendStoryArt,matchStoryThemes,verifyStoryThemes} from '../lib/reader-gemini.ts';
 import {storyDraftSchema,ReaderError} from '../lib/reader-model.ts';
 import {geminiGenerationTimeoutMs} from '../lib/reader-limits.ts';
@@ -146,8 +146,8 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
    }),
    original:(selection,plan,id)=>saveStoryOriginal(media,selection,plan,id,transport),
    async recommend(selection,id,original,prepareRequirements=false){
-    const result=await run({instructions:frameRecommendationPrompt,prompt:JSON.stringify(frameRecommendationPayload(selection,original,prepareRequirements)),schema:frameRecommendationOutputJson(original,prepareRequirements),reasoningEffort:taskReasoningEfforts.frames});
-    return {value:frameRecommendationOutputSchema(original,prepareRequirements).parse(JSON.parse(result.text)),model:result.model,requestId:result.requestId,usage:result.usage,promptRecord:result.promptRecord,reasoningEffort:result.reasoningEffort};
+    const result=await run({instructions:frameRecommendationPrompt,prompt:JSON.stringify(frameRecommendationPayload(selection,original,prepareRequirements)),schema:frameRecommendationOutputJson(original,prepareRequirements,preparesSelectedStory(selection,original)),reasoningEffort:taskReasoningEfforts.frames});
+    return {value:frameRecommendationOutputSchema(original,prepareRequirements,preparesSelectedStory(selection,original)).parse(JSON.parse(result.text)),model:result.model,requestId:result.requestId,usage:result.usage,promptRecord:result.promptRecord,reasoningEffort:result.reasoningEffort};
    },
    async plan(selection,id,original){
     assertStoryBriefReady(original);

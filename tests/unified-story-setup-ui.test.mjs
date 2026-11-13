@@ -35,6 +35,11 @@ test('discovery stays in the picker and selection opens one continuous story flo
  const candidates=renderToStaticMarkup(createElement(Setup,{...props,session:choosing}));
  assert.match(candidates,/已找到 1 篇/);assert.doesNotMatch(candidates,/完整审片流程|开始制作|<textarea|叙事详略|<select|候选批次/);
  assert.match(candidates,/<ul class="yu-extraction-candidates" aria-label="候选故事">.*不应铺开的候选介绍。.*符合/s);
+ const selectedSource={edition:'a'.repeat(64),sectionId:'section',firstUnit:'unit-1',lastUnit:'unit-2'};
+ const sourceMarkup=renderToStaticMarkup(createElement(Setup,{...props,session:{...choosing,selection:{...choosing.selection,discoverySources:[selectedSource]}}}));
+ assert.match(sourceMarkup,/已提取/);assert.doesNotMatch(sourceMarkup,/>符合</);assert.doesNotMatch(sourceMarkup,/继续查找/);
+ const themeMarkup=renderToStaticMarkup(createElement(Setup,{...props,session:{...choosing,selection:{...choosing.selection,discovery:{mode:'auto',themeInput:'custom'},discoverySources:[selectedSource]}}}));
+ assert.match(themeMarkup,/继续查找/);
  assert.match(candidates,/主题贴合度 79%/);
  // The review tools stay reachable once a reused first image exists; a clean story has no need of them.
  const reviewProps={busy:false,error:'',onScript:noop,onEdit:noop,onRetry:noop,onDrawAnyway:noop},story=image=>({original:{},pages:[{image}]}),issue={page:3,problem:'配文含混。',instruction:'说清楚。'};

@@ -5,10 +5,11 @@ import {LocalBooks} from '../server/local-books.ts';
 import {bookContents,indexBookContents,selectedChapterScope} from '../server/local-book-contents.ts';
 import {withLocalBooks} from '../server/local-generation.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
+import {libraryFixture} from './fixtures/story-library.mjs';
 import {productionFixture,until,selection} from './fixtures/production.mjs';
 const books=new LocalBooks(process.cwd()),base=selectionSchema.parse({...selection,bookId:'三国演义',theme:'忠于原文',storyTitle:undefined,length:'auto',narrativeDetail:'balanced'});
 async function prepared(t){
- const f=await productionFixture(t);f.control.hold=false;f.generation.matchStories=async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。'}))});
+ const f=await productionFixture(t);f.control.hold=false;f.generation.matchStories=async()=>assert.fail('Selected source extraction must not classify candidates by theme');
  const book=await books.book(base),chapters=(await bookContents(books,base,'黄忠 定军山')).entries;
  const sources=chapters.map(entry=>entry.source),chosen=book.sections.find(section=>section.id===sources[1].sectionId);
  const source={edition:book.edition,sectionId:chosen.id,firstUnit:chosen.units[0].id,lastUnit:chosen.units[3].id};
@@ -85,5 +86,42 @@ test('a fresh task and fresh discovery wrapper reuse persisted stories for the s
  const f=await prepared(t),first=await f.create();await until(async()=>(await f.read(first.id)).intake.phase==='choosing');const calls=f.inputs.length,stories=(await f.read(first.id)).intake.batches[0].stories;
  f.options.generation=withLocalBooks(f.generation,books,f.media);await f.restart();f.app.services.localBooks=books;
  const second=await f.create([...f.sources].reverse());await until(async()=>(await f.read(second.id)).intake.phase==='choosing');
- assert.notEqual(first.id,second.id);assert.equal(f.inputs.length,calls);assert.deepEqual((await f.read(second.id)).intake.batches[0].stories,stories);assert.match((await f.read(second.id)).intake.batches[0].note,/缓存/);assert.equal(f.control.recommendations.length,0);
+ assert.notEqual(first.id,second.id);assert.equal(f.inputs.length,calls);assert.deepEqual((await f.read(second.id)).intake.batches[0].stories,stories);assert.match((await f.read(second.id)).intake.batches[0].note,/复用所选原文/);assert.equal(f.control.recommendations.length,0);
+});
+
+for(const combine of [false,true])test(`${combine?'多段':'单段'}原文直接进入准备，一次生成标题、梗概和画风`,async t=>{
+ const f=await productionFixture(t),library=libraryFixture();
+ const [first,second]=library.stories.map(story=>story.source);
+ library.book.sections[0].units.splice(1,0,{id:'u3',text:'别处来了一位旅人，天亮时独自离开了村庄。',narrative:true});
+ f.generation.suggestions=async()=>assert.fail('准备前不提取故事');
+ f.generation.matchStories=async()=>assert.fail('准备前不匹配主题');
+ f.generation.recommendArt=async()=>assert.fail('多篇在同一次准备调用中给出画风');
+ f.control.beforeText=async(task,payload,schema)=>{
+  assert.equal(task,'recommend');
+  assert.equal(!!payload.combineSelectedOriginals,combine);
+  assert.equal(payload.sourcesConfirmed,true);
+  assert.ok(schema.required.includes('storyTitle')&&schema.required.includes('artRecommendation'));
+  assert.doesNotMatch(payload.verifiedOriginal.text,/旅人/);
+  return {storyTitle:'两则古事',storySummary:'两段各自完整的古事。',artRecommendation:{artStyle:'ink-wash',reason:'水墨呼应两段古事的意境。'}};
+ };
+ f.options.generation=withLocalBooks(f.generation,library.books,f.media);await f.restart();f.app.services.localBooks=library.books;
+ const input=combine?{discovery:{mode:'auto',combine:true},discoverySources:[first,second]}:{
+  source:first,sourceCard:{title:library.stories[0].title,description:library.stories[0].description},
+ };
+ const created=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...base,bookId:'zhuangzi',...input}});
+ assert.equal(created.intake.phase,'preparing');
+ assert.equal(created.intake.search.state,'idle');
+ const {source}=await f.json(`sessions/${created.id}/source`);
+ assert.doesNotMatch(source.text,/旅人/);assert.equal(source.localParts?.length??1,combine?2:1);
+ await f.demand(created.id);
+ const read=()=>f.read(created.id);
+ await until(async()=>(await read()).intake.phase==='confirming');
+ const prepared=await read();
+ assert.deepEqual(prepared.intake.selected,{batch:0,index:0});
+ assert.equal(prepared.selection.storyTitle,'两则古事');
+ assert.equal(prepared.intake.batches[0].stories[0].title,'两则古事');
+ assert.equal(prepared.selection.artStyle,'ink-wash');
+ assert.equal(prepared.frameRecommendation.storySummary,'两段各自完整的古事。');
+ assert.equal(f.control.recommendations.length,1);
+ assert.equal(f.control.plans.length,0);
 });

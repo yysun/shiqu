@@ -101,10 +101,23 @@ test('章模式只返回整章，按原文筛选，并与已保存故事段落�
  const both=(await f.json('books/liaozhai/contents?view=scope')).entries;
  const chapter=filtered[0],story=both.find(entry=>entry.title==='種梨');
  assert.ok(both.some(entry=>entry.kind==='chapter'&&entry.title==='第一卷'));
+ const original=await f.json('books/liaozhai/source?source='+encodeURIComponent(JSON.stringify(story.source)));
+ assert.equal(original.text,(await books.resolve(await books.book(choose('liaozhai')),story.source)).text);assert.ok(original.text.length>100);
  assert.equal(new Set(both.map(entry=>entry.id)).size,both.length);
  for(const discoverySources of [[chapter.source],[story.source]]){
   const requestId=crypto.randomUUID(),selected={...choose('liaozhai'),storyTitle:undefined,discovery:{mode:'auto'},discoverySources};
   const saved=await f.json('sessions','POST',{requestId,intake:true,selection:selected});
   assert.deepEqual(saved.selection.discoverySources,discoverySources);
  }
+});
+
+test('单选章节直接保存为所选故事原文，不启动章内提取',async t=>{
+ const f=await productionFixture(t);f.app.services.localBooks=books;
+ const selection=choose('liaozhai'),chapter=(await bookContents(books,selection,'种梨','chapters')).entries[0];assert.ok(chapter?.source);
+ const row=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,discovery:undefined,source:chapter.source,discoverySources:undefined}});
+ assert.equal(row.selection.discovery,undefined);assert.deepEqual(row.selection.source,chapter.source);assert.equal(row.selection.discoverySources,undefined);
+ assert.equal(row.intake.phase,'preparing');assert.equal(row.intake.batches[0].stories[0].title,chapter.title);
+ const original=await f.json(`sessions/${row.id}/source`);
+ assert.equal(original.source.text,(await books.resolve(await books.book(selection),chapter.source)).text);
+ assert.equal(f.control.recommendations.length,0);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });

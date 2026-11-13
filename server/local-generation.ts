@@ -6,7 +6,7 @@ import type {MediaStore} from '../lib/services.ts';
 import type {Selection} from '../lib/reader-model.ts';
 import type {OriginalSource} from '../lib/reader-source-types.ts';
 import {ReaderError} from '../lib/reader-model.ts';
-import {selectedChapterScope} from './local-book-contents.ts';
+import {combinedOriginal,selectedChapterScope} from './local-book-contents.ts';
 import {LocalBooks,localBookId} from './local-books.ts';
 import {hasSourceAnomaly,hasStoredSourceAnomaly} from './local-source-quality.ts';
 import type {LocalStorySearch} from './local-story-search.ts';
@@ -22,11 +22,11 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
   await media.put(`reader/${id}/source.json`,new TextEncoder().encode(JSON.stringify(source)),{contentType:'application/json'});
   return source;
  }
- async function recommendArt(selection:Selection){
-  const original=await books.selected(selection);
+ async function recommendArt(selection:Selection,savedOriginal?:OriginalSource){
+  const original=savedOriginal||await books.selected(selection);
   if(!original?.localSource||!selection.storyTitle)throw new ReaderError(400,'请先选择已核对出处的故事。');
   if(!provider.recommendArt)throw new ReaderError(503,'画风推荐暂不可用，可以手动选择画风。');
-  const status=await provider.status(),key='selected-story-art/'+discoveryHash([selection.bookId,selection.customBook,original.localSource,selection.storyTitle,selection.theme,status.provider,status.models.text,selectedArtRecommendationPrompt,...(status.taskReasoningEfforts?[status.taskReasoningEfforts.art]:[])]);
+  const status=await provider.status(),key='selected-story-art/'+discoveryHash([selection.bookId,selection.customBook,original.localSource,selection.storyTitle,selection.theme,original.storyBrief?.summary,status.provider,status.models.text,selectedArtRecommendationPrompt,...(status.taskReasoningEfforts?[status.taskReasoningEfforts.art]:[])]);
   return cache.shared(key,undefined,async()=>{
    const saved=await cache.read(key,artRecommendationSchema);if(saved)return saved;
    const result=artRecommendationSchema.parse(await provider.recommendArt!(selection,original));
@@ -45,6 +45,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
    const book=await books.book(selection);
    reading?.signal.throwIfAborted();
    if(!book){if(selection.discoverySources||selection.discovery?.mode==='title')throw new ReaderError(400,'章节或标题提取只支持本地书库。');return provider.suggestions(selection,excluded,undefined,reading,excludedSources);}
+   if(selection.discovery?.mode==='auto'&&selection.discovery.combine)throw new ReaderError(400,'多段原文请进入准备故事。');
    const scope=selection.discoverySources?await selectedChapterScope(books,book,selection.discoverySources):null;
    const result=await discoverLocalStories(provider,books,cache,scope?.book||book,scope?{...selection,discoverySources:scope.discoverySources}:selection,excluded,reading,excludedSources,undefined,storySearch);
    // 所选范围可能省略部分段落，展示的位置始终按完整原文计算。
@@ -104,6 +105,12 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
      if(!localBookId(selection)){
       if(selection.source)throw new ReaderError(400,'出处与所选书籍不一致，请重新选择故事。');
       return generator.prepareOriginal?.(selection,id)||null;
+     }
+     if(!selection.source&&selection.discovery?.mode==='auto'&&selection.discovery.combine&&selection.discoverySources){
+      const book=await books.book(selection);
+      if(!book)throw new ReaderError(400,'所选书籍不可用。');
+      const scope=await selectedChapterScope(books,book,selection.discoverySources,true);
+      return persist(combinedOriginal(books,book,scope),id);
      }
      const original=await books.storyOriginal(selection);return persist(original!,id);
     },

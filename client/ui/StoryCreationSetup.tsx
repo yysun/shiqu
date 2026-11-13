@@ -87,27 +87,36 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  const initialRetry=!onReplace&&!selected&&!terminalBatch&&!!error;
  const canResume=paused&&!selected&&!onReplace;
  const cardSearch=session.selection.discovery?.mode==='auto'&&session.selection.discovery.vectorFirst&&!session.selection.discovery.scanOnly;
+ const discovery=session.selection.discovery;
+ const combining=discovery?.mode==='auto'&&discovery.combine;
+ const directSource=!!selected?.source&&!discovery&&!session.selection.discoverySources?.length;
+ const preparingSelected=directSource||combining;
+ const selectedSourceMode=!!session.selection.discoverySources?.length&&(!discovery||discovery.mode==='auto'&&!discovery.plot&&!discovery.vectorFirst&&!discovery.themeInput);
  const indexedChecked=indexed?.filter(candidate=>candidate.status!=='pending').length??0;
  const indexedMatches=indexed?.filter(candidate=>candidate.status==='match').length??0;
  const incompleteIndex=!!indexed&&indexedChecked<indexed.length;
  const missingChoices=indexed?.some(candidate=>!candidate.choice);
  const searchLabel=paused?'查找已暂停':searching?'正在查找…':failedSearch||initialRetry?'查找未完成':atLimit?'已达候选上限':terminalBatch?.stories.length===0?(candidates.length?'暂无更多故事':'未找到故事'):candidates.length?'':onReplace?'等待提取':'正在提取…';
  const searchSummary=indexed?(cardSearch?`找到 ${indexed.length} 张相关故事卡`:`已核对 ${indexedChecked}/${indexed.length} · ${indexedMatches} 条符合`):[searchLabel,candidates.length?`已找到 ${candidates.length} 篇`:''].filter(Boolean).join(' ');
- const canFindMore=failedSearch||initialRetry||(indexed?(incompleteIndex||missingChoices)&&!searching:!targetTitle);
- const actionLabel=canResume?'恢复查找':missingChoices?'重新读取候选':indexed?'重试核对':failedSearch||initialRetry?'重试查找':'继续查找';
+ const canFindMore=!selectedSourceMode&&!targetTitle&&(failedSearch||initialRetry||(indexed?(incompleteIndex||missingChoices)&&!searching:true));
+ const actionLabel=combining?(canResume?'恢复整理':'重试整理'):canResume?'恢复查找':missingChoices?'重新读取候选':indexed?'重试核对':failedSearch||initialRetry?'重试查找':'继续查找';
  const searchAction=<StoryFlowAction disabled={busy||(canResume?progress.controlBusy:searching||paused||!indexed&&!terminalBatch&&!failedSearch&&!initialRetry)} onClick={()=>{if(canResume)return progress.onControl(session.id,'resume');void act({action:'more'});}}>{actionLabel}</StoryFlowAction>;
  // The service records preparation as count; confirmation is a human gate with no execution time.
  const {count:preparationSeconds,...workDurations}=session.generationProgress?.stageDurations||{};
  const stageDurations={...workDurations,...(preparationSeconds!==undefined?{prepare:preparationSeconds}:{})};
  const prepared=ready||intake.phase==='confirmed';
  const initialFrameCount=prepared?session.frameRecommendation?.count:undefined;
+ const artStyleLabel=getArtStyle(settings.artStyle).label;
  const narrativeLabel=settings.narrativeDetail==='brief'?'简短':settings.narrativeDetail==='detailed'?'详细':'适中';
  const extractionContext=`《${book}》 · ${session.selection.theme==='原典故事'?'不限定主题':`主题：${session.selection.theme}`}${session.selection.discoverySources?.length?` · 已选 ${session.selection.discoverySources.length} 段原文`:''}`;
  const stages=generationProgress(session,Date.now()).steps.flatMap(step=>{
-  if(step.id==='source')return [{...step,label:'提取故事',detail:extractionContext}];
+  if(step.id==='source'&&combining&&!selected)return [{
+   ...step,label:'整理所选原文',detail:extractionContext,state:failedSearch?'failed' as const:paused?'paused' as const:'current' as const,
+  }];
+  if(step.id==='source')return [{...step,label:combining||directSource?'已选原文':'提取故事',detail:directSource?selected?.sourceLabel||`《${book}》`:extractionContext}];
   if(step.id==='count')return [
-   {id:'prepare',label:'准备故事',state:prepared?'done' as const:step.state,detail:prepared?(session.frameRecommendation?.storySummary?'原文与梗概已核对':'原文与制作建议已保存'):preparable?'待准备这篇故事':'保存原文，核对梗概与制作建议'},
-   {...step,state:prepared?step.state:'pending' as const,detail:`${initialFrameCount===undefined?'':`模型初估 ${initialFrameCount} 幅 · `}画幅数由编排与审核确定`},
+   {id:'prepare',label:'准备故事',state:prepared?'done' as const:combining&&!selected?'pending' as const:step.state,detail:prepared?(session.frameRecommendation?.storySummary?'原文与梗概已核对':'原文与制作建议已保存'):preparable?'待准备这篇故事':preparingSelected?'规划标题、画幅数和画风':'保存原文，核对梗概与制作建议'},
+   {...step,state:prepared?step.state:'pending' as const,detail:initialFrameCount===undefined?'等待准备完成':`预计 ${initialFrameCount} 幅 · 最终幅数由编排与审核确定`},
   ];
   return [step];
  });
@@ -141,7 +150,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   {searchNotice&&<p className="yu-search-notice" role={failedSearch?'alert':'status'}>{searchNotice}</p>}
   {candidateRows.length>0&&<ul className="yu-extraction-candidates" aria-label="候选故事">{candidateRows.map(({id,title,summary,sourceLabel,status,choice,matchScore})=>{
    const current=choice&&isSelected(choice.batch,choice.index);
-   const label=status==='match'?(cardSearch&&indexed?'语义相关':targetTitle?'已核对':'符合'):status==='rejected'?'不符合':checkingIds.has(id)?'核对中':'待核对';
+   const label=status==='match'?(cardSearch&&indexed?'语义相关':selectedSourceMode?'已提取':targetTitle?'已核对':'符合'):status==='rejected'?'不符合':checkingIds.has(id)?'核对中':'待核对';
    return <li key={id} data-status={status}>
     <div className="yu-extraction-candidate-copy"><strong>{title}</strong>{summary&&<p>{summary}</p>}{sourceLabel&&<small>{sourceLabel}</small>}</div>
     <div className="yu-extraction-candidate-controls">
@@ -152,17 +161,32 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   })}</ul>}
  </>;
  const extractionError=failedSearch&&<div className="yu-batch-error" role="alert"><p>提取未完成。{search.error}</p><p>已找到的故事仍可选择。</p>{!atLimit&&searchAction}</div>;
+ if(combining&&!selected)return <section className="yu-creation-setup" aria-label="准备故事">
+  <StoryExtractionContext selection={session.selection} book={book} backAction={onBackToDiscovery&&
+   <StoryFlowAction disabled={busy} onClick={onBackToDiscovery}><ArrowLeft size={14} aria-hidden="true"/>返回选材</StoryFlowAction>}/>
+  <StoryGenerationStatus session={session} {...progress} compact hideBack stages={stages} timeline={{stageDurations}}
+   control={searching&&!paused?<StoryFlowAction disabled={progress.controlBusy} onClick={()=>void progress.onControl(session.id,'pause')}>暂停整理</StoryFlowAction>:null}
+   stageContent={{source:failedSearch?<div role="alert"><p>{search.error}</p>{searchAction}</div>:
+    paused?<div><p role="status">故事整理已暂停。</p>{searchAction}</div>:
+    <p role="status">正在将所选原文整理为一篇故事…</p>}}/>
+  {error&&<p role="alert">{error}</p>}
+  {!progress.hideBack&&<StoryBackToShelf onBack={progress.onBack}/>}
+ </section>;
  return <section className="yu-creation-setup" aria-label={selected?'故事流程':'选择故事'}>
   {!selected&&<StoryExtractionContext selection={session.selection} book={book} backAction={onBackToDiscovery&&<StoryFlowAction disabled={busy} onClick={onBackToDiscovery}><ArrowLeft size={14} aria-hidden="true"/>修改提取条件</StoryFlowAction>}/>}
   {!selected&&onReplace&&<StoryExtractionSearch retainKey={retainKey&&'search:'+session.id} sessionId={session.id} title={targetTitle} local={session.selection.bookId!=='other'} busy={busy} hasCandidates={candidates.length>0} onSearch={title=>act({action:'search',title})}/>}
-  {selected&&progress.showSummary!==false&&<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3></div>}
+  {selected&&session.selection.storyTitle!=='待拟标题'&&progress.showSummary!==false&&<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3></div>}
   {!selected&&candidateList}
+  {selected&&preparingSelected&&<div className="yu-selected-story-card">
+   {!session.frameRecommendation?.storySummary&&intake.phase==='preparing'&&<p role="status">故事梗概准备中</p>}
+   <StoryFlowAction disabled={busy||!session.generationProgress?.sourceReady} onClick={()=>setSourceOpen(true)}>查看原文</StoryFlowAction>
+  </div>}
   {!selected&&!editing&&remoteChoice}
-  {selected?<StoryGenerationStatus session={session} {...progress} navigation={undefined} compact={ready} control={ready?null:undefined} stages={stages} timeline={{stageDurations}} stageContent={{source:<>
-   <div className="yu-extraction-actions" role="group" aria-label="故事来源操作">
+  {selected?<StoryGenerationStatus session={session} {...progress} navigation={undefined} compact={ready||preparingSelected} control={ready?null:undefined} stages={stages} timeline={{stageDurations}} stageContent={{source:<>
+   {!preparingSelected&&<div className="yu-extraction-actions" role="group" aria-label="故事来源操作">
     <StoryFlowAction disabled={busy||!ready&&!session.generationProgress?.sourceReady} onClick={()=>setSourceOpen(true)}>原文</StoryFlowAction>
     <StoryFlowAction disabled={busy} onClick={()=>setChoosing(true)}>重新选择故事</StoryFlowAction>
-   </div>
+   </div>}
    {extractionError}
   </>,prepare:<>
    {preparable&&<StoryFlowAction type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'choose',batch:intake.selected!.batch,index:intake.selected!.index,settings:preferences})}>准备这篇</StoryFlowAction>}
@@ -172,10 +196,10 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
    {editable&&<div className="yu-confirmation-settings" role="group" aria-label="制作设置">
     <StoryFlowAction disabled={locked} onClick={()=>setEditing('requirements')}>制作要求</StoryFlowAction>
     <StoryFlowAction disabled={locked} onClick={()=>setEditing('acceptance')}>验收要求</StoryFlowAction>
-    <StoryFlowAction disabled={locked} aria-label="修改画风" onClick={()=>setEditing('style')}>画风：{getArtStyle(settings.artStyle).label}</StoryFlowAction>
+    <StoryFlowAction disabled={locked} aria-label="修改画风" onClick={()=>setEditing('style')}>画风：{artStyleLabel}</StoryFlowAction>
     <StoryFlowAction disabled={locked} aria-label="修改叙事详略" onClick={()=>setEditing('count')}>叙事详略：{narrativeLabel}</StoryFlowAction>
    </div>}
-   {ready&&<StoryFlowAction type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'confirm',settings})}>{busy?'正在保存…':'开始制作'}</StoryFlowAction>}
+   {ready&&<StoryFlowAction asLink={!preparingSelected} type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'confirm',settings})}>{busy?'正在保存…':'开始制作'}</StoryFlowAction>}
   </>}}/>:<>
    {(session.error||progress.error)&&<p className="yu-batch-error" role="alert">{progress.error||session.error}</p>}
    {(session.state==='failed'||!!progress.error)&&<StoryRetry session={session} busy={progress.busy} onRetry={progress.onRetry}/>}

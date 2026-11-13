@@ -511,7 +511,7 @@ test('逐书导入可读取 WAL 提交，支持纯文字索引，更新或失败
 
 test('主题核对在缺索引或文字无候选时读取指定章节原文',async t=>{
  for(const missing of [false,true]){
-  const f=await setup(t),query={...selection,theme:'知恩图报',discovery:{mode:'auto'}};
+  const f=await setup(t),query={...selection,theme:'知恩图报',discovery:{mode:'auto',themeInput:'custom'}};
   const section=f.book.sections[0],scope={edition:f.book.edition,sectionId:section.id,firstUnit:section.units[0].id,lastUnit:section.units.at(-1).id};
   f.provider.verifyThemeStories=async()=>assert.fail('没有候选时直接读原文');
   const search=new LocalStorySearch(missing?join(dirname(f.file),'absent.sqlite'):f.file);

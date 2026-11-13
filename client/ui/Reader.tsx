@@ -55,7 +55,7 @@ import StoryReviewTools from './StoryReviewTools';
 import StoryReviewHistory from './StoryReviewHistory';
 import StoryPausedEditing from './StoryPausedEditing';
 import Sheet from './StorySheet';
-import StorySettingsPanel,{StorySettingsContent} from './StorySettingsPanel';
+import StorySettingsPanel,{StorySettingsContent,storyWorkflowHeading} from './StorySettingsPanel';
 import StoryFrameCount from './StoryFrameCount';
 import {narrativeDetailSchema} from '@/lib/reader-frame-recommendation';
 import StoryRetry from './StoryRetry';
@@ -93,7 +93,7 @@ function initialReaderSelection():Selection{
  const initial:Selection={bookId:'liaozhai',theme:'原典故事',artStyle:'ink-pencil',productionPrompt:defaultProductionPrompt(),length:'auto',narrativeDetail:'balanced',voice:false};
  try{
   const saved=JSON.parse(localStorage.getItem('yiyu-preferences')||'null');
-  if(saved&&typeof saved.bookId==='string')return {...initial,...saved,artStyle:getArtStyle(saved.artStyle).id,productionPrompt:promptAfterThemeChange(typeof saved.productionPrompt==='string'?saved.productionPrompt:'',saved.theme||initial.theme,saved.theme||initial.theme),discovery:{mode:'auto'},storyTitle:undefined,source:undefined,discoverySources:undefined,length:'auto',narrativeDetail:narrativeDetailSchema.safeParse(saved.narrativeDetail).success?saved.narrativeDetail:'balanced',voice:false};
+  if(saved&&typeof saved.bookId==='string')return {...initial,...saved,artStyle:getArtStyle(saved.artStyle).id,productionPrompt:promptAfterThemeChange(typeof saved.productionPrompt==='string'?saved.productionPrompt:'',saved.theme||initial.theme,saved.theme||initial.theme),discovery:{mode:'auto'},storyTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined,length:'auto',narrativeDetail:narrativeDetailSchema.safeParse(saved.narrativeDetail).success?saved.narrativeDetail:'balanced',voice:false};
  }catch{}
  return initial;
 }
@@ -279,7 +279,7 @@ export default function Reader(){
   if(seen.current.size===story.pages.length)track('complete');
  }
  // 桌面新建页从“返回修改书籍”打开时，左侧选书、心情与“不挑了”只改选择，仍修改原任务的条件（与手机表单内选书一致）。
- function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){cancelOpening();clearRetained('discovery');setCreateSeed(seed=>seed+1);if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,displayTitle:undefined,source:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
+ function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){cancelOpening();clearRetained('discovery');setCreateSeed(seed=>seed+1);if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,displayTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
  // 关闭新建并丢弃表单草稿；新建面板关闭、顶栏离开与两条提交成功路径共用。
  function closeCreate(){setConfigure(false);setDiscoveryTarget(null);clearRetained('discovery');}
  // 离开故事设置：清除子面板标志（修订草稿保留），再关闭制作流程。
@@ -391,7 +391,7 @@ export default function Reader(){
   try{
    if(discoveryTarget){
     if(gen.active?.id!==discoveryTarget)throw Error('当前任务已切换，请重新打开后修改。');
-    await gen.setup({action:'conditions',conditions:{discovery:input.discovery,bookId:input.bookId,customBook:input.customBook,theme:input.theme,discoverySources:input.discoverySources,productionPrompt:input.productionPrompt}});
+    await gen.setup({action:'conditions',conditions:{discovery:input.discovery,source:input.source,sourceCard:input.sourceCard,bookId:input.bookId,customBook:input.customBook,theme:input.theme,discoverySources:input.discoverySources,productionPrompt:input.productionPrompt}});
     setSelection(input);closeCreate();return;
    }
    setSelection(input);gen.leave();session.current=randomId();seen.current=new Set();setPage(0);setSaved(false);setStory(null);setEnded(false);const started=await gen.start({...input,length:'auto',narrativeDetail:input.narrativeDetail||'balanced',voice:false},true);
@@ -608,7 +608,7 @@ export default function Reader(){
  </ReaderTag>;
 
  // 手机树：今天的界面与其专属面板。
- const configureSheet=configure&&<Sheet title="这一篇，想怎样读？" busy={creating} onClose={closeCreate}><StoryDiscoveryForm retainKey="discovery" selection={selection} books={choices} semanticIndexBooks={semanticIndexBooks} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}))} onSubmit={generate}/></Sheet>;
+ const configureSheet=configure&&<Sheet title="这一篇，想怎样读？" busy={creating} onClose={closeCreate}><StoryDiscoveryForm retainKey="discovery" selection={selection} books={choices} semanticIndexBooks={semanticIndexBooks} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined}))} onSubmit={generate}/></Sheet>;
  const sourceSheet=source&&(story||gen.active)&&<Sheet title="故事从哪里来" onClose={()=>setSource(false)}>{story?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:<StorySource key={gen.active!.id} sessionId={gen.active!.id} book={bookName({id:gen.active!.id,bookId:gen.active!.selection.bookId})}/>}</Sheet>;
  const sceneSheet=sceneList&&story&&<Sheet title="分镜列表" onClose={()=>setSceneList(false)}><StorySceneList story={story} page={page} onSelect={index=>{goToPage(index);setSceneList(false);}}/></Sheet>;
  const storySheets=<>
@@ -641,7 +641,7 @@ export default function Reader(){
  }
  // 桌面书架：宽档可阅读卡片打开右栏阅读，制作中卡片打开同栏故事设置；窄档沿用整页入口。
  const openDocked=(target:ShelfStory,restart=false)=>{if(!restart&&(opening===target.id||dockedView&&!workflowTarget&&story?.id===target.id))return;open(target,restart,true);};
- const librarySettings=dockedSettings&&<section className="yu-library-settings" aria-label="故事设置"><header><h2>故事设置</h2><button type="button" className="yu-icon" aria-label="关闭故事设置" disabled={settingsProps.busy} onClick={backToShelf}><X size={20}/></button></header>{StorySettingsContent(settingsProps)}</section>;
+ const librarySettings=dockedSettings&&<section className="yu-library-settings" aria-label={storyWorkflowHeading(workflowSession)}><header><h2>{storyWorkflowHeading(workflowSession)}</h2><button type="button" className="yu-icon" aria-label="关闭故事设置" disabled={settingsProps.busy} onClick={backToShelf}><X size={20}/></button></header>{StorySettingsContent(settingsProps)}</section>;
  const sideContent=librarySettings||(dockedView?readerMain:docked?openingStory:null);
  const desktopLibrary=wide?cloneElement(shelfView,{
   selectedId:workflowDocked?workflowTarget:docked?(opening||story?.id):null,
@@ -653,7 +653,7 @@ export default function Reader(){
  // 桌面新建页：选择在左（或上），内联表单在右（或下），与手机面板共用表单组件与属性。
  const createPage=view.kind==='create'&&<main className="yu-home yu-desktop-main" data-main=""><DesktopCreate
   choices={<>{discoverBooks}{discoverMoods}{discoverSurprise}</>}
-  form={<StoryDiscoveryForm key={createSeed} retainKey="discovery" selection={selection} books={choices} semanticIndexBooks={semanticIndexBooks} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}))} onSubmit={generate}/>}/></main>;
+  form={<StoryDiscoveryForm key={createSeed} retainKey="discovery" selection={selection} books={choices} semanticIndexBooks={semanticIndexBooks} busy={creating} error={unavailable} onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined}))} onSubmit={generate}/>}/></main>;
  // 桌面阅读：舞台加可选侧栏（分镜列表或原文）；侧栏里选分镜只翻页，不关闭侧栏。
  const readerPanel=view.kind!=='reader'||!story?null:view.panel==='scenes'?<StorySceneList story={story} page={page} onSelect={goToPage}/>:view.panel==='source'?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:null;
  const desktopReader=view.kind==='reader'&&<DesktopReader stage={readerMain} panel={readerPanel} title={view.panel==='scenes'?'分镜列表':'故事从哪里来'} onClose={()=>{setSource(false);setSceneList(false);}}/>;

@@ -16,7 +16,7 @@ export function StorySettingsContent({story,session,busy,disabled,onBack,onRenam
  const storyId=session?.id||story?.id;
  const canDownload=!!story?.pages.length&&story.pages.every(page=>!!page.image);
  return <fieldset className="yu-revision-fields" disabled={disabled}>
-  {(!session?.intake||session.intake.selected||session.intake.phase==='confirmed')&&<div className="yu-story-name">
+  {session?.selection.storyTitle!=='待拟标题'&&(!session?.intake||session.intake.selected||session.intake.phase==='confirmed')&&<div className="yu-story-name">
    <div className="yu-setting-row">
     <p>{title}</p>
     <button type="button" className="yu-revision-open" disabled={!onRename||!storyId} onClick={()=>{if(onRename&&storyId)onRename(storyId,title);}}>修改故事名</button>
@@ -30,7 +30,13 @@ export function StorySettingsContent({story,session,busy,disabled,onBack,onRenam
   <StoryBackToShelf onBack={onBack} disabled={busy} link/>
  </fieldset>;
 }
+export function storyWorkflowHeading(session?:SessionView|null){
+ const intake=session?.intake;
+ const discovery=session?.selection.discovery;
+ const preparing=!!intake&&intake.phase!=='confirmed'&&(discovery?.mode==='auto'&&discovery.combine||!!session?.selection.source&&!discovery);
+ return preparing?'准备故事':'故事设置';
+}
 export default function StorySettingsPanel(props:Props){
- const intake=props.session?.intake;
- return <Sheet title="故事设置" fixedHeight={!!intake&&!intake.selected&&intake.phase!=='confirmed'} busy={props.busy} onClose={props.onClose}>{StorySettingsContent(props)}</Sheet>;
+ const intake=props.session?.intake,title=storyWorkflowHeading(props.session);
+ return <Sheet title={title} fixedHeight={!!intake&&!intake.selected&&intake.phase!=='confirmed'&&title==='故事设置'} busy={props.busy} onClose={props.onClose}>{StorySettingsContent(props)}</Sheet>;
 }

@@ -592,6 +592,21 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const excluded=intake.batches.flatMap(batch=>batch.stories),titles=excluded.map(story=>story.title),sources=excluded.flatMap(story=>story.source?[story.source]:[]);
   const active:ActiveSearch={round,controller:new AbortController(),startedAt:this.clock()};this.searches.set(row.id,active);
   try{
+   const combining=selection.discovery?.mode==='auto'&&selection.discovery.combine;
+   // 旧任务可能仍排在查找队列，补存所选原文后直接交给准备阶段。
+   if(combining){
+    const original=await provider.generator().prepareOriginal?.(selection,row.id);
+    if(!original?.localSource)throw new ReaderError(400,'所选原文不可用，请返回选材。');
+    const story={title:'待拟标题',description:'故事梗概准备中',source:original.localSource,sourceLabel:original.title.slice(0,150)};
+    const batch={stories:[story],note:''};
+    const next={...selection,storyTitle:story.title,source:story.source};
+    const updated=await this.database.prepare(`UPDATE stories SET selection=?,document=json_set(document,
+     '$.original',json(?),'$.intake.batches',json(?),'$.intake.selected',json(?),'$.intake.phase','preparing','$.intake.search',json(?)),updated_at=?
+     WHERE id=? AND user_id=? AND json_extract(document,'$.intake.search.round')=? AND json_extract(document,'$.intake.search.state')='searching'
+     AND NOT EXISTS (SELECT 1 FROM library_deletions WHERE story_id=stories.id AND user_id=stories.user_id)`)
+     .bind(JSON.stringify(next),JSON.stringify(original),JSON.stringify([batch]),JSON.stringify({batch:0,index:0}),JSON.stringify({...search,state:'idle',error:null}),new Date(this.clock()).toISOString(),row.id,row.user_id,round).run();
+    return updated.meta.changes?{batches:1}:{obsolete:true};
+   }
    let published=false;
    const onIndexedCandidates=this.options.targetSessionId?undefined:async(candidates:IndexedStoryUpdate[])=>{
     if(!await this.saveIndexedCandidates(row.id,row.user_id,round,candidates))active.controller.abort();

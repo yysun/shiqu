@@ -150,7 +150,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     limit:z.coerce.number().int().min(1).max(100).parse(limitValue??20),
     offset:z.coerce.number().int().min(0).max(1_000_000).parse(offsetValue??0),
    };
-   return json(await bookContents(services.localBooks,selectionSchema.parse({bookId:path[1],theme:'目录'}),query,view,page));
+   return json(await bookContents(services.localBooks,selectionSchema.parse({bookId:path[1],theme:'目录'}),query,view,page,view==='stories'?z.string().max(40).optional().parse(url.searchParams.get('section')??undefined):undefined));
   }
   if(path[0]==='books'&&path.length===3&&path[2]==='source'&&req.method==='GET'){
    if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
@@ -206,7 +206,8 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    await requireProvider();
    const {excludeTitles,excludeSources,...selection}=suggestionRequestSchema.parse(await body(req,1048576));
    if(req.headers.get('accept')==='application/x-ndjson'){
-    const abort=new AbortController(),encoder=new TextEncoder();
+    const abort=new AbortController(),encoder=new TextEncoder(),cancel=()=>abort.abort();
+    req.signal.addEventListener('abort',cancel,{once:true});
     const stream=new ReadableStream<Uint8Array>({
      start(controller){
       const send=(event:unknown)=>{if(!abort.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
@@ -214,9 +215,9 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
       void provider.suggestions(selection,excludeTitles,undefined,{signal:abort.signal,onProgress:progress=>send({type:'progress',progress})},excludeSources)
        .then(batch=>send({type:'result',batch}))
        .catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof ReaderError?error.message:provider.safeError(error)});})
-       .finally(()=>{if(!abort.signal.aborted)controller.close();});
+       .finally(()=>{req.signal.removeEventListener('abort',cancel);if(!abort.signal.aborted)controller.close();});
      },
-     cancel(){abort.abort();},
+     cancel,
     });
     return new Response(stream,{headers:{'Content-Type':'application/x-ndjson','Cache-Control':'private, no-store','X-Accel-Buffering':'no'}});
    }

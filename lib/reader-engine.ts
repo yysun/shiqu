@@ -7,7 +7,7 @@ import type {ReaderRepository} from './reader-repository.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import type {OriginalSource,SourceResult,SourceHint} from './reader-source-types.ts';
 import {suggestedSettings} from './reader-requirements.ts';
-import {frameRecommendationOutputSchema} from './reader-frame-recommendation.ts';
+import {frameRecommendationOutputSchema,preparesSelectedStory} from './reader-frame-recommendation.ts';
 import {storyBriefSchema,storyBriefVerified} from './reader-story-brief.ts';
 import {storyEditorialContext} from './reader-prompts.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
@@ -56,6 +56,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
  let progressMap:number[]|undefined;
  try{
   let generated:Generated<unknown>|undefined;
+  let preparedStory:Parameters<ReaderRepository['save']>[6];
   // Both explicit preparation and the legacy planning fallback save the same verified checkpoint.
   async function prepareRecommendation(ownedToken:string){
    if(!doc.original){
@@ -70,12 +71,21 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    }
    const chosen=doc.intake?.selected,candidate=chosen?doc.intake!.batches[chosen.batch]?.stories[chosen.index]:undefined;
    // Candidate guidance or an explicit placeholder stays bound to the saved original until checked.
-   const pendingBrief=candidate?.storyBrief||{summary:doc.storyboard?.outline.summary||'尚未准备完整摘要，请依据已核原文生成。',matchReason:candidate?.matchReason||(storyEditorialContext(selection.theme).mode==='source'?'直接选择原典故事，须按原文补齐完整主线，不额外套主题。':'已选中此故事，须对照原文确认具体主题依据并补齐完整主线。')};
+   const combining=selection.discovery?.mode==='auto'&&selection.discovery.combine;
+   const selectedSummary=selection.sourceCard?.description;
+   const sourceReason=combining?'读者已选定多段原文，按整理后的结构保留各段关键事实。'
+    :selectedSummary||storyEditorialContext(selection.theme).mode==='source'?'读者已直接选定原文，依据原文补齐完整主线。'
+    :'已选中此故事，须对照原文确认具体主题依据并补齐完整主线。';
+   const pendingBrief=candidate?.storyBrief||{
+    summary:selectedSummary||doc.storyboard?.outline.summary||'尚未准备完整摘要，请依据已核原文生成。',
+    matchReason:candidate?.matchReason||sourceReason,
+   };
    if(!doc.original.storyBrief){
     doc.original.storyBrief={...storyBriefSchema.parse(pendingBrief),verified:false};
     await repo.saveImageProgress(row,ownedToken,structuredClone(doc));
    }
-   if(candidate?.source&&!candidate.artRecommendation&&generator.recommendArt){
+   const selectedStory=preparesSelectedStory(selection,doc.original);
+   if(!selectedStory&&candidate?.source&&!candidate.artRecommendation&&generator.recommendArt){
     const recommendation=artRecommendationSchema.parse(await generator.recommendArt(selection,doc.original));
     await repo.saveArtRecommendation(row,ownedToken,doc,recommendation);
     candidate.artRecommendation=recommendation;
@@ -83,7 +93,13 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    }
    if(!generator.recommend)throw new ReaderError(503,'生成服务暂不支持画幅建议，请更新服务后重试。');
    const prepareRequirements=!!doc.intake&&!doc.setupRequirements?.suggestions;
-   const result=await generator.recommend(selection,id,doc.original,prepareRequirements),recommendation=frameRecommendationOutputSchema(doc.original,prepareRequirements).parse(result.value);
+   const result=await generator.recommend(selection,id,doc.original,prepareRequirements),recommendation=frameRecommendationOutputSchema(doc.original,prepareRequirements,selectedStory).parse(result.value);
+   if(selectedStory&&candidate&&chosen){
+    const art=recommendation.artRecommendation!;
+    selection.storyTitle=recommendation.storyTitle!;
+    if(!doc.intake!.manualArt)selection.artStyle=art.artStyle;
+    preparedStory={title:selection.storyTitle,description:recommendation.storySummary!.slice(0,180),artRecommendation:art,batch:chosen.batch,index:chosen.index};
+   }
    if(prepareRequirements){
     doc.setupRequirements={...doc.setupRequirements,suggestions:recommendation.requirements!};
     doc.intake!.draft??=suggestedSettings(selection,doc.setupRequirements.suggestions!,doc.setupRequirements.overrides);
@@ -220,6 +236,6 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    const issues=blockedIssues(doc.visualReview),summary=issues.slice(0,3).map(issue=>`${issue.category==='reflection'?'结语':`第 ${issue.page} 幅`}：${issue.problem}`).join('；');
    throw new ReaderError(422,`${doc.visualReview.stopReason==='unchanged'?'修订没有产生实际变化':`已自动修复 ${readerMaxAutomaticRepairs} 轮，复核未通过`}，仍有 ${issues.length} 处问题，已停止绘图。${summary}。可手动继续修订。`);
   }
-  return view(await repo.save(row,token,doc,productionComplete(doc,selection),null,progressMap));
+  return view(await repo.save(row,token,doc,productionComplete(doc,selection),null,progressMap,preparedStory));
  }catch(error){if(error instanceof ReaderError&&error.status===404||persistenceError(error))throw error;onFailed?.(error);return view(await repo.save(row,token,doc,false,error instanceof ReaderError?error.message:generator.safeError(error),progressMap));}
 }

@@ -1,4 +1,4 @@
-// 验证三种互斥检索、原任务条件修改和替换选题。
+// 验证选材页多选、直接准备、合写和替换选题。
 // Browser/data are disposable; inference is controlled and no production shelf or credentials are loaded.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,8 +11,10 @@ import {LocalBooks} from '../server/local-books.ts';
 import {libraryFixture,storyCardFixture} from './fixtures/story-library.mjs';
 import {productionFixture,until} from './fixtures/production.mjs';
 
-test('creation keeps three search modes separate and preserves the production title', {timeout:120000},async t=>{
+test('creation selects sources before preparing a single or combined story', {timeout:120000},async t=>{
  const f=await productionFixture(t),library=libraryFixture();
+ f.control.beforeText=async(task,payload)=>task==='recommend'&&payload.combineSelectedOriginals
+  ?{storyTitle:'两则古事',storySummary:'两段古事并列讲述。',artRecommendation:{artStyle:'ink-pencil',reason:'与原文相符。'}}:undefined;
  f.generation.suggestions=async(selection,excluded,input)=>{
   const result=await library.provider.suggestions(selection,excluded,input);
   if(input.scan?.targetStoryTitle)return {...result,stories:library.stories.filter(story=>story.title===input.scan.targetStoryTitle&&input.text.includes('['+story.source.firstUnit+']')),scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}};
@@ -26,6 +28,9 @@ test('creation keeps three search modes separate and preserves the production ti
   return query.startsWith('渔夫')?cards:[];
  };
  f.generation.verifyThemeStories=async(...args)=>{modelQueries.push(args[0]);return verifyThemeStories(...args);};
+ library.books.storySearch={...storySearch,passages:async()=>library.stories.map(story=>({
+  id:story.title,source:story.source,displayTitle:story.title,displaySummary:story.description,
+ }))};
  f.options.generation=withLocalBooks(f.generation,library.books,f.media,undefined,storySearch);await f.restart();f.app.services.localBooks=library.books;
  const api=createHttpServer(request=>f.app.handle(request));await new Promise(resolve=>api.listen(0,'127.0.0.1',resolve));
  t.after(()=>new Promise(resolve=>{api.closeAllConnections();api.close(resolve);}));
@@ -49,6 +54,23 @@ test('creation keeps three search modes separate and preserves the production ti
   await sheet.getByRole('group',{name:'选择书籍'}).getByRole('button',{name:'庄子',exact:true}).click();
   return sheet;
  }
+ const direct=await open();
+ await direct.getByRole('group',{name:'检索方式'}).getByRole('button',{name:'按章节',exact:true}).click();
+ const directChapter=direct.getByRole('region',{name:'章节列表'});
+ await directChapter.getByRole('checkbox').first().check();
+ const directCreation=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/reader/sessions'&&response.request().method()==='POST');
+ await direct.getByRole('region',{name:'本章故事卡'}).getByRole('checkbox',{name:'乌龟报恩'}).check();
+ await direct.getByRole('button',{name:'准备故事',exact:true}).click();
+ const directResponse=await directCreation;assert.equal(directResponse.status(),201);
+ const directSaved=await directResponse.json();assert.ok(directSaved.selection.source);assert.equal(directSaved.selection.discovery,undefined);assert.equal(directSaved.selection.discoverySources,undefined);
+ assert.equal(directSaved.intake.phase,'preparing');assert.equal(directSaved.intake.batches[0].stories[0].title,'乌龟报恩');
+ const directPreparing=page.getByRole('dialog',{name:'准备故事',exact:true});
+ await directPreparing.getByText('乌龟报恩',{exact:true}).waitFor();
+ await directPreparing.getByRole('button',{name:'开始制作',exact:true}).waitFor();
+ const directPlan=f.control.recommendations.find(item=>item.chosenStory==='乌龟报恩');
+ assert.equal(directPlan.storyBrief.summary,library.stories[0].description);
+ assert.equal(directPlan.verifiedOriginal.text,library.book.sections[0].units[0].text);
+
  const sheet=await open();
  const modes=sheet.getByRole('group',{name:'检索方式'});
  const activate=name=>modes.getByRole('button',{name,exact:true}).click();
@@ -60,7 +82,11 @@ test('creation keeps three search modes separate and preserves the production ti
  await chapters.getByRole('checkbox',{name:'第一章',exact:true}).check();
  await activate('按故事');
  assert.equal(await chapters.count(),0);
- assert.equal(await sheet.getByRole('region',{name:'故事列表'}).count(),1);
+ const stories=sheet.getByRole('region',{name:'故事列表'});
+ await stories.getByRole('checkbox',{name:'乌龟报恩',exact:true}).check();
+ await stories.getByRole('checkbox',{name:'勇士护民',exact:true}).check();
+ assert.equal(await submit.textContent(),'准备故事');
+ assert.equal(await submit.isEnabled(),true);
  await activate('按主题');
  assert.equal(await sheet.getByRole('region',{name:'故事列表'}).count(),0);
  const themes=sheet.getByRole('group',{name:'故事主题'});
@@ -76,36 +102,36 @@ test('creation keeps three search modes separate and preserves the production ti
  assert.equal(await sheet.getByLabel('自定义主题或情节').inputValue(),'渔夫救乌龟，后来乌龟救了渔夫');
  assert.equal(await sheet.getByLabel(/制作标题/).count(),0);
  assert.equal(await sheet.getByRole('button',{name:'查找主题',exact:true}).count(),0);
- assert.equal(await submit.textContent(),'开始找故事');
+ await sheet.getByRole('button',{name:'开始找故事',exact:true}).click();
+ const results=sheet.getByRole('region',{name:'查找结果'});
+ await results.getByRole('checkbox',{name:'乌龟报恩',exact:true}).check();
+ await results.getByRole('checkbox',{name:'勇士护民',exact:true}).check();
+ assert.deepEqual(modelQueries,[]);
+ assert.ok(vectorQueries.includes('渔夫救乌龟，后来乌龟救了渔夫'.normalize('NFKC')));
  const creation=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/reader/sessions'&&response.request().method()==='POST');
  await submit.click();
  const response=await creation;
  assert.equal(response.status(),201);
  const saved=await response.json();
- assert.deepEqual(saved.selection.discovery,{mode:'auto',vectorFirst:true,themeInput:'custom'});
- assert.equal(saved.selection.discoverySources,undefined);
+ assert.deepEqual(saved.selection.discovery,{mode:'auto',combine:true});
+ assert.equal(saved.intake.phase,'preparing');
+ assert.deepEqual(saved.selection.discoverySources,library.stories.map(story=>story.source));
  assert.equal(saved.selection.theme,'渔夫救乌龟，后来乌龟救了渔夫');
- assert.equal(saved.selection.displayTitle,undefined);
- const settings=page.getByRole('dialog',{name:'故事设置',exact:true});
- await settings.getByRole('link',{name:'选择 乌龟报恩',exact:true}).waitFor();
- await settings.getByRole('link',{name:'选择 勇士护民',exact:true}).waitFor();
- assert.equal(await settings.getByText('语义相关',{exact:true}).count(),2);
+ const preparing=page.getByRole('dialog',{name:'准备故事',exact:true});
+ await preparing.locator('.yu-selected-story-card').waitFor();
+ await preparing.getByText('两则古事',{exact:true}).waitFor();
+ await preparing.getByRole('button',{name:'修改故事名',exact:true}).waitFor();
+ await preparing.getByText(/预计 \d+ 幅/).waitFor();
+ await preparing.getByRole('link',{name:'修改画风',exact:true}).waitFor();
+ await preparing.getByRole('button',{name:'开始制作',exact:true}).waitFor();
+ assert.equal(await preparing.getByRole('link',{name:'继续查找',exact:true}).count(),0);
+ const selected=await f.read(saved.id);
+ assert.deepEqual(selected.intake.selected,{batch:0,index:0});
+ assert.equal(f.control.recommendations.filter(item=>item.combineSelectedOriginals).length,1);
+ const combinedPlan=f.control.recommendations.find(item=>item.combineSelectedOriginals);
+ await preparing.getByText('两段古事并列讲述。',{exact:true}).waitFor();
+ assert.ok(library.book.sections[0].units.every(unit=>combinedPlan.verifiedOriginal.text.includes(unit.text)));
  assert.deepEqual(modelQueries,[]);
- assert.ok(vectorQueries.includes(saved.selection.theme.normalize('NFKC')));
- await f.json('sessions/'+saved.id+'/title','POST',{title:'洪水里的回报'});
- await settings.getByRole('link',{name:'修改提取条件',exact:true}).click();
- await activate('按主题');
- await sheet.getByLabel('自定义主题或情节').fill('知恩图报');
- const update=page.waitForResponse(response=>response.url().endsWith('/sessions/'+saved.id+'/setup')&&response.request().postDataJSON()?.action==='conditions');
- await submit.click();
- const changed=await (await update).json();
- assert.equal(changed.id,saved.id);
- assert.deepEqual(changed.selection.discovery,{mode:'auto',vectorFirst:true,themeInput:'custom'});
- assert.equal(changed.selection.theme,'知恩图报');
- assert.equal(changed.selection.displayTitle,'洪水里的回报');
- await until(()=>modelQueries.includes('知恩图报'));
- await settings.getByRole('link',{name:'选择 乌龟报恩',exact:true}).waitFor();
- assert.equal(await settings.getByRole('link',{name:'选择 勇士护民',exact:true}).count(),0);
  const real=new LocalBooks(process.cwd());
  // The same editor is available inside a separate replacement draft; cancelling retains the parent.
  f.options.generation=f.generation;f.control.hold=false;

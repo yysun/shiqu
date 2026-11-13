@@ -21,7 +21,7 @@ import type {DiscoveryContext} from '../lib/reader-discovery-call.ts';
 import {binaryThemeMatch,themeVerificationProtocol,themeMatchModel,themeMatchEffort} from '../lib/reader-theme-match.ts';
 import {choicesJson,storyDraftJson,suggestionSystemPrompt,draftInstructions,imagePrompt,imageTypes,mediaType,storySource} from '../lib/reader-generation-contract.ts';
 import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from '../lib/reader-art-recommendation.ts';
-import {frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
+import {preparesSelectedStory,frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
 import {getArtStyle} from '../lib/reader-styles.ts';
 import {saveStoryOriginal} from '../lib/reader-source-storage.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
@@ -147,7 +147,7 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
   generator(){return {
    ...storyboardGenerator(book,(task,instructions,payload,schema,maxOutputTokens)=>text(instructions,payload,schema,reasoning[task],maxOutputTokens,models.text,task)),
    original:(selection,plan,id)=>saveStoryOriginal(media,selection,plan,id,transport),
-   async recommend(selection,_id,original,prepareRequirements=false){const result=await text(frameRecommendationPrompt,frameRecommendationPayload(selection,original,prepareRequirements),frameRecommendationOutputJson(original,prepareRequirements),reasoning.frames,original.storyBrief?4096:2048);return {...result,value:frameRecommendationOutputSchema(original,prepareRequirements).parse(result.value)};},
+   async recommend(selection,_id,original,prepareRequirements=false){const result=await text(frameRecommendationPrompt,frameRecommendationPayload(selection,original,prepareRequirements),frameRecommendationOutputJson(original,prepareRequirements,preparesSelectedStory(selection,original)),reasoning.frames,original.storyBrief?4096:2048);return {...result,value:frameRecommendationOutputSchema(original,prepareRequirements,preparesSelectedStory(selection,original)).parse(result.value)};},
    async plan(selection,id,original){
     assertStoryBriefReady(original);
     const result=await text(draftInstructions(!!original?.localSource),{book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})},storyDraftJson(selection.length),reasoning.plan,Math.max(8192,(selection.length==='auto'?20:selection.length)*800));

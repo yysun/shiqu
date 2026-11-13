@@ -36,7 +36,7 @@ test('query changes preserve canonical source scope, theme and paused control wi
  const f=await productionFixture(t),library=libraryFixture(),scope={edition:library.book.edition,sectionId:'s1',firstUnit:'u1',lastUnit:'u2'};
  f.generation.suggestions=library.provider.suggestions;f.generation.matchStories=library.provider.matchStories;
  f.options.generation=withLocalBooks(f.generation,library.books,f.media);await f.restart();f.app.services.localBooks=library.books;
- const created=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,theme:'知恩图报',discovery:{mode:'auto'},discoverySources:[scope]}});
+ const created=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,theme:'知恩图报',discovery:{mode:'auto',themeInput:'custom'},discoverySources:[scope]}});
  await f.json(`sessions/${created.id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'pause'});
  const changed=await f.json(`sessions/${created.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:created.intake.generation,action:'search',title:'乌龟报恩'});
  assert.equal(changed.generationControl,'paused');assert.equal(changed.selection.theme,'知恩图报');assert.deepEqual(changed.selection.discoverySources,[scope]);

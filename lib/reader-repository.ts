@@ -172,7 +172,17 @@ export class ReaderRepository{
    .bind(saved,saved,saved,saved,saved,new Date().toISOString(),row.id,row.user_id,token,snapshot.intake?.generation??-1).run();
   if(result.meta.changes!==1)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
  }
- async save(row:SessionRow,token:string,doc:Document,complete:boolean,error:string|null=null,progressMap?:number[]){const saved=JSON.stringify(doc),map=progressMap?JSON.stringify(progressMap):null,r=await this.db.prepare(`UPDATE stories SET document=${workerDocument},state=CASE WHEN ? THEN 'failed' WHEN ? AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=stories.id AND f.owner_id=stories.user_id AND f.state IN ('pending','recovering')) THEN 'completed' ELSE 'idle' END,error=?,page=CASE WHEN ? IS NULL THEN page ELSE COALESCE(json_extract(?, '$['||page||']'),MAX(0,MIN(page,?))) END,lock_token=NULL,lock_until=0,updated_at=? WHERE id=? AND user_id=? AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?`).bind(saved,saved,saved,saved,saved,error?1:0,complete?1:0,error,map,map,Math.max(0,(doc.plan?.pages.length||1)-1),new Date().toISOString(),row.id,row.user_id,token,doc.intake?.generation??-1).run();if(!r.meta.changes)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');return this.get(row.id,row.user_id);}
+ async save(row:SessionRow,token:string,doc:Document,complete:boolean,error:string|null=null,progressMap?:number[],prepared?:{title:string;description:string;artRecommendation:ArtRecommendation;batch:number;index:number}){
+  const saved=JSON.stringify(doc),map=progressMap?JSON.stringify(progressMap):null;
+  const candidate=prepared?`$.intake.batches[${prepared.batch}].stories[${prepared.index}]`:null;
+  const document=prepared?`json_set(${workerDocument}, ?, ?, ?, ?, ?, json(?))`:workerDocument;
+  const selection=prepared?`,selection=json_set(selection,'$.storyTitle',?,'$.artStyle',CASE WHEN COALESCE(json_extract(stories.document,'$.intake.manualArt'),0)=0 THEN ? ELSE json_extract(selection,'$.artStyle') END)`:'';
+  const fields=prepared?[candidate+'.title',prepared.title,candidate+'.description',prepared.description,candidate+'.artRecommendation',JSON.stringify(prepared.artRecommendation),prepared.title,prepared.artRecommendation.artStyle]:[];
+  const result=await this.db.prepare(`UPDATE stories SET document=${document}${selection},state=CASE WHEN ? THEN 'failed' WHEN ? AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=stories.id AND f.owner_id=stories.user_id AND f.state IN ('pending','recovering')) THEN 'completed' ELSE 'idle' END,error=?,page=CASE WHEN ? IS NULL THEN page ELSE COALESCE(json_extract(?, '$['||page||']'),MAX(0,MIN(page,?))) END,lock_token=NULL,lock_until=0,updated_at=? WHERE id=? AND user_id=? AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?`)
+   .bind(saved,saved,saved,saved,saved,...fields,error?1:0,complete?1:0,error,map,map,Math.max(0,(doc.plan?.pages.length||1)-1),new Date().toISOString(),row.id,row.user_id,token,doc.intake?.generation??-1).run();
+  if(!result.meta.changes)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
+  return this.get(row.id,row.user_id);
+ }
  async progress(id:string,uid:string,page:number,saved:boolean){
   const row=await this.get(id,uid),doc=JSON.parse(row.document) as Document;if(!doc.plan||!doc.images[page])throw new ReaderError(400,'这幅画面还没有展开');
   // A late reader cannot overwrite a structural save's remapped position. Image publication is independent.

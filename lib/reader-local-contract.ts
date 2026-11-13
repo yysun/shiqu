@@ -57,7 +57,8 @@ export const localTitleStoriesPrompt=promptSections(
  ['指定故事','scan.targetStoryTitle 是要核对的故事标题，与主题、回目、制作完成后显示的作品名不同。它优先于一般按顺序发现故事的任务：只找这个故事，不推荐其他事件、子故事或相似标题替代品。标题允许常见异名和繁简差异，但必须是同一事件、同一完整范围。只根据所给text/contextText核对，不用记忆补情节。'],
  ['完整边界','先通读本次提供的全部原文，再核对指定标题的起因、各阶段发展与自然结局。标题涉及多次行动、几次胜负或多个阶段时，每一阶段都须有原文支持，不能只取第一次胜负、局部事件，或把局部事件换名成目标标题。只读到开始或中段时用pendingEvents保留同一目标的证据，blockComplete=true以续读下一块；新事件id为空，续读复制旧id。目标不在本块且无新线索时stories为空、blockComplete=true继续读取，不收录无关未完事件。'],
  ['范围不足','原文不足以核对目标的完整经过，或通读后没有这个故事时，stories必须为空，在note说明缺少哪段或无法确认；不可降低标题要求、只输出局部或扩写原文补齐。找到完整目标时最多返回一篇，source覆盖全部关键阶段，resolvedEventIds收束目标的旧证据；不继续提取子故事。']);
-export function localReadingPrompt(book:WholeBookInput){if(book.purpose==='catalog')return promptSections(['通用故事识别',localCatalogPrompt],['章节粒度',book.scan?.chapterStoryLevel?localChapterStoriesPrompt:''],['按标题提取',book.scan?.targetStoryTitle?localTitleStoriesPrompt:''],['已核对例外',localReviewedSourcePrompt],['输入与输出',inputBoundaryDirection]);return promptSections(
+export function localReadingPrompt(book:WholeBookInput){
+ if(book.purpose==='catalog')return promptSections(['通用故事识别',localCatalogPrompt],['章节粒度',book.scan?.chapterStoryLevel?localChapterStoriesPrompt:''],['按标题提取',book.scan?.targetStoryTitle?localTitleStoriesPrompt:''],['已核对例外',localReviewedSourcePrompt],['输入与输出',inputBoundaryDirection]);return promptSections(
  ['任务',book.purpose==='scan'?'从所给本地原文按需扫描完整故事。':'从所给本地原文按主题推荐至多5个独立完整故事。'],
  ['共同选题标准',localSuggestionPrompt],
  ['复合主题',compoundDiscoveryThemeDirection],

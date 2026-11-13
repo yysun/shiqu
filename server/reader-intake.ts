@@ -4,7 +4,7 @@
 // An explicit query keeps the original scope and controls, and never bypasses a production lock.
 import type {RequirementsSetup} from '../lib/reader-requirements.ts';
 import {requirementsForReselection} from '../lib/reader-requirements.ts';
-import {directBookChoice,selectedChapterScope} from './local-book-contents.ts';
+import {combinedOriginal,directBookChoice,selectedChapterScope} from './local-book-contents.ts';
 import type {LocalBooks} from './local-books.ts';
 import {localBookId} from './local-books.ts';
 import {createHash} from 'node:crypto';
@@ -25,19 +25,31 @@ async function intakeSelection(input:Selection,books?:LocalBooks){
  }
  if(input.source&&input.discoverySources)throw new ReaderError(400,'请选择章节提取或直接故事，不能混用。');
  if((input.source||input.discoverySources)&&!books)throw new ReaderError(503,'本地书库暂不可用');
+ const combine=input.discovery?.mode==='auto'&&input.discovery.combine;
+ if(combine&&(!input.discoverySources||input.discoverySources.length<2))throw new ReaderError(400,'请选择至少两段原文。');
+ if(input.sourceCard&&!input.source)throw new ReaderError(400,'故事卡缺少原文出处。');
  const local=input.discoverySources?await books!.book(input):null;
  if(input.discoverySources&&!local)throw new ReaderError(400,'章节提取只支持本地书库。');
- const scope=local?await selectedChapterScope(books!,local,input.discoverySources!):null;
- const choice=input.source?await directBookChoice(books!,input):null;
+ const scope=local?await selectedChapterScope(books!,local,input.discoverySources!,combine):null;
+ const original=combine&&local&&scope?combinedOriginal(books!,local,scope):undefined;
+ const choice=original?.localSource?{original,entry:{title:'待拟标题',excerpt:'故事梗概准备中',source:original.localSource}}
+  :input.source?await directBookChoice(books!,input):null;
  const selection=selectionSchema.parse({...input,storyTitle:choice?.entry.title,source:choice?.entry.source,discoverySources:scope?.discoverySources,length:'auto',narrativeDetail:input.narrativeDetail||'balanced'});
  if(selection.bookId==='other'&&!selection.customBook?.trim())throw new ReaderError(400,'请先填写书名或 URL。');
  return {selection,choice};
+}
+// 直接选中的原文和已有简介可以在制作建议生成前显示。
+function selectSourceCard(doc:Document,choice:NonNullable<Awaited<ReturnType<typeof intakeSelection>>['choice']>,round:number){
+ doc.original=choice.original;
+ Object.assign(doc.intake!,{phase:'preparing',search:{round,state:'idle'},selected:{batch:0,index:0},
+  batches:[{stories:[{title:choice.entry.title,description:choice.entry.excerpt,source:choice.entry.source,sourceLabel:choice.original.title.slice(0,150)}],note:''}],
+ });
 }
 export async function createIntake(repo:ReaderRepository,id:string,uid:string,input:Selection,books?:LocalBooks,reselection?:ReselectionDraft,setupRequirements?:RequirementsSetup){
  const {selection,choice}=await intakeSelection(input,books);
  const creationHash=hash(selection),doc:Document={...emptyDocument(),intake:{phase:'choosing',generation:0,creationHash,batches:[],briefRequired:true,search:{round:0,state:'idle'}}};
  if(input.discovery&&!choice&&!reselection){doc.intake!.phase='discovering';doc.intake!.search={round:1,state:'searching',cycleId:id};}
- if(choice){doc.original=choice.original;doc.intake!.phase='preparing';doc.intake!.search={round:0,state:'idle'};doc.intake!.selected={batch:0,index:0};doc.intake!.batches=[{stories:[{title:choice.entry.title,description:choice.entry.excerpt,source:choice.entry.source,sourceLabel:choice.original.title.slice(0,150)}],note:''}];}
+ if(choice)selectSourceCard(doc,choice,0);
  if(setupRequirements)doc.setupRequirements=setupRequirements;
  if(reselection){doc.reselection=reselection;doc.intake!.manualArt=true;}
  const row=await repo.create(id,uid,selection,doc);
@@ -65,15 +77,18 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  if(doc.reselection&&!['more','search'].includes(action.action))throw new ReaderError(409,'请在替换选题窗口提交选择；草稿不能开始制作。');
  if(!intake)throw new ReaderError(409,'这篇故事使用旧制作流程，请继续原来的步骤。');
  intake.phase=effectiveIntakePhase(doc,selection)!;
- if(action.action==='more')return requestSearch(repo,row,doc,action.requestId,fingerprint,action.automatic);
+ if(action.action==='more'){
+  if(intake.selected&&selection.discovery?.mode==='auto'&&selection.discovery.combine)throw new ReaderError(409,'原文已选定，请继续准备故事。');
+  return requestSearch(repo,row,doc,action.requestId,fingerprint,action.automatic);
+ }
  if(intake.lastAction?.id===action.requestId){if(intake.lastAction.hash!==fingerprint)throw new ReaderError(409,'此操作编号已用于其他内容。');return row;}
  if(intake.generation!==action.generation)throw new ReaderError(409,'制作内容已由另一次操作更新，请重新打开后继续。');
  if(doc.plan||intake.phase==='confirmed')throw new ReaderError(409,'制作已确认；需要调整时请创建修订版本。');
  if(action.action==='conditions'){
   if(intake.selected||!['discovering','choosing'].includes(intake.phase))throw new ReaderError(409,'这篇故事已经选定，不能修改提取条件。');
   if(row.state==='running'&&row.lock_until>Date.now())throw new ReaderError(409,'当前任务正在保存，请稍后再修改提取条件。');
-  const {selection:next}=await intakeSelection(selectionSchema.parse({...selection,...action.conditions,customBook:action.conditions.customBook,discoverySources:action.conditions.discoverySources,discovery:action.conditions.discovery||{mode:'auto'},storyTitle:undefined,source:undefined}),books);
-  const conditions=(value:Selection)=>JSON.stringify([value.bookId,value.customBook,value.theme,value.discoverySources,value.productionPrompt]);
+  const {selection:next,choice}=await intakeSelection(selectionSchema.parse({...selection,...action.conditions,customBook:action.conditions.customBook,discoverySources:action.conditions.discoverySources,discovery:action.conditions.source?undefined:action.conditions.discovery||{mode:'auto'},storyTitle:undefined,source:action.conditions.source,sourceCard:action.conditions.sourceCard}),books);
+  const conditions=(value:Selection)=>JSON.stringify([value.bookId,value.customBook,value.theme,value.source,value.sourceCard,value.discoverySources,value.productionPrompt]);
   if(!action.conditions.discovery&&conditions(next)===conditions(selection)){await recordNoop(repo.db,uid,id,action.requestId,'setup',fingerprint);return row;}
   // Search rounds fence late extraction results; generations fence stale candidate selections.
   const round=intakeSearch(intake).round+1;
@@ -81,6 +96,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   delete intake.indexedCandidates;
   intake.search=action.conditions.discovery?{round,state:'searching',cycleId:action.requestId}:{round,state:'idle'};intake.lastAction={id:action.requestId,hash:fingerprint};
   delete intake.draft;delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
+  if(choice)selectSourceCard(doc,choice,round);
   const result=await repo.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
    WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${visible}`)
    .bind(JSON.stringify(next),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state).run();
@@ -96,7 +112,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
    await recordNoop(repo.db,uid,id,action.requestId,'setup',fingerprint);return row;
   }
   // The new round fences old paid results; the generation also fences stale candidate choices.
-  selection.discovery=discovery;delete selection.storyTitle;delete selection.source;selection.length='auto';
+  selection.discovery=discovery;delete selection.storyTitle;delete selection.source;delete selection.sourceCard;selection.length='auto';
   intake.phase='discovering';intake.generation++;intake.batches=[];
   delete intake.indexedCandidates;
   intake.search={round:search.round+1,state:'searching',requestId:action.requestId,commandHash:fingerprint,cycleId:action.requestId};
@@ -124,7 +140,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   if(settings){intake.manualArt=manual(settings.artStyle);Object.assign(selection,settings);}
   const reset=requirementsForReselection(selection,doc.setupRequirements);
   Object.assign(selection,reset.selection);doc.setupRequirements=reset.setup;
-  selection.storyTitle=candidate.title;selection.source=candidate.source;
+  selection.storyTitle=candidate.title;selection.source=candidate.source;delete selection.sourceCard;
   if(!intake.manualArt&&candidate.artRecommendation)selection.artStyle=candidate.artRecommendation.artStyle;
   intake.selected={batch:action.batch,index:action.index};intake.phase='preparing';
   intake.search={...intakeSearch(intake),state:'idle',error:null};

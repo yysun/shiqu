@@ -191,6 +191,30 @@ test('confirmation owns all four settings while extraction and preparation retai
  assert.match(stage(failed,'prepare'),/原文准备失败/);assert.doesNotMatch(stage(failed,'count'),/原文准备失败/);
 });
 
+test('直接准备和整理多篇原文都展示完整制作流程',()=>{
+ const source={edition:'a'.repeat(64),sectionId:'chapter',firstUnit:'p1',lastUnit:'p2'};
+ const candidate={title:'庄周梦蝶',description:'梦与醒的故事。',source};
+ const intake={phase:'preparing',generation:0,search:{state:'idle'},selected:{batch:0,index:0},batches:[{stories:[candidate],note:''}]};
+ const session={...base,state:'running',error:null,selection:{...base.selection,source},intake,generationProgress:{...base.generationProgress,frameCountConfirmed:false,phase:'recommend'}};
+ const setup=value=>renderToStaticMarkup(createElement(Setup,{session:value,book:'庄子',busy:false,onAction:noop,progress:defaults}));
+ const single=setup(session);
+ const combining=setup({...session,
+  selection:{...session.selection,source:undefined,discovery:{mode:'auto',combine:true},discoverySources:[source,{...source,firstUnit:'p3',lastUnit:'p4'}]},
+  intake:{...intake,phase:'discovering',search:{state:'searching'},selected:undefined,batches:[]},
+  generationProgress:{...session.generationProgress,sourceReady:false,phase:'discover'},
+ });
+ const expected=['source','prepare','count','plan','review','repair','recheck','image'];
+ for(const html of [single,combining]){
+  assert.deepEqual([...html.matchAll(/data-stage="([^"]+)"/g)].map(match=>match[1]),expected);
+  assert.match(stage(html,'image'),/绘图.*待进行/);
+ }
+ assert.match(stage(single,'source'),/已选原文/);
+ assert.match(single,/故事梗概准备中/);
+ assert.doesNotMatch(single,/梦与醒的故事。/);
+ assert.match(stage(combining,'source'),/整理所选原文.*暂停整理/);
+ assert.match(stage(combining,'prepare'),/准备故事.*待进行/);
+});
+
 test('active steps show only their timeout countdown below the current step',()=>{
  const now=Date.now();
  const session={...base,state:'running',productionState:'running',error:null,generationProgress:{...base.generationProgress,startedAt:now-65000,timeoutAt:now+235000}};

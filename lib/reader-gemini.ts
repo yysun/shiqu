@@ -5,7 +5,7 @@ import {discoveryCall} from './reader-discovery-call.ts';
 import type {DiscoveryContext} from './reader-discovery-call.ts';
 import {normalizeProductionPrompt,storyEditorialContext} from './reader-prompts.ts';
 import {z} from 'zod';
-import {frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from './reader-frame-recommendation.ts';
+import {preparesSelectedStory,frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from './reader-frame-recommendation.ts';
 import {readerMaxFrames,geminiGenerationTimeoutMs} from './reader-limits.ts';
 import {storyDraftSchema,readerBooks} from './reader-model.ts';
 import type {Plan,Selection} from './reader-model.ts';
@@ -178,10 +178,10 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
   }),
   original:(selection,plan,id)=>saveStoryOriginal(assets,selection,plan,id,transport),
   async recommend(selection,id,original,prepareRequirements=false){
-   const payload=frameRecommendationPayload(selection,original,prepareRequirements),schema=frameRecommendationOutputJson(original,prepareRequirements);
+   const payload=frameRecommendationPayload(selection,original,prepareRequirements),schema=frameRecommendationOutputJson(original,prepareRequirements,preparesSelectedStory(selection,original));
    const input=textRequest(models.text,frameRecommendationPrompt,payload,schema,'',original.storyBrief?4096:2000,reasoning.frames);
    const {candidate,metadata}=await generate(models.text,input,'frames');
-   return {value:frameRecommendationOutputSchema(original,prepareRequirements).parse(parseText(candidate)),...metadata,reasoningEffort:reasoning.frames,promptRecord:promptRecord(frameRecommendationPrompt,payload,input.generationConfig.responseFormat.text.schema)};
+   return {value:frameRecommendationOutputSchema(original,prepareRequirements,preparesSelectedStory(selection,original)).parse(parseText(candidate)),...metadata,reasoningEffort:reasoning.frames,promptRecord:promptRecord(frameRecommendationPrompt,payload,input.generationConfig.responseFormat.text.schema)};
   },
   async plan(selection:Selection,id:string,original?:OriginalSource){
    assertStoryBriefReady(original);

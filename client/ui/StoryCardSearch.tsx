@@ -2,6 +2,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {ArrowLeft,BookOpen,Loader2,Search} from 'lucide-react';
 import {request} from './shared';
+import {readStorySearchStream} from './readStorySearchStream';
 import './StoryCardSearch.css';
 
 type Book={id:string;title:string};
@@ -13,12 +14,6 @@ const modes:{id:Mode;title:string;hint:string;placeholder:string;button:string}[
  {id:'story',title:'故事',hint:'定位一则故事，例如“找《种梨》”或描述情节',placeholder:'故事标题、别名或记得的情节',button:'找故事'},
  {id:'theme',title:'主题',hint:'找多则符合条件的故事，例如“求下雨”',placeholder:'输入主题或情节描述',button:'找主题'},
 ];
-async function readStream(response:Response,onEvent:(event:any)=>void){
- if(!response.ok){let data:any={};try{data=await response.json();}catch{}throw Error(data.error||'检索暂时失败，请重试。');}
- if(!response.body)throw Error('浏览器无法读取检索进度。');
- const reader=response.body.getReader(),decoder=new TextDecoder();let pending='';
- while(true){const {done,value}=await reader.read();pending+=decoder.decode(value||new Uint8Array(),{stream:!done});const lines=pending.split('\n');pending=lines.pop()||'';for(const line of lines)if(line.trim())onEvent(JSON.parse(line));if(done)break;}
-}
 export default function StoryCardSearch({books,onClose}:{books:Book[];onClose:()=>void}){
  const [bookId,setBookId]=useState('liaozhai'),[mode,setMode]=useState<Mode>('chapter'),[query,setQuery]=useState(''),[section,setSection]=useState(''),[chapters,setChapters]=useState<Entry[]>([]),[results,setResults]=useState<Entry[]>([]),[original,setOriginal]=useState<{title:string;text:string}|null>(null);
  const [loadingChapters,setLoadingChapters]=useState(false),[busy,setBusy]=useState(false),[continuing,setContinuing]=useState(false),[progress,setProgress]=useState(''),[note,setNote]=useState(''),[error,setError]=useState('');
@@ -31,7 +26,7 @@ export default function StoryCardSearch({books,onClose}:{books:Book[];onClose:()
   setBusy(true);setError('');setNote('');setResults([]);setProgress(mode==='theme'?'正在查找候选…':'');
   try{
    const params=new URLSearchParams({mode,q:query.trim()});if(section&&mode==='theme')params.set('section',section);
-   if(mode==='theme')await readStream(await fetch(`/api/reader/books/${encodeURIComponent(bookId)}/search?${params}`),event=>{if(event.type==='progress')setProgress(event.stage==='verifying'?'正在核对原文…':'正在查找候选…');if(event.type==='error')throw Error(event.error);if(event.type==='result'){setResults(event.results||[]);setNote(event.note||'');setProgress(event.verified?`已核对 ${event.checked}/${event.total} 条候选`:'候选尚未核对');}});
+   if(mode==='theme')await readStorySearchStream(await fetch(`/api/reader/books/${encodeURIComponent(bookId)}/search?${params}`),event=>{if(event.type==='progress')setProgress(event.stage==='verifying'?'正在核对原文…':'正在查找候选…');if(event.type==='error')throw Error(event.error);if(event.type==='result'){setResults(event.results||[]);setNote(event.note||'');setProgress(event.verified?`已核对 ${event.checked}/${event.total} 条候选`:'候选尚未核对');}});
    else{const data=await request(`reader/books/${encodeURIComponent(bookId)}/search?${params}`);setResults(data.results||[]);setNote(mode==='story'&&data.results?.some((row:Entry)=>row.exact)?'唯一标题命中，无需等待模型。':'');}
   }catch(reason){setError(reason instanceof Error?reason.message:'检索暂时失败，请重试。');}finally{setBusy(false);}
  }
@@ -45,7 +40,7 @@ export default function StoryCardSearch({books,onClose}:{books:Book[];onClose:()
   const selection={bookId,theme,artStyle:'ink-pencil',productionPrompt:'',length:'auto',voice:false,discovery:titleMode?{mode:'title',title:query.trim().slice(0,100)}:{mode:'auto'},...(source?{discoverySources:[source]}:{})};
   try{
    const response=await fetch('/api/reader/suggestions',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/x-ndjson'},body:JSON.stringify({...selection,excludeTitles:[],excludeSources:[]}),signal:controller.signal});
-   await readStream(response,event=>{
+   await readStorySearchStream(response,event=>{
     if(event.type==='progress'){const p=event.progress;setProgress(p?.totalChars?`正在读取原文 ${p.completedChars.toLocaleString('zh-CN')} / ${p.totalChars.toLocaleString('zh-CN')} 字${p.currentChapters?.length?' · '+p.currentChapters.join('、'):''}`:'正在读取原文…');}
     if(event.type==='error')throw Error(event.error);
     if(event.type==='result'){const batch=event.batch;setResults((batch?.stories||[]).flatMap((story:Entry)=>story.source?[{...story,verified:true}]:[]));setNote(batch?.note||'');setProgress(batch?.note||'原文查找已完成。');}

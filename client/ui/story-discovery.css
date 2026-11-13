@@ -49,14 +49,14 @@ h2.yu-discovery-heading:first-of-type{margin-top:16px}
 .yu-extraction-help{margin:12px 0 0;color:#718260;font-size:12px;line-height:1.7;text-align:left}
 /* 候选增量写入时，抽屉顶边、状态栏和操作链接的位置保持固定。 */
 .yu-sheet.yu-sheet-fixed-height{box-sizing:border-box;height:min(760px,92dvh)}
-.yu-candidate-search{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;margin:0 0 12px}
-.yu-candidate-search-status{display:flex;align-items:center;gap:5px;min-height:44px;margin:0;color:#45643b;font-size:13px;font-weight:600;line-height:1.35}
+.yu-candidate-search{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;margin:0 0 8px}
+.yu-candidate-search-status{display:flex;align-items:center;gap:5px;min-height:36px;margin:0;color:#45643b;font-size:13px;font-weight:600;line-height:1.35}
 .yu-candidate-search-icon{display:flex;flex:0 0 14px}
 .yu-candidate-search-actions{font-size:12px}
 .yu-candidate-search-actions>.story-flow-link{white-space:nowrap}
-.yu-search-notice{margin:0 0 12px;color:#526749;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.yu-search-notice{margin:0 0 8px;color:#526749;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
 .yu-extraction-candidates{list-style:none;margin:0 0 12px;padding:0;border-top:1px solid #dce1d2}
-.yu-extraction-candidates>li{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 4.5rem;align-items:start;gap:8px;min-height:44px;padding:8px 0;border-bottom:1px solid #dce1d2;color:#304c37}
+.yu-extraction-candidates>li{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 5rem;align-items:start;gap:10px;min-height:44px;padding:10px 0;border-bottom:1px solid #dce1d2;color:#304c37}
 .yu-extraction-candidate-copy{overflow-wrap:anywhere}
 .yu-extraction-candidate-copy strong{font-size:14px;line-height:1.5}
 .yu-extraction-candidate-copy p,.yu-extraction-candidate-copy small{display:block;margin:3px 0 0;color:#586655;font-size:12px;line-height:1.55}
@@ -64,7 +64,7 @@ h2.yu-discovery-heading:first-of-type{margin-top:16px}
 .yu-extraction-candidate-controls>.story-flow-link{justify-content:flex-end}
 /* 整行复用同一个选择链接，键盘只需停在一处。 */
 .yu-extraction-candidate-controls>.story-flow-link:not([aria-disabled=true])::after{content:"";position:absolute;inset:0}
-.yu-extraction-candidate-status{padding-top:3px;font-size:12px;color:#586655;white-space:nowrap}
+.yu-extraction-candidate-status{max-width:5rem;padding-top:3px;font-size:12px;color:#586655;line-height:1.4;text-align:right;overflow-wrap:anywhere}
 .yu-extraction-candidate-score{display:block;margin-top:3px;font-variant-numeric:tabular-nums}
 .yu-extraction-candidates [data-status="match"] .yu-extraction-candidate-status{color:#38633f;font-weight:600}
 .yu-extraction-context{margin:0 0 14px;padding-bottom:12px;border-bottom:1px solid var(--yu-line,#dce1d2);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
@@ -76,4 +76,16 @@ h2.yu-discovery-heading:first-of-type{margin-top:16px}
 .yu-extraction-context details{margin-top:4px}
 .yu-extraction-context summary{cursor:pointer}
 .yu-extraction-context ul{margin:4px 0 0;padding-left:16px}
+.yu-extraction-originals{display:grid;gap:12px;margin-top:8px;max-height:42vh;overflow:auto}
+.yu-extraction-originals article{padding:0 0 10px;border-bottom:1px solid var(--yu-line,#dce1d2)}
+.yu-extraction-originals h4{margin:0 0 5px;font:inherit;font-weight:600}
+.yu-extraction-originals p{margin:0;white-space:pre-wrap;line-height:1.75}
 .yu-context-retry{padding:6px 0;border:0;background:none;color:#45643b;text-decoration:underline}
+
+/* 故事卡在同一列表里展示标题和简介。 */
+.yu-source-story .yu-source-chapter-title{white-space:normal;padding:8px 0}
+.yu-source-story .yu-source-chapter-title small{display:block;margin-top:4px;font-size:12px;line-height:1.5;color:#586655}
+.yu-discovery-extract{margin-top:16px}
+.yu-discovery-extract>button{margin:0 8px 8px 0}
+.yu-selected-story-card{margin:0 0 16px;padding:10px 0;border-bottom:1px solid #dce1d2;font-size:13px;line-height:1.6;color:#586655}
+.yu-selected-story-card p{margin:0 0 6px}

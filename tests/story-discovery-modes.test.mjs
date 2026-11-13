@@ -145,7 +145,7 @@ test('automatic discovery with a chapter scope keeps extraction neutral and appl
   return {matches:result.matches.map(decision=>({...decision,matchScore:decision.verdict==='yes'?79:20}))};
  };
  const scope={edition:f.book.edition,sectionId:section.id,firstUnit:section.units[0].id,lastUnit:section.units.at(-1).id};
- const selected=selectionSchema.parse({...selection,bookId:'zhuangzi',theme:'勇气',discovery:{mode:'auto'},discoverySources:[scope]});
+ const selected=selectionSchema.parse({...selection,bookId:'zhuangzi',theme:'勇气',discovery:{mode:'auto',themeInput:'custom'},discoverySources:[scope]});
  const result=await wrapped.suggestions(selected,[]);
  assert.deepEqual(result.stories.map(story=>story.title),['勇士护民']);
  assert.equal(result.stories[0].matchScore,79);
