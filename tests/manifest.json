@@ -134,7 +134,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-editorial.ts",
@@ -194,7 +194,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-art-recommendation.ts",
@@ -397,7 +397,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/provider-settings.ts",
@@ -425,7 +425,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-local-contract.ts",
@@ -475,7 +475,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-review.ts",
@@ -500,7 +500,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "scripts/ci-scope.mjs",
@@ -546,7 +546,7 @@
         "linux"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/system-settings.ts",
@@ -644,7 +644,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-model.ts",
@@ -718,7 +718,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "server/generation.ts",
@@ -740,7 +740,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-responses-diagnostics.ts",
@@ -764,7 +764,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/system-settings.ts",
@@ -785,7 +785,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "client/ui/production-timeline.css"
@@ -827,7 +827,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "client/ui/ReaderShelf.tsx",
@@ -849,7 +849,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "scripts/desktop-node.mjs"
@@ -1025,7 +1025,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/desktop-view.ts"
@@ -1061,7 +1061,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "scripts/development-server.mjs",
@@ -1212,7 +1212,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-books.ts",
@@ -1279,7 +1279,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-art-recommendation.ts",
@@ -1306,7 +1306,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-review.ts",
@@ -1384,7 +1384,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "scripts/storyboard-evaluation.mjs"
@@ -1403,7 +1403,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-editorial.ts",
@@ -1429,7 +1429,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "server/generation.ts",
@@ -1451,7 +1451,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-local-contract.ts",
@@ -1471,7 +1471,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-gemini-diagnostics.ts",
@@ -1495,7 +1495,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-editorial.ts",
@@ -1520,7 +1520,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-acceptance.ts",
@@ -1575,7 +1575,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "server/generation.ts",
@@ -1597,7 +1597,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-limits.ts",
@@ -1621,7 +1621,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/codex-settings.ts",
@@ -1645,7 +1645,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/generation-progress.ts",
@@ -1699,7 +1699,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "client/ui/StoryDiscoveryForm.tsx",
@@ -1721,7 +1721,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "client/ui/historySteps.ts"
@@ -1827,7 +1827,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "server/library-directory.ts"
@@ -2026,7 +2026,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-shelf.ts",
@@ -2251,7 +2251,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "server/app.ts",
@@ -2328,7 +2328,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "client/ui/production-timeline.css"
@@ -2432,7 +2432,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "server/production-queue.ts",
@@ -2454,7 +2454,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/production-stages.ts"
@@ -2473,7 +2473,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-legacy-prompts.ts",
@@ -2567,7 +2567,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-engine.ts",
@@ -2593,7 +2593,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-image-dimensions.ts",
@@ -2640,7 +2640,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-home.ts",
@@ -2664,7 +2664,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-png.ts",
@@ -2684,7 +2684,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-production-client.ts"
@@ -2732,7 +2732,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-art-recommendation.ts",
@@ -2760,7 +2760,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-request.ts"
@@ -2804,7 +2804,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-snapshots.ts"
@@ -2823,7 +2823,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-source.ts"
@@ -2842,7 +2842,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-source-storage.ts",
@@ -2893,7 +2893,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-suggestion-request.ts",
@@ -2915,7 +2915,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-model.ts",
@@ -2939,7 +2939,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "client/reading-cache.ts"
@@ -2958,7 +2958,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-home.ts",
@@ -3037,7 +3037,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": []
     },
@@ -3102,7 +3102,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "tests/fixtures/tsx.mjs",
@@ -3122,7 +3122,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-review-history.ts",
@@ -3195,7 +3195,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/codex-settings.ts",
@@ -3227,7 +3227,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [
         "user-flows",
         "release",
@@ -3298,7 +3298,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/shelf-browser.ts"
@@ -3362,7 +3362,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "tests/fixtures/tsx.mjs",
@@ -3382,7 +3382,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "tests/fixtures/tsx.mjs",
@@ -3421,7 +3421,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "server/cli-options.ts",
@@ -3460,7 +3460,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-prompts.ts",
@@ -3564,7 +3564,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-local-contract.ts",
@@ -3588,7 +3588,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-local-contract.ts",
@@ -3614,7 +3614,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "scripts/eval-story-discovery.mjs",
@@ -3635,7 +3635,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-discovery-call.ts",
@@ -3748,7 +3748,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-discovery-call.ts",
@@ -3867,7 +3867,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-model.ts",
@@ -3991,7 +3991,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "server/generation.ts"
@@ -4035,7 +4035,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/story-publication.ts",
@@ -4134,7 +4134,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "tests/fixtures/tsx.mjs",
@@ -4232,7 +4232,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/generation-progress.ts",
@@ -4312,7 +4312,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-model.ts",
@@ -4342,7 +4342,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "tests/fixtures/gemini-evidence.mjs",
@@ -4384,7 +4384,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-image-dimensions.ts",
@@ -4407,7 +4407,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": []
     },
@@ -4475,7 +4475,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-prompts.ts",
@@ -4506,7 +4506,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [
         "user-flows",
         "release",
@@ -4576,7 +4576,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "lib/reader-reasoning.ts",
@@ -4602,7 +4602,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "scripts/test-metadata.mjs",
@@ -4627,7 +4627,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "scripts/test-metadata.mjs",
@@ -4679,7 +4679,7 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "code",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "tests/fixtures/tsx.mjs",

@@ -1,4 +1,5 @@
 // 测试注册表是执行范围的唯一来源；校验完整性失败时终止，避免悄悄漏跑新增文件。
+// pr 只有 always（无条件冒烟）与 affected（按责任域或覆盖关系选入）两种。
 import {readFileSync,readdirSync,existsSync} from 'node:fs';
 import path from 'node:path';
 
@@ -27,7 +28,7 @@ export function loadMetadata(root=process.cwd()){
   seen.add(entry.file);
   if(!Array.isArray(entry.covers)||new Set(entry.covers).size!==entry.covers.length||entry.covers.some(file=>typeof file!=='string'||!file||file.startsWith('/')||file.includes('\\')||file.split('/').includes('..')||path.posix.normalize(file)!==file||[...file].some(char=>char.charCodeAt(0)<32)))throw Error(`Invalid source ownership: ${entry.file}`);
   values(entry.groups,groups,entry.file+' groups');values(entry.platforms,platforms,entry.file+' platforms');values(entry.gates,gates,entry.file+' gates');
-  if(!entry.groups.length||!entry.platforms.length||!levels.includes(entry.level)||!['fast','standard','heavy'].includes(entry.cost)||!['unit','flows','books','e2e','native'].includes(entry.suite)||!['always','code','affected'].includes(entry.pr))throw Error(`Invalid metadata: ${entry.file}`);
+  if(!entry.groups.length||!entry.platforms.length||!levels.includes(entry.level)||!['fast','standard','heavy'].includes(entry.cost)||!['unit','flows','books','e2e','native'].includes(entry.suite)||!['always','affected'].includes(entry.pr))throw Error(`Invalid metadata: ${entry.file}`);
   if((entry.level==='native')!==(entry.suite==='native')||(entry.suite==='native')!==entry.file.endsWith('.rs'))throw Error(`Invalid native metadata: ${entry.file}`);
   if(entry.file.endsWith('.e2e.mjs')!==['service-e2e','browser-e2e'].includes(entry.level))throw Error(`Invalid E2E metadata: ${entry.file}`);
   if(entry.file.endsWith('.e2e.mjs')!==(entry.suite==='e2e'))throw Error(`Invalid E2E suite: ${entry.file}`);

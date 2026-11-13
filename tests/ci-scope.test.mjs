@@ -12,12 +12,14 @@ import {loadMetadata} from '../scripts/test-metadata.mjs';
 
 const files=plan=>plan.tests.map(test=>test.file);
 const extended=loadMetadata().tests.filter(entry=>entry.gates.includes('extended')).map(entry=>entry.file);
-test('documentation keeps smoke; domain changes keep contracts and local-server boundaries',()=>{
+test('documentation keeps smoke; domain changes run only their own domains plus smoke',()=>{
  const docs=createPlan(changeScope(['README.md','.docs/reqs/example.md','LICENSE']));
  assert.deepEqual(files(docs),['tests/book-integrity-smoke.test.mjs']);assert.equal(docs.native,false);
  const ui=createPlan(changeScope(['client/ui/Reader.css']));
- for(const file of ['local-server','production-queue','story-generation-state-machine-commands','deepseek-provider','gemini-stage-schema','separate-providers','task-reasoning'])assert.ok(files(ui).includes(`tests/${file}.test.mjs`));
- for(const file of ['cli-library','startup-cli-flow','desktop-internet','local-books'])assert.ok(!files(ui).includes(`tests/${file}.test.mjs`));
+ assert.ok(files(ui).includes('tests/book-integrity-smoke.test.mjs'));
+ for(const file of ['reader-interaction','shelf-layout-ui','story-workspace-ui'])assert.ok(files(ui).includes(`tests/${file}.test.mjs`),file);
+ // 界面改动不再顺带运行其他责任域的契约测试。
+ for(const file of ['local-server','production-queue','deepseek-provider','gemini-stage-schema','separate-providers','task-reasoning','cli-library','startup-cli-flow','desktop-internet','local-books'])assert.ok(!files(ui).includes(`tests/${file}.test.mjs`),file);
  assert.ok(!ui.native);assert.ok(ui.deferredBrowser.length);assert.ok(ui.tests.every(test=>test.level!=='browser-e2e'));
 });
 test('affected areas include their flows, heavy flags and all six service E2Es for core changes',()=>{
@@ -30,8 +32,17 @@ test('affected areas include their flows, heavy flags and all six service E2Es f
  const provider=createPlan(changeScope(['server/claude-runner.ts']));
  assert.ok(files(provider).includes('tests/claude-provider-flow.test.mjs'));
  assert.equal(provider.tests.find(entry=>entry.file==='tests/deepseek-provider.test.mjs').mode,'full');
- assert.equal(provider.tests.find(entry=>entry.file==='tests/local-server.test.mjs').mode,'fast');
+ // 供应商改动不再顺带运行其他责任域的本地服务测试。
+ assert.ok(!files(provider).includes('tests/local-server.test.mjs'));
  const books=createPlan(changeScope(['data/library/originals/book.md']));assert.ok(files(books).includes('tests/local-books.test.mjs'));
+});
+test('known sources and scripts map to their domains instead of the unknown-file fallback',()=>{
+ for(const [file,group] of [['server/local-story-search.ts','discovery'],['server/story-card-embeddings.ts','discovery'],['lib/reader-shelf.ts','reader'],['lib/desktop-view.ts','reader'],['server/agent-cli.ts','tooling'],['scripts/dev.mjs','tooling'],['scripts/prepare-reading-blocks.mjs','books']]){
+  const scope=changeScope([file]);assert.ok(scope.groups.includes(group),file+' -> '+group);
+  assert.ok(!scope.groups.includes('safety')&&!scope.native,file+' should not fall back');
+ }
+ assert.equal(changeScope(['server/local-story-search.ts']).native,false);
+ assert.ok(changeScope(['server/provider-settings-access.ts']).native);
 });
 test('native, shared schemas and uncertain changes retain scoped safeguards',()=>{
  for(const file of ['src-tauri/src/runtime.rs','server/system-settings.ts','lib/system-settings.ts'])assert.ok(changeScope([file]).native,file);

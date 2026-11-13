@@ -1,5 +1,6 @@
 // 已知测试输入按文件选测，生产变更按责任域取并集；未知影响保留基础检查。
 // createRelatedPlan 为开发内循环的相关计划，只用快速开关，与 PR/CI 计划分开。
+// 只有无条件冒烟每次都跑；其余测试按责任域、直接登记或覆盖关系选入。已知的源码与脚本都映射到责任域，未知文件才回退基础检查。
 import {loadMetadata,groups,supported} from './test-metadata.mjs';
 const fallbackGroups=['safety','startup','tooling'];
 export function fullScope(reason='explicit full qualification'){
@@ -24,6 +25,9 @@ const rules=[
  [/^server\/(?:library-backup|library-directory|library-maintenance|library-upgrade|import-legacy|diagnostics)\.ts$/,['storage','startup'],true],
  [/^server\/(?:app|http|media)\.ts$/,['storage','production','reader','media']],
  [/^server\/(?:local-books|local-book-[\w-]+|local-source-[\w-]+|story-reading-inputs)\.ts$/,['books','discovery']],
+ [/^server\/(?:local-story-search|local-story-events|local-story-segmentation|story-card-embeddings|story-index-paths)\.ts$/,['books','discovery']],
+ [/^server\/(?:agent-cli|agent-skill)\.ts$/,['tooling','startup']],
+ [/^server\/provider-settings-access\.ts$/,['startup','providers','desktop'],true],
  [/^server\/(?:local-story-discovery|story-discovery-[\w-]+|story-theme-matching|story-token-budget)\.ts$/,['discovery']],
  [/^server\/local-generation\.ts$/,['books','providers','discovery','preparation','review','production','media']],
  [/^server\/(?:generation|provider-runtime)\.ts$/,['providers','discovery','preparation','review','production','media']],
@@ -41,11 +45,21 @@ const rules=[
  [/^lib\/(?:reader-repository|reader-recovery|reader-production|reader-reselection|reader-revision[\w-]*|reader-versions|production-[\w-]+|generation-progress)\.ts$/,['production','storage']],
  [/^lib\/(?:reader-image[\w-]*|reader-png|reader-pdf|reader-zip[\w-]*|story-export-runtime|story-publication|story-watermark|story-webp-metadata)\.ts$|^lib\/public-story-zip\.mjs$/,['media']],
  [/^lib\/(?:reader-production-client|shelf-generation)\.ts$/,['reader','production','discovery','preparation']],
+ [/^lib\/(?:desktop-view|reader-shelf)\.ts$/,['reader']],
  [/^lib\/(?:reader-home|reader-navigation|reader-production-client|reader-request|reader-snapshots|reader-styles|reader-prompt-format|reader-prompt-records|reader-random-id|shelf-[\w-]+|content|utils)\.ts$/,['reader']],
  // 已知独立工具按责任域运行。
  [/^scripts\/export-story\.mjs$/,['media','tooling']],
  [/^scripts\/(?:desktop-node|desktop-resources|desktop-smoke)\.mjs$/,['desktop'],true],
  [/^scripts\/eval-story-discovery\.mjs$/,['discovery']],
+ [/^scripts\/(?:prepare-reading-blocks|experiment-soushen-search)\.mjs$/,['books','discovery']],
+ [/^scripts\/(?:compare-storyboard-reasoning|storyboard-evaluation)\.mjs$/,['review','tooling']],
+ [/^scripts\/(?:codex-env|codex-login)\.mjs$/,['providers','tooling']],
+ [/^scripts\/(?:dev|development-server)\.mjs$/,['tooling','startup']],
+ [/^scripts\/(?:install-git-hooks|pre-push|setup)\.mjs$/,['tooling']],
+ [/^scripts\/(?:run-tests|test-books|test-providers|test-story-e2e)\.mjs$/,['safety','tooling']],
+ [/^scripts\/library-maintenance\.mjs$/,['storage','startup','tooling'],true],
+ [/^scripts\/(?:build|build-npm|npm-smoke|publish-npm)\.mjs$/,['tooling','startup']],
+ [/^scripts\/desktop-runtime-packages\.mjs$/,['desktop','tooling'],true],
 ];
 function documentation(file){
  if(/^(?:data|tests|scripts|server|lib|skills|db|drizzle)\//.test(file))return false;
@@ -101,7 +115,7 @@ export function createPlan(scope,metadata=loadMetadata(),{platform=process.platf
  const direct=new Set(scope.directTests);
  const core=scope.groups.some(group=>['discovery','preparation','review','production'].includes(group));
  const affected=entry=>direct.has(entry.file)||entry.groups.some(group=>scope.groups.includes(group))||core&&entry.gates.includes('extended');
- const selected=metadata.tests.filter(entry=>entry.level!=='native'&&(scope.full||entry.pr==='always'||affected(entry)||scope.groups.length&&entry.pr==='code'));
+ const selected=metadata.tests.filter(entry=>entry.level!=='native'&&(scope.full||entry.pr==='always'||affected(entry)));
  const available=selected.filter(entry=>supported(entry,platform));
  // 影响范围与执行门禁分开，只有显式资格检查纳入 Playwright。
  const tests=available.filter(entry=>includeBrowser||entry.level!=='browser-e2e').map(entry=>({file:entry.file,level:entry.level,mode:scope.full||affected(entry)?'full':'fast'}));
