@@ -62,6 +62,7 @@ flowchart LR
    - **URL 抓取（`server/book-import-fetch.ts`）。**
      - 只允许 `http/https`。
      - 用 `node:https/http` 的 `lookup` 钩子做解析，拒绝回环、私网、链路本地、CGNAT、组播、IPv4 映射的 IPv6 和 `host.docker.internal`；连接时固定使用检查过的 IP，并设置 `servername`，防止 DNS 重绑定。
+     - 整书上限 300 万字、2,000 章，在结构确认时检查。
      - 最多手动跟随 5 次重定向，每一跳都重新检查。
      - 单页上限 12 MB，超时 30 秒，只接受 HTML、纯文本和 EPUB。
      - User-Agent 用通用名称。
@@ -87,13 +88,13 @@ flowchart LR
    - **进行中的任务。** 删除前先取消该书的故事卡任务。已在制作中的故事继续使用已保存的原文；重选或续找时明确报「书已删除」。
    - **重新导入。** 新快照在暂存目录中完成解析和校验，用户确认后整体替换。若 `snapshotHash` 不变且沿用原结构，版次不变，故事卡和向量继续有效；否则按新版次处理，并提示旧卡失效。
 
-9. **「其他」旧路径（待决问题 1 的推荐方案）。** `reader-production.ts` 的保存任务搜索、`Reader.tsx` 的 `savedMaterials` 和 `StoryDiscoveryForm` 的外部结果都不改，已保存的 `other` 任务行为不变。新建故事时，「其他」芯片以「导入这本书」为主操作，「不导入，直接请模型推荐」为次操作；后者沿用现有路径，候选标注「未核对原文」。
+9. **「其他」旧路径（已定决策 1）。** `reader-production.ts` 的保存任务搜索、`Reader.tsx` 的 `savedMaterials` 和 `StoryDiscoveryForm` 的外部结果都不改，已保存的 `other` 任务行为不变。新建故事时，「其他」芯片以「导入这本书」为主操作，「不导入，直接请模型推荐」为次操作；后者沿用现有路径，候选标注「未核对原文」。
 
 10. **版权。**
     - 导入接口要求 `acceptRights:true`，并在清单中记录确认时间。
     - 导入书不进入 `data/library`、npm 包、官方资源或任何上传路径。
     - `story-export.ts` 的 `署名与转载.txt` 写入来源和授权说明，并注明「原文为用户导入」。
-    - `pnpm export:story` 遇到没有授权说明的导入书故事时拒绝导出（待决问题 3）。
+    - `pnpm export:story` 遇到没有授权说明的导入书故事时拒绝导出（已定决策 3）。
 
 ## 任务
 
@@ -122,7 +123,7 @@ flowchart LR
   - `StoryEmbeddingSettings.tsx`：列出导入书。
   - 删除和重新导入前显示确认。
   - 在 `pnpm desktop:preview` 中走查桌面和手机宽度。
-- [ ] 10. `server/story-export.ts` 和导出脚本：附来源与授权说明，并按待决问题 3 处理。
+- [ ] 10. `server/story-export.ts` 和导出脚本：附来源与授权说明，按已定决策 3 处理：应用内导出始终附说明，`pnpm export:story` 在没有授权说明时拒绝导出。
 - [ ] 11. CLI（`server/headless-cli.ts`）：
   - **分派。** 把 `:103-104` 的 `books` 兜底分支改为只处理无动作或未知动作；`catalog`、`books` 的列表经应用 API 合并导入书。
   - **新增命令**，全部经 `createApplication`/`api()` 执行，先完成 `ensureLibraryReady()`：
