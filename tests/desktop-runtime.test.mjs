@@ -13,7 +13,7 @@ import {build} from 'esbuild';
 import {openDatabase} from '../server/database.ts';
 import {insertReaderStory} from './fixtures/story.mjs';
 import {desktopAccess} from '../server/desktop-access.ts';
-import {desktopSettings,desktopVariables,testDesktopProvider,startDesktop} from '../server/desktop.ts';
+import {desktopFailure,desktopSettings,desktopVariables,testDesktopProvider,startDesktop} from '../server/desktop.ts';
 import {ownDesktopData} from '../server/desktop-owner.ts';
 
 const settings=directory=>({nodePath:process.execPath,dataDirectory:directory,port:3000,internetEnabled:false,cloudflaredPath:'',provider:'gemini',textModel:'test-text',imageModel:'test-image',codexPath:'',codexModel:'',codexHome:''});
@@ -62,6 +62,16 @@ test('connection test uses only model metadata, does not echo credentials, and n
   calls++;assert.match(url,/\/models\/test-(text|image)$/);assert.equal(options.headers['x-goog-api-key'],'private-test-key');assert.equal(options.method,undefined);return Response.json({name:'model'});
  });assert.equal(result.ok,true);assert.equal(calls,2);assert.ok(!JSON.stringify(result).includes('private-test-key'));
  const failure=await testDesktopProvider(config,'private-test-key','/tmp',async()=>Response.json({error:'private-test-key'},{status:403}));assert.equal(failure.ok,false);assert.ok(!failure.message.includes('private-test-key'));
+});
+test('desktop startup distinguishes socket permission errors from file permission errors without exposing raw errors',()=>{
+ for(const code of ['EACCES','EPERM']){
+  const socket=Object.assign(Error('private listen error'),{code,syscall:'listen',address:'0.0.0.0',port:3000});
+  const message=desktopFailure(socket);
+  assert.match(message,/无法监听端口 3000.*本机与存储.*更换服务端口/);
+  assert.doesNotMatch(message,/private|0\.0\.0\.0|数据目录/);
+  const file=Object.assign(Error('private file error'),{code,syscall:'open',path:'private-path'});
+  assert.equal(desktopFailure(file),'无法访问所选文件或数据目录，请检查权限。');
+ }
 });
 test('desktop lifecycle preserves progress and direct access across restarts, detects busy data, and recovers after port conflicts',async t=>{
  // Hooks run in registration order: Windows cannot remove an open SQLite library.

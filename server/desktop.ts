@@ -95,7 +95,8 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
 }
 export function desktopFailure(error:unknown){
  if(error instanceof TunnelError)return error.message;
- const code=(error as NodeJS.ErrnoException)?.code,message=(error as Error)?.message;
+ const failure=error as (NodeJS.ErrnoException&{port?:number})|undefined;
+ const code=failure?.code,message=failure?.message;
  if(code==='EADDRINUSE')return '端口已被占用，请更换端口或停止其他实例。';
  if(message&&/^(LIBRARY_|BACKUP_|DATA_BUSY:)/.test(message)){
   const code=message.split(/[;: ]/)[0],backup=message.match(/(?:^|; )backup: ([^;]+)/)?.[1];
@@ -103,7 +104,14 @@ export function desktopFailure(error:unknown){
  }
  if(message==='SETTINGS_STORE_UNAVAILABLE')return '无法读取共享生成设置，请检查本机配置后重试。';
  if(message==='DATA_BUSY')return '此数据目录仍由另一个 CLI 或桌面服务使用，请等待它退出或选择其他目录。';
- if(code==='EACCES'||code==='EPERM')return '无法访问所选文件或数据目录，请检查权限。';
+ if(code==='EACCES'||code==='EPERM'){
+  if(failure?.syscall==='listen'){
+   const port=failure.port;
+   const label=typeof port==='number'&&Number.isInteger(port)&&port>=1&&port<=65535?`端口 ${port}`:'服务端口';
+   return `无法监听${label}，该端口可能被系统保留或被其他程序独占。请在「本机与存储」中更换服务端口后重试。`;
+  }
+  return '无法访问所选文件或数据目录，请检查权限。';
+ }
  return '服务启动失败。请确认 Node 24、应用资源和数据目录可用。';
 }
 async function main(){
