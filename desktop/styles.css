@@ -11,3 +11,4 @@
 
 /* 少用的 Codex 路径默认收起，展开后仍受原生设置的禁用规则约束。 */
 .advanced-settings{margin-top:20px;border-top:1px solid #edf0e5;padding-top:15px}.advanced-settings>summary{cursor:pointer;font-size:12px;font-weight:550;color:#527048}.advanced-settings>summary:focus-visible{outline:3px solid #b38438;outline-offset:3px;border-radius:3px}.advanced-settings>p{margin-top:9px}
+.release-notice,.release-status{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}.release-notice{justify-content:space-between}.release-notice .error{flex-basis:100%}

@@ -335,6 +335,16 @@ fn open_reader(
         .map_err(|_| "无法打开默认浏览器，请复制本机链接。".into())
 }
 #[tauri::command]
+fn open_release_download(app: tauri::AppHandle) -> Result<(), String> {
+    // 仅打开官方发布页，外部发行版元数据不决定跳转地址。
+    app.opener()
+        .open_url(
+            "https://github.com/yysun/shiqu/releases/latest",
+            None::<&str>,
+        )
+        .map_err(|_| "无法打开默认浏览器。".into())
+}
+#[tauri::command]
 async fn quit_app(
     app: tauri::AppHandle,
     state: tauri::State<'_, DesktopState>,
@@ -370,6 +380,7 @@ pub fn run() {
             stop_server,
             server_status,
             open_reader,
+            open_release_download,
             quit_app
         ])
         .setup(|app| {

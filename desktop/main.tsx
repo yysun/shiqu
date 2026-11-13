@@ -6,6 +6,7 @@ import QRCode from 'qrcode';
 import {ServiceCard} from './ServiceCard';
 import {PhoneAccessCard} from './PhoneAccessCard';
 import {localReaderUrl} from './reader-url';
+import {useReleaseUpdate} from './release-update';
 import {savedProvider} from './console-state';
 import type {Status,ServiceState} from './console-state';
 import {defaultSystemSettings} from '../lib/system-settings';
@@ -18,6 +19,7 @@ const nativeValues=(settings:SystemSettings)=>Object.fromEntries(nativeFields.ma
 const preview=defaultSystemSettings('桌面应用中保存的故事目录');
 function Desktop(){
  const native=isTauri(),[view,setView]=useState<View|null>(null),[settings,setSettings]=useState<SystemSettings|null>(null),[status,setStatus]=useState<Status>({running:false,phoneUrls:[]});
+ const release=useReleaseUpdate(native);
  const [known,setKnown]=useState(false),[statusError,setStatusError]=useState(''),[busy,setBusy]=useState(''),[error,setError]=useState(''),[message,setMessage]=useState(''),[node,setNode]=useState<NodeInfo|null>(null),[nodeError,setNodeError]=useState('');
  const [phone,setPhone]=useState(''),[qr,setQr]=useState('');
  const inFlight=useRef(false),dirtyRef=useRef(false),epoch=useRef(0);
@@ -48,6 +50,7 @@ function Desktop(){
  const locked=!native||!!busy||!known||status.running||state==='starting'||state==='upgrading';
  const previewUrl=import.meta.env.DEV?localReaderUrl(import.meta.env.VITE_DESKTOP_READER_URL,window.location.href):null;
  return <main className="desktop-console"><header className="app-header"><div className="brand"><div className="brand-mark" aria-hidden="true">拾</div><div><h1>拾趣 <span>桌面控制台</span></h1><p>留一间故事书房，随时打开。</p></div></div></header>
+  {release.latest&&<div className="notice release-notice"><span role="status">拾趣 {release.latest} 已发布。</span><button className="secondary" onClick={()=>void release.openDownload()}>打开官方下载页</button>{release.openError&&<span className="error" role="status">{release.openError}</span>}</div>}
   {(error||message||statusError)&&<div className="notice" role="status">{error||statusError?<span className="error">{error||statusError}</span>:message}</div>}
   {!settings?<section className="card"><h2>正在读取本机设置…</h2><button onClick={()=>void action('读取设置',reload)}>重新读取设置</button></section>:<div className="layout"><div className="settings-stack">
    <ServiceCard state={state} status={status} native={native} busy={busy} provider={status.running&&status.provider?status.provider:savedProvider(view?.settings||settings,view?.providerKeys)} nodeVersion={node?.version} nodeError={nodeError} onStart={()=>void action('启动服务',start)} onStop={()=>void action('停止服务',stop)} onRestart={()=>void action('重启服务',restart)} onOpen={()=>void action('打开浏览器',async()=>{await invoke('open_reader');})} onSettings={()=>void action('打开生成设置',async()=>{await invoke('open_reader',{generationSettings:true});})} previewUrl={previewUrl}/>
@@ -60,7 +63,7 @@ function Desktop(){
     </details>
    </fieldset><div className="save-row"><p className="help">{dirty?'有未保存的本机更改':'与已保存设置一致'}</p><button className="secondary" disabled={!native||!!busy} onClick={()=>void action('读取设置',reload)}>重新读取设置</button><button className="secondary" disabled={locked||!dirty} onClick={()=>void action('保存设置',async()=>{await save();setMessage('本机设置已保存。');})}>保存本机设置</button></div></section>
   </div><PhoneAccessCard state={state} running={status.running} busy={!!busy} locked={locked} links={links} phone={phone} publicUrl={status.publicUrl} qr={qr} internetEnabled={settings.internetEnabled} cloudflaredPath={settings.cloudflaredPath} internetError={status.internetError} onChoose={setPhone} onInternetChange={value=>update('internetEnabled',value)} onCloudflaredChange={value=>update('cloudflaredPath',value)} onBrowseCloudflared={()=>void action('选择文件',()=>browse('cloudflared','cloudflaredPath'))} onCopy={()=>void action('复制链接',()=>copy(phone))}/></div>}
-  <footer><span>关闭窗口后在托盘运行，退出应用时停止服务。</span><button className="text-button" disabled={!native||!!busy} onClick={()=>void action('退出应用',async()=>{await invoke('quit_app');})}>退出拾趣</button></footer>
+  <footer><span>关闭窗口后在托盘运行，退出应用时停止服务。</span>{native&&<div className="release-status">{release.current&&<span>当前版本 {release.current}</span>}<button className="text-button" disabled={release.checking} onClick={()=>void release.check(true)}>{release.checking?'正在检查…':'检查更新'}</button>{release.feedback&&<span role="status">{release.feedback}</span>}</div>}<button className="text-button" disabled={!native||!!busy} onClick={()=>void action('退出应用',async()=>{await invoke('quit_app');})}>退出拾趣</button></footer>
  </main>;
 }
 createRoot(document.getElementById('root')!).render(<Desktop/>);

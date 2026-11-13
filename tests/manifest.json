@@ -856,6 +856,28 @@
       ]
     },
     {
+      "file": "tests/desktop-release-notice.playwright.e2e.mjs",
+      "groups": ["desktop"],
+      "level": "browser-e2e",
+      "cost": "standard",
+      "platforms": ["darwin", "linux", "win32"],
+      "suite": "e2e",
+      "pr": "affected",
+      "gates": ["user-flows"],
+      "covers": ["desktop/main.tsx", "desktop/release-update.ts", "desktop/styles.css", "desktop/vite.config.ts", "lib/system-settings.ts"]
+    },
+    {
+      "file": "tests/desktop-release-update.test.mjs",
+      "groups": ["desktop"],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": ["darwin", "linux", "win32"],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": ["desktop/release-update.ts"]
+    },
+    {
       "file": "tests/desktop-resources.test.mjs",
       "groups": [
         "desktop",
