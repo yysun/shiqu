@@ -70,7 +70,7 @@ export class LocalBooks{
  async semanticIndexBooks(){
   const search=this.storySearch;
   if(!search)return [];
-  const installed=new Set(await search.indexedBooks());
+  const installed=new Set(await search.semanticBooks());
   const results=await Promise.allSettled(readerBooks.filter(({id})=>installed.has(id)).map(async ({id})=>{
    const book=await this.book(selectionSchema.parse({bookId:id,theme:'目录'}));
    const cardCount=book?await search.semanticIndexCardCount(book):0;

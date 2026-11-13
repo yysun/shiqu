@@ -243,7 +243,7 @@ test('CLI 离线检索返回同一候选的原文，并区分索引缺失与无�
  assert.match(result.results[0].excerpt,/把落水的渔夫驮回岸边/);
  assert.deepEqual((await command(['毫不相关的词'])).results,[]);
  await assert.rejects(command(['乌龟','--limit','0']),error=>error.code==='INVALID_LIMIT');
- await assert.rejects(command(['乌龟'],join(directory,'absent')),error=>error.code==='SEARCH_INDEX_UNAVAILABLE');
+ await assert.rejects(command(['乌龟'],join(directory,'absent')),error=>error.code==='BOOK_ID_REQUIRED');
  await assert.rejects(stat(join(directory,'shiqu.sqlite')),error=>error.code==='ENOENT');
  await assert.rejects(stat(join(directory,'absent')),error=>error.code==='ENOENT');
  const db=new DatabaseSync(f.file);

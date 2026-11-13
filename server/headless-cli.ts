@@ -28,7 +28,8 @@ import {emptyPublication} from '../lib/story-publication.ts';
 import {selectionSchema,reviewPassed,ReaderError} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import {LocalBooks} from './local-books.ts';
-import {installStoryIndex,LocalStorySearch} from './local-story-search.ts';
+import {applicationStorySearch,installOfficialStoryIndex,installStoryIndex} from './local-story-search.ts';
+import {officialVectorDirectory} from './story-index-paths.ts';
 
 const commandNames=new Set(['skill','help','init','status','catalog','books','themes','styles','stories','run','preview','export','backup','restore','verify-backup','diagnostics','config','api']);
 const commands=[
@@ -37,7 +38,8 @@ const commands=[
  ['status','Library integrity/counts and runtime metadata; no cloud readiness request.','status'],
  ['catalog','Books, themes and styles. books contents BOOK --query words reads local sources.','books contents zhuangzi'],
  ['books index-import','Install one book’s offline search index in the selected library directory.','books index-import 搜神记 FILE --data-dir /private/library'],
- ['books search','Search offline story candidates. Specify a book when several indexes are installed. Returns ranked original excerpts and source references without inference.','books search 险些复生 搜神记 --limit 5 --brief'],
+ ['books index-install','Install an official vector pack in the shared application cache.','books index-install 搜神记 FILE'],
+ ['books search','Search bundled story cards or installed indexes offline. Specify the book for bundled cards. Returns ranked original excerpts and source references without inference.','books search 种梨 聊斋志异 --limit 5 --brief'],
  ['stories list|get|current','Inspect saved stories and current-family versions.','stories get STORY_ID'],
  ['stories create','Save intake intent; input is a selection or {selection,intake:true,requestId}.','stories create --input selection.json --request-id UUID'],
  ['stories setup|search|choose|confirm','Persist intake actions with explicit --generation or input.generation; inference requires run.','stories choose ID --batch 0 --index 0 --generation N'],
@@ -99,7 +101,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  need(commandNames.has(command),'UNKNOWN_COMMAND','Use help --json for available commands.');
  const appVersion=JSON.parse(await readFile(path.join(root,'package.json'),'utf8')).version||'unknown';
  if(command==='help'||v.help)return {schemaVersion:1,appVersion,default:'No subcommand starts the existing browser service.',commands,inputs,options:{'--data-dir':'Private library, otherwise saved desktop/CLI location.','--input':'JSON file or - for stdin.','--query':'Query for books contents.','--limit':'Maximum results for books search (1–42, default 10).','--output':'New output path; never overwrites.','--request-id':'Stable UUID for mutation replay; retain original generation/token/faultId and input.','--generation':'Required intake generation from stories get ID for setup/search/choose/confirm.','--until':'candidates|prepared|reviewed|completed (default completed).','--timeout':'Explicit run timeout in seconds, default 900, max 86400.','--allow-unsigned':'Explicitly permit an unsigned export.','--draft':'Copy an unreviewed saved storyboard as a paused independent text draft; no images.','--brief':'Show book, indexed story title and source location for books search.','--json':'Return one JSON receipt on stdout (default).'},selectionExample:{bookId:'zhuangzi',theme:'原典故事',artStyle:'ink-pencil',narrativeDetail:'balanced'},editExample:{token:'from stories revisions ID',changes:{productionPrompt:'保留关键人物回应'}},runResults:['completed','candidates','prepared','choice','frame_count_required','already_prepared','already_selected','reviewed','paused','blocked','superseded'],execution:'Only explicit run performs inference. All other commands save or inspect local state.'};
- if(command==='catalog'||command==='themes'||command==='styles'||command==='books'&&!['contents','search','index-import'].includes(action)){
+ if(command==='catalog'||command==='themes'||command==='styles'||command==='books'&&!['contents','search','index-import','index-install'].includes(action)){
   return command==='books'?readerBooks:command==='themes'?themes:command==='styles'?artStyles.map(({prompt,...style})=>style):{books:readerBooks,themes,styles:artStyles.map(({prompt,...style})=>style),styleGroups:artStyleGroups};
  }
  if(command==='skill'){
@@ -128,6 +130,13 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   }finally{store.close();}
  }
  if(command==='verify-backup'){need(action,'BACKUP_PATH_REQUIRED','Specify a backup directory.');const verified=verifyLibraryBackup(path.resolve(action));return {verified:true,files:verified.files.length,createdAt:verified.createdAt};}
+ if(command==='books'&&action==='index-install'){
+  need(id&&p[3]&&p.length===4&&!value('data-dir'),'INVALID_INPUT','Use books index-install BOOK FILE. This installs to the shared application cache.');
+  const books=context.localBooks||new LocalBooks(root),book=await books.book(selectionSchema.parse({bookId:id,theme:'原典故事'}));
+  need(book,'BOOK_NOT_FOUND','This book is unavailable in the local collection.');
+  try{return await installOfficialStoryIndex(officialVectorDirectory(),book,path.resolve(context.cwd||process.cwd(),p[3]));}
+  catch(error){if(error instanceof ReaderError)throw new CliCommandError('INVALID_STORY_INDEX',error.message);throw error;}
+ }
  const directory=path.resolve(value('data-dir')||variables.SHIQU_DATA_DIR||savedDesktopLibraryDirectory({variables})||locations.library);
  // 检索只访问独立索引和随应用发布的原文，不初始化或锁定正式书库。
  if(command==='books'&&action==='index-import'){
@@ -143,12 +152,17 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   const query=id?.trim(),limit=Number(value('limit')??10);
   need(query&&query.length<=200,'QUERY_REQUIRED','Specify a query of 1 to 200 characters.');
   need(Number.isInteger(limit)&&limit>=1&&limit<=42,'INVALID_LIMIT','Use --limit between 1 and 42.');
-  const search=new LocalStorySearch(path.join(directory,'story-search.sqlite'));
-  const indexed=p[3]?[]:await search.indexedBooks();
-  need(p[3]||indexed,'SEARCH_INDEX_UNAVAILABLE','No readable story index.');
+  const books=context.localBooks||new LocalBooks(root),search=applicationStorySearch(root,directory,()=>books);
+  const manual=p[3]?null:await search.indexedBooks();
+  const official=p[3]||manual?[]:(await Promise.allSettled((await search.officialBooks()).map(async id=>{
+   const book=await books.book(selectionSchema.parse({bookId:id,theme:'原典故事'}));
+   return book&&await search.semanticIndexCardCount(book)?id:null;
+  }))).flatMap(result=>result.status==='fulfilled'&&result.value?[result.value]:[]);
+  const indexed=manual??official;
+  need(p[3]||manual||official.length||await search.hasBundledCards(),'SEARCH_INDEX_UNAVAILABLE','No readable story index.');
   const bookId=p[3]||(indexed?.length===1?indexed[0]:undefined);
   need(bookId&&bookId.length<=100,'BOOK_ID_REQUIRED','Specify a book for this index.');
-  const books=context.localBooks||new LocalBooks(root),book=await books.book(selectionSchema.parse({bookId,theme:'原典故事'}));
+  const book=await books.book(selectionSchema.parse({bookId,theme:'原典故事'}));
   need(book,'BOOK_NOT_FOUND','This book is unavailable in the local collection.');
   const ranges=await search.lookupHits(book,query,context.signal||new AbortController().signal);
   need(ranges,'SEARCH_INDEX_UNAVAILABLE','No readable story index for this book edition.');
@@ -180,7 +194,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  const abort=new AbortController();let timedOut=false;
  const interrupt=()=>{app?.stopGeneration();abort.abort();void Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);};
  try{
-  if(command==='backup'){need(action,'BACKUP_PATH_REQUIRED','Specify a new backup directory.');outputOutside(root,path.resolve(action));const manifest=createLibraryBackup(directory,path.resolve(action),appVersion);return {path:path.resolve(action),files:manifest.files.length,verified:true};}
+  if(command==='backup'){need(action,'BACKUP_PATH_REQUIRED','Specify a new backup directory.');outputOutside(root,path.resolve(action));const manifest=createLibraryBackup(directory,path.resolve(action),appVersion,root);return {path:path.resolve(action),files:manifest.files.length,verified:true};}
   let effective:Record<string,string|undefined>={...variables,SHIQU_AI_PROVIDER:'readonly'};
   if(running&&!context.generation){
    if(existsSync(locations.settings)){const store=new SystemSettingsStore(locations.settings,locations.library);try{effective=effectiveProviderVariables(store,variables);}finally{store.close();}}

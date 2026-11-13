@@ -52,7 +52,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 | 目的 | 生产入口与判断 |
 | --- | --- |
-| 发现数据 | `catalog` 或 `books/themes/styles` 查目录，`books contents <bookId> --query <关键词>` 按关键词查章节和可用的故事段落；`books search <查询> [书名] --limit 5` 用标题、梗概、原文和可用参考向量在独立索引里找故事候选，返回原文预览和出处，无需调用生成模型。用 `--brief` 只显示书名、索引中的故事标题、章节和段落，默认输出 JSON。安装索引用 `books index-import <书名> <离线 SQLite 文件> --data-dir <数据目录>`，核对版本后只更新该书。多本书已安装索引时，搜索需指定书名。实验源码 worktree 中的 `node bin/shiqu.mjs books search` 可自动使用 `.data/dev-local` 下的索引，显式数据目录优先；`stories list/get/current` 查书库与当前版本；`stories source/prompts/review-history/revisions <id>` 查保存依据。`status` 查本地书库完整性、数量与运行元信息，不检测云端服务是否就绪；`init` 可显式建库，但普通书库操作已自动初始化。 |
+| 发现数据 | `catalog` 或 `books/themes/styles` 查目录，`books contents <bookId> --query <关键词>` 按关键词查章节和可用的故事段落；`books search <查询> [书名] --limit 5` 用标题、梗概、原文和可用参考向量在独立索引里找故事候选，返回原文预览和出处，无需调用生成模型。用 `--brief` 只显示书名、索引中的故事标题、章节和段落，默认输出 JSON。检索内置故事卡时指定书名，可直接运行 `books search 种梨 聊斋志异 --brief`。官方向量包用 `books index-install <书名> <文件>` 安装到桌面与 CLI 共用缓存。自制索引用 `books index-import <书名> <离线 SQLite 文件> --data-dir <数据目录>` 导入，匹配版次时优先使用，并随书库备份。实验源码 worktree 中的 `node bin/shiqu.mjs books search` 可自动使用 `.data/dev-local` 下的索引，显式数据目录优先；`stories list/get/current` 查书库与当前版本；`stories source/prompts/review-history/revisions <id>` 查保存依据。`status` 查本地书库完整性、数量与运行元信息，不检测云端服务是否就绪；`init` 可显式建库，但普通书库操作已自动初始化。 |
 | 配置 | `config get` 返回 settings、revision 和 keyPresent，不返回密钥；`config set` 输入 `{settings:<修改字段>,expectedRevision:<读取到的revision>}`，API密钥按 help 的 key 输入。`config reset` 清除提供方设置和保存的API密钥，保留书库及网络设置；它不是临时切换只读模式。 |
 | 新建或选题 | `stories create` 接收 selection 或 `{selection,intake:true}`，默认进入选题；`--no-intake` 或 `intake:false` 使用旧的直接制作入口。search 保存提取意图，choose 保存候选索引，confirm 保存制作确认，setup 保存其他选题动作。它们不执行生成。 |
 | 执行生产 | `run <id> --until candidates\|prepared\|reviewed\|completed`（也可 `stories run <id>`）。candidates 后按用户目标选择或等待；prepared 后检查原文、摘要和方案并确认；reviewed 在审核通过时停止，不再启动图片生成，但已有图片不会被撤销；默认 completed。每次检查返回 reason 和 session，不假定达到了请求边界。 |
@@ -71,7 +71,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 本技能负责决定下一阶段，CLI 负责执行明确动作。根据用户目标和已保存状态推进；用户指定的选题、原文、方案、文本或生图前检查点，必须先报告结果并取得所需选择，再运行后续命令。文本与图片是分别可交付的结果，文本完成不代表已获准处理图片。
 
-- `run --until candidates` 会在已有独立检索索引时优先读取命中的本地原文，再用配置的模型提取故事。常用主题和标题查预制向量，其余输入仍可按原文匹配。候选不足时继续顺序阅读。以返回的故事与出处为准。
+- `run --until candidates` 会用内置故事卡或已安装索引召回候选，并读取命中的本地原文，再用配置的模型提取故事。常用主题和标题查预制向量，其余输入仍可按原文匹配。候选不足时继续顺序阅读。以返回的故事与出处为准。
 - 自动选题时，「欲望与代价」「善意与误解」等双词预设优先召回两侧都命中的候选，也保留只命中一侧或由语义检索找到的故事。推荐前核对同一篇原文是否支持两个要素及其情节联系。例如「欲望与代价」要求人物因追求某物而付出代价。
 - 主题复核候选可带 `matchScore`（0 到 100）。旧回执和按标题提取的候选可能没有这个字段。若回执包含 `intake.indexedCandidates`，其中带 `choice` 的条目在待核对、符合、不符合三种状态下都可选。将 `choice.batch` 和 `choice.index` 原样传给 `stories choose` 或替换命令。
 - 在源码工作树制备离线索引时，《聊斋志异》《世说新语》《战国策》《子不语》《太平广记》及三言二拍沿用原文篇目边界。三言二拍按卷生成主故事摘要，片段向量覆盖通过原文校验的整卷。《酉阳杂俎》《山海经》《博物志》《浮生六记》切分后只给可独立成篇的叙事制卡。先运行 `node scripts/experiment-soushen-search.mjs build --raw --book <书名>`，再运行同脚本的 `cards --book <书名> --model <模型>` 和 `refs --book <书名>`。用 `stats --book <书名>` 核对覆盖、原文校验拒绝和筛选结果，再用 `books index-import` 安装。

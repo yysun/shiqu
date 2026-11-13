@@ -135,6 +135,10 @@ try {
   // Exercise the installed bundle, not source wrappers, with a completed story from the production dispatcher.
   function receipt(parameters){const result=command(bin,parameters);assert.equal(result.status,0,result.stderr+'\n'+result.stdout);const saved=JSON.parse(result.stdout);assert.equal(saved.ok,true);return saved.data;}
   assert.ok(receipt(['help','--json']).commands.length>10);
+  const searchDirectory=path.join(temporary,'unused search library');
+  const found=receipt(['books','search','种梨','聊斋志异','--limit','1','--data-dir',searchDirectory]);
+  assert.match(found.results[0]?.excerpt||'',/梨/);
+  await assert.rejects(lstat(searchDirectory),{code:'ENOENT'});
   const skill=command(bin,['skill','show']);assert.equal(skill.status,0,skill.stderr);assert.equal(skill.stdout,await readFile(path.join(installed,'skills/shiqu/SKILL.md'),'utf8'));
   const skillInstall=receipt(['skill','install','--scope','project']);assert.equal(await readFile(skillInstall.path,'utf8'),skill.stdout);await rm(path.join(cwd,'.agents'),{recursive:true});const globalSkill=receipt(['skill','install','--scope','global']);assert.equal(globalSkill.path,path.join(home,'.agents/skills/shiqu/SKILL.md'));assert.equal(await readFile(globalSkill.path,'utf8'),skill.stdout);assert.equal(receipt(['skill','install','--scope','global']).unchanged,true);
   const headless=path.join(temporary,'headless library');assert.deepEqual(receipt(['stories','list','--data-dir',headless]),[]);await lstat(path.join(headless,'shiqu.sqlite'));receipt(['init','--data-dir',headless]);

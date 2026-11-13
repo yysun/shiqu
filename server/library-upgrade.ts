@@ -154,7 +154,7 @@ function appVersion(root:string){
 }
 function safetyBackup(directory:string,root:string){
  const backup=path.join(path.dirname(directory),path.basename(directory)+'-backups','pre-upgrade-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+randomUUID().slice(0,8));
- createLibraryBackup(directory,backup,appVersion(root));const manifest=verifyLibraryBackup(backup);
+ createLibraryBackup(directory,backup,appVersion(root),root);const manifest=verifyLibraryBackup(backup);
  for(const file of [...manifest.files.map(f=>f.path),'shiqu-backup.json']){const fd=openSync(path.join(backup,file),'r');try{fsyncSync(fd);}finally{closeSync(fd);}}
  syncDirectory(backup);syncDirectory(path.dirname(backup));
  console.warn('升级前备份已校验：'+backup);

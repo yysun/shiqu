@@ -27,6 +27,6 @@ export async function maintainLibrary(root:string,options:CliOptions){
  }
  if(!existsSync(directory)||!lstatSync(directory).isDirectory())throw Error('书库不存在，未创建空书库。');
  const release=await ownDesktopData(directory);
- try{const manifest=createLibraryBackup(directory,path.resolve(options.backup!),version);console.log(`书库备份已校验：${path.resolve(options.backup!)}（${manifest.files.length} 个文件）。`);}finally{await release();}
+ try{const manifest=createLibraryBackup(directory,path.resolve(options.backup!),version,root);console.log(`书库备份已校验：${path.resolve(options.backup!)}（${manifest.files.length} 个文件）。`);}finally{await release();}
  return true;
 }

@@ -17,3 +17,16 @@
 仅本说明与`library/`纳入Git；SQLite、生成媒体和运行资料由`.gitignore`排除。桌面与 CLI 发行资源只复制只读书库；用户数据库和媒体使用独立的私有目录。既有研究档案留在忽略目录`.data/research/`，不作为运行依赖。
 
 不再内置东郭先生或种梨示例故事与插图。新库不预置故事；已有故事、原文快照和媒体保留在用户本地书库。独立核验过的种梨原文仍用于原典查找缓存，不是示例故事。
+
+## 离线故事索引
+
+`library/story-cards/` 保存按书和原文版次核对的标题、梗概与出处。npm 和桌面发布均随 `data/library` 复制该目录。检索文本在运行时从同版原文读取。索引内容沿用[书库来源说明](library/source-notices.md)所列归属与许可。
+
+维护者可从已核验的离线制备 SQLite 文件更新轻量故事卡，并制备同版的逐书向量资源。
+
+```bash
+nvm use
+node scripts/prepare-story-index-release.mjs outputs/story-index-release .data/story-index-build/shishuo.sqlite
+```
+
+核对输出 `story-cards/` 的变化后，将相应 JSON 更新到 `data/library/story-cards/`。`release-assets/` 含版本化逐书 SQLite、文件名与版次清单、SHA-256 校验清单和来源说明。确认发布版本后，将这些文件和许可文件作为独立资产附到对应 GitHub release。自动构建 npm 与桌面包时，干净检出只需已提交的故事卡和内置原文。普通用户安装官方包时运行 `books index-install`。不同书库共用系统缓存中的 `com.shiqu.desktop/shiqu-story-vectors-v1`，按原文版次隔离。手动索引和旧单文件索引仍由各自书库保存。

@@ -59,11 +59,12 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 | `init`, `status` | 显式初始化书库，或检查书库完整性与数量统计 |
 | `catalog`, `books`, `themes`, `styles` | 列出书籍、主题和画风 |
 | `books contents BOOK_ID --query TEXT` | 浏览或搜索书籍的章节和可用的故事段落，查询条件可省略 |
-| `books search TEXT [BOOK_ID] --limit 5` | 按标题、梗概、原文和可用参考向量检索故事候选。仅安装一本书的索引时可省略书名，返回原文预览与出处，无需启动服务或调用模型。加 `--brief` 只显示书名、索引中的故事标题、章节和段落 |
+| `books search TEXT [BOOK_ID] --limit 5` | 按标题、梗概、原文和可用参考向量检索故事候选。内置故事卡开箱可用，检索时指定书名。仅有一本手动导入索引，或无手动索引且仅有一本有效官方向量包时，可省略书名。返回原文预览与出处，无需启动服务或调用模型。加 `--brief` 只显示书名、索引中的故事标题、章节和段落 |
 | `stories list`, `stories get ID`, `stories current ID` | 查看故事列表、故事详情与当前版本 |
 | `stories create --input FILE` | 保存新故事的选题条件 |
 | `stories setup`, `stories search`, `stories choose`, `stories confirm` | 设置要求、查找候选、选择故事与确认制作 |
-| `books index-import BOOK_ID FILE --data-dir DIRECTORY` | 安装一本书的离线 SQLite 索引，核对书名、原文版次与出处后更新该书的索引 |
+| `books index-install BOOK_ID FILE` | 安装官方逐书向量包到桌面与 CLI 共用的应用缓存。核对书名、版次、出处和向量后更新，可跨书库使用 |
+| `books index-import BOOK_ID FILE --data-dir DIRECTORY` | 导入自制离线 SQLite 索引到指定书库。匹配版次的手动索引优先，并随该书库备份 |
 | `run ID`, `stories run ID` | 制作指定故事；`--until` 可选 candidates、prepared、reviewed 或 completed。该书有索引时，提取会先核对候选原文。没有可用候选时逐章阅读选定范围。自动选题的双词预设须在同一篇原文中找到两侧及其联系，例如「善意与误解」须有善举及由此产生的误解。新复核的候选可带 `matchScore`（0 到 100），表示该篇故事的主题贴合度 |
 | `stories edit ID --input FILE` | 使用 `stories revisions ID` 返回的 token 保存修改版本。用 `changes.redrawPages` 指定换图幅号，并可用 `changes.redrawNotes` 提供逐幅说明 |
 | `stories pause`, `stories resume`, `stories stop` | 暂停、恢复或停止故事制作 |
@@ -77,6 +78,8 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 | `config get`, `config set`, `config reset` | 查看、保存或重置共享生成服务配置 |
 | `backup DIR`, `verify-backup DIR`, `restore DIR`, `diagnostics FILE` | 备份、校验、恢复书库，或导出脱敏诊断 |
 | `api METHOD reader/ROUTE` | 在当前进程调用允许的 reader 接口 |
+
+直接试用 `npx --yes @apprun/shiqu books search 种梨 聊斋志异 --limit 5 --brief`。若对应版本的[发布页](https://github.com/yysun/shiqu/releases)附有逐书向量包，从向量包清单查找文件名，按 SHA-256 核对下载件，再运行 `npx --yes @apprun/shiqu books index-install 聊斋志异 ./下载的向量包.sqlite`。包内预制查询命中时使用向量召回，其他查询继续用文字检索。官方缓存可重新下载，书库备份只保留手动导入的索引。
 
 源码工作树可为单本书制备索引。《聊斋志异》《世说新语》《战国策》《子不语》《太平广记》及三言二拍沿用原文篇目边界。三言二拍按卷生成主故事摘要，并用片段向量覆盖通过原文校验的整卷。《酉阳杂俎》《山海经》《博物志》《浮生六记》先切分再筛选可独立成篇的叙事。制备脚本使用本机 Ollama 生成向量。以《世说新语》为例，单独调用 `cards` 可指定 Codex 订阅的 Luna 生成摘要。
 

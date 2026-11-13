@@ -2070,6 +2070,30 @@
       ]
     },
     {
+      "file": "tests/bundled-story-indexes.test.mjs",
+      "groups": [
+        "discovery"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/app.ts",
+        "server/headless-cli.ts",
+        "server/library-backup.ts",
+        "server/local-story-search.ts",
+        "server/story-index-paths.ts",
+        "scripts/prepare-story-index-release.mjs"
+      ]
+    },
+    {
       "file": "tests/local-story-search.test.mjs",
       "groups": [
         "discovery"

@@ -55,6 +55,9 @@ try{
  const headers={};
  const page=await request(origin);assert.equal(page.status,200);assert.ok(page.headers.get('content-type')?.startsWith('text/html'));await page.body?.cancel();
  assert.equal((await request(origin+'/api/reader/sessions')).status,200);
+ const contents=await request(origin+'/api/reader/books/'+encodeURIComponent('搜神记')+'/contents?q='+encodeURIComponent('宋定伯'));
+ assert.equal(contents.status,200);
+ assert.ok((await contents.json()).entries.some(entry=>entry.kind==='story'&&entry.title.includes('宋定伯')));
  assert.deepEqual(await (await request(origin+'/api/reader/sessions',{headers})).json(),[],'Fresh libraries must contain no stories');
  assert.equal((await request(origin+'/desktop/settings',{headers})).status,404);
  const provider=await (await request(origin+'/api/reader/status',{headers})).json();assert.equal(provider.configured,false);

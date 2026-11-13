@@ -10,7 +10,7 @@ import type {ReaderProvider} from '../lib/reader-provider.ts';
 import {createApi} from '../lib/server.ts';
 import type {Services} from '../lib/services.ts';
 import {LocalBooks} from './local-books.ts';
-import {LocalStorySearch} from './local-story-search.ts';
+import {applicationStorySearch} from './local-story-search.ts';
 import {withLocalBooks} from './local-generation.ts';
 import {ReaderProductionCoordinator,configuredImageWorkers} from './reader-production.ts';
 import type {ProductionOptions} from './reader-production.ts';
@@ -42,7 +42,8 @@ export function liveReaderProvider(initial:Variables,read:()=>Variables,create:(
 const types:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.woff':'font/woff','.woff2':'font/woff2','.ico':'image/x-icon'};
 export function createApplication(options:{root:string;dataDirectory:string;variables?:Variables;providerVariables?:()=>Variables;transport?:typeof fetch;generation?:ReaderProvider;production?:ProductionOptions;commandOnly?:boolean}){
  const media=new FileMedia(path.join(options.dataDirectory,'media'));
- const storySearch=new LocalStorySearch(path.join(options.dataDirectory,'story-search.sqlite')),localBooks=new LocalBooks(options.root,storySearch);
+ const storySearch=applicationStorySearch(options.root,options.dataDirectory,()=>localBooks);
+ const localBooks:LocalBooks=new LocalBooks(options.root,storySearch);
  const cache=new StoryDiscoveryCache(media),create=(variables:Variables)=>withLocalBooks(createReaderProvider(variables,media,options.transport||fetch),localBooks,media,cache,storySearch);
  const generation=options.generation||(options.providerVariables?liveReaderProvider(options.variables||{},options.providerVariables,create):create(options.variables||{}));
  const imageWorkers=configuredImageWorkers(options.variables?.SHIQU_IMAGE_WORKERS);
