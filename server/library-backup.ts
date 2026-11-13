@@ -5,7 +5,7 @@ import {constants,existsSync,mkdirSync,lstatSync,readdirSync,realpathSync,readFi
 import {createHash,randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {z} from 'zod';
-import {officialVectorDirectory,storyCardsPath} from './story-index-paths.ts';
+import {officialVectorDirectory,officialVectorFilename,storyCardsPath} from './story-index-paths.ts';
 
 const manifestName='shiqu-backup.json';
 const relative=z.string().min(1).max(2048).refine(s=>!path.isAbsolute(s)&&!s.includes('\\')&&!s.split('/').some(p=>!p||p==='.'||p==='..')&&!/[\x00-\x1f]/.test(s)); // eslint-disable-line no-control-regex
@@ -29,15 +29,24 @@ function hash(filename:string){
  try{let n;while((n=readSync(file,buffer,0,buffer.length,null))>0){digest.update(buffer.subarray(0,n));size+=n;}}finally{closeSync(file);}
  return {size,sha256:digest.digest('hex')};
 }
-function files(folder:string,excludeRuntime=false,prefix='',excludedDirectories:ReadonlySet<string>=new Set()):string[]{
+function isOfficialVectorResource(cache:string,filename:string,isDirectory:boolean){
+ const [edition,file,...tail]=path.relative(cache,filename).split(path.sep);
+ if(isDirectory&&!file&&edition.startsWith('.story-index-install-'))return true;
+ if(isDirectory||!file||tail.length||!(/^[a-f0-9]{64}$/).test(edition))return false;
+ const name=file.replace(/-(?:wal|shm|journal)$/,'');
+ if(!name.startsWith('vectors-')||!name.endsWith('.sqlite'))return false;
+ try{return officialVectorFilename(decodeURIComponent(name.slice(8,-7)))===name;}
+ catch{return false;}
+}
+function files(folder:string,excludeRuntime=false,prefix='',resources?:{cards?:string;cache:string}):string[]{
  directory(folder);const result:string[]=[];
  for(const entry of readdirSync(folder).sort()){
   if(!prefix&&(entry===manifestName||excludeRuntime&&runtimeFile(entry)))continue;
   const name=prefix?prefix+'/'+entry:entry;relative.parse(name);
   const filename=path.join(folder,entry),info=lstatSync(filename);
-  if(info.isDirectory()&&excludedDirectories.has(filename))continue;
+  if(resources&&(info.isDirectory()&&filename===resources.cards||isOfficialVectorResource(resources.cache,filename,info.isDirectory())))continue;
   if(info.isSymbolicLink())throw Error('BACKUP_SYMLINK: symlink');
-  if(info.isDirectory())result.push(...files(filename,false,name,excludedDirectories));
+  if(info.isDirectory())result.push(...files(filename,false,name,resources));
   else if(info.isFile())result.push(name);else throw Error('BACKUP_UNSUPPORTED_FILE');
  }
  return result;
@@ -65,9 +74,10 @@ function copyPrivate(source:string,target:string){mkdirSync(path.dirname(target)
 export function createLibraryBackup(source:string,target:string,appVersion='unknown',root?:string){
  source=path.resolve(source);target=path.resolve(target);directory(source);targets(source,target);checkDatabase(path.join(source,'shiqu.sqlite'));
  // 只排除当前应用的正式资源。旧备份仍按原清单校验和恢复。
- const resourcePaths=[officialVectorDirectory(),...(root?[path.join(root,storyCardsPath)]:[])];
- const excludedDirectories=new Set(resourcePaths.map(resource=>path.join(source,path.relative(realpathSync(source),canonicalPath(resource)))));
- const names=files(source,true,'',excludedDirectories),stage=stageDirectory(target);
+ const actualSource=realpathSync(source);
+ const forSource=(resource:string)=>path.join(source,path.relative(actualSource,canonicalPath(resource)));
+ const resources={cache:forSource(officialVectorDirectory()),cards:root?forSource(path.join(root,storyCardsPath)):undefined};
+ const names=files(source,true,'',resources),stage=stageDirectory(target);
  try{
   const db=new DatabaseSync(path.join(source,'shiqu.sqlite'),{readOnly:true});
   try{db.prepare('VACUUM INTO ?').run(path.join(stage,'shiqu.sqlite'));chmodSync(path.join(stage,'shiqu.sqlite'),0o600);}finally{db.close();}

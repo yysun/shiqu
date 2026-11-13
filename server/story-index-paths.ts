@@ -14,3 +14,4 @@ export function officialVectorDirectory(){
 }
 
 export const indexFilename=(bookId:string)=>encodeURIComponent(bookId)+'.sqlite';
+export const officialVectorFilename=(bookId:string)=>'vectors-'+indexFilename(bookId);

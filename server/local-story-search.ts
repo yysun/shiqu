@@ -11,7 +11,7 @@ import {ReaderError,selectionSchema} from '../lib/reader-model.ts';
 import type {LocalBook,LocalBooks} from './local-books.ts';
 import {sourceParts} from './local-source-ranges.ts';
 import {groundedStoryEvents,storyEventText} from './local-story-events.ts';
-import {indexFilename,officialVectorDirectory,officialVectorFormat,storyCardsPath,storyIndexDirectory} from './story-index-paths.ts';
+import {indexFilename,officialVectorDirectory,officialVectorFilename,officialVectorFormat,storyCardsPath,storyIndexDirectory} from './story-index-paths.ts';
 
 export const storyEmbeddingModel='qwen3-embedding:0.6b';
 export const storyEmbeddingQuery=(text:string)=>`Instruct: Given a natural-language query in Chinese, retrieve stories whose plot satisfies it.\nQuery: ${text}`;
@@ -191,7 +191,7 @@ async function installIndex(indexes:string,stagingRoot:string,book:LocalBook,sou
   try{for(const entry of snapshot.entries)sourceParts(book,entry.source);}
   catch{throw invalid('索引包含无法在本地书籍定位的出处。');}
   if(official&&!semanticCardCount(snapshot,book))throw invalid('官方索引没有可用的参考向量和故事向量。');
-  const target=path.join(indexes,indexFilename(book.id));
+  const target=path.join(indexes,official?officialVectorFilename(book.id):indexFilename(book.id));
   await chmod(copy,0o600);
   await rename(copy,target);
   return {bookId:book.id,edition:book.edition,path:target,entries:snapshot.entries.length};
@@ -201,7 +201,7 @@ async function installIndex(indexes:string,stagingRoot:string,book:LocalBook,sou
 export class LocalStorySearch{
  private snapshot?:{file:string;value:Snapshot};
  private readonly officialCounts=new Map<string,{stamp:string;count:number}>();
- private cards?:{book:LocalBook;value:Promise<Snapshot|null>};
+ private cards?:{book:LocalBook;value:Promise<Snapshot|null>;merged?:{official:Snapshot;value:Snapshot}};
  private readonly file:string;
  private readonly resources?:{root:string;book:(id:string)=>Promise<LocalBook|null>;cache?:string};
  constructor(file:string,resources?:LocalStorySearch['resources']){
@@ -236,7 +236,7 @@ export class LocalStorySearch{
   for(const edition of editions){
    if(!edition.isDirectory()||!(/^[a-f0-9]{64}$/).test(edition.name))continue;
    for(const file of await readdir(path.join(cache,edition.name),{withFileTypes:true}).catch(()=>[])){
-    const id=this.indexBookId(file);
+    const id=this.indexBookId(file,true);
     if(id)ids.add(id);
    }
   }
@@ -267,11 +267,13 @@ export class LocalStorySearch{
   const keys=terms.map(storySearchKey).filter(Boolean);
   return snapshot.entries.filter(entry=>entry.displayTitle&&keys.every(key=>entry.title.includes(key)||entry.summary.includes(key)||entry.text.includes(key)));
  }
- private indexBookId(file:{name:string;isFile:()=>boolean}){
+ private indexBookId(file:{name:string;isFile:()=>boolean},official=false){
   if(!file.isFile()||!file.name.endsWith('.sqlite'))return;
+  if(official&&!file.name.startsWith('vectors-'))return;
   try{
-   const id=decodeURIComponent(file.name.slice(0,-7));
-   if(id&&indexFilename(id)===file.name)return id;
+   const id=decodeURIComponent(file.name.slice(official?8:0,-7));
+   const expected=official?officialVectorFilename(id):indexFilename(id);
+   if(id&&expected===file.name)return id;
   }catch{/* 跳过名称无法解码的文件。 */}
  }
  private async customSnapshot(book:LocalBook){
@@ -281,7 +283,7 @@ export class LocalStorySearch{
   return legacy?.edition===book.edition&&!legacy.official&&(!legacy.bookId||legacy.bookId===book.id)?legacy:null;
  }
  private officialFile(book:LocalBook){
-  return path.join(this.resources?.cache??officialVectorDirectory(),book.edition,indexFilename(book.id));
+  return path.join(this.resources?.cache??officialVectorDirectory(),book.edition,officialVectorFilename(book.id));
  }
  private async snapshotFor(book:LocalBook){
   const custom=await this.customSnapshot(book);
@@ -290,9 +292,26 @@ export class LocalStorySearch{
   const wholeBook=await this.resources.book(book.id);
   if(wholeBook?.edition!==book.edition)return null;
   const official=await this.readSnapshot(this.officialFile(wholeBook),wholeBook);
-  if(official)return official;
-  if(this.cards?.book!==wholeBook)this.cards={book:wholeBook,value:this.readCards(wholeBook,this.resources.root)};
-  return this.cards.value;
+  const cards=this.cards?.book===wholeBook?this.cards:{book:wholeBook,value:this.readCards(wholeBook,this.resources.root)};
+  this.cards=cards;
+  const bundled=await cards.value;
+  if(!official||!bundled)return official??bundled;
+  if(cards.merged?.official===official)return cards.merged.value;
+  // 官方包补充向量及其独有范围。内置卡的当前标题、梗概和检索覆盖保持可用。
+  const bySource=new Map<string,Entry>();
+  for(const entry of official.entries){
+   const key=localSourceKey(entry.source),first=bySource.get(key);
+   if(!first)bySource.set(key,entry);
+   else bySource.set(key,{...first,vectors:[...first.vectors,...entry.vectors]});
+  }
+  const entries=bundled.entries.map(entry=>{
+   const key=localSourceKey(entry.source),overlay=bySource.get(key);
+   bySource.delete(key);
+   return overlay?{...entry,vectors:overlay.vectors,eventTerms:overlay.eventTerms,eventText:overlay.eventText}:entry;
+  });
+  const value={...official,entries:[...entries,...bySource.values()]};
+  cards.merged={official,value};
+  return value;
  }
  private async readCards(book:LocalBook,root:string):Promise<Snapshot|null>{
   try{

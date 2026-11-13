@@ -91,8 +91,8 @@ try{
    const bundle=storyCardsSchema.parse({version:1,bookId,edition:book.edition,cards:records});
    const cardFile=indexFilename(bookId).replace(/\.sqlite$/,'.json');
    // 每条故事卡独占一行，便于复核版本差异。
-   const {cards:rows,...metadata}=bundle;
-   const header=JSON.stringify(metadata).slice(0,-1);
+   const {cards:rows,...cardMetadata}=bundle;
+   const header=JSON.stringify(cardMetadata).slice(0,-1);
    await writeFile(path.join(cards,cardFile),header+',"cards":[\n'+rows.map(card=>JSON.stringify(card)).join(',\n')+'\n]}\n');
    // 资产名使用 ASCII，避免发布服务改写书名。
    const filename=`shiqu-story-vectors-${version}-${Buffer.from(bookId).toString('hex')}.sqlite`;
