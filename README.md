@@ -84,7 +84,7 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 
 ## 更多说明
 
-[使用指南](.docs/user-guide.md) · [使用前了解](.docs/user-guide.md#使用前了解) · [升级到 0.11.1](.docs/user-guide.md#升级到-0111) · [书库说明](data/README.md) · [画风](.docs/user-guide.md#画风) · [手机阅读](.docs/user-guide.md#在手机上阅读) · [常见问题](.docs/user-guide.md#常见问题)
+[使用指南](.docs/user-guide.md) · [使用前了解](.docs/user-guide.md#使用前了解) · [升级到 0.11.2](.docs/user-guide.md#升级到-0112) · [书库说明](data/README.md) · [画风](.docs/user-guide.md#画风) · [手机阅读](.docs/user-guide.md#在手机上阅读) · [常见问题](.docs/user-guide.md#常见问题)
 
 ## 开发者
 

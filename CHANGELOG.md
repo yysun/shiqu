@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+## [0.11.2](https://github.com/yysun/shiqu/releases/tag/v0.11.2) - 2026-11-12
+
+- 修复 Windows 上旧书库升级时同步备份文件失败、导致服务无法启动的问题。
+- 服务端口被系统拒绝时，桌面控制台会提示更换端口。详见[升级说明](.docs/user-guide.md#升级到-0112)。
+
 ## [0.11.1](https://github.com/yysun/shiqu/releases/tag/v0.11.1) - 2026-11-12
 
 - 18 本内置书籍的 12,661 张故事卡随应用交付。按标题、梗概和原文离线找故事，结果可核对出处。逐书向量包留待后续验证。

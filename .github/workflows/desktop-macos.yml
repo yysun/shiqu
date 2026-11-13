@@ -243,6 +243,7 @@ jobs:
           $configPath = Join-Path $env:RUNNER_TEMP 'shiqu-tauri-ci.json'
           $env:TAURI_CONFIG | Set-Content $configPath -Encoding utf8
           Invoke-Checked pnpm @('run', 'desktop:test')
+          Invoke-Checked node @('--test', '--test-name-pattern=desktop startup upgrades an isolated legacy library|in-place migration reports its new verified backup', 'tests/desktop-service-console.test.mjs')
           Invoke-Checked pnpm @('run', 'desktop:build', '--config', $configPath, '--ci', '--no-sign', '--bundles', 'nsis')
           $installers = @(Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe)
           if ($installers.Count -ne 1) { throw 'Expected exactly one NSIS installer' }
