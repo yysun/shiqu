@@ -160,6 +160,7 @@ export default function Reader(){
  const exportLock=useRef(false),reselectLock=useRef(false);
  const [drag]=useState(createDragOffset),setDrag=drag.set,[lastReadId,setLastReadId]=useState('');
  const [metadataVisible,setMetadataVisible]=useState(true);
+ const [typedCaption,setTypedCaption]=useState<{key:string;text:string}>({key:'',text:''});
  useEffect(()=>{setMetadataVisible(true);setImageIssues({});setImageReloads({});setRedrawPage(null);},[story?.id]);
  const readerRef=useRef<HTMLElement>(null),endingRef=useRef<HTMLElement>(null);
  const wheelGesture=useRef(newWheelGesture());
@@ -504,6 +505,22 @@ export default function Reader(){
  const heroes=recentShelfHeroes(allStories,deletedIds.includes(lastReadId)?'':lastReadId,progress.filter(p=>!deletedIds.includes(p.storyId)));
  const bookName=(s:Pick<Story,'id'|'bookId'>)=>(s.bookId==='other'?(gen.active?.id===s.id?gen.active:shelfSessionsById.get(s.id))?.selection.customBook:'')||choices.find(b=>b.id===s.bookId)?.title||s.bookId;
  const current=story?.pages[page];
+ const captionText=current?.caption||'';
+ const captionKey=story?`${story.id}:${page}:${captionText}`:'';
+ useLayoutEffect(()=>{
+  if(!story||ended){setTypedCaption({key:captionKey,text:''});return;}
+  const characters=Array.from(captionText);
+  if(!characters.length||window.matchMedia('(prefers-reduced-motion: reduce)').matches){setTypedCaption({key:captionKey,text:captionText});return;}
+  let visible=0;
+  setTypedCaption({key:captionKey,text:''});
+  const timer=window.setInterval(()=>{
+   visible=Math.min(visible+1,characters.length);
+   setTypedCaption({key:captionKey,text:characters.slice(0,visible).join('')});
+   if(visible>=characters.length)window.clearInterval(timer);
+  },50);
+  return()=>window.clearInterval(timer);
+ },[story?.id,page,captionText,ended]);
+ const visibleCaption=typedCaption.key===captionKey?typedCaption.text:'';
  const activeProgress=mergeReadingProgress(progress,gen.sessions.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}))).filter(p=>!deletedIds.includes(p.storyId)&&shelfSessionsById.has(p.storyId));
  const readingSession=story&&gen.active?.id===story.id?gen.active:undefined;
  const reviewStatus=readingSession?.generationProgress?.reviewStatus;
@@ -627,7 +644,7 @@ export default function Reader(){
  {!ended&&!current?.image&&<div className="yu-drawing" role="status"><div className="yu-drawing-orbit"><Feather size={35} strokeWidth={1}/></div><span>{gen.error?'画笔暂停了一下':'这一幅，正在展开'}</span><small>{gen.error||gen.active?.stage||'正在为你绘制画面'}</small>{gen.error&&gen.active&&<StoryRetry session={gen.active} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}
  <header className="yu-reader-top"><div className="yu-progress" aria-label={`第${page+1}幅，共${story.pages.length}幅`}>{story.pages.map((_,i)=><span key={i} className={i<=page?'read':''}/>)}</div><div className="yu-reader-heading">{dockedView?<button className="yu-glass" onClick={expand} aria-label="全屏阅读" title="全屏阅读"><Maximize2 size={19}/></button>:<button className="yu-glass" onClick={leaveReader} aria-label={docked?'返回书架':'返回发现'}><ArrowLeft size={21}/></button>}<div className="yu-reader-title"><div><strong>{story.title}</strong><span>{bookName(story)}{isGenerated(story)?' · AI 生成':''}</span></div><div className="yu-style-label" aria-label="本篇主题与画风">{story.theme&&<span>{story.theme}</span>}<span>{isGenerated(story)?(story.artStyleLabel||'未记录画风'):'未记录画风'}</span></div></div>{!ended&&<BookReferenceStar selected={bookReference.selected} disabled={bookReference.disabled} busy={bookReference.busy} onClick={bookReference.toggle}/>}<button className="yu-glass" onClick={bookmark} aria-label={saved?'取消收藏':'收藏故事'}><Bookmark size={20} fill={saved?'currentColor':'none'}/></button><button className="yu-glass" onClick={()=>openStorySettings(story)} aria-label="故事设置"><Settings2 size={19}/></button></div></header>
  {!ended&&<>
- <div className={'yu-scene-caption '+(largeText?'large':'')} key={'caption-'+page}><div className="yu-scene-number"><span>{String(page+1).padStart(2,'0')}</span><i/><span>{String(story.pages.length).padStart(2,'0')}</span>{isGenerated(story)&&gen.busy&&<span className="yu-scene-generation" role="status"><Loader2 size={12} className="spin"/>{gen.active?.stage||'正在生成'}</span>}</div><p>{current?.caption}</p>{current?.image&&(gen.error||imageIssues[current.image]||!!readingSession?.faults?.length)&&<div className="yu-reader-error">{gen.error||imageIssues[current.image]}{isGenerated(story)&&imageIssues[current.image]&&<button type="button" onClick={()=>void inspectImage(story.id,page,current.image,true)}>重新检查图片</button>}{readingSession&&<StoryRetry session={readingSession} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}</div>
+ <div className={'yu-scene-caption '+(largeText?'large':'')} key={'caption-'+page}><div className="yu-scene-number"><span>{String(page+1).padStart(2,'0')}</span><i/><span>{String(story.pages.length).padStart(2,'0')}</span>{isGenerated(story)&&gen.busy&&<span className="yu-scene-generation" role="status"><Loader2 size={12} className="spin"/>{gen.active?.stage||'正在生成'}</span>}</div><p aria-label={captionText}>{visibleCaption}</p>{current?.image&&(gen.error||imageIssues[current.image]||!!readingSession?.faults?.length)&&<div className="yu-reader-error">{gen.error||imageIssues[current.image]}{isGenerated(story)&&imageIssues[current.image]&&<button type="button" onClick={()=>void inspectImage(story.id,page,current.image,true)}>重新检查图片</button>}{readingSession&&<StoryRetry session={readingSession} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}</div>
  <footer className="yu-reader-bottom"><button className="yu-source-button" onClick={()=>setSource(true)} aria-label="原文" title="原文"><BookOpen size={17}/><span>原文</span></button><button className="yu-glass" onClick={()=>setSceneList(true)} aria-label="分镜列表" title="分镜列表"><List size={20}/></button>
   {canRedraw&&<button type="button" className="yu-glass yu-redraw-button" onClick={()=>{redraw.discard();setRedrawNote('');setRedrawPage(page);void redraw.load();}} aria-label="重新生图" title="重新生图">
    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
