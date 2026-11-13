@@ -41,15 +41,7 @@ test('PHONE-READABILITY: every phone state has readable text, 44px targets (26px
  const close=async()=>{await page.getByRole('dialog').last().getByRole('button',{name:'关闭',exact:true}).first().click();await page.waitForTimeout(200);};
  // 具名字号检查在最后统一断言，不中断后续状态。
  const atLeast=async(name,locator)=>{const sizes=await locator.evaluateAll(list=>list.map(el=>parseFloat(getComputedStyle(el).fontSize)));if(!sizes.length)unreached.push({name,error:'no element'});else if(Math.min(...sizes)<12)named.push({name,sizes});};
- // 每次都从发现页新建，继续验证按主题找故事到制作确认。
- async function createStory(){
-  await page.goto(url);await tab('发现');await page.getByRole('button',{name:'选择庄子',exact:true}).click();const sheet=dialog(page,'这一篇，想怎样读？');
-  await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其它',exact:true}).click();await sheet.getByLabel('自定义主题或情节',{exact:true}).fill('乌龟报恩');
-  const created=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/reader/sessions'&&response.request().method()==='POST');
-  await sheet.getByRole('button',{name:'开始找故事',exact:true}).click();const saved=await(await created).json();
-  await b.extract(saved,'乌龟报恩');
-  await page.getByRole('link',{name:'开始制作',exact:true}).click();return saved;
- }
+ async function createStory(){const saved=await b.create();await b.confirm();return saved;}
  const releaseImages=()=>{f.control.hold=false;for(const call of f.control.calls)call.resolve?.();};
  // 夹具原有的文本钩子负责推荐与审核回执；场景只在它外面包一层，避免叠加。
  const wrap=override=>{f.control.beforeText=async(kind,payload,schema)=>(await override(kind,payload,schema))??original?.(kind,payload,schema);};
@@ -69,21 +61,21 @@ test('PHONE-READABILITY: every phone state has readable text, 44px targets (26px
    const scope=sheet.locator('details').first();if(await scope.count())await scope.locator('summary').click();
    await audit('creation-custom');
    await sheet.getByLabel('自定义主题或情节',{exact:true}).fill('乌龟报恩');await audit('creation-title');
+   await sheet.getByRole('link',{name:'开始找故事',exact:true}).click();
+   await sheet.getByRole('region',{name:'查找结果'}).getByRole('checkbox',{name:'乌龟报恩',exact:true}).check();
+   await audit('intake-candidates');
    const created=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/reader/sessions'&&response.request().method()==='POST');
-   await sheet.getByRole('button',{name:'开始找故事',exact:true}).click();first=await(await created).json();
+   await sheet.getByRole('button',{name:'准备故事',exact:true}).click();first=await(await created).json();
   });
-
-  // 3. 故事设置中的选题与确认。
   await step('intake',async()=>{
-   const picker=dialog(page,'故事设置');await picker.getByRole('link',{name:'选择 乌龟报恩',exact:true}).waitFor();await audit('intake-candidates');
-   await b.extract(first,'乌龟报恩');await audit('intake-confirming');
+   await until(async()=>(await f.read(first.id)).intake.phase==='confirming',15000);await audit('intake-confirming');
   });
-  for(const [name,trigger,title] of [['setup-source','原文','故事原文'],['setup-editor','制作要求','修改故事'],['setup-reselect','重新选择故事','重新选择故事']])
-   await step(name,async()=>{await dialog(page,'故事设置').getByText(trigger,{exact:true}).first().click();await dialog(page,title).waitFor();await page.waitForTimeout(300);await audit(name);await close();});
+  for(const [name,trigger,title] of [['setup-source','查看原文','故事原文'],['setup-editor','制作要求','修改故事']])
+   await step(name,async()=>{await dialog(page,'准备故事').getByText(trigger,{exact:true}).first().click();await dialog(page,title).waitFor();await page.waitForTimeout(300);await audit(name);await close();});
 
   // 4. 生成中：图片调用被夹具挂起。
   await step('generating',async()=>{
-   f.control.hold=true;await page.getByRole('link',{name:'开始制作',exact:true}).click();
+   f.control.hold=true;await b.confirm();
    await page.locator('.production-stage-state').first().waitFor({timeout:20000});await audit('generating-settings');
    await atLeast('production-stage-state',page.locator('.production-stage-state'));
    await close();if(await page.getByRole('dialog').count())await close();

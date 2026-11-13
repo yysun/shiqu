@@ -220,7 +220,11 @@ export async function verifyThemeCandidates<T extends Story>(provider:ReaderProv
  let completed=0,checked=0;
  const totalChars=entries.reduce((sum,entry)=>sum+entry.input.text.length,0);
  let completedChars=0;
- const progress=(checkingCandidates?:string[])=>observer.onProgress({completed,total:entries.length,completedChars,totalChars,stage:'checking',mode:'chapters',...(checkingCandidates?{checkingCandidates}:{})});
+ const progress=(checkingCandidates?:string[],modelBatchCardCount?:number)=>observer.onProgress({
+  completed,total:entries.length,completedChars,totalChars,stage:'checking',mode:'chapters',
+  ...(checkingCandidates?{checkingCandidates}:{}),
+  ...(modelBatchCardCount!==undefined?{modelBatchCardCount}:{}),
+ });
  const fits=(batch:typeof entries)=>readingTokens(protocol.prompt,status.provider)+readingTokens(JSON.stringify(protocol.payload(theme,batch.map(entry=>entry.input))),status.provider)+readingTokens(JSON.stringify(protocol.json),status.provider)<=budget;
  progress();
  for(let start=0;start<entries.length;){
@@ -238,9 +242,9 @@ export async function verifyThemeCandidates<T extends Story>(provider:ReaderProv
     });
    };
    let delivery=Promise.resolve(),published=0;
-   const listener:ReadingObserver=onDecisions?{...observer,onVerification:({decisions,checking})=>{
-    progress(checking);
-    if(decisions.length<=published)return;
+   const listener:ReadingObserver=evidence==='card'||onDecisions?{...observer,onVerification:({decisions,checking,modelBatchCardCount})=>{
+    progress(checking,modelBatchCardCount);
+    if(!onDecisions||decisions.length<=published)return;
     published=decisions.length;
     delivery=delivery.then(()=>onDecisions(decisions));
     void delivery.catch(()=>{});
@@ -252,11 +256,13 @@ export async function verifyThemeCandidates<T extends Story>(provider:ReaderProv
     for(let attempt=0;attempt<2;attempt++){
      const remaining=batch.filter(entry=>!accepted.has(entry.input.id));
      if(!remaining.length)break;
-     reading.onVerification?.({decisions:[...accepted.values()],checking:remaining.map(({input})=>input.id)});
+     const checking=remaining.map(({input})=>input.id);
+     if(evidence!=='card')reading.onVerification?.({decisions:[...accepted.values()],checking});
      const release=await slot();
      try{
       reading.signal.throwIfAborted();
       const inputs=evidence==='card'?batch:remaining;
+      if(evidence==='card')reading.onVerification?.({decisions:[...accepted.values()],checking,modelBatchCardCount:inputs.length});
       const response=await provider.verifyThemeStories!(theme,inputs.map(entry=>entry.input),{...reading,isolation:attempt>0},evidence);
       const candidates=verifiedBatchSchema.parse(response.matches);
       const ids=new Set(remaining.map(entry=>entry.input.id));

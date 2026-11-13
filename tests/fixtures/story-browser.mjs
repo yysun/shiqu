@@ -34,6 +34,9 @@ export async function storyBrowser(t,caseId,contextOptions={}){
  f.generation.matchStories=library.provider.matchStories;
  const {storySearch,verifyThemeStories}=storyCardFixture(library);
  f.generation.verifyThemeStories=verifyThemeStories;
+ library.books.storySearch={...storySearch,passages:async()=>library.stories.map(story=>({
+  id:story.title,source:story.source,displayTitle:story.title,displaySummary:story.description,
+ }))};
  f.options.generation=withLocalBooks(f.generation,library.books,f.media,undefined,storySearch);await f.restart();f.app.services.localBooks=library.books;
  const port=await reservePort();api=createHttpServer(developmentAccess(request=>f.app.handle(request),{SHIQU_DEV_FRONTEND_PORT:String(port)},0));
  await new Promise(resolve=>api.listen(0,'127.0.0.1',resolve));
@@ -66,20 +69,33 @@ export async function storyBrowser(t,caseId,contextOptions={}){
   await sheet.getByRole('group',{name:'选择书籍'}).getByRole('button',{name:'庄子',exact:true}).click();
   await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其它',exact:true}).click();
   await sheet.getByLabel('自定义主题或情节').fill(title||theme||'渔夫救乌龟，乌龟救了渔夫');
+  if(!prepare){
+   const saved=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{bookId:'zhuangzi',theme:'原典故事'}});
+   await f.startDiscovery(saved.id,title||'乌龟报恩');await f.demand(saved.id,crypto.randomUUID());
+   await until(async()=>(await f.read(saved.id)).intake.phase==='choosing');
+   await page.goto(url+'/?id='+saved.id);
+   await page.getByRole('dialog',{name:'这一篇，想怎样读？',exact:true}).waitFor();
+   return saved;
+  }
+  await sheet.getByRole('link',{name:'开始找故事',exact:true}).click();
+  const results=sheet.getByRole('region',{name:'查找结果'});
+  await results.getByRole('checkbox',{name:title||'乌龟报恩',exact:true}).check();
   const creation=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/reader/sessions'&&response.request().method()==='POST');
-  await sheet.getByRole('button',{name:'开始找故事',exact:true}).click();const created=await creation;
+  await sheet.getByRole('button',{name:'准备故事',exact:true}).click();
+  const created=await creation;
   assert.equal(created.status(),201);const saved=await created.json();
-  assert.equal(saved.intake.search.state,'searching');
-  await page.getByRole('dialog',{name:'故事设置',exact:true}).getByRole('region',{name:'选择故事',exact:true}).waitFor();
-  if(!prepare)return saved;
-  return extract(saved,title);
+  assert.equal(saved.intake.phase,'preparing');
+  await until(async()=>(await f.read(saved.id)).intake.phase==='confirming',15000);
+  return f.read(saved.id);
  }
  async function extract(saved,title){
-  const picker=page.getByRole('dialog',{name:'故事设置',exact:true});
-  await picker.getByRole('link',{name:'选择 '+(title||'乌龟报恩'),exact:true}).click();
-  await until(async()=>(await f.read(saved.id)).intake.phase==='confirming',15000);await page.getByRole('link',{name:'开始制作',exact:true}).waitFor();return f.read(saved.id);
+  const picker=page.getByRole('dialog',{name:'这一篇，想怎样读？',exact:true});
+  await picker.getByRole('button',{name:'按故事',exact:true}).click();
+  await picker.getByRole('region',{name:'故事列表'}).getByRole('checkbox',{name:title||'乌龟报恩',exact:true}).check();
+  await picker.getByRole('button',{name:'准备故事',exact:true}).click();
+  await until(async()=>(await f.read(saved.id)).intake.phase==='confirming',15000);return f.read(saved.id);
  }
- async function confirm(){await page.getByRole('link',{name:'开始制作',exact:true}).click();}
+ async function confirm(){await page.getByText('开始制作',{exact:true}).click();}
  async function completed(id){await until(async()=>(await f.read(id)).state==='completed',20000);}
  async function reader(id){await page.goto(url+'/?id='+id);await page.getByRole('button',{name:'故事设置',exact:true}).waitFor();}
  async function workflow(){return settings();}

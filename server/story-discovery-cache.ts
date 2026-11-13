@@ -10,7 +10,7 @@ import type {StoryReading} from '../lib/reader-provider.ts';
 import type {VerifiedThemeDecision} from '../lib/reader-theme-match.ts';
 import {ReaderError} from '../lib/reader-model.ts';
 
-type VerificationUpdate={decisions:VerifiedThemeDecision[];checking?:string[]};
+type VerificationUpdate={decisions:VerifiedThemeDecision[];checking?:string[];modelBatchCardCount?:number};
 export type ReadingObserver=StoryReading&{onCallStart?:DiscoveryContext['onCallStart'];onVerification?:(update:VerificationUpdate)=>void};
 type Flight={controller:AbortController;promise:Promise<unknown>;listeners:Set<ReadingObserver|undefined>;callListeners?:Set<ReadingObserver|undefined>;progress?:SuggestionProgress;verification?:VerificationUpdate;settled:boolean};
 const flightsByStore=new WeakMap<object,Map<string,Flight>>();

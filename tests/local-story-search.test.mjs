@@ -15,6 +15,7 @@ import {LocalBooks} from '../server/local-books.ts';
 import {FileMedia} from '../server/media.ts';
 import {sourceParts} from '../server/local-source-ranges.ts';
 import {localSourceKey} from '../lib/reader-local-contract.ts';
+import {storyCardSearchProgressLabel,suggestionProgressSchema} from '../lib/reader-suggestions.ts';
 import {verifyThemeCandidates} from '../server/story-theme-matching.ts';
 import {libraryFixture,selection} from './fixtures/story-library.mjs';
 
@@ -75,16 +76,22 @@ test('无向量时按 10 张故事卡匹配，只用每张卡的是非回执',as
   }))}),model:'mock',requestId:'test',usage:null};
  }};
  const wrapped=withLocalBooks(createReaderProvider({SHIQU_AI_PROVIDER:'codex'},f.store,fetch,runner),f.books,f.store,f.cache,f.search);
- const find=(theme,seen=[])=>wrapped.suggestions({...selection,theme,discovery:{mode:'auto',vectorFirst:true,themeInput:'preset'}},[],undefined,undefined,seen);
+ const progress=[];
+ const find=(theme,seen=[])=>wrapped.suggestions({...selection,theme,discovery:{mode:'auto',vectorFirst:true,themeInput:'preset'}},[],undefined,{signal,onProgress:value=>progress.push(value)},seen);
  const result=await find('欲望与代价');
  assert.deepEqual(calls.map(batch=>batch.length),[10,10]);
+ assert.deepEqual(progress.flatMap(value=>value.modelBatchCardCount??[]),[10,10]);
+ assert.ok(progress.some(value=>storyCardSearchProgressLabel(suggestionProgressSchema.parse(value))==='正在用模型查找故事 · 本批 10 张故事卡'));
  assert.equal(result.stories[0].description,'故事卡梗概 13');
  assert.equal(result.stories[0].source.firstUnit,'card13');
+ progress.length=0;
  assert.deepEqual(await find('欲望与代价'),result);
  assert.equal(calls.length,2);
+ assert.ok(progress.every(value=>value.modelBatchCardCount===undefined));
  const more=await find('欲望与代价',[result.stories[0].source]);
  assert.deepEqual(more.stories,[]);
  assert.deepEqual(calls.map(batch=>batch.length),[10,10,1]);
+ assert.deepEqual(progress.flatMap(value=>value.modelBatchCardCount??[]),[1]);
  calls.length=0;
  const noMatches=await wrapped.suggestions({...selection,theme:'欲望与代价',discovery:{mode:'auto',vectorFirst:true,themeInput:'custom'}},[]);
  assert.deepEqual(calls.map(batch=>batch.length),[10,10,1]);
@@ -115,7 +122,7 @@ test('有向量时按查询召回故事卡，直接返回向量结果',async t=>
 });
 
 test('复合主题分别嵌入，按任一主题的最高相似度去重排序',async t=>{
- const f=await setup(t),queries=[],updates=[];
+ const f=await setup(t),queries=[],updates=[],progress=[];
  f.search.embeddings.scores=async(_book,[first,second],query)=>{
   queries.push(query);
   return new Map([[first.id,query==='欲望'?0.9:0.1],[second.id,query==='代价'?0.95:0.3]]);
@@ -123,8 +130,11 @@ test('复合主题分别嵌入，按任一主题的最高相似度去重排序',
  f.provider.verifyThemeStories=async()=>assert.fail('有向量时直接返回故事卡');
  const wrapped=withLocalBooks(f.provider,f.books,f.store,f.cache,f.search);
  await wrapped.suggestions({...selection,theme:'欲望与代价',discovery:{mode:'auto',vectorFirst:true,themeInput:'preset'}},[],undefined,{
-  signal,onProgress(){},async onIndexedCandidates(rows){updates.push(...rows);},
+  signal,onProgress:value=>progress.push(value),async onIndexedCandidates(rows){updates.push(...rows);},
  });
+ assert.deepEqual(progress.map(value=>value.retrieval),['vector']);
+ assert.ok(progress.every(value=>value.modelBatchCardCount===undefined));
+ assert.equal(storyCardSearchProgressLabel(suggestionProgressSchema.parse(progress[0])),'正在用向量查找故事…');
  assert.deepEqual(queries,['欲望','代价']);
  assert.deepEqual(updates.map(row=>row.story.source),[f.stories[1].source,f.stories[0].source]);
  await wrapped.suggestions({...selection,theme:'欲望与代价',discovery:{mode:'auto',vectorFirst:true,themeInput:'custom'}},[]);

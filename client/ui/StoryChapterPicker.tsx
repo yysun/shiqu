@@ -18,6 +18,7 @@ type Props={
  resultEntries?:BookContentEntry[];
  onTotal?:(total:number|null)=>void;
  label?:string;
+ selectedEntryId?:string|null;
 };
 
 const storyPageSize=20;
@@ -30,7 +31,7 @@ async function listEntries(bookId:string,kind:NonNullable<Props['kind']>,query:s
  return await request(book+'/contents?'+params.toString()) as BookContents;
 }
 
-export default function StoryChapterPicker({bookId,sources,disabled,onSelect,kind='chapter',query:externalQuery,onQueryChange,sectionId,resultEntries,onTotal,label}:Props){
+export default function StoryChapterPicker({bookId,sources,disabled,onSelect,kind='chapter',query:externalQuery,onQueryChange,sectionId,resultEntries,onTotal,label,selectedEntryId}:Props){
  const [loadedEntries,setEntries]=useState<BookContentEntry[]|null>(null),[total,setTotal]=useState<number|null>(null),[error,setError]=useState(''),[internalQuery,setInternalQuery]=useState(''),[retry,setRetry]=useState(0),[loadingMore,setLoadingMore]=useState(false);
  const [original,setOriginal]=useState<{title:string;text:string}|null>(null),[openingSource,setOpeningSource]=useState(''),[sourceError,setSourceError]=useState('');
  const listRef=useRef<HTMLDivElement>(null),loadMoreRef=useRef<HTMLDivElement>(null),loadingMoreRef=useRef(false);
@@ -63,7 +64,7 @@ export default function StoryChapterPicker({bookId,sources,disabled,onSelect,kin
   observer.observe(sentinel);
   return()=>{live=false;observer.disconnect();};
  },[bookId,entries,error,query,story,total,sectionId,resultEntries]);
- const isSelected=(entry:BookContentEntry)=>!!entry.source&&sources.some(source=>localSourceKey(source)===localSourceKey(entry.source!));
+ const isSelected=(entry:BookContentEntry)=>selectedEntryId!==undefined?entry.id===selectedEntryId:!!entry.source&&sources.some(source=>localSourceKey(source)===localSourceKey(entry.source!));
  async function viewOriginal(entry:BookContentEntry){
   if(!entry.source)return;
   setOpeningSource(entry.id);setSourceError('');
@@ -76,7 +77,7 @@ export default function StoryChapterPicker({bookId,sources,disabled,onSelect,kin
   {error?<div role="alert"><p>{error}</p><button type="button" disabled={disabled} onClick={()=>setRetry(n=>n+1)}>重试加载目录</button></div>:!entries?<p role="status">{query.trim()?'正在筛选':'正在加载'}{noun}…</p>:<>
    <p className="yu-candidate-count" role="status">{entries.length?(story?`共 ${total??entries.length} 则`:`${entries.length} 章`):story&&!query.trim()?sectionId?'本章暂无故事卡。':'暂无可选故事。':`没有匹配的${noun}。`}{sources.length>0&&` · 已选 ${sources.length} 项`}</p>
    <div className="yu-source-entries" ref={listRef}>{entries.map((entry,index)=>{
-    const selectedEntry=isSelected(entry),locked=disabled||!entry.source||sources.length>=24&&!selectedEntry;
+    const selectedEntry=isSelected(entry),locked=disabled||selectedEntryId===undefined&&(!entry.source||sources.length>=24&&!selectedEntry);
     const inputId=group+'-'+index;
     return <div key={entry.id} className={'yu-source-chapter'+(story?' yu-source-story':'')+(selectedEntry?' selected':'')}><input id={inputId} type="checkbox" aria-label={entry.title} checked={selectedEntry} disabled={locked} onChange={()=>onSelect(entry)}/><label className="yu-source-chapter-title" htmlFor={inputId}>{entry.title}{story&&entry.excerpt&&<small>{entry.excerpt}</small>}</label><button type="button" className="yu-source-original-link" disabled={!entry.source||openingSource===entry.id} onClick={()=>void viewOriginal(entry)}>{openingSource===entry.id?'打开中…':'看原文'}</button></div>;
    })}{!resultEntries&&story&&entries.length<(total??0)&&<div className="yu-source-page-sentinel" ref={loadMoreRef} aria-hidden="true"/>}{loadingMore&&<p role="status">正在加载下一批故事…</p>}</div>

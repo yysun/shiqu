@@ -23,8 +23,17 @@ test('creation selects sources before preparing a single or combined story', {ti
  f.generation.matchStories=library.provider.matchStories;
  const vectorQueries=[],modelQueries=[];
  const {storySearch,verifyThemeStories}=storyCardFixture(library);
- storySearch.vectorHits=async(_book,query,_signal,cards)=>{
+ let presetCancelled=false;
+ storySearch.vectorHits=async(_book,query,signal,cards)=>{
   vectorQueries.push(query);
+  if(query==='善意与误解'){
+   if(!presetCancelled){
+    if(!signal.aborted)await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));
+    presetCancelled=true;
+    signal.throwIfAborted();
+   }
+   return cards;
+  }
   return query.startsWith('渔夫')?cards:[];
  };
  f.generation.verifyThemeStories=async(...args)=>{modelQueries.push(args[0]);return verifyThemeStories(...args);};
@@ -96,13 +105,21 @@ test('creation selects sources before preparing a single or combined story', {ti
  assert.equal(await submit.isDisabled(),true);
  await themes.getByRole('button',{name:'其它',exact:true}).click();
  await sheet.getByLabel('自定义主题或情节').fill('渔夫救乌龟，后来乌龟救了渔夫');
- await themes.getByRole('button',{name:'善意与误解',exact:true}).click();
+ const preset=themes.getByRole('button',{name:'善意与误解',exact:true});
+ await preset.click();
  assert.equal(await sheet.getByLabel('自定义主题或情节').count(),0);
+ await sheet.getByText('正在用向量查找故事…',{exact:true}).waitFor();
+ await sheet.getByRole('link',{name:'取消查找',exact:true}).click();
+ await until(()=>presetCancelled);
+ await preset.click();
+ await sheet.getByRole('region',{name:'查找结果'}).waitFor();
+ assert.equal(await sheet.getByRole('link',{name:'开始找故事',exact:true}).count(),0);
+ assert.equal(await sheet.getByText('从原文提取更多',{exact:true}).count(),0);
  await themes.getByRole('button',{name:'其它',exact:true}).click();
  assert.equal(await sheet.getByLabel('自定义主题或情节').inputValue(),'渔夫救乌龟，后来乌龟救了渔夫');
  assert.equal(await sheet.getByLabel(/制作标题/).count(),0);
  assert.equal(await sheet.getByRole('button',{name:'查找主题',exact:true}).count(),0);
- await sheet.getByRole('button',{name:'开始找故事',exact:true}).click();
+ await sheet.getByRole('link',{name:'开始找故事',exact:true}).click();
  const results=sheet.getByRole('region',{name:'查找结果'});
  await results.getByRole('checkbox',{name:'乌龟报恩',exact:true}).check();
  await results.getByRole('checkbox',{name:'勇士护民',exact:true}).check();
@@ -132,6 +149,25 @@ test('creation selects sources before preparing a single or combined story', {ti
  await preparing.getByText('两段古事并列讲述。',{exact:true}).waitFor();
  assert.ok(library.book.sections[0].units.every(unit=>combinedPlan.verifiedOriginal.text.includes(unit.text)));
  assert.deepEqual(modelQueries,[]);
+ const legacy=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{
+  ...saved.selection,source:undefined,discovery:undefined,discoverySources:undefined,storyTitle:undefined,
+ }});
+ await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.intake.batches',json(?)) WHERE id=?")
+  .bind(JSON.stringify([{stories:[library.stories[0]],note:''}]),legacy.id).run();
+ await page.goto(url);
+ const oldTask=page.locator('.yu-production-row').filter({hasText:'等待选择故事'}).first();
+ await oldTask.click();
+ const materials=page.getByRole('dialog',{name:'这一篇，想怎样读？',exact:true});
+ await materials.getByRole('button',{name:'按故事',exact:true}).click();
+ await materials.getByRole('region',{name:'故事列表'}).getByRole('checkbox',{name:'乌龟报恩',exact:true}).check();
+ assert.equal(await materials.getByText('已找到的故事',{exact:true}).count(),0);
+ assert.equal(await materials.getByRole('button',{name:'准备故事',exact:true}).count(),1);
+ assert.equal(await page.getByRole('dialog',{name:'故事设置',exact:true}).count(),0);
+ const choice=page.waitForResponse(response=>response.url().endsWith(`/sessions/${legacy.id}/setup`)&&response.request().postDataJSON()?.action==='conditions');
+ await materials.getByRole('button',{name:'准备故事',exact:true}).click();
+ const resumed=await (await choice).json();
+ assert.equal(resumed.id,legacy.id);
+ assert.equal(resumed.intake.phase,'preparing');
  const real=new LocalBooks(process.cwd());
  // The same editor is available inside a separate replacement draft; cancelling retains the parent.
  f.options.generation=f.generation;f.control.hold=false;

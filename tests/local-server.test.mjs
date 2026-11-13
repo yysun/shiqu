@@ -84,7 +84,21 @@ test('real SQLite locks prevent duplicate paid requests through concurrent REST 
  await copyBookLibrary(options.root,['zhuangzi']);
  const book=await new LocalBooks(options.root).book({bookId:'zhuangzi'}),section=book.sections[1],unit=section.units.at(-1);
  const source={edition:book.edition,sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id};
- options.variables={GEMINI_API_KEY:'mock-only'};options.transport=async(_url,init)=>{calls++;await hold;const body=JSON.parse(init.body),schema=body.generationConfig.responseFormat.text.schema;if(schema.properties.candidates)await app.services.database.prepare("UPDATE stories SET generation_control='paused' WHERE id=?").bind(id).run();const result=schema.properties.count?{count:8,reason:'按完整故事编排。',storySummary:plan.summary,storyMatchReason:'按原文主线展开。'}:schema.properties.candidates?{title:plan.title,candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']}:plan;return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(result)}]}}]});};
+ options.variables={GEMINI_API_KEY:'mock-only'};
+ options.transport=async(_url,init)=>{
+  calls++;
+  await hold;
+  const {properties}=JSON.parse(init.body).generationConfig.responseFormat.text.schema;
+  let result=plan;
+  if(properties.count){
+   result={count:8,reason:'按完整故事编排。',storySummary:plan.summary,storyMatchReason:'按原文主线展开。',
+    storyTitle:plan.title,artRecommendation:{artStyle:'ink-pencil',reason:'适合用线条表现梦境中的蝴蝶和庄周醒来时的神态。'}};
+  }else if(properties.candidates){
+   await app.services.database.prepare("UPDATE stories SET generation_control='paused' WHERE id=?").bind(id).run();
+   result={title:plan.title,candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']};
+  }
+  return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(result)}]}}]});
+ };
  let app=createApplication(options);const id=crypto.randomUUID();
  await request(app,'/api/reader/sessions','POST',{requestId:id,selection:{bookId:'zhuangzi',storyTitle:'庄周梦蝶',source,theme:'放下执念',length:8,voice:false}});
  await app.services.database.prepare("UPDATE stories SET generation_mode='reader' WHERE id=?").bind(id).run();

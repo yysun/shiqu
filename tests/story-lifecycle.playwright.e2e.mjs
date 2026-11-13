@@ -170,12 +170,15 @@ test('STORY-LIFECYCLE-C008: all shelf and reader entries share one settings layo
    if(enabled)assert.equal(await panel.locator('.yu-settings-formats').evaluate(node=>!!(node.compareDocumentPosition(node.closest('fieldset').querySelector('.yu-settings-flow'))&Node.DOCUMENT_POSITION_FOLLOWING)),true,'Downloads stay above the workflow');
    assert.equal(await page.getByRole('dialog').count(),1);
   }
-  let panel=dialog(page,'故事设置');await downloads(panel,false);await panel.getByRole('region',{name:'选择故事',exact:true}).waitFor();
-  await panel.getByRole('link',{name:'选择 乌龟报恩',exact:true}).waitFor();
-  await until(async()=>(await f.read(saved.id)).intake.phase==='choosing',15000);
-  await panel.getByRole('link',{name:'返回书架',exact:true}).click();
-  await page.getByRole('button',{name:'选择故事《等待选题的故事》',exact:true}).click();panel=dialog(page,'故事设置');
-  await panel.getByRole('region',{name:'选择故事',exact:true}).waitFor();await downloads(panel,false);assert.equal(f.control.calls.length,0);
+  const picker=dialog(page,'这一篇，想怎样读？');
+  await picker.getByRole('button',{name:'按故事',exact:true}).waitFor();
+  assert.equal(await dialog(page,'故事设置').count(),0);
+  await picker.getByRole('button',{name:'关闭',exact:true}).click();
+  await page.locator(`[data-story-id="${saved.id}"] .yu-pending-story`).click();
+  await picker.getByRole('button',{name:'按故事',exact:true}).waitFor();
+  assert.equal(await picker.getByText('已找到的故事',{exact:true}).count(),0);
+  assert.equal(f.control.calls.length,0);
+  let panel;
   await b.extract(saved);f.control.hold=true;await b.confirm();await until(()=>f.control.calls.length===1,15000);
   panel=dialog(page,'故事设置');const title=(await f.read(saved.id)).story.title;await panel.getByText(title,{exact:true}).waitFor();await downloads(panel,false);
   const expected=await layout(panel),images=f.control.calls.length;

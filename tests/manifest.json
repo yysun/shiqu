@@ -2144,6 +2144,7 @@
         "server/local-generation.ts",
         "server/story-theme-matching.ts",
         "lib/reader-local-contract.ts",
+        "lib/reader-suggestions.ts",
         "tests/fixtures/story-library.mjs"
       ]
     },

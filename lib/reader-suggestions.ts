@@ -11,8 +11,15 @@ export const suggestionBatchSchema=z.object({stories:z.array(z.object({title:z.s
 export type SuggestionBatch=z.infer<typeof suggestionBatchSchema>;
 export type IndexedStoryCandidate={id:string;title:string;summary?:string;matchScore?:number;status:'pending'|'match'|'rejected';choice?:{batch:number;index:number}};
 export type IndexedStoryUpdate={id:string;summary?:string;status:IndexedStoryCandidate['status'];story:SuggestionBatch['stories'][number]&{source:LocalSourceReference}};
-export const suggestionProgressSchema=z.object({completed:z.number().int().min(0),total:z.number().int().min(1),completedChars:z.number().int().min(0),totalChars:z.number().int().min(0),stage:z.enum(['reading','checking','selecting','cache','retrieving','verifying']),retrieval:z.enum(['hybrid','no-query-vector','no-compatible-vectors','no-index','no-candidates','scan']).optional(),cachedMatches:z.number().int().nonnegative().optional(),mode:z.enum(['whole','chapters']).optional(),currentChapters:z.array(z.string().min(1).max(500)).max(1024).optional(),checkingCandidates:z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(50).optional()}).refine(p=>p.completed<=p.total&&p.completedChars<=p.totalChars);
+export const suggestionProgressSchema=z.object({completed:z.number().int().min(0),total:z.number().int().min(1),completedChars:z.number().int().min(0),totalChars:z.number().int().min(0),stage:z.enum(['reading','checking','selecting','cache','retrieving','verifying']),retrieval:z.enum(['vector','hybrid','no-query-vector','no-compatible-vectors','no-index','no-candidates','scan']).optional(),modelBatchCardCount:z.number().int().positive().optional(),cachedMatches:z.number().int().nonnegative().optional(),mode:z.enum(['whole','chapters']).optional(),currentChapters:z.array(z.string().min(1).max(500)).max(1024).optional(),checkingCandidates:z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(50).optional()}).refine(p=>p.completed<=p.total&&p.completedChars<=p.totalChars);
 export type SuggestionProgress=z.infer<typeof suggestionProgressSchema>;
+export function storyCardSearchProgressLabel(progress?:SuggestionProgress|null){
+ if(progress?.stage==='retrieving'&&progress.retrieval==='vector')return '正在用向量查找故事…';
+ if(progress?.stage==='verifying'&&progress.modelBatchCardCount!==undefined){
+  return `正在用模型查找故事 · 本批 ${progress.modelBatchCardCount} 张故事卡`;
+ }
+ return null;
+}
 export function suggestionReadingPercent(progress:SuggestionProgress){return progress.totalChars?Math.floor(progress.completedChars/progress.totalChars*100):null;}
 export const maxSuggestionBatches=40;
 export function suggestionKey(bookId:string,customBook:string|undefined,theme:string){return JSON.stringify([bookId,bookId==='other'?(customBook||'').trim():'',theme.trim()]);}

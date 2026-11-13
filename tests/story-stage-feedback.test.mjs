@@ -151,7 +151,7 @@ test('confirmation puts its start action directly under the confirmation step',(
  assert.doesNotMatch(beforeSteps(html),/开始制作/);
  const searchError='后台提取失败，候选仍已保存。';
  const failedSearch=renderToStaticMarkup(createElement(Setup,{session:{...session,intake:{...session.intake,search:{state:'failed',error:searchError}}},book:'庄子',busy:false,onAction:noop,progress:defaults}));
- assert.ok(stage(failedSearch,'source').includes(searchError));assert.match(stage(failedSearch,'source'),/重试查找/);
+ assert.doesNotMatch(stage(failedSearch,'source'),/后台提取失败|重试查找/);
  assert.ok(!beforeSteps(failedSearch).includes(searchError));
 });
 
@@ -167,7 +167,7 @@ test('confirmation owns all four settings while extraction and preparation retai
  const scoped=setup({...session,selection:{...session.selection,discoverySources:[session.selection.source]}});
  assert.match(stage(scoped,'source'),/《庄子》 · 不限定主题 · 已选 1 段原文/);
  assert.doesNotMatch(scoped,/已定位原文章节与段落/);
- assert.deepEqual(DomUtils.findAll(node=>node.name==='a',source.children).map(node=>DomUtils.textContent(node)),['原文','重新选择故事']);
+ assert.deepEqual(DomUtils.findAll(node=>node.name==='a',source.children).map(node=>DomUtils.textContent(node)),['原文']);
  assert.doesNotMatch(beforeSteps(html),/原文<|重新选择故事/);
  assert.doesNotMatch(html,/制作流程导航|（可选）/);
  const heading=DomUtils.findOne(node=>node.name==='strong',count.children);

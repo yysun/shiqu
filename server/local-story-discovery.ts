@@ -110,7 +110,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   });
   if(!cards.length)return result([],'这本书在当前范围内暂无可用的故事卡。');
   if(!cards.some(unseen))return result([],'故事卡中暂无更多故事。');
-  observer.onProgress({stage:'retrieving',completed:0,total:1,completedChars:0,totalChars:0});
+  observer.onProgress({stage:'retrieving',retrieval:'vector',completed:0,total:1,completedChars:0,totalChars:0});
   const vectorHits=await storySearch?.vectorHits(book,topic,observer.signal,cards,50,themeTerms)||[];
   if(vectorHits.length){
    const note='已按语义相似度找到故事卡。';

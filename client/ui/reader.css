@@ -272,5 +272,5 @@ button.yu-page-surface{padding:0;border:0;background:transparent;cursor:default}
 .yu-library-settings::-webkit-scrollbar{display:none}
 
 /* 故事设置及其子面板始终使用小屏内容宽度；阅读页自己的侧栏不受影响。 */
-.yu-backdrop:is([aria-label="故事设置"],[aria-label="修改故事"],[aria-label="分镜剧本"],[aria-label="审核记录"],[aria-label="故事从哪里来"],[aria-label="故事原文"],[aria-label="重新选择故事"]) .yu-sheet{width:min(480px,100%);scrollbar-width:none}
-.yu-backdrop:is([aria-label="故事设置"],[aria-label="修改故事"],[aria-label="分镜剧本"],[aria-label="审核记录"],[aria-label="故事从哪里来"],[aria-label="故事原文"],[aria-label="重新选择故事"]) .yu-sheet::-webkit-scrollbar{display:none}
+.yu-backdrop:is([aria-label="故事设置"],[aria-label="修改故事"],[aria-label="分镜剧本"],[aria-label="审核记录"],[aria-label="故事从哪里来"],[aria-label="故事原文"],[aria-label="准备故事"]) .yu-sheet{width:min(480px,100%);scrollbar-width:none}
+.yu-backdrop:is([aria-label="故事设置"],[aria-label="修改故事"],[aria-label="分镜剧本"],[aria-label="审核记录"],[aria-label="故事从哪里来"],[aria-label="故事原文"],[aria-label="准备故事"]) .yu-sheet::-webkit-scrollbar{display:none}

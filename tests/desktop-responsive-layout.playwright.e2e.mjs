@@ -13,7 +13,7 @@ import {chromium} from 'playwright';
 const options={timeout:600000};
 const dialog=(page,name)=>page.getByRole('dialog',{name,exact:true});
 // 同一份故事设置可能停靠在书架右栏，或作为跨宽度不变的单列面板显示。
-const storySettings=page=>page.locator('.yu-library-settings,dialog[aria-label="故事设置"]');
+const storySettings=page=>page.locator('.yu-library-settings,dialog[aria-label="故事设置"],dialog[aria-label="准备故事"]');
 
 // 几何快照：主要容器的位置与尺寸，以及横向溢出。
 async function geometry(page){
@@ -98,8 +98,8 @@ test('wide shelf production sidebar shares the right column with reading and set
   await page.locator('.yu-library-reader .yu-reader').waitFor();
   assert.equal(await side.count(),0);assert.equal(await entry.getAttribute('aria-pressed'),'false');
   await entry.click();await side.locator(taskRow).waitFor();
-  await taskRow.click();await storySettings(page).waitFor();
-  await entry.click();await side.locator(taskRow).waitFor();
+  await taskRow.click();await page.locator('.yu-create-form').waitFor();
+  await topNav(page,'书架');await side.locator(taskRow).waitFor();
   await heading.getByRole('button',{name:'新建故事',exact:true}).click();
   await page.locator('.yu-create-form').waitFor();
   assert.equal(await page.locator('.yu-topbar-create').count(),1);
@@ -245,32 +245,35 @@ test('DESKTOP-LAYOUT-06: create is a page beside the book choices, re-initialize
   // 新建页上再点“新建故事”不做任何事
   await page.locator('.yu-topbar-create').click();
   assert.equal(await themes.getByRole('button',{name:'人情冷暖',exact:true}).getAttribute('aria-pressed'),'true');
-  // 提交：与手机相同的请求，选题在单列故事设置里继续
+  // 提交：桌面从选材直接打开准备流程。
+  async function selectMaterial(){
+   await form.getByRole('button',{name:'按章节',exact:true}).click();
+   await form.getByRole('region',{name:'章节列表'}).getByRole('checkbox').first().check();
+  }
   await books.getByRole('button',{name:'庄子',exact:true}).click();
+  await selectMaterial();
   const created=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/reader/sessions'&&r.request().method()==='POST');
   await form.locator('.yu-discovery-submit').click();
-  const request=(await created).request().postDataJSON();assert.equal(request.selection.bookId,'zhuangzi');assert.equal(request.selection.theme,'人情冷暖');
-  await storySettings(page).getByRole('link',{name:'修改提取条件',exact:true}).waitFor();
-  // 关闭设置后再次新建，新的选题设置正常载入。
+  const request=(await created).request().postDataJSON();assert.equal(request.selection.bookId,'zhuangzi');assert.ok(request.selection.source);
+  await storySettings(page).getByRole('list',{name:'完整审片流程'}).waitFor();
   await closeTop(page);await top('发现');await page.locator('.yu-new-story-link').click();await form.waitFor();
-  await themes.getByRole('button',{name:'人情冷暖',exact:true}).click();
+  await selectMaterial();
   const second=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/reader/sessions'&&r.request().method()==='POST');
   await form.locator('.yu-discovery-submit').click();const next=await(await second).json();
-  await storySettings(page).getByRole('link',{name:'修改提取条件',exact:true}).waitFor();
-  assert.equal(await page.getByText('正在打开制作流程…').count(),0);assert.ok(next.id);
-  // 从“不挑了”进入同样打开新建页
+  await storySettings(page).getByRole('list',{name:'完整审片流程'}).waitFor();
+  assert.ok(next.id);
+  // 从“不挑了”进入同样打开新建页。
   await closeTop(page);await top('发现');await page.locator('.yu-surprise').click();await form.waitFor();assert.equal(await page.getByRole('dialog').count(),0);
-  // 返回修改书籍后在左侧换书：提交只修改原任务的条件，不新建任务
+  // 从书架打开旧任务直接进入选材，提交到同一个任务。
   const intake=await seedStory(b.f,{pick:false});await page.goto(url);await top('书架');
-  await page.locator('.yu-production-row').filter({hasText:/等待选题|还在展开/}).first().click();await storySettings(page).waitFor();
-  await storySettings(page).getByRole('link',{name:'修改提取条件',exact:true}).click();await form.waitFor();
+  await page.locator(`[data-story-id="${intake}"] .yu-pending-story`).click();await form.waitFor();
   await choices.getByRole('button',{name:'选择列子',exact:true}).click();
   assert.equal(await books.getByRole('button',{name:'列子',exact:true}).getAttribute('aria-pressed'),'true');
-  await themes.getByRole('button',{name:'人情冷暖',exact:true}).click();
-  const posts=[];const track=r=>{if(r.request().method()==='POST'&&r.url().includes('/api/reader/sessions'))posts.push(new URL(r.url()).pathname);};page.on('response',track);
-  await form.locator('.yu-discovery-submit').click();await storySettings(page).waitFor();await page.waitForTimeout(500);page.off('response',track);
-  assert.ok(posts.includes(`/api/reader/sessions/${intake}/setup`),'updates the same intake: '+posts.join(','));
-  assert.ok(!posts.includes('/api/reader/sessions'),'creates no new story');
+  await selectMaterial();
+  const updated=page.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname===`/api/reader/sessions/${intake}/setup`);
+  await form.locator('.yu-discovery-submit').click();
+  assert.equal((await(await updated).json()).id,intake);
+  await storySettings(page).getByRole('list',{name:'完整审片流程'}).waitFor();
   assert.equal((await b.f.read(intake)).selection.bookId,'列子');
  });
 });
@@ -405,8 +408,7 @@ test('DESKTOP-LAYOUT-02: the top bar stays visible, never covers content, and ev
   await page.locator('.yu-new-story-link').click();await page.locator('.yu-create-form').waitFor();await topNav(page,'我的');await page.locator('.yu-profile').waitFor();
   // 选题工作区 → 返回修改书籍 → 书架：落到书架而不是工作区
   const intake=await seedStory(f,{pick:false});await page.goto(url);await topNav(page,'书架');
-  await page.locator('.yu-production-row').first().click();await storySettings(page).waitFor();
-  await storySettings(page).getByRole('link',{name:'修改提取条件',exact:true}).click();await page.locator('.yu-create-form').waitFor();
+  await page.locator(`[data-story-id="${intake}"] .yu-pending-story`).click();await page.locator('.yu-create-form').waitFor();
   await topNav(page,'书架');await page.locator('.yu-library').waitFor();assert.equal(await page.locator('.yu-workspace').count(),0);assert.ok(intake);
   // 阅读 → 故事设置 → 新建故事 → 发现：回到发现，地址为 /
   await b.reader(ids[0]);await page.locator('.yu-scene.is-current').waitFor();
@@ -526,8 +528,8 @@ test('DESKTOP-LAYOUT-10: resizing across the switch keeps views, drafts, frames 
   await size(390);const sheet=page.getByRole('dialog',{name:'这一篇，想怎样读？',exact:true});await sheet.waitFor();assert.equal(await sheet.getByLabel('自定义主题或情节').inputValue(),'跨档保留的主题');
   await size(1280);assert.equal(await page.locator('.yu-create-form').getByLabel('自定义主题或情节').inputValue(),'跨档保留的主题');
   // 修改已有任务的提取条件时，标题草稿也跨档保留。
-  await seedStory(f,{pick:false});await page.goto(url);await topNav(page,'书架');await page.locator('.yu-production-row').first().click();
-  await storySettings(page).getByRole('link',{name:'修改提取条件',exact:true}).click();
+  const legacy=await seedStory(f,{pick:false});await page.goto(url);await topNav(page,'书架');
+  await page.locator(`[data-story-id="${legacy}"] .yu-pending-story`).click();await form.waitFor();
   await form.getByRole('button',{name:'按主题',exact:true}).click();await form.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其它',exact:true}).click();await form.getByLabel('自定义主题或情节',{exact:true}).fill('跨档保留的标题');
   await size(390);await sheet.waitFor();assert.equal(await sheet.getByLabel('自定义主题或情节',{exact:true}).inputValue(),'跨档保留的标题');
   await size(1280);assert.equal(await form.getByLabel('自定义主题或情节',{exact:true}).inputValue(),'跨档保留的标题');

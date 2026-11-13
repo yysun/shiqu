@@ -74,7 +74,8 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   id.current=sessionId;passive.current=false;retries.current=new Map();setError('');
   const s:SessionView=await request('reader/sessions/'+sessionId);if(read!==resumeRead.current||id.current!==sessionId||removed.current.has(sessionId))return;
   if(retry)recoveryFor(s,faultId);
-  generationMode.current=retry||!observeOnlyGeneration(s)?'generate':'observe';retryRequested.current=retry;
+  passive.current=!!s.intake&&!s.intake.selected&&!(s.selection.discovery?.mode==='auto'&&s.selection.discovery.combine);
+  generationMode.current=retry||!passive.current&&!observeOnlyGeneration(s)?'generate':'observe';retryRequested.current=retry;
   setBusy(retry);setError(!retry&&s.state==='failed'?s.error||'生成失败，请选择对应问题恢复。':'');setActive(s);collect(s,submitted);
   history.replaceState(history.state,'','/read?id='+s.id);cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);
   if(s.story?.pages[0]?.image)cb.current.onStory(s.story,Math.max(0,Math.min(initialPage??s.page,s.story.pages.length-1)),s.saved);setWake(v=>v+1);return s;
@@ -95,7 +96,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   const sessionId=active.id,signature=JSON.stringify([sessionId,command]);
   if(setupRequest.current?.signature!==signature)setupRequest.current={signature,body:{...command,requestId:randomId(),generation:active.intake.generation}};
   setupLock.current=true;setSetupBusy(true);
-  try{const s:SessionView=await request(`reader/sessions/${sessionId}/setup`,'POST',setupRequest.current.body);setupRequest.current=null;if(id.current===sessionId){setActive(s);collect(s);setError('');setWake(v=>v+1);}}
+  try{const s:SessionView=await request(`reader/sessions/${sessionId}/setup`,'POST',setupRequest.current.body);setupRequest.current=null;if(id.current===sessionId){generationMode.current=observeOnlyGeneration(s)?'observe':'generate';setActive(s);collect(s);setError('');setWake(v=>v+1);}return s;}
   catch(error){
    // A rejected body stays rejected. Only a lost response may repeat it, so start again from what is saved now.
    if((error as {status?:number}).status!==undefined){
