@@ -2,7 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import {mkdtemp,rm} from 'node:fs/promises';
 import {createServer as createTcpServer} from 'node:net';
+import {tmpdir} from 'node:os';
 import {chromium} from 'playwright';
 import {createServer} from 'vite';
 import {defaultSystemSettings} from '../lib/system-settings.ts';
@@ -13,12 +15,14 @@ test('desktop release notice checks once at startup and opens the official page 
   const {port}=probe.address();
   probe.close(error=>error?reject(error):resolve(port));
  }));
+ const cacheDir=await mkdtemp(path.join(tmpdir(),'shiqu-release-preview-'));
  const preview=await createServer({
   configFile:path.resolve('desktop/vite.config.ts'),
+  cacheDir,
   optimizeDeps:{noDiscovery:true,include:['react','react-dom/client','@tauri-apps/api/app','@tauri-apps/api/core','qrcode','lucide-react','zod']},
-  server:{port,ws:false},
+  server:{port},
  });
- t.after(()=>preview.close());await preview.listen();
+ t.after(async()=>{try{await preview.close();}finally{await rm(cacheDir,{recursive:true,force:true});}});await preview.listen();
  const url=preview.resolvedUrls.local[0],browser=await chromium.launch();
  t.after(()=>browser.close());
  const page=await browser.newPage({viewport:{width:390,height:820}});
