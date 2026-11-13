@@ -2088,6 +2088,8 @@
         "server/app.ts",
         "server/headless-cli.ts",
         "server/library-backup.ts",
+        "server/local-book-contents.ts",
+        "server/local-books.ts",
         "server/local-story-search.ts",
         "server/story-index-paths.ts",
         "scripts/prepare-story-index-release.mjs"
