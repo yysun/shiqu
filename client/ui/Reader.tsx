@@ -24,7 +24,7 @@ import ProviderSettings,{ProviderRuntimeSummary} from './ProviderSettings';
 import type {ProviderSettingsView} from '@/lib/provider-settings';
 import {useBookReference} from '../useBookReference';
 import {cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
-import {ArrowLeft, ArrowRight, Maximize2, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Compass, Feather, Leaf, List, Moon, Play, RotateCcw, ImageDown, BookOpenText, Settings2, Sparkles, UserRound, X, Loader2, FileDown, FileArchive, RefreshCw, Trash2} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Maximize2, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Compass, Feather, Leaf, List, Moon, Play, RotateCcw, ImageDown, BookOpenText, Settings2, Sparkles, UserRound, X, Loader2, FileDown, FileArchive, RefreshCw, Trash2, Search} from 'lucide-react';
 import {randomId, request} from './shared';
 import type {Story} from '@/lib/content';
 import type {GeneratedStory,Selection,SessionView} from '@/lib/reader-model';
@@ -47,6 +47,8 @@ import StoryTitleEditor from './StoryTitleEditor';
 import StoryScript from './StoryScript';
 import StorySceneList from './StorySceneList';
 import StoryDiscoveryForm,{discoveryThemes} from './StoryDiscoveryForm';
+import StoryCardSearch from './StoryCardSearch';
+import StoryEmbeddingSettings from './StoryEmbeddingSettings';
 import StoryCreationSetup from './StoryCreationSetup';
 import StoryReselection from './StoryReselection';
 import StoryReviewTools from './StoryReviewTools';
@@ -130,6 +132,7 @@ export default function Reader(){
  const [providerAllowed,setProviderAllowed]=useState(false),[providerOpen,setProviderOpen]=useState(0);
  useEffect(()=>{const open=()=>{if(location.hash==='#provider-settings'){setTab('me');setProviderOpen(n=>n+1);}};open();window.addEventListener('hashchange',open);return()=>window.removeEventListener('hashchange',open);},[]);
  const [providerRuntime,setProviderRuntime]=useState<ProviderSettingsView['runtime']|null>(null);
+ const [searchOpen,setSearchOpen]=useState(false),[embeddingOpen,setEmbeddingOpen]=useState(false);
  const [sceneList,setSceneList]=useState(false);
  const [redrawPage,setRedrawPage]=useState<number|null>(null);
  const [redrawNote,setRedrawNote]=useState('');
@@ -544,7 +547,7 @@ export default function Reader(){
  const discoverLead=<><section className="yu-intro"><div><p className="yu-kicker">把片刻，留给一个好故事</p><h1>今天，想遇见<br/>什么<span>故事</span>？</h1></div><span className="yu-stamp">古意<br/>新生</span></section>
  <RecentStories key={heroes.map(h=>h.story.id).join('|')} items={heroes} loading={libraryLoading} bookName={bookName} onOpen={open} activeStoryId={heroStoryId} onActiveStoryChange={setHeroStoryId}/>
  <button className="yu-new-story-link" onClick={()=>choose()}><Sparkles size={16}/><span>生成我的故事</span><ArrowRight size={16}/></button></>;
- const discoverBooks=<section className="yu-section"><div className="yu-section-title"><h2>从一本书开始</h2><span>熟悉的经典，新的相遇</span></div><div className="yu-books">{choices.map((b,i)=>{
+ const discoverBooks=<section className="yu-section"><div className="yu-section-title"><h2>从一本书开始</h2><button type="button" className="yu-book-search-link" onClick={()=>{setSearchOpen(true);setTab('discover');}}><Search size={14}/>查章节、找故事</button></div><div className="yu-books">{choices.map((b,i)=>{
   const indexed=semanticIndexBooks.find(book=>book.id===b.id);
   const indexLabel=indexed?'yu-book-index-'+b.id:undefined;
   return <button key={b.id} onClick={()=>choose(b.id)} aria-label={'选择'+b.title} aria-describedby={indexLabel}>
@@ -576,6 +579,7 @@ export default function Reader(){
   </div></section>
   <section className="yu-profile-group" aria-labelledby="profile-preferences"><h2 id="profile-preferences">偏好与服务</h2><div className="yu-preferences">
    <button onClick={()=>setSettings(true)}><BookOpenText size={20}/>阅读偏好<ChevronRight size={18}/></button>
+   <button type="button" onClick={()=>setEmbeddingOpen(true)}><Search size={20}/>嵌入模型与故事卡索引<ChevronRight size={18}/></button>
    {providerAllowed&&<button type="button" onClick={()=>setProviderOpen(n=>n+1)}><Settings2 size={20}/>生成服务与模型<ChevronRight size={18}/></button>}
   </div></section>
   <ProviderRuntimeSummary runtime={providerRuntime}/>
@@ -613,14 +617,15 @@ export default function Reader(){
  {script&&scriptStory&&<Sheet title="分镜剧本" onClose={()=>setScript(false)}>{isGenerated(scriptStory)&&<button type="button" className="yu-revision-open" onClick={()=>editScript()}>修改分镜</button>}<StoryScript story={scriptStory} standalone/></Sheet>}
  {revision.tab&&<Sheet title="修改故事" busy={revision.busy} onClose={()=>{if(!revision.busy)revision.setTab(null);}}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming} onDone={revisionDone}/></Sheet>}
  </>;
+ const embeddingSheet=embeddingOpen&&<Sheet title="嵌入模型与故事卡索引" onClose={()=>setEmbeddingOpen(false)}><StoryEmbeddingSettings/></Sheet>;
  const openingStory=opening&&<p className="yu-inline-status" role="status">正在打开故事…</p>;
  const phoneTree=<>
  {story?readerMain:<>
- <header className="yu-header"><button className="yu-logo" onClick={()=>setTab('discover')} aria-label="拾趣，返回发现"><span><Feather size={22}/></span><strong>拾趣</strong><i/></button><span className="yu-header-note">片刻入戏，久久回味</span><button className="yu-avatar" onClick={()=>setTab('me')} aria-label="我的"><UserRound size={19}/></button></header>
+ <header className="yu-header"><button className="yu-logo" onClick={()=>{setSearchOpen(false);setTab('discover');}} aria-label="拾趣，返回发现"><span><Feather size={22}/></span><strong>拾趣</strong><i/></button><span className="yu-header-note">片刻入戏，久久回味</span><button className="yu-avatar" onClick={()=>{setSearchOpen(false);setTab('me');}} aria-label="我的"><UserRound size={19}/></button></header>
  <main className="yu-home" data-main="">
- {openingStory}{tab==='discover'?<>{discoverLead}{discoverBrowse}</>:tab==='shelf'?shelfView:profileView}
+ {searchOpen?<StoryCardSearch books={readerBooks} onClose={()=>setSearchOpen(false)}/>:<>{openingStory}{tab==='discover'?<>{discoverLead}{discoverBrowse}</>:tab==='shelf'?shelfView:profileView}</>}
  </main>
- <nav className="yu-tabbar" aria-label="主导航">{[{id:'discover',title:'发现',Icon:Compass},{id:'shelf',title:'书架',Icon:BookOpen},{id:'me',title:'我的',Icon:UserRound}].map(({id,title,Icon})=><button key={id} className={tab===id?'active':''} aria-current={tab===id?'page':undefined} onClick={()=>{setTab(id);window.scrollTo({top:0,behavior:'instant'});}}><Icon size={22} strokeWidth={tab===id?2:1.6}/><span>{title}</span>{tab===id&&<i/>}</button>)}</nav>
+ <nav className="yu-tabbar" aria-label="主导航">{[{id:'discover',title:'发现',Icon:Compass},{id:'shelf',title:'书架',Icon:BookOpen},{id:'me',title:'我的',Icon:UserRound}].map(({id,title,Icon})=><button key={id} className={tab===id?'active':''} aria-current={tab===id?'page':undefined} onClick={()=>{setSearchOpen(false);setTab(id);window.scrollTo({top:0,behavior:'instant'});}}><Icon size={22} strokeWidth={tab===id?2:1.6}/><span>{title}</span>{tab===id&&<i/>}</button>)}</nav>
  </>}
  {configureSheet}
  {sceneSheet}
@@ -644,7 +649,7 @@ export default function Reader(){
   onOpen:openDocked,onResume:(session:ShelfSession)=>openWorkflow(session.id,true),onCreate:()=>navigate('create'),
   productionDock:{active:!sideContent,show:backToShelf,layout:(grid:ReactNode,productions:ReactNode)=><DesktopLibrary shelf={grid} reader={sideContent} productions={productions}/>},
  }):<DesktopLibrary shelf={shelfView}/>;
- const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover"><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></div>;
+ const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover">{searchOpen?<StoryCardSearch books={readerBooks} onClose={()=>setSearchOpen(false)}/>:<><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></>}</div>;
  // 桌面新建页：选择在左（或上），内联表单在右（或下），与手机面板共用表单组件与属性。
  const createPage=view.kind==='create'&&<main className="yu-home yu-desktop-main" data-main=""><DesktopCreate
   choices={<>{discoverBooks}{discoverMoods}{discoverSurprise}</>}
@@ -667,6 +672,7 @@ export default function Reader(){
  <ProviderSettings onRuntime={setProviderRuntime} onAvailability={setProviderAllowed} openRequest={providerOpen} showEntry={false} showPrompt={!story}/>
  {desktop?desktopTree:phoneTree}
  {settingsDialogOpen&&<StorySettingsPanel {...settingsProps} onClose={()=>{setSettings(false);closeWorkflow();}}/>}
+ {embeddingSheet}
  {storySheets}
  {story&&redrawPage!==null&&<Sheet title="重新生图" busy={redraw.busy} onClose={()=>setRedrawPage(null)}>
   <p className="yu-sheet-intro">重新生成第 {redrawPage+1} 幅图片，可能消耗生图额度。新版沿用分镜和其他图片，原版保留。</p>

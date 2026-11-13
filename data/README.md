@@ -22,11 +22,6 @@
 
 `library/story-cards/` 保存按书和原文版次核对的标题、梗概与出处。npm 和桌面发布均随 `data/library` 复制该目录。检索文本在运行时从同版原文读取。索引内容沿用[书库来源说明](library/source-notices.md)所列归属与许可。
 
-维护者可从已核验的离线制备 SQLite 文件更新轻量故事卡，并制备同版的逐书向量资源。
+维护者可从已核验的离线制备文件更新轻量故事卡。向量仅由用户在本机通过「我的 → 嵌入模型」按书生成，随用户书库备份；项目不制备或分发向量包。
 
-```bash
-nvm use
-node scripts/prepare-story-index-release.mjs outputs/story-index-release .data/story-index-build/shishuo.sqlite
-```
-
-核对输出 `story-cards/` 的变化后，将相应 JSON 更新到 `data/library/story-cards/`。`release-assets/` 含版本化逐书 SQLite、文件名与版次清单、SHA-256 校验清单和来源说明。确认发布版本后，将这些文件和许可文件作为独立资产附到对应 GitHub release。自动构建 npm 与桌面包时，干净检出只需已提交的故事卡和内置原文。普通用户安装官方包时运行 `books index-install`。不同书库共用系统缓存中的 `com.shiqu.desktop/shiqu-story-vectors-v1`，按原文版次隔离。手动索引和旧单文件索引仍由各自书库保存。
+检查卡片 JSON 的标题、梗概、版次和出处后，将更新内容提交到 `data/library/story-cards/`。用户可在「我的 → 嵌入模型」连接本机 Ollama，并为选定书籍建库。旧官方向量包不会安装或参与检索；旧用户索引文件仍可通过 `books index-import` 导入，其中可核验的卡片元数据继续用于文字查找，旧向量不会迁入新库。

@@ -42,7 +42,7 @@ export function liveReaderProvider(initial:Variables,read:()=>Variables,create:(
 const types:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.woff':'font/woff','.woff2':'font/woff2','.ico':'image/x-icon'};
 export function createApplication(options:{root:string;dataDirectory:string;variables?:Variables;providerVariables?:()=>Variables;transport?:typeof fetch;generation?:ReaderProvider;production?:ProductionOptions;commandOnly?:boolean}){
  const media=new FileMedia(path.join(options.dataDirectory,'media'));
- const storySearch=applicationStorySearch(options.root,options.dataDirectory,()=>localBooks);
+ const storySearch=applicationStorySearch(options.root,options.dataDirectory,()=>localBooks,options.transport||fetch);
  const localBooks:LocalBooks=new LocalBooks(options.root,storySearch);
  const cache=new StoryDiscoveryCache(media),create=(variables:Variables)=>withLocalBooks(createReaderProvider(variables,media,options.transport||fetch),localBooks,media,cache,storySearch);
  const generation=options.generation||(options.providerVariables?liveReaderProvider(options.variables||{},options.providerVariables,create):create(options.variables||{}));

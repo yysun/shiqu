@@ -2085,14 +2085,35 @@
       "pr": "affected",
       "gates": [],
       "covers": [
-        "server/app.ts",
         "server/headless-cli.ts",
-        "server/library-backup.ts",
-        "server/local-book-contents.ts",
-        "server/local-books.ts",
         "server/local-story-search.ts",
-        "server/story-index-paths.ts",
-        "scripts/prepare-story-index-release.mjs"
+        "server/local-books.ts"
+      ]
+    },
+    {
+      "file": "tests/story-card-embeddings.test.mjs",
+      "groups": [
+        "discovery",
+        "storage"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/story-card-embeddings.ts",
+        "server/library-backup.ts",
+        "lib/reader-source-key.ts",
+        "server/app.ts",
+        "lib/reader-api.ts",
+        "server/local-books.ts",
+        "server/local-story-search.ts"
       ]
     },
     {
@@ -2122,6 +2143,7 @@
         "server/local-story-discovery.ts",
         "server/local-generation.ts",
         "server/story-theme-matching.ts",
+        "lib/reader-local-contract.ts",
         "tests/fixtures/story-library.mjs"
       ]
     },

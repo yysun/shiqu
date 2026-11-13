@@ -31,6 +31,9 @@ import {forkRevision,revisionSnapshot} from '../server/reader-revisions.ts';
 import {openReselection,commitReselection,cancelReselection} from '../server/reader-reselection.ts';
 import {replacementChoiceSchema} from './reader-reselection.ts';
 import {summarizeShelfSession,type ShelfSession,type ShelfChanges} from './reader-shelf.ts';
+import {readerBooks} from './reader-books.ts';
+import {localSourceSchema} from './reader-local-contract.ts';
+import {themeStoryId} from '../server/story-theme-matching.ts';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
 const uuid=z.string().uuid();
 export function shelfView(session:SessionView):SessionView{
@@ -95,11 +98,104 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    const books=await services.localBooks?.semanticIndexBooks()??[];
    return json({bookIds:books.map(book=>book.id),books});
   }
+  if(path.join('/')==='books/embedding-settings'){
+   if(!services.localBooks?.storySearch?.embeddings)throw new ReaderError(503,'本地故事卡向量库暂不可用');
+   const store=services.localBooks.storySearch.embeddings;
+   if(req.method==='GET'){
+    const books=[];
+    for(const id of store.indexedBooks()){
+     const book=await services.localBooks.book(selectionSchema.parse({bookId:id,theme:'目录'}));
+     if(book)books.push({book,cards:await services.localBooks.storySearch.indexableCards(book)});
+    }
+    const state=await store.status(books);
+    return json({...state,catalog:readerBooks.map(({id,title})=>({id,title}))});
+   }
+   if(req.method==='POST'){
+    const input=z.object({settings:z.unknown()}).strict().parse(await body(req,8192));
+    try{return json({settings:store.saveSettings(input.settings)});}catch(error){throw new ReaderError(400,error instanceof Error?error.message:'Embedding 设置无效。');}
+   }
+  }
+  if(path.join('/')==='books/embedding-test'&&req.method==='POST'){
+   const store=services.localBooks?.storySearch?.embeddings;if(!store)throw new ReaderError(503,'本地故事卡向量库暂不可用');
+   const input=z.object({settings:z.unknown().optional()}).strict().parse(await body(req,8192));
+   try{return json(await store.test(input.settings));}catch(error){throw new ReaderError(503,error instanceof Error?error.message:'无法测试本地 Ollama。');}
+  }
+  if(path[0]==='books'&&path.length===3&&path[2]==='embedding-index'&&req.method==='POST'){
+   if(!services.localBooks?.storySearch?.embeddings)throw new ReaderError(503,'本地故事卡向量库暂不可用');
+   const store=services.localBooks.storySearch.embeddings,id=z.string().min(1).max(100).parse(path[1]);
+   if(!readerBooks.some(book=>book.id===id))throw new ReaderError(400,'请选择内置书库中的一本书。');
+   const book=await services.localBooks.book(selectionSchema.parse({bookId:id,theme:'目录'}));
+   if(!book)throw new ReaderError(404,'本地书籍暂不可用。');
+   const cards=await services.localBooks.storySearch.indexableCards(book),abort=new AbortController(),encoder=new TextEncoder();
+   const cancel=()=>abort.abort();req.signal.addEventListener('abort',cancel,{once:true});
+   const stream=new ReadableStream<Uint8Array>({
+    start(controller){
+     const send=(event:unknown)=>{if(!abort.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
+     send({type:'start',total:cards.length});
+     void store.build(book,cards,abort.signal,value=>send({type:'progress',...value}))
+      .then(result=>send({type:'complete',...result}))
+      .catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'建库失败，请重试。'});})
+      .finally(()=>{req.signal.removeEventListener('abort',cancel);if(!abort.signal.aborted)controller.close();});
+    },
+    cancel,
+   });
+   return new Response(stream,{headers:{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'private, no-store','X-Accel-Buffering':'no'}});
+  }
   if(path[0]==='books'&&path.length===3&&path[2]==='contents'&&req.method==='GET'){
    if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
    const query=z.string().max(200).parse(url.searchParams.get('q')||'');
    const view=z.enum(['chapters','scope']).optional().parse(url.searchParams.get('view')??undefined);
    return json(await bookContents(services.localBooks,selectionSchema.parse({bookId:path[1],theme:'目录'}),query,view));
+  }
+  if(path[0]==='books'&&path.length===3&&path[2]==='source'&&req.method==='GET'){
+   if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
+   const book=await services.localBooks.book(selectionSchema.parse({bookId:path[1],theme:'目录'}));
+   if(!book)throw new ReaderError(404,'本地书籍暂不可用');
+   let source;try{source=localSourceSchema.parse(JSON.parse(url.searchParams.get('source')||''));}catch{throw new ReaderError(400,'原文出处格式无效。');}
+   try{const original=services.localBooks.resolve(book,source);return json({title:original.title,text:original.text,source:original.localSource});}
+   catch(error){if(error instanceof ReaderError)throw error;throw new ReaderError(400,'无法定位这段原文，请重新搜索。');}
+  }
+  if(path[0]==='books'&&path.length===3&&path[2]==='search'&&req.method==='GET'){
+   if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
+   const mode=z.enum(['chapter','story','theme']).parse(url.searchParams.get('mode')||''),query=z.string().trim().max(200).parse(url.searchParams.get('q')||''),sectionId=z.string().max(100).optional().parse(url.searchParams.get('section')||undefined);
+   if(mode!=='chapter'&&!query)throw new ReaderError(400,'请输入要找的故事或主题。');
+   const book=await services.localBooks.book(selectionSchema.parse({bookId:path[1],theme:'目录'}));if(!book)throw new ReaderError(404,'本地书籍暂不可用');
+   if(sectionId&&!book.sections.some(section=>section.id===sectionId))throw new ReaderError(400,'所选章节不属于这本书。');
+   const abort=new AbortController(),cancel=()=>abort.abort();req.signal.addEventListener('abort',cancel,{once:true});
+   const execute=async(onProgress?:(value:unknown)=>void)=>{
+    if(mode==='chapter')return {mode,results:(await bookContents(services.localBooks!,selectionSchema.parse({bookId:book.id,theme:'目录'}),query,'chapters')).entries.filter(entry=>!sectionId||entry.source?.sectionId===sectionId).map(entry=>({...entry,summary:entry.excerpt,verified:false}))};
+    const cards=await services.localBooks!.storySearch?.indexableCards(book)||[];
+    const normalizedQuery=query.normalize('NFKC').trim().toLowerCase();
+    const exact=mode==='story'?cards.filter(card=>[card.title,...(card.aliases||[])].some(title=>title.normalize('NFKC').trim().toLowerCase()===normalizedQuery)):[];
+    let hits;
+    if(exact.length===1)hits=exact.map(({title,summary,source})=>({title,summary,source}));
+    else hits=await services.localBooks!.storySearch?.lookupHits(book,query,abort.signal,mode==='story',50,undefined,[],sectionId)||[];
+    const candidates=hits.flatMap(hit=>{
+     if(!hit.source||sectionId&&hit.source.sectionId!==sectionId)return [];
+     try{return [{...hit,source:hit.source,text:services.localBooks!.resolve(book,hit.source).text}];}catch{return []}
+    }).slice(0,50);
+    if(mode==='story')return {mode,results:candidates.map(({text,...hit})=>({...hit,verified:false,exact:exact.length===1}))};
+    const status=await services.generation.status(),provider=services.generation;
+    if(!candidates.length||!status.configured||!provider.verifyThemeStories)return {mode,verified:false,results:candidates.map(({text,...hit})=>({...hit,verified:false})),note:'候选尚未核对原文。'};
+    const keyed=candidates.map(candidate=>({id:themeStoryId(candidate),title:candidate.title,text:candidate.text}));
+    onProgress?.({stage:'verifying',total:keyed.length,completed:0});
+    const checked=await provider.verifyThemeStories(query,keyed,{signal:abort.signal});
+    const evidenceText=(text:string)=>text.replace(/[\p{P}\s]/gu,'');
+    const results=checked.matches.flatMap(match=>{
+     const candidate=candidates.find(item=>themeStoryId(item)===match.id);if(!candidate||match.verdict==='no'||!match.evidence.length||match.evidence.some(quote=>{const value=evidenceText(quote);return value.length<4||!evidenceText(candidate.text).includes(value);}))return [];
+     return [{title:candidate.title,summary:candidate.summary,source:candidate.source,verified:true,reason:match.reason,evidence:match.evidence}];
+    });
+    return {mode,verified:true,checked:checked.matches.length,total:candidates.length,results,note:results.length?'已按原文核对候选。':checked.matches.length===candidates.length?'候选中没有匹配项。':'部分候选尚未完成核对。'};
+   };
+   if(mode!=='theme'){
+    try{return json(await execute());}finally{req.signal.removeEventListener('abort',cancel);}
+   }
+   const encoder=new TextEncoder(),stream=new ReadableStream<Uint8Array>({start(controller){
+    const send=(event:unknown)=>{if(!abort.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
+    send({type:'progress',stage:'retrieving'});
+    void execute(value=>send({type:'progress',stage:'verifying',progress:value})).then(result=>send({type:'result',...result})).catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'主题检索暂时失败，请重试。'});}).finally(()=>{req.signal.removeEventListener('abort',cancel);if(!abort.signal.aborted)controller.close();});
+   },cancel});
+   return new Response(stream,{headers:{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'private, no-store','X-Accel-Buffering':'no'}});
   }
   if(path.join('/')==='suggestions'&&req.method==='POST'){
    await requireProvider();

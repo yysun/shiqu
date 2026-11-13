@@ -20,7 +20,6 @@ No subcommand starts the browser service. For serverless agent commands and JSON
   shiqu init --data-dir <directory>
   shiqu stories list --data-dir <directory>
   shiqu books search 种梨 聊斋志异
-  shiqu books index-install 搜神记 <official-pack.sqlite>
   shiqu books index-import 搜神记 <file> --data-dir <directory>
   shiqu run <story-id> --until reviewed --timeout 900
 

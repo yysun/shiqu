@@ -68,15 +68,14 @@ export class LocalBooks{
  readonly storySearch?:LocalStorySearch;
  constructor(root:string,storySearch?:LocalStorySearch){this.directory=path.resolve(root,'data/library');this.storySearch=storySearch;}
  async semanticIndexBooks(){
-  const search=this.storySearch;
-  if(!search)return [];
-  const installed=new Set(await search.semanticBooks());
-  const results=await Promise.allSettled(readerBooks.filter(({id})=>installed.has(id)).map(async ({id})=>{
+  const search=this.storySearch,store=search?.embeddings;
+  if(!search||!store||!store.exists()||!store.settings().enabled)return [];
+  const installed=new Set(store.indexedBooks()),eligible=readerBooks.filter(({id})=>installed.has(id));
+  const books=await Promise.all(eligible.map(async ({id})=>{
    const book=await this.book(selectionSchema.parse({bookId:id,theme:'目录'}));
-   const cardCount=book?await search.semanticIndexCardCount(book):0;
-   return cardCount?{id,cardCount}:null;
+   return book?{book,cards:await search.indexableCards(book)}:null;
   }));
-  return results.flatMap(result=>result.status==='fulfilled'&&result.value?[result.value]:[]);
+  return (await store.status(books.flatMap(value=>value?[value]:[]))).books.filter(book=>book.ready).map(book=>({id:book.id,cardCount:book.indexedCount}));
  }
  async book(selection:Selection):Promise<LocalBook|null>{
   const id=localBookId(selection);if(!id)return null;

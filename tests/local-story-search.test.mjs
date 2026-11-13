@@ -14,6 +14,7 @@ import {bookContents,selectedChapterScope} from '../server/local-book-contents.t
 import {LocalBooks} from '../server/local-books.ts';
 import {FileMedia} from '../server/media.ts';
 import {sourceParts} from '../server/local-source-ranges.ts';
+import {localSourceKey} from '../lib/reader-local-contract.ts';
 import {verifyThemeCandidates} from '../server/story-theme-matching.ts';
 import {libraryFixture,selection} from './fixtures/story-library.mjs';
 
@@ -26,19 +27,25 @@ async function setup(t,{offline=false,wrongEdition=false}={}){
  const file=join(directory,'story-search.sqlite'),db=new DatabaseSync(file);
  try{
   db.exec(`CREATE TABLE metadata(key TEXT,value TEXT);
-   CREATE TABLE entries(id TEXT,source TEXT,text TEXT,title TEXT,raw_vector BLOB,vector BLOB,blocked TEXT);
+   CREATE TABLE entries(id TEXT,source TEXT,text TEXT,title TEXT,raw_vector BLOB,vector BLOB,blocked TEXT,summary TEXT);
    CREATE TABLE passages(story_id TEXT,source_range TEXT,vector BLOB);
    CREATE TABLE query_vectors(key TEXT,model_digest TEXT,vector BLOB);`);
   db.prepare('INSERT INTO metadata VALUES (?,?)').run('identity',JSON.stringify({edition:wrongEdition?'b'.repeat(64):f.book.edition,digests:{[storyEmbeddingModel]:'local-fixture'}}));
   db.prepare('INSERT INTO metadata VALUES (?,?)').run('indexed_book',f.book.id);
-  const insert=db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,NULL)');
-  insert.run('u1',JSON.stringify(f.stories[0].source),'漁夫與烏龜','龜報恩',null,null);
-  insert.run('u2',JSON.stringify(f.stories[1].source),'山中猛虎','勇士護民',vector(1,0),null);
+  const insert=db.prepare('INSERT INTO entries (id,source,text,title,raw_vector,vector,blocked,summary) VALUES (?,?,?,?,?,?,NULL,?)');
+  insert.run('u1',JSON.stringify(f.stories[0].source),'漁夫與烏龜','龜報恩',null,null,'渔夫救乌龟并获救。');
+  insert.run('u2',JSON.stringify(f.stories[1].source),'山中猛虎','勇士護民',vector(1,0),null,'勇士保护村民，击退猛虎。');
   db.prepare('INSERT INTO passages VALUES (?,?,?)').run('u2',JSON.stringify(f.stories[1].source),vector(0,1));
   const reference=db.prepare('INSERT INTO query_vectors VALUES (?,?,?)');
   for(const query of ['爱情','挺身救人','找乌龟','乌龟'])reference.run(storySearchKey(query),offline?'obsolete':'local-fixture',vector(0,1));
  }finally{db.close();}
  const search=new LocalStorySearch(file);
+ search.embeddings={exists:()=>true,settings:()=>({enabled:true}),indexedBooks:()=>[],status:async()=>({books:[]}),scores:async(book,cards,query)=>{
+  if(offline||wrongEdition)return null;
+  const normalized=query.replace(/[\s\p{P}]/gu,'');
+  const selected=normalized.includes('欲望')?['邻人购地']:normalized.includes('乌龟')?['勇士護民']:normalized.includes('挺身')||normalized.includes('见义勇为')?['勇士護民']:normalized.includes('爱情')&&!normalized.includes('复仇')?['勇士護民']:[];
+  return new Map(cards.filter(card=>selected.includes(card.title)).map(card=>[localSourceKey({...card.source,edition:book.edition}),1]));
+ }};
  const wrapped=withLocalBooks(f.provider,f.books,f.store,f.cache,search);
  const suggest=(theme,extra={},excluded=[],seen=[])=>wrapped.suggestions({...selection,theme,discovery:{mode:'auto'},...extra},excluded,undefined,undefined,seen);
  return {...f,file,search,suggest};
@@ -65,7 +72,6 @@ test('轻量卡梗概可离线召回，应用只把命中的原文交给提取�
  const f=await setup(t,{offline:true}),inputs=[];
  const db=new DatabaseSync(f.file);
  try{
-  db.exec('ALTER TABLE entries ADD COLUMN summary TEXT');
   db.prepare('UPDATE entries SET summary=? WHERE id=?').run('有人遭野兽袭击，勇士为陌生人挡住危险。','u2');
  }finally{db.close();}
  const query='为陌生人挡住危险';
@@ -123,7 +129,7 @@ test('双词预设优先召回两侧都命中的候选，再按原文核对两�
  f.book.input.text=section.units.map(unit=>'['+unit.id+']\n'+unit.text).join('\n\n');
  const db=new DatabaseSync(f.file);
  try{
-  db.exec('ALTER TABLE entries ADD COLUMN summary TEXT; DELETE FROM passages; DELETE FROM entries; DELETE FROM query_vectors;');
+  db.exec('DELETE FROM passages; DELETE FROM entries; DELETE FROM query_vectors;');
   db.prepare('INSERT INTO query_vectors VALUES (?,?,?)').run(storySearchKey(theme),'local-fixture',vector(1,0));
   const insert=db.prepare('INSERT INTO entries (id,source,text,title,summary,raw_vector) VALUES (?,?,?,?,?,?)');
   const cards=[
@@ -258,7 +264,6 @@ test('手动选中同章多个索引故事时，提取读取所选段落并拒�
  const books=new LocalBooks(process.cwd(),f.search);books.book=async()=>f.book;
  const db=new DatabaseSync(f.file);
  try{
-  db.exec('ALTER TABLE entries ADD COLUMN summary TEXT');
   db.prepare('UPDATE entries SET summary=?').run('这里记载王生经历的另一件事。');
  }finally{db.close();}
  assert.deepEqual((await bookContents(books,selection,'王生','chapters')).entries,[]);
@@ -295,10 +300,10 @@ test('主题核对完整的 50 条索引候选，证据真实才按明确和暗�
  try{
   db.exec('DELETE FROM entries; DELETE FROM passages; DELETE FROM query_vectors;');
   db.prepare('INSERT INTO query_vectors VALUES (?,?,?)').run(storySearchKey('复仇'),'local-fixture',vector(1,0));
-  const insert=db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,NULL)');
+  const insert=db.prepare('INSERT INTO entries (id,source,text,title,raw_vector,vector,blocked,summary) VALUES (?,?,?,?,?,?,NULL,?)');
   section.units=Array.from({length:53},(_,i)=>{
-   const n=i+1,id='story-'+n,text='原文第'+n+'篇。此处保留足够长度，以核对人物行动、缘由及结果。';
-   insert.run(id,JSON.stringify({edition:f.book.edition,sectionId:section.id,firstUnit:id,lastUnit:id}),text,'故事 '+n,vector(1,0),null);
+   const n=i+1,id='story-'+n,text='原文第'+n+'篇。人物为复仇采取行动，此处保留足够长度，以核对缘由及结果。';
+   insert.run(id,JSON.stringify({edition:f.book.edition,sectionId:section.id,firstUnit:id,lastUnit:id}),text,'故事 '+n,'与复仇相关的故事。',vector(1,0));
    return {id,text,narrative:true};
   });
   f.book.input.text=section.units.map(unit=>'['+unit.id+']\n'+unit.text).join('\n\n');
@@ -392,17 +397,16 @@ test('逐书导入可读取 WAL 提交，支持纯文字索引，更新或失败
  await cli('index-import',f.book.id,f.file);
  assert.deepEqual((await cli('search','乌龟','--limit','1')).results.map(row=>row.source),[f.stories[0].source]);
  await cli('index-import',second.book.id,secondFile);
- assert.deepEqual(await books.semanticIndexBooks(),[{id:f.book.id,cardCount:2}]);
- assert.equal(await search.semanticIndexCardCount({...f.book,edition:'c'.repeat(64)}),0);
+ assert.deepEqual(await books.semanticIndexBooks(),[]);
  assert.deepEqual(await search.lookup(second.book,'洪水中获救',signal),[source]);
- assert.deepEqual(await search.lookup(f.book,'爱情',signal),[f.stories[1].source]);
+ assert.deepEqual(await search.lookup(f.book,'爱情',signal),[]);
  await assert.rejects(cli('search','乌龟'),error=>error.code==='BOOK_ID_REQUIRED');
  await assert.rejects(cli('index-import',second.book.id,f.file),error=>error.code==='INVALID_STORY_INDEX');
  assert.deepEqual(await search.lookup(second.book,'洪水中获救',signal),[source]);
  db.prepare('UPDATE entries SET summary=?').run('渔夫得救');
  await cli('index-import',second.book.id,secondFile);
  assert.deepEqual(await search.lookup(second.book,'渔夫得救',signal),[source]);
- assert.deepEqual(await search.lookup(f.book,'爱情',signal),[f.stories[1].source]);
+ assert.deepEqual(await search.lookup(f.book,'爱情',signal),[]);
  assert.equal(await search.lookup({...second.book,edition:'c'.repeat(64)},'渔夫得救',signal),null);
  await assert.rejects(stat(join(directory,'shiqu.sqlite')),error=>error.code==='ENOENT');
 });
