@@ -51,6 +51,85 @@ async function setup(t,{offline=false,wrongEdition=false}={}){
  return {...f,file,search,suggest};
 }
 
+test('无向量时按 10 张故事卡匹配，只用每张卡的是非回执',async t=>{
+ const f=await setup(t,{offline:true}),calls=[],db=new DatabaseSync(f.file);
+ const section=f.book.sections[0];
+ try{
+  db.exec('DELETE FROM entries;');
+  const insert=db.prepare('INSERT INTO entries (id,source,text,title,summary) VALUES (?,?,?,?,?)');
+  for(let index=1;index<=21;index++){
+   const id='card'+index,source={...f.stories[0].source,firstUnit:id,lastUnit:id};
+   section.units.push({id,text:'原文标记，不进入故事卡匹配。',narrative:true});
+   insert.run(id,JSON.stringify(source),'原文标记','故事卡 '+index,'故事卡梗概 '+index);
+  }
+ }finally{db.close();}
+ f.books.resolve=()=>assert.fail('匹配和未命中都不应解析原文');
+ const runner={status:async()=>({configured:true,model:'mock'}),run:async job=>{
+  assert.match(job.instructions,/故事卡标题和白话梗概/);
+  const {theme,stories}=JSON.parse(job.prompt);
+  calls.push(stories);
+  assert.ok(stories.every(story=>story.text.startsWith('故事卡梗概 ')));
+  return {text:JSON.stringify({matches:stories.map(({id,title})=>({
+   id,verdict:theme==='知恩图报'&&title==='故事卡 13'?'yes':'no',
+  }))}),model:'mock',requestId:'test',usage:null};
+ }};
+ const wrapped=withLocalBooks(createReaderProvider({SHIQU_AI_PROVIDER:'codex'},f.store,fetch,runner),f.books,f.store,f.cache,f.search);
+ const find=(theme,seen=[])=>wrapped.suggestions({...selection,theme,discovery:{mode:'auto',vectorFirst:true}},[],undefined,undefined,seen);
+ const result=await find('知恩图报');
+ assert.deepEqual(calls.map(batch=>batch.length),[10,10]);
+ assert.equal(result.stories[0].description,'故事卡梗概 13');
+ assert.equal(result.stories[0].source.firstUnit,'card13');
+ assert.deepEqual(await find('知恩图报'),result);
+ assert.equal(calls.length,2);
+ const more=await find('知恩图报',[result.stories[0].source]);
+ assert.deepEqual(more.stories,[]);
+ assert.deepEqual(calls.map(batch=>batch.length),[10,10,1]);
+ calls.length=0;
+ const noMatches=await find('勇气');
+ assert.deepEqual(calls.map(batch=>batch.length),[10,10,1]);
+ assert.deepEqual(noMatches.stories,[]);
+ assert.match(noMatches.note,/已查完当前范围的故事卡/);
+});
+
+test('有向量时按查询召回故事卡，直接返回向量结果',async t=>{
+ const f=await setup(t),queries=[];
+ const scores=f.search.embeddings.scores;
+ f.search.embeddings.scores=(book,cards,query,signal)=>{queries.push(query);return scores(book,cards,query,signal);};
+ f.books.resolve=()=>assert.fail('向量候选也应只返回故事卡');
+ f.provider.suggestions=async()=>assert.fail('有向量结果时不读取原文');
+ f.provider.verifyThemeStories=async()=>assert.fail('有向量结果时不调用匹配模型');
+ const extra={discovery:{mode:'auto',vectorFirst:true}};
+ const result=await f.suggest('挺身救人',extra);
+ assert.deepEqual(queries,['挺身救人']);
+ assert.deepEqual(result.stories.map(story=>story.source),[f.stories[1].source]);
+ const more=await f.suggest('挺身救人',extra,[],[f.stories[1].source]);
+ assert.deepEqual(more.stories,[]);
+ assert.match(more.note,/前 50 张故事卡/);
+ const plot=await f.suggest('挺身救人',{discovery:{...extra.discovery,plot:true}});
+ assert.deepEqual(plot.stories,result.stories);
+ assert.deepEqual(queries,['挺身救人','挺身救人','挺身救人']);
+ f.search.indexableCards=async()=>[];
+ assert.match((await f.suggest('挺身救人',extra)).note,/暂无可用的故事卡/);
+ assert.equal(queries.length,3);
+});
+
+test('生产选题一次发布向量相似度最高的 50 张故事卡',async t=>{
+ const f=await setup(t),updates=[];
+ const cards=Array.from({length:55},(_,index)=>({
+  id:'card'+index,title:'故事卡 '+index,summary:'故事卡梗概 '+index,
+  source:{...f.stories[0].source,firstUnit:'card'+index,lastUnit:'card'+index},
+ }));
+ f.search.indexableCards=async()=>cards;
+ f.search.embeddings.scores=async()=>new Map(cards.map((card,index)=>[card.id,index]));
+ f.provider.verifyThemeStories=async()=>assert.fail('向量召回直接发布候选');
+ const wrapped=withLocalBooks(f.provider,f.books,f.store,f.cache,f.search);
+ const result=await wrapped.suggestions({...selection,discovery:{mode:'auto',vectorFirst:true}},[],undefined,{
+  signal,maxStories:1,onProgress(){},async onIndexedCandidates(rows){updates.push(...rows);},
+ });
+ assert.deepEqual(result.stories,[]);
+ assert.deepEqual(updates.map(row=>row.story.title),cards.slice(5).reverse().map(card=>card.title));
+});
+
 test('参考向量版本不符时繁简短词仍可召回未向量化故事',async t=>{
  const f=await setup(t,{offline:true}),before=await readFile(f.file),inputs=[];
  f.provider.suggestions=async(s,_excluded,input)=>{

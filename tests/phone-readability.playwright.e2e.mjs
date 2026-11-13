@@ -41,12 +41,12 @@ test('PHONE-READABILITY: every phone state has readable text, 44px targets (26px
  const close=async()=>{await page.getByRole('dialog').last().getByRole('button',{name:'关闭',exact:true}).first().click();await page.waitForTimeout(200);};
  // 具名字号检查在最后统一断言，不中断后续状态。
  const atLeast=async(name,locator)=>{const sizes=await locator.evaluateAll(list=>list.map(el=>parseFloat(getComputedStyle(el).fontSize)));if(!sizes.length)unreached.push({name,error:'no element'});else if(Math.min(...sizes)<12)named.push({name,sizes});};
- // 每次都从发现页新建，继续验证按标题提取到制作确认。
+ // 每次都从发现页新建，继续验证按主题找故事到制作确认。
  async function createStory(){
   await page.goto(url);await tab('发现');await page.getByRole('button',{name:'选择庄子',exact:true}).click();const sheet=dialog(page,'这一篇，想怎样读？');
-  await sheet.getByRole('button',{name:'输入标题',exact:true}).click();await sheet.getByLabel('故事标题',{exact:true}).fill('乌龟报恩');
+  await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其它',exact:true}).click();await sheet.getByLabel('自定义主题或情节',{exact:true}).fill('乌龟报恩');
   const created=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/reader/sessions'&&response.request().method()==='POST');
-  await sheet.getByRole('button',{name:'按标题提取',exact:true}).click();const saved=await(await created).json();
+  await sheet.getByRole('button',{name:'开始找故事',exact:true}).click();const saved=await(await created).json();
   await b.extract(saved,'乌龟报恩');
   await page.getByRole('link',{name:'开始制作',exact:true}).click();return saved;
  }
@@ -65,13 +65,12 @@ test('PHONE-READABILITY: every phone state has readable text, 44px targets (26px
   let first;
   await step('creation',async()=>{
    await tab('发现');await page.getByRole('button',{name:'选择庄子',exact:true}).click();const sheet=dialog(page,'这一篇，想怎样读？');await sheet.waitFor();await audit('creation');
-   await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其他',exact:true}).click();await sheet.getByLabel('写下想看的主题').fill('善意终有回响');
+   await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其它',exact:true}).click();await sheet.getByLabel('自定义主题或情节').fill('善意终有回响');
    const scope=sheet.locator('details').first();if(await scope.count())await scope.locator('summary').click();
    await audit('creation-custom');
-   await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'不限定主题',exact:true}).click();
-   await sheet.getByRole('button',{name:'输入标题',exact:true}).click();await sheet.getByLabel('故事标题',{exact:true}).fill('乌龟报恩');await audit('creation-title');
+   await sheet.getByLabel('自定义主题或情节',{exact:true}).fill('乌龟报恩');await audit('creation-title');
    const created=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/reader/sessions'&&response.request().method()==='POST');
-   await sheet.getByRole('button',{name:'按标题提取',exact:true}).click();first=await(await created).json();
+   await sheet.getByRole('button',{name:'开始找故事',exact:true}).click();first=await(await created).json();
   });
 
   // 3. 故事设置中的选题与确认。

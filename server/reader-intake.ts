@@ -72,7 +72,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  if(action.action==='conditions'){
   if(intake.selected||!['discovering','choosing'].includes(intake.phase))throw new ReaderError(409,'这篇故事已经选定，不能修改提取条件。');
   if(row.state==='running'&&row.lock_until>Date.now())throw new ReaderError(409,'当前任务正在保存，请稍后再修改提取条件。');
-  const {selection:next}=await intakeSelection(selectionSchema.parse({...selection,...action.conditions,customBook:action.conditions.customBook,discoverySources:action.conditions.discoverySources,discovery:action.conditions.discovery||{mode:'auto'},storyTitle:undefined,source:undefined,displayTitle:undefined}),books);
+  const {selection:next}=await intakeSelection(selectionSchema.parse({...selection,...action.conditions,customBook:action.conditions.customBook,discoverySources:action.conditions.discoverySources,discovery:action.conditions.discovery||{mode:'auto'},storyTitle:undefined,source:undefined}),books);
   const conditions=(value:Selection)=>JSON.stringify([value.bookId,value.customBook,value.theme,value.discoverySources,value.productionPrompt]);
   if(!action.conditions.discovery&&conditions(next)===conditions(selection)){await recordNoop(repo.db,uid,id,action.requestId,'setup',fingerprint);return row;}
   // Search rounds fence late extraction results; generations fence stale candidate selections.

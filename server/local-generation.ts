@@ -48,7 +48,8 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
    const scope=selection.discoverySources?await selectedChapterScope(books,book,selection.discoverySources):null;
    const result=await discoverLocalStories(provider,books,cache,scope?.book||book,scope?{...selection,discoverySources:scope.discoverySources}:selection,excluded,reading,excludedSources,undefined,storySearch);
    // 所选范围可能省略部分段落，展示的位置始终按完整原文计算。
-   return scope?{...result,stories:result.stories.map(story=>({...story,sourceLabel:books.resolve(book,story.source!).title.slice(0,150)}))}:result;
+   const cardSearch=selection.discovery?.mode==='auto'&&selection.discovery.vectorFirst&&!selection.discovery.scanOnly;
+   return scope&&!cardSearch?{...result,stories:result.stories.map(story=>({...story,sourceLabel:books.resolve(book,story.source!).title.slice(0,150)}))}:result;
   },
   recommendArt,
   generator(){

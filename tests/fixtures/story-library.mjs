@@ -23,3 +23,16 @@ export function libraryFixture(store=memory()){
  const run=(theme=selection.theme,seen=[],observer)=>discoverLocalStories(provider,books,cache,book,{...selection,theme},[],observer,seen);
  return {book,books,stories,store,cache,provider,calls,control,run};
 }
+
+// 故事卡浏览器场景共用受控匹配器，不读取原文。
+export function storyCardFixture(library){
+ const cards=library.stories.map(story=>({...story,id:localSourceKey(story.source)}));
+ return {
+  storySearch:{indexableCards:async()=>cards,vectorHits:async()=>[],lookupHits:async()=>[]},
+  verifyThemeStories:async(theme,entries,_context,evidence)=>{
+   if(evidence!=='card')throw Error('选题只匹配故事卡');
+   const match=theme.includes('勇士')?'勇士':'乌龟';
+   return {matches:entries.map(({id,text})=>({id,verdict:text.includes(match)?'direct':'no',reason:'按故事卡梗概判断。',evidence:[]}))};
+  },
+ };
+}

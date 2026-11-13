@@ -24,6 +24,7 @@ import {requestTokens} from './story-token-budget.ts';
 import {sourceParts,sourceUnitIds,sourcesOverlap,sourceCovers,mergeSources} from './local-source-ranges.ts';
 import {matchLibraryStories,hasUnknownJudgments,saveVerifiedThemeMatches,themeStoryId,verifyThemeCandidates} from './story-theme-matching.ts';
 import type {LocalStorySearch} from './local-story-search.ts';
+import type {IndexableCard} from './story-card-embeddings.ts';
 import {storyEditorialContext,compoundDiscoveryThemeTerms} from '../lib/reader-prompts.ts';
 import {discoveryCode} from '../lib/reader-discovery-call.ts';
 
@@ -88,13 +89,59 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const targetTitle=selection.discovery?.mode==='title'?selection.discovery.title:undefined;
  // Old tasks retain main-first behavior; new automatic searches discover independent events.
  const chapterStories=!!selection.discoverySources&&!selection.discovery;
- const status=await provider.status(),plan=await readingPlan(book,status.provider,cache,limits,!!selection.discoverySources&&(chapterStories||!!targetTitle),targetTitle);
+ const status=await provider.status();
+ const topic=selection.theme.normalize('NFKC').trim();
+ const plot=selection.discovery?.mode==='auto'&&selection.discovery.plot;
+ const theme=plot?'匹配这则故事情节：'+topic:topic;
+ const vectorFirst=selection.discovery?.mode==='auto'&&selection.discovery.vectorFirst;
+ if(vectorFirst&&!selection.discovery?.scanOnly){
+  const cards=await storySearch?.indexableCards(book)||[];
+  const seenTitles=new Set(excludedSources.length?[]:excluded.map(titleKey));
+  const seenSources=new Set(excludedSources.map(localSourceKey));
+  const unseen=(card:IndexableCard)=>!seenTitles.has(titleKey(card.title))&&!seenSources.has(localSourceKey(card.source));
+  const result=(stories:SuggestionBatch['stories'],note:string)=>suggestionBatchSchema.parse({stories,note});
+  const choice=(card:IndexableCard)=>({
+   title:card.title.slice(0,100),description:card.summary.slice(0,180),source:card.source,
+   sourceLabel:book.sections.find(section=>section.id===card.source.sectionId)?.title.slice(0,150),
+  });
+  if(!cards.length)return result([],'这本书在当前范围内暂无可用的故事卡。');
+  if(!cards.some(unseen))return result([],'故事卡中暂无更多故事。');
+  observer.onProgress({stage:'retrieving',completed:0,total:1,completedChars:0,totalChars:0});
+  const vectorHits=await storySearch?.vectorHits(book,topic,observer.signal,cards)||[];
+  if(vectorHits.length){
+   const note='已按语义相似度找到故事卡。';
+   if(observer.onIndexedCandidates){
+    await observer.onIndexedCandidates(vectorHits.map(card=>({id:themeStoryId(card),story:choice(card),status:'match',summary:card.summary})));
+    return result([],note);
+   }
+   const stories=vectorHits.filter(unseen).slice(0,batchLimit).map(choice);
+   return result(stories,stories.length?note:'向量召回的前 50 张故事卡中暂无更多结果。');
+  }
+  if(!provider.verifyThemeStories)throw new ReaderError(503,'当前生成服务暂不支持故事卡匹配。');
+  const measurement=await discoveryMeasurement(cache,observer.cycleId!,true);
+  const onCall=observer.onCall;
+  try{
+   const checked=await verifyThemeCandidates(provider,cache,theme,cards.map(card=>({...card,title:card.title.slice(0,100)})),
+    card=>[card.summary],Math.min(limits.whole,themeVerificationInputTokens),status,{
+     ...observer,onCall:event=>{measurement.call(event);onCall?.(event);},
+     onProgress:value=>observer.onProgress({...value,stage:'verifying',totalChars:0,completedChars:0}),
+    },undefined,unseen);
+   const stories=checked.matches.slice(0,batchLimit).map(({story})=>choice(story));
+   await measurement.finish(stories.length?'matched':checked.checked<cards.length?'incomplete':'none');
+   return result(stories,stories.length?'已按故事卡梗概找到匹配。':checked.checked<cards.length
+    ?'部分故事卡未能完成匹配，请重试。':'已查完当前范围的故事卡，暂无符合的故事。');
+  }catch(error){
+   await measurement.finish(observer.signal.aborted?'cancelled':'failed');
+   throw error;
+  }
+ }
+ const plan=await readingPlan(book,status.provider,cache,limits,!!selection.discoverySources&&(chapterStories||!!targetTitle),targetTitle);
  const scope=(selection.discoverySources?'/scope/'+discoveryHash(selection.discoverySources.map(localSourceKey))+(chapterStories?'/selected-chapters-v1/main-first/'+discoveryHash(localChapterStoriesPrompt):'/auto-v1'):'')+(targetTitle?'/title/'+discoveryHash([titleKey(targetTitle),localTitleStoriesPrompt]):'');
  const namespace=discoveryNamespace(book,status.provider,status.models.text,limits,status.taskReasoningEfforts?.suggest)+scope;
  const oldNamespace=previousDiscoveryNamespace(book,status.provider,status.models.text,limits,status.taskReasoningEfforts?.suggest)+scope;
  const legacyNamespace=legacySummaryDiscoveryNamespace(book,status.provider,status.models.text,limits,status.taskReasoningEfforts?.suggest)+scope;
  // A requested title fixes the event. Only automatic discovery needs a theme judgment.
- const theme=selection.theme.normalize('NFKC').trim(),key=namespace+'/library';
+ const key=namespace+'/library';
  const themeTerms=targetTitle?[]:compoundDiscoveryThemeTerms(theme);
  const totalChars=plan.blocks.reduce((n,block)=>n+block.chars,0),excludedKeys=new Set(excludedSources.length?[]:excluded.map(titleKey));
  const validExclusions=excludedSources.filter(source=>{try{qualified(books,book,source);return true;}catch{return false;}});
@@ -190,7 +237,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const extraction:Selection={bookId:selection.bookId,...(selection.bookId==='other'?{customBook:book.title}:{}),theme:'',artStyle:'ink-pencil',productionPrompt:'',length:'auto',voice:false};
  // 先核对主题候选池，展示上限只约束返回页，不限制模型审阅范围。
  const verifiedTheme=async(cached:Story[]):Promise<SuggestionBatch|undefined>=>{
-  if(targetTitle||chapterStories||!provider.verifyThemeStories||!storySearch||storyEditorialContext(theme).mode==='source')return;
+  if(selection.discovery?.scanOnly||targetTitle||chapterStories||!provider.verifyThemeStories||!storySearch||storyEditorialContext(theme).mode==='source')return;
   const candidates=await storySearch.lookupHits(book,theme,observer.signal,false,50,recordRetrieval,themeTerms);
   const originals=new Map<string,string[]>(),summaries=new Map<string,string>();
   const stories=(candidates||[]).flatMap(({source,title,summary})=>{
@@ -250,7 +297,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
 
  const fromCandidates=async(current:State,cached:Story[]):Promise<SuggestionBatch|undefined>=>{
   const query=targetTitle||theme;
-  if(!query||chapterStories||!storySearch||!targetTitle&&(provider.verifyThemeStories||storyEditorialContext(theme).mode==='source'))return;
+  if(selection.discovery?.scanOnly||!query||chapterStories||!storySearch||!targetTitle&&(provider.verifyThemeStories||storyEditorialContext(theme).mode==='source'))return;
   const ranges=(await storySearch.lookupHits(book,query,observer.signal,!!targetTitle,42,recordRetrieval,themeTerms))?.map(hit=>hit.source)||[];
   if(!ranges.length)return;
   const exclusions=[...validExclusions,...current.stories.filter(story=>excludedKeys.has(titleKey(story.title))).map(story=>story.source)];

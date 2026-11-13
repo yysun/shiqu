@@ -230,10 +230,10 @@ test('DESKTOP-LAYOUT-06: create is a page beside the book choices, re-initialize
   await form.waitFor();assert.equal(await page.getByRole('dialog').count(),0,'a page, not a sheet');
   assert.ok(await choices.getByRole('button',{name:'选择列子',exact:true}).isVisible(),'the book list stays visible');
   assert.equal(await books.getByRole('button',{name:'庄子',exact:true}).getAttribute('aria-pressed'),'true');
-  await themes.getByRole('button',{name:'其他',exact:true}).click();await form.getByLabel('写下想看的主题').fill('善意终有回响');
+  await form.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其它',exact:true}).click();await form.getByLabel('自定义主题或情节').fill('善意终有回响');
   // 表单自己的选书不重新挂载：已输入的主题保留
   await books.getByRole('button',{name:'列子',exact:true}).click();
-  assert.equal(await form.getByLabel('写下想看的主题').inputValue(),'善意终有回响');
+  assert.equal(await form.getByLabel('自定义主题或情节').inputValue(),'善意终有回响');
   // 左侧换一本书：表单按新书重新初始化
   await choices.getByRole('button',{name:'选择山海经',exact:true}).click();
   await page.waitForFunction(()=>![...document.querySelectorAll('.yu-create-form input')].some(input=>input.value==='善意终有回响'));
@@ -248,13 +248,14 @@ test('DESKTOP-LAYOUT-06: create is a page beside the book choices, re-initialize
   // 提交：与手机相同的请求，选题在单列故事设置里继续
   await books.getByRole('button',{name:'庄子',exact:true}).click();
   const created=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/reader/sessions'&&r.request().method()==='POST');
-  await form.getByRole('button',{name:'开始提取',exact:true}).click();
+  await form.locator('.yu-discovery-submit').click();
   const request=(await created).request().postDataJSON();assert.equal(request.selection.bookId,'zhuangzi');assert.equal(request.selection.theme,'人情冷暖');
   await storySettings(page).getByRole('link',{name:'修改提取条件',exact:true}).waitFor();
   // 关闭设置后再次新建，新的选题设置正常载入。
   await closeTop(page);await top('发现');await page.locator('.yu-new-story-link').click();await form.waitFor();
+  await themes.getByRole('button',{name:'人情冷暖',exact:true}).click();
   const second=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/reader/sessions'&&r.request().method()==='POST');
-  await form.getByRole('button',{name:'开始提取',exact:true}).click();const next=await(await second).json();
+  await form.locator('.yu-discovery-submit').click();const next=await(await second).json();
   await storySettings(page).getByRole('link',{name:'修改提取条件',exact:true}).waitFor();
   assert.equal(await page.getByText('正在打开制作流程…').count(),0);assert.ok(next.id);
   // 从“不挑了”进入同样打开新建页
@@ -265,8 +266,9 @@ test('DESKTOP-LAYOUT-06: create is a page beside the book choices, re-initialize
   await storySettings(page).getByRole('link',{name:'修改提取条件',exact:true}).click();await form.waitFor();
   await choices.getByRole('button',{name:'选择列子',exact:true}).click();
   assert.equal(await books.getByRole('button',{name:'列子',exact:true}).getAttribute('aria-pressed'),'true');
+  await themes.getByRole('button',{name:'人情冷暖',exact:true}).click();
   const posts=[];const track=r=>{if(r.request().method()==='POST'&&r.url().includes('/api/reader/sessions'))posts.push(new URL(r.url()).pathname);};page.on('response',track);
-  await form.getByRole('button',{name:'开始提取',exact:true}).click();await storySettings(page).waitFor();await page.waitForTimeout(500);page.off('response',track);
+  await form.locator('.yu-discovery-submit').click();await storySettings(page).waitFor();await page.waitForTimeout(500);page.off('response',track);
   assert.ok(posts.includes(`/api/reader/sessions/${intake}/setup`),'updates the same intake: '+posts.join(','));
   assert.ok(!posts.includes('/api/reader/sessions'),'creates no new story');
   assert.equal((await b.f.read(intake)).selection.bookId,'列子');
@@ -520,15 +522,15 @@ test('DESKTOP-LAYOUT-10: resizing across the switch keeps views, drafts, frames 
   if(await page.getByRole('button',{name:'返回发现',exact:true}).count())await page.getByRole('button',{name:'返回发现',exact:true}).click();
   // 新建页的自定义主题：1280 → 390 → 1280
   await topNav(page,'发现');await page.locator('.yu-new-story-link').click();const form=page.locator('.yu-create-form');await form.waitFor();
-  await form.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其他',exact:true}).click();await form.getByLabel('写下想看的主题').fill('跨档保留的主题');
-  await size(390);const sheet=page.getByRole('dialog',{name:'这一篇，想怎样读？',exact:true});await sheet.waitFor();assert.equal(await sheet.getByLabel('写下想看的主题').inputValue(),'跨档保留的主题');
-  await size(1280);assert.equal(await page.locator('.yu-create-form').getByLabel('写下想看的主题').inputValue(),'跨档保留的主题');
+  await form.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其它',exact:true}).click();await form.getByLabel('自定义主题或情节').fill('跨档保留的主题');
+  await size(390);const sheet=page.getByRole('dialog',{name:'这一篇，想怎样读？',exact:true});await sheet.waitFor();assert.equal(await sheet.getByLabel('自定义主题或情节').inputValue(),'跨档保留的主题');
+  await size(1280);assert.equal(await page.locator('.yu-create-form').getByLabel('自定义主题或情节').inputValue(),'跨档保留的主题');
   // 修改已有任务的提取条件时，标题草稿也跨档保留。
   await seedStory(f,{pick:false});await page.goto(url);await topNav(page,'书架');await page.locator('.yu-production-row').first().click();
   await storySettings(page).getByRole('link',{name:'修改提取条件',exact:true}).click();
-  await form.getByRole('button',{name:'输入标题',exact:true}).click();await form.getByLabel('故事标题',{exact:true}).fill('跨档保留的标题');
-  await size(390);await sheet.waitFor();assert.equal(await sheet.getByLabel('故事标题',{exact:true}).inputValue(),'跨档保留的标题');
-  await size(1280);assert.equal(await form.getByLabel('故事标题',{exact:true}).inputValue(),'跨档保留的标题');
+  await form.getByRole('button',{name:'按主题',exact:true}).click();await form.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其它',exact:true}).click();await form.getByLabel('自定义主题或情节',{exact:true}).fill('跨档保留的标题');
+  await size(390);await sheet.waitFor();assert.equal(await sheet.getByLabel('自定义主题或情节',{exact:true}).inputValue(),'跨档保留的标题');
+  await size(1280);assert.equal(await form.getByLabel('自定义主题或情节',{exact:true}).inputValue(),'跨档保留的标题');
   assert.equal(await page.getByText('另一台设备更新了制作内容').count(),0);
   // 阅读第 3 幅：1280 → 390 → 1280，页码保留，滚轮仍可翻页
   await b.reader(id);await page.locator('.yu-scene.is-current').waitFor();await page.getByRole('button',{name:'最后一页',exact:true}).click();

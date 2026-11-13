@@ -18,7 +18,7 @@ import {freshSuggestions,suggestionBatchSchema} from '../lib/reader-suggestions.
 import {localChoicesJson,localScanJson,localCatalogOutputJson,localCatalogOutputTokens,localChoices,localReadingPrompt,localSuggestionPayload} from '../lib/reader-local-contract.ts';
 import type {ThemeMatchProtocol,ThemeStory} from '../lib/reader-theme-match.ts';
 import type {DiscoveryContext} from '../lib/reader-discovery-call.ts';
-import {binaryThemeMatch,verifiedThemeMatch,themeMatchModel,themeMatchEffort} from '../lib/reader-theme-match.ts';
+import {binaryThemeMatch,themeVerificationProtocol,themeMatchModel,themeMatchEffort} from '../lib/reader-theme-match.ts';
 import {choicesJson,storyDraftJson,suggestionSystemPrompt,draftInstructions,imagePrompt,imageTypes,mediaType,storySource} from '../lib/reader-generation-contract.ts';
 import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from '../lib/reader-art-recommendation.ts';
 import {frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
@@ -139,7 +139,7 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
    return scanning?discoveryCall({stage:'extraction',provider,model:models.text,effort:reasoning.suggest,requestedCount:localBook.scan?.maxStories||1},reading,run):run(()=>{});
   },
   matchStories:(theme,stories,context)=>checkThemes(theme,stories,context,binaryThemeMatch,matchingModel),
-  verifyThemeStories:(theme,stories,context)=>checkThemes(theme,stories,context,verifiedThemeMatch),
+  verifyThemeStories:(theme,stories,context,evidence)=>checkThemes(theme,stories,context,themeVerificationProtocol(evidence)),
   async recommendArt(selection,original){
    if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');
    const result=await text(selectedArtRecommendationPrompt,selectedArtRecommendationPayload(selection,original),artRecommendationJson,reasoning.art,2048);return artRecommendationSchema.parse(result.value);

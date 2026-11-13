@@ -6,8 +6,8 @@ import {ReaderError} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import {localSourceKey} from '../lib/reader-local-contract.ts';
 import type {LocalSourceReference} from '../lib/reader-local-contract.ts';
-import {themeMatchPrompt,themeMatchJson,themeMatchPayload,themeDecisionSchema,themeMatchBatchSize,themeStorySchema,themeMatchContract,themeMatchEffort,themeScoreDirection,verifiedThemeMatch,verifiedThemeBatchSize,verifiedThemeDecision} from '../lib/reader-theme-match.ts';
-import type {ThemeStory,VerifiedThemeDecision} from '../lib/reader-theme-match.ts';
+import {themeMatchPrompt,themeMatchJson,themeMatchPayload,themeDecisionSchema,themeMatchBatchSize,themeStorySchema,themeMatchContract,themeMatchEffort,themeScoreDirection,themeVerificationProtocol,storyCardThemeBatchSize,verifiedThemeBatchSize,verifiedThemeDecision} from '../lib/reader-theme-match.ts';
+import type {ThemeStory,VerifiedThemeDecision,ThemeEvidence} from '../lib/reader-theme-match.ts';
 import {compoundDiscoveryThemeTerms,compoundDiscoveryThemeDirection,storyEditorialContext} from '../lib/reader-prompts.ts';
 import {discoveryCode} from '../lib/reader-discovery-call.ts';
 import type {DiscoveryContext} from '../lib/reader-discovery-call.ts';
@@ -204,13 +204,16 @@ export async function hasUnknownJudgments(provider:ReaderProvider,cache:StoryDis
  return stories.some(story=>saved?.unknown[themeStoryId(story)]);
 }
 
-// 主题候选必须逐条给出判断。缓存与原文及契约绑定，未核对项留给下一次请求。
+// 主题候选必须逐条给出判断。缓存与输入材料及契约绑定，未核对项留给下一次请求。
 const verifiedBatchSchema=z.array(verifiedThemeDecision).max(verifiedThemeBatchSize);
 const evidenceText=(text:string)=>text.replace(/[\p{P}\s]/gu,'');
-export async function verifyThemeCandidates<T extends Story>(provider:ReaderProvider,cache:StoryDiscoveryCache,theme:string,stories:T[],original:(story:T)=>string[],budget:number,status:Awaited<ReturnType<ReaderProvider['status']>>,observer:ReadingObserver,onDecisions?:(decisions:VerifiedThemeDecision[])=>Promise<void>){
+export async function verifyThemeCandidates<T extends Story>(provider:ReaderProvider,cache:StoryDiscoveryCache,theme:string,stories:T[],textParts:(story:T)=>string[],budget:number,status:Awaited<ReturnType<ReaderProvider['status']>>,observer:ReadingObserver,onDecisions?:(decisions:VerifiedThemeDecision[])=>Promise<void>,cardMatch?:(story:T)=>boolean){
+ const evidence:ThemeEvidence|undefined=cardMatch?'card':undefined;
+ const protocol=themeVerificationProtocol(evidence);
+ const batchSize=evidence==='card'?storyCardThemeBatchSize:verifiedThemeBatchSize;
  const identity={model:status.models.text,reasoningEffort:themeMatchEffort};
  const entries=stories.map(story=>{
-  const parts=original(story),input=themeStorySchema.parse({id:themeStoryId(story),title:story.title,text:parts.join('\n\n')});
+  const parts=textParts(story),input=themeStorySchema.parse({id:themeStoryId(story),title:story.title,text:parts.join('\n\n')});
   return {story,input,evidenceParts:parts.map(evidenceText)};
  });
  const matches:{story:T;decision:VerifiedThemeDecision}[]=[];
@@ -218,18 +221,18 @@ export async function verifyThemeCandidates<T extends Story>(provider:ReaderProv
  const totalChars=entries.reduce((sum,entry)=>sum+entry.input.text.length,0);
  let completedChars=0;
  const progress=(checkingCandidates?:string[])=>observer.onProgress({completed,total:entries.length,completedChars,totalChars,stage:'checking',mode:'chapters',...(checkingCandidates?{checkingCandidates}:{})});
- const fits=(batch:typeof entries)=>readingTokens(verifiedThemeMatch.prompt,status.provider)+readingTokens(JSON.stringify(verifiedThemeMatch.payload(theme,batch.map(entry=>entry.input))),status.provider)+readingTokens(JSON.stringify(verifiedThemeMatch.json),status.provider)<=budget;
+ const fits=(batch:typeof entries)=>readingTokens(protocol.prompt,status.provider)+readingTokens(JSON.stringify(protocol.payload(theme,batch.map(entry=>entry.input))),status.provider)+readingTokens(JSON.stringify(protocol.json),status.provider)<=budget;
  progress();
  for(let start=0;start<entries.length;){
   observer.signal.throwIfAborted();
   const batch=[entries[start++]];
   if(fits(batch)){
-   while(start<entries.length&&batch.length<verifiedThemeBatchSize&&fits([...batch,entries[start]]))batch.push(entries[start++]);
-   const key='theme-candidate-verification-v1/'+discoveryHash([status.provider,identity,verifiedThemeMatch.prompt,verifiedThemeMatch.json,theme,batch.map(({input,evidenceParts})=>[input,evidenceParts])]);
+   while(start<entries.length&&batch.length<batchSize&&fits([...batch,entries[start]]))batch.push(entries[start++]);
+   const key='theme-candidate-verification-v1/'+discoveryHash([status.provider,identity,protocol.prompt,protocol.json,theme,batch.map(({input,evidenceParts})=>[input,evidenceParts])]);
    const valid=(decision:VerifiedThemeDecision)=>{
     const entry=batch.find(item=>item.input.id===decision.id);
     if(!entry)return false;
-    if(decision.verdict==='no')return true;
+    if(evidence==='card'||decision.verdict==='no')return true;
     return decision.evidence.length>0&&decision.evidence.every(quote=>{
      const value=evidenceText(quote);return value.length>=4&&entry.evidenceParts.some(part=>part.includes(value));
     });
@@ -253,7 +256,8 @@ export async function verifyThemeCandidates<T extends Story>(provider:ReaderProv
      const release=await slot();
      try{
       reading.signal.throwIfAborted();
-      const response=await provider.verifyThemeStories!(theme,remaining.map(entry=>entry.input),{...reading,isolation:attempt>0});
+      const inputs=evidence==='card'?batch:remaining;
+      const response=await provider.verifyThemeStories!(theme,inputs.map(entry=>entry.input),{...reading,isolation:attempt>0},evidence);
       const candidates=verifiedBatchSchema.parse(response.matches);
       const ids=new Set(remaining.map(entry=>entry.input.id));
       for(const decision of candidates)if(ids.has(decision.id)&&candidates.filter(row=>row.id===decision.id).length===1&&valid(decision))accepted.set(decision.id,decision);
@@ -268,12 +272,13 @@ export async function verifyThemeCandidates<T extends Story>(provider:ReaderProv
    checked+=decisions.length;
    for(const {story,input} of batch){
     const decision=decisions.find(item=>item.id===input.id);
-    if(decision&&decision.verdict!=='no')matches.push({story,decision});
+    if(decision&&decision.verdict!=='no'&&(!cardMatch||cardMatch(story)))matches.push({story,decision});
    }
   }
   completed+=batch.length;
   completedChars+=batch.reduce((sum,entry)=>sum+entry.input.text.length,0);
   progress();
+  if(cardMatch&&matches.length)break;
  }
  const grade={direct:0,implicit:1,no:2};
  return {checked,matches:matches.sort((a,b)=>grade[a.decision.verdict]-grade[b.decision.verdict])};

@@ -12,6 +12,7 @@ const compiled=build({stdin:{contents:"export {default as Discovery} from './cli
    let cells=[];let cursor=0;export function beginRender(){cursor=0;}export function reset(){cells=[];cursor=0;}
    export function useState(initial){const index=cursor++;if(!(index in cells))cells[index]=typeof initial==='function'?initial():initial;return [cells[index],next=>{cells[index]=typeof next==='function'?next(cells[index]):next;}];}
    export function useRef(value){const index=cursor++;return cells[index]??={current:value};}
+   export function useId(){return 'test-id-'+cursor++;}
    export function useEffect(){}
   `}));
  }
@@ -30,7 +31,7 @@ test('the creation form is marked only after its choices or text change',async()
  const selection={bookId:'liaozhai',theme:'原典故事',artStyle:'ink-pencil',productionPrompt:'',length:'auto',narrativeDetail:'balanced',voice:false};
  const render=()=>{beginRender();return Discovery({selection,books:[{id:'liaozhai',title:'聊斋志异'},{id:'zhuangzi',title:'庄子'}],busy:false,error:'',onBookChange(){},onSubmit:async()=>{}});};
  assert.equal(marked(render()),false,'freshly opened');
- find(render(),node=>node.type==='button'&&node.props.children==='其他').props.onClick();
+ find(render(),node=>node.type==='button'&&node.props.children==='给我一个反转').props.onClick();
  assert.equal(marked(render()),true,'a theme choice is a change');
  reset();assert.equal(marked(render()),false);
  find(render(),node=>node.type==='button'&&node.props.children==='庄子').props.onClick();

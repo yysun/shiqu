@@ -279,7 +279,7 @@ export default function Reader(){
   if(seen.current.size===story.pages.length)track('complete');
  }
  // 桌面新建页从“返回修改书籍”打开时，左侧选书、心情与“不挑了”只改选择，仍修改原任务的条件（与手机表单内选书一致）。
- function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){cancelOpening();clearRetained('discovery');setCreateSeed(seed=>seed+1);if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,source:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
+ function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){cancelOpening();clearRetained('discovery');setCreateSeed(seed=>seed+1);if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,displayTitle:undefined,source:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
  // 关闭新建并丢弃表单草稿；新建面板关闭、顶栏离开与两条提交成功路径共用。
  function closeCreate(){setConfigure(false);setDiscoveryTarget(null);clearRetained('discovery');}
  // 离开故事设置：清除子面板标志（修订草稿保留），再关闭制作流程。

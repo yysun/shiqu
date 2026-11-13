@@ -61,7 +61,8 @@ test('PHONE-NAV-06: a creation submit reuses the entry for the workflow panel',o
  await b.execute(async()=>{
   const {page,url}=b;await enter(page,url);await tab(page,'发现');
   await page.getByRole('button',{name:'选择庄子',exact:true}).click();const sheet=dialog(page,'这一篇，想怎样读？');await sheet.waitFor();await settle(page);
-  await sheet.getByRole('button',{name:'开始提取',exact:true}).click();await dialog(page,'故事设置').waitFor();await settle(page);
+  await sheet.getByRole('button',{name:'善意与误解',exact:true}).click();
+  await sheet.getByRole('button',{name:'开始找故事',exact:true}).click();await dialog(page,'故事设置').waitFor();await settle(page);
   assert.deepEqual(await openDialogs(page),['故事设置']);
   await back(page);assert.deepEqual(await openDialogs(page),[],'back closes the workflow panel');assert.equal(left(page),false);
   await back(page);assert.ok(left(page),'the next back leaves the app');
@@ -136,17 +137,17 @@ test('PHONE-NAV-04: typed input asks through back, Escape and a forced close',op
  const b=await seededBrowser(t,'PNAV-04',phone);
  await b.execute(async()=>{
   const {page,url}=b,ask=confirms(page);await enter(page,url);await tab(page,'发现');
-  const openCreation=async()=>{await page.getByRole('button',{name:'选择庄子',exact:true}).click();const sheet=dialog(page,'这一篇，想怎样读？');await sheet.waitFor();await settle(page);await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其他',exact:true}).click();await sheet.getByLabel('写下想看的主题').fill('守住底线');return sheet;};
+  const openCreation=async()=>{await page.getByRole('button',{name:'选择庄子',exact:true}).click();const sheet=dialog(page,'这一篇，想怎样读？');await sheet.waitFor();await settle(page);await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其它',exact:true}).click();await sheet.getByLabel('自定义主题或情节').fill('守住底线');return sheet;};
   let sheet=await openCreation();
-  await back(page);assert.equal(ask.seen.length,1,'back asks');assert.equal(await sheet.getByLabel('写下想看的主题').inputValue(),'守住底线','keep leaves the text');
+  await back(page);assert.equal(ask.seen.length,1,'back asks');assert.equal(await sheet.getByLabel('自定义主题或情节').inputValue(),'守住底线','keep leaves the text');
   ask.accept(true);await back(page);assert.equal(await sheet.count(),0,'discard closes it');ask.accept(false);
   // Escape 走 cancel（Chrome Android 的返回也是）
   sheet=await openCreation();await page.keyboard.press('Escape');await settle(page);
-  assert.equal(ask.seen.length,3,'Escape asks');assert.equal(await sheet.getByLabel('写下想看的主题').inputValue(),'守住底线');
+  assert.equal(ask.seen.length,3,'Escape asks');assert.equal(await sheet.getByLabel('自定义主题或情节').inputValue(),'守住底线');
   // 浏览器强制关闭：重新打开并询问
   await page.evaluate(()=>document.querySelector('dialog[aria-label="这一篇，想怎样读？"]').close());await settle(page);
   assert.equal(ask.seen.length,4,'a forced close asks');assert.equal(await page.evaluate(()=>document.querySelector('dialog[aria-label="这一篇，想怎样读？"]').open),true,'and re-opens the sheet');
-  assert.equal(await sheet.getByLabel('写下想看的主题').inputValue(),'守住底线');
+  assert.equal(await sheet.getByLabel('自定义主题或情节').inputValue(),'守住底线');
   await sheet.getByRole('button',{name:'关闭',exact:true}).click();await settle(page);assert.equal(ask.seen.length,4,'close buttons keep today\'s behavior');
   // 改名：有输入时返回询问，保存后返回不再询问
   await tab(page,'书架');await openFromShelf(page);await openSettings(page);

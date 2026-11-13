@@ -44,7 +44,7 @@ export function parseThemeMatches(value:unknown,stories:ThemeStory[]):ThemeMatch
  return {matches};
 }
 
-export type ThemeMatchProtocol<T>={prompt:string;json:typeof themeMatchJson|typeof verifiedThemeJson;payload:(theme:string,stories:ThemeStory[])=>ReturnType<typeof themeMatchPayload>;parse:(value:unknown,stories:ThemeStory[])=>T;outputTokens:(count:number)=>number};
+export type ThemeMatchProtocol<T>={prompt:string;json:typeof themeMatchJson|typeof verifiedThemeJson|typeof storyCardThemeJson;payload:(theme:string,stories:ThemeStory[])=>ReturnType<typeof themeMatchPayload>;parse:(value:unknown,stories:ThemeStory[])=>T;outputTokens:(count:number)=>number};
 export const binaryThemeMatch={prompt:themeMatchPrompt,json:themeMatchJson,payload:themeMatchPayload,parse:parseThemeMatches,outputTokens:themeMatchOutputTokens};
 
 export const verifiedThemeBatchSize=50;
@@ -80,3 +80,30 @@ function parseVerifiedThemeMatches(value:unknown,stories:ThemeStory[]):VerifiedT
  })};
 }
 export const verifiedThemeMatch={prompt:verifiedThemePrompt,json:verifiedThemeJson,payload:verifiedThemePayload,parse:parseVerifiedThemeMatches,outputTokens:(count:number)=>Math.max(4096,count*240)};
+export type ThemeEvidence='original'|'card';
+export const storyCardThemeBatchSize=10;
+const storyCardThemeJson={type:'object',properties:{matches:{type:'array',minItems:0,maxItems:storyCardThemeBatchSize,items:{type:'object',properties:{id:{type:'integer',minimum:1,maximum:storyCardThemeBatchSize},verdict:{type:'string',enum:['yes','no']}},required:['id','verdict'],additionalProperties:false}}},required:['matches'],additionalProperties:false};
+const storyCardDecision=z.object({id:z.number().int().min(1).max(storyCardThemeBatchSize),verdict:z.enum(['yes','no'])}).strict();
+export const storyCardThemeMatch:ThemeMatchProtocol<VerifiedThemeMatches>={
+ ...verifiedThemeMatch,
+ prompt:promptSections(
+  ['任务','批量按主题或情节查找故事。每条输入含故事卡标题和白话梗概，text 是卡片梗概。每个编号独立判断并恰好返回一次。'],
+  ['判定','梗概支持查询中的行为、关系或结果，判 yes。只有字词相近、部分要素相同或证据不足，判 no。不要用标题或记忆补写梗概未交代的情节。'],
+  ['复合主题',compoundDiscoveryThemeDirection.replaceAll('原文','梗概')],
+  ['输出','只返回 matches，每项只含 id 和 verdict（yes 或 no）。'],
+  ['输入与输出',inputBoundaryDirection]),
+ json:storyCardThemeJson,
+ parse(value,stories){
+  const {matches}=z.object({matches:z.array(z.unknown()).max(storyCardThemeBatchSize*2)}).parse(value);
+  const counts=new Map<unknown,number>();
+  for(const item of matches){const id=(item as {id?:unknown})?.id;counts.set(id,(counts.get(id)||0)+1);}
+  return {matches:matches.flatMap(item=>{
+   const decision=storyCardDecision.safeParse(item);
+   if(!decision.success||counts.get(decision.data.id)!==1)return [];
+   const story=stories[decision.data.id-1];
+   return story?[{id:story.id,verdict:decision.data.verdict==='yes'?'direct':'no',reason:'按故事卡梗概判断。',evidence:[]}]:[];
+  })};
+ },
+ outputTokens:()=>2048,
+};
+export const themeVerificationProtocol=(evidence?:ThemeEvidence)=>evidence==='card'?storyCardThemeMatch:verifiedThemeMatch;

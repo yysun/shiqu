@@ -143,23 +143,32 @@ export class LocalStorySearch{
   this.embeddings=resources?.embeddings;
  }
  async indexableCards(book:LocalBook):Promise<IndexableCard[]>{
-  const rows:Entry[]=[];
-  const bundled=this.resources?await this.readCards(book,this.resources.root):null;
-  if(bundled)rows.push(...bundled.entries);
+  const bundled=this.resources?await this.readCardFile(book,this.resources.root):null;
   const custom=await this.customSnapshot(book);
-  if(custom?.bookId===book.id&&custom.edition===book.edition)rows.push(...custom.entries);
+  const rows=[
+   ...(bundled?.cards.map(card=>({title:card.title,summary:card.summary,aliases:card.aliases?.map(storySearchKey),source:{...card.source,edition:book.edition}}))||[]),
+   ...(custom?.bookId===book.id&&custom.edition===book.edition
+    ?custom.entries.map(row=>({title:row.displayTitle,summary:row.displaySummary,source:row.source,aliases:row.aliases})):[]),
+  ];
   const unique=new Map<string,IndexableCard>();
   for(const row of rows){
-   if(!row.displayTitle||!row.displaySummary)continue;
+   if(!row.title||!row.summary)continue;
    try{sourceParts(book,row.source);const sourceKey=localSourceKey(row.source);
-    unique.set(sourceKey,{id:sourceKey,title:row.displayTitle,summary:row.displaySummary,aliases:row.aliases,source:row.source});
-   }catch{/* 出处不在当前原文中的旧卡不能建向量。 */}
+    unique.set(sourceKey,{id:sourceKey,title:row.title,summary:row.summary,aliases:row.aliases,source:row.source});
+   }catch{/* 跳过出处已失效的旧卡。 */}
   }
   return [...unique.values()];
  }
  async semanticScores(book:LocalBook,query:string,signal:AbortSignal){
   if(!this.embeddings?.exists())return null;
   return this.embeddings.scores(book,await this.indexableCards(book),query,signal);
+ }
+ async vectorHits(book:LocalBook,query:string,signal:AbortSignal,cards:IndexableCard[],limit=50){
+  const scores=await this.embeddings?.scores(book,cards,query,signal).catch(()=>null);
+  signal.throwIfAborted();
+  if(!scores?.size)return [];
+  return cards.filter(card=>scores.has(card.id))
+   .sort((a,b)=>scores.get(b.id)!-scores.get(a.id)!).slice(0,limit);
  }
  async candidates(book:LocalBook,query:string,signal:AbortSignal,byTitle=false){
   return await this.lookup(book,query,signal,byTitle)||[];
@@ -216,11 +225,17 @@ export class LocalStorySearch{
   for(const entry of [...custom.entries,...bundled.entries])if(!entries.has(localSourceKey(entry.source)))entries.set(localSourceKey(entry.source),entry);
   return {...bundled,entries:[...entries.values()]};
  }
- private async readCards(book:LocalBook,root:string):Promise<Snapshot|null>{
+ private async readCardFile(book:LocalBook,root:string){
   try{
    const file=path.join(root,storyCardsPath,encodeURIComponent(book.id)+'.json');
    const data=storyCardsSchema.parse(JSON.parse(await readFile(file,'utf8')));
-   if(data.bookId!==book.id||data.edition!==book.edition)return null;
+   return data.bookId===book.id&&data.edition===book.edition?data:null;
+  }catch{return null;}
+ }
+ private async readCards(book:LocalBook,root:string):Promise<Snapshot|null>{
+  const data=await this.readCardFile(book,root);
+  if(!data)return null;
+  try{
    const entries=data.cards.map(card=>{
     const source={...card.source,edition:book.edition};
     return searchEntry(card.id,source,storyIndexText(book,source),card.title,card.summary,card.aliases??[]);

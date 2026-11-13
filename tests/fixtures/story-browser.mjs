@@ -11,7 +11,7 @@ import {developmentAccess} from '../../server/development-access.ts';
 import {developmentServerOptions,protectDevelopmentLibrary} from '../../scripts/development-server.mjs';
 import {withLocalBooks} from '../../server/local-generation.ts';
 import {productionFixture,until} from './production.mjs';
-import {libraryFixture} from './story-library.mjs';
+import {libraryFixture,storyCardFixture} from './story-library.mjs';
 export const runId=process.env.SHIQU_E2E_RUN_ID||new Date().toISOString().replace(/[:.]/g,'-')+'-'+process.pid;
 export const runDirectory=path.resolve('.data/e2e',runId);
 async function reservePort(){const server=createHttpServer(async()=>new Response('reserved'));await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const port=server.address().port;await new Promise(resolve=>server.close(resolve));return port;}
@@ -32,7 +32,9 @@ export async function storyBrowser(t,caseId,contextOptions={}){
   return target?{...result,stories:library.stories.filter(story=>story.title===target&&args[2].text.includes('['+story.source.firstUnit+']')).map(({summary,...story})=>{void summary;return story;}),scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}}:result;
  };
  f.generation.matchStories=library.provider.matchStories;
- f.options.generation=withLocalBooks(f.generation,library.books,f.media);await f.restart();f.app.services.localBooks=library.books;
+ const {storySearch,verifyThemeStories}=storyCardFixture(library);
+ f.generation.verifyThemeStories=verifyThemeStories;
+ f.options.generation=withLocalBooks(f.generation,library.books,f.media,undefined,storySearch);await f.restart();f.app.services.localBooks=library.books;
  const port=await reservePort();api=createHttpServer(developmentAccess(request=>f.app.handle(request),{SHIQU_DEV_FRONTEND_PORT:String(port)},0));
  await new Promise(resolve=>api.listen(0,'127.0.0.1',resolve));
  // 关闭开发文件监听，避免共享工作区的改动打断正在验证的浏览器交互。
@@ -62,10 +64,10 @@ export async function storyBrowser(t,caseId,contextOptions={}){
   await page.goto(url);await page.getByRole('button',{name:'新建故事',exact:true}).click();
   const sheet=page.getByRole('dialog',{name:'这一篇，想怎样读？'});
   await sheet.getByRole('group',{name:'选择书籍'}).getByRole('button',{name:'庄子',exact:true}).click();
-  if(theme){await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其他',exact:true}).click();await sheet.getByLabel('写下想看的主题').fill(theme);}
-  if(title){await sheet.getByRole('button',{name:'输入标题',exact:true}).click();await sheet.getByLabel('故事标题',{exact:true}).fill(title);}
+  await sheet.getByRole('group',{name:'故事主题'}).getByRole('button',{name:'其它',exact:true}).click();
+  await sheet.getByLabel('自定义主题或情节').fill(title||theme||'渔夫救乌龟，乌龟救了渔夫');
   const creation=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/reader/sessions'&&response.request().method()==='POST');
-  await sheet.getByRole('button',{name:title?'按标题提取':'开始提取',exact:true}).click();const created=await creation;
+  await sheet.getByRole('button',{name:'开始找故事',exact:true}).click();const created=await creation;
   assert.equal(created.status(),201);const saved=await created.json();
   assert.equal(saved.intake.search.state,'searching');
   await page.getByRole('dialog',{name:'故事设置',exact:true}).getByRole('region',{name:'选择故事',exact:true}).waitFor();

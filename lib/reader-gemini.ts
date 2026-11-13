@@ -17,8 +17,8 @@ export {imageTypes} from './reader-generation-contract.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import {saveStoryOriginal} from './reader-source-storage.ts';
 import {localChoicesJson,localScanJson,localCatalogOutputJson,localCatalogOutputTokens,localChoices,localReadingPrompt,localSuggestionPayload} from './reader-local-contract.ts';
-import {binaryThemeMatch,verifiedThemeMatch,themeMatchEffort} from './reader-theme-match.ts';
-import type {ThemeStory,ThemeMatchProtocol} from './reader-theme-match.ts';
+import {binaryThemeMatch,themeVerificationProtocol,themeMatchEffort} from './reader-theme-match.ts';
+import type {ThemeStory,ThemeMatchProtocol,ThemeEvidence} from './reader-theme-match.ts';
 import type {WholeBookInput} from './reader-local-contract.ts';
 import {verifiedOriginalPayload} from './reader-source-types.ts';
 import {assertStoryBriefReady} from './reader-story-brief.ts';
@@ -157,8 +157,8 @@ async function checkStoryThemes<T extends {matches:unknown[]}>(key:string,theme:
 export function matchStoryThemes(key:string,theme:string,stories:ThemeStory[],config:Partial<Models>={},transport:typeof fetch=fetch,context?:DiscoveryContext){
  return checkStoryThemes(key,theme,stories,config,transport,context,binaryThemeMatch);
 }
-export function verifyStoryThemes(key:string,theme:string,stories:ThemeStory[],config:Partial<Models>,transport:typeof fetch,context?:DiscoveryContext){
- return checkStoryThemes(key,theme,stories,config,transport,context,verifiedThemeMatch);
+export function verifyStoryThemes(key:string,theme:string,stories:ThemeStory[],config:Partial<Models>,transport:typeof fetch,context?:DiscoveryContext,evidence?:ThemeEvidence){
+ return checkStoryThemes(key,theme,stories,config,transport,context,themeVerificationProtocol(evidence));
 }
 
 export async function recommendStoryArt(key:string,selection:Selection,original:OriginalSource,config:Models,transport:typeof fetch,reasoning:TaskReasoningEfforts=taskReasoningDefaults){

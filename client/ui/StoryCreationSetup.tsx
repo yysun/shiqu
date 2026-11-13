@@ -86,12 +86,13 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  const failedSearch=search.state==='failed';
  const initialRetry=!onReplace&&!selected&&!terminalBatch&&!!error;
  const canResume=paused&&!selected&&!onReplace;
+ const cardSearch=session.selection.discovery?.mode==='auto'&&session.selection.discovery.vectorFirst&&!session.selection.discovery.scanOnly;
  const indexedChecked=indexed?.filter(candidate=>candidate.status!=='pending').length??0;
  const indexedMatches=indexed?.filter(candidate=>candidate.status==='match').length??0;
  const incompleteIndex=!!indexed&&indexedChecked<indexed.length;
  const missingChoices=indexed?.some(candidate=>!candidate.choice);
  const searchLabel=paused?'查找已暂停':searching?'正在查找…':failedSearch||initialRetry?'查找未完成':atLimit?'已达候选上限':terminalBatch?.stories.length===0?(candidates.length?'暂无更多故事':'未找到故事'):candidates.length?'':onReplace?'等待提取':'正在提取…';
- const searchSummary=indexed?`已核对 ${indexedChecked}/${indexed.length} · ${indexedMatches} 条符合`:[searchLabel,candidates.length?`已找到 ${candidates.length} 篇`:''].filter(Boolean).join(' ');
+ const searchSummary=indexed?(cardSearch?`找到 ${indexed.length} 张相关故事卡`:`已核对 ${indexedChecked}/${indexed.length} · ${indexedMatches} 条符合`):[searchLabel,candidates.length?`已找到 ${candidates.length} 篇`:''].filter(Boolean).join(' ');
  const canFindMore=failedSearch||initialRetry||(indexed?(incompleteIndex||missingChoices)&&!searching:!targetTitle);
  const actionLabel=canResume?'恢复查找':missingChoices?'重新读取候选':indexed?'重试核对':failedSearch||initialRetry?'重试查找':'继续查找';
  const searchAction=<StoryFlowAction disabled={busy||(canResume?progress.controlBusy:searching||paused||!indexed&&!terminalBatch&&!failedSearch&&!initialRetry)} onClick={()=>{if(canResume)return progress.onControl(session.id,'resume');void act({action:'more'});}}>{actionLabel}</StoryFlowAction>;
@@ -112,7 +113,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  });
  const reading=intake.progress;
  const checkingIds=new Set(searching&&!paused?reading?.checkingCandidates:undefined);
- const extractionStep=reading?.stage==='cache'?'正在查找缓存':reading?.stage==='retrieving'?'正在检索候选故事':reading?.stage==='selecting'?'正在整理候选故事':reading?.stage==='verifying'?'正在逐篇核对检索候选':reading?.stage==='checking'?'正在核对原文与提取条件':reading?'正在阅读原文':'正在准备提取';
+ const extractionStep=reading?.stage==='cache'?'正在查找缓存':reading?.stage==='retrieving'?'正在检索候选故事':reading?.stage==='selecting'?'正在整理候选故事':reading?.stage==='verifying'?(cardSearch?'正在批量匹配故事卡':'正在逐篇核对检索候选'):reading?.stage==='checking'?'正在核对原文与提取条件':reading?'正在阅读原文':'正在准备提取';
  const extractionDetail=[
   reading?.currentChapters?.length?readingChapterLabel(reading.currentChapters):null,
   reading?.stage==='verifying'?`已处理 ${reading.completed} / ${reading.total} 篇候选`:null,
@@ -140,7 +141,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   {searchNotice&&<p className="yu-search-notice" role={failedSearch?'alert':'status'}>{searchNotice}</p>}
   {candidateRows.length>0&&<ul className="yu-extraction-candidates" aria-label="候选故事">{candidateRows.map(({id,title,summary,sourceLabel,status,choice,matchScore})=>{
    const current=choice&&isSelected(choice.batch,choice.index);
-   const label=status==='match'?(targetTitle?'已核对':'符合'):status==='rejected'?'不符合':checkingIds.has(id)?'核对中':'待核对';
+   const label=status==='match'?(cardSearch&&indexed?'语义相关':targetTitle?'已核对':'符合'):status==='rejected'?'不符合':checkingIds.has(id)?'核对中':'待核对';
    return <li key={id} data-status={status}>
     <div className="yu-extraction-candidate-copy"><strong>{title}</strong>{summary&&<p>{summary}</p>}{sourceLabel&&<small>{sourceLabel}</small>}</div>
     <div className="yu-extraction-candidate-controls">

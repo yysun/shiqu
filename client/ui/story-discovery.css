@@ -1,5 +1,49 @@
 /* Separate discovery actions from source controls and keep the editable query beside its results. */
 .yu-discovery-submit{margin-top:24px}
+.yu-discovery-heading {
+ display:block;
+ margin:24px 0 8px;
+ color:#304c37;
+ font-size:17px;
+ font-weight:700;
+ line-height:1.35;
+}
+h2.yu-discovery-heading:first-of-type{margin-top:16px}
+/* 用细线标记当前检索方式，和选书、选主题的按钮区分。 */
+.yu-discovery-mode-row {
+ display:grid;
+ grid-template-columns:auto minmax(0,1fr);
+ align-items:center;
+ gap:12px;
+ margin:16px 0;
+ border-bottom:1px solid #dce1d2;
+}
+.yu-discovery-mode-row h2.yu-discovery-heading {
+ margin:0;
+ white-space:nowrap;
+}
+.yu-discovery-modes {
+ display:grid;
+ grid-template-columns:repeat(3,minmax(0,1fr));
+}
+.yu-discovery-modes button {
+ min-height:44px;
+ min-width:0;
+ padding:6px 2px 4px;
+ border:0;
+ border-bottom:2px solid transparent;
+ background:transparent;
+ color:#60715f;
+ font-family:inherit;
+ font-size:13px;
+ line-height:1.3;
+ white-space:nowrap;
+ cursor:pointer;
+}
+.yu-discovery-modes button:hover:not(:disabled){color:#365643}
+.yu-discovery-modes button[aria-pressed=true]{border-bottom-color:#648363;color:#365643;font-weight:600}
+.yu-discovery-modes button:focus-visible{outline:2px solid #648363;outline-offset:2px}
+.yu-discovery-modes button:disabled{opacity:.55;cursor:default}
 .yu-extraction-query{margin:20px 0 26px}
 .yu-extraction-help{margin:12px 0 0;color:#718260;font-size:12px;line-height:1.7;text-align:left}
 /* 候选增量写入时，抽屉顶边、状态栏和操作链接的位置保持固定。 */

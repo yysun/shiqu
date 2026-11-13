@@ -1,7 +1,4 @@
-// Choose original scope before theme; restore saved source receipts when returning from extraction.
-// 传入 retainKey 时表单输入跨布局切换保留；Reader 在关闭新建或提交成功时清除。
-// 书、主题、自定义主题或原文范围与打开时不同时，隐藏的标记带 data-dirty（返回关闭前询问）。
-import {useRetainedState} from './useRetainedState';
+// 三种检索共用选书页。提交只带当前方式的条件。
 import {ArrowRight} from 'lucide-react';
 import type {Selection} from '@/lib/reader-model';
 import type {LocalSourceReference} from '@/lib/reader-local-contract';
@@ -9,76 +6,110 @@ import {localSourceKey} from '@/lib/reader-source-key';
 import type {BookContentEntry} from '@/lib/reader-contents';
 import {discoveryThemePresets,promptAfterThemeChange} from '@/lib/reader-prompts';
 import StoryChapterPicker from './StoryChapterPicker';
+import {useRetainedState} from './useRetainedState';
 import './story-discovery.css';
 
 export const discoveryThemes=[...discoveryThemePresets,'其他'];
+const modes=[['chapter','按章节'],['story','按故事'],['theme','按主题']] as const;
+type Mode=typeof modes[number][0];
+type Choice={title:string;source:LocalSourceReference};
+
 export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,retainKey}:{selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;retainKey?:string}){
  const part=(name:string)=>retainKey&&retainKey+':'+name;
- const custom=selection.theme!=='原典故事'&&!discoveryThemes.includes(selection.theme);
- const [draft,setDraft]=useRetainedState(part('draft'),()=>({...selection,theme:custom?'其他':selection.theme}));
- const [sources,setSources]=useRetainedState<LocalSourceReference[]>(part('sources'),selection.discoverySources||[]),[limited,setLimited]=useRetainedState(part('limited'),!!selection.discoverySources?.length);
- const [customTheme,setCustomTheme]=useRetainedState(part('theme'),custom?selection.theme:'');
- const local=draft.bookId!=='other';
- const initialTitle=selection.discovery?.mode==='title'?selection.discovery.title:undefined;
- const initialManualTitle=selection.discovery?.mode==='title';
- const [manualTitle,setManualTitle]=useRetainedState(part('manual-title'),initialManualTitle);
- const [title,setTitle]=useRetainedState(part('title'),initialTitle||'');
- const byTitle=local&&manualTitle;
- // 打开时的选择；与草稿一起保留，跨布局重新挂载后仍按打开时比较
- const [opened]=useRetainedState(part('opened'),()=>JSON.stringify([{...selection,theme:custom?'其他':selection.theme},custom?selection.theme:'',selection.discoverySources||[],!!selection.discoverySources?.length]));
- const dirty=JSON.stringify([draft,customTheme,sources,limited])!==opened||local&&manualTitle!==initialManualTitle||byTitle&&title!==(initialTitle||'');
- function changeBook(bookId:string){
-  setDraft(old=>({...old,bookId,storyTitle:undefined,source:undefined,discoverySources:undefined}));
-  setSources([]);setLimited(false);onBookChange(bookId);
+ const originalTitle=selection.discovery?.mode==='title'?selection.discovery.title:'';
+ const originalSources=selection.discoverySources||[];
+ const savedPlot=selection.discovery?.mode==='auto'&&selection.discovery.plot;
+ const savedTheme=selection.discovery?.mode==='auto'&&(selection.discovery.scanOnly||selection.discovery.vectorFirst)&&!savedPlot;
+ const initialMode:Mode=originalTitle||savedPlot||savedTheme||!originalSources.length?'theme':'chapter';
+ const initialTheme=originalTitle||(selection.theme==='原典故事'||selection.theme==='其他'?'':selection.theme);
+ const initialPreset=discoveryThemePresets.find(value=>value===initialTheme);
+ const [bookId,setBookId]=useRetainedState(part('book'),selection.bookId);
+ const [customBook,setCustomBook]=useRetainedState(part('custom-book'),selection.customBook||'');
+ const [mode,setMode]=useRetainedState<Mode>(part('mode'),initialMode);
+ const [sources,setSources]=useRetainedState(part('sources'),initialMode==='chapter'?originalSources:[]);
+ const [storyQuery,setStoryQuery]=useRetainedState(part('story-query'),'');
+ const [story,setStory]=useRetainedState<Choice|null>(part('story'),null);
+ const [preset,setPreset]=useRetainedState<string|null>(part('theme-preset'),initialPreset??null);
+ const [customTheme,setCustomTheme]=useRetainedState(part('custom-theme'),initialPreset?'':initialTheme);
+ const [showCustom,setShowCustom]=useRetainedState(part('show-custom-theme'),!initialPreset&&(!!initialTheme||selection.theme==='其他'));
+ const [themeScope,setThemeScope]=useRetainedState(part('theme-scope'),initialMode==='theme'?originalSources:[]);
+ const theme=showCustom?customTheme.trim():preset||'';
+ const [opened]=useRetainedState(part('opened'),()=>JSON.stringify([bookId,customBook,mode,sources,preset,customTheme,showCustom]));
+ const local=bookId!=='other';
+ const active=local&&(mode==='chapter'||mode==='story')?mode:'theme';
+ const dirty=JSON.stringify([bookId,customBook,mode,sources,preset,customTheme,showCustom])!==opened
+  ||!!(storyQuery||story);
+
+ function changeBook(next:string){
+  if(next===bookId)return;
+  setBookId(next);setSources([]);setStory(null);setStoryQuery('');
+  clearThemeScope();
+  onBookChange(next);
  }
- function useWholeBook(){
-  if(!limited)return;
-  setLimited(false);setSources([]);
-  setDraft(old=>old.source?{...old,storyTitle:undefined,source:undefined}:old);
- }
- function select(entry:BookContentEntry){
-  const source=entry.source;if(!source)return;
+ function selectChapter({source}:BookContentEntry){
+  if(!source)return;
   const key=localSourceKey(source);
-  setSources(old=>{
-   const current=old.length?old:draft.source?[draft.source]:[];
-   return current.some(item=>localSourceKey(item)===key)?current.filter(item=>localSourceKey(item)!==key):current.length<24?[...current,source]:current;
-  });
-  setDraft(old=>({...old,storyTitle:undefined,source:undefined}));
+  setSources(old=>old.some(item=>localSourceKey(item)===key)
+   ?old.filter(item=>localSourceKey(item)!==key):old.length<24?[...old,source]:old);
  }
- const theme=draft.theme==='其他'?customTheme.trim():draft.theme;
- const invalid=byTitle&&!title.trim()||draft.bookId==='other'&&!draft.customBook?.trim()||draft.theme==='其他'&&!theme||limited&&!draft.source&&!sources.length;
+ function clearThemeScope(){
+  setThemeScope([]);
+ }
+ const invalid=active==='chapter'&&!sources.length||active==='story'&&!story
+  ||active==='theme'&&!theme||!local&&!customBook.trim();
  async function submit(){
   if(busy||invalid)return;
-  await onSubmit({...draft,discovery:byTitle?{mode:'title',title:title.trim()}:{mode:'auto'},theme:theme||'原典故事',storyTitle:undefined,source:undefined,discoverySources:limited?(sources.length?sources:draft.source?[draft.source]:undefined):undefined,length:'auto',voice:false});
+  const topic=active==='theme'?theme:'原典故事';
+  const choice=active==='story'?story:null;
+  const discoverySources=choice?[choice.source]:active==='chapter'?sources:active==='theme'&&themeScope.length?themeScope:undefined;
+  await onSubmit({
+   ...selection,bookId,customBook:local?undefined:customBook.trim(),
+   discovery:local&&active==='theme'?{mode:'auto',vectorFirst:true}:{mode:'auto'},
+   theme:topic,productionPrompt:promptAfterThemeChange(selection.productionPrompt,selection.theme,topic),
+   storyTitle:undefined,source:undefined,discoverySources,length:'auto',voice:false,
+  });
  }
+
  return <>
   <span hidden data-dirty={dirty?'true':undefined}/>
-  <p className="yu-sheet-intro">主题和原文范围都可选。确认标题方式后，即可开始提取。</p>
-  <div className="yu-choice-label">从哪本书出发</div>
-  <div className="yu-options" role="group" aria-label="选择书籍">{books.map(book=><button type="button" key={book.id} disabled={busy} aria-pressed={draft.bookId===book.id} className={draft.bookId===book.id?'selected':''} onClick={()=>changeBook(book.id)}>{semanticIndexBooks?.some(index=>index.id===book.id)?<strong>{book.title}</strong>:book.title}</button>)}</div>
-  {!local&&<label className="yu-custom-input">书名或公开网页 URL<input disabled={busy} maxLength={500} value={draft.customBook||''} placeholder="例如：三言二拍，或 https://…" onChange={event=>setDraft(old=>({...old,customBook:event.target.value}))}/></label>}
-  {local&&<>
-   <div className="yu-choice-label">原文范围（可选）</div>
-   <div className="yu-options" role="group" aria-label="原文范围">
-    <button type="button" disabled={busy} aria-pressed={!limited} className={!limited?'selected':''} onClick={useWholeBook}>全书</button>
-    <button type="button" disabled={busy} aria-pressed={limited} className={limited?'selected':''} onClick={()=>setLimited(true)}>选择章节</button>
+  <h2 className="yu-discovery-heading">从哪本书出发</h2>
+  <div className="yu-options" role="group" aria-label="选择书籍">
+   {books.map(book=><button type="button" key={book.id} disabled={busy} aria-pressed={bookId===book.id}
+    className={bookId===book.id?'selected':''} onClick={()=>changeBook(book.id)}>
+    {semanticIndexBooks?.some(index=>index.id===book.id)?<strong>{book.title}</strong>:book.title}
+   </button>)}
+  </div>
+  {!local&&<label className="yu-custom-input">书名或公开网页 URL<input disabled={busy} maxLength={500} value={customBook} onChange={event=>setCustomBook(event.target.value)}/></label>}
+  <div className="yu-discovery-mode-row">
+   <h2 className="yu-discovery-heading">检索方式</h2>
+   <div className="yu-discovery-modes" role="group" aria-label="检索方式">
+    {modes.map(([id,label])=><button key={id} type="button" disabled={busy||!local&&id!=='theme'}
+     aria-pressed={active===id} onClick={()=>setMode(id)}>{label}</button>)}
    </div>
-   {limited&&<StoryChapterPicker key={draft.bookId} bookId={draft.bookId} sources={sources.length?sources:draft.source?[draft.source]:[]} disabled={busy} onSelect={select}/>}
+  </div>
+  {active==='chapter'&&<StoryChapterPicker key={bookId} bookId={bookId} sources={sources} disabled={busy} onSelect={selectChapter}/>}
+  {active==='story'&&<>
+   <StoryChapterPicker key={bookId+':story'} bookId={bookId} kind="story" query={storyQuery} onQueryChange={setStoryQuery}
+    sources={story?[story.source]:[]} disabled={busy} onSelect={({title,source})=>{if(source)setStory({title,source});}}/>
+   {story&&<p className="yu-choice-footnote" role="status">已选《{story.title}》</p>}
   </>}
-  <div className="yu-choice-label">主题（可选）</div>
-  <div className="yu-options" role="group" aria-label="故事主题">{['原典故事',...discoveryThemes].map(value=><button type="button" key={value} disabled={busy} aria-pressed={draft.theme===value} className={draft.theme===value?'selected':''} onClick={()=>setDraft(old=>({...old,theme:value,productionPrompt:promptAfterThemeChange(old.productionPrompt,old.theme==='其他'?customTheme:old.theme,value)}))}>{value==='原典故事'?'不限定主题':value}</button>)}</div>
-  {draft.theme==='其他'&&<label className="yu-custom-input">写下想看的主题<input disabled={busy} maxLength={100} value={customTheme} placeholder="例如：善良的人如何守住底线" onChange={event=>setCustomTheme(event.target.value)}/></label>}
-  <p className="yu-choice-footnote">{byTitle?'按标题寻找完整故事，主题用于讲述重点。':'按主题筛选故事；选择“不限定主题”可自由发现。'}</p>
-  {local&&<>
-   <div className="yu-choice-label">标题方式</div>
-   <div className="yu-options" role="group" aria-label="标题方式">
-    <button type="button" disabled={busy} aria-pressed={!byTitle} className={!byTitle?'selected':''} onClick={()=>setManualTitle(false)}>自动标题</button>
-    <button type="button" disabled={busy} aria-pressed={byTitle} className={byTitle?'selected':''} onClick={()=>setManualTitle(true)}>输入标题</button>
+  {active==='theme'&&<>
+   <div className="yu-options" role="group" aria-label="故事主题">
+    {discoveryThemePresets.map(value=><button key={value} type="button" disabled={busy}
+     aria-pressed={!showCustom&&preset===value} className={!showCustom&&preset===value?'selected':''}
+     onClick={()=>{if(!showCustom&&preset===value)return;setPreset(value);setShowCustom(false);clearThemeScope();}}>
+     {value}
+    </button>)}
+    <button type="button" disabled={busy} aria-pressed={showCustom} className={showCustom?'selected':''}
+     onClick={()=>{if(showCustom)return;setShowCustom(true);clearThemeScope();}}>其它</button>
    </div>
-   {byTitle&&<label className="yu-custom-input">故事标题<input disabled={busy} placeholder="例如：宋公明三败高俅" maxLength={100} value={title} onChange={event=>setTitle(event.target.value)}/></label>}
+   {showCustom&&<label className="yu-custom-input">自定义主题或情节<input disabled={busy} maxLength={100} value={customTheme}
+    placeholder="例如：求雨的故事，或道士当街种出梨树"
+    onChange={event=>{setCustomTheme(event.target.value);clearThemeScope();}}/></label>}
   </>}
-  <button type="button" className="yu-primary yu-discovery-submit" disabled={busy||!!invalid} onClick={()=>void submit()}>{busy?'正在保存任务…':byTitle?'按标题提取':'开始提取'}<ArrowRight size={19}/></button>
-  <p className="yu-choice-footnote">《{local?books.find(book=>book.id===draft.bookId)?.title:draft.customBook||'自选书籍'}》 · {limited?'指定原文范围':'全书'}{theme&&theme!=='原典故事'?` · ${theme}`:''}</p>
+  <button type="button" className="yu-primary yu-discovery-submit" disabled={busy||!!invalid} onClick={()=>void submit()}>
+   {busy?'正在保存任务…':active==='theme'?'开始找故事':'开始提取'}<ArrowRight size={19}/>
+  </button>
   {error&&<div className="yu-unavailable" role="alert"><strong>任务暂未保存</strong><p>{error}</p></div>}
  </>;
 }
