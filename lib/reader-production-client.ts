@@ -35,7 +35,7 @@ export async function observeStoryGeneration({sessionId,request,isActive,onSessi
       posting=request(path+'/production','POST',{viewerId:focus.viewerId,page,retry:false}).catch(()=>{}).finally(()=>{posting=null;});
      }
     }
-    if(focus&&watchChoices&&isActive()&&intake&&!intake.indexedCandidates&&!intake.selected&&intake.phase==='choosing'&&intake.search.state==='idle'&&intake.batches.length<maxSuggestionBatches&&intake.batches.at(-1)?.stories.length&&session.generationControl==='active'&&session.state!=='failed'){
+    if(focus&&watchChoices&&isActive()&&intake&&!intake.selected&&intake.phase==='choosing'&&intake.search.state==='idle'&&intake.batches.length<maxSuggestionBatches&&intake.batches.at(-1)?.stories.length&&session.generationControl==='active'&&session.state!=='failed'){
      // A lost response must stop here, rather than retrying a paid request under a new identity.
      try{
       const next=await request(path+'/setup','POST',{action:'more',automatic:true,requestId:randomId(),generation:intake.generation});

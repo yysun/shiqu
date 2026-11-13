@@ -9,13 +9,13 @@ import type {Document,Selection} from './reader-model.ts';
 import {localSourceKey} from './reader-source-key.ts';
 import {storyBriefVerified} from './reader-story-brief.ts';
 import {localSourceSchema} from './reader-local-contract.ts';
-import type {IndexedStoryCandidate,SuggestionBatch,SuggestionProgress} from './reader-suggestions.ts';
+import type {SuggestionBatch,SuggestionProgress} from './reader-suggestions.ts';
 export type IntakeSearch={round:number;state:'idle'|'searching'|'failed';error?:string|null;requestId?:string;cycleId?:string;commandHash?:string};
 export const setupSettingsSchema=z.object({artStyle:z.enum(artStyleIds),productionPrompt:z.string().max(1200),acceptancePrompt:acceptancePromptSchema.optional(),narrativeDetail:narrativeDetailSchema});
 const productionSettingsSchema=setupSettingsSchema.extend({length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')])});
 export type IntakeDraft=z.infer<typeof productionSettingsSchema>;
 export type ReselectionDraft={parentId:string;rootId:string;epoch:number;baseToken:string};
-export type StoryIntake={phase:'discovering'|'choosing'|'preparing'|'confirming'|'confirmed';generation:number;creationHash:string;batches:SuggestionBatch[];indexedCandidates?:IndexedStoryCandidate[];briefRequired?:boolean;selected?:{batch:number;index:number};search?:IntakeSearch|null;draft?:IntakeDraft;manualArt?:boolean;lastAction?:{id:string;hash:string}};
+export type StoryIntake={phase:'discovering'|'choosing'|'preparing'|'confirming'|'confirmed';generation:number;creationHash:string;batches:SuggestionBatch[];/** 旧版本写入的索引候选；只为读取旧文档保留，查找完成或更换条件时清除。 */indexedCandidates?:unknown[];briefRequired?:boolean;selected?:{batch:number;index:number};search?:IntakeSearch|null;draft?:IntakeDraft;manualArt?:boolean;lastAction?:{id:string;hash:string}};
 export type IntakeView=Omit<StoryIntake,'creationHash'|'lastAction'|'search'>&{search:Pick<IntakeSearch,'state'|'error'>;progress?:SuggestionProgress};
 // A discovering record without search state came from a release that kept search in the phase.
 export function intakeSearch(intake:StoryIntake):IntakeSearch{return intake.search||{round:0,state:intake.phase==='discovering'?'searching':'idle'};}

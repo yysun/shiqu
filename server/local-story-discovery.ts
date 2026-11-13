@@ -4,6 +4,7 @@ import type {SuggestionProgress} from '../lib/reader-suggestions.ts';
 // Binary theme receipts read originals; old catalog ranges resume without generating summaries.
 // Complete events may share background; structural novelty is checked before admission, not display.
 // 故事卡检索：有向量时直接返回相似度最高的故事卡；向量已启用但不可用时改用模型核对，并在进度与说明中告知。
+// 选题结果只以批次返回，不再另行发布索引候选。
 import {z} from 'zod';
 import {randomUUID} from 'node:crypto';
 import {previousReadingPlanKey,previousDiscoveryNamespace,previousSummaryNamespace} from './story-discovery-legacy.ts';
@@ -11,7 +12,7 @@ import {discoveryMeasurement} from './story-discovery-metrics.ts';
 import {localSourceSchema,localSourceKey,localReadingPrompt,localCatalogJson,legacyLocalReadingPrompt,legacyLocalScanJson,localChapterStoriesPrompt,localTitleStoriesPrompt,catalogStoryLimit} from '../lib/reader-local-contract.ts';
 import type {LocalSourceReference,PendingEvent,WholeBookInput} from '../lib/reader-local-contract.ts';
 import {suggestionBatchSchema,titleKey} from '../lib/reader-suggestions.ts';
-import type {IndexedStoryUpdate,SuggestionBatch} from '../lib/reader-suggestions.ts';
+import type {SuggestionBatch} from '../lib/reader-suggestions.ts';
 import type {VerifiedThemeDecision} from '../lib/reader-theme-match.ts';
 import {ReaderError} from '../lib/reader-model.ts';
 import type {Selection} from '../lib/reader-model.ts';
@@ -33,7 +34,7 @@ const storySchema=suggestionBatchSchema.shape.stories.element.omit({storyBrief:t
 type Story=z.infer<typeof storySchema>;
 // 主题核对独立于顺序阅读，允许正常长度的 50 篇候选一次提交。
 const themeVerificationInputTokens=16000;
-// 向量结果无需模型核对，每次“继续查找”翻一页，最多翻到相似度前 200 张；生产选题仍只发布前 50 张。
+// 向量结果无需模型核对，每次“继续查找”翻一页，最多翻到相似度前 200 张。
 export const vectorPageSize=12;
 export const vectorRecallLimit=200;
 const pendingSchema=z.object({id:z.string().min(1).max(64),title:z.string().min(1).max(100),source:localSourceSchema});
@@ -119,10 +120,6 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   const vectorHits=vectorsEnabled?await storySearch!.vectorHits(book,topic,observer.signal,cards,vectorRecallLimit,themeTerms):[];
   if(vectorHits.length){
    const note='已按语义相似度找到故事卡。';
-   if(observer.onIndexedCandidates){
-    await observer.onIndexedCandidates(vectorHits.slice(0,50).map(card=>({id:themeStoryId(card),story:choice(card),status:'match',summary:card.summary})));
-    return result([],note);
-   }
    const stories=vectorHits.filter(unseen).slice(0,observer.maxStories||vectorPageSize).map(choice);
    return result(stories,stories.length?note:`向量召回的前 ${vectorRecallLimit} 张故事卡中暂无更多结果。`);
   }
@@ -253,7 +250,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const verifiedTheme=async(cached:Story[]):Promise<SuggestionBatch|undefined>=>{
   if(selection.discovery?.scanOnly||targetTitle||selectedSourceMode||!provider.verifyThemeStories||!storySearch||storyEditorialContext(theme).mode==='source')return;
   const candidates=await storySearch.lookupHits(book,theme,observer.signal,false,50,recordRetrieval,themeTerms);
-  const originals=new Map<string,string[]>(),summaries=new Map<string,string>();
+  const originals=new Map<string,string[]>();
   const stories=(candidates||[]).flatMap(({source,title,summary})=>{
    try{
     const original=books.resolve(book,source);
@@ -261,7 +258,6 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
     originals.set(key,original.localParts?.map(part=>part.text)||[original.text]);
     const text=original.text.replace(/\s+/gu,' ').trim();
     const preview=summary||'原文节选：'+text.slice(0,100)+(text.length>100?'…':'');
-    if(observer.onIndexedCandidates)summaries.set(key,preview);
     return [{title:title.replace(/\s+/gu,' ').trim().slice(0,100)||original.title.slice(0,100),description:preview.slice(0,180),source,sourceLabel:original.title.slice(0,150)}];
    }catch(error){if(error instanceof ReaderError&&error.status===400)return [];throw error;}
   });
@@ -270,22 +266,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
    const matchReason=(decision.verdict==='direct'?'明确符合：':'情节暗示：')+decision.reason;
    return {...story,matchReason,...(decision.matchScore!==undefined?{matchScore:decision.matchScore}:{})};
   };
-  const publish=observer.onIndexedCandidates;
-  const indexed=publish&&new Map(stories.map(story=>[themeStoryId(story),story]));
-  const updates=new Map<string,IndexedStoryUpdate>();
-  if(publish&&indexed){
-   for(const [id,story] of indexed)updates.set(id,{id,story,summary:summaries.get(localSourceKey(story.source)),status:'pending'});
-   await publish([...updates.values()]);
-  }
-  const {matches,checked}=await verifyThemeCandidates(provider,cache,matchingTheme,stories,story=>originals.get(localSourceKey(story.source))!,Math.min(limits.whole,themeVerificationInputTokens),status,{...observer,onProgress:value=>observer.onProgress({...value,stage:'verifying',retrieval,cachedMatches})},publish&&indexed?async decisions=>{
-   for(const decision of decisions){
-    const story=indexed.get(decision.id)!;
-    const rejected=decision.verdict==='no';
-    updates.set(decision.id,{...updates.get(decision.id)!,status:rejected?'rejected':'match',
-     story:rejected?{...story,matchScore:decision.matchScore}:verifiedStory(story,decision)});
-   }
-   if(decisions.length)await publish([...updates.values()]);
-  }:undefined);
+  const {matches,checked}=await verifyThemeCandidates(provider,cache,matchingTheme,stories,story=>originals.get(localSourceKey(story.source))!,Math.min(limits.whole,themeVerificationInputTokens),status,{...observer,onProgress:value=>observer.onProgress({...value,stage:'verifying',retrieval,cachedMatches})});
   const verified=matches.map(({story,decision})=>verifiedStory(story,decision));
   if(verified.length){
    // 索引只证明这些故事与主题相符，不推进全书阅读游标。
@@ -386,7 +367,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  cachedMatches=cached.length;
  reportStage('cache');
  const readyCache=cached.length>=batchLimit||targetTitle&&cached.length;
- if(readyCache&&!observer.onIndexedCandidates||targetTitle&&readyCache)return response(initial,cached,true);
+ if(readyCache)return response(initial,cached,true);
  reportStage('retrieving');
  const verified=await verifiedTheme(cached);
  if(verified)return verified;

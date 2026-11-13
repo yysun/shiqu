@@ -12,23 +12,17 @@ import {productionFixture,until,selection} from './fixtures/production.mjs';
 
 const library=new LocalBooks(process.cwd());
 const scan=(pendingEvents=[])=>({blockComplete:true,pendingEvents,resolvedEventIds:[]});
-test('全部索引候选先保存为可选，核对状态更新和中断重试保留坐标',async t=>{
+test('后台查找只追加普通批次，并清除旧版本写入的索引候选',async t=>{
  const f=await productionFixture(t),local=libraryFixture(),section=local.book.sections[0];
- section.units=Array.from({length:50},(_,i)=>({id:`story-${i}`,narrative:true,text:`第${i+1}篇故事。每个角色的行动及后果均可从本篇原文核对。`+'各地商人互相往来，约定时日后再回到市集。'.repeat(27)}));
+ section.units=Array.from({length:6},(_,i)=>({id:`story-${i}`,narrative:true,text:`第${i+1}篇故事。每个角色的行动及后果均可从本篇原文核对。`+'各地商人互相往来，约定时日后再回到市集。'.repeat(27)}));
  local.book.input.text=section.units.map(unit=>`[${unit.id}]\n${unit.text}`).join('\n\n');
- const hits=section.units.map((unit,index)=>({title:`候选 ${index+1}`,...(index===0?{summary:'一位商人赶集时遇见故人。'}:{}),source:{edition:local.book.edition,sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id}}));
+ const hits=section.units.map((unit,index)=>({title:`候选 ${index+1}`,source:{edition:local.book.edition,sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id}}));
  const index={lookupHits:async()=>hits};
- const calls=[];
- let finishReview=false;
- f.generation.verifyThemeStories=async(_theme,stories,{signal})=>{
-  const first=calls.length===0,call={stories,signal,release:undefined};calls.push(call);
-  if(!finishReview)await new Promise((resolve,reject)=>{
-   call.release=resolve;
-   if(signal.aborted)reject(signal.reason);
-   else signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
-  });
-  return {matches:stories.filter(({title})=>!first||title!=='候选 3').map(({id,text,title})=>{
-   const matched=title!=='候选 2';
+ let calls=0;
+ f.generation.verifyThemeStories=async(_theme,stories)=>{
+  calls++;
+  return {matches:stories.map(({id,text,title})=>{
+   const matched=title==='候选 1';
    return {id,verdict:matched?'direct':'no',reason:'受控原文核对结果。',evidence:matched?[text.slice(0,20)]:[],matchScore:matched?86:24};
   })};
  };
@@ -36,65 +30,19 @@ test('全部索引候选先保存为可选，核对状态更新和中断重试�
  await f.restart();f.app.services.localBooks=local.books;
  const id=crypto.randomUUID(),viewer=crypto.randomUUID();
  await f.json('sessions','POST',{requestId:id,intake:true,selection:{...selection,storyTitle:undefined,theme:'勇气',discovery:{mode:'auto'}}});
- const oldBatches=Array.from({length:40},(_,i)=>({stories:Array.from({length:5},(_,j)=>({title:`旧候选 ${i*5+j+1}`,description:'已保存的简介。'})),note:''}));
- await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.intake.batches',json(?)) WHERE id=?").bind(JSON.stringify(oldBatches),id).run();
+ // 模拟旧版本留下的索引候选：读取不报错，本轮查找完成后清除。
+ const legacy=[{id:'old',title:'旧候选',status:'pending',choice:{batch:0,index:0}}];
+ await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.intake.indexedCandidates',json(?)) WHERE id=?").bind(JSON.stringify(legacy),id).run();
+ assert.equal((await f.read(id)).intake.indexedCandidates,undefined);
  await f.demand(id,viewer);
- await until(()=>calls.length===1);
- const first=await f.read(id);
- assert.equal(first.intake.indexedCandidates.length,50);
- assert.deepEqual(first.intake.indexedCandidates.map(row=>row.title),hits.map(hit=>hit.title));
- assert.equal(first.intake.indexedCandidates[0].summary,hits[0].summary);
- assert.match(first.intake.indexedCandidates[1].summary,/^原文节选：第2篇故事/);
- assert.ok(first.intake.indexedCandidates.every(row=>row.status==='pending'&&row.choice));
- for(const [index,{choice}] of first.intake.indexedCandidates.entries()){
-  assert.deepEqual(first.intake.batches[choice.batch].stories[choice.index].source,hits[index].source);
- }
- assert.equal(first.intake.progress.checkingCandidates.length,calls[0].stories.length);
- calls[0].release();
- await until(()=>calls.length===2);
- const partial=await f.read(id);
- assert.equal(partial.intake.indexedCandidates[0].status,'match');
- assert.equal(partial.intake.indexedCandidates[0].matchScore,86);
- const choice=partial.intake.indexedCandidates[0].choice;
- assert.deepEqual(choice,{batch:40,index:0});
- assert.equal(partial.intake.indexedCandidates[1].status,'rejected');
- assert.equal(partial.intake.indexedCandidates[1].matchScore,24);
- assert.deepEqual(calls[1].stories.map(story=>story.title),['候选 3']);
- assert.equal(partial.intake.batches[choice.batch].stories[choice.index].title,'候选 1');
- assert.equal(partial.intake.batches[choice.batch].stories[choice.index].matchScore,86);
- assert.equal(partial.intake.batches[choice.batch].stories[choice.index].description,hits[0].summary);
- assert.deepEqual(partial.intake.batches.slice(0,40),oldBatches);
- assert.ok(partial.intake.indexedCandidates.filter(row=>row.status==='match').length>9);
- assert.deepEqual(partial.intake.indexedCandidates.map(row=>row.choice),first.intake.indexedCandidates.map(row=>row.choice));
- await f.leave(id,viewer);
- await until(()=>calls[1].signal.aborted);
- f.options.generation=withLocalBooks(f.generation,local.books,f.media,undefined,index);
- await f.restart();f.app.services.localBooks=local.books;
- const restored=await f.read(id);
- assert.deepEqual(restored.intake.indexedCandidates,partial.intake.indexedCandidates);
- await f.demand(id);
- await until(()=>calls.length===3);
- assert.deepEqual(calls[2].stories,calls[1].stories);
- const choose=(saved,row)=>f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:saved.intake.generation,action:'choose',...row.choice});
- const pending=restored.intake.indexedCandidates[2];
- assert.equal(pending.status,'pending');
- const chosen=await choose(restored,pending);
- assert.equal(chosen.selection.storyTitle,'候选 3');
- assert.deepEqual(chosen.selection.source,hits[2].source);
- await until(()=>calls[2].signal.aborted);
- await until(async()=>(await f.read(id)).intake.phase==='confirming');
- const interrupted=await f.read(id);
- assert.deepEqual(interrupted.intake.indexedCandidates,partial.intake.indexedCandidates);
- finishReview=true;
- await f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:interrupted.intake.generation,action:'more'});
- await f.demand(id);
  await until(async()=>(await f.read(id)).intake.search.state==='idle');
- const reviewed=await f.read(id);
- assert.ok(reviewed.intake.indexedCandidates.every(row=>row.status!=='pending'));
- assert.deepEqual(reviewed.intake.indexedCandidates.map(row=>row.choice),first.intake.indexedCandidates.map(row=>row.choice));
- const rejected=await choose(reviewed,reviewed.intake.indexedCandidates[1]);
- assert.equal(rejected.selection.storyTitle,'候选 2');
- assert.deepEqual(rejected.selection.source,hits[1].source);
+ assert.ok(calls>0);
+ const done=await f.read(id);
+ assert.equal(done.intake.batches.length,1);
+ assert.equal(done.intake.batches[0].stories[0].title,'候选 1');
+ assert.deepEqual(done.intake.batches[0].stories[0].source,hits[0].source);
+ const raw=JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
+ assert.equal(raw.intake.indexedCandidates,undefined);
 });
 
 for(const name of ['codex','gemini'])test(`${name}: title queries keep full scope, ignore theme filtering and never fall back to episodes`,async()=>{

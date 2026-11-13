@@ -139,9 +139,10 @@ test('复合主题分别嵌入，按任一主题的最高相似度去重排序',
  };
  f.provider.verifyThemeStories=async()=>assert.fail('有向量时直接返回故事卡');
  const wrapped=withLocalBooks(f.provider,f.books,f.store,f.cache,f.search);
- await wrapped.suggestions({...selection,theme:'欲望与代价',discovery:{mode:'auto',vectorFirst:true,themeInput:'preset'}},[],undefined,{
-  signal,onProgress:value=>progress.push(value),async onIndexedCandidates(rows){updates.push(...rows);},
+ const preset=await wrapped.suggestions({...selection,theme:'欲望与代价',discovery:{mode:'auto',vectorFirst:true,themeInput:'preset'}},[],undefined,{
+  signal,onProgress:value=>progress.push(value),
  });
+ updates.push(...preset.stories.map(story=>({story})));
  assert.deepEqual(progress.map(value=>value.retrieval),['vector']);
  assert.ok(progress.every(value=>value.modelBatchCardCount===undefined));
  assert.equal(storyCardSearchProgressLabel(suggestionProgressSchema.parse(progress[0])),'正在用向量查找故事…');
@@ -150,23 +151,6 @@ test('复合主题分别嵌入，按任一主题的最高相似度去重排序',
  await wrapped.suggestions({...selection,theme:'欲望与代价',discovery:{mode:'auto',vectorFirst:true,themeInput:'custom'}},[]);
  await wrapped.suggestions({...selection,theme:'欲望 与 代价',discovery:{mode:'auto',vectorFirst:true,themeInput:'custom'}},[]);
  assert.deepEqual(queries,['欲望','代价','欲望与代价','欲望 与 代价']);
-});
-
-test('生产选题一次发布向量相似度最高的 50 张故事卡',async t=>{
- const f=await setup(t),updates=[];
- const cards=Array.from({length:55},(_,index)=>({
-  id:'card'+index,title:'故事卡 '+index,summary:'故事卡梗概 '+index,
-  source:{...f.stories[0].source,firstUnit:'card'+index,lastUnit:'card'+index},
- }));
- f.search.indexableCards=async()=>cards;
- f.search.embeddings.scores=async()=>new Map(cards.map((card,index)=>[card.id,index]));
- f.provider.verifyThemeStories=async()=>assert.fail('向量召回直接发布候选');
- const wrapped=withLocalBooks(f.provider,f.books,f.store,f.cache,f.search);
- const result=await wrapped.suggestions({...selection,discovery:{mode:'auto',vectorFirst:true}},[],undefined,{
-  signal,maxStories:1,onProgress(){},async onIndexedCandidates(rows){updates.push(...rows);},
- });
- assert.deepEqual(result.stories,[]);
- assert.deepEqual(updates.map(row=>row.story.title),cards.slice(5).reverse().map(card=>card.title));
 });
 
 test('读者检索的向量结果每页 12 则，继续查找跳过已显示的故事卡',async t=>{
