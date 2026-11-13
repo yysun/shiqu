@@ -9,6 +9,11 @@ import type {LocalBooks,LocalBook} from './local-books.ts';
 import {sourceParts} from './local-source-ranges.ts';
 const chapterNumberPrefix=/^第[〇零一二两兩三四五六七八九十百千0-9]+回\s+/u;
 const namedHeading=(text:string)=>/^[\p{Script=Han}0-9]{1,12}$/u.test(text);
+type ContentsPage={limit:number;offset:number};
+function pageContents(contents:BookContents,page?:ContentsPage){
+ if(!page)return contents;
+ return {...contents,total:contents.entries.length,entries:contents.entries.slice(page.offset,page.offset+page.limit)};
+}
 // A LocalBook is immutable and edition-bound; cache normalized text without exposing it in API responses.
 const searchIndexes=new WeakMap<LocalBook,Map<string,string>>();
 export function indexBookContents(books:LocalBooks,book:LocalBook,query='',chaptersOnly=false):BookContents{
@@ -35,9 +40,9 @@ export function indexBookContents(books:LocalBooks,book:LocalBook,query='',chapt
  }
  return {bookId:book.id,title:book.title,entries};
 }
-export async function bookContents(books:LocalBooks,selection:Selection,query='',view?:'chapters'|'stories'|'scope'){
+export async function bookContents(books:LocalBooks,selection:Selection,query='',view?:'chapters'|'stories'|'scope',page?:ContentsPage){
  const book=await books.book(selection);if(!book)throw new ReaderError(400,'这本书暂不支持直接选择，请按主题找故事。');
- if(view==='chapters')return indexBookContents(books,book,query,true);
+ if(view==='chapters')return pageContents(indexBookContents(books,book,query,true),page);
  const directory=indexBookContents(books,book,query);
  // 故事卡可覆盖整章，按故事浏览时只按已列出的故事出处去重。
  if(view==='stories')directory.entries=directory.entries.filter(entry=>entry.kind==='story'&&entry.source);
@@ -56,7 +61,7 @@ export async function bookContents(books:LocalBooks,selection:Selection,query=''
    seen.add(key);
   }catch(error){if(!(error instanceof ReaderError)||error.status!==400)throw error;}
  }
- return directory;
+ return pageContents(directory,page);
 }
 export async function directBookChoice(books:LocalBooks,selection:Selection){
  const book=await books.book(selection);if(!book||!selection.source)throw new ReaderError(400,'请重新选择本地故事或章节。');

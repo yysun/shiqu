@@ -77,6 +77,19 @@ test('Three Kingdoms search finds Huang Zhong at Dingjun Mountain beyond the pre
  assert.equal((await f.json('sessions')).length,0);assert.equal(f.control.recommendations.length,0);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });
 
+test('story directory filters on the server and returns matching totals for 20-entry pages',async t=>{
+ const f=await productionFixture(t);f.app.services.localBooks=books;
+ const base='books/shishuo/contents?view=stories',query='之';
+ const all=(await f.json(base+'&q='+encodeURIComponent(query))).entries;
+ assert.ok(all.length>20);
+ const first=await f.json(base+'&q='+encodeURIComponent(query)+'&limit=20&offset=0');
+ const second=await f.json(base+'&q='+encodeURIComponent(query)+'&limit=20&offset=20');
+ assert.equal(first.total,all.length);assert.equal(second.total,all.length);
+ assert.deepEqual(first.entries.map(entry=>entry.id),all.slice(0,20).map(entry=>entry.id));
+ assert.deepEqual(second.entries.map(entry=>entry.id),all.slice(20,40).map(entry=>entry.id));
+ assert.equal((await f.request(base+'&limit=0&offset=0')).status,400);
+});
+
 test('章模式只返回整章，按原文筛选，并与已保存故事段落共存',async t=>{
  const f=await productionFixture(t);f.app.services.localBooks=books;
  const chapters=(await f.json('books/liaozhai/contents?view=chapters')).entries;

@@ -3514,6 +3514,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "lib/reader-api.ts",
         "lib/reader-contents.ts",
         "lib/reader-model.ts",
         "server/local-book-contents.ts",

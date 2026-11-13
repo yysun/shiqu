@@ -2,7 +2,7 @@
 import {Converter} from 'opencc-js';
 import type {LocalSourceReference} from './reader-local-contract.ts';
 export type BookContentEntry={kind:'chapter'|'story';id:string;title:string;chapter:string;excerpt:string;source?:LocalSourceReference;unavailable?:string};
-export type BookContents={bookId:string;title:string;entries:BookContentEntry[]};
+export type BookContents={bookId:string;title:string;entries:BookContentEntry[];total?:number};
 
 const simplified=Converter({from:'t',to:'cn'});
 export const contentSearchText=(text:string)=>simplified(text.normalize('NFKC')).toLowerCase();

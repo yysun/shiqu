@@ -12,9 +12,9 @@ h2.yu-discovery-heading:first-of-type{margin-top:16px}
 /* 用细线标记当前检索方式，和选书、选主题的按钮区分。 */
 .yu-discovery-mode-row {
  display:grid;
- grid-template-columns:auto minmax(0,1fr);
+ grid-template-columns:auto max-content;
  align-items:center;
- gap:12px;
+ gap:8px;
  margin:16px 0;
  border-bottom:1px solid #dce1d2;
 }
@@ -23,13 +23,14 @@ h2.yu-discovery-heading:first-of-type{margin-top:16px}
  white-space:nowrap;
 }
 .yu-discovery-modes {
- display:grid;
- grid-template-columns:repeat(3,minmax(0,1fr));
+ display:flex;
+ align-items:center;
+ gap:2px;
 }
 .yu-discovery-modes button {
- min-height:44px;
+ min-height:40px;
  min-width:0;
- padding:6px 2px 4px;
+ padding:6px 8px 4px;
  border:0;
  border-bottom:2px solid transparent;
  background:transparent;

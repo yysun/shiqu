@@ -145,7 +145,12 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
    const query=z.string().max(200).parse(url.searchParams.get('q')||'');
    const view=z.enum(['chapters','stories','scope']).optional().parse(url.searchParams.get('view')??undefined);
-   return json(await bookContents(services.localBooks,selectionSchema.parse({bookId:path[1],theme:'目录'}),query,view));
+   const limitValue=url.searchParams.get('limit'),offsetValue=url.searchParams.get('offset');
+   const page=limitValue===null&&offsetValue===null?undefined:{
+    limit:z.coerce.number().int().min(1).max(100).parse(limitValue??20),
+    offset:z.coerce.number().int().min(0).max(1_000_000).parse(offsetValue??0),
+   };
+   return json(await bookContents(services.localBooks,selectionSchema.parse({bookId:path[1],theme:'目录'}),query,view,page));
   }
   if(path[0]==='books'&&path.length===3&&path[2]==='source'&&req.method==='GET'){
    if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
