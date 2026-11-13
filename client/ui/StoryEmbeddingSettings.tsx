@@ -48,7 +48,7 @@ export default function StoryEmbeddingSettings(){
    <div className="yu-embedding-runtime" role="status"><span className={state?.available?'ok':'warn'}>{state?.available?'模型可用':'模型不可用'}</span><span>{state?.model?`${state.model.name} · ${state.model.dimensions} 维`:'尚未确认模型身份'}</span>{state?.error&&<small>{state.error}</small>}</div>
    <div className="yu-embedding-actions"><button type="button" className="yu-embedding-secondary" disabled={busy} onClick={()=>void test()}>{busy?<Loader2 size={15}/>:<RefreshCw size={15}/>}测试连接</button>{dirty&&<button type="button" className="yu-primary" disabled={busy} onClick={()=>void save()}><Save size={15}/>保存设置</button>}</div>
   </>}
-  <h3>故事卡索引</h3><p className="yu-embedding-note">建库按书进行；改模型、原文版次或卡片内容后，只需更新受影响的书。</p>
+  <h3>故事卡索引</h3><p className="yu-embedding-note">长篇按回或篇建卡。每张卡用标题和白话梗概生成向量；改模型、原文版次或卡片内容后，可按书更新。</p>
   <div className="yu-embedding-books">{(state?.catalog||[]).map(book=>{const indexed=readyById.get(book.id),active=progress?.id===book.id;return <article key={book.id}>
    <div><strong>{book.title}</strong><span>{indexed?.ready?`已覆盖 ${indexed.indexedCount} 张`:indexed?.reason||'未覆盖'}</span>{active&&<small role="status">{progress!.total?`正在处理 ${progress!.completed}/${progress!.total} · ${progress!.title}`:'正在准备建库…'}</small>}</div>
    <button type="button" disabled={busy||loading||!draft?.enabled} onClick={()=>active?abort.current?.abort():void build(book.id)}>{active?'取消':indexed?.ready?'更新这本书':'开始建库'}</button>

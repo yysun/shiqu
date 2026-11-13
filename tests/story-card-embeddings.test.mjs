@@ -67,10 +67,11 @@ test('取消构建不发布半成品；恢复书库后保留完整的用户向�
 test('正式 reader API 提供设置、逐书建库、章节和精确故事检索',async t=>{
  const directory=await mkdtemp(path.join(tmpdir(),'shiqu-card-api-'));
  t.after(()=>rm(directory,{recursive:true,force:true}));
+ const embeddingInputs=[];
  const transport=async(url,init={})=>{
   if(url.endsWith('/api/tags'))return Response.json({models:[{name:'embed-a',digest:'api-digest',modified_at:'v1'}]});
   if(url.endsWith('/api/show'))return Response.json({capabilities:['embedding'],model_info:{'general.embedding_length':3}});
-  if(url.endsWith('/api/embed')){const {input}=JSON.parse(init.body);return Response.json({embeddings:(Array.isArray(input)?input:[input]).map(()=>[1,0,0])});}
+  if(url.endsWith('/api/embed')){const {input}=JSON.parse(init.body),items=Array.isArray(input)?input:[input];embeddingInputs.push(...items);return Response.json({embeddings:items.map(()=>[1,0,0])});}
   return new Response('missing',{status:404});
  };
  const app=createApplication({root:process.cwd(),dataDirectory:directory,variables:{SHIQU_AI_PROVIDER:'readonly'},transport});
@@ -88,5 +89,21 @@ test('正式 reader API 提供设置、逐书建库、章节和精确故事检�
  const response=await call('books/liaozhai/embedding-index',{method:'POST'});assert.equal(response.status,200);
  const body=await response.text(),events=body.trim().split('\n').map(line=>JSON.parse(line));
  assert.equal(events[0].type,'start');assert.equal(events.at(-1).type,'complete',body);
- const settingsAfter=await (await call('books/embedding-settings')).json();assert.ok(settingsAfter.books.some(book=>book.id==='liaozhai'&&book.ready));
+ const longBooks=[['三国演义',120],['西游记',96],['红楼梦',120],['水浒传',120],['儒林外史',56],['史记',127]];
+ for(const [bookId,count] of longBooks){
+  embeddingInputs.length=0;
+  const longBook=await call('books/'+encodeURIComponent(bookId)+'/embedding-index',{method:'POST'});
+  assert.equal(longBook.status,200);
+  const events=(await longBook.text()).trim().split('\n').map(line=>JSON.parse(line));
+  assert.deepEqual(events[0],{type:'start',total:count});
+  assert.deepEqual(events.at(-1),{type:'complete',bookId,indexed:count});
+  assert.equal(embeddingInputs.length,count);
+  assert.ok(embeddingInputs.every(input=>/^故事标题：[^\n]+\n故事梗概：[^\n]+$/u.test(input)));
+  if(bookId==='三国演义')assert.match(embeddingInputs[0],/^故事标题：第一回 [^\n]+\n故事梗概：[^\n]*桃园/u);
+ }
+ const settingsAfter=await (await call('books/embedding-settings')).json();
+ assert.ok(settingsAfter.books.some(book=>book.id==='liaozhai'&&book.ready));
+ for(const [bookId,count] of longBooks){
+  assert.ok(settingsAfter.books.some(book=>book.id===bookId&&book.ready&&book.indexedCount===count));
+ }
 });
