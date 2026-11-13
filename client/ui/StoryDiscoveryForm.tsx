@@ -22,7 +22,8 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
  const savedTheme=selection.discovery?.mode==='auto'&&(selection.discovery.scanOnly||selection.discovery.vectorFirst)&&!savedPlot;
  const initialMode:Mode=originalTitle||savedPlot||savedTheme||!originalSources.length?'theme':'chapter';
  const initialTheme=originalTitle||(selection.theme==='原典故事'||selection.theme==='其他'?'':selection.theme);
- const initialPreset=discoveryThemePresets.find(value=>value===initialTheme);
+ const initialPreset=selection.discovery?.mode==='auto'&&selection.discovery.themeInput==='custom'
+  ?undefined:discoveryThemePresets.find(value=>value===initialTheme);
  const [bookId,setBookId]=useRetainedState(part('book'),selection.bookId);
  const [customBook,setCustomBook]=useRetainedState(part('custom-book'),selection.customBook||'');
  const [mode,setMode]=useRetainedState<Mode>(part('mode'),initialMode);
@@ -64,7 +65,7 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
   const discoverySources=choice?[choice.source]:active==='chapter'?sources:active==='theme'&&themeScope.length?themeScope:undefined;
   await onSubmit({
    ...selection,bookId,customBook:local?undefined:customBook.trim(),
-   discovery:local&&active==='theme'?{mode:'auto',vectorFirst:true}:{mode:'auto'},
+   discovery:local&&active==='theme'?{mode:'auto',vectorFirst:true,themeInput:showCustom?'custom':'preset'}:{mode:'auto'},
    theme:topic,productionPrompt:promptAfterThemeChange(selection.productionPrompt,selection.theme,topic),
    storyTitle:undefined,source:undefined,discoverySources,length:'auto',voice:false,
   });

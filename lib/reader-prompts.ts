@@ -50,10 +50,10 @@ const legacyThemeDirections:Record<string,string>={
 };
 export const discoveryThemePresets=Object.keys(legacyThemeDirections).filter(theme=>theme!=='忠于原文');
 export function compoundDiscoveryThemeTerms(theme:string){
- const preset=theme.normalize('NFKC').trim();
- return discoveryThemePresets.includes(preset)&&preset.includes('与')?preset.split('与'):[];
+ const topic=theme.normalize('NFKC').trim().replaceAll('與','与');
+ return discoveryThemePresets.includes(topic)&&topic.includes('与')?topic.split('与'):[];
 }
-export const compoundDiscoveryThemeDirection='主题为“A与B”且两侧都是主题要素时，同一故事的原文必须支持两侧及其在情节中的联系（如因果、对照或转变）。只支持一侧，或两侧碰巧同时出现但没有关联，都不符合。原文可以用不同词语表达，只要有具体情节依据。例如“欲望与代价”要求角色因追求某物而付出代价。';
+export const compoundDiscoveryThemeDirection='仅当输入明确标记为预设并列主题时，按或（OR）判断。原文有具体情节支持任意一项即符合，各项无需同时出现或彼此关联。各项都缺乏依据才判不符合。“欲望与代价”允许只体现欲望或只体现代价。自定义查询按整句含义判断，保留人物关系、动作和因果等要求。';
 const commonProductionDirection='完整讲清原文主事件的起因、关键行动与结果，首幅自然介绍人物与处境。按事件顺序展开，保留关键对白、反应和停顿；每幅一个静态可见瞬间，相邻幅各有任务。配文自然明白，画面动作与关系可读。结语在独立结束页提炼一层有据的认识，不复述情节、不虚构动机或扩大因果。';
 export const defaultProductionDirection=legacyThemeDirections['忠于原文']+commonProductionDirection;
 export function defaultProductionPrompt(_theme=''){

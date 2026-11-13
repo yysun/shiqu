@@ -163,8 +163,21 @@ export class LocalStorySearch{
   if(!this.embeddings?.exists())return null;
   return this.embeddings.scores(book,await this.indexableCards(book),query,signal);
  }
- async vectorHits(book:LocalBook,query:string,signal:AbortSignal,cards:IndexableCard[],limit=50){
-  const scores=await this.embeddings?.scores(book,cards,query,signal).catch(()=>null);
+ // 并列主题分别计算相似度，每张卡取最高分，只保留一个出处。
+ private async queryScores(book:LocalBook,cards:IndexableCard[],query:string,signal:AbortSignal,alternatives:readonly string[]){
+  if(!this.embeddings?.exists())return null;
+  if(!alternatives.length)return this.embeddings.scores(book,cards,query,signal);
+  const best=new Map<string,number>();
+  for(const alternative of alternatives){
+   signal.throwIfAborted();
+   const scores=await this.embeddings.scores(book,cards,alternative,signal);
+   if(!scores)return null;
+   for(const [id,score] of scores)best.set(id,Math.max(best.get(id)??-Infinity,score));
+  }
+  return best;
+ }
+ async vectorHits(book:LocalBook,query:string,signal:AbortSignal,cards:IndexableCard[],limit=50,alternatives:readonly string[]=[]){
+  const scores=await this.queryScores(book,cards,query,signal,alternatives).catch(()=>null);
   signal.throwIfAborted();
   if(!scores?.size)return [];
   return cards.filter(card=>scores.has(card.id))
@@ -276,7 +289,8 @@ export class LocalStorySearch{
   const phrase=storySearchKey(topic||query);
   if(!phrase)return [];
   const chars=Array.from(phrase);
-  const terms=themeTerms.length?themeTerms:[...new Set(chars.slice(1).map((char,index)=>chars[index]+char))];
+  const normalizedTerms=themeTerms.map(storySearchKey);
+  const terms=normalizedTerms.length?normalizedTerms:[...new Set(chars.slice(1).map((char,index)=>chars[index]+char))];
   const scoped=snapshot.entries.flatMap(entry=>{
    if(sectionId&&entry.source.sectionId!==sectionId)return [];
    try{sourceParts(book,entry.source);return [entry];}catch{return [];}
@@ -284,12 +298,14 @@ export class LocalStorySearch{
   if(!scoped.length){onRetrieval?.('no-candidates');return [];}
   signal.throwIfAborted();
   let liveScores:Map<string,number>|null=null;
-  try{liveScores=await this.semanticScores(book,query,signal);}catch{liveScores=null;}
+  try{liveScores=themeTerms.length&&this.embeddings?.exists()
+   ?await this.queryScores(book,await this.indexableCards(book),query,signal,themeTerms)
+   :await this.semanticScores(book,query,signal);}catch{liveScores=null;}
   signal.throwIfAborted();
   const scores=scoped.map(entry=>({entry,lexical:lexical(entry,phrase,terms),semantic:liveScores?.get(localSourceKey(entry.source))??-Infinity,
-   coverage:themeTerms.filter(term=>entry.title.includes(term)||entry.summary.includes(term)||entry.text.includes(term)).length}));
+   matchesTheme:normalizedTerms.some(term=>entry.title.includes(term)||entry.summary.includes(term)||entry.text.includes(term))}));
   const exact=scores.filter(row=>row.lexical>=50).sort((a,b)=>b.lexical-a.lexical);
-  const text=scores.filter(row=>themeTerms.length?row.coverage>0:row.lexical>0).sort((a,b)=>b.coverage-a.coverage||b.lexical-a.lexical).slice(0,limit);
+  const text=scores.filter(row=>themeTerms.length?row.matchesTheme:row.lexical>0).sort((a,b)=>b.lexical-a.lexical).slice(0,limit);
   const cards=themeTerms.length?[]:rankStoryCardText(scoped.filter(entry=>entry.summary),phrase,limit);
   const semantic=scores.filter(row=>Number.isFinite(row.semantic)).sort((a,b)=>b.semantic-a.semantic).slice(0,limit);
   onRetrieval?.(semantic.length?'hybrid':liveScores?'no-compatible-vectors':'no-query-vector');
@@ -303,9 +319,7 @@ export class LocalStorySearch{
   for(const {entry} of [...exact.slice(0,3),...semantic.slice(0,3),...ranked])base.set(localSourceKey(entry.source),entry);
   const primary=[...base.values()],cardEntries=cards.map(({row})=>row);
   // 原文和梗概描述常有重叠。轻量卡独立补入候选，避免同一事实重复计分。
-  // 两侧均有字词命中的候选优先；完整主题的向量仍可召回没有同词的故事。
-  const both=text.filter(row=>row.coverage===2).map(({entry})=>entry);
-  const candidates=[...both,...primary.slice(0,3),...cardEntries.slice(0,2),...primary.slice(3),...cardEntries.slice(2)];
+  const candidates=[...primary.slice(0,3),...cardEntries.slice(0,2),...primary.slice(3),...cardEntries.slice(2)];
   const unique=new Map(candidates.map(entry=>[localSourceKey(entry.source),entry]));
   return [...unique.values()].slice(0,limit).map(({source,displayTitle,displaySummary})=>({source,title:displayTitle,...(displaySummary?{summary:displaySummary}:{})}));
  }

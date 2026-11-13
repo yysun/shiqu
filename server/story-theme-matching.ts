@@ -72,8 +72,8 @@ export async function matchLibraryStories<T extends Story>(provider:ReaderProvid
  const read=async()=>await cache.read(key,savedSchema)||empty();
  const fits=(input:ThemeStory[])=>readingTokens(themeMatchPrompt,providerName)+readingTokens(JSON.stringify(themeMatchPayload(theme,input)),providerName)+readingTokens(JSON.stringify(themeMatchJson),providerName)<=budget;
  const input=(entry:typeof entries[number])=>themeStorySchema.parse({id:entry.id,title:entry.story.title,text:entry.text});
- // 双词预设需要重新核对两侧及其关系，其他主题仍可复用旧版原文判断。
- for(const legacy of compoundDiscoveryThemeTerms(theme).length?[]:options.legacyNamespaces||[]){
+ // 复合主题的旧判断使用不同匹配规则，仅单一主题可复用。
+ for(const legacy of theme.startsWith('预设并列主题：')||compoundDiscoveryThemeTerms(theme).length?[]:options.legacyNamespaces||[]){
   const old=await cache.read(legacyThemeDecisionKey(legacy,theme,{model:identity.model,reasoningEffort:identity.reasoningEffort}),z.object({decisions:z.record(z.string(),themeDecisionSchema)}));
   if(old)await cache.update(key,savedSchema,empty,current=>{
    for(const entry of entries){const decision=old.decisions[legacyThemeStoryId(entry.story)];if(decision&&decision.id===legacyThemeStoryId(entry.story)&&!current.decisions[entry.id]){current.decisions[entry.id]={...decision,id:entry.id};current.fingerprints[entry.id]=entry.fingerprint;}}

@@ -17,12 +17,9 @@ type Props={
 async function listEntries(bookId:string,kind:NonNullable<Props['kind']>,query:string){
  const book='reader/books/'+encodeURIComponent(bookId);
  const q=encodeURIComponent(query);
- if(kind==='chapter'){
-  const contents:BookContents=await request(book+'/contents?view=chapters&q='+q);
-  return contents.entries;
- }
- const contents:BookContents=await request(book+'/contents?q='+q);
- return contents.entries.filter(entry=>entry.kind==='story'&&entry.source);
+ const view=kind==='chapter'?'chapters':'stories';
+ const contents:BookContents=await request(book+'/contents?view='+view+'&q='+q);
+ return contents.entries;
 }
 
 export default function StoryChapterPicker({bookId,sources,disabled,onSelect,kind='chapter',query:externalQuery,onQueryChange}:Props){

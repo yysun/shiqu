@@ -89,6 +89,25 @@ test('正式 reader API 提供设置、逐书建库、章节和精确故事检�
  const response=await call('books/liaozhai/embedding-index',{method:'POST'});assert.equal(response.status,200);
  const body=await response.text(),events=body.trim().split('\n').map(line=>JSON.parse(line));
  assert.equal(events[0].type,'start');assert.equal(events.at(-1).type,'complete',body);
+ // 只加载随包故事卡的用户也能浏览整章卡，关键词可跨标题与梗概。
+ for(const [bookId,count,query,title] of [
+  ['三国演义',120,'桃园 黄巾',/^宴桃园豪杰三结义/u],
+  ['战国策',501,'九鼎 颜率',/求九鼎/u],
+ ]){
+  const endpoint='books/'+encodeURIComponent(bookId)+'/contents';
+  const list=await (await call(endpoint+'?view=stories')).json();
+  assert.equal(list.entries.length,count);
+  assert.ok(list.entries.every(entry=>entry.kind==='story'&&entry.source));
+  const chapters=await (await call(endpoint+'?view=chapters')).json();
+  assert.deepEqual(list.entries[0].source,chapters.entries[0].source);
+  if(bookId==='三国演义'){
+   assert.match(chapters.entries[0].title,/^第一回/u);
+   const byNumber=await (await call(endpoint+'?view=stories&q='+encodeURIComponent('第一回'))).json();
+   assert.equal(byNumber.entries[0].title,list.entries[0].title);
+  }
+  const matches=await (await call(endpoint+'?view=stories&q='+encodeURIComponent(query))).json();
+  assert.ok(matches.entries.some(entry=>title.test(entry.title)));
+ }
  const longBooks=[['三国演义',120],['西游记',96],['红楼梦',120],['水浒传',120],['儒林外史',56],['史记',127]];
  for(const [bookId,count] of longBooks){
   embeddingInputs.length=0;

@@ -82,7 +82,7 @@ test('creation keeps three search modes separate and preserves the production ti
  const response=await creation;
  assert.equal(response.status(),201);
  const saved=await response.json();
- assert.deepEqual(saved.selection.discovery,{mode:'auto',vectorFirst:true});
+ assert.deepEqual(saved.selection.discovery,{mode:'auto',vectorFirst:true,themeInput:'custom'});
  assert.equal(saved.selection.discoverySources,undefined);
  assert.equal(saved.selection.theme,'渔夫救乌龟，后来乌龟救了渔夫');
  assert.equal(saved.selection.displayTitle,undefined);
@@ -100,7 +100,7 @@ test('creation keeps three search modes separate and preserves the production ti
  await submit.click();
  const changed=await (await update).json();
  assert.equal(changed.id,saved.id);
- assert.deepEqual(changed.selection.discovery,{mode:'auto',vectorFirst:true});
+ assert.deepEqual(changed.selection.discovery,{mode:'auto',vectorFirst:true,themeInput:'custom'});
  assert.equal(changed.selection.theme,'知恩图报');
  assert.equal(changed.selection.displayTitle,'洪水里的回报');
  await until(()=>modelQueries.includes('知恩图报'));
@@ -115,8 +115,9 @@ test('creation keeps three search modes separate and preserves the production ti
  await page.close();
  page=await context.newPage();
  await page.goto(url+'/read?id='+parentId);
+ await page.waitForURL(u=>u.searchParams.get('id')===parentId);
  await page.getByRole('button',{name:'故事设置',exact:true}).click();
- await page.getByRole('link',{name:'替换选题',exact:true}).click();
+ await page.getByRole('dialog',{name:'故事设置',exact:true}).getByRole('link',{name:'替换选题',exact:true}).click();
  const replacement=page.getByRole('dialog',{name:'替换选题',exact:true});
  await replacement.getByRole('button',{name:'自动标题',exact:true}).click();
  await replacement.getByRole('button',{name:'开始提取',exact:true}).waitFor();

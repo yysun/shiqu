@@ -66,26 +66,27 @@ test('无向量时按 10 张故事卡匹配，只用每张卡的是非回执',as
  f.books.resolve=()=>assert.fail('匹配和未命中都不应解析原文');
  const runner={status:async()=>({configured:true,model:'mock'}),run:async job=>{
   assert.match(job.instructions,/故事卡标题和白话梗概/);
+  assert.match(job.instructions,/梗概有具体情节支持任意一项即符合/);
   const {theme,stories}=JSON.parse(job.prompt);
   calls.push(stories);
   assert.ok(stories.every(story=>story.text.startsWith('故事卡梗概 ')));
   return {text:JSON.stringify({matches:stories.map(({id,title})=>({
-   id,verdict:theme==='知恩图报'&&title==='故事卡 13'?'yes':'no',
+   id,verdict:theme==='预设并列主题：欲望与代价'&&title==='故事卡 13'?'yes':'no',
   }))}),model:'mock',requestId:'test',usage:null};
  }};
  const wrapped=withLocalBooks(createReaderProvider({SHIQU_AI_PROVIDER:'codex'},f.store,fetch,runner),f.books,f.store,f.cache,f.search);
- const find=(theme,seen=[])=>wrapped.suggestions({...selection,theme,discovery:{mode:'auto',vectorFirst:true}},[],undefined,undefined,seen);
- const result=await find('知恩图报');
+ const find=(theme,seen=[])=>wrapped.suggestions({...selection,theme,discovery:{mode:'auto',vectorFirst:true,themeInput:'preset'}},[],undefined,undefined,seen);
+ const result=await find('欲望与代价');
  assert.deepEqual(calls.map(batch=>batch.length),[10,10]);
  assert.equal(result.stories[0].description,'故事卡梗概 13');
  assert.equal(result.stories[0].source.firstUnit,'card13');
- assert.deepEqual(await find('知恩图报'),result);
+ assert.deepEqual(await find('欲望与代价'),result);
  assert.equal(calls.length,2);
- const more=await find('知恩图报',[result.stories[0].source]);
+ const more=await find('欲望与代价',[result.stories[0].source]);
  assert.deepEqual(more.stories,[]);
  assert.deepEqual(calls.map(batch=>batch.length),[10,10,1]);
  calls.length=0;
- const noMatches=await find('勇气');
+ const noMatches=await wrapped.suggestions({...selection,theme:'欲望与代价',discovery:{mode:'auto',vectorFirst:true,themeInput:'custom'}},[]);
  assert.deepEqual(calls.map(batch=>batch.length),[10,10,1]);
  assert.deepEqual(noMatches.stories,[]);
  assert.match(noMatches.note,/已查完当前范围的故事卡/);
@@ -111,6 +112,24 @@ test('有向量时按查询召回故事卡，直接返回向量结果',async t=>
  f.search.indexableCards=async()=>[];
  assert.match((await f.suggest('挺身救人',extra)).note,/暂无可用的故事卡/);
  assert.equal(queries.length,3);
+});
+
+test('复合主题分别嵌入，按任一主题的最高相似度去重排序',async t=>{
+ const f=await setup(t),queries=[],updates=[];
+ f.search.embeddings.scores=async(_book,[first,second],query)=>{
+  queries.push(query);
+  return new Map([[first.id,query==='欲望'?0.9:0.1],[second.id,query==='代价'?0.95:0.3]]);
+ };
+ f.provider.verifyThemeStories=async()=>assert.fail('有向量时直接返回故事卡');
+ const wrapped=withLocalBooks(f.provider,f.books,f.store,f.cache,f.search);
+ await wrapped.suggestions({...selection,theme:'欲望与代价',discovery:{mode:'auto',vectorFirst:true,themeInput:'preset'}},[],undefined,{
+  signal,onProgress(){},async onIndexedCandidates(rows){updates.push(...rows);},
+ });
+ assert.deepEqual(queries,['欲望','代价']);
+ assert.deepEqual(updates.map(row=>row.story.source),[f.stories[1].source,f.stories[0].source]);
+ await wrapped.suggestions({...selection,theme:'欲望与代价',discovery:{mode:'auto',vectorFirst:true,themeInput:'custom'}},[]);
+ await wrapped.suggestions({...selection,theme:'欲望 与 代价',discovery:{mode:'auto',vectorFirst:true,themeInput:'custom'}},[]);
+ assert.deepEqual(queries,['欲望','代价','欲望与代价','欲望 与 代价']);
 });
 
 test('生产选题一次发布向量相似度最高的 50 张故事卡',async t=>{
@@ -196,7 +215,7 @@ test('两个选题页收到同一组有效回执，晚加入补核的选题页�
  assert.equal(calls,2);
 });
 
-test('双词预设优先召回两侧都命中的候选，再按原文核对两侧的关系',async t=>{
+test('双词预设召回任一主题，再按 OR 核对原文',async t=>{
  const f=await setup(t),section=f.book.sections[0],theme='欲望与代价';
  const texts=[
   '少年想独占金壶，主人答应送给他。后来城里失火，邻人的屋子烧了。',
@@ -222,19 +241,19 @@ test('双词预设优先召回两侧都命中的候选，再按原文核对两�
   }
  }finally{db.close();}
  const runner={status:async()=>({configured:true,model:'mock'}),run:async job=>{
-  assert.match(job.instructions,/同一故事的原文必须支持两侧及其在情节中的联系/);
+  assert.match(job.instructions,/原文有具体情节支持任意一项即符合/);
   const input=JSON.parse(job.prompt);
-  assert.equal(input.theme,theme);
-  assert.deepEqual(input.stories.map(story=>story.title),['商人的代价','邻人购地','少年谈欲望']);
+  assert.equal(input.theme,'预设并列主题：'+theme);
+  assert.deepEqual(new Set(input.stories.map(story=>story.title)),new Set(['商人的代价','少年谈欲望','邻人购地']));
   return {text:JSON.stringify({matches:input.stories.map(({id,text})=>({
-   id,verdict:id<=2?'direct':'no',reason:id<=2?'为求财产而花光家资。':'原文缺少两侧之间的联系。',
-   evidence:id<=2?[text.split('。')[0]]:[],
+   id,verdict:'direct',reason:'原文有具体情节支持其中一项。',
+   evidence:[text.split('。')[0]],
   }))}),model:'mock',requestId:'test',usage:null};
  }};
  const provider=createReaderProvider({SHIQU_AI_PROVIDER:'codex'},f.store,fetch,runner);
  const wrapped=withLocalBooks(provider,f.books,f.store,f.cache,f.search);
- const result=await wrapped.suggestions({...selection,theme,discovery:{mode:'auto'}},[]);
- assert.deepEqual(result.stories.map(story=>story.title),['商人的代价','邻人购地']);
+ const result=await wrapped.suggestions({...selection,theme,discovery:{mode:'auto',themeInput:'preset'}},[]);
+ assert.deepEqual(new Set(result.stories.map(story=>story.title)),new Set(['商人的代价','少年谈欲望','邻人购地']));
 });
 
 test('语义片段参与召回，指定标题进入模型并保持独立于制作主题',async t=>{

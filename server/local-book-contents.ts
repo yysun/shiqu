@@ -7,6 +7,7 @@ import type {BookContents,BookContentEntry} from '../lib/reader-contents.ts';
 import {localSourceKey} from '../lib/reader-local-contract.ts';
 import type {LocalBooks,LocalBook} from './local-books.ts';
 import {sourceParts} from './local-source-ranges.ts';
+const chapterNumberPrefix=/^第[〇零一二两兩三四五六七八九十百千0-9]+回\s+/u;
 const namedHeading=(text:string)=>/^[\p{Script=Han}0-9]{1,12}$/u.test(text);
 // A LocalBook is immutable and edition-bound; cache normalized text without exposing it in API responses.
 const searchIndexes=new WeakMap<LocalBook,Map<string,string>>();
@@ -34,21 +35,24 @@ export function indexBookContents(books:LocalBooks,book:LocalBook,query='',chapt
  }
  return {bookId:book.id,title:book.title,entries};
 }
-export async function bookContents(books:LocalBooks,selection:Selection,query='',view?:'chapters'|'scope'){
+export async function bookContents(books:LocalBooks,selection:Selection,query='',view?:'chapters'|'stories'|'scope'){
  const book=await books.book(selection);if(!book)throw new ReaderError(400,'这本书暂不支持直接选择，请按主题找故事。');
  if(view==='chapters')return indexBookContents(books,book,query,true);
  const directory=indexBookContents(books,book,query);
+ // 故事卡可覆盖整章，按故事浏览时只按已列出的故事出处去重。
+ if(view==='stories')directory.entries=directory.entries.filter(entry=>entry.kind==='story'&&entry.source);
  const seen=new Set(directory.entries.flatMap(entry=>entry.source?[localSourceKey(entry.source)]:[]));
  const chapters=new Map(book.sections.map(section=>[section.id,section.title]));
  if(view==='scope'&&(book.id==='liaozhai'||book.id==='shishuo'))for(const entry of indexBookContents(books,book,query,true).entries){
   const key=localSourceKey(entry.source!);
   if(!seen.has(key)){directory.entries.push({...entry,id:'chapter:'+entry.id});seen.add(key);}
  }
- for(const {id,source,displayTitle} of await books.storySearch?.passages(book,contentSearchTerms(query))??[]){
+ for(const {id,source,displayTitle,displaySummary} of await books.storySearch?.passages(book,contentSearchTerms(query))??[]){
   const key=localSourceKey(source);if(seen.has(key))continue;
   try{
    const original=books.resolve(book,source);
-   directory.entries.push({kind:'story',id:'indexed:'+id,title:displayTitle.slice(0,100),chapter:chapters.get(source.sectionId)!,excerpt:original.text.slice(0,100),source});
+   const title=view==='stories'?displayTitle.replace(chapterNumberPrefix,''):displayTitle;
+   directory.entries.push({kind:'story',id:'indexed:'+id,title:title.slice(0,100),chapter:chapters.get(source.sectionId)!,excerpt:(view==='stories'&&displaySummary||original.text).slice(0,100),source});
    seen.add(key);
   }catch(error){if(!(error instanceof ReaderError)||error.status!==400)throw error;}
  }
