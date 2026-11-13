@@ -3,6 +3,7 @@ import type {SuggestionProgress} from '../lib/reader-suggestions.ts';
 // Expand only until new stories exist, carrying verified unfinished events across blocks and cancellation.
 // Binary theme receipts read originals; old catalog ranges resume without generating summaries.
 // Complete events may share background; structural novelty is checked before admission, not display.
+// 故事卡检索：有向量时直接返回相似度最高的故事卡；向量已启用但不可用时改用模型核对，并在进度与说明中告知。
 import {z} from 'zod';
 import {randomUUID} from 'node:crypto';
 import {previousReadingPlanKey,previousDiscoveryNamespace,previousSummaryNamespace} from './story-discovery-legacy.ts';
@@ -32,6 +33,9 @@ const storySchema=suggestionBatchSchema.shape.stories.element.omit({storyBrief:t
 type Story=z.infer<typeof storySchema>;
 // 主题核对独立于顺序阅读，允许正常长度的 50 篇候选一次提交。
 const themeVerificationInputTokens=16000;
+// 向量结果无需模型核对，每次“继续查找”翻一页，最多翻到相似度前 200 张；生产选题仍只发布前 50 张。
+export const vectorPageSize=12;
+export const vectorRecallLimit=200;
 const pendingSchema=z.object({id:z.string().min(1).max(64),title:z.string().min(1).max(100),source:localSourceSchema});
 const rejectionSchema=z.object({code:z.enum(['duplicate','no-new-evidence','invalid-source','no-progress','pending-resolution']),title:z.string().max(100).optional(),source:localSourceSchema.optional()});
 const stateSchema=z.object({stories:z.array(storySchema).max(50000),cursor:z.number().int().min(0),readThrough:z.number().int().min(0),pendingEvents:z.array(pendingSchema).max(16),exhausted:z.boolean(),rejected:z.boolean(),lastRejection:rejectionSchema.optional(),overlapDiagnostics:z.array(z.object({source:localSourceSchema,other:localSourceSchema,ratio:z.number().min(0).max(1)})).max(32).optional()});
@@ -110,30 +114,34 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   });
   if(!cards.length)return result([],'这本书在当前范围内暂无可用的故事卡。');
   if(!cards.some(unseen))return result([],'故事卡中暂无更多故事。');
-  observer.onProgress({stage:'retrieving',retrieval:'vector',completed:0,total:1,completedChars:0,totalChars:0});
-  const vectorHits=await storySearch?.vectorHits(book,topic,observer.signal,cards,50,themeTerms)||[];
+  const vectorsEnabled=!!storySearch?.vectorsEnabled();
+  if(vectorsEnabled)observer.onProgress({stage:'retrieving',retrieval:'vector',completed:0,total:1,completedChars:0,totalChars:0});
+  const vectorHits=vectorsEnabled?await storySearch!.vectorHits(book,topic,observer.signal,cards,vectorRecallLimit,themeTerms):[];
   if(vectorHits.length){
    const note='已按语义相似度找到故事卡。';
    if(observer.onIndexedCandidates){
-    await observer.onIndexedCandidates(vectorHits.map(card=>({id:themeStoryId(card),story:choice(card),status:'match',summary:card.summary})));
+    await observer.onIndexedCandidates(vectorHits.slice(0,50).map(card=>({id:themeStoryId(card),story:choice(card),status:'match',summary:card.summary})));
     return result([],note);
    }
-   const stories=vectorHits.filter(unseen).slice(0,batchLimit).map(choice);
-   return result(stories,stories.length?note:'向量召回的前 50 张故事卡中暂无更多结果。');
+   const stories=vectorHits.filter(unseen).slice(0,observer.maxStories||vectorPageSize).map(choice);
+   return result(stories,stories.length?note:`向量召回的前 ${vectorRecallLimit} 张故事卡中暂无更多结果。`);
   }
   if(!provider.verifyThemeStories)throw new ReaderError(503,'当前生成服务暂不支持故事卡匹配。');
+  // 已启用向量却取不到相似度时（如 Ollama 未运行），改用模型逐批核对并告知读者。
+  const retrieval:SuggestionProgress['retrieval']=vectorsEnabled?'no-query-vector':undefined;
   const measurement=await discoveryMeasurement(cache,observer.cycleId!,true);
   const onCall=observer.onCall;
   try{
    const checked=await verifyThemeCandidates(provider,cache,matchingTheme,cards.map(card=>({...card,title:card.title.slice(0,100)})),
     card=>[card.summary],Math.min(limits.whole,themeVerificationInputTokens),status,{
      ...observer,onCall:event=>{measurement.call(event);onCall?.(event);},
-     onProgress:value=>observer.onProgress({...value,stage:'verifying',totalChars:0,completedChars:0}),
+     onProgress:value=>observer.onProgress({...value,stage:'verifying',totalChars:0,completedChars:0,...(retrieval?{retrieval}:{})}),
     },undefined,unseen);
    const stories=checked.matches.slice(0,batchLimit).map(({story})=>choice(story));
    await measurement.finish(stories.length?'matched':checked.checked<cards.length?'incomplete':'none');
-   return result(stories,stories.length?'已按故事卡梗概找到匹配。':checked.checked<cards.length
-    ?'部分故事卡未能完成匹配，请重试。':'已查完当前范围的故事卡，暂无符合的故事。');
+   const method=retrieval?'向量检索暂不可用，已改用模型逐批核对故事卡梗概。':'';
+   return result(stories,method+(stories.length?'已按故事卡梗概找到匹配。':checked.checked<cards.length
+    ?'部分故事卡未能完成匹配，请重试。':'已查完当前范围的故事卡，暂无符合的故事。'));
   }catch(error){
    await measurement.finish(observer.signal.aborted?'cancelled':'failed');
    throw error;

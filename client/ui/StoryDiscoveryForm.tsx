@@ -1,4 +1,5 @@
 // 三种检索共用选书页。提交只带当前方式的条件。
+// 从心情或“不挑了”进入时（autoSearch）按预设主题自动查找；预设与自定义主题都可继续查找，检索说明始终显示。
 import {useEffect,useRef,useState} from 'react';
 import {ArrowRight} from 'lucide-react';
 import type {IntakeView} from '@/lib/reader-intake';
@@ -25,7 +26,7 @@ function toggle<T>(values:T[],item:T,source:(item:T)=>LocalSourceReference){
   ?values.filter(value=>localSourceKey(source(value))!==key):values.length<24?[...values,item]:values;
 }
 
-export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,retainKey,savedIntake,savedSelection,onSavedChoice,savedSearchPaused,onSavedSearchControl,savedSearchControlBusy}:{selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;retainKey?:string;savedIntake?:IntakeView;savedSelection?:Selection;onSavedChoice?:(batch:number,index:number)=>Promise<void>;savedSearchPaused?:boolean;onSavedSearchControl?:(action:'pause'|'resume')=>Promise<void>;savedSearchControlBusy?:boolean}){
+export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,retainKey,savedIntake,savedSelection,onSavedChoice,savedSearchPaused,onSavedSearchControl,savedSearchControlBusy,autoSearch}:{autoSearch?:boolean;selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;retainKey?:string;savedIntake?:IntakeView;savedSelection?:Selection;onSavedChoice?:(batch:number,index:number)=>Promise<void>;savedSearchPaused?:boolean;onSavedSearchControl?:(action:'pause'|'resume')=>Promise<void>;savedSearchControlBusy?:boolean}){
  const part=(name:string)=>retainKey&&retainKey+':'+name;
  const originalTitle=selection.discovery?.mode==='title'?selection.discovery.title:'';
  const originalSources=selection.discoverySources||[];
@@ -141,6 +142,10 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
    if(search.current===controller){search.current=null;setSearchProgress('');}
   }
  }
+ // 挂载时自动查找；StrictMode 的重复挂载会先中止上一次请求，再重新发起。
+ useEffect(()=>{
+  if(autoSearch&&local&&active==='theme'&&!showCustom&&preset&&!results)void extract(preset,'preset');
+ },[]);
  function selectPreset(value:string){
   if(blocked)return;
   const same=!showCustom&&preset===value;
@@ -219,17 +224,17 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
     placeholder="例如：求雨的故事，或道士当街种出梨树"
     onChange={event=>{setCustomTheme(event.target.value);resetSearch();}}/></label>}
    {local&&<div className="yu-discovery-extract">
-    {(searching||showCustom)&&<div className="yu-discovery-extract-actions">
+    {(searching||showCustom||results)&&<div className="yu-discovery-extract-actions">
      {searching
       ?<StoryFlowAction onClick={cancelSearch}>取消查找</StoryFlowAction>
-      :<StoryFlowAction disabled={blocked||!theme} onClick={()=>extract(theme,'custom')}>{results?'继续查找故事':'开始找故事'}</StoryFlowAction>}
+      :<StoryFlowAction disabled={blocked||!theme} onClick={()=>extract(theme,showCustom?'custom':'preset')}>{results?'继续查找故事':'开始找故事'}</StoryFlowAction>}
     </div>}
     {searching&&<p role="status">{searchProgress}</p>}
     {searchError&&<p role="alert">{searchError}</p>}
     {results&&<>
      <StoryChapterPicker key={searchKey} bookId={bookId} kind="story" label="查找结果" resultEntries={results.entries}
       sources={extractedChoices.map(card=>card.source)} disabled={blocked} onSelect={entry=>selectStory(entry,setExtractedChoices)}/>
-     {!results.entries.length&&results.note&&<p role="status">{results.note}</p>}
+     {results.note&&<p className="yu-discovery-note" role="status">{results.note}</p>}
     </>}
    </div>}
   </>}

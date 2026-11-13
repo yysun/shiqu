@@ -28,7 +28,7 @@ export function libraryFixture(store=memory()){
 export function storyCardFixture(library){
  const cards=library.stories.map(story=>({...story,id:localSourceKey(story.source)}));
  return {
-  storySearch:{indexableCards:async()=>cards,vectorHits:async()=>[],lookupHits:async()=>[]},
+  storySearch:{indexableCards:async()=>cards,vectorsEnabled:()=>false,vectorHits:async()=>[],lookupHits:async()=>[]},
   verifyThemeStories:async(theme,entries,_context,evidence)=>{
    if(evidence!=='card')throw Error('选题只匹配故事卡');
    const match=theme.includes('勇士')?'勇士':'乌龟';

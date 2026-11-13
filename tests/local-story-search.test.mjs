@@ -52,7 +52,7 @@ async function setup(t,{offline=false,wrongEdition=false}={}){
  return {...f,file,search,suggest};
 }
 
-test('无向量时按 10 张故事卡匹配，只用每张卡的是非回执',async t=>{
+test('向量已启用但不可用时按 10 张故事卡匹配并说明改用模型',async t=>{
  const f=await setup(t,{offline:true}),calls=[],db=new DatabaseSync(f.file);
  const section=f.book.sections[0];
  try{
@@ -81,7 +81,8 @@ test('无向量时按 10 张故事卡匹配，只用每张卡的是非回执',as
  const result=await find('欲望与代价');
  assert.deepEqual(calls.map(batch=>batch.length),[10,10]);
  assert.deepEqual(progress.flatMap(value=>value.modelBatchCardCount??[]),[10,10]);
- assert.ok(progress.some(value=>storyCardSearchProgressLabel(suggestionProgressSchema.parse(value))==='正在用模型查找故事 · 本批 10 张故事卡'));
+ assert.ok(progress.some(value=>storyCardSearchProgressLabel(suggestionProgressSchema.parse(value))==='向量检索暂不可用，正在用模型查找故事 · 本批 10 张故事卡'));
+ assert.match(result.note,/向量检索暂不可用/);
  assert.equal(result.stories[0].description,'故事卡梗概 13');
  assert.equal(result.stories[0].source.firstUnit,'card13');
  progress.length=0;
@@ -110,15 +111,24 @@ test('有向量时按查询召回故事卡，直接返回向量结果',async t=>
  const result=await f.suggest('挺身救人',extra);
  assert.deepEqual(queries,['挺身救人']);
  assert.deepEqual(result.stories.map(story=>story.source),[f.stories[1].source]);
+ assert.match(result.note,/语义相似度/);
  const more=await f.suggest('挺身救人',extra,[],[f.stories[1].source]);
  assert.deepEqual(more.stories,[]);
- assert.match(more.note,/前 50 张故事卡/);
+ assert.match(more.note,/前 200 张故事卡/);
  const plot=await f.suggest('挺身救人',{discovery:{...extra.discovery,plot:true}});
  assert.deepEqual(plot.stories,result.stories);
  assert.deepEqual(queries,['挺身救人','挺身救人','挺身救人']);
+ // 未启用嵌入模型时不计算相似度，改用模型核对且不提示向量不可用。
+ f.search.embeddings.settings=()=>({enabled:false});
+ f.provider.verifyThemeStories=async(_theme,entries)=>({matches:entries.map(entry=>({id:entry.id,verdict:entry.title==='勇士護民'?'direct':'no',reason:'按故事卡梗概判断。',evidence:[]}))});
+ const progress=[];
+ const disabled=await withLocalBooks(f.provider,f.books,f.store,f.cache,f.search).suggestions({...selection,theme:'挺身救人',...extra},[],undefined,{signal,onProgress:value=>progress.push(value)});
+ assert.deepEqual(disabled.stories.map(story=>story.source),[f.stories[1].source]);
+ assert.ok(progress.every(value=>value.retrieval===undefined));
+ assert.doesNotMatch(disabled.note,/向量/);
+ assert.equal(queries.length,3);
  f.search.indexableCards=async()=>[];
  assert.match((await f.suggest('挺身救人',extra)).note,/暂无可用的故事卡/);
- assert.equal(queries.length,3);
 });
 
 test('复合主题分别嵌入，按任一主题的最高相似度去重排序',async t=>{
@@ -157,6 +167,22 @@ test('生产选题一次发布向量相似度最高的 50 张故事卡',async t=
  });
  assert.deepEqual(result.stories,[]);
  assert.deepEqual(updates.map(row=>row.story.title),cards.slice(5).reverse().map(card=>card.title));
+});
+
+test('读者检索的向量结果每页 12 则，继续查找跳过已显示的故事卡',async t=>{
+ const f=await setup(t);
+ const cards=Array.from({length:30},(_,index)=>({
+  id:'page'+index,title:'故事卡 '+index,summary:'故事卡梗概 '+index,
+  source:{...f.stories[0].source,firstUnit:'page'+index,lastUnit:'page'+index},
+ }));
+ f.search.indexableCards=async()=>cards;
+ f.search.embeddings.scores=async()=>new Map(cards.map((card,index)=>[card.id,-index]));
+ f.provider.verifyThemeStories=async()=>assert.fail('有向量时不调用匹配模型');
+ const extra={discovery:{mode:'auto',vectorFirst:true,themeInput:'preset'}};
+ const first=await f.suggest('欲望与代价',extra);
+ assert.deepEqual(first.stories.map(story=>story.title),cards.slice(0,12).map(card=>card.title));
+ const second=await f.suggest('欲望与代价',extra,[],first.stories.map(story=>story.source));
+ assert.deepEqual(second.stories.map(story=>story.title),cards.slice(12,24).map(card=>card.title));
 });
 
 test('参考向量版本不符时繁简短词仍可召回未向量化故事',async t=>{

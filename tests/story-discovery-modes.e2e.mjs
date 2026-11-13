@@ -24,6 +24,7 @@ test('creation selects sources before preparing a single or combined story', {ti
  const vectorQueries=[],modelQueries=[];
  const {storySearch,verifyThemeStories}=storyCardFixture(library);
  let presetCancelled=false;
+ storySearch.vectorsEnabled=()=>true;
  storySearch.vectorHits=async(_book,query,signal,cards)=>{
   vectorQueries.push(query);
   if(query==='善意与误解'){
@@ -113,7 +114,10 @@ test('creation selects sources before preparing a single or combined story', {ti
  await until(()=>presetCancelled);
  await preset.click();
  await sheet.getByRole('region',{name:'查找结果'}).waitFor();
+ // 预设主题有结果后也可继续查找，并显示检索说明。
  assert.equal(await sheet.getByRole('link',{name:'开始找故事',exact:true}).count(),0);
+ await sheet.getByRole('link',{name:'继续查找故事',exact:true}).waitFor();
+ await sheet.getByText(/语义相似度/).waitFor();
  assert.equal(await sheet.getByText('从原文提取更多',{exact:true}).count(),0);
  await themes.getByRole('button',{name:'其它',exact:true}).click();
  assert.equal(await sheet.getByLabel('自定义主题或情节').inputValue(),'渔夫救乌龟，后来乌龟救了渔夫');

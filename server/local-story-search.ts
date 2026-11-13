@@ -1,5 +1,6 @@
 import type {SuggestionProgress} from '../lib/reader-suggestions.ts';
 // 独立索引只提供候选出处。文字与向量分别排名，原文始终由本地书库读取。
+// vectorsEnabled 区分未配置向量与已配置但暂不可用。
 import {chmod,lstat,mkdir,mkdtemp,readFile,readdir,rename,rm} from 'node:fs/promises';
 import path from 'node:path';
 import {backup,DatabaseSync} from 'node:sqlite';
@@ -158,6 +159,10 @@ export class LocalStorySearch{
    }catch{/* 跳过出处已失效的旧卡。 */}
   }
   return [...unique.values()];
+ }
+ // 读者已建立向量库并启用嵌入模型；用于区分“未配置”和“已配置但暂不可用”。
+ vectorsEnabled(){
+  try{return !!this.embeddings?.exists()&&this.embeddings.settings().enabled;}catch{return false;}
  }
  async semanticScores(book:LocalBook,query:string,signal:AbortSignal){
   if(!this.embeddings?.exists())return null;

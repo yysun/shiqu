@@ -72,7 +72,11 @@ h2.yu-discovery-heading:first-of-type{margin-top:16px}
 /* 故事卡在同一列表里展示标题和简介。 */
 .yu-source-story .yu-source-chapter-title{white-space:normal;padding:8px 0}
 .yu-source-story .yu-source-chapter-title small{display:block;margin-top:4px;font-size:12px;line-height:1.5;color:#586655}
-.yu-discovery-extract{margin-top:16px}
+.yu-discovery-extract{margin-top:4px}
 .yu-discovery-extract-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:0 12px}
+/* 操作链接保留 44px 点按高度，紧接的结果与状态不再另加上边距。 */
+.yu-discovery-extract-actions+.yu-source-picker,.yu-discovery-extract-actions+[role=status]{margin-top:0}
+/* 检索说明：告知向量排序、模型核对或已查完。 */
+.yu-discovery-note{margin:8px 0 0;font-size:12px;line-height:1.5;color:#586655}
 .yu-selected-story-card{margin:0 0 16px;padding:10px 0;border-bottom:1px solid #dce1d2;font-size:13px;line-height:1.6;color:#586655}
 .yu-selected-story-card p{margin:0 0 6px}

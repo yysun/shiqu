@@ -1,4 +1,6 @@
 // Validate suggestion batches and keep verified local receipts through browser history.
+// 故事卡检索进度标签区分向量查找、向量不可用改用模型和未配置向量。
+// 每批最多 12 则：向量结果每页 12 则，其余检索仍按原有上限返回。
 import {z} from 'zod';
 import {selectionSchema} from './reader-model.ts';
 import {localSourceSchema,localSourceKey} from './reader-local-contract.ts';
@@ -7,7 +9,7 @@ import {artRecommendationSchema} from './reader-art-recommendation.ts';
 import {storyBriefSchema} from './reader-story-brief.ts';
 
 export const suggestionRequestSchema=selectionSchema.extend({excludeTitles:z.array(z.string().min(1).max(100)).max(200).default([]),excludeSources:z.array(localSourceSchema).max(200).default([])});
-export const suggestionBatchSchema=z.object({stories:z.array(z.object({title:z.string().min(1).max(100),description:z.string().min(1).max(180),source:localSourceSchema.optional(),sourceLabel:z.string().max(150).optional(),artRecommendation:artRecommendationSchema.optional(),matchReason:z.string().trim().min(1).max(120).optional(),matchScore:z.number().int().min(0).max(100).optional(),storyBrief:storyBriefSchema.optional()})).max(5),note:z.string().max(300)});
+export const suggestionBatchSchema=z.object({stories:z.array(z.object({title:z.string().min(1).max(100),description:z.string().min(1).max(180),source:localSourceSchema.optional(),sourceLabel:z.string().max(150).optional(),artRecommendation:artRecommendationSchema.optional(),matchReason:z.string().trim().min(1).max(120).optional(),matchScore:z.number().int().min(0).max(100).optional(),storyBrief:storyBriefSchema.optional()})).max(12),note:z.string().max(300)});
 export type SuggestionBatch=z.infer<typeof suggestionBatchSchema>;
 export type IndexedStoryCandidate={id:string;title:string;summary?:string;matchScore?:number;status:'pending'|'match'|'rejected';choice?:{batch:number;index:number}};
 export type IndexedStoryUpdate={id:string;summary?:string;status:IndexedStoryCandidate['status'];story:SuggestionBatch['stories'][number]&{source:LocalSourceReference}};
@@ -16,7 +18,10 @@ export type SuggestionProgress=z.infer<typeof suggestionProgressSchema>;
 export function storyCardSearchProgressLabel(progress?:SuggestionProgress|null){
  if(progress?.stage==='retrieving'&&progress.retrieval==='vector')return '正在用向量查找故事…';
  if(progress?.stage==='verifying'&&progress.modelBatchCardCount!==undefined){
-  return `正在用模型查找故事 · 本批 ${progress.modelBatchCardCount} 张故事卡`;
+  const batch=`本批 ${progress.modelBatchCardCount} 张故事卡`;
+  // 向量已启用但不可用时明确说明改用模型。
+  if(progress.retrieval==='no-query-vector')return `向量检索暂不可用，正在用模型查找故事 · ${batch}`;
+  return `正在用模型查找故事 · ${batch}`;
  }
  return null;
 }
