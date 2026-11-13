@@ -13,5 +13,6 @@
 
 VR passed: all acceptance criteria complete
 
-VR risk: non-low — 访问 GitHub 并通过原生桥接打开浏览器。  
+VR risk: non-low — 访问 GitHub 并通过原生桥接打开浏览器。
+
 VR review round: 1; reviewer: reused
