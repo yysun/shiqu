@@ -1,9 +1,11 @@
 // 浏览章节或故事，筛选时保留表单中已选的原文范围。
 import {useEffect,useId,useRef,useState} from 'react';
+import {BookOpen} from 'lucide-react';
 import type {LocalSourceReference} from '@/lib/reader-local-contract';
 import {localSourceKey} from '@/lib/reader-source-key';
 import type {BookContents,BookContentEntry} from '@/lib/reader-contents';
 import {request} from './shared';
+import Sheet from './StorySheet';
 type Props={
  bookId:string;
  sources:LocalSourceReference[];
@@ -25,6 +27,7 @@ async function listEntries(bookId:string,kind:NonNullable<Props['kind']>,query:s
 
 export default function StoryChapterPicker({bookId,sources,disabled,onSelect,kind='chapter',query:externalQuery,onQueryChange}:Props){
  const [entries,setEntries]=useState<BookContentEntry[]|null>(null),[total,setTotal]=useState<number|null>(null),[error,setError]=useState(''),[internalQuery,setInternalQuery]=useState(''),[retry,setRetry]=useState(0),[loadingMore,setLoadingMore]=useState(false);
+ const [original,setOriginal]=useState<{title:string;text:string}|null>(null),[openingSource,setOpeningSource]=useState(''),[sourceError,setSourceError]=useState('');
  const listRef=useRef<HTMLDivElement>(null),loadMoreRef=useRef<HTMLDivElement>(null),loadingMoreRef=useRef(false);
  const group=useId();
  const query=externalQuery??internalQuery;
@@ -53,14 +56,24 @@ export default function StoryChapterPicker({bookId,sources,disabled,onSelect,kin
   return()=>{live=false;observer.disconnect();};
  },[bookId,entries,error,query,story,total]);
  const isSelected=(entry:BookContentEntry)=>!!entry.source&&sources.some(source=>localSourceKey(source)===localSourceKey(entry.source!));
+ async function viewOriginal(entry:BookContentEntry){
+  if(!entry.source)return;
+  setOpeningSource(entry.id);setSourceError('');
+  try{const result=await request('reader/books/'+encodeURIComponent(bookId)+'/source?source='+encodeURIComponent(JSON.stringify(entry.source)));setOriginal({title:result.title,text:result.text});}
+  catch(reason){setSourceError(reason instanceof Error?reason.message:'暂时无法打开原文。');}
+  finally{setOpeningSource('');}
+ }
  return <section className="yu-source-picker" aria-label={noun+'列表'}>
   <label className="yu-custom-input">关键词筛选<input type="search" maxLength={200} value={query} disabled={disabled} placeholder={story?'如：道士 种梨（空格分隔）':'如：黄忠 定军山（空格分隔）'} onChange={e=>(onQueryChange??setInternalQuery)(e.target.value)}/></label>
   {error?<div role="alert"><p>{error}</p><button type="button" disabled={disabled} onClick={()=>setRetry(n=>n+1)}>重试加载目录</button></div>:!entries?<p role="status">{query.trim()?'正在筛选':'正在加载'}{noun}…</p>:<>
    <p className="yu-candidate-count" role="status">{entries.length?(story?`共 ${total??entries.length} 则，已加载 ${entries.length} 则`:`${entries.length} 章`):story&&!query.trim()?'这本书暂无可选故事。':`没有匹配的${noun}。`}{sources.length>0&&` · 已选 ${sources.length} 项`}</p>
-   <div className="yu-source-entries" ref={listRef}>{entries.map(entry=>{
+   <div className="yu-source-entries" ref={listRef}>{entries.map((entry,index)=>{
     const selectedEntry=isSelected(entry),locked=disabled||!entry.source||!story&&sources.length>=24&&!selectedEntry;
-    return <label key={entry.id} className={'yu-source-chapter'+(selectedEntry?' selected':'')}><input type={story?'radio':'checkbox'} name={story?group:undefined} aria-label={entry.title} checked={selectedEntry} disabled={locked} onChange={()=>onSelect(entry)}/><strong>{entry.title}</strong></label>;
+    const inputId=group+'-'+index;
+    return <div key={entry.id} className={'yu-source-chapter'+(selectedEntry?' selected':'')}><input id={inputId} type={story?'radio':'checkbox'} name={story?group:undefined} aria-label={entry.title} checked={selectedEntry} disabled={locked} onChange={()=>onSelect(entry)}/><label className="yu-source-chapter-title" htmlFor={inputId}>{entry.title}</label><button type="button" className="yu-source-original-link" disabled={!entry.source||openingSource===entry.id} onClick={()=>void viewOriginal(entry)}>{openingSource===entry.id?'打开中…':'看原文'}</button></div>;
    })}{story&&entries.length<(total??0)&&<div className="yu-source-page-sentinel" ref={loadMoreRef} aria-hidden="true"/>}{loadingMore&&<p role="status">正在加载下一批故事…</p>}</div>
+   {sourceError&&<p className="yu-source-view-error" role="alert">{sourceError}</p>}
   </>}
+  {original&&<Sheet title="原文" onClose={()=>setOriginal(null)}><div className="yu-picker-original"><h3>{original.title}</h3><p>{original.text}</p><div><BookOpen size={15}/>已核验出处</div></div></Sheet>}
  </section>;
 }
