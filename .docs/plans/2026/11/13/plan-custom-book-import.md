@@ -54,7 +54,7 @@ flowchart LR
    - **自动切分。** EPUB 按 spine 和导航目录切；HTML 按 `h1–h3` 切；TXT 用通用标题规则（`第…[回章卷节篇]`、`卷…`，参照 `additionalBookSpecs`）。都没切出章节时，按约 8,000 字一段切成「第 N 部分」。
    - **段落。** 复用 `localLines()`，每段用 `hasSourceAnomaly()` 设置 `unreadable` 标记。另外标出空章节、过短章节和缺文标记。
    - **编号。** 章节 ID 为 `<prefix>-NNN`（prefix 取书 ID 后 8 位），段落 ID 为 `<sectionId>-NNNN`。`edition = sha256(snapshotHash, parserVersion, structureHash)`。解析器行为一旦变化就升级 `parserVersion`，旧版本保持可读，这是接受的维护成本。
-   - **结构编辑**只记录「起点块序号、标题、排除」，正文始终从快照重新解析。
+   - **结构编辑**只记录「起点块序号、标题、排除」，正文始终从快照重新解析。确认结构时检查整书上限：不超过 300 万字、2,000 章（已定决策 4）。
    - **适用范围。** 现有的原文质量和范围规则（`local-source-quality.ts`、`local-source-ranges.ts:39` 要求中文标点）面向中文古典文本。无标点、混有假名、希腊或西里尔字母的文本会被标记，按章节提取和故事卡生成可能失败。确认页需要预先告知，任务 0 也要测量这一点。
 
 5. **上传与 URL 抓取。**
@@ -62,7 +62,6 @@ flowchart LR
    - **URL 抓取（`server/book-import-fetch.ts`）。**
      - 只允许 `http/https`。
      - 用 `node:https/http` 的 `lookup` 钩子做解析，拒绝回环、私网、链路本地、CGNAT、组播、IPv4 映射的 IPv6 和 `host.docker.internal`；连接时固定使用检查过的 IP，并设置 `servername`，防止 DNS 重绑定。
-     - 整书上限 300 万字、2,000 章，在结构确认时检查。
      - 最多手动跟随 5 次重定向，每一跳都重新检查。
      - 单页上限 12 MB，超时 30 秒，只接受 HTML、纯文本和 EPUB。
      - User-Agent 用通用名称。
