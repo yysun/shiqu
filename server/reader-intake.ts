@@ -16,6 +16,7 @@ import type {ReaderRepository} from '../lib/reader-repository.ts';
 import {maxSuggestionBatches} from '../lib/reader-suggestions.ts';
 import {storyBriefVerified} from '../lib/reader-story-brief.ts';
 import {commandReceipt,recordNoop} from './reader-commands.ts';
+import {isImportedBookId} from '../lib/reader-books.ts';
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const visible='NOT EXISTS(SELECT 1 FROM library_deletions WHERE story_id=stories.id AND user_id=stories.user_id)';
 async function intakeSelection(input:Selection,books?:LocalBooks){
@@ -34,7 +35,8 @@ async function intakeSelection(input:Selection,books?:LocalBooks){
  const original=combine&&local&&scope?combinedOriginal(books!,local,scope):undefined;
  const choice=original?.localSource?{original,entry:{title:'待拟标题',excerpt:'故事梗概准备中',source:original.localSource}}
   :input.source?await directBookChoice(books!,input):null;
- const selection=selectionSchema.parse({...input,storyTitle:choice?.entry.title,source:choice?.entry.source,discoverySources:scope?.discoverySources,length:'auto',narrativeDetail:input.narrativeDetail||'balanced'});
+ const imported=isImportedBookId(input.bookId)&&books?await books.book(input):null;
+ const selection=selectionSchema.parse({...input,...(imported?{customBook:imported.title}:{}),storyTitle:choice?.entry.title,source:choice?.entry.source,discoverySources:scope?.discoverySources,length:'auto',narrativeDetail:input.narrativeDetail||'balanced'});
  if(selection.bookId==='other'&&!selection.customBook?.trim())throw new ReaderError(400,'请先填写书名或 URL。');
  return {selection,choice};
 }

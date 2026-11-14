@@ -1,6 +1,6 @@
 // Store media at readable relative keys with atomic replacement; never follow symlinks.
 import {constants} from 'node:fs';
-import {open,mkdir,rename,rm,lstat,realpath} from 'node:fs/promises';
+import {open,mkdir,rename,rm,lstat,realpath,unlink} from 'node:fs/promises';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import type {MediaStore} from '../lib/services.ts';
@@ -46,5 +46,8 @@ export class FileMedia implements MediaStore {
    finally{await handle.close();}
    await rename(temp,filename);
   }finally{await rm(temp,{force:true});}
+ }
+ async delete(key:string){
+  try{const filename=await this.filename(key,false),info=await lstat(filename);if(info.isSymbolicLink()||!info.isFile())throw Error('Invalid media file');await unlink(filename);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
  }
 }

@@ -20,8 +20,9 @@ export const frameRecommendationSchema=z.object({count:z.number().int().min(read
 export type FrameRecommendation=z.infer<typeof frameRecommendationSchema>;
 export const frameRecommendationJson={type:'object',properties:{count:{type:'integer',minimum:readerMinFrames,maximum:readerMaxFrames},reason:{type:'string',minLength:1,maxLength:180}},required:['count','reason'],additionalProperties:false};
 export function preparesSelectedStory(selection:Selection,original:OriginalSource){
+ const titled=!!selection.storyTitle?.trim()&&selection.storyTitle!=='待拟标题';
  return !!original.storyBrief&&(selection.discovery?.mode==='auto'&&selection.discovery.combine===true||
-  !!selection.source&&!selection.discovery&&!selection.discoverySources?.length);
+  titled&&!!selection.source&&!selection.discovery&&!selection.discoverySources?.length);
 }
 export function frameRecommendationOutputSchema(original:OriginalSource,prepareRequirements=false,selectedStory=false){
  const base=original.storyBrief?frameRecommendationSchema.extend({storySummary:storySummarySchema,storyMatchReason:z.string().trim().min(1).max(300)}):frameRecommendationSchema;

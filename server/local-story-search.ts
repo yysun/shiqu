@@ -12,6 +12,7 @@ import {ReaderError,selectionSchema} from '../lib/reader-model.ts';
 import type {LocalBook,LocalBooks} from './local-books.ts';
 import {sourceParts} from './local-source-ranges.ts';
 import {indexFilename,officialVectorFormat,storyCardsPath,storyIndexDirectory} from './story-index-paths.ts';
+import {isImportedBookId} from '../lib/reader-books.ts';
 import {StoryCardEmbeddingStore} from './story-card-embeddings.ts';
 import type {IndexableCard} from './story-card-embeddings.ts';
 
@@ -35,7 +36,7 @@ export const storyIndexText=(book:LocalBook,source:LocalSourceReference)=>source
 
 export function applicationStorySearch(root:string,directory:string,books:()=>LocalBooks,fetcher:typeof fetch=fetch){
  return new LocalStorySearch(path.join(directory,'story-search.sqlite'),{
-  root,book:id=>books().book(selectionSchema.parse({bookId:id,theme:'原典故事'})),
+  root,book:id=>books().book(selectionSchema.parse({bookId:id,theme:'原典故事'})),importedCards:book=>isImportedBookId(book.id)?books().imported.readCards(book.id):Promise.resolve(null),
   embeddings:new StoryCardEmbeddingStore(directory,fetcher),
  });
 }
@@ -98,6 +99,7 @@ function lexical(entry:Entry,phrase:string,terms:readonly string[]){
 
 // 安装时从 SQLite 事务快照复制，核对书名、版次与出处后再原子替换本书索引。
 export async function installStoryIndex(directory:string,book:LocalBook,source:string){
+ if(isImportedBookId(book.id))throw new ReaderError(400,'导入书使用故事卡生成的本地索引，不接受外部索引文件。');
  return installIndex(path.join(directory,storyIndexDirectory),directory,book,source);
 }
 async function installIndex(indexes:string,stagingRoot:string,book:LocalBook,source:string){
@@ -134,20 +136,22 @@ async function installIndex(indexes:string,stagingRoot:string,book:LocalBook,sou
 
 export class LocalStorySearch{
  private snapshot?:{file:string;value:Snapshot};
- private cards?:{book:LocalBook;value:Promise<Snapshot|null>;merged?:{official:Snapshot;value:Snapshot}};
+ private cards?:{book:LocalBook;stamp:string;value:Promise<Snapshot|null>;merged?:{official:Snapshot;value:Snapshot}};
  private readonly file:string;
- private readonly resources?:{root:string;book:(id:string)=>Promise<LocalBook|null>;cache?:string;embeddings?:StoryCardEmbeddingStore};
+ private readonly resources?:{root:string;book:(id:string)=>Promise<LocalBook|null>;importedCards?:(book:LocalBook)=>Promise<{stamp:string;value:unknown}|null>;cache?:string;embeddings?:StoryCardEmbeddingStore};
  readonly embeddings?:StoryCardEmbeddingStore;
  constructor(file:string,resources?:LocalStorySearch['resources']){
   this.file=file;
   this.resources=resources;
   this.embeddings=resources?.embeddings;
  }
+ clearBook(bookId:string){if(this.cards?.book.id===bookId)this.cards=undefined;}
  async indexableCards(book:LocalBook):Promise<IndexableCard[]>{
-  const bundled=this.resources?await this.readCardFile(book,this.resources.root):null;
+  const bundled=this.resources?await this.readCardFile(book,this.resources.root):null,importedRaw=await this.resources?.importedCards?.(book),imported=importedRaw?this.parseCards(book,importedRaw.value):null;
   const custom=await this.customSnapshot(book);
   const rows=[
    ...(bundled?.cards.map(card=>({title:card.title,summary:card.summary,aliases:card.aliases?.map(storySearchKey),source:{...card.source,edition:book.edition}}))||[]),
+   ...(imported?.cards.map(card=>({title:card.title,summary:card.summary,aliases:card.aliases?.map(storySearchKey),source:{...card.source,edition:book.edition}}))||[]),
    ...(custom?.bookId===book.id&&custom.edition===book.edition
     ?custom.entries.map(row=>({title:row.displayTitle,summary:row.displaySummary,source:row.source,aliases:row.aliases})):[]),
   ];
@@ -226,6 +230,7 @@ export class LocalStorySearch{
  private async customSnapshot(book:LocalBook){
   const indexed=await this.readSnapshot(path.join(path.dirname(this.file),storyIndexDirectory,indexFilename(book.id)));
   if(indexed?.bookId===book.id&&indexed.edition===book.edition&&!indexed.official)return indexed;
+  if(isImportedBookId(book.id))return null;
   const legacy=await this.readSnapshot(this.file);
   return legacy?.edition===book.edition&&!legacy.official&&(!legacy.bookId||legacy.bookId===book.id)?legacy:null;
  }
@@ -234,7 +239,8 @@ export class LocalStorySearch{
   if(!this.resources)return custom;
   const wholeBook=await this.resources.book(book.id);
   if(wholeBook?.edition!==book.edition)return custom;
-  const cards=this.cards?.book===wholeBook?this.cards:{book:wholeBook,value:this.readCards(wholeBook,this.resources.root)};
+  const imported=await this.resources.importedCards?.(wholeBook),stamp=imported?.stamp||'';
+  const cards=this.cards?.book===wholeBook&&this.cards.stamp===stamp?this.cards:{book:wholeBook,stamp,value:this.readCards(wholeBook,this.resources.root,imported?.value)};
   this.cards=cards;
   const bundled=await cards.value;
   if(!custom)return bundled;
@@ -250,15 +256,15 @@ export class LocalStorySearch{
    return data.bookId===book.id&&data.edition===book.edition?data:null;
   }catch{return null;}
  }
- private async readCards(book:LocalBook,root:string):Promise<Snapshot|null>{
-  const data=await this.readCardFile(book,root);
-  if(!data)return null;
-  try{
-   const entries=data.cards.map(card=>{
-    const source={...card.source,edition:book.edition};
-    return searchEntry(card.id,source,storyIndexText(book,source),card.title,card.summary,card.aliases??[]);
-   });
-   return {stamp:'',edition:book.edition,bookId:book.id,entries};
+ private parseCards(book:LocalBook,value:unknown){
+  try{const data=storyCardsSchema.parse(value);return data.bookId===book.id&&data.edition===book.edition?data:null;}catch{return null;}
+ }
+ private async readCards(book:LocalBook,root:string,importedValue?:unknown):Promise<Snapshot|null>{
+  const [bundled,imported]=await Promise.all([this.readCardFile(book,root),Promise.resolve(importedValue===undefined?null:this.parseCards(book,importedValue))]);
+  const groups=[bundled,imported].filter((value):value is NonNullable<typeof value>=>!!value);if(!groups.length)return null;
+  const entries=new Map<string,Entry>();
+  try{for(const data of groups)for(const card of data.cards){const source={...card.source,edition:book.edition},entry=searchEntry(card.id,source,storyIndexText(book,source),card.title,card.summary,card.aliases??[]);if(!entries.has(localSourceKey(source)))entries.set(localSourceKey(source),entry);}
+   return {stamp:'',edition:book.edition,bookId:book.id,entries:[...entries.values()]};
   }catch{return null;}
  }
  private async fileStamp(filename:string){

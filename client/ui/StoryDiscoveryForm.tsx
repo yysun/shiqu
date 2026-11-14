@@ -4,6 +4,7 @@ import {useEffect,useRef,useState} from 'react';
 import {ArrowRight} from 'lucide-react';
 import type {IntakeView} from '@/lib/reader-intake';
 import type {Selection} from '@/lib/reader-model';
+import {isImportedBookId} from '@/lib/reader-books';
 import type {LocalSourceReference} from '@/lib/reader-local-contract';
 import {localSourceKey} from '@/lib/reader-source-key';
 import type {BookContentEntry} from '@/lib/reader-contents';
@@ -26,7 +27,7 @@ function toggle<T>(values:T[],item:T,source:(item:T)=>LocalSourceReference){
   ?values.filter(value=>localSourceKey(source(value))!==key):values.length<24?[...values,item]:values;
 }
 
-export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,retainKey,savedIntake,savedSelection,onSavedChoice,savedSearchPaused,onSavedSearchControl,savedSearchControlBusy,autoSearch}:{autoSearch?:boolean;selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;retainKey?:string;savedIntake?:IntakeView;savedSelection?:Selection;onSavedChoice?:(batch:number,index:number)=>Promise<void>;savedSearchPaused?:boolean;onSavedSearchControl?:(action:'pause'|'resume')=>Promise<void>;savedSearchControlBusy?:boolean}){
+export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,onImportBook,retainKey,savedIntake,savedSelection,onSavedChoice,savedSearchPaused,onSavedSearchControl,savedSearchControlBusy,autoSearch}:{autoSearch?:boolean;selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;onImportBook?:()=>void;retainKey?:string;savedIntake?:IntakeView;savedSelection?:Selection;savedSearchPaused?:boolean;onSavedChoice?:(batch:number,index:number)=>Promise<void>;onSavedSearchControl?:(action:'pause'|'resume')=>Promise<void>;savedSearchControlBusy?:boolean}){
  const part=(name:string)=>retainKey&&retainKey+':'+name;
  const originalTitle=selection.discovery?.mode==='title'?selection.discovery.title:'';
  const originalSources=selection.discoverySources||[];
@@ -100,7 +101,7 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
   setExternalChoice(null);setExtraction(null);setExtractedChoices([]);setSearchError('');
  }
  function input(topic=active==='theme'?theme:'原典故事'):Selection{
-  return {...selection,bookId,customBook:local?undefined:customBook.trim(),theme:topic,
+  return {...selection,bookId,...(bookId==='other'?{customBook:customBook.trim()}:isImportedBookId(bookId)?{customBook:books.find(book=>book.id===bookId)?.title||selection.customBook}:{}),theme:topic,
    productionPrompt:promptAfterThemeChange(selection.productionPrompt,selection.theme,topic),
    storyTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined,discovery:undefined,length:'auto',voice:false};
  }
@@ -191,7 +192,7 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
     {semanticIndexBooks?.some(index=>index.id===book.id)?<strong>{book.title}</strong>:book.title}
    </button>)}
   </div>
-  {!local&&<label className="yu-custom-input">书名或公开网页 URL<input disabled={blocked} maxLength={500} value={customBook} onChange={event=>{setCustomBook(event.target.value);setExternalChoice(null);}}/></label>}
+  {!local&&<section className="yu-custom-input"><p>有自己的原文，可导入后按章节浏览、生成故事卡并核对出处。</p><button type="button" disabled={blocked} onClick={onImportBook}>导入这本书</button><label>不导入，直接请模型推荐<input disabled={blocked} maxLength={500} value={customBook} placeholder="书名或公开网页 URL" onChange={event=>{setCustomBook(event.target.value);setExternalChoice(null);}}/></label></section>}
   <div className="yu-discovery-mode-row">
    <h2 className="yu-discovery-heading">检索方式</h2>
    <div className="yu-discovery-modes" role="group" aria-label="检索方式">

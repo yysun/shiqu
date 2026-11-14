@@ -7,7 +7,7 @@ import {normalizeProductionPrompt,storyEditorialContext} from './reader-prompts.
 import {z} from 'zod';
 import {preparesSelectedStory,frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from './reader-frame-recommendation.ts';
 import {readerMaxFrames,geminiGenerationTimeoutMs} from './reader-limits.ts';
-import {storyDraftSchema,readerBooks} from './reader-model.ts';
+import {storyDraftSchema} from './reader-model.ts';
 import type {Plan,Selection} from './reader-model.ts';
 import type {StoryGenerator} from './reader-engine.ts';
 import {freshSuggestions,suggestionBatchSchema} from './reader-suggestions.ts';
@@ -16,10 +16,11 @@ import {choicesJson,storyDraftJson,suggestionSystemPrompt,draftInstructions,imag
 export {imageTypes} from './reader-generation-contract.ts';
 import type {ArtStyleId} from './reader-styles.ts';
 import {saveStoryOriginal} from './reader-source-storage.ts';
-import {localChoicesJson,localScanJson,localCatalogOutputJson,localCatalogOutputTokens,localChoices,localReadingPrompt,localSuggestionPayload} from './reader-local-contract.ts';
+import {localChoicesJson,localScanJson,localCardsJson,localCardsOutputTokens,localCatalogOutputJson,localCatalogOutputTokens,localChoices,localReadingPrompt,localSuggestionPayload} from './reader-local-contract.ts';
 import {binaryThemeMatch,themeVerificationProtocol,themeMatchEffort} from './reader-theme-match.ts';
 import type {ThemeStory,ThemeMatchProtocol,ThemeEvidence} from './reader-theme-match.ts';
 import type {WholeBookInput} from './reader-local-contract.ts';
+import {selectionBookTitle} from './reader-books.ts';
 import {verifiedOriginalPayload} from './reader-source-types.ts';
 import {assertStoryBriefReady} from './reader-story-brief.ts';
 import type {OriginalSource} from './reader-source-types.ts';
@@ -53,7 +54,7 @@ export function configuredModels(vars:Record<string,string|undefined>):Models {
  return {text:vars.GEMINI_TEXT_MODEL?.trim()||defaultModels.text,image:vars.GEMINI_IMAGE_MODEL?.trim()||defaultModels.image};
 }
 function source(selection:Selection){
- const book=(selection.bookId==='other'?selection.customBook:readerBooks.find(b=>b.id===selection.bookId)?.title||selection.bookId)?.trim();
+ const book=selectionBookTitle(selection)?.trim();
  if(!book)throw new GeminiError('INVALID_SOURCE',400);
  let url='';
  if(/^https?:/i.test(book)){
@@ -94,12 +95,13 @@ export function safeGeminiError(error:unknown){
  return '这一步暂时没能生成，已保留前面的内容。可手动重试。';
 }
 function client(key:string,transport:typeof fetch){
- return async(model:string,input:Record<string,unknown>,task:ReasoningTask|'image')=>{
+ return async(model:string,input:Record<string,unknown>,task:ReasoningTask|'image',signal?:AbortSignal)=>{
   const started=Date.now();
   if(!/^[a-zA-Z0-9._-]+$/.test(model))throw new GeminiError('INVALID_MODEL',400);
+  const requestSignal=signal?AbortSignal.any([AbortSignal.timeout(geminiGenerationTimeoutMs),signal]):AbortSignal.timeout(geminiGenerationTimeoutMs);
   const response=await transport(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
    method:'POST',headers:{'x-goog-api-key':key,'Content-Type':'application/json'},
-   body:JSON.stringify({...input,store:false}),signal:AbortSignal.timeout(geminiGenerationTimeoutMs),
+   body:JSON.stringify({...input,store:false}),signal:requestSignal,
   });
   // Never propagate a provider's response body; it may echo private prompts or credentials.
   if(!response.ok){
@@ -133,18 +135,18 @@ function parseText(candidate:Candidate){
  if(!value)throw new GeminiError('INVALID_TEXT');
  try{return JSON.parse(value);}catch{throw new GeminiError('INVALID_JSON');}
 }
-export async function suggestStories(key:string,selection:Selection,config:Partial<Models>={},transport:typeof fetch=fetch,excludeTitles:string[]=[],localBook?:WholeBookInput,reasoning:TaskReasoningEfforts=taskReasoningDefaults,maxStories?:1,context?:DiscoveryContext){
- const models={...defaultModels,...config},{book,url}=source(selection),scanning=localBook?.purpose==='scan'||localBook?.purpose==='catalog';
+export async function suggestStories(key:string,selection:Selection,config:Partial<Models>={},transport:typeof fetch=fetch,excludeTitles:string[]=[],localBook?:WholeBookInput,reasoning:TaskReasoningEfforts=taskReasoningDefaults,maxStories?:number,context?:DiscoveryContext){
+ const models={...defaultModels,...config},{book,url}=source(selection),scanning=localBook?.purpose==='scan'||localBook?.purpose==='catalog',cards=localBook?.purpose==='cards';context?.signal?.throwIfAborted();
  const run=async(report:(meta:{model?:string;usage?:unknown;acceptedCount?:number})=>void)=>{
   const {candidate,metadata}=await client(key,transport)(models.text,textRequest(models.text,
    localBook?localReadingPrompt(localBook):suggestionSystemPrompt,
-   localSuggestionPayload(book,selection.theme,excludeTitles,localBook,maxStories),localBook?.purpose==='catalog'?localCatalogOutputJson(localBook):scanning?localScanJson:localBook?localChoicesJson:choicesJson,url,localBook?.purpose==='catalog'?localCatalogOutputTokens(localBook.scan?.maxStories||1):scanning?10000:localBook?5000:2500,reasoning.suggest),'suggest');report(metadata);
+   localSuggestionPayload(book,selection.theme,excludeTitles,localBook,maxStories),localBook?.purpose==='catalog'?localCatalogOutputJson(localBook):cards?localCardsJson:scanning?localScanJson:localBook?localChoicesJson:choicesJson,url,localBook?.purpose==='catalog'?localCatalogOutputTokens(localBook.scan?.maxStories||1):cards?localCardsOutputTokens:scanning?10000:localBook?5000:2500,reasoning.suggest),'suggest',context?.signal);report(metadata);
   if(url&&!wasRead(candidate,url))return {stories:[],note:'暂时无法读取这个链接，请提供可公开访问的原文页面，或直接输入书名。'};
   const batch=localBook?localChoices(parseText(candidate),localBook):choicesSchema.parse(parseText(candidate));
   const fresh=scanning?batch:freshSuggestions(batch,excludeTitles);report({acceptedCount:fresh.stories.length});
   return maxStories?{...fresh,stories:fresh.stories.slice(0,maxStories)}:fresh;
  };
- return scanning?discoveryCall({stage:'extraction',provider:'gemini',model:models.text,effort:reasoning.suggest,requestedCount:localBook.scan?.maxStories||1},context,run):run(()=>{});
+ return scanning||cards?discoveryCall({stage:'extraction',provider:'gemini',model:models.text,effort:reasoning.suggest,requestedCount:cards?5:localBook?.scan?.maxStories||1},context,run):run(()=>{});
 }
 async function checkStoryThemes<T extends {matches:unknown[]}>(key:string,theme:string,stories:ThemeStory[],config:Partial<Models>,transport:typeof fetch,context:DiscoveryContext|undefined,contract:ThemeMatchProtocol<T>){
  const models={...defaultModels,...config};

@@ -46,6 +46,10 @@ export class StoryCardEmbeddingStore{
   if(!requireFile(this.file))return [];
   const db=this.open(false);try{this.schema(db);return db.prepare('SELECT DISTINCT book_id FROM vectors ORDER BY book_id').all().map(row=>String(row.book_id));}finally{db.close();}
  }
+ removeBook(bookId:string){
+  if(!requireFile(this.file))return 0;
+  const db=this.open(true);try{this.schema(db);db.exec('BEGIN IMMEDIATE');const result=db.prepare('DELETE FROM vectors WHERE book_id=?').run(bookId);db.exec('COMMIT');return Number(result.changes);}catch(error){try{db.exec('ROLLBACK');}catch{}throw error;}finally{db.close();}
+ }
  async models(settings=this.settings(),signal?:AbortSignal):Promise<ModelProbe>{
   const baseUrl=validateOllamaUrl(settings.baseUrl);
   const tags=tagsSchema.parse(await this.request(baseUrl+'/api/tags',{method:'GET',signal}));

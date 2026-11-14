@@ -50,6 +50,10 @@ export class StoryDiscoveryCache{
   try{await this.store.put(`reader-cache/${discoveryHash(key)}.json`,new TextEncoder().encode(JSON.stringify({version:1,key,value})),{contentType:'application/json'});}
   catch{throw new ReaderError(503,'故事缓存暂时无法保存，请检查数据目录权限后重试。');}
  }
+ async remove(key:string){
+  const flight=this.flights.get(key);if(flight){flight.controller.abort();await flight.promise.catch(()=>{});}
+  try{await this.store.delete(`reader-cache/${discoveryHash(key)}.json`);}catch{throw new ReaderError(503,'故事缓存暂时无法删除，请检查数据目录权限。');}
+ }
  // Every queued mutation executes against the latest file; a shared flight would discard joiners' work.
  async update<T>(key:string,schema:z.ZodType<T>,initial:()=>T,change:(value:T)=>T|Promise<T>):Promise<T>{
   const previous=this.updates.get(key)||Promise.resolve();

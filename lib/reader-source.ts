@@ -4,6 +4,7 @@ import {Converter} from 'opencc-js';
 import type {Selection} from './reader-model.ts';
 import type {OriginalSource,SourceResult,SourceFailure,SourceHint} from './reader-source-types.ts';
 import {verifiedPassages} from './reader-verified-passages.ts';
+import {selectionBookTitle} from './reader-books.ts';
 
 const simplified=Converter({from:'t',to:'cn'}),traditional=Converter({from:'cn',to:'t'});
 const names:Record<string,string>={liaozhai:'聊斋志异',shishuo:'世说新语',zhuangzi:'庄子'};
@@ -26,7 +27,7 @@ export function sourceQuery(selection:Selection,plan:SourceHint){
  const custom=selection.customBook?.trim()||'';
  const reference=simplified(plan.sourceReference);
  const bracket=reference.match(/《([^》]+)》/)?.[1]||'';
- const book=names[selection.bookId]||(selection.bookId==='other'?(custom.startsWith('http')?bracket.split(/[·•‧/]/)[0]:custom):selection.bookId);
+ const book=names[selection.bookId]||(selection.bookId==='other'?(custom.startsWith('http')?bracket.split(/[·•‧/]/)[0]:custom):selectionBookTitle(selection));
  const inBrackets=bracket.split(/[·•‧/]/).slice(1).join('/');
  const tail=reference.replace(/^.*?》/,'').replace(/[（(].*$/,'').replace(/^\s*第[一二三四五六七八九十百零〇\d]+则.*$/,'').trim();
  const chapter=(inBrackets||tail||selection.storyTitle||'').replace(/^\s*[·•‧/]/,'').trim().slice(0,80);

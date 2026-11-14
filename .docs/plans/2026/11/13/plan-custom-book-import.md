@@ -1,6 +1,6 @@
 # 自备书籍导入为本地书 · 实现计划
 
-需求见 [req-custom-book-import](../../../../reqs/2026/11/13/req-custom-book-import.md)，验收用例见 [test-custom-book-import](../../../../tests/test-custom-book-import.md)。Git 基点：`1fd8343d78c2781cff4e7fb22b040a24e65c0dc9`（main）。
+需求见 [req-custom-book-import](../../../../reqs/2026/11/13/req-custom-book-import.md)，验收用例见 [test-custom-book-import](../../../../tests/test-custom-book-import.md)。Git 基点：`c0866de`（main，2026-11-14 已 rebase）。
 
 ## 目标与边界
 
@@ -25,10 +25,11 @@ flowchart LR
    - `manifest.json`（`version:1`，zod 校验）：书名、作者、年代、来源说明、授权说明、版权确认时间；每个原件的 `{file,sha256,size,originalName|sourceUrl,contentType,encoding,fetchedAt}`；另有 `snapshotHash`、`parserVersion`、`structure`（章节起点、标题、排除标记）、`structureHash`、`edition`、`status`（`structuring|ready`）和质量标记摘要。
    - `cards.json`：沿用内置故事卡的 `storyCardsSchema`（`version:1,bookId,edition,cards`）。
    - `card-progress.json`：包含当前 `edition`；每章状态（`done|failed|pending`）和失败原因、生成器身份（提供方、模型、提示版本）、累计调用次数和令牌数，以及本书生成任务写入的抽取缓存键。所有写入都先比较运行时捕获的 edition 与当前清单；不一致时拒绝写入。
+   - `card-cache-keys.json`：独立于可重建的进度文件，保存本书所有由生成任务登记的缓存键。确认书目 ready 时先创建空索引，每个键必须在发出对应 provider 请求前原子登记。ready 书缺少索引或索引损坏都视为数据损坏；删除和替换从该文件读取缓存键，文件损坏或缓存删除失败时停止破坏性操作并报告错误，不把缺失进度当作空键列表。
 
    每本书最多 100 个来源，原始字节合计最多 64 MiB；单个文件或网页仍最多 12 MB。单本 EPUB 解压不超过 64 MiB，所有 EPUB 合计解压不超过 256 MiB。整次 URL 导入共用 5 分钟截止时间，单页 30 秒。
 
-   暂存目录 `.book-import-<随机>` 和待删目录 `.book-delete-<id>` 放在**书库根目录**，不放在 `books/` 里面。原因是 `server/library-backup.ts` 的 `runtimeFile` 只在顶层排除文件。备份会递归包含 `books/`，升级不会改动它。`shiqu.sqlite` 不变，所以不需要 `drizzle/` 迁移，也不改 `db/library-format.json`。旧版应用会忽略 `books/`；用导入书做的故事已经保存了原文，旧版仍能阅读。
+   暂存目录 `.book-import-<随机>`、待删目录 `.book-delete-<id>` 和替换备份 `.book-replace-<id>-<随机>` 放在**书库根目录**，不放在 `books/` 里面。原因是 `server/library-backup.ts` 的 `runtimeFile` 只在顶层排除文件。备份会递归包含 `books/`，升级不会改动它。`shiqu.sqlite` 不变，所以不需要 `drizzle/` 迁移，也不改 `db/library-format.json`。旧版应用会忽略 `books/`；用导入书做的故事已经保存了原文，旧版仍能阅读。
    *备选：* 新建 `imported_books` 表。好处是有事务，代价是要写迁移、准备回滚备份并更新 `latestMigration`。原文无论如何都得存成文件，所以不采用。
 
 2. **书目 ID 与选择。** 导入书 ID 为 `my-` 加 16 位随机十六进制。新建故事时写入 `selection.bookId=<id>` 和 `customBook=<书名快照>`，服务端用书目里的书名覆盖 `customBook`。在 `lib/reader-books.ts` 新增 `isImportedBookId()` 和 `selectionBookTitle()`。需要改的调用点分两类：
@@ -83,9 +84,10 @@ flowchart LR
 7. **检索接入。** `LocalStorySearch` 增加资源钩子 `importedCards(book)`，读取 `books/<id>/cards.json`，与内置卡一样在运行时从原文构造检索文本。`indexableCards()`、`snapshotFor()` 和 `passages()` 都把导入卡当作内置卡处理。卡片缓存按「书对象 + 文件 stamp」失效，生成到一半也能搜到已完成的卡。`installStoryIndex()` 不接受导入书的外部索引。
 
 8. **删除与重新导入。**
-   - **删除。** 把书目录改名移到书库根目录下的 `.book-delete-<id>`，清除 `LocalBooks` 和检索缓存，调用新增的 `StoryCardEmbeddingStore.removeBook(id)`，删除运行器记录的抽取缓存键，最后递归删除目录。若中途崩溃，下次启动列目录时会清理残留的 `.book-delete-*`，以及超过 24 小时未完成的 `.book-import-*` 草稿。孤立向量的判定条件是：书的 ID 以 `my-` 开头，并且 `books/<id>` 目录已不存在。满足条件的向量才删除；书目录存在、只是加载或校验失败时，向量保留。
+   - **删除。** 把书目录改名移到书库根目录下的 `.book-delete-<id>`，清除 `LocalBooks` 和检索缓存，调用新增的 `StoryCardEmbeddingStore.removeBook(id)`，从 `card-cache-keys.json` 读取并删除生成器缓存键；进度文件损坏不影响键登记，索引损坏或单键清理失败时禁止报告删除成功，最后递归删除目录。若中途崩溃，下次启动列目录时会清理残留的 `.book-delete-*`，以及超过 24 小时未完成的 `.book-import-*` 草稿。孤立向量的判定条件是：书的 ID 以 `my-` 开头，并且 `books/<id>` 目录已不存在。满足条件的向量才删除；书目录存在、只是加载或校验失败时，向量保留。
    - **进行中的任务。** 删除前先取消该书的故事卡任务。已在制作中的故事继续使用已保存的原文；重选或续找时明确报「书已删除」。
-   - **重新导入。** 新快照在暂存目录中完成解析和校验。替换前先取消并等待该书的卡片任务，再整体替换。若 `snapshotHash` 不变且沿用原结构，版次不变，故事卡和向量继续有效。版次变化时，按不含标题的原文段落指纹匹配新旧章节；仅当旧卡涉及的所有章节内容均完全相同且各自唯一时，按段落序号映射出处、更新 edition 并保留该卡。其他章节卡设为待生成；旧向量不沿用，需重建。所有卡片和进度写入仍进行 edition 检查。
+   - **重新导入。** 新快照在暂存目录中完成解析和校验。替换前先取消并等待该书的卡片任务，读取独立键索引并清理旧缓存；清理失败时保留旧版书和替换草稿，不执行替换。若 `snapshotHash` 不变且沿用原结构，版次不变，故事卡和向量继续有效。版次变化时，按不含标题的原文段落指纹匹配新旧章节；仅当旧卡涉及的所有章节内容均完全相同且各自唯一时，按段落序号映射出处、更新 edition 并保留该卡。其他章节卡设为待生成；旧向量不沿用，需重建。所有卡片和进度写入仍进行 edition 检查。
+   - **崩溃恢复。** 替换不能复用表示“用户已请求删除”的 `.book-delete-*`。先把旧书改名为书库根目录的 `.book-replace-<id>-<随机>`，再把已完整校验的暂存书改名为 `books/<id>`，最后重新校验新书并删除备份。启动清理必须先处理替换备份：目标书完整有效时删除旧备份；目标缺失或无效时，先验证备份，再恢复旧书；需要恢复但备份无效时，保留目录并只将该 ID 标记为不可用，不阻塞其他书的列表或读取。这样在每个 rename 边界退出都不会把唯一可用版本清掉。
 
 9. **「其他」旧路径（已定决策 1）。** `reader-production.ts` 的保存任务搜索、`Reader.tsx` 的 `savedMaterials` 和 `StoryDiscoveryForm` 的外部结果都不改，已保存的 `other` 任务行为不变。新建故事时，「其他」芯片以「导入这本书」为主操作，「不导入，直接请模型推荐」为次操作；后者沿用现有路径，候选标注「未核对原文」。
 
@@ -102,25 +104,26 @@ flowchart LR
   - **真实提供方。** 使用已登录的 Codex CLI 订阅（`gpt-6-luna`），对《水浒传》第二回（约 13,940 字）试跑。前 5 次调用共接受 10 则候选；第 6 次返回 0 则但未标记 `blockComplete`，生产搜索循环以“未给出新故事，也未确认本段已读完”失败，未能稳定结束。单次日志的输入量约 21,948–25,832 tokens、时长约 3.9–6.5 秒。现有 `localCatalogPrompt` 明确要求不生成梗概，只生成不剧透简介，不能满足起因/行动/结果验收。
 
   **决定：** 拒绝原循环方案。按决定 6 改为由同一个 `ReaderProvider.suggestions()` 生产实现执行专用 cards purpose；先把当前章与下一章收窄为 chapter window，再按 reading-plan 窗口调用、缓存并核对出处。相邻窗口重叠捕获章末故事并按出处去重。超过两个章节的事件不作为完整卡片保存。真实模型候选未完成逐条质量审阅，接收标准转为自动 schema/出处核对和隔离库人工验收；不得宣称本次探针已证明卡片摘要质量。
-- [ ] 1. `lib/reader-books.ts`：实现 `isImportedBookId` 和 `selectionBookTitle`，按决定 2 只替换显示和提示词位置。
-- [ ] 2. `server/book-import-parse.ts`：解码、三种格式的正文块（含 EPUB 限制）、自动切分、结构应用、编号、质量标记、版次。
-- [ ] 3. `server/book-import-fetch.ts`：按决定 5 实现安全抓取，返回原始字节和回执。
-- [ ] 4. `server/imported-books.ts`：草稿创建与追加原件、清单、列出与读取、确认结构、替换、删除、启动时清理残留，所有写入原子完成，暂存目录放在书库根目录。`server/library-backup.ts` 的 `runtimeFile` 排除 `.book-import-` 和 `.book-delete-`。
-- [ ] 5. `server/local-books.ts`：增加书库目录参数，导入书失败即关闭（决定 3），缓存键与清除，`semanticIndexBooks()` 包含导入书并逐书捕获错误。更新 `server/app.ts` 的构造。
-- [ ] 6. `server/local-story-search.ts`：`importedCards` 钩子、按 stamp 失效的缓存、对外的缓存清除接口；`applicationStorySearch()` 接入；`installStoryIndex()` 拒绝导入书。`server/story-card-embeddings.ts`：增加 `removeBook()`。`server/story-discovery-cache.ts`：增加 `remove(key)`。`lib/services.ts` 的 `MediaStore` 和文件存储：增加 `delete`。
-- [ ] 7. `server/imported-book-cards.ts`：预估、按决定 6 逐章生成、取消、暂停状态、失败章节重试、原子写入 `cards.json` 和 `card-progress.json`。
-- [ ] 8. `lib/reader-api.ts`，沿用现有书库鉴权：
+- [x] 1. `lib/reader-books.ts`：实现 `isImportedBookId` 和 `selectionBookTitle`，按决定 2 只替换显示和提示词位置。
+- [x] 2. `server/book-import-parse.ts`：解码、三种格式的正文块（含 EPUB 限制）、自动切分、结构应用、编号、质量标记、版次。
+- [x] 3. `server/book-import-fetch.ts`：按决定 5 实现安全抓取，返回原始字节和回执。
+- [x] 4. `server/imported-books.ts`：草稿创建与追加原件、清单、列出与读取、确认结构、替换、删除、启动时清理残留，所有写入原子完成，暂存目录放在书库根目录。启动时先恢复 `.book-replace-<id>-<随机>`：目标书完整有效则清除旧备份；目标缺失或无效则验证并恢复旧书；需要恢复但备份损坏时保留目录，将该 ID 单独标为不可用，不阻塞其他书。`server/library-backup.ts` 的 `runtimeFile` 排除 `.book-import-`、`.book-delete-` 和 `.book-replace-`。
+- [x] 5. `server/local-books.ts`：增加书库目录参数，导入书失败即关闭（决定 3），缓存键与清除，`semanticIndexBooks()` 包含导入书并逐书捕获错误。更新 `server/app.ts` 的构造。
+- [x] 6. `server/local-story-search.ts`：`importedCards` 钩子、按 stamp 失效的缓存、对外的缓存清除接口；`applicationStorySearch()` 接入；`installStoryIndex()` 拒绝导入书。`server/story-card-embeddings.ts`：增加 `removeBook()`。`server/story-discovery-cache.ts`：增加 `remove(key)`。`lib/services.ts` 的 `MediaStore` 和文件存储：增加 `delete`。
+- [x] 7. `server/imported-book-cards.ts`：预估、按决定 6 逐章生成、取消、暂停状态、失败章节重试、原子写入 `cards.json` 和 `card-progress.json`；在首次异步预检前同步占用唯一任务槽，取消等待整个预检和任务 Promise 收束，替换/删除期间拒绝启动新任务；每个 cache key 在请求前写入独立的 `card-cache-keys.json`，提供校验后的清理键读取和索引清除。
+- [x] 8. `lib/reader-api.ts`，沿用现有书库鉴权：
+  - 替换和删除使用独立缓存键索引；缓存清理失败时保留当前书目或不报告完成，不吞掉错误。删除和替换都测试索引损坏、单键缓存删除失败；损坏的进度文件不能把有效缓存键隐藏。
   - 新增路由：`GET books/imported`；`POST books/imports`（建草稿，可附 `{urls}`）；`POST books/imports/:id/files`（单文件原始字节，最大 12 MB）；`GET|PUT books/imported/:id/structure`；`POST …/confirm`；`GET …/cards/estimate`；`POST …/cards`（事件流）；`POST …/cards/cancel`；`POST …/replace`；`DELETE books/imported/:id`。
   - 修改：`embedding-index` 的白名单（`:126`）和嵌入设置的 `catalog`（`:111`）改为「内置书加已确认的导入书」；所有汇总列表逐书捕获错误。
-- [ ] 9. 客户端：
+- [x] 9. 客户端：
   - 新增 `client/ui/BookImport.tsx`：来源、版权确认、结构检查与调整、故事卡预估与进度。
   - `Reader.tsx`：书目合并导入书并显示状态，`StoryCardSearch books=` 包含导入书（`:664,690`）。
   - `StoryDiscoveryForm.tsx`：把导入书当作本地书处理，「其他」芯片按决定 9 改。
   - `StoryEmbeddingSettings.tsx`：列出导入书。
   - 删除和重新导入前显示确认。
   - 在 `pnpm desktop:preview` 中走查桌面和手机宽度。
-- [ ] 10. `server/story-export.ts` 和导出脚本：附来源与授权说明，按已定决策 3 处理：应用内导出始终附说明，`pnpm export:story` 在没有授权说明时拒绝导出。
-- [ ] 11. CLI（`server/headless-cli.ts`）：
+- [x] 10. `server/story-export.ts` 和导出脚本：附来源与授权说明，按已定决策 3 处理：应用内导出始终附说明，`pnpm export:story` 在没有授权说明时拒绝导出。
+- [x] 11. CLI（`server/headless-cli.ts`）：
   - **分派。** 把 `:103-104` 的 `books` 兜底分支改为只处理无动作或未知动作；`catalog`、`books` 的列表经应用 API 合并导入书。
   - **新增命令**，全部经 `createApplication`/`api()` 执行，先完成 `ensureLibraryReady()`：
     - `books imported`
@@ -134,13 +137,13 @@ flowchart LR
     - `books remove <id> --yes`
   - **免初始化的搜索路径**（`:133-147` 的 `books search` 和 `index-import`）保持不打开书库，遇到导入书 ID 时报错，提示改用应用内搜索或先打开书库。
   - **同步**帮助、`skills/shiqu/SKILL.md` 和 `.docs/use-as-skill.md` 的示例。
-- [ ] 12. 在 `tests/manifest.json` 登记测试，包括 `covers` 和 `tests/fixtures/imported-books/*` 的归属：
+- [x] 12. 在 `tests/manifest.json` 登记测试，包括 `covers` 和 `tests/fixtures/imported-books/*` 的归属：
   - 新增：
     - `tests/book-import-parse.test.mjs`：编码（含 Big5 和编码难以判断的情况）、三种格式、DRM、单本及全书 EPUB 解压上限、越界路径、自动切分、结构调整、编号可复现、质量标记、版次。
     - `tests/book-import-fetch.test.mjs`：私网地址、重定向、DNS 重绑定、单页与整次导入大小和时限、内容类型（模拟 DNS 和 fetch）。
-    - `tests/imported-books.test.mjs`：创建、确认、加载、篡改与清单版本、来源数量/总字节/EPUB 总展开字节上限、删除后失败即关闭不回退网页原文、缓存失效、重新导入时版次保留与变化、唯一未变章节卡及出处重绑、残留清理、`LocalBooks.resolve/storyOriginal`。
+    - `tests/imported-books.test.mjs`：创建、确认、加载、篡改与清单版本、来源数量/总字节/EPUB 总展开字节上限、删除后失败即关闭不回退网页原文、缓存失效、重新导入时版次保留与变化、唯一未变章节卡及出处重绑、替换崩溃恢复的每个 rename 边界、残留清理、`LocalBooks.resolve/storyOriginal`。
     - `tests/imported-book-cards.test.mjs`：预估使用 cards purpose、实际格式化 prompt/payload/schema，且任何窗口都不超过预算；假提供方通过生产 `ReaderProvider.suggestions()` 的 cards purpose 逐窗口生成，确认只送入当前章及其紧邻下一章；summary 输出包含起因/行动/结果，出处定位正确；相邻窗口重复去重；取消会 abort 当前 Codex/Claude 子进程或 provider fetch、等待 teardown、不提交未完成窗口，`StoryDiscoveryCache.shared()` 使用 `drain:true` 等待共享工作结束，续跑复用已完成窗口；重启后显示暂停；失败重试；edition 过期写入被拒绝；替换前取消并等待；版次变化后仅保留唯一未变章节的卡、旧向量失效；`LocalStorySearch` 的按故事和按主题检索；删除时清理缓存键。
-    - `tests/imported-books-api.test.mjs`：路由、单文件上限、鉴权、事件流、一本坏书不影响汇总列表。
+    - `tests/imported-books-api.test.mjs`：路由、单文件上限、鉴权、事件流、一本坏书不影响汇总列表；进度损坏时从独立缓存键索引清理；索引损坏或缓存删除失败时，删除和替换均保留旧书并返回失败。
   - 扩展：
     - `tests/headless-cli.test.mjs`、`tests/cli-skill.test.mjs`；
     - `tests/story-card-embeddings.test.mjs`：`removeBook`；
@@ -148,7 +151,7 @@ flowchart LR
     - `tests/local-story-search.test.mjs`；
     - `tests/library-maintenance.test.mjs`：备份恢复包含 `books/`，排除根目录的暂存目录；
     - 表单测试：导入书视为本地书，「其他」提供两种操作。
-- [ ] 13. 验证：先执行 `nvm use`。迭代时运行 `pnpm test:related`；交付前运行 `pnpm test:changed`、`pnpm typecheck` 和 `pnpm lint`。在隔离书库中按验收用例经 CLI 和浏览器各走一遍。不碰用户的真实书库，不打包桌面应用。
+- [x] 13. 验证：先执行 `nvm use`。迭代时运行 `pnpm test:related`；交付前运行 `pnpm test:changed`、`pnpm typecheck` 和 `pnpm lint`。在隔离书库中按验收用例经 CLI 和浏览器各走一遍。不碰用户的真实书库，不打包桌面应用。
 
 ## 风险
 
@@ -158,9 +161,34 @@ flowchart LR
 - **解析器演进。** 由 `parserVersion` 固定，旧版本须长期保持可读。
 - **交互查找的残留缓存。** 用户自己做按主题查找时留下的缓存（标题、梗概、出处，不含原文）不在运行器的记录中，删除书后无法再访问，但仍会进入备份。需求中已注明。
 - **与制作队列争用提供方。** 库内同时只运行一个故事卡任务，失败章节可以单独重试。
+- **缓存键索引损坏。** 进度文件和缓存键索引分开保存；破坏性清理校验独立索引并在损坏时失败关闭，避免静默遗留中间结果。
 
 ## AR 记录
 
 AR 判定为非低风险，原因是涉及持久化、网络抓取、对外 CLI 与技能、费用控制。由独立审阅者复核了两轮。第一轮有 8 项阻塞问题，均已修正：上传受 13 MiB 请求体上限约束；EPUB 缺少解压限制；`LocalBooks` 缓存不失效，书被删除后会回退到未核对原文；身份键被误改为书名；按章抽取未先收窄范围；`embedding-index` 和 CLI 的书目白名单被遗漏；一本坏书会拖垮汇总列表；CLI 绕过 `ensureLibraryReady`。第二轮复核通过，另有 5 项非阻塞建议，均已并入本计划：`MediaStore.delete`、孤立向量的判定、实际解压字节计数、章节范围来源、草稿清理。
 
 本次 RPD 开始后的 AR 第三轮发现：缺少单次导入的文件数、原始字节和抓取总时限；版次变化时未定义未变章节卡复用；替换可能与运行中的故事卡任务竞争。以上已在 REQ、AP 和验收用例中解决。第四轮发现多本 EPUB 可累积过大解压量，已增加单本 64 MiB、全书 256 MiB 解压上限并补验收。第五轮通过：`AR passed: no blocking architecture flaws`。任务 0 实际 Codex 探针推翻 discovery loop 方案后，第六轮先发现 cards 计划仍按 scan prompt/schema 估算，且取消信号未进入 provider request；已改为按 cards 实际请求计数，并要求取消/替换/删除 abort request 后等待 teardown。第六轮通过；另补 `StoryDiscoveryCache.shared()` 的 `drain:true`，防止共享工作尚未结束时过早替换或删除。
+
+
+## 本次 RPD 执行记录（2026-11-14）
+
+REQ risk: non-low — 导入会保存用户原文，并涉及公网抓取、提供方费用、版权回执与可恢复的书库维护。
+AP risk: non-low — 方案覆盖持久化、网络抓取、CLI 与技能同步、费用边界和崩溃恢复。
+AR risk: non-low — 由独立审阅者检查存储、解析、安全抓取、生命周期和任务收束。
+AR review round: 6; reviewer: reused.
+SS risk: non-low — 生产链路跨客户端、CLI、书库、检索与模型提供方。
+CR review round: 3; reviewer: reused.
+SS implementation: custom book import, structure review, resumable story cards, search/index, provenance export and CLI delivered in the implementation milestone commit recorded below.
+TT risk: non-low — full mapped change-plan plus native coverage required.
+TT result: `pnpm test:changed` passed (187 changed paths; 1,570 tests passed, 0 failed); `pnpm typecheck` and `pnpm lint` passed. Native: 25 Rust library tests passed, 1 release-bundle-only test filtered under the CI-compatible resource override; `cargo fmt --check` passed. Focused import/preparation/metrics/registry tests passed 26/26.
+TT review round: not applicable; reviewer: not applicable.
+ET risk: non-low — UI/CLI create and persist imported-book data in an isolated library.
+ET result: browser file import detected two chapters, saved structure, confirmed the book and displayed a 2-call / 2,116-token estimate. CLI import, structure inspection, confirmation, listing and a 1-call / 983-token estimate passed in a separate isolated library. No provider inference was sent in these manual walks; production provider behavior is covered by controlled integration tests. Both test libraries and the preview server were removed/stopped.
+ET review round: not applicable; reviewer: not applicable.
+VR risk: non-low — acceptance spans parser/fetch limits, lifecycle, cache safety, export, CLI and UI.
+VR passed: 1,570/1,570 mapped tests passed; typecheck, lint, native Rust checks, focused regressions, and isolated CLI/browser import journeys passed.
+VR review round: 3; reviewer: reused.
+DD risk: non-low — local delivery only; the branch is rebased on main and has not been pushed.
+DD: approved for local branch delivery after the implementation milestone and this report commit.
+DD review round: not applicable; reviewer: not applicable.
+GC: local implementation and RPD evidence commits recorded on `claude/frosty-hermann-7f7c8a`; no push.

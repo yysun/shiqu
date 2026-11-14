@@ -102,7 +102,7 @@ for(const combine of [false,true])test(`${combine?'多段':'单段'}原文直接
   assert.equal(payload.sourcesConfirmed,true);
   assert.ok(schema.required.includes('storyTitle')&&schema.required.includes('artRecommendation'));
   assert.doesNotMatch(payload.verifiedOriginal.text,/旅人/);
-  return {storyTitle:'两则古事',storySummary:'两段各自完整的古事。',artRecommendation:{artStyle:'ink-wash',reason:'水墨呼应两段古事的意境。'}};
+  return {storyTitle:'两则古事',storySummary:'两段各自完整的古事。',storyMatchReason:'两段原文均已核对。',artRecommendation:{artStyle:'ink-wash',reason:'水墨呼应两段古事的意境。'}};
  };
  f.options.generation=withLocalBooks(f.generation,library.books,f.media);await f.restart();f.app.services.localBooks=library.books;
  const input=combine?{discovery:{mode:'auto',combine:true},discoverySources:[first,second]}:{

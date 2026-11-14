@@ -15,7 +15,7 @@ import type {ReasoningEffort,ReasoningTask} from '../lib/reader-reasoning.ts';
 import {openaiDefaultModels} from '../lib/system-settings.ts';
 import {storyboardGenerator} from '../lib/reader-storyboard.ts';
 import {freshSuggestions,suggestionBatchSchema} from '../lib/reader-suggestions.ts';
-import {localChoicesJson,localScanJson,localCatalogOutputJson,localCatalogOutputTokens,localChoices,localReadingPrompt,localSuggestionPayload} from '../lib/reader-local-contract.ts';
+import {localChoicesJson,localScanJson,localCardsJson,localCardsOutputTokens,localCatalogOutputJson,localCatalogOutputTokens,localChoices,localReadingPrompt,localSuggestionPayload} from '../lib/reader-local-contract.ts';
 import type {ThemeMatchProtocol,ThemeStory} from '../lib/reader-theme-match.ts';
 import type {DiscoveryContext} from '../lib/reader-discovery-call.ts';
 import {binaryThemeMatch,themeVerificationProtocol,themeMatchModel,themeMatchEffort} from '../lib/reader-theme-match.ts';
@@ -29,20 +29,10 @@ import {imageDimensions,imageRequestSize} from '../lib/reader-image-dimensions.t
 import {readerStoryboardTimeoutMs} from '../lib/reader-limits.ts';
 import {responsesDiagnostic} from '../lib/reader-responses-diagnostics.ts';
 import {geminiReviewEvidence as sourceReviewEvidence} from '../lib/reader-gemini-evidence.ts';
+import {strictOpenAISchema} from '../lib/reader-openai-schema.ts';
+export {strictOpenAISchema} from '../lib/reader-openai-schema.ts';
 
 export class OpenAIError extends Error{usage?:unknown;model?:string;status:number;constructor(code:string,status=502){super(code);this.status=status;}}
-// Responses strict schemas require every property. Nullable optional properties are restored before Zod validation.
-export function strictOpenAISchema(input:unknown):any{
- if(!input||typeof input!=='object')return input;
- if(Array.isArray(input))return input.map(strictOpenAISchema);
- const value=input as Record<string,any>,output=Object.fromEntries(Object.entries(value).map(([key,item])=>[key,strictOpenAISchema(item)]));
- if(value.type==='object'&&value.properties){
-  const required=new Set(value.required||[]);
-  output.properties=Object.fromEntries(Object.entries(value.properties).map(([key,schema])=>[key,required.has(key)?strictOpenAISchema(schema):{anyOf:[strictOpenAISchema(schema),{type:'null'}]}]));
-  output.required=Object.keys(value.properties);output.additionalProperties=false;
- }
- return output;
-}
 function restoreOptional(value:any,schema:any):any{
  if(Array.isArray(value))return value.map(item=>restoreOptional(item,schema?.items));
  if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).filter(([key,item])=>item!==null||schema?.required?.includes(key)).map(([key,item])=>[key,restoreOptional(item,schema?.properties?.[key])]));
@@ -89,16 +79,16 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
  if(deepseek)for(const task of reasoningTasks)reasoning[task]=deepSeekEffort(reasoning[task]);
  const matchingModel=deepseek?models.text:themeMatchModel,matchingEffort=deepseek?deepSeekEffort(themeMatchEffort):themeMatchEffort,label=deepseek?'DeepSeek API':'OpenAI API';
  if([models.text,...(deepseek?[]:[models.image])].some(model=>!model.match(/^[\w.-]{1,100}$/)))throw new OpenAIError('INVALID_MODEL',400);
- async function request(route:string,body:Record<string,unknown>|FormData,timeout=timeoutMs){
+ async function request(route:string,body:Record<string,unknown>|FormData,timeout=timeoutMs,signal?:AbortSignal){
   if(!key)throw new OpenAIError('KEY_REQUIRED',401);
   const multipart=body instanceof FormData;
-  const response=await transport(base+route,{method:'POST',headers:{Authorization:'Bearer '+key,...(!multipart?{'Content-Type':'application/json'}:{})},body:multipart?body:JSON.stringify(body),signal:AbortSignal.timeout(timeout),redirect:'error'});
+  const response=await transport(base+route,{method:'POST',headers:{Authorization:'Bearer '+key,...(!multipart?{'Content-Type':'application/json'}:{})},body:multipart?body:JSON.stringify(body),signal:signal?AbortSignal.any([AbortSignal.timeout(timeout),signal]):AbortSignal.timeout(timeout),redirect:'error'});
   if(!response.ok){await response.body?.cancel();throw new OpenAIError('PROVIDER_ERROR',response.status);}
   let value:any;try{value=await response.json();}catch{throw new OpenAIError('PROVIDER_ERROR',502);}
   if(!value||typeof value!=='object')throw new OpenAIError('PROVIDER_ERROR',502);
   return {value,requestId:response.headers.get('x-request-id')};
  }
- async function text(instructions:string,payload:unknown,schema:unknown,effort:ReasoningEffort,maxOutputTokens=8192,requestedModel=models.text,task?:ReasoningTask){
+ async function text(instructions:string,payload:unknown,schema:unknown,effort:ReasoningEffort,maxOutputTokens=8192,requestedModel=models.text,task?:ReasoningTask,signal?:AbortSignal){
   // Resolve only exact saved source references before the unchanged canonical review validators.
   const evidence=deepseek?sourceReviewEvidence(payload,schema):{payload,schema,direction:'',resolve:(value:unknown)=>value};
   if(evidence.direction)instructions+='\n\n'+evidence.direction;
@@ -107,7 +97,7 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
   const tokenLimit=deepseek?Math.max(maxOutputTokens,effort==='max'||effort==='high'&&task==='review'?65536:effort==='high'?32768:8192):maxOutputTokens;
   const started=Date.now();
   const outputSchema=strictOpenAISchema(evidence.schema);
-  const {value,requestId}=await request('/responses',{model:requestedModel,instructions,input:[{role:'user',content:JSON.stringify(evidence.payload)}],reasoning:{effort},text:{format:{type:'json_schema',name:'story_result',strict:true,schema:outputSchema}},max_output_tokens:tokenLimit,store:false});
+  const {value,requestId}=await request('/responses',{model:requestedModel,instructions,input:[{role:'user',content:JSON.stringify(evidence.payload)}],reasoning:{effort},text:{format:{type:'json_schema',name:'story_result',strict:true,schema:outputSchema}},max_output_tokens:tokenLimit,store:false},timeoutMs,signal);
   if(deepseek)console.info('deepseek_response',JSON.stringify(responsesDiagnostic({status:value.status,incompleteReason:value.incomplete_details?.reason,inputTokens:value.usage?.input_tokens,outputTokens:value.usage?.output_tokens,reasoningTokens:value.usage?.output_tokens_details?.reasoning_tokens,cachedInputTokens:value.usage?.input_tokens_details?.cached_tokens,maxOutputTokens:tokenLimit,reasoningEffort:effort,elapsedMs:Date.now()-started})));
   const fail=(code:string)=>Object.assign(new OpenAIError(code),{usage:value.usage,model:value.model});
   if(!deepseek&&requestedModel===themeMatchModel&&value.model&&value.model!==requestedModel)throw fail('MODEL_UNAVAILABLE');
@@ -131,12 +121,13 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
   async status(){return {configured:!!key,provider,models,voiceEnabled:false,taskReasoningEfforts:reasoning,themeMatching:{model:matchingModel,reasoningEffort:matchingEffort},...(deepseek&&!key?{message:'请通过 DEEPSEEK_API_KEY 提供 DeepSeek 密钥；不会使用其他提供方的密钥。'}:{})};},
   async suggestions(selection,excluded,localBook,reading){
    const scanning=localBook?.purpose==='scan'||localBook?.purpose==='catalog';
+   const cards=localBook?.purpose==='cards';reading?.signal?.throwIfAborted();
    const run=async(report:(meta:{model?:string;usage?:unknown;acceptedCount?:number})=>void)=>{
-    const result=await text(localBook?localReadingPrompt(localBook):suggestionSystemPrompt,localSuggestionPayload(book(selection),selection.theme,excluded,localBook,reading?.maxStories),localBook?.purpose==='catalog'?localCatalogOutputJson(localBook):scanning?localScanJson:localBook?localChoicesJson:choicesJson,reasoning.suggest,localBook?.purpose==='catalog'?localCatalogOutputTokens(localBook.scan?.maxStories||1):scanning?10000:localBook?5000:2500);
+    const result=await text(localBook?localReadingPrompt(localBook):suggestionSystemPrompt,localSuggestionPayload(book(selection),selection.theme,excluded,localBook,reading?.maxStories),localBook?.purpose==='catalog'?localCatalogOutputJson(localBook):cards?localCardsJson:scanning?localScanJson:localBook?localChoicesJson:choicesJson,reasoning.suggest,localBook?.purpose==='catalog'?localCatalogOutputTokens(localBook.scan?.maxStories||1):cards?localCardsOutputTokens:scanning?10000:localBook?5000:2500,models.text,undefined,reading?.signal);
     report(result);const batch=localBook?localChoices(result.value,localBook):suggestionBatchSchema.parse(result.value),fresh=scanning?batch:freshSuggestions(batch,excluded);report({acceptedCount:fresh.stories.length});
     return reading?.maxStories?{...fresh,stories:fresh.stories.slice(0,reading.maxStories)}:fresh;
    };
-   return scanning?discoveryCall({stage:'extraction',provider,model:models.text,effort:reasoning.suggest,requestedCount:localBook.scan?.maxStories||1},reading,run):run(()=>{});
+   return scanning||cards?discoveryCall({stage:'extraction',provider,model:models.text,effort:reasoning.suggest,requestedCount:cards?5:localBook?.scan?.maxStories||1},reading,run):run(()=>{});
   },
   matchStories:(theme,stories,context)=>checkThemes(theme,stories,context,binaryThemeMatch,matchingModel),
   verifyThemeStories:(theme,stories,context,evidence)=>checkThemes(theme,stories,context,themeVerificationProtocol(evidence)),

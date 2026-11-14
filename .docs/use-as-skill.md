@@ -127,6 +127,26 @@ $shiqu 将拾趣设为只读模式，保留已有的服务密钥和模型设置�
 我接下来只想查看、整理和导出已有故事，不进行生成。
 ```
 
+## 导入个人原文
+
+导入内容只写入当前本地书库。导入人需要确认有权保存和使用这些文件或网页，并填写真实的出处和授权说明。先检查自动章节结构，再确认加入书库；故事卡生成和向量建库需要单独查看预估或确认配置。 TXT、HTML 文件或网页编码无法自动判断时，可用 `--encoding utf-8|gb18030|big5` 指定后重试。
+
+```bash
+pnpm cli books import ./my-book.txt --title "书名" --author "作者" --source-note "来源网址或版本信息" --license "授权依据" --accept-rights
+pnpm cli books structure DRAFT_ID
+pnpm cli books structure DRAFT_ID --input structure.json
+pnpm cli books confirm DRAFT_ID
+pnpm cli books cards BOOK_ID --estimate
+pnpm cli books cards BOOK_ID
+pnpm cli books index BOOK_ID
+pnpm cli books imported
+pnpm cli books reimport BOOK_ID ./revised-book.txt --accept-rights
+pnpm cli books structure REPLACEMENT_DRAFT_ID
+pnpm cli books reimport BOOK_ID --draft-id REPLACEMENT_DRAFT_ID --input reviewed-structure.json
+```
+
+生成过程中按 Ctrl-C 会等待当前请求退出并保存暂停状态；之后再次运行 `books cards` 会从未完成的窗口续跑，失败章节通过 `--retry-failed` 单独重试。替换书籍时先导入新来源并检查返回的草稿，再把检查过的 `{chapters:[...]}` 结构交给 `--draft-id` 完成替换；也可以在创建替换草稿时直接传 `--input`。只有内容完全一致且唯一的章节会保留卡片。删除需要 `books remove BOOK_ID --yes`，会同时删除原文、故事卡、向量和生成中间结果。已制作故事保留已保存的原文和授权说明。
+
 ## 从零开始制作故事
 
 ```text

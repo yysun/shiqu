@@ -1,6 +1,7 @@
 // Advance local story generation under one session lock, retaining every paid result it can save.
 // A failed save is rethrown for recovery rather than recorded as a provider failure.
-import {blockedIssues,nextStep,reviewPhase,planSchema,reflectionCandidatesSchema,storyPresentationSchema,storyDraftSchema,storyboardOutlineSchema,storyboardBatchSchema,selectionSchema,view,ReaderError,productionComplete,readerBooks} from './reader-model.ts';
+import {blockedIssues,nextStep,reviewPhase,planSchema,reflectionCandidatesSchema,storyPresentationSchema,storyDraftSchema,storyboardOutlineSchema,storyboardBatchSchema,selectionSchema,view,ReaderError,productionComplete} from './reader-model.ts';
+import {selectionBookTitle} from './reader-books.ts';
 import type {Document,Plan,StoryDraft,ReflectionCandidates,StoryPresentation,Selection,SessionRow,Storyboard,StoryboardOutline} from './reader-model.ts';
 import {persistenceError} from './reader-repository.ts';
 import type {ReaderRepository} from './reader-repository.ts';
@@ -62,7 +63,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    if(!doc.original){
     let original=await generator.prepareOriginal?.(selection,id);
     if(!original){
-     const book=selection.bookId==='other'?selection.customBook:readerBooks.find(b=>b.id===selection.bookId)?.title||selection.bookId;
+     const book=selectionBookTitle(selection);
      const result=await generator.original(selection,{sourceReference:`《${book||''}》${selection.storyTitle||''}`},id);
      if(!result.source)throw new ReaderError(503,'原文未能核对，暂时无法准备故事摘要。'+result.message);
      original=result.source;

@@ -10,6 +10,7 @@ export interface MediaObject {body:Uint8Array<ArrayBuffer>;contentType:string;ar
 export interface MediaStore {
  get(key:string):Promise<MediaObject|null>;
  put(key:string,value:ArrayBuffer|Uint8Array,options:{contentType:string}):Promise<unknown>;
+ delete(key:string):Promise<void>;
 }
 export interface Services {
  commandOnly?:boolean;

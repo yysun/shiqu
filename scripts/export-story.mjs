@@ -90,7 +90,7 @@ export async function exportNamedStory(name,{appUrl='http://localhost:3000',onPr
   const {exportLocalStory}=await import('../server/story-export.ts');
   const input=path.join(temporary,'story.zip');
   onProgress('正在通过 Node 生成公开 ZIP…');
-  await exportLocalStory(project,app,session,{format:'zip',output:input});
+  await exportLocalStory(project,app,session,{format:'zip',output:input,requireImportLicense:true});
   const data=savedJSON(new Uint8Array(await readFile(input)));
   assert(data.id===session.id&&data.revision===(session.revision?.number||1),'导出文件不是所选的当前版本。');
   assert((await api(`sessions/${session.id}/current`)).id===session.id,'导出期间书架已切换到新版，请重新导出。');

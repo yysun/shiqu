@@ -5,6 +5,7 @@ import {readFile,writeFile,lstat} from 'node:fs/promises';
 import {createCanvas,loadImage,GlobalFonts} from '@napi-rs/canvas';
 import {createHash} from 'node:crypto';
 import type {Story} from '../lib/content.ts';
+import type {GeneratedStory} from '../lib/reader-model.ts';
 import type {ExportRuntime,ExportCanvas} from '../lib/story-export-runtime.ts';
 import {createStoryZip} from '../lib/reader-zip.ts';
 import {createStoryPdf} from '../lib/reader-pdf.ts';
@@ -14,6 +15,9 @@ import {storyZipData,storyZipFiles} from '../lib/reader-zip-content.ts';
 import {imageDimensions} from '../lib/reader-image-dimensions.ts';
 import {hasPublicationAuthor,withPublicationDefaults} from '../lib/story-publication.ts';
 import type {StoryPromptHistory} from '../lib/reader-prompt-records.ts';
+import type {ImportedSourceDisclosure} from '../lib/reader-zip-content.ts';
+import {normalizeImportedSourceDisclosure} from '../lib/reader-zip-content.ts';
+import {isImportedBookId} from '../lib/reader-books.ts';
 type Application={handle:(request:Request)=>Promise<Response>};
 const fontHash='2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b';
 const loaded=new Set<string>();
@@ -42,7 +46,7 @@ export function nativeExportRuntime(root:string,app:Application):ExportRuntime{
  };
 }
 const escape=(s:unknown)=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
-export async function exportLocalStory(root:string,app:Application,session:any,options:{format:string;output:string;includePrompts?:boolean;allowUnsigned?:boolean;preview?:boolean}){
+export async function exportLocalStory(root:string,app:Application,session:any,options:{format:string;output:string;includePrompts?:boolean;allowUnsigned?:boolean;preview?:boolean;requireImportLicense?:boolean}){
  if(session.superseded)throw Error('EXPORT_SUPERSEDED_VERSION');let story:Story=session.story;if(!story)throw Error('EXPORT_NO_STORYBOARD');
  const defaults=await(await app.handle(new Request('http://shiqu.local/api/reader/publication-defaults'))).json();story=withPublicationDefaults(story,defaults.publication);
  if(!options.preview&&!hasPublicationAuthor(story.publication)&&!options.allowUnsigned)throw Error('EXPORT_UNSIGNED: set publication author or explicitly pass --allow-unsigned');
@@ -58,8 +62,14 @@ export async function exportLocalStory(root:string,app:Application,session:any,o
  }else{
   if(session.state!=='completed'||!story.pages.length||story.pages.some(p=>!p.image))throw Error('EXPORT_INCOMPLETE: complete the current version before image export');
   if(format==='zip'){
+   let disclosure:ImportedSourceDisclosure|undefined;
+   if(isImportedBookId(story.bookId)){
+    const original=(story as GeneratedStory).original;disclosure=original?.importedSourceDisclosure?normalizeImportedSourceDisclosure(original.importedSourceDisclosure):undefined;
+    if(!disclosure){const imported=await app.handle(new Request(`http://shiqu.local/api/reader/books/imported/${encodeURIComponent(story.bookId)}`));disclosure=imported.ok?normalizeImportedSourceDisclosure(await imported.json()):{sourceNote:'',license:'',sources:[]};}
+    if(options.requireImportLicense&&!disclosure.license.trim())throw Error('EXPORT_IMPORTED_LICENSE_REQUIRED: add an authorization note to the imported book before using pnpm export:story');
+   }
    const response=await app.handle(new Request(`http://shiqu.local/api/reader/sessions/${story.id}/prompts`));if(!response.ok)throw Error('EXPORT_PROMPTS_UNAVAILABLE');
-   const blob=await createStoryZip(story,await response.json() as StoryPromptHistory,()=>{},runtime),archive=new Uint8Array(await blob.arrayBuffer());bytes=options.includePrompts?archive:publicStoryZip(archive).bytes;
+   const blob=await createStoryZip(story,await response.json() as StoryPromptHistory,()=>{},runtime,disclosure),archive=new Uint8Array(await blob.arrayBuffer());bytes=options.includePrompts?archive:publicStoryZip(archive).bytes;
   }else if(format==='pdf')bytes=await createStoryPdf(story,()=>{},runtime);
   else if(format==='png')bytes=new Uint8Array(await(await createStoryPng(story,()=>{},runtime)).arrayBuffer());
   else throw Error('EXPORT_FORMAT_INVALID');

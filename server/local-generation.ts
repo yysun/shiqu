@@ -41,9 +41,13 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
   ...(provider.matchStories?{matchStories:provider.matchStories.bind(provider)}:{}),
   ...(provider.verifyThemeStories?{verifyThemeStories:provider.verifyThemeStories.bind(provider)}:{}),
   async suggestions(selection,excluded,_localBook,reading,excludedSources=[]){
-   reading?.signal.throwIfAborted();
+   reading?.signal?.throwIfAborted();
    const book=await books.book(selection);
-   reading?.signal.throwIfAborted();
+   reading?.signal?.throwIfAborted();
+   if(_localBook?.purpose==='cards'){
+    if(!book||book.id!==selection.bookId||book.edition!==_localBook.edition)throw new ReaderError(409,'导入书版次已变化，请重新生成故事卡。');
+    return provider.suggestions({...selection,customBook:book.title},excluded,_localBook,reading,excludedSources);
+   }
    if(!book){if(selection.discoverySources||selection.discovery?.mode==='title')throw new ReaderError(400,'章节或标题提取只支持本地书库。');return provider.suggestions(selection,excluded,undefined,reading,excludedSources);}
    if(selection.discovery?.mode==='auto'&&selection.discovery.combine)throw new ReaderError(400,'多段原文请进入准备故事。');
    const scope=selection.discoverySources?await selectedChapterScope(books,book,selection.discoverySources):null;

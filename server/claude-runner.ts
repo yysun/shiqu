@@ -22,11 +22,14 @@ export function createClaudeRunner(variables:Record<string,string|undefined>,opt
  if(!/^[\w.-]{1,100}$/.test(model))throw new ClaudeError('INVALID_MODEL');
  const env=claudeEnvironment({...options.environment||process.env,...(variables.CLAUDE_CONFIG_DIR?{CLAUDE_CONFIG_DIR:variables.CLAUDE_CONFIG_DIR}:{})});
  let resolvedModel:string|undefined;
- async function execute(args:string[],directory:string,input:string,timeoutMs:number,onLine?:(line:string)=>void){
+ async function execute(args:string[],directory:string,input:string,timeoutMs:number,onLine?:(line:string)=>void,signal?:AbortSignal){
   return new Promise<{code:number|null;text:string}>((resolve,reject)=>{
+   if(signal?.aborted){reject(new ClaudeError('CANCELLED'));return;}
    const child=spawn(binary,args,{cwd:directory,env,stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32',windowsHide:true});
    children.add(child);let text='',bytes=0,failure:Error|undefined;
    const fail=(error:Error)=>{failure??=error;kill(child);};
+   const onAbort=()=>fail(new ClaudeError('CANCELLED'));
+   signal?.addEventListener('abort',onAbort,{once:true});if(signal?.aborted)onAbort();
    const timer=setTimeout(()=>fail(new ClaudeError('TIMEOUT')),timeoutMs);
    const budget=(chunk:Buffer)=>{bytes+=chunk.length;if(bytes>32*1024*1024)fail(new ClaudeError('OUTPUT_LIMIT'));};
    const lines=onLine?createInterface({input:child.stdout!}):undefined;
@@ -35,12 +38,12 @@ export function createClaudeRunner(variables:Record<string,string|undefined>,opt
    // stderr may contain source text or credentials. Bound and discard it.
    child.stderr!.on('data',budget);child.once('error',()=>fail(new ClaudeError('CLI_UNAVAILABLE')));
    child.stdin!.on('error',()=>fail(new ClaudeError('PROCESS_EXIT')));
-   child.once('close',code=>{clearTimeout(timer);lines?.close();children.delete(child);if(failure)reject(failure);else resolve({code,text});});
+   child.once('close',code=>{clearTimeout(timer);signal?.removeEventListener('abort',onAbort);lines?.close();children.delete(child);if(failure)reject(failure);else resolve({code,text});});
    child.stdin!.end(input);
   });
  }
- async function auth(directory:string){
-  const result=await execute([...isolation,'auth','status'],directory,'',Math.min(options.timeoutMs||10000,10000));
+ async function auth(directory:string,signal?:AbortSignal){
+  const result=await execute([...isolation,'auth','status'],directory,'',Math.min(options.timeoutMs||10000,10000),undefined,signal);
   let status:any;try{status=JSON.parse(result.text);}catch{throw new ClaudeError('INVALID_PROTOCOL');}
   if(!status.loggedIn)throw new ClaudeError('CLAUDE_LOGIN_REQUIRED');
   if(result.code!==0||status.authMethod!=='claude.ai'||status.apiProvider!=='firstParty')throw new ClaudeError('SUBSCRIPTION_REQUIRED');
@@ -53,13 +56,15 @@ export function createClaudeRunner(variables:Record<string,string|undefined>,opt
    finally{await rm(directory,{recursive:true,force:true});}
   },
   async run(job:CodexJob):Promise<CodexResult>{
+   job.signal?.throwIfAborted();
    if(job.generateImage||job.image)throw new ClaudeError('TEXT_ONLY');
    const requested=job.model||model,effort=codexReasoningEffortSchema.safeParse(job.reasoningEffort??'');
    if(!/^[\w.-]{1,100}$/.test(requested))throw new ClaudeError('INVALID_MODEL');
    if(!effort.success)throw new ClaudeError('INVALID_REASONING_EFFORT');
    const directory=await mkdtemp(path.join(tmpdir(),'shiqu-claude-'));let started=false,usage:unknown;
    try{
-    await auth(directory);
+    await auth(directory,job.signal);
+    job.signal?.throwIfAborted();
     const instructions=path.join(directory,'instructions.txt');await writeFile(instructions,job.instructions,{mode:0o600});
     const args=[...isolation,'--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--print','--output-format','stream-json','--verbose','--tools','','--disable-slash-commands','--no-session-persistence','--no-chrome','--permission-mode','dontAsk','--model',requested,'--system-prompt-file',instructions];
     if(effort.data)args.push('--effort',effort.data);
@@ -84,7 +89,7 @@ export function createClaudeRunner(variables:Record<string,string|undefined>,opt
       }
      }
      if(message.type==='result'){if(result)throw new ClaudeError('INVALID_PROTOCOL');result=message;usage=message.usage;}
-    });
+    },job.signal);
     if(output.code!==0||!initialized||!result||result.is_error||result.subtype!=='success')throw new ClaudeError('GENERATION_FAILED');
     if(!actualModel||requested.startsWith('claude-')&&actualModel!==requested)throw new ClaudeError('MODEL_UNAVAILABLE');
     if(!result.modelUsage||!Object.hasOwn(result.modelUsage,actualModel)||typeof result.session_id!=='string'||!result.session_id)throw new ClaudeError('INVALID_PROTOCOL');

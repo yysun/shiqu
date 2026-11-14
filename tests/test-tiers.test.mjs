@@ -33,7 +33,7 @@ test('metadata partitions automatic regressions and assigns assurance suites to 
  }
  assert.ok(!flows.includes('tests/startup-cli-flow.test.mjs'));
  assert.ok(metadata.tests.find(entry=>entry.file==='tests/startup-cli-flow.test.mjs').manualOnly);
- assert.equal(books.length,10);
+ assert.equal(books.length,12);
  assert.ok(metadata.tests.filter(entry=>entry.suite==='books').every(entry=>entry.manualOnly),'book corpus checks stay selectable only through the explicit books command');
  assert.deepEqual(new Set(automatic),new Set([...unit,...flows].filter(file=>!metadata.tests.find(entry=>entry.file===file)?.manualOnly)),'the aggregate runner excludes manual-only suites');
  for(const retired of [

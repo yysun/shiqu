@@ -2,7 +2,7 @@
 // Manifests contain references only; hydration verifies exhaustive, ordered unit coverage.
 // Explicit chapter selections use the full request budget to preserve their shared main event.
 import {z} from 'zod';
-import {localRangeSchema,localScanJson,localReadingPrompt,legacyLocalScanJson,legacyLocalReadingPrompt} from '../lib/reader-local-contract.ts';
+import {localRangeSchema,localScanJson,localCardsJson,localReadingPrompt,legacyLocalScanJson,legacyLocalReadingPrompt} from '../lib/reader-local-contract.ts';
 import type {WholeBookInput} from '../lib/reader-local-contract.ts';
 import type {LocalBook,LocalSection,LocalUnit} from './local-books.ts';
 import {StoryDiscoveryCache,discoveryHash} from './story-discovery-cache.ts';
@@ -28,25 +28,34 @@ export function hydrateReadingPlan(book:LocalBook,manifest:ReadingManifest):Read
  if(JSON.stringify(seen)!==JSON.stringify(expected)||manifest.mode==='whole'&&blocks.length!==1)throw Error('Reading manifest does not cover original');
  return blocks;
 }
-export function buildReadingPlan(book:LocalBook,provider:string,limits=defaultReadingLimits,selectedChapters=false,targetStoryTitle?:string):ReadingManifest{
- const input:WholeBookInput={...book.input,purpose:selectedChapters||targetStoryTitle?'catalog':'scan',scan:{maxStories:selectedChapters||targetStoryTitle?1:5,excludedSources:[],pendingEvents:[],contextText:'',...(targetStoryTitle?{targetStoryTitle}:selectedChapters?{chapterStoryLevel:'main' as const}:{})}};
+type ReadingPurpose='scan'|'catalog'|'cards';
+function planningInput(book:LocalBook,purpose:ReadingPurpose,selectedChapters:boolean,targetStoryTitle?:string):WholeBookInput{
+ if(purpose==='cards')return {...book.input,purpose:'cards'};
+ return {...book.input,purpose:selectedChapters||targetStoryTitle?'catalog':purpose,scan:{maxStories:selectedChapters||targetStoryTitle?1:5,excludedSources:[],pendingEvents:[],contextText:'',...(targetStoryTitle?{targetStoryTitle}:selectedChapters?{chapterStoryLevel:'main' as const}:{})}};
+}
+export function buildReadingPlan(book:LocalBook,provider:string,limits=defaultReadingLimits,selectedChapters=false,targetStoryTitle?:string,purpose:ReadingPurpose='scan'):ReadingManifest{
+ const input=planningInput(book,purpose,selectedChapters,targetStoryTitle),theme=purpose==='cards'?'原典故事':'题'.repeat(100);
  const all=book.sections.flatMap(section=>section.units.map(unit=>({section,unit})));
- const total=requestTokens(input,'题'.repeat(100),[],provider);
+ const total=requestTokens(input,theme,[],provider);
  if(selectedChapters?total<=limits.whole:book.sections.length<=2&&total<=Math.min(limits.whole,limits.chapter))return {mode:'whole',blocks:[{ranges:ranges(all),tokens:total}]};
- const blocks:z.infer<typeof blockSchema>[]=[];let rows:Row[]=[],size=0;
- const flush=()=>{if(rows.length){const text=render(rows),tokens=readingTokens(text,provider);if(tokens>limits.chapter)throw Error('Reading block exceeded budget');blocks.push({ranges:ranges(rows),tokens});rows=[];size=0;}};
+ const blocks:z.infer<typeof blockSchema>[]=[];let rows:Row[]=[];
+ const measured=(target:Row[])=>purpose==='cards'?requestTokens({...input,text:render(target)},theme,[],provider):readingTokens(render(target),provider);
+ const flush=()=>{if(rows.length){const tokens=measured(rows);if(tokens>limits.chapter)throw Error('Reading block exceeded budget');blocks.push({ranges:ranges(rows),tokens});rows=[];}};
  for(const section of book.sections){
-  const sectionRows=section.units.map(unit=>({section,unit})),tokens=readingTokens(render(sectionRows),provider);
-  if(tokens<=limits.chapter){if(rows.length&&(size+tokens+10>limits.chapter))flush();rows.push(...sectionRows);size+=tokens+10;}
-  else {flush();for(const row of sectionRows){const tokens=readingTokens(render([row]),provider)+10;if(tokens>limits.chapter)throw Error('Single source unit exceeds reading budget');if(size+tokens>limits.chapter)flush();rows.push(row);size+=tokens;}}
+  const sectionRows=section.units.map(unit=>({section,unit})),tokens=measured(sectionRows);
+  if(tokens<=limits.chapter){const combined=[...rows,...sectionRows];if(rows.length&&measured(combined)>limits.chapter)flush();rows.push(...sectionRows);}
+  else {flush();for(const row of sectionRows){if(measured([row])>limits.chapter)throw Error('Single source unit exceeds reading budget');if(rows.length&&measured([...rows,row])>limits.chapter)flush();rows.push(row);}}
  }
  flush();return {mode:'chapters',blocks};
 }
-export function readingPlanKey(book:LocalBook,provider:string,limits=defaultReadingLimits,selectedChapters=false,targetStoryTitle?:string){return discoveryHash(['reading-plan-v4',book.id,book.edition,discoveryHash(book.input.text),provider,limits,localReadingPrompt({...book.input,purpose:'scan'}),localScanJson,...(selectedChapters||targetStoryTitle?['selected-chapters-v1',selectedChapters,localReadingPrompt({...book.input,purpose:'catalog',scan:{maxStories:1,excludedSources:[],pendingEvents:[],contextText:'',...(targetStoryTitle?{targetStoryTitle}:{chapterStoryLevel:'main' as const})}})]:[])]);}
+export function readingPlanKey(book:LocalBook,provider:string,limits=defaultReadingLimits,selectedChapters=false,targetStoryTitle?:string,purpose:ReadingPurpose='scan'){
+ if(purpose==='cards')return discoveryHash(['reading-plan-cards-v1',book.id,book.edition,discoveryHash(book.input.text),provider,limits,localReadingPrompt(planningInput(book,purpose,selectedChapters,targetStoryTitle)),localCardsJson]);
+ return discoveryHash(['reading-plan-v4',book.id,book.edition,discoveryHash(book.input.text),provider,limits,localReadingPrompt({...book.input,purpose:'scan'}),localScanJson,...(selectedChapters||targetStoryTitle?['selected-chapters-v1',selectedChapters,localReadingPrompt({...book.input,purpose:'catalog',scan:{maxStories:1,excludedSources:[],pendingEvents:[],contextText:'',...(targetStoryTitle?{targetStoryTitle}:{chapterStoryLevel:'main' as const})}})]:[])]);
+}
 export function legacyReadingPlanKey(book:LocalBook,provider:string,limits=legacyReadingLimits){return discoveryHash(['reading-plan-v2',book.id,book.edition,discoveryHash(book.input.text),provider,limits,legacyLocalReadingPrompt({...book.input,purpose:'scan'}),legacyLocalScanJson]);}
-export async function readingPlan(book:LocalBook,provider:string,cache:StoryDiscoveryCache,limits=defaultReadingLimits,selectedChapters=false,targetStoryTitle?:string){
- const key=`${readingPlanKey(book,provider,limits,selectedChapters,targetStoryTitle)}/blocks`;
+export async function readingPlan(book:LocalBook,provider:string,cache:StoryDiscoveryCache,limits=defaultReadingLimits,selectedChapters=false,targetStoryTitle?:string,purpose:ReadingPurpose='scan'){
+ const key=`${readingPlanKey(book,provider,limits,selectedChapters,targetStoryTitle,purpose)}/blocks`;
  let manifest=await cache.read(key,manifestSchema,value=>{hydrateReadingPlan(book,value);return true;});
- if(!manifest){manifest=buildReadingPlan(book,provider,limits,selectedChapters,targetStoryTitle);await cache.write(key,manifest);}
+ if(!manifest){manifest=buildReadingPlan(book,provider,limits,selectedChapters,targetStoryTitle,purpose);await cache.write(key,manifest);}
  return {key,manifest,blocks:hydrateReadingPlan(book,manifest)};
 }

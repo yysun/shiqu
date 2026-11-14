@@ -29,6 +29,7 @@ import type {LocalStorySearch} from './local-story-search.ts';
 import type {IndexableCard} from './story-card-embeddings.ts';
 import {storyEditorialContext,compoundDiscoveryThemeTerms} from '../lib/reader-prompts.ts';
 import {discoveryCode} from '../lib/reader-discovery-call.ts';
+import {isImportedBookId} from '../lib/reader-books.ts';
 
 const storySchema=suggestionBatchSchema.shape.stories.element.omit({storyBrief:true,matchReason:true,matchScore:true}).extend({source:localSourceSchema,continuedFrom:z.array(localSourceSchema).min(1).max(16).optional()});
 type Story=z.infer<typeof storySchema>;
@@ -94,7 +95,6 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const targetTitle=selection.discovery?.mode==='title'?selection.discovery.title:undefined;
  // Old tasks retain main-first behavior; new automatic searches discover independent events.
  const chapterStories=!!selection.discoverySources&&!selection.discovery;
- const selectedSourceMode=!!selection.discoverySources&&(!selection.discovery||selection.discovery.mode==='auto'&&!selection.discovery.plot&&!selection.discovery.vectorFirst&&!selection.discovery.themeInput);
  const status=await provider.status();
  const topic=selection.theme.normalize('NFKC').trim();
  const plot=selection.discovery?.mode==='auto'&&selection.discovery.plot;
@@ -102,6 +102,9 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const preset=selection.discovery?.mode==='auto'&&selection.discovery.themeInput==='preset';
  const themeTerms=preset&&!plot?compoundDiscoveryThemeTerms(topic):[];
  const theme=plot?'匹配这则故事情节：'+topic:topic;
+ const autoSourceScope=!!selection.discoverySources&&selection.discovery?.mode==='auto'&&!selection.discovery.combine&&!selection.discovery.plot&&!selection.discovery.vectorFirst&&!selection.discovery.themeInput;
+ const searchScopedSourcesByTheme=!!autoSourceScope&&!selection.discovery?.scanOnly&&!!provider.verifyThemeStories&&!!storySearch&&storyEditorialContext(theme).mode!=='source';
+ const selectedSourceMode=!!selection.discoverySources&&(!selection.discovery||selection.discovery.mode==='auto'&&!selection.discovery.plot&&!selection.discovery.vectorFirst&&!selection.discovery.themeInput)&&!searchScopedSourcesByTheme;
  const matchingTheme=themeTerms.length?'预设并列主题：'+theme:theme;
  if(vectorFirst&&!selection.discovery?.scanOnly){
   const cards=await storySearch?.indexableCards(book)||[];
@@ -245,7 +248,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   // Discovery returns ranges and a short match reason; preparation creates the synopsis after selection.
   return suggestionBatchSchema.parse({stories:stories.slice(0,batchLimit),note:note.slice(0,300)});
  };
- const extraction:Selection={bookId:selection.bookId,...(selection.bookId==='other'?{customBook:book.title}:{}),theme:'',artStyle:'ink-pencil',productionPrompt:'',length:'auto',voice:false};
+ const extraction:Selection={bookId:selection.bookId,...(selection.bookId==='other'||isImportedBookId(selection.bookId)?{customBook:book.title}:{}),theme:'',artStyle:'ink-pencil',productionPrompt:'',length:'auto',voice:false};
  // 先核对主题候选池，展示上限只约束返回页，不限制模型审阅范围。
  const verifiedTheme=async(cached:Story[]):Promise<SuggestionBatch|undefined>=>{
   if(selection.discovery?.scanOnly||targetTitle||selectedSourceMode||!provider.verifyThemeStories||!storySearch||storyEditorialContext(theme).mode==='source')return;

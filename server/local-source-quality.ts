@@ -6,7 +6,17 @@ const unresolvedEntity=/&(?:amp;)*(?:KR[\w-]*|CDP[-\w]+);/iu;
 const componentLayout=/【(?:字形)?(?:左[\p{Script=Han}]{1,2}右[\p{Script=Han}]{1,2}|上[\p{Script=Han}]{1,2}下[\p{Script=Han}]{1,2})】|【(?:字形|□[：:])?(?:左|上)[^】\n]{0,35}[“「"][^】\n]{0,35}(?:右|下)[^】\n]{0,35}】/u;
 const editorialOmission=/[（(][^()（）\n]{0,12}(?:下有[/\s]*[脱脫]文|原缺|原[阙闕]|缺[頁页])[^()（）\n]{0,12}[）)]|下有[/\s]*[脱脫]文(?:[。．.]|$)/u;
 export function hasSourceAnomaly(text:string){
- return typeof text!=='string'||!text.isWellFormed()||damagedCodepoint.test(text)||unresolvedEntity.test(text)||componentLayout.test(text)||editorialOmission.test(text);
+ return sourceAnomalyReasons(text).length>0;
+}
+export function sourceAnomalyReasons(text:string){
+ if(typeof text!=='string')return ['invalid-text'];
+ const reasons:string[]=[];
+ if(!text.isWellFormed())reasons.push('invalid-text');
+ if(damagedCodepoint.test(text))reasons.push('unreadable-glyph');
+ if(unresolvedEntity.test(text))reasons.push('unresolved-entity');
+ if(componentLayout.test(text))reasons.push('component-layout');
+ if(editorialOmission.test(text))reasons.push('editorial-omission');
+ return reasons;
 }
 // Two reviewed, nonessential details in pinned editions remain usable without guessing their glyphs.
 // This is qualification only: neither the returned source nor the stored original is rewritten.

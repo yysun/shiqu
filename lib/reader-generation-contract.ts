@@ -1,6 +1,7 @@
 // Share story/image contracts across providers; shot direction stays independent of art style and cast identity.
 import {imageSizeDirection} from './reader-image-dimensions.ts';
-import {readerBooks,ReaderError} from './reader-model.ts';
+import {ReaderError} from './reader-model.ts';
+import {selectionBookTitle} from './reader-books.ts';
 import type {Plan,Selection} from './reader-model.ts';
 import {getArtStyle} from './reader-styles.ts';
 import type {ArtStyleId} from './reader-styles.ts';
@@ -43,7 +44,7 @@ export const storyPageDirection=promptSections(
 export const planSystemPrompt=promptSections(['任务','你是古典短篇连环画编剧与分镜导演，本次生成完整文字分镜。'],['编排标准',storyPlanningDirection],['静态画面与衔接',storyboardDirection],['元数据',storyMetadataDirection],['逐幅要求',storyPageDirection],['本次输出',storyDraftDirection]);
 export function draftInstructions(local=false){return planSystemPrompt+(local?'\n\n## 本地原文\n'+localPlanConstraint:'');}
 export function storySource(selection:Selection){
- const book=(selection.bookId==='other'?selection.customBook:readerBooks.find(b=>b.id===selection.bookId)?.title||selection.bookId)?.trim();
+ const book=selectionBookTitle(selection)?.trim();
  if(!book)throw new ReaderError(400,'请填写有效的书名。');
  return {book,isUrl:/^https?:/i.test(book)};
 }

@@ -20,7 +20,8 @@ async function simple(t){
  await writeFile(path.join(source,'media/image.webp'),Buffer.from([1,2,3,4]));return {root,source,backup,restored};
 }
 test('backup hashes complete SQLite/media and restore is exact without replacing any target',async t=>{
- const f=await simple(t),manifest=createLibraryBackup(f.source,f.backup,'0.6.6');assert.equal(manifest.files.length,2);verifyLibraryBackup(f.backup);
+ const f=await simple(t);for(const name of ['.book-import-draft','.book-delete-my-0000000000000000','.book-replace-my-0000000000000000-00000000-0000-4000-8000-000000000001']){await mkdir(path.join(f.source,name),{recursive:true});await writeFile(path.join(f.source,name,'runtime'),'temporary');}
+ const manifest=createLibraryBackup(f.source,f.backup,'0.6.6');assert.equal(manifest.files.length,2);verifyLibraryBackup(f.backup);
  restoreLibraryBackup(f.backup,f.restored);
  assert.deepEqual(await readFile(path.join(f.restored,'media/image.webp')),await readFile(path.join(f.source,'media/image.webp')));
  const db=new DatabaseSync(path.join(f.restored,'shiqu.sqlite'),{readOnly:true});assert.equal(db.prepare('SELECT value FROM sentinel').get().value,'preserved');db.close();

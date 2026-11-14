@@ -29,7 +29,8 @@ import {ArrowLeft, ArrowRight, Maximize2, Bookmark, BookOpen, Check, ChevronLeft
 import {randomId, request} from './shared';
 import type {Story} from '@/lib/content';
 import type {GeneratedStory,Selection,SessionView} from '@/lib/reader-model';
-import {readerBooks,type ReaderBook} from '@/lib/reader-books';
+import {readerBooks,isImportedBookId,selectionBookTitle,type ReaderBook} from '@/lib/reader-books';
+import BookImport from './BookImport';
 import {useStoryGeneration} from './useStoryGeneration';
 const isGenerated=(s:Story|null):s is GeneratedStory=>!!s&&'generated'in s&&s.generated===true;
 import {getArtStyle} from '@/lib/reader-styles';
@@ -86,7 +87,7 @@ const exportOptions={
  png:{label:'下载 PNG',description:'一页总览',Icon:ImageDown},
  zip:{label:'下载 ZIP',description:'原文与完整提示词',Icon:FileArchive},
 };
-const choices:Book[] = [...readerBooks,{id:'other',title:'其他',author:'书名或 URL',era:'自选',genre:'自选',note:'带上你自己的那本书'}];
+const otherBook:Book={id:'other',title:'其他',author:'书名或 URL',era:'自选',genre:'自选',note:'带上你自己的那本书'};
 const moods=discoveryThemes;
 
 // Restore preferences before the first render so opening creation immediately cannot save a default book.
@@ -115,6 +116,8 @@ export default function Reader(){
  useEffect(()=>{try{localStorage.setItem('shiqu-last-tab',tab);}catch{}},[tab]);
  const [loading,setLoading]=useState(true),[loadError,setLoadError]=useState(''),[toast,setToast]=useState(''),[source,setSource]=useState(false),[configure,setConfigure]=useState(false),[unavailable,setUnavailable]=useState(''),[settings,setSettings]=useState(false);
  const [semanticIndexBooks,setSemanticIndexBooks]=useState<{id:string;cardCount:number}[]>([]);
+ const [importedBooks,setImportedBooks]=useState<{id:string;title:string;author:string;era:string;status:string;sources:number;chapters:number}[]>([]),[importOpen,setImportOpen]=useState(false);
+ const availableChoices:Book[]=[...readerBooks,...importedBooks.filter(book=>book.status==='ready').map(book=>({id:book.id,title:book.title,author:book.author||'用户导入',era:book.era||'自备书',genre:'自备书',note:`${book.chapters} 章 · ${book.sources} 个来源`})),otherBook];
  const browsingBooks=tab==='discover'||configure;
  useEffect(()=>{
   if(!browsingBooks)return;
@@ -123,6 +126,7 @@ export default function Reader(){
    .catch(()=>{if(active)setSemanticIndexBooks([]);});
   return()=>{active=false;};
  },[browsingBooks]);
+ useEffect(()=>{let active=true;request('reader/books/imported').then(({books})=>{if(active&&Array.isArray(books))setImportedBooks(books);}).catch(()=>{});return()=>{active=false;};},[]);
  const [workflowTarget,setWorkflowTarget]=useState<string|null>(null),[workflowError,setWorkflowError]=useState('');
  const [script,setScript]=useState(false);
  const [discoveryTarget,setDiscoveryTarget]=useState<string|null>(null);
@@ -283,7 +287,7 @@ export default function Reader(){
   if(seen.current.size===story.pages.length)track('complete');
  }
  // 桌面新建页从“返回修改书籍”打开时，左侧选书、心情与“不挑了”只改选择，仍修改原任务的条件（与手机表单内选书一致）。
- function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){cancelOpening();clearRetained('discovery');setCreateSeed(seed=>seed+1);setAutoSearch(discoveryThemePresets.includes(theme));if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,displayTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
+ function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){cancelOpening();clearRetained('discovery');setCreateSeed(seed=>seed+1);setAutoSearch(discoveryThemePresets.includes(theme));if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,...(importedBooks.find(book=>book.id===bookId)?{customBook:importedBooks.find(book=>book.id===bookId)!.title}:{}),theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,displayTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
  // 关闭新建并丢弃表单草稿；新建面板关闭、顶栏离开与两条提交成功路径共用。
  function closeCreate(){
   setConfigure(false);setDiscoveryTarget(null);clearRetained('discovery');
@@ -503,7 +507,7 @@ export default function Reader(){
  const shelfSessionsById=new Map(gen.sessions.map(session=>[session.id,session]));
  const allStories=gen.sessions.flatMap(s=>s.story?[s.story]:[]).filter(s=>!deletedIds.includes(s.id));
  const heroes=recentShelfHeroes(allStories,deletedIds.includes(lastReadId)?'':lastReadId,progress.filter(p=>!deletedIds.includes(p.storyId)));
- const bookName=(s:Pick<Story,'id'|'bookId'>)=>(s.bookId==='other'?(gen.active?.id===s.id?gen.active:shelfSessionsById.get(s.id))?.selection.customBook:'')||choices.find(b=>b.id===s.bookId)?.title||s.bookId;
+ const bookName=(s:Pick<Story,'id'|'bookId'>)=>{const saved=gen.active?.id===s.id?gen.active:shelfSessionsById.get(s.id);return (s.bookId==='other'||isImportedBookId(s.bookId)?saved?.selection.customBook:'')||selectionBookTitle({bookId:s.bookId},importedBooks)||s.bookId;};
  const current=story?.pages[page];
  const captionText=current?.caption||'';
  const captionKey=story?`${story.id}:${page}:${captionText}`:'';
@@ -596,7 +600,7 @@ export default function Reader(){
  <RecentStories key={heroes.map(h=>h.story.id).join('|')} items={heroes} loading={libraryLoading} bookName={bookName} onOpen={open} activeStoryId={heroStoryId} onActiveStoryChange={setHeroStoryId}/>
  <button className="yu-new-story-link" onClick={()=>choose()}><Sparkles size={16}/><span>生成我的故事</span><ArrowRight size={16}/></button></>;
  // 新建页的表单已含按章节/按故事/按主题，书目不再显示独立检索入口（新建页无法显示该面板）。
- const bookGrid=(searchLink:boolean)=><section className="yu-section"><div className="yu-section-title"><h2>从一本书开始</h2>{searchLink&&<button type="button" className="yu-book-search-link" onClick={()=>{setSearchOpen(true);setTab('discover');}}><Search size={14}/>查章节、找故事</button>}</div><div className="yu-books">{choices.map((b,i)=>{
+ const bookGrid=(searchLink:boolean)=><section className="yu-section"><div className="yu-section-title"><h2>从一本书开始</h2>{searchLink&&<button type="button" className="yu-book-search-link" onClick={()=>{setSearchOpen(true);setTab('discover');}}><Search size={14}/>查章节、找故事</button>}</div><div className="yu-books">{availableChoices.map((b,i)=>{
   const indexed=semanticIndexBooks.find(book=>book.id===b.id);
   const indexLabel=indexed?'yu-book-index-'+b.id:undefined;
   return <button key={b.id} onClick={()=>choose(b.id)} aria-label={'选择'+b.title} aria-describedby={indexLabel}>
@@ -610,7 +614,7 @@ export default function Reader(){
  })}</div></section>;
  const discoverBooks=bookGrid(true);
  const discoverMoods=<section className="yu-section yu-theme-section"><div className="yu-section-title"><h2>或者，跟着心情走</h2><Sparkles size={17}/></div><div className="yu-moods">{moods.map((m,i)=><button key={m} className={selection.theme===m?'selected':''} onClick={()=>{choose(selection.bookId,m);}}>{i===0&&<Sparkles size={13}/>} {m}</button>)}</div></section>;
- const discoverSurprise=<button className="yu-surprise" onClick={()=>{const b=choices[Math.floor(Math.random()*(choices.length-1))];choose(b.id,moods[Math.floor(Math.random()*(moods.length-1))]);}}><span><Feather size={24}/></span><div><strong>不挑了，给我一个故事</strong><small>让偶然替你翻开第一页</small></div><ArrowRight size={19}/></button>;
+ const discoverSurprise=<button className="yu-surprise" onClick={()=>{const b=availableChoices[Math.floor(Math.random()*(availableChoices.length-1))];choose(b.id,moods[Math.floor(Math.random()*(moods.length-1))]);}}><span><Feather size={24}/></span><div><strong>不挑了，给我一个故事</strong><small>让偶然替你翻开第一页</small></div><ArrowRight size={19}/></button>;
  const discoverNote=<div className="yu-generation-note"><Sparkles size={13}/><p>故事、画面与文字，由 AI 为这一次阅读生成。</p></div>;
  const discoverStatus=loading?<p className="yu-inline-status" role="status">正在打开书页…</p>:loadError?<div className="yu-inline-status" role="alert">{loadError}<button onClick={()=>location.reload()}>重新加载</button></div>:null;
  const discoverBrowse=<>{discoverBooks}
@@ -659,14 +663,14 @@ export default function Reader(){
  // 手机树：今天的界面与其专属面板。
  // 只有自选书籍可能没有本地故事卡，使用同一个查找结果列表承接这类任务。
  const savedMaterials=materialsTask?.id===discoveryTarget&&materialsTask?.selection.bookId==='other'?materialsTask:null;
- const discoveryForm=<StoryDiscoveryForm key={createSeed} retainKey="discovery" autoSearch={autoSearch} selection={selection} books={choices}
+ const discoveryForm=<StoryDiscoveryForm key={createSeed} retainKey="discovery" autoSearch={autoSearch} selection={selection} books={availableChoices}
   semanticIndexBooks={semanticIndexBooks} busy={creating} error={unavailable}
   savedIntake={savedMaterials?.intake} savedSelection={savedMaterials?.selection}
   savedSearchPaused={!!savedMaterials?.generationControl&&savedMaterials.generationControl!=='active'}
   savedSearchControlBusy={!!savedMaterials&&gen.controlBusy===savedMaterials.id}
   onSavedSearchControl={savedMaterials?action=>gen.control(savedMaterials.id,action):undefined}
   onBookChange={bookId=>setSelection(old=>({...old,bookId,storyTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined}))}
-  onSubmit={generate} onSavedChoice={savedMaterials?chooseSavedStory:undefined}/>;
+  onSubmit={generate} onImportBook={()=>{setConfigure(false);setImportOpen(true);}} onSavedChoice={savedMaterials?chooseSavedStory:undefined}/>;
  const configureSheet=configure&&<Sheet title="这一篇，想怎样读？" busy={creating} onClose={closeCreate}>{discoveryForm}</Sheet>;
  const sourceSheet=source&&(story||gen.active)&&<Sheet title="故事从哪里来" onClose={()=>setSource(false)}>{story?<><StorySource key={story.id} story={story} book={bookName(story)}/><StoryPublicationDetails story={story}/></>:<StorySource key={gen.active!.id} sessionId={gen.active!.id} book={bookName({id:gen.active!.id,bookId:gen.active!.selection.bookId})}/>}</Sheet>;
  const sceneSheet=sceneList&&story&&<Sheet title="分镜列表" onClose={()=>setSceneList(false)}><StorySceneList story={story} page={page} onSelect={index=>{goToPage(index);setSceneList(false);}}/></Sheet>;
@@ -677,12 +681,13 @@ export default function Reader(){
  {revision.tab&&<Sheet title="修改故事" busy={revision.busy} onClose={()=>{if(!revision.busy)revision.setTab(null);}}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming} onDone={revisionDone}/></Sheet>}
  </>;
  const embeddingSheet=embeddingOpen&&<Sheet title="嵌入模型与故事卡索引" onClose={()=>setEmbeddingOpen(false)}><StoryEmbeddingSettings/></Sheet>;
+ const importSheet=importOpen&&<Sheet title="导入自备书" onClose={()=>setImportOpen(false)}><BookImport onClose={()=>setImportOpen(false)} onComplete={id=>{setImportOpen(false);request('reader/books/imported').then(({books})=>{if(Array.isArray(books))setImportedBooks(books);}).catch(()=>{}).finally(()=>choose(id));}}/></Sheet>;
  const openingStory=opening&&<p className="yu-inline-status" role="status">正在打开故事…</p>;
  const phoneTree=<>
  {story?readerMain:<>
  <header className="yu-header"><button className="yu-logo" onClick={()=>{setSearchOpen(false);setTab('discover');}} aria-label="拾趣，返回发现"><span><Feather size={22}/></span><strong>拾趣</strong><i/></button><span className="yu-header-note">片刻入戏，久久回味</span><button className="yu-avatar" onClick={()=>{setSearchOpen(false);setTab('me');}} aria-label="我的"><UserRound size={19}/></button></header>
  <main className="yu-home" data-main="">
- {searchOpen?<StoryCardSearch books={readerBooks} onClose={()=>setSearchOpen(false)}/>:<>{openingStory}{tab==='discover'?<>{discoverLead}{discoverBrowse}</>:tab==='shelf'?shelfView:profileView}</>}
+ {searchOpen?<StoryCardSearch books={availableChoices} onClose={()=>setSearchOpen(false)}/>:<>{openingStory}{tab==='discover'?<>{discoverLead}{discoverBrowse}</>:tab==='shelf'?shelfView:profileView}</>}
  </main>
  <nav className="yu-tabbar" aria-label="主导航">{[{id:'discover',title:'发现',Icon:Compass},{id:'shelf',title:'书架',Icon:BookOpen},{id:'me',title:'我的',Icon:UserRound}].map(({id,title,Icon})=><button key={id} className={tab===id?'active':''} aria-current={tab===id?'page':undefined} onClick={()=>{setSearchOpen(false);setTab(id);window.scrollTo({top:0,behavior:'instant'});}}><Icon size={22} strokeWidth={tab===id?2:1.6}/><span>{title}</span>{tab===id&&<i/>}</button>)}</nav>
  </>}
@@ -708,7 +713,7 @@ export default function Reader(){
   onOpen:openDocked,onResume:(session:ShelfSession)=>openWorkflow(session.id,true),onCreate:()=>navigate('create'),
   productionDock:{active:!sideContent,show:backToShelf,layout:(grid:ReactNode,productions:ReactNode)=><DesktopLibrary shelf={grid} reader={sideContent} productions={productions}/>},
  }):<DesktopLibrary shelf={shelfView}/>;
- const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover">{searchOpen?<StoryCardSearch books={readerBooks} onClose={()=>setSearchOpen(false)}/>:<><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></>}</div>;
+ const tabContent=tab==='shelf'?desktopLibrary:tab==='me'?profileView:<div className="yu-discover">{searchOpen?<StoryCardSearch books={availableChoices} onClose={()=>setSearchOpen(false)}/>:<><div className="yu-discover-lead">{discoverLead}</div><div className="yu-discover-browse">{discoverBrowse}</div></>}</div>;
  // 桌面新建页：选择在左（或上），内联表单在右（或下），与手机面板共用表单组件与属性。
  const createPage=view.kind==='create'&&<main className="yu-home yu-desktop-main" data-main=""><DesktopCreate
   choices={<>{bookGrid(false)}{discoverMoods}{discoverSurprise}</>}
@@ -732,6 +737,7 @@ export default function Reader(){
  {desktop?desktopTree:phoneTree}
  {settingsDialogOpen&&<StorySettingsPanel {...settingsProps} onClose={()=>{setSettings(false);closeWorkflow();}}/>}
  {embeddingSheet}
+ {importSheet}
  {storySheets}
  {story&&redrawPage!==null&&<Sheet title="重新生图" busy={redraw.busy} onClose={()=>setRedrawPage(null)}>
   <p className="yu-sheet-intro">重新生成第 {redrawPage+1} 幅图片，可能消耗生图额度。新版沿用分镜和其他图片，原版保留。</p>
