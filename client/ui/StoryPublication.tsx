@@ -2,15 +2,23 @@
 // 编辑器有未保存更改时表单带 data-dirty，返回或 Escape 关闭前先询问。
 import {useEffect,useRef,useState} from 'react';
 import type {Story} from '@/lib/content';
-import {aiDisclosure,emptyPublication,hasPublicationAuthor,publicationSchema,rightsBoundary,watermarkFontSize,withPublicationDefaults} from '@/lib/story-publication';
+import {aiDisclosure,emptyPublication,generationModelNames,hasPublicationAuthor,publicationSchema,rightsBoundary,watermarkFontSize,withPublicationDefaults} from '@/lib/story-publication';
 import type {StoryPublication} from '@/lib/story-publication';
 import Sheet from './StorySheet';
 import {request} from './shared';
 import './story-publication.css';
 
-export function StoryPublicationDetails({story}:{story:Story}){
+type PublicationDetailsStory=Story&{generated?:boolean;generationModels?:{step:string;model:string}[]};
+
+export function GenerationModelsDetails({story}:{story:PublicationDetailsStory}){
+ if(story.generated!==true)return null;
+ const textModels=generationModelNames(story.generationModels,'text').join('、')||'未记录',imageModels=generationModelNames(story.generationModels,'image').join('、')||'未记录';
+ return <div className="yu-generation-models" aria-label="生成模型"><p>文本生成模型：{textModels}</p><p>图像生成模型：{imageModels}</p></div>;
+}
+
+export function StoryPublicationDetails({story}:{story:PublicationDetailsStory}){
  const p=story.publication;
- return <section className="yu-publication" aria-label="署名与转载"><h3>署名与转载</h3><p>制作：{p?.author||'未署名'}</p><p>{aiDisclosure(story)}</p>{p?.workUrl&&<p>作品链接：{p.workUrl}</p>}{p?.contact&&<p>联系：{p.contact}</p>}{p?.sourceNote&&<p>来源与许可：{p.sourceNote}</p>}<p>转载与再使用：{p?.reuse||'未另行提供授权；请先核对来源许可，必要时联系相应权利人。'}</p><small>{rightsBoundary}</small></section>;
+ return <section className="yu-publication" aria-label="署名与转载"><h3>署名与转载</h3><p>制作：{p?.author||'未署名'}</p><p>{aiDisclosure(story)}</p><GenerationModelsDetails story={story}/>{p?.workUrl&&<p>作品链接：{p.workUrl}</p>}{p?.contact&&<p>联系：{p.contact}</p>}{p?.sourceNote&&<p>来源与许可：{p.sourceNote}</p>}<p>转载与再使用：{p?.reuse||'未另行提供授权；请先核对来源许可，必要时联系相应权利人。'}</p><small>{rightsBoundary}</small></section>;
 }
 
 export function StoryPublicationSummary({story,onEdit,disabled=false}:{story:Story;onEdit?:()=>void;disabled?:boolean}){

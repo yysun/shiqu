@@ -25,6 +25,14 @@ export function withPublicationDefaults(story:Story,defaults:StoryPublication|nu
  return {...story,publication};
 }
 export const rightsBoundary='代码开源许可不自动适用于作品内容。原作及来源版本遵循各自适用的权利和许可；本次改编中的受保护贡献，除另有许可或法律允许外，再使用请联系相应权利人。制作人的说明不能收紧公版材料或已有许可赋予的权利。';
+export function generationModelNames(models:readonly {step:string;model:string}[]|undefined,kind:'text'|'image'){
+ const image=kind==='image';
+ return [...new Set((models||[]).filter(item=>item.step.startsWith('image:')===image).map(item=>item.model.trim()).filter(Boolean))];
+}
+export function generationImageModelForPage(models:readonly {step:string;model:string}[]|undefined,page:number){
+ const step=`image:${page}`;
+ return [...(models||[])].reverse().find(item=>item.step===step&&item.model.trim())?.model.trim()||null;
+}
 export function aiDisclosure(story:PublicationStory){return 'generated'in story&&story.generated===true?'本作品包含 AI 生成的画面与改编文字。':'创作方式请以制作人说明为准。';}
 export function publicationCredit(story:PublicationStory){return `制作：${story.publication?.author||'未署名'} · 拾趣`+('generated'in story&&story.generated===true?' · AI 生成':'');}
 export function publicationText(story:PublicationStory){

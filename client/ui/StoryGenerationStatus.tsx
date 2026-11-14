@@ -20,6 +20,7 @@ import StoryFlowAction from './StoryFlowAction';
 import {getArtStyle} from '@/lib/reader-styles';
 import type {RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
 import {revisionDraftSteps} from './StoryRevisionEditor';
+import {GenerationModelsDetails} from './StoryPublication';
 
 export default function StoryGenerationStatus({session,busy,controlBusy,error,onControl,onRetry,onBack,onHistory,onAcceptance,onEditStyle,navigation,timeline,stages,draft,control,compact=false,reviewTools,stageContent,children,hideBack=false,showSummary=true}:{reviewTools?:ReactNode;stageContent?:Record<string,ReactNode>;compact?:boolean;children?:ReactNode;control?:ReactNode;timeline?:ProductionTimelineNavigation&Pick<ComponentProps<typeof StoryProductionTimeline>,'stageDurations'>;stages?:ProductionStage[];draft?:{base:RevisionSnapshot;changes:RevisionChanges};session:SessionView;busy:boolean;controlBusy:boolean;error:string;onControl:(id:string,action:ProductionAction)=>Promise<void>;onRetry:(faultId?:string)=>void;onBack:()=>void;hideBack?:boolean;showSummary?:boolean;onHistory?:()=>void;onAcceptance?:()=>void;onEditStyle?:()=>void;navigation?:StoryFlowNavigation}){
  const status=shelfGenerationStatus(session),stopped=status.group==='生成失败'||status.group==='生成已暂停';
@@ -49,6 +50,7 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
   <section className="yu-generation-progress" aria-label="生成进展">
    <StoryProductionTimeline session={session} busy={busy||controlBusy} error={error} onRetry={onRetry} onAcceptance={onAcceptance} reviewTools={reviewTools} stageContent={content} onHistory={onHistory} stages={displayedSteps} moving={moving} queued={progress.queued} {...timeline} currentTiming={moving?<><Clock3 size={12} aria-hidden="true"/>{progress.remaining===null?'超时信息待同步':progress.remaining>0?`距超时 ${generationDuration(progress.remaining)}`:'已达超时，等待状态更新'}</>:undefined} currentContent={session.state!=='completed'?generationControl:null}/>
   </section>
+  {session.story&&<GenerationModelsDetails story={session.story}/>}
   {children}
   {!hideBack&&<StoryBackToShelf onBack={onBack} link/>}
   {!hideBack&&(!session.intake||session.intake.phase==='confirmed')&&<p className="yu-generation-exit-note">{session.state==='completed'?'完整故事已保存在书架。':stopped||failed?'已保存的内容会保留，可在书架中管理和继续生成。':'离开后继续生成整篇，可随时暂停或从书架查看进度。'}</p>}
