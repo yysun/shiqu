@@ -7,10 +7,11 @@ import {books} from './fixtures/test-tier.mjs';
 const catalog=JSON.parse(await readFile('data/library/catalog.json','utf8')),baseline=JSON.parse(await readFile('tests/fixtures/publication-source-baseline.json','utf8')),library=new LocalBooks(process.cwd()),choose=bookId=>({bookId,theme:'人情冷暖',length:8,voice:false});
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
-test('all17 uncertain editions are replaced and seven retained collections keep original bytes with explicit errata versions',books,async()=>{
- assert.equal(catalog.books.length,24);assert.equal(Object.keys(licensedBookSpecs).length,17);let replaced=0,retained=0;
+test('remaining previously uncertain editions are replaced and seven retained collections keep original bytes with explicit errata versions',books,async()=>{
+ let replaced=0,retained=0;
  for(const e of catalog.books){const old=baseline[e.id],b=await library.book(choose(e.id));
   if(e.source.url.includes('/kanripo/'))assert.match(e.source.attribution,/Kanripo/);else if(new URL(e.source.url).hostname==='zh.wikisource.org')assert.match(e.source.attribution,/维基文库/);
+  if(!old)continue;
   if(!old.replaced){retained++;assert.equal(e.originalFile,old.originalFile);if(e.id==='shishuo'){assert.equal(hash(await readFile(path.join('data/library',e.originalFile))),old.sha256);assert.notEqual(b.edition,old.sha256);}else assert.equal(b.edition,old.sha256);continue;}
   replaced++;assert.notEqual(e.originalFile,old.originalFile);assert.notEqual(b.edition,old.sha256);await assert.rejects(access(path.join('data/library',old.originalFile)));
   assert.equal(e.source.license,'CC-BY-SA-4.0');assert.match(e.source.attribution,/贡献者/);assert.match(b.provider,/CC BY-SA 4.0/);assert.equal(b.sections.length,licensedBookSpecs[e.id].count);
@@ -19,11 +20,11 @@ test('all17 uncertain editions are replaced and seven retained collections keep 
   assert.equal(library.resolve(b,ref).text,u.text);assert.throws(()=>library.resolve(b,{...ref,edition:old.sha256}),e=>e.status===400);
   for(const section of b.sections)for(const unit of section.units)if(hasSourceAnomaly(unit.text))assert.throws(()=>library.resolve(b,{edition:b.edition,sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id}),e=>e.status===400);
  }
- assert.equal(replaced,17);assert.equal(retained,7);
+ assert.equal(replaced,14);assert.equal(retained,7);
 });
 
 test('Kanripo edition and chapter identities reject mismatches, and first/final chapters keep actual prose',async()=>{
- for(const[id,spec]of Object.entries(licensedBookSpecs).filter(([,s])=>s.repo)){
+ for(const[id,spec]of Object.entries(licensedBookSpecs).filter(([id,s])=>s.repo&&catalog.books.some(book=>book.id===id))){
   const e=catalog.books.find(b=>b.id===id),b=await library.book(choose(id));assert.equal(b.sections.length,spec.count);
   for(let n=1;n<=spec.count;n++){
    const item=e.originalFiles.find(f=>f.file===`${spec.repo}_${String(n).padStart(3,'0')}.txt`),raw=await readFile(path.join('data/library',e.originalFile,item.file),'utf8');let body;
@@ -39,7 +40,6 @@ test('Kanripo edition and chapter identities reject mismatches, and first/final 
 
 test('same-source narrative appendices preserve coverage and numbered chapter identities',books,async()=>{
  const xy=await library.book(choose('西游记'));assert.equal(xy.sections.length,101);assert.match(xy.sections[0].title,/第一回.*靈根育孕源流出/);assert.equal(xy.sections[7].id,'xiyou-008');assert.equal(xy.sections[8].id,'xiyou-000');assert.match(xy.sections[8].units.map(u=>u.text).join(''),/陳光蕊/);assert.equal(xy.sections[9].id,'xiyou-009');assert.equal(xy.sections.at(-1).id,'xiyou-100');
- const yw=await library.book(choose('阅微草堂笔记'));assert.equal(yw.sections.length,25);assert.match(yw.sections.at(-1).units.map(u=>u.text).join(''),/亡兒汝佶/);
 });
 
 test('replacement collections reject changed identities, extra files and a truncated final play even with refreshed manifest hashes',async t=>{

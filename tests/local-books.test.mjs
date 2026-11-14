@@ -29,7 +29,7 @@ function fake(){return {matchStories:async(_theme,stories)=>({matches:stories.ma
 async function directory(t){const root=await mkdtemp(path.join(os.tmpdir(),'shiqu-local-books-'));t.after(()=>rm(root,{recursive:true,force:true}));return root;}
 
 test('only original downloads are versioned, preserve their bytes and have matching receipts',async()=>{
- const catalog=JSON.parse(await readFile('data/library/catalog.json','utf8'));assert.equal(catalog.books.length,24);
+ const catalog=JSON.parse(await readFile('data/library/catalog.json','utf8'));assert.equal(catalog.books.length,26);
  for(const book of catalog.books){
   let hash;
   if(book.originalFiles){for(const item of book.originalFiles)assert.equal(createHash('sha256').update(await readFile(path.join('data/library',book.originalFile,item.file))).digest('hex'),item.sha256,item.file);hash=createHash('sha256').update(book.originalFiles.map(item=>`${item.file}\t${item.sha256}`).join('\n')).digest('hex');}

@@ -1,20 +1,19 @@
-// 对原著字形、表格和出处完整性进行验证；故障测试仅复制涉及的三部原著。
+// 对原著字形、表格和出处完整性进行验证；故障测试仅复制涉及的原著。
 import {copyBookLibrary} from './fixtures/book-library.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import path from 'node:path';import os from 'node:os';
 import {books} from './fixtures/test-tier.mjs';
 import{readFile,writeFile,mkdtemp,rm,symlink}from'node:fs/promises';import{createHash}from'node:crypto';import{parseDocument}from'htmlparser2';
 import{LocalBooks}from'../server/local-books.ts';import{readWikiBody,parseWikiOriginal}from'../server/local-book-html.ts';import{bookInputs}from'../server/local-book-inputs.ts';
-const root=process.cwd(),catalog=JSON.parse(await readFile('data/library/catalog.json','utf8')),ids=['山海经','酉阳杂俎','史记'],library=new LocalBooks(root),choose=bookId=>({bookId,theme:'机智',length:8,artStyle:'ink-pencil',voice:false});
+const root=process.cwd(),catalog=JSON.parse(await readFile('data/library/catalog.json','utf8')),ids=['山海经','史记'],library=new LocalBooks(root),choose=bookId=>({bookId,theme:'机智',length:8,artStyle:'ink-pencil',voice:false});
 const entry=id=>catalog.books.find(e=>e.id===id),file=(e,item)=>path.join(root,'data/library',e.originalFile,item.file),squash=s=>s.replace(/\s/g,''),stripMeta=s=>s.replace(/〔(?:表格版式：[\s\S]*?|列\d+[^〕]*|版式：小字|小字止|原件字形图：\d+)〕/g,'');
 const all=n=>[n,...(n.children||[]).flatMap(all)],text=n=>n.type==='text'?n.data:(n.children||[]).map(text).join('');
 const receipt=(b,s,u)=>({edition:b.edition,sectionId:s.id,firstUnit:u.id,lastUnit:u.id});
 
-test('three collections pin every original byte and cover all sections with declared anomaly handling',books,async()=>{
- for(const [id,count,files]of [['山海经',18,20],['酉阳杂俎',30,31],['史记',130,131]]){
+test('retained collections pin every original byte and cover all sections with declared anomaly handling',books,async()=>{
+ for(const [id,count,files]of [['山海经',18,20],['史记',130,131]]){
   const e=entry(id),b=await library.book(choose(id));assert.equal(e.originalFiles.length,files);assert.equal(b.sections.length,count);assert.equal(b.edition,e.source.sha256);
   for(const item of e.originalFiles)assert.equal(createHash('sha256').update(await readFile(file(e,item))).digest('hex'),item.sha256);
-  if(id!=='酉阳杂俎')assert.doesNotMatch(b.input.text,/[\uE000-\uF8FF\uFFFD\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]|&KR[\w-]+;|[⿰-⿿]/u);
-  else{assert.equal((b.input.text.match(/[\uE000-\uF8FF]/g)||[]).length,160);assert.equal((b.input.text.match(/□/g)||[]).length,6);for(const s of b.sections)for(const u of s.units.filter(u=>u.unreadable))assert.throws(()=>library.resolve(b,receipt(b,s,u)),e=>e.status===400);}
+  assert.doesNotMatch(b.input.text,/[\uE000-\uF8FF\uFFFD\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]|&KR[\w-]+;|[⿰-⿿]/u);
   assert.doesNotMatch(b.input.text,/姊妹计划|返回頂部|Public domain|\.mw-parser-output|window\._ROUTER_DATA|文章還沒有/);
   const inputs=bookInputs(b),seen=new Set(inputs.flatMap(p=>[...p.visible]));assert.ok(inputs.every(p=>p.input.text.length<=100000));for(const s of b.sections)for(const u of s.units)assert.ok(seen.has(u.id));assert.ok(inputs.at(-1).visible.has(b.sections.at(-1).units.at(-1).id));
   const s=b.sections[0],u=s.units.find(u=>u.narrative&&!u.unreadable);assert.throws(()=>library.resolve(b,{...receipt(b,s,u),edition:'0'.repeat(64)}),e=>e.status===400);assert.equal(new URL(library.resolve(b,receipt(b,s,u)).url).hostname,'zh.wikisource.org');
@@ -29,7 +28,7 @@ test('all Wiki reading glyphs and small annotations survive packaging in source 
   if(node.type==='text')return node.data;
   return (node.children||[]).map(flatten).join('');
  };
- for(const id of ['山海经','酉阳杂俎','史记']){
+ for(const id of ['山海经','史记']){
   const e=entry(id),b=await library.book(choose(id));
   for(const [index,section]of b.sections.entries()){
    const item=e.originalFiles.find(f=>f.file===`${String(index+1).padStart(3,'0')}.html`),raw=await readFile(file(e,item),'utf8'),doc=parseDocument(raw);
@@ -37,13 +36,6 @@ test('all Wiki reading glyphs and small annotations survive packaging in source 
    assert.equal(squash(stripMeta(section.units.map(u=>u.text).join(''))),squash(flatten(body)),`${id} ${item.file}`);
   }
  }
-});
-
-test('Youyang replacement contains main20 and continuation10 with independent immutable Wiki citations',books,async()=>{
- const e=entry('酉阳杂俎'),b=await library.book(choose(e.id));assert.equal(e.format,'licensed-wikisource');assert.equal(e.originalFiles.length,31);
- assert.equal(e.originalFiles[0].pageTitle,'酉陽雜俎/卷一');assert.equal(e.originalFiles[19].pageTitle,'酉陽雜俎/卷二十');assert.equal(e.originalFiles[20].pageTitle,'酉陽雜俎/續集/卷一');assert.equal(e.originalFiles[29].pageTitle,'酉陽雜俎/續集/卷十');
- for(const [i,s]of b.sections.entries()){const item=e.originalFiles[i],raw=await readFile(file(e,item),'utf8');assert.equal(s.url,item.sourceUrl);assert.equal(new URL(s.url).searchParams.get('oldid'),item.revision);assert.ok(readWikiBody(raw).blocks.reduce((n,b)=>n+b.text.length,0)>1000);}
- assert.match(b.provider,/CC BY-SA 4.0/);assert.doesNotMatch(b.input.text,/原件字形图|window\._ROUTER_DATA/);
 });
 
 test('Shiji ten tables retain every empty cell and its source text, all row/column anchors and span relationships',books,async()=>{
@@ -80,7 +72,7 @@ test('table layout labels and empty rows cannot independently authorize a storyb
 });
 
 test('Wiki headings cannot independently authorize a narrative receipt',async()=>{
- const b=await library.book(choose('酉阳杂俎'));
+ const b=await library.book(choose('山海经'));
  for(const s of b.sections){for(const u of s.units.filter(u=>!u.narrative))assert.throws(()=>library.resolve(b,receipt(b,s,u)),e=>e.status===400);assert.ok(s.units.some(u=>u.narrative));}
 });
 
@@ -88,7 +80,7 @@ test('missing, swapped, tampered or escaped originals fail closed',async t=>{
  const temp=await mkdtemp(path.join(os.tmpdir(),'shiqu-clean-'));t.after(()=>rm(temp,{recursive:true,force:true}));const dir=path.join(temp,'data/library');await copyBookLibrary(temp,ids);
  for(const id of ids)assert.ok(await new LocalBooks(temp).book(choose(id)));
  for(const id of ids){const e=entry(id),target=path.join(dir,e.originalFile,e.originalFiles.find(x=>x.file==='001.html').file),bytes=await readFile(target);await writeFile(target,'broken');await assert.rejects(new LocalBooks(temp).book(choose(id)),e=>e.status===503);await writeFile(target,bytes);}
- const e=entry('酉阳杂俎'),target=path.join(dir,e.originalFile,'index.html'),bytes=await readFile(target);await rm(target);await assert.rejects(new LocalBooks(temp).book(choose(e.id)),e=>e.status===503);await writeFile(path.join(temp,'outside.html'),bytes);await symlink(path.join(temp,'outside.html'),target);await assert.rejects(new LocalBooks(temp).book(choose(e.id)),e=>e.status===503);await rm(target);await writeFile(target,bytes);
+ const e=entry('山海经'),target=path.join(dir,e.originalFile,'index.html'),bytes=await readFile(target);await rm(target);await assert.rejects(new LocalBooks(temp).book(choose(e.id)),e=>e.status===503);await writeFile(path.join(temp,'outside.html'),bytes);await symlink(path.join(temp,'outside.html'),target);await assert.rejects(new LocalBooks(temp).book(choose(e.id)),e=>e.status===503);await rm(target);await writeFile(target,bytes);
  const wiki=entry('史记'),one=path.join(dir,wiki.originalFile,'001.html'),two=path.join(dir,wiki.originalFile,'002.html'),original=await readFile(one);await writeFile(one,await readFile(two));await assert.rejects(new LocalBooks(temp).book(choose(wiki.id)),e=>e.status===503);await writeFile(one,original);
  const wrong=structuredClone(catalog),changed=wrong.books.find(x=>x.id==='史记');changed.originalFiles[0].revision='1';await writeFile(path.join(dir,'catalog.json'),JSON.stringify(wrong));await assert.rejects(new LocalBooks(temp).book(choose('史记')),e=>e.status===503);
 });

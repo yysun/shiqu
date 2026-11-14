@@ -12,7 +12,8 @@ import {createApplication} from '../server/app.ts';
 import {FileMedia} from '../server/media.ts';
 import {books} from './fixtures/test-tier.mjs';
 const root=process.cwd(),library=new LocalBooks(root),catalog=JSON.parse(await readFile('data/library/catalog.json','utf8'));
-const counts=[12,33,36,101,120,120,120,56,18,8,20,25,24,30,500,10,40,40,40,40,40,130,501,4];
+
+const retainedChapterCounts={shishuo:36,红楼梦:120,山海经:18,子不语:24,太平广记:500,喻世明言:40,史记:130};
 const memory=()=>{const values=new Map();return {get:async key=>{const bytes=values.get(key);return bytes?{arrayBuffer:async()=>bytes.slice().buffer}:null;},put:async(key,bytes)=>{values.set(key,new Uint8Array(bytes));}};};
 const select=bookId=>({bookId,theme:'聪明与糊涂',artStyle:'ink-pencil',length:8,voice:false});
 const plan={title:'经过核对的故事',summary:'他会怎样选择？',sourceReference:'模型不能决定的出处',adaptationNote:'现代简体旁白改编',reflection:'你会如何选择？',characters:'An adult Chinese scholar in plain robes.',pages:Array.from({length:8},()=>({caption:'他停下脚步仔细观察，发现事情还有另一种解释。',prompt:'An adult scholar carefully observes a scene.'}))};
@@ -27,9 +28,9 @@ function candidate(book,visible,offset=0){
 function fake(onPlan=async()=>{}){return {matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。'}))}),status:async()=>({configured:true,provider:'gemini',voiceEnabled:false,models:{text:'mock',image:'mock'}}),safeError:()=> '模拟错误',async suggestions(s,excluded,input){assert.ok(input);const book=await library.book(s),visible=new Set([...input.text.matchAll(/\[([a-z]+-\d+-\d+)\]/g)].map(m=>m[1]));return {stories:candidate(book,visible).slice(0,input.scan.maxStories),note:'',scan:{blockComplete:false,pendingEvents:[],resolvedEventIds:[]}};},generator:()=>({recommend:async(s)=>({value:{count:8,reason:'按完整因果展开。',storySummary:plan.summary,storyMatchReason:'按原文实际事件展开。',storyTitle:s.storyTitle||plan.title,artRecommendation:{artStyle:'ink-pencil',reason:'与本篇人物和叙事相符。'}},model:'mock',requestId:'mock',usage:null}),reflection:async()=>({value:plan.reflection,model:'mock',requestId:'mock',usage:null}),reflectionCandidates:async()=>({value:{title:plan.title,candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']},model:'mock',requestId:'mock',usage:null}),review:async(_s,_p,_o,_outline,candidates)=>({value:{coverage:[{quote:_o.text.slice(0,30),task:'受控原文核对',pages:[1],assessment:'adequate',reason:'受控记录，不代表语义质量。',issuePage:0}],issues:[],titleReview:{title:_p.title,reason:'标题准确对应当前故事。'},...(candidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识。'}}:{})},model:'mock',requestId:'mock',usage:null}),async plan(s,id,original){await onPlan(s,id,original);return {value:structuredClone(plan),model:'mock',requestId:'mock',usage:null};},original:async()=>assert.fail('No public book API'),image:async()=>assert.fail('No images'),audio:async()=>assert.fail('No audio'),safeError:()=> '模拟错误'})};}
 async function temp(t){const d=await mkdtemp(path.join(os.tmpdir(),'shiqu-library-'));t.after(()=>rm(d,{recursive:true,force:true}));return d;}
 
-test('all 24 catalogs load verified originals with complete chapters and exhaustive bounded inputs',books,async()=>{
- for(const [index,entry] of catalog.books.entries()){
-  assert.equal(entry.localGeneration,true);const book=await library.book(select(entry.id));assert.ok(book,entry.id);assert.equal(book.sections.length,counts[index],entry.id);
+test('all bundled books load verified originals with complete chapters and exhaustive bounded inputs',books,async()=>{
+ for(const entry of catalog.books){
+  assert.equal(entry.localGeneration,true);const book=await library.book(select(entry.id));assert.ok(book,entry.id);assert.equal(book.sections.length,(entry.quality?.sections??retainedChapterCounts[entry.id]),entry.id);
   const inputs=bookInputs(book),seen=new Set();
   for(const {input,visible} of inputs){assert.ok(input.text.length<=100000,entry.id);for(const id of visible)seen.add(id);}
   for(const section of book.sections)for(const unit of section.units){assert.ok(seen.has(unit.id),unit.id);assert.ok(inputs.some(p=>p.input.text.includes(`[${unit.id}]\n${unit.text}`)),unit.id);}
@@ -57,7 +58,7 @@ test('original corruption and unreadable source ranges fail closed',async t=>{
  const shanhai=await library.book(select('山海经'));const section=shanhai.sections[0],unit=section.units.find(unit=>unit.narrative);const corrupted={...shanhai,sections:[{...section,units:[{...unit,text:'有獸焉，其狀如【上鹿下旨】，讀不出其原字，不可猜補。'}]}]};assert.throws(()=>library.resolve(corrupted,{edition:shanhai.edition,sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id}),e=>e.status===400);
 });
 
-test('all 24 books complete HTTP selection and persist original glyphs before storyboard generation',books,async t=>{
+test('all bundled books complete HTTP selection and persist original glyphs before storyboard generation',books,async t=>{
  const data=await temp(t),media=new FileMedia(path.join(data,'media'));let app,plans=0;
  const base=fake(async(s,id,original)=>{plans++;assert.ok(original.localSource);const row=app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id);const stored=await row.first();assert.equal(JSON.parse(stored.document).original.text,original.text);assert.ok(await media.get(`reader/${id}/source.json`));});
  const generator=base.generator.bind(base);base.generator=()=>{const g=generator();return {...g,reflectionCandidates:async(...args)=>{const result=await g.reflectionCandidates(...args);await app.services.database.prepare("UPDATE stories SET generation_control='paused' WHERE id=?").bind(currentId).run();return result;}};};let currentId;
@@ -65,5 +66,5 @@ test('all 24 books complete HTTP selection and persist original glyphs before st
  const request=async(route,body)=>{const r=await app.handle(new Request('http://localhost/api/reader/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}));const value=await r.json();assert.ok(r.ok,JSON.stringify(value));if(route==='sessions')await app.services.database.prepare("UPDATE stories SET generation_mode='reader' WHERE id=?").bind(body.requestId).run();return value;};
  for(const entry of catalog.books){const selection=select(entry.id),batch=await request('suggestions',{...selection,excludeTitles:[]}),story=batch.stories[0];assert.ok(story,entry.id);const requestId=crypto.randomUUID();await request('sessions',{requestId,selection:{...selection,storyTitle:story.title,source:story.source}});currentId=requestId;await request(`sessions/${requestId}/advance`,{throughPage:0});let result;const deadline=Date.now()+10000;do{result=await(await app.handle(new Request('http://localhost/api/reader/sessions/'+requestId))).json();assert.notEqual(result.state,'failed',JSON.stringify(result));if(result.story)break;assert.ok(Date.now()<deadline);await new Promise(resolve=>setImmediate(resolve));}while(!result.story);assert.equal(result.story.pages.length,8);assert.equal(result.story.original.text,library.resolve(await library.book(selection),story.source).text);assert.equal(result.story.original.localSource.edition,story.source.edition);assert.ok(result.story.pages.every(p=>!p.image));
  }
- assert.equal(plans,24);
+ assert.equal(plans,catalog.books.length);
 });

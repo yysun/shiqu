@@ -30,7 +30,7 @@ test('fresh/reopened libraries contain no stories or demo artwork and expose no 
   for(const route of ['/art/pear-1.png','/art/dongguo-1.png'])assert.equal((await req(f.app,route)).status,404);
   f.restart();
  }
- assert.equal(readerBooks.length,24);
+ assert.equal(readerBooks.length,26);
  for(const file of ['client/ui/Admin.tsx','lib/studio-prompts.ts','public/art/pear-1.png','public/art/dongguo-1.png','lib/demo-dongguo.ts','data/library/dongguo-demo.json'])await assert.rejects(access(file));
 });
 

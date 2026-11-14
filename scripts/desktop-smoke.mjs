@@ -48,7 +48,7 @@ try{
   assert.equal(createHash('sha256').update(await readFile(binary)).digest('hex'),manifest.sha256);
   assert.equal(createHash('sha256').update(await readFile(path.join(temporary,'node/LICENSE'))).digest('hex'),manifest.licenseSha256);
  }
- const catalog=JSON.parse(await readFile(path.join(root,'data/library/catalog.json'),'utf8'));assert.equal(catalog.books.length,24);
+ const catalog=JSON.parse(await readFile(path.join(root,'data/library/catalog.json'),'utf8'));assert.equal(catalog.books.length,26);
  const settings={nodePath:'/shiqu-system-node-must-not-be-used',dataDirectory:path.join(temporary,'library'),port:await port(),internetEnabled:false,cloudflaredPath:'',provider:'gemini',textModel:'gemini-3.8-flash',imageModel:'gemini-nano-banana-2.1',codexPath:'',codexModel:'',codexHome:''};
  const first=await start(settings),origin=new URL(first.url).origin;
  assert.equal(first.url,origin);assert.equal(first.publicUrl,'');

@@ -110,7 +110,7 @@ try {
   const library = await files(path.join(root,'data/library'));
   assert.deepEqual(payload.filter(([file])=>file.startsWith('data/library/')).map(([file,hash])=>[file.slice('data/library/'.length),hash]), library);
   const catalog = JSON.parse(await readFile(path.join(installed,'data/library/catalog.json'),'utf8'));
-  assert.equal(catalog.books.length, 24);
+  assert.equal(catalog.books.length, 26);
   for (const file of ['LICENSE','NOTICE','docker/seed.sql']) assert.deepEqual(await readFile(path.join(installed,file)), await readFile(path.join(root,file)));
   for (const file of (await readdir(path.join(root,'drizzle'))).filter(name=>name.endsWith('.sql'))) assert.deepEqual(await readFile(path.join(installed,'drizzle',file)), await readFile(path.join(root,'drizzle',file)));
   const bin = path.join(installed, manifest.bin.shiqu);
@@ -208,7 +208,7 @@ try {
   assert.ok(logs.includes(defaultData));await lstat(path.join(defaultData,'shiqu.sqlite'));await stop();
   assert.deepEqual((await readdir(cwd)).sort(), ['.env','selected.env']);
   assert.deepEqual(await files(installed, '', true), payload, 'Installed runtime files must remain immutable.');
-  console.log(`npm smoke passed: ${manifest.name}@${manifest.version}; ${payload.length} files; all 24 books; isolated install, HTTP, access, persistence, restart, configuration, and shutdown.`);
+  console.log(`npm smoke passed: ${manifest.name}@${manifest.version}; ${payload.length} files; all ${catalog.books.length} books; isolated install, HTTP, access, persistence, restart, configuration, and shutdown.`);
 } finally {
   try { await stop(); } finally { await rm(temporary, {recursive:true, force:true}); }
 }

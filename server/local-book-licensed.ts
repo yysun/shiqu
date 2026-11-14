@@ -1,5 +1,4 @@
-// Load replacement editions with exact manifests, upstream identities and immutable source receipts.
-// Original bytes stay archived. Parsing removes source metadata/layout only and never repairs glyphs.
+// 按清单核对版本、来源身份和原件字节。解析只移除来源页的版式与元数据，不猜补字形。
 import path from 'node:path';
 import {readFile,realpath,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
@@ -9,7 +8,7 @@ import type {HtmlOriginal} from './local-book-html.ts';
 import type {LocalSection} from './local-books.ts';
 import {localLines} from './local-book-parsers.ts';
 import {hasSourceAnomaly} from './local-source-quality.ts';
-type Spec={prefix:string;count:number;base?:string;repo?:string;edition?:string;preface?:boolean};
+type Spec={prefix:string;count:number;base?:string;repo?:string;edition?:string;preface?:boolean;chapterPath?:(n:number)=>string};
 export const licensedBookSpecs:Record<string,Spec>={
  liaozhai:{prefix:'liaozhai',count:12,base:'聊齋志異'},
  西游记:{prefix:'xiyou',count:101,base:'西遊記'},
@@ -23,6 +22,11 @@ export const licensedBookSpecs:Record<string,Spec>={
  初刻拍案惊奇:{prefix:'chuke',count:40,base:'初刻拍案驚奇'},
  二刻拍案惊奇:{prefix:'erke',count:40,base:'二刻拍案驚奇'},
  浮生六记:{prefix:'fusheng',count:4,base:'浮生六記'},
+ 封神演义:{prefix:'fengshen',count:100,base:'封神演義',chapterPath:n=>'卷'+paddedChapter(n)},
+ 三侠五义:{prefix:'sanxia',count:120,base:'三俠五義',chapterPath:n=>'第'+paddedChapter(n)+'回'},
+ 隋唐演义:{prefix:'suitang',count:100,base:'隋唐演義',chapterPath:paddedChapter},
+ 说岳全传:{prefix:'shuoyue',count:80,base:'說岳全傳',chapterPath:n=>'第'+chinese(n)+'回'},
+ 镜花缘:{prefix:'jinghua',count:100,base:'鏡花緣',chapterPath:n=>'第'+paddedChapter(n)+'回'},
  zhuangzi:{prefix:'zhuangzi',count:33,repo:'KR5c0126',edition:'CHANT'},
  列子:{prefix:'liezi',count:8,repo:'KR5c0124',edition:'tls'},
  搜神记:{prefix:'soushen',count:20,repo:'KR3l0099',edition:'WYG',preface:true},
@@ -30,9 +34,11 @@ export const licensedBookSpecs:Record<string,Spec>={
  战国策:{prefix:'zhanguo',count:501,repo:'KR2e0003',edition:'tls'},
 };
 const sha=(bytes:Uint8Array|string)=>createHash('sha256').update(bytes).digest('hex');
+function paddedChapter(n:number){return String(n).padStart(3,'0');}
 const chinese=(n:number):string=>n<=10?['零','一','二','三','四','五','六','七','八','九','十'][n]:`${n<20?'':chinese(Math.floor(n/10))}十${n%10?chinese(n%10):''}`;
 export function replacementPage(id:string,n:number){
- const {base}=licensedBookSpecs[id];
+ const {base,chapterPath}=licensedBookSpecs[id];
+ if(chapterPath)return `${base}/${chapterPath(n)}`;
  if(id==='西游记'){if(n===9)return `${base}/附錄`;if(n>9)n--;}
  if(id==='阅微草堂笔记'&&n===25)return `${base}/附`;
  if(id==='酉阳杂俎')return `${base}/${n>20?'續集/':''}卷${chinese(n>20?n-20:n)}`;
@@ -51,7 +57,14 @@ function wikiLabel(raw:string,title:string){
    const href=node.attribs.href||'';
    if(href.startsWith('/wiki/')&&decodeURIComponent(href.slice(6)).replace(/_/g,' ')===title){
     let listed:string|undefined;
-    for(let parent=node.parent;parent;parent=parent.parent)if('name'in parent&&parent.name==='li'){listed=plain(parent).replace(/\s+/g,' ').trim();break;}
+    for(let parent=node.parent;parent;parent=parent.parent){
+     if(!('name'in parent))continue;
+     if(parent.name==='li'){listed=plain(parent).replace(/\s+/g,' ').trim();break;}
+     if(parent.name==='tr'){
+      listed=parent.children.filter(cell=>'name'in cell&&['td','th'].includes(cell.name)).map(cell=>plain(cell).trim()).join(' ');
+      break;
+     }
+    }
     candidates.push({label:plain(node).trim(),listed});
    }
   }
