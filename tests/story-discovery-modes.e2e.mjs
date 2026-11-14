@@ -76,7 +76,9 @@ test('creation selects sources before preparing a single or combined story', {ti
  assert.equal(directSaved.intake.phase,'preparing');assert.equal(directSaved.intake.batches[0].stories[0].title,'乌龟报恩');
  const directPreparing=page.getByRole('dialog',{name:'准备故事',exact:true});
  await directPreparing.getByText('乌龟报恩',{exact:true}).waitFor();
- await directPreparing.getByRole('button',{name:'开始制作',exact:true}).waitFor();
+ const directStart=directPreparing.getByRole('link',{name:'开始制作',exact:true});await directStart.waitFor();
+ const directLinkBox=await directStart.boundingBox(),directNoticeBox=await directPreparing.locator('[data-stage="count"] .production-stage-notice').boundingBox();
+ assert.ok(directLinkBox&&directNoticeBox);assert.ok(Math.abs(directNoticeBox.x+directNoticeBox.width-directLinkBox.x-directLinkBox.width)<2);
  const directPlan=f.control.recommendations.find(item=>item.chosenStory==='乌龟报恩');
  assert.equal(directPlan.storyBrief.summary,library.stories[0].description);
  assert.equal(directPlan.verifiedOriginal.text,library.book.sections[0].units[0].text);
@@ -144,7 +146,9 @@ test('creation selects sources before preparing a single or combined story', {ti
  await preparing.getByRole('button',{name:'修改故事名',exact:true}).waitFor();
  await preparing.getByText(/预计 \d+ 幅/).waitFor();
  await preparing.getByRole('link',{name:'修改画风',exact:true}).waitFor();
- await preparing.getByRole('button',{name:'开始制作',exact:true}).waitFor();
+ const combinedStart=preparing.getByRole('link',{name:'开始制作',exact:true});await combinedStart.waitFor();
+ const combinedLinkBox=await combinedStart.boundingBox(),combinedNoticeBox=await preparing.locator('[data-stage="count"] .production-stage-notice').boundingBox();
+ assert.ok(combinedLinkBox&&combinedNoticeBox);assert.ok(Math.abs(combinedNoticeBox.x+combinedNoticeBox.width-combinedLinkBox.x-combinedLinkBox.width)<2);
  assert.equal(await preparing.getByRole('link',{name:'继续查找',exact:true}).count(),0);
  const selected=await f.read(saved.id);
  assert.deepEqual(selected.intake.selected,{batch:0,index:0});

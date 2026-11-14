@@ -45,7 +45,7 @@ ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr))
 
 .production-stage-notice .yu-retry-control{margin:0}.production-stage-notice .yu-review-tools.has-issues{padding:0;border:0;background:none}.production-stage-notice .yu-review-tools{margin:8px 0}.production-stage-notice .yu-batch-error{margin:8px 0}.production-stage-notice>.yu-primary{margin-top:10px}
 .yu-confirmation-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));justify-items:start;align-items:baseline;gap:4px 16px;min-width:0}
-.yu-creation-setup [data-stage=count]>.production-stage-notice>.story-flow-link{justify-self:end;justify-content:flex-end}
+.yu-creation-setup [data-stage=count]>.production-stage-notice>.story-flow-link{justify-self:end;justify-content:flex-end;margin-left:auto}
 .yu-extraction-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:baseline;gap:4px 16px}
 
 .production-stage-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;min-width:0}

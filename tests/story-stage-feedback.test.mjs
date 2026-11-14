@@ -149,6 +149,11 @@ test('confirmation puts its start action directly under the confirmation step',(
  assert.match(stage(html,'count'),/开始制作/);
  assert.equal((html.match(/>开始制作<\/a>/g)||[]).length,1);
  assert.doesNotMatch(beforeSteps(html),/开始制作/);
+ const source={edition:'a'.repeat(64),sectionId:'chapter',firstUnit:'p1',lastUnit:'p2'};
+ const direct={...session,selection:{...session.selection,source},intake:{...session.intake,batches:[{stories:[{title:'庄周梦蝶',description:'梦与醒的故事。',source}],note:''}]}};
+ const directHtml=renderToStaticMarkup(createElement(Setup,{session:direct,book:'庄子',busy:false,onAction:noop,progress:defaults}));
+ assert.equal((directHtml.match(/>开始制作<\/a>/g)||[]).length,1);
+ assert.doesNotMatch(stage(directHtml,'count'),/<button[^>]*>开始制作<\/button>/);
  const searchError='后台提取失败，候选仍已保存。';
  const failedSearch=renderToStaticMarkup(createElement(Setup,{session:{...session,intake:{...session.intake,search:{state:'failed',error:searchError}}},book:'庄子',busy:false,onAction:noop,progress:defaults}));
  assert.doesNotMatch(stage(failedSearch,'source'),/后台提取失败|重试查找/);
