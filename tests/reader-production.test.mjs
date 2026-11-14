@@ -60,6 +60,11 @@ test('可选横图按原幅生成，重启后只重试失败或丢失的横图',
  await until(async()=>(await f.json(route)).state==='completed');
  assert.equal(f.control.calls.filter(call=>call.landscape).length,calls.length+2);
  assert.deepEqual(await checkpoint(),original);
+ await f.json(`library/${id}`,'DELETE');
+ assert.equal((await f.request(route)).status,404);
+ assert.equal((await f.request(route,'POST',start)).status,404);
+ await f.json(`library/${id}/restore`,'POST',{});
+ assert.equal((await f.json(route)).state,'completed');
  const token=(await f.json(`sessions/${id}/revisions`)).token;
  await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{artStyle:'watercolor'},paused:true});
  assert.equal((await f.json(route)).available,false);
