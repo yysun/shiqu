@@ -1,6 +1,6 @@
 # 自备书籍导入为本地书 · 实现计划
 
-需求见 [req-custom-book-import](../../../../reqs/2026/11/13/req-custom-book-import.md)，验收用例见 [test-custom-book-import](../../../../tests/test-custom-book-import.md)。Git 基点在 SS 开始时记录。
+需求见 [req-custom-book-import](../../../../reqs/2026/11/13/req-custom-book-import.md)，验收用例见 [test-custom-book-import](../../../../tests/test-custom-book-import.md)。Git 基点：`1fd8343d78c2781cff4e7fb22b040a24e65c0dc9`（main）。
 
 ## 目标与边界
 
@@ -24,7 +24,9 @@ flowchart LR
    - `originals/001.<ext>`…：原始字节，权限 0600，只写一次。
    - `manifest.json`（`version:1`，zod 校验）：书名、作者、年代、来源说明、授权说明、版权确认时间；每个原件的 `{file,sha256,size,originalName|sourceUrl,contentType,encoding,fetchedAt}`；另有 `snapshotHash`、`parserVersion`、`structure`（章节起点、标题、排除标记）、`structureHash`、`edition`、`status`（`structuring|ready`）和质量标记摘要。
    - `cards.json`：沿用内置故事卡的 `storyCardsSchema`（`version:1,bookId,edition,cards`）。
-   - `card-progress.json`：每章状态（`done|failed|pending`）和失败原因、生成器身份（提供方、模型、提示版本）、累计调用次数和令牌数，以及本书生成任务写入的抽取缓存键。
+   - `card-progress.json`：包含当前 `edition`；每章状态（`done|failed|pending`）和失败原因、生成器身份（提供方、模型、提示版本）、累计调用次数和令牌数，以及本书生成任务写入的抽取缓存键。所有写入都先比较运行时捕获的 edition 与当前清单；不一致时拒绝写入。
+
+   每本书最多 100 个来源，原始字节合计最多 64 MiB；单个文件或网页仍最多 12 MB。单本 EPUB 解压不超过 64 MiB，所有 EPUB 合计解压不超过 256 MiB。整次 URL 导入共用 5 分钟截止时间，单页 30 秒。
 
    暂存目录 `.book-import-<随机>` 和待删目录 `.book-delete-<id>` 放在**书库根目录**，不放在 `books/` 里面。原因是 `server/library-backup.ts` 的 `runtimeFile` 只在顶层排除文件。备份会递归包含 `books/`，升级不会改动它。`shiqu.sqlite` 不变，所以不需要 `drizzle/` 迁移，也不改 `db/library-format.json`。旧版应用会忽略 `books/`；用导入书做的故事已经保存了原文，旧版仍能阅读。
    *备选：* 新建 `imported_books` 表。好处是有事务，代价是要写迁移、准备回滚备份并更新 `latestMigration`。原文无论如何都得存成文件，所以不采用。
@@ -47,13 +49,13 @@ flowchart LR
 4. **解析与结构（`server/book-import-parse.ts`，纯函数）。**
    - **解码。** 先用 UTF-8 严格解码（`fatal:true`），失败后依次试 GB18030 和 Big5。两种都能解出且可读汉字比例相近时，报「无法判断编码」，让用户指定。
    - **正文块。** TXT 按行；HTML 用 `htmlparser2` 取 `body`，跳过 `script/style/nav/header/footer`。EPUB 用 `fflate` 解析，限制如下：
-     - 解压前读取中央目录，按 `originalSize` 判断，总解压量不超过 64 MB，条目不超过 2,000 个，单条压缩比不超过 100，OPF/XHTML 单个不超过 8 MB；
+     - 解压前读取中央目录，按 `originalSize` 判断，单本 EPUB 总解压量不超过 64 MiB，条目不超过 2,000 个，单条压缩比不超过 100，OPF/XHTML 单个不超过 8 MB；同一次导入的多个 EPUB 解压总量不超过 256 MiB；
      - `originalSize` 来自文件本身，不可信，所以解压时还要累计实际输出的字节数，一超出上限就中止；
      - 归一化包内 href，拒绝 `..`、绝对路径和反斜杠；
      - 含 `META-INF/encryption.xml` 或 `rights.xml` 的视为 DRM，拒绝导入。
    - **自动切分。** EPUB 按 spine 和导航目录切；HTML 按 `h1–h3` 切；TXT 用通用标题规则（`第…[回章卷节篇]`、`卷…`，参照 `additionalBookSpecs`）。都没切出章节时，按约 8,000 字一段切成「第 N 部分」。
    - **段落。** 复用 `localLines()`，每段用 `hasSourceAnomaly()` 设置 `unreadable` 标记。另外标出空章节、过短章节和缺文标记。
-   - **编号。** 章节 ID 为 `<prefix>-NNN`（prefix 取书 ID 后 8 位），段落 ID 为 `<sectionId>-NNNN`。`edition = sha256(snapshotHash, parserVersion, structureHash)`。解析器行为一旦变化就升级 `parserVersion`，旧版本保持可读，这是接受的维护成本。
+   - **编号。** 章节 ID 为 `<prefix>-NNN`（prefix 取书 ID 后 8 位），段落 ID 为 `<sectionId>-NNNN`。每章另存不含标题的原文段落指纹。`edition = sha256(snapshotHash, parserVersion, structureHash)`。解析器行为一旦变化就升级 `parserVersion`，旧版本保持可读，这是接受的维护成本。
    - **结构编辑**只记录「起点块序号、标题、排除」，正文始终从快照重新解析。确认结构时检查整书上限：不超过 300 万字、2,000 章（已定决策 4）。
    - **适用范围。** 现有的原文质量和范围规则（`local-source-quality.ts`、`local-source-ranges.ts:39` 要求中文标点）面向中文古典文本。无标点、混有假名、希腊或西里尔字母的文本会被标记，按章节提取和故事卡生成可能失败。确认页需要预先告知，任务 0 也要测量这一点。
 
@@ -64,28 +66,26 @@ flowchart LR
      - 用 `node:https/http` 的 `lookup` 钩子做解析，拒绝回环、私网、链路本地、CGNAT、组播、IPv4 映射的 IPv6 和 `host.docker.internal`；连接时固定使用检查过的 IP，并设置 `servername`，防止 DNS 重绑定。
      - 最多手动跟随 5 次重定向，每一跳都重新检查。
      - 单页上限 12 MB，超时 30 秒，只接受 HTML、纯文本和 EPUB。
+     - 一次导入最多 100 个来源、合计原始字节 64 MiB。所有 URL 共用 5 分钟截止时间，每跳也受单页 30 秒上限约束。
      - User-Agent 用通用名称。
    - **远程访问。** 导入和故事卡生成与故事制作一样，对已授权的局域网或远程访问开放。地址检查在服务端完成，与请求从哪里发起无关。
 
-6. **故事卡生成：复用生产抽取，不另建管线。** 运行器 `server/imported-book-cards.ts` 对每个未完成章节执行以下步骤：
-   1. 构造 `selection={bookId,customBook:书名,theme:'原典故事',discovery:{mode:'auto'},discoverySources:[整章范围]}`。整章范围从 `indexBookContents(book,true).entries` 中取，因为 `selectedChapterScope()` 只接受目录索引里的键。主题只用于满足 schema，在这种模式下不参与抽取。
-   2. **先调用 `selectedChapterScope()` 收窄到本章**，与 `local-generation.ts:49-50` 的生产路径一致，避免每章都读整本书。
-   3. 在收窄后的书上调用 `discoverLocalStories()`，走 selectedSourceMode 的主题无关抽取，不走「主故事优先」的 `chapterStories`。
-   4. 把已得到的出处累积进 `excludedSources` 后循环调用，直到返回空批次，空批次表示本章读完。
-   5. 每张卡的 `title/description/source` 取自抽取结果，`description` 作为梗概，别名先留空。完成一章就原子替换 `cards.json`。
-
-   中间结果已由 `StoryDiscoveryCache` 按版次和模型命名空间缓存（`story-reading-inputs.ts:45`），所以取消或重启后不会重复付费。运行器把写入的缓存键记在 `card-progress.json` 里，删除书时一并删除；为此要给 `StoryDiscoveryCache` 增加 `remove(key)`，同时给 `MediaStore`（`lib/services.ts`）增加 `delete`，并在文件存储中实现。
-   - **跨章故事。** 按章抽取时，跨到下一章的未完成事件会被丢弃，章回体书受影响较大。任务 0 要测量丢失比例，丢失明显时改为以相邻两章为范围再按出处去重，并更新本计划。
-   - **调度。** 整个书库同一时间只运行一个故事卡任务，用 `AbortController` 取消，进度通过事件流推送（同 `embedding-index`）。进程退出后，下次读取时显示「已暂停」，不会自动续跑。
-   - **预估。** 输入令牌按每章收窄后的整书输入，用 `readingTokens()` 累加；调用次数按 `defaultReadingLimits` 的块大小估算；耗时用 `story-discovery-metrics` 的历史中位数，没有数据时用默认值。只有提供方设置里有单价时才显示费用。
-   - *备选：* 把 `scripts/experiment-soushen-search.mjs` 的语义切分和梗概提示提炼为共享模块，供生产和脚本共用。卡片更接近内置卡，也有别名，但需要把 Ollama/Codex 调用改成走提供方，范围更大。是否改用由任务 0 判定。
+6. **故事卡生成：复用生产提供方，使用专用卡片输出约定。** 可行性探针见任务 0：假提供方的 chapter-scoped 搜索可以收束，但 Codex 实测中 `discoverLocalStories()` 在本章多轮查找后可能返回无进展错误；现有 catalog prompt 还明确生成不剧透短简介，不满足包含起因、行动、结果的卡片梗概。不要把该交互搜索循环当作整书卡片生成器，也不另建模型调用实现。
+   1. 在共享本地输入约定（`lib/reader-local-contract.ts`）增加 `purpose:'cards'`、卡片 prompt 和 JSON schema；扩展 `ReaderProvider.suggestions()` 的生产实现，让该 purpose 使用现有提供方设置、超时、日志和调用实现。输出每张卡的 `title/description/source`，其中 `description` 必须用简体中文简述起因、行动和结果，不超过 180 字。内置书的 `catalog` 和现有 discovery prompt 保持不变。扩展 `requestTokens()`、`buildReadingPlan()`、`readingPlan()` 和计划缓存键，使 cards 窗口按实际格式化的 cards prompt、payload 和 schema 计数；窗口计划及费用预估必须使用同一 `cards` 输入，不得沿用 scan 的长度或 output schema。计数仍是本地 o200k 容量估算，界面标为估算值；测试断言每个计划请求按这一 cards 预算上限。
+   2. 构造 `selection={bookId,customBook:书名,theme:'原典故事',discovery:{mode:'auto'},discoverySources:[窗口章节范围]}`。章节范围从 `indexBookContents(book,true).entries` 中取。以每个章节为窗口起点，最多再带上紧邻的下一章；最后一章只带自身。**先调用 `selectedChapterScope()` 收窄到这个一至两章的窗口**，避免每轮都读整本书，也让章末故事可核对下一章的结局。
+   3. 用 `readingPlan(..., purpose:'cards')` 按 `defaultReadingLimits` 建立窗口内输入计划。计划只返回一个块时生成一个输入窗；如分成多个块，对相邻块生成重叠输入窗（合并不超过 `whole` 上限时），否则逐块处理。每个输入窗调用 `ReaderProvider.suggestions()` 的 cards purpose，通过 `StoryDiscoveryCache.shared()` 缓存提供方响应；缓存键包含书 ID、edition、提供方、模型、prompt/schema 版本和窗口出处。取消后重试复用已完成的输入窗，不依赖模型宣布扫描结束。
+   4. 对每张返回卡检查 schema、摘要长度、出处能在当前 `LocalBook` 定位且来源单元都落在本窗口；拒绝不完整或越界出处。重叠窗口的卡按规范化标题及出处重叠去重，再用 `source` 对应本地原文重新构造检索文本。
+   5. 每章所有窗口处理完成后一次写入并校验 `cards.json` 与进度；失败窗口记明原因，可单独重试。窗口缓存键写入 `card-progress.json`，删除书时逐键清理；为此给 `StoryDiscoveryCache` 增加 `remove(key)`，同时给 `MediaStore`（`lib/services.ts`）增加 `delete`，并在文件存储中实现。
+   - **跨章故事。** 每轮带入当前章及下一章，所以章末事件能在相邻窗口中补全；重叠窗口和相邻起点窗口会产生重复候选，按规范化标题及出处范围去重。超过两章才完成的故事不会作为完整卡片保存，并记入失败/未覆盖提示，不得截断后冒充完整故事。
+   - **调度。** 整个书库同一时间只运行一个故事卡任务，用 `AbortController` 取消，进度通过事件流推送（同 `embedding-index`）。取消信号必须从 `ReaderProvider.suggestions()` 传入实际 provider request：Codex/Claude runner 收到 signal 后杀掉当前子进程，Gemini/OpenAI/DeepSeek transport 收到 signal 后中止 fetch；各路径等待请求 teardown 后才报告取消。调用 `StoryDiscoveryCache.shared()` 时 observer 设置 `drain:true`，保证唯一订阅者离开后仍等待共享工作结束；测试覆盖该 drain 语义。取消后不派发下个窗口、不提交当前未完成窗口缓存或卡片；替换/删除先取消并等待任务 Promise settle，再改动快照。进程退出后，下次读取时显示「已暂停」，不会自动续跑。任务固定当前 edition；更新进度或卡片前重新读取清单并比较 edition，避免过期任务覆盖新版本。
+   - **预估。** 输入令牌按收窄章节及窗口输入，用与实际请求相同的 cards purpose、格式化 prompt、payload 和 schema 经 `readingTokens()` 累加；调用次数按未命中窗口缓存的数量精确估算；耗时用 `story-discovery-metrics` 的历史中位数，没有数据时用默认值。界面注明令牌数是本地 tokenizer 估算，不等同于提供方账单用量。只有提供方设置里有单价时才显示费用。
 
 7. **检索接入。** `LocalStorySearch` 增加资源钩子 `importedCards(book)`，读取 `books/<id>/cards.json`，与内置卡一样在运行时从原文构造检索文本。`indexableCards()`、`snapshotFor()` 和 `passages()` 都把导入卡当作内置卡处理。卡片缓存按「书对象 + 文件 stamp」失效，生成到一半也能搜到已完成的卡。`installStoryIndex()` 不接受导入书的外部索引。
 
 8. **删除与重新导入。**
    - **删除。** 把书目录改名移到书库根目录下的 `.book-delete-<id>`，清除 `LocalBooks` 和检索缓存，调用新增的 `StoryCardEmbeddingStore.removeBook(id)`，删除运行器记录的抽取缓存键，最后递归删除目录。若中途崩溃，下次启动列目录时会清理残留的 `.book-delete-*`，以及超过 24 小时未完成的 `.book-import-*` 草稿。孤立向量的判定条件是：书的 ID 以 `my-` 开头，并且 `books/<id>` 目录已不存在。满足条件的向量才删除；书目录存在、只是加载或校验失败时，向量保留。
    - **进行中的任务。** 删除前先取消该书的故事卡任务。已在制作中的故事继续使用已保存的原文；重选或续找时明确报「书已删除」。
-   - **重新导入。** 新快照在暂存目录中完成解析和校验，用户确认后整体替换。若 `snapshotHash` 不变且沿用原结构，版次不变，故事卡和向量继续有效；否则按新版次处理，并提示旧卡失效。
+   - **重新导入。** 新快照在暂存目录中完成解析和校验。替换前先取消并等待该书的卡片任务，再整体替换。若 `snapshotHash` 不变且沿用原结构，版次不变，故事卡和向量继续有效。版次变化时，按不含标题的原文段落指纹匹配新旧章节；仅当旧卡涉及的所有章节内容均完全相同且各自唯一时，按段落序号映射出处、更新 edition 并保留该卡。其他章节卡设为待生成；旧向量不沿用，需重建。所有卡片和进度写入仍进行 edition 检查。
 
 9. **「其他」旧路径（已定决策 1）。** `reader-production.ts` 的保存任务搜索、`Reader.tsx` 的 `savedMaterials` 和 `StoryDiscoveryForm` 的外部结果都不改，已保存的 `other` 任务行为不变。新建故事时，「其他」芯片以「导入这本书」为主操作，「不导入，直接请模型推荐」为次操作；后者沿用现有路径，候选标注「未核对原文」。
 
@@ -97,14 +97,11 @@ flowchart LR
 
 ## 任务
 
-- [ ] 0. **可行性探针（先做，有判定标准）。** 在隔离书库中用公版章回体测试文本（3 回）操作：
-  - **假提供方。** 按决定 6 的方式调用。验证：
-    - `selectedChapterScope` 收窄后，送给提供方的输入只含本章；
-    - 循环在返回空批次时结束；
-    - 全部出处都能定位。
-  - **真实提供方。** 对其中一回（约 1 万字）试跑，记录卡片数、调用次数、耗时、跨回故事的丢失情况，以及含无标点段落时的失败情况。由维护者对照原文逐张判定。
+- [x] 0. **可行性探针（已完成，决定改用专用卡片输出约定）。** 在隔离内存缓存和仓库自带公版文本上执行：
+  - **假提供方。** `三国演义` 前三回经 `selectedChapterScope()` 收窄后调用 `discoverLocalStories()`，6 次 mock 提供方调用都只包含当前章节，三个章节都在第二轮空批次结束，出处全部可定位。
+  - **真实提供方。** 使用已登录的 Codex CLI 订阅（`gpt-6-luna`），对《水浒传》第二回（约 13,940 字）试跑。前 5 次调用共接受 10 则候选；第 6 次返回 0 则但未标记 `blockComplete`，生产搜索循环以“未给出新故事，也未确认本段已读完”失败，未能稳定结束。单次日志的输入量约 21,948–25,832 tokens、时长约 3.9–6.5 秒。现有 `localCatalogPrompt` 明确要求不生成梗概，只生成不剧透简介，不能满足起因/行动/结果验收。
 
-  **判定：** 循环能读完本章、送入内容限于本章，且维护者认定至少 80% 的梗概说清了起因、行动和结果，就采用决定 6；否则改用备选方案，更新本计划并回到 AR。
+  **决定：** 拒绝原循环方案。按决定 6 改为由同一个 `ReaderProvider.suggestions()` 生产实现执行专用 cards purpose；先把当前章与下一章收窄为 chapter window，再按 reading-plan 窗口调用、缓存并核对出处。相邻窗口重叠捕获章末故事并按出处去重。超过两个章节的事件不作为完整卡片保存。真实模型候选未完成逐条质量审阅，接收标准转为自动 schema/出处核对和隔离库人工验收；不得宣称本次探针已证明卡片摘要质量。
 - [ ] 1. `lib/reader-books.ts`：实现 `isImportedBookId` 和 `selectionBookTitle`，按决定 2 只替换显示和提示词位置。
 - [ ] 2. `server/book-import-parse.ts`：解码、三种格式的正文块（含 EPUB 限制）、自动切分、结构应用、编号、质量标记、版次。
 - [ ] 3. `server/book-import-fetch.ts`：按决定 5 实现安全抓取，返回原始字节和回执。
@@ -139,10 +136,10 @@ flowchart LR
   - **同步**帮助、`skills/shiqu/SKILL.md` 和 `.docs/use-as-skill.md` 的示例。
 - [ ] 12. 在 `tests/manifest.json` 登记测试，包括 `covers` 和 `tests/fixtures/imported-books/*` 的归属：
   - 新增：
-    - `tests/book-import-parse.test.mjs`：编码（含 Big5 和编码难以判断的情况）、三种格式、DRM、EPUB 解压炸弹和越界路径、自动切分、结构调整、编号可复现、质量标记、版次。
-    - `tests/book-import-fetch.test.mjs`：私网地址、重定向、DNS 重绑定、大小与超时、内容类型（模拟 DNS 和 fetch）。
-    - `tests/imported-books.test.mjs`：创建、确认、加载、篡改与清单版本、删除后失败即关闭不回退网页原文、缓存失效、重新导入时版次保留与变化、残留清理、`LocalBooks.resolve/storyOriginal`。
-    - `tests/imported-book-cards.test.mjs`：预估；假提供方逐章生成，确认只送入本章、空批次时结束；取消后续跑不重复调用；重启后显示暂停；失败重试；版次变化后旧卡失效；`LocalStorySearch` 的按故事和按主题检索；删除时清理缓存键。
+    - `tests/book-import-parse.test.mjs`：编码（含 Big5 和编码难以判断的情况）、三种格式、DRM、单本及全书 EPUB 解压上限、越界路径、自动切分、结构调整、编号可复现、质量标记、版次。
+    - `tests/book-import-fetch.test.mjs`：私网地址、重定向、DNS 重绑定、单页与整次导入大小和时限、内容类型（模拟 DNS 和 fetch）。
+    - `tests/imported-books.test.mjs`：创建、确认、加载、篡改与清单版本、来源数量/总字节/EPUB 总展开字节上限、删除后失败即关闭不回退网页原文、缓存失效、重新导入时版次保留与变化、唯一未变章节卡及出处重绑、残留清理、`LocalBooks.resolve/storyOriginal`。
+    - `tests/imported-book-cards.test.mjs`：预估使用 cards purpose、实际格式化 prompt/payload/schema，且任何窗口都不超过预算；假提供方通过生产 `ReaderProvider.suggestions()` 的 cards purpose 逐窗口生成，确认只送入当前章及其紧邻下一章；summary 输出包含起因/行动/结果，出处定位正确；相邻窗口重复去重；取消会 abort 当前 Codex/Claude 子进程或 provider fetch、等待 teardown、不提交未完成窗口，`StoryDiscoveryCache.shared()` 使用 `drain:true` 等待共享工作结束，续跑复用已完成窗口；重启后显示暂停；失败重试；edition 过期写入被拒绝；替换前取消并等待；版次变化后仅保留唯一未变章节的卡、旧向量失效；`LocalStorySearch` 的按故事和按主题检索；删除时清理缓存键。
     - `tests/imported-books-api.test.mjs`：路由、单文件上限、鉴权、事件流、一本坏书不影响汇总列表。
   - 扩展：
     - `tests/headless-cli.test.mjs`、`tests/cli-skill.test.mjs`；
@@ -165,3 +162,5 @@ flowchart LR
 ## AR 记录
 
 AR 判定为非低风险，原因是涉及持久化、网络抓取、对外 CLI 与技能、费用控制。由独立审阅者复核了两轮。第一轮有 8 项阻塞问题，均已修正：上传受 13 MiB 请求体上限约束；EPUB 缺少解压限制；`LocalBooks` 缓存不失效，书被删除后会回退到未核对原文；身份键被误改为书名；按章抽取未先收窄范围；`embedding-index` 和 CLI 的书目白名单被遗漏；一本坏书会拖垮汇总列表；CLI 绕过 `ensureLibraryReady`。第二轮复核通过，另有 5 项非阻塞建议，均已并入本计划：`MediaStore.delete`、孤立向量的判定、实际解压字节计数、章节范围来源、草稿清理。
+
+本次 RPD 开始后的 AR 第三轮发现：缺少单次导入的文件数、原始字节和抓取总时限；版次变化时未定义未变章节卡复用；替换可能与运行中的故事卡任务竞争。以上已在 REQ、AP 和验收用例中解决。第四轮发现多本 EPUB 可累积过大解压量，已增加单本 64 MiB、全书 256 MiB 解压上限并补验收。第五轮通过：`AR passed: no blocking architecture flaws`。任务 0 实际 Codex 探针推翻 discovery loop 方案后，第六轮先发现 cards 计划仍按 scan prompt/schema 估算，且取消信号未进入 provider request；已改为按 cards 实际请求计数，并要求取消/替换/删除 abort request 后等待 teardown。第六轮通过；另补 `StoryDiscoveryCache.shared()` 的 `drain:true`，防止共享工作尚未结束时过早替换或删除。
