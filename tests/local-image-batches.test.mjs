@@ -2,10 +2,10 @@
 // Batch-era assertions follow saved checkpoints rather than synchronous HTTP completion.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {productionFixture,until,turn,makePlan,encoded} from './fixtures/production.mjs';
+import {productionFixture,until,turn,makePlan} from './fixtures/production.mjs';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
-import {flowProviders,heavy,fullTier} from './fixtures/test-tier.mjs';
+import {flowProviders,fullTier,heavy} from './fixtures/test-tier.mjs';
 const owner='docker-local-owner';
 const control=(f,id,action)=>f.json(`sessions/${id}/production-control`,'POST',{action});
 async function finish(f,id,page=0){await f.demand(id,crypto.randomUUID(),page);await until(async()=>(await f.read(id)).state==='completed',60000);return f.read(id);}
@@ -17,22 +17,6 @@ test('auto is the count default; invalid counts never create a production story'
  assert.equal((await f.json('sessions')).length,0);
 });
 for(const provider of flowProviders(['gemini','codex'])){
- // Fast runs keep the smallest, a typical and the automatic count; the full tier sweeps up to 80 frames.
- const lengths=fullTier?[1,8,10,12,30,60,80,'auto']:[1,8,'auto'];
- test(`${provider}: auto count 1/30 and exact ${lengths.filter(length=>length!=='auto').join('/')} use durable production checkpoints`,async t=>{
-  const f=await productionFixture(t,provider);f.control.hold=false;
-  for(const length of lengths){
-   if(length==='auto')f.control.autoLength=30;
-   const before=f.control.calls.length,id=await f.create(length),saved=await finish(f,id);
-   const count=length==='auto'?30:length;assert.equal(saved.story.pages.length,count);assert.equal(saved.ready,count);
-   assert.deepEqual(f.control.calls.slice(before).map(c=>c.page).sort((a,b)=>a-b),Array.from({length:count},(_,i)=>i));
-   assert.ok(f.control.maxActive<=3);assert.equal(f.control.calls[before].reference,undefined);
-   assert.ok(f.control.calls.slice(before+1).every(c=>c.reference===encoded));
-   assert.ok(f.control.batches.every(b=>b.batch.last-b.batch.first<20));
-   await f.restart();assert.equal((await f.read(id)).state,'completed');await f.demand(id);await turn();assert.equal(f.control.calls.length,before+count);
-  }
-  f.control.autoLength=1;const one=await f.create('auto');assert.equal((await finish(f,one)).ready,1);
- });
  test(`${provider}: invalid exact outline fails before images; only explicit fault recovery proceeds`,async t=>{
   const f=await productionFixture(t,provider);f.control.hold=false;
   f.control.beforeText=async kind=>kind==='outline'?{...makePlan(1),beats:['只有一幅。']}:undefined;

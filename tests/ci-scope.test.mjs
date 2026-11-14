@@ -12,29 +12,29 @@ import {loadMetadata} from '../scripts/test-metadata.mjs';
 
 const files=plan=>plan.tests.map(test=>test.file);
 const extended=loadMetadata().tests.filter(entry=>entry.gates.includes('extended')).map(entry=>entry.file);
-test('documentation keeps smoke; domain changes run only their own domains plus smoke',()=>{
+test('documentation stays test-free; domain changes run only affected automatic suites',()=>{
  const docs=createPlan(changeScope(['README.md','.docs/reqs/example.md','LICENSE']));
- assert.deepEqual(files(docs),['tests/book-integrity-smoke.test.mjs']);assert.equal(docs.native,false);
+ assert.deepEqual(files(docs),[]);assert.equal(docs.native,false);
  const ui=createPlan(changeScope(['client/ui/Reader.css']));
- assert.ok(files(ui).includes('tests/book-integrity-smoke.test.mjs'));
- for(const file of ['reader-interaction','shelf-layout-ui','story-workspace-ui'])assert.ok(files(ui).includes(`tests/${file}.test.mjs`),file);
- // 界面改动不再顺带运行其他责任域的契约测试。
+ assert.ok(!files(ui).includes('tests/book-integrity-smoke.test.mjs'));
+ assert.ok(files(ui).includes('tests/reader-interaction.test.mjs'));
+ // 客户端样式改动保留阅读业务契约，不再运行已退役的界面或浏览器套件。
  for(const file of ['local-server','production-queue','deepseek-provider','gemini-stage-schema','separate-providers','task-reasoning','cli-library','startup-cli-flow','desktop-internet','local-books'])assert.ok(!files(ui).includes(`tests/${file}.test.mjs`),file);
- assert.ok(!ui.native);assert.ok(ui.deferredBrowser.length);assert.ok(ui.tests.every(test=>test.level!=='browser-e2e'));
+ assert.ok(!ui.native);assert.deepEqual(ui.deferredBrowser,[]);assert.ok(ui.tests.every(test=>test.level!=='browser-e2e'));
 });
-test('affected areas include their flows, heavy flags and all six service E2Es for core changes',()=>{
+test('affected areas keep source flows automatic and model E2Es on demand',()=>{
  for(const file of ['server/local-story-discovery.ts','lib/reader-review.ts','server/production-queue.ts','server/generation.ts','server/book-image-reference.ts']){
   const plan=createPlan(changeScope([file]));
-  for(const e2e of extended)assert.ok(files(plan).includes(e2e),file+' -> '+e2e);
+  for(const e2e of extended){assert.ok(!files(plan).includes(e2e),file+' must not auto-run '+e2e);assert.ok(plan.manualOnly.includes(e2e),file+' should list '+e2e+' as on demand');}
   assert.equal(plan.tests.length,new Set(files(plan)).size);
-  for(const selected of plan.tests.filter(entry=>extended.includes(entry.file)))assert.equal(selected.mode,'full');
  }
  const provider=createPlan(changeScope(['server/claude-runner.ts']));
- assert.ok(files(provider).includes('tests/claude-provider-flow.test.mjs'));
- assert.equal(provider.tests.find(entry=>entry.file==='tests/deepseek-provider.test.mjs').mode,'full');
+ assert.ok(provider.manualOnly.includes('tests/claude-provider-flow.test.mjs'));
+ assert.ok(provider.manualOnly.includes('tests/deepseek-provider.test.mjs'));
+ assert.ok(!files(provider).some(file=>loadMetadata().tests.find(entry=>entry.file===file)?.modelRelated));
  // 供应商改动不再顺带运行其他责任域的本地服务测试。
  assert.ok(!files(provider).includes('tests/local-server.test.mjs'));
- const books=createPlan(changeScope(['data/library/originals/book.md']));assert.ok(files(books).includes('tests/local-books.test.mjs'));
+ const books=createPlan(changeScope(['data/library/originals/book.md']));assert.ok(!files(books).includes('tests/local-books.test.mjs'));assert.ok(books.manualOnly.includes('tests/local-books.test.mjs'));
 });
 test('known sources and scripts map to their domains instead of the unknown-file fallback',()=>{
  for(const [file,group] of [['server/local-story-search.ts','discovery'],['server/story-card-embeddings.ts','discovery'],['lib/reader-shelf.ts','reader'],['lib/desktop-view.ts','reader'],['server/agent-cli.ts','tooling'],['scripts/dev.mjs','tooling'],['scripts/prepare-reading-blocks.mjs','books']]){
@@ -58,46 +58,40 @@ test('native, shared schemas and uncertain changes retain scoped safeguards',()=
  assert.equal(validScope({...fullScope(),books:false}),false);
  assert.equal(validScope({code:true,books:false,native:false,full:false,groups:[]}),false);
 });
-test('editorial prompt changes run registered consumers plus smoke without native checks',()=>{
+test('editorial prompt changes run registered consumers without native checks',()=>{
  const input='lib/reader-prompts.ts',legacy='lib/reader-legacy-prompts.ts';
- const smoke='tests/book-integrity-smoke.test.mjs';
  const plan=createPlan(changeScope([input]));
  assert.equal(plan.scope.full,false);
  assert.equal(plan.native,false);
  assert.deepEqual(plan.scope.groups,[]);
- assert.deepEqual(new Set(files(plan)),new Set([smoke,...plan.scope.directTests]));
+ assert.deepEqual(new Set([...files(plan),...plan.manualOnly]),new Set(plan.scope.directTests));
  for(const consumer of ['prompt-contracts','story-reflection','story-reflection-candidates','storyboard-batches','continuous-story-discovery']){
-  assert.equal(plan.tests.find(entry=>entry.file===`tests/${consumer}.test.mjs`)?.mode,'full',consumer);
+  assert.ok(plan.manualOnly.includes(`tests/${consumer}.test.mjs`),consumer+' remains available on demand');
  }
- assert.deepEqual(files(createPlan(changeScope([legacy]))),[smoke,'tests/prompt-contracts.test.mjs']);
+ const legacyPlan=createPlan(changeScope([legacy]));assert.deepEqual(files(legacyPlan),[]);assert.ok(legacyPlan.manualOnly.includes('tests/prompt-contracts.test.mjs'));
  assert.equal(changeScope([input,'src-tauri/src/runtime.rs']).native,true);
  assert.ok(changeScope([input,'lib/reader-model.ts']).groups.includes('storage'));
  assert.equal(changeScope([input,'lib/reader-model.ts']).native,true);
 });
-test('known layout inputs and registered tests select only direct coverage plus smoke',()=>{
- const smoke='tests/book-integrity-smoke.test.mjs',desktop='tests/desktop-responsive-layout.playwright.e2e.mjs',phone='tests/phone-readability.playwright.e2e.mjs';
- const fixture='tests/fixtures/phone-audit.mjs',css='client/ui/production-timeline.css';
- for(const [inputs,expected] of [[[fixture],[desktop,phone]],[[phone],[phone]],[[css,fixture,phone],[desktop,phone,'tests/desktop-css-scope.test.mjs','tests/phone-readability-css.test.mjs']], [['scripts/test-plan.mjs','tests/manifest.json'],['tests/ci-scope.test.mjs','tests/test-pr.test.mjs','tests/test-tiers.test.mjs']]]){
-  const scope=changeScope(inputs),plan=createPlan(JSON.parse(JSON.stringify(scope)));
-  const browser=expected.filter(file=>file===desktop||file===phone);
-  assert.deepEqual(new Set(files(plan)),new Set([smoke,...expected.filter(file=>!browser.includes(file))]),inputs.join(', '));
-  assert.deepEqual(new Set(plan.deferredBrowser),new Set(browser));
-  assert.ok(scope.code);assert.ok(!scope.full&&!plan.native);
-  assert.ok(plan.tests.filter(entry=>expected.includes(entry.file)).every(entry=>entry.mode==='full'));
- }
- const mixed=createPlan(changeScope([fixture,'server/system-settings.ts']));
- const settings=createPlan(changeScope(['server/system-settings.ts']));
- assert.deepEqual(new Set(files(mixed)),new Set(files(settings)));
- assert.deepEqual(new Set(mixed.deferredBrowser),new Set([desktop,phone,...settings.deferredBrowser]));
- assert.ok(mixed.native);
- const invalid=createPlan({...changeScope([fixture]),directTests:['tests/missing.test.mjs']});
+test('client assets use reader contracts; loopback service suites stay on demand',()=>{
+ const service='tests/story-generation-state-machine.e2e.mjs',css='client/ui/production-timeline.css';
+ const styleScope=changeScope([css]),stylePlan=createPlan(styleScope);
+ assert.ok(styleScope.groups.includes('reader'));assert.ok(files(stylePlan).includes('tests/reader-interaction.test.mjs'));assert.deepEqual(stylePlan.deferredBrowser,[]);
+ const serviceScope=changeScope([service]),servicePlan=createPlan(serviceScope);
+ assert.deepEqual(serviceScope.directTests,[service]);assert.deepEqual(files(servicePlan),[]);assert.deepEqual(servicePlan.manualOnly,[service]);assert.deepEqual(servicePlan.deferredBrowser,[]);
+ const mixed=createPlan(changeScope([css,service]));assert.ok(!files(mixed).includes(service));assert.deepEqual(mixed.deferredBrowser,[]);assert.deepEqual(new Set(mixed.manualOnly),new Set(['tests/reader-source-runtime.test.mjs','tests/shelf-favorites.test.mjs','tests/shelf-generation.test.mjs',service]));
+ const registry=createPlan(changeScope(['scripts/test-plan.mjs','tests/manifest.json']));
+ assert.deepEqual(new Set(files(registry)),new Set(['tests/test-assurance.test.mjs']));
+ for(const manual of ['tests/ci-scope.test.mjs','tests/test-pr.test.mjs','tests/test-tiers.test.mjs'])assert.ok(registry.manualOnly.includes(manual));
+ const settings=createPlan(changeScope(['server/system-settings.ts']));assert.ok(settings.native);
+ const invalid=createPlan({...styleScope,directTests:['tests/missing.test.mjs']});
  assert.ok(invalid.native&&!invalid.scope.full);
 });
 test('mixed changes are a union and supported platforms are explicit',()=>{
  const plan=createPlan(changeScope(['client/ui/Reader.tsx','server/claude-runner.ts']));
  const union=new Set([...files(createPlan(changeScope(['client/ui/Reader.tsx']))),...files(createPlan(changeScope(['server/claude-runner.ts'])))]);
  assert.deepEqual(new Set(files(plan)),union);
- const owner=createPlan(changeScope(['tests/startup-cli-flow.test.mjs']));assert.deepEqual(files(owner),['tests/book-integrity-smoke.test.mjs','tests/startup-cli-flow.test.mjs']);
+ const owner=createPlan(changeScope(['tests/startup-cli-flow.test.mjs']));assert.deepEqual(files(owner),[]);assert.deepEqual(owner.manualOnly,['tests/startup-cli-flow.test.mjs']);
  const windows=createPlan(fullScope(),undefined,{platform:'win32'});assert.ok(windows.excluded.includes('tests/startup-pty.test.mjs'));assert.ok(windows.excluded.includes('tests/claude-provider.test.mjs'));
  assert.ok(!files(windows).includes('tests/startup-pty.test.mjs'));
 });
@@ -153,14 +147,17 @@ test('split CI and desktop release workflows keep their event gates and aggregat
  assert.match(job(ci,'javascript'),/SHIQU_TEST_SCOPE:[^\n]+\n\s+run: pnpm test:pr\n/);
  assert.doesNotMatch(job(ci,'javascript'),/--full|playwright install/);
  assert.match(job(ci,'native'),/"resources":\[\]/);assert.match(job(ci,'native'),/"frontendDist":\["\.\.\/desktop\/index\.html"\]/);assert.doesNotMatch(job(ci,'native'),/desktop:prepare|desktop:build|scripts\/desktop-node/);
- assert.match(job(releaseWorkflow,'build'),/pnpm run desktop:test/);assert.match(job(releaseWorkflow,'build'),/toolchain: 1.93.0/);assert.match(job(ci,'native'),/toolchain: 1.93.0/);
+ assert.match(job(releaseWorkflow,'build'),/cargo test --manifest-path src-tauri\/Cargo\.toml --locked --lib -- --skip config::tests/);assert.match(job(releaseWorkflow,'build'),/toolchain: 1.93.0/);assert.match(job(ci,'native'),/toolchain: 1.93.0/);
 });
 
-test('generation client helpers retain direct integration consumers and core service E2Es',()=>{
+test('generation client helpers retain direct integration consumers and defer model E2Es',()=>{
  for(const file of ['lib/reader-production-client.ts','lib/shelf-generation.ts']){
   const plan=createPlan(changeScope([file]));
-  for(const consumer of ['story-flow-control','continuous-story-discovery','manual-extraction-start','reader-intake'])assert.ok(files(plan).includes(`tests/${consumer}.test.mjs`),file+' -> '+consumer);
-  for(const e2e of extended)assert.ok(files(plan).includes(e2e));
+  for(const consumer of ['story-flow-control','continuous-story-discovery','manual-extraction-start','reader-intake']){
+   const name=`tests/${consumer}.test.mjs`,entry=loadMetadata().tests.find(test=>test.file===name);
+   assert.ok((entry.modelRelated?plan.manualOnly:files(plan)).includes(name),file+' -> '+consumer);
+  }
+  for(const e2e of extended){assert.ok(!files(plan).includes(e2e));assert.ok(plan.manualOnly.includes(e2e));}
  }
  assert.ok(changeScope(['server/local-generation.ts']).books);
 });

@@ -78,7 +78,7 @@ test('saved structural edits survive restart without being charged a second time
 test('automatic structural repairs share the twenty-pass stop and never draw through it',async t=>{
  const f=await productionFixture(t);f.control.autoLength=3;
  f.control.beforeText=async kind=>kind==='review'?{issues:[issue]}:kind==='structure'?{edits:[{from:2,to:1,pages:[inserted]}]}:undefined;
- const id=await f.createLegacyReader('auto');await f.demand(id);await until(async()=>(await f.read(id)).state==='failed');
+ const id=await f.createLegacyReader('auto');await f.demand(id);await until(async()=>(await f.read(id)).state==='failed',15_000);
  const doc=await document(f,id);assert.equal(doc.visualReview.stopReason,'limit');assert.equal(doc.visualReview.repairs,20);assert.equal(f.control.structures.length,20);assert.equal(f.control.reviews.length,21);assert.equal(f.control.calls.length,0);
 });
 

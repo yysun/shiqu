@@ -29,6 +29,12 @@ export function loadMetadata(root=process.cwd()){
   if(!Array.isArray(entry.covers)||new Set(entry.covers).size!==entry.covers.length||entry.covers.some(file=>typeof file!=='string'||!file||file.startsWith('/')||file.includes('\\')||file.split('/').includes('..')||path.posix.normalize(file)!==file||[...file].some(char=>char.charCodeAt(0)<32)))throw Error(`Invalid source ownership: ${entry.file}`);
   values(entry.groups,groups,entry.file+' groups');values(entry.platforms,platforms,entry.file+' platforms');values(entry.gates,gates,entry.file+' gates');
   if(!entry.groups.length||!entry.platforms.length||!levels.includes(entry.level)||!['fast','standard','heavy'].includes(entry.cost)||!['unit','flows','books','e2e','native'].includes(entry.suite)||!['always','affected'].includes(entry.pr))throw Error(`Invalid metadata: ${entry.file}`);
+  if(entry.manualOnly!==undefined&&typeof entry.manualOnly!=='boolean')throw Error(`Invalid manual-only metadata: ${entry.file}`);
+  if(entry.modelRelated!==undefined&&typeof entry.modelRelated!=='boolean')throw Error(`Invalid model-related metadata: ${entry.file}`);
+  if(entry.modelRelated&&!entry.manualOnly)throw Error(`Model-related tests must be manual-only: ${entry.file}`);
+  if(entry.requiresLoopback!==undefined&&typeof entry.requiresLoopback!=='boolean')throw Error(`Invalid loopback metadata: ${entry.file}`);
+  if(entry.requiresLoopback&&!entry.manualOnly)throw Error(`Loopback tests must be manual-only: ${entry.file}`);
+  if(entry.relatedPathLiterals!==undefined&&typeof entry.relatedPathLiterals!=='boolean')throw Error(`Invalid related path-literal metadata: ${entry.file}`);
   if((entry.level==='native')!==(entry.suite==='native')||(entry.suite==='native')!==entry.file.endsWith('.rs'))throw Error(`Invalid native metadata: ${entry.file}`);
   if(entry.file.endsWith('.e2e.mjs')!==['service-e2e','browser-e2e'].includes(entry.level))throw Error(`Invalid E2E metadata: ${entry.file}`);
   if(entry.file.endsWith('.e2e.mjs')!==(entry.suite==='e2e'))throw Error(`Invalid E2E suite: ${entry.file}`);
@@ -36,7 +42,7 @@ export function loadMetadata(root=process.cwd()){
   if(!existsSync(path.join(root,entry.file)))throw Error(`Missing registered test: ${entry.file}`);
  }
  const smoke=metadata.tests.find(entry=>entry.file==='tests/book-integrity-smoke.test.mjs');
- if(!smoke||smoke.pr!=='always'||smoke.platforms.length!==platforms.length)throw Error('Missing unconditional integrity smoke');
+ if(!smoke||smoke.pr!=='affected'||smoke.manualOnly!==true||smoke.platforms.length!==platforms.length)throw Error('Missing manual integrity smoke');
  const actual=readdirSync(path.join(root,'tests')).filter(name=>/\.(?:test|e2e)\.mjs$/.test(name)).map(name=>'tests/'+name);
  actual.push(...nativeModules(path.join(root,'src-tauri/src')).map(file=>path.relative(root,file).split(path.sep).join('/')));
  for(const file of actual)if(!seen.has(file))throw Error(`Unregistered test: ${file}`);

@@ -4,10 +4,12 @@ Run with the Node and pnpm versions pinned by `.nvmrc` and `packageManager`:
 
 ```bash
 pnpm run test:startup
-pnpm run test:pty
+pnpm run test:safety
+pnpm run test:loopback
+pnpm run test:assurance
 ```
 
-`test:pty` requires Python 3.9+ on Linux/macOS and uses only the standard library. On Windows, use the CLI startup and database matrix; POSIX terminal tests are explicitly skipped there. `pnpm test` includes both suites. Tests never need API credentials or an installed Codex CLI.
+Startup and safety assurance suites, tests that bind or connect to a real local loopback listener, and model/provider-backed tests are manual-only and never run from change plans, CI, release gates or `pnpm test:full`. `test:startup` runs the registered startup JavaScript suites; `test:safety` runs the safety contracts; `test:loopback` runs local-listener tests; `test:models` runs provider contracts and controlled generation flows; `test:assurance` runs the safety, startup and loopback groups plus native desktop tests. `test:pty` remains a focused startup check and requires Python 3.9+ on Linux/macOS. On Windows, POSIX terminal tests are explicitly skipped and the CLI startup matrix is available through `test:startup`. Tests use fixture credentials and controlled responses; they do not need real API credentials or live inference.
 
 ## Isolation
 
@@ -29,7 +31,7 @@ Fault injection, migration termination, SQL triggers, chmod and cleanup apply on
 | SQLite lock and recovery | Open/save/reset blocked by another connection; bounded failure, unchanged saved state and successful operations after unlock |
 | Failed writes and migration | Trigger failure after a key write, trigger failure after migration DDL, killed migrator after real uncommitted DDL; original settings/key/schema recovered, integrity checked and clean upgrade succeeds |
 | Storage unavailable | Real POSIX permission denial for a non-root user; portable file-as-directory obstruction on every OS; no sibling data overwritten |
-| Native compatibility | Existing Rust tests cover TS/Rust interchange, v1 migration, stale-view CAS, key privacy and validation. `test:startup` itself exercises Node on the current OS, not the Tauri UI. |
+| Native compatibility | `pnpm test:assurance` runs Cargo and covers TS/Rust interchange, v1 migration, stale-view CAS, key privacy and validation. Automatic native CI skips `config::tests`; `test:startup` exercises Node on the current OS, not the Tauri UI. |
 
 POSIX permission assertions skip explicitly under Windows or root, where those permission semantics do not apply. A killed transaction is a process-crash test, not a simulation of a machine losing power.
 
@@ -43,12 +45,12 @@ pnpm run npm:check
 
 This runs typecheck, lint and a critical release smoke selection. Local results establish behavior on the current OS; Windows/Linux native verification and live provider permissions/quota remain separate.
 
-`npm:check` uses the shared `test:e2e` runner to execute seven files: one complete browser creation-to-reading flow, production recovery/replay, headless CLI (including export and backup/restore), CLI startup, system settings, settings faults and npm publication guards. The browser smoke reuses C001's implementation and assertions from the full lifecycle suite.
+`npm:check` uses the shared `test:e2e` runner to execute six non-browser release checks: production state-machine flow, headless CLI, npm CLI and publication guards, settings faults, and system settings. Browser creation-to-reading coverage has been retired with the other automated UI suites.
 
-Desktop `release:check` runs typecheck, lint, `pnpm test:pr --full` and Rust formatting. The full plan includes all supported registered JS tests, including provider/length matrices, all-book scans, PTY onboarding and browser flows. The standalone eight-file smoke remains available as `pnpm test:e2e --gate=release`.
+Desktop `release:check` runs typecheck, lint, the seven-file service release gate and Rust formatting. The full plan includes all supported registered JS tests, including provider/length matrices, all-book scans, PTY onboarding and service flows. No browser UI E2E suites remain registered.
 
 All checks use isolated libraries and homes without live inference or real provider keys. In the full suite, C007 launches the real dev command in a disposable source root, excluding `.env` and personal libraries; it never migrates the developer's `.data/dev-local`.
 
-The installed pre-push hook invokes `release:check` in an isolated checkout of each distinct commit targeted by a pushed `v*` tag. Any failed check rejects the tag push and cleans up the checkout. Ordinary branches, non-v tags and tag deletions bypass the checks. Install the hook with `pnpm hooks:install` and use the pinned Node/pnpm, Rust/rustfmt and Playwright Chromium. Tag Actions rely on this local check and run native tests and installer smoke checks before publishing.
+The installed pre-push hook invokes `release:check` in an isolated checkout of each distinct commit targeted by a pushed `v*` tag. Any failed check rejects the tag push and cleans up the checkout. Ordinary branches, non-v tags and tag deletions bypass the checks. Install the hook with `pnpm hooks:install` and use the pinned Node/pnpm and Rust/rustfmt. Tag Actions rely on this local check and run native tests and installer smoke checks before publishing.
 
 For publication, use `pnpm run npm:publish`: it runs `npm:check`, builds a fresh tarball, smoke-tests that exact artifact, then publishes only if every step succeeds. `pnpm run npm:publish --dry-run` performs the same checks/build/smoke and passes `--dry-run` to the final publish command. See [npm release instructions](npm-publishing.md). The release wrapper remains in the private checkout; the consumer package has no release/install hooks.

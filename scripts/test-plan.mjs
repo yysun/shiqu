@@ -1,5 +1,5 @@
-// 已知测试输入按文件选测，生产变更按责任域取并集；未知影响保留基础检查。
-// createRelatedPlan 为开发内循环的相关计划，只用快速开关，与 PR/CI 计划分开。
+// 已知测试输入按文件选测，生产变更按责任域取并集；未知影响保留回退范围，手动组只列出不自动执行。
+// createRelatedPlan 为开发内循环运行快成本用例；标准与重型影响留给完整影响检查。
 // 只有无条件冒烟每次都跑；其余测试按责任域、直接登记或覆盖关系选入。已知的源码与脚本都映射到责任域，未知文件才回退基础检查。
 import {loadMetadata,groups,supported} from './test-metadata.mjs';
 const fallbackGroups=['safety','startup','tooling'];
@@ -66,11 +66,12 @@ function documentation(file){
  return /\.md$|^\.docs\/|^(?:LICENSE|NOTICE)$/.test(file);
 }
 // 只有已声明消费者的提示词、样式、夹具和测试调度输入才允许走文件级选择。
-const directInput=/^(?:lib\/reader-(?:legacy-)?prompts\.ts|(?:client|desktop)\/.+\.css|tests\/fixtures\/.+|tests\/manifest\.json|scripts\/(?:ci-scope|node-version|test-(?:graph|metadata|plan|pr|source|tiers))\.mjs)$/;
+const directInput=/^(?:lib\/reader-(?:legacy-)?prompts\.ts|(?:client|desktop)\/.+\.css|tests\/fixtures\/.+|tests\/manifest\.json|scripts\/(?:ci-scope|node-version|test-(?:assurance|graph|metadata|plan|pr|source|tiers))\.mjs)$/;
 export function changeScope(files,metadata=loadMetadata()){
  if(!files.length)return fallbackScope('empty comparison');
  const selected=new Set(),directTests=new Set(),reasons=[];let code=false,native=false;
  const selectTest=entry=>{
+  if(entry.manualOnly){directTests.add(entry.file);return;}
   if(entry.level==='native'){native=true;entry.groups.forEach(group=>selected.add(group));}
   else directTests.add(entry.file);
  };
@@ -81,12 +82,13 @@ export function changeScope(files,metadata=loadMetadata()){
   if(documentation(file))continue;
   code=true;
   const test=metadata.tests.find(entry=>entry.file===file);
-  if(test){selectTest(test);reasons.push(file);continue;}
+  if(test){selectTest(test);if(test.suite==='books')selected.add('books');reasons.push(file);continue;}
   const consumers=metadata.tests.filter(entry=>entry.covers.includes(file));
-  if(directInput.test(file)&&consumers.length){consumers.forEach(selectTest);reasons.push(file);continue;}
+  if(directInput.test(file)&&consumers.length){consumers.forEach(selectTest);if(consumers.some(entry=>entry.suite==='books'))selected.add('books');reasons.push(file);continue;}
   const [,affected,requiresNative]=rules.find(([pattern])=>pattern.test(file))||[null,fallbackGroups,true];
   affected.forEach(group=>selected.add(group));native||=Boolean(requiresNative);
-  for(const consumer of consumers){consumer.groups.forEach(group=>selected.add(group));native||=consumer.level==='native';}
+  // covers 精确纳入消费者测试；消费者的多域标签不再扩散成整组回归。
+  for(const consumer of consumers)selectTest(consumer);
   reasons.push(file);
  }
  return {code,books:selected.has('books'),native,full:false,groups:[...selected].sort(),reasons,...(directTests.size?{directTests:[...directTests].sort()}:{})};
@@ -96,29 +98,42 @@ export function validScope(scope){
  const direct=scope.directTests===undefined?[]:scope.directTests;
  return Array.isArray(direct)&&new Set(direct).size===direct.length&&direct.every(file=>typeof file==='string')&&(!scope.full||(scope.code&&scope.native&&groups.every(g=>scope.groups.includes(g))))&&(scope.code||(!scope.groups.length&&!direct.length&&!scope.native&&!scope.books))&&(!scope.code||scope.groups.length>0||direct.length>0)&&scope.books===scope.groups.includes('books');
 }
-// 开发内循环：只运行改动的已登记测试及反查到的消费者，全部快速开关；不是资格检查，空集不扩大范围。
+// 开发内循环：改动的测试文件直接运行；源码消费者只选 fast 成本用例。
 export function createRelatedPlan(files,consumers,metadata=loadMetadata(),{platform=process.platform}={}){
- const chosen=new Set([...consumers,...files.filter(file=>metadata.tests.some(entry=>entry.file===file))]);
+ const changedTests=new Set(files.filter(file=>metadata.tests.some(entry=>entry.file===file)));
+ const chosen=new Set([...consumers,...changedTests]);
  const entries=metadata.tests.filter(entry=>chosen.has(entry.file));
- const runnable=entries.filter(entry=>entry.level!=='native'&&entry.level!=='browser-e2e'&&supported(entry,platform));
+ const runnable=entries.filter(entry=>!entry.manualOnly&&entry.level!=='native'&&entry.level!=='browser-e2e'&&supported(entry,platform)&&(changedTests.has(entry.file)||entry.cost==='fast'));
  const deferredBrowser=entries.filter(entry=>entry.level==='browser-e2e').map(entry=>entry.file);
- const native=entries.some(entry=>entry.level==='native')||files.some(file=>file.startsWith('src-tauri/'));
+ const deferredByCost=entries.filter(entry=>!entry.manualOnly&&entry.level!=='native'&&entry.level!=='browser-e2e'&&supported(entry,platform)&&!changedTests.has(entry.file)&&entry.cost!=='fast').map(entry=>entry.file);
+ const manualOnly=entries.filter(entry=>entry.manualOnly&&supported(entry,platform)).map(entry=>entry.file);
+ const books=entries.some(entry=>changedTests.has(entry.file)&&entry.suite==='books');
+ const native=entries.some(entry=>entry.level==='native'&&!entry.manualOnly)||files.some(file=>file.startsWith('src-tauri/')&&!metadata.tests.some(entry=>entry.file===file&&entry.manualOnly));
  const hints=[];
- if(deferredBrowser.length)hints.push('浏览器用例请运行 pnpm test:e2e');
- if(native)hints.push('原生代码请运行 pnpm desktop:test');
+ if(deferredBrowser.length)hints.push(`浏览器用例请运行 pnpm test:e2e --files ${deferredBrowser.join(' ')}`);
+ const manualGroups=new Set(manualOnly.flatMap(file=>metadata.tests.find(entry=>entry.file===file)?.groups||[]));
+ if(manualGroups.has('safety'))hints.push('安全保障测试仅按需运行：pnpm test:safety');
+ if(manualGroups.has('startup'))hints.push('启动保障测试仅按需运行：pnpm test:startup');
+ if(manualOnly.some(file=>metadata.tests.find(entry=>entry.file===file)?.modelRelated))hints.push('模型与生成流程测试仅按需运行：pnpm test:models');
+ if(manualOnly.some(file=>metadata.tests.find(entry=>entry.file===file)?.requiresLoopback))hints.push('本机 loopback 测试仅按需运行：pnpm test:loopback');
+ if(manualOnly.some(file=>metadata.tests.find(entry=>entry.file===file)?.suite==='books'))hints.push('书籍原文核查仅按需运行：pnpm test:books');
+ if(deferredByCost.length)hints.push(`${deferredByCost.length} 个标准或重型消费者已延后；交付前运行 pnpm test:changed`);
+ if(manualOnly.some(file=>metadata.tests.find(entry=>entry.file===file)?.level==='native'))hints.push('启动配置原生用例仅按需运行：pnpm test:assurance');
+ if(native&&!manualOnly.some(file=>metadata.tests.find(entry=>entry.file===file)?.level==='native'))hints.push('原生代码请运行 pnpm desktop:test');
  if(!runnable.length)hints.push('没有直接相关的测试：0 个文件被运行，间接受影响的测试未检查，这不代表通过。');
  hints.push(runnable.length?'只包含直接相关测试；交付前运行一次 pnpm test:changed':'请运行 pnpm test:changed 检查完整影响面');
- return {version:1,platform,related:true,files,native,tests:runnable.map(entry=>({file:entry.file,level:entry.level,mode:'fast'})),deferredBrowser,excluded:entries.filter(entry=>entry.level!=='native'&&!supported(entry,platform)).map(entry=>entry.file),hints};
+ return {version:1,platform,related:true,files,native,books,tests:runnable.map(entry=>({file:entry.file,level:entry.level,mode:changedTests.has(entry.file)&&entry.cost!=='fast'?'full':'fast'})),deferredBrowser,deferredByCost,manualOnly,excluded:entries.filter(entry=>entry.level!=='native'&&!supported(entry,platform)).map(entry=>entry.file),hints};
 }
 export function createPlan(scope,metadata=loadMetadata(),{platform=process.platform,includeBrowser=false}={}){
- if(!validScope(scope)||scope.directTests?.some(file=>!metadata.tests.some(entry=>entry.file===file&&entry.level!=='native')))scope=fallbackScope('missing/invalid scope');
+ if(!validScope(scope)||scope.directTests?.some(file=>!metadata.tests.some(entry=>entry.file===file)))scope=fallbackScope('missing/invalid scope');
  const direct=new Set(scope.directTests);
  const core=scope.groups.some(group=>['discovery','preparation','review','production'].includes(group));
  const affected=entry=>direct.has(entry.file)||entry.groups.some(group=>scope.groups.includes(group))||core&&entry.gates.includes('extended');
- const selected=metadata.tests.filter(entry=>entry.level!=='native'&&(scope.full||entry.pr==='always'||affected(entry)));
- const available=selected.filter(entry=>supported(entry,platform));
+ const selected=metadata.tests.filter(entry=>scope.directTests?.includes(entry.file)||scope.full||entry.pr==='always'||affected(entry));
+ const available=selected.filter(entry=>entry.level!=='native'&&supported(entry,platform));
+ const manualOnly=selected.filter(entry=>entry.manualOnly&&supported(entry,platform)).map(entry=>entry.file);
  // 影响范围与执行门禁分开，只有显式资格检查纳入 Playwright。
- const tests=available.filter(entry=>includeBrowser||entry.level!=='browser-e2e').map(entry=>({file:entry.file,level:entry.level,mode:scope.full||affected(entry)?'full':'fast'}));
- const deferredBrowser=includeBrowser?[]:available.filter(entry=>entry.level==='browser-e2e').map(entry=>entry.file);
- return {version:1,platform,scope,native:scope.native,tests,deferredBrowser,excluded:selected.filter(entry=>!supported(entry,platform)).map(entry=>entry.file)};
+ const tests=available.filter(entry=>!entry.manualOnly&&(includeBrowser||entry.level!=='browser-e2e')).map(entry=>({file:entry.file,level:entry.level,mode:scope.full||affected(entry)?'full':'fast'}));
+ const deferredBrowser=includeBrowser?[]:available.filter(entry=>!entry.manualOnly&&entry.level==='browser-e2e').map(entry=>entry.file);
+ return {version:1,platform,scope,native:scope.native,tests,deferredBrowser,manualOnly,excluded:selected.filter(entry=>!supported(entry,platform)).map(entry=>entry.file)};
 }

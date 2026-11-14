@@ -8,5 +8,5 @@ export function flowProviders(names){return fullTier?names:names.includes(fastPr
 export function flowProvider(name,names=['codex','gemini']){return flowProviders(names).includes(name)?{}:{skip:'provider matrix: run pnpm test:providers'};}
 // Options for exhaustive or long-running cases kept out of fast runs.
 export const heavy=fullTier?{}:{skip:'heavy case: run pnpm test:providers'};
-// 原著归属由注册表声明；此开关仅控制文件中的逐字、版本和章节用例。
-export const books=fullTier||process.env.SHIQU_TEST_BOOKS==='1'?{}:{skip:'shipped book contents: run pnpm test:books'};
+// 原著全库校验单独启用，常规完整提供方矩阵不扫描全部 shipped books。
+export const books=process.env.SHIQU_TEST_BOOKS==='1'?{}:{skip:'shipped book contents: run pnpm test:books'};

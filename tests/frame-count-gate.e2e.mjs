@@ -12,7 +12,7 @@ import {advanceStory} from '../lib/reader-engine.ts';
 import {nextStep,selectionSchema} from '../lib/reader-model.ts';
 import {newReview} from '../lib/reader-review.ts';
 import {acquireEvaluationRun,continueEvaluationDocument} from '../scripts/storyboard-evaluation.mjs';
-import {makePlan,selection as legacy} from './fixtures/production.mjs';
+import {makePlan,selection as legacy} from './fixtures/production-data.mjs';
 test('old script expands, rechecks count, then completes the original audit with zero media calls',async t=>{
  const tmp=await mkdtemp(path.join(os.tmpdir(),'frame-count-evaluation-')),db=openDatabase(tmp,process.cwd());let lease;t.after(async()=>{await lease?.release();db.close();await rm(tmp,{recursive:true,force:true});});
  const repo=new ReaderRepository(db.database),selection=selectionSchema.parse({...legacy,length:'auto'}),id='offline-v1',owner='offline',plan=makePlan(3),original={title:'原文',text:'甲赠物，乙未接，后来二人和解。',url:'https://example.org',kind:'passage',provider:'fixture',retrievedAt:'2026-11-02'};

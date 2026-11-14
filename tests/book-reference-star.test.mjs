@@ -6,7 +6,7 @@ import {savedStory,star,unstar,owner} from './fixtures/book-reference.mjs';
 import {png,jpeg,encoded} from './fixtures/images.mjs';
 import {BookImageReferences,withBookReference} from '../server/book-image-reference.ts';
 import {createReaderProvider} from '../server/generation.ts';
-import {transform} from 'esbuild';import {createRequire} from 'node:module';import './fixtures/tsx.mjs';import {createElement} from 'react';import {renderToStaticMarkup} from 'react-dom/server';
+import {transform} from 'esbuild';import {createRequire} from 'node:module';
 
 test('stars replace across stories, cancel with tokens, survive restart, and never alter story checkpoints',async t=>{
  const f=await productionFixture(t),a=await savedStory(f),b=await savedStory(f,{page:1,bytes:jpeg}),other=await savedStory(f,{bookId:'三国演义'});
@@ -64,13 +64,6 @@ for(const provider of ['codex','gemini','openai'])test(`${provider}: first and l
  for(const page of [0,1])await g.image(makePlan(2),page,'target','/api/reader/media/target/0.png','cartoon');
  assert.equal(attached.length,2);for(const bytes of attached)assert.deepEqual(bytes,jpeg);
  await assert.rejects(g.image(makePlan(2),0,'target','/api/reader/media/other/0.png','cartoon'));assert.equal(attached.length,2);
-});
-
-test('star control renders distinct accessible states',async()=>{
- const {default:BookReferenceStar}=await import('../client/ui/BookReferenceStar.tsx');
- const render=props=>renderToStaticMarkup(createElement(BookReferenceStar,{selected:false,disabled:false,busy:false,onClick:()=>{},...props}));
- assert.match(render({}),/每本书仅一幅/);assert.match(render({selected:true}),/aria-pressed="true"/);assert.match(render({busy:true}),/disabled=""/);assert.match(render({disabled:true}),/disabled=""/);
- const reader=await readFile('client/ui/Reader.tsx','utf8');assert.match(reader,/!ended&&<BookReferenceStar/);
 });
 
 test('page changes ignore late reads/saves and keep the write lock until authoritative reload',async()=>{

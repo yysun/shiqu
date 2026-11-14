@@ -1,5 +1,5 @@
 // PR 执行同一份影响计划；快层与全层分进程隔离开关，记录实际文件、平台排除及失败结果。
-// --related 为开发内循环：按直接导入者、路径字面量与 covers 反查相关测试，全部快速开关且不写证据。
+// --related 为开发内循环：运行 fast 消费者及直接改动的测试文件；重型消费者延后，完整计划另行执行。
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawn,execFileSync} from 'node:child_process';
@@ -35,7 +35,7 @@ export async function executePlan(plan,{root=process.cwd(),evidence=true}={}){
  const {commit,build}=evidence?await sourceIdentity(root):{commit:'',build:'related'},startedAt=new Date().toISOString(),batches=[];
  const log=evidence?createWriteStream(path.join(directory,'test.log')):null;
  let exitCode=0;
- console.log(evidence?`PR test plan: ${plan.tests.length} files; evidence ${directory}`:`Related tests: ${plan.tests.length} files (fast flags)`);
+ console.log(evidence?`PR test plan: ${plan.tests.length} files; evidence ${directory}`:`Related tests: ${plan.tests.length} files (fast consumers and changed tests)`);
  batchesLoop:for(const mode of ['fast','full'])for(const runtime of ['source','browser']){
   const files=plan.tests.filter(test=>test.mode===mode&&(test.level==='browser-e2e')===(runtime==='browser')).map(test=>test.file);if(!files.length)continue;
   // 浏览器文件独占执行，源码文件最多并行两个，避免 Vite/Chromium 挤占受控队列的等待预算。
@@ -70,14 +70,21 @@ if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.ur
   const {relatedTests}=await import('./test-graph.mjs');
   const plan=createRelatedPlan(files,await relatedTests(files,{metadata}),metadata);
   if(args.includes('--json'))console.log(JSON.stringify(plan,null,2));
-  else if(args.includes('--plan')){console.log(JSON.stringify({files:plan.files,tests:plan.tests.length,deferredBrowser:plan.deferredBrowser,native:plan.native},null,2));for(const test of plan.tests)console.log(`${test.mode.padEnd(4)} ${test.level.padEnd(12)} ${test.file}`);}
+  else if(args.includes('--plan')){console.log(JSON.stringify({files:plan.files,tests:plan.tests.length,deferredBrowser:plan.deferredBrowser,deferredByCost:plan.deferredByCost,manualOnly:plan.manualOnly,native:plan.native},null,2));for(const test of plan.tests)console.log(`${test.mode.padEnd(4)} ${test.level.padEnd(12)} ${test.file}`);}
   else if(plan.tests.length)process.exitCode=await executePlan(plan,{evidence:false});
   for(const hint of plan.hints)console.error(hint);
  }
  else{
-  const plan=createPlan(inputScope(args),undefined,{includeBrowser:args.includes('--full')});
+  const metadata=loadMetadata(),plan=createPlan(inputScope(args),metadata,{includeBrowser:args.includes('--full')});
+  const manualGroups=new Set(plan.manualOnly.flatMap(file=>metadata.tests.find(entry=>entry.file===file)?.groups||[]));
+  if(manualGroups.has('safety'))console.error('安全保障测试仅按需运行：pnpm test:safety');
+  if(manualGroups.has('startup'))console.error('启动保障测试仅按需运行：pnpm test:startup');
+  if(plan.manualOnly.some(file=>metadata.tests.find(entry=>entry.file===file)?.modelRelated))console.error('模型与生成流程测试仅按需运行：pnpm test:models');
+  if(plan.manualOnly.some(file=>metadata.tests.find(entry=>entry.file===file)?.requiresLoopback))console.error('本机 loopback 测试仅按需运行：pnpm test:loopback');
+  if(plan.manualOnly.some(file=>metadata.tests.find(entry=>entry.file===file)?.level==='native'))console.error('启动配置原生用例仅按需运行：pnpm test:assurance');
+  if(plan.manualOnly.some(file=>metadata.tests.find(entry=>entry.file===file)?.suite==='books'))console.error('书籍原文核查未自动运行；需要时执行 pnpm test:books');
   if(args.includes('--json'))console.log(JSON.stringify(plan,null,2));
-  else if(args.includes('--plan')){console.log(JSON.stringify({scope:plan.scope,native:plan.native,files:plan.tests.length,deferredBrowser:plan.deferredBrowser,excluded:plan.excluded},null,2));for(const test of plan.tests)console.log(`${test.mode.padEnd(4)} ${test.level.padEnd(12)} ${test.file}`);}
+  else if(args.includes('--plan')){console.log(JSON.stringify({scope:plan.scope,native:plan.native,files:plan.tests.length,deferredBrowser:plan.deferredBrowser,manualOnly:plan.manualOnly,excluded:plan.excluded},null,2));for(const test of plan.tests)console.log(`${test.mode.padEnd(4)} ${test.level.padEnd(12)} ${test.file}`);}
   else process.exitCode=await executePlan(plan);
  }
 }

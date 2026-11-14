@@ -1,6 +1,6 @@
 # Test triggers and cost
 
-The registry is `tests/manifest.json`; `scripts/test-plan.mjs` owns responsibility matching and unions. PR CI and local agents use the same planner. Explicit `covers` paths add direct consumers across domains; a maintainer AST check rejects undeclared production imports. Routine change checks and PRs run source checks. Playwright runs through explicit E2E or full qualification.
+The registry is `tests/manifest.json`; `scripts/test-plan.mjs` owns responsibility matching and unions. PR CI and local agents use the same planner. Explicit `covers` paths add direct consumers across domains; a maintainer AST check rejects undeclared production imports. Routine change checks and PRs run source checks. The UI/component and browser suites were retired on 2026-11-14; the current registry has no `browser-e2e` entries. Registered service E2E flows remain available through explicit E2E selection and gates.
 
 ## Commands for agents
 
@@ -16,38 +16,41 @@ pnpm lint
 
 `test:changed` includes staged, unstaged and untracked paths relative to HEAD. It tests the current working tree. For a shared checkout, inspect the preview and pass every path belonging to the task with `pnpm test:pr --files <paths...>`; concurrent changes remain outside that task. A clean/failed comparison conservatively selects full source coverage. `pnpm test:pr` without explicit paths reads CI scope or a `BASE...HEAD` diff; it does not assume an arbitrary default branch.
 
-Plan output lists files, execution levels, `fast`/`full` modes, deferred Playwright files (`deferredBrowser`) and unsupported-platform exclusions. Full source fallback also defers Playwright. Use `pnpm test:e2e` for browser journeys or `pnpm test:pr --full` for qualification with every supported JS test. Actual runs retain source identity, batch duration, selected files and exits under `.data/test-plans/`. `native: true` means native source checks are also required; the JS runner does not execute Cargo. `AGENTS.md` documents these rules.
+Plan output lists files, execution levels, `fast`/`full` modes, deferred browser files (`deferredBrowser`, currently empty), manual-only suites and unsupported-platform exclusions. Full source fallback excludes browser E2E and every manual-only suite. Use `pnpm test:e2e` for the remaining automatic user flow, `pnpm test:e2e:extended` for the six on-demand extended model E2Es, `pnpm test:models` (or `pnpm test:providers`) for all on-demand provider and controlled-generation tests, `pnpm test:loopback` for local-listener tests, `pnpm test:assurance` for safety/startup/loopback plus native checks, or `pnpm test:pr --full` for every automatic supported JS test. Actual runs retain source identity, batch duration, selected files and exits under `.data/test-plans/`. `native: true` means native source checks are also required; the JS runner does not execute Cargo. `AGENTS.md` documents these rules.
 
-Within each mode, source tests run first with at most two files in parallel, then browser E2E files run one at a time in a separate Node process. Vite/Chromium therefore cannot consume the controlled production tests' deadline budget. Every selected file still runs once with its original provider/heavy flags and assertions; a failed batch stops the run. Evidence records each batch's runtime class and concurrency.
+Within each mode, source tests run first with at most two files in parallel. If browser suites are registered again, they run one at a time in a separate Node process. Every selected file still runs once with its original provider/heavy flags and assertions; a failed batch stops the run. Evidence records each batch's runtime class and concurrency.
 
 ## Trigger table
 
-Every PR runs the small integrity smoke. Production changes with domain coverage also run fast contracts and the local-server/queue/state safety set. Registered JS tests select themselves. Stylesheets, test fixtures and test selection inputs with declared consumers select those tests. Direct selections join any domain coverage required by the same change. Selected tests run once with the full flags for affected files; native consumers request native checks.
+Safety and startup assurance suites, including the integrity smoke, tests that bind or connect to real local loopback listeners, and all model/provider-backed contracts and generation flows run on demand only. Use `pnpm test:safety`, `pnpm test:startup`, `pnpm test:loopback` or `pnpm test:models`; `pnpm test:assurance` runs the first three groups and native desktop tests. Model flows are also available through `pnpm test:e2e:extended` for its six service E2Es. Manual-only suites are excluded from change plans, pre-push, CI, release gates and `pnpm test:full`. Other registered JS tests select themselves. Stylesheets, test fixtures and test selection inputs with declared consumers select those tests. Direct selections join any domain coverage required by the same change. Selected tests run once with the full flags for affected files; native consumers request native checks.
 
 | Change responsibility | Additional coverage | Native source checks |
 | --- | --- | --- |
-| Documentation outside runtime/data/test directories | Integrity smoke only | No |
-| Registered JS test or explicitly owned stylesheet/test input | Changed tests and declared consumers, plus integrity smoke | Only for declared native consumers |
+| Documentation outside runtime/data/test directories | No automatic tests | No |
+| Registered JS test or explicitly owned stylesheet/test input | Changed automatic tests and declared consumers; assurance groups are listed as on demand | Only for declared native consumers |
 | Client/public assets and reader helpers | Reader contracts and integration | No |
 | Desktop UI and remote/network runtime | Desktop integration | `server/desktop.ts` native consumer and Rust changes: yes |
-| CLI startup and invocation | Startup/CLI integration; production entry points also select production/tooling | Shared configuration: yes |
-| Saved/shared provider settings and configuration | Startup/provider/desktop integration | macOS + Windows |
-| Provider adapter or wire schema/reasoning | Provider contracts and controlled provider production flows | No |
+| CLI startup and invocation | On demand: `pnpm test:startup`; production entry points still select their mapped automatic domains | Shared configuration: only for affected native source |
+| Tests binding or connecting to a local loopback listener | On demand: `pnpm test:loopback`; excluded from automatic CI and release gates | No |
+| Saved/shared provider settings and configuration | Provider/desktop suites; startup assurance is on demand | Only for affected native source |
+| Provider adapter or wire schema/reasoning, model-backed production flows | On demand: `pnpm test:models`; extended model E2Es: `pnpm test:e2e:extended` | No |
 | Bundled books, local source readers/parsers and reading inputs | Full ten-file book suite plus discovery consumers | No |
-| Discovery/cache/theme matching | Discovery integration, full book group via reading-plan consumers, and all six extended service E2Es | No |
-| Preparation, storyboard review, frame count, queue, generation or book references | Affected responsibility groups; all six extended service E2Es | Storage upgrade boundaries separately |
+| Discovery/cache/theme matching | Discovery integration and full book group via reading-plan consumers; model-backed E2Es are on demand | No |
+| Preparation, storyboard review, frame count, queue, generation or book references | Affected automatic responsibility groups; model-backed E2Es are on demand | Storage upgrade boundaries separately |
 | Images, publication and export | Media integration and reference consumers | No |
-| Library backup/recovery/maintenance/upgrade | Storage/startup integration | macOS + Windows |
+| Library backup/recovery/maintenance/upgrade | Storage integration; startup assurance is on demand | macOS + Windows |
 | Rust source/configuration and desktop resource/runtime scripts | Native module consumers plus applicable desktop/storage JS | macOS + Windows |
 | Shared models/API schemas/prompts, DB schema/migrations, dependencies/Node, unclassified test/build/CI infrastructure, unknown paths or failed/empty comparison | All registered source tests, full flags | macOS + Windows |
 
-Known component path patterns are listed in `scripts/test-plan.mjs`. Direct selection requires exact `covers` entries. For example, `phone-audit.mjs` runs smoke and lists phone readability and desktop layout as deferred. Every `tests/fixtures/*.mjs` reached from a test, and path-read JSON fixtures, declare their consumers; `tests/test-tiers.test.mjs` checks ownership through `tests/` import edges, so fixture edits select consumers with full flags. Unclassified runtime files, deleted/unregistered tests and fixtures without declared consumers (manual preview harnesses, Python PTY helpers, `images/`) still broaden to full source coverage. Rename detection uses both old and new paths. Documentation inside `data/`, `tests/`, `skills/` and runtime directories is not automatically exempt.
+Known component path patterns are listed in `scripts/test-plan.mjs`. Direct selection requires exact `covers` entries. Every `tests/fixtures/*.mjs` reached from a test, and path-read JSON fixtures, declare their consumers; `tests/test-tiers.test.mjs` checks ownership through `tests/` import edges, so fixture edits select consumers with full flags. Unclassified runtime files, deleted/unregistered tests and fixtures without declared consumers (manual preview harnesses, Python PTY helpers, `images/`) still broaden to full source coverage. Rename detection uses both old and new paths. Documentation inside `data/`, `tests/`, `skills/` and runtime directories is not automatically exempt.
 
-Core changes retain service E2Es; schema/dependency changes deliberately run full source coverage. Browser journeys remain available at the explicit E2E and full qualification gates.
+Core changes retain automatic source coverage; model-backed service E2Es run only through `pnpm test:e2e:extended`. Schema/dependency changes deliberately run all automatic source coverage. Browser E2E support remains in the runner, but no browser UI suites are currently registered.
 
 ## Initial rollout comparison
 
 These historical counts are files, not runtime test instances. They compare commit `75a1331d3594edb140b13125d3fd278c12a164a5` with the initial registry rollout, before file-level selection was added. Use the current plan command for current counts. Static checks remain on code PRs.
+
+The following counts and elapsed times are historical measurements from the earlier policy. The 2026-11-14 manual-only change means these rows do not predict the current automatic plan.
 
 | Example | Existing PR | New PR JS files | Added behavior |
 | --- | --- | ---: | --- |
@@ -59,20 +62,20 @@ These historical counts are files, not runtime test instances. They compare comm
 | `lib/system-settings.ts` | 86 fast + 10 books | 97 | Configuration consumers plus macOS/Windows native checks |
 | `lib/reader-model.ts` / lockfile / unknown path | 86 fast + 10 books | 172 | Full source qualification and native checks |
 
-Real Git tag-push checks now follow tooling changes, release gates and full qualification; the heavy storage consolidation file follows storage changes. Small local-server refusal/isolation checks remain unconditional for code PRs.
+Release/tag gates select mapped automatic production flows. Local-server integration appears as an on-demand check when storage, production or media sources are affected; safety, startup, loopback and model checks remain manual-only.
 
 Five adapter contract files were separated from their queued flows. The startup file keeps its pure provider/library precedence matrices; twelve real CLI launch rows now live in `startup-cli-flow.test.mjs`. Original top-level test/matrix statements were compared against the immutable baseline and preserved structurally, with assertions unchanged; a moved comment was translated to Chinese.
 
 ## Timing evidence
 
-Local comparisons use disposable snapshots, Node 24.22.1, the same installed dependencies and sequential execution. No desktop preparation, packaging, live models or user libraries are involved. Snapshot source excludes concurrent desktop work. Dependency installation and hosted scheduling are not included. Final source projection matched the candidate for 34 test/CI/agent source files. [Machine-readable measurements](testing-trigger-measurements.json) retain commands/log references and evidence limits.
+Local comparisons use disposable snapshots, Node 24.22.1, the same installed dependencies and sequential execution. No desktop preparation, packaging, live models or user libraries are involved. Snapshot source excludes concurrent desktop work. Dependency installation and hosted scheduling are not included. Final source projection matched the candidate for 34 test/CI/agent source files. [Machine-readable measurements](testing-trigger-measurements.json) retain commands/log references and evidence limits. Those measurements predate the 2026-11-14 retirement of automatic safety/startup groups.
 
 | Local workload | Before | After | Test-time change |
 | --- | ---: | ---: | ---: |
 | Fast command | 22.50s, 86 files | 15.71s, 76 files | 30.2% less |
 | Provider-adapter PR | 59.47s = fast + 10 books | 26.09s, 82 files | 56.1% less |
 
-The new provider plan adds provider flow coverage while skipping unrelated book and process suites. Fast-command count is now 627 passing runtime cases; the old fast command had 739 passing and one skipped. Cases moved to affected/full suites remain registered, and full qualification retains all 172 JS files.
+At initial rollout, the provider plan added provider flow coverage while skipping unrelated book and process suites. Fast-command count then was 627 passing runtime cases; the old fast command had 739 passing and one skipped. These historical cases and the 172-file qualification predate the 2026-11-14 move of model-related tests to on-demand execution.
 
 Illustrative hosted scaling of the fast command alone is roughly **120s → 84s**, or **178s → 142s** including the reported 58s overhead, before extra aggregator-job startup and scheduling. This is an estimate, not a measured new PR duration. Reader/core plans gain browser/service coverage and native changes gain cross-platform checks, so these PRs can take longer.
 
@@ -82,8 +85,8 @@ The reported hosted baseline is 7s scope + 12s setup + 18s install + 15s typeche
 
 ## CI qualification
 
-A new stable version tag also triggers [npm publishing](npm-publishing.md). Its Actions jobs smoke-test the packaged CLI before publication. The tag hook supplies the browser regression.
+A new stable version tag also triggers [npm publishing](npm-publishing.md). Its Actions jobs smoke-test the packaged CLI before publication. The local tag hook runs the focused service release gate; the current registry has no browser regression suite.
 
-`Shared checks` aggregates JavaScript and selected native jobs for PRs, main and manual runs. Missing PR scope defaults to full JS and native checks. Main and manual runs qualify the exact current commit with all JS tests. A version tag runs the full JS plan, typecheck and lint in the installed local pre-push hook; tag Actions start at native packaging. Both platforms retain complete Cargo testing and installer smoke before release publication. Manual packaging still requires successful Shared checks. The native PR matrix uses pinned Node/JS dependencies and Rust 1.93.0, disables bundle resources and uses the checked-in desktop HTML entry as compile-time frontend context, excluding only `runtime::tests::desktop_uses_verified_bundle_and_ignores_saved_system_path`. The explicit release smoke and npm gate retain their focused eight/seven files.
+`Shared checks` aggregates JavaScript and selected native jobs for PRs, main and manual runs. Missing PR scope defaults to full JS and native checks. Main and manual runs qualify the exact current commit with all automatic JS tests. A version tag runs the full automatic JS plan, typecheck and lint in the installed local pre-push hook; tag Actions start at native packaging. Both platforms run Cargo tests excluding on-demand `config::tests`, then smoke-test the installer. Manual `pnpm test:assurance` retains the full Cargo suite. Manual packaging still requires successful Shared checks. The native PR matrix uses pinned Node/JS dependencies and Rust 1.93.0, disables bundle resources and uses the checked-in desktop HTML entry as compile-time frontend context, excluding `config::tests` and `runtime::tests::desktop_uses_verified_bundle_and_ignores_saved_system_path`. The focused release and npm gates currently select two and one files, respectively; neither starts a browser or local loopback listener.
 
-Pnpm store caching is retained. Selected browser jobs cache Chromium; native jobs cache Cargo registry/git/build outputs with OS, architecture, Rust version, lockfiles and Node in the key. These caches do not contain user libraries or credentials. Windows behavior and GitHub scheduling require hosted validation; local macOS evidence does not claim otherwise.
+Pnpm store caching is retained. There are currently no browser jobs or Chromium cache. Native jobs cache Cargo registry/git/build outputs with OS, architecture, Rust version, lockfiles and Node in the key. These caches do not contain user libraries or credentials. Windows behavior and GitHub scheduling require hosted validation; local macOS evidence does not claim otherwise.

@@ -6,11 +6,11 @@ import {mkdtemp,mkdir,writeFile,copyFile,chmod,readFile,readdir,rm} from 'node:f
 import os from 'node:os';
 import path from 'node:path';
 import {loadMetadata} from '../scripts/test-metadata.mjs';
-import {userFlowTests,extendedFlowTests,selectTests} from '../scripts/test-story-e2e.mjs';
+import {userFlowTests,extendedFlowTests,selectFiles,selectTests} from '../scripts/test-story-e2e.mjs';
 
 const fullOnly='tests/local-image-batches.test.mjs';
 
-test('the tag gate runs the focused release smoke and the npm gate retains its production-backed lifecycle smoke',async()=>{
+test('tag and npm gates keep their focused production-backed release flows',async()=>{
  const manifest=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
  assert.match(manifest.scripts['release:check'],/^pnpm typecheck && pnpm lint && pnpm test:e2e --gate=release && cargo fmt\b/);
  assert.match(manifest.scripts['npm:check'],/^pnpm typecheck && pnpm lint && pnpm test:e2e --gate=npm$/);
@@ -20,31 +20,46 @@ test('the tag gate runs the focused release smoke and the npm gate retains its p
  assert.match(manifest.scripts['test:e2e'],/scripts\/test-story-e2e\.mjs/);
  for(const gate of ['release','npm']){
   const selected=await selectTests(gate);
-  for(const filename of ['tests/release-smoke.playwright.e2e.mjs','tests/story-generation-state-machine.e2e.mjs','tests/headless-cli.test.mjs','tests/npm-cli.test.mjs','tests/system-settings.test.mjs','tests/settings-faults.test.mjs','tests/npm-publish.test.mjs'])assert.ok(selected.includes(filename),filename+' must gate '+gate);
+  assert.ok(selected.includes('tests/npm-publish.test.mjs'),'npm publish flow must gate '+gate);
+  assert.ok(!selected.includes('tests/story-generation-state-machine.e2e.mjs'),'real-loopback service flow is manual-only');
+  if(gate==='release')assert.ok(selected.includes('tests/release-pre-push.test.mjs'));
+  else assert.ok(!selected.includes('tests/release-pre-push.test.mjs'));
+  for(const filename of ['tests/headless-cli.test.mjs','tests/npm-cli.test.mjs','tests/system-settings.test.mjs','tests/settings-faults.test.mjs'])assert.ok(!selected.includes(filename),filename+' is on demand and must stay out of '+gate);
  }
 });
 
 test('smoke gates stay focused while the explicit full selection preserves all regression coverage',async()=>{
  const manifest=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
- const unitTests=(await readdir(new URL('./',import.meta.url))).filter(name=>name.endsWith('.test.mjs')).map(name=>'tests/'+name);
  assert.match(manifest.scripts['test:full'],/test:e2e --gate=full$/);
  const full=await selectTests('full');
- assert.equal(full.length,new Set(full).size);assert.deepEqual(new Set(full),new Set(loadMetadata().tests.filter(entry=>entry.level!=='native'&&entry.platforms.includes(process.platform)).map(entry=>entry.file)));
- assert.ok(full.includes(fullOnly));assert.ok(!(await selectTests('release')).includes(fullOnly));
+ const available=loadMetadata().tests.filter(entry=>entry.level!=='native'&&entry.platforms.includes(process.platform));
+ assert.equal(full.length,new Set(full).size);assert.deepEqual(new Set(full),new Set(available.filter(entry=>!entry.manualOnly).map(entry=>entry.file)));
+ for(const entry of available.filter(entry=>entry.manualOnly))assert.ok(!full.includes(entry.file),entry.file+' must stay manual-only');
+ assert.ok(available.filter(entry=>entry.suite==='books').every(entry=>entry.manualOnly),'every book corpus check is manual-only');
+ for(const gate of ['release','npm','full'])for(const entry of available.filter(entry=>entry.manualOnly))assert.ok(!(await selectTests(gate)).includes(entry.file),entry.file+' must stay out of '+gate);
+ assert.ok(!full.includes(fullOnly));assert.ok(!(await selectTests('release')).includes(fullOnly));
  for(const gate of ['release','npm']){
   const selected=await selectTests(gate);
   assert.equal(selected.length,new Set(selected).size);
   assert.ok(selected.length<=8,'release gates must stay small');
-  for(const filename of ['tests/startup-matrix.test.mjs','tests/startup-pty.test.mjs','tests/frame-count-gate.test.mjs','tests/local-library-all-books.test.mjs','tests/story-lifecycle.playwright.e2e.mjs']){
-   assert.ok(!selected.includes(filename),filename+' belongs to the full suite');assert.ok(full.includes(filename));
+  for(const filename of ['tests/startup-matrix.test.mjs','tests/startup-pty.test.mjs']){
+   assert.ok(!selected.includes(filename),filename+' is on demand');assert.ok(!full.includes(filename));
   }
+  for(const filename of ['tests/frame-count-gate.test.mjs','tests/adaptive-storyboard-review.e2e.mjs']){
+   assert.ok(!selected.includes(filename),filename+' is on demand');assert.ok(!full.includes(filename));
+  }
+  assert.ok(!selected.includes('tests/local-library-all-books.test.mjs'));
+  assert.ok(!full.includes('tests/local-library-all-books.test.mjs'),'book corpus check stays manual-only');
  }
  assert.ok((await selectTests('release')).includes('tests/release-pre-push.test.mjs'));
  assert.deepEqual(await selectTests(),userFlowTests,'standalone E2E keeps its existing scope');
+ for(const retired of ['tests/desktop-responsive-layout.playwright.e2e.mjs','tests/phone-navigation.playwright.e2e.mjs'])assert.ok(!loadMetadata().tests.some(entry=>entry.file===retired),retired+' has been retired');
+ assert.deepEqual(await selectFiles(['tests/browser-provider-settings.e2e.mjs','tests/story-generation-state-machine.e2e.mjs']),['tests/browser-provider-settings.e2e.mjs','tests/story-generation-state-machine.e2e.mjs']);
+ await assert.rejects(selectFiles(['tests/test-pr.test.mjs']),/registered service or browser E2E/);
  await assert.rejects(selectTests('typo'),/Usage:/);
 });
 
-test('all E2E files have an aggregate runner and the six extended service files have a dedicated command',async()=>{
+test('all E2E files have an aggregate runner and the six on-demand extended service files have a dedicated command',async()=>{
  const manifest=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
  assert.match(manifest.scripts['test:e2e:extended'],/^pnpm test:e2e --gate=extended$/);
  const extended=await selectTests('extended'),full=await selectTests('full');
@@ -54,9 +69,12 @@ test('all E2E files have an aggregate runner and the six extended service files 
   'tests/incremental-story-library.e2e.mjs','tests/story-discovery-speed-accuracy.e2e.mjs',
  ]));
  assert.equal(extended.length,new Set(extended).size);
- for(const filename of extended){assert.ok(full.includes(filename));assert.ok(!userFlowTests.includes(filename));}
+ for(const filename of extended){assert.ok(!full.includes(filename));assert.ok(!userFlowTests.includes(filename));assert.ok(loadMetadata().tests.find(entry=>entry.file===filename)?.manualOnly);}
  const owned=new Set([...full,...await selectTests('release'),...await selectTests('npm')]);
- for(const name of (await readdir(new URL('./',import.meta.url))).filter(name=>name.endsWith('.e2e.mjs')))assert.ok(owned.has('tests/'+name),name+' needs an aggregate runner');
+ for(const name of (await readdir(new URL('./',import.meta.url))).filter(name=>name.endsWith('.e2e.mjs'))){
+  const file='tests/'+name,entry=loadMetadata().tests.find(test=>test.file===file);
+  assert.ok(owned.has(file)||entry?.manualOnly,name+' needs an aggregate runner or an explicit manual-only path');
+ }
 });
 
 async function fixture(t,{failedFlow}={}){
@@ -66,7 +84,7 @@ async function fixture(t,{failedFlow}={}){
  for(const file of ['scripts/pre-push.mjs','scripts/test-story-e2e.mjs','scripts/test-metadata.mjs','scripts/test-source.mjs','scripts/test-pr.mjs','scripts/test-plan.mjs','scripts/node-version.mjs','scripts/ci-scope.mjs','.githooks/pre-push'])await copyFile(new URL('../'+file,import.meta.url),path.join(checkout,file));
  // 发布与扩展执行器使用临时用例，验证失败传播时不递归运行真实套件。
  await mkdir(path.join(checkout,'tests'));
- const owned=new Set(['tests/book-integrity-smoke.test.mjs',fullOnly,...userFlowTests,...extendedFlowTests,...await selectTests('release')]);
+ const owned=new Set(['tests/book-integrity-smoke.test.mjs',fullOnly,...userFlowTests,...extendedFlowTests,...await selectTests('release'),'tests/browser-provider-settings.e2e.mjs','tests/story-generation-state-machine.e2e.mjs']);
  for(const file of owned)await writeFile(path.join(checkout,file),`import test from 'node:test';\ntest(${JSON.stringify('release flow probe: '+file)},()=>{${file===failedFlow?"throw Error('CONTROLLED_USER_FLOW_FAILURE');":''}});\n`);
  const metadata=loadMetadata();await writeFile(path.join(checkout,'tests/manifest.json'),JSON.stringify({...metadata,tests:metadata.tests.filter(entry=>owned.has(entry.file))}));
  await chmod(path.join(checkout,'.githooks/pre-push'),0o755);
@@ -114,6 +132,15 @@ test('extended runner executes all six files under inherited test context and re
  assert.match(await readFile(path.join(directory,runs[0],'test.log'),'utf8'),/pass 5/);
 });
 
+test('file-scoped E2E runs only the requested registered service suite',async t=>{
+ const selected='tests/story-generation-state-machine.e2e.mjs',f=await fixture(t);
+ const result=spawnSync(process.execPath,['scripts/test-story-e2e.mjs','--files',selected],{cwd:f.checkout,env:{...process.env,NODE_TEST_CONTEXT:'child-v8'},encoding:'utf8',timeout:15000});
+ assert.equal(result.error,undefined);assert.equal(result.status,0,result.stdout+result.stderr);
+ const directory=path.join(f.checkout,'.data/e2e'),runs=await readdir(directory);assert.equal(runs.length,1);
+ const report=JSON.parse(await readFile(path.join(directory,runs[0],'run.json'),'utf8'));
+ assert.deepEqual(report.tests,[selected]);assert.equal(report.gate,'files');assert.equal(report.exitCode,0);assert.equal(report.concurrency,2);assert.equal(report.browser,'none (service/engine E2E)');
+});
+
 test('release pushes check the tagged snapshot once for lightweight and annotated tags; branches and deletions bypass', {skip:process.platform==='win32'},async t=>{
  const f=await fixture(t);
  f.git(['push','origin','main']);assert.deepEqual(await f.receipts(),[]);
@@ -130,7 +157,7 @@ test('release pushes check the tagged snapshot once for lightweight and annotate
  assert.equal((f.git(['worktree','list','--porcelain']).stdout.match(/^worktree /gm)||[]).length,1);
 });
 
-for(const failedFlow of ['tests/headless-cli.test.mjs','tests/release-smoke.playwright.e2e.mjs'])test('release smoke failure rejects a real v* tag push: '+failedFlow,{skip:process.platform==='win32'},async t=>{
+for(const failedFlow of ['tests/npm-publish.test.mjs'])test('release gate failure rejects a real v* tag push: '+failedFlow,{skip:process.platform==='win32'},async t=>{
  const f=await fixture(t,{failedFlow});f.git(['tag','v0.0.4']);
  await writeFile(path.join(f.checkout,'marker'),'uncommitted content');
  const pushed=f.git(['push','origin','v0.0.4'],{PRE_PUSH_REAL_FLOWS:'1'},false);
@@ -140,10 +167,10 @@ for(const failedFlow of ['tests/headless-cli.test.mjs','tests/release-smoke.play
  assert.equal((f.git(['worktree','list','--porcelain']).stdout.match(/^worktree /gm)||[]).length,1);
 });
 
-test('passing release smoke executes under an inherited test environment before a v* tag is accepted',{skip:process.platform==='win32'},async t=>{
+test('passing release gate executes under an inherited test environment before a v* tag is accepted',{skip:process.platform==='win32'},async t=>{
  const f=await fixture(t);f.git(['tag','v0.0.5']);
  const pushed=f.git(['push','origin','v0.0.5'],{PRE_PUSH_REAL_FLOWS:'1'});
- assert.ok((pushed.stdout+pushed.stderr).includes('release flow probe: tests/release-smoke.playwright.e2e.mjs'));assert.match(pushed.stdout+pushed.stderr,/Story E2E PASS/);
+ assert.ok((pushed.stdout+pushed.stderr).includes('release flow probe: tests/npm-publish.test.mjs'));assert.match(pushed.stdout+pushed.stderr,/Story E2E PASS/);
  assert.match(f.git(['ls-remote','--tags','origin']).stdout,/refs\/tags\/v0\.0\.5/);
  assert.equal((f.git(['worktree','list','--porcelain']).stdout.match(/^worktree /gm)||[]).length,1);
 });

@@ -27,7 +27,7 @@ test('all queued cache updates execute and merge latest state',async()=>{
 
 import {matchLibraryStories,hasUnknownJudgments} from '../server/story-theme-matching.ts';
 import {DiscoveryFailure,discoveryCall} from '../lib/reader-discovery-call.ts';
-import {until} from './fixtures/production.mjs';
+import {until} from './fixtures/production-data.mjs';
 import {StoryDiscoveryCache,discoveryHash} from '../server/story-discovery-cache.ts';
 function many(count=16){const f=libraryFixture();f.stories.splice(0);f.book.sections[0].units.splice(0);for(let i=0;i<count;i++){const unit={id:'u'+i,text:'人物'+i+'面对困境，作出选择，经过行动终于解决问题并平安归来。',narrative:true};f.book.sections[0].units.push(unit);f.stories.push({title:'故事'+i,description:'一场有起因、行动和结果的事件。',source:{edition:f.book.edition,sectionId:'s1',firstUnit:unit.id,lastUnit:unit.id}});}f.book.input.text='篇章 s1：第一章\n'+f.book.sections[0].units.map(u=>'['+u.id+']\n'+u.text).join('\n\n');return f;}
 const observe=cycleId=>({cycleId,signal:new AbortController().signal,onProgress:()=>{},drain:true});

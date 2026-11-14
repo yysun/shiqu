@@ -9,7 +9,7 @@ import {localSuggestionPayload} from '../lib/reader-local-contract.ts';
 import {themeMatchPrompt,themeMatchJson,themeMatchPayload} from '../lib/reader-theme-match.ts';
 import {readingTokens} from '../server/story-token-budget.ts';
 import {previousReadingPlanKey} from '../server/story-discovery-legacy.ts';
-import {until} from './fixtures/production.mjs';
+import {until} from './fixtures/production-data.mjs';
 const seedManifest=async f=>f.cache.write(previousReadingPlanKey(f.book,'codex')+'/blocks',{mode:'whole',blocks:[{ranges:f.book.sections.map(s=>({sectionId:s.id,firstUnit:s.units[0].id,lastUnit:s.units.at(-1).id})),tokens:100}]});
 const observer=controller=>({signal:controller.signal,maxStories:1,drain:true,onProgress:()=>{}});
 const documents=f=>[...f.store.values.values()].map(bytes=>JSON.parse(new TextDecoder().decode(bytes)));

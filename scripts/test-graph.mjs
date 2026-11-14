@@ -42,16 +42,16 @@ const literal=file=>`(?<![\\w.-])${escape(file)}(?![\\w./-])`;
 const relative=(input,file)=>{const rel=path.posix.relative(path.posix.dirname(input),file);return rel.startsWith('../')?rel:'./'+rel;};
 const mentions=(input,files)=>new RegExp(files.flatMap(file=>[literal(file),literal(relative(input,file))]).join('|'));
 export async function relatedTests(files,{root=process.cwd(),metadata=loadMetadata(root)}={}){
- const entries=metadata.tests.filter(entry=>entry.level!=='native').map(entry=>entry.file);
- const graph=await testImports(entries,root),selected=new Set(),matches=new Map();
+ const entries=metadata.tests.filter(entry=>entry.level!=='native');
+ const graph=await testImports(entries.map(entry=>entry.file),root),selected=new Set(),matches=new Map();
  for(const entry of entries){
-  const found=graph.get(entry);
-  if(found===null||files.some(file=>found.imports.has(file))){selected.add(entry);continue;}
+  const found=graph.get(entry.file);
+  if(found===null||files.some(file=>found.imports.has(file))){selected.add(entry.file);continue;}
   // 测试自身及其夹具中出现改动路径时同样相关。
-  for(const input of found.local){
+  if(entry.relatedPathLiterals!==false)for(const input of found.local){
    // 每个源码只读取并匹配一次，共享夹具被多个测试复用。
    if(!matches.has(input))matches.set(input,files.length>0&&mentions(input,files).test(await readFile(path.join(root,input),'utf8').catch(()=>'')));
-   if(matches.get(input)){selected.add(entry);break;}
+   if(matches.get(input)){selected.add(entry.file);break;}
   }
  }
  for(const entry of metadata.tests)if(files.some(file=>entry.file===file||entry.covers.includes(file)))selected.add(entry.file);

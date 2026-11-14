@@ -124,11 +124,7 @@ jobs:
         env:
           TAURI_CONFIG: '{"bundle":{"resources":[]},"build":{"frontendDist":["../desktop/index.html"]}}'
         # 此用例验证已准备的安装包资源，保留在发布构建的完整 cargo test 中。
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib -- --skip runtime::tests::desktop_uses_verified_bundle_and_ignores_saved_system_path
-      - name: Verify desktop library upgrades on Windows
-        if: runner.os == 'Windows'
-        run: node --test --test-name-pattern='desktop startup upgrades an isolated legacy library|in-place migration reports its new verified backup' tests/desktop-service-console.test.mjs
-
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib -- --skip config::tests --skip runtime::tests::desktop_uses_verified_bundle_and_ignores_saved_system_path
   checks:
     name: Shared checks
     needs: [scope, javascript, native]

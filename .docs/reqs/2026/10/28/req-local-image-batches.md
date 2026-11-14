@@ -12,6 +12,6 @@ The local Node/React reader currently waits for one illustration at a time. Impl
 
 No provider, credential, schema, hosting, or unrelated UI changes. Source commit 3726dd9 defines the desired behavior only. Existing Node/React/Codex features remain in place.
 
-Verification evidence: `tests/local-image-batches.test.mjs` exercises both actual provider adapters through local REST/client generation with temporary SQLite and FileMedia. Its 11 tests cover all seven criteria: 8/10/12-page batches and reference/art direction; lock-held out-of-order progress and duplicate advances; settled failures, restart and retry; checkpoint failure and token loss; deletion and leaving; progress/stall timeout. Existing generation and Codex tests cover owner scope, bounded automatic retries and authentication isolation.
+Historical verification exercised both actual provider adapters through local REST/client generation with temporary SQLite and FileMedia. To keep routine changes short, provider-specific contracts and model-backed production suites were moved out of automatic checks on 2026-11-14. The local batch suite remains registered for on-demand execution with `pnpm test:models`; it retains batching, failure/retry, frame-count validation and frame-80 media checks. The separate manual scenarios below preserve an operational recipe for the full batch behavior. Existing automatic queue and reader contracts continue to cover non-model ownership and persistence boundaries.
 
 VR passed: all acceptance criteria complete.

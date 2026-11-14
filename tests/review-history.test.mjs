@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {storyReviewHistory} from '../lib/reader-review-history.ts';
 import {newReview} from '../lib/reader-review.ts';
-import {makePlan,selection} from './fixtures/production.mjs';
+import {makePlan,selection} from './fixtures/production-data.mjs';
 const page=(caption,prompt='An ancient listener pauses beside a table.')=>({caption,prompt});
 const original=page('旧配文说明听者没有接取。'),revised=page('新配文澄清听者没有伸手接取。');
 const issue={page:1,category:'caption',problem:'指代不清。',instruction:'说清听者。',requiresReplan:false};

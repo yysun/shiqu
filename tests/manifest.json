@@ -35,7 +35,8 @@
       "covers": [
         "lib/system-settings.ts",
         "server/system-settings.ts"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "src-tauri/src/lib.rs",
@@ -118,8 +119,11 @@
         "lib/reader-structure.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/adaptive-storyboard-review.test.mjs",
@@ -145,8 +149,11 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/agent-skill-startup.test.mjs",
@@ -179,7 +186,9 @@
         "skills/shiqu/SKILL.md",
         "lib/system-settings.ts",
         "tests/fixtures/startup.mjs"
-      ]
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/art-recommendation.test.mjs",
@@ -230,8 +239,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/blocked-revision-recovery.test.mjs",
@@ -253,8 +265,11 @@
         "server/library-upgrade.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/book-integrity-smoke.test.mjs",
@@ -269,11 +284,12 @@
         "win32"
       ],
       "suite": "unit",
-      "pr": "always",
+      "pr": "affected",
       "gates": [],
       "covers": [
         "server/local-books.ts"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/book-reading-plans.test.mjs",
@@ -300,7 +316,8 @@
         "tests/fixtures/story-discovery-v1.json",
         "tests/fixtures/story-library.mjs",
         "tests/fixtures/test-tier.mjs"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/book-reference-star.e2e.mjs",
@@ -325,8 +342,11 @@
         "tests/fixtures/book-reference.mjs",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/book-reference-star.test.mjs",
@@ -348,13 +368,14 @@
       "covers": [
         "server/book-image-reference.ts",
         "server/generation.ts",
-        "tests/fixtures/tsx.mjs",
-        "client/ui/BookReferenceStar.tsx",
         "tests/fixtures/book-reference.mjs",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/browser-provider-settings.e2e.mjs",
@@ -380,7 +401,9 @@
         "server/provider-settings-access.ts",
         "tests/fixtures/development.mjs",
         "tests/fixtures/startup.mjs"
-      ]
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/browser-provider-settings.test.mjs",
@@ -410,6 +433,29 @@
         "server/http.ts",
         "server/provider-settings-access.ts",
         "tests/fixtures/startup.mjs"
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
+    },
+    {
+      "file": "tests/bundled-story-indexes.test.mjs",
+      "groups": [
+        "discovery"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/headless-cli.ts",
+        "server/local-story-search.ts",
+        "server/local-books.ts"
       ]
     },
     {
@@ -459,8 +505,11 @@
       "covers": [
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/character-continuity-edits.test.mjs",
@@ -484,7 +533,8 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
       ]
     },
     {
@@ -507,7 +557,9 @@
         "scripts/test-metadata.mjs",
         "scripts/test-plan.mjs",
         "tests/manifest.json"
-      ]
+      ],
+      "relatedPathLiterals": false,
+      "manualOnly": true
     },
     {
       "file": "tests/claude-provider-flow.test.mjs",
@@ -531,8 +583,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/claude-provider.test.mjs",
@@ -556,8 +611,11 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/clean-three-originals.test.mjs",
@@ -580,7 +638,8 @@
         "server/local-books.ts",
         "tests/fixtures/book-library.mjs",
         "tests/fixtures/test-tier.mjs"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/cli-library.test.mjs",
@@ -607,7 +666,9 @@
         "server/media.ts",
         "server/system-settings.ts",
         "tests/fixtures/story.mjs"
-      ]
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/cli-skill.test.mjs",
@@ -653,7 +714,10 @@
         "server/desktop.ts",
         "server/generation.ts",
         "tests/fixtures/images.mjs"
-      ]
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true,
+      "modelRelated": true
     },
     {
       "file": "tests/continuous-story-discovery.test.mjs",
@@ -677,8 +741,11 @@
         "server/local-generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/deepseek-provider-flow.test.mjs",
@@ -702,8 +769,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/deepseek-provider.test.mjs",
@@ -724,8 +794,11 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/deepseek-response-diagnostics.test.mjs",
@@ -748,8 +821,11 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/desktop-console.test.mjs",
@@ -767,28 +843,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
-        "lib/system-settings.ts",
-        "tests/fixtures/tsx.mjs",
-        "desktop/ServiceCard.tsx"
-      ]
-    },
-    {
-      "file": "tests/desktop-css-scope.test.mjs",
-      "groups": [
-        "reader"
-      ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "client/ui/production-timeline.css"
+        "lib/system-settings.ts"
       ]
     },
     {
@@ -812,29 +867,9 @@
         "server/desktop-tunnel.ts",
         "server/desktop.ts",
         "tests/fixtures/story.mjs"
-      ]
-    },
-    {
-      "file": "tests/desktop-library-ui.test.mjs",
-      "groups": [
-        "reader"
       ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "client/ui/ReaderShelf.tsx",
-        "client/ui/DesktopLibrary.tsx",
-        "client/ui/DesktopLibrary.css",
-        "tests/fixtures/tsx.mjs"
-      ]
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/desktop-node.test.mjs",
@@ -856,26 +891,23 @@
       ]
     },
     {
-      "file": "tests/desktop-release-notice.playwright.e2e.mjs",
-      "groups": ["desktop"],
-      "level": "browser-e2e",
-      "cost": "standard",
-      "platforms": ["darwin", "linux", "win32"],
-      "suite": "e2e",
-      "pr": "affected",
-      "gates": ["user-flows"],
-      "covers": ["desktop/main.tsx", "desktop/release-update.ts", "desktop/styles.css", "desktop/vite.config.ts", "lib/system-settings.ts"]
-    },
-    {
       "file": "tests/desktop-release-update.test.mjs",
-      "groups": ["desktop"],
+      "groups": [
+        "desktop"
+      ],
       "level": "contract",
       "cost": "fast",
-      "platforms": ["darwin", "linux", "win32"],
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
       "suite": "unit",
       "pr": "affected",
       "gates": [],
-      "covers": ["desktop/release-update.ts"]
+      "covers": [
+        "desktop/release-update.ts"
+      ]
     },
     {
       "file": "tests/desktop-resources.test.mjs",
@@ -901,36 +933,6 @@
       ]
     },
     {
-      "file": "tests/desktop-responsive-layout.playwright.e2e.mjs",
-      "groups": [
-        "reader"
-      ],
-      "level": "browser-e2e",
-      "cost": "heavy",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "e2e",
-      "pr": "affected",
-      "gates": [
-        "user-flows"
-      ],
-      "covers": [
-        "client/ui/production-timeline.css",
-        "tests/fixtures/phone-audit.mjs",
-        "tests/fixtures/desktop-layout.mjs",
-        "tests/fixtures/development.mjs",
-        "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs",
-        "tests/fixtures/startup.mjs",
-        "tests/fixtures/story-browser.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
-    },
-    {
       "file": "tests/desktop-runtime.test.mjs",
       "groups": [
         "desktop"
@@ -952,34 +954,9 @@
         "server/desktop.ts",
         "tests/fixtures/historical-library.mjs",
         "tests/fixtures/story.mjs"
-      ]
-    },
-    {
-      "file": "tests/desktop-service-console.playwright.e2e.mjs",
-      "groups": [
-        "desktop"
       ],
-      "level": "browser-e2e",
-      "cost": "heavy",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "e2e",
-      "pr": "affected",
-      "gates": [
-        "user-flows"
-      ],
-      "covers": [
-        "client/ui/ProviderSettings.css",
-        "client/ui/ProviderSettings.tsx",
-        "lib/system-settings.ts",
-        "server/desktop.ts",
-        "server/provider-settings-access.ts",
-        "server/system-settings.ts",
-        "tests/fixtures/startup.mjs"
-      ]
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/desktop-service-console.test.mjs",
@@ -1010,26 +987,9 @@
         "tests/fixtures/historical-library.mjs",
         "tests/fixtures/startup.mjs",
         "tests/fixtures/story.mjs"
-      ]
-    },
-    {
-      "file": "tests/desktop-view.test.mjs",
-      "groups": [
-        "reader"
       ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "lib/desktop-view.ts"
-      ]
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/desktop-vite.test.mjs",
@@ -1068,7 +1028,9 @@
         "server/development-access.ts",
         "server/http.ts",
         "tests/fixtures/startup.mjs"
-      ]
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/development-cache.test.mjs",
@@ -1085,7 +1047,9 @@
       "suite": "flows",
       "pr": "affected",
       "gates": [],
-      "covers": []
+      "covers": [],
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/development-local.e2e.mjs",
@@ -1107,7 +1071,9 @@
       "covers": [
         "tests/fixtures/development.mjs",
         "tests/fixtures/startup.mjs"
-      ]
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/development-local.test.mjs",
@@ -1151,7 +1117,9 @@
         "server/diagnostics.ts",
         "server/generation.ts",
         "tests/fixtures/startup.mjs"
-      ]
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/discovery-conditions.test.mjs",
@@ -1173,8 +1141,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/editable-extraction-title.test.mjs",
@@ -1196,8 +1167,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/empty-library.test.mjs",
@@ -1242,7 +1216,8 @@
         "server/local-books.ts",
         "tests/fixtures/book-library.mjs",
         "tests/fixtures/test-tier.mjs"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/export-story.test.mjs",
@@ -1313,8 +1288,10 @@
         "scripts/storyboard-evaluation.mjs",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/frame-count-gate.e2e.mjs",
@@ -1342,8 +1319,10 @@
         "server/database.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/frame-count-gate.test.mjs",
@@ -1368,8 +1347,11 @@
         "scripts/storyboard-evaluation.mjs",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/frame-count-replay.test.mjs",
@@ -1388,7 +1370,9 @@
       "gates": [],
       "covers": [
         "scripts/storyboard-evaluation.mjs"
-      ]
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/frame-count-review.test.mjs",
@@ -1413,8 +1397,11 @@
         "server/local-generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/gemini-argon-budget.test.mjs",
@@ -1435,8 +1422,11 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/gemini-discovery-schema.test.mjs",
@@ -1456,7 +1446,9 @@
       "covers": [
         "lib/reader-local-contract.ts",
         "server/generation.ts"
-      ]
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/gemini-response-diagnostics.test.mjs",
@@ -1479,8 +1471,11 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/gemini-review-evidence.test.mjs",
@@ -1504,8 +1499,11 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/gemini-review-schema.test.mjs",
@@ -1529,8 +1527,11 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/gemini-stage-schema-flow.test.mjs",
@@ -1559,8 +1560,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/gemini-stage-schema.test.mjs",
@@ -1581,8 +1585,11 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/gemini-structure-schema.test.mjs",
@@ -1605,8 +1612,11 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/gemini-timeouts.test.mjs",
@@ -1629,8 +1639,11 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/generation-progress.test.mjs",
@@ -1683,49 +1696,11 @@
         "tests/fixtures/production.mjs",
         "tests/fixtures/startup.mjs",
         "tests/fixtures/story-library.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
-    },
-    {
-      "file": "tests/history-dirty-ui.test.mjs",
-      "groups": [
-        "reader"
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
       ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "client/ui/StoryDiscoveryForm.tsx",
-        "client/ui/StoryExtractionSearch.tsx",
-        "client/ui/StoryTitleEditor.tsx",
-        "client/ui/StoryPublication.tsx"
-      ]
-    },
-    {
-      "file": "tests/history-steps.test.mjs",
-      "groups": [
-        "reader"
-      ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "client/ui/historySteps.ts"
-      ]
+      "manualOnly": true,
+      "modelRelated": true
     },
     {
       "file": "tests/image-dimensions.test.mjs",
@@ -1748,8 +1723,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/incremental-story-library.e2e.mjs",
@@ -1782,8 +1760,11 @@
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
         "tests/fixtures/story-library.mjs",
-        "tests/fixtures/pending-overlap.json"
-      ]
+        "tests/fixtures/pending-overlap.json",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/incremental-story-library.test.mjs",
@@ -1810,8 +1791,8 @@
         "server/story-token-budget.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/production-data.mjs"
       ]
     },
     {
@@ -1860,8 +1841,11 @@
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
         "tests/fixtures/startup.mjs",
-        "tests/fixtures/story.mjs"
-      ]
+        "tests/fixtures/story.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/library-recovery.test.mjs",
@@ -1881,8 +1865,11 @@
       "covers": [
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/licensed-books.test.mjs",
@@ -1906,7 +1893,8 @@
         "server/local-source-quality.ts",
         "tests/fixtures/test-tier.mjs",
         "tests/fixtures/publication-source-baseline.json"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/local-book-corrections.test.mjs",
@@ -1928,7 +1916,8 @@
         "server/local-books.ts",
         "server/local-generation.ts",
         "tests/fixtures/test-tier.mjs"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/local-books.test.mjs",
@@ -1960,7 +1949,8 @@
         "server/story-reading-inputs.ts",
         "server/story-token-budget.ts",
         "tests/fixtures/test-tier.mjs"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/local-image-batches.test.mjs",
@@ -1983,8 +1973,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/local-library-all-books.test.mjs",
@@ -2009,7 +2002,8 @@
         "server/media.ts",
         "tests/fixtures/book-library.mjs",
         "tests/fixtures/test-tier.mjs"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/local-server.test.mjs",
@@ -2041,7 +2035,9 @@
         "tests/fixtures/book-library.mjs",
         "tests/fixtures/historical-library.mjs",
         "tests/fixtures/story.mjs"
-      ]
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/local-source-quality.test.mjs",
@@ -2067,54 +2063,8 @@
         "server/local-source-quality.ts",
         "server/media.ts",
         "tests/fixtures/test-tier.mjs"
-      ]
-    },
-    {
-      "file": "tests/bundled-story-indexes.test.mjs",
-      "groups": [
-        "discovery"
       ],
-      "level": "integration",
-      "cost": "standard",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "server/headless-cli.ts",
-        "server/local-story-search.ts",
-        "server/local-books.ts"
-      ]
-    },
-    {
-      "file": "tests/story-card-embeddings.test.mjs",
-      "groups": [
-        "discovery",
-        "storage"
-      ],
-      "level": "integration",
-      "cost": "standard",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "server/story-card-embeddings.ts",
-        "server/library-backup.ts",
-        "lib/reader-source-key.ts",
-        "server/app.ts",
-        "lib/reader-api.ts",
-        "server/local-books.ts",
-        "server/local-story-search.ts"
-      ]
+      "manualOnly": true
     },
     {
       "file": "tests/local-story-search.test.mjs",
@@ -2187,8 +2137,11 @@
         "server/reader-intake.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/npm-cli.test.mjs",
@@ -2214,7 +2167,9 @@
         "server/library-directory.ts",
         "server/phone-access.ts",
         "tests/fixtures/startup.mjs"
-      ]
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/npm-publish.test.mjs",
@@ -2261,8 +2216,11 @@
         "server/openai-provider.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/paused-editing-versions.test.mjs",
@@ -2284,85 +2242,11 @@
         "lib/reader-versions.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
-    },
-    {
-      "file": "tests/phone-navigation.playwright.e2e.mjs",
-      "groups": [
-        "reader"
-      ],
-      "level": "browser-e2e",
-      "cost": "heavy",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "e2e",
-      "pr": "affected",
-      "gates": [
-        "user-flows"
-      ],
-      "covers": [
-        "tests/fixtures/desktop-layout.mjs",
-        "tests/fixtures/development.mjs",
-        "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/startup.mjs",
-        "tests/fixtures/story-browser.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
-    },
-    {
-      "file": "tests/phone-readability-css.test.mjs",
-      "groups": [
-        "reader"
+        "tests/fixtures/production-data.mjs"
       ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "client/ui/production-timeline.css"
-      ]
-    },
-    {
-      "file": "tests/phone-readability.playwright.e2e.mjs",
-      "groups": [
-        "reader"
-      ],
-      "level": "browser-e2e",
-      "cost": "heavy",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "e2e",
-      "pr": "affected",
-      "gates": [
-        "user-flows"
-      ],
-      "covers": [
-        "client/ui/production-timeline.css",
-        "client/ui/story-discovery.css",
-        "tests/fixtures/phone-audit.mjs",
-        "tests/fixtures/development.mjs",
-        "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs",
-        "tests/fixtures/startup.mjs",
-        "tests/fixtures/story-browser.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/priority-wiki-originals.test.mjs",
@@ -2389,7 +2273,8 @@
         "server/local-source-quality.ts",
         "tests/fixtures/book-library.mjs",
         "tests/fixtures/test-tier.mjs"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/production-queue-hardening.test.mjs",
@@ -2416,8 +2301,11 @@
         "server/reader-revisions.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/production-queue.test.mjs",
@@ -2438,7 +2326,7 @@
         "server/production-queue.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
+        "tests/fixtures/production-data.mjs"
       ]
     },
     {
@@ -2483,8 +2371,11 @@
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/queue-image-recovery.test.mjs",
@@ -2505,8 +2396,11 @@
         "lib/reader-generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/queue-image-versions.test.mjs",
@@ -2528,8 +2422,11 @@
         "lib/reader-model.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/queue-interruption.test.mjs",
@@ -2551,8 +2448,11 @@
         "lib/reader-model.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/reader-generation.test.mjs",
@@ -2624,8 +2524,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/reader-interaction.test.mjs",
@@ -2716,8 +2619,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/reader-prompt-format.test.mjs",
@@ -2788,8 +2694,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/reader-snapshots.test.mjs",
@@ -2827,7 +2736,9 @@
       "gates": [],
       "covers": [
         "lib/reader-source.ts"
-      ]
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/reader-source.test.mjs",
@@ -2850,37 +2761,6 @@
       ]
     },
     {
-      "file": "tests/reader-startup.e2e.mjs",
-      "groups": [
-        "reader"
-      ],
-      "level": "browser-e2e",
-      "cost": "heavy",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "e2e",
-      "pr": "affected",
-      "gates": [
-        "user-flows"
-      ],
-      "covers": [
-        "client/ui/Reader.tsx",
-        "client/ui/StoryFilmstrip.tsx",
-        "client/ui/StoryPageSurface.tsx",
-        "client/ui/reader.css",
-        "lib/reader-navigation.ts",
-        "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs",
-        "tests/fixtures/story-browser.mjs",
-        "tests/fixtures/story-library.mjs",
-        "tests/fixtures/story.mjs"
-      ]
-    },
-    {
       "file": "tests/reader-suggestion-request.test.mjs",
       "groups": [
         "discovery"
@@ -2900,7 +2780,9 @@
         "lib/reader-suggestions.ts",
         "server/app.ts",
         "server/http.ts"
-      ]
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/reader-zip.test.mjs",
@@ -2946,28 +2828,6 @@
       ]
     },
     {
-      "file": "tests/recent-stories-ui.test.mjs",
-      "groups": [
-        "reader"
-      ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "lib/reader-home.ts",
-        "client/ui/RecentStories.tsx",
-        "client/ui/Reader.tsx",
-        "tests/fixtures/story.mjs"
-      ]
-    },
-    {
       "file": "tests/release-pre-push.test.mjs",
       "groups": [
         "tooling"
@@ -2993,55 +2853,6 @@
       ]
     },
     {
-      "file": "tests/release-smoke.playwright.e2e.mjs",
-      "groups": [
-        "production",
-        "reader",
-        "preparation",
-        "review",
-        "media",
-        "discovery"
-      ],
-      "level": "browser-e2e",
-      "cost": "heavy",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "e2e",
-      "pr": "affected",
-      "gates": [
-        "release",
-        "npm"
-      ],
-      "covers": [
-        "tests/fixtures/creation-lifecycle.mjs",
-        "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs",
-        "tests/fixtures/story-browser.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
-    },
-    {
-      "file": "tests/retained-state-ui.test.mjs",
-      "groups": [
-        "reader"
-      ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": []
-    },
-    {
       "file": "tests/review-history-api.test.mjs",
       "groups": [
         "review"
@@ -3062,8 +2873,11 @@
         "lib/reader-review.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/review-history-flow.test.mjs",
@@ -3086,28 +2900,11 @@
         "lib/reader-review.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
-    },
-    {
-      "file": "tests/review-history-ui.test.mjs",
-      "groups": [
-        "reader"
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
       ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "tests/fixtures/tsx.mjs",
-        "client/ui/StoryReviewHistory.tsx"
-      ]
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/review-history.test.mjs",
@@ -3129,7 +2926,7 @@
         "lib/reader-review.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
+        "tests/fixtures/production-data.mjs"
       ]
     },
     {
@@ -3155,8 +2952,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/separate-providers-flow.test.mjs",
@@ -3179,8 +2979,11 @@
         "server/reader-production.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/separate-providers.test.mjs",
@@ -3209,8 +3012,11 @@
         "server/system-settings.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/settings-faults.test.mjs",
@@ -3237,7 +3043,8 @@
         "lib/system-settings.ts",
         "server/system-settings.ts",
         "tests/fixtures/startup.mjs"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/shared-library.test.mjs",
@@ -3259,50 +3066,11 @@
         "server/desktop-access.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
-    },
-    {
-      "file": "tests/shelf-art-style.test.mjs",
-      "groups": [
-        "reader"
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
       ],
-      "level": "integration",
-      "cost": "standard",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "flows",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "tests/fixtures/tsx.mjs",
-        "client/ui/ReaderShelf.tsx",
-        "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
-    },
-    {
-      "file": "tests/shelf-browser.test.mjs",
-      "groups": [
-        "reader"
-      ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "lib/shelf-browser.ts"
-      ]
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/shelf-favorites.test.mjs",
@@ -3323,8 +3091,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story.mjs"
-      ]
+        "tests/fixtures/story.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/shelf-generation.test.mjs",
@@ -3346,48 +3117,11 @@
         "lib/shelf-generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
-    },
-    {
-      "file": "tests/shelf-layout-ui.test.mjs",
-      "groups": [
-        "reader"
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
       ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "tests/fixtures/tsx.mjs",
-        "client/ui/ReaderShelf.tsx"
-      ]
-    },
-    {
-      "file": "tests/shelf-retry-ui.test.mjs",
-      "groups": [
-        "reader"
-      ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "tests/fixtures/tsx.mjs",
-        "client/ui/ReaderShelf.tsx"
-      ]
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/startup-cli-flow.test.mjs",
@@ -3406,7 +3140,9 @@
       "gates": [],
       "covers": [
         "tests/fixtures/startup.mjs"
-      ]
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
     },
     {
       "file": "tests/startup-matrix.test.mjs",
@@ -3427,7 +3163,8 @@
         "server/cli-options.ts",
         "server/cli-setup.ts",
         "tests/fixtures/startup.mjs"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/startup-pty.test.mjs",
@@ -3445,7 +3182,8 @@
       "gates": [],
       "covers": [
         "tests/fixtures/test-tier.mjs"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/story-brief.test.mjs",
@@ -3470,7 +3208,34 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/production-data.mjs"
+      ]
+    },
+    {
+      "file": "tests/story-card-embeddings.test.mjs",
+      "groups": [
+        "discovery",
+        "storage"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/story-card-embeddings.ts",
+        "server/library-backup.ts",
+        "lib/reader-source-key.ts",
+        "server/app.ts",
+        "lib/reader-api.ts",
+        "server/local-books.ts",
+        "server/local-story-search.ts"
       ]
     },
     {
@@ -3497,8 +3262,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-chapter-picker.test.mjs",
@@ -3523,8 +3291,11 @@
         "server/local-books.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-completeness.test.mjs",
@@ -3548,8 +3319,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-continuation-overlap.test.mjs",
@@ -3645,39 +3419,8 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
-    },
-    {
-      "file": "tests/story-discovery-modes.e2e.mjs",
-      "groups": [
-        "discovery"
-      ],
-      "level": "browser-e2e",
-      "cost": "heavy",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "e2e",
-      "pr": "affected",
-      "gates": [
-        "user-flows"
-      ],
-      "covers": [
-        "client/ui/StoryChapterPicker.tsx",
-        "client/ui/StoryCreationSetup.tsx",
-        "client/ui/StoryDiscoveryForm.tsx",
-        "client/ui/StorySettingsPanel.tsx",
-        "client/ui/readStorySearchStream.ts",
-        "server/http.ts",
-        "server/local-books.ts",
-        "server/local-generation.ts",
-        "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/production-data.mjs"
       ]
     },
     {
@@ -3705,8 +3448,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-discovery-speed-accuracy.e2e.mjs",
@@ -3732,8 +3478,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-discovery-speed-accuracy.test.mjs",
@@ -3758,8 +3507,8 @@
         "server/story-theme-matching.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs",
-        "tests/fixtures/story-library.mjs"
+        "tests/fixtures/story-library.mjs",
+        "tests/fixtures/production-data.mjs"
       ]
     },
     {
@@ -3782,8 +3531,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-flow-control.test.mjs",
@@ -3808,8 +3560,11 @@
         "lib/shelf-generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-generation-membership.test.mjs",
@@ -3830,8 +3585,11 @@
         "lib/reader-shelf.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-generation-state-machine-client.test.mjs",
@@ -3851,8 +3609,11 @@
       "covers": [
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-generation-state-machine-commands.test.mjs",
@@ -3896,8 +3657,11 @@
       "covers": [
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-generation-state-machine-reselection.test.mjs",
@@ -3919,8 +3683,11 @@
       "covers": [
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-generation-state-machine.e2e.mjs",
@@ -3944,39 +3711,12 @@
       "covers": [
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
-    },
-    {
-      "file": "tests/story-lifecycle.playwright.e2e.mjs",
-      "groups": [
-        "production",
-        "reader",
-        "preparation",
-        "review",
-        "media",
-        "discovery"
-      ],
-      "level": "browser-e2e",
-      "cost": "heavy",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "e2e",
-      "pr": "affected",
-      "gates": [
-        "user-flows"
-      ],
-      "covers": [
-        "tests/fixtures/creation-lifecycle.mjs",
-        "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story-browser.mjs",
-        "tests/fixtures/story-library.mjs"
-      ]
+        "tests/fixtures/production-data.mjs"
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true,
+      "modelRelated": true
     },
     {
       "file": "tests/story-matching-models.test.mjs",
@@ -4019,31 +3759,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story.mjs"
-      ]
-    },
-    {
-      "file": "tests/story-publication-ui.test.mjs",
-      "groups": [
-        "reader"
+        "tests/fixtures/story.mjs",
+        "tests/fixtures/production-data.mjs"
       ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "lib/story-publication.ts",
-        "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs",
-        "tests/fixtures/story.mjs"
-      ]
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-publication.test.mjs",
@@ -4066,8 +3786,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/story.mjs"
-      ]
+        "tests/fixtures/story.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-reflection-candidates.test.mjs",
@@ -4091,8 +3814,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-reflection.test.mjs",
@@ -4118,34 +3844,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
-    },
-    {
-      "file": "tests/story-requirements-ui.test.mjs",
-      "groups": [
-        "reader"
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
       ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "tests/fixtures/tsx.mjs",
-        "client/ui/StoryProductionEditor.tsx",
-        "client/ui/StoryPromptDetails.tsx",
-        "client/ui/StoryReviewTools.tsx",
-        "client/ui/StoryBackToShelf.tsx",
-        "client/ui/StoryGenerationStatus.tsx",
-        "client/ui/StoryCreationSetup.tsx",
-        "client/ui/StoryGenerationControl.tsx"
-      ]
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-requirements.test.mjs",
@@ -4170,8 +3873,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-revision-flow.test.mjs",
@@ -4191,8 +3897,11 @@
       "covers": [
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-specific-requirements.test.mjs",
@@ -4216,60 +3925,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
-    },
-    {
-      "file": "tests/story-stage-feedback.test.mjs",
-      "groups": [
-        "reader"
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
       ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "lib/generation-progress.ts",
-        "tests/fixtures/tsx.mjs",
-        "client/ui/StoryProductionTimeline.tsx",
-        "client/ui/StoryGenerationControl.tsx",
-        "client/ui/StoryFlowAction.tsx",
-        "client/ui/StoryGenerationStatus.tsx",
-        "client/ui/StoryReviewTools.tsx",
-        "client/ui/StoryCreationSetup.tsx"
-      ]
-    },
-    {
-      "file": "tests/story-storage-consolidation.e2e.mjs",
-      "groups": [
-        "storage"
-      ],
-      "level": "browser-e2e",
-      "cost": "heavy",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "e2e",
-      "pr": "affected",
-      "gates": [
-        "user-flows"
-      ],
-      "covers": [
-        "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs",
-        "tests/fixtures/story-browser.mjs",
-        "tests/fixtures/story-library.mjs",
-        "tests/fixtures/story.mjs"
-      ]
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/story-storage-consolidation.test.mjs",
@@ -4320,34 +3980,12 @@
         "server/database.ts",
         "server/production-queue.ts",
         "server/story-summary-migration.ts",
-        "tests/fixtures/tsx.mjs",
-        "client/ui/StoryScript.tsx",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/historical-library.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs",
+        "server/generation.ts",
         "tests/fixtures/story.mjs"
-      ]
-    },
-    {
-      "file": "tests/story-title-ui.test.mjs",
-      "groups": [
-        "reader"
-      ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
       ]
     },
     {
@@ -4368,7 +4006,8 @@
       "covers": [
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
       ]
     },
     {
@@ -4395,23 +4034,6 @@
       ]
     },
     {
-      "file": "tests/story-workspace-ui.test.mjs",
-      "groups": [
-        "reader"
-      ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": []
-    },
-    {
       "file": "tests/storyboard-batches.test.mjs",
       "groups": [
         "review"
@@ -4434,8 +4056,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/storyboard-review.test.mjs",
@@ -4459,37 +4084,11 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/test-tier.mjs"
-      ]
-    },
-    {
-      "file": "tests/storyboard-ui.test.mjs",
-      "groups": [
-        "reader"
+        "tests/fixtures/test-tier.mjs",
+        "tests/fixtures/production-data.mjs"
       ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "lib/reader-prompts.ts",
-        "lib/reader-revision.ts",
-        "tests/fixtures/tsx.mjs",
-        "client/ui/StoryRevisionEditor.tsx",
-        "client/ui/StoryGenerationStatus.tsx",
-        "client/ui/StoryFrameCount.tsx",
-        "client/ui/StoryRetry.tsx",
-        "client/ui/StoryReviewTools.tsx",
-        "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/system-settings.test.mjs",
@@ -4516,7 +4115,8 @@
         "lib/system-settings.ts",
         "server/cli-setup.ts",
         "server/system-settings.ts"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/taiping-wyg.test.mjs",
@@ -4539,7 +4139,8 @@
         "server/local-books.ts",
         "tests/fixtures/book-library.mjs",
         "tests/fixtures/test-tier.mjs"
-      ]
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/task-reasoning-flow.test.mjs",
@@ -4560,8 +4161,11 @@
       "covers": [
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
     },
     {
       "file": "tests/task-reasoning.test.mjs",
@@ -4585,8 +4189,39 @@
         "server/local-generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ],
+      "modelRelated": true,
+      "manualOnly": true
+    },
+    {
+      "file": "tests/test-assurance.test.mjs",
+      "groups": [
+        "tooling"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        ".github/workflows/main-ci.yml",
+        "package.json",
+        "scripts/node-version.mjs",
+        "scripts/test-assurance.mjs",
+        "scripts/test-metadata.mjs",
+        "scripts/test-plan.mjs",
+        "scripts/test-story-e2e.mjs",
+        "scripts/test-tiers.mjs",
+        "tests/manifest.json"
+      ],
+      "relatedPathLiterals": false
     },
     {
       "file": "tests/test-pr.test.mjs",
@@ -4611,8 +4246,11 @@
         "scripts/test-source.mjs",
         "tests/manifest.json",
         "scripts/test-graph.mjs",
-        "scripts/node-version.mjs"
-      ]
+        "scripts/node-version.mjs",
+        "tests/fixtures/test-tier.mjs"
+      ],
+      "relatedPathLiterals": false,
+      "manualOnly": true
     },
     {
       "file": "tests/test-tiers.test.mjs",
@@ -4634,8 +4272,10 @@
         "scripts/test-plan.mjs",
         "scripts/test-tiers.mjs",
         "tests/manifest.json",
-        "scripts/test-graph.mjs"
-      ]
+        "scripts/test-graph.mjs",
+        "scripts/test-providers.mjs"
+      ],
+      "manualOnly": true
     },
     {
       "file": "tests/unified-story-review.e2e.mjs",
@@ -4663,33 +4303,11 @@
         "server/production-queue.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs"
-      ]
-    },
-    {
-      "file": "tests/unified-story-setup-ui.test.mjs",
-      "groups": [
-        "reader"
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
       ],
-      "level": "contract",
-      "cost": "fast",
-      "platforms": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "suite": "unit",
-      "pr": "affected",
-      "gates": [],
-      "covers": [
-        "tests/fixtures/tsx.mjs",
-        "client/ui/StoryGenerationControl.tsx",
-        "client/ui/StoryPausedEditing.tsx",
-        "client/ui/StoryRevisionEditor.tsx",
-        "client/ui/StoryCreationSetup.tsx",
-        "client/ui/StoryReviewTools.tsx",
-        "client/ui/StoryProductionEditor.tsx"
-      ]
+      "modelRelated": true,
+      "manualOnly": true
     }
   ]
 }

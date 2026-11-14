@@ -127,45 +127,49 @@ pnpm lint
 
 `tests/manifest.json` 显式声明每个 JS 文件和 Rust 测试模块的责任域、执行层、成本、平台、传统套件、PR 策略、门禁归属及 `covers` 源码消费者关系。新增测试未注册、文件不存在或元数据无效时执行器报错，不会悄悄跳过。适配器的请求/配置契约与真实启动/生产流程分文件；注册表选择不再检查源码是否含 `productionFixture()` 或 `books` 导入。`flowProviders()`、`heavy`、`books` 仅控制文件内部的矩阵。
 
-`pnpm test` 是显式快速契约层，保留原著完整性冒烟、适配器/配置及小型队列、状态和 HTTP/SQLite 边界测试。`local-server.test.mjs` 的原著夹具用于验证 SQLite 锁，不按书籍变更跳过。`book-integrity-smoke.test.mjs` 用几 KB 的临时原著调用正式加载器，检查字节哈希、缺失文件、目录越界和失效/不可读出处。
+`pnpm test` 是自动快速契约层。安全、启动保障组（包括完整性冒烟）、绑定真实本机 loopback 的测试，以及提供方和模型驱动的生成/审核/分镜流程都改为按需运行：分别使用 `pnpm test:safety`、`pnpm test:startup`、`pnpm test:loopback` 和 `pnpm test:models`；`pnpm test:assurance` 会合并安全、启动、loopback 三组并运行原生桌面测试。`pnpm test:models` 使用受控模型结果，不需要真实 API 密钥或付费推理。按需运行的 `local-server.test.mjs` 用原著夹具验证 SQLite 锁；按需执行的 `book-integrity-smoke.test.mjs` 用几 KB 临时原著调用正式加载器，检查字节哈希、缺失文件、目录越界和失效/不可读出处。
 
 ```bash
 pnpm test              # 快速契约层
+pnpm test:safety       # 按需运行安全保障组
+pnpm test:startup      # 按需运行启动保障组
+pnpm test:loopback     # 按需运行本机 loopback 监听/请求测试
+pnpm test:assurance    # 三组与原生桌面测试
+pnpm test:models       # 79 个模型/提供方及受控生成流程文件，按需运行
 pnpm test:books        # 十个真实原著文件，开启全部内容检查
-pnpm test:flows        # 启动/进程/存储集成及受控制作流程，保留文件内快速矩阵
+pnpm test:flows        # 自动进程/存储集成及受控制作流程，保留文件内快速矩阵
 pnpm test:e2e          # 现有用户流程集合
-pnpm test:e2e:extended # 六个服务/引擎 E2E，受控提供方，无浏览器
-pnpm test:providers    # 全部 JS 回归，完整提供方/重型/原著开关
-pnpm test:full         # 全部 JS 回归及全部 E2E，每个文件一次，完整开关
+pnpm test:e2e:extended # 六个模型相关服务/引擎 E2E，手动触发
+pnpm test:providers    # test:models 的兼容别名，手动触发
+pnpm test:full         # 全部自动 JS 回归，每个文件一次，完整开关；模型套件另行按需运行
 ```
 
-PR 的同一文件最多运行一次：无关小型契约使用快速开关，相关文件使用完整开关。`test:changed` 和默认 `test:pr` 只运行源码测试；Playwright 用例列在 `deferredBrowser`，全量源码回退也不会运行它们。`pnpm test:pr` 从 CI 的统一范围输入或 `BASE`/`HEAD` 比较生成计划；`--files` 可显式指定路径，`--full` 运行包括 Playwright 在内的完整资格检查，`--plan`/`--json` 只预览。实际执行将文件、快/全模式、平台排除、源码标识、时间及退出码写入 `.data/test-plans/<run>/`。按需运行 `pnpm test:e2e`，证据保存在 `.data/e2e/<run>/`。
+PR 的同一文件最多运行一次：无关小型契约使用快速开关，相关文件使用完整开关。`test:changed` 和默认 `test:pr` 只运行源码测试；浏览器套件有注册时才会列入 `deferredBrowser`，当前没有此类套件。`pnpm test:pr` 从 CI 的统一范围输入或 `BASE`/`HEAD` 比较生成计划；`--files` 可显式指定路径，`--full` 运行所有已注册的非原生自动测试，`--plan`/`--json` 只预览。实际执行将文件、快/全模式、平台排除、源码标识、时间及退出码写入 `.data/test-plans/<run>/`。按需运行 `pnpm test:e2e` 执行服务流程，证据保存在 `.data/e2e/<run>/`。
 
 CI 对每个 PR 报告必需检查「Shared checks」：
 
-- 文档 PR 只运行小型完整性冒烟；代码 PR 运行类型、lint 及所选源码测试。书籍内容及相关读取/发现代码触发较大原著套件。
-- 发现、准备、审核、队列及书籍参考等核心变更追加全部六个扩展服务 E2E。多个域取并集；改名保留旧/新路径；未知影响回退完整 JS，并要求原生源码检查。
-- Rust、共享设置/配置、`server/desktop.ts`、存储升级及相关桌面资源脚本触发 macOS/Windows 原生源码测试和格式检查；安装 Node/JS 依赖供跨语言配置测试使用。源码检查通过 `bundle.resources: []` 与 `build.frontendDist: ["../desktop/index.html"]` 使用已提交 HTML 作为编译上下文，避免准备安装包，只排除 `runtime::tests::desktop_uses_verified_bundle_and_ignores_saved_system_path`，该测试仍在发布构建的完整 `cargo test` 中运行。JS 与选中的原生检查任一失败，聚合检查失败。
-- `main` 和手动 CI 对当前提交运行完整 JS。`v*` 标签推送前在本机检查完整 JS；标签 CI 直接执行原生构建、测试和产物冒烟，两个平台都通过后才发布。手动构建仍等待本次 CI 的 Shared checks 成功。新 main/PR 推送可取消旧的同类 JS 检查。
+- 文档 PR 不运行测试；代码 PR 运行类型、lint 及所选源码测试。安全/启动组始终按需；书籍内容及相关读取/发现代码触发较大原著套件。
+- 发现、准备、审核、队列及书籍参考等变更保留对应自动源码覆盖；六个模型相关扩展服务 E2E 仅在显式运行 `pnpm test:e2e:extended` 时执行。多个域取并集；改名保留旧/新路径；未知影响回退全部自动 JS，并要求原生源码检查。
+- Rust、共享设置/配置、`server/desktop.ts`、存储升级及相关桌面资源脚本触发 macOS/Windows 原生源码检查和格式检查；安装 Node/JS 依赖供跨语言配置测试使用。自动原生检查跳过按需组 `config::tests`，完整的 `pnpm desktop:test` 通过 `pnpm test:assurance` 手动运行。源码检查通过 `bundle.resources: []` 与 `build.frontendDist: ["../desktop/index.html"]` 使用已提交 HTML 作为编译上下文，避免准备安装包，只排除 `runtime::tests::desktop_uses_verified_bundle_and_ignores_saved_system_path`，该测试仍在发布构建的完整 `cargo test` 中运行。JS 与选中的原生检查任一失败，聚合检查失败。
+- `main` 和手动 CI 对当前提交运行全部自动 JS 测试，跳过安全、启动、loopback、书籍和模型手动组。`v*` 标签推送前在本机检查全部自动 JS；标签 CI 直接执行原生构建、测试和产物冒烟，两个平台都通过后才发布。手动构建仍等待本次 CI 的 Shared checks 成功。新 main/PR 推送可取消旧的同类 JS 检查。
 
-JS/原生任务缓存 pnpm store，按系统、架构、固定 Node/pnpm 和锁文件区分；命中后仍执行 `pnpm install --frozen-lockfile`。浏览器缓存按平台/架构/锁文件区分；Rust 编译缓存按平台/架构/Rust 版本及 Cargo、JS 锁文件和 Node 区分。不缓存用户库、密钥或 `node_modules`。完整触发表和旧/新耗时对比见[测试触发与成本](testing-triggers.md)，逐场景清单见[测试盘点](testing-inventory.md)。
+JS/原生任务缓存 pnpm store，按系统、架构、固定 Node/pnpm 和锁文件区分；命中后仍执行 `pnpm install --frozen-lockfile`。Rust 编译缓存按平台/架构/Rust 版本及 Cargo、JS 锁文件和 Node 区分。不缓存用户库、密钥或 `node_modules`。完整触发表和旧/新耗时对比见[测试触发与成本](testing-triggers.md)，逐场景清单见[测试盘点](testing-inventory.md)。
 
 纯配置使用 `settingsFixture()`，进程测试使用正式迁移/种子的 `startupFixture()`。真实原著故障测试通过 `copyBookLibrary()` 只复制涉及原著和补卷，保留字节。测试和 E2E 使用隔离数据及受控适配器，不发起真实模型请求。
 
 `pre-push` 只对推送的 `refs/tags/v*` 执行发布检查：解析标签目标提交，在隔离 checkout 中验证 Node/pnpm 固定版本，安装锁定依赖，再运行 `pnpm release:check`。同一提交的多个发布标签只检查一次；普通分支、非 v 标签和删除标签不触发。可通过 `pnpm hooks:install` 为新 checkout 启用 hook。
 
-`release:check` 运行类型检查、lint、`pnpm test:pr --full` 和 Rust 格式检查。完整 JS 计划运行本机支持的所有测试，源码与浏览器分批执行；每个文件只运行一次。发布前安装 hook、固定 Node/pnpm、Rust/rustfmt 与 Chromium（`pnpm exec playwright install chromium --only-shell`），并通过该 hook 推送标签。GitHub 的标签任务不会重跑本地资格检查，因此发布时不要跳过 hook。任一检查失败都会阻止推送。`pnpm test:e2e --gate=release` 仍可单独运行八文件冒烟，`npm:check` 保留七文件 npm 冒烟。完整套件的 C007 在一次性源码根目录启动真正的 `pnpm dev local`，不打开人工开发书库。
+`release:check` 运行类型检查、lint、两文件服务发布门禁和 Rust 格式检查。`pnpm test:full` 运行本机支持的 49 个自动 JS 测试文件；安全、启动、loopback、书籍和模型组均需显式执行，模型检查使用 `pnpm test:models`，当前没有浏览器 UI 套件。发布前安装 hook、固定 Node/pnpm 与 Rust/rustfmt，并通过该 hook 推送标签。GitHub 的标签任务不会重跑本地资格检查，因此发布时不要跳过 hook。任一检查失败都会阻止推送。`npm:check` 保留一文件 npm 门禁。完整 suite 的 C007 位于按需启动组中，在一次性源码根目录启动真正的 `pnpm dev local`，不打开人工开发书库。
 
 维护命令无需打包：`pnpm library:maintain --help`。备份/恢复/诊断入口复用正式 CLI 与服务实现；运行锁覆盖开发、CLI 和桌面。备份是私有数据，不能放入 `public`、`dist/client` 或公开作品集，详见[维护说明](user-guide.md#书库维护命令)。
 
-故事流程 Playwright 验证：
+故事服务流程 E2E：
 
 ```bash
-pnpm exec playwright install chromium --only-shell
 pnpm test:e2e
 ```
 
-命令运行真实 React/Vite、开发访问保护和生产 API/队列/SQLite，覆盖新建、各编辑入口、暂停/恢复、失败重试、重选与状态机协议边界；并执行 headless-cli、cli-skill、library-maintenance、diagnostics、system-settings、settings-faults 套件。模型回执受控，不加载 `.env` 或桌面凭据进行推理。浏览器数据与日志位于 `.data/e2e/<run>`，CLI/配置/维护使用隔离临时书库和 home，不触碰人工数据。手工运行保留截图、trace.zip、状态转换和结果；标签 hook 的临时 checkout 检查后清理，失败原因输出到终端，可在本地重跑此命令保留证据。可用 `pnpm exec playwright show-trace <trace.zip>` 查看独立测试浏览器的操作。浏览器测试范围和运行账本见[故事流程测试](../.tests/story-lifecycle/CASES.md)。
+该命令执行已注册的服务与引擎流程，通过真实生产服务、API、队列、SQLite 和媒体存储验证协议边界；模型回执受控，不加载 `.env` 或桌面凭据进行推理。书库、日志和临时 home 均隔离，不触碰人工数据。自动化 UI 组件和浏览器流程套件已退役，`pnpm test:e2e` 当前不启动 Chromium。
 
 测试使用模拟模型响应，不发起付费生成。桌面 UI 使用 Vite 开发服务器验证；只有需要打包时才运行构建命令。桌面开发、平台依赖和打包说明见 [desktop/README.md](../desktop/README.md)。主要代码位于 `client/`（界面）、`lib/`（业务逻辑）、`server/`（HTTP 与存储）、`db/` 与 `drizzle/`（数据库）、`desktop/` 与 `src-tauri/`（桌面版）。
 

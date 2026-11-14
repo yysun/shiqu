@@ -5,7 +5,7 @@ import {continueEvaluationDocument,openEvaluationHistory,evaluationHistoryTotals
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {makePlan,selection} from './fixtures/production.mjs';
+import {makePlan,selection} from './fixtures/production-data.mjs';
 import {newReview} from '../lib/reader-review.ts';
 const input={id:'story',selection:{...selection,length:'auto'},original:{title:'原文',text:'甲赠物，乙未接。'}};
 const parent={plan:makePlan(4),original:input.original,images:['old-image'],audio:[],usage:[{step:'repair:1',requestId:'saved-receipt'}],visualReview:{...newReview(),status:'passed',round:5,repairs:3,history:[{round:1,requested:[2],changes:[]}],reports:[{issues:[]}]}};

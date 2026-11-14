@@ -10,12 +10,9 @@ import {createApplication} from '../server/app.ts';
 import {storySummaryMigration} from '../server/story-summary-migration.ts';
 import {inputVersion,productionJobId} from '../server/production-queue.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
-import {makePlan,selection,encoded,until} from './fixtures/production.mjs';
+import {makePlan,selection,encoded,until} from './fixtures/production-data.mjs';
 import {makeStory} from './fixtures/story.mjs';
 import {historicalLibrary} from './fixtures/historical-library.mjs';
-import './fixtures/tsx.mjs';
-import {createElement} from 'react';
-import {renderToStaticMarkup} from 'react-dom/server';
 
 const owner='docker-local-owner';
 const legacyPlan=()=>{const {summary,...plan}=makePlan(2);return {...plan,hook:summary};};
@@ -94,9 +91,4 @@ test('target job identity collisions abort the upgrade without discarding either
  const {hook,...rest}=plan,migrated={...rest,summary:hook},nextVersion=version(f.chosen,migrated),old=productionJobId(f.id,'image',oldVersion,'0'),next=productionJobId(f.id,'image',nextVersion,'0');
  job(f.local.sqlite,old,f.id,'image',oldVersion,[],{page:0},{value:'paid-old'});job(f.local.sqlite,next,f.id,'image',nextVersion,[],{page:0},{value:'paid-new'});f.local.close();
  assert.throws(()=>openDatabase(f.directory,process.cwd()),/collision/);const db=new DatabaseSync(path.join(f.directory,'shiqu.sqlite'));assert.equal(db.prepare('SELECT count(*) AS n FROM production_jobs').get().n,2);assert.ok(db.prepare('PRAGMA table_info(stories)').all().some(col=>col.name==='hook'));db.close();
-});
-
-test('script disclosure renders the summary with the existing storyboard',async()=>{
- const {default:StoryScript}=await import('../client/ui/StoryScript.tsx');
- const html=renderToStaticMarkup(createElement(StoryScript,{story:makeStory(),standalone:true}));assert.match(html,/测试人物经历变故/);assert.match(html,/第 1 幅/);assert.doesNotMatch(html,/测试引子/);
 });

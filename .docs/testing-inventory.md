@@ -1,6 +1,6 @@
 # Test scenario inventory and run-policy map
 
-Inventory date: 2026-11-05. Source base: `75a1331d3594edb140b13125d3fd278c12a164a5` plus impact-routing changes. Derived AST inventory; this does not renew historical QA results. Concurrent desktop work and its untracked specifications are excluded.
+Inventory date: 2026-11-05. Source base: `75a1331d3594edb140b13125d3fd278c12a164a5` plus impact-routing changes. Derived AST inventory; this does not renew historical QA results. Concurrent desktop work and its untracked specifications are excluded. This snapshot predates the 2026-11-14 retirement of the automated UI and browser E2E suites; use `tests/manifest.json` for the current executable registry.
 
 ## Counts and ownership
 
@@ -9,28 +9,35 @@ Inventory date: 2026-11-05. Source base: `75a1331d3594edb140b13125d3fd278c12a164
 - 26 native test functions across four explicitly registered Rust modules; conditional platform functions remain visible.
 - 77 committed/current-story legacy acceptance specs and 7 managed lifecycle cases; these overlap automated coverage and are not added to executable totals.
 - `tests/manifest.json` owns domain, execution level, cost, platform, suite, PR policy and gate membership. Missing/invalid registrations fail before execution. Test source markers do not choose suites.
-- Every supported JS file belongs to full qualification, including the release browser wrapper. Release/npm gates retain eight/seven files. Unsupported platforms are listed in the PR execution receipt.
+- Every supported non-manual JS file belongs to automatic qualification. Model/provider and controlled-generation checks remain registered but require `pnpm test:models`; the six extended service E2Es have a separate on-demand command. Release/npm gates retain two/one files. Unsupported platforms are listed in the PR execution receipt.
 
 ## Implemented execution policy
 
 See [trigger rules and timing comparison](testing-triggers.md) and [developer commands](development.md). While iterating, `pnpm test:related` runs only direct importers, path-literal references and `covers` consumers of the changed paths with fast flags; it is not an impact check. A single file also runs directly with `node --test tests/<file>`. Before handoff, `pnpm test:changed` applies the CI impact planner to staged, unstaged and untracked changes; use `--plan` to preview. Shared checkouts can pass explicit task paths with `pnpm test:pr --files ...`.
 
+The scenario descriptions below predate the 2026-11-14 policy changes. Safety, startup, loopback and model/provider-backed tests are manual-only; the current executable selection is shown by `tests/manifest.json` and `pnpm test:changed --plan`.
+
 | Entry | Registered files | Policy |
 | --- | ---: | --- |
-| `pnpm test` | 76 | Explicit suite; per-case fast/full switches remain available. |
-| `pnpm test:flows` | 70 | Explicit suite; per-case fast/full switches remain available. |
-| `pnpm test:books` | 10 | Explicit suite; per-case fast/full switches remain available. |
-| `pnpm test:e2e` | 18 | Explicit gate membership; full flags. |
-| `pnpm test:e2e:extended` | 6 | Explicit gate membership; full flags. |
-| `pnpm test:e2e --gate=release` | 8 | Standalone release smoke; full flags. |
-| `npm gate` | 7 | Explicit gate membership; full flags. |
-| `pnpm test:full` / main and manual CI / local tag gate | All supported JS | Every file once with full flags. Tag CI runs native tests and installer smoke checks. |
-| Code PR | Impact union | Small contracts and local-server/queue/state guards plus affected full-mode files. |
-| Documentation PR | 1 | Integrity smoke. |
+| `pnpm test` | 39 | Automatic contract suite; manual-only entries excluded. |
+| `pnpm test:flows` | 10 | Automatic flows; model, assurance and loopback entries excluded. |
+| `pnpm test:books` | 10 | Explicit book corpus suite; manual-only. |
+| `pnpm test:safety` | 4 JS files | Manual-only; never included in automatic checks or gates. |
+| `pnpm test:startup` | 11 JS files | Manual-only; never included in automatic checks or gates. |
+| `pnpm test:loopback` | 18 JS files | Manual-only; tests that bind or connect to real local listeners. |
+| `pnpm test:assurance` | 27 unique JS files + native desktop | On-demand safety/startup/loopback qualification. |
+| `pnpm test:models` / `pnpm test:providers` | 79 JS files | Model/provider and controlled-generation coverage; manual-only. |
+| `pnpm test:e2e` | 1 | Remaining automatic user-flow gate; full flags. |
+| `pnpm test:e2e:extended` | 6 | Explicit on-demand model-flow E2Es; full flags. |
+| `pnpm test:e2e --gate=release` | 2 | Standalone release smoke; full flags. |
+| `npm gate` | 1 | Explicit gate membership; full flags. |
+| `pnpm test:full` / main and manual CI / local tag gate | 49 automatic JS | Every automatic file once with full flags. Safety/startup/loopback/model groups run only on demand. |
+| Code PR | Impact union | Mapped automatic tests; safety/startup/loopback/model groups are on demand. |
+| Documentation PR | 0 | No automatic test suite. |
 
 ## Responsibility groups
 
-Counts below use the first declared domain to avoid double-counting files; additional domains remain listed for each file.
+The following responsibility-group counts are the 2026-11-05 baseline and predate UI/model-suite retirements. Current automatic and on-demand counts are listed above. Counts below use the first declared domain to avoid double-counting files; additional domains remain listed for each file.
 
 | Domain | JS files | Declarations |
 | --- | ---: | ---: |
@@ -48,7 +55,9 @@ Counts below use the first declared domain to avoid double-counting files; addit
 | `desktop` | 7 | 36 |
 | `tooling` | 7 | 28 |
 
-## Automated scenarios
+## Registered scenarios
+
+Safety, startup, loopback and model/provider groups are manual-only. Run `pnpm test:safety`, `pnpm test:startup`, `pnpm test:loopback` or `pnpm test:models`; `pnpm test:assurance` runs the first three groups plus the native desktop suite. They are excluded from automatic change checks, CI, releases and `pnpm test:full`. `pnpm test:e2e:extended` runs the six registered model-backed service E2Es on demand.
 
 ### safety
 
@@ -56,7 +65,7 @@ Counts below use the first declared domain to avoid double-counting files; addit
 
 [tests/book-integrity-smoke.test.mjs](../tests/book-integrity-smoke.test.mjs) — 4 declarations.
 
-Domains: safety; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `always`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: safety; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `affected`; manual-only. Run with `pnpm test:safety`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -74,7 +83,7 @@ Domains: safety; level: `contract`; cost: `fast`; platforms: darwin, linux, win3
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
 | 15 | documentation keeps smoke; every code PR keeps contracts and local-server boundaries |   |
-| 23 | affected areas include their flows, heavy flags and all six service E2Es for core changes |   |
+| 23 | affected areas keep automatic flows while all six model-backed service E2Es are manual-only |   |
 | 36 | native and shared settings request native checks; unknown/schema/toolchain changes fail closed |   |
 | 43 | mixed changes are a union; changed tests select owners and supported platforms are explicit |   |
 | 51 | real merge-base diffs retain deleted rename paths and output a reusable plan input |   |
@@ -124,7 +133,7 @@ Domains: books; level: `integration`; cost: `heavy`; platforms: darwin, linux, w
 
 [tests/book-reference-star.e2e.mjs](../tests/book-reference-star.e2e.mjs) — 6 declarations.
 
-Domains: books, media, review; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; gates: extended. Whole-file full qualification always applies on supported platforms.
+Domains: books, media, review; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -139,7 +148,7 @@ Domains: books, media, review; level: `service-e2e`; cost: `standard`; platforms
 
 [tests/book-reference-star.test.mjs](../tests/book-reference-star.test.mjs) — 8 declarations.
 
-Domains: books, media, review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: books, media, review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -301,7 +310,7 @@ Domains: discovery; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/continuous-story-discovery.test.mjs](../tests/continuous-story-discovery.test.mjs) — 5 declarations.
 
-Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -315,7 +324,7 @@ Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, l
 
 [tests/discovery-conditions.test.mjs](../tests/discovery-conditions.test.mjs) — 5 declarations.
 
-Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -329,7 +338,7 @@ Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, l
 
 [tests/editable-extraction-title.test.mjs](../tests/editable-extraction-title.test.mjs) — 5 declarations.
 
-Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -360,7 +369,7 @@ Domains: discovery; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/incremental-story-library.e2e.mjs](../tests/incremental-story-library.e2e.mjs) — 16 declarations.
 
-Domains: discovery; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; gates: extended. Whole-file full qualification always applies on supported platforms.
+Domains: discovery; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -418,7 +427,7 @@ Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, l
 
 [tests/manual-extraction-start.test.mjs](../tests/manual-extraction-start.test.mjs) — 2 declarations.
 
-Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -444,7 +453,7 @@ Domains: discovery; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/selected-chapter-extraction.test.mjs](../tests/selected-chapter-extraction.test.mjs) — 7 declarations.
 
-Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -460,7 +469,7 @@ Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, l
 
 [tests/story-chapter-context.test.mjs](../tests/story-chapter-context.test.mjs) — 6 declarations.
 
-Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -475,7 +484,7 @@ Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, l
 
 [tests/story-chapter-picker.test.mjs](../tests/story-chapter-picker.test.mjs) — 6 declarations.
 
-Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -578,7 +587,7 @@ Domains: discovery; level: `browser-e2e`; cost: `heavy`; platforms: darwin, linu
 
 [tests/story-discovery-modes.test.mjs](../tests/story-discovery-modes.test.mjs) — 6 declarations.
 
-Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -593,7 +602,7 @@ Domains: discovery; level: `integration`; cost: `standard`; platforms: darwin, l
 
 [tests/story-discovery-speed-accuracy.e2e.mjs](../tests/story-discovery-speed-accuracy.e2e.mjs) — 6 declarations.
 
-Domains: discovery; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; gates: extended. Whole-file full qualification always applies on supported platforms.
+Domains: discovery; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -665,7 +674,7 @@ Domains: preparation; level: `contract`; cost: `fast`; platforms: darwin, linux,
 
 [tests/reader-intake.test.mjs](../tests/reader-intake.test.mjs) — 14 declarations.
 
-Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -700,7 +709,7 @@ Domains: preparation; level: `contract`; cost: `fast`; platforms: darwin, linux,
 
 [tests/story-editorial.test.mjs](../tests/story-editorial.test.mjs) — 3 declarations.
 
-Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -712,7 +721,7 @@ Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin,
 
 [tests/story-reflection-candidates.test.mjs](../tests/story-reflection-candidates.test.mjs) — 7 declarations.
 
-Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -728,7 +737,7 @@ Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin,
 
 [tests/story-reflection.test.mjs](../tests/story-reflection.test.mjs) — 8 declarations.
 
-Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -745,7 +754,7 @@ Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin,
 
 [tests/story-requirements.test.mjs](../tests/story-requirements.test.mjs) — 8 declarations.
 
-Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -762,7 +771,7 @@ Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin,
 
 [tests/story-specific-requirements.test.mjs](../tests/story-specific-requirements.test.mjs) — 7 declarations.
 
-Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -806,7 +815,7 @@ Domains: preparation; level: `integration`; cost: `standard`; platforms: darwin,
 
 [tests/adaptive-storyboard-review.e2e.mjs](../tests/adaptive-storyboard-review.e2e.mjs) — 8 declarations.
 
-Domains: review; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; gates: extended. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -823,7 +832,7 @@ Domains: review; level: `service-e2e`; cost: `standard`; platforms: darwin, linu
 
 [tests/adaptive-storyboard-review.test.mjs](../tests/adaptive-storyboard-review.test.mjs) — 6 declarations.
 
-Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -838,7 +847,7 @@ Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win3
 
 [tests/character-continuity-edits.e2e.mjs](../tests/character-continuity-edits.e2e.mjs) — 4 declarations.
 
-Domains: review; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; gates: extended. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -862,7 +871,7 @@ Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win3
 
 [tests/frame-count-continuation.test.mjs](../tests/frame-count-continuation.test.mjs) — 4 declarations.
 
-Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -875,7 +884,7 @@ Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win3
 
 [tests/frame-count-gate.e2e.mjs](../tests/frame-count-gate.e2e.mjs) — 4 declarations.
 
-Domains: review; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; gates: extended. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -888,7 +897,7 @@ Domains: review; level: `service-e2e`; cost: `standard`; platforms: darwin, linu
 
 [tests/frame-count-gate.test.mjs](../tests/frame-count-gate.test.mjs) — 6 declarations.
 
-Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -903,7 +912,7 @@ Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linu
 
 [tests/frame-count-replay.test.mjs](../tests/frame-count-replay.test.mjs) — 6 declarations.
 
-Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -918,7 +927,7 @@ Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win3
 
 [tests/frame-count-review.test.mjs](../tests/frame-count-review.test.mjs) — 7 declarations.
 
-Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -934,7 +943,7 @@ Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win3
 
 [tests/review-history-api.test.mjs](../tests/review-history-api.test.mjs) — 2 declarations.
 
-Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -945,7 +954,7 @@ Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linu
 
 [tests/review-history-flow.test.mjs](../tests/review-history-flow.test.mjs) — 1 declarations.
 
-Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -972,7 +981,7 @@ Domains: review; level: `contract`; cost: `fast`; platforms: darwin, linux, win3
 
 [tests/story-completeness.test.mjs](../tests/story-completeness.test.mjs) — 3 declarations.
 
-Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -984,7 +993,7 @@ Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linu
 
 [tests/storyboard-batches.test.mjs](../tests/storyboard-batches.test.mjs) — 7 declarations.
 
-Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1000,7 +1009,7 @@ Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linu
 
 [tests/storyboard-review.test.mjs](../tests/storyboard-review.test.mjs) — 14 declarations.
 
-Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1023,7 +1032,7 @@ Domains: review; level: `integration`; cost: `standard`; platforms: darwin, linu
 
 [tests/unified-story-review.e2e.mjs](../tests/unified-story-review.e2e.mjs) — 5 declarations.
 
-Domains: review; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; gates: user-flows. Whole-file full qualification always applies on supported platforms.
+Domains: review; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1039,7 +1048,7 @@ Domains: review; level: `service-e2e`; cost: `standard`; platforms: darwin, linu
 
 [tests/background-generation.test.mjs](../tests/background-generation.test.mjs) — 18 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1066,7 +1075,7 @@ Domains: production; level: `integration`; cost: `standard`; platforms: darwin, 
 
 [tests/blocked-revision-recovery.test.mjs](../tests/blocked-revision-recovery.test.mjs) — 3 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1094,7 +1103,7 @@ Domains: production; level: `contract`; cost: `fast`; platforms: darwin, linux, 
 
 [tests/paused-editing-versions.test.mjs](../tests/paused-editing-versions.test.mjs) — 7 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1110,7 +1119,7 @@ Domains: production; level: `integration`; cost: `standard`; platforms: darwin, 
 
 [tests/production-queue-hardening.test.mjs](../tests/production-queue-hardening.test.mjs) — 17 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1168,7 +1177,7 @@ Domains: production; level: `contract`; cost: `fast`; platforms: darwin, linux, 
 
 [tests/queue-image-recovery.test.mjs](../tests/queue-image-recovery.test.mjs) — 19 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1196,7 +1205,7 @@ Domains: production; level: `integration`; cost: `standard`; platforms: darwin, 
 
 [tests/queue-image-versions.test.mjs](../tests/queue-image-versions.test.mjs) — 8 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1213,7 +1222,7 @@ Domains: production; level: `integration`; cost: `standard`; platforms: darwin, 
 
 [tests/queue-interruption.test.mjs](../tests/queue-interruption.test.mjs) — 22 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1244,7 +1253,7 @@ Domains: production; level: `integration`; cost: `standard`; platforms: darwin, 
 
 [tests/reader-production.test.mjs](../tests/reader-production.test.mjs) — 21 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1274,7 +1283,7 @@ Domains: production; level: `integration`; cost: `standard`; platforms: darwin, 
 
 [tests/reader-revisions.test.mjs](../tests/reader-revisions.test.mjs) — 16 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1309,7 +1318,7 @@ Domains: production, reader, preparation, review, media, discovery; level: `brow
 
 [tests/shared-library.test.mjs](../tests/shared-library.test.mjs) — 1 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1319,7 +1328,7 @@ Domains: production; level: `integration`; cost: `standard`; platforms: darwin, 
 
 [tests/story-flow-control.test.mjs](../tests/story-flow-control.test.mjs) — 32 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: user-flows. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1360,7 +1369,7 @@ Domains: production; level: `integration`; cost: `standard`; platforms: darwin, 
 
 [tests/story-generation-membership.test.mjs](../tests/story-generation-membership.test.mjs) — 7 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1376,7 +1385,7 @@ Domains: production; level: `integration`; cost: `standard`; platforms: darwin, 
 
 [tests/story-generation-state-machine-client.test.mjs](../tests/story-generation-state-machine-client.test.mjs) — 1 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1403,7 +1412,7 @@ Domains: production; level: `contract`; cost: `fast`; platforms: darwin, linux, 
 
 [tests/story-generation-state-machine-flow.test.mjs](../tests/story-generation-state-machine-flow.test.mjs) — 16 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: user-flows. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1428,7 +1437,7 @@ Domains: production; level: `integration`; cost: `standard`; platforms: darwin, 
 
 [tests/story-generation-state-machine-reselection.test.mjs](../tests/story-generation-state-machine-reselection.test.mjs) — 10 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: user-flows. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1447,7 +1456,7 @@ Domains: production; level: `integration`; cost: `standard`; platforms: darwin, 
 
 [tests/story-generation-state-machine.e2e.mjs](../tests/story-generation-state-machine.e2e.mjs) — 1 declarations.
 
-Domains: production; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; gates: user-flows, release, npm. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `service-e2e`; cost: `standard`; platforms: darwin, linux, win32; suite: `e2e`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1475,7 +1484,7 @@ Domains: production, reader, preparation, review, media, discovery; level: `brow
 
 [tests/story-revision-flow.test.mjs](../tests/story-revision-flow.test.mjs) — 6 declarations.
 
-Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1763,7 +1772,7 @@ Domains: reader; level: `contract`; cost: `fast`; platforms: darwin, linux, win3
 
 [tests/shelf-favorites.test.mjs](../tests/shelf-favorites.test.mjs) — 2 declarations.
 
-Domains: reader; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: reader; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1774,7 +1783,7 @@ Domains: reader; level: `integration`; cost: `standard`; platforms: darwin, linu
 
 [tests/shelf-generation.test.mjs](../tests/shelf-generation.test.mjs) — 5 declarations.
 
-Domains: reader; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: reader; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1933,7 +1942,7 @@ Domains: storage; level: `contract`; cost: `fast`; platforms: darwin, linux, win
 
 [tests/library-maintenance.test.mjs](../tests/library-maintenance.test.mjs) — 4 declarations.
 
-Domains: storage; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: user-flows. Whole-file full qualification always applies on supported platforms.
+Domains: storage; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -1946,7 +1955,7 @@ Domains: storage; level: `integration`; cost: `standard`; platforms: darwin, lin
 
 [tests/library-recovery.test.mjs](../tests/library-recovery.test.mjs) — 3 declarations.
 
-Domains: storage; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: storage; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2010,6 +2019,8 @@ Domains: storage; level: `integration`; cost: `heavy`; platforms: darwin, linux,
 
 ### startup
 
+All startup suites are manual-only. Run `pnpm test:startup`; real local-listener suites use `pnpm test:loopback`; `pnpm test:assurance` runs all assurance groups and native desktop tests.
+
 #### tests/browser-provider-settings.e2e.mjs
 
 [tests/browser-provider-settings.e2e.mjs](../tests/browser-provider-settings.e2e.mjs) — 1 declarations.
@@ -2068,7 +2079,7 @@ Domains: startup; level: `integration`; cost: `standard`; platforms: darwin, lin
 
 [tests/headless-cli.test.mjs](../tests/headless-cli.test.mjs) — 15 declarations.
 
-Domains: startup; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: user-flows, release, npm. Whole-file full qualification always applies on supported platforms.
+Domains: startup; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2173,7 +2184,7 @@ Domains: startup, providers, desktop; level: `contract`; cost: `fast`; platforms
 
 [tests/claude-provider-flow.test.mjs](../tests/claude-provider-flow.test.mjs) — 1 declarations.
 
-Domains: providers, production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers, production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2183,7 +2194,7 @@ Domains: providers, production; level: `integration`; cost: `standard`; platform
 
 [tests/claude-provider.test.mjs](../tests/claude-provider.test.mjs) — 7 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2199,7 +2210,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux; s
 
 [tests/codex-provider.test.mjs](../tests/codex-provider.test.mjs) — 16 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2224,7 +2235,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/deepseek-provider-flow.test.mjs](../tests/deepseek-provider-flow.test.mjs) — 1 declarations.
 
-Domains: providers, production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers, production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2234,7 +2245,7 @@ Domains: providers, production; level: `integration`; cost: `standard`; platform
 
 [tests/deepseek-provider.test.mjs](../tests/deepseek-provider.test.mjs) — 4 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2247,7 +2258,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/deepseek-response-diagnostics.test.mjs](../tests/deepseek-response-diagnostics.test.mjs) — 2 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2258,7 +2269,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/gemini-argon-budget.test.mjs](../tests/gemini-argon-budget.test.mjs) — 2 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2269,7 +2280,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/gemini-discovery-schema.test.mjs](../tests/gemini-discovery-schema.test.mjs) — 2 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2280,7 +2291,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/gemini-response-diagnostics.test.mjs](../tests/gemini-response-diagnostics.test.mjs) — 2 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2291,7 +2302,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/gemini-review-evidence.test.mjs](../tests/gemini-review-evidence.test.mjs) — 5 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2305,7 +2316,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/gemini-review-schema.test.mjs](../tests/gemini-review-schema.test.mjs) — 3 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2317,7 +2328,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/gemini-stage-schema-flow.test.mjs](../tests/gemini-stage-schema-flow.test.mjs) — 1 declarations.
 
-Domains: providers, production, discovery, preparation, review, media; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers, production, discovery, preparation, review, media; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2327,7 +2338,7 @@ Domains: providers, production, discovery, preparation, review, media; level: `i
 
 [tests/gemini-stage-schema.test.mjs](../tests/gemini-stage-schema.test.mjs) — 3 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2339,7 +2350,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/gemini-structure-schema.test.mjs](../tests/gemini-structure-schema.test.mjs) — 2 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2350,7 +2361,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/gemini-timeouts.test.mjs](../tests/gemini-timeouts.test.mjs) — 1 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2360,7 +2371,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/openai-provider.test.mjs](../tests/openai-provider.test.mjs) — 7 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2376,7 +2387,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/prompt-contracts.test.mjs](../tests/prompt-contracts.test.mjs) — 3 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2388,7 +2399,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/separate-providers-flow.test.mjs](../tests/separate-providers-flow.test.mjs) — 1 declarations.
 
-Domains: providers, production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers, production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2398,7 +2409,7 @@ Domains: providers, production; level: `integration`; cost: `standard`; platform
 
 [tests/separate-providers.test.mjs](../tests/separate-providers.test.mjs) — 8 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2415,7 +2426,7 @@ Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, w
 
 [tests/task-reasoning-flow.test.mjs](../tests/task-reasoning-flow.test.mjs) — 1 declarations.
 
-Domains: providers, production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers, production; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2425,7 +2436,7 @@ Domains: providers, production; level: `integration`; cost: `standard`; platform
 
 [tests/task-reasoning.test.mjs](../tests/task-reasoning.test.mjs) — 4 declarations.
 
-Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: providers; level: `contract`; cost: `fast`; platforms: darwin, linux, win32; suite: `unit`; PR: `code`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2456,7 +2467,7 @@ Domains: media; level: `integration`; cost: `standard`; platforms: darwin, linux
 
 [tests/image-dimensions.test.mjs](../tests/image-dimensions.test.mjs) — 4 declarations.
 
-Domains: media; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: media; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2467,22 +2478,21 @@ Domains: media; level: `integration`; cost: `standard`; platforms: darwin, linux
 
 #### tests/local-image-batches.test.mjs
 
-[tests/local-image-batches.test.mjs](../tests/local-image-batches.test.mjs) — 10 declarations.
+[tests/local-image-batches.test.mjs](../tests/local-image-batches.test.mjs) — 9 declarations.
 
-Domains: media; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: media; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
 | 14 | auto is the count default; invalid counts never create a production story |   |
-| 22 | `${provider}: auto count 1/30 and exact ${lengths.filter(length=&gt;length!=='auto').join('/')} use durable production checkpoints` | for(const provider of flowProviders(['gemini','codex'])){  |
-| 36 | `${provider}: invalid exact outline fails before images; only explicit fault recovery proceeds` | for(const provider of flowProviders(['gemini','codex'])){  |
-| 43 | `${provider}: anchor runs alone, later scenes publish out of order under one session lease` | for(const provider of flowProviders(['gemini','codex'])){  |
-| 51 | `${provider}: numeric detail prepares once and waits for durable explicit count confirmation` | for(const provider of flowProviders(['gemini','codex'])){  |
-| 62 | `${provider}: invalid recommendations preserve the original and require an authorized retry` | for(const provider of flowProviders(['gemini','codex'])){  |
-| 72 | frame 80 media, events and saved progress remain owner scoped and survive restart |  heavy |
-| 83 | reader lease exit drains started calls and dispatches no additional images |   |
-| 87 | frame count validation, owner, running lock and concurrent conflicting confirmation are fenced |   |
-| 95 | unverifiable originals stop before recommendation, plan or images |   |
+| 20 | `${provider}: invalid exact outline fails before images; only explicit fault recovery proceeds` | for(const provider of flowProviders(['gemini','codex'])){  |
+| 27 | `${provider}: anchor runs alone, later scenes publish out of order under one session lease` | for(const provider of flowProviders(['gemini','codex'])){  |
+| 35 | `${provider}: numeric detail prepares once and waits for durable explicit count confirmation` | for(const provider of flowProviders(['gemini','codex'])){  |
+| 46 | `${provider}: invalid recommendations preserve the original and require an authorized retry` | for(const provider of flowProviders(['gemini','codex'])){  |
+| 56 | frame 80 media, events and saved progress remain owner scoped and survive restart |  heavy |
+| 67 | reader lease exit drains started calls and dispatches no additional images |   |
+| 71 | frame count validation, owner, running lock and concurrent conflicting confirmation are fenced |   |
+| 79 | unverifiable originals stop before recommendation, plan or images |   |
 
 #### tests/reader-png.test.mjs
 
@@ -2521,7 +2531,7 @@ Domains: media; level: `contract`; cost: `fast`; platforms: darwin, linux, win32
 
 [tests/story-publication-defaults.test.mjs](../tests/story-publication-defaults.test.mjs) — 5 declarations.
 
-Domains: media; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: media; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
@@ -2535,7 +2545,7 @@ Domains: media; level: `integration`; cost: `standard`; platforms: darwin, linux
 
 [tests/story-publication.test.mjs](../tests/story-publication.test.mjs) — 3 declarations.
 
-Domains: media; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; gates: full only. Whole-file full qualification always applies on supported platforms.
+Domains: media; level: `integration`; cost: `standard`; platforms: darwin, linux, win32; suite: `flows`; PR: `affected`; manual-only. Run with `pnpm test:models`.
 
 | Line | Scenario/template | Matrix/options |
 | ---: | --- | --- |
