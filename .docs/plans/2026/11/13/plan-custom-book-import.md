@@ -178,7 +178,7 @@ AR risk: non-low — 由独立审阅者检查存储、解析、安全抓取、�
 AR review round: 6; reviewer: reused.
 SS risk: non-low — 生产链路跨客户端、CLI、书库、检索与模型提供方。
 CR review round: 3; reviewer: reused.
-SS implementation: custom book import, structure review, resumable story cards, search/index, provenance export and CLI delivered in the implementation milestone commit recorded below.
+SS implementation commit: `6abe554` (`feat(books): import custom books into local library`).
 TT risk: non-low — full mapped change-plan plus native coverage required.
 TT result: `pnpm test:changed` passed (187 changed paths; 1,570 tests passed, 0 failed); `pnpm typecheck` and `pnpm lint` passed. Native: 25 Rust library tests passed, 1 release-bundle-only test filtered under the CI-compatible resource override; `cargo fmt --check` passed. Focused import/preparation/metrics/registry tests passed 26/26.
 TT review round: not applicable; reviewer: not applicable.
@@ -190,5 +190,6 @@ VR passed: 1,570/1,570 mapped tests passed; typecheck, lint, native Rust checks,
 VR review round: 3; reviewer: reused.
 DD risk: non-low — local delivery only; the branch is rebased on main and has not been pushed.
 DD: approved for local branch delivery after the implementation milestone and this report commit.
+VR passed: 1,570/1,570 mapped tests passed; typecheck, lint, native Rust checks, focused regressions, and isolated CLI/browser import journeys passed.
 DD review round: not applicable; reviewer: not applicable.
 GC: local implementation and RPD evidence commits recorded on `claude/frosty-hermann-7f7c8a`; no push.
