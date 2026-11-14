@@ -46,7 +46,7 @@ test('known sources and scripts map to their domains instead of the unknown-file
 });
 test('native, shared schemas and uncertain changes retain scoped safeguards',()=>{
  for(const file of ['src-tauri/src/runtime.rs','server/system-settings.ts','lib/system-settings.ts'])assert.ok(changeScope([file]).native,file);
- for(const file of ['package.json','pnpm-lock.yaml','.nvmrc','.npmrc','tsconfig.json','.github/workflows/desktop-macos.yml','server/new-feature.ts','tests/fixtures/startup_pty.py','tests/fixtures/story-discovery-preview.mjs','tests/unregistered.test.mjs']){
+ for(const file of ['package.json','pnpm-lock.yaml','.nvmrc','.npmrc','tsconfig.json','.github/workflows/main-ci.yml','.github/workflows/desktop-release.yml','server/new-feature.ts','tests/fixtures/startup_pty.py','tests/fixtures/story-discovery-preview.mjs','tests/unregistered.test.mjs']){
   const scope=changeScope([file]);assert.ok(scope.native&&!scope.full,file);
   for(const group of ['safety','startup','tooling'])assert.ok(scope.groups.includes(group),file+' -> '+group);
  }
@@ -125,27 +125,35 @@ test('real merge-base diffs retain deleted rename paths and output a reusable pl
  assert.equal(values.code,'true');assert.equal(values.native,'true');assert.equal(values.books,'false');assert.equal(values.browser,'false');assert.equal(JSON.parse(values.scope).full,false);
 });
 
-test('workflow event gates qualify main/tags and aggregate selected JS/native failures',async()=>{
- const workflow=await readFile('.github/workflows/desktop-macos.yml','utf8');
- function job(name){return workflow.split('\n  '+name+':\n')[1].split(/\n {2}[a-z]+:\n/)[0];}
- function enabled(name,github,needs={}){const condition=job(name).match(/^ {4}if: (.+)$/m)[1].replace(/^\$\{\{ | \}\}$/g,'');return new Function('github','needs','cancelled','startsWith',`return (${condition});`)(github,needs,()=>false,(value,prefix)=>value.startsWith(prefix));}
+test('split CI and desktop release workflows keep their event gates and aggregate failures',async()=>{
+ const ci=await readFile('.github/workflows/main-ci.yml','utf8');
+ const releaseWorkflow=await readFile('.github/workflows/desktop-release.yml','utf8');
+ function job(workflow,name){return workflow.split('\n  '+name+':\n')[1].split(/\n {2}[a-z]+:\n/)[0];}
+ function enabled(workflow,name,github,needs={}){const match=job(workflow,name).match(/^ {4}if: (.+)$/m);if(!match)return true;const condition=match[1].replace(/^\$\{\{ | \}\}$/g,'');return new Function('github','needs','cancelled','startsWith',`return (${condition});`)(github,needs,()=>false,(value,prefix)=>value.startsWith(prefix));}
  const needs={scope:{outputs:{native:'false'}},checks:{result:'success'},build:{result:'success'}};
- for(const [event,ref,native,build,release] of [['pull_request','refs/pull/1/merge',false,false,false],['push','refs/heads/main',false,false,false],['push','refs/tags/v1.0.0',false,true,true],['workflow_dispatch','refs/heads/main',false,true,false]]){
-  const github={event_name:event,ref},tag=event==='push'&&ref.startsWith('refs/tags/v');
-  const results=tag?{...needs,checks:{result:'skipped'}}:needs;
-  assert.equal(enabled('scope',github,results),!tag);assert.equal(enabled('javascript',github,results),!tag);assert.equal(enabled('native',github,results),native);assert.equal(enabled('checks',github,results),!tag);assert.equal(enabled('build',github,results),build);assert.equal(enabled('release',github,results),release);
+ assert.match(ci,/name: Main CI/);assert.match(ci,/branches: \[main\]/);assert.match(ci,/pull_request:/);assert.match(ci,/workflow_dispatch:/);assert.match(ci,/workflow_call:/);
+ assert.match(releaseWorkflow,/name: Desktop release/);assert.match(releaseWorkflow,/tags: \['v\*'\]/);assert.match(releaseWorkflow,/workflow_dispatch:/);assert.doesNotMatch(releaseWorkflow,/pull_request:|branches: \[main\]/);
+ assert.match(job(releaseWorkflow,'checks'),/uses: \.\/\.github\/workflows\/main-ci\.yml/);assert.match(job(releaseWorkflow,'build'),/needs: checks/);
+ for(const [event,ref,native] of [['pull_request','refs/pull/1/merge',false],['push','refs/heads/main',false],['workflow_dispatch','refs/heads/main',false]]){
+  const github={event_name:event,ref};
+  assert.equal(enabled(ci,'scope',github,needs),true);assert.equal(enabled(ci,'javascript',github,needs),true);assert.equal(enabled(ci,'native',github,needs),native);assert.equal(enabled(ci,'checks',github,needs),true);
  }
- assert.ok(enabled('native',{event_name:'pull_request'}, {...needs,scope:{outputs:{}}}),'scope failure requests native coverage');
- assert.ok(enabled('native',{event_name:'pull_request'}, {...needs,scope:{outputs:{native:'true'}}}));
- const shell=job('checks').split('        run: |\n')[1].split('\n').map(line=>line.replace(/^ {10}/,'')).join('\n');
+ for(const [event,ref,build,release] of [['pull_request','refs/pull/1/merge',false,false],['push','refs/heads/main',false,false],['push','refs/tags/v1.0.0',true,true],['workflow_dispatch','refs/heads/main',true,false]]){
+  const github={event_name:event,ref};
+  const runNeeds=event==='push'&&ref.startsWith('refs/tags/v')?{...needs,checks:{result:'skipped'}}:needs;
+  assert.equal(enabled(releaseWorkflow,'checks',github,runNeeds),event==='workflow_dispatch');assert.equal(enabled(releaseWorkflow,'build',github,runNeeds),build);assert.equal(enabled(releaseWorkflow,'release',github,runNeeds),release);
+ }
+ assert.ok(enabled(ci,'native',{event_name:'pull_request'}, {...needs,scope:{outputs:{}}}),'scope failure requests native coverage');
+ assert.ok(enabled(ci,'native',{event_name:'pull_request'}, {...needs,scope:{outputs:{native:'true'}}}));
+ const shell=job(ci,'checks').split('        run: |\n')[1].split('\n').map(line=>line.replace(/^ {10}/,'')).join('\n');
  for(const [js,native,required,success] of [['success','skipped','false',true],['success','success','true',true],['success','failure','true',false],['success','skipped','true',false],['failure','success','true',false],['cancelled','skipped','false',false]]){
   const result=spawnSync('bash',['-e','-c',shell],{env:{...process.env,JS_RESULT:js,NATIVE_RESULT:native,NATIVE_REQUIRED:required},stdio:'pipe'});assert.equal(result.status===0,success,`${js}/${native}/${required}`);
  }
- assert.match(job('scope'),/github\.event\.pull_request\.base\.sha \|\| github\.event\.before \|\| 'HEAD\^'/);
- assert.match(job('javascript'),/SHIQU_TEST_SCOPE:[^\n]+\n\s+run: pnpm test:pr\n/);
- assert.doesNotMatch(job('javascript'),/--full|playwright install/);
- assert.match(job('native'),/"resources":\[\]/);assert.match(job('native'),/"frontendDist":\["\.\.\/desktop\/index\.html"\]/);assert.doesNotMatch(job('native'),/desktop:prepare|desktop:build|scripts\/desktop-node/);
- assert.match(job('build'),/pnpm run desktop:test/);assert.match(job('build'),/toolchain: 1.93.0/);assert.match(job('native'),/toolchain: 1.93.0/);
+ assert.match(job(ci,'scope'),/github\.event\.pull_request\.base\.sha \|\| github\.event\.before \|\| 'HEAD\^'/);
+ assert.match(job(ci,'javascript'),/SHIQU_TEST_SCOPE:[^\n]+\n\s+run: pnpm test:pr\n/);
+ assert.doesNotMatch(job(ci,'javascript'),/--full|playwright install/);
+ assert.match(job(ci,'native'),/"resources":\[\]/);assert.match(job(ci,'native'),/"frontendDist":\["\.\.\/desktop\/index\.html"\]/);assert.doesNotMatch(job(ci,'native'),/desktop:prepare|desktop:build|scripts\/desktop-node/);
+ assert.match(job(releaseWorkflow,'build'),/pnpm run desktop:test/);assert.match(job(releaseWorkflow,'build'),/toolchain: 1.93.0/);assert.match(job(ci,'native'),/toolchain: 1.93.0/);
 });
 
 test('generation client helpers retain direct integration consumers and core service E2Es',()=>{

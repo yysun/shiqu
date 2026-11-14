@@ -110,7 +110,7 @@ CLI 复用共享数据库中的书库目录，没有时可导入原 `cli-library
 
 ## GitHub macOS / Windows 发布
 
-[版本化的 pre-push hook](../.githooks/pre-push) 在推送 `v*` 标签前执行一次共享检查；[Desktop 工作流](../.github/workflows/desktop-macos.yml) 随后并行构建 macOS 和 Windows 安装包，不再重复共享测试。PR 和手动运行仍通过 macOS 的独立 `Shared checks` 任务执行类型检查、lint、完整 JavaScript 测试与 Rust 格式检查，通过后才打包。Unix Codex CLI / helper 模拟进程测试需要 Unix 环境。
+[版本化的 pre-push hook](../.githooks/pre-push) 在推送 `v*` 标签前执行一次共享检查。[Main CI](../.github/workflows/main-ci.yml) 负责 main 和 PR 的影响范围检查，也可单独手动运行；[Desktop release](../.github/workflows/desktop-release.yml) 响应 `v*` 标签或手动运行，先复用 Main CI 检查，再并行构建 macOS 与 Windows 安装包。标签构建完成后发布桌面 GitHub Release；npm 包由独立的 Publish npm package 工作流构建、验证并发布。标签工作流不重复运行共享 JavaScript 检查。Unix Codex CLI / helper 模拟进程测试需要 Unix 环境。
 
 两个打包任务使用原生 runner：Apple Silicon（`macos-15` / arm64）和 Windows（`windows-2022` / x64）。每个平台只打包内置 Node 的桌面版，各产出一个未签名 DMG 或 NSIS EXE；不构建 Intel Mac、Windows ARM64 或 Linux 安装包。阅读端与桌面 UI 构建及运行资源准备仍须在各自平台执行一次，以包含对应平台的依赖与 Node。
 

@@ -1,161 +1,24 @@
-# PR、main 和手动运行影响检查；完整 JS 回归由 v* 标签的本地 pre-push 执行。
-# 原生源码检查纳入 Shared checks，安装包只在标签或手动运行时构建。
-name: Desktop
+# v* 标签或手动运行桌面原生构建；npm 包由单独 workflow 发布。
+name: Desktop release
 
 on:
   push:
-    # main 按变更选测；v* 标签只运行原生构建、产物冒烟与发布。
-    branches: [main]
     tags: ['v*']
   workflow_dispatch:
-  # 所有 PR 都报告 Shared checks；文档变更仅运行小型完整性冒烟。
-  pull_request:
 
 permissions:
   contents: read
 
 jobs:
-  scope:
-    name: Change scope
-    if: ${{ !cancelled() && !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) }}
-    runs-on: ubuntu-latest
-    outputs:
-      code: ${{ steps.changes.outputs.code }}
-      scope: ${{ steps.changes.outputs.scope }}
-      native: ${{ steps.changes.outputs.native }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - id: changes
-        name: Detect code changes
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD^' }}
-          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: node scripts/ci-scope.mjs
-
-  javascript:
-    name: JavaScript checks
-    needs: scope
-    if: ${{ !cancelled() && !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) }}
-    concurrency:
-      group: javascript-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          package-manager-cache: false
-      - name: Enable pinned pnpm
-        run: corepack enable pnpm
-      - name: Locate pnpm store
-        id: pnpm-store
-        run: |
-          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-          echo "version=$(pnpm --version)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: pnpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.pnpm-store.outputs.version }}-${{ hashFiles('.nvmrc') }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: pnpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.pnpm-store.outputs.version }}-${{ hashFiles('.nvmrc') }}-
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-        if: needs.scope.outputs.code != 'false'
-      - run: pnpm lint
-        if: needs.scope.outputs.code != 'false'
-      - name: Affected JavaScript suites
-        env:
-          SHIQU_TEST_SCOPE: ${{ needs.scope.outputs.scope }}
-        run: pnpm test:pr
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: javascript-test-evidence
-          path: |
-            .data/test-plans/
-            .data/e2e/
-          if-no-files-found: ignore
-
-  native:
-    name: Native source / ${{ matrix.os }}
-    needs: scope
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.scope.outputs.native != 'false' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, windows-2022]
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          package-manager-cache: false
-      - name: Enable pinned pnpm
-        run: corepack enable pnpm
-      - name: Locate pnpm store
-        id: pnpm-store
-        run: |
-          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-          echo "version=$(pnpm --version)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: pnpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.pnpm-store.outputs.version }}-${{ hashFiles('.nvmrc') }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: pnpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.pnpm-store.outputs.version }}-${{ hashFiles('.nvmrc') }}-
-      - run: pnpm install --frozen-lockfile
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.93.0
-          components: rustfmt
-      - name: Identify Rust toolchain
-        id: rust
-        run: echo "version=$(rustc --version | tr ' ' '-')" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-          key: native-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.version }}-${{ hashFiles('src-tauri/Cargo.lock', 'pnpm-lock.yaml', '.nvmrc') }}
-      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
-      - name: Native source tests without bundle preparation
-        env:
-          TAURI_CONFIG: '{"bundle":{"resources":[]},"build":{"frontendDist":["../desktop/index.html"]}}'
-        # 此用例验证已准备的安装包资源，保留在发布构建的完整 cargo test 中。
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib -- --skip runtime::tests::desktop_uses_verified_bundle_and_ignores_saved_system_path
-      - name: Verify desktop library upgrades on Windows
-        if: runner.os == 'Windows'
-        run: node --test --test-name-pattern='desktop startup upgrades an isolated legacy library|in-place migration reports its new verified backup' tests/desktop-service-console.test.mjs
-
   checks:
     name: Shared checks
-    needs: [scope, javascript, native]
-    if: ${{ !cancelled() && !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require every selected check
-        env:
-          JS_RESULT: ${{ needs.javascript.result }}
-          NATIVE_RESULT: ${{ needs.native.result }}
-          NATIVE_REQUIRED: ${{ github.event_name == 'pull_request' && needs.scope.outputs.native != 'false' }}
-        run: |
-          test "$JS_RESULT" = success
-          if [ "$NATIVE_REQUIRED" = true ]; then
-            test "$NATIVE_RESULT" = success
-          else
-            test "$NATIVE_RESULT" = skipped
-          fi
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    uses: ./.github/workflows/main-ci.yml
 
   build:
     name: Desktop / ${{ matrix.platform }} ${{ matrix.arch }}
     needs: checks
-    # 标签在推送前完成 JS 检查；手动构建仍须通过本次 CI 的 Shared checks。
+    # 标签推送前由本地 gate 完成 JS 检查；手动构建先调用 Main CI。
     if: ${{ !cancelled() && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.checks.result == 'skipped') || (github.event_name == 'workflow_dispatch' && needs.checks.result == 'success')) }}
     strategy:
       fail-fast: false
