@@ -1,6 +1,6 @@
 # 自备书籍导入为本地书 · 实现计划
 
-需求见 [req-custom-book-import](../../../../reqs/2026/11/13/req-custom-book-import.md)，验收用例见 [test-custom-book-import](../../../../tests/test-custom-book-import.md)。Git 基点：`c0866de`（main，2026-11-14 已 rebase）。
+需求见 [req-custom-book-import](../../../../reqs/2026/11/13/req-custom-book-import.md)，验收用例见 [test-custom-book-import](../../../../tests/test-custom-book-import.md)。故事 Git 基点：`c0866de`（原 main）；2026-11-14 已 rebase 到最新 main：`928229c`。
 
 ## 目标与边界
 
@@ -178,7 +178,7 @@ AR risk: non-low — 由独立审阅者检查存储、解析、安全抓取、�
 AR review round: 6; reviewer: reused.
 SS risk: non-low — 生产链路跨客户端、CLI、书库、检索与模型提供方。
 CR review round: 3; reviewer: reused.
-SS implementation commit: `6abe554` (`feat(books): import custom books into local library`).
+SS implementation commit: `91cd6b2` (`feat(books): import custom books into local library`; rebased onto `928229c`).
 TT risk: non-low — full mapped change-plan plus native coverage required.
 TT result: `pnpm test:changed` passed (187 changed paths; 1,570 tests passed, 0 failed); `pnpm typecheck` and `pnpm lint` passed. Native: 25 Rust library tests passed, 1 release-bundle-only test filtered under the CI-compatible resource override; `cargo fmt --check` passed. Focused import/preparation/metrics/registry tests passed 26/26.
 TT review round: not applicable; reviewer: not applicable.
@@ -186,10 +186,40 @@ ET risk: non-low — UI/CLI create and persist imported-book data in an isolated
 ET result: browser file import detected two chapters, saved structure, confirmed the book and displayed a 2-call / 2,116-token estimate. CLI import, structure inspection, confirmation, listing and a 1-call / 983-token estimate passed in a separate isolated library. No provider inference was sent in these manual walks; production provider behavior is covered by controlled integration tests. Both test libraries and the preview server were removed/stopped.
 ET review round: not applicable; reviewer: not applicable.
 VR risk: non-low — acceptance spans parser/fetch limits, lifecycle, cache safety, export, CLI and UI.
-VR passed: 1,570/1,570 mapped tests passed; typecheck, lint, native Rust checks, focused regressions, and isolated CLI/browser import journeys passed.
+VR (rebase 前) passed: 1,570/1,570 mapped tests passed; typecheck, lint, native Rust checks, focused regressions, and isolated CLI/browser import journeys passed.
 VR review round: 3; reviewer: reused.
 DD risk: non-low — local delivery only; the branch is rebased on main and has not been pushed.
 DD: approved for local branch delivery after the implementation milestone and this report commit.
-VR passed: 1,570/1,570 mapped tests passed; typecheck, lint, native Rust checks, focused regressions, and isolated CLI/browser import journeys passed.
+VR (rebase 前) passed: 1,570/1,570 mapped tests passed; typecheck, lint, native Rust checks, focused regressions, and isolated CLI/browser import journeys passed.
 DD review round: not applicable; reviewer: not applicable.
 GC: local implementation and RPD evidence commits recorded on `claude/frosty-hermann-7f7c8a`; no push.
+
+## 最新 main 重基后的交付验证（2026-11-14）
+
+重基目标为 `928229c`。冲突只涉及 `tests/manifest.json` 与 `tests/test-tiers.test.mjs`：保留 main 的按需安全、启动、loopback、模型和书籍套件划分，并登记本故事的六个新测试。两个书籍套件测试仍归入 `suite:books`，全部书籍套件保持手动运行；main 的 tier 合同测试通过，书籍套件共 12 个文件。
+
+CR passed: no major findings. 复核范围为重基冲突和测试选择规则；生产代码与此前通过的第三轮 CR 相同。独立复核不可用，主代理按同一清单复核。
+CR risk: non-low — 持久化、公网抓取、提供方取消与 CLI/UI 均属于受保护边界。
+CR review round: 4; reviewer: primary (独立复核不可用)。
+
+TT risk: non-low — 涉及文件存储、公网抓取和提供方任务收束。
+TT result: `git diff --name-only main...HEAD | xargs pnpm test:pr --files` 通过：48 个自动选择文件、434 项通过、0 失败。手动套件中的 URL 抓取、导入书生命周期和故事卡生成三个新增文件直接运行，13/13 通过。`pnpm typecheck`、`pnpm lint`、`cargo fmt --manifest-path src-tauri/Cargo.toml --check` 均通过。按 main CI 资源覆盖运行 Rust library tests：13 项通过、13 项按 CI 的显式过滤规则跳过。首次 CI 覆盖运行中目录锁用例失败一次；该用例单独重跑及完整 CI 覆盖重跑均通过。无覆盖运行的 Cargo 命令因缺少 `desktop/resources/node` 被打包资源检查拦截；没有执行桌面准备或打包。
+TT note: `pnpm test:changed` 运行时选择了 0 个文件，因为实现已提交且剩余改动仅为文档；该命令没有作为故事测试证据。分支变更范围由 `pnpm test:pr --files` 明确提供并完成验证。
+TT review round: not applicable; reviewer: not applicable.
+
+ET risk: non-low — 用户可见导入流程跨浏览器界面、CLI 和本地书库。
+ET result: 隔离书库中的浏览器与 CLI 导入旅程已通过：各识别两章、确认结构并显示预估；未发送模型推理。临时书库及预览服务已清理。
+ET review round: not applicable; reviewer: not applicable.
+
+VR risk: non-low — 验收覆盖解析、SSRF 防护、缓存生命周期、模型任务取消、导出、CLI 和 UI。
+VR passed: all acceptance criteria complete
+
+- TXT、HTML、EPUB、字符编码、章节结构、质量标记、版次与资源上限由解析和导入测试覆盖；URL 的公网地址、重定向边界、DNS 截止时间及抓取限制由安全测试覆盖。
+- 故事卡使用生产 provider 的 cards 输入约定；预算、章节窗口、出处核对、取消与 teardown、续跑、失败重试、版次更新和缓存清理由测试覆盖。无向量和向量的既有查找路径继续复用生产实现。
+- 书库 API、用户导入书目、旧版 `other` 任务、备份、损坏隔离、删除、替换及崩溃恢复由回归测试覆盖；来源授权元数据和故事导出由导出测试覆盖。
+- 浏览器与 CLI 隔离导入旅程完成；CLI 帮助、`skills/shiqu/SKILL.md` 与使用示例已同步。所有验收条目在 REQ 中保持勾选。
+- 重基后自动影响计划为 434 项通过，13 项手动导入专项测试通过，类型检查、Lint 和原生检查通过；main 的慢速与保障套件仍按需运行。
+
+VR review round: 4; reviewer: primary (独立复核不可用)。
+DD risk: non-low — 本地交付包含完整实现、复核与验证记录。
+DD: 最终交付记录见 [custom-book-import](../../../../done/2026/11/14/custom-book-import.md)。
