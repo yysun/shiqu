@@ -238,6 +238,40 @@ test('in-process CLI saves intent without inference, runs bounded discovery/prep
  await executeHeadless(process.cwd(),['restore',backup,'--data-dir',restored],{variables:{}});
  const copied=await executeHeadless(process.cwd(),['stories','get',edited.session.id,'--data-dir',restored],{variables:{}});assert.equal(copied.id,edited.session.id);assert.equal(f.control.plans.length,before);
 });
+test('CLI extends the verified original as a new version of one shelf story', {timeout:30000},async t=>{
+ const {f,library,call}=await fixture(t),card=library.stories[0];
+ const {session:{id}}=await call(['stories','create','--no-intake'],{...selection,length:3,storyTitle:card.title,source:card.source});
+ assert.equal((await call(['run',id,'--timeout','10'])).reason,'completed');
+ const before=await call(['stories','get',id]);
+ const recommendations=f.control.recommendations.length;
+ const {session:draft}=await call(['stories','reselect',id]);
+ const {edition:_,...continuation}=library.stories[1].source;
+ const source={...card.source,continuations:[continuation]};
+ const input={requestId:crypto.randomUUID(),generation:draft.intake.generation,action:'conditions',conditions:{
+  bookId:selection.bookId,theme:selection.theme,source,sourceCard:{title:card.title,description:card.summary},productionPrompt:'交代故事后续。',
+ }};
+ const setup=['stories','setup',draft.id],replace=['stories','replace',id,draft.id];
+ await assert.rejects(call(setup,{...input,conditions:{...input.conditions,source:{...source,edition:'b'.repeat(64)}}}),error=>error.code==='INVALID_REQUEST');
+ const staged=await call(setup,input);
+ assert.deepEqual(staged.session.intake.batches[0].stories[0].source,source);
+ assert.equal((await call(setup,input)).session.intake.generation,staged.session.intake.generation);
+ assert.deepEqual((await call(['stories','list'])).map(s=>s.id),[id]);
+ const choice={requestId:crypto.randomUUID(),batch:0,index:0};
+ const next=await call(replace,choice);
+ assert.equal(next.revision.rootId,id);
+ assert.equal((await call(replace,choice)).id,next.id);
+ assert.deepEqual((await call(['stories','list'])).map(s=>s.id),[next.id]);
+ assert.equal((await call(['stories','current',id])).id,next.id);
+ assert.deepEqual((await call(['stories','get',id])).story,before.story);
+ const saved=(await call(['stories','source',next.id])).source;
+ assert.deepEqual(saved.localSource,source);
+ assert.ok(saved.text.includes(library.book.sections[0].units[1].text));
+ assert.equal(f.control.recommendations.length,recommendations);
+ const prepared=await call(['run',next.id,'--until','prepared','--timeout','10']);
+ assert.equal(prepared.reason,'prepared');
+ assert.equal(prepared.session.intake.draft.productionPrompt,input.conditions.productionPrompt);
+ assert.equal(f.control.calls.length,3);
+});
 test('targeted run cannot dispatch another active story and direct-inference API routes never execute', {timeout:30000},async t=>{
  const {f,library,call,inspect}=await fixture(t);
  const localSelection={...selection,source:library.stories[0].source,storyTitle:library.stories[0].title};const first=await call(['stories','create','--no-intake'],localSelection),second=await call(['stories','create','--no-intake'],{...selection,theme:'善意与误解'});

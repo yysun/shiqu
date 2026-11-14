@@ -70,7 +70,7 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 | `stories retry`, `stories override` | 重试当前故障，或明确跳过审核问题 |
 | `stories rename`, `stories delete`, `stories restore`, `stories favorite`, `stories reference` | 改名、删除、恢复、收藏故事，或设置本书参考图 |
 | `stories revisions`, `stories prompts`, `stories review-history`, `stories source` | 查看版本、提示词、审核记录与原文 |
-| `stories reselect`, `stories replace`, `stories cancel-reselection` | 发起、应用或取消重新选题 |
+| `stories reselect`, `stories replace`, `stories cancel-reselection` | 发起、应用或取消重新选题，也可用 `stories setup` 给草稿指定已核对的原文范围 |
 | `preview ID --output FILE` | 导出可独立打开的离线 HTML 预览 |
 | `export ID --format FORMAT --output FILE` | 导出 json、md、zip、pdf 或 png |
 | `skill show`, `skill install`, `skill check`, `skill update`, `skill auto-install` | 查看、安装、检查、更新技能或设置启动安装偏好 |

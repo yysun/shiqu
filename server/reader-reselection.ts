@@ -7,6 +7,7 @@ import type {ReaderRepository} from '../lib/reader-repository.ts';
 import type {LocalBooks} from './local-books.ts';
 import type {ReplacementChoice} from '../lib/reader-reselection.ts';
 import {localSourceKey} from '../lib/reader-source-key.ts';
+import {isDirectSourceSelection} from '../lib/reader-discovery-themes.ts';
 import {createIntake} from './reader-intake.ts';
 import {revisionBasis,replacementToken,familyEpoch,currentFamilyVersion} from './reader-revisions.ts';
 import {commandFingerprint,commandReceipt,recordNoop} from './reader-commands.ts';
@@ -57,10 +58,14 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
   else if(value!==(baseline[key]||''))overrides[key]=value;
  }
  const selection=selectionSchema.parse({...baseline,...settings,storyTitle:candidate.title,source:candidate.source,length:'auto'});
+ // 直接选段已保存并核对原文；普通搜索候选仍按现有流程在提交后准备。
+ const direct=!!doc.original&&isDirectSourceSelection(baseline)&&!!candidate.source&&
+  localSourceKey(baseline.source!)===localSourceKey(candidate.source);
  doc.setupRequirements={overrides};
  delete selection.displayTitle;
  if(!doc.intake.manualArt&&!choice.settings&&candidate.artRecommendation)selection.artStyle=candidate.artRecommendation.artStyle;
- delete doc.reselection;delete doc.original;delete doc.frameRecommendation;delete doc.storyboard;delete doc.draft;delete doc.visualReview;
+ delete doc.reselection;if(!direct)delete doc.original;
+ delete doc.frameRecommendation;delete doc.storyboard;delete doc.draft;delete doc.visualReview;
  doc.plan=null;doc.images=[];doc.audio=[];doc.usage=[];doc.frameCountConfirmed=false;
  doc.intake.phase='preparing';doc.intake.selected={batch:choice.batch,index:choice.index};doc.intake.generation++;
  doc.intake.search={...(doc.intake.search||{round:0}),state:'idle',error:null};

@@ -74,7 +74,9 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  const row=await repo.get(id,uid),doc=JSON.parse(row.document) as Document,intake=doc.intake,selection=selectionSchema.parse(JSON.parse(row.selection));
  const fingerprint=hash(action),receipt=await commandReceipt(repo.db,uid,action.requestId,fingerprint);
  if(receipt){if(receipt.action!=='setup'||receipt.session_id!==id)throw new ReaderError(409,'这个操作编号已用于其他内容。');return row;}
- if(doc.reselection&&!['more','search'].includes(action.action))throw new ReaderError(409,'请在替换选题窗口提交选择；草稿不能开始制作。');
+ // 已核对的原文可作为重选候选保存，仍须提交替换后才进入制作。
+ const directReselection=action.action==='conditions'&&!!action.conditions.source&&!action.conditions.discoverySources;
+ if(doc.reselection&&!['more','search'].includes(action.action)&&!directReselection)throw new ReaderError(409,'请在替换选题窗口提交选择；草稿不能开始制作。');
  if(!intake)throw new ReaderError(409,'这篇故事使用旧制作流程，请继续原来的步骤。');
  intake.phase=effectiveIntakePhase(doc,selection)!;
  if(action.action==='more'){
@@ -100,6 +102,9 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   delete intake.indexedCandidates;
   intake.search=action.conditions.discovery?{round,state:'searching',cycleId:action.requestId}:{round,state:'idle'};intake.lastAction={id:action.requestId,hash:fingerprint};
   delete intake.draft;delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
+  if(doc.reselection&&choice&&next.productionPrompt!==selection.productionPrompt){
+   doc.setupRequirements={...doc.setupRequirements,overrides:{...doc.setupRequirements?.overrides,productionPrompt:next.productionPrompt}};
+  }
   if(choice)selectSourceCard(doc,choice,round);
   const result=await repo.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
    WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${visible}`)
