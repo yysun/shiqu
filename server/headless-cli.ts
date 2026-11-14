@@ -29,6 +29,7 @@ import {selectionSchema,reviewPassed,ReaderError} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import {LocalBooks} from './local-books.ts';
 import {applicationStorySearch,installStoryIndex} from './local-story-search.ts';
+import {revisionCoverMaxBytes} from './reader-revisions.ts';
 
 const commandNames=new Set(['skill','help','init','status','catalog','books','themes','styles','stories','run','preview','export','backup','restore','verify-backup','diagnostics','config','api']);
 const commands=[
@@ -44,7 +45,7 @@ const commands=[
  ['run / stories run','Run only one current story to candidates, prepared, reviewed or completed; never resumes a pause/fault implicitly.','run ID --until reviewed --timeout 900'],
  ['stories copy','Copy saved text and review from an offline library without inference. --draft explicitly preserves unreviewed text as a paused copy without images; default requires passed review.','stories copy ID --from-data-dir SOURCE --request-id UUID'],
  ['stories copy-images','Attach source images to an existing paused text copy without inference or prompts. Safe to repeat; retains text and review.','stories copy-images TARGET_ID --from-data-dir SOURCE --input source.json'],
- ['stories edit','Save a revision using the current token. changes.redrawPages uses 1-based pages and accepts optional changes.redrawNotes for those pages. Does not generate.','stories edit ID --input revision.json --request-id UUID'],
+ ['stories edit','Save a revision using the current token. changes.redrawPages uses 1-based pages and accepts optional changes.redrawNotes. For a style-only change, --cover FILE uses that image as the first frame. Does not generate.','stories edit ID --input revision.json --request-id UUID'],
  ['stories pause|resume|stop|retry|override','Control or explicitly recover the current fault; input faultId is required for retry/override.','stories retry ID --input recovery.json --request-id UUID'],
  ['stories rename|delete|restore|favorite|reference','Shared library actions; reference input is {page,starred,token?}.','stories rename ID --title 新标题'],
  ['stories revisions|prompts|review-history|source','Read saved production checkpoints and history.','stories review-history ID'],
@@ -74,13 +75,14 @@ const inputs={
   next:'Use the draft intake generation. Then stories replace CURRENT_ID DRAFT_ID with {batch:0,index:0}, and run DRAFT_ID --until prepared.',
  },
  redraw:{command:'stories edit ID --input redraw.json --request-id UUID',input:{token:'from stories revisions ID',paused:true,changes:{redrawPages:[1,2],redrawNotes:{2:'调暗背景光线，保留主体的位置。'}}},note:'Completed stories only. Optional redrawNotes apply to selected 1-based pages in this revision and its retries. Preserves script, review and unselected images. Only run performs generation using its configured image provider.'},
+ styleCover:{command:'stories edit ID --input style.json --cover cover.png --request-id UUID',input:{token:'from stories revisions ID',paused:true,changes:{artStyle:'watercolor'}},note:'A completed, approved story can retain its script and review. The supplied first frame is stored as-is and used as the fallback reference when drawing the remaining pages.'},
  publication:{get:'api GET reader/publication-defaults',set:'api POST reader/publication-defaults --input publication.json',input:{publication:{...emptyPublication,author:'你的署名',watermarkFontSize:24},expected:'Use the exact publication object (or null) returned by GET.'}},
  frameCount:{command:'api POST reader/sessions/ID/frame-count --input count.json',input:{count:8}},
  config:{command:'config set --input settings.json',input:{settings:{provider:'codex',providerConfigured:true,imageProvider:'gemini'},expectedRevision:'from config get'},imageProvider:'Optional drawing provider (gemini|openai|codex); null or omitted follows provider.',key:'For API providers only: key:{provider:"openai"|"gemini",value:"secret"|null}, or a list for separate text/image providers; never pass a key in argv.'},
 };
 type Context={cwd?:string;home?:string;generation?:ReaderProvider;localBooks?:LocalBooks;variables?:Record<string,string|undefined>;input?:unknown;signal?:AbortSignal;skill?:{transport?:typeof fetch;now?:()=>number}};
 function parse(args:string[]){return parseArgs({args,allowPositionals:true,strict:true,options:Object.fromEntries([
- ...['data-dir','from-data-dir','input','output','format','until','timeout','title','request-id','query','batch','index','scope','generation','auto-update','limit'].map(k=>[k,{type:'string'}]),
+ ...['data-dir','from-data-dir','input','output','format','until','timeout','title','request-id','query','batch','index','scope','generation','auto-update','limit','cover'].map(k=>[k,{type:'string'}]),
  ...['json','brief','help','allow-unsigned','include-prompts','no-intake','refresh','automatic','copy-images','no-copy-images','draft'].map(k=>[k,{type:'boolean'}]),
  ]) as Record<string,{type:'string'|'boolean'}>});}
 async function readInput(filename?:string){
@@ -96,7 +98,7 @@ const apiAllow=(method:string,route:string)=>{
  return method==='DELETE'&&/^(?:library\/[^/]+|sessions\/[a-f0-9-]{36}\/reselection\/[a-f0-9-]{36})$/.test(base);
 };
 async function api(app:ReturnType<typeof createApplication>,method:string,route:string,input?:unknown){
- const response=await app.handle(new Request('http://shiqu.local/api/reader/'+route,{method,headers:{'Content-Type':'application/json'},...(input===undefined?{}:{body:JSON.stringify(input)})}));
+ const response=await app.handle(new Request('http://shiqu.local/api/reader/'+route,{method,...(input instanceof FormData?{body:input}:{headers:{'Content-Type':'application/json'},...(input===undefined?{}:{body:JSON.stringify(input)})})}));
  const data=await response.json();if(!response.ok)throw new CliCommandError(response.status===409?'CONFLICT':response.status===404?'NOT_FOUND':response.status===503?'PROVIDER_UNAVAILABLE':'INVALID_REQUEST',data.error||'The production action failed.',response.status>=500?4:2,{status:response.status});return data;
 }
 function outputOutside(root:string,filename:string){for(const served of ['public','dist/client'])need(!containsPath(path.join(root,served),filename),'PRIVATE_OUTPUT_REQUIRED','Output must be outside application static directories.');}
@@ -272,7 +274,14 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    need(faultId,'FAULT_ID_REQUIRED','Choose a current faultId from stories get.');return {requestId,session:await api(app,'POST',route+(action==='retry'?'/recover':'/review-override'),{requestId,faultId})};
   }
   if(action==='edit'){
-   need(typeof data.token==='string'&&data.token,'TOKEN_REQUIRED','Read stories revisions ID and submit its token with changes.');return {requestId,session:await api(app,'POST',route+'/revisions',{requestId,token:data.token,changes:data.changes||Object.fromEntries(Object.entries(data).filter(([key])=>!['token','paused','requestId'].includes(key))),paused:data.paused??false})};
+   need(typeof data.token==='string'&&data.token,'TOKEN_REQUIRED','Read stories revisions ID and submit its token with changes.');
+   const revision={requestId,token:data.token,changes:data.changes||Object.fromEntries(Object.entries(data).filter(([key])=>!['token','paused','requestId'].includes(key))),paused:data.paused??false};
+   const cover=value('cover');
+   if(!cover)return {requestId,session:await api(app,'POST',route+'/revisions',revision)};
+   const file=path.resolve(context.cwd||process.cwd(),cover),info=await stat(file).catch(()=>null);
+   need(info?.isFile()&&info.size>0&&info.size<=revisionCoverMaxBytes,'INVALID_COVER','Choose a local PNG, JPEG or WebP image up to 12 MiB.');
+   const form=new FormData();form.set('revision',JSON.stringify(revision));form.set('cover',new Blob([await readFile(file)]),path.basename(file));
+   return {requestId,session:await api(app,'POST',route+'/revisions',form)};
   }
   if(action==='reselect')return {requestId,session:await api(app,'POST',route+'/reselection',{requestId})};
   if(['replace','cancel-reselection'].includes(action)){need(p[3]&&uuid(p[3]),'DRAFT_ID_REQUIRED','Specify a reselection draft UUID.');return await api(app,action==='replace'?'POST':'DELETE',route+'/reselection/'+p[3],action==='replace'?{...data,requestId}:undefined);}

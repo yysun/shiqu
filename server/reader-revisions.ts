@@ -17,7 +17,9 @@ import {commandReceipt} from './reader-commands.ts';
 import {newReview} from '../lib/reader-review.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
+import {imageDimensions} from '../lib/reader-image-dimensions.ts';
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
+export const revisionCoverMaxBytes=12*1024*1024;
 export const familyEpoch=`SELECT COALESCE(MAX(${familyNumber('stories')}),1) AS epoch FROM stories WHERE user_id=? AND (id=? OR ${familyRoot('stories')}=?)`;
 export const currentFamilyVersion=(alias='p')=>`NOT ${supersededSql(alias)} AND NOT EXISTS(SELECT 1 FROM library_deletions WHERE story_id=${alias}.id AND user_id=${alias}.user_id)`;
 export function editableSelection(selection:string){const {displayTitle:_,...value}=JSON.parse(selection);void _;return value;}
@@ -37,9 +39,10 @@ export async function revisionSnapshot(repo:ReaderRepository,id:string,ownerId:s
  const row=await repo.get(id,ownerId),{doc,epoch,token}=await revisionBasis(repo,row);
  return {selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan,images:doc.images,savedFrameCount:savedFrameCount(doc),...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{}),token,epoch,reviewStatus:doc.visualReview?.status,...(doc.revision?{revision:{parentId:doc.revision.parentId,rootId:doc.revision.rootId,number:doc.revision.number}}:{})};
 }
-export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,parentId:string,requestId:string,token:string,changes:RevisionChanges,paused=false){
+export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,parentId:string,requestId:string,token:string,changes:RevisionChanges,paused=false,cover?:Uint8Array){
  // Preserve fingerprints of requests saved before explicit paused submissions were added.
- const requestHash=hash(JSON.stringify([parentId,token,changes,...(paused?[true]:[])]));
+ const coverHash=cover?hash(cover):undefined;
+ const requestHash=hash(JSON.stringify([parentId,token,changes,...(paused?[true]:[]),...(coverHash?[{cover:coverHash}]:[])]));
  const replay=async()=>{
   const existing=await repo.db.prepare('SELECT * FROM stories WHERE id=?').bind(requestId).first<SessionRow>();
   if(!existing)return null;
@@ -54,6 +57,12 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  const original={selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan,images:doc.images,savedFrameCount:savedFrameCount(doc),...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{})};
  const {selection,plan,impact}=checkedRevision(original,changes);
  if(changes.redrawPages&&(row.state!=='completed'||!reviewPassed(doc)))throw new ReaderError(409,'仅换图需要已完成且已有有效审核记录的故事。');
+ if(cover&&(Object.keys(changes).length!==1||!changes.artStyle||row.state!=='completed'||!reviewPassed(doc)||!plan))throw new ReaderError(409,'指定首幅原图仅适用于已完成且审核通过的故事换画风。');
+ const coverType=cover&&mediaType(cover);
+ if(cover){
+  const dimensions=imageDimensions(cover);
+  if(cover.length>revisionCoverMaxBytes||!coverType||!dimensions||dimensions.width>4096||dimensions.height>4096||!await readableImage(cover))throw new ReaderError(400,'请选择可读取的 PNG、JPEG 或 WebP，文件不超过 12 MiB，宽高各不超过 4096 像素。');
+ }
  const images:string[]=original.plan?.pages.map(()=> '')||[],lostPages:number[]=[];
  // Global image preferences cannot reuse old artwork. Other edits may reuse after planning.
  if(selection.artStyle===original.selection.artStyle&&selection.productionPrompt===original.selection.productionPrompt){
@@ -76,6 +85,12 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
   if(changes.redrawNotes&&Object.keys(changes.redrawNotes).length)document.revision!.redrawNotes=changes.redrawNotes;
  }
  if(plan)syncRevisionImages(document,selection);
+ if(cover&&coverType){
+  const asset=readerImageAsset(requestId,0,imageTypes[coverType],coverHash);
+  await media.put(asset.key,cover,{contentType:coverType});
+  document.images[0]=asset.url;
+  document.revision!.previewedRedraw=impact.redraw-1;
+ }
  if(!impact.review)document.reflectionCandidates=doc.reflectionCandidates;
  if(impact.preserveScript){document.storyboard=doc.storyboard;document.draft=doc.draft;}
  const blocked=!impact.review&&doc.visualReview?.status==='blocked';

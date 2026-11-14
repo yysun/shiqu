@@ -27,7 +27,7 @@ import {intakeActionSchema} from './reader-intake.ts';
 import {recoveryRequestSchema} from './reader-recovery.ts';
 import {bookContents} from '../server/local-book-contents.ts';
 import {createIntake,changeIntake} from '../server/reader-intake.ts';
-import {forkRevision,revisionSnapshot} from '../server/reader-revisions.ts';
+import {forkRevision,revisionCoverMaxBytes,revisionSnapshot} from '../server/reader-revisions.ts';
 import {openReselection,commitReselection,cancelReselection} from '../server/reader-reselection.ts';
 import {replacementChoiceSchema} from './reader-reselection.ts';
 import {summarizeShelfSession,type ShelfSession,type ShelfChanges} from './reader-shelf.ts';
@@ -304,8 +304,16 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     if(req.method==='POST'){
      await requireProvider();
      if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
-     const b=z.object({requestId:uuid,token:z.string().regex(/^[a-f0-9]{64}$/),changes:revisionChangesSchema,paused:z.boolean().default(false)}).strict().parse(await body(req,262144));
-     const row=await forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes,b.paused);
+     let metadata:unknown,cover:Uint8Array|undefined;
+     if(req.headers.get('content-type')?.startsWith('multipart/form-data;')){
+      const form=await req.formData().catch(()=>{throw new ReaderError(400,'修订文件格式不正确。');});
+      const fields=form.getAll('revision'),files=form.getAll('cover');
+      if(fields.length!==1||typeof fields[0]!=='string'||files.length!==1||typeof files[0]==='string'||!files[0].size||files[0].size>revisionCoverMaxBytes)throw new ReaderError(400,'请提交修订设置和一张不超过 12 MiB 的首幅图。');
+      metadata=await body(new Request(req.url,{method:'POST',body:fields[0]}),262144);
+      cover=new Uint8Array(await files[0].arrayBuffer());
+     }else metadata=await body(req,262144);
+     const b=z.object({requestId:uuid,token:z.string().regex(/^[a-f0-9]{64}$/),changes:revisionChangesSchema,paused:z.boolean().default(false)}).strict().parse(metadata);
+     const row=await forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes,b.paused,cover);
      const doc=JSON.parse(row.document) as Document;
      if(!b.paused&&!doc.revision?.handoff)services.production.wake();
      return json(doc.revision?.handoff?await services.production.control(uid,row.id,b.paused?'pause':'resume',true):await services.production.snapshot(uid,row.id),201);

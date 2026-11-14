@@ -43,6 +43,31 @@ test('image-only redraw validates page selection and cannot conceal content edit
  assert.throws(()=>checkedRevision({...base,plan:null},{redrawPages:[1]}),/完整分镜/);
 });
 
+test('a style revision saves the supplied first frame and draws only the remaining pages',async t=>{
+ const {f,id}=await completed(t),base=await snapshot(f,id),old=await f.read(id);
+ const first=old.story.pages[0].image.replace('/api/reader/','');
+ const image=await (await f.request(first)).blob(),before=f.control.calls.length,reviews=f.control.reviews.length;
+ const revision={requestId:crypto.randomUUID(),token:base.token,changes:{artStyle:'watercolor'},paused:true};
+ const send=cover=>{
+  const form=new FormData();form.set('revision',JSON.stringify(revision));form.set('cover',cover,'first.png');
+  return f.app.handle(new Request(`http://shiqu.local/api/reader/sessions/${id}/revisions`,{method:'POST',body:form}));
+ };
+ assert.equal((await send(new Blob(['broken']))).status,400);
+ const response=await send(image);assert.equal(response.status,201);
+ const child=await response.json();assert.equal(child.generationControl,'paused');assert.equal(child.ready,1);
+ assert.deepEqual(await(await f.request(child.story.pages[0].image.replace('/api/reader/',''))).arrayBuffer(),await image.arrayBuffer());
+ assert.deepEqual((await snapshot(f,child.id)).plan,base.plan);
+ assert.equal((await send(image)).status,201);assert.equal((await send(new Blob(['different']))).status,409);
+ await f.json(`sessions/${child.id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'resume'});
+ await until(async()=>(await f.read(child.id)).state==='completed');
+ const calls=f.control.calls.slice(before);
+ assert.deepEqual(calls.map(call=>call.page).sort((a,b)=>a-b),[1,2,3,4,5,6,7]);
+ const reference=Buffer.from(await image.arrayBuffer()).toString('base64');
+ assert.ok(calls.every(call=>call.reference===reference));
+ assert.equal(f.control.reviews.length,reviews);
+ assert.deepEqual((await f.read(id)).story,old.story);
+});
+
 for(const provider of flowProviders(['codex','gemini']))test(`${provider}: image-only redraw replaces selected pages including anchor without review or touching other images`,async t=>{
  const {f,id}=await completed(t,provider),base=await snapshot(f,id),old=await f.read(id);
  const readDoc=async storyId=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(storyId).first()).document);
