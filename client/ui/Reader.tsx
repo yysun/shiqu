@@ -159,6 +159,7 @@ export default function Reader(){
  const favoriteLock=useRef(false);
  const deleted=useRef(new Set<string>());
  const [exporting,setExporting]=useState<ExportFormat|null>(null),[exportProgress,setExportProgress]=useState(''),[pdfDownload,setPdfDownload]=useState<{url:string;filename:string;storyId:string;key:string}|null>(null),[pngDownload,setPngDownload]=useState<{url:string;filename:string;storyId:string;key:string}|null>(null),[zipDownload,setZipDownload]=useState<{url:string;filename:string;storyId:string;key:string}|null>(null);
+ const [landscapeFallback,setLandscapeFallback]=useState<Story|null>(null);
  useEffect(()=>()=>{if(pdfDownload)URL.revokeObjectURL(pdfDownload.url);},[pdfDownload]);
  useEffect(()=>()=>{if(pngDownload)URL.revokeObjectURL(pngDownload.url);},[pngDownload]);
  useEffect(()=>()=>{if(zipDownload)URL.revokeObjectURL(zipDownload.url);},[zipDownload]);
@@ -323,7 +324,7 @@ export default function Reader(){
  // 生成钩子恢复会话后会写入 /read?id=；停靠时地址始终留在书架
  useEffect(()=>{if((dockedView||dockedSettings)&&(location.pathname!=='/'||location.search))history.replaceState(history.state,'','/');});
  // 停靠时方向键只在焦点位于右栏阅读里时翻页，Escape 把焦点还给卡片
- useEffect(()=>{function key(e:KeyboardEvent){if(!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;if(dockedView&&!readerRef.current?.contains(document.activeElement))return;if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();turn(-1);}if(e.key==='Escape'){if(dockedView)focusShelfCard(story.id);else if(source||sceneList){setSource(false);setSceneList(false);}else leaveReader();}}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[story,page,ended,source,settings,workflowTarget,configure,sceneList,desktop,wide,dockedView,docked]);
+ useEffect(()=>{function key(e:KeyboardEvent){if(!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure||landscapeFallback)return;if(dockedView&&!readerRef.current?.contains(document.activeElement))return;if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();turn(-1);}if(e.key==='Escape'){if(dockedView)focusShelfCard(story.id);else if(source||sceneList){setSource(false);setSceneList(false);}else leaveReader();}}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[story,page,ended,source,settings,workflowTarget,configure,sceneList,desktop,wide,dockedView,docked,landscapeFallback]);
  useEffect(()=>{
   const reader=readerRef.current;if(!reader||!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;
   const gesture=wheelGesture.current;
@@ -373,7 +374,7 @@ export default function Reader(){
  }
 
 
- async function exportStory(format:ExportFormat,output:Story){
+ async function exportStory(format:ExportFormat,output:Story,allowPortraitFallback=false){
   if(exportLock.current)return;
   exportLock.current=true;setExporting(format);setExportProgress('正在准备 '+exportOptions[format].label);
   try{
@@ -381,6 +382,9 @@ export default function Reader(){
    if(format==='pdf-landscape'&&isGenerated(output)){
     const status:LandscapeStatus=await request(storyLandscapeRoute(output.id));
     if(status.state==='completed'&&status.images.length===output.pages.length&&status.images.every(Boolean))landscapeImages=status.images;
+   }
+   if(format==='pdf-landscape'&&!landscapeImages&&!allowPortraitFallback){
+    setLandscapeFallback(output);return;
    }
    const key=format+':'+storyExportKey(output)+(landscapeImages?JSON.stringify(landscapeImages):''),cached=format==='zip'?zipDownload:format==='png'?pngDownload:pdfDownload;
    if(cached?.storyId===output.id&&cached.key===key){
@@ -767,6 +771,16 @@ export default function Reader(){
  {publicationTarget&&<StoryPublicationEditor key={publicationTarget.id} story={publicationTarget} onClose={()=>setPublicationTarget(null)} onSave={async(value,expected)=>{
   await gen.savePublication(publicationTarget.id,value,expected);notify('署名与转载说明已保存。');
  }}/>}
+ {landscapeFallback&&<Sheet title="横版插图尚未齐全" onClose={()=>setLandscapeFallback(null)}>
+  <div className="yu-export-confirmation">
+   <p className="yu-publication-work">{landscapeFallback.title}</p>
+   <p>继续将用原有竖图试排 7×5 英寸横版 PDF，部分画面可能被裁切。</p>
+   <div className="yu-export-confirmation-actions">
+    <button type="button" className="yu-primary" onClick={()=>{setLandscapeFallback(null);void exportStory('pdf-landscape',landscapeFallback,true);}}>用竖图继续导出</button>
+    <button type="button" className="yu-revision-open" onClick={()=>setLandscapeFallback(null)}>取消</button>
+   </div>
+  </div>
+ </Sheet>}
  {renameTarget&&<StoryTitleEditor key={renameTarget.id} title={renameTarget.title} onClose={()=>setRenameTarget(null)} onSave={async title=>{
   await gen.renameTitle(renameTarget.id,title);
   setPdfDownload(value=>value?.storyId===renameTarget.id?null:value);setPngDownload(value=>value?.storyId===renameTarget.id?null:value);setZipDownload(value=>value?.storyId===renameTarget.id?null:value);
