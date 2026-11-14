@@ -81,12 +81,13 @@ import './compact.css';
 
 type Book = ReaderBook;
 type Progress = {storyId:string; page:number; saved?:number; updatedAt?:string|null};
-type ExportFormat='pdf'|'png'|'zip';
 const exportOptions={
- pdf:{label:'下载 PDF',description:'逐幅阅读',Icon:FileDown},
+ pdf:{label:'竖版 PDF',description:'逐幅阅读',Icon:FileDown},
+ 'pdf-landscape':{label:'横版 PDF',description:'7×5 英寸试印',Icon:FileDown},
  png:{label:'下载 PNG',description:'一页总览',Icon:ImageDown},
  zip:{label:'下载 ZIP',description:'原文与完整提示词',Icon:FileArchive},
 };
+type ExportFormat=keyof typeof exportOptions;
 const choices:Book[] = [...readerBooks,{id:'other',title:'其他',author:'书名或 URL',era:'自选',genre:'自选',note:'带上你自己的那本书'}];
 const moods=discoveryThemes;
 
@@ -372,9 +373,9 @@ export default function Reader(){
 
  async function exportStory(format:ExportFormat,output:Story){
   if(exportLock.current)return;
-  exportLock.current=true;setExporting(format);setExportProgress('正在准备'+format.toUpperCase());
+  exportLock.current=true;setExporting(format);setExportProgress('正在准备 '+exportOptions[format].label);
   try{
-   const key=storyExportKey(output),cached=format==='zip'?zipDownload:format==='png'?pngDownload:pdfDownload;
+   const key=format+':'+storyExportKey(output),cached=format==='zip'?zipDownload:format==='png'?pngDownload:pdfDownload;
    if(cached?.storyId===output.id&&cached.key===key){
     const link=document.createElement('a');link.href=cached.url;link.download=cached.filename;(document.querySelector('dialog[open]')||document.body).appendChild(link);link.click();link.remove();return;
    }
@@ -388,7 +389,7 @@ export default function Reader(){
     notify('一页 PNG 已准备好，可再次下载。');
    }else{
     const {downloadStoryPdf}=await import('@/lib/reader-pdf');
-    const result=await downloadStoryPdf(output,setExportProgress);setPdfDownload({...result,storyId:output.id,key});
+    const result=await downloadStoryPdf(output,setExportProgress,format==='pdf-landscape'?'landscape':'portrait');setPdfDownload({...result,storyId:output.id,key});
     notify('PDF 已准备好，可再次下载。');
    }
   }catch(e){notify(e instanceof Error?e.message:'导出失败，请保持联网后重试。');}
@@ -495,7 +496,7 @@ export default function Reader(){
   const busy=exporting===format;
   const content=<>{busy?<Loader2 size={20} className="spin"/>:<Icon size={20}/>}<span>{busy?(format==='zip'?'打包中…':'导出中…'):label}<small>{description}</small></span></>;
   if(!target)return <button key={format} type="button" className={className} disabled>{content}</button>;
-  return <StoryExportControl key={target.id+':'+format} story={target} format={format} className={className} busy={busy} disabled={!!exporting||!target.pages.length||target.pages.some(p=>!p.image)} onExport={output=>exportStory(format,output)} onEdit={isGenerated(target)?()=>setPublicationTarget(target):undefined}>{content}</StoryExportControl>;
+  return <StoryExportControl key={target.id+':'+format} story={target} format={format==='pdf-landscape'?'pdf':format} className={className} busy={busy} disabled={!!exporting||!target.pages.length||target.pages.some(p=>!p.image)} onExport={output=>exportStory(format,output)} onEdit={isGenerated(target)?()=>setPublicationTarget(target):undefined}>{content}</StoryExportControl>;
  }
  function exportStatus(showReadiness=true){
   if(!story)return null;
@@ -589,7 +590,7 @@ export default function Reader(){
  const settingsProps={
   story:panelStory,session:workflowSession,busy:gen.setupBusy||revision.busy||creating,disabled:creating,onBack:backToShelf,
   onRename:workflowSession||isGenerated(panelStory)?(id:string,title:string)=>setRenameTarget({id,title}):undefined,
-  downloads:(['pdf','png','zip'] as const).map(format=>exportControl(format,'yu-settings-download',panelStory)),
+  downloads:(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,'yu-settings-download',panelStory)),
   exportStatus:exportProgress,exporting:!!exporting,onPublicationEdit:isGenerated(panelStory)?()=>setPublicationTarget(panelStory):undefined,
   workflow:workflowSession||workflowTarget?workflowContent:undefined,
  };
@@ -637,7 +638,7 @@ export default function Reader(){
   <ProviderRuntimeSummary runtime={providerRuntime}/>
  </section>;
  // 停靠在书架右栏时阅读是书架主区里的一节（section，不带 data-main），其余时候是页面主区
- const readerEnding=story&&<StoryEndingSurface surfaceRef={endingRef} onTurn={turn} onDrag={setDrag} drag={drag}><div className="yu-ending-mark"><Leaf size={32} strokeWidth={1.3}/></div><p className="yu-kicker">故事到这里，余味留给你</p><h1>{story.reflection}</h1>{!!story.summary.trim()&&<section className="yu-ending-summary" aria-label="故事梗概"><h2>故事梗概</h2><p>{story.summary}</p></section>}<div className="yu-end-line"/><p>有些故事的最后一页，<br/>其实在你的生活里。</p><button className="yu-primary" onClick={()=>open(story,true)}><RotateCcw size={18}/>从头再看<ArrowRight size={19}/></button><div className="yu-ending-navigation"><button onClick={()=>turn(-1)}><ChevronLeft size={17}/>返回上一幅</button><button onClick={()=>{listScroll.current=null;home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}}><BookOpen size={16}/>书架</button><button onClick={()=>{home();choose();}}><Sparkles size={16}/>开启下一篇</button></div><section className="yu-ending-downloads" aria-label="下载故事"><h2>把故事带走</h2><div className="yu-ending-formats">{exportControl('pdf','yu-ending-download')}{exportControl('png','yu-ending-download')}{exportControl('zip','yu-ending-download yu-download-zip')}</div>{exportStatus()}</section><StoryPublicationDetails story={story}/><button className="yu-end-source" onClick={()=>setSource(true)}>读一读原文 <ChevronRight size={13}/></button></StoryEndingSurface>;
+ const readerEnding=story&&<StoryEndingSurface surfaceRef={endingRef} onTurn={turn} onDrag={setDrag} drag={drag}><div className="yu-ending-mark"><Leaf size={32} strokeWidth={1.3}/></div><p className="yu-kicker">故事到这里，余味留给你</p><h1>{story.reflection}</h1>{!!story.summary.trim()&&<section className="yu-ending-summary" aria-label="故事梗概"><h2>故事梗概</h2><p>{story.summary}</p></section>}<div className="yu-end-line"/><p>有些故事的最后一页，<br/>其实在你的生活里。</p><button className="yu-primary" onClick={()=>open(story,true)}><RotateCcw size={18}/>从头再看<ArrowRight size={19}/></button><div className="yu-ending-navigation"><button onClick={()=>turn(-1)}><ChevronLeft size={17}/>返回上一幅</button><button onClick={()=>{listScroll.current=null;home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}}><BookOpen size={16}/>书架</button><button onClick={()=>{home();choose();}}><Sparkles size={16}/>开启下一篇</button></div><section className="yu-ending-downloads" aria-label="下载故事"><h2>把故事带走</h2><div className="yu-ending-formats">{(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,format==='zip'?'yu-ending-download yu-download-zip':'yu-ending-download'))}</div>{exportStatus()}</section><StoryPublicationDetails story={story}/><button className="yu-end-source" onClick={()=>setSource(true)}>读一读原文 <ChevronRight size={13}/></button></StoryEndingSurface>;
  const ReaderTag=dockedView?'section':'main';
  const readerMain=story&&<ReaderTag className={'yu-reader'+(!metadataVisible&&!ended?' yu-metadata-hidden':'')} ref={readerRef} aria-label={'阅读'+story.title} data-main={dockedView?undefined:''}>
  <StoryFilmstrip key={story.id} pages={story.pages} page={ended?story.pages.length:page} ending={readerEnding} reloads={imageReloads} onImageError={onFrameError} onImageLoad={onFrameLoad} onPageChange={readScrolledPage} onTurn={turn} onToggleMetadata={()=>setMetadataVisible(visible=>!visible)}/>
