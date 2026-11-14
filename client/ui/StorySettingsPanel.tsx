@@ -2,6 +2,7 @@
 // Saved sessions can be named before a storyboard or artwork exists.
 // Downloads and publication credits share one visibility rule: every saved frame must have an image.
 // StorySettingsContent 是面板正文，手机面板与桌面工作区共用；它被当作普通函数调用，因此不得使用任何 hook。
+import {isDirectSourceSelection} from '@/lib/reader-discovery-themes';
 import type {ReactNode} from 'react';
 import type {Story} from '@/lib/content';
 import type {SessionView} from '@/lib/reader-model';
@@ -33,7 +34,7 @@ export function StorySettingsContent({story,session,busy,disabled,onBack,onRenam
 export function storyWorkflowHeading(session?:SessionView|null){
  const intake=session?.intake;
  const discovery=session?.selection.discovery;
- const preparing=!!intake&&intake.phase!=='confirmed'&&(discovery?.mode==='auto'&&discovery.combine||!!session?.selection.source&&!discovery);
+ const preparing=!!intake&&intake.phase!=='confirmed'&&(discovery?.mode==='auto'&&discovery.combine||!!session&&isDirectSourceSelection(session.selection));
  return preparing?'准备故事':'故事设置';
 }
 export default function StorySettingsPanel(props:Props){

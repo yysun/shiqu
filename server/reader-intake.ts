@@ -87,7 +87,11 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  if(action.action==='conditions'){
   if(intake.selected||!['discovering','choosing'].includes(intake.phase))throw new ReaderError(409,'这篇故事已经选定，不能修改提取条件。');
   if(row.state==='running'&&row.lock_until>Date.now())throw new ReaderError(409,'当前任务正在保存，请稍后再修改提取条件。');
-  const {selection:next,choice}=await intakeSelection(selectionSchema.parse({...selection,...action.conditions,customBook:action.conditions.customBook,discoverySources:action.conditions.discoverySources,discovery:action.conditions.source?undefined:action.conditions.discovery||{mode:'auto'},storyTitle:undefined,source:action.conditions.source,sourceCard:action.conditions.sourceCard}),books);
+  const requested=action.conditions.discovery;
+  const discovery=action.conditions.source
+   ?requested?.mode==='auto'&&requested.themeInput?{mode:'auto' as const,themeInput:requested.themeInput}:undefined
+   :requested||{mode:'auto' as const};
+  const {selection:next,choice}=await intakeSelection(selectionSchema.parse({...selection,...action.conditions,customBook:action.conditions.customBook,discoverySources:action.conditions.discoverySources,discovery,storyTitle:undefined,source:action.conditions.source,sourceCard:action.conditions.sourceCard}),books);
   const conditions=(value:Selection)=>JSON.stringify([value.bookId,value.customBook,value.theme,value.source,value.sourceCard,value.discoverySources,value.productionPrompt]);
   if(!action.conditions.discovery&&conditions(next)===conditions(selection)){await recordNoop(repo.db,uid,id,action.requestId,'setup',fingerprint);return row;}
   // Search rounds fence late extraction results; generations fence stale candidate selections.
@@ -107,7 +111,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   if(intake.selected||!['discovering','choosing'].includes(intake.phase))throw new ReaderError(409,'这篇故事已经选定，请在重选草稿中修改提取标题。');
   if(row.state==='running'&&row.lock_until>Date.now())throw new ReaderError(409,'当前任务正在保存，请稍后再修改提取标题。');
   if(action.title&&!localBookId(selection))throw new ReaderError(400,'按标题提取需要可核对原文的本地书籍。');
-  const discovery=action.title?{mode:'title' as const,title:action.title}:{mode:'auto' as const},search=intakeSearch(intake);
+  const themeInput=selection.discovery?.mode==='auto'?selection.discovery.themeInput:undefined;
+  const discovery=action.title?{mode:'title' as const,title:action.title}:{mode:'auto' as const,themeInput},search=intakeSearch(intake);
   if(search.state==='searching'&&JSON.stringify(selection.discovery)===JSON.stringify(discovery)){
    await recordNoop(repo.db,uid,id,action.requestId,'setup',fingerprint);return row;
   }

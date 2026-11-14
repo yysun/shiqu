@@ -7,7 +7,8 @@ import type {Selection} from '@/lib/reader-model';
 import type {LocalSourceReference} from '@/lib/reader-local-contract';
 import {localSourceKey} from '@/lib/reader-source-key';
 import type {BookContentEntry} from '@/lib/reader-contents';
-import {discoveryThemePresets,promptAfterThemeChange} from '@/lib/reader-prompts';
+import {promptAfterThemeChange} from '@/lib/reader-prompts';
+import {discoveryThemeDefinition,discoveryThemePresets} from '@/lib/reader-discovery-themes';
 import {storyCardSearchProgressLabel} from '@/lib/reader-suggestions';
 import StoryChapterPicker from './StoryChapterPicker';
 import StoryFlowAction from './StoryFlowAction';
@@ -33,9 +34,9 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
  const savedPlot=selection.discovery?.mode==='auto'&&selection.discovery.plot;
  const savedTheme=selection.discovery?.mode==='auto'&&(selection.discovery.scanOnly||selection.discovery.vectorFirst)&&!savedPlot;
  const initialMode:Mode=originalTitle||savedPlot||savedTheme||!originalSources.length?'theme':'chapter';
- const initialTheme=originalTitle||(selection.theme==='原典故事'||selection.theme==='其他'?'':selection.theme);
- const initialPreset=selection.discovery?.mode==='auto'&&selection.discovery.themeInput==='custom'
-  ?undefined:discoveryThemePresets.find(value=>value===initialTheme);
+ const explicitCustom=selection.discovery?.mode==='auto'&&(selection.discovery.themeInput==='custom'||savedPlot);
+ const initialTheme=originalTitle||(!explicitCustom&&(selection.theme==='原典故事'||selection.theme==='其他')?'':selection.theme);
+ const initialPreset=discoveryThemeDefinition(selection)?initialTheme:undefined;
  const [bookId,setBookId]=useRetainedState(part('book'),selection.bookId);
  const [customBook,setCustomBook]=useRetainedState(part('custom-book'),selection.customBook||'');
  const [mode,setMode]=useRetainedState<Mode>(part('mode'),initialMode);
@@ -55,7 +56,9 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
  const theme=showCustom?customTheme.trim():preset||'';
  const [opened]=useRetainedState(part('opened'),()=>JSON.stringify([bookId,customBook,mode,sources,preset,customTheme,showCustom]));
  const [externalChoice,setExternalChoice]=useRetainedState<string|null>(part('external-choice'),null);
- const externalIntake=bookId==='other'&&savedSelection?.bookId===bookId&&
+ const themeInput=showCustom?'custom':'preset';
+ const savedThemeInput=savedSelection&&discoveryThemeDefinition(savedSelection)?'preset':'custom';
+ const externalIntake=themeInput===savedThemeInput&&bookId==='other'&&savedSelection?.bookId===bookId&&
   savedSelection.customBook===customBook.trim()&&savedSelection.theme===theme?savedIntake:undefined;
  const savedSearch=externalIntake?.search;
  const externalSearching=savedSearch?.state==='searching'&&!savedSearchPaused;
@@ -178,7 +181,8 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
    source:directSource,
    sourceCard:directCard?{title:directCard.title,description:directCard.description}:undefined,
    discoverySources:selectedSources.length>1?selectedSources:undefined,
-   discovery:local?directSource?undefined:{mode:'auto',combine:true}:{mode:'auto',themeInput:'custom'},
+   discovery:active==='theme'?{mode:'auto',themeInput,...(local&&!directSource?{combine:true}:{})}
+    :directSource?undefined:{mode:'auto',combine:true},
   });
  }
 
@@ -227,7 +231,7 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
     {(searching||showCustom||results)&&<div className="yu-discovery-extract-actions">
      {searching
       ?<StoryFlowAction onClick={cancelSearch}>取消查找</StoryFlowAction>
-      :<StoryFlowAction disabled={blocked||!theme} onClick={()=>extract(theme,showCustom?'custom':'preset')}>{results?'继续查找故事':'开始找故事'}</StoryFlowAction>}
+      :<StoryFlowAction disabled={blocked||!theme} onClick={()=>extract(theme,themeInput)}>{results?'继续查找故事':'开始找故事'}</StoryFlowAction>}
     </div>}
     {searching&&<p role="status">{searchProgress}</p>}
     {searchError&&<p role="alert">{searchError}</p>}

@@ -36,7 +36,7 @@ import {getArtStyle} from '@/lib/reader-styles';
 import {redrawNoteMaxLength} from '@/lib/reader-revision';
 import StoryRevisionEditor,{StoryRevisionActions} from './StoryRevisionEditor';
 import {useStoryRevision} from './useStoryRevision';
-import {defaultProductionPrompt,discoveryThemePresets,promptAfterThemeChange} from '@/lib/reader-prompts';
+import {defaultProductionPrompt,promptAfterThemeChange} from '@/lib/reader-prompts';
 import type {ShelfSession,ShelfStory} from '@/lib/reader-shelf';
 import {recentShelfHeroes,mergeReadingProgress,reconcileReadingProgress} from '@/lib/reader-home';
 import RecentStories from './RecentStories';
@@ -47,6 +47,7 @@ import StorySource from './StorySource';
 import StoryTitleEditor from './StoryTitleEditor';
 import StoryScript from './StoryScript';
 import StorySceneList from './StorySceneList';
+import {discoveryThemePresets} from '@/lib/reader-discovery-themes';
 import StoryDiscoveryForm,{discoveryThemes} from './StoryDiscoveryForm';
 import StoryCardSearch from './StoryCardSearch';
 import StoryEmbeddingSettings from './StoryEmbeddingSettings';
@@ -94,7 +95,8 @@ function initialReaderSelection():Selection{
  const initial:Selection={bookId:'liaozhai',theme:'原典故事',artStyle:'ink-pencil',productionPrompt:defaultProductionPrompt(),length:'auto',narrativeDetail:'balanced',voice:false};
  try{
   const saved=JSON.parse(localStorage.getItem('yiyu-preferences')||'null');
-  if(saved&&typeof saved.bookId==='string')return {...initial,...saved,artStyle:getArtStyle(saved.artStyle).id,productionPrompt:promptAfterThemeChange(typeof saved.productionPrompt==='string'?saved.productionPrompt:'',saved.theme||initial.theme,saved.theme||initial.theme),discovery:{mode:'auto'},storyTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined,length:'auto',narrativeDetail:narrativeDetailSchema.safeParse(saved.narrativeDetail).success?saved.narrativeDetail:'balanced',voice:false};
+  const themeInput=saved?.discovery?.mode==='auto'&&['preset','custom'].includes(saved.discovery.themeInput)?saved.discovery.themeInput:undefined;
+  if(saved&&typeof saved.bookId==='string')return {...initial,...saved,artStyle:getArtStyle(saved.artStyle).id,productionPrompt:promptAfterThemeChange(typeof saved.productionPrompt==='string'?saved.productionPrompt:'',saved.theme||initial.theme,saved.theme||initial.theme),discovery:{mode:'auto',themeInput},storyTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined,length:'auto',narrativeDetail:narrativeDetailSchema.safeParse(saved.narrativeDetail).success?saved.narrativeDetail:'balanced',voice:false};
  }catch{}
  return initial;
 }
@@ -283,7 +285,7 @@ export default function Reader(){
   if(seen.current.size===story.pages.length)track('complete');
  }
  // 桌面新建页从“返回修改书籍”打开时，左侧选书、心情与“不挑了”只改选择，仍修改原任务的条件（与手机表单内选书一致）。
- function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){cancelOpening();clearRetained('discovery');setCreateSeed(seed=>seed+1);setAutoSearch(discoveryThemePresets.includes(theme));if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto'},storyTitle:undefined,displayTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
+ function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){const preset=discoveryThemePresets.includes(theme);cancelOpening();clearRetained('discovery');setCreateSeed(seed=>seed+1);setAutoSearch(preset);if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto',themeInput:preset?'preset':undefined},storyTitle:undefined,displayTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
  // 关闭新建并丢弃表单草稿；新建面板关闭、顶栏离开与两条提交成功路径共用。
  function closeCreate(){
   setConfigure(false);setDiscoveryTarget(null);clearRetained('discovery');

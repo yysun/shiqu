@@ -2093,6 +2093,7 @@
         "server/local-story-discovery.ts",
         "server/local-generation.ts",
         "server/story-theme-matching.ts",
+        "lib/reader-discovery-themes.ts",
         "lib/reader-local-contract.ts",
         "lib/reader-suggestions.ts",
         "tests/fixtures/story-library.mjs"
@@ -2945,6 +2946,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "lib/reader-frame-recommendation.ts",
         "lib/reader-model.ts",
         "server/local-book-contents.ts",
         "server/local-books.ts",

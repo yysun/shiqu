@@ -2,6 +2,7 @@
 // Edits are saved as a draft on the side; only a recommendation or final confirmation starts work.
 // Extraction, preparation and human confirmation remain separate, with timings bound to real work.
 // 传入 retainKey 时，未保存的设置与打开的子面板跨布局切换保留；恢复后只要服务器保存值未变，就不提示“另一台设备更新了制作内容”。
+import {isDirectSourceSelection} from '@/lib/reader-discovery-themes';
 import StoryFlowAction from './StoryFlowAction';
 import {useEffect,useRef,useState} from 'react';
 import {useRetainedState,hasRetained,retainedValue,retain} from './useRetainedState';
@@ -61,7 +62,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  const failedSearch=search.state==='failed';
  const discovery=session.selection.discovery;
  const combining=discovery?.mode==='auto'&&discovery.combine;
- const directSource=!!selected?.source&&!discovery&&!session.selection.discoverySources?.length;
+ const directSource=!!selected?.source&&isDirectSourceSelection(session.selection);
  const preparingSelected=directSource||combining;
  const searchAction=<StoryFlowAction disabled={busy||progress.controlBusy} onClick={()=>{
   if(paused)return progress.onControl(session.id,'resume');

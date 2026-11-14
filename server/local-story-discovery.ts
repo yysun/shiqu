@@ -27,7 +27,8 @@ import {sourceParts,sourceUnitIds,sourcesOverlap,sourceCovers,mergeSources} from
 import {matchLibraryStories,hasUnknownJudgments,saveVerifiedThemeMatches,themeStoryId,verifyThemeCandidates} from './story-theme-matching.ts';
 import type {LocalStorySearch} from './local-story-search.ts';
 import type {IndexableCard} from './story-card-embeddings.ts';
-import {storyEditorialContext,compoundDiscoveryThemeTerms} from '../lib/reader-prompts.ts';
+import {storyEditorialContext} from '../lib/reader-prompts.ts';
+import {discoveryThemeQuery} from '../lib/reader-discovery-themes.ts';
 import {discoveryCode} from '../lib/reader-discovery-call.ts';
 
 const storySchema=suggestionBatchSchema.shape.stories.element.omit({storyBrief:true,matchReason:true,matchScore:true}).extend({source:localSourceSchema,continuedFrom:z.array(localSourceSchema).min(1).max(16).optional()});
@@ -96,13 +97,10 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const chapterStories=!!selection.discoverySources&&!selection.discovery;
  const selectedSourceMode=!!selection.discoverySources&&(!selection.discovery||selection.discovery.mode==='auto'&&!selection.discovery.plot&&!selection.discovery.vectorFirst&&!selection.discovery.themeInput);
  const status=await provider.status();
- const topic=selection.theme.normalize('NFKC').trim();
+ const topic=discoveryThemeQuery(selection);
  const plot=selection.discovery?.mode==='auto'&&selection.discovery.plot;
  const vectorFirst=selection.discovery?.mode==='auto'&&selection.discovery.vectorFirst;
- const preset=selection.discovery?.mode==='auto'&&selection.discovery.themeInput==='preset';
- const themeTerms=preset&&!plot?compoundDiscoveryThemeTerms(topic):[];
  const theme=plot?'匹配这则故事情节：'+topic:topic;
- const matchingTheme=themeTerms.length?'预设并列主题：'+theme:theme;
  if(vectorFirst&&!selection.discovery?.scanOnly){
   const cards=await storySearch?.indexableCards(book)||[];
   const seenTitles=new Set(excludedSources.length?[]:excluded.map(titleKey));
@@ -117,7 +115,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   if(!cards.some(unseen))return result([],'故事卡中暂无更多故事。');
   const vectorsEnabled=!!storySearch?.vectorsEnabled();
   if(vectorsEnabled)observer.onProgress({stage:'retrieving',retrieval:'vector',completed:0,total:1,completedChars:0,totalChars:0});
-  const vectorHits=vectorsEnabled?await storySearch!.vectorHits(book,topic,observer.signal,cards,vectorRecallLimit,themeTerms):[];
+  const vectorHits=vectorsEnabled?await storySearch!.vectorHits(book,topic,observer.signal,cards,vectorRecallLimit):[];
   if(vectorHits.length){
    const note='已按语义相似度找到故事卡。';
    const stories=vectorHits.filter(unseen).slice(0,observer.maxStories||vectorPageSize).map(choice);
@@ -129,7 +127,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   const measurement=await discoveryMeasurement(cache,observer.cycleId!,true);
   const onCall=observer.onCall;
   try{
-   const checked=await verifyThemeCandidates(provider,cache,matchingTheme,cards.map(card=>({...card,title:card.title.slice(0,100)})),
+   const checked=await verifyThemeCandidates(provider,cache,theme,cards.map(card=>({...card,title:card.title.slice(0,100)})),
     card=>[card.summary],Math.min(limits.whole,themeVerificationInputTokens),status,{
      ...observer,onCall:event=>{measurement.call(event);onCall?.(event);},
      onProgress:value=>observer.onProgress({...value,stage:'verifying',totalChars:0,completedChars:0,...(retrieval?{retrieval}:{})}),
@@ -236,7 +234,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const measurement=await discoveryMeasurement(cache,observer.cycleId!,!(await read()).stories.length);
  const existingCall=observer.onCall;observer.onCall=event=>{measurement.call(event);existingCall?.(event);};
  const response=async(state:State,stories:Story[],hit:boolean):Promise<SuggestionBatch>=>{
-  const unknown=!selectedSourceMode&&!targetTitle&&await hasUnknownJudgments(provider,cache,book.id,matchingTheme,state.stories,status.provider);
+  const unknown=!selectedSourceMode&&!targetTitle&&await hasUnknownJudgments(provider,cache,book.id,theme,state.stories,status.provider);
   await measurement.finish(stories.length?'matched':unknown?'incomplete':'none');
   const note=(targetTitle?(stories.length?'已核对指定故事的完整原文，主题保留为制作时的叙述重点。':state.exhausted?(state.stories.length?'指定故事已列出，请选择已找到的结果。':`未能在当前原文范围核对“${targetTitle}”的完整经过，请补选相关章节或核对标题；不会以局部故事替代。`):'正在按标题核对原文。'):selectedSourceMode?(hit?'已复用所选原文的提取结果。':chapterStories?'已按先总故事、后小故事的顺序收录所选原文。':'已从所选原文提取故事。'):hit?'已复用本地故事库及主题判断缓存。':'已逐篇收录原文故事并匹配主题.')
    +(state.rejected?'部分返回出处未能完整核对，已保留当前进度，可继续重试。':'')
@@ -249,7 +247,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  // 先核对主题候选池，展示上限只约束返回页，不限制模型审阅范围。
  const verifiedTheme=async(cached:Story[]):Promise<SuggestionBatch|undefined>=>{
   if(selection.discovery?.scanOnly||targetTitle||selectedSourceMode||!provider.verifyThemeStories||!storySearch||storyEditorialContext(theme).mode==='source')return;
-  const candidates=await storySearch.lookupHits(book,theme,observer.signal,false,50,recordRetrieval,themeTerms);
+  const candidates=await storySearch.lookupHits(book,theme,observer.signal,false,50,recordRetrieval);
   const originals=new Map<string,string[]>();
   const stories=(candidates||[]).flatMap(({source,title,summary})=>{
    try{
@@ -266,7 +264,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
    const matchReason=(decision.verdict==='direct'?'明确符合：':'情节暗示：')+decision.reason;
    return {...story,matchReason,...(decision.matchScore!==undefined?{matchScore:decision.matchScore}:{})};
   };
-  const {matches,checked}=await verifyThemeCandidates(provider,cache,matchingTheme,stories,story=>originals.get(localSourceKey(story.source))!,Math.min(limits.whole,themeVerificationInputTokens),status,{...observer,onProgress:value=>observer.onProgress({...value,stage:'verifying',retrieval,cachedMatches})});
+  const {matches,checked}=await verifyThemeCandidates(provider,cache,theme,stories,story=>originals.get(localSourceKey(story.source))!,Math.min(limits.whole,themeVerificationInputTokens),status,{...observer,onProgress:value=>observer.onProgress({...value,stage:'verifying',retrieval,cachedMatches})});
   const verified=matches.map(({story,decision})=>verifiedStory(story,decision));
   if(verified.length){
    // 索引只证明这些故事与主题相符，不推进全书阅读游标。
@@ -278,7 +276,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
      const saved=existing||story;
      return {story:saved,reason:matchReason,matchScore,text:books.resolve(book,saved.source).text};
     });
-    await saveVerifiedThemeMatches(cache,book.id,matchingTheme,status,judgments);
+    await saveVerifiedThemeMatches(cache,book.id,theme,status,judgments);
     return current;
    });
    await measurement.stored();
@@ -293,7 +291,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const fromCandidates=async(current:State,cached:Story[]):Promise<SuggestionBatch|undefined>=>{
   const query=targetTitle||theme;
   if(selection.discovery?.scanOnly||!query||selectedSourceMode||!storySearch||!targetTitle&&(provider.verifyThemeStories||storyEditorialContext(theme).mode==='source'))return;
-  const ranges=(await storySearch.lookupHits(book,query,observer.signal,!!targetTitle,42,recordRetrieval,themeTerms))?.map(hit=>hit.source)||[];
+  const ranges=(await storySearch.lookupHits(book,query,observer.signal,!!targetTitle,42,recordRetrieval))?.map(hit=>hit.source)||[];
   if(!ranges.length)return;
   const exclusions=[...validExclusions,...current.stories.filter(story=>excludedKeys.has(titleKey(story.title))).map(story=>story.source)];
   const inputFor=(text:string,cap:number):WholeBookInput=>({title:book.title,edition:book.edition,text,
@@ -337,7 +335,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
    try{stories=await cache.shared(cacheKey,observer,async reading=>{
     const cached=validateStories(await cache.read(cacheKey,z.array(storySchema).max(input.scan!.maxStories))||[]);
     if(cached.length)return cached;
-    const result=await provider.suggestions(targetTitle?extraction:selection,excluded,input,{...reading,maxStories:undefined});
+    const result=await provider.suggestions(targetTitle?extraction:{...selection,theme},excluded,input,{...reading,maxStories:undefined});
     progress(current,'checking',reading);
     if(!result.scan||result.scan.invalid||result.scan.resolvedEventIds.length||result.stories.length>input.scan!.maxStories)return [];
     // 标题有未完线索时交回连续阅读，以免下一批把另一段片段当成完整事件。
@@ -363,7 +361,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
  const original=(story:Story)=>books.resolve(book,story.source).text;
  const initialStories=visibleStories(initial.stories);
  const titleMatches=(stories:Story[])=>stories.map(story=>({...story,matchReason:'已依据所选原文核对指定故事，主题仅用于讲述重点。'}));
- const cached=selectedSourceMode?initialStories:targetTitle?titleMatches(initialStories):await matchLibraryStories(provider,cache,namespace,matchingTheme,initialStories,original,limits.whole,status.provider,observer,{...matchingOptions,cacheOnly:true});
+ const cached=selectedSourceMode?initialStories:targetTitle?titleMatches(initialStories):await matchLibraryStories(provider,cache,namespace,theme,initialStories,original,limits.whole,status.provider,observer,{...matchingOptions,cacheOnly:true});
  cachedMatches=cached.length;
  reportStage('cache');
  const readyCache=cached.length>=batchLimit||targetTitle&&cached.length;
@@ -380,7 +378,7 @@ export async function discoverLocalStories(provider:ReaderProvider,books:LocalBo
   observer?.signal.throwIfAborted();
   const saved=await read(),candidates=visibleStories(saved.stories);
   if(candidates.length)progress(saved,'selecting');
-  const matched=selectedSourceMode?candidates:targetTitle?titleMatches(candidates):await matchLibraryStories(provider,cache,namespace,matchingTheme,candidates,original,limits.whole,status.provider,observer,{...matchingOptions,retryUnknown:saved.exhausted});
+  const matched=selectedSourceMode?candidates:targetTitle?titleMatches(candidates):await matchLibraryStories(provider,cache,namespace,theme,candidates,original,limits.whole,status.provider,observer,{...matchingOptions,retryUnknown:saved.exhausted});
   if(matched.length)return response(saved,matched,hit);
   if(saved.exhausted)return response(saved,matched,hit);
   const baseline=saved.stories.length;

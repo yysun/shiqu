@@ -174,7 +174,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     const exact=mode==='story'?cards.filter(card=>[card.title,...(card.aliases||[])].some(title=>title.normalize('NFKC').trim().toLowerCase()===normalizedQuery)):[];
     let hits;
     if(exact.length===1)hits=exact.map(({title,summary,source})=>({title,summary,source}));
-    else hits=await services.localBooks!.storySearch?.lookupHits(book,query,abort.signal,mode==='story',50,undefined,[],sectionId)||[];
+    else hits=await services.localBooks!.storySearch?.lookupHits(book,query,abort.signal,mode==='story',50,undefined,sectionId)||[];
     const candidates=hits.flatMap(hit=>{
      if(!hit.source||sectionId&&hit.source.sectionId!==sectionId)return [];
      try{return [{...hit,source:hit.source,text:services.localBooks!.resolve(book,hit.source).text}];}catch{return []}

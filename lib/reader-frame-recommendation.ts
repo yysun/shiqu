@@ -1,4 +1,5 @@
 // Recommend pacing from a saved original before committing to a storyboard or images.
+import {isDirectSourceSelection} from './reader-discovery-themes.ts';
 import {storyRequirementsSchema,storyRequirementsJson,storyRequirementsDirection} from './reader-requirements.ts';
 import {promptSections,inputBoundaryDirection,normalizeProductionPrompt,storyScopeDirection,storyOpeningDirection,storyEditorialContext} from './reader-prompts.ts';
 import {z} from 'zod';
@@ -21,7 +22,7 @@ export type FrameRecommendation=z.infer<typeof frameRecommendationSchema>;
 export const frameRecommendationJson={type:'object',properties:{count:{type:'integer',minimum:readerMinFrames,maximum:readerMaxFrames},reason:{type:'string',minLength:1,maxLength:180}},required:['count','reason'],additionalProperties:false};
 export function preparesSelectedStory(selection:Selection,original:OriginalSource){
  return !!original.storyBrief&&(selection.discovery?.mode==='auto'&&selection.discovery.combine===true||
-  !!selection.source&&!selection.discovery&&!selection.discoverySources?.length);
+  isDirectSourceSelection(selection));
 }
 export function frameRecommendationOutputSchema(original:OriginalSource,prepareRequirements=false,selectedStory=false){
  const base=original.storyBrief?frameRecommendationSchema.extend({storySummary:storySummarySchema,storyMatchReason:z.string().trim().min(1).max(300)}):frameRecommendationSchema;

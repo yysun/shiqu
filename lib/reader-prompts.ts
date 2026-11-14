@@ -48,12 +48,6 @@ const legacyThemeDirections:Record<string,string>={
  '幽默与讽刺':'用人物言行与实际结果的反差制造幽默，讽刺落在处境与人性上；节奏轻快，避免堆砌现代网络笑话。',
  '因果与报应':'围绕人物行为与后果铺设清晰因果，让结果出人意料又能回看出伏笔，避免把复杂人性简单分成善恶。',
 };
-export const discoveryThemePresets=Object.keys(legacyThemeDirections).filter(theme=>theme!=='忠于原文');
-export function compoundDiscoveryThemeTerms(theme:string){
- const topic=theme.normalize('NFKC').trim().replaceAll('與','与');
- return discoveryThemePresets.includes(topic)&&topic.includes('与')?topic.split('与'):[];
-}
-export const compoundDiscoveryThemeDirection='仅当输入明确标记为预设并列主题时，按或（OR）判断。原文有具体情节支持任意一项即符合，各项无需同时出现或彼此关联。各项都缺乏依据才判不符合。“欲望与代价”允许只体现欲望或只体现代价。自定义查询按整句含义判断，保留人物关系、动作和因果等要求。';
 const commonProductionDirection='完整讲清原文主事件的起因、关键行动与结果，首幅自然介绍人物与处境。按事件顺序展开，保留关键对白、反应和停顿；每幅一个静态可见瞬间，相邻幅各有任务。配文自然明白，画面动作与关系可读。结语在独立结束页提炼一层有据的认识，不复述情节、不虚构动机或扩大因果。';
 export const defaultProductionDirection=legacyThemeDirections['忠于原文']+commonProductionDirection;
 export function defaultProductionPrompt(_theme=''){

@@ -1,6 +1,6 @@
 // Match complete cited originals in small batches; binary receipts never contain a synopsis.
 import {z} from 'zod';
-import {promptSections,inputBoundaryDirection,compoundDiscoveryThemeDirection} from './reader-prompts.ts';
+import {promptSections,inputBoundaryDirection} from './reader-prompts.ts';
 export const themeMatchBatchSize=4;
 export const themeMatchModel='gpt-6-luna';
 export const themeMatchEffort='low' as const;
@@ -21,7 +21,6 @@ export const themeMatchOutputTokens=(_count:number)=>2048;
 export const themeMatchPrompt=promptSections(
  ['任务','逐篇完整阅读所附text原文，判断是否符合theme，不重新划分或改写故事，不生成摘要。每个输入批内短编号id原样返回一次，不新增、遗漏或重复；各篇独立判断。'],
  ['原文依据','只依据本篇原文已有事件、行动、关系和结果判断，不用记忆补情节，不依靠标题猜主题。原文有明确依据支持主题返回yes，缺乏主题依据返回no；不要把普通争执自动等同于成长、和解或永久错过。宽泛的“原典故事”“忠于原文”等选题意图可接受真实完整故事，不额外强加寓意。'],
- ['复合主题',compoundDiscoveryThemeDirection],
  ['主题贴合度',themeScoreDirection],
  ['输出','只返回matches，每篇包含id、reason（一句具体原文依据，最多120字）、verdict(yes或no)和matchScore，先给依据再判定。不返回review、summary、故事重述或制作建议。'],
  ['输入与输出',inputBoundaryDirection]);
@@ -57,7 +56,6 @@ const verifiedThemeJson={type:'object',properties:{matches:{type:'array',minItem
 const verifiedThemePrompt=promptSections(
  ['任务','逐篇读完所附原文，按主题筛选故事。每个编号独立判断并恰好返回一次。标题只用于定位；判断须依据本篇原文。'],
  ['判定','原文明确记载符合主题的行动、关系或结果，判 direct。原文有具体情节支持但需要推断关键动机或联系，判 implicit。只有字词相近、普通冲突、宽泛报应或没有足够证据，判 no。判断动作、对象、因果和事实状态是否符合查询。'],
- ['复合主题',compoundDiscoveryThemeDirection],
  ['排除近似','先分清主题要求谁对谁做了什么、为何如此、是否发生。只发现前因、误会、指控、受害、查明真相、依法处置、后来自然遭祸，不能替代主题所要求的行为或动机。死者现身或索回物品也不能单独证明其在报复。隐含命中需要原文明示的行动与后果之间存在具体联系，单凭先后不够。'],
  ['证据','每条 direct 或 implicit 附一到三段同篇连续原文，每段四到一百字。第一段优先引用最能证明主题的行动、动机或结果，关键因果分散时补引相关原文。只引前情或受害经过不足以支持正向判断。保留古字和繁简原样，不改写，不用省略号拼接。reason 用一句话说明情节和判断，最多九十五字，不能新增所引原文和上下文都没有写出的行为或结果。no 的 evidence 可为空。'],
  ['主题贴合度',themeScoreDirection],
@@ -88,8 +86,7 @@ export const storyCardThemeMatch:ThemeMatchProtocol<VerifiedThemeMatches>={
  ...verifiedThemeMatch,
  prompt:promptSections(
   ['任务','批量按主题或情节查找故事。每条输入含故事卡标题和白话梗概，text 是卡片梗概。每个编号独立判断并恰好返回一次。'],
-  ['判定','梗概支持查询中的行为、关系或结果，判 yes。只有字词相近、部分要素相同或证据不足，判 no。不要用标题或记忆补写梗概未交代的情节。'],
-  ['复合主题',compoundDiscoveryThemeDirection.replaceAll('原文','梗概')],
+  ['判定','按 theme 的完整含义判断。梗概须有具体情节支持主题所要求的人物选择、行动、因果或反差；只有困境、人物关系或字词相近，缺少所要求的关键联系时判 no。定义明示的并列合格情节符合其一即可，但该情节所需的关系仍须成立。例如涉及相知、相守、负心或错过的爱情主题，需要有恋爱或伴侣情意推动关键情节；友情、感恩或婚礼背景本身不够。不要用标题或记忆补写梗概未交代的情节。'],
   ['输出','只返回 matches，每项只含 id 和 verdict（yes 或 no）。'],
   ['输入与输出',inputBoundaryDirection]),
  json:storyCardThemeJson,

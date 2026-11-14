@@ -89,7 +89,7 @@ test('a fresh task and fresh discovery wrapper reuse persisted stories for the s
  assert.notEqual(first.id,second.id);assert.equal(f.inputs.length,calls);assert.deepEqual((await f.read(second.id)).intake.batches[0].stories,stories);assert.match((await f.read(second.id)).intake.batches[0].note,/复用所选原文/);assert.equal(f.control.recommendations.length,0);
 });
 
-for(const combine of [false,true])test(`${combine?'多段':'单段'}原文直接进入准备，一次生成标题、梗概和画风`,async t=>{
+for(const [label,combine,themeInput] of [['单段',false],['带自定义主题的故事卡',false,'custom'],['多段',true]])test(`${label}原文直接进入准备，一次生成标题、梗概和画风`,async t=>{
  const f=await productionFixture(t),library=libraryFixture();
  const [first,second]=library.stories.map(story=>story.source);
  library.book.sections[0].units.splice(1,0,{id:'u3',text:'别处来了一位旅人，天亮时独自离开了村庄。',narrative:true});
@@ -106,6 +106,7 @@ for(const combine of [false,true])test(`${combine?'多段':'单段'}原文直接
  };
  f.options.generation=withLocalBooks(f.generation,library.books,f.media);await f.restart();f.app.services.localBooks=library.books;
  const input=combine?{discovery:{mode:'auto',combine:true},discoverySources:[first,second]}:{
+  ...(themeInput?{theme:'命运与选择',discovery:{mode:'auto',themeInput}}:{}),
   source:first,sourceCard:{title:library.stories[0].title,description:library.stories[0].description},
  };
  const created=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...base,bookId:'zhuangzi',...input}});
@@ -119,6 +120,10 @@ for(const combine of [false,true])test(`${combine?'多段':'单段'}原文直接
  const prepared=await read();
  assert.deepEqual(prepared.intake.selected,{batch:0,index:0});
  assert.equal(prepared.selection.storyTitle,'两则古事');
+ if(themeInput){
+  assert.equal(prepared.selection.theme,'命运与选择');
+  assert.equal(prepared.selection.discovery.themeInput,themeInput);
+ }
  assert.equal(prepared.intake.batches[0].stories[0].title,'两则古事');
  assert.equal(prepared.selection.artStyle,'ink-wash');
  assert.equal(prepared.frameRecommendation.storySummary,'两段各自完整的古事。');

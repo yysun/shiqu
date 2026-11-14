@@ -7,7 +7,7 @@ import {createHash} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
 import {parseArgs} from 'node:util';
 import {Converter} from 'opencc-js';
-import {discoveryThemePresets} from '../lib/reader-prompts.ts';
+import {discoveryThemePresets} from '../lib/reader-discovery-themes.ts';
 import {rankStoryCardText,storyEmbeddingModel,storyEmbeddingQuery,storySearchKey} from '../server/local-story-search.ts';
 import {groundedStoryEvents,storyEventsSchema,storyEventStatuses,storyEventText} from '../server/local-story-events.ts';
 import {createCodexRunner} from '../server/codex-runner.ts';

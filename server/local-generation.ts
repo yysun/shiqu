@@ -3,6 +3,7 @@
 // Keep the provider's execution deadlines visible to the production countdown.
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
+import {discoveryThemeQuery} from '../lib/reader-discovery-themes.ts';
 import type {Selection} from '../lib/reader-model.ts';
 import type {OriginalSource} from '../lib/reader-source-types.ts';
 import {ReaderError} from '../lib/reader-model.ts';
@@ -44,7 +45,7 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
    reading?.signal.throwIfAborted();
    const book=await books.book(selection);
    reading?.signal.throwIfAborted();
-   if(!book){if(selection.discoverySources||selection.discovery?.mode==='title')throw new ReaderError(400,'章节或标题提取只支持本地书库。');return provider.suggestions(selection,excluded,undefined,reading,excludedSources);}
+   if(!book){if(selection.discoverySources||selection.discovery?.mode==='title')throw new ReaderError(400,'章节或标题提取只支持本地书库。');return provider.suggestions({...selection,theme:discoveryThemeQuery(selection)},excluded,undefined,reading,excludedSources);}
    if(selection.discovery?.mode==='auto'&&selection.discovery.combine)throw new ReaderError(400,'多段原文请进入准备故事。');
    const scope=selection.discoverySources?await selectedChapterScope(books,book,selection.discoverySources):null;
    const result=await discoverLocalStories(provider,books,cache,scope?.book||book,scope?{...selection,discoverySources:scope.discoverySources}:selection,excluded,reading,excludedSources,undefined,storySearch);

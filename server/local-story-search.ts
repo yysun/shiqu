@@ -168,21 +168,8 @@ export class LocalStorySearch{
   if(!this.embeddings?.exists())return null;
   return this.embeddings.scores(book,await this.indexableCards(book),query,signal);
  }
- // 并列主题分别计算相似度，每张卡取最高分，只保留一个出处。
- private async queryScores(book:LocalBook,cards:IndexableCard[],query:string,signal:AbortSignal,alternatives:readonly string[]){
-  if(!this.embeddings?.exists())return null;
-  if(!alternatives.length)return this.embeddings.scores(book,cards,query,signal);
-  const best=new Map<string,number>();
-  for(const alternative of alternatives){
-   signal.throwIfAborted();
-   const scores=await this.embeddings.scores(book,cards,alternative,signal);
-   if(!scores)return null;
-   for(const [id,score] of scores)best.set(id,Math.max(best.get(id)??-Infinity,score));
-  }
-  return best;
- }
- async vectorHits(book:LocalBook,query:string,signal:AbortSignal,cards:IndexableCard[],limit=50,alternatives:readonly string[]=[]){
-  const scores=await this.queryScores(book,cards,query,signal,alternatives).catch(()=>null);
+ async vectorHits(book:LocalBook,query:string,signal:AbortSignal,cards:IndexableCard[],limit=50){
+  const scores=this.embeddings?.exists()?await this.embeddings.scores(book,cards,query,signal).catch(()=>null):null;
   signal.throwIfAborted();
   if(!scores?.size)return [];
   return cards.filter(card=>scores.has(card.id))
@@ -285,7 +272,7 @@ export class LocalStorySearch{
   const hits=await this.lookupHits(book,query,signal,byTitle);
   return hits?.map(({source})=>source)??null;
  }
- async lookupHits(book:LocalBook,query:string,signal:AbortSignal,byTitle=false,limit=42,onRetrieval?:(route:NonNullable<SuggestionProgress['retrieval']>)=>void,themeTerms:readonly string[]=[],sectionId?:string){
+ async lookupHits(book:LocalBook,query:string,signal:AbortSignal,byTitle=false,limit=42,onRetrieval?:(route:NonNullable<SuggestionProgress['retrieval']>)=>void,sectionId?:string){
   signal.throwIfAborted();
   const snapshot=await this.snapshotFor(book);
   signal.throwIfAborted();
@@ -294,8 +281,7 @@ export class LocalStorySearch{
   const phrase=storySearchKey(topic||query);
   if(!phrase)return [];
   const chars=Array.from(phrase);
-  const normalizedTerms=themeTerms.map(storySearchKey);
-  const terms=normalizedTerms.length?normalizedTerms:[...new Set(chars.slice(1).map((char,index)=>chars[index]+char))];
+  const terms=[...new Set(chars.slice(1).map((char,index)=>chars[index]+char))];
   const scoped=snapshot.entries.flatMap(entry=>{
    if(sectionId&&entry.source.sectionId!==sectionId)return [];
    try{sourceParts(book,entry.source);return [entry];}catch{return [];}
@@ -303,15 +289,12 @@ export class LocalStorySearch{
   if(!scoped.length){onRetrieval?.('no-candidates');return [];}
   signal.throwIfAborted();
   let liveScores:Map<string,number>|null=null;
-  try{liveScores=themeTerms.length&&this.embeddings?.exists()
-   ?await this.queryScores(book,await this.indexableCards(book),query,signal,themeTerms)
-   :await this.semanticScores(book,query,signal);}catch{liveScores=null;}
+  try{liveScores=await this.semanticScores(book,query,signal);}catch{liveScores=null;}
   signal.throwIfAborted();
-  const scores=scoped.map(entry=>({entry,lexical:lexical(entry,phrase,terms),semantic:liveScores?.get(localSourceKey(entry.source))??-Infinity,
-   matchesTheme:normalizedTerms.some(term=>entry.title.includes(term)||entry.summary.includes(term)||entry.text.includes(term))}));
+  const scores=scoped.map(entry=>({entry,lexical:lexical(entry,phrase,terms),semantic:liveScores?.get(localSourceKey(entry.source))??-Infinity}));
   const exact=scores.filter(row=>row.lexical>=50).sort((a,b)=>b.lexical-a.lexical);
-  const text=scores.filter(row=>themeTerms.length?row.matchesTheme:row.lexical>0).sort((a,b)=>b.lexical-a.lexical).slice(0,limit);
-  const cards=themeTerms.length?[]:rankStoryCardText(scoped.filter(entry=>entry.summary),phrase,limit);
+  const text=scores.filter(row=>row.lexical>0).sort((a,b)=>b.lexical-a.lexical).slice(0,limit);
+  const cards=rankStoryCardText(scoped.filter(entry=>entry.summary),phrase,limit);
   const semantic=scores.filter(row=>Number.isFinite(row.semantic)).sort((a,b)=>b.semantic-a.semantic).slice(0,limit);
   onRetrieval?.(semantic.length?'hybrid':liveScores?'no-compatible-vectors':'no-query-vector');
   const fused=new Map<string,{entry:Entry;score:number}>();
