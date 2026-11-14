@@ -16,7 +16,7 @@ import {FileMedia} from '../server/media.ts';
 import {sourceParts} from '../server/local-source-ranges.ts';
 import {localSourceKey} from '../lib/reader-local-contract.ts';
 import {storyCardSearchProgressLabel,suggestionProgressSchema} from '../lib/reader-suggestions.ts';
-import {discoveryThemePresets} from '../lib/reader-discovery-themes.ts';
+import {discoveryThemePresets,isDirectSourceSelection} from '../lib/reader-discovery-themes.ts';
 import {verifyThemeCandidates} from '../server/story-theme-matching.ts';
 import {libraryFixture,selection} from './fixtures/story-library.mjs';
 
@@ -165,6 +165,13 @@ test('自选书推荐只在调用模型时展开预设，不修改保存条件',
  const entries=await executeHeadless(process.cwd(),['themes']);
  assert.deepEqual(entries,['人情冷暖','爱与缘分','善意的处境','聪明与糊涂','命运与选择','欲望的代价','执念与放下','世事可笑']);
  assert.deepEqual(entries,discoveryThemePresets);
+});
+
+test('带预设标记的已选提取候选不会被当成直接提交的故事卡',()=>{
+ const f=libraryFixture(),source=f.stories[0].source,discovery={mode:'auto',themeInput:'preset'};
+ assert.equal(isDirectSourceSelection({source,discovery}),false);
+ assert.equal(isDirectSourceSelection({source,discovery,sourceCard:{title:'已选故事',description:'故事卡梗概。'}}),true);
+ assert.equal(isDirectSourceSelection({source}),true);
 });
 
 test('读者检索的向量结果每页 12 则，继续查找跳过已显示的故事卡',async t=>{

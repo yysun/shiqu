@@ -22,8 +22,8 @@ export function discoveryThemeQuery(selection:Pick<Selection,'theme'|'discovery'
 }
 
 
-// 已选出处可携带主题来源标记；标记本身不启动提取。
-export function isDirectSourceSelection({source,discovery,discoverySources}:Pick<Selection,'source'|'discovery'|'discoverySources'>){
- return !!source&&!discoverySources?.length&&(!discovery||discovery.mode==='auto'&&!!discovery.themeInput&&
+// 直接选择的故事卡仍保留主题来源；队列提取后选中的候选不带 sourceCard。
+export function isDirectSourceSelection({source,sourceCard,discovery,discoverySources}:Pick<Selection,'source'|'sourceCard'|'discovery'|'discoverySources'>){
+ return !!source&&!discoverySources?.length&&(!discovery||!!sourceCard&&discovery.mode==='auto'&&!!discovery.themeInput&&
   !discovery.combine&&!discovery.plot&&!discovery.scanOnly&&!discovery.vectorFirst);
 }

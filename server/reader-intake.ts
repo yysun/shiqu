@@ -89,7 +89,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   if(row.state==='running'&&row.lock_until>Date.now())throw new ReaderError(409,'当前任务正在保存，请稍后再修改提取条件。');
   const requested=action.conditions.discovery;
   const discovery=action.conditions.source
-   ?requested?.mode==='auto'&&requested.themeInput?{mode:'auto' as const,themeInput:requested.themeInput}:undefined
+   ?action.conditions.sourceCard&&requested?.mode==='auto'&&requested.themeInput?{mode:'auto' as const,themeInput:requested.themeInput}:undefined
    :requested||{mode:'auto' as const};
   const {selection:next,choice}=await intakeSelection(selectionSchema.parse({...selection,...action.conditions,customBook:action.conditions.customBook,discoverySources:action.conditions.discoverySources,discovery,storyTitle:undefined,source:action.conditions.source,sourceCard:action.conditions.sourceCard}),books);
   const conditions=(value:Selection)=>JSON.stringify([value.bookId,value.customBook,value.theme,value.source,value.sourceCard,value.discoverySources,value.productionPrompt]);
