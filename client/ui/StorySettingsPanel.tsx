@@ -9,7 +9,6 @@ import type {SessionView} from '@/lib/reader-model';
 import Sheet from './StorySheet';
 import {StoryPublicationSummary} from './StoryPublication';
 import StoryBackToShelf from './StoryBackToShelf';
-import StoryLandscapeStep from './StoryLandscapeStep';
 
 type Props={story:Story|null;session?:SessionView|null;busy:boolean;disabled:boolean;onClose:()=>void;onBack:()=>void;onRename?:(id:string,title:string)=>void;downloads:ReactNode;exportStatus:string;exporting:boolean;onPublicationEdit?:()=>void;workflow?:ReactNode};
 export function StorySettingsContent({story,session,busy,disabled,onBack,onRename,downloads,exportStatus,exporting,onPublicationEdit,workflow}:Omit<Props,'onClose'>){
@@ -29,7 +28,6 @@ export function StorySettingsContent({story,session,busy,disabled,onBack,onRenam
    {story&&<StoryPublicationSummary story={story} onEdit={onPublicationEdit} disabled={exporting}/>}
   </div>}
   {workflow&&<section className="yu-settings-flow" aria-label="制作流程">{workflow}</section>}
-  {canDownload&&session?.state==='completed'&&!session.superseded&&<StoryLandscapeStep key={session.id} storyId={session.id}/>}
   <StoryBackToShelf onBack={onBack} disabled={busy} link/>
  </fieldset>;
 }

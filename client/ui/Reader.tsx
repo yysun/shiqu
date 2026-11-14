@@ -557,6 +557,7 @@ export default function Reader(){
  // 会话离开选题阶段后，其设置与标题输入草稿不再需要。
  useEffect(()=>{if(workflowSession&&(!workflowSession.intake||workflowSession.intake.phase==='confirmed')){clearRetained('setup:'+workflowSession.id);clearRetained('search:'+workflowSession.id);}},[workflowSession?.id,workflowSession?.intake?.phase]);
 
+ const panelStory=workflowSession?.story||story;
  const workflowContent=(awaitingMaterials?null:workflowSession?<>
    {workflowSession.intake&&workflowSession.intake.phase!=='confirmed'?<StoryCreationSetup
     session={workflowSession} book={bookName({id:workflowSession.id,bookId:workflowSession.selection.bookId})} busy={gen.setupBusy} onAction={gen.setup}
@@ -568,6 +569,7 @@ export default function Reader(){
     {gen.error&&<p className="yu-batch-error" role="alert">{gen.error}</p>}
    </>:<GenerationSurface
     session={workflowSession} busy={gen.busy} controlBusy={!!gen.controlBusy||creating} onControl={gen.control} error={workflowError||gen.error} onRetry={retryWorkflow} onBack={backToShelf} hideBack showSummary={false}
+    showLandscape={workflowSession.state==='completed'&&!workflowSession.superseded&&!!panelStory?.pages.length&&panelStory.pages.every(page=>!!page.image)}
     navigation={{source:{onClick:()=>setSource(true),disabled:!workflowSession.generationProgress?.sourceReady},reselect:{label:'替换选题',onClick:()=>void reselectStory(),disabled:creating||revision.busy||!!gen.controlBusy,title:'替换当前选题，书架保留一张卡片，旧结果保留历史'},reselecting:creating}}
     onAcceptance={()=>revision.open('acceptance')} onHistory={()=>setReviewHistoryId(workflowSession.id)} onEditStyle={()=>revision.open('style')}
     timeline={!revisionResuming?{
@@ -583,7 +585,6 @@ export default function Reader(){
  const panelOpen=!awaitingMaterials&&!!(workflowTarget||(!story&&gen.active)||(settings&&story));
  // 故事设置及其子面板在所有宽度共用小屏布局；书架右栏始终保留在子面板下面。
  const settingsDialogOpen=panelOpen&&!configure&&!reselectTarget&&!dockedSettings;
- const panelStory=workflowSession?.story||story;
  const pendingStories=gen.sessions.filter(s=>!deletedIds.includes(s.id)&&!s.story?.cover);
  const latestShelf=activeProgress.flatMap(p=>{const s=shelfSessionsById.get(p.storyId)?.story;return s?.cover?[s]:[];});
  // 宽档停留在书架期间冻结卡片顺序（书库加载完成后取快照，之后新出现的故事排在最前），离开书架后恢复按最近阅读排序

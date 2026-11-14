@@ -1,6 +1,8 @@
 // 已完成作品的横版插图步骤，后台继续生成，界面只读取状态并提交明确的启动或重试操作。
 import {useEffect,useState} from 'react';
 import type {LandscapeStatus} from '@/lib/reader-production';
+import type {ProductionStageState} from '@/lib/production-stages';
+import {ProductionTimelineRow} from './ProductionTimeline';
 import StoryFlowAction from './StoryFlowAction';
 import {request} from './shared';
 
@@ -48,11 +50,12 @@ export default function StoryLandscapeStep({storyId}:{storyId:string}){
   partial?`已保存 ${status.ready} / ${status.total} 幅${status.failed.length?'，待重试第 '+status.failed.join('、')+' 幅':''}。`:
   status?.available?'按原图和分镜绘制 3∶2 横图，供印刷使用。':status?'当前暂无法启动横版生成。':'正在读取横版进度…';
  const error=readError||actionError||status?.error;
- return <section className="yu-landscape-step" aria-label="横版插图">
-  <strong>横版插图（可选）</strong>
-  <p role="status">{detail}</p>
-  {error&&<p role="alert">{error}</p>}
-  {readError?<StoryFlowAction onClick={()=>setRefresh(value=>value+1)}>重新读取进度</StoryFlowAction>:
-   canSubmit&&<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={start}>{submitting?'正在提交…':partial?'重试未完成画幅':'生成横版插图'}</StoryFlowAction>}
- </section>;
+ const running=status?.state==='running';
+ const state:ProductionStageState=readError?'failed':running?'current':status?.state==='completed'?'done':partial||actionError?'failed':status&&!status.available?'unavailable':'pending';
+ const stateLabel={failed:readError?'读取失败':partial?'待重试':'提交失败',current:'进行中',done:'已完成',unavailable:'暂不可用',pending:status?'未生成':'读取中'}[state];
+ const action=readError?<StoryFlowAction onClick={()=>setRefresh(value=>value+1)}>重新读取进度</StoryFlowAction>:
+  canSubmit&&<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={start}>{submitting?'正在提交…':partial?'重试未完成画幅':'生成横版插图'}</StoryFlowAction>;
+ return <ProductionTimelineRow step={{id:'landscape',label:'横版插图（可选）',state,detail}} stateLabel={stateLabel} moving={running} detailLive>
+  {(error||action)&&<>{error&&<p className="yu-batch-error" role="alert">{error}</p>}{action&&<span>{action}</span>}</>}
+ </ProductionTimelineRow>;
 }
