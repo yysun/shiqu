@@ -25,7 +25,7 @@ import type {ThemeMatchProtocol,ThemeStory} from '../lib/reader-theme-match.ts';
 import type {DiscoveryContext} from '../lib/reader-discovery-call.ts';
 import {binaryThemeMatch,themeVerificationProtocol,themeMatchModel,themeMatchEffort} from '../lib/reader-theme-match.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
-import {imageDimensions} from '../lib/reader-image-dimensions.ts';
+import {imageDimensions,matchesLandscapeImageRatio} from '../lib/reader-image-dimensions.ts';
 import {storyboardGenerator} from '../lib/reader-storyboard.ts';
 import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from '../lib/reader-art-recommendation.ts';
 import {configuredTaskReasoning} from '../lib/reader-reasoning.ts';
@@ -40,6 +40,7 @@ function codexMessage(code:string){
  if(code==='TIMEOUT')return 'Codex 生成等待超时，已保留前面的内容。可稍后重试。';
  if(code==='UNSAFE_CONFIGURATION')return 'Codex 的工具隔离配置不可用，请使用支持的 Codex 版本并检查设置。';
  if(code==='IMAGE_UNAVAILABLE'||code==='INVALID_IMAGE')return 'Codex 未返回有效图片。请检查订阅额度与图片生成权限后重试。';
+ if(code==='INVALID_LANDSCAPE_RATIO')return 'Codex 未返回 3∶2 横版图片，已保存的画面可继续使用。请重试这一幅。';
  return 'Codex 暂时无法完成这一步，请检查订阅额度和登录状态。已保留前面的内容。';
 }
 export function safeCodexError(error:unknown){const code=error instanceof CodexError?error.message:'INVALID_OUTPUT';console.error('codex_generation_error',JSON.stringify({code}));return codexMessage(code);}
@@ -155,8 +156,9 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
     const value=storyDraftSchema.parse(JSON.parse(result.text));if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new CodexError('INVALID_PLAN');
     return {value,model:result.model,requestId:result.requestId,usage:result.usage,promptRecord:result.promptRecord,reasoningEffort:result.reasoningEffort};
    },
-   async image(plan,page,id,reference,style='ink-pencil',productionPrompt='',artifactId){
+   async image(plan,page,id,reference,style='ink-pencil',productionPrompt='',artifactId,layout='portrait'){
     if(claude)throw new ClaudeError('TEXT_ONLY');
+    if(layout==='landscape'&&(!reference||!artifactId))throw new CodexError('INVALID_ANCHOR');
     let image:{bytes:Uint8Array;contentType:string}|undefined;
     if(reference){
      const key=referenceImageKey(id,reference);if(!key)throw new CodexError('INVALID_ANCHOR');
@@ -164,11 +166,13 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
      const bytes=new Uint8Array(await object.arrayBuffer()),contentType=mediaType(bytes);
      if(!contentType||bytes.length>12*1024*1024)throw new CodexError('INVALID_ANCHOR');image={bytes,contentType};
     }
-    const result=await run({instructions:nativeImageInstructions,prompt:imagePrompt(plan,page,style,productionPrompt,!!image),image,generateImage:true});
+    const result=await run({instructions:nativeImageInstructions,prompt:imagePrompt(plan,page,style,productionPrompt,!!image,layout),image,generateImage:true});
     if(!result.image)throw new CodexError('IMAGE_UNAVAILABLE');
     const bytes=new Uint8Array(Buffer.from(result.image,'base64')),contentType=mediaType(bytes);
     if(!contentType||!bytes.length||bytes.length>12*1024*1024)throw new CodexError('INVALID_IMAGE');
-    if(!imageDimensions(bytes))throw new CodexError('INVALID_IMAGE');
+    const dimensions=imageDimensions(bytes);
+    if(!dimensions)throw new CodexError('INVALID_IMAGE');
+    if(layout==='landscape'&&!matchesLandscapeImageRatio(dimensions))throw new CodexError('INVALID_LANDSCAPE_RATIO');
     const asset=readerImageAsset(id,page,imageTypes[contentType],artifactId);await media.put(asset.key,bytes,{contentType});
     return {value:asset.url,model:models.image,requestId:result.requestId,usage:result.usage,promptRecord:{...result.promptRecord,...(reference?{reference}:{})}};
    },

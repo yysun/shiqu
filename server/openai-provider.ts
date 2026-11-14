@@ -25,7 +25,7 @@ import {preparesSelectedStory,frameRecommendationOutputSchema,frameRecommendatio
 import {getArtStyle} from '../lib/reader-styles.ts';
 import {saveStoryOriginal} from '../lib/reader-source-storage.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
-import {imageDimensions,imageRequestSize} from '../lib/reader-image-dimensions.ts';
+import {imageDimensions,imageRequestSize,landscapeImageSize,matchesLandscapeImageRatio} from '../lib/reader-image-dimensions.ts';
 import {readerStoryboardTimeoutMs} from '../lib/reader-limits.ts';
 import {responsesDiagnostic} from '../lib/reader-responses-diagnostics.ts';
 import {geminiReviewEvidence as sourceReviewEvidence} from '../lib/reader-gemini-evidence.ts';
@@ -57,6 +57,7 @@ export function safeOpenAIError(error:unknown){
   if(error.status===402||error.status===429)return 'OpenAI API 计费、额度或速率限制暂不可用；进度已保留。';
   if(error.status===404)return 'OpenAI API 模型不可用，请检查文本与图片模型设置。';
   if(code==='REFUSED')return 'OpenAI 暂时无法生成这段内容，请调整故事或制作要求。';
+  if(code==='INVALID_LANDSCAPE_RATIO')return 'OpenAI 未返回 3∶2 横版图片，已保存的画面可继续使用。请重试这一幅。';
  }
  return code==='TIMEOUT'?'OpenAI API 等待超时，已保留进度。':'OpenAI API 暂时无法完成这一步，已保留进度。';
 }
@@ -153,11 +154,12 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
     const result=await text(draftInstructions(!!original?.localSource),{book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})},storyDraftJson(selection.length),reasoning.plan,Math.max(8192,(selection.length==='auto'?20:selection.length)*800));
     const value=storyDraftSchema.parse(result.value);if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new OpenAIError('PLAN_LENGTH');return {...result,value};
    },
-   async image(plan,page,id,reference,style='ink-pencil',productionPrompt='',artifactId){
+   async image(plan,page,id,reference,style='ink-pencil',productionPrompt='',artifactId,layout='portrait'){
     if(deepseek)throw new ReaderError(400,'DeepSeek 当前仅支持文字制作，请在分镜审核后停止；不会自动调用其他提供方生图。');
-    const size=imageRequestSize(variables.IMAGE_SIZE);if(!size)throw new OpenAIError('INVALID_IMAGE_SIZE',400);
-    const prompt=imagePrompt(plan,page,style,productionPrompt,!!reference);
-    let body:Record<string,unknown>|FormData={model:models.image,prompt,n:1,size:size.size,output_format:'png'},route='/images/generations';
+    if(layout==='landscape'&&(!reference||!artifactId))throw new OpenAIError('INVALID_ANCHOR');
+    const size=layout==='landscape'?landscapeImageSize:imageRequestSize(variables.IMAGE_SIZE)?.size;if(!size)throw new OpenAIError('INVALID_IMAGE_SIZE',400);
+    const prompt=imagePrompt(plan,page,style,productionPrompt,!!reference,layout);
+    let body:Record<string,unknown>|FormData={model:models.image,prompt,n:1,size,output_format:'png'},route='/images/generations';
     if(reference){
      const ref=referenceImageKey(id,reference);if(!ref)throw new OpenAIError('INVALID_ANCHOR');
      const saved=await media.get(ref);if(!saved)throw new OpenAIError('INVALID_ANCHOR');
@@ -169,7 +171,9 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
     const {value,requestId}=await request(route,body),encoded=value.data?.[0]?.b64_json;
     if(typeof encoded!=='string'||!encoded.length||encoded.length>17*1024*1024||!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))throw new OpenAIError('INVALID_IMAGE');
     const bytes=new Uint8Array(Buffer.from(encoded,'base64')),mime=mediaType(bytes);
-    if(!mime||!imageDimensions(bytes)||bytes.length>12*1024*1024)throw new OpenAIError('INVALID_IMAGE');
+    const dimensions=imageDimensions(bytes);
+    if(!mime||!dimensions||bytes.length>12*1024*1024)throw new OpenAIError('INVALID_IMAGE');
+    if(layout==='landscape'&&!matchesLandscapeImageRatio(dimensions))throw new OpenAIError('INVALID_LANDSCAPE_RATIO');
     const asset=readerImageAsset(id,page,imageTypes[mime],artifactId);await media.put(asset.key,bytes,{contentType:mime});
     return {value:asset.url,model:models.image,requestId,usage:value.usage||null,promptRecord:promptRecord('',prompt,undefined,reference||undefined)};
    },

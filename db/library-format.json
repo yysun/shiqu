@@ -1,1 +1,1 @@
-{"schemaVersion":1,"minimumAppVersion":"0.8.0","latestMigration":"0020_blocked_revision_faults.sql"}
+{"schemaVersion":1,"minimumAppVersion":"0.8.0","latestMigration":"0021_landscape_job_isolation.sql"}

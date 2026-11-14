@@ -256,6 +256,9 @@ button.yu-page-surface{padding:0;border:0;background:transparent;cursor:default}
 .yu-settings-flow{margin:8px 0;padding-top:4px;border-top:1px solid #dce3cf}
 .yu-settings-flow:first-child{margin-top:0;padding-top:0;border-top:0}
 .yu-story-name+.yu-settings-flow,.yu-pdf-setting+.yu-settings-flow{margin-top:0}
+.yu-landscape-step{margin:8px 0;padding:12px 0;border-top:1px solid #dce3cf}
+.yu-landscape-step>p{margin:4px 0;color:var(--yu-meta);font-size:var(--yu-meta-size);line-height:1.6}
+.yu-landscape-step>p[role=alert]{color:#806128}
 
 
 /* “我的”统计加载占位：书库首次加载完成前不显示 0。 */

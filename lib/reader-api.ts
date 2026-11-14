@@ -50,6 +50,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(services.commandOnly)return;
   if(provider.capture){const captured=provider.capture();if(!captured)throw new ReaderError(503,'请先配置生成服务：使用本机或可信局域网地址打开 我的 → 生成服务与模型。');provider=captured;}
   const status=await provider.status();if(!status.configured)throw new ReaderError(503,status.message||'请先配置生成服务：使用本机或可信局域网地址打开 我的 → 生成服务与模型。');
+  return status;
  }
  try{
   if(path.join('/')==='status'&&req.method==='GET')return json(await provider.status());
@@ -299,6 +300,16 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     return json(await services.production.checkImage(uid,id,b.page,b.image));
    }
    if(path[2]==='setup'&&path.length===3&&req.method==='POST'){await requireProvider();const action=intakeActionSchema.parse(await body(req,32768));await changeIntake(repo,id,uid,action,services.localBooks);return json(services.production?await services.production.snapshot(uid,id):view(await repo.get(id,uid)));}
+   if(path[2]==='landscape'&&path.length===3&&['GET','POST'].includes(req.method)){
+    const production=services.production;
+    if(!production)throw new ReaderError(503,'制作队列暂不可用');
+    if(req.method==='GET')return json(await production.landscapeStatus(uid,id));
+    if(services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中启动横版绘图。');
+    const token=z.string().regex(/^[a-f0-9]{64}$/);
+    const command=z.union([z.object({startToken:token}).strict(),z.object({retryToken:token}).strict()]).parse(await body(req));
+    if(!(await requireProvider())?.models.image)throw new ReaderError(503,'请先配置支持绘图的图片服务。');
+    return json(await production.startLandscape(uid,id,command),202);
+   }
    if(path[2]==='revisions'&&path.length===3){
     if(req.method==='GET')return json(await revisionSnapshot(repo,id,uid));
     if(req.method==='POST'){

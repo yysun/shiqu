@@ -8,6 +8,7 @@ import {pathToFileURL} from 'node:url';
 import {FileMedia,mediaTypes,mediaKey} from './media.ts';
 import {openDatabase} from './database.ts';
 import {storySummaryMigration} from './story-summary-migration.ts';
+import {consolidationMigration} from './library-upgrade.ts';
 
 async function exists(filename:string){try{return await lstat(filename);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}}
 async function files(directory:string):Promise<string[]>{
@@ -50,8 +51,9 @@ export async function importLegacy(sourceDirectory:string,targetDirectory:string
     if(!database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table))throw Error('Unsupported legacy schema: '+table);
    }
    const names=database.prepare('SELECT name FROM d1_migrations').all().map(row=>String(row.name));
-   const migrations=(await readdir(path.join(root,'drizzle'))).filter(f=>f.endsWith('.sql'));
-   if(migrations.some(name=>![storySummaryMigration,bookReferenceMigration,'0018_consolidate_story_storage.sql'].includes(name)&&!names.includes(name)))throw Error('Legacy database migrations are incomplete; update the old edition before importing');
+   // 合并及后续迁移由目标库初始化，旧版 D1 记录中没有这些迁移。
+   const migrations=(await readdir(path.join(root,'drizzle'))).filter(f=>f.endsWith('.sql')&&f<consolidationMigration);
+   if(migrations.some(name=>![storySummaryMigration,bookReferenceMigration].includes(name)&&!names.includes(name)))throw Error('Legacy database migrations are incomplete; update the old edition before importing');
   }finally{database.close();}
   let objects=0;
   if(r2db.length){

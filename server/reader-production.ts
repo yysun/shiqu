@@ -26,6 +26,7 @@ import type {MediaStore} from '../lib/services.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
 import {readableImage} from './reader-image-health.ts';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
+import {imageDimensions,matchesLandscapeImageRatio} from '../lib/reader-image-dimensions.ts';
 import {effectiveIntakePhase,intakeSearch} from '../lib/reader-intake.ts';
 import type {IntakeSearch} from '../lib/reader-intake.ts';
 import {suggestionBatchSchema,freshSuggestions,maxSuggestionBatches} from '../lib/reader-suggestions.ts';
@@ -33,7 +34,7 @@ import type {SuggestionBatch,SuggestionProgress} from '../lib/reader-suggestions
 import {localSourceKey} from '../lib/reader-source-key.ts';
 import {readerMaxFrames,readerStoryboardBatchSize} from '../lib/reader-limits.ts';
 import {productionReadAhead,productionViewerLeaseMs} from '../lib/reader-production.ts';
-import type {ReaderProduction} from '../lib/reader-production.ts';
+import type {LandscapeStatus,ReaderProduction} from '../lib/reader-production.ts';
 import {JobYield,ProductionQueue,inputVersion,productionJobId,jobDependencies} from './production-queue.ts';
 import type {ProductionJob,JobSpec} from './production-queue.ts';
 import {authorizeRecovery,authorizeControl,authorizeOverride,commandReceipt,sessionFaults} from './reader-commands.ts';
@@ -49,6 +50,7 @@ export type ProductionOptions={imageWorkers?:number;now?:()=>number;leaseMs?:num
 type Options=ProductionOptions;
 const sessionLeaseMs=180000;
 const maxAutomaticAttempts=3;
+const landscapeKind='landscape-image';
 const publicationYieldMs=15000;
 // The stable prefix also recognizes redraw checkpoints written by older releases.
 const lostImagePrefix='这幅图片的文件已丢失或损坏。';
@@ -98,8 +100,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    targetSessionId:options.targetSessionId,
    limits:{search:1,text:1,image:options.imageWorkers??3,local:2},now:this.clock,leaseMs:options.leaseMs,
    canRun:job=>this.canRun(job),resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>{for(const id of this.jobProviders.keys())if(!this.queue.tasks.has(id))this.jobProviders.delete(id);this.wake();},
-   candidateFilter:`j.kind='image-publish' OR NOT EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND (s.generation_control!='active' OR (s.state='failed' AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=s.id AND f.owner_id=s.user_id AND f.state='recovering' AND (f.command_id=j.recovery_id OR f.kind='interrupted' AND f.job_id=j.id))) OR EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)))`,
-   skipCandidate:job=>!!options.targetSessionId&&job.session_id!==options.targetSessionId||!!options.stopBeforeImages&&['image','image-publish'].includes(job.kind)||job.kind!=='image-publish'&&this.supersededJobs.has(job.session_id),
+   candidateFilter:`j.kind='image-publish' OR (j.kind='landscape-image' AND EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND s.state='completed' AND NOT ${supersededSql('s')} AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id))) OR (j.kind!='landscape-image' AND NOT EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND (s.generation_control!='active' OR (s.state='failed' AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=s.id AND f.owner_id=s.user_id AND f.state='recovering' AND (f.command_id=j.recovery_id OR f.kind='interrupted' AND f.job_id=j.id))) OR EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id))))`,
+   skipCandidate:job=>!!options.targetSessionId&&job.session_id!==options.targetSessionId||!!options.stopBeforeImages&&['image','image-publish',landscapeKind].includes(job.kind)||job.kind!=='image-publish'&&this.supersededJobs.has(job.session_id),
    safeError:(error,job)=>error instanceof ReaderError?error.message:job.kind==='image-publish'?'图片已生成，暂时无法展开。请重试继续。':(this.jobProviders.get(job.id)||this.provider).safeError(error),
    terminal:error=>error instanceof ReaderError&&error.status<500,
    handlers:{
@@ -107,6 +109,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     prepare:{pool:'text',run:job=>this.script(job)},
     script:{pool:'text',run:job=>this.script(job)},
     image:{pool:'image',run:job=>this.image(job)},
+    [landscapeKind]:{pool:'image',run:(job,context)=>this.drawLandscape(job,context.isCurrent)},
     'image-publish':{pool:'local',drain:true,run:(job,context)=>this.publish(job,context.outputs)},
    },
   });
@@ -117,6 +120,92 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async raw(id:string,ownerId:string){
   const row=await this.find(id,ownerId);
   if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');return row;
+ }
+ private landscapeInputs(row:SessionRow){
+  const parsed=this.parsed(row),plan=parsed?.doc.plan;
+  if(!parsed||!plan?.pages.length)return null;
+  const {selection,doc}=parsed,images=plan.pages.map((_,i)=>doc.images[i]||'');
+  if(images.some(image=>!referenceImageKey(row.id,image)))return null;
+  return {plan,selection,images,version:inputVersion([landscapeKind,plan.characters,plan.pages,images,selection.artStyle,selection.productionPrompt])};
+ }
+ private async landscapeEligible(row:SessionRow){
+  return row.state==='completed'&&!await this.repository.superseded(row.id,row.user_id)
+   &&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
+ }
+ private async landscapeCheckpoint(row:SessionRow){
+  const inputs=this.landscapeInputs(row),available=!!inputs&&await this.landscapeEligible(row);
+  const total=this.parsed(row)?.doc.plan?.pages.length||0;
+  const status:LandscapeStatus={state:'idle',available,total,ready:0,images:Array<string>(total).fill(''),failed:[]};
+  const retry:ProductionJob[]=[];
+  if(!available||!inputs)return {status,inputs,retry};
+  const jobs=(await this.database.prepare("SELECT * FROM production_jobs WHERE session_id=? AND owner_id=? AND kind='landscape-image' AND version=? ORDER BY CAST(json_extract(payload,'$.page') AS INTEGER)").bind(row.id,row.user_id,inputs.version).all<ProductionJob>()).results;
+  if(!jobs.length){status.startToken=inputs.version;return {status,inputs,retry};}
+  const pending=jobs.some(job=>job.state==='queued'||job.state==='running');
+  for(const job of jobs){
+   const {page}=JSON.parse(job.payload) as {page:number};
+   if(job.state==='succeeded'){
+    const {value}=JSON.parse(job.result!) as Generated<string>;
+    const key=referenceImageKey(row.id,value);
+    if(key&&(pending||await this.validLandscapeImage(key))){
+     status.images[page]=value;status.ready++;continue;
+    }
+   }
+   if(job.state==='failed'||job.state==='succeeded'){
+    status.failed.push(page+1);retry.push(job);
+    status.error??=job.error||'已生成的横版图片丢失或损坏，请重试缺失幅。';
+   }
+  }
+  status.state=pending?'running':status.ready===total?'completed':'partial';
+  if(!pending&&retry.length)status.retryToken=inputVersion(retry.map(job=>[job.id,job.state,job.attempts,job.failure_id,job.updated_at]));
+  return {status,inputs,retry};
+ }
+ async landscapeStatus(ownerId:string,id:string){
+  return (await this.landscapeCheckpoint(await this.repository.get(id,ownerId))).status;
+ }
+ async startLandscape(ownerId:string,id:string,{startToken,retryToken}:{startToken?:string;retryToken?:string}){
+  if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重试。');
+  const row=await this.repository.get(id,ownerId),{status,inputs,retry}=await this.landscapeCheckpoint(row);
+  if(!status.available||!inputs)throw new ReaderError(409,'请先完成当前版本的竖版插图。');
+  const eligible=`s.id=? AND s.user_id=? AND s.state='completed' AND s.document=? AND s.selection=? AND NOT ${supersededSql('s')}
+   AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)`;
+  const basis=[id,ownerId,row.document,row.selection],now=this.clock();
+  if(status.startToken&&startToken===status.startToken){
+   const jobs=inputs.images.map((_,page)=>({page,id:productionJobId(id,landscapeKind,inputs.version,String(page))}));
+   await this.database.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,state,priority,attempts,lease_until,created_at,updated_at)
+    SELECT j.value->>'id',s.id,s.user_id,'landscape-image','image',?,'[]',json_object('page',j.value->>'page'),'queued',1000+CAST(j.key AS INTEGER),0,0,?,?
+    FROM stories s, json_each(?) j WHERE ${eligible} ON CONFLICT(id) DO NOTHING`)
+    .bind(inputs.version,now,now,JSON.stringify(jobs),...basis).run();
+  }else if(status.retryToken&&status.retryToken===retryToken){
+   const observed=retry.map(job=>({id:job.id,state:job.state,attempts:job.attempts,failure:job.failure_id??null,updated:job.updated_at}));
+   await this.database.prepare(`UPDATE production_jobs AS j SET state='queued',result=NULL,error=NULL,interrupted=0,lease_token=NULL,lease_until=0,updated_at=?
+    WHERE session_id=? AND owner_id=? AND kind='landscape-image' AND EXISTS(SELECT 1 FROM stories s WHERE ${eligible})
+    AND EXISTS(SELECT 1 FROM json_each(?) r WHERE r.value->>'id'=j.id AND r.value->>'state'=j.state AND r.value->>'attempts'=j.attempts
+     AND r.value->>'failure' IS j.failure_id AND r.value->>'updated'=j.updated_at)`)
+    .bind(now,id,ownerId,...basis,JSON.stringify(observed)).run();
+  }
+  this.wake();
+  return this.landscapeStatus(ownerId,id);
+ }
+ private async drawLandscape(job:ProductionJob,isCurrent:()=>Promise<boolean>){
+  const provider=this.jobProvider(job),row=await this.raw(job.session_id,job.owner_id),inputs=this.landscapeInputs(row);
+  if(!inputs||inputs.version!==job.version||!await this.landscapeEligible(row))throw new JobYield();
+  const {page}=JSON.parse(job.payload) as {page:number},reference=inputs.images[page];
+  const key=reference&&referenceImageKey(row.id,reference);
+  if(!key||await this.fileLost(key))throw new ReaderError(409,'本幅竖版参考图缺失或损坏，请修复后重试横版。');
+  const current=await this.raw(job.session_id,job.owner_id);
+  if(!await isCurrent()||!await this.landscapeEligible(current)||this.landscapeInputs(current)?.version!==job.version||this.stopping)throw new JobYield();
+  const artifactId=inputVersion([job.id,job.lease_token]),{selection,plan}=inputs;
+  const result=await provider.generator().image(plan,page,row.id,reference,selection.artStyle,selection.productionPrompt,artifactId,'landscape');
+  const stored=referenceImageKey(row.id,result.value);
+  if(!stored?.startsWith(`reader/${row.id}/artifacts/${page}-${artifactId}.`))throw new ReaderError(409,'横版图片未保存到本次任务。');
+  if(!await this.validLandscapeImage(stored))throw new ReaderError(409,'图片服务未返回可读取的 3∶2 横图，请重试本幅。');
+  return result;
+ }
+ private async validLandscapeImage(key:string){
+  const asset=await this.media.get(key);
+  if(!asset||mediaType(asset.body)!==asset.contentType)return false;
+  const dimensions=imageDimensions(asset.body);
+  return !!dimensions&&matchesLandscapeImageRatio(dimensions)&&await readableImage(asset.body);
  }
  private searchCurrent(row:SessionRow,round:number|undefined){
   const doc=JSON.parse(row.document) as Document;
@@ -137,6 +226,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return {generation:doc.intake?.generation,version:inputVersion({scriptVersion,plan:doc.plan,style:selection.artStyle,prompt:selection.productionPrompt,...(doc.revision?.redrawNotes?{redrawNotes:doc.revision.redrawNotes}:{})})};
  }
  private currentJob(row:SessionRow,job:ProductionJob,inputs=this.imageInputs(row)){
+  if(job.kind===landscapeKind)return false;
   const {generation,version}=inputs;
   if(generation!==undefined&&(JSON.parse(job.payload) as {setupGeneration?:number}).setupGeneration!==generation)return false;
   return !['image','image-publish'].includes(job.kind)||job.version===version;
@@ -171,7 +261,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private async resumeInterrupted(job:ProductionJob){
   // Attempts count every paid start, so a crash loop stops here and waits for an explicit retry.
-  if(this.stopping||job.attempts>=maxAutomaticAttempts)return false;
+  if(this.stopping||job.kind===landscapeKind||job.attempts>=maxAutomaticAttempts)return false;
   const row=await this.raw(job.session_id,job.owner_id);
   if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
   if(!this.readable(row)||!this.currentJob(row,job))return false;
@@ -185,7 +275,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   else await this.repository.control(id,ownerId,action,handoffOnly);
   this.wake();return this.snapshot(ownerId,id);
  }
- async managed(ownerId:string,id:string){const saved=await this.database.prepare('SELECT document FROM stories WHERE id=? AND user_id=?').bind(id,ownerId).first<{document:string}>();if(saved&&(JSON.parse(saved.document) as Document).intake)return true;return !!await this.database.prepare('SELECT id FROM production_jobs WHERE owner_id=? AND session_id=? LIMIT 1').bind(ownerId,id).first();}
+ async managed(ownerId:string,id:string){const saved=await this.database.prepare('SELECT document FROM stories WHERE id=? AND user_id=?').bind(id,ownerId).first<{document:string}>();if(saved&&(JSON.parse(saved.document) as Document).intake)return true;return !!await this.database.prepare("SELECT id FROM production_jobs WHERE owner_id=? AND session_id=? AND kind!='landscape-image' LIMIT 1").bind(ownerId,id).first();}
  async request(ownerId:string,id:string,viewerId:string,page:number,retry=false){return this.demand(ownerId,id,viewerId,page,page+productionReadAhead,retry);}
  async advance(ownerId:string,id:string,throughPage:number,retry:boolean){return this.demand(ownerId,id,'legacy-advance',0,throughPage,retry);}
  private async demand(ownerId:string,id:string,viewerId:string,page:number,throughPage:number,retry:boolean){
@@ -448,10 +538,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
  }
  private async canRun(job:ProductionJob){
-  if(this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&['image','image-publish'].includes(job.kind))return false;
+  if(this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&['image','image-publish',landscapeKind].includes(job.kind))return false;
   if(job.kind!=='image-publish'&&this.provider.capture&&!this.provider.capture())return false;
   const row=await this.raw(job.session_id,job.owner_id);
   if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
+  if(job.kind===landscapeKind)return !this.stopping&&await this.landscapeEligible(row)&&this.landscapeInputs(row)?.version===job.version&&!await this.viewedPublicationPending();
   if(!this.readable(row)||!this.currentJob(row,job))return false;
   const local=job.kind==='image-publish';
   if(!local){
@@ -592,7 +683,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    seen.add(row.id);
    const key={document:row.document,selection:row.selection,queued:row.queued_count,failed:row.failed_count},previous=this.pruneKeys.get(row.id);
    if(forceId!==row.id&&previous?.document===key.document&&previous.selection===key.selection&&previous.queued===key.queued&&previous.failed===key.failed||!this.readable(row))continue;
-   await this.database.prepare(`DELETE FROM production_jobs WHERE session_id=? AND owner_id=? AND state IN('queued','failed') AND EXISTS(SELECT 1 FROM stories s WHERE s.id=production_jobs.session_id AND s.user_id=production_jobs.owner_id
+   await this.database.prepare(`DELETE FROM production_jobs WHERE session_id=? AND owner_id=? AND kind!='landscape-image' AND state IN('queued','failed') AND EXISTS(SELECT 1 FROM stories s WHERE s.id=production_jobs.session_id AND s.user_id=production_jobs.owner_id
    AND CASE WHEN json_valid(s.document) AND json_type(s.document,'$.intake')='object' THEN
     CASE WHEN production_jobs.kind='discover'
      THEN COALESCE(json_extract(production_jobs.payload,'$.searchRound'),-1)!=CASE WHEN json_extract(s.document,'$.intake.search.state')='searching' THEN json_extract(s.document,'$.intake.search.round') ELSE -2 END

@@ -52,7 +52,7 @@ export class ProductionQueue{
  async retry(sessionId:string,ownerId:string,generation?:number){
   // An explicit retry restores the automatic recovery allowance for the story's current selection.
   // Search is retried on its own, so a retried story never starts another round of it.
-  await this.database.prepare("UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE session_id=? AND owner_id=? AND state IN('failed','queued') AND kind!='discover' AND (? IS NULL OR json_extract(payload,'$.setupGeneration')=?)").bind(this.clock(),sessionId,ownerId,generation??null,generation??null).run();
+  await this.database.prepare("UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE session_id=? AND owner_id=? AND state IN('failed','queued') AND kind NOT IN ('discover','landscape-image') AND (? IS NULL OR json_extract(payload,'$.setupGeneration')=?)").bind(this.clock(),sessionId,ownerId,generation??null,generation??null).run();
  }
  // Run a finished job again from scratch. Only an explicit retry may decide to pay for this.
  async rerun(id:string){

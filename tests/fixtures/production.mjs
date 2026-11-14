@@ -8,6 +8,7 @@ import {createReaderProvider} from '../../server/generation.ts';
 import {FileMedia} from '../../server/media.ts';
 import {geminiEvidenceAnswer} from './gemini-evidence.mjs';
 import {encoded,selection,makePlan,makeRequirements,makeReflectionCandidates} from './production-data.mjs';
+import {createCanvas} from '@napi-rs/canvas';
 export {encoded,selection,makePlan,makeRequirements,makeReflectionCandidates,turn,until} from './production-data.mjs';
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
 export async function productionFixture(t,provider='codex',variables={},storage={}){
@@ -17,7 +18,9 @@ export async function productionFixture(t,provider='codex',variables={},storage=
  await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
  const control={textVia:new Set(),calls:[],plans:[],outlines:[],batches:[],reflections:[],reflectionRepairs:[],frameReviews:[],reviews:[],structures:[],repairs:[],recommendations:[],hold:true,autoLength:8,active:0,maxActive:0,beforeText:null};
  async function image(prompt,reference,via){
-  const page=Number(prompt.match(/Scene (\d+):/)[1])-1,gate=deferred(),call={page,reference,prompt,via,...gate,done:false,bytes:encoded};
+  const page=Number(prompt.match(/Scene (\d+):/)[1])-1,gate=deferred();
+  const landscape=prompt.includes('3:2 landscape'),bytes=landscape?createCanvas(96,64).toBuffer('image/png').toString('base64'):encoded;
+  const call={page,reference,prompt,via,landscape,...gate,done:false,bytes};
   control.calls.push(call);control.active++;control.maxActive=Math.max(control.maxActive,control.active);
   try{if(control.hold)await gate.promise;return call.bytes;}finally{call.done=true;control.active--;}
  }

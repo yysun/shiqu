@@ -1,7 +1,8 @@
 // Verify outbound size support and preserve all valid native images without resolution gates.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {imageDimensions,imageRequestSize} from '../lib/reader-image-dimensions.ts';
+import {createCanvas} from '@napi-rs/canvas';
+import {imageDimensions,imageRequestSize,matchesLandscapeImageRatio} from '../lib/reader-image-dimensions.ts';
 import {createReaderProvider} from '../server/generation.ts';
 import {imageBytes,png,jpeg} from './fixtures/images.mjs';
 import {productionFixture,makePlan,until} from './fixtures/production.mjs';
@@ -29,6 +30,11 @@ test('outbound sizes follow official custom-size constraints without a default-s
  for(const size of ['900x1600','576x1024','2304x4096','auto','1024x1536','1280x1920','1024x1024','1536x1024','768x1152','1024x1365','0x0','1e3x1500','864x1536 injected','999999999x1499999998'])assert.equal(imageRequestSize(size),null,size);
 });
 
+test('landscape accepts the native 3:2 ratio and provider rounding',()=>{
+ for(const [width,height] of [[1536,1024],[1248,832],[1264,848]])assert.equal(matchesLandscapeImageRatio({width,height}),true);
+ for(const [width,height] of [[768,1376],[1376,768],[1024,1024],[0,0]])assert.equal(matchesLandscapeImageRatio({width,height}),false);
+});
+
 function controlledProvider(name){
  const stored=new Map(),calls=[];
  const control={bytes:png,mime:'image/png'};
@@ -41,6 +47,31 @@ function controlledProvider(name){
  return {provider,generator:provider.generator(),stored,calls,control};
 }
 for(const name of ['codex','gemini']){
+ test(`${name}: landscape sends this page's portrait and caption, validates ratio, and preserves the native bytes`,async()=>{
+  const f=controlledProvider(name),plan=makePlan(8),artifact='a'.repeat(64),page=2;
+  const {value:reference}=await f.generator.image(plan,page,'test','');
+  const landscape=new Uint8Array(createCanvas(1264,848).toBuffer('image/png'));
+  const generate=source=>f.generator.image(plan,page,'test',source,undefined,'',artifact,'landscape');
+  await assert.rejects(generate(''),/INVALID_ANCHOR/);
+  assert.equal(f.calls.length,1);
+  await assert.rejects(generate(reference),/INVALID_LANDSCAPE_RATIO/);
+  assert.equal(f.stored.size,1);
+  f.control.bytes=landscape;
+  const result=await generate(reference);
+  const request=f.calls.at(-1),parts=request.contents?.[0].parts;
+  if(name==='gemini')assert.deepEqual(request.generationConfig.imageConfig,{aspectRatio:'3:2',imageSize:'1K'});
+  const supplied=name==='codex'?request.image.bytes:new Uint8Array(Buffer.from(parts[0].inlineData.data,'base64'));
+  assert.deepEqual(supplied,png);
+  const prompt=name==='codex'?request.prompt:parts[1].text;
+  assert.match(prompt,/3:2 landscape/);
+  assert.ok(prompt.includes(JSON.stringify(plan.pages[page].caption)));
+  assert.ok(prompt.includes(JSON.stringify(plan.pages[page].prompt)));
+  assert.doesNotMatch(prompt,/9:16 portrait canvas|bottom quieter/);
+  assert.equal(result.value,`/api/reader/media/test/artifacts/${page}-${artifact}.png`);
+  assert.deepEqual(f.stored.get(`reader/test/artifacts/${page}-${artifact}.png`).bytes,landscape);
+  assert.deepEqual(f.stored.get(`reader/test/${page}.png`).bytes,png);
+ });
+
  test(`${name}: request 9:16 but save every valid native size and ratio without transforming bytes`,async()=>{
   const f=controlledProvider(name),plan=makePlan(8);
   for(const [file,mime,extension] of [...formats,...nativeImages.map(file=>[file,file.endsWith('.jpg')?'image/jpeg':file.endsWith('.webp')?'image/webp':'image/png',file.endsWith('.jpg')?'.jpg':file.endsWith('.webp')?'.webp':'.png'])]){

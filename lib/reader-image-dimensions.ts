@@ -1,9 +1,16 @@
 // Inspect image metadata and validate outbound API size options. Read displayed dimensions,
 // including EXIF rotation, without decoding pixels or transforming existing artwork.
 export type ImageDimensions={width:number;height:number};
+export type ImageLayout='portrait'|'landscape';
 // 864 × 1536 is exact 9:16 within OpenAI's custom-size limits (16-pixel multiples).
 export const imageTarget={width:864,height:1536};
 export const imageSizeDirection='Use a 9:16 portrait canvas. Set the native image generation size to 864x1536 (864 x 1536 pixels) where supported; both dimensions are multiples of 16. Retain the provider-native 1K dimensions when exact pixel sizing is unavailable. Do not crop, stretch or pad a different aspect ratio to simulate 9:16.';
+export const landscapeImageSize='1536x1024';
+
+// Gemini 等提供方会对原生 3∶2 画布的像素尺寸取整。
+export function matchesLandscapeImageRatio({width,height}:ImageDimensions){
+ return width>0&&height>0&&Math.abs(2*width-3*height)<=3*height*.01;
+}
 
 export function imageRequestSize(value?:string){
  const size=value?.trim()||'864x1536',match=/^([1-9]\d{0,5})x([1-9]\d{0,5})$/.exec(size);

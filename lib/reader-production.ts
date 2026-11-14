@@ -3,6 +3,7 @@ import type {SessionRow,SessionView,ProductionAction} from './reader-model.ts';
 import type {RecoveryRequest} from './reader-recovery.ts';
 export const productionReadAhead=6;
 export const productionViewerLeaseMs=30000;
+export type LandscapeStatus={state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;retryToken?:string;error?:string};
 export interface ReaderProduction{
  wake():void;
  control(ownerId:string,id:string,action:ProductionAction,handoffOnly?:boolean,requestId?:string):Promise<SessionView>;
@@ -15,4 +16,6 @@ export interface ReaderProduction{
  snapshot(ownerId:string,id:string):Promise<SessionView>;
  recover(ownerId:string,id:string,command:RecoveryRequest):Promise<SessionView>;
  checkImage(ownerId:string,id:string,page:number,image:string):Promise<SessionView>;
+ landscapeStatus(ownerId:string,id:string):Promise<LandscapeStatus>;
+ startLandscape(ownerId:string,id:string,command:{startToken?:string;retryToken?:string}):Promise<LandscapeStatus>;
 }

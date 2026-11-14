@@ -27,12 +27,13 @@ export function wrapPdfText(text:string,width:number,measure:(text:string)=>numb
  }
  return lines;
 }
-export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime(),layout:StoryPdfLayout='portrait'){
+export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime(),layout:StoryPdfLayout='portrait',landscapeImages?:readonly string[]){
  assertPdfReady(story);
  const {PDFDocument,rgb}=await import('pdf-lib');
  await runtime.ready();
  const pdf=await PDFDocument.create();pdf.setTitle(story.title);pdf.setAuthor(story.publication?.author||'未署名');pdf.setSubject(story.theme);pdf.setCreator('拾趣故事阅读器');
  const landscape=layout==='landscape';
+ const supplementary=landscape&&landscapeImages?.length===story.pages.length&&landscapeImages.every(Boolean)?landscapeImages:null;
  const [W,H,pageWidth,pageHeight]=landscape?[2100,1500,504,360]:[900,1350,360,540];
  const M=landscape?75:72;
  // 印刷模板的 0.13 英寸为 1/8 英寸出血的显示值。
@@ -144,6 +145,13 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   background();
   await runtime.image(blob,image=>{
    const imageWidth=W-2*M;
+   if(supplementary){
+    // 横图已经按印刷构图绘制，等比缩放并完整保留画面。
+    const scale=Math.min(imageWidth/image.width,imageHeight/image.height);
+    const width=image.width*scale,height=image.height*scale;
+    ctx.drawImage(image.value,(W-width)/2,M+(imageHeight-height)/2,width,height);
+    return;
+   }
    const scale=Math.max(imageWidth/image.width,imageHeight/image.height);
    const sourceWidth=imageWidth/scale,sourceHeight=imageHeight/scale;
    // 竖图从顶部向下取景，裁切集中在原图下方。
@@ -161,11 +169,11 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   }
  }
  try{
-  const cover=landscape?await runtime.read(story.pages[0].image,0):null;
+  const cover=landscape?await runtime.read(supplementary?.[0]??story.pages[0].image,0):null;
   if(cover){onProgress('正在制作封面和扉页');await addLandscapeFront(cover);}
   for(let i=0;i<story.pages.length;i++){
    onProgress(`正在整理第 ${i+1} / ${story.pages.length} 幅`);
-   const scene=story.pages[i],blob=i===0&&cover?cover:await runtime.read(scene.image,i);
+   const scene=story.pages[i],blob=i===0&&cover?cover:await runtime.read(supplementary?.[i]??scene.image,i);
    if(landscape){await addLandscapeScene(scene,i,blob);continue;}
    await runtime.image(blob,image=>{
     const scale=Math.max(W/image.width,H/image.height),width=image.width*scale,height=image.height*scale;
@@ -211,8 +219,8 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   return await pdf.save();
  }finally{canvas.width=0;canvas.height=0;}
 }
-export async function downloadStoryPdf(story:Story,onProgress:(text:string)=>void,layout:StoryPdfLayout='portrait'){
- const bytes=await createStoryPdf(story,onProgress,browserExportRuntime(),layout);
+export async function downloadStoryPdf(story:Story,onProgress:(text:string)=>void,layout:StoryPdfLayout='portrait',landscapeImages?:readonly string[]){
+ const bytes=await createStoryPdf(story,onProgress,browserExportRuntime(),layout,landscapeImages);
  const blob=new Blob([bytes as BlobPart],{type:'application/pdf'}),url=URL.createObjectURL(blob),link=document.createElement('a');
  link.href=url;link.download=pdfFilename(story.title,layout);(document.querySelector('dialog[open]')||document.body).appendChild(link);link.click();link.remove();
  return {url,filename:link.download};

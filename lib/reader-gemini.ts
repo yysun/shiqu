@@ -24,7 +24,7 @@ import {verifiedOriginalPayload} from './reader-source-types.ts';
 import {assertStoryBriefReady} from './reader-story-brief.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import {readerImageAsset,referenceImageKey} from './reader-image-assets.ts';
-import {imageDimensions} from './reader-image-dimensions.ts';
+import {imageDimensions,matchesLandscapeImageRatio,type ImageLayout} from './reader-image-dimensions.ts';
 import {storyboardGenerator} from './reader-storyboard.ts';
 import {geminiReviewEvidence} from './reader-gemini-evidence.ts';
 import {geminiResponseDiagnostic} from './reader-gemini-diagnostics.ts';
@@ -84,6 +84,7 @@ export function safeGeminiError(error:unknown){
   if(error.message==='UNSUPPORTED_FIELD')return 'Gemini 不支持本步骤的请求参数，已保留前面的内容。请更新应用或检查模型与请求配置。';
   if(error.message==='INCOMPLETE_RESPONSE')return 'Gemini 未返回完整结果，已保留前面的内容。请检查输出与推理预算后手动重试。';
   if(error.message==='INVALID_TEXT'||error.message==='INVALID_JSON')return 'Gemini 返回的内容格式无效，已保留前面的内容。可手动重试。';
+  if(error.message==='INVALID_LANDSCAPE_RATIO')return 'Gemini 未返回 3∶2 横版图片，已保存的画面可继续使用。请重试这一幅。';
   if(error.status===401||error.status===403)return '生成服务的密钥或模型权限暂不可用，请检查服务配置。';
   if(error.status===402)return '生成服务的计费或余额暂不可用，请检查 Gemini 项目的计费状态和可用额度。你的选择已保留。';
   if(error.status===404)return '所选模型暂不可用，请检查服务配置。';
@@ -194,7 +195,8 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
    if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new GeminiError('INVALID_PLAN');
    return {value,...metadata,reasoningEffort:reasoning.plan,promptRecord:promptRecord(instructions,payload,input.generationConfig.responseFormat.text.schema)};
   },
-  async image(plan:Plan,page:number,id:string,reference:string,style:ArtStyleId='ink-pencil',productionPrompt='',artifactId?:string){
+  async image(plan:Plan,page:number,id:string,reference:string,style:ArtStyleId='ink-pencil',productionPrompt='',artifactId?:string,layout:ImageLayout='portrait'){
+   if(layout==='landscape'&&(!reference||!artifactId))throw new GeminiError('INVALID_ANCHOR');
    const parts:Part[]=[];
    if(reference){
     // Authorized book snapshots are copied into the target story namespace before this call.
@@ -205,14 +207,16 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
     if(!mimeType||bytes.length>12*1024*1024)throw new GeminiError('INVALID_ANCHOR');
     parts.push({inlineData:{mimeType,data:encode(bytes)}});
    }
-   const prompt=imagePrompt(plan,page,style,productionPrompt,!!reference);
+   const prompt=imagePrompt(plan,page,style,productionPrompt,!!reference,layout);
    parts.push({text:prompt});
-   const {candidate,metadata}=await generate(models.image,{contents:[{role:'user',parts}],generationConfig:{responseModalities:['TEXT','IMAGE'],imageConfig:{aspectRatio:'9:16',imageSize:'1K'}}},'image');
+   const {candidate,metadata}=await generate(models.image,{contents:[{role:'user',parts}],generationConfig:{responseModalities:['TEXT','IMAGE'],imageConfig:{aspectRatio:layout==='landscape'?'3:2':'9:16',imageSize:'1K'}}},'image');
    const output=candidate.content?.parts?.find(p=>!p.thought&&p.inlineData)?.inlineData;
    if(!output||!(output.mimeType in imageTypes)||output.data.length>17*1024*1024)throw new GeminiError('INVALID_MEDIA');
    let bytes:Uint8Array;try{bytes=Uint8Array.from(atob(output.data),c=>c.charCodeAt(0));}catch{throw new GeminiError('INVALID_MEDIA');}
    if(!bytes.length||bytes.length>12*1024*1024||mediaType(bytes)!==output.mimeType)throw new GeminiError('INVALID_MEDIA');
-   if(!imageDimensions(bytes))throw new GeminiError('INVALID_MEDIA');
+   const dimensions=imageDimensions(bytes);
+   if(!dimensions)throw new GeminiError('INVALID_MEDIA');
+   if(layout==='landscape'&&!matchesLandscapeImageRatio(dimensions))throw new GeminiError('INVALID_LANDSCAPE_RATIO');
    const asset=readerImageAsset(id,page,imageTypes[output.mimeType as keyof typeof imageTypes],artifactId);
    await assets.put(asset.key,bytes,{contentType:output.mimeType});
    return {value:asset.url,...metadata,promptRecord:promptRecord('',prompt,undefined,reference||undefined)};

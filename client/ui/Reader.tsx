@@ -18,6 +18,8 @@
 
 import {pruneReadingCaches,type LibraryInventory} from '../reading-cache.ts';
 import StoryExportControl from './StoryExportControl';
+import {storyLandscapeRoute} from './StoryLandscapeStep';
+import type {LandscapeStatus} from '@/lib/reader-production';
 import StoryPublicationEditor,{StoryPublicationDetails,StoryPublicationDefaults} from './StoryPublication';
 import {generationImageModelForPage,generationModelNames,storyExportKey} from '@/lib/story-publication';
 import BookReferenceStar from './BookReferenceStar';
@@ -375,7 +377,12 @@ export default function Reader(){
   if(exportLock.current)return;
   exportLock.current=true;setExporting(format);setExportProgress('正在准备 '+exportOptions[format].label);
   try{
-   const key=format+':'+storyExportKey(output),cached=format==='zip'?zipDownload:format==='png'?pngDownload:pdfDownload;
+   let landscapeImages:readonly string[]|undefined;
+   if(format==='pdf-landscape'&&isGenerated(output)){
+    const status:LandscapeStatus=await request(storyLandscapeRoute(output.id));
+    if(status.state==='completed'&&status.images.length===output.pages.length&&status.images.every(Boolean))landscapeImages=status.images;
+   }
+   const key=format+':'+storyExportKey(output)+(landscapeImages?JSON.stringify(landscapeImages):''),cached=format==='zip'?zipDownload:format==='png'?pngDownload:pdfDownload;
    if(cached?.storyId===output.id&&cached.key===key){
     const link=document.createElement('a');link.href=cached.url;link.download=cached.filename;(document.querySelector('dialog[open]')||document.body).appendChild(link);link.click();link.remove();return;
    }
@@ -389,7 +396,7 @@ export default function Reader(){
     notify('一页 PNG 已准备好，可再次下载。');
    }else{
     const {downloadStoryPdf}=await import('@/lib/reader-pdf');
-    const result=await downloadStoryPdf(output,setExportProgress,format==='pdf-landscape'?'landscape':'portrait');setPdfDownload({...result,storyId:output.id,key});
+    const result=await downloadStoryPdf(output,setExportProgress,format==='pdf-landscape'?'landscape':'portrait',landscapeImages);setPdfDownload({...result,storyId:output.id,key});
     notify('PDF 已准备好，可再次下载。');
    }
   }catch(e){notify(e instanceof Error?e.message:'导出失败，请保持联网后重试。');}

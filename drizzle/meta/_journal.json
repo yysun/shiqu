@@ -148,6 +148,13 @@
       "when": 1793880000020,
       "tag": "0020_blocked_revision_faults",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1793880000021,
+      "tag": "0021_landscape_job_isolation",
+      "breakpoints": true
     }
   ]
 }

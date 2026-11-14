@@ -1,6 +1,7 @@
 // Exercise OpenAI wire contracts, complete shared story stages, reference images and safe failures using fake transport only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createCanvas} from '@napi-rs/canvas';
 import {mkdtemp,rm} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -66,6 +67,24 @@ test('image generation saves validated bytes and later frames send the saved anc
  const next=await generator.image(plan,1,'test',first.value);assert.ok(next.value.includes('/1.'));assert.equal(next.requestId,'image-fixture');assert.equal(f.calls.length,2);
  const reference=f.calls[1].options.body.get('image[]');assert.deepEqual(new Uint8Array(await reference.arrayBuffer()),png);
  await assert.rejects(generator.image(plan,1,'test','https://untrusted.example/image.png'),/INVALID_ANCHOR/);assert.equal(f.calls.length,2);
+});
+test('landscape sends the corresponding portrait as a fixed 1536x1024 edit',async t=>{
+ const landscape=createCanvas(1536,1024).toBuffer('image/png');
+ const f=await fixture(t,async(url,options)=>{
+  if(url.endsWith('/generations'))return Response.json({data:[{b64_json:encoded}]});
+  assert.ok(url.endsWith('/edits'));
+  const form=options.body;
+  assert.equal(form.get('size'),'1536x1024');
+  assert.match(form.get('prompt'),/3:2 landscape/);
+  assert.deepEqual(new Uint8Array(await form.get('image[]').arrayBuffer()),png);
+  return Response.json({data:[{b64_json:landscape.toString('base64')}]});
+ });
+ const generator=f.provider.generator(),plan=makePlan(8),page=2,artifact='a'.repeat(64);
+ const {value:reference}=await generator.image(plan,page,'test','');
+ const result=await generator.image(plan,page,'test',reference,undefined,'',artifact,'landscape');
+ assert.equal(result.promptRecord.reference,reference);
+ assert.deepEqual(Buffer.from(await (await f.media.get(`reader/test/artifacts/${page}-${artifact}.png`)).arrayBuffer()),landscape);
+ assert.deepEqual(new Uint8Array(await (await f.media.get(`reader/test/${page}.png`)).arrayBuffer()),png);
 });
 test('refusals, incomplete or malformed outputs and invalid image bytes fail without fallback or remote image fetching',async t=>{
  for(const value of [{status:'incomplete',output:[]},{status:'completed',output:[{type:'message',content:[{type:'refusal',refusal:'private text'}]}]},{status:'completed',output:[{type:'message',content:[{type:'output_text',text:'not JSON'}]}]}]){

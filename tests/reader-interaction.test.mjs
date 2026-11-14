@@ -1,6 +1,8 @@
 // 验证阅读手势、书架导航与阅读进度、收藏状态的合并规则。
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createCanvas} from '@napi-rs/canvas';
+import {PDFDocument} from 'pdf-lib';
 import {newWheelGesture,wheelPageDirection,swipePageDirection,edgePageDirection} from '../lib/reader-navigation.ts';
 
 test('scene edge clicks use the outer quarters of the reader, not the viewport',()=>{
@@ -74,7 +76,7 @@ test('themes share source-faithful production defaults while reader-written requ
 
 
 import {freshSuggestions,suggestionKey,suggestionRequestSchema} from '../lib/reader-suggestions.ts';
-import {assertPdfReady,pdfFilename,wrapPdfText} from '../lib/reader-pdf.ts';
+import {assertPdfReady,createStoryPdf,pdfFilename,wrapPdfText} from '../lib/reader-pdf.ts';
 import {makeStory} from './fixtures/story.mjs';
 test('batch history isolates book, custom source and theme without splitting on style or length',()=>{
  assert.equal(suggestionKey('liaozhai','irrelevant','反转'),suggestionKey('liaozhai',undefined,' 反转 '));
@@ -91,6 +93,37 @@ test('PDF refuses incomplete stories and wraps Chinese, newlines and long links 
  assert.deepEqual(wrapPdfText('前一行\n后一行',10,s=>s.length),['前一行','后一行']);
  const long='https://example.com/'+('path'.repeat(100));assert.equal(wrapPdfText(long,30,s=>s.length).join(''),long);
  assert.equal(pdfFilename('故事/名字?'),'故事名字-拾趣.pdf');
+});
+
+test('print PDF uses complete landscape artwork without cropping and otherwise preserves portrait fallback',async()=>{
+ const story=makeStory(2),portrait=story.pages.map(page=>page.image),landscape=['/landscape-1.png','/landscape-2.png'];
+ const jpeg=new Blob([await createCanvas(2,2).encode('jpeg')],{type:'image/jpeg'});
+ async function render(layout,images){
+  const reads=[],draws=[];
+  const context={fillRect(){},fillText(){},clearRect(){},measureText:text=>({width:text.length*32}),
+   drawImage:(...args)=>draws.push(args),createLinearGradient:()=>({addColorStop(){}})};
+  const runtime={ready:async()=>{},canvas:()=>({getContext:()=>context,toBlob:done=>done(jpeg)}),
+   read:async url=>{reads.push(url);return url;},
+   image:async(url,draw)=>{const wide=landscape.includes(url);return draw({value:url,width:wide?30:20,height:wide?20:30});}};
+  return {reads,draws,pdf:await PDFDocument.load(await createStoryPdf(story,undefined,runtime,layout,images))};
+ }
+ const complete=await render('landscape',landscape);
+ assert.deepEqual(complete.reads,landscape);
+ assert.deepEqual(complete.draws.map(draw=>draw[0]),[landscape[0],...landscape]);
+ for(const draw of complete.draws){
+  assert.equal(draw.length,5);
+  assert.equal(draw[3]/draw[4],1.5);
+ }
+ assert.equal(complete.pdf.getPageCount(),5);
+ assert.deepEqual(complete.pdf.getPage(2).getTrimBox(),{x:9,y:9,width:504,height:360});
+ assert.deepEqual(complete.pdf.getPage(2).getBleedBox(),{x:0,y:0,width:522,height:378});
+ const partial=await render('landscape',[landscape[0],'']);
+ assert.deepEqual(partial.reads,portrait);
+ assert.ok(partial.draws.slice(1).every(draw=>draw.length===9&&draw[2]===0));
+ const reading=await render('portrait',landscape);
+ assert.deepEqual(reading.reads,portrait);
+ assert.deepEqual(reading.pdf.getPage(0).getSize(),{width:360,height:540});
+ assert.deepEqual(story.pages.map(page=>page.image),portrait);
 });
 
 
