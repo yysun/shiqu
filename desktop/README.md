@@ -131,8 +131,8 @@ hook 是每个克隆的本地配置，不能约束网页创建标签、其他未
 发布前将 `package.json`、`src-tauri/tauri.conf.json` 和 `src-tauri/Cargo.toml` 的版本更新为同一个 `X.Y.Z`，同步 `src-tauri/Cargo.lock` 中的本应用版本，并提交源码。然后推送对应标签，例如当前版本：
 
 ```bash
-git tag v0.9.0
-git push origin v0.9.0
+git tag v0.12.0
+git push origin v0.12.0
 ```
 
 标签所在提交必须包含该工作流及要发布的源码；GitHub 不会打包未提交的本地修改。每个版本使用新的标签。README 的 `/releases/latest/download/` 链接依赖以下固定文件名：

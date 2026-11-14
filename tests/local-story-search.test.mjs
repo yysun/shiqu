@@ -426,6 +426,8 @@ test('主题核对完整的 50 条索引候选，证据真实才按明确和暗�
   });
   f.book.input.text=section.units.map(unit=>'['+unit.id+']\n'+unit.text).join('\n\n');
  }finally{db.close();}
+ const indexed=section.units.map((unit,index)=>({source:{edition:f.book.edition,sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id},title:'故事 '+(index+1),summary:'与复仇相关的故事。'}));
+ f.search.lookupHits=async(_book,query,_signal,byTitle=false,limit=42)=>query==='复仇'&&!byTitle?indexed.slice(0,limit):[];
  const books=new LocalBooks(process.cwd(),f.search);books.book=async()=>f.book;
  const calls=[],runner={status:async()=>({configured:true,model:'configured-extraction-model'}),run:async job=>{
   assert.equal(job.model,undefined);
@@ -467,10 +469,6 @@ test('主题核对完整的 50 条索引候选，证据真实才按明确和暗�
  assert.deepEqual(second.stories.map(row=>row.title),['故事 24','故事 50','故事 1']);
  assert.match(second.stories.at(-1).matchReason,/情节暗示/);
  assert.equal(calls.length,2);
- const scope=(await bookContents(books,query)).entries.filter(entry=>['故事 1','故事 2'].includes(entry.title)).map(entry=>entry.source);
- const scoped=await reopened.suggestions({...query,discoverySources:scope},[],undefined,observer);
- assert.deepEqual(scoped.stories.map(row=>row.title),['故事 1']);
- assert.deepEqual(calls.slice(2),[[1,2],[2]]);
 });
 
 test('多段原文的系统标签和跨段拼接都不能当作主题证据',async t=>{

@@ -95,7 +95,8 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
    const prepareRequirements=!!doc.intake&&!doc.setupRequirements?.suggestions;
    const result=await generator.recommend(selection,id,doc.original,prepareRequirements),recommendation=frameRecommendationOutputSchema(doc.original,prepareRequirements,selectedStory).parse(result.value);
    if(selectedStory&&candidate&&chosen){
-    const art=recommendation.artRecommendation!;
+    const art=candidate.artRecommendation||recommendation.artRecommendation!;
+    recommendation.artRecommendation=art;
     selection.storyTitle=recommendation.storyTitle!;
     if(!doc.intake!.manualArt)selection.artStyle=art.artStyle;
     preparedStory={title:selection.storyTitle,description:recommendation.storySummary!.slice(0,180),artRecommendation:art,batch:chosen.batch,index:chosen.index};

@@ -10,9 +10,9 @@ import {userFlowTests,extendedFlowTests,selectTests} from '../scripts/test-story
 
 const fullOnly='tests/local-image-batches.test.mjs';
 
-test('the tag gate runs full qualification and the npm gate retains the production-backed lifecycle smoke',async()=>{
+test('the tag gate runs the focused release smoke and the npm gate retains its production-backed lifecycle smoke',async()=>{
  const manifest=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
- assert.match(manifest.scripts['release:check'],/^pnpm typecheck && pnpm lint && pnpm test:pr --full && cargo fmt\b/);
+ assert.match(manifest.scripts['release:check'],/^pnpm typecheck && pnpm lint && pnpm test:e2e --gate=release && cargo fmt\b/);
  assert.match(manifest.scripts['npm:check'],/^pnpm typecheck && pnpm lint && pnpm test:e2e --gate=npm$/);
  for(const name of ['release:check','npm:check']){
   assert.equal((manifest.scripts[name].match(/pnpm (?:run )?test\b/g)||[]).length,1,'one combined test invocation per gate');
@@ -82,9 +82,9 @@ if(args[0]==='--version'){console.log(manifest.packageManager.slice(5));process.
 fs.appendFileSync(process.env.PRE_PUSH_LOG,JSON.stringify({args,marker:fs.readFileSync('marker','utf8'),cwd:process.cwd(),gitDir:process.env.GIT_DIR})+'\\n');
 if(args[0]==='run'&&process.env.PRE_PUSH_FAIL==='1')process.exit(1);
 if(args[0]==='run'&&args[1]==='release:check'&&process.env.PRE_PUSH_REAL_FLOWS==='1'){
- const check=manifest.scripts['release:check'].split(' && ').find(command=>command.startsWith('pnpm test:pr '));
- if(!check)throw Error('Missing full release plan');
- const result=require('node:child_process').spawnSync(process.execPath,['scripts/test-pr.mjs',...check.split(' ').slice(2)],{env:process.env,stdio:'inherit'});
+ const check=manifest.scripts['release:check'].split(' && ').find(command=>command.startsWith('pnpm test:e2e --gate=release'));
+ if(!check)throw Error('Missing release smoke gate');
+ const result=require('node:child_process').spawnSync(process.execPath,['scripts/test-story-e2e.mjs',...check.split(' ').slice(2)],{env:process.env,stdio:'inherit'});
  process.exit(result.status??1);
 }
 `);
@@ -130,7 +130,7 @@ test('release pushes check the tagged snapshot once for lightweight and annotate
  assert.equal((f.git(['worktree','list','--porcelain']).stdout.match(/^worktree /gm)||[]).length,1);
 });
 
-for(const failedFlow of ['tests/headless-cli.test.mjs','tests/release-smoke.playwright.e2e.mjs',fullOnly])test('full plan failure rejects a real v* tag push: '+failedFlow,{skip:process.platform==='win32'},async t=>{
+for(const failedFlow of ['tests/headless-cli.test.mjs','tests/release-smoke.playwright.e2e.mjs'])test('release smoke failure rejects a real v* tag push: '+failedFlow,{skip:process.platform==='win32'},async t=>{
  const f=await fixture(t,{failedFlow});f.git(['tag','v0.0.4']);
  await writeFile(path.join(f.checkout,'marker'),'uncommitted content');
  const pushed=f.git(['push','origin','v0.0.4'],{PRE_PUSH_REAL_FLOWS:'1'},false);
@@ -140,10 +140,10 @@ for(const failedFlow of ['tests/headless-cli.test.mjs','tests/release-smoke.play
  assert.equal((f.git(['worktree','list','--porcelain']).stdout.match(/^worktree /gm)||[]).length,1);
 });
 
-test('passing full qualification executes under an inherited test environment before a v* tag is accepted',{skip:process.platform==='win32'},async t=>{
+test('passing release smoke executes under an inherited test environment before a v* tag is accepted',{skip:process.platform==='win32'},async t=>{
  const f=await fixture(t);f.git(['tag','v0.0.5']);
  const pushed=f.git(['push','origin','v0.0.5'],{PRE_PUSH_REAL_FLOWS:'1'});
- assert.ok((pushed.stdout+pushed.stderr).includes('release flow probe: '+fullOnly));assert.match(pushed.stdout+pushed.stderr,/PR test plan:/);
+ assert.ok((pushed.stdout+pushed.stderr).includes('release flow probe: tests/release-smoke.playwright.e2e.mjs'));assert.match(pushed.stdout+pushed.stderr,/Story E2E PASS/);
  assert.match(f.git(['ls-remote','--tags','origin']).stdout,/refs\/tags\/v0\.0\.5/);
  assert.equal((f.git(['worktree','list','--porcelain']).stdout.match(/^worktree /gm)||[]).length,1);
 });

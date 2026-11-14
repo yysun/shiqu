@@ -421,28 +421,32 @@ async function artPreparation(){
  const doc={plan:null,images:[],audio:[],usage:[],original:{...original,localSource:source},intake:{phase:'preparing',generation:0,creationHash:'test',selected:{batch:0,index:0},search:{round:1,state:'idle'},batches:[{stories:[{title:'梦蝶',description:'梦与醒。',source},{title:'大葫芦',description:'器物与用处。',source:{...source,firstUnit:'u1',lastUnit:'u1'}}],note:''}]}};
  db.prepare('UPDATE stories SET document=? WHERE id=?').run(JSON.stringify(doc),id);
  g.prepareOriginal=async s=>({...original,localSource:s.source});
- g.recommend=async()=>({value:{count:7,reason:'保留完整因果。',storySummary:plan.summary,storyMatchReason:'按原典主线展开。',requirements:{productionPrompt:'保留梦蝶与醒来的对照。',acceptancePrompt:'交代庄周梦中化蝶。\n交代庄周醒来的真实停点。'}},model:'mock',requestId:'frames',usage:null});
+ g.recommend=async selection=>frameForStory(selection,selection.artStyle,'沿用当前画风。');
  const read=()=>view(db.prepare('SELECT * FROM stories WHERE id=?').get(id));
  const choose=async index=>{const current=read();await changeIntake(repo,id,'alice',{action:'choose',batch:0,index,generation:current.intake.generation,requestId:crypto.randomUUID(),settings:{artStyle:current.selection.artStyle,productionPrompt:'',narrativeDetail:'balanced'}});};
  return {repo,db,id,g,read,choose};
 }
 
+function frameForStory(selection,artStyle,reason){
+ return {value:{count:7,reason:'保留完整因果。',storyTitle:selection.storyTitle,storySummary:plan.summary,storyMatchReason:'按原典主线展开。',artRecommendation:{artStyle,reason},requirements:{productionPrompt:'保留梦蝶与醒来的对照。',acceptancePrompt:'交代庄周梦中化蝶。\n交代庄周醒来的真实停点。'}},model:'mock',requestId:'frames',usage:null};
+}
+
 test('preparation recommends each chosen story and durably reuses its art on reselection',async()=>{
  const f=await artPreparation();let calls=0;
- f.g.recommendArt=async(s,text)=>{calls++;assert.deepEqual(text.localSource,s.source);return {artStyle:s.storyTitle==='梦蝶'?'paper-cut':'woodblock',reason:`适合${s.storyTitle}的动作与意境。`};};
+ f.g.recommend=async selection=>{calls++;const artStyle=calls===3?'watercolor':selection.storyTitle==='梦蝶'?'paper-cut':'woodblock';return frameForStory(selection,artStyle,`适合${selection.storyTitle}的动作与意境。`);};
  await advanceStory(f.repo,f.g,'alice',f.id,0);
  let saved=f.read();assert.equal(saved.intake.phase,'confirming');assert.equal(saved.selection.artStyle,'paper-cut');assert.equal(saved.intake.batches[0].stories[0].artRecommendation.reason,'适合梦蝶的动作与意境。');
  await f.choose(1);await advanceStory(f.repo,f.g,'alice',f.id,0);
  saved=f.read();assert.equal(saved.selection.artStyle,'woodblock');assert.equal(saved.intake.batches[0].stories[1].artRecommendation.artStyle,'woodblock');
  await f.choose(0);await advanceStory(new ReaderRepository(f.repo.db),f.g,'alice',f.id,0);
- assert.equal(f.read().selection.artStyle,'paper-cut');assert.equal(calls,2,'Reselection reuses the persisted recommendation');
+ assert.equal(f.read().selection.artStyle,'paper-cut');assert.equal(f.read().intake.batches[0].stories[0].artRecommendation.artStyle,'paper-cut');assert.equal(calls,3,'Reselection keeps the saved recommendation');
  f.db.close();
 });
 
 test('an in-flight art result preserves a manual draft and concurrently appended search results',async()=>{
  const f=await artPreparation();let release,started;
  const waiting=new Promise(resolve=>{started=resolve;});
- f.g.recommendArt=async()=>{started();return new Promise(resolve=>{release=resolve;});};
+ f.g.recommend=async selection=>{started();return new Promise(resolve=>{release=()=>resolve(frameForStory(selection,'paper-cut','纸影适合梦境。'));});};
  const work=advanceStory(f.repo,f.g,'alice',f.id,0);await waiting;
  const draft={artStyle:'cinematic',productionPrompt:'我的要求',narrativeDetail:'balanced',length:5};
  await changeIntake(f.repo,f.id,'alice',{action:'draft',settings:draft,generation:0,requestId:crypto.randomUUID()});
@@ -457,26 +461,23 @@ test('an in-flight art result preserves a manual draft and concurrently appended
 test('a saved manual style survives later story recommendations',async()=>{
  const f=await artPreparation();
  f.db.prepare("UPDATE stories SET selection=json_set(selection,'$.artStyle','cinematic'),document=json_set(document,'$.intake.manualArt',json('true')) WHERE id=?").run(f.id);
- f.g.recommendArt=async()=>({artStyle:'paper-cut',reason:'纸影适合梦境。'});
+ f.g.recommend=async selection=>frameForStory(selection,'paper-cut','纸影适合梦境。');
  await advanceStory(f.repo,f.g,'alice',f.id,0);
  assert.equal(f.read().selection.artStyle,'cinematic');assert.equal(f.read().intake.batches[0].stories[0].artRecommendation.artStyle,'paper-cut');f.db.close();
 });
 
 test('frame recommendation retries reuse saved art and art failures never pretend a default was recommended',async()=>{
- const f=await artPreparation();let calls=0,frames=0,failArt=true;
- f.g.recommendArt=async()=>{calls++;if(failArt)throw Error('art unavailable');return {artStyle:'woodblock',reason:'轮廓适合动作。'};};
- f.g.recommend=async()=>{if(frames++===0)throw Error('frames unavailable');return {value:{count:7,reason:'保留完整因果。',storySummary:plan.summary,storyMatchReason:'按原典主线展开。',requirements:{productionPrompt:'保留梦蝶与醒来的对照。',acceptancePrompt:'交代庄周梦中化蝶。\n交代庄周醒来的真实停点。'}},model:'mock',requestId:'frames',usage:null};};
+ const f=await artPreparation();let calls=0;
+ f.g.recommend=async selection=>{if(calls++===0)throw Error('art unavailable');return frameForStory(selection,'woodblock','轮廓适合动作。');};
  await advanceStory(f.repo,f.g,'alice',f.id,0);
- assert.equal(f.read().state,'failed');assert.equal(f.read().intake.batches[0].stories[0].artRecommendation,undefined);assert.equal(frames,0);
- failArt=false;await advanceStory(f.repo,f.g,'alice',f.id,0,true);
- assert.equal(f.read().state,'failed');assert.equal(f.read().selection.artStyle,'woodblock');
- await advanceStory(new ReaderRepository(f.repo.db),f.g,'alice',f.id,0,true);
- assert.equal(f.read().intake.phase,'confirming');assert.equal(calls,2,'Frame retry does not pay for art again');f.db.close();
+ assert.equal(f.read().state,'failed');assert.equal(f.read().intake.batches[0].stories[0].artRecommendation,undefined);assert.equal(calls,1);
+ await advanceStory(f.repo,f.g,'alice',f.id,0,true);
+ assert.equal(f.read().intake.phase,'confirming');assert.equal(f.read().selection.artStyle,'woodblock');assert.equal(f.read().intake.batches[0].stories[0].artRecommendation.artStyle,'woodblock');assert.equal(calls,2);f.db.close();
 });
 
 test('a replaced generation rejects an in-flight art result',async()=>{
  const f=await artPreparation();
- f.g.recommendArt=async()=>{f.db.prepare("UPDATE stories SET document=json_set(document,'$.intake.generation',1),lock_token=NULL,state='idle' WHERE id=?").run(f.id);return {artStyle:'paper-cut',reason:'纸影适合梦境。'};};
+ f.g.recommend=async selection=>{f.db.prepare("UPDATE stories SET document=json_set(document,'$.intake.generation',1),lock_token=NULL,state='idle' WHERE id=?").run(f.id);return frameForStory(selection,'paper-cut','纸影适合梦境。');};
  await assert.rejects(advanceStory(f.repo,f.g,'alice',f.id,0),error=>error.status===409);
  assert.equal(f.read().selection.artStyle,'ink-pencil');assert.equal(f.read().intake.batches[0].stories[0].artRecommendation,undefined);f.db.close();
 });

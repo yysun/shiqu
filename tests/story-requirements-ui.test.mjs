@@ -49,8 +49,9 @@ test('flow recovery and exits are links while controls outside the flow retain t
  const primary=render(Control,{session,busy:false,onControl:noop,primary:true});assert.match(primary,/class="yu-primary"/);
  const compact=render(Control,{session,busy:false,onControl:noop});assert.match(compact,/class="yu-generation-control"/);
  const back=Back({onBack:props.onBack});back.props.onClick();assert.deepEqual(calls,['back']);assert.equal(back.props.className,'yu-generation-back');
- for(const phase of ['discovering','choosing','confirming']){
-  const intake={phase,generation:0,search:{state:phase==='discovering'?'searching':'idle'},batches:phase==='confirming'?[{stories:[{title:'庄周梦蝶',description:'故事简介'}],note:''}]:[],...(phase==='confirming'?{selected:{batch:0,index:0}}:{})};
+ const discovering=render(Setup,{session:{...session,intake:{phase:'discovering',generation:0,search:{state:'searching'},batches:[]}},book:'庄子',busy:false,onAction:noop,progress:props});assert.equal(discovering,'','Discovery stays in the story picker.');
+ for(const phase of ['choosing','preparing','confirming']){
+  const intake={phase,generation:0,search:{state:'idle'},batches:[{stories:[{title:'庄周梦蝶',description:'故事简介'}],note:''}],selected:{batch:0,index:0}};
   const html=render(Setup,{session:{...session,intake,selection:{...session.selection,narrativeDetail:'balanced'}},book:'庄子',busy:false,onAction:noop,progress:props});assert.equal((html.match(/>返回书架<\/(?:button|a)>/g)||[]).length,1,phase);
  }
 });

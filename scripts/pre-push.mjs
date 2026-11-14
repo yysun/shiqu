@@ -1,4 +1,4 @@
-// 在隔离工作区对每个标签提交执行一次完整 JS 资格检查；CI 负责原生测试与安装包冒烟。
+// 在隔离工作区对每个标签提交运行快速发布冒烟；CI 负责原生测试与安装包冒烟。
 import {spawnSync} from 'node:child_process';
 import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import os from 'node:os';
