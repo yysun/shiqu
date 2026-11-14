@@ -232,7 +232,7 @@ button.yu-page-surface{padding:0;border:0;background:transparent;cursor:default}
 .yu-source-chapter{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;column-gap:10px;margin:0;padding:0 13px;border:1px solid #dce1d2;border-radius:10px;background:#fffdf6;color:#304c37;overflow-wrap:anywhere}.yu-source-chapter.selected{background:#edf3e5;border-color:#57774b}.yu-source-chapter input{align-self:center;width:18px;height:18px;margin:0;accent-color:#57774b}.yu-source-chapter-title{display:block;align-self:center;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.yu-source-chapter-copy{display:flex;flex-direction:column;gap:5px;min-width:0}.yu-source-chapter:has(>input:disabled){opacity:.6}.yu-source-chapter:has(input:focus-visible){outline:2px solid #57774b;outline-offset:2px}.yu-source-original-link{display:flex;flex:none;align-items:center;justify-content:flex-end;align-self:center;min-height:40px;padding:4px 0 4px 10px;border:0;background:transparent;color:#526f43;font:inherit;font-size:var(--yu-meta-size);line-height:1;white-space:nowrap;text-decoration:underline;text-underline-offset:3px;cursor:pointer}.yu-source-original-link:disabled{opacity:.55;cursor:wait}.yu-source-view-error{margin:8px 2px;color:#a44d3d;font-size:var(--yu-meta-size)}.yu-picker-original{padding:18px 0 8px;color:#48543f}.yu-picker-original h3{font:500 20px/1.5 var(--serif);margin:0 0 12px}.yu-picker-original p{white-space:pre-wrap;font:16px/2 var(--serif);color:#58644f}.yu-picker-original>div{display:flex;align-items:center;gap:6px;margin-top:18px;color:#829071;font-size:var(--yu-meta-size)}
 
 .yu-setting-row .yu-revision-open{flex-shrink:0}
-.yu-story-name{padding:8px 0 12px}
+.yu-story-name{padding:4px 0 8px}
 .yu-story-name>div{min-width:0}
 .yu-story-name>.yu-setting-row{padding:0}
 .yu-story-name>.yu-setting-row>p,.yu-setting-row.yu-story-name p{min-width:0;margin-top:0;font-family:var(--serif);font-size:20px;font-weight:500;line-height:1.5;color:#3a563f;overflow-wrap:anywhere}
@@ -253,7 +253,7 @@ button.yu-page-surface{padding:0;border:0;background:transparent;cursor:default}
 
 /* Keep the shared workflow close to adjacent content without stacking credit and section spacing. */
 .yu-pdf-setting>.yu-publication-summary{padding-bottom:0}
-.yu-settings-flow{margin:12px 0;padding-top:8px;border-top:1px solid #dce3cf}
+.yu-settings-flow{margin:8px 0;padding-top:4px;border-top:1px solid #dce3cf}
 .yu-settings-flow:first-child{margin-top:0;padding-top:0;border-top:0}
 .yu-story-name+.yu-settings-flow,.yu-pdf-setting+.yu-settings-flow{margin-top:0}
 
