@@ -23,6 +23,12 @@ test('a scroll back returns only when it starts at the start edge',()=>{
  assert.equal(wheelBackAtStart(arriving,sideways(-60,40),true),0,'its momentum at the first frame does not leave');
  assert.equal(wheelBackAtStart(arriving,sideways(-50,400),true),0);assert.equal(wheelBackAtStart(arriving,sideways(-40,416),true),-1,'a new swipe right at the first frame leaves');
  assert.equal(wheelBackAtStart(newWheelGesture(),sideways(90,0),true),0,'a swipe left from the first frame never leaves');
+ const arrivingAfterTurn=newWheelGesture();
+ assert.equal(wheelPageDirection(arrivingAfterTurn,input(70,0)),1);
+ assert.equal(wheelPageDirection(arrivingAfterTurn,input(10,16)),0);
+ assert.equal(wheelBackAtStart(arrivingAfterTurn,input(-30,32),false),0);
+ assert.equal(wheelBackAtStart(arrivingAfterTurn,input(-70,48),true),0,'acceleration during an edge approach stays in the same gesture');
+ assert.equal(wheelBackAtStart(arrivingAfterTurn,input(-70,400),true),-1);
 });
 import {defaultProductionDirection,defaultProductionPrompt,normalizeProductionPrompt,promptAfterThemeChange,directStorySettings} from '../lib/reader-prompts.ts';
 
@@ -42,6 +48,18 @@ test('trackpad rebound cannot reverse or skip a page within the same gesture',()
  assert.equal(move(0,20),0);assert.equal(move(30,50),1);
  for(let time=100;time<=1000;time+=100)assert.equal(move(time,time%200===0?-75:80),0);
  assert.equal(move(1400,-65),-1);
+});
+test('a single accelerated rebound cannot reverse a page turn after decay',()=>{
+ const gesture=newWheelGesture();
+ const move=(time,y)=>wheelPageDirection(gesture,{time,x:0,y,mode:0,height:800});
+ assert.equal(move(0,70),1);
+ assert.equal(move(16,30),0);
+ assert.equal(move(32,10),0);
+ assert.equal(move(48,-70),0);
+ assert.equal(move(64,10),0,'movement returning to the original direction clears the reversal');
+ assert.equal(move(80,3),0);
+ assert.equal(move(96,-70),0);
+ assert.equal(move(112,-35),-1,'a continuing reversal turns back');
 });
 test('mouse wheel units and small movements are handled consistently',()=>{
  const gesture=newWheelGesture();

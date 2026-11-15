@@ -6,7 +6,6 @@ import {hasPublicationAuthor,publicationSchema,withPublicationDefaults} from '@/
 import Sheet from './StorySheet';
 import {request} from './shared';
 import './story-publication.css';
-import StoryFlowAction from './StoryFlowAction';
 
 export default function StoryExportControl({story,format,disabled,busy,className,onExport,onEdit,children}:{story:Story;format:'pdf'|'png'|'zip';disabled:boolean;busy:boolean;className:string;onExport:(story:Story)=>Promise<void>|void;onEdit?:()=>void;children:ReactNode}){
  const [confirming,setConfirming]=useState<Story|null>(null),[checking,setChecking]=useState(false),[error,setError]=useState('');
@@ -28,6 +27,6 @@ export default function StoryExportControl({story,format,disabled,busy,className
  return <><button type="button" className={className} aria-busy={busy||checking} disabled={disabled||checking} onClick={()=>void start()}>{checking&&!busy?'正在核对署名…':children}</button>{error&&!confirming&&<p className="yu-export-credit-error" role="alert">{error}</p>}{confirming&&<Sheet title="作品还未署名" busy={checking} onClose={()=>setConfirming(null)}><div className="yu-export-confirmation"><p className="yu-publication-work">{confirming.title}</p><p>本次导出未设置制作署名，{format.toUpperCase()} 文件将显示「制作：未署名」。可以先填写署名，也可以确认继续。</p>{error&&<p role="alert">{error}</p>}<div className="yu-export-confirmation-actions">
   {onEdit&&<button type="button" className="yu-primary" disabled={disabled||checking} onClick={()=>{setConfirming(null);onEdit();}}>先填写署名</button>}
   <button type="button" className="yu-export-unsigned" disabled={disabled||checking} onClick={()=>void start(true)}>{checking?'正在核对署名…':'仍以未署名导出 '+format.toUpperCase()}</button>
-  <StoryFlowAction disabled={checking} onClick={()=>setConfirming(null)}>取消</StoryFlowAction>
+  <button type="button" className="yu-revision-open" disabled={checking} onClick={()=>setConfirming(null)}>取消</button>
  </div></div></Sheet>}</>;
 }

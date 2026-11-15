@@ -179,7 +179,8 @@ button.yu-page-surface{padding:0;border:0;background:transparent;cursor:default}
 .yu-scene-caption::before{top:-80px;bottom:calc(-1 * var(--yu-caption-bottom));left:-31px;right:-31px;background:linear-gradient(to bottom,#10261f00 0%,#10261fc7 80px,#0d241cf5 100%)}
 
 /* Center taps hide metadata and controls; narration moves down with safe-area spacing. */
-.yu-reader-top,.yu-reader-bottom{pointer-events:none}.yu-reader-top button,.yu-reader-bottom button,.yu-reader-bottom a{pointer-events:auto}
+.yu-reader-top,.yu-reader-bottom{pointer-events:none}.yu-reader-top button,.yu-reader-top a,.yu-reader-bottom button,.yu-reader-bottom a{pointer-events:auto}
+.yu-reader-review-notice .story-flow-link,.yu-reader-error .story-flow-link{margin-inline-start:10px}
 .yu-metadata-hidden>.yu-reader-top,.yu-metadata-hidden>.yu-reader-bottom,.yu-metadata-hidden>.yu-scene-caption>.yu-scene-number{visibility:hidden}
 .yu-metadata-hidden .yu-scene{mask-image:linear-gradient(to bottom,#000 calc(100% - 72px),transparent)}
 .yu-metadata-hidden>.yu-scene-caption{--yu-caption-bottom:calc(28px + env(safe-area-inset-bottom,0px))}

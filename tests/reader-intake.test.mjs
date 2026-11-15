@@ -82,7 +82,8 @@ test('display states distinguish queued extraction, waiting choice and full setu
  const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');let s=await f.read(id);
  assert.equal(shelfGenerationStatus(s).group,'待选故事');
  const steps=()=>generationProgress(s,Date.now()).steps.slice(0,3).map(step=>[step.label,step.state]);
- assert.deepEqual(steps(),[['提取故事','done'],['准备故事','pending'],['制作确认','pending']]);
+ assert.deepEqual(steps(),[['提取故事','current'],['准备故事','pending'],['制作确认','pending']]);
+ assert.match(generationProgress(s,Date.now()).steps[0].detail,/待选择故事/);
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');s=await f.read(id);assert.equal(shelfGenerationStatus(s).group,'待制作确认');assert.equal(s.state,'idle');assert.equal(s.retryAllowed,false);assert.equal(s.generationProgress.phase,'production-confirmation');
  assert.deepEqual(steps(),[['提取故事','done'],['准备故事','done'],['制作确认','current']]);
 });
