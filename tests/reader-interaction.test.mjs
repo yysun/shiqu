@@ -122,7 +122,7 @@ test('print PDF uses complete landscape artwork without cropping and otherwise p
  assert.ok(coverTitle.x>=coverX&&coverTitle.y>=coverY&&coverTitle.y<coverY+coverHeight);
  for(const [index,scene] of story.pages.entries()){
   const [,x,y,width,height]=complete.draws[index+1];
-  const caption=complete.textDraws.find(draw=>draw.text===scene.caption&&draw.imagesDrawn===index+2);
+  const caption=complete.textDraws.find(draw=>draw.text===`${index+1}. ${scene.caption}`&&draw.imagesDrawn===index+2);
   assert.deepEqual([caption.x,caption.y,caption.width],[x,y+height+28,width]);
  }
  assert.equal(complete.pdf.getPageCount(),5);
@@ -134,8 +134,13 @@ test('print PDF uses complete landscape artwork without cropping and otherwise p
  const partial=await render('landscape',[landscape[0],'']);
  assert.deepEqual(partial.reads,portrait);
  assert.ok(partial.draws.slice(1).every(draw=>draw.length===9&&draw[2]===0));
+ for(const result of [complete,partial]){
+  assert.deepEqual(result.textDraws.map(draw=>draw.text).filter(text=>/^\d+\. /.test(text)),story.pages.map((scene,index)=>`${index+1}. ${scene.caption}`));
+  assert.deepEqual(result.textDraws.map(draw=>draw.text).filter(text=>/^\d+ \/ \d+$/.test(text)),['1 / 2','2 / 2']);
+ }
  const reading=await render('portrait',landscape);
  assert.deepEqual(reading.reads,portrait);
+ assert.ok(reading.textDraws.some(({text})=>text==='01 / 2'));
  assert.deepEqual(reading.pdf.getPage(0).getSize(),{width:360,height:540});
  assert.deepEqual(story.pages.map(page=>page.image),portrait);
 });

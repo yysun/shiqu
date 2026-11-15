@@ -140,6 +140,7 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   const footerY=H-M-footerLineHeight;
   const availableHeight=footerY-2*M-gap,maxWidth=W-2*M;
   const maxLines=Math.floor((availableHeight-H/2)/lineHeight);
+  const numberedCaption=`${i+1}. ${scene.caption}`;
   whitePaper();
   const {caption,firstLines,x,width,height}=await runtime.image(blob,image=>{
    font(captionSize);
@@ -150,7 +151,7 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
     firstLines++;
     height=availableHeight-firstLines*lineHeight;
     width=supplementary?Math.min(maxWidth,height*ratio):maxWidth;
-    caption=lines(scene.caption,width);
+    caption=lines(numberedCaption,width);
    }while(caption.length>firstLines&&firstLines<maxLines);
    const x=(W-width)/2;
    if(supplementary){
