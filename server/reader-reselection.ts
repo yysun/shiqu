@@ -69,7 +69,7 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
  doc.plan=null;doc.images=[];doc.audio=[];doc.usage=[];doc.frameCountConfirmed=false;
  doc.intake.phase='preparing';doc.intake.selected={batch:choice.batch,index:choice.index};doc.intake.generation++;
  doc.intake.search={...(doc.intake.search||{round:0}),state:'idle',error:null};
- delete doc.intake.draft;
+ delete doc.intake.draft;delete doc.intake.draftEdited;
  doc.revision={kind:'selection',selectionRequest:choice.requestId,parentId,rootId:draft.rootId,number:draft.epoch+1,baseToken:draft.baseToken,requestHash:fingerprint,base:{selection,plan:null,images:[]}};
  const now=new Date().toISOString();
  const changed=await repo.db.prepare(`UPDATE stories AS d SET

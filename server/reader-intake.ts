@@ -3,14 +3,14 @@
 // Changing discovery conditions updates the same task, fencing obsolete searches without starting a new one.
 // An explicit query keeps the original scope and controls, and never bypasses a production lock.
 import type {RequirementsSetup} from '../lib/reader-requirements.ts';
-import {requirementsForReselection} from '../lib/reader-requirements.ts';
+import {requirementsForReselection,suggestedSettings} from '../lib/reader-requirements.ts';
 import {combinedOriginal,directBookChoice,selectedChapterScope} from './local-book-contents.ts';
 import type {LocalBooks} from './local-books.ts';
 import {localBookId} from './local-books.ts';
 import {createHash} from 'node:crypto';
 import {emptyDocument,selectionSchema,ReaderError} from '../lib/reader-model.ts';
 import type {Document,Selection,SessionRow} from '../lib/reader-model.ts';
-import {effectiveIntakePhase,intakeSearch} from '../lib/reader-intake.ts';
+import {effectiveIntakePhase,intakeDraftToken,intakeSearch} from '../lib/reader-intake.ts';
 import type {IntakeAction,IntakeSearch,ReselectionDraft} from '../lib/reader-intake.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
 import {maxSuggestionBatches} from '../lib/reader-suggestions.ts';
@@ -101,7 +101,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   intake.phase=action.conditions.discovery?'discovering':'choosing';intake.generation++;intake.batches=[];
   delete intake.indexedCandidates;
   intake.search=action.conditions.discovery?{round,state:'searching',cycleId:action.requestId}:{round,state:'idle'};intake.lastAction={id:action.requestId,hash:fingerprint};
-  delete intake.draft;delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
+  delete intake.draft;delete intake.draftEdited;delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
   if(doc.reselection&&choice&&next.productionPrompt!==selection.productionPrompt){
    doc.setupRequirements={...doc.setupRequirements,overrides:{...doc.setupRequirements?.overrides,productionPrompt:next.productionPrompt}};
   }
@@ -134,11 +134,26 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   return repo.get(id,uid);
  }
  const manual=(artStyle:Selection['artStyle'])=>artStyle!==selection.artStyle||!!intake.manualArt;
+ if(action.action==='draft'||action.action==='recommend'||action.action==='confirm'){
+  const current=intakeDraftToken(intake.draft);
+  const {suggestions,overrides}=doc.setupRequirements||{};
+  // 旧客户端仍可编辑系统原样建议；历史草稿与新写入的草稿同样要避免覆盖。
+  const userDraft=!!intake.draft&&(!!intake.draftEdited||!suggestions||intakeDraftToken(suggestedSettings(selection,suggestions,overrides))!==current);
+  const legacyToken=intakeDraftToken(intake.draft?{...intake.draft,acceptancePrompt:intake.draft.acceptancePrompt??selection.acceptancePrompt??''}:undefined);
+  const requested=intakeDraftToken({...action.settings,acceptancePrompt:action.settings.acceptancePrompt??selection.acceptancePrompt??'',length:action.action==='recommend'?intake.draft?.length??'auto':action.settings.length});
+  if(action.draftToken!==undefined?action.draftToken!==current:userDraft&&requested!==legacyToken)
+   throw new ReaderError(409,'另一台设备更新了制作内容。请查看最新草稿后再操作。');
+ }
  if(action.action==='draft'){
-  // The running step keeps its lock and its input version; confirming applies these settings.
+  // 同时保存草稿和动作回执；后台仍持有原来的工作锁和输入世代。
   if(!['preparing','confirming'].includes(intake.phase))throw new ReaderError(409,'请先选择故事。');
-  await repo.db.prepare(`UPDATE stories SET document=json_set(document,'$.intake.draft',json(?),'$.intake.manualArt',json(?)),updated_at=? WHERE id=? AND user_id=? AND json_extract(document,'$.intake.generation')=? AND json_extract(document,'$.intake.phase')!='confirmed' AND ${visible}`)
-   .bind(JSON.stringify(action.settings),JSON.stringify(manual(action.settings.artStyle)),new Date().toISOString(),id,uid,action.generation).run();
+  const saved=await repo.db.prepare(`UPDATE stories SET document=json_set(document,'$.intake.draft',json(?),'$.intake.draftEdited',json('true'),'$.intake.manualArt',json(?),'$.intake.lastAction',json(?)),updated_at=?
+   WHERE id=? AND user_id=? AND document=? AND selection=? AND ${visible}`)
+   .bind(JSON.stringify(action.settings),JSON.stringify(manual(action.settings.artStyle)),JSON.stringify({id:action.requestId,hash:fingerprint}),new Date().toISOString(),id,uid,row.document,row.selection).run();
+  if(!saved.meta.changes){
+   if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);
+   throw new ReaderError(409,'制作内容已更新，请重新打开后继续。');
+  }
   return repo.get(id,uid);
  }
  // The lock of a service that died cannot be released by a story that will not run again.
@@ -158,7 +173,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  }else{
   if(!intake.selected||intake.phase!=='confirming')throw new ReaderError(409,'请先选择故事并等待制作建议保存。');
   intake.manualArt=manual(action.settings.artStyle);Object.assign(selection,action.settings);
-  if(action.action==='recommend'){intake.draft={...action.settings,length:'auto'};delete doc.frameRecommendation;doc.frameCountConfirmed=false;intake.phase='preparing';selection.length='auto';}
+  if(action.action==='recommend'){intake.draft={...action.settings,length:'auto'};intake.draftEdited=true;delete doc.frameRecommendation;doc.frameCountConfirmed=false;intake.phase='preparing';selection.length='auto';}
   else{
    if(!doc.original||!doc.frameRecommendation)throw new ReaderError(409,'原文和制作建议尚未保存。');
    const chosen=intake.batches[intake.selected.batch]?.stories[intake.selected.index];
@@ -168,7 +183,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
    intake.search={...intakeSearch(intake),state:'idle',error:null};
   }
  }
- if(action.action!=='recommend')delete intake.draft;
+ if(action.action!=='recommend'){delete intake.draft;delete intake.draftEdited;}
  intake.generation++;intake.lastAction={id:action.requestId,hash:fingerprint};
  const result=await repo.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?${action.action==='confirm'?",generation_mode='background',generation_control='active'":''}
   WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${visible}`)
@@ -176,7 +191,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  if(!result.meta.changes){
   const current=await repo.get(id,uid),saved=(JSON.parse(current.document) as Document).intake;
   if(saved?.lastAction?.id===action.requestId&&saved.lastAction.hash===fingerprint)return current;
-  // Search results and drafts land without a new generation, and they do not conflict with this choice.
+  // 重读以容纳同一世代的后台进度；草稿操作会重新校验提交时的指纹。
   if(saved?.generation===action.generation&&attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);
   throw new ReaderError(409,'制作内容已更新，请重新打开后继续。');
  }

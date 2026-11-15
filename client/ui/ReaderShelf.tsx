@@ -16,7 +16,7 @@ import StoryGenerationControl from './StoryGenerationControl';
 import type {ReadingProgress} from '@/lib/reader-home';
 import {getArtStyle} from '@/lib/reader-styles';
 import {groupShelfItems,matchesShelfSearch,shelfGroupings,type ShelfGrouping} from '@/lib/shelf-browser';
-import {shelfGenerationStatus,shelfNeedsUserGroups,sortShelfProductions} from '@/lib/shelf-generation';
+import {shelfDrawingCount,shelfGenerationStatus,shelfNeedsUserGroups,sortShelfProductions} from '@/lib/shelf-generation';
 import './ReaderShelf.css';
 
 const productionLimit=5;
@@ -79,13 +79,13 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
  function productionRow(item:ShelfItem){
   const session=item.session!,generation=shelfGenerationStatus(session),number=edition(item,session);
   const tone=generation.group==='生成失败'?'failed':(shelfNeedsUserGroups as readonly string[]).includes(generation.group)?'needs':generation.group==='生成已暂停'?'paused':'active';
-  // 系统自动暂停且可重试时，“继续生成”即主操作；需要用户选择的状态以整行按钮进入，不再另给控制按钮。
+  // 系统自动暂停且可重试时给出重试；需要用户选择的状态以整行按钮进入。
   const autoRetry=generation.group==='生成已暂停'&&session.retryAllowed&&(!session.generationControl||session.generationControl==='active');
-  const side=autoRetry?<button type="button" className="yu-generation-control" disabled={busyAny} onClick={()=>onRetry(session)}>继续生成</button>:tone==='needs'?null:control(session,generation.group);
+  const side=autoRetry?<button type="button" className="yu-generation-control" disabled={busyAny} onClick={()=>onRetry(session)}>重试生成</button>:tone==='needs'?null:control(session,generation.group);
   const selected=!!onSelect&&selectedId===item.id;
   return <li className={'yu-production-row '+tone+(selected?' is-selected':'')} key={item.id} data-story-id={item.id}>
    <button className="yu-pending-story" aria-label={generation.action+'《'+item.title+'》'} aria-pressed={onSelect?selected:undefined} onClick={()=>onResume(session)}>
-    <span className="yu-production-title"><strong>{item.title}</strong><em role="status">{generation.message}{session.story&&` · ${session.ready} / ${session.story.frameCount} 幅`}</em></span>
+    <span className="yu-production-title"><strong>{item.title}</strong><em role="status">{generation.message}{shelfDrawingCount(session,generation.group)}</em></span>
     <small className="yu-shelf-tags">{[item.book,item.theme,item.artStyleLabel].filter(Boolean).map(text=><span key={text} title={text}>{text}</span>)}{number&&<span>第 {number} 版</span>}</small>
     {generation.group==='生成失败'&&session.error?<small className="yu-production-error">{session.error}</small>:<span className="sr-only">{generation.detail}</span>}
    </button>
@@ -95,7 +95,7 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
  function card(item:ShelfItem){
   const story=item.story!,session=sessionById.get(item.id),generation=session?shelfGenerationStatus(session):null,number=edition(item,session);
   const total=story.frameCount,finished=total>0&&item.page+1>=total;
-  const feedback=session&&session.state!=='completed'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{session.story&&` · ${session.ready} / ${session.story.frameCount} 幅`}</span>{control(session,generation!.group)}</div>;
+  const feedback=session&&session.state!=='completed'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{shelfDrawingCount(session,generation!.group)}</span>{control(session,generation!.group)}</div>;
   const selected=!!onSelect&&selectedId===item.id,pick=onSelect?()=>onSelect(item.id):()=>onOpen(story);
   return <div className={'yu-shelf-row yu-shelf-row-readable'+(selected?' is-selected':'')} key={item.id} data-story-id={item.id}>
    <div className="yu-shelf-cover-wrap">

@@ -4,6 +4,18 @@ import assert from 'node:assert/strict';
 import {productionSteps} from '../lib/production-stages.ts';
 const base={sourceReady:true,frameCountConfirmed:true,planReady:true,total:45,ready:0,reviewStatus:'pending',reviewRound:0};
 const states=input=>productionSteps({...base,...input}).map(s=>s.state);
+test('intake retains its source and preparation milestones across confirmation',()=>{
+ for(const [intakeSource,label] of [['direct','已选原文'],['combined','整理所选原文'],['candidates','提取故事']]){
+  const source={...base,intakeSource,selectedSourceLabel:'已核对的出处',intakeSelected:true,candidateBatches:1,preparedSummary:true};
+  const before=productionSteps({...source,intakePhase:'confirming'}).slice(0,3);
+  const after=productionSteps({...source,intakePhase:'confirmed'}).slice(0,3);
+  assert.deepEqual(before.map(step=>step.label),[label,'准备故事','制作确认']);
+  assert.deepEqual(after.slice(0,2),before.slice(0,2));
+  assert.equal(before[2].state,'current');
+  assert.equal(after[2].state,'done');
+  if(intakeSource!=='candidates')assert.equal(after[0].detail,'已核对的出处');
+ }
+});
 test('seven steps distinguish initial review, targeted repair, recheck, skipped work and legacy stories',()=>{
  assert.deepEqual(productionSteps(base).map(s=>s.label),['确认原文','叙事详略与篇幅','分批分镜','全篇审片','定向修订','复核','绘图']);
  assert.deepEqual(states({phase:'source',planReady:false,sourceReady:false,frameCountConfirmed:false,reviewStatus:null}),['current','pending','pending','pending','pending','pending','pending']);

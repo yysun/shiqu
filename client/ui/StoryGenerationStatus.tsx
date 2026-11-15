@@ -35,14 +35,21 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
  const failed=!!error||status.group==='生成失败';
  const paused=!!session.generationControl&&session.generationControl!=='active';
  const generationControl=control===undefined?(paused||!failed?<StoryGenerationControl session={session} busy={controlBusy} onControl={onControl} primary={paused} link/>:null):control;
- const steps=draft?revisionDraftSteps(draft.base,draft.changes,progress.steps[0]):stages||progress.steps;
- const displayedSteps=onEditStyle?steps.map(step=>step.id==='count'?{...step,label:'叙事详略、篇幅与画风'}:step):steps;
+ const steps=draft?revisionDraftSteps(draft.base,draft.changes,progress.steps):stages||progress.steps;
+ const displayedSteps=onEditStyle?steps.map(step=>step.id==='count'&&step.label==='叙事详略与篇幅'?{...step,label:'叙事详略、篇幅与画风'}:step):steps;
  const content={...stageContent};
+ const {source,...flowNavigation}=navigation||{};
+ const sourceLinks=source?[{...source,label:'查看原文'},...(timeline?.links?.source||[])]:timeline?.links?.source;
+ const timelineLinks={...timeline?.links,...(sourceLinks?{source:sourceLinks}:{})};
  const countAction=timeline?.actions?.count;
- const links=onEditStyle?{...timeline?.links,count:[
+ const links=onEditStyle?{...timelineLinks,count:[
   ...(timeline?.links?.count?.length?timeline.links.count:countAction?[countAction]:[]),
   {label:`画风：${getArtStyle(draft?.changes.artStyle??session.selection.artStyle).label}`,ariaLabel:'修改画风',disabled:paused&&controlBusy,onClick:onEditStyle},
- ]}:timeline?.links;
+ ]}:timelineLinks;
+ const durations=timeline?.stageDurations??session.generationProgress?.stageDurations;
+ // 旧的耗时检查点 count 记录的是准备工作，制作确认本身没有执行耗时。
+ const {count:preparationSeconds,...workDurations}=durations||{};
+ const stageDurations=steps.some(step=>step.id==='prepare')?{...workDurations,...(preparationSeconds===undefined?{}:{prepare:preparationSeconds})}:durations;
  const confirmationStage=draft&&(steps.find(step=>step.state==='current')||steps.find(step=>step.state==='failed'))?.id;
  if(confirmationStage)content[confirmationStage]=<>{content[confirmationStage]}{draft?.confirmation}</>;
  return <div className={'yu-generation-stage has-progress'+(compact||!showSummary?' is-compact':'')+(moving?' is-generating':'')+(failed?' has-error':'')+(session.reviewIssues?.length?' has-review-issues':'')}>
@@ -50,9 +57,9 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
    <span className="yu-generation-mark" aria-hidden="true">{failed?<X size={23}/>:stopped?<Pause size={23}/>:session.state==='completed'?<Check size={23}/>:<Feather size={23}/>}</span>
    <div><p className="yu-generation-kicker">{failed?'需要处理':stopped?'进度已保留':session.state==='completed'?'制作完成':'把故事变成画面'}</p><h3>{title}</h3></div>
   </div>}
-  <StoryFlowHeader title={progress.measured?'画面生成进度':'制作流程'} status={message} {...navigation}/>
+  <StoryFlowHeader title={progress.measured?'画面生成进度':'制作流程'} status={message} {...flowNavigation}/>
   <section className="yu-generation-progress" aria-label="生成进展">
-   <StoryProductionTimeline session={session} busy={busy||controlBusy} error={error} onRetry={onRetry} onAcceptance={onAcceptance} reviewTools={reviewTools} stageContent={content} onHistory={onHistory} stages={displayedSteps} moving={moving} queued={progress.queued} {...timeline} links={links} confirmationStage={confirmationStage} currentTiming={moving?<><Clock3 size={12} aria-hidden="true"/>{progress.remaining===null?'超时信息待同步':progress.remaining>0?`距超时 ${generationDuration(progress.remaining)}`:'已达超时，等待状态更新'}</>:undefined} currentContent={!draft&&session.state!=='completed'?generationControl:null}>
+   <StoryProductionTimeline session={session} busy={busy||controlBusy} error={error} onRetry={onRetry} onAcceptance={onAcceptance} reviewTools={reviewTools} stageContent={content} onHistory={onHistory} stages={displayedSteps} moving={moving} queued={progress.queued} {...timeline} stageDurations={stageDurations} links={links} confirmationStage={confirmationStage} currentTiming={moving?<><Clock3 size={12} aria-hidden="true"/>{progress.remaining===null?'超时信息待同步':progress.remaining>0?`距超时 ${generationDuration(progress.remaining)}`:'已达超时，等待状态更新'}</>:undefined} currentContent={!draft&&session.state!=='completed'?generationControl:null}>
     {showLandscape&&<StoryLandscapeStep key={session.id} storyId={session.id}/>}
    </StoryProductionTimeline>
   </section>

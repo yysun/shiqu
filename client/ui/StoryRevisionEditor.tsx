@@ -10,17 +10,19 @@ import type {RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
 import {productionSteps,type ProductionStage} from '@/lib/production-stages';
 import {normalizeProductionPrompt} from '@/lib/reader-prompts';
 import './story-revision.css';
-export function revisionDraftSteps(base:RevisionSnapshot,changes:RevisionChanges,source?:ProductionStage){
+export function revisionDraftSteps(base:RevisionSnapshot,changes:RevisionChanges,previous:ProductionStage[]=[]){
  const impact=revisionImpact(base,changes);
  const reviewStatus=impact.review?'pending':base.reviewStatus;
  const phase=impact.replan?'frame-count':reviewStatus==='repair'?'repair':reviewStatus&&reviewStatus!=='passed'?'review':'image';
- return productionSteps({sourceReady:true,frameCountConfirmed:!impact.replan,planReady:!impact.replan,reviewStatus,phase,total:impact.total,ready:0}).map(step=>{
-  if(step.id==='source'&&source)return source;
+ const [source,...rest]=productionSteps({sourceReady:true,frameCountConfirmed:!impact.replan,planReady:!impact.replan,reviewStatus,phase,total:impact.total,ready:0});
+ const preparation=previous.find(step=>step.id==='prepare');
+ return [previous.find(step=>step.id==='source')||source,...(preparation?[preparation]:[]),...rest.map(step=>{
   if(step.id==='count'&&impact.replan)return {...step,detail:'按叙事详略编排 · 审核后确定数量'};
   if(step.id==='review'&&!impact.review)return {...step,detail:'沿用原审片进度，不重新审核'};
   if(step.id==='plan'&&changes.plan&&impact.review&&!impact.replan)return {...step,detail:'已修改分镜 · 待审片'};
+  if(step.id==='image')return {...step,detail:impact.reusePending?'分镜完成后核对可复用的画幅':`预计复用 ${impact.reused} 幅 · 重绘 ${impact.redraw} 幅`};
   return step;
- });
+ })];
 }
 export function StoryRevisionActions({editor,onDone,resuming=false,reviewOnSave=false,link=false}:{editor:StoryRevisionEditorState;onDone?:()=>void;resuming?:boolean;reviewOnSave?:boolean;link?:boolean}){
  const confirmationRef=useRef<HTMLElement>(null);
@@ -41,7 +43,7 @@ export function StoryRevisionActions({editor,onDone,resuming=false,reviewOnSave=
   {impact.conflict&&<div role="alert"><p>制作要求或叙事详略的变化需要重新编排，会替换手改分镜。请选择保留哪类修改：</p><div className="yu-revision-conflict"><Action type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,plan:undefined}))}>保留重新编排设置</Action><Action type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,productionPrompt:undefined,length:undefined,narrativeDetail:undefined}))}>保留手改分镜</Action></div></div>}
   {editor.error&&<p role="alert">{editor.error}</p>}
   {editor.conflict&&<div className="yu-revision-conflict-note" role="alert"><p>这篇故事的分镜、制作要求或版本已在别处更新。草稿仍在这里，不会自动合并；需要的内容可以先复制出来。</p><Action type="button" className="yu-revision-reload" disabled={editor.busy} onClick={()=>void editor.load()}>丢弃草稿，载入最新</Action></div>}
-  <div className="yu-revision-buttons"><Action type="button" className="yu-primary" disabled={editor.busy||!finish&&(!impact.changed||impact.conflict||editor.conflict)} onClick={()=>{if(finish)finish();else void editor.submit();}}>{editor.busy?'正在提交…':finish?'完成编辑':resuming?'应用修改并恢复':reviewOnSave?(impact.review?'保存并重新审核':'保存修改'):'开始制作'}</Action><Action type="button" disabled={editor.busy} onClick={editor.discard}>丢弃草稿</Action></div>
+  <div className="yu-revision-buttons"><Action type="button" className="yu-primary" disabled={editor.busy||!finish&&(!impact.changed||impact.conflict||editor.conflict)} onClick={()=>{if(finish)finish();else void editor.submit();}}>{editor.busy?'正在提交…':finish?'完成编辑':resuming?'应用修改并恢复':reviewOnSave?(impact.review?'保存并重新审核':'保存修改'):'开始制作新版'}</Action><Action type="button" disabled={editor.busy} onClick={editor.discard}>丢弃草稿</Action></div>
   <small>{impact.changed&&!impact.review?'只修改画风，沿用原审片进度；审片已通过时直接重绘。书架显示最新版，原故事保留。':reviewOnSave?'保存后自动重新审片，通过后继续绘图；书架显示最新版，原故事保留。':resuming?(finish?'完成编辑后回到制作流程，点击“应用修改并恢复”时应用修改。':'恢复生成时应用修改，已保存的内容保留。'):finish?'完成编辑后回到制作流程，确认后才开始制作。':'开始制作后会自动编排、审片和绘图。书架显示最新版，原故事保留。'}</small>
  </section>;
 }

@@ -88,7 +88,7 @@ export default function StoryChapterPicker({bookId,sources,disabled,onSelect,kin
  if(onlyStory)return <>
   <div className="yu-selected-story-card">
    <p role="status">已选故事《{onlyStory.title}》</p>
-   <button type="button" className="yu-source-original-link" disabled={disabled||!!openingSource} onClick={()=>void viewOriginal(onlyStory)}>{openingSource?'打开中…':'看原文'}</button>
+   <button type="button" className="yu-source-original-link" disabled={disabled||!!openingSource} onClick={()=>void viewOriginal(onlyStory)}>{openingSource?'打开中…':'查看原文'}</button>
   </div>
   {originalError}
   {originalSheet}
@@ -102,7 +102,7 @@ export default function StoryChapterPicker({bookId,sources,disabled,onSelect,kin
    <div className="yu-source-entries" ref={listRef}>{entries.map((entry,index)=>{
     const selectedEntry=isSelected(entry),locked=disabled||selectedEntryId===undefined&&(!entry.source||sources.length>=24&&!selectedEntry);
     const inputId=group+'-'+index;
-    return <div key={entry.id} className={'yu-source-chapter'+(story?' yu-source-story':'')+(selectedEntry?' selected':'')}><input id={inputId} type="checkbox" aria-label={entry.title} checked={selectedEntry} disabled={locked} onChange={()=>onSelect(entry)}/><label className="yu-source-chapter-title" htmlFor={inputId}>{entry.title}{story&&entry.excerpt&&<small>{entry.excerpt}</small>}</label><button type="button" className="yu-source-original-link" disabled={!entry.source||openingSource===entry.id} onClick={()=>void viewOriginal(entry)}>{openingSource===entry.id?'打开中…':'看原文'}</button></div>;
+    return <div key={entry.id} className={'yu-source-chapter'+(story?' yu-source-story':'')+(selectedEntry?' selected':'')}><input id={inputId} type="checkbox" aria-label={entry.title} checked={selectedEntry} disabled={locked} onChange={()=>onSelect(entry)}/><label className="yu-source-chapter-title" htmlFor={inputId}>{entry.title}{story&&entry.excerpt&&<small>{entry.excerpt}</small>}</label><button type="button" className="yu-source-original-link" disabled={!entry.source||openingSource===entry.id} onClick={()=>void viewOriginal(entry)}>{openingSource===entry.id?'打开中…':'查看原文'}</button></div>;
    })}{!resultEntries&&story&&entries.length<(total??0)&&<div className="yu-source-page-sentinel" ref={loadMoreRef} aria-hidden="true"/>}{loadingMore&&<p role="status">正在加载下一批故事…</p>}</div>
    {originalError}
   </>}

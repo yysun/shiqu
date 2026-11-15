@@ -32,14 +32,15 @@ function toggle<T>(values:T[],item:T,source:(item:T)=>LocalSourceReference){
 
 export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,retainKey,savedIntake,savedSelection,onSavedChoice,savedSearchPaused,onSavedSearchControl,savedSearchControlBusy,autoSearch}:{autoSearch?:boolean;selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;retainKey?:string;savedIntake?:IntakeView;savedSelection?:Selection;onSavedChoice?:(batch:number,index:number)=>Promise<void>;savedSearchPaused?:boolean;onSavedSearchControl?:(action:'pause'|'resume')=>Promise<void>;savedSearchControlBusy?:boolean}){
  const part=(name:string)=>retainKey&&retainKey+':'+name;
- const originalTitle=selection.discovery?.mode==='title'?selection.discovery.title:'';
- const originalSources=selection.discoverySources||[];
- const savedPlot=selection.discovery?.mode==='auto'&&selection.discovery.plot;
- const savedTheme=selection.discovery?.mode==='auto'&&(selection.discovery.scanOnly||selection.discovery.vectorFirst)&&!savedPlot;
+ const openingSelection=savedSelection??selection;
+ const originalTitle=openingSelection.discovery?.mode==='title'?openingSelection.discovery.title:'';
+ const originalSources=openingSelection.discoverySources||[];
+ const savedPlot=openingSelection.discovery?.mode==='auto'&&openingSelection.discovery.plot;
+ const savedTheme=openingSelection.discovery?.mode==='auto'&&(openingSelection.discovery.scanOnly||openingSelection.discovery.vectorFirst)&&!savedPlot;
  const initialMode:Mode=originalTitle||savedPlot||savedTheme||!originalSources.length?'theme':'chapter';
- const explicitCustom=selection.discovery?.mode==='auto'&&(selection.discovery.themeInput==='custom'||savedPlot);
- const initialTheme=originalTitle||(!explicitCustom&&(selection.theme==='原典故事'||selection.theme==='其他')?'':selection.theme);
- const initialPreset=discoveryThemeDefinition(selection)?initialTheme:undefined;
+ const explicitCustom=openingSelection.discovery?.mode==='auto'&&(openingSelection.discovery.themeInput==='custom'||savedPlot);
+ const initialTheme=originalTitle||(!explicitCustom&&(openingSelection.theme==='原典故事'||openingSelection.theme==='其他')?'':openingSelection.theme);
+ const initialPreset=discoveryThemeDefinition(openingSelection)?initialTheme:undefined;
  const [bookId,setBookId]=useRetainedState(part('book'),selection.bookId);
  const [customBook,setCustomBook]=useRetainedState(part('custom-book'),selection.customBook||'');
  const [mode,setMode]=useRetainedState<Mode>(part('mode'),initialMode);
@@ -58,26 +59,28 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
  const [showCustom,setShowCustom]=useRetainedState(part('show-custom-theme'),!initialPreset&&(!!initialTheme||selection.theme==='其他'));
  const theme=showCustom?customTheme.trim():preset||'';
  const [opened]=useRetainedState(part('opened'),()=>JSON.stringify([bookId,customBook,mode,sources,preset,customTheme,showCustom]));
- const [externalChoice,setExternalChoice]=useRetainedState<string|null>(part('external-choice'),null);
+ const [savedChoice,setSavedChoice]=useRetainedState<string|null>(part('saved-choice'),null);
  const themeInput=showCustom?'custom':'preset';
- const savedThemeInput=savedSelection&&discoveryThemeDefinition(savedSelection)?'preset':'custom';
- const externalIntake=themeInput===savedThemeInput&&bookId==='other'&&savedSelection?.bookId===bookId&&
-  savedSelection.customBook===customBook.trim()&&savedSelection.theme===theme?savedIntake:undefined;
- const savedSearch=externalIntake?.search;
- const externalSearching=savedSearch?.state==='searching'&&!savedSearchPaused;
- const externalResults=externalIntake?.batches.flatMap((batch,b)=>batch.stories.map((story,index)=>({
-  id:b+':'+index,kind:'story' as const,title:story.title,chapter:'',excerpt:story.description,source:story.source,
- })))||[];
- const selectedExternal=externalResults.find(entry=>entry.id===externalChoice);
  const local=bookId!=='other';
  const active=local&&(mode==='chapter'||mode==='story')?mode:'theme';
+ const matchingScope=active===initialMode&&(active==='chapter'
+  ?sources.length===originalSources.length&&sources.every(source=>originalSources.some(saved=>localSourceKey(saved)===localSourceKey(source)))
+  :theme===initialTheme&&(!initialTheme||themeInput===(initialPreset?'preset':'custom')));
+ const matchingIntake=matchingScope&&savedSelection?.bookId===bookId&&(local||savedSelection.customBook?.trim()===customBook.trim())?savedIntake:undefined;
+ const savedSearch=matchingIntake?.search;
+ const savedSearching=savedSearch?.state==='searching'&&!savedSearchPaused;
+ const savedResults=matchingIntake?.batches.flatMap((batch,b)=>batch.stories.map((story,index)=>({
+  id:b+':'+index,kind:'story' as const,title:story.title,chapter:'',excerpt:story.description,source:story.source,
+ })))||[];
+ const selectedSaved=savedResults.find(entry=>entry.id===savedChoice);
+ const savedChoiceBlocked=busy||!!savedSearchControlBusy;
  const dirty=JSON.stringify([bookId,customBook,mode,sources,preset,customTheme,showCustom])!==opened
-  ||!!(storyQuery||stories.length||chapterStories.length||extraction||selectedExternal);
+  ||!!(storyQuery||stories.length||chapterStories.length||extraction||selectedSaved);
 
  const searchKey=JSON.stringify([bookId,theme,showCustom]);
  const results=extraction?.key===searchKey?extraction:null;
  const searching=!!searchProgress;
- const blocked=busy||searching||externalSearching||!!savedSearchControlBusy;
+ const blocked=busy||searching||savedSearching||!!savedSearchControlBusy;
  const singleChapter=active==='chapter'&&sources.length===1?sources[0]:undefined;
  const onlyChapterStory=singleChapter&&chapterDirectory?.onlyStory&&storyChoice(chapterDirectory.onlyStory);
  const cards=onlyChapterStory?[onlyChapterStory]:active==='story'?stories:active==='theme'&&results?extractedChoices:active==='chapter'?chapterStories:[];
@@ -85,7 +88,7 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
  const directChapter=singleChapter&&chapterDirectory?.total===0?singleChapter:undefined;
  const selectedSources=cards.length?cards.map(card=>card.source):active==='chapter'&&sources.length>1?sources:[];
  const directSource=directCard?.source||directChapter;
- const invalid=local?!directSource&&!selectedSources.length:!theme||!customBook.trim();
+ const invalid=!selectedSaved&&(local?!directSource&&!selectedSources.length:!theme||!customBook.trim());
 
  function changeBook(next:string){
   if(next===bookId)return;
@@ -95,15 +98,16 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
  }
  function selectChapter({source}:BookContentEntry){
   if(!source)return;
+  setSavedChoice(null);
   setSources(old=>toggle(old,source,value=>value));
   setChapterStories([]);setChapterDirectory(null);
  }
  function selectStory(entry:BookContentEntry,setChoices:typeof setStories){
   const choice=storyChoice(entry);
-  if(choice)setChoices(old=>toggle(old,choice,value=>value.source));
+  if(choice){setSavedChoice(null);setChoices(old=>toggle(old,choice,value=>value.source));}
  }
  function resetSearch(){
-  setExternalChoice(null);setExtraction(null);setExtractedChoices([]);setSearchError('');
+  setSavedChoice(null);setExtraction(null);setExtractedChoices([]);setSearchError('');
  }
  function input(topic=active==='theme'?theme:'原典故事'):Selection{
   return {...selection,bookId,customBook:local?undefined:customBook.trim(),theme:topic,
@@ -169,17 +173,18 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
   setSearchProgress('');
  }
  async function submit(){
-  if(blocked||invalid)return;
-  if(!local&&selectedExternal&&onSavedChoice){
-   const [batch,index]=selectedExternal.id.split(':').map(Number);
+  if(selectedSaved&&onSavedChoice){
+   if(savedChoiceBlocked)return;
+   const [batch,index]=selectedSaved.id.split(':').map(Number);
    await onSavedChoice(batch,index);
    return;
   }
+  if(blocked||invalid)return;
   if(!local&&savedSearchPaused&&savedSearch?.state==='searching'&&onSavedSearchControl){
    await onSavedSearchControl('resume');
    return;
   }
-  setExternalChoice(null);
+  setSavedChoice(null);
   await onSubmit({...input(),
    source:directSource,
    sourceCard:directCard?{title:directCard.title,description:directCard.description}:undefined,
@@ -198,12 +203,12 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
     {semanticIndexBooks?.some(index=>index.id===book.id)?<strong>{book.title}</strong>:book.title}
    </button>)}
   </div>
-  {!local&&<label className="yu-custom-input">书名或公开网页 URL<input disabled={blocked} maxLength={500} value={customBook} onChange={event=>{setCustomBook(event.target.value);setExternalChoice(null);}}/></label>}
+  {!local&&<label className="yu-custom-input">书名或公开网页 URL<input disabled={blocked} maxLength={500} value={customBook} onChange={event=>{setCustomBook(event.target.value);setSavedChoice(null);}}/></label>}
   <div className="yu-discovery-mode-row">
    <h2 className="yu-discovery-heading">检索方式</h2>
    <div className="yu-discovery-modes" role="group" aria-label="检索方式">
     {modes.map(([id,label])=><button key={id} type="button" disabled={blocked||!local&&id!=='theme'}
-     aria-pressed={active===id} onClick={()=>setMode(id)}>{label}</button>)}
+     aria-pressed={active===id} onClick={()=>{if(active!==id)setSavedChoice(null);setMode(id);}}>{label}</button>)}
    </div>
   </div>
   {active==='chapter'&&<>
@@ -242,18 +247,19 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
     </>}
    </div>}
   </>}
-  {externalSearching&&<><div className="yu-discovery-extract-actions">
+  {savedSearching&&<><div className="yu-discovery-extract-actions">
    <StoryFlowAction disabled={savedSearchControlBusy} onClick={()=>onSavedSearchControl?.('pause')}>取消查找</StoryFlowAction>
   </div><p role="status">正在查找故事…</p></>}
   {savedSearch?.error&&<p role="alert">{savedSearch.error}</p>}
-  {!!externalResults.length&&<StoryChapterPicker bookId={customBook.trim()} kind="story" label="查找结果"
-   resultEntries={externalResults} sources={[]} disabled={blocked}
-   selectedEntryId={externalChoice}
-   onSelect={entry=>setExternalChoice(value=>value===entry.id?null:entry.id)}/>}
-  {!local&&showCustom&&!selectedExternal&&!externalSearching&&<div className="yu-discovery-extract-actions">
+  {!!savedResults.length&&<><h2 className="yu-discovery-heading">已保存的候选</h2><StoryChapterPicker bookId={local?bookId:customBook.trim()} kind="story" label="已保存的候选"
+   resultEntries={savedResults} sources={[]} disabled={savedChoiceBlocked}
+   selectedEntryId={savedChoice}
+   onSelect={entry=>{setExtractedChoices([]);setStories([]);setChapterStories([]);setSavedChoice(value=>value===entry.id?null:entry.id);}}/></>}
+  {!local&&showCustom&&!selectedSaved&&!savedSearching&&<div className="yu-discovery-extract-actions">
    <StoryFlowAction disabled={blocked||invalid} onClick={submit}>{savedSearchPaused&&savedSearch?.state==='searching'?'继续查找故事':'开始找故事'}</StoryFlowAction>
   </div>}
-  {(local||selectedExternal)&&<button type="button" className="yu-primary yu-discovery-submit" disabled={blocked||invalid} onClick={()=>void submit()}>
+  {!selectedSaved&&selectedSources.length>1&&<p className="yu-discovery-note" role="status">将所选内容整理成一篇故事。</p>}
+  {(local||selectedSaved)&&<button type="button" className="yu-primary yu-discovery-submit" disabled={selectedSaved?savedChoiceBlocked:blocked||invalid} onClick={()=>void submit()}>
    {busy?'正在保存任务…':'准备故事'}<ArrowRight size={19}/>
   </button>}
   {error&&<div className="yu-unavailable" role="alert"><strong>任务暂未保存</strong><p>{error}</p></div>}

@@ -1,7 +1,7 @@
 // Shelf observations must explain live work without starting or renewing generation.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {shelfGenerationStatus,shelfNeedsUserGroups,shelfProductionPriority,sortShelfProductions} from '../lib/shelf-generation.ts';
+import {shelfDrawingCount,shelfGenerationStatus,shelfNeedsUserGroups,shelfProductionPriority,sortShelfProductions} from '../lib/shelf-generation.ts';
 import {observeStoryGeneration,runQueuedStoryGeneration} from '../lib/reader-production-client.ts';
 import {productionFixture,until,turn} from './fixtures/production.mjs';
 
@@ -12,15 +12,15 @@ test('shelf actions distinguish execution, queueing, user decisions, failure and
   [{productionState:'queued',state:'running'},'等待生成','查看进度'],
   [{generationMode:'background',generationControl:'active'},'等待生成','查看进度'],
   [{generationMode:'background',awaitingFrameCount:true},'等待选择画幅数','选择画幅数'],
-  [{productionState:'paused',state:'running'},'生成已暂停','查看详情'],
+  [{productionState:'paused',state:'running'},'已暂停 · 编排故事','查看详情'],
   [{awaitingFrameCount:true,productionState:'paused'},'等待选择画幅数','选择画幅数'],
   [{state:'failed',error:'服务暂时不可用'},'生成失败','查看详情'],
   [{state:'running'},'正在编排故事','查看进度'],
   [{state:'failed',productionState:'running',error:'编排超时'},'生成失败','查看详情'],
   [{state:'completed'},'故事已完整展开','开始阅读'],
-  [{},'生成已暂停','查看详情'],
-  [{generationControl:'paused',productionState:'running'},'生成已暂停','查看详情'],
-  [{generationControl:'stopped',state:'failed'},'生成已暂停','查看详情'],
+  [{},'已暂停 · 编排故事','查看详情'],
+  [{generationControl:'paused',productionState:'running'},'已暂停 · 编排故事','查看详情'],
+  [{generationControl:'stopped',state:'failed'},'已暂停 · 编排故事','查看详情'],
  ];
  for(const [fields,message,action] of cases){
   const status=shelfGenerationStatus({...base,...fields});
@@ -29,6 +29,9 @@ test('shelf actions distinguish execution, queueing, user decisions, failure and
  assert.equal(shelfGenerationStatus({...base,state:'failed',error:'服务暂时不可用'}).detail,'服务暂时不可用');
  assert.equal(shelfGenerationStatus({...base,state:'completed'}).group,'已完成');
  assert.equal(shelfGenerationStatus({...base,state:'idle',ready:4,story:{pages:Array(8).fill({})}}).group,'生成已暂停');
+ const paused={...base,generationControl:'paused',ready:0,story:{frameCount:67}};
+ assert.equal(shelfDrawingCount({...paused,stage:'正在复核全篇分镜'},'生成已暂停'),'');
+ assert.equal(shelfDrawingCount({...paused,stage:'正在绘制第 1 幅'},'生成已暂停'),' · 0 / 67 幅');
 });
 
 test('shelf refresh reports running and queued work without dispatch or viewer renewal',async t=>{

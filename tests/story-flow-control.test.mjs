@@ -14,7 +14,11 @@ const batch={stories:[{title:'庄周梦蝶',description:'梦醒后的庄周思�
 const settings={artStyle:'watercolor',productionPrompt:'my edits',narrativeDetail:'balanced'};
 async function fixture(t){const f=await productionFixture(t);f.control.hold=false;f.discoveries=[];f.generation.suggestions=async()=>{f.discoveries.push(1);return structuredClone(batch);};return f;}
 const create=async f=>{const s=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced'}});await f.startDiscovery(s.id);await f.demand(s.id);return s.id;};
-const setup=async(f,id,action,s)=>f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(s||await f.read(id)).intake.generation,...action});
+const setup=async(f,id,action,s)=>{
+ const intake=(s||await f.read(id)).intake;
+ const draftToken=['draft','confirm','recommend'].includes(action.action)?intake.draftToken:undefined;
+ return f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:intake.generation,draftToken,...action});
+};
 const setupStatus=async(f,id,action)=>(await f.request(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(id)).intake.generation,...action})).status;
 const phase=(f,id,value)=>until(async()=>{await f.app.services.production.tick();return (await f.read(id)).intake.phase===value;});
 const searchIs=(f,id,value)=>until(async()=>{await f.app.services.production.tick();return (await f.read(id)).intake.search.state===value;});
@@ -293,6 +297,37 @@ test('saved settings survive search, restart and re-preparation, and confirmatio
  const changed=await setup(f,id,{action:'choose',batch:0,index:1,settings});assert.equal(changed.intake.draft,undefined);
  await phase(f,id,'confirming');await setup(f,id,{action:'draft',settings:draft});
  await setup(f,id,{action:'confirm',settings:draft});assert.equal((await f.read(id)).intake.draft,undefined);
+});
+
+test('a second device cannot save, recommend or confirm over a newer draft; replay keeps the newer draft',async t=>{
+ const f=await fixture(t),id=await prepared(f),route=`sessions/${id}/setup`;
+ const initial=(await f.read(id)).intake;
+ const make=(action,draftToken,productionPrompt)=>({requestId:crypto.randomUUID(),generation:initial.generation,action,draftToken,settings:{...settings,length:'auto',productionPrompt}});
+ await f.app.services.database.prepare("UPDATE stories SET selection=json_set(selection,'$.acceptancePrompt','原来的验收要求。') WHERE id=?").bind(id).run();
+ const first=make('draft',initial.draftToken,'甲设备最初的草稿。');
+ const saved=await f.json(route,'POST',first);
+ assert.notEqual(saved.intake.draftToken,initial.draftToken);
+ assert.equal((await f.json(route,'POST',first)).intake.draftToken,saved.intake.draftToken);
+ const newer=make('draft',saved.intake.draftToken,first.settings.productionPrompt);
+ newer.settings.acceptancePrompt='';
+ const current=await f.json(route,'POST',newer);
+ assert.notEqual(current.intake.draftToken,saved.intake.draftToken,'显式清空验收要求会改变指纹');
+ assert.equal((await f.json(route,'POST',first)).intake.draft.acceptancePrompt,'');
+ for(const action of ['draft','recommend','confirm']){
+  const stale=make(action,saved.intake.draftToken,'甲设备的旧内容。');
+  if(action==='recommend')delete stale.settings.length;
+  assert.equal((await f.request(route,'POST',stale)).status,409);
+ }
+ assert.equal((await f.request(route,'POST',make('confirm',undefined,'旧客户端的不同设置。'))).status,409);
+ await f.app.services.database.prepare("UPDATE stories SET document=json_remove(document,'$.intake.draftEdited') WHERE id=?").bind(id).run();
+ assert.equal((await f.request(route,'POST',make('confirm',undefined,'旧客户端试图覆盖旧格式草稿。'))).status,409);
+ assert.deepEqual((await f.read(id)).intake.draft,newer.settings);
+ const confirm=make('confirm',current.intake.draftToken,newer.settings.productionPrompt);
+ confirm.settings.acceptancePrompt='';
+ const confirmed=await f.json(route,'POST',confirm);
+ assert.equal(confirmed.intake.phase,'confirmed');
+ assert.equal(confirmed.selection.productionPrompt,newer.settings.productionPrompt);
+ assert.equal(confirmed.selection.acceptancePrompt,'');
 });
 
 for(const [name,stop] of [['pause',(f,id)=>f.json(`sessions/${id}/production-control`,'POST',{action:'pause'})],['delete',(f,id)=>f.json(`library/${id}`,'DELETE')]])test(`${name} stops a search between calls and frees the text slot`,async t=>{

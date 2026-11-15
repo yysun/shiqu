@@ -1,6 +1,8 @@
 // Persist book/theme intent and user confirmation gates before any storyboard is commissioned.
 // Search keeps its own state beside the selection: finding more stories never changes the chosen one.
 import {z} from 'zod';
+import {sha256} from '@noble/hashes/sha2.js';
+import {bytesToHex} from '@noble/hashes/utils.js';
 import {acceptancePromptSchema} from './reader-acceptance.ts';
 import {artStyleIds} from './reader-styles.ts';
 import {narrativeDetailSchema} from './reader-frame-recommendation.ts';
@@ -15,11 +17,17 @@ export const setupSettingsSchema=z.object({artStyle:z.enum(artStyleIds),producti
 const productionSettingsSchema=setupSettingsSchema.extend({length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')])});
 export type IntakeDraft=z.infer<typeof productionSettingsSchema>;
 export type ReselectionDraft={parentId:string;rootId:string;epoch:number;baseToken:string};
-export type StoryIntake={phase:'discovering'|'choosing'|'preparing'|'confirming'|'confirmed';generation:number;creationHash:string;batches:SuggestionBatch[];/** 旧版本写入的索引候选；只为读取旧文档保留，查找完成或更换条件时清除。 */indexedCandidates?:unknown[];briefRequired?:boolean;selected?:{batch:number;index:number};search?:IntakeSearch|null;draft?:IntakeDraft;manualArt?:boolean;lastAction?:{id:string;hash:string}};
-export type IntakeView=Omit<StoryIntake,'creationHash'|'lastAction'|'search'>&{search:Pick<IntakeSearch,'state'|'error'>;progress?:SuggestionProgress};
+export type StoryIntake={phase:'discovering'|'choosing'|'preparing'|'confirming'|'confirmed';generation:number;creationHash:string;batches:SuggestionBatch[];/** 旧版本写入的索引候选；只为读取旧文档保留，查找完成或更换条件时清除。 */indexedCandidates?:unknown[];briefRequired?:boolean;selected?:{batch:number;index:number};search?:IntakeSearch|null;draft?:IntakeDraft;draftEdited?:true;manualArt?:boolean;lastAction?:{id:string;hash:string}};
+export type IntakeView=Omit<StoryIntake,'creationHash'|'lastAction'|'search'|'draftEdited'>&{draftToken?:string;search:Pick<IntakeSearch,'state'|'error'>;progress?:SuggestionProgress};
+// 指纹只随已存草稿变化，查找结果和后台阶段进度不影响确认。
+export function intakeDraftToken(draft?:IntakeDraft){
+ const fields=draft?[draft.artStyle,draft.productionPrompt,draft.acceptancePrompt??null,draft.narrativeDetail??'balanced',draft.length??'auto']:null;
+ return bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(fields))));
+}
 // A discovering record without search state came from a release that kept search in the phase.
 export function intakeSearch(intake:StoryIntake):IntakeSearch{return intake.search||{round:0,state:intake.phase==='discovering'?'searching':'idle'};}
 const common={requestId:z.string().uuid(),generation:z.number().int().min(0)};
+const draftAction={...common,draftToken:z.string().regex(/^[0-9a-f]{64}$/).optional()};
 export const discoverySchema=z.discriminatedUnion('mode',[z.object({mode:z.literal('auto'),plot:z.literal(true).optional(),combine:z.literal(true).optional(),vectorFirst:z.literal(true).optional(),themeInput:z.enum(['preset','custom']).optional(),scanOnly:z.literal(true).optional()}),z.object({mode:z.literal('title'),scanOnly:z.literal(true).optional(),title:z.string().trim().min(1,'请输入要提取的故事标题。').max(100).regex(/^[^\r\n]+$/,'故事标题请写在一行内。')})]);
 export const sourceCardSchema=z.object({title:z.string().trim().min(1).max(100),description:z.string().trim().min(1).max(180)});
 export const intakeActionSchema=z.discriminatedUnion('action',[
@@ -27,9 +35,9 @@ export const intakeActionSchema=z.discriminatedUnion('action',[
  z.object({...common,action:z.literal('search'),title:z.string().trim().max(100).regex(/^[^\r\n]*$/,'故事标题请写在一行内。')}).strict(),
  z.object({...common,action:z.literal('choose'),settings:setupSettingsSchema.optional(),batch:z.number().int().nonnegative(),index:z.number().int().min(0).max(4)}).strict(),
  z.object({...common,action:z.literal('more'),automatic:z.boolean().optional(),settings:setupSettingsSchema.optional()}).strict(),
- z.object({...common,action:z.literal('recommend'),settings:setupSettingsSchema}).strict(),
- z.object({...common,action:z.literal('confirm'),settings:productionSettingsSchema}).strict(),
- z.object({...common,action:z.literal('draft'),settings:productionSettingsSchema}).strict(),
+ z.object({...draftAction,action:z.literal('recommend'),settings:setupSettingsSchema}).strict(),
+ z.object({...draftAction,action:z.literal('confirm'),settings:productionSettingsSchema}).strict(),
+ z.object({...draftAction,action:z.literal('draft'),settings:productionSettingsSchema}).strict(),
 ]);
 export type IntakeAction=z.infer<typeof intakeActionSchema>;
 

@@ -223,7 +223,11 @@ test('in-process CLI saves intent without inference, runs bounded discovery/prep
  const chooseId=crypto.randomUUID(),chooseInput={generation:candidates.session.intake.generation};await call(['stories','choose',id,'--request-id',chooseId],chooseInput);await call(['stories','choose',id,'--request-id',chooseId],chooseInput);assert.equal(f.control.recommendations.length,0);
  await assert.rejects(call(['stories','choose',id],chooseInput),error=>error.code==='CONFLICT');
  const prepared=await call(['run',id,'--until','prepared','--timeout','10']);assert.equal(prepared.reason,'prepared');assert.equal(f.control.plans.length,0);
- const confirmId=crypto.randomUUID(),confirmInput={generation:prepared.session.intake.generation};await call(['stories','confirm',id,'--request-id',confirmId],confirmInput);await call(['stories','confirm',id,'--request-id',confirmId],confirmInput);assert.equal((await call(['run',id,'--until','prepared','--timeout','1'])).reason,'already_prepared');assert.equal(f.control.plans.length,0);
+ const {intake}=prepared.session,{acceptancePrompt:_,...draftSettings}=intake.draft;
+ const {session:{intake:savedDraft}}=await call(['stories','setup',id],{action:'draft',generation:intake.generation,draftToken:intake.draftToken,settings:draftSettings});
+ assert.equal(savedDraft.draft.acceptancePrompt,undefined);
+ const confirmId=crypto.randomUUID(),confirmInput={generation:savedDraft.generation,draftToken:savedDraft.draftToken};
+ await call(['stories','confirm',id,'--request-id',confirmId],confirmInput);await call(['stories','confirm',id,'--request-id',confirmId],confirmInput);assert.equal((await call(['run',id,'--until','prepared','--timeout','1'])).reason,'already_prepared');assert.equal(f.control.plans.length,0);
  const pauseId=crypto.randomUUID();await call(['stories','pause',id,'--request-id',pauseId]);await call(['stories','pause',id,'--request-id',pauseId]);assert.equal((await call(['run',id,'--timeout','1'])).reason,'paused');assert.equal(f.control.plans.length,0);
  await call(['stories','resume',id]);const reviewed=await call(['run',id,'--until','reviewed','--timeout','10']);assert.equal(reviewed.reason,'reviewed');assert.equal(f.control.calls.length,0);
  const completed=await call(['run',id,'--timeout','10']);assert.equal(completed.reason,'completed');assert.equal(f.control.calls.length,3);

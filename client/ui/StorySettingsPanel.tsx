@@ -17,7 +17,7 @@ export function StorySettingsContent({story,session,busy,disabled,onBack,onRenam
  const storyId=session?.id||story?.id;
  const canDownload=!!story?.pages.length&&story.pages.every(page=>!!page.image);
  return <fieldset className="yu-revision-fields" disabled={disabled}>
-  {session?.selection.storyTitle!=='待拟标题'&&(!session?.intake||session.intake.selected||session.intake.phase==='confirmed')&&<div className="yu-story-name">
+  {storyId&&session?.selection.storyTitle!=='待拟标题'&&(!session?.intake||session.intake.selected||session.intake.phase==='confirmed')&&<div className="yu-story-name">
    <div className="yu-setting-row">
     <p>{title}</p>
     <button type="button" className="yu-revision-open" disabled={!onRename||!storyId} onClick={()=>{if(onRename&&storyId)onRename(storyId,title);}}>修改故事名</button>

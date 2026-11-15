@@ -3,6 +3,7 @@ import type {SessionView} from './reader-model.ts';
 import {shelfGenerationStatus} from './shelf-generation.ts';
 import {readerStoryboardBatchSize,readerMaxAutomaticRepairs} from './reader-limits.ts';
 import {productionSteps} from './production-stages.ts';
+import {isDirectSourceSelection} from './reader-discovery-themes.ts';
 import type {RevisionRedraw} from './reader-revision-images.ts';
 
 export function generationProgress(session:SessionView,now:number){
@@ -14,7 +15,9 @@ export function generationProgress(session:SessionView,now:number){
  const sourceReady=meta?.sourceReady??!!session.story?.original;
  const countReady=meta?.frameCountConfirmed??(!!session.story||!!session.frameRecommendation&&!session.awaitingFrameCount);
  const activeState=failed?'failed' as const:running||queued||session.awaitingFrameCount||session.intake&&['choosing','confirming'].includes(session.intake.phase)?'current' as const:'paused' as const;
- const steps=productionSteps({intakePhase:session.intake?.phase,candidateBatches:session.intake?.batches.length,planReady:!!session.story,sourceReady,frameCountConfirmed:countReady,storyboardFrames:meta?.storyboardFrames,storyboardBatch:meta?.storyboardBatch,reviewOverridden:meta?.reviewOverridden,reviewStatus:meta?.reviewStatus,reviewPhase:meta?.reviewPhase,reviewRound:meta?.reviewRound,repairCompleted:meta?.repairCompleted,repairTotal:meta?.repairTotal,reviewAudits:meta?.reviewAudits,repairBatches:meta?.repairBatches,repairPasses:meta?.repairPasses,reviewStopReason:meta?.reviewStopReason,phase,total,ready,activeState});
+ const {intake,selection}=session,selected=intake?.selected;
+ const intakeSource=selection.discovery?.mode==='auto'&&selection.discovery.combine?'combined':isDirectSourceSelection(selection)?'direct':'candidates';
+ const steps=productionSteps({intakePhase:intake?.phase,intakeSource,intakeSelected:!!selected,candidateBatches:intake?.batches.length,selectedSourceLabel:selected?intake?.batches[selected.batch]?.stories[selected.index]?.sourceLabel:undefined,preparedSummary:!!session.frameRecommendation?.storySummary,estimatedFrames:session.frameRecommendation?.count,planReady:!!session.story,sourceReady,frameCountConfirmed:countReady,storyboardFrames:meta?.storyboardFrames,storyboardBatch:meta?.storyboardBatch,reviewOverridden:meta?.reviewOverridden,reviewStatus:meta?.reviewStatus,reviewPhase:meta?.reviewPhase,reviewRound:meta?.reviewRound,repairCompleted:meta?.repairCompleted,repairTotal:meta?.repairTotal,reviewAudits:meta?.reviewAudits,repairBatches:meta?.repairBatches,repairPasses:meta?.repairPasses,reviewStopReason:meta?.reviewStopReason,phase,total,ready,activeState});
  if(!session.intake&&!countReady&&session.frameRecommendation)steps[1].detail=`建议 ${session.frameRecommendation.count} 幅`;
  const elapsed=running&&meta?.startedAt!==null&&meta?.startedAt!==undefined&&Number.isFinite(meta.startedAt)?Math.max(0,Math.floor((now-meta.startedAt)/1000)):null;
  const remaining=elapsed!==null&&meta?.timeoutAt!==null&&meta?.timeoutAt!==undefined&&Number.isFinite(meta.timeoutAt)?Math.max(0,Math.ceil((meta.timeoutAt-now)/1000)):null;

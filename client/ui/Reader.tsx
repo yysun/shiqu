@@ -573,12 +573,12 @@ export default function Reader(){
     showLandscape={workflowSession.state==='completed'&&!workflowSession.superseded&&!!panelStory?.pages.length&&panelStory.pages.every(page=>!!page.image)}
     navigation={{source:{onClick:()=>setSource(true),disabled:!workflowSession.generationProgress?.sourceReady},reselect:{label:'替换选题',onClick:()=>void reselectStory(),disabled:creating||revision.busy||!!gen.controlBusy,title:'替换当前选题，书架保留一张卡片，旧结果保留历史'},reselecting:creating}}
     onAcceptance={()=>revision.open('acceptance')} onHistory={()=>setReviewHistoryId(workflowSession.id)} onEditStyle={()=>revision.open('style')}
-    timeline={!revisionResuming?{
+    timeline={{
      links:{source:[{label:'制作要求',onClick:()=>revision.open('requirements')},{label:'验收要求',onClick:()=>revision.open('acceptance')}]},
      actions:{count:{label:'修改叙事详略',onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:'查看分镜',onClick:()=>setScript(true)}}:{})}
-    }:undefined}
+    }}
     draft={revisionPending&&revision.base&&!revisionResuming?{base:revision.base,changes:revision.changes,confirmation:<StoryRevisionActions editor={revision} link/>}:undefined} editor={revision} onReselect={()=>void reselectStory()}
-    reviewTools={!revisionPending&&<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onScript={()=>setScript(true)} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review')?.id)} onDrawAnyway={()=>void gen.drawAnyway(workflowSession.id)}/>}
+    reviewTools={!revisionPending&&<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review')?.id)} onDrawAnyway={()=>void gen.drawAnyway(workflowSession.id)}/>}
    />}
   </>:<div role="status">{workflowError?<><p role="alert">{workflowError}</p><button type="button" onClick={()=>openWorkflow(workflowTarget!)}>重新加载制作流程</button></>:<p>正在打开制作流程…</p>}</div>);
 
@@ -672,8 +672,8 @@ export default function Reader(){
  </ReaderTag>;
 
  // 手机树：今天的界面与其专属面板。
- // 只有自选书籍可能没有本地故事卡，使用同一个查找结果列表承接这类任务。
- const savedMaterials=materialsTask?.id===discoveryTarget&&materialsTask?.selection.bookId==='other'?materialsTask:null;
+ // 重开的选材任务继续使用服务器已保存的批次和候选编号。
+ const savedMaterials=materialsTask?.id===discoveryTarget?materialsTask:null;
  const discoveryForm=<StoryDiscoveryForm key={createSeed} retainKey="discovery" autoSearch={autoSearch} selection={selection} books={choices}
   semanticIndexBooks={semanticIndexBooks} busy={creating} error={unavailable}
   savedIntake={savedMaterials?.intake} savedSelection={savedMaterials?.selection}

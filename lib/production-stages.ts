@@ -3,7 +3,7 @@ import {readerStoryboardBatchSize} from './reader-limits.ts';
 export type ProductionStageState='pending'|'current'|'done'|'skipped'|'unavailable'|'failed'|'paused';
 export type ProductionStage={id:string;label:string;state:ProductionStageState;detail:string};
 export type ProductionCheckpoint={reviewOverridden?:boolean|number|null;intakePhase?:string;candidateBatches?:number;planReady:boolean;sourceReady?:boolean;frameCountConfirmed?:boolean;phase?:string;storyboardFrames?:number|null;storyboardBatch?:{first:number;last:number};reviewStatus?:'pending'|'repair'|'passed'|'blocked'|null;reviewPhase?:'frames'|'full'|null;reviewRound?:number;repairCompleted?:number;repairTotal?:number;reviewAudits?:number;repairBatches?:number;repairPasses?:number;reviewStopReason?:'limit'|'unchanged'|'replan'|'requirements'};
-type Input=ProductionCheckpoint&{phase?:string;total:number|null;ready:number;activeState?:'current'|'failed'|'paused'};
+type Input=ProductionCheckpoint&{phase?:string;total:number|null;ready:number;activeState?:'current'|'failed'|'paused';intakeSource?:'direct'|'combined'|'candidates';selectedSourceLabel?:string;intakeSelected?:boolean;preparedSummary?:boolean;estimatedFrames?:number};
 export function productionStages(input:Input):ProductionStage[]{
  const {planReady,reviewStatus,reviewRound=0,repairCompleted=0,repairTotal=0,total,ready,activeState='current'}=input;
  const phase=input.phase||(!planReady?'plan':reviewStatus==='repair'?'repair':reviewStatus==='pending'||reviewStatus==='blocked'?'review':'image');
@@ -33,9 +33,25 @@ export function productionStages(input:Input):ProductionStage[]{
 export function productionSteps(input:Input):ProductionStage[]{
  const sourceReady=input.sourceReady??input.planReady,countReady=input.frameCountConfirmed??input.planReady;
  const activeState=input.activeState||'current',phase=input.phase||(!input.planReady?'plan':undefined);
+ const intake=input.intakePhase;
+ if(intake){
+  const candidates=(input.intakeSource??'candidates')==='candidates',combined=input.intakeSource==='combined';
+  const selected=!!input.intakeSelected||intake==='preparing'||intake==='confirming'||intake==='confirmed';
+  const prepared=intake==='confirming'||intake==='confirmed';
+  const sourceLabel=candidates?'提取故事':combined?'整理所选原文':'已选原文';
+  const sourceDetail=candidates
+   ?selected||intake!=='discovering'?`已保存 ${input.candidateBatches||0} 批候选`:'正在寻找并保存候选故事'
+   :sourceReady?input.selectedSourceLabel||'已保存原文':combined?'将所选原文整理为一篇故事':'等待保存原文';
+  return [
+   {id:'source',label:sourceLabel,state:candidates?intake==='discovering'?activeState:'done':sourceReady?'done':activeState,detail:sourceDetail},
+   {id:'prepare',label:'准备故事',state:prepared?'done':intake==='preparing'&&(candidates||sourceReady)?activeState:'pending',detail:prepared?input.preparedSummary?'原文与梗概已核对':'原文与制作建议已保存':intake==='preparing'?'保存原文，核对梗概与制作建议':selected?'待准备这篇故事':'等待选材完成'},
+   {id:'count',label:'制作确认',state:intake==='confirmed'?'done':intake==='confirming'?'current':'pending',detail:intake==='confirmed'?'制作内容已确认 · 幅数随编排与审核确定':intake==='confirming'?(input.estimatedFrames?`预计 ${input.estimatedFrames} 幅 · 最终幅数由编排与审核确定`:'确认画风、叙事详略、制作要求和验收要求'):'等待准备完成'},
+   ...productionStages(input),
+  ];
+ }
  return [
   {id:'source',label:'确认原文',state:sourceReady?'done':phase==='source'||phase==='recommend'?activeState:'pending',detail:sourceReady?'已保存':'待完成'},
   {id:'count',label:'叙事详略与篇幅',state:countReady?'done':phase==='frame-count'||phase==='recommend'&&sourceReady?activeState:'pending',detail:countReady&&input.total!==null?`${input.total} 幅`:'待确定'},
   ...productionStages(input),
- ].map(step=>input.intakePhase&&step.id==='source'?{...step,label:'提取故事',state:input.intakePhase==='discovering'?activeState:'done',detail:input.intakePhase==='discovering'?'正在寻找并保存候选故事':`已保存 ${input.candidateBatches||0} 批候选`}:input.intakePhase&&step.id==='count'?{...step,label:'制作确认',state:input.intakePhase==='confirmed'?'done':input.intakePhase==='discovering'?'pending':activeState,detail:input.intakePhase==='choosing'?'待选择故事':input.intakePhase==='preparing'?'正在保存原文与制作建议':input.intakePhase==='confirming'?'确认故事、画风、叙事详略和制作要求':input.intakePhase==='confirmed'?'制作内容已确认 · 幅数随编排与审核确定':'等待候选故事'}:step) as ProductionStage[];
+ ];
 }
