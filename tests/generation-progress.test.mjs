@@ -59,6 +59,19 @@ test('step clocks survive reopening and count down to the saved deadline',()=>{
  assert.equal(generationProgress(next,77000).elapsed,1);assert.equal(generationProgress(next,77000).remaining,299);
 });
 
+test('restyling keeps the saved storyboard complete and puts conversion under drawing',()=>{
+ const session={...planning,story:{pages:Array(4).fill({})},generationProgress:{...planning.generationProgress,phase:'restyle',reviewStatus:'passed',frameCount:4}};
+ const progress=generationProgress(session,20000);
+ assert.deepEqual(progress.steps.map(step=>step.state),['done','done','done','done','skipped','skipped','current']);
+ assert.equal(progress.steps[2].detail,'4 幅分镜已保存');
+ assert.match(progress.steps[6].detail,/转换画面提示词.*开始出图/);
+ assert.equal(progress.measured,false);
+ assert.equal(generationProgress({...session,state:'failed',error:'超时'},20000).steps[6].state,'failed');
+ assert.equal(generationProgress({...session,generationControl:'paused'},20000).steps[6].state,'paused');
+ const drawing=generationProgress({...session,ready:1,generationProgress:{...session.generationProgress,phase:'image'}},20000);
+ assert.equal(drawing.steps[6].detail,'1 / 4 幅画面已保存');
+});
+
 test('completed durations merge parallel work, accumulate batches and exclude waiting gaps',()=>{
  const selection={bookId:'zhuangzi',storyTitle:'庄周梦蝶'},scope=productionTimingScope(selection);
  const job=(stage,timings,timingScope=scope)=>({kind:'script',payload:JSON.stringify({timingStage:stage,timingScope,timings:timings.map(([startedAt,finishedAt])=>({startedAt,finishedAt}))})});
@@ -66,4 +79,10 @@ test('completed durations merge parallel work, accumulate batches and exclude wa
  assert.deepEqual(productionStageDurations(jobs,selection),{plan:8,image:18,review:2});
  assert.deepEqual(productionStageDurations(jobs,{...selection,displayTitle:'新显示标题'}),{plan:8,image:18,review:2});
  assert.deepEqual(productionStageDurations(jobs,{...selection,storyTitle:'另一篇故事'}),{});
+});
+
+test('saved style conversion time counts toward drawing even when tagged as planning',()=>{
+ const selection={bookId:'zhuangzi',storyTitle:'尾生抱柱'};
+ const job={kind:'script',payload:JSON.stringify({stepKey:'restyle:0',timingStage:'plan',timingScope:productionTimingScope(selection),timings:[{startedAt:1000,finishedAt:30000}]})};
+ assert.deepEqual(productionStageDurations([job],selection),{image:29});
 });

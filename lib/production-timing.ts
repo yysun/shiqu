@@ -10,11 +10,13 @@ export function productionTimingScope(selection:Selection,search=false){
 export function productionStageDurations(jobs:{payload:string;kind:string}[],selection:Selection){
  const intervals:Record<string,[number,number][]>={};
  for(const job of jobs){
-  const payload=JSON.parse(job.payload) as {timingStage?:string;timingScope?:string;timings?:{startedAt:number;finishedAt:number}[]};
-  if(!payload.timingStage||!['source','count','plan','review','repair','recheck','image'].includes(payload.timingStage)||payload.timingScope!==productionTimingScope(selection,job.kind==='discover')||!Array.isArray(payload.timings))continue;
+  const payload=JSON.parse(job.payload) as {stepKey?:string;timingStage?:string;timingScope?:string;timings?:{startedAt:number;finishedAt:number}[]};
+  // 旧版把画风转换记在分镜下，读取时把这段耗时归入绘图。
+  const stage=job.kind==='script'&&payload.stepKey?.startsWith('restyle:')?'image':payload.timingStage;
+  if(!stage||!['source','count','plan','review','repair','recheck','image'].includes(stage)||payload.timingScope!==productionTimingScope(selection,job.kind==='discover')||!Array.isArray(payload.timings))continue;
   for(const timing of payload.timings){
    if(!timing||!Number.isFinite(timing.startedAt)||!Number.isFinite(timing.finishedAt)||timing.finishedAt<timing.startedAt)continue;
-   (intervals[payload.timingStage]||=[]).push([timing.startedAt,timing.finishedAt]);
+   (intervals[stage]||=[]).push([timing.startedAt,timing.finishedAt]);
   }
  }
  return Object.fromEntries(Object.entries(intervals).map(([stage,ranges])=>{

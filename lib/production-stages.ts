@@ -14,17 +14,19 @@ export function productionStages(input:Input):ProductionStage[]{
  const rechecking=!needsReplan&&phase==='review'&&(reviewRound>0||!!input.repairPasses);
  const repaired=reviewStatus==='repair'||blocked||rechecking||!!input.repairPasses||passed&&reviewRound>1||!!input.reviewOverridden;
  const active=(at:boolean):ProductionStageState=>at?activeState:'pending';
+ const restyling=phase==='restyle',canDraw=planReady&&(legacy||passed);
+ const drawingDone=!restyling&&canDraw&&total!==null&&total>0&&ready>=total;
  const reviewState:ProductionStageState=stoppedBeforeRepair?'failed':legacy?'unavailable':passed||repaired?'done':active(phase==='review');
  const repairState:ProductionStageState=requirementsBlocked?(input.repairPasses?'done':'skipped'):stoppedBeforeRepair?'skipped':blocked&&input.reviewStopReason==='unchanged'?'failed':legacy?'unavailable':passed&&!repaired?'skipped':blocked||rechecking||passed&&repaired?'done':active(phase==='repair');
  const recheckState:ProductionStageState=stoppedBeforeRepair?'pending':blocked&&input.reviewStopReason==='unchanged'?'pending':legacy?'unavailable':passed?(repaired?'done':'skipped'):blocked?'failed':active(rechecking);
  const count=total===null?'':` / ${total}`;
  const batch=input.storyboardBatch||(!planReady&&input.storyboardFrames!=null&&total!==null&&input.storyboardFrames<total?{first:input.storyboardFrames+1,last:Math.min(input.storyboardFrames+readerStoryboardBatchSize,total)}:null);
  return [
-  {id:'plan',label:'分批分镜',state:phase==='restyle'?active(true):planReady?'done':active(phase==='plan'||phase==='reflection'),detail:phase==='restyle'?'正在按新画风改写画面提示词':phase==='reflection'?'完整分镜已保存，正在撰写结语':planReady?`${total===null?'全篇':total+' 幅'}分镜已保存`:batch?`已保存 ${input.storyboardFrames||0}${count} 幅分镜 · 当前第 ${batch.first}–${batch.last} 幅`:input.storyboardFrames!=null?`已保存 ${input.storyboardFrames}${count} 幅分镜`:'等待完整分镜返回'},
+  {id:'plan',label:'分批分镜',state:planReady?'done':active(phase==='plan'||phase==='reflection'),detail:phase==='reflection'?'完整分镜已保存，正在撰写结语':planReady?`${total===null?'全篇':total+' 幅'}分镜已保存`:batch?`已保存 ${input.storyboardFrames||0}${count} 幅分镜 · 当前第 ${batch.first}–${batch.last} 幅`:input.storyboardFrames!=null?`已保存 ${input.storyboardFrames}${count} 幅分镜`:'等待完整分镜返回'},
   {id:'review',label:input.reviewPhase==='frames'?'画幅数审核':'全篇审片',state:reviewState,detail:input.reviewOverridden?'未完成的审核由你确认跳过':input.reviewPhase==='frames'?'按原文任务核对缺失、重复与画幅分配':requirementsBlocked&&!requirementsRecheck?'验收要求存在冲突或无法判断':needsReplan?'主事件未完整收束，需要重新编排':legacy?'旧故事未启用审片':reviewState==='done'?(passed&&!repaired?'初审通过':'全篇审片已完成'):phase==='review'&&!rechecking?'检查分镜、跨批衔接与结语':'等待分镜与结语完成'},
   {id:'repair',label:'定向修订',state:repairState,detail:requirementsBlocked&&!input.repairPasses?(requirementsRecheck?'本次重新审核前未执行自动修订':'等待调整验收要求，未执行自动修订'):needsReplan?'整篇结构需重编，未执行局部修补':legacy?'旧故事未启用审片':repairState==='skipped'?'初审通过，无需修订':phase==='repair'?`第 ${(input.repairPasses||0)+1} 轮 · 已修订 ${repairCompleted} / ${repairTotal} 项`:repairState==='done'?typeof input.repairBatches==='number'?`已完成 ${input.repairBatches} 批定向修订`:'问题幅号已定向修订':'仅在审片发现问题时执行'},
   {id:'recheck',label:'复核',state:recheckState,detail:requirementsBlocked?(requirementsRecheck?'验收要求存在冲突或无法判断':'调整验收要求后重新审核'):needsReplan?'重新编排后再审核':legacy?'旧故事未启用审片':blocked?`仍有 ${repairTotal} 项待修订，绘图已阻止`:input.reviewOverridden?'未解决的问题由你确认放行':recheckState==='skipped'?'初审通过，无需复核':passed?`复核通过 · 已审核 ${input.reviewAudits??reviewRound} 次`:rechecking?(input.reviewPhase==='frames'?'正在复核画幅数与叙事任务':`正在第 ${(input.reviewAudits??reviewRound)+1} 次全篇审核`):'修订后重新审片'},
-  {id:'image',label:'绘图',state:planReady&&(legacy||passed)&&total!==null&&total>0&&ready>=total?'done':active(phase==='image'&&planReady&&(legacy||passed)),detail:requirementsBlocked?'等待调整验收要求，绘图已阻止':needsReplan?'等待重新编排，绘图已阻止':blocked?'待继续修订，绘图已阻止':reviewStatus&&!passed?'等待审片通过':total===null?`已保存 ${ready} 幅`:`${ready} / ${total} 幅画面已保存`},
+  {id:'image',label:'绘图',state:drawingDone?'done':active(canDraw&&(restyling||phase==='image')),detail:requirementsBlocked?'等待调整验收要求，绘图已阻止':needsReplan?'等待重新编排，绘图已阻止':blocked?'待继续修订，绘图已阻止':reviewStatus&&!passed?'等待审片通过':restyling?'按新画风转换画面提示词，完成后开始出图':total===null?`已保存 ${ready} 幅`:`${ready} / ${total} 幅画面已保存`},
  ];
 }
 
