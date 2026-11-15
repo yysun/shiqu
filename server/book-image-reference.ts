@@ -5,6 +5,8 @@ import type {Database} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
 import type {StoryGenerator} from '../lib/reader-engine.ts';
 import {ReaderError} from '../lib/reader-model.ts';
+import type {Document,Selection} from '../lib/reader-model.ts';
+import {usesStoryImageReference} from '../lib/reader-revision.ts';
 import {readerBooks} from '../lib/reader-books.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
@@ -13,7 +15,7 @@ import {imageDimensions} from '../lib/reader-image-dimensions.ts';
 export const bookReferenceMigration='0010_book_image_references.sql';
 export type BookReference={storyId:string;page:number;token:string};
 type SavedReference={owner_id:string;book_key:string;story_id:string;page:number;token:string;asset_key:string};
-type Source={bookKey:string;image:string;validPage:boolean;guard:string;values:unknown[]};
+type Source={bookKey:string;image:string;validPage:boolean;storyImageReference:boolean;guard:string;values:unknown[]};
 const digest=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 function bookKey(id:string,custom?:string){const name=(id==='other'?custom||'':id).trim(),known=readerBooks.find(book=>book.id===name||book.title===name);if(!name)throw new ReaderError(400,'请先确定所属书籍。');return known?'book:'+known.id:(id==='other'?'custom:':'book:')+name;}
 function picture(bytes:Uint8Array){const type=mediaType(bytes);if(!type||bytes.length>12*1024*1024||!imageDimensions(bytes))throw new ReaderError(400,'请选择有效的PNG、JPEG或WebP图片（不超过12MB）。');return type;}
@@ -24,8 +26,8 @@ export class BookImageReferences{
  private async source(id:string,page=0):Promise<Source>{
   const row=await this.database.prepare(`SELECT selection,document FROM stories WHERE id=? AND user_id=? AND ${visible}`).bind(id,this.owner,id,this.owner).first<{selection:string;document:string}>();
   if(row){
-   const selection=JSON.parse(row.selection),doc=JSON.parse(row.document),image=doc.plan?.pages[page]?doc.images[page]||'':'';
-   return {bookKey:bookKey(selection.bookId,selection.customBook),image,validPage:!!doc.plan?.pages[page],guard:`EXISTS(SELECT 1 FROM stories WHERE id=? AND user_id=? AND selection=? AND json_extract(document,?)=? AND ${visible})`,values:[id,this.owner,row.selection,`$.images[${page}]`,image,id,this.owner]};
+   const selection=JSON.parse(row.selection) as Selection,doc=JSON.parse(row.document) as Document,image=doc.plan?.pages[page]?doc.images[page]||'':'';
+   return {bookKey:bookKey(selection.bookId,selection.customBook),image,validPage:!!doc.plan?.pages[page],storyImageReference:usesStoryImageReference(doc.revision,selection.artStyle),guard:`EXISTS(SELECT 1 FROM stories WHERE id=? AND user_id=? AND selection=? AND json_extract(document,?)=? AND ${visible})`,values:[id,this.owner,row.selection,`$.images[${page}]`,image,id,this.owner]};
   }
   throw new ReaderError(404,'这篇故事不在你的书架里');
  }
@@ -60,7 +62,9 @@ export class BookImageReferences{
   return this.get(id);
  }
  async resolve(id:string,fallback:string){
-  const source=await this.source(id),row=await this.selected(source.bookKey);if(!row)return fallback;
+  const source=await this.source(id);
+  if(source.storyImageReference)return fallback;
+  const row=await this.selected(source.bookKey);if(!row)return fallback;
   const match=/^book-reference\/[a-f0-9]{64}\/[a-f0-9]{64}\/([a-f0-9]{64})\.(png|jpg|webp)$/.exec(row.asset_key);
   if(!match)throw new ReaderError(503,'本书参考图不可用，请重新选择或取消星标。');
   const object=await this.media.get(row.asset_key).catch(()=>null);

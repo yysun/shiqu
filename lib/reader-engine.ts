@@ -14,7 +14,7 @@ import {storyEditorialContext} from './reader-prompts.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
 import type {ArtRecommendation} from './reader-art-recommendation.ts';
-import {readerImageBatchSize,readerStoryboardBatchSize,readerMaxAutomaticRepairs} from './reader-limits.ts';
+import {readerImageBatchSize,readerStoryboardBatchSize,readerRestyleBatchSize,readerMaxAutomaticRepairs} from './reader-limits.ts';
 import {newReview,parseFrameCountReport,reviewReportSchema,repairOutputSchema,pendingRepairs,storyReplanMessage} from './reader-review.ts';
 import {syncRevisionImages,reusableRevisionImages,redrawImagePlan} from './reader-revision.ts';
 import {applyStructuralEdits} from './reader-structure.ts';
@@ -24,7 +24,7 @@ import type {EditorialCoverage} from './reader-editorial.ts';
 import type {ReviewIssue,ReviewReport,RepairedPage,FrameCountReport,FrameCountContext} from './reader-review.ts';
 import type {PromptRecord} from './reader-prompt-records.ts';
 export type Generated<T>={promptRecord?:PromptRecord;value:T;model:string;requestId:string|null;usage:unknown;reasoningEffort?:string};
-export interface StoryGenerator{recommendArt?(selection:Selection,original:OriginalSource):Promise<ArtRecommendation>;prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;recommend?(selection:Selection,id:string,original:OriginalSource,prepareRequirements?:boolean):Promise<Generated<FrameRecommendation>>;outline?(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<StoryboardOutline>>;planBatch?(selection:Selection,id:string,storyboard:Storyboard,original:OriginalSource):Promise<Generated<Plan['pages']>>;reviewFrameCount?(selection:Selection,plan:Plan,original:OriginalSource):Promise<Generated<FrameCountReport>>;review?(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,candidates?:ReflectionCandidates):Promise<Generated<ReviewReport>>;restructure?(selection:Selection,plan:Plan,original:OriginalSource,issues:ReviewIssue[],coverage?:EditorialCoverage[],frameCountContext?:FrameCountContext):Promise<Generated<StructuralEdits>>;repair?(selection:Selection,plan:Plan,original:OriginalSource,issues:ReviewIssue[],outline?:StoryboardOutline):Promise<Generated<RepairedPage[]>>;reflectionCandidates(selection:Selection,draft:StoryDraft,original:OriginalSource):Promise<Generated<StoryPresentation>>;reflection(selection:Selection,draft:StoryDraft,original:OriginalSource,revision?:{reflection:string;issues:ReviewIssue[]}):Promise<Generated<string>>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<StoryDraft>>;original(selection:Selection,plan:SourceHint,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string,layout?:ImageLayout):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
+export interface StoryGenerator{restyle?(from:ArtStyleId,to:ArtStyleId,scenePrompts:string[]):Promise<Generated<string[]>>;recommendArt?(selection:Selection,original:OriginalSource):Promise<ArtRecommendation>;prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;recommend?(selection:Selection,id:string,original:OriginalSource,prepareRequirements?:boolean):Promise<Generated<FrameRecommendation>>;outline?(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<StoryboardOutline>>;planBatch?(selection:Selection,id:string,storyboard:Storyboard,original:OriginalSource):Promise<Generated<Plan['pages']>>;reviewFrameCount?(selection:Selection,plan:Plan,original:OriginalSource):Promise<Generated<FrameCountReport>>;review?(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,candidates?:ReflectionCandidates):Promise<Generated<ReviewReport>>;restructure?(selection:Selection,plan:Plan,original:OriginalSource,issues:ReviewIssue[],coverage?:EditorialCoverage[],frameCountContext?:FrameCountContext):Promise<Generated<StructuralEdits>>;repair?(selection:Selection,plan:Plan,original:OriginalSource,issues:ReviewIssue[],outline?:StoryboardOutline):Promise<Generated<RepairedPage[]>>;reflectionCandidates(selection:Selection,draft:StoryDraft,original:OriginalSource):Promise<Generated<StoryPresentation>>;reflection(selection:Selection,draft:StoryDraft,original:OriginalSource,revision?:{reflection:string;issues:ReviewIssue[]}):Promise<Generated<string>>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<StoryDraft>>;original(selection:Selection,plan:SourceHint,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string,layout?:ImageLayout):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
 
 async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerator,row:SessionRow,token:string,doc:Document,selection:Selection,throughPage:number){
  const pages=doc.plan!.pages.map((_,page)=>page).filter(page=>page<=throughPage&&!doc.images[page]);
@@ -216,6 +216,16 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     doc.plan=planSchema.parse(updated);if(doc.storyboard)doc.storyboard.pages=structuredClone(doc.plan.pages);
     if(!changed.length){review.status='blocked';review.stopReason='unchanged';}else{review.repaired.push(...requested);if(!pendingRepairs(review).length){review.status='pending';review.repairs++;}}generated=result;
    }
+  }
+  else if(step.kind==='restyle'){
+   if(!generator.restyle)throw new ReaderError(503,'生成服务暂不支持转换分镜画风，请更新服务后重试。');
+   const revision=doc.revision!,work=revision.restyle!,pages=doc.plan!.pages;
+   const batch=pages.slice(work.next,work.next+readerRestyleBatchSize);
+   const result=await generator.restyle(work.from,selection.artStyle,batch.map(page=>page.prompt));
+   for(const [index,prompt] of result.value.entries())pages[work.next+index]={...batch[index],prompt};
+   work.next+=batch.length;
+   if(work.next===pages.length)delete revision.restyle;
+   generated=result;
   }
   else if(step.kind==='image')await drawRequestedImages(repo,generator,row,token,doc,selection,throughPage);
   else{const result=await generator.audio(doc.plan!.pages[step.page].caption,id,step.page);doc.audio[step.page]=result.value;generated=result;}

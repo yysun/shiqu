@@ -21,7 +21,7 @@ export type RevisionChanges=z.infer<typeof revisionChangesSchema>;
 export type RevisionInfo={parentId:string;rootId:string;number:number};
 export type RevisionView=RevisionInfo&{redraw?:RevisionRedraw};
 // 横图按幅号排列。URL 代表继承的图片，null 代表待重绘，空字符串代表原版缺幅。
-export type RevisionRecord=RevisionInfo&{kind?:'selection';selectionRequest?:string;baseToken:string;requestHash:string;handoff?:boolean;base:RevisionBase;previewedRedraw?:number;actualRedraw?:number;lostPages?:number[];redrawPages?:number[];redrawNotes?:RevisionChanges['redrawNotes'];landscapeRedraw?:(string|null)[]};
+export type RevisionRecord=RevisionInfo&{kind?:'selection';selectionRequest?:string;baseToken:string;requestHash:string;handoff?:boolean;base:RevisionBase;storyImageReference?:true;restyle?:{from:Selection['artStyle'];next:number};previewedRedraw?:number;actualRedraw?:number;lostPages?:number[];redrawPages?:number[];redrawNotes?:RevisionChanges['redrawNotes'];landscapeRedraw?:(string|null)[]};
 export type RevisionSnapshot=RevisionBase&{token:string;epoch:number;reviewStatus?:ReviewCheckpoint['status'];revision?:RevisionInfo};
 export type RevisionImpact={changed:boolean;replan:boolean;preserveScript:boolean;review:boolean;reused:number;redraw:number;total:number;reusePending:boolean;conflict:boolean};
 export const revisionFrameCount=(base:RevisionBase)=>base.plan?.pages.length??(typeof base.selection.length==='number'?base.selection.length:base.frameRecommendation?.count??8);
@@ -63,6 +63,13 @@ export function checkedRevision(base:RevisionBase,changes:RevisionChanges){
 }
 export function syncRevisionImages(doc:Document,selection:Selection){
  if(doc.revision&&doc.plan)doc.images=reusableRevisionImages(doc.revision.base,selection,doc.plan).map((image,index)=>doc.revision!.redrawPages?.includes(index+1)?'':image);
+}
+
+// 换画风后，本篇后续版本也用自己的首幅作参考。旧版换画风记录可从修订基准识别。
+export function usesStoryImageReference(revision:RevisionRecord|undefined,style:Selection['artStyle']){
+ if(!revision||revision.kind==='selection')return false;
+ const previousStyle=revision.base?.selection?.artStyle;
+ return revision.storyImageReference===true||!!previousStyle&&previousStyle!==style;
 }
 
 // 只在绘图请求中应用说明，保留审核过的分镜与后续编辑的基准。

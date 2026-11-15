@@ -10,7 +10,7 @@ import type {Document,SessionRow} from '../lib/reader-model.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
 import {familyRoot,familyNumber,supersededSql} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
-import {checkedRevision,syncRevisionImages} from '../lib/reader-revision.ts';
+import {checkedRevision,syncRevisionImages,usesStoryImageReference} from '../lib/reader-revision.ts';
 import type {RevisionChanges,RevisionSnapshot} from '../lib/reader-revision.ts';
 import {readableImage,readableLandscapeImage} from './reader-image-health.ts';
 import {commandReceipt} from './reader-commands.ts';
@@ -91,6 +91,9 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  }
  const base={...original,images};
  const document:Document={setupRequirements:doc.setupRequirements,publication:doc.publication,plan,original:doc.original,frameRecommendation:doc.frameRecommendation,frameCountConfirmed:true,visualReview:impact.review?newReview():doc.visualReview,images:[],audio:[],usage:(doc.usage||[]).map(item=>({...item,originId:item.originId||parentId})),revision:{parentId,rootId,number:epoch+1,baseToken:token,requestHash,base,...(impact.replan?{}:{previewedRedraw:impact.redraw}),...(lostPages.length?{lostPages}:{})}};
+ if(usesStoryImageReference(document.revision,selection.artStyle)||usesStoryImageReference(doc.revision,original.selection.artStyle))document.revision!.storyImageReference=true;
+ const from=selection.artStyle!==original.selection.artStyle?original.selection.artStyle:doc.revision?.restyle?.from;
+ if(from&&(plan||impact.preserveScript))document.revision!.restyle={from,next:0};
  if(changes.redrawPages){
   if(lostPages.length||original.images.length!==plan!.pages.length||original.images.some(image=>!image))throw new ReaderError(409,'原版图片不完整，未创建仅换图版本；请先恢复缺图。');
   document.revision!.redrawPages=[...changes.redrawPages];

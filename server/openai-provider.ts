@@ -128,7 +128,7 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
    const parsed=contract.parse(result.value,stories);report({acceptedCount:parsed.matches.length});return parsed;
   });
  return {
-  generationTimeoutMs:phase=>['recommend','plan','reflection','review','repair','image'].includes(phase)?timeoutMs:null,
+  generationTimeoutMs:phase=>['recommend','plan','reflection','review','repair','restyle','image'].includes(phase)?timeoutMs:null,
   async status(){return {configured:!!key,provider,models,voiceEnabled:false,taskReasoningEfforts:reasoning,themeMatching:{model:matchingModel,reasoningEffort:matchingEffort},...(deepseek&&!key?{message:'请通过 DEEPSEEK_API_KEY 提供 DeepSeek 密钥；不会使用其他提供方的密钥。'}:{})};},
   async suggestions(selection,excluded,localBook,reading){
    const scanning=localBook?.purpose==='scan'||localBook?.purpose==='catalog';

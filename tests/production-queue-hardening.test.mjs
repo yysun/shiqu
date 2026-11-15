@@ -108,7 +108,7 @@ for(const status of ['pending','repair','passed','blocked',undefined])test(`styl
  const base=await revisionSnapshot(repo,id,owner),child=await forkRevision(repo,f.media,owner,id,crypto.randomUUID(),base.token,{artStyle:'paper-cut'}),doc=JSON.parse(child.document);
  assert.equal(base.reviewStatus,status);assert.deepEqual(doc.visualReview,review);assert.deepEqual(doc.reflectionCandidates,candidates);
  assert.equal(child.state,status==='blocked'?'failed':'idle');
- assert.equal(nextStep(doc,JSON.parse(child.selection),0).kind,status==='repair'?'repair':status==='pending'||status==='blocked'?'review':'image');
+ assert.equal(nextStep(doc,JSON.parse(child.selection),0).kind,status==='repair'?'repair':status==='pending'||status==='blocked'?'review':'restyle');
 });
 test('seeded legacy paused handoff still resumes and clears its flag without touching parent',async t=>{
  const {f,repo,id,owner}=await seeded(t),base=await revisionSnapshot(repo,id,owner),child=crypto.randomUUID();

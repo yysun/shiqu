@@ -55,12 +55,12 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 | 发现数据 | `catalog` 或 `books/themes/styles` 查目录，`books contents <bookId> --query <关键词>` 按关键词查章节和可用的故事段落；`books search <查询> [书名] --limit 5` 用标题、梗概和原文在独立索引里找故事候选，返回原文预览和出处，无需调用生成模型。用 `--brief` 只显示书名、索引中的故事标题、章节和段落，默认输出 JSON。当前书目以 `books` 的返回为准。检索内置故事卡时指定书名，可直接运行 `books search 种梨 聊斋志异 --brief`。在「我的 → 嵌入模型与故事卡索引」配置本机 Ollama 并逐书建立实时向量索引。旧离线索引用 `books index-import <书名> <SQLite 文件> --data-dir <数据目录>` 导入；当前版次可核验的故事卡用于文字检索，旧向量不使用。实验源码 worktree 中的 `node bin/shiqu.mjs books search` 可自动使用 `.data/dev-local` 下的索引，显式数据目录优先；`stories list/get/current` 查书库与当前版本；`stories source/prompts/review-history/revisions <id>` 查保存依据。`status` 查本地书库完整性、数量与运行元信息，不检测云端服务是否就绪；`init` 可显式建库，但普通书库操作已自动初始化。 |
 | 配置 | `config get` 返回 settings、revision 和 keyPresent，不返回密钥；`config set` 输入 `{settings:<修改字段>,expectedRevision:<读取到的revision>}`，API密钥按 help 的 key 输入。`config reset` 清除提供方设置和保存的API密钥，保留书库及网络设置；它不是临时切换只读模式。 |
 | 新建或选题 | `stories create` 接收 selection 或 `{selection,intake:true}`，默认进入选题；`--no-intake` 或 `intake:false` 使用旧的直接制作入口。search 保存提取意图，choose 保存候选索引，confirm 保存制作确认，setup 保存其他选题动作。它们不执行生成。 |
-| 执行生产 | `run <id> --until candidates\|prepared\|reviewed\|completed`（也可 `stories run <id>`）。candidates 后按用户目标选择或等待；prepared 后检查原文、摘要和方案并确认；reviewed 在审核通过时停止，不再启动图片生成，但已有图片不会被撤销；默认 completed。每次检查返回 reason 和 session，不假定达到了请求边界。 |
+| 执行生产 | `run <id> --until candidates\|prepared\|reviewed\|completed`（也可 `stories run <id>`）。candidates 后按用户目标选择或等待；prepared 后检查原文、摘要和方案并确认；reviewed 在已有通过的审核且画风转换完成后停止，已有图片保留，绘图任务等待继续制作；默认 completed。每次检查返回 reason 和 session，不假定达到了请求边界。 |
 | 解释停止原因 | `choice` 需选题；`frame_count_required` 是旧故事等待幅数确认，按 help 的 frameCount 输入处理；`already_prepared/already_selected` 表示已越过该边界，改用下一步；`paused` 保持暂停，`blocked` 检查故障，`superseded` 查当前版本。不能在同一停止边界空转。 |
 | 修改与控制 | `stories edit` 使用 token/changes 创建新版；changes 支持 productionPrompt、acceptancePrompt、artStyle、narrativeDetail、length、plan 或仅换图的 redrawPages。需要暂停新版时显式传 `paused:true`，默认 active，但 CLI 仍只在 run 时生成。rename 仅改显示名。pause/resume/stop 控制制作；retry/override 输入 `{faultId}`。 |
 | 替换选题或扩展原文 | `stories reselect <当前id>` 保存重选草稿；在草稿上 search/run 找候选，也可用 setup 直接保存已核对的原文选段。用 `stories replace <当前id> <草稿id>` 和输入 `{batch,index}` 提交为同一版本家族的当前版本。`stories cancel-reselection <当前id> <草稿id>` 取消草稿。 |
 | 书架整理 | `stories delete <id>` 可恢复地隐藏，`stories restore <id>` 撤销删除；`api GET reader/deletions` 列出已删除记录。`stories favorite <id>` 输入 `{saved:true\|false}`，不生图。 |
-| 本书参考图 | `stories reference <id>` 输入 `{page,starred:true}`；page 从 0 开始，每本书保留一个参考图，只影响后续绘图。取消用 `{page,starred:false,token}`，token 沿用设置星标时返回的 reference.token；缺少该 token 时说明缺失，不猜造。它与故事收藏不同，也不同于 redrawPages 的从 1 开始页码。 |
+| 本书参考图 | `stories reference <id>` 输入 `{page,starred:true}`；page 从 0 开始，每本书保留一个参考图，只影响后续绘图。换画风的故事及其后续修订使用本篇首幅作参考。取消用 `{page,starred:false,token}`，token 沿用设置星标时返回的 reference.token；缺少该 token 时说明缺失，不猜造。它与故事收藏不同，也不同于 redrawPages 的从 1 开始页码。 |
 | 仅换图 | `stories edit` 输入 `changes:{redrawPages:[1,3]}`，页码从 1 开始、不得重复；仅用于已完成且有有效审核记录、全部原图可读的当前版本。保留文字、审核及未选图片，不与画风、制作设置或分镜修改混合提交。缺图先按故障恢复流程处理。 |
 | 跨库复制 | `stories copy <来源故事id> --from-data-dir <来源书库> --data-dir <目标书库>` 默认仅复制已通过且未越过审核的文本与审核记录，新故事初始暂停。显式 `--draft` 或输入 `draft:true` 可复制尚未通过审核、但已有完整原文、分镜与审核检查点的文本；保留原审核状态、不复制图片，也不允许再用 copy-images 补图。`stories copy-images <目标故事id>` 用同一对书库及输入 `{sourceId:"来源故事id"}` 给普通文本副本补充图片，不创建另一个故事。`copy` 也支持显式 `--copy-images` / `--no-copy-images` 或输入 `copyImages`；仅在用户已决定时使用。换画风时不能复制旧图片。 |
 | 署名与转载 | 默认值通过 `api GET/POST reader/publication-defaults` 读取/保存；单篇通过 `stories get <id>` 读取 story.publication，再 `api POST reader/sessions/<id>/publication` 保存。输入均为 `{publication:<完整署名对象>,expected:<原对象或null>}`，保留未修改字段，expected 必须沿用原始读取结果；修改全局默认与单篇设置是不同操作。 |
@@ -109,7 +109,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 ### 换画风并指定首幅图
 
-对已完成且审核通过的故事，使用 `stories edit <当前id> --request-id <UUID> --input <私有JSON文件> --cover <本地图片>`。输入为 `{"token":"当前修订token","paused":true,"changes":{"artStyle":"watercolor"}}`，`changes` 仅指定新画风。首幅 PNG、JPEG 或 WebP 的原始字节保存到新版，文件上限为 12 MiB，宽高各不超过 4096 像素。原文、分镜和审核记录沿用旧版。恢复新版并运行至 `completed` 后，检查首幅和全部生成图。其余画面默认引用新版首幅，书籍已有的星标参考图优先。
+对已完成且审核通过的故事，使用 `stories edit <当前id> --request-id <UUID> --input <私有JSON文件> --cover <本地图片>`。输入为 `{"token":"当前修订token","paused":true,"changes":{"artStyle":"watercolor"}}`，`changes` 仅指定新画风。首幅 PNG、JPEG 或 WebP 的原始字节保存到新版，文件上限为 12 MiB，宽高各不超过 4096 像素。沿用原文、分镜内容和审核记录。绘图前由文字模型逐幅把旧画风的表现手法改写成新画风，保存为新版画面提示词。其余画面按新画风绘制，使用这张首幅作参考。省略 `--cover` 时按新画风先生成首幅，再画其余画幅。恢复新版并运行至 `completed` 后，检查首幅和全部生成图。
 
 ## 验收与交付
 

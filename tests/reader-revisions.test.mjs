@@ -6,9 +6,10 @@ import {revisionImpact,reusableRevisionImages,checkedRevision} from '../lib/read
 import {forkRevision} from '../server/reader-revisions.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {flowProviders} from './fixtures/test-tier.mjs';
+import {jpeg} from './fixtures/images.mjs';
 const owner='docker-local-owner';
-async function completed(t,provider='codex'){
- const f=await productionFixture(t,provider);f.control.hold=false;const id=await f.create();await until(async()=>(await f.read(id)).state==='completed');return {f,id};
+async function completed(t,provider='codex',settings={}){
+ const f=await productionFixture(t,provider);f.control.hold=false;const id=await f.create(8,settings);await until(async()=>(await f.read(id)).state==='completed');return {f,id};
 }
 const snapshot=(f,id)=>f.json(`sessions/${id}/revisions`);
 async function revise(f,id,changes,base,requestId=crypto.randomUUID()){
@@ -45,11 +46,11 @@ test('image-only redraw validates page selection and cannot conceal content edit
 
 test('a style revision saves the supplied first frame and draws only the remaining pages',async t=>{
  const {f,id}=await completed(t),base=await snapshot(f,id),old=await f.read(id);
- const first=old.story.pages[0].image.replace('/api/reader/','');
- const image=await (await f.request(first)).blob(),before=f.control.calls.length,reviews=f.control.reviews.length;
+ await f.json(`library/${id}/reference`,'POST',{page:0,starred:true});
+ const image=new Blob([Uint8Array.from(jpeg)],{type:'image/jpeg'}),before=f.control.calls.length,reviews=f.control.reviews.length;
  const revision={requestId:crypto.randomUUID(),token:base.token,changes:{artStyle:'watercolor'},paused:true};
  const send=cover=>{
-  const form=new FormData();form.set('revision',JSON.stringify(revision));form.set('cover',cover,'first.png');
+  const form=new FormData();form.set('revision',JSON.stringify(revision));form.set('cover',cover,'first.jpg');
   return f.app.handle(new Request(`http://shiqu.local/api/reader/sessions/${id}/revisions`,{method:'POST',body:form}));
  };
  assert.equal((await send(new Blob(['broken']))).status,400);
@@ -66,6 +67,70 @@ test('a style revision saves the supplied first frame and draws only the remaini
  assert.ok(calls.every(call=>call.reference===reference));
  assert.equal(f.control.reviews.length,reviews);
  assert.deepEqual((await f.read(id)).story,old.story);
+});
+
+for(const {from,to,oldCue,newCue} of [
+ {from:'watercolor',to:'cinematic',oldCue:'以透明水彩湿画法表现。',newCue:'以自然的电影实拍质感表现。'},
+ {from:'woodblock',to:'classical-oil',oldCue:'用木刻粗线与刻痕表现。',newCue:'以古典油画的层叠笔触表现。'},
+])test(`Gemini converts ${from} scene prompts to ${to} before drawing`,async t=>{
+ const {f,id}=await completed(t,'gemini',{artStyle:from});
+ const db=f.app.services.database;
+ const plan=(await snapshot(f,id)).plan;
+ for(const frame of plan.pages)frame.prompt+=oldCue;
+ const rewritten={...plan,pages:plan.pages.map(frame=>({...frame,prompt:frame.prompt.replace(oldCue,newCue)}))};
+ await db.prepare("UPDATE stories SET document=json_set(document,'$.plan',json(?)) WHERE id=?").bind(JSON.stringify(plan),id).run();
+ const {reference:star}=await f.json(`library/${id}/reference`,'POST',{page:0,starred:true});
+ const before=f.control.calls.length,reviews=f.control.reviews.length;
+ const batches=[];
+ f.control.beforeText=(kind,payload)=>{
+  if(kind!=='restyle')return;
+  assert.equal(f.control.calls.length,before);
+  assert.equal(payload.previousArtDirection.id,from);
+  assert.equal(payload.artDirection.id,to);
+  batches.push(payload.scenePrompts);
+  if(from==='woodblock'&&batches.length===2)return {scenePrompts:[]};
+  return {scenePrompts:payload.scenePrompts.map(prompt=>prompt.replace(oldCue,newCue))};
+ };
+ const child=await revise(f,id,{artStyle:to});
+ if(from==='woodblock'){
+  await until(async()=>(await f.read(child.id)).state==='failed');
+  assert.equal(f.control.calls.length,before);
+  const failed=await snapshot(f,child.id);
+  assert.deepEqual(failed.plan.pages.map(frame=>frame.prompt),[...rewritten.pages.slice(0,6),...plan.pages.slice(6)].map(frame=>frame.prompt));
+  await f.restart();
+  await f.demand(child.id,crypto.randomUUID(),0,true);
+ }
+ await until(async()=>(await f.read(child.id)).state==='completed');
+ assert.deepEqual(batches.slice(0,2).flat(),plan.pages.map(frame=>frame.prompt));
+ if(from==='woodblock')assert.deepEqual(batches.slice(2),[batches[1]]);
+ const calls=f.control.calls.slice(before);
+ assert.equal(calls.length,plan.pages.length);
+ assert.equal(calls[0].page,0);
+ assert.equal(calls[0].reference,undefined);
+ for(const call of calls){
+  assert.equal(call.via,'gemini');
+  assert.ok(call.prompt.includes(rewritten.pages[call.page].prompt));
+  assert.ok(!call.prompt.includes(oldCue));
+ }
+ const saved=await snapshot(f,child.id),history=await f.json(`sessions/${child.id}/prompts`);
+ const records=history.records.filter(entry=>entry.originId===child.id&&entry.step.startsWith('image:'));
+ assert.equal(records.length,plan.pages.length);
+ assert.equal(records.find(entry=>entry.step==='image:0').record.reference,undefined);
+ assert.ok(records.filter(entry=>entry.step!=='image:0').every(entry=>entry.record.reference===saved.images[0]));
+ assert.deepEqual(history.records.filter(entry=>entry.originId===child.id&&entry.step.startsWith('restyle:')).map(entry=>entry.step),['restyle:0','restyle:6']);
+ assert.deepEqual(saved.plan,rewritten);
+ assert.deepEqual((await f.read(id)).story.pages.map(frame=>frame.prompt),plan.pages.map(frame=>frame.prompt));
+ assert.deepEqual((await f.json(`library/${child.id}/reference`)).reference,star);
+
+ // 模拟升级前写入的换画风记录，后续仅换图仍沿用本篇首幅。
+ await f.app.services.database.prepare("UPDATE stories SET document=json_remove(document,'$.revision.storyImageReference') WHERE id=?").bind(child.id).run();
+ const next=await revise(f,child.id,{redrawPages:[2]},saved);
+ await until(async()=>(await f.read(next.id)).state==='completed');
+ const nextSaved=await snapshot(f,next.id),nextHistory=await f.json(`sessions/${next.id}/prompts`);
+ const redraw=nextHistory.records.find(entry=>entry.originId===next.id&&entry.step==='image:1');
+ assert.equal(redraw.record.reference,nextSaved.images[0]);
+ assert.equal(f.control.calls.length,before+plan.pages.length+1);
+ assert.equal(f.control.reviews.length,reviews);
 });
 
 for(const provider of flowProviders(['codex','gemini']))test(`${provider}: image-only redraw replaces selected pages including anchor without review or touching other images`,async t=>{

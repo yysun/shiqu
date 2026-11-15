@@ -389,7 +389,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private async recoveryImageJobs(row:SessionRow,page:number){
   const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection)),setup=doc.intake?{setupGeneration:doc.intake.generation}:{};
-  if(!doc.plan||!doc.original||!reviewPassed(doc))throw new ReaderError(409,'原文与审片尚未齐备，不能恢复绘图。');
+  if(!doc.plan||!doc.original||!reviewPassed(doc)||doc.revision?.restyle)throw new ReaderError(409,'分镜尚未准备完成，不能恢复绘图。');
   const {displayTitle:_,...generationSelection}=selection;void _;
   const scriptVersion=inputVersion({selection:generationSelection,...setup}),script=this.spec(row,'script','text',scriptVersion,doc.visualReview?'approved':'',[],{...setup},-10);
   await this.queue.enqueue(script,{pages:doc.plan.pages.length});
@@ -532,13 +532,15 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(['discovering','choosing','confirming'].includes(doc.intake.phase))return;
   }
   const preparing=selection.narrativeDetail&&!doc.frameCountConfirmed&&!doc.plan&&(selection.length!=='auto'||!doc.frameRecommendation);
+  const step=nextStep(doc,selection,0);
   // A distinct job owns each saved planning checkpoint; the empty key is the complete-script barrier.
-  const scriptKey=!preparing&&(!doc.plan||!reviewPassed(doc))&&(doc.visualReview||doc.draft||doc.storyboard||selection.length==='auto'||selection.length>readerStoryboardBatchSize)?nextStep(doc,selection,0)?.key||'':doc.visualReview?'approved':'';
+  const scriptKey=step?.kind==='restyle'?step.key:!preparing&&(!doc.plan||!reviewPassed(doc))&&(doc.visualReview||doc.draft||doc.storyboard||selection.length==='auto'||selection.length>readerStoryboardBatchSize)?step?.key||'':doc.visualReview?'approved':'';
   const setup=doc.intake?{setupGeneration:doc.intake.generation}:{};
   const {displayTitle:_,...generationSelection}=selection;void _;
   const scriptVersion=inputVersion({selection:generationSelection,...setup}),script=this.spec(row,preparing?'prepare':'script','text',scriptVersion,scriptKey,[],{stepKey:scriptKey,...setup},-10);
-  await this.queue.enqueue(script,doc.plan&&doc.original&&reviewPassed(doc)?{pages:doc.plan.pages.length}:undefined);
-  if(!doc.plan||!doc.original||!reviewPassed(doc))return;
+  const readyToDraw=doc.plan&&doc.original&&reviewPassed(doc)&&!doc.revision?.restyle;
+  await this.queue.enqueue(script,readyToDraw?{pages:doc.plan!.pages.length}:undefined);
+  if(!readyToDraw||!doc.plan)return;
   if(doc.plan.pages.every((_,page)=>!!doc.images[page])&&!(await this.faults(row)).length){
    await this.database.prepare("UPDATE stories SET state='completed',error=NULL WHERE id=? AND user_id=? AND state='idle' AND document=? AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=stories.id AND f.owner_id=stories.user_id AND f.state IN ('pending','recovering'))").bind(row.id,row.user_id,row.document).run();return;
   }
@@ -584,7 +586,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   if(job.pool==='text')return row.state!=='running'||row.lock_until<=this.clock();
   const doc=JSON.parse(row.document) as Document;
-  if(!doc.plan||!doc.original||!reviewPassed(doc))return false;
+  if(!doc.plan||!doc.original||!reviewPassed(doc)||doc.revision?.restyle)return false;
   return this.ownSession(row,local);
  }
  // Backpressure briefly blocks a viewed story's next image after each page, and the pump would
@@ -752,7 +754,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const provider=this.jobProvider(job);
   let row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
   if(!this.currentJob(row,job))return {obsolete:true};
-  if(doc.plan&&doc.original&&reviewPassed(doc))return {pages:doc.plan.pages.length};
+  if(doc.plan&&doc.original&&reviewPassed(doc)&&!doc.revision?.restyle)return {pages:doc.plan.pages.length};
   const selection=selectionSchema.parse(JSON.parse(row.selection)),stepKey=(JSON.parse(job.payload) as {stepKey?:string}).stepKey;
   // A crash can save a batch before settling its queue receipt. Never replay that paid call.
   if(stepKey&&stepKey!==nextStep(doc,selection,0)?.key)return {storyboardFrames:doc.storyboard?.pages.length||0};
@@ -796,7 +798,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
   if(!this.currentJob(row,job))return {obsolete:true};
   const {page}=JSON.parse(job.payload) as {page:number};
-  if(!reviewPassed(doc))throw new ReaderError(409,'分镜尚未通过审片，暂不生成图片。');
+  if(!reviewPassed(doc)||doc.revision?.restyle)throw new ReaderError(409,'分镜尚未准备完成，暂不生成图片。');
   const command=job.recovery_id?await commandReceipt(this.database,row.user_id,job.recovery_id):null;
   const redraw=command?.action==='recover'&&!!JSON.parse(command.payload).redraw;
   if(doc.images[page]&&!redraw)return {value:doc.images[page],model:'saved',requestId:null,usage:null};
