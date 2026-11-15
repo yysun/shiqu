@@ -41,6 +41,7 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
  const explicitCustom=openingSelection.discovery?.mode==='auto'&&(openingSelection.discovery.themeInput==='custom'||savedPlot);
  const initialTheme=originalTitle||(!explicitCustom&&(openingSelection.theme==='原典故事'||openingSelection.theme==='其他')?'':openingSelection.theme);
  const initialPreset=discoveryThemeDefinition(openingSelection)?initialTheme:undefined;
+ const availablePresets=initialPreset&&!discoveryThemePresets.includes(initialPreset)?[initialPreset,...discoveryThemePresets]:discoveryThemePresets;
  const [bookId,setBookId]=useRetainedState(part('book'),selection.bookId);
  const [customBook,setCustomBook]=useRetainedState(part('custom-book'),selection.customBook||'');
  const [mode,setMode]=useRetainedState<Mode>(part('mode'),initialMode);
@@ -221,7 +222,7 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
    sources={stories.map(card=>card.source)} disabled={blocked} onSelect={entry=>selectStory(entry,setStories)}/>}
   {active==='theme'&&<>
    <div className="yu-options" role="group" aria-label="故事主题">
-    {discoveryThemePresets.map(value=><button key={value} type="button" disabled={blocked||!local&&!customBook.trim()}
+    {availablePresets.map(value=><button key={value} type="button" disabled={blocked||!local&&!customBook.trim()}
      aria-pressed={!showCustom&&preset===value} className={!showCustom&&preset===value?'selected':''}
      onClick={()=>selectPreset(value)}>
      {value}

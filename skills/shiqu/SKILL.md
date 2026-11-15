@@ -80,7 +80,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 3. 核对保存的来源与候选，然后用 `stories replace <当前id> <草稿id> --request-id <UUID>` 提交 `{batch:0,index:0}`。提交前书架仍显示原版。提交后用 `stories current` 核对新 id，原版保留为历史。若范围与当前版本完全相同，提交返回原版本；只改制作设置用 `stories edit`。
 4. 在新 id 上按授权运行到 `prepared`，核对摘要，确认制作设置，再按授权完成审核和绘图。用户指定的画风等设置沿用到确认。原文入口只适用于仍可从本地书库核对的选段。
 
-- `themes` 列出当前八个预设。要按内置定义查故事卡，可把 `{"bookId":"liaozhai","theme":"命运与选择","discovery":{"mode":"auto","themeInput":"preset","vectorFirst":true}}` 交给 `stories create`，再运行 `run ID --until candidates`。启用且可用的向量索引按整条定义召回；否则配置的模型逐批按完整定义核对标题和梗概。自由输入用 `themeInput:"custom"` 或省略该字段，即使同名也按输入原句查找。
+- `themes` 列出当前 15 个预设。要按内置定义查故事卡，可把 `{"bookId":"liaozhai","theme":"复仇","discovery":{"mode":"auto","themeInput":"preset","vectorFirst":true}}` 交给 `stories create`，再运行 `run ID --until candidates`。启用且可用的向量索引按整条定义召回；否则配置的模型逐批按完整定义核对标题和梗概。自由输入用 `themeInput:"custom"` 或省略该字段，即使同名也按输入原句查找。
 - 不指定 `vectorFirst` 时，原文选题沿用已有的候选核对与顺序阅读流程。以返回的故事与出处为准。
 - 直接使用一张已选故事卡时，传同版 `source`，也可带 `sourceCard: {title, description}`。需要把多段所选原文整理成一个故事时，在 intake 模式传 `discovery: {mode: "auto", combine: true}` 和 2–24 个同版 `discoverySources`。两种入口都在创建时保存所选原文。运行后在准备阶段一次生成标题、梗概、预估画幅和建议画风，再进入制作确认。
 - 主题复核候选可带 `matchScore`（0 到 100）。旧回执和按标题提取的候选可能没有这个字段。若回执包含 `intake.indexedCandidates`，其中带 `choice` 的条目在待核对、符合、不符合三种状态下都可选。将 `choice.batch` 和 `choice.index` 原样传给 `stories choose` 或替换命令。

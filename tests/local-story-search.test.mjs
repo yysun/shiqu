@@ -16,13 +16,14 @@ import {FileMedia} from '../server/media.ts';
 import {sourceParts} from '../server/local-source-ranges.ts';
 import {localSourceKey} from '../lib/reader-local-contract.ts';
 import {storyCardSearchProgressLabel,suggestionProgressSchema} from '../lib/reader-suggestions.ts';
-import {discoveryThemePresets,isDirectSourceSelection} from '../lib/reader-discovery-themes.ts';
+import {discoveryThemeDefinition,discoveryThemePresets,isDirectSourceSelection} from '../lib/reader-discovery-themes.ts';
 import {verifyThemeCandidates} from '../server/story-theme-matching.ts';
 import {libraryFixture,selection} from './fixtures/story-library.mjs';
 
 const fate='人物受身份、承诺或时局所限，仍作出一个影响结局的选择。';
 const love='两人的情意推动关键情节，两人的选择或各自的处境促成相知、相守、负心或错过。';
 const desire='人物为求得某样东西而采取行动，也因此失去某样对自己有价值的东西。';
+const revenge='人物为自己或他人先前受到的伤害采取行动，意在追究或报复加害者，报复的过程或后果推动故事。';
 const done={blockComplete:true,pendingEvents:[],resolvedEventIds:[]};
 const vector=(...values)=>new Uint8Array(Float32Array.from(values).buffer);
 const signal=new AbortController().signal;
@@ -142,7 +143,7 @@ test('向量每次只提交整条定义，同名自定义只提交输入原句',
   return new Map([[first.id,0.1],[second.id,0.95]]);
  };
  f.provider.verifyThemeStories=async()=>assert.fail('有向量时直接返回语义相似的故事卡');
- for(const [title,definition] of [['命运与选择',fate],['爱与缘分',love]]){
+ for(const [title,definition] of [['困境抉择',fate],['命运与选择',fate],['爱与缘分',love],['复仇',revenge]]){
   const find=themeInput=>f.suggest(title,{discovery:{mode:'auto',vectorFirst:true,themeInput}});
   assert.deepEqual((await find('preset')).stories.map(story=>story.source),[f.stories[1].source,f.stories[0].source]);
   await find('custom');
@@ -163,8 +164,18 @@ test('自选书推荐只在调用模型时展开预设，不修改保存条件',
  }
  assert.deepEqual(calls,[love,'爱与缘分','爱与缘分']);
  const entries=await executeHeadless(process.cwd(),['themes']);
- assert.deepEqual(entries,['人情冷暖','爱与缘分','善意的处境','聪明与糊涂','命运与选择','欲望的代价','执念与放下','世事可笑']);
+ assert.deepEqual(entries,['情节反转','人情冷暖','放下执念','智愚反差','善意遭误解','困境抉择','欲望的代价','鼓起勇气','错过的爱情','世事可笑','因果报应','信义的考验','复仇','真假难辨','权力争夺']);
  assert.deepEqual(entries,discoveryThemePresets);
+});
+
+test('主题改名后旧预设仍可查询，历史自由主题维持原句',()=>{
+ const preset=theme=>discoveryThemeDefinition({theme,discovery:{mode:'auto',themeInput:'preset'}});
+ assert.equal(preset('命运与选择'),preset('困境抉择'));
+ assert.equal(preset('爱情与错过'),preset('错过的爱情'));
+ assert.equal(preset('爱与缘分'),love);
+ assert.notEqual(preset('爱与缘分'),preset('错过的爱情'));
+ assert.equal(discoveryThemeDefinition({theme:'复仇',discovery:{mode:'auto',themeInput:'custom'}}),undefined);
+ assert.equal(discoveryThemeDefinition({theme:'命运与选择'}),undefined);
 });
 
 test('带预设标记的已选提取候选不会被当成直接提交的故事卡',()=>{
