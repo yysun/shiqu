@@ -17,8 +17,8 @@
 // 全屏按钮展开为普通阅读（展开或打开原文/分镜列表时登记为步骤，返回收回右栏）；变窄时全屏显示，放宽后恢复右栏与选中项。
 // 停留在书架期间卡片顺序冻结，在右栏阅读不会让卡片跳到前面。
 // 本书参考图不再占用阅读页顶部，改在故事设置中以当前所读的一幅设置。
-// 点按画面只切换阅读信息，不按边缘翻页；结语页可右滑、顶部下拉或上滚回到最后一幅。
-// 第一幅向回滑动或滚动时离开阅读；横向右滑在原生滚动起点由触摸与鼠标拖动单独识别。
+// 点按画面只切换阅读信息；触摸与拖动只认左右轻扫，滚轮与方向键仍按上下翻页。结语页右滑或在顶部上滚回到最后一幅。
+// 第一幅右滑、双指右滑或上滚时离开阅读；横向右滑在原生滚动起点由触摸、鼠标拖动与触控板分别识别。
 // 次要操作（重试、重新载入、查看原文、审片提示等）用 StoryFlowAction 文字链接；主操作、对话框确认旁的取消与图标按钮仍是按钮。
 // 阅读页标题最多两行，下方一行写出处 · 生成方（如 Codex）· 主题 · 画风；具体模型名称见故事设置。
 
@@ -73,7 +73,7 @@ import StoryEndingSurface from './StoryEndingSurface';
 import StoryFilmstrip from './StoryFilmstrip';
 import {createDragOffset} from './useDragOffset';
 import {keepSnapshot,shareRows} from '@/lib/reader-snapshots';
-import {newWheelGesture,wheelPageDirection,endingWheelDirection,swipePageDirection} from '@/lib/reader-navigation';
+import {newWheelGesture,wheelPageDirection,wheelBackAtStart,swipePageDirection} from '@/lib/reader-navigation';
 import DesktopShell from './DesktopShell';
 import DesktopLibrary from './DesktopLibrary';
 import DesktopCreate from './DesktopCreate';
@@ -178,7 +178,7 @@ export default function Reader(){
  const [typedCaption,setTypedCaption]=useState<{key:string;text:string}>({key:'',text:''});
  useEffect(()=>{setMetadataVisible(true);setImageIssues({});setImageReloads({});setRedrawPage(null);},[story?.id]);
  const readerRef=useRef<HTMLElement>(null),endingRef=useRef<HTMLElement>(null);
- const wheelGesture=useRef(newWheelGesture());
+ const wheelGesture=useRef(newWheelGesture()),backGesture=useRef(newWheelGesture());
  function acceptServerProgress(rows:Progress[],fromShelf=false){
   if(fromShelf&&rows.some(row=>deleted.current.has(row.storyId))){
    for(const row of rows)deleted.current.delete(row.storyId);
@@ -340,10 +340,18 @@ export default function Reader(){
   const gesture=wheelGesture.current;
   function wheel(e:WheelEvent){
    if(e.ctrlKey||e.metaKey)return; // 保留浏览器缩放与触控板捏合。
-   // 横向及斜向事件交给原生滚动，与发现页主图区一致；结语保留纵向滚动，停在顶部时上滚回到最后一幅。
-   if(e.deltaX||!e.deltaY)return;
-   const input={x:0,y:e.deltaY,mode:e.deltaMode,time:performance.now(),height:reader!.clientHeight};
-   if(ended){if(endingWheelDirection(gesture,input,(endingRef.current?.scrollTop??0)<=1)){e.preventDefault();turn(-1);}return;}
+   const time=performance.now(),height=reader!.clientHeight;
+   // 横向及斜向事件交给原生滚动，与发现页主图区一致；第一幅已在横向起点时，双指右滑离开阅读。
+   if(e.deltaX){
+    if(Math.abs(e.deltaX)<=Math.abs(e.deltaY))return;
+    const atStart=!ended&&page===0&&(reader!.querySelector<HTMLElement>('.yu-filmstrip')?.scrollLeft??0)<=1;
+    if(wheelBackAtStart(backGesture.current,{x:e.deltaX,y:0,mode:e.deltaMode,time,height},atStart)){e.preventDefault();turn(-1);}
+    return;
+   }
+   if(!e.deltaY)return;
+   const input={x:0,y:e.deltaY,mode:e.deltaMode,time,height};
+   // 结语保留纵向滚动，停在顶部时上滚回到最后一幅。
+   if(ended){if(wheelBackAtStart(gesture,input,(endingRef.current?.scrollTop??0)<=1)){e.preventDefault();turn(-1);}return;}
    const direction=wheelPageDirection(gesture,input);
    if(direction){e.preventDefault();turn(direction);}
   }
@@ -357,18 +365,10 @@ export default function Reader(){
   const strip=()=>reader.querySelector<HTMLElement>('.yu-filmstrip');
   let start:{x:number;y:number}|null=null;
   const touchStart=(e:TouchEvent)=>{const target=e.target as HTMLElement;start=e.touches.length===1&&(strip()?.scrollLeft??0)<=1&&!target.closest('a,button:not(.yu-page-surface)')?{x:e.touches[0].clientX,y:e.touches[0].clientY}:null;};
-  const touchEnd=(e:TouchEvent)=>{if(!start)return;const touch=e.changedTouches[0],dx=touch.clientX-start.x,dy=touch.clientY-start.y;start=null;if(dx>45&&dx>Math.abs(dy)*1.3&&(strip()?.scrollLeft??0)<=1)turn(-1);};
+  const touchEnd=(e:TouchEvent)=>{if(!start)return;const touch=e.changedTouches[0],dx=touch.clientX-start.x,dy=touch.clientY-start.y;start=null;if(swipePageDirection(dx,dy)===-1&&(strip()?.scrollLeft??0)<=1)turn(-1);};
   reader.addEventListener('touchstart',touchStart,{passive:true});reader.addEventListener('touchend',touchEnd,{passive:true});
   return()=>{reader.removeEventListener('touchstart',touchStart);reader.removeEventListener('touchend',touchEnd);};
  },[story,page,ended,source,sceneList,settings,workflowTarget,configure,desktop,dockedView]);
- useEffect(()=>{
-  const ending=endingRef.current;if(!ending||!ended||source||settings||workflowTarget||configure)return;
-  let start:{x:number;y:number}|null=null;
-  const touchStart=(e:TouchEvent)=>{const target=e.target as HTMLElement;start=ending.scrollTop<=1&&e.touches.length===1&&!target.closest('button,a')?{x:e.touches[0].clientX,y:e.touches[0].clientY}:null;};
-  const touchMove=(e:TouchEvent)=>{if(!start||e.touches.length!==1)return;const dx=e.touches[0].clientX-start.x,dy=e.touches[0].clientY-start.y;if(dy>0&&Math.abs(dy)>Math.abs(dx)*1.3){e.preventDefault();if(swipePageDirection(dx,dy)===-1){start=null;turn(-1);}}};
-  ending.addEventListener('touchstart',touchStart,{passive:true});ending.addEventListener('touchmove',touchMove,{passive:false});
-  return()=>{ending.removeEventListener('touchstart',touchStart);ending.removeEventListener('touchmove',touchMove);};
- },[ended,story,source,settings,workflowTarget,configure,desktop]);
  useEffect(()=>{localStorage.setItem('yiyu-preferences',JSON.stringify(selection));},[selection]);
  // 跨档切换：被替换的面板已卸载，新面板稍后才 showModal；在布局效果里记下仍打开的共享对话框，
  // 在被动效果（晚于所有子组件的挂载效果）里按原顺序重新 showModal 并恢复焦点，使它们留在最上层。

@@ -3,20 +3,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCanvas} from '@napi-rs/canvas';
 import {PDFDocument} from 'pdf-lib';
-import {newWheelGesture,wheelPageDirection,endingWheelDirection,swipePageDirection} from '../lib/reader-navigation.ts';
+import {newWheelGesture,wheelPageDirection,wheelBackAtStart,swipePageDirection} from '../lib/reader-navigation.ts';
 
-test('the ending returns to the last frame only for an upward scroll that starts at its top',()=>{
+test('a scroll back returns only when it starts at the start edge',()=>{
  const input=(y,time)=>({x:0,y,mode:0,time,height:800});
  const atTop=newWheelGesture();
- assert.equal(endingWheelDirection(atTop,input(-30,0),true),0);
- assert.equal(endingWheelDirection(atTop,input(-40,10),true),-1);
- assert.equal(endingWheelDirection(atTop,input(-80,20),true),0,'inertia in the same gesture does not turn again');
+ assert.equal(wheelBackAtStart(atTop,input(-30,0),true),0);
+ assert.equal(wheelBackAtStart(atTop,input(-40,10),true),-1);
+ assert.equal(wheelBackAtStart(atTop,input(-80,20),true),0,'inertia in the same gesture does not turn again');
  const coasting=newWheelGesture();
- assert.equal(endingWheelDirection(coasting,input(-120,0),false),0,'scrolling the conclusion stays native');
- assert.equal(endingWheelDirection(coasting,input(-120,50),true),0,'inertia reaching the top does not turn');
- assert.equal(endingWheelDirection(coasting,input(-120,400),true),-1,'a new upward scroll at the top turns back');
+ assert.equal(wheelBackAtStart(coasting,input(-120,0),false),0,'scrolling the conclusion stays native');
+ assert.equal(wheelBackAtStart(coasting,input(-120,50),true),0,'inertia reaching the top does not turn');
+ assert.equal(wheelBackAtStart(coasting,input(-120,400),true),-1,'a new upward scroll at the top turns back');
  const down=newWheelGesture();
- assert.equal(endingWheelDirection(down,input(120,0),true),0,'scrolling down never turns');
+ assert.equal(wheelBackAtStart(down,input(120,0),true),0,'scrolling down never turns');
+ const sideways=(x,time)=>({x,y:0,mode:0,time,height:800});
+ const arriving=newWheelGesture();
+ assert.equal(wheelBackAtStart(arriving,sideways(-90,0),false),0,'a swipe back to the first frame scrolls natively');
+ assert.equal(wheelBackAtStart(arriving,sideways(-60,40),true),0,'its momentum at the first frame does not leave');
+ assert.equal(wheelBackAtStart(arriving,sideways(-50,400),true),0);assert.equal(wheelBackAtStart(arriving,sideways(-40,416),true),-1,'a new swipe right at the first frame leaves');
+ assert.equal(wheelBackAtStart(newWheelGesture(),sideways(90,0),true),0,'a swipe left from the first frame never leaves');
 });
 import {defaultProductionDirection,defaultProductionPrompt,normalizeProductionPrompt,promptAfterThemeChange,directStorySettings} from '../lib/reader-prompts.ts';
 
@@ -175,9 +181,9 @@ test('home hero resumes the last viewed story and stays empty for new or missing
 });
 
 
-test('touch swipes support four directions while ignoring taps and ambiguous diagonals',()=>{
+test('touch swipes turn only left and right, ignoring vertical swipes, taps and ambiguous diagonals',()=>{
  assert.equal(swipePageDirection(-80,10),1);assert.equal(swipePageDirection(80,-10),-1);
- assert.equal(swipePageDirection(10,-80),1);assert.equal(swipePageDirection(-10,80),-1);
+ assert.equal(swipePageDirection(10,-80),0);assert.equal(swipePageDirection(-10,80),0);
  assert.equal(swipePageDirection(30,10),0);assert.equal(swipePageDirection(80,78),0);
 });
 

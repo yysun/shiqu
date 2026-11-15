@@ -1,6 +1,6 @@
 // 横向触摸与触控板交给原生吸附滚动；鼠标拖动沿用发现页主图区的 scrollLeft 行为。
-// 纵向滑动仍可翻页；点按只切换阅读信息，不再按左右边缘翻页。拖动、长按和原生滚动不能额外触发点击。
-// 鼠标在第一幅向右拖动时无处可滚，视为向回翻（离开阅读）。
+// 只用左右轻扫翻页（触摸走原生横向滚动，鼠标拖动同步 scrollLeft），上下滑动不翻页；点按只切换阅读信息。
+// 鼠标在第一幅向右拖动时无处可滚，视为向回翻（离开阅读）。拖动、长按和原生滚动不能额外触发点击。
 import {useRef,type PointerEvent} from 'react';
 import {swipePageDirection} from '@/lib/reader-navigation';
 
@@ -26,16 +26,14 @@ export default function StoryPageSurface({active=true,onTurn,onToggleMetadata}:{
  function up(event:PointerEvent<HTMLButtonElement>){
   const start=pointer.current;if(!start||start.id!==event.pointerId)return;
   const dx=event.clientX-start.x,dy=event.clientY-start.y;
-  const direction=Math.abs(dy)>Math.abs(dx)*1.3?swipePageDirection(dx,dy):0;
   const travel=Math.max(start.travel,Math.hypot(dx,dy));
   pointer.current=null;
   const el=track(event.currentTarget);
   if(start.dragged&&el){el.style.scrollSnapType='';el.scrollTo({left:Math.round(el.scrollLeft/el.clientWidth)*el.clientWidth,behavior:'smooth'});}
-  suppressClick.current=start.dragged||!!direction||travel>8||event.timeStamp-start.startedAt>450;
-  const back=start.dragged&&start.left<=1&&dx>45&&dx>Math.abs(dy)*1.3;
-  if(direction)onTurn(direction);else if(back)onTurn(-1);
+  suppressClick.current=start.dragged||travel>8||event.timeStamp-start.startedAt>450;
+  if(start.dragged&&start.left<=1&&swipePageDirection(dx,dy)===-1)onTurn(-1);
  }
- return <button type="button" className={'yu-page-surface'+(active?' yu-swipe-surface':'')} tabIndex={active?0:-1} aria-hidden={!active} aria-label="点击画面显示或隐藏阅读信息与控件，旁白始终显示；上下或左右滑动翻页"
+ return <button type="button" className={'yu-page-surface'+(active?' yu-swipe-surface':'')} tabIndex={active?0:-1} aria-hidden={!active} aria-label="点击画面显示或隐藏阅读信息与控件，旁白始终显示；左右滑动翻页"
   onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={event=>{const el=track(event.currentTarget);if(el)el.style.scrollSnapType='';cancel();}}
   onClick={event=>{if(event.detail===0||!suppressClick.current)onToggleMetadata();suppressClick.current=true;}}/>;
 }

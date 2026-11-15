@@ -1,7 +1,8 @@
 // 结语页向右拖动返回最后一幅，不拦截页内按钮与链接；点按不翻页。
-// 顶部下拉与滚轮上滚由 Reader 处理；拖动、长按不会误触页内控件。
+// 停在顶部时滚轮上滚由 Reader 处理；上下滑动只滚动结语，不翻页。拖动、长按不会误触页内控件。
 // The drag offset is subscribed here, so a swipe re-renders this surface but not Reader or its children.
 import {useRef,type ReactNode,type RefObject,type PointerEvent} from 'react';
+import {swipePageDirection} from '@/lib/reader-navigation';
 import {useDragOffset,type DragOffset} from './useDragOffset';
 
 export default function StoryEndingSurface({children,onTurn,onDrag,drag:dragOffset,surfaceRef}:{children:ReactNode;onTurn:(direction:number)=>void;onDrag:(distance:number)=>void;drag:DragOffset;surfaceRef:RefObject<HTMLElement|null>}){
@@ -23,11 +24,11 @@ export default function StoryEndingSurface({children,onTurn,onDrag,drag:dragOffs
  function up(event:PointerEvent<HTMLElement>){
   const start=pointer.current;if(!start||start.id!==event.pointerId)return;
   const dx=event.clientX-start.x,dy=event.clientY-start.y;
-  const previous=dx>45&&dx>Math.abs(dy)*1.3;
+  const previous=swipePageDirection(dx,dy)===-1;
   pointer.current=null;onDrag(0);
   if(previous)onTurn(-1);
  }
- return <section className="yu-ending" ref={surfaceRef} aria-label="故事结束：向右滑动，或在顶部下拉、向上滚动，返回最后一幅"
+ return <section className="yu-ending" ref={surfaceRef} aria-label="故事结束：向右滑动，或在顶部向上滚动，返回最后一幅"
   onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel}
   style={{transform:`translateX(${drag}px)`,transition:drag?'none':'transform 180ms ease-out'}}>{children}</section>;
 }

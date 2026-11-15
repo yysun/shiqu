@@ -2,10 +2,9 @@
 // 惯性衰减中再次明显加速视为新的一次轻扫，立即可翻下一页，不必等惯性停止。
 export type WheelGesture={lastEvent:number;x:number;y:number;committed:boolean;last:number;decaying:boolean};
 export function newWheelGesture():WheelGesture{return {lastEvent:-Infinity,x:0,y:0,committed:false,last:0,decaying:false};}
+// 触摸与拖动只认左右轻扫：右滑向回、左滑向前；上下滑动不翻页（滚轮仍按上下翻页）。
 export function swipePageDirection(x:number,y:number):number{
- const horizontal=Math.abs(x)>Math.abs(y)*1.3,vertical=Math.abs(y)>Math.abs(x)*1.3;
- const delta=horizontal?x:vertical?y:0;
- return Math.abs(delta)>45?-Math.sign(delta):0;
+ return Math.abs(x)>Math.abs(y)*1.3&&Math.abs(x)>45?-Math.sign(x):0;
 }
 export function wheelPageDirection(gesture:WheelGesture,input:{x:number;y:number;mode:number;time:number;height:number}):number{
  if(!input.x&&!input.y)return 0;
@@ -25,8 +24,9 @@ export function wheelPageDirection(gesture:WheelGesture,input:{x:number;y:number
  gesture.committed=true;
  return Math.sign(distance);
 }
-// 结语页：停在顶部时向上滚动才回到最后一幅；从内容中途开始的滚动（含惯性滚到顶部）在本次手势内不翻页。
-export function endingWheelDirection(gesture:WheelGesture,input:{x:number;y:number;mode:number;time:number;height:number},atTop:boolean):number{
- if(!atTop||input.y>0){gesture.lastEvent=input.time;gesture.committed=true;return 0;}
+// 停在起点时向回滚动才算“返回”：结语页在顶部上滚回到最后一幅，第一幅在横向起点双指右滑离开阅读。
+// 从中途开始的滚动（含惯性滑到起点）在本次手势内不返回；调用方每次只传一个轴的位移。
+export function wheelBackAtStart(gesture:WheelGesture,input:{x:number;y:number;mode:number;time:number;height:number},atStart:boolean):number{
+ if(!atStart||input.x>0||input.y>0){gesture.lastEvent=input.time;gesture.committed=true;return 0;}
  return wheelPageDirection(gesture,input)===-1?-1:0;
 }
