@@ -1,5 +1,5 @@
 /* 手机阅读与桌面队列共享制作阶段语义；故事设置里的文字和链接共用紧凑行高。 */
-/* 原文操作归入提取步骤，确认步骤使用两列设置组。 */
+/* 操作留在所属步骤，成组右对齐。 */
 ol.production-timeline{list-style:none;padding:0;margin:0;display:grid;gap:5px;text-align:left}
 .production-timeline>li{display:flex;align-items:center;gap:10px;min-height:52px;padding:8px;border:1px solid transparent;border-radius:9px;font-size:12px;line-height:1.6;color:#718064}
 .production-stage-icon{display:grid;place-items:center;flex:none;width:24px;height:24px;border:1px solid #d3ddc7;border-radius:50%;font-family:system-ui,sans-serif;font-size:var(--yu-meta-size)}
@@ -7,7 +7,6 @@ ol.production-timeline{list-style:none;padding:0;margin:0;display:grid;gap:5px;t
 .production-stage-copy>strong{font:inherit;font-weight:500}
 .production-stage-copy>small{font-size:var(--yu-meta-size);line-height:1.7;color:var(--yu-meta)}
 .production-stage-state{flex:none;font-size:var(--yu-meta-size);color:var(--yu-meta)}
-.production-stage-links{display:flex;flex-wrap:wrap;gap:0 4px;align-items:center}
 .production-stage-copy .story-flow-link{font-size:inherit}
 .production-timeline>li[data-state=done]{color:#536f42}
 .production-timeline>li[data-state=done] .production-stage-icon{background:#e3ecd9;border-color:#becfac}
@@ -41,12 +40,15 @@ ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr))
 .production-review-loop{margin:10px 0 0;color:var(--yu-meta);font-size:var(--yu-meta-size);line-height:1.8}
 
 /* Errors and their next actions stay beneath the owning checkpoint, outside navigation buttons. */
-.production-timeline>li.has-stage-content{flex-wrap:wrap}.production-stage-notice{display:grid;gap:8px;flex-basis:calc(100% - 34px);min-width:0;margin-left:34px;line-height:1.7}.production-acceptance-notice>strong{font-weight:600}.production-acceptance-notice>p{margin:6px 0}.production-acceptance-notice>button{min-height:40px}
+.production-timeline>li.has-stage-content{flex-wrap:wrap}.production-stage-notice{display:grid;gap:8px;flex-basis:calc(100% - 34px);min-width:0;margin-left:34px;line-height:1.7}.production-acceptance-notice>strong{font-weight:600}.production-acceptance-notice>p{margin:6px 0}
 
 .production-stage-notice .yu-retry-control{margin:0}.production-stage-notice .yu-review-tools.has-issues{padding:0;border:0;background:none}.production-stage-notice .yu-review-tools{margin:8px 0}.production-stage-notice .yu-batch-error{margin:8px 0}.production-stage-notice>.yu-primary{margin-top:10px}
-.yu-confirmation-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));justify-items:start;align-items:baseline;gap:4px 16px;min-width:0}
-.yu-creation-setup [data-stage=count]>.production-stage-notice>.story-flow-link{justify-self:end;justify-content:flex-end;margin-left:auto}
-.yu-extraction-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:baseline;gap:4px 16px}
+.production-stage-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:baseline;gap:4px 12px;min-width:0}
+.production-stage-notice .story-flow-link,.production-stage-meta .story-flow-link{justify-content:flex-end;text-align:right}
+.production-stage-notice>.story-flow-link{justify-self:end}
+.production-stage-notice .yu-revision-buttons,.production-stage-notice .yu-revision-conflict,.production-stage-notice .yu-review-inspect{justify-content:flex-end}
+.production-stage-notice :is(.yu-revision-conflict-note,.yu-review-repair,.yu-review-skip)>.story-flow-link{justify-self:end}
+.production-stage-notice .yu-review-tools summary{margin-left:auto}
 
 .production-stage-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;min-width:0}
 .production-stage-timing{display:inline-flex;align-items:center;gap:4px;margin:0;font-size:var(--yu-meta-size);line-height:1.7;color:var(--yu-meta);font-variant-numeric:tabular-nums}
@@ -87,10 +89,10 @@ ol.production-timeline:not(.production-timeline--horizontal){--production-step-g
 .yu-settings-flow .production-stage-state{grid-area:1/2;display:flex;align-items:center;justify-self:end}
 .yu-settings-flow .production-stage-details{grid-area:2/2;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:0 8px;min-width:0;text-align:right}
 .yu-settings-flow .production-stage-notice:not(:empty){grid-area:3/1/auto/-1;display:flex;flex-wrap:wrap;align-items:center;gap:0 12px}
-.yu-settings-flow :is(.yu-confirmation-settings,.yu-extraction-actions,.yu-review-inspect,.production-stage-footer,.yu-retry-actions){row-gap:0}
+.yu-settings-flow :is(.production-stage-actions,.yu-review-inspect,.production-stage-footer,.yu-retry-actions){row-gap:0}
 .yu-settings-flow .yu-review-inspect{flex-direction:row}
 .yu-settings-flow .production-stage-notice>*{flex-basis:100%}
+.yu-settings-flow .production-stage-notice>.story-flow-link{flex:0 1 auto;margin-left:auto}
 .yu-settings-flow .production-stage-notice>.yu-review-tools:not(.has-issues){flex:1 1 auto;min-width:0;margin:0}
 .yu-settings-flow .production-stage-notice>.production-stage-footer{flex:0 1 auto;align-self:flex-end;min-height:var(--production-setting-row);margin-left:auto}
 .yu-settings-flow .production-timeline:not(.production-timeline--horizontal) .story-flow-link{min-height:var(--production-setting-row);padding:0}
-.yu-settings-flow .production-stage-copy .story-flow-link{justify-content:flex-start}

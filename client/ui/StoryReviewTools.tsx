@@ -24,5 +24,5 @@ export default function StoryReviewTools({session,busy,error,onScript,onEdit,onR
 }
 
 export function StoryAcceptanceNotice({busy,onAcceptance}:{busy:boolean;onAcceptance?:()=>void}){
- return <div role="alert" className="production-acceptance-notice"><strong>验收要求需要调整</strong><p>有要求与原文、制作要求冲突，或无法从文字分镜判断，已停止绘图。</p>{onAcceptance&&<StoryFlowAction type="button" className="yu-revision-open" disabled={busy} onClick={onAcceptance}>查看并修改验收要求</StoryFlowAction>}</div>;
+ return <div role="alert" className="production-acceptance-notice"><strong>验收要求需要调整</strong><p>有要求与原文、制作要求冲突，或无法从文字分镜判断，已停止绘图。</p>{onAcceptance&&<div className="production-stage-actions"><StoryFlowAction type="button" className="yu-revision-open" disabled={busy} onClick={onAcceptance}>查看并修改验收要求</StoryFlowAction></div>}</div>;
 }

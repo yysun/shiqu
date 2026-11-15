@@ -32,6 +32,7 @@
 ## Desktop Development
 
 - Develop and verify the desktop UI in the in-app browser using `pnpm desktop:preview` (Vite). Reuse the relevant existing tab.
+- 制作流程的操作按钮和链接统一放在所属流程框内，靠右对齐。修改制作内容后的确认放在对应的流程步骤内。
 - Bundle or package the desktop application only when the user explicitly requests it. Do not run desktop preparation or build commands as routine verification; use local checks and browser verification instead.
 
 ## Repository Hygiene

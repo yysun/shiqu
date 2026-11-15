@@ -1,4 +1,5 @@
 // Edit a local draft; saving review corrections submits directly to the existing review-and-draw flow.
+import {useEffect,useRef} from 'react';
 import StoryFlowAction from './StoryFlowAction';
 import StoryProductionEditor,{StoryEditorTabs} from './StoryProductionEditor';
 import type {StoryRevisionEditorState} from './useStoryRevision';
@@ -22,10 +23,19 @@ export function revisionDraftSteps(base:RevisionSnapshot,changes:RevisionChanges
  });
 }
 export function StoryRevisionActions({editor,onDone,resuming=false,reviewOnSave=false,link=false}:{editor:StoryRevisionEditorState;onDone?:()=>void;resuming?:boolean;reviewOnSave?:boolean;link?:boolean}){
+ const confirmationRef=useRef<HTMLElement>(null);
+ useEffect(()=>{
+  if(!link||editor.tab)return;
+  const frame=requestAnimationFrame(()=>{
+   confirmationRef.current?.focus({preventScroll:true});
+   confirmationRef.current?.scrollIntoView({block:'center'});
+  });
+  return()=>cancelAnimationFrame(frame);
+ },[link,editor.tab]);
  const Action=link?StoryFlowAction:'button';
  const impact=editor.impact;if(!impact)return null;
  const finish=reviewOnSave?undefined:onDone;
- return <section className="yu-revision-impact" aria-label="本次修改影响">
+ return <section ref={confirmationRef} tabIndex={link?-1:undefined} className={link?'yu-revision-impact yu-revision-impact--in-flow':'yu-revision-impact'} aria-label={link?'确认本次修改':'本次修改影响'}>
   <p role="status">{!impact.changed?(reviewOnSave?'修改分镜后，保存并重新审核，通过后继续绘图。':resuming?'完成编辑后，恢复生成时继续制作。':'调整制作内容，确认后开始制作。'):impact.replan?impact.preserveScript?`保留已保存的分镜与草稿，只完成剩余编排并审片；需绘制 ${impact.total} 幅。`:`将按叙事详略重新编排并审片，审核后确定画幅数。${impact.reusePending?'原图能否复用，待新分镜完成后逐幅比较。':'新分镜完成后重新核对图片。'}`:`保留分镜编排，${impact.review?'重新审片':'沿用原审片进度，不重新审核'}；预计复用 ${impact.reused} 幅、重绘 ${impact.redraw} 幅。`}</p>
   {impact.changed&&!impact.replan&&<small>画面指令或首幅参考变化时会重新核对旧图复用。</small>}
   {impact.conflict&&<div role="alert"><p>制作要求或叙事详略的变化需要重新编排，会替换手改分镜。请选择保留哪类修改：</p><div className="yu-revision-conflict"><Action type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,plan:undefined}))}>保留重新编排设置</Action><Action type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,productionPrompt:undefined,length:undefined,narrativeDetail:undefined}))}>保留手改分镜</Action></div></div>}

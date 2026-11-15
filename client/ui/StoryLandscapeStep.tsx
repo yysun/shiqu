@@ -56,6 +56,7 @@ export default function StoryLandscapeStep({storyId}:{storyId:string}){
  const action=readError?<StoryFlowAction onClick={()=>setRefresh(value=>value+1)}>重新读取进度</StoryFlowAction>:
   canSubmit&&<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={start}>{submitting?'正在提交…':partial?'重试未完成画幅':'生成横版插图'}</StoryFlowAction>;
  return <ProductionTimelineRow step={{id:'landscape',label:'横版插图（可选）',state,detail}} stateLabel={stateLabel} moving={running} detailLive>
-  {(error||action)&&<>{error&&<p className="yu-batch-error" role="alert">{error}</p>}{action&&<span>{action}</span>}</>}
+  {error&&<p className="yu-batch-error" role="alert">{error}</p>}
+  {action&&<div className="production-stage-actions">{action}</div>}
  </ProductionTimelineRow>;
 }

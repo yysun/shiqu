@@ -564,7 +564,7 @@ export default function Reader(){
     retainKey={'setup:'+workflowSession.id}
     onBackToDiscovery={()=>{clearRetained('discovery');forgetSetup();setAutoSearch(false);setDiscoveryTarget(workflowSession.id);setSelection(workflowSession.selection);setUnavailable('');setConfigure(true);}}
     progress={{busy:gen.busy,controlBusy:!!gen.controlBusy,onControl:gen.control,error:workflowError||gen.error,onRetry:retryWorkflow,onBack:backToShelf,hideBack:true,showSummary:false}}
-   />:!revisionResuming&&workflowSession.awaitingFrameCount&&workflowSession.frameRecommendation?<>
+   />:!revisionResuming&&!revisionPending&&workflowSession.awaitingFrameCount&&workflowSession.frameRecommendation?<>
     <StoryFrameCount key={workflowSession.id} recommendation={workflowSession.frameRecommendation} disabled={gen.busy} onConfirm={gen.confirmFrameCount}/>
     {gen.error&&<p className="yu-batch-error" role="alert">{gen.error}</p>}
    </>:<GenerationSurface
@@ -576,10 +576,9 @@ export default function Reader(){
      links:{source:[{label:'制作要求',onClick:()=>revision.open('requirements')},{label:'验收要求',onClick:()=>revision.open('acceptance')}]},
      actions:{count:{label:'修改叙事详略',onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:'查看分镜',onClick:()=>setScript(true)}}:{})}
     }:undefined}
-    draft={revisionPending&&revision.base&&!revisionResuming?{base:revision.base,changes:revision.changes}:undefined} editor={revision} onReselect={()=>void reselectStory()}
+    draft={revisionPending&&revision.base&&!revisionResuming?{base:revision.base,changes:revision.changes,confirmation:<StoryRevisionActions editor={revision} link/>}:undefined} editor={revision} onReselect={()=>void reselectStory()}
     reviewTools={!revisionPending&&<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onScript={()=>setScript(true)} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review')?.id)} onDrawAnyway={()=>void gen.drawAnyway(workflowSession.id)}/>}
    />}
-   {revisionPending&&!revisionResuming&&<StoryRevisionActions editor={revision} link/>}
   </>:<div role="status">{workflowError?<><p role="alert">{workflowError}</p><button type="button" onClick={()=>openWorkflow(workflowTarget!)}>重新加载制作流程</button></>:<p>正在打开制作流程…</p>}</div>);
 
  const panelOpen=!awaitingMaterials&&!!(workflowTarget||(!story&&gen.active)||(settings&&story));

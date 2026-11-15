@@ -1,6 +1,5 @@
 // Keep every checkpoint on a shared icon axis, with navigation and feedback under its step.
 // 审核记录与耗时归入同一详情行，让故事设置里的所有步骤使用一致的对齐规则。
-import {Fragment} from 'react';
 import StoryFlowAction from './StoryFlowAction';
 import {generationDuration} from '@/lib/generation-progress';
 import type {ReactNode} from 'react';
@@ -8,31 +7,34 @@ import {readerMaxAutomaticRepairs} from '../../lib/reader-limits';
 import {Check,Loader2,Minus,Pause,X} from 'lucide-react';
 import type {ProductionStage} from '../../lib/production-stages';
 import './production-timeline.css';
-type StageAction={label:string;onClick:()=>void};
+type StageAction={label:string;ariaLabel?:string;disabled?:boolean;onClick:()=>void};
 export type ProductionTimelineNavigation={actions?:Record<string,StageAction>;links?:Record<string,StageAction[]>};
 type TimelineLayout='vertical'|'horizontal';
 
-export function ProductionTimelineRow({step,number,layout='vertical',moving=false,stateLabel,name=step.label,linked=false,timing,onHistory,detailLive=false,children}:{step:ProductionStage;number?:number;layout?:TimelineLayout;moving?:boolean;stateLabel:string;name?:ReactNode;linked?:boolean;timing?:ReactNode;onHistory?:()=>void;detailLive?:boolean;children?:ReactNode}){
+export function ProductionTimelineRow({step,number,layout='vertical',moving=false,stateLabel,name=step.label,timing,onHistory,detailLive=false,children}:{step:ProductionStage;number?:number;layout?:TimelineLayout;moving?:boolean;stateLabel:string;name?:ReactNode;timing?:ReactNode;onHistory?:()=>void;detailLive?:boolean;children?:ReactNode}){
  const done=layout==='vertical'&&step.state==='done';
  const verticalContent=layout==='vertical'&&children;
  return <li className={[done?'production-stage-complete':'',verticalContent?'has-stage-content':''].filter(Boolean).join(' ')||undefined} data-stage={step.id} data-state={step.state} aria-current={['current','failed','paused'].includes(step.state)?'step':undefined} title={layout==='horizontal'?`${step.label} · ${stateLabel}\n${step.detail}`:undefined}>
   <span className="production-stage-icon" aria-hidden="true">{step.state==='done'?<Check size={13}/>:step.state==='failed'?<X size={13}/>:step.state==='paused'?<Pause size={12}/>:step.state==='current'&&moving?<Loader2 size={14} className="production-stage-spin"/>:step.state==='skipped'||step.state==='unavailable'||number===undefined?<Minus size={13}/>:number}</span>
-  <span className="production-stage-copy"><strong className={linked?'production-stage-links':undefined}>{name}</strong><small role={detailLive?'status':undefined}>{step.detail}</small></span>
+  <span className="production-stage-copy"><strong>{name}</strong><small role={detailLive?'status':undefined}>{step.detail}</small></span>
   {(!done||timing||onHistory)&&<span className="production-stage-meta">{!done&&<span className="production-stage-state">{stateLabel}</span>}{(timing||onHistory)&&<span className="production-stage-details">{timing&&<span className="production-stage-timing">{timing}</span>}{onHistory&&<StoryFlowAction onClick={onHistory}>审核记录</StoryFlowAction>}</span>}</span>}
   {verticalContent&&<div className="production-stage-notice">{children}</div>}
  </li>;
 }
 
-export default function ProductionTimeline({stages,moving=false,queued=false,layout='vertical',actions={},links={},onHistory,stageContent={},stageDurations={},stageTimes={},children}:{stages:ProductionStage[];moving?:boolean;queued?:boolean;layout?:TimelineLayout;onHistory?:()=>void;stageContent?:Record<string,ReactNode>;stageDurations?:Record<string,number>;stageTimes?:Record<string,ReactNode>;children?:ReactNode;} & ProductionTimelineNavigation){
+export default function ProductionTimeline({stages,moving=false,queued=false,layout='vertical',actions={},links={},onHistory,stageContent={},stageDurations={},stageTimes={},confirmationStage,children}:{stages:ProductionStage[];moving?:boolean;queued?:boolean;layout?:TimelineLayout;onHistory?:()=>void;stageContent?:Record<string,ReactNode>;stageDurations?:Record<string,number>;stageTimes?:Record<string,ReactNode>;confirmationStage?:string;children?:ReactNode;} & ProductionTimelineNavigation){
  const labels={pending:'待进行',current:queued?'等待中':moving?'进行中':'等待更新',done:'已完成',skipped:'无需执行',unavailable:'未启用',failed:'待处理',paused:'已暂停'};
- const stateLabel=(step:ProductionStage)=>step.id==='count'&&step.state==='current'&&!moving&&!queued?'待确认':labels[step.state];
+ const stateLabel=(step:ProductionStage)=>step.id===confirmationStage||step.id==='count'&&step.state==='current'&&!moving&&!queued?'待确认':labels[step.state];
  const focused=stages.find(step=>['current','failed','paused'].includes(step.state))||stages.find(step=>step.state==='pending')||stages.at(-1);
  const historyStage=[...stages].reverse().find(step=>['review','repair','recheck'].includes(step.id)&&!['pending','skipped','unavailable'].includes(step.state))||stages.find(step=>step.id==='review'&&step.state!=='unavailable');
  return <><ol className={'production-timeline'+(layout==='horizontal'?' production-timeline--horizontal':'')} aria-label="完整审片流程">{stages.map((step,index)=>{
  const done=layout==='vertical'&&step.state==='done',duration=stageDurations[step.id];
  const timing=done?(typeof duration==='number'&&Number.isFinite(duration)&&duration>=0?`耗时 ${generationDuration(duration)}`:null):stageTimes[step.id];
  const history=layout==='vertical'&&onHistory&&step.id===historyStage?.id;
- const name=links[step.id]?.length?links[step.id].map((link,index)=><Fragment key={link.label}>{index>0&&<span aria-hidden="true">与</span>}<StoryFlowAction onClick={link.onClick}>{link.label}</StoryFlowAction></Fragment>):actions[step.id]?<StoryFlowAction aria-label={actions[step.id].label} onClick={actions[step.id].onClick}>{step.label}</StoryFlowAction>:step.label;
- return <ProductionTimelineRow key={step.id} step={step} number={index+1} layout={layout} moving={moving} stateLabel={stateLabel(step)} name={name} linked={!!links[step.id]?.length} timing={timing} onHistory={history?onHistory:undefined}>{stageContent[step.id]}</ProductionTimelineRow>;
+ const action=actions[step.id],stepLinks=links[step.id]?.length?links[step.id]:action?[action]:[];
+ const navigation=stepLinks.map(link=><StoryFlowAction key={link.ariaLabel??link.label} aria-label={link.ariaLabel} disabled={link.disabled} onClick={link.onClick}>{link.label}</StoryFlowAction>);
+ return <ProductionTimelineRow key={step.id} step={step} number={index+1} layout={layout} moving={moving} stateLabel={stateLabel(step)} name={layout==='horizontal'&&navigation.length?navigation:step.label} timing={timing} onHistory={history?onHistory:undefined}>
+  {navigation.length>0?<><div className="production-stage-actions">{navigation}</div>{stageContent[step.id]}</>:stageContent[step.id]}
+ </ProductionTimelineRow>;
  })}{children}</ol>{layout==='vertical'&&!onHistory&&stages.some(step=>step.id==='review'&&step.state!=='unavailable')&&<p className="production-review-loop" aria-label="审核修复循环">审核 → 修复 → 全篇复核，未通过继续修复；最多自动 {readerMaxAutomaticRepairs} 轮，无变化或到上限则待处理。</p>}{layout==='horizontal'&&focused&&<p className="production-stage-current" data-state={focused.state} role="status"><strong>{focused.label} · {stateLabel(focused)}</strong><span>{focused.detail}</span></p>}</>;
 }

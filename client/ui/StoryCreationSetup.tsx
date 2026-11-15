@@ -92,8 +92,8 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
    <StoryFlowAction disabled={busy} onClick={onBackToDiscovery}><ArrowLeft size={14} aria-hidden="true"/>返回选材</StoryFlowAction>}/>
   <StoryGenerationStatus session={session} {...progress} compact hideBack stages={stages} timeline={{stageDurations}}
    control={searching&&!paused?<StoryFlowAction disabled={progress.controlBusy} onClick={()=>void progress.onControl(session.id,'pause')}>暂停整理</StoryFlowAction>:null}
-   stageContent={{source:failedSearch?<div role="alert"><p>{search.error}</p>{searchAction}</div>:
-    paused?<div><p role="status">故事整理已暂停。</p>{searchAction}</div>:
+   stageContent={{source:failedSearch?<div role="alert"><p>{search.error}</p><div className="production-stage-actions">{searchAction}</div></div>:
+    paused?<div><p role="status">故事整理已暂停。</p><div className="production-stage-actions">{searchAction}</div></div>:
     <p role="status">正在将所选原文整理为一篇故事…</p>}}/>
   {error&&<p role="alert">{error}</p>}
   {!progress.hideBack&&<StoryBackToShelf onBack={progress.onBack}/>}
@@ -106,7 +106,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
    <StoryFlowAction disabled={busy||!session.generationProgress?.sourceReady} onClick={()=>setSourceOpen(true)}>查看原文</StoryFlowAction>
   </div>}
   <StoryGenerationStatus session={session} {...progress} navigation={undefined} compact={ready||preparingSelected} control={ready?null:undefined} stages={stages} timeline={{stageDurations}} stageContent={{source:<>
-   {!preparingSelected&&<div className="yu-extraction-actions" role="group" aria-label="故事来源操作">
+   {!preparingSelected&&<div className="production-stage-actions" role="group" aria-label="故事来源操作">
     <StoryFlowAction disabled={busy||!ready&&!session.generationProgress?.sourceReady} onClick={()=>setSourceOpen(true)}>原文</StoryFlowAction>
    </div>}
   </>,prepare:<>
@@ -114,7 +114,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   </>,count:<>
    {!editing&&remoteChoice}
    {error&&<p className="yu-batch-error" role="alert">{error}</p>}
-   {editable&&<div className="yu-confirmation-settings" role="group" aria-label="制作设置">
+   {editable&&<div className="production-stage-actions" role="group" aria-label="制作设置">
     <StoryFlowAction disabled={locked} onClick={()=>setEditing('requirements')}>制作要求</StoryFlowAction>
     <StoryFlowAction disabled={locked} onClick={()=>setEditing('acceptance')}>验收要求</StoryFlowAction>
     <StoryFlowAction disabled={locked} aria-label="修改画风" onClick={()=>setEditing('style')}>画风：{artStyleLabel}</StoryFlowAction>
