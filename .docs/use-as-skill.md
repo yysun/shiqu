@@ -6,7 +6,7 @@
 
 保存设置草稿、重新推荐或确认制作时，从 `stories get ID` 同时读取 `intake.generation` 和 `intake.draftToken`，在命令的 JSON 输入中分别传入 `generation` 和 `draftToken`。如遇冲突，先查看最新草稿并确定采用哪个版本。
 
-使用 `themes` 查看当前预设。例如用「复仇」按完整定义查找有报复行动的故事。输入自己的主题或情节时，使用 `themeInput: "custom"`。
+使用 `themes` 查看当前预设。例如用「复仇始末」按完整定义查找有报复行动的故事。输入自己的主题或情节时，使用 `themeInput: "custom"`。
 
 ## 启动自动安装与桌面 CLI
 

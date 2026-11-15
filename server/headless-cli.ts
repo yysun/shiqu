@@ -64,7 +64,7 @@ export class CliCommandError extends Error{
 function need(ok:unknown,code:string,message:string):asserts ok{if(!ok)throw new CliCommandError(code,message);}
 const uuid=(s:string)=>/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(s);
 const inputs={
- themeSearch:{bookId:'liaozhai',theme:'复仇',discovery:{mode:'auto',themeInput:'preset',vectorFirst:true}},
+ themeSearch:{bookId:'liaozhai',theme:'复仇始末',discovery:{mode:'auto',themeInput:'preset',vectorFirst:true}},
  copy:{copyImages:false,draft:false,artStyle:'clay',note:'CLI never prompts. Default requires passed review. --draft or draft:true preserves unreviewed text and audit checkpoints as a paused independent copy, without images. Use stories copy-images only for reviewed copies in the same style.'},
  copyImages:{sourceId:'source story UUID',note:'stories copy-images TARGET_ID --from-data-dir SOURCE_LIBRARY --input source.json; TARGET_ID is the existing text copy, not a new creation request.'},
  setup:{note:'stories setup ID accepts an action; requestId defaults to a new UUID; generation is required from stories get ID. Keep both fixed for replay.',examples:[{action:'conditions',conditions:{bookId:'zhuangzi',theme:'善意的处境',discovery:{mode:'auto',themeInput:'preset'},productionPrompt:''}},{action:'more'},{action:'draft',settings:{artStyle:'ink-pencil',productionPrompt:'',acceptancePrompt:'',narrativeDetail:'balanced',length:'auto'}}]},

@@ -143,7 +143,7 @@ test('向量每次只提交整条定义，同名自定义只提交输入原句',
   return new Map([[first.id,0.1],[second.id,0.95]]);
  };
  f.provider.verifyThemeStories=async()=>assert.fail('有向量时直接返回语义相似的故事卡');
- for(const [title,definition] of [['困境抉择',fate],['命运与选择',fate],['爱与缘分',love],['复仇',revenge]]){
+ for(const [title,definition] of [['困境抉择',fate],['命运与选择',fate],['情缘百态',love],['爱与缘分',love],['复仇始末',revenge],['复仇',revenge]]){
   const find=themeInput=>f.suggest(title,{discovery:{mode:'auto',vectorFirst:true,themeInput}});
   assert.deepEqual((await find('preset')).stories.map(story=>story.source),[f.stories[1].source,f.stories[0].source]);
   await find('custom');
@@ -164,16 +164,22 @@ test('自选书推荐只在调用模型时展开预设，不修改保存条件',
  }
  assert.deepEqual(calls,[love,'爱与缘分','爱与缘分']);
  const entries=await executeHeadless(process.cwd(),['themes']);
- assert.deepEqual(entries,['情节反转','人情冷暖','放下执念','智愚反差','善意遭误解','困境抉择','欲望的代价','鼓起勇气','错过的爱情','世事可笑','因果报应','信义的考验','复仇','真假难辨','权力争夺']);
+ assert.deepEqual(entries,['情节反转','人情冷暖','放下执念','智愚反差','好心之后','困境抉择','欲望代价','鼓起勇气','情缘百态','世事可笑','因果报应','信义考验','复仇始末','真假难辨','权力争夺']);
  assert.deepEqual(entries,discoveryThemePresets);
+ assert.ok(entries.every(title=>/^\p{Script=Han}{4}$/u.test(title)));
 });
 
 test('主题改名后旧预设仍可查询，历史自由主题维持原句',()=>{
  const preset=theme=>discoveryThemeDefinition({theme,discovery:{mode:'auto',themeInput:'preset'}});
  assert.equal(preset('命运与选择'),preset('困境抉择'));
  assert.equal(preset('爱情与错过'),preset('错过的爱情'));
- assert.equal(preset('爱与缘分'),love);
- assert.notEqual(preset('爱与缘分'),preset('错过的爱情'));
+ assert.equal(preset('爱与缘分'),preset('情缘百态'));
+ assert.equal(preset('情缘'),preset('情缘百态'));
+ assert.notEqual(preset('情缘百态'),preset('错过的爱情'));
+ assert.match(preset('好心之后'),/误解.*回报/);
+ assert.doesNotMatch(preset('善意遭误解'),/回报/);
+ assert.equal(preset('信义的考验'),preset('信义考验'));
+ assert.equal(preset('复仇'),preset('复仇始末'));
  assert.equal(discoveryThemeDefinition({theme:'复仇',discovery:{mode:'auto',themeInput:'custom'}}),undefined);
  assert.equal(discoveryThemeDefinition({theme:'命运与选择'}),undefined);
 });
