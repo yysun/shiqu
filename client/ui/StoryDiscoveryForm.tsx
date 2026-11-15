@@ -10,7 +10,7 @@ import type {BookContentEntry} from '@/lib/reader-contents';
 import {promptAfterThemeChange} from '@/lib/reader-prompts';
 import {discoveryThemeDefinition,discoveryThemePresets} from '@/lib/reader-discovery-themes';
 import {storyCardSearchProgressLabel} from '@/lib/reader-suggestions';
-import StoryChapterPicker from './StoryChapterPicker';
+import StoryChapterPicker,{type ChapterDirectory} from './StoryChapterPicker';
 import StoryFlowAction from './StoryFlowAction';
 import {useRetainedState} from './useRetainedState';
 import {readStorySearchStream} from './readStorySearchStream';
@@ -21,6 +21,9 @@ const modes=[['chapter','按章节'],['story','按故事'],['theme','按主题']
 type Mode=typeof modes[number][0];
 type Choice={title:string;description:string;source:LocalSourceReference};
 type Extraction={key:string;entries:BookContentEntry[];note:string};
+function storyChoice({source,title,excerpt}:BookContentEntry):Choice|undefined{
+ return source?{source,title,description:excerpt||title}:undefined;
+}
 function toggle<T>(values:T[],item:T,source:(item:T)=>LocalSourceReference){
  const key=localSourceKey(source(item));
  return values.some(value=>localSourceKey(source(value))===key)
@@ -44,7 +47,7 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
  const [storyQuery,setStoryQuery]=useRetainedState(part('story-query'),'');
  const [stories,setStories]=useRetainedState<Choice[]>(part('stories'),[]);
  const [chapterStories,setChapterStories]=useRetainedState<Choice[]>(part('chapter-stories'),[]);
- const [chapterTotal,setChapterTotal]=useState<number|null>(null);
+ const [chapterDirectory,setChapterDirectory]=useState<ChapterDirectory|null>(null);
  const [extraction,setExtraction]=useRetainedState<Extraction|null>(part('extraction'),null);
  const [extractedChoices,setExtractedChoices]=useRetainedState<Choice[]>(part('extracted-choices'),[]);
  const [searchProgress,setSearchProgress]=useState(''),[searchError,setSearchError]=useState('');
@@ -76,9 +79,10 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
  const searching=!!searchProgress;
  const blocked=busy||searching||externalSearching||!!savedSearchControlBusy;
  const singleChapter=active==='chapter'&&sources.length===1?sources[0]:undefined;
- const cards=active==='story'?stories:active==='theme'&&results?extractedChoices:active==='chapter'?chapterStories:[];
+ const onlyChapterStory=singleChapter&&chapterDirectory?.onlyStory&&storyChoice(chapterDirectory.onlyStory);
+ const cards=onlyChapterStory?[onlyChapterStory]:active==='story'?stories:active==='theme'&&results?extractedChoices:active==='chapter'?chapterStories:[];
  const directCard=cards.length===1?cards[0]:undefined;
- const directChapter=singleChapter&&chapterTotal===0?singleChapter:undefined;
+ const directChapter=singleChapter&&chapterDirectory?.total===0?singleChapter:undefined;
  const selectedSources=cards.length?cards.map(card=>card.source):active==='chapter'&&sources.length>1?sources:[];
  const directSource=directCard?.source||directChapter;
  const invalid=local?!directSource&&!selectedSources.length:!theme||!customBook.trim();
@@ -86,18 +90,17 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
  function changeBook(next:string){
   if(next===bookId)return;
   setBookId(next);setSources([]);setStories([]);setStoryQuery('');
-  setChapterStories([]);setChapterTotal(null);resetSearch();
+  setChapterStories([]);setChapterDirectory(null);resetSearch();
   onBookChange(next);
  }
  function selectChapter({source}:BookContentEntry){
   if(!source)return;
   setSources(old=>toggle(old,source,value=>value));
-  setChapterStories([]);setChapterTotal(null);
+  setChapterStories([]);setChapterDirectory(null);
  }
  function selectStory(entry:BookContentEntry,setChoices:typeof setStories){
-  if(!entry.source)return;
-  const choice={title:entry.title,description:entry.excerpt||entry.title,source:entry.source};
-  setChoices(old=>toggle(old,choice,value=>value.source));
+  const choice=storyChoice(entry);
+  if(choice)setChoices(old=>toggle(old,choice,value=>value.source));
  }
  function resetSearch(){
   setExternalChoice(null);setExtraction(null);setExtractedChoices([]);setSearchError('');
@@ -205,12 +208,9 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
   </div>
   {active==='chapter'&&<>
    <StoryChapterPicker key={bookId} bookId={bookId} sources={sources} disabled={blocked} onSelect={selectChapter}/>
-   {singleChapter&&<>
-    <h2 className="yu-discovery-heading">本章故事卡</h2>
-    <StoryChapterPicker key={localSourceKey(singleChapter)} bookId={bookId} kind="story" sectionId={singleChapter.sectionId}
-     label="本章故事卡" onTotal={setChapterTotal} sources={chapterStories.map(card=>card.source)}
-     disabled={blocked} onSelect={entry=>selectStory(entry,setChapterStories)}/>
-   </>}
+   {singleChapter&&<StoryChapterPicker key={localSourceKey(singleChapter)} bookId={bookId} kind="story" sectionId={singleChapter.sectionId}
+    label="本章故事卡" onChapterDirectory={setChapterDirectory} sources={chapterStories.map(card=>card.source)}
+    disabled={blocked} onSelect={entry=>selectStory(entry,setChapterStories)}/>}
   </>}
   {active==='story'&&<StoryChapterPicker key={bookId+':story'} bookId={bookId} kind="story" query={storyQuery} onQueryChange={setStoryQuery}
    sources={stories.map(card=>card.source)} disabled={blocked} onSelect={entry=>selectStory(entry,setStories)}/>}
