@@ -5,6 +5,12 @@ export type BookContentEntry={kind:'chapter'|'story';id:string;title:string;chap
 export type BookContents={bookId:string;title:string;entries:BookContentEntry[];total?:number};
 
 const simplified=Converter({from:'t',to:'cn'});
+// 部分书的故事卡以简介开头作标题；列表中简介去掉与标题重复的开头，避免同一句读两遍。
+export function storyCardExcerpt(title:string,excerpt:string){
+ const head=title.trim();
+ if(!head||!excerpt.startsWith(head))return excerpt;
+ return excerpt.slice(head.length).replace(/^[\s，。、；：！？,.;:!?—…]+/u,'');
+}
 export const contentSearchText=(text:string)=>simplified(text.normalize('NFKC')).toLowerCase();
 export const contentSearchTerms=(query:string)=>contentSearchText(query).trim().split(/\s+/u).filter(Boolean);
 export function matchingBookContents(entries:BookContentEntry[],query:string){

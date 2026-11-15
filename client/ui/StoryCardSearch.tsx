@@ -4,6 +4,7 @@ import {ArrowLeft,BookOpen,Loader2,Search} from 'lucide-react';
 import {request} from './shared';
 import {readStorySearchStream} from './readStorySearchStream';
 import './StoryCardSearch.css';
+import StoryFlowAction from './StoryFlowAction';
 
 type Book={id:string;title:string};
 type Source={edition:string;sectionId:string;firstUnit:string;lastUnit:string;continuations?:{sectionId:string;firstUnit:string;lastUnit:string}[]};
@@ -55,7 +56,7 @@ export default function StoryCardSearch({books,onClose}:{books:Book[];onClose:()
    <div className="yu-card-search-modes" role="tablist" aria-label="检索方式">{modes.map(item=><button key={item.id} type="button" role="tab" aria-selected={mode===item.id} className={mode===item.id?'active':''} onClick={()=>selectMode(item.id)}>{item.title}</button>)}</div>
    <p className="yu-card-search-hint">{active.hint}</p>
    <div className="yu-card-search-input"><input aria-label={active.title==='章节'?'搜索章节':'搜索内容'} placeholder={active.placeholder} value={query} maxLength={200} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==='Enter')void search();}}/><button type="button" disabled={busy||loadingChapters} onClick={()=>void search()}>{busy?<Loader2 size={16} className="spin"/>:<Search size={16}/>} {active.button}</button></div>
-   {mode==='theme'&&<label className="yu-card-search-scope">限定章节（可跳过）<select value={section} disabled={busy} onChange={event=>setSection(event.target.value)}><option value="">全书</option>{chapters.map(entry=><option key={entry.id} value={entry.source?.sectionId}>{entry.title}</option>)}</select><button type="button" onClick={()=>setSection('')}>清除</button></label>}
+   {mode==='theme'&&<label className="yu-card-search-scope">限定章节（可跳过）<select value={section} disabled={busy} onChange={event=>setSection(event.target.value)}><option value="">全书</option>{chapters.map(entry=><option key={entry.id} value={entry.source?.sectionId}>{entry.title}</option>)}</select><StoryFlowAction onClick={()=>setSection('')}>清除</StoryFlowAction></label>}
    {loadingChapters?<p role="status">正在读取目录…</p>:null}
    {progress&&<p className="yu-card-search-status" role="status">{progress}</p>}
    {note&&<p className="yu-card-search-note" role="status">{note}</p>}
@@ -66,8 +67,8 @@ export default function StoryCardSearch({books,onClose}:{books:Book[];onClose:()
     <button type="button" disabled={!entry.source||busy} onClick={()=>entry.source&&void openSource(entry.source)}><BookOpen size={15}/>打开原文</button>
    </article>)}</div>
    {mode==='chapter'&&!results.length&&<button className="yu-card-search-browse" type="button" onClick={()=>{setResults(chapters);setNote('目录和原文无需配置模型即可查看。');}} disabled={loadingChapters||busy}>浏览全部章节</button>}
-   {!busy&&mode!=='chapter'&&!results.length&&query.trim()&&<section className="yu-card-search-empty"><strong>候选中还没定位到</strong><span>可以继续查找所选范围的原文。</span><button type="button" onClick={()=>void continueOriginal()}>继续查找原文</button></section>}
-   {continuing&&<button type="button" className="yu-card-search-cancel" onClick={()=>continueController.current?.abort()}>取消查找</button>}
+   {!busy&&mode!=='chapter'&&!results.length&&query.trim()&&<section className="yu-card-search-empty"><strong>候选中还没定位到</strong><span>可以继续查找所选范围的原文。</span><StoryFlowAction onClick={()=>void continueOriginal()}>继续查找原文</StoryFlowAction></section>}
+   {continuing&&<StoryFlowAction onClick={()=>continueController.current?.abort()}>取消查找</StoryFlowAction>}
   </>}
  </section>;
 }

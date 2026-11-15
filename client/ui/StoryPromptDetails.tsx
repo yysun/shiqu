@@ -5,12 +5,13 @@ import {promptRecordText} from '@/lib/reader-prompt-records';
 import type {PromptRecord} from '@/lib/reader-prompt-records';
 import {acceptanceCriteria} from '@/lib/reader-acceptance';
 import type {AcceptanceResult} from '@/lib/reader-acceptance';
+import StoryFlowAction from './StoryFlowAction';
 type Receipt={step:string;model:string;originId:string;index:number;record:PromptRecord};
 export type PromptDetails={records:Receipt[];criteria:string[];results:AcceptanceResult[];overridden:boolean;previews:{production:PromptRecord;acceptance:PromptRecord}};
 function PromptText({record}:{record:PromptRecord}){
  const [status,setStatus]=useState(''),text=promptRecordText(record);
  async function copy(){try{await navigator.clipboard.writeText(text);setStatus('已复制');}catch{setStatus('复制失败，可在下方选中文字复制。');}}
- return <><button type="button" className="yu-revision-open" onClick={()=>void copy()}>复制完整提示词</button>{status&&<small role="status">{status}</small>}<pre tabIndex={0} className="yu-prompt-text">{text}</pre></>;
+ return <><StoryFlowAction onClick={()=>void copy()}>复制完整提示词</StoryFlowAction>{status&&<small role="status">{status}</small>}<pre tabIndex={0} className="yu-prompt-text">{text}</pre></>;
 }
 export function PromptDetailsContent({data,kind,sessionId,preferences}:{data:PromptDetails;kind:'production'|'acceptance';sessionId:string;preferences:Record<string,unknown>}){
  const records=data.records.filter(item=>(item.step.startsWith('review'))===(kind==='acceptance'));
@@ -27,7 +28,7 @@ export default function StoryPromptDetails({sessionId,kind,preferences}:{session
  const [data,setData]=useState<PromptDetails|null>(null),[error,setError]=useState(''),[attempt,setAttempt]=useState(0);
  useEffect(()=>{let active=true;setData(null);setError('');if(sessionId)void request(`reader/sessions/${sessionId}/prompts`).then(value=>{if(active)setData(value);}).catch(e=>{if(active)setError(e instanceof Error?e.message:'提示词暂时无法载入。');});return()=>{active=false;};},[sessionId,attempt]);
  if(!sessionId)return <p className="yu-count-help">本篇尚无提示词使用记录。</p>;
- if(error)return <div role="alert"><p>{error}</p><button type="button" onClick={()=>setAttempt(n=>n+1)}>重新载入提示词</button></div>;
+ if(error)return <div role="alert"><p>{error}</p><StoryFlowAction onClick={()=>setAttempt(n=>n+1)}>重新载入提示词</StoryFlowAction></div>;
  if(!data)return <p role="status">正在载入规则与使用记录…</p>;
  return <PromptDetailsContent data={data} kind={kind} sessionId={sessionId} preferences={{...preferences,acceptanceCriteria:acceptanceCriteria(preferences.acceptancePrompt as string)}}/>;
 }

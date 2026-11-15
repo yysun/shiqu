@@ -77,8 +77,8 @@ export default function StoryReselection({parentId,onSubmitted,onCancelled}:{par
    </ul>
    {(intake.search.state==='failed'||!searching&&intake.batches.at(-1)?.stories.length===0)&&
     <StoryFlowAction disabled={busy} onClick={()=>{void act({action:'more'});}}>{intake.search.state==='failed'?'重试查找':'继续查找'}</StoryFlowAction>}
-  </>:<button type="button" onClick={()=>void open()}>重新打开选题</button>}
+  </>:<StoryFlowAction onClick={()=>void open()}>重新打开选题</StoryFlowAction>}
   {error&&<p role="alert">{error}</p>}
-  <button type="button" disabled={busy} onClick={()=>void cancel()}>取消替换</button>
+  <StoryFlowAction disabled={busy} onClick={()=>void cancel()}>取消替换</StoryFlowAction>
  </Sheet>;
 }

@@ -8,6 +8,7 @@ import {StoryArtRecommendation} from './StoryArtRecommendation';
 import type {ArtStyleId} from '@/lib/reader-styles';
 import type {FrameRecommendation} from '@/lib/reader-frame-recommendation';
 import type {ArtRecommendation} from '@/lib/reader-art-recommendation';
+import StoryFlowAction from './StoryFlowAction';
 export type StoryEditorTab='requirements'|'acceptance'|'style'|'count'|'script';
 export type ProductionSettings={artStyle:ArtStyleId;productionPrompt:string;acceptancePrompt?:string;length:number|'auto';narrativeDetail:NarrativeDetail};
 const tabs:{id:StoryEditorTab;label:string}[]=[{id:'requirements',label:'制作要求'},{id:'acceptance',label:'验收要求'},{id:'style',label:'画风'},{id:'count',label:'叙事详略'},{id:'script',label:'分镜'}];
@@ -24,6 +25,6 @@ export default function StoryProductionEditor({tab,settings,disabled,onChange,se
    <StoryArtStylePicker value={settings.artStyle} disabled={disabled} onChange={artStyle=>onChange({artStyle})}/>
   </>}
   {tab==='count'&&<section><h3>叙事详略</h3><div className="yu-narrative-details" role="group" aria-label="叙事详略">{narrativeDetails.map(detail=><button type="button" key={detail.id} aria-pressed={settings.narrativeDetail===detail.id} className={settings.narrativeDetail===detail.id?'selected':''} disabled={disabled} onClick={()=>onChange({narrativeDetail:detail.id,length:'auto'})}><strong>{detail.label}</strong><span>{detail.description.split(/(?<=[，、])/).map((part,index)=><span key={index}>{part}</span>)}</span></button>)}</div><p className="yu-count-help">画幅数由模型按原文和详略编排，审核时可增减；文字稿稳定后再生成图片。</p>{recommendation&&<p className="yu-count-help">初步估计 {recommendation.count} 幅，最终数量以编排和审核结果为准。</p>}</section>}
-  {onRecommend&&(tab==='count'||tab==='requirements')&&<><button type="button" className="yu-revision-open" onClick={onRecommend}>按当前要求重新准备</button><p className="yu-count-help">保存设置并核对原文；审核通过前不会绘图。</p></>}
+  {onRecommend&&(tab==='count'||tab==='requirements')&&<><StoryFlowAction onClick={onRecommend}>按当前要求重新准备</StoryFlowAction><p className="yu-count-help">保存设置并核对原文；审核通过前不会绘图。</p></>}
  </fieldset>;
 }

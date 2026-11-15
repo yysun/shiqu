@@ -16,14 +16,16 @@
 // 桌面宽档（≥1024px）书架：可阅读卡片在右栏阅读，制作中卡片在右栏打开故事设置；地址留在书架。
 // 全屏按钮展开为普通阅读（展开或打开原文/分镜列表时登记为步骤，返回收回右栏）；变窄时全屏显示，放宽后恢复右栏与选中项。
 // 停留在书架期间卡片顺序冻结，在右栏阅读不会让卡片跳到前面。
+// 本书参考图不再占用阅读页顶部，改在故事设置中以当前所读的一幅设置。
+// 次要操作（重试、重新载入、查看原文、审片提示等）用 StoryFlowAction 文字链接；主操作、对话框确认旁的取消与图标按钮仍是按钮。
+// 阅读页标题最多两行，下方一行写出处 · 生成方（如 Codex）· 主题 · 画风；具体模型名称见故事设置。
 
 import {pruneReadingCaches,type LibraryInventory} from '../reading-cache.ts';
 import StoryExportControl from './StoryExportControl';
 import {storyLandscapeRoute} from './StoryLandscapeStep';
 import type {LandscapeStatus} from '@/lib/reader-production';
 import StoryPublicationEditor,{StoryPublicationDetails,StoryPublicationDefaults} from './StoryPublication';
-import {generationImageModelForPage,generationModelNames,storyExportKey} from '@/lib/story-publication';
-import BookReferenceStar from './BookReferenceStar';
+import {generationImageModelForPage,generationProviderNames,storyExportKey} from '@/lib/story-publication';
 import ProviderSettings,{ProviderRuntimeSummary} from './ProviderSettings';
 import type {ProviderSettingsView} from '@/lib/provider-settings';
 import {useBookReference} from '../useBookReference';
@@ -81,6 +83,7 @@ import {desktopView,activeTopItem,topBarSteps,type DesktopFlags,type ExitStep,ty
 import './reader.css';
 // 宽屏手机规则必须最后加载（同等特异性时覆盖放宽后的手机规则）
 import './compact.css';
+import StoryFlowAction from './StoryFlowAction';
 
 type Book = ReaderBook;
 type Progress = {storyId:string; page:number; saved?:number; updatedAt?:string|null};
@@ -583,7 +586,7 @@ export default function Reader(){
     draft={revisionPending&&revision.base&&!revisionResuming?{base:revision.base,changes:revision.changes,confirmation:<StoryRevisionActions editor={revision} link/>}:undefined} editor={revision} onReselect={()=>void reselectStory()}
     reviewTools={!revisionPending&&<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review')?.id)} onDrawAnyway={()=>void gen.drawAnyway(workflowSession.id)}/>}
    />}
-  </>:<div role="status">{workflowError?<><p role="alert">{workflowError}</p><button type="button" onClick={()=>openWorkflow(workflowTarget!)}>重新加载制作流程</button></>:<p>正在打开制作流程…</p>}</div>);
+  </>:<div role="status">{workflowError?<><p role="alert">{workflowError}</p><StoryFlowAction onClick={()=>openWorkflow(workflowTarget!)}>重新加载制作流程</StoryFlowAction></>:<p>正在打开制作流程…</p>}</div>);
 
  const panelOpen=!awaitingMaterials&&!!(workflowTarget||(!story&&gen.active)||(settings&&story));
  // 故事设置及其子面板在所有宽度共用小屏布局；书架右栏始终保留在子面板下面。
@@ -608,13 +611,14 @@ export default function Reader(){
   downloads:(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,'yu-settings-download',panelStory)),
   exportStatus:exportProgress,exporting:!!exporting,onPublicationEdit:isGenerated(panelStory)?()=>setPublicationTarget(panelStory):undefined,
   workflow:workflowSession||workflowTarget?workflowContent:undefined,
+  bookReference:story&&panelStory?.id===story.id&&!ended&&story.pages[page]?.image?{page,...bookReference}:undefined,
  };
  const revisionDone=workflowTarget||settings||revisionResuming?()=>revision.setTab(null):undefined;
  const discoverLead=<><section className="yu-intro"><div><p className="yu-kicker">把片刻，留给一个好故事</p><h1>今天，想遇见<br/>什么<span>故事</span>？</h1></div><span className="yu-stamp">古意<br/>新生</span></section>
  <RecentStories key={heroes.map(h=>h.story.id).join('|')} items={heroes} loading={libraryLoading} bookName={bookName} onOpen={open} activeStoryId={heroStoryId} onActiveStoryChange={setHeroStoryId}/>
  <button className="yu-new-story-link" onClick={()=>choose()}><Sparkles size={16}/><span>生成我的故事</span><ArrowRight size={16}/></button></>;
  // 新建页的表单已含按章节/按故事/按主题，书目不再显示独立检索入口（新建页无法显示该面板）。
- const bookGrid=(searchLink:boolean)=><section className="yu-section"><div className="yu-section-title"><h2>从一本书开始</h2>{searchLink&&<button type="button" className="yu-book-search-link" onClick={()=>{setSearchOpen(true);setTab('discover');}}><Search size={14}/>查章节、找故事</button>}</div><div className="yu-books">{choices.map((b,i)=>{
+ const bookGrid=(searchLink:boolean)=><section className="yu-section"><div className="yu-section-title"><h2>从一本书开始</h2>{searchLink&&<StoryFlowAction onClick={()=>{setSearchOpen(true);setTab('discover');}}><Search size={14}/>查章节、找故事</StoryFlowAction>}</div><div className="yu-books">{choices.map((b,i)=>{
   const indexed=semanticIndexBooks.find(book=>book.id===b.id);
   const indexLabel=indexed?'yu-book-index-'+b.id:undefined;
   return <button key={b.id} onClick={()=>choose(b.id)} aria-label={'选择'+b.title} aria-describedby={indexLabel}>
@@ -630,7 +634,7 @@ export default function Reader(){
  const discoverMoods=<section className="yu-section yu-theme-section"><div className="yu-section-title"><h2>或者，跟着心情走</h2><Sparkles size={17}/></div><div className="yu-moods">{moods.map((m,i)=><button key={m} className={selection.theme===m?'selected':''} onClick={()=>{choose(selection.bookId,m,false);}}>{i===0&&<Sparkles size={13}/>} {m}</button>)}</div></section>;
  const discoverSurprise=<button className="yu-surprise" onClick={()=>{const b=choices[Math.floor(Math.random()*(choices.length-1))];choose(b.id,moods[Math.floor(Math.random()*(moods.length-1))]);}}><span><Feather size={24}/></span><div><strong>不挑了，给我一个故事</strong><small>让偶然替你翻开第一页</small></div><ArrowRight size={19}/></button>;
  const discoverNote=<div className="yu-generation-note"><Sparkles size={13}/><p>故事、画面与文字，由 AI 为这一次阅读生成。</p></div>;
- const discoverStatus=loading?<p className="yu-inline-status" role="status">正在打开书页…</p>:loadError?<div className="yu-inline-status" role="alert">{loadError}<button onClick={()=>location.reload()}>重新加载</button></div>:null;
+ const discoverStatus=loading?<p className="yu-inline-status" role="status">正在打开书页…</p>:loadError?<div className="yu-inline-status" role="alert">{loadError}<StoryFlowAction onClick={()=>location.reload()}>重新加载</StoryFlowAction></div>:null;
  const discoverBrowse=<>{discoverBooks}
  {discoverMoods}
  {discoverSurprise}
@@ -653,15 +657,15 @@ export default function Reader(){
   <ProviderRuntimeSummary runtime={providerRuntime}/>
  </section>;
  // 停靠在书架右栏时阅读是书架主区里的一节（section，不带 data-main），其余时候是页面主区
- const readerEnding=story&&<StoryEndingSurface surfaceRef={endingRef} onTurn={turn} onDrag={setDrag} drag={drag}><div className="yu-ending-mark"><Leaf size={32} strokeWidth={1.3}/></div><p className="yu-kicker">故事到这里，余味留给你</p><h1>{story.reflection}</h1>{!!story.summary.trim()&&<section className="yu-ending-summary" aria-label="故事梗概"><h2>故事梗概</h2><p>{story.summary}</p></section>}<div className="yu-end-line"/><p>有些故事的最后一页，<br/>其实在你的生活里。</p><button className="yu-primary" onClick={()=>open(story,true)}><RotateCcw size={18}/>从头再看<ArrowRight size={19}/></button><div className="yu-ending-navigation"><button onClick={()=>turn(-1)}><ChevronLeft size={17}/>返回上一幅</button><button onClick={()=>{listScroll.current=null;home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}}><BookOpen size={16}/>书架</button><button onClick={()=>{home();choose();}}><Sparkles size={16}/>开启下一篇</button></div><section className="yu-ending-downloads" aria-label="下载故事"><h2>把故事带走</h2><div className="yu-ending-formats">{(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,format==='zip'?'yu-ending-download yu-download-zip':'yu-ending-download'))}</div>{exportStatus()}</section><StoryPublicationDetails story={story}/><button className="yu-end-source" onClick={()=>setSource(true)}>读一读原文 <ChevronRight size={13}/></button></StoryEndingSurface>;
+ const readerEnding=story&&<StoryEndingSurface surfaceRef={endingRef} onTurn={turn} onDrag={setDrag} drag={drag}><div className="yu-ending-mark"><Leaf size={32} strokeWidth={1.3}/></div><p className="yu-kicker">故事到这里，余味留给你</p><h1>{story.reflection}</h1>{!!story.summary.trim()&&<section className="yu-ending-summary" aria-label="故事梗概"><h2>故事梗概</h2><p>{story.summary}</p></section>}<div className="yu-end-line"/><p>有些故事的最后一页，<br/>其实在你的生活里。</p><button className="yu-primary" onClick={()=>open(story,true)}><RotateCcw size={18}/>从头再看<ArrowRight size={19}/></button><div className="yu-ending-navigation"><button onClick={()=>turn(-1)}><ChevronLeft size={17}/>返回上一幅</button><button onClick={()=>{listScroll.current=null;home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}}><BookOpen size={16}/>书架</button><button onClick={()=>{home();choose();}}><Sparkles size={16}/>开启下一篇</button></div><section className="yu-ending-downloads" aria-label="下载故事"><h2>把故事带走</h2><div className="yu-ending-formats">{(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,format==='zip'?'yu-ending-download yu-download-zip':'yu-ending-download'))}</div>{exportStatus()}</section><StoryPublicationDetails story={story}/><p className="yu-end-source"><StoryFlowAction tone="dark" onClick={()=>setSource(true)}>读一读原文<ChevronRight size={13}/></StoryFlowAction></p></StoryEndingSurface>;
  const ReaderTag=dockedView?'section':'main';
  const readerMain=story&&<ReaderTag className={'yu-reader'+(!metadataVisible&&!ended?' yu-metadata-hidden':'')} ref={readerRef} aria-label={'阅读'+story.title} data-main={dockedView?undefined:''}>
  <StoryFilmstrip key={story.id} pages={story.pages} page={ended?story.pages.length:page} ending={readerEnding} reloads={imageReloads} onImageError={onFrameError} onImageLoad={onFrameLoad} onPageChange={readScrolledPage} onTurn={turn} onToggleMetadata={()=>setMetadataVisible(visible=>!visible)}/>
  {ended&&<div className="yu-scene-shade"/>}
  {!ended&&!current?.image&&<div className="yu-drawing" role="status"><div className="yu-drawing-orbit"><Feather size={35} strokeWidth={1}/></div><span>{gen.error?'画笔暂停了一下':'这一幅，正在展开'}</span><small>{gen.error||gen.active?.stage||'正在为你绘制画面'}</small>{gen.error&&gen.active&&<StoryRetry session={gen.active} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}
- <header className="yu-reader-top"><div className="yu-progress" aria-label={`第${page+1}幅，共${story.pages.length}幅`}>{story.pages.map((_,i)=><span key={i} className={i<=page?'read':''}/>)}</div><div className="yu-reader-heading">{dockedView?<button className="yu-glass" onClick={expand} aria-label="全屏阅读" title="全屏阅读"><Maximize2 size={19}/></button>:<button className="yu-glass" onClick={leaveReader} aria-label={docked?'返回书架':'返回发现'}><ArrowLeft size={21}/></button>}<div className="yu-reader-title"><div><strong>{story.title}</strong><span>{bookName(story)}{isGenerated(story)?' · '+(generationModelNames(story.generationModels,'image').join('、')||'未记录'):''}</span></div><div className="yu-style-label" aria-label="本篇主题与画风">{story.theme&&<span>{story.theme}</span>}<span>{isGenerated(story)?(story.artStyleLabel||'未记录画风'):'未记录画风'}</span></div></div>{!ended&&<BookReferenceStar selected={bookReference.selected} disabled={bookReference.disabled} busy={bookReference.busy} onClick={bookReference.toggle}/>}<button className="yu-glass" onClick={bookmark} aria-label={saved?'取消收藏':'收藏故事'}><Bookmark size={20} fill={saved?'currentColor':'none'}/></button><button className="yu-glass" onClick={()=>openStorySettings(story)} aria-label="故事设置"><Settings2 size={19}/></button></div>{!!readingSession?.reviewIssues?.length&&!settings&&<button type="button" className="yu-reader-review-notice" onClick={()=>openWorkflow(story.id)}>审片还有 {readingSession.reviewIssues.length} 处问题，已停止绘图。查看并处理</button>}</header>
+ <header className="yu-reader-top"><div className="yu-progress" aria-label={`第${page+1}幅，共${story.pages.length}幅`}>{story.pages.map((_,i)=><span key={i} className={i<=page?'read':''}/>)}</div><div className="yu-reader-heading">{dockedView?<button className="yu-glass" onClick={expand} aria-label="全屏阅读" title="全屏阅读"><Maximize2 size={19}/></button>:<button className="yu-glass" onClick={leaveReader} aria-label={docked?'返回书架':'返回发现'}><ArrowLeft size={21}/></button>}<div className="yu-reader-title"><strong>{story.title}</strong></div><button className="yu-glass" onClick={bookmark} aria-label={saved?'取消收藏':'收藏故事'}><Bookmark size={20} fill={saved?'currentColor':'none'}/></button><button className="yu-glass" onClick={()=>openStorySettings(story)} aria-label="故事设置"><Settings2 size={19}/></button></div><p className="yu-reader-meta" aria-label="本篇出处、生成方、主题与画风">{[bookName(story),isGenerated(story)?generationProviderNames(story.generationModels,'image').join('、')||'生成方未记录':'',story.theme,isGenerated(story)?story.artStyleLabel||'未记录画风':'未记录画风'].filter(Boolean).join(' · ')}</p>{!!readingSession?.reviewIssues?.length&&!settings&&<p className="yu-reader-review-notice">审片还有 {readingSession.reviewIssues.length} 处问题，已停止绘图。<StoryFlowAction onClick={()=>openWorkflow(story.id)}>查看并处理</StoryFlowAction></p>}</header>
  {!ended&&<>
- <div className={'yu-scene-caption '+(largeText?'large':'')} key={'caption-'+page}><div className="yu-scene-number"><span>{String(page+1).padStart(2,'0')}</span><i/><span>{String(story.pages.length).padStart(2,'0')}</span>{isGenerated(story)&&gen.busy&&<span className="yu-scene-generation" role="status"><Loader2 size={12} className="spin"/>{gen.active?.stage||'正在生成'}</span>}</div><p aria-label={captionText}>{visibleCaption}</p>{current?.image&&(gen.error||imageIssues[current.image]||!!readingSession?.faults?.length)&&<div className="yu-reader-error">{gen.error||imageIssues[current.image]}{isGenerated(story)&&imageIssues[current.image]&&<button type="button" onClick={()=>void inspectImage(story.id,page,current.image,true)}>重新检查图片</button>}{readingSession&&<StoryRetry session={readingSession} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}</div>
+ <div className={'yu-scene-caption '+(largeText?'large':'')} key={'caption-'+page}><div className="yu-scene-number"><span>{String(page+1).padStart(2,'0')}</span><i/><span>{String(story.pages.length).padStart(2,'0')}</span>{isGenerated(story)&&gen.busy&&<span className="yu-scene-generation" role="status"><Loader2 size={12} className="spin"/>{gen.active?.stage||'正在生成'}</span>}</div><p aria-label={captionText}>{visibleCaption}</p>{current?.image&&(gen.error||imageIssues[current.image]||!!readingSession?.faults?.length)&&<div className="yu-reader-error">{gen.error||imageIssues[current.image]}{isGenerated(story)&&imageIssues[current.image]&&<StoryFlowAction onClick={()=>void inspectImage(story.id,page,current.image,true)}>重新检查图片</StoryFlowAction>}{readingSession&&<StoryRetry session={readingSession} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}</div>
  <footer className="yu-reader-bottom"><button className="yu-source-button" onClick={()=>setSource(true)} aria-label="原文" title="原文"><BookOpen size={17}/><span>原文</span></button><button className="yu-glass" onClick={()=>setSceneList(true)} aria-label="分镜列表" title="分镜列表"><List size={20}/></button>
   {canRedraw&&<button type="button" className="yu-glass yu-redraw-button" onClick={()=>{redraw.discard();setRedrawNote('');setRedrawPage(page);void redraw.load();}} aria-label="重新生图" title="重新生图">
    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -691,7 +695,7 @@ export default function Reader(){
  const storySheets=<>
  {reviewHistoryId&&<Sheet title="审核记录" onClose={()=>setReviewHistoryId(null)}><StoryReviewHistory key={reviewHistoryId} sessionId={reviewHistoryId}/></Sheet>}
  {(!desktop||panelOpen)&&sourceSheet}
- {script&&scriptStory&&<Sheet title="分镜剧本" onClose={()=>setScript(false)}>{isGenerated(scriptStory)&&<button type="button" className="yu-revision-open" onClick={()=>editScript()}>修改分镜</button>}<StoryScript story={scriptStory} standalone/></Sheet>}
+ {script&&scriptStory&&<Sheet title="分镜剧本" onClose={()=>setScript(false)}>{isGenerated(scriptStory)&&<StoryFlowAction onClick={()=>editScript()}>修改分镜</StoryFlowAction>}<StoryScript story={scriptStory} standalone/></Sheet>}
  {revision.tab&&<Sheet title="修改故事" busy={revision.busy} onClose={()=>{if(!revision.busy)revision.setTab(null);}}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming} onDone={revisionDone}/></Sheet>}
  </>;
  const embeddingSheet=embeddingOpen&&<Sheet title="嵌入模型与故事卡索引" onClose={()=>setEmbeddingOpen(false)}><StoryEmbeddingSettings/></Sheet>;
@@ -758,7 +762,7 @@ export default function Reader(){
   {redraw.error&&<p role="alert">{redraw.error}</p>}
   <label className="yu-revision-field">重绘说明（选填）<textarea rows={3} maxLength={redrawNoteMaxLength} value={redrawNote} disabled={redraw.busy} onChange={event=>setRedrawNote(event.target.value)} placeholder="例如，把背景光线调暗，保留主体的位置"/></label>
   <div className="yu-revision-buttons">
-   {!redraw.loading&&!redraw.base?<button type="button" onClick={()=>void redraw.load()}>重新载入</button>:<button type="button" className="yu-primary" disabled={!redraw.base||redraw.loading||redraw.busy} onClick={()=>{
+   {!redraw.loading&&!redraw.base?<StoryFlowAction onClick={()=>void redraw.load()}>重新载入</StoryFlowAction>:<button type="button" className="yu-primary" disabled={!redraw.base||redraw.loading||redraw.busy} onClick={()=>{
     const frame=redrawPage+1,note=redrawNote.trim();
     void redraw.submit({redrawPages:[frame],...(note?{redrawNotes:{[frame]:note}}:{})});
    }}>{redraw.busy?'正在提交…':'确认重新生图'}</button>}
@@ -787,7 +791,7 @@ export default function Reader(){
    </fieldset>
    <div className="yu-export-confirmation-actions">
     <button type="button" className="yu-primary" onClick={()=>{setLandscapeCover(null);void exportStory('pdf-landscape',landscapeCover.story,landscapeCover.cover);}}>导出横版 PDF</button>
-    <button type="button" className="yu-revision-open" onClick={()=>setLandscapeCover(null)}>取消</button>
+    <StoryFlowAction onClick={()=>setLandscapeCover(null)}>取消</StoryFlowAction>
    </div>
   </div>
  </Sheet>}

@@ -50,7 +50,7 @@ export function StoryRevisionActions({editor,onDone,resuming=false,reviewOnSave=
 export default function StoryRevisionEditor({editor,onDone,resuming=false,reviewIssues=[]}:{editor:StoryRevisionEditorState;onDone?:()=>void;resuming?:boolean;reviewIssues?:ReviewIssue[]}){
  const {base,changes,busy,loading}=editor;
  if(loading)return <p role="status">正在载入已保存的制作内容…</p>;
- if(!base)return <div><p role="alert">{editor.error||'制作内容尚未载入。'}</p><button type="button" onClick={()=>void editor.load()}>重新载入</button></div>;
+ if(!base)return <div><p role="alert">{editor.error||'制作内容尚未载入。'}</p><StoryFlowAction onClick={()=>void editor.load()}>重新载入</StoryFlowAction></div>;
  const plan=changes.plan||base.plan;
  const target=Math.max(0,Math.min(editor.scriptPage??1,plan?.pages.length??1)),page=Math.max(0,target-1);
  const issues=reviewIssues.filter(issue=>issue.page===target);

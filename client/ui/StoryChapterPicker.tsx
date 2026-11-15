@@ -1,11 +1,13 @@
 // 浏览章节或故事，筛选时保留表单中已选的原文范围。
+// 故事卡简介去掉与标题重复的开头；去重后为空时只显示标题。
 import {useEffect,useId,useRef,useState} from 'react';
 import {BookOpen} from 'lucide-react';
 import type {LocalSourceReference} from '@/lib/reader-local-contract';
 import {localSourceKey} from '@/lib/reader-source-key';
-import type {BookContents,BookContentEntry} from '@/lib/reader-contents';
+import {storyCardExcerpt,type BookContents,type BookContentEntry} from '@/lib/reader-contents';
 import {request} from './shared';
 import Sheet from './StorySheet';
+import StoryFlowAction from './StoryFlowAction';
 export type ChapterDirectory={total:number;onlyStory?:BookContentEntry};
 type Props={
  bookId:string;
@@ -88,7 +90,7 @@ export default function StoryChapterPicker({bookId,sources,disabled,onSelect,kin
  if(onlyStory)return <>
   <div className="yu-selected-story-card">
    <p role="status">已选故事《{onlyStory.title}》</p>
-   <button type="button" className="yu-source-original-link" disabled={disabled||!!openingSource} onClick={()=>void viewOriginal(onlyStory)}>{openingSource?'打开中…':'查看原文'}</button>
+   <StoryFlowAction disabled={disabled||!!openingSource} onClick={()=>void viewOriginal(onlyStory)}>{openingSource?'打开中…':'查看原文'}</StoryFlowAction>
   </div>
   {originalError}
   {originalSheet}
@@ -97,12 +99,12 @@ export default function StoryChapterPicker({bookId,sources,disabled,onSelect,kin
   {sectionId&&chapterDirectory&&<h2 className="yu-discovery-heading">{label}</h2>}
   <section className="yu-source-picker" aria-label={label||noun+'列表'}>
   {!resultEntries&&(!sectionId||chapterDirectory)&&<label className="yu-custom-input">关键词筛选<input type="search" maxLength={200} value={query} disabled={disabled} placeholder={story?'如：道士 种梨（空格分隔）':'如：黄忠 定军山（空格分隔）'} onChange={e=>(onQueryChange??setInternalQuery)(e.target.value)}/></label>}
-  {error?<div role="alert"><p>{error}</p><button type="button" disabled={disabled} onClick={()=>setRetry(n=>n+1)}>重试加载目录</button></div>:!entries?<p role="status">{query.trim()?'正在筛选':'正在加载'}{noun}…</p>:<>
+  {error?<div role="alert"><p>{error}</p><StoryFlowAction disabled={disabled} onClick={()=>setRetry(n=>n+1)}>重试加载目录</StoryFlowAction></div>:!entries?<p role="status">{query.trim()?'正在筛选':'正在加载'}{noun}…</p>:<>
    <p className="yu-candidate-count" role="status">{entries.length?(story?`共 ${total??entries.length} 则`:`${entries.length} 章`):story&&!query.trim()?sectionId?'本章暂无故事卡。':'暂无可选故事。':`没有匹配的${noun}。`}{sources.length>0&&` · 已选 ${sources.length} 项`}</p>
    <div className="yu-source-entries" ref={listRef}>{entries.map((entry,index)=>{
     const selectedEntry=isSelected(entry),locked=disabled||selectedEntryId===undefined&&(!entry.source||sources.length>=24&&!selectedEntry);
     const inputId=group+'-'+index;
-    return <div key={entry.id} className={'yu-source-chapter'+(story?' yu-source-story':'')+(selectedEntry?' selected':'')}><input id={inputId} type="checkbox" aria-label={entry.title} checked={selectedEntry} disabled={locked} onChange={()=>onSelect(entry)}/><label className="yu-source-chapter-title" htmlFor={inputId}>{entry.title}{story&&entry.excerpt&&<small>{entry.excerpt}</small>}</label><button type="button" className="yu-source-original-link" disabled={!entry.source||openingSource===entry.id} onClick={()=>void viewOriginal(entry)}>{openingSource===entry.id?'打开中…':'查看原文'}</button></div>;
+    return <div key={entry.id} className={'yu-source-chapter'+(story?' yu-source-story':'')+(selectedEntry?' selected':'')}><input id={inputId} type="checkbox" aria-label={entry.title} checked={selectedEntry} disabled={locked} onChange={()=>onSelect(entry)}/><label className="yu-source-chapter-title" htmlFor={inputId}>{entry.title}{story&&!!entry.excerpt&&!!storyCardExcerpt(entry.title,entry.excerpt)&&<small>{storyCardExcerpt(entry.title,entry.excerpt)}</small>}</label><StoryFlowAction disabled={!entry.source||openingSource===entry.id} onClick={()=>void viewOriginal(entry)}>{openingSource===entry.id?'打开中…':'查看原文'}</StoryFlowAction></div>;
    })}{!resultEntries&&story&&entries.length<(total??0)&&<div className="yu-source-page-sentinel" ref={loadMoreRef} aria-hidden="true"/>}{loadingMore&&<p role="status">正在加载下一批故事…</p>}</div>
    {originalError}
   </>}

@@ -52,7 +52,7 @@
 .yu-shelf-card-actions button:focus-visible{outline:2px solid #648354;outline-offset:2px}
 .yu-shelf-favorite>span{display:none}
 .yu-shelf-favorite.is-saved{background:#eaf0df}
-.yu-shelf .yu-generation-control,.yu-library-productions .yu-generation-control{white-space:nowrap}
+.yu-shelf .yu-generation-control,.yu-library-productions .yu-generation-control,.yu-production-side>.story-flow-link,.yu-shelf-generation-progress>.story-flow-link{white-space:nowrap}
 
 /* 制作中区域 */
 .yu-production{margin-bottom:18px;border:1px solid #dfe5d2;border-radius:12px;background:#f3f5ea}
@@ -76,16 +76,14 @@
 .yu-pending-story:focus-visible{outline:2px solid #648354;outline-offset:2px}
 .yu-production-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}
 .yu-production-title>strong{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--serif);font-size:15px;font-weight:500;line-height:1.6}
-.yu-production-title>em{flex:none;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 7px;border-radius:999px;background:#eceee3;color:var(--yu-meta);font-size:var(--yu-meta-size);font-style:normal;line-height:19px}
+.yu-production-title>em{flex:none;max-width:100%;word-break:keep-all;overflow-wrap:anywhere;padding:0 7px;border-radius:10px;background:#eceee3;color:var(--yu-meta);font-size:var(--yu-meta-size);font-style:normal;line-height:19px}
 .yu-production-row.needs .yu-production-title>em{background:#f6e7c8;color:#8a5a12}
 .yu-production-row.failed .yu-production-title>em{background:#f6dfd6;color:#9a3f2a}
 .yu-production-row.active .yu-production-title>em{background:#e1ecd6;color:#3f6a35}
 .yu-production-error{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9a3f2a;font-size:12px}
 .yu-production-side{display:flex;align-items:center;flex:none;gap:6px}
-.yu-production-side>.yu-generation-control{min-height:44px;padding:0 8px;border:1px solid #d4dcc7;border-radius:8px;background:#fffdf6;color:#35583e;font-size:12px;text-decoration:none}
-.yu-production-more{display:block;width:100%;min-height:40px;margin-top:4px;border:0;border-radius:8px;background:transparent;color:#35583e;font:inherit;font-size:12px}
-.yu-production-more:hover{background:#e9eddf}
-.yu-production-more:focus-visible{outline:2px solid #648354;outline-offset:-2px}
+/* 生成控制是文字链接，与收藏、删除图标并排。 */
+.yu-production-side>.story-flow-link{padding:3px 4px}
 
 /* 可阅读区域 */
 .yu-shelf-region-title{display:flex;align-items:baseline;gap:8px;margin:4px 2px 12px;font-family:var(--serif);font-size:16px;font-weight:500;color:#526e45}

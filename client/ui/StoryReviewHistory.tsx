@@ -4,6 +4,7 @@ import {request} from './shared';
 import type {StoryReviewHistory as History,ReviewHistoryEntry,ReviewTextChange} from '@/lib/reader-review-history';
 import type {RepairedPage} from '@/lib/reader-review';
 import './story-review-history.css';
+import StoryFlowAction from './StoryFlowAction';
 
 const outcomeLabels={passed:'通过','needs-change':'需修订',unknown:'无法判断',changed:'已修订',unchanged:'无实际变化'};
 const acceptanceLabels={passed:'通过',failed:'未通过',unknown:'无法判断'};
@@ -57,7 +58,7 @@ export default function StoryReviewHistory({sessionId}:{sessionId:string}){
  useEffect(()=>{setTarget(sessionId);},[sessionId]);
  useEffect(()=>{let active=true;setData(null);setError('');void request(`reader/sessions/${encodeURIComponent(target)}/review-history`).then(value=>{if(active)setData(value);}).catch(e=>{if(active)setError(e instanceof Error?e.message:'审核记录暂时无法载入。');});return()=>{active=false;};},[target,attempt]);
  return <section className="yu-review-history" aria-label="审核、修订与复核记录">
-  <div className="yu-review-history-nav">{target!==sessionId&&<button type="button" className="yu-revision-open" onClick={()=>setTarget(sessionId)}>返回当前版本</button>}{data?.parentId&&<button type="button" className="yu-revision-open" onClick={()=>setTarget(data.parentId!)}>查看上一版本</button>}<button type="button" className="yu-revision-open" onClick={()=>setAttempt(n=>n+1)}>刷新记录</button></div>
-  {error?<div role="alert"><p>{error}</p><button type="button" className="yu-revision-open" onClick={()=>setAttempt(n=>n+1)}>重新载入记录</button></div>:!data?<p role="status">正在读取审核记录…</p>:<ReviewHistoryContent data={data}/>}
+  <div className="yu-review-history-nav">{target!==sessionId&&<StoryFlowAction onClick={()=>setTarget(sessionId)}>返回当前版本</StoryFlowAction>}{data?.parentId&&<StoryFlowAction onClick={()=>setTarget(data.parentId!)}>查看上一版本</StoryFlowAction>}<StoryFlowAction onClick={()=>setAttempt(n=>n+1)}>刷新记录</StoryFlowAction></div>
+  {error?<div role="alert"><p>{error}</p><StoryFlowAction onClick={()=>setAttempt(n=>n+1)}>重新载入记录</StoryFlowAction></div>:!data?<p role="status">正在读取审核记录…</p>:<ReviewHistoryContent data={data}/>}
  </section>;
 }

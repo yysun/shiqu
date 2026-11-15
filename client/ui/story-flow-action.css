@@ -5,3 +5,7 @@
 .story-flow-link:focus-visible{outline:2px solid #82996f;outline-offset:3px;border-radius:3px}
 .story-flow-link[aria-disabled=true]{opacity:.5;cursor:default;text-decoration:none}
 fieldset:disabled .story-flow-link{opacity:.5;cursor:default;text-decoration:none;pointer-events:none}
+/* 深色画面（结语页等）上的同款链接。 */
+.story-flow-link--dark{color:#c5d0b4;text-decoration-color:#7f9372}
+.story-flow-link--dark:hover{color:#f6f3e7}
+.story-flow-link--dark:focus-visible{outline-color:#e5e8d3}

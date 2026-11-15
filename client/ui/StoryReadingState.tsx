@@ -2,6 +2,7 @@
 import {readingChapterLabel} from '@/lib/reader-suggestions';
 import {BookOpen,ChevronDown,Loader2} from 'lucide-react';
 import type {SuggestionProgress} from '@/lib/reader-suggestions';
+import StoryFlowAction from './StoryFlowAction';
 
 export function StoryReadingState({book,theme,progress,elapsed,onCancel,hasStories=false}:{book:string;theme:string;progress:SuggestionProgress|null;elapsed:number;onCancel:()=>void;hasStories?:boolean}){
  const chapters=progress?.currentChapters||[],checking=progress?.stage==='checking';
@@ -17,6 +18,6 @@ export function StoryReadingState({book,theme,progress,elapsed,onCancel,hasStori
    <p className="yu-reading-scope">{chapters.length?'正在翻阅：'+readingChapterLabel(chapters):progress?`正在翻阅《${book}》原文。`:'正在准备原文，随后会显示当前阅读的篇章。'}</p>
    {checking&&<p className="yu-reading-scope">核对原文范围，确认故事完整。</p>}
   </details>
-  <div className="yu-reading-panel-footer"><small>{hasStories?'已有故事可以直接选择。':'找到后会在这里显示，画风稍后再选。'}</small><button type="button" onClick={onCancel}>停止寻找</button></div>
+  <div className="yu-reading-panel-footer"><small>{hasStories?'已有故事可以直接选择。':'找到后会在这里显示，画风稍后再选。'}</small><StoryFlowAction onClick={onCancel}>停止寻找</StoryFlowAction></div>
  </section>;
 }

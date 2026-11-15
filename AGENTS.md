@@ -33,6 +33,7 @@
 
 - Develop and verify the desktop UI in the in-app browser using `pnpm desktop:preview` (Vite). Reuse the relevant existing tab.
 - 制作流程的操作按钮和链接统一放在所属流程框内，靠右对齐。修改制作内容后的确认放在对应的流程步骤内。
+- 次要操作（重试、重新加载、查看、编辑、取消替换、恢复/暂停生成等）使用文字链接：复用 `StoryFlowAction`（`story-flow-link` 样式），深色画面加 `tone="dark"`，不另写链接样式。主操作（如「准备故事」「开始制作」）、对话框里与确认并列的取消、切换类控件、图标按钮，以及设置表单自身的保存和测试控件仍用按钮。桌面控制台沿用自身样式。
 - Bundle or package the desktop application only when the user explicitly requests it. Do not run desktop preparation or build commands as routine verification; use local checks and browser verification instead.
 
 ## Repository Hygiene

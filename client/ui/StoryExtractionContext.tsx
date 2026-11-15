@@ -5,6 +5,7 @@ import type {LocalSourceReference} from '@/lib/reader-local-contract';
 import {localSourceKey} from '@/lib/reader-source-key';
 import {request} from './shared';
 import './story-discovery.css';
+import StoryFlowAction from './StoryFlowAction';
 
 export default function StoryExtractionContext({selection,book,backAction}:{selection:Selection;book:string;backAction?:ReactNode}){
  const sources=selection.discoverySources||[],bookId=selection.bookId==='other'?selection.customBook||selection.bookId:selection.bookId;
@@ -31,7 +32,7 @@ export default function StoryExtractionContext({selection,book,backAction}:{sele
    <summary>查看已选原文</summary>
    {!current?<span role="status">正在读取已选原文…</span>:<>
     {!!current.entries.length&&<div className="yu-extraction-originals">{current.entries.map(entry=><article key={entry.id}><h4>{entry.title}</h4><p>{entry.text}</p></article>)}</div>}
-    {current.error&&<div role="status"><p>{current.error}</p><button type="button" className="yu-context-retry" onClick={()=>setRetry(value=>value+1)}>重新加载原文</button></div>}
+    {current.error&&<div role="status"><p>{current.error}</p><StoryFlowAction onClick={()=>setRetry(value=>value+1)}>重新加载原文</StoryFlowAction></div>}
    </>}
   </details>}
  </section>;

@@ -7,6 +7,7 @@ import type {StoryPublication} from '@/lib/story-publication';
 import Sheet from './StorySheet';
 import {request} from './shared';
 import './story-publication.css';
+import StoryFlowAction from './StoryFlowAction';
 
 type PublicationDetailsStory=Story&{generated?:boolean;generationModels?:{step:string;model:string}[]};
 
@@ -41,7 +42,7 @@ export function StoryPublicationSummary({story,onEdit,disabled=false}:{story:Sto
  const loading=needsDefaults&&(current.storyId!==story.id||current.loading),error=needsDefaults&&current.storyId===story.id&&current.error;
  const publication=withPublicationDefaults(story,current.publication).publication;
  const author=loading?'正在读取署名…':error?'暂时无法读取':hasPublicationAuthor(publication)?publication!.author:'未署名';
- return <div className="yu-publication-summary" aria-busy={loading}><p aria-live="polite">制作：{author}</p>{error&&<button type="button" className="yu-revision-open" onClick={()=>setRetry(value=>value+1)}>重新读取署名</button>}{onEdit&&<button type="button" className="yu-revision-open" disabled={disabled} onClick={onEdit}>编辑署名与转载说明</button>}</div>;
+ return <div className="yu-publication-summary" aria-busy={loading}><p aria-live="polite">制作：{author}</p>{error&&<StoryFlowAction onClick={()=>setRetry(value=>value+1)}>重新读取署名</StoryFlowAction>}{onEdit&&<StoryFlowAction disabled={disabled} onClick={onEdit}>编辑署名与转载说明</StoryFlowAction>}</div>;
 }
 
 export function StoryPublicationDefaults({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}){
@@ -51,7 +52,7 @@ export function StoryPublicationDefaults({onClose,onSaved}:{onClose:()=>void;onS
   request('reader/publication-defaults').then(result=>{if(live){setPublication(result.publication);setLoaded(true);}}).catch(error=>{if(live)setError(error instanceof Error?error.message:'默认说明暂时无法读取，请重试。');});
   return()=>{live=false;};
  },[retry]);
- if(!loaded)return <Sheet title="默认署名与转载说明" onClose={onClose}>{error?<div className="yu-batch-error" role="alert">{error}<button type="button" className="yu-revision-open" onClick={()=>setRetry(value=>value+1)}>重新加载</button></div>:<p role="status">正在读取默认说明…</p>}</Sheet>;
+ if(!loaded)return <Sheet title="默认署名与转载说明" onClose={onClose}>{error?<div className="yu-batch-error" role="alert">{error}<StoryFlowAction onClick={()=>setRetry(value=>value+1)}>重新加载</StoryFlowAction></div>:<p role="status">正在读取默认说明…</p>}</Sheet>;
  return <StoryPublicationEditor publication={publication} onClose={onClose} onSave={async(value,expected)=>{await request('reader/publication-defaults','POST',{publication:value,expected});onSaved();}}/>;
 }
 
@@ -79,7 +80,7 @@ export default function StoryPublicationEditor({story,publication=null,onSave,on
   return <label className="yu-custom-input">{label}{multiline?<textarea rows={3} {...props}/>:<input {...props}/>}</label>;
  }
  return <Sheet title={story?'署名与转载':'默认署名与转载说明'} onClose={onClose} busy={busy}><form className="yu-publication-editor" data-dirty={changed?'true':undefined} onSubmit={event=>{event.preventDefault();void save();}}>
-  {story&&<div className="yu-publication-heading"><p className="yu-publication-work">{story.title}</p><button type="button" className="yu-revision-open" disabled={busy} onClick={()=>void restoreDefaults()}>{restoring?'正在读取默认…':'恢复默认说明'}</button></div>}
+  {story&&<div className="yu-publication-heading"><p className="yu-publication-work">{story.title}</p><StoryFlowAction disabled={busy} onClick={()=>void restoreDefaults()}>{restoring?'正在读取默认…':'恢复默认说明'}</StoryFlowAction></div>}
   {restoreNote&&<p className="yu-count-help" role="status">{restoreNote}</p>}
   <p className="yu-count-help">{story?'仅修改这篇作品。导出时已填写的内容优先，留空项实时沿用「我的」默认说明。':'新故事会保存这份默认说明。导出时，单篇未填写的项目也会实时沿用这里的内容；单篇已填写的内容优先。'}</p>
   <p className="yu-count-help">这些信息会随作品和下载文件公开。填写用于公开展示的署名与联系方式。</p>

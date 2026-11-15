@@ -1,7 +1,8 @@
 // 书架：搜索、收藏筛选与分组；尚无封面的制作任务与可阅读故事分区展示，操作互相独立并实时反映生成状态。
 // “制作中”区域为紧凑行：需要用户处理的排在最前且始终可见，其余默认最多显示 5 行，搜索时全部显示；
 // 通用状态说明只供读屏软件朗读，失败时的具体错误仍可见。分组只作用于可阅读故事，所有卡片同尺寸。
-// 显示名同样适用于未完成的故事；确认制作前，以已保存的设置草稿作为展示画风。
+// 显示名同样适用于未完成的故事；确认制作前，以已保存的设置草稿作为展示画风。尚未选定故事的任务以《书名》· 主题作标题。
+// “制作中”状态标签可占满整行并换行，暂停所在阶段不被截断。恢复、暂停与重试生成用文字链接。
 // 封面上的收藏与删除按钮与阅读按钮互为兄弟节点，互不触发；已读完的“重读”从第一幅开始。
 // ReaderShelf 顶层不调用 Hook（测试会把它当普通函数调用），有状态的部分放在子组件中，行内容以 children 传入。
 // 桌面宽档（≥1024px，有右栏）传入 onSelect：封面与标题按钮改为选中故事（“选择《…》”），底部“继续阅读/重读”仍直接打开；
@@ -13,6 +14,7 @@ import type {Story} from '@/lib/content';
 import type {ProductionAction} from '@/lib/reader-model';
 import type {ShelfSession,ShelfStory} from '@/lib/reader-shelf';
 import StoryGenerationControl from './StoryGenerationControl';
+import StoryFlowAction from './StoryFlowAction';
 import type {ReadingProgress} from '@/lib/reader-home';
 import {getArtStyle} from '@/lib/reader-styles';
 import {groupShelfItems,matchesShelfSearch,shelfGroupings,type ShelfGrouping} from '@/lib/shelf-browser';
@@ -20,6 +22,8 @@ import {shelfDrawingCount,shelfGenerationStatus,shelfNeedsUserGroups,sortShelfPr
 import './ReaderShelf.css';
 
 const productionLimit=5;
+// 尚未选定故事的任务以书名和主题作标题，多个待选任务不再同名。
+const pendingIntakeTitle=(book:string,theme?:string)=>`《${book}》`+(theme?`· ${theme}`:'');
 // 按分组模式分别记住每组的展开状态，跨筛选、阅读与刷新保留。
 function usePersistentOpen(id:string){
  const storageKey='shiqu-shelf-group:'+id;
@@ -41,7 +45,7 @@ function ProductionGroup({needs,limit,children,docked=false}:{needs:number;limit
  const hidden=limit===null?0:Math.max(0,children.length-limit);
  const heading=<><h2>制作中</h2><span>{children.length} 项</span>{needs>0&&<em>{needs} 项待处理</em>}</>;
  const rows=<><ul>{hidden&&!all?children.slice(0,limit!):children}</ul>
-  {hidden>0&&<button type="button" className="yu-production-more" aria-expanded={all} onClick={()=>setAll(!all)}>{all?'收起':`显示全部 ${children.length} 项`}</button>}</>;
+  {hidden>0&&<StoryFlowAction aria-expanded={all} onClick={()=>setAll(!all)}>{all?'收起':`显示全部 ${children.length} 项`}</StoryFlowAction>}</>;
  if(docked)return <section className="yu-production"><header>{heading}</header>{rows}</section>;
  return <details className="yu-production" open={open} onToggle={event=>setOpen(event.currentTarget.open)}>
   <summary><ChevronRight size={16} aria-hidden="true"/>{heading}</summary>{rows}
@@ -56,7 +60,7 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
  const sessionById=new Map(sessions.map(session=>[session.id,session]));
  const processingStatus=(story:ShelfStory)=>{const session=sessionById.get(story.id);return session?shelfGenerationStatus(session).group:'已完成';};
  const items:ShelfItem[]=[
-  ...pending.map(session=>({processingStatus:shelfGenerationStatus(session).group,id:session.id,title:session.selection.displayTitle||session.story?.title||session.selection.storyTitle||(session.intake?'等待选题的故事':'还在展开的故事'),book:bookName({id:session.id,bookId:session.selection.bookId}),theme:session.selection.theme,artStyleLabel:getArtStyle((session.intake?.phase!=='confirmed'?session.intake?.artStyle:undefined)??session.selection.artStyle).label,story:null,session,page:session.page,saved:!!(progressById.get(session.id)?.saved??session.saved)})),
+  ...pending.map(session=>({processingStatus:shelfGenerationStatus(session).group,id:session.id,title:session.selection.displayTitle||session.story?.title||session.selection.storyTitle||(session.intake?pendingIntakeTitle(bookName({id:session.id,bookId:session.selection.bookId}),session.selection.theme):'还在展开的故事'),book:bookName({id:session.id,bookId:session.selection.bookId}),theme:session.selection.theme,artStyleLabel:getArtStyle((session.intake?.phase!=='confirmed'?session.intake?.artStyle:undefined)??session.selection.artStyle).label,story:null,session,page:session.page,saved:!!(progressById.get(session.id)?.saved??session.saved)})),
   ...stories.map(story=>({processingStatus:processingStatus(story),id:story.id,title:story.title,book:bookName(story),theme:story.theme,artStyleLabel:story.artStyleLabel||'未记录画风',story,page:progressById.get(story.id)?.page||0,saved:!!progressById.get(story.id)?.saved})),
  ];
  const visible=items.filter(item=>(tab!=='saved'||item.saved)&&matchesShelfSearch(item,query));
@@ -73,15 +77,15 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
  }
  // 失败且可重试时只给“重试生成”；其余状态沿用暂停/恢复控制。
  function control(session:ShelfSession,group:string){
-  if(group==='生成失败')return session.retryAllowed?<button type="button" className="yu-generation-control" disabled={busyAny||!!controlBusy} onClick={()=>onRetry(session)}>重试生成</button>:null;
-  return <StoryGenerationControl session={session} busy={!!controlBusy} onControl={onControl}/>;
+  if(group==='生成失败')return session.retryAllowed?<StoryFlowAction disabled={busyAny||!!controlBusy} onClick={()=>onRetry(session)}>重试生成</StoryFlowAction>:null;
+  return <StoryGenerationControl session={session} busy={!!controlBusy} onControl={onControl} link/>;
  }
  function productionRow(item:ShelfItem){
   const session=item.session!,generation=shelfGenerationStatus(session),number=edition(item,session);
   const tone=generation.group==='生成失败'?'failed':(shelfNeedsUserGroups as readonly string[]).includes(generation.group)?'needs':generation.group==='生成已暂停'?'paused':'active';
   // 系统自动暂停且可重试时给出重试；需要用户选择的状态以整行按钮进入。
   const autoRetry=generation.group==='生成已暂停'&&session.retryAllowed&&(!session.generationControl||session.generationControl==='active');
-  const side=autoRetry?<button type="button" className="yu-generation-control" disabled={busyAny} onClick={()=>onRetry(session)}>重试生成</button>:tone==='needs'?null:control(session,generation.group);
+  const side=autoRetry?<StoryFlowAction disabled={busyAny} onClick={()=>onRetry(session)}>重试生成</StoryFlowAction>:tone==='needs'?null:control(session,generation.group);
   const selected=!!onSelect&&selectedId===item.id;
   return <li className={'yu-production-row '+tone+(selected?' is-selected':'')} key={item.id} data-story-id={item.id}>
    <button className="yu-pending-story" aria-label={generation.action+'《'+item.title+'》'} aria-pressed={onSelect?selected:undefined} onClick={()=>onResume(session)}>
@@ -129,8 +133,8 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
   </header>:<h1>我的书架</h1>}
   <div className="yu-shelf-search"><Search size={18} aria-hidden="true"/><input type="search" aria-label="搜索书架" placeholder="搜索故事、书名、主题或画风" value={query} onChange={event=>onQuery(event.target.value)}/>{query&&<button aria-label="清空搜索" onClick={()=>onQuery('')}><X size={16}/></button>}</div>
   <div className="yu-shelf-tabs"><button className={tab==='recent'?'active':''} aria-pressed={tab==='recent'} onClick={()=>onTab('recent')}>全部故事 <span>{items.length}</span></button><button className={tab==='saved'?'active':''} aria-pressed={tab==='saved'} onClick={()=>onTab('saved')}>我的收藏 <span>{savedCount}</span></button>{!productionDock&&<button type="button" className="yu-shelf-create" onClick={onCreate}><Plus size={15} aria-hidden="true"/>新建故事</button>}</div>
-  <div className="yu-shelf-view"><div className="yu-shelf-result"><span role="status" aria-live="polite">{filtered?`找到 ${visible.length} / ${items.length} 篇`:`共 ${items.length} 篇故事`}</span>{filtered&&<button type="button" onClick={resetFilters}>清除筛选</button>}</div><button type="button" className="yu-shelf-refresh" onClick={onRefresh} disabled={refreshing||loading||!!favoriteBusy} aria-label="刷新书架" title={refreshing?'刷新中…':'刷新书架'} aria-busy={refreshing}><RefreshCw size={16} className={refreshing?'spin':undefined} aria-hidden="true"/></button><label><span className="sr-only">书架分组</span><select aria-label="书架分组" value={grouping} onChange={event=>onGrouping(event.target.value as ShelfGrouping)}>{shelfGroupings.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronDown size={14} aria-hidden="true"/></label></div>
-  {loading?<p className="yu-inline-status" role="status">正在打开书架…</p>:error?<div className="yu-inline-status" role="alert">{error}<button onClick={onRefresh} disabled={refreshing}>重试刷新</button></div>:null}
+  <div className="yu-shelf-view"><div className="yu-shelf-result"><span role="status" aria-live="polite">{filtered?`找到 ${visible.length} / ${items.length} 篇`:`共 ${items.length} 篇故事`}</span>{filtered&&<StoryFlowAction onClick={resetFilters}>清除筛选</StoryFlowAction>}</div><button type="button" className="yu-shelf-refresh" onClick={onRefresh} disabled={refreshing||loading||!!favoriteBusy} aria-label="刷新书架" title={refreshing?'刷新中…':'刷新书架'} aria-busy={refreshing}><RefreshCw size={16} className={refreshing?'spin':undefined} aria-hidden="true"/></button><label><span className="sr-only">书架分组</span><select aria-label="书架分组" value={grouping} onChange={event=>onGrouping(event.target.value as ShelfGrouping)}>{shelfGroupings.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronDown size={14} aria-hidden="true"/></label></div>
+  {loading?<p className="yu-inline-status" role="status">正在打开书架…</p>:error?<div className="yu-inline-status" role="alert">{error}<StoryFlowAction onClick={onRefresh} disabled={refreshing}>重试刷新</StoryFlowAction></div>:null}
   {!productionDock&&productionList}
   {readable.length?<>{productions.length>0&&<h2 className="yu-shelf-region-title">可阅读<span>{readable.length} 篇</span></h2>}{readableView}</>
    :productions.length?(!filtered&&<p className="yu-shelf-region-empty">还没有可阅读的故事，完成制作后会出现在这里。</p>)

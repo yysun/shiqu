@@ -6,7 +6,6 @@
 .yu-publication-summary{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 16px;padding:0 0 16px;color:var(--yu-meta);font-size:12px;line-height:1.7;overflow-wrap:anywhere}
 .yu-generation-models{margin:12px 0;color:#758468;font-size:12px;line-height:1.7;overflow-wrap:anywhere}.yu-generation-models p{margin:4px 0}
 .yu-publication-summary p{margin:0;min-width:0;flex:1 1 120px}
-.yu-publication-summary .yu-revision-open{min-height:44px;margin:0;padding:8px 0;font-size:12px}
 .yu-publication-work{margin:16px 0 8px;font-size:16px;font-weight:500;overflow-wrap:anywhere}
 .yu-publication-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 16px;margin:12px 0 8px}
 .yu-publication-heading .yu-publication-work{flex:1;min-width:120px;margin:0}

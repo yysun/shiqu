@@ -1,6 +1,7 @@
 // 三种检索共用选书页。提交只带当前方式的条件。
 // 从心情或“不挑了”进入时（autoSearch）按预设主题自动查找；预设与自定义主题都可继续查找，检索说明始终显示。
 // 选定书籍后书单收起为“从《书名》出发 · 更换”；沿用默认书籍时（bookChosen 为假）书单保持展开。
+// “准备故事”不可用时，在按钮上方说明还缺哪一步。
 import {useEffect,useId,useRef,useState} from 'react';
 import {ArrowRight} from 'lucide-react';
 import type {IntakeView} from '@/lib/reader-intake';
@@ -101,6 +102,12 @@ export default function StoryDiscoveryForm({bookChosen=false,selection,books,sem
  const selectedSources=cards.length?cards.map(card=>card.source):active==='chapter'&&sources.length>1?sources:[];
  const directSource=directCard?.source||directChapter;
  const invalid=!selectedSaved&&(local?!directSource&&!selectedSources.length:!theme||!customBook.trim());
+ const submitHintId=useId();
+ // 单章目录仍在加载时不提示，避免一闪而过。
+ const submitHint=!local||!invalid||blocked||singleChapter&&!chapterDirectory?''
+  :active==='chapter'?(singleChapter?'从本章故事卡中勾选一篇。':'先勾选一章或一篇故事。')
+  :active==='story'?'先勾选一篇故事。'
+  :results||savedResults.length?'勾选一篇故事后继续。':'先选一个主题查找故事。';
 
  function toggleBooks(){
   bookFocus.current=booksOpen?'summary':'list';setBooksOpen(!booksOpen);
@@ -246,7 +253,7 @@ export default function StoryDiscoveryForm({bookChosen=false,selection,books,sem
      {value}
     </button>)}
     <button type="button" disabled={blocked} aria-pressed={showCustom} className={showCustom?'selected':''}
-     onClick={()=>{if(showCustom)return;setShowCustom(true);resetSearch();}}>其它</button>
+     onClick={()=>{if(showCustom)return;setShowCustom(true);resetSearch();}}>其他</button>
    </div>
    {showCustom&&<label className="yu-custom-input">自定义主题或情节<input disabled={blocked} maxLength={100} value={customTheme}
     placeholder="例如：求雨的故事，或道士当街种出梨树"
@@ -278,7 +285,8 @@ export default function StoryDiscoveryForm({bookChosen=false,selection,books,sem
    <StoryFlowAction disabled={blocked||invalid} onClick={submit}>{savedSearchPaused&&savedSearch?.state==='searching'?'继续查找故事':'开始找故事'}</StoryFlowAction>
   </div>}
   {!selectedSaved&&selectedSources.length>1&&<p className="yu-discovery-note" role="status">将所选内容整理成一篇故事。</p>}
-  {(local||selectedSaved)&&<button type="button" className="yu-primary yu-discovery-submit" disabled={selectedSaved?savedChoiceBlocked:blocked||invalid} onClick={()=>void submit()}>
+  {submitHint&&<p id={submitHintId} className="yu-discovery-note yu-discovery-submit-hint">{submitHint}</p>}
+  {(local||selectedSaved)&&<button type="button" className="yu-primary yu-discovery-submit" aria-describedby={submitHint?submitHintId:undefined} disabled={selectedSaved?savedChoiceBlocked:blocked||invalid} onClick={()=>void submit()}>
    {busy?'正在保存任务…':'准备故事'}<ArrowRight size={19}/>
   </button>}
   {error&&<div className="yu-unavailable" role="alert"><strong>任务暂未保存</strong><p>{error}</p></div>}

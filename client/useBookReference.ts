@@ -1,4 +1,5 @@
 // Share one operation lock across page/story changes; stale reads and saves cannot light a new page.
+// replacing 表示本书已有别的参考图，设当前幅会替换它；入口在故事设置里。
 import {useEffect,useRef,useState} from 'react';
 import {request} from '@/lib/reader-request';
 import type {BookReference} from '@/server/book-image-reference';
@@ -23,5 +24,6 @@ export function useBookReference(storyId:string|undefined,page:number,image:stri
   }catch(error){if(mounted.current)notify(error instanceof Error?error.message:'参考图暂未保存，请重试。');}
   finally{locked.current=false;if(mounted.current){setBusy(false);setRefresh(value=>value+1);}}
  }
- return {selected:!!reference&&reference.storyId===storyId&&reference.page===page,disabled:!image||loading,busy,toggle};
+ const selected=!!reference&&reference.storyId===storyId&&reference.page===page;
+ return {selected,replacing:!!reference&&!selected,disabled:!image||loading,busy,toggle};
 }

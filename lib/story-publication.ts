@@ -1,4 +1,5 @@
 // Keep public credits outside generation inputs and distinguish new contributions from source licenses.
+// 阅读页标题只显示生成方（Codex、Gemini 等）；具体模型名称留在故事设置与重绘说明。
 import {z} from 'zod';
 import type {Story} from './content';
 
@@ -28,6 +29,15 @@ export const rightsBoundary='代码开源许可不自动适用于作品内容。
 export function generationModelNames(models:readonly {step:string;model:string}[]|undefined,kind:'text'|'image'){
  const image=kind==='image';
  return [...new Set((models||[]).filter(item=>item.step.startsWith('image:')===image).map(item=>item.model.trim()).filter(Boolean))];
+}
+// 按模型名称前缀识别生成方；无法识别时原样显示模型名称。
+const generationProviders:[RegExp,string][]=[[/^codex/i,'Codex'],[/^(gemini|imagen)/i,'Gemini'],[/^(gpt|dall-e|chatgpt)/i,'OpenAI'],[/^(claude|opus|sonnet|haiku)/i,'Claude'],[/^deepseek/i,'DeepSeek']];
+export function generationProviderName(model:string){
+ const id=model.trim();
+ return generationProviders.find(([pattern])=>pattern.test(id))?.[1]??id;
+}
+export function generationProviderNames(models:readonly {step:string;model:string}[]|undefined,kind:'text'|'image'){
+ return [...new Set(generationModelNames(models,kind).map(generationProviderName))];
 }
 export function generationImageModelForPage(models:readonly {step:string;model:string}[]|undefined,page:number){
  const step=`image:${page}`;
