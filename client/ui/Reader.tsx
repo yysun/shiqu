@@ -17,6 +17,8 @@
 // 全屏按钮展开为普通阅读（展开或打开原文/分镜列表时登记为步骤，返回收回右栏）；变窄时全屏显示，放宽后恢复右栏与选中项。
 // 停留在书架期间卡片顺序冻结，在右栏阅读不会让卡片跳到前面。
 // 本书参考图不再占用阅读页顶部，改在故事设置中以当前所读的一幅设置。
+// 点按画面只切换阅读信息，不按边缘翻页；结语页可右滑、顶部下拉或上滚回到最后一幅。
+// 第一幅向回滑动或滚动时离开阅读；横向右滑在原生滚动起点由触摸与鼠标拖动单独识别。
 // 次要操作（重试、重新载入、查看原文、审片提示等）用 StoryFlowAction 文字链接；主操作、对话框确认旁的取消与图标按钮仍是按钮。
 // 阅读页标题最多两行，下方一行写出处 · 生成方（如 Codex）· 主题 · 画风；具体模型名称见故事设置。
 
@@ -71,7 +73,7 @@ import StoryEndingSurface from './StoryEndingSurface';
 import StoryFilmstrip from './StoryFilmstrip';
 import {createDragOffset} from './useDragOffset';
 import {keepSnapshot,shareRows} from '@/lib/reader-snapshots';
-import {newWheelGesture,wheelPageDirection,swipePageDirection} from '@/lib/reader-navigation';
+import {newWheelGesture,wheelPageDirection,endingWheelDirection,swipePageDirection} from '@/lib/reader-navigation';
 import DesktopShell from './DesktopShell';
 import DesktopLibrary from './DesktopLibrary';
 import DesktopCreate from './DesktopCreate';
@@ -285,7 +287,8 @@ export default function Reader(){
  const listScroll=useRef<number|null>(null);
  useLayoutEffect(()=>{if(!story&&!opening&&listScroll.current!==null){const top=listScroll.current;listScroll.current=null;window.scrollTo({top,behavior:'instant'});}},[story,opening]);
  function backToShelf(){listScroll.current=null;setSettings(false);setSource(false);setScript(false);revision.setTab(null);home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}
- function turn(delta:number){if(!story)return;if(!ended&&page===0&&delta<0)return;if(ended){if(delta<0){setDrag(0);setPage(story.pages.length-1);setEnded(false);setMotion('back');}else if(delta>0)home();return;}if(delta>0&&!story.pages[page]?.image){notify('这一幅还在绘制，稍等一下。');return;}setMotion(delta>0?'forward':'back');if(page+delta>=story.pages.length){setEnded(true);if(seen.current.size===story.pages.length)track('complete');}else setPage(p=>Math.max(0,p+delta));}
+ // 手势在第一幅向回翻时离开阅读，回到打开前的书架或发现页；方向键不离开。
+ function turn(delta:number,leaveAtStart=true){if(!story)return;if(!ended&&page===0&&delta<0){if(leaveAtStart)leaveReader();return;}if(ended){if(delta<0){setDrag(0);setPage(story.pages.length-1);setEnded(false);setMotion('back');}else if(delta>0)home();return;}if(delta>0&&!story.pages[page]?.image){notify('这一幅还在绘制，稍等一下。');return;}setMotion(delta>0?'forward':'back');if(page+delta>=story.pages.length){setEnded(true);if(seen.current.size===story.pages.length)track('complete');}else setPage(p=>Math.max(0,p+delta));}
  function goToPage(index:number){if(!story)return;setDrag(0);setMotion(index>page?'forward':'back');setEnded(false);setPage(Math.max(0,Math.min(index,story.pages.length-1)));}
  // 原生滚动吸附完成后同步当前幅；结语也是同一条滚动轨道的最后一页。
  function readScrolledPage(index:number){
@@ -331,21 +334,33 @@ export default function Reader(){
  // 生成钩子恢复会话后会写入 /read?id=；停靠时地址始终留在书架
  useEffect(()=>{if((dockedView||dockedSettings)&&(location.pathname!=='/'||location.search))history.replaceState(history.state,'','/');});
  // 停靠时方向键只在焦点位于右栏阅读里时翻页，Escape 把焦点还给卡片
- useEffect(()=>{function key(e:KeyboardEvent){if(!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure||landscapeCover)return;if(dockedView&&!readerRef.current?.contains(document.activeElement))return;if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();turn(-1);}if(e.key==='Escape'){if(dockedView)focusShelfCard(story.id);else if(source||sceneList){setSource(false);setSceneList(false);}else leaveReader();}}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[story,page,ended,source,settings,workflowTarget,configure,sceneList,desktop,wide,dockedView,docked,landscapeCover]);
+ useEffect(()=>{function key(e:KeyboardEvent){if(!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure||landscapeCover)return;if(dockedView&&!readerRef.current?.contains(document.activeElement))return;if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();turn(-1,false);}if(e.key==='Escape'){if(dockedView)focusShelfCard(story.id);else if(source||sceneList){setSource(false);setSceneList(false);}else leaveReader();}}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[story,page,ended,source,settings,workflowTarget,configure,sceneList,desktop,wide,dockedView,docked,landscapeCover]);
  useEffect(()=>{
   const reader=readerRef.current;if(!reader||!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;
   const gesture=wheelGesture.current;
   function wheel(e:WheelEvent){
    if(e.ctrlKey||e.metaKey)return; // 保留浏览器缩放与触控板捏合。
-   // 横向及斜向事件交给原生滚动，与发现页主图区一致；结语保留纵向滚动。
-   if(e.deltaX||ended||!e.deltaY)return;
-   const direction=wheelPageDirection(gesture,{x:0,y:e.deltaY,mode:e.deltaMode,time:performance.now(),height:reader!.clientHeight});
+   // 横向及斜向事件交给原生滚动，与发现页主图区一致；结语保留纵向滚动，停在顶部时上滚回到最后一幅。
+   if(e.deltaX||!e.deltaY)return;
+   const input={x:0,y:e.deltaY,mode:e.deltaMode,time:performance.now(),height:reader!.clientHeight};
+   if(ended){if(endingWheelDirection(gesture,input,(endingRef.current?.scrollTop??0)<=1)){e.preventDefault();turn(-1);}return;}
+   const direction=wheelPageDirection(gesture,input);
    if(direction){e.preventDefault();turn(direction);}
   }
   reader.addEventListener('wheel',wheel,{passive:false});
   return()=>reader.removeEventListener('wheel',wheel);
  // 停靠与全屏切换会替换阅读区节点，必须把滚轮监听重新绑定到当前节点。
  },[story,page,ended,source,settings,workflowTarget,configure,sceneList,desktop,dockedView]);
+ // 第一幅向右滑：原生横向滚动已在起点，无处可滚，这里识别为向回翻并离开阅读。
+ useEffect(()=>{
+  const reader=readerRef.current;if(!reader||!story||ended||page!==0||(!desktop&&(source||sceneList))||settings||workflowTarget||configure)return;
+  const strip=()=>reader.querySelector<HTMLElement>('.yu-filmstrip');
+  let start:{x:number;y:number}|null=null;
+  const touchStart=(e:TouchEvent)=>{const target=e.target as HTMLElement;start=e.touches.length===1&&(strip()?.scrollLeft??0)<=1&&!target.closest('a,button:not(.yu-page-surface)')?{x:e.touches[0].clientX,y:e.touches[0].clientY}:null;};
+  const touchEnd=(e:TouchEvent)=>{if(!start)return;const touch=e.changedTouches[0],dx=touch.clientX-start.x,dy=touch.clientY-start.y;start=null;if(dx>45&&dx>Math.abs(dy)*1.3&&(strip()?.scrollLeft??0)<=1)turn(-1);};
+  reader.addEventListener('touchstart',touchStart,{passive:true});reader.addEventListener('touchend',touchEnd,{passive:true});
+  return()=>{reader.removeEventListener('touchstart',touchStart);reader.removeEventListener('touchend',touchEnd);};
+ },[story,page,ended,source,sceneList,settings,workflowTarget,configure,desktop,dockedView]);
  useEffect(()=>{
   const ending=endingRef.current;if(!ending||!ended||source||settings||workflowTarget||configure)return;
   let start:{x:number;y:number}|null=null;

@@ -153,7 +153,7 @@ CI 对每个 PR 报告必需检查「Shared checks」：
 - Rust、共享设置/配置、`server/desktop.ts`、存储升级及相关桌面资源脚本触发 macOS/Windows 原生源码检查和格式检查；安装 Node/JS 依赖供跨语言配置测试使用。自动原生检查跳过按需组 `config::tests`，完整的 `pnpm desktop:test` 通过 `pnpm test:assurance` 手动运行。源码检查通过 `bundle.resources: []` 与 `build.frontendDist: ["../desktop/index.html"]` 使用已提交 HTML 作为编译上下文，避免准备安装包，只排除 `runtime::tests::desktop_uses_verified_bundle_and_ignores_saved_system_path`，该测试仍在发布构建的完整 `cargo test` 中运行。JS 与选中的原生检查任一失败，聚合检查失败。
 - `main` 和手动 CI 对当前提交运行全部自动 JS 测试，跳过安全、启动、loopback、书籍和模型手动组。`v*` 标签推送前在本机检查全部自动 JS；标签 CI 直接执行原生构建、测试和产物冒烟，两个平台都通过后才发布。手动构建仍等待本次 CI 的 Shared checks 成功。新 main/PR 推送可取消旧的同类 JS 检查。
 
-JS/原生任务缓存 pnpm store，按系统、架构、固定 Node/pnpm 和锁文件区分；命中后仍执行 `pnpm install --frozen-lockfile`。Rust 编译缓存按平台/架构/Rust 版本及 Cargo、JS 锁文件和 Node 区分。不缓存用户库、密钥或 `node_modules`。完整触发表和旧/新耗时对比见[测试触发与成本](testing-triggers.md)，逐场景清单见[测试盘点](testing-inventory.md)。
+JS/原生任务缓存 pnpm store，按系统、架构、固定 Node/pnpm 和锁文件区分；命中后仍执行 `pnpm install --frozen-lockfile`。Rust 编译缓存按平台/架构/Rust 版本及 Cargo、JS 锁文件和 Node 区分。不缓存用户库、密钥或 `node_modules`。完整触发表和旧/新耗时对比见[测试触发与成本](testing-triggers.md)。
 
 纯配置使用 `settingsFixture()`，进程测试使用正式迁移/种子的 `startupFixture()`。真实原著故障测试通过 `copyBookLibrary()` 只复制涉及原著和补卷，保留字节。测试和 E2E 使用隔离数据及受控适配器，不发起真实模型请求。
 

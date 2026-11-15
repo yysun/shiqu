@@ -3,24 +3,33 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCanvas} from '@napi-rs/canvas';
 import {PDFDocument} from 'pdf-lib';
-import {newWheelGesture,wheelPageDirection,swipePageDirection,edgePageDirection} from '../lib/reader-navigation.ts';
+import {newWheelGesture,wheelPageDirection,endingWheelDirection,swipePageDirection} from '../lib/reader-navigation.ts';
 
-test('scene edge clicks use the outer quarters of the reader, not the viewport',()=>{
- for(const [left,width] of [[400,480],[0,360],[90,240]]){
-  assert.equal(edgePageDirection(left,left,width),-1);
-  assert.equal(edgePageDirection(left+width*.25,left,width),-1);
-  assert.equal(edgePageDirection(left+width*.26,left,width),0);
-  assert.equal(edgePageDirection(left+width*.5,left,width),0);
-  assert.equal(edgePageDirection(left+width*.74,left,width),0);
-  assert.equal(edgePageDirection(left+width*.75,left,width),1);
-  assert.equal(edgePageDirection(left+width,left,width),1);
-  assert.equal(edgePageDirection(left-1,left,width),0);
-  assert.equal(edgePageDirection(left+width+1,left,width),0);
- }
- assert.equal(edgePageDirection(0,0,0),0);
+test('the ending returns to the last frame only for an upward scroll that starts at its top',()=>{
+ const input=(y,time)=>({x:0,y,mode:0,time,height:800});
+ const atTop=newWheelGesture();
+ assert.equal(endingWheelDirection(atTop,input(-30,0),true),0);
+ assert.equal(endingWheelDirection(atTop,input(-40,10),true),-1);
+ assert.equal(endingWheelDirection(atTop,input(-80,20),true),0,'inertia in the same gesture does not turn again');
+ const coasting=newWheelGesture();
+ assert.equal(endingWheelDirection(coasting,input(-120,0),false),0,'scrolling the conclusion stays native');
+ assert.equal(endingWheelDirection(coasting,input(-120,50),true),0,'inertia reaching the top does not turn');
+ assert.equal(endingWheelDirection(coasting,input(-120,400),true),-1,'a new upward scroll at the top turns back');
+ const down=newWheelGesture();
+ assert.equal(endingWheelDirection(down,input(120,0),true),0,'scrolling down never turns');
 });
 import {defaultProductionDirection,defaultProductionPrompt,normalizeProductionPrompt,promptAfterThemeChange,directStorySettings} from '../lib/reader-prompts.ts';
 
+test('a new trackpad flick turns again while the previous flick is still coasting',()=>{
+ const gesture=newWheelGesture();
+ const move=(time,y)=>wheelPageDirection(gesture,{time,x:0,y,mode:0,height:800});
+ assert.equal(move(0,30),0);assert.equal(move(16,40),1);
+ assert.equal(move(32,55),0,'the same flick keeps accelerating without a second turn');
+ for(const [time,y] of [[48,40],[64,28],[80,18],[96,10]])assert.equal(move(time,y),0,'inertia decays without turning');
+ assert.equal(move(112,45),0,'a new flick starts a new gesture');assert.equal(move(128,40),1);
+ for(const [time,y] of [[144,30],[160,20],[176,12],[192,8],[208,5],[224,3]])assert.equal(move(time,y),0);
+ assert.equal(move(240,-40),0);assert.equal(move(256,-30),-1,'a reversed flick during the tail turns back');
+});
 test('trackpad rebound cannot reverse or skip a page within the same gesture',()=>{
  const gesture=newWheelGesture();
  const move=(time,x,y=0)=>wheelPageDirection(gesture,{time,x,y,mode:0,height:800});
