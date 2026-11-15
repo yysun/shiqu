@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import os from 'node:os';
-import {mkdtemp,mkdir,readFile,writeFile,rm,readdir,realpath,symlink,cp} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,rename,rm,readdir,realpath,symlink,cp} from 'node:fs/promises';
 import {spawn,spawnSync} from 'node:child_process';
 import {once} from 'node:events';
 import fsPromises from 'node:fs/promises';
@@ -70,7 +70,44 @@ test('invalid host preferences, symlinks and locks return bounded failure withou
 test('desktop runtime records use absolute production commands and retain hash protection',async t=>{
  const f=await fixture(t),cli=path.join(f.root,'agent-cli.js');await writeFile(cli,'// 测试入口\n');const runtime={node:await realpath(process.execPath),cli};
  assert.equal((await ensureAgentSkill(f.root,{...f.context,runtime})).status,'installed');const filename=path.join(path.dirname(f.skill),'.shiqu-runtime.json'),data=JSON.parse(await readFile(filename,'utf8'));assert.deepEqual(data.command,[runtime.node,await realpath(cli)]);assert.equal(data.appVersion,'0.9.0');
- await writeFile(filename,'user runtime record');assert.equal((await ensureAgentSkill(f.root,{...f.context,runtime})).status,'unavailable');assert.equal(await readFile(filename,'utf8'),'user runtime record');
+ await rm(filename);
+ assert.equal((await ensureAgentSkill(f.root,{...f.context,runtime})).status,'unchanged');
+ assert.deepEqual(JSON.parse(await readFile(filename,'utf8')),data);
+ const movedCli=path.join(f.root,'moved-agent-cli.js');
+ await rename(cli,movedCli);
+ const movedRuntime={...runtime,cli:movedCli};
+ assert.equal((await ensureAgentSkill(f.root,{...f.context,runtime:movedRuntime})).status,'unchanged');
+ assert.deepEqual(JSON.parse(await readFile(filename,'utf8')).command,[runtime.node,await realpath(movedCli)]);
+ await writeFile(filename,'user runtime record');assert.equal((await ensureAgentSkill(f.root,{...f.context,runtime:movedRuntime})).status,'unavailable');assert.equal(await readFile(filename,'utf8'),'user runtime record');
+});
+test('desktop skill update restores the previous files if the installation state cannot be written',async t=>{
+ const f=await fixture(t),cli=path.join(f.root,'agent-cli.js');
+ await writeFile(cli,'// 测试入口\n');
+ const runtime={node:await realpath(process.execPath),cli:await realpath(cli)};
+ await ensureAgentSkill(f.root,{...f.context,runtime});
+ const directory=path.dirname(f.skill);
+ const state=path.join(directory,'.shiqu-skill.json');
+ const files=[f.skill,path.join(directory,'.shiqu-runtime.json'),state];
+ const previous=await Promise.all(files.map(filename=>readFile(filename,'utf8')));
+ await writeFile(path.join(f.root,'package.json'),'{"version":"0.9.1"}');
+ await writeFile(path.join(f.root,'skills/shiqu/SKILL.md'),'新版约束');
+ const args=['skill','update','--scope','global'];
+ const original=fsPromises.rename;
+ t.mock.method(fsPromises,'rename',async(from,to)=>{
+  if(to===state)throw Object.assign(new Error('测试状态写入失败'),{code:'EIO'});
+  return original(from,to);
+ });
+ syncBuiltinESMExports();
+ try{
+  await assert.rejects(executeHeadless(f.root,args,{...f.context,skillRuntime:runtime}),{code:'EIO'});
+  assert.deepEqual(await Promise.all(files.map(filename=>readFile(filename,'utf8'))),previous);
+ }finally{
+  t.mock.restoreAll();
+  syncBuiltinESMExports();
+ }
+ const updated=await executeHeadless(f.root,args,{...f.context,skillRuntime:runtime});
+ assert.equal(updated.version,'0.9.1');
+ assert.equal(updated.runtimeUpdated,true);
 });
 test('a newer install winning before the runtime lock keeps its version and command',async t=>{
  const f=await fixture(t),cli=path.join(f.root,'agent-cli.js');await writeFile(cli,'// 测试入口\n');const runtime={node:await realpath(process.execPath),cli};await ensureAgentSkill(f.root,{...f.context,runtime});
@@ -144,4 +181,24 @@ test('relocated desktop starts and invokes its bundled CLI without system npm', 
  await run.stop();
  for(const args of [['catalog'],['stories','list','--data-dir',library]]){const result=command(args,...record.command);assert.equal(result.status,0,result.stderr);assert.equal(JSON.parse(result.stdout).ok,true);}
  const metadata=await readFile(filename,'utf8');run=await start('start');await until(()=>run.output().includes('"agentSkill"')||run.child.exitCode!==null);assert.equal(run.child.exitCode,null,run.errors());assert.equal(await readFile(filename,'utf8'),metadata);await run.stop();
+ const nextInstructions='新版桌面技能';
+ await writeFile(path.join(root,'package.json'),JSON.stringify({type:'module',version:'0.9.1'}));
+ await writeFile(path.join(root,'skills/shiqu/SKILL.md'),nextInstructions);
+ const updated=command(['skill','update','--scope','global']);
+ assert.equal(updated.status,0,updated.stderr||updated.stdout);
+ assert.equal(JSON.parse(updated.stdout).data.runtimeUpdated,true);
+ assert.equal(await readFile(skill,'utf8'),nextInstructions);
+ const nextRecord=await readFile(filename,'utf8');
+ const nextState=JSON.parse(await readFile(path.join(path.dirname(skill),'.shiqu-skill.json'),'utf8'));
+ assert.equal(nextState.autoUpdate,false);
+ assert.equal(nextState.version,'0.9.1');
+ assert.equal(nextState.runtimeSha256,createHash('sha256').update(nextRecord).digest('hex'));
+ assert.deepEqual(JSON.parse(nextRecord),{...record,appVersion:'0.9.1'});
+ await writeFile(filename,'user runtime record');
+ await writeFile(path.join(root,'package.json'),JSON.stringify({type:'module',version:'0.9.2'}));
+ await writeFile(path.join(root,'skills/shiqu/SKILL.md'),'下一个版本');
+ const refused=command(['skill','update','--scope','global']);
+ assert.equal(JSON.parse(refused.stdout).error.code,'SKILL_RUNTIME_MODIFIED');
+ assert.equal(await readFile(skill,'utf8'),nextInstructions);
+ assert.equal(await readFile(filename,'utf8'),'user runtime record');
 });

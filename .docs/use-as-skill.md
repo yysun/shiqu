@@ -16,7 +16,18 @@ npx @apprun/shiqu skill auto-install on
 
 `SHIQU_SKILL_AUTO_INSTALL=off` 只跳过本次启动；自动安装开关不改变 `skill check --auto-update on|off` 的更新同意，也不删除已有技能。
 
-桌面包同时携带生产 CLI；安装时在技能目录登记受哈希保护的 `.shiqu-runtime.json`。助手核对版本与哈希后，以参数数组调用绝对 Node/CLI 路径，无需系统 Node/npm/npx。桌面被移动后，重新启动服务可更新受管路径；失效或被修改的记录会被保留并报告，不静默安装运行环境。没有系统 npm 时，通过更新桌面应用并按原更新同意在下次启动同步技能。
+桌面包同时携带生产 CLI；安装时在技能目录登记受哈希保护的 `.shiqu-runtime.json`。助手核对版本与哈希后，以参数数组调用绝对 Node/CLI 路径，无需系统 Node/npm/npx。桌面被移动后，启动服务可更新同版受管路径或重建缺失记录。升级桌面应用后，开启自动更新的用户在下次启动服务时同步技能及运行时记录；修改过的记录会被保留并报告。
+
+### 桌面技能单次更新或修复
+
+从当前桌面应用的资源目录调用内置 CLI。以安装在 `/Applications` 的 macOS 应用为例：
+
+```bash
+shiqu_resources="/Applications/Shiqu.app/Contents/Resources"
+"$shiqu_resources/node/node" "$shiqu_resources/runtime/dist/server/agent-cli.js" skill update --scope global
+```
+
+按实际安装目录调整路径；Windows 的内置 Node 为资源目录下的 `node/node.exe`。项目安装请在项目根目录运行并指定 `--scope project`。命令使用当前桌面包更新指引和运行时记录，保留自动更新偏好。返回的 `runtimeUpdated` 表示是否写入了运行时记录。
 
 这里仍是直接开库的 CLI：操作同一书库前需安全停止占用服务，不能绕过锁，也没有 `--url` 模式。技能管理命令不访问书库，不要求停服。
 

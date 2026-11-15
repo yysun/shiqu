@@ -5,10 +5,11 @@ import os from 'node:os';
 import {createHash,randomUUID} from 'node:crypto';
 import {readFile,lstat,mkdir,writeFile,rename,rm,rmdir} from 'node:fs/promises';
 
-const stateName='.shiqu-skill.json',day=86400000;
+const stateName='.shiqu-skill.json',runtimeName='.shiqu-runtime.json',day=86400000;
 type State={schemaVersion:1;source:'@apprun/shiqu';version:string;sha256:string;autoUpdate:boolean;runtimeSha256?:string};
 type Cache={status:'ok'|'unavailable';checkedAt:number;latestVersion?:string};
 export type SkillContext={cwd?:string;home?:string;variables?:Record<string,string|undefined>;transport?:typeof fetch;now?:()=>number};
+export type StartupSkillRuntime={node:string;cli:string};
 type Location={base:string;scope:'project'|'global';directory:string};
 function fail(code:string,message:string):never{throw Object.assign(new Error(`${code}: ${message}`),{code});}
 const digest=(text:string)=>createHash('sha256').update(text).digest('hex');
@@ -107,7 +108,37 @@ export async function checkSkill(root:string,scope:string|undefined,options:{aut
  const allowed=!!local.state&&!local.modified,updateCommand=allowed&&updateAvailable?['npx','--yes',`@apprun/shiqu@${targetVersion}`,'skill','update','--scope',found.scope,...(local.state?.autoUpdate?['--automatic']:[])]:null;
  return {status:local.state?(local.modified?'modified':'managed'):'unmanaged',path:path.join(found.directory,'SKILL.md'),scope:found.scope,appVersion:bundled.version,installedVersion,autoUpdate:local.state?.autoUpdate||false,modified:local.modified,registry,updateAvailable,updateCommand,updateCwd:found.base,autoUpdateReady:!!(updateCommand&&local.state?.autoUpdate)};
 }
-export async function updateSkill(root:string,scope:string,context:SkillContext={},automatic=false){
+async function prepareRuntime(directory:string,state:State,appVersion:string,runtime:StartupSkillRuntime){
+ if(!path.isAbsolute(runtime.node)||!path.isAbsolute(runtime.cli))fail('SKILL_RUNTIME_INVALID','Runtime paths must be absolute.');
+ if(!await safeFile(runtime.node)||!await safeFile(runtime.cli))fail('SKILL_RUNTIME_INVALID','Runtime entry is missing.');
+ const filename=path.join(directory,runtimeName);
+ const previous=await safeFile(filename)?await readFile(filename,'utf8'):undefined;
+ if(previous!==undefined&&digest(previous)!==state.runtimeSha256)fail('SKILL_RUNTIME_MODIFIED','Preserve the changed runtime record.');
+ const text=JSON.stringify({schemaVersion:1,source:'@apprun/shiqu/desktop',appVersion,command:[runtime.node,runtime.cli]},null,2)+'\n';
+ return {filename,previous,text,sha256:digest(text)};
+}
+async function saveUpdate(directory:string,state:State,instructions?:{filename:string;previous:string;text:string},runtime?:Awaited<ReturnType<typeof prepareRuntime>>){
+ let runtimeWritten=false,instructionsWritten=false;
+ try{
+  if(runtime&&runtime.text!==runtime.previous){
+   await atomic(runtime.filename,runtime.text);
+   runtimeWritten=true;
+  }
+  if(instructions){
+   await atomic(instructions.filename,instructions.text);
+   instructionsWritten=true;
+  }
+  await saveState(directory,runtime?{...state,runtimeSha256:runtime.sha256}:state);
+ }catch(error){
+  // 写入安装状态失败时恢复先前内容，避免下次重试将本次写入视为用户修改。
+  const restore=[];
+  if(instructionsWritten&&instructions)restore.push(atomic(instructions.filename,instructions.previous));
+  if(runtimeWritten&&runtime)restore.push(runtime.previous===undefined?rm(runtime.filename,{force:true}):atomic(runtime.filename,runtime.previous));
+  await Promise.all(restore);
+  throw error;
+ }
+}
+export async function updateSkill(root:string,scope:string,context:SkillContext={},automatic=false,runtime?:StartupSkillRuntime){
  const found=await locate(scope,context);if(!found)fail('SKILL_NOT_INSTALLED','Install the skill in this scope first.');const bundled=await bundle(root);
  return locked(found.directory,async()=>{
   const filename=path.join(found.directory,'SKILL.md');if(!await safeFile(filename))fail('SKILL_NOT_INSTALLED','Install the skill in this scope first.');
@@ -116,15 +147,15 @@ export async function updateSkill(root:string,scope:string,context:SkillContext=
   if(!state){if(text!==bundled.text)fail('SKILL_UNMANAGED','Unknown or edited instructions must be reviewed and merged manually.');state={schemaVersion:1,source:'@apprun/shiqu',version:bundled.version,sha256:bundled.sha256,autoUpdate:false};}
   if(digest(text)!==state.sha256)fail('SKILL_MODIFIED','Local instructions changed; preserve and merge them manually.');
   if(compare(bundled.version,state.version)<0)fail('SKILL_DOWNGRADE','Use the installed version or a newer stable CLI.');
+  const record=runtime?await prepareRuntime(found.directory,state,bundled.version,runtime):undefined;
   if(await readFile(filename,'utf8')!==text)fail('SKILL_MODIFIED','Instructions changed during update.');
-  if(text!==bundled.text)await atomic(filename,bundled.text);
-  await saveState(found.directory,{...state,version:bundled.version,sha256:bundled.sha256});
-  return {path:filename,scope,version:bundled.version,previousVersion:state.version,updated:text!==bundled.text||state.version!==bundled.version,autoUpdate:state.autoUpdate};
+  const instructions=text!==bundled.text?{filename,previous:text,text:bundled.text}:undefined;
+  await saveUpdate(found.directory,{...state,version:bundled.version,sha256:bundled.sha256},instructions,record);
+  return {path:filename,scope,version:bundled.version,previousVersion:state.version,updated:text!==bundled.text||state.version!==bundled.version,autoUpdate:state.autoUpdate,...(record?{runtimeUpdated:record.text!==record.previous}:{})};
  });
 }
 
 // 启动只补齐缺失副本；正文变更仍遵循已保存的自动更新授权。
-export type StartupSkillRuntime={node:string;cli:string};
 export async function syncStartupSkill(root:string,home:string,runtime?:StartupSkillRuntime){
  const bundled=await bundle(root);let found=await location(home,'global'),status='unchanged';
  if(!found||!await safeFile(path.join(found.directory,'SKILL.md'))){await installSkill(root,home);found=(await location(home,'global'))!;status='installed';}
@@ -136,20 +167,16 @@ export async function syncStartupSkill(root:string,home:string,runtime?:StartupS
   if(compare(state.version,bundled.version)>0)return {...result,status:'newer'};
   if(state.version!==bundled.version||state.sha256!==bundled.sha256){
    if(!state.autoUpdate)return {...result,status:'update_available'};
-   await updateSkill(root,'global',{home},true);status='updated';
+   await updateSkill(root,'global',{home},true,runtime);
+   return {...result,status:'updated',version:bundled.version};
   }
  }
  if(runtime)await locked(found.directory,async()=>{
-  if(!path.isAbsolute(runtime.node)||!path.isAbsolute(runtime.cli))fail('SKILL_RUNTIME_INVALID','Runtime paths must be absolute.');
-  await safeFile(runtime.node);await safeFile(runtime.cli);
-  if(!await info(runtime.node)||!await info(runtime.cli))fail('SKILL_RUNTIME_INVALID','Runtime entry is missing.');
-  const state=(await stateAt(found!.directory))!,text=await readFile(path.join(found!.directory,'SKILL.md'),'utf8');
-  if(state.version!==bundled.version)fail('SKILL_RUNTIME_CHANGED','A different skill version was installed; preserve its runtime.');
+  const state=await stateAt(found!.directory),text=await readFile(path.join(found!.directory,'SKILL.md'),'utf8');
+  if(!state||state.version!==bundled.version)fail('SKILL_RUNTIME_CHANGED','The skill installation changed; preserve its runtime.');
   if(state.sha256!==digest(text)||state.sha256!==bundled.sha256)fail('SKILL_MODIFIED','Instructions changed during runtime registration.');
-  const filename=path.join(found!.directory,'.shiqu-runtime.json'),existing=await safeFile(filename);
-  if(existing&&(!state.runtimeSha256||digest(await readFile(filename,'utf8'))!==state.runtimeSha256)||!existing&&state.runtimeSha256)fail('SKILL_RUNTIME_MODIFIED','Preserve the changed runtime record.');
-  const saved=JSON.stringify({schemaVersion:1,source:'@apprun/shiqu/desktop',appVersion:bundled.version,command:[runtime.node,runtime.cli]},null,2)+'\n';
-  if(!existing||digest(saved)!==state.runtimeSha256){await atomic(filename,saved);await saveState(found!.directory,{...state,runtimeSha256:digest(saved)});}
+  const record=await prepareRuntime(found!.directory,state,bundled.version,runtime);
+  if(record.text!==record.previous)await saveUpdate(found!.directory,state,undefined,record);
  });
  return {status,path:path.join(found.directory,'SKILL.md'),version:bundled.version};
 }

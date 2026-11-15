@@ -10,6 +10,7 @@ import {parseCliOptions, cliConfiguration} from './cli-options.ts';
 import {maintainLibrary} from './library-maintenance.ts';
 import {routeHeadless} from './headless-cli.ts';
 import {ensureAgentSkill,agentSkillMessage} from './agent-skill.ts';
+import type {StartupSkillRuntime} from './cli-skill.ts';
 
 const help = `Usage: shiqu [options]
 
@@ -45,9 +46,9 @@ SHIQU_SKILL_AUTO_INSTALL=off skips startup installation; existing update consent
 Environment/config overrides apply to this invocation only and are never saved automatically.
 `;
 
-export async function runCli(root:string, args = process.argv.slice(2)) {
+export async function runCli(root:string, args = process.argv.slice(2), skillRuntime?:StartupSkillRuntime) {
   const start=async(options:Parameters<typeof import('./start.ts').startServer>[0])=>{const {startServer}=await import('./start.ts');const server=await startServer(options);console.log(agentSkillMessage(await ensureAgentSkill(root)));return server;};
-  if(await routeHeadless(root,args))return;
+  if(await routeHeadless(root,args,{skillRuntime}))return;
   const options = parseCliOptions(args);
   if (options.help) { console.log(help); return; }
   if (options.version) { console.log(JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).version); return; }
