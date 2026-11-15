@@ -97,15 +97,17 @@ test('PDF refuses incomplete stories and wraps Chinese, newlines and long links 
 
 test('print PDF uses complete landscape artwork without cropping and otherwise preserves portrait fallback',async()=>{
  const story=makeStory(2),portrait=story.pages.map(page=>page.image),landscape=['/landscape-1.png','/landscape-2.png'];
+ story.sourceUrl='https://a.test/'+encodeURIComponent('子不语')+'%2F';
+ story.publication={...story.publication,workUrl:'https://b.test/'+encodeURIComponent('待尤郎')+'/%E9'};
  const jpeg=new Blob([await createCanvas(2,2).encode('jpeg')],{type:'image/jpeg'});
  async function render(layout,images){
-  const reads=[],draws=[];
-  const context={fillRect(){},fillText(){},clearRect(){},measureText:text=>({width:text.length*32}),
+  const reads=[],draws=[],textDraws=[];
+  const context={fillRect(){},fillText:(text,x,y,width)=>textDraws.push({text,x,y,width,imagesDrawn:draws.length}),clearRect(){},measureText:text=>({width:text.length*32}),
    drawImage:(...args)=>draws.push(args),createLinearGradient:()=>({addColorStop(){}})};
   const runtime={ready:async()=>{},canvas:()=>({getContext:()=>context,toBlob:done=>done(jpeg)}),
    read:async url=>{reads.push(url);return url;},
    image:async(url,draw)=>{const wide=landscape.includes(url);return draw({value:url,width:wide?30:20,height:wide?20:30});}};
-  return {reads,draws,pdf:await PDFDocument.load(await createStoryPdf(story,undefined,runtime,layout,images))};
+  return {reads,draws,textDraws,pdf:await PDFDocument.load(await createStoryPdf(story,undefined,runtime,layout,images))};
  }
  const complete=await render('landscape',landscape);
  assert.deepEqual(complete.reads,landscape);
@@ -114,9 +116,21 @@ test('print PDF uses complete landscape artwork without cropping and otherwise p
   assert.equal(draw.length,5);
   assert.equal(draw[3]/draw[4],1.5);
  }
+ const [,coverX,coverY,coverWidth,coverHeight]=complete.draws[0];
+ assert.deepEqual([coverX,coverWidth],[75,1950]);
+ const coverTitle=complete.textDraws.find(draw=>draw.text===story.title&&draw.imagesDrawn===1);
+ assert.ok(coverTitle.x>=coverX&&coverTitle.y>=coverY&&coverTitle.y<coverY+coverHeight);
+ for(const [index,scene] of story.pages.entries()){
+  const [,x,y,width,height]=complete.draws[index+1];
+  const caption=complete.textDraws.find(draw=>draw.text===scene.caption&&draw.imagesDrawn===index+2);
+  assert.deepEqual([caption.x,caption.y,caption.width],[x,y+height+28,width]);
+ }
  assert.equal(complete.pdf.getPageCount(),5);
  assert.deepEqual(complete.pdf.getPage(2).getTrimBox(),{x:9,y:9,width:504,height:360});
  assert.deepEqual(complete.pdf.getPage(2).getBleedBox(),{x:0,y:0,width:522,height:378});
+ const backText=complete.textDraws.map(draw=>draw.text).join('');
+ assert.ok(backText.includes('出处链接：https://a.test/子不语%2F'));
+ assert.ok(backText.includes('作品链接：https://b.test/待尤郎/%E9'));
  const partial=await render('landscape',[landscape[0],'']);
  assert.deepEqual(partial.reads,portrait);
  assert.ok(partial.draws.slice(1).every(draw=>draw.length===9&&draw[2]===0));

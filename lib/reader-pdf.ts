@@ -63,21 +63,26 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
  }
  async function addLandscapeFront(cover:Blob){
   whitePaper();
-  ctx.fillStyle='#f4efe5';ctx.fillRect(M,M,W-2*M,H-2*M);
-  const inset=2*M,columnWidth=W/2-inset-40;
-  await runtime.image(cover,image=>{
-   const scale=Math.min(columnWidth/image.width,(H-2*inset)/image.height);
-   const width=image.width*scale,height=image.height*scale;
-   ctx.drawImage(image.value,W/2+(W/2-width)/2,(H-height)/2,width,height);
+  const width=W-2*M,inset=M*2,titleWidth=W-2*inset;
+  const bottom=await runtime.image(cover,image=>{
+   const naturalHeight=width*image.height/image.width;
+   const height=supplementary?naturalHeight:H-2*M,top=(H-height)/2;
+   if(supplementary)ctx.drawImage(image.value,M,top,width,height);
+   else{
+    const scale=Math.max(width/image.width,height/image.height),sourceWidth=width/scale;
+    ctx.drawImage(image.value,(image.width-sourceWidth)/2,0,sourceWidth,height/scale,M,top,width,height);
+   }
+   return top+height;
   });
-  ctx.fillStyle='#635743';font(38,sans);ctx.fillText('拾趣连环画',inset,inset,columnWidth);
-  const titleSize=108,titleLineHeight=137;
-  font(titleSize);
-  const title=lines(story.title,columnWidth);
-  const titleTop=(H-title.length*titleLineHeight)/2;
-  ctx.fillStyle='#302a23';
-  title.forEach((line,i)=>ctx.fillText(line,inset,titleTop+i*titleLineHeight,columnWidth));
-  font(33,sans);ctx.fillStyle='#635743';ctx.fillText(storySourceReference(story),inset,H-inset-45,columnWidth);
+  const title=fitText(story.title,titleWidth,322,166,1.18);
+  const titleTop=bottom-138-title.lines.length*title.lineHeight;
+  const shadeTop=titleTop-170,shade=ctx.createLinearGradient(0,shadeTop,0,bottom);
+  shade.addColorStop(0,'rgba(24,27,32,0)');shade.addColorStop(.62,'rgba(24,27,32,.68)');shade.addColorStop(1,'rgba(24,27,32,.86)');
+  ctx.fillStyle=shade;ctx.fillRect(M,shadeTop,width,bottom-shadeTop);
+  font(34,sans);ctx.fillStyle='#fffaf2';ctx.fillText('拾趣连环画',inset,titleTop-56,titleWidth);
+  font(title.size);
+  title.lines.forEach((line,i)=>ctx.fillText(line,inset,titleTop+i*title.lineHeight,titleWidth));
+  font(35,sans);ctx.fillText(storySourceReference(story),inset,bottom-99,titleWidth);
   await addCanvas();
   whitePaper();
   ctx.textAlign='center';
@@ -95,25 +100,31 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   summary.lines.forEach((line,i)=>ctx.fillText(line,2*M,summaryTop+i*summary.lineHeight,summaryWidth));
   await addCanvas();
  }
- function fitText(text:string,width:number,height:number,startSize:number){
+ function fitText(text:string,width:number,height:number,startSize:number,leading=1.55){
   let size=startSize;
   font(size);
   let content=lines(text,width);
-  while(size>1&&content.length*size*1.55>height){
+  while(size>1&&content.length*size*leading>height){
    font(--size);
    content=lines(text,width);
   }
-  return {lines:content,lineHeight:size*1.55};
+  return {lines:content,lineHeight:size*leading,size};
+ }
+ function printUrl(url:string){
+  // 封底只解码非 ASCII 字符，保留转义后的路径分隔符等 URL 语法。
+  return url.replace(/(?:%[89a-f][\da-f])+/gi,encoded=>{
+   try{return decodeURIComponent(encoded);}catch{return encoded;}
+  });
  }
  async function addLandscapeBack(){
   whitePaper();
   const p=story.publication;
   const details=[
    storySourceReference(story),publicationCredit(story),aiDisclosure(story),
-   story.sourceUrl&&`出处链接：${story.sourceUrl}`,
+   story.sourceUrl&&`出处链接：${printUrl(story.sourceUrl)}`,
    p?.sourceNote&&`来源与许可：${p.sourceNote}`,
    p?.reuse&&`转载与再使用：${p.reuse}`,
-   p?.workUrl&&`作品链接：${p.workUrl}`,
+   p?.workUrl&&`作品链接：${printUrl(p.workUrl)}`,
    p?.contact&&`联系：${p.contact}`,
   ].filter(Boolean).join('\n');
   const x=p?.sourceNote||p?.reuse?2*M:W/2,width=W-2*M-x;
@@ -127,43 +138,50 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
  async function addLandscapeScene(scene:Story['pages'][number],i:number,blob:Blob){
   const captionSize=40,lineHeight=57,gap=28,footerSize=29,footerLineHeight=40;
   const footerY=H-M-footerLineHeight;
-  font(captionSize);
-  const caption=lines(scene.caption);
-  const availableHeight=footerY-2*M-gap;
-  const firstLines=Math.min(caption.length,Math.floor((availableHeight-H/2)/lineHeight));
-  const imageHeight=availableHeight-firstLines*lineHeight;
-  const background=()=>{
-   whitePaper();
+  const availableHeight=footerY-2*M-gap,maxWidth=W-2*M;
+  const maxLines=Math.floor((availableHeight-H/2)/lineHeight);
+  whitePaper();
+  const {caption,firstLines,x,width,height}=await runtime.image(blob,image=>{
+   font(captionSize);
+   const ratio=image.width/image.height;
+   let firstLines=0,caption:string[],width:number,height:number;
+   // 配文按实际成图宽度折行，行数再决定本页留给图片的高度。
+   do{
+    firstLines++;
+    height=availableHeight-firstLines*lineHeight;
+    width=supplementary?Math.min(maxWidth,height*ratio):maxWidth;
+    caption=lines(scene.caption,width);
+   }while(caption.length>firstLines&&firstLines<maxLines);
+   const x=(W-width)/2;
+   if(supplementary){
+    height=width/ratio;
+    ctx.drawImage(image.value,x,M,width,height);
+   }else{
+    const scale=Math.max(width/image.width,height/image.height);
+    const sourceWidth=width/scale,sourceHeight=height/scale;
+    // 竖图从顶部向下取景，裁切集中在原图下方。
+    const sourceY=image.height>image.width?0:(image.height-sourceHeight)/2;
+    ctx.drawImage(image.value,(image.width-sourceWidth)/2,sourceY,sourceWidth,sourceHeight,x,M,width,height);
+   }
+   return {caption,firstLines,x,width,height};
+  });
+  const drawFooter=()=>{
    font(footerSize,sans);ctx.fillStyle='#4b4b4b';
-   ctx.fillText(publicationCredit(story),M,footerY,W-2*M-200);
-   ctx.textAlign='right';ctx.fillText(`${i+1} / ${story.pages.length}`,W-M,footerY);ctx.textAlign='left';
+   ctx.fillText(publicationCredit(story),x,footerY,width-200);
+   ctx.textAlign='right';ctx.fillText(`${i+1} / ${story.pages.length}`,x+width,footerY);ctx.textAlign='left';
   };
   const drawCaption=(content:string[],top:number)=>{
    font(captionSize);ctx.fillStyle='#202020';
-   content.forEach((line,j)=>ctx.fillText(line,M,top+j*lineHeight,W-2*M));
+   content.forEach((line,j)=>ctx.fillText(line,x,top+j*lineHeight,width));
   };
-  background();
-  await runtime.image(blob,image=>{
-   const imageWidth=W-2*M;
-   if(supplementary){
-    // 横图已经按印刷构图绘制，等比缩放并完整保留画面。
-    const scale=Math.min(imageWidth/image.width,imageHeight/image.height);
-    const width=image.width*scale,height=image.height*scale;
-    ctx.drawImage(image.value,(W-width)/2,M+(imageHeight-height)/2,width,height);
-    return;
-   }
-   const scale=Math.max(imageWidth/image.width,imageHeight/image.height);
-   const sourceWidth=imageWidth/scale,sourceHeight=imageHeight/scale;
-   // 竖图从顶部向下取景，裁切集中在原图下方。
-   const sourceY=image.height>image.width?0:(image.height-sourceHeight)/2;
-   ctx.drawImage(image.value,(image.width-sourceWidth)/2,sourceY,sourceWidth,sourceHeight,M,M,imageWidth,imageHeight);
-  });
-  drawCaption(caption.slice(0,firstLines),M+imageHeight+gap);
+  drawFooter();
+  drawCaption(caption.slice(0,firstLines),M+height+gap);
   await addCanvas();
   // 历史作品的配文可能超长，续页保留全部原文。
   const continuationLines=Math.floor((footerY-2*M)/lineHeight);
   for(let offset=firstLines;offset<caption.length;offset+=continuationLines){
-   background();
+   whitePaper();
+   drawFooter();
    drawCaption(caption.slice(offset,offset+continuationLines),M);
    await addCanvas();
   }
