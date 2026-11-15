@@ -71,6 +71,50 @@ test('可选横图按原幅生成，重启后只重试失败或丢失的横图',
  assert.equal((await f.request(route,'POST',start)).status,409);
 });
 
+test('重新生图先重绘竖图，再自动重绘同幅横图并继承其余可用横图',async t=>{
+ const f=await productionFixture(t),id=await f.create(),route=`sessions/${id}/landscape`,page=1,missing=3;
+ f.control.hold=false;
+ await until(async()=>(await f.read(id)).state==='completed');
+ const {startToken}=await f.json(route);
+ await f.json(route,'POST',{startToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ const original=await f.json(route),before=f.control.calls.length;
+ const missingKey=referenceImageKey(id,original.images[missing]);
+ await f.media.put(missingKey,Buffer.from(encoded,'base64'),{contentType:'image/png'});
+ const {token}=await f.json(`sessions/${id}/revisions`),note='调暗背景光线';
+ const request={requestId:crypto.randomUUID(),token,changes:{redrawPages:[page+1],redrawNotes:{[page+1]:note}},paused:true};
+ const child=await f.json(`sessions/${id}/revisions`,'POST',request),childRoute=`sessions/${child.id}/landscape`;
+ await f.restart();
+ assert.equal((await f.read(child.id)).generationControl,'paused');
+ assert.equal(f.control.calls.length,before);
+ f.control.hold=true;
+ await f.json(`sessions/${child.id}/production-control`,'POST',{action:'resume'});
+ await until(()=>f.control.calls.length===before+1);
+ const portrait=f.control.calls[before],replacement=Buffer.from(imageBytes('portrait.jpg')).toString('base64');
+ assert.equal(portrait.page,page);assert.equal(portrait.landscape,false);
+ assert.equal((await f.json(childRoute)).available,false);
+ portrait.bytes=replacement;portrait.resolve();
+ await until(()=>f.control.calls.length===before+2);
+ const landscape=f.control.calls[before+1];
+ assert.equal(landscape.page,page);assert.equal(landscape.landscape,true);
+ assert.equal(landscape.reference,replacement);assert.ok(landscape.prompt.includes(note));
+ const running=await f.json(childRoute);
+ assert.equal(running.ready,original.total-2);
+ f.control.hold=false;landscape.resolve();
+ await until(async()=>(await f.json(childRoute)).state==='partial');
+ const partial=await f.json(childRoute);
+ assert.equal(partial.ready,original.total-1);assert.equal(partial.images[missing],'');
+ assert.equal(f.control.calls.length,before+2);
+ for(const [index,url] of partial.images.entries())if(index!==page&&url){
+  const a=await f.media.get(referenceImageKey(id,original.images[index])),b=await f.media.get(referenceImageKey(child.id,url));
+  assert.deepEqual(a.body,b.body);
+ }
+ assert.equal((await f.json(`sessions/${id}/revisions`,'POST',request)).id,child.id);
+ await f.json(childRoute,'POST',{startToken:partial.startToken});
+ await until(async()=>(await f.json(childRoute)).state==='completed');
+ assert.equal(f.control.calls.length,before+3);assert.equal(f.control.calls.at(-1).page,missing);
+});
+
 for(const provider of flowProviders(['codex','gemini']))test(`${provider}: early demand, single anchor, rolling refill, individual visibility and moving lookahead`,async t=>{
  const f=await productionFixture(t,provider),id=await f.createLegacyReader(),viewer=crypto.randomUUID();
  const response=await f.request(`sessions/${id}/production`,'POST',{viewerId:viewer,page:0});assert.equal(response.status,202);assert.equal(f.control.calls.length,0);

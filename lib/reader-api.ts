@@ -314,7 +314,8 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     if(req.method==='GET')return json(await revisionSnapshot(repo,id,uid));
     if(req.method==='POST'){
      await requireProvider();
-     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
+     const production=services.production;
+     if(!production)throw new ReaderError(503,'制作队列暂不可用');
      let metadata:unknown,cover:Uint8Array|undefined;
      if(req.headers.get('content-type')?.startsWith('multipart/form-data;')){
       const form=await req.formData().catch(()=>{throw new ReaderError(400,'修订文件格式不正确。');});
@@ -324,10 +325,11 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
       cover=new Uint8Array(await files[0].arrayBuffer());
      }else metadata=await body(req,262144);
      const b=z.object({requestId:uuid,token:z.string().regex(/^[a-f0-9]{64}$/),changes:revisionChangesSchema,paused:z.boolean().default(false)}).strict().parse(metadata);
-     const row=await forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes,b.paused,cover);
+     const landscapeImages=services.commandOnly?undefined:async()=>(await production.landscapeStatus(uid,id)).images;
+     const row=await forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes,b.paused,cover,landscapeImages);
      const doc=JSON.parse(row.document) as Document;
-     if(!b.paused&&!doc.revision?.handoff)services.production.wake();
-     return json(doc.revision?.handoff?await services.production.control(uid,row.id,b.paused?'pause':'resume',true):await services.production.snapshot(uid,row.id),201);
+     if(!b.paused&&!doc.revision?.handoff)production.wake();
+     return json(doc.revision?.handoff?await production.control(uid,row.id,b.paused?'pause':'resume',true):await production.snapshot(uid,row.id),201);
     }
    }
    if(path[2]==='review-override'&&path.length===3&&req.method==='POST'){

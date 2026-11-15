@@ -749,7 +749,7 @@ export default function Reader(){
  {embeddingSheet}
  {storySheets}
  {story&&redrawPage!==null&&<Sheet title="重新生图" busy={redraw.busy} onClose={()=>setRedrawPage(null)}>
-  <p className="yu-sheet-intro">重新生成第 {redrawPage+1} 幅图片，可能消耗生图额度。新版沿用分镜和其他图片，原版保留。</p>
+  <p className="yu-sheet-intro">重新生成第 {redrawPage+1} 幅竖图。如果本幅已有横图，也会自动重绘横图。两次生成均可能消耗额度。新版沿用分镜和其他图片，原版保留。</p>
   <div className="yu-redraw-models"><p>原图像模型：{isGenerated(story)?generationImageModelForPage(story.generationModels,redrawPage)||'未记录':'未记录'}</p><p>本次将使用的图像模型：{providerRuntime?.models.image.trim()||(providerRuntime?'未配置':'正在读取…')}</p></div>
   {redraw.loading&&<p role="status">正在载入制作内容…</p>}
   {redraw.error&&<p role="alert">{redraw.error}</p>}

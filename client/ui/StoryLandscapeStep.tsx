@@ -44,7 +44,7 @@ export default function StoryLandscapeStep({storyId}:{storyId:string}){
   }finally{setSubmitting(false);}
  }
  const partial=status?.state==='partial';
- const canSubmit=status?.available&&(status.state==='idle'&&!!status.startToken||partial&&!!status.retryToken);
+ const canSubmit=status?.available&&!!(status.startToken||status.retryToken);
  const detail=status?.state==='completed'?'插图已齐全，横版 PDF 会使用这套图。':
   status?.state==='running'? `正在生成，已保存 ${status.ready} / ${status.total} 幅。`:
   partial?`已保存 ${status.ready} / ${status.total} 幅${status.failed.length?'，待重试第 '+status.failed.join('、')+' 幅':''}。`:

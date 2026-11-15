@@ -9,7 +9,7 @@ import jpegFactory from '@jsquash/jpeg/codec/dec/mozjpeg_dec.js';
 import webpFactory from '@jsquash/webp/codec/dec/webp_dec.js';
 import {initEmscriptenModule} from '@jsquash/jpeg/utils.js';
 import {mediaType} from '../lib/reader-generation-contract.ts';
-import {imageDimensions} from '../lib/reader-image-dimensions.ts';
+import {imageDimensions,matchesLandscapeImageRatio} from '../lib/reader-image-dimensions.ts';
 const require=createRequire(import.meta.url),verdicts=new Map<string,boolean>();
 type Codecs={jpeg:Awaited<ReturnType<typeof jpegFactory>>;webp:Awaited<ReturnType<typeof webpFactory>>};
 let initialized:Promise<Codecs>|undefined;
@@ -39,4 +39,8 @@ export async function readableImage(bytes:Uint8Array){
   valid=false;
  }
  if(verdicts.size>=128)verdicts.delete(verdicts.keys().next().value!);verdicts.set(hash,valid);return valid;
+}
+export async function readableLandscapeImage(bytes:Uint8Array){
+ const dimensions=imageDimensions(bytes);
+ return !!dimensions&&matchesLandscapeImageRatio(dimensions)&&await readableImage(bytes);
 }

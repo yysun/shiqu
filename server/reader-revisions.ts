@@ -12,7 +12,7 @@ import {familyRoot,familyNumber,supersededSql} from '../lib/reader-repository.ts
 import type {MediaStore} from '../lib/services.ts';
 import {checkedRevision,syncRevisionImages} from '../lib/reader-revision.ts';
 import type {RevisionChanges,RevisionSnapshot} from '../lib/reader-revision.ts';
-import {readableImage} from './reader-image-health.ts';
+import {readableImage,readableLandscapeImage} from './reader-image-health.ts';
 import {commandReceipt} from './reader-commands.ts';
 import {newReview} from '../lib/reader-review.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
@@ -39,7 +39,19 @@ export async function revisionSnapshot(repo:ReaderRepository,id:string,ownerId:s
  const row=await repo.get(id,ownerId),{doc,epoch,token}=await revisionBasis(repo,row);
  return {selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan,images:doc.images,savedFrameCount:savedFrameCount(doc),...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{}),token,epoch,reviewStatus:doc.visualReview?.status,...(doc.revision?{revision:{parentId:doc.revision.parentId,rootId:doc.revision.rootId,number:doc.revision.number}}:{})};
 }
-export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,parentId:string,requestId:string,token:string,changes:RevisionChanges,paused=false,cover?:Uint8Array){
+async function copyLandscape(media:MediaStore,parentId:string,childId:string,pages:number[],source:readonly string[]){
+ const images:(string|null)[]=[];
+ for(const [page,url] of source.entries()){
+  const key=url&&referenceImageKey(parentId,url),asset=key?await media.get(key):null;
+  const type=asset&&mediaType(asset.body);
+  if(!asset||!type||type!==asset.contentType||!await readableLandscapeImage(asset.body)){images.push('');continue;}
+  if(pages.includes(page+1)){images.push(null);continue;}
+  const target=readerImageAsset(childId,page,imageTypes[type],hash(asset.body));
+  await media.put(target.key,asset.body,{contentType:type});images.push(target.url);
+ }
+ return images;
+}
+export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,parentId:string,requestId:string,token:string,changes:RevisionChanges,paused=false,cover?:Uint8Array,landscapeImages?:()=>Promise<readonly string[]>){
  // Preserve fingerprints of requests saved before explicit paused submissions were added.
  const coverHash=cover?hash(cover):undefined;
  const requestHash=hash(JSON.stringify([parentId,token,changes,...(paused?[true]:[]),...(coverHash?[{cover:coverHash}]:[])]));
@@ -83,6 +95,10 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
   if(lostPages.length||original.images.length!==plan!.pages.length||original.images.some(image=>!image))throw new ReaderError(409,'原版图片不完整，未创建仅换图版本；请先恢复缺图。');
   document.revision!.redrawPages=[...changes.redrawPages];
   if(changes.redrawNotes&&Object.keys(changes.redrawNotes).length)document.revision!.redrawNotes=changes.redrawNotes;
+  if(landscapeImages){
+   const images=await copyLandscape(media,parentId,requestId,changes.redrawPages,await landscapeImages());
+   if(images.some(image=>image!==''))document.revision!.landscapeRedraw=images;
+  }
  }
  if(plan)syncRevisionImages(document,selection);
  if(cover&&coverType){
