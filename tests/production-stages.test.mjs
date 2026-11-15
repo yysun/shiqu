@@ -16,6 +16,15 @@ test('intake retains its source and preparation milestones across confirmation',
   if(intakeSource!=='candidates')assert.equal(after[0].detail,'已核对的出处');
  }
 });
+test('saved candidates waiting for a choice keep extraction as the current step',()=>{
+ const waiting=productionSteps({...base,planReady:false,reviewStatus:null,intakePhase:'choosing',intakeSource:'candidates',candidateBatches:10});
+ assert.deepEqual(waiting.slice(0,3).map(step=>step.state),['current','pending','pending']);
+ assert.equal(waiting[0].detail,'已保存 10 批候选 · 待选择故事');
+ const idle=productionSteps({...base,planReady:false,reviewStatus:null,intakePhase:'choosing',intakeSource:'candidates',candidateBatches:0});
+ assert.equal(idle[0].detail,'待开始提取');
+ const chosen=productionSteps({...base,planReady:false,reviewStatus:null,intakePhase:'choosing',intakeSource:'candidates',intakeSelected:true,candidateBatches:2});
+ assert.equal(chosen[0].state,'done');
+});
 test('seven steps distinguish initial review, targeted repair, recheck, skipped work and legacy stories',()=>{
  assert.deepEqual(productionSteps(base).map(s=>s.label),['确认原文','叙事详略与篇幅','分批分镜','全篇审片','定向修订','复核','绘图']);
  assert.deepEqual(states({phase:'source',planReady:false,sourceReady:false,frameCountConfirmed:false,reviewStatus:null}),['current','pending','pending','pending','pending','pending','pending']);

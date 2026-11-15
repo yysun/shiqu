@@ -1,6 +1,7 @@
 // 三种检索共用选书页。提交只带当前方式的条件。
 // 从心情或“不挑了”进入时（autoSearch）按预设主题自动查找；预设与自定义主题都可继续查找，检索说明始终显示。
-import {useEffect,useRef,useState} from 'react';
+// 选定书籍后书单收起为“从《书名》出发 · 更换”；沿用默认书籍时（bookChosen 为假）书单保持展开。
+import {useEffect,useId,useRef,useState} from 'react';
 import {ArrowRight} from 'lucide-react';
 import type {IntakeView} from '@/lib/reader-intake';
 import type {Selection} from '@/lib/reader-model';
@@ -30,7 +31,7 @@ function toggle<T>(values:T[],item:T,source:(item:T)=>LocalSourceReference){
   ?values.filter(value=>localSourceKey(source(value))!==key):values.length<24?[...values,item]:values;
 }
 
-export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,retainKey,savedIntake,savedSelection,onSavedChoice,savedSearchPaused,onSavedSearchControl,savedSearchControlBusy,autoSearch}:{autoSearch?:boolean;selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;retainKey?:string;savedIntake?:IntakeView;savedSelection?:Selection;onSavedChoice?:(batch:number,index:number)=>Promise<void>;savedSearchPaused?:boolean;onSavedSearchControl?:(action:'pause'|'resume')=>Promise<void>;savedSearchControlBusy?:boolean}){
+export default function StoryDiscoveryForm({bookChosen=false,selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,retainKey,savedIntake,savedSelection,onSavedChoice,savedSearchPaused,onSavedSearchControl,savedSearchControlBusy,autoSearch}:{autoSearch?:boolean;bookChosen?:boolean;selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;retainKey?:string;savedIntake?:IntakeView;savedSelection?:Selection;onSavedChoice?:(batch:number,index:number)=>Promise<void>;savedSearchPaused?:boolean;onSavedSearchControl?:(action:'pause'|'resume')=>Promise<void>;savedSearchControlBusy?:boolean}){
  const part=(name:string)=>retainKey&&retainKey+':'+name;
  const openingSelection=savedSelection??selection;
  const originalTitle=openingSelection.discovery?.mode==='title'?openingSelection.discovery.title:'';
@@ -44,6 +45,16 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
  const availablePresets=initialPreset&&!discoveryThemePresets.includes(initialPreset)?[initialPreset,...discoveryThemePresets]:discoveryThemePresets;
  const [bookId,setBookId]=useRetainedState(part('book'),selection.bookId);
  const [customBook,setCustomBook]=useRetainedState(part('custom-book'),selection.customBook||'');
+ const [booksOpen,setBooksOpen]=useRetainedState(part('books-open'),!bookChosen);
+ const bookListId=useId(),bookRow=useRef<HTMLDivElement>(null),bookList=useRef<HTMLDivElement>(null),customBookInput=useRef<HTMLInputElement>(null);
+ // 只在用户展开或收起书单后移动焦点，挂载时不抢焦点。
+ const bookFocus=useRef<'list'|'summary'|'input'|null>(null);
+ useEffect(()=>{
+  const target=bookFocus.current;bookFocus.current=null;
+  if(target==='list')bookList.current?.querySelector<HTMLElement>('[aria-pressed=true]')?.focus();
+  else if(target==='input')customBookInput.current?.focus();
+  else if(target==='summary')bookRow.current?.querySelector<HTMLElement>('a,button')?.focus();
+ },[booksOpen]);
  const [mode,setMode]=useRetainedState<Mode>(part('mode'),initialMode);
  const [sources,setSources]=useRetainedState(part('sources'),initialMode==='chapter'?originalSources:[]);
  const [storyQuery,setStoryQuery]=useRetainedState(part('story-query'),'');
@@ -91,7 +102,11 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
  const directSource=directCard?.source||directChapter;
  const invalid=!selectedSaved&&(local?!directSource&&!selectedSources.length:!theme||!customBook.trim());
 
+ function toggleBooks(){
+  bookFocus.current=booksOpen?'summary':'list';setBooksOpen(!booksOpen);
+ }
  function changeBook(next:string){
+  bookFocus.current=next==='other'?'input':'summary';setBooksOpen(false);
   if(next===bookId)return;
   setBookId(next);setSources([]);setStories([]);setStoryQuery('');
   setChapterStories([]);setChapterDirectory(null);resetSearch();
@@ -197,14 +212,17 @@ export default function StoryDiscoveryForm({selection,books,semanticIndexBooks,b
 
  return <>
   <span hidden data-dirty={dirty?'true':undefined}/>
-  <h2 className="yu-discovery-heading">从哪本书出发</h2>
-  <div className="yu-options" role="group" aria-label="选择书籍">
+  <div className="yu-discovery-book-row" ref={bookRow}>
+   <h2 className="yu-discovery-heading">{booksOpen?'从哪本书出发':local?`从《${books.find(book=>book.id===bookId)?.title??bookId}》出发`:'从其他书籍出发'}</h2>
+   <StoryFlowAction disabled={blocked} aria-expanded={booksOpen} aria-controls={bookListId} onClick={toggleBooks}>{booksOpen?'收起':'更换'}</StoryFlowAction>
+  </div>
+  <div id={bookListId} ref={bookList} hidden={!booksOpen} className="yu-options" role="group" aria-label="选择书籍">
    {books.map(book=><button type="button" key={book.id} disabled={blocked} aria-pressed={bookId===book.id}
     className={bookId===book.id?'selected':''} onClick={()=>changeBook(book.id)}>
     {semanticIndexBooks?.some(index=>index.id===book.id)?<strong>{book.title}</strong>:book.title}
    </button>)}
   </div>
-  {!local&&<label className="yu-custom-input">书名或公开网页 URL<input disabled={blocked} maxLength={500} value={customBook} onChange={event=>{setCustomBook(event.target.value);setSavedChoice(null);}}/></label>}
+  {!local&&<label className="yu-custom-input">书名或公开网页 URL<input ref={customBookInput} disabled={blocked} maxLength={500} value={customBook} onChange={event=>{setCustomBook(event.target.value);setSavedChoice(null);}}/></label>}
   <div className="yu-discovery-mode-row">
    <h2 className="yu-discovery-heading">检索方式</h2>
    <div className="yu-discovery-modes" role="group" aria-label="检索方式">

@@ -11,6 +11,7 @@
 // 返回键：阅读、桌面新建页与阅读侧栏抽屉经 useHistoryStep 登记；设置及子面板共用小屏对话框。
 // 从书架或发现打开故事时记下列表滚动位置，返回时恢复（返回书架的按钮仍回到顶部）。
 // 心情与“不挑了”打开新建时自动按预设主题查找；新建页书目不显示无法打开的独立检索入口。
+// 从书目卡、“不挑了”或已保存任务打开新建时，书单收起为所选书籍；“生成我的故事”和心情沿用默认书籍，书单展开。
 // 手机面板不超过两层：修改分镜先关分镜剧本；替换选题期间不渲染故事设置，取消后恢复。
 // 桌面宽档（≥1024px）书架：可阅读卡片在右栏阅读，制作中卡片在右栏打开故事设置；地址留在书架。
 // 全屏按钮展开为普通阅读（展开或打开原文/分镜列表时登记为步骤，返回收回右栏）；变窄时全屏显示，放宽后恢复右栏与选中项。
@@ -151,6 +152,8 @@ export default function Reader(){
  const [createSeed,setCreateSeed]=useState(0);
  // 从心情或“不挑了”进入新建时，表单按预设主题自动查找。
  const [autoSearch,setAutoSearch]=useState(false);
+ // 书籍由用户明确选定（书目卡、“不挑了”或已保存任务）时，新建表单收起书单；沿用默认书籍时保持展开。
+ const [bookChosen,setBookChosen]=useState(false);
  const [selection,setSelection]=useState<Selection>(initialReaderSelection),[largeText,setLargeText]=useState(false),[motion,setMotion]=useState('forward'),[creating,setCreating]=useState(false);
  const [deletedIds,setDeletedIds]=useState<string[]>([]),[deleteTarget,setDeleteTarget]=useState<{id:string;title:string}|null>(null),[deleting,setDeleting]=useState(false),[deleteError,setDeleteError]=useState('');
  const [favoriteBusy,setFavoriteBusy]=useState('');
@@ -290,7 +293,7 @@ export default function Reader(){
   if(seen.current.size===story.pages.length)track('complete');
  }
  // 桌面新建页从“返回修改书籍”打开时，左侧选书、心情与“不挑了”只改选择，仍修改原任务的条件（与手机表单内选书一致）。
- function choose(bookId:Selection['bookId']=selection.bookId,theme:Selection['theme']='原典故事'){const preset=discoveryThemePresets.includes(theme);cancelOpening();clearRetained('discovery');setCreateSeed(seed=>seed+1);setAutoSearch(preset);if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto',themeInput:preset?'preset':undefined},storyTitle:undefined,displayTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
+ function choose(chosenBook?:Selection['bookId'],theme:Selection['theme']='原典故事',chosen=chosenBook!==undefined){const bookId=chosenBook??selection.bookId,preset=discoveryThemePresets.includes(theme);cancelOpening();clearRetained('discovery');setCreateSeed(seed=>seed+1);setAutoSearch(preset);setBookChosen(chosen);if(!(configure&&discoveryTarget))setDiscoveryTarget(null);setSelection(s=>({...s,bookId,theme,productionPrompt:promptAfterThemeChange(s.productionPrompt,s.theme,theme),discovery:{mode:'auto',themeInput:preset?'preset':undefined},storyTitle:undefined,displayTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined}));setConfigure(true);setUnavailable('');}
  // 关闭新建并丢弃表单草稿；新建面板关闭、顶栏离开与两条提交成功路径共用。
  function closeCreate(){
   setConfigure(false);setDiscoveryTarget(null);clearRetained('discovery');
@@ -547,7 +550,7 @@ export default function Reader(){
  const materialsTask=awaitingMaterials?workflowSession:null;
  useEffect(()=>{
   if(!materialsTask||configure)return;
-  clearRetained('discovery');setCreateSeed(seed=>seed+1);setAutoSearch(false);
+  clearRetained('discovery');setCreateSeed(seed=>seed+1);setAutoSearch(false);setBookChosen(true);
   setDiscoveryTarget(materialsTask.id);setSelection(materialsTask.selection);setUnavailable('');setConfigure(true);
  },[materialsTask?.id,configure]);
  const scriptStory=story||gen.active?.story||null;
@@ -563,7 +566,7 @@ export default function Reader(){
    {workflowSession.intake&&workflowSession.intake.phase!=='confirmed'?<StoryCreationSetup
     session={workflowSession} book={bookName({id:workflowSession.id,bookId:workflowSession.selection.bookId})} busy={gen.setupBusy} onAction={gen.setup}
     retainKey={'setup:'+workflowSession.id}
-    onBackToDiscovery={()=>{clearRetained('discovery');forgetSetup();setAutoSearch(false);setDiscoveryTarget(workflowSession.id);setSelection(workflowSession.selection);setUnavailable('');setConfigure(true);}}
+    onBackToDiscovery={()=>{clearRetained('discovery');forgetSetup();setAutoSearch(false);setBookChosen(true);setDiscoveryTarget(workflowSession.id);setSelection(workflowSession.selection);setUnavailable('');setConfigure(true);}}
     progress={{busy:gen.busy,controlBusy:!!gen.controlBusy,onControl:gen.control,error:workflowError||gen.error,onRetry:retryWorkflow,onBack:backToShelf,hideBack:true,showSummary:false}}
    />:!revisionResuming&&!revisionPending&&workflowSession.awaitingFrameCount&&workflowSession.frameRecommendation?<>
     <StoryFrameCount key={workflowSession.id} recommendation={workflowSession.frameRecommendation} disabled={gen.busy} onConfirm={gen.confirmFrameCount}/>
@@ -624,7 +627,7 @@ export default function Reader(){
   </button>;
  })}</div></section>;
  const discoverBooks=bookGrid(true);
- const discoverMoods=<section className="yu-section yu-theme-section"><div className="yu-section-title"><h2>或者，跟着心情走</h2><Sparkles size={17}/></div><div className="yu-moods">{moods.map((m,i)=><button key={m} className={selection.theme===m?'selected':''} onClick={()=>{choose(selection.bookId,m);}}>{i===0&&<Sparkles size={13}/>} {m}</button>)}</div></section>;
+ const discoverMoods=<section className="yu-section yu-theme-section"><div className="yu-section-title"><h2>或者，跟着心情走</h2><Sparkles size={17}/></div><div className="yu-moods">{moods.map((m,i)=><button key={m} className={selection.theme===m?'selected':''} onClick={()=>{choose(selection.bookId,m,false);}}>{i===0&&<Sparkles size={13}/>} {m}</button>)}</div></section>;
  const discoverSurprise=<button className="yu-surprise" onClick={()=>{const b=choices[Math.floor(Math.random()*(choices.length-1))];choose(b.id,moods[Math.floor(Math.random()*(moods.length-1))]);}}><span><Feather size={24}/></span><div><strong>不挑了，给我一个故事</strong><small>让偶然替你翻开第一页</small></div><ArrowRight size={19}/></button>;
  const discoverNote=<div className="yu-generation-note"><Sparkles size={13}/><p>故事、画面与文字，由 AI 为这一次阅读生成。</p></div>;
  const discoverStatus=loading?<p className="yu-inline-status" role="status">正在打开书页…</p>:loadError?<div className="yu-inline-status" role="alert">{loadError}<button onClick={()=>location.reload()}>重新加载</button></div>:null;
@@ -674,7 +677,7 @@ export default function Reader(){
  // 手机树：今天的界面与其专属面板。
  // 重开的选材任务继续使用服务器已保存的批次和候选编号。
  const savedMaterials=materialsTask?.id===discoveryTarget?materialsTask:null;
- const discoveryForm=<StoryDiscoveryForm key={createSeed} retainKey="discovery" autoSearch={autoSearch} selection={selection} books={choices}
+ const discoveryForm=<StoryDiscoveryForm key={createSeed} retainKey="discovery" autoSearch={autoSearch} bookChosen={bookChosen} selection={selection} books={choices}
   semanticIndexBooks={semanticIndexBooks} busy={creating} error={unavailable}
   savedIntake={savedMaterials?.intake} savedSelection={savedMaterials?.selection}
   savedSearchPaused={!!savedMaterials?.generationControl&&savedMaterials.generationControl!=='active'}

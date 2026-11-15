@@ -1,4 +1,5 @@
 // Present saved production checkpoints consistently without dispatching work or inferring review approval.
+// 选材阶段：候选已保存但尚未选中时，提取步骤保持进行中并提示待选择故事。
 import {readerStoryboardBatchSize} from './reader-limits.ts';
 export type ProductionStageState='pending'|'current'|'done'|'skipped'|'unavailable'|'failed'|'paused';
 export type ProductionStage={id:string;label:string;state:ProductionStageState;detail:string};
@@ -39,11 +40,14 @@ export function productionSteps(input:Input):ProductionStage[]{
   const selected=!!input.intakeSelected||intake==='preparing'||intake==='confirming'||intake==='confirmed';
   const prepared=intake==='confirming'||intake==='confirmed';
   const sourceLabel=candidates?'提取故事':combined?'整理所选原文':'已选原文';
+  // 候选已提取但还没选中时，选故事就是当前要做的事，提取步骤保持进行中。
+  const choosing=candidates&&!selected&&intake==='choosing';
   const sourceDetail=candidates
-   ?selected||intake!=='discovering'?`已保存 ${input.candidateBatches||0} 批候选`:'正在寻找并保存候选故事'
+   ?choosing?input.candidateBatches?`已保存 ${input.candidateBatches} 批候选 · 待选择故事`:'待开始提取'
+   :selected||intake!=='discovering'?`已保存 ${input.candidateBatches||0} 批候选`:'正在寻找并保存候选故事'
    :sourceReady?input.selectedSourceLabel||'已保存原文':combined?'将所选原文整理为一篇故事':'等待保存原文';
   return [
-   {id:'source',label:sourceLabel,state:candidates?intake==='discovering'?activeState:'done':sourceReady?'done':activeState,detail:sourceDetail},
+   {id:'source',label:sourceLabel,state:candidates?intake==='discovering'||choosing?activeState:'done':sourceReady?'done':activeState,detail:sourceDetail},
    {id:'prepare',label:'准备故事',state:prepared?'done':intake==='preparing'&&(candidates||sourceReady)?activeState:'pending',detail:prepared?input.preparedSummary?'原文与梗概已核对':'原文与制作建议已保存':intake==='preparing'?'保存原文，核对梗概与制作建议':selected?'待准备这篇故事':'等待选材完成'},
    {id:'count',label:'制作确认',state:intake==='confirmed'?'done':intake==='confirming'?'current':'pending',detail:intake==='confirmed'?'制作内容已确认 · 幅数随编排与审核确定':intake==='confirming'?(input.estimatedFrames?`预计 ${input.estimatedFrames} 幅 · 最终幅数由编排与审核确定`:'确认画风、叙事详略、制作要求和验收要求'):'等待准备完成'},
    ...productionStages(input),
