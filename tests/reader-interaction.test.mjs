@@ -100,17 +100,17 @@ test('print PDF uses complete landscape artwork without cropping and otherwise p
  story.sourceUrl='https://a.test/'+encodeURIComponent('子不语')+'%2F';
  story.publication={...story.publication,workUrl:'https://b.test/'+encodeURIComponent('待尤郎')+'/%E9'};
  const jpeg=new Blob([await createCanvas(2,2).encode('jpeg')],{type:'image/jpeg'});
- async function render(layout,images){
+ async function render(layout,images,coverIndex){
   const reads=[],draws=[],textDraws=[];
   const context={fillRect(){},fillText:(text,x,y,width)=>textDraws.push({text,x,y,width,imagesDrawn:draws.length}),clearRect(){},measureText:text=>({width:text.length*32}),
    drawImage:(...args)=>draws.push(args),createLinearGradient:()=>({addColorStop(){}})};
   const runtime={ready:async()=>{},canvas:()=>({getContext:()=>context,toBlob:done=>done(jpeg)}),
-   read:async url=>{reads.push(url);return url;},
+   read:async (url,index)=>{reads.push([url,index]);return url;},
    image:async(url,draw)=>{const wide=landscape.includes(url);return draw({value:url,width:wide?30:20,height:wide?20:30});}};
-  return {reads,draws,textDraws,pdf:await PDFDocument.load(await createStoryPdf(story,undefined,runtime,layout,images))};
+  return {reads,draws,textDraws,pdf:await PDFDocument.load(await createStoryPdf(story,undefined,runtime,layout,images,coverIndex))};
  }
  const complete=await render('landscape',landscape);
- assert.deepEqual(complete.reads,landscape);
+ assert.deepEqual(complete.reads,landscape.map((url,index)=>[url,index]));
  assert.deepEqual(complete.draws.map(draw=>draw[0]),[landscape[0],...landscape]);
  for(const draw of complete.draws){
   assert.equal(draw.length,5);
@@ -132,14 +132,22 @@ test('print PDF uses complete landscape artwork without cropping and otherwise p
  assert.ok(backText.includes('出处链接：https://a.test/子不语%2F'));
  assert.ok(backText.includes('作品链接：https://b.test/待尤郎/%E9'));
  const partial=await render('landscape',[landscape[0],'']);
- assert.deepEqual(partial.reads,portrait);
+ assert.deepEqual(partial.reads,portrait.map((url,index)=>[url,index]));
  assert.ok(partial.draws.slice(1).every(draw=>draw.length===9&&draw[2]===0));
- for(const result of [complete,partial]){
+ const selectedLandscape=await render('landscape',landscape,1);
+ const selectedPortrait=await render('landscape',[landscape[0],''],1);
+ for(const [result,urls] of [[selectedLandscape,landscape],[selectedPortrait,portrait]]){
+  assert.deepEqual(result.reads,[[urls[1],1],[urls[0],0]]);
+  assert.deepEqual(result.draws.map(draw=>draw[0]),[urls[1],...urls]);
+  assert.equal(result.pdf.getPageCount(),5);
+ }
+ await assert.rejects(render('landscape',landscape,2),/请选择有效的封面画幅/);
+ for(const result of [complete,partial,selectedLandscape,selectedPortrait]){
   assert.deepEqual(result.textDraws.map(draw=>draw.text).filter(text=>/^\d+\. /.test(text)),story.pages.map((scene,index)=>`${index+1}. ${scene.caption}`));
   assert.deepEqual(result.textDraws.map(draw=>draw.text).filter(text=>/^\d+ \/ \d+$/.test(text)),['1 / 2','2 / 2']);
  }
  const reading=await render('portrait',landscape);
- assert.deepEqual(reading.reads,portrait);
+ assert.deepEqual(reading.reads,portrait.map((url,index)=>[url,index]));
  assert.ok(reading.textDraws.some(({text})=>text==='01 / 2'));
  assert.deepEqual(reading.pdf.getPage(0).getSize(),{width:360,height:540});
  assert.deepEqual(story.pages.map(page=>page.image),portrait);

@@ -27,12 +27,13 @@ export function wrapPdfText(text:string,width:number,measure:(text:string)=>numb
  }
  return lines;
 }
-export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime(),layout:StoryPdfLayout='portrait',landscapeImages?:readonly string[]){
+export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime(),layout:StoryPdfLayout='portrait',landscapeImages?:readonly string[],coverIndex=0){
  assertPdfReady(story);
+ const landscape=layout==='landscape';
+ if(landscape&&(!Number.isInteger(coverIndex)||!story.pages[coverIndex]))throw Error('请选择有效的封面画幅。');
  const {PDFDocument,rgb}=await import('pdf-lib');
  await runtime.ready();
  const pdf=await PDFDocument.create();pdf.setTitle(story.title);pdf.setAuthor(story.publication?.author||'未署名');pdf.setSubject(story.theme);pdf.setCreator('拾趣故事阅读器');
- const landscape=layout==='landscape';
  const supplementary=landscape&&landscapeImages?.length===story.pages.length&&landscapeImages.every(Boolean)?landscapeImages:null;
  const [W,H,pageWidth,pageHeight]=landscape?[2100,1500,504,360]:[900,1350,360,540];
  const M=landscape?75:72;
@@ -188,11 +189,11 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   }
  }
  try{
-  const cover=landscape?await runtime.read(supplementary?.[0]??story.pages[0].image,0):null;
+  const cover=landscape?await runtime.read(supplementary?.[coverIndex]??story.pages[coverIndex].image,coverIndex):null;
   if(cover){onProgress('正在制作封面和扉页');await addLandscapeFront(cover);}
   for(let i=0;i<story.pages.length;i++){
    onProgress(`正在整理第 ${i+1} / ${story.pages.length} 幅`);
-   const scene=story.pages[i],blob=i===0&&cover?cover:await runtime.read(supplementary?.[i]??scene.image,i);
+   const scene=story.pages[i],blob=i===coverIndex&&cover?cover:await runtime.read(supplementary?.[i]??scene.image,i);
    if(landscape){await addLandscapeScene(scene,i,blob);continue;}
    await runtime.image(blob,image=>{
     const scale=Math.max(W/image.width,H/image.height),width=image.width*scale,height=image.height*scale;
@@ -238,8 +239,8 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   return await pdf.save();
  }finally{canvas.width=0;canvas.height=0;}
 }
-export async function downloadStoryPdf(story:Story,onProgress:(text:string)=>void,layout:StoryPdfLayout='portrait',landscapeImages?:readonly string[]){
- const bytes=await createStoryPdf(story,onProgress,browserExportRuntime(),layout,landscapeImages);
+export async function downloadStoryPdf(story:Story,onProgress:(text:string)=>void,layout:StoryPdfLayout='portrait',landscapeImages?:readonly string[],coverIndex=0){
+ const bytes=await createStoryPdf(story,onProgress,browserExportRuntime(),layout,landscapeImages,coverIndex);
  const blob=new Blob([bytes as BlobPart],{type:'application/pdf'}),url=URL.createObjectURL(blob),link=document.createElement('a');
  link.href=url;link.download=pdfFilename(story.title,layout);(document.querySelector('dialog[open]')||document.body).appendChild(link);link.click();link.remove();
  return {url,filename:link.download};
