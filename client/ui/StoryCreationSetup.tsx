@@ -1,6 +1,6 @@
 // Keep discovery in the story picker; a chosen story enters one continuous production flow.
 // Edits are saved as a draft on the side; only a recommendation or final confirmation starts work.
-// Extraction, preparation and human confirmation remain separate, with timings bound to real work.
+// 选材单独显示。准备和人工确认依次出现在同一个步骤。
 // 传入 retainKey 时，未保存的设置与打开的子面板跨布局切换保留；恢复后只要服务器保存值未变，就不提示“另一台设备更新了制作内容”。
 import {isDirectSourceSelection} from '@/lib/reader-discovery-themes';
 import StoryFlowAction from './StoryFlowAction';
@@ -89,9 +89,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  return <section className="yu-creation-setup" aria-label="故事流程">
   {selected&&session.selection.storyTitle!=='待拟标题'&&progress.showSummary!==false&&<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3></div>}
   <StoryGenerationStatus session={session} {...progress} navigation={undefined} compact={ready||preparingSelected} control={ready?null:undefined}
-   timeline={{links:{source:[{label:'查看原文',disabled:busy||!session.generationProgress?.sourceReady,onClick:()=>setSourceOpen(true)}]}}} stageContent={{prepare:<>
-   {preparable&&<StoryFlowAction type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'choose',batch:intake.selected!.batch,index:intake.selected!.index,settings:preferences})}>准备这篇</StoryFlowAction>}
-  </>,count:<>
+   timeline={{links:{source:[{label:'查看原文',disabled:busy||!session.generationProgress?.sourceReady,onClick:()=>setSourceOpen(true)}]}}} stageContent={{count:<>
    {!editing&&remoteChoice}
    {error&&<p className="yu-batch-error" role="alert">{error}</p>}
    {editable&&<div className="production-stage-actions production-stage-actions--settings" role="group" aria-label="制作设置">
@@ -100,7 +98,8 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
     <StoryFlowAction disabled={locked} aria-label={`修改画风，当前${artStyleLabel}`} onClick={()=>setEditing('style')}><span><span className="production-setting-style-prefix">画风·</span>{artStyleLabel}</span></StoryFlowAction>
     <StoryFlowAction disabled={locked} aria-label={`修改叙事详略，当前${narrativeLabel}`} onClick={()=>setEditing('count')}><span><span className="production-setting-narrative-prefix">叙事</span>详略·{narrativeLabel}</span></StoryFlowAction>
    </div>}
-   {ready&&<StoryFlowAction disabled={busy||remote||session.state==='running'} onClick={()=>void act({action:'confirm',settings,draftToken:baselineToken.current})}>{busy?'正在保存…':'开始制作'}</StoryFlowAction>}
+   {preparable&&<button type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'choose',batch:intake.selected!.batch,index:intake.selected!.index,settings:preferences})}>准备这篇</button>}
+   {ready&&<button type="button" className="yu-primary" disabled={busy||remote||session.state==='running'} onClick={()=>void act({action:'confirm',settings,draftToken:baselineToken.current})}>{busy?'正在保存…':'开始制作'}</button>}
   </>}}/>
   {sourceOpen&&<Sheet title="故事原文" onClose={()=>setSourceOpen(false)}><StorySource sessionId={session.id} book={book}/></Sheet>}
   {editing&&<Sheet title="修改故事" busy={busy} onClose={closeEditor}>

@@ -96,6 +96,7 @@ ol.production-timeline:not(.production-timeline--horizontal){--production-step-g
 .yu-settings-flow .yu-review-inspect{flex-direction:row}
 .yu-settings-flow .production-stage-notice>*{flex-basis:100%}
 .yu-settings-flow .production-stage-notice>.story-flow-link{flex:0 1 auto;margin-left:auto}
+.yu-creation-setup .production-stage-notice>.yu-primary{flex:0 1 auto;justify-self:end;width:auto;margin-inline-start:auto}
 .yu-settings-flow .production-stage-notice>.yu-review-tools:not(.has-issues){flex:1 1 auto;min-width:0;margin:0}
 .yu-settings-flow .production-stage-notice>.production-stage-footer{flex:0 1 auto;align-self:flex-end;min-height:var(--production-setting-row);margin-left:auto}
 .yu-settings-flow .production-timeline:not(.production-timeline--horizontal) .story-flow-link{min-height:var(--production-setting-row);padding:0}

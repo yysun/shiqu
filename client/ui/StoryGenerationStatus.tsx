@@ -2,7 +2,6 @@
 // Failed work offers recovery in the control slot; only active work offers pause.
 // Standalone flows name the story; embedded settings reuse the title already shown above.
 // Changing progress shares the navigation row in both presentations.
-// Creation may split saved preparation timing from its separate confirmation gate.
 import {useEffect,useState} from 'react';
 import type {ComponentProps,ReactNode} from 'react';
 import {Check,Clock3,Feather,Pause,X} from 'lucide-react';
@@ -46,10 +45,6 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
   ...(timeline?.links?.count?.length?timeline.links.count:countAction?[countAction]:[]),
   {label:`画风：${getArtStyle(draft?.changes.artStyle??session.selection.artStyle).label}`,ariaLabel:'修改画风',disabled:paused&&controlBusy,onClick:onEditStyle},
  ]}:timelineLinks;
- const durations=timeline?.stageDurations??session.generationProgress?.stageDurations;
- // 旧的耗时检查点 count 记录的是准备工作，制作确认本身没有执行耗时。
- const {count:preparationSeconds,...workDurations}=durations||{};
- const stageDurations=steps.some(step=>step.id==='prepare')?{...workDurations,...(preparationSeconds===undefined?{}:{prepare:preparationSeconds})}:durations;
  const confirmationStage=draft&&(steps.find(step=>step.state==='current')||steps.find(step=>step.state==='failed'))?.id;
  if(confirmationStage)content[confirmationStage]=<>{content[confirmationStage]}{draft?.confirmation}</>;
  return <div className={'yu-generation-stage has-progress'+(compact||!showSummary?' is-compact':'')+(moving?' is-generating':'')+(failed?' has-error':'')+(session.reviewIssues?.length?' has-review-issues':'')}>
@@ -59,7 +54,7 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
   </div>}
   <StoryFlowHeader title={progress.measured?'画面生成进度':'制作流程'} status={message} {...flowNavigation}/>
   <section className="yu-generation-progress" aria-label="生成进展">
-   <StoryProductionTimeline session={session} busy={busy||controlBusy} error={error} onRetry={onRetry} onAcceptance={onAcceptance} reviewTools={reviewTools} stageContent={content} onHistory={onHistory} stages={displayedSteps} moving={moving} queued={progress.queued} {...timeline} stageDurations={stageDurations} links={links} confirmationStage={confirmationStage} currentTiming={moving?<><Clock3 size={12} aria-hidden="true"/>{progress.remaining===null?'超时信息待同步':progress.remaining>0?`距超时 ${generationDuration(progress.remaining)}`:'已达超时，等待状态更新'}</>:undefined} currentContent={!draft&&session.state!=='completed'?generationControl:null}>
+   <StoryProductionTimeline session={session} busy={busy||controlBusy} error={error} onRetry={onRetry} onAcceptance={onAcceptance} reviewTools={reviewTools} stageContent={content} onHistory={onHistory} stages={displayedSteps} moving={moving} queued={progress.queued} {...timeline} links={links} confirmationStage={confirmationStage} currentTiming={moving?<><Clock3 size={12} aria-hidden="true"/>{progress.remaining===null?'超时信息待同步':progress.remaining>0?`距超时 ${generationDuration(progress.remaining)}`:'已达超时，等待状态更新'}</>:undefined} currentContent={!draft&&session.state!=='completed'?generationControl:null}>
     {showLandscape&&<StoryLandscapeStep key={session.id} storyId={session.id}/>}
    </StoryProductionTimeline>
   </section>

@@ -4,21 +4,30 @@ import assert from 'node:assert/strict';
 import {productionSteps} from '../lib/production-stages.ts';
 const base={sourceReady:true,frameCountConfirmed:true,planReady:true,total:45,ready:0,reviewStatus:'pending',reviewRound:0};
 const states=input=>productionSteps({...base,...input}).map(s=>s.state);
-test('intake retains its source and preparation milestones across confirmation',()=>{
+test('preparation and confirmation share one step while preserving source and work timing',()=>{
  for(const [intakeSource,label] of [['direct','已选原文'],['combined','整理所选原文'],['candidates','提取故事']]){
-  const source={...base,intakeSource,selectedSourceLabel:'已核对的出处',intakeSelected:true,candidateBatches:1,preparedSummary:true};
-  const before=productionSteps({...source,intakePhase:'confirming'}).slice(0,3);
-  const after=productionSteps({...source,intakePhase:'confirmed'}).slice(0,3);
-  assert.deepEqual(before.map(step=>step.label),[label,'准备故事','制作确认']);
-  assert.deepEqual(after.slice(0,2),before.slice(0,2));
-  assert.equal(before[2].state,'current');
-  assert.equal(after[2].state,'done');
+  const source={...base,intakeSource,selectedSourceLabel:'已核对的出处',intakeSelected:true,candidateBatches:1,preparedSummary:true,estimatedFrames:34};
+  const steps=(intakePhase,activeState)=>productionSteps({...source,intakePhase,activeState}).slice(0,3);
+  const preparing=steps('preparing'),before=steps('confirming'),after=steps('confirmed');
+  assert.deepEqual(preparing.map(step=>step.label),[label,'准备故事','分批分镜']);
+  assert.deepEqual(before.map(step=>step.label),[label,'制作确认','分批分镜']);
+  assert.deepEqual(after[0],before[0]);
+  for(const timeline of [preparing,before,after])assert.equal(timeline[1].id,'count');
+  assert.equal(preparing[1].state,'current');
+  assert.equal(steps('preparing','paused')[1].state,'paused');
+  assert.equal(steps('preparing','failed')[1].state,'failed');
+  assert.equal(before[1].state,'current');
+  assert.match(before[1].detail,/预计 34 幅/);
+  assert.equal(after[1].state,'done');
+  assert.equal(after[1].detail,'原文与梗概已核对 · 制作内容已确认');
+  assert.equal(after[1].durationLabel,'准备耗时');
   if(intakeSource!=='candidates')assert.equal(after[0].detail,'已核对的出处');
  }
 });
 test('saved candidates waiting for a choice keep extraction as the current step',()=>{
- const waiting=productionSteps({...base,planReady:false,reviewStatus:null,intakePhase:'choosing',intakeSource:'candidates',candidateBatches:10});
+ const waiting=productionSteps({...base,planReady:false,reviewStatus:null,phase:'story-choice',intakePhase:'choosing',intakeSource:'candidates',candidateBatches:10});
  assert.deepEqual(waiting.slice(0,3).map(step=>step.state),['current','pending','pending']);
+ assert.deepEqual(waiting.slice(0,3).map(step=>step.id),['source','count','plan']);
  assert.equal(waiting[0].detail,'已保存 10 批候选 · 待选择故事');
  const idle=productionSteps({...base,planReady:false,reviewStatus:null,intakePhase:'choosing',intakeSource:'candidates',candidateBatches:0});
  assert.equal(idle[0].detail,'待开始提取');

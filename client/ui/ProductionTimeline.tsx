@@ -38,7 +38,7 @@ export default function ProductionTimeline({stages,moving=false,queued=false,lay
  const historyStage=[...stages].reverse().find(step=>['review','repair','recheck'].includes(step.id)&&!['pending','skipped','unavailable'].includes(step.state))||stages.find(step=>step.id==='review'&&step.state!=='unavailable');
  return <><ol className={'production-timeline'+(layout==='horizontal'?' production-timeline--horizontal':'')} aria-label="完整审片流程">{stages.map((step,index)=>{
  const done=layout==='vertical'&&step.state==='done',duration=stageDurations[step.id];
- const timing=done?(typeof duration==='number'&&Number.isFinite(duration)&&duration>=0?`耗时 ${generationDuration(duration)}`:null):stageTimes[step.id];
+ const timing=done?(typeof duration==='number'&&Number.isFinite(duration)&&duration>=0?`${step.durationLabel??'耗时'} ${generationDuration(duration)}`:null):stageTimes[step.id];
  const history=layout==='vertical'&&onHistory&&step.id===historyStage?.id;
  const action=actions[step.id],stepLinks=links[step.id]?.length?links[step.id]:action?[action]:[];
  const navigation=stepLinks.map(link=><StoryFlowAction key={link.ariaLabel??link.label} aria-label={link.ariaLabel} disabled={link.disabled} onClick={link.onClick}>{link.label}</StoryFlowAction>);

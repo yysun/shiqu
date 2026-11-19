@@ -15,9 +15,10 @@ export function revisionDraftSteps(base:RevisionSnapshot,changes:RevisionChanges
  const reviewStatus=impact.review?'pending':base.reviewStatus;
  const phase=impact.replan?'frame-count':reviewStatus==='repair'?'repair':reviewStatus&&reviewStatus!=='passed'?'review':'image';
  const [source,...rest]=productionSteps({sourceReady:true,frameCountConfirmed:!impact.replan,planReady:!impact.replan,reviewStatus,phase,total:impact.total,ready:0});
- const preparation=previous.find(step=>step.id==='prepare');
- return [previous.find(step=>step.id==='source')||source,...(preparation?[preparation]:[]),...rest.map(step=>{
+ const setup=previous.find(step=>step.id==='count'&&step.durationLabel&&step.state==='done');
+ return [previous.find(step=>step.id==='source')||source,...rest.map(step=>{
   if(step.id==='count'&&impact.replan)return {...step,detail:'按叙事详略编排 · 审核后确定数量'};
+  if(step.id==='count'&&setup)return setup;
   if(step.id==='review'&&!impact.review)return {...step,detail:'沿用原审片进度，不重新审核'};
   if(step.id==='plan'&&changes.plan&&impact.review&&!impact.replan)return {...step,detail:'已修改分镜 · 待审片'};
   if(step.id==='image')return {...step,detail:impact.reusePending?'分镜完成后核对可复用的画幅':`预计复用 ${impact.reused} 幅 · 重绘 ${impact.redraw} 幅`};

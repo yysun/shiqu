@@ -1,8 +1,8 @@
-// Present saved production checkpoints consistently without dispatching work or inferring review approval.
+// 制作时间线根据已保存的检查点显示进度。准备和确认共用一行。
 // 选材阶段：候选已保存但尚未选中时，提取步骤保持进行中并提示待选择故事。
 import {readerStoryboardBatchSize} from './reader-limits.ts';
 export type ProductionStageState='pending'|'current'|'done'|'skipped'|'unavailable'|'failed'|'paused';
-export type ProductionStage={id:string;label:string;state:ProductionStageState;detail:string};
+export type ProductionStage={id:string;label:string;state:ProductionStageState;detail:string;durationLabel?:string};
 export type ProductionCheckpoint={reviewOverridden?:boolean|number|null;intakePhase?:string;candidateBatches?:number;planReady:boolean;sourceReady?:boolean;frameCountConfirmed?:boolean;phase?:string;storyboardFrames?:number|null;storyboardBatch?:{first:number;last:number};reviewStatus?:'pending'|'repair'|'passed'|'blocked'|null;reviewPhase?:'frames'|'full'|null;reviewRound?:number;repairCompleted?:number;repairTotal?:number;reviewAudits?:number;repairBatches?:number;repairPasses?:number;reviewStopReason?:'limit'|'unchanged'|'replan'|'requirements'};
 type Input=ProductionCheckpoint&{phase?:string;total:number|null;ready:number;activeState?:'current'|'failed'|'paused';intakeSource?:'direct'|'combined'|'candidates';selectedSourceLabel?:string;intakeSelected?:boolean;preparedSummary?:boolean;estimatedFrames?:number};
 export function productionStages(input:Input):ProductionStage[]{
@@ -39,6 +39,7 @@ export function productionSteps(input:Input):ProductionStage[]{
   const candidates=(input.intakeSource??'candidates')==='candidates',combined=input.intakeSource==='combined';
   const selected=!!input.intakeSelected||intake==='preparing'||intake==='confirming'||intake==='confirmed';
   const prepared=intake==='confirming'||intake==='confirmed';
+  const confirmed=intake==='confirmed';
   const sourceLabel=candidates?'提取故事':combined?'整理所选原文':'已选原文';
   // 候选已提取但还没选中时，选故事就是当前要做的事，提取步骤保持进行中。
   const choosing=candidates&&!selected&&intake==='choosing';
@@ -46,10 +47,14 @@ export function productionSteps(input:Input):ProductionStage[]{
    ?choosing?input.candidateBatches?`已保存 ${input.candidateBatches} 批候选 · 待选择故事`:'待开始提取'
    :selected||intake!=='discovering'?`已保存 ${input.candidateBatches||0} 批候选`:'正在寻找并保存候选故事'
    :sourceReady?input.selectedSourceLabel||'已保存原文':combined?'将所选原文整理为一篇故事':'等待保存原文';
+  const preparationDetail=input.preparedSummary?'原文与梗概已核对':'原文与制作建议已保存';
+  const confirmationDetail=input.estimatedFrames?`预计 ${input.estimatedFrames} 幅 · 最终幅数由编排与审核确定`:'确认画风、叙事详略、制作要求和验收要求';
+  const setupDetail=confirmed?`${preparationDetail} · 制作内容已确认`
+   :prepared?confirmationDetail
+   :intake==='preparing'?'保存原文，核对梗概与制作建议':selected?'待准备这篇故事':'等待选材完成';
   return [
    {id:'source',label:sourceLabel,state:candidates?intake==='discovering'||choosing?activeState:'done':sourceReady?'done':activeState,detail:sourceDetail},
-   {id:'prepare',label:'准备故事',state:prepared?'done':intake==='preparing'&&(candidates||sourceReady)?activeState:'pending',detail:prepared?input.preparedSummary?'原文与梗概已核对':'原文与制作建议已保存':intake==='preparing'?'保存原文，核对梗概与制作建议':selected?'待准备这篇故事':'等待选材完成'},
-   {id:'count',label:'制作确认',state:intake==='confirmed'?'done':intake==='confirming'?'current':'pending',detail:intake==='confirmed'?'制作内容已确认 · 幅数随编排与审核确定':intake==='confirming'?(input.estimatedFrames?`预计 ${input.estimatedFrames} 幅 · 最终幅数由编排与审核确定`:'确认画风、叙事详略、制作要求和验收要求'):'等待准备完成'},
+   {id:'count',label:prepared?'制作确认':'准备故事',state:confirmed?'done':prepared?'current':intake==='preparing'&&(candidates||sourceReady)?activeState:'pending',detail:setupDetail,durationLabel:'准备耗时'},
    ...productionStages(input),
   ];
  }
