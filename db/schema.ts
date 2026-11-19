@@ -9,6 +9,8 @@ export const libraryDeletions=sqliteTable('library_deletions',{userId:text('user
 export const stories=sqliteTable('stories',{id:text('id').primaryKey(),userId:text('user_id').notNull(),selection:text('selection').notNull(),document:text('document').notNull(),generationMode:text('generation_mode').notNull().default('reader'),generationControl:text('generation_control').notNull().default('active'),state:text('state').notNull().default('idle'),error:text('error'),stepKey:text('step_key'),stepAttempts:integer('step_attempts').notNull().default(0),lockToken:text('lock_token'),lockUntil:integer('lock_until').notNull().default(0),page:integer('page').notNull().default(0),saved:integer('saved').notNull().default(0),lastReadAt:text('last_read_at'),createdAt:text('created_at').notNull(),updatedAt:text('updated_at').notNull()},t=>[index('reader_user_created').on(t.userId,t.createdAt),index('stories_production_scan').on(t.id,t.userId,t.state),index('stories_lock_scan').on(t.state,t.lockUntil,t.generationMode)]);
 // stories_family 与 stories_landscape_scan 是表达式索引，表达式须与查询逐字一致，只在 drizzle/0023_story_scan_indexes.sql 中定义。
 // 内容修订号由迁移中的触发器维护，制作节拍据此跳过未变化的故事。
+// 提示词全文按内容存放，故事文档只保留 promptRecordId 引用。
+export const promptRecords=sqliteTable('prompt_records',{id:text('id').primaryKey(),record:text('record').notNull()});
 export const storyRevisions=sqliteTable('story_revisions',{storyId:text('story_id').primaryKey(),rev:integer('rev').notNull().default(0)});
 
 export const productionJobs=sqliteTable('production_jobs',{

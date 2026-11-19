@@ -1,5 +1,7 @@
 // Persist owner-scoped defaults/checkpoints and serialize immediate retries without duplicating paid steps.
+// 写入文档前把提示词全文存入 prompt_records，文档只保留引用。
 import {createHash} from 'node:crypto';
+import {storePromptRecords} from './reader-prompt-store.ts';
 import {emptyDocument,ReaderError,selectionSchema,awaitingFrameCount} from './reader-model.ts';
 import type {Selection,SessionRow,Document,Step,ProductionAction} from './reader-model.ts';
 import type {OriginalSource} from './reader-source-types.ts';
@@ -134,7 +136,7 @@ export class ReaderRepository{
  async create(id:string,uid:string,selection:Selection,document:Document=emptyDocument()){
  const normalized=selectionSchema.parse(selection),creationHash=createHash('sha256').update(JSON.stringify([normalized,!!document.intake,document.reselection||null,...(document.copiedFrom?[document.copiedFrom]:[])])).digest('hex');
  const command=await this.db.prepare('SELECT request_id FROM reader_commands WHERE owner_id=? AND request_id=?').bind(uid,id).first();if(command)throw new ReaderError(409,'此创建编号已用于其他操作。');
- const now=new Date().toISOString(),saved=JSON.stringify({...document,creationHash});
+ const now=new Date().toISOString(),saved=JSON.stringify(await storePromptRecords(this.db,{...document,creationHash}));
  // Read defaults inside the insert: retries cannot change a story's original attribution snapshot.
  await this.db.prepare(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,step_attempts,lock_until,page,saved,created_at,updated_at) VALUES(?,?,?,COALESCE((SELECT json_set(?,'$.publication',json(publication)) FROM reader_publication_defaults WHERE owner_id=?),?),?,?,'idle',0,0,0,0,?,?) ON CONFLICT(id) DO NOTHING`).bind(id,uid,JSON.stringify(selection),saved,uid,saved,document.reselection?'reader':'background',document.copiedFrom?'paused':'active',now,now).run();
  const row=await this.get(id,uid),doc=JSON.parse(row.document) as Document;
@@ -168,12 +170,13 @@ export class ReaderRepository{
  }
  async saveImageProgress(row:SessionRow,token:string,snapshot:Document){
   // Deletion hides the session but must still retain results of calls already in flight.
-  const saved=JSON.stringify(snapshot),result=await this.db.prepare(`UPDATE stories SET document=${workerDocument},updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?`)
+  // 提示词全文先存表，文档只写引用。
+  const saved=JSON.stringify(await storePromptRecords(this.db,snapshot)),result=await this.db.prepare(`UPDATE stories SET document=${workerDocument},updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?`)
    .bind(saved,saved,saved,saved,saved,new Date().toISOString(),row.id,row.user_id,token,snapshot.intake?.generation??-1).run();
   if(result.meta.changes!==1)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
  }
  async save(row:SessionRow,token:string,doc:Document,complete:boolean,error:string|null=null,progressMap?:number[],prepared?:{title:string;description:string;artRecommendation:ArtRecommendation;batch:number;index:number}){
-  const saved=JSON.stringify(doc),map=progressMap?JSON.stringify(progressMap):null;
+  const saved=JSON.stringify(await storePromptRecords(this.db,doc)),map=progressMap?JSON.stringify(progressMap):null;
   const candidate=prepared?`$.intake.batches[${prepared.batch}].stories[${prepared.index}]`:null;
   const document=prepared?`json_set(${workerDocument}, ?, ?, ?, ?, ?, json(?))`:workerDocument;
   const selection=prepared?`,selection=json_set(selection,'$.storyTitle',?,'$.artStyle',CASE WHEN COALESCE(json_extract(stories.document,'$.intake.manualArt'),0)=0 THEN ? ELSE json_extract(selection,'$.artStyle') END)`:'';

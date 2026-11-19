@@ -1692,13 +1692,15 @@
         "server/app.ts",
         "server/headless-cli.ts",
         "server/local-generation.ts",
+        "server/prompt-record-migration.ts",
+        "server/reader-copy.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
+        "tests/fixtures/production-data.mjs",
         "tests/fixtures/production.mjs",
         "tests/fixtures/startup.mjs",
         "tests/fixtures/story-library.mjs",
-        "tests/fixtures/test-tier.mjs",
-        "tests/fixtures/production-data.mjs"
+        "tests/fixtures/test-tier.mjs"
       ],
       "manualOnly": true,
       "modelRelated": true
@@ -2330,6 +2332,39 @@
         "drizzle/0022_story_content_revisions.sql",
         "drizzle/0023_story_scan_indexes.sql",
         "lib/reader-repository.ts",
+        "server/reader-production.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production-data.mjs",
+        "tests/fixtures/production.mjs"
+      ]
+    },
+    {
+      "file": "tests/prompt-records-storage.test.mjs",
+      "groups": [
+        "production",
+        "storage",
+        "review"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "flows",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "db/schema.ts",
+        "drizzle/0024_prompt_records.sql",
+        "lib/reader-api.ts",
+        "lib/reader-prompt-records.ts",
+        "lib/reader-prompt-store.ts",
+        "lib/reader-repository.ts",
+        "lib/reader-review-history.ts",
+        "server/prompt-record-migration.ts",
         "server/reader-production.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",

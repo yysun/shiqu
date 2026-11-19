@@ -1,6 +1,8 @@
 // Project saved production checkpoints into read-only history. Missing historical evidence stays missing;
 // only a unique call from this version can establish ordering or restore an earlier frame.
 import type {Document,Plan,SessionRow} from './reader-model.ts';
+import {usageRecord} from './reader-prompt-records.ts';
+import type {PromptRecord} from './reader-prompt-records.ts';
 import type {ReviewCheckpoint,ReviewIssue,ReviewRecordMeta,ReviewRepairRecord,FrameCountReview,FrameRequirement,RepairedPage} from './reader-review.ts';
 import type {AcceptanceResult} from './reader-acceptance.ts';
 import type {EditorialCoverage} from './reader-editorial.ts';
@@ -33,9 +35,10 @@ function stepParts(step:string){
  return match?{kind:match[1],phase:'full',round:Number(match[2]),count:null,target:match[3]}:null;
 }
 
-export function storyReviewHistory(row:SessionRow):StoryReviewHistory{
+// 提示词全文由调用方按引用读取后传入；仍内嵌的记录直接使用。
+export function storyReviewHistory(row:SessionRow,records:Map<string,PromptRecord>=new Map()):StoryReviewHistory{
  const doc=JSON.parse(row.document) as Document,selection=object(JSON.parse(row.selection))!,review=doc.visualReview;
- const calls=(doc.usage||[]).flatMap((call,position)=>!call.originId||call.originId===row.id||call.originId===doc.copiedFrom?.storyId?[{...call,position,input:input(call.promptRecord?.input),parts:stepParts(call.step)}]:[]);
+ const calls=(doc.usage||[]).flatMap((call,position)=>!call.originId||call.originId===row.id||call.originId===doc.copiedFrom?.storyId?[{...call,position,input:input(usageRecord(call,records)?.input),parts:stepParts(call.step)}]:[]);
  type Call=typeof calls[number];
  function locate(meta:ReviewRecordMeta,predicate:(call:Call)=>boolean){
   const matches=calls.filter(call=>(!meta.step||call.step===meta.step)&&predicate(call));return matches.length===1?matches[0]:null;

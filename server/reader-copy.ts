@@ -2,12 +2,14 @@
 // production initialization and exclusive ownership; the new independent story starts paused.
 // An optional rendering style changes only new image inputs, retaining the exact saved script/review.
 // The Skill controls the text/image checkpoints; this service executes only explicit image choices.
+// 提示词记录随副本写入目标库自己的记录表。
 import {createHash} from 'node:crypto';
 import {existsSync,realpathSync} from 'node:fs';
 import path from 'node:path';
 import {createApplication} from './app.ts';
 import {ownDesktopData} from './desktop-owner.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
+import {resolvePromptRecords} from '../lib/reader-prompt-store.ts';
 import {ReaderError,selectionSchema,planSchema,view} from '../lib/reader-model.ts';
 import type {Document} from '../lib/reader-model.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
@@ -25,7 +27,8 @@ export async function copySavedStory(target:ReturnType<typeof createApplication>
   source=createApplication({root,dataDirectory:sourceDirectory,variables:{SHIQU_AI_PROVIDER:'readonly'},commandOnly:true,production:{autoStart:false}});
   const repo=new ReaderRepository(source.services.database),row=await repo.current(sourceId,source.services.ownerId);
   if(row.id!==sourceId)throw new ReaderError(409,'请复制来源故事的当前版本。');
-  const saved=JSON.parse(row.document) as Document;
+  // 提示词记录只在来源库中：先原位还原为内嵌，目标库写入时再存入自己的记录表。
+  const saved=await resolvePromptRecords(repo.db,JSON.parse(row.document) as Document);
   if(row.state==='running'||!saved.plan||!saved.original||saved.intake&&saved.intake.phase!=='confirmed'||saved.reselection)throw new ReaderError(409,'只能复制已停止且已保存完整原文、分镜的故事。');
   if(!options.draft&&(saved.visualReview?.status!=='passed'||saved.visualReview.overridden))throw new ReaderError(409,'只能复制已保存原文、分镜及已通过审核的故事；未通过的文本请显式选择草稿复制。');
   if(options.draft){
@@ -33,7 +36,8 @@ export async function copySavedStory(target:ReturnType<typeof createApplication>
    if(!saved.visualReview||typeof saved.original.text!=='string'||!saved.original.text.trim())throw new ReaderError(409,'草稿须有完整分镜、原文和已保存的审核检查点。');
   }
   const sourceSelection=selectionSchema.parse(JSON.parse(row.selection));
-  const contentHash=createHash('sha256').update(JSON.stringify([sourceSelection,row.document])).digest('hex');
+  // 哈希输入形状不变；文档文本取还原后的规范形式，迁移前创建的副本仍能匹配。
+  const contentHash=createHash('sha256').update(JSON.stringify([sourceSelection,JSON.stringify(saved)])).digest('hex');
   const selection=selectionSchema.parse({...sourceSelection,...(artStyle===undefined?{}:{artStyle})});
   const styleChanged=selection.artStyle!==sourceSelection.artStyle;
   if(options.images&&styleChanged)throw new ReaderError(400,'更改画风时不能复制旧图片，请选择不复制图片，后续按新画风绘制。');

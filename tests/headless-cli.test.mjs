@@ -19,6 +19,7 @@ import {zipMetadataStory} from '../lib/reader-zip-content.ts';
 import {DatabaseSync} from 'node:sqlite';
 import {createApplication} from '../server/app.ts';
 import {heavy} from './fixtures/test-tier.mjs';
+import {migratePromptRecords} from '../server/prompt-record-migration.ts';
 
 async function fixture(t){
  const f=await productionFixture(t);await f.stop();
@@ -132,6 +133,26 @@ test('CLI image-only edit redraws selected pages after explicit resume/run and p
  await assert.rejects(call(args,{...input,changes:{redrawPages:[2]}}),error=>error.code==='CONFLICT');
 });
 
+test('cross-library copy stores prompt records in the target; a text copy made before migration can still attach images',async t=>{
+ const {source,target,sourceId,args}=await copySource(t),id=args.at(-1),file=path.join(source.f.dataDirectory,'shiqu.sqlite');
+ // 把来源文档还原为旧版内嵌形式，模拟升级前创建文字副本。
+ let db=new DatabaseSync(file);const load=db.prepare('SELECT record FROM prompt_records WHERE id=?');
+ const doc=JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(sourceId).document);
+ doc.usage=doc.usage.map(call=>Object.fromEntries(Object.entries(call).map(([key,value])=>key==='promptRecordId'?['promptRecord',JSON.parse(load.get(value).record)]:[key,value])));
+ assert.ok(doc.usage.some(call=>call.promptRecord));
+ db.prepare('UPDATE stories SET document=? WHERE id=?').run(JSON.stringify(doc),sourceId);db.close();
+ assert.equal((await target.call([...args,'--no-copy-images'])).session.ready,0);
+ db=new DatabaseSync(file);db.exec('BEGIN IMMEDIATE');migratePromptRecords(db,'');db.exec('COMMIT');
+ assert.ok(JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(sourceId).document).usage.every(call=>!call.promptRecord));db.close();
+ assert.equal((await target.call(['stories','copy-images',id,'--from-data-dir',source.f.dataDirectory],{sourceId})).session.ready,3);
+ const sourcePrompts=await source.call(['stories','prompts',sourceId]),targetPrompts=await target.call(['stories','prompts',id]);
+ assert.ok(targetPrompts.records.length>0);assert.deepEqual(targetPrompts.records.map(item=>item.record),sourcePrompts.records.map(item=>item.record));
+ assert.deepEqual(targetPrompts.missingRecords.length,sourcePrompts.missingRecords.length);
+ const check=target.inspect(),copied=JSON.parse(check.prepare('SELECT document FROM stories WHERE id=?').get(id).document);
+ const references=[...new Set(copied.usage.flatMap(call=>call.promptRecordId?[call.promptRecordId]:[]))];
+ assert.ok(copied.usage.every(call=>!call.promptRecord));assert.ok(references.length);
+ assert.equal(check.prepare('SELECT COUNT(*) AS n FROM prompt_records WHERE id IN (SELECT value FROM json_each(?))').get(JSON.stringify(references)).n,references.length);check.close();
+});
 test('Skill can copy text, wait for a user decision, then attach independent images to the same story',async t=>{
  const {source,target,sourceId,args}=await copySource(t),id=args.at(-1);
  const textArgs=[...args,'--no-copy-images'],text=await target.call(textArgs);assert.equal(text.session.ready,0);assert.equal(text.session.generationControl,'paused');

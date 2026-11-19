@@ -9,6 +9,7 @@
 // story lock it stops when no longer wanted, and
 // its failures stay with the search unless a stop interrupted the call.
 // Only current image inputs may publish; their paid receipt can replace a stale version's slot.
+// 发布图片时提示词全文存入 prompt_records，调用记录只写引用。
 // 节拍中的完成检查、过期任务清理和任务图重建先查覆盖索引与内容修订号，只读取上次检查后有变化的故事全文。
 import {generationProgress} from '../lib/generation-progress.ts';
 import {productionTimingScope,productionStageDurations} from '../lib/production-timing.ts';
@@ -16,6 +17,7 @@ import {BookImageReferences} from './book-image-reference.ts';
 import {storyReplanMessage} from '../lib/reader-review.ts';
 import {randomUUID} from 'node:crypto';
 import {ReaderRepository,persistenceError,supersededSql,latestVersionMessage} from '../lib/reader-repository.ts';
+import {storePromptRecord} from '../lib/reader-prompt-store.ts';
 import type {Database} from '../lib/reader-repository.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
 import type {Generated} from '../lib/reader-engine.ts';
@@ -842,7 +844,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(!this.currentJob(row,job))return {obsolete:true};
   if(doc.images[page]===result.value)return {value:result.value};
   const lease=this.leases.get(row.id);if(!lease)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
-  const usage={step:`image:${page}`,model:result.model,requestId:result.requestId,usage:result.usage,...(result.promptRecord?{promptRecord:result.promptRecord}:{})};
+  // 提示词全文存表，调用记录只写引用。
+  const usage={step:`image:${page}`,model:result.model,requestId:result.requestId,usage:result.usage,...(result.promptRecord?{promptRecordId:await storePromptRecord(this.database,result.promptRecord)}:{})};
   const saved=await this.database.prepare(`UPDATE stories SET document=json_set(document,?, ?, '$.usage',json_insert(json_extract(document,'$.usage'),'$[#]',json(?))),updated_at=?
    WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND COALESCE(json_extract(document,?),'')=?
    AND json_remove(selection,'$.displayTitle')=json_remove(?,'$.displayTitle') AND json_extract(document,'$.plan')=json_extract(?,'$.plan')

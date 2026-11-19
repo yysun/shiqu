@@ -10,6 +10,7 @@ import {getArtStyle} from './reader-styles.ts';
 import {promptRecord} from './reader-prompt-records.ts';
 import type {StoryPromptHistory} from './reader-prompt-records.ts';
 import {storyReviewHistory} from './reader-review-history.ts';
+import {loadPromptRecords,usageRecord} from './reader-prompt-store.ts';
 import {BookImageReferences,withBookReference} from '../server/book-image-reference.ts';
 import {events} from '../db/schema.ts';
 import type {Services} from './services.ts';
@@ -249,14 +250,16 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   }
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);
-   if(path[2]==='review-history'&&path.length===3&&req.method==='GET')return json(storyReviewHistory(await repo.get(id,uid)));
+   if(path[2]==='review-history'&&path.length===3&&req.method==='GET'){const row=await repo.get(id,uid);return json(storyReviewHistory(row,await loadPromptRecords(repo.db,(JSON.parse(row.document) as Document).usage)));}
    if(path[2]==='prompts'&&path.length===3&&req.method==='GET'){
     const row=await repo.get(id,uid),doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
     const preferences={productionPrompt:selection.productionPrompt,...acceptanceInput(selection),artDirection:getArtStyle(selection.artStyle).prompt,narrativeDetail:selection.narrativeDetail||'balanced',exactPageCount:selection.length};
+    // 提示词全文按引用读取；引用的记录缺失时与未保存记录一样列为缺失。
+    const stored=await loadPromptRecords(repo.db,doc.usage);
     const history:StoryPromptHistory={
      productionPrompt:selection.productionPrompt,acceptancePrompt:selection.acceptancePrompt||'',
-     records:(doc.usage||[]).flatMap((item,index)=>item.promptRecord?[{step:item.step,model:item.model,originId:item.originId||id,index,record:item.promptRecord}]:[]),
-     missingRecords:(doc.usage||[]).flatMap((item,index)=>item.promptRecord?[]:[{step:item.step,model:item.model,originId:item.originId||id,index}]),
+     records:(doc.usage||[]).flatMap((item,index)=>{const record=usageRecord(item,stored);return record?[{step:item.step,model:item.model,originId:item.originId||id,index,record}]:[];}),
+     missingRecords:(doc.usage||[]).flatMap((item,index)=>usageRecord(item,stored)?[]:[{step:item.step,model:item.model,originId:item.originId||id,index}]),
     };
     return json({...history,criteria:acceptanceCriteria(selection.acceptancePrompt),results:doc.visualReview?.reports.at(-1)?.acceptanceResults||[],overridden:!!doc.visualReview?.overridden,previews:{production:promptRecord(draftInstructions(!!doc.original?.localSource)+'\n\n## 提纲阶段\n'+outlineDirection+'\n\n## 分批细化阶段\n'+batchDirection,preferences),acceptance:promptRecord(reviewSystemPrompt+'\n\n'+acceptanceDirection+'\n\n## 定向修订\n'+repairSystemPrompt,preferences)}});
    }
