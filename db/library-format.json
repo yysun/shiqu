@@ -1,1 +1,1 @@
-{"schemaVersion":1,"minimumAppVersion":"0.8.0","latestMigration":"0022_story_content_revisions.sql"}
+{"schemaVersion":1,"minimumAppVersion":"0.8.0","latestMigration":"0023_story_scan_indexes.sql"}

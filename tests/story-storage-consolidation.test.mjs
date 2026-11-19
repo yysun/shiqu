@@ -176,6 +176,6 @@ test('a library consolidated before the refusal guard receives it in place',t=>{
  cpSync(path.join(root,'drizzle'),path.join(previous,'drizzle'),{recursive:true,filter:source=>!/^\d{4}_.*\.sql$/.test(path.basename(source))||path.basename(source)<'0019_'});
  ensureLibraryReady(f.directory,previous);
  const db=new DatabaseSync(path.join(f.directory,'shiqu.sqlite'));db.exec(releasedSeed);db.close();
- const result=ensureLibraryReady(f.directory,root);assert.deepEqual(result.migrations,['0019_refuse_pre_consolidation_apps.sql','0020_blocked_revision_faults.sql','0021_landscape_job_isolation.sql','0022_story_content_revisions.sql']);verifyLibraryBackup(result.backup);
+ const result=ensureLibraryReady(f.directory,root);assert.deepEqual(result.migrations,['0019_refuse_pre_consolidation_apps.sql','0020_blocked_revision_faults.sql','0021_landscape_job_isolation.sql','0022_story_content_revisions.sql','0023_story_scan_indexes.sql']);verifyLibraryBackup(result.backup);
  assertRefusesReleasedSeed(f.directory);assert.deepEqual(rawRows(f.directory,'stories'),f.before);
 });

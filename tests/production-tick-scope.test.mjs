@@ -1,18 +1,21 @@
 // 验证制作节拍按内容修订号只读取有变化的故事：触发器覆盖任意写入，未变化的故事不读全文，变化后仍按原规则处理。
+// 同时守护节拍 SQL 的查询计划：不对 stories 全表扫描，版本判断由表达式索引回答。
 // 使用隔离的 SQLite 与受控提供方；暂停的故事不派发任何生成任务。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,makePlan,selection} from './fixtures/production.mjs';
-import {ReaderRepository} from '../lib/reader-repository.ts';
+import {ReaderRepository,supersededSql} from '../lib/reader-repository.ts';
 import {ReaderProductionCoordinator,productionRevisionSql} from '../server/reader-production.ts';
 
+// 无 ANALYZE 统计时查询计划只取决于表结构和 SQLite 版本，断言稳定；裸 SCAN 表示沿溢出页读取整行。
+const fullScan=detail=>/^SCAN (stories|s|p|newer)$/.test(detail.trim());
 const original={title:'庄周梦蝶',text:'庄周梦为胡蝶。',url:'https://example.com',kind:'passage',provider:'fixture',retrievedAt:new Date().toISOString()};
 
 // 记录每条查询返回的行，用于判断节拍是否把故事全文读入 JavaScript。
 function recording(database){
  const log=[];
  const statement=(inner,sql)=>new Proxy(inner,{get(target,key){
-  if(key==='bind')return(...values)=>statement(target.bind(...values),sql);
+  if(key==='bind')return(...values)=>{log.push({sql,values,rows:[]});return statement(target.bind(...values),sql);};
   if(key==='first')return async()=>{const row=await target.first();log.push({sql,rows:row?[row]:[]});return row;};
   if(key==='all')return async()=>{const result=await target.all();log.push({sql,rows:result.results});return result;};
   const value=target[key];return typeof value==='function'?value.bind(target):value;
@@ -121,4 +124,25 @@ test('未变化的故事不再读取全文；局部写入、任务数变化、�
  assert.deepEqual(restarted.recorder.fullReads(),new Set([a,b,c]));
  restarted.recorder.reset();await restarted.coordinator.tick();
  assert.equal(restarted.recorder.fullReads().size,0);
+});
+
+test('一个节拍执行的故事查询都不全表扫描 stories，版本判断使用表达式索引',async t=>{
+ const {database,repo,owner,ids:[a,b,c],coordinatorFor,enqueue}=await library(t);
+ const background=crypto.randomUUID();await repo.create(background,owner,selection);
+ await database.prepare("UPDATE stories SET document=?,generation_mode='background',generation_control='active' WHERE id=?").bind(JSON.stringify({plan:makePlan(3),original,images:[],audio:[],usage:[]}),background).run();
+ await database.prepare("UPDATE stories SET state='completed',generation_control='active',document=json_set(document,'$.revision',json('{\"landscapeRedraw\":[]}')) WHERE id=?").bind(a).run();
+ const {coordinator,recorder}=await coordinatorFor();coordinator.graph=async()=>{};
+ for(const id of [b,c])await enqueue(coordinator,id,'job-'+id);
+ await database.prepare('INSERT INTO production_demand(session_id,owner_id,viewer_id,page,through_page,expires_at,runtime_id) VALUES(?,?,?,?,?,?,?)')
+  .bind(c,owner,'viewer',0,2,Date.now()+3600000,coordinator.runtimeId).run();
+ await coordinator.tick();recorder.reset();await coordinator.tick();
+ const statements=new Map();
+ for(const entry of recorder.log)if(/\bstories\b/.test(entry.sql)&&(entry.values||!statements.has(entry.sql)))statements.set(entry.sql,entry.values||statements.get(entry.sql)||[]);
+ assert.ok(statements.size>=8,'节拍应执行多条故事查询');
+ for(const [sql,values] of statements){
+  const plan=(await database.prepare('EXPLAIN QUERY PLAN '+sql).bind(...values).all()).results.map(row=>row.detail);
+  assert.ok(!plan.some(fullScan),sql.replace(/\s+/g,' ').slice(0,160)+' → '+plan.join(' | '));
+ }
+ const superseded=(await database.prepare(`EXPLAIN QUERY PLAN SELECT id FROM stories WHERE id=? AND user_id=? AND ${supersededSql()}`).bind(b,owner).all()).results.map(row=>row.detail).join(' | ');
+ assert.match(superseded,/newer .*USING COVERING INDEX stories_family/,superseded);
 });

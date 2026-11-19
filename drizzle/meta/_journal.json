@@ -162,6 +162,13 @@
       "when": 1793880000022,
       "tag": "0022_story_content_revisions",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1793880000023,
+      "tag": "0023_story_scan_indexes",
+      "breakpoints": true
     }
   ]
 }

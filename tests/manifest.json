@@ -2328,12 +2328,13 @@
       "covers": [
         "db/schema.ts",
         "drizzle/0022_story_content_revisions.sql",
+        "drizzle/0023_story_scan_indexes.sql",
         "lib/reader-repository.ts",
         "server/reader-production.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/production.mjs",
-        "tests/fixtures/production-data.mjs"
+        "tests/fixtures/production-data.mjs",
+        "tests/fixtures/production.mjs"
       ]
     },
     {
