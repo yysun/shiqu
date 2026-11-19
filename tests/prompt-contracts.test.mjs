@@ -155,15 +155,20 @@ test('all providers send the same stage-specific instructions, data and strict o
  for(const stage of ['frame-review','review','review-candidates'])assert.match(get(stage).instructions,/若原文写出了决定性后果，分镜却停在发令、决定或预告/,stage);
  for(const stage of ['review','review-candidates']){
   const {instructions}=get(stage);
-  assert.match(instructions,/再验证所选结语是否准确提炼了其中一层/,stage);
+  assert.match(instructions,/先独立从原文确定本篇有据的含义，再验证所选结语/,stage);
+  assert.match(instructions,/长篇选段同样做连读与换故事检验/,stage);
   assert.match(instructions,/须报告page=0、category=reflection，指出结语遗漏或误读了哪一层/,stage);
  }
+ assert.match(get('review-candidates').instructions,/reason点出原文的具体细节、这句从中得出的认识/);
+ assert.match(get('candidates').instructions,/为每个候选[^。]+通过连读与换故事检验后再成句/);
+ assert.match(get('reflection-repair').instructions,/复述或套话则从决定性细节重新推导/);
  for(const stage of ['candidates','review','review-candidates'])assert.equal(occurrences(get(stage).instructions,titleDirection),1,stage);
  for(const stage of ['candidates','reflection','reflection-repair','review','review-candidates']){
   const {instructions,payload}=get(stage);
   assert.equal(occurrences(instructions,reflectionMeaningDirection),1,stage);
-  assert.match(instructions,/长篇小说选段[^：]*：用一句话收束本段结局/,stage);
+  assert.match(instructions,/长篇小说选段[^：]*：用一句话收束本段结局，写出关键行动[^。]+意味着什么/,stage);
   assert.match(instructions,/独立短篇[^：]*：从关键言行与结果的反差深挖/,stage);
+  assert.match(instructions,/换故事检验：[^。]+本篇哪处关键事实/,stage);
   assert.equal(payload.book,stage.startsWith('review')?selection.bookId:'庄子',stage);
  }
  for(const stage of ['draft','outline','batch','batch-later','reflection','reflection-repair','repair'])assert.equal(occurrences(get(stage).instructions,titleDirection),0,stage);

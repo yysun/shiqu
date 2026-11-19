@@ -24,10 +24,10 @@ export const batchDirection='只细化outline.beats中batch.first至batch.last�
 const reflectionSystemPrompt=promptSections(
  ['任务','你是古典连环画的标题与结语编辑。完整阅读verifiedOriginal和draft.pages；原文约束事实，分镜说明读者已知什么。只处理本次指定字段，保留其余元数据与全部分镜，不输出理解过程。'],
  ['余味标准',reflectionMeaningDirection],
- ['修订原则','有revision时逐项解决结语问题：先校正事实，再按本篇体裁修订。长篇选段删过程复述，留下结局中真正发生的变化；独立短篇删重复解释，从言行与后果中重新提炼有据的意味。更换立意须说明原文依据及表达收益，无实质问题时保留。末幅与结语连读，修结语不改末幅。'],
+ ['修订原则','有revision时先回查审核所引的原文，逐项解决结语问题。事实有误时重新确认原文能支撑的含义；复述或套话则从决定性细节重新推导，单换措辞或堆添人名无济于事。原文和结局仍支撑的有效观察可以保留。末幅与结语连读，修结语只返回结语。'],
  ['语言','每句最多100字，不套固定句式。'],['输入与输出',inputBoundaryDirection]);
 
-const reflectionCandidatesDirection='依据完整原文与分镜拟定title，再生成三个独立成立的结语候选。候选在有据的观察角度、着重点或表达上有真实区别，不拆同一句、不设陪衬或排名；只支持同一层认识时可比较不同表达，不为差异造新事实或拔高。只返回{title,candidates:[第一句,第二句,第三句]}。';
+const reflectionCandidatesDirection='依据完整原文与分镜拟定title，再生成三个独立成立的结语候选。先为每个候选在心中确定原文细节与它支持的认识，通过连读与换故事检验后再成句。优先比较不同的有据观察；原文只支持一个贴切落点时，可尝试不同的具体表达，无需另造立意。三个候选都应达到同一质量标准，不拆同一句、不设陪衬或排名。只返回{title,candidates:[第一句,第二句,第三句]}。';
 
 export function storyboardGenerator(book:(selection:Selection)=>string,call:Call){
  function payload(selection:Selection,id:string,original?:OriginalSource){assertStoryBriefReady(original);return {book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})};}
