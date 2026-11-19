@@ -1,12 +1,14 @@
 /* 手机阅读与桌面队列共享制作阶段语义；故事设置里的文字和链接共用紧凑行高。 */
 /* 操作留在所属步骤，成组右对齐。 */
 ol.production-timeline{list-style:none;padding:0;margin:0;display:grid;gap:5px;text-align:left}
-.production-timeline>li{display:flex;align-items:center;gap:10px;min-height:52px;padding:8px;border:1px solid transparent;border-radius:9px;font-size:12px;line-height:1.6;color:#718064}
+.production-timeline>li{display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:0;min-height:52px;padding:8px;border:1px solid transparent;border-radius:9px;font-size:12px;line-height:1.6;color:#718064}
 .production-stage-icon{display:grid;place-items:center;flex:none;width:24px;height:24px;border:1px solid #d3ddc7;border-radius:50%;font-family:system-ui,sans-serif;font-size:var(--yu-meta-size)}
-.production-stage-copy{display:flex;flex:1;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
-.production-stage-copy>strong{font:inherit;font-weight:500}
-.production-stage-copy>small{font-size:var(--yu-meta-size);line-height:1.7;color:var(--yu-meta)}
-.production-stage-state{flex:none;font-size:var(--yu-meta-size);color:var(--yu-meta)}
+.production-stage-copy{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
+.production-stage-heading,.production-stage-summary{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:baseline;align-content:center;gap:0 var(--production-stage-column-gap,8px);min-width:0}
+.production-stage-heading>strong,.production-stage-summary>small{min-width:0;margin-inline-end:auto}
+.production-stage-heading>strong{font:inherit;font-weight:500}
+.production-stage-summary>small{font-size:var(--yu-meta-size);color:var(--yu-meta)}
+.production-stage-state{max-width:100%;font-size:var(--yu-meta-size);color:var(--yu-meta)}
 .production-stage-copy .story-flow-link{font-size:inherit}
 .production-timeline>li[data-state=done]{color:#536f42}
 .production-timeline>li[data-state=done] .production-stage-icon{background:#e3ecd9;border-color:#becfac}
@@ -18,16 +20,17 @@ ol.production-timeline{list-style:none;padding:0;margin:0;display:grid;gap:5px;t
 .production-stage-spin{animation:production-stage-turn 1.2s linear infinite}
 @keyframes production-stage-turn{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.production-stage-spin{animation:none}}
-@media(max-width:380px){.production-timeline>li{gap:8px;padding:7px}.production-stage-state{font-size:var(--yu-meta-size)}}
+@media(max-width:380px){.production-timeline>li{padding:7px}}
 
 /* Desktop cards keep seven milestones in one row and reserve detail for the active stage. */
 ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
-.production-timeline--horizontal>li{position:relative;flex-direction:column;justify-content:flex-start;gap:4px;min-width:0;min-height:0;padding:7px 2px;text-align:center;font-size:var(--yu-meta-size);line-height:1.4}
+.production-timeline--horizontal>li{position:relative;align-items:center;justify-content:flex-start;min-height:0;padding:7px 2px;text-align:center;font-size:var(--yu-meta-size);line-height:1.4}
 .production-timeline--horizontal .production-stage-icon{width:22px;height:22px;position:relative;z-index:1}
-.production-timeline--horizontal .production-stage-copy{flex:none;gap:0;width:100%}
-.production-timeline--horizontal .production-stage-copy>strong{display:flex;align-items:center;justify-content:center;min-height:1.4em}
-.production-timeline--horizontal .production-stage-copy>small{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.production-timeline--horizontal .production-stage-state{font-size:var(--yu-meta-size);line-height:1.4;overflow-wrap:anywhere}
+.production-timeline--horizontal .production-stage-copy{width:100%;gap:0}
+.production-timeline--horizontal .production-stage-heading{flex-direction:column;align-items:center;row-gap:4px}
+.production-timeline--horizontal .production-stage-heading>strong{display:flex;align-items:center;justify-content:center;min-height:1.4em;margin:0}
+.production-timeline--horizontal .production-stage-summary{justify-content:center}
+.production-timeline--horizontal .production-stage-summary>small{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .production-timeline--horizontal>li[data-state=current] .production-stage-icon{background:#436442;border-color:#436442;color:#fffdf5}
 .production-timeline--horizontal>li[data-state=current] strong,.production-timeline--horizontal>li[data-state=current] .production-stage-state{font-weight:600;color:#35583e}
 .production-timeline--horizontal>li[data-state=failed] .production-stage-icon{background:#855e43;border-color:#855e43;color:#fffdf5}
@@ -35,16 +38,26 @@ ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr))
 .production-stage-current>strong{font-weight:600;color:#35583e}
 .production-stage-current[data-state=failed],.production-stage-current[data-state=failed]>strong{color:#855e43}
 
-@media(max-width:1100px){.production-timeline--horizontal .production-stage-copy>strong{min-height:2.8em}}
+@media(max-width:1100px){.production-timeline--horizontal .production-stage-heading>strong{min-height:2.8em}}
 
 .production-review-loop{margin:10px 0 0;color:var(--yu-meta);font-size:var(--yu-meta-size);line-height:1.8}
 
 /* Errors and their next actions stay beneath the owning checkpoint, outside navigation buttons. */
-.production-timeline>li.has-stage-content{flex-wrap:wrap}.production-stage-notice{display:grid;gap:8px;flex-basis:calc(100% - 34px);min-width:0;margin-left:34px;line-height:1.7}.production-acceptance-notice>strong{font-weight:600}.production-acceptance-notice>p{margin:6px 0}
+.production-stage-notice{display:grid;gap:8px;min-width:0;line-height:1.7}.production-acceptance-notice>strong{font-weight:600}.production-acceptance-notice>p{margin:6px 0}
 
 .production-stage-notice .yu-retry-control{margin:0}.production-stage-notice .yu-review-tools.has-issues{padding:0;border:0;background:none}.production-stage-notice .yu-review-tools{margin:8px 0}.production-stage-notice .yu-batch-error{margin:8px 0}.production-stage-notice>.yu-primary{margin-top:10px}
 .production-stage-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:baseline;gap:4px 12px;min-width:0}
-.production-stage-notice .story-flow-link,.production-stage-meta .story-flow-link{justify-content:flex-end;text-align:right}
+.production-stage-actions--settings{container:production-settings / inline-size;flex-wrap:nowrap;column-gap:clamp(2px,calc((100% - 208px)/12),12px)}
+.production-stage-actions--settings>.story-flow-link{min-width:max(44px,4em);white-space:nowrap}
+/* 窄窗口缩短字段名，四个选项和完整当前值共用一行。 */
+@container production-settings (width < 276px){
+ .production-setting-narrative-prefix{display:none}
+}
+@container production-settings (width < 248px){
+ .production-setting-style-prefix{display:none}
+}
+.production-stage-heading>.production-stage-actions{max-width:100%;column-gap:var(--production-stage-column-gap,8px)}
+.production-stage-notice .story-flow-link,.production-stage-heading>.production-stage-actions .story-flow-link{justify-content:flex-end;text-align:right}
 .production-stage-notice>.story-flow-link{justify-self:end}
 .production-stage-notice .yu-revision-buttons,.production-stage-notice .yu-revision-conflict,.production-stage-notice .yu-review-inspect{justify-content:flex-end}
 .production-stage-notice :is(.yu-revision-conflict-note,.yu-review-repair,.yu-review-skip)>.story-flow-link{justify-self:end}
@@ -59,36 +72,26 @@ ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr))
 .yu-recovery-detail{font-size:var(--yu-meta-size);color:#718064}.yu-recovery-detail>summary{cursor:pointer;text-decoration:underline;text-underline-offset:3px}.yu-recovery-detail[open]{flex-basis:100%}.yu-recovery-detail>p{margin:6px 0 0;overflow-wrap:anywhere}
 .production-stage-notice .yu-retry-control>button{margin-top:8px}
 
-/* Finished checkpoints retain two-line content with tighter spacing and right-aligned timing. */
-.production-timeline:not(.production-timeline--horizontal)>li.production-stage-complete{min-height:0;padding:5px 8px 5px 42px;gap:4px 12px;align-items:flex-end}
-.production-stage-complete>.production-stage-copy{flex-direction:column;align-items:flex-start;gap:0;line-height:1.4}
-.production-stage-complete>.production-stage-copy>small{line-height:1.4}
-.production-stage-details{display:contents}
-.production-stage-meta{display:flex;flex-direction:column;align-items:flex-end;align-self:flex-end;flex:none;gap:2px;max-width:55%;margin-left:auto;text-align:right}
-.production-stage-meta .production-stage-timing{justify-content:flex-end}
-.production-stage-meta .story-flow-link{font-size:var(--yu-meta-size)}
-.production-stage-complete>.production-stage-meta .production-stage-timing{line-height:1.4}
-.production-timeline--horizontal .production-stage-meta{align-items:center;align-self:center;max-width:100%;margin-left:0}
-.production-stage-complete>.production-stage-notice{flex-basis:100%;margin-left:0}
 .production-stage-notice:empty{display:none}
-.production-stage-complete .production-stage-copy .story-flow-link{padding:0}
 
 /* Each segment runs from one icon's bottom to the next icon's top, including expanded steps. */
 ol.production-timeline:not(.production-timeline--horizontal){--production-step-gap:12px;--production-icon-size:24px;--production-icon-top:8px;padding-left:0;row-gap:var(--production-step-gap)}
 .production-timeline:not(.production-timeline--horizontal)>li{position:relative;padding-left:42px}
 .production-timeline:not(.production-timeline--horizontal)>li>.production-stage-icon{box-sizing:border-box;position:absolute;left:8px;top:var(--production-icon-top);width:var(--production-icon-size);height:var(--production-icon-size)}
 .production-timeline:not(.production-timeline--horizontal)>li:not(:last-child)::after{content:'';position:absolute;left:calc(8px + var(--production-icon-size)/2);top:calc(var(--production-icon-top) + var(--production-icon-size));width:1px;height:calc(100% + var(--production-step-gap) - var(--production-icon-size) + 2px);transform:translateX(-50%);background:#cbd7bf;pointer-events:none}
-.production-timeline:not(.production-timeline--horizontal)>li>.production-stage-notice{flex-basis:100%;margin-left:0}
-
-/* 故事设置的所有步骤共用标题行、详情行和操作行；完成状态不再另设缩进与行高。 */
-.yu-settings-flow .production-timeline:not(.production-timeline--horizontal){--production-step-gap:4px;--production-icon-top:5px;--production-setting-row:26px}
-.yu-settings-flow .production-timeline:not(.production-timeline--horizontal)>li{display:grid;grid-template-columns:minmax(0,1fr) fit-content(45%);grid-auto-rows:minmax(var(--production-setting-row),auto);align-items:center;column-gap:12px;row-gap:0;min-height:0;margin-right:-8px;padding:4px 8px 4px 42px;line-height:1.6}
-.yu-settings-flow .production-stage-copy,.yu-settings-flow .production-stage-meta{display:contents}
-.yu-settings-flow .production-stage-copy>strong{grid-area:1/1;display:flex;align-items:center;line-height:1.6}
-.yu-settings-flow .production-stage-copy>small{grid-area:2/1;display:flex;align-items:center;line-height:1.6}
-.yu-settings-flow .production-stage-state{grid-area:1/2;display:flex;align-items:center;justify-self:end}
-.yu-settings-flow .production-stage-details{grid-area:2/2;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:0 8px;min-width:0;text-align:right}
-.yu-settings-flow .production-stage-notice:not(:empty){grid-area:3/1/auto/-1;display:flex;flex-wrap:wrap;align-items:center;gap:0 12px}
+/* 故事设置共用标题、说明和反馈的行距。空行不占位，文字和链接按可用宽度自然换行。 */
+.yu-settings-flow .production-timeline:not(.production-timeline--horizontal){
+ container:story-production / inline-size;--production-step-gap:4px;--production-icon-top:5px;--production-setting-row:26px;
+ &>li{gap:0;min-height:0;margin-right:-8px;padding:4px 8px 4px 42px}
+ & .production-stage-copy{gap:0}
+ & .production-stage-heading>strong{display:flex;align-items:center;min-height:var(--production-setting-row)}
+ & .production-stage-summary{min-height:var(--production-setting-row)}
+ & .production-stage-summary>small{text-wrap:pretty}
+}
+@container story-production (width <= 260px){
+ .yu-settings-flow .production-timeline:not(.production-timeline--horizontal)>li{--production-stage-column-gap:4px;padding-inline:38px 6px}
+}
+.yu-settings-flow .production-stage-notice:not(:empty){display:flex;flex-wrap:wrap;align-items:center;gap:0 12px}
 .yu-settings-flow :is(.production-stage-actions,.yu-review-inspect,.production-stage-footer,.yu-retry-actions){row-gap:0}
 .yu-settings-flow .yu-review-inspect{flex-direction:row}
 .yu-settings-flow .production-stage-notice>*{flex-basis:100%}

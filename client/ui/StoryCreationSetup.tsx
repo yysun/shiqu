@@ -94,11 +94,11 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   </>,count:<>
    {!editing&&remoteChoice}
    {error&&<p className="yu-batch-error" role="alert">{error}</p>}
-   {editable&&<div className="production-stage-actions" role="group" aria-label="制作设置">
+   {editable&&<div className="production-stage-actions production-stage-actions--settings" role="group" aria-label="制作设置">
     <StoryFlowAction disabled={locked} onClick={()=>setEditing('requirements')}>制作要求</StoryFlowAction>
     <StoryFlowAction disabled={locked} onClick={()=>setEditing('acceptance')}>验收要求</StoryFlowAction>
-    <StoryFlowAction disabled={locked} aria-label="修改画风" onClick={()=>setEditing('style')}>画风：{artStyleLabel}</StoryFlowAction>
-    <StoryFlowAction disabled={locked} aria-label="修改叙事详略" onClick={()=>setEditing('count')}>叙事详略：{narrativeLabel}</StoryFlowAction>
+    <StoryFlowAction disabled={locked} aria-label={`修改画风，当前${artStyleLabel}`} onClick={()=>setEditing('style')}><span><span className="production-setting-style-prefix">画风·</span>{artStyleLabel}</span></StoryFlowAction>
+    <StoryFlowAction disabled={locked} aria-label={`修改叙事详略，当前${narrativeLabel}`} onClick={()=>setEditing('count')}><span><span className="production-setting-narrative-prefix">叙事</span>详略·{narrativeLabel}</span></StoryFlowAction>
    </div>}
    {ready&&<StoryFlowAction disabled={busy||remote||session.state==='running'} onClick={()=>void act({action:'confirm',settings,draftToken:baselineToken.current})}>{busy?'正在保存…':'开始制作'}</StoryFlowAction>}
   </>}}/>

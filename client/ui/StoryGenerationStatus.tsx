@@ -36,7 +36,7 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
  const paused=!!session.generationControl&&session.generationControl!=='active';
  const generationControl=control===undefined?(paused||!failed?<StoryGenerationControl session={session} busy={controlBusy} onControl={onControl} primary={paused} link/>:null):control;
  const steps=draft?revisionDraftSteps(draft.base,draft.changes,progress.steps):stages||progress.steps;
- const displayedSteps=onEditStyle?steps.map(step=>step.id==='count'&&step.label==='叙事详略与篇幅'?{...step,label:'叙事详略、篇幅与画风'}:step):steps;
+ const displayedSteps=onEditStyle?steps.map(step=>step.id==='count'&&step.label==='叙事详略与篇幅'?{...step,label:'制作设置'}:step):steps;
  const content={...stageContent};
  const {source,...flowNavigation}=navigation||{};
  const sourceLinks=source?[{...source,label:'查看原文'},...(timeline?.links?.source||[])]:timeline?.links?.source;
