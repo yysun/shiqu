@@ -7,8 +7,8 @@ import {productionFixture,makePlan,selection} from './fixtures/production.mjs';
 import {ReaderRepository,supersededSql} from '../lib/reader-repository.ts';
 import {ReaderProductionCoordinator,productionRevisionSql} from '../server/reader-production.ts';
 
-// 无 ANALYZE 统计时查询计划只取决于表结构和 SQLite 版本，断言稳定；裸 SCAN 表示沿溢出页读取整行。
-const fullScan=detail=>/^SCAN (stories|s|p|newer)$/.test(detail.trim());
+// 无 ANALYZE 统计时查询计划只取决于表结构和 SQLite 版本，断言稳定；全表扫描或非覆盖的全索引扫描都会逐行读取故事。
+const fullScan=detail=>/^SCAN (stories|s|newer)( USING INDEX .*)?$/.test(detail.trim());
 const original={title:'庄周梦蝶',text:'庄周梦为胡蝶。',url:'https://example.com',kind:'passage',provider:'fixture',retrievedAt:new Date().toISOString()};
 
 // 记录每条查询返回的行，用于判断节拍是否把故事全文读入 JavaScript。
