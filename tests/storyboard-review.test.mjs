@@ -15,10 +15,13 @@ for(const provider of flowProviders(['codex','gemini']))test(`${provider}: revie
  const hold=new Promise(r=>release=r),ready=new Promise(r=>started=r);
  f.control.beforeText=async kind=>{if(kind==='review'){started();await hold;}};
  await f.demand(id);await ready;
- assert.equal(f.control.calls.length,0);const pending=await document(f,id);assert.equal(pending.plan.pages.length,8);assert.equal(pending.visualReview.status,'pending');
- const jobs=await f.app.services.production.queue.jobs(id,owner);assert.ok(jobs.some(j=>j.kind==='script'&&JSON.parse(j.payload).stepKey==='review:0'&&j.state==='running'));assert.ok(jobs.every(j=>j.kind!=='image'));
- await assert.rejects(f.app.services.production.image({session_id:id,owner_id:owner,payload:JSON.stringify({page:0})}),/尚未通过审片/);
- release();await until(()=>f.control.calls.length===1);
+ // 断言失败时也要放行审片，否则夹具清理会一直等待进行中的审片任务。
+ try{
+  assert.equal(f.control.calls.length,0);const pending=await document(f,id);assert.equal(pending.plan.pages.length,8);assert.equal(pending.visualReview.status,'pending');
+  const jobs=await f.app.services.production.queue.jobs(id,owner);assert.ok(jobs.some(j=>j.kind==='script'&&JSON.parse(j.payload).stepKey==='review:0'&&j.state==='running'));assert.ok(jobs.every(j=>j.kind!=='image'));
+  await assert.rejects(f.app.services.production.image({session_id:id,owner_id:owner,payload:JSON.stringify({page:0})}),{status:409,message:/分镜尚未准备完成/});
+ }finally{release();}
+ await until(()=>f.control.calls.length===1);
  assert.equal((await document(f,id)).visualReview.status,'passed');assert.equal(f.control.reviews.length,1);
 });
 
