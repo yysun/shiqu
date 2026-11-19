@@ -2310,6 +2310,33 @@
       "manualOnly": true
     },
     {
+      "file": "tests/production-tick-scope.test.mjs",
+      "groups": [
+        "production",
+        "storage"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "flows",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "db/schema.ts",
+        "drizzle/0022_story_content_revisions.sql",
+        "lib/reader-repository.ts",
+        "server/reader-production.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs"
+      ]
+    },
+    {
       "file": "tests/production-queue.test.mjs",
       "groups": [
         "production"

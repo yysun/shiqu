@@ -9,6 +9,7 @@
 // story lock it stops when no longer wanted, and
 // its failures stay with the search unless a stop interrupted the call.
 // Only current image inputs may publish; their paid receipt can replace a stale version's slot.
+// 节拍中的完成检查、过期任务清理和任务图重建先查覆盖索引与内容修订号，只读取上次检查后有变化的故事全文。
 import {generationProgress} from '../lib/generation-progress.ts';
 import {productionTimingScope,productionStageDurations} from '../lib/production-timing.ts';
 import {BookImageReferences} from './book-image-reference.ts';
@@ -43,8 +44,22 @@ import type {FaultView,RecoveryRequest} from '../lib/reader-recovery.ts';
 type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;through_page:number;expires_at:number;runtime_id:string};
 type Lease={ownerId:string;token:string};
 type ActiveSearch={round:number;controller:AbortController;startedAt:number;progress?:SuggestionProgress};
-type RebuildKey={document:string;selection:string;state:string;demands:string};
-type PruneKey={document:string;selection:string;queued:number;failed:number};
+type RebuildKey={rev:number;state:string;demands:string};
+type PruneKey={rev:number;queued:number;failed:number};
+type StoryRevision={id:string;user_id:string;rev:number};
+const activeFaults="NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=s.id AND f.owner_id=s.user_id AND f.state IN ('pending','recovering'))";
+const revisionJoin='stories s INDEXED BY stories_production_scan LEFT JOIN story_revisions r ON r.story_id=s.id';
+// 节拍的轻量查询只读覆盖索引和修订表；INDEXED BY 防止规划器改用主键索引后回表读取大行，索引缺失时直接报错。
+export const productionRevisionSql={
+ settle:`SELECT s.id,s.user_id,COALESCE(r.rev,0) AS rev FROM ${revisionJoin} WHERE s.state='idle' AND ${activeFaults}`,
+ prune:`SELECT s.id,s.user_id,COALESCE(r.rev,0) AS rev,j.queued_count,j.failed_count FROM (
+  SELECT session_id,owner_id,COUNT(CASE WHEN state='queued' THEN 1 END) AS queued_count,COUNT(CASE WHEN state='failed' THEN 1 END) AS failed_count
+  FROM production_jobs WHERE state IN('queued','failed') GROUP BY session_id,owner_id
+ ) j JOIN stories s INDEXED BY stories_production_scan ON s.id=j.session_id AND s.user_id=j.owner_id LEFT JOIN story_revisions r ON r.story_id=s.id`,
+ rebuild:`SELECT s.id,s.user_id,s.state,COALESCE(r.rev,0) AS rev FROM ${revisionJoin}
+  WHERE s.id IN (SELECT value FROM json_each(?)) AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)`,
+};
+const isObject=(value:unknown)=>typeof value==='object'&&value!==null&&!Array.isArray(value);
 export type ProductionOptions={imageWorkers?:number;now?:()=>number;leaseMs?:number;tickMs?:number;autoStart?:boolean;targetSessionId?:string;stopBeforeImages?:boolean};
 type Options=ProductionOptions;
 const sessionLeaseMs=180000;
@@ -85,6 +100,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private readonly parsedRows=new Map<string,{document:string;selection:string;parsed:{doc:Document;selection:Selection}|null}>();
  private readonly rebuildKeys=new Map<string,RebuildKey>();
  private readonly pruneKeys=new Map<string,PruneKey>();
+ private readonly settledRevisions=new Map<string,number>();
  private supersededJobs=new Set<string>();
  private database:Database;
  private provider:ReaderProvider;
@@ -699,16 +715,17 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  // Superseded work can never run again, so it should stop costing every scheduling pass.
  // Covers every story, including those no viewer or background intent is scheduling right now.
  private async pruneSuperseded(forceId?:string){
-  const candidates=(await this.database.prepare(`SELECT s.*,j.queued_count,j.failed_count FROM (
-   SELECT session_id,owner_id,COUNT(CASE WHEN state='queued' THEN 1 END) AS queued_count,COUNT(CASE WHEN state='failed' THEN 1 END) AS failed_count
-   FROM production_jobs WHERE state IN('queued','failed') GROUP BY session_id,owner_id
-   ) j JOIN stories s ON s.id=j.session_id AND s.user_id=j.owner_id`).all<SessionRow&{queued_count:number;failed_count:number}>()).results;
+  const candidates=(await this.database.prepare(productionRevisionSql.prune).all<StoryRevision&{queued_count:number;failed_count:number}>()).results;
   const seen=new Set<string>();
-  for(const row of candidates){
-   if(this.options.targetSessionId&&row.id!==this.options.targetSessionId)continue;
-   seen.add(row.id);
-   const key={document:row.document,selection:row.selection,queued:row.queued_count,failed:row.failed_count},previous=this.pruneKeys.get(row.id);
-   if(forceId!==row.id&&previous?.document===key.document&&previous.selection===key.selection&&previous.queued===key.queued&&previous.failed===key.failed||!this.readable(row))continue;
+  for(const candidate of candidates){
+   if(this.options.targetSessionId&&candidate.id!==this.options.targetSessionId)continue;
+   seen.add(candidate.id);
+   // 修订号与计数都未变时结论不变；只有变化或被指定时才读取全文。
+   const key={rev:candidate.rev,queued:candidate.queued_count,failed:candidate.failed_count},previous=this.pruneKeys.get(candidate.id);
+   if(forceId!==candidate.id&&previous?.rev===key.rev&&previous.queued===key.queued&&previous.failed===key.failed)continue;
+   const row=await this.find(candidate.id,candidate.user_id);
+   if(!row)continue;
+   if(!this.readable(row)){this.pruneKeys.set(row.id,key);continue;}
    await this.database.prepare(`DELETE FROM production_jobs WHERE session_id=? AND owner_id=? AND kind!='landscape-image' AND state IN('queued','failed') AND EXISTS(SELECT 1 FROM stories s WHERE s.id=production_jobs.session_id AND s.user_id=production_jobs.owner_id
    AND CASE WHEN json_valid(s.document) AND json_type(s.document,'$.intake')='object' THEN
     CASE WHEN production_jobs.kind='discover'
@@ -847,12 +864,21 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async settleHealthyCheckpoints(){
   // Local completion is independent of generation permission or a viewer. A crash after a saved
   // checkpoint cannot leave a healthy paused story waiting for an unrelated Resume command.
-  const rows=(await this.database.prepare("SELECT * FROM stories WHERE state='idle' AND json_valid(document) AND json_type(document,'$.plan')='object' AND json_type(document,'$.original')='object' AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=stories.id AND f.owner_id=stories.user_id AND f.state IN ('pending','recovering'))").all<SessionRow>()).results;
-  for(const row of rows){
-   if(this.options.targetSessionId&&row.id!==this.options.targetSessionId)continue;
-   if(!this.readable(row)||!productionComplete(JSON.parse(row.document) as Document,selectionSchema.parse(JSON.parse(row.selection))))continue;
+  // 完成与否只取决于内容，修订号未变的故事沿用上次结论；重启后记录为空，首个节拍完整检查。
+  const candidates=(await this.database.prepare(productionRevisionSql.settle).all<StoryRevision>()).results,seen=new Set<string>();
+  for(const candidate of candidates){
+   if(this.options.targetSessionId&&candidate.id!==this.options.targetSessionId)continue;
+   seen.add(candidate.id);
+   if(this.settledRevisions.get(candidate.id)===candidate.rev)continue;
+   const row=await this.database.prepare(`SELECT * FROM stories s WHERE s.id=? AND s.user_id=? AND s.state='idle' AND ${activeFaults}`).bind(candidate.id,candidate.user_id).first<SessionRow>();
+   // 两次读取之间状态已变：不记录，留待下个节拍按新状态判断。
+   if(!row)continue;
+   const parsed=this.parsed(row);
+   if(!parsed||!isObject(parsed.doc.plan)||!isObject(parsed.doc.original)||!productionComplete(parsed.doc,parsed.selection)){this.settledRevisions.set(row.id,candidate.rev);continue;}
+   // 标记完成未生效时不记录，下个节拍重试。
    await this.database.prepare("UPDATE stories SET state='completed',error=NULL WHERE id=? AND user_id=? AND state='idle' AND document=? AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=stories.id AND f.owner_id=stories.user_id AND f.state IN ('pending','recovering'))").bind(row.id,row.user_id,row.document).run();
   }
+  for(const id of this.settledRevisions.keys())if(!seen.has(id))this.settledRevisions.delete(id);
  }
  private async cycle(){
   await this.database.prepare('DELETE FROM production_demand WHERE expires_at<=?'+(this.options.targetSessionId?' AND session_id=?':'')).bind(this.clock(),...(this.options.targetSessionId?[this.options.targetSessionId]:[])).run();
@@ -880,12 +906,19 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   await this.settleHealthyCheckpoints();
   const demands=await this.demands(),seen=new Set<string>();
+  const demanded=[...new Set(demands.map(demand=>demand.session_id))];
+  const revisions=new Map(demanded.length?(await this.database.prepare(productionRevisionSql.rebuild).bind(JSON.stringify(demanded)).all<StoryRevision&{state:string}>()).results.map(story=>[story.id,story]):[]);
   for(const demand of demands)if(!seen.has(demand.session_id)){
    seen.add(demand.session_id);
+   // 已删除或不属于该用户的故事不在轻量结果中，与按 id 读取得到 404 时一样跳过。
+   const story=revisions.get(demand.session_id);
+   if(!story||story.user_id!==demand.owner_id)continue;
+   const key={rev:story.rev,state:story.state,demands:JSON.stringify(demands.filter(d=>d.session_id===story.id&&d.owner_id===story.user_id).map(d=>[d.viewer_id,d.page,d.through_page]).sort())},previous=this.rebuildKeys.get(story.id);
+   if(previous?.rev===key.rev&&previous.state===key.state&&previous.demands===key.demands)continue;
    try{
-    const row=await this.repository.get(demand.session_id,demand.owner_id);
-    const key={document:row.document,selection:row.selection,state:row.state,demands:JSON.stringify(demands.filter(d=>d.session_id===row.id&&d.owner_id===row.user_id).map(d=>[d.viewer_id,d.page,d.through_page]).sort())},previous=this.rebuildKeys.get(row.id);
-    if(this.readable(row)&&!(previous?.document===key.document&&previous.selection===key.selection&&previous.state===key.state&&previous.demands===key.demands)){await this.graph(row);this.rebuildKeys.set(row.id,key);}
+    const row=await this.repository.get(story.id,story.user_id);
+    if(this.readable(row))await this.graph(row);
+    this.rebuildKeys.set(row.id,{...key,state:row.state});
    }catch(error){if(!(error instanceof ReaderError&&error.status===404))throw error;}
   }
   for(const id of this.rebuildKeys.keys())if(!seen.has(id))this.rebuildKeys.delete(id);
