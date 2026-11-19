@@ -42,7 +42,8 @@ async function legacyLibrary(t){
  const legacy={
   parent:{plan,original,images:[''],audio:[],usage:[entry('plan',records.plan),entry('summary',null),entry('review:0',records.review,{reasoningEffort:'high'}),entry('image:0',records.image)]},
   child:{plan,original,images:[''],audio:[],usage:[entry('plan',records.plan,{originId:ids.parent}),entry('review:0',records.review,{originId:ids.parent}),entry('review:1',records.review)]},
-  plain:{plan,original,images:[''],audio:[],usage:[entry('plan',null)]},
+  // 非对象项（例如字符串）不得阻止迁移，原样保留。
+  plain:{plan,original,images:[''],audio:[],usage:[entry('plan',null),'legacy-text']},
  };
  const db=open(f);t.after(()=>db.close());
  // 直接写库，模拟旧版应用写入的内嵌记录；不经过写入点。
@@ -62,7 +63,7 @@ test('迁移按内容去重移出内嵌记录，接口输出、更新时间和�
  const rows=db.prepare('SELECT id,document,updated_at FROM stories').all(),byId=new Map(rows.map(row=>[row.id,row]));
  for(const key of ['parent','child','plain']){
   const doc=JSON.parse(byId.get(ids[key]).document);
-  assert.ok(doc.usage.every(item=>!('promptRecord' in item)));
+  assert.ok(doc.usage.every(item=>typeof item!=='object'||!('promptRecord' in item)));
   assert.deepEqual(doc.usage.map(Object.keys),legacy[key].usage.map(item=>Object.keys(item).map(name=>name==='promptRecord'?'promptRecordId':name)),'引用替换在原位');
   assert.equal(byId.get(ids[key]).updated_at,'2026-01-02T00:00:00.000Z');
  }

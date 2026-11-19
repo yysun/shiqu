@@ -1,5 +1,6 @@
 // Project saved production checkpoints into read-only history. Missing historical evidence stays missing;
 // only a unique call from this version can establish ordering or restore an earlier frame.
+// 调用记录只含提示词引用时，由调用方传入已读取的记录。
 import type {Document,Plan,SessionRow} from './reader-model.ts';
 import {usageRecord} from './reader-prompt-records.ts';
 import type {PromptRecord} from './reader-prompt-records.ts';

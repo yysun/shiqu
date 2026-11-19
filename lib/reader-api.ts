@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 // Route reading, recovery and generation through the single local library.
+// 提示词与审校历史按引用从 prompt_records 读取全文。
 import {productionStageDurations} from './production-timing.ts';
 import {publicationSchema} from './story-publication.ts';
 import {draftInstructions} from './reader-generation-contract.ts';

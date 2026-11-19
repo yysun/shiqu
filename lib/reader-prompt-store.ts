@@ -25,14 +25,14 @@ export async function storePromptRecord(db:Database,record:PromptRecord){
 
 // 返回把内嵌记录换成引用的副本；没有内嵌记录时原样返回。
 export async function storePromptRecords(db:Database,doc:Document):Promise<Document>{
- if(!doc.usage?.some(entry=>entry.promptRecord))return doc;
+ if(!doc.usage?.some(entry=>entry?.promptRecord))return doc;
  const usage:UsageEntry[]=[];
- for(const entry of doc.usage)usage.push(entry.promptRecord?swapKey(entry,'promptRecord','promptRecordId',await storePromptRecord(db,entry.promptRecord)):entry);
+ for(const entry of doc.usage)usage.push(entry?.promptRecord?swapKey(entry,'promptRecord','promptRecordId',await storePromptRecord(db,entry.promptRecord)):entry);
  return {...doc,usage};
 }
 
 export async function loadPromptRecords(db:Database,usage:Document['usage']|undefined){
- const ids=[...new Set((usage||[]).flatMap(entry=>!entry.promptRecord&&entry.promptRecordId?[entry.promptRecordId]:[]))];
+ const ids=[...new Set((usage||[]).flatMap(entry=>!entry?.promptRecord&&entry?.promptRecordId?[entry.promptRecordId]:[]))];
  const records=new Map<string,PromptRecord>();
  if(!ids.length)return records;
  const rows=(await db.prepare('SELECT id,record FROM prompt_records WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(ids)).all<{id:string;record:string}>()).results;
@@ -44,5 +44,5 @@ export async function loadPromptRecords(db:Database,usage:Document['usage']|unde
 export async function resolvePromptRecords(db:Database,doc:Document):Promise<Document>{
  const records=await loadPromptRecords(db,doc.usage);
  if(!records.size)return doc;
- return {...doc,usage:doc.usage.map(entry=>!entry.promptRecord&&entry.promptRecordId&&records.has(entry.promptRecordId)?swapKey(entry,'promptRecordId','promptRecord',records.get(entry.promptRecordId)):entry)};
+ return {...doc,usage:doc.usage.map(entry=>!entry?.promptRecord&&entry?.promptRecordId&&records.has(entry.promptRecordId)?swapKey(entry,'promptRecordId','promptRecord',records.get(entry.promptRecordId)):entry)};
 }

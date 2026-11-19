@@ -1,6 +1,7 @@
 // Apply immutable migrations once each; callers stage files and own recovery before invoking hooks.
 // `through` limits historical fixtures and the consolidation stage; `after` keeps consolidated libraries
 // from re-running pre-consolidation hooks whose receipts are absent.
+// 0024 的代码钩子把内嵌提示词移入 prompt_records 并在同一事务内核对。
 import {readFileSync,readdirSync} from 'node:fs';
 import path from 'node:path';
 import type {DatabaseSync} from 'node:sqlite';

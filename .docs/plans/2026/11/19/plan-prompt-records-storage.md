@@ -73,3 +73,5 @@ flowchart LR
 - 实现：新增 `lib/reader-prompt-store.ts`（存取与原位互换）、`server/prompt-record-migration.ts`（迁移钩子与核对）、`drizzle/0024_prompt_records.sql`；`usageRecord` 放在无 Node 依赖的 `lib/reader-prompt-records.ts`，供客户端引用的审校历史模块使用。
 - 快照实测（应用 0023 后的副本运行 0024 钩子）：迁移 1.05 s；故事文档 4355 万 → 782 万字符（单篇平均 23.5 万 → 4.2 万）；记录 1623 行、2190 万字符（较内嵌 3590 万去重 39%）；185 篇逐篇比对提示词 0 差异；`reader_commands`、`reader_faults` 行数不变；`integrity_check` 通过；活动文件仍 117 MB（不 VACUUM），`VACUUM INTO` 备份 86 MB。重启首个节拍 105 ms / 1220 万字符 → 34 ms / 250 万字符。
 - 新测试 4/4；跨书库复制相关 3 项通过；typecheck、lint 通过。里程碑提交见 git 日志（TT 尚未运行）。
+- CR：迁移在非对象调用记录项上调用 `json_type` 会报错并阻止升级，改用 `CASE` 先判断类型；写入点容忍 `null` 项；补齐文件头。复核通过。
+- TT：`pnpm test:pr` 428/428；按需套件（审校历史、提示词导出、跨书库复制、制作流程、发布、意向、书架、状态机等）381 项通过、0 项因本次改动失败；原生 26/26；typecheck、lint 通过。`tests/storyboard-review.test.mjs` 的 `codex: review is a separate queued job and gates all drawing` 在本故事基线 `fbf3a17` 和本会话首个改动之前的 `069dd93` 上同样失败（无超时时会一直等待），为已有问题，不在本故事范围。

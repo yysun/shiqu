@@ -12,7 +12,8 @@ const isRecord=(value:unknown):value is PromptRecord=>typeof value==='object'&&v
 
 export function migratePromptRecords(sqlite:DatabaseSync,sql:string){
  sqlite.exec(sql);
- const inline="json_valid(document) AND json_type(document,'$.usage')='array' AND EXISTS(SELECT 1 FROM json_each(document,'$.usage') u WHERE json_type(u.value,'$.promptRecord')='object')";
+ const inline="json_valid(document) AND json_type(document,'$.usage')='array' AND EXISTS(SELECT 1 FROM json_each(document,'$.usage') u WHERE CASE WHEN u.type='object' THEN json_type(u.value,'$.promptRecord') END='object')";
+ // 只检查对象项：字符串等非对象项的 u.value 不是 JSON 文本，直接取路径会报错并阻止整次升级；用 CASE 保证先判断类型。
  // 先取 id 再逐篇读写，避免边遍历边改同一张表；一次只解析一篇文档。
  const ids=(sqlite.prepare(`SELECT id FROM stories WHERE ${inline}`).all() as {id:string}[]).map(row=>row.id);
  const read=sqlite.prepare('SELECT document FROM stories WHERE id=?'),update=sqlite.prepare('UPDATE stories SET document=? WHERE id=?');
@@ -36,6 +37,6 @@ export function migratePromptRecords(sqlite:DatabaseSync,sql:string){
  }
  const remaining=sqlite.prepare(`SELECT COUNT(*) AS n FROM stories WHERE ${inline}`).get() as {n:number};
  const dangling=sqlite.prepare(`SELECT COUNT(*) AS n FROM stories s,json_each(s.document,'$.usage') u WHERE json_valid(s.document) AND json_type(s.document,'$.usage')='array'
-  AND json_type(u.value,'$.promptRecordId')='text' AND NOT EXISTS(SELECT 1 FROM prompt_records p WHERE p.id=u.value->>'$.promptRecordId')`).get() as {n:number};
+  AND CASE WHEN u.type='object' THEN json_type(u.value,'$.promptRecordId') END='text' AND NOT EXISTS(SELECT 1 FROM prompt_records p WHERE p.id=u.value->>'$.promptRecordId')`).get() as {n:number};
  if(remaining.n||dangling.n)throw Error('PROMPT_RECORD_MIGRATION_INCOMPLETE');
 }
