@@ -41,6 +41,23 @@ test('another story replaces one family card, leaves history intact, rejects old
  const other={...body,requestId:crypto.randomUUID()};assert.equal((await f.request(`sessions/${id}/reselection/${s.id}`,'POST',other)).status,409);
  assert.equal((await f.json(`sessions/${id}/current`)).id,next.id);
 });
+test('changing book and theme discovers replacements on the draft before any version is promoted',async t=>{
+ const {f,id}=await fixture(t),before=await f.read(id),seen=[];
+ f.generation.suggestions=async selection=>{seen.push(selection);return structuredClone(candidates);};
+ const draft=await f.json(`sessions/${id}/reselection`,'POST',{requestId:crypto.randomUUID()});
+ assert.equal(seen.length,0);
+ const conditions={bookId:'other',customBook:'测试书',theme:'信义考验',discovery:{mode:'auto',themeInput:'preset'},productionPrompt:'保留因果'};
+ const action={action:'conditions',requestId:crypto.randomUUID(),generation:draft.intake.generation,conditions};
+ const staged=await f.json(`sessions/${draft.id}/setup`,'POST',action);
+ assert.equal(staged.intake.search.state,'searching');
+ assert.deepEqual((await f.json('sessions')).map(s=>s.id),[id]);
+ await f.demand(draft.id);await until(async()=>(await f.read(draft.id)).intake.batches.length>0);
+ assert.equal(seen[0].customBook,conditions.customBook);assert.equal(seen[0].theme,conditions.theme);
+ const saved=await f.read(draft.id),next=await choose(f,id,saved,{requestId:crypto.randomUUID(),batch:0,index:1,generation:saved.intake.generation});
+ assert.equal(next.selection.customBook,conditions.customBook);assert.equal(next.selection.theme,conditions.theme);
+ assert.equal(next.selection.productionPrompt,conditions.productionPrompt);
+ assert.deepEqual((await f.read(id)).story,before.story);
+});
 test('a pause arriving after the picker opens is inherited at commit, and only explicit resume prepares',async t=>{
  const {f,id}=await fixture(t,true),s=await draft(f,id),before=f.control.recommendations.length;
  await f.json(`sessions/${id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'pause'});

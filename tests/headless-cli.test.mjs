@@ -260,7 +260,7 @@ test('CLI extends the verified original as a new version of one shelf story', {t
  assert.deepEqual(staged.session.intake.batches[0].stories[0].source,source);
  assert.equal((await call(setup,input)).session.intake.generation,staged.session.intake.generation);
  assert.deepEqual((await call(['stories','list'])).map(s=>s.id),[id]);
- const choice={requestId:crypto.randomUUID(),batch:0,index:0};
+ const choice={requestId:crypto.randomUUID(),batch:0,index:0,generation:staged.session.intake.generation};
  const next=await call(replace,choice);
  assert.equal(next.revision.rootId,id);
  assert.equal((await call(replace,choice)).id,next.id);
@@ -274,6 +274,29 @@ test('CLI extends the verified original as a new version of one shelf story', {t
  const prepared=await call(['run',next.id,'--until','prepared','--timeout','10']);
  assert.equal(prepared.reason,'prepared');
  assert.equal(prepared.session.intake.draft.productionPrompt,input.conditions.productionPrompt);
+ assert.equal(f.control.calls.length,3);
+});
+test('replacement stages multiple selected originals and fences candidates from earlier conditions', {timeout:30000},async t=>{
+ const {f,library,call}=await fixture(t),[first,second]=library.stories.map(story=>story.source);
+ const {session:{id}}=await call(['stories','create','--no-intake'],{...selection,length:3,source:first});
+ assert.equal((await call(['run',id,'--timeout','10'])).reason,'completed');
+ const {session:draft}=await call(['stories','reselect',id]);
+ const setup=['stories','setup',draft.id],replace=['stories','replace',id,draft.id];
+ const {session:single}=await call(setup,{generation:draft.intake.generation,action:'conditions',conditions:{
+  bookId:selection.bookId,theme:'原典故事',source:second,sourceCard:{title:library.stories[1].title,description:library.stories[1].summary},productionPrompt:'',
+ }});
+ const {session:combined}=await call(setup,{generation:single.intake.generation,action:'conditions',conditions:{
+  bookId:selection.bookId,theme:'原典故事',discovery:{mode:'auto',combine:true},discoverySources:[first,second],productionPrompt:'',
+ }});
+ assert.deepEqual(combined.intake.selected,{batch:0,index:0});
+ assert.equal(combined.intake.search.state,'idle');
+ assert.deepEqual((await call(['stories','list'])).map(s=>s.id),[id]);
+ await assert.rejects(call(replace,{batch:0,index:0,generation:single.intake.generation}),error=>error.code==='CONFLICT');
+ const next=await call(replace,{...combined.intake.selected,generation:combined.intake.generation});
+ const {source}=await call(['stories','source',next.id]);
+ assert.deepEqual(source.localSource,combined.intake.batches[0].stories[0].source);
+ assert.ok(library.book.sections[0].units.every(unit=>source.text.includes(unit.text)));
+ assert.equal((await call(['run',next.id,'--until','prepared','--timeout','10'])).reason,'prepared');
  assert.equal(f.control.calls.length,3);
 });
 test('targeted run cannot dispatch another active story and direct-inference API routes never execute', {timeout:30000},async t=>{

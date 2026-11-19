@@ -41,12 +41,22 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
  }
  const draft=doc.reselection;
  if(!draft||draft.parentId!==parentId||!doc.intake)throw new ReaderError(409,'这不是当前故事的重选草稿。');
+ if(choice.generation!==undefined&&choice.generation!==doc.intake.generation)throw new ReaderError(409,'选材条件已更新，请重新选择。');
  const parent=await repo.get(parentId,ownerId),basis=await revisionBasis(repo,parent,true);
  if(basis.epoch!==draft.epoch||replacementToken(parent.selection,basis.epoch)!==draft.baseToken)throw new ReaderError(409,'当前选题或制作设置已更新，请保留草稿并重新核对。');
  const candidate=doc.intake.batches[choice.batch]?.stories[choice.index];if(!candidate)throw new ReaderError(400,'请选择已保存的候选故事。');
  const previous=selectionSchema.parse(JSON.parse(parent.selection));
  const same=!!candidate.source&&!!previous.source&&localSourceKey(candidate.source)===localSourceKey(previous.source);
- if(same){await recordNoop(repo.db,ownerId,parentId,choice.requestId,'same-selection',fingerprint);await repo.remove(draftId,ownerId);return repo.current(parentId,ownerId);}
+ if(same){
+  await recordNoop(repo.db,ownerId,parentId,choice.requestId,'same-selection',fingerprint);
+  // 只收起本次核对过的草稿；并发提交或换选材条件后保留新的内容。
+  await repo.db.prepare(`INSERT INTO library_deletions(user_id,story_id,kind,deleted_at)
+   SELECT user_id,id,'generated',? FROM stories WHERE id=? AND user_id=?
+    AND json_extract(document,'$.reselection.parentId')=? AND json_extract(document,'$.intake.generation')=?
+   ON CONFLICT(user_id,story_id) DO NOTHING`)
+   .bind(new Date().toISOString(),draftId,ownerId,parentId,doc.intake.generation).run();
+  return repo.current(parentId,ownerId);
+ }
  const baseline=selectionSchema.parse(JSON.parse(row.selection)),inherited=(JSON.parse(parent.document) as Document).setupRequirements?.suggestions;
  const settings={...doc.intake.draft,...choice.settings},overrides={...doc.setupRequirements?.overrides};
  // A draft starts with inherited automatic text removed. Preserve edits to that baseline,
@@ -59,8 +69,9 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
  }
  const selection=selectionSchema.parse({...baseline,...settings,storyTitle:candidate.title,source:candidate.source,length:'auto'});
  // 直接选段已保存并核对原文；普通搜索候选仍按现有流程在提交后准备。
- const direct=!!doc.original&&isDirectSourceSelection(baseline)&&!!candidate.source&&
-  localSourceKey(baseline.source!)===localSourceKey(candidate.source);
+ const combined=baseline.discovery?.mode==='auto'&&baseline.discovery.combine;
+ const direct=!!doc.original&&(combined||isDirectSourceSelection(baseline))&&!!candidate.source&&!!baseline.source&&
+  localSourceKey(baseline.source)===localSourceKey(candidate.source);
  doc.setupRequirements={overrides};
  delete selection.displayTitle;
  if(!doc.intake.manualArt&&!choice.settings&&candidate.artRecommendation)selection.artStyle=candidate.artRecommendation.artStyle;

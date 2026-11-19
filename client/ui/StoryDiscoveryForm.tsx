@@ -1,7 +1,7 @@
 // 三种检索共用选书页。提交只带当前方式的条件。
 // 从心情或“不挑了”进入时（autoSearch）按预设主题自动查找；预设与自定义主题都可继续查找，检索说明始终显示。
 // 选定书籍后书单收起为“从《书名》出发 · 更换”；沿用默认书籍时（bookChosen 为假）书单保持展开。
-// “准备故事”不可用时，在按钮上方说明还缺哪一步。
+// 提交不可用时，在按钮上方说明还缺哪一步。
 import {useEffect,useId,useRef,useState} from 'react';
 import {ArrowRight} from 'lucide-react';
 import type {IntakeView} from '@/lib/reader-intake';
@@ -32,7 +32,7 @@ function toggle<T>(values:T[],item:T,source:(item:T)=>LocalSourceReference){
   ?values.filter(value=>localSourceKey(source(value))!==key):values.length<24?[...values,item]:values;
 }
 
-export default function StoryDiscoveryForm({bookChosen=false,selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,retainKey,savedIntake,savedSelection,onSavedChoice,savedSearchPaused,onSavedSearchControl,savedSearchControlBusy,autoSearch}:{autoSearch?:boolean;bookChosen?:boolean;selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;retainKey?:string;savedIntake?:IntakeView;savedSelection?:Selection;onSavedChoice?:(batch:number,index:number)=>Promise<void>;savedSearchPaused?:boolean;onSavedSearchControl?:(action:'pause'|'resume')=>Promise<void>;savedSearchControlBusy?:boolean}){
+export default function StoryDiscoveryForm({bookChosen=false,selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,submitLabel='准备故事',retainKey,savedIntake,savedSelection,onSavedChoice,savedSearchPaused,onSavedSearchControl,savedSearchControlBusy,autoSearch}:{autoSearch?:boolean;bookChosen?:boolean;selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange?:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;submitLabel?:string;retainKey?:string;savedIntake?:IntakeView;savedSelection?:Selection;onSavedChoice?:(batch:number,index:number)=>Promise<void>;savedSearchPaused?:boolean;onSavedSearchControl?:(action:'pause'|'resume')=>Promise<void>;savedSearchControlBusy?:boolean}){
  const part=(name:string)=>retainKey&&retainKey+':'+name;
  const openingSelection=savedSelection??selection;
  const originalTitle=openingSelection.discovery?.mode==='title'?openingSelection.discovery.title:'';
@@ -117,7 +117,7 @@ export default function StoryDiscoveryForm({bookChosen=false,selection,books,sem
   if(next===bookId)return;
   setBookId(next);setSources([]);setStories([]);setStoryQuery('');
   setChapterStories([]);setChapterDirectory(null);resetSearch();
-  onBookChange(next);
+  onBookChange?.(next);
  }
  function selectChapter({source}:BookContentEntry){
   if(!source)return;
@@ -287,7 +287,7 @@ export default function StoryDiscoveryForm({bookChosen=false,selection,books,sem
   {!selectedSaved&&selectedSources.length>1&&<p className="yu-discovery-note" role="status">将所选内容整理成一篇故事。</p>}
   {submitHint&&<p id={submitHintId} className="yu-discovery-note yu-discovery-submit-hint">{submitHint}</p>}
   {(local||selectedSaved)&&<button type="button" className="yu-primary yu-discovery-submit" aria-describedby={submitHint?submitHintId:undefined} disabled={selectedSaved?savedChoiceBlocked:blocked||invalid} onClick={()=>void submit()}>
-   {busy?'正在保存任务…':'准备故事'}<ArrowRight size={19}/>
+   {busy?'正在保存任务…':submitLabel}<ArrowRight size={19}/>
   </button>}
   {error&&<div className="yu-unavailable" role="alert"><strong>任务暂未保存</strong><p>{error}</p></div>}
  </>;

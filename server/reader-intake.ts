@@ -74,9 +74,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  const row=await repo.get(id,uid),doc=JSON.parse(row.document) as Document,intake=doc.intake,selection=selectionSchema.parse(JSON.parse(row.selection));
  const fingerprint=hash(action),receipt=await commandReceipt(repo.db,uid,action.requestId,fingerprint);
  if(receipt){if(receipt.action!=='setup'||receipt.session_id!==id)throw new ReaderError(409,'这个操作编号已用于其他内容。');return row;}
- // 已核对的原文可作为重选候选保存，仍须提交替换后才进入制作。
- const directReselection=action.action==='conditions'&&!!action.conditions.source&&!action.conditions.discoverySources;
- if(doc.reselection&&!['more','search'].includes(action.action)&&!directReselection)throw new ReaderError(409,'请在替换选题窗口提交选择；草稿不能开始制作。');
+ // 重选草稿可以换选材条件；原文和候选须经替换提交后才进入制作。
+ if(doc.reselection&&!['more','search','conditions'].includes(action.action))throw new ReaderError(409,'请在替换选题窗口提交选择；草稿不能开始制作。');
  if(!intake)throw new ReaderError(409,'这篇故事使用旧制作流程，请继续原来的步骤。');
  intake.phase=effectiveIntakePhase(doc,selection)!;
  if(action.action==='more'){
@@ -87,7 +86,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  if(intake.generation!==action.generation)throw new ReaderError(409,'制作内容已由另一次操作更新，请重新打开后继续。');
  if(doc.plan||intake.phase==='confirmed')throw new ReaderError(409,'制作已确认；需要调整时请创建修订版本。');
  if(action.action==='conditions'){
-  if(intake.selected||!['discovering','choosing'].includes(intake.phase))throw new ReaderError(409,'这篇故事已经选定，不能修改提取条件。');
+  const stagedReplacement=doc.reselection&&intake.phase==='preparing';
+  if(!stagedReplacement&&(intake.selected||!['discovering','choosing'].includes(intake.phase)))throw new ReaderError(409,'这篇故事已经选定，不能修改提取条件。');
   if(row.state==='running'&&row.lock_until>Date.now())throw new ReaderError(409,'当前任务正在保存，请稍后再修改提取条件。');
   const requested=action.conditions.discovery;
   const discovery=action.conditions.source
@@ -101,8 +101,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   intake.phase=action.conditions.discovery?'discovering':'choosing';intake.generation++;intake.batches=[];
   delete intake.indexedCandidates;
   intake.search=action.conditions.discovery?{round,state:'searching',cycleId:action.requestId}:{round,state:'idle'};intake.lastAction={id:action.requestId,hash:fingerprint};
-  delete intake.draft;delete intake.draftEdited;delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
-  if(doc.reselection&&choice&&next.productionPrompt!==selection.productionPrompt){
+  delete intake.selected;delete intake.draft;delete intake.draftEdited;delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
+  if(doc.reselection&&next.productionPrompt!==selection.productionPrompt){
    doc.setupRequirements={...doc.setupRequirements,overrides:{...doc.setupRequirements?.overrides,productionPrompt:next.productionPrompt}};
   }
   if(choice)selectSourceCard(doc,choice,round);

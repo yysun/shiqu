@@ -1,19 +1,23 @@
-// Keep the current book visible while a separate, off-shelf draft discovers replacements.
-// Only choosing commits; cancel reads the authoritative family without restarting old work.
+// 替换选题共用选材页。草稿独立于书架，提交选中的原文后才切换版本。
 import {useEffect,useRef,useState} from 'react';
 import {request,randomId} from './shared';
 import Sheet from './StorySheet';
-import StoryExtractionSearch from './StoryExtractionSearch';
+import StoryDiscoveryForm from './StoryDiscoveryForm';
 import StoryFlowAction from './StoryFlowAction';
-import type {SessionView} from '@/lib/reader-model';
+import type {Selection,SessionView} from '@/lib/reader-model';
 import type {IntakeCommand} from '@/lib/reader-intake';
-import type {ProductionSettings} from './StoryProductionEditor';
+import type {ReplacementChoice} from '@/lib/reader-reselection';
 import {observeStoryGeneration} from '@/lib/reader-production-client';
 
-export default function StoryReselection({parentId,onSubmitted,onCancelled}:{parentId:string;onSubmitted:(session:SessionView)=>void;onCancelled:(session:SessionView|null,error?:string)=>void}){
+type Conditions=Extract<IntakeCommand,{action:'conditions'}>['conditions'];
+type Setup={signature:string;requestId:string;generation:number;saved?:SessionView};
+type Props={parentId:string;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];onSubmitted:(session:SessionView)=>void;onCancelled:(session:SessionView|null,error?:string)=>void};
+
+export default function StoryReselection({parentId,books,semanticIndexBooks,onSubmitted,onCancelled}:Props){
  const [draft,setDraft]=useState<SessionView|null>(null),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState('');
  const openId=useRef(randomId()),closed=useRef(false),lock=useRef(false);
- const pending=useRef<{signature:string;body:unknown}|null>(null);
+ const setup=useRef<Setup|null>(null),replacement=useRef<ReplacementChoice|null>(null);
+ const control=useRef<{requestId:string;action:'pause'|'resume'}|null>(null);
  async function open(){
   setLoading(true);setError('');
   try{const s:SessionView=await request(`reader/sessions/${parentId}/reselection`,'POST',{requestId:openId.current});if(!closed.current){if(s.reselection)setDraft(s);else{closed.current=true;onSubmitted(s);}}}
@@ -21,32 +25,56 @@ export default function StoryReselection({parentId,onSubmitted,onCancelled}:{par
   finally{if(!closed.current)setLoading(false);}
  }
  useEffect(()=>{closed.current=false;void open();return()=>{closed.current=true;};},[parentId]);
+ const discoveryId=draft?.selection.bookId==='other'?draft.id:undefined;
  useEffect(()=>{
-  if(!draft?.id)return;
+  if(!discoveryId)return;
   let cancelled=false;
-  void observeStoryGeneration({sessionId:draft.id,request,isActive:()=>!cancelled&&!closed.current,onSession:s=>setDraft(s),focus:{viewerId:randomId(),page:()=>0},watchChoices:true}).then(message=>{if(!cancelled&&!closed.current&&message)setError(message);});
+  void observeStoryGeneration({sessionId:discoveryId,request,isActive:()=>!cancelled&&!closed.current,onSession:s=>{
+   if(!lock.current)setDraft(current=>(s.intake?.generation??0)>=(current?.intake?.generation??0)?s:current);
+  },focus:{viewerId:randomId(),page:()=>0},watchChoices:true}).then(message=>{if(!cancelled&&!closed.current&&message)setError(message);});
   return()=>{cancelled=true;};
- },[draft?.id]);
- async function act(action:IntakeCommand){
-  if(!draft?.intake||lock.current)return false;
-  const signature=JSON.stringify([draft.id,action]);
-  if(pending.current?.signature!==signature)pending.current={signature,body:{...action,requestId:randomId(),generation:draft.intake.generation}};
+ },[discoveryId]);
+ async function save(action:()=>Promise<void>){
+  if(lock.current||closed.current)return;
   lock.current=true;setBusy(true);setError('');
-  try{const s:SessionView=await request(`reader/sessions/${draft.id}/setup`,'POST',pending.current.body);pending.current=null;if(!closed.current)setDraft(s);return true;}
-  catch(e){setError(e instanceof Error?e.message:'查找暂时未完成，请重试。');return false;}
+  try{await action();}
+  catch(e){setError(e instanceof Error?e.message:'替换未完成，请重试。');}
   finally{lock.current=false;setBusy(false);}
  }
- async function replace(batch:number,index:number,settings:ProductionSettings){
-  if(!draft||lock.current)return;
-  const signature=JSON.stringify([draft.id,batch,index,settings]);
-  if(pending.current?.signature!==signature)pending.current={signature,body:{requestId:randomId(),batch,index,settings:{artStyle:settings.artStyle,productionPrompt:settings.productionPrompt,acceptancePrompt:settings.acceptancePrompt,narrativeDetail:settings.narrativeDetail}}};
-  lock.current=true;setBusy(true);setError('');
-  try{const next:SessionView=await request(`reader/sessions/${parentId}/reselection/${draft.id}`,'POST',pending.current.body);pending.current=null;closed.current=true;onSubmitted(next);}
-  catch(e){setError(e instanceof Error?e.message:'替换未完成，草稿与旧结果已保留。');}
-  finally{lock.current=false;setBusy(false);}
+ async function replace(id:string,generation:number,batch:number,index:number){
+  const pending=replacement.current;
+  if(pending?.generation!==generation||pending.batch!==batch||pending.index!==index)replacement.current={requestId:randomId(),generation,batch,index};
+  const next:SessionView=await request(`reader/sessions/${parentId}/reselection/${id}`,'POST',replacement.current);
+  closed.current=true;onSubmitted(next);
+ }
+ async function submit({discovery,source,sourceCard,bookId,customBook,theme,discoverySources,productionPrompt}:Selection){
+  if(!draft?.intake)return;
+  const {id,intake:{generation}}=draft;
+  const conditions:Conditions={discovery,source,sourceCard,bookId,customBook,theme,discoverySources,productionPrompt};
+  await save(async()=>{
+   const signature=JSON.stringify(conditions);
+   if(setup.current?.signature!==signature)setup.current={signature,requestId:randomId(),generation};
+   const pending=setup.current;
+   // 选段已保存时直接重试提交，避免丢失替换响应后重写已提交的草稿。
+   const saved:SessionView=pending.saved??await request(`reader/sessions/${id}/setup`,'POST',{action:'conditions',conditions,requestId:pending.requestId,generation:pending.generation});
+   setDraft(saved);
+   if(saved.intake?.selected){
+    pending.saved=saved;
+    const {batch,index}=saved.intake.selected;
+    await replace(id,saved.intake.generation,batch,index);
+   }else setup.current=null;
+  });
+ }
+ async function controlSearch(action:'pause'|'resume'){
+  if(!draft)return;
+  await save(async()=>{
+   if(control.current?.action!==action)control.current={requestId:randomId(),action};
+   const saved:SessionView=await request(`reader/sessions/${draft.id}/production-control`,'POST',control.current);
+   control.current=null;setDraft(saved);
+  });
  }
  async function cancel(){
-  if(lock.current)return;lock.current=true;setBusy(true);setError('');
+  if(lock.current||loading)return;lock.current=true;setBusy(true);setError('');
   try{
    let current:SessionView;
    try{current=await request(`reader/sessions/${parentId}/reselection/${draft?.id||openId.current}`,'DELETE');}
@@ -59,26 +87,14 @@ export default function StoryReselection({parentId,onSubmitted,onCancelled}:{par
   }finally{lock.current=false;setBusy(false);}
  }
  const intake=draft?.intake;
- const searching=intake?.search.state==='searching';
- const settings=draft?.intake?.draft??draft?.selection;
- const title=draft?.selection.discovery?.mode==='title'?draft.selection.discovery.title:undefined;
- return <Sheet title="替换选题" fixedHeight busy={busy} onClose={()=>void cancel()}>
-  <p className="yu-sheet-intro">书架保留一张卡片，旧结果保留为历史。选择后先准备原文，再确认制作；原故事的暂停状态会保留。</p>
-  {loading?<p role="status">正在打开选题…</p>:draft&&intake&&settings?<>
-   <StoryExtractionSearch sessionId={draft.id} title={title} local={draft.selection.bookId!=='other'} busy={busy}
-    hasCandidates={intake.batches.some(batch=>batch.stories.length>0)} onSearch={title=>act({action:'search',title})}/>
-   {searching&&<p role="status">正在查找故事…</p>}
-   {intake.search.error&&<p role="alert">{intake.search.error}</p>}
-   <ul className="yu-extraction-candidates" aria-label="替换选题结果">
-    {intake.batches.flatMap((batch,b)=>batch.stories.map((story,index)=><li key={b+':'+index}>
-     <div className="yu-extraction-candidate-copy"><strong>{story.title}</strong><p>{story.description}</p><small>{story.sourceLabel}</small></div>
-     <StoryFlowAction disabled={busy} aria-label={`选择并替换 ${story.title}`} onClick={()=>replace(b,index,{...settings,length:'auto',narrativeDetail:settings.narrativeDetail||'balanced'})}>选择并替换</StoryFlowAction>
-    </li>))}
-   </ul>
-   {(intake.search.state==='failed'||!searching&&intake.batches.at(-1)?.stories.length===0)&&
-    <StoryFlowAction disabled={busy} onClick={()=>{void act({action:'more'});}}>{intake.search.state==='failed'?'重试查找':'继续查找'}</StoryFlowAction>}
-  </>:<StoryFlowAction onClick={()=>void open()}>重新打开选题</StoryFlowAction>}
+ return <Sheet title="替换选题" fixedHeight busy={busy||loading} onClose={()=>void cancel()}>
+  {loading?<p role="status">正在打开选题…</p>:draft&&intake?<StoryDiscoveryForm bookChosen selection={draft.selection}
+   books={books} semanticIndexBooks={semanticIndexBooks} busy={busy} error="" onSubmit={submit} submitLabel="选择并替换"
+   savedSelection={discoveryId?draft.selection:undefined} savedIntake={discoveryId?intake:undefined}
+   savedSearchPaused={draft.generationControl!=='active'} onSavedSearchControl={controlSearch}
+   onSavedChoice={(batch,index)=>save(()=>replace(draft.id,intake.generation,batch,index))}/>
+   :<StoryFlowAction onClick={()=>void open()}>重新打开选题</StoryFlowAction>}
   {error&&<p role="alert">{error}</p>}
-  <StoryFlowAction disabled={busy} onClick={()=>void cancel()}>取消替换</StoryFlowAction>
+  <StoryFlowAction disabled={busy||loading} onClick={()=>void cancel()}>取消替换</StoryFlowAction>
  </Sheet>;
 }
