@@ -51,7 +51,10 @@
 .yu-revision-conflict-note{display:grid;gap:8px;margin-top:12px}
 .yu-revision-conflict-note p{margin:0}
 .yu-revision-impact--in-flow{min-width:0;margin:0;padding:8px 0 0;border-top-color:#cddac2;font-size:inherit}
+.yu-revision-impact--in-flow:focus{outline:none;border-top-color:#82996f}
 .yu-revision-impact--in-flow .yu-revision-buttons{margin:4px 0}
+.yu-revision-restyle>p{margin:0}
+.yu-revision-restyle>p+p{margin-top:3px;color:var(--yu-meta)}
 .yu-reader-review-notice{display:block;box-sizing:border-box;width:100%;min-height:44px;margin-top:10px;padding:10px 14px;border:0;border-radius:12px;background:var(--paper);color:var(--forest);font:inherit;font-size:14px;line-height:1.45;text-align:left;cursor:pointer}
 
 /* Full prompt records remain inspectable without stretching the production sheet. */
