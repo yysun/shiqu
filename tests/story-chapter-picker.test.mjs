@@ -22,6 +22,36 @@ test('contents preserve named stories, single anecdotes and chapter receipts wit
  await assert.rejects(bookContents(books,choose('unknown')),e=>e.status===400);
 });
 
+test('西游记章节目录保留回目原字并略过样式和异文提示',async()=>{
+ const {entries}=await bookContents(books,choose('西游记'),'','chapters');
+ for(const [sectionId,title] of [
+  ['xiyou-010','第十回 老龍王拙計犯天條 魏丞相遺書託冥吏'],
+  ['xiyou-012','第十二回 唐王秉誠修大會 觀音顯聖化金蟬'],
+ ]){
+  const entry=entries.find(entry=>entry.source?.sectionId===sectionId);
+  assert.equal(entry?.title,title);
+  assert.equal(entry.chapter,title);
+ }
+});
+
+test('西游记异文浮层不进入原文或阻止查看原文',async t=>{
+ const f=await productionFixture(t);f.app.services.localBooks=books;
+ const base='books/'+encodeURIComponent('西游记');
+ const {entries}=await f.json(base+'/contents?view=chapters');
+ for(const [number,lastUnit,visibleText] of [
+  ['050','041','金兜山'],['051','051','金兜山'],['052','072','金兜山'],
+  ['053','056','金兜山'],['099','074','兜山遇怪三十九難'],['022','078','木叉行者，引師父上前迎接'],
+ ]){
+  const sectionId='xiyou-'+number;
+  const entry=entries.find(entry=>entry.source?.sectionId===sectionId);
+  assert.equal(entry?.source.lastUnit,`${sectionId}-${lastUnit}`);
+  const original=await f.json(base+'/source?source='+encodeURIComponent(JSON.stringify(entry.source)));
+  assert.deepEqual(original.source,entry.source);
+  assert.ok(original.text.includes(visibleText),sectionId);
+  assert.doesNotMatch(original.text,/Unicode缺字|一作「吒」/);
+ }
+});
+
 test('metadata browsing needs no configured provider; direct intake derives title and keeps production gated across replay/restart',async t=>{
  const f=await productionFixture(t);f.app.services.localBooks=books;f.control.hold=false;
  let discoveries=0;f.generation.suggestions=async()=>{discoveries++;throw Error('Direct choice must skip discovery');};

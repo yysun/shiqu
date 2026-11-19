@@ -51,7 +51,12 @@ export function replacementPage(id:string,n:number){
 function wikiLabel(raw:string,title:string){
  const doc=parseDocument(raw),candidates:{label:string;listed?:string}[]=[];
  type Node=typeof doc|typeof doc.children[number];
- const plain=(node:Node):string=>node.type==='text'?node.data:'children'in node?node.children.map(plain).join(''):'';
+ function labelText(node:Node):string{
+  // 异文提示嵌在回目原字旁，只略过提示本身和网页样式。
+  if(node.type==='style'||node.type==='script'||('attribs'in node&&node.attribs.class?.split(/\s+/).includes('variant-tooltip')))return '';
+  if(node.type==='text')return node.data;
+  return 'children'in node?node.children.map(labelText).join(''):'';
+ }
  function visit(node:Node){
   if('attribs'in node&&node.name==='a'){
    const href=node.attribs.href||'';
@@ -59,13 +64,13 @@ function wikiLabel(raw:string,title:string){
     let listed:string|undefined;
     for(let parent=node.parent;parent;parent=parent.parent){
      if(!('name'in parent))continue;
-     if(parent.name==='li'){listed=plain(parent).replace(/\s+/g,' ').trim();break;}
+     if(parent.name==='li'){listed=labelText(parent).replace(/\s+/g,' ').trim();break;}
      if(parent.name==='tr'){
-      listed=parent.children.filter(cell=>'name'in cell&&['td','th'].includes(cell.name)).map(cell=>plain(cell).trim()).join(' ');
+      listed=parent.children.filter(cell=>'name'in cell&&['td','th'].includes(cell.name)).map(cell=>labelText(cell).trim()).join(' ');
       break;
      }
     }
-    candidates.push({label:plain(node).trim(),listed});
+    candidates.push({label:labelText(node).trim(),listed});
    }
   }
   if('children'in node)for(const child of node.children)visit(child);
@@ -121,7 +126,7 @@ export async function loadLicensedCollection(directory:string,entry:Entry){
   const index=parts.at(-1)!;validateWiki(index.raw,index.item,spec.base!);
   for(const [i,{item,raw}]of parts.slice(0,-1).entries()){
    const requested=replacementPage(entry.id,i+1);validateWiki(raw,item,requested);
-   const label=wikiLabel(index.raw,requested),blocks=readWikiBody(raw).blocks;
+   const label=wikiLabel(index.raw,requested),blocks=readWikiBody(raw,{omitVariantTooltips:entry.id==='西游记'}).blocks;
    if(blocks.reduce((sum,b)=>sum+b.text.length,0)<200)throw Error('Incomplete replacement chapter');
    if(entry.id==='二刻拍案惊奇'&&i===39){
     const body=blocks.map(block=>block.text).join('').replace(/\s/g,'');

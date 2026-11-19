@@ -1,6 +1,6 @@
 // Read archived HTML without executing scripts. Keep source glyphs, annotation roles and table layout.
 // Layout labels are explicit metadata; unknown text-bearing images fail instead of silently losing a character.
-import {parseDocument} from 'htmlparser2';
+import {DomUtils,parseDocument} from 'htmlparser2';
 type AnyNode=ReturnType<typeof parseDocument>|ReturnType<typeof parseDocument>['children'][number];
 type Element=Extract<AnyNode,{name:string;attribs:Record<string,string>}>;
 import {localLines,chapterNumber} from './local-book-parsers.ts';
@@ -54,8 +54,12 @@ function readTable(table:Element):SourceTable{
  if(!rows.length||occupied.some(end=>end>rows.length))throw Error('Incomplete table');return {rows};
 }
 function nearestTable(node:AnyNode){for(let p=node.parent;p;p=p.parent)if(element(p)&&p.name==='table')return p;}
-export function readWikiBody(html:string){
+export function readWikiBody(html:string,{omitVariantTooltips=false}={}){
  const root=bodyRoot(html),blocks:Block[]=[],tables:SourceTable[]=[];let pending='';
+ if(omitVariantTooltips){
+  // 异文浮层属于网页提示，保留它旁边显示的原字。
+  for(const node of walk(root))if(element(node)&&classes(node).includes('variant-tooltip'))DomUtils.removeElement(node);
+ }
  const flush=(narrative=true)=>{if(pending.trim())blocks.push({text:pending.trim(),narrative:narrative&&/[。！？!?，；：]/.test(pending)});pending='';};
  function visit(node:AnyNode){
   if(skipped(node))return;
