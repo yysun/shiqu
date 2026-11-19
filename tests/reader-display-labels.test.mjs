@@ -1,20 +1,14 @@
-// 阅读页的生成方名称与故事卡简介去重只影响显示，不改动保存的记录。
+// 阅读页的模型名称与故事卡简介去重只影响显示，不改动保存的记录。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generationProviderName,generationProviderNames} from '../lib/story-publication.ts';
+import {generationModelNames} from '../lib/story-publication.ts';
 import {storyCardExcerpt} from '../lib/reader-contents.ts';
 
-test('reading labels name the provider and keep unknown models as recorded',()=>{
- assert.equal(generationProviderName('codex-image-generation'),'Codex');
- assert.equal(generationProviderName('gemini-nano-banana-2.1'),'Gemini');
- assert.equal(generationProviderName('gpt-image-2.5-sunburst'),'OpenAI');
- assert.equal(generationProviderName('claude-opus-5-5'),'Claude');
- assert.equal(generationProviderName('deepseek-flash'),'DeepSeek');
- assert.equal(generationProviderName(' custom-model '),'custom-model');
- const models=[{step:'image:0',model:'codex-image-generation'},{step:'image:1',model:'codex-image-generation'},{step:'image:2',model:'gemini-nano-banana-2.1'},{step:'plan',model:'gpt-6.1-sol'}];
- assert.deepEqual(generationProviderNames(models,'image'),['Codex','Gemini']);
- assert.deepEqual(generationProviderNames(models,'text'),['OpenAI']);
- assert.deepEqual(generationProviderNames(undefined,'image'),[]);
+test('reading labels use distinct recorded image model names',()=>{
+ const models=[{step:'image:0',model:'codex-image-generation'},{step:'image:1',model:'codex-image-generation'},{step:'image:2',model:' gemini-nano-banana-2.1 '},{step:'plan',model:'gpt-6.1-sol'}];
+ assert.deepEqual(generationModelNames(models,'image'),['codex-image-generation','gemini-nano-banana-2.1']);
+ assert.deepEqual(generationModelNames(models,'text'),['gpt-6.1-sol']);
+ assert.deepEqual(generationModelNames(undefined,'image'),[]);
 });
 
 test('story card excerpts drop an opening that repeats the title',()=>{
