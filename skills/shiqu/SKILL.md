@@ -19,7 +19,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 - 自主程序使用进程 API 的可执行文件与参数数组，JSON 经 `--input -` 的 stdin 或私有文件传入；不要把标题、路径、原文、提示词拼接成 shell 命令。沿用入口及其工作目录，处理 stdout 与 stderr，设置有限超时。同一书库的 CLI 调用串行执行，避免独占开库冲突。
 - 子命令 stdout 为一个 JSON 信封：成功 `{schemaVersion:1,ok:true,data:...}`，失败 `{schemaVersion:1,ok:false,error:{code,message,details?}}`；日志在 stderr。检查退出码、信封及业务结果。`skill show` 默认是 Markdown，带 `--json` 才是信封。不要把非零退出的 JSON 丢弃，也不要把退出码 0 或 `ok:true` 当作故事完成。
 - CLI 子命令无交互，所有询问、检查点和阶段选择由本技能在对话中处理；不要向 CLI 发送终端按键或等待它提问。
-- 浏览器服务可在「我的 → 生成服务与模型」通过本机或可信局域网地址修改共享提供方、模型、推理和密钥，保存后用于新任务，无需重启；LAN 设备共享配置权限，互联网隧道和跨站页面不开放此入口，已存密钥不返回。CLI `config` 子命令仍通过本机生产入口操作。启动覆盖密钥与数据库已存密钥分别显示；不会自动持久化环境密钥，只有用户明确要求时才保存。新生产步骤固定同一提供方实例，修改配置不重启、取消或重跑在途步骤。
+- 浏览器服务可在「设置 → 生成服务与模型」通过本机或可信局域网地址修改共享提供方、模型、推理和密钥，保存后用于新任务，无需重启；LAN 设备共享配置权限，互联网隧道和跨站页面不开放此入口，已存密钥不返回。CLI `config` 子命令仍通过本机生产入口操作。启动覆盖密钥与数据库已存密钥分别显示；不会自动持久化环境密钥，只有用户明确要求时才保存。新生产步骤固定同一提供方实例，修改配置不重启、取消或重跑在途步骤。
 - 继续使用已保存的提供方与模型；缺配置时查当前 `config` 帮助。密钥仅经已有环境、私有 JSON 文件或 stdin 传入，不进入 argv、对话、报告或日志；不自行切换提供方或计费方式。
 
 ## 数据契约
@@ -52,7 +52,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 | 目的 | 生产入口与判断 |
 | --- | --- |
-| 发现数据 | `catalog` 或 `books/themes/styles` 查目录，`books contents <bookId> --query <关键词>` 按关键词查章节和可用的故事段落；`books search <查询> [书名] --limit 5` 用标题、梗概和原文在独立索引里找故事候选，返回原文预览和出处，无需调用生成模型。用 `--brief` 只显示书名、索引中的故事标题、章节和段落，默认输出 JSON。当前书目以 `books` 的返回为准。检索内置故事卡时指定书名，可直接运行 `books search 种梨 聊斋志异 --brief`。在「我的 → 嵌入模型与故事卡索引」配置本机 Ollama 并逐书建立实时向量索引。旧离线索引用 `books index-import <书名> <SQLite 文件> --data-dir <数据目录>` 导入；当前版次可核验的故事卡用于文字检索，旧向量不使用。实验源码 worktree 中的 `node bin/shiqu.mjs books search` 可自动使用 `.data/dev-local` 下的索引，显式数据目录优先；`stories list/get/current` 查书库与当前版本；`stories source/prompts/review-history/revisions <id>` 查保存依据。`status` 查本地书库完整性、数量与运行元信息，不检测云端服务是否就绪；`init` 可显式建库，但普通书库操作已自动初始化。 |
+| 发现数据 | `catalog` 或 `books/themes/styles` 查目录，`books contents <bookId> --query <关键词>` 按关键词查章节和可用的故事段落；`books search <查询> [书名] --limit 5` 用标题、梗概和原文在独立索引里找故事候选，返回原文预览和出处，无需调用生成模型。用 `--brief` 只显示书名、索引中的故事标题、章节和段落，默认输出 JSON。当前书目以 `books` 的返回为准。检索内置故事卡时指定书名，可直接运行 `books search 种梨 聊斋志异 --brief`。在「设置 → 嵌入模型与故事卡索引」配置本机 Ollama 并逐书建立实时向量索引。旧离线索引用 `books index-import <书名> <SQLite 文件> --data-dir <数据目录>` 导入；当前版次可核验的故事卡用于文字检索，旧向量不使用。实验源码 worktree 中的 `node bin/shiqu.mjs books search` 可自动使用 `.data/dev-local` 下的索引，显式数据目录优先；`stories list/get/current` 查书库与当前版本；`stories source/prompts/review-history/revisions <id>` 查保存依据。`status` 查本地书库完整性、数量与运行元信息，不检测云端服务是否就绪；`init` 可显式建库，但普通书库操作已自动初始化。 |
 | 配置 | `config get` 返回 settings、revision 和 keyPresent，不返回密钥；`config set` 输入 `{settings:<修改字段>,expectedRevision:<读取到的revision>}`，API密钥按 help 的 key 输入。`config reset` 清除提供方设置和保存的API密钥，保留书库及网络设置；它不是临时切换只读模式。 |
 | 新建或选题 | `stories create` 接收 selection 或 `{selection,intake:true}`，默认进入选题；`--no-intake` 或 `intake:false` 使用旧的直接制作入口。search 保存提取意图，choose 保存候选索引，confirm 保存制作确认，setup 保存其他选题动作。它们不执行生成。 |
 | 执行生产 | `run <id> --until candidates\|prepared\|reviewed\|completed`（也可 `stories run <id>`）。candidates 后按用户目标选择或等待；prepared 后检查原文、摘要和方案并确认；reviewed 在已有通过的审核且画风转换完成后停止，已有图片保留，绘图任务等待继续制作；默认 completed。每次检查返回 reason 和 session，不假定达到了请求边界。 |

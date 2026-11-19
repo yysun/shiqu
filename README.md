@@ -82,7 +82,7 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 - **PNG**：全部插图排成一张总览长图，适合社交分享。
 - **ZIP**：原文、分镜、全部 WebP 原图及制作提示词，可用于投稿。
 
-导出在本地完成，不再调用 AI。先在「我的 → 署名与转载」设置制作署名和转载条件；各格式都保留署名与 AI 披露，WebP 另带可见署名水印。[导出说明](.docs/user-guide.md#阅读和导出) · [署名与转载](.docs/user-guide.md#署名与转载)
+导出在本地完成，不再调用 AI。先在「设置 → 署名与转载」设置制作署名和转载条件；各格式都保留署名与 AI 披露，WebP 另带可见署名水印。[导出说明](.docs/user-guide.md#阅读和导出) · [署名与转载](.docs/user-guide.md#署名与转载)
 
 想让更多人读到？下载 ZIP，按[贡献指南](https://github.com/yysun/awesome-shiqu/blob/main/CONTRIBUTING.md)向 [awesome-shiqu · 拾趣好故事](https://github.com/yysun/awesome-shiqu) 提交 PR，审核通过后收录到[在线作品集](https://yysun.github.io/awesome-shiqu/)。ZIP 中的提示词也会随投稿公开，投稿前请检查整个存档。[发布你的拾趣作品](.docs/user-guide.md#发布你的拾趣作品)
 

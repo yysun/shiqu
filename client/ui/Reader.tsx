@@ -5,7 +5,7 @@
 // 横向阅读使用与发现页主图区相同的原生吸附滚动；结语拖动仍使用独立位移存储。
 // 相同的轮询快照保留故事和阅读进度引用，避免重绘。
 // 书架未保存分组偏好时默认不分组；已保存的偏好照常沿用。
-// “我的”统计在书库首次加载完成前显示占位，避免先显示 0。
+// 设置页统计在书库首次加载完成前显示占位，避免先显示 0。
 // 一个状态所有者、两种组合：手机树（今天的界面）与桌面外壳（≥768×560）读取同一组状态与处理函数；
 // 桌面视图由状态标志推导（lib/desktop-view），共享对话框跨档切换保留并重新置顶，草稿经 useRetainedState 保留。
 // 返回键：阅读、桌面新建页与阅读侧栏抽屉经 useHistoryStep 登记；设置及子面板共用小屏对话框。
@@ -32,7 +32,7 @@ import ProviderSettings,{ProviderRuntimeSummary} from './ProviderSettings';
 import type {ProviderSettingsView} from '@/lib/provider-settings';
 import {useBookReference} from '../useBookReference';
 import {cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
-import {ArrowLeft, ArrowRight, Maximize2, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Compass, Feather, Leaf, List, Moon, Play, RotateCcw, ImageDown, BookOpenText, Settings2, Sparkles, UserRound, X, Loader2, FileDown, FileArchive, RefreshCw, Trash2, Search} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Maximize2, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Compass, Feather, Leaf, List, Moon, Play, RotateCcw, ImageDown, BookOpenText, Settings2, Sparkles, Settings, X, Loader2, FileDown, FileArchive, RefreshCw, Trash2, Search} from 'lucide-react';
 import {randomId, request} from './shared';
 import type {Story} from '@/lib/content';
 import type {GeneratedStory,Selection,SessionView} from '@/lib/reader-model';
@@ -660,7 +660,7 @@ export default function Reader(){
  {discoverNote}
  {discoverStatus}</>;
  const shelfView=<ReaderShelf onControl={gen.control} controlBusy={gen.controlBusy} stories={shelf} pending={pendingStories} sessions={gen.sessions} progress={activeProgress} refreshing={shelfRefreshing||gen.libraryRefreshing} onRefresh={()=>{void refreshShelf();}} loading={loading||gen.libraryLoading} error={loadError||gen.libraryError} tab={shelfTab} onTab={changeShelfTab} query={shelfQuery} onQuery={changeShelfQuery} grouping={shelfGrouping} onGrouping={changeShelfGrouping} bookName={bookName} onOpen={open} onResume={session=>openWorkflow(session.id)} onRetry={session=>{if(session.intake&&!session.intake.selected){openWorkflow(session.id);return;}cancelOpening();setWorkflowTarget(session.id);setWorkflowError('');setStory(null);gen.retrySession(session.id).catch(e=>setWorkflowError(e.message));}} onDelete={askDelete} onFavorite={favoriteFromShelf} favoriteBusy={favoriteBusy} onCreate={()=>choose()} onDiscover={()=>setTab('discover')}/>;
- const profileView=<section className="yu-profile" aria-label="我的">
+ const profileView=<section className="yu-profile" aria-label="设置">
   <section className="yu-profile-group" aria-labelledby="profile-overview"><h2 id="profile-overview">故事概览</h2>
   <div className="yu-profile-stats" aria-busy={libraryLoading}>{[[shelfCount,'书架故事'],[favoriteCount,'已收藏'],[deletedStories.length,'已删除']].map(([count,label])=><div key={label}><strong>{libraryLoading?<span className="yu-profile-stat-loading" aria-label="正在统计">—</span>:count}</strong><span>{label}</span></div>)}</div>
   </section>
@@ -721,11 +721,11 @@ export default function Reader(){
  const openingStory=opening&&<p className="yu-inline-status" role="status">正在打开故事…</p>;
  const phoneTree=<>
  {story?readerMain:<>
- <header className="yu-header"><button className="yu-logo" onClick={()=>{setSearchOpen(false);setTab('discover');}} aria-label="拾趣，返回发现"><span><Feather size={22}/></span><strong>拾趣</strong><i/></button><span className="yu-header-note">片刻入戏，久久回味</span><button className="yu-avatar" onClick={()=>{setSearchOpen(false);setTab('me');}} aria-label="我的"><UserRound size={19}/></button></header>
+ <header className="yu-header"><button className="yu-logo" onClick={()=>{setSearchOpen(false);setTab('discover');}} aria-label="拾趣，返回发现"><span><Feather size={22}/></span><strong>拾趣</strong><i/></button><span className="yu-header-note">片刻入戏，久久回味</span><button className="yu-avatar" onClick={()=>{setSearchOpen(false);setTab('me');}} aria-label="设置"><Settings size={19}/></button></header>
  <main className="yu-home" data-main="">
  {searchOpen?<StoryCardSearch books={readerBooks} onClose={()=>setSearchOpen(false)}/>:<>{openingStory}{tab==='discover'?<>{discoverLead}{discoverBrowse}</>:tab==='shelf'?shelfView:profileView}</>}
  </main>
- <nav className="yu-tabbar" aria-label="主导航">{[{id:'discover',title:'发现',Icon:Compass},{id:'shelf',title:'书架',Icon:BookOpen},{id:'me',title:'我的',Icon:UserRound}].map(({id,title,Icon})=><button key={id} className={tab===id?'active':''} aria-current={tab===id?'page':undefined} onClick={()=>{setSearchOpen(false);setTab(id);window.scrollTo({top:0,behavior:'instant'});}}><Icon size={22} strokeWidth={tab===id?2:1.6}/><span>{title}</span>{tab===id&&<i/>}</button>)}</nav>
+ <nav className="yu-tabbar" aria-label="主导航">{[{id:'discover',title:'发现',Icon:Compass},{id:'shelf',title:'书架',Icon:BookOpen},{id:'me',title:'设置',Icon:Settings}].map(({id,title,Icon})=><button key={id} className={tab===id?'active':''} aria-current={tab===id?'page':undefined} onClick={()=>{setSearchOpen(false);setTab(id);window.scrollTo({top:0,behavior:'instant'});}}><Icon size={22} strokeWidth={tab===id?2:1.6}/><span>{title}</span>{tab===id&&<i/>}</button>)}</nav>
  </>}
  {configureSheet}
  {sceneSheet}
@@ -791,7 +791,7 @@ export default function Reader(){
  {reselectTarget&&<StoryReselection key={reselectTarget} parentId={reselectTarget} books={choices} semanticIndexBooks={semanticIndexBooks} onSubmitted={next=>finishReselection(next)} onCancelled={(next,error)=>{if(next)finishReselection(next,true);else{reselectLock.current=false;setReselectTarget(null);backToShelf();void gen.refreshLibrary().catch(()=>{});if(error)notify(error);}}}/>}
  {recoveryOpen&&<Sheet title="已删除的故事" onClose={()=>{if(!restoring)setRecoveryOpen(false);}}><DeletedStories items={deletedStories} loading={recoveryLoading} error={recoveryError} busy={restoring} onRestore={item=>void restoreStory(item)} onRetry={()=>void loadDeletedStories()}/></Sheet>}
  {undoTarget&&!recoveryOpen&&<div className="yu-undo-notice" role="status"><div><span>已删除《{undoTarget.title}》</span>{recoveryError&&<small role="alert">{recoveryError}</small>}</div><button type="button" disabled={!!restoring} onClick={()=>void restoreStory(undoTarget)}><RotateCcw size={17}/>{restoring?'恢复中…':'撤销删除'}</button><button type="button" className="yu-undo-dismiss" aria-label="关闭撤销提示" disabled={!!restoring} onClick={()=>setUndoTarget(null)}><X size={18}/></button></div>}
- {deleteTarget&&<Sheet title="删除这篇故事？" onClose={()=>{if(!deleting)setDeleteTarget(null);}}><div className="yu-delete-confirm"><h3>{deleteTarget.title}</h3><p>将从首页、书架和收藏中移除。故事文件和阅读进度会保留，可撤销删除，也可在「我的 → 已删除的故事」中恢复。</p>{deleteError&&<p role="alert">{deleteError}</p>}<div><button className="yu-delete-cancel" disabled={deleting} onClick={()=>setDeleteTarget(null)}>保留故事</button><button className="yu-delete-submit" disabled={deleting} onClick={deleteStory}>{deleting?'正在删除…':'删除故事'}</button></div></div></Sheet>}
+ {deleteTarget&&<Sheet title="删除这篇故事？" onClose={()=>{if(!deleting)setDeleteTarget(null);}}><div className="yu-delete-confirm"><h3>{deleteTarget.title}</h3><p>将从首页、书架和收藏中移除。故事文件和阅读进度会保留，可撤销删除，也可在「设置 → 已删除的故事」中恢复。</p>{deleteError&&<p role="alert">{deleteError}</p>}<div><button className="yu-delete-cancel" disabled={deleting} onClick={()=>setDeleteTarget(null)}>保留故事</button><button className="yu-delete-submit" disabled={deleting} onClick={deleteStory}>{deleting?'正在删除…':'删除故事'}</button></div></div></Sheet>}
  {gen.controlError&&<div className="yu-toast" role="alert">{gen.controlError}</div>}
  {settings&&!story&&!workflowTarget&&!gen.active&&<Sheet title="舒服地读" onClose={()=>setSettings(false)}><div className="yu-setting-row"><div><strong>大一点的文字</strong><p>让画面上的旁白更容易读</p></div><button className={'yu-switch '+(largeText?'on':'')} role="switch" aria-checked={largeText} aria-label="大一点的文字" onClick={()=>{setLargeText(!largeText);localStorage.setItem('yiyu-large-text',largeText?'0':'1');}}><i/></button></div></Sheet>}
  {publicationDefaultsOpen&&<StoryPublicationDefaults onClose={()=>setPublicationDefaultsOpen(false)} onSaved={()=>notify('默认说明已保存，导出时会实时补全单篇未填写的内容。')}/>}

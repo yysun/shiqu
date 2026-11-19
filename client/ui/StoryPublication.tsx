@@ -71,7 +71,7 @@ export default function StoryPublicationEditor({story,publication=null,onSave,on
   try{
    const result=await request('reader/publication-defaults');
    setDraft(publicationSchema.parse(result.publication??emptyPublication));
-   setRestoreNote(result.publication?'已载入「我的」中的当前默认说明，保存后应用于本篇。':'「我的」尚未设置默认说明，已载入空白说明，保存后应用于本篇。');
+   setRestoreNote(result.publication?'已载入「设置」中的当前默认说明，保存后应用于本篇。':'「设置」尚未设置默认说明，已载入空白说明，保存后应用于本篇。');
   }catch(e){setError(e instanceof Error?e.message:'默认说明暂时无法读取，请重试。');}
   finally{lock.current=false;setBusy(false);setRestoring(false);}
  }
@@ -82,7 +82,7 @@ export default function StoryPublicationEditor({story,publication=null,onSave,on
  return <Sheet title={story?'署名与转载':'默认署名与转载说明'} onClose={onClose} busy={busy}><form className="yu-publication-editor" data-dirty={changed?'true':undefined} onSubmit={event=>{event.preventDefault();void save();}}>
   {story&&<div className="yu-publication-heading"><p className="yu-publication-work">{story.title}</p><StoryFlowAction disabled={busy} onClick={()=>void restoreDefaults()}>{restoring?'正在读取默认…':'恢复默认说明'}</StoryFlowAction></div>}
   {restoreNote&&<p className="yu-count-help" role="status">{restoreNote}</p>}
-  <p className="yu-count-help">{story?'仅修改这篇作品。导出时已填写的内容优先，留空项实时沿用「我的」默认说明。':'新故事会保存这份默认说明。导出时，单篇未填写的项目也会实时沿用这里的内容；单篇已填写的内容优先。'}</p>
+  <p className="yu-count-help">{story?'仅修改这篇作品。导出时已填写的内容优先，留空项实时沿用「设置」默认说明。':'新故事会保存这份默认说明。导出时，单篇未填写的项目也会实时沿用这里的内容；单篇已填写的内容优先。'}</p>
   <p className="yu-count-help">这些信息会随作品和下载文件公开。填写用于公开展示的署名与联系方式。</p>
   {field('author','制作署名',80,'你的姓名、笔名或团队名，如：山间读书人')}
   <label className="yu-watermark-size"><span>WebP 签名水印字号<output>{draft.watermarkFontSize??watermarkFontSize.default} px</output></span><input type="range" aria-label="WebP 签名水印字号" min={watermarkFontSize.min} max={watermarkFontSize.max} step={1} value={draft.watermarkFontSize??watermarkFontSize.default} disabled={busy} onChange={event=>{setDraft(old=>({...old,watermarkFontSize:Number(event.target.value)}));setError('');}}/><small>按原图像素计算，{watermarkFontSize.min}–{watermarkFontSize.max} px，默认 {watermarkFontSize.default} px。仅影响 ZIP 内的 WebP 图片。</small></label>
