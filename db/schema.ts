@@ -1,4 +1,4 @@
-// Define persisted library content, owner defaults, reading checkpoints, story content revisions and durable production jobs/demand.
+// 定义持久化的书库内容、用户默认设置、阅读进度、故事内容修订号，以及持久的制作任务和需求。
 import {sql} from 'drizzle-orm';
 import { sqliteTable, text, integer, uniqueIndex, index, primaryKey } from 'drizzle-orm/sqlite-core';
 export const books = sqliteTable('books', { id: text('id').primaryKey(), title: text('title').notNull(), author: text('author').notNull(), era: text('era').notNull(), sourceUrl: text('source_url').notNull(), excerpt: text('excerpt').notNull(), note: text('note').notNull() });

@@ -873,7 +873,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    const row=await this.database.prepare(`SELECT * FROM stories s WHERE s.id=? AND s.user_id=? AND s.state='idle' AND ${activeFaults}`).bind(candidate.id,candidate.user_id).first<SessionRow>();
    // 两次读取之间状态已变：不记录，留待下个节拍按新状态判断。
    if(!row)continue;
-   const parsed=this.parsed(row);
+   // 不可读的故事仍记录一次诊断；结论只取决于内容，同样记下修订号。
+   const parsed=this.readable(row)?this.parsed(row):null;
    if(!parsed||!isObject(parsed.doc.plan)||!isObject(parsed.doc.original)||!productionComplete(parsed.doc,parsed.selection)){this.settledRevisions.set(row.id,candidate.rev);continue;}
    // 标记完成未生效时不记录，下个节拍重试。
    await this.database.prepare("UPDATE stories SET state='completed',error=NULL WHERE id=? AND user_id=? AND state='idle' AND document=? AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=stories.id AND f.owner_id=stories.user_id AND f.state IN ('pending','recovering'))").bind(row.id,row.user_id,row.document).run();

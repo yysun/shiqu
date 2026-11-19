@@ -44,7 +44,9 @@ async function library(t,count=3){
 }
 
 test('内容修订号覆盖插入和局部写入，状态变化或写入相同内容不改变',async t=>{
- const {database,ids:[id],rev}=await library(t,1);
+ const {database,repo,owner,ids:[id],rev}=await library(t,1);
+ const fresh=crypto.randomUUID();await repo.create(fresh,owner,selection);
+ assert.equal(await rev(fresh),1,'新插入的故事修订号从 1 起');
  const start=await rev(id);assert.ok(start>=2,'插入与写入计划各加一');
  await database.prepare("UPDATE stories SET document=json_set(document,'$.images[0]','x') WHERE id=?").bind(id).run();
  assert.equal(await rev(id),start+1,'不更新 updated_at 的局部写入也会改变修订号');
@@ -91,6 +93,11 @@ test('未变化的故事不再读取全文；局部写入、任务数变化、�
  recorder.reset();await coordinator.tick();
  assert.deepEqual(recorder.fullReads(),new Set([b]));
 
+ // 只有失败任务数变化时同样重新读取。
+ await database.prepare("UPDATE production_jobs SET state='failed',error='受控失败' WHERE id=?").bind('job-extra').run();
+ recorder.reset();await coordinator.tick();
+ assert.deepEqual(recorder.fullReads(),new Set([b]));
+
  // 指定清理未变化的故事时仍执行。
  recorder.reset();await coordinator.pruneSuperseded(c);
  assert.deepEqual(recorder.fullReads(),new Set([c]));
@@ -100,6 +107,13 @@ test('未变化的故事不再读取全文；局部写入、任务数变化、�
  recorder.reset();await coordinator.tick();
  assert.deepEqual(graphs,[c,c]);
  assert.ok(recorder.fullReads().has(c));
+
+ // 已删除的故事不再重建任务图，即使内容变化。
+ await database.prepare('INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) VALUES(?,?,?,?)').bind(owner,c,'generated',new Date().toISOString()).run();
+ await database.prepare("UPDATE stories SET document=json_set(document,'$.images[1]','b.png') WHERE id=?").bind(c).run();
+ recorder.reset();await coordinator.tick();
+ assert.deepEqual(graphs,[c,c]);
+ await database.prepare('DELETE FROM library_deletions WHERE story_id=?').bind(c).run();
 
  // 新协调器（模拟重启）首个节拍重新完整检查仍在候选中的故事；已完成的 a 仍有排队任务，清理会读取它。
  const restarted=await coordinatorFor();restarted.coordinator.graph=async()=>{};

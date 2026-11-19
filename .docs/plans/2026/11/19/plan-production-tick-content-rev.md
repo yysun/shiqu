@@ -33,7 +33,7 @@ flowchart LR
 - [x] 新增 `drizzle/0022_story_content_revisions.sql`：`story_revisions` 表、`story_content_revision` 更新触发器、`story_content_revision_insert` 插入触发器、`stories_production_scan` 索引；登记 `drizzle/meta/_journal.json`；更新 `db/library-format.json` 的 `latestMigration`；`db/schema.ts` 增加表与索引。
 - [x] `server/reader-production.ts`：
   - 导出三处轻量查询的 SQL，供测试检查查询计划。
-  - `settleHealthyCheckpoints`：轻量查询空闲且无未决故障的故事；仅对修订号变化者按 id 读取符合原条件（有计划和原文、仍空闲、无未决故障）的整行；用 `this.parsed(row)` 判断完整性；清除不再出现的记录。
+  - `settleHealthyCheckpoints`：轻量查询空闲且无未决故障的故事；仅对修订号变化者按 id 读取仍空闲、无未决故障的整行；有无计划和原文改在解析后判断（无计划的故事每次变化读取一次后同样记下修订号，不必每个节拍在 SQLite 中解析 JSON）；用 `this.readable(row)` 保留一次性诊断，再用 `this.parsed(row)` 判断完整性；清除不再出现的记录。
   - `pruneSuperseded`：轻量查询修订号与排队、失败计数；仅在键变化或 `forceId` 指定时读取整行；`PruneKey` 改为修订号与计数。
   - 需求循环：集合查询修订号与状态，与需求一起比较；有变化才 `repository.get` 并重建；`RebuildKey` 改为修订号。
   - 更新文件头说明。
@@ -65,4 +65,6 @@ flowchart LR
 - AR：第 1 轮阻塞（重建循环查询回表），改为独立修订表并全部 `INDEXED BY` 后第 2 轮通过。
 
 - 实现中发现：清理查询的连接顺序写错（`LEFT JOIN` 早于第一个 `ON`），新测试的查询计划断言发现并已修正。
-- 里程碑提交：见下一行（实现完成；`node --test tests/production-tick-scope.test.mjs` 3/3 通过，`pnpm typecheck`、`pnpm lint` 通过；TT 尚未运行）。
+- CR 第 1 轮：`db/schema.ts` 文件头改为中文（阻塞项）；完成检查恢复不可读诊断；补充失败数变化、删除后不重建、新故事修订号为 1 的测试。
+- 里程碑提交：`59ffd77`（实现完成；新测试 3/3，typecheck、lint 通过）。
+- CR 第 2 轮通过；TT：`test:pr` 87/87、按需制作流程 163/163、cargo test 26/26；VR 通过。
