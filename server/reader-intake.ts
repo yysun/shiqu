@@ -15,7 +15,7 @@ import type {IntakeAction,IntakeSearch,ReselectionDraft} from '../lib/reader-int
 import type {ReaderRepository} from '../lib/reader-repository.ts';
 import {maxSuggestionBatches} from '../lib/reader-suggestions.ts';
 import {artStyleSettings,sameArtDirection} from '../lib/reader-styles.ts';
-import {storyBriefVerified} from '../lib/reader-story-brief.ts';
+import {invalidateStoryBrief,storyBriefVerified} from '../lib/reader-story-brief.ts';
 import {commandReceipt,recordNoop} from './reader-commands.ts';
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const visible='NOT EXISTS(SELECT 1 FROM library_deletions WHERE story_id=stories.id AND user_id=stories.user_id)';
@@ -178,12 +178,17 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;selection.length='auto';
  }else{
   if(!intake.selected||intake.phase!=='confirming')throw new ReaderError(409,'请先选择故事并等待制作建议保存。');
+  const requirementsChanged=action.settings.productionPrompt!==selection.productionPrompt;
   intake.manualArt=manual(styling);Object.assign(selection,action.settings,styling);
-  if(action.action==='recommend'){intake.draft={...action.settings,...styling,length:'auto'};intake.draftEdited=true;delete doc.frameRecommendation;doc.frameCountConfirmed=false;intake.phase='preparing';selection.length='auto';}
+  if(action.action==='recommend'){
+   if(requirementsChanged)invalidateStoryBrief(doc);
+   intake.draft={...action.settings,...styling,length:'auto'};intake.draftEdited=true;delete doc.frameRecommendation;doc.frameCountConfirmed=false;intake.phase='preparing';selection.length='auto';
+  }
   else{
    if(!doc.original||!doc.frameRecommendation)throw new ReaderError(409,'原文和制作建议尚未保存。');
    const chosen=intake.batches[intake.selected.batch]?.stories[intake.selected.index];
    if((intake.briefRequired||chosen?.storyBrief||doc.original.storyBrief)&&!storyBriefVerified(doc.original))throw new ReaderError(409,'故事摘要尚未对照原文核对，请重新准备制作。');
+   if(requirementsChanged)invalidateStoryBrief(doc);
    doc.frameCountConfirmed=true;intake.phase='confirmed';
    // Results could no longer be chosen. A call in flight stops at its end and saves its reading position.
    intake.search={...intakeSearch(intake),state:'idle',error:null};

@@ -1,5 +1,5 @@
 // Project saved production checkpoints into read-only history. Missing historical evidence stays missing;
-// only a unique call from this version can establish ordering or restore an earlier frame.
+// 审核记录显式留存来源版本时，允许引用该版本的调用收据。
 // 调用记录只含提示词引用时，由调用方传入已读取的记录。
 import type {Document,Plan,SessionRow} from './reader-model.ts';
 import {usageRecord} from './reader-prompt-records.ts';
@@ -39,10 +39,13 @@ function stepParts(step:string){
 // 提示词全文由调用方按引用读取后传入；仍内嵌的记录直接使用。
 export function storyReviewHistory(row:SessionRow,records:Map<string,PromptRecord>=new Map()):StoryReviewHistory{
  const doc=JSON.parse(row.document) as Document,selection=object(JSON.parse(row.selection))!,review=doc.visualReview;
- const calls=(doc.usage||[]).flatMap((call,position)=>!call.originId||call.originId===row.id||call.originId===doc.copiedFrom?.storyId?[{...call,position,input:input(usageRecord(call,records)?.input),parts:stepParts(call.step)}]:[]);
+ const calls=(doc.usage||[]).flatMap((call,position)=>{
+  const parts=stepParts(call.step);
+  return parts?[{...call,position,input:input(usageRecord(call,records)?.input),parts}]:[];
+ });
  type Call=typeof calls[number];
  function locate(meta:ReviewRecordMeta,predicate:(call:Call)=>boolean){
-  const matches=calls.filter(call=>(!meta.step||call.step===meta.step)&&predicate(call));return matches.length===1?matches[0]:null;
+  const matches=calls.filter(call=>(meta.originId?call.originId===meta.originId:!call.originId||call.originId===row.id||call.originId===doc.copiedFrom?.storyId)&&(!meta.step||call.step===meta.step)&&predicate(call));return matches.length===1?matches[0]:null;
  }
  function common(id:string,kind:ReviewHistoryEntry['kind'],title:string,meta:ReviewRecordMeta,call:Call|null):Pick<ReviewHistoryEntry,'id'|'kind'|'title'|'position'|'recordedAt'|'model'>{
   return {id,kind,title,position:call?.position??null,recordedAt:typeof meta.recordedAt==='string'&&Number.isFinite(Date.parse(meta.recordedAt))?meta.recordedAt:null,model:call?.model||null};

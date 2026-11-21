@@ -77,13 +77,13 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
      if(localBookId(selection))verifyOriginal(selection,original);
      return generator.reflectionCandidates(selection,draft,original);
     },
-    ...(generator.reviewFrameCount?{async reviewFrameCount(selection,plan,original){
+    ...(generator.reviewFrameCount?{async reviewFrameCount(selection,plan,original,reviewNotes){
      if(localBookId(selection))verifyOriginal(selection,original);
-     return generator.reviewFrameCount!(selection,plan,original);
+     return generator.reviewFrameCount!(selection,plan,original,reviewNotes);
     }} satisfies Pick<typeof generator,'reviewFrameCount'>:{}),
-    ...(generator.review?{async review(selection,plan,original,outline,candidates){
+    ...(generator.review?{async review(selection,plan,original,outline,candidates,reviewNotes){
      if(localBookId(selection))verifyOriginal(selection,original);
-     return generator.review!(selection,plan,original,outline,candidates);
+     return generator.review!(selection,plan,original,outline,candidates,reviewNotes);
     }} satisfies Pick<typeof generator,'review'>:{}),
     ...(generator.restructure?{async restructure(selection,plan,original,issues,coverage,frameCountContext){
      if(localBookId(selection))verifyOriginal(selection,original);

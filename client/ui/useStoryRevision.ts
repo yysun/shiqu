@@ -7,7 +7,7 @@ import {checkedRevision,revisionImpact} from '@/lib/reader-revision';
 import type {RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
 import type {SessionView} from '@/lib/reader-model';
 import type {StoryEditorTab} from './StoryProductionEditor';
-export type RevisionTab=StoryEditorTab;
+export type RevisionTab=StoryEditorTab|'review';
 export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:SessionView)=>Promise<void>){
  const [tab,setTab]=useState<RevisionTab|null>(null),[base,setBase]=useState<RevisionSnapshot|null>(null),[changes,setChanges]=useState<RevisionChanges>({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[conflict,setConflict]=useState(false);
  const [scriptPage,setScriptPage]=useState(1);

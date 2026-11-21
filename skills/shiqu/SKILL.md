@@ -57,7 +57,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 | 新建或选题 | `stories create` 接收 selection 或 `{selection,intake:true}`，默认进入选题；`--no-intake` 或 `intake:false` 使用旧的直接制作入口。search 保存提取意图，choose 保存候选索引，confirm 保存制作确认，setup 保存其他选题动作。它们不执行生成。 |
 | 执行生产 | `run <id> --until candidates\|prepared\|reviewed\|completed`（也可 `stories run <id>`）。candidates 后按用户目标选择或等待；prepared 后检查原文、摘要和方案并确认；reviewed 在已有通过的审核且画风转换完成后停止，已有图片保留，绘图任务等待继续制作；默认 completed。每次检查返回 reason 和 session，不假定达到了请求边界。 |
 | 解释停止原因 | `choice` 需选题；`frame_count_required` 是旧故事等待幅数确认，按 help 的 frameCount 输入处理；`already_prepared/already_selected` 表示已越过该边界，改用下一步；`paused` 保持暂停，`blocked` 检查故障，`superseded` 查当前版本。不能在同一停止边界空转。 |
-| 修改与控制 | `stories edit` 使用 token/changes 创建新版；changes 支持 productionPrompt、acceptancePrompt、artStyle、artStylePrompt、narrativeDetail、length、plan 或仅换图的 redrawPages。需要暂停新版时显式传 `paused:true`，默认 active，但 CLI 仍只在 run 时生成。rename 仅改显示名。pause/resume/stop 控制制作；retry/override 输入 `{faultId}`。 |
+| 修改与控制 | `stories edit` 使用 token/changes 创建新版；changes 支持 productionPrompt、acceptancePrompt、artStyle、artStylePrompt、narrativeDetail、length、plan，暂停审核时支持 reviewNotes，或用 redrawPages 仅换图。改制作要求时，run 会按已核原文重新生成梗概，再编排分镜。需要暂停新版时显式传 `paused:true`，默认 active，但 CLI 仍只在 run 时生成。rename 仅改显示名。pause/resume/stop 控制制作；retry/override 输入 `{faultId}`。 |
 | 替换选题或扩展原文 | `stories reselect <当前id>` 保存重选草稿；用 setup 的 `conditions` 更换书籍和主题后运行 `run <草稿id> --until candidates`，或直接保存已核对的原文选段。用 `stories replace <当前id> <草稿id>` 和输入 `{batch,index,generation}` 提交为当前版本，`generation` 取自最新的草稿 `intake.generation`。`stories cancel-reselection <当前id> <草稿id>` 取消草稿。 |
 | 书架整理 | `stories delete <id>` 可恢复地隐藏，`stories restore <id>` 撤销删除；`api GET reader/deletions` 列出已删除记录。`stories favorite <id>` 输入 `{saved:true\|false}`，不生图。 |
 | 本书参考图 | `stories reference <id>` 输入 `{page,starred:true}`；page 从 0 开始，每本书保留一个参考图，只影响后续绘图。换画风的故事及其后续修订使用本篇首幅作参考。取消用 `{page,starred:false,token}`，token 沿用设置星标时返回的 reference.token；缺少该 token 时说明缺失，不猜造。它与故事收藏不同，也不同于 redrawPages 的从 1 开始页码。 |
@@ -66,6 +66,8 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 | 署名与转载 | 默认值通过 `api GET/POST reader/publication-defaults` 读取/保存；单篇通过 `stories get <id>` 读取 story.publication，再 `api POST reader/sessions/<id>/publication` 保存。输入均为 `{publication:<完整署名对象>,expected:<原对象或null>}`，保留未修改字段，expected 必须沿用原始读取结果；修改全局默认与单篇设置是不同操作。 |
 | 预览与交付 | preview 输出独立离线 HTML；export 支持 zip/pdf/png/json/md，使用共享序列化、图片编码、水印和元数据规则。自主程序可组织导出清单，不能自己重建作品包。 |
 | 维护 | backup 创建完整私有快照，verify-backup 验证；restore 仅恢复到新的 data-dir，不覆盖原库或自动切换默认位置。diagnostics 输出脱敏诊断；它与私有完整备份用途不同。 |
+
+暂停审核后，先用 `stories revisions ID` 取得 token，再用 `stories edit ID --input review.json` 提交 `{"token":"当前 token","changes":{"reviewNotes":"请复核第 4 幅的人物选择及其后果。"}}`。意见最多 1200 字，传空字符串可清除。仅修改审核意见时，新版保留已保存的分镜和审核修订记录，运行新版后按意见复核。用 `help --json` 查看 `inputs.reviewNotes`。
 
 ## 制片流程控制
 

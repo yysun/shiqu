@@ -157,6 +157,85 @@ test('review changing the first frame reports the real redraw count; no preview,
  await until(async()=>(await f.read(replan.id)).state==='completed',15000);assert.equal((await f.read(replan.id)).revision.redraw,undefined);
 });
 
+test('editing production scope refreshes the verified synopsis before planning at confirmation and revision',async t=>{
+ const f=await fixture(t),id=await prepared(f),initial=await stored(f,id);
+ const scopes=['只写梦醒的经过与结果。','只写梦蝶到惊醒，收束在醒来的瞬间。'];
+ const summaries=['庄周醒来，回想梦境里的自在，一时难辨梦醒。','庄周梦中化为蝴蝶，翩然飞舞，忽然惊醒。'];
+ const preparedScopes=[];
+ f.control.beforeText=async(kind,payload)=>{
+  const index=scopes.indexOf(payload.productionPrompt);
+  if(index<0)return;
+  if(kind==='recommend'){
+   assert.notEqual(payload.storyBrief.summary,initial.original.storyBrief.summary);
+   assert.equal(payload.verifiedOriginal.text,initial.original.text);
+   preparedScopes.push(payload.productionPrompt);
+   return {storySummary:summaries[index]};
+  }
+  if(kind==='plan'||kind==='outline')assert.equal(preparedScopes.at(-1),payload.productionPrompt);
+ };
+ await setup(f,id,{action:'confirm',settings:{...settings,length:2,productionPrompt:scopes[0]}});
+ await until(async()=>(await f.read(id)).state==='completed');
+ assert.equal((await f.read(id)).story.summary,summaries[0]);
+ const base=await f.json(`sessions/${id}/revisions`);
+ const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{productionPrompt:scopes[1]}});
+ await until(async()=>(await f.read(child.id)).state==='completed');
+ assert.equal((await f.read(child.id)).story.summary,summaries[1]);
+ assert.deepEqual(preparedScopes,scopes);
+ assert.equal((await stored(f,id)).original.storyBrief.summary,summaries[0]);
+});
+
+test('a paused recheck accepts edited notes and preserves the saved script and audit evidence',async t=>{
+ const f=await productionFixture(t);f.control.hold=false;
+ const notes='请复核庄周梦醒的因果，并检查第二幅的人物反应。';
+ let release,reviewing=false;
+ const held=new Promise(resolve=>{release=resolve;});
+ f.control.beforeText=async(kind,payload)=>{
+  if(kind!=='review'||payload.reviewNotes)return;
+  if(f.control.reviews.length===1)return {issues:[{page:2,category:'composition',problem:'人物反应不明。',instruction:'让动作清晰可见。'}]};
+  reviewing=true;await held;
+ };
+ try{
+  const id=await f.create('auto');await until(()=>reviewing);
+  const route=`sessions/${id}/revisions`,base=await f.json(route),before=await stored(f,id);
+  const command={requestId:crypto.randomUUID(),token:base.token,paused:true,changes:{reviewNotes:notes}};
+  assert.equal((await f.request(route,'POST',command)).status,409);
+  await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
+  const editable=await f.json(route);assert.equal(editable.canEditReviewNotes,true);assert.equal(editable.priorReviewIssues[0].page,2);
+  const child=await f.json(route,'POST',command);assert.equal(child.generationControl,'paused');assert.equal(f.control.reviews.length,2);
+  const snapshot=await f.json(`sessions/${child.id}/revisions`);assert.equal(snapshot.reviewNotes,notes);
+  const history=await f.json(`sessions/${child.id}/review-history`);
+  assert.deepEqual(history.entries.map(entry=>entry.kind),['count','review','repair']);assert.ok(history.entries.every(entry=>entry.position!==null&&entry.model));
+  const saved=await stored(f,child.id);
+  assert.deepEqual(saved.plan,before.plan);assert.ok(saved.storyboard);assert.deepEqual(saved.storyboard,before.storyboard);assert.equal(f.control.calls.length,0);
+  release();
+  await f.json(`sessions/${child.id}/production-control`,'POST',{action:'resume'});
+  await until(async()=>(await f.read(child.id)).state==='completed');
+  assert.equal(f.control.reviews.at(-1).reviewNotes,notes);
+  assert.deepEqual(f.control.reviews.at(-1).outline?.beats,before.storyboard.outline.beats);
+  assert.equal(f.control.repairs.length,1);
+  assert.deepEqual((await stored(f,child.id)).plan.pages,before.plan.pages);
+ }finally{release();}
+});
+
+test('an older paused draft refreshes the stale synopsis before recheck without replanning frames',async t=>{
+ const f=await productionFixture(t);f.control.hold=false;
+ const id=await f.create(2);await until(async()=>(await f.read(id)).state==='completed');
+ const before=await stored(f,id),newScope='仅写梦醒后人物的反应。',newSummary='庄周醒来，回想梦中化蝶，辨不清梦与现实。';
+ // 模拟旧版在制作确认时写入新范围后仍带着旧梗概进入复核。
+ await f.app.services.database.prepare(`UPDATE stories SET generation_control='paused',state='idle',
+  selection=json_set(selection,'$.productionPrompt',?),
+  document=json_set(json_remove(document,'$.summaryProductionPrompt'),'$.visualReview.status','pending') WHERE id=?`).bind(newScope,id).run();
+ let refreshed=0;
+ f.control.beforeText=async(kind,payload)=>{
+  if(kind==='recommend'){assert.equal(payload.productionPrompt,newScope);refreshed++;return {storySummary:newSummary};}
+  if(kind==='review'){assert.equal(payload.storyBrief.summary,newSummary);assert.deepEqual(payload.plan.pages,before.plan.pages);}
+ };
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
+ await until(async()=>(await f.read(id)).state==='completed');
+ assert.equal(refreshed,1);assert.equal((await f.read(id)).story.summary,newSummary);
+ assert.deepEqual((await stored(f,id)).images,before.images);
+});
+
 test('searching leaves preparation alone, and neither loses the other\'s saved state',async t=>{
  const f=await fixture(t),id=await create(f);await phase(f,id,'choosing');await searchIs(f,id,'idle');
  const generator=f.generation.generator.bind(f.generation);let release,started=false;
@@ -220,7 +299,7 @@ test('a failed search leaves a prepared story confirmable without repeating any 
  f.generation.suggestions=async()=>({stories:[],note:'暂无更多。'});
  await setup(f,id,{action:'more'});await searchIs(f,id,'idle');assert.equal((await f.read(id)).intake.batches.length,2,'Retrying the search appends');
  assert.equal(f.control.recommendations.length,before);
- await setup(f,id,{action:'confirm',settings:{...settings,length:2}});await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.recommendations.length,before);
+ await setup(f,id,{action:'confirm',settings:{...settings,length:2,productionPrompt:s.selection.productionPrompt}});await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.recommendations.length,before);
 });
 
 test('a candidate can be chosen while a search runs, and the late result is refused',async t=>{

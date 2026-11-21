@@ -552,7 +552,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const preparing=selection.narrativeDetail&&!doc.frameCountConfirmed&&!doc.plan&&(selection.length!=='auto'||!doc.frameRecommendation);
   const step=nextStep(doc,selection,0);
   // A distinct job owns each saved planning checkpoint; the empty key is the complete-script barrier.
-  const scriptKey=step?.kind==='restyle'?step.key:!preparing&&(!doc.plan||!reviewPassed(doc))&&(doc.visualReview||doc.draft||doc.storyboard||selection.length==='auto'||selection.length>readerStoryboardBatchSize)?step?.key||'':doc.visualReview?'approved':'';
+  const scriptKey=step?.kind==='restyle'?step.key:!preparing&&(!doc.plan||!reviewPassed(doc))&&(step?.kind==='recommend'||doc.visualReview||doc.draft||doc.storyboard||selection.length==='auto'||selection.length>readerStoryboardBatchSize)?step?.key||'':doc.visualReview?'approved':'';
   const setup=doc.intake?{setupGeneration:doc.intake.generation}:{};
   const {displayTitle:_,...generationSelection}=selection;void _;
   const scriptVersion=inputVersion({selection:generationSelection,...setup}),script=this.spec(row,preparing?'prepare':'script','text',scriptVersion,scriptKey,[],{stepKey:scriptKey,...setup},-10);
@@ -806,7 +806,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(doc.visualReview&&!reviewPassed(doc))return {review:doc.visualReview.status};
   if(doc.draft)return {storyboardFrames:doc.draft.pages.length,reflectionPending:true};
   if(doc.storyboard&&!doc.plan)return {storyboardFrames:doc.storyboard.pages.length};
-  if(job.kind==='prepare'&&doc.frameRecommendation&&!doc.plan)return {prepared:true};
+  if((job.kind==='prepare'||stepKey==='recommend')&&doc.frameRecommendation&&!doc.plan)return {prepared:true};
   // A retried legacy script may finish its saved summary before it can plan; keep the same grant.
   if(job.kind==='script'&&!doc.plan&&doc.original?.storyBrief?.verified&&doc.frameRecommendation)throw new JobYield();
   if(!doc.plan||!doc.original)throw new ReaderError(503,'故事仍在更新，请重试继续。');

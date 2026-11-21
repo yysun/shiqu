@@ -9,8 +9,8 @@ import type {ImageLayout} from './reader-image-dimensions.ts';
 import type {OriginalSource,SourceResult,SourceHint} from './reader-source-types.ts';
 import {suggestedSettings} from './reader-requirements.ts';
 import {frameRecommendationOutputSchema,preparesSelectedStory} from './reader-frame-recommendation.ts';
-import {storyBriefSchema,storyBriefVerified} from './reader-story-brief.ts';
-import {storyEditorialContext} from './reader-prompts.ts';
+import {invalidateStoryBrief,pendingStorySummary,staleRevisionStoryBrief,storyBriefSchema,storyBriefVerified} from './reader-story-brief.ts';
+import {normalizeProductionPrompt,storyEditorialContext} from './reader-prompts.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
 import type {ArtRecommendation} from './reader-art-recommendation.ts';
@@ -23,8 +23,9 @@ import {validateEditorialCoverage} from './reader-editorial.ts';
 import type {EditorialCoverage} from './reader-editorial.ts';
 import type {ReviewIssue,ReviewReport,RepairedPage,FrameCountReport,FrameCountContext} from './reader-review.ts';
 import type {PromptRecord} from './reader-prompt-records.ts';
+import {loadPromptRecords,usageRecord} from './reader-prompt-store.ts';
 export type Generated<T>={promptRecord?:PromptRecord;value:T;model:string;requestId:string|null;usage:unknown;reasoningEffort?:string};
-export interface StoryGenerator{restyle?(from:ArtStyleId,to:ArtStyleId,scenePrompts:string[],fromPrompt?:string|null,toPrompt?:string|null):Promise<Generated<string[]>>;recommendArt?(selection:Selection,original:OriginalSource):Promise<ArtRecommendation>;prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;recommend?(selection:Selection,id:string,original:OriginalSource,prepareRequirements?:boolean):Promise<Generated<FrameRecommendation>>;outline?(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<StoryboardOutline>>;planBatch?(selection:Selection,id:string,storyboard:Storyboard,original:OriginalSource):Promise<Generated<Plan['pages']>>;reviewFrameCount?(selection:Selection,plan:Plan,original:OriginalSource):Promise<Generated<FrameCountReport>>;review?(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,candidates?:ReflectionCandidates):Promise<Generated<ReviewReport>>;restructure?(selection:Selection,plan:Plan,original:OriginalSource,issues:ReviewIssue[],coverage?:EditorialCoverage[],frameCountContext?:FrameCountContext):Promise<Generated<StructuralEdits>>;repair?(selection:Selection,plan:Plan,original:OriginalSource,issues:ReviewIssue[],outline?:StoryboardOutline):Promise<Generated<RepairedPage[]>>;reflectionCandidates(selection:Selection,draft:StoryDraft,original:OriginalSource):Promise<Generated<StoryPresentation>>;reflection(selection:Selection,draft:StoryDraft,original:OriginalSource,revision?:{reflection:string;issues:ReviewIssue[]}):Promise<Generated<string>>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<StoryDraft>>;original(selection:Selection,plan:SourceHint,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string,layout?:ImageLayout,artStylePrompt?:string|null):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
+export interface StoryGenerator{restyle?(from:ArtStyleId,to:ArtStyleId,scenePrompts:string[],fromPrompt?:string|null,toPrompt?:string|null):Promise<Generated<string[]>>;recommendArt?(selection:Selection,original:OriginalSource):Promise<ArtRecommendation>;prepareOriginal?(selection:Selection,id:string):Promise<OriginalSource|null>;recommend?(selection:Selection,id:string,original:OriginalSource,prepareRequirements?:boolean):Promise<Generated<FrameRecommendation>>;outline?(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<StoryboardOutline>>;planBatch?(selection:Selection,id:string,storyboard:Storyboard,original:OriginalSource):Promise<Generated<Plan['pages']>>;reviewFrameCount?(selection:Selection,plan:Plan,original:OriginalSource,reviewNotes?:string):Promise<Generated<FrameCountReport>>;review?(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,candidates?:ReflectionCandidates,reviewNotes?:string):Promise<Generated<ReviewReport>>;restructure?(selection:Selection,plan:Plan,original:OriginalSource,issues:ReviewIssue[],coverage?:EditorialCoverage[],frameCountContext?:FrameCountContext):Promise<Generated<StructuralEdits>>;repair?(selection:Selection,plan:Plan,original:OriginalSource,issues:ReviewIssue[],outline?:StoryboardOutline):Promise<Generated<RepairedPage[]>>;reflectionCandidates(selection:Selection,draft:StoryDraft,original:OriginalSource):Promise<Generated<StoryPresentation>>;reflection(selection:Selection,draft:StoryDraft,original:OriginalSource,revision?:{reflection:string;issues:ReviewIssue[]}):Promise<Generated<string>>;plan(selection:Selection,id:string,original?:OriginalSource):Promise<Generated<StoryDraft>>;original(selection:Selection,plan:SourceHint,id:string):Promise<SourceResult>;image(plan:Plan,page:number,id:string,reference:string,style?:ArtStyleId,productionPrompt?:string,artifactId?:string,layout?:ImageLayout,artStylePrompt?:string|null):Promise<Generated<string>>;audio(caption:string,id:string,page:number):Promise<Generated<string>>;safeError(error:unknown):string;}
 
 async function drawRequestedImages(repo:ReaderRepository,generator:StoryGenerator,row:SessionRow,token:string,doc:Document,selection:Selection,throughPage:number){
  const pages=doc.plan!.pages.map((_,page)=>page).filter(page=>page<=throughPage&&!doc.images[page]);
@@ -70,7 +71,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     }
     doc.original=structuredClone(original);await repo.saveImageProgress(row,ownedToken,structuredClone(doc));
    }
-   const chosen=doc.intake?.selected,candidate=chosen?doc.intake!.batches[chosen.batch]?.stories[chosen.index]:undefined;
+   const chosen=doc.intake?.phase!=='confirmed'?doc.intake?.selected:undefined,candidate=chosen?doc.intake!.batches[chosen.batch]?.stories[chosen.index]:undefined;
    // Candidate guidance or an explicit placeholder stays bound to the saved original until checked.
    const combining=selection.discovery?.mode==='auto'&&selection.discovery.combine;
    const selectedSummary=selection.sourceCard?.description;
@@ -78,7 +79,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     :selectedSummary||storyEditorialContext(selection.theme).mode==='source'?'读者已直接选定原文，依据原文补齐完整主线。'
     :'已选中此故事，须对照原文确认具体主题依据并补齐完整主线。';
    const pendingBrief=candidate?.storyBrief||{
-    summary:selectedSummary||doc.storyboard?.outline.summary||'尚未准备完整摘要，请依据已核原文生成。',
+    summary:selectedSummary||doc.storyboard?.outline.summary||pendingStorySummary,
     matchReason:candidate?.matchReason||sourceReason,
    };
    if(!doc.original.storyBrief){
@@ -93,7 +94,7 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     if(!doc.intake!.manualArt)selection.artStyle=recommendation.artStyle;
    }
    if(!generator.recommend)throw new ReaderError(503,'生成服务暂不支持画幅建议，请更新服务后重试。');
-   const prepareRequirements=!!doc.intake&&!doc.setupRequirements?.suggestions;
+   const prepareRequirements=!!doc.intake&&doc.intake.phase!=='confirmed'&&!doc.setupRequirements?.suggestions;
    const result=await generator.recommend(selection,id,doc.original,prepareRequirements),recommendation=frameRecommendationOutputSchema(doc.original,prepareRequirements,selectedStory).parse(result.value);
    if(selectedStory&&candidate&&chosen){
     const art=candidate.artRecommendation||recommendation.artRecommendation!;
@@ -107,14 +108,30 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     doc.intake!.draft??=suggestedSettings(selection,doc.setupRequirements.suggestions!,doc.setupRequirements.overrides);
    }
    if(doc.original.storyBrief)doc.original.storyBrief={summary:recommendation.storySummary!,matchReason:recommendation.storyMatchReason!,verified:true};
+   doc.summaryProductionPrompt=normalizeProductionPrompt(selection.productionPrompt,selection.theme);
    doc.frameRecommendation=recommendation;if(selection.length==='auto'&&!doc.intake)doc.frameCountConfirmed=true;return result;
+  }
+  async function savePreparedSummary(ownedToken:string,result:Generated<FrameRecommendation>){
+   doc.usage.push({step:'summary',model:result.model,requestId:result.requestId,usage:result.usage,...(result.promptRecord?{promptRecord:result.promptRecord}:{}),...(result.reasoningEffort?{reasoningEffort:result.reasoningEffort}:{})});
+   await repo.saveImageProgress(row,ownedToken,structuredClone(doc));
+  }
+  async function needsReviewSummary(){
+   if(!doc.original)return false;
+   if(doc.original.storyBrief&&!storyBriefVerified(doc.original)||staleRevisionStoryBrief(doc,selection))return true;
+   const productionPrompt=normalizeProductionPrompt(selection.productionPrompt,selection.theme);
+   if(doc.summaryProductionPrompt!==undefined)return doc.summaryProductionPrompt!==productionPrompt;
+   const call=doc.usage?.findLast(entry=>entry.step==='recommend'||entry.step==='summary');
+   if(!call)return false;
+   const record=usageRecord(call,await loadPromptRecords(repo.db,[call]));
+   if(!record)return false;
+   let previous:unknown;
+   try{previous=JSON.parse(record.input)?.productionPrompt;}catch{return false;}
+   return typeof previous==='string'&&previous!==productionPrompt;
   }
   if(step.kind==='recommend'){generated=await prepareRecommendation(token);if(doc.intake&&doc.intake.phase!=='confirmed')doc.intake.phase='confirming';}
   else if(step.kind==='plan'){
    if(doc.original?.storyBrief&&!storyBriefVerified(doc.original)||!storyBriefVerified(doc.original)&&!doc.storyboard?.outline.summary?.trim()){
-    const result=await prepareRecommendation(token);
-    doc.usage.push({step:'summary',model:result.model,requestId:result.requestId,usage:result.usage,...(result.promptRecord?{promptRecord:result.promptRecord}:{}),...(result.reasoningEffort?{reasoningEffort:result.reasoningEffort}:{})});
-    await repo.saveImageProgress(row,token,structuredClone(doc));
+    await savePreparedSummary(token,await prepareRecommendation(token));
    }
    if(generator.prepareOriginal&&!doc.original){
     const original=await generator.prepareOriginal(selection,id);
@@ -158,28 +175,37 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     if(!retry)throw new ReaderError(409,'分镜审片尚未通过，请手动继续修订。');
     // Give the continuation its own generation so the later recheck cannot reuse this receipt.
     const partial=review.stopReason==='unchanged';review.round++;review.status='repair';review.repairs=0;if(!partial)review.repaired=[];delete review.stopReason;
-   }else if(reviewPhase(review,selection)==='frames'){
-    if(!generator.reviewFrameCount)throw new ReaderError(503,'生成服务暂不支持画幅数审核，请更新服务后重试。');
-    const result=await generator.reviewFrameCount(selection,structuredClone(doc.plan!),doc.original!);
-    const report=parseFrameCountReport(doc.plan!.pages.length,{frameCountReview:result.value.frameCountReview,requirements:result.value.requirements});
-    validateEditorialCoverage(report.coverage,doc.original!);
-    (review.frameCountReports??=[]).push({...report,step:step.key,recordedAt:new Date().toISOString()});review.issues=report.issues;review.repaired=[];
-    review.phase=report.issues.length?'frames':'full';
-    review.status=!report.issues.length?'pending':review.repairs>=readerMaxAutomaticRepairs?'blocked':'repair';
-    if(review.status==='blocked')review.stopReason='limit';else delete review.stopReason;generated=result;
    }else{
-    if(!generator.review)throw new ReaderError(503,'生成服务暂不支持分镜审片，请更新服务后重试。');
-    const candidates=doc.reflectionCandidates?reflectionCandidatesSchema.parse(doc.reflectionCandidates):undefined;
-    const result=await generator.review(selection,structuredClone(doc.plan!),doc.original!,doc.storyboard?.outline,candidates);
-    const report=reviewReportSchema(doc.plan!.pages.length,candidates,selection.acceptancePrompt).parse(result.value);
-    if(selection.length==='auto'&&!report.coverage)throw new ReaderError(502,'审核未返回原文与分镜核对记录，已保留文稿，尚未绘图。');
-    if(report.coverage)validateEditorialCoverage(report.coverage,doc.original!);
-    const previousTitle=doc.plan!.title;doc.plan={...doc.plan!,title:report.titleReview.title};
-    if(candidates&&report.reflectionChoice){doc.plan={...doc.plan!,reflection:candidates[report.reflectionChoice.index-1]};delete doc.reflectionCandidates;}
-    review.phase='full';review.reports.push({step:step.key,recordedAt:new Date().toISOString(),round:review.round,...(report.acceptanceResults?{acceptanceResults:report.acceptanceResults}:{}),issues:report.issues,...(report.coverage?{coverage:report.coverage}:{}),titleReview:{...report.titleReview,previousTitle},...(candidates&&report.reflectionChoice?{reflectionChoice:{...report.reflectionChoice,candidates}}:{})});review.round++;review.issues=report.issues;review.repaired=[];
-    const unknown=report.acceptanceResults?.some(result=>result.status==='unknown');
-    const replan=report.issues.some(issue=>issue.requiresReplan);
-    review.status=unknown?'blocked':!report.issues.length?'passed':replan&&selection.length!=='auto'||review.repairs>=readerMaxAutomaticRepairs?'blocked':'repair';if(review.status==='blocked')review.stopReason=unknown?'requirements':replan&&selection.length!=='auto'?'replan':'limit';else delete review.stopReason;generated=result;
+    if(await needsReviewSummary()){
+     invalidateStoryBrief(doc);
+     const result=await prepareRecommendation(token),summary=doc.original!.storyBrief!.summary;
+     doc.plan!.summary=summary;
+     if(doc.storyboard)doc.storyboard.outline.summary=summary;
+     await savePreparedSummary(token,result);
+    }
+    if(reviewPhase(review,selection)==='frames'){
+     if(!generator.reviewFrameCount)throw new ReaderError(503,'生成服务暂不支持画幅数审核，请更新服务后重试。');
+     const result=await generator.reviewFrameCount(selection,structuredClone(doc.plan!),doc.original!,doc.reviewNotes);
+     const report=parseFrameCountReport(doc.plan!.pages.length,{frameCountReview:result.value.frameCountReview,requirements:result.value.requirements});
+     validateEditorialCoverage(report.coverage,doc.original!);
+     (review.frameCountReports??=[]).push({...report,step:step.key,recordedAt:new Date().toISOString()});review.issues=report.issues;review.repaired=[];
+     review.phase=report.issues.length?'frames':'full';
+     review.status=!report.issues.length?'pending':review.repairs>=readerMaxAutomaticRepairs?'blocked':'repair';
+     if(review.status==='blocked')review.stopReason='limit';else delete review.stopReason;generated=result;
+    }else{
+     if(!generator.review)throw new ReaderError(503,'生成服务暂不支持分镜审片，请更新服务后重试。');
+     const candidates=doc.reflectionCandidates?reflectionCandidatesSchema.parse(doc.reflectionCandidates):undefined;
+     const result=await generator.review(selection,structuredClone(doc.plan!),doc.original!,doc.storyboard?.outline,candidates,doc.reviewNotes);
+     const report=reviewReportSchema(doc.plan!.pages.length,candidates,selection.acceptancePrompt).parse(result.value);
+     if(selection.length==='auto'&&!report.coverage)throw new ReaderError(502,'审核未返回原文与分镜核对记录，已保留文稿，尚未绘图。');
+     if(report.coverage)validateEditorialCoverage(report.coverage,doc.original!);
+     const previousTitle=doc.plan!.title;doc.plan={...doc.plan!,title:report.titleReview.title};
+     if(candidates&&report.reflectionChoice){doc.plan={...doc.plan!,reflection:candidates[report.reflectionChoice.index-1]};delete doc.reflectionCandidates;}
+     review.phase='full';review.reports.push({step:step.key,recordedAt:new Date().toISOString(),round:review.round,...(report.acceptanceResults?{acceptanceResults:report.acceptanceResults}:{}),issues:report.issues,...(report.coverage?{coverage:report.coverage}:{}),titleReview:{...report.titleReview,previousTitle},...(candidates&&report.reflectionChoice?{reflectionChoice:{...report.reflectionChoice,candidates}}:{})});review.round++;review.issues=report.issues;review.repaired=[];
+     const unknown=report.acceptanceResults?.some(result=>result.status==='unknown');
+     const replan=report.issues.some(issue=>issue.requiresReplan);
+     review.status=unknown?'blocked':!report.issues.length?'passed':replan&&selection.length!=='auto'||review.repairs>=readerMaxAutomaticRepairs?'blocked':'repair';if(review.status==='blocked')review.stopReason=unknown?'requirements':replan&&selection.length!=='auto'?'replan':'limit';else delete review.stopReason;generated=result;
+    }
    }
   }
   else if(step.kind==='repair'){

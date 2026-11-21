@@ -38,7 +38,7 @@ export type FrameCountReport={frameCountReview:FrameCountReview;requirements:Fra
 export type FrameCountContext=Pick<FrameCountReport,'frameCountReview'|'requirements'>;
 export type ReviewReport={acceptanceResults?:AcceptanceResult[];frameCountReview?:FrameCountReview;issues:ReviewIssue[];titleReview:TitleReview;reflectionChoice?:ReflectionChoice;coverage?:EditorialCoverage[]};
 // Historical review reports remain readable without title audit metadata.
-export type ReviewRecordMeta={step?:string;recordedAt?:string};
+export type ReviewRecordMeta={step?:string;recordedAt?:string;originId?:string};
 export type ReviewRepairRecord=ReviewRecordMeta&{round:number;requested:number[];changes:RepairedPage[];changed?:boolean;before?:RepairedPage[];reflection?:string;previousReflection?:string;structure?:StructuralEdits&{before:number;after:number;sourcePages:(number|null)[];removed:RepairedPage[];previousOutline?:StoryboardOutline;previousCharacters?:string}};
 export type ReviewCheckpoint={phase?:'frames'|'full';frameCountReports?:(FrameCountReport&ReviewRecordMeta)[];overridden?:boolean;stopReason?:'limit'|'unchanged'|'replan'|'requirements';history?:ReviewRepairRecord[];status:'pending'|'repair'|'passed'|'blocked';round:number;repairs:number;issues:ReviewIssue[];repaired:number[];reports:(ReviewRecordMeta&{round:number;acceptanceResults?:AcceptanceResult[];frameCountReview?:FrameCountReview;issues:ReviewIssue[];coverage?:EditorialCoverage[];titleReview?:TitleReview&{previousTitle:string};reflectionChoice?:ReflectionChoice&{candidates:ReflectionCandidates}})[]};
 export type RepairedPage={page:number;caption:string;prompt:string};
@@ -116,23 +116,24 @@ const repairDirection=`只修issues指出且在requestedPages内的画幅，返�
 export const repairSystemPrompt=promptSections(['任务','你是静态连环画修订编辑，只定向修复指定画幅，不重新编排全篇。'],['共同标准',storySceneDirection],['首幅要求',storyOpeningDirection],['逐幅要求',storyPageDirection],['修订范围与输出',repairDirection],['输入边界',inputBoundaryDirection]);
 
 type Call=(task:ReasoningTask,instructions:string,payload:unknown,schema:unknown,maxOutputTokens:number,original?:OriginalSource)=>Promise<Generated<unknown>>;
+const reviewNotesDirection=promptSections(['读者审核意见','reviewNotes 为读者对本篇审片的补充或更正。按本阶段职责逐项复查，优先核对点名的段落、幅号或结语，并以已核原文、当前分镜及验收要求为依据。意见不直接改变审核结论，不扩大制作范围，也不替代其他必要检查。']);
 export function storyboardReviewGenerator(call:Call){
  function payload(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,reviewing=true){assertStoryBriefReady(original);return {book:selection.customBook||selection.bookId,chosenStory:selection.storyTitle,editorialContext:storyEditorialContext(selection.theme),...(reviewing?storyBriefPayload(original):{}),exactPageCount:plan.pages.length,narrativeDetail:selection.narrativeDetail||'balanced',countPolicy:selection.length==='auto'?'adaptive':'fixed',...(reviewing?acceptanceInput(selection):{}),productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtDirection(selection),verifiedOriginal:verifiedOriginalPayload(original),plan:reviewing?plan:withoutStorySummary(plan),...(outline?{outline:reviewing?outline:withoutStorySummary(outline)}:{})};}
  return {
-  async reviewFrameCount(selection:Selection,plan:Plan,original:OriginalSource){
+  async reviewFrameCount(selection:Selection,plan:Plan,original:OriginalSource,reviewNotes?:string){
    if(selection.length!=='auto')throw Error('FRAME_COUNT_REVIEW_MODE');
    const count=plan.pages.length,schema={type:'object',properties:{requirements:{type:'array',maxItems:readerStoryboardBatchSize,items:{type:'object',properties:{page:{type:'integer',minimum:1,maximum:count},quote:{type:'string',minLength:2,maxLength:120},task:string(120),captionEvidence:string(180),visualEvidence:string(180),loss:string(180),instruction:string(400)},required:['page','quote','task','captionEvidence','visualEvidence','loss','instruction'],additionalProperties:false}},frameCountReview:frameCountReviewJson},required:['requirements','frameCountReview'],additionalProperties:false};
    const instructions=promptSections(['任务','你是连环画叙事空间与幅数编辑，这是第一道审核门。只判断关键任务的叙事空间与分配，识别缺戏、重复和过细拆分，再按必要任务计数；事实细查、语言润色、构图和连续性检查、标题与结语择优留给下一道原有全面审片。原文仍是依据，不凭改编说明或旧审核通过来放行。'],['作品知识与补文',storyKnowledgeDirection],['故事范围',storyScopeDirection],['主事件与末尾核对',storyEndingReviewDirection],['删合检验',storyPacingReviewDirection],['展开程度',narrativeDetailInstructions],['审核顺序',frameCountReviewDirection],['输入边界',inputBoundaryDirection]);
-   const result=await call('review',instructions+(original.localSource?'\n'+localPlanConstraint:''),payload(selection,plan,original,undefined,false),schema,24000,original);
+   const result=await call('review',instructions+(original.localSource?'\n'+localPlanConstraint:'')+(reviewNotes?'\n\n'+reviewNotesDirection:''),{...payload(selection,plan,original,undefined,false),...(reviewNotes?{reviewNotes}:{})},schema,24000,original);
    const value=parseFrameCountReport(count,result.value);validateEditorialCoverage(value.coverage,original);return {...result,value};
   },
-  async review(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,reflectionCandidates?:ReflectionCandidates){
+  async review(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,reflectionCandidates?:ReflectionCandidates,reviewNotes?:string){
    const candidates=reflectionCandidates?reflectionCandidatesSchema.parse(reflectionCandidates):undefined;
    const count=plan.pages.length,schema={type:'object',properties:{...(acceptanceCriteria(selection.acceptancePrompt).length?{acceptanceResults:acceptanceResultsJson}:{}),coverage:editorialCoverageJson(count),titleReview:{type:'object',properties:{title:string(40),reason:string(400)},required:['title','reason'],additionalProperties:false},issues:{type:'array',maxItems:count+1,items:{type:'object',properties:{page:{type:'integer',minimum:0,maximum:count},category:{type:'string',enum:categories},problem:string(180),instruction:string(400),requiresReplan:{type:'boolean'}},required:['page','category','problem','instruction','requiresReplan'],additionalProperties:false}},...(candidates?{reflectionChoice:{type:'object',properties:{index:{type:'integer',enum:[1,2,3]},reason:string(400)},required:['index','reason'],additionalProperties:false}}:{})},required:['issues','titleReview','coverage',...(acceptanceCriteria(selection.acceptancePrompt).length?['acceptanceResults']:[]),...(candidates?['reflectionChoice']:[])],additionalProperties:false};
    const result=await call('review',reviewSystemPrompt+(original.localSource?'\n'+localPlanConstraint:'')+'\n\n'+promptSections(
     ['本次数量约束',selection.length==='auto'?'countPolicy=adaptive：exactPageCount是当前数，不是目标；有据的增删或重分配标requiresReplan=true，由结构修订处理。':'countPolicy=fixed：旧数值稿确需改变结构时仍标requiresReplan=true，不伪造局部修法。'],
-    ['本次结语对象',candidates?reflectionChoiceDirection:'审核plan.reflection，不输出reflectionChoice。']),
-    {...payload(selection,plan,original,outline),...(candidates?{reflectionCandidates:candidates}:{})},schema,24000,original);
+    ['本次结语对象',candidates?reflectionChoiceDirection:'审核plan.reflection，不输出reflectionChoice。'])+(reviewNotes?'\n\n'+reviewNotesDirection:''),
+    {...payload(selection,plan,original,outline),...(candidates?{reflectionCandidates:candidates}:{}),...(reviewNotes?{reviewNotes}:{})},schema,24000,original);
    const value=reviewReportSchema(count,candidates,selection.acceptancePrompt).parse(result.value);if(selection.length==='auto'&&!value.coverage)throw Error('EDITORIAL_COVERAGE_REQUIRED');if(value.coverage)validateEditorialCoverage(value.coverage,original);
    return {...result,value};
   },
