@@ -36,27 +36,32 @@ function ScriptFrameRow({frame,number,editable,selecting,selected,open,onlyFrame
  function end(event:PointerEvent<HTMLDivElement>){
   const gesture=pointer.current;
   if(gesture?.id!==event.pointerId)return;
-  const dx=event.clientX-gesture.x;
+  const dx=event.clientX-gesture.x,dy=event.clientY-gesture.y;
   if(gesture.dragging&&Math.abs(dx)>=32)onOpen(dx<0);
+  if(open&&!gesture.dragging&&Math.abs(dx)<8&&Math.abs(dy)<8)onOpen(false);
   clear();
  }
  return <section className="yu-script-scene yu-script-row" aria-label={`第 ${number} 幅剧本`} data-open={open||undefined} data-selected={selected||undefined}
-  onKeyDown={event=>{if(open&&event.key==='Escape'){event.preventDefault();event.stopPropagation();onOpen(false);menu.current?.focus();}}}>
+  onKeyDown={event=>{
+   if(!open||event.key!=='Escape')return;
+   event.preventDefault();event.stopPropagation();onOpen(false);
+   requestAnimationFrame(()=>menu.current?.focus({preventScroll:true}));
+  }}>
   <div className="yu-script-row-face" style={offset===null?undefined:{transform:`translateX(${offset}px)`,transition:'none'}}
    onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={clear} onLostPointerCapture={clear}>
    <div className="yu-script-row-heading">
     <h4>第 {number} 幅</h4>
     {selecting?<label className="yu-script-check"><input type="checkbox" checked={selected} onChange={onSelect} aria-label={`选择第 ${number} 幅`}/></label>:
-     editable&&<button ref={menu} type="button" className="yu-script-row-menu" aria-label={`第 ${number} 幅操作`} aria-expanded={open} onClick={event=>{
-      onOpen(!open);
-      if(!open&&event.detail===0)requestAnimationFrame(()=>actions.current?.querySelector('button')?.focus());
+     editable&&<button ref={menu} type="button" className="yu-script-row-menu" aria-label={`第 ${number} 幅操作`} aria-expanded={open} onClick={()=>{
+      onOpen(true);
+      requestAnimationFrame(()=>actions.current?.querySelector<HTMLElement>('a')?.focus({preventScroll:true}));
      }}><Ellipsis size={19}/></button>}
    </div>
    <p>{frame.caption||'这幅的旁白尚未保存。'}</p>
    <details className="yu-script-prompt"><summary>画面提示词</summary><p>{frame.prompt||'这幅未保存画面提示词。'}</p></details>
   </div>
   {editable&&!selecting&&<div ref={actions} className="yu-script-row-actions" inert={!open}>
-   <button type="button" onClick={onEdit} aria-label={`修改第 ${number} 幅`}>修改</button>
+   <StoryFlowAction onClick={onEdit} aria-label={`修改第 ${number} 幅`}>修改</StoryFlowAction>
    <button type="button" onClick={onDelete} disabled={onlyFrame} aria-label={`删除第 ${number} 幅`}>删除</button>
   </div>}
  </section>;

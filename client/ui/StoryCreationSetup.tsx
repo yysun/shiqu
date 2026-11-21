@@ -52,6 +52,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  const searching=finding||search.state==='searching';
  const locked=busy||session.state==='running'&&!paused,ready=intake.phase==='confirming';
  const editable=ready||paused&&intake.phase==='preparing';
+ const canRecommend=ready&&!remote&&session.state!=='running'&&(editing==='requirements'||editing==='count');
  const selected=intake.selected?intake.batches[intake.selected.batch]?.stories[intake.selected.index]:null;
  const preparable=!!selected&&intake.phase==='choosing'&&session.state!=='failed';
  const preferences={artStyle:settings.artStyle,artStylePrompt:settings.artStylePrompt,productionPrompt:settings.productionPrompt,...(settings.acceptancePrompt!==undefined?{acceptancePrompt:settings.acceptancePrompt}:{}),narrativeDetail:settings.narrativeDetail};
@@ -114,9 +115,13 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   {editing&&<Sheet title="修改故事" busy={busy} onClose={closeEditor}>
    {remoteChoice}
    <StoryEditorTabs tab={editing} disabled={locked} onChange={tab=>{if(tab!=='script')setEditing(tab);}}/>
-   <StoryProductionEditor sessionId={session.id} tab={editing} settings={settings} creation disabled={locked} recommendation={session.frameRecommendation} artRecommendation={selected?.artRecommendation} onChange={patch=>setSettings(s=>({...s,...patch,length:'auto'}))} onRecommend={ready&&!remote&&session.state!=='running'?()=>void act({action:'recommend',settings:preferences,draftToken:baselineToken.current}):undefined}/>
+   <StoryProductionEditor sessionId={session.id} tab={editing} settings={settings} creation disabled={locked} recommendation={session.frameRecommendation} artRecommendation={selected?.artRecommendation} onChange={patch=>setSettings(s=>({...s,...patch,length:'auto'}))}/>
+   {canRecommend&&<p className="yu-count-help">重新准备会保存设置并核对原文；审核通过前不会绘图。</p>}
    {error&&<p className="yu-batch-error" role="alert">{error}</p>}
-   <div className="production-stage-actions">{ready?startProduction:<StoryFlowAction disabled={busy||remote} onClick={saveSettings}>保存设置</StoryFlowAction>}</div>
+   <div className="production-stage-actions">
+    {canRecommend&&<StoryFlowAction disabled={locked} onClick={()=>void act({action:'recommend',settings:preferences,draftToken:baselineToken.current})}>按当前要求重新准备</StoryFlowAction>}
+    {ready?startProduction:<button type="button" className="yu-primary" disabled={busy||remote} aria-busy={busy} onClick={()=>void saveSettings()}>{busy?'正在保存…':'保存设置'}</button>}
+   </div>
   </Sheet>}
  </section>;
 }

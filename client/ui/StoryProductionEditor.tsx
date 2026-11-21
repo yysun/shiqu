@@ -17,7 +17,7 @@ const tabs:{id:StoryEditorTab;label:string}[]=[{id:'requirements',label:'制作�
 export function StoryEditorTabs({tab,onChange,script=false,disabled=false}:{tab:StoryEditorTab;onChange:(tab:StoryEditorTab)=>void;script?:boolean;disabled?:boolean}){
  return <nav className="yu-revision-tabs" aria-label="修改内容">{tabs.filter(t=>script||t.id!=='script').map(t=><button type="button" key={t.id} disabled={disabled} aria-pressed={tab===t.id} onClick={()=>onChange(t.id)}>{t.label}</button>)}</nav>;
 }
-export default function StoryProductionEditor({tab,settings,disabled,onChange,sessionId,creation=false,recommendation,artRecommendation,onRecommend}:{tab:Exclude<StoryEditorTab,'script'>;settings:ProductionSettings;sessionId?:string;disabled:boolean;onChange:(patch:Partial<ProductionSettings>)=>void;creation?:boolean;recommendation?:FrameRecommendation|null;artRecommendation?:ArtRecommendation;onRecommend?:()=>void}){
+export default function StoryProductionEditor({tab,settings,disabled,onChange,sessionId,creation=false,recommendation,artRecommendation}:{tab:Exclude<StoryEditorTab,'script'>;settings:ProductionSettings;sessionId?:string;disabled:boolean;onChange:(patch:Partial<ProductionSettings>)=>void;creation?:boolean;recommendation?:FrameRecommendation|null;artRecommendation?:ArtRecommendation}){
  const promptId=useId(),promptField=useRef<HTMLTextAreaElement>(null);
  const defaultPrompt=getArtStyle(settings.artStyle).prompt;
  const customPrompt=!!settings.artStylePrompt?.trim()&&settings.artStylePrompt.trim()!==defaultPrompt;
@@ -40,6 +40,5 @@ export default function StoryProductionEditor({tab,settings,disabled,onChange,se
    </>}
   </>}
   {tab==='count'&&<section><h3>叙事详略</h3><div className="yu-narrative-details" role="group" aria-label="叙事详略">{narrativeDetails.map(detail=><button type="button" key={detail.id} aria-pressed={settings.narrativeDetail===detail.id} className={settings.narrativeDetail===detail.id?'selected':''} disabled={disabled} onClick={()=>onChange({narrativeDetail:detail.id,length:'auto'})}><strong>{detail.label}</strong><span>{detail.description.split(/(?<=[，、])/).map((part,index)=><span key={index}>{part}</span>)}</span></button>)}</div><p className="yu-count-help">画幅数由模型按原文和详略编排，审核时可增减；文字稿稳定后再生成图片。</p>{recommendation&&<p className="yu-count-help">初步估计 {recommendation.count} 幅，最终数量以编排和审核结果为准。</p>}</section>}
-  {onRecommend&&(tab==='count'||tab==='requirements')&&<><StoryFlowAction onClick={onRecommend}>按当前要求重新准备</StoryFlowAction><p className="yu-count-help">保存设置并核对原文；审核通过前不会绘图。</p></>}
  </fieldset>;
 }

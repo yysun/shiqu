@@ -54,7 +54,9 @@ export default function StoryLandscapeStep({storyId}:{storyId:string}){
  const state:ProductionStageState=readError?'failed':running?'current':status?.state==='completed'?'done':partial||actionError?'failed':status&&!status.available?'unavailable':'pending';
  const stateLabel={failed:readError?'读取失败':partial?'待重试':'提交失败',current:'进行中',done:'已完成',unavailable:'暂不可用',pending:status?'未生成':'读取中'}[state];
  const action=readError?<StoryFlowAction onClick={()=>setRefresh(value=>value+1)}>重新读取进度</StoryFlowAction>:
-  canSubmit&&<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={start}>{submitting?'正在提交…':partial?'重试未完成画幅':'生成横版插图'}</StoryFlowAction>;
+  canSubmit&&(status.retryToken
+   ?<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={start}>{submitting?'正在提交…':'重试未完成画幅'}</StoryFlowAction>
+   :<button type="button" className="yu-primary" disabled={submitting} aria-busy={submitting} onClick={()=>void start()}>{submitting?'正在提交…':'生成横版插图'}</button>);
  return <ProductionTimelineRow step={{id:'landscape',label:'横版插图（可选）',state,detail}} stateLabel={stateLabel} moving={running} detailLive>
   {error&&<p className="yu-batch-error" role="alert">{error}</p>}
   {action&&<div className="production-stage-actions">{action}</div>}

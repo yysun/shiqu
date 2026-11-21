@@ -58,7 +58,7 @@ export function StoryRevisionActions({editor,resuming=false}:{editor:StoryRevisi
   {detail&&<p role="status">{detail}</p>}
   <RevisionConflicts editor={editor}/>
   {editor.error&&<p role="alert">{editor.error}</p>}
-  <div className="production-stage-actions yu-revision-submit"><button type="button" className="yu-primary" disabled={busy||editor.loading||!impact.changed||impact.conflict||editor.conflict} aria-busy={busy} onClick={()=>void editor.submit()}>{busy?'正在提交…':action}</button></div>
+  <div className="production-stage-actions"><button type="button" className="yu-primary" disabled={busy||editor.loading||!impact.changed||impact.conflict||editor.conflict} aria-busy={busy} onClick={()=>void editor.submit()}>{busy?'正在提交…':action}</button></div>
  </section>;
 }
 
@@ -79,7 +79,7 @@ function StoryReviewNotesEditor({editor,base}:{editor:StoryRevisionEditorState;b
    <RevisionConflicts editor={editor}/>
    {!blocked&&editor.impact?.changed&&<p>{editor.impact.replan?'会一并应用已有草稿，重新编排后开始审核。':'已有制作草稿也会一并应用。'}</p>}
    {editor.error&&<p role="alert">{editor.error}</p>}
-   <div className="production-stage-actions yu-revision-submit"><button type="button" className="yu-primary" disabled={disabled} aria-busy={editor.busy} onClick={()=>void editor.submit(changes)}>{editor.busy?'正在提交…':'开始审核'}</button></div>
+   <div className="production-stage-actions"><button type="button" className="yu-primary" disabled={disabled} aria-busy={editor.busy} onClick={()=>void editor.submit(changes)}>{editor.busy?'正在提交…':'开始审核'}</button></div>
   </fieldset>
  </div>;
 }

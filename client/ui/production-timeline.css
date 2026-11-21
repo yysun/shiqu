@@ -47,6 +47,9 @@ ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr))
 
 .production-stage-notice .yu-retry-control{margin:0}.production-stage-notice .yu-review-tools.has-issues{padding:0;border:0;background:none}.production-stage-notice .yu-review-tools{margin:8px 0}.production-stage-notice .yu-batch-error{margin:8px 0}.production-stage-notice>.yu-primary{margin-top:10px}
 .production-stage-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:baseline;gap:4px 12px;min-width:0}
+.production-stage-actions>.yu-primary{width:auto;min-width:132px;min-height:48px;padding:10px 18px;font-size:14px;cursor:pointer}
+.production-stage-actions>.yu-primary:disabled{opacity:.5;cursor:default}
+.production-stage-actions>.yu-primary:focus-visible{outline:2px solid #648354;outline-offset:3px}
 .production-stage-actions--settings{container:production-settings / inline-size;flex-wrap:nowrap;column-gap:clamp(2px,calc((100% - 208px)/12),12px)}
 .production-stage-actions--settings>.story-flow-link{min-width:max(44px,4em);white-space:nowrap}
 /* 窄窗口缩短字段名，四个选项和完整当前值共用一行。 */
