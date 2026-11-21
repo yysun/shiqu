@@ -2,6 +2,7 @@
 // survives every destructive step; recovery restores files in place so service/gate lock inodes stay stable.
 // Consolidated libraries take later migrations in place after their own verified backup. Restores report
 // the caller's source backup instead of keeping a second snapshot beside the staging directory.
+// 升级开始和结束时在终端提示书库正在迁移，避免启动期间长时间无输出。
 import {DatabaseSync} from 'node:sqlite';
 import {existsSync,mkdirSync,readFileSync,writeFileSync,renameSync,rmSync,readdirSync,lstatSync,openSync,closeSync,fsyncSync} from 'node:fs';
 import path from 'node:path';
@@ -172,11 +173,15 @@ function pendingMigrations(directory:string,root:string){
 function applyPendingMigrations(directory:string,root:string){
  // Each migration commits on its own; the verified backup is the rollback point for a partial failure.
  const migrations=pendingMigrations(directory,root);if(!migrations.length)return;
+ const started=Date.now();
+ console.warn(`书库数据库正在迁移（${migrations.join('、')}），先做整库备份，请勿关闭……`);
  const backup=safetyBackup(directory,root),sqlite=new DatabaseSync(path.join(directory,'shiqu.sqlite'));
+ console.warn('正在应用数据库迁移……');
  try{sqlite.exec('PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON');migrate(sqlite,root,directory,undefined,consolidationMigration);sqlite.exec('PRAGMA wal_checkpoint(TRUNCATE)');}
  catch(error){throw Error(`LIBRARY_MIGRATION_FAILED; backup: ${backup}; ${String(error)}`,{cause:error});}
  finally{sqlite.close();}
  if(inspectLibrary(directory)!=='current')throw Error(`LIBRARY_MIGRATION_FAILED; backup: ${backup}; invalid schema`);
+ console.warn(`书库数据库迁移完成，用时 ${((Date.now()-started)/1000).toFixed(1)} 秒。`);
  return {backup,migrations};
 }
 export type UpgradePoint='journal'|'staged'|'quarantined'|'database-retired'|'database-published'|'files-published'|'cleanup';
@@ -190,6 +195,7 @@ export function ensureLibraryReady(directory:string,root:string,options:{onStep?
   const workName='.desktop-upgrade-'+randomUUID(),work=path.join(directory,workName);
   let backup:string|null=null;
   if(state==='legacy'){
+   console.warn('书库数据库正在升级到当前格式，先做整库备份，请勿关闭……');
    backup=safetyBackup(directory,root);
   }
   durableFile(path.join(directory,upgradeJournal),JSON.stringify({version:libraryFormat.schemaVersion,work:workName,backup})+'\n');
@@ -239,6 +245,7 @@ export function ensureLibraryReady(directory:string,root:string,options:{onStep?
    rmSync(work,{recursive:true,force:true});syncDirectory(directory);options.onStep?.('cleanup');
    if(backup)durableFile(path.join(directory,'.desktop-upgrade-result.json'),JSON.stringify({backup,removed:removal,protected:[...kept.keys()],shared,uncertain})+'\n');
    rmSync(path.join(directory,upgradeJournal));syncDirectory(directory);
+   if(backup)console.warn('书库数据库升级完成。');
    return {backup,removed:removal,retained:[...kept.keys()],shared,uncertain};
   }catch(error){
    try{recover(directory);}catch(recovery){throw Error(`LIBRARY_RECOVERY_FAILED; backup: ${backup||'fresh library'}; ${String(recovery)}`,{cause:error});}
