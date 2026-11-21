@@ -40,9 +40,19 @@ test('unknown counts and timestamps stay unknown and durations include minutes',
 test('review and repair are distinct saved stages and drawing only becomes current after approval',()=>{
  const session={...planning,story:{pages:Array(8).fill({})},generationProgress:{...planning.generationProgress,frameCount:8,phase:'review',reviewStatus:'pending',reviewRound:0}};
  const review=generationProgress(session,20000);assert.equal(review.measured,false);assert.equal(review.steps[3].label,'全篇审片');assert.deepEqual(review.steps.map(s=>s.state),['done','done','done','current','pending','pending','pending']);
- const repair=generationProgress({...session,generationProgress:{...session.generationProgress,phase:'repair',reviewStatus:'repair',repairCompleted:1,repairTotal:2}},20000);assert.equal(repair.steps[4].detail,'第 1 轮 · 已修订 1 / 2 项');
+ const repair=generationProgress({...session,generationProgress:{...session.generationProgress,phase:'repair',reviewStatus:'repair',repairCompleted:1,repairTotal:2}},20000);assert.equal(repair.steps[4].detail,'已修订 1 / 2 项');
  const failed=generationProgress({...session,state:'failed',error:'仍有问题',generationProgress:{...session.generationProgress,reviewStatus:'blocked',repairTotal:2}},20000);assert.equal(failed.steps[5].state,'failed');assert.equal(failed.steps[6].state,'pending');assert.equal(failed.steps[5].detail,'仍有 2 项待修订，绘图已阻止');
  const images=generationProgress({...session,generationProgress:{...session.generationProgress,phase:'image',reviewStatus:'passed'}},20000);assert.equal(images.measured,true);assert.equal(images.steps[3].state,'done');assert.equal(images.steps[6].state,'current');
+});
+
+test('repair batches and retry limits do not change the displayed full audit number',()=>{
+ const meta={...planning.generationProgress,frameCount:8,reviewPhase:'full',reviewAudits:3,reviewRound:9,repairPasses:1,repairBatches:15,repairTotal:2};
+ const steps=progress=>generationProgress({...planning,story:{pages:Array(8).fill({})},generationProgress:{...meta,...progress}},20000).steps;
+ assert.equal(steps({phase:'repair',reviewStatus:'repair'})[4].detail,'按第 3 次全篇审核修订 · 已修订 0 / 2 项');
+ assert.equal(steps({phase:'repair',reviewStatus:'repair',reviewPhase:'frames'})[4].detail,'按画幅数审核修订 · 已修订 0 / 2 项');
+ const recheck=steps({phase:'review',reviewStatus:'pending'});
+ assert.equal(recheck[4].detail,'已完成 15 批定向修订');
+ assert.equal(recheck[5].detail,'正在第 4 次全篇审核');
 });
 
 test('step clocks survive reopening and count down to the saved deadline',()=>{

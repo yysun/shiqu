@@ -14,3 +14,5 @@ CR fixed: 修订只读能复用的图片，键盘可直接操作已展开的画�
 CR risk: non-low — 涉及修订提交、画幅映射和梗概生成入口。
 
 CR review round: 2; reviewer: reused
+
+本地实现提交 `ed73624`。
