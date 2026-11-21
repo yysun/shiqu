@@ -6,6 +6,7 @@ import {planSchema,type Plan} from '@/lib/reader-model';
 import {survivingRevisionFrames} from '@/lib/reader-revision';
 import type {StoryRevisionEditorState} from './useStoryRevision';
 import StoryFlowAction from './StoryFlowAction';
+import {StoryRevisionActions} from './StoryRevisionEditor';
 import './story-script.css';
 
 type Frame=Plan['pages'][number];
@@ -61,7 +62,7 @@ function ScriptFrameRow({frame,number,editable,selecting,selected,open,onlyFrame
  </section>;
 }
 
-export default function StoryScript({story,editor,onEdit,onDone}:{story:Story;editor?:StoryRevisionEditorState;onEdit:(page?:number)=>void;onDone:()=>void}){
+export default function StoryScript({story,editor,onEdit,resuming=false}:{story:Story;editor?:StoryRevisionEditorState;onEdit:(page?:number)=>void;resuming?:boolean}){
  const base=editor?.base?.plan,plan=editor?.changes.plan||base;
  const frames=plan?.pages??story.pages;
  const originalIds=survivingRevisionFrames(base?.pages.length??frames.length,editor?.changes.removedFrames).map(index=>index+1);
@@ -71,7 +72,7 @@ export default function StoryScript({story,editor,onEdit,onDone}:{story:Story;ed
  const [merge,setMerge]=useState<Frame|null>(null),[notice,setNotice]=useState('');
  const toolbar=useRef<HTMLDivElement>(null),caption=useRef<HTMLTextAreaElement>(null);
  const chosen=originalIds.filter(id=>selected.has(id)),merging=merge!==null;
- const hasDraft=!!editor&&(!!editor.changes.removedFrames||!!editor.changes.storySummary);
+ const showActions=!!editor?.base&&!editor.loading&&!merging&&(editor.impact?.changed||editor.conflict);
  useEffect(()=>{if(merging)caption.current?.focus();},[merging]);
  function toggle(id:number){
   if(merge)return;
@@ -122,18 +123,17 @@ export default function StoryScript({story,editor,onEdit,onDone}:{story:Story;ed
     }}>{editor.summarizing?'正在生成梗概…':'重新生成故事梗概'}</StoryFlowAction>
     <div className="yu-script-tools">
      <StoryFlowAction disabled={!editable||frames.length<2} onClick={toggleSelection}>选择</StoryFlowAction>
-     {hasDraft&&<StoryFlowAction disabled={editor.busy} onClick={onDone}>完成编辑</StoryFlowAction>}
     </div>
    </div>}
-   {selecting&&!merge&&hasDraft&&<div className="yu-script-tools"><StoryFlowAction onClick={onDone}>完成编辑</StoryFlowAction></div>}
-   {editor.loading?<p role="status">正在载入分镜…</p>:editor.conflict?<p role="alert">分镜已在别处更新，请回到制作流程重新载入。</p>:editor.error?<div role="alert"><p>{editor.error}</p>{!base&&<StoryFlowAction onClick={editor.load}>重试载入</StoryFlowAction>}</div>:null}
+   {showActions&&<StoryRevisionActions editor={editor} resuming={resuming}/>}
+   {editor.loading?<p role="status">正在载入分镜…</p>:!showActions&&editor.error?<div role="alert"><p>{editor.error}</p>{!base&&<StoryFlowAction onClick={editor.conflict?editor.loadLatest:editor.load}>{editor.conflict?'载入最新版本':'重试载入'}</StoryFlowAction>}</div>:null}
    {notice&&<p role="status">{notice}</p>}
   </div>}
   {merge&&<section className="yu-script-merge" aria-label="合并分镜">
    <h3>合并为第 {originalIds.indexOf(chosen[0])+1} 幅</h3>
    <label className="yu-revision-field">合并后的旁白<textarea ref={caption} rows={4} value={merge.caption} onChange={event=>setMerge({...merge,caption:event.target.value})}/><small>8–90 字 · 当前 {merge.caption.trim().length} 字</small></label>
    <label className="yu-revision-field">合并后的画面提示词<textarea rows={5} maxLength={1800} value={merge.prompt} onChange={event=>setMerge({...merge,prompt:event.target.value})}/><small>保留一个可画的瞬间 · 20–1800 字</small></label>
-   <div className="yu-script-tools"><button type="button" onClick={()=>setMerge(null)}>取消合并</button><button type="button" disabled={!editable||!replacement||!replacement.success} onClick={()=>{if(replacement&&replacement.success)apply(chosen,replacement.data);}}>确认合并</button></div>
+   <div className="yu-script-tools"><button type="button" onClick={()=>setMerge(null)}>取消合并</button><button type="button" disabled={!editable||!replacement||!replacement.success} onClick={()=>{if(replacement&&replacement.success)apply(chosen,replacement.data);}}>预览合并</button></div>
   </section>}
   <div className="yu-script-frames">
    {frames.length?frames.map((frame,index)=>{

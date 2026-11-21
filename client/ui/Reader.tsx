@@ -41,7 +41,7 @@ import {useStoryGeneration} from './useStoryGeneration';
 const isGenerated=(s:Story|null):s is GeneratedStory=>!!s&&'generated'in s&&s.generated===true;
 import {getArtStyle} from '@/lib/reader-styles';
 import {redrawNoteMaxLength} from '@/lib/reader-revision';
-import StoryRevisionEditor,{StoryRevisionActions} from './StoryRevisionEditor';
+import StoryRevisionEditor from './StoryRevisionEditor';
 import {useStoryRevision} from './useStoryRevision';
 import {defaultProductionPrompt,promptAfterThemeChange} from '@/lib/reader-prompts';
 import type {ShelfSession,ShelfStory} from '@/lib/reader-shelf';
@@ -223,7 +223,7 @@ export default function Reader(){
  // The id stays the same when the first image arrives, so a draft written before it survives.
  const historyOwner=story?.id||gen.active?.id;
  useEffect(()=>{setReviewHistoryId(null);},[historyOwner]);
- const revision=useStoryRevision(story?story.id:gen.active&&(!gen.active.intake||gen.active.intake.phase==='confirmed')?gen.active.id:undefined,async(next,changes)=>{await switchVersion(next.id,changes.removedFrames||changes.storySummary?next.page:0);});
+ const revision=useStoryRevision(story?story.id:gen.active&&(!gen.active.intake||gen.active.intake.phase==='confirmed')?gen.active.id:undefined,async(next,changes)=>{await switchVersion(next.id,changes.removedFrames||changes.storySummary?next.page:0);},switchVersion);
  // 仅换图使用单独的修订草稿，保留故事设置里未提交的编辑。
  const redraw=useStoryRevision(story?.id,async next=>{setRedrawPage(null);await switchVersion(next.id,redrawPage??0);});
  async function switchVersion(id:string,initialPage=0){
@@ -580,7 +580,6 @@ export default function Reader(){
  const revisionSession=readingSession||(!story?gen.active:null);
  const revisionResuming=!!revisionSession&&revisionSession.state!=='completed'&&!!revisionSession.generationControl&&revisionSession.generationControl!=='active';
  const GenerationSurface=revisionResuming?StoryPausedEditing:StoryGenerationStatus;
- const revisionPending=!!revision.impact?.changed;
  // 会话离开选题阶段后，其设置与标题输入草稿不再需要。
  useEffect(()=>{if(workflowSession&&(!workflowSession.intake||workflowSession.intake.phase==='confirmed')){clearRetained('setup:'+workflowSession.id);clearRetained('search:'+workflowSession.id);}},[workflowSession?.id,workflowSession?.intake?.phase]);
 
@@ -591,7 +590,7 @@ export default function Reader(){
     retainKey={'setup:'+workflowSession.id}
     onBackToDiscovery={()=>{clearRetained('discovery');forgetSetup();setAutoSearch(false);setBookChosen(true);setDiscoveryTarget(workflowSession.id);setSelection(workflowSession.selection);setUnavailable('');setConfigure(true);}}
     progress={{busy:gen.busy,controlBusy:!!gen.controlBusy,onControl:gen.control,error:workflowError||gen.error,onRetry:retryWorkflow,onBack:backToShelf,hideBack:true,showSummary:false}}
-   />:!revisionResuming&&!revisionPending&&workflowSession.awaitingFrameCount&&workflowSession.frameRecommendation?<>
+   />:!revisionResuming&&workflowSession.awaitingFrameCount&&workflowSession.frameRecommendation?<>
     <StoryFrameCount key={workflowSession.id} recommendation={workflowSession.frameRecommendation} disabled={gen.busy} onConfirm={gen.confirmFrameCount}/>
     {gen.error&&<p className="yu-batch-error" role="alert">{gen.error}</p>}
    </>:<GenerationSurface
@@ -603,8 +602,8 @@ export default function Reader(){
      links:{source:[{label:'制作要求',onClick:()=>revision.open('requirements')},{label:'验收要求',onClick:()=>revision.open('acceptance')}]},
      actions:{count:{label:'修改叙事详略',onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:'查看分镜',onClick:openScript}}:{})}
     }}
-    draft={revisionPending&&revision.base&&!revisionResuming?{base:revision.base,changes:revision.changes,confirmation:<StoryRevisionActions editor={revision} link/>}:undefined} editor={revision} onReselect={()=>void reselectStory()}
-    reviewTools={!revisionPending&&<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review')?.id)} onDrawAnyway={()=>void gen.drawAnyway(workflowSession.id)}/>}
+    editor={revision} onReselect={()=>void reselectStory()}
+    reviewTools={<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review')?.id)} onDrawAnyway={()=>void gen.drawAnyway(workflowSession.id)}/>}
    />}
   </>:<div role="status">{workflowError?<><p role="alert">{workflowError}</p><StoryFlowAction onClick={()=>openWorkflow(workflowTarget!)}>重新加载制作流程</StoryFlowAction></>:<p>正在打开制作流程…</p>}</div>);
 
@@ -633,7 +632,6 @@ export default function Reader(){
   workflow:workflowSession||workflowTarget?workflowContent:undefined,
   bookReference:story&&panelStory?.id===story.id&&!ended&&story.pages[page]?.image?{page,...bookReference}:undefined,
  };
- const revisionDone=workflowTarget||settings||revisionResuming?()=>revision.setTab(null):undefined;
  const discoverLead=<><section className="yu-intro"><div><p className="yu-kicker">把片刻，留给一个好故事</p><h1>今天，想遇见<br/>什么<span>故事</span>？</h1></div><span className="yu-stamp">古意<br/>新生</span></section>
  <RecentStories key={heroes.map(h=>h.story.id).join('|')} items={heroes} loading={libraryLoading} bookName={bookName} onOpen={open} activeStoryId={heroStoryId} onActiveStoryChange={setHeroStoryId}/>
  <button className="yu-new-story-link" onClick={()=>choose()}><Sparkles size={16}/><span>生成我的故事</span><ArrowRight size={16}/></button></>;
@@ -731,8 +729,8 @@ export default function Reader(){
  const storySheets=<>
  {reviewHistoryId&&<Sheet title="审核记录" onClose={()=>setReviewHistoryId(null)}><StoryReviewHistory key={reviewHistoryId} sessionId={reviewHistoryId}/></Sheet>}
  {(!desktop||panelOpen)&&sourceSheet}
- {script&&scriptStory&&<Sheet title="分镜剧本" busy={revision.summarizing} onClose={()=>setScript(false)}><StoryScript key={scriptStory.id} story={scriptStory} editor={isGenerated(scriptStory)&&scriptStory.id===revision.sessionId&&!revisionSession?.superseded?revision:undefined} onEdit={editScript} onDone={()=>setScript(false)}/></Sheet>}
- {revision.tab&&<Sheet title={revision.tab==='review'?'修改审核意见':'修改故事'} busy={revision.busy} onClose={()=>{if(!revision.busy)revision.setTab(null);}}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming} onDone={revisionDone}/></Sheet>}
+ {script&&scriptStory&&<Sheet title="分镜剧本" busy={revision.busy} onClose={()=>setScript(false)}><StoryScript key={scriptStory.id} story={scriptStory} editor={isGenerated(scriptStory)&&scriptStory.id===revision.sessionId&&!revisionSession?.superseded?revision:undefined} onEdit={editScript} resuming={revisionResuming}/></Sheet>}
+ {revision.tab&&<Sheet title={revision.tab==='review'?'修改审核意见':'修改故事'} busy={revision.busy} onClose={()=>{if(!revision.busy)revision.setTab(null);}}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming}/></Sheet>}
  </>;
  const embeddingSheet=embeddingOpen&&<Sheet title="嵌入模型与故事卡索引" onClose={()=>setEmbeddingOpen(false)}><StoryEmbeddingSettings/></Sheet>;
  const openingStory=opening&&<p className="yu-inline-status" role="status">正在打开故事…</p>;

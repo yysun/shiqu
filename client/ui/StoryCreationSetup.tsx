@@ -1,5 +1,4 @@
-// Keep discovery in the story picker; a chosen story enters one continuous production flow.
-// Edits are saved as a draft on the side; only a recommendation or final confirmation starts work.
+// 修改首次制作设置时，可以直接用当前设置开工。
 // 选材单独显示。准备和人工确认依次出现在同一个步骤。
 // 传入 retainKey 时，未保存的设置与打开的子面板跨布局切换保留；恢复后只要服务器保存值未变，就不提示“另一台设备更新了制作内容”。
 import {isDirectSourceSelection} from '@/lib/reader-discovery-themes';
@@ -64,6 +63,9 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   finally{if(command.action==='more'||command.action==='search')setFinding(false);}
  }
  function closeEditor(){setEditing(null);if(intakeDraftToken(settings)!==baseline.current&&!busy&&!remote)void act({action:'draft',settings,draftToken:baselineToken.current});}
+ async function saveSettings(){
+  if(intakeDraftToken(settings)===baseline.current||await act({action:'draft',settings,draftToken:baselineToken.current}))setEditing(null);
+ }
  function adoptRemote(){rememberSaved();setSettings(saved);setRemote(false);setError('');}
  async function keepEdits(){
   if(await act({action:'draft',settings,draftToken:intake.draftToken}))setRemote(false);
@@ -78,6 +80,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   if(paused)return progress.onControl(session.id,'resume');
   void act({action:'more'});
  }}>{paused?'恢复整理':'重试整理'}</StoryFlowAction>;
+ const startProduction=<StoryFlowAction disabled={busy||remote||session.state==='running'} aria-busy={busy} onClick={()=>void act({action:'confirm',settings,draftToken:baselineToken.current})}>{busy?'正在提交…':'开始制作'}</StoryFlowAction>;
  const artStyleLabel=getArtStyle(settings.artStyle).label;
  const narrativeLabel=settings.narrativeDetail==='brief'?'简短':settings.narrativeDetail==='detailed'?'详细':'适中';
  if(combining&&!selected)return <section className="yu-creation-setup" aria-label="准备故事">
@@ -97,7 +100,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   <StoryGenerationStatus session={session} {...progress} navigation={undefined} compact={ready||preparingSelected} control={ready?null:undefined}
    timeline={{links:{source:[{label:'查看原文',disabled:busy||!session.generationProgress?.sourceReady,onClick:()=>setSourceOpen(true)}]}}} stageContent={{count:<>
    {!editing&&remoteChoice}
-   {error&&<p className="yu-batch-error" role="alert">{error}</p>}
+   {!editing&&error&&<p className="yu-batch-error" role="alert">{error}</p>}
    {editable&&<div className="production-stage-actions production-stage-actions--settings" role="group" aria-label="制作设置">
     <StoryFlowAction disabled={locked} onClick={()=>setEditing('requirements')}>制作要求</StoryFlowAction>
     <StoryFlowAction disabled={locked} onClick={()=>setEditing('acceptance')}>验收要求</StoryFlowAction>
@@ -105,7 +108,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
     <StoryFlowAction disabled={locked} aria-label={`修改叙事详略，当前${narrativeLabel}`} onClick={()=>setEditing('count')}><span><span className="production-setting-narrative-prefix">叙事</span>详略·{narrativeLabel}</span></StoryFlowAction>
    </div>}
    {preparable&&<button type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'choose',batch:intake.selected!.batch,index:intake.selected!.index,settings:preferences})}>准备这篇</button>}
-   {ready&&<StoryFlowAction disabled={busy||remote||session.state==='running'} onClick={()=>void act({action:'confirm',settings,draftToken:baselineToken.current})}>{busy?'正在保存…':'开始制作'}</StoryFlowAction>}
+   {ready&&!editing&&startProduction}
   </>}}/>
   {sourceOpen&&<Sheet title="故事原文" onClose={()=>setSourceOpen(false)}><StorySource sessionId={session.id} book={book}/></Sheet>}
   {editing&&<Sheet title="修改故事" busy={busy} onClose={closeEditor}>
@@ -113,7 +116,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
    <StoryEditorTabs tab={editing} disabled={locked} onChange={tab=>{if(tab!=='script')setEditing(tab);}}/>
    <StoryProductionEditor sessionId={session.id} tab={editing} settings={settings} creation disabled={locked} recommendation={session.frameRecommendation} artRecommendation={selected?.artRecommendation} onChange={patch=>setSettings(s=>({...s,...patch,length:'auto'}))} onRecommend={ready&&!remote&&session.state!=='running'?()=>void act({action:'recommend',settings:preferences,draftToken:baselineToken.current}):undefined}/>
    {error&&<p className="yu-batch-error" role="alert">{error}</p>}
-   <button type="button" className="yu-primary" disabled={busy} onClick={closeEditor}>完成编辑</button><p className="yu-revision-note">设置会保存在这里，离开后也保留；确认制作后才开始生成。</p>
+   <div className="production-stage-actions">{ready?startProduction:<StoryFlowAction disabled={busy||remote} onClick={saveSettings}>保存设置</StoryFlowAction>}</div>
   </Sheet>}
  </section>;
 }

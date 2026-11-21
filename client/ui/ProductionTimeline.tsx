@@ -31,9 +31,9 @@ export function ProductionTimelineRow({step,number,layout='vertical',moving=fals
  </li>;
 }
 
-export default function ProductionTimeline({stages,moving=false,queued=false,layout='vertical',actions={},links={},onHistory,stageContent={},stageDurations={},stageTimes={},confirmationStage,children}:{stages:ProductionStage[];moving?:boolean;queued?:boolean;layout?:TimelineLayout;onHistory?:()=>void;stageContent?:Record<string,ReactNode>;stageDurations?:Record<string,number>;stageTimes?:Record<string,ReactNode>;confirmationStage?:string;children?:ReactNode;} & ProductionTimelineNavigation){
+export default function ProductionTimeline({stages,moving=false,queued=false,layout='vertical',actions={},links={},onHistory,stageContent={},stageDurations={},stageTimes={},children}:{stages:ProductionStage[];moving?:boolean;queued?:boolean;layout?:TimelineLayout;onHistory?:()=>void;stageContent?:Record<string,ReactNode>;stageDurations?:Record<string,number>;stageTimes?:Record<string,ReactNode>;children?:ReactNode;} & ProductionTimelineNavigation){
  const labels={pending:'待进行',current:queued?'等待中':moving?'进行中':'等待更新',done:'已完成',skipped:'无需执行',unavailable:'未启用',failed:'待处理',paused:'已暂停'};
- const stateLabel=(step:ProductionStage)=>step.id===confirmationStage||step.id==='count'&&step.state==='current'&&!moving&&!queued?'待确认':labels[step.state];
+ const stateLabel=(step:ProductionStage)=>step.id==='count'&&step.state==='current'&&!moving&&!queued?'待确认':labels[step.state];
  const focused=stages.find(step=>['current','failed','paused'].includes(step.state))||stages.find(step=>step.state==='pending')||stages.at(-1);
  const historyStage=[...stages].reverse().find(step=>['review','repair','recheck'].includes(step.id)&&!['pending','skipped','unavailable'].includes(step.state))||stages.find(step=>step.id==='review'&&step.state!=='unavailable');
  return <><ol className={'production-timeline'+(layout==='horizontal'?' production-timeline--horizontal':'')} aria-label="完整审片流程">{stages.map((step,index)=>{

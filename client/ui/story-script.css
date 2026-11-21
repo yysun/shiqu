@@ -1,6 +1,7 @@
 /* 手势操作置于卡片背后，竖向滚动交给浏览器。 */
 .yu-script-toolbar{position:sticky;top:0;z-index:2;margin-bottom:4px;padding:0 0 8px;background:#faf9f1}
 .yu-script-toolbar:focus{outline:none}
+.yu-script-toolbar .yu-revision-impact{margin-top:8px;padding:8px 0 0}
 .yu-script-toolbar p,.yu-script-selection small{margin:4px 0 0;color:#65755c;font-size:12px;line-height:1.6}
 .yu-script-toolbar-line,.yu-script-selection,.yu-script-tools{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}
 .yu-script-toolbar-line,.yu-script-selection{justify-content:space-between}

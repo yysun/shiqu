@@ -28,18 +28,34 @@ async function harness(t,{loseResponse=false,paused=false,blocked=false,initialT
  else if(paused){await until(()=>f.control.calls.length>0);await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});}
  else await until(async()=>(await f.read(id)).state==='completed');
  const bundle=await compiled,module={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),module,module.exports);
- const requests=[],submitted=[];
+ const requests=[],submitted=[],opened=[];
  const {useStoryRevision,beginRender,setTransport}=module.exports;
  setTransport(async(path,method='GET',body)=>{
   if(method==='POST')requests.push(body);
-  const response=await f.json(path.slice('reader/'.length),method,body);
+  const response=await f.request(path.slice('reader/'.length),method,body);
+  const data=await response.json();
+  if(!response.ok)throw Object.assign(new Error(data.error),{status:response.status});
   if(loseResponse&&method==='POST'){loseResponse=false;throw new TypeError('Lost response');}
-  return response;
+  return data;
  });
- const render=()=>{beginRender();return useStoryRevision(id,async session=>{submitted.push(session);});};
+ const render=()=>{beginRender();return useStoryRevision(id,async session=>{submitted.push(session);},async current=>{opened.push(current);});};
  render().open(initialTab,initialPage);await until(()=>!!render().base);
- return {f,id,requests,submitted,render};
+ return {f,id,requests,submitted,opened,render};
 }
+
+test('a concurrent revision preserves the open draft and offers the new current story',async t=>{
+ const h=await harness(t);
+ const token=h.render().base.token;
+ h.render().setChanges({narrativeDetail:'detailed'});
+ const next=await h.f.json(`sessions/${h.id}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{artStyle:'paper-cut'}});
+ await h.render().submit();
+ assert.equal(h.render().conflict,true);
+ assert.equal(h.render().changes.narrativeDetail,'detailed');
+ assert.equal(h.render().tab,'count');
+ assert.deepEqual(h.submitted,[]);
+ await h.render().loadLatest();
+ assert.deepEqual(h.opened,[next.id]);
+});
 
 for(const passes of [true,false])test(`saving manual review corrections re-audits first and ${passes?'continues drawing on approval':'keeps drawing blocked on rejection'}`,async t=>{
  const h=await harness(t,{blocked:true,initialTab:'script',initialPage:3});
