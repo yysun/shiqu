@@ -35,7 +35,7 @@
 - 制作流程的操作按钮和链接统一放在所属流程框内，靠右对齐。修改制作内容后的确认放在对应的流程步骤内。
 - 故事设置内的制作步骤共用 `ProductionTimelineRow`。首行左侧放简短的步骤标题，右侧放状态和查看、编辑链接。下一行左侧放完整说明，右侧放耗时。空间不足时链接整组靠右换行。缺少内容的行不占位。确认、重试及错误提示紧跟本步骤内容。
 - 「制作确认」的四个设置及其当前值保持同一行。窄屏可缩短可见字段名，链接的无障碍名称保留完整字段名与当前值。
-- 次要操作（重试、重新加载、查看、编辑、取消替换、恢复/暂停生成等）使用文字链接：复用 `StoryFlowAction`（`story-flow-link` 样式），深色画面加 `tone="dark"`，不另写链接样式。主操作（如「准备故事」「开始制作」）、对话框里与确认并列的取消、切换类控件、图标按钮，以及设置表单自身的保存和测试控件仍用按钮。桌面控制台沿用自身样式。
+- 「制作确认」里的「开始制作」和次要操作（重试、重新加载、查看、编辑、取消替换、恢复/暂停生成等）使用文字链接：复用 `StoryFlowAction`（`story-flow-link` 样式），深色画面加 `tone="dark"`，不另写链接样式。其他主操作（如「准备故事」）、对话框里与确认并列的取消、切换类控件、图标按钮，以及设置表单自身的保存和测试控件仍用按钮。桌面控制台沿用自身样式。
 - Bundle or package the desktop application only when the user explicitly requests it. Do not run desktop preparation or build commands as routine verification; use local checks and browser verification instead.
 
 ## Repository Hygiene

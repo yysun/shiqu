@@ -9,7 +9,7 @@ import {useRetainedState,hasRetained,retainedValue,retain} from './useRetainedSt
 import type {ComponentProps} from 'react';
 import {ArrowLeft} from 'lucide-react';
 import type {SessionView} from '@/lib/reader-model';
-import type {IntakeCommand} from '@/lib/reader-intake';
+import {intakeDraftToken,type IntakeCommand} from '@/lib/reader-intake';
 import {getArtStyle} from '@/lib/reader-styles';
 import StoryProductionEditor,{StoryEditorTabs} from './StoryProductionEditor';
 import type {StoryEditorTab,ProductionSettings} from './StoryProductionEditor';
@@ -29,7 +29,7 @@ function savedSettings(session:SessionView):ProductionSettings{
  };
 }
 export default function StoryCreationSetup({session,book,busy,onAction,onBackToDiscovery,progress,retainKey}:Props&{retainKey?:string}){
- const intake=session.intake!,saved={...savedSettings(session),length:'auto' as const},savedKey=JSON.stringify(saved);
+ const intake=session.intake!,saved={...savedSettings(session),length:'auto' as const},savedKey=intakeDraftToken(saved);
  const [error,setError]=useState('');
  const [finding,setFinding]=useState(false);
  const part=(name:string)=>retainKey&&retainKey+':'+name;
@@ -44,7 +44,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  useEffect(()=>{
   const same=shown.current===session.id;shown.current=session.id;
   if(same&&savedKey===baseline.current&&intake.draftToken===baselineToken.current)return;
-  const localKey=JSON.stringify(settings);
+  const localKey=intakeDraftToken(settings);
   if(same&&localKey!==baseline.current&&localKey!==savedKey){setRemote(true);return;}
   rememberSaved();setSettings(saved);setRemote(false);
   if(!same){setSourceOpen(false);setEditing(null);setError('');}
@@ -63,7 +63,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   catch(e){setError(e instanceof Error?e.message:'操作暂未保存，请重试。');return false;}
   finally{if(command.action==='more'||command.action==='search')setFinding(false);}
  }
- function closeEditor(){setEditing(null);if(JSON.stringify(settings)!==baseline.current&&!busy&&!remote)void act({action:'draft',settings,draftToken:baselineToken.current});}
+ function closeEditor(){setEditing(null);if(intakeDraftToken(settings)!==baseline.current&&!busy&&!remote)void act({action:'draft',settings,draftToken:baselineToken.current});}
  function adoptRemote(){rememberSaved();setSettings(saved);setRemote(false);setError('');}
  async function keepEdits(){
   if(await act({action:'draft',settings,draftToken:intake.draftToken}))setRemote(false);
@@ -105,7 +105,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
     <StoryFlowAction disabled={locked} aria-label={`修改叙事详略，当前${narrativeLabel}`} onClick={()=>setEditing('count')}><span><span className="production-setting-narrative-prefix">叙事</span>详略·{narrativeLabel}</span></StoryFlowAction>
    </div>}
    {preparable&&<button type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'choose',batch:intake.selected!.batch,index:intake.selected!.index,settings:preferences})}>准备这篇</button>}
-   {ready&&<button type="button" className="yu-primary" disabled={busy||remote||session.state==='running'} onClick={()=>void act({action:'confirm',settings,draftToken:baselineToken.current})}>{busy?'正在保存…':'开始制作'}</button>}
+   {ready&&<StoryFlowAction disabled={busy||remote||session.state==='running'} onClick={()=>void act({action:'confirm',settings,draftToken:baselineToken.current})}>{busy?'正在保存…':'开始制作'}</StoryFlowAction>}
   </>}}/>
   {sourceOpen&&<Sheet title="故事原文" onClose={()=>setSourceOpen(false)}><StorySource sessionId={session.id} book={book}/></Sheet>}
   {editing&&<Sheet title="修改故事" busy={busy} onClose={closeEditor}>
