@@ -10,7 +10,7 @@ import type {Document,SessionRow} from '../lib/reader-model.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
 import {familyRoot,familyNumber,supersededSql} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
-import {checkedRevision,revisionReviewNotesChanged,syncRevisionImages,usesStoryImageReference} from '../lib/reader-revision.ts';
+import {checkedRevision,reusableRevisionImages,revisionReviewNotesChanged,revisionStorySummaryChanged,syncRevisionImages,usesStoryImageReference} from '../lib/reader-revision.ts';
 import type {RevisionChanges,RevisionSnapshot} from '../lib/reader-revision.ts';
 import {readableImage,readableLandscapeImage} from './reader-image-health.ts';
 import {commandReceipt} from './reader-commands.ts';
@@ -83,7 +83,7 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  const original={selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan,images:doc.images,savedFrameCount:savedFrameCount(doc),...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{})};
  const notesChanged=revisionReviewNotesChanged({reviewNotes:doc.reviewNotes},changes);
  if(notesChanged&&!canEditReviewNotes(row,doc))throw new ReaderError(409,'请先暂停审核，再修改审核意见。');
- const {selection,plan,impact}=checkedRevision({...original,reviewNotes:doc.reviewNotes},changes);
+ const {selection,plan,impact,sourcePages}=checkedRevision({...original,reviewNotes:doc.reviewNotes},changes);
  if(changes.redrawPages&&(row.state!=='completed'||!reviewPassed(doc)))throw new ReaderError(409,'仅换图需要已完成且已有有效审核记录的故事。');
  if(cover&&(Object.keys(changes).length!==1||!changes.artStyle||row.state!=='completed'||!reviewPassed(doc)||!plan))throw new ReaderError(409,'指定首幅原图仅适用于已完成且审核通过的故事换画风。');
  const coverType=cover&&mediaType(cover);
@@ -93,9 +93,13 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  }
  const styleChanged=!sameArtDirection(selection,original.selection);
  const images:string[]=original.plan?.pages.map(()=> '')||[],lostPages:number[]=[];
+ const survivorImages=plan&&sourcePages?new Set(
+  reusableRevisionImages(original,selection,plan,sourcePages).flatMap((image,index)=>image?[sourcePages[index]]:[]),
+ ):undefined;
  // Global image preferences cannot reuse old artwork. Other edits may reuse after planning.
  if(!styleChanged&&selection.productionPrompt===original.selection.productionPrompt){
   for(let page=0;page<original.images.length;page++){
+   if(survivorImages&&!survivorImages.has(page))continue;
    const value=original.images[page]||'';
    if(!value)continue;
    const key=referenceImageKey(parentId,value);if(!key){lostPages.push(page);continue;}
@@ -107,13 +111,14 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
   }
  }
  const base={...original,images};
- const continuedReview=notesChanged&&plan&&doc.visualReview&&JSON.stringify(plan)===JSON.stringify(doc.plan)&&selection.acceptancePrompt===original.selection.acceptancePrompt;
+ const continuedReview=notesChanged&&plan&&doc.visualReview&&JSON.stringify({...plan,summary:doc.plan?.summary})===JSON.stringify(doc.plan)&&selection.acceptancePrompt===original.selection.acceptancePrompt;
+ const summaryChanged=revisionStorySummaryChanged(original,changes),retainSummaryReview=summaryChanged&&!impact.review;
  const visualReview=continuedReview&&doc.visualReview?{
   ...reviewWithOrigin(doc.visualReview,parentId,doc),phase:reviewPhase(doc.visualReview,selection),status:'pending' as const,repairs:0,issues:[],repaired:[],stopReason:undefined,overridden:undefined,
- }:impact.review?newReview():doc.visualReview;
+ }:impact.review?newReview():retainSummaryReview&&doc.visualReview?reviewWithOrigin(doc.visualReview,parentId,doc):doc.visualReview;
  // 审核意见可引用旧幅号。重新编排时只带入本次明确修改的意见。
- const reviewNotes=(notesChanged?changes.reviewNotes:impact.replan&&original.plan?undefined:doc.reviewNotes)?.trim()||undefined;
- const document:Document={setupRequirements:doc.setupRequirements,publication:doc.publication,plan,original:doc.original,summaryProductionPrompt:doc.summaryProductionPrompt,frameRecommendation:doc.frameRecommendation,frameCountConfirmed:true,visualReview,reviewNotes,images:[],audio:[],usage:(doc.usage||[]).map(item=>({...item,originId:item.originId||parentId})),revision:{parentId,rootId,number:epoch+1,baseToken:token,requestHash,base,...(impact.replan?{}:{previewedRedraw:impact.redraw}),...(lostPages.length?{lostPages}:{})}};
+ const reviewNotes=(notesChanged?changes.reviewNotes:sourcePages||impact.replan&&original.plan?undefined:doc.reviewNotes)?.trim()||undefined;
+ const document:Document={setupRequirements:doc.setupRequirements,publication:doc.publication,plan,original:doc.original,summaryProductionPrompt:doc.summaryProductionPrompt,storySummaryFromStoryboard:plan&&(summaryChanged||doc.storySummaryFromStoryboard)?true:undefined,frameRecommendation:doc.frameRecommendation,frameCountConfirmed:true,visualReview,reviewNotes,images:[],audio:[],usage:(doc.usage||[]).map(item=>({...item,originId:item.originId||parentId})),revision:{parentId,rootId,number:epoch+1,baseToken:token,requestHash,base,...(impact.replan?{}:{previewedRedraw:impact.redraw}),...(lostPages.length?{lostPages}:{})}};
  if(selection.productionPrompt!==original.selection.productionPrompt||impact.review&&staleRevisionStoryBrief(doc,original.selection))invalidateStoryBrief(document);
  if(styleChanged||usesStoryImageReference(doc.revision,original.selection.artStyle))document.revision!.storyImageReference=true;
  const restyle=styleChanged?{from:original.selection.artStyle,fromPrompt:original.selection.artStylePrompt||undefined}:doc.revision?.restyle;
@@ -127,7 +132,11 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
    if(images.some(image=>image!==''))document.revision!.landscapeRedraw=images;
   }
  }
- if(plan)syncRevisionImages(document,selection);
+ if(plan)syncRevisionImages(document,selection,sourcePages);
+ if(retainSummaryReview&&!styleChanged&&row.state==='completed'&&landscapeImages&&document.images.length&&document.images.every(Boolean)){
+  const horizontal=await copyLandscape(media,parentId,requestId,[],await landscapeImages());
+  if(horizontal.some(Boolean))document.revision!.landscapeRedraw=horizontal;
+ }
  if(cover&&coverType){
   const asset=readerImageAsset(requestId,0,imageTypes[coverType],coverHash);
   await media.put(asset.key,cover,{contentType:coverType});
@@ -135,19 +144,22 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
   document.revision!.previewedRedraw=impact.redraw-1;
  }
  if(!impact.review||continuedReview)document.reflectionCandidates=doc.reflectionCandidates;
- if(continuedReview)document.storyboard=doc.storyboard;
+ if((continuedReview||retainSummaryReview)&&doc.storyboard&&plan)document.storyboard={...doc.storyboard,outline:{...doc.storyboard.outline,summary:plan.summary}};
  if(impact.preserveScript){document.storyboard=doc.storyboard;document.draft=doc.draft;}
  const blocked=!impact.review&&doc.visualReview?.status==='blocked';
  const now=new Date().toISOString();
+ // 阅读位置移到原幅、随后一幅或剩余末幅。用提交时的页码计算，接受复制图片期间继续阅读。
+ const progressMap=sourcePages&&original.plan?.pages.map((_,index)=>Math.min(sourcePages.filter(page=>page<index).length,sourcePages.length-1));
  const inserted=await repo.db.prepare(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,error,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
-  SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),'background',?,?,?,0,0,MIN(p.page,?),p.saved,p.last_read_at,?,? FROM stories p
+  SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),'background',?,?,?,0,0,COALESCE(json_extract(?,'$['||p.page||']'),MIN(p.page,?)),p.saved,p.last_read_at,?,? FROM stories p
   WHERE p.id=? AND p.user_id=? AND json_extract(p.document,'$.plan') IS json_extract(?,'$.plan') AND json_remove(p.selection,'$.displayTitle')=json_remove(?,'$.displayTitle')
-  ${notesChanged?"AND p.state!='completed' AND p.generation_control IN ('paused','stopped') AND json_extract(p.document,'$.visualReview') IS json_extract(?,'$.visualReview')":''}
+  ${notesChanged?"AND p.state!='completed' AND p.generation_control IN ('paused','stopped')":''}
+  ${notesChanged||retainSummaryReview?"AND json_extract(p.document,'$.visualReview') IS json_extract(?,'$.visualReview')":''}
   AND (json_extract(p.document,'$.plan') IS NOT NULL OR p.generation_control IN ('paused','stopped') OR ${supersededSql('p')})
   AND ${currentFamilyVersion('p')}
   AND (${familyEpoch.replace(' AS epoch','')})=?
   ON CONFLICT(id) DO NOTHING`)
-  .bind(requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused?'paused':'active',blocked?'failed':'idle',blocked?row.error:null,impact.total-1,now,now,parentId,ownerId,row.document,row.selection,...(notesChanged?[row.document]:[]),ownerId,rootId,rootId,epoch).run();
+  .bind(requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused?'paused':'active',blocked?'failed':'idle',blocked?row.error:null,progressMap?JSON.stringify(progressMap):null,impact.total-1,now,now,parentId,ownerId,row.document,row.selection,...(notesChanged||retainSummaryReview?[row.document]:[]),ownerId,rootId,rootId,epoch).run();
  if(!inserted.meta.changes){const raced=await replay();if(raced)return raced;throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');}
  return repo.get(requestId,ownerId);
 }

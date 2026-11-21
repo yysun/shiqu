@@ -19,12 +19,12 @@ import {z} from 'zod';
 import {ReaderRepository,latestVersionMessage} from './reader-repository.ts';
 import {advanceStory} from './reader-engine.ts';
 import {suggestionRequestSchema} from './reader-suggestions.ts';
-import {ReaderError,readableStory,selectionSchema,displayTitleSchema,view} from './reader-model.ts';
+import {ReaderError,readableStory,selectionSchema,displayTitleSchema,planSchema,view} from './reader-model.ts';
 import {sourceSearchUrl} from './reader-source.ts';
 import {readerMaxFrames} from './reader-limits.ts';
 import type {Document,SessionView} from './reader-model.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
-import {revisionChangesSchema} from './reader-revision.ts';
+import {checkedRevision,revisionChangesSchema} from './reader-revision.ts';
 import {intakeActionSchema} from './reader-intake.ts';
 import {recoveryRequestSchema} from './reader-recovery.ts';
 import {bookContents} from '../server/local-book-contents.ts';
@@ -313,6 +313,20 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     const command=z.union([z.object({startToken:token}).strict(),z.object({retryToken:token}).strict()]).parse(await body(req));
     if(!(await requireProvider())?.models.image)throw new ReaderError(503,'请先配置支持绘图的图片服务。');
     return json(await production.startLandscape(uid,id,command),202);
+   }
+   if(path[2]==='storyboard-summary'&&path.length===3&&req.method==='POST'){
+    if(services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中生成分镜梗概。');
+    const {token,plan,removedFrames}=z.object({token:z.string().regex(/^[a-f0-9]{64}$/),plan:planSchema.optional(),removedFrames:revisionChangesSchema.shape.removedFrames}).strict().parse(await body(req,262144));
+    const snapshot=await revisionSnapshot(repo,id,uid);
+    if(snapshot.token!==token)throw new ReaderError(409,'分镜已更新，请重新载入后再生成梗概。');
+    if(!snapshot.plan)throw new ReaderError(409,'请先保存完整分镜。');
+    const storyboard=removedFrames||plan&&JSON.stringify(plan)!==JSON.stringify(snapshot.plan)?checkedRevision(snapshot,{plan,removedFrames}).plan!:snapshot.plan;
+    await requireProvider();
+    const summarize=provider.generator().summarizeStoryboard;
+    if(!summarize)throw new ReaderError(503,'当前文字生成服务暂不支持生成分镜梗概。');
+    const result=await summarize(storyboard.pages).catch(error=>{throw new ReaderError(502,provider.safeError(error));});
+    if((await revisionSnapshot(repo,id,uid)).token!==token)throw new ReaderError(409,'分镜已更新，请重新载入后再生成梗概。');
+    return json({summary:result.value});
    }
    if(path[2]==='revisions'&&path.length===3){
     if(req.method==='GET')return json(await revisionSnapshot(repo,id,uid));

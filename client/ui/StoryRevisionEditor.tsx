@@ -5,7 +5,7 @@ import StoryProductionEditor,{StoryEditorTabs} from './StoryProductionEditor';
 import type {StoryRevisionEditorState} from './useStoryRevision';
 import type {Plan} from '@/lib/reader-model';
 import type {ReviewIssue} from '@/lib/reader-review';
-import {revisionFrameCount,revisionImpact,revisionReviewNotesChanged,reviewNotesMaxLength} from '@/lib/reader-revision';
+import {revisionFrameCount,revisionImpact,revisionReviewNotesChanged,revisionStorySummaryChanged,reviewNotesMaxLength,survivingRevisionFrames} from '@/lib/reader-revision';
 import type {RevisionChanges,RevisionImpact,RevisionSnapshot} from '@/lib/reader-revision';
 import {productionSteps,type ProductionStage} from '@/lib/production-stages';
 import {normalizeProductionPrompt} from '@/lib/reader-prompts';
@@ -19,6 +19,9 @@ function restyleDraftStyle(base:RevisionSnapshot,changes:RevisionChanges,impact:
 function editsReviewNotesOnly(base:RevisionSnapshot,changes:RevisionChanges){
  return Object.keys(changes).every(key=>key==='reviewNotes')&&revisionReviewNotesChanged(base,changes);
 }
+function editsSummaryOnly(base:RevisionSnapshot,changes:RevisionChanges){
+ return Object.entries(changes).every(([key,value])=>key==='storySummary'||value===undefined)&&revisionStorySummaryChanged(base,changes);
+}
 export function reviewEditingStage(steps:ProductionStage[]){
  const review=steps.filter(step=>['review','repair','recheck'].includes(step.id));
  return review.find(step=>['paused','failed'].includes(step.state))||review.findLast(step=>step.state==='done');
@@ -26,6 +29,7 @@ export function reviewEditingStage(steps:ProductionStage[]){
 
 export function revisionDraftSteps(base:RevisionSnapshot,changes:RevisionChanges,previous:ProductionStage[]=[]):ProductionStage[]{
  const impact=revisionImpact(base,changes);
+ if(previous.some(step=>step.id==='plan')&&editsSummaryOnly(base,changes))return previous.map(step=>step.id==='plan'?{...step,state:'current',detail:'新梗概待应用'}:step);
  const reviewStage=reviewEditingStage(previous);
  if(reviewStage&&editsReviewNotesOnly(base,changes)){
   return previous.map(step=>step.id===reviewStage.id?{...step,state:'current',detail:'待应用审核意见并重新审核'}:step);
@@ -47,7 +51,7 @@ export function revisionDraftSteps(base:RevisionSnapshot,changes:RevisionChanges
    return step;
   }
   if(step.id==='review'&&!impact.review)return {...step,detail:'沿用原审片进度，不重新审核'};
-  if(step.id==='plan'&&changes.plan&&impact.review&&!impact.replan)return {...step,detail:'已修改分镜 · 待审片'};
+  if(step.id==='plan'&&changes.plan&&impact.review&&!impact.replan)return {...step,detail:changes.removedFrames?`已编辑为 ${impact.total} 幅 · 待审片`:'已修改分镜 · 待审片'};
   if(step.id==='image'&&restyle){
    const redraw=`预计重绘 ${impact.redraw} 幅`;
    return {...step,detail:step.state==='current'?redraw:`${step.detail} · ${redraw}`};
@@ -73,13 +77,14 @@ export function StoryRevisionActions({editor,onDone,resuming=false,reviewOnSave=
  const {base,changes}=editor;
  const restyle=base&&restyleDraftStyle(base,changes,impact);
  const notesOnly=base&&editsReviewNotesOnly(base,changes);
+ const summaryOnly=base&&editsSummaryOnly(base,changes);
  return <section ref={confirmationRef} tabIndex={link?-1:undefined} className={link?'yu-revision-impact yu-revision-impact--in-flow':'yu-revision-impact'} aria-label={link?'确认本次修改':'本次修改影响'}>
   {restyle&&base?<div className="yu-revision-restyle" role="status">
    <p>{restyle===base.selection.artStyle?<strong>{getArtStyle(restyle).label} · 修改画风提示词</strong>:<>{getArtStyle(base.selection.artStyle).label} <span aria-hidden="true">→</span><span className="sr-only">换为</span> <strong>{getArtStyle(restyle).label}</strong></>}{!link&&` · 预计重绘 ${impact.redraw} 幅`}</p>
    <p>沿用原分镜编排{base.reviewStatus?'和审片进度':''}，保留原版本。</p>
-  </div>:<p role="status">{notesOnly?'按修改后的意见重新审核已保存的分镜。':!impact.changed?(reviewOnSave?'修改分镜后，保存并重新审核，通过后继续绘图。':resuming?'完成编辑后，恢复生成时继续制作。':'调整制作内容，确认后开始制作。'):impact.replan?impact.preserveScript?`保留已保存的分镜与草稿，只完成剩余编排并审片；需绘制 ${impact.total} 幅。`:`将按叙事详略重新编排并审片，审核后确定画幅数。${impact.reusePending?'原图能否复用，待新分镜完成后逐幅比较。':'新分镜完成后重新核对图片。'}`:`保留分镜编排，${impact.review?'重新审片':'沿用原审片进度，不重新审核'}；预计复用 ${impact.reused} 幅、重绘 ${impact.redraw} 幅。`}</p>}
-  {!notesOnly&&!restyle&&impact.changed&&!impact.replan&&<small>画面指令或首幅参考变化时会重新核对旧图复用。</small>}
-  {impact.conflict&&<div role="alert"><p>制作要求或叙事详略的变化需要重新编排，会替换手改分镜。请选择保留哪类修改：</p><div className="yu-revision-conflict"><Action type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,plan:undefined}))}>保留重新编排设置</Action><Action type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,productionPrompt:undefined,length:undefined,narrativeDetail:undefined}))}>保留手改分镜</Action></div></div>}
+  </div>:<p role="status">{summaryOnly?'应用新梗概，沿用原分镜及审核进度。':notesOnly?'按修改后的意见重新审核已保存的分镜。':!impact.changed?(reviewOnSave?'修改分镜后，保存并重新审核，通过后继续绘图。':resuming?'完成编辑后，恢复生成时继续制作。':'调整制作内容，确认后开始制作。'):impact.replan?impact.preserveScript?`保留已保存的分镜与草稿，只完成剩余编排并审片；需绘制 ${impact.total} 幅。`:`将按叙事详略重新编排并审片，审核后确定画幅数。${impact.reusePending?'原图能否复用，待新分镜完成后逐幅比较。':'新分镜完成后重新核对图片。'}`:`保留分镜编排，${impact.review?'重新审片':'沿用原审片进度，不重新审核'}；预计复用 ${impact.reused} 幅、重绘 ${impact.redraw} 幅。`}</p>}
+  {!summaryOnly&&!notesOnly&&!restyle&&impact.changed&&!impact.replan&&<small>画面指令或首幅参考变化时会重新核对旧图复用。</small>}
+  {impact.conflict&&<div role="alert"><p>重新编排会替换草稿的分镜与梗概，请选择保留哪类修改。</p><div className="yu-revision-conflict"><Action type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,plan:undefined,removedFrames:undefined,storySummary:undefined}))}>保留重新编排设置</Action><Action type="button" disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,productionPrompt:undefined,length:undefined,narrativeDetail:undefined}))}>保留分镜或梗概修改</Action></div></div>}
   {editor.error&&<p role="alert">{editor.error}</p>}
   {editor.conflict&&<div className="yu-revision-conflict-note" role="alert"><p>这篇故事的分镜、制作要求或版本已在别处更新。草稿仍在这里，不会自动合并；需要的内容可以先复制出来。</p><Action type="button" className="yu-revision-reload" disabled={editor.busy} onClick={()=>void editor.load()}>丢弃草稿，载入最新</Action></div>}
   <div className="yu-revision-buttons"><Action type="button" className="yu-primary" disabled={editor.busy||!finish&&(!impact.changed||impact.conflict||editor.conflict)} onClick={()=>{if(finish)finish();else void editor.submit();}}>{editor.busy?'正在提交…':finish?'完成编辑':resuming?'应用修改并恢复':reviewOnSave?(impact.review?'保存并重新审核':'保存修改'):'开始制作新版'}</Action><Action type="button" disabled={editor.busy} onClick={editor.discard}>丢弃草稿</Action></div>
@@ -92,8 +97,9 @@ export default function StoryRevisionEditor({editor,onDone,resuming=false,review
  if(!base)return <div><p role="alert">{editor.error||'制作内容尚未载入。'}</p><StoryFlowAction onClick={()=>void editor.load()}>重新载入</StoryFlowAction></div>;
  const plan=changes.plan||base.plan;
  const target=Math.max(0,Math.min(editor.scriptPage??1,plan?.pages.length??1)),page=Math.max(0,target-1);
- const issues=reviewIssues.filter(issue=>issue.page===target);
- const updatePlan=(update:(plan:Plan)=>void)=>editor.setChanges(c=>{const next=structuredClone(c.plan||base.plan);if(!next)return c;update(next);return {...c,plan:next};});
+ const originalPage=!changes.removedFrames||target===0?target:survivingRevisionFrames(base.plan?.pages.length??0,changes.removedFrames)[page]+1;
+ const issues=reviewIssues.filter(issue=>issue.page===originalPage);
+ const updatePlan=(update:(plan:Plan)=>void,changesFrame=false)=>editor.setChanges(c=>{const next=structuredClone(c.plan||base.plan);if(!next)return c;update(next);return {...c,plan:next,...(changesFrame?{storySummary:undefined}:{})};});
  return <div className="yu-revision-editor">
   {editor.tab&&editor.tab!=='review'&&<StoryEditorTabs tab={editor.tab} onChange={editor.setTab} script={!!plan} disabled={busy}/>}
   {editor.tab&&editor.tab!=='script'&&editor.tab!=='review'&&<StoryProductionEditor sessionId={editor.sessionId} tab={editor.tab} settings={{...artStyleSettings(base.selection,changes),productionPrompt:changes.productionPrompt??normalizeProductionPrompt(base.selection.productionPrompt,base.selection.theme),acceptancePrompt:changes.acceptancePrompt??base.selection.acceptancePrompt,length:changes.length??base.selection.length,narrativeDetail:changes.narrativeDetail??base.selection.narrativeDetail??'balanced'}} recommendation={base.frameRecommendation} disabled={busy} onChange={patch=>editor.setChanges(c=>({...c,...patch}))}/>}
@@ -110,13 +116,13 @@ export default function StoryRevisionEditor({editor,onDone,resuming=false,review
      <summary>{target===0?'结语':`第 ${target} 幅`} · 上次审核意见</summary>
      {issues.map((issue,index)=><dl key={index}><dt>审核问题</dt><dd>{issue.problem}</dd><dt>修订建议</dt><dd>{issue.instruction}</dd></dl>)}
     </details>}
-    {target>0&&<><section aria-label={`修改第 ${page+1} 幅`}><h3>第 {page+1} 幅</h3><label className="yu-revision-field">旁白<textarea rows={3} minLength={8} maxLength={90} value={plan.pages[page].caption} onChange={e=>updatePlan(p=>{p.pages[page].caption=e.target.value;})}/></label><label className="yu-revision-field">画面提示词<textarea rows={5} minLength={20} maxLength={1800} value={plan.pages[page].prompt} onChange={e=>updatePlan(p=>{p.pages[page].prompt=e.target.value;})}/></label></section>
+    {target>0&&<><section aria-label={`修改第 ${page+1} 幅`}><h3>第 {page+1} 幅</h3><label className="yu-revision-field">旁白<textarea rows={3} minLength={8} maxLength={90} value={plan.pages[page].caption} onChange={e=>updatePlan(p=>{p.pages[page].caption=e.target.value;},true)}/></label><label className="yu-revision-field">画面提示词<textarea rows={5} minLength={20} maxLength={1800} value={plan.pages[page].prompt} onChange={e=>updatePlan(p=>{p.pages[page].prompt=e.target.value;},true)}/></label></section>
     <details><summary>人物设定（修改后重绘全篇）</summary><label className="yu-revision-field">人物设定<textarea rows={4} minLength={20} maxLength={2500} value={plan.characters} onChange={e=>updatePlan(p=>{p.characters=e.target.value;})}/></label></details></>}
     <label className="yu-revision-field">余味<textarea rows={3} minLength={1} maxLength={100} value={plan.reflection} onChange={e=>updatePlan(p=>{p.reflection=e.target.value;})}/></label>
    </section>}
 
   </fieldset>
-  <StoryRevisionActions editor={editor} onDone={onDone} resuming={resuming} reviewOnSave={editor.tab!=='review'&&reviewIssues.length>0}/>
+  <StoryRevisionActions editor={editor} onDone={onDone} resuming={resuming} reviewOnSave={editor.tab!=='review'&&!changes.removedFrames&&reviewIssues.length>0}/>
   <p className="yu-revision-note">关闭弹窗保留本次草稿；离开这篇故事后草稿会清除。</p>
  </div>;
 }

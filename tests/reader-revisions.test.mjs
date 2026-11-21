@@ -44,6 +44,79 @@ test('image-only redraw validates page selection and cannot conceal content edit
  assert.throws(()=>checkedRevision({...base,plan:null},{redrawPages:[1]}),/完整分镜/);
 });
 
+test('manual frame removal requires its original positions and keeps at least one frame',()=>{
+ const plan=makePlan(4),base={selection:{...selection,length:'auto'},plan,images:['a','b','c','d']};
+ const revised={...plan,pages:[plan.pages[0],plan.pages[2]]};
+ const checked=checkedRevision(base,{plan:revised,removedFrames:[2,4]});
+ assert.deepEqual(checked.sourcePages,[0,2]);assert.equal(checked.selection.length,2);
+ assert.equal(checked.impact.review,true);assert.equal(checked.impact.reused,2);assert.equal(checked.impact.total,2);
+ for(const changes of [{plan:revised},{removedFrames:[2,4]},{plan:revised,removedFrames:[2]},{plan:revised,removedFrames:[2,2]},{plan:revised,removedFrames:[2,5]},{plan:{...plan,pages:[]},removedFrames:[1,2,3,4]},{plan:revised,removedFrames:[2,4],length:2}])assert.throws(()=>checkedRevision(base,changes));
+ const firstRemoved={...plan,pages:[plan.pages[1],plan.pages[2]]};
+ assert.equal(revisionImpact(base,{plan:firstRemoved,removedFrames:[1,4]}).reused,0);
+ assert.equal(revisionImpact(base,{storySummary:'按当前分镜查看到梦醒的瞬间。'}).review,false);
+});
+
+test('a shortened storyboard uses original frame identities, previews its own synopsis, and audits the fixed count',async t=>{
+ const f=await productionFixture(t);f.control.hold=false;
+ const id=await f.create('auto');await until(async()=>(await f.read(id)).state==='completed');
+ await f.json(`sessions/${id}/progress`,'POST',{page:5,saved:true});
+ // 旧版可以带着上一轮的来源梗概进入审核，刷新来源证据时不覆盖手动生成的梗概。
+ await f.app.services.database.prepare("UPDATE stories SET selection=json_set(selection,'$.productionPrompt','聚焦梦与醒'),document=json_remove(document,'$.summaryProductionPrompt') WHERE id=?").bind(id).run();
+ const base=await snapshot(f,id),removedFrames=[2,4],summary='庄周梦中化蝶，惊醒后仍记得梦里的自由。',sourceSummary='原文记录了化蝶、梦醒与梦我之辨。';
+ const plan={...base.plan,pages:base.plan.pages.filter((_,index)=>!removedFrames.includes(index+1))};
+ plan.pages[1]={caption:'庄周从梦中惊醒，记忆仍留在蝴蝶的翅膀上。',prompt:'A startled philosopher wakes beneath an open window at dawn.'};
+ let summaryCalls=0;
+ f.control.beforeText=(kind,payload)=>{
+  if(kind==='storyboard-summary'){
+   summaryCalls++;assert.deepEqual(payload,{storyboardPages:plan.pages});return {summary};
+  }
+  if(kind==='recommend')return {storySummary:sourceSummary};
+ };
+ const route=`sessions/${id}/storyboard-summary`,preview={token:base.token,plan,removedFrames};
+ assert.equal((await f.request(route,'POST',{...preview,token:'0'.repeat(64)})).status,409);
+ assert.equal((await f.request(route,'POST',{...preview,removedFrames:[2]})).status,400);
+ assert.equal(summaryCalls,0);assert.deepEqual(await f.json(route,'POST',preview),{summary});assert.equal(summaryCalls,1);
+ assert.deepEqual((await snapshot(f,id)).plan,base.plan);
+ const unused=[1,2].map(index=>`reader/${base.images[index].split('/api/reader/media/')[1]}`),media=f.app.services.media,get=media.get.bind(media);
+ media.get=async key=>{if(unused.includes(key))throw Error('Unused image should never be read');return get(key);};
+ const calls=f.control.calls.length,reviewCount=f.control.reviews.length,requestId=crypto.randomUUID();
+ let child;
+ try{
+  child=await f.json(`sessions/${id}/revisions`,'POST',{requestId,token:base.token,paused:true,changes:{plan,removedFrames,storySummary:summary}});
+ }finally{media.get=get;}
+ assert.equal(child.page,3);assert.equal(child.selection.length,6);assert.equal(child.ready,5);
+ assert.equal(child.story.pages[1].image,'');
+ const readImage=async url=>(await f.request(url.replace('/api/reader/',''))).arrayBuffer();
+ assert.match(child.story.pages[2].image,/\/artifacts\/4-/);
+ assert.deepEqual(await readImage(child.story.pages[2].image),await readImage(base.images[4]));
+ assert.equal(f.control.calls.length,calls);assert.equal(f.control.reviews.length,reviewCount);
+ await f.json(`sessions/${child.id}/production-control`,'POST',{action:'resume'});
+ await until(async()=>(await f.read(child.id)).state==='completed');
+ const saved=await f.read(child.id),latestReview=f.control.reviews.at(-1);
+ assert.equal(f.control.reviews.length,reviewCount+1);assert.equal(latestReview.countPolicy,'fixed');assert.deepEqual(latestReview.plan.pages,plan.pages);
+ assert.equal(latestReview.storyBrief.summary,sourceSummary);assert.equal(saved.story.summary,summary);
+ assert.deepEqual(f.control.calls.slice(calls).map(call=>call.page),[1]);
+ assert.deepEqual((await f.read(id)).story.pages.map(({caption,prompt})=>({caption,prompt})),base.plan.pages);
+ const reduced=await snapshot(f,child.id),withoutFirst={...reduced.plan,pages:reduced.plan.pages.slice(1)};
+ const final=await f.json(`sessions/${child.id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:reduced.token,paused:true,changes:{plan:withoutFirst,removedFrames:[1]}});
+ assert.equal(final.ready,0,'首幅被删除后，原稿的其他图片也失去同一首幅参考');
+});
+
+test('saving only a storyboard synopsis retains the review, portraits, and landscape artwork',async t=>{
+ const {f,id}=await completed(t),base=await snapshot(f,id),route=`sessions/${id}/landscape`;
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ const calls=f.control.calls.length,reviewCount=f.control.reviews.length,history=await f.json(`sessions/${id}/review-history`);
+ const {summary:storySummary}=await f.json(`sessions/${id}/storyboard-summary`,'POST',{token:base.token});
+ const child=await revise(f,id,{storySummary},base);
+ await until(async()=>(await f.json(`sessions/${child.id}/landscape`)).state==='completed');
+ const saved=await f.read(child.id);
+ assert.equal(saved.story.summary,storySummary);assert.equal(saved.ready,base.plan.pages.length);
+ assert.equal(saved.story.original.storyBrief.summary,base.plan.summary);
+ assert.deepEqual((await f.json(`sessions/${child.id}/review-history`)).entries,history.entries);
+ assert.equal(f.control.reviews.length,reviewCount);assert.equal(f.control.calls.length,calls);
+});
+
 test('changing only the style prompt redraws the story and restoring the preset redraws with its default',async t=>{
  const {f,id}=await completed(t),base=await snapshot(f,id),artStylePrompt='Use cool-gray ink on visible white silk.';
  const start=f.control.calls.length,reviews=f.control.reviews.length,transitions=[];

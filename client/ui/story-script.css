@@ -1,0 +1,31 @@
+/* 手势操作置于卡片背后，竖向滚动交给浏览器。 */
+.yu-script-toolbar{position:sticky;top:0;z-index:2;margin-bottom:4px;padding:0 0 8px;background:#faf9f1}
+.yu-script-toolbar:focus{outline:none}
+.yu-script-toolbar p,.yu-script-selection small{margin:4px 0 0;color:#65755c;font-size:12px;line-height:1.6}
+.yu-script-toolbar-line,.yu-script-selection,.yu-script-tools{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}
+.yu-script-toolbar-line,.yu-script-selection{justify-content:space-between}
+.yu-script-selection>span{font-size:13px;white-space:nowrap}
+.yu-script-selection>small{width:100%}
+.yu-script-tools{margin-inline-start:auto;justify-content:flex-end}
+.yu-script-tools>button{border:1px solid #cdd8c1;border-radius:8px;background:#f1f4e8;color:#395742;min-height:44px;padding:4px 10px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+.yu-script-tools>button.yu-script-danger{background:#f8efea;border-color:#ead2c6;color:#8b4435}
+.yu-script-tools>button:disabled,.yu-script-row-actions>button:disabled{opacity:.55;cursor:default}
+.yu-script-tools button:focus-visible,.yu-script-row button:focus-visible,.yu-script-check input:focus-visible{outline:2px solid #638260;outline-offset:-3px}
+.yu-script-merge{margin-bottom:20px;border:1px solid #d8dfca;border-radius:12px;background:#f4f6ea;padding:14px}
+.yu-script-merge h3{margin:0;font-size:15px}
+.yu-script-merge textarea{scroll-margin-top:100px}
+.yu-script-scene.yu-script-row{position:relative;padding:0;overflow:hidden;--script-action-width:144px}
+.yu-script-row-face{position:relative;z-index:1;background:#faf9f1;padding:13px 0 16px;touch-action:pan-y;transition:transform .18s ease-out}
+.yu-script-row[data-open] .yu-script-row-face{transform:translateX(calc(-1 * var(--script-action-width)))}
+.yu-script-row[data-selected] .yu-script-row-face{background:#eef2e5}
+.yu-script-row-actions{position:absolute;inset:0 0 0 auto;display:flex;width:var(--script-action-width)}
+.yu-script-row-actions>button{flex:1;border:0;background:#dce7d2;color:#325038;font:inherit;font-size:13px;cursor:pointer}
+.yu-script-row-actions>button:last-child{background:#a64d3f;color:#fffaf5}
+.yu-script-row-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.yu-script-row-heading h4{margin:0}
+.yu-script-row-menu,.yu-script-check{display:grid;place-items:center;width:44px;height:44px;flex:none}
+.yu-script-row-menu{border:0;border-radius:8px;background:none;color:#526b43;cursor:pointer}
+.yu-script-row-menu:hover{background:#eaf0e0}
+.yu-script-check{cursor:pointer}
+.yu-script-check input{width:19px;height:19px;margin:0;accent-color:#526b43}
+@media(prefers-reduced-motion:reduce){.yu-script-row-face{transition:none}}

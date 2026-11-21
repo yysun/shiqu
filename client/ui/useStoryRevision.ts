@@ -8,9 +8,9 @@ import type {RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
 import type {SessionView} from '@/lib/reader-model';
 import type {StoryEditorTab} from './StoryProductionEditor';
 export type RevisionTab=StoryEditorTab|'review';
-export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:SessionView)=>Promise<void>){
+export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:SessionView,changes:RevisionChanges)=>Promise<void>){
  const [tab,setTab]=useState<RevisionTab|null>(null),[base,setBase]=useState<RevisionSnapshot|null>(null),[changes,setChanges]=useState<RevisionChanges>({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[conflict,setConflict]=useState(false);
- const [scriptPage,setScriptPage]=useState(1);
+ const [scriptPage,setScriptPage]=useState(1),[summarizing,setSummarizing]=useState(false);
  const latest=useRef(storyId);latest.current=storyId;
  const read=useRef(0),lock=useRef(false),submission=useRef<{signature:string;id:string}|null>(null),callback=useRef(onSubmitted);callback.current=onSubmitted;
  useEffect(()=>{read.current++;setTab(null);setScriptPage(1);setBase(null);setChanges({});setError('');setConflict(false);setLoading(false);submission.current=null;},[storyId]);
@@ -31,8 +31,27 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
    else{setBase(snapshot);setChanges({});setConflict(false);}
   }catch{/* The draft stays usable, and submitting reports what is wrong. */}
  }
+ function prepare(){if(!base&&!loading)void load();}
  function open(value:RevisionTab,page=1){setTab(value);if(value==='script')setScriptPage(page);if(loading)return;if(!base)void load();else void refresh();}
  function discard(){setBase(null);setChanges({});setTab(null);setError('');setConflict(false);submission.current=null;}
+ async function summarize(){
+  if(!base?.plan||!storyId||lock.current||conflict)return false;
+  const id=storyId,{plan,removedFrames}=changes;
+  lock.current=true;setBusy(true);setSummarizing(true);setError('');
+  try{
+   const {summary}: {summary:string}=await request(`reader/sessions/${id}/storyboard-summary`,'POST',{token:base.token,plan,removedFrames});
+   if(latest.current!==id)return false;
+   const changed=summary!==base.plan.summary;
+   setChanges(current=>current.plan===plan&&current.removedFrames===removedFrames?{...current,storySummary:changed?summary:undefined}:current);
+   return changed?'updated':'unchanged';
+  }catch(e){
+   if(latest.current===id){
+    setError(e instanceof Error?e.message:'暂时无法生成梗概，请重试。');
+    if((e as {status?:number}).status===409)await refresh();
+   }
+   return false;
+  }finally{lock.current=false;setBusy(false);setSummarizing(false);}
+ }
  async function submit(submittedChanges=changes){
   if(!base||!storyId||lock.current)return;
   try{checkedRevision(base,submittedChanges);}catch(e){setError(e instanceof Error?e.message:'请检查修改内容。');return;}
@@ -44,10 +63,10 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
    const session:SessionView=await request(`reader/sessions/${storyId}/revisions`,'POST',{requestId:submission.current.id,token:base.token,changes:submittedChanges});
    if(latest.current!==originId)return;
    setTab(null);setBase(null);setChanges({});submission.current=null;
-   await callback.current(session);
+   await callback.current(session,submittedChanges);
   }catch(e){setError(e instanceof Error?e.message:'新版暂未提交，请重试。');if((e as {status?:number}).status===409)await refresh();}
   finally{lock.current=false;setBusy(false);}
  }
- return {sessionId:storyId,tab,setTab,scriptPage,setScriptPage,base,changes,setChanges,loading,busy,error,conflict,load,open,discard,submit,impact:base?revisionImpact(base,changes):null};
+ return {sessionId:storyId,tab,setTab,scriptPage,setScriptPage,base,changes,setChanges,loading,busy,error,conflict,load,prepare,open,discard,summarize,summarizing,submit,impact:base?revisionImpact(base,changes):null};
 }
 export type StoryRevisionEditorState=ReturnType<typeof useStoryRevision>;

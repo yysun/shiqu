@@ -223,7 +223,7 @@ export default function Reader(){
  // The id stays the same when the first image arrives, so a draft written before it survives.
  const historyOwner=story?.id||gen.active?.id;
  useEffect(()=>{setReviewHistoryId(null);},[historyOwner]);
- const revision=useStoryRevision(story?story.id:gen.active&&(!gen.active.intake||gen.active.intake.phase==='confirmed')?gen.active.id:undefined,async next=>{await switchVersion(next.id);});
+ const revision=useStoryRevision(story?story.id:gen.active&&(!gen.active.intake||gen.active.intake.phase==='confirmed')?gen.active.id:undefined,async(next,changes)=>{await switchVersion(next.id,changes.removedFrames||changes.storySummary?next.page:0);});
  // 仅换图使用单独的修订草稿，保留故事设置里未提交的编辑。
  const redraw=useStoryRevision(story?.id,async next=>{setRedrawPage(null);await switchVersion(next.id,redrawPage??0);});
  async function switchVersion(id:string,initialPage=0){
@@ -465,6 +465,7 @@ export default function Reader(){
 
  // 修改分镜：先关闭分镜剧本再打开修改故事（同一次提交，沿用分镜剧本的历史条目），手机上面板不超过两层
  function editScript(page?:number){setScript(false);revision.open('script',page);}
+ function openScript(){setScript(true);revision.prepare();}
  function reselectStory(){
   const originId=story&&isGenerated(story)?story.id:gen.active?.id;
   if(!originId||reselectLock.current||creating||revision.busy||gen.active?.superseded)return;
@@ -600,7 +601,7 @@ export default function Reader(){
     onAcceptance={()=>revision.open('acceptance')} onHistory={()=>setReviewHistoryId(workflowSession.id)} onEditStyle={()=>revision.open('style')}
     timeline={{
      links:{source:[{label:'制作要求',onClick:()=>revision.open('requirements')},{label:'验收要求',onClick:()=>revision.open('acceptance')}]},
-     actions:{count:{label:'修改叙事详略',onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:'查看分镜',onClick:()=>setScript(true)}}:{})}
+     actions:{count:{label:'修改叙事详略',onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:'查看分镜',onClick:openScript}}:{})}
     }}
     draft={revisionPending&&revision.base&&!revisionResuming?{base:revision.base,changes:revision.changes,confirmation:<StoryRevisionActions editor={revision} link/>}:undefined} editor={revision} onReselect={()=>void reselectStory()}
     reviewTools={!revisionPending&&<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review')?.id)} onDrawAnyway={()=>void gen.drawAnyway(workflowSession.id)}/>}
@@ -730,7 +731,7 @@ export default function Reader(){
  const storySheets=<>
  {reviewHistoryId&&<Sheet title="审核记录" onClose={()=>setReviewHistoryId(null)}><StoryReviewHistory key={reviewHistoryId} sessionId={reviewHistoryId}/></Sheet>}
  {(!desktop||panelOpen)&&sourceSheet}
- {script&&scriptStory&&<Sheet title="分镜剧本" onClose={()=>setScript(false)}>{isGenerated(scriptStory)&&<StoryFlowAction onClick={()=>editScript()}>修改分镜</StoryFlowAction>}<StoryScript story={scriptStory} standalone/></Sheet>}
+ {script&&scriptStory&&<Sheet title="分镜剧本" busy={revision.summarizing} onClose={()=>setScript(false)}><StoryScript key={scriptStory.id} story={scriptStory} editor={isGenerated(scriptStory)&&scriptStory.id===revision.sessionId&&!revisionSession?.superseded?revision:undefined} onEdit={editScript} onDone={()=>setScript(false)}/></Sheet>}
  {revision.tab&&<Sheet title={revision.tab==='review'?'修改审核意见':'修改故事'} busy={revision.busy} onClose={()=>{if(!revision.busy)revision.setTab(null);}}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming} onDone={revisionDone}/></Sheet>}
  </>;
  const embeddingSheet=embeddingOpen&&<Sheet title="嵌入模型与故事卡索引" onClose={()=>setEmbeddingOpen(false)}><StoryEmbeddingSettings/></Sheet>;
