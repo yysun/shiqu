@@ -1,11 +1,12 @@
 // Decide which saved artwork a revision can reuse. Free of schema imports so that views can report it.
+import {sameArtDirection} from './reader-styles.ts';
 import type {Plan,Selection} from './reader-model.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 export type RevisionBase={selection:Selection;plan:Plan|null;images:string[];frameRecommendation?:FrameRecommendation;savedFrameCount?:number};
 export type RevisionRedraw={previewed:number;actual:number;reason:'first-lost'|'first-changed'|'lost'|'review'};
 export function reusableRevisionImages(base:RevisionBase,selection:Selection,plan:Plan,sourcePages?:(number|null)[]){
  const previous=base.plan;if(!previous)return plan.pages.map(()=> '');
- const stable=base.selection.artStyle===selection.artStyle&&base.selection.productionPrompt===selection.productionPrompt&&previous.characters===plan.characters;
+ const stable=sameArtDirection(base.selection,selection)&&base.selection.productionPrompt===selection.productionPrompt&&previous.characters===plan.characters;
  if(sourcePages&&(sourcePages.length!==plan.pages.length||sourcePages.some(index=>index!==null&&(!Number.isInteger(index)||index<0||index>=previous.pages.length))||new Set(sourcePages.filter(index=>index!==null)).size!==sourcePages.filter(index=>index!==null).length))throw Error('INVALID_IMAGE_SOURCE_MAP');
  const anchor=stable&&!!base.images[0]&&previous.pages[0]?.prompt===plan.pages[0]?.prompt&&(!sourcePages||sourcePages[0]===0);
  if(!anchor)return plan.pages.map(()=> '');

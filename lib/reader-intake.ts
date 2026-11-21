@@ -4,7 +4,7 @@ import {z} from 'zod';
 import {sha256} from '@noble/hashes/sha2.js';
 import {bytesToHex} from '@noble/hashes/utils.js';
 import {acceptancePromptSchema} from './reader-acceptance.ts';
-import {artStyleIds} from './reader-styles.ts';
+import {artStylePromptSchema,artStyleIds} from './reader-styles.ts';
 import {narrativeDetailSchema} from './reader-frame-recommendation.ts';
 import {readerMinFrames,readerMaxFrames} from './reader-limits.ts';
 import type {Document,Selection} from './reader-model.ts';
@@ -13,7 +13,7 @@ import {storyBriefVerified} from './reader-story-brief.ts';
 import {localSourceSchema} from './reader-local-contract.ts';
 import type {SuggestionBatch,SuggestionProgress} from './reader-suggestions.ts';
 export type IntakeSearch={round:number;state:'idle'|'searching'|'failed';error?:string|null;requestId?:string;cycleId?:string;commandHash?:string};
-export const setupSettingsSchema=z.object({artStyle:z.enum(artStyleIds),productionPrompt:z.string().max(1200),acceptancePrompt:acceptancePromptSchema.optional(),narrativeDetail:narrativeDetailSchema});
+export const setupSettingsSchema=z.object({artStyle:z.enum(artStyleIds),artStylePrompt:artStylePromptSchema,productionPrompt:z.string().max(1200),acceptancePrompt:acceptancePromptSchema.optional(),narrativeDetail:narrativeDetailSchema});
 const productionSettingsSchema=setupSettingsSchema.extend({length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')])});
 export type IntakeDraft=z.infer<typeof productionSettingsSchema>;
 export type ReselectionDraft={parentId:string;rootId:string;epoch:number;baseToken:string};
@@ -21,7 +21,7 @@ export type StoryIntake={phase:'discovering'|'choosing'|'preparing'|'confirming'
 export type IntakeView=Omit<StoryIntake,'creationHash'|'lastAction'|'search'|'draftEdited'>&{draftToken?:string;search:Pick<IntakeSearch,'state'|'error'>;progress?:SuggestionProgress};
 // 指纹只随已存草稿变化，查找结果和后台阶段进度不影响确认。
 export function intakeDraftToken(draft?:IntakeDraft){
- const fields=draft?[draft.artStyle,draft.productionPrompt,draft.acceptancePrompt??null,draft.narrativeDetail??'balanced',draft.length??'auto']:null;
+ const fields=draft?[draft.artStyle,draft.productionPrompt,draft.acceptancePrompt??null,draft.narrativeDetail??'balanced',draft.length??'auto',...(draft.artStylePrompt?.trim()?[draft.artStylePrompt.trim()]:[])]:null;
  return bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(fields))));
 }
 // A discovering record without search state came from a release that kept search in the phase.

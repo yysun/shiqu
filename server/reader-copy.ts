@@ -14,6 +14,7 @@ import {ReaderError,selectionSchema,planSchema,view} from '../lib/reader-model.t
 import type {Document} from '../lib/reader-model.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
+import {artStyleSettings,sameArtDirection} from '../lib/reader-styles.ts';
 import {readableImage} from './reader-image-health.ts';
 
 type StoryCopyOptions={images?:boolean;existing?:boolean;draft?:boolean};
@@ -38,8 +39,9 @@ export async function copySavedStory(target:ReturnType<typeof createApplication>
   const sourceSelection=selectionSchema.parse(JSON.parse(row.selection));
   // 哈希输入形状不变；文档文本取还原后的规范形式，迁移前创建的副本仍能匹配。
   const contentHash=createHash('sha256').update(JSON.stringify([sourceSelection,JSON.stringify(saved)])).digest('hex');
-  const selection=selectionSchema.parse({...sourceSelection,...(artStyle===undefined?{}:{artStyle})});
-  const styleChanged=selection.artStyle!==sourceSelection.artStyle;
+  const selected=selectionSchema.parse({...sourceSelection,...(artStyle===undefined?{}:{artStyle})});
+  const selection={...selected,...artStyleSettings(sourceSelection,{artStyle:selected.artStyle})};
+  const styleChanged=!sameArtDirection(selection,sourceSelection);
   if(options.images&&styleChanged)throw new ReaderError(400,'更改画风时不能复制旧图片，请选择不复制图片，后续按新画风绘制。');
   // Keep runtime/family state in the source; attach independent media only after the optional step.
   const document:Document={plan:saved.plan,original:saved.original,visualReview:saved.visualReview,frameRecommendation:saved.frameRecommendation,frameCountConfirmed:options.draft?saved.frameCountConfirmed:true,...(options.draft?{storyboard:saved.storyboard}:{}),reflectionCandidates:saved.reflectionCandidates,setupRequirements:saved.setupRequirements,publication:saved.publication,images:[],audio:[],usage:saved.usage.map(call=>({...call,originId:call.originId||sourceId})),copiedFrom:{storyId:saved.copiedFrom?.storyId||sourceId,contentHash,...(options.draft?{draft:true}:{}),...(options.images===undefined?{}:{imageChoice:options.images})}};

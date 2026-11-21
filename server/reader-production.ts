@@ -143,7 +143,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(!parsed||!plan?.pages.length)return null;
   const {selection,doc}=parsed,images=plan.pages.map((_,i)=>doc.images[i]||'');
   if(images.some(image=>!referenceImageKey(row.id,image)))return null;
-  return {plan,selection,images,revision:doc.revision,version:inputVersion([landscapeKind,plan.characters,plan.pages,images,selection.artStyle,selection.productionPrompt])};
+  return {plan,selection,images,revision:doc.revision,version:inputVersion([landscapeKind,plan.characters,plan.pages,images,selection.artStyle,selection.productionPrompt,...(selection.artStylePrompt?[selection.artStylePrompt]:[])])};
  }
  private async landscapeEligible(row:SessionRow){
   return row.state==='completed'&&!await this.repository.superseded(row.id,row.user_id)
@@ -238,7 +238,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const current=await this.raw(job.session_id,job.owner_id);
   if(!await isCurrent()||!await this.landscapeEligible(current)||this.landscapeInputs(current)?.version!==job.version||this.stopping)throw new JobYield();
   const artifactId=inputVersion([job.id,job.lease_token]),{selection,plan}=inputs;
-  const result=await provider.generator().image(redrawImagePlan(plan,inputs.revision,page),page,row.id,reference,selection.artStyle,selection.productionPrompt,artifactId,'landscape');
+  const result=await provider.generator().image(redrawImagePlan(plan,inputs.revision,page),page,row.id,reference,selection.artStyle,selection.productionPrompt,artifactId,'landscape',selection.artStylePrompt);
   const stored=referenceImageKey(row.id,result.value);
   if(!stored?.startsWith(`reader/${row.id}/artifacts/${page}-${artifactId}.`))throw new ReaderError(409,'横版图片未保存到本次任务。');
   if(!await this.validLandscapeImage(stored))throw new ReaderError(409,'图片服务未返回可读取的 3∶2 横图，请重试本幅。');
@@ -832,7 +832,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(reference&&await this.fileLost(reference).catch(()=>{throw new ReaderError(503,'参考图片暂时无法核对，请稍后重试；尚未开始绘图。');}))throw new ReaderError(409,lostImageMessage);
   if(!this.currentJob(await this.raw(job.session_id,job.owner_id),job))return {obsolete:true};
   if(await this.repository.superseded(row.id,row.user_id))throw new JobYield();
-  return provider.generator().image(redrawImagePlan(doc.plan!,doc.revision,page),page,row.id,selectedReference,selection.artStyle,selection.productionPrompt,inputVersion([job.id,job.lease_token]));
+  return provider.generator().image(redrawImagePlan(doc.plan!,doc.revision,page),page,row.id,selectedReference,selection.artStyle,selection.productionPrompt,inputVersion([job.id,job.lease_token]),undefined,selection.artStylePrompt);
  }
  private async publish(job:ProductionJob,outputs:Record<string,unknown>){
   if(!this.currentJob(await this.raw(job.session_id,job.owner_id),job))return {obsolete:true};

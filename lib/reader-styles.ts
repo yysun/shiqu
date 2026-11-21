@@ -1,4 +1,6 @@
 // 阅读器与生成流程共用画风预设。光色按画材定义，并服从分镜指定的时间与环境。
+import {z} from 'zod';
+
 export const artStyleIds=['ink-pencil','ink-wash','vintage-comic','baimiao','cinematic','watercolor','gongbi','woodblock','paper-cut','cartoon','line-art','chibi','3d-animation','clay','classical-oil'] as const;
 export type ArtStyleId=typeof artStyleIds[number];
 export const artStyleGroups=[
@@ -26,3 +28,19 @@ export const artStyles=[
  {id:'classical-oil',label:'古典油画',description:'醇厚油彩，细腻明暗',prompt:'Classical figurative oil painting on canvas. Build forms with broad, opaque brushstrokes laid in planes. Let the direction and width of the strokes follow facial planes, fabric folds and the volume of objects. Use thin transparent glazes in shadow and soft broken scumbling on selected transitions. Work generous thick impasto into lit and midtone planes across the scene. Show raised paint ridges, bristle tracks and overlapping loaded strokes that follow the form. Keep the larger brush marks visible at reading size, with finer strokes on focal faces and hands. Avoid uniform canvas grain or smooth digital shading as a substitute for brushwork. Increase overall light–dark contrast with pronounced chiaroscuro across the composition. Separate luminous, opaque highlights from broad, deep shadow masses and keep intermediate values subordinate. Bring the brightest light to the focal faces, hands and key gestures, and set those highlights next to rich darks. Keep the dark planes chromatic and readable with thin glazes and restrained reflected light. Balance ochre, umber and deep red with cool or neutral half-tones and clear local colors. Keep amber local, with differentiated shadows and lit surfaces. Preserve the story\'s historical culture, costumes, architecture and props. No photography or digital 3D rendering.'},
 ] as const;
 export function getArtStyle(id:unknown){return artStyles.find(style=>style.id===id)||artStyles[0];}
+
+export const artStylePromptMaxLength=3000;
+export const artStylePromptSchema=z.string().trim().max(artStylePromptMaxLength,'画风提示词最多 3000 字。').nullable().transform(prompt=>prompt||null).optional();
+type ArtStyleSettings={artStyle:ArtStyleId;artStylePrompt?:string|null};
+
+// 换预设时使用新预设的默认值。显式 null 表示清除本篇的覆盖。
+export function artStyleSettings(base:ArtStyleSettings,changes:Partial<ArtStyleSettings>):ArtStyleSettings{
+ const artStyle=changes.artStyle??base.artStyle;
+ return {artStyle,artStylePrompt:changes.artStylePrompt!==undefined?changes.artStylePrompt:artStyle===base.artStyle?base.artStylePrompt:undefined};
+}
+export function getArtDirection({artStyle,artStylePrompt}:ArtStyleSettings){
+ return artStylePrompt?.trim()||getArtStyle(artStyle).prompt;
+}
+export function sameArtDirection(a:ArtStyleSettings,b:ArtStyleSettings){
+ return a.artStyle===b.artStyle&&getArtDirection(a)===getArtDirection(b);
+}

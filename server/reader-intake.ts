@@ -14,6 +14,7 @@ import {effectiveIntakePhase,intakeDraftToken,intakeSearch} from '../lib/reader-
 import type {IntakeAction,IntakeSearch,ReselectionDraft} from '../lib/reader-intake.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
 import {maxSuggestionBatches} from '../lib/reader-suggestions.ts';
+import {artStyleSettings,sameArtDirection} from '../lib/reader-styles.ts';
 import {storyBriefVerified} from '../lib/reader-story-brief.ts';
 import {commandReceipt,recordNoop} from './reader-commands.ts';
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -51,7 +52,8 @@ export async function createIntake(repo:ReaderRepository,id:string,uid:string,in
  if(input.discovery&&!choice&&!reselection){doc.intake!.phase='discovering';doc.intake!.search={round:1,state:'searching',cycleId:id};}
  if(choice)selectSourceCard(doc,choice,0);
  if(setupRequirements)doc.setupRequirements=setupRequirements;
- if(reselection){doc.reselection=reselection;doc.intake!.manualArt=true;}
+ if(selection.artStylePrompt||reselection)doc.intake!.manualArt=true;
+ if(reselection)doc.reselection=reselection;
  const row=await repo.create(id,uid,selection,doc);
  if((JSON.parse(row.document) as Document).intake?.creationHash!==creationHash)throw new ReaderError(409,'此创建编号已用于其他内容，请重新创建。');
  return row;
@@ -133,14 +135,15 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   if(!result.meta.changes){if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);throw new ReaderError(409,'查找条件已更新，请重新打开后继续。');}
   return repo.get(id,uid);
  }
- const manual=(artStyle:Selection['artStyle'])=>artStyle!==selection.artStyle||!!intake.manualArt;
+ const manual=(settings:ReturnType<typeof artStyleSettings>)=>!sameArtDirection(settings,selection)||!!intake.manualArt;
+ const styling=artStyleSettings(intake.draft??selection,action.settings??{});
  if(action.action==='draft'||action.action==='recommend'||action.action==='confirm'){
   const current=intakeDraftToken(intake.draft);
   const {suggestions,overrides}=doc.setupRequirements||{};
   // 旧客户端仍可编辑系统原样建议；历史草稿与新写入的草稿同样要避免覆盖。
   const userDraft=!!intake.draft&&(!!intake.draftEdited||!suggestions||intakeDraftToken(suggestedSettings(selection,suggestions,overrides))!==current);
   const legacyToken=intakeDraftToken(intake.draft?{...intake.draft,acceptancePrompt:intake.draft.acceptancePrompt??selection.acceptancePrompt??''}:undefined);
-  const requested=intakeDraftToken({...action.settings,acceptancePrompt:action.settings.acceptancePrompt??selection.acceptancePrompt??'',length:action.action==='recommend'?intake.draft?.length??'auto':action.settings.length});
+  const requested=intakeDraftToken({...action.settings,...styling,acceptancePrompt:action.settings.acceptancePrompt??selection.acceptancePrompt??'',length:action.action==='recommend'?intake.draft?.length??'auto':action.settings.length});
   if(action.draftToken!==undefined?action.draftToken!==current:userDraft&&requested!==legacyToken)
    throw new ReaderError(409,'另一台设备更新了制作内容。请查看最新草稿后再操作。');
  }
@@ -149,7 +152,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   if(!['preparing','confirming'].includes(intake.phase))throw new ReaderError(409,'请先选择故事。');
   const saved=await repo.db.prepare(`UPDATE stories SET document=json_set(document,'$.intake.draft',json(?),'$.intake.draftEdited',json('true'),'$.intake.manualArt',json(?),'$.intake.lastAction',json(?)),updated_at=?
    WHERE id=? AND user_id=? AND document=? AND selection=? AND ${visible}`)
-   .bind(JSON.stringify(action.settings),JSON.stringify(manual(action.settings.artStyle)),JSON.stringify({id:action.requestId,hash:fingerprint}),new Date().toISOString(),id,uid,row.document,row.selection).run();
+   .bind(JSON.stringify({...action.settings,...styling}),JSON.stringify(manual(styling)),JSON.stringify({id:action.requestId,hash:fingerprint}),new Date().toISOString(),id,uid,row.document,row.selection).run();
   if(!saved.meta.changes){
    if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);
    throw new ReaderError(409,'制作内容已更新，请重新打开后继续。');
@@ -162,7 +165,10 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   const candidate=intake.batches[action.batch]?.stories[action.index];if(!candidate)throw new ReaderError(400,'请选择已保存的候选故事。');
   if(intake.selected?.batch===action.batch&&intake.selected.index===action.index&&['preparing','confirming'].includes(intake.phase))return row;
   const settings=action.settings||intake.draft;
-  if(settings){intake.manualArt=manual(settings.artStyle);Object.assign(selection,settings);}
+  const nextStyle=artStyleSettings(selection,settings||{});
+  if(intake.selected&&action.settings?.artStylePrompt===undefined)nextStyle.artStylePrompt=undefined;
+  if(settings){intake.manualArt=manual(nextStyle);Object.assign(selection,settings,nextStyle);}
+  else if(intake.selected)delete selection.artStylePrompt;
   const reset=requirementsForReselection(selection,doc.setupRequirements);
   Object.assign(selection,reset.selection);doc.setupRequirements=reset.setup;
   selection.storyTitle=candidate.title;selection.source=candidate.source;delete selection.sourceCard;
@@ -172,8 +178,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;selection.length='auto';
  }else{
   if(!intake.selected||intake.phase!=='confirming')throw new ReaderError(409,'请先选择故事并等待制作建议保存。');
-  intake.manualArt=manual(action.settings.artStyle);Object.assign(selection,action.settings);
-  if(action.action==='recommend'){intake.draft={...action.settings,length:'auto'};intake.draftEdited=true;delete doc.frameRecommendation;doc.frameCountConfirmed=false;intake.phase='preparing';selection.length='auto';}
+  intake.manualArt=manual(styling);Object.assign(selection,action.settings,styling);
+  if(action.action==='recommend'){intake.draft={...action.settings,...styling,length:'auto'};intake.draftEdited=true;delete doc.frameRecommendation;doc.frameCountConfirmed=false;intake.phase='preparing';selection.length='auto';}
   else{
    if(!doc.original||!doc.frameRecommendation)throw new ReaderError(409,'原文和制作建议尚未保存。');
    const chosen=intake.batches[intake.selected.batch]?.stories[intake.selected.index];

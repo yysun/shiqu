@@ -23,7 +23,7 @@ import {agentSkillPreference} from './agent-skill.ts';
 import {stopCodexProcesses} from './codex-runner.ts';
 import {stopClaudeProcesses} from './claude-runner.ts';
 import {readerBooks} from '../lib/reader-books.ts';
-import {artStyles,artStyleGroups} from '../lib/reader-styles.ts';
+import {artStyleSettings,artStyles,artStyleGroups} from '../lib/reader-styles.ts';
 import {discoveryThemePresets as themes} from '../lib/reader-discovery-themes.ts';
 import {emptyPublication} from '../lib/story-publication.ts';
 import {selectionSchema,reviewPassed,ReaderError} from '../lib/reader-model.ts';
@@ -68,7 +68,8 @@ const inputs={
  copy:{copyImages:false,draft:false,artStyle:'clay',note:'CLI never prompts. Default requires passed review. --draft or draft:true preserves unreviewed text and audit checkpoints as a paused independent copy, without images. Use stories copy-images only for reviewed copies in the same style.'},
  copyImages:{sourceId:'source story UUID',note:'stories copy-images TARGET_ID --from-data-dir SOURCE_LIBRARY --input source.json; TARGET_ID is the existing text copy, not a new creation request.'},
  setup:{note:'stories setup ID accepts an action; requestId defaults to a new UUID; generation is required from stories get ID. Keep both fixed for replay.',examples:[{action:'conditions',conditions:{bookId:'zhuangzi',theme:'善意的处境',discovery:{mode:'auto',themeInput:'preset'},productionPrompt:''}},{action:'more'},{action:'draft',settings:{artStyle:'ink-pencil',productionPrompt:'',acceptancePrompt:'',narrativeDetail:'balanced',length:'auto'}}]},
- confirm:{draftToken:'intake.draftToken from stories get ID',settings:{productionPrompt:'保留关键行动',acceptancePrompt:'人物回应落实到画面'}},
+ confirm:{draftToken:'intake.draftToken from stories get ID',settings:{productionPrompt:'保留关键行动',acceptancePrompt:'人物回应落实到画面',artStylePrompt:'以冷灰墨色和少量石青表现暮色。'}},
+ stylePrompt:{command:'stories edit ID --input style.json',input:{token:'from stories revisions ID',changes:{artStylePrompt:'以冷灰墨色和少量石青表现暮色。'}},note:'Replace the selected preset prompt for this story, up to 3000 characters. Set null to restore the preset. Changing the preset without supplying a prompt also restores the new preset default.'},
  retry:{faultId:'current fault UUID from stories get'},favorite:{saved:true},reference:{page:0,starred:true},replace:{batch:0,index:0,generation:1},
  reselectSource:{
   command:'stories setup DRAFT_ID --input source-selection.json',
@@ -288,9 +289,10 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   if(['replace','cancel-reselection'].includes(action)){need(p[3]&&uuid(p[3]),'DRAFT_ID_REQUIRED','Specify a reselection draft UUID.');return await api(app,action==='replace'?'POST':'DELETE',route+'/reselection/'+p[3],action==='replace'?{...data,requestId}:undefined);}
   if(['setup','search','choose','confirm'].includes(action)){
    const generation=data.generation??(value('generation')===undefined?undefined:Number(value('generation')));need(Number.isInteger(generation)&&generation>=0,'GENERATION_REQUIRED','Read stories get ID and retain its intake.generation for this request and replay.');
-   const session=await api(app,'GET',route);const settings={artStyle:session.selection.artStyle,productionPrompt:session.selection.productionPrompt||'',acceptancePrompt:session.selection.acceptancePrompt||'',narrativeDetail:session.selection.narrativeDetail||'balanced',length:session.selection.length,...(session.intake?.draft||{})};
+   const session=await api(app,'GET',route);const settings={artStyle:session.selection.artStyle,artStylePrompt:session.selection.artStylePrompt,productionPrompt:session.selection.productionPrompt||'',acceptancePrompt:session.selection.acceptancePrompt||'',narrativeDetail:session.selection.narrativeDetail||'balanced',length:session.selection.length,...(session.intake?.draft||{})};
    const {draftToken,...flatSettings}=Object.fromEntries(Object.entries(data).filter(([key])=>!['generation','requestId'].includes(key)));
-   const change=action==='setup'?data:action==='search'?{action:'search',title:value('title')||data.title||''}:action==='choose'?{action:'choose',batch:Number(value('batch')??data.batch??0),index:Number(value('index')??data.index??0),...(data.settings?{settings:data.settings}:{})}:{action:'confirm',draftToken,settings:{...settings,...(data.settings||flatSettings)}};
+   const overrides=data.settings||flatSettings;
+   const change=action==='setup'?data:action==='search'?{action:'search',title:value('title')||data.title||''}:action==='choose'?{action:'choose',batch:Number(value('batch')??data.batch??0),index:Number(value('index')??data.index??0),...(data.settings?{settings:data.settings}:{})}:{action:'confirm',draftToken,settings:{...settings,...overrides,...artStyleSettings(settings,overrides)}};
    return {requestId,session:await api(app,'POST',route+'/setup',{...change,requestId,generation})};
   }
   throw new CliCommandError('UNKNOWN_COMMAND','Use help --json for available commands.');

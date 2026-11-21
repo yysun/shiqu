@@ -21,7 +21,13 @@ import StoryExtractionContext from './StoryExtractionContext';
 import './story-revision.css';
 type SetupTab=Exclude<StoryEditorTab,'script'>;
 type Props={session:SessionView;book:string;busy:boolean;onAction:(command:IntakeCommand)=>Promise<unknown>;onBackToDiscovery?:()=>void;progress:Omit<ComponentProps<typeof StoryGenerationStatus>,'session'|'timeline'|'stages'|'children'|'compact'>};
-const savedSettings=(session:SessionView)=>session.intake!.draft||{artStyle:session.selection.artStyle,productionPrompt:session.selection.productionPrompt,...(session.selection.acceptancePrompt!==undefined?{acceptancePrompt:session.selection.acceptancePrompt}:{}),narrativeDetail:session.selection.narrativeDetail||'balanced' as const,length:'auto' as const};
+function savedSettings(session:SessionView):ProductionSettings{
+ const settings=session.intake!.draft??session.selection;
+ return {
+  artStyle:settings.artStyle,artStylePrompt:settings.artStylePrompt,productionPrompt:settings.productionPrompt,
+  acceptancePrompt:settings.acceptancePrompt,narrativeDetail:settings.narrativeDetail??'balanced',length:'auto',
+ };
+}
 export default function StoryCreationSetup({session,book,busy,onAction,onBackToDiscovery,progress,retainKey}:Props&{retainKey?:string}){
  const intake=session.intake!,saved={...savedSettings(session),length:'auto' as const},savedKey=JSON.stringify(saved);
  const [error,setError]=useState('');
@@ -49,7 +55,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  const editable=ready||paused&&intake.phase==='preparing';
  const selected=intake.selected?intake.batches[intake.selected.batch]?.stories[intake.selected.index]:null;
  const preparable=!!selected&&intake.phase==='choosing'&&session.state!=='failed';
- const preferences={artStyle:settings.artStyle,productionPrompt:settings.productionPrompt,...(settings.acceptancePrompt!==undefined?{acceptancePrompt:settings.acceptancePrompt}:{}),narrativeDetail:settings.narrativeDetail};
+ const preferences={artStyle:settings.artStyle,artStylePrompt:settings.artStylePrompt,productionPrompt:settings.productionPrompt,...(settings.acceptancePrompt!==undefined?{acceptancePrompt:settings.acceptancePrompt}:{}),narrativeDetail:settings.narrativeDetail};
  async function act(command:IntakeCommand){
   setError('');
   if(command.action==='more'||command.action==='search')setFinding(true);

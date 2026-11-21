@@ -13,7 +13,7 @@ import {geminiGenerationTimeoutMs} from '../lib/reader-limits.ts';
 import {codexGenerationTimeoutMs} from '../lib/codex-settings.ts';
 import {choicesJson,storyDraftJson,suggestionSystemPrompt,draftInstructions,imagePrompt,nativeImageInstructions,imageTypes,mediaType,storySource} from '../lib/reader-generation-contract.ts';
 import {freshSuggestions,suggestionBatchSchema} from '../lib/reader-suggestions.ts';
-import {getArtStyle} from '../lib/reader-styles.ts';
+import {getArtDirection} from '../lib/reader-styles.ts';
 import {saveStoryOriginal} from '../lib/reader-source-storage.ts';
 import type {MediaStore} from '../lib/services.ts';
 import type {ReaderProvider,ProviderStatus} from '../lib/reader-provider.ts';
@@ -152,11 +152,11 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
    },
    async plan(selection,id,original){
     assertStoryBriefReady(original);
-    const result=await run({instructions:draftInstructions(!!original?.localSource),prompt:JSON.stringify({book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})}),schema:storyDraftJson(selection.length),timeoutMs:codexGenerationTimeoutMs,reasoningEffort:taskReasoningEfforts.plan});
+    const result=await run({instructions:draftInstructions(!!original?.localSource),prompt:JSON.stringify({book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtDirection(selection),variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})}),schema:storyDraftJson(selection.length),timeoutMs:codexGenerationTimeoutMs,reasoningEffort:taskReasoningEfforts.plan});
     const value=storyDraftSchema.parse(JSON.parse(result.text));if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new CodexError('INVALID_PLAN');
     return {value,model:result.model,requestId:result.requestId,usage:result.usage,promptRecord:result.promptRecord,reasoningEffort:result.reasoningEffort};
    },
-   async image(plan,page,id,reference,style='ink-pencil',productionPrompt='',artifactId,layout='portrait'){
+   async image(plan,page,id,reference,style='ink-pencil',productionPrompt='',artifactId,layout='portrait',artStylePrompt){
     if(claude)throw new ClaudeError('TEXT_ONLY');
     if(layout==='landscape'&&(!reference||!artifactId))throw new CodexError('INVALID_ANCHOR');
     let image:{bytes:Uint8Array;contentType:string}|undefined;
@@ -166,7 +166,7 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
      const bytes=new Uint8Array(await object.arrayBuffer()),contentType=mediaType(bytes);
      if(!contentType||bytes.length>12*1024*1024)throw new CodexError('INVALID_ANCHOR');image={bytes,contentType};
     }
-    const result=await run({instructions:nativeImageInstructions,prompt:imagePrompt(plan,page,style,productionPrompt,!!image,layout),image,generateImage:true});
+    const result=await run({instructions:nativeImageInstructions,prompt:imagePrompt(plan,page,style,productionPrompt,!!image,layout,artStylePrompt),image,generateImage:true});
     if(!result.image)throw new CodexError('IMAGE_UNAVAILABLE');
     const bytes=new Uint8Array(Buffer.from(result.image,'base64')),contentType=mediaType(bytes);
     if(!contentType||!bytes.length||bytes.length>12*1024*1024)throw new CodexError('INVALID_IMAGE');

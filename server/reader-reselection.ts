@@ -22,7 +22,7 @@ export async function openReselection(repo:ReaderRepository,parentId:string,owne
  if(await commandReceipt(repo.db,ownerId,requestId))throw new ReaderError(409,'这个操作编号已用于其他内容。');
  const row=await repo.get(parentId,ownerId),{epoch,rootId}=await revisionBasis(repo,row,true);
  const reset=requirementsForReselection(selectionSchema.parse(JSON.parse(row.selection)),(JSON.parse(row.document) as Document).setupRequirements),selection=reset.selection;
- const settings={...selection,displayTitle:undefined,storyTitle:undefined,source:undefined,sourceCard:undefined};
+ const settings={...selection,artStylePrompt:undefined,displayTitle:undefined,storyTitle:undefined,source:undefined,sourceCard:undefined};
  if(settings.discovery?.mode==='auto'&&settings.discovery.combine){
   settings.discovery=undefined;
   settings.discoverySources=undefined;

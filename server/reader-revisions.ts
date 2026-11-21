@@ -17,6 +17,7 @@ import {commandReceipt} from './reader-commands.ts';
 import {newReview} from '../lib/reader-review.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
+import {sameArtDirection} from '../lib/reader-styles.ts';
 import {imageDimensions} from '../lib/reader-image-dimensions.ts';
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 export const revisionCoverMaxBytes=12*1024*1024;
@@ -75,9 +76,10 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
   const dimensions=imageDimensions(cover);
   if(cover.length>revisionCoverMaxBytes||!coverType||!dimensions||dimensions.width>4096||dimensions.height>4096||!await readableImage(cover))throw new ReaderError(400,'请选择可读取的 PNG、JPEG 或 WebP，文件不超过 12 MiB，宽高各不超过 4096 像素。');
  }
+ const styleChanged=!sameArtDirection(selection,original.selection);
  const images:string[]=original.plan?.pages.map(()=> '')||[],lostPages:number[]=[];
  // Global image preferences cannot reuse old artwork. Other edits may reuse after planning.
- if(selection.artStyle===original.selection.artStyle&&selection.productionPrompt===original.selection.productionPrompt){
+ if(!styleChanged&&selection.productionPrompt===original.selection.productionPrompt){
   for(let page=0;page<original.images.length;page++){
    const value=original.images[page]||'';
    if(!value)continue;
@@ -91,9 +93,9 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  }
  const base={...original,images};
  const document:Document={setupRequirements:doc.setupRequirements,publication:doc.publication,plan,original:doc.original,frameRecommendation:doc.frameRecommendation,frameCountConfirmed:true,visualReview:impact.review?newReview():doc.visualReview,images:[],audio:[],usage:(doc.usage||[]).map(item=>({...item,originId:item.originId||parentId})),revision:{parentId,rootId,number:epoch+1,baseToken:token,requestHash,base,...(impact.replan?{}:{previewedRedraw:impact.redraw}),...(lostPages.length?{lostPages}:{})}};
- if(usesStoryImageReference(document.revision,selection.artStyle)||usesStoryImageReference(doc.revision,original.selection.artStyle))document.revision!.storyImageReference=true;
- const from=selection.artStyle!==original.selection.artStyle?original.selection.artStyle:doc.revision?.restyle?.from;
- if(from&&(plan||impact.preserveScript))document.revision!.restyle={from,next:0};
+ if(styleChanged||usesStoryImageReference(doc.revision,original.selection.artStyle))document.revision!.storyImageReference=true;
+ const restyle=styleChanged?{from:original.selection.artStyle,fromPrompt:original.selection.artStylePrompt||undefined}:doc.revision?.restyle;
+ if(restyle&&(plan||impact.preserveScript))document.revision!.restyle={...restyle,next:0};
  if(changes.redrawPages){
   if(lostPages.length||original.images.length!==plan!.pages.length||original.images.some(image=>!image))throw new ReaderError(409,'原版图片不完整，未创建仅换图版本；请先恢复缺图。');
   document.revision!.redrawPages=[...changes.redrawPages];

@@ -44,6 +44,39 @@ test('image-only redraw validates page selection and cannot conceal content edit
  assert.throws(()=>checkedRevision({...base,plan:null},{redrawPages:[1]}),/完整分镜/);
 });
 
+test('changing only the style prompt redraws the story and restoring the preset redraws with its default',async t=>{
+ const {f,id}=await completed(t),base=await snapshot(f,id),artStylePrompt='Use cool-gray ink on visible white silk.';
+ const start=f.control.calls.length,reviews=f.control.reviews.length,transitions=[];
+ f.control.beforeText=(kind,payload)=>{if(kind==='restyle')transitions.push(payload);};
+ const child=await revise(f,id,{artStylePrompt},base);
+ await until(async()=>(await f.read(child.id)).state==='completed');
+ const custom=await snapshot(f,child.id);
+ assert.equal(custom.selection.artStyle,base.selection.artStyle);
+ assert.equal(custom.selection.artStylePrompt,artStylePrompt);
+ assert.equal(custom.reviewStatus,base.reviewStatus);
+ assert.equal(f.control.reviews.length,reviews);
+ assert.deepEqual(custom.plan,base.plan);
+ assert.equal(f.control.calls.length-start,base.plan.pages.length);
+ assert.ok(f.control.calls.slice(start).every(call=>call.prompt.includes(artStylePrompt)));
+ assert.ok(transitions.length>0&&transitions.every(payload=>payload.artDirection.prompt===artStylePrompt));
+ assert.deepEqual((await f.read(id)).story.pages.map(page=>page.image),base.images);
+
+
+ const route=`sessions/${child.id}/landscape`,{startToken}=await f.json(route);
+ await f.json(route,'POST',{startToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ const landscape=f.control.calls.filter(call=>call.landscape);
+ assert.equal(landscape.length,base.plan.pages.length);
+ assert.ok(landscape.every(call=>call.prompt.includes(artStylePrompt)));
+
+ const restored=await revise(f,child.id,{artStylePrompt:null},custom),afterCustom=f.control.calls.length;
+ await until(async()=>(await f.read(restored.id)).state==='completed');
+ assert.equal((await snapshot(f,restored.id)).selection.artStylePrompt,null);
+ assert.equal(f.control.calls.length-afterCustom,base.plan.pages.length);
+ assert.ok(f.control.calls.slice(afterCustom).every(call=>!call.prompt.includes(artStylePrompt)));
+ assert.equal(transitions.at(-1).previousArtDirection.prompt,artStylePrompt);
+});
+
 test('a style revision saves the supplied first frame and draws only the remaining pages',async t=>{
  const {f,id}=await completed(t),base=await snapshot(f,id),old=await f.read(id);
  await f.json(`library/${id}/reference`,'POST',{page:0,starred:true});

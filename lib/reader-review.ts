@@ -10,7 +10,7 @@ import {verifiedOriginalPayload} from './reader-source-types.ts';
 import {storyBriefPayload,assertStoryBriefReady,withoutStorySummary} from './reader-story-brief.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import type {Generated} from './reader-engine.ts';
-import {getArtStyle} from './reader-styles.ts';
+import {getArtDirection} from './reader-styles.ts';
 import {storyPageDirection,storySceneDirection} from './reader-generation-contract.ts';
 import {promptSections,inputBoundaryDirection,reflectionMeaningDirection,titleDirection,storyEditorialContext,storyScopeDirection,storyOpeningDirection,storyReviewDirection,storyKnowledgeDirection,storyRoleDirection} from './reader-prompts.ts';
 import {readerStoryboardBatchSize,readerMinFrames,readerMaxFrames} from './reader-limits.ts';
@@ -117,7 +117,7 @@ export const repairSystemPrompt=promptSections(['任务','你是静态连环画�
 
 type Call=(task:ReasoningTask,instructions:string,payload:unknown,schema:unknown,maxOutputTokens:number,original?:OriginalSource)=>Promise<Generated<unknown>>;
 export function storyboardReviewGenerator(call:Call){
- function payload(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,reviewing=true){assertStoryBriefReady(original);return {book:selection.customBook||selection.bookId,chosenStory:selection.storyTitle,editorialContext:storyEditorialContext(selection.theme),...(reviewing?storyBriefPayload(original):{}),exactPageCount:plan.pages.length,narrativeDetail:selection.narrativeDetail||'balanced',countPolicy:selection.length==='auto'?'adaptive':'fixed',...(reviewing?acceptanceInput(selection):{}),productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtStyle(selection.artStyle).prompt,verifiedOriginal:verifiedOriginalPayload(original),plan:reviewing?plan:withoutStorySummary(plan),...(outline?{outline:reviewing?outline:withoutStorySummary(outline)}:{})};}
+ function payload(selection:Selection,plan:Plan,original:OriginalSource,outline?:StoryboardOutline,reviewing=true){assertStoryBriefReady(original);return {book:selection.customBook||selection.bookId,chosenStory:selection.storyTitle,editorialContext:storyEditorialContext(selection.theme),...(reviewing?storyBriefPayload(original):{}),exactPageCount:plan.pages.length,narrativeDetail:selection.narrativeDetail||'balanced',countPolicy:selection.length==='auto'?'adaptive':'fixed',...(reviewing?acceptanceInput(selection):{}),productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtDirection(selection),verifiedOriginal:verifiedOriginalPayload(original),plan:reviewing?plan:withoutStorySummary(plan),...(outline?{outline:reviewing?outline:withoutStorySummary(outline)}:{})};}
  return {
   async reviewFrameCount(selection:Selection,plan:Plan,original:OriginalSource){
    if(selection.length!=='auto')throw Error('FRAME_COUNT_REVIEW_MODE');

@@ -31,6 +31,28 @@ test('choosing prepares saved source and count; only full production confirmatio
  await f.json(`sessions/${id}/setup`,'POST',action);assert.equal(f.control.calls.length,4);
 });
 
+test('a story-only style prompt survives draft reload and reaches storyboard and image jobs',async t=>{
+ const f=await fixture(t),id=await create(f);
+ await until(async()=>(await f.read(id)).intake.phase==='choosing');
+ await setup(f,id,{action:'choose',batch:0,index:0});
+ await until(async()=>(await f.read(id)).intake.phase==='confirming');
+ const prepared=await f.read(id),artStylePrompt='Use cool-gray ink on visible white silk.';
+ const settings={...prepared.intake.draft,artStylePrompt,length:2};
+ const saved=await setup(f,id,{action:'draft',settings,draftToken:prepared.intake.draftToken});
+ assert.notEqual(saved.intake.draftToken,prepared.intake.draftToken);
+ await f.restart();
+ const reloaded=await f.read(id);
+ assert.equal(reloaded.intake.draft.artStylePrompt,artStylePrompt);
+ assert.equal(f.control.calls.length,0);
+ await setup(f,id,{action:'confirm',settings:reloaded.intake.draft,draftToken:reloaded.intake.draftToken});
+ await until(async()=>(await f.read(id)).state==='completed');
+ assert.equal((await f.read(id)).selection.artStylePrompt,artStylePrompt);
+ assert.equal(f.control.plans[0].artDirection,artStylePrompt);
+ assert.equal(f.control.calls.length,2);
+ assert.ok(f.control.calls.every(call=>call.prompt.includes(artStylePrompt)));
+ assert.ok(f.control.calls.every(call=>!call.prompt.includes('Layered Chinese paper-cut illustration')));
+});
+
 test('creation/action replay are independent of progress; competing choices conflict atomically',async t=>{
  const f=await fixture(t),requestId=crypto.randomUUID(),id=await create(f,requestId);await until(async()=>(await f.read(id)).intake.phase==='choosing');
  assert.equal(await create(f,requestId),id);assert.equal(f.discoveries.length,1);

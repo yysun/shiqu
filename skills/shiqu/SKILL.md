@@ -28,7 +28,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 | 对象 | 字段与含义 |
 | --- | --- |
-| 制作选择 `selection` | `bookId`、`theme`；`artStyle` 使用目录中的 id；`narrativeDetail` 为 `brief\|balanced\|detailed`，表示详略而非固定幅数；`productionPrompt` 为制作要求，`acceptancePrompt` 为验收要求；`length` 默认 `auto`，固定数量范围查当前协议。`storyTitle` 是选中的源故事，`displayTitle` 是独立显示名，改显示名用 rename。 |
+| 制作选择 `selection` | `bookId`、`theme`；`artStyle` 使用目录中的 id；`artStylePrompt` 可覆盖本篇画风提示词，最多 3000 字，传 `null` 恢复默认，换预设时使用新预设的提示词；`narrativeDetail` 为 `brief\|balanced\|detailed`，表示详略而非固定幅数；`productionPrompt` 为制作要求，`acceptancePrompt` 为验收要求；`length` 默认 `auto`，固定数量范围查当前协议。`storyTitle` 是选中的源故事，`displayTitle` 是独立显示名，改显示名用 rename。 |
 | 本地来源 `source` | `{edition,sectionId,firstUnit,lastUnit,continuations?}`；`edition` 是版本哈希，续段包含章节和起止单元。引用目录或候选返回的真实范围，不能按标题或摘要猜造。 |
 | 故事快照 `session` | `id` 是版本 UUID；`selection`、`state`、`generationControl`、`intake?`、`revision?`、`superseded?`、`faults?`、`story`。`state` 为 `idle\|running\|failed\|completed`，`generationControl` 为 `active\|paused\|stopped`，两者分别检查。`stage` 是展示文案，逻辑判断使用结构化字段。 |
 | 生产进度 | `generationProgress?` 含 `phase`、`frameCount`、`storyboardFrames?`、`reviewStatus?` 等；`productionState?` 为 `running\|queued\|paused`。正文为 null 时仍可能已有部分分镜，结合进度区分“未编排”和“编排中”；未知数量不当作 0。 |
@@ -57,7 +57,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 | 新建或选题 | `stories create` 接收 selection 或 `{selection,intake:true}`，默认进入选题；`--no-intake` 或 `intake:false` 使用旧的直接制作入口。search 保存提取意图，choose 保存候选索引，confirm 保存制作确认，setup 保存其他选题动作。它们不执行生成。 |
 | 执行生产 | `run <id> --until candidates\|prepared\|reviewed\|completed`（也可 `stories run <id>`）。candidates 后按用户目标选择或等待；prepared 后检查原文、摘要和方案并确认；reviewed 在已有通过的审核且画风转换完成后停止，已有图片保留，绘图任务等待继续制作；默认 completed。每次检查返回 reason 和 session，不假定达到了请求边界。 |
 | 解释停止原因 | `choice` 需选题；`frame_count_required` 是旧故事等待幅数确认，按 help 的 frameCount 输入处理；`already_prepared/already_selected` 表示已越过该边界，改用下一步；`paused` 保持暂停，`blocked` 检查故障，`superseded` 查当前版本。不能在同一停止边界空转。 |
-| 修改与控制 | `stories edit` 使用 token/changes 创建新版；changes 支持 productionPrompt、acceptancePrompt、artStyle、narrativeDetail、length、plan 或仅换图的 redrawPages。需要暂停新版时显式传 `paused:true`，默认 active，但 CLI 仍只在 run 时生成。rename 仅改显示名。pause/resume/stop 控制制作；retry/override 输入 `{faultId}`。 |
+| 修改与控制 | `stories edit` 使用 token/changes 创建新版；changes 支持 productionPrompt、acceptancePrompt、artStyle、artStylePrompt、narrativeDetail、length、plan 或仅换图的 redrawPages。需要暂停新版时显式传 `paused:true`，默认 active，但 CLI 仍只在 run 时生成。rename 仅改显示名。pause/resume/stop 控制制作；retry/override 输入 `{faultId}`。 |
 | 替换选题或扩展原文 | `stories reselect <当前id>` 保存重选草稿；用 setup 的 `conditions` 更换书籍和主题后运行 `run <草稿id> --until candidates`，或直接保存已核对的原文选段。用 `stories replace <当前id> <草稿id>` 和输入 `{batch,index,generation}` 提交为当前版本，`generation` 取自最新的草稿 `intake.generation`。`stories cancel-reselection <当前id> <草稿id>` 取消草稿。 |
 | 书架整理 | `stories delete <id>` 可恢复地隐藏，`stories restore <id>` 撤销删除；`api GET reader/deletions` 列出已删除记录。`stories favorite <id>` 输入 `{saved:true\|false}`，不生图。 |
 | 本书参考图 | `stories reference <id>` 输入 `{page,starred:true}`；page 从 0 开始，每本书保留一个参考图，只影响后续绘图。换画风的故事及其后续修订使用本篇首幅作参考。取消用 `{page,starred:false,token}`，token 沿用设置星标时返回的 reference.token；缺少该 token 时说明缺失，不猜造。它与故事收藏不同，也不同于 redrawPages 的从 1 开始页码。 |

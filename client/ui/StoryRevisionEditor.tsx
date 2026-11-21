@@ -9,11 +9,12 @@ import {revisionFrameCount,revisionImpact} from '@/lib/reader-revision';
 import type {RevisionChanges,RevisionImpact,RevisionSnapshot} from '@/lib/reader-revision';
 import {productionSteps,type ProductionStage} from '@/lib/production-stages';
 import {normalizeProductionPrompt} from '@/lib/reader-prompts';
-import {getArtStyle} from '@/lib/reader-styles';
+import {artStyleSettings,getArtStyle,sameArtDirection} from '@/lib/reader-styles';
 import './story-revision.css';
 
 function restyleDraftStyle(base:RevisionSnapshot,changes:RevisionChanges,impact:RevisionImpact){
- return !impact.review&&changes.artStyle!==base.selection.artStyle?changes.artStyle:undefined;
+ const next=artStyleSettings(base.selection,changes);
+ return !impact.review&&!sameArtDirection(base.selection,next)?next.artStyle:undefined;
 }
 
 export function revisionDraftSteps(base:RevisionSnapshot,changes:RevisionChanges,previous:ProductionStage[]=[]){
@@ -62,7 +63,7 @@ export function StoryRevisionActions({editor,onDone,resuming=false,reviewOnSave=
  const restyle=base&&restyleDraftStyle(base,changes,impact);
  return <section ref={confirmationRef} tabIndex={link?-1:undefined} className={link?'yu-revision-impact yu-revision-impact--in-flow':'yu-revision-impact'} aria-label={link?'确认本次修改':'本次修改影响'}>
   {restyle&&base?<div className="yu-revision-restyle" role="status">
-   <p>{getArtStyle(base.selection.artStyle).label} <span aria-hidden="true">→</span><span className="sr-only">换为</span> <strong>{getArtStyle(restyle).label}</strong>{!link&&` · 预计重绘 ${impact.redraw} 幅`}</p>
+   <p>{restyle===base.selection.artStyle?<strong>{getArtStyle(restyle).label} · 修改画风提示词</strong>:<>{getArtStyle(base.selection.artStyle).label} <span aria-hidden="true">→</span><span className="sr-only">换为</span> <strong>{getArtStyle(restyle).label}</strong></>}{!link&&` · 预计重绘 ${impact.redraw} 幅`}</p>
    <p>沿用原分镜编排{base.reviewStatus?'和审片进度':''}，保留原版本。</p>
   </div>:<p role="status">{!impact.changed?(reviewOnSave?'修改分镜后，保存并重新审核，通过后继续绘图。':resuming?'完成编辑后，恢复生成时继续制作。':'调整制作内容，确认后开始制作。'):impact.replan?impact.preserveScript?`保留已保存的分镜与草稿，只完成剩余编排并审片；需绘制 ${impact.total} 幅。`:`将按叙事详略重新编排并审片，审核后确定画幅数。${impact.reusePending?'原图能否复用，待新分镜完成后逐幅比较。':'新分镜完成后重新核对图片。'}`:`保留分镜编排，${impact.review?'重新审片':'沿用原审片进度，不重新审核'}；预计复用 ${impact.reused} 幅、重绘 ${impact.redraw} 幅。`}</p>}
   {!restyle&&impact.changed&&!impact.replan&&<small>画面指令或首幅参考变化时会重新核对旧图复用。</small>}
@@ -83,7 +84,7 @@ export default function StoryRevisionEditor({editor,onDone,resuming=false,review
  const updatePlan=(update:(plan:Plan)=>void)=>editor.setChanges(c=>{const next=structuredClone(c.plan||base.plan);if(!next)return c;update(next);return {...c,plan:next};});
  return <div className="yu-revision-editor">
   <StoryEditorTabs tab={editor.tab!} onChange={editor.setTab} script={!!plan} disabled={busy}/>
-  {editor.tab&&editor.tab!=='script'&&<StoryProductionEditor sessionId={editor.sessionId} tab={editor.tab} settings={{artStyle:changes.artStyle??base.selection.artStyle,productionPrompt:changes.productionPrompt??normalizeProductionPrompt(base.selection.productionPrompt,base.selection.theme),acceptancePrompt:changes.acceptancePrompt??base.selection.acceptancePrompt,length:changes.length??base.selection.length,narrativeDetail:changes.narrativeDetail??base.selection.narrativeDetail??'balanced'}} recommendation={base.frameRecommendation} disabled={busy} onChange={patch=>editor.setChanges(c=>({...c,...patch}))}/>}
+  {editor.tab&&editor.tab!=='script'&&<StoryProductionEditor sessionId={editor.sessionId} tab={editor.tab} settings={{...artStyleSettings(base.selection,changes),productionPrompt:changes.productionPrompt??normalizeProductionPrompt(base.selection.productionPrompt,base.selection.theme),acceptancePrompt:changes.acceptancePrompt??base.selection.acceptancePrompt,length:changes.length??base.selection.length,narrativeDetail:changes.narrativeDetail??base.selection.narrativeDetail??'balanced'}} recommendation={base.frameRecommendation} disabled={busy} onChange={patch=>editor.setChanges(c=>({...c,...patch}))}/>}
   <fieldset disabled={busy} className="yu-revision-fields">
    {editor.tab==='script'&&plan&&<section className="yu-revision-script">
     <label className="yu-revision-field">选择分镜<select value={target} onChange={e=>editor.setScriptPage(Number(e.target.value))}>{plan.pages.map((_,index)=><option key={index} value={index+1}>第 {index+1} 幅</option>)}<option value={0}>结语</option></select></label>

@@ -10,7 +10,7 @@ import type {RevisionRecord,RevisionView} from './reader-revision.ts';
 import {revisionRedraw} from './reader-revision-images.ts';
 import type {Story} from './content';
 import type {OriginalSource} from './reader-source-types.ts';
-import {artStyleIds,getArtStyle} from './reader-styles.ts';
+import {artStylePromptSchema,artStyleIds,getArtStyle} from './reader-styles.ts';
 import {localSourceSchema} from './reader-local-contract.ts';
 import {readerMinFrames,readerMaxFrames,readerStoryboardBatchSize} from './reader-limits.ts';
 import {storyBriefVerified} from './reader-story-brief.ts';
@@ -22,7 +22,7 @@ export {readerBooks} from './reader-books.ts';
 // A reader's display name stays separate from the selected source and AI-authored script.
 export const displayTitleSchema=z.string().trim().min(1,'请输入故事名。').max(40,'故事名最多 40 字。').regex(/^[^\r\n]+$/,'故事名请写在一行内。');
 // Discovery intent is distinct from the chosen candidate and the editable published title.
-export const selectionSchema=z.object({bookId:z.string().min(1).max(100),customBook:z.string().max(500).optional(),discovery:discoverySchema.optional(),storyTitle:z.string().max(100).optional(),displayTitle:displayTitleSchema.optional(),source:localSourceSchema.optional(),sourceCard:sourceCardSchema.optional(),discoverySources:z.array(localSourceSchema).min(1).max(24).optional(),theme:z.string().trim().min(1).max(100),artStyle:z.enum(artStyleIds).default('ink-pencil'),productionPrompt:z.string().max(1200).default(''),acceptancePrompt:acceptancePromptSchema.optional(),narrativeDetail:narrativeDetailSchema.optional(),length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')]).default('auto'),voice:z.boolean().default(false).transform(()=>false)});
+export const selectionSchema=z.object({bookId:z.string().min(1).max(100),customBook:z.string().max(500).optional(),discovery:discoverySchema.optional(),storyTitle:z.string().max(100).optional(),displayTitle:displayTitleSchema.optional(),source:localSourceSchema.optional(),sourceCard:sourceCardSchema.optional(),discoverySources:z.array(localSourceSchema).min(1).max(24).optional(),theme:z.string().trim().min(1).max(100),artStyle:z.enum(artStyleIds).default('ink-pencil'),artStylePrompt:artStylePromptSchema,productionPrompt:z.string().max(1200).default(''),acceptancePrompt:acceptancePromptSchema.optional(),narrativeDetail:narrativeDetailSchema.optional(),length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')]).default('auto'),voice:z.boolean().default(false).transform(()=>false)});
 export type Selection=z.infer<typeof selectionSchema>;
 export const planSchema=z.object({title:z.string().min(1).max(40),summary:z.string().trim().min(1).max(1200),sourceReference:z.string().min(1).max(150),adaptationNote:z.string().min(1).max(600),reflection:z.string().min(1).max(100),characters:z.string().min(20).max(2500),pages:z.array(z.object({caption:z.string().min(8).max(90),prompt:z.string().min(20).max(1800)})).min(readerMinFrames).max(readerMaxFrames)});
 export type Plan=z.infer<typeof planSchema>;
