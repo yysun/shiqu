@@ -42,8 +42,9 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
   try{await readSnapshot(true);}finally{lock.current=false;setBusy(false);}
  }
  // Compare a saved draft with its story again; newer images only improve what can be reused.
- async function refresh(submitted?:RevisionChanges){
+ async function refresh(submitted?:RevisionChanges,waitForSnapshot=false){
   if(!storyId||!base)return;const serial=++read.current,id=storyId;
+  if(waitForSnapshot)setLoading(true);
   try{
    const snapshot:RevisionSnapshot=await request(`reader/sessions/${id}/revisions`);
    if(latest.current!==id||read.current!==serial)return;
@@ -54,9 +55,14 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
    // 旧版无法读取编辑快照，保留当前草稿并提供切换到书架当前版本的入口。
    if(latest.current===id&&read.current===serial&&(e as {status?:number}).status===409)setConflict(true);
   }
+  finally{if(waitForSnapshot&&latest.current===id&&read.current===serial)setLoading(false);}
  }
  function prepare(){if(!base&&!loading)void load();}
- function open(value:RevisionTab,page=1){setTab(value);if(value==='script')setScriptPage(page);if(loading)return;if(!base)void load();else void refresh();}
+ function open(value:RevisionTab,page=1){
+  setTab(value);if(value==='script')setScriptPage(page);
+  if(loading)return;
+  if(!base)void load();else void refresh(undefined,value==='review');
+ }
  function discard(){setBase(null);setChanges({});setTab(null);setError('');setConflict(false);submission.current=null;}
  async function summarize(){
   if(!base?.plan||!storyId||lock.current||conflict)return false;

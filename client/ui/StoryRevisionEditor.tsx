@@ -18,17 +18,18 @@ export function reviewEditingStage(steps:ProductionStage[]){
 }
 
 function RevisionConflicts({editor}:{editor:StoryRevisionEditorState}){
+ const waiting=editor.busy||editor.loading;
  return <>
   {editor.impact?.conflict&&<div role="alert">
    <p>重新编排会替换草稿的分镜与梗概，请选择保留哪类修改。</p>
    <div className="production-stage-actions">
-    <StoryFlowAction disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,plan:undefined,removedFrames:undefined,storySummary:undefined}))}>保留重新编排设置</StoryFlowAction>
-    <StoryFlowAction disabled={editor.busy} onClick={()=>editor.setChanges(c=>({...c,productionPrompt:undefined,length:undefined,narrativeDetail:undefined}))}>保留分镜或梗概修改</StoryFlowAction>
+    <StoryFlowAction disabled={waiting} onClick={()=>editor.setChanges(c=>({...c,plan:undefined,removedFrames:undefined,storySummary:undefined}))}>保留重新编排设置</StoryFlowAction>
+    <StoryFlowAction disabled={waiting} onClick={()=>editor.setChanges(c=>({...c,productionPrompt:undefined,length:undefined,narrativeDetail:undefined}))}>保留分镜或梗概修改</StoryFlowAction>
    </div>
   </div>}
   {editor.conflict&&<div className="yu-revision-conflict-note" role="alert">
    <p>故事已在别处更新。载入最新版本会替换当前草稿，你可以先复制需要保留的内容。</p>
-   <div className="production-stage-actions"><StoryFlowAction disabled={editor.busy} onClick={editor.loadLatest}>载入最新版本</StoryFlowAction></div>
+   <div className="production-stage-actions"><StoryFlowAction disabled={waiting} onClick={editor.loadLatest}>载入最新版本</StoryFlowAction></div>
   </div>}
  </>;
 }
@@ -57,7 +58,7 @@ export function StoryRevisionActions({editor,resuming=false}:{editor:StoryRevisi
   {detail&&<p role="status">{detail}</p>}
   <RevisionConflicts editor={editor}/>
   {editor.error&&<p role="alert">{editor.error}</p>}
-  <div className="production-stage-actions"><StoryFlowAction disabled={busy||!impact.changed||impact.conflict||editor.conflict} aria-busy={busy} onClick={()=>editor.submit()}>{busy?'正在提交…':action}</StoryFlowAction></div>
+  <div className="production-stage-actions yu-revision-submit"><button type="button" className="yu-primary" disabled={busy||editor.loading||!impact.changed||impact.conflict||editor.conflict} aria-busy={busy} onClick={()=>void editor.submit()}>{busy?'正在提交…':action}</button></div>
  </section>;
 }
 
@@ -66,9 +67,11 @@ function StoryReviewNotesEditor({editor,base}:{editor:StoryRevisionEditorState;b
  const [reviewNotes,setReviewNotes]=useState(base.reviewNotes??'');
  const changes={...editor.changes,reviewNotes};
  const blocked=editor.conflict||editor.impact?.conflict;
- const disabled=editor.busy||!base.canEditReviewNotes||blocked||!revisionReviewNotesChanged(base,changes);
+ const waiting=editor.busy||editor.loading;
+ const disabled=waiting||!base.canEditReviewNotes||blocked||!revisionReviewNotesChanged(base,changes);
  return <div className="yu-revision-editor">
-  <fieldset disabled={editor.busy} className="yu-revision-fields">
+  {editor.loading&&!editor.busy&&<p role="status">正在同步审核意见…</p>}
+  <fieldset disabled={waiting} className="yu-revision-fields">
    {!!base.priorReviewIssues?.length&&<details className="yu-revision-review"><summary>上轮审核意见</summary>
     {base.priorReviewIssues.map(issue=><dl key={issue.page}><dt>{issue.page===0?'结语':`第 ${issue.page} 幅`}</dt><dd>{issue.problem}</dd><dd>{issue.instruction}</dd></dl>)}
    </details>}
@@ -76,7 +79,7 @@ function StoryReviewNotesEditor({editor,base}:{editor:StoryRevisionEditorState;b
    <RevisionConflicts editor={editor}/>
    {!blocked&&editor.impact?.changed&&<p>{editor.impact.replan?'会一并应用已有草稿，重新编排后开始审核。':'已有制作草稿也会一并应用。'}</p>}
    {editor.error&&<p role="alert">{editor.error}</p>}
-   <div className="production-stage-actions"><StoryFlowAction disabled={disabled} aria-busy={editor.busy} onClick={()=>editor.submit(changes)}>{editor.busy?'正在提交…':'开始审核'}</StoryFlowAction></div>
+   <div className="production-stage-actions yu-revision-submit"><button type="button" className="yu-primary" disabled={disabled} aria-busy={editor.busy} onClick={()=>void editor.submit(changes)}>{editor.busy?'正在提交…':'开始审核'}</button></div>
   </fieldset>
  </div>;
 }

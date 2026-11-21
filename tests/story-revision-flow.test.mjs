@@ -20,7 +20,7 @@ const compiled=build({stdin:{contents:"export {useStoryRevision} from './client/
  }
 }]});
 const reviewIssue={page:3,category:'caption',problem:'第三幅配文含混。',instruction:'明确醒来后看见的事物。'};
-async function harness(t,{loseResponse=false,paused=false,blocked=false,initialTab='count',initialPage}={}){
+async function harness(t,{loseResponse=false,paused=false,blocked=false,initialTab='count',initialPage,beforeSnapshot}={}){
  const f=await productionFixture(t);f.control.hold=paused;
  if(blocked)f.control.beforeText=async(kind,payload)=>kind==='review'?{issues:[reviewIssue]}:kind==='repair'?{pages:payload.requestedPages.map(page=>({page,...payload.plan.pages[page-1]}))}:undefined;
  const id=await f.create(3);await f.demand(id);
@@ -35,6 +35,7 @@ async function harness(t,{loseResponse=false,paused=false,blocked=false,initialT
   const response=await f.request(path.slice('reader/'.length),method,body);
   const data=await response.json();
   if(!response.ok)throw Object.assign(new Error(data.error),{status:response.status});
+  if(method==='GET'&&path.endsWith('/revisions'))await beforeSnapshot?.();
   if(loseResponse&&method==='POST'){loseResponse=false;throw new TypeError('Lost response');}
   return data;
  });
@@ -55,6 +56,18 @@ test('a concurrent revision preserves the open draft and offers the new current 
  assert.deepEqual(h.submitted,[]);
  await h.render().loadLatest();
  assert.deepEqual(h.opened,[next.id]);
+});
+
+test('reopening review notes waits for a fresh snapshot before enabling edits',async t=>{
+ let held;
+ const h=await harness(t,{paused:true,beforeSnapshot:()=>held});
+ const gate=Promise.withResolvers();held=gate.promise;t.after(gate.resolve);
+ h.render().open('review');
+ assert.equal(h.render().tab,'review');
+ assert.equal(h.render().loading,true);
+ gate.resolve();
+ await until(()=>!h.render().loading);
+ assert.equal(h.render().base.canEditReviewNotes,true);
 });
 
 for(const passes of [true,false])test(`saving manual review corrections re-audits first and ${passes?'continues drawing on approval':'keeps drawing blocked on rejection'}`,async t=>{

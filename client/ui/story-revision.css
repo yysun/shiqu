@@ -14,6 +14,9 @@
 .yu-redraw-models{margin:0 0 16px;padding:10px 12px;border:1px solid #dfe5d2;border-radius:9px;background:#f6f7ef;font-size:12px;line-height:1.7;overflow-wrap:anywhere}.yu-redraw-models p{margin:0}.yu-redraw-models p+p{margin-top:4px}
 
 .yu-revision-field select{border:1px solid #cdd8c1;border-radius:8px;background:#f6f7ef;color:#324f36;padding:10px;font:inherit;min-width:0;width:100%}
+.yu-revision-submit>.yu-primary{width:auto;min-width:132px;min-height:48px;padding:10px 18px;font-size:14px;cursor:pointer}
+.yu-revision-submit>.yu-primary:disabled{opacity:.5;cursor:default}
+.yu-revision-submit>.yu-primary:focus-visible{outline:2px solid #648354;outline-offset:3px}
 .yu-revision-review{margin:16px 0;padding:14px 16px;border:1px solid #dbd4b9;border-radius:10px;background:#f7f3e7;color:#536349}
 .yu-revision-review>summary{min-height:32px;font-size:13px;font-weight:600;cursor:pointer;color:#786844}
 .yu-revision-review dl{margin:12px 0 0;line-height:1.9;overflow-wrap:anywhere}
