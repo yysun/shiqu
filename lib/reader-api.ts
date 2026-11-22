@@ -30,7 +30,7 @@ import {intakeActionSchema} from './reader-intake.ts';
 import {recoveryRequestSchema} from './reader-recovery.ts';
 import {bookContents} from '../server/local-book-contents.ts';
 import {createIntake,changeIntake} from '../server/reader-intake.ts';
-import {forkRevision,revisionCoverMaxBytes,revisionSnapshot} from '../server/reader-revisions.ts';
+import {forkRevision,previewDagRevision,revisionCoverMaxBytes,revisionSnapshot} from '../server/reader-revisions.ts';
 import {openReselection,commitReselection,cancelReselection} from '../server/reader-reselection.ts';
 import {replacementChoiceSchema} from './reader-reselection.ts';
 import {summarizeShelfSession,type ShelfSession,type ShelfChanges} from './reader-shelf.ts';
@@ -329,6 +329,11 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     const result=await summarize(storyboard.pages).catch(error=>{throw new ReaderError(502,provider.safeError(error));});
     if((await revisionSnapshot(repo,id,uid)).token!==token)throw new ReaderError(409,'分镜已更新，请重新载入后再生成梗概。');
     return json({summary:result.value});
+   }
+   if(path[2]==='revisions'&&path[3]==='preview'&&path.length===4&&req.method==='POST'){
+    // 保存前的预估由引擎推导，与保存使用同一套规则，不写入也不调用模型。
+    const b=z.object({token:z.string().regex(/^[a-f0-9]{64}$/),changes:revisionChangesSchema}).strict().parse(await body(req,262144));
+    return json(await previewDagRevision(repo,await repo.get(id,uid),b.token,b.changes));
    }
    if(path[2]==='revisions'&&path.length===3){
     if(req.method==='GET')return json(await revisionSnapshot(repo,id,uid));

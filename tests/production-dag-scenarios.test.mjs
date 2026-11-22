@@ -413,10 +413,12 @@ test('an unavailable snapshot service stops the story with a clear message; appl
  await until(async()=>(await f.read(id)).faults?.length>0,20000);
  const blocked=await f.read(id);
  assert.match(blocked.faults[0].message||blocked.error||'', /快照服务不可用/);
+ assert.equal(blocked.snapshotUnavailable,true,'the view offers 应用当前模型设置');
  assert.equal(f.control.dagCalls.length,0,'no model call is paid while the snapshot service is unavailable');
  now=current;
  await f.json(`sessions/${id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'apply-model'});
  assert.deepEqual((await saved(f,id)).dag.modelSnapshot,current);
+ assert.equal((await f.read(id)).snapshotUnavailable,true,'the failed job stays until the reader retries');
  const fault=(await f.read(id)).faults.find(x=>x.state==='pending');
  if(fault)await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
  await until(async()=>(await f.read(id)).state==='completed',20000);
@@ -586,4 +588,50 @@ test('a file restored before the reader clicks recover is reused for free, witho
  await until(async()=>(await f.read(id)).state==='completed',20000);
  assert.equal(f.control.calls.length,0,'the restored file is reused, nothing is drawn or paid');
  assert.ok(!(await f.read(id)).faults?.length);
+});
+
+test('CLI: a saved revision waits for stories continue; run reports continue_required and never continues on its own',async t=>{
+ const {executeHeadless}=await import('../server/headless-cli.ts');
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ await f.stop();
+ const call=(args,input)=>executeHeadless(process.cwd(),[...args,'--data-dir',f.dataDirectory],{generation:f.generation,variables:{},input:input||{}});
+ const revisions=await call(['stories','revisions',id]),plan=structuredClone(revisions.plan);
+ plan.pages[2].caption='管仲与鲍叔牙分金时，鲍叔让管仲多拿一份。';
+ const edited=await call(['stories','edit',id,'--request-id',crypto.randomUUID()],{token:revisions.token,changes:{plan}});
+ const child=edited.session.id;
+ assert.equal(edited.session.awaitingContinue,true);
+ const blocked=await call(['run',child,'--until','reviewed','--timeout','20']);
+ assert.equal(blocked.reason,'continue_required');
+ assert.equal(f.control.reviews.length,0,'run did not start any work');
+ await call(['stories','resume',child,'--request-id',crypto.randomUUID()]);
+ assert.equal((await call(['run',child,'--until','reviewed','--timeout','20'])).reason,'continue_required','resume does not clear the wait');
+ const continued=await call(['stories','continue',child,'--request-id',crypto.randomUUID()]);
+ assert.equal(continued.session.awaitingContinue,undefined);
+ assert.equal((await call(['run',child,'--until','completed','--timeout','30'])).reason,'completed');
+});
+
+test('the revision preview uses the same engine rules as saving and writes nothing',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ const snapshot=await f.json(`sessions/${id}/revisions`);
+ const before=(await f.app.services.database.prepare('SELECT COUNT(*) AS n FROM stories').first()).n;
+ // 只改一幅配文：该幅画面描述与相邻审片需重做，图片不变（配文不是绘图输入）。
+ const plan=structuredClone(snapshot.plan);plan.pages[2].caption='管仲与鲍叔牙分金时，鲍叔让管仲多拿一份。';
+ const caption=await f.json(`sessions/${id}/revisions/preview`,'POST',{token:snapshot.token,changes:{plan}});
+ assert.equal(caption.changed,true);assert.equal(caption.total,6);assert.equal(caption.redraw,0);assert.equal(caption.reused,6);
+ assert.equal(caption.continues,true,'the review has to run again');
+ // 换画风：全部画幅需重绘。
+ const style=await f.json(`sessions/${id}/revisions/preview`,'POST',{token:snapshot.token,changes:{artStyle:'watercolor'}});
+ assert.equal(style.redraw,6);assert.equal(style.reused,0);
+ assert.ok(style.textWork.restyle>=1,'the descriptions are converted first');
+ // 预览不创建新版，也不改动原版。
+ assert.equal((await f.app.services.database.prepare('SELECT COUNT(*) AS n FROM stories').first()).n,before);
+ assert.equal((await f.request(`sessions/${id}/revisions/preview`,'POST',{token:'0'.repeat(64),changes:{}})).status,409);
+ // 与保存一致：保存同一修改，新版需要「继续制作」且图片全部保留。
+ const child=crypto.randomUUID();
+ await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{plan}});
+ assert.equal((await f.read(child)).awaitingContinue,true);
 });

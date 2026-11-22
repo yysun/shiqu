@@ -43,7 +43,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 - 保存意图不调用模型，只有显式 `run` 推进生产，可能产生费用。用户只要求查看、整理、比较、预览或导出时，不运行生产。用户要求的候选、方案确认和生图前检查点必须保留；已有授权足够时继续，缺少影响结果的选择时再询问。
 - 创建、选题动作、编辑、控制和恢复等支持 requestId 的操作，发出前保存 UUID 与原始输入。重放沿用同一 requestId 及原 generation/token/faultId，不能重新取当前值。跨步骤重新读取状态；新动作使用新 UUID。CONFLICT 时停止该项并重新读取，不通过换 requestId 自动重试原动作来掩盖冲突。
 - search/choose/confirm/setup 携带读取时的 `intake.generation`。保存设置草稿、重新推荐或确认制作时，把同一次读取的 `intake.draftToken` 放入 JSON 的 `draftToken`。收到冲突时先读取最新草稿，由用户决定采用哪份。重放保留原操作编号、世代和指纹。编辑和重选会创建版本，后续使用操作返回的新 id 或 current 返回的 id；旧版不能继续制作或完整导出。
-- 暂停保持暂停；获准继续时用 `stories resume <id>`，再 run。失败先检查 faults 和已保存依据，`retry/override` 输入针对当前 faultId；审核越过需要明确 override 意图，不能把越过说成审核通过。超时或中断后先读取保存状态，不循环重跑。
+- 暂停保持暂停；获准继续时用 `stories resume <id>`，再 run。已保存的修订（`awaitingContinue`，显示为「已保存，等待继续」）不同：`stories resume` 不会解除，须用户授权后执行 `stories continue <新id> --request-id <UUID>`（同时解除等待与暂停），`run` 在此状态返回 `continue_required`，不会隐式继续。失败先检查 faults 和已保存依据，`retry/override` 输入针对当前 faultId；审核越过需要明确 override 意图，不能把越过说成审核通过。超时或中断后先读取保存状态，不循环重跑。
 - 批量程序逐项记录目标 id、请求身份、结果和停止原因；遇到需要用户决定、冲突、暂停或故障时停止该项。其他独立项仅在原授权内继续；报告成功、失败、跳过和未处理项，不能把部分完成称为全部完成。
 
 ## 可用操作与停止条件
@@ -57,7 +57,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 | 新建或选题 | `stories create` 接收 selection 或 `{selection,intake:true}`，默认进入选题；`--no-intake` 或 `intake:false` 使用旧的直接制作入口。search 保存提取意图，choose 保存候选索引，confirm 保存制作确认，setup 保存其他选题动作。它们不执行生成。 |
 | 执行生产 | `run <id> --until candidates\|prepared\|reviewed\|completed`（也可 `stories run <id>`）。candidates 后按用户目标选择或等待；prepared 后检查原文、摘要和方案并确认；reviewed 在已有通过的审核且画风转换完成后停止，已有图片保留，绘图任务等待继续制作；默认 completed。每次检查返回 reason 和 session，不假定达到了请求边界。 |
 | 解释停止原因 | `choice` 需选题；`frame_count_required` 是旧故事等待幅数确认，按 help 的 frameCount 输入处理；`already_prepared/already_selected` 表示已越过该边界，改用下一步；`paused` 保持暂停，`blocked` 检查故障或需读者处理的审片问题（例如手改冲突、修订额度用尽或无法判断的验收要求），`superseded` 查当前版本。不能在同一停止边界空转。 |
-| 修改与控制 | `stories edit` 使用 token/changes 创建新版。支持修改 productionPrompt、acceptancePrompt、artStyle、artStylePrompt、narrativeDetail、length、plan、storySummary。减幅时在 plan 之外提供 removedFrames。暂停审核时可修改 reviewNotes，或用 redrawPages 仅换图。改制作要求时，run 会按已核原文重新生成梗概，再编排分镜。需要暂停新版时显式传 `paused:true`，默认 active，但 CLI 仍只在 run 时生成。rename 仅改显示名。pause/resume/stop 控制制作。retry/override 输入 `{faultId}`。 |
+| 修改与控制 | `stories edit` 使用 token/changes 创建新版。支持修改 productionPrompt、acceptancePrompt、artStyle、artStylePrompt、narrativeDetail、length、plan、storySummary。减幅时在 plan 之外提供 removedFrames。暂停审核时可修改 reviewNotes，或用 redrawPages 仅换图。改制作要求时，run 会按已核原文重新生成梗概，再编排分镜。新版需要重做工作时停在「已保存，等待继续」，须 `stories continue <新id>`（授权当前修订，同时解除等待与暂停）后再 run；`paused:true` 仍可传入，但不再必要，`stories resume` 只解除读者暂停、不解除等待。CLI 仍只在 run 时生成。rename 仅改显示名。pause/resume/stop 控制制作。retry/override 输入 `{faultId}`。 |
 | 替换选题或扩展原文 | 已选故事在制作确认前后都可用 `stories reselect <当前id>` 保存重选草稿。用 setup 的 `conditions` 更换书籍和主题后运行 `run <草稿id> --until candidates`，或直接保存已核对的原文选段。用 `stories replace <当前id> <草稿id>` 和输入 `{batch,index,generation}` 提交为当前版本，`generation` 取自最新的草稿 `intake.generation`。`stories cancel-reselection <当前id> <草稿id>` 取消草稿。 |
 | 书架整理 | `stories delete <id>` 可恢复地隐藏，`stories restore <id>` 撤销删除；`api GET reader/deletions` 列出已删除记录。`stories favorite <id>` 输入 `{saved:true\|false}`，不生图。 |
 | 本书参考图 | `stories reference <id>` 输入 `{page,starred:true}`；page 从 0 开始，每本书保留一个参考图，只影响后续绘图。换画风的故事及其后续修订使用本篇首幅作参考。取消用 `{page,starred:false,token}`，token 沿用设置星标时返回的 reference.token；缺少该 token 时说明缺失，不猜造。它与故事收藏不同，也不同于 redrawPages 的从 1 开始页码。 |
@@ -103,17 +103,17 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 用户要求重新画已有图片、同时保留文本与画风时，先读 `stories current <id>` 和该当前 id 的 `stories revisions`，核对页码与现有状态。通过 `stories edit <当前id> --request-id <UUID> --input <私有JSON文件>` 提交：
 
 ```json
-{"token":"读取到的修订token","paused":true,"changes":{"redrawPages":[1,3]}}
+{"token":"读取到的修订token","changes":{"redrawPages":[1,3]}}
 ```
 
 - 可在同一个 `changes` 里加入 `"redrawNotes":{"3":"调暗背景光线，保留主体的位置。"}`。键为本次选中的幅号，每条最多 500 字。说明仅用于本次绘图，重试沿用，已保存的分镜提示词保留。
-- 编辑只保存暂停的新版，不生图；记录返回的新 id。已获用户授权继续时，对新 id 执行 `stories resume`，再 `run <新id> --until completed`；仅保存草稿的任务停在 edit，不能把 run 当作隐式恢复。
+- 编辑只保存新版并停在「已保存，等待继续」，不生图；输入不再需要 `paused:true`。记录返回的新 id。已获用户授权继续时，对新 id 执行 `stories continue`，再 `run <新id> --until completed`；仅保存草稿的任务停在 edit，不能把 run 当作隐式继续（run 返回 `continue_required`）。若这次修改不需要重做任何工作，新版保持原状态，无需 continue。
 - 仅生成选中的图片，不重新编排或审核；即使第 1 幅被选中，其余未选图片仍保留。原版本保留；后续预览、检查与导出使用新 id。
 - 完成后重读新版本，核对实际停止原因和全部画幅。重放使用原 requestId、token 和页码；发生冲突、暂停或故障时按既有停止规则处理，不另建重复新版。
 
 ### 换画风并指定首幅图
 
-对已完成且审核通过的故事，使用 `stories edit <当前id> --request-id <UUID> --input <私有JSON文件> --cover <本地图片>`。输入为 `{"token":"当前修订token","paused":true,"changes":{"artStyle":"watercolor"}}`，`changes` 仅指定新画风。首幅 PNG、JPEG 或 WebP 的原始字节保存到新版，文件上限为 12 MiB，宽高各不超过 4096 像素。沿用原文、分镜内容和审核记录。绘图前由文字模型逐幅把旧画风的表现手法改写成新画风，保存为新版画面提示词。其余画面按新画风绘制，使用这张首幅作参考。省略 `--cover` 时按新画风先生成首幅，再画其余画幅。恢复新版并运行至 `completed` 后，检查首幅和全部生成图。
+对已完成且审核通过的故事，使用 `stories edit <当前id> --request-id <UUID> --input <私有JSON文件> --cover <本地图片>`。输入为 `{"token":"当前修订token","changes":{"artStyle":"watercolor"}}`（注意：制作 DAG 的故事暂不支持 `--cover`，会返回 CONFLICT；换画风请不带 `--cover`，按新画风逐幅转换后重绘），`changes` 仅指定新画风。首幅 PNG、JPEG 或 WebP 的原始字节保存到新版，文件上限为 12 MiB，宽高各不超过 4096 像素。沿用原文、分镜内容和审核记录。绘图前由文字模型逐幅把旧画风的表现手法改写成新画风，保存为新版画面提示词。其余画面按新画风绘制，使用这张首幅作参考。省略 `--cover` 时按新画风先生成首幅，再画其余画幅。恢复新版并运行至 `completed` 后，检查首幅和全部生成图。
 
 ## 验收与交付
 

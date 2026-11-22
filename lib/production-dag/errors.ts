@@ -1,7 +1,7 @@
 // 生成失败的结构化错误码：写入任务记录，决定故障类型与是否自动重试。
 // 内容被拦截不自动重试；密钥、登录、额度与限流属于服务级故障，不写入各篇步骤故障；超时按中断处理。
 
-export type ErrorCode='CONTENT_BLOCKED'|'SERVICE_AUTH'|'SERVICE_QUOTA'|'RATE_LIMITED'|'TIMEOUT'|'GENERIC';
+export type ErrorCode='SNAPSHOT_UNAVAILABLE'|'CONTENT_BLOCKED'|'SERVICE_AUTH'|'SERVICE_QUOTA'|'RATE_LIMITED'|'TIMEOUT'|'GENERIC';
 
 const blocked=/CONTENT_BLOCKED|moderation|content[_ ]policy|safety_violation|IMAGE_SAFETY|PROHIBITED_CONTENT/i;
 const auth=/KEY_REQUIRED|LOGIN_REQUIRED|authentication_failed|UNAUTHENTICATED|PERMISSION_DENIED/i;
@@ -10,6 +10,7 @@ const timeout=/TIMEOUT|ETIMEDOUT|AbortError|deadline/i;
 export function errorCode(error:unknown):ErrorCode{
  const e=error as {message?:string;name?:string;code?:string;status?:number}|undefined;
  const text=[e?.message,e?.name,e?.code].filter(Boolean).join(' ');
+ if(/SNAPSHOT_UNAVAILABLE/.test(text))return 'SNAPSHOT_UNAVAILABLE';
  if(blocked.test(text))return 'CONTENT_BLOCKED';
  if(e?.status===401||e?.status===403||auth.test(text))return 'SERVICE_AUTH';
  if(e?.status===402)return 'SERVICE_QUOTA';

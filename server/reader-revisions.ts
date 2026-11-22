@@ -12,7 +12,8 @@ import {familyRoot,familyNumber,supersededSql} from '../lib/reader-repository.ts
 import type {MediaStore} from '../lib/services.ts';
 import type {RevisionChanges,RevisionSnapshot} from '../lib/reader-revision.ts';
 import {commandReceipt} from './reader-commands.ts';
-import {forkDagRevision} from './dag-revisions.ts';
+import {forkDagRevision,previewDagRevision} from './dag-revisions.ts';
+export {previewDagRevision};
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 export const revisionCoverMaxBytes=12*1024*1024;
 export const familyEpoch=`SELECT COALESCE(MAX(${familyNumber('stories')}),1) AS epoch FROM stories WHERE user_id=? AND (id=? OR ${familyRoot('stories')}=?)`;

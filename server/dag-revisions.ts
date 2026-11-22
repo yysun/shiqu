@@ -133,6 +133,42 @@ async function carryFaults(repo:ReaderRepository,row:SessionRow,ownerId:string,p
  });
 }
 
+export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:number;
+ /** 需要重做的文字工作，按调用名计数（批量调用按产出的实例数）。 */
+ textWork:Record<string,number>;
+ /** 保存后是否有需要重做的工作，即是否进入「已保存，等待继续」。 */
+ continues:boolean;
+ /** 这次修改会使哪些手改失效，及读者可选的处理。 */
+ handEdits:{id:string;options:string[]}[];
+ /** 已有未结故障中，保存后继续阻断的数量。 */
+ carriedFaults:number};
+
+/**
+ * 保存前的预估：与保存使用同一套引擎推导（手改失效、设置合入、失效范围），只计算不写入。
+ * 未选择的手改按「以手改为基础」估算；需要读者选择的会列在 handEdits。
+ */
+export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,token:string,changes:RevisionChanges):Promise<RevisionPreview>{
+ const {doc,token:current}=await revisionBasis(repo,row);
+ if(current!==token)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
+ if(!doc.dag)throw new ReaderError(409,'这篇故事还没有进入制作，请稍后再修改。');
+ const selection=nextSelection(selectionSchema.parse(JSON.parse(row.selection)),changes);
+ const parent:DagStory={id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag,confirmed:true,faults:[]};
+ const edited=applyEdits(parent,changes);
+ applyRedraw(edited,changes);
+ const child:DagStory={...parent,selection,dag:edited};
+ const state=stateOf(child),choices=handEditChoices(state,state);
+ const decisions=Object.fromEntries(choices.map(c=>[c.id,changes.handEdits?.[c.id]??(c.options.includes('use-as-base')?'use-as-base':'discard')]));
+ child.dag=settleHandEdits(child,decisions as RevisionChanges['handEdits']);
+ child.dag={...child.dag,repairs:undefined,issues:[],suggestions:[]};
+ child.dag=settle(child);
+ const ev=evaluate(stateOf(child)),order=child.dag.order;
+ const redraw=order.filter(id=>ev.instance('frameImage',id).status!=='valid').length;
+ const items=work(child),textWork:Record<string,number>={};
+ for(const item of items)if(item.call!=='draw'&&item.call!=='drawLandscape')textWork[item.call]=(textWork[item.call]??0)+item.instances.length;
+ const carried=await carryFaults(repo,row,row.user_id,parent,child);
+ return {changed:Object.keys(changes).length>0,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices.map(c=>({id:c.id,options:[...c.options]})),carriedFaults:carried.length};
+}
+
 export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string):Promise<SessionRow>{
  if(!Object.keys(changes).length)throw new ReaderError(400,'没有需要保存的修改。');
  const {doc,rootId,epoch,token:current}=await revisionBasis(repo,row);

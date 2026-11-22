@@ -8,9 +8,11 @@ import type {RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
 import type {SessionView} from '@/lib/reader-model';
 import type {StoryEditorTab} from './StoryProductionEditor';
 export type RevisionTab=StoryEditorTab|'review';
+/** 服务端按引擎推导的保存前预估（server/dag-revisions.ts previewDagRevision）。 */
+export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:number;textWork:Record<string,number>;continues:boolean;handEdits:{id:string;options:string[]}[];carriedFaults:number};
 export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:SessionView,changes:RevisionChanges)=>Promise<void>,onOpenLatest?:(storyId:string)=>Promise<void>){
  const [tab,setTab]=useState<RevisionTab|null>(null),[base,setBase]=useState<RevisionSnapshot|null>(null),[changes,setChanges]=useState<RevisionChanges>({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[conflict,setConflict]=useState(false);
- const [scriptPage,setScriptPage]=useState(1),[summarizing,setSummarizing]=useState(false);
+ const [scriptPage,setScriptPage]=useState(1),[summarizing,setSummarizing]=useState(false),[preview,setPreview]=useState<RevisionPreview|null>(null);
  const latest=useRef(storyId);latest.current=storyId;
  const currentChanges=useRef(changes);currentChanges.current=changes;
  const read=useRef(0),lock=useRef(false),submission=useRef<{signature:string;id:string}|null>(null),callback=useRef(onSubmitted);callback.current=onSubmitted;
@@ -57,6 +59,16 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
   }
   finally{if(waitForSnapshot&&latest.current===id&&read.current===serial)setLoading(false);}
  }
+ // 保存前的预估以服务端引擎为准：修改停顿后请求一次，过期的请求结果丢弃；请求失败时沿用本地估算。
+ useEffect(()=>{
+  setPreview(null);
+  if(!base||!storyId||!Object.keys(changes).length)return;
+  let live=true;
+  const timer=setTimeout(()=>{
+   request(`reader/sessions/${storyId}/revisions/preview`,'POST',{token:base.token,changes}).then((value:RevisionPreview)=>{if(live)setPreview(value);},()=>{});
+  },300);
+  return()=>{live=false;clearTimeout(timer);};
+ },[storyId,base?.token,changes]);
  function prepare(){if(!base&&!loading)void load();}
  function open(value:RevisionTab,page=1){
   setTab(value);if(value==='script')setScriptPage(page);
@@ -99,6 +111,8 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
   }catch(e){setError(e instanceof Error?e.message:'新版暂未提交，请重试。');if((e as {status?:number}).status===409)await refresh(submittedChanges);}
   finally{lock.current=false;setBusy(false);}
  }
- return {sessionId:storyId,tab,setTab,scriptPage,setScriptPage,base,changes,setChanges,loading,busy,error,conflict,load,loadLatest,prepare,open,discard,summarize,summarizing,submit,impact:base?revisionImpact(base,changes):null};
+ return {sessionId:storyId,tab,setTab,scriptPage,setScriptPage,base,changes,setChanges,loading,busy,error,conflict,load,loadLatest,prepare,open,discard,summarize,summarizing,submit,preview,impact:base?withPreview(revisionImpact(base,changes),preview):null};
 }
+/** 本地估算给出的是否有改动与冲突；复用与重绘的幅数有服务端预估时以它为准。 */
+function withPreview<T extends {reused:number;redraw:number}>(impact:T,preview:RevisionPreview|null):T{return preview?{...impact,reused:preview.reused,redraw:preview.redraw}:impact;}
 export type StoryRevisionEditorState=ReturnType<typeof useStoryRevision>;

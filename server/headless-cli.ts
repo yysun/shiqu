@@ -46,7 +46,8 @@ const commands=[
  ['run / stories run','Run only one current story to candidates, prepared, reviewed or completed; never resumes a pause/fault implicitly.','run ID --until reviewed --timeout 900'],
  ['stories copy','Copy saved text and review from an offline library without inference. --draft explicitly preserves unreviewed text as a paused copy without images; default requires passed review.','stories copy ID --from-data-dir SOURCE --request-id UUID'],
  ['stories copy-images','Attach source images to an existing paused text copy without inference or prompts. Safe to repeat; retains text and review.','stories copy-images TARGET_ID --from-data-dir SOURCE --input source.json'],
- ['stories edit','Save a revision using the current token. Supply a revised plan plus changes.removedFrames to shorten a storyboard. changes.storySummary sets the displayed synopsis. On a paused audit, changes.reviewNotes guides another review. changes.redrawPages uses 1-based pages and accepts optional changes.redrawNotes. For a style-only change, --cover FILE uses that image as the first frame. Does not generate.','stories edit ID --input revision.json --request-id UUID'],
+ ['stories edit','Save a revision using the current token. Supply a revised plan plus changes.removedFrames to shorten a storyboard. changes.storySummary sets the displayed synopsis. On a paused audit, changes.reviewNotes guides another review. changes.redrawPages uses 1-based pages and accepts optional changes.redrawNotes. The new version is saved waiting (已保存，等待继续): it generates nothing until stories continue. --cover FILE (first-frame image on a style change) is not yet supported for production-DAG stories and returns CONFLICT.','stories edit ID --input revision.json --request-id UUID'],
+ ['stories continue','Authorize a saved revision to start production (clears 已保存，等待继续 and the pause together). Required after stories edit before run; run never continues implicitly and returns reason continue_required.','stories continue NEW_ID --request-id UUID'],
  ['stories pause|resume|stop|retry|override','Control or explicitly recover the current fault; input faultId is required for retry/override.','stories retry ID --input recovery.json --request-id UUID'],
  ['stories rename|delete|restore|favorite|reference','Shared library actions; reference input is {page,starred,token?}.','stories rename ID --title 新标题'],
  ['stories revisions|prompts|review-history|source','Read saved production checkpoints and history.','stories review-history ID'],
@@ -78,8 +79,8 @@ const inputs={
   input:{action:'conditions',generation:0,conditions:{bookId:'zhuangzi',theme:'原典故事',source:{edition:'from books search or contents',sectionId:'verified section ID',firstUnit:'verified first unit ID',lastUnit:'verified last unit ID'},sourceCard:{title:'故事标题',description:'根据所选原文核对的简介'},productionPrompt:'保留关键因果'}},
   next:'Open with stories reselect CURRENT_ID once a story is chosen, before or after production confirmation. After setup, submit intake.selected.batch, intake.selected.index, and the updated intake.generation with stories replace CURRENT_ID DRAFT_ID. Resume first if the current story is paused, then run DRAFT_ID --until prepared.',
  },
- redraw:{command:'stories edit ID --input redraw.json --request-id UUID',input:{token:'from stories revisions ID',paused:true,changes:{redrawPages:[1,2],redrawNotes:{2:'调暗背景光线，保留主体的位置。'}}},note:'Completed stories only. Optional redrawNotes apply to selected 1-based pages in this revision and its retries. Preserves script, review and unselected images. Only run performs generation using its configured image provider.'},
- styleCover:{command:'stories edit ID --input style.json --cover cover.png --request-id UUID',input:{token:'from stories revisions ID',paused:true,changes:{artStyle:'watercolor'}},note:'A completed, approved story retains its scene content and review. The text model converts the scene prompts to the new style before drawing. The supplied first frame is stored as-is and serves as the reference for the remaining pages, even when the book has a starred reference.'},
+ redraw:{command:'stories edit ID --input redraw.json --request-id UUID',input:{token:'from stories revisions ID',changes:{redrawPages:[1,2],redrawNotes:{2:'调暗背景光线，保留主体的位置。'}}},note:'Completed stories only. Optional redrawNotes apply to selected 1-based pages in this revision and its retries. Preserves script, review and unselected images. Only run performs generation using its configured image provider.'},
+ styleCover:{command:'stories edit ID --input style.json --cover cover.png --request-id UUID',input:{token:'from stories revisions ID',changes:{artStyle:'watercolor'}},note:'A completed, approved story retains its scene content and review. The text model converts the scene prompts to the new style before drawing. The supplied first frame is stored as-is and serves as the reference for the remaining pages, even when the book has a starred reference.'},
  publication:{get:'api GET reader/publication-defaults',set:'api POST reader/publication-defaults --input publication.json',input:{publication:{...emptyPublication,author:'你的署名',watermarkFontSize:24},expected:'Use the exact publication object (or null) returned by GET.'}},
  frameCount:{command:'api POST reader/sessions/ID/frame-count --input count.json',input:{count:8}},
  config:{command:'config set --input settings.json',input:{settings:{provider:'codex',providerConfigured:true,imageProvider:'gemini'},expectedRevision:'from config get'},imageProvider:'Optional drawing provider (gemini|openai|codex); null or omitted follows provider.',key:'For API providers only: key:{provider:"openai"|"gemini",value:"secret"|null}, or a list for separate text/image providers; never pass a key in argv.'},
@@ -220,6 +221,8 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   if(running){
    const status=await app.services.generation.status();need(status.configured,'PROVIDER_UNAVAILABLE',status.message||'Provider is not ready.');
    const current=await api(app,'GET',`sessions/${target}/current`);const initial=await api(app,'GET',`sessions/${target}`);need(current.id===target&&!initial.superseded,'SUPERSEDED_VERSION','Use the current family version.');
+   // 已保存的修订等待明确的「继续制作」：run 不会隐式继续。
+   if(initial.awaitingContinue)return {reason:'continue_required',session:initial};
    if(initial.generationControl!=='active')return {reason:'paused',session:initial};
    if(initial.state==='failed')return {reason:'blocked',session:initial};
    const boundary=(snapshot:any)=>snapshot.state==='completed'?'completed':snapshot.awaitingFrameCount?'frame_count_required':until==='prepared'&&snapshot.intake?.phase==='confirmed'?'already_prepared':until==='prepared'&&snapshot.frameRecommendation?'prepared':until==='candidates'&&snapshot.intake?.selected?'already_selected':null;
@@ -237,7 +240,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
      // 制作 DAG 的故事由引擎判断审片是否通过；旧故事沿用投影与审片记录。
      const dagReview=until==='reviewed'&&saved.dag?await app.services.production!.reviewState?.(app.services.ownerId,target!):null;
      const reviewed=saved.dag?dagReview==='approved':saved.plan&&reviewPassed(saved)&&!saved.revision?.restyle;
-     const reason=snapshot.superseded?'superseded':snapshot.state==='failed'?'blocked':snapshot.generationControl!=='active'?'paused':boundary(snapshot)|| (until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates':intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':until==='reviewed'&&reviewed?'reviewed':dagReview==='attention'?'blocked':null);
+     const reason=snapshot.superseded?'superseded':snapshot.awaitingContinue?'continue_required':snapshot.state==='failed'?'blocked':snapshot.generationControl!=='active'?'paused':boundary(snapshot)|| (until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates':intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':until==='reviewed'&&reviewed?'reviewed':dagReview==='attention'?'blocked':null);
      if(reason)return {reason,session:snapshot};await delay(80,undefined,{signal:abort.signal}).catch(()=>{});
     }
     throw new CliCommandError(timedOut?'TIMEOUT':'INTERRUPTED',timedOut?'Run timed out; saved checkpoints are retained.':'Run interrupted; saved checkpoints are retained.',timedOut?5:130,{session:snapshot});
@@ -275,7 +278,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   if(action==='rename')return await api(app,'POST',route+'/title',{title:value('title')||data.title});
   if(action==='delete')return await api(app,'DELETE',`library/${id}`);
   if(['restore','favorite','reference'].includes(action))return await api(app,'POST',`library/${id}/${action}`,data);
-  if(['pause','resume','stop'].includes(action))return {requestId,session:await api(app,'POST',route+'/production-control',{requestId,action})};
+  if(['pause','resume','stop','continue'].includes(action))return {requestId,session:await api(app,'POST',route+'/production-control',{requestId,action})};
   if(['retry','override'].includes(action)){
    const faultId=data.faultId;
    need(faultId,'FAULT_ID_REQUIRED','Choose a current faultId from stories get.');return {requestId,session:await api(app,'POST',route+(action==='retry'?'/recover':'/review-override'),{requestId,faultId})};

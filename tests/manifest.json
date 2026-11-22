@@ -4263,7 +4263,10 @@
         "server/provider-snapshot.ts",
         "server/app.ts",
         "lib/production-dag/document.ts",
-        "lib/reader-image-assets.ts"
+        "lib/reader-image-assets.ts",
+        "lib/production-dag/errors.ts",
+        "client/ui/useStoryRevision.ts",
+        "client/ui/StoryGenerationControl.tsx"
       ]
     },
     {

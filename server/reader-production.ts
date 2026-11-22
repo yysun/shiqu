@@ -309,7 +309,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const timeoutAt=startedAt!==null&&timeoutMs?startedAt+timeoutMs:null;
   const search=this.searches.get(id);
   const liveProgress=parsed.doc.intake&&search?.round===intakeSearch(parsed.doc.intake).round&&saved.intake?.search.state==='searching'?search.progress:undefined;
-  const session={...saved,...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),generationProgress:{...saved.generationProgress!,startedAt,timeoutAt,...(includeTimings?{stageDurations:productionStageDurations(allJobs,parsed.selection)}:{}),attempt:current?.attempts??saved.generationProgress!.attempt}};
+  // 任务因快照服务不可用而失败：界面据此提供「应用当前模型设置」。
+  const snapshotUnavailable=allJobs.some(job=>job.state==='failed'&&(job as {error_code?:string|null}).error_code==='SNAPSHOT_UNAVAILABLE');
+  const session={...saved,...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),generationProgress:{...saved.generationProgress!,startedAt,timeoutAt,...(includeTimings?{stageDurations:productionStageDurations(allJobs,parsed.selection)}:{}),attempt:current?.attempts??saved.generationProgress!.attempt}};
   const working=active.length>0;
   const manual=row.generation_control!=='active';
   const views=faults.map(fault=>this.faultView(row,fault,allJobs));
@@ -407,7 +409,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const current=this.jobProvider(job),snapshot=this.options.snapshots&&await this.dag.snapshotOf(job);
   if(!snapshot||!this.options.snapshots)return this.dag.run(job,current);
   const provider=this.options.snapshots.provider(snapshot);
-  if(!provider)throw new ReaderError(409,'快照服务不可用：这篇故事制作时选用的模型服务目前缺少凭据或已不可用。请在设置中恢复该服务，或选择「应用当前模型设置」后再重试。');
+  if(!provider)throw Object.assign(new ReaderError(409,'快照服务不可用：这篇故事制作时选用的模型服务目前缺少凭据或已不可用。请在设置中恢复该服务，或选择「应用当前模型设置」后再重试。'),{code:'SNAPSHOT_UNAVAILABLE'});
   this.jobProviders.set(job.id,provider);
   return this.dag.run(job,provider);
  }
