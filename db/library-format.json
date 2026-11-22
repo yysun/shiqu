@@ -1,1 +1,1 @@
-{"schemaVersion":1,"minimumAppVersion":"0.8.0","latestMigration":"0024_prompt_records.sql"}
+{"schemaVersion":2,"minimumAppVersion":"0.15.0","latestMigration":"0025_production_dag.sql"}

@@ -9,7 +9,8 @@ export function pendingUpgrade(directory:string){
  const filename=path.join(directory,upgradeJournal);if(!existsSync(filename))return null;
  if(lstatSync(filename).isSymbolicLink())throw Error('LIBRARY_UNSAFE_JOURNAL');
  const value=JSON.parse(readFileSync(filename,'utf8'));
- if(value.version!==format.schemaVersion)throw Error('LIBRARY_NEWER_UPGRADER: unsupported recovery journal');
+ // 中断的升级可能由支持旧格式的版本写下日志；接受 1 至当前格式，较新的版本拒绝。
+ if(!Number.isInteger(value.version)||value.version<1||value.version>format.schemaVersion)throw Error('LIBRARY_NEWER_UPGRADER: unsupported recovery journal');
  if(!/^\.desktop-upgrade-[a-f0-9-]{36}$/.test(value.work)||typeof value.backup!=='string'&&value.backup!==null)throw Error('LIBRARY_INVALID_JOURNAL');
  return value as {version:number;work:string;backup:string|null};
 }

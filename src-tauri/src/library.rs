@@ -36,7 +36,11 @@ pub fn needs_upgrade(directory: &Path) -> Result<bool, String> {
         let value: Value =
             serde_json::from_slice(&std::fs::read(journal).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
-        if value["version"].as_i64() != Some(supported_version()) {
+        // 中断的升级可能由支持旧格式的版本写下日志；接受 1 至当前格式。
+        if !value["version"]
+            .as_i64()
+            .is_some_and(|v| (1..=supported_version()).contains(&v))
+        {
             return Err("LIBRARY_NEWER_UPGRADER: unsupported recovery journal".into());
         }
         let work = value["work"].as_str().unwrap_or("");
