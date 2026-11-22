@@ -187,7 +187,7 @@ stateDiagram-v2
 
 ## 4. 审核子状态机
 
-**自动数量新故事先过幅数审核，再过全篇审片。** `frames` 检查叙事任务是否缺失、重复或分配失衡；`full` 检查全篇内容、动作、构图、连续性、标题、结语及逐条验收要求。审核对象是文字分镜，不是已经生成的图片。
+**自动数量新故事先过幅数审核，再过全篇审片。** 现由制作 DAG 的 `frameCheck` 节点完成（旧 `reviewPhase=frames`）：检查叙事任务是否缺失、重复或分配失衡；`full` 检查全篇内容、动作、构图、连续性、标题、结语及逐条验收要求。审核对象是文字分镜，不是已经生成的图片。
 
 ```mermaid
 stateDiagram-v2
@@ -230,7 +230,7 @@ stateDiagram-v2
 
 `blocked` 会保留报告、问题、修订历史，同时把会话记为 `failed`，阻止绘图。明确放行只把被放行的结论记为 `overridden`，再由全部结论推导整篇状态：其余结论都已通过或放行时为 `passed`，仍有结论待审时继续审片（见[制作 DAG](story-production-dag.md)「审片范围与结论」）。放行保留历史依据，只清除被放行结论的阻断原因；若任务同时处于用户暂停状态，还须恢复才会继续调度。
 
-`round`、`repairs`、批次数不是同一计数：全篇审核记录在 `reports`，幅数审核记录在 `frameCountReports`；`repairs` 只在一次结构修订完成、结语修订完成或一组局部分镜问题全部修完时增加。局部修订按每批最多 20 幅执行。审核问题 `page=0` 表示结语，`page=1` 才是第一幅；图片任务从 `page=0` 开始。
+`round`、`repairs`、批次数不是同一计数：全篇审核记录在 `reports`，幅数审核记录在 DAG 的 `frameCheck` 产物与审核历史（旧文档中的 `frameCountReports` 仅为历史记录）；`repairs` 只在一次结构修订完成、结语修订完成或一组局部分镜问题全部修完时增加。局部修订按每批最多 20 幅执行。审核问题 `page=0` 表示结语，`page=1` 才是第一幅；图片任务从 `page=0` 开始。
 
 ## 5. 绘图与队列任务状态机
 
@@ -473,7 +473,7 @@ stateDiagram-v2
 
 执行按钮处于保存、提交或核对中时，应显示相应的“正在保存／提交／核对…”并防止重复提交。按钮忙碌状态不能代替服务端命令幂等：响应丢失后重放同一请求只查询已有受理结果；已知失败后再次点击，才生成针对新故障的新恢复请求。用户看见的按钮名称、辅助说明、实际提交动作和转换后状态必须一致；校验失败时保留当前状态及草稿，不显示成功文案。
 
-**按钮核对的代码依据**：[`StoryCreationSetup`](../client/ui/StoryCreationSetup.tsx)、[`Reader`](../client/ui/Reader.tsx)、[`StoryRetry`](../client/ui/StoryRetry.tsx)、[`StoryGenerationControl`](../client/ui/StoryGenerationControl.tsx)、[`StoryReviewTools`](../client/ui/StoryReviewTools.tsx)、[`StoryRevisionEditor`](../client/ui/StoryRevisionEditor.tsx)、[`useStoryRevision`](../client/ui/useStoryRevision.ts)、[`StoryFrameCount`](../client/ui/StoryFrameCount.tsx)。
+**按钮核对的代码依据**：[`StoryCreationSetup`](../client/ui/StoryCreationSetup.tsx)、[`Reader`](../client/ui/Reader.tsx)、[`StoryRetry`](../client/ui/StoryRetry.tsx)、[`StoryGenerationControl`](../client/ui/StoryGenerationControl.tsx)、[`StoryReviewTools`](../client/ui/StoryReviewTools.tsx)、[`StoryRevisionEditor`](../client/ui/StoryRevisionEditor.tsx)、[`useStoryRevision`](../client/ui/useStoryRevision.ts)。
 
 ## 9. 必须成立的验收场景
 
