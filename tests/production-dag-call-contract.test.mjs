@@ -133,3 +133,18 @@ test('review answers are checked against the requested verdicts: a missing item 
  // 报告结构已要求每条验收条目恰好一条结果；缺少时调用失败并按故障重试，不会把结论当作通过。
  await assert.rejects(missing.gen.review({...base,allowed:{pages:[1,2,3],criteria:[2],narrative:false}}));
 });
+
+test('a stage answers only the items it asks for, and the omission note lists only what was left out',async()=>{
+ const frames=Array.from({length:3},(_,i)=>({id:`f${i+1}`,caption:`第${i+1}幅配文八个字以上`,prompt:`第${i+1}幅画面描述二十个字以上的内容，人物站立在庭院中央。`}));
+ const reply=results=>()=>({issues:[],titleReview:{title:'管鲍之交',reason:'准确'},coverage:[{quote:'管仲夷吾者',task:'交代人物',pages:[1],assessment:'adequate',reason:'已交代',issuePage:0}],acceptanceResults:results});
+ // 第一阶段：逐幅结论与逐幅条目 1，依据结语的条目 2 留到第二阶段；只答条目 1 即可。
+ const first=recorder(reply([{criterion:1,status:'passed',pages:[1],evidence:'合乎时代'}]));
+ const result=await first.gen.review({source,productionPrompt:REQ,acceptancePrompt:'每幅人物衣冠合乎时代\n结尾才揭示身份',style,characters:people,frames,itemIds:{2:'i-end'},frameCriteria:[1],allowed:{pages:[1,2,3],criteria:[],narrative:false}});
+ assert.ok(result.value.judgements.every(j=>j.outcome==='pass'));
+ assert.match(first.calls[0].text,/acceptanceResults 须覆盖编号 1/);
+ // 第二阶段：只有依据标题与结语的条目；标题与结语已提供，不应说明为未提供。
+ const second=recorder(reply([{criterion:1,status:'passed',pages:[3],evidence:'结尾揭示'}]));
+ await second.gen.review({source,title:'管鲍之交',chosenEnding:'知己难得。',acceptancePrompt:'结尾才揭示身份',frames,itemIds:{1:'i-end'},allowed:{pages:[],criteria:[1],narrative:false}});
+ assert.ok(!/不依据[^。]*标题与结语/.test(second.calls[0].text));
+ assert.match(second.calls[0].text,/不依据[^。]*提纲/);
+});

@@ -234,7 +234,10 @@ export async function executeHeadless(root:string,args:string[],context:Context=
     while(!abort.signal.aborted){
      snapshot=await app.services.production!.request(app.services.ownerId,target!,viewerId,0,false);
      const intake=snapshot.intake,doc=await app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(target).first<{document:string}>(),saved=JSON.parse(doc!.document);
-     const reason=snapshot.superseded?'superseded':snapshot.state==='failed'?'blocked':snapshot.generationControl!=='active'?'paused':boundary(snapshot)|| (until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates':intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':until==='reviewed'&&saved.plan&&reviewPassed(saved)&&!saved.revision?.restyle?'reviewed':null);
+     // 制作 DAG 的故事由引擎判断审片是否通过；旧故事沿用投影与审片记录。
+     const dagReview=until==='reviewed'&&saved.dag?await app.services.production!.reviewState?.(app.services.ownerId,target!):null;
+     const reviewed=saved.dag?dagReview==='approved':saved.plan&&reviewPassed(saved)&&!saved.revision?.restyle;
+     const reason=snapshot.superseded?'superseded':snapshot.state==='failed'?'blocked':snapshot.generationControl!=='active'?'paused':boundary(snapshot)|| (until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates':intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':until==='reviewed'&&reviewed?'reviewed':dagReview==='attention'?'blocked':null);
      if(reason)return {reason,session:snapshot};await delay(80,undefined,{signal:abort.signal}).catch(()=>{});
     }
     throw new CliCommandError(timedOut?'TIMEOUT':'INTERRUPTED',timedOut?'Run timed out; saved checkpoints are retained.':'Run interrupted; saved checkpoints are retained.',timedOut?5:130,{session:snapshot});

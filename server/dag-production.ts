@@ -2,7 +2,6 @@
 // 调度：settle() 的免调用步骤先保存；work() 的每项工作成为一个任务，身份由调用、阶段与各实例派发时的硬输入决定，
 // 不再需要的排队任务删除。执行：调用前后各核对一次输入，结果用 apply() 写回，并以文档内容做比较并交换保存，
 // 冲突时按最新文档重算，输入已变的结果丢弃。完成判定用 finished()。「已保存，等待继续」期间不派发任何工作。
-import {randomUUID} from 'node:crypto';
 import {ReaderError,selectionSchema,type Document,type SessionRow} from '../lib/reader-model.ts';
 import type {Database} from '../lib/reader-repository.ts';
 import {supersededSql} from '../lib/reader-repository.ts';
@@ -12,7 +11,8 @@ import {storePromptRecord} from '../lib/reader-prompt-store.ts';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {projectDocument,type DagDocument} from '../lib/production-dag/document.ts';
-import {settle,work,apply,stale,finished,requestFor,drawInput,type DagStory,type Work} from '../lib/production-dag/runner.ts';
+import {settle,work,apply,stale,finished,requestFor,drawInput,attention,stateOf,type DagStory,type Work} from '../lib/production-dag/runner.ts';
+import {evaluate} from '../lib/production-dag/engine.ts';
 import type {Fault} from '../lib/production-dag/engine.ts';
 import {executeWork} from './dag-executor.ts';
 import {BookImageReferences} from './book-image-reference.ts';
@@ -20,6 +20,8 @@ import type {ProductionJob,ProductionQueue,JobSpec} from './production-queue.ts'
 import type {LandscapeStatus} from '../lib/reader-production.ts';
 import {persistenceError} from '../lib/reader-repository.ts';
 import {inputVersion} from './production-queue.ts';
+import {randomUUID} from 'node:crypto';
+import {lostImageMessage} from './dag-revisions.ts';
 import {commandFingerprint} from './reader-commands.ts';
 
 export const dagTextKind='dag',dagDrawKind='dag-draw';
@@ -184,28 +186,85 @@ export class DagProduction{
  }
 
  /**
-  * 「继续制作」：在一个事务中核对操作编号与本版等待继续的修订，清除等待、恢复后台制作并写入回执。
-  * 同一编号以相同内容重放时直接返回；用于其他操作或其他版本的编号被拒绝。只有这个动作清除等待。
+  * 读者端发现图片读不出时的核对：确认丢失则在一个事务中把该幅成图标为不可读并记录图片丢失故障，须读者明确恢复才重绘；
+  * 文件恢复可读时同样在一个事务中解除没有任务的丢失故障并恢复成图记录。不改变整篇完成状态，完成只由引擎判定。
   */
- continue(ownerId:string,id:string,requestId:string){
+ async checkImage(row:SessionRow,page:number,image:string){
+  const doc=JSON.parse(row.document) as Document,id=doc.dag?.order[page];
+  if(!doc.dag||!id||doc.dag.frames[id]?.image!==image)throw new ReaderError(409,'这幅图片已更新，请刷新后再检查。');
+  const key=referenceImageKey(row.id,image);if(!key)throw new ReaderError(409,'图片地址无法核对。');
+  let lost:boolean;try{lost=await this.deps.fileLost(key,true);}catch{throw new ReaderError(503,'图片暂时无法读取，请重试检查；尚未重新绘图。');}
+  const transaction=this.deps.database.transaction;if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
+  const product=`frameImage:${id}`,now=this.deps.clock();
+  transaction.call(this.deps.database,db=>{
+   const current=db.get<{document:string}>('SELECT document FROM stories WHERE id=? AND user_id=?',row.id,row.user_id);
+   if(!current||current.document!==row.document)throw new ReaderError(409,'故事已更新，请刷新后再检查。');
+   const dag=structuredClone(doc.dag!),record=dag.products[product];
+   const fault=db.get<{id:string}>("SELECT id FROM reader_faults WHERE session_id=? AND owner_id=? AND kind='image-loss' AND job_id IS NULL AND page=? AND state='pending'",row.id,row.user_id,page);
+   if(lost){
+    if(record)dag.products[product]={...record,readable:false};
+    db.run('UPDATE stories SET document=? WHERE id=? AND user_id=?',JSON.stringify({...doc,dag}),row.id,row.user_id);
+    if(!fault)db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,page,version,image,message,created_at,updated_at) VALUES(?,?,?,'image-loss',?,'dag',?,?,?,?)",randomUUID(),row.id,row.user_id,page,image,lostImageMessage(page),now,now);
+   }else if(fault){
+    if(record){const {readable:_,...restored}=record;void _;dag.products[product]=restored;}
+    db.run('UPDATE stories SET document=? WHERE id=? AND user_id=?',JSON.stringify({...doc,dag}),row.id,row.user_id);
+    db.run("UPDATE reader_faults SET state='resolved',updated_at=? WHERE id=?",now,fault.id);
+   }
+  });
+  await this.settleState(row.id,row.user_id);
+  this.deps.wake();
+ }
+
+ /**
+  * 整篇状态以引擎判定为准：旧触发器解除图片丢失故障时会按旧规则把故事标为完成（M4.5 删除），这里随即更正。
+  */
+ async settleState(id:string,ownerId:string){
+  const row=await this.row(id,ownerId),story=row&&await this.story(row);
+  if(!row||!story)return;
+  const done=finished(story);
+  if(done&&row.state==='idle')await this.deps.database.prepare("UPDATE stories SET state='completed',error=NULL WHERE id=? AND user_id=? AND state='idle' AND document=?").bind(id,ownerId,row.document).run();
+  if(!done&&row.state==='completed')await this.deps.database.prepare("UPDATE stories SET state='idle' WHERE id=? AND user_id=? AND state='completed' AND document=?").bind(id,ownerId,row.document).run();
+ }
+
+ /** 审片状态：全部结论有效且通过或被放行为 approved；审片停在需读者处理且没有可派发的文字工作为 attention。 */
+ async reviewState(row:SessionRow):Promise<'approved'|'attention'|'pending'|null>{
+  const story=await this.story(row);if(!story)return null;
+  if(evaluate(stateOf(story)).approved())return 'approved';
+  const textWork=work(story).some(item=>!drawing(item.call));
+  return attention(story).length&&!textWork?'attention':'pending';
+ }
+
+ /**
+  * 「继续制作」：在一个事务中核对操作编号与本版等待继续的修订，清除等待、恢复后台制作并写入回执。
+  * 已接受的编号先于其他核对重放：故事之后被替换或服务暂不可用时仍直接返回。用于其他操作或其他版本的编号被拒绝。
+  * 只有这个动作清除等待。stopping 为真时不接受新的继续。
+  */
+ continue(ownerId:string,id:string,requestId:string,stopping=false){
   const transaction=this.deps.database.transaction;
   if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
   const now=this.deps.clock();
-  transaction.call(this.deps.database,db=>{
-   const story=db.get<{document:string}>(`SELECT document FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,id,ownerId);
-   if(!story)throw new ReaderError(409,'故事已更新，请刷新后再操作。');
-   const waiting=(JSON.parse(story.document) as Document).dag?.continuation;
+  const replayed=transaction.call(this.deps.database,db=>{
    const receipt=db.get<{action:string;session_id:string;fingerprint:string}>('SELECT action,session_id,fingerprint FROM reader_commands WHERE owner_id=? AND request_id=?',ownerId,requestId);
    if(receipt){
     if(receipt.action!=='control'||receipt.session_id!==id||!receipt.fingerprint.startsWith('continue:'))throw new ReaderError(409,'这个操作编号已用于其他内容，请重新操作。');
-    return;
+    return true;
    }
+   if(stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
+   const story=db.get<{document:string}>(`SELECT document FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,id,ownerId);
+   if(!story)throw new ReaderError(409,'故事已更新，请刷新后再操作。');
+   const waiting=(JSON.parse(story.document) as Document).dag?.continuation;
    if(db.get('SELECT id FROM stories WHERE id=? AND user_id=?',requestId,ownerId))throw new ReaderError(409,'这个操作编号已用于创建或提交故事。');
    if(!waiting)throw new ReaderError(409,'这篇故事没有等待继续的修改，或版本已更新。');
    const fingerprint=`continue:${commandFingerprint(['continue',id,waiting.revision])}`;
    db.run(`UPDATE stories SET document=json_remove(document,'$.dag.continuation'),generation_control='active',generation_mode='background',updated_at=? WHERE id=? AND user_id=?`,new Date(now).toISOString(),id,ownerId);
    db.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,result_id,created_at,updated_at) VALUES(?,?,?,'control',?,?,?,?,?)`,requestId,ownerId,id,fingerprint,JSON.stringify({action:'continue',revision:waiting.revision}),id,now,now);
+   return false;
   });
-  this.deps.wake();
+  if(!replayed)this.deps.wake();
+ }
+ /** 这个编号已作为本篇的「继续制作」被接受。 */
+ async continueAccepted(ownerId:string,id:string,requestId:string){
+  const receipt=await this.deps.database.prepare('SELECT session_id,fingerprint FROM reader_commands WHERE owner_id=? AND request_id=? AND action=\'control\'').bind(ownerId,requestId).first<{session_id:string;fingerprint:string}>();
+  return receipt?.session_id===id&&receipt.fingerprint.startsWith('continue:');
  }
 }

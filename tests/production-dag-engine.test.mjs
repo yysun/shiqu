@@ -162,3 +162,11 @@ test('a fault blocks only its own node and dependants; optional faults never blo
  assert.equal(evaluate(s).instance('frameImage','f2').status,'valid');
  assert.ok(s.products[instanceId('frameImage','f2')]);
 });
+
+test('after a style change only the first image is redrawn first; the others wait for it as their reference',()=>{
+ const s=done();s.products['style:']=root('watercolor');
+ run(s,{stopAt:'draw'});
+ assert.deepEqual(runnable(s).filter(x=>x.node==='frameImage').map(x=>x.key),['f1']);
+ run(s);
+ assert.ok(complete(s));
+});

@@ -216,10 +216,12 @@ export function dagGenerator(call:Call){
    // 幅数与详略由幅数与结构核对负责，审片不重复判断，因此不提供详略设置、按固定幅数审核。
    const {schema,instructions}=fullReviewRequest(count,false,choosing,input.acceptancePrompt);
    const allowedText=`只对以下对象作出结论：画幅 ${input.allowed.pages.join('、')||'无'}；验收条目编号 ${input.allowed.criteria.join('、')||'无'}；${input.allowed.narrative?'标题与结语（page=0）':'不含标题与结语'}。其余发现仍可列入 issues，系统会作为建议处理。`;
-   const omitted=[!input.style&&'画风',!input.characters&&'人物设定',!input.outline&&'提纲、标题与结语'].filter(Boolean);
-   const sections=promptSections(['本次结论范围',allowedText],['读者确认',input.confirmedEnding?'plan.title 与 plan.reflection 是读者确认的标题与结语，只判断是否合格，不改选。':''],['本次输入',omitted.length?`本次结论不依据${omitted.join('、')}，因此未提供；不要就这些内容作出判断。`:'']);
-   const reflection=input.confirmedEnding?.ending??input.chosenEnding??input.candidates?.[0];
-   const title=input.confirmedEnding?.title??input.title;
+   const reflectionText=input.confirmedEnding?.ending??input.chosenEnding??input.candidates?.[0],titleText=input.confirmedEnding?.title??input.title;
+   const omitted=[!input.style&&'画风',!input.characters&&'人物设定',!input.outline&&'提纲',!titleText&&!reflectionText&&'标题与结语'].filter(Boolean);
+   // 本阶段须给出结果的验收条目：允许的全篇条目，以及有逐幅结论时的逐幅条目。
+   const required=[...input.allowed.criteria,...(input.allowed.pages.length?input.frameCriteria??[]:[])].sort((a,b)=>a-b);
+   const sections=promptSections(['本次结论范围',allowedText],['读者确认',input.confirmedEnding?'plan.title 与 plan.reflection 是读者确认的标题与结语，只判断是否合格，不改选。':''],['本次输入',omitted.length?`本次结论不依据${omitted.join('、')}，因此未提供；不要就这些内容作出判断。`:''],['本次验收结果',criteria.length?(required.length?`acceptanceResults 须覆盖编号 ${required.join('、')}，每条一次；其余编号可以省略，返回的只作建议。`:'本次不需要 acceptanceResults 覆盖任何编号；返回的只作建议。'):'']);
+   const reflection=reflectionText,title=titleText;
    // 与正式审片相同的顺序：系统指令、本地原文约束、本次范围，再加本轮结论范围与审核意见。
    const system=instructions.slice(0,reviewSystemPrompt.length),rest=instructions.slice(reviewSystemPrompt.length);
    // 只发送本次允许结论绑定的输入与上下文（全篇叙事分镜与画面描述）；未绑定的提纲、画风、人物设定、制作要求不发送。
@@ -230,7 +232,7 @@ export function dagGenerator(call:Call){
     ...(input.productionPrompt!==undefined?{productionPrompt:input.productionPrompt}:{}),...(input.style?{artDirection:getArtDirection(input.style)}:{}),
     plan,...(input.outline?{outline:withoutSummary(input.outline)}:{}),...(choosing?{reflectionCandidates:choosing}:{}),...(input.notes?{reviewNotes:input.notes}:{}),
    },schema,24000,input.source.original);
-   const report=reviewReportSchema(count,choosing,input.acceptancePrompt).parse(result.value);
+   const report=reviewReportSchema(count,choosing,input.acceptancePrompt,required).parse(result.value);
    if(report.coverage)validateEditorialCoverage(report.coverage,input.source.original);
    return {...result,value:reviewOutcome(input,report,choosing)};
   },

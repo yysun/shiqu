@@ -101,7 +101,8 @@ export class Evaluation{
   const result:Instance={node,key,id,status,basedOnOld,blocked,hard,check,ready:false};
   this.memo.set(id,result);
   // 首次生成须硬输入与核对输入都就绪；失效重做只看硬输入。
-  result.ready=!blocked&&this.gateOpen(spec.gate)&&(status==='missing'?!!hard&&!!check:status==='invalid'&&!!hard);
+  // 失效重做一般只需硬输入；登记为 rerunWaitsForCheck 的节点（画幅图片）还须核对输入就绪，即等新首幅完成。
+ result.ready=!blocked&&this.gateOpen(spec.gate)&&(status==='missing'?!!hard&&!!check:status==='invalid'&&!!hard&&(!spec.rerunWaitsForCheck||!!check));
   return result;
  }
 

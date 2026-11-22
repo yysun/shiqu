@@ -189,6 +189,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(!pending&&retry.length)status.retryToken=inputVersion(retry.map(job=>[job.id,job.state,job.attempts,job.failure_id,job.updated_at]));
   return {status,inputs,retry,missing};
  }
+ async continueAccepted(ownerId:string,id:string,requestId:string){return this.dag.continueAccepted(ownerId,id,requestId);}
+ async reviewState(ownerId:string,id:string){return this.dag.reviewState(await this.repository.get(id,ownerId));}
  async landscapeStatus(ownerId:string,id:string){
   const row=await this.repository.get(id,ownerId);
   if(this.parsed(row)?.doc.dag)return this.dag.landscapeStatus(row);
@@ -324,13 +326,15 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return row.generation_mode==='background'&&row.generation_control==='active'&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
  async control(ownerId:string,id:string,action:ProductionAction,handoffOnly=false,requestId?:string){
-  if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
-  await this.repository.get(id,ownerId);
+  // 「继续制作」的已接受编号先于其他核对重放。
   if(action==='continue'){
    if(!requestId)throw new ReaderError(400,'继续制作需要提交操作编号。');
-   this.dag.continue(ownerId,id,requestId);
+   await this.repository.get(id,ownerId);
+   this.dag.continue(ownerId,id,requestId,this.stopping);
    return this.snapshot(ownerId,id);
   }
+  if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
+  await this.repository.get(id,ownerId);
   if(requestId)await authorizeControl(this.database,ownerId,id,requestId,action,this.clock());
   else await this.repository.control(id,ownerId,action,handoffOnly);
   this.wake();return this.snapshot(ownerId,id);
@@ -404,6 +408,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const row=await this.repository.get(id,ownerId),doc=JSON.parse(row.document) as Document;
   if(await this.repository.superseded(id,ownerId))throw new ReaderError(409,latestVersionMessage);
   if(!doc.plan||!doc.images[page]||doc.images[page]!==image)throw new ReaderError(409,'这幅图片已更新，请刷新后再检查。');
+  if(doc.dag){await this.dag.checkImage(row,page,image);return this.snapshot(ownerId,id);}
   const key=referenceImageKey(id,image);if(!key)throw new ReaderError(409,'图片地址无法核对。');
   let lost:boolean;try{lost=await this.fileLost(key,true);}catch{throw new ReaderError(503,'图片暂时无法读取，请重试检查；尚未重新绘图。');}
   const version=this.imageInputs(row).version,existing=(await this.faults(row)).find(fault=>fault.kind==='image-loss'&&fault.page===page);
@@ -458,6 +463,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // DAG 故事的图片丢失：读者的明确恢复解除故障，该幅成图（已标为不可读）随后按引擎重新绘制。
   if(fault.kind==='image-loss'&&doc.dag&&!fault.job_id){
    const receipt=await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[],resolutionJob:'',resolved:true,basis:row},this.clock());
+   await this.dag.settleState(id,ownerId);
    this.wake();return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
   }
   if(fault.kind==='image-loss'){

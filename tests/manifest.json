@@ -4556,7 +4556,10 @@
         "tests/fixtures/test-tier.mjs",
         "server/database.ts",
         "lib/reader-repository.ts",
-        "server/reader-commands.ts"
+        "server/reader-commands.ts",
+        "server/headless-cli.ts",
+        "lib/reader-api.ts",
+        "lib/reader-review.ts"
       ]
     },
     {

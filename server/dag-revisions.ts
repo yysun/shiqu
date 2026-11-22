@@ -20,6 +20,7 @@ import {survivingRevisionFrames} from '../lib/reader-revision.ts';
 import {revisionBasis,familyEpoch,currentFamilyVersion} from './reader-revisions.ts';
 
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
+export const lostImageMessage=(page:number)=>`第 ${page+1} 幅的图片文件已丢失或损坏。重试会重新绘制这一幅，已保存的其他画面会保留。`;
 const frameNodes=['scene','visual','frameImage','landscape',...verdictNodes];
 
 /** 读者的设置修改合入选择；幅数策略改变由引擎重新编排。 */
@@ -144,17 +145,20 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
  delete document.visualReview;delete document.reselection;
  const now=new Date().toISOString(),completed=!pending&&row.state==='completed';
- const inserted=await repo.db.prepare(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,error,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
+ // 新版与其图片丢失故障在同一事务中写入：中断不会留下未经读者恢复就可重绘的新版。
+ const transaction=repo.db.transaction;
+ if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
+ transaction.call(repo.db,db=>{
+  const inserted=db.run(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,error,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
   SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),'background',?,?,NULL,0,0,p.page,p.saved,p.last_read_at,?,? FROM stories p
   WHERE p.id=? AND p.user_id=? AND p.document=? AND p.selection=? AND ${currentFamilyVersion('p')} AND (${familyEpoch.replace(' AS epoch','')})=?
-  ON CONFLICT(id) DO NOTHING`)
-  .bind(requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused?'paused':'active',completed?'completed':'idle',now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch).run();
- if(!inserted.meta.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
- // 丢失的成图记为待处理的图片丢失故障：阻断该幅及依赖它的工作与整篇完成，读者明确恢复后才重绘。
- for(const page of lost){
-  const at=Date.now();
-  await repo.db.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,page,version,message,created_at,updated_at) VALUES(?,?,?,'image-loss',?,'dag',?,?,?)")
-   .bind(randomUUID(),requestId,ownerId,page,`第 ${page+1} 幅的图片文件已丢失或损坏。重试会重新绘制这一幅，已保存的其他画面会保留。`,at,at).run();
- }
+  ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused?'paused':'active',completed?'completed':'idle',now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch);
+  if(!inserted.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
+  // 丢失的成图记为待处理的图片丢失故障：阻断该幅及依赖它的工作与整篇完成，读者明确恢复后才重绘。
+  for(const page of lost){
+   const at=Date.now();
+   db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,page,version,message,created_at,updated_at) VALUES(?,?,?,'image-loss',?,'dag',?,?,?)",randomUUID(),requestId,ownerId,page,lostImageMessage(page),at,at);
+  }
+ });
  return repo.get(requestId,ownerId);
 }

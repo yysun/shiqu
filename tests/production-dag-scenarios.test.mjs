@@ -139,6 +139,9 @@ test('a style change converts image descriptions in one batch, re-reviews frames
  assert.equal(count(f.control.dagCalls,'visual'),0);
  assert.equal(f.control.reviews.length,1);
  assert.equal(f.control.calls.length,6);
+ // 其余画幅等新首幅完成后再以它为参考绘制。
+ assert.equal(f.control.calls[0].page,0);
+ assert.ok(f.control.calls.slice(1).every(c=>c.page>0));
 });
 
 test('a save that would discard a hand edit needs the reader to choose; discarding it then replans',async t=>{
@@ -307,4 +310,64 @@ test('an image lost while saving a revision blocks completion until the reader a
  await until(async()=>(await f.read(child)).state==='completed',20000);
  assert.deepEqual(f.control.calls.map(c=>c.page),[4]);
  assert.ok(before.order[4]);
+});
+
+// ——— 审查意见第 3 轮 ———
+
+test('the CLI stops at reviewed only after the DAG review approves drawing, and reports blocked when the reader must act',async t=>{
+ const {executeHeadless}=await import('../server/headless-cli.ts');
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const approved=await confirmedStory(f,4);
+ const stuck=await confirmedStory(f,4,{});
+ await f.stop();
+ const run=id=>executeHeadless(process.cwd(),['run',id,'--until','reviewed','--timeout','20','--data-dir',f.dataDirectory],{generation:f.generation,variables:{}});
+ const first=await run(approved);
+ assert.equal(first.reason,'reviewed');
+ assert.equal(f.control.calls.length,0);
+ assert.equal(f.control.reviews.length,1);
+ // 审片反复指出同一幅的问题，自动修订额度用尽后停在需读者处理。
+ const issue={page:2,category:'caption',problem:'配文没有交代庄周醒来',instruction:'补写醒来的动作',requiresReplan:false};
+ f.control.beforeText=async name=>name==='review'?{issues:[issue]}:undefined;
+ const second=await run(stuck);
+ assert.equal(second.reason,'blocked');
+ assert.equal(f.control.calls.length,0);
+});
+
+test('an accepted continue replays even after the version is superseded',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ const edit=async(storyId,caption)=>{const snapshot=await f.json(`sessions/${storyId}/revisions`);const plan=structuredClone(snapshot.plan);plan.pages[0].caption=caption;const child=crypto.randomUUID();await f.json(`sessions/${storyId}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{plan}});return child;};
+ const child=await edit(id,'庄周在柳树下打盹，梦里化作蝴蝶。');
+ const requestId=crypto.randomUUID();
+ await f.json(`sessions/${child}/production-control`,'POST',{requestId,action:'continue'});
+ await until(async()=>(await f.read(child)).state==='completed',20000);
+ await edit(child,'庄周醒来，摸着自己的手臂发怔。');
+ const replay=await f.request(`sessions/${child}/production-control`,'POST',{requestId,action:'continue'});
+ assert.equal(replay.status,200);
+});
+
+test('a live image check marks the loss with its fault; recovery redraws it and only the engine completes the story',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ const {rm}=await import('node:fs/promises');const path=await import('node:path');
+ const before=await f.read(id);
+ const image=before.story.pages[2].image;
+ await rm(path.join(f.dataDirectory,'media','reader',id,'2.png'));
+ await f.json(`sessions/${id}/image-health`,'POST',{page:2,image});
+ let doc=await saved(f,id);
+ assert.equal(doc.dag.products[`frameImage:${doc.dag.order[2]}`].readable,false);
+ const checked=await f.read(id);
+ assert.notEqual(checked.state,'completed');
+ const fault=checked.faults.find(x=>x.stage==='redraw');
+ assert.ok(fault);
+ for(let i=0;i<20;i++){f.app.services.production.wake();await turn();}
+ assert.equal(f.control.calls.length,0,'nothing is redrawn before the reader asks');
+ await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ await until(async()=>(await f.read(id)).state==='completed',20000);
+ assert.deepEqual(f.control.calls.map(c=>c.page),[2]);
+ doc=await saved(f,id);
+ assert.equal(doc.dag.products[`frameImage:${doc.dag.order[2]}`].readable,undefined);
 });

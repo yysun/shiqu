@@ -17,5 +17,9 @@ export interface ReaderProduction{
  recover(ownerId:string,id:string,command:RecoveryRequest):Promise<SessionView>;
  checkImage(ownerId:string,id:string,page:number,image:string):Promise<SessionView>;
  landscapeStatus(ownerId:string,id:string):Promise<LandscapeStatus>;
+ /** 制作 DAG 故事的审片状态：approved 可绘图，attention 需读者处理，pending 仍在审片；非 DAG 故事为 null。 */
+ /** 这个编号已作为本篇的「继续制作」被接受；重放无需再检查服务配置。 */
+ continueAccepted?(ownerId:string,id:string,requestId:string):Promise<boolean>;
+ reviewState?(ownerId:string,id:string):Promise<'approved'|'attention'|'pending'|null>;
  startLandscape(ownerId:string,id:string,command:{startToken?:string;retryToken?:string}):Promise<LandscapeStatus>;
 }

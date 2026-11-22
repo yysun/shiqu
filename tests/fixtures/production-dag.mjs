@@ -33,6 +33,8 @@ export function run(state,options={}){
  for(let round=0;round<200;round++){
   const groups=callGroups(state);
   if(!groups.length)return log;
+  // stopAt：本轮出现该调用时停下，供测试查看就绪集合。
+  if(options.stopAt&&groups.some(g=>g.call===options.stopAt))return log;
   for(const {call,stage,instances} of groups){
    const name=stage?`${call}#${stage}`:call;
    log.push({call:name,ids:instances.map(x=>x.id)});
