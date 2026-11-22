@@ -1,5 +1,7 @@
 # 交接：制作 DAG 切换（M4.5）
 
+> 接手合并关口（升级、回滚、核心流程对等，使用合成旧格式书库）请先读 [阶段 4 交接](handoff-stage4-merge-gates.md)。
+
 本文件供接手的代理继续 M4.5。背景、决策与已完成的里程碑见 [实施计划](../21/plan-data-driven-production-dag.md)，规范见 [story-production-dag.md](../../../story-production-dag.md)。
 
 ## 工作位置
