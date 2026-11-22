@@ -20,6 +20,7 @@ import {invalidateStoryBrief,staleRevisionStoryBrief} from '../lib/reader-story-
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
 import {sameArtDirection} from '../lib/reader-styles.ts';
+import {forkDagRevision} from './dag-revisions.ts';
 import {imageDimensions} from '../lib/reader-image-dimensions.ts';
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 export const revisionCoverMaxBytes=12*1024*1024;
@@ -82,7 +83,10 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  };
  const existing=await replay();if(existing)return existing;
  if(await commandReceipt(repo.db,ownerId,requestId))throw new ReaderError(409,'这个操作编号已用于其他内容。');
- const row=await repo.get(parentId,ownerId),{doc,rootId,epoch,token:current}=await revisionBasis(repo,row);
+ const row=await repo.get(parentId,ownerId);
+ // 制作 DAG 的故事按引擎推导失效范围，不经过旧的修订规则。
+ if((JSON.parse(row.document) as Document).dag)return forkDagRevision(repo,media,ownerId,row,requestId,token,changes,paused,requestHash);
+ const {doc,rootId,epoch,token:current}=await revisionBasis(repo,row);
  if(current!==token)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
  const original={selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan,images:doc.images,savedFrameCount:savedFrameCount(doc),...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{})};
  const notesChanged=revisionReviewNotesChanged({reviewNotes:doc.reviewNotes},changes);

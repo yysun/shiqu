@@ -11,6 +11,7 @@
 // Only current image inputs may publish; their paid receipt can replace a stale version's slot.
 // 发布图片时提示词全文存入 prompt_records，调用记录只写引用。
 // 节拍中的完成检查、过期任务清理和任务图重建先查覆盖索引与内容修订号，只读取上次检查后有变化的故事全文。
+// 有 document.dag 的故事改由 dag-production.ts 安排与执行，旧流程只服务其余故事，直到切换完成。
 import {generationProgress} from '../lib/generation-progress.ts';
 import {productionTimingScope,productionStageDurations} from '../lib/production-timing.ts';
 import {BookImageReferences} from './book-image-reference.ts';
@@ -42,6 +43,7 @@ import type {ProductionJob,JobSpec} from './production-queue.ts';
 import {authorizeRecovery,authorizeControl,authorizeOverride,commandReceipt,sessionFaults} from './reader-commands.ts';
 import type {ReaderFault} from './reader-commands.ts';
 import type {FaultView,RecoveryRequest} from '../lib/reader-recovery.ts';
+import {DagProduction,dagTextKind,dagDrawKind} from './dag-production.ts';
 
 type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;through_page:number;expires_at:number;runtime_id:string};
 type Lease={ownerId:string;token:string};
@@ -109,6 +111,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private readonly jobProviders=new Map<string,ReaderProvider>();
  private media:MediaStore;
  private options:Options;
+ private readonly dag:DagProduction;
  constructor(database:Database,provider:ReaderProvider,media:MediaStore,options:Options={}){
   if(options.targetSessionId&&!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(options.targetSessionId))throw Error('INVALID_TARGET_SESSION');
   this.database=database;this.provider=provider;this.media=media;this.options=options;
@@ -128,8 +131,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     image:{pool:'image',run:job=>this.image(job)},
     [landscapeKind]:{pool:'image',run:(job,context)=>this.drawLandscape(job,context.isCurrent)},
     'image-publish':{pool:'local',drain:true,run:(job,context)=>this.publish(job,context.outputs)},
+    [dagTextKind]:{pool:'text',run:job=>this.dag.run(job,this.jobProvider(job))},
+    [dagDrawKind]:{pool:'image',run:job=>this.dag.run(job,this.jobProvider(job))},
    },
   });
+  this.dag=new DagProduction({database,media,queue:this.queue,clock:this.clock,wake:()=>this.wake(),fileLost:(key,strict)=>this.fileLost(key,strict)});
   if(options.autoStart!==false)this.start();
  }
  start(){if(this.enabled||this.stopping||this.closed)return;this.enabled=true;this.timer=setInterval(()=>this.wake(),this.options.tickMs||1000);this.timer.unref();this.wake();}
@@ -313,6 +319,12 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  async control(ownerId:string,id:string,action:ProductionAction,handoffOnly=false,requestId?:string){
   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
   await this.repository.get(id,ownerId);
+  if(action==='continue'){
+   if(!requestId)throw new ReaderError(400,'继续制作需要提交操作编号。');
+   const receipt=await commandReceipt(this.database,ownerId,requestId);
+   if(!receipt){await this.dag.continue(ownerId,id);await authorizeControl(this.database,ownerId,id,requestId,action,this.clock());}
+   return this.snapshot(ownerId,id);
+  }
   if(requestId)await authorizeControl(this.database,ownerId,id,requestId,action,this.clock());
   else await this.repository.control(id,ownerId,action,handoffOnly);
   this.wake();return this.snapshot(ownerId,id);
@@ -538,6 +550,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private async graph(row:SessionRow){
   const {doc,selection}=this.parsed(row)!;
+  if(doc.dag){await this.dag.schedule(row);return;}
   if(doc.intake){
    const search=intakeSearch(doc.intake),searching=search.state==='searching'&&!doc.plan&&doc.intake.phase!=='confirmed';
    // A record written by an older release has no stored search to fence its result against.
@@ -602,6 +615,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(job.kind==='image'&&jobs.some(job=>job.kind==='image-publish'&&job.state==='running'))return false;
    if(job.kind==='image'&&job.priority>productionReadAhead&&await this.viewedPublicationPending())return false;
   }
+  // DAG 任务不持有会话锁：结果以文档内容比较并交换保存。
+  if(job.kind===dagTextKind||job.kind===dagDrawKind)return true;
   if(job.pool==='text')return row.state!=='running'||row.lock_until<=this.clock();
   const doc=JSON.parse(row.document) as Document;
   if(!doc.plan||!doc.original||!reviewPassed(doc)||doc.revision?.restyle)return false;
@@ -878,7 +893,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(!row)continue;
    // 不可读的故事仍记录一次诊断；结论只取决于内容，同样记下修订号。
    const parsed=this.readable(row)?this.parsed(row):null;
-   if(!parsed||!isObject(parsed.doc.plan)||!isObject(parsed.doc.original)||!productionComplete(parsed.doc,parsed.selection)){this.settledRevisions.set(row.id,candidate.rev);continue;}
+   // DAG 故事的完成由 dag-production.ts 按引擎判定。
+   if(!parsed||parsed.doc.dag||!isObject(parsed.doc.plan)||!isObject(parsed.doc.original)||!productionComplete(parsed.doc,parsed.selection)){this.settledRevisions.set(row.id,candidate.rev);continue;}
    // 标记完成未生效时不记录，下个节拍重试。
    await this.database.prepare("UPDATE stories SET state='completed',error=NULL WHERE id=? AND user_id=? AND state='idle' AND document=? AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=stories.id AND f.owner_id=stories.user_id AND f.state IN ('pending','recovering'))").bind(row.id,row.user_id,row.document).run();
   }

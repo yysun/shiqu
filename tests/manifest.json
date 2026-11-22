@@ -4524,6 +4524,39 @@
       ]
     },
     {
+      "file": "tests/production-dag-scenarios.test.mjs",
+      "groups": [
+        "production",
+        "storage"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "flows",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/dag-production.ts",
+        "server/dag-revisions.ts",
+        "server/dag-executor.ts",
+        "server/reader-production.ts",
+        "server/reader-revisions.ts",
+        "lib/production-dag/runner.ts",
+        "lib/production-dag/requests.ts",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/book-reference.mjs",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/test-tier.mjs"
+      ]
+    },
+    {
       "file": "tests/production-dag-review.test.mjs",
       "groups": [
         "production",

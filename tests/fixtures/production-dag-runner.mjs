@@ -19,10 +19,10 @@ export function replies({fail=()=>null,frameCheck=()=>'keep',repairSame=false}={
    case 'prepareBrief':return '管仲与鲍叔牙少时相知。';
    case 'characters':return people;
    case 'outline':return {title:'管鲍之交',summary:'梗概',sourceReference:'史记',adaptationNote:'按原文',beats:Array.from({length:args.settings.length},(_,i)=>`节点${i+1}`)};
-   case 'sceneBatch':return Array.from({length:args.count},(_,i)=>({caption:`第${args.first+i}幅配文。`,people:['管仲','鲍叔']}));
+   case 'sceneBatch':return Array.from({length:args.count},(_,i)=>({caption:`第${args.first+i}幅：管仲与鲍叔牙同行的配文。`,people:['管仲','鲍叔']}));
    case 'sceneRepair':return args.frames.map(f=>({caption:repairSame?f.caption:`修订后的第${f.index+1}幅配文。`,people:['管仲']}));
-   case 'visual':case 'restyle':return args.frames.map(f=>({prompt:`第${f.index+1}幅画面，${args.style.artStyle}。`,drawn:['管仲']}));
-   case 'visualRepair':return args.frames.map(f=>({prompt:repairSame?f.prompt:`修订后的第${f.index+1}幅画面。`,drawn:['管仲']}));
+   case 'visual':case 'restyle':return args.frames.map(f=>({prompt:`第${f.index+1}幅画面：两位少年并肩走在乡间小路上，中景，${args.style.artStyle}。`,drawn:['管仲']}));
+   case 'visualRepair':return args.frames.map(f=>({prompt:repairSame?f.prompt:`修订后的第${f.index+1}幅画面：管仲独坐灯下，中景，暖光。`,drawn:['管仲']}));
    case 'ending':return {title:'管鲍之交',candidates:['知己难得。','知人善任。','贫富不移。']};
    case 'endingRepair':return '知己之交，贵在相知。';
    case 'frameCheck':{
@@ -57,7 +57,7 @@ export function drive(s,reply,{max=80,between}={}){
   const items=work(s);
   if(!items.length)return log;
   for(const item of items){
-   const value=item.call==='draw'?`/api/reader/media/s1/${item.instances[0].key}-${round}.png`:(()=>{const {method,args}=requestFor(s,item);return reply(method,args,item);})();
+   const value=item.call==='draw'?`/api/reader/media/${s.id}/${s.dag.order.indexOf(item.instances[0].key)}.png`:(()=>{const {method,args}=requestFor(s,item);return reply(method,args,item);})();
    between?.(s,item);
    const next=apply(s,item,value,{newId});
    log.push({call:item.call,ids:item.instances.map(i=>i.key),applied:!!next});
