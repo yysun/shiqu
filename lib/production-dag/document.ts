@@ -2,6 +2,9 @@
 // 画幅以身份为键存放，另存顺序；人物按条目、验收要求按条目保存。投影保持 v1 的 Plan 形状，
 // 阅读、导出、复制等只读方继续读投影；每次保存在同一条语句中写入 dag 与投影。
 import type {Plan,Selection} from '../reader-model.ts';
+import type {ProviderSettingsView} from '../provider-settings.ts';
+import type {FrameCountReport,ReviewIssue} from '../reader-review.ts';
+import type {RepairBudget,Suggestion} from './review.ts';
 import type {Product,Fault,VersionState} from './engine.ts';
 import type {Evidence} from './registry.ts';
 import {fingerprint} from './fingerprint.ts';
@@ -20,7 +23,11 @@ export type DagFrame={
 };
 export type DagCharacter={id:string;name:string;aliases?:string[];text:string;legacy?:true};
 export type DagItem={id:string;text:string;scope?:'story'|'frame';evidence?:Evidence[];legacy?:true};
-export type ModelSnapshot={provider:string;imageProvider?:string;textModel?:string;imageModel?:string;reasoning?:Record<string,string>};
+/** 模型快照：提供方、模型与推理强度，不含凭据。models 中 null 表示沿用该服务自身的默认模型。 */
+export type ModelSnapshot=Pick<ProviderSettingsView['runtime'],'provider'|'imageProvider'|'taskReasoningEfforts'>&{models:{text:string|null;image:string|null}};
+export type DagOutline={title:string;summary:string;sourceReference:string;adaptationNote:string;beats:string[]};
+/** 审片问题按结论归属：target 为结论实例身份（逐幅、叙事或条目）。stalled 表示自动修订后内容未变。 */
+export type DagIssue=ReviewIssue&{target:string;stalled?:true};
 export type Renderer={layout:'portrait';aspectRatio:'9:16';size:'1K'};
 
 export type DagDocument={
@@ -30,6 +37,19 @@ export type DagDocument={
  characters:DagCharacter[];
  items:DagItem[];
  ending?:{title:string;candidates:string[];chosen?:string;confirmed?:{title:string;ending:string}};
+ /** 事实梗概（准备梗概或读者手改）。 */
+ brief?:string;
+ outline?:DagOutline;
+ frameCheck?:FrameCountReport;
+ /** 各结论的说明，键为结论实例身份；结论本身记录在 products。 */
+ verdicts?:Record<string,{outcome:'pass'|'fail';detail?:string;requirements?:true}>;
+ /** 最近一次审片中失败结论的问题，供自动修订使用。 */
+ issues?:DagIssue[];
+ suggestions?:Suggestion[];
+ /** 本修订的自动修订额度。 */
+ repairs?:RepairBudget;
+ /** 用过的画风设置，键为画风输入指纹；换画风转换据此取得旧画风。 */
+ styles?:Record<string,{artStyle:Selection['artStyle'];artStylePrompt?:string|null}>;
  products:Record<string,Product>;
  modelSnapshot?:ModelSnapshot;
  renderer:Renderer;
@@ -40,6 +60,9 @@ export type DagDocument={
 };
 
 export const defaultRenderer:Renderer={layout:'portrait',aspectRatio:'9:16',size:'1K'};
+
+/** 新故事的空 dag：尚无任何产物。 */
+export const emptyDag=():DagDocument=>({version:2,order:[],frames:{},characters:[],items:[],products:{},renderer:defaultRenderer});
 
 /** 由选择与 dag 计算根输入产物；缺省值先展开为实际值，保证与显式填写同指纹。 */
 export function rootProducts(selection:Selection,dag:Pick<DagDocument,'items'|'modelSnapshot'|'renderer'|'ending'|'frames'|'order'>,extra:{notes?:string;seed?:unknown;refSource?:string}={}):Record<string,Product>{

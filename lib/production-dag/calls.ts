@@ -108,8 +108,8 @@ export function dagGenerator(call:Call){
   },
 
   /** 叙事分镜批次：读提纲、原文、制作要求及同批已完成的配文；不读画风。返回配文与涉及人物名字。 */
-  async sceneBatch(input:{source:SourceInput;outline:Outline;productionPrompt:string;first:number;previous:string[];characters?:CharacterEntry[]}):Promise<Generated<Scene[]>>{
-   const total=input.outline.beats.length,first=input.first,last=Math.min(first+readerStoryboardBatchSize-1,total),count=last-first+1;
+  async sceneBatch(input:{source:SourceInput;outline:Outline;productionPrompt:string;first:number;count?:number;previous:string[];characters?:CharacterEntry[]}):Promise<Generated<Scene[]>>{
+   const total=input.outline.beats.length,first=input.first,last=Math.min(first+(input.count??readerStoryboardBatchSize)-1,total),count=last-first+1;
    if(count<1)throw Error('PLAN_LENGTH');
    const schema=obj({pages:{type:'array',minItems:count,maxItems:count,items:obj({caption:str(8,90),people:names})}});
    const instructions=promptSections(['任务','你是古典连环画分镜导演，本次只为指定批次撰写配文。'],['共同标准',storySceneDirection],['首幅要求',first===1?storyOpeningDirection:''],['配文',storyCaptionDirection],['人物','people 列出本幅叙事涉及的人物名字，包括配文未点名但在本幅出场或被指代的人物，用原文称谓。'],['本地原文',local(input.source)],['批次边界',batchDirection+'\n本次只返回配文与涉及人物，画面指令另行生成。'],['输入与输出',inputBoundaryDirection]);

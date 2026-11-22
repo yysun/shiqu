@@ -1,14 +1,13 @@
 // 模型快照：制作确认时记录提供方、模型与推理强度，不含凭据；之后的调用按快照选择模型。
 // 构造时以快照覆盖当前设置中的提供方与模型变量，凭据仍取当前设置；快照服务缺少凭据时视为不可用。
-import type {ProviderSettingsView} from '../lib/provider-settings.ts';
+import type {ModelSnapshot} from '../lib/production-dag/document.ts';
 import type {MediaStore} from '../lib/services.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import {runtimeConfiguration} from './provider-runtime.ts';
 import {createReaderProvider} from './generation.ts';
 
 type Variables=Record<string,string|undefined>;
-/** models 中 null 表示沿用该服务自身的默认模型（例如命令行订阅的默认值），不把界面显示名当作模型名。 */
-export type ModelSnapshot=Pick<ProviderSettingsView['runtime'],'provider'|'imageProvider'|'taskReasoningEfforts'>&{models:{text:string|null;image:string|null}};
+export type {ModelSnapshot};
 
 const textModelVariable:Record<string,string>={gemini:'GEMINI_TEXT_MODEL',openai:'OPENAI_TEXT_MODEL',codex:'CODEX_MODEL',claude:'CLAUDE_MODEL',deepseek:'DEEPSEEK_TEXT_MODEL'};
 const imageModelVariable:Record<string,string>={gemini:'GEMINI_IMAGE_MODEL',openai:'OPENAI_IMAGE_MODEL'};

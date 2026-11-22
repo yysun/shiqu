@@ -4445,6 +4445,35 @@
       ]
     },
     {
+      "file": "tests/production-dag-runner.test.mjs",
+      "groups": [
+        "production",
+        "review"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "lib/production-dag/runner.ts",
+        "lib/production-dag/registry.ts",
+        "lib/production-dag/fingerprint.ts",
+        "lib/production-dag/engine.ts",
+        "lib/production-dag/review.ts",
+        "lib/production-dag/hand-edits.ts",
+        "lib/production-dag/frames.ts",
+        "lib/production-dag/schedule.ts",
+        "lib/production-dag/document.ts",
+        "lib/production-dag/calls.ts"
+      ]
+    },
+    {
       "file": "tests/production-dag-review.test.mjs",
       "groups": [
         "production",
