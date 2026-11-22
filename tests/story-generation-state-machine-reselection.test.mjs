@@ -68,6 +68,13 @@ test('a prepared story confirmed in another window rejects an older replacement 
  const {f,id,selectNext,confirm,replace}=await directIntake(t);
  await until(async()=>(await f.read(id)).intake.phase==='confirming');
  const staged=await selectNext();
+ const submittedCalls=f.control.recommendations.length;
+ await f.demand(staged.id);
+ await f.app.services.production.tick();
+ assert.equal((await f.read(staged.id)).intake.phase,'preparing');
+ assert.deepEqual(await f.app.services.production.queue.jobs(staged.id,f.app.services.ownerId),[]);
+ assert.equal(f.control.recommendations.length,submittedCalls);
+
  const accepted=await f.json(`sessions/${id}/setup`,'POST',confirm(await f.read(id)));
  assert.equal(accepted.intake.phase,'confirmed');
  const stale=await f.request(`sessions/${id}/reselection/${staged.id}`,'POST',replace(staged));

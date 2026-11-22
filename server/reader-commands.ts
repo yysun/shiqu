@@ -30,7 +30,7 @@ export async function recordNoop(db:Database,ownerId:string,sessionId:string,req
  * 恢复授权：回执与其效果在一个事务中写入——故障进入恢复中（已确认无需重做时直接解除）、所选任务以本授权重新排队
  * （重绘时清除旧结果）、整篇失败状态回到待处理。basis 为发起时读到的故事，内容已变时不授权。
  */
-export async function authorizeRecovery(db:Database,input:{ownerId:string;sessionId:string;requestId:string;faultId:string;jobs:string[];resolutionJob:string;redraw?:boolean;resolved?:boolean;basis?:{selection:string;document:string}},now=Date.now()){
+export async function authorizeRecovery(db:Database,input:{ownerId:string;sessionId:string;requestId:string;faultId:string;jobs:string[];resolutionJob:string;redraw?:boolean;resolved?:boolean;resumeUnreviewed?:boolean;basis?:{selection:string;document:string}},now=Date.now()){
  const {ownerId,sessionId,requestId,faultId,jobs,resolutionJob,redraw=false}=input;
  const resolved=input.resolved||false,payload=JSON.stringify({jobs,resolutionJob,redraw}),fingerprint=commandFingerprint(['recover',sessionId,faultId,jobs,resolutionJob,redraw,resolved]);
  const replay=await commandReceipt(db,ownerId,requestId,fingerprint);if(replay)return replay;
@@ -58,6 +58,7 @@ export async function authorizeRecovery(db:Database,input:{ownerId:string;sessio
   tx.run("UPDATE reader_faults SET state=?,command_id=?,updated_at=? WHERE id=? AND owner_id=? AND session_id=? AND state='pending'",resolved?'resolved':'recovering',requestId,now,faultId,ownerId,sessionId);
   tx.run(`UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,recovery_id=?${redraw?',result=NULL':''},updated_at=?
    WHERE session_id=? AND owner_id=? AND id IN (SELECT value FROM json_each(?)) AND state!='running'`,requestId,now,sessionId,ownerId,selected);
+  if(input.resumeUnreviewed)tx.run("UPDATE stories SET document=json_set(document,'$.dag.resumeUnreviewed',json('true')) WHERE id=? AND user_id=?",sessionId,ownerId);
   tx.run("UPDATE stories SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'",sessionId,ownerId);
  });
  const receipt=await commandReceipt(db,ownerId,requestId,fingerprint);

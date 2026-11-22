@@ -221,6 +221,31 @@ test('preparation results carry into production: a verified summary and saved su
  assert.equal(f.control.reviews.length,1);
 });
 
+test('changing the production scope refreshes the factual synopsis once with the new scope',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const summary='庄周梦见化蝶，醒后追问梦与醒的区别。';
+ const revisionSummary='庄周醒后想起梦中化蝶，追问庄周与蝴蝶的区别。';
+ const scope='从庄周醒来开始，保留最后的追问。';
+ const id=await confirmedStory(f,3,{
+  original:{...zhuangzi,storyBrief:{summary,matchReason:'原文交代梦蝶与醒后的追问。',verified:true}},
+  summaryProductionPrompt:selection.productionPrompt,
+ });
+ await until(async()=>(await f.read(id)).state==='completed',15000);
+ assert.equal(count(f.control.dagCalls,'brief'),0);
+ assert.deepEqual(f.control.reviews[0].storyBrief,{summary,matchReason:'原文交代梦蝶与醒后的追问。'});
+ const requests=[];
+ f.control.beforeText=(name,payload)=>{
+  if(name==='brief'){requests.push(payload);return {summary:revisionSummary};}
+ };
+ const {doc}=await revise(f,id,{productionPrompt:scope});
+ assert.equal(requests.length,1);
+ assert.equal(requests[0].productionPrompt,scope);
+ assert.equal(requests[0].verifiedOriginal.text,zhuangzi.text);
+ assert.equal(doc.plan.summary,revisionSummary);
+ assert.deepEqual(f.control.reviews.at(-1).storyBrief,{summary:revisionSummary});
+});
+
 // ——— 审查意见第 2 轮：正式入口与边界 ———
 
 const snapshotA={provider:'codex',models:{text:'model-at-confirmation',image:null}};
@@ -259,7 +284,12 @@ test('a story confirmed through intake runs on the DAG path with its setup gener
  assert.equal(doc.dag.order.length,4);
  assert.equal(f.control.calls.length,4);
  const jobs=(await f.app.services.database.prepare("SELECT payload FROM production_jobs WHERE session_id=? AND kind IN ('dag','dag-draw')").bind(id).all()).results;
- assert.ok(jobs.length&&jobs.every(j=>JSON.parse(j.payload).setupGeneration===doc.intake.generation));
+ const work=jobs.map(j=>JSON.parse(j.payload));
+ const preparation=work.filter(j=>['verifySource','prepareArt','prepareSuggestions'].includes(j.work.call));
+ const production=work.filter(j=>!preparation.includes(j));
+ assert.ok(preparation.some(j=>j.work.call==='prepareSuggestions'));
+ assert.ok(preparation.every(j=>j.setupGeneration===doc.intake.generation-1));
+ assert.ok(production.length&&production.every(j=>j.setupGeneration===doc.intake.generation));
  assert.equal(doc.dag.modelSnapshot,undefined,'an injected provider has no snapshot service');
 });
 
@@ -705,7 +735,7 @@ test('preview and save share one calculation: review notes count, hand edits are
  assert.ok(prompt.conflicts.length>0,'the hand edit conflicts with a re-plan');
  const stories=(await f.app.services.database.prepare('SELECT COUNT(*) AS n FROM stories').first()).n;
  const refused=await f.request(`sessions/${edit.child}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{productionPrompt:'写清选择与代价，突出转变'}});
- assert.equal(refused.status,409);assert.match((await refused.json()).error,/手改/);
+ assert.equal(refused.status,409);const message=(await refused.json()).error;assert.match(message,/第 \d+ 幅的配文/,'names the frame, not an internal id');assert.doesNotMatch(message,/\bn\d+\b/);
  assert.equal((await f.app.services.database.prepare('SELECT COUNT(*) AS n FROM stories').first()).n,stories,'nothing is saved when it would drop a hand edit');
  // 画风改变只需以手改为基础转换：不弹窗、不拒绝。
  const style=await f.json(`sessions/${edit.child}/revisions/preview`,'POST',{token:base.token,changes:{artStyle:'watercolor'}});

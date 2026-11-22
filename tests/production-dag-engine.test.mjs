@@ -131,11 +131,11 @@ test('scenario 49: an image description waits for its storyboard text and candid
  assert.ok(r().includes('scene:f7'));
 });
 
-test('scenario 6: new production requirements replan from the outline without regenerating the summary',()=>{
+test('scenario 6: new production requirements refresh the scope-bound summary and replan the outline',()=>{
  const s=done();s.products['productionReq:']=root('改写主线');
  const log=run(s);
- assert.equal(log[0].call,'outline');
- assert.equal(count(log,'prepareBrief'),0);
+ assert.equal(count(log,'prepareBrief'),1);
+ assert.equal(count(log,'outline'),1);
 });
 
 test('the save preview reports resume point, invalidated images and old references',()=>{

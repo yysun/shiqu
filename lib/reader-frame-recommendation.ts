@@ -9,7 +9,7 @@ import {readerMinFrames,readerMaxFrames} from './reader-limits.ts';
 import type {Selection} from './reader-model.ts';
 import {verifiedOriginalPayload} from './reader-source-types.ts';
 import type {OriginalSource} from './reader-source-types.ts';
-import {storySummarySchema,storyBriefPayload,storySummaryDirection} from './reader-story-brief.ts';
+import {combinedOriginalsSummaryDirection,storySummarySchema,storyBriefPayload,storySummaryDirection,storySummaryScopeDirection} from './reader-story-brief.ts';
 export const narrativeDetailSchema=z.enum(['brief','balanced','detailed']);
 export type NarrativeDetail=z.infer<typeof narrativeDetailSchema>;
 export const narrativeDetails=[
@@ -39,11 +39,11 @@ export const frameRecommendationPrompt=promptSections(
  ['任务','你是古典连环画编剧。完整阅读 verifiedOriginal.text 和存在时的 chapterContext.text，结合叙事详略及制作要求，必要时校准输入摘要，再推荐完整改编需要的画幅数；不生成分镜、配文或图片。count 只计算故事画幅，独立结束页不计入幅数。'],
  ['主事件与开场',storyScopeDirection+'\n'+storyOpeningDirection],
  ['摘要篇幅',storySummaryDirection],
- ['本篇制作范围','productionPrompt明确圈定改编起点、终点或主事件时，梗概与幅数都以该范围为准。重新从已核原文提炼范围内的因果与收束；章节上下文可用于核对，摘要不续述范围外的事件。旧摘要只作线索，若范围不符就重写。'],
+ ['本篇制作范围',storySummaryScopeDirection+'幅数按同一范围估算。'],
  ['摘要核对','输入存在 storyBrief 时，先逐项对照原文/章节上下文核对拟改编摘要和匹配理由的人物、行动、因果、范围与结局，纠正无据的动机、误读、遗漏及截早，再据完整主线估算幅数。摘要必须交代实际行动、推进、变化和最终结果，不能停在计策目的、设局介绍或“打算做什么”；原作开放结尾保留其真实停点。额外返回 storySummary（核对后的完整摘要，最多1200字）和 storyMatchReason（按原文校准的匹配理由，最多300字）；无冲突则保留准确原意。匹配理由不能重新引入已被原文否定的事实。不存在 storyBrief 时只返回 count/reason，不另造摘要。'],
  ['选题与估算','主题仅用于核对匹配理由是否有原文依据；原典模式不额外套主题。sourcesConfirmed 为 true 时，读者已经确认选材，按原文准备故事，不重新判断选材是否符合主题。幅数依据原文中的关键言行、回应与因果估算，不按摘要句子或字数分幅；核对摘要保存后供审核检查完整性。'],
  ['准备已选故事','sourcesConfirmed 为 true 时，同时返回准确的标题 storyTitle、完整梗概、画幅数和 artRecommendation（画风及简短理由）。已有标题准确且贴合原文时可沿用。'],
- ['多段原文','combineSelectedOriginals 为 true 且读者未进一步限定范围时，梗概覆盖全部已选原文的关键事件及结局。彼此独立的事件可并列或用框架串联，不虚构事件之间的因果和人物关系。'],
+ ['多段原文',combinedOriginalsSummaryDirection],
  ['展开程度',narrativeDetailInstructions],
  ['数量性质','count是编排前的估计，不是固定目标；后续提纲与审核可按原文和所选详略增减，不让读者替编剧手定数量。'],
  ['估算标准',`先辨认关键事件、因果、转折、动作、人物反应与有价值的停顿，再决定 ${readerMinFrames} 至 ${readerMaxFrames} 的整数。不预设常见数量区间，不按字数线性折算；短故事可很少，复杂故事给足关键戏，不省略转折，也不为拉长重复画面。`],

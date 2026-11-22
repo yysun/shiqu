@@ -1,15 +1,22 @@
 // 迁移 0025：在临时书库上从 0024 升级，核对文档 v2 转换、旧绘图结果采用、故障归属、旧任务作废、触发器与格式版本。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {createHash} from 'node:crypto';
+import {DatabaseSync} from 'node:sqlite';
+import {createCanvas} from '@napi-rs/canvas';
 import {historicalLibrary} from './fixtures/historical-library.mjs';
 import {migrate} from '../server/database-migrations.ts';
+import {ensureLibraryReady} from '../server/library-upgrade.ts';
+import {restoreLibraryBackup,verifyLibraryBackup} from '../server/library-backup.ts';
 import {selection,makePlan} from './fixtures/production-data.mjs';
 import {selectionSchema} from '../lib/reader-model.ts';
 import {png} from './fixtures/images.mjs';
 
+const localOwner='docker-local-owner';
 const owner='owner',story='11111111-1111-4111-8111-111111111111';
 const url=page=>`/api/reader/media/${story}/${page}.png`;
 
@@ -25,13 +32,13 @@ function seed({directory,sqlite},doc){
  mkdirSync(path.join(directory,'media','reader',story),{recursive:true});
  for(const page of [0,1])writeFileSync(path.join(directory,'media','reader',story,`${page}.png`),png);
 }
-const legacyVersion=async(doc)=>{
- const {createHash}=await import('node:crypto');
- const v=input=>createHash('sha256').update(JSON.stringify(input)).digest('hex');
+const fingerprint=input=>digest(JSON.stringify(input));
+const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
+const legacyVersion=doc=>{
  // 与 0.14 协调器相同：按解析后的选择（含默认值）计算。
  const parsed=selectionSchema.parse({...selection,length:3});
  const {displayTitle:_,...generationSelection}=parsed;void _;
- return v({scriptVersion:v({selection:generationSelection}),plan:doc.plan,style:parsed.artStyle,prompt:parsed.productionPrompt});
+ return fingerprint({scriptVersion:fingerprint({selection:generationSelection}),plan:doc.plan,style:parsed.artStyle,prompt:parsed.productionPrompt});
 };
 
 test('0025 converts stories, adopts a paid image, maps faults and clears old jobs',async t=>{
@@ -39,11 +46,12 @@ test('0025 converts stories, adopts a paid image, maps faults and clears old job
  const doc={plan,images:[url(0),'',''],audio:[],usage:[],original:{title:'庄子',text:'昔者庄周梦为胡蝶。',url:'https://example.test',kind:'passage',provider:'local',retrievedAt:'2026-01-01'},visualReview:{history:[],status:'passed',round:1,repairs:0,issues:[],repaired:[],reports:[]},revision:{handoff:true,number:2,parentId:'p',rootId:'p',baseToken:'b',requestHash:'h',base:{}}};
  seed(lib,doc);
  const {sqlite,directory}=lib;
- const version=await legacyVersion(doc);
+ const version=legacyVersion(doc);
  const job=sqlite.prepare("INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,created_at,updated_at) VALUES(?,?,?,?,?,?,'[]',?,?,?,1,1)");
  job.run('paid',story,owner,'image','image',version,JSON.stringify({page:1}),JSON.stringify({value:url(1)}),'succeeded');
  job.run('stale',story,owner,'image','image','old-version',JSON.stringify({page:2}),JSON.stringify({value:url(2)}),'succeeded');
  job.run('search',story,owner,'discover','search','r',JSON.stringify({searchRound:1}),null,'queued');
+ job.run('old-review',story,owner,'script','text','r',JSON.stringify({stepKey:'review:0'}),null,'queued');
  const fault=sqlite.prepare("INSERT INTO reader_faults(id,session_id,owner_id,job_id,kind,page,version,message,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,1,1)");
  fault.run('lost',story,owner,null,'image-loss',2,'v','这幅图片的文件已丢失或损坏。','pending');
  fault.run('text',story,owner,'paid','job',null,'v','制作未完成','recovering');
@@ -72,16 +80,18 @@ test('0025 converts stories, adopts a paid image, maps faults and clears old job
  assert.ok(!sqlite.prepare("SELECT 1 FROM pragma_table_info('reader_faults') WHERE name='page'").get());
 });
 
-test('an unreadable story is left as it is and does not stop the upgrade',t=>{
+test('an unreadable story is preserved and logged without stopping the upgrade',t=>{
+ const diagnostics=t.mock.method(console,'error',()=>{});
  const lib=library(t);
  lib.sqlite.prepare("INSERT INTO stories(id,user_id,selection,document,state,created_at,updated_at) VALUES('bad',?,'{}','not json','idle','c','u')").run(owner);
  seed(lib,{plan:makePlan(3),images:['','',''],audio:[],usage:[]});
  migrate(lib.sqlite,process.cwd(),lib.directory);
  assert.equal(lib.sqlite.prepare("SELECT document FROM stories WHERE id='bad'").get().document,'not json');
+ assert.ok(diagnostics.mock.calls.some(({arguments:[event,detail]})=>event==='production_dag_conversion_skipped'&&JSON.parse(detail).id==='bad'));
  assert.ok(JSON.parse(lib.sqlite.prepare('SELECT document FROM stories WHERE id=?').get(story).document).dag);
 });
 
-// 仍在准备阶段（未确认制作）的故事：升级后保持原样，准备任务与查找任务保留，确认时才建立 dag。
+// 仍在准备阶段（未确认制作）的故事：升级后保持原样，准备任务与查找任务保留，运行时接管。
 test('0025 leaves stories that are still in setup alone and keeps their preparation jobs',t=>{
  const lib=library(t),{sqlite,directory}=lib;
  const phases=['discovering','choosing','preparing','confirming'];
@@ -94,7 +104,7 @@ test('0025 leaves stories that are still in setup alone and keeps their preparat
   job.run(`prep-${i}`,id,owner,phase==='discovering'?'discover':'prepare',phase==='discovering'?'search':'text','v',JSON.stringify({setupGeneration:1,searchRound:1}));
   return id;
  });
- migrate(sqlite,directory?process.cwd():process.cwd(),directory);
+ migrate(sqlite,process.cwd(),directory);
  for(const id of ids){
   const doc=JSON.parse(sqlite.prepare('SELECT document FROM stories WHERE id=?').get(id).document);
   assert.equal(doc.dag,undefined,doc.intake.phase+' gets no dag before confirmation');
@@ -108,33 +118,44 @@ test('a setup story that an earlier upgrade already gave an empty dag resumes it
  f.control.hold=false;
  f.generation.suggestions=async()=>({stories:[{title:'庄周梦蝶',description:'梦醒后的庄周思考自己的经历。',artRecommendation:{artStyle:'paper-cut',reason:'层次适合梦境。'}}],note:''});
  const created=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced'}});
- // 模拟旧版升级写入的空转换 dag。
+ if(created.intake.search.state==='idle'&&!created.intake.batches.length)await f.startDiscovery(created.id);
+ await f.demand(created.id);
+ await until(async()=>(await f.read(created.id)).intake.phase==='choosing',20000);
+ await f.json(`sessions/${created.id}/production-control`,'POST',{action:'pause'});
+ await f.json(`sessions/${created.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(created.id)).intake.generation,action:'choose',batch:0,index:0});
+ // 模拟旧版升级为已选定、尚未准备的故事写入空转换 dag。
  const {convertDocument}=await import('../lib/production-dag/convert.ts');
  const row=await f.app.services.database.prepare('SELECT document,selection FROM stories WHERE id=?').bind(created.id).first();
  const dag=convertDocument(JSON.parse(row.document),selectionSchema.parse(JSON.parse(row.selection)),{confirmed:false});
  await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag',json(?)) WHERE id=?").bind(JSON.stringify(dag),created.id).run();
- if(created.intake.search.state==='idle'&&!created.intake.batches.length)await f.startDiscovery(created.id);
- await f.demand(created.id);
- await until(async()=>(await f.read(created.id)).intake.phase==='choosing',20000);
- await f.json(`sessions/${created.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(created.id)).intake.generation,action:'choose',batch:0,index:0});
+ await f.json(`sessions/${created.id}/production-control`,'POST',{action:'resume'});
  await until(async()=>(await f.read(created.id)).intake.phase==='confirming',20000);
  const saved=JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(created.id).first()).document);
- assert.equal(saved.dag,undefined,'the empty dag is dropped and preparation ran');
+ assert.equal(saved.dag.legacy,undefined);
+ assert.deepEqual(saved.dag.order,[]);
+ assert.ok(saved.dag.products['source:']);
+ assert.ok(saved.dag.products['suggestions:']);
+ assert.equal(f.control.recommendations.length,1);
+ await f.json(`sessions/${created.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:saved.intake.generation,action:'confirm',settings:{artStyle:'paper-cut',productionPrompt:'',narrativeDetail:'balanced',length:2}});
+ await until(async()=>(await f.read(created.id)).state==='completed',15000);
+ assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[0,1]);
 });
 
 
 test('0025 keeps the pending slots of a partial storyboard and adopts only readable images and current landscapes',async t=>{
- const lib=library(t),{sqlite,directory}=lib,plan=makePlan(3);
- // 24 个提纲节点只保存了 3 幅：另外 21 个幅位仍须待生成。
+ const lib=library(t),{sqlite,directory}=lib,plan=makePlan(20);
+ // 24 个提纲节点只保存了 20 幅：另外 4 个幅位仍须待生成。
  const beats=Array.from({length:24},(_,i)=>`节点${i+1}`);
- const doc={plan:null,storyboard:{outline:{title:'庄周梦蝶',summary:'梗概',sourceReference:'庄子',adaptationNote:'按原文',beats},pages:plan.pages},images:[],audio:[],usage:[],original:{title:'庄子',text:'昔者庄周梦为胡蝶。',url:'https://example.test',kind:'passage',provider:'local',retrievedAt:'2026-01-01'}};
+ const doc={plan:null,storyboard:{outline:{title:'庄周梦蝶',summary:'梗概',sourceReference:'庄子',adaptationNote:'按原文',characters:plan.characters,beats},pages:plan.pages},images:[],audio:[],usage:[],original:{title:'庄子',text:'昔者庄周梦为胡蝶。',url:'https://example.test',kind:'passage',provider:'local',retrievedAt:'2026-01-01'}};
  seed(lib,doc);
  migrate(sqlite,process.cwd(),directory);
  const saved=JSON.parse(sqlite.prepare('SELECT document FROM stories WHERE id=?').get(story).document);
  assert.equal(saved.dag.order.length,24);
- assert.equal(saved.dag.frames['legacy-3'].scene,plan.pages[2].caption);
- assert.equal(saved.dag.frames['legacy-4'].scene,'','an unsaved slot waits for its scene');
- assert.equal(saved.dag.products['scene:legacy-4'],undefined);
+ assert.equal(saved.dag.brief,doc.storyboard.outline.summary);
+ assert.equal(saved.dag.characters[0].text,plan.characters);
+ assert.equal(saved.dag.frames['legacy-20'].scene,plan.pages[19].caption);
+ assert.equal(saved.dag.frames['legacy-21'].scene,'','an unsaved slot waits for its scene');
+ assert.equal(saved.dag.products['scene:legacy-21'],undefined);
 });
 
 test('0025 does not adopt an image that is not a real picture, nor a landscape for other inputs',async t=>{
@@ -143,7 +164,7 @@ test('0025 does not adopt an image that is not a real picture, nor a landscape f
  seed(lib,doc);
  // 第 2 幅文件内容不是图片。
  writeFileSync(path.join(directory,'media','reader',story,'1.png'),'png');
- const version=await legacyVersion(doc);
+ const version=legacyVersion(doc);
  const job=sqlite.prepare("INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,created_at,updated_at) VALUES(?,?,?,?,?,?,'[]',?,?,'succeeded',1,1)");
  job.run('paid-bad',story,owner,'image','image',version,JSON.stringify({page:1}),JSON.stringify({value:url(1)}));
  job.run('land',story,owner,'landscape-image','image','some-other-inputs',JSON.stringify({page:0}),JSON.stringify({value:url(0)}));
@@ -151,4 +172,255 @@ test('0025 does not adopt an image that is not a real picture, nor a landscape f
  const saved=JSON.parse(sqlite.prepare('SELECT document FROM stories WHERE id=?').get(story).document);
  assert.equal(saved.dag.frames['legacy-1'].landscape,undefined,'a landscape for other inputs is not adopted');
  assert.equal(saved.dag.frames['legacy-2'].image,undefined,'a paid result whose file is not a picture is not adopted');
+});
+
+for(const prepared of [true,false])test(`an upgraded story with ${prepared?'saved':'interrupted'} recommendations waits for explicit frame count confirmation`,async t=>{
+ const {productionFixture,until}=await import('./fixtures/production.mjs');
+ const id=crypto.randomUUID();
+ const original={title:'庄子',text:'昔者庄周梦为胡蝶。',url:'https://example.test',kind:'passage',provider:'local',retrievedAt:'2026-01-01'};
+ const doc={plan:null,images:[],audio:[],usage:[],original,...(prepared?{frameRecommendation:{count:3,reason:'保留完整因果。'}}:{})};
+ const f=await productionFixture(t,'codex',{}, {initialize(directory,root){
+  const sqlite=historicalLibrary(directory,root,'0024_prompt_records.sql');
+  try{
+   sqlite.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,state,created_at,updated_at) VALUES(?,?,?,?,'background','idle','c','u')")
+    .run(id,localOwner,JSON.stringify({...selection,length:3,narrativeDetail:'balanced'}),JSON.stringify(doc));
+   if(!prepared){
+    sqlite.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,state,attempts,error,interrupted,failure_id,created_at,updated_at)
+     VALUES('old-prepare',?,?,'prepare','text','legacy','[]','{}','failed',2,'已中断',1,'old-fault',1,1)`).run(id,localOwner);
+    sqlite.prepare(`INSERT INTO reader_faults(id,session_id,owner_id,job_id,kind,version,message,created_at,updated_at)
+     VALUES('old-fault',?,?,'old-prepare','interrupted','legacy','已中断',1,1)`).run(id,localOwner);
+   }
+  }finally{sqlite.close();}
+ }});
+ f.control.hold=false;
+ await f.demand(id);
+ await f.app.services.production.tick();
+ const saved=async()=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
+ await until(async()=>(await f.read(id)).awaitingFrameCount);
+ if(prepared)assert.deepEqual(await saved(),doc,'saved recommendations wait without writes');
+ else{
+  assert.ok((await saved()).dag.products['suggestions:']);
+  const [job]=await f.app.services.production.queue.jobs(id,localOwner);
+  assert.equal(JSON.parse(job.payload).work.call,'prepareSuggestions');
+  assert.equal(job.attempts,3,'an interrupted legacy job retains its retry allowance');
+  assert.equal(f.control.recommendations.length,1);
+ }
+ assert.deepEqual(f.control.calls,[]);
+ assert.deepEqual(f.control.dagCalls,[]);
+ if(prepared)assert.deepEqual([...f.control.textVia],[]);
+ await f.json(`sessions/${id}/frame-count`,'POST',{count:2});
+ await until(async()=>(await f.read(id)).state==='completed',15000);
+ assert.equal((await saved()).dag.order.length,2);
+ assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[0,1]);
+});
+
+
+// 由正式应用启动执行迁移，复用同一批合成旧故事的备份验证重试和旧版回滚。
+test('the production upgrade preserves saved text and media, and resumes only unfinished drawing',async t=>{
+ const {productionFixture,until}=await import('./fixtures/production.mjs');
+ const ids=Object.fromEntries(['complete','partial','storyboard','draft','revision','paid','lost','pixel-corrupt','broken'].map(name=>[name,crypto.randomUUID()]));
+ const plan=makePlan(3);
+ plan.summary='读者手改并保存的梗概。';
+ plan.characters='读者手改并保存的人物说明。';
+ plan.reflection='读者手改并保存的结语。';
+ plan.pages[0].caption='读者手改并保存的首幅配文。';
+ const original={title:'庄子',text:'昔者庄周梦为胡蝶。',url:'https://example.test',kind:'passage',provider:'local',retrievedAt:'2026-01-01'};
+ const savedMedia=new Map(),documents=new Map();
+ const landscapeFile=`artifacts/0-${'a'.repeat(64)}.png`;
+ const image=(directory,id,name,bytes)=>{
+  const key=path.join('media','reader',id,name);
+  mkdirSync(path.dirname(path.join(directory,key)),{recursive:true});
+  writeFileSync(path.join(directory,key),bytes);
+  savedMedia.set(key,digest(bytes));
+  return `/api/reader/media/${id}/${name}`;
+ };
+ const documentsIn=sqlite=>new Map(sqlite.prepare('SELECT id,document FROM stories').all().map(({id,document})=>[id,document]));
+ const assertMedia=directory=>{
+  for(const [key,expected] of savedMedia)assert.equal(digest(readFileSync(path.join(directory,key))),expected,key);
+ };
+ let backup;
+ const f=await productionFixture(t,'codex',{}, {initialize(directory,root){
+  const sqlite=historicalLibrary(directory,root,'0024_prompt_records.sql');
+  try{
+   const insert=sqlite.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,saved,created_at,updated_at) VALUES(?,?,?,?,'background',?,?,1,'c','u')");
+   const job=sqlite.prepare("INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,created_at,updated_at) VALUES(?,?,?,?,'image',?,'[]',?,?,'succeeded',1,1)");
+   for(const [name,id] of Object.entries(ids)){
+    if(name==='broken'){
+     insert.run(id,localOwner,'{}','not json','paused','idle');
+     documents.set(id,'not json');continue;
+    }
+    if(name==='storyboard'){
+     const {pages,reflection:_,...metadata}=makePlan(24);
+     const storyboard={outline:{...metadata,beats:pages.map((_,page)=>`第 ${page+1} 幅的已保存提纲。`)},pages:pages.slice(0,20)};
+     const doc=JSON.stringify({plan:null,original,storyboard,images:[],audio:[],usage:[]});
+     documents.set(id,doc);
+     insert.run(id,localOwner,JSON.stringify({...selection,length:24}),doc,'paused','idle');
+     continue;
+    }
+    if(name==='draft'){
+     const {reflection:_,...draft}=plan;
+     const doc=JSON.stringify({plan:null,original,draft,images:[],audio:[],usage:[]});
+     documents.set(id,doc);
+     insert.run(id,localOwner,JSON.stringify({...selection,length:3}),doc,'paused','idle');
+     continue;
+    }
+    const images=plan.pages.map((_,page)=>page===0||name==='complete'?image(directory,id,`${page}.png`,png):'');
+    if(name==='lost'){
+     images[0]=image(directory,id,'0.png',Buffer.from('损坏的合成图片'));
+     images[2]=image(directory,id,'2.png',png);
+    }
+    if(name==='pixel-corrupt'){
+     // 保持 PNG 块结构和尺寸，破坏 IDAT 内压缩数据。
+     const damaged=Buffer.from(png);
+     damaged[damaged.indexOf(Buffer.from('IDAT'))+5]^=255;
+     images[0]=image(directory,id,'0.png',damaged);
+     images[2]=image(directory,id,'2.png',png);
+    }
+    const doc={plan,original,images,audio:[],usage:[],visualReview:{history:[],status:'passed',round:1,repairs:0,issues:[],repaired:[],reports:[]},
+     ...(name==='revision'?{revision:{handoff:true,number:2,parentId:crypto.randomUUID(),rootId:id,baseToken:'base',requestHash:'revision',base:{}}}:{})};
+    const serialized=JSON.stringify(doc);
+    documents.set(id,serialized);
+    insert.run(id,localOwner,JSON.stringify({...selection,length:3}),serialized,'paused',name==='complete'?'completed':'idle');
+    if(name==='paid'){
+     const value=image(directory,id,'1.png',png);
+     job.run('paid-result',id,localOwner,'image',legacyVersion(doc),JSON.stringify({page:1}),JSON.stringify({value}));
+    }
+    if(name==='complete'){
+     const landscape=image(directory,id,landscapeFile,createCanvas(96,64).toBuffer('image/png'));
+     const version=fingerprint(['landscape-image',plan.characters,plan.pages,images,selection.artStyle,selection.productionPrompt]);
+     job.run('landscape-result',id,localOwner,'landscape-image',version,JSON.stringify({page:0}),JSON.stringify({value:landscape}));
+    }
+   }
+   // 在文档转换和 PRAGMA 更新之后、中途写迁移回执时失败，验证该事务整体回滚。
+   sqlite.exec(`CREATE TRIGGER simulate_interruption BEFORE INSERT ON app_migrations
+    WHEN NEW.name='0025_production_dag.sql' BEGIN SELECT RAISE(ABORT,'simulated interruption'); END`);
+  }finally{sqlite.close();}
+  assert.throws(()=>ensureLibraryReady(directory,root),/LIBRARY_MIGRATION_FAILED.*simulated interruption/);
+  const interrupted=new DatabaseSync(path.join(directory,'shiqu.sqlite'));
+  try{
+   assert.equal(interrupted.prepare('PRAGMA user_version').get().user_version,1);
+   assert.deepEqual(documentsIn(interrupted),documents);
+   assertMedia(directory);
+   interrupted.exec('DROP TRIGGER simulate_interruption');
+  }finally{interrupted.close();}
+  ({backup}=ensureLibraryReady(directory,root));
+ }});
+ f.control.hold=false;
+ const upgraded=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'),{readOnly:true});
+ let converted;
+ try{
+  assert.equal(upgraded.prepare('PRAGMA user_version').get().user_version,2);
+  assert.equal(upgraded.prepare("SELECT count(*) AS count FROM sqlite_schema WHERE type='trigger'").get().count,7);
+  converted=documentsIn(upgraded);
+ }finally{upgraded.close();}
+ assertMedia(f.dataDirectory);
+ for(const [id,old] of documents){
+  if(id===ids.broken){assert.equal(converted.get(id),old);continue;}
+  const {plan:oldPlan,original:oldOriginal,images,storyboard,draft}=JSON.parse(old);
+  const doc=JSON.parse(converted.get(id));
+  assert.deepEqual(doc.plan,oldPlan);
+  assert.deepEqual(doc.original,oldOriginal);
+  assert.deepEqual(doc.images.filter((_,page)=>images[page]),images.filter(Boolean));
+  if(storyboard){
+   assert.deepEqual(doc.storyboard,storyboard);
+   assert.equal(doc.dag.order.length,24);
+   assert.equal(doc.dag.characters[0].text,storyboard.outline.characters);
+   continue;
+  }
+  if(draft){
+   assert.deepEqual(doc.draft,draft);
+   assert.deepEqual(doc.dag.outline.beats,draft.pages.map(page=>page.caption));
+   assert.equal(doc.dag.ending,undefined);
+   continue;
+  }
+  assert.equal(doc.dag.frames['legacy-1'].scene,oldPlan.pages[0].caption);
+  assert.equal(doc.dag.products['scene:legacy-1'].handEdited,undefined,'the legacy edit survives without a hand-edit marker');
+ }
+ assert.equal(JSON.parse(converted.get(ids.complete)).dag.frames['legacy-1'].landscape,`/api/reader/media/${ids.complete}/${landscapeFile}`);
+ assert.equal(JSON.parse(converted.get(ids.paid)).dag.frames['legacy-2'].image,`/api/reader/media/${ids.paid}/1.png`);
+ const lost=await f.read(ids.lost);
+ assert.equal(lost.ready,1);
+ const loss=lost.faults.find(fault=>fault.page===0&&fault.state==='pending');
+ assert.ok(loss,'an unreadable saved reference needs a recovery receipt before paying');
+ assert.equal((await f.read(ids.complete)).state,'completed');
+ assert.equal((await f.read(ids.revision)).awaitingContinue,true);
+ assert.equal((await f.read(ids.revision)).generationControl,'paused');
+ assert.deepEqual(f.control.calls,[]);
+ assert.deepEqual([...f.control.textVia],[]);
+
+ verifyLibraryBackup(backup);
+ const replay=path.join(f.root,'upgrade-replay');
+ restoreLibraryBackup(backup,replay);
+ ensureLibraryReady(replay,f.root);
+ const replayDb=new DatabaseSync(path.join(replay,'shiqu.sqlite'),{readOnly:true});
+ try{assert.deepEqual(documentsIn(replayDb),converted,'the same backup produces identical converted documents');}
+ finally{replayDb.close();}
+ assertMedia(replay);
+
+ const baseline=process.env.SHIQU_TEST_V014_ROOT;
+ await t.test('v0.14.0 opens the restored format 1 backup and refuses format 2',{skip:!baseline&&'Set SHIQU_TEST_V014_ROOT to the v0.14.0 checkout'},async()=>{
+  assert.equal(JSON.parse(readFileSync(path.join(baseline,'package.json'),'utf8')).version,'0.14.0');
+  const {createApplication}=await import(pathToFileURL(path.join(baseline,'server/app.ts')).href);
+  const dataDirectory=path.join(f.root,'rollback-v014');
+  restoreLibraryBackup(backup,dataDirectory);
+  const options={root:baseline,variables:{SHIQU_AI_PROVIDER:'readonly'},transport:async()=>assert.fail('rollback attempted a network request')};
+  const app=createApplication({...options,dataDirectory});
+  try{
+   const sqlite=new DatabaseSync(path.join(dataDirectory,'shiqu.sqlite'),{readOnly:true});
+   try{
+    assert.equal(sqlite.prepare('PRAGMA user_version').get().user_version,1);
+    assert.deepEqual(documentsIn(sqlite),documents);
+   }finally{sqlite.close();}
+   for(const id of Object.values(ids).filter(id=>id!==ids.broken)){
+    const response=await app.handle(new Request(`http://localhost/api/reader/sessions/${id}`));
+    assert.equal(response.status,200);
+    assert.equal((await response.json()).id,id);
+   }
+   assertMedia(dataDirectory);
+   assert.throws(()=>createApplication({...options,dataDirectory:replay}),/LIBRARY_NEWER_SCHEMA.*use a newer Shiqu app/);
+  }finally{await app.close();}
+ });
+
+ for(const [name,action,expected] of [['partial','resume',[1,2]],['revision','continue',[1,2]],['paid','resume',[2]]]){
+  const start=f.control.calls.length;
+  await f.json(`sessions/${ids[name]}/production-control`,'POST',{action});
+  await until(async()=>(await f.read(ids[name])).state==='completed',15000);
+  assert.deepEqual(f.control.calls.slice(start).map(call=>call.page).sort(),expected,name);
+ }
+ assert.deepEqual([...f.control.textVia],[],'legacy reviewed text does not incur another call');
+
+ const beforeRecovery=f.control.calls.length;
+ await f.json(`sessions/${ids.lost}/production-control`,'POST',{action:'resume'});
+ await f.app.services.production.tick();
+ assert.equal(f.control.calls.length,beforeRecovery);
+ await f.json(`sessions/${ids.lost}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:loss.id});
+ await until(async()=>(await f.read(ids.lost)).state==='completed',15000);
+ assert.deepEqual(f.control.calls.slice(beforeRecovery).map(call=>call.page),[0,1]);
+ const beforePixelCheck=f.control.calls.length;
+ await f.json(`sessions/${ids['pixel-corrupt']}/production-control`,'POST',{action:'resume'});
+ const pixelFault=async()=>(await f.read(ids['pixel-corrupt'])).faults?.find(fault=>fault.page===0&&fault.state==='pending');
+ await until(pixelFault,15000);
+ assert.equal(f.control.calls.length,beforePixelCheck,'a damaged pixel stream cannot reach the drawing provider');
+ await f.json(`sessions/${ids['pixel-corrupt']}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:(await pixelFault()).id});
+ await until(async()=>(await f.read(ids['pixel-corrupt'])).state==='completed',15000);
+ assert.deepEqual(f.control.calls.slice(beforePixelCheck).map(call=>call.page),[0,1]);
+ const storyboard=JSON.parse(documents.get(ids.storyboard)).storyboard,batches=[];
+ f.control.beforeText=(name,payload)=>{if(name==='sceneBatch')batches.push(payload.batch);};
+ const start=f.control.calls.length;
+ await f.json(`sessions/${ids.storyboard}/production-control`,'POST',{action:'resume'});
+ await until(async()=>(await f.read(ids.storyboard)).state==='completed',25000);
+ const completed=await f.read(ids.storyboard);
+ assert.equal(completed.story.summary,storyboard.outline.summary);
+ assert.deepEqual(completed.story.pages.slice(0,20).map(page=>page.caption),storyboard.pages.map(page=>page.caption));
+ assert.deepEqual(batches,[{first:21,last:24}]);
+ for(const name of ['brief','outline','characters'])assert.ok(!f.control.dagCalls.includes(name),name);
+ assert.deepEqual(f.control.calls.slice(start).map(call=>call.page).sort((a,b)=>a-b),Array.from({length:24},(_,page)=>page));
+ const draft=JSON.parse(documents.get(ids.draft)).draft;
+ const beforeDraft=f.control.dagCalls.length;
+ await f.json(`sessions/${ids.draft}/production-control`,'POST',{action:'resume'});
+ await until(async()=>(await f.read(ids.draft)).state==='completed',15000);
+ const draftDoc=JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(ids.draft).first()).document);
+ assert.deepEqual(draftDoc.plan.pages,draft.pages);
+ assert.deepEqual(f.control.dagCalls.slice(beforeDraft),[],'saved draft text does not generate again');
+ assertMedia(f.dataDirectory);
 });

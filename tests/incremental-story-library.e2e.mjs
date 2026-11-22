@@ -7,7 +7,6 @@ import {withLocalBooks} from '../server/local-generation.ts';
 import {LocalBooks} from '../server/local-books.ts';
 import {bookContents} from '../server/local-book-contents.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
-import {advanceStory} from '../lib/reader-engine.ts';
 import {StoryDiscoveryCache,discoveryHash} from '../server/story-discovery-cache.ts';
 import {legacySummaryDiscoveryNamespace,discoveryNamespace} from '../server/local-story-discovery.ts';
 import {previousReadingPlanKey} from '../server/story-discovery-legacy.ts';
@@ -71,7 +70,10 @@ for(const [theme,length] of [['勇气',2],['原典故事',21]])test(`${theme}: s
  library.provider.matchStories=async(...args)=>{const result=await match(...args);return {matches:result.matches.map(item=>item.verdict==='yes'?{...item,reason:'人物因复仇杀死对手。'}:item)};};
  const first=await create(f,theme),candidate=first.intake.batches[0].stories[0],complete=library.stories.find(story=>story.title===candidate.title).summary;
  const reason='原文中的行动和实际结果支持本次选题，没有复仇杀人的事实。';
+ const planInputs=[],batches=[];
  f.control.beforeText=async(kind,payload)=>{
+  if(kind==='outline'||kind==='sceneBatch')planInputs.push(payload);
+  if(kind==='sceneBatch')batches.push(payload.batch);
   if(kind==='recommend'){assert.equal(candidate.storyBrief,undefined);assert.equal(payload.storyBrief.summary,'尚未准备完整摘要，请依据已核原文生成。');assert.equal(payload.storyBrief.matchReason,candidate.matchReason);assert.ok(payload.verifiedOriginal.text);return {storySummary:complete,storyMatchReason:reason};}
  };
  await f.json(`sessions/${first.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:first.intake.generation,action:'choose',batch:0,index:0});
@@ -79,11 +81,13 @@ for(const [theme,length] of [['勇气',2],['原典故事',21]])test(`${theme}: s
  let saved=await f.read(first.id);const source=(await f.json(`sessions/${first.id}/source`)).source;
  assert.deepEqual(source.storyBrief,{summary:complete,matchReason:reason,verified:true});assert.equal(saved.frameRecommendation.storySummary,complete);assert.equal(f.control.plans.length,0);
  await restart();saved=await f.read(first.id);assert.deepEqual((await f.json(`sessions/${first.id}/source`)).source.storyBrief,source.storyBrief);
- await f.json(`sessions/${first.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:saved.intake.generation,action:'confirm',settings:{artStyle:'ink-pencil',productionPrompt:'保留明确行动。',narrativeDetail:'balanced',length}});
+ await f.json(`sessions/${first.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:saved.intake.generation,action:'confirm',settings:{artStyle:'ink-pencil',productionPrompt:saved.selection.productionPrompt,narrativeDetail:'balanced',length}});
  await until(async()=>(await f.read(first.id)).state==='completed');
  const context=theme==='原典故事'?{mode:'source'}:{mode:'theme',theme};
- for(const payload of [...f.control.outlines,...f.control.plans,...f.control.reviews]){assert.deepEqual(payload.storyBrief,f.control.reviews.includes(payload)?{summary:complete,matchReason:reason}:undefined);if(payload.outline&&!f.control.reviews.includes(payload))assert.equal(payload.outline.summary,undefined);assert.deepEqual(payload.editorialContext,context);assert.equal(payload.verifiedOriginal.text,source.text);assert.equal(payload.verifiedOriginal.storyBrief,undefined);}
- if(length>20){assert.equal(f.control.outlines.length,1);assert.equal(f.control.batches.length,2);}
+ for(const payload of [...planInputs,...f.control.reviews]){assert.deepEqual(payload.storyBrief,f.control.reviews.includes(payload)?{summary:complete,matchReason:reason}:undefined);if(payload.outline&&!f.control.reviews.includes(payload))assert.equal(payload.outline.summary,undefined);assert.deepEqual(payload.editorialContext,context);assert.equal(payload.verifiedOriginal.text,source.text);assert.equal(payload.verifiedOriginal.storyBrief,undefined);}
+ assert.equal(f.control.dagCalls.filter(name=>name==='outline').length,1);
+ assert.equal(f.control.dagCalls.filter(name=>name==='brief').length,0);
+ if(length>20)assert.deepEqual(batches,[{first:1,last:20},{first:21,last:21}]);
  assert.equal(f.control.recommendations.length,1,'Synopsis verification reuses the existing advice call');
 });
 
@@ -137,53 +141,98 @@ test('historical direct selections without a synopsis prepare one before any new
  assert.equal((await f.json(`sessions/${saved.id}/source`)).source.storyBrief.verified,true);assert.ok(f.control.recommendations[0].storyBrief.summary);assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);
 });
 
+const savedDocument=async(f,id)=>JSON.parse((await new ReaderRepository(f.app.services.database).get(id,'docker-local-owner')).document);
+const recover=async(f,id)=>{
+ const {faults}=await f.read(id),fault=faults.find(item=>item.retryAllowed);
+ assert.ok(fault,'the reader can recover the saved production fault');
+ await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+};
+const preparedSummary='庄周梦见自己成为蝴蝶，自在飞舞；醒来后发现自己仍是庄周，由此思考梦醒与蝴蝶的区别。';
+
 for(const length of [2,21])test(`missing synopsis is saved before a ${length}-frame plan and a planning retry does not regenerate it`,async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(length),repo=new ReaderRepository(f.app.services.database),generator=f.generation.generator();
- let fail=true;const summary='庄周梦见自己成为蝴蝶，自在飞舞；醒来后发现自己仍是庄周，由此思考梦与醒、庄周与蝴蝶的区别和变化。';
+ const f=await productionFixture(t),id=await f.createLegacyReader(length);f.control.hold=false;
+ let fail=true;
  f.control.beforeText=async(kind,payload)=>{
-  const doc=JSON.parse((await repo.get(id,'docker-local-owner')).document);
-  if(kind==='recommend'){assert.ok(doc.original.text);assert.equal(doc.original.storyBrief.verified,false);assert.equal(doc.plan,null);return {storySummary:summary,storyMatchReason:'原文支持梦醒后的追问。'};}
-  if(kind==='plan'||kind==='outline'){
-   assert.equal(doc.original.storyBrief.summary,summary);assert.equal(doc.original.storyBrief.verified,true);assert.equal(doc.usage.filter(item=>item.step==='summary').length,1);
+  if(kind==='brief'){assert.ok(payload.verifiedOriginal.text);return {summary:preparedSummary};}
+  if(kind==='outline'){
+   const doc=await savedDocument(f,id);
+   assert.equal(doc.dag.brief,preparedSummary);
+   assert.equal(doc.usage.filter(item=>item.step==='dag:prepareBrief').length,1);
    if(fail)throw Error('controlled planning outage');
-   const value=makePlan(length);return kind==='plan'?{...value,summary:'不应另写的引子。'}:{...value,summary:'不应另写的引子。',beats:value.pages.map((_,i)=>`第${i+1}幅的动作和回应。`)};
   }
  };
- const failed=await advanceStory(repo,generator,'docker-local-owner',id,0);assert.equal(failed.state,'failed');assert.equal(f.control.calls.length,0);assert.equal(f.control.recommendations.length,1);
- fail=false;await advanceStory(repo,generator,'docker-local-owner',id,0,true);const doc=JSON.parse((await repo.get(id,'docker-local-owner')).document);
- assert.equal((doc.draft||doc.storyboard.outline).summary,summary);assert.equal(Object.hasOwn(doc.draft||doc.storyboard.outline,'hook'),false);assert.equal(f.control.recommendations.length,1);assert.equal(doc.frameCountConfirmed,undefined);
- await f.restart();assert.equal(f.control.recommendations.length,1);assert.equal((await f.read(id)).selection.length,length);
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
+ await until(async()=>(await f.read(id)).state==='failed',15000);
+ assert.equal(f.control.calls.length,0);
+ const source=(await savedDocument(f,id)).original;
+ await f.restart();fail=false;
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});await recover(f,id);
+ await until(async()=>(await f.read(id)).state==='completed',25000);
+ const doc=await savedDocument(f,id);
+ assert.equal(doc.plan.summary,preparedSummary);
+ assert.deepEqual(doc.original,source);
+ assert.equal(doc.plan.pages.length,length);
+ assert.equal(f.control.dagCalls.filter(name=>name==='brief').length,1);
+ assert.equal(f.control.dagCalls.filter(name=>name==='outline').length,2);
 });
 
 test('invalid missing-summary preparation blocks planning and retries with the saved original',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(2),repo=new ReaderRepository(f.app.services.database),generator=f.generation.generator();let invalid=true;
- f.control.beforeText=async kind=>kind==='recommend'&&invalid?{storySummary:undefined}:undefined;
- await advanceStory(repo,generator,'docker-local-owner',id,0);const pending=JSON.parse((await repo.get(id,'docker-local-owner')).document);
- assert.equal(pending.original.storyBrief.verified,false);assert.equal(f.control.plans.length,0);assert.equal(f.control.outlines.length,0);assert.equal(f.control.calls.length,0);
- invalid=false;await advanceStory(repo,generator,'docker-local-owner',id,0,true);const ready=JSON.parse((await repo.get(id,'docker-local-owner')).document);
- assert.equal(ready.original.text,pending.original.text);assert.equal(ready.original.storyBrief.verified,true);assert.equal(f.control.plans.length,0);
- await advanceStory(repo,generator,'docker-local-owner',id,0);assert.equal(f.control.plans.length,1);assert.equal(f.control.recommendations.length,2);
+ const f=await productionFixture(t),id=await f.createLegacyReader(2);f.control.hold=false;
+ let invalid=true;
+ f.control.beforeText=async kind=>kind==='brief'?(invalid?{}:{summary:preparedSummary}):undefined;
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});await until(async()=>(await f.read(id)).state==='failed',15000);
+ const pending=await savedDocument(f,id);
+ assert.ok(pending.original.text);
+ assert.equal(pending.dag.brief,undefined);
+ assert.equal(f.control.dagCalls.includes('outline'),false);
+ assert.equal(f.control.calls.length,0);
+ invalid=false;await recover(f,id);
+ await until(async()=>(await f.read(id)).state==='completed',15000);
+ const ready=await savedDocument(f,id);
+ assert.deepEqual(ready.original,pending.original);
+ assert.equal(ready.plan.summary,preparedSummary);
+ assert.equal(f.control.dagCalls.filter(name=>name==='brief').length,2);
+ assert.equal(f.control.dagCalls.filter(name=>name==='outline').length,1);
 });
 
 test('a confirmed legacy intake stays confirmed and keeps its selected frame count while a missing synopsis is prepared',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(2),repo=new ReaderRepository(f.app.services.database),row=await repo.get(id,'docker-local-owner'),doc=JSON.parse(row.document);
+ const f=await productionFixture(t),id=await f.createLegacyReader(2),doc=await savedDocument(f,id);f.control.hold=false;
  doc.frameCountConfirmed=true;doc.intake={phase:'confirmed',generation:0,creationHash:'legacy',selected:{batch:0,index:0},batches:[{stories:[{title:'庄周梦蝶',description:'梦醒之后的追问。'}],note:''}],search:{round:0,state:'idle'}};
  await f.app.services.database.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(doc),id).run();
- await advanceStory(repo,f.generation.generator(),'docker-local-owner',id,0);const result=await repo.get(id,'docker-local-owner'),saved=JSON.parse(result.document);
- assert.equal(saved.intake.phase,'confirmed');assert.equal(saved.original.storyBrief.verified,true);assert.equal(saved.draft.pages.length,2);assert.equal(JSON.parse(result.selection).length,2);assert.equal(saved.frameCountConfirmed,true);
+ f.control.beforeText=async kind=>kind==='brief'?{summary:preparedSummary}:undefined;
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});await until(async()=>(await f.read(id)).state==='completed',15000);
+ const saved=await savedDocument(f,id);
+ assert.equal(saved.intake.phase,'confirmed');
+ assert.equal(saved.plan.summary,preparedSummary);
+ assert.equal(saved.plan.pages.length,2);
+ assert.equal((await f.read(id)).selection.length,2);
+ assert.equal(saved.frameCountConfirmed,true);
 });
 
 for(const unverified of [false,true])test(`saved outline batches resume after synopsis preparation without repeating the outline (${unverified?'unverified brief':'missing summary'})`,async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(21),repo=new ReaderRepository(f.app.services.database),generator=f.generation.generator(),row=await repo.get(id,'docker-local-owner'),doc=JSON.parse(row.document),plan=makePlan(21),chosen=JSON.parse(row.selection);
+ const f=await productionFixture(t),id=await f.createLegacyReader(21),doc=await savedDocument(f,id),plan=makePlan(21);
+ f.control.hold=false;
  const {pages,reflection,...metadata}=plan;void reflection;
- doc.original=(await generator.original(chosen,{sourceReference:plan.sourceReference},id)).source;
+ doc.original=(await f.generation.generator().original({...selection,length:21},{sourceReference:plan.sourceReference},id)).source;
  if(unverified)doc.original.storyBrief={summary:'未经核对的摘要。',matchReason:'需要核对。',verified:false};
  doc.storyboard={outline:{...metadata,summary:unverified?'已有提纲摘要。':'',beats:pages.map((_,i)=>`第${i+1}幅的原有提纲。`)},pages:pages.slice(0,20)};
  await f.app.services.database.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(doc),id).run();
- f.control.beforeText=async kind=>kind==='recommend'?{storySummary:plan.summary,storyMatchReason:'依据真实原文的完整主线。'}:undefined;
- await advanceStory(repo,generator,'docker-local-owner',id,0);if(unverified){assert.equal(f.control.batches.length,0);await advanceStory(repo,generator,'docker-local-owner',id,0);}
- const saved=JSON.parse((await repo.get(id,'docker-local-owner')).document);assert.equal(saved.draft.summary,plan.summary);assert.deepEqual(saved.storyboard.outline.beats,doc.storyboard.outline.beats);assert.deepEqual(saved.draft.pages.slice(0,20),pages.slice(0,20));
- assert.equal(f.control.recommendations.length,1);assert.equal(f.control.outlines.length,0);assert.equal(f.control.batches.length,1);assert.deepEqual(f.control.batches[0].batch,{first:21,last:21});
+ const batches=[];
+ f.control.beforeText=async(kind,payload)=>{
+  if(kind==='brief')return {summary:preparedSummary};
+  if(kind==='sceneBatch'){
+   assert.equal((await savedDocument(f,id)).dag.brief,preparedSummary);
+   batches.push(payload.batch);
+  }
+ };
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});await until(async()=>(await f.read(id)).state==='completed',25000);
+ const saved=await savedDocument(f,id);
+ assert.equal(saved.plan.summary,preparedSummary);
+ assert.deepEqual(saved.dag.outline.beats,doc.storyboard.outline.beats);
+ assert.deepEqual(saved.plan.pages.slice(0,20),pages.slice(0,20));
+ assert.equal(f.control.dagCalls.filter(name=>name==='brief').length,1);
+ assert.equal(f.control.dagCalls.includes('outline'),false);
+ assert.deepEqual(batches,[{first:21,last:21}]);
 });
 
 test('REST resumes an old summary catalog from real media without rescanning and persists new binary receipts across restart',async t=>{

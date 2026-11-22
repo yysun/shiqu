@@ -9,11 +9,11 @@ import type {ReasoningTask} from '../reader-reasoning.ts';
 import type {ArtStyleId} from '../reader-styles.ts';
 import {getArtDirection,getArtStyle} from '../reader-styles.ts';
 import {promptSections,inputBoundaryDirection,storyOpeningDirection,storyboardDirection,storyEditorialContext,titleDirection} from '../reader-prompts.ts';
-import {storyPlanningDirection,storySceneDirection,storyMetadataDirection,storyDraftMetadataDirection,storyCaptionDirection,storyVisualDirection,storyStyleBoundaryDirection,storyDraftJson,imagePromptFor} from '../reader-generation-contract.ts';
+import {storyPlanningDirection,storySceneDirection,storyOutlineMetadataDirection,storyCharacterDirection,storyDraftMetadataDirection,storyCaptionDirection,storyVisualDirection,storyStyleBoundaryDirection,storyDraftJson,imagePromptFor} from '../reader-generation-contract.ts';
 import {outlineDirection,batchDirection,reflectionSystemPrompt,reflectionCandidatesDirection,restyleInstructions} from '../reader-storyboard.ts';
-import {frameCountReviewRequest,fullReviewRequest,parseFrameCountReport,reviewReportSchema,reviewNotesDirection,reviewSystemPrompt,type FrameCountReport,type ReviewIssue} from '../reader-review.ts';
+import {frameCountReviewRequest,fullReviewRequest,parseFrameCountReport,reviewReportSchema,reviewNotesDirection,reviewSystemPrompt,type FrameCountContext,type FrameCountReport,type ReviewIssue} from '../reader-review.ts';
 import {validateEditorialCoverage} from '../reader-editorial.ts';
-import {storySummaryDirection} from '../reader-story-brief.ts';
+import {combinedOriginalsSummaryDirection,storyBriefVerified,storySummaryDirection,storySummaryScopeDirection} from '../reader-story-brief.ts';
 import {localPlanConstraint} from '../reader-local-contract.ts';
 import {acceptanceCriteria} from '../reader-acceptance.ts';
 import {readerMinFrames,readerMaxFrames,readerStoryboardBatchSize,readerRestyleBatchSize} from '../reader-limits.ts';
@@ -78,16 +78,17 @@ function parseVisuals(value:unknown,frames:{index:number}[]):Visual[]{
 
 export function dagGenerator(call:Call){
  return {
-  /** 准备梗概：只读已核原文。 */
-  async prepareBrief(input:{source:SourceInput}):Promise<Generated<string>>{
-   const instructions=promptSections(['任务','依据 verifiedOriginal 撰写本篇选定范围的事实梗概，只交代原文中的起因、关键行动与结果，不加评价，不补写原文没有的情节。'],['篇幅',storySummaryDirection],['输入与输出',inputBoundaryDirection+'只返回 {summary}。']);
-   const result=await call('frames',instructions,sourcePayload(input.source),obj({summary:str(1,1200)}),4096,input.source.original);
+  /** 准备梗概：按读者指定的范围提炼已核原文。 */
+  async prepareBrief(input:{source:SourceInput;productionPrompt:string}):Promise<Generated<string>>{
+   const combined=(input.source.original.localParts?.length??0)>1;
+   const instructions=promptSections(['任务','依据 verifiedOriginal 撰写本篇选定范围的事实梗概，只交代原文中的起因、关键行动与结果，不加评价，不补写原文没有的情节。'],['篇幅',storySummaryDirection],['本篇制作范围',storySummaryScopeDirection],['多段原文',combined?combinedOriginalsSummaryDirection:''],['本地原文',local(input.source)],['输入与输出',inputBoundaryDirection+'只返回 {summary}。']);
+   const result=await call('frames',instructions,{...sourcePayload(input.source),productionPrompt:input.productionPrompt,...(combined?{combineSelectedOriginals:true}:{})},obj({summary:str(1,1200)}),4096,input.source.original);
    return {...result,value:z.object({summary:z.string().trim().min(1).max(1200)}).parse(result.value).summary};
   },
 
   /** 人物设定：只读原文与制作要求，不读提纲。 */
   async characters(input:{source:SourceInput;productionPrompt:string}):Promise<Generated<Character[]>>{
-   const instructions=promptSections(['任务','你是古典连环画人物设定编辑。依据 verifiedOriginal 列出本篇有据出场的人物，每人一条。'],['人物标准',storyMetadataDirection],['本次输出','只返回 {characters:[{name,aliases,text}]}。name 用原文通行称谓，aliases 列出原文中的其他称呼；text 记录有据的时代、年龄、外貌、服饰、辨识特征及关键物件，不写画风或构图。'],['本地原文',local(input.source)],['输入与输出',inputBoundaryDirection]);
+   const instructions=promptSections(['任务','你是古典连环画人物设定编辑。依据 verifiedOriginal 列出本篇有据出场的人物，每人一条。'],['人物标准',storyCharacterDirection],['本次输出','只返回 {characters:[{name,aliases,text}]}。name 用原文通行称谓，aliases 列出原文中的其他称呼；text 记录有据的时代、年龄、外貌、服饰、辨识特征及关键物件，不写画风或构图。'],['本地原文',local(input.source)],['输入与输出',inputBoundaryDirection]);
    const schema=obj({characters:{type:'array',minItems:1,maxItems:24,items:obj({name:str(1,40),aliases:names,text:str(10,600)})}});
    const result=await call('outline',instructions,{...sourcePayload(input.source),productionPrompt:input.productionPrompt},schema,8192,input.source.original);
    const parsed=z.object({characters:z.array(z.object({name:z.string().trim().min(1).max(40),aliases:z.array(z.string().trim().min(1).max(40)).max(16),text:z.string().trim().min(10).max(600)}).strict()).min(1).max(24)}).strict().parse(result.value);
@@ -101,7 +102,7 @@ export function dagGenerator(call:Call){
    const length=input.settings.length;
    const full=storyDraftJson(length),{pages:_p,characters:_c,...properties}=full.properties as Record<string,unknown>;void _p;void _c;
    const schema={...full,properties:{...properties,beats:{type:'array',minItems:length==='auto'?readerMinFrames:length,maxItems:length==='auto'?readerMaxFrames:length,items:str(1,180)}},required:[...Object.keys(properties),'beats']};
-   const instructions=promptSections(['任务','你是古典连环画编剧，本次只制定全篇提纲。'],['编排标准',storyPlanningDirection],['元数据',storyMetadataDirection],['本地原文',local(input.source)],['本次输出',storyDraftMetadataDirection+'\n'+outlineDirection+'\n人物设定另行生成，本次不输出 characters。']);
+   const instructions=promptSections(['任务','你是古典连环画编剧，本次只制定全篇提纲。'],['编排标准',storyPlanningDirection],['元数据',storyOutlineMetadataDirection],['本地原文',local(input.source)],['本次输出',storyDraftMetadataDirection+'\n'+outlineDirection+'\n人物设定另行生成，本次不输出 characters。']);
    const result=await call('outline',instructions,{...sourcePayload(input.source,{seed:true}),exactPageCount:length,narrativeDetail:input.settings.narrativeDetail,productionPrompt:input.productionPrompt},schema,8192,input.source.original);
    const value=outlineSchema.parse(result.value);
    if(length!=='auto'&&value.beats.length!==length)throw Error('PLAN_LENGTH');
@@ -161,13 +162,25 @@ export function dagGenerator(call:Call){
   },
 
   /** 结构修订：返回按幅号替换的配文段落；新画幅的画面描述随后按批生成。 */
-  async structureRepair(input:{source:SourceInput;outline:Outline;productionPrompt:string;settings:SettingsInput;captions:string[];issues:ReviewIssue[];notes?:string}):Promise<Generated<{from:number;to:number;scenes:Scene[]}[]>>{
+  async structureRepair(input:{source:SourceInput;outline:Outline;productionPrompt:string;settings:SettingsInput;captions:string[];issues:ReviewIssue[];notes?:string;frameCountContext?:FrameCountContext}):Promise<Generated<{from:number;to:number;scenes:Scene[]}[]>>{
    const count=input.captions.length;
    const direction=`按原文及 issues 返回 {edits:[{from,to,pages:[{caption,people}]}]}。from/to 指修改前 1 起始的幅号，按 from 递增且范围不重叠；替换 from 至 to，from=k,to=k-1 表示在原第 k 幅前插入，from=原幅数+1 表示末尾追加，pages 为空表示删除。只改需协同的连续段落，一次合计最多 ${readerStoryboardBatchSize} 个新或替换画幅，总数 ${readerMinFrames}–${readerMaxFrames}。只返回配文与涉及人物，画面指令另行生成。`;
-   const instructions=promptSections(['任务','你是古典静态连环画结构修订编辑。'],['共同标准',storySceneDirection],['配文',storyCaptionDirection],['结构输出',direction],['审核意见',input.notes?reviewNotesDirection:''],['本地原文',local(input.source)],['输入边界',inputBoundaryDirection]);
+   const instructions=promptSections(['任务','你是古典静态连环画结构修订编辑。'],['共同标准',storySceneDirection],['配文',storyCaptionDirection],['结构输出',direction],['幅数核对要求',input.frameCountContext?'逐项落实 frameCountContext 的完整 requirements。建议幅数不是硬锁，先补足叙事任务再计数。':''],['审核意见',input.notes?reviewNotesDirection:''],['本地原文',local(input.source)],['输入边界',inputBoundaryDirection]);
    const schema=obj({edits:{type:'array',maxItems:readerStoryboardBatchSize,items:obj({from:{type:'integer',minimum:1,maximum:count+1},to:{type:'integer',minimum:0,maximum:count},pages:{type:'array',maxItems:readerStoryboardBatchSize,items:obj({caption:str(8,90),people:names})}})}});
-   const result=await call('repair',instructions,{...sourcePayload(input.source),productionPrompt:input.productionPrompt,narrativeDetail:input.settings.narrativeDetail,countPolicy:input.settings.length==='auto'?'adaptive':'fixed',outline:withoutSummary(input.outline),captions:input.captions,issues:input.issues,...(input.notes?{reviewNotes:input.notes}:{})},schema,16000,input.source.original);
-   const edits=z.object({edits:z.array(z.object({from:z.number().int().min(1),to:z.number().int().min(0),pages:z.array(z.object({caption:captionSchema,people:z.array(z.string().max(40)).max(16)}).strict())}).strict())}).strict().parse(result.value).edits;
+   const result=await call('repair',instructions,{...sourcePayload(input.source),productionPrompt:input.productionPrompt,narrativeDetail:input.settings.narrativeDetail,countPolicy:input.settings.length==='auto'?'adaptive':'fixed',outline:withoutSummary(input.outline),captions:input.captions,issues:input.issues,...(input.frameCountContext?{frameCountContext:input.frameCountContext}:{}),...(input.notes?{reviewNotes:input.notes}:{})},schema,16000,input.source.original);
+   const editedPage=z.object({caption:captionSchema,people:z.array(z.string().max(40)).max(16)}).strict();
+   const edits=z.object({edits:z.array(z.object({
+    from:z.number().int().min(1).max(count+1),to:z.number().int().min(0).max(count),
+    pages:z.array(editedPage).max(readerStoryboardBatchSize),
+   }).strict()).max(readerStoryboardBatchSize)}).strict().parse(result.value).edits;
+   let next=count,previousFrom=0,cursor=1,written=0;
+   for(const {from,to,pages} of edits){
+    written+=pages.length;
+    if(from<=previousFrom||from<cursor||to<from-1||to===from-1&&!pages.length||written>readerStoryboardBatchSize)throw Error('INVALID_STRUCTURAL_EDIT');
+    next+=pages.length-(to-from+1);
+    previousFrom=from;cursor=to+1;
+   }
+   if(next<readerMinFrames||next>readerMaxFrames)throw Error('STRUCTURAL_FRAME_LIMIT');
    return {...result,value:edits.map(e=>({from:e.from,to:e.to,scenes:e.pages.map(p=>({caption:p.caption,people:p.people}))}))};
   },
 
@@ -222,12 +235,15 @@ export function dagGenerator(call:Call){
    const required=[...input.allowed.criteria,...(input.allowed.pages.length?input.frameCriteria??[]:[])].sort((a,b)=>a-b);
    const sections=promptSections(['本次结论范围',allowedText],['读者确认',input.confirmedEnding?'plan.title 与 plan.reflection 是读者确认的标题与结语，只判断是否合格，不改选。':''],['本次输入',omitted.length?`本次结论不依据${omitted.join('、')}，因此未提供；不要就这些内容作出判断。`:''],['本次验收结果',criteria.length?(required.length?`acceptanceResults 须覆盖编号 ${required.join('、')}，每条一次；其余编号可以省略，返回的只作建议。`:'本次不需要 acceptanceResults 覆盖任何编号；返回的只作建议。'):'']);
    const reflection=reflectionText,title=titleText;
+   const original=input.source.original,verified=original.storyBrief;
+   // 只有当前梗概仍采用核对过的原文摘要时，才沿用对应的选题依据。
+   const matchReason=verified?.summary===input.brief&&storyBriefVerified(original)?verified?.matchReason:undefined;
    // 与正式审片相同的顺序：系统指令、本地原文约束、本次范围，再加本轮结论范围与审核意见。
    const system=instructions.slice(0,reviewSystemPrompt.length),rest=instructions.slice(reviewSystemPrompt.length);
    // 只发送本次允许结论绑定的输入与上下文（全篇叙事分镜与画面描述）；未绑定的提纲、画风、人物设定、制作要求不发送。
    const plan={...(title?{title}:{}),...(input.brief?{summary:input.brief}:{}),...(input.outline?{sourceReference:input.outline.sourceReference,adaptationNote:input.outline.adaptationNote}:{}),...(reflection?{reflection}:{}),...(input.characters?{characters:input.characters.map(c=>`${c.name}：${c.text}`).join('\n')}:{}),pages:input.frames.map(f=>({caption:f.caption,prompt:f.prompt}))};
    const result=await call('review',system+(local(input.source)?'\n'+local(input.source):'')+rest+'\n\n'+sections+(input.notes?'\n\n'+reviewNotesDirection:''),{
-    ...sourcePayload(input.source),...(input.brief?{storyBrief:{summary:input.brief}}:{}),exactPageCount:count,
+    ...sourcePayload(input.source),...(input.brief?{storyBrief:{summary:input.brief,...(matchReason?{matchReason}:{})}}:{}),exactPageCount:count,
     ...(criteria.length?{acceptancePrompt:input.acceptancePrompt,acceptanceCriteria:criteria}:{}),
     ...(input.productionPrompt!==undefined?{productionPrompt:input.productionPrompt}:{}),...(input.style?{artDirection:getArtDirection(input.style)}:{}),
     plan,...(input.outline?{outline:withoutSummary(input.outline)}:{}),...(choosing?{reflectionCandidates:choosing}:{}),...(input.notes?{reviewNotes:input.notes}:{}),

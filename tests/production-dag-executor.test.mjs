@@ -46,7 +46,7 @@ test('text work goes through the contract method and returns the parsed value wi
  assert.ok(g.text.at(-1).payload.artDirection,'the image-description call carries the art direction');
 });
 
-test('drawing uses the contract prompt, the book reference for the first frame and the first image after that',async()=>{
+test('drawing uses the contract prompt and the current book reference, falling back to the first image',async()=>{
  const s=story(),g=generator();
  await runUntil(s,g,i=>i.call==='visual');
  // 直接构造可绘图状态：跳过审片，只验证绘图参数。
@@ -57,9 +57,12 @@ test('drawing uses the contract prompt, the book reference for the first frame a
  await executeWork(g.gen,s,draw(first),'b'.repeat(64));
  s.dag.frames[first].image='/api/reader/media/s1/0.png';
  await executeWork(g.gen,s,draw(second),'c'.repeat(64));
- const [one,two]=g.images;
+ delete s.refSource;
+ await executeWork(g.gen,s,draw(second),'d'.repeat(64));
+ const [one,two,withoutStar]=g.images;
  assert.equal(one[3],'/api/reader/media/book/ref.png');
- assert.equal(two[3],'/api/reader/media/s1/0.png');
+ assert.equal(two[3],'/api/reader/media/book/ref.png');
+ assert.equal(withoutStar[3],'/api/reader/media/s1/0.png');
  assert.match(one[9],/第1幅/);
  assert.ok(!one[9].includes('写清选择与后果'),'the drawing prompt carries no production requirements');
  assert.equal(one[6],'b'.repeat(64));

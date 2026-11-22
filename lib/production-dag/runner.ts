@@ -6,8 +6,10 @@
 // 自动修订由审片问题驱动：问题按画幅归属，画面类问题做画面修订，其余做叙事修订，需要重排的做结构修订；
 // 手改、额度用尽、修订无变化或要求无法判断时不再派发，由 attention() 报告「需读者处理」。
 import type {Document,Selection} from '../reader-model.ts';
-import {styleOf} from './requests.ts';
+import {productionRequirement,styleOf} from './requests.ts';
 import {castFrom} from './frames.ts';
+import {preparationCandidate,preparationPending} from '../reader-preparation.ts';
+import {preparesSelectedStory} from '../reader-frame-recommendation.ts';
 import {storyBriefVerified} from '../reader-story-brief.ts';
 import {evaluate,instanceId,reusable,complete,type Instance,type Fault,type Product,type VersionState} from './engine.ts';
 import {nodeSpec} from './registry.ts';
@@ -24,7 +26,7 @@ export type DagStory={
  /** 制作已确认（准备阶段结束）。 */
  confirmed:boolean;
  faults:Fault[];
- /** 首幅的参考图：书籍参考图或旧版画面。 */
+ /** 本书星标的参考图；缺省时由各幅按原规则选择本篇首幅。 */
  refSource?:string;
  reprepare?:boolean;
 };
@@ -48,7 +50,9 @@ export function syncItems(dag:DagDocument,selection:Selection):DagDocument{
 }
 
 export function stateOf(story:DagStory):VersionState{
- const roots=rootProducts(story.selection,story.dag,{notes:story.doc.reviewNotes,refSource:story.refSource});
+ const preparing=preparationPending(story.doc)||story.doc.intake?.phase==='confirming';
+ const seed=preparing?{generation:story.doc.intake?.generation,production:productionRequirement(story.selection),detail:story.selection.narrativeDetail}:undefined;
+ const roots=rootProducts(story.selection,story.dag,{notes:story.doc.reviewNotes,refSource:story.refSource,seed});
  return versionState(story.dag,roots,{confirmed:story.confirmed,faults:story.faults,reprepare:story.reprepare,skipFrameCheck:typeof story.selection.length==='number'});
 }
 
@@ -79,7 +83,7 @@ export function callFor(state:VersionState){
  */
 export function settle(story:DagStory):DagDocument{
  let dag=syncItems(story.dag,story.selection);
- // 原文核对与准备建议由准备流程写入文档；产物随文档内容记录，选择改变时由准备流程清除旧内容。
+ // 采用已保存的出处和准备结果，包括升级前的确认草稿。选择改变时会清除旧的准备内容。
  const adopt=(node:string,content:unknown)=>{
   if(content===undefined||content===null)return;
   const inst=evaluate(stateOf({...story,dag})).instance(node);
@@ -91,14 +95,16 @@ export function settle(story:DagStory):DagDocument{
  if(!dag.styles?.[key]){dag=dag===story.dag?clone(dag):dag;dag.styles={...dag.styles,[key]:current};}
  adopt('source',story.doc.original);
  // 准备阶段已对照原文核对的故事梗概作为梗概产物采用，不再付费重写；读者手改过的梗概不被覆盖。
- const verified=story.doc.original&&storyBriefVerified(story.doc.original)?story.doc.original.storyBrief!.summary:undefined;
+ const productionReq=productionRequirement(story.selection);
+ const preparedScope=story.doc.summaryProductionPrompt,previousScope=dag.products['brief:']?.inputs.productionReq;
+ const sameScope=preparedScope===undefined?previousScope===undefined||previousScope===fingerprint(productionReq):preparedScope===productionReq;
+ const verified=sameScope&&storyBriefVerified(story.doc.original)?story.doc.original?.storyBrief?.summary:undefined;
  if(verified&&!dag.products['brief:']?.handEdited&&(dag.brief===undefined||dag.brief===verified)){
   if(dag.brief===undefined){dag=dag===story.dag?clone(dag):dag;dag.brief=verified;}
   adopt('brief',verified);
  }
- if(!story.confirmed||story.reprepare){
-  const prepared=story.doc.setupRequirements?.suggestions||story.doc.frameRecommendation?{requirements:story.doc.setupRequirements?.suggestions??null,frames:story.doc.frameRecommendation??null}:undefined;
-  adopt('suggestions',prepared);
+ if((!story.confirmed||story.reprepare)&&story.doc.frameRecommendation){
+  adopt('suggestions',{requirements:story.doc.setupRequirements?.suggestions??null,frames:story.doc.frameRecommendation});
  }
  // 复用：硬输入与某份旧图完全一致时直接沿用，不要求画幅身份相同。
  for(const node of ['frameImage','landscape'] as const){
@@ -132,11 +138,20 @@ export function settle(story:DagStory):DagDocument{
 
 /** 本轮可派发的工作：引擎的可运行实例按调用合批，叙事分镜批次按顺序逐批进行，其后是自动修订。 */
 export function work(story:DagStory):Work[]{
+ if(story.doc.reselection)return [];
  const state=stateOf(story);
- const groups=callGroups(state,callFor(state)).filter(g=>!['prepareSuggestions','search'].includes(g.call));
+ const groups=callGroups(state,callFor(state));
+ if(!story.confirmed){
+  if(!preparationPending(story.doc)||story.doc.frameRecommendation)return [];
+  const candidate=preparationCandidate(story.doc),source=story.doc.original;
+  const needsArt=source&&candidate?.source&&!candidate.artRecommendation&&!story.dag.preparedArt&&!preparesSelectedStory(story.selection,source);
+  return groups.filter(item=>item.call==='verifySource'||item.call==='prepareSuggestions').map(item=>
+   needsArt&&item.call==='prepareSuggestions'?{...item,call:'prepareArt'}:item);
+ }
+ const production=groups.filter(g=>!['prepareSuggestions','search'].includes(g.call));
  // 后一批叙事分镜以前一批的配文为来源，须等前一批完成。
- const firstScene=groups.find(g=>g.call==='sceneBatch');
- const result:Work[]=groups.filter(g=>g.call!=='sceneBatch'||g===firstScene);
+ const firstScene=production.find(g=>g.call==='sceneBatch');
+ const result:Work[]=production.filter(g=>g.call!=='sceneBatch'||g===firstScene);
  if(firstScene&&framePosition(story.dag,firstScene.instances[0].key)>0){
   const before=story.dag.order.slice(0,framePosition(story.dag,firstScene.instances[0].key));
   if(before.some(id=>evaluate(state).instance('scene',id).status!=='valid'))return result.filter(g=>g!==firstScene);
@@ -230,6 +245,9 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
  if(item.instances.length&&stale(story,item))return null;
  const dag=clone(story.dag),one=item.instances[0];
  switch(item.call){
+  case 'verifySource':record(dag,one,value);break;
+  case 'prepareArt':dag.preparedArt=true;break;
+  case 'prepareSuggestions':record(dag,one,value);break;
   case 'prepareBrief':dag.brief=value as string;record(dag,one,value);break;
   case 'characters':{
    const list=value as Character[];
@@ -387,7 +405,12 @@ function applyStructureRepair(story:DagStory,dag:DagDocument,item:Work,edits:{fr
  while(cursor<=old.length)next.push(old[cursor++-1]);
  if(!next.length)return null;
  if(structuralLoss(stateOf(story),{deleted,rewritten}).length)return null;
- if(!rewritten.length&&!created.length&&!deleted.length)return null;
+ if(!created.length&&!deleted.length&&rewritten.every(id=>{
+  const before=dag.frames[id],after=content.get(id)!;
+  return before.scene===after.caption&&fingerprint(before.people??[])===fingerprint(after.people);
+ }))return null;
+ // 自动幅数的结构修订要重新核对叙事空间，幅数不变的重分配也一样。
+ if(story.selection.length==='auto')delete dag.products['frameCheck:'];
  dag.order=next;
  for(const id of deleted){delete dag.frames[id];for(const node of [...frameNodes,...verdictNodes])delete dag.products[instanceId(node,id)];}
  const state=stateOf({...story,dag});
@@ -399,6 +422,22 @@ function applyStructureRepair(story:DagStory,dag:DagDocument,item:Work,edits:{fr
  }
  spendRepair(dag,item);
  dag.issues=(dag.issues??[]).filter(i=>!i.requiresReplan&&i.target!=='frameCheck:');
+ return dag;
+}
+
+/** 放行幅数审核时沿用旧版的一次性绘图授权，绑定当前分镜和结语的输入。 */
+export function overrideReview(story:DagStory,targets:string[]):DagDocument|null{
+ const dag=clone(story.dag);
+ for(const target of targets)if(dag.products[target])dag.products[target]={...dag.products[target],overridden:true};
+ if(!targets.includes('frameCheck:'))return dag;
+ const state=stateOf({...story,dag});
+ for(const {node,key} of evaluate(state).all().filter(instance=>verdictNodes.some(node=>node===instance.node))){
+  const instance=evaluate(state).instance(node,key);
+  if(instance.status==='valid')continue;
+  if(!instance.hard||!instance.check)return null;
+  const parts=node==='narrativeVerdict'?{endingChoice:fingerprint(endingChoice(dag.ending)??null)}:undefined;
+  record(dag,instance,[instance.id,'override'],{outcome:'fail',overridden:true,...(parts?{parts}:{})});
+ }
  return dag;
 }
 

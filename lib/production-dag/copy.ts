@@ -6,6 +6,8 @@ import type {DagDocument} from './document.ts';
 export function textOnlyDag(dag:DagDocument):DagDocument{
  const copy=structuredClone(dag);
  delete copy.continuation;
+ delete copy.resumeUnreviewed;
+ for(const [id,product] of Object.entries(copy.products))if(product.unreviewed)delete copy.products[id];
  for(const id of copy.order){
   const frame=copy.frames[id];
   if(!frame)continue;

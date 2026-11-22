@@ -100,7 +100,7 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
  delete selection.displayTitle;
  if(!doc.intake.manualArt&&!choice.settings&&candidate.artRecommendation)selection.artStyle=candidate.artRecommendation.artStyle;
  delete doc.reselection;if(!direct)delete doc.original;
- delete doc.frameRecommendation;delete doc.storyboard;delete doc.draft;delete doc.visualReview;
+ delete doc.dag;delete doc.frameRecommendation;delete doc.storyboard;delete doc.draft;delete doc.visualReview;
  doc.plan=null;doc.images=[];doc.audio=[];doc.usage=[];doc.frameCountConfirmed=false;
  doc.intake.phase='preparing';doc.intake.selected={batch:choice.batch,index:choice.index};doc.intake.generation++;
  doc.intake.search={...(doc.intake.search||{round:0}),state:'idle',error:null};

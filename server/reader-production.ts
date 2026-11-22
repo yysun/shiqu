@@ -5,16 +5,14 @@
 // an unreadable story is skipped alone. Interrupted work resumes within a bounded replay allowance.
 // Search has its own one-worker pool; without the story lock it stops when no longer wanted, and
 // its failures stay with the search unless a stop interrupted the call.
-// 制作确认前的准备阶段（原文核对、摘要与建议）仍由准备任务执行；确认后（以及没有准备流程的故事）
-// 由 dag-production.ts 按制作 DAG 安排与执行，故障只阻断依赖它的工作，完成由引擎判定。
+// 准备和制作都由制作 DAG 安排与执行，故障只阻断依赖它的工作。
 // 任务、故障与命令回执的联动在 production-records.ts 的事务中完成，取代迁移 0025 删除的触发器。
 // 节拍中的过期任务清理和任务图重建先查覆盖索引与内容修订号，只读取上次检查后有变化的故事全文。
 import {productionTimingScope,productionStageDurations} from '../lib/production-timing.ts';
 import {randomUUID} from 'node:crypto';
 import {ReaderRepository,persistenceError,supersededSql,latestVersionMessage} from '../lib/reader-repository.ts';
 import type {Database} from '../lib/reader-repository.ts';
-import {advanceStory} from '../lib/reader-engine.ts';
-import {ReaderError,readableStory,selectionSchema,view,nextStep,productionComplete,reviewPassed} from '../lib/reader-model.ts';
+import {ReaderError,readableStory,selectionSchema,view,reviewPassed} from '../lib/reader-model.ts';
 import type {Document,SessionRow,SessionView,ProductionAction,Selection} from '../lib/reader-model.ts';
 import type {ModelSnapshot} from '../lib/production-dag/document.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
@@ -28,7 +26,7 @@ import type {SuggestionBatch,SuggestionProgress} from '../lib/reader-suggestions
 import {readerMaxFrames} from '../lib/reader-limits.ts';
 import {productionReadAhead,productionViewerLeaseMs} from '../lib/reader-production.ts';
 import type {LandscapeStatus,ReaderProduction} from '../lib/reader-production.ts';
-import {JobYield,ProductionQueue,inputVersion,productionJobId} from './production-queue.ts';
+import {JobYield,ProductionQueue,productionJobId} from './production-queue.ts';
 import type {ProductionJob,JobSpec} from './production-queue.ts';
 import {authorizeRecovery,authorizeControl,commandReceipt,sessionFaults} from './reader-commands.ts';
 import type {ReaderFault} from './reader-commands.ts';
@@ -38,9 +36,8 @@ import {transact,deleteJobs} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
 
 type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;through_page:number;expires_at:number;runtime_id:string};
-type Lease={ownerId:string;token:string};
 type ActiveSearch={round:number;controller:AbortController;startedAt:number;progress?:SuggestionProgress};
-type RebuildKey={rev:number;state:string;demands:string};
+type RebuildKey={rev:number;state:string;demands:string;references:number};
 type PruneKey={rev:number;queued:number;failed:number};
 type StoryRevision={id:string;user_id:string;rev:number};
 const revisionJoin='stories s INDEXED BY stories_production_scan LEFT JOIN story_revisions r ON r.story_id=s.id';
@@ -57,7 +54,6 @@ export const productionRevisionSql={
 export type SnapshotService={current():ModelSnapshot|undefined;provider(snapshot:ModelSnapshot):ReaderProvider|null};
 export type ProductionOptions={snapshots?:SnapshotService;imageWorkers?:number;now?:()=>number;leaseMs?:number;tickMs?:number;autoStart?:boolean;targetSessionId?:string;stopBeforeImages?:boolean};
 type Options=ProductionOptions;
-const sessionLeaseMs=180000;
 const maxAutomaticAttempts=3;
 // 「审片后停止」不得启动任何付费绘图。
 const imageKinds=[dagDrawKind];
@@ -78,7 +74,6 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  readonly queue:ProductionQueue;
  readonly repository:ReaderRepository;
  private readonly runtimeId=randomUUID();
- private readonly leases=new Map<string,Lease>();
  private readonly searches=new Map<string,ActiveSearch>();
  private readonly clock:()=>number;
  private timer:ReturnType<typeof setInterval>|undefined;
@@ -91,6 +86,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private readonly unreadable=new Set<string>();
  private readonly parsedRows=new Map<string,{document:string;selection:string;parsed:{doc:Document;selection:Selection}|null}>();
  private readonly rebuildKeys=new Map<string,RebuildKey>();
+ private referenceGeneration=0;
  private readonly pruneKeys=new Map<string,PruneKey>();
  private supersededJobs=new Set<string>();
  private database:Database;
@@ -107,7 +103,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    targetSessionId:options.targetSessionId,
    limits:{search:1,text:1,image:options.imageWorkers??3},now:this.clock,leaseMs:options.leaseMs,
    canRun:job=>this.canRun(job),resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>{for(const id of this.jobProviders.keys())if(!this.queue.tasks.has(id))this.jobProviders.delete(id);this.wake();},
-   // 暂停、删除的故事不派发；准备任务在整篇失败时等待恢复授权。DAG 任务不因整篇失败状态停下：故障只阻断依赖它的工作。
+   // 暂停、删除的故事不派发。DAG 任务按节点故障独立阻断。
    candidateFilter:`NOT EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND (s.generation_control!='active' OR (s.state='failed' AND j.kind NOT IN ('${dagTextKind}','${dagDrawKind}') AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=s.id AND f.owner_id=s.user_id AND f.state='recovering' AND (f.command_id=j.recovery_id OR f.kind='interrupted' AND f.job_id=j.id))) OR EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)))`,
    skipCandidate:job=>!!options.targetSessionId&&job.session_id!==options.targetSessionId||!!options.stopBeforeImages&&imageKinds.includes(job.kind)||this.supersededJobs.has(job.session_id),
    safeError:(error,job)=>error instanceof ReaderError?error.message:(this.jobProviders.get(job.id)||this.provider).safeError(error),
@@ -115,7 +111,6 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    terminal:error=>error instanceof ReaderError&&error.status<500,
    handlers:{
     discover:{pool:'search',run:job=>this.discover(job)},
-    prepare:{pool:'text',run:job=>this.script(job)},
     [dagTextKind]:{pool:'text',run:job=>this.runDag(job)},
     [dagDrawKind]:{pool:'image',run:job=>this.runDag(job)},
    },
@@ -245,7 +240,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private faultView(row:SessionRow,fault:ReaderFault,jobs:ProductionJob[]):FaultView{
   const doc=JSON.parse(row.document) as Document,job=jobs.find(job=>job.id===fault.job_id);
   const page=fault.node==='frameImage'||fault.node==='landscape'?doc.dag?.order.indexOf(fault.node_key)??-1:-1;
-  const stage=fault.kind==='image-loss'?'redraw':job?.kind==='discover'?'source':job?.kind==='prepare'||doc.intake&&doc.intake.phase!=='confirmed'?'prepare':'generation';
+  const stage=fault.kind==='image-loss'?'redraw':job?.kind==='discover'?'source':job?.kind==='prepare'||doc.legacyFramePreparation||doc.intake&&doc.intake.phase!=='confirmed'?'prepare':'generation';
   return {id:fault.id,message:fault.message,page:page>=0?page:null,stage,state:fault.state as FaultView['state'],retryAllowed:fault.state==='pending'};
  }
  async checkImage(ownerId:string,id:string,page:number,image:string){
@@ -281,9 +276,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   if(!fault||fault.state!=='pending')throw new ReaderError(409,'这项问题正在处理或已更新，请刷新后再操作。');
   const job=fault.job_id?await this.queue.job(fault.job_id):null;
+  const dag=(JSON.parse(row.document) as Document).dag;
+  const resumeUnreviewed=fault.kind==='image-loss'&&fault.node==='frameImage'&&dag?.legacy===true&&Object.values(dag.products).some(product=>product.unreviewed);
   const receipt=job
    ?await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[job.id],resolutionJob:job.id,basis:row},this.clock())
-   :await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[],resolutionJob:'',resolved:true,basis:row},this.clock());
+   :await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[],resolutionJob:'',resolved:true,resumeUnreviewed,basis:row},this.clock());
   if(!job)await this.dag.settleState(id,ownerId);
   // 故障表的变化不改变故事的内容修订号：清除本篇的重建记录，下一轮重新安排工作。
   this.rebuildKeys.delete(id);
@@ -330,7 +327,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // No story is chosen yet, so finding one is what this story is doing.
   if(!manual&&saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching')return {...session,productionState:search?'running':'queued'};
   const productionState=manual?'paused':working?'running':eligible?'queued':'paused';
-  if(session.state!=='failed'&&session.state!=='completed'&&!manual&&(working||eligible))return {...session,state:'running',productionState};
+  const preparingInFlight=working&&(saved.intake?.phase==='preparing'||parsed.doc.legacyFramePreparation);
+  if(session.state!=='failed'&&session.state!=='completed'&&(preparingInFlight||!manual&&(working||eligible)))return {...session,state:'running',productionState};
   // A saved session state alone cannot prove that the queue is still executing.
   return {...session,productionState};
  }
@@ -340,11 +338,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return {id:productionJobId(row.id,kind,version,key),sessionId:row.id,ownerId:row.user_id,kind,pool,version,dependencies,payload:{...(payload as Record<string,unknown>),timingStage,timingScope:productionTimingScope(selection,kind==='discover')},priority};
  }
  private async graph(row:SessionRow){
-  const {doc,selection}=this.parsed(row)!;
-  // 制作确认后（或没有准备流程的故事）进入制作 DAG：首次在这里建立 dag，旧版内容按转换规则采用。
-  // 升级过早写入的空 dag（仍在准备阶段的故事）不属于任何制作：去掉后沿用准备流程。
-  if(doc.dag?.legacy&&!doc.dag.order.length&&!doc.plan&&await this.dag.dropEmpty(row))return;
-  if(!doc.dag&&await this.dag.adopt(row))return;
+  const {doc}=this.parsed(row)!;
+  if(await this.dag.adopt(row))return;
   if(doc.dag&&(!doc.intake||doc.intake.phase==='confirmed')){
    // 正在阅读这篇故事的读者（不含后台与旧入口的推进请求）决定绘图的阅读优先。
    const viewers=(await this.demands(row.id)).filter(d=>d.viewer_id!=='background'&&d.viewer_id!=='legacy-advance').map(d=>({page:d.page,through:d.through_page}));
@@ -359,11 +354,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    return;
   }
   if(searching)await this.queue.enqueue(this.spec(row,'discover','search',String(search.round),'',[],{searchRound:search.round},-10));
-  if(doc.intake.phase!=='preparing')return;
-  // 准备阶段：制作确认前核对原文、摘要与制作建议。
-  const setup={setupGeneration:doc.intake.generation};
-  const {displayTitle:_,...generationSelection}=selection;void _;
-  await this.queue.enqueue(this.spec(row,'prepare','text',inputVersion({selection:generationSelection,...setup}),'',[],{stepKey:'',...setup},-10));
+  if(doc.dag&&['preparing','confirming'].includes(doc.intake.phase))await this.dag.schedule(row);
  }
  private async canRun(job:ProductionJob){
   if(this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&imageKinds.includes(job.kind))return false;
@@ -378,11 +369,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(this.stopping||!(await this.demands(row.id)).some(d=>job.pool==='text'||((JSON.parse(job.payload) as {page?:number}).page??0)<=d.through_page))return false;
   if(await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first())return false;
   // DAG 任务不持有会话锁，结果以文档内容比较并交换保存；故障只阻断依赖它的工作，由调度时的引擎状态决定。
-  if(job.kind===dagTextKind||job.kind===dagDrawKind)return true;
-  const faults=await sessionFaults(this.database,row.id,row.user_id),authorized=faults.some(fault=>fault.state==='recovering'&&(fault.command_id!==null&&fault.command_id===job.recovery_id||fault.kind==='interrupted'&&fault.job_id===job.id));
-  const failed=await this.database.prepare("SELECT id FROM production_jobs WHERE session_id=? AND owner_id=? AND state='failed' AND kind='prepare' LIMIT 1").bind(row.id,row.user_id).first();
-  if((faults.length||failed||row.state==='failed')&&!authorized)return false;
-  return row.state!=='running'||row.lock_until<=this.clock();
+  return job.kind===dagTextKind||job.kind===dagDrawKind;
  }
  private async fileLost(key:string,strict=false){
   const asset=await this.media.get(key);if(!asset)return true;
@@ -406,12 +393,18 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private snapshotNow(){try{return this.options.snapshots?.current();}catch{return undefined;}}
  /** DAG 任务按故事的模型快照构造提供方；没有快照服务或故事没有快照时沿用当前提供方。 */
  private async runDag(job:ProductionJob){
-  const current=this.jobProvider(job),snapshot=this.options.snapshots&&await this.dag.snapshotOf(job);
-  if(!snapshot||!this.options.snapshots)return this.dag.run(job,current);
-  const provider=this.options.snapshots.provider(snapshot);
-  if(!provider)throw Object.assign(new ReaderError(409,'快照服务不可用：这篇故事制作时选用的模型服务目前缺少凭据或已不可用。请在设置中恢复该服务，或选择「应用当前模型设置」后再重试。'),{code:'SNAPSHOT_UNAVAILABLE'});
-  this.jobProviders.set(job.id,provider);
-  return this.dag.run(job,provider);
+  let provider=this.jobProvider(job);
+  const snapshots=this.options.snapshots,snapshot=snapshots&&await this.dag.snapshotOf(job);
+  if(snapshot&&snapshots){
+   const savedProvider=snapshots.provider(snapshot);
+   if(!savedProvider)throw Object.assign(new ReaderError(409,'快照服务不可用：这篇故事制作时选用的模型服务目前缺少凭据或已不可用。请在设置中恢复该服务，或选择「应用当前模型设置」后再重试。'),{code:'SNAPSHOT_UNAVAILABLE'});
+   provider=savedProvider;
+   this.jobProviders.set(job.id,provider);
+  }
+  const result=await this.dag.run(job,provider);
+  // 星标参考图等输入可能在故事文档未变化时失效。下一轮重新安排当前输入的任务。
+  if(result.obsolete)this.rebuildKeys.delete(job.session_id);
+  return result;
  }
  private async discover(job:ProductionJob){
   const provider=this.jobProvider(job);
@@ -502,43 +495,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    transact(this.database,db=>deleteJobs(db,"id=? AND state='failed'",[job.id],this.clock()));
   }
  }
- private async script(job:ProductionJob){
-  const provider=this.jobProvider(job);
-  let row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
-  if(!this.generationCurrent(row,job))return {obsolete:true};
-  // 已有 dag 或旧版内容的故事不再经准备任务：由 DAG 路径接管。
-  if(doc.dag&&(!doc.intake||doc.intake.phase==='confirmed')||doc.plan||doc.storyboard||doc.draft)return {adopted:true};
-  const selection=selectionSchema.parse(JSON.parse(row.selection)),stepKey=(JSON.parse(job.payload) as {stepKey?:string}).stepKey;
-  // 准备调用的结果可能已保存而回执尚未写入：不重复付费。
-  if(stepKey&&stepKey!==nextStep(doc,selection)?.key)return {prepared:true};
-  let failure:unknown,acquired:string|undefined,result:SessionView;
-  try{
-   result=await advanceStory(this.repository,provider.generator(),row.user_id,row.id,0,true,token=>{acquired=token;this.leases.set(row.id,{ownerId:row.user_id,token});},error=>{failure=error;});
-  }catch(error){
-   if(!(error instanceof ReaderError&&error.status===404))throw error;
-   const saved=await this.find(row.id,row.user_id);
-   if(failure){
-    const terminal=failure instanceof ReaderError&&failure.status<500;
-    if(this.stopping&&!terminal)await this.database.prepare("UPDATE stories SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'").bind(row.id,row.user_id).run();
-    throw terminal?failure:new ReaderError(503,saved?.error||provider.safeError(failure));
-   }
-   if(!acquired||saved&&saved.lock_token!==acquired)throw new JobYield();
-   throw error;
-  }
-  if(result.state==='failed'){
-   // The engine records its failure before the queue can classify it, so undo that for a stop.
-   // A 4xx stays failed: replaying a blocked review would pay for repair without the reader asking.
-   const terminal=failure instanceof ReaderError&&failure.status<500;
-   if(this.stopping&&!terminal)await this.database.prepare("UPDATE stories SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'").bind(row.id,row.user_id).run();
-   throw terminal?failure:new ReaderError(503,result.error||'故事编排暂未完成');
-  }
-  // A step was waiting but the story changed first. Nothing ran, so take it on the next turn.
-  if(!acquired&&result.retryAllowed)throw new JobYield();
-  if(result.awaitingFrameCount)return {awaitingFrameCount:true};
-  if(result.intake?.phase==='confirming')return {awaitingProductionConfirmation:true};
-  row=await this.raw(row.id,row.user_id);doc=JSON.parse(row.document) as Document;
-  if(doc.frameRecommendation)return {prepared:true};
-  throw new ReaderError(503,'故事仍在更新，请重试继续。');
+ referencesChanged(){
+  // 书籍星标是外部核对输入，没有改写目标故事的文档版本。
+  this.referenceGeneration++;
+  this.wake();
  }
  wake(){
   if(!this.enabled||this.closed||this.scheduled)return;
@@ -552,11 +512,6 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async cycle(){
   await this.database.prepare('DELETE FROM production_demand WHERE expires_at<=?'+(this.options.targetSessionId?' AND session_id=?':'')).bind(this.clock(),...(this.options.targetSessionId?[this.options.targetSessionId]:[])).run();
   await this.queue.renew();
-  for(const [id,lease] of this.leases){
-   const now=this.clock();
-   await this.database.prepare("UPDATE stories SET lock_until=? WHERE id=? AND user_id=? AND state='running' AND lock_token=?")
-    .bind(now+(this.options.leaseMs||sessionLeaseMs),id,lease.ownerId,lease.token).run();
-  }
   await this.queue.recoverExpired();
   if(!this.stopping){await this.settleFailedSearches();await this.pruneSuperseded();}
   await this.stopUnwantedSearches();
@@ -581,8 +536,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    // 已删除或不属于该用户的故事不在轻量结果中，与按 id 读取得到 404 时一样跳过。
    const story=revisions.get(demand.session_id);
    if(!story||story.user_id!==demand.owner_id)continue;
-   const key={rev:story.rev,state:story.state,demands:JSON.stringify(demands.filter(d=>d.session_id===story.id&&d.owner_id===story.user_id).map(d=>[d.viewer_id,d.page,d.through_page]).sort())},previous=this.rebuildKeys.get(story.id);
-   if(previous?.rev===key.rev&&previous.state===key.state&&previous.demands===key.demands)continue;
+   const key={rev:story.rev,state:story.state,references:this.referenceGeneration,demands:JSON.stringify(demands.filter(d=>d.session_id===story.id&&d.owner_id===story.user_id).map(d=>[d.viewer_id,d.page,d.through_page]).sort())},previous=this.rebuildKeys.get(story.id);
+   if(previous?.rev===key.rev&&previous.state===key.state&&previous.demands===key.demands&&previous.references===key.references)continue;
    try{
     const row=await this.repository.get(story.id,story.user_id);
     if(this.readable(row))await this.graph(row);
@@ -592,27 +547,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   for(const id of this.rebuildKeys.keys())if(!seen.has(id))this.rebuildKeys.delete(id);
   const superseded=(await this.database.prepare(`SELECT id FROM stories WHERE generation_control='active' AND EXISTS(SELECT 1 FROM production_jobs j WHERE j.session_id=stories.id AND j.owner_id=stories.user_id AND j.state='queued' AND j.kind!='image-publish' AND (j.kind='discover' OR stories.state!='failed')) AND ${supersededSql()}`).all<{id:string}>()).results;
   this.supersededJobs=new Set(superseded.map(row=>row.id));
-  for(const id of this.parsedRows.keys())if(!seen.has(id)&&!this.pruneKeys.has(id)&&!this.leases.has(id))this.parsedRows.delete(id);
+  for(const id of this.parsedRows.keys())if(!seen.has(id)&&!this.pruneKeys.has(id))this.parsedRows.delete(id);
   await this.queue.pump();
-  for(const [id,lease] of this.leases){
-   // Read jobs before the row: no running job then proves nothing can change the document we save.
-   const allJobs=await this.queue.jobs(id,lease.ownerId),row=await this.find(id,lease.ownerId);
-   if(!row){this.leases.delete(id);continue;}
-   // Releasing the lease lets the lock expire; the row itself is left untouched.
-   if(!this.readable(row)){this.leases.delete(id);continue;}
-   // 准备任务结束后释放会话锁并保存其状态。
-   const jobs=allJobs.filter(job=>this.generationCurrent(row,job));
-   if(jobs.some(job=>job.state==='running'))continue;
-   const doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
-   // An interruption is not a story failure: the job resumes, and the row must not block it.
-   const failed=jobs.find(job=>job.state==='failed'&&!job.interrupted);
-   const faults=await sessionFaults(this.database,row.id,row.user_id);
-   await this.repository.save(row,lease.token,doc,!faults.length&&productionComplete(doc,selection),failed?.error||faults.find(fault=>fault.kind!=='interrupted'||(jobs.find(job=>job.id===fault.job_id)?.attempts||0)>=maxAutomaticAttempts)?.message||null).catch(error=>{if(!(error instanceof ReaderError&&[404,409].includes(error.status)))throw error;});
-   this.leases.delete(id);
-  }
  }
  stop(){this.stopping=true;this.queue.stop();clearInterval(this.timer);for(const search of this.searches.values())search.controller.abort();}
- get busy(){return !!this.ticking||this.queue.busy||this.leases.size>0||!!this.provider.discoveryBusy?.();}
+ get busy(){return !!this.ticking||this.queue.busy||!!this.provider.discoveryBusy?.();}
  async close(){
   this.stop();
   if(this.scheduled){clearImmediate(this.scheduled);this.scheduled=undefined;}

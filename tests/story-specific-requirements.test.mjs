@@ -50,13 +50,15 @@ test('a paused draft saved during inference wins through progress and final chec
  const ready=new Promise(resolve=>entered=resolve),hold=new Promise(resolve=>release=resolve);
  f.control.beforeText=async kind=>{if(kind==='recommend'){entered();await hold;}};
  const id=await create(f);await action(f,id,{action:'choose',batch:0,index:0});await ready;
- await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
  const settings={artStyle:'watercolor',narrativeDetail:'brief',length:'auto',productionPrompt:'',acceptancePrompt:''};
- await action(f,id,{action:'draft',settings});
- const repo=f.app.services.production.repository,row=await repo.get(id,'docker-local-owner'),stale=JSON.parse(row.document);
- stale.intake.draft={...settings,productionPrompt:'迟到的自动建议',acceptancePrompt:'迟到的验收建议'};
- await repo.saveImageProgress(row,row.lock_token,stale);assert.deepEqual((await f.read(id)).intake.draft,settings);
- release();await until(async()=>(await f.read(id)).intake.phase==='confirming');assert.deepEqual((await f.read(id)).intake.draft,settings);
+ try{
+  await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
+  await action(f,id,{action:'draft',settings});
+  const inFlight=await f.read(id);
+  assert.equal(inFlight.state,'running');
+  assert.deepEqual(inFlight.intake.draft,settings);
+ }finally{release();}
+ await until(async()=>(await f.read(id)).intake.phase==='confirming');assert.deepEqual((await f.read(id)).intake.draft,settings);
  await f.restart();assert.deepEqual((await f.read(id)).intake.draft,settings);
  await action(f,id,{action:'recommend',settings});await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
  await until(async()=>(await f.read(id)).intake.phase==='confirming');assert.deepEqual((await f.read(id)).intake.draft,settings);

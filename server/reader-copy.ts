@@ -35,10 +35,11 @@ export async function copySavedStory(target:ReturnType<typeof createApplication>
   if(row.state==='running'||!saved.plan||!saved.original||saved.intake&&saved.intake.phase!=='confirmed'||saved.reselection)throw new ReaderError(409,'只能复制已停止且已保存完整原文、分镜的故事。');
   // 制作 DAG 的故事以引擎的审片结论为准：通过且没有被放行；旧版文档沿用审核检查点。
   const review=saved.dag?dagProgress(saved,selectionSchema.parse(JSON.parse(row.selection)))?.review:undefined;
-  if(!options.draft&&(saved.dag?review?.reviewStatus!=='passed'||review.reviewOverridden:saved.visualReview?.status!=='passed'||saved.visualReview.overridden))throw new ReaderError(409,'只能复制已保存原文、分镜及已通过审核的故事；未通过的文本请显式选择草稿复制。');
+  const unreviewed=saved.dag&&Object.values(saved.dag.products).some(product=>product.unreviewed);
+  if(!options.draft&&(saved.dag?review?.reviewStatus!=='passed'||review.reviewOverridden||unreviewed:saved.visualReview?.status!=='passed'||saved.visualReview.overridden))throw new ReaderError(409,'只能复制已保存原文、分镜及已通过审核的故事；未通过的文本请显式选择草稿复制。');
   if(options.draft){
    planSchema.parse(saved.plan);
-   if(!saved.dag&&!saved.visualReview||typeof saved.original.text!=='string'||!saved.original.text.trim())throw new ReaderError(409,'草稿须有完整分镜、原文和已保存的审核检查点。');
+   if((!saved.dag||unreviewed)&&!saved.visualReview||typeof saved.original.text!=='string'||!saved.original.text.trim())throw new ReaderError(409,'草稿须有完整分镜、原文和已保存的审核检查点。');
   }
   const sourceSelection=selectionSchema.parse(JSON.parse(row.selection));
   // 哈希输入形状不变；文档文本取还原后的规范形式，迁移前创建的副本仍能匹配。

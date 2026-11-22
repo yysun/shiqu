@@ -7,7 +7,7 @@ import {ReaderError,selectionSchema,type Document,type SessionRow,type Selection
 import type {ReaderRepository} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
 import type {RevisionChanges} from '../lib/reader-revision.ts';
-import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
+import {lostImageMessage,readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
 import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
@@ -16,14 +16,14 @@ import {projectDocument,type DagDocument} from '../lib/production-dag/document.t
 import {settle,stateOf,work,type DagStory} from '../lib/production-dag/runner.ts';
 import {handEditChoices} from '../lib/production-dag/hand-edits.ts';
 import {verdictNodes} from '../lib/production-dag/review.ts';
-import {survivingRevisionFrames} from '../lib/reader-revision.ts';
+import {survivingRevisionFrames,usesStoryImageReference} from '../lib/reader-revision.ts';
 import {revisionBasis,familyEpoch,currentFamilyVersion,revisionCoverMaxBytes} from './reader-revisions.ts';
 import {readableImage} from './reader-image-health.ts';
 import {imageDimensions} from '../lib/reader-image-dimensions.ts';
+import {sameArtDirection} from '../lib/reader-styles.ts';
 import {dagProgress} from '../lib/production-dag/progress.ts';
 
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
-export const lostImageMessage=(page:number)=>`第 ${page+1} 幅的图片文件已丢失或损坏。重试会重新绘制这一幅，已保存的其他画面会保留。`;
 const frameNodes=['scene','visual','frameImage','landscape',...verdictNodes];
 
 /** 读者的设置修改合入选择；幅数策略改变由引擎重新编排。 */
@@ -128,10 +128,10 @@ function settleHandEdits(story:DagStory,decisions:RevisionChanges['handEdits'],s
   if(decision==='discard')delete dag.products[choice.id];
   else dag.products[choice.id]={...dag.products[choice.id],handEdited:undefined};
  }
- if(strict&&conflicts.length)throw new ReaderError(409,`这次修改会重新编排并丢弃你手改过的内容：${conflicts.map(handEditLabel).join('、')}。请先撤销该设置修改；确实要放弃时，用命令行的 handEdits 明确放弃。草稿已保留。`);
+ if(strict&&conflicts.length)throw new ReaderError(409,`这次修改会重新编排并丢弃你手改过的内容：${conflicts.map(id=>handEditLabel(id,story.dag.order)).join('、')}。请先撤销该设置修改；草稿已保留。命令行可用 handEdits 明确放弃。`);
  return {dag,choices:choices.map(c=>({id:c.id,options:[...c.options]})),conflicts};
 }
-function handEditLabel(id:string){const [node,key]=id.split(':');return `${({scene:'叙事分镜',visual:'画面描述',brief:'梗概',characters:'人物设定',ending:'标题与结语'} as Record<string,string>)[node]??node}${key?'（'+key+'）':''}`;}
+function handEditLabel(id:string,order:string[]){const [node,key]=id.split(':'),number=key?order.indexOf(key)+1:0,name=({scene:'配文',visual:'画面描述',brief:'梗概',characters:'人物设定',ending:'标题与结语'} as Record<string,string>)[node]??node;return number>0?`第 ${number} 幅的${name}`:name;}
 
 /**
  * 修订的唯一计算（保存与预估共用）：合入设置与文字修改（含审核意见），按手改默认保护处理手改，
@@ -145,6 +145,8 @@ function deriveRevision(doc:Document,row:SessionRow,changes:RevisionChanges,chil
  const parent:DagStory={id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag!,confirmed:true,faults:[]};
  // 文字修改按上一版的输入记录为手改，再合入设置修改，由引擎判断哪些产物失效。
  const edited=applyEdits(parent,changes);
+ delete edited.resumeUnreviewed;
+ for(const [id,product] of Object.entries(edited.products))if(product.unreviewed)delete edited.products[id];
  applyRedraw(edited,changes);
  const child:DagStory={...parent,id:childId,selection,doc:{...doc,reviewNotes},dag:edited};
  const outcome=settleHandEdits(child,changes.handEdits,strict);
@@ -200,20 +202,20 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
  const items=work(child),textWork:Record<string,number>={};
  for(const item of items)if(item.call!=='draw'&&item.call!=='drawLandscape')textWork[item.call]=(textWork[item.call]??0)+item.instances.length;
  const carried=await carryFaults(repo,row,row.user_id,parent,child);
- return {changed:Object.keys(changes).length>0,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices,conflicts:conflicts.map(id=>({id,message:`重新编排会丢弃${handEditLabel(id)}的手改`})),carriedFaults:carried.length};
+ return {changed:Object.keys(changes).length>0,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices,conflicts:conflicts.map(id=>({id,message:`重新编排会丢弃${handEditLabel(id,doc.dag!.order)}的手改`})),carriedFaults:carried.length};
 }
 
 export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string,cover?:Uint8Array):Promise<SessionRow>{
  if(!Object.keys(changes).length)throw new ReaderError(400,'没有需要保存的修改。');
  const {doc,rootId,epoch,token:current}=await revisionBasis(repo,row);
- if(changes.redrawPages&&(row.state!=='completed'||Object.keys(changes).some(key=>!['redrawPages','redrawNotes'].includes(key))))throw new ReaderError(409,'仅换图需要已完成的故事，且不能同时修改文字或设置。');
+ if(changes.redrawPages&&(Object.values(doc.dag!.products).some(product=>product.unreviewed)||row.state!=='completed'||Object.keys(changes).some(key=>!['redrawPages','redrawNotes'].includes(key))))throw new ReaderError(409,'仅换图需要已完成的故事，且不能同时修改文字或设置。');
  if(changes.redrawNotes&&Object.keys(changes.redrawNotes).some(page=>!changes.redrawPages?.includes(Number(page))))throw new ReaderError(400,'重绘说明只能用于本次选中的画幅。');
  if(current!==token)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
  // 指定首幅原图（v0.14.0 的 --cover）：只用于已完成且审核通过的故事换画风；文件须是可读取的 PNG/JPEG/WebP，不超过 12 MiB、宽高各不超过 4096。
  const coverType=cover&&mediaType(cover);
  if(cover){
   const dimensions=imageDimensions(cover);
-  const reviewPassed=dagProgress(doc,selectionSchema.parse(JSON.parse(row.selection)))?.review.reviewStatus==='passed';
+  const reviewPassed=dagProgress(doc,selectionSchema.parse(JSON.parse(row.selection)))?.review.reviewStatus==='passed'&&!Object.values(doc.dag!.products).some(product=>product.unreviewed);
   if(Object.keys(changes).length!==1||!changes.artStyle||row.state!=='completed'||!reviewPassed)throw new ReaderError(409,'指定首幅原图仅适用于已完成且审核通过的故事换画风。');
   if(cover.length>revisionCoverMaxBytes||!coverType||!dimensions||dimensions.width>4096||dimensions.height>4096||!await readableImage(cover))throw new ReaderError(400,'请选择可读取的 PNG、JPEG 或 WebP，文件不超过 12 MiB，宽高各不超过 4096 像素。');
  }
@@ -233,7 +235,7 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  if(!pending)delete dag.continuation;
  const {plan,images}=projectDocument(dag,doc.plan);
  const document:Document={...doc,dag,plan,images,reviewNotes,usage:(doc.usage||[]).map(item=>({...item,originId:item.originId||row.id})),
-  revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
+  revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,...(cover||!sameArtDirection(parent.selection,selection)||usesStoryImageReference(doc.revision,parent.selection.artStyle)?{storyImageReference:true}:{}),base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
  delete document.visualReview;delete document.reselection;
  const now=new Date().toISOString(),completed=!pending&&row.state==='completed';
  // 故障延续：上一版仍待处理的故障，其节点的输入在新版里没有改变时继续阻断，须读者明确恢复；输入已变的故障不带入（新内容重新开始）。

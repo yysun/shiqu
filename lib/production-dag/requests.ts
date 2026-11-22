@@ -35,6 +35,7 @@ function value(story:DagStory,item:Work,ref:string,key:string):unknown{
   case 'settings':return {narrativeDetail:selection.narrativeDetail||'balanced',length:selection.length};
   case 'style':return styleOf(selection);
   case 'notes':return doc.reviewNotes||undefined;
+  case 'frameCheck':return dag.frameCheck;
   case 'outline':if(!dag.outline)throw Error('DAG_OUTLINE_MISSING');return dag.outline;
   case 'order':return dag.order;
   case 'renderer':return dag.renderer;
@@ -54,7 +55,7 @@ function value(story:DagStory,item:Work,ref:string,key:string):unknown{
   case 'item@self':return dag.items.find(i=>i.id===key)?.text;
   case 'redrawNote@self':return frame?.redrawNote;
   case 'frameImage@self':return frame?.image;
-  case 'reference':return at(dag,key)===0?story.refSource:dag.frames[dag.order[0]]?.image;
+  case 'reference':return story.refSource||(at(dag,key)>0?dag.frames[dag.order[0]]?.image:undefined);
   case 'issues':return (item.issues??[]).filter(i=>!key||dag.order[i.page-1]===key).map(stripTarget);
   default:throw Error(`DAG_INPUT_UNKNOWN: ${ref}`);
  }
@@ -117,7 +118,7 @@ const keysOf=(item:Work)=>item.instances.map(i=>i.key);
 const visualFrame=(read:Reader,story:DagStory,key:string)=>({index:at(story.dag,key),caption:read.get<string>('scene@self',key),candidates:read.get<Character[]>('characters@candidates',key)});
 
 const builders:Record<string,Builder>={
- prepareBrief:read=>({source:read.get('source')}),
+ prepareBrief:read=>({source:read.get('source'),productionPrompt:read.get('productionReq')}),
  characters:read=>({source:read.get('source'),productionPrompt:read.get('productionReq')}),
  outline:read=>({source:read.get('source'),productionPrompt:read.get('productionReq'),settings:read.get('settings')}),
  sceneBatch:(read,story,item)=>{
@@ -131,7 +132,11 @@ const builders:Record<string,Builder>={
   frames:keysOf(item).map(k=>({index:at(story.dag,k),caption:read.get<string>('scene@self',k),neighbors:read.get('scene@neighbors',k),issues:read.get('issues',k)}))}),
  visualRepair:(read,story,item)=>({outline:read.get('outline'),productionPrompt:read.get('productionReq'),style:read.get('style'),notes:read.get('notes'),
   frames:keysOf(item).map(k=>({...visualFrame(read,story,k),prompt:read.get<string>('visual@self',k),drawn:read.get<Character[]>('characters@drawn',k),issues:read.get('issues',k)}))}),
- structureRepair:read=>({source:read.get('source'),outline:read.get('outline'),productionPrompt:read.get('productionReq'),settings:read.get('settings'),captions:read.get('scene@all'),issues:read.get('issues'),notes:read.get('notes')}),
+ structureRepair:(read,_story,item)=>{
+  const report=item.instances[0].node==='frameCheck'?read.get<import('../reader-review.ts').FrameCountReport>('frameCheck'):undefined;
+  return {source:read.get('source'),outline:read.get('outline'),productionPrompt:read.get('productionReq'),settings:read.get('settings'),captions:read.get('scene@all'),issues:read.get('issues'),notes:read.get('notes'),
+   ...(report?{frameCountContext:{frameCountReview:report.frameCountReview,requirements:report.requirements}}:{})};
+ },
  ending:read=>({source:read.get('source'),outline:read.get('outline'),captions:read.get('scene@all')}),
  endingRepair:read=>{
   const ending=read.get<DagDocument['ending']>('ending');

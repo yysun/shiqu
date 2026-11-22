@@ -78,21 +78,21 @@ test('every old-version start point refuses without changing attempts or documen
  assert.equal(f.control.dagCalls.length+f.control.calls.length,0);
 });
 
-test('ready orphaned jobs in all four pools are contained and logged once while a valid job runs',async t=>{
+test('ready orphaned jobs in all three pools are contained and logged once while a valid job runs',async t=>{
  const {f,repo,id,owner}=await seeded(t),coordinator=await coordinatorFor(f,repo);
  const logged=[],error=console.error;console.error=(...args)=>logged.push(args);t.after(()=>{console.error=error;});
- let valid=0;coordinator.queue.options.handlers.prepare.run=async()=>{valid++;return {};};
- for(const [kind,pool] of [['prepare','text'],['discover','search'],['dag','text'],['dag-draw','image']]){
+ let valid=0;coordinator.queue.options.handlers.dag.run=async()=>{valid++;return {};};
+ for(const [kind,pool] of [['discover','search'],['dag','text'],['dag-draw','image']]){
   await coordinator.queue.enqueue({id:`orphan-${kind}`,sessionId:'missing',ownerId:owner,kind,pool,version:'v',dependencies:[],payload:{work:{call:'brief',instances:[]}},priority:-100});
  }
  await repo.db.prepare("UPDATE stories SET generation_control='active',generation_mode='background' WHERE id=?").bind(id).run();
- await coordinator.queue.enqueue({id:'valid',sessionId:id,ownerId:owner,kind:'prepare',pool:'text',version:'v',dependencies:[],payload:{},priority:100});
+ await coordinator.queue.enqueue({id:'valid',sessionId:id,ownerId:owner,kind:'dag',pool:'text',version:'v',dependencies:[],payload:{},priority:100});
  await coordinator.queue.pump();await coordinator.queue.settle();await coordinator.queue.pump();
- assert.equal(valid,1);assert.equal(logged.filter(args=>args[0]==='production_job_unreadable').length,4);
- for(const kind of ['prepare','discover','dag','dag-draw'])assert.equal((await coordinator.queue.job(`orphan-${kind}`)).attempts,0);
+ assert.equal(valid,1);assert.equal(logged.filter(args=>args[0]==='production_job_unreadable').length,3);
+ for(const kind of ['discover','dag','dag-draw'])assert.equal((await coordinator.queue.job(`orphan-${kind}`)).attempts,0);
 });
 
-test('SQL candidates exclude paused, superseded and deleted work; a failed story still runs its DAG jobs, not preparation',async t=>{
+test('SQL candidates exclude paused, superseded and deleted work; failed rows still admit DAG work and retired preparation jobs stay inert',async t=>{
  const {f,repo,id,owner}=await seeded(t),coordinator=await coordinatorFor(f,repo);
  coordinator.pruneSuperseded=async()=>{};coordinator.graph=async()=>{};
  const ids=[id];
@@ -108,7 +108,7 @@ test('SQL candidates exclude paused, superseded and deleted work; a failed story
  for(const sessionId of [ids[0],ids[1],ids[3]])for(const [kind] of kinds)assert.equal(calls.includes(`${sessionId}-${kind}`),false,`${sessionId}-${kind}`);
  assert.equal(calls.includes(`${ids[2]}-prepare`),false,'a failed story waits for recovery before preparing again');
  for(const kind of ['dag','dag-draw'])assert.ok(calls.includes(`${ids[2]}-${kind}`),'DAG faults block only dependants, not the queue');
- assert.ok(calls.includes('orphan-prepare'));assert.equal(f.control.calls.length+f.control.dagCalls.length,0);
+ assert.ok(calls.includes('orphan-dag'));assert.ok(!calls.includes('orphan-prepare'));assert.equal(f.control.calls.length+f.control.dagCalls.length,0);
  assert.ok((await coordinator.queue.jobs(ids[1],owner)).every(job=>job.attempts===0));
 });
 

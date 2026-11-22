@@ -73,7 +73,11 @@ export async function productionFixture(t,provider='codex',variables={},storage=
  // storage.imageProvider exercises the production composition with a separate drawing provider.
  const keys={gemini:{GEMINI_API_KEY:'controlled'},deepseek:{DEEPSEEK_API_KEY:'controlled'}};
  const generation=createReaderProvider({SHIQU_AI_PROVIDER:provider,...(storage.imageProvider?{SHIQU_IMAGE_PROVIDER:storage.imageProvider}:{}),...keys[provider],...keys[storage.imageProvider]},media,transport,runner);
- const options={root,dataDirectory,generation,transport,variables};let app=createApplication(options);
+ // 如需演练历史迁移，在生产应用打开书库之前写入隔离数据。
+ const options={root,dataDirectory,generation,transport,variables};
+ let app;
+ try{if(storage.initialize)await storage.initialize(dataDirectory,root);app=createApplication(options);}
+ catch(error){await rm(root,{recursive:true,force:true});throw error;}
  async function stop(){control.hold=false;for(const call of control.calls)call.resolve();await app.close();}
  const coordinators=[];
  t?.after(async()=>{app.stopGeneration();for(const coordinator of coordinators)coordinator.stop();control.hold=false;for(const call of control.calls)call.resolve();for(const coordinator of coordinators)await coordinator.close();await stop();if(!storage.retain)await rm(root,{recursive:true,force:true});});

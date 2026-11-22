@@ -10,8 +10,8 @@ import type {ImageLayout} from './reader-image-dimensions.ts';
 import type {OriginalSource,SourceResult,SourceHint} from './reader-source-types.ts';
 import {suggestedSettings} from './reader-requirements.ts';
 import {frameRecommendationOutputSchema,preparesSelectedStory} from './reader-frame-recommendation.ts';
-import {pendingStorySummary,storyBriefSchema} from './reader-story-brief.ts';
-import {normalizeProductionPrompt,storyEditorialContext} from './reader-prompts.ts';
+import {preparationCandidate,preparationOriginal} from './reader-preparation.ts';
+import {normalizeProductionPrompt} from './reader-prompts.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
 import type {ArtRecommendation} from './reader-art-recommendation.ts';
@@ -42,19 +42,10 @@ export async function advanceStory(repo:ReaderRepository,generator:StoryGenerato
     }
     doc.original=structuredClone(original);await repo.saveImageProgress(row,ownedToken,structuredClone(doc));
    }
-   const chosen=doc.intake?.phase!=='confirmed'?doc.intake?.selected:undefined,candidate=chosen?doc.intake!.batches[chosen.batch]?.stories[chosen.index]:undefined;
-   // Candidate guidance or an explicit placeholder stays bound to the saved original until checked.
-   const combining=selection.discovery?.mode==='auto'&&selection.discovery.combine;
-   const selectedSummary=selection.sourceCard?.description;
-   const sourceReason=combining?'读者已选定多段原文，按整理后的结构保留各段关键事实。'
-    :selectedSummary||storyEditorialContext(selection.theme).mode==='source'?'读者已直接选定原文，依据原文补齐完整主线。'
-    :'已选中此故事，须对照原文确认具体主题依据并补齐完整主线。';
-   const pendingBrief=candidate?.storyBrief||{
-    summary:selectedSummary||doc.storyboard?.outline.summary||pendingStorySummary,
-    matchReason:candidate?.matchReason||sourceReason,
-   };
-   if(!doc.original.storyBrief){
-    doc.original.storyBrief={...storyBriefSchema.parse(pendingBrief),verified:false};
+   const chosen=doc.intake?.phase!=='confirmed'?doc.intake?.selected:undefined,candidate=preparationCandidate(doc);
+   const prepared=preparationOriginal(doc,selection,doc.original);
+   if(prepared!==doc.original){
+    doc.original=prepared;
     await repo.saveImageProgress(row,ownedToken,structuredClone(doc));
    }
    const selectedStory=preparesSelectedStory(selection,doc.original);

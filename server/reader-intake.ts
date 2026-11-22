@@ -105,7 +105,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   intake.phase=action.conditions.discovery?'discovering':'choosing';intake.generation++;intake.batches=[];
   delete intake.indexedCandidates;
   intake.search=action.conditions.discovery?{round,state:'searching',cycleId:action.requestId}:{round,state:'idle'};intake.lastAction={id:action.requestId,hash:fingerprint};
-  delete intake.selected;delete intake.draft;delete intake.draftEdited;delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
+  delete intake.selected;delete intake.draft;delete intake.draftEdited;delete doc.original;delete doc.dag;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
   if(doc.reselection&&next.productionPrompt!==selection.productionPrompt){
    doc.setupRequirements={...doc.setupRequirements,overrides:{...doc.setupRequirements?.overrides,productionPrompt:next.productionPrompt}};
   }
@@ -129,7 +129,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   intake.phase='discovering';intake.generation++;intake.batches=[];
   delete intake.indexedCandidates;
   intake.search={round:search.round+1,state:'searching',requestId:action.requestId,commandHash:fingerprint,cycleId:action.requestId};
-  delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
+  delete doc.original;delete doc.dag;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
   const result={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
    WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`,[JSON.stringify(selection),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state])}};
   if(!result.meta.changes){if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);throw new ReaderError(409,'查找条件已更新，请重新打开后继续。');}
@@ -174,7 +174,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   if(!intake.manualArt&&candidate.artRecommendation)selection.artStyle=candidate.artRecommendation.artStyle;
   intake.selected={batch:action.batch,index:action.index};intake.phase='preparing';
   intake.search={...intakeSearch(intake),state:'idle',error:null};
-  delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;selection.length='auto';
+  delete doc.original;delete doc.dag;delete doc.frameRecommendation;doc.frameCountConfirmed=false;selection.length='auto';
  }else{
   if(!intake.selected||intake.phase!=='confirming')throw new ReaderError(409,'请先选择故事并等待制作建议保存。');
   const requirementsChanged=action.settings.productionPrompt!==selection.productionPrompt;

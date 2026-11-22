@@ -132,6 +132,13 @@ mod tests {
             assert!(!folder.join(".desktop.lock").exists());
             assert!(!folder.join(".desktop-owner.sqlite").exists());
         }
+        std::fs::write(
+            folder.join(".desktop-upgrade.json"),
+            r#"{"version":1,"work":".desktop-upgrade-11111111-1111-4111-8111-111111111111","backup":null}"#,
+        )
+        .unwrap();
+        assert!(needs_upgrade(&folder).unwrap());
+        assert!(!folder.join(".desktop-owner.sqlite").exists());
         std::fs::remove_dir_all(folder).unwrap();
     }
 }

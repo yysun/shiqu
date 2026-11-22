@@ -26,6 +26,7 @@ async function prepared(f){const id=await create(f);await phase(f,id,'choosing')
 const jobs=async(f,id,kind)=>(await f.app.services.database.prepare(`SELECT * FROM production_jobs WHERE session_id=?${kind?' AND kind=?':''}`).bind(id,...(kind?[kind]:[])).all()).results;
 // The second candidate has no real source; reuse the saved text so that choosing it can prepare.
 async function reuseSource(f,id){const source=(await f.json(`sessions/${id}/source`)).source,generator=f.generation.generator.bind(f.generation);f.generation.generator=()=>({...generator(),prepareOriginal:async()=>source});}
+const recommendationJobs=async(f,id)=>(await jobs(f,id,'dag')).filter(job=>JSON.parse(job.payload).work.call==='prepareSuggestions');
 const stored=async(f,id)=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
 // A provider call that ends when it is told to stop, as the local reading loop does between calls.
 function heldSearch(f){
@@ -308,11 +309,11 @@ test('retry restores only the current selection; superseded jobs leave the queue
  const generator=f.generation.generator.bind(f.generation);let reject=true;
  f.generation.generator=()=>{const g=generator();return {...g,recommend:async(...args)=>{if(reject)throw Error('controlled preparation failure');return g.recommend(...args);}};};
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).state==='failed');
- const failed=await jobs(f,id,'prepare');assert.equal(failed.length,1);assert.equal(failed[0].state,'failed');
+ const failed=await recommendationJobs(f,id);assert.equal(failed.length,1);assert.equal(failed[0].state,'failed');
  reject=false;await reuseSource(f,id);await setup(f,id,{action:'choose',batch:0,index:1});await phase(f,id,'confirming');
- assert.equal((await jobs(f,id,'prepare')).filter(job=>job.state==='failed').length,0,'The old failure is gone, not requeued or left to be checked');
+ assert.equal((await recommendationJobs(f,id)).filter(job=>job.state==='failed').length,0,'The old failure is gone, not requeued or left to be checked');
  const current=await f.read(id);assert.equal((await f.request(`sessions/${id}/production`,'POST',{viewerId:crypto.randomUUID(),page:0,retry:true})).status,400);
- assert.equal((await jobs(f,id,'prepare')).filter(job=>job.state==='queued').length,0);assert.equal((await f.read(id)).intake.generation,current.intake.generation);
+ assert.equal((await recommendationJobs(f,id)).filter(job=>job.state==='queued').length,0);assert.equal((await f.read(id)).intake.generation,current.intake.generation);
 });
 
 test('superseded jobs leave the queue on finished, paused and deleted stories too',async t=>{
@@ -342,9 +343,14 @@ test('a dead lock on a paused story blocks nothing and does not resume it; confi
 });
 
 test('a preparation whose receipt was lost after saving settles instead of cycling',async t=>{
- const f=await fixture(t),id=await prepared(f),s=await f.read(id);
- await f.app.services.production.queue.enqueue({id:crypto.randomUUID(),sessionId:id,ownerId:owner,kind:'prepare',pool:'text',version:'lost',dependencies:[],payload:{setupGeneration:s.intake.generation,stepKey:''},priority:-10});
- await until(async()=>{await f.app.services.production.tick();return (await jobs(f,id,'prepare')).every(job=>job.state==='succeeded');});
+ const f=await fixture(t),id=await prepared(f);
+ const [recommendation]=await recommendationJobs(f,id);
+ assert.equal(recommendation.state,'succeeded');
+ await f.app.services.production.queue.rerun(recommendation.id);
+ await until(async()=>{
+  await f.app.services.production.tick();
+  return (await recommendationJobs(f,id)).every(job=>job.state==='succeeded');
+ });
  const after=await f.read(id);assert.equal(after.state,'idle');assert.equal(after.intake.phase,'confirming');assert.equal(f.control.recommendations.length,1);
 });
 

@@ -23,11 +23,24 @@ test('choosing prepares saved source and count; only full production confirmatio
  const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');const prepared=await f.read(id);
  assert.equal(prepared.selection.storyTitle,'庄周梦蝶');assert.equal(prepared.selection.artStyle,'paper-cut');assert.equal(prepared.frameRecommendation.count,7);assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
+ const stored=await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first();
+ const doc=JSON.parse(stored.document);
+ assert.ok(doc.dag.products['source:']);
+ assert.ok(doc.dag.products['suggestions:']);
+ assert.ok(doc.original.storyBrief.verified);
+ assert.equal(doc.dag.modelSnapshot,undefined);
+ assert.deepEqual(doc.dag.order,[]);
+ const jobs=(await f.app.services.database.prepare('SELECT kind,payload FROM production_jobs WHERE session_id=?').bind(id).all()).results;
+ assert.deepEqual(jobs.filter(job=>job.kind==='dag').map(job=>JSON.parse(job.payload).work.call).sort(),['prepareSuggestions','verifySource']);
+ assert.ok(jobs.every(job=>job.kind!=='prepare'));
  assert.equal((await f.request(`sessions/${id}/source`)).status,200);
  assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:4})).status,409);
  await f.json(`sessions/${id}/advance`,'POST',{throughPage:79});await f.app.services.production.tick();assert.equal(f.control.dagCalls.length,0);
- const action={requestId:crypto.randomUUID(),generation:prepared.intake.generation,action:'confirm',settings:{artStyle:'watercolor',productionPrompt:'clear captions',narrativeDetail:'balanced',length:4}};
+ const action={requestId:crypto.randomUUID(),generation:prepared.intake.generation,action:'confirm',settings:{artStyle:'watercolor',productionPrompt:'从庄周醒来开始。',narrativeDetail:'balanced',length:4}};
+ const scopes=[];
+ f.control.beforeText=(kind,payload)=>{if(kind==='brief')scopes.push(payload.productionPrompt);};
  await f.json(`sessions/${id}/setup`,'POST',action);await until(async()=>(await f.read(id)).state==='completed');assert.equal((await f.read(id)).story.pages.length,4);assert.equal(f.control.calls.length,4);
+ assert.deepEqual(scopes,[action.settings.productionPrompt]);
  await f.json(`sessions/${id}/setup`,'POST',action);assert.equal(f.control.calls.length,4);
 });
 
@@ -86,6 +99,60 @@ test('failed preparation can be replaced, manual preferences survive reselect, a
  const repo=f.app.services.production.repository,row=await repo.get(id,'docker-local-owner'),doc=JSON.parse(row.document);
  await f.app.services.database.prepare("UPDATE stories SET state='running',lock_token='late-token',document=json_set(document,'$.intake.generation',?) WHERE id=?").bind(doc.intake.generation+1,id).run();
  await assert.rejects(repo.save(row,'late-token',doc,false),/状态已更新/);await assert.rejects(repo.saveImageProgress(row,'late-token',doc),/状态已更新/);
+});
+
+test('an obsolete recommendation failure cannot block a newer selection',async t=>{
+ const f=await fixture(t),id=await create(f);
+ await until(async()=>(await f.read(id)).intake.phase==='choosing');
+ const generator=f.generation.generator.bind(f.generation);
+ let fail,original;
+ const gate=new Promise((_,reject)=>{fail=reject;});
+ f.generation.generator=()=>{
+  const g=generator();
+  return {...g,prepareOriginal:async(selection,id)=>selection.storyTitle==='大葫芦'?original:await g.prepareOriginal?.(selection,id),recommend:async(...args)=>{
+   if(args[0].storyTitle==='庄周梦蝶'){original=args[2];await gate;}
+   return g.recommend(...args);
+  }};
+ };
+ await setup(f,id,{action:'choose',batch:0,index:0});
+ await until(()=>original);
+ try{await setup(f,id,{action:'choose',batch:0,index:1});}
+ finally{fail(Error('obsolete recommendation'));}
+ await until(async()=>(await f.read(id)).intake.phase==='confirming');
+ const saved=await f.read(id);
+ assert.equal(saved.selection.storyTitle,'大葫芦');
+ assert.ok(!saved.faults?.length);
+ assert.equal(f.control.recommendations.length,1);
+});
+
+test('recovering a saved recommendation receipt preserves edits and calls the provider once',async t=>{
+ const f=await fixture(t),id=await create(f);
+ await until(async()=>(await f.read(id)).intake.phase==='choosing');
+ const database=f.app.services.database,prepare=database.prepare.bind(database);
+ let reject=true;
+ database.prepare=query=>{
+  const statement=prepare(query);
+  if(!/UPDATE stories SET document=\?,state=CASE/.test(query))return statement;
+  return {...statement,bind:(...values)=>{
+   const bound=statement.bind(...values);
+   if(!reject||JSON.parse(values[0]).intake?.phase!=='confirming')return bound;
+   return {...bound,run:async()=>{reject=false;throw Object.assign(Error('SQLITE_BUSY'),{code:'SQLITE_BUSY'});}};
+  }};
+ };
+ await setup(f,id,{action:'choose',batch:0,index:0});
+ await until(async()=>(await f.read(id)).faults?.some(fault=>fault.retryAllowed),20000);
+ const failed=await f.read(id);
+ assert.equal(failed.intake.phase,'preparing');
+ assert.equal(failed.frameRecommendation,null);
+ const settings={artStyle:'watercolor',productionPrompt:'从庄周醒来开始。',narrativeDetail:'brief',length:4};
+ await setup(f,id,{action:'draft',settings,draftToken:failed.intake.draftToken},failed);
+ await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:failed.faults[0].id});
+ await until(async()=>(await f.read(id)).intake.phase==='confirming');
+ const saved=await f.read(id);
+ assert.equal(saved.intake.draft.productionPrompt,settings.productionPrompt);
+ assert.equal(saved.intake.draft.artStyle,settings.artStyle);
+ assert.equal(saved.frameRecommendation.count,7);
+ assert.equal(f.control.recommendations.length,1);
 });
 
 test('empty batches stay selectable, cap at forty, and pause never dispatches discovery',async t=>{
@@ -150,13 +217,15 @@ test('finding another batch leaves the prepared story in place and observes unti
 });
 
 test('confirmed intake draws eighty frames once across four storyboard batches',heavy,async t=>{
- const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
+ const f=await fixture(t),batches=[];
+ f.control.beforeText=(kind,payload)=>{if(kind==='sceneBatch')batches.push(payload.batch);};
+ const id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');
  await setup(f,id,{action:'confirm',settings:{artStyle:'paper-cut',productionPrompt:'Complete causality without repeated scenes.',narrativeDetail:'detailed',length:80}});
  // Eighty durable image/prompt receipts need headroom while the full suite shares the CI runner.
  await until(async()=>(await f.read(id)).state==='completed',60000);
- assert.deepEqual(f.control.batches.map(p=>p.batch),[{first:1,last:20},{first:21,last:40},{first:41,last:60},{first:61,last:80}]);
- assert.equal(f.control.calls.length,80);assert.equal((await f.read(id)).ready,80);
+ assert.deepEqual(batches,[{first:1,last:20},{first:21,last:40},{first:41,last:60},{first:61,last:80}]);
+ assert.deepEqual(f.control.calls.map(call=>call.page).sort((a,b)=>a-b),Array.from({length:80},(_,page)=>page));assert.equal((await f.read(id)).ready,80);
 });
 
 

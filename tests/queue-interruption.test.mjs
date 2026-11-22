@@ -88,7 +88,7 @@ test('quitting during story preparation resumes it without a retry',async t=>{
  await f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(id)).intake.generation,action:'choose',batch:0,index:0});
  await until(()=>started()===1);
  f.app.stopGeneration();kill(Error('killed'));
- await until(async()=>(await jobs(f,id)).some(job=>job.kind==='prepare'&&job.interrupted===1));
+ await until(async()=>(await jobs(f,id)).some(job=>job.kind==='dag'&&JSON.parse(job.payload).work.call==='prepareSuggestions'&&job.interrupted===1));
  assert.equal((await row(f,id)).state,'idle');
  await f.restart();await until(async()=>(await f.read(id)).intake.phase==='confirming',8000);
  assert.equal(f.control.recommendations.length,1);
@@ -203,7 +203,7 @@ for(const [name,corrupt] of [
  assert.equal(f.control.calls.filter(call=>call.done).length,4,'The unreadable story made no further paid call');
  assert.equal(logs.mock.calls.filter(call=>call.arguments[0]==='production_story_unreadable').length,1);
  assert.doesNotMatch(JSON.stringify(logs.mock.calls),/庄周|philosopher/);
- await production(f).tick();assert.equal(production(f).leases.has(bad),false,'A parked story does not keep renewing its lock');
+ await production(f).tick();assert.ok((await jobs(f,bad)).every(job=>job.state!=='running'),'A parked story does not keep renewing its lock');
 });
 
 test('a queued text job for an unreadable document makes no paid call',async t=>{

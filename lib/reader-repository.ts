@@ -156,6 +156,7 @@ export class ReaderRepository{
   if(doc.intake)throw new ReaderError(409,'请在制作确认中统一确认故事、画风、幅数和制作要求。');
   if(doc.frameCountConfirmed&&selection.length===count)return row;
   if(row.state==='running'||!awaitingFrameCount(doc,selection))throw new ReaderError(409,'画幅数已确定或故事正在更新，请重新打开后继续。');
+  delete doc.legacyFramePreparation;
   const updated=await this.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,updated_at=? WHERE id=? AND user_id=? AND state=? AND document=? AND selection=? AND ${visible}`)
    .bind(JSON.stringify({...selection,length:count}),JSON.stringify({...doc,frameCountConfirmed:true}),new Date().toISOString(),id,uid,row.state,row.document,row.selection).run();
   if(!updated.meta.changes){

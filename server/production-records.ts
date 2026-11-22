@@ -23,6 +23,12 @@ function faultNode(job:Job):{node:string|null;key:string}{
 
 /** 任务失败：写入失败状态与错误码，作废同一任务或同一恢复授权的旧故障，记录新故障，并更新恢复回执。返回是否写入。 */
 export function recordJobFailed(db:SyncStatements,job:Job,input:{message:string;interrupted:boolean;errorCode?:string;failureId?:string;now:number;payload?:string;fromState?:'running'|'failed'}):boolean{
+ // 读者换选后，上一世代正在退出的任务不能给新故事登记故障。
+ if((job.kind==='dag'||job.kind==='dag-draw')&&db.get(`SELECT id FROM stories WHERE id=? AND user_id=? AND json_valid(document)
+  AND json_extract(document,'$.intake.generation') IS NOT json_extract(?,'$.setupGeneration')`,job.session_id,job.owner_id,job.payload)){
+  db.run("UPDATE production_jobs SET state='succeeded',result=json_object('obsolete',1),lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token IS ?",input.now,job.id,job.lease_token??null);
+  return false;
+ }
  const failureId=input.failureId??randomUUID();
  const updated=input.fromState==='failed'
   ?db.run("UPDATE production_jobs SET error=?,interrupted=?,failure_id=?,error_code=?,updated_at=? WHERE id=? AND state='failed'",input.message,input.interrupted?1:0,failureId,input.errorCode??null,input.now,job.id)
@@ -94,8 +100,12 @@ export function storyEffects(db:SyncStatements,id:string,ownerId:string,before:I
  if(typeof action?.id==='string'&&action.id!==before.intake?.lastAction?.id)receipt(action.id,id,'setup',action.hash??'',id);
  const search=after.intake?.search;
  if(typeof search?.commandHash==='string'&&search.requestId&&search.requestId!==before.intake?.search?.requestId)receipt(search.requestId,id,'setup',search.commandHash,id);
- if(before.intake?.generation!==undefined&&before.intake.phase!=='confirmed'&&after.intake?.generation!==before.intake.generation)
+ if(before.intake?.generation!==undefined&&before.intake.phase!=='confirmed'&&after.intake?.generation!==before.intake.generation){
+  db.run(`UPDATE reader_commands SET status='failed',error='选题或制作设置已更新。',updated_at=?
+   WHERE session_id=? AND owner_id=? AND action='recover' AND status IN ('queued','running')
+   AND fault_id IN (SELECT id FROM reader_faults WHERE session_id=? AND owner_id=? AND ${open})`,now,id,ownerId,id,ownerId);
   db.run(`UPDATE reader_faults SET state='replaced',updated_at=? WHERE session_id=? AND owner_id=? AND ${open}`,now,id,ownerId);
+ }
  if(before.reselection&&typeof before.reselection==='object'&&after.revision?.kind==='selection'&&after.revision.selectionRequest&&after.revision.parentId)
   receipt(after.revision.selectionRequest,after.revision.parentId,'replace',after.revision.requestHash??'',id);
 }

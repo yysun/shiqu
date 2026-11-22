@@ -35,7 +35,9 @@ export const storyPlanningDirection=promptSections(
  ['默认制作标准',defaultProductionDirection],['输入与输出',inputBoundaryDirection]);
 // Scene execution shares quality standards without instructions to choose a new story scope or count.
 export const storySceneDirection=promptSections(['默认制作标准',defaultProductionDirection],['原文依据',storySourceDirection],['作品知识与补文',storyKnowledgeDirection],['叙事标准',narrativeMeaningDirection],['事实边界',sourceFidelityDirection],['静态画面与衔接',storyboardDirection]);
-export const storyMetadataDirection=storySummaryDirection+'\n'+'summary只作归档，不决定分镜顺序与轻重。sourceReference用书名及chapterContext.title，缺省用verifiedOriginal.title；不伪造引文或网址。adaptationNote说明压缩、改写及视觉补足，明确AI演绎。characters用简体中文记录有据的时代、年龄、外貌、服饰、辨识特征及关键物件；身份稳定，动态状态按剧情阶段描述。不混入画风或构图，也不要求每幅全员全身。';
+export const storyOutlineMetadataDirection=storySummaryDirection+'\n'+'summary只作归档，不决定分镜顺序与轻重。sourceReference用书名及chapterContext.title，缺省用verifiedOriginal.title；不伪造引文或网址。adaptationNote说明压缩、改写及视觉补足，明确AI演绎。';
+export const storyCharacterDirection='characters用简体中文记录有据的时代、年龄、外貌、服饰、辨识特征及关键物件；身份稳定，动态状态按剧情阶段描述。不混入画风或构图，也不要求每幅全员全身。';
+export const storyMetadataDirection=storyOutlineMetadataDirection+storyCharacterDirection;
 export const storyCaptionDirection='caption用现代旁白、对白或两者，目标8至55字、最多3个短句，必要时可到90字硬上限。与本幅瞬间和上下文对应，不为凑字数解释画面。';
 export const storyVisualDirection='prompt默认简体中文，可保留专业英文术语；依次写核心瞬间、动作或反应、接触与空间、必要状态及景别焦点，使每幅可独立生成。只补本幅可见的必要身份与位置线索，不双语复述、堆术语或用泛泛“张口讲述”代替设计。';
 export const storyStyleBoundaryDirection='绘制媒介、笔触、画纸或画布质感和全局视觉风格统一由 artDirection 决定，不写入逐幅 prompt。分镜保留本幅的光源、时段、物体材质和叙事所需的气氛。画中不写字，景别不改变画风。';

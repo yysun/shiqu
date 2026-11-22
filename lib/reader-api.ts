@@ -13,12 +13,11 @@ import type {StoryPromptHistory} from './reader-prompt-records.ts';
 import {storyRequirementsSchema} from './reader-requirements.ts';
 import {storyReviewHistory,dagAcceptanceResults} from './reader-review-history.ts';
 import {loadPromptRecords,usageRecord} from './reader-prompt-store.ts';
-import {BookImageReferences,withBookReference} from '../server/book-image-reference.ts';
+import {BookImageReferences} from '../server/book-image-reference.ts';
 import {events} from '../db/schema.ts';
 import type {Services} from './services.ts';
 import {z} from 'zod';
 import {ReaderRepository,latestVersionMessage} from './reader-repository.ts';
-import {advanceStory} from './reader-engine.ts';
 import {suggestionRequestSchema} from './reader-suggestions.ts';
 import {ReaderError,readableStory,selectionSchema,displayTitleSchema,planSchema,view} from './reader-model.ts';
 import {sourceSearchUrl} from './reader-source.ts';
@@ -90,12 +89,12 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }))).filter((card):card is ShelfSession&{version:string}=>card!==null);
    return json(known?{changed:cards,removed:[...known.keys()]} satisfies ShelfChanges:cards);
   }
-  if(path[0]==='library'&&path.length===2&&req.method==='DELETE'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.remove(id,uid));}
+  if(path[0]==='library'&&path.length===2&&req.method==='DELETE'){const id=z.string().min(1).max(100).parse(path[1]),removed=await repo.remove(id,uid);services.production?.referencesChanged?.();return json(removed);}
   if(path[0]==='library'&&path.length===3&&path[2]==='restore'&&req.method==='POST'){const id=z.string().min(1).max(100).parse(path[1]);return json(await repo.restore(id,uid));}
   if(path[0]==='library'&&path.length===3&&path[2]==='reference'){
    const id=z.string().min(1).max(100).parse(path[1]),references=new BookImageReferences(services.database,services.media,uid);
    if(req.method==='GET')return json(await references.get(id));
-   if(req.method==='POST'){const data=z.object({page:z.number().int().min(0).max(readerMaxFrames-1),starred:z.boolean(),token:uuid.optional()}).strict().parse(await body(req));return json(await references.set(id,data.page,data.starred,data.token));}
+   if(req.method==='POST'){const data=z.object({page:z.number().int().min(0).max(readerMaxFrames-1),starred:z.boolean(),token:uuid.optional()}).strict().parse(await body(req));const result=await references.set(id,data.page,data.starred,data.token);services.production?.referencesChanged?.();return json(result);}
   }
   if(path[0]==='library'&&path.length===3&&path[2]==='favorite'&&req.method==='POST'){const id=z.string().min(1).max(100).parse(path[1]);const b=z.object({saved:z.boolean()}).strict().parse(await body(req));return json(await repo.favorite(id,uid,b.saved));}
   if(path.join('/')==='books/semantic-indexes'&&req.method==='GET'){
@@ -264,7 +263,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
      missingRecords:(doc.usage||[]).flatMap((item,index)=>usageRecord(item,stored)?[]:[{step:item.step,model:item.model,originId:item.originId||id,index}]),
     };
     const suggestions=storyRequirementsSchema.safeParse(doc.setupRequirements?.suggestions);
-    return json({...history,...(suggestions.success?{suggestedRequirements:suggestions.data}:{}),criteria:acceptanceCriteria(selection.acceptancePrompt),results:doc.dag?dagAcceptanceResults(doc.dag):doc.visualReview?.reports.at(-1)?.acceptanceResults||[],overridden:!!doc.visualReview?.overridden,previews:{production:promptRecord(draftInstructions(!!doc.original?.localSource)+'\n\n## 提纲阶段\n'+outlineDirection+'\n\n## 分批细化阶段\n'+batchDirection,preferences),acceptance:promptRecord(reviewSystemPrompt+'\n\n'+acceptanceDirection+'\n\n## 定向修订\n'+repairSystemPrompt,preferences)}});
+    return json({...history,...(suggestions.success?{suggestedRequirements:suggestions.data}:{}),criteria:acceptanceCriteria(selection.acceptancePrompt),results:doc.dag?dagAcceptanceResults(doc.dag):doc.visualReview?.reports.at(-1)?.acceptanceResults||[],overridden:doc.dag?Object.values(doc.dag.products).some(product=>product.overridden):!!doc.visualReview?.overridden,previews:{production:promptRecord(draftInstructions(!!doc.original?.localSource)+'\n\n## 提纲阶段\n'+outlineDirection+'\n\n## 分批细化阶段\n'+batchDirection,preferences),acceptance:promptRecord(reviewSystemPrompt+'\n\n'+acceptanceDirection+'\n\n## 定向修订\n'+repairSystemPrompt,preferences)}});
    }
    if(path[2]==='publication'&&path.length===3&&req.method==='POST'){
     const parsed=z.object({publication:publicationSchema,expected:publicationSchema.nullable()}).strict().safeParse(await body(req,32768));
@@ -396,7 +395,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(path[2]==='events'&&req.method==='POST'){const row=await repo.get(id,uid);const b=z.object({id:z.string().max(200),visitor:uuid,session:uuid,storyId:uuid,kind:z.enum(['start','page','complete','next','save','audio','feedback_positive','feedback_negative']),page:z.number().int().min(0).max(readerMaxFrames-1).nullable(),mode:z.enum(['manual','audio']),cohort:z.enum(['internal','pilot'])}).parse(await body(req));const current=view(row);if(b.storyId!==id||(b.page!==null&&!current.story?.pages[b.page]?.image))throw new ReaderError(400,'这幅画面还没有展开');await services.db.insert(events).values({...b,createdAt:new Date().toISOString()}).onConflictDoNothing();return json({ok:true});}
    if(path[2]==='progress'&&req.method==='POST'){const b=z.object({page:z.number().int().min(0).max(readerMaxFrames-1),saved:z.boolean()}).parse(await body(req));return json(view(await repo.progress(id,uid,b.page,b.saved)));}
    if(path[2]==='frame-count'&&path.length===3&&req.method==='POST'){const b=z.object({count:z.union([z.number().int().min(1).max(readerMaxFrames),z.literal('auto')])}).strict().parse(await body(req));return json(view(await repo.confirmFrameCount(id,uid,b.count)));}
-   if(path[2]==='advance'&&req.method==='POST'){await requireProvider();const b=z.object({throughPage:z.number().int().min(0).max(readerMaxFrames-1),retry:z.boolean().default(false)}).parse(await body(req));if(b.retry)throw new ReaderError(400,'重试必须提交当前故障实例与操作编号，请使用恢复入口。');const result=services.production?await services.production.advance(uid,id,b.throughPage,false):await advanceStory(repo,withBookReference(provider.generator(),new BookImageReferences(services.database,services.media,uid)),uid,id,b.throughPage,false);return json(result,result.state==='running'?202:200);}
+   if(path[2]==='advance'&&req.method==='POST'){await requireProvider();const b=z.object({throughPage:z.number().int().min(0).max(readerMaxFrames-1),retry:z.boolean().default(false)}).parse(await body(req));if(b.retry)throw new ReaderError(400,'重试必须提交当前故障实例与操作编号，请使用恢复入口。');if(!services.production)throw new ReaderError(503,'制作队列暂不可用');const result=await services.production.advance(uid,id,b.throughPage,false);return json(result,result.state==='running'?202:200);}
   }
   if(path[0]==='media'&&path[1]&&path[2]&&path.length===3&&req.method==='GET'){
    const id=uuid.parse(path[1]);await repo.get(id,uid);const file=/^(0|[1-9][0-9]?)\.(png|jpg|webp|wav)$/.exec(path[2]);if(!file||Number(file[1])>=readerMaxFrames)throw new ReaderError(404,'画面不存在');const object=await services.media?.get(`reader/${id}/${path[2]}`);if(!object)throw new ReaderError(404,'这幅还没有生成');const headers=new Headers({'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'});headers.set('Content-Type',object.contentType);return new Response(object.body,{headers});

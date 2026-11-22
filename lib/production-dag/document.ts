@@ -47,6 +47,8 @@ export type DagDocument={
  /** 事实梗概（准备梗概或读者手改）。 */
  brief?:string;
  outline?:DagOutline;
+ /** 本轮已尝试独立画风建议，缺少该能力的服务也可继续给出制作建议。 */
+ preparedArt?:true;
  frameCheck?:FrameCountReport;
  /** 各结论的说明，键为结论实例身份；结论本身记录在 products。 */
  verdicts?:Record<string,{outcome:'pass'|'fail';detail?:string;requirements?:true}>;
@@ -66,6 +68,8 @@ export type DagDocument={
  cover?:{frame:string;image:string};
  /** 转换自 v1，记录按旧规则产生。 */
  legacy?:true;
+ /** 旧版已有未完成成稿且原本无需审核；只延续此稿的绘图权限。 */
+ resumeUnreviewed?:true;
 };
 
 export const defaultRenderer:Renderer={layout:'portrait',aspectRatio:'9:16',size:'1K'};
@@ -120,6 +124,7 @@ export function versionState(dag:DagDocument,roots:Record<string,Product>,option
   products:{...dag.products,...roots},
   faults:options.faults||[],
   reprepare:options.reprepare,
+  resumeUnreviewed:dag.resumeUnreviewed,
   skipFrameCheck:options.skipFrameCheck,
  };
 }

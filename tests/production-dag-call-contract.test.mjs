@@ -33,7 +33,10 @@ test('outline, characters and storyboard text never see the style; image descrip
  const visual=await gen.visual({outline,productionPrompt:REQ,style,frames:[{index:0,caption:'管仲与鲍叔牙少时同游。',candidates:people}]});
  assert.deepEqual(visual.value[0].drawn,['管仲','鲍叔牙']);
  for(const c of calls.slice(0,3)){without(c.text,STYLE);contains(c.text,REQ);}
- contains(calls[3].text,STYLE,REQ);
+ contains(calls[3].text,STYLE,REQ,'artDirection 只用于画面表现。');
+ without(calls[0].text,'保留规定元数据与characters');
+ contains(calls[2].text,'previousCaptions');
+ without(calls[2].text,'previousPages');
 });
 
 test('batched frame calls return one result per frame, matched by frame number; a missing frame fails the batch',async()=>{
@@ -58,14 +61,31 @@ test('batched frame calls return one result per frame, matched by frame number; 
  await assert.rejects(short.gen.visual({outline,productionPrompt:REQ,style,frames}),/INVALID_OUTPUT/);
 });
 
-test('the summary reads only the source; endings read captions but not requirements or image descriptions',async()=>{
+test('restyle retains the post-release art and story constraints with one output shape',async()=>{
+ const {calls,gen}=recorder(()=>({frames:[{number:1,prompt:'清晨两位少年并肩走在乡间小路上，中景，远处可见低矮的土墙。',drawn:['管仲']}]}));
+ await gen.restyle({outline,productionPrompt:REQ,style,previousStyle:{artStyle:'ink-pencil',artStylePrompt:'旧画风'},frames:[{index:0,caption:CAPTION,candidates:people,previousPrompt:VISUAL}]});
+ contains(calls[0].text,'不要把新画风附加在旧画风指令后面','保留原有可见细节','只返回 {frames:[{number,prompt,drawn}]}',STYLE,'旧画风',VISUAL);
+ without(calls[0].text,'只返回 scenePrompts');
+});
+
+test('the summary reads the verified source and production scope; endings read captions without either scope preferences or image descriptions',async()=>{
  const {calls,gen}=recorder(schema=>schema.properties.summary?{summary:'管仲与鲍叔牙少时相知。'}:schema.properties.candidates?{title:'管鲍之交',candidates:['一','二','三']}:{reflection:'知己难得。'});
- await gen.prepareBrief({source});
+ await gen.prepareBrief({source,productionPrompt:REQ});
  await gen.ending({source,outline,captions:[CAPTION,'第二幅配文八个字以上']});
  await gen.endingRepair({source,outline,captions:[CAPTION],reflection:'旧结语',issues:[],notes:NOTES});
- without(calls[0].text,STYLE,REQ,CAPTION,VISUAL);
+ contains(calls[0].text,REQ,'摘要不续述范围外的事件');without(calls[0].text,STYLE,CAPTION,VISUAL);
  without(calls[1].text,STYLE,REQ,VISUAL);contains(calls[1].text,CAPTION);
  without(calls[2].text,STYLE,REQ,VISUAL);contains(calls[2].text,NOTES);
+});
+
+test('a combined-source synopsis respects the scoped requirement and preserves separate source events',async()=>{
+ const {calls,gen}=recorder(()=>({summary:'两段原文分别交代了各自的缘起和结果。'}));
+ const combined={...source,original:{...original,localParts:[
+  {sectionId:'first',title:'第一段',text:'管仲与鲍叔少时同游。'},
+  {sectionId:'second',title:'第二段',text:'管仲与鲍叔各自离开。'},
+ ]}};
+ await gen.prepareBrief({source:combined,productionPrompt:REQ});
+ contains(calls[0].text,'"combineSelectedOriginals":true','读者未进一步限定范围','不虚构事件之间的因果和人物关系',REQ);
 });
 
 test('the frame-count check reads captions and requirements but no image descriptions or style',async()=>{
@@ -94,14 +114,14 @@ test('scenario 52: review replaces only allowed verdicts; everything else become
  const result=await gen.review({source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'结尾才揭示身份',style,characters:people,frames,chosenEnding:'知己难得。',notes:NOTES,allowed:{pages:[1,2],criteria:[],narrative:false},itemIds:{1:'i-x'}});
  assert.deepEqual(result.value.judgements.map(j=>[j.id,j.outcome]),[['frameVerdict:f1','pass'],['frameVerdict:f2','fail']]);
  assert.deepEqual(result.value.suggestions.map(j=>j.id),['frameVerdict:f3']);
- contains(calls[0].text,STYLE,REQ,NOTES);
+ contains(calls[0].text,STYLE,REQ,NOTES,'优先核对点名的段落、幅号或结语');
 });
 
 test('scenario 57: drawing and landscape prompts carry no caption or production requirements',()=>{
  const drawn=[people[0]];
  for(const layout of ['portrait','landscape']){
   const prompt=framePrompt({visual:VISUAL,redrawNote:'调暗背景',drawn,style,index:0,reference:true,layout});
-  contains(prompt,VISUAL,'调暗背景','管仲');
+  contains(prompt,VISUAL,'调暗背景','管仲',STYLE,'Compose every page as a finished lianhuanhua illustration','The quoted art direction guides visual style only.');
   without(prompt,REQ,CAPTION,'鲍叔牙');
  }
 });
@@ -156,4 +176,19 @@ test('a scoped review keeps an out-of-scope frame finding out of the verdicts of
  const scoped=await recorder(reply).gen.review({...base,allowed:{pages:[1,2],criteria:[],narrative:false}});
  assert.ok(scoped.value.judgements.every(j=>j.outcome==='pass'),'the findings on frame 3 do not fail frames 1 and 2');
  assert.ok(scoped.value.suggestions.some(j=>j.id==='frameVerdict:f3'&&j.outcome==='fail'),'the out-of-scope finding is kept as a suggestion for its own frame');
+});
+
+test('structural repairs reject overlaps, out-of-range edits and invalid frame counts',async()=>{
+ const page={caption:'甲放下礼物，留下足够空间让乙回应。',people:[]};
+ const input={source,outline,productionPrompt:REQ,settings:{length:'auto',narrativeDetail:'balanced'},captions:['第一幅的正文','第二幅的正文'],issues:[]};
+ for(const edits of [
+  [{from:1,to:2,pages:[page]},{from:2,to:2,pages:[page]}],
+  [{from:4,to:3,pages:[page]}],
+  [{from:1,to:2,pages:[]}],
+ ]){
+  const {gen}=recorder(()=>({edits}));
+  await assert.rejects(gen.structureRepair(input));
+ }
+ const {gen}=recorder(()=>({edits:[{from:81,to:80,pages:[page]}]}));
+ await assert.rejects(gen.structureRepair({...input,captions:Array(80).fill('这一幅的原有配文。')}),/STRUCTURAL_FRAME_LIMIT/);
 });

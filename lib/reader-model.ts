@@ -44,7 +44,7 @@ export type StoryboardOutline=z.infer<typeof storyboardOutlineSchema>;
 export type Storyboard={outline:StoryboardOutline;pages:Plan['pages']};
 export const storyboardBatchSchema=(count:number)=>z.object({pages:planSchema.shape.pages.length(count)});
 export type GeneratedStory=Story&{generated:true;original?:OriginalSource;sourceReference:string;voiceRequested:boolean;artStyleLabel:string;productionPrompt:string;generationModels?:{step:string;model:string}[]};
-export type Document={/** 文档 v2：制作内容与产物记录的权威来源，plan、images 为其存储投影。 */dag?:DagDocument;copiedFrom?:{storyId:string;contentHash:string;draft?:boolean;imageChoice?:boolean;images?:'pending'|'complete'|'skipped'};setupRequirements?:RequirementsSetup;creationHash?:string;reselection?:ReselectionDraft;publication?:StoryPublication;intake?:StoryIntake;revision?:RevisionRecord;plan:Plan|null;draft?:StoryDraft;reflectionCandidates?:ReflectionCandidates;storyboard?:Storyboard;visualReview?:ReviewCheckpoint;reviewNotes?:string;original?:OriginalSource;summaryProductionPrompt?:string;storySummaryFromStoryboard?:true;frameRecommendation?:FrameRecommendation;frameCountConfirmed?:boolean;images:string[];audio:string[];usage:{step:string;model:string;requestId:string|null;usage:unknown;reasoningEffort?:string;promptRecord?:PromptRecord;promptRecordId?:string;originId?:string}[]};
+export type Document={/** 文档 v2：制作内容与产物记录的权威来源，plan、images 为其存储投影。 */dag?:DagDocument;/** 升级前已排队的固定幅数故事仍需确认幅数。 */legacyFramePreparation?:true;copiedFrom?:{storyId:string;contentHash:string;draft?:boolean;imageChoice?:boolean;images?:'pending'|'complete'|'skipped'};setupRequirements?:RequirementsSetup;creationHash?:string;reselection?:ReselectionDraft;publication?:StoryPublication;intake?:StoryIntake;revision?:RevisionRecord;plan:Plan|null;draft?:StoryDraft;reflectionCandidates?:ReflectionCandidates;storyboard?:Storyboard;visualReview?:ReviewCheckpoint;reviewNotes?:string;original?:OriginalSource;summaryProductionPrompt?:string;storySummaryFromStoryboard?:true;frameRecommendation?:FrameRecommendation;frameCountConfirmed?:boolean;images:string[];audio:string[];usage:{step:string;model:string;requestId:string|null;usage:unknown;reasoningEffort?:string;promptRecord?:PromptRecord;promptRecordId?:string;originId?:string}[]};
 export type GenerationMode='reader'|'background';
 export type GenerationControl='active'|'paused'|'stopped';
 /** continue 只用于制作 DAG 的「已保存，等待继续」：清除等待并恢复后台制作。 */
@@ -67,7 +67,7 @@ export function nextStep(doc:Document,selection:Selection,_through?:number):Step
  if(doc.reselection&&doc.intake?.phase!=='discovering')return null;
  if(doc.intake?.phase==='discovering')return {kind:'discover',page:0,key:'discover:'+doc.intake.generation};
  if(doc.intake&&['choosing','confirming'].includes(doc.intake.phase))return null;
- if(doc.dag&&(!doc.intake||doc.intake.phase==='confirmed')||doc.plan||doc.storyboard||doc.draft)return null;
+ if(doc.dag&&!doc.legacyFramePreparation&&(!doc.intake||doc.intake.phase==='confirmed')||doc.plan||doc.storyboard||doc.draft)return null;
  if((doc.original?.storyBrief||doc.intake?.briefRequired&&doc.intake.selected)&&!storyBriefVerified(doc.original))return {kind:'recommend',page:0,key:'recommend'};
  if(selection.narrativeDetail&&!doc.frameRecommendation)return {kind:'recommend',page:0,key:'recommend'};
  return null;

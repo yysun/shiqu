@@ -7,17 +7,17 @@ import type {DatabaseSync} from 'node:sqlite';
 import {createHash} from 'node:crypto';
 import {existsSync,lstatSync,readFileSync} from 'node:fs';
 import path from 'node:path';
-import {selectionSchema,type Document} from '../lib/reader-model.ts';
+import {awaitingFrameCount,selectionSchema,type Document} from '../lib/reader-model.ts';
 import {convertDocument,mapLegacyFaults} from '../lib/production-dag/convert.ts';
 import {rootProducts,versionState} from '../lib/production-dag/document.ts';
 import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
-import {referenceImageKey} from '../lib/reader-image-assets.ts';
+import {lostImageMessage,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
 import {imageDimensions,matchesLandscapeImageRatio} from '../lib/reader-image-dimensions.ts';
 
 export const productionDagMigration='0025_production_dag.sql';
-type Row={id:string;user_id:string;selection:string;document:string};
+type Row={id:string;user_id:string;selection:string;document:string;updated_at:string};
 type JobRow={id:string;kind:string;version:string;payload:string;result:string|null};
 type FaultRow={id:string;kind:string;node:string|null;node_key:string;state:string};
 
@@ -52,7 +52,7 @@ function legacyLandscapeVersion(doc:Document,selection:ReturnType<typeof selecti
 export function migrateProductionDag(sqlite:DatabaseSync,sql:string,directory?:string){
  sqlite.exec(sql);
  const ids=(sqlite.prepare('SELECT id,user_id FROM stories').all() as {id:string;user_id:string}[]);
- const read=sqlite.prepare('SELECT id,user_id,selection,document FROM stories WHERE id=? AND user_id=?');
+ const read=sqlite.prepare('SELECT id,user_id,selection,document,updated_at FROM stories WHERE id=? AND user_id=?');
  const save=sqlite.prepare('UPDATE stories SET document=? WHERE id=? AND user_id=?');
  for(const {id,user_id} of ids){
   sqlite.exec('SAVEPOINT dag_story');
@@ -69,9 +69,16 @@ export function migrateProductionDag(sqlite:DatabaseSync,sql:string,directory?:s
 function convertStory(sqlite:DatabaseSync,row:Row,save:ReturnType<DatabaseSync['prepare']>,directory?:string){
  const doc=JSON.parse(row.document) as Document;
  if(doc.dag)return;
- // 仍在准备阶段（候选查找、选题、准备、待确认）或有重选草稿的故事不转换：保持原样，准备与查找任务保留，确认制作时由 adopt() 建立 dag。
+ // 仍在准备阶段（候选查找、选题、准备、待确认）或有重选草稿的故事不转换：保持原样，由运行时接管准备任务。
  if(doc.reselection||doc.intake&&doc.intake.phase!=='confirmed')return;
  const selection=selectionSchema.parse(JSON.parse(row.selection));
+ // 旧版已保存幅数建议，但仍需通过原有确认入口才能开始制作。
+ if(awaitingFrameCount(doc,selection))return;
+ if(!doc.intake&&typeof selection.length==='number'&&selection.narrativeDetail&&!doc.plan&&!doc.storyboard&&!doc.draft&&!doc.frameCountConfirmed&&
+    sqlite.prepare("SELECT 1 FROM production_jobs WHERE session_id=? AND owner_id=? AND kind='prepare' AND state!='succeeded' LIMIT 1").get(row.id,row.user_id)){
+  save.run(JSON.stringify({...doc,legacyFramePreparation:true}),row.id,row.user_id);
+  return;
+ }
  const jobs=sqlite.prepare("SELECT id,kind,version,payload,result FROM production_jobs WHERE session_id=? AND owner_id=? AND state='succeeded'").all(row.id,row.user_id) as JobRow[];
  // 已付费的绘图结果：版本与当前内容一致、该页尚无图且文件可读时采用。
  if(doc.plan){
@@ -90,6 +97,18 @@ function convertStory(sqlite:DatabaseSync,row:Row,save:ReturnType<DatabaseSync['
   const page=Number(JSON.parse(job.payload).page),value=(JSON.parse(job.result!) as {value?:unknown}).value,key=dag.order[page];
   if(!key||typeof value!=='string'||!readableFile(directory,row.id,value,true))continue;
   dag.frames[key].landscape=value;
+ }
+ // 保留已发布图片的原始路径和文件；本地图片确认损坏时只标记故障，待读者明确恢复。
+ if(directory){
+  const lost=sqlite.prepare(`INSERT OR IGNORE INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,image,message,created_at,updated_at)
+   VALUES(?,?,?,'image-loss','frameImage',?,'legacy',?,?,?,?)`);
+  const at=Date.parse(row.updated_at)||0;
+  for(const [page,key] of dag.order.entries()){
+   const image=dag.frames[key].image,product=dag.products[instanceId('frameImage',key)];
+   if(!image||!product||!referenceImageKey(row.id,image)||readableFile(directory,row.id,image))continue;
+   product.readable=false;
+   lost.run(fingerprint([productionDagMigration,row.id,key]),row.id,row.user_id,key,image,lostImageMessage(page),at,at);
+  }
  }
  const state=versionState(dag,rootProducts(selection,dag,{notes:doc.reviewNotes}),{confirmed});
  const evaluation=evaluate(state);

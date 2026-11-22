@@ -286,6 +286,10 @@
         "extended"
       ],
       "covers": [
+        "lib/reader-api.ts",
+        "lib/reader-image-assets.ts",
+        "server/dag-production.ts",
+        "server/reader-production.ts",
         "tests/fixtures/book-reference.mjs",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
@@ -1535,7 +1539,10 @@
         "extended"
       ],
       "covers": [
-        "lib/reader-engine.ts",
+        "lib/production-dag/convert.ts",
+        "lib/production-dag/engine.ts",
+        "lib/production-dag/runner.ts",
+        "server/dag-production.ts",
         "lib/reader-local-contract.ts",
         "lib/reader-repository.ts",
         "server/local-book-contents.ts",
@@ -2380,6 +2387,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "lib/reader-preparation.ts",
         "lib/generation-progress.ts",
         "lib/reader-production-client.ts",
         "lib/reader-source-storage.ts",
@@ -4058,12 +4066,18 @@
         "user-flows"
       ],
       "covers": [
-        "lib/generation-progress.ts",
+        "lib/reader-api.ts",
+        "server/reader-commands.ts",
+        "server/reader-copy.ts",
+        "server/reader-production.ts",
+        "lib/production-dag/calls.ts",
+        "lib/production-dag/convert.ts",
+        "lib/production-dag/requests.ts",
+        "lib/production-dag/runner.ts",
+        "server/dag-production.ts",
         "lib/reader-image-assets.ts",
-        "lib/reader-model.ts",
         "lib/reader-repository.ts",
         "lib/reader-review.ts",
-        "server/production-queue.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
@@ -4454,10 +4468,13 @@
       "covers": [
         "server/dag-migration.ts",
         "server/database-migrations.ts",
+        "server/library-upgrade.ts",
+        "server/library-backup.ts",
         "lib/production-dag/convert.ts",
         "tests/fixtures/historical-library.mjs",
         "tests/fixtures/production-data.mjs",
         "lib/reader-model.ts",
+        "lib/reader-image-assets.ts",
         "tests/fixtures/images.mjs",
         "tests/fixtures/story.mjs",
         "server/reader-production.ts",

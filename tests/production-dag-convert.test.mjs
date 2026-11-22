@@ -65,12 +65,9 @@ test('scenario 44: a completed story without review records stays complete but c
  assert.equal(runnable(state).length,0);
  assert.ok(!evaluate(state).approved());
  const partial=v1({review:null,images:5}),pdag=convert(partial),pstate=stateOf(partial,pdag);
- assert.ok(!runnable(pstate).some(i=>i.node==='frameImage'));
- const calls=run(pstate).map(l=>l.call);
- const firstDraw=calls.indexOf('draw');
- assert.ok(calls.indexOf('frameCheck')<calls.indexOf('review#1'));
- assert.ok(calls.indexOf('review#1')<firstDraw);
- assert.equal(calls.filter(c=>c==='draw').length,3);
+ assert.ok(evaluate(pstate).approved(),'an unfinished unreviewed plan already had permission to draw in v0.14.0');
+ assert.ok(pdag.products['narrativeVerdict:'].unreviewed);
+ assert.deepEqual(run(pstate).map(l=>l.call),['draw','draw','draw']);
 });
 
 test('scenario 45: a legacy override converts to overrides that lapse only for the edited verdict',()=>{
