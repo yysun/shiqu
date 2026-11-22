@@ -4523,6 +4523,36 @@
         "lib/production-dag/frames.ts",
         "tests/fixtures/production-dag.mjs"
       ]
+    },
+    {
+      "file": "tests/production-dag-convert.test.mjs",
+      "groups": [
+        "production",
+        "review",
+        "storage"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "lib/production-dag/registry.ts",
+        "lib/production-dag/fingerprint.ts",
+        "lib/production-dag/engine.ts",
+        "lib/production-dag/review.ts",
+        "lib/production-dag/faults.ts",
+        "lib/production-dag/hand-edits.ts",
+        "lib/production-dag/frames.ts",
+        "lib/production-dag/document.ts",
+        "lib/production-dag/convert.ts",
+        "tests/fixtures/production-dag.mjs"
+      ]
     }
   ]
 }

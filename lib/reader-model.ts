@@ -18,6 +18,7 @@ import {narrativeDetailSchema} from './reader-frame-recommendation.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import type {ReviewCheckpoint,ReviewIssue} from './reader-review.ts';
 import type {FaultView,RecoveryReceiptView} from './reader-recovery.ts';
+import type {DagDocument} from './production-dag/document.ts';
 export {readerBooks} from './reader-books.ts';
 // A reader's display name stays separate from the selected source and AI-authored script.
 export const displayTitleSchema=z.string().trim().min(1,'请输入故事名。').max(40,'故事名最多 40 字。').regex(/^[^\r\n]+$/,'故事名请写在一行内。');
@@ -39,7 +40,7 @@ export type StoryboardOutline=z.infer<typeof storyboardOutlineSchema>;
 export type Storyboard={outline:StoryboardOutline;pages:Plan['pages']};
 export const storyboardBatchSchema=(count:number)=>z.object({pages:planSchema.shape.pages.length(count)});
 export type GeneratedStory=Story&{generated:true;original?:OriginalSource;sourceReference:string;voiceRequested:boolean;artStyleLabel:string;productionPrompt:string;generationModels?:{step:string;model:string}[]};
-export type Document={copiedFrom?:{storyId:string;contentHash:string;draft?:boolean;imageChoice?:boolean;images?:'pending'|'complete'|'skipped'};setupRequirements?:RequirementsSetup;creationHash?:string;reselection?:ReselectionDraft;publication?:StoryPublication;intake?:StoryIntake;revision?:RevisionRecord;plan:Plan|null;draft?:StoryDraft;reflectionCandidates?:ReflectionCandidates;storyboard?:Storyboard;visualReview?:ReviewCheckpoint;reviewNotes?:string;original?:OriginalSource;summaryProductionPrompt?:string;storySummaryFromStoryboard?:true;frameRecommendation?:FrameRecommendation;frameCountConfirmed?:boolean;images:string[];audio:string[];usage:{step:string;model:string;requestId:string|null;usage:unknown;reasoningEffort?:string;promptRecord?:PromptRecord;promptRecordId?:string;originId?:string}[]};
+export type Document={/** 文档 v2：制作内容与产物记录的权威来源，plan、images 为其存储投影。 */dag?:DagDocument;copiedFrom?:{storyId:string;contentHash:string;draft?:boolean;imageChoice?:boolean;images?:'pending'|'complete'|'skipped'};setupRequirements?:RequirementsSetup;creationHash?:string;reselection?:ReselectionDraft;publication?:StoryPublication;intake?:StoryIntake;revision?:RevisionRecord;plan:Plan|null;draft?:StoryDraft;reflectionCandidates?:ReflectionCandidates;storyboard?:Storyboard;visualReview?:ReviewCheckpoint;reviewNotes?:string;original?:OriginalSource;summaryProductionPrompt?:string;storySummaryFromStoryboard?:true;frameRecommendation?:FrameRecommendation;frameCountConfirmed?:boolean;images:string[];audio:string[];usage:{step:string;model:string;requestId:string|null;usage:unknown;reasoningEffort?:string;promptRecord?:PromptRecord;promptRecordId?:string;originId?:string}[]};
 export type GenerationMode='reader'|'background';
 export type GenerationControl='active'|'paused'|'stopped';
 export type ProductionAction='background'|'reader'|'pause'|'stop'|'resume';

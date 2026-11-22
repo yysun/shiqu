@@ -33,8 +33,8 @@ Git 基线：`52ddf58b810ff80c19f40f618ef52134ca658094`（SS 开始时的 HEAD�
 
 ### M0 可行性探查
 
-- [ ] P0.1 用 80 幅、3 条全篇条目的合成版本状态，测量 `evaluate()` 加重做预估的耗时、v2 文档 JSON 体积，以及 3 个并发图片提交与 1 个文字检查点交错时的写入冲突率。判据：单次评估不超过 50 ms，文档不超过 1 MB，图片提交无丢失写入；否则调整决策 2、3 并回到 AR。
-  - 结果（2026-11-21，合成 80 幅、3 条全篇条目，脚本在会话暂存区）：评估加预估中位 3.2 ms、最大 5.6 ms，通过；3 个图片提交与文字检查点交错 200 轮，600 次图片提交无丢失，通过；v2 文档体积在画面描述平均 700 字时为 596 KB，在 80 幅全部取 1800 字上限时为 1.12 MB，超过 1 MB 判据。超出主要来自投影重复保存画幅文字。**待决定**：放宽体积判据，或调整决策 2 避免投影重复保存长文本。依赖文档形状的 M2 暂停，等待决定。
+- [x] P0.1 用 80 幅、3 条全篇条目的合成版本状态，测量 `evaluate()` 加重做预估的耗时、v2 文档 JSON 体积，以及 3 个并发图片提交与 1 个文字检查点交错时的写入冲突率。判据：单次评估不超过 50 ms，文档不超过 2 MB（原为 1 MB，经读者决定放宽，见下），图片提交无丢失写入；否则调整决策 2、3 并回到 AR。
+  - 结果（2026-11-21，合成 80 幅、3 条全篇条目，脚本在会话暂存区）：评估加预估中位 3.2 ms、最大 5.6 ms，通过；3 个图片提交与文字检查点交错 200 轮，600 次图片提交无丢失，通过；v2 文档体积在画面描述平均 700 字时为 596 KB，在 80 幅全部取 1800 字上限时为 1.12 MB，超过原 1 MB 判据，主要来自投影重复保存画幅文字。读者决定把判据放宽到 2 MB：1 MB 是保守的预设，实测耗时与写入安全不受影响，SQLite 可正常处理此大小的行，典型故事约 0.6 MB。决策 2 不变，M2 继续。
 - [ ] P0.3（移到 M3 门槛，依赖 M3 的快照工厂）在隔离数据上，为每种已配置的提供方类型用非当前全局设置的快照构造生成器，执行一次最小文字调用。判据：每种类型都按快照选择模型且不读取全局模型设置；无法做到的类型在决策 7 中列出处理方式并回到 AR。
 
 ### M1 配置与引擎（不改运行行为）
@@ -47,14 +47,17 @@ Git 基线：`52ddf58b810ff80c19f40f618ef52134ca658094`（SS 开始时的 HEAD�
 - [x] `lib/production-dag/hand-edits.ts`：保存时的手改选项、结构修订提交前的损失检查。
 - [x] `lib/production-dag/frames.ts`：结构变化的画幅身份规则与按名字、别名匹配人物（SS 中补充，服务场景 34、35）。
 - 证据：`pnpm test:related` 40 项通过（含测试登记契约），`pnpm typecheck` 与 eslint 通过。
+- 里程碑提交：`d65c62a`（M1 配置与引擎，不改运行行为；已验证：相关测试、类型检查、lint）。
 - [x] 测试：`tests/production-dag-registry.test.mjs`（按决策 10 双向核对）、`tests/production-dag-engine.test.mjs`、`tests/production-dag-review.test.mjs`、`tests/production-dag-faults.test.mjs`、`tests/production-dag-hand-edits.test.mjs`，按场景映射表覆盖；登记到 `tests/manifest.json` 并填写 `covers`；`scripts/test-plan.mjs` 新增 `lib/production-dag/*` 到 production 与 review 领域的映射。
 
 ### M2 文档 v2 与转换（纯代码，不接入启动，不含迁移）
 
-- [ ] `lib/reader-model.ts`：v2 schema（`document.dag`、画幅对象与顺序、分条人物、验收条目与登记、结论、模型快照、绘图参数）与 `projectDocument()`。
-- [ ] 准备阶段输入纳入 v2：`lib/reader-intake.ts`、`lib/reader-requirements.ts`（建议、用户填写、明确留空状态）、`lib/reader-frame-recommendation.ts` 的数据映射为原文核对、梗概、建议节点的产物与输入。
-- [ ] `lib/production-dag/convert.ts`：按决策 8 转换，生成旧规则结论与放行，处理缺审核、部分完成、旧放行。
-- [ ] `tests/production-dag-convert.test.mjs`：完成、部分完成、缺审核、旧放行、重复转换结果相同、投影与原 `Plan` 一致；登记 `covers`。
+- [x] `lib/reader-model.ts`：v2 schema（`document.dag`、画幅对象与顺序、分条人物、验收条目与登记、结论、模型快照、绘图参数）与 `projectDocument()`。
+- [x] 准备阶段输入纳入 v2：`lib/reader-intake.ts`、`lib/reader-requirements.ts`（建议、用户填写、明确留空状态）、`lib/reader-frame-recommendation.ts` 的数据映射为原文核对、梗概、建议节点的产物与输入。
+- [x] `lib/production-dag/convert.ts`：按决策 8 转换，生成旧规则结论与放行，处理缺审核、部分完成、旧放行。
+- [x] `tests/production-dag-convert.test.mjs`：完成、部分完成、缺审核、旧放行、重复转换结果相同、投影与原 `Plan` 一致；登记 `covers`。
+- SS 记录：v2 类型、根输入、引擎状态与投影放在 `lib/production-dag/document.ts`，`lib/reader-model.ts` 的 `Document` 增加 `dag` 字段。准备阶段的原文、梗概与建议由转换映射为产物；要求字段的「建议、填写、留空」状态仍由 intake 管理，确认后的值经选择进入根输入。旧版缺少审核记录但已完成的故事，转换为带 `unreviewed` 标记的旧规则结论：计入完成判定，不授权新的绘图（规范「缺少审核记录」）。没有页码的旧文字步骤故障挂到转换后下一个可运行的节点。
+- 证据：`pnpm test:related` 125 项通过，`pnpm typecheck` 与 eslint 通过。
 
 ### M3 按调用契约的生成调用与模型快照（新方法并存，不接入调度）
 

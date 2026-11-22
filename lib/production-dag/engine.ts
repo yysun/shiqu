@@ -18,6 +18,8 @@ export type Product={
  outcome?:'pass'|'fail';
  overridden?:boolean;
  legacy?:boolean;
+ /** 旧版缺少审核记录、但整篇已完成：计入完成判定，不授权新的绘图。 */
+ unreviewed?:boolean;
  handEdited?:boolean;
  /** 验收条目登记：范围与依据。 */
  scope?:'story'|'frame';
@@ -161,18 +163,25 @@ export class Evaluation{
   if(!this.state.confirmed)return false;
   if(gate==='confirmed')return true;
   if(gate==='frameCheck')return this.passed('frameCheck','');
-  return this.approved();
+  return this.approved(false);
  }
 
  private passed(node:string,key:string){
   const inst=this.instance(node,key),product=this.state.products[inst.id];
   return inst.status==='valid'&&!!product&&(product.outcome==='pass'||!!product.overridden);
  }
+ private accepted(node:string,key:string,forCompletion:boolean){
+  const product=this.state.products[instanceId(node,key)];
+  return this.passed(node,key)&&(forCompletion||!product?.unreviewed);
+ }
 
- /** 可绘图：幅数与结构核对通过，且全部审片结论有效并通过或被放行。 */
- approved():boolean{
-  if(!this.passed('frameCheck',''))return false;
-  return [...verdictNodes].every(node=>instanceKeys(this.state,node).every(key=>this.passed(node,key)));
+ /**
+  * 可绘图：幅数与结构核对通过，且全部审片结论有效并通过或被放行。
+  * forCompletion 为真时接受旧版无审核记录的完成记录，只用于整篇完成判定。
+  */
+ approved(forCompletion=false):boolean{
+  if(!this.accepted('frameCheck','',forCompletion))return false;
+  return [...verdictNodes].every(node=>instanceKeys(this.state,node).every(key=>this.accepted(node,key,forCompletion)));
  }
 
  all():Instance[]{
@@ -205,7 +214,7 @@ export function jobIdentity(sessionId:string,node:string,key:string,inputs:Recor
 /** 整篇完成：必需节点全部有效、可绘图、必需节点没有未解除故障；可选产物不影响。 */
 export function complete(state:VersionState):boolean{
  const evaluation=evaluate(state);
- if(!evaluation.approved())return false;
+ if(!evaluation.approved(true))return false;
  const required=evaluation.all().filter(i=>nodeSpec(i.node).required);
  if(required.some(i=>i.status!=='valid'))return false;
  return !state.faults.some(f=>!f.optional&&nodeSpec(f.node).required);
