@@ -12,7 +12,7 @@ Git 基线：`52ddf58b810ff80c19f40f618ef52134ca658094`（SS 开始时的 HEAD�
 
 ## 边界
 
-- 包含：引擎与配置、文档 v2 与存储投影、SQL 触发器重写与格式版本升级、按调用契约拆分的生成调用、模型快照与提供方工厂、调度切换、修订与故障规则、升级转换、界面与 CLI、相关文档。
+- 包含：引擎与配置、文档 v2 与存储投影、SQL 触发器精简与格式版本升级、按调用契约拆分的生成调用、模型快照与提供方工厂、调度切换、修订与故障规则、升级转换、界面与 CLI、相关文档。
 - 不包含：候选查找（选定来源之前，保留现有 intake 代码）、图片内容审核、导出格式、新服务商、外部工作流框架、规范之外的界面改版。
 
 ## 关键决策
@@ -20,9 +20,14 @@ Git 基线：`52ddf58b810ff80c19f40f618ef52134ca658094`（SS 开始时的 HEAD�
 1. **引擎是纯函数模块，调度范围从原文核对开始。** `lib/production-dag/` 不做 I/O：输入为版本状态（产物记录、故障、授权、模型快照），输出为节点实例状态、可运行集合、预估、任务身份和完成判定。原文核对、梗概、建议及之后的全部节点由引擎调度；候选查找在 DAG 之外，沿用 `server/reader-production.ts` 现有 intake 分支。
 2. **`document.dag` 是权威来源，`plan`、`images`、`visualReview` 保留为存储投影。** 每次保存在同一条 `UPDATE` 中写入 `document.dag` 与投影，投影由 `projectDocument()` 从 `dag` 生成。只读消费者（阅读、导出、复制、重选、书籍参考、历史界面、`lib/reader-api.ts` 等约 20 个文件）继续读投影；所有写入方改走 `dag` 接口。导出结构因此不变。
 3. **画幅以身份为键存放。** `dag.frames` 是以画幅身份为键的对象，另存 `dag.order` 数组。图片提交用路径限定的 `json_set`，在同一条语句中写 `dag.frames.<id>.image` 和投影 `$.images[<id 在 dag.order 中的位置>]`，并以绘图硬输入指纹为保存条件；文字节点仍在会话锁下串行执行，整份文档以现有比较并交换方式保存。
-4. **故障按节点记录，相关触发器重写。** 迁移 `0025` 为 `reader_faults` 增加 `node`、`node_key`、`input_hash`、`origin_fault_id`、`optional` 列和 `awaiting-match` 状态，为 `production_jobs` 增加 `error_code` 列，队列在任务失败时写入结构化错误码（如 `CONTENT_BLOCKED`、`SERVICE_AUTH`、`TIMEOUT`）；活跃图片故障的唯一索引改为 `(session_id, owner_id, node, node_key)`。同一迁移删除并按新语义重建：`reader_override_command`（只更新被放行的结论，不再批量删除文字任务）、`reader_image_lost` 与 `reader_image_restored`（不再整篇置失败或判定完成，完成改由协调器调用 `complete()`）、`reader_job_failed`（故障类型取自 `error_code`，节点信息取自任务载荷）、`reader_control_command`（新增 `continue` 动作）、`reader_intake_fault_generation`、`stories_blocked_revision_fault`（延续逻辑移到提交代码）。其余 `0012`–`0022` 触发器逐个核对，冲突的一并重建。「内容被拦截」不自动重试的判断以 `error_code` 为准。
+4. **一个迁移直接建成最终结构，制作规则不放在触发器里。** 0.14.0 已发布到 `0024`，`0025_production_dag.sql` 尚未发布。本故事的全部结构变更只放在 `0025` 一个迁移中，开发期间就地修改，不另加 `0026`，也不先建后删任何表、列、索引或触发器。`0025` 的结果即最终结构：
+   - `reader_faults` 按 SQLite 标准方式重建（新表、复制、删旧表、改名）为最终列：`node`、`node_key`、`input_hash`、`origin_fault_id`、`optional`，状态增加 `awaiting-match`，不再有 `page`。复制时有页码的旧图片故障直接写为 `node='frameImage'`、`node_key='legacy-'||(page+1)`（与 `legacyFrameId` 一致）；没有页码的旧故障 `node` 留空，由决策 6 的钩子用 `mapLegacyFaults` 补上。活跃图片故障的唯一索引在新表上直接建为 `(session_id, owner_id, node, node_key)`。
+   - `production_jobs` 增加 `error_code`，队列在任务失败时写入结构化错误码（如 `CONTENT_BLOCKED`、`SERVICE_AUTH`、`TIMEOUT`）；「内容被拦截」不自动重试以它为准。M4 接入后不再使用的列在同一迁移中移除，不留空列。
+   - 删除 18 个承载制作规则的触发器：`reader_job_failed`、`reader_job_queued`、`reader_job_running`、`reader_job_succeeded`、`reader_job_deleted`、`reader_control_command`、`reader_override_command`、`reader_recover_command`、`reader_recovery_adopt`、`reader_image_lost`、`reader_image_restored`、`reader_intake_command`、`reader_search_command`、`reader_replace_receipt`、`reader_intake_fault_generation`、`reader_legacy_failure`、`reader_legacy_fault_lineage`、`stories_blocked_revision_fault`。它们的作用改由 TypeScript 在同一事务中完成：任务状态变化（故障记录、恢复命令状态）在 `server/production-queue.ts`；控制、放行、恢复、采用在 `server/reader-commands.ts`；图片丢失与恢复由协调器按依赖处理并用 `complete()` 判定完成；文档写入时的命令回执与写入同一事务；三个旧格式触发器只服务于旧文档，转换后不再需要。
+   - 保留 7 个与制作规则无关的完整性触发器：`books_refuse_pre_consolidation_seed`（阻止 0.2–0.7 应用写入，只有 SQL 能拦住不受本应用控制的代码）、`reader_command_id_guard`、`reader_session_id_guard`、`story_content_revision`、`story_content_revision_insert`、`book_image_reference_on_delete`、`production_disarm_deleted`。
+   - 原因：书库只有 Node 服务一个写入方（桌面原生只读），`node:sqlite` 是同步接口，原先放在触发器里是因为 `Database` 接口只能逐条执行、没有事务。本地数据库增加同步事务助手（`BEGIN IMMEDIATE` 内执行、事务体不含 `await`），多表变化在一个事务中原子完成；规则只在 TypeScript 中，引擎的完成与故障判定不在 SQL 里重复一份。旧应用因决策 5 无法打开格式 2 的书库，不会有依赖这些触发器的旧代码写入。
 5. **格式版本升到 2。** `db/library-format.json` 的 `schemaVersion` 改为 2，迁移设置 `PRAGMA user_version=2`（先例见 `drizzle/0018`），`minimumAppVersion` 设为本次发布版本。旧应用按 `server/library-schema.ts` 与 `src-tauri/src/library.rs` 现有规则拒绝打开。两处的升级日志版本检查改为接受 1 至 `schemaVersion`，避免 0.8.x 中断升级留下的版本 1 日志被误拒。回滚方式：升级前的整库备份加对应旧版应用。
-6. **升级转换作为 `0025` 的迁移钩子执行。** 在 `server/database-migrations.ts` 中像 `0024` 迁移提示词记录一样，为 `0025` 挂代码钩子，使转换与迁移回执同属一次升级：受经核对的整库备份保护，崩溃后随迁移重做，所有入口（协调器、CLI、导出）只会看到已转换的书库。应用重启后没有正在运行的调用，「在途任务」是已付费待发布的图片结果、排队或中断的旧任务、未结的故障和回执。钩子内顺序：先按位置分配画幅身份并执行 v1 → v2 转换；再处理已成功的旧 `image` 结果，只采用任务版本与当前输入版本一致的结果（同 `server/reader-production.ts` 的 `currentJob` 检查），以同步的文件存在与类型检查代替异步发布核对，写入对应画幅；其余旧任务标为作废；未结故障按页码映射到画幅身份作为 `node_key`，版本记为 `legacy`；回执保留，未结的恢复回执随故障映射；尚未解除的 `revision.handoff` 映射为 `dag.continuation`。整个转换在迁移事务内执行，每篇用一个 `SAVEPOINT` 隔离，可重复执行。文件检查使用 `migrate()` 传入的 `directory`（旧版暂存升级路径中为 `work` 目录），不使用正式书库路径。
+6. **升级转换作为 `0025` 的迁移钩子执行。** 在 `server/database-migrations.ts` 中像 `0024` 迁移提示词记录一样，为 `0025` 挂代码钩子，在 `0025` 的 SQL 之后、同一事务内执行，使转换与迁移回执同属一次升级：受经核对的整库备份保护，崩溃后随迁移重做，所有入口（协调器、CLI、导出）只会看到已转换的书库。应用重启后没有正在运行的调用，「在途任务」是已付费待发布的图片结果、排队或中断的旧任务、未结的故障和回执。钩子内顺序：先按位置分配画幅身份并执行 v1 → v2 转换；再处理已成功的旧 `image` 结果，只采用任务版本与当前输入版本一致的结果（同 `server/reader-production.ts` 的 `currentJob` 检查），以同步的文件存在与类型检查代替异步发布核对，写入对应画幅；其余旧任务标为作废；未结故障的页码已由 `0025` 的 SQL 映射为画幅身份，钩子为没有页码的旧故障补上节点，版本记为 `legacy`；回执保留，未结的恢复回执随故障映射；尚未解除的 `revision.handoff` 映射为 `dag.continuation`。整个转换在迁移事务内执行，每篇用一个 `SAVEPOINT` 隔离，可重复执行。文件检查使用 `migrate()` 传入的 `directory`（旧版暂存升级路径中为 `work` 目录），不使用正式书库路径。
 7. **模型快照与提供方工厂。** 快照含提供方类型、文字与绘图模型标识、各任务推理强度、绘图比例与尺寸，不含凭据。制作确认前的准备调用使用当前全局设置；`server/reader-intake.ts` 的确认动作记录快照。`server/generation.ts` 增加按快照加当前凭据构造生成器的工厂，覆盖 API 型与订阅运行器型提供方。快照对应的服务不可用时，故事进入「快照服务不可用」等待并提供「应用当前模型设置」。转换的旧故事以转换时的全局设置作为快照。
 8. **v1 → v2 映射。** 每幅 `caption` 映射为叙事分镜正文，`prompt` 映射为画面描述；`characters` 文本成为一条旧规则人物条目，旧稿按规范视为全部人物入画；验收要求整体成为一条旧规则条目，登记为「全篇」，依据为叙事分镜与画面描述（规范所说的「两者」），第一次失效后按规范拆分并登记。投影把叙事分镜正文写回 `caption`，画面描述写回 `prompt`。
 9. **调用契约在提供方层强制。** 每个 `StoryGenerator` 方法只接收契约所列输入的类型化参数，提示词由这些参数拼装。
@@ -89,10 +94,12 @@ Git 基线：`52ddf58b810ff80c19f40f618ef52134ca658094`（SS 开始时的 HEAD�
   - 结论：结构校验一次通过率不低于现状，达到判据。拆分后调用数约为 8.6 倍（12 幅每次 15 次、24 幅每次 28 次，主要是逐幅画面描述），总耗时约多 31%；单次调用更小，本探查未计量令牌与费用。修订轮次需完整审片循环，留待 M4 后用 `pnpm test:models` 观察。
   - 后续（2026-11-22，提交 `2426b57`，已验证：变更影响测试 282 项通过、类型检查、lint）：按决策 12 改为按批调用，同样两个故事的调用数降为 12 幅 4 次、24 幅 6 次（现状 2 次、3 次）。按批画面描述的一次通过率与令牌用量尚未实测：令牌计量探查在读者要求下中止，未产生结果。按批画面描述与现有合并批次（每批 20 幅同时产出配文与画面指令，P0.2 中 100% 一次通过）的输出规模相同，M4 接入后用 `pnpm test:models` 复核。
 
-### M4 切换：迁移、触发器、调度与服务端修订
+### M4 切换：迁移、调度、事务与服务端修订
 
-- SS 记录：按全部迁移建出的临时书库中现有 25 个触发器（0018 改名后触发器正文引用 `stories`，以实际库为准，不以迁移文件为准）。与新语义冲突、须在 0025 重建的：`reader_override_command`、`reader_image_lost`、`reader_image_restored`、`reader_job_failed`、`reader_control_command`、`reader_intake_fault_generation`、`stories_blocked_revision_fault`；须逐个核对后决定的：`reader_job_queued`、`reader_job_running`、`reader_job_succeeded`、`reader_recover_command`、`reader_recovery_adopt`、`reader_legacy_failure`、`reader_legacy_fault_lineage`、`reader_replace_receipt`；与本故事无关、保持不变的：`book_image_reference_on_delete`、`books_refuse_pre_consolidation_seed`、`production_disarm_deleted`、`reader_command_id_guard`、`reader_session_id_guard`、`reader_intake_command`、`reader_search_command`、`reader_job_deleted`、`story_content_revision`、`story_content_revision_insert`。
-- [ ] `drizzle/0025_production_dag.sql`、`db/schema.ts`、`db/library-format.json`：按决策 4、5 新增列与状态、重建索引与触发器、`schemaVersion` 2、`latestMigration`。
+- SS 记录：按全部迁移建出的临时书库中现有 25 个触发器（0018 改名后触发器正文引用 `stories`，以实际库为准，不以迁移文件为准）。按决策 4 删除 18 个、保留 7 个；逐个的去向见决策 4。
+- [ ] `drizzle/0025_production_dag.sql`、`drizzle/meta/_journal.json`、`db/schema.ts`、`db/library-format.json`：按决策 4、5 一次建成最终结构（重建 `reader_faults`、`production_jobs.error_code`、删除 18 个触发器、`user_version` 2），`schemaVersion` 2、`latestMigration`。之后发现的结构变更就地改 `0025`。
+- [ ] 本地数据库事务助手（`server/database.ts` 及 `Database` 接口）：同步执行、事务体不含 `await`；迁移测试断言 `0025` 之后只剩 7 个触发器。
+- [ ] 删除的触发器逐个改写为事务代码：`server/production-queue.ts`（任务失败、排队、运行、成功、删除时的故障与恢复命令状态）、`server/reader-commands.ts`（控制含 `continue`、放行只更新被放行的结论、恢复、采用）、文档写入路径（准备与查找回执、替换回执、准备阶段换代时作废故障）、协调器（图片丢失与恢复）。每项有单元测试，原触发器覆盖的现有测试保持通过或按规范改写。
 - [ ] `server/library-upgrade.ts` 及启动路径：按决策 6 在调度前转换；沿用升级前经核对的整库备份；核对待处理日志检查（`server/library-schema.ts`）仍在访问前完成。
 - [ ] `server/reader-production.ts`：`graph()` 改为由 `runnable()` 与 `jobIdentity()` 生成任务（intake 查找分支保留）；执行器按节点调用 M3 方法并按决策 3 保存；`settle` 与重建候选查询、`canRun`、`snapshotView` 改为按依赖判断故障，不再因任一故障冻结整篇；会话可由不依赖故障的普通任务从 `failed` 进入 `running`；完成判定用 `complete()`。
 - [ ] `server/production-queue.ts`：按池设置调用超时，超时按中断处理；失败时写入 `error_code`。
@@ -102,7 +109,7 @@ Git 基线：`52ddf58b810ff80c19f40f618ef52134ca658094`（SS 开始时的 HEAD�
 - [ ] `client/ui/useStoryRevision.ts`：改用服务端 `preview()`，移除对 `revisionImpact` 的引用，使 M4 通过类型检查。
 - [ ] 写入方迁移：`lib/reader-repository.ts` 与 `lib/reader-api.ts` 中读写 `revision.handoff` 的代码改用 `dag.continuation`；审计读写 `doc.plan`、`doc.images`、`doc.visualReview` 的文件（`server/reader-copy.ts`、`server/book-image-reference.ts`、`server/reader-reselection.ts`、`server/import-legacy.ts`、`lib/reader-api.ts` 等），写入方改走 `dag` 接口，只读方保留投影。
 - [ ] `tests/production-dag-scenarios.test.mjs`：用替身提供方驱动 `ReaderProductionCoordinator`，含重启与调用计数，按场景映射表覆盖协调器场景；登记 `covers`。
-- [ ] 更新受影响的现有测试，断言改为规范行为且不放宽安全约束：`reader-production`、`reader-revisions`、`story-generation-state-machine-*`、`blocked-revision-recovery`、`frame-count-review`、`adaptive-storyboard-review`、`character-continuity-edits`、`frame-count-gate`、`paused-editing-versions`、`production-queue-hardening`、`story-requirements`，以及 `pnpm test:changed --plan` 列出的其他受影响测试。
+- [ ] 更新受影响的现有测试，断言改为规范行为且不放宽安全约束：`reader-production`、`reader-revisions`、`story-generation-state-machine-*`、`blocked-revision-recovery`、`frame-count-review`、`adaptive-storyboard-review`、`character-continuity-edits`、`frame-count-gate`、`paused-editing-versions`、`production-queue-hardening`、`story-requirements`、`desktop-service-console`（第 108 行删除 `stories_blocked_revision_fault` 模拟未迁移书库，0025 后该触发器不存在，改用其他方式构造），以及 `pnpm test:changed --plan` 列出的其他受影响测试。
 - [ ] 安全与启动：`pnpm test:safety`、`pnpm test:startup` 增加用例：旧格式应用拒绝打开 v2 书库；版本 1 的升级日志仍被接受；升级转换在临时书库上执行；转换中断后重做结果相同；`resume` 不解除「修订待继续」。
 - [ ] 原生检查：`src-tauri/src/library.rs` 的日志版本范围修改，并运行受影响的 `src-tauri` 原生测试（计划报告 `native: true` 时）。
 
@@ -139,4 +146,4 @@ Git 基线：`52ddf58b810ff80c19f40f618ef52134ca658094`（SS 开始时的 HEAD�
 - **范围大。** 里程碑本地提交；M0–M3 不改变运行行为，M4 一次切换；全部完成前不发布。
 - **生成质量与成本。** 拆分调用、条目登记与第二阶段审片增加调用；P0.2 设定门槛。
 - **用户书库升级。** 格式版本升级阻止旧应用写入；转换不调用模型、可重复；只在临时书库验证。
-- **触发器语义。** 触发器与引擎各管一部分状态，重建后由协调器测试与安全测试覆盖。
+- **触发器移出。** 18 个触发器的作用改为事务代码，任一写入路径漏掉对应步骤会造成状态不一致；逐个改写并测试，事务助手是这些写入的唯一入口。
