@@ -32,7 +32,7 @@ export const dagTextKind='dag',dagDrawKind='dag-draw';
 type Deps={database:Database;media:MediaStore;queue:ProductionQueue;clock:()=>number;wake:()=>void;snapshot?:()=>ModelSnapshot|undefined;fileLost:(key:string,strict?:boolean)=>Promise<boolean>};
 /** 正在阅读的读者：当前页到预读范围内的画幅优先于其他故事的绘图（决策：恢复旧版的阅读优先）。 */
 export type Viewing={page:number;through:number};
-const viewedPriority=(page:number,viewers:Viewing[])=>{
+export const viewedPriority=(page:number,viewers:Viewing[])=>{
  // 首幅是其余各幅的参考，只要有人在读这篇故事就一并提前；范围内的画幅按页序先于所有未被阅读的绘图。
  const viewed=viewers.some(v=>page>=v.page&&page<=v.through)||page===0&&viewers.length>0;
  return viewed?page-100:page;

@@ -432,3 +432,48 @@ test('a story created without the preparation flow gets its source through the D
  assert.equal(doc.dag.order.length,4);
  assert.equal(f.control.calls.length,4);
 });
+
+// ——— 复制与阅读优先 ———
+
+test('copying a DAG story keeps its text and review; only the images run in the destination, or the saved images attach by frame identity',async t=>{
+ const {copySavedStory}=await import('../server/reader-copy.ts');
+ const source=await productionFixture(t,'codex');
+ const {id,dag:before}=await completedStory(source);
+ await source.stop();
+ // 默认只复制文字：副本保留分镜与审片结论，图片按画幅重新绘制，不再有任何文字或审片调用。
+ const textOnly=await productionFixture(t,'codex');
+ textOnly.control.hold=false;
+ const copyId=crypto.randomUUID();
+ await copySavedStory(textOnly.app,process.cwd(),textOnly.dataDirectory,source.dataDirectory,id,copyId,undefined,{});
+ let doc=await saved(textOnly,copyId);
+ assert.deepEqual(doc.dag.order,before.order,'frame identities are preserved');
+ assert.ok(doc.dag.order.every(key=>!doc.dag.frames[key].image&&!doc.dag.products[`frameImage:${key}`]),'no image record without images');
+ assert.ok(doc.dag.products[`frameVerdict:${doc.dag.order[0]}`],'the review verdicts are kept');
+ await textOnly.json(`sessions/${copyId}/production-control`,'POST',{action:'resume'});
+ await until(async()=>(await textOnly.read(copyId)).state==='completed',20000);
+ assert.equal(textOnly.control.calls.length,6,'every frame is drawn in the destination');
+ assert.equal(textOnly.control.reviews.length+textCalls(textOnly.control),0,'no text or review calls');
+
+ // 显式复制图片：已保存的图片按画幅身份附加，目标不再绘图。
+ const withImages=await productionFixture(t,'codex');
+ withImages.control.hold=false;
+ const imageCopy=crypto.randomUUID();
+ await copySavedStory(withImages.app,process.cwd(),withImages.dataDirectory,source.dataDirectory,id,imageCopy,undefined,{images:true});
+ doc=await saved(withImages,imageCopy);
+ assert.equal(doc.copiedFrom.images,'complete');
+ assert.ok(doc.dag.order.every(key=>doc.dag.frames[key].image&&doc.dag.products[`frameImage:${key}`]));
+ assert.equal(doc.images.filter(Boolean).length,6);
+ await withImages.json(`sessions/${imageCopy}/production-control`,'POST',{action:'resume'});
+ await until(async()=>(await withImages.read(imageCopy)).state==='completed',20000);
+ assert.equal(withImages.control.calls.length,0,'copied images are not drawn again');
+});
+
+test('viewed pages and the first image go ahead of unread drawings; leaving restores page order',async()=>{
+ const {viewedPriority}=await import('../server/dag-production.ts');
+ const viewing=[{page:3,through:9}];
+ assert.ok(viewedPriority(3,viewing)<viewedPriority(0,[]),'the current page goes ahead of any unread story');
+ assert.ok(viewedPriority(9,viewing)<viewedPriority(0,[]),'read-ahead pages go ahead too');
+ assert.ok(viewedPriority(0,viewing)<viewedPriority(1,[]),'the first image is the reference for every page');
+ assert.equal(viewedPriority(10,viewing),10,'pages beyond the read-ahead keep page order');
+ assert.equal(viewedPriority(5,[]),5,'without a reader every page keeps page order');
+});

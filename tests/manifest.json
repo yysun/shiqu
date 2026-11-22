@@ -4559,7 +4559,12 @@
         "server/reader-commands.ts",
         "server/headless-cli.ts",
         "lib/reader-api.ts",
-        "lib/reader-review.ts"
+        "lib/reader-review.ts",
+        "server/reader-copy.ts",
+        "lib/production-dag/copy.ts",
+        "lib/production-dag/progress.ts",
+        "server/provider-snapshot.ts",
+        "server/app.ts"
       ]
     },
     {
@@ -4725,6 +4730,31 @@
       "covers": [
         "server/provider-snapshot.ts",
         "server/provider-runtime.ts"
+      ]
+    },
+    {
+      "file": "tests/production-dag-migration.test.mjs",
+      "groups": [
+        "production",
+        "storage",
+        "startup"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "flows",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/dag-migration.ts",
+        "server/database-migrations.ts",
+        "lib/production-dag/convert.ts",
+        "tests/fixtures/historical-library.mjs",
+        "tests/fixtures/production-data.mjs"
       ]
     }
   ]
