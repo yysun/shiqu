@@ -58,7 +58,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 | 执行生产 | `run <id> --until candidates\|prepared\|reviewed\|completed`（也可 `stories run <id>`）。candidates 后按用户目标选择或等待；prepared 后检查原文、摘要和方案并确认；reviewed 在已有通过的审核且画风转换完成后停止，已有图片保留，绘图任务等待继续制作；默认 completed。每次检查返回 reason 和 session，不假定达到了请求边界。 |
 | 解释停止原因 | `choice` 需选题；`frame_count_required` 是旧故事等待幅数确认，按 help 的 frameCount 输入处理；`already_prepared/already_selected` 表示已越过该边界，改用下一步；`paused` 保持暂停，`blocked` 检查故障，`superseded` 查当前版本。不能在同一停止边界空转。 |
 | 修改与控制 | `stories edit` 使用 token/changes 创建新版。支持修改 productionPrompt、acceptancePrompt、artStyle、artStylePrompt、narrativeDetail、length、plan、storySummary。减幅时在 plan 之外提供 removedFrames。暂停审核时可修改 reviewNotes，或用 redrawPages 仅换图。改制作要求时，run 会按已核原文重新生成梗概，再编排分镜。需要暂停新版时显式传 `paused:true`，默认 active，但 CLI 仍只在 run 时生成。rename 仅改显示名。pause/resume/stop 控制制作。retry/override 输入 `{faultId}`。 |
-| 替换选题或扩展原文 | `stories reselect <当前id>` 保存重选草稿；用 setup 的 `conditions` 更换书籍和主题后运行 `run <草稿id> --until candidates`，或直接保存已核对的原文选段。用 `stories replace <当前id> <草稿id>` 和输入 `{batch,index,generation}` 提交为当前版本，`generation` 取自最新的草稿 `intake.generation`。`stories cancel-reselection <当前id> <草稿id>` 取消草稿。 |
+| 替换选题或扩展原文 | 已选故事在制作确认前后都可用 `stories reselect <当前id>` 保存重选草稿。用 setup 的 `conditions` 更换书籍和主题后运行 `run <草稿id> --until candidates`，或直接保存已核对的原文选段。用 `stories replace <当前id> <草稿id>` 和输入 `{batch,index,generation}` 提交为当前版本，`generation` 取自最新的草稿 `intake.generation`。`stories cancel-reselection <当前id> <草稿id>` 取消草稿。 |
 | 书架整理 | `stories delete <id>` 可恢复地隐藏，`stories restore <id>` 撤销删除；`api GET reader/deletions` 列出已删除记录。`stories favorite <id>` 输入 `{saved:true\|false}`，不生图。 |
 | 本书参考图 | `stories reference <id>` 输入 `{page,starred:true}`；page 从 0 开始，每本书保留一个参考图，只影响后续绘图。换画风的故事及其后续修订使用本篇首幅作参考。取消用 `{page,starred:false,token}`，token 沿用设置星标时返回的 reference.token；缺少该 token 时说明缺失，不猜造。它与故事收藏不同，也不同于 redrawPages 的从 1 开始页码。 |
 | 仅换图 | `stories edit` 输入 `changes:{redrawPages:[1,3]}`，页码从 1 开始、不得重复；仅用于已完成且有有效审核记录、全部原图可读的当前版本。保留文字、审核及未选图片，不与画风、制作设置或分镜修改混合提交。缺图先按故障恢复流程处理。 |
@@ -79,7 +79,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 用户要在已有故事中补前因或后续时，先用 `stories current <id>` 确认目标，核对同一版次的原文范围，再沿用该故事的版本家族。
 
-1. 用 `stories reselect <当前id> --request-id <UUID>` 建草稿，读取草稿的 `intake.generation`。
+1. 已选择故事后，用 `stories reselect <当前id> --request-id <UUID>` 建草稿，读取草稿的 `intake.generation`。如果此时在别处确认了制作，重新打开选题草稿再提交。
 2. 用 `stories setup <草稿id> --input <私有JSON文件>` 提交 `{requestId,generation,action:"conditions",conditions:{bookId,theme,source,sourceCard:{title,description},productionPrompt}}`。沿用当前书名和主题，`source` 可以包含有出处的 `continuations`。`sourceCard` 用已核原文的标题和简介；目录已收录该完整范围时可以省略。字段示例见 `help --json` 的 `inputs.reselectSource`。
 3. 核对保存的来源与候选，然后用 `stories replace <当前id> <草稿id> --request-id <UUID>` 提交 `{batch,index,generation}`。`batch` 和 `index` 取自已选原文的 `intake.selected`，`generation` 取自最新的草稿 `intake.generation`。提交前书架仍显示原版。提交后用 `stories current` 核对新 id，原版保留为历史。若范围与当前版本完全相同，提交返回原版本；只改制作设置用 `stories edit`。
 4. 在新 id 上按授权运行到 `prepared`，核对摘要，确认制作设置，再按授权完成审核和绘图。用户指定的画风等设置沿用到确认。原文入口只适用于仍可从本地书库核对的选段。

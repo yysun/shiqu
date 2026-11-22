@@ -466,9 +466,8 @@ export default function Reader(){
  // 修改分镜：先关闭分镜剧本再打开修改故事（同一次提交，沿用分镜剧本的历史条目），手机上面板不超过两层
  function editScript(page?:number){setScript(false);revision.open('script',page);}
  function openScript(){setScript(true);revision.prepare();}
- function reselectStory(){
-  const originId=story&&isGenerated(story)?story.id:gen.active?.id;
-  if(!originId||reselectLock.current||creating||revision.busy||gen.active?.superseded)return;
+ function reselectStory(originId=story&&isGenerated(story)?story.id:gen.active?.id){
+  if(!originId||reselectLock.current||creating||revision.busy||gen.setupBusy||gen.controlBusy||gen.active?.superseded)return;
   reselectLock.current=true;setReselectTarget(originId);
  }
  function finishReselection(next:SessionView,readOnly=false){
@@ -588,6 +587,7 @@ export default function Reader(){
    {workflowSession.intake&&workflowSession.intake.phase!=='confirmed'?<StoryCreationSetup
     session={workflowSession} book={bookName({id:workflowSession.id,bookId:workflowSession.selection.bookId})} busy={gen.setupBusy} onAction={gen.setup}
     retainKey={'setup:'+workflowSession.id}
+    onReselect={()=>reselectStory(workflowSession.id)}
     onBackToDiscovery={()=>{clearRetained('discovery');forgetSetup();setAutoSearch(false);setBookChosen(true);setDiscoveryTarget(workflowSession.id);setSelection(workflowSession.selection);setUnavailable('');setConfigure(true);}}
     progress={{busy:gen.busy,controlBusy:!!gen.controlBusy,onControl:gen.control,error:workflowError||gen.error,onRetry:retryWorkflow,onBack:backToShelf,hideBack:true,showSummary:false}}
    />:!revisionResuming&&workflowSession.awaitingFrameCount&&workflowSession.frameRecommendation?<>

@@ -20,14 +20,14 @@ export async function openReselection(repo:ReaderRepository,parentId:string,owne
   return repo.get(requestId,ownerId);
  }
  if(await commandReceipt(repo.db,ownerId,requestId))throw new ReaderError(409,'这个操作编号已用于其他内容。');
- const row=await repo.get(parentId,ownerId),{epoch,rootId}=await revisionBasis(repo,row,true);
+ const row=await repo.get(parentId,ownerId),{epoch,rootId,intakeGeneration}=await revisionBasis(repo,row,true);
  const reset=requirementsForReselection(selectionSchema.parse(JSON.parse(row.selection)),(JSON.parse(row.document) as Document).setupRequirements),selection=reset.selection;
  const settings={...selection,artStylePrompt:undefined,displayTitle:undefined,storyTitle:undefined,source:undefined,sourceCard:undefined};
  if(settings.discovery?.mode==='auto'&&settings.discovery.combine){
   settings.discovery=undefined;
   settings.discoverySources=undefined;
  }
- return createIntake(repo,requestId,ownerId,{...settings,length:'auto'},books,{parentId,rootId,epoch,baseToken:replacementToken(row.selection,epoch)},reset.setup);
+ return createIntake(repo,requestId,ownerId,{...settings,length:'auto'},books,{parentId,rootId,epoch,baseToken:replacementToken(row.selection,epoch,intakeGeneration)},reset.setup);
 }
 
 export async function commitReselection(repo:ReaderRepository,parentId:string,draftId:string,ownerId:string,choice:ReplacementChoice,attempt=0):Promise<SessionRow>{
@@ -43,7 +43,7 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
  if(!draft||draft.parentId!==parentId||!doc.intake)throw new ReaderError(409,'这不是当前故事的重选草稿。');
  if(choice.generation!==undefined&&choice.generation!==doc.intake.generation)throw new ReaderError(409,'选材条件已更新，请重新选择。');
  const parent=await repo.get(parentId,ownerId),basis=await revisionBasis(repo,parent,true);
- if(basis.epoch!==draft.epoch||replacementToken(parent.selection,basis.epoch)!==draft.baseToken)throw new ReaderError(409,'当前选题或制作设置已更新，请保留草稿并重新核对。');
+ if(basis.epoch!==draft.epoch||replacementToken(parent.selection,basis.epoch,basis.intakeGeneration)!==draft.baseToken)throw new ReaderError(409,'当前选题或制作设置已更新，请保留草稿并重新核对。');
  const candidate=doc.intake.batches[choice.batch]?.stories[choice.index];if(!candidate)throw new ReaderError(400,'请选择已保存的候选故事。');
  const previous=selectionSchema.parse(JSON.parse(parent.selection));
  const same=!!candidate.source&&!!previous.source&&localSourceKey(candidate.source)===localSourceKey(previous.source);
@@ -92,8 +92,9 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
    AND NOT EXISTS(SELECT 1 FROM library_deletions x WHERE x.story_id=d.id AND x.user_id=d.user_id)
    AND NOT EXISTS(SELECT 1 FROM reader_commands c WHERE c.owner_id=? AND c.request_id=?)
    AND NOT EXISTS(SELECT 1 FROM stories occupied WHERE occupied.user_id=? AND occupied.id=?)
-   AND (${familyEpoch.replace(' AS epoch','')})=?`)
-  .bind(JSON.stringify(selection),JSON.stringify(doc),now,draftId,ownerId,row.document,parentId,ownerId,parent.selection,ownerId,choice.requestId,ownerId,choice.requestId,ownerId,draft.rootId,draft.rootId,draft.epoch).run();
+   AND (${familyEpoch.replace(' AS epoch','')})=?
+   AND (? IS NULL OR json_extract(p.document,'$.intake.generation')=?)`)
+  .bind(JSON.stringify(selection),JSON.stringify(doc),now,draftId,ownerId,row.document,parentId,ownerId,parent.selection,ownerId,choice.requestId,ownerId,choice.requestId,ownerId,draft.rootId,draft.rootId,draft.epoch,basis.intakeGeneration??null,basis.intakeGeneration??null).run();
  if(!changed.meta.changes){
   const current=await repo.get(draftId,ownerId),saved=JSON.parse(current.document) as Document;
   if(saved.revision?.kind==='selection'||saved.reselection?.baseToken===draft.baseToken&&attempt<3)return commitReselection(repo,parentId,draftId,ownerId,choice,attempt+1);

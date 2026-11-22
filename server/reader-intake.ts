@@ -13,12 +13,13 @@ import type {Document,Selection,SessionRow} from '../lib/reader-model.ts';
 import {effectiveIntakePhase,intakeDraftToken,intakeSearch} from '../lib/reader-intake.ts';
 import type {IntakeAction,IntakeSearch,ReselectionDraft} from '../lib/reader-intake.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
+import {supersededSql} from '../lib/reader-repository.ts';
 import {maxSuggestionBatches} from '../lib/reader-suggestions.ts';
 import {artStyleSettings,sameArtDirection} from '../lib/reader-styles.ts';
 import {invalidateStoryBrief,storyBriefVerified} from '../lib/reader-story-brief.ts';
 import {commandReceipt,recordNoop} from './reader-commands.ts';
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const visible='NOT EXISTS(SELECT 1 FROM library_deletions WHERE story_id=stories.id AND user_id=stories.user_id)';
+const currentStory=`NOT ${supersededSql()} AND NOT EXISTS(SELECT 1 FROM library_deletions WHERE story_id=stories.id AND user_id=stories.user_id)`;
 async function intakeSelection(input:Selection,books?:LocalBooks){
  if(input.discovery?.mode==='title'){
   if(input.source)throw new ReaderError(400,'请填写目标标题并选择章节范围，不要同时直接选择另一篇故事。');
@@ -66,7 +67,7 @@ async function requestSearch(repo:ReaderRepository,row:SessionRow,doc:Document,r
  if(intake.batches.length>=maxSuggestionBatches)throw new ReaderError(400,'已保存40批候选，请回看选择，或新建其他书籍与主题。');
  const next:IntakeSearch={round:search.round+1,state:'searching',requestId,commandHash:fingerprint,cycleId:automatic?(search.cycleId||hash([row.id,search.round])):requestId};
  const changed=await repo.db.prepare(`UPDATE stories SET document=json_set(document,'$.intake.search',json(?),'$.intake.phase',CASE WHEN json_type(document,'$.intake.selected')='object' THEN json_extract(document,'$.intake.phase') ELSE 'discovering' END),updated_at=?
-  WHERE id=? AND user_id=? AND COALESCE(json_extract(document,'$.intake.search.round'),0)=? AND json_extract(document,'$.intake.phase')!='confirmed'${automatic?" AND json_type(document,'$.intake.selected') IS NOT 'object' AND json_extract(document,'$.intake.phase')='choosing' AND json_extract(document,'$.intake.search.state')='idle'":''} AND ${visible}`)
+  WHERE id=? AND user_id=? AND COALESCE(json_extract(document,'$.intake.search.round'),0)=? AND json_extract(document,'$.intake.phase')!='confirmed'${automatic?" AND json_type(document,'$.intake.selected') IS NOT 'object' AND json_extract(document,'$.intake.phase')='choosing' AND json_extract(document,'$.intake.search.state')='idle'":''} AND ${currentStory}`)
   .bind(JSON.stringify(next),new Date().toISOString(),row.id,row.user_id,search.round).run();
  // A command that lost the CAS was accepted as a no-op; later replay cannot start a new round.
  if(!changed.meta.changes)await recordNoop(repo.db,row.user_id,row.id,requestId,'setup',fingerprint);
@@ -80,11 +81,12 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  if(doc.reselection&&!['more','search','conditions'].includes(action.action))throw new ReaderError(409,'请在替换选题窗口提交选择；草稿不能开始制作。');
  if(!intake)throw new ReaderError(409,'这篇故事使用旧制作流程，请继续原来的步骤。');
  intake.phase=effectiveIntakePhase(doc,selection)!;
+ if(action.action!=='more'&&intake.lastAction?.id===action.requestId){if(intake.lastAction.hash!==fingerprint)throw new ReaderError(409,'此操作编号已用于其他内容。');return row;}
+ if(await repo.superseded(id,uid))throw new ReaderError(409,'这篇故事已被替换，请打开书架当前版本。');
  if(action.action==='more'){
   if(intake.selected&&selection.discovery?.mode==='auto'&&selection.discovery.combine)throw new ReaderError(409,'原文已选定，请继续准备故事。');
   return requestSearch(repo,row,doc,action.requestId,fingerprint,action.automatic);
  }
- if(intake.lastAction?.id===action.requestId){if(intake.lastAction.hash!==fingerprint)throw new ReaderError(409,'此操作编号已用于其他内容。');return row;}
  if(intake.generation!==action.generation)throw new ReaderError(409,'制作内容已由另一次操作更新，请重新打开后继续。');
  if(doc.plan||intake.phase==='confirmed')throw new ReaderError(409,'制作已确认；需要调整时请创建修订版本。');
  if(action.action==='conditions'){
@@ -109,7 +111,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   }
   if(choice)selectSourceCard(doc,choice,round);
   const result=await repo.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
-   WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${visible}`)
+   WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`)
    .bind(JSON.stringify(next),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state).run();
   if(!result.meta.changes){if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);throw new ReaderError(409,'提取条件已更新，请重新打开后继续。');}
   return repo.get(id,uid);
@@ -130,7 +132,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   intake.search={round:search.round+1,state:'searching',requestId:action.requestId,commandHash:fingerprint,cycleId:action.requestId};
   delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
   const result=await repo.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
-   WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${visible}`)
+   WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`)
    .bind(JSON.stringify(selection),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state).run();
   if(!result.meta.changes){if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);throw new ReaderError(409,'查找条件已更新，请重新打开后继续。');}
   return repo.get(id,uid);
@@ -151,7 +153,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   // 同时保存草稿和动作回执；后台仍持有原来的工作锁和输入世代。
   if(!['preparing','confirming'].includes(intake.phase))throw new ReaderError(409,'请先选择故事。');
   const saved=await repo.db.prepare(`UPDATE stories SET document=json_set(document,'$.intake.draft',json(?),'$.intake.draftEdited',json('true'),'$.intake.manualArt',json(?),'$.intake.lastAction',json(?)),updated_at=?
-   WHERE id=? AND user_id=? AND document=? AND selection=? AND ${visible}`)
+   WHERE id=? AND user_id=? AND document=? AND selection=? AND ${currentStory}`)
    .bind(JSON.stringify({...action.settings,...styling}),JSON.stringify(manual(styling)),JSON.stringify({id:action.requestId,hash:fingerprint}),new Date().toISOString(),id,uid,row.document,row.selection).run();
   if(!saved.meta.changes){
    if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);
@@ -197,7 +199,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  if(action.action!=='recommend'){delete intake.draft;delete intake.draftEdited;}
  intake.generation++;intake.lastAction={id:action.requestId,hash:fingerprint};
  const result=await repo.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?${action.action==='confirm'?",generation_mode='background',generation_control='active'":''}
-  WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${visible}`)
+  WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`)
   .bind(JSON.stringify(selection),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state).run();
  if(!result.meta.changes){
   const current=await repo.get(id,uid),saved=(JSON.parse(current.document) as Document).intake;

@@ -19,7 +19,7 @@ import StoryGenerationStatus from './StoryGenerationStatus';
 import StoryExtractionContext from './StoryExtractionContext';
 import './story-revision.css';
 type SetupTab=Exclude<StoryEditorTab,'script'>;
-type Props={session:SessionView;book:string;busy:boolean;onAction:(command:IntakeCommand)=>Promise<unknown>;onBackToDiscovery?:()=>void;progress:Omit<ComponentProps<typeof StoryGenerationStatus>,'session'|'timeline'|'stages'|'children'|'compact'>};
+type Props={session:SessionView;book:string;busy:boolean;onAction:(command:IntakeCommand)=>Promise<unknown>;onBackToDiscovery?:()=>void;onReselect:()=>void;progress:Omit<ComponentProps<typeof StoryGenerationStatus>,'session'|'timeline'|'stages'|'children'|'compact'>};
 function savedSettings(session:SessionView):ProductionSettings{
  const settings=session.intake!.draft??session.selection;
  return {
@@ -27,7 +27,7 @@ function savedSettings(session:SessionView):ProductionSettings{
   acceptancePrompt:settings.acceptancePrompt,narrativeDetail:settings.narrativeDetail??'balanced',length:'auto',
  };
 }
-export default function StoryCreationSetup({session,book,busy,onAction,onBackToDiscovery,progress,retainKey}:Props&{retainKey?:string}){
+export default function StoryCreationSetup({session,book,busy,onAction,onBackToDiscovery,onReselect,progress,retainKey}:Props&{retainKey?:string}){
  const intake=session.intake!,saved={...savedSettings(session),length:'auto' as const},savedKey=intakeDraftToken(saved);
  const [error,setError]=useState('');
  const [finding,setFinding]=useState(false);
@@ -99,7 +99,10 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  return <section className="yu-creation-setup" aria-label="故事流程">
   {selected&&session.selection.storyTitle!=='待拟标题'&&progress.showSummary!==false&&<div className="yu-batch-heading"><h3>{session.selection.storyTitle}</h3></div>}
   <StoryGenerationStatus session={session} {...progress} navigation={undefined} compact={ready||preparingSelected} control={ready?null:undefined}
-   timeline={{links:{source:[{label:'查看原文',disabled:busy||!session.generationProgress?.sourceReady,onClick:()=>setSourceOpen(true)}]}}} stageContent={{count:<>
+   timeline={{links:{source:[
+    {label:'查看原文',disabled:busy||!session.generationProgress?.sourceReady,onClick:()=>setSourceOpen(true)},
+    {label:'重新选择故事',disabled:busy||progress.controlBusy||session.superseded,onClick:onReselect},
+   ]}}} stageContent={{count:<>
    {!editing&&remoteChoice}
    {!editing&&error&&<p className="yu-batch-error" role="alert">{error}</p>}
    {editable&&<div className="production-stage-actions production-stage-actions--settings" role="group" aria-label="制作设置">
