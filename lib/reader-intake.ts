@@ -16,7 +16,7 @@ export type IntakeSearch={round:number;state:'idle'|'searching'|'failed';error?:
 export const setupSettingsSchema=z.object({artStyle:z.enum(artStyleIds),artStylePrompt:artStylePromptSchema,productionPrompt:z.string().max(1200),acceptancePrompt:acceptancePromptSchema.optional(),narrativeDetail:narrativeDetailSchema});
 const productionSettingsSchema=setupSettingsSchema.extend({length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')])});
 export type IntakeDraft=z.infer<typeof productionSettingsSchema>;
-export type ReselectionDraft={parentId:string;rootId:string;epoch:number;baseToken:string};
+export type ReselectionDraft={parentId:string;rootId:string;epoch:number;baseToken:string;requirementsToken?:string};
 export type StoryIntake={phase:'discovering'|'choosing'|'preparing'|'confirming'|'confirmed';generation:number;creationHash:string;batches:SuggestionBatch[];/** 旧版本写入的索引候选；只为读取旧文档保留，查找完成或更换条件时清除。 */indexedCandidates?:unknown[];briefRequired?:boolean;selected?:{batch:number;index:number};search?:IntakeSearch|null;draft?:IntakeDraft;draftEdited?:true;manualArt?:boolean;lastAction?:{id:string;hash:string}};
 export type IntakeView=Omit<StoryIntake,'creationHash'|'lastAction'|'search'|'draftEdited'>&{draftToken?:string;search:Pick<IntakeSearch,'state'|'error'>;progress?:SuggestionProgress};
 // 指纹只随已存草稿变化，查找结果和后台阶段进度不影响确认。

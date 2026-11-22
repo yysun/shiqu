@@ -73,6 +73,47 @@ test('reselection replaces unchanged automatic guidance and preserves authored d
  assert.equal((await f.read(id)).intake.draft.productionPrompt,'');assert.equal((await f.read(id)).intake.draft.acceptancePrompt,'');
 });
 
+async function stageReplacement(f,id){
+ const draft=await f.json(`sessions/${id}/reselection`,'POST',{requestId:crypto.randomUUID()});
+ await f.startDiscovery(draft.id);await f.demand(draft.id);
+ await until(async()=>(await f.read(draft.id)).intake.batches.length>0);
+ const ready=await f.read(draft.id);
+ return {route:`sessions/${id}/reselection/${draft.id}`,choice:{requestId:crypto.randomUUID(),batch:0,index:1,generation:ready.intake.generation}};
+}
+
+for(const custom of [false,true])test(`replacing before production preserves ${custom?'authored requirements and an explicit blank':'fresh guidance for the replacement'}`,async t=>{
+ const f=await productionFixture(t),id=await prepared(f),first=(await f.read(id)).intake.draft;
+ const edited={productionPrompt:'保留原文中的关键对白。',acceptancePrompt:''};
+ if(custom)await action(f,id,{action:'draft',settings:{...first,...edited}});
+ const {route,choice}=await stageReplacement(f,id),next=await f.json(route,'POST',choice);
+ await until(async()=>(await f.read(next.id)).intake.phase==='confirming');
+ const requirements=custom?edited:makeRequirements('大葫芦'),saved=(await f.read(next.id)).intake.draft;
+ assert.equal(saved.productionPrompt,requirements.productionPrompt);
+ assert.equal(saved.acceptancePrompt,requirements.acceptancePrompt);
+});
+
+test('a pending replacement cannot silently inherit outdated authored requirements',async t=>{
+ const f=await productionFixture(t),id=await prepared(f);
+ const {route,choice}=await stageReplacement(f,id),before=await f.read(id);
+ await action(f,id,{action:'draft',settings:{...before.intake.draft,acceptancePrompt:''}});
+ const stale=await f.request(route,'POST',choice);
+ assert.equal(stale.status,409);assert.match((await stale.json()).error,/制作或验收要求已更新/);
+ assert.equal((await f.json(`sessions/${id}/current`)).id,id);
+});
+
+test('saved requirements can be recovered after re-preparation and confirmation with empty fields',async t=>{
+ const f=await productionFixture(t),id=await prepared(f),before=await f.read(id);
+ const settings={...before.intake.draft,productionPrompt:'',acceptancePrompt:''};
+ await action(f,id,{action:'recommend',settings});await until(async()=>(await f.read(id)).intake.phase==='confirming');
+ const saved=await action(f,id,{action:'confirm',settings});
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
+ assert.equal(saved.frameRecommendation.requirements,undefined);
+ assert.equal(saved.selection.productionPrompt,'');assert.equal(saved.selection.acceptancePrompt,'');
+ const prompts=await f.json(`sessions/${id}/prompts`);
+ assert.deepEqual(prompts.suggestedRequirements,makeRequirements('庄周梦蝶'));
+ assert.equal((await f.read(id)).generationControl,'paused');
+});
+
 test('ordinary revisions retain provenance so a new selection version clears inherited automatic requirements',async t=>{
  const f=await productionFixture(t);f.control.hold=false;const id=await prepared(f),settings=(await f.read(id)).intake.draft;
  await action(f,id,{action:'confirm',settings});await until(async()=>(await f.read(id)).state==='completed');

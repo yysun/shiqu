@@ -12,6 +12,25 @@ import {createIntake} from './reader-intake.ts';
 import {revisionBasis,replacementToken,familyEpoch,currentFamilyVersion} from './reader-revisions.ts';
 import {commandFingerprint,commandReceipt,recordNoop} from './reader-commands.ts';
 
+function inheritedRequirements(row:SessionRow,doc:Document,intakeGeneration?:number){
+ const selection=selectionSchema.parse(JSON.parse(row.selection));
+ const draft=intakeGeneration===undefined?undefined:doc.intake?.draft;
+ // 确认前的编辑和自动建议都在制作草稿里，已确认版本以正式设置为准。
+ if(draft){
+  selection.productionPrompt=draft.productionPrompt;
+  selection.acceptancePrompt=draft.acceptancePrompt??selection.acceptancePrompt;
+ }
+ return requirementsForReselection(selection,doc.setupRequirements);
+}
+
+function inheritedRequirementsToken(inherited:ReturnType<typeof inheritedRequirements>){
+ const {selection,setup:{overrides}}=inherited;
+ return commandFingerprint([
+  overrides?.productionPrompt??(selection.productionPrompt||null),
+  overrides?.acceptancePrompt??(selection.acceptancePrompt||null),
+ ]);
+}
+
 export async function openReselection(repo:ReaderRepository,parentId:string,ownerId:string,requestId:string,books?:LocalBooks){
  const existing=await repo.db.prepare('SELECT * FROM stories WHERE id=?').bind(requestId).first<SessionRow>();
  if(existing){
@@ -20,14 +39,16 @@ export async function openReselection(repo:ReaderRepository,parentId:string,owne
   return repo.get(requestId,ownerId);
  }
  if(await commandReceipt(repo.db,ownerId,requestId))throw new ReaderError(409,'这个操作编号已用于其他内容。');
- const row=await repo.get(parentId,ownerId),{epoch,rootId,intakeGeneration}=await revisionBasis(repo,row,true);
- const reset=requirementsForReselection(selectionSchema.parse(JSON.parse(row.selection)),(JSON.parse(row.document) as Document).setupRequirements),selection=reset.selection;
+ const row=await repo.get(parentId,ownerId),{doc,epoch,rootId,intakeGeneration}=await revisionBasis(repo,row,true);
+ const reset=inheritedRequirements(row,doc,intakeGeneration),selection=reset.selection;
  const settings={...selection,artStylePrompt:undefined,displayTitle:undefined,storyTitle:undefined,source:undefined,sourceCard:undefined};
  if(settings.discovery?.mode==='auto'&&settings.discovery.combine){
   settings.discovery=undefined;
   settings.discoverySources=undefined;
  }
- return createIntake(repo,requestId,ownerId,{...settings,length:'auto'},books,{parentId,rootId,epoch,baseToken:replacementToken(row.selection,epoch,intakeGeneration)},reset.setup);
+ const draft={parentId,rootId,epoch,baseToken:replacementToken(row.selection,epoch,intakeGeneration),
+  ...(intakeGeneration===undefined?{}:{requirementsToken:inheritedRequirementsToken(reset)})};
+ return createIntake(repo,requestId,ownerId,{...settings,length:'auto'},books,draft,reset.setup);
 }
 
 export async function commitReselection(repo:ReaderRepository,parentId:string,draftId:string,ownerId:string,choice:ReplacementChoice,attempt=0):Promise<SessionRow>{
@@ -44,6 +65,8 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
  if(choice.generation!==undefined&&choice.generation!==doc.intake.generation)throw new ReaderError(409,'选材条件已更新，请重新选择。');
  const parent=await repo.get(parentId,ownerId),basis=await revisionBasis(repo,parent,true);
  if(basis.epoch!==draft.epoch||replacementToken(parent.selection,basis.epoch,basis.intakeGeneration)!==draft.baseToken)throw new ReaderError(409,'当前选题或制作设置已更新，请保留草稿并重新核对。');
+ if(draft.requirementsToken&&draft.requirementsToken!==inheritedRequirementsToken(inheritedRequirements(parent,basis.doc,basis.intakeGeneration)))
+  throw new ReaderError(409,'原故事的制作或验收要求已更新，请重新打开选题。');
  const candidate=doc.intake.batches[choice.batch]?.stories[choice.index];if(!candidate)throw new ReaderError(400,'请选择已保存的候选故事。');
  const previous=selectionSchema.parse(JSON.parse(parent.selection));
  const same=!!candidate.source&&!!previous.source&&localSourceKey(candidate.source)===localSourceKey(previous.source);
@@ -57,7 +80,7 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
    .bind(new Date().toISOString(),draftId,ownerId,parentId,doc.intake.generation).run();
   return repo.current(parentId,ownerId);
  }
- const baseline=selectionSchema.parse(JSON.parse(row.selection)),inherited=(JSON.parse(parent.document) as Document).setupRequirements?.suggestions;
+ const baseline=selectionSchema.parse(JSON.parse(row.selection)),inherited=basis.doc.setupRequirements?.suggestions;
  const settings={...doc.intake.draft,...choice.settings},overrides={...doc.setupRequirements?.overrides};
  // A draft starts with inherited automatic text removed. Preserve edits to that baseline,
  // including blanks; older callers may still submit the parent's unchanged suggestions.
@@ -82,7 +105,7 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
  doc.intake.search={...(doc.intake.search||{round:0}),state:'idle',error:null};
  delete doc.intake.draft;delete doc.intake.draftEdited;
  doc.revision={kind:'selection',selectionRequest:choice.requestId,parentId,rootId:draft.rootId,number:draft.epoch+1,baseToken:draft.baseToken,requestHash:fingerprint,base:{selection,plan:null,images:[]}};
- const now=new Date().toISOString();
+ const now=new Date().toISOString(),requirementsBasis=draft.requirementsToken?parent.document:null;
  const changed=await repo.db.prepare(`UPDATE stories AS d SET
   selection=?,document=json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),
   generation_mode=p.generation_mode,generation_control=p.generation_control,state='idle',error=NULL,
@@ -93,8 +116,9 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
    AND NOT EXISTS(SELECT 1 FROM reader_commands c WHERE c.owner_id=? AND c.request_id=?)
    AND NOT EXISTS(SELECT 1 FROM stories occupied WHERE occupied.user_id=? AND occupied.id=?)
    AND (${familyEpoch.replace(' AS epoch','')})=?
-   AND (? IS NULL OR json_extract(p.document,'$.intake.generation')=?)`)
-  .bind(JSON.stringify(selection),JSON.stringify(doc),now,draftId,ownerId,row.document,parentId,ownerId,parent.selection,ownerId,choice.requestId,ownerId,choice.requestId,ownerId,draft.rootId,draft.rootId,draft.epoch,basis.intakeGeneration??null,basis.intakeGeneration??null).run();
+   AND (? IS NULL OR json_extract(p.document,'$.intake.generation')=?)
+   AND (? IS NULL OR p.document=?)`)
+  .bind(JSON.stringify(selection),JSON.stringify(doc),now,draftId,ownerId,row.document,parentId,ownerId,parent.selection,ownerId,choice.requestId,ownerId,choice.requestId,ownerId,draft.rootId,draft.rootId,draft.epoch,basis.intakeGeneration??null,basis.intakeGeneration??null,requirementsBasis,requirementsBasis).run();
  if(!changed.meta.changes){
   const current=await repo.get(draftId,ownerId),saved=JSON.parse(current.document) as Document;
   if(saved.revision?.kind==='selection'||saved.reselection?.baseToken===draft.baseToken&&attempt<3)return commitReselection(repo,parentId,draftId,ownerId,choice,attempt+1);

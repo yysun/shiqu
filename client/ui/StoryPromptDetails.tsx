@@ -5,9 +5,10 @@ import {promptRecordText} from '@/lib/reader-prompt-records';
 import type {PromptRecord} from '@/lib/reader-prompt-records';
 import {acceptanceCriteria} from '@/lib/reader-acceptance';
 import type {AcceptanceResult} from '@/lib/reader-acceptance';
+import type {StoryRequirements} from '@/lib/reader-requirements';
 import StoryFlowAction from './StoryFlowAction';
 type Receipt={step:string;model:string;originId:string;index:number;record:PromptRecord};
-export type PromptDetails={records:Receipt[];criteria:string[];results:AcceptanceResult[];overridden:boolean;previews:{production:PromptRecord;acceptance:PromptRecord}};
+export type PromptDetails={records:Receipt[];criteria:string[];results:AcceptanceResult[];overridden:boolean;suggestedRequirements?:StoryRequirements;previews:{production:PromptRecord;acceptance:PromptRecord}};
 function PromptText({record}:{record:PromptRecord}){
  const [status,setStatus]=useState(''),text=promptRecordText(record);
  async function copy(){try{await navigator.clipboard.writeText(text);setStatus('已复制');}catch{setStatus('复制失败，可在下方选中文字复制。');}}
@@ -24,11 +25,17 @@ export function PromptDetailsContent({data,kind,sessionId,preferences}:{data:Pro
   <details><summary>查看实际使用的完整提示词（{records.length} 次）</summary>{!records.length?<p>未留存。下次实际制作或审核后会保存本阶段提示词，旧版本不会补造历史记录。</p>:<>{records.map(item=><details key={`${item.originId}:${item.index}`}><summary>{item.step} · {item.originId===sessionId?'本版本实际使用':'沿用旧版本记录'} · {item.model}</summary><PromptText record={item.record}/></details>)}</>}</details>
  </section>;
 }
-export default function StoryPromptDetails({sessionId,kind,preferences}:{sessionId?:string;kind:'production'|'acceptance';preferences:Record<string,unknown>}){
+export default function StoryPromptDetails({sessionId,kind,preferences,onUseSuggestions}:{sessionId?:string;kind:'production'|'acceptance';preferences:Record<string,unknown>;onUseSuggestions?:(suggestions:StoryRequirements)=>void}){
  const [data,setData]=useState<PromptDetails|null>(null),[error,setError]=useState(''),[attempt,setAttempt]=useState(0);
  useEffect(()=>{let active=true;setData(null);setError('');if(sessionId)void request(`reader/sessions/${sessionId}/prompts`).then(value=>{if(active)setData(value);}).catch(e=>{if(active)setError(e instanceof Error?e.message:'提示词暂时无法载入。');});return()=>{active=false;};},[sessionId,attempt]);
  if(!sessionId)return <p className="yu-count-help">本篇尚无提示词使用记录。</p>;
  if(error)return <div role="alert"><p>{error}</p><StoryFlowAction onClick={()=>setAttempt(n=>n+1)}>重新载入提示词</StoryFlowAction></div>;
  if(!data)return <p role="status">正在载入规则与使用记录…</p>;
- return <PromptDetailsContent data={data} kind={kind} sessionId={sessionId} preferences={{...preferences,acceptanceCriteria:acceptanceCriteria(preferences.acceptancePrompt as string)}}/>;
+ const {suggestedRequirements}=data;
+ return <>
+  {onUseSuggestions&&suggestedRequirements&&<div className="production-stage-actions">
+   <StoryFlowAction onClick={()=>onUseSuggestions(suggestedRequirements)}>采用本篇建议</StoryFlowAction>
+  </div>}
+  <PromptDetailsContent data={data} kind={kind} sessionId={sessionId} preferences={{...preferences,acceptanceCriteria:acceptanceCriteria(preferences.acceptancePrompt as string)}}/>
+ </>;
 }
