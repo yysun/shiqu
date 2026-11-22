@@ -17,7 +17,7 @@ f.generation.suggestions=async()=>({stories:[{title:'庄周梦蝶',description:'
 const setup=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced',productionPrompt:''}}),setupId=setup.id;await f.startDiscovery(setupId);
 await f.demand(setupId);await until(async()=>(await f.read(setupId)).intake.phase==='choosing');
 await f.json(`sessions/${setupId}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(setupId)).intake.generation,action:'choose',batch:0,index:0});await until(async()=>(await f.read(setupId)).intake.phase==='confirming');
-const pausedId=await f.createLegacyReader(3,{acceptancePrompt:criteria});await f.json(`sessions/${pausedId}/production-control`,'POST',{action:'pause'});
+const pausedId=await f.create(3,{acceptancePrompt:criteria});await f.json(`sessions/${pausedId}/production-control`,'POST',{action:'pause'});
 const server=createHttpServer(request=>f.app.handle(request));await new Promise(resolve=>server.listen(apiPort,'127.0.0.1',resolve));
 const options=developmentServerOptions({port,apiPort,library:f.dataDirectory});options.host='127.0.0.1';
 const frontend=await createServer({envFile:false,cacheDir:path.join(f.root,'vite-cache'),plugins:[protectDevelopmentLibrary(f.dataDirectory)],server:options});await frontend.listen();

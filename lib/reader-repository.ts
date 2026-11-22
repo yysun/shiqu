@@ -3,10 +3,9 @@
 import {createHash} from 'node:crypto';
 import {storePromptRecords} from './reader-prompt-store.ts';
 import {emptyDocument,ReaderError,selectionSchema,awaitingFrameCount} from './reader-model.ts';
-import type {Selection,SessionRow,Document,Step,ProductionAction} from './reader-model.ts';
+import type {Selection,SessionRow,Document,ProductionAction} from './reader-model.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import type {StoryPublication} from './story-publication';
-import type {ArtRecommendation} from './reader-art-recommendation.ts';
 // 登记制作 DAG 的进度视图（view() 读取）；放在其余导入之后，避免与 reader-model 形成加载循环。
 import './production-dag/progress.ts';
 // The interface keeps the same SQL testable against SQLite without a Worker runtime.
@@ -120,18 +119,16 @@ export class ReaderRepository{
   if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');
   return {storyId:id,...row};
  }
- async control(id:string,uid:string,action:ProductionAction,handoffOnly=false){
+ async control(id:string,uid:string,action:ProductionAction){
   const row=await this.get(id,uid);
-  const revision=(JSON.parse(row.document) as Document).revision;
   const startsGeneration=action==='resume'||action==='background';
   if(startsGeneration&&await this.superseded(id,uid))throw new ReaderError(409,latestVersionMessage);
-  if(handoffOnly&&!revision?.handoff)return row;
   if(row.state==='completed')throw new ReaderError(409,'故事已完整生成，无需更改生成方式。');
   // Resume always continues the whole story; other legacy actions change only their own field.
   const field=action==='background'||action==='reader'?'generation_mode':'generation_control';
   const value=action==='pause'?'paused':action==='stop'?'stopped':action==='resume'?'active':action;
   const assignment=action==='resume'?"generation_mode='background',generation_control=?":`${field}=?`;
-  const result=await this.db.prepare(`UPDATE stories SET ${assignment}${revision&&(action==='resume'||action==='pause')?",document=json_remove(document,'$.revision.handoff')":''} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}${startsGeneration?` AND NOT ${supersededSql()}`:''}${handoffOnly?" AND json_extract(document,'$.revision.handoff')=1":''}`)
+  const result=await this.db.prepare(`UPDATE stories SET ${assignment} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}${startsGeneration?` AND NOT ${supersededSql()}`:''}`)
    .bind(value,id,uid).run();
   if(startsGeneration&&!result.meta.changes&&await this.superseded(id,uid))throw new ReaderError(409,latestVersionMessage);
   return this.get(id,uid);
@@ -165,36 +162,6 @@ export class ReaderRepository{
    throw new ReaderError(409,'画幅数已由另一次操作确定，请重新打开后继续。');
   }
   return this.get(id,uid);
- }
- async stale(row:SessionRow){await this.db.prepare("UPDATE stories SET state='failed',error=?,lock_token=NULL,updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_until<=?").bind('生成等待超时，已保留前面的内容。可手动重试。',new Date().toISOString(),row.id,row.user_id,Date.now()).run();return this.get(row.id,row.user_id);}
- async acquire(row:SessionRow,step:Step){const token=crypto.randomUUID(),now=Date.now();const r=await this.db.prepare(`UPDATE stories SET state='running',error=NULL,lock_token=?,lock_until=?,step_attempts=CASE WHEN step_key=? THEN step_attempts+1 ELSE 1 END,step_key=?,updated_at=? WHERE id=? AND user_id=? AND state=? AND document=? AND state!='running' AND generation_control='active' AND ${visible} AND NOT ${supersededSql()}`).bind(token,now+180000,step.key,step.key,new Date(now).toISOString(),row.id,row.user_id,row.state,row.document).run();return r.meta.changes?token:null;}
- async saveArtRecommendation(row:SessionRow,token:string,doc:Document,recommendation:ArtRecommendation){
-  const chosen=doc.intake?.selected;if(!chosen)throw new ReaderError(409,'请先选择故事。');
-  // Merge only this result; drafts and new search batches may have arrived during inference.
-  // Read manualArt in SQLite so a concurrent manual choice always wins.
-  const result=await this.db.prepare(`UPDATE stories SET document=json_set(document,?,json(?)),
-   selection=CASE WHEN COALESCE(json_extract(document,'$.intake.manualArt'),0)=0 THEN json_set(selection,'$.artStyle',?) ELSE selection END,updated_at=?
-   WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND json_extract(document,'$.intake.generation')=?`)
-   .bind(`$.intake.batches[${chosen.batch}].stories[${chosen.index}].artRecommendation`,JSON.stringify(recommendation),recommendation.artStyle,new Date().toISOString(),row.id,row.user_id,token,doc.intake!.generation).run();
-  if(result.meta.changes!==1)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
- }
- async saveImageProgress(row:SessionRow,token:string,snapshot:Document){
-  // Deletion hides the session but must still retain results of calls already in flight.
-  // 提示词全文先存表，文档只写引用。
-  const saved=JSON.stringify(await storePromptRecords(this.db,snapshot)),result=await this.db.prepare(`UPDATE stories SET document=${workerDocument},updated_at=? WHERE id=? AND user_id=? AND state='running' AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?`)
-   .bind(saved,saved,saved,saved,saved,new Date().toISOString(),row.id,row.user_id,token,snapshot.intake?.generation??-1).run();
-  if(result.meta.changes!==1)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
- }
- async save(row:SessionRow,token:string,doc:Document,complete:boolean,error:string|null=null,progressMap?:number[],prepared?:{title:string;description:string;artRecommendation:ArtRecommendation;batch:number;index:number}){
-  const saved=JSON.stringify(await storePromptRecords(this.db,doc)),map=progressMap?JSON.stringify(progressMap):null;
-  const candidate=prepared?`$.intake.batches[${prepared.batch}].stories[${prepared.index}]`:null;
-  const document=prepared?`json_set(${workerDocument}, ?, ?, ?, ?, ?, json(?))`:workerDocument;
-  const selection=prepared?`,selection=json_set(selection,'$.storyTitle',?,'$.artStyle',CASE WHEN COALESCE(json_extract(stories.document,'$.intake.manualArt'),0)=0 THEN ? ELSE json_extract(selection,'$.artStyle') END)`:'';
-  const fields=prepared?[candidate+'.title',prepared.title,candidate+'.description',prepared.description,candidate+'.artRecommendation',JSON.stringify(prepared.artRecommendation),prepared.title,prepared.artRecommendation.artStyle]:[];
-  const result=await this.db.prepare(`UPDATE stories SET document=${document}${selection},state=CASE WHEN ? THEN 'failed' WHEN ? AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=stories.id AND f.owner_id=stories.user_id AND f.state IN ('pending','recovering')) THEN 'completed' ELSE 'idle' END,error=?,page=CASE WHEN ? IS NULL THEN page ELSE COALESCE(json_extract(?, '$['||page||']'),MAX(0,MIN(page,?))) END,lock_token=NULL,lock_until=0,updated_at=? WHERE id=? AND user_id=? AND lock_token=? AND COALESCE(json_extract(document,'$.intake.generation'),-1)=?`)
-   .bind(saved,saved,saved,saved,saved,...fields,error?1:0,complete?1:0,error,map,map,Math.max(0,(doc.plan?.pages.length||1)-1),new Date().toISOString(),row.id,row.user_id,token,doc.intake?.generation??-1).run();
-  if(!result.meta.changes)throw new ReaderError(409,'故事状态已更新，请重新打开后继续。');
-  return this.get(row.id,row.user_id);
  }
  async progress(id:string,uid:string,page:number,saved:boolean){
   const row=await this.get(id,uid),doc=JSON.parse(row.document) as Document;if(!doc.plan||!doc.images[page])throw new ReaderError(400,'这幅画面还没有展开');

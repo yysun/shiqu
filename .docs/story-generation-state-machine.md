@@ -120,7 +120,7 @@ stateDiagram-v2
 
 ## 3. 下一步如何决定
 
-生产调度器将分镜工作拆成检查点任务，实际执行共同调用 `advanceStory()` 和 `nextStep()`。下表列出已有步骤推导顺序；实现须在付费调用前再次校验以下执行门槛：
+生产调度器将分镜工作拆成检查点任务，实际执行由制作 DAG（`server/dag-production.ts`、`lib/production-dag`）按依赖推导；`nextStep()` 只用于旧版进度显示（`advanceStory()` 已移除）。下表列出已有步骤推导顺序；实现须在付费调用前再次校验以下执行门槛：
 
 1. 当前用户可访问该任务，版本仍是家族的最新提交版本；被删除或替代的版本不能领取新生成工作。
 2. `generationControl=active`，且存在适用的后台或查看者需求。
@@ -523,7 +523,7 @@ stateDiagram-v2
 | --- | --- |
 | [`lib/reader-model.ts`](../lib/reader-model.ts) | `SessionRow / Document / SessionView`、`nextStep()`、`productionComplete()`、进度投影 |
 | [`lib/reader-intake.ts`](../lib/reader-intake.ts)、[`server/reader-intake.ts`](../server/reader-intake.ts) | 创建阶段、查找状态、选择、草稿、重新推荐和制作确认 |
-| [`lib/reader-engine.ts`](../lib/reader-engine.ts) | `advanceStory()`：只执行准备故事（原文、梗概、制作建议）检查点，保存成功或失败结果 |
+| [`lib/reader-engine.ts`](../lib/reader-engine.ts) | `StoryGenerator` 与调用结果类型；原 `advanceStory()` 已移除，准备与制作都由制作 DAG 执行 |
 | [`lib/production-dag/`](../lib/production-dag)、[`server/dag-production.ts`](../server/dag-production.ts) | 制作 DAG：引擎、调用契约、进度视图、复制、任务调度与执行（见 [制作 DAG](story-production-dag.md)） |
 | [`lib/reader-review.ts`](../lib/reader-review.ts) | 审核状态、报告契约、问题编号、局部修订批次 |
 | [`server/reader-production.ts`](../server/reader-production.ts) | 依赖图、执行资格、绘图与发布、人工放行、快照和中断恢复策略 |
@@ -532,4 +532,4 @@ stateDiagram-v2
 | [`lib/reader-limits.ts`](../lib/reader-limits.ts) | 总幅数 `1–80`、分镜批次 `20`、自动修复上限 `20` |
 | [`lib/shelf-generation.ts`](../lib/shelf-generation.ts)、[`lib/generation-progress.ts`](../lib/generation-progress.ts) | 书架状态分组与制作进度显示 |
 
-现有生产 `advanceStory()` 已在 `reviewPhase=frames` 时调用 `reviewFrameCount()`，独立幅数审核不是本次待新增能力。替换草稿见 `server/reader-reselection.ts`；故障和授权见 `server/reader-commands.ts`、`drizzle/0012–0017`。旧 `retry:true` 的付费恢复请求缺少故障和命令身份，返回 400；客户端须刷新后使用 `/recover`。升级前应停止旧服务并备份书库；降级必须恢复匹配的数据库备份，不能仅回退代码。
+（历史说明）旧 `advanceStory()` 曾在 `reviewPhase=frames` 时调用 `reviewFrameCount()`；该路径已移除，幅数核对由 DAG 的 `frameCheck` 完成。替换草稿见 `server/reader-reselection.ts`；故障和授权见 `server/reader-commands.ts`、`drizzle/0012–0017`。旧 `retry:true` 的付费恢复请求缺少故障和命令身份，返回 400；客户端须刷新后使用 `/recover`。升级前应停止旧服务并备份书库；降级必须恢复匹配的数据库备份，不能仅回退代码。

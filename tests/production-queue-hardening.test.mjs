@@ -40,7 +40,6 @@ test('derived eligibility includes deleted children and ignores corrupt unrelate
  const corrupt=crypto.randomUUID();await repo.create(corrupt,owner,selection);
  await repo.db.prepare("UPDATE stories SET document='invalid' WHERE id=?").bind(corrupt).run();
  assert.equal(await repo.superseded(id,owner),true);
- assert.equal(await repo.acquire(await repo.get(id,owner),{key:'plan'}),null);
  await repo.remove(child,owner);
  assert.equal(await repo.superseded(id,owner),true);
  await assert.rejects(repo.control(id,owner,'resume'),error=>error.status===409);

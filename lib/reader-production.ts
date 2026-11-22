@@ -7,7 +7,7 @@ export type LandscapeStatus={state:'idle'|'running'|'partial'|'completed';availa
 export interface ReaderProduction{
  referencesChanged?():void;
  wake():void;
- control(ownerId:string,id:string,action:ProductionAction,handoffOnly?:boolean,requestId?:string):Promise<SessionView>;
+ control(ownerId:string,id:string,action:ProductionAction,requestId?:string):Promise<SessionView>;
  overrideReview(ownerId:string,id:string,command?:RecoveryRequest):Promise<SessionView>;
  request(ownerId:string,id:string,viewerId:string,page:number,retry?:boolean):Promise<SessionView>;
  leave(ownerId:string,id:string,viewerId:string):Promise<void>;

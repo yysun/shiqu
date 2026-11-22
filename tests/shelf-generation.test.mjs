@@ -71,7 +71,7 @@ test('shelf refresh exposes choice and failure states without retrying',async t=
  await f.startDiscovery(choice);await f.demand(choice);await until(async()=>(await f.read(choice)).intake.phase==='choosing',20000);
  // 失败：DAG 的第一项文字工作失败，故障落在该工作上。
  f.control.beforeText=async name=>{if(name==='brief')throw Error('controlled brief failure');};
- const failed=await f.createLegacyReader();
+ const failed=await f.create();
  await f.demand(failed);await until(async()=>(await f.read(failed)).state==='failed',20000);
  // 与失败工作无关的文字工作先自行完成，再记录任务快照。
  for(let i=0;i<20;i++){f.app.services.production.wake();await turn();}await f.app.services.production.queue.settle();

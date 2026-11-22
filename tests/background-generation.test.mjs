@@ -7,7 +7,6 @@ import {readFileSync,readdirSync} from 'node:fs';
 import {migrate} from '../server/database.ts';
 import {productionFixture,until,turn} from './fixtures/production.mjs';
 import {ReaderProductionCoordinator} from '../server/reader-production.ts';
-import {advanceStory} from '../lib/reader-engine.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {flowProviders} from './fixtures/test-tier.mjs';
 const owner='docker-local-owner';
@@ -39,11 +38,9 @@ for(const action of ['pause','stop'])test(`${action} overrides viewers and legac
  assert.equal((await f.read(id)).generationMode,'background');
 });
 
-test('manual pause also fences an unmanaged legacy session and direct engine acquisition',async t=>{
+test('manual pause also fences an unmanaged legacy session and a retry through the advance route',async t=>{
  const f=await productionFixture(t),id=await f.create();await control(f,id,'pause');
  assert.equal((await f.request(`sessions/${id}/advance`,'POST',{throughPage:7,retry:true})).status,400);
- const repo=new ReaderRepository(f.app.services.database);
- await advanceStory(repo,f.generation.generator(),owner,id,7,true);
  await f.app.services.production.tick();assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
  await control(f,id,'resume');await f.demand(id);await until(()=>f.control.calls.length===1);
 });

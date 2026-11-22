@@ -7,7 +7,7 @@ import {build} from 'esbuild';
 import {productionFixture,until} from './fixtures/production.mjs';
 
 test('an explicit first-image retry renews reader demand after restart without another authorization',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(3),viewer=crypto.randomUUID();await f.demand(id,viewer);await until(()=>f.control.calls.length===1);f.control.calls[0].reject(Error('controlled first-image failure'));await until(async()=>(await f.read(id)).state==='failed');await f.leave(id,viewer);await f.restart();f.control.hold=true;
+ const f=await productionFixture(t),id=await f.create(3),viewer=crypto.randomUUID();await f.demand(id,viewer);await until(()=>f.control.calls.length===1);f.control.calls[0].reject(Error('controlled first-image failure'));await until(async()=>(await f.read(id)).state==='failed');await f.leave(id,viewer);await f.restart();f.control.hold=true;
  const bundle=await build({stdin:{contents:"export {useStoryGeneration} from './client/ui/useStoryGeneration.ts';export {beginRender,flushEffects,cleanupEffects} from 'react';export {setTransport} from 'generation-transport';",resolveDir:process.cwd(),loader:'ts'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',plugins:[{name:'hook-scheduler',setup(b){
   b.onResolve({filter:/^react$/},()=>({path:'hooks',namespace:'generation'}));b.onResolve({filter:/^(\.\/shared|generation-transport)$/},()=>({path:'transport',namespace:'generation'}));
   b.onLoad({filter:/.*/,namespace:'generation'},({path})=>({loader:'js',contents:path==='transport'?`let transport;export const setTransport=value=>transport=value;export const request=(...args)=>transport(...args);export const randomId=()=>crypto.randomUUID();`:`

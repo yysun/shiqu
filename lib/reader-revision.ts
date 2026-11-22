@@ -24,7 +24,7 @@ export type RevisionChanges=z.infer<typeof revisionChangesSchema>;
 export type RevisionInfo={parentId:string;rootId:string;number:number};
 export type RevisionView=RevisionInfo&{redraw?:RevisionRedraw};
 // 横图按幅号排列。URL 代表继承的图片，null 代表待重绘，空字符串代表原版缺幅。
-export type RevisionRecord=RevisionInfo&{kind?:'selection';selectionRequest?:string;baseToken:string;requestHash:string;handoff?:boolean;base:RevisionBase;storyImageReference?:true;restyle?:{from:Selection['artStyle'];fromPrompt?:string;next:number};previewedRedraw?:number;actualRedraw?:number;lostPages?:number[];redrawPages?:number[];redrawNotes?:RevisionChanges['redrawNotes'];landscapeRedraw?:(string|null)[]};
+export type RevisionRecord=RevisionInfo&{kind?:'selection';selectionRequest?:string;baseToken:string;requestHash:string;/** 仅旧版本写入的字段；只由升级转换读取，新代码不再设置或使用。 */handoff?:boolean;base:RevisionBase;storyImageReference?:true;restyle?:{from:Selection['artStyle'];fromPrompt?:string;next:number};previewedRedraw?:number;actualRedraw?:number;lostPages?:number[];redrawPages?:number[];redrawNotes?:RevisionChanges['redrawNotes'];landscapeRedraw?:(string|null)[]};
 type RevisionContent=RevisionBase&{reviewNotes?:string};
 export type RevisionSnapshot=RevisionContent&{token:string;epoch:number;reviewStatus?:ReviewCheckpoint['status'];canEditReviewNotes?:boolean;priorReviewIssues?:ReviewIssue[];revision?:RevisionInfo};
 export type RevisionImpact={changed:boolean;replan:boolean;preserveScript:boolean;review:boolean;reused:number;redraw:number;total:number;reusePending:boolean;conflict:boolean};

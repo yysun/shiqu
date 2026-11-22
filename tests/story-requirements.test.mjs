@@ -76,14 +76,14 @@ test('unknown criteria stop for the reader with their evidence: no fabricated re
  assert.equal(count(f.control.dagCalls,'sceneRepair'),0);assert.equal(f.control.calls.length,0);assert.equal(f.control.reviews.length,1);
 });
 test('historical rows have no invented capture history, and previews do not commission inference',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(3);f.app.stopGeneration();
+ const f=await productionFixture(t),id=await f.create(3);f.app.stopGeneration();
  await f.app.services.database.prepare("UPDATE stories SET document=json_remove(document,'$.usage') WHERE id=?").bind(id).run();
  const initial=await f.json(`sessions/${id}/prompts`);assert.deepEqual(initial.records,[]);assert.deepEqual(initial.results,[]);assert.ok(initial.previews.production.instructions.includes('默认制作标准'));assert.equal(f.control.plans.length,0);
  assert.deepEqual(initial.missingRecords,[]);assert.equal(initial.productionPrompt,selection.productionPrompt);assert.equal(initial.acceptancePrompt,'');
 });
 
 test('prompt export metadata identifies partially retained and inherited calls without leaking raw receipts',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(3);f.app.stopGeneration();
+ const f=await productionFixture(t),id=await f.create(3);f.app.stopGeneration();
  const record={instructions:'Saved historical rules',input:'Saved historical input',schema:{type:'object'},reference:'/api/media/old-reference.webp'};
  const usage=[
   {step:'plan',model:'old-text',originId:'parent-version',requestId:'private-request-id',usage:{private:'private-usage'},promptRecord:record},

@@ -38,7 +38,7 @@ const rules=[
  [/^server\/reader-copy\.ts$/,['reader','production']],
  [/^lib\/(?:reader-model|reader-api|reader-generation-contract|reader-local-contract|reader-source-types|services|server)\.ts$/,['discovery','preparation','review','production','reader','storage','providers','media'],true],
  [/^lib\/(?:reader-provider|reader-gemini[\w-]*|reader-responses-diagnostics|reader-reasoning|codex-settings)\.ts$/,['providers']],
- [/^lib\/(?:reader-limits|reader-engine|reader-generation)\.ts$/,['providers','preparation','review','production','discovery']],
+ [/^lib\/(?:reader-limits|reader-engine)\.ts$/,['providers','preparation','review','production','discovery']],
  [/^lib\/(?:reader-source[\w-]*|reader-verified-passages|reader-books|reader-contents|reader-legacy-catalog|reader-discovery-call|reader-suggestion-request|reader-suggestions|reader-theme-match|reader-discovery-themes)\.ts$|^lib\/reader-discovery-v1\.json$/,['books','discovery']],
  [/^lib\/(?:reader-intake|reader-story-brief|reader-requirements|reader-editorial|reader-art-recommendation)\.ts$/,['preparation']],
  [/^lib\/(?:reader-acceptance|reader-frame-recommendation|reader-review[\w-]*|reader-storyboard|reader-structure)\.ts$/,['review']],

@@ -1,8 +1,10 @@
 // Verify source qualification across all local books, real audited leaks and persisted pre-plan checkpoints.
-import test from'node:test';import assert from'node:assert/strict';import{mkdtemp,rm,readFile}from'node:fs/promises';import path from'node:path';import os from'node:os';
+import test from'node:test';import assert from'node:assert/strict';import {readFile} from 'node:fs/promises';import path from'node:path';import os from'node:os';
 import {books} from './fixtures/test-tier.mjs';
-import{hasSourceAnomaly}from'../server/local-source-quality.ts';import{LocalBooks}from'../server/local-books.ts';import{withLocalBooks}from'../server/local-generation.ts';import{openDatabase}from'../server/database.ts';import{ReaderRepository}from'../lib/reader-repository.ts';import{advanceStory}from'../lib/reader-engine.ts';import{FileMedia}from'../server/media.ts';
-const library=new LocalBooks(process.cwd()),select=bookId=>({bookId,theme:'信任与担当',artStyle:'ink-pencil',length:8,voice:false}),reference=(b,s,u)=>({edition:b.edition,sectionId:s.id,firstUnit:u.id,lastUnit:u.id});
+import {productionFixture,until} from './fixtures/production.mjs';
+import {owner} from './fixtures/book-reference.mjs';
+import {emptyDag} from '../lib/production-dag/document.ts';
+import{hasSourceAnomaly}from'../server/local-source-quality.ts';import{LocalBooks}from'../server/local-books.ts';import{withLocalBooks}from'../server/local-generation.ts';const library=new LocalBooks(process.cwd()),select=bookId=>({bookId,theme:'信任与担当',artStyle:'ink-pencil',length:8,voice:false}),reference=(b,s,u)=>({edition:b.edition,sectionId:s.id,firstUnit:u.id,lastUnit:u.id});
 const plan={title:'可读原文的故事',summary:'他会如何选择？',sourceReference:'不可由模型猜写的出处',adaptationNote:'现代简体旁白，保留原文事实。',reflection:'信任从何而来？',characters:'An adult Chinese scholar wearing plain robes.',pages:Array.from({length:8},()=>({caption:'他仔细观察眼前的事情，终于明白朋友的用心。',prompt:'An adult Chinese scholar carefully observes his friend.'}))};
 const provider=onPlan=>({matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。'}))}),status:async()=>({configured:true,provider:'codex',voiceEnabled:false,models:{text:'mock',image:'mock'}}),safeError:()=> '模拟错误',suggestions:async()=>({stories:[],note:''}),generator:()=>({recommend:async(...args)=>{await onPlan?.(...args);return {value:{count:8,reason:'按原文主线展开。',storySummary:plan.summary,storyMatchReason:'真实行动与结果支持本篇。',storyTitle:'可读原文的故事',artRecommendation:{artStyle:'ink-pencil',reason:'与原文人物和叙事相符。'}},model:'mock',requestId:'mock',usage:null};},original:async()=>assert.fail('No public source lookup'),image:async()=>assert.fail('No image generation'),audio:async()=>assert.fail('No audio'),safeError:()=> '模拟错误'})});
 
@@ -49,13 +51,26 @@ test('candidates, direct preparation and legacy backfill share qualification and
  await assert.rejects(wrapped.generator().original(select('zhuangzi'),{...plan,sourceReference:'《庄子·测试篇》'},'legacy'),e=>e.status===400);assert.equal(writes,0);
 });
 
-test('damaged saved originals cannot call a new recommendation; readable historical receipts retry without reloading new editions',async t=>{
- const folder=await mkdtemp(path.join(os.tmpdir(),'shiqu-source-guard-'));t.after(()=>rm(folder,{recursive:true,force:true}));const local=openDatabase(folder,process.cwd());t.after(()=>local.close());const repo=new ReaderRepository(local.database),media=new FileMedia(path.join(folder,'media')),source={edition:'a'.repeat(64),sectionId:'zhuangzi-old',firstUnit:'zhuangzi-old-001',lastUnit:'zhuangzi-old-001'};
- const books=new LocalBooks(process.cwd());books.book=async()=>assert.fail('Saved readable checkpoints must not load the current edition');let calls=0;const generator=withLocalBooks(provider(()=>{calls++;}),books,media).generator();
+test('damaged saved originals reach no model call; readable historical receipts proceed without reloading new editions',async t=>{
+ const source={edition:'a'.repeat(64),sectionId:'zhuangzi-old',firstUnit:'zhuangzi-old-001',lastUnit:'zhuangzi-old-001'};
+ const books=new LocalBooks(process.cwd());books.book=async()=>assert.fail('Saved readable checkpoints must not load the current edition');
  for(const mode of ['bad-body','bad-title','good-old-version']){
-  const id=crypto.randomUUID(),selection={...select('zhuangzi'),length:'auto',narrativeDetail:'balanced',source},original={title:mode==='bad-title'?'《庄子·篇题&KR0899;》':'《庄子·可读旧版》',text:mode==='bad-body'?'已存原文中的プ不能被当作正确汉字，也不能靠模型补全。':'旧版原文中，朋友一直信任彼此，终于携手渡过困难。',url:'https://example.org/pinned-original',provider:'本地书库',kind:'passage',retrievedAt:'2026-01-01T00:00:00.000Z',localSource:source};
-  await repo.create(id,'test',selection);const document={plan:null,images:[],audio:[],usage:[],original};await local.database.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(document),id).run();await media.put(`reader/${id}/source.json`,new TextEncoder().encode(JSON.stringify(original)),{contentType:'application/json'});const before=calls,draft=await advanceStory(repo,generator,'test',id,0),result=mode==='good-old-version'?await advanceStory(repo,generator,'test',id,0):draft;
-  if(mode==='good-old-version'){assert.equal(calls,before+1);assert.equal(result.story,null);assert.equal(result.awaitingFrameCount,false);}else{assert.equal(calls,before);assert.equal(result.state,'failed');assert.match(result.error,/已存原文含未识别/);assert.equal(result.story,null);}
-  const stored=JSON.parse((await repo.get(id,'test')).document).original;assert.deepEqual((({storyBrief,...source})=>source)(stored),original);assert.equal(stored.storyBrief.verified,mode==='good-old-version');assert.deepEqual(JSON.parse(Buffer.from(await(await media.get(`reader/${id}/source.json`)).arrayBuffer()).toString()),original);
+  const f=await productionFixture(t,'codex');f.control.hold=false;
+  f.options.generation=withLocalBooks(f.generation,books,f.media);await f.restart();
+  const id=crypto.randomUUID(),selection={...select('zhuangzi'),length:4,narrativeDetail:'balanced',source};
+  const original={title:mode==='bad-title'?'《庄子·篇题&KR0899;》':'《庄子·可读旧版》',text:mode==='bad-body'?'已存原文中的プ不能被当作正确汉字，也不能靠模型补全。':'旧版原文中，朋友一直信任彼此，终于携手渡过困难。',url:'https://example.test/old',kind:'passage',provider:'本地书库',retrievedAt:'2026-10-26T00:00:00Z',localSource:source};
+  const now=new Date().toISOString(),document={plan:null,images:[],audio:[],usage:[],original,dag:emptyDag()};
+  await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'background','active','idle',?,?)").bind(id,owner,JSON.stringify(selection),JSON.stringify(document),now,now).run();
+  await f.media.put(`reader/${id}/source.json`,new TextEncoder().encode(JSON.stringify(original)),{contentType:'application/json'});
+  f.app.services.production.wake();
+  if(mode==='good-old-version')await until(()=>f.control.dagCalls.length>0,20000);
+  else{
+   await until(async()=>{const view=await f.read(id);return view.state==='failed'||view.faults?.length>0;},20000);
+   assert.equal(f.control.dagCalls.length,0,mode+': no model call for a damaged original');
+  }
+  const stored=JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document).original;
+  assert.equal(stored.text,original.text);assert.equal(stored.title,original.title);
+  assert.deepEqual(JSON.parse(Buffer.from(await(await f.media.get(`reader/${id}/source.json`)).arrayBuffer()).toString()),original);
  }
 });
+

@@ -8,7 +8,7 @@ import {liveReaderProvider} from '../server/app.ts';
 import {ReaderProductionCoordinator} from '../server/reader-production.ts';
 
 test('production queue draws every frame through the separate image provider and keeps text on the text provider',async t=>{
- const f=await productionFixture(t,'codex',{},{imageProvider:'gemini'}),id=await f.createLegacyReader();
+ const f=await productionFixture(t,'codex',{},{imageProvider:'gemini'}),id=await f.create();
  f.control.hold=false;await f.demand(id);await until(async()=>(await f.read(id)).ready===7);
  assert.equal(f.control.calls.length,7);assert.ok(f.control.calls.every(call=>call.via==='gemini'));
  assert.deepEqual([...f.control.textVia],['codex']);assert.equal(f.control.dagCalls.filter(name=>name==='outline').length,1);
@@ -39,7 +39,7 @@ test('an image error uses its captured provider after defaults change',async t=>
  const f=await productionFixture(t,'codex');f.app.stopGeneration();await f.app.services.production.close();let model='old-model';
  const live=liveReaderProvider({SHIQU_AI_PROVIDER:'codex',CODEX_MODEL:model},()=>({SHIQU_AI_PROVIDER:'codex',CODEX_MODEL:model}),values=>({...f.generation,safeError:()=>values.CODEX_MODEL+' failure'}));
  const coordinator=new ReaderProductionCoordinator(f.app.services.database,live,f.media,{tickMs:1});f.coordinators.push(coordinator);f.app.services.production=coordinator;
- const id=await f.createLegacyReader();await f.demand(id);await until(()=>f.control.calls.length===1);model='new-model';await live.status();
+ const id=await f.create();await f.demand(id);await until(()=>f.control.calls.length===1);model='new-model';await live.status();
  f.control.calls[0].reject(Error('controlled old-image failure'));await until(async()=>(await coordinator.queue.jobs(id,f.app.services.ownerId)).some(job=>job.kind==='dag-draw'&&job.state==='failed'));
  const failed=(await coordinator.queue.jobs(id,f.app.services.ownerId)).find(job=>job.kind==='dag-draw'&&job.state==='failed');assert.equal(failed.error,'old-model failure');
  await coordinator.queue.settle();assert.equal(coordinator.jobProviders.size,0);

@@ -351,9 +351,8 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
      const b=z.object({requestId:uuid,token:z.string().regex(/^[a-f0-9]{64}$/),changes:revisionChangesSchema,paused:z.boolean().default(false)}).strict().parse(metadata);
      const landscapeImages=services.commandOnly?undefined:async()=>(await production.landscapeStatus(uid,id)).images;
      const row=await forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes,b.paused,cover,landscapeImages);
-     const doc=JSON.parse(row.document) as Document;
-     if(!b.paused&&!doc.revision?.handoff)production.wake();
-     return json(doc.revision?.handoff?await production.control(uid,row.id,b.paused?'pause':'resume',true):await production.snapshot(uid,row.id),201);
+     if(!b.paused)production.wake();
+     return json(await production.snapshot(uid,row.id),201);
     }
    }
    if(path[2]==='review-override'&&path.length===3&&req.method==='POST'){
@@ -366,7 +365,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const b=z.object({requestId:uuid,action:z.enum(['background','reader','pause','stop','resume','continue','apply-model'])}).strict().parse(await body(req));
     if(b.action==='background'||b.action==='resume'||b.action==='apply-model'||b.action==='continue'&&!await services.production.continueAccepted?.(uid,id,b.requestId))await requireProvider();
-    return json(await services.production.control(uid,id,b.action,false,b.requestId));
+    return json(await services.production.control(uid,id,b.action,b.requestId));
    }
    if(path[2]==='production'&&path.length===3){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');

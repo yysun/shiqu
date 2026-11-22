@@ -96,9 +96,6 @@ test('failed preparation can be replaced, manual preferences survive reselect, a
  await setup(f,id,{action:'choose',batch:0,index:1});await until(async()=>(await f.read(id)).intake.phase==='confirming');
  await setup(f,id,{action:'recommend',settings:{artStyle:'watercolor',productionPrompt:'My saved custom preferences.',narrativeDetail:'brief'}});await until(async()=>(await f.read(id)).intake.phase==='confirming');
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');const current=await f.read(id);assert.equal(current.selection.artStyle,'watercolor');assert.equal(current.selection.productionPrompt,'My saved custom preferences.');assert.equal(current.selection.narrativeDetail,'brief');assert.equal(f.discoveries.length,1);
- const repo=f.app.services.production.repository,row=await repo.get(id,'docker-local-owner'),doc=JSON.parse(row.document);
- await f.app.services.database.prepare("UPDATE stories SET state='running',lock_token='late-token',document=json_set(document,'$.intake.generation',?) WHERE id=?").bind(doc.intake.generation+1,id).run();
- await assert.rejects(repo.save(row,'late-token',doc,false),/状态已更新/);await assert.rejects(repo.saveImageProgress(row,'late-token',doc),/状态已更新/);
 });
 
 test('an obsolete recommendation failure cannot block a newer selection',async t=>{

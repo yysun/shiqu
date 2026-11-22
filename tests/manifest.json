@@ -1743,6 +1743,10 @@
         "server/media.ts",
         "server/story-reading-inputs.ts",
         "server/story-token-budget.ts",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production-data.mjs",
+        "tests/fixtures/production.mjs",
         "tests/fixtures/test-tier.mjs"
       ],
       "manualOnly": true
@@ -1858,6 +1862,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "lib/production-dag/document.ts",
         "lib/reader-engine.ts",
         "lib/reader-repository.ts",
         "server/database.ts",
@@ -1865,6 +1870,11 @@
         "server/local-generation.ts",
         "server/local-source-quality.ts",
         "server/media.ts",
+        "tests/fixtures/book-reference.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production-data.mjs",
+        "tests/fixtures/production.mjs",
         "tests/fixtures/test-tier.mjs"
       ],
       "manualOnly": true
@@ -2267,7 +2277,6 @@
       "pr": "affected",
       "gates": [],
       "covers": [
-        "lib/reader-generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
@@ -2346,7 +2355,6 @@
       "covers": [
         "lib/reader-engine.ts",
         "lib/reader-gemini.ts",
-        "lib/reader-generation.ts",
         "lib/reader-model.ts",
         "lib/reader-repository.ts",
         "lib/reader-styles.ts",

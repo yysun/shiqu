@@ -2,15 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,until,turn,encoded,makePlan} from './fixtures/production.mjs';
-import {imageBytes} from './fixtures/images.mjs';
-import {withLocalBooks} from '../server/local-generation.ts';
-import {LocalBooks} from '../server/local-books.ts';
-import {generationProgress} from '../lib/generation-progress.ts';
-import {advanceStory} from '../lib/reader-engine.ts';
-import {ReaderRepository} from '../lib/reader-repository.ts';
-import {configuredImageWorkers,ReaderProductionCoordinator} from '../server/reader-production.ts';
+import {configuredImageWorkers} from '../server/reader-production.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
-import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {flowProviders} from './fixtures/test-tier.mjs';
 
@@ -18,7 +11,7 @@ import {flowProviders} from './fixtures/test-tier.mjs';
 
 
 test('image concurrency is configurable and global across stories; text/source are not repeated',async t=>{
- const f=await productionFixture(t,'codex',{SHIQU_IMAGE_WORKERS:'4'}),a=await f.createLegacyReader(),b=await f.createLegacyReader();
+ const f=await productionFixture(t,'codex',{SHIQU_IMAGE_WORKERS:'4'}),a=await f.create(),b=await f.create();
  await f.demand(a);await f.demand(b);await until(()=>f.control.calls.length===2);assert.ok(f.control.calls.every(c=>c.page===0));
  for(const call of f.control.calls)call.resolve();await until(()=>f.control.active===4);await turn();assert.equal(f.control.maxActive,4);
  f.control.hold=false;for(const call of f.control.calls)call.resolve();await until(async()=>(await f.read(a)).ready===7&&(await f.read(b)).ready===7);
@@ -36,7 +29,7 @@ test('one viewer leaving preserves another; all leaving drains paid results and 
 });
 
 test('expired viewer demand stops dispatch even if the browser never sends leave',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader();await f.demand(id);await until(()=>f.control.calls.length===1);
+ const f=await productionFixture(t),id=await f.create();await f.demand(id);await until(()=>f.control.calls.length===1);
  await f.app.services.database.prepare('UPDATE production_demand SET expires_at=0').run();f.control.calls[0].resolve();
  await until(async()=>(await f.read(id)).ready===1);await f.app.services.production.tick();assert.equal(f.control.calls.length,1);
  // A claim shows in the job row at once; its provider call only appears after asynchronous file reads.
@@ -56,13 +49,13 @@ test('restart before viewer expiry never resumes paid work until a fresh viewer 
 
 
 test('shutdown stops dispatch before draining in-flight outputs and closes SQLite after publication',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader();await f.demand(id);await until(()=>f.control.calls.length===1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
+ const f=await productionFixture(t),id=await f.create();await f.demand(id);await until(()=>f.control.calls.length===1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
  const close=f.app.close();assert.equal(f.control.calls.length,4);for(const call of f.control.calls)call.resolve();await close;
  assert.equal(f.control.calls.length,4);await f.restart();assert.equal((await f.read(id)).ready,4);assert.equal(f.control.calls.length,4);
 });
 
 test('queue routes validate input/origin and use server owner identity',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(),viewerId=crypto.randomUUID();
+ const f=await productionFixture(t),id=await f.create(),viewerId=crypto.randomUUID();
  for(const body of [{viewerId:'bad',page:0},{viewerId,page:80},{viewerId,page:-1},{viewerId,page:1.5}])assert.equal((await f.request(`sessions/${id}/production`,'POST',body)).status,400);
  assert.equal((await f.request(`sessions/${id}/production`,'POST',{viewerId,page:0},{Origin:'https://evil.example'})).status,403);
  await assert.rejects(f.app.services.production.request('another-owner',id,viewerId,0),e=>e.status===404);
@@ -125,7 +118,7 @@ test('early demand draws the anchor first, then a bounded read-ahead; each page 
 });
 
 test('deletion hides a story immediately and stops further drawing',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader();await f.demand(id);await until(()=>f.control.calls.length===1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
+ const f=await productionFixture(t),id=await f.create();await f.demand(id);await until(()=>f.control.calls.length===1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
  await f.json(`library/${id}`,'DELETE');f.control.hold=false;for(const call of f.control.calls)call.resolve();await f.app.services.production.queue.settle();
  assert.equal((await f.request(`sessions/${id}`)).status,404);assert.equal((await f.request(`media/${id}/1.png`)).status,404);assert.equal(f.control.calls.length,4);
  assert.equal((await f.request(`sessions/${id}/production`,'POST',{viewerId:crypto.randomUUID(),page:0})).status,404);

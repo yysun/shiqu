@@ -79,7 +79,7 @@ export async function authorizeControl(db:Database,ownerId:string,sessionId:stri
   if(!inserted)return;
   const control=action==='resume'?'active':action==='pause'?'paused':action==='stop'?'stopped':null;
   const mode=action==='resume'||action==='background'?'background':action==='reader'?'reader':null;
-  tx.run(`UPDATE stories SET generation_control=COALESCE(?,generation_control),generation_mode=COALESCE(?,generation_mode)${action==='resume'||action==='pause'?",document=json_remove(document,'$.revision.handoff')":''} WHERE id=? AND user_id=?`,control,mode,sessionId,ownerId);
+  tx.run(`UPDATE stories SET generation_control=COALESCE(?,generation_control),generation_mode=COALESCE(?,generation_mode) WHERE id=? AND user_id=?`,control,mode,sessionId,ownerId);
  });
  const receipt=await commandReceipt(db,ownerId,requestId,fingerprint);if(!receipt)throw new ReaderError(409,'故事已完成或版本已更新，请刷新后再操作。');return receipt;
 }

@@ -72,7 +72,7 @@ test('frame 80 media, events and saved progress remain owner scoped and survive 
  const short=await f.create(1);await finish(f,short);assert.equal((await f.request(`sessions/${short}/progress`,'POST',{page:79,saved:true})).status,400);
 });
 test('reader lease exit drains started calls and dispatches no additional images',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(10),viewer=crypto.randomUUID();await f.demand(id,viewer);await until(()=>f.control.calls.length===1);
+ const f=await productionFixture(t),id=await f.create(10),viewer=crypto.randomUUID();await f.demand(id,viewer);await until(()=>f.control.calls.length===1);
  f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);await f.leave(id,viewer);for(const call of f.control.calls)call.resolve();await until(async()=>(await f.read(id)).ready===4);await f.app.services.production.tick();assert.equal(f.control.calls.length,4);
 });
 test('unverifiable originals stop before recommendation, plan or images',async t=>{

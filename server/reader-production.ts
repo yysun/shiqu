@@ -190,7 +190,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(await this.repository.superseded(row.id,row.user_id))return false;
   return row.generation_mode==='background'&&row.generation_control==='active'&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
- async control(ownerId:string,id:string,action:ProductionAction,handoffOnly=false,requestId?:string){
+ async control(ownerId:string,id:string,action:ProductionAction,requestId?:string){
   // 「继续制作」的已接受编号先于其他核对重放。
   if(action==='apply-model'){
    if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
@@ -206,7 +206,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
   await this.repository.get(id,ownerId);
   if(requestId)await authorizeControl(this.database,ownerId,id,requestId,action,this.clock());
-  else await this.repository.control(id,ownerId,action,handoffOnly);
+  else await this.repository.control(id,ownerId,action);
   this.wake();return this.snapshot(ownerId,id);
  }
  async managed(ownerId:string,id:string){const saved=await this.database.prepare('SELECT document FROM stories WHERE id=? AND user_id=?').bind(id,ownerId).first<{document:string}>();if(saved&&(JSON.parse(saved.document) as Document).intake)return true;return !!await this.database.prepare("SELECT id FROM production_jobs WHERE owner_id=? AND session_id=? AND kind!='landscape-image' LIMIT 1").bind(ownerId,id).first();}

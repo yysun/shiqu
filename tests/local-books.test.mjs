@@ -6,19 +6,16 @@ import os from 'node:os';
 import {readFile,mkdtemp,rm,access} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {LocalBooks} from '../server/local-books.ts';
-import {bookInputs} from '../server/local-book-inputs.ts';
 import {readingTokens} from '../server/story-token-budget.ts';
 import {buildReadingPlan,hydrateReadingPlan} from '../server/story-reading-inputs.ts';
 import {withLocalBooks} from '../server/local-generation.ts';
 import {createReaderProvider} from '../server/generation.ts';
 import {createApplication} from '../server/app.ts';
 import {FileMedia} from '../server/media.ts';
-import {openDatabase} from '../server/database.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
-import {advanceStory} from '../lib/reader-engine.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
-import {suggestionBatchSchema} from '../lib/reader-suggestions.ts';
 import {books} from './fixtures/test-tier.mjs';
+import {productionFixture,until} from './fixtures/production.mjs';
 
 const library=new LocalBooks(process.cwd());
 const selected=selectionSchema.parse({bookId:'zhuangzi',theme:'放下执念',storyTitle:'庄周梦蝶',length:8});
@@ -99,23 +96,6 @@ test('cross-chapter references preserve both original ranges, reject tampering, 
  const jingshi=await library.book({...selected,bookId:'警世通言'}),chapter=jingshi.sections.find(s=>s.units.reduce((n,u)=>n+u.text.length,0)>12000);
  const full=library.resolve(jingshi,ref(jingshi,chapter,0,chapter.units.length-1));assert.ok(full.text.length>12000);
 });
-test('verified original reaches SQLite and media before paid recommendation, and survives failure/retry',async t=>{
- const root=await directory(t),db=openDatabase(root,process.cwd());t.after(()=>db.close());const repo=new ReaderRepository(db.database),store=new FileMedia(path.join(root,'media')),book=await library.book(selected),selection={...selected,length:'auto',narrativeDetail:'balanced',source:ref(book)};
- let calls=0;const base=fake();base.generator=()=>({...fake().generator(),async recommend(s,id,original){calls++;const row=await repo.get(id,'test'),doc=JSON.parse(row.document);assert.equal(doc.original.text,original.text);assert.ok(await store.get(`reader/${id}/source.json`));if(calls===1)throw Error('mock recommend failure');return {value:{count:8,reason:'按这篇寓言的因果与转折完整叙述。',storySummary:plan.summary,storyMatchReason:'按原典主线展开。'},model:'mock',requestId:'mock',usage:null};}});
- const generator=withLocalBooks(base,library,store).generator(),id=crypto.randomUUID();await repo.create(id,'test',selection);
- const failed=await advanceStory(repo,generator,'test',id,0);assert.equal(failed.state,'failed');assert.equal(failed.story,null);assert.ok(JSON.parse((await repo.get(id,'test')).document).original);
- await advanceStory(repo,generator,'test',id,0,true);
- const retried=await advanceStory(repo,generator,'test',id,0);assert.equal(calls,2);assert.equal(retried.story,null);assert.equal(retried.awaitingFrameCount,false);
- const saved=JSON.parse((await repo.get(id,'test')).document).original;assert.match(saved.text,/莊周夢/);assert.deepEqual(saved.localSource,selection.source);
-});
-test('storage failures or missing local receipts cannot issue paid recommendation requests',async t=>{
- for(const mode of ['storage','missing']){
-  const root=await directory(t),db=openDatabase(root,process.cwd());t.after(()=>db.close());const repo=new ReaderRepository(db.database),book=await library.book(selected);let calls=0;
-  const base=fake();base.generator=()=>({...fake().generator(),recommend:async()=>{calls++;throw Error('must not run');}});
-  const media=mode==='storage'?{put:async()=>{throw Error('disk full');}}:memory(),selection={...selected,length:'auto',narrativeDetail:'balanced',...(mode==='storage'?{source:ref(book)}:{})};
-  const id=crypto.randomUUID();await repo.create(id,'test',selection);const row=await advanceStory(repo,withLocalBooks(base,library,media).generator(),'test',id,0);assert.equal(row.state,'failed');assert.equal(calls,0);assert.equal(row.story,null);
- }
-});
 test('DAG source verification and recommendation both verify local source receipts before inference',async()=>{
  const book=await library.book(selected),selection={...selected,length:45,source:ref(book)},media=memory();let recommends=0;
  const base=fake();base.generator=()=>({...fake().generator(),async recommend(){recommends++;return {value:{count:8,reason:'完整叙述。',storySummary:plan.summary,storyMatchReason:'按原典主线展开。'},model:'mock',requestId:null,usage:null};}});
@@ -134,16 +114,23 @@ test('explicit legacy backfill uses a local chapter and does not plan, draw, or 
  const response=await app.handle(new Request(`http://localhost/api/reader/sessions/${id}/source`,{method:'POST'}));assert.equal(response.status,200);const body=await response.json();assert.equal(body.source.kind,'chapter');assert.match(body.source.provider,/本地书库/);assert.match(body.source.text,/北冥|南郭|庄周/);assert.equal(body.searchUrl,'');assert.equal((await repo.get(id,'docker-local-owner')).page,row.page);
 });
 
-test('local recommendation persists the exact original before inference and rejects tampered receipts or source anomalies',async t=>{
- const root=await directory(t),db=openDatabase(root,process.cwd());t.after(()=>db.close());
- const repo=new ReaderRepository(db.database),store=new FileMedia(path.join(root,'media')),book=await library.book(selected),selection={...selected,length:'auto',narrativeDetail:'balanced',source:ref(book)};
- let calls=0;const base=fake();base.generator=()=>({...fake().generator(),async recommend(s,id,original){
-  calls++;assert.equal(JSON.parse((await repo.get(id,'test')).document).original.text,original.text);assert.ok(await store.get(`reader/${id}/source.json`));
-  return {value:{count:8,reason:'按这篇寓言的因果与转折完整叙述。',storySummary:plan.summary,storyMatchReason:'按原典主线展开。'},model:'mock',requestId:'mock',usage:null};
- }});
- const generator=withLocalBooks(base,library,store).generator(),id=crypto.randomUUID();await repo.create(id,'test',selection);
- const current=await advanceStory(repo,generator,'test',id,0);assert.equal(current.awaitingFrameCount,false);assert.equal(calls,1);assert.equal(current.story,null);
- const original=JSON.parse((await repo.get(id,'test')).document).original;
- await assert.rejects(generator.recommend({...selection,source:{...selection.source,edition:'0'.repeat(64)}},id,original),e=>e.status===400);
- await assert.rejects(generator.recommend(selection,id,{...original,text:original.text+'□'}),e=>e.status===400);assert.equal(calls,1);
+
+test('the DAG saves the verified original before any paid call, and a storage failure or missing receipt issues none',async t=>{
+ const book=await library.book(selected);
+ for(const mode of ['saved','storage','missing']){
+  const f=await productionFixture(t,'codex');f.control.hold=false;
+  const media=mode==='storage'?{get:async()=>null,put:async()=>{throw Error('disk full');}}:f.media;
+  f.options.generation=withLocalBooks(f.generation,library,media);await f.restart();
+  const id=crypto.randomUUID(),source=mode==='missing'?{}:{source:ref(book)};
+  await f.json('sessions','POST',{requestId:id,selection:{...selected,length:4,...source}});
+  if(mode==='saved'){
+   await until(async()=>(await f.read(id)).state==='completed',30000);
+   const doc=JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
+   assert.match(doc.original.text,/莊周夢/);assert.deepEqual(doc.original.localSource,source.source);
+   assert.ok(await f.media.get(`reader/${id}/source.json`),'the source is saved in media');
+  }else{
+   await until(async()=>{const view=await f.read(id);return view.state==='failed'||view.faults?.length>0;},20000);
+   assert.equal(f.control.dagCalls.length+f.control.calls.length,0,mode+': no paid call without a saved, verified original');
+  }
+ }
 });

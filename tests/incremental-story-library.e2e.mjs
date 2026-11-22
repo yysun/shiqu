@@ -177,7 +177,7 @@ for(const length of [2,21])test(`missing synopsis is saved before a ${length}-fr
 });
 
 test('invalid missing-summary preparation blocks planning and retries with the saved original',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(2);f.control.hold=false;
+ const f=await productionFixture(t),id=await f.create(2);f.control.hold=false;
  let invalid=true;
  f.control.beforeText=async kind=>kind==='brief'?(invalid?{}:{summary:preparedSummary}):undefined;
  await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});await until(async()=>(await f.read(id)).state==='failed',15000);
@@ -196,7 +196,7 @@ test('invalid missing-summary preparation blocks planning and retries with the s
 });
 
 test('a confirmed legacy intake stays confirmed and keeps its selected frame count while a missing synopsis is prepared',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(2),doc=await savedDocument(f,id);f.control.hold=false;
+ const f=await productionFixture(t),id=await f.create(2),doc=await savedDocument(f,id);f.control.hold=false;
  doc.frameCountConfirmed=true;doc.intake={phase:'confirmed',generation:0,creationHash:'legacy',selected:{batch:0,index:0},batches:[{stories:[{title:'庄周梦蝶',description:'梦醒之后的追问。'}],note:''}],search:{round:0,state:'idle'}};
  await f.app.services.database.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(doc),id).run();
  f.control.beforeText=async kind=>kind==='brief'?{summary:preparedSummary}:undefined;

@@ -6,9 +6,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {readdirSync} from 'node:fs';
-import {readFile,rm,writeFile} from 'node:fs/promises';
+import {readFile,writeFile} from 'node:fs/promises';
 import {productionFixture,until} from './fixtures/production.mjs';
-import {runStoryGeneration} from '../lib/reader-generation.ts';
 const owner='docker-local-owner';
 const production=f=>f.app.services.production;
 const database=f=>f.app.services.database;
@@ -124,13 +123,6 @@ test('without a reader, order stays by page across stories',async t=>{
  const order=await drawOrder(f,{[older]:'o',[newer]:'n'},3);
  assert.deepEqual(order.slice(0,2),['o0','n0'],"A new story's first page comes before an older story's second");
  assert.equal(order[2].slice(1),'1');
-});
-
-test('the legacy client never retries a lost image automatically',async()=>{
- const lost={id:'story',state:'failed',retryStage:'redraw',retryAllowed:true,error:'这幅图片的文件已丢失或损坏。',stage:'drawing',ready:0,selection:{length:2},story:null};
- let posts=0;
- const result=await runStoryGeneration({sessionId:'story',throughPage:1,retries:new Map(),isActive:()=>true,onSession:()=>{},sleep:async()=>{},request:async(path,method)=>{if(method==='POST')posts++;return lost;}});
- assert.match(result,/已丢失/);assert.equal(posts,0);
 });
 
 for(const state of ['failed','paused','stopped'])test(`a non-retry request against a ${state} story starts nothing`,async t=>{
