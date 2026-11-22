@@ -121,7 +121,7 @@ export function settle(story:DagStory):DagDocument{
 /** 本轮可派发的工作：引擎的可运行实例按调用合批，叙事分镜批次按顺序逐批进行，其后是自动修订。 */
 export function work(story:DagStory):Work[]{
  const state=stateOf(story);
- const groups=callGroups(state,callFor(state)).filter(g=>!['verifySource','prepareSuggestions','search'].includes(g.call));
+ const groups=callGroups(state,callFor(state)).filter(g=>!['prepareSuggestions','search'].includes(g.call));
  // 后一批叙事分镜以前一批的配文为来源，须等前一批完成。
  const firstScene=groups.find(g=>g.call==='sceneBatch');
  const result:Work[]=groups.filter(g=>g.call!=='sceneBatch'||g===firstScene);

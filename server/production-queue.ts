@@ -4,15 +4,17 @@
 // Stop-time and persistence errors recover as interruptions, never as job failures.
 // Finished jobs re-run only through an explicit rerun, which the caller must have consent for.
 // Scoped step timing is saved atomically with receipts, under the same attempt token.
+// 任务状态变化与故障、恢复回执在同一事务中写入（production-records.ts），失败同时记录结构化错误码。
 import {createHash,randomUUID} from 'node:crypto';
 import {persistenceError} from '../lib/reader-repository.ts';
 import type {Database} from '../lib/reader-repository.ts';
+import {transact,recordJobFailed,recordJobRequeued,recordJobRunning,recordJobSucceeded} from './production-records.ts';
 
 export type JobSpec={id:string;sessionId:string;ownerId:string;kind:string;pool:string;version:string;dependencies:string[];payload:unknown;priority:number};
 export type ProductionJob={id:string;session_id:string;owner_id:string;kind:string;pool:string;version:string;dependencies:string;payload:string;result:string|null;state:'queued'|'running'|'succeeded'|'failed';priority:number;attempts:number;lease_token:string|null;lease_until:number;error:string|null;interrupted:number;failure_id?:string|null;recovery_id?:string|null;created_at:number;updated_at:number};
 export type JobContext={outputs:Record<string,unknown>;isCurrent:()=>Promise<boolean>};
 export type JobHandler={pool:string;drain?:boolean;run:(job:ProductionJob,context:JobContext)=>Promise<unknown>};
-type Options={targetSessionId?:string;limits:Record<string,number>;handlers:Record<string,JobHandler>;candidateFilter?:string;skipCandidate?:(job:ProductionJob)=>boolean;canRun?:(job:ProductionJob)=>Promise<boolean>;onSettled?:()=>void;resumeInterrupted?:(job:ProductionJob)=>Promise<boolean>;safeError?:(error:unknown,job:ProductionJob)=>string;terminal?:(error:unknown,job:ProductionJob)=>boolean;now?:()=>number;leaseMs?:number};
+type Options={targetSessionId?:string;limits:Record<string,number>;handlers:Record<string,JobHandler>;candidateFilter?:string;skipCandidate?:(job:ProductionJob)=>boolean;canRun?:(job:ProductionJob)=>Promise<boolean>;onSettled?:()=>void;resumeInterrupted?:(job:ProductionJob)=>Promise<boolean>;safeError?:(error:unknown,job:ProductionJob)=>string;errorCode?:(error:unknown,job:ProductionJob)=>string|undefined;terminal?:(error:unknown,job:ProductionJob)=>boolean;now?:()=>number;leaseMs?:number};
 const interruptedMessage='上次生成已中断，已保留保存的结果。请重试继续。';
 // A handler that stopped without spending an attempt: the job waits in the queue for its next turn.
 export class JobYield extends Error{}
@@ -52,11 +54,22 @@ export class ProductionQueue{
  async retry(sessionId:string,ownerId:string,generation?:number){
   // An explicit retry restores the automatic recovery allowance for the story's current selection.
   // Search is retried on its own, so a retried story never starts another round of it.
-  await this.database.prepare("UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE session_id=? AND owner_id=? AND state IN('failed','queued') AND kind NOT IN ('discover','landscape-image') AND (? IS NULL OR json_extract(payload,'$.setupGeneration')=?)").bind(this.clock(),sessionId,ownerId,generation??null,generation??null).run();
+  const now=this.clock();
+  transact(this.database,db=>{
+   const where="session_id=? AND owner_id=? AND state IN('failed','queued') AND kind NOT IN ('discover','landscape-image') AND (? IS NULL OR json_extract(payload,'$.setupGeneration')=?)";
+   const interrupted=db.all<ProductionJob>(`SELECT * FROM production_jobs WHERE ${where} AND state='failed' AND interrupted=1`,sessionId,ownerId,generation??null,generation??null);
+   db.run(`UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE ${where}`,now,sessionId,ownerId,generation??null,generation??null);
+   for(const job of interrupted)recordJobRequeued(db,job,now);
+  });
  }
  // Run a finished job again from scratch. Only an explicit retry may decide to pay for this.
  async rerun(id:string){
-  await this.database.prepare("UPDATE production_jobs SET state='queued',result=NULL,error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE id=? AND state IN('succeeded','failed')").bind(this.clock(),id).run();
+  const now=this.clock();
+  transact(this.database,db=>{
+   const job=db.get<ProductionJob>('SELECT * FROM production_jobs WHERE id=?',id);
+   db.run("UPDATE production_jobs SET state='queued',result=NULL,error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE id=? AND state IN('succeeded','failed')",now,id);
+   if(job?.state==='failed'&&job.interrupted)recordJobRequeued(db,job,now);
+  });
  }
  async recoverExpired(){
   // Only explicitly opted-in background work can replay an uncertain remote attempt.
@@ -67,9 +80,20 @@ export class ProductionQueue{
    if(job.state==='running'&&this.tokens.get(job.id)===job.lease_token)continue;
    const resume=!!await this.options.resumeInterrupted?.(job);
    if(job.state==='failed'&&!resume)continue;
-   await this.database.prepare(`UPDATE production_jobs SET state=?,error=?,interrupted=?,lease_token=NULL,lease_until=0,updated_at=?
-    WHERE id=? AND state=? AND lease_token IS ? AND lease_until=? AND (state!='running' OR lease_until<=?)`)
-    .bind(resume?'queued':'failed',resume?null:interruptedMessage,resume?0:1,this.clock(),job.id,job.state,job.lease_token,job.lease_until,this.clock()).run();
+   const now=this.clock();
+   transact(this.database,db=>{
+    if(!resume){
+     // 失败记录与新故障同时写入；运行中的任务以租约核对，已失败的中断任务保留原失败编号。
+     if(job.state==='running'){
+      const live=db.get('SELECT id FROM production_jobs WHERE id=? AND state=\'running\' AND lease_token IS ? AND lease_until=? AND lease_until<=?',job.id,job.lease_token,job.lease_until,now);
+      if(live)recordJobFailed(db,job,{message:interruptedMessage,interrupted:true,errorCode:'TIMEOUT',failureId:job.failure_id??undefined,now});
+     }
+     return;
+    }
+    const changed=db.run(`UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,updated_at=?
+     WHERE id=? AND state=? AND lease_token IS ? AND lease_until=? AND (state!='running' OR lease_until<=?)`,now,job.id,job.state,job.lease_token,job.lease_until,now).changes;
+    if(changed&&job.state==='failed'&&job.interrupted)recordJobRequeued(db,job,now);
+   });
    }catch(error){this.contain(job,error);}
   }
  }
@@ -91,10 +115,13 @@ export class ProductionQueue{
     const running=await this.database.prepare("SELECT COUNT(*) AS n FROM production_jobs WHERE pool=? AND state='running' AND lease_until>?").bind(job.pool,this.clock()).first<{n:number}>();
     if(running!.n>=limit||this.tasks.has(job.id)||this.options.canRun&&!await this.options.canRun(job))continue;
     const token=randomUUID(),now=this.clock();
-    const claimed=await this.database.prepare(`UPDATE production_jobs AS j SET state='running',lease_token=?,lease_until=?,attempts=attempts+1,error=NULL,interrupted=0,updated_at=?
-     WHERE id=? AND state='queued' AND ${ready} AND (SELECT COUNT(*) FROM production_jobs WHERE pool=? AND state='running' AND lease_until>?)<?`)
-     .bind(token,now+this.leaseMs,now,job.id,job.pool,now,limit).run();
-    if(!claimed.meta.changes)continue;
+    const claimed=transact(this.database,db=>{
+     const changes=db.run(`UPDATE production_jobs AS j SET state='running',lease_token=?,lease_until=?,attempts=attempts+1,error=NULL,interrupted=0,updated_at=?
+      WHERE id=? AND state='queued' AND ${ready} AND (SELECT COUNT(*) FROM production_jobs WHERE pool=? AND state='running' AND lease_until>?)<?`,token,now+this.leaseMs,now,job.id,job.pool,now,limit).changes;
+     if(changes)recordJobRunning(db,job,now);
+     return changes;
+    });
+    if(!claimed)continue;
     const task=this.execute({...job,state:'running',lease_token:token,lease_until:now+this.leaseMs,attempts:job.attempts+1,updated_at:now},handler)
      .finally(()=>{this.tasks.delete(job.id);this.tokens.delete(job.id);this.options.onSettled?.();});
     this.tasks.set(job.id,task);this.tokens.set(job.id,token);
@@ -131,14 +158,24 @@ export class ProductionQueue{
    // Only safe application messages are persisted; provider responses may contain private data.
    const message=interrupted?interruptedMessage:this.options.safeError?.(error,job)||'制作暂时未完成，已保存的结果会保留。';
    const finishedAt=this.clock(),timing=JSON.stringify({startedAt:job.updated_at,finishedAt});
-   try{await this.database.prepare(`UPDATE production_jobs SET payload=${timedPayload},state='failed',error=?,interrupted=?,failure_id=?,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token=?`)
-    .bind(timing,message,interrupted?1:0,interrupted&&job.failure_id?job.failure_id:randomUUID(),finishedAt,job.id,job.lease_token).run();}
+   try{
+    const code=interrupted?'TIMEOUT':this.options.errorCode?.(error,job);
+    transact(this.database,db=>{
+     const payload=db.get<{payload:string}>(`SELECT ${timedPayload} AS payload FROM production_jobs WHERE id=?`,timing,job.id)?.payload;
+     recordJobFailed(db,job,{message,interrupted,errorCode:code,failureId:interrupted&&job.failure_id?job.failure_id:randomUUID(),now:finishedAt,payload});
+    });
+   }
    catch(writeError){unsaved(writeError);}
    return;
   }
   const finishedAt=this.clock(),timing=JSON.stringify({startedAt:job.updated_at,finishedAt});
-  try{await this.database.prepare(`UPDATE production_jobs SET payload=${timedPayload},state='succeeded',result=?,error=NULL,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token=?`)
-   .bind(timing,JSON.stringify(result??null),finishedAt,job.id,job.lease_token).run();}
+  try{
+   const saved=JSON.stringify(result??null);
+   transact(this.database,db=>{
+    const changes=db.run(`UPDATE production_jobs SET payload=${timedPayload},state='succeeded',result=?,error=NULL,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token=?`,timing,saved,finishedAt,job.id,job.lease_token).changes;
+    if(changes)recordJobSucceeded(db,job,saved,finishedAt);
+   });
+  }
   catch(error){unsaved(error);}
  }
  stop(){this.stopping=true;}

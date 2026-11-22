@@ -157,7 +157,7 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   // 丢失的成图记为待处理的图片丢失故障：阻断该幅及依赖它的工作与整篇完成，读者明确恢复后才重绘。
   for(const page of lost){
    const at=Date.now();
-   db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,page,version,message,created_at,updated_at) VALUES(?,?,?,'image-loss',?,'dag',?,?,?)",randomUUID(),requestId,ownerId,page,lostImageMessage(page),at,at);
+   db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage',?,'dag',?,?,?)",randomUUID(),requestId,ownerId,dag.order[page],lostImageMessage(page),at,at);
   }
  });
  return repo.get(requestId,ownerId);

@@ -13,6 +13,7 @@ import type {Document,Selection,SessionRow} from '../lib/reader-model.ts';
 import {effectiveIntakePhase,intakeDraftToken,intakeSearch} from '../lib/reader-intake.ts';
 import type {IntakeAction,IntakeSearch,ReselectionDraft} from '../lib/reader-intake.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
+import {writeStory} from './production-records.ts';
 import {supersededSql} from '../lib/reader-repository.ts';
 import {maxSuggestionBatches} from '../lib/reader-suggestions.ts';
 import {artStyleSettings,sameArtDirection} from '../lib/reader-styles.ts';
@@ -66,9 +67,8 @@ async function requestSearch(repo:ReaderRepository,row:SessionRow,doc:Document,r
  if(doc.plan||intake.phase==='confirmed')throw new ReaderError(409,'制作已确认；需要调整时请创建修订版本。');
  if(intake.batches.length>=maxSuggestionBatches)throw new ReaderError(400,'已保存40批候选，请回看选择，或新建其他书籍与主题。');
  const next:IntakeSearch={round:search.round+1,state:'searching',requestId,commandHash:fingerprint,cycleId:automatic?(search.cycleId||hash([row.id,search.round])):requestId};
- const changed=await repo.db.prepare(`UPDATE stories SET document=json_set(document,'$.intake.search',json(?),'$.intake.phase',CASE WHEN json_type(document,'$.intake.selected')='object' THEN json_extract(document,'$.intake.phase') ELSE 'discovering' END),updated_at=?
-  WHERE id=? AND user_id=? AND COALESCE(json_extract(document,'$.intake.search.round'),0)=? AND json_extract(document,'$.intake.phase')!='confirmed'${automatic?" AND json_type(document,'$.intake.selected') IS NOT 'object' AND json_extract(document,'$.intake.phase')='choosing' AND json_extract(document,'$.intake.search.state')='idle'":''} AND ${currentStory}`)
-  .bind(JSON.stringify(next),new Date().toISOString(),row.id,row.user_id,search.round).run();
+ const changed={meta:{changes:writeStory(repo.db,row.id,row.user_id,`UPDATE stories SET document=json_set(document,'$.intake.search',json(?),'$.intake.phase',CASE WHEN json_type(document,'$.intake.selected')='object' THEN json_extract(document,'$.intake.phase') ELSE 'discovering' END),updated_at=?
+  WHERE id=? AND user_id=? AND COALESCE(json_extract(document,'$.intake.search.round'),0)=? AND json_extract(document,'$.intake.phase')!='confirmed'${automatic?" AND json_type(document,'$.intake.selected') IS NOT 'object' AND json_extract(document,'$.intake.phase')='choosing' AND json_extract(document,'$.intake.search.state')='idle'":''} AND ${currentStory}`,[JSON.stringify(next),new Date().toISOString(),row.id,row.user_id,search.round])}};
  // A command that lost the CAS was accepted as a no-op; later replay cannot start a new round.
  if(!changed.meta.changes)await recordNoop(repo.db,row.user_id,row.id,requestId,'setup',fingerprint);
  return repo.get(row.id,row.user_id);
@@ -110,9 +110,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
    doc.setupRequirements={...doc.setupRequirements,overrides:{...doc.setupRequirements?.overrides,productionPrompt:next.productionPrompt}};
   }
   if(choice)selectSourceCard(doc,choice,round);
-  const result=await repo.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
-   WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`)
-   .bind(JSON.stringify(next),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state).run();
+  const result={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
+   WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`,[JSON.stringify(next),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state])}};
   if(!result.meta.changes){if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);throw new ReaderError(409,'提取条件已更新，请重新打开后继续。');}
   return repo.get(id,uid);
  }
@@ -131,9 +130,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   delete intake.indexedCandidates;
   intake.search={round:search.round+1,state:'searching',requestId:action.requestId,commandHash:fingerprint,cycleId:action.requestId};
   delete doc.original;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
-  const result=await repo.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
-   WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`)
-   .bind(JSON.stringify(selection),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state).run();
+  const result={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
+   WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`,[JSON.stringify(selection),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state])}};
   if(!result.meta.changes){if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);throw new ReaderError(409,'查找条件已更新，请重新打开后继续。');}
   return repo.get(id,uid);
  }
@@ -152,9 +150,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  if(action.action==='draft'){
   // 同时保存草稿和动作回执；后台仍持有原来的工作锁和输入世代。
   if(!['preparing','confirming'].includes(intake.phase))throw new ReaderError(409,'请先选择故事。');
-  const saved=await repo.db.prepare(`UPDATE stories SET document=json_set(document,'$.intake.draft',json(?),'$.intake.draftEdited',json('true'),'$.intake.manualArt',json(?),'$.intake.lastAction',json(?)),updated_at=?
-   WHERE id=? AND user_id=? AND document=? AND selection=? AND ${currentStory}`)
-   .bind(JSON.stringify({...action.settings,...styling}),JSON.stringify(manual(styling)),JSON.stringify({id:action.requestId,hash:fingerprint}),new Date().toISOString(),id,uid,row.document,row.selection).run();
+  const saved={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET document=json_set(document,'$.intake.draft',json(?),'$.intake.draftEdited',json('true'),'$.intake.manualArt',json(?),'$.intake.lastAction',json(?)),updated_at=?
+   WHERE id=? AND user_id=? AND document=? AND selection=? AND ${currentStory}`,[JSON.stringify({...action.settings,...styling}),JSON.stringify(manual(styling)),JSON.stringify({id:action.requestId,hash:fingerprint}),new Date().toISOString(),id,uid,row.document,row.selection])}};
   if(!saved.meta.changes){
    if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);
    throw new ReaderError(409,'制作内容已更新，请重新打开后继续。');
@@ -198,9 +195,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  }
  if(action.action!=='recommend'){delete intake.draft;delete intake.draftEdited;}
  intake.generation++;intake.lastAction={id:action.requestId,hash:fingerprint};
- const result=await repo.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?${action.action==='confirm'?",generation_mode='background',generation_control='active'":''}
-  WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`)
-  .bind(JSON.stringify(selection),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state).run();
+ const result={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?${action.action==='confirm'?",generation_mode='background',generation_control='active'":''}
+  WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`,[JSON.stringify(selection),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state])}};
  if(!result.meta.changes){
   const current=await repo.get(id,uid),saved=(JSON.parse(current.document) as Document).intake;
   if(saved?.lastAction?.id===action.requestId&&saved.lastAction.hash===fingerprint)return current;

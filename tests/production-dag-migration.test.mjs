@@ -7,6 +7,7 @@ import path from 'node:path';
 import {historicalLibrary} from './fixtures/historical-library.mjs';
 import {migrate} from '../server/database-migrations.ts';
 import {selection,makePlan} from './fixtures/production-data.mjs';
+import {selectionSchema} from '../lib/reader-model.ts';
 
 const owner='owner',story='11111111-1111-4111-8111-111111111111';
 const url=page=>`/api/reader/media/${story}/${page}.png`;
@@ -26,8 +27,10 @@ function seed({directory,sqlite},doc){
 const legacyVersion=async(doc)=>{
  const {createHash}=await import('node:crypto');
  const v=input=>createHash('sha256').update(JSON.stringify(input)).digest('hex');
- const {displayTitle:_,...generationSelection}={...selection,length:3,artStyle:selection.artStyle,artStylePrompt:undefined,productionPrompt:selection.productionPrompt};void _;
- return v({scriptVersion:v({selection:generationSelection}),plan:doc.plan,style:selection.artStyle,prompt:selection.productionPrompt});
+ // 与 0.14 协调器相同：按解析后的选择（含默认值）计算。
+ const parsed=selectionSchema.parse({...selection,length:3});
+ const {displayTitle:_,...generationSelection}=parsed;void _;
+ return v({scriptVersion:v({selection:generationSelection}),plan:doc.plan,style:parsed.artStyle,prompt:parsed.productionPrompt});
 };
 
 test('0025 converts stories, adopts a paid image, maps faults and clears old jobs',async t=>{

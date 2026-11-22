@@ -4,6 +4,7 @@ import {requirementsForReselection} from '../lib/reader-requirements.ts';
 import {ReaderError,selectionSchema} from '../lib/reader-model.ts';
 import type {Document,SessionRow} from '../lib/reader-model.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
+import {writeStory} from './production-records.ts';
 import type {LocalBooks} from './local-books.ts';
 import type {ReplacementChoice} from '../lib/reader-reselection.ts';
 import {localSourceKey} from '../lib/reader-source-key.ts';
@@ -106,7 +107,7 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
  delete doc.intake.draft;delete doc.intake.draftEdited;
  doc.revision={kind:'selection',selectionRequest:choice.requestId,parentId,rootId:draft.rootId,number:draft.epoch+1,baseToken:draft.baseToken,requestHash:fingerprint,base:{selection,plan:null,images:[]}};
  const now=new Date().toISOString(),requirementsBasis=draft.requirementsToken?parent.document:null;
- const changed=await repo.db.prepare(`UPDATE stories AS d SET
+ const changed={meta:{changes:writeStory(repo.db,draftId,ownerId,`UPDATE stories AS d SET
   selection=?,document=json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),
   generation_mode=p.generation_mode,generation_control=p.generation_control,state='idle',error=NULL,
   step_key=NULL,step_attempts=0,lock_token=NULL,lock_until=0,page=0,saved=p.saved,last_read_at=NULL,updated_at=?
@@ -117,8 +118,7 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
    AND NOT EXISTS(SELECT 1 FROM stories occupied WHERE occupied.user_id=? AND occupied.id=?)
    AND (${familyEpoch.replace(' AS epoch','')})=?
    AND (? IS NULL OR json_extract(p.document,'$.intake.generation')=?)
-   AND (? IS NULL OR p.document=?)`)
-  .bind(JSON.stringify(selection),JSON.stringify(doc),now,draftId,ownerId,row.document,parentId,ownerId,parent.selection,ownerId,choice.requestId,ownerId,choice.requestId,ownerId,draft.rootId,draft.rootId,draft.epoch,basis.intakeGeneration??null,basis.intakeGeneration??null,requirementsBasis,requirementsBasis).run();
+   AND (? IS NULL OR p.document=?)`,[JSON.stringify(selection),JSON.stringify(doc),now,draftId,ownerId,row.document,parentId,ownerId,parent.selection,ownerId,choice.requestId,ownerId,choice.requestId,ownerId,draft.rootId,draft.rootId,draft.epoch,basis.intakeGeneration??null,basis.intakeGeneration??null,requirementsBasis,requirementsBasis])}};
  if(!changed.meta.changes){
   const current=await repo.get(draftId,ownerId),saved=JSON.parse(current.document) as Document;
   if(saved.revision?.kind==='selection'||saved.reselection?.baseToken===draft.baseToken&&attempt<3)return commitReselection(repo,parentId,draftId,ownerId,choice,attempt+1);
