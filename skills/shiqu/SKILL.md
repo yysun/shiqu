@@ -113,7 +113,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 ### 换画风并指定首幅图
 
-对已完成且审核通过的故事，使用 `stories edit <当前id> --request-id <UUID> --input <私有JSON文件> --cover <本地图片>`。输入为 `{"token":"当前修订token","changes":{"artStyle":"watercolor"}}`（注意：制作 DAG 的故事暂不支持 `--cover`，会返回 CONFLICT；换画风请不带 `--cover`，按新画风逐幅转换后重绘），`changes` 仅指定新画风。首幅 PNG、JPEG 或 WebP 的原始字节保存到新版，文件上限为 12 MiB，宽高各不超过 4096 像素。沿用原文、分镜内容和审核记录。绘图前由文字模型逐幅把旧画风的表现手法改写成新画风，保存为新版画面提示词。其余画面按新画风绘制，使用这张首幅作参考。省略 `--cover` 时按新画风先生成首幅，再画其余画幅。恢复新版并运行至 `completed` 后，检查首幅和全部生成图。
+对已完成且审核通过的故事，使用 `stories edit <当前id> --request-id <UUID> --input <私有JSON文件> --cover <本地图片>`。输入为 `{"token":"当前修订token","changes":{"artStyle":"watercolor"}}`（首幅原图字节原样保存，新版立即显示它；`stories continue` 之后只绘制其余画幅，并以它为参考），`changes` 仅指定新画风。首幅 PNG、JPEG 或 WebP 的原始字节保存到新版，文件上限为 12 MiB，宽高各不超过 4096 像素。沿用原文、分镜内容和审核记录。绘图前由文字模型逐幅把旧画风的表现手法改写成新画风，保存为新版画面提示词。其余画面按新画风绘制，使用这张首幅作参考。省略 `--cover` 时按新画风先生成首幅，再画其余画幅。恢复新版并运行至 `completed` 后，检查首幅和全部生成图。
 
 ## 验收与交付
 

@@ -654,3 +654,35 @@ test('a revision drops a fault whose inputs changed and keeps one whose inputs d
  await until(async()=>(await f.read(child)).state==='completed',30000);
  assert.equal(count(f.control.dagCalls,'outline'),2,'the failed outline plus the new one');
 });
+
+// ——— v0.14.0 对等：换画风并指定首幅原图 ———
+
+test('a style revision saves the supplied first frame byte for byte and draws only the remaining pages (v0.14.0 parity)',async t=>{
+ const {jpeg}=await import('./fixtures/images.mjs');
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ await f.json(`library/${id}/reference`,'POST',{page:0,starred:true}).catch(()=>{});
+ const snapshot=await f.json(`sessions/${id}/revisions`),image=new Blob([Uint8Array.from(jpeg)],{type:'image/jpeg'});
+ const requestId=crypto.randomUUID(),revision={requestId,token:snapshot.token,changes:{artStyle:'watercolor'}};
+ const send=cover=>{
+  const form=new FormData();form.set('revision',JSON.stringify(revision));form.set('cover',cover,'first.jpg');
+  return f.app.handle(new Request(`http://shiqu.local/api/reader/sessions/${id}/revisions`,{method:'POST',body:form}));
+ };
+ assert.equal((await send(new Blob(['broken']))).status,400,'an unreadable file is refused');
+ const response=await send(image);assert.equal(response.status,201);
+ const child=await response.json();
+ // 与 v0.14.0 的差别：旧画风的其余画幅在重绘前仍可见（不再清空），所以这里不断言 ready===1。
+ assert.ok(child.story.pages[0].image,'the supplied first frame is shown at once');
+ assert.deepEqual(await (await f.request(child.story.pages[0].image.replace('/api/reader/',''))).arrayBuffer(),await image.arrayBuffer(),'the bytes are kept as supplied');
+ assert.equal((await send(image)).status,201,'a replay reuses the same version');
+ assert.equal((await send(new Blob(['different']))).status,409,'the request id cannot carry another image');
+ const before=f.control.calls.length;
+ await f.json(`sessions/${child.id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'continue'});
+ await until(async()=>(await f.read(child.id)).state==='completed',30000);
+ const calls=f.control.calls.slice(before);
+ assert.deepEqual(calls.map(call=>call.page).sort((a,b)=>a-b),[1,2,3,4,5],'only the remaining frames are drawn');
+ const reference=Buffer.from(await image.arrayBuffer()).toString('base64');
+ assert.ok(calls.every(call=>call.reference===reference),'every later frame uses the supplied image as its reference, not the starred book reference');
+ assert.equal((await saved(f,child.id)).dag.cover,undefined,'the cover is recorded as the first frame image');
+});

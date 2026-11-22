@@ -17,7 +17,10 @@ import {settle,stateOf,work,type DagStory} from '../lib/production-dag/runner.ts
 import {handEditChoices} from '../lib/production-dag/hand-edits.ts';
 import {verdictNodes} from '../lib/production-dag/review.ts';
 import {survivingRevisionFrames} from '../lib/reader-revision.ts';
-import {revisionBasis,familyEpoch,currentFamilyVersion} from './reader-revisions.ts';
+import {revisionBasis,familyEpoch,currentFamilyVersion,revisionCoverMaxBytes} from './reader-revisions.ts';
+import {readableImage} from './reader-image-health.ts';
+import {imageDimensions} from '../lib/reader-image-dimensions.ts';
+import {dagProgress} from '../lib/production-dag/progress.ts';
 
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 export const lostImageMessage=(page:number)=>`第 ${page+1} 幅的图片文件已丢失或损坏。重试会重新绘制这一幅，已保存的其他画面会保留。`;
@@ -177,12 +180,20 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
  return {changed:Object.keys(changes).length>0,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices.map(c=>({id:c.id,options:[...c.options]})),carriedFaults:carried.length};
 }
 
-export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string):Promise<SessionRow>{
+export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string,cover?:Uint8Array):Promise<SessionRow>{
  if(!Object.keys(changes).length)throw new ReaderError(400,'没有需要保存的修改。');
  const {doc,rootId,epoch,token:current}=await revisionBasis(repo,row);
  if(changes.redrawPages&&(row.state!=='completed'||Object.keys(changes).some(key=>!['redrawPages','redrawNotes'].includes(key))))throw new ReaderError(409,'仅换图需要已完成的故事，且不能同时修改文字或设置。');
  if(changes.redrawNotes&&Object.keys(changes.redrawNotes).some(page=>!changes.redrawPages?.includes(Number(page))))throw new ReaderError(400,'重绘说明只能用于本次选中的画幅。');
  if(current!==token)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
+ // 指定首幅原图（v0.14.0 的 --cover）：只用于已完成且审核通过的故事换画风；文件须是可读取的 PNG/JPEG/WebP，不超过 12 MiB、宽高各不超过 4096。
+ const coverType=cover&&mediaType(cover);
+ if(cover){
+  const dimensions=imageDimensions(cover);
+  const reviewPassed=dagProgress(doc,selectionSchema.parse(JSON.parse(row.selection)))?.review.reviewStatus==='passed';
+  if(Object.keys(changes).length!==1||!changes.artStyle||row.state!=='completed'||!reviewPassed)throw new ReaderError(409,'指定首幅原图仅适用于已完成且审核通过的故事换画风。');
+  if(cover.length>revisionCoverMaxBytes||!coverType||!dimensions||dimensions.width>4096||dimensions.height>4096||!await readableImage(cover))throw new ReaderError(400,'请选择可读取的 PNG、JPEG 或 WebP，文件不超过 12 MiB，宽高各不超过 4096 像素。');
+ }
  const selection=nextSelection(selectionSchema.parse(JSON.parse(row.selection)),changes);
  const reviewNotes=(changes.reviewNotes!==undefined?changes.reviewNotes:doc.reviewNotes)?.trim()||undefined;
  const parent:DagStory={id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag!,confirmed:true,faults:[]};
@@ -192,6 +203,14 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  const child:DagStory={...parent,id:requestId,selection,doc:{...doc,reviewNotes},dag:edited};
  child.dag=settleHandEdits(child,changes.handEdits);
  const lost=await copyImages(media,row.id,requestId,child.dag);
+ if(cover&&coverType){
+  // 首幅原图字节不变地保存到新版，立即作为首幅显示；其成图产物在画面描述转换完成、输入就绪后由 settle() 记录。
+  const first=child.dag.order[0],asset=readerImageAsset(requestId,0,imageTypes[coverType],hash(cover));
+  await media.put(asset.key,cover,{contentType:coverType});
+  child.dag=structuredClone(child.dag);
+  child.dag.cover={frame:first,image:asset.url};
+  child.dag.frames[first].image=asset.url;delete child.dag.products[instanceId('frameImage',first)];
+ }
  // 新修订重新开始自动修订额度，审片问题与建议不带入新版。
  child.dag={...child.dag,repairs:undefined,issues:[],suggestions:[]};
  child.dag=settle(child);

@@ -62,6 +62,8 @@ export type DagDocument={
  renderer:Renderer;
  /** 已保存、等待「继续制作」的修订；只有 continue 清除，resume 不清除。 */
  continuation?:{revision:number;reason:'revision-saved'};
+ /** 读者指定的首幅原图（换画风时）：画面描述转换完成、首幅的输入就绪后由 settle() 记为该幅的成图产物，不再绘制。 */
+ cover?:{frame:string;image:string};
  /** 转换自 v1，记录按旧规则产生。 */
  legacy?:true;
 };

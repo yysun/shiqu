@@ -115,6 +115,18 @@ export function settle(story:DagStory):DagDocument{
    dag.products[inst.id]={...match,inputs:inst.hard!,...(inst.check&&Object.keys(inst.check).length?{checks:inst.check}:{})};
   }
  }
+ // 读者指定的首幅原图：该幅的输入就绪时记为成图产物（输入指纹按当前画风与画面描述），之后其余画幅以它为参考。
+ if(dag.cover){
+  const cover=dag.cover,inst=dag.order.includes(cover.frame)?evaluate(stateOf({...story,dag})).instance('frameImage',cover.frame):undefined;
+  if(!inst)dag={...(dag===story.dag?clone(dag):dag),cover:undefined};
+  else if(inst.ready&&inst.hard){
+   dag=dag===story.dag?clone(dag):dag;
+   frame(dag,cover.frame).image=cover.image;
+   dag.products[inst.id]={hash:fingerprint(cover.image),inputs:inst.hard,...(inst.check&&Object.keys(inst.check).length?{checks:inst.check}:{})};
+   delete dag.cover;
+  }
+  if(dag.cover===undefined&&'cover'in dag)delete dag.cover;
+ }
  return dag;
 }
 

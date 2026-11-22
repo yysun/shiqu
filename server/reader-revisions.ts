@@ -56,6 +56,5 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  const row=await repo.get(parentId,ownerId);
  // 全部故事都由制作 DAG 推导失效范围；尚未进入 DAG 的故事（准备中）没有可修订的内容。
  if(!(JSON.parse(row.document) as Document).dag)throw new ReaderError(409,'这篇故事还没有进入制作，请稍后再修改。');
- if(cover)throw new ReaderError(409,'指定首幅原图将在后续版本支持。');
- return forkDagRevision(repo,media,ownerId,row,requestId,token,changes,paused,requestHash);
+ return forkDagRevision(repo,media,ownerId,row,requestId,token,changes,paused,requestHash,cover);
 }
