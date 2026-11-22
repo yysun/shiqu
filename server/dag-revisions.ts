@@ -2,7 +2,7 @@
 // 有需要重做的工作时新版进入「已保存，等待继续」（dag.continuation），只有「继续制作」清除；没有时保持原制作状态。
 // 支持文字修改、删除画幅、设置修改（含画风、幅数策略）与仅换图（可带重绘说明）。文字修改按上一版的输入记录为手改，
 // 再合入设置修改；保存会使手改失效时，读者须对每处手改选择「以手改为基础」或「放弃」，未选择时不保存。
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {ReaderError,selectionSchema,type Document,type SessionRow,type Selection} from '../lib/reader-model.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
@@ -68,20 +68,30 @@ function applyEdits(story:DagStory,changes:RevisionChanges):DagDocument{
  return dag;
 }
 
-/** 新版的图片复制到新版目录；产物记录不变（同一份图片内容）。 */
-async function copyImages(media:MediaStore,parentId:string,childId:string,dag:DagDocument){
+/**
+ * 新版的图片复制到新版目录；产物记录不变（同一份图片内容）。原图已丢失或无法辨认时，
+ * 成图产物标为不可读并返回其幅号，由调用方记录图片丢失故障，须读者明确重绘；横图丢失则视为未请求。
+ */
+async function copyImages(media:MediaStore,parentId:string,childId:string,dag:DagDocument):Promise<number[]>{
+ const lost:number[]=[];
  for(const [index,id] of dag.order.entries()){
   for(const field of ['image','landscape'] as const){
    const url=dag.frames[id][field];if(!url)continue;
    const key=referenceImageKey(parentId,url),asset=key?await media.get(key).catch(()=>{throw new ReaderError(503,`第 ${index+1} 幅原图暂时无法读取，未创建新版，请稍后重试。`);}):null;
-   if(!asset){delete dag.frames[id][field];continue;}
-   const bytes=new Uint8Array(await asset.arrayBuffer()),type=mediaType(bytes);
-   if(!type){delete dag.frames[id][field];continue;}
+   const bytes=asset?new Uint8Array(await asset.arrayBuffer()):null,type=bytes&&mediaType(bytes);
+   if(!bytes||!type){
+    delete dag.frames[id][field];
+    const product=field==='image'?'frameImage':'landscape';
+    if(field==='image'&&dag.products[instanceId(product,id)]){dag.products[instanceId(product,id)]={...dag.products[instanceId(product,id)],readable:false};lost.push(index);}
+    else delete dag.products[instanceId(product,id)];
+    continue;
+   }
    const target=readerImageAsset(childId,index,imageTypes[type],hash(bytes));
    await media.put(target.key,bytes,{contentType:type});
    dag.frames[id][field]=target.url;
   }
  }
+ return lost;
 }
 
 /** 仅换图：选中画幅删除旧图与产物，重绘说明作为该幅绘图输入；其余内容与结论不变。 */
@@ -122,7 +132,7 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  applyRedraw(edited,changes);
  const child:DagStory={...parent,id:requestId,selection,doc:{...doc,reviewNotes},dag:edited};
  child.dag=settleHandEdits(child,changes.handEdits);
- await copyImages(media,row.id,requestId,child.dag);
+ const lost=await copyImages(media,row.id,requestId,child.dag);
  // 新修订重新开始自动修订额度，审片问题与建议不带入新版。
  child.dag={...child.dag,repairs:undefined,issues:[],suggestions:[]};
  child.dag=settle(child);
@@ -140,5 +150,11 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   ON CONFLICT(id) DO NOTHING`)
   .bind(requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused?'paused':'active',completed?'completed':'idle',now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch).run();
  if(!inserted.meta.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
+ // 丢失的成图记为待处理的图片丢失故障：阻断该幅及依赖它的工作与整篇完成，读者明确恢复后才重绘。
+ for(const page of lost){
+  const at=Date.now();
+  await repo.db.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,page,version,message,created_at,updated_at) VALUES(?,?,?,'image-loss',?,'dag',?,?,?)")
+   .bind(randomUUID(),requestId,ownerId,page,`第 ${page+1} 幅的图片文件已丢失或损坏。重试会重新绘制这一幅，已保存的其他画面会保留。`,at,at).run();
+ }
  return repo.get(requestId,ownerId);
 }

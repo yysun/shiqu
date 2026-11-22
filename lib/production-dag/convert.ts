@@ -54,7 +54,7 @@ export function convertDocument(doc:Document,selection:Selection,options:{confir
    case 'frameCheck':return reviewed?['legacy-frame-check',{outcome:'pass'}]:completedWithoutReview?['legacy-frame-check',{outcome:'pass',unreviewed:true}]:undefined;
    case 'itemRegistration':return key===legacyId&&dag.items.length?[dag.items[0].text,{scope:'story',evidence:['scenes','visuals']}]:undefined;
    case 'frameVerdict':{const v=verdict(blockedPages.has(at+1));return v?['legacy-verdict',v]:undefined;}
-   case 'narrativeVerdict':{const v=verdict(blockedPages.has(0));return v&&plan?['legacy-verdict',{...v,parts:{endingChoice:fingerprint(plan.reflection)}}]:undefined;}
+   case 'narrativeVerdict':{const v=verdict(blockedPages.has(0));return v&&plan?['legacy-verdict',{...v,parts:{endingChoice:fingerprint({title:plan.title,ending:plan.reflection})}}]:undefined;}
    case 'itemVerdict':{const v=verdict(review?.stopReason==='requirements');return v?['legacy-verdict',v]:undefined;}
    case 'frameImage':return at>=0&&doc.images[at]?[doc.images[at]]:undefined;
    default:return undefined;

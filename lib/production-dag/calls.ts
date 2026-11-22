@@ -247,24 +247,41 @@ export type ReviewInput={
  allowed:{pages:number[];criteria:number[];narrative:boolean};
  /** 验收条目编号到条目身份。 */
  itemIds:Record<number,string>;
+ /** 逐幅验收条目的编号：结果按其画幅落到逐幅结论。 */
+ frameCriteria?:number[];
 };
 export type Judgement={id:string;outcome:'pass'|'fail';detail?:string;requirements?:boolean};
 export type ReviewOutcome={judgements:Judgement[];suggestions:Judgement[];endingChoice?:string;issues:ReviewIssue[]};
 
 type Report=ReturnType<ReturnType<typeof reviewReportSchema>['parse']>;
+/**
+ * 把审片报告映射为结论，并核对报告覆盖本次要求的全部结论：缺少任一允许条目的结果视为报告不完整，调用失败重试；
+ * 逐幅验收条目的未通过或无法判断落到所列画幅（未列画幅时落到全部允许画幅）的逐幅结论，无法判断记为需读者处理。
+ */
 function reviewOutcome(input:ReviewInput,report:Report,choosing?:string[]):ReviewOutcome{
  const judgements:Judgement[]=[],suggestions:Judgement[]=[];
- const pages=new Set(input.allowed.pages),criteria=new Set(input.allowed.criteria);
+ const pages=new Set(input.allowed.pages),criteria=new Set(input.allowed.criteria),frameCriteria=new Set(input.frameCriteria??[]);
+ const results=report.acceptanceResults||[];
+ const missing=[...criteria].filter(n=>!results.some(r=>r.criterion===n));
+ if(missing.length)throw Error(`REVIEW_INCOMPLETE: criteria ${missing.join(',')}`);
  const issuesOn=(page:number)=>report.issues.filter(i=>i.page===page);
+ // 逐幅条目的结果按画幅归集。
+ const frameResults=new Map<number,{detail:string;requirements:boolean}[]>();
+ for(const result of results.filter(r=>frameCriteria.has(r.criterion)&&r.status!=='passed')){
+  const listed=result.pages.filter(p=>pages.has(p));
+  for(const page of listed.length?listed:[...pages])frameResults.set(page,[...(frameResults.get(page)??[]),{detail:result.evidence,requirements:result.status==='unknown'}]);
+ }
  for(let page=1;page<=input.frames.length;page++){
-  const issues=issuesOn(page),id=`frameVerdict:${input.frames[page-1].id}`;
-  const judgement:Judgement={id,outcome:issues.length?'fail':'pass',...(issues.length?{detail:issues.map(i=>i.problem).join('；')}:{})};
+  const issues=issuesOn(page),items=frameResults.get(page)??[],id=`frameVerdict:${input.frames[page-1].id}`;
+  const failed=issues.length>0||items.length>0;
+  const detail=[...issues.map(i=>i.problem),...items.map(i=>i.detail)].join('；');
+  const judgement:Judgement={id,outcome:failed?'fail':'pass',...(failed?{detail}:{}),...(items.some(i=>i.requirements)?{requirements:true}:{})};
   if(pages.has(page))judgements.push(judgement);else if(issues.length)suggestions.push(judgement);
  }
  const narrativeIssues=[...issuesOn(0),...report.issues.filter(i=>i.requiresReplan)];
  const narrative:Judgement={id:'narrativeVerdict:',outcome:narrativeIssues.length?'fail':'pass',...(narrativeIssues.length?{detail:narrativeIssues.map(i=>i.problem).join('；')}:{})};
  if(input.allowed.narrative)judgements.push(narrative);else if(narrativeIssues.length)suggestions.push(narrative);
- for(const result of report.acceptanceResults||[]){
+ for(const result of results){
   const itemId=input.itemIds[result.criterion];if(!itemId)continue;
   const judgement:Judgement={id:`itemVerdict:${itemId}`,outcome:result.status==='passed'?'pass':'fail',detail:result.evidence,...(result.status==='unknown'?{requirements:true}:{})};
   if(criteria.has(result.criterion))judgements.push(judgement);else if(judgement.outcome==='fail')suggestions.push(judgement);

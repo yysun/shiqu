@@ -213,3 +213,98 @@ test('preparation results carry into production: a verified summary and saved su
  assert.equal(doc.plan.summary,summary);
  assert.equal(f.control.reviews.length,1);
 });
+
+// ——— 审查意见第 2 轮：正式入口与边界 ———
+
+test('a story confirmed through intake runs on the DAG path with its setup generation',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ f.generation.suggestions=async()=>({stories:[{title:'庄周梦蝶',description:'梦醒后的庄周思考自己的经历。',artRecommendation:{artStyle:'paper-cut',reason:'层次适合梦境。'}}],note:''});
+ const created=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced'}});
+ const id=created.id;
+ if(created.intake.search.state==='idle'&&!created.intake.batches.length)await f.startDiscovery(id);
+ // 查找候选需要阅读需求（选题窗口打开）。
+ await f.demand(id);
+ await until(async()=>(await f.read(id)).intake.phase==='choosing',20000);
+ await f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(id)).intake.generation,action:'choose',batch:0,index:0});
+ await until(async()=>(await f.read(id)).intake.phase==='confirming',20000);
+ // 切换（M4.5）会在确认时建立 dag；这里在确认前加上，确认本身走正式接口。
+ await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag',json(?)) WHERE id=?").bind(JSON.stringify(emptyDag()),id).run();
+ const prepared=await f.read(id);
+ await f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:prepared.intake.generation,action:'confirm',settings:{artStyle:'watercolor',productionPrompt:'clear captions',narrativeDetail:'balanced',length:4}});
+ await until(async()=>(await f.read(id)).state==='completed',20000);
+ const doc=await saved(f,id);
+ assert.equal(doc.dag.order.length,4);
+ assert.equal(f.control.calls.length,4);
+ const jobs=(await f.app.services.database.prepare("SELECT payload FROM production_jobs WHERE session_id=? AND kind IN ('dag','dag-draw')").bind(id).all()).results;
+ assert.ok(jobs.length&&jobs.every(j=>JSON.parse(j.payload).setupGeneration===doc.intake.generation));
+});
+
+test('the review-only mode never starts a DAG drawing',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ f.app.stopGeneration();
+ const {ReaderProductionCoordinator}=await import('../server/reader-production.ts');
+ const coordinator=new ReaderProductionCoordinator(f.app.services.database,f.generation,f.media,{stopBeforeImages:true});f.coordinators.push(coordinator);
+ const id=await confirmedStory(f,4);
+ coordinator.wake();
+ await until(()=>f.control.reviews.length===1,20000);
+ for(let i=0;i<30;i++){coordinator.wake();await turn();}
+ assert.equal(f.control.calls.length,0);
+ assert.ok((await f.app.services.database.prepare("SELECT id FROM production_jobs WHERE session_id=? AND kind='dag-draw' AND state='queued'").bind(id).first()),'drawings wait in the queue');
+});
+
+test('a repeated review issue gets a second repair rather than reusing the finished job',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ let reviews=0;
+ const issue={page:3,category:'caption',problem:'配文没有交代庄周醒来',instruction:'补写醒来的动作',requiresReplan:false};
+ f.control.beforeText=async name=>name==='review'&&reviews++<2?{issues:[issue]}:undefined;
+ const id=await confirmedStory(f,4);
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).state==='completed',20000);
+ assert.equal(count(f.control.dagCalls,'sceneRepair'),2,'the second identical issue is repaired again');
+ assert.equal((await saved(f,id)).dag.repairs.used,2);
+});
+
+test('continue is idempotent for its own request and refuses a request ID used for another action',async t=>{
+ const f=await productionFixture(t,'codex');
+ const {id}=await completedStory(f);
+ const snapshot=await f.json(`sessions/${id}/revisions`);
+ const plan=structuredClone(snapshot.plan);plan.pages[0].caption='庄周在柳树下打盹，梦里化作蝴蝶。';
+ const child=crypto.randomUUID();
+ await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{plan}});
+ const paused=crypto.randomUUID();
+ await f.json(`sessions/${child}/production-control`,'POST',{requestId:paused,action:'pause'});
+ assert.equal((await f.request(`sessions/${child}/production-control`,'POST',{requestId:paused,action:'continue'})).status,409);
+ const requestId=crypto.randomUUID();
+ await f.json(`sessions/${child}/production-control`,'POST',{requestId,action:'continue'});
+ const receipt=await f.app.services.database.prepare('SELECT fingerprint FROM reader_commands WHERE request_id=?').bind(requestId).first();
+ assert.match(receipt.fingerprint,/^continue:/);
+ assert.equal((await saved(f,child)).dag.continuation,undefined);
+ await f.json(`sessions/${child}/production-control`,'POST',{requestId,action:'continue'});
+});
+
+test('an image lost while saving a revision blocks completion until the reader asks for a redraw',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id,dag:before}=await completedStory(f);
+ const {rm}=await import('node:fs/promises');const path=await import('node:path');
+ await rm(path.join(f.dataDirectory,'media','reader',id,'4.png'));
+ const snapshot=await f.json(`sessions/${id}/revisions`);
+ const plan=structuredClone(snapshot.plan);plan.pages[0].caption='庄周在柳树下打盹，梦里化作蝴蝶。';
+ const child=crypto.randomUUID();
+ await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{plan}});
+ await f.json(`sessions/${child}/production-control`,'POST',{action:'continue'});
+ await until(()=>f.control.reviews.length===1,20000);
+ for(let i=0;i<30;i++){f.app.services.production.wake();await turn();}
+ const blocked=await f.read(child);
+ assert.notEqual(blocked.state,'completed');
+ assert.equal(f.control.calls.length,0,'nothing is redrawn without the reader');
+ const fault=blocked.faults.find(x=>x.stage==='redraw');
+ assert.ok(fault);
+ await f.json(`sessions/${child}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ await until(async()=>(await f.read(child)).state==='completed',20000);
+ assert.deepEqual(f.control.calls.map(c=>c.page),[4]);
+ assert.ok(before.order[4]);
+});

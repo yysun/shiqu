@@ -12,7 +12,7 @@ import {storePromptRecord} from '../lib/reader-prompt-store.ts';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {projectDocument,type DagDocument} from '../lib/production-dag/document.ts';
-import {settle,work,apply,stale,finished,type DagStory,type Work} from '../lib/production-dag/runner.ts';
+import {settle,work,apply,stale,finished,requestFor,drawInput,type DagStory,type Work} from '../lib/production-dag/runner.ts';
 import type {Fault} from '../lib/production-dag/engine.ts';
 import {executeWork} from './dag-executor.ts';
 import {BookImageReferences} from './book-image-reference.ts';
@@ -20,6 +20,7 @@ import type {ProductionJob,ProductionQueue,JobSpec} from './production-queue.ts'
 import type {LandscapeStatus} from '../lib/reader-production.ts';
 import {persistenceError} from '../lib/reader-repository.ts';
 import {inputVersion} from './production-queue.ts';
+import {commandFingerprint} from './reader-commands.ts';
 
 export const dagTextKind='dag',dagDrawKind='dag-draw';
 type Deps={database:Database;media:MediaStore;queue:ProductionQueue;clock:()=>number;wake:()=>void;fileLost:(key:string,strict?:boolean)=>Promise<boolean>};
@@ -49,7 +50,13 @@ export class DagProduction{
  private async faults(row:SessionRow):Promise<Fault[]>{
   const rows=(await this.deps.database.prepare(`SELECT f.id,j.payload FROM reader_faults f JOIN production_jobs j ON j.id=f.job_id AND j.session_id=f.session_id AND j.owner_id=f.owner_id
    WHERE f.session_id=? AND f.owner_id=? AND f.state='pending' AND j.kind IN ('${dagTextKind}','${dagDrawKind}')`).bind(row.id,row.user_id).all<{id:string;payload:string}>()).results;
-  return rows.flatMap(f=>(JSON.parse(f.payload) as {work:Work}).work.instances.map(i=>({id:f.id,node:i.node,key:i.key,state:'pending' as const})));
+  // 没有任务的图片丢失故障按幅号归属到该幅成图。
+  const lost=(await this.deps.database.prepare("SELECT id,page FROM reader_faults WHERE session_id=? AND owner_id=? AND state='pending' AND kind='image-loss' AND job_id IS NULL AND page IS NOT NULL").bind(row.id,row.user_id).all<{id:string;page:number}>()).results;
+  const order=(JSON.parse(row.document) as Document).dag?.order??[];
+  return [
+   ...rows.flatMap(f=>(JSON.parse(f.payload) as {work:Work}).work.instances.map(i=>({id:f.id,node:i.node,key:i.key,state:'pending' as const}))),
+   ...lost.flatMap(f=>order[f.page]?[{id:f.id,node:'frameImage',key:order[f.page],state:'pending' as const}]:[]),
+  ];
  }
 
  /** 保存新的 dag 与投影：以读取时的文档为条件，冲突返回 false。 */
@@ -64,10 +71,14 @@ export class DagProduction{
  }
 
  private spec(row:SessionRow,story:DagStory,item:Work,priority:number):JobSpec{
-  const id=fingerprint(['dag-job',row.id,item.call,item.stage??0,item.instances.map(i=>[i.id,i.hard??null]),item.issues??null]);
+  // 任务身份覆盖本次请求实际读取的全部输入（含来源与核对输入，如修订读取的当前配文与问题），
+  // 因此同一产物在来源变化后再次修订会得到新任务；产物有效性仍只按硬输入判断。
+  const request=drawing(item.call)?drawInput(story,item):requestFor(story,item);
+  const id=fingerprint(['dag-job',row.id,story.doc.intake?.generation??null,item.call,item.stage??0,item.instances.map(i=>[i.id,i.hard??null]),request]);
   const page=drawing(item.call)?story.dag.order.indexOf(item.instances[0].key):undefined;
   return {id,sessionId:row.id,ownerId:row.user_id,kind:drawing(item.call)?dagDrawKind:dagTextKind,pool:drawing(item.call)?'image':'text',version:'dag',dependencies:[],
-   payload:{work:item,...(page!==undefined?{page}:{}),timingStage:drawing(item.call)?'image':item.call},priority:page??priority};
+   // 准备流程的世代与旧任务相同：选题或确认改变世代后，上一世代的任务不再算作当前任务。
+   payload:{work:item,...(page!==undefined?{page}:{}),...(story.doc.intake?{setupGeneration:story.doc.intake.generation}:{}),timingStage:drawing(item.call)?'image':item.call},priority:page??priority};
  }
 
  /** 为一篇故事安排工作；返回 true 表示已由 DAG 路径处理。 */
@@ -81,11 +92,20 @@ export class DagProduction{
   if(!items.length&&finished(story)&&row.state==='idle'){
    await this.deps.database.prepare("UPDATE stories SET state='completed',error=NULL WHERE id=? AND user_id=? AND state='idle' AND document=?").bind(row.id,row.user_id,row.document).run();
   }
-  const specs=items.map((item,i)=>this.spec(row,story,item,-10+i));
+  // 正在执行的任务覆盖的实例不再派发新任务：其结果保存后若仍需重做，下一轮再安排。
+  const running=new Set((await this.deps.database.prepare(`SELECT payload FROM production_jobs WHERE session_id=? AND owner_id=? AND kind IN ('${dagTextKind}','${dagDrawKind}') AND state='running'`).bind(row.id,row.user_id).all<{payload:string}>()).results
+   .flatMap(j=>(JSON.parse(j.payload) as {work:Work}).work.instances.map(i=>i.id)));
+  const specs=this.specs(row,story,items.filter(item=>!item.instances.some(i=>running.has(i.id))));
   for(const spec of specs)await this.deps.queue.enqueue(spec);
+  // 当前需要的工作与已完成的任务同身份（例如内容改回之前的输入）：重新排队；执行前的当前性核对避免重复付费。
+  for(const spec of specs){
+   const done=await this.deps.database.prepare("SELECT id FROM production_jobs WHERE id=? AND state='succeeded'").bind(spec.id).first();
+   if(done)await this.deps.queue.rerun(spec.id);
+  }
   await this.drop(queued.map(j=>j.id).filter(id=>!specs.some(s=>s.id===id)));
   return true;
  }
+ private specs(row:SessionRow,story:DagStory,items=work(story)){return items.map((item,i)=>this.spec(row,story,item,-10+i));}
  private async drop(ids:string[]){for(const id of ids)await this.deps.database.prepare("DELETE FROM production_jobs WHERE id=? AND state='queued'").bind(id).run();}
 
  async run(job:ProductionJob,provider:ReaderProvider){
@@ -93,6 +113,8 @@ export class DagProduction{
   const initial=await this.row(job.session_id,job.owner_id);
   const story=initial&&await this.story(initial);
   if(!initial||!story||story.dag.continuation||stale(story,item))return {obsolete:true};
+  // 只执行仍属于当前工作的任务：同一产物已由另一任务完成、或请求读取的内容已变时不再付费重做。读者授权的恢复任务除外。
+  if(!job.recovery_id&&!this.specs(initial,story).some(spec=>spec.id===job.id))return {obsolete:true};
   let generated:Awaited<ReturnType<typeof executeWork>>;
   try{generated=await executeWork(provider.generator(),story,item,inputVersion([job.id,job.lease_token]));}
   catch(error){
@@ -161,12 +183,29 @@ export class DagProduction{
   return this.landscapeStatus(saved??row);
  }
 
- /** 「继续制作」：清除「已保存，等待继续」并恢复后台制作；只有这个动作清除它。 */
- async continue(ownerId:string,id:string){
-  const saved=await this.deps.database.prepare(`UPDATE stories SET document=json_remove(document,'$.dag.continuation'),generation_control='active',generation_mode='background',updated_at=?
-   WHERE id=? AND user_id=? AND json_type(document,'$.dag.continuation')='object' AND NOT ${supersededSql()} AND ${visible}`)
-   .bind(new Date(this.deps.clock()).toISOString(),id,ownerId).run();
-  if(!saved.meta.changes)throw new ReaderError(409,'这篇故事没有等待继续的修改，或版本已更新。');
+ /**
+  * 「继续制作」：在一个事务中核对操作编号与本版等待继续的修订，清除等待、恢复后台制作并写入回执。
+  * 同一编号以相同内容重放时直接返回；用于其他操作或其他版本的编号被拒绝。只有这个动作清除等待。
+  */
+ continue(ownerId:string,id:string,requestId:string){
+  const transaction=this.deps.database.transaction;
+  if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
+  const now=this.deps.clock();
+  transaction.call(this.deps.database,db=>{
+   const story=db.get<{document:string}>(`SELECT document FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,id,ownerId);
+   if(!story)throw new ReaderError(409,'故事已更新，请刷新后再操作。');
+   const waiting=(JSON.parse(story.document) as Document).dag?.continuation;
+   const receipt=db.get<{action:string;session_id:string;fingerprint:string}>('SELECT action,session_id,fingerprint FROM reader_commands WHERE owner_id=? AND request_id=?',ownerId,requestId);
+   if(receipt){
+    if(receipt.action!=='control'||receipt.session_id!==id||!receipt.fingerprint.startsWith('continue:'))throw new ReaderError(409,'这个操作编号已用于其他内容，请重新操作。');
+    return;
+   }
+   if(db.get('SELECT id FROM stories WHERE id=? AND user_id=?',requestId,ownerId))throw new ReaderError(409,'这个操作编号已用于创建或提交故事。');
+   if(!waiting)throw new ReaderError(409,'这篇故事没有等待继续的修改，或版本已更新。');
+   const fingerprint=`continue:${commandFingerprint(['continue',id,waiting.revision])}`;
+   db.run(`UPDATE stories SET document=json_remove(document,'$.dag.continuation'),generation_control='active',generation_mode='background',updated_at=? WHERE id=? AND user_id=?`,new Date(now).toISOString(),id,ownerId);
+   db.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,result_id,created_at,updated_at) VALUES(?,?,?,'control',?,?,?,?,?)`,requestId,ownerId,id,fingerprint,JSON.stringify({action:'continue',revision:waiting.revision}),id,now,now);
+  });
   this.deps.wake();
  }
 }

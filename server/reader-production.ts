@@ -69,6 +69,8 @@ type Options=ProductionOptions;
 const sessionLeaseMs=180000;
 const maxAutomaticAttempts=3;
 const landscapeKind='landscape-image';
+// 「审片后停止」不得启动任何付费绘图，包括 DAG 的绘图与横图任务。
+const imageKinds=['image','image-publish',landscapeKind,dagDrawKind];
 const publicationYieldMs=15000;
 // The stable prefix also recognizes redraw checkpoints written by older releases.
 const lostImagePrefix='这幅图片的文件已丢失或损坏。';
@@ -120,8 +122,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    targetSessionId:options.targetSessionId,
    limits:{search:1,text:1,image:options.imageWorkers??3,local:2},now:this.clock,leaseMs:options.leaseMs,
    canRun:job=>this.canRun(job),resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>{for(const id of this.jobProviders.keys())if(!this.queue.tasks.has(id))this.jobProviders.delete(id);this.wake();},
-   candidateFilter:`j.kind='image-publish' OR (j.kind='landscape-image' AND EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND s.state='completed' AND NOT ${supersededSql('s')} AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id))) OR (j.kind!='landscape-image' AND NOT EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND (s.generation_control!='active' OR (s.state='failed' AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=s.id AND f.owner_id=s.user_id AND f.state='recovering' AND (f.command_id=j.recovery_id OR f.kind='interrupted' AND f.job_id=j.id))) OR EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id))))`,
-   skipCandidate:job=>!!options.targetSessionId&&job.session_id!==options.targetSessionId||!!options.stopBeforeImages&&['image','image-publish',landscapeKind].includes(job.kind)||job.kind!=='image-publish'&&this.supersededJobs.has(job.session_id),
+   // DAG 任务不因整篇的失败状态停下：故障只阻断依赖它的工作，由引擎在调度时判断。
+   candidateFilter:`j.kind='image-publish' OR (j.kind='landscape-image' AND EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND s.state='completed' AND NOT ${supersededSql('s')} AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id))) OR (j.kind!='landscape-image' AND NOT EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND (s.generation_control!='active' OR (s.state='failed' AND j.kind NOT IN ('${dagTextKind}','${dagDrawKind}') AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=s.id AND f.owner_id=s.user_id AND f.state='recovering' AND (f.command_id=j.recovery_id OR f.kind='interrupted' AND f.job_id=j.id))) OR EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id))))`,
+   skipCandidate:job=>!!options.targetSessionId&&job.session_id!==options.targetSessionId||!!options.stopBeforeImages&&imageKinds.includes(job.kind)||job.kind!=='image-publish'&&this.supersededJobs.has(job.session_id),
    safeError:(error,job)=>error instanceof ReaderError?error.message:job.kind==='image-publish'?'图片已生成，暂时无法展开。请重试继续。':(this.jobProviders.get(job.id)||this.provider).safeError(error),
    terminal:error=>error instanceof ReaderError&&error.status<500,
    handlers:{
@@ -325,8 +328,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   await this.repository.get(id,ownerId);
   if(action==='continue'){
    if(!requestId)throw new ReaderError(400,'继续制作需要提交操作编号。');
-   const receipt=await commandReceipt(this.database,ownerId,requestId);
-   if(!receipt){await this.dag.continue(ownerId,id);await authorizeControl(this.database,ownerId,id,requestId,action,this.clock());}
+   this.dag.continue(ownerId,id,requestId);
    return this.snapshot(ownerId,id);
   }
   if(requestId)await authorizeControl(this.database,ownerId,id,requestId,action,this.clock());
@@ -375,6 +377,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private async faults(row:SessionRow,jobs?:ProductionJob[]){
   const saved=await sessionFaults(this.database,row.id,row.user_id);if(!saved.length)return [];
+  // DAG 故事的故障都属于本版：引擎按节点归属，不按旧的输入版本筛选。
+  if(this.parsed(row)?.doc.dag)return saved;
   const current=jobs||await this.currentJobs(row),ids=new Set(current.map(job=>job.id));
   const version=this.imageInputs(row).version;
   return saved.filter(fault=>fault.version==='legacy'||(fault.job_id?ids.has(fault.job_id):fault.version===version));
@@ -451,6 +455,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const fault=(await this.faults(row)).find(fault=>fault.id===command.faultId);
   if(!fault||fault.state!=='pending')throw new ReaderError(409,'这项问题正在处理或已更新，请刷新后再操作。');
   let jobs:string[],resolutionJob:string,redraw=false,adopt:{jobId:string;result:string;attempts:number}|undefined;
+  // DAG 故事的图片丢失：读者的明确恢复解除故障，该幅成图（已标为不可读）随后按引擎重新绘制。
+  if(fault.kind==='image-loss'&&doc.dag&&!fault.job_id){
+   const receipt=await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[],resolutionJob:'',resolved:true,basis:row},this.clock());
+   this.wake();return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
+  }
   if(fault.kind==='image-loss'){
    const page=fault.page;if(page===null)throw new ReaderError(409,'无法确定待恢复画幅。');
    const current=doc.images[page];
@@ -599,7 +608,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
  }
  private async canRun(job:ProductionJob){
-  if(this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&['image','image-publish',landscapeKind].includes(job.kind))return false;
+  if(this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&imageKinds.includes(job.kind))return false;
   if(job.kind!=='image-publish'&&this.provider.capture&&!this.provider.capture())return false;
   const row=await this.raw(job.session_id,job.owner_id);
   if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));

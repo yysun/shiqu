@@ -9,7 +9,7 @@ import type {ReviewIssue} from '../reader-review.ts';
 import {calls,nodeSpec,evidenceInputs,allEvidence,type CallSpec} from './registry.ts';
 import {instanceId,type Instance} from './engine.ts';
 import {framePrompt,type SourceInput,type StyleInput,type Character,type Outline,type ReviewInput} from './calls.ts';
-import type {DagDocument,DagIssue} from './document.ts';
+import {endingChoice,type DagDocument,type DagIssue} from './document.ts';
 import type {DagStory,Work} from './runner.ts';
 
 export function bookLabel(selection:Selection){
@@ -49,7 +49,7 @@ function value(story:DagStory,item:Work,ref:string,key:string):unknown{
   case 'visual@all':return dag.order.map(id=>dag.frames[id]?.visual??'');
   case 'style@previous':{const recorded=dag.products[instanceId('visual',key)]?.inputs.style;return dag.styles?.[recorded??'']??styleOf(selection);}
   case 'ending':return dag.ending;
-  case 'endingChoice':return dag.ending?.confirmed?.ending??dag.ending?.chosen;
+  case 'endingChoice':return endingChoice(dag.ending);
   case 'endingConfirmed':return dag.ending?.confirmed;
   case 'item@self':return dag.items.find(i=>i.id===key)?.text;
   case 'redrawNote@self':return frame?.redrawNote;
@@ -135,7 +135,7 @@ const builders:Record<string,Builder>={
  ending:read=>({source:read.get('source'),outline:read.get('outline'),captions:read.get('scene@all')}),
  endingRepair:read=>{
   const ending=read.get<DagDocument['ending']>('ending');
-  return {source:read.get('source'),outline:read.get('outline'),captions:read.get('scene@all'),reflection:read.get<string|undefined>('endingChoice')??ending?.candidates[0]??'',issues:read.get('issues'),notes:read.get('notes')};
+  return {source:read.get('source'),outline:read.get('outline'),captions:read.get('scene@all'),reflection:read.get<{ending:string}|undefined>('endingChoice')?.ending??ending?.candidates[0]??'',issues:read.get('issues'),notes:read.get('notes')};
  },
  frameCheck:read=>({source:read.get('source'),outline:read.get('outline'),productionPrompt:read.get('productionReq'),settings:read.get('settings'),captions:read.get('scene@all'),notes:read.get('notes')}),
  registerItems:(read,_story,item)=>({items:keysOf(item).map(id=>({id,text:read.get<string>('item@self',id)}))}),
@@ -150,6 +150,8 @@ function reviewArgs(read:Reader,story:DagStory,item:Work):ReviewInput{
  // 验收要求：有绑定全部条目的结论时按全部条目编号，否则只列本次允许的条目。
  const items=read.has('acceptanceReq')?dag.items:dag.items.filter(i=>allowed.has(`itemVerdict:${i.id}`));
  const itemIds=Object.fromEntries(items.flatMap((i,n)=>i.scope==='frame'?[]:[[n+1,i.id]]));
+ // 逐幅条目没有自己的结论，由逐幅结论判断；其编号用于把结果落到对应画幅。
+ const frameCriteria=items.flatMap((i,n)=>i.scope==='frame'?[n+1]:[]);
  const ending=read.has('ending')?read.get<DagDocument['ending']>('ending'):undefined;
  const outline=read.has('outline')?read.get<Outline>('outline'):undefined;
  const drawnOf=(ids:string[])=>[...new Map(ids.flatMap(id=>read.get<Character[]>('characters@drawn',id)).map(c=>[c.id,c])).values()];
@@ -160,7 +162,7 @@ function reviewArgs(read:Reader,story:DagStory,item:Work):ReviewInput{
   source:read.get('source'),
   ...(read.has('brief')?{brief:read.get<string>('brief')}:{}),
   ...(outline?{outline}:{}),
-  ...(ending?{title:ending.title,candidates:ending.candidates,chosenEnding:ending.chosen}:read.has('endingChoice')?{chosenEnding:read.get<string|undefined>('endingChoice')}:{}),
+  ...(ending?{title:ending.title,candidates:ending.candidates,chosenEnding:ending.chosen}:read.has('endingChoice')?(choice=>choice?{title:choice.title,chosenEnding:choice.ending}:{})(read.get<{title:string;ending:string}|undefined>('endingChoice')):{}),
   ...(confirmed?{confirmedEnding:confirmed}:{}),
   ...(read.has('productionReq')?{productionPrompt:read.get<string>('productionReq')}:{}),
   ...(items.length?{acceptancePrompt:items.map(i=>i.text).join('\n')}:{}),
@@ -174,6 +176,7 @@ function reviewArgs(read:Reader,story:DagStory,item:Work):ReviewInput{
    narrative:allowed.has('narrativeVerdict:'),
   },
   itemIds,
+  ...(frameCriteria.length?{frameCriteria}:{}),
  };
 }
 

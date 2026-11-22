@@ -118,3 +118,18 @@ test('provider failures classify into fault kinds: content blocks and service fa
  assert.ok(serviceLevel('SERVICE_AUTH')&&serviceLevel('RATE_LIMITED')&&!serviceLevel('CONTENT_BLOCKED'));
  assert.ok(autoRetryable('TIMEOUT')&&!autoRetryable('CONTENT_BLOCKED'));
 });
+
+test('review answers are checked against the requested verdicts: a missing item fails, an unknown frame-scope item needs the reader',async()=>{
+ const frames=Array.from({length:3},(_,i)=>({id:`f${i+1}`,caption:`第${i+1}幅配文八个字以上`,prompt:`第${i+1}幅画面描述二十个字以上的内容，人物站立在庭院中央。`}));
+ const base={source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'每幅人物衣冠合乎时代\n结尾才揭示身份',style,characters:people,frames,notes:undefined,itemIds:{2:'i-end'},frameCriteria:[1]};
+ const reply=results=>()=>({issues:[],titleReview:{title:'管鲍之交',reason:'准确'},coverage:[{quote:'管仲夷吾者',task:'交代人物',pages:[1],assessment:'adequate',reason:'已交代',issuePage:0}],acceptanceResults:results});
+ const unknown=recorder(reply([{criterion:1,status:'unknown',pages:[2],evidence:'文字分镜无法判断冠服年代'},{criterion:2,status:'passed',pages:[3],evidence:'结尾揭示'}]));
+ const result=await unknown.gen.review({...base,allowed:{pages:[1,2,3],criteria:[2],narrative:false}});
+ const second=result.value.judgements.find(j=>j.id==='frameVerdict:f2');
+ assert.equal(second.outcome,'fail');
+ assert.equal(second.requirements,true);
+ assert.equal(result.value.judgements.find(j=>j.id==='frameVerdict:f1').outcome,'pass');
+ const missing=recorder(reply([{criterion:1,status:'passed',pages:[1],evidence:'合乎时代'}]));
+ // 报告结构已要求每条验收条目恰好一条结果；缺少时调用失败并按故障重试，不会把结论当作通过。
+ await assert.rejects(missing.gen.review({...base,allowed:{pages:[1,2,3],criteria:[2],narrative:false}}));
+});

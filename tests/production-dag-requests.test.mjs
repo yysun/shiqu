@@ -83,3 +83,27 @@ test('every call with a request builder is declared in the registry',()=>{
   assert.doesNotThrow(()=>requestFor(s,item),call);
  }
 });
+
+test('an item judged on the ending receives the chosen title with the ending, and a title edit re-checks it',()=>{
+ const s=story({acceptancePrompt:'标题点明主题'});
+ const reviews=[];
+ const reply=replies();
+ const answer=(method,args)=>{
+  if(method==='registerItems')return args.items.map(i=>({id:i.id,scope:'story',evidence:['ending']}));
+  if(method==='review')reviews.push(args);
+  return reply(method,args);
+ };
+ drive(s,answer);
+ const itemId=s.dag.items[0].id;
+ assert.equal(evaluate(stateOf(s)).instance('itemVerdict',itemId).status,'valid');
+ // 读者手改标题：标题与结语候选产物改变，叙事结论与依据「标题与结语」的条目随之复核。
+ handEdit(s,'ending','',dag=>{dag.ending={...dag.ending,title:'读者改写的标题'};});
+ assert.notEqual(evaluate(stateOf(s)).instance('itemVerdict',itemId).status,'valid');
+ reviews.length=0;
+ drive(s,answer);
+ const stage2=reviews.find(r=>r.allowed.criteria.length&&!r.allowed.narrative);
+ assert.ok(stage2,'the ending-dependent item is reviewed in the second stage');
+ assert.equal(stage2.title,'读者改写的标题');
+ assert.equal(stage2.chosenEnding,s.dag.ending.chosen);
+ assert.equal(stage2.style,undefined);
+});

@@ -4553,7 +4553,10 @@
         "tests/fixtures/images.mjs",
         "tests/fixtures/book-reference.mjs",
         "tests/fixtures/production-dag-runner.mjs",
-        "tests/fixtures/test-tier.mjs"
+        "tests/fixtures/test-tier.mjs",
+        "server/database.ts",
+        "lib/reader-repository.ts",
+        "server/reader-commands.ts"
       ]
     },
     {

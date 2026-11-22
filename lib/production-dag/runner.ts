@@ -16,7 +16,7 @@ import {callGroups,type CallGroup} from './schedule.ts';
 import {acknowledgedChecks,reviewStage,newRepairBudget,canRepair,liveSuggestions,verdictNodes,type Suggestion} from './review.ts';
 import {structuralLoss} from './hand-edits.ts';
 import {acceptanceItems,type Outline,type Scene,type Visual,type Character,type ReviewOutcome} from './calls.ts';
-import {rootProducts,versionState,type DagDocument,type DagIssue,type DagFrame} from './document.ts';
+import {rootProducts,versionState,endingChoice,type DagDocument,type DagIssue,type DagFrame} from './document.ts';
 import type {FrameCountReport,ReviewIssue} from '../reader-review.ts';
 
 export type DagStory={
@@ -330,7 +330,7 @@ function applyReview(story:DagStory,dag:DagDocument,item:Work,outcome:ReviewOutc
  for(const j of outcome.judgements){
   const inst=allowed.get(j.id);if(!inst)continue;
   verdicts[j.id]={outcome:j.outcome,...(j.detail?{detail:j.detail}:{}),...(j.requirements?{requirements:true}:{})};
-  const parts=inst.node==='narrativeVerdict'?{endingChoice:fingerprint(dag.ending?.confirmed?.ending??dag.ending?.chosen??dag.ending?.candidates[0]??'')}:undefined;
+  const parts=inst.node==='narrativeVerdict'?{endingChoice:fingerprint(endingChoice(dag.ending)??null)}:undefined;
   record(dag,inst,[j.outcome,j.detail??''],{outcome:j.outcome,...(parts?{parts}:{})});
  }
  dag.verdicts=verdicts;

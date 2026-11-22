@@ -8,7 +8,14 @@ import type {OriginalSource} from './reader-source-types.ts';
 import type {StoryPublication} from './story-publication';
 import type {ArtRecommendation} from './reader-art-recommendation.ts';
 // The interface keeps the same SQL testable against SQLite without a Worker runtime.
-export interface Database{prepare(query:string):Statement}
+/** 同步执行的语句，只在 transaction() 的事务体中使用。 */
+export interface SyncStatements{run(query:string,...values:unknown[]):{changes:number};get<T>(query:string,...values:unknown[]):T|undefined;all<T>(query:string,...values:unknown[]):T[]}
+/**
+ * 数据库：逐条执行的异步语句，以及本地书库的同步事务。
+ * 多表状态变化（任务、故障、命令回执、故事状态）在一个事务中原子完成；事务体同步执行、不含 await，
+ * 因此同一连接上的其他异步写入不会插入其中。
+ */
+export interface Database{prepare(query:string):Statement;transaction?<T>(body:(db:SyncStatements)=>T):T}
 interface Statement{bind(...values:unknown[]):Statement;first<T>():Promise<T|null>;all<T>():Promise<{results:T[]}>;run():Promise<{meta:{changes:number}}>}
 const visible="NOT EXISTS (SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)";
 export const familyRoot=(alias:string)=>`COALESCE(json_extract(CASE WHEN json_valid(${alias}.document) THEN ${alias}.document ELSE '{}' END,'$.revision.rootId'),${alias}.id)`;

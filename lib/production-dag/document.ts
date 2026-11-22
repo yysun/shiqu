@@ -69,6 +69,16 @@ export type DagDocument={
 export const defaultRenderer:Renderer={layout:'portrait',aspectRatio:'9:16',size:'1K'};
 
 /** 新故事的空 dag：尚无任何产物。 */
+/**
+ * 选定的标题与结语：读者确认的优先，否则为标题与叙事结论选定的结语（尚未选定时取第一个候选）。
+ * 依据「标题与结语」的条目绑定这一对值的指纹，标题或结语任一改变都会使其失效。
+ */
+export function endingChoice(ending:DagDocument['ending']):{title:string;ending:string}|undefined{
+ if(ending?.confirmed)return ending.confirmed;
+ const chosen=ending?.chosen??ending?.candidates[0];
+ return ending&&chosen?{title:ending.title,ending:chosen}:undefined;
+}
+
 export const emptyDag=():DagDocument=>({version:2,order:[],frames:{},characters:[],items:[],products:{},renderer:defaultRenderer});
 
 /** 由选择与 dag 计算根输入产物；缺省值先展开为实际值，保证与显式填写同指纹。 */
