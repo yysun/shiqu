@@ -187,7 +187,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return {status,inputs,retry,missing};
  }
  async landscapeStatus(ownerId:string,id:string){
-  return (await this.landscapeCheckpoint(await this.repository.get(id,ownerId))).status;
+  const row=await this.repository.get(id,ownerId);
+  if(this.parsed(row)?.doc.dag)return this.dag.landscapeStatus(row);
+  return (await this.landscapeCheckpoint(row)).status;
  }
  private async enqueueLandscape(row:SessionRow,version:string,pages:{page:number;image?:string}[],automatic=false){
   const jobs=pages.map(({page,image})=>({page,id:productionJobId(row.id,landscapeKind,version,String(page)),...(image?{result:{value:image,model:'saved',requestId:null,usage:null}}:{})}));
@@ -217,7 +219,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  async startLandscape(ownerId:string,id:string,{startToken,retryToken}:{startToken?:string;retryToken?:string}){
   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重试。');
-  const row=await this.repository.get(id,ownerId),{status,inputs,retry,missing}=await this.landscapeCheckpoint(row);
+  const current=await this.repository.get(id,ownerId);
+  if(this.parsed(current)?.doc.dag)return this.dag.startLandscape(current,{startToken,retryToken});
+  const row=current,{status,inputs,retry,missing}=await this.landscapeCheckpoint(row);
   if(!status.available||!inputs)throw new ReaderError(409,'请先完成当前版本的竖版插图。');
   const eligible=`s.id=? AND s.user_id=? AND s.state='completed' AND s.document=? AND s.selection=? AND NOT ${supersededSql('s')}
    AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)`;
@@ -600,6 +604,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const row=await this.raw(job.session_id,job.owner_id);
   if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
   if(job.kind===landscapeKind)return !this.stopping&&await this.landscapeEligible(row)&&this.landscapeInputs(row)?.version===job.version&&!await this.viewedPublicationPending();
+  // DAG 横图是读者对已完成故事的明确请求，不需要阅读需求。
+  if(job.kind===dagDrawKind&&(JSON.parse(job.payload) as {work:{call:string}}).work.call==='drawLandscape')return !this.stopping&&await this.landscapeEligible(row);
   if(!this.readable(row)||!this.currentJob(row,job))return false;
   const local=job.kind==='image-publish';
   if(!local){

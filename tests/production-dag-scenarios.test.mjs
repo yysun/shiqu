@@ -176,3 +176,26 @@ test('a failed step blocks only its dependants: independent steps finish, and re
  assert.equal(f.control.calls.length,4);
  assert.ok(!(await f.read(id)).faults?.length);
 });
+
+test('landscape images are drawn on request for a completed story; a failure stays on its frame and can be retried',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ let failing=true;
+ let status=await f.json(`sessions/${id}/landscape`);
+ assert.equal(status.state,'idle');
+ assert.ok(status.startToken);
+ // 第三幅的横图第一次失败。
+ f.control.beforeImage=call=>{if(call.landscape&&call.page===2&&failing){failing=false;throw Error('controlled landscape failure');}};
+ status=await f.json(`sessions/${id}/landscape`,'POST',{startToken:status.startToken});
+ await until(async()=>{const s=await f.json(`sessions/${id}/landscape`);return s.state!=='running';},20000);
+ status=await f.json(`sessions/${id}/landscape`);
+ assert.equal(status.state,'partial');
+ assert.deepEqual(status.failed,[3]);
+ assert.equal((await f.read(id)).state,'completed','an optional failure never undoes completion');
+ status=await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
+ await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
+ const landscapes=f.control.calls.filter(c=>c.landscape);
+ assert.equal(landscapes.length,7,'six landscapes plus one retry');
+ assert.ok(landscapes.every(c=>c.reference),'each landscape uses its portrait as reference');
+});

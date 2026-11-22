@@ -17,6 +17,8 @@ import type {Fault} from '../lib/production-dag/engine.ts';
 import {executeWork} from './dag-executor.ts';
 import {BookImageReferences} from './book-image-reference.ts';
 import type {ProductionJob,ProductionQueue,JobSpec} from './production-queue.ts';
+import type {LandscapeStatus} from '../lib/reader-production.ts';
+import {persistenceError} from '../lib/reader-repository.ts';
 import {inputVersion} from './production-queue.ts';
 
 export const dagTextKind='dag',dagDrawKind='dag-draw';
@@ -91,10 +93,20 @@ export class DagProduction{
   const initial=await this.row(job.session_id,job.owner_id);
   const story=initial&&await this.story(initial);
   if(!initial||!story||story.dag.continuation||stale(story,item))return {obsolete:true};
-  const generated=await executeWork(provider.generator(),story,item,inputVersion([job.id,job.lease_token]));
+  let generated:Awaited<ReturnType<typeof executeWork>>;
+  try{generated=await executeWork(provider.generator(),story,item,inputVersion([job.id,job.lease_token]));}
+  catch(error){
+   // 横图是可选产物：失败记在画幅上，不形成阻断完成的故障；读者可重试失败的幅。
+   if(item.call!=='drawLandscape'||persistenceError(error))throw error;
+   await this.markLandscape(job,item.instances[0].key,error instanceof ReaderError?error.message:provider.safeError(error));
+   return {failed:true};
+  }
   if(drawing(item.call)){
    const key=typeof generated.value==='string'?referenceImageKey(job.session_id,generated.value):null;
-   if(!key||await this.deps.fileLost(key,true))throw new ReaderError(409,'图片服务未返回可读取的图片，请重试本幅。');
+   if(!key||await this.deps.fileLost(key,true)){
+    if(item.call==='drawLandscape'){await this.markLandscape(job,item.instances[0].key,'图片服务未返回可读取的横图，请重试本幅。');return {failed:true};}
+    throw new ReaderError(409,'图片服务未返回可读取的图片，请重试本幅。');
+   }
   }
   const promptRecordId=generated.promptRecord?await storePromptRecord(this.deps.database,generated.promptRecord):undefined;
   const usage={step:`dag:${item.call}`,model:generated.model,requestId:generated.requestId,usage:generated.usage,...(promptRecordId?{promptRecordId}:{}),...(generated.reasoningEffort?{reasoningEffort:generated.reasoningEffort}:{})};
@@ -106,6 +118,47 @@ export class DagProduction{
    if(await this.save(row,current,next,usage)){this.deps.wake();return {applied:item.call};}
   }
   throw new ReaderError(503,'故事正在更新，结果暂未保存，请重试继续。');
+ }
+
+ private async markLandscape(job:ProductionJob,key:string,message:string){
+  for(let attempt=0;attempt<5;attempt++){
+   const row=await this.row(job.session_id,job.owner_id),story=row&&await this.story(row);
+   if(!row||!story?.dag.frames[key])return;
+   const dag=structuredClone(story.dag);dag.frames[key].landscapeError=message;
+   if(await this.save(row,story,dag))return;
+  }
+ }
+
+ /** 横图状态：由各画幅的横图、请求标记与失败说明得出；只对已完成的故事开放。 */
+ async landscapeStatus(row:SessionRow):Promise<LandscapeStatus>{
+  const story=(await this.story(row))!,frames=story.dag.order.map(id=>story.dag.frames[id]);
+  const images=frames.map(f=>f.landscape||''),failed=frames.flatMap((f,i)=>f.landscapeError?[i+1]:[]);
+  const pending=frames.some(f=>f.landscape===''&&!f.landscapeError),ready=images.filter(Boolean).length,available=row.state==='completed';
+  const state=pending?'running':ready===frames.length&&frames.length?'completed':ready||failed.length?'partial':'idle';
+  const missing=frames.some(f=>f.landscape===undefined);
+  return {state,available,total:frames.length,ready,images,failed,
+   ...(available&&!pending&&missing?{startToken:inputVersion(['dag-landscape',row.document])}:{}),
+   ...(available&&!pending&&failed.length?{retryToken:inputVersion(['dag-landscape-retry',row.document]),error:frames.find(f=>f.landscapeError)!.landscapeError}:{})};
+ }
+
+ /** 请求横图：开始时为尚未请求的画幅加请求标记；重试时清除失败说明并作废失败的任务，然后立即安排。 */
+ async startLandscape(row:SessionRow,command:{startToken?:string;retryToken?:string}){
+  const status=await this.landscapeStatus(row);
+  if(!status.available)throw new ReaderError(409,'请先完成当前版本的竖版插图。');
+  const story=(await this.story(row))!,dag=structuredClone(story.dag);
+  const start=!!status.startToken&&command.startToken===status.startToken,retry=!!status.retryToken&&command.retryToken===status.retryToken;
+  if(!start&&!retry)return status;
+  for(const id of dag.order){
+   const frame=dag.frames[id];
+   if(start&&frame.landscape===undefined)frame.landscape='';
+   if(retry&&frame.landscapeError){delete frame.landscapeError;frame.landscape='';}
+  }
+  if(retry)await this.deps.database.prepare(`DELETE FROM production_jobs WHERE session_id=? AND owner_id=? AND kind='${dagDrawKind}' AND state IN ('succeeded','failed') AND json_extract(payload,'$.work.call')='drawLandscape'`).bind(row.id,row.user_id).run();
+  if(!await this.save(row,story,dag))throw new ReaderError(409,'故事已更新，请刷新后再试。');
+  const saved=await this.row(row.id,row.user_id);
+  if(saved)await this.schedule(saved);
+  this.deps.wake();
+  return this.landscapeStatus(saved??row);
  }
 
  /** 「继续制作」：清除「已保存，等待继续」并恢复后台制作；只有这个动作清除它。 */

@@ -22,7 +22,7 @@ export async function productionFixture(t,provider='codex',variables={},storage=
   const landscape=prompt.includes('3:2 landscape'),bytes=landscape?createCanvas(96,64).toBuffer('image/png').toString('base64'):encoded;
   const call={page,reference,prompt,via,landscape,...gate,done:false,bytes};
   control.calls.push(call);control.active++;control.maxActive=Math.max(control.maxActive,control.active);
-  try{if(control.hold)await gate.promise;return call.bytes;}finally{call.done=true;control.active--;}
+  try{control.beforeImage?.(call);if(control.hold)await gate.promise;return call.bytes;}finally{call.done=true;control.active--;}
  }
  async function planned(prompt,schema){
   const payload=JSON.parse(prompt);

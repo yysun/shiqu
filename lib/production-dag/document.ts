@@ -23,7 +23,10 @@ export type DagFrame={
  drawnNames?:string[];
  redrawNote?:string;
  image?:string;
+ /** 横图：空字符串表示读者已请求、尚未生成。 */
  landscape?:string;
+ /** 横图生成失败的说明；横图是可选产物，失败不阻断完成或导出。 */
+ landscapeError?:string;
 };
 export type DagCharacter={id:string;name:string;aliases?:string[];text:string;legacy?:true};
 export type DagItem={id:string;text:string;scope?:'story'|'frame';evidence?:Evidence[];legacy?:true};

@@ -269,7 +269,7 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
   }
   case 'draw':case 'drawLandscape':{
    const url=value as string,f=frame(dag,one.key);
-   if(item.call==='draw')f.image=url;else f.landscape=url;
+   if(item.call==='draw')f.image=url;else{f.landscape=url;delete f.landscapeError;}
    record(dag,one,url);break;
   }
   default:throw Error(`DAG_CALL_UNKNOWN: ${item.call}`);
