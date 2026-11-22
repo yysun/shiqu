@@ -113,3 +113,10 @@ test('production rows list user decisions and failures before running, queued an
  assert.deepEqual(items.map(([id])=>id),['a','b','c','d','e','f','g','h'],'The input order is not mutated');
  for(const group of shelfNeedsUserGroups)assert.ok(shelfProductionPriority(group)<shelfProductionPriority('生成中'));
 });
+
+test('a saved revision shows 已保存，等待继续 with a 继续制作 action until it is continued',async()=>{
+ const {shelfGenerationStatus}=await import('../lib/shelf-generation.ts');
+ const waiting=shelfGenerationStatus({id:'s',state:'idle',awaitingContinue:true,generationControl:'active',selection:{},stage:'',error:null,retryAllowed:false});
+ assert.equal(waiting.message,'已保存，等待继续');assert.equal(waiting.action,'继续制作');
+ assert.notEqual(shelfGenerationStatus({id:'s',state:'completed',awaitingContinue:true,selection:{},stage:'',error:null,retryAllowed:false}).message,'已保存，等待继续');
+});

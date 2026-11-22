@@ -54,6 +54,8 @@ export function migrateProductionDag(sqlite:DatabaseSync,sql:string,directory?:s
 function convertStory(sqlite:DatabaseSync,row:Row,save:ReturnType<DatabaseSync['prepare']>,directory?:string){
  const doc=JSON.parse(row.document) as Document;
  if(doc.dag)return;
+ // 仍在准备阶段（候选查找、选题、准备、待确认）或有重选草稿的故事不转换：保持原样，准备与查找任务保留，确认制作时由 adopt() 建立 dag。
+ if(doc.reselection||doc.intake&&doc.intake.phase!=='confirmed')return;
  const selection=selectionSchema.parse(JSON.parse(row.selection));
  const jobs=sqlite.prepare("SELECT id,kind,version,payload,result FROM production_jobs WHERE session_id=? AND owner_id=? AND state='succeeded'").all(row.id,row.user_id) as JobRow[];
  // 已付费的绘图结果：版本与当前内容一致、该页尚无图且文件可读时采用。
@@ -65,7 +67,7 @@ function convertStory(sqlite:DatabaseSync,row:Row,save:ReturnType<DatabaseSync['
    if(Number.isInteger(page)&&page>=0&&page<doc.images.length&&!doc.images[page]&&typeof value==='string'&&readableFile(directory,row.id,value))doc.images[page]=value;
   }
  }
- const confirmed=!doc.intake||doc.intake.phase==='confirmed';
+ const confirmed=true;
  const dag=convertDocument(doc,selection,{confirmed,notes:doc.reviewNotes});
  // 横图：采用已完成且文件可读的结果，按当前竖图记录输入。
  for(const job of jobs.filter(j=>j.kind==='landscape-image'&&j.result)){

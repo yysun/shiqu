@@ -79,3 +79,44 @@ test('an unreadable story is left as it is and does not stop the upgrade',t=>{
  assert.equal(lib.sqlite.prepare("SELECT document FROM stories WHERE id='bad'").get().document,'not json');
  assert.ok(JSON.parse(lib.sqlite.prepare('SELECT document FROM stories WHERE id=?').get(story).document).dag);
 });
+
+// 仍在准备阶段（未确认制作）的故事：升级后保持原样，准备任务与查找任务保留，确认时才建立 dag。
+test('0025 leaves stories that are still in setup alone and keeps their preparation jobs',t=>{
+ const lib=library(t),{sqlite,directory}=lib;
+ const phases=['discovering','choosing','preparing','confirming'];
+ const job=sqlite.prepare("INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,created_at,updated_at) VALUES(?,?,?,?,?,?,'[]',?,NULL,'queued',1,1)");
+ const ids=phases.map((phase,i)=>{
+  const id=`2222222${i}-2222-4222-8222-222222222222`;
+  const intake={phase,generation:1,batches:[],search:{round:1,state:phase==='discovering'?'searching':'idle'}};
+  sqlite.prepare("INSERT INTO stories(id,user_id,selection,document,state,created_at,updated_at) VALUES(?,?,?,?,'idle','c','u')")
+   .run(id,owner,JSON.stringify({...selection,length:3}),JSON.stringify({plan:null,images:[],audio:[],usage:[],intake}));
+  job.run(`prep-${i}`,id,owner,phase==='discovering'?'discover':'prepare',phase==='discovering'?'search':'text','v',JSON.stringify({setupGeneration:1,searchRound:1}));
+  return id;
+ });
+ migrate(sqlite,directory?process.cwd():process.cwd(),directory);
+ for(const id of ids){
+  const doc=JSON.parse(sqlite.prepare('SELECT document FROM stories WHERE id=?').get(id).document);
+  assert.equal(doc.dag,undefined,doc.intake.phase+' gets no dag before confirmation');
+ }
+ assert.deepEqual(sqlite.prepare('SELECT id FROM production_jobs ORDER BY id').all().map(r=>r.id),['prep-0','prep-1','prep-2','prep-3'],'setup jobs survive');
+});
+
+test('a setup story that an earlier upgrade already gave an empty dag resumes its preparation',async t=>{
+ const {productionFixture,until}=await import('./fixtures/production.mjs');
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ f.generation.suggestions=async()=>({stories:[{title:'庄周梦蝶',description:'梦醒后的庄周思考自己的经历。',artRecommendation:{artStyle:'paper-cut',reason:'层次适合梦境。'}}],note:''});
+ const created=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced'}});
+ // 模拟旧版升级写入的空转换 dag。
+ const {convertDocument}=await import('../lib/production-dag/convert.ts');
+ const row=await f.app.services.database.prepare('SELECT document,selection FROM stories WHERE id=?').bind(created.id).first();
+ const dag=convertDocument(JSON.parse(row.document),selectionSchema.parse(JSON.parse(row.selection)),{confirmed:false});
+ await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag',json(?)) WHERE id=?").bind(JSON.stringify(dag),created.id).run();
+ if(created.intake.search.state==='idle'&&!created.intake.batches.length)await f.startDiscovery(created.id);
+ await f.demand(created.id);
+ await until(async()=>(await f.read(created.id)).intake.phase==='choosing',20000);
+ await f.json(`sessions/${created.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(created.id)).intake.generation,action:'choose',batch:0,index:0});
+ await until(async()=>(await f.read(created.id)).intake.phase==='confirming',20000);
+ const saved=JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(created.id).first()).document);
+ assert.equal(saved.dag,undefined,'the empty dag is dropped and preparation ran');
+});

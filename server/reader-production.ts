@@ -330,8 +330,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async graph(row:SessionRow){
   const {doc,selection}=this.parsed(row)!;
   // 制作确认后（或没有准备流程的故事）进入制作 DAG：首次在这里建立 dag，旧版内容按转换规则采用。
+  // 升级过早写入的空 dag（仍在准备阶段的故事）不属于任何制作：去掉后沿用准备流程。
+  if(doc.dag?.legacy&&!doc.dag.order.length&&!doc.plan&&await this.dag.dropEmpty(row))return;
   if(!doc.dag&&await this.dag.adopt(row))return;
-  if(doc.dag){
+  if(doc.dag&&(!doc.intake||doc.intake.phase==='confirmed')){
    // 正在阅读这篇故事的读者（不含后台与旧入口的推进请求）决定绘图的阅读优先。
    const viewers=(await this.demands(row.id)).filter(d=>d.viewer_id!=='background'&&d.viewer_id!=='legacy-advance').map(d=>({page:d.page,through:d.through_page}));
    await this.dag.schedule(row,viewers);return;
@@ -493,7 +495,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   let row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
   if(!this.generationCurrent(row,job))return {obsolete:true};
   // 已有 dag 或旧版内容的故事不再经准备任务：由 DAG 路径接管。
-  if(doc.dag||doc.plan||doc.storyboard||doc.draft)return {adopted:true};
+  if(doc.dag&&(!doc.intake||doc.intake.phase==='confirmed')||doc.plan||doc.storyboard||doc.draft)return {adopted:true};
   const selection=selectionSchema.parse(JSON.parse(row.selection)),stepKey=(JSON.parse(job.payload) as {stepKey?:string}).stepKey;
   // 准备调用的结果可能已保存而回执尚未写入：不重复付费。
   if(stepKey&&stepKey!==nextStep(doc,selection)?.key)return {prepared:true};

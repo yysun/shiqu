@@ -37,12 +37,15 @@ test('edit a caption, save, restart and continue: only the affected review runs 
  let doc=await saved(f,child);
  assert.equal(doc.dag.continuation?.reason,'revision-saved');
  assert.equal(doc.dag.frames[doc.dag.order[2]].scene,plan.pages[2].caption);
+ // 桌面端据此显示「已保存，等待继续」与「继续制作」。
+ assert.equal((await f.read(child)).awaitingContinue,true);
  for(let i=0;i<20;i++){f.app.services.production.wake();await turn();}
  assert.equal(f.control.reviews.length,0);
 
  await f.restart();
  await f.json(`sessions/${child}/production-control`,'POST',{action:'continue'});
  await until(async()=>(await f.read(child)).state==='completed',15000);
+ assert.equal((await f.read(child)).awaitingContinue,undefined);
 
  doc=await saved(f,child);
  assert.equal(doc.dag.continuation,undefined);

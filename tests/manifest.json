@@ -2959,7 +2959,8 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/production-data.mjs"
+        "tests/fixtures/production-data.mjs",
+        "lib/reader-model.ts"
       ],
       "modelRelated": true,
       "manualOnly": true
@@ -4454,7 +4455,12 @@
         "tests/fixtures/production-data.mjs",
         "lib/reader-model.ts",
         "tests/fixtures/images.mjs",
-        "tests/fixtures/story.mjs"
+        "tests/fixtures/story.mjs",
+        "server/reader-production.ts",
+        "server/dag-production.ts",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/book-reference.mjs"
       ]
     }
   ]

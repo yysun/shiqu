@@ -288,6 +288,13 @@ export class DagProduction{
   this.deps.wake();
  }
 
+ /** 去掉升级时为没有任何内容的故事（仍在准备阶段）写入的空转换 dag；新建的空 dag 与有内容的 dag 不动。 */
+ async dropEmpty(row:SessionRow):Promise<boolean>{
+  const saved=await this.deps.database.prepare("UPDATE stories SET document=json_remove(document,'$.dag'),updated_at=? WHERE id=? AND user_id=? AND document=? AND json_extract(document,'$.dag.legacy')=1 AND json_array_length(document,'$.dag.order')=0 AND json_type(document,'$.plan')='null'").bind(new Date(this.deps.clock()).toISOString(),row.id,row.user_id,row.document).run();
+  if(saved.meta.changes)this.deps.wake();
+  return saved.meta.changes>0;
+ }
+
  /** 需读者处理的审片结论：放行只针对这些结论。 */
  async blocking(row:SessionRow){
   const story=await this.story(row);if(!story)return [];
