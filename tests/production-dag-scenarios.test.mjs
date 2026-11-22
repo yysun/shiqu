@@ -39,6 +39,7 @@ test('edit a caption, save, restart and continue: only the affected review runs 
  assert.equal(doc.dag.frames[doc.dag.order[2]].scene,plan.pages[2].caption);
  // 桌面端据此显示「已保存，等待继续」与「继续制作」。
  assert.equal((await f.read(child)).awaitingContinue,true);
+ assert.equal((await f.read(child)).generationControl,'paused','the saved revision is also paused, so the paused-editing screens apply');
  for(let i=0;i<20;i++){f.app.services.production.wake();await turn();}
  assert.equal(f.control.reviews.length,0);
 

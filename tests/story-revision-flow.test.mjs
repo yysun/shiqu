@@ -79,7 +79,7 @@ test('completed story count edits remain a draft until confirmation starts the n
  await h.render().submit();
  assert.equal(h.requests.length,1);assert.notEqual(h.requests[0].paused,true);
  assert.equal(h.submitted.length,1);
- const child=h.submitted[0];assert.equal(child.generationControl,'active');
+ const child=h.submitted[0];assert.equal(child.generationControl,'paused','a saved revision that needs work is paused and waits for 继续制作');assert.equal(child.awaitingContinue,true);
  await proceed(h,child);await until(async()=>(await h.f.read(child.id)).state==='completed',20000);
  assert.equal((await h.f.read(child.id)).story.pages.length,5);
  assert.equal((await h.f.read(h.id)).story.pages.length,3);
@@ -93,7 +93,7 @@ test('retrying explicit production after a lost response uses the same version',
  await h.render().submit();
  assert.equal(h.requests.length,2);assert.equal(h.requests[0].requestId,h.requests[1].requestId);
  assert.equal(h.submitted.length,1);
- const child=h.submitted[0];assert.equal(child.generationControl,'active');
+ const child=h.submitted[0];assert.equal(child.generationControl,'paused','a saved revision that needs work is paused and waits for 继续制作');assert.equal(child.awaitingContinue,true);
  const rows=await h.f.app.services.database.prepare("SELECT id FROM stories WHERE json_extract(document,'$.revision.parentId')=?").bind(h.id).all();
  assert.equal(rows.results.length,1);
 });

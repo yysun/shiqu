@@ -236,6 +236,7 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  const now=new Date().toISOString(),completed=!pending&&row.state==='completed';
  // 故障延续：上一版仍待处理的故障，其节点的输入在新版里没有改变时继续阻断，须读者明确恢复；输入已变的故障不带入（新内容重新开始）。
  const carried=await carryFaults(repo,row,ownerId,parent,{...child,dag});
+ // 需要重做工作的新版保存为「已保存，等待继续」并同时暂停：沿用 v0.14.0 的暂停编辑界面（可继续修改、恢复前的文案），「继续制作」一次解除等待与暂停。
  // 新版与其图片丢失故障在同一事务中写入：中断不会留下未经读者恢复就可重绘的新版。
  const transaction=repo.db.transaction;
  if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
@@ -243,7 +244,7 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   const inserted=db.run(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,error,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
   SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),'background',?,?,NULL,0,0,p.page,p.saved,p.last_read_at,?,? FROM stories p
   WHERE p.id=? AND p.user_id=? AND p.document=? AND p.selection=? AND ${currentFamilyVersion('p')} AND (${familyEpoch.replace(' AS epoch','')})=?
-  ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused?'paused':'active',completed?'completed':'idle',now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch);
+  ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused||pending?'paused':'active',completed?'completed':'idle',now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch);
   if(!inserted.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
   for(const fault of carried){
    if(lost.some(page=>fault.node==='frameImage'&&dag.order[page]===fault.node_key))continue;
