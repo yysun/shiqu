@@ -56,7 +56,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 | 配置 | `config get` 返回 settings、revision 和 keyPresent，不返回密钥；`config set` 输入 `{settings:<修改字段>,expectedRevision:<读取到的revision>}`，API密钥按 help 的 key 输入。`config reset` 清除提供方设置和保存的API密钥，保留书库及网络设置；它不是临时切换只读模式。 |
 | 新建或选题 | `stories create` 接收 selection 或 `{selection,intake:true}`，默认进入选题；`--no-intake` 或 `intake:false` 使用旧的直接制作入口。search 保存提取意图，choose 保存候选索引，confirm 保存制作确认，setup 保存其他选题动作。它们不执行生成。 |
 | 执行生产 | `run <id> --until candidates\|prepared\|reviewed\|completed`（也可 `stories run <id>`）。candidates 后按用户目标选择或等待；prepared 后检查原文、摘要和方案并确认；reviewed 在已有通过的审核且画风转换完成后停止，已有图片保留，绘图任务等待继续制作；默认 completed。每次检查返回 reason 和 session，不假定达到了请求边界。 |
-| 解释停止原因 | `choice` 需选题；`already_prepared/already_selected` 表示已越过该边界，改用下一步；`paused` 保持暂停，`blocked` 检查故障或需读者处理的审片问题（例如手改冲突、修订额度用尽或无法判断的验收要求），`superseded` 查当前版本。不能在同一停止边界空转。 |
+| 解释停止原因 | `choice` 需选题。`already_prepared` 或 `already_selected` 表示已越过相应边界，改用下一步。`continue_required` 表示新版已保存并在等待读者授权继续，获准后用 `stories continue <新id>`。`paused` 保持暂停。`blocked` 检查故障或需读者处理的审片问题，例如手改冲突、修订额度用尽或无法判断的验收要求。`superseded` 查当前版本。 |
 | 修改与控制 | `stories edit` 使用 token/changes 创建新版。支持修改 productionPrompt、acceptancePrompt、artStyle、artStylePrompt、narrativeDetail、length、plan、storySummary。减幅时在 plan 之外提供 removedFrames。暂停审核时可修改 reviewNotes，或用 redrawPages 仅换图。改制作要求时，run 会用已核原文按当前改编范围更新梗概和分镜。沿用制作确认阶段已核对且适用当前范围的梗概。新版需要重做工作时停在「已保存，等待继续」，须 `stories continue <新id>`（授权当前修订，同时解除等待与暂停）后再 run；`paused:true` 仍可传入，但不再必要，`stories resume` 只解除读者暂停、不解除等待。CLI 仍只在 run 时生成。rename 仅改显示名。pause/resume/stop 控制制作。retry/override 输入 `{faultId}`。 |
 | 替换选题或扩展原文 | 已选故事在制作确认前后都可用 `stories reselect <当前id>` 保存重选草稿。用 setup 的 `conditions` 更换书籍和主题后运行 `run <草稿id> --until candidates`，或直接保存已核对的原文选段。用 `stories replace <当前id> <草稿id>` 和输入 `{batch,index,generation}` 提交为当前版本，`generation` 取自最新的草稿 `intake.generation`。`stories cancel-reselection <当前id> <草稿id>` 取消草稿。 |
 | 书架整理 | `stories delete <id>` 可恢复地隐藏，`stories restore <id>` 撤销删除；`api GET reader/deletions` 列出已删除记录。`stories favorite <id>` 输入 `{saved:true\|false}`，不生图。 |
@@ -113,7 +113,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 ### 换画风并指定首幅图
 
-对已完成且审核通过的故事，使用 `stories edit <当前id> --request-id <UUID> --input <私有JSON文件> --cover <本地图片>`。输入为 `{"token":"当前修订token","changes":{"artStyle":"watercolor"}}`（首幅原图字节原样保存，新版立即显示它；`stories continue` 之后只绘制其余画幅，并以它为参考），`changes` 仅指定新画风。首幅 PNG、JPEG 或 WebP 的原始字节保存到新版，文件上限为 12 MiB，宽高各不超过 4096 像素。沿用原文、分镜内容和审核记录。绘图前由文字模型逐幅把旧画风的表现手法改写成新画风，保存为新版画面提示词。其余画面按新画风绘制，使用这张首幅作参考。省略 `--cover` 时按新画风先生成首幅，再画其余画幅。恢复新版并运行至 `completed` 后，检查首幅和全部生成图。
+对已完成且审核通过的故事，使用 `stories edit <当前id> --request-id <UUID> --input <私有JSON文件> --cover <本地图片>`，输入 `{"token":"当前修订token","changes":{"artStyle":"watercolor"}}`。新版立即显示原样保存的首幅图，文件限 PNG、JPEG 或 WebP，最大 12 MiB，宽高各不超过 4096 像素。沿用原文、分镜内容和审核记录，绘图前由文字模型把旧画风的表现手法改写为新版提示词。用户授权后，对返回的新 id 执行 `stories continue`，再 `run <新id> --until completed`。指定首幅时，只用它作参考绘制其余画幅。省略 `--cover` 时先生成首幅，再画其余画幅。完成后检查首幅和全部生成图。
 
 ## 验收与交付
 

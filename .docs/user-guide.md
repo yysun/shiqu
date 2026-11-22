@@ -309,14 +309,18 @@ pnpm cli stories search STORY_ID --generation N --data-dir /private/shiqu-librar
 pnpm cli run STORY_ID --until candidates --data-dir /private/shiqu-library
 pnpm cli stories choose STORY_ID --batch 0 --index 0 --generation N --data-dir /private/shiqu-library
 pnpm cli run STORY_ID --until prepared --data-dir /private/shiqu-library
-pnpm cli stories confirm STORY_ID --generation N --data-dir /private/shiqu-library
+pnpm cli stories confirm STORY_ID --generation N --input confirm.json --data-dir /private/shiqu-library
 pnpm cli run STORY_ID --until reviewed --data-dir /private/shiqu-library
 pnpm cli run STORY_ID --data-dir /private/shiqu-library
 pnpm cli preview STORY_ID --output /private/preview.html --data-dir /private/shiqu-library
 pnpm cli export STORY_ID --format zip --output /private/story.zip --data-dir /private/shiqu-library
 ```
 
-selection.json 例如 `{"bookId":"zhuangzi","theme":"善意与误解","artStyle":"ink-pencil","narrativeDetail":"balanced"}`。保存、确认、查看不调用模型；只有显式 run 执行指定故事并可能付费，不顺带制作其他后台故事。run 默认最多900秒，可用 `--timeout` 调整；中断保留已保存检查点。读取返回的 reason/session，需要选择、确认、恢复或修改要求时完成对应动作后再运行。旧故事等待画幅数时返回 frame_count_required，使用 help 中的 frameCount API 保存；已确认的故事请求 prepared 返回 already_prepared，不再执行。不适用的旧故事阶段以 BOUNDARY_UNAVAILABLE 拒绝。
+`selection.json` 例如 `{"bookId":"zhuangzi","theme":"善意与误解","artStyle":"ink-pencil","narrativeDetail":"balanced"}`。确认制作前从 `stories get STORY_ID` 读取同一份草稿的 `intake.generation` 和 `intake.draftToken`，用前者替换 `--generation N`，在 `confirm.json` 中写入 `{"draftToken":"读到的令牌"}`。
+
+保存、确认和查看只记录或读取状态。只有显式 `run` 执行指定故事并可能付费。`run` 默认最多 900 秒，可用 `--timeout` 调整。中断保留已保存的检查点。读取返回的 `reason` 和 `session` 决定下一步。暂停返回 `paused`，恢复后再运行。已确认的故事请求 `prepared` 时返回 `already_prepared`。不适用的旧故事阶段返回 `BOUNDARY_UNAVAILABLE`。
+
+编辑后若新版显示「已保存，等待继续」，`run` 返回 `continue_required`。对编辑返回的新 ID 执行 `stories continue NEW_ID --request-id UUID`，再运行 `run NEW_ID`。只改梗概等无需重做的修订，按新版返回的状态处理。
 
 子命令 stdout 为单个 `{schemaVersion,ok,data|error}` JSON，日志在 stderr；失败退出非零。skill show 默认输出 Markdown，增加 `--json` 才返回 JSON 信封。`--input file.json` 或 `--input -` 接受JSON。保存可固定 `--request-id UUID` 供重放。search/choose/confirm/setup 必须带 JSON generation 或 `--generation N`（由 stories get 返回的 intake.generation 取得）；同一请求重放沿用原代数。retry/override 必须带当前 faultId，不自动挑选。编辑先用 `stories revisions ID` 读取 token，再提交 `{"token":"...","changes":{"acceptancePrompt":"保留关键人物反应"}}`；返回的新 id 是后续制作对象。旧版本拒绝制作/完整导出，过期 token 或 faultId 返回冲突。config 复用桌面/CLI设置，密钥只通过输入文件/stdin传递，不放进命令参数。init/读取/导出不检查云端，run 未配置时明确报错。
 

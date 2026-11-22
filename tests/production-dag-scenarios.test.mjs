@@ -635,6 +635,9 @@ test('CLI: a saved revision waits for stories continue; run reports continue_req
  assert.equal(edited.session.awaitingContinue,true);
  const blocked=await call(['run',child,'--until','reviewed','--timeout','20']);
  assert.equal(blocked.reason,'continue_required');
+ const help=await call(['help','--json']);
+ assert.ok(help.runResults.includes(blocked.reason));
+ assert.ok(!help.runResults.includes('frame_count_required'));
  assert.equal(f.control.reviews.length,0,'run did not start any work');
  await call(['stories','resume',child,'--request-id',crypto.randomUUID()]);
  assert.equal((await call(['run',child,'--until','reviewed','--timeout','20'])).reason,'continue_required','resume does not clear the wait');

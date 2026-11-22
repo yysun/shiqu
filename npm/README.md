@@ -28,6 +28,8 @@ npx @apprun/shiqu
 
 打开拾趣，在「设置」中选择生成服务，保存并启动，再点击「在浏览器打开」。安装包未签名，首次打开的系统提示见[桌面版入门](https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md#桌面版入门)。
 
+升级现有书库前，停止共用该书库的服务，并将桌面与 CLI 一起更新到 0.15.0。首次开库会创建并校验整库备份，再迁移到格式 2。[升级与回退说明](https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md#升级到-0150)
+
 ### 3. Skill：让 Codex 帮你制作
 
 普通 NPX 服务或桌面「启动服务」成功后会自动准备当前用户的技能。桌面内置 CLI，无需系统 Node/npm；NPX 使用需要 **Node 24**。也可手动安装：
@@ -66,6 +68,7 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 | `books index-import BOOK_ID FILE --data-dir DIRECTORY` | 导入自制离线 SQLite 索引到指定书库。匹配版次的手动索引优先，并随该书库备份 |
 | `run ID`, `stories run ID` | 制作指定故事；`--until` 可选 candidates、prepared、reviewed 或 completed。该书有索引时，提取会先核对候选原文。没有可用候选时逐章阅读选定范围。自动选题的双词预设须在同一篇原文中找到两侧及其联系，例如「善意与误解」须有善举及由此产生的误解。新复核的候选可带 `matchScore`（0 到 100），表示该篇故事的主题贴合度 |
 | `stories edit ID --input FILE` | 使用 `stories revisions ID` 返回的 token 保存修改版本。用 `changes.redrawPages` 指定换图幅号，并可用 `changes.redrawNotes` 提供逐幅说明 |
+| `stories continue NEW_ID --request-id UUID` | 解除新版的「已保存，等待继续」，再对该版本执行 `run`。等待期间 `run` 返回 `continue_required` |
 | `stories pause`, `stories resume`, `stories stop` | 暂停、恢复或停止故事制作 |
 | `stories retry`, `stories override` | 重试当前故障，或明确跳过审核问题 |
 | `stories rename`, `stories delete`, `stories restore`, `stories favorite`, `stories reference` | 改名、删除、恢复、收藏故事，或设置本书参考图 |
