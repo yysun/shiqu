@@ -61,9 +61,9 @@ test('edit a caption, save, restart and continue: only the affected review runs 
 
 const zhuangzi={title:'齐物论',text:'昔者庄周梦为胡蝶，栩栩然胡蝶也，自喻适志与！不知周也。俄然觉，则蘧蘧然周也。不知周之梦为胡蝶与，胡蝶之梦为周与？',url:'https://example.test/zhuangzi',kind:'passage',provider:'fixture',retrievedAt:'2026-11-01'};
 /** 一篇已确认、尚未制作的 DAG 故事。 */
-async function confirmedStory(f,length=4){
+async function confirmedStory(f,length=4,prepared={}){
  const id=crypto.randomUUID(),now=new Date().toISOString();
- const doc={plan:null,images:[],audio:[],usage:[],original:zhuangzi,dag:emptyDag()};
+ const doc={plan:null,images:[],audio:[],usage:[],original:zhuangzi,dag:emptyDag(),...prepared};
  await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'background','active','idle',?,?)")
   .bind(id,owner,JSON.stringify({...selection,length}),JSON.stringify(doc),now,now).run();
  return id;
@@ -198,4 +198,18 @@ test('landscape images are drawn on request for a completed story; a failure sta
  const landscapes=f.control.calls.filter(c=>c.landscape);
  assert.equal(landscapes.length,7,'six landscapes plus one retry');
  assert.ok(landscapes.every(c=>c.reference),'each landscape uses its portrait as reference');
+});
+
+test('preparation results carry into production: a verified summary and saved suggestions are not paid for again',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const summary='庄周梦见自己化为蝴蝶，翩然自得，醒来后不知是庄周梦为蝴蝶，还是蝴蝶梦为庄周。';
+ const id=await confirmedStory(f,4,{original:{...zhuangzi,storyBrief:{summary,matchReason:'原文完整记载梦蝶与醒后的疑问。',verified:true}},frameRecommendation:{count:4,reason:'梦、醒、疑三段各需展开。'},frameCountConfirmed:true});
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).state==='completed',20000);
+ const doc=await saved(f,id);
+ assert.equal(count(f.control.dagCalls,'brief'),0,'the verified summary is adopted');
+ assert.equal(doc.dag.brief,summary);
+ assert.equal(doc.plan.summary,summary);
+ assert.equal(f.control.reviews.length,1);
 });

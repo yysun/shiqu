@@ -1,13 +1,14 @@
 // 制作 DAG 的执行层（纯函数，不调用模型、不读写数据库）：由故事内容建立引擎状态，决定本轮调用，
 // 为调用准备契约输入，并把结果写回 dag。服务端按 work() 派发任务、按 inputsFor() 调用 dagGenerator，
 // 再用 apply() 在会话锁下保存；apply 先核对派发时的硬输入，输入已变的迟到结果直接丢弃。
-// 无需调用的步骤（采用已有原文、按绘图输入复用旧图、同步验收条目）由 settle() 完成。
+// 无需调用的步骤（采用已有原文、已核对的梗概与准备建议，按绘图输入复用旧图，同步验收条目）由 settle() 完成。
 // 提纲重新生成时画幅取得新身份；结构修订按合并沿用第一幅、拆分第一段沿用原身份的规则改写顺序。
 // 自动修订由审片问题驱动：问题按画幅归属，画面类问题做画面修订，其余做叙事修订，需要重排的做结构修订；
 // 手改、额度用尽、修订无变化或要求无法判断时不再派发，由 attention() 报告「需读者处理」。
 import type {Document,Selection} from '../reader-model.ts';
 import {styleOf} from './requests.ts';
 import {castFrom} from './frames.ts';
+import {storyBriefVerified} from '../reader-story-brief.ts';
 import {evaluate,instanceId,reusable,complete,type Instance,type Fault,type Product,type VersionState} from './engine.ts';
 import {nodeSpec} from './registry.ts';
 import {fingerprint} from './fingerprint.ts';
@@ -84,6 +85,12 @@ export function settle(story:DagStory):DagDocument{
  const current=styleOf(story.selection),key=fingerprint(current);
  if(!dag.styles?.[key]){dag=dag===story.dag?clone(dag):dag;dag.styles={...dag.styles,[key]:current};}
  adopt('source',story.doc.original);
+ // 准备阶段已对照原文核对的故事梗概作为梗概产物采用，不再付费重写；读者手改过的梗概不被覆盖。
+ const verified=story.doc.original&&storyBriefVerified(story.doc.original)?story.doc.original.storyBrief!.summary:undefined;
+ if(verified&&!dag.products['brief:']?.handEdited&&(dag.brief===undefined||dag.brief===verified)){
+  if(dag.brief===undefined){dag=dag===story.dag?clone(dag):dag;dag.brief=verified;}
+  adopt('brief',verified);
+ }
  if(!story.confirmed||story.reprepare){
   const prepared=story.doc.setupRequirements?.suggestions||story.doc.frameRecommendation?{requirements:story.doc.setupRequirements?.suggestions??null,frames:story.doc.frameRecommendation??null}:undefined;
   adopt('suggestions',prepared);
