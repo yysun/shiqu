@@ -98,7 +98,7 @@ Git 基线：`52ddf58b810ff80c19f40f618ef52134ca658094`（SS 开始时的 HEAD�
 
 - SS 记录：M4 分三步，前两步不接入运行、可单独回退，第三步一次切换。
   - M4.1 执行层 `lib/production-dag/runner.ts`（纯函数）：`settle()` 采用已有原文与准备结果、同步验收条目、按绘图输入复用旧图；`work()` 由引擎可运行实例按调用合批（叙事分镜逐批顺序进行），再加自动修订；`inputsFor()` 按契约组装 `dagGenerator` 参数；`apply()` 先核对派发时的硬输入，迟到结果丢弃，再写回 dag。提纲改变时全部画幅取得新身份；结构修订替换段的第一幅沿用原身份、其余新身份，会改写手改画幅时不提交；修订无变化、手改、额度用尽或要求无法判断时由 `attention()` 报告「需读者处理」。文档 v2 增加梗概、提纲、幅数核对报告、结论说明、问题、建议、修订额度与画风映射。`tests/production-dag-runner.test.mjs` 用替身生成器驱动完整故事。
-  - M4.2 服务端执行器：按 `work()` 派发任务、调用提供方并在会话锁下用 `apply()` 保存。
+  - M4.2 服务端执行器 `server/dag-executor.ts`：文字工作经 `dagGenerator` 按契约方法调用 `textCall`，绘图与横图经提供方 `image()`，提示词取 `framePrompt`，参考图取首幅书籍参考或首幅成图；投影 `projectDocument()` 改为由 dag 生成 plan（旧故事沿用原 plan 其余字段）。保存由 M4.3 的协调器在会话锁下完成。
   - M4.3 切换：迁移、事务、协调器、修订与命令、删除旧规则、更新测试。
 - SS 记录：按全部迁移建出的临时书库中现有 25 个触发器（0018 改名后触发器正文引用 `stories`，以实际库为准，不以迁移文件为准）。按决策 4 删除 18 个、保留 7 个；逐个的去向见决策 4。
 - [ ] `drizzle/0025_production_dag.sql`、`drizzle/meta/_journal.json`、`db/schema.ts`、`db/library-format.json`：按决策 4、5 一次建成最终结构（重建 `reader_faults`、`production_jobs.error_code`、删除 18 个触发器、`user_version` 2），`schemaVersion` 2、`latestMigration`。之后发现的结构变更就地改 `0025`。

@@ -4474,6 +4474,29 @@
       ]
     },
     {
+      "file": "tests/production-dag-executor.test.mjs",
+      "groups": [
+        "production",
+        "providers"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/dag-executor.ts",
+        "lib/production-dag/document.ts",
+        "lib/production-dag/runner.ts",
+        "lib/production-dag/calls.ts"
+      ]
+    },
+    {
       "file": "tests/production-dag-review.test.mjs",
       "groups": [
         "production",

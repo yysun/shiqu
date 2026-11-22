@@ -103,13 +103,27 @@ export function versionState(dag:DagDocument,roots:Record<string,Product>,option
  };
 }
 
-/** 存储投影：把 dag 的画幅写回 v1 的 plan.pages 与 images，其余 plan 字段沿用。 */
-export function projectDocument(dag:DagDocument,plan:Plan):{plan:Plan;images:string[]}{
+/**
+ * 存储投影：由 dag 生成 v1 的 plan 与 images，供阅读、导出、复制等只读方使用。
+ * 全部画幅都有叙事分镜与画面描述、且已有结语候选时才有 plan；转换的旧故事没有提纲，沿用原 plan 的其余字段。
+ */
+export function projectDocument(dag:DagDocument,base:Plan|null=null):{plan:Plan|null;images:string[]}{
+ const images=dag.order.map(id=>dag.frames[id]?.image||'');
+ const pages=dag.order.map(id=>({caption:dag.frames[id]?.scene??'',prompt:dag.frames[id]?.visual??''}));
+ const reflection=dag.ending?.confirmed?.ending??dag.ending?.chosen??dag.ending?.candidates[0]??base?.reflection;
+ const outline=dag.outline;
+ if(!pages.length||pages.some(p=>!p.caption||!p.prompt)||!reflection||!(outline||base))return {plan:null,images};
  const characters=dag.characters.map(c=>c.legacy?c.text:`${c.name}：${c.text}`).join('\n');
- const ending=dag.ending?.confirmed?.ending??dag.ending?.chosen??plan.reflection;
- const title=dag.ending?.confirmed?.title??dag.ending?.title??plan.title;
  return {
-  plan:{...plan,title,reflection:ending,characters:characters||plan.characters,pages:dag.order.map(id=>({caption:dag.frames[id].scene,prompt:dag.frames[id].visual}))},
-  images:dag.order.map(id=>dag.frames[id].image||''),
+  plan:{
+   title:dag.ending?.confirmed?.title??dag.ending?.title??outline?.title??base!.title,
+   summary:dag.brief??outline?.summary??base!.summary,
+   sourceReference:outline?.sourceReference??base!.sourceReference,
+   adaptationNote:outline?.adaptationNote??base!.adaptationNote,
+   reflection,
+   characters:characters||base?.characters||'',
+   pages,
+  },
+  images,
  };
 }
