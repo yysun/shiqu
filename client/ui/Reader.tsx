@@ -16,7 +16,7 @@
 // 桌面宽档（≥1024px）书架：可阅读卡片在右栏阅读，制作中卡片在右栏打开故事设置；地址留在书架。
 // 全屏按钮展开为普通阅读（展开或打开原文/分镜列表时登记为步骤，返回收回右栏）；变窄时全屏显示，放宽后恢复右栏与选中项。
 // 停留在书架期间卡片顺序冻结，在右栏阅读不会让卡片跳到前面。
-// 本书参考图不再占用阅读页顶部，改在故事设置中以当前所读的一幅设置。
+// 阅读页顶部的星标控制当前画幅的本书参考图，书签收藏整篇故事。
 // 点按画面只切换阅读信息；触摸与拖动只认左右轻扫，滚轮与方向键仍按上下翻页。结语页右滑或在顶部上滚回到最后一幅。
 // 第一幅右滑、双指右滑或上滚时离开阅读；横向右滑在原生滚动起点由触摸、鼠标拖动与触控板分别识别。
 // 次要操作（重试、重新载入、查看原文、审片提示等）用 StoryFlowAction 文字链接；主操作、对话框确认旁的取消与图标按钮仍是按钮。
@@ -32,7 +32,7 @@ import ProviderSettings,{ProviderRuntimeSummary} from './ProviderSettings';
 import type {ProviderSettingsView} from '@/lib/provider-settings';
 import {useBookReference} from '../useBookReference';
 import {cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
-import {ArrowLeft, ArrowRight, Maximize2, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Compass, Feather, Leaf, List, Moon, Play, RotateCcw, ImageDown, BookOpenText, Settings2, Sparkles, Settings, X, Loader2, FileDown, FileArchive, RefreshCw, Trash2, Search} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Maximize2, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Compass, Feather, Leaf, List, Moon, Play, RotateCcw, ImageDown, BookOpenText, Settings2, Sparkles, Star, Settings, X, Loader2, FileDown, FileArchive, RefreshCw, Trash2, Search} from 'lucide-react';
 import {randomId, request} from './shared';
 import type {Story} from '@/lib/content';
 import type {GeneratedStory,Selection,SessionView} from '@/lib/reader-model';
@@ -630,7 +630,6 @@ export default function Reader(){
   downloads:(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,'yu-settings-download',panelStory)),
   exportStatus:exportProgress,exporting:!!exporting,onPublicationEdit:isGenerated(panelStory)?()=>setPublicationTarget(panelStory):undefined,
   workflow:workflowSession||workflowTarget?workflowContent:undefined,
-  bookReference:story&&panelStory?.id===story.id&&!ended&&story.pages[page]?.image?{page,...bookReference}:undefined,
  };
  const discoverLead=<><section className="yu-intro"><div><p className="yu-kicker">把片刻，留给一个好故事</p><h1>今天，想遇见<br/>什么<span>故事</span>？</h1></div><span className="yu-stamp">古意<br/>新生</span></section>
  <RecentStories key={heroes.map(h=>h.story.id).join('|')} items={heroes} loading={libraryLoading} bookName={bookName} onOpen={open} activeStoryId={heroStoryId} onActiveStoryChange={setHeroStoryId}/>
@@ -678,6 +677,9 @@ export default function Reader(){
  const readerEnding=story&&<StoryEndingSurface surfaceRef={endingRef} onTurn={turn} onDrag={setDrag} drag={drag}><div className="yu-ending-mark"><Leaf size={32} strokeWidth={1.3}/></div><p className="yu-kicker">故事到这里，余味留给你</p><h1>{story.reflection}</h1>{!!story.summary.trim()&&<section className="yu-ending-summary" aria-label="故事梗概"><h2>故事梗概</h2><p>{story.summary}</p></section>}<div className="yu-end-line"/><p>有些故事的最后一页，<br/>其实在你的生活里。</p><button className="yu-primary" onClick={()=>open(story,true)}><RotateCcw size={18}/>从头再看<ArrowRight size={19}/></button><div className="yu-ending-navigation"><button onClick={()=>turn(-1)}><ChevronLeft size={17}/>返回上一幅</button><button onClick={()=>{listScroll.current=null;home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}}><BookOpen size={16}/>书架</button><button onClick={()=>{home();choose();}}><Sparkles size={16}/>开启下一篇</button></div><section className="yu-ending-downloads" aria-label="下载故事"><h2>把故事带走</h2><div className="yu-ending-formats">{(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,format==='zip'?'yu-ending-download yu-download-zip':'yu-ending-download'))}</div>{exportStatus()}</section><StoryPublicationDetails story={story}/><p className="yu-end-source"><StoryFlowAction tone="dark" onClick={()=>setSource(true)}>读一读原文<ChevronRight size={13}/></StoryFlowAction></p></StoryEndingSurface>;
  const ReaderTag=dockedView?'section':'main';
  const readerBook=story?bookName(story):'';
+ const referenceTitle=bookReference.busy?'正在保存参考图…'
+  :bookReference.selected?'取消本书参考图'
+  :bookReference.replacing?'设为本书参考图（替换已有参考图）':'设为本书参考图（每本书仅一幅）';
  const readerMeta=story?[
   {key:'theme',text:story.theme},
   {key:'style',text:(isGenerated(story)&&story.artStyleLabel)||'未记录画风'},
@@ -692,6 +694,10 @@ export default function Reader(){
   <div className="yu-reader-heading">
    {dockedView?<button className="yu-glass" onClick={expand} aria-label="全屏阅读" title="全屏阅读"><Maximize2 size={19}/></button>:<button className="yu-glass" onClick={leaveReader} aria-label={docked?'返回书架':'返回发现'}><ArrowLeft size={21}/></button>}
    <div className="yu-reader-title"><strong>{story.title}</strong>{readerBook&&<span>{readerBook}</span>}</div>
+   {!ended&&current?.image&&<button type="button" className="yu-glass yu-reference-star" aria-label="本书参考图" title={referenceTitle}
+    aria-pressed={bookReference.selected} aria-busy={bookReference.busy} disabled={bookReference.disabled||bookReference.busy} onClick={bookReference.toggle}>
+    <Star size={20} fill={bookReference.selected?'currentColor':'none'}/>
+   </button>}
    <button className="yu-glass" onClick={bookmark} aria-label={saved?'取消收藏':'收藏故事'}><Bookmark size={20} fill={saved?'currentColor':'none'}/></button>
    <button className="yu-glass" onClick={()=>openStorySettings(story)} aria-label="故事设置"><Settings2 size={19}/></button>
    <p className="yu-reader-meta">{readerMeta.filter(item=>item.text).map(item=><span key={item.key}>{item.text}</span>)}</p>

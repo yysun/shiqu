@@ -148,6 +148,8 @@ button.yu-page-surface{padding:0;border:0;background:transparent;cursor:default}
 .yu-reader-bottom{gap:12px}.yu-source-button,.yu-style-label,.yu-scene-number{font-size:12px;color:#f6f3e7}.yu-style-label>span{min-width:0;overflow-wrap:anywhere}.yu-glass{width:44px;height:44px}.yu-next{width:44px;height:44px}.yu-source-button{min-height:44px}
 /* 第二行延伸至右侧按钮下方，各字段独立截断。 */
 .yu-reader-heading{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:4px 8px}
+.yu-reader-heading:has(>.yu-reference-star){grid-template-columns:auto minmax(0,1fr) auto auto auto}
+.yu-reference-star[aria-pressed="true"]{color:#f1cf78}
 .yu-reader-title,.yu-reader-meta{display:flex;align-items:baseline;min-width:0;text-shadow:0 1px 4px #10291d}
 .yu-reader-title{gap:8px}
 .yu-reader-title>strong,.yu-reader-title>span,.yu-reader-meta>span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -248,9 +250,6 @@ button.yu-page-surface{padding:0;border:0;background:transparent;cursor:default}
 .yu-story-name>.yu-setting-row{padding:0}
 .yu-story-name>.yu-setting-row>p,.yu-setting-row.yu-story-name p{min-width:0;margin-top:0;font-family:var(--serif);font-size:20px;font-weight:500;line-height:1.5;color:#3a563f;overflow-wrap:anywhere}
 .yu-story-summary{margin:6px 0 0;color:var(--yu-meta);font-size:14px;line-height:1.7;overflow-wrap:anywhere}
-
-/* Page stars identify the one saved reference for this book; bookmarks remain story favorites. */
-.yu-book-reference{padding:12px 0}.yu-book-reference .story-flow-link{flex-shrink:0}
 
 /* Keep sheet scrollbars quiet and inside the rounded paper surface, including always-visible system scrollbars. */
 .yu-sheet{scrollbar-width:thin;scrollbar-color:#b8c2ac transparent}

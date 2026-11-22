@@ -1,5 +1,5 @@
 // Share one operation lock across page/story changes; stale reads and saves cannot light a new page.
-// replacing 表示本书已有别的参考图，设当前幅会替换它；入口在故事设置里。
+// replacing 表示阅读页星标会用当前画幅替换本书已有的参考图。
 import {useEffect,useRef,useState} from 'react';
 import {request} from '@/lib/reader-request';
 import type {BookReference} from '@/server/book-image-reference';
