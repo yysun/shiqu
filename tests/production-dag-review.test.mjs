@@ -2,7 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {evaluate,complete,runnable} from '../lib/production-dag/engine.ts';
-import {reviewBatches,splitJudgements,liveSuggestions,override,newRepairBudget,canRepair,grantRepairs} from '../lib/production-dag/review.ts';
+import {callGroups} from '../lib/production-dag/schedule.ts';
+import {splitJudgements,liveSuggestions,override,newRepairBudget,canRepair,grantRepairs} from '../lib/production-dag/review.ts';
 import {story,run,handEdit,count,clone,root} from './fixtures/production-dag.mjs';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 
@@ -45,24 +46,25 @@ test('scenario 18: an override covers only its verdict and lapses when that verd
 });
 
 test('scenarios 30 and 52: only allowed verdicts are replaced; other judgements become suggestions',()=>{
- const batch={stage:1,allowed:['frameVerdict:f9','frameVerdict:f10','frameVerdict:f11'],shape:'frames'};
+ const batch={stage:1,allowed:['frameVerdict:f9','frameVerdict:f10','frameVerdict:f11']};
  const {replace,suggestions}=splitJudgements(batch,[{id:'frameVerdict:f10',outcome:'pass'},{id:'frameVerdict:f30',outcome:'fail',detail:'服饰不一致'}]);
  assert.deepEqual(replace.map(j=>j.id),['frameVerdict:f10']);
  assert.deepEqual(suggestions.map(j=>j.id),['frameVerdict:f30']);
 });
 
-test('scenarios 31 and 36: call shape follows the one-third and three-frame threshold but never changes what is replaced',()=>{
+test('scenarios 31 and 36: one review call per stage, planned by the same grouping the scheduler uses',()=>{
  const s=story({frames:6});run(s);
  for(const id of ['f1','f2','f3','f4'])handEdit(s,'visual',id);
- const frames=reviewBatches(s,1),whole=reviewBatches(s,4);
- assert.equal(frames[0].shape,'frames');
- assert.equal(whole[0].shape,'whole');
- assert.deepEqual(frames.map(b=>b.allowed),whole.map(b=>b.allowed));
+ const plan=callGroups(s).filter(g=>g.call==='review');
+ assert.deepEqual(plan.map(g=>g.stage),[1]);
+ assert.deepEqual(plan[0].instances.map(i=>i.id).sort(),['frameVerdict:f1','frameVerdict:f2','frameVerdict:f3','frameVerdict:f4','frameVerdict:f5'].sort(),'image-description edits leave the narrative verdict valid');
+ const log=run(s);
+ assert.deepEqual(log.filter(l=>l.call.startsWith('review')).map(l=>l.ids.sort()),[plan[0].instances.map(i=>i.id).sort()]);
  const big=story({frames:40});run(big);
- assert.equal(reviewBatches(big,15).length,0);
  for(let i=1;i<=15;i++)handEdit(big,'visual',`f${i}`);
- assert.equal(reviewBatches(big,15)[0].shape,'whole');
- assert.ok(!reviewBatches(big,15)[0].allowed.includes('frameVerdict:f30'));
+ const bigPlan=callGroups(big).filter(g=>g.call==='review');
+ assert.equal(bigPlan.length,1);
+ assert.ok(!bigPlan[0].instances.some(i=>i.id==='frameVerdict:f30'));
 });
 
 test('scenario 32: each story-wide item is re-checked only when its registered evidence changes',()=>{

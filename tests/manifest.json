@@ -4470,7 +4470,34 @@
         "lib/production-dag/frames.ts",
         "lib/production-dag/schedule.ts",
         "lib/production-dag/document.ts",
-        "lib/production-dag/calls.ts"
+        "lib/production-dag/calls.ts",
+        "lib/production-dag/requests.ts",
+        "tests/fixtures/production-dag-runner.mjs"
+      ]
+    },
+    {
+      "file": "tests/production-dag-requests.test.mjs",
+      "groups": [
+        "production",
+        "review"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "lib/production-dag/requests.ts",
+        "lib/production-dag/runner.ts",
+        "lib/production-dag/calls.ts",
+        "lib/production-dag/registry.ts",
+        "lib/production-dag/engine.ts",
+        "tests/fixtures/production-dag-runner.mjs"
       ]
     },
     {

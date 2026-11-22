@@ -1,5 +1,5 @@
 // 审片规则：分阶段批量调用、允许清单、建议、核对标记确认与修订额度。
-// 结论的失效由引擎按各自输入推导；这里只决定一次审片调用替换哪些结论、如何分批。
+// 结论的失效由引擎按各自输入推导；每阶段一次调用的分组由 schedule.ts 的 callGroups() 决定。
 // 第二阶段（依赖选定结语的条目）在引擎中天然等待叙事结论有效，因此每阶段最多一次调用。
 import {evaluate,instanceId,type Instance,type VersionState,type Product} from './engine.ts';
 
@@ -13,22 +13,8 @@ export function reviewStage(state:VersionState,instance:Pick<Instance,'node'|'ke
  return !evidence?.length||evidence.includes('ending')?2:1;
 }
 
-export type ReviewBatch={stage:1|2;allowed:string[];shape:'whole'|'frames'};
-
-/**
- * 本轮审片调用：每个有就绪结论的阶段最多一批。
- * 自身内容改变的画幅数同时超过总幅数三分之一和 3 幅时用全篇调用，只影响执行方式。
- */
-export function reviewBatches(state:VersionState,changedFrames:number):ReviewBatch[]{
- const ready=evaluate(state).all().filter(i=>i.ready&&(verdictNodes as readonly string[]).includes(i.node));
- const shape=changedFrames>state.order.length/3&&changedFrames>3?'whole':'frames';
- const batches:ReviewBatch[]=[];
- for(const stage of [1,2] as const){
-  const allowed=ready.filter(i=>reviewStage(state,i)===stage).map(i=>i.id);
-  if(allowed.length)batches.push({stage,allowed,shape});
- }
- return batches;
-}
+/** 一次审片调用替换的结论；由调度分组 callGroups() 给出，测试与正式调度共用。 */
+export type ReviewBatch={stage:1|2;allowed:string[]};
 
 export type ReviewJudgement={id:string;outcome:'pass'|'fail';detail?:string};
 

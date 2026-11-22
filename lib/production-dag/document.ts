@@ -2,6 +2,7 @@
 // 画幅以身份为键存放，另存顺序；人物按条目、验收要求按条目保存。投影保持 v1 的 Plan 形状，
 // 阅读、导出、复制等只读方继续读投影；每次保存在同一条语句中写入 dag 与投影。
 import type {Plan,Selection} from '../reader-model.ts';
+import {normalizeProductionPrompt} from '../reader-prompts.ts';
 import type {ProviderSettingsView} from '../provider-settings.ts';
 import type {FrameCountReport,ReviewIssue} from '../reader-review.ts';
 import type {RepairBudget,Suggestion} from './review.ts';
@@ -17,6 +18,9 @@ export type DagFrame={
  candidates?:string[];
  /** 入画人物；未记录时按全部人物计算。 */
  drawn?:string[];
+ /** 模型返回的涉及人物与入画人物名字；保存人物设定时据此重新匹配条目。 */
+ people?:string[];
+ drawnNames?:string[];
  redrawNote?:string;
  image?:string;
  landscape?:string;
@@ -72,7 +76,8 @@ export function rootProducts(selection:Selection,dag:Pick<DagDocument,'items'|'m
  const products:Record<string,Product>={
   'selection:':root(source),
   'seed:':root(extra.seed??null),
-  'productionReq:':root(productionPrompt??''),
+  // 制作要求按主题规范化后的实际值计算指纹，与请求中发送的文字一致。
+  'productionReq:':root(normalizeProductionPrompt(productionPrompt??'',source.theme||'')),
   'acceptanceReq:':root(acceptancePrompt??'',Object.fromEntries(dag.items.map(i=>[i.id,fingerprint(i.text)]))),
   'settings:':root({narrativeDetail:narrativeDetail||'balanced',length}),
   'style:':root({artStyle,artStylePrompt:artStylePrompt??null}),

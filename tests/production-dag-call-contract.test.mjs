@@ -27,11 +27,11 @@ test('outline, characters and storyboard text never see the style; image descrip
  });
  await gen.outline({source,productionPrompt:REQ,settings:{narrativeDetail:'balanced',length:2}});
  await gen.characters({source,productionPrompt:REQ});
- const scenes=await gen.sceneBatch({source,outline,productionPrompt:REQ,first:1,previous:[],characters:people});
- // 第二幅配文提到管仲，因此两人都是候选人物。
- assert.deepEqual(scenes.value.map(s=>s.candidates),[['c1','c2'],['c1','c2']]);
- const visual=await gen.visual({outline,productionPrompt:REQ,style,frames:[{index:0,caption:'管仲与鲍叔牙少时同游。',candidates:people}],all:people});
- assert.deepEqual(visual.value[0].drawn,['c1','c2']);
+ const scenes=await gen.sceneBatch({source,outline,productionPrompt:REQ,first:1,previous:[]});
+ // 调用返回模型给出的人物名字；名字到人物条目的匹配在保存时进行（见执行层测试）。
+ assert.deepEqual(scenes.value.map(s=>s.people),[['管仲','鲍叔'],['鲍叔']]);
+ const visual=await gen.visual({outline,productionPrompt:REQ,style,frames:[{index:0,caption:'管仲与鲍叔牙少时同游。',candidates:people}]});
+ assert.deepEqual(visual.value[0].drawn,['管仲','鲍叔牙']);
  for(const c of calls.slice(0,3)){without(c.text,STYLE);contains(c.text,REQ);}
  contains(calls[3].text,STYLE,REQ);
 });
@@ -42,20 +42,20 @@ test('batched frame calls return one result per frame, matched by frame number; 
   :{frames:[...payload.frames].reverse().map(f=>({number:f.number,prompt:`第${f.number}幅：两位少年并肩走在乡间小路上，中景，晨光从左侧照来。`,drawn:f.number===1?['管仲','鲍叔牙']:['鲍叔']}))};
  const {calls,gen}=recorder(reply);
  const frames=[{index:0,caption:'管仲与鲍叔牙少时同游。',candidates:people},{index:1,caption:'鲍叔深知管仲之贤。',candidates:[people[1]]}];
- const visual=await gen.visual({outline,productionPrompt:REQ,style,frames,all:people});
- assert.deepEqual(visual.value.map(v=>v.drawn),[['c1','c2'],['c2']]);
+ const visual=await gen.visual({outline,productionPrompt:REQ,style,frames});
+ assert.deepEqual(visual.value.map(v=>v.drawn),[['管仲','鲍叔牙'],['鲍叔']]);
  assert.ok(visual.value[0].prompt.startsWith('第1幅'));
  const issues=[{page:1,category:'progression',problem:'动作不清',instruction:'补足动作',requiresReplan:false}];
- const repaired=await gen.visualRepair({outline,productionPrompt:REQ,style,frames:frames.map(f=>({...f,prompt:VISUAL,drawn:f.candidates,issues})),notes:NOTES,all:people});
+ const repaired=await gen.visualRepair({outline,productionPrompt:REQ,style,frames:frames.map(f=>({...f,prompt:VISUAL,drawn:f.candidates,issues})),notes:NOTES});
  assert.deepEqual(repaired.value.map(v=>v.prompt.slice(0,3)),['第1幅','第2幅']);
- const scenes=await gen.sceneRepair({source,outline,productionPrompt:REQ,frames:frames.map(f=>({index:f.index,caption:f.caption,neighbors:{},issues})),characters:people});
+ const scenes=await gen.sceneRepair({source,outline,productionPrompt:REQ,frames:frames.map(f=>({index:f.index,caption:f.caption,neighbors:{},issues}))});
  assert.deepEqual(scenes.value.map(s=>s.caption),['第1幅修订后的配文。','第2幅修订后的配文。']);
  // 画面描述与画面修订读画风；叙事修订不读画风与画面描述。
  contains(calls[0].text,STYLE,REQ);contains(calls[1].text,STYLE,VISUAL,NOTES);
  without(calls[2].text,STYLE,VISUAL);
- await assert.rejects(gen.visual({outline,productionPrompt:REQ,style,frames:[],all:people}),/PLAN_LENGTH/);
+ await assert.rejects(gen.visual({outline,productionPrompt:REQ,style,frames:[]}),/PLAN_LENGTH/);
  const short=recorder(()=>({frames:[{number:1,prompt:'两位少年并肩走在乡间小路上，中景，晨光从左侧照来。',drawn:[]},{number:1,prompt:'两位少年并肩走在乡间小路上，中景，晨光从左侧照来。',drawn:[]}]}));
- await assert.rejects(short.gen.visual({outline,productionPrompt:REQ,style,frames,all:people}),/INVALID_OUTPUT/);
+ await assert.rejects(short.gen.visual({outline,productionPrompt:REQ,style,frames}),/INVALID_OUTPUT/);
 });
 
 test('the summary reads only the source; endings read captions but not requirements or image descriptions',async()=>{
@@ -91,7 +91,7 @@ test('scenario 52: review replaces only allowed verdicts; everything else become
   coverage:[{quote:'管仲夷吾者',task:'交代人物',pages:[1],assessment:'adequate',reason:'已交代',issuePage:0}],
   acceptanceResults:[{criterion:1,status:'passed',pages:[0],evidence:'结尾揭示'}],
  }));
- const result=await gen.review({source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'结尾才揭示身份',style,adaptive:false,characters:people,frames,chosenEnding:'知己难得。',notes:NOTES,allowed:{pages:[1,2],criteria:[],narrative:false},itemIds:{1:'i-x'}});
+ const result=await gen.review({source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'结尾才揭示身份',style,characters:people,frames,chosenEnding:'知己难得。',notes:NOTES,allowed:{pages:[1,2],criteria:[],narrative:false},itemIds:{1:'i-x'}});
  assert.deepEqual(result.value.judgements.map(j=>[j.id,j.outcome]),[['frameVerdict:f1','pass'],['frameVerdict:f2','fail']]);
  assert.deepEqual(result.value.suggestions.map(j=>j.id),['frameVerdict:f3']);
  contains(calls[0].text,STYLE,REQ,NOTES);

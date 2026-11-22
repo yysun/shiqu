@@ -6,17 +6,17 @@
 // 自动修订由审片问题驱动：问题按画幅归属，画面类问题做画面修订，其余做叙事修订，需要重排的做结构修订；
 // 手改、额度用尽、修订无变化或要求无法判断时不再派发，由 attention() 报告「需读者处理」。
 import type {Document,Selection} from '../reader-model.ts';
-import {readerBooks} from '../reader-books.ts';
-import type {ReviewIssue} from '../reader-review.ts';
+import {styleOf} from './requests.ts';
+import {castFrom} from './frames.ts';
 import {evaluate,instanceId,reusable,complete,type Instance,type Fault,type Product,type VersionState} from './engine.ts';
 import {nodeSpec} from './registry.ts';
 import {fingerprint} from './fingerprint.ts';
 import {callGroups,type CallGroup} from './schedule.ts';
 import {acknowledgedChecks,reviewStage,newRepairBudget,canRepair,liveSuggestions,verdictNodes,type Suggestion} from './review.ts';
 import {structuralLoss} from './hand-edits.ts';
-import {acceptanceItems,framePrompt,type SourceInput,type StyleInput,type Outline,type Scene,type Visual,type Character,type ReviewInput,type ReviewOutcome} from './calls.ts';
+import {acceptanceItems,type Outline,type Scene,type Visual,type Character,type ReviewOutcome} from './calls.ts';
 import {rootProducts,versionState,type DagDocument,type DagIssue,type DagFrame} from './document.ts';
-import type {FrameCountReport} from '../reader-review.ts';
+import type {FrameCountReport,ReviewIssue} from '../reader-review.ts';
 
 export type DagStory={
  id:string;doc:Document;selection:Selection;dag:DagDocument;
@@ -33,16 +33,6 @@ export type Work=CallGroup&{issues?:DagIssue[]};
 
 const visualCategories=new Set(['composition','style','action']);
 const frameNodes=new Set(['scene','visual','frameImage','landscape','redrawNote']);
-
-export function bookLabel(selection:Selection){
- return ((selection.bookId==='other'?selection.customBook:readerBooks.find(b=>b.id===selection.bookId)?.title||selection.bookId)||'').trim();
-}
-export function sourceInput(story:DagStory):SourceInput{
- if(!story.doc.original)throw Error('DAG_SOURCE_MISSING');
- return {original:story.doc.original,book:bookLabel(story.selection),chosenStory:story.selection.storyTitle,theme:story.selection.theme,variationSeed:story.id};
-}
-const style=(selection:Selection):StyleInput=>({artStyle:selection.artStyle,artStylePrompt:selection.artStylePrompt??null});
-const settings=(selection:Selection)=>({narrativeDetail:selection.narrativeDetail||'balanced',length:selection.length});
 
 /** 验收条目随验收要求同步：条目身份由文字决定，已有登记按身份保留。 */
 export function syncItems(dag:DagDocument,selection:Selection):DagDocument{
@@ -91,7 +81,7 @@ export function settle(story:DagStory):DagDocument{
   dag=dag===story.dag?clone(dag):dag;record(dag,inst,content);
  };
  // 记录当前画风设置，换画风转换据此取得旧画风。
- const current=style(story.selection),key=fingerprint(current);
+ const current=styleOf(story.selection),key=fingerprint(current);
  if(!dag.styles?.[key]){dag=dag===story.dag?clone(dag):dag;dag.styles={...dag.styles,[key]:current};}
  adopt('source',story.doc.original);
  if(!story.confirmed||story.reprepare){
@@ -198,82 +188,8 @@ export function attention(story:DagStory):Attention[]{
 }
 export {complete};
 
-// ——— 调用输入 ———
-
-const characters=(dag:DagDocument):Character[]=>dag.characters.map(c=>({id:c.id,name:c.name,aliases:c.aliases??[],text:c.text}));
-const pick=(dag:DagDocument,ids:string[]|undefined)=>{const all=characters(dag);return ids?all.filter(c=>ids.includes(c.id)):all;};
-const outline=(dag:DagDocument):Outline=>{if(!dag.outline)throw Error('DAG_OUTLINE_MISSING');return dag.outline;};
-const captions=(dag:DagDocument)=>dag.order.map(id=>dag.frames[id]?.scene??'');
-const visualFrame=(dag:DagDocument,id:string)=>({index:framePosition(dag,id),caption:dag.frames[id]?.scene??'',candidates:pick(dag,dag.frames[id]?.candidates)});
-const issuesFor=(issues:DagIssue[]|undefined,dag:DagDocument,id:string):ReviewIssue[]=>(issues??[]).filter(i=>dag.order[i.page-1]===id).map(stripTarget);
-const stripTarget=({target:_t,stalled:_s,...issue}:DagIssue):ReviewIssue=>{void _t;void _s;return issue;};
-
-export type CallInput={method:string;args:unknown};
-
-/** 为一项文字工作准备 dagGenerator 的方法与参数；参数只含调用契约所列的输入。 */
-export function inputsFor(story:DagStory,item:Work):CallInput{
- const {dag,selection,doc}=story,keys=item.instances.map(i=>i.key);
- const productionPrompt=selection.productionPrompt||'';
- switch(item.call){
-  case 'prepareBrief':return {method:'prepareBrief',args:{source:sourceInput(story)}};
-  case 'characters':return {method:'characters',args:{source:sourceInput(story),productionPrompt}};
-  case 'outline':return {method:'outline',args:{source:sourceInput(story),productionPrompt,settings:settings(selection)}};
-  case 'sceneBatch':{
-   const first=framePosition(dag,keys[0]);
-   return {method:'sceneBatch',args:{source:sourceInput(story),outline:outline(dag),productionPrompt,first:first+1,count:keys.length,previous:captions(dag).slice(0,first),characters:characters(dag)}};
-  }
-  case 'visual':return {method:'visual',args:{outline:outline(dag),productionPrompt,theme:selection.theme,style:style(selection),frames:keys.map(id=>visualFrame(dag,id)),all:characters(dag)}};
-  case 'restyle':{
-   const previous=previousStyle(story,item.instances);
-   return {method:'restyle',args:{outline:outline(dag),productionPrompt,theme:selection.theme,style:style(selection),previousStyle:previous,frames:keys.map(id=>({...visualFrame(dag,id),previousPrompt:dag.frames[id].visual})),all:characters(dag)}};
-  }
-  case 'sceneRepair':return {method:'sceneRepair',args:{source:sourceInput(story),outline:outline(dag),productionPrompt,frames:keys.map(id=>{const at=framePosition(dag,id);return {index:at,caption:dag.frames[id].scene,neighbors:{before:dag.frames[dag.order[at-1]]?.scene,after:dag.frames[dag.order[at+1]]?.scene},issues:issuesFor(item.issues,dag,id)};}),notes:doc.reviewNotes,characters:characters(dag)}};
-  case 'visualRepair':return {method:'visualRepair',args:{outline:outline(dag),productionPrompt,theme:selection.theme,style:style(selection),frames:keys.map(id=>({...visualFrame(dag,id),prompt:dag.frames[id].visual,drawn:pick(dag,dag.frames[id].drawn),issues:issuesFor(item.issues,dag,id)})),notes:doc.reviewNotes,all:characters(dag)}};
-  case 'structureRepair':return {method:'structureRepair',args:{source:sourceInput(story),outline:outline(dag),productionPrompt,settings:settings(selection),captions:captions(dag),issues:(item.issues??[]).map(stripTarget),notes:doc.reviewNotes,characters:characters(dag)}};
-  case 'ending':return {method:'ending',args:{source:sourceInput(story),outline:outline(dag),captions:captions(dag)}};
-  case 'endingRepair':return {method:'endingRepair',args:{source:sourceInput(story),outline:outline(dag),captions:captions(dag),reflection:dag.ending?.chosen??dag.ending?.candidates[0]??'',issues:(item.issues??[]).map(stripTarget),notes:doc.reviewNotes}};
-  case 'frameCheck':return {method:'frameCheck',args:{source:sourceInput(story),outline:outline(dag),productionPrompt,settings:settings(selection),captions:captions(dag),notes:doc.reviewNotes}};
-  case 'registerItems':return {method:'registerItems',args:{items:keys.map(id=>({id,text:dag.items.find(i=>i.id===id)!.text}))}};
-  case 'review':return {method:'review',args:reviewInput(story,item)};
-  default:throw Error(`DAG_CALL_NOT_TEXT: ${item.call}`);
- }
-}
-
-/** 换画风的旧画风：取该画幅画面描述记录的画风输入对应的设置。服务端保存每次画风设置的指纹到值的映射。 */
-function previousStyle(story:DagStory,instances:Instance[]):StyleInput{
- const recorded=story.dag.products[instances[0].id]?.inputs.style;
- const known=story.dag.styles?.[recorded??''];
- return known??style(story.selection);
-}
-
-function reviewInput(story:DagStory,item:Work):ReviewInput{
- const {dag,selection,doc}=story;
- const allowedIds=new Set(item.instances.map(i=>i.id));
- // 验收要求按全部条目编号；只有全篇条目有各自的结论，逐幅条目由逐幅结论判断。
- const items=dag.items;
- const itemIds=Object.fromEntries(items.flatMap((i,n)=>i.scope==='frame'?[]:[[n+1,i.id]]));
- return {
-  source:sourceInput(story),brief:dag.brief??'',outline:outline(dag),title:dag.ending?.title??outline(dag).title,
-  productionPrompt:selection.productionPrompt||'',acceptancePrompt:items.map(i=>i.text).join('\n')||undefined,style:style(selection),
-  narrativeDetail:selection.narrativeDetail,adaptive:selection.length==='auto',characters:characters(dag),
-  frames:dag.order.map(id=>({id,caption:dag.frames[id].scene,prompt:dag.frames[id].visual})),
-  candidates:dag.ending?.candidates,chosenEnding:dag.ending?.chosen,confirmedEnding:dag.ending?.confirmed,notes:doc.reviewNotes,
-  allowed:{
-   pages:dag.order.map((id,i)=>allowedIds.has(`frameVerdict:${id}`)?i+1:0).filter(Boolean),
-   criteria:Object.entries(itemIds).filter(([,id])=>allowedIds.has(`itemVerdict:${id}`)).map(([n])=>Number(n)),
-   narrative:allowedIds.has('narrativeVerdict:'),
-  },
-  itemIds,
- };
-}
-
-/** 绘图与横图的输入：本幅画面描述、入画人物设定、画风、重绘说明与参考图。 */
-export function drawInput(story:DagStory,key:string,layout:'portrait'|'landscape'='portrait'){
- const {dag,selection}=story,at=framePosition(dag,key),f=dag.frames[key];
- const reference=layout==='landscape'?f.image:at===0?story.refSource:dag.frames[dag.order[0]]?.image;
- const prompt=framePrompt({visual:f.visual,redrawNote:layout==='portrait'?f.redrawNote:undefined,drawn:pick(dag,f.drawn),style:style(selection),index:at,reference:!!reference,layout});
- return {index:at,prompt,reference:reference||'',style:style(selection),layout};
-}
+// 调用请求与绘图输入由 requests.ts 按声明的输入构建。
+export {requestFor,drawInput} from './requests.ts';
 
 // ——— 写回结果 ———
 
@@ -294,6 +210,7 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
   case 'characters':{
    const list=value as Character[];
    dag.characters=list.map(c=>({id:c.id,name:c.name,aliases:c.aliases,text:c.text}));
+   for(const id of dag.order)cast(dag,frame(dag,id));
    record(dag,one,list,{parts:Object.fromEntries(list.map(c=>[c.id,fingerprint(c)]))});break;
   }
   case 'outline':{
@@ -305,14 +222,14 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
   case 'sceneBatch':case 'sceneRepair':{
    const scenes=value as Scene[];
    if(item.call==='sceneRepair'&&unchanged(dag,item,scenes.map(s=>s.caption),id=>dag.frames[id].scene))return markStalled(dag,item);
-   item.instances.forEach((inst,i)=>{const f=frame(dag,inst.key);f.scene=scenes[i].caption;f.candidates=scenes[i].candidates;record(dag,inst,scenes[i].caption);});
+   item.instances.forEach((inst,i)=>{const f=frame(dag,inst.key);f.scene=scenes[i].caption;f.people=scenes[i].people;cast(dag,f);record(dag,inst,scenes[i].caption);});
    if(item.call==='sceneRepair')spendRepair(dag,item);
    break;
   }
   case 'visual':case 'restyle':case 'visualRepair':{
    const visuals=value as Visual[];
    if(item.call==='visualRepair'&&unchanged(dag,item,visuals.map(v=>v.prompt),id=>dag.frames[id].visual))return markStalled(dag,item);
-   item.instances.forEach((inst,i)=>{const f=frame(dag,inst.key);f.visual=visuals[i].prompt;f.drawn=visuals[i].drawn;record(dag,inst,{prompt:visuals[i].prompt,drawn:visuals[i].drawn});});
+   item.instances.forEach((inst,i)=>{const f=frame(dag,inst.key);f.visual=visuals[i].prompt;f.drawnNames=visuals[i].drawn;cast(dag,f);record(dag,inst,{prompt:visuals[i].prompt,drawn:visuals[i].drawn});});
    if(item.call==='visualRepair')spendRepair(dag,item);
    break;
   }
@@ -358,6 +275,15 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
   default:throw Error(`DAG_CALL_UNKNOWN: ${item.call}`);
  }
  return dag;
+}
+
+/**
+ * 候选人物与入画人物：模型返回名字，按人物设定的名字与别名匹配为条目。人物设定在叙事分镜之后才生成时，
+ * 保存人物设定时按已存的名字重新匹配；没有名字记录的旧画幅保持原样（视为全部人物）。
+ */
+function cast(dag:DagDocument,f:DagFrame){
+ if(f.people)f.candidates=castFrom([f.scene,...f.people].join(' '),dag.characters);
+ if(f.drawnNames)f.drawn=castFrom(f.drawnNames.join(' '),dag.characters);
 }
 
 /** 提纲改变后重新编排：全部画幅取得新身份；仍有图的旧画幅只保留图片以供按输入复用。 */
@@ -442,7 +368,7 @@ function applyStructureRepair(story:DagStory,dag:DagDocument,item:Work,edits:{fr
  for(const id of deleted){delete dag.frames[id];for(const node of [...frameNodes,...verdictNodes])delete dag.products[instanceId(node,id)];}
  const state=stateOf({...story,dag});
  for(const [id,scene] of content){
-  const f=frame(dag,id);f.scene=scene.caption;f.candidates=scene.candidates;f.visual='';delete f.drawn;delete f.redrawNote;
+  const f=frame(dag,id);f.scene=scene.caption;f.people=scene.people;f.visual='';delete f.drawn;delete f.drawnNames;delete f.redrawNote;cast(dag,f);
   delete dag.products[instanceId('visual',id)];delete dag.products[instanceId('redrawNote',id)];
   const inst=evaluate(state).instance('scene',id);
   record(dag,{id:inst.id,hard:inst.hard,check:inst.check},scene.caption);
