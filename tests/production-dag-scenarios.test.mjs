@@ -635,3 +635,22 @@ test('the revision preview uses the same engine rules as saving and writes nothi
  await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{plan}});
  assert.equal((await f.read(child)).awaitingContinue,true);
 });
+
+test('a revision drops a fault whose inputs changed and keeps one whose inputs did not',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ // 提纲失败：读者改了制作要求后，旧故障不再适用，新提纲在「继续制作」后运行。
+ let failing=true;
+ f.control.beforeText=async name=>{if(name==='outline'&&failing){failing=false;throw Error('controlled outline failure');}};
+ const id=await confirmedStory(f,4);
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).faults?.length>0,20000);
+ await f.json(`sessions/${id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'pause'});
+ const snapshot=await f.json(`sessions/${id}/revisions`),child=crypto.randomUUID();
+ await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{productionPrompt:'写清选择与代价，突出人物的转变'}});
+ const carried=(await f.app.services.database.prepare("SELECT node FROM reader_faults WHERE session_id=? AND state='pending'").bind(child).all()).results;
+ assert.deepEqual(carried,[],'the outline fault is not carried: its inputs changed');
+ await f.json(`sessions/${child}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'continue'});
+ await until(async()=>(await f.read(child)).state==='completed',30000);
+ assert.equal(count(f.control.dagCalls,'outline'),2,'the failed outline plus the new one');
+});

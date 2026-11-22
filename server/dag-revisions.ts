@@ -121,16 +121,24 @@ function settleHandEdits(story:DagStory,decisions:RevisionChanges['handEdits']):
 }
 
 type CarriedFault={kind:string;node:string;node_key:string;message:string;image:string|null};
-/** 上一版待处理或恢复中的故障里，节点输入在新版未变的部分。 */
+/**
+ * 上一版待处理或恢复中的故障里，其涉及的全部节点实例的输入在新版都没有改变的部分。
+ * 涉及的实例取故障任务记录的实例（批量任务覆盖多个实例），没有任务的故障取记录的节点与键；输入已变或画幅已不存在的不带入。
+ */
 async function carryFaults(repo:ReaderRepository,row:SessionRow,ownerId:string,parent:DagStory,child:DagStory):Promise<CarriedFault[]>{
- const faults=(await repo.db.prepare("SELECT kind,node,node_key,message,image FROM reader_faults WHERE session_id=? AND owner_id=? AND state IN ('pending','recovering') AND node IS NOT NULL").bind(row.id,ownerId).all<CarriedFault>()).results;
+ const faults=(await repo.db.prepare(`SELECT f.kind,f.node,f.node_key,f.message,f.image,j.payload FROM reader_faults f LEFT JOIN production_jobs j ON j.id=f.job_id AND j.session_id=f.session_id AND j.owner_id=f.owner_id
+  WHERE f.session_id=? AND f.owner_id=? AND f.state IN ('pending','recovering') AND f.node IS NOT NULL`).bind(row.id,ownerId).all<CarriedFault&{payload:string|null}>()).results;
  if(!faults.length)return [];
  const before=evaluate(stateOf(parent)),after=evaluate(stateOf(child));
+ const same=(node:string,key:string)=>{
+  if(key!==''&&!child.dag.order.includes(key))return false;
+  try{return JSON.stringify(before.instance(node,key).hard)===JSON.stringify(after.instance(node,key).hard);}catch{return false;}
+ };
  return faults.filter(fault=>{
-  if(fault.node_key==='')return true;
-  if(!child.dag.order.includes(fault.node_key))return false;
-  try{return JSON.stringify(before.instance(fault.node,fault.node_key).hard)===JSON.stringify(after.instance(fault.node,fault.node_key).hard);}catch{return false;}
- });
+  let instances:{node:string;key:string}[]=[{node:fault.node,key:fault.node_key}];
+  try{const work=fault.payload?(JSON.parse(fault.payload) as {work?:{instances?:{node:string;key:string}[]}}).work:undefined;if(work?.instances?.length)instances=work.instances;}catch{/* 沿用记录的节点 */}
+  return instances.every(i=>same(i.node,i.key));
+ }).map(({payload:_,...fault})=>{void _;return fault;});
 }
 
 export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:number;
