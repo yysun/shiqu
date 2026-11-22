@@ -123,7 +123,7 @@ Git 基线：`52ddf58b810ff80c19f40f618ef52134ca658094`（SS 开始时的 HEAD�
       4. 审片说明只列出确实未提供的输入；每个阶段只要求本阶段允许的条目（及有逐幅结论时的逐幅条目）给出结果，其余条目可省略。
     - 转换故事的接续（审查意见）：转换时把提纲与梗概写入 dag（没有提纲记录的旧故事以各幅配文作节点），修订、结语、幅数核对与审片可读取；整体旧验收条目在验收要求文字不变时保留其登记与结论，部分绘制的故事直接补画剩余画幅，不重复登记与审片，文字改变后才拆分重审。
     - 新确认的故事仍走旧流程：DAG 路径尚缺「需读者处理」等界面状态（M5），在 M4.5 切换时与界面一起启用。
-  - M4.5 切换：并入并完成迁移 `0025`、事务替代 18 个触发器、旧故事转换、删除旧规则与旧测试。进行中：在分支 `production-dag-cutover`（工作树 `.claude/worktrees/dag-cutover`）上，第 1 步已完成；交接说明与剩余任务见 [交接文档](../22/handoff-production-dag-cutover.md)。
+  - M4.5 切换：并入并完成迁移 `0025`、事务替代 18 个触发器、旧故事转换、删除旧规则与旧测试。进行中：在分支 `production-dag-cutover`（工作树 `.claude/worktrees/dag-cutover`）上，第 1 步已完成；第 2–4 步已在该分支完成（`ae7b18f`、`73075bd`、`2457e13`、`7ae487e`），已知缺口见 [交接文档](../22/handoff-production-dag-cutover.md)；等待用户确认后合并回 `main`。
 - SS 记录：按全部迁移建出的临时书库中现有 25 个触发器（0018 改名后触发器正文引用 `stories`，以实际库为准，不以迁移文件为准）。按决策 4 删除 18 个、保留 7 个；逐个的去向见决策 4。
 - [ ] `drizzle/0025_production_dag.sql`、`drizzle/meta/_journal.json`、`db/schema.ts`、`db/library-format.json`：按决策 4、5 一次建成最终结构（重建 `reader_faults`、`production_jobs.error_code`、删除 18 个触发器、`user_version` 2），`schemaVersion` 2、`latestMigration`。之后发现的结构变更就地改 `0025`。
 - [ ] 本地数据库事务助手（`server/database.ts` 及 `Database` 接口）：同步执行、事务体不含 `await`；迁移测试断言 `0025` 之后只剩 7 个触发器。

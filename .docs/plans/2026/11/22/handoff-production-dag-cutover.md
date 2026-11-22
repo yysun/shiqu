@@ -36,7 +36,19 @@
    - [ ] M6 文档：状态机文档、用户指南、`AGENTS.md` 的书库说明（格式 2 需要 0.15.0 及以上）。
    - [ ] 合并回 `main`，删除暂存分支 `wip/production-dag-0025` 与本工作树。
 
-## 已观察到的旧测试失败
+## 状态（第 2–4 步完成，待用户确认后合并）
+
+- 第 2 步 `ae7b18f`：`adopt()` 建立 dag 时记录 `modelSnapshot`，DAG 任务按快照构造提供方（`server/app.ts` 提供快照服务，测试注入的提供方沿用自身）；快照服务不可用时任务以 409 失败并显示「快照服务不可用」，`production-control` 的 `apply-model` 为「应用当前模型设置」。新增场景测试：经正式确认接口、无准备流程的故事经 `verifySource`、快照记录与不可用。
+- 第 3 步 `73075bd`、`2457e13`、`7ae487e`：`advanceStory` 与 `nextStep` 只保留候选查找和准备故事；删除旧的提供方方法、`storyboardReviewGenerator`、旧修订规则、`forkRevision` 的旧主体；`view()` 的步骤与审片状态由 `lib/production-dag/progress.ts` 推导（经 `registerDagProgress` 登记，避免与 `reader-model` 形成加载循环）；复制（`server/reader-copy.ts` + `lib/production-dag/copy.ts`）按画幅身份带文字或图片；阅读优先由 `viewedPriority` 恢复（当前页至预读六幅与首幅先于未被阅读的绘图）；已付费的绘图结果即使故事已删除也保存。旧测试：约 30 个文件整体删除或大幅缩减，其余改写到 DAG 路径；清单、扩展 E2E（六个减为三个）与层级声明同步。
+- 第 4 步：`typecheck`、`lint`、`test:pr`（按分支相对 `main` 的改动文件）、`test:safety`、`test:startup` 通过；M6 文档已更新（状态机文档、用户指南、AGENTS.md）。**未运行：** `src-tauri` 原生测试（构建需要 `desktop/resources/node`，只有桌面准备才会生成，按 AGENTS.md 不作为常规验证运行）；`test:models` 手动项；没有在界面上验证。
+
+### 已知缺口与取舍（来自测试改写时的发现）
+
+- 删除旧测试后没有 DAG 对应测试的保证：升级时已付费但未发布的图片回执被 0025 采用；改名在后续修订中被继承；横图的重启保留、删除后恢复、暂停修订期间禁止开始、重绘修订继承其余横图；图片丢失后文件在重试前恢复则免费复用；首图损坏不作参考发给提供方；单幅付费失败保留同批成功图片；各任务耗时与超时的持久化；`reader-revisions` 的梗概预览、`artStylePrompt` 换画风与恢复、指定首幅原图、仅换图的前提拒绝；命令行「定向 run 不派发其他故事、`--until prepared`、直接推理路由」。
+- 行为变化：修订保存后须 `continue` 才开始；修改首幅画面描述只重绘该幅；付费绘图保存失败后重放会再次付费（无回执）；已完成但闲置的故事在没有需求时重启后不再被调度结算；首幅图丢失时非首幅的恢复请求返回 202 并等待首幅（不再 409）；`ready` 不扣除图片丢失故障。
+- 其余：`/review-history` 与 `/prompts` 的结果仍读旧的 `doc.visualReview`，DAG 故事为空；修订的 `plan` 元数据（如 `sourceReference`）未校验；缩短幅数时阅读位置不再收缩；`adopt()` 不再经旧的幅数确认门槛；横图状态不核对文件；并发同样的横图开始请求，后者返回 409；客户端 `useStoryRevision` 仍用旧的 `revisionImpact` 估算（服务端 `preview()` 与 M5 界面未做）；`lib/reader-generation-contract.ts` 与 `lib/reader-review.ts` 经 `reader-model` 互相引用，导入顺序脆弱。
+
+## 已观察到的旧测试失败（第 3 步之前，仅作历史记录）
 
 以下来自一次未跑完的受控提供方全量运行（264 项已执行、约 70 个失败的测试名，含父子重复），仅作起点；完整清单需重新运行。可用测试名在 `tests/` 中搜索对应文件。
 
