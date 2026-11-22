@@ -113,6 +113,6 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
  }
  return {sessionId:storyId,tab,setTab,scriptPage,setScriptPage,base,changes,setChanges,loading,busy,error,conflict,load,loadLatest,prepare,open,discard,summarize,summarizing,submit,preview,impact:base?withPreview(revisionImpact(base,changes),preview):null};
 }
-/** 本地估算给出的是否有改动与冲突；复用与重绘的幅数有服务端预估时以它为准。 */
-function withPreview<T extends {reused:number;redraw:number}>(impact:T,preview:RevisionPreview|null):T{return preview?{...impact,reused:preview.reused,redraw:preview.redraw}:impact;}
+/** 本地估算只给出是否有改动与冲突；复用与重绘的幅数只以服务端预估为准，预估未就绪时 estimated 为 false，界面显示「预估暂不可用」。 */
+function withPreview<T extends {reused:number;redraw:number}>(impact:T,preview:RevisionPreview|null):T&{estimated:boolean}{return preview?{...impact,reused:preview.reused,redraw:preview.redraw,estimated:true}:{...impact,estimated:false};}
 export type StoryRevisionEditorState=ReturnType<typeof useStoryRevision>;

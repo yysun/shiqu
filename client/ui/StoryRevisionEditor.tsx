@@ -44,7 +44,7 @@ export function StoryRevisionActions({editor,resuming=false}:{editor:StoryRevisi
   impact.review?'重新审核':
   restyle?(resuming?'应用画风并继续':'应用新画风'):
   summaryOnly?(resuming?'保存梗概并恢复':'保存梗概'):'应用修改';
- const artwork=`预计复用 ${impact.reused} 幅，需绘制 ${impact.redraw} 幅。`;
+ const artwork=impact.estimated?`预计复用 ${impact.reused} 幅，需绘制 ${impact.redraw} 幅。`:'预估暂不可用。';
  let detail='';
  if(impact.changed){
   if(impact.replan){

@@ -686,3 +686,28 @@ test('a style revision saves the supplied first frame byte for byte and draws on
  assert.ok(calls.every(call=>call.reference===reference),'every later frame uses the supplied image as its reference, not the starred book reference');
  assert.equal((await saved(f,child.id)).dag.cover,undefined,'the cover is recorded as the first frame image');
 });
+
+test('preview and save share one calculation: review notes count, hand edits are protected, and neither starts a model call',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ // 先手改一幅配文并继续到完成，使其成为受保护的手改。
+ const edit=await revise(f,id,snapshot=>{const plan=structuredClone(snapshot.plan);plan.pages[1].caption='鲍叔牙在集市上替管仲付了账。';return {plan};});
+ const base=await f.json(`sessions/${edit.child}/revisions`);
+ const text=()=>f.control.reviews.length+f.control.calls.length+f.control.dagCalls.length;
+ const calls=text();
+ // 审核意见的变化会重新审片：预估必须计入。
+ const notes=await f.json(`sessions/${edit.child}/revisions/preview`,'POST',{token:base.token,changes:{reviewNotes:'请复核第 2 幅的人物关系'}});
+ assert.equal(notes.continues,true);assert.ok(notes.textWork.review>=1||Object.keys(notes.textWork).length>0,'the review notes make the review run again');
+ // 制作要求改变会重新编排并丢弃该手改：预估列为冲突，保存被拒绝且不留下新版。
+ const prompt=await f.json(`sessions/${edit.child}/revisions/preview`,'POST',{token:base.token,changes:{productionPrompt:'写清选择与代价，突出转变'}});
+ assert.ok(prompt.conflicts.length>0,'the hand edit conflicts with a re-plan');
+ const stories=(await f.app.services.database.prepare('SELECT COUNT(*) AS n FROM stories').first()).n;
+ const refused=await f.request(`sessions/${edit.child}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{productionPrompt:'写清选择与代价，突出转变'}});
+ assert.equal(refused.status,409);assert.match((await refused.json()).error,/手改/);
+ assert.equal((await f.app.services.database.prepare('SELECT COUNT(*) AS n FROM stories').first()).n,stories,'nothing is saved when it would drop a hand edit');
+ // 画风改变只需以手改为基础转换：不弹窗、不拒绝。
+ const style=await f.json(`sessions/${edit.child}/revisions/preview`,'POST',{token:base.token,changes:{artStyle:'watercolor'}});
+ assert.deepEqual(style.conflicts,[]);
+ assert.equal(text(),calls,'preview and a refused save started no model call');
+});

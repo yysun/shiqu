@@ -108,19 +108,46 @@ function applyRedraw(dag:DagDocument,changes:RevisionChanges){
  }
 }
 
-/** 保存会使手改失效时按读者选择处理：以手改为基础则保留内容、改由修订或转换在其上生成；放弃则删除。 */
-function settleHandEdits(story:DagStory,decisions:RevisionChanges['handEdits']):DagDocument{
- const state=stateOf(story),choices=handEditChoices(state,state);
- const missing=choices.filter(c=>!decisions?.[c.id]);
- if(missing.length)throw new ReaderError(409,`这次修改会使 ${missing.length} 处手改失效，请对每处选择以手改为基础或放弃：${missing.map(c=>c.id).join('、')}`);
+/** 手改处理的结果：已按决定改写的 dag，以及无法保留、须读者明确放弃的手改。 */
+type HandEditOutcome={dag:DagDocument;choices:{id:string;options:string[]}[];conflicts:string[]};
+
+/**
+ * 保存会使手改失效时的处理（默认保护）：
+ * - 能「以手改为基础」的一律保留其内容（由修订或转换在其上生成，不丢弃）；
+ * - 重新编排会产生新画幅、无法保留的手改：未被读者在 API 里明确 `discard` 时，列为冲突，保存被拒绝、草稿保留，不默默放弃。
+ * 预估（strict=false）对冲突按放弃估算，同时返回冲突列表。
+ */
+function settleHandEdits(story:DagStory,decisions:RevisionChanges['handEdits'],strict:boolean):HandEditOutcome{
+ const state=stateOf(story),choices=handEditChoices(state,state),conflicts:string[]=[];
  const dag=structuredClone(story.dag);
  for(const choice of choices){
-  const decision=decisions![choice.id]!;
-  if(!choice.options.includes(decision))throw new ReaderError(400,`${choice.id} 只能放弃手改或取消保存。`);
+  const explicit=decisions?.[choice.id];
+  if(explicit&&!choice.options.includes(explicit))throw new ReaderError(400,`${choice.id} 只能放弃手改或取消保存。`);
+  const decision=explicit??(choice.options.includes('use-as-base')?'use-as-base':undefined);
+  if(!decision){conflicts.push(choice.id);if(!strict)delete dag.products[choice.id];continue;}
   if(decision==='discard')delete dag.products[choice.id];
   else dag.products[choice.id]={...dag.products[choice.id],handEdited:undefined};
  }
- return dag;
+ if(strict&&conflicts.length)throw new ReaderError(409,`这次修改会重新编排并丢弃你手改过的内容：${conflicts.map(handEditLabel).join('、')}。请先撤销该设置修改；确实要放弃时，用命令行的 handEdits 明确放弃。草稿已保留。`);
+ return {dag,choices:choices.map(c=>({id:c.id,options:[...c.options]})),conflicts};
+}
+function handEditLabel(id:string){const [node,key]=id.split(':');return `${({scene:'叙事分镜',visual:'画面描述',brief:'梗概',characters:'人物设定',ending:'标题与结语'} as Record<string,string>)[node]??node}${key?'（'+key+'）':''}`;}
+
+/**
+ * 修订的唯一计算（保存与预估共用）：合入设置与文字修改（含审核意见），按手改默认保护处理手改，
+ * 新修订重新开始自动修订额度，审片问题与建议不带入。不写入、不读媒体；保存另外复制图片与首幅原图后再 settle。
+ */
+function deriveRevision(doc:Document,row:SessionRow,changes:RevisionChanges,childId:string,strict:boolean){
+ const selection=nextSelection(selectionSchema.parse(JSON.parse(row.selection)),changes);
+ const reviewNotes=(changes.reviewNotes!==undefined?changes.reviewNotes:doc.reviewNotes)?.trim()||undefined;
+ const parent:DagStory={id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag!,confirmed:true,faults:[]};
+ // 文字修改按上一版的输入记录为手改，再合入设置修改，由引擎判断哪些产物失效。
+ const edited=applyEdits(parent,changes);
+ applyRedraw(edited,changes);
+ const child:DagStory={...parent,id:childId,selection,doc:{...doc,reviewNotes},dag:edited};
+ const outcome=settleHandEdits(child,changes.handEdits,strict);
+ child.dag={...outcome.dag,repairs:undefined,issues:[],suggestions:[]};
+ return {parent,child,selection,reviewNotes,choices:outcome.choices,conflicts:outcome.conflicts};
 }
 
 type CarriedFault={kind:string;node:string;node_key:string;message:string;image:string|null};
@@ -151,6 +178,8 @@ export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:n
  continues:boolean;
  /** 这次修改会使哪些手改失效，及读者可选的处理。 */
  handEdits:{id:string;options:string[]}[];
+ /** 无法保留的手改：保存会被拒绝（读者须先撤销该设置修改）；预估对它们按放弃估算。 */
+ conflicts:{id:string;message:string}[];
  /** 已有未结故障中，保存后继续阻断的数量。 */
  carriedFaults:number};
 
@@ -162,22 +191,14 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
  const {doc,token:current}=await revisionBasis(repo,row);
  if(current!==token)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
  if(!doc.dag)throw new ReaderError(409,'这篇故事还没有进入制作，请稍后再修改。');
- const selection=nextSelection(selectionSchema.parse(JSON.parse(row.selection)),changes);
- const parent:DagStory={id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag,confirmed:true,faults:[]};
- const edited=applyEdits(parent,changes);
- applyRedraw(edited,changes);
- const child:DagStory={...parent,selection,dag:edited};
- const state=stateOf(child),choices=handEditChoices(state,state);
- const decisions=Object.fromEntries(choices.map(c=>[c.id,changes.handEdits?.[c.id]??(c.options.includes('use-as-base')?'use-as-base':'discard')]));
- child.dag=settleHandEdits(child,decisions as RevisionChanges['handEdits']);
- child.dag={...child.dag,repairs:undefined,issues:[],suggestions:[]};
+ const {parent,child,choices,conflicts}=deriveRevision(doc,row,changes,row.id,false);
  child.dag=settle(child);
  const ev=evaluate(stateOf(child)),order=child.dag.order;
  const redraw=order.filter(id=>ev.instance('frameImage',id).status!=='valid').length;
  const items=work(child),textWork:Record<string,number>={};
  for(const item of items)if(item.call!=='draw'&&item.call!=='drawLandscape')textWork[item.call]=(textWork[item.call]??0)+item.instances.length;
  const carried=await carryFaults(repo,row,row.user_id,parent,child);
- return {changed:Object.keys(changes).length>0,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices.map(c=>({id:c.id,options:[...c.options]})),carriedFaults:carried.length};
+ return {changed:Object.keys(changes).length>0,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices,conflicts:conflicts.map(id=>({id,message:`重新编排会丢弃${handEditLabel(id)}的手改`})),carriedFaults:carried.length};
 }
 
 export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string,cover?:Uint8Array):Promise<SessionRow>{
@@ -194,14 +215,7 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   if(Object.keys(changes).length!==1||!changes.artStyle||row.state!=='completed'||!reviewPassed)throw new ReaderError(409,'指定首幅原图仅适用于已完成且审核通过的故事换画风。');
   if(cover.length>revisionCoverMaxBytes||!coverType||!dimensions||dimensions.width>4096||dimensions.height>4096||!await readableImage(cover))throw new ReaderError(400,'请选择可读取的 PNG、JPEG 或 WebP，文件不超过 12 MiB，宽高各不超过 4096 像素。');
  }
- const selection=nextSelection(selectionSchema.parse(JSON.parse(row.selection)),changes);
- const reviewNotes=(changes.reviewNotes!==undefined?changes.reviewNotes:doc.reviewNotes)?.trim()||undefined;
- const parent:DagStory={id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag!,confirmed:true,faults:[]};
- // 文字修改按上一版的输入记录为手改，再合入设置修改，由引擎判断哪些产物失效。
- const edited=applyEdits(parent,changes);
- applyRedraw(edited,changes);
- const child:DagStory={...parent,id:requestId,selection,doc:{...doc,reviewNotes},dag:edited};
- child.dag=settleHandEdits(child,changes.handEdits);
+ const {parent,child,selection,reviewNotes}=deriveRevision(doc,row,changes,requestId,true);
  const lost=await copyImages(media,row.id,requestId,child.dag);
  if(cover&&coverType){
   // 首幅原图字节不变地保存到新版，立即作为首幅显示；其成图产物在画面描述转换完成、输入就绪后由 settle() 记录。
@@ -211,8 +225,6 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   child.dag.cover={frame:first,image:asset.url};
   child.dag.frames[first].image=asset.url;delete child.dag.products[instanceId('frameImage',first)];
  }
- // 新修订重新开始自动修订额度，审片问题与建议不带入新版。
- child.dag={...child.dag,repairs:undefined,issues:[],suggestions:[]};
  child.dag=settle(child);
  const pending=work(child).length>0;
  const dag:DagDocument={...child.dag,...(pending?{continuation:{revision:epoch+1,reason:'revision-saved' as const}}:{})};
