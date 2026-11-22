@@ -72,15 +72,24 @@ Git 基线：`52ddf58b810ff80c19f40f618ef52134ca658094`（SS 开始时的 HEAD�
   - 绘图沿用提供方的 `image()`，新增可选的 `promptOverride` 接收契约提示词（`framePrompt`）。
   - 结构化错误码在 `lib/production-dag/errors.ts`；模型快照工厂在 `server/provider-snapshot.ts`。
   - 叙事分镜由模型返回涉及人物名字，系统按名字与别名匹配为候选人物；画面描述逐幅单独调用。
+- 里程碑提交：`0075093`（M3 按契约的生成调用与模型快照，未接入调度；已验证：变更影响测试 475 项通过、类型检查、lint）。
 - [x] P0.3（M3 门槛）快照工厂探查，2026-11-21，全局设置指向不存在的模型，快照指向真实模型：
   - Claude：通过，调用按快照模型完成。
   - Gemini：请求发往快照模型 `gemini-3.8-flash`，路由正确；项目返回 402（计费余额不足），无法完成调用。
-  - Codex：本机 Codex 对旧流程的调用同样返回 `GENERATION_FAILED`，属本机登录或额度问题，与快照无关；变量映射由单元测试覆盖。
+  - Codex：通过（图片生成结束后重测），调用按快照模型 `gpt-6.1-sol` 完成。首次探查失败的原因是探查未传入应用设置中的 `CODEX_MODEL`，Codex 命令行默认模型 `gpt-6.2-sol` 在本账号不可用；应用设置始终提供 `codexModel`（默认 `gpt-6.1-sol`），因此正式快照会记录实际模型。
   - 探查发现并修正一处缺陷：Codex 未配置模型时运行配置给出的显示名 `codex-default` 被当作模型名写入快照；快照改为记录 `null` 表示沿用服务默认模型，并加测试。
-- [ ] P0.2 门槛探查（在 M3 方法上执行，接入调度前）：同一会话、同一模型，用 2 个故事（12 幅与 24 幅）各跑 3 次，比较拆分调用与现有合并批次。指标：结构校验一次通过率与修订轮次；成本上限为 12 次完整编排。判据：通过率不低于现状减 5 个百分点；否则修正提示词后重测，仍不达标则停止并回到 AR。结果记入本计划。
+- [x] P0.2 门槛探查（在 M3 方法上执行，接入调度前）：同一会话、同一模型，用 2 个故事（12 幅与 24 幅）各跑 3 次，比较拆分调用与现有合并批次。指标：结构校验一次通过率与修订轮次；成本上限为 12 次完整编排。判据：通过率不低于现状减 5 个百分点；否则修正提示词后重测，仍不达标则停止并回到 AR。结果记入本计划。
+  - 第一次运行（2026-11-21，Claude）无结论，需重跑：对照组全部因探查脚本缺少 `selection.theme`（`normalizeProductionPrompt` 读取 undefined）而在调用前失败；拆分组前两次完整编排（劳山道士 12 幅，各 15 次调用）全部一次通过，之后的运行触发 Claude 限流（RATE_LIMITED）。重跑时为对照组补上 theme，并错开时间避开限流。
+  - 重跑（2026-11-22，Claude，对照组补上 theme，限流时等待重试、不计失败；本次未触发限流），通过：
+    | 组别 | 一次通过的完整编排 | 调用一次通过率 | 调用数 | 耗时 |
+    | --- | --- | --- | --- | --- |
+    | 现有合并批次 | 6/6 | 100% | 15 | 20.2 分钟 |
+    | 按契约拆分 | 6/6 | 100% | 129 | 26.5 分钟 |
+  - 结论：结构校验一次通过率不低于现状，达到判据。拆分后调用数约为 8.6 倍（12 幅每次 15 次、24 幅每次 28 次，主要是逐幅画面描述），总耗时约多 31%；单次调用更小，本探查未计量令牌与费用。修订轮次需完整审片循环，留待 M4 后用 `pnpm test:models` 观察。
 
 ### M4 切换：迁移、触发器、调度与服务端修订
 
+- SS 记录：按全部迁移建出的临时书库中现有 25 个触发器（0018 改名后触发器正文引用 `stories`，以实际库为准，不以迁移文件为准）。与新语义冲突、须在 0025 重建的：`reader_override_command`、`reader_image_lost`、`reader_image_restored`、`reader_job_failed`、`reader_control_command`、`reader_intake_fault_generation`、`stories_blocked_revision_fault`；须逐个核对后决定的：`reader_job_queued`、`reader_job_running`、`reader_job_succeeded`、`reader_recover_command`、`reader_recovery_adopt`、`reader_legacy_failure`、`reader_legacy_fault_lineage`、`reader_replace_receipt`；与本故事无关、保持不变的：`book_image_reference_on_delete`、`books_refuse_pre_consolidation_seed`、`production_disarm_deleted`、`reader_command_id_guard`、`reader_session_id_guard`、`reader_intake_command`、`reader_search_command`、`reader_job_deleted`、`story_content_revision`、`story_content_revision_insert`。
 - [ ] `drizzle/0025_production_dag.sql`、`db/schema.ts`、`db/library-format.json`：按决策 4、5 新增列与状态、重建索引与触发器、`schemaVersion` 2、`latestMigration`。
 - [ ] `server/library-upgrade.ts` 及启动路径：按决策 6 在调度前转换；沿用升级前经核对的整库备份；核对待处理日志检查（`server/library-schema.ts`）仍在访问前完成。
 - [ ] `server/reader-production.ts`：`graph()` 改为由 `runnable()` 与 `jobIdentity()` 生成任务（intake 查找分支保留）；执行器按节点调用 M3 方法并按决策 3 保存；`settle` 与重建候选查询、`canRun`、`snapshotView` 改为按依赖判断故障，不再因任一故障冻结整篇；会话可由不依赖故障的普通任务从 `failed` 进入 `running`；完成判定用 `complete()`。
