@@ -1,12 +1,14 @@
 // 制作 DAG 经正式协调器的场景：在隔离的 SQLite 书库与受控提供方上运行，和应用使用同一条路径。
 // 改一幅配文、保存、重启、继续：审片通过且绘图输入未变时，只重做受影响的审片，不产生任何绘图调用。
+// 已确认的新故事从提纲一路制作到最后一幅图，按批调用，参考图取首幅成图。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,until,turn} from './fixtures/production.mjs';
 import {story,replies,drive} from './fixtures/production-dag-runner.mjs';
 import {owner} from './fixtures/book-reference.mjs';
 import {png} from './fixtures/images.mjs';
-import {projectDocument} from '../lib/production-dag/document.ts';
+import {projectDocument,emptyDag} from '../lib/production-dag/document.ts';
+import {selection} from './fixtures/production-data.mjs';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
 
 /** 一篇已完成、审片通过的 DAG 故事，图片文件写入隔离书库。 */
@@ -55,4 +57,35 @@ test('edit a caption, save, restart and continue: only the affected review runs 
  assert.deepEqual(doc.dag.order.map(k=>doc.dag.products[`frameImage:${k}`].hash),before.order.map(k=>before.products[`frameImage:${k}`].hash));
  assert.equal(doc.images.length,6);
  assert.ok(doc.images.every(url=>url.startsWith(`/api/reader/media/${child}/`)),'the new version owns copies of its images');
+});
+
+const zhuangzi={title:'齐物论',text:'昔者庄周梦为胡蝶，栩栩然胡蝶也，自喻适志与！不知周也。俄然觉，则蘧蘧然周也。不知周之梦为胡蝶与，胡蝶之梦为周与？',url:'https://example.test/zhuangzi',kind:'passage',provider:'fixture',retrievedAt:'2026-11-01'};
+/** 一篇已确认、尚未制作的 DAG 故事。 */
+async function confirmedStory(f,length=4){
+ const id=crypto.randomUUID(),now=new Date().toISOString();
+ const doc={plan:null,images:[],audio:[],usage:[],original:zhuangzi,dag:emptyDag()};
+ await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'background','active','idle',?,?)")
+  .bind(id,owner,JSON.stringify({...selection,length}),JSON.stringify(doc),now,now).run();
+ return id;
+}
+const count=(list,name)=>list.filter(n=>n===name).length;
+
+test('a confirmed story runs from the outline to its last image through the production path',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const id=await confirmedStory(f,4);
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).state==='completed',20000);
+ const doc=await saved(f,id);
+ for(const [name,n] of [['brief',1],['characters',1],['outline',1],['sceneBatch',1],['visual',1]])assert.equal(count(f.control.dagCalls,name),n,name);
+ assert.equal(f.control.reflections.length,1,'one ending call');
+ assert.equal(f.control.frameReviews.length,1,'one frame-count check');
+ assert.equal(f.control.reviews.length,1,'one review call');
+ assert.equal(f.control.calls.length,4,'one drawing per frame');
+ const first=f.control.calls.find(c=>c.page===0);
+ assert.equal(first.reference,undefined,'the first frame has no reference image');
+ assert.ok(f.control.calls.filter(c=>c.page>0).every(c=>c.reference),'later frames use the first image as reference');
+ assert.equal(doc.plan.pages.length,4);
+ assert.equal(doc.images.filter(Boolean).length,4);
+ assert.ok(!f.control.calls.some(c=>c.prompt.includes(selection.productionPrompt)),'drawing prompts carry no production requirements');
 });

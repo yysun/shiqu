@@ -16,7 +16,7 @@ export async function productionFixture(t,provider='codex',variables={},storage=
  const parent=storage.parentDirectory||os.tmpdir();await mkdir(parent,{recursive:true});
  const root=await mkdtemp(path.join(parent,'shiqu production ')),dataDirectory=path.join(root,'data');
  await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
- const control={textVia:new Set(),calls:[],plans:[],outlines:[],batches:[],reflections:[],reflectionRepairs:[],frameReviews:[],reviews:[],structures:[],repairs:[],recommendations:[],hold:true,autoLength:8,active:0,maxActive:0,beforeText:null};
+ const control={textVia:new Set(),dagCalls:[],calls:[],plans:[],outlines:[],batches:[],reflections:[],reflectionRepairs:[],frameReviews:[],reviews:[],structures:[],repairs:[],recommendations:[],hold:true,autoLength:8,active:0,maxActive:0,beforeText:null};
  async function image(prompt,reference,via){
   const page=Number(prompt.match(/Scene (\d+):/)[1])-1,gate=deferred();
   const landscape=prompt.includes('3:2 landscape'),bytes=landscape?createCanvas(96,64).toBuffer('image/png').toString('base64'):encoded;
@@ -26,12 +26,20 @@ export async function productionFixture(t,provider='codex',variables={},storage=
  }
  async function planned(prompt,schema){
   const payload=JSON.parse(prompt);
+  // 制作 DAG 按调用契约拆分的调用；dagCalls 记录调用名称，供场景测试计数。
+  const dag=name=>{control.dagCalls.push(name);return control.beforeText?.(name,payload,schema);};
+  if(schema.properties.summary&&!schema.properties.beats&&!schema.properties.title)return await dag('brief')??{summary:'庄周梦见自己化为蝴蝶，醒来后思索自己与蝴蝶的分别。'};
+  if(schema.properties.characters?.type==='array'&&!schema.properties.beats)return await dag('characters')??{characters:[{name:'庄周',aliases:['庄子'],text:'战国时宋国蒙人，清瘦，布衣束发，神情安闲。'}]};
+  if(schema.properties.items&&payload.items)return await dag('registerItems')??{items:payload.items.map(i=>({index:i.index,scope:'story',evidence:['scenes']}))};
+  if(schema.properties.beats&&!schema.properties.characters&&!schema.properties.reflection){const {title,summary,sourceReference,adaptationNote,pages}=makePlan(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount);return await dag('outline')??{title,summary,sourceReference,adaptationNote,beats:pages.map((_,i)=>`第 ${i+1} 幅的关键事件与动作`)};}
+  if(schema.properties.pages?.items?.properties?.people){const pages=makePlan(payload.exactPageCount).pages.slice(payload.batch.first-1,payload.batch.last);return await dag('sceneBatch')??{pages:pages.map(p=>({caption:p.caption,people:['庄周']}))};}
+  if(schema.properties.frames?.items?.properties?.prompt){const name=payload.scenePrompt||payload.frames[0]?.scenePrompt?'restyle':payload.frames[0]?.current?'visualRepair':'visual';return await dag(name)??{frames:payload.frames.map(f=>({number:f.number,prompt:`第 ${f.number} 幅：成年的庄周身着布衣，坐在柳树下沉思，中景，晨光柔和。`,drawn:['庄周']}))};}
   if(schema.properties.scenePrompts)return await control.beforeText?.('restyle',payload,schema)??{scenePrompts:payload.scenePrompts};
   if(schema.properties.artStyle)return {artStyle:'ink-pencil',reason:'与本篇人物动作及叙事相符。'};
   if(payload.storyboardPages)return await control.beforeText?.('storyboard-summary',payload,schema)??{summary:'庄周梦中化蝶，醒来后想起了梦里的自在。'};
   if(schema.properties.count){control.recommendations.push(payload);return {count:7,reason:'保留完整因果和关键转折。',...(schema.properties.storyTitle?{storyTitle:payload.chosenStory||'所选故事',artRecommendation:{artStyle:'ink-pencil',reason:'与本篇人物动作及叙事相符。'}}:{}),...(schema.properties.requirements?{requirements:makeRequirements(payload.chosenStory||'所选故事')}:{ }),...(schema.properties.storySummary?{storySummary:payload.storyBrief.summary==='尚未准备完整摘要，请依据已核原文生成。'?makePlan(1).summary:payload.storyBrief.summary,storyMatchReason:payload.storyBrief.matchReason,...await control.beforeText?.('recommend',payload,schema)}:{})};}
   if(schema.properties.requirements){control.frameReviews.push(payload);return await control.beforeText?.('frames',payload,schema)??{frameCountReview:{decision:'keep',proposedCount:payload.plan.pages.length,reason:'受控任务已有空间。'},requirements:[]};}
-  if(schema.properties.issues){control.reviews.push(payload);return {coverage:[{quote:payload.verifiedOriginal.text.slice(0,30),task:'受控原文与分镜核对',pages:[1],assessment:'adequate',reason:'受控回执，不代表真实语义审核。',issuePage:0}],titleReview:{title:payload.plan.title,reason:'标题准确对应当前故事。'},...(payload.reflectionCandidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识，表达简洁。'}}:{}),...await control.beforeText?.('review',payload,schema)??{issues:[],...(payload.acceptanceCriteria?.length?{acceptanceResults:payload.acceptanceCriteria.map((_,index)=>({criterion:index+1,status:'passed',pages:[1],evidence:'受控分镜已包含要求中的关键行动与结果。'}))}:{})}};}
+  if(schema.properties.issues){control.reviews.push(payload);return {coverage:[{quote:payload.verifiedOriginal.text.slice(0,30),task:'受控原文与分镜核对',pages:[1],assessment:'adequate',reason:'受控回执，不代表真实语义审核。',issuePage:0}],titleReview:{title:payload.plan.title??'庄周梦蝶',reason:'标题准确对应当前故事。'},...(payload.reflectionCandidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识，表达简洁。'}}:{}),...await control.beforeText?.('review',payload,schema)??{issues:[],...(payload.acceptanceCriteria?.length?{acceptanceResults:payload.acceptanceCriteria.map((_,index)=>({criterion:index+1,status:'passed',pages:[1],evidence:'受控分镜已包含要求中的关键行动与结果。'}))}:{})}};}
   if(payload.draft){
    (payload.revision?control.reflectionRepairs:control.reflections).push(payload);
    const override=await control.beforeText?.(payload.revision?'reflection-repair':'reflection',payload,schema);
