@@ -217,7 +217,6 @@ test('REST reports Codex readiness without a Gemini key and routes production te
  const request=(pathname,method='GET',value)=>app.handle(new Request('http://localhost/api/reader/'+pathname,{method,headers:{'Content-Type':'application/json'},body:value?JSON.stringify(value):undefined}));
  const status=await(await request('status')).json();assert.equal(status.provider,'codex');assert.equal(status.configured,true);
  const id=crypto.randomUUID();assert.equal((await request('sessions','POST',{requestId:id,selection})).status,201);
- await app.services.database.prepare("UPDATE stories SET generation_mode='reader' WHERE id=?").bind(id).run();
  const result=await request(`sessions/${id}/advance`,'POST',{throughPage:0});assert.ok([200,202].includes(result.status));
  // 制作 DAG 的文字调用经所选的 Codex 提供方发出；回答不合契约时按故障记录，不改用其他提供方。
  const deadline=Date.now()+5000;

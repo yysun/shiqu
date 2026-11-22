@@ -96,7 +96,7 @@ test('SQL candidates exclude paused, superseded and deleted work; failed rows st
  coordinator.pruneSuperseded=async()=>{};coordinator.graph=async()=>{};
  const ids=[id];
  for(let i=0;i<3;i++){const other=crypto.randomUUID();await repo.create(other,owner,selection);ids.push(other);}
- await repo.db.prepare("UPDATE stories SET generation_mode='reader',generation_control='active' WHERE id=?").bind(ids[1]).run();
+ await repo.db.prepare("UPDATE stories SET generation_mode='background',generation_control='active' WHERE id=?").bind(ids[1]).run();
  await repo.remove(ids[1],owner);
  await repo.db.prepare("UPDATE stories SET state='failed' WHERE id=?").bind(ids[2]).run();
  await supersede(repo,ids[3],owner);

@@ -2,7 +2,7 @@
 // 写入文档前把提示词全文存入 prompt_records，文档只保留引用。
 import {createHash} from 'node:crypto';
 import {storePromptRecords} from './reader-prompt-store.ts';
-import {emptyDocument,ReaderError,selectionSchema,awaitingFrameCount} from './reader-model.ts';
+import {emptyDocument,ReaderError,selectionSchema} from './reader-model.ts';
 import type {Selection,SessionRow,Document,ProductionAction} from './reader-model.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import type {StoryPublication} from './story-publication';
@@ -125,7 +125,7 @@ export class ReaderRepository{
   if(startsGeneration&&await this.superseded(id,uid))throw new ReaderError(409,latestVersionMessage);
   if(row.state==='completed')throw new ReaderError(409,'故事已完整生成，无需更改生成方式。');
   // Resume always continues the whole story; other legacy actions change only their own field.
-  const field=action==='background'||action==='reader'?'generation_mode':'generation_control';
+  const field=action==='background'?'generation_mode':'generation_control';
   const value=action==='pause'?'paused':action==='stop'?'stopped':action==='resume'?'active':action;
   const assignment=action==='resume'?"generation_mode='background',generation_control=?":`${field}=?`;
   const result=await this.db.prepare(`UPDATE stories SET ${assignment} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}${startsGeneration?` AND NOT ${supersededSql()}`:''}`)
@@ -144,25 +144,10 @@ export class ReaderRepository{
  const command=await this.db.prepare('SELECT request_id FROM reader_commands WHERE owner_id=? AND request_id=?').bind(uid,id).first();if(command)throw new ReaderError(409,'此创建编号已用于其他操作。');
  const now=new Date().toISOString(),saved=JSON.stringify(await storePromptRecords(this.db,{...document,creationHash}));
  // Read defaults inside the insert: retries cannot change a story's original attribution snapshot.
- await this.db.prepare(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,step_attempts,lock_until,page,saved,created_at,updated_at) VALUES(?,?,?,COALESCE((SELECT json_set(?,'$.publication',json(publication)) FROM reader_publication_defaults WHERE owner_id=?),?),?,?,'idle',0,0,0,0,?,?) ON CONFLICT(id) DO NOTHING`).bind(id,uid,JSON.stringify(selection),saved,uid,saved,document.reselection?'reader':'background',document.copiedFrom?'paused':'active',now,now).run();
+ await this.db.prepare(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,step_attempts,lock_until,page,saved,created_at,updated_at) VALUES(?,?,?,COALESCE((SELECT json_set(?,'$.publication',json(publication)) FROM reader_publication_defaults WHERE owner_id=?),?),?,?,'idle',0,0,0,0,?,?) ON CONFLICT(id) DO NOTHING`).bind(id,uid,JSON.stringify(selection),saved,uid,saved,'background',document.copiedFrom?'paused':'active',now,now).run();
  const row=await this.get(id,uid),doc=JSON.parse(row.document) as Document;
  if(doc.creationHash?doc.creationHash!==creationHash:doc.revision||doc.intake?.creationHash!==document.intake?.creationHash||JSON.stringify(selectionSchema.parse(JSON.parse(row.selection)))!==JSON.stringify(normalized))throw new ReaderError(409,'此创建编号已用于其他内容，请重新创建。');
  return row;}
- async confirmFrameCount(id:string,uid:string,count:Selection['length']){
-  const row=await this.get(id,uid),selection=selectionSchema.parse(JSON.parse(row.selection)),doc=JSON.parse(row.document) as Document;
-  if(doc.intake)throw new ReaderError(409,'请在制作确认中统一确认故事、画风、幅数和制作要求。');
-  if(doc.frameCountConfirmed&&selection.length===count)return row;
-  if(row.state==='running'||!awaitingFrameCount(doc,selection))throw new ReaderError(409,'画幅数已确定或故事正在更新，请重新打开后继续。');
-  delete doc.legacyFramePreparation;
-  const updated=await this.db.prepare(`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,updated_at=? WHERE id=? AND user_id=? AND state=? AND document=? AND selection=? AND ${visible}`)
-   .bind(JSON.stringify({...selection,length:count}),JSON.stringify({...doc,frameCountConfirmed:true}),new Date().toISOString(),id,uid,row.state,row.document,row.selection).run();
-  if(!updated.meta.changes){
-   const current=await this.get(id,uid),saved=JSON.parse(current.document) as Document;
-   if(saved.frameCountConfirmed&&selectionSchema.parse(JSON.parse(current.selection)).length===count)return current;
-   throw new ReaderError(409,'画幅数已由另一次操作确定，请重新打开后继续。');
-  }
-  return this.get(id,uid);
- }
  async progress(id:string,uid:string,page:number,saved:boolean){
   const row=await this.get(id,uid),doc=JSON.parse(row.document) as Document;if(!doc.plan||!doc.images[page])throw new ReaderError(400,'这幅画面还没有展开');
   // A late reader cannot overwrite a structural save's remapped position. Image publication is independent.

@@ -8,7 +8,7 @@ import {normalizeProductionPrompt,storyEditorialContext} from './reader-prompts.
 import {suggestedSettings} from './reader-requirements.ts';
 
 export function preparationPending(doc:Document){
- return !!doc.legacyFramePreparation||doc.intake?.phase==='preparing';
+ return doc.intake?.phase==='preparing';
 }
 
 export function preparationCandidate(doc:Document){

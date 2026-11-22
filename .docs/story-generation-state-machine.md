@@ -309,7 +309,7 @@ stateDiagram-v2
 | `stop` | `generationControl=stopped` | 同样失去后续生成资格；不是删除故事或清空检查点 |
 | `resume` | `generationControl=active`，同时设 `generationMode=background` | 按已保存检查点继续整篇生产；不自动清除普通失败或审核阻断 |
 | “恢复准备” | 同样恢复为 `background + active`；只适用于尚未制作确认的准备阶段 | 接续原文、摘要及建议准备，之后停在 `confirming`；不等于开始制作，也不重试已经失败的准备步骤 |
-| `background / reader` | 只修改 `generationMode` | 保留用户控制状态；后台模式有持久整篇需求，阅读模式依赖有效查看者需求 |
+| `background` | 只修改 `generationMode` | 保留用户控制状态；后台模式有持久整篇需求。阅读模式（`reader`）已退役，不再接受该动作，历史行一律按后台模式处理 |
 
 `pause / stop` 不会把 `Document` 回退到前一业务阶段；`image-publish` 允许收尾，保存已生成图片。仅关闭页面也不等于暂停：已确认的后台制作继续，候选查找则随查看需求结束而停止。健康的 `completed` 任务无需恢复生成；图片失效走下述核对与恢复分支，内容修改和替换选题走同一家族的新版本。
 

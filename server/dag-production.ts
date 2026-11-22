@@ -2,7 +2,7 @@
 // 调度：settle() 的免调用步骤先保存；work() 的每项工作成为一个任务，身份由调用、阶段与各实例派发时的硬输入决定，
 // 不再需要的排队任务删除。执行：调用前后各核对一次输入，结果用 apply() 写回，并以文档内容做比较并交换保存，
 // 冲突时按最新文档重算，输入已变的结果丢弃。完成判定用 finished()。「已保存，等待继续」期间不派发任何工作。
-import {ReaderError,awaitingFrameCount,selectionSchema,type Document,type Selection,type SessionRow} from '../lib/reader-model.ts';
+import {ReaderError,selectionSchema,type Document,type Selection,type SessionRow} from '../lib/reader-model.ts';
 import type {Database} from '../lib/reader-repository.ts';
 import {supersededSql} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
@@ -58,7 +58,7 @@ export class DagProduction{
   if(!doc.dag)return null;
   const selection=selectionSchema.parse(JSON.parse(row.selection));
   const refSource=await new BookImageReferences(this.deps.database,this.deps.media,row.user_id).resolve(row.id,'').catch(()=>'');
-  return {id:row.id,doc,selection,dag:doc.dag,confirmed:!doc.legacyFramePreparation&&(!doc.intake||doc.intake.phase==='confirmed'),faults:await this.faults(row),...(refSource?{refSource}:{})};
+  return {id:row.id,doc,selection,dag:doc.dag,confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:await this.faults(row),...(refSource?{refSource}:{})};
  }
 
  /**
@@ -348,12 +348,11 @@ export class DagProduction{
  /** 接管旧版准备任务与未完成的故事。已保存的原文和建议由 settle() 采用。 */
  async adopt(row:SessionRow):Promise<boolean>{
   const doc=JSON.parse(row.document) as Document;
-  const confirmed=!doc.legacyFramePreparation&&(!doc.intake||doc.intake.phase==='confirmed');
+  const confirmed=!doc.intake||doc.intake.phase==='confirmed';
   const preparation=preparationPending(doc)||doc.intake?.phase==='confirming';
   const emptyLegacy=preparation&&doc.dag?.legacy&&!doc.dag.order.length&&!doc.plan;
   if(doc.reselection||doc.dag&&!emptyLegacy||!confirmed&&!preparation||row.state==='running'&&row.lock_until>this.deps.clock())return false;
   const selection=selectionSchema.parse(JSON.parse(row.selection));
-  if(awaitingFrameCount(doc,selection))return false;
   const modelSnapshot=confirmed?this.deps.snapshot?.():undefined;
   const base=confirmed&&(doc.plan||doc.storyboard||doc.draft)?convertDocument(doc,selection,{confirmed,notes:doc.reviewNotes,...(modelSnapshot?{modelSnapshot}:{})}):{...emptyDag(),...(modelSnapshot?{modelSnapshot}:{})};
   if(preparationPending(doc)&&doc.original)doc.original=preparationOriginal(doc,selection,doc.original);

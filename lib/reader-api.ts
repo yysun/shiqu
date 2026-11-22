@@ -363,7 +363,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
    if(path[2]==='production-control'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
-    const b=z.object({requestId:uuid,action:z.enum(['background','reader','pause','stop','resume','continue','apply-model'])}).strict().parse(await body(req));
+    const b=z.object({requestId:uuid,action:z.enum(['background','pause','stop','resume','continue','apply-model'])}).strict().parse(await body(req));
     if(b.action==='background'||b.action==='resume'||b.action==='apply-model'||b.action==='continue'&&!await services.production.continueAccepted?.(uid,id,b.requestId))await requireProvider();
     return json(await services.production.control(uid,id,b.action,b.requestId));
    }
@@ -393,7 +393,6 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
    if(path[2]==='events'&&req.method==='POST'){const row=await repo.get(id,uid);const b=z.object({id:z.string().max(200),visitor:uuid,session:uuid,storyId:uuid,kind:z.enum(['start','page','complete','next','save','audio','feedback_positive','feedback_negative']),page:z.number().int().min(0).max(readerMaxFrames-1).nullable(),mode:z.enum(['manual','audio']),cohort:z.enum(['internal','pilot'])}).parse(await body(req));const current=view(row);if(b.storyId!==id||(b.page!==null&&!current.story?.pages[b.page]?.image))throw new ReaderError(400,'这幅画面还没有展开');await services.db.insert(events).values({...b,createdAt:new Date().toISOString()}).onConflictDoNothing();return json({ok:true});}
    if(path[2]==='progress'&&req.method==='POST'){const b=z.object({page:z.number().int().min(0).max(readerMaxFrames-1),saved:z.boolean()}).parse(await body(req));return json(view(await repo.progress(id,uid,b.page,b.saved)));}
-   if(path[2]==='frame-count'&&path.length===3&&req.method==='POST'){const b=z.object({count:z.union([z.number().int().min(1).max(readerMaxFrames),z.literal('auto')])}).strict().parse(await body(req));return json(view(await repo.confirmFrameCount(id,uid,b.count)));}
    if(path[2]==='advance'&&req.method==='POST'){await requireProvider();const b=z.object({throughPage:z.number().int().min(0).max(readerMaxFrames-1),retry:z.boolean().default(false)}).parse(await body(req));if(b.retry)throw new ReaderError(400,'重试必须提交当前故障实例与操作编号，请使用恢复入口。');if(!services.production)throw new ReaderError(503,'制作队列暂不可用');const result=await services.production.advance(uid,id,b.throughPage,false);return json(result,result.state==='running'?202:200);}
   }
   if(path[0]==='media'&&path[1]&&path[2]&&path.length===3&&req.method==='GET'){

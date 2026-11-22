@@ -10,7 +10,6 @@ import {ReaderRepository} from '../lib/reader-repository.ts';
 import {StoryDiscoveryCache,discoveryHash} from '../server/story-discovery-cache.ts';
 import {legacySummaryDiscoveryNamespace,discoveryNamespace} from '../server/local-story-discovery.ts';
 import {previousReadingPlanKey} from '../server/story-discovery-legacy.ts';
-import {makePlan} from './fixtures/production.mjs';
 
 async function fixture(t){
  const f=await productionFixture(t),library=libraryFixture();f.control.hold=false;
@@ -150,7 +149,7 @@ const recover=async(f,id)=>{
 const preparedSummary='庄周梦见自己成为蝴蝶，自在飞舞；醒来后发现自己仍是庄周，由此思考梦醒与蝴蝶的区别。';
 
 for(const length of [2,21])test(`missing synopsis is saved before a ${length}-frame plan and a planning retry does not regenerate it`,async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(length);f.control.hold=false;
+ const f=await productionFixture(t),id=await f.create(length);f.control.hold=false;
  let fail=true;
  f.control.beforeText=async(kind,payload)=>{
   if(kind==='brief'){assert.ok(payload.verifiedOriginal.text);return {summary:preparedSummary};}
@@ -207,32 +206,6 @@ test('a confirmed legacy intake stays confirmed and keeps its selected frame cou
  assert.equal(saved.plan.pages.length,2);
  assert.equal((await f.read(id)).selection.length,2);
  assert.equal(saved.frameCountConfirmed,true);
-});
-
-for(const unverified of [false,true])test(`saved outline batches resume after synopsis preparation without repeating the outline (${unverified?'unverified brief':'missing summary'})`,async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(21),doc=await savedDocument(f,id),plan=makePlan(21);
- f.control.hold=false;
- const {pages,reflection,...metadata}=plan;void reflection;
- doc.original=(await f.generation.generator().original({...selection,length:21},{sourceReference:plan.sourceReference},id)).source;
- if(unverified)doc.original.storyBrief={summary:'未经核对的摘要。',matchReason:'需要核对。',verified:false};
- doc.storyboard={outline:{...metadata,summary:unverified?'已有提纲摘要。':'',beats:pages.map((_,i)=>`第${i+1}幅的原有提纲。`)},pages:pages.slice(0,20)};
- await f.app.services.database.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(doc),id).run();
- const batches=[];
- f.control.beforeText=async(kind,payload)=>{
-  if(kind==='brief')return {summary:preparedSummary};
-  if(kind==='sceneBatch'){
-   assert.equal((await savedDocument(f,id)).dag.brief,preparedSummary);
-   batches.push(payload.batch);
-  }
- };
- await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});await until(async()=>(await f.read(id)).state==='completed',25000);
- const saved=await savedDocument(f,id);
- assert.equal(saved.plan.summary,preparedSummary);
- assert.deepEqual(saved.dag.outline.beats,doc.storyboard.outline.beats);
- assert.deepEqual(saved.plan.pages.slice(0,20),pages.slice(0,20));
- assert.equal(f.control.dagCalls.filter(name=>name==='brief').length,1);
- assert.equal(f.control.dagCalls.includes('outline'),false);
- assert.deepEqual(batches,[{first:21,last:21}]);
 });
 
 test('REST resumes an old summary catalog from real media without rescanning and persists new binary receipts across restart',async t=>{

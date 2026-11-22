@@ -2,18 +2,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {shelfDrawingCount,shelfGenerationStatus,shelfNeedsUserGroups,shelfProductionPriority,sortShelfProductions} from '../lib/shelf-generation.ts';
-import {observeStoryGeneration,runQueuedStoryGeneration} from '../lib/reader-production-client.ts';
+import {observeStoryGeneration} from '../lib/reader-production-client.ts';
 import {productionFixture,until,turn,selection} from './fixtures/production.mjs';
 
-const base={state:'idle',error:null,awaitingFrameCount:false,stage:'正在编排故事'};
+const base={state:'idle',error:null,stage:'正在编排故事'};
 test('shelf actions distinguish execution, queueing, user decisions, failure and pause',()=>{
  const cases=[
   [{productionState:'running'},'正在编排故事','查看进度'],
   [{productionState:'queued',state:'running'},'等待生成','查看进度'],
   [{generationMode:'background',generationControl:'active'},'等待生成','查看进度'],
-  [{generationMode:'background',awaitingFrameCount:true},'等待选择画幅数','选择画幅数'],
   [{productionState:'paused',state:'running'},'已暂停 · 编排故事','查看详情'],
-  [{awaitingFrameCount:true,productionState:'paused'},'等待选择画幅数','选择画幅数'],
   [{state:'failed',error:'服务暂时不可用'},'生成失败','查看详情'],
   [{state:'running'},'正在编排故事','查看进度'],
   [{state:'failed',productionState:'running',error:'编排超时'},'生成失败','查看详情'],
@@ -32,35 +30,6 @@ test('shelf actions distinguish execution, queueing, user decisions, failure and
  const paused={...base,generationControl:'paused',ready:0,story:{frameCount:67}};
  assert.equal(shelfDrawingCount({...paused,stage:'正在复核全篇分镜'},'生成已暂停'),'');
  assert.equal(shelfDrawingCount({...paused,stage:'正在绘制第 1 幅'},'生成已暂停'),' · 0 / 67 幅');
-});
-
-test('shelf refresh reports running and queued work without dispatch or viewer renewal',async t=>{
- const f=await productionFixture(t),a=await f.createLegacyReader(),b=await f.createLegacyReader();
- let release,started=false;const gate=new Promise(resolve=>{release=resolve;});t.after(()=>release());
- // 制作 DAG 的第一项文字工作（梗概）停在模型调用里；文字池一次只运行一项，另一篇故事排队。
- f.control.beforeText=async name=>{if(name==='brief'){started=true;await gate;}};
- const initial=await f.json('sessions');assert.ok(initial.every(s=>s.productionState==='paused'));
- assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
- const viewerA=crypto.randomUUID(),viewerB=crypto.randomUUID();
- await f.demand(a,viewerA);await until(()=>started);await f.demand(b,viewerB);
- for(let i=0;i<10;i++){f.app.services.production.wake();await turn();}
- const before=await f.app.services.database.prepare('SELECT * FROM production_demand ORDER BY session_id').all();
- const first=await f.json('sessions'),second=await f.json('sessions');
- for(const rows of [first,second]){
-  assert.equal(rows.find(s=>s.id===a).productionState,'running');
-  assert.equal(rows.find(s=>s.id===b).productionState,'queued');
-  const running=rows.find(s=>s.id===a).generationProgress,queued=rows.find(s=>s.id===b).generationProgress;
-  const job=(await f.app.services.production.queue.jobs(a,'docker-local-owner')).find(job=>job.state==='running');
-  assert.equal(running.startedAt,job.updated_at);assert.equal(running.attempt,job.attempts);
-  assert.equal(running.phase,'plan');assert.equal(running.frameCount,8);assert.equal(queued.startedAt,null);
- }
- assert.deepEqual(await f.app.services.database.prepare('SELECT * FROM production_demand ORDER BY session_id').all(),before);
- assert.deepEqual(f.control.dagCalls,['brief'],'only the held call has been dispatched');assert.equal(f.control.calls.length,0);
- await f.leave(a,viewerA);await f.leave(b,viewerB);release();
- await until(async()=>(await f.read(a)).productionState==='paused');
- const paused=await f.json('sessions');assert.ok(paused.every(s=>s.productionState==='paused'));
- assert.ok(paused.every(s=>s.generationProgress.startedAt===null));
- assert.equal(f.control.calls.length,0);
 });
 
 test('shelf refresh exposes choice and failure states without retrying',async t=>{
@@ -87,7 +56,7 @@ test('shelf refresh exposes choice and failure states without retrying',async t=
 });
 
 test('viewing a saved failure preserves its attempt count until an explicit retry resumes generation',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader();
+ const f=await productionFixture(t),id=await f.create();
  let fail=true;
  f.control.beforeText=async name=>{if(name==='brief'&&fail)throw Error('controlled timeout');};
  await f.demand(id);await until(async()=>(await f.read(id)).state==='failed',20000);
@@ -95,11 +64,9 @@ test('viewing a saved failure preserves its attempt count until an explicit retr
  const before=await attempts();let active=true,reads=0;
  await observeStoryGeneration({sessionId:id,isActive:()=>active,onSession:s=>{assert.equal(s.state,'failed');if(++reads===3)active=false;},sleep:async()=>{},request:path=>f.json(path.replace(/^reader\//,''))});
  assert.equal(await attempts(),before);assert.equal(f.control.dagCalls.filter(n=>n==='brief').length,1,'viewing a failure pays nothing');
- fail=false;f.control.hold=false;active=true;
- await runQueuedStoryGeneration({sessionId:id,viewerId:crypto.randomUUID(),initialRetry:true,page:()=>0,retries:new Map(),isActive:()=>active,sleep:turn,
-  onSession:s=>{if(s.ready>0)active=false;},
-  request:(path,method,body)=>f.json(path.replace(/^reader\//,''),method||'GET',body),
- });
+ fail=false;f.control.hold=false;
+ // 读者明确点击重试：经恢复入口提交当前故障。
+ await f.demand(id,crypto.randomUUID(),0,true);await until(async()=>(await f.read(id)).ready>0,20000);
  // 显式重试之后同一项工作重新执行，其余文字工作各自只执行一次。
  assert.ok(before>=1);assert.equal(f.control.dagCalls.filter(n=>n==='brief').length,2);
  assert.equal(f.control.dagCalls.filter(n=>n==='outline').length,1);

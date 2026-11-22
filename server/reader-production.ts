@@ -161,7 +161,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   id=this.options.targetSessionId||id;
   const viewers=(await this.database.prepare(`SELECT * FROM production_demand WHERE runtime_id=? AND expires_at>? AND NOT EXISTS(SELECT 1 FROM stories s WHERE s.id=production_demand.session_id AND s.user_id=production_demand.owner_id AND ${supersededSql('s')})${id?' AND session_id=?':''}`)
    .bind(this.runtimeId,this.clock(),...(id?[id]:[])).all<Demand>()).results;
-  const background=(await this.database.prepare(`SELECT id,user_id FROM stories WHERE generation_mode='background' AND generation_control='active' AND state!='completed'
+  const background=(await this.database.prepare(`SELECT id,user_id FROM stories WHERE generation_control='active' AND state!='completed'
    AND NOT ${supersededSql()} AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)${id?' AND id=?':''}`)
    .bind(...(id?[id]:[])).all<{id:string;user_id:string}>()).results;
   return [...viewers,...background.map(row=>({session_id:row.id,owner_id:row.user_id,viewer_id:'background',page:0,through_page:readerMaxFrames-1,expires_at:Infinity,runtime_id:this.runtimeId}))];
@@ -188,7 +188,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
   if(!this.readable(row)||!this.generationCurrent(row,job))return false;
   if(await this.repository.superseded(row.id,row.user_id))return false;
-  return row.generation_mode==='background'&&row.generation_control==='active'&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
+  return row.generation_control==='active'&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
  async control(ownerId:string,id:string,action:ProductionAction,requestId?:string){
   // 「继续制作」的已接受编号先于其他核对重放。
@@ -240,7 +240,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private faultView(row:SessionRow,fault:ReaderFault,jobs:ProductionJob[]):FaultView{
   const doc=JSON.parse(row.document) as Document,job=jobs.find(job=>job.id===fault.job_id);
   const page=fault.node==='frameImage'||fault.node==='landscape'?doc.dag?.order.indexOf(fault.node_key)??-1:-1;
-  const stage=fault.kind==='image-loss'?'redraw':job?.kind==='discover'?'source':job?.kind==='prepare'||doc.legacyFramePreparation||doc.intake&&doc.intake.phase!=='confirmed'?'prepare':'generation';
+  const stage=fault.kind==='image-loss'?'redraw':job?.kind==='discover'?'source':job?.kind==='prepare'||doc.intake&&doc.intake.phase!=='confirmed'?'prepare':'generation';
   return {id:fault.id,message:fault.message,page:page>=0?page:null,stage,state:fault.state as FaultView['state'],retryAllowed:fault.state==='pending'};
  }
  async checkImage(ownerId:string,id:string,page:number,image:string){
@@ -327,7 +327,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // No story is chosen yet, so finding one is what this story is doing.
   if(!manual&&saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching')return {...session,productionState:search?'running':'queued'};
   const productionState=manual?'paused':working?'running':eligible?'queued':'paused';
-  const preparingInFlight=working&&(saved.intake?.phase==='preparing'||parsed.doc.legacyFramePreparation);
+  const preparingInFlight=working&&saved.intake?.phase==='preparing';
   if(session.state!=='failed'&&session.state!=='completed'&&(preparingInFlight||!manual&&(working||eligible)))return {...session,state:'running',productionState};
   // A saved session state alone cannot prove that the queue is still executing.
   return {...session,productionState};
@@ -524,7 +524,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   await this.stopUnwantedSearches();
   // A dead runtime cannot renew these locks. Preserve every live session/job lease across processes.
   if(!this.stopping){
-   const expired=(await this.database.prepare(`SELECT * FROM stories WHERE state='running' AND lock_until<=? AND generation_mode='background'
+   const expired=(await this.database.prepare(`SELECT * FROM stories WHERE state='running' AND lock_until<=?
     AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)`).bind(this.clock()).all<SessionRow>()).results;
    for(const row of expired){
     if(this.options.targetSessionId&&row.id!==this.options.targetSessionId)continue;

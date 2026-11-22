@@ -61,12 +61,6 @@ test('connection failure after starting demand still sends leave; lost leave fal
  assert.equal(message,'offline');assert.equal(calls,3);assert.equal(sleeps,2);
 });
 
-test('awaiting count confirmation releases demand without issuing storyboard or image requests',async()=>{
- const calls=[];
- const result=await runQueuedStoryGeneration({sessionId:'story',viewerId:'viewer',page:()=>0,retries:new Map(),isActive:()=>true,onSession:()=>{},sleep:async()=>assert.fail('Do not poll the confirmation gate'),request:async(path,method,body)=>{calls.push({method,body});return {...base,awaitingFrameCount:true};}});
- assert.equal(result,'');assert.deepEqual(calls.map(c=>c.method),[undefined]);
-});
-
 test('inspecting stopped and failed checkpoints only polls snapshots and reflects external changes',async()=>{
  let active=true,reads=0;const calls=[],seen=[];
  const states=['failed','idle','running','failed'];
@@ -83,11 +77,6 @@ test('inspection connection errors never dispatch work and late snapshots cannot
  assert.equal(calls,3);
  let active=true;
  await observeStoryGeneration({sessionId:'story',isActive:()=>active,onSession:()=>assert.fail('Dialog closed'),request:async()=>{active=false;return base;},sleep:async()=>assert.fail('No further polling')});
-});
-test('inspecting a count confirmation releases the observation so the user can choose a frame count',async()=>{
- let reads=0;
- assert.equal(await observeStoryGeneration({sessionId:'story',isActive:()=>true,onSession:()=>{},request:async()=>{reads++;return {...base,awaitingFrameCount:true};},sleep:async()=>assert.fail('Do not keep the confirmation action busy')}),'');
- assert.equal(reads,1);
 });
 test('explicit recovery retains its request ID across transport loss and reads progress',async()=>{
  const calls=[];let posts=0;
@@ -140,7 +129,7 @@ test('priority reports clamp a stale page and use page 0 before the first image 
  assert.equal(planning.calls.find(([method])=>method==='POST')[1].page,0);
 });
 test('a story that is not actively generating never reports a page',async()=>{
- for(const session of [{...open,state:'failed'},{...open,generationControl:'paused'},{...open,generationControl:'stopped'},{...open,state:'completed'},{...open,awaitingFrameCount:true},{...open,generationMode:'reader'}]){
+ for(const session of [{...open,state:'failed'},{...open,generationControl:'paused'},{...open,generationControl:'stopped'},{...open,state:'completed'}]){
   const observer=focusCalls(session);await observer.run(2);
   assert.ok(observer.calls.every(([method])=>method==='GET'),JSON.stringify(session));
  }

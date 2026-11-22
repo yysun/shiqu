@@ -11,10 +11,10 @@ export function generationProgress(session:SessionView,now:number){
  const running=status.group==='生成中',queued=status.group==='等待生成',failed=status.group==='生成失败';
  const total=meta?.frameCount??session.story?.pages.length??(typeof session.selection.length==='number'?session.selection.length:null);
  const ready=Math.max(0,Math.min(session.ready,total??session.ready));
- const phase=meta?.phase??(session.awaitingFrameCount?'frame-count':session.story?'image':session.frameRecommendation?'plan':'recommend');
+ const phase=meta?.phase??(session.story?'image':session.frameRecommendation?'plan':'recommend');
  const sourceReady=meta?.sourceReady??!!session.story?.original;
- const countReady=meta?.frameCountConfirmed??(!!session.story||!!session.frameRecommendation&&!session.awaitingFrameCount);
- const activeState=failed?'failed' as const:running||queued||session.awaitingFrameCount||session.intake&&['choosing','confirming'].includes(session.intake.phase)?'current' as const:'paused' as const;
+ const countReady=meta?.frameCountConfirmed??(!!session.story||!!session.frameRecommendation);
+ const activeState=failed?'failed' as const:running||queued||session.intake&&['choosing','confirming'].includes(session.intake.phase)?'current' as const:'paused' as const;
  const {intake,selection}=session,selected=intake?.selected;
  const intakeSource=selection.discovery?.mode==='auto'&&selection.discovery.combine?'combined':isDirectSourceSelection(selection)?'direct':'candidates';
  const steps=productionSteps({intakePhase:intake?.phase,intakeSource,intakeSelected:!!selected,candidateBatches:intake?.batches.length,selectedSourceLabel:selected?intake?.batches[selected.batch]?.stories[selected.index]?.sourceLabel:undefined,preparedSummary:!!session.frameRecommendation?.storySummary,estimatedFrames:session.frameRecommendation?.count,planReady:!!session.story,sourceReady,frameCountConfirmed:countReady,storyboardFrames:meta?.storyboardFrames,storyboardBatch:meta?.storyboardBatch,reviewOverridden:meta?.reviewOverridden,reviewStatus:meta?.reviewStatus,reviewPhase:meta?.reviewPhase,reviewRound:meta?.reviewRound,repairCompleted:meta?.repairCompleted,repairTotal:meta?.repairTotal,reviewAudits:meta?.reviewAudits,repairBatches:meta?.repairBatches,repairPasses:meta?.repairPasses,reviewStopReason:meta?.reviewStopReason,phase,total,ready,activeState});

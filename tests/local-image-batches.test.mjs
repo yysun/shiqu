@@ -16,7 +16,7 @@ async function confirmedStory(f,length=4){
 }
 const control=(f,id,action)=>f.json(`sessions/${id}/production-control`,'POST',{action});
 async function finish(f,id,page=0){await f.demand(id,crypto.randomUUID(),page);await until(async()=>(await f.read(id)).state==='completed',60000);return f.read(id);}
-async function waiting(f,id){await until(async()=>{const s=await f.read(id);return s.awaitingFrameCount||s.state==='failed';});return f.read(id);}
+async function waiting(f,id){await until(async()=>{const s=await f.read(id);return s.state==='failed';});return f.read(id);}
 
 test('auto is the count default; invalid counts never create a production story',async t=>{
  const f=await productionFixture(t);assert.equal(selectionSchema.parse({bookId:'zhuangzi',theme:'测试'}).length,'auto');

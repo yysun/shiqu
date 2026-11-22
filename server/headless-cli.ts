@@ -82,7 +82,6 @@ const inputs={
  redraw:{command:'stories edit ID --input redraw.json --request-id UUID',input:{token:'from stories revisions ID',changes:{redrawPages:[1,2],redrawNotes:{2:'调暗背景光线，保留主体的位置。'}}},note:'Completed stories only. Optional redrawNotes apply to selected 1-based pages in this revision and its retries. Preserves script, review and unselected images. Only run performs generation using its configured image provider.'},
  styleCover:{command:'stories edit ID --input style.json --cover cover.png --request-id UUID',input:{token:'from stories revisions ID',changes:{artStyle:'watercolor'}},note:'A completed, approved story retains its scene content and review. The text model converts the scene prompts to the new style before drawing. The supplied first frame is stored as-is and serves as the reference for the remaining pages, even when the book has a starred reference.'},
  publication:{get:'api GET reader/publication-defaults',set:'api POST reader/publication-defaults --input publication.json',input:{publication:{...emptyPublication,author:'你的署名',watermarkFontSize:24},expected:'Use the exact publication object (or null) returned by GET.'}},
- frameCount:{command:'api POST reader/sessions/ID/frame-count --input count.json',input:{count:8}},
  config:{command:'config set --input settings.json',input:{settings:{provider:'codex',providerConfigured:true,imageProvider:'gemini'},expectedRevision:'from config get'},imageProvider:'Optional drawing provider (gemini|openai|codex); null or omitted follows provider.',key:'For API providers only: key:{provider:"openai"|"gemini",value:"secret"|null}, or a list for separate text/image providers; never pass a key in argv.'},
 };
 type Context={cwd?:string;home?:string;generation?:ReaderProvider;localBooks?:LocalBooks;variables?:Record<string,string|undefined>;input?:unknown;signal?:AbortSignal;skill?:{transport?:typeof fetch;now?:()=>number};skillRuntime?:StartupSkillRuntime};
@@ -99,7 +98,7 @@ async function readInput(filename?:string){
 const apiAllow=(method:string,route:string)=>{
  const base=route.split('?')[0];
  if(method==='GET')return /^(?:sessions(?:\/[a-f0-9-]{36}(?:\/(?:current|revisions|prompts|review-history|source))?)?|deletions|publication-defaults|books\/[^/]+\/contents)$/.test(base);
- if(method==='POST')return /^(?:sessions|publication-defaults|sessions\/[a-f0-9-]{36}\/(?:setup|revisions|title|publication|production-control|recover|review-override|frame-count|reselection|progress)|sessions\/[a-f0-9-]{36}\/reselection\/[a-f0-9-]{36}|library\/[^/]+\/(?:restore|favorite|reference))$/.test(base);
+ if(method==='POST')return /^(?:sessions|publication-defaults|sessions\/[a-f0-9-]{36}\/(?:setup|revisions|title|publication|production-control|recover|review-override|reselection|progress)|sessions\/[a-f0-9-]{36}\/reselection\/[a-f0-9-]{36}|library\/[^/]+\/(?:restore|favorite|reference))$/.test(base);
  return method==='DELETE'&&/^(?:library\/[^/]+|sessions\/[a-f0-9-]{36}\/reselection\/[a-f0-9-]{36})$/.test(base);
 };
 async function api(app:ReturnType<typeof createApplication>,method:string,route:string,input?:unknown){
@@ -225,7 +224,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    if(initial.awaitingContinue)return {reason:'continue_required',session:initial};
    if(initial.generationControl!=='active')return {reason:'paused',session:initial};
    if(initial.state==='failed')return {reason:'blocked',session:initial};
-   const boundary=(snapshot:any)=>snapshot.state==='completed'?'completed':snapshot.awaitingFrameCount?'frame_count_required':until==='prepared'&&snapshot.intake?.phase==='confirmed'?'already_prepared':until==='prepared'&&snapshot.frameRecommendation?'prepared':until==='candidates'&&snapshot.intake?.selected?'already_selected':null;
+   const boundary=(snapshot:any)=>snapshot.state==='completed'?'completed':until==='prepared'&&snapshot.intake?.phase==='confirmed'?'already_prepared':until==='prepared'&&snapshot.frameRecommendation?'prepared':until==='candidates'&&snapshot.intake?.selected?'already_selected':null;
    const reached=boundary(initial);if(reached)return {reason:reached,session:initial};
    if(until==='candidates')need(initial.intake,'BOUNDARY_UNAVAILABLE','Candidates require an intake story.');
    if(until==='prepared'&&!initial.intake)need(initial.selection.narrativeDetail&&initial.selection.length!=='auto','BOUNDARY_UNAVAILABLE','This legacy story has no preparation gate; use --until reviewed or completed.');

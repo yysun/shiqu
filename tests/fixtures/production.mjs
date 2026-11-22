@@ -94,8 +94,6 @@ export async function productionFixture(t,provider='codex',variables={},storage=
  }
  async function json(suffix,method='GET',body){const response=await request(suffix,method,body);assert.ok(response.ok,`${response.status}: ${suffix}`);return response.json();}
  async function create(length=8,overrides={}){const id=crypto.randomUUID();await json('sessions','POST',{requestId:id,selection:{...selection,length,...overrides}});return id;}
- // Deliberately model persisted clients from before whole-story generation became the default.
- async function createLegacyReader(length=8,overrides={}){const id=await create(length,overrides);await app.services.database.prepare("UPDATE stories SET generation_mode='reader' WHERE id=?").bind(id).run();return id;}
  const demand=async(id,viewerId=crypto.randomUUID(),page=0,retry=false)=>{
   const session=await json(`sessions/${id}/production`,'POST',{viewerId,page,retry:false});
   if(!retry||session.generationControl!=='active'||session.superseded)return session;
@@ -106,5 +104,5 @@ export async function productionFixture(t,provider='codex',variables={},storage=
  // Model an explicit extraction-button click; requesting viewing demand never starts an idle intake.
  const startDiscovery=async(id,title)=>{const saved=await read(id);return json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:saved.intake.generation,action:'search',title:title??(saved.selection.discovery?.mode==='title'?saved.selection.discovery.title:'')});};
  const leave=(id,viewerId)=>json(`sessions/${id}/production`,'DELETE',{viewerId});
- return {root,dataDirectory,options,control,media,generation,request,json,create,createLegacyReader,demand,startDiscovery,read,leave,stop,coordinators,get app(){return app;},async restart(){await stop();app=createApplication(options);}};
+ return {root,dataDirectory,options,control,media,generation,request,json,create,demand,startDiscovery,read,leave,stop,coordinators,get app(){return app;},async restart(){await stop();app=createApplication(options);}};
 }

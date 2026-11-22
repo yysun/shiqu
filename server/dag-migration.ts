@@ -7,7 +7,7 @@ import type {DatabaseSync} from 'node:sqlite';
 import {createHash} from 'node:crypto';
 import {existsSync,lstatSync,readFileSync} from 'node:fs';
 import path from 'node:path';
-import {awaitingFrameCount,selectionSchema,type Document} from '../lib/reader-model.ts';
+import {selectionSchema,type Document} from '../lib/reader-model.ts';
 import {convertDocument,mapLegacyFaults} from '../lib/production-dag/convert.ts';
 import {rootProducts,versionState} from '../lib/production-dag/document.ts';
 import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
@@ -72,13 +72,12 @@ function convertStory(sqlite:DatabaseSync,row:Row,save:ReturnType<DatabaseSync['
  // 仍在准备阶段（候选查找、选题、准备、待确认）或有重选草稿的故事不转换：保持原样，由运行时接管准备任务。
  if(doc.reselection||doc.intake&&doc.intake.phase!=='confirmed')return;
  const selection=selectionSchema.parse(JSON.parse(row.selection));
- // 旧版已保存幅数建议，但仍需通过原有确认入口才能开始制作。
- if(awaitingFrameCount(doc,selection))return;
- if(!doc.intake&&typeof selection.length==='number'&&selection.narrativeDetail&&!doc.plan&&!doc.storyboard&&!doc.draft&&!doc.frameCountConfirmed&&
-    sqlite.prepare("SELECT 1 FROM production_jobs WHERE session_id=? AND owner_id=? AND kind='prepare' AND state!='succeeded' LIMIT 1").get(row.id,row.user_id)){
-  save.run(JSON.stringify({...doc,legacyFramePreparation:true}),row.id,row.user_id);
-  return;
- }
+ // 升级前仍在等待幅数确认（或准备建议时被中断）的故事：确认入口已移除，按已保存的幅数转换，
+ // 但转换后保持暂停，由读者点「恢复生成」后才开始付费制作；不在升级时替读者确认。
+ const awaitingCount=!doc.intake&&selection.length!=='auto'&&!!selection.narrativeDetail&&!doc.plan&&!!doc.frameRecommendation&&!doc.frameCountConfirmed;
+ const interruptedPreparation=!doc.intake&&typeof selection.length==='number'&&!!selection.narrativeDetail&&!doc.plan&&!doc.storyboard&&!doc.draft&&!doc.frameCountConfirmed&&
+  !!sqlite.prepare("SELECT 1 FROM production_jobs WHERE session_id=? AND owner_id=? AND kind='prepare' AND state!='succeeded' LIMIT 1").get(row.id,row.user_id);
+ const needsConsent=awaitingCount||interruptedPreparation;
  const jobs=sqlite.prepare("SELECT id,kind,version,payload,result FROM production_jobs WHERE session_id=? AND owner_id=? AND state='succeeded'").all(row.id,row.user_id) as JobRow[];
  // 已付费的绘图结果：版本与当前内容一致、该页尚无图且文件可读时采用。
  if(doc.plan){
@@ -131,4 +130,5 @@ function convertStory(sqlite:DatabaseSync,row:Row,save:ReturnType<DatabaseSync['
  sqlite.prepare("DELETE FROM production_jobs WHERE session_id=? AND owner_id=? AND kind!='discover'").run(row.id,row.user_id);
  if(doc.revision?.handoff){const {handoff:_,...revision}=doc.revision;void _;doc.revision=revision;}
  save.run(JSON.stringify({...doc,dag}),row.id,row.user_id);
+ if(needsConsent)sqlite.prepare("UPDATE stories SET generation_control='paused' WHERE id=? AND user_id=? AND generation_control='active'").run(row.id,row.user_id);
 }

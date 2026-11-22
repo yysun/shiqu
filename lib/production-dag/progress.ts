@@ -22,7 +22,7 @@ const callKinds:Record<string,Step['kind']>={
 
 /** 故事当前在做什么：第一项文字工作决定步骤，只剩绘图时为绘图；无工作时 step 为 null。 */
 export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
- if(!doc.dag||doc.legacyFramePreparation||doc.intake&&doc.intake.phase!=='confirmed')return null;
+ if(!doc.dag||doc.intake&&doc.intake.phase!=='confirmed')return null;
  const base:DagStory={id:'',doc,selection,dag:doc.dag,confirmed:true,faults:[]};
  const story={...base,dag:settle(base)};
  const items=story.dag.continuation?[]:work(story);

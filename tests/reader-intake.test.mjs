@@ -34,7 +34,7 @@ test('choosing prepares saved source and count; only full production confirmatio
  assert.deepEqual(jobs.filter(job=>job.kind==='dag').map(job=>JSON.parse(job.payload).work.call).sort(),['prepareSuggestions','verifySource']);
  assert.ok(jobs.every(job=>job.kind!=='prepare'));
  assert.equal((await f.request(`sessions/${id}/source`)).status,200);
- assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:4})).status,409);
+ assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:4})).status,404,'the legacy frame-count entry is gone');
  await f.json(`sessions/${id}/advance`,'POST',{throughPage:79});await f.app.services.production.tick();assert.equal(f.control.dagCalls.length,0);
  const action={requestId:crypto.randomUUID(),generation:prepared.intake.generation,action:'confirm',settings:{artStyle:'watercolor',productionPrompt:'从庄周醒来开始。',narrativeDetail:'balanced',length:4}};
  const scopes=[];
@@ -207,7 +207,7 @@ test('finding another batch leaves the prepared story in place and observes unti
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');
  let release;f.generation.suggestions=async()=>{await new Promise(r=>release=r);return {stories:[],note:'暂无更多。'};};
  await setup(f,id,{action:'more'});await until(()=>release);const finding=await f.read(id);
- assert.equal(finding.intake.phase,'confirming');assert.equal(finding.intake.search.state,'searching');assert.equal(finding.state,'idle');assert.equal(finding.awaitingFrameCount,false);assert.equal(finding.generationProgress.phase,'production-confirmation');assert.equal(shelfGenerationStatus(finding).group,'待制作确认');
+ assert.equal(finding.intake.phase,'confirming');assert.equal(finding.intake.search.state,'searching');assert.equal(finding.state,'idle');assert.equal(finding.generationProgress.phase,'production-confirmation');assert.equal(shelfGenerationStatus(finding).group,'待制作确认');
  const observed=[];let polls=0;
  await observeStoryGeneration({sessionId:id,isActive:()=>true,onSession:s=>observed.push(s.intake.search.state),request:async()=>{polls++;return f.read(id);},sleep:async()=>{release();await until(async()=>(await f.read(id)).intake.search.state==='idle');}});
  assert.equal(polls,2);assert.deepEqual(observed,['searching','idle']);assert.equal(shelfGenerationStatus(await f.read(id)).group,'待制作确认');assert.equal(f.control.recommendations.length,1);assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);

@@ -78,7 +78,7 @@ export async function authorizeControl(db:Database,ownerId:string,sessionId:stri
    ON CONFLICT(owner_id,request_id) DO NOTHING`,requestId,ownerId,sessionId,fingerprint,JSON.stringify({action}),now,now,sessionId,ownerId).changes;
   if(!inserted)return;
   const control=action==='resume'?'active':action==='pause'?'paused':action==='stop'?'stopped':null;
-  const mode=action==='resume'||action==='background'?'background':action==='reader'?'reader':null;
+  const mode=action==='resume'||action==='background'?'background':null;
   tx.run(`UPDATE stories SET generation_control=COALESCE(?,generation_control),generation_mode=COALESCE(?,generation_mode) WHERE id=? AND user_id=?`,control,mode,sessionId,ownerId);
  });
  const receipt=await commandReceipt(db,ownerId,requestId,fingerprint);if(!receipt)throw new ReaderError(409,'故事已完成或版本已更新，请刷新后再操作。');return receipt;

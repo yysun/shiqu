@@ -24,7 +24,7 @@ export async function observeStoryGeneration({sessionId,request,isActive,onSessi
     failures=0;onSession(session);
     // A choice can wait on another device or a search, so an open page keeps following it.
     const choosing=!!session.intake&&['choosing','confirming'].includes(session.intake.phase);waiting=choosing&&watchChoices;
-    if(session.state==='completed'||session.awaitingFrameCount||choosing&&!watchChoices&&session.intake?.search?.state!=='searching')return '';
+    if(session.state==='completed'||choosing&&!watchChoices&&session.intake?.search?.state!=='searching')return '';
     const intake=session.intake,canDiscover=!!intake&&(intake.search.state==='searching'||watchChoices&&!intake.selected&&intake.phase==='choosing'&&intake.batches.length>0);
     if(focus&&(canDiscover||!choosing&&session.generationMode==='background')&&session.generationControl==='active'&&session.state!=='failed'){
      // The reader's page can be left over from another story until this one has a first image.
@@ -65,7 +65,7 @@ export async function runQueuedStoryGeneration({sessionId,viewerId,page,request,
    try{
     session??=await request(path);
     if(!isActive())break;
-    if(!needsRecovery&&(session.state==='completed'||session.awaitingFrameCount||session.generationMode==='background'||session.generationControl&&session.generationControl!=='active')){onSession(session);return '';}
+    if(!needsRecovery&&(session.state==='completed'||session.generationMode==='background'||session.generationControl&&session.generationControl!=='active')){onSession(session);return '';}
     const currentPage=Math.max(0,Math.min(page(),(session.story?.pages.length||80)-1));
     if(needsRecovery){
      if(!command){
@@ -83,7 +83,7 @@ export async function runQueuedStoryGeneration({sessionId,viewerId,page,request,
     }
     if(!isActive())break;
     transportRetries=0;onSession(session);
-    if(session.state==='completed'||session.awaitingFrameCount||session.generationMode==='background'||session.generationControl&&session.generationControl!=='active')return '';
+    if(session.state==='completed'||session.generationMode==='background'||session.generationControl&&session.generationControl!=='active')return '';
     if(session.state==='failed')return session.error||'制作已停止，请选择对应问题重试。';
     const currentProgress=session.stage+':'+session.ready;
     if(currentProgress!==progress){progress=currentProgress;lastProgress=now();}

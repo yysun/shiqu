@@ -110,7 +110,7 @@ test('creation binds immutable parameters and request IDs cannot be reused acros
  assert.equal((await f.request('sessions','POST',{requestId,selection:{bookId:'zhuangzi',theme:'different',length:2}})).status,409);assert.equal((await f.json('sessions')).length,1);
 });
 
-for(const action of ['pause','stop','reader'])test(`healthy restored files complete locally with ${action} and no viewers`,async t=>{
+for(const action of ['pause','stop'])test(`healthy restored files complete locally with ${action} and no viewers`,async t=>{
  const f=await productionFixture(t);f.control.hold=false;const id=await f.create(2);await until(async()=>(await f.read(id)).state==='completed');
  const image=(await f.read(id)).story.pages[1].image,key=`reader/${id}/${image.split(`/media/${id}/`)[1]}`,asset=await f.media.get(key),bytes=new Uint8Array(await asset.arrayBuffer());await lose(f,id,1);
  await f.json(`sessions/${id}/production-control`,'POST',{action});await f.media.put(key,bytes,{contentType:asset.contentType});const checked=await f.json(`sessions/${id}/image-health`,'POST',{page:1,image});assert.equal(checked.state,'completed');assert.equal(checked.generationControl,action==='pause'?'paused':action==='stop'?'stopped':'active');assert.equal(f.control.calls.length,2);

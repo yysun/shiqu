@@ -125,23 +125,6 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
    throw error;
   }
  }
- async function confirmFrameCount(count:number|'auto'){
-  if(busy||pending.current||!active?.awaitingFrameCount)return;
-  const sessionId=active.id;setBusy(true);setError('');
-  try{
-   let s:SessionView;
-   try{s=await request('reader/sessions/'+sessionId+'/frame-count','POST',{count});}
-   catch(error){
-    // A lost confirmation response must not replace an accepted choice or create a new story.
-    const current:SessionView=await request('reader/sessions/'+sessionId);
-    if(current.awaitingFrameCount||current.selection.length!==count)throw error;
-    s=current;
-   }
-   if(id.current!==sessionId||removed.current.has(sessionId))return;
-   generationMode.current=observeOnlyGeneration(s)?'observe':'generate';retryRequested.current=false;setActive(s);collect(s);retries.current=new Map();setWake(v=>v+1);
-  }catch(error){if(id.current===sessionId)setError(error instanceof Error?error.message:'画幅数暂未保存，请再试一次。');}
-  finally{if(id.current===sessionId)setBusy(false);}
- }
  async function control(sessionId:string,action:ProductionAction){
   if(controlLock.current)return;controlLock.current=true;setControlBusy(sessionId);setControlError('');
   const signature=JSON.stringify([sessionId,action]);if(controlRequest.current?.signature!==signature)controlRequest.current={signature,body:{requestId:randomId(),action}};
@@ -218,7 +201,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   recovering.current.add(command.faultId);setError('');
   try{
    const next:SessionView=await request(`reader/sessions/${s.id}/recover`,'POST',command);
-   collect(next);if(id.current===s.id){passive.current=false;generationMode.current=next.generationMode==='reader'&&next.generationControl==='active'?'generate':'observe';setActive(next);setWake(v=>v+1);}
+   collect(next);if(id.current===s.id){passive.current=false;generationMode.current='observe';setActive(next);setWake(v=>v+1);}
   }catch(e){if(id.current===s.id)setError(e instanceof Error?e.message:'恢复暂未受理，请重试。');}
   finally{recovering.current.delete(command.faultId);}
  }
@@ -249,5 +232,5 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   }
   run();return()=>{cancelled=true;};
  },[active?.id,wake]);
- return {adopt,checkImage,setup,setupBusy,sessions,active,busy,error,connected,libraryLoading,libraryRefreshing,libraryError,start,resume,retrySession,renameTitle,savePublication,leave,remove,refreshLibrary,retryStep,confirmFrameCount,control,drawAnyway,controlBusy,controlError};
+ return {adopt,checkImage,setup,setupBusy,sessions,active,busy,error,connected,libraryLoading,libraryRefreshing,libraryError,start,resume,retrySession,renameTitle,savePublication,leave,remove,refreshLibrary,retryStep,control,drawAnyway,controlBusy,controlError};
 }

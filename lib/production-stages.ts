@@ -65,7 +65,7 @@ export function productionSteps(input:Input):ProductionStage[]{
  }
  return [
   {id:'source',label:'确认原文',state:sourceReady?'done':phase==='source'||phase==='recommend'?activeState:'pending',detail:sourceReady?'已保存':'待完成'},
-  {id:'count',label:'叙事详略与篇幅',state:countReady?'done':phase==='frame-count'||phase==='recommend'&&sourceReady?activeState:'pending',detail:countReady&&input.total!==null?`${input.total} 幅`:'待确定'},
+  {id:'count',label:'叙事详略与篇幅',state:countReady?'done':phase==='recommend'&&sourceReady?activeState:'pending',detail:countReady&&input.total!==null?`${input.total} 幅`:'待确定'},
   ...productionStages(input),
  ];
 }

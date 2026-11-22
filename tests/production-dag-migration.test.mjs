@@ -174,7 +174,7 @@ test('0025 does not adopt an image that is not a real picture, nor a landscape f
  assert.equal(saved.dag.frames['legacy-2'].image,undefined,'a paid result whose file is not a picture is not adopted');
 });
 
-for(const prepared of [true,false])test(`an upgraded story with ${prepared?'saved':'interrupted'} recommendations waits for explicit frame count confirmation`,async t=>{
+for(const prepared of [true,false])test(`an upgraded story with ${prepared?'saved':'interrupted'} recommendations converts paused with its saved frame count and starts nothing`,async t=>{
  const {productionFixture,until}=await import('./fixtures/production.mjs');
  const id=crypto.randomUUID();
  const original={title:'庄子',text:'昔者庄周梦为胡蝶。',url:'https://example.test',kind:'passage',provider:'local',retrievedAt:'2026-01-01'};
@@ -196,22 +196,20 @@ for(const prepared of [true,false])test(`an upgraded story with ${prepared?'save
  await f.demand(id);
  await f.app.services.production.tick();
  const saved=async()=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
- await until(async()=>(await f.read(id)).awaitingFrameCount);
- if(prepared)assert.deepEqual(await saved(),doc,'saved recommendations wait without writes');
- else{
-  assert.ok((await saved()).dag.products['suggestions:']);
-  const [job]=await f.app.services.production.queue.jobs(id,localOwner);
-  assert.equal(JSON.parse(job.payload).work.call,'prepareSuggestions');
-  assert.equal(job.attempts,3,'an interrupted legacy job retains its retry allowance');
-  assert.equal(f.control.recommendations.length,1);
- }
+ // 升级不替读者确认：转换为制作 DAG，保持暂停，不发起任何付费调用，也没有旧的幅数确认入口。
+ await until(async()=>!!(await saved()).dag);
+ assert.equal((await f.read(id)).generationControl,'paused');
+ assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:2})).status,404,'the frame-count entry no longer exists');
+ for(let i=0;i<10;i++)await f.app.services.production.tick();
  assert.deepEqual(f.control.calls,[]);
  assert.deepEqual(f.control.dagCalls,[]);
- if(prepared)assert.deepEqual([...f.control.textVia],[]);
- await f.json(`sessions/${id}/frame-count`,'POST',{count:2});
- await until(async()=>(await f.read(id)).state==='completed',15000);
- assert.equal((await saved()).dag.order.length,2);
- assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[0,1]);
+ // 读者点「恢复生成」后按已保存的幅数制作。
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
+ // 升级前被中断的准备留下的故障仍待处理，读者需明确重试。
+ if(!prepared){const fault=(await f.read(id)).faults?.find(x=>x.state==='pending');assert.ok(fault,'the interrupted preparation fault is carried over');await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});}
+ await until(async()=>(await f.read(id)).state==='completed',20000);
+ assert.equal((await saved()).dag.order.length,3);
+ assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[0,1,2]);
 });
 
 

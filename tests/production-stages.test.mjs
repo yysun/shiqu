@@ -37,7 +37,6 @@ test('saved candidates waiting for a choice keep extraction as the current step'
 test('seven steps distinguish initial review, targeted repair, recheck, skipped work and legacy stories',()=>{
  assert.deepEqual(productionSteps(base).map(s=>s.label),['确认原文','叙事详略与篇幅','分批分镜','全篇审片','定向修订','复核','绘图']);
  assert.deepEqual(states({phase:'source',planReady:false,sourceReady:false,frameCountConfirmed:false,reviewStatus:null}),['current','pending','pending','pending','pending','pending','pending']);
- assert.deepEqual(states({phase:'frame-count',planReady:false,frameCountConfirmed:false,reviewStatus:null}),['done','current','pending','pending','pending','pending','pending']);
  assert.deepEqual(states({phase:'plan',planReady:false,reviewStatus:null}),['done','done','current','pending','pending','pending','pending']);
  assert.deepEqual(states({phase:'review'}),['done','done','done','current','pending','pending','pending']);
  assert.deepEqual(states({phase:'repair',reviewStatus:'repair',reviewRound:1}),['done','done','done','done','current','pending','pending']);

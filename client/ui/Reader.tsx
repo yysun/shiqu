@@ -65,7 +65,6 @@ import StoryReviewHistory from './StoryReviewHistory';
 import StoryPausedEditing from './StoryPausedEditing';
 import Sheet from './StorySheet';
 import StorySettingsPanel,{StorySettingsContent,storyWorkflowHeading} from './StorySettingsPanel';
-import StoryFrameCount from './StoryFrameCount';
 import {narrativeDetailSchema} from '@/lib/reader-frame-recommendation';
 import StoryRetry from './StoryRetry';
 import StoryGenerationStatus from './StoryGenerationStatus';
@@ -590,10 +589,7 @@ export default function Reader(){
     onReselect={()=>reselectStory(workflowSession.id)}
     onBackToDiscovery={()=>{clearRetained('discovery');forgetSetup();setAutoSearch(false);setBookChosen(true);setDiscoveryTarget(workflowSession.id);setSelection(workflowSession.selection);setUnavailable('');setConfigure(true);}}
     progress={{busy:gen.busy,controlBusy:!!gen.controlBusy,onControl:gen.control,error:workflowError||gen.error,onRetry:retryWorkflow,onBack:backToShelf,hideBack:true,showSummary:false}}
-   />:!revisionResuming&&workflowSession.awaitingFrameCount&&workflowSession.frameRecommendation?<>
-    <StoryFrameCount key={workflowSession.id} recommendation={workflowSession.frameRecommendation} disabled={gen.busy} onConfirm={gen.confirmFrameCount}/>
-    {gen.error&&<p className="yu-batch-error" role="alert">{gen.error}</p>}
-   </>:<GenerationSurface
+   />:<GenerationSurface
     session={workflowSession} busy={gen.busy} controlBusy={!!gen.controlBusy||creating} onControl={gen.control} error={workflowError||gen.error} onRetry={retryWorkflow} onBack={backToShelf} hideBack showSummary={false}
     showLandscape={workflowSession.state==='completed'&&!workflowSession.superseded&&!!panelStory?.pages.length&&panelStory.pages.every(page=>!!page.image)}
     navigation={{source:{onClick:()=>setSource(true),disabled:!workflowSession.generationProgress?.sourceReady},reselect:{label:'替换选题',onClick:()=>void reselectStory(),disabled:creating||revision.busy||!!gen.controlBusy,title:'替换当前选题，书架保留一张卡片，旧结果保留历史'},reselecting:creating}}

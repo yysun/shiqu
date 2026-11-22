@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {productionStageDurations,productionTimingScope} from '../lib/production-timing.ts';
 import {generationDuration,generationProgress} from '../lib/generation-progress.ts';
 
-const planning={id:'story',state:'running',productionState:'running',error:null,stage:'正在编排故事',selection:{length:32},ready:0,story:null,awaitingFrameCount:false,frameRecommendation:{count:32},generationProgress:{sourceReady:true,frameCountConfirmed:true,frameCount:32,phase:'plan',startedAt:10000,attempt:2}};
+const planning={id:'story',state:'running',productionState:'running',error:null,stage:'正在编排故事',selection:{length:32},ready:0,story:null,frameRecommendation:{count:32},generationProgress:{sourceReady:true,frameCountConfirmed:true,frameCount:32,phase:'plan',startedAt:10000,attempt:2}};
 test('planning reports saved source, chosen count and elapsed attempt time without a percentage',()=>{
  const progress=generationProgress(planning,75000);
  assert.equal(progress.measured,false);assert.equal(progress.elapsed,65);assert.equal(progress.attempt,2);
