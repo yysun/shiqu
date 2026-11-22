@@ -1,4 +1,4 @@
-// 已完成作品的横版插图步骤，后台继续生成，界面只读取状态并提交明确的启动或重试操作。
+// 已完成作品的横版插图步骤，后台继续生成，界面只读取状态并提交明确的启动或重试操作。 启动操作与重试一致，使用文字链接。
 import {useEffect,useState} from 'react';
 import type {LandscapeStatus} from '@/lib/reader-production';
 import type {ProductionStageState} from '@/lib/production-stages';
@@ -56,7 +56,7 @@ export default function StoryLandscapeStep({storyId}:{storyId:string}){
  const action=readError?<StoryFlowAction onClick={()=>setRefresh(value=>value+1)}>重新读取进度</StoryFlowAction>:
   canSubmit&&(status.retryToken
    ?<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={start}>{submitting?'正在提交…':'重试未完成画幅'}</StoryFlowAction>
-   :<button type="button" className="yu-primary" disabled={submitting} aria-busy={submitting} onClick={()=>void start()}>{submitting?'正在提交…':'生成横版插图'}</button>);
+   :<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={start}>{submitting?'正在提交…':'生成横版插图'}</StoryFlowAction>);
  return <ProductionTimelineRow step={{id:'landscape',label:'横版插图（可选）',state,detail}} stateLabel={stateLabel} moving={running} detailLive>
   {error&&<p className="yu-batch-error" role="alert">{error}</p>}
   {action&&<div className="production-stage-actions">{action}</div>}
