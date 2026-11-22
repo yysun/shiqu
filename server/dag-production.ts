@@ -19,6 +19,7 @@ import type {Fault} from '../lib/production-dag/engine.ts';
 import {executeWork} from './dag-executor.ts';
 import {BookImageReferences} from './book-image-reference.ts';
 import type {ProductionJob,ProductionQueue,JobSpec} from './production-queue.ts';
+import type {ModelSnapshot} from '../lib/production-dag/document.ts';
 import type {LandscapeStatus} from '../lib/reader-production.ts';
 import {persistenceError} from '../lib/reader-repository.ts';
 import {inputVersion} from './production-queue.ts';
@@ -28,7 +29,7 @@ import {commandFingerprint} from './reader-commands.ts';
 import {transact,deleteJobs} from './production-records.ts';
 
 export const dagTextKind='dag',dagDrawKind='dag-draw';
-type Deps={database:Database;media:MediaStore;queue:ProductionQueue;clock:()=>number;wake:()=>void;fileLost:(key:string,strict?:boolean)=>Promise<boolean>};
+type Deps={database:Database;media:MediaStore;queue:ProductionQueue;clock:()=>number;wake:()=>void;snapshot?:()=>ModelSnapshot|undefined;fileLost:(key:string,strict?:boolean)=>Promise<boolean>};
 const drawing=(call:string)=>call==='draw'||call==='drawLandscape';
 const visible="NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)";
 
@@ -254,11 +255,29 @@ export class DagProduction{
   const doc=JSON.parse(row.document) as Document;
   if(doc.dag||doc.reselection||doc.intake&&doc.intake.phase!=='confirmed')return false;
   const selection=selectionSchema.parse(JSON.parse(row.selection));
-  const dag=doc.plan||doc.storyboard||doc.draft?convertDocument(doc,selection,{confirmed:true,notes:doc.reviewNotes}):emptyDag();
+  // 决策 7：建立 dag 时记录当前模型设置的快照，之后的调用按快照选择模型；没有快照服务（测试替身、只读）时不记录。
+  const modelSnapshot=this.deps.snapshot?.();
+  const dag=doc.plan||doc.storyboard||doc.draft?convertDocument(doc,selection,{confirmed:true,notes:doc.reviewNotes,...(modelSnapshot?{modelSnapshot}:{})}):{...emptyDag(),...(modelSnapshot?{modelSnapshot}:{})};
   const saved=await this.deps.database.prepare("UPDATE stories SET document=json_set(document,'$.dag',json(?)),updated_at=? WHERE id=? AND user_id=? AND document=?")
    .bind(JSON.stringify(dag),new Date(this.deps.clock()).toISOString(),row.id,row.user_id,row.document).run();
   if(saved.meta.changes)this.deps.wake();
   return saved.meta.changes>0;
+ }
+
+ /** 故事记录的模型快照；没有记录时沿用当前设置。 */
+ async snapshotOf(job:ProductionJob):Promise<ModelSnapshot|undefined>{
+  const row=await this.row(job.session_id,job.owner_id);
+  return row?(JSON.parse(row.document) as Document).dag?.modelSnapshot:undefined;
+ }
+
+ /** 「应用当前模型设置」：把故事的快照换成当前设置的快照；快照不参与任何节点的输入，已有产物不失效。 */
+ async applyCurrentModel(ownerId:string,id:string){
+  const current=this.deps.snapshot?.();
+  if(!current)throw new ReaderError(409,'当前模型设置不可用，请先在设置中配置生成服务。');
+  const saved=await this.deps.database.prepare("UPDATE stories SET document=json_set(document,'$.dag.modelSnapshot',json(?)),updated_at=? WHERE id=? AND user_id=? AND json_type(document,'$.dag') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)")
+   .bind(JSON.stringify(current),new Date(this.deps.clock()).toISOString(),id,ownerId).run();
+  if(!saved.meta.changes)throw new ReaderError(409,'这篇故事还没有进入制作，无法应用模型设置。');
+  this.deps.wake();
  }
 
  /** 需读者处理的审片结论：放行只针对这些结论。 */

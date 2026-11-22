@@ -13,7 +13,8 @@ import {LocalBooks} from './local-books.ts';
 import {applicationStorySearch} from './local-story-search.ts';
 import {withLocalBooks} from './local-generation.ts';
 import {ReaderProductionCoordinator,configuredImageWorkers} from './reader-production.ts';
-import type {ProductionOptions} from './reader-production.ts';
+import {currentSnapshot,providerForSnapshot} from './provider-snapshot.ts';
+import type {ProductionOptions,SnapshotService} from './reader-production.ts';
 import {providerSignature} from './provider-runtime.ts';
 import {providerReady} from './cli-setup.ts';
 import {StoryDiscoveryCache} from './story-discovery-cache.ts';
@@ -49,7 +50,13 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
  const imageWorkers=configuredImageWorkers(options.variables?.SHIQU_IMAGE_WORKERS);
  const local=openDatabase(options.dataDirectory,options.root);
  let retainedLegacyArt:Set<string>|undefined;
- const production=new ReaderProductionCoordinator(local.database,generation,media,{imageWorkers,...options.production});
+ // 模型快照服务只在由设置构造提供方时启用；测试等直接注入的提供方沿用其自身，不按快照重建。
+ const liveVariables=()=>options.providerVariables?options.providerVariables():options.variables||{};
+ const snapshots:SnapshotService|undefined=options.generation?undefined:{
+  current:()=>{const variables=liveVariables();return variables.SHIQU_AI_PROVIDER==='readonly'?undefined:currentSnapshot(variables);},
+  provider:snapshot=>{const result=providerForSnapshot(snapshot,liveVariables(),media,options.transport||fetch);return result.available?withLocalBooks(result.provider,localBooks,media,cache,storySearch):null;},
+ };
+ const production=new ReaderProductionCoordinator(local.database,generation,media,{imageWorkers,...(snapshots?{snapshots}:{}),...options.production});
  if(!options.providerVariables&&options.variables?.SHIQU_AI_PROVIDER==='readonly'&&options.production?.autoStart!==false)production.stop();
  const services:Services={db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,localBooks,transport:options.transport||fetch,generation,production,commandOnly:options.commandOnly};
  const api=createApi(services),publicDirectory=path.resolve(options.root,'dist/client');

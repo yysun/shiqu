@@ -16,6 +16,7 @@ import type {Database} from '../lib/reader-repository.ts';
 import {advanceStory} from '../lib/reader-engine.ts';
 import {ReaderError,readableStory,selectionSchema,view,nextStep,productionComplete,reviewPassed} from '../lib/reader-model.ts';
 import type {Document,SessionRow,SessionView,ProductionAction,Selection} from '../lib/reader-model.ts';
+import type {ModelSnapshot} from '../lib/production-dag/document.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
@@ -52,7 +53,9 @@ export const productionRevisionSql={
  rebuild:`SELECT s.id,s.user_id,s.state,COALESCE(r.rev,0) AS rev FROM ${revisionJoin}
   WHERE s.id IN (SELECT value FROM json_each(?)) AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)`,
 };
-export type ProductionOptions={imageWorkers?:number;now?:()=>number;leaseMs?:number;tickMs?:number;autoStart?:boolean;targetSessionId?:string;stopBeforeImages?:boolean};
+/** 模型快照服务：记录当前设置的快照；按快照构造提供方，快照服务不可用时返回 null。 */
+export type SnapshotService={current():ModelSnapshot|undefined;provider(snapshot:ModelSnapshot):ReaderProvider|null};
+export type ProductionOptions={snapshots?:SnapshotService;imageWorkers?:number;now?:()=>number;leaseMs?:number;tickMs?:number;autoStart?:boolean;targetSessionId?:string;stopBeforeImages?:boolean};
 type Options=ProductionOptions;
 const sessionLeaseMs=180000;
 const maxAutomaticAttempts=3;
@@ -113,11 +116,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    handlers:{
     discover:{pool:'search',run:job=>this.discover(job)},
     prepare:{pool:'text',run:job=>this.script(job)},
-    [dagTextKind]:{pool:'text',run:job=>this.dag.run(job,this.jobProvider(job))},
-    [dagDrawKind]:{pool:'image',run:job=>this.dag.run(job,this.jobProvider(job))},
+    [dagTextKind]:{pool:'text',run:job=>this.runDag(job)},
+    [dagDrawKind]:{pool:'image',run:job=>this.runDag(job)},
    },
   });
-  this.dag=new DagProduction({database,media,queue:this.queue,clock:this.clock,wake:()=>this.wake(),fileLost:(key,strict)=>this.fileLost(key,strict)});
+  this.dag=new DagProduction({database,media,queue:this.queue,clock:this.clock,wake:()=>this.wake(),snapshot:()=>this.snapshotNow(),fileLost:(key,strict)=>this.fileLost(key,strict)});
   if(options.autoStart!==false)this.start();
  }
  start(){if(this.enabled||this.stopping||this.closed)return;this.enabled=true;this.timer=setInterval(()=>this.wake(),this.options.tickMs||1000);this.timer.unref();this.wake();}
@@ -194,6 +197,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  async control(ownerId:string,id:string,action:ProductionAction,handoffOnly=false,requestId?:string){
   // 「继续制作」的已接受编号先于其他核对重放。
+  if(action==='apply-model'){
+   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
+   await this.repository.get(id,ownerId);await this.dag.applyCurrentModel(ownerId,id);return this.snapshot(ownerId,id);
+  }
   if(action==='continue'){
    if(!requestId)throw new ReaderError(400,'继续制作需要提交操作编号。');
    await this.repository.get(id,ownerId);
@@ -377,6 +384,16 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private jobProvider(job:ProductionJob){
   const provider=this.provider.capture?this.provider.capture():this.provider;
   if(!provider)throw new JobYield();this.jobProviders.set(job.id,provider);return provider;
+ }
+ private snapshotNow(){try{return this.options.snapshots?.current();}catch{return undefined;}}
+ /** DAG 任务按故事的模型快照构造提供方；没有快照服务或故事没有快照时沿用当前提供方。 */
+ private async runDag(job:ProductionJob){
+  const current=this.jobProvider(job),snapshot=this.options.snapshots&&await this.dag.snapshotOf(job);
+  if(!snapshot||!this.options.snapshots)return this.dag.run(job,current);
+  const provider=this.options.snapshots.provider(snapshot);
+  if(!provider)throw new ReaderError(409,'快照服务不可用：这篇故事制作时选用的模型服务目前缺少凭据或已不可用。请在设置中恢复该服务，或选择「应用当前模型设置」后再重试。');
+  this.jobProviders.set(job.id,provider);
+  return this.dag.run(job,provider);
  }
  private async discover(job:ProductionJob){
   const provider=this.jobProvider(job);

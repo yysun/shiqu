@@ -219,9 +219,18 @@ test('preparation results carry into production: a verified summary and saved su
 
 // ——— 审查意见第 2 轮：正式入口与边界 ———
 
-test('a story confirmed through intake runs on the DAG path with its setup generation',async t=>{
+const snapshotA={provider:'codex',models:{text:'model-at-confirmation',image:null}};
+/** 带模型快照服务的夹具：current 给出确认时的快照，provider 按快照给出提供方（null 表示服务不可用）。 */
+async function snapshotFixture(t,service){
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
+ f.options.production={snapshots:service};
+ await f.restart();
+ return f;
+}
+
+/** 从创建、查找、选题到确认，全部经正式接口；返回故事编号。 */
+async function confirmThroughIntake(f){
  f.generation.suggestions=async()=>({stories:[{title:'庄周梦蝶',description:'梦醒后的庄周思考自己的经历。',artRecommendation:{artStyle:'paper-cut',reason:'层次适合梦境。'}}],note:''});
  const created=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced'}});
  const id=created.id;
@@ -231,16 +240,23 @@ test('a story confirmed through intake runs on the DAG path with its setup gener
  await until(async()=>(await f.read(id)).intake.phase==='choosing',20000);
  await f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(id)).intake.generation,action:'choose',batch:0,index:0});
  await until(async()=>(await f.read(id)).intake.phase==='confirming',20000);
- // 切换（M4.5）会在确认时建立 dag；这里在确认前加上，确认本身走正式接口。
- await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag',json(?)) WHERE id=?").bind(JSON.stringify(emptyDag()),id).run();
+ // 确认本身走正式接口：确认后由 adopt() 建立 dag，并记录当时的模型快照。
  const prepared=await f.read(id);
  await f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:prepared.intake.generation,action:'confirm',settings:{artStyle:'watercolor',productionPrompt:'clear captions',narrativeDetail:'balanced',length:4}});
+ return id;
+}
+
+test('a story confirmed through intake runs on the DAG path with its setup generation',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const id=await confirmThroughIntake(f);
  await until(async()=>(await f.read(id)).state==='completed',20000);
  const doc=await saved(f,id);
  assert.equal(doc.dag.order.length,4);
  assert.equal(f.control.calls.length,4);
  const jobs=(await f.app.services.database.prepare("SELECT payload FROM production_jobs WHERE session_id=? AND kind IN ('dag','dag-draw')").bind(id).all()).results;
  assert.ok(jobs.length&&jobs.every(j=>JSON.parse(j.payload).setupGeneration===doc.intake.generation));
+ assert.equal(doc.dag.modelSnapshot,undefined,'an injected provider has no snapshot service');
 });
 
 test('the review-only mode never starts a DAG drawing',async t=>{
@@ -370,4 +386,49 @@ test('a live image check marks the loss with its fault; recovery redraws it and 
  assert.deepEqual(f.control.calls.map(c=>c.page),[2]);
  doc=await saved(f,id);
  assert.equal(doc.dag.products[`frameImage:${doc.dag.order[2]}`].readable,undefined);
+});
+
+
+// ——— 决策 7：模型快照 ———
+
+test('confirmation records the model snapshot and its jobs are built from it, not from the current settings',async t=>{
+ const built=[];
+ const f=await snapshotFixture(t,{current:()=>snapshotA,provider:snapshot=>{built.push(snapshot);return f.generation;}});
+ const id=await confirmThroughIntake(f);
+ await until(async()=>(await f.read(id)).state==='completed',20000);
+ const doc=await saved(f,id);
+ assert.deepEqual(doc.dag.modelSnapshot,snapshotA);
+ assert.ok(built.length>0&&built.every(snapshot=>snapshot.models.text==='model-at-confirmation'),'every job builds its provider from the recorded snapshot');
+ assert.equal(f.control.calls.length,4);
+});
+
+test('an unavailable snapshot service stops the story with a clear message; applying the current settings lets it finish',async t=>{
+ const current={provider:'codex',models:{text:'model-now',image:null}};
+ let available=false,now=snapshotA;
+ const f=await snapshotFixture(t,{current:()=>now,provider:snapshot=>available||snapshot.models.text==='model-now'?f.generation:null});
+ const id=await confirmThroughIntake(f);
+ await until(async()=>(await f.read(id)).faults?.length>0,20000);
+ const blocked=await f.read(id);
+ assert.match(blocked.faults[0].message||blocked.error||'', /快照服务不可用/);
+ assert.equal(f.control.dagCalls.length,0,'no model call is paid while the snapshot service is unavailable');
+ now=current;
+ await f.json(`sessions/${id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'apply-model'});
+ assert.deepEqual((await saved(f,id)).dag.modelSnapshot,current);
+ const fault=(await f.read(id)).faults.find(x=>x.state==='pending');
+ if(fault)await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ await until(async()=>(await f.read(id)).state==='completed',20000);
+ assert.equal(f.control.calls.length,4);
+});
+
+// ——— 没有准备流程的故事：原文核对经 DAG ———
+
+test('a story created without the preparation flow gets its source through the DAG and then runs to the end',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const id=await f.create(4);
+ await until(async()=>(await f.read(id)).state==='completed',30000);
+ const doc=await saved(f,id);
+ assert.ok(doc.original?.text,'the verified source is saved by the verifySource work');
+ assert.equal(doc.dag.order.length,4);
+ assert.equal(f.control.calls.length,4);
 });
