@@ -34,6 +34,8 @@ test('outline, characters and storyboard text never see the style; image descrip
  assert.deepEqual(visual.value[0].drawn,['管仲','鲍叔牙']);
  for(const c of calls.slice(0,3)){without(c.text,STYLE);contains(c.text,REQ);}
  contains(calls[3].text,STYLE,REQ,'artDirection 只用于画面表现。');
+ contains(calls[0].text,'建立或更新空间认识','同一场所先交代必要布局');
+ contains(calls[3].text,'具体可见的地标、物件或空间边界','同一地点改变视点');
  without(calls[0].text,'保留规定元数据与characters');
  contains(calls[2].text,'previousCaptions');
  without(calls[2].text,'previousPages');
@@ -55,7 +57,8 @@ test('batched frame calls return one result per frame, matched by frame number; 
  assert.deepEqual(scenes.value.map(s=>s.caption),['第1幅修订后的配文。','第2幅修订后的配文。']);
  // 画面描述与画面修订读画风；叙事修订不读画风与画面描述。
  contains(calls[0].text,STYLE,REQ);contains(calls[1].text,STYLE,VISUAL,NOTES);
- without(calls[2].text,STYLE,VISUAL);
+ contains(calls[1].text,'具体可见的地标、物件或空间边界');
+ without(calls[2].text,STYLE,VISUAL,'具体可见的地标、物件或空间边界');
  await assert.rejects(gen.visual({outline,productionPrompt:REQ,style,frames:[]}),/PLAN_LENGTH/);
  const short=recorder(()=>({frames:[{number:1,prompt:'两位少年并肩走在乡间小路上，中景，晨光从左侧照来。',drawn:[]},{number:1,prompt:'两位少年并肩走在乡间小路上，中景，晨光从左侧照来。',drawn:[]}]}));
  await assert.rejects(short.gen.visual({outline,productionPrompt:REQ,style,frames}),/INVALID_OUTPUT/);
@@ -65,6 +68,7 @@ test('restyle retains the post-release art and story constraints with one output
  const {calls,gen}=recorder(()=>({frames:[{number:1,prompt:'清晨两位少年并肩走在乡间小路上，中景，远处可见低矮的土墙。',drawn:['管仲']}]}));
  await gen.restyle({outline,productionPrompt:REQ,style,previousStyle:{artStyle:'ink-pencil',artStylePrompt:'旧画风'},frames:[{index:0,caption:CAPTION,candidates:people,previousPrompt:VISUAL}]});
  contains(calls[0].text,'不要把新画风附加在旧画风指令后面','保留原有可见细节','只返回 {frames:[{number,prompt,drawn}]}',STYLE,'旧画风',VISUAL);
+ contains(calls[0].text,'保留相应地标、路径、边界、人物站位和遮挡');
  without(calls[0].text,'只返回 scenePrompts');
 });
 
@@ -115,6 +119,7 @@ test('scenario 52: review replaces only allowed verdicts; everything else become
  assert.deepEqual(result.value.judgements.map(j=>[j.id,j.outcome]),[['frameVerdict:f1','pass'],['frameVerdict:f2','fail']]);
  assert.deepEqual(result.value.suggestions.map(j=>j.id),['frameVerdict:f3']);
  contains(calls[0].text,STYLE,REQ,NOTES,'优先核对点名的段落、幅号或结语');
+ contains(calls[0].text,'可见的环境线索或空间关系会造成具体误读','用category=composition、requiresReplan=false','近景、留白与沿用布局可以通过');
 });
 
 test('scenario 57: drawing and landscape prompts carry no caption or production requirements',()=>{
@@ -122,6 +127,7 @@ test('scenario 57: drawing and landscape prompts carry no caption or production 
  for(const layout of ['portrait','landscape']){
   const prompt=framePrompt({visual:VISUAL,redrawNote:'调暗背景',drawn,style,index:0,reference:true,layout});
   contains(prompt,VISUAL,'调暗背景','管仲',STYLE,'Compose every page as a finished lianhuanhua illustration','The quoted art direction guides visual style only.');
+  contains(prompt,'Keep the landmarks, routes, boundaries and positions',layout==='portrait'?'story-critical ground, paths and spatial depth':'Keep the established spatial relationships');
   without(prompt,REQ,CAPTION,'鲍叔牙');
  }
 });

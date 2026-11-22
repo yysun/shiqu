@@ -83,6 +83,7 @@ export const reviewSystemPrompt=promptSections(
  ['主题与摘要审核',storyReviewDirection],
  ['原文覆盖与节奏核对',editorialAuditDirection],
  ['问题判定','配文独立连读应让普通成年读者无需古文注释即可理解；不靠prompt、人物设定或摘要里的解释补正文缺失。按共同标准判断事实、语义、动作、构图、递进、连续性与artDirection，只有可指出的错误、阅读障碍或实质表达损失才报告。合理压缩、有效停顿及同等成立的编辑偏好不触发修订，不因超过目标字数而机械报错。'],
+ ['场景与空间','对照原文、配文和相邻画面描述，判断缺少哪处可见的环境线索或空间关系会造成具体误读，例如读不出人物为何停在门外，或从何处撤离。只修承担该信息的画幅，并写明幅号、误读和最小修法。如果只需调整画面，用category=composition、requiresReplan=false，让修订保留配文和其他画幅。能完成任务的近景、留白与沿用布局可以通过。'],
  ['结构问题与修订边界','缺整段关键阶段或结果、需增删幅或重分配时，用category=progression、requiresReplan=true，page锚定截断或失衡处，instruction说明完整范围及插入/删除/替换任务；不可塞一句结局到末幅掩盖缺戏。局部可修时false，不改变其他幅或幅号。全局characters与原文及正确pages冲突时，用category=continuity、requiresReplan=true，锚定首处冲突，明确只修人物说明并保留正确pages；普通位置、物件或伤势承接用局部continuity，不为文风重写全局设定。'],
  ['标题标准',titleDirection],
  ['标题审核','返回titleReview:{title,reason}，保留准确标题或直接修正范围不符、误导、无据扣题的标题，说明依据与收益；不把标题问题挂到某一幅，也不改其他元数据。'],
