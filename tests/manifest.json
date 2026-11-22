@@ -4394,6 +4394,135 @@
         "lib/reader-contents.ts",
         "lib/story-publication.ts"
       ]
+    },
+    {
+      "file": "tests/production-dag-registry.test.mjs",
+      "groups": [
+        "production",
+        "review"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "lib/production-dag/registry.ts",
+        ".docs/story-production-dag.md"
+      ]
+    },
+    {
+      "file": "tests/production-dag-engine.test.mjs",
+      "groups": [
+        "production",
+        "review"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "lib/production-dag/registry.ts",
+        "lib/production-dag/fingerprint.ts",
+        "lib/production-dag/engine.ts",
+        "lib/production-dag/review.ts",
+        "lib/production-dag/faults.ts",
+        "lib/production-dag/hand-edits.ts",
+        "lib/production-dag/frames.ts",
+        "tests/fixtures/production-dag.mjs"
+      ]
+    },
+    {
+      "file": "tests/production-dag-review.test.mjs",
+      "groups": [
+        "production",
+        "review"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "lib/production-dag/registry.ts",
+        "lib/production-dag/fingerprint.ts",
+        "lib/production-dag/engine.ts",
+        "lib/production-dag/review.ts",
+        "lib/production-dag/faults.ts",
+        "lib/production-dag/hand-edits.ts",
+        "lib/production-dag/frames.ts",
+        "tests/fixtures/production-dag.mjs"
+      ]
+    },
+    {
+      "file": "tests/production-dag-hand-edits.test.mjs",
+      "groups": [
+        "production",
+        "review"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "lib/production-dag/registry.ts",
+        "lib/production-dag/fingerprint.ts",
+        "lib/production-dag/engine.ts",
+        "lib/production-dag/review.ts",
+        "lib/production-dag/faults.ts",
+        "lib/production-dag/hand-edits.ts",
+        "lib/production-dag/frames.ts",
+        "tests/fixtures/production-dag.mjs"
+      ]
+    },
+    {
+      "file": "tests/production-dag-faults.test.mjs",
+      "groups": [
+        "production",
+        "review"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "lib/production-dag/registry.ts",
+        "lib/production-dag/fingerprint.ts",
+        "lib/production-dag/engine.ts",
+        "lib/production-dag/review.ts",
+        "lib/production-dag/faults.ts",
+        "lib/production-dag/hand-edits.ts",
+        "lib/production-dag/frames.ts",
+        "tests/fixtures/production-dag.mjs"
+      ]
     }
   ]
 }

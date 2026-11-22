@@ -42,6 +42,8 @@ const rules=[
  [/^lib\/(?:reader-source[\w-]*|reader-verified-passages|reader-books|reader-contents|reader-legacy-catalog|reader-discovery-call|reader-suggestion-request|reader-suggestions|reader-theme-match|reader-discovery-themes)\.ts$|^lib\/reader-discovery-v1\.json$/,['books','discovery']],
  [/^lib\/(?:reader-intake|reader-story-brief|reader-requirements|reader-editorial|reader-art-recommendation)\.ts$/,['preparation']],
  [/^lib\/(?:reader-acceptance|reader-frame-recommendation|reader-review[\w-]*|reader-storyboard|reader-structure)\.ts$/,['review']],
+ // 制作 DAG 的配置与纯函数引擎服务调度、修订与审片。
+ [/^lib\/production-dag\/[\w-]+\.ts$/,['production','review']],
  [/^lib\/(?:reader-prompt-store|reader-repository|reader-recovery|reader-production|reader-reselection|reader-revision[\w-]*|reader-versions|production-[\w-]+|generation-progress)\.ts$/,['production','storage']],
  [/^lib\/(?:reader-image[\w-]*|reader-png|reader-pdf|reader-zip[\w-]*|story-export-runtime|story-publication|story-watermark|story-webp-metadata)\.ts$|^lib\/public-story-zip\.mjs$/,['media']],
  [/^lib\/(?:reader-production-client|shelf-generation)\.ts$/,['reader','production','discovery','preparation']],
