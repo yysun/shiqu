@@ -1,6 +1,7 @@
 // 制作 DAG 故事的修订保存：新版复制上一版的 dag 与图片，读者改动按手改记录，失效范围由引擎按输入推导。
 // 有需要重做的工作时新版进入「已保存，等待继续」（dag.continuation），只有「继续制作」清除；没有时保持原制作状态。
-// 本阶段只支持不改变幅数的文字与设置修改；删除、插入、重排与换图在后续阶段接入，提交时明确拒绝。
+// 支持文字修改、删除画幅、设置修改（含画风、幅数策略）与仅换图（可带重绘说明）。文字修改按上一版的输入记录为手改，
+// 再合入设置修改；保存会使手改失效时，读者须对每处手改选择「以手改为基础」或「放弃」，未选择时不保存。
 import {createHash} from 'node:crypto';
 import {ReaderError,selectionSchema,type Document,type SessionRow,type Selection} from '../lib/reader-model.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
@@ -13,12 +14,15 @@ import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {castFrom} from '../lib/production-dag/frames.ts';
 import {projectDocument,type DagDocument} from '../lib/production-dag/document.ts';
 import {settle,stateOf,work,type DagStory} from '../lib/production-dag/runner.ts';
+import {handEditChoices} from '../lib/production-dag/hand-edits.ts';
+import {verdictNodes} from '../lib/production-dag/review.ts';
+import {survivingRevisionFrames} from '../lib/reader-revision.ts';
 import {revisionBasis,familyEpoch,currentFamilyVersion} from './reader-revisions.ts';
 
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
-const unsupported:(keyof RevisionChanges)[]=['removedFrames','redrawPages','redrawNotes','length'];
+const frameNodes=['scene','visual','frameImage','landscape',...verdictNodes];
 
-/** 读者的设置修改合入选择；幅数策略改变须重新编排，本阶段不支持。 */
+/** 读者的设置修改合入选择；幅数策略改变由引擎重新编排。 */
 function nextSelection(selection:Selection,changes:RevisionChanges):Selection{
  return selectionSchema.parse({...selection,
   ...(changes.artStyle?{artStyle:changes.artStyle}:{}),
@@ -26,6 +30,7 @@ function nextSelection(selection:Selection,changes:RevisionChanges):Selection{
   ...(changes.productionPrompt!==undefined?{productionPrompt:changes.productionPrompt}:{}),
   ...(changes.acceptancePrompt!==undefined?{acceptancePrompt:changes.acceptancePrompt}:{}),
   ...(changes.narrativeDetail?{narrativeDetail:changes.narrativeDetail}:{}),
+  ...(changes.length!==undefined?{length:changes.length}:{}),
  });
 }
 
@@ -37,8 +42,16 @@ function applyEdits(story:DagStory,changes:RevisionChanges):DagDocument{
   if(!inst.hard)throw new ReaderError(409,'这篇故事的上游内容尚未完成，暂不能修改此处。');
   dag.products[instanceId(node,key)]={hash:fingerprint(content),inputs:inst.hard,...(inst.check&&Object.keys(inst.check).length?{checks:inst.check}:{}),handEdited:true};
  };
+ // 删除画幅：按原幅号移除，其产物一并删除；其余画幅保留身份。
+ if(changes.removedFrames){
+  const survivors=survivingRevisionFrames(dag.order.length,changes.removedFrames);
+  if(!changes.plan||!survivors.length||survivors.length!==changes.plan.pages.length||changes.removedFrames.some(p=>p>dag.order.length))throw new ReaderError(400,'删除幅号和修改后的分镜数量必须一致，故事至少保留一幅。');
+  const removed=changes.removedFrames.map(p=>dag.order[p-1]);
+  dag.order=dag.order.filter(id=>!removed.includes(id));
+  for(const id of removed){delete dag.frames[id];for(const node of frameNodes)delete dag.products[instanceId(node,id)];}
+ }
  if(changes.plan){
-  if(changes.plan.pages.length!==dag.order.length)throw new ReaderError(409,'增删画幅将在后续版本支持，请只修改各幅文字。');
+  if(changes.plan.pages.length!==dag.order.length)throw new ReaderError(400,'减幅时请提供原稿中删除的幅号。');
   changes.plan.pages.forEach((page,i)=>{
    const id=dag.order[i],frame=dag.frames[id];
    if(page.caption!==frame.scene){
@@ -71,15 +84,44 @@ async function copyImages(media:MediaStore,parentId:string,childId:string,dag:Da
  }
 }
 
+/** 仅换图：选中画幅删除旧图与产物，重绘说明作为该幅绘图输入；其余内容与结论不变。 */
+function applyRedraw(dag:DagDocument,changes:RevisionChanges){
+ for(const page of changes.redrawPages??[]){
+  const id=dag.order[page-1];if(!id)throw new ReaderError(400,'重绘页码必须属于已保存的完整分镜。');
+  const frame=dag.frames[id],note=changes.redrawNotes?.[String(page)];
+  if(note)frame.redrawNote=note;else delete frame.redrawNote;
+  delete frame.image;delete dag.products[instanceId('frameImage',id)];
+ }
+}
+
+/** 保存会使手改失效时按读者选择处理：以手改为基础则保留内容、改由修订或转换在其上生成；放弃则删除。 */
+function settleHandEdits(story:DagStory,decisions:RevisionChanges['handEdits']):DagDocument{
+ const state=stateOf(story),choices=handEditChoices(state,state);
+ const missing=choices.filter(c=>!decisions?.[c.id]);
+ if(missing.length)throw new ReaderError(409,`这次修改会使 ${missing.length} 处手改失效，请对每处选择以手改为基础或放弃：${missing.map(c=>c.id).join('、')}`);
+ const dag=structuredClone(story.dag);
+ for(const choice of choices){
+  const decision=decisions![choice.id]!;
+  if(!choice.options.includes(decision))throw new ReaderError(400,`${choice.id} 只能放弃手改或取消保存。`);
+  if(decision==='discard')delete dag.products[choice.id];
+  else dag.products[choice.id]={...dag.products[choice.id],handEdited:undefined};
+ }
+ return dag;
+}
+
 export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string):Promise<SessionRow>{
- if(unsupported.some(key=>changes[key]!==undefined))throw new ReaderError(409,'这项修改将在后续版本支持。');
  const {doc,rootId,epoch,token:current}=await revisionBasis(repo,row);
+ if(changes.redrawPages&&(row.state!=='completed'||Object.keys(changes).some(key=>!['redrawPages','redrawNotes'].includes(key))))throw new ReaderError(409,'仅换图需要已完成的故事，且不能同时修改文字或设置。');
+ if(changes.redrawNotes&&Object.keys(changes.redrawNotes).some(page=>!changes.redrawPages?.includes(Number(page))))throw new ReaderError(400,'重绘说明只能用于本次选中的画幅。');
  if(current!==token)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
  const selection=nextSelection(selectionSchema.parse(JSON.parse(row.selection)),changes);
  const reviewNotes=(changes.reviewNotes!==undefined?changes.reviewNotes:doc.reviewNotes)?.trim()||undefined;
  const parent:DagStory={id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag!,confirmed:true,faults:[]};
- const child:DagStory={...parent,id:requestId,selection,doc:{...doc,reviewNotes}};
- child.dag=applyEdits(child,changes);
+ // 文字修改按上一版的输入记录为手改，再合入设置修改，由引擎判断哪些产物失效。
+ const edited=applyEdits(parent,changes);
+ applyRedraw(edited,changes);
+ const child:DagStory={...parent,id:requestId,selection,doc:{...doc,reviewNotes},dag:edited};
+ child.dag=settleHandEdits(child,changes.handEdits);
  await copyImages(media,row.id,requestId,child.dag);
  // 新修订重新开始自动修订额度，审片问题与建议不带入新版。
  child.dag={...child.dag,repairs:undefined,issues:[],suggestions:[]};

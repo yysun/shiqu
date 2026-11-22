@@ -607,6 +607,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(row.generation_control!=='active')return false;
    if(this.stopping||!(await this.demands(row.id)).some(d=>job.pool==='text'||(JSON.parse(job.payload) as {page:number}).page<=d.through_page))return false;
    if(await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first())return false;
+   // DAG 任务不持有会话锁，结果以文档内容比较并交换保存；故障只阻断依赖它的工作，由调度时的引擎状态决定，不在这里冻结整篇。
+   if(job.kind===dagTextKind||job.kind===dagDrawKind)return true;
    const jobs=await this.currentJobs(row,(await this.database.prepare("SELECT * FROM production_jobs WHERE session_id=? AND owner_id=? AND (state='failed' OR kind='image-publish' AND state='running')").bind(row.id,row.user_id).all<ProductionJob>()).results);
    const faults=await this.faults(row),authorized=faults.some(fault=>fault.state==='recovering'&&(fault.command_id!==null&&fault.command_id===job.recovery_id||fault.kind==='interrupted'&&fault.job_id===job.id));
    if((faults.length||jobs.some(job=>job.state==='failed')||row.state==='failed')&&!authorized)return false;
@@ -615,8 +617,6 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(job.kind==='image'&&jobs.some(job=>job.kind==='image-publish'&&job.state==='running'))return false;
    if(job.kind==='image'&&job.priority>productionReadAhead&&await this.viewedPublicationPending())return false;
   }
-  // DAG 任务不持有会话锁：结果以文档内容比较并交换保存。
-  if(job.kind===dagTextKind||job.kind===dagDrawKind)return true;
   if(job.pool==='text')return row.state!=='running'||row.lock_until<=this.clock();
   const doc=JSON.parse(row.document) as Document;
   if(!doc.plan||!doc.original||!reviewPassed(doc)||doc.revision?.restyle)return false;

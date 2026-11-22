@@ -28,7 +28,7 @@ export async function productionFixture(t,provider='codex',variables={},storage=
   const payload=JSON.parse(prompt);
   // 制作 DAG 按调用契约拆分的调用；dagCalls 记录调用名称，供场景测试计数。
   const dag=name=>{control.dagCalls.push(name);return control.beforeText?.(name,payload,schema);};
-  if(schema.properties.summary&&!schema.properties.beats&&!schema.properties.title)return await dag('brief')??{summary:'庄周梦见自己化为蝴蝶，醒来后思索自己与蝴蝶的分别。'};
+  if(schema.properties.summary&&!schema.properties.beats&&!schema.properties.title&&!payload.storyboardPages)return await dag('brief')??{summary:'庄周梦见自己化为蝴蝶，醒来后思索自己与蝴蝶的分别。'};
   if(schema.properties.characters?.type==='array'&&!schema.properties.beats)return await dag('characters')??{characters:[{name:'庄周',aliases:['庄子'],text:'战国时宋国蒙人，清瘦，布衣束发，神情安闲。'}]};
   if(schema.properties.items&&payload.items)return await dag('registerItems')??{items:payload.items.map(i=>({index:i.index,scope:'story',evidence:['scenes']}))};
   if(schema.properties.beats&&!schema.properties.characters&&!schema.properties.reflection){const {title,summary,sourceReference,adaptationNote,pages}=makePlan(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount);return await dag('outline')??{title,summary,sourceReference,adaptationNote,beats:pages.map((_,i)=>`第 ${i+1} 幅的关键事件与动作`)};}

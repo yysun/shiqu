@@ -13,6 +13,7 @@ import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {projectDocument,type DagDocument} from '../lib/production-dag/document.ts';
 import {settle,work,apply,stale,finished,type DagStory,type Work} from '../lib/production-dag/runner.ts';
+import type {Fault} from '../lib/production-dag/engine.ts';
 import {executeWork} from './dag-executor.ts';
 import {BookImageReferences} from './book-image-reference.ts';
 import type {ProductionJob,ProductionQueue,JobSpec} from './production-queue.ts';
@@ -36,7 +37,17 @@ export class DagProduction{
   if(!doc.dag)return null;
   const selection=selectionSchema.parse(JSON.parse(row.selection));
   const refSource=await new BookImageReferences(this.deps.database,this.deps.media,row.user_id).resolve(row.id,'').catch(()=>'');
-  return {id:row.id,doc,selection,dag:doc.dag,confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:[],...(refSource?{refSource}:{})};
+  return {id:row.id,doc,selection,dag:doc.dag,confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:await this.faults(row),...(refSource?{refSource}:{})};
+ }
+
+ /**
+  * 待处理的故障按失败任务记录的工作归属到节点实例，只阻断这些实例及依赖它们的工作。
+  * 恢复中的故障不阻断：读者授权的恢复任务与同输入的新工作身份相同，不会重复派发。
+  */
+ private async faults(row:SessionRow):Promise<Fault[]>{
+  const rows=(await this.deps.database.prepare(`SELECT f.id,j.payload FROM reader_faults f JOIN production_jobs j ON j.id=f.job_id AND j.session_id=f.session_id AND j.owner_id=f.owner_id
+   WHERE f.session_id=? AND f.owner_id=? AND f.state='pending' AND j.kind IN ('${dagTextKind}','${dagDrawKind}')`).bind(row.id,row.user_id).all<{id:string;payload:string}>()).results;
+  return rows.flatMap(f=>(JSON.parse(f.payload) as {work:Work}).work.instances.map(i=>({id:f.id,node:i.node,key:i.key,state:'pending' as const})));
  }
 
  /** 保存新的 dag 与投影：以读取时的文档为条件，冲突返回 false。 */
