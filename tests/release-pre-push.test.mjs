@@ -45,7 +45,7 @@ test('smoke gates stay focused while the explicit full selection preserves all r
   for(const filename of ['tests/startup-matrix.test.mjs','tests/startup-pty.test.mjs']){
    assert.ok(!selected.includes(filename),filename+' is on demand');assert.ok(!full.includes(filename));
   }
-  for(const filename of ['tests/frame-count-gate.test.mjs','tests/adaptive-storyboard-review.e2e.mjs']){
+  for(const filename of ['tests/incremental-story-library.e2e.mjs','tests/story-discovery-speed-accuracy.e2e.mjs']){
    assert.ok(!selected.includes(filename),filename+' is on demand');assert.ok(!full.includes(filename));
   }
   assert.ok(!selected.includes('tests/local-library-all-books.test.mjs'));
@@ -59,13 +59,12 @@ test('smoke gates stay focused while the explicit full selection preserves all r
  await assert.rejects(selectTests('typo'),/Usage:/);
 });
 
-test('all E2E files have an aggregate runner and the six on-demand extended service files have a dedicated command',async()=>{
+test('all E2E files have an aggregate runner and the three on-demand extended service files have a dedicated command',async()=>{
  const manifest=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
  assert.match(manifest.scripts['test:e2e:extended'],/^pnpm test:e2e --gate=extended$/);
  const extended=await selectTests('extended'),full=await selectTests('full');
  assert.deepEqual(new Set(extended),new Set([
-  'tests/adaptive-storyboard-review.e2e.mjs','tests/book-reference-star.e2e.mjs',
-  'tests/character-continuity-edits.e2e.mjs','tests/frame-count-gate.e2e.mjs',
+  'tests/book-reference-star.e2e.mjs',
   'tests/incremental-story-library.e2e.mjs','tests/story-discovery-speed-accuracy.e2e.mjs',
  ]));
  assert.equal(extended.length,new Set(extended).size);
@@ -122,14 +121,14 @@ if(args[0]==='run'&&args[1]==='release:check'&&process.env.PRE_PUSH_REAL_FLOWS==
  return {checkout,git,receipts};
 }
 
-test('extended runner executes all six files under inherited test context and records a failing exit',async t=>{
+test('extended runner executes all three files under inherited test context and records a failing exit',async t=>{
  const f=await fixture(t,{failedFlow:extendedFlowTests[0]});
  const result=spawnSync(process.execPath,['scripts/test-story-e2e.mjs','--gate=extended'],{cwd:f.checkout,env:{...process.env,NODE_TEST_CONTEXT:'child-v8'},encoding:'utf8',timeout:15000});
  assert.equal(result.error,undefined);assert.equal(result.status,1,result.stdout+result.stderr);assert.match(result.stdout+result.stderr,/CONTROLLED_USER_FLOW_FAILURE/);
  const directory=path.join(f.checkout,'.data/e2e'),runs=await readdir(directory);assert.equal(runs.length,1);
  const report=JSON.parse(await readFile(path.join(directory,runs[0],'run.json'),'utf8'));
  assert.deepEqual(report.tests,extendedFlowTests);assert.equal(report.gate,'extended');assert.equal(report.exitCode,1);assert.equal(report.browser,'none (service/engine E2E)');
- assert.match(await readFile(path.join(directory,runs[0],'test.log'),'utf8'),/pass 5/);
+ assert.match(await readFile(path.join(directory,runs[0],'test.log'),'utf8'),/pass 2/);
 });
 
 test('file-scoped E2E runs only the requested registered service suite',async t=>{

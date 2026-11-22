@@ -211,7 +211,9 @@
         "tests/fixtures/production-data.mjs",
         "tests/fixtures/production-dag-story.mjs",
         "lib/production-dag/document.ts",
-        "lib/reader-image-assets.ts"
+        "lib/reader-image-assets.ts",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/book-reference.mjs"
       ],
       "modelRelated": true,
       "manualOnly": true
@@ -1820,7 +1822,10 @@
         "tests/fixtures/book-library.mjs",
         "tests/fixtures/historical-library.mjs",
         "tests/fixtures/story.mjs",
-        "tests/fixtures/production.mjs"
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/production-data.mjs",
+        "tests/fixtures/images.mjs"
       ],
       "manualOnly": true,
       "requiresLoopback": true
@@ -2034,7 +2039,9 @@
         "tests/fixtures/production-data.mjs",
         "tests/fixtures/production-dag-story.mjs",
         "lib/production-dag/document.ts",
-        "lib/reader-image-assets.ts"
+        "lib/reader-image-assets.ts",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/book-reference.mjs"
       ],
       "modelRelated": true,
       "manualOnly": true
@@ -2551,7 +2558,9 @@
         "tests/fixtures/production-data.mjs",
         "tests/fixtures/production-dag-story.mjs",
         "lib/production-dag/document.ts",
-        "lib/reader-image-assets.ts"
+        "lib/reader-image-assets.ts",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/book-reference.mjs"
       ],
       "modelRelated": true,
       "manualOnly": true
@@ -3068,7 +3077,8 @@
         "server/app.ts",
         "lib/reader-api.ts",
         "server/local-books.ts",
-        "server/local-story-search.ts"
+        "server/local-story-search.ts",
+        "lib/reader-local-contract.ts"
       ]
     },
     {
@@ -3157,7 +3167,9 @@
         "tests/fixtures/production-data.mjs",
         "tests/fixtures/production-dag-story.mjs",
         "lib/production-dag/document.ts",
-        "lib/reader-image-assets.ts"
+        "lib/reader-image-assets.ts",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/book-reference.mjs"
       ],
       "modelRelated": true,
       "manualOnly": true
@@ -3372,7 +3384,9 @@
         "tests/fixtures/production-data.mjs",
         "tests/fixtures/production-dag-story.mjs",
         "lib/production-dag/document.ts",
-        "lib/reader-image-assets.ts"
+        "lib/reader-image-assets.ts",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/book-reference.mjs"
       ],
       "modelRelated": true,
       "manualOnly": true
@@ -3524,7 +3538,8 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/production-data.mjs"
+        "tests/fixtures/production-data.mjs",
+        "server/local-books.ts"
       ],
       "modelRelated": true,
       "manualOnly": true
@@ -3603,7 +3618,9 @@
         "tests/fixtures/production-data.mjs",
         "tests/fixtures/production-dag-story.mjs",
         "lib/production-dag/document.ts",
-        "lib/reader-image-assets.ts"
+        "lib/reader-image-assets.ts",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/book-reference.mjs"
       ],
       "modelRelated": true,
       "manualOnly": true
@@ -3633,7 +3650,9 @@
         "tests/fixtures/production-data.mjs",
         "tests/fixtures/production-dag-story.mjs",
         "lib/production-dag/document.ts",
-        "lib/reader-image-assets.ts"
+        "lib/reader-image-assets.ts",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/book-reference.mjs"
       ],
       "modelRelated": true,
       "manualOnly": true
@@ -3665,7 +3684,9 @@
         "tests/fixtures/production-data.mjs",
         "tests/fixtures/production-dag-story.mjs",
         "lib/production-dag/document.ts",
-        "lib/reader-image-assets.ts"
+        "lib/reader-image-assets.ts",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/book-reference.mjs"
       ],
       "modelRelated": true,
       "manualOnly": true
@@ -3692,7 +3713,9 @@
         "tests/fixtures/production-data.mjs",
         "tests/fixtures/production-dag-story.mjs",
         "lib/production-dag/document.ts",
-        "lib/reader-image-assets.ts"
+        "lib/reader-image-assets.ts",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/book-reference.mjs"
       ],
       "modelRelated": true,
       "manualOnly": true
@@ -4236,7 +4259,9 @@
         "lib/production-dag/copy.ts",
         "lib/production-dag/progress.ts",
         "server/provider-snapshot.ts",
-        "server/app.ts"
+        "server/app.ts",
+        "lib/production-dag/document.ts",
+        "lib/reader-image-assets.ts"
       ]
     },
     {
@@ -4401,15 +4426,15 @@
       "gates": [],
       "covers": [
         "server/provider-snapshot.ts",
-        "server/provider-runtime.ts"
+        "server/provider-runtime.ts",
+        "server/media.ts"
       ]
     },
     {
       "file": "tests/production-dag-migration.test.mjs",
       "groups": [
         "production",
-        "storage",
-        "startup"
+        "storage"
       ],
       "level": "integration",
       "cost": "standard",
@@ -4426,7 +4451,10 @@
         "server/database-migrations.ts",
         "lib/production-dag/convert.ts",
         "tests/fixtures/historical-library.mjs",
-        "tests/fixtures/production-data.mjs"
+        "tests/fixtures/production-data.mjs",
+        "lib/reader-model.ts",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/story.mjs"
       ]
     }
   ]

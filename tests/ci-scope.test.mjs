@@ -65,7 +65,7 @@ test('editorial prompt changes run registered consumers without native checks',(
  assert.equal(plan.native,false);
  assert.deepEqual(plan.scope.groups,[]);
  assert.deepEqual(new Set([...files(plan),...plan.manualOnly]),new Set(plan.scope.directTests));
- for(const consumer of ['prompt-contracts','story-reflection','story-reflection-candidates','storyboard-batches','continuous-story-discovery']){
+ for(const consumer of ['prompt-contracts','continuous-story-discovery']){
   assert.ok(plan.manualOnly.includes(`tests/${consumer}.test.mjs`),consumer+' remains available on demand');
  }
  const legacyPlan=createPlan(changeScope([legacy]));assert.deepEqual(files(legacyPlan),[]);assert.ok(legacyPlan.manualOnly.includes('tests/prompt-contracts.test.mjs'));

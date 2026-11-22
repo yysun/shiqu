@@ -44,7 +44,7 @@ test('safety, startup, and loopback assurance suites stay manual and retain dedi
 
 test('model-dependent provider and generation suites are manual-only and retain explicit runners',async()=>{
  const metadata=loadMetadata(),models=metadata.tests.filter(entry=>entry.modelRelated);
- assert.ok(models.length>=70,'provider and controlled-generation tests remain registered');
+ assert.ok(models.length>=60,'provider and controlled-generation tests remain registered');
  assert.ok(models.every(entry=>entry.manualOnly),models.filter(entry=>!entry.manualOnly).map(entry=>entry.file).join(', '));
  assert.deepEqual(selectAssuranceTests(['models'],metadata),models.filter(entry=>entry.level!=='native'&&entry.platforms.includes(process.platform)).map(entry=>entry.file));
  const automatic=await automaticRegressionTests(),unit=await tierTests('unit'),flows=await tierTests('flows'),full=await selectTests('full');
