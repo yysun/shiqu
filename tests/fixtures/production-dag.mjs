@@ -1,9 +1,9 @@
 // 制作 DAG 引擎测试的替身生成器：反复取可运行实例、按调用分组产出产物，并记录调用次数。
 // 只模拟模型产出，执行门槛、失效与复用全部来自正式引擎，测试据此按规范场景编号断言。
-import {evaluate,runnable,instanceId} from '../../lib/production-dag/engine.ts';
-import {nodeSpec,calls} from '../../lib/production-dag/registry.ts';
+import {evaluate,instanceId} from '../../lib/production-dag/engine.ts';
+import {callGroups} from '../../lib/production-dag/schedule.ts';
 import {fingerprint} from '../../lib/production-dag/fingerprint.ts';
-import {reviewStage,acknowledgedChecks} from '../../lib/production-dag/review.ts';
+import {acknowledgedChecks} from '../../lib/production-dag/review.ts';
 
 let counter=0;
 export const root=(value,parts)=>({hash:fingerprint(value),inputs:{},...(parts?{parts}:{})});
@@ -26,32 +26,19 @@ export function story({frames=8,items=[],cast={}}={}){
 /**
  * 运行到没有可运行实例。options.review(id) 返回 'pass'|'fail'；options.register(key) 返回登记；
  * options.ending() 返回叙事结论选定的结语。
- * 返回每次调用的记录 {call,ids}；叙事分镜每批最多 20 幅，审片每阶段一次。
+ * 返回每次调用的记录 {call,ids}；分组与批量上限来自正式调度分组 callGroups。
  */
 export function run(state,options={}){
  const log=[];
  for(let round=0;round<200;round++){
-  const ready=runnable(state);
-  if(!ready.length)return log;
-  const groups=new Map();
-  for(const inst of ready){
-   const spec=nodeSpec(inst.node);
-   const call=spec.call==='review'?`review#${reviewStage(state,inst)}`:spec.call;
-   if(!groups.has(call))groups.set(call,[]);
-   groups.get(call).push(inst);
-  }
-  // 第二阶段审片须等第一阶段本轮完成。
-  if(groups.has('review#1'))groups.delete('review#2');
-  for(const [call,insts] of groups){
-   // 有批量上限的调用按上限分批；审片每阶段一次；其余调用逐实例执行。
-   const size=calls[call.split('#')[0]]?.batch||(call.startsWith('review')?insts.length:1);
-   for(let i=0;i<insts.length;i+=size){
-    const batch=insts.slice(i,i+size);
-    log.push({call,ids:batch.map(x=>x.id)});
-    for(const inst of batch)state.products[inst.id]=produce(state,inst,options);
-   }
-   if(call==='review#1'||call==='review#2'){
-    const passed=insts.map(x=>x.id).filter(id=>state.products[id].outcome==='pass');
+  const groups=callGroups(state);
+  if(!groups.length)return log;
+  for(const {call,stage,instances} of groups){
+   const name=stage?`${call}#${stage}`:call;
+   log.push({call:name,ids:instances.map(x=>x.id)});
+   for(const inst of instances)state.products[inst.id]=produce(state,inst,options);
+   if(stage){
+    const passed=instances.map(x=>x.id).filter(id=>state.products[id].outcome==='pass');
     for(const {id,checks} of acknowledgedChecks(state,passed))state.products[id]={...state.products[id],checks};
    }
   }
@@ -84,4 +71,6 @@ export function redraw(state,key){
 }
 
 export const count=(log,call)=>log.filter(l=>l.call===call||l.call.startsWith(call+'#')).length;
+/** 某调用产出的实例总数（批量调用一次可产出多幅）。 */
+export const produced=(log,call)=>log.filter(l=>l.call===call||l.call.startsWith(call+'#')).reduce((n,l)=>n+l.ids.length,0);
 export const clone=state=>structuredClone(state);

@@ -23,17 +23,39 @@ test('outline, characters and storyboard text never see the style; image descrip
   if(schema.properties.beats)return {title:'管鲍之交',summary:'梗概',sourceReference:'史记',adaptationNote:'按原文',beats:['少时同游','鲍叔知贤']};
   if(schema.properties.characters)return {characters:[{name:'管仲',aliases:['夷吾'],text:'齐国人，青年时清贫。'}]};
   if(schema.properties.pages)return {pages:payload.batch?[{caption:'管仲与鲍叔牙少时同游。',people:['管仲','鲍叔']},{caption:'鲍叔深知管仲之贤。',people:['鲍叔']}]:[]};
-  return {prompt:'两位少年并肩走在乡间小路上，中景，晨光从左侧照来，远处是低矮的土墙与柳树。',drawn:['管仲','鲍叔牙']};
+  return {frames:payload.frames.map(f=>({number:f.number,prompt:'两位少年并肩走在乡间小路上，中景，晨光从左侧照来，远处是低矮的土墙与柳树。',drawn:['管仲','鲍叔牙']}))};
  });
  await gen.outline({source,productionPrompt:REQ,settings:{narrativeDetail:'balanced',length:2}});
  await gen.characters({source,productionPrompt:REQ});
  const scenes=await gen.sceneBatch({source,outline,productionPrompt:REQ,first:1,previous:[],characters:people});
  // 第二幅配文提到管仲，因此两人都是候选人物。
  assert.deepEqual(scenes.value.map(s=>s.candidates),[['c1','c2'],['c1','c2']]);
- const visual=await gen.visual({outline,index:0,productionPrompt:REQ,style,caption:'管仲与鲍叔牙少时同游。',candidates:people,all:people});
- assert.deepEqual(visual.value.drawn,['c1','c2']);
+ const visual=await gen.visual({outline,productionPrompt:REQ,style,frames:[{index:0,caption:'管仲与鲍叔牙少时同游。',candidates:people}],all:people});
+ assert.deepEqual(visual.value[0].drawn,['c1','c2']);
  for(const c of calls.slice(0,3)){without(c.text,STYLE);contains(c.text,REQ);}
  contains(calls[3].text,STYLE,REQ);
+});
+
+test('batched frame calls return one result per frame, matched by frame number; a missing frame fails the batch',async()=>{
+ const reply=(schema,payload)=>schema.properties.frames.items.properties.caption
+  ?{frames:[...payload.frames].reverse().map(f=>({number:f.number,caption:`第${f.number}幅修订后的配文。`,people:['鲍叔']}))}
+  :{frames:[...payload.frames].reverse().map(f=>({number:f.number,prompt:`第${f.number}幅：两位少年并肩走在乡间小路上，中景，晨光从左侧照来。`,drawn:f.number===1?['管仲','鲍叔牙']:['鲍叔']}))};
+ const {calls,gen}=recorder(reply);
+ const frames=[{index:0,caption:'管仲与鲍叔牙少时同游。',candidates:people},{index:1,caption:'鲍叔深知管仲之贤。',candidates:[people[1]]}];
+ const visual=await gen.visual({outline,productionPrompt:REQ,style,frames,all:people});
+ assert.deepEqual(visual.value.map(v=>v.drawn),[['c1','c2'],['c2']]);
+ assert.ok(visual.value[0].prompt.startsWith('第1幅'));
+ const issues=[{page:1,category:'progression',problem:'动作不清',instruction:'补足动作',requiresReplan:false}];
+ const repaired=await gen.visualRepair({outline,productionPrompt:REQ,style,frames:frames.map(f=>({...f,prompt:VISUAL,drawn:f.candidates,issues})),notes:NOTES,all:people});
+ assert.deepEqual(repaired.value.map(v=>v.prompt.slice(0,3)),['第1幅','第2幅']);
+ const scenes=await gen.sceneRepair({source,outline,productionPrompt:REQ,frames:frames.map(f=>({index:f.index,caption:f.caption,neighbors:{},issues})),characters:people});
+ assert.deepEqual(scenes.value.map(s=>s.caption),['第1幅修订后的配文。','第2幅修订后的配文。']);
+ // 画面描述与画面修订读画风；叙事修订不读画风与画面描述。
+ contains(calls[0].text,STYLE,REQ);contains(calls[1].text,STYLE,VISUAL,NOTES);
+ without(calls[2].text,STYLE,VISUAL);
+ await assert.rejects(gen.visual({outline,productionPrompt:REQ,style,frames:[],all:people}),/PLAN_LENGTH/);
+ const short=recorder(()=>({frames:[{number:1,prompt:'两位少年并肩走在乡间小路上，中景，晨光从左侧照来。',drawn:[]},{number:1,prompt:'两位少年并肩走在乡间小路上，中景，晨光从左侧照来。',drawn:[]}]}));
+ await assert.rejects(short.gen.visual({outline,productionPrompt:REQ,style,frames,all:people}),/INVALID_OUTPUT/);
 });
 
 test('the summary reads only the source; endings read captions but not requirements or image descriptions',async()=>{

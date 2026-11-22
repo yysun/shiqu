@@ -4440,6 +4440,7 @@
         "lib/production-dag/faults.ts",
         "lib/production-dag/hand-edits.ts",
         "lib/production-dag/frames.ts",
+        "lib/production-dag/schedule.ts",
         "tests/fixtures/production-dag.mjs"
       ]
     },
@@ -4467,6 +4468,7 @@
         "lib/production-dag/faults.ts",
         "lib/production-dag/hand-edits.ts",
         "lib/production-dag/frames.ts",
+        "lib/production-dag/schedule.ts",
         "tests/fixtures/production-dag.mjs"
       ]
     },
@@ -4494,6 +4496,7 @@
         "lib/production-dag/faults.ts",
         "lib/production-dag/hand-edits.ts",
         "lib/production-dag/frames.ts",
+        "lib/production-dag/schedule.ts",
         "tests/fixtures/production-dag.mjs"
       ]
     },
@@ -4521,6 +4524,7 @@
         "lib/production-dag/faults.ts",
         "lib/production-dag/hand-edits.ts",
         "lib/production-dag/frames.ts",
+        "lib/production-dag/schedule.ts",
         "tests/fixtures/production-dag.mjs"
       ]
     },
@@ -4551,6 +4555,7 @@
         "lib/production-dag/frames.ts",
         "lib/production-dag/document.ts",
         "lib/production-dag/convert.ts",
+        "lib/production-dag/schedule.ts",
         "tests/fixtures/production-dag.mjs"
       ]
     },

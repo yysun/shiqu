@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {evaluate,complete,preview,reusable,runnable,instanceId} from '../lib/production-dag/engine.ts';
 import {applyStructure,castFrom} from '../lib/production-dag/frames.ts';
-import {story,run,handEdit,redraw,count,clone,root} from './fixtures/production-dag.mjs';
+import {story,run,handEdit,redraw,count,produced,clone,root} from './fixtures/production-dag.mjs';
 
 const done=(options={})=>{const s=story(options);run(s);return s;};
 
@@ -13,6 +13,22 @@ test('a confirmed story runs to completion and then has no runnable work',()=>{
  assert.equal(runnable(s).length,0);
  assert.equal(count(log,'sceneBatch'),1);
  assert.equal(count(log,'draw'),8);
+});
+
+test('per-frame and per-item calls run in batches: a 24-frame story makes one call per 20 frames',()=>{
+ const s=story({frames:24,items:[{id:'i1',text:'结尾才揭示身份'},{id:'i2',text:'每幅都有动作'}]});
+ const log=run(s);
+ assert.ok(complete(s));
+ for(const [call,calls,instances] of [['characters',1,1],['outline',1,1],['sceneBatch',2,24],['visual',2,24],['registerItems',1,2],['draw',24,24]]){
+  assert.equal(count(log,call),calls,call);
+  assert.equal(produced(log,call),instances,call);
+ }
+ // 批次按画幅顺序切分。
+ assert.deepEqual(log.filter(l=>l.call==='visual').map(l=>[l.ids[0],l.ids.length]),[['visual:f1',20],['visual:f21',4]]);
+ // 只缺一幅画面描述时只为该幅调用一次。
+ delete s.products['visual:f7'];
+ const again=run(s);
+ assert.deepEqual(again.filter(l=>l.call==='visual').map(l=>l.ids),[['visual:f7']]);
 });
 
 test('nothing runs before confirmation except preparation',()=>{
@@ -94,7 +110,8 @@ test('scenario 34: merge keeps the first identity; split keeps the original on t
 test('scenario 40: restyled image descriptions are valid immediately with the new style',()=>{
  const s=done();s.products['style:']=root('watercolor');
  const log=run(s);
- assert.equal(count(log,'visual'),8);
+ assert.equal(produced(log,'visual'),8);
+ assert.equal(count(log,'visual'),1);
  assert.equal(count(log,'sceneBatch'),0);
  assert.equal(count(log,'outline'),0);
  assert.equal(count(log,'draw'),8);

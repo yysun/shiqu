@@ -1,6 +1,6 @@
 // 按调用契约实现的生成调用：每个方法只接收契约所列输入的类型化参数，提示词由这些参数拼装。
 // 指令文字复用正式流程的标准（编排、配文、画面、审片、修订），不另写一套；载荷按契约各自构造，
-// 例如叙事分镜与提纲不含画风，结语与幅数核对只读配文。审片是唯一的批量调用，允许清单外的判断记为建议。
+// 例如叙事分镜与提纲不含画风，结语与幅数核对只读配文。叙事分镜与画面描述按批调用，每幅结果仍按本幅输入记录；审片允许清单外的判断记为建议。
 import {z} from 'zod';
 import type {Generated} from '../reader-engine.ts';
 import type {OriginalSource} from '../reader-source-types.ts';
@@ -16,7 +16,7 @@ import {validateEditorialCoverage} from '../reader-editorial.ts';
 import {storySummaryDirection} from '../reader-story-brief.ts';
 import {localPlanConstraint} from '../reader-local-contract.ts';
 import {acceptanceCriteria} from '../reader-acceptance.ts';
-import {readerMinFrames,readerMaxFrames,readerStoryboardBatchSize} from '../reader-limits.ts';
+import {readerMinFrames,readerMaxFrames,readerStoryboardBatchSize,readerRestyleBatchSize} from '../reader-limits.ts';
 import {castFrom,type CharacterEntry} from './frames.ts';
 import {fingerprint} from './fingerprint.ts';
 import type {Evidence} from './registry.ts';
@@ -49,6 +49,31 @@ const withoutSummary=({summary:_,...rest}:Outline)=>{void _;return rest;};
 const outlineSchema=z.object({title:z.string().min(1).max(40),summary:z.string().trim().min(1).max(1200),sourceReference:z.string().min(1).max(150),adaptationNote:z.string().min(1).max(600),beats:z.array(z.string().min(1).max(180)).min(readerMinFrames).max(readerMaxFrames)}).strict();
 const captionSchema=z.string().min(8).max(90);
 const promptSchema=z.string().min(20).max(1800);
+/** 逐幅调用每批最多幅数，与叙事分镜批次一致；登记表 calls 的 batch 引用同一上限。 */
+export const frameBatchSize=readerStoryboardBatchSize;
+type VisualFrame={index:number;caption:string;candidates:Character[]};
+const cardDirection='characters 是可能入画人物的设定，只用于辨认身份与外貌；每幅 candidates 列出该幅可能入画的人物名字；drawn 列出该幅画面中实际出现的人物名字。';
+const frameBatchDirection='frames 每幅返回一条，number 与输入一致。每幅只依据该幅的输入，不写「同上」「承前幅」等依赖其他幅的说法；同批其他幅只作衔接参考。';
+function checkBatch(frames:unknown[],limit=frameBatchSize){if(frames.length<1||frames.length>limit)throw Error('PLAN_LENGTH');}
+const frameRef=(outline:Outline,f:{index:number})=>({number:f.index+1,beat:outline.beats[f.index]});
+/** 同批各幅候选人物设定去重后列一次。 */
+function cardsOf(frames:{candidates:Character[]}[]){
+ const cards=new Map<string,Character>();
+ for(const f of frames)for(const c of f.candidates)cards.set(c.id,c);
+ return [...cards.values()].map(characterCard);
+}
+/** 按幅号取回批次结果：每幅恰好一条，顺序不限。 */
+function byFrame<T extends {number:number}>(rows:T[],frames:{index:number}[]):T[]{
+ const map=new Map(rows.map(r=>[r.number,r]));
+ if(map.size!==frames.length||frames.some(f=>!map.has(f.index+1)))throw Error('INVALID_OUTPUT');
+ return frames.map(f=>map.get(f.index+1)!);
+}
+const visualRows=(count:number,outline:Outline)=>obj({frames:{type:'array',minItems:count,maxItems:count,items:obj({number:{type:'integer',minimum:1,maximum:outline.beats.length},prompt:str(20,1800),drawn:names})}});
+const visualTokens=(frames:unknown[])=>Math.max(4096,frames.length*1200);
+function parseVisuals(value:unknown,frames:{index:number}[],all:CharacterEntry[]):Visual[]{
+ const rows=z.object({frames:z.array(z.object({number:z.number().int(),prompt:promptSchema,drawn:z.array(z.string().max(40)).max(16)}).strict()).length(frames.length)}).strict().parse(value).frames;
+ return byFrame(rows,frames).map(r=>visualValue({prompt:r.prompt,drawn:r.drawn},all));
+}
 
 export function dagGenerator(call:Call){
  return {
@@ -93,36 +118,48 @@ export function dagGenerator(call:Call){
    return {...result,value:pages.map(p=>({caption:p.caption,candidates:castFrom([p.caption,...p.people].join(' '),input.characters||[])}))};
   },
 
-  /** 画面描述：每幅单独调用，读提纲、制作要求、画风、本幅配文与候选人物设定。 */
-  async visual(input:{outline:Outline;index:number;productionPrompt:string;theme?:string;style:StyleInput;caption:string;candidates:Character[];all:CharacterEntry[]}):Promise<Generated<Visual>>{
-   const instructions=promptSections(['任务','你是古典连环画分镜导演，本次只为一幅撰写画面指令。'],['静态画面与衔接',storyboardDirection],['画面指令',storyVisualDirection],['画风',storyStyleBoundaryDirection],['人物','candidateCharacters 是本幅可能入画人物的设定，只用于辨认身份与外貌；drawn 列出画面中实际出现的人物名字。'],['输入与输出',inputBoundaryDirection+'只返回 {prompt,drawn}。']);
-   const result=await call('plan',instructions,{outline:withoutSummary(input.outline),frame:{number:input.index+1,total:input.outline.beats.length,beat:input.outline.beats[input.index],caption:input.caption},productionPrompt:normalizeProductionPrompt(input.productionPrompt||'',input.theme||''),artDirection:getArtDirection(input.style),candidateCharacters:input.candidates.map(characterCard)},obj({prompt:str(20,1800),drawn:names}),4096);
-   return {...result,value:visualValue(result.value,input.all)};
+  /**
+   * 画面描述：按批调用，每批最多 frameBatchSize 幅，读提纲、制作要求、画风及各幅配文与候选人物设定。
+   * 每幅结果只按本幅输入记录有效性；同批其他幅的配文与人物设定只作衔接参考，改动它们不使本幅失效。
+   */
+  async visual(input:{outline:Outline;productionPrompt:string;theme?:string;style:StyleInput;frames:VisualFrame[];all:CharacterEntry[]}):Promise<Generated<Visual[]>>{
+   const {frames,outline}=input;checkBatch(frames);
+   const instructions=promptSections(['任务','你是古典连环画分镜导演，本次为 frames 中列出的各幅分别撰写画面指令。'],['静态画面与衔接',storyboardDirection],['画面指令',storyVisualDirection],['画风',storyStyleBoundaryDirection],['人物',cardDirection],['批次边界',frameBatchDirection],['输入与输出',inputBoundaryDirection+'只返回 {frames:[{number,prompt,drawn}]}。']);
+   const payload={outline:withoutSummary(outline),total:outline.beats.length,frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,candidates:f.candidates.map(c=>c.name)})),productionPrompt:normalizeProductionPrompt(input.productionPrompt||'',input.theme||''),artDirection:getArtDirection(input.style),characters:cardsOf(frames)};
+   const result=await call('plan',instructions,payload,visualRows(frames.length,outline),visualTokens(frames));
+   return {...result,value:parseVisuals(result.value,frames,input.all)};
   },
 
-  /** 换画风转换：在画面描述的输入之外，以旧画面描述与旧画风为来源。 */
-  async restyle(input:{outline:Outline;index:number;productionPrompt:string;theme?:string;style:StyleInput;previousStyle:StyleInput;previousPrompt:string;caption:string;candidates:Character[];all:CharacterEntry[]}):Promise<Generated<Visual>>{
-   const instructions=restyleInstructions+'\n\n'+promptSections(['本次范围','只转换一幅：scenePrompt 是该幅旧画面指令；caption、candidateCharacters 只用于核对人物与情节。只返回 {prompt,drawn}，drawn 列出画面中实际出现的人物名字。']);
-   const result=await call('repair',instructions,{outline:withoutSummary(input.outline),frame:{number:input.index+1,beat:input.outline.beats[input.index],caption:input.caption},productionPrompt:normalizeProductionPrompt(input.productionPrompt||'',input.theme||''),previousArtDirection:{...getArtStyle(input.previousStyle.artStyle),prompt:getArtDirection(input.previousStyle)},artDirection:{...getArtStyle(input.style.artStyle),prompt:getArtDirection(input.style)},scenePrompt:input.previousPrompt,candidateCharacters:input.candidates.map(characterCard)},obj({prompt:str(20,1800),drawn:names}),4096);
-   return {...result,value:visualValue(result.value,input.all)};
+  /** 换画风转换：按批调用；在画面描述的输入之外，以各幅旧画面描述与旧画风为来源。 */
+  async restyle(input:{outline:Outline;productionPrompt:string;theme?:string;style:StyleInput;previousStyle:StyleInput;frames:(VisualFrame&{previousPrompt:string})[];all:CharacterEntry[]}):Promise<Generated<Visual[]>>{
+   const {frames,outline}=input;checkBatch(frames,readerRestyleBatchSize);
+   const instructions=restyleInstructions+'\n\n'+promptSections(['本次范围','逐幅转换 frames 中列出的各幅：scenePrompt 是该幅旧画面指令；caption、candidates 与 characters 只用于核对人物与情节。drawn 列出该幅画面中实际出现的人物名字。'],['批次边界',frameBatchDirection],['输入与输出','只返回 {frames:[{number,prompt,drawn}]}。']);
+   const payload={outline:withoutSummary(outline),frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,candidates:f.candidates.map(c=>c.name),scenePrompt:f.previousPrompt})),productionPrompt:normalizeProductionPrompt(input.productionPrompt||'',input.theme||''),previousArtDirection:{...getArtStyle(input.previousStyle.artStyle),prompt:getArtDirection(input.previousStyle)},artDirection:{...getArtStyle(input.style.artStyle),prompt:getArtDirection(input.style)},characters:cardsOf(frames)};
+   const result=await call('repair',instructions,payload,visualRows(frames.length,outline),visualTokens(frames));
+   return {...result,value:parseVisuals(result.value,frames,input.all)};
   },
 
-  /** 叙事修订：只改指定一幅的配文；当前配文、相邻配文、问题与审核意见是来源。 */
-  async sceneRepair(input:{source:SourceInput;outline:Outline;productionPrompt:string;index:number;caption:string;neighbors:{before?:string;after?:string};issues:ReviewIssue[];notes?:string;characters?:CharacterEntry[]}):Promise<Generated<Scene>>{
-   const instructions=promptSections(['任务','你是静态连环画修订编辑，只修订指定一幅的配文，不重新编排全篇。'],['共同标准',storySceneDirection],['配文',storyCaptionDirection],['修订','按 issues 回查原文逐项解决；只改需要改的部分。people 列出本幅叙事涉及的人物名字。'],['审核意见',input.notes?reviewNotesDirection:''],['本地原文',local(input.source)],['输入与输出',inputBoundaryDirection+'只返回 {caption,people}。']);
-   const result=await call('repair',instructions,{...sourcePayload(input.source),productionPrompt:production(input.source,input.productionPrompt),outline:withoutSummary(input.outline),frame:{number:input.index+1,beat:input.outline.beats[input.index],caption:input.caption},neighbors:input.neighbors,issues:input.issues,...(input.notes?{reviewNotes:input.notes}:{})},obj({caption:str(8,90),people:names}),4096,input.source.original);
-   const value=z.object({caption:captionSchema,people:z.array(z.string().max(40)).max(16)}).strict().parse(result.value);
-   return {...result,value:{caption:value.caption,candidates:castFrom([value.caption,...value.people].join(' '),input.characters||[])}};
+  /** 叙事修订：按批调用，只改列出各幅的配文；各幅当前配文、相邻配文、问题与审核意见是来源。 */
+  async sceneRepair(input:{source:SourceInput;outline:Outline;productionPrompt:string;frames:{index:number;caption:string;neighbors:{before?:string;after?:string};issues:ReviewIssue[]}[];notes?:string;characters?:CharacterEntry[]}):Promise<Generated<Scene[]>>{
+   const {frames,outline}=input;checkBatch(frames);
+   const instructions=promptSections(['任务','你是静态连环画修订编辑，只修订 frames 中列出各幅的配文，不重新编排全篇。'],['共同标准',storySceneDirection],['配文',storyCaptionDirection],['修订','按各幅 issues 回查原文逐项解决；只改需要改的部分。people 列出该幅叙事涉及的人物名字。'],['审核意见',input.notes?reviewNotesDirection:''],['本地原文',local(input.source)],['批次边界',frameBatchDirection],['输入与输出',inputBoundaryDirection+'只返回 {frames:[{number,caption,people}]}。']);
+   const payload={...sourcePayload(input.source),productionPrompt:production(input.source,input.productionPrompt),outline:withoutSummary(outline),frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,neighbors:f.neighbors,issues:f.issues})),...(input.notes?{reviewNotes:input.notes}:{})};
+   const schema=obj({frames:{type:'array',minItems:frames.length,maxItems:frames.length,items:obj({number:{type:'integer',minimum:1,maximum:outline.beats.length},caption:str(8,90),people:names})}});
+   const result=await call('repair',instructions,payload,schema,Math.max(4096,frames.length*400),input.source.original);
+   const rows=z.object({frames:z.array(z.object({number:z.number().int(),caption:captionSchema,people:z.array(z.string().max(40)).max(16)}).strict()).length(frames.length)}).strict().parse(result.value).frames;
+   return {...result,value:byFrame(rows,frames).map(r=>({caption:r.caption,candidates:castFrom([r.caption,...r.people].join(' '),input.characters||[])}))};
   },
 
-  /** 画面修订：只改指定一幅的画面描述；当前画面描述与入画人物、问题与审核意见是来源。 */
-  async visualRepair(input:{outline:Outline;index:number;productionPrompt:string;theme?:string;style:StyleInput;caption:string;candidates:Character[];prompt:string;drawn:Character[];issues:ReviewIssue[];notes?:string;all:CharacterEntry[]}):Promise<Generated<Visual>>{
-   const instructions=promptSections(['任务','你是静态连环画修订编辑，只修订指定一幅的画面指令。'],['静态画面与衔接',storyboardDirection],['画面指令',storyVisualDirection],['画风',storyStyleBoundaryDirection],['修订','按 issues 逐项解决，保留无问题的可见细节；drawn 列出画面中实际出现的人物名字。'],['审核意见',input.notes?reviewNotesDirection:''],['输入与输出',inputBoundaryDirection+'只返回 {prompt,drawn}。']);
-   const result=await call('repair',instructions,{outline:withoutSummary(input.outline),frame:{number:input.index+1,beat:input.outline.beats[input.index],caption:input.caption},productionPrompt:normalizeProductionPrompt(input.productionPrompt||'',input.theme||''),artDirection:getArtDirection(input.style),candidateCharacters:input.candidates.map(characterCard),current:{prompt:input.prompt,drawn:input.drawn.map(characterCard)},issues:input.issues,...(input.notes?{reviewNotes:input.notes}:{})},obj({prompt:str(20,1800),drawn:names}),4096);
-   return {...result,value:visualValue(result.value,input.all)};
+  /** 画面修订：按批调用，只改列出各幅的画面描述；各幅当前画面描述与入画人物、问题与审核意见是来源。 */
+  async visualRepair(input:{outline:Outline;productionPrompt:string;theme?:string;style:StyleInput;frames:(VisualFrame&{prompt:string;drawn:Character[];issues:ReviewIssue[]})[];notes?:string;all:CharacterEntry[]}):Promise<Generated<Visual[]>>{
+   const {frames,outline}=input;checkBatch(frames);
+   const instructions=promptSections(['任务','你是静态连环画修订编辑，只修订 frames 中列出各幅的画面指令。'],['静态画面与衔接',storyboardDirection],['画面指令',storyVisualDirection],['画风',storyStyleBoundaryDirection],['人物',cardDirection],['修订','按各幅 issues 逐项解决，保留无问题的可见细节。'],['审核意见',input.notes?reviewNotesDirection:''],['批次边界',frameBatchDirection],['输入与输出',inputBoundaryDirection+'只返回 {frames:[{number,prompt,drawn}]}。']);
+   const payload={outline:withoutSummary(outline),frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,candidates:f.candidates.map(c=>c.name),current:{prompt:f.prompt,drawn:f.drawn.map(c=>c.name)},issues:f.issues})),productionPrompt:normalizeProductionPrompt(input.productionPrompt||'',input.theme||''),artDirection:getArtDirection(input.style),characters:cardsOf(frames.map(f=>({...f,candidates:[...f.candidates,...f.drawn]}))),...(input.notes?{reviewNotes:input.notes}:{})};
+   const result=await call('repair',instructions,payload,visualRows(frames.length,outline),visualTokens(frames));
+   return {...result,value:parseVisuals(result.value,frames,input.all)};
   },
 
-  /** 结构修订：返回按幅号替换的配文段落；画面描述随后对新画幅逐幅生成。 */
+  /** 结构修订：返回按幅号替换的配文段落；新画幅的画面描述随后按批生成。 */
   async structureRepair(input:{source:SourceInput;outline:Outline;productionPrompt:string;settings:SettingsInput;captions:string[];issues:ReviewIssue[];notes?:string;characters?:CharacterEntry[]}):Promise<Generated<{from:number;to:number;scenes:Scene[]}[]>>{
    const count=input.captions.length;
    const direction=`按原文及 issues 返回 {edits:[{from,to,pages:[{caption,people}]}]}。from/to 指修改前 1 起始的幅号，按 from 递增且范围不重叠；替换 from 至 to，from=k,to=k-1 表示在原第 k 幅前插入，from=原幅数+1 表示末尾追加，pages 为空表示删除。只改需协同的连续段落，一次合计最多 ${readerStoryboardBatchSize} 个新或替换画幅，总数 ${readerMinFrames}–${readerMaxFrames}。只返回配文与涉及人物，画面指令另行生成。`;
