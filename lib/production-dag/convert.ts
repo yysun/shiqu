@@ -1,6 +1,7 @@
 // v1 文档转换为 v2：不调用模型，确定性地按位置分配画幅身份，结果可重复。
 // 转换得到的产物、结论与放行标为旧规则：内容不变时支持阅读、接续与完成判定，输入变化后按新规则失效。
-// 人物设定整段成为一条旧规则人物（视为全部人物入画）；验收要求整体成为一条依据叙事分镜与画面描述的旧规则条目。
+// 人物设定整段成为一条旧规则人物（视为全部人物入画）；验收要求整体成为一条依据叙事分镜与画面描述的旧规则条目，
+// 验收要求文字不变时保留，改变后才按条目拆分重新登记（见 runner 的 syncItems）。提纲与梗概写入 dag 供后续调用读取。
 import type {Document,Selection} from '../reader-model.ts';
 import {evaluate,instanceKeys,instanceId,runnable,type Product,type Fault,type VersionState} from './engine.ts';
 import {nodes,nodeSpec} from './registry.ts';
@@ -16,8 +17,13 @@ export function convertDocument(doc:Document,selection:Selection,options:{confir
  const plan=doc.plan,pages=plan?.pages??doc.storyboard?.pages??doc.draft?.pages??[];
  const order=pages.map((_,i)=>legacyFrameId(i));
  const redraw=doc.revision?.redrawNotes as Record<string,string>|undefined;
+ // 提纲与梗概写入 dag，修订、结语、幅数核对与审片读取它们；没有提纲记录的旧故事以各幅配文作节点。
+ const outline=doc.storyboard?.outline?{title:doc.storyboard.outline.title,summary:doc.storyboard.outline.summary,sourceReference:doc.storyboard.outline.sourceReference,adaptationNote:doc.storyboard.outline.adaptationNote,beats:doc.storyboard.outline.beats}
+  :plan?{title:plan.title,summary:plan.summary,sourceReference:plan.sourceReference,adaptationNote:plan.adaptationNote,beats:pages.map(p=>p.caption)}:undefined;
+ const brief=plan?.summary??doc.original?.storyBrief?.summary;
  const dag:DagDocument={
   version:2,legacy:true,order,
+  ...(outline?{outline}:{}),...(brief?{brief}:{}),
   frames:Object.fromEntries(pages.map((page,i)=>[order[i],{
    scene:page.caption,visual:page.prompt,
    ...(doc.images[i]?{image:doc.images[i]}:{}),
@@ -44,9 +50,9 @@ export function convertDocument(doc:Document,selection:Selection,options:{confir
   const at=order.indexOf(key);
   switch(node){
    case 'source':return doc.original?[doc.original]:undefined;
-   case 'brief':{const brief=plan?.summary??doc.original?.storyBrief?.summary;return brief?[brief]:undefined;}
+   case 'brief':return dag.brief?[dag.brief]:undefined;
    case 'suggestions':return doc.setupRequirements?.suggestions||doc.frameRecommendation?[{requirements:doc.setupRequirements?.suggestions??null,frames:doc.frameRecommendation??null}]:undefined;
-   case 'outline':return doc.storyboard?.outline?[doc.storyboard.outline]:plan?[{title:plan.title,adaptationNote:plan.adaptationNote,sourceReference:plan.sourceReference}]:undefined;
+   case 'outline':return dag.outline?[dag.outline]:undefined;
    case 'characters':return dag.characters.length?[dag.characters,{parts:{[legacyId]:fingerprint(dag.characters[0].text)}}]:undefined;
    case 'scene':return at>=0?[pages[at].caption]:undefined;
    case 'visual':return at>=0?[pages[at].prompt]:undefined;

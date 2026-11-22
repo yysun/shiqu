@@ -108,3 +108,37 @@ test('open legacy faults map to frame identities; a text-step fault attaches to 
  assert.deepEqual(mapped.map(f=>[f.id,f.node,f.key,!!f.optional]),[['a','frameImage','legacy-2',false],['b','landscape','legacy-3',true],['c','frameImage','legacy-6',false]]);
  assert.ok(mapped.every(f=>f.version==='legacy'));
 });
+
+// 转换后的故事经执行层继续：提纲与梗概可读；验收要求不变时旧条目及其结论保留，不重复登记与审片。
+import {settle,work,requestFor} from '../lib/production-dag/runner.ts';
+const story=(input,dag)=>({id:'s',doc:input.doc,selection:input.selection,dag,confirmed:true,faults:[]});
+
+test('a partly drawn converted story draws its remaining frames without registering or reviewing again',()=>{
+ const input=v1({images:5}),s=story(input,convert(input));
+ s.dag=settle(s);
+ assert.deepEqual(s.dag.items.map(i=>i.id),['legacy'],'the legacy acceptance item is kept while the requirements are unchanged');
+ const items=work(s);
+ assert.ok(items.length&&items.every(i=>i.call==='draw'),items.map(i=>i.call).join());
+ assert.deepEqual(items.map(i=>i.instances[0].key),['legacy-6','legacy-7','legacy-8']);
+});
+
+test('changed acceptance requirements split the legacy item and are registered and reviewed before drawing',()=>{
+ const input=v1({images:5}),s=story(input,convert(input));
+ s.selection={...s.selection,acceptancePrompt:'结尾才揭示身份\n每幅都有动作'};
+ s.dag=settle(s);
+ assert.equal(s.dag.items.length,2);
+ assert.ok(!s.dag.items.some(i=>i.legacy));
+ const calls=work(s).map(i=>i.call);
+ assert.ok(calls.includes('registerItems'));
+ assert.ok(!calls.includes('draw'),'nothing is drawn before the new items are judged');
+});
+
+test('calls that read the outline or summary work on a converted story',()=>{
+ const input=v1(),s=story(input,convert(input));
+ assert.equal(s.dag.outline.beats.length,8);
+ assert.equal(s.dag.brief,input.doc.plan.summary);
+ const ev=evaluate(stateOf(input,s.dag));
+ for(const [call,node] of [['ending','ending'],['frameCheck','frameCheck']])assert.doesNotThrow(()=>requestFor(s,{call,instances:[ev.instance(node)]}),call);
+ const repair={call:'sceneRepair',instances:[ev.instance('scene','legacy-2')],issues:[{page:2,category:'caption',problem:'缺少动作',instruction:'补足动作',target:'frameVerdict:legacy-2'}]};
+ assert.equal(requestFor(s,repair).args.outline.title,'管鲍之交');
+});

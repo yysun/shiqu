@@ -35,8 +35,13 @@ export type Work=CallGroup&{issues?:DagIssue[]};
 const visualCategories=new Set(['composition','style','action']);
 const frameNodes=new Set(['scene','visual','frameImage','landscape','redrawNote']);
 
-/** 验收条目随验收要求同步：条目身份由文字决定，已有登记按身份保留。 */
+/**
+ * 验收条目随验收要求同步：条目身份由文字决定，已有登记按身份保留。转换得到的整体旧条目在验收要求文字不变时保留，
+ * 连同其结论与放行；文字改变后才按条目拆分，重新登记并审片。
+ */
 export function syncItems(dag:DagDocument,selection:Selection):DagDocument{
+ const legacy=dag.items.length===1&&dag.items[0].legacy?dag.items[0]:undefined;
+ if(legacy&&legacy.text.trim()===(selection.acceptancePrompt??'').trim())return dag;
  const previous=new Map(dag.items.map(i=>[i.id,i]));
  const items=acceptanceItems(selection.acceptancePrompt).map(i=>previous.get(i.id)??i);
  return JSON.stringify(items)===JSON.stringify(dag.items)?dag:{...dag,items};

@@ -4674,7 +4674,10 @@
         "lib/production-dag/document.ts",
         "lib/production-dag/convert.ts",
         "lib/production-dag/schedule.ts",
-        "tests/fixtures/production-dag.mjs"
+        "tests/fixtures/production-dag.mjs",
+        "lib/production-dag/runner.ts",
+        "lib/production-dag/requests.ts",
+        "lib/production-dag/calls.ts"
       ]
     },
     {
