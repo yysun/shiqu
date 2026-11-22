@@ -379,7 +379,8 @@
         "server/desktop.ts",
         "server/http.ts",
         "server/provider-settings-access.ts",
-        "tests/fixtures/startup.mjs"
+        "tests/fixtures/startup.mjs",
+        "server/start.ts"
       ],
       "manualOnly": true,
       "requiresLoopback": true

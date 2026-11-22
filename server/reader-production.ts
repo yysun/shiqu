@@ -199,7 +199,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // 「继续制作」的已接受编号先于其他核对重放。
   if(action==='apply-model'){
    if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
-   await this.repository.get(id,ownerId);await this.dag.applyCurrentModel(ownerId,id);return this.snapshot(ownerId,id);
+   if(!requestId)throw new ReaderError(400,'应用模型设置需要提交操作编号。');
+   await this.repository.get(id,ownerId);await this.dag.applyCurrentModel(ownerId,id,requestId);return this.snapshot(ownerId,id);
   }
   if(action==='continue'){
    if(!requestId)throw new ReaderError(400,'继续制作需要提交操作编号。');
@@ -235,7 +236,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const row=await this.repository.get(id,ownerId);
   if(await this.repository.superseded(id,ownerId))throw new ReaderError(409,latestVersionMessage);
   if(!this.parsed(row)?.doc.dag)throw new ReaderError(409,'这篇故事没有待处理的审片问题。');
-  await this.dag.override(ownerId,id,command.requestId);
+  await this.dag.override(ownerId,id,command.requestId,command.faultId);
   this.wake();return this.snapshot(ownerId,id);
  }
  async leave(ownerId:string,id:string,viewerId:string){
@@ -268,7 +269,16 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重试。');
   if(await this.repository.superseded(id,ownerId))throw new ReaderError(409,latestVersionMessage);
   if(row.generation_control!=='active')throw new ReaderError(409,'请先恢复生成许可，再重试或重绘。');
-  const fault=(await sessionFaults(this.database,id,ownerId)).find(fault=>fault.id===command.faultId);
+  let fault=(await sessionFaults(this.database,id,ownerId)).find(fault=>fault.id===command.faultId);
+  // 图片丢失的恢复：文件在点击前已被恢复时，核对后免费解除，不重新绘制、不付费。
+  if(fault?.state==='pending'&&fault.kind==='image-loss'&&!fault.job_id&&fault.node==='frameImage'){
+   const doc=JSON.parse(row.document) as Document,page=doc.dag?doc.dag.order.indexOf(fault.node_key):-1,image=page>=0?doc.dag!.frames[fault.node_key]?.image:undefined;
+   if(image){
+    await this.dag.checkImage(row,page,image).catch(()=>undefined);
+    fault=(await sessionFaults(this.database,id,ownerId)).find(f=>f.id===command.faultId);
+    if(!fault||fault.state==='resolved')return this.snapshot(ownerId,id);
+   }
+  }
   if(!fault||fault.state!=='pending')throw new ReaderError(409,'这项问题正在处理或已更新，请刷新后再操作。');
   const job=fault.job_id?await this.queue.job(fault.job_id):null;
   const receipt=job
@@ -305,7 +315,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const views=faults.map(fault=>this.faultView(row,fault,allJobs));
   // 审片停在需读者处理：以一条审片问题呈现，放行或修改后解除。
   const blocking=parsed.doc.dag&&!working&&row.state!=='completed'?await this.dag.blocking(row):[];
-  if(blocking.length)views.push({id:'review',message:[...new Set(blocking.map(b=>attentionMessages[b.reason]))].join(''),page:null,stage:'review',state:'pending',retryAllowed:false});
+  if(blocking.length)views.push({id:await this.dag.reviewFaultId(row)??'review',message:[...new Set(blocking.map(b=>attentionMessages[b.reason]))].join(''),page:null,stage:'review',state:'pending',retryAllowed:false});
   if(views.length){
    const pending=views.find(f=>f.retryAllowed&&f.stage==='redraw')||views.find(f=>f.retryAllowed)||views[0];
    const recovering=working||faults.some(fault=>fault.state==='recovering');

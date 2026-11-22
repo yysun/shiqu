@@ -8,6 +8,7 @@ import {historicalLibrary} from './fixtures/historical-library.mjs';
 import {migrate} from '../server/database-migrations.ts';
 import {selection,makePlan} from './fixtures/production-data.mjs';
 import {selectionSchema} from '../lib/reader-model.ts';
+import {png} from './fixtures/images.mjs';
 
 const owner='owner',story='11111111-1111-4111-8111-111111111111';
 const url=page=>`/api/reader/media/${story}/${page}.png`;
@@ -22,7 +23,7 @@ function library(t){
 function seed({directory,sqlite},doc){
  sqlite.prepare("INSERT INTO stories(id,user_id,selection,document,state,created_at,updated_at) VALUES(?,?,?,?,'idle','c','u')").run(story,owner,JSON.stringify({...selection,length:3}),JSON.stringify(doc));
  mkdirSync(path.join(directory,'media','reader',story),{recursive:true});
- for(const page of [0,1])writeFileSync(path.join(directory,'media','reader',story,`${page}.png`),'png');
+ for(const page of [0,1])writeFileSync(path.join(directory,'media','reader',story,`${page}.png`),png);
 }
 const legacyVersion=async(doc)=>{
  const {createHash}=await import('node:crypto');
@@ -119,4 +120,35 @@ test('a setup story that an earlier upgrade already gave an empty dag resumes it
  await until(async()=>(await f.read(created.id)).intake.phase==='confirming',20000);
  const saved=JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(created.id).first()).document);
  assert.equal(saved.dag,undefined,'the empty dag is dropped and preparation ran');
+});
+
+
+test('0025 keeps the pending slots of a partial storyboard and adopts only readable images and current landscapes',async t=>{
+ const lib=library(t),{sqlite,directory}=lib,plan=makePlan(3);
+ // 24 个提纲节点只保存了 3 幅：另外 21 个幅位仍须待生成。
+ const beats=Array.from({length:24},(_,i)=>`节点${i+1}`);
+ const doc={plan:null,storyboard:{outline:{title:'庄周梦蝶',summary:'梗概',sourceReference:'庄子',adaptationNote:'按原文',beats},pages:plan.pages},images:[],audio:[],usage:[],original:{title:'庄子',text:'昔者庄周梦为胡蝶。',url:'https://example.test',kind:'passage',provider:'local',retrievedAt:'2026-01-01'}};
+ seed(lib,doc);
+ migrate(sqlite,process.cwd(),directory);
+ const saved=JSON.parse(sqlite.prepare('SELECT document FROM stories WHERE id=?').get(story).document);
+ assert.equal(saved.dag.order.length,24);
+ assert.equal(saved.dag.frames['legacy-3'].scene,plan.pages[2].caption);
+ assert.equal(saved.dag.frames['legacy-4'].scene,'','an unsaved slot waits for its scene');
+ assert.equal(saved.dag.products['scene:legacy-4'],undefined);
+});
+
+test('0025 does not adopt an image that is not a real picture, nor a landscape for other inputs',async t=>{
+ const lib=library(t),{sqlite,directory}=lib,plan=makePlan(3);
+ const doc={plan,images:[url(0),'',''],audio:[],usage:[],original:{title:'庄子',text:'昔者庄周梦为胡蝶。',url:'https://example.test',kind:'passage',provider:'local',retrievedAt:'2026-01-01'}};
+ seed(lib,doc);
+ // 第 2 幅文件内容不是图片。
+ writeFileSync(path.join(directory,'media','reader',story,'1.png'),'png');
+ const version=await legacyVersion(doc);
+ const job=sqlite.prepare("INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,created_at,updated_at) VALUES(?,?,?,?,?,?,'[]',?,?,'succeeded',1,1)");
+ job.run('paid-bad',story,owner,'image','image',version,JSON.stringify({page:1}),JSON.stringify({value:url(1)}));
+ job.run('land',story,owner,'landscape-image','image','some-other-inputs',JSON.stringify({page:0}),JSON.stringify({value:url(0)}));
+ migrate(sqlite,process.cwd(),directory);
+ const saved=JSON.parse(sqlite.prepare('SELECT document FROM stories WHERE id=?').get(story).document);
+ assert.equal(saved.dag.frames['legacy-1'].landscape,undefined,'a landscape for other inputs is not adopted');
+ assert.equal(saved.dag.frames['legacy-2'].image,undefined,'a paid result whose file is not a picture is not adopted');
 });

@@ -86,5 +86,16 @@ export function browserProviderSettings(options:{variables:Variables;overrides:V
    return json({error:'暂时无法读取或保存共享生成设置，请检查本机配置后重新读取。'},503);
   }finally{store?.close();}
  };
- return Object.assign(handler,{snapshot(){const store=openStore();try{return snapshot(store);}finally{store.close();}},variables(){const store=new SystemSettingsStore(locations.settings,locations.library,{existingOnly:true});try{return variables(store);}finally{store.close();}}});
+ // 按故事的模型快照取凭据：快照里的文字与图片服务，其已保存的密钥也要可用，即使当前设置已切换到别的服务；启动覆盖值优先。
+ function variablesForSnapshot(store:SystemSettingsStore,snapshot:{provider:string;imageProvider?:string}){
+  const next=variables(store);
+  for(const name of new Set([snapshot.provider,snapshot.imageProvider])){
+   if(name!=='gemini'&&name!=='openai')continue;
+   const variable=keyNames[name];
+   if(typeof options.overrides[variable]==='string'||next[variable]?.trim())continue;
+   const saved=store.key(name);if(saved)next[variable]=saved;
+  }
+  return next;
+ }
+ return Object.assign(handler,{variablesForSnapshot(snapshot:{provider:string;imageProvider?:string}){const store=new SystemSettingsStore(locations.settings,locations.library,{existingOnly:true});try{return variablesForSnapshot(store,snapshot);}finally{store.close();}},snapshot(){const store=openStore();try{return snapshot(store);}finally{store.close();}},variables(){const store=new SystemSettingsStore(locations.settings,locations.library,{existingOnly:true});try{return variables(store);}finally{store.close();}}});
 }

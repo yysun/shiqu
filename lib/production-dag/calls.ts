@@ -270,15 +270,16 @@ function reviewOutcome(input:ReviewInput,report:Report,choosing?:string[]):Revie
  // 逐幅条目的结果按画幅归集。
  const frameResults=new Map<number,{detail:string;requirements:boolean}[]>();
  for(const result of results.filter(r=>frameCriteria.has(r.criterion)&&r.status!=='passed')){
-  const listed=result.pages.filter(p=>pages.has(p));
-  for(const page of listed.length?listed:[...pages])frameResults.set(page,[...(frameResults.get(page)??[]),{detail:result.evidence,requirements:result.status==='unknown'}]);
+  // 报告列出了画幅就只落到所列画幅（范围外的画幅成为建议，不影响本次范围内的结论）；没有列出画幅时才落到全部允许画幅。
+  const listed=result.pages.filter(p=>Number.isInteger(p)&&p>=1&&p<=input.frames.length);
+  for(const page of result.pages.length?listed:[...pages])frameResults.set(page,[...(frameResults.get(page)??[]),{detail:result.evidence,requirements:result.status==='unknown'}]);
  }
  for(let page=1;page<=input.frames.length;page++){
   const issues=issuesOn(page),items=frameResults.get(page)??[],id=`frameVerdict:${input.frames[page-1].id}`;
   const failed=issues.length>0||items.length>0;
   const detail=[...issues.map(i=>i.problem),...items.map(i=>i.detail)].join('；');
   const judgement:Judgement={id,outcome:failed?'fail':'pass',...(failed?{detail}:{}),...(items.some(i=>i.requirements)?{requirements:true}:{})};
-  if(pages.has(page))judgements.push(judgement);else if(issues.length)suggestions.push(judgement);
+  if(pages.has(page))judgements.push(judgement);else if(failed)suggestions.push(judgement);
  }
  const narrativeIssues=[...issuesOn(0),...report.issues.filter(i=>i.requiresReplan)];
  const narrative:Judgement={id:'narrativeVerdict:',outcome:narrativeIssues.length?'fail':'pass',...(narrativeIssues.length?{detail:narrativeIssues.map(i=>i.problem).join('；')}:{})};

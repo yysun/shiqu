@@ -19,7 +19,7 @@ export async function startServer({root,variables=process.env,localAccess=false,
  const providerSettings=settingsOverrides?browserProviderSettings({variables,overrides:settingsOverrides,proxyToken:settingsProxyToken,live:true,ports:[config.port,...(variables.SHIQU_DEV_FRONTEND_PORT?[Number(variables.SHIQU_DEV_FRONTEND_PORT)]:[])]}):undefined;
  const providerVariables=providerSettings?()=>{try{return providerSettings.variables();}catch(error){if(explicitSettingsBypass)return variables;throw error;}}:undefined;
  let app:ReturnType<typeof createApplication>;
- try{app=createApplication({root,dataDirectory:config.dataDirectory,variables,providerVariables});}
+ try{app=createApplication({root,dataDirectory:config.dataDirectory,variables,providerVariables,snapshotVariables:providerSettings?snapshot=>{try{return providerSettings.variablesForSnapshot(snapshot);}catch(error){if(explicitSettingsBypass)return variables;throw error;}}:undefined});}
  catch(error){recordDiagnostic(config.dataDirectory,'service_start_failed',{code:safeErrorCode(error)});removeDiagnostics();await release();throw error;}
  const urls=phoneUrls(config.host,config.port);
  const handle=localAccess?desktopAccess(app.handle,{hosts:[`localhost:${config.port}`,`127.0.0.1:${config.port}`,`[::1]:${config.port}`,...urls.map(url=>new URL(url).host)]}).handle:developmentAccess(app.handle,variables,config.port);

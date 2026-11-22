@@ -15,7 +15,9 @@ type Extra=Partial<Pick<Product,'outcome'|'overridden'|'parts'|'scope'|'evidence
 
 export function convertDocument(doc:Document,selection:Selection,options:{confirmed:boolean;modelSnapshot?:ModelSnapshot;notes?:string}):DagDocument{
  const plan=doc.plan,pages=plan?.pages??doc.storyboard?.pages??doc.draft?.pages??[];
- const order=pages.map((_,i)=>legacyFrameId(i));
+ // 只存了部分分镜（提纲已定、批次未完）时，未保存的幅位也占位：其叙事分镜待生成，不能丢掉。
+ const slots=!plan&&!doc.draft&&doc.storyboard?Math.max(pages.length,doc.storyboard.outline.beats.length):pages.length;
+ const order=Array.from({length:slots},(_,i)=>legacyFrameId(i));
  const redraw=doc.revision?.redrawNotes as Record<string,string>|undefined;
  // 提纲与梗概写入 dag，修订、结语、幅数核对与审片读取它们；没有提纲记录的旧故事以各幅配文作节点。
  const outline=doc.storyboard?.outline?{title:doc.storyboard.outline.title,summary:doc.storyboard.outline.summary,sourceReference:doc.storyboard.outline.sourceReference,adaptationNote:doc.storyboard.outline.adaptationNote,beats:doc.storyboard.outline.beats}
@@ -24,8 +26,8 @@ export function convertDocument(doc:Document,selection:Selection,options:{confir
  const dag:DagDocument={
   version:2,legacy:true,order,
   ...(outline?{outline}:{}),...(brief?{brief}:{}),
-  frames:Object.fromEntries(pages.map((page,i)=>[order[i],{
-   scene:page.caption,visual:page.prompt,
+  frames:Object.fromEntries(order.map((id,i)=>[id,{
+   scene:pages[i]?.caption??'',visual:pages[i]?.prompt??'',
    ...(doc.images[i]?{image:doc.images[i]}:{}),
    ...(redraw?.[i+1]?{redrawNote:redraw[i+1]}:{}),
   }])),
@@ -54,8 +56,8 @@ export function convertDocument(doc:Document,selection:Selection,options:{confir
    case 'suggestions':return doc.setupRequirements?.suggestions||doc.frameRecommendation?[{requirements:doc.setupRequirements?.suggestions??null,frames:doc.frameRecommendation??null}]:undefined;
    case 'outline':return dag.outline?[dag.outline]:undefined;
    case 'characters':return dag.characters.length?[dag.characters,{parts:{[legacyId]:fingerprint(dag.characters[0].text)}}]:undefined;
-   case 'scene':return at>=0?[pages[at].caption]:undefined;
-   case 'visual':return at>=0?[pages[at].prompt]:undefined;
+   case 'scene':return at>=0&&pages[at]?[pages[at].caption]:undefined;
+   case 'visual':return at>=0&&pages[at]?[pages[at].prompt]:undefined;
    case 'ending':return dag.ending?[{title:dag.ending.title,candidates:dag.ending.candidates}]:undefined;
    case 'frameCheck':return reviewed?['legacy-frame-check',{outcome:'pass'}]:completedWithoutReview?['legacy-frame-check',{outcome:'pass',unreviewed:true}]:undefined;
    case 'itemRegistration':return key===legacyId&&dag.items.length?[dag.items[0].text,{scope:'story',evidence:['scenes','visuals']}]:undefined;

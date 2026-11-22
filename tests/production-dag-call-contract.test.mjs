@@ -148,3 +148,12 @@ test('a stage answers only the items it asks for, and the omission note lists on
  assert.ok(!/不依据[^。]*标题与结语/.test(second.calls[0].text));
  assert.match(second.calls[0].text,/不依据[^。]*提纲/);
 });
+
+test('a scoped review keeps an out-of-scope frame finding out of the verdicts of the frames in scope',async()=>{
+ const frames=Array.from({length:3},(_,i)=>({id:`f${i+1}`,caption:`第${i+1}幅配文八个字以上`,prompt:`第${i+1}幅画面描述二十个字以上的内容，人物站立在庭院中央。`}));
+ const base={source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'每幅人物衣冠合乎时代',style,characters:people,frames,notes:undefined,itemIds:{},frameCriteria:[1]};
+ const reply=()=>({issues:[],titleReview:{title:'管鲍之交',reason:'准确'},coverage:[{quote:'管仲夷吾者',task:'交代人物',pages:[1],assessment:'adequate',reason:'已交代',issuePage:0}],acceptanceResults:[{criterion:1,status:'unknown',pages:[3],evidence:'第三幅文字无法判断冠服'}]});
+ const scoped=await recorder(reply).gen.review({...base,allowed:{pages:[1,2],criteria:[],narrative:false}});
+ assert.ok(scoped.value.judgements.every(j=>j.outcome==='pass'),'the findings on frame 3 do not fail frames 1 and 2');
+ assert.ok(scoped.value.suggestions.some(j=>j.id==='frameVerdict:f3'&&j.outcome==='fail'),'the out-of-scope finding is kept as a suggestion for its own frame');
+});

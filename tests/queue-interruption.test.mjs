@@ -255,7 +255,7 @@ test('a failed document save of text work is not a provider failure and recovers
  assert.ok(job);assert.equal(job.error,null);
  const saved=await f.read(id);assert.notEqual(saved.state,'failed');assert.equal(saved.error,null);assert.ok(!saved.faults?.length);
  await database(f).prepare('UPDATE production_jobs SET lease_until=1 WHERE id=?').bind(job.id).run();
- await completed(f,id);assert.equal(count(f,'brief'),2,'The unsaved call is the only replay');
+ await completed(f,id);assert.equal(count(f,'brief'),1,'The paid result is kept on its job, so the replay pays nothing');
 });
 
 test('a clock jump during a live call keeps its claims, saves its result and pays once',async t=>{

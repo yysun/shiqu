@@ -13,7 +13,7 @@ import {LocalBooks} from './local-books.ts';
 import {applicationStorySearch} from './local-story-search.ts';
 import {withLocalBooks} from './local-generation.ts';
 import {ReaderProductionCoordinator,configuredImageWorkers} from './reader-production.ts';
-import {currentSnapshot,providerForSnapshot} from './provider-snapshot.ts';
+import {currentSnapshot,providerForSnapshot,type ModelSnapshot} from './provider-snapshot.ts';
 import type {ProductionOptions,SnapshotService} from './reader-production.ts';
 import {providerSignature} from './provider-runtime.ts';
 import {providerReady} from './cli-setup.ts';
@@ -41,7 +41,7 @@ export function liveReaderProvider(initial:Variables,read:()=>Variables,create:(
 }
 
 const types:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.woff':'font/woff','.woff2':'font/woff2','.ico':'image/x-icon'};
-export function createApplication(options:{root:string;dataDirectory:string;variables?:Variables;providerVariables?:()=>Variables;transport?:typeof fetch;generation?:ReaderProvider;production?:ProductionOptions;commandOnly?:boolean}){
+export function createApplication(options:{root:string;dataDirectory:string;variables?:Variables;providerVariables?:()=>Variables;snapshotVariables?:(snapshot:ModelSnapshot)=>Variables;transport?:typeof fetch;generation?:ReaderProvider;production?:ProductionOptions;commandOnly?:boolean}){
  const media=new FileMedia(path.join(options.dataDirectory,'media'));
  const storySearch=applicationStorySearch(options.root,options.dataDirectory,()=>localBooks,options.transport||fetch);
  const localBooks:LocalBooks=new LocalBooks(options.root,storySearch);
@@ -54,7 +54,7 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
  const liveVariables=()=>options.providerVariables?options.providerVariables():options.variables||{};
  const snapshots:SnapshotService|undefined=options.generation?undefined:{
   current:()=>{const variables=liveVariables();return variables.SHIQU_AI_PROVIDER==='readonly'?undefined:currentSnapshot(variables);},
-  provider:snapshot=>{const result=providerForSnapshot(snapshot,liveVariables(),media,options.transport||fetch);return result.available?withLocalBooks(result.provider,localBooks,media,cache,storySearch):null;},
+  provider:snapshot=>{const result=providerForSnapshot(snapshot,options.snapshotVariables?options.snapshotVariables(snapshot):liveVariables(),media,options.transport||fetch);return result.available?withLocalBooks(result.provider,localBooks,media,cache,storySearch):null;},
  };
  const production=new ReaderProductionCoordinator(local.database,generation,media,{imageWorkers,...(snapshots?{snapshots}:{}),...options.production});
  if(!options.providerVariables&&options.variables?.SHIQU_AI_PROVIDER==='readonly'&&options.production?.autoStart!==false)production.stop();

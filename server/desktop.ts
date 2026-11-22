@@ -57,7 +57,7 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
  try{
   options.signal?.throwIfAborted();
   const providerSettings=configuration.locations?browserProviderSettings({variables:configuration.variables,overrides:options.overrides||{},live:true,ports:[settings.port],locations:configuration.locations,existingOnly:true,transport:options.transport}):undefined;
-  app=createApplication({root,dataDirectory:settings.dataDirectory,variables:configuration.variables,providerVariables:providerSettings?()=>providerSettings.variables():undefined,production:{autoStart:!!providerSettings||providerReady(configuration.variables)},transport:options.transport});
+  app=createApplication({root,dataDirectory:settings.dataDirectory,variables:configuration.variables,providerVariables:providerSettings?()=>providerSettings.variables():undefined,snapshotVariables:providerSettings?snapshot=>providerSettings.variablesForSnapshot(snapshot):undefined,production:{autoStart:!!providerSettings||providerReady(configuration.variables)},transport:options.transport});
   const local=`http://127.0.0.1:${settings.port}`,phones=phoneUrls('0.0.0.0',settings.port);
   const access=desktopAccess(app.handle,{hosts:[new URL(local).host,`localhost:${settings.port}`,...phones.map(url=>new URL(url).host)]});
   const localHandle:Parameters<typeof createHttpServer>[0]=(request,peer)=>new URL(request.url).pathname===providerSettingsPath&&providerSettings?providerSettings(request,peer):access.handle(request);

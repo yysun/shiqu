@@ -5,7 +5,7 @@
 // 文件检查使用 migrate() 传入的目录（升级暂存目录或正式书库），不访问其他路径。
 import type {DatabaseSync} from 'node:sqlite';
 import {createHash} from 'node:crypto';
-import {existsSync,lstatSync} from 'node:fs';
+import {existsSync,lstatSync,readFileSync} from 'node:fs';
 import path from 'node:path';
 import {selectionSchema,type Document} from '../lib/reader-model.ts';
 import {convertDocument,mapLegacyFaults} from '../lib/production-dag/convert.ts';
@@ -13,6 +13,8 @@ import {rootProducts,versionState} from '../lib/production-dag/document.ts';
 import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
+import {mediaType} from '../lib/reader-generation-contract.ts';
+import {imageDimensions,matchesLandscapeImageRatio} from '../lib/reader-image-dimensions.ts';
 
 export const productionDagMigration='0025_production_dag.sql';
 type Row={id:string;user_id:string;selection:string;document:string};
@@ -27,11 +29,24 @@ function legacyImageVersion(doc:Document,selection:ReturnType<typeof selectionSc
  return version({scriptVersion,plan:doc.plan,style:selection.artStyle,prompt:selection.productionPrompt,...(doc.revision?.redrawNotes?{redrawNotes:doc.revision.redrawNotes}:{})});
 }
 
-function readableFile(directory:string|undefined,storyId:string,url:string){
+/** 迁移里同步核对的图片：是真实的 PNG/JPEG/WebP 且尺寸可解析（不解码像素）；横图另须符合横图比例。内容不合格的文件不采用，仍由引擎按需重绘。 */
+function readableFile(directory:string|undefined,storyId:string,url:string,landscape=false){
  const key=referenceImageKey(storyId,url);
  if(!key||!directory)return false;
  const file=path.join(directory,'media',key);
- try{return existsSync(file)&&lstatSync(file).isFile()&&lstatSync(file).size>0;}catch{return false;}
+ try{
+  if(!existsSync(file)||!lstatSync(file).isFile()||lstatSync(file).size===0)return false;
+  const bytes=new Uint8Array(readFileSync(file)),dimensions=imageDimensions(bytes);
+  return !!mediaType(bytes)&&!!dimensions&&(!landscape||matchesLandscapeImageRatio(dimensions));
+ }catch{return false;}
+}
+/** 旧版横图任务的输入版本（与 0.14 的 landscapeInputs 一致）：竖图、分镜、画风与制作要求任一变化，旧横图都不再属于当前内容。 */
+function legacyLandscapeVersion(doc:Document,selection:ReturnType<typeof selectionSchema.parse>,row:Row){
+ const plan=doc.plan;
+ if(!plan?.pages.length)return null;
+ const images=plan.pages.map((_,i)=>doc.images[i]||'');
+ if(images.some(image=>!referenceImageKey(row.id,image)))return null;
+ return version(['landscape-image',plan.characters,plan.pages,images,selection.artStyle,selection.productionPrompt,...(selection.artStylePrompt?[selection.artStylePrompt]:[])]);
 }
 
 export function migrateProductionDag(sqlite:DatabaseSync,sql:string,directory?:string){
@@ -70,9 +85,10 @@ function convertStory(sqlite:DatabaseSync,row:Row,save:ReturnType<DatabaseSync['
  const confirmed=true;
  const dag=convertDocument(doc,selection,{confirmed,notes:doc.reviewNotes});
  // 横图：采用已完成且文件可读的结果，按当前竖图记录输入。
- for(const job of jobs.filter(j=>j.kind==='landscape-image'&&j.result)){
+ const landscapeVersion=legacyLandscapeVersion(doc,selection,row);
+ for(const job of jobs.filter(j=>j.kind==='landscape-image'&&j.result&&landscapeVersion&&j.version===landscapeVersion)){
   const page=Number(JSON.parse(job.payload).page),value=(JSON.parse(job.result!) as {value?:unknown}).value,key=dag.order[page];
-  if(!key||typeof value!=='string'||!readableFile(directory,row.id,value))continue;
+  if(!key||typeof value!=='string'||!readableFile(directory,row.id,value,true))continue;
   dag.frames[key].landscape=value;
  }
  const state=versionState(dag,rootProducts(selection,dag,{notes:doc.reviewNotes}),{confirmed});

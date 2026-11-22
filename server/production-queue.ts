@@ -67,7 +67,7 @@ export class ProductionQueue{
   const now=this.clock();
   transact(this.database,db=>{
    const job=db.get<ProductionJob>('SELECT * FROM production_jobs WHERE id=?',id);
-   db.run("UPDATE production_jobs SET state='queued',result=NULL,error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE id=? AND state IN('succeeded','failed')",now,id);
+   db.run("UPDATE production_jobs SET payload=CASE WHEN state='succeeded' AND json_valid(payload) THEN json_remove(payload,'$.paid') ELSE payload END,state='queued',result=NULL,error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE id=? AND state IN('succeeded','failed')",now,id);
    if(job?.state==='failed'&&job.interrupted)recordJobRequeued(db,job,now);
   });
  }

@@ -148,7 +148,8 @@ for(const provider of flowProviders(['codex','gemini']))test(`${provider}: an ex
  const saved=JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(id).document),key=saved.dag.order[6];
  delete saved.dag.products[`frameImage:${key}`];delete saved.dag.frames[key].image;saved.images[6]='';
  db.prepare("UPDATE stories SET generation_mode='background',document=?,state='running',lock_token='crashed',lock_until=1 WHERE id=?").run(JSON.stringify(saved),id);
- db.prepare("UPDATE production_jobs SET state='running',result=NULL,lease_token='crashed',lease_until=1 WHERE session_id=? AND kind='dag-draw' AND json_extract(payload,'$.page')=6").run(id);db.close();
+ // 远端结果从未到达：任务记录里也没有已付费的结果。
+ db.prepare("UPDATE production_jobs SET payload=json_remove(payload,'$.paid'),state='running',result=NULL,lease_token='crashed',lease_until=1 WHERE session_id=? AND kind='dag-draw' AND json_extract(payload,'$.page')=6").run(id);db.close();
  await f.restart();await until(async()=>(await f.read(id)).state==='completed');
  assert.equal(f.control.calls.length,11);assert.equal(f.control.calls.filter(c=>c.page===6).length,2);
  assert.ok(f.control.calls.filter(c=>c.page!==6).every((call,index,all)=>all.findIndex(other=>other.page===call.page)===index));

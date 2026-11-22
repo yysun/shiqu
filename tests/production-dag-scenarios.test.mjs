@@ -480,3 +480,110 @@ test('viewed pages and the first image go ahead of unread drawings; leaving rest
  assert.equal(viewedPriority(10,viewing),10,'pages beyond the read-ahead keep page order');
  assert.equal(viewedPriority(5,[]),5,'without a reader every page keeps page order');
 });
+
+// ——— 审查：修订不得绕过明确恢复 ———
+
+test('a revision keeps an unresolved drawing fault whose inputs did not change; a general continue does not redraw that frame',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id,dag}=await completedStory(f);
+ const key=dag.order[1],doc0=await saved(f,id);
+ // 第 2 幅绘图失败：没有成图记录，故障待读者恢复。
+ delete doc0.dag.frames[key].image;delete doc0.dag.products[`frameImage:${key}`];doc0.images[1]='';
+ await f.app.services.database.prepare("UPDATE stories SET document=?,state='idle' WHERE id=?").bind(JSON.stringify(doc0),id).run();
+ const now=Date.now();
+ await f.app.services.database.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES('drawfault',?,?,'job','frameImage',?,'dag','绘图失败',?,?)").bind(id,owner,key,now,now).run();
+ const snapshot=await f.json(`sessions/${id}/revisions`),childId=crypto.randomUUID();
+ await f.json(`sessions/${id}/revisions`,'POST',{requestId:childId,token:snapshot.token,changes:{plan:{...snapshot.plan,summary:'一段与绘图无关的新梗概，只改变梗概文字。'}}});
+ const faults=(await f.app.services.database.prepare("SELECT node,node_key,state FROM reader_faults WHERE session_id=?").bind(childId).all()).results;
+ assert.deepEqual(faults.map(x=>[x.node,x.node_key,x.state]),[['frameImage',key,'pending']],'the unchanged fault is carried to the new version');
+ await f.json(`sessions/${childId}/production-control`,'POST',{action:'continue'}).catch(()=>{});
+ for(let i=0;i<20;i++){f.app.services.production.wake();await turn();}
+ assert.equal(f.control.calls.length,0,'nothing is drawn without an explicit recovery');
+});
+
+test('a paid drawing is kept on its job before it is saved: a failed save and its retry do not pay twice',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ // 第一次保存绘图结果时让故事文档写入失败，之后恢复。
+ let failing=true;
+ const database=f.app.services.database,original=database.prepare.bind(database);
+ database.prepare=query=>{
+  const statement=original(query);
+  if(failing&&/UPDATE stories SET document=\?,state=CASE/.test(query)&&f.control.calls.length>0){
+   return {...statement,bind:(...values)=>{const bound=statement.bind(...values);return {...bound,run:async()=>{failing=false;throw Object.assign(Error('SQLITE_BUSY'),{code:'SQLITE_BUSY'});}};}};
+  }
+  return statement;
+ };
+ const id=await confirmedStory(f,4);
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).faults?.length>0,20000);
+ assert.equal(failing,false,'the injected save failure happened');
+ const fault=(await f.read(id)).faults[0];
+ await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ await until(async()=>(await f.read(id)).state==='completed',30000);
+ const paid=f.control.calls.filter(c=>c.page===0).length;
+ assert.equal(paid,1,'the first frame is drawn once even though its first save failed');
+});
+
+
+test('a story without a snapshot (for example upgraded) gets the current settings recorded before its jobs run',async t=>{
+ const f=await snapshotFixture(t,{current:()=>snapshotA,provider:()=>f.generation});
+ const id=await confirmedStory(f,4);
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).state==='completed',20000);
+ assert.deepEqual((await saved(f,id)).dag.modelSnapshot,snapshotA);
+});
+
+test('apply-model replays by its request id and never rewrites the snapshot from later settings; override is bound to its fault id',async t=>{
+ let now=snapshotA;
+ const f=await snapshotFixture(t,{current:()=>now,provider:()=>f.generation});
+ const id=await confirmedStory(f,4);
+ await f.app.services.database.prepare("UPDATE stories SET generation_control='paused' WHERE id=?").bind(id).run();
+ f.app.services.production.wake();
+ const requestId=crypto.randomUUID(),second={provider:'codex',models:{text:'model-second',image:null}};
+ await f.json(`sessions/${id}/production-control`,'POST',{requestId,action:'apply-model'});
+ assert.deepEqual((await saved(f,id)).dag.modelSnapshot,snapshotA);
+ now=second;
+ await f.json(`sessions/${id}/production-control`,'POST',{requestId,action:'apply-model'});
+ assert.deepEqual((await saved(f,id)).dag.modelSnapshot,snapshotA,'a replay does not write the newer settings');
+ await f.json(`sessions/${id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'apply-model'});
+ assert.deepEqual((await saved(f,id)).dag.modelSnapshot,second,'a new request applies the current settings');
+ const other=await f.request(`sessions/${id}/production-control`,'POST',{requestId,action:'pause'});
+ assert.equal(other.status,409,'the request id cannot be reused for another action');
+});
+
+test('a review override only approves the problem the reader saw: a stale or wrong fault id is refused',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const issue={page:2,category:'caption',problem:'配文没有交代庄周醒来',instruction:'补写醒来的动作',requiresReplan:false};
+ f.control.beforeText=async name=>name==='review'?{issues:[issue]}:undefined;
+ const id=await confirmedStory(f,4);
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).faults?.some(x=>x.stage==='review'),30000);
+ const fault=(await f.read(id)).faults.find(x=>x.stage==='review');
+ assert.match(fault.id,/^review:/);
+ const wrong=await f.request(`sessions/${id}/review-override`,'POST',{requestId:crypto.randomUUID(),faultId:'review:'+'0'.repeat(32)});
+ assert.equal(wrong.status,409);
+ assert.equal((await f.json(`sessions/${id}/review-override`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id})).id,id);
+});
+
+test('a file restored before the reader clicks recover is reused for free, without a redraw',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ const {rm,writeFile,readFile}=await import('node:fs/promises');const path=await import('node:path');
+ const file=path.join(f.dataDirectory,'media','reader',id,'2.png');
+ const bytes=await readFile(file);
+ const image=(await f.read(id)).story.pages[2].image;
+ await rm(file);
+ await f.json(`sessions/${id}/image-health`,'POST',{page:2,image});
+ const fault=(await f.read(id)).faults.find(x=>x.stage==='redraw');
+ assert.ok(fault);
+ // 点击恢复之前，文件已被放回原处。
+ await writeFile(file,bytes);
+ await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ await until(async()=>(await f.read(id)).state==='completed',20000);
+ assert.equal(f.control.calls.length,0,'the restored file is reused, nothing is drawn or paid');
+ assert.ok(!(await f.read(id)).faults?.length);
+});

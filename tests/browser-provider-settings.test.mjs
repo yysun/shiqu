@@ -286,3 +286,14 @@ test('live settings expose next-job variables but keep process paths and port fi
  const view=await(await handler(new Request(origin+providerSettingsPath),peer)).json();assert.equal(view.appliesToNewJobs,true);assert.equal(view.restartRequired,false);assert.equal(view.runtime.provider,'codex');assert.equal(view.runtime.models.text,'new-codex');
  const variables=handler.variables();assert.equal(variables.CODEX_BIN,'/launched/codex');assert.equal(variables.PORT,'3456');assert.equal(variables.SHIQU_AI_PROVIDER,'codex');assert.equal(variables.GEMINI_API_KEY,googleKey);
 });
+
+test('a story snapshot keeps its own provider credentials after the global provider is switched',async t=>{
+ const f=await fixture(t);
+ // 全局设置当前为 Gemini；故事的快照指向 OpenAI，其已保存的密钥也要可用。
+ const variables=f.handler.variablesForSnapshot({provider:'openai',models:{text:'gpt-text',image:null}});
+ assert.equal(variables.OPENAI_API_KEY,openaiKey);
+ assert.equal(variables.GEMINI_API_KEY,googleKey,'the current provider keeps working too');
+ // 启动覆盖值优先于已保存的密钥。
+ const overridden=await fixture(t,{OPENAI_API_KEY:'x'.repeat(40)});
+ assert.equal(overridden.handler.variablesForSnapshot({provider:'openai',models:{text:null,image:null}}).OPENAI_API_KEY,'x'.repeat(40));
+});

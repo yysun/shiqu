@@ -120,6 +120,19 @@ function settleHandEdits(story:DagStory,decisions:RevisionChanges['handEdits']):
  return dag;
 }
 
+type CarriedFault={kind:string;node:string;node_key:string;message:string;image:string|null};
+/** 上一版待处理或恢复中的故障里，节点输入在新版未变的部分。 */
+async function carryFaults(repo:ReaderRepository,row:SessionRow,ownerId:string,parent:DagStory,child:DagStory):Promise<CarriedFault[]>{
+ const faults=(await repo.db.prepare("SELECT kind,node,node_key,message,image FROM reader_faults WHERE session_id=? AND owner_id=? AND state IN ('pending','recovering') AND node IS NOT NULL").bind(row.id,ownerId).all<CarriedFault>()).results;
+ if(!faults.length)return [];
+ const before=evaluate(stateOf(parent)),after=evaluate(stateOf(child));
+ return faults.filter(fault=>{
+  if(fault.node_key==='')return true;
+  if(!child.dag.order.includes(fault.node_key))return false;
+  try{return JSON.stringify(before.instance(fault.node,fault.node_key).hard)===JSON.stringify(after.instance(fault.node,fault.node_key).hard);}catch{return false;}
+ });
+}
+
 export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string):Promise<SessionRow>{
  if(!Object.keys(changes).length)throw new ReaderError(400,'没有需要保存的修改。');
  const {doc,rootId,epoch,token:current}=await revisionBasis(repo,row);
@@ -146,6 +159,8 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
  delete document.visualReview;delete document.reselection;
  const now=new Date().toISOString(),completed=!pending&&row.state==='completed';
+ // 故障延续：上一版仍待处理的故障，其节点的输入在新版里没有改变时继续阻断，须读者明确恢复；输入已变的故障不带入（新内容重新开始）。
+ const carried=await carryFaults(repo,row,ownerId,parent,{...child,dag});
  // 新版与其图片丢失故障在同一事务中写入：中断不会留下未经读者恢复就可重绘的新版。
  const transaction=repo.db.transaction;
  if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
@@ -155,6 +170,11 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   WHERE p.id=? AND p.user_id=? AND p.document=? AND p.selection=? AND ${currentFamilyVersion('p')} AND (${familyEpoch.replace(' AS epoch','')})=?
   ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused?'paused':'active',completed?'completed':'idle',now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch);
   if(!inserted.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
+  for(const fault of carried){
+   if(lost.some(page=>fault.node==='frameImage'&&dag.order[page]===fault.node_key))continue;
+   const at=Date.now();
+   db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,image,message,created_at,updated_at) VALUES(?,?,?,?,?,?,'dag',?,?,?,?)",randomUUID(),requestId,ownerId,fault.kind==='interrupted'?'job':fault.kind,fault.node,fault.node_key,fault.image,fault.message,at,at);
+  }
   // 丢失的成图记为待处理的图片丢失故障：阻断该幅及依赖它的工作与整篇完成，读者明确恢复后才重绘。
   for(const page of lost){
    const at=Date.now();
