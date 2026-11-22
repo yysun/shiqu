@@ -1,4 +1,5 @@
 // 通过正式阅读与 HTTP 制作检查全部原著，单书故障用例只复制对应原著。
+// 全库制作用例与正式流程一致：受控提供方 + 制作 DAG；已退出的逐页生成夹具已移除。
 import {copyBookLibrary} from './fixtures/book-library.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,15 +9,13 @@ import {readFile,mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {LocalBooks} from '../server/local-books.ts';
 import {bookInputs} from '../server/local-book-inputs.ts';
 import {withLocalBooks} from '../server/local-generation.ts';
-import {createApplication} from '../server/app.ts';
-import {FileMedia} from '../server/media.ts';
 import {books} from './fixtures/test-tier.mjs';
+import {productionFixture,until} from './fixtures/production.mjs';
 const root=process.cwd(),library=new LocalBooks(root),catalog=JSON.parse(await readFile('data/library/catalog.json','utf8'));
 
 const retainedChapterCounts={shishuo:36,红楼梦:120,山海经:18,子不语:24,太平广记:500,喻世明言:40,史记:130};
-const memory=()=>{const values=new Map();return {get:async key=>{const bytes=values.get(key);return bytes?{arrayBuffer:async()=>bytes.slice().buffer}:null;},put:async(key,bytes)=>{values.set(key,new Uint8Array(bytes));}};};
-const select=bookId=>({bookId,theme:'聪明与糊涂',artStyle:'ink-pencil',length:8,voice:false});
 const plan={title:'经过核对的故事',summary:'他会怎样选择？',sourceReference:'模型不能决定的出处',adaptationNote:'现代简体旁白改编',reflection:'你会如何选择？',characters:'An adult Chinese scholar in plain robes.',pages:Array.from({length:8},()=>({caption:'他停下脚步仔细观察，发现事情还有另一种解释。',prompt:'An adult scholar carefully observes a scene.'}))};
+const select=bookId=>({bookId,theme:'聪明与糊涂',artStyle:'ink-pencil',length:8,voice:false});
 function candidate(book,visible,offset=0){
  const valid=[];
  for(const section of book.sections)for(let i=0;i<section.units.length;i++){
@@ -25,7 +24,8 @@ function candidate(book,visible,offset=0){
  }
  return valid.slice(offset,offset+5);
 }
-function fake(onPlan=async()=>{}){return {matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。'}))}),status:async()=>({configured:true,provider:'gemini',voiceEnabled:false,models:{text:'mock',image:'mock'}}),safeError:()=> '模拟错误',async suggestions(s,excluded,input){assert.ok(input);const book=await library.book(s),visible=new Set([...input.text.matchAll(/\[([a-z]+-\d+-\d+)\]/g)].map(m=>m[1]));return {stories:candidate(book,visible).slice(0,input.scan.maxStories),note:'',scan:{blockComplete:false,pendingEvents:[],resolvedEventIds:[]}};},generator:()=>({recommend:async(s)=>({value:{count:8,reason:'按完整因果展开。',storySummary:plan.summary,storyMatchReason:'按原文实际事件展开。',storyTitle:s.storyTitle||plan.title,artRecommendation:{artStyle:'ink-pencil',reason:'与本篇人物和叙事相符。'}},model:'mock',requestId:'mock',usage:null}),reflection:async()=>({value:plan.reflection,model:'mock',requestId:'mock',usage:null}),reflectionCandidates:async()=>({value:{title:plan.title,candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']},model:'mock',requestId:'mock',usage:null}),review:async(_s,_p,_o,_outline,candidates)=>({value:{coverage:[{quote:_o.text.slice(0,30),task:'受控原文核对',pages:[1],assessment:'adequate',reason:'受控记录，不代表语义质量。',issuePage:0}],issues:[],titleReview:{title:_p.title,reason:'标题准确对应当前故事。'},...(candidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识。'}}:{})},model:'mock',requestId:'mock',usage:null}),async plan(s,id,original){await onPlan(s,id,original);return {value:structuredClone(plan),model:'mock',requestId:'mock',usage:null};},original:async()=>assert.fail('No public book API'),image:async()=>assert.fail('No images'),audio:async()=>assert.fail('No audio'),safeError:()=> '模拟错误'})};}
+// 候选检索替身：按书取候选并全部判为相符；其余调用由受控提供方和制作 DAG 承担。
+function fake(){return {matchStories:async(_theme,stories)=>({matches:stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。'}))}),async suggestions(s,excluded,input){assert.ok(input);const book=await library.book(s),visible=new Set([...input.text.matchAll(/\[([a-z]+-\d+-\d+)\]/g)].map(m=>m[1]));return {stories:candidate(book,visible).slice(0,input.scan.maxStories),note:'',scan:{blockComplete:false,pendingEvents:[],resolvedEventIds:[]}};}};}
 async function temp(t){const d=await mkdtemp(path.join(os.tmpdir(),'shiqu-library-'));t.after(()=>rm(d,{recursive:true,force:true}));return d;}
 
 test('all bundled books load verified originals with complete chapters and exhaustive bounded inputs',books,async()=>{
@@ -59,12 +59,32 @@ test('original corruption and unreadable source ranges fail closed',async t=>{
 });
 
 test('all bundled books complete HTTP selection and persist original glyphs before storyboard generation',books,async t=>{
- const data=await temp(t),media=new FileMedia(path.join(data,'media'));let app,plans=0;
- const base=fake(async(s,id,original)=>{plans++;assert.ok(original.localSource);const row=app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id);const stored=await row.first();assert.equal(JSON.parse(stored.document).original.text,original.text);assert.ok(await media.get(`reader/${id}/source.json`));});
- const generator=base.generator.bind(base);base.generator=()=>{const g=generator();return {...g,reflectionCandidates:async(...args)=>{const result=await g.reflectionCandidates(...args);await app.services.database.prepare("UPDATE stories SET generation_control='paused' WHERE id=?").bind(currentId).run();return result;}};};let currentId;
- app=createApplication({root,dataDirectory:data,generation:withLocalBooks(base,library,media)});t.after(()=>app.close());
- const request=async(route,body)=>{const r=await app.handle(new Request('http://localhost/api/reader/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}));const value=await r.json();assert.ok(r.ok,JSON.stringify(value));if(route==='sessions')await app.services.database.prepare("UPDATE stories SET generation_mode='reader' WHERE id=?").bind(body.requestId).run();return value;};
- for(const entry of catalog.books){const selection=select(entry.id),batch=await request('suggestions',{...selection,excludeTitles:[]}),story=batch.stories[0];assert.ok(story,entry.id);const requestId=crypto.randomUUID();await request('sessions',{requestId,selection:{...selection,storyTitle:story.title,source:story.source}});currentId=requestId;await request(`sessions/${requestId}/advance`,{throughPage:0});let result;const deadline=Date.now()+10000;do{result=await(await app.handle(new Request('http://localhost/api/reader/sessions/'+requestId))).json();assert.notEqual(result.state,'failed',JSON.stringify(result));if(result.story)break;assert.ok(Date.now()<deadline);await new Promise(resolve=>setImmediate(resolve));}while(!result.story);assert.equal(result.story.pages.length,8);assert.equal(result.story.original.text,library.resolve(await library.book(selection),story.source).text);assert.equal(result.story.original.localSource.edition,story.source.edition);assert.ok(result.story.pages.every(p=>!p.image));
+ // 与正式制作相同：受控提供方 + 制作 DAG；只替换原著库，不再使用已退出的逐页生成夹具。
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ // 候选检索不是本用例的对象：沿用按书取候选的替身，其余调用都走受控提供方与制作 DAG。
+ const stub=fake(),base=Object.create(f.generation);
+ base.suggestions=stub.suggestions;base.matchStories=stub.matchStories;
+ f.options.generation=withLocalBooks(base,library,f.media);
+ await f.restart();
+ let current,expected,checked=0;
+ // 提纲调用发出之前，故事文档与媒体里必须已有完整的原文。
+ f.control.beforeText=async name=>{
+  if(name!=='outline'||!current)return;
+  const stored=JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(current).first()).document);
+  assert.equal(stored.original.text,expected.text);assert.ok(stored.original.localSource);
+  assert.ok(await f.media.get(`reader/${current}/source.json`));checked++;
+ };
+ for(const entry of catalog.books){
+  const selection=select(entry.id),batch=await f.json('suggestions','POST',{...selection,excludeTitles:[]}),story=batch.stories[0];assert.ok(story,entry.id);
+  expected=library.resolve(await library.book(selection),story.source);
+  current=crypto.randomUUID();
+  await f.json('sessions','POST',{requestId:current,selection:{...selection,storyTitle:story.title,source:story.source}});
+  await until(async()=>{const view=await f.read(current);assert.notEqual(view.state,'failed',JSON.stringify(view));return view.state==='completed';},30000);
+  const result=await f.read(current);
+  assert.equal(result.story.pages.length,8,entry.id);
+  assert.equal(result.story.original.text,expected.text,entry.id);
+  assert.equal(result.story.original.localSource.edition,story.source.edition,entry.id);
  }
- assert.equal(plans,catalog.books.length);
+ assert.equal(checked,catalog.books.length,'every book reached the outline step with its original saved');
 });

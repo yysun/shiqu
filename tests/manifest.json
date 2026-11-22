@@ -1796,6 +1796,10 @@
         "server/local-generation.ts",
         "server/media.ts",
         "tests/fixtures/book-library.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production-data.mjs",
+        "tests/fixtures/production.mjs",
         "tests/fixtures/test-tier.mjs"
       ],
       "manualOnly": true

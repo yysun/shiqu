@@ -28,7 +28,10 @@ const frameNodes=['scene','visual','frameImage','landscape',...verdictNodes];
 
 /** 读者的设置修改合入选择；幅数策略改变由引擎重新编排。 */
 function nextSelection(selection:Selection,changes:RevisionChanges):Selection{
- return selectionSchema.parse({...selection,
+ // 换预设画风而没有同时给出自定义画风说明时，旧预设的自定义说明不再适用，必须清除，否则整套重绘会用错画风。
+ const presetChanged=!!changes.artStyle&&changes.artStyle!==selection.artStyle&&changes.artStylePrompt===undefined;
+ const base:Selection={...selection};if(presetChanged)delete base.artStylePrompt;
+ return selectionSchema.parse({...base,
   ...(changes.artStyle?{artStyle:changes.artStyle}:{}),
   ...(changes.artStylePrompt!==undefined?{artStylePrompt:changes.artStylePrompt}:{}),
   ...(changes.productionPrompt!==undefined?{productionPrompt:changes.productionPrompt}:{}),
@@ -36,6 +39,41 @@ function nextSelection(selection:Selection,changes:RevisionChanges):Selection{
   ...(changes.narrativeDetail?{narrativeDetail:changes.narrativeDetail}:{}),
   ...(changes.length!==undefined?{length:changes.length}:{}),
  });
+}
+
+/**
+ * 人物设定的修改：按「姓名：设定」逐行对应到已保存的人物，只更新改过的人物，
+ * 其指纹变化只使画过该人物的画幅重绘。无法逐行对应时拒绝保存，不能静默丢弃。
+ */
+function editCharacters(dag:DagDocument,text:string,handEdit:(node:string,key:string,content:unknown)=>void){
+ const shown=dag.characters.map(c=>c.legacy?c.text:`${c.name}：${c.text}`).join('\n');
+ if(!dag.characters.length||text===shown)return;
+ const next=dag.characters.map(c=>({...c}));
+ if(next.length===1&&next[0].legacy)next[0].text=text;
+ else{
+  const lines=text.split('\n').map(line=>line.trim()).filter(Boolean);
+  if(lines.length!==next.length)throw new ReaderError(400,'人物设定需保持原有的人数，每行写成「姓名：设定」。');
+  next.forEach((c,i)=>{
+   const prefix=`${c.name}：`;
+   if(!lines[i].startsWith(prefix))throw new ReaderError(400,`人物设定第 ${i+1} 行需以「${prefix}」开头，姓名不能在这里修改。`);
+   c.text=lines[i].slice(prefix.length).trim();
+  });
+ }
+ const changedIds=next.filter((c,i)=>c.text!==dag.characters[i].text).map(c=>c.id);
+ if(!changedIds.length)return;
+ dag.characters=next;
+ for(const id of dag.order){const f=dag.frames[id];f.candidates=castFrom([f.scene,...(f.people??[])].join(' '),dag.characters);}
+ const content=next.map(c=>({id:c.id,name:c.name,aliases:c.aliases,text:c.text}));
+ handEdit('characters','',content);
+ const product=dag.products[instanceId('characters')];
+ product.parts=Object.fromEntries(next.map((c,i)=>[c.id,c.legacy?fingerprint(c.text):fingerprint(content[i])]));
+}
+
+/** 标题与余味的修改记为读者确认的结语；它是根产物，由 settle 重新记录，依赖它的审片随之重做。 */
+function editEnding(dag:DagDocument,story:DagStory,plan:NonNullable<RevisionChanges['plan']>){
+ const shown=projectDocument(dag,story.doc.plan??null).plan;
+ if(!shown||(plan.title===shown.title&&plan.reflection===shown.reflection))return;
+ dag.ending={...(dag.ending??{title:shown.title,candidates:[]}),confirmed:{title:plan.title,ending:plan.reflection}};
 }
 
 /** 把读者改动写入 dag：改过的叙事分镜、画面描述与梗概按当前输入记录为手改。 */
@@ -67,6 +105,8 @@ function applyEdits(story:DagStory,changes:RevisionChanges):DagDocument{
     handEdit('visual',id,{prompt:page.prompt,drawn:frame.drawnNames??frame.drawn});
    }
   });
+  editCharacters(dag,changes.plan.characters,handEdit);
+  editEnding(dag,story,changes.plan);
  }
  if(changes.storySummary!==undefined&&changes.storySummary!==dag.brief){dag.brief=changes.storySummary;handEdit('brief','',changes.storySummary);}
  return dag;

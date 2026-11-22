@@ -32,7 +32,7 @@ import {commandFingerprint} from './reader-commands.ts';
 import {transact,deleteJobs} from './production-records.ts';
 
 export const dagTextKind='dag',dagDrawKind='dag-draw';
-type Deps={database:Database;media:MediaStore;queue:ProductionQueue;clock:()=>number;wake:()=>void;snapshot?:()=>ModelSnapshot|undefined;fileLost:(key:string,strict?:boolean)=>Promise<boolean>};
+type Deps={database:Database;media:MediaStore;queue:ProductionQueue;clock:()=>number;wake:()=>void;snapshot?:()=>ModelSnapshot|undefined;fileLost:(key:string,strict?:boolean,landscape?:boolean)=>Promise<boolean>};
 /** 正在阅读的读者：当前页到预读范围内的画幅优先于其他故事的绘图（决策：恢复旧版的阅读优先）。 */
 type Paid={value:unknown;model:string;requestId:string|null;usage:unknown;entry?:Document['usage'][number]};
 export type Viewing={page:number;through:number};
@@ -155,7 +155,7 @@ export class DagProduction{
   const initial=await this.row(job.session_id,job.owner_id);
   const story=initial&&await this.story(initial);
   if(!initial||!story||story.doc.intake?.generation!==setupGeneration||story.dag.continuation||stale(story,item))return {obsolete:true};
-  const readablePaid=paid&&drawing(item.call)&&this.currentDrawingReceipt(story,item)&&!await this.paidFileLost(job,paid.value);
+  const readablePaid=paid&&drawing(item.call)&&this.currentDrawingReceipt(story,item)&&!await this.paidFileLost(job,paid.value,item.call==='drawLandscape');
   // 尚未付费的任务必须仍属于当前请求。可读的已付费成图沿用派发时的参考图。
   if(!job.recovery_id&&!readablePaid&&!this.specs(initial,story).some(spec=>spec.id===job.id))return {obsolete:true};
   let generated:Awaited<ReturnType<typeof executeWork>>|undefined,usage:Document['usage'][number]|undefined;
@@ -178,8 +178,8 @@ export class DagProduction{
    }
    if(drawing(item.call)){
     const key=typeof generated.value==='string'?referenceImageKey(job.session_id,generated.value):null;
-    if(!key||await this.deps.fileLost(key,true)){
-     if(item.call==='drawLandscape'){await this.markLandscape(job,item.instances[0].key,'图片服务未返回可读取的横图，请重试本幅。');return {failed:true};}
+    if(!key||await this.deps.fileLost(key,true,item.call==='drawLandscape')){
+     if(item.call==='drawLandscape'){await this.markLandscape(job,item.instances[0].key,'图片服务未返回可读取的 3∶2 横图，请重试本幅。');return {failed:true};}
      throw new ReaderError(409,'图片服务未返回可读取的图片，请重试本幅。');
     }
    }
@@ -230,9 +230,12 @@ export class DagProduction{
  }
 
  /** 已付费的绘图结果文件现在读不出：不再采用，须重新绘制。 */
- private async paidFileLost(job:ProductionJob,value:unknown){
+ private async paidFileLost(job:ProductionJob,value:unknown,landscape=false){
   const key=typeof value==='string'?referenceImageKey(job.session_id,value):null;
-  return !key||await this.deps.fileLost(key,true).catch(()=>true);
+  if(!key)return true;
+  // 暂时读不出不等于文件丢失：不能因此再次付费绘制，改为稍后重试核对，已付费的结果保留在任务里。
+  try{return await this.deps.fileLost(key,true,landscape);}
+  catch{throw new ReaderError(503,'已付费的图片暂时无法核对，请稍后重试；不会重复绘制。');}
  }
 
  private async markLandscape(job:ProductionJob,key:string,message:string){
@@ -250,13 +253,25 @@ export class DagProduction{
   const lost=new Set<string>();
   for(const id of story.dag.order){
    const url=story.dag.frames[id]?.landscape,key=url?referenceImageKey(story.id,url):null;
-   if(url&&key&&await this.deps.fileLost(key,true).catch(()=>false))lost.add(id);
+   if(url&&key&&await this.deps.fileLost(key,true,true).catch(()=>false))lost.add(id);
   }
   return lost;
  }
 
+ /** 已失败的横图任务（例如保存的模型服务不可用时任务在绘制前就失败）：按画幅身份给出失败说明，避免状态一直显示进行中。 */
+ private async failedLandscapeJobs(row:SessionRow){
+  const jobs=(await this.deps.database.prepare("SELECT payload,error FROM production_jobs WHERE session_id=? AND owner_id=? AND kind=? AND state='failed' AND json_extract(payload,'$.work.call')='drawLandscape'").bind(row.id,row.user_id,dagDrawKind).all()).results as {payload:string;error:string|null}[];
+  const active=(await this.deps.database.prepare("SELECT payload FROM production_jobs WHERE session_id=? AND owner_id=? AND kind=? AND state IN ('queued','running') AND json_extract(payload,'$.work.call')='drawLandscape'").bind(row.id,row.user_id,dagDrawKind).all()).results as {payload:string}[];
+  const busy=new Set(active.flatMap(j=>(JSON.parse(j.payload) as {work:Work}).work.instances.map(i=>i.key)));
+  const failed=new Map<string,string>();
+  for(const job of jobs)for(const inst of (JSON.parse(job.payload) as {work:Work}).work.instances)if(!busy.has(inst.key))failed.set(inst.key,job.error||'横图绘制失败，请重试本幅。');
+  return failed;
+ }
+
  async landscapeStatus(row:SessionRow):Promise<LandscapeStatus>{
-  const story=(await this.story(row))!,lost=await this.lostLandscapes(story),frames=story.dag.order.map(id=>({...story.dag.frames[id],...(lost.has(id)?{landscape:'',landscapeError:'横图文件已丢失或损坏，请重试本幅。'}:{})}));
+  const story=(await this.story(row))!,lost=await this.lostLandscapes(story),jobFailures=await this.failedLandscapeJobs(row);
+  const frames=story.dag.order.map(id=>({...story.dag.frames[id],...(lost.has(id)?{landscape:'',landscapeError:'横图文件已丢失或损坏，请重试本幅。'}:{}),
+   ...(!lost.has(id)&&story.dag.frames[id].landscape===''&&!story.dag.frames[id].landscapeError&&jobFailures.has(id)?{landscapeError:jobFailures.get(id)}:{})}));
   const images=frames.map(f=>f.landscape||''),failed=frames.flatMap((f,i)=>f.landscapeError?[i+1]:[]);
   const pending=frames.some(f=>f.landscape===''&&!f.landscapeError),ready=images.filter(Boolean).length,available=row.state==='completed';
   const state=pending?'running':ready===frames.length&&frames.length?'completed':ready||failed.length?'partial':'idle';

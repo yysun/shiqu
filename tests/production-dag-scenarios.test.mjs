@@ -791,3 +791,121 @@ test('a landscape file that is no longer readable shows as failed and is redrawn
  await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
  assert.equal(f.control.calls.filter(c=>c.landscape).length-before,1,'only the damaged landscape is redrawn');
 });
+
+// ——— 审查意见：快照停滞、画风预设与横图比例 ———
+
+test('a story with a saved snapshot keeps running when the current global provider is unavailable',async t=>{
+ const f=await snapshotFixture(t,{current:()=>snapshotA,provider:()=>f.generation});
+ f.generation.capture=()=>undefined;
+ const id=await confirmedStory(f,4,{dag:{...emptyDag(),modelSnapshot:snapshotA}});
+ for(let i=0;i<5;i++){f.app.services.production.wake();await turn();}
+ await until(async()=>(await f.read(id)).state==='completed',20000);
+ assert.equal(f.control.calls.length,4,'all four drawings ran on the saved provider');
+});
+
+test('a preset change without a new custom prompt drops the old custom art instructions',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ await f.app.services.database.prepare("UPDATE stories SET selection=json_set(selection,'$.artStyle','ink-pencil','$.artStylePrompt','自定义铅笔：粗线条、灰调') WHERE id=?").bind(id).run();
+ const snapshot=await f.json(`sessions/${id}/revisions`);
+ const child=crypto.randomUUID();
+ await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{artStyle:'watercolor'}});
+ const row=await f.app.services.database.prepare('SELECT selection FROM stories WHERE id=?').bind(child).first();
+ const next=JSON.parse(row.selection);
+ assert.equal(next.artStyle,'watercolor');
+ assert.ok(!next.artStylePrompt,'the pencil prompt must not follow the watercolor preset');
+ // 同时给出新的自定义说明时按给出的保存。
+ const again=crypto.randomUUID(),fresh=await f.json(`sessions/${child}/revisions`);
+ await f.json(`sessions/${child}/revisions`,'POST',{requestId:again,token:fresh.token,changes:{artStyle:'ink-pencil',artStylePrompt:'新的铅笔说明'}});
+ assert.equal(JSON.parse((await f.app.services.database.prepare('SELECT selection FROM stories WHERE id=?').bind(again).first()).selection).artStylePrompt,'新的铅笔说明');
+});
+
+test('a square replacement is not accepted as part of a complete 3:2 landscape set',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ let status=await f.json(`sessions/${id}/landscape`);
+ await f.json(`sessions/${id}/landscape`,'POST',{startToken:status.startToken});
+ await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
+ status=await f.json(`sessions/${id}/landscape`);
+ const {createCanvas}=await import('@napi-rs/canvas');
+ await f.media.put(referenceImageKey(id,status.images[1]),createCanvas(64,64).toBuffer('image/png'),{contentType:'image/png'});
+ status=await f.json(`sessions/${id}/landscape`);
+ assert.deepEqual(status.failed,[2]);assert.equal(status.state,'partial');
+});
+
+test('saving an edited character setting or ending keeps the edit and redraws only what depends on it',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id,dag:before}=await completedStory(f);
+ const snapshot=await f.json(`sessions/${id}/revisions`);
+ const plan=structuredClone(snapshot.plan);
+ const lines=plan.characters.split('\n');
+ const [name]=lines[0].split('：');
+ lines[0]=`${name}：改动后的人物设定，披着深色长袍。`;
+ plan.characters=lines.join('\n');
+ plan.reflection='改动后的余味。';
+ plan.title='改动后的标题';
+ const preview=await f.json(`sessions/${id}/revisions/preview`,'POST',{token:snapshot.token,changes:{plan}});
+ assert.ok(preview.redraw>0,'the character edit redraws the frames that show that character');
+ const child=crypto.randomUUID();
+ await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{plan}});
+ const doc=await saved(f,child);
+ assert.ok(doc.dag.characters[0].text.includes('深色长袍'));
+ assert.equal(doc.plan.characters.split('\n')[0],lines[0]);
+ assert.equal(doc.plan.reflection,'改动后的余味。');
+ assert.equal(doc.plan.title,'改动后的标题');
+ assert.equal(doc.dag.ending.confirmed.ending,'改动后的余味。');
+ // 只有画过被改人物的画幅换了图片输入。
+ assert.equal(doc.dag.continuation?.reason,'revision-saved','the dependent drawings and reviews wait for 继续制作');
+ // 无法逐行对应的人物设定被拒绝，而不是静默丢弃。
+ const bad=structuredClone(snapshot.plan);bad.characters='随便一行';
+ const refused=await f.request(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:snapshot.token,changes:{plan:bad}});
+ assert.equal(refused.status,400);
+});
+
+test('a transient read error while checking a paid image is not treated as a lost file, so it is never drawn twice',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id,dag}=await completedStory(f);
+ const url=dag.frames[dag.order[0]].image,job={session_id:id},dagProduction=f.app.services.production.dag;
+ assert.equal(await dagProduction.paidFileLost(job,url),false,'a readable file is kept');
+ const media=f.app.services.media,original=media.get.bind(media);
+ media.get=async()=>{throw Error('controlled transient read error');};
+ await assert.rejects(()=>dagProduction.paidFileLost(job,url),error=>error.status===503,'verification is retried later');
+ media.get=async()=>null;
+ assert.equal(await dagProduction.paidFileLost(job,url),true,'a file that is really gone is redrawn');
+ media.get=original;
+ assert.equal(f.control.calls.length,0,'nothing was drawn while checking');
+});
+
+test('landscape jobs that fail because the saved provider is unavailable show as failed with a retry, not as running',async t=>{
+ let available=false;
+ const f=await snapshotFixture(t,{current:()=>snapshotA,provider:()=>available?f.generation:null});
+ const {id}=await completedStory(f);
+ await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag.modelSnapshot',json(?)) WHERE id=?").bind(JSON.stringify(snapshotA),id).run();
+ let status=await f.json(`sessions/${id}/landscape`);
+ await f.json(`sessions/${id}/landscape`,'POST',{startToken:status.startToken});
+ await until(async()=>(await f.json(`sessions/${id}/landscape`)).state!=='running',20000);
+ status=await f.json(`sessions/${id}/landscape`);
+ assert.equal(status.state,'partial');
+ assert.equal(status.failed.length,6,'every frame is listed as failed');
+ assert.match(status.error,/快照服务不可用/);
+ assert.ok(status.retryToken,'the reader can retry');
+ assert.equal(f.control.calls.length,0,'nothing was drawn');
+ // 服务恢复后重试，全部画完。
+ available=true;
+ await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
+ await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
+ assert.equal(f.control.calls.filter(c=>c.landscape).length,6);
+});
+
+test('read-only mode starts no generation even when the story has a usable model snapshot',async t=>{
+ // 当前设置为只读时快照服务没有当前快照；故事保存的快照仍可构造提供方，但任务不得派发。
+ const f=await snapshotFixture(t,{current:()=>undefined,provider:()=>f.generation});
+ const id=await confirmedStory(f,4,{dag:{...emptyDag(),modelSnapshot:snapshotA}});
+ for(let i=0;i<15;i++){f.app.services.production.wake();await turn();}
+ assert.equal(f.control.dagCalls.length+f.control.calls.length,0,'no paid call was made');
+ assert.notEqual((await f.read(id)).state,'completed');
+});

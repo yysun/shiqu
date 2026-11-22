@@ -18,7 +18,7 @@ import type {ModelSnapshot} from '../lib/production-dag/document.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
-import {readableImage} from './reader-image-health.ts';
+import {readableImage,readableLandscapeImage} from './reader-image-health.ts';
 import {intakeSearch} from '../lib/reader-intake.ts';
 import type {IntakeSearch} from '../lib/reader-intake.ts';
 import {suggestionBatchSchema,freshSuggestions,maxSuggestionBatches} from '../lib/reader-suggestions.ts';
@@ -115,7 +115,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     [dagDrawKind]:{pool:'image',run:job=>this.runDag(job)},
    },
   });
-  this.dag=new DagProduction({database,media,queue:this.queue,clock:this.clock,wake:()=>this.wake(),snapshot:()=>this.snapshotNow(),fileLost:(key,strict)=>this.fileLost(key,strict)});
+  this.dag=new DagProduction({database,media,queue:this.queue,clock:this.clock,wake:()=>this.wake(),snapshot:()=>this.snapshotNow(),fileLost:(key,strict,landscape)=>this.fileLost(key,strict,landscape)});
   if(options.autoStart!==false)this.start();
  }
  start(){if(this.enabled||this.stopping||this.closed)return;this.enabled=true;this.timer=setInterval(()=>this.wake(),this.options.tickMs||1000);this.timer.unref();this.wake();}
@@ -358,7 +358,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private async canRun(job:ProductionJob){
   if(this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&imageKinds.includes(job.kind))return false;
-  if(this.provider.capture&&!this.provider.capture())return false;
+  // 有模型快照的 DAG 故事按快照运行，当前全局服务不可用不阻塞；缺少快照服务时仍由 runDag 报告「快照服务不可用」。
+  // 先看只读模式：当前设置为只读时 current() 无快照，任何任务都不得派发。
+  const snapshotted=(job.kind===dagTextKind||job.kind===dagDrawKind)&&!!this.options.snapshots&&!!this.snapshotNow()&&!!await this.dag.snapshotOf(job);
+  if(!snapshotted&&this.provider.capture&&!this.provider.capture())return false;
   const row=await this.raw(job.session_id,job.owner_id);
   if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
   // 横图是读者对已完成故事的明确请求，不需要阅读需求。
@@ -371,10 +374,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // DAG 任务不持有会话锁，结果以文档内容比较并交换保存；故障只阻断依赖它的工作，由调度时的引擎状态决定。
   return job.kind===dagTextKind||job.kind===dagDrawKind;
  }
- private async fileLost(key:string,strict=false){
+ private async fileLost(key:string,strict=false,landscape=false){
   const asset=await this.media.get(key);if(!asset)return true;
   const bytes=new Uint8Array(await asset.arrayBuffer()),type=mediaType(bytes);
-  return (strict?type!==asset.contentType:!type)||!await readableImage(bytes);
+  // 横图必须是 3∶2；方图等其他比例不能算作完整的印刷套图。
+  return (strict?type!==asset.contentType:!type)||!await (landscape?readableLandscapeImage(bytes):readableImage(bytes));
  }
  private async finishSearch(id:string,ownerId:string,round:number,search:IntakeSearch,batch?:SuggestionBatch,clearIndexed=false){
   // The fence refuses a result that arrives after confirmation or after a crash already saved it.
@@ -393,14 +397,17 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private snapshotNow(){try{return this.options.snapshots?.current();}catch{return undefined;}}
  /** DAG 任务按故事的模型快照构造提供方；没有快照服务或故事没有快照时沿用当前提供方。 */
  private async runDag(job:ProductionJob){
-  let provider=this.jobProvider(job);
   const snapshots=this.options.snapshots,snapshot=snapshots&&await this.dag.snapshotOf(job);
+  let provider:ReaderProvider;
   if(snapshot&&snapshots){
+   // 当前设置为只读时不得发起任何调用，即使故事有可用的快照。
+   if(!this.snapshotNow())throw new JobYield();
+   // 故事有快照时只看快照服务；当前全局服务不可用不应阻塞这篇故事。
    const savedProvider=snapshots.provider(snapshot);
    if(!savedProvider)throw Object.assign(new ReaderError(409,'快照服务不可用：这篇故事制作时选用的模型服务目前缺少凭据或已不可用。请在设置中恢复该服务，或选择「应用当前模型设置」后再重试。'),{code:'SNAPSHOT_UNAVAILABLE'});
    provider=savedProvider;
    this.jobProviders.set(job.id,provider);
-  }
+  }else provider=this.jobProvider(job);
   const result=await this.dag.run(job,provider);
   // 星标参考图等输入可能在故事文档未变化时失效。下一轮重新安排当前输入的任务。
   if(result.obsolete)this.rebuildKeys.delete(job.session_id);
