@@ -110,7 +110,7 @@ export function rootProducts(selection:Selection,dag:Pick<DagDocument,'items'|'m
 }
 
 /** 引擎所需的版本状态：dag 产物加根输入，故障单独传入。 */
-export function versionState(dag:DagDocument,roots:Record<string,Product>,options:{confirmed:boolean;faults?:Fault[];reprepare?:boolean}):VersionState{
+export function versionState(dag:DagDocument,roots:Record<string,Product>,options:{confirmed:boolean;faults?:Fault[];reprepare?:boolean;skipFrameCheck?:boolean}):VersionState{
  return {
   confirmed:options.confirmed,
   order:dag.order,
@@ -120,6 +120,7 @@ export function versionState(dag:DagDocument,roots:Record<string,Product>,option
   products:{...dag.products,...roots},
   faults:options.faults||[],
   reprepare:options.reprepare,
+  skipFrameCheck:options.skipFrameCheck,
  };
 }
 

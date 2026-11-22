@@ -83,7 +83,7 @@ test('a confirmed story runs from the outline to its last image through the prod
  const doc=await saved(f,id);
  for(const [name,n] of [['brief',1],['characters',1],['outline',1],['sceneBatch',1],['visual',1]])assert.equal(count(f.control.dagCalls,name),n,name);
  assert.equal(f.control.reflections.length,1,'one ending call');
- assert.equal(f.control.frameReviews.length,1,'one frame-count check');
+ assert.equal(f.control.frameReviews.length,0,'a fixed-length story has no frame-count check (as in v0.14.0)');
  assert.equal(f.control.reviews.length,1,'one review call');
  assert.equal(f.control.calls.length,4,'one drawing per frame');
  const first=f.control.calls.find(c=>c.page===0);
@@ -113,11 +113,11 @@ test('deleting a frame keeps every other image and identity: no drawing, one fra
  const {doc}=await revise(f,id,snapshot=>({removedFrames:[3],plan:{...snapshot.plan,pages:snapshot.plan.pages.filter((_,i)=>i!==2)}}));
  assert.deepEqual(doc.dag.order,before.order.filter((_,i)=>i!==2));
  assert.equal(f.control.calls.length,0,'no drawing calls');
- assert.equal(f.control.frameReviews.length,1,'the frame-count check re-runs because the order changed');
+ assert.equal(f.control.frameReviews.length,0,'no frame-count check for a fixed-length story');
  assert.equal(f.control.reviews.length,1);
  // 标题与结语候选绑定画幅身份序列，顺序改变后重新拟定；其余文字调用为零。
  assert.equal(f.control.reflections.length,1);
- assert.equal(textCalls(f.control)-f.control.frameReviews.length-f.control.reflections.length,0);
+ assert.equal(textCalls(f.control)-f.control.reflections.length,0);
  assert.deepEqual(doc.dag.order.map(k=>doc.dag.products[`frameImage:${k}`].hash),before.order.filter((_,i)=>i!==2).map(k=>before.products[`frameImage:${k}`].hash));
 });
 
@@ -170,7 +170,7 @@ test('a failed step blocks only its dependants: independent steps finish, and re
  f.control.beforeText=async name=>{if(name==='visual'&&failing){failing=false;throw Error('controlled failure');}};
  const id=await confirmedStory(f,4);
  f.app.services.production.wake();
- await until(async()=>(await f.read(id)).faults?.length>0&&f.control.reflections.length===1&&f.control.frameReviews.length===1,20000);
+ await until(async()=>(await f.read(id)).faults?.length>0&&f.control.reflections.length===1,20000);
  // 不依赖画面描述的结语与幅数核对照常完成；依赖它的审片与绘图都未开始。
  assert.equal(f.control.reviews.length,0);
  assert.equal(f.control.calls.length,0);

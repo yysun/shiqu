@@ -18,7 +18,7 @@ export function replies({fail=()=>null,frameCheck=()=>'keep',repairSame=false}={
   switch(method){
    case 'prepareBrief':return '管仲与鲍叔牙少时相知。';
    case 'characters':return people;
-   case 'outline':return {title:'管鲍之交',summary:'梗概',sourceReference:'史记',adaptationNote:'按原文',beats:Array.from({length:args.settings.length},(_,i)=>`节点${i+1}`)};
+   case 'outline':return {title:'管鲍之交',summary:'梗概',sourceReference:'史记',adaptationNote:'按原文',beats:Array.from({length:typeof args.settings.length==='number'?args.settings.length:12},(_,i)=>`节点${i+1}`)};
    case 'sceneBatch':return Array.from({length:args.count},(_,i)=>({caption:`第${args.first+i}幅：管仲与鲍叔牙同行的配文。`,people:['管仲','鲍叔']}));
    case 'sceneRepair':return args.frames.map(f=>({caption:repairSame?f.caption:`修订后的第${f.index+1}幅配文。`,people:['管仲']}));
    case 'visual':case 'restyle':return args.frames.map(f=>({prompt:`第${f.index+1}幅画面：两位少年并肩走在乡间小路上，中景，${args.style.artStyle}。`,drawn:['管仲']}));

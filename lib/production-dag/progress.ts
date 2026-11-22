@@ -39,7 +39,7 @@ export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
  const used=story.dag.repairs?.used??0;
  const review:DagReviewProgress={
   reviewStatus:complete||(!text&&!!drawing&&!waiting.length)?'passed':waiting.length&&!text?'blocked':repairing?'repair':'pending',
-  reviewPhase:items.some(item=>item.call==='frameCheck')||!story.dag.frameCheck?'frames':'full',
+  reviewPhase:typeof selection.length==='number'?'full':items.some(item=>item.call==='frameCheck')||!story.dag.frameCheck?'frames':'full',
   reviewRound:used+1,repairCompleted:0,repairTotal:story.dag.issues?.length??0,reviewAudits:used+(reviewWork?0:1),repairPasses:used,
   ...(stop==='limit'||stop==='unchanged'||stop==='requirements'?{reviewStopReason:stop}:stop==='unrepairable'?{reviewStopReason:'replan' as const}:{}),
   reviewOverridden:Object.values(story.dag.products).some(product=>product.overridden),

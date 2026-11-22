@@ -41,6 +41,8 @@ export type VersionState={
  faults:Fault[];
  /** 确认后读者明确「重新准备」。 */
  reprepare?:boolean;
+ /** 定长故事不做幅数与结构核对（与 v0.14.0 一致，只有「自动幅数」才核对）：该节点视为已通过，不派发。 */
+ skipFrameCheck?:boolean;
 };
 
 export type Status='valid'|'missing'|'invalid'|'waiting';
@@ -77,6 +79,10 @@ export class Evaluation{
  instance(node:string,key=''):Instance{
   const id=instanceId(node,key),cached=this.memo.get(id);
   if(cached)return cached;
+  if(node==='frameCheck'&&this.state.skipFrameCheck){
+   const skipped:Instance={node,key,id,status:'valid',basedOnOld:false,blocked:false,ready:false};
+   this.memo.set(id,skipped);return skipped;
+  }
   const spec=nodeSpec(node),product=this.state.products[id];
   const faulted=this.state.faults.some(f=>f.node===node&&f.key===key);
   if(spec.kind!=='model'){
@@ -163,11 +169,13 @@ export class Evaluation{
   if(gate==='preparing')return !this.state.confirmed||!!this.state.reprepare;
   if(!this.state.confirmed)return false;
   if(gate==='confirmed')return true;
-  if(gate==='frameCheck')return this.passed('frameCheck','');
+  // 定长故事没有幅数核对：审片仍等结语就绪（核对原本与结语同一轮完成），保持一次审片调用。
+  if(gate==='frameCheck')return this.state.skipFrameCheck?this.instance('ending').status==='valid':this.passed('frameCheck','');
   return this.approved(false);
  }
 
  private passed(node:string,key:string){
+  if(node==='frameCheck'&&this.state.skipFrameCheck)return true;
   const inst=this.instance(node,key),product=this.state.products[inst.id];
   return inst.status==='valid'&&!!product&&(product.outcome==='pass'||!!product.overridden);
  }

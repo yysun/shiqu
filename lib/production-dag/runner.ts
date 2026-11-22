@@ -49,7 +49,7 @@ export function syncItems(dag:DagDocument,selection:Selection):DagDocument{
 
 export function stateOf(story:DagStory):VersionState{
  const roots=rootProducts(story.selection,story.dag,{notes:story.doc.reviewNotes,refSource:story.refSource});
- return versionState(story.dag,roots,{confirmed:story.confirmed,faults:story.faults,reprepare:story.reprepare});
+ return versionState(story.dag,roots,{confirmed:story.confirmed,faults:story.faults,reprepare:story.reprepare,skipFrameCheck:typeof story.selection.length==='number'});
 }
 
 const clone=(dag:DagDocument):DagDocument=>structuredClone(dag);
