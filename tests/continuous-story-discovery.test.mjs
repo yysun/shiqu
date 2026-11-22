@@ -81,12 +81,13 @@ test('one viewer leaving preserves another; the last viewer and expired leases s
 test('automatic more cannot race past a chosen story at the SQL write fence',async t=>{
  const f=await productionFixture(t);f.generation.suggestions=async()=>candidate('庄周梦蝶');const id=await create(f);await f.demand(id);
  await until(async()=>(await f.read(id)).intake.phase==='choosing');
- const database=f.app.services.database,prepare=database.prepare.bind(database);let resume,blocked;
+ // 写入本身是同步事务，不能在中途插入；在「读取之后、写入之前」的替换检查处暂停，让选择先落库，再放行自动查找的写入。
+ const database=f.app.services.database,prepare=database.prepare.bind(database);let resume,blocked=false;
  const gate=new Promise(resolve=>resume=resolve);
  database.prepare=sql=>{
   const statement=prepare(sql);
-  if(sql.includes("AND json_type(document,'$.intake.selected') IS NOT 'object'")){
-   const bind=statement.bind.bind(statement);statement.bind=(...values)=>{const bound=bind(...values),run=bound.run.bind(bound);bound.run=async()=>{blocked=true;await gate;return run();};return bound;};
+  if(!blocked&&sql.startsWith('SELECT id FROM stories WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM stories newer')){
+   const bind=statement.bind.bind(statement);statement.bind=(...values)=>{const bound=bind(...values),first=bound.first.bind(bound);bound.first=async()=>{if(!blocked){blocked=true;await gate;}return first();};return bound;};
   }
   return statement;
  };

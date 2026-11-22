@@ -14,7 +14,7 @@ const setup=async(f,id,action,s)=>f.json(`sessions/${id}/setup`,'POST',{requestI
 test('intent is saved before discovery; restart and waiting for story choice never commission scripts/images',async t=>{
  const f=await fixture(t);let release;f.generation.suggestions=async()=>{f.discoveries.push(1);await new Promise(r=>release=r);return batch;};
  const id=await create(f),saved=await f.read(id);assert.equal(saved.selection.bookId,'zhuangzi');assert.equal(saved.selection.theme,selection.theme);
- await until(()=>release);assert.equal((await f.json('sessions')).some(s=>s.id===id),true);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ await until(()=>release);assert.equal((await f.json('sessions')).some(s=>s.id===id),true);assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
  release();await until(async()=>(await f.read(id)).intake.phase==='choosing');await f.restart();
  const resumed=await f.read(id);assert.equal(resumed.intake.batches[0].stories.length,2);assert.equal(resumed.state,'idle');assert.equal(f.discoveries.length,1);assert.equal(f.control.calls.length,0);
 });
@@ -22,10 +22,10 @@ test('intent is saved before discovery; restart and waiting for story choice nev
 test('choosing prepares saved source and count; only full production confirmation starts generation',async t=>{
  const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');const prepared=await f.read(id);
- assert.equal(prepared.selection.storyTitle,'庄周梦蝶');assert.equal(prepared.selection.artStyle,'paper-cut');assert.equal(prepared.frameRecommendation.count,7);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ assert.equal(prepared.selection.storyTitle,'庄周梦蝶');assert.equal(prepared.selection.artStyle,'paper-cut');assert.equal(prepared.frameRecommendation.count,7);assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
  assert.equal((await f.request(`sessions/${id}/source`)).status,200);
  assert.equal((await f.request(`sessions/${id}/frame-count`,'POST',{count:4})).status,409);
- await f.json(`sessions/${id}/advance`,'POST',{throughPage:79});await f.app.services.production.tick();assert.equal(f.control.plans.length,0);
+ await f.json(`sessions/${id}/advance`,'POST',{throughPage:79});await f.app.services.production.tick();assert.equal(f.control.dagCalls.length,0);
  const action={requestId:crypto.randomUUID(),generation:prepared.intake.generation,action:'confirm',settings:{artStyle:'watercolor',productionPrompt:'clear captions',narrativeDetail:'balanced',length:4}};
  await f.json(`sessions/${id}/setup`,'POST',action);await until(async()=>(await f.read(id)).state==='completed');assert.equal((await f.read(id)).story.pages.length,4);assert.equal(f.control.calls.length,4);
  await f.json(`sessions/${id}/setup`,'POST',action);assert.equal(f.control.calls.length,4);
@@ -47,7 +47,7 @@ test('a story-only style prompt survives draft reload and reaches storyboard and
  await setup(f,id,{action:'confirm',settings:reloaded.intake.draft,draftToken:reloaded.intake.draftToken});
  await until(async()=>(await f.read(id)).state==='completed');
  assert.equal((await f.read(id)).selection.artStylePrompt,artStylePrompt);
- assert.equal(f.control.plans[0].artDirection,artStylePrompt);
+ assert.ok(f.control.reviews.length>0&&f.control.reviews.every(r=>r.artDirection.includes(artStylePrompt)),'the story-only style reaches the DAG review payload');
  assert.equal(f.control.calls.length,2);
  assert.ok(f.control.calls.every(call=>call.prompt.includes(artStylePrompt)));
  assert.ok(f.control.calls.every(call=>!call.prompt.includes('Layered Chinese paper-cut illustration')));
@@ -70,7 +70,7 @@ test('a failed search stays with the search; obsolete jobs do not block the next
  await setup(f,id,{action:'more'},old);await until(async()=>(await f.read(id)).intake.search.state==='idle');assert.equal(f.discoveries.length,2);assert.equal((await f.read(id)).state,'idle');
  await f.app.services.production.queue.enqueue({id:crypto.randomUUID(),sessionId:id,ownerId:'docker-local-owner',kind:'discover',pool:'search',version:'stale',dependencies:[],payload:{setupGeneration:old.intake.generation},priority:-100});
  await f.app.services.production.tick();assert.equal(f.discoveries.length,2);assert.equal((await f.read(id)).intake.phase,'choosing');
- const other=await f.create(2);await until(async()=>(await f.read(other)).state==='completed');assert.equal(f.control.plans.length,1);
+ const other=await f.create(2);await until(async()=>(await f.read(other)).state==='completed');assert.equal(f.control.dagCalls.filter(n=>n==='brief').length,1);
 });
 
 test('failed preparation can be replaced, manual preferences survive reselect, and old receipts are fenced',async t=>{
@@ -95,7 +95,7 @@ test('empty batches stay selectable, cap at forty, and pause never dispatches di
   assert.equal((await f.read(id)).state,'idle');if(n<40)await setup(f,id,{action:'more'});
  }
  assert.equal((await f.request(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(id)).intake.generation,action:'more'})).status,400);
- assert.equal(f.control.calls.length,0);assert.equal(f.control.plans.length,0);
+ assert.equal(f.control.calls.length,0);assert.equal(f.control.dagCalls.length,0);
  const other=await create(f);await f.json(`sessions/${other}/production-control`,'POST',{action:'pause'});await f.app.services.production.tick();assert.equal((await f.read(other)).generationControl,'paused');
 });
 
@@ -135,7 +135,7 @@ test('reselecting remote candidates prepares distinct originals through the real
   assert.match(source.text,new RegExp(titles[index]));assert.equal(f.control.recommendations.at(-1).verifiedOriginal.text,source.text);
  }
  assert.notEqual(originals[0].text,originals[1].text);assert.deepEqual(originals[0],originals[2]);assert.equal(retrieved.length,2);
- assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
 });
 
 test('finding another batch leaves the prepared story in place and observes until the search ends',async t=>{
@@ -146,7 +146,7 @@ test('finding another batch leaves the prepared story in place and observes unti
  assert.equal(finding.intake.phase,'confirming');assert.equal(finding.intake.search.state,'searching');assert.equal(finding.state,'idle');assert.equal(finding.awaitingFrameCount,false);assert.equal(finding.generationProgress.phase,'production-confirmation');assert.equal(shelfGenerationStatus(finding).group,'待制作确认');
  const observed=[];let polls=0;
  await observeStoryGeneration({sessionId:id,isActive:()=>true,onSession:s=>observed.push(s.intake.search.state),request:async()=>{polls++;return f.read(id);},sleep:async()=>{release();await until(async()=>(await f.read(id)).intake.search.state==='idle');}});
- assert.equal(polls,2);assert.deepEqual(observed,['searching','idle']);assert.equal(shelfGenerationStatus(await f.read(id)).group,'待制作确认');assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ assert.equal(polls,2);assert.deepEqual(observed,['searching','idle']);assert.equal(shelfGenerationStatus(await f.read(id)).group,'待制作确认');assert.equal(f.control.recommendations.length,1);assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
 });
 
 test('confirmed intake draws eighty frames once across four storyboard batches',heavy,async t=>{
@@ -168,7 +168,7 @@ test('legacy prepared choice receipts read as confirming without writes or paid 
  const before=await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first();
  const s=await f.read(id);assert.equal(s.intake.phase,'confirming');assert.equal(s.generationProgress.phase,'production-confirmation');assert.equal(shelfGenerationStatus(s).group,'待制作确认');
  assert.equal((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document,before.document,'Reading normalizes the view, never the stored record');
- assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ assert.equal(f.control.recommendations.length,1);assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
  await setup(f,id,{action:'confirm',settings:{artStyle:s.selection.artStyle,productionPrompt:s.selection.productionPrompt,narrativeDetail:'balanced',length:4}},s);
  await until(async()=>(await f.read(id)).state==='completed');assert.equal((await f.read(id)).ready,4);assert.equal(f.control.recommendations.length,1);
 });
@@ -191,7 +191,7 @@ test('phase recovery compares local source ranges canonically and rejects partia
   const doc=structuredClone(base);mutate(doc);await f.app.services.database.prepare('UPDATE stories SET document=?,selection=? WHERE id=?').bind(JSON.stringify(doc),JSON.stringify(selected),id).run();
   assert.equal((await f.read(id)).intake.phase,phase);
  }
- assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ assert.equal(f.control.recommendations.length,1);assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
 });
 
 
@@ -203,7 +203,7 @@ test('a paused source-and-summary story can be renamed without changing preparat
  await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
  const before=await f.app.services.database.prepare('SELECT * FROM stories WHERE id=?').bind(id).first();
  const original=await f.json(`sessions/${id}/source`),jobs=await f.app.services.database.prepare('SELECT * FROM production_jobs').all();
- const calls=[f.control.recommendations.length,f.control.plans.length,f.control.calls.length];
+ const calls=[f.control.recommendations.length,f.control.dagCalls.length,f.control.calls.length];
  f.generation.status=async()=>({configured:false});
  const saved=await f.json(`sessions/${id}/title`,'POST',{title:'  梦醒之后  '});
  assert.equal(saved.selection.displayTitle,'梦醒之后');assert.equal(saved.selection.storyTitle,'庄周梦蝶');
@@ -213,7 +213,7 @@ test('a paused source-and-summary story can be renamed without changing preparat
  assert.deepEqual(JSON.parse(after.selection),{...JSON.parse(before.selection),displayTitle:'梦醒之后'});
  assert.deepEqual(await f.json(`sessions/${id}/source`),original);
  assert.deepEqual(await f.app.services.database.prepare('SELECT * FROM production_jobs').all(),jobs);
- assert.deepEqual([f.control.recommendations.length,f.control.plans.length,f.control.calls.length],calls);
+ assert.deepEqual([f.control.recommendations.length,f.control.dagCalls.length,f.control.calls.length],calls);
  await f.restart();
  const reopened=await f.read(id);assert.equal(reopened.selection.displayTitle,'梦醒之后');assert.equal(reopened.generationControl,'paused');assert.equal(reopened.story,null);
  assert.equal((await f.json('sessions')).find(s=>s.id===id).selection.displayTitle,'梦醒之后');

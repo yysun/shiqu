@@ -35,12 +35,12 @@ test('only two missing characters change, with unit-level provenance and a stabl
 test('corrected and historical matching originals pass the production gate, mismatched ones fail',async()=>{
  const books=new LocalBooks(process.cwd()),book=await books.book(selection);
  const source={edition:book.edition,sectionId:'shishuo-11',firstUnit:'shishuo-11-003',lastUnit:'shishuo-11-003'};
- const chosen={...selection,source},original=await books.storyOriginal(chosen);let calls=0;
- const generator=withLocalBooks({generator:()=>({plan:async()=>{calls++;return {value:{},model:'stub'};}})},books,{}).generator();
- await generator.plan(chosen,'check',original);
+ const chosen={...selection,source},original=await books.storyOriginal(chosen);
+ // 制作 DAG 的每次文字调用前都经 verifyOriginal 核对；这里直接验证该生产核对点。
+ const generator=withLocalBooks({generator:()=>({})},books,{}).generator();
+ generator.verifyOriginal(chosen,original);
  const historical={...source,edition:shishuoOriginalEdition};
- await generator.plan({...chosen,source:historical},'check',{...original,localSource:historical,text:original.text.replaceAll('齏','')});
- await assert.rejects(generator.plan(chosen,'check',{...original,localSource:historical}),/原文尚未在本地核对/);
- await assert.rejects(generator.plan({...chosen,source:undefined},'check',original),/原文尚未在本地核对/);
- assert.equal(calls,2);
+ generator.verifyOriginal({...chosen,source:historical},{...original,localSource:historical,text:original.text.replaceAll('齏','')});
+ assert.throws(()=>generator.verifyOriginal(chosen,{...original,localSource:historical}),/原文尚未在本地核对/);
+ assert.throws(()=>generator.verifyOriginal({...chosen,source:undefined},original),/原文尚未在本地核对/);
 });

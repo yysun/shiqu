@@ -31,107 +31,12 @@ async function fixture(t){
  const inspect=()=>new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'),{readOnly:true});
  return {f,library,call,context,inspect};
 }
-for(const status of ['pending','repair'])test(`explicit draft copy preserves ${status} review, source text and provenance without inference`,{timeout:30000},async t=>{
- const source=await fixture(t),target=await fixture(t);
- source.f.control.beforeText=async kind=>{
-  if(kind==='review'){if(status==='pending')throw Error('controlled service stop');return {issues:[{page:2,category:'action',problem:'动作不明确。',instruction:'明确人物拿起物件的动作。'}]};}
-  if(kind==='repair')throw Error('controlled repair stop');
- };
- const created=await source.call(['stories','create','--no-intake'],{...selection,length:3,source:source.library.stories[0].source,storyTitle:source.library.stories[0].title});
- const sourceId=created.session.id,id=crypto.randomUUID(),args=['stories','copy',sourceId,'--from-data-dir',source.f.dataDirectory,'--request-id',id];
- assert.equal((await source.call(['run',sourceId,'--until','reviewed','--timeout','10'])).reason,'blocked');
- const sourceDb=source.inspect(),before=sourceDb.prepare('SELECT * FROM stories WHERE id=?').get(sourceId),saved=JSON.parse(before.document);sourceDb.close();
- assert.equal(saved.visualReview.status,status);await assert.rejects(target.call(args),/只能复制/);
- const copied=await target.call([...args,'--draft']);assert.equal(copied.session.generationControl,'paused');assert.equal(copied.session.generationProgress.reviewStatus,status);assert.equal(copied.session.generationProgress.reviewOverridden,false);assert.equal(copied.session.ready,0);assert.equal(copied.session.story.pages.length,3);assert.deepEqual(copied.session.faults||[],[]);
- const db=target.inspect(),doc=JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(id).document);assert.equal(db.prepare('SELECT count(*) AS n FROM production_jobs WHERE session_id=?').get(id).n,0);db.close();
- assert.deepEqual(doc.plan,saved.plan);assert.deepEqual(doc.original,saved.original);assert.deepEqual(doc.visualReview,saved.visualReview);assert.deepEqual(doc.storyboard,saved.storyboard);assert.deepEqual(doc.usage,saved.usage.map(call=>({...call,originId:call.originId||sourceId})));assert.equal(doc.copiedFrom.draft,true);assert.deepEqual(doc.images,[]);assert.equal(doc.revision,undefined);
- assert.deepEqual((await target.call(['stories','review-history',id])).entries,(await source.call(['stories','review-history',sourceId])).entries);
- assert.equal((await target.call(args,{draft:true})).session.id,id);assert.equal((await target.call(['stories','list'])).length,1);
- await assert.rejects(target.call([...args,'--draft'],{draft:false}),error=>error.code==='INVALID_INPUT');
- await assert.rejects(target.call([...args,'--draft','--copy-images']),error=>error.code==='COPY_FAILED');
- await assert.rejects(target.call(['stories','copy-images',id,'--from-data-dir',source.f.dataDirectory],{sourceId}),/只能复制/);
- assert.equal((await target.call(['run',id,'--until','reviewed','--timeout','10'])).reason,'paused');assert.equal(target.f.control.calls.length,0);assert.equal(target.f.control.reviews.length,0);assert.equal(target.f.control.plans.length,0);
- const afterDb=source.inspect();assert.deepEqual(afterDb.prepare('SELECT * FROM stories WHERE id=?').get(sourceId),before);afterDb.close();
-});
-
-test('draft copies reject images and invalid checkpoints and retain explicit mode in replay identity',{timeout:30000},async t=>{
- const source=await fixture(t),target=await fixture(t);
- const created=await source.call(['stories','create','--no-intake'],{...selection,length:3,source:source.library.stories[0].source,storyTitle:source.library.stories[0].title});
- const sourceId=created.session.id,id=crypto.randomUUID(),args=['stories','copy',sourceId,'--from-data-dir',source.f.dataDirectory,'--request-id',id];
- assert.equal((await source.call(['run',sourceId,'--until','reviewed','--timeout','10'])).reason,'reviewed');
- const db=new DatabaseSync(path.join(source.f.dataDirectory,'shiqu.sqlite')),row=db.prepare('SELECT * FROM stories WHERE id=?').get(sourceId),saved=JSON.parse(row.document);
- try{
-  for(const [state,doc] of [['running',saved],['idle',{...saved,plan:null}],['idle',{...saved,original:undefined}],['idle',{...saved,visualReview:undefined}],['idle',{...saved,plan:{...saved.plan,pages:[]}}]]){
-   db.prepare('UPDATE stories SET state=?,document=? WHERE id=?').run(state,JSON.stringify(doc),sourceId);await assert.rejects(target.call([...args,'--draft']));assert.equal((await target.call(['stories','list'])).length,0);
-  }
- }finally{db.prepare('UPDATE stories SET state=?,document=? WHERE id=?').run(row.state,row.document,sourceId);db.close();}
- await assert.rejects(target.call([...args,'--draft','--copy-images']),error=>error.code==='COPY_FAILED');
- await target.call([...args,'--draft']);await assert.rejects(target.call(args),/此创建编号/);
- await assert.rejects(target.call(['stories','copy-images',id,'--from-data-dir',source.f.dataDirectory],{sourceId}),/草稿副本/);
- assert.equal(target.f.control.calls.length,0);assert.equal(target.f.control.reviews.length,0);
-});
-
-test('copy preserves a passed storyboard and evidence; only images run in the destination', {timeout:30000},async t=>{
- const source=await fixture(t),target=await fixture(t);
- const created=await source.call(['stories','create','--no-intake'],{...selection,length:3,source:source.library.stories[0].source,storyTitle:source.library.stories[0].title});
- const sourceId=created.session.id,id=crypto.randomUUID(),args=['stories','copy',sourceId,'--from-data-dir',source.f.dataDirectory,'--request-id',id];
- await assert.rejects(target.call(args),/只能复制/);
- assert.equal((await source.call(['run',sourceId,'--until','reviewed','--timeout','10'])).reason,'reviewed');
- const sourceDb=source.inspect(),saved=JSON.parse(sourceDb.prepare('SELECT document FROM stories WHERE id=?').get(sourceId).document);sourceDb.close();
- const copyInput={artStyle:'clay'};
- const copied=await target.call(args,copyInput);assert.equal(copied.session.id,id);assert.equal(copied.session.generationControl,'paused');
- assert.equal(copied.session.selection.artStyle,'clay');
- assert.equal(copied.session.generationProgress.reviewStatus,'passed');assert.equal(copied.session.generationProgress.reviewOverridden,false);
- assert.equal((await target.call(args,copyInput)).session.id,id);
- await assert.rejects(target.call(args,{artStyle:'watercolor'}),/此创建编号/);
- let db=target.inspect(),doc=JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(id).document);db.close();
- assert.deepEqual(doc.plan,saved.plan);assert.deepEqual(doc.original,saved.original);assert.deepEqual(doc.visualReview,saved.visualReview);
- assert.equal(doc.revision,undefined);assert.equal(doc.copiedFrom.storyId,sourceId);assert.ok(doc.usage.every(call=>call.originId===sourceId));
- const history=await target.call(['stories','review-history',id]);assert.ok(history.entries.length);assert.ok(history.entries.some(entry=>entry.model));
- await target.call(['stories','resume',id]);assert.equal((await target.call(['run',id,'--timeout','10'])).reason,'completed');
- assert.equal(target.f.control.calls.length,3);assert.equal(target.f.control.plans.length,0);assert.equal(target.f.control.reviews.length,0);assert.equal(target.f.control.frameReviews.length,0);assert.equal(target.f.control.recommendations.length,0);
- db=target.inspect();doc=JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(id).document);db.close();assert.deepEqual(doc.plan,saved.plan);assert.deepEqual(doc.visualReview,saved.visualReview);
- await assert.rejects(target.call(['stories','copy',id,'--from-data-dir',target.f.dataDirectory]),/另一个/);
- await source.call(['stories','rename',sourceId,'--title','另一个来源版本']);
- await assert.rejects(target.call(args),/此创建编号/);
- const sourceAgain=await source.call(['stories','get',sourceId]);assert.equal(sourceAgain.ready,0);
-});
 async function copySource(t){
  const source=await fixture(t),target=await fixture(t);
  const {session}=await source.call(['stories','create','--no-intake'],{...selection,length:3,source:source.library.stories[0].source,storyTitle:source.library.stories[0].title});
  assert.equal((await source.call(['run',session.id,'--timeout','10'])).reason,'completed');
  return {source,target,sourceId:session.id,args:['stories','copy',session.id,'--from-data-dir',source.f.dataDirectory,'--request-id',crypto.randomUUID()]};
 }
-
-test('CLI image-only edit redraws selected pages after explicit resume/run and preserves text, review and other images', {timeout:30000},async t=>{
- const {f,library,call,inspect}=await fixture(t);
- const created=await call(['stories','create','--no-intake'],{...selection,length:3,source:library.stories[0].source,storyTitle:library.stories[0].title}),id=created.session.id;
- assert.equal((await call(['run',id,'--timeout','10'])).reason,'completed');
- const original=await call(['stories','get',id]),base=await call(['stories','revisions',id]);
- const readDoc=storyId=>{const db=inspect();try{return JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(storyId).document);}finally{db.close();}};
- const saved=readDoc(id),before={images:f.control.calls.length,reviews:f.control.reviews.length,plans:f.control.plans.length,frameReviews:f.control.frameReviews.length};
- const help=await call(['help','--json']),requestId=crypto.randomUUID(),note=help.inputs.redraw.input.changes.redrawNotes[2];
- const input={...help.inputs.redraw.input,token:base.token,changes:{redrawPages:[1,3],redrawNotes:{3:note}}};
- for(const changes of [{redrawPages:[0]},{redrawPages:[4]},{redrawPages:[1,1]},{redrawPages:[1],artStyle:'clay'},{redrawNotes:{1:note}},{redrawPages:[1],redrawNotes:{2:note}},{redrawPages:[1],redrawNotes:{1:' '.repeat(4)}}]){
-  await assert.rejects(call(['stories','edit',id],{token:base.token,changes}),error=>error.code==='INVALID_REQUEST');
- }
- assert.equal((await call(['stories','list'])).length,1);
- const args=['stories','edit',id,'--request-id',requestId],edited=await call(args,input),next=edited.session.id;
- assert.notEqual(next,id);assert.equal(edited.session.generationControl,'paused');assert.equal(edited.session.ready,1);
- assert.equal((await call(['run',next,'--timeout','10'])).reason,'paused');assert.equal(f.control.calls.length,before.images);
- await call(['stories','resume',next]);assert.equal(f.control.calls.length,before.images);
- const done=await call(['run',next,'--timeout','10']);assert.equal(done.reason,'completed');assert.equal(done.session.ready,3);
- assert.deepEqual(f.control.calls.slice(before.images).map(call=>call.page).sort((a,b)=>a-b),[0,2]);
- assert.deepEqual(f.control.calls.slice(before.images).filter(call=>call.prompt.includes(note)).map(call=>call.page),[2]);
- assert.equal(f.control.reviews.length,before.reviews);assert.equal(f.control.plans.length,before.plans);assert.equal(f.control.frameReviews.length,before.frameReviews);
- const doc=readDoc(next);assert.deepEqual(doc.plan,saved.plan);assert.deepEqual(doc.original,saved.original);assert.deepEqual(doc.visualReview,saved.visualReview);
- const bytes=page=>readFile(path.join(f.dataDirectory,'media',page.image.replace('/api/reader/media/','reader/')));
- assert.deepEqual(await bytes(done.session.story.pages[1]),await bytes(original.story.pages[1]));
- assert.deepEqual((await call(['stories','get',id])).story,original.story);
- assert.equal((await call(['stories','current',id])).id,next);
- assert.equal((await call(args,input)).session.id,next);assert.equal(f.control.calls.length,before.images+2);
- await assert.rejects(call(args,{...input,changes:{redrawPages:[2]}}),error=>error.code==='CONFLICT');
-});
 
 test('cross-library copy stores prompt records in the target; a text copy made before migration can still attach images',async t=>{
  const {source,target,sourceId,args}=await copySource(t),id=args.at(-1),file=path.join(source.f.dataDirectory,'shiqu.sqlite');
@@ -153,28 +58,6 @@ test('cross-library copy stores prompt records in the target; a text copy made b
  assert.ok(copied.usage.every(call=>!call.promptRecord));assert.ok(references.length);
  assert.equal(check.prepare('SELECT COUNT(*) AS n FROM prompt_records WHERE id IN (SELECT value FROM json_each(?))').get(JSON.stringify(references)).n,references.length);check.close();
 });
-test('Skill can copy text, wait for a user decision, then attach independent images to the same story',async t=>{
- const {source,target,sourceId,args}=await copySource(t),id=args.at(-1);
- const textArgs=[...args,'--no-copy-images'],text=await target.call(textArgs);assert.equal(text.session.ready,0);assert.equal(text.session.generationControl,'paused');
- const db=target.inspect(),doc=JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(id).document);db.close();
- assert.equal(doc.plan.pages.length,3);assert.equal(doc.visualReview.status,'passed');assert.deepEqual(doc.images,[]);
- assert.equal((await target.call(['stories','list'])).length,1);
- const imageArgs=['stories','copy-images',id,'--from-data-dir',source.f.dataDirectory],input={sourceId};
- const copied=await target.call(imageArgs,input);assert.equal(copied.session.id,id);assert.equal(copied.session.ready,3);
- const original=(await source.call(['stories','get',sourceId])).story.pages;
- for(let page=0;page<3;page++){
-  const from=original[page].image.replace('/api/reader/media/','reader/'),to=copied.session.story.pages[page].image.replace('/api/reader/media/','reader/');
-  assert.match(to,new RegExp(id));assert.deepEqual(await readFile(path.join(target.f.dataDirectory,'media',to)),await readFile(path.join(source.f.dataDirectory,'media',from)));
- }
- assert.equal((await target.call(imageArgs,input)).session.ready,3);assert.equal((await target.call(textArgs)).session.id,id);
- assert.equal((await target.call(['stories','list'])).length,1);
- await assert.rejects(target.call([...args,'--copy-images']),error=>error.code==='CONFLICT');
- await rm(path.join(source.f.dataDirectory,'media'),{recursive:true,force:true});
- for(const page of copied.session.story.pages)assert.ok(await target.f.media.get(page.image.replace('/api/reader/media/','reader/')));
- await target.call(['stories','resume',id]);assert.equal((await target.call(['run',id,'--timeout','10'])).reason,'completed');
- assert.equal(target.f.control.calls.length,0);assert.equal(target.f.control.reviews.length,0);assert.equal(target.f.control.frameReviews.length,0);assert.equal(target.f.control.plans.length,0);
-});
-
 test('copy defaults to text only and accepts explicit image choices without reusing another art style',async t=>{
  const {source,target,sourceId,args}=await copySource(t),next=flags=>[...args.slice(0,-1),crypto.randomUUID(),...flags];
  for(const flags of [[],['--no-copy-images'],['--json'],['--input','-']])assert.equal((await target.call(next(flags))).session.ready,0);
@@ -218,7 +101,7 @@ test('copy retains partial image positions and later production draws only the m
  }finally{db.close();}
  const copied=await target.call([...args,'--copy-images']);assert.equal(copied.session.ready,2);assert.equal(copied.session.story.pages[1].image,'');
  await target.call(['stories','resume',copied.session.id]);assert.equal((await target.call(['run',copied.session.id,'--timeout','10'])).reason,'completed');
- assert.deepEqual(target.f.control.calls.map(call=>call.page),[1]);assert.equal(target.f.control.plans.length,0);assert.equal(target.f.control.reviews.length,0);
+ assert.deepEqual(target.f.control.calls.map(call=>call.page),[1]);assert.equal(target.f.control.dagCalls.length,0);assert.equal(target.f.control.reviews.length,0);
 });
 
 test('real CLI copy never asks for terminal input, with or without JSON mode or image flags',{
@@ -237,31 +120,31 @@ test('in-process CLI saves intent without inference, runs bounded discovery/prep
  const {f,library,call,inspect}=await fixture(t),requestId=crypto.randomUUID();
  const created=await call(['stories','create','--request-id',requestId],{bookId:'zhuangzi',theme:'原典故事'}),id=created.session.id;
  assert.equal((await call(['stories','create','--request-id',requestId],{bookId:'zhuangzi',theme:'原典故事'})).session.id,id);
- assert.equal(library.calls.catalog.length,0);assert.equal(f.control.plans.length,0);
+ assert.equal(library.calls.catalog.length,0);assert.equal(f.control.dagCalls.length,0);
  await assert.rejects(call(['stories','search',id]),error=>error.code==='GENERATION_REQUIRED');
  const searchId=crypto.randomUUID(),searchInput={generation:created.session.intake.generation};await call(['stories','search',id,'--request-id',searchId],searchInput);await call(['stories','search',id,'--request-id',searchId],searchInput);assert.equal(library.calls.catalog.length,0);
  const candidates=await call(['run',id,'--until','candidates','--timeout','10']);assert.equal(candidates.reason,'candidates');assert.ok(candidates.session.intake.batches[0].stories.length);
  const chooseId=crypto.randomUUID(),chooseInput={generation:candidates.session.intake.generation};await call(['stories','choose',id,'--request-id',chooseId],chooseInput);await call(['stories','choose',id,'--request-id',chooseId],chooseInput);assert.equal(f.control.recommendations.length,0);
  await assert.rejects(call(['stories','choose',id],chooseInput),error=>error.code==='CONFLICT');
- const prepared=await call(['run',id,'--until','prepared','--timeout','10']);assert.equal(prepared.reason,'prepared');assert.equal(f.control.plans.length,0);
+ const prepared=await call(['run',id,'--until','prepared','--timeout','10']);assert.equal(prepared.reason,'prepared');assert.equal(f.control.dagCalls.length,0);
  const {intake}=prepared.session,{acceptancePrompt:_,...draftSettings}=intake.draft;
  const {session:{intake:savedDraft}}=await call(['stories','setup',id],{action:'draft',generation:intake.generation,draftToken:intake.draftToken,settings:draftSettings});
  assert.equal(savedDraft.draft.acceptancePrompt,undefined);
  const confirmId=crypto.randomUUID(),confirmInput={generation:savedDraft.generation,draftToken:savedDraft.draftToken};
- await call(['stories','confirm',id,'--request-id',confirmId],confirmInput);await call(['stories','confirm',id,'--request-id',confirmId],confirmInput);assert.equal((await call(['run',id,'--until','prepared','--timeout','1'])).reason,'already_prepared');assert.equal(f.control.plans.length,0);
- const pauseId=crypto.randomUUID();await call(['stories','pause',id,'--request-id',pauseId]);await call(['stories','pause',id,'--request-id',pauseId]);assert.equal((await call(['run',id,'--timeout','1'])).reason,'paused');assert.equal(f.control.plans.length,0);
+ await call(['stories','confirm',id,'--request-id',confirmId],confirmInput);await call(['stories','confirm',id,'--request-id',confirmId],confirmInput);assert.equal((await call(['run',id,'--until','prepared','--timeout','1'])).reason,'already_prepared');assert.equal(f.control.dagCalls.length,0);
+ const pauseId=crypto.randomUUID();await call(['stories','pause',id,'--request-id',pauseId]);await call(['stories','pause',id,'--request-id',pauseId]);assert.equal((await call(['run',id,'--timeout','1'])).reason,'paused');assert.equal(f.control.dagCalls.length,0);
  await call(['stories','resume',id]);const reviewed=await call(['run',id,'--until','reviewed','--timeout','10']);assert.equal(reviewed.reason,'reviewed');assert.equal(f.control.calls.length,0);
  const completed=await call(['run',id,'--timeout','10']);assert.equal(completed.reason,'completed');assert.equal(f.control.calls.length,3);
- const before=f.control.plans.length;
+ const before=f.control.dagCalls.length;
  await call(['stories','rename',id,'--title','离线故事']);assert.equal((await call(['stories','get',id])).story.title,'离线故事');
  const editId=crypto.randomUUID(),changes={token:(await call(['stories','revisions',id])).token,changes:{acceptancePrompt:'保留原文关键行动'}};
- const edited=await call(['stories','edit',id,'--request-id',editId],changes);assert.notEqual(edited.session.id,id);assert.equal(f.control.plans.length,before);
+ const edited=await call(['stories','edit',id,'--request-id',editId],changes);assert.notEqual(edited.session.id,id);assert.equal(f.control.dagCalls.length,before);
  const replay=await call(['stories','edit',id,'--request-id',editId],changes);assert.equal(replay.session.id,edited.session.id);
  await assert.rejects(call(['run',id,'--timeout','1']),error=>error.code==='SUPERSEDED_VERSION');
  const db=inspect();assert.equal(db.prepare('SELECT count(*) AS n FROM stories').get().n,2);db.close();
  const backup=path.join(f.root,'backup'),restored=path.join(f.root,'restored');await call(['backup',backup]);await call(['verify-backup',backup]);
  await executeHeadless(process.cwd(),['restore',backup,'--data-dir',restored],{variables:{}});
- const copied=await executeHeadless(process.cwd(),['stories','get',edited.session.id,'--data-dir',restored],{variables:{}});assert.equal(copied.id,edited.session.id);assert.equal(f.control.plans.length,before);
+ const copied=await executeHeadless(process.cwd(),['stories','get',edited.session.id,'--data-dir',restored],{variables:{}});assert.equal(copied.id,edited.session.id);assert.equal(f.control.dagCalls.length,before);
 });
 test('CLI extends the verified original as a new version of one shelf story', {timeout:30000},async t=>{
  const {f,library,call}=await fixture(t),card=library.stories[0];
@@ -319,19 +202,6 @@ test('replacement stages multiple selected originals and fences candidates from 
  assert.ok(library.book.sections[0].units.every(unit=>source.text.includes(unit.text)));
  assert.equal((await call(['run',next.id,'--until','prepared','--timeout','10'])).reason,'prepared');
  assert.equal(f.control.calls.length,3);
-});
-test('targeted run cannot dispatch another active story and direct-inference API routes never execute', {timeout:30000},async t=>{
- const {f,library,call,inspect}=await fixture(t);
- const localSelection={...selection,source:library.stories[0].source,storyTitle:library.stories[0].title};const first=await call(['stories','create','--no-intake'],localSelection),second=await call(['stories','create','--no-intake'],{...selection,theme:'善意与误解'});
- const dormant=createApplication({...f.options,production:{autoStart:false}});await dormant.services.production.request(dormant.services.ownerId,second.session.id,crypto.randomUUID(),0);await dormant.close();
- const beforeDb=inspect(),beforeJobs=beforeDb.prepare('SELECT * FROM production_jobs WHERE session_id=? ORDER BY id').all(second.session.id);beforeDb.close();assert.ok(beforeJobs.length);
- assert.equal(f.control.plans.length,0);const result=await call(['run',first.session.id,'--timeout','10']);assert.equal(result.reason,'completed',JSON.stringify(result.session));
- const db=inspect();assert.deepEqual(db.prepare('SELECT * FROM production_jobs WHERE session_id=? ORDER BY id').all(second.session.id),beforeJobs);db.close();
- await assert.rejects(call(['run',second.session.id,'--until','prepared']),error=>error.code==='BOUNDARY_UNAVAILABLE');
- const gate=await call(['stories','create','--no-intake'],{...localSelection,narrativeDetail:'balanced'});assert.equal((await call(['run',gate.session.id,'--until','prepared','--timeout','10'])).reason,'frame_count_required');
- const count=f.control.calls.length+f.control.plans.length;
- for(const [method,route]of [['POST','reader/suggestions'],['POST','reader/art-recommendation'],['POST',`reader/sessions/${first.session.id}/advance`],['POST','admin/generate'],['GET','reader/unknown']])await assert.rejects(call(['api',method,route]),error=>error.code==='EXECUTION_REQUIRED');
- assert.equal(f.control.calls.length+f.control.plans.length,count);
 });
 test('timeout and explicit fault recovery retain checkpoints and request identities', {timeout:30000},async t=>{
  const {f,library,call}=await fixture(t),local={...selection,source:library.stories[0].source,storyTitle:library.stories[0].title};

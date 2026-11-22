@@ -5,6 +5,7 @@ import {LocalBooks} from '../server/local-books.ts';
 import {withLocalBooks} from '../server/local-generation.ts';
 import {selectionSchema,view} from '../lib/reader-model.ts';
 import {sourceRanges} from '../lib/reader-local-contract.ts';
+import {dagGenerator} from '../lib/production-dag/calls.ts';
 import {productionFixture,makePlan} from './fixtures/production.mjs';
 import {flowProviders} from './fixtures/test-tier.mjs';
 
@@ -63,26 +64,32 @@ for(const provider of flowProviders(['codex','gemini']))test(`${provider}: compl
  const saved=JSON.parse(Buffer.from(await(await f.media.get('reader/chapter-context/source.json')).arrayBuffer()).toString());
  assert.deepEqual(saved,original);
  await g.recommend(selection,'chapter-context',saved);
- const outline=await g.outline(selection,'chapter-context',saved);
- assert.equal(outline.value.sourceReference,saved.chapterContext.title);
- await g.planBatch(selection,'chapter-context',{outline:outline.value,pages:[]},saved);
- const short={...selection,length:8},plan=(await g.plan(short,'chapter-context',saved)).value;
- assert.equal(plan.sourceReference,saved.chapterContext.title);
- const candidates=(await g.reflectionCandidates(short,plan,saved)).value.candidates;
- await g.reflection(short,plan,saved);
- await g.review(short,plan,saved,undefined,candidates);
- await g.repair(short,plan,saved,[{page:8,category:'progression',problem:'结尾缺少告辞。',instruction:'依据完整章节核对探病的自然收束。'}]);
- const inputs=[...f.control.recommendations,...f.control.outlines,...f.control.plans,...f.control.reflections,...f.control.reviews,...f.control.repairs];
- assert.equal(inputs.length,8);
+ // 制作 DAG 的各文字调用都读到保存的完整章节；记录每次调用的载荷。
+ const inputs=[...f.control.recommendations],call=(task,instructions,payload,...rest)=>{inputs.push(payload);return g.textCall(task,instructions,payload,...rest);},dag=dagGenerator(call);
+ const source={original:saved,book:'红楼梦',chosenStory:selection.storyTitle,theme:selection.theme,variationSeed:'chapter-context'},settings={narrativeDetail:'balanced',length:21};
+ const outline=await dag.outline({source,productionPrompt:'',settings});
+ await dag.prepareBrief({source});await dag.characters({source,productionPrompt:''});
+ const board=outline.value,captions=board.beats.slice(0,3).map((_,i)=>`第${i+1}幅配文，宝玉探病的经过。`);
+ await dag.sceneBatch({source,outline:board,productionPrompt:'',first:1,previous:[]});
+ const issue={page:1,category:'progression',problem:'结尾缺少告辞。',instruction:'依据完整章节核对探病的自然收束。',requiresReplan:false};
+ await dag.sceneRepair({source,outline:board,productionPrompt:'',frames:[{index:0,caption:captions[0],neighbors:{},issues:[issue]}]});
+ const ending=await dag.ending({source,outline:board,captions});
+ await dag.endingRepair({source,outline:board,captions,reflection:ending.value.candidates[0],issues:[]});
+ await dag.frameCheck({source,outline:board,productionPrompt:'',settings,captions});
+ await dag.review({source,brief:'梗概',outline:board,title:board.title,productionPrompt:'',acceptancePrompt:'',style:{artStyle:'ink-pencil',artStylePrompt:null},characters:[],frames:captions.map((caption,i)=>({id:'f'+i,caption,prompt:'宝玉在炕边与宝钗叙话，中景，室内灯光。'})),chosenEnding:ending.value.candidates[0],allowed:{pages:[1],criteria:[],narrative:false},itemIds:{}});
+ assert.equal(inputs.length,10);
  for(const input of inputs){assert.deepEqual(input.verifiedOriginal.chapterContext,saved.chapterContext);assert.equal(input.verifiedOriginal.text,saved.text);assert.match(input.verifiedOriginal.chapterContext.text,/好了，披上斗篷罷/);}
  assert.equal(f.control.calls.length,0);
  // Saved context is the retry checkpoint even when the installed library has since changed.
  const changedLibrary=new LocalBooks(process.cwd());changedLibrary.book=async()=>assert.fail('Retry must use saved chapters');
- await withLocalBooks(f.generation,changedLibrary,f.media).generator().plan(short,'chapter-context',saved);
- assert.deepEqual(f.control.plans.at(-1).verifiedOriginal.chapterContext,saved.chapterContext);
+ const retry=withLocalBooks(f.generation,changedLibrary,f.media).generator(),seen=[];
+ await dagGenerator((task,instructions,payload,...rest)=>{seen.push(payload);return retry.textCall(task,instructions,payload,...rest);}).outline({source,productionPrompt:'',settings});
+ assert.deepEqual(seen.at(-1).verifiedOriginal.chapterContext,saved.chapterContext);
+ // 制作 DAG 在每次文字调用前核对保存的原文；章节上下文被篡改时拒绝，已存原文通过。
+ g.verifyOriginal(selection,saved);retry.verifyOriginal(selection,saved);
  for(const tamper of [o=>o.chapterContext.source.edition='0'.repeat(64),o=>o.chapterContext.source.sectionId='honglou-009',o=>o.chapterContext.text='缺少原文章节编号。']){
-  const bad=structuredClone(saved);tamper(bad);const before=f.control.plans.length;
-  await assert.rejects(g.plan(short,'chapter-context',bad),e=>e.status===400);assert.equal(f.control.plans.length,before);
+  const bad=structuredClone(saved);tamper(bad);
+  assert.throws(()=>g.verifyOriginal(selection,bad),e=>e.status===400);
  }
 });
 

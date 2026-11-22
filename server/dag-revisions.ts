@@ -121,6 +121,7 @@ function settleHandEdits(story:DagStory,decisions:RevisionChanges['handEdits']):
 }
 
 export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string):Promise<SessionRow>{
+ if(!Object.keys(changes).length)throw new ReaderError(400,'没有需要保存的修改。');
  const {doc,rootId,epoch,token:current}=await revisionBasis(repo,row);
  if(changes.redrawPages&&(row.state!=='completed'||Object.keys(changes).some(key=>!['redrawPages','redrawNotes'].includes(key))))throw new ReaderError(409,'仅换图需要已完成的故事，且不能同时修改文字或设置。');
  if(changes.redrawNotes&&Object.keys(changes.redrawNotes).some(page=>!changes.redrawPages?.includes(Number(page))))throw new ReaderError(400,'重绘说明只能用于本次选中的画幅。');

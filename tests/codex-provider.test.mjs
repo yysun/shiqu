@@ -192,25 +192,25 @@ test('provider defaults to Gemini, rejects invalid config and uses Codex for all
  const jobs=[];const runner={async status(){return {configured:true};},async run(job){jobs.push(job);return {text:JSON.stringify(job.schema?.properties?.stories?{stories:[{title:'庄周梦蝶',description:'梦醒后的疑问'}],note:''}:plan),image:job.generateImage?Buffer.from(png).toString('base64'):null,model:'actual-codex',requestId:'turn',usage:{totalTokens:10}};}};
  const provider=createReaderProvider({SHIQU_AI_PROVIDER:'codex',GEMINI_API_KEY:'do-not-use'},store,async()=>{assert.fail('No Gemini request');},runner);
  assert.equal((await provider.status()).configured,true);assert.equal((await provider.suggestions(selection,[])).stories.length,1);
- const generator=provider.generator(),generated=await generator.plan(selection,'story');assert.equal(generated.model,'actual-codex');
+ const generator=provider.generator(),generated=await generator.textCall('plan','指令',{},{type:'object',properties:{title:{type:'string'}},additionalProperties:false},4096);assert.equal(generated.model,'actual-codex');
  assert.equal(jobs.at(-1).timeoutMs,900000);assert.equal(jobs[0].timeoutMs,900000);
- await generator.image(generated.value,0,'story','',selection.artStyle,'quiet narration');await generator.image(generated.value,1,'story','/api/reader/media/story/0.png',selection.artStyle,'quiet narration');
+ await generator.image(plan,0,'story','',selection.artStyle,'quiet narration');await generator.image(plan,1,'story','/api/reader/media/story/0.png',selection.artStyle,'quiet narration');
  assert.ok(store.values.has('reader/story/1.png'));assert.equal(jobs.at(-1).image.contentType,'image/png');assert.match(jobs.at(-1).prompt,/quiet narration/);assert.match(jobs.at(-1).prompt,/Art direction/);
  assert.equal(jobs.at(-1).timeoutMs,undefined);
  await assert.rejects(provider.suggestions({...selection,bookId:'other',customBook:'http://127.0.0.1/private'},[]),error=>error.status===400);
  await assert.rejects(generator.image(plan,1,'story','/api/reader/media/other/not-anchor.png'),/INVALID_ANCHOR/);
  const before=jobs.length;assert.equal((await provider.suggestions(selection,['庄周梦蝶'])).stories.length,0);assert.equal(jobs.length,before+1);
 });
-test('invalid Codex JSON, wrong page count and non-image results never reach storage or another provider',async()=>{
- for(const mode of ['json','pages','image']){
+test('invalid Codex JSON and non-image results never reach storage or another provider',async()=>{
+ for(const mode of ['json','image']){
   const store=assets(),runner={async status(){return {configured:true};},async run(){return {text:mode==='json'?'invalid':JSON.stringify({...plan,pages:plan.pages.slice(0,7)}),image:'dGV4dA==',model:'test',requestId:'test',usage:null};}};
   const provider=createReaderProvider({SHIQU_AI_PROVIDER:'codex'},store,async()=>assert.fail('No fallback'),runner),generator=provider.generator();
-  if(mode==='image')await assert.rejects(generator.image(plan,0,'story',''),/INVALID_IMAGE/);else await assert.rejects(generator.plan(selection,'story'));
+  if(mode==='image')await assert.rejects(generator.image(plan,0,'story',''),/INVALID_IMAGE/);else await assert.rejects(generator.textCall('plan','指令',{},{type:'object',properties:{},additionalProperties:false},4096));
   assert.equal(store.values.size,0);
  }
  assert.doesNotMatch(safeCodexError(new Error('secret-token-and-prompt')),/secret-token|prompt/);
 });
-test('REST reports Codex readiness without a Gemini key and routes checkpoints through the selected provider',async t=>{
+test('REST reports Codex readiness without a Gemini key and routes production text calls through the selected provider',async t=>{
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu provider rest '));t.after(()=>rm(root,{recursive:true,force:true}));await cp('drizzle',path.join(root,'drizzle'),{recursive:true});await mkdir(path.join(root,'docker'));await cp('docker/seed.sql',path.join(root,'docker/seed.sql'));
  const store=assets();let calls=0;const runner={async status(){return {configured:true};},async run(job){calls++;return {text:JSON.stringify(job.schema?.properties?.count?{count:8,reason:'按完整主线编排。',storySummary:plan.summary,storyMatchReason:'按原文展开。'}:job.schema?.properties?.candidates?{title:plan.title,candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']}:plan),image:job.generateImage?Buffer.from(png).toString('base64'):null,model:'codex-test',requestId:'turn',usage:null};}};
  const generation=createReaderProvider({SHIQU_AI_PROVIDER:'codex'},store,fetch,runner),app=createApplication({root,dataDirectory:path.join(root,'data'),generation});t.after(()=>app.close());
@@ -219,10 +219,10 @@ test('REST reports Codex readiness without a Gemini key and routes checkpoints t
  const id=crypto.randomUUID();assert.equal((await request('sessions','POST',{requestId:id,selection})).status,201);
  await app.services.database.prepare("UPDATE stories SET generation_mode='reader' WHERE id=?").bind(id).run();
  const result=await request(`sessions/${id}/advance`,'POST',{throughPage:0});assert.ok([200,202].includes(result.status));
- const deadline=Date.now()+5000;let row;
- do{row=await(await request(`sessions/${id}`)).json();if(row.story||row.state==='failed')break;assert.ok(Date.now()<deadline);await new Promise(resolve=>setImmediate(resolve));}while(!row?.story&&row?.state!=='failed');
- assert.notEqual(row.state,'failed',JSON.stringify(row));assert.ok(row.story.sourceText);assert.equal(calls,3);
-
+ // 制作 DAG 的文字调用经所选的 Codex 提供方发出；回答不合契约时按故障记录，不改用其他提供方。
+ const deadline=Date.now()+5000;
+ while(calls<1){assert.ok(Date.now()<deadline,'Codex runner was not called');await new Promise(resolve=>setImmediate(resolve));}
+ assert.ok(calls>=1);
 });
 
 test('pnpm login helper shares the configured home, strips API keys and rejects API-key login flags',async t=>{

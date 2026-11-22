@@ -41,5 +41,6 @@ test('Gemini production completes discovery after the 1-to-32 transition, prepar
  const reviewed=await call(['run',id,'--until','reviewed','--timeout','10']);assert.equal(reviewed.reason,'reviewed');assert.equal(f.control.calls.length,0);
  const completed=await call(['run',id,'--until','completed','--timeout','10']);assert.equal(completed.reason,'completed');
  assert.equal(completed.session.story.pages.length,3);assert.ok(completed.session.story.pages.every(page=>page.image));
- assert.ok(f.control.outlines.length);assert.ok(f.control.batches.length);assert.ok(f.control.frameReviews.length);assert.ok(f.control.reviews.length);assert.equal(f.control.calls.length,3);
+ for(const name of ['outline','sceneBatch','visual'])assert.ok(f.control.dagCalls.includes(name),name);
+ assert.ok(f.control.frameReviews.length);assert.ok(f.control.reviews.length);assert.equal(f.control.calls.length,3);
 });

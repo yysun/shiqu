@@ -7,7 +7,6 @@ import os from 'node:os';
 import {createReaderProvider} from '../server/generation.ts';
 import {installDiagnostics,diagnosticReport} from '../server/diagnostics.ts';
 import {geminiResponseDiagnostic} from '../lib/reader-gemini-diagnostics.ts';
-import {makePlan,selection} from './fixtures/production.mjs';
 
 test('MAX_TOKENS retains finish reason and thinking/output usage before rejecting the paid result',async t=>{
  const directory=await mkdtemp(path.join(os.tmpdir(),'shiqu-gemini-response-'));t.after(()=>rm(directory,{recursive:true,force:true}));
@@ -15,7 +14,7 @@ test('MAX_TOKENS retains finish reason and thinking/output usage before rejectin
  const secret='sk-private-secret /Users/private 原文敏感';
  try{
   const provider=createReaderProvider({SHIQU_AI_PROVIDER:'gemini',GEMINI_API_KEY:secret},{},async()=>Response.json({candidates:[{finishReason:'MAX_TOKENS',content:{parts:[{text:secret}]}}],usageMetadata:{promptTokenCount:48000,thoughtsTokenCount:23990,candidatesTokenCount:10,totalTokenCount:72000,cachedContentTokenCount:0,secret}}));
-  await assert.rejects(provider.generator().reviewFrameCount({...selection,length:'auto'},makePlan(3),{title:'原文',text:'甲赠物，乙未接。',url:'',kind:'passage',provider:'fixture',retrievedAt:'2026-11-05'}),error=>{provider.safeError(error);return error.message==='INCOMPLETE_RESPONSE';});
+  await assert.rejects(provider.generator().textCall('review','指令',{},{type:'object',properties:{},additionalProperties:false},24000),error=>{provider.safeError(error);return error.message==='INCOMPLETE_RESPONSE';});
  }finally{restore();Object.assign(console,originals);}
  const report=diagnosticReport(directory,'0.8.0'),event=report.events.find(event=>event.event==='gemini_response');
  assert.equal(event.finishReason,'MAX_TOKENS');assert.equal(event.task,'review');assert.equal(event.maxOutputTokens,24000);assert.equal(event.thinkingLevel,'HIGH');

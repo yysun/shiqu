@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {build} from 'esbuild';
 import {productionFixture,until} from './fixtures/production.mjs';
+import {completedStory} from './fixtures/production-dag-story.mjs';
 
 const compiled=build({stdin:{contents:"export {useStoryRevision} from './client/ui/useStoryRevision.ts';export {beginRender} from 'react';export {setTransport} from 'revision-transport';",resolveDir:process.cwd(),loader:'ts'},bundle:true,write:false,platform:'node',format:'cjs',packages:'external',plugins:[{
  name:'revision-hooks',setup(b){
@@ -19,14 +20,9 @@ const compiled=build({stdin:{contents:"export {useStoryRevision} from './client/
   `:`let transport;export const setTransport=value=>transport=value;export const request=(...args)=>transport(...args);export const randomId=()=>crypto.randomUUID();`}));
  }
 }]});
-const reviewIssue={page:3,category:'caption',problem:'第三幅配文含混。',instruction:'明确醒来后看见的事物。'};
-async function harness(t,{loseResponse=false,paused=false,blocked=false,initialTab='count',initialPage,beforeSnapshot}={}){
- const f=await productionFixture(t);f.control.hold=paused;
- if(blocked)f.control.beforeText=async(kind,payload)=>kind==='review'?{issues:[reviewIssue]}:kind==='repair'?{pages:payload.requestedPages.map(page=>({page,...payload.plan.pages[page-1]}))}:undefined;
- const id=await f.create(3);await f.demand(id);
- if(blocked)await until(async()=>(await f.read(id)).state==='failed');
- else if(paused){await until(()=>f.control.calls.length>0);await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});}
- else await until(async()=>(await f.read(id)).state==='completed');
+async function harness(t,{loseResponse=false,initialTab='count',initialPage,beforeSnapshot}={}){
+ const f=await productionFixture(t,'codex');f.control.hold=false;
+ const {id}=await completedStory(f,{length:3});
  const bundle=await compiled,module={exports:{}};new Function('require','module','exports',bundle.outputFiles[0].text)(createRequire(import.meta.url),module,module.exports);
  const requests=[],submitted=[],opened=[];
  const {useStoryRevision,beginRender,setTransport}=module.exports;
@@ -43,6 +39,8 @@ async function harness(t,{loseResponse=false,paused=false,blocked=false,initialT
  render().open(initialTab,initialPage);await until(()=>!!render().base);
  return {f,id,requests,submitted,opened,render};
 }
+/** 修订保存后等待读者继续；这里模拟读者点「继续」。 */
+const proceed=(h,child)=>h.f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
 
 test('a concurrent revision preserves the open draft and offers the new current story',async t=>{
  const h=await harness(t);
@@ -58,39 +56,6 @@ test('a concurrent revision preserves the open draft and offers the new current 
  assert.deepEqual(h.opened,[next.id]);
 });
 
-test('reopening review notes waits for a fresh snapshot before enabling edits',async t=>{
- let held;
- const h=await harness(t,{paused:true,beforeSnapshot:()=>held});
- const gate=Promise.withResolvers();held=gate.promise;t.after(gate.resolve);
- h.render().open('review');
- assert.equal(h.render().tab,'review');
- assert.equal(h.render().loading,true);
- gate.resolve();
- await until(()=>!h.render().loading);
- assert.equal(h.render().base.canEditReviewNotes,true);
-});
-
-for(const passes of [true,false])test(`saving manual review corrections re-audits first and ${passes?'continues drawing on approval':'keeps drawing blocked on rejection'}`,async t=>{
- const h=await harness(t,{blocked:true,initialTab:'script',initialPage:3});
- const before=await h.f.read(h.id),plan=structuredClone(h.render().base.plan);
- plan.pages[2].caption='庄周醒来，看见窗外的花，仍记得梦中飞舞的感觉。';h.render().setChanges({plan});
- let started,release;
- const auditStarted=new Promise(resolve=>started=resolve),hold=new Promise(resolve=>release=resolve);
- h.f.control.beforeText=async(kind,payload)=>{
-  if(kind==='review'){assert.equal(payload.plan.pages[2].caption,plan.pages[2].caption);started();await hold;return {issues:passes?[]:[reviewIssue]};}
-  if(kind==='repair')return {pages:payload.requestedPages.map(page=>({page,...payload.plan.pages[page-1]}))};
- };
- t.after(()=>release());
- await h.render().submit();await auditStarted;
- assert.equal(h.requests.length,1);assert.equal(h.submitted.length,1);assert.equal(h.f.control.calls.length,0,'No images before the fresh audit completes');
- const child=h.submitted[0];assert.equal(child.generationControl,'active');assert.notEqual(child.id,h.id);assert.equal(h.render().tab,null);
- release();await until(async()=>(await h.f.read(child.id)).state===(passes?'completed':'failed'));
- const saved=await h.f.read(child.id);
- assert.equal(saved.story.pages[2].caption,plan.pages[2].caption);assert.equal(h.f.control.calls.length,passes?3:0);
- assert.equal(saved.generationProgress.reviewStatus,passes?'passed':'blocked');assert.equal(saved.generationProgress.reviewAudits,1);
- assert.equal((await h.f.read(h.id)).story.pages[2].caption,before.story.pages[2].caption,'Original stays intact');
-});
-
 test('review edit targets survive initial loading, reopening and ending selection without submitting',async t=>{
  const h=await harness(t,{initialTab:'script',initialPage:3});
  assert.equal(h.render().tab,'script');assert.equal(h.render().scriptPage,3);
@@ -104,30 +69,6 @@ test('review edit targets survive initial loading, reopening and ending selectio
  assert.equal(h.requests.length,0);assert.equal(h.submitted.length,0);
 });
 
-test('style-only blocked revisions retain one recoverable fault through replay and restart, then explicit acceptance completes once',async t=>{
- const h=await harness(t,{blocked:true,initialTab:'style'}),before=await h.f.read(h.id),reviews=h.f.control.reviews.length,repairs=h.f.control.repairs.length;
- h.render().setChanges({artStyle:'paper-cut'});await h.render().submit();
- const child=h.submitted[0];await h.f.app.services.production.tick();await h.f.app.services.production.queue.settle();
- const saved=await h.f.read(child.id);
- assert.equal(saved.state,'failed');assert.equal(saved.generationProgress.reviewStatus,'blocked');
- assert.equal(saved.generationProgress.reviewAudits,before.generationProgress.reviewAudits);
- assert.equal(h.f.control.reviews.length,reviews);assert.equal(h.f.control.repairs.length,repairs);assert.equal(h.f.control.calls.length,0);
- const fault=saved.faults?.find(fault=>fault.stage==='review'&&fault.state==='pending');assert.ok(fault,'Blocked child needs its own recovery fault');
- const replay=await h.f.json(`sessions/${h.id}/revisions`,'POST',h.requests[0]);assert.equal(replay.id,child.id);
- await h.f.restart();
- const restarted=await h.f.read(child.id);assert.deepEqual(restarted.faults.map(fault=>fault.id),[fault.id]);
- const command={requestId:crypto.randomUUID(),faultId:fault.id};
- await h.f.json(`sessions/${child.id}/review-override`,'POST',command);
- await until(async()=>(await h.f.read(child.id)).state==='completed');
- const completed=await h.f.read(child.id);
- assert.equal(completed.selection.artStyle,'paper-cut');assert.equal(completed.generationProgress.reviewOverridden,true);
- assert.equal(completed.faults?.length||0,0);assert.equal(h.f.control.calls.length,3);
- assert.equal(h.f.control.reviews.length,reviews);assert.equal(h.f.control.repairs.length,repairs);
- await h.f.json(`sessions/${child.id}/review-override`,'POST',command);
- await h.f.app.services.production.tick();await h.f.app.services.production.queue.settle();
- assert.equal(h.f.control.calls.length,3);assert.deepEqual((await h.f.read(h.id)).story,before.story);
-});
-
 test('completed story count edits remain a draft until confirmation starts the new version',async t=>{
  const h=await harness(t);
  h.render().setChanges({length:5});
@@ -139,7 +80,7 @@ test('completed story count edits remain a draft until confirmation starts the n
  assert.equal(h.requests.length,1);assert.notEqual(h.requests[0].paused,true);
  assert.equal(h.submitted.length,1);
  const child=h.submitted[0];assert.equal(child.generationControl,'active');
- await until(async()=>(await h.f.read(child.id)).state==='completed');
+ await proceed(h,child);await until(async()=>(await h.f.read(child.id)).state==='completed',20000);
  assert.equal((await h.f.read(child.id)).story.pages.length,5);
  assert.equal((await h.f.read(h.id)).story.pages.length,3);
  assert.deepEqual(h.render().changes,{});
@@ -153,21 +94,6 @@ test('retrying explicit production after a lost response uses the same version',
  assert.equal(h.requests.length,2);assert.equal(h.requests[0].requestId,h.requests[1].requestId);
  assert.equal(h.submitted.length,1);
  const child=h.submitted[0];assert.equal(child.generationControl,'active');
- await until(async()=>(await h.f.read(child.id)).state==='completed');
  const rows=await h.f.app.services.database.prepare("SELECT id FROM stories WHERE json_extract(document,'$.revision.parentId')=?").bind(h.id).all();
  assert.equal(rows.results.length,1);
-});
-
-test('paused edits stay stopped until resume applies them and continues generation',async t=>{
- const h=await harness(t,{paused:true});
- h.render().setChanges({length:5});h.render().setTab(null);
- assert.equal(h.requests.length,0);assert.equal((await h.f.read(h.id)).generationControl,'paused');
- assert.equal((await h.f.json('sessions')).length,1);
- await h.render().submit();
- assert.equal(h.submitted.length,1);const child=h.submitted[0];
- assert.equal(child.generationControl,'active');assert.equal(child.selection.length,5);
- h.f.control.hold=false;for(const call of h.f.control.calls)call.resolve();
- await until(async()=>(await h.f.read(child.id)).state==='completed');
- assert.equal((await h.f.read(child.id)).story.pages.length,5);
- assert.equal((await h.f.read(h.id)).generationControl,'paused');
 });

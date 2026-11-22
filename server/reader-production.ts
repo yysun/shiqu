@@ -288,7 +288,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return this.snapshotView(row,saved,false);
  }
  private async snapshotView(row:SessionRow,saved:SessionView,includeTimings:boolean):Promise<SessionView>{
-  const id=row.id,allJobs=await this.queue.jobs(row.id,row.user_id),jobs=allJobs.filter(job=>this.generationCurrent(row,job)),faults=await sessionFaults(this.database,row.id,row.user_id);
+  const id=row.id,allJobs=await this.queue.jobs(row.id,row.user_id),jobs=allJobs.filter(job=>this.generationCurrent(row,job)&&(job.kind!=='discover'||this.parsed(row)?.doc.intake?.phase==='discovering')),faults=await sessionFaults(this.database,row.id,row.user_id);
   const active=jobs.filter(job=>job.state==='running'&&job.lease_until>this.clock()).sort((a,b)=>a.updated_at-b.updated_at);
   // A background search must not supply the selected story step's clock. Renewals only
   // extend leases, leaving the persisted claim timestamp stable across screen visits.

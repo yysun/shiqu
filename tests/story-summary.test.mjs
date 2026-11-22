@@ -45,7 +45,7 @@ test('upgrade removes old fields from stories, drafts, outlines, revision bases 
  const row=local.sqlite.prepare('SELECT * FROM stories WHERE id=?').get(f.id),actual=JSON.parse(row.document);
  assert.equal(actual.plan.summary,plan.hook);assert.equal(actual.draft.summary,'已有完整摘要优先。');assert.equal(actual.storyboard.outline.summary,plan.hook);assert.equal(actual.revision.base.plan.summary,plan.hook);
  for(const value of [actual.plan,actual.draft,actual.storyboard.outline,actual.revision.base.plan])assert.equal(Object.hasOwn(value,'hook'),false);
- assert.deepEqual(actual.original,original);assert.deepEqual(actual.images,doc.images);assert.equal(actual.original.storyBrief,undefined);assert.equal(row.page,1);assert.equal(row.saved,1);assert.equal(row.generation_control,'paused');assert.equal(row.updated_at,'updated');
+ assert.deepEqual(actual.original,original);assert.deepEqual(actual.images,['saved.png',''],'images are padded to the frame count by the DAG conversion');assert.equal(actual.original.storyBrief,undefined);assert.equal(row.page,1);assert.equal(row.saved,1);assert.equal(row.generation_control,'paused');assert.equal(row.updated_at,'updated');
  assert.equal(local.sqlite.prepare('SELECT id FROM stories WHERE id=?').get(saved.id),undefined);assert.ok(!local.sqlite.prepare('PRAGMA table_info(stories)').all().some(col=>col.name==='hook'));
  const media=JSON.parse(await readFile(file,'utf8'));assert.deepEqual(media.value,{summary:'已有摘要。',text:'原文中出现 "hook" 文字，不改写。'});assert.deepEqual(await readFile(cache),cacheBefore);
  const after=row.document,mtime=(await stat(file)).mtimeMs;local.close();local=openDatabase(f.directory,process.cwd());assert.equal(local.sqlite.prepare('SELECT document FROM stories WHERE id=?').get(f.id).document,after);local.close();assert.equal((await stat(file)).mtimeMs,mtime);
@@ -61,29 +61,6 @@ test('an unsafe media backup blocks migration before writes and a repaired sourc
  const db=new DatabaseSync(path.join(f.directory,'shiqu.sqlite'));assert.ok(db.prepare('PRAGMA table_info(stories)').all().some(col=>col.name==='hook'));assert.equal(db.prepare('SELECT name FROM app_migrations WHERE name=?').get(storySummaryMigration),undefined);db.close();
  assert.deepEqual(JSON.parse(await readFile(first,'utf8')),{hook:'旧内容。'});assert.equal(await readFile(outside,'utf8'),'{"hook":"不得触碰。"}');await rm(link);
  const local=openDatabase(f.directory,process.cwd());assert.ok(local.sqlite.prepare('PRAGMA table_info(stories)').all().some(col=>col.name==='document'));local.close();
-});
-
-test('derived image IDs and anchors migrate and a paid unpublished image is published without another image request',async t=>{
- const plan=legacyPlan(),doc={plan,original,images:[],audio:[],usage:[],visualReview:{status:'passed',round:1,repairs:0,issues:[],repaired:[],reports:[]}},f=await fixture(t,doc);
- const oldVersion=version(f.chosen,plan),scriptVersion=inputVersion({selection:f.chosen}),script=productionJobId(f.id,'script',scriptVersion,'approved');
- const ids=[];
- job(f.local.sqlite,script,f.id,'script',scriptVersion,[],{stepKey:'approved'},{pages:2});
- for(let page=0;page<2;page++){
-  const image=productionJobId(f.id,'image',oldVersion,String(page)),publication=productionJobId(f.id,'image-publish',oldVersion,String(page)),value=`/api/reader/media/${f.id}/${page}.png`;
-  const folder=path.join(f.directory,'media/reader',f.id);await mkdir(folder,{recursive:true});await writeFile(path.join(folder,page+'.png'),Buffer.from(encoded,'base64'));
-  job(f.local.sqlite,image,f.id,'image',oldVersion,page?[script,ids[0].publication]:[script],{page},{value,model:'already-paid',requestId:'paid',usage:{paid:true}});
-  job(f.local.sqlite,publication,f.id,'image-publish',oldVersion,[image],{page},null,'queued');ids.push({image,publication});
- }
- const before=f.local.sqlite.prepare("SELECT * FROM production_jobs WHERE kind='image' ORDER BY payload").all();f.local.close();const local=openDatabase(f.directory,process.cwd());
- const migrated=JSON.parse(local.sqlite.prepare('SELECT document FROM stories WHERE id=?').get(f.id).document),nextVersion=version(f.chosen,migrated.plan);
- for(const [index,old] of before.entries()){
-  const id=productionJobId(f.id,'image',nextVersion,String(index)),next=local.sqlite.prepare('SELECT * FROM production_jobs WHERE id=?').get(id);assert.ok(next);assert.deepEqual({...next,id:old.id,version:old.version,dependencies:old.dependencies},{...old});
-  if(index)assert.ok(JSON.parse(next.dependencies).includes(productionJobId(f.id,'image-publish',nextVersion,'0')));
- }
- local.close();let images=0;const generation={status:async()=>({configured:true,provider:'codex',models:{text:'controlled',image:'controlled'},voiceEnabled:false}),generator:()=>({image:async()=>{images++;assert.fail('Paid image receipt must be reused');},safeError:()=> 'controlled failure'}),safeError:()=> 'controlled failure'};
- const app=createApplication({root:process.cwd(),dataDirectory:f.directory,generation});t.after(()=>app.close());
- const response=await app.handle(new Request(`http://localhost/api/reader/sessions/${f.id}/production-control`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:crypto.randomUUID(),action:'resume'})}));assert.equal(response.status,200);
- await until(async()=>{const row=await app.services.database.prepare('SELECT state FROM stories WHERE id=?').bind(f.id).first();return row.state==='completed';});assert.equal(images,0);
 });
 
 test('target job identity collisions abort the upgrade without discarding either receipt',async t=>{

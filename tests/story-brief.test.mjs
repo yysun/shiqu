@@ -6,6 +6,7 @@ import {createReaderProvider} from '../server/generation.ts';
 import {themeMatchesSchema,themeMatchPayload} from '../lib/reader-theme-match.ts';
 import {libraryFixture} from './fixtures/story-library.mjs';
 import {themeStoryId} from '../server/story-theme-matching.ts';
+import {dagGenerator} from '../lib/production-dag/calls.ts';
 import {makePlan,makeReflectionCandidates} from './fixtures/production.mjs';
 import {geminiEvidenceAnswer} from './fixtures/gemini-evidence.mjs';
 
@@ -31,18 +32,20 @@ test('binary matching survives cache reuse and an old receipt is rejudged withou
 });
 
 for(const provider of ['codex','gemini','openai'])test(`${provider}: brief verification, bounded output, theme/source guidance and original facts remain separate`,async()=>{
- const calls=[],plan={...makePlan(2),summary:'归档剧本摘要专用标记'};
+ const calls=[],plan=makePlan(2);
  const respond=(instructions,payload,schema,limit)=>{
   calls.push({instructions,payload,schema,limit});
   if(schema.properties.matches)return {matches:payload.stories.map(story=>({id:story.id,verdict:'yes',reason:matchReason}))};
   if(schema.properties.count)return {count:2,reason:'完整讲述起因、行动和结果。',...(schema.properties.storySummary?{storySummary:summary,storyMatchReason:matchReason}:{})};
   if(schema.properties.issues)return {issues:[],titleReview:{title:plan.title,reason:'标题对应实际故事。'},coverage:[{quote:'勇士面对山中的猛虎仍向前行。',task:'勇士保护村民',pages:[1],assessment:'adequate',reason:'原文的行动得到保留。',issuePage:0}]};
-  if(payload.requestedPages)return {pages:payload.requestedPages.map(page=>({page,...plan.pages[page-1]}))};
+  if(schema.properties.beats)return {title:plan.title,summary:'归档提纲摘要专用标记',sourceReference:'勇士护民',adaptationNote:'按原文',beats:['勇士迎战猛虎','勇士击退猛虎并返回']};
   if(schema.properties.candidates)return {title:plan.title,candidates:makeReflectionCandidates(plan.reflection)};
-  if(schema.properties.reflection&&!schema.properties.pages)return {reflection:plan.reflection};
-  if(schema.properties.beats){const {pages,reflection,...metadata}=makePlan(21);void reflection;return {...metadata,summary:'归档提纲摘要专用标记',beats:pages.map((_,i)=>'第'+i+'幅的行动和回应。')};}
-  if(payload.batch)return {pages:makePlan(21).pages.slice(payload.batch.first-1,payload.batch.last)};
-  return plan;
+  if(schema.properties.reflection)return {reflection:plan.reflection};
+  if(schema.properties.characters)return {characters:[{name:'勇士',aliases:[],text:'面对猛虎仍向前行的勇士。'}]};
+  if(schema.properties.summary)return {summary};
+  if(schema.properties.pages)return {pages:Array.from({length:payload.batch.last-payload.batch.first+1},(_,i)=>({caption:plan.pages[i].caption,people:['勇士']}))};
+  if(schema.properties.frames)return {frames:payload.frames.map(f=>({number:f.number,caption:plan.pages[0].caption,people:['勇士']}))};
+  throw Error('unexpected call');
  };
  const runner={status:async()=>({configured:true}),run:async job=>({text:JSON.stringify(respond(job.instructions,JSON.parse(job.prompt),job.schema)),model:'mock',requestId:'mock',usage:null})};
  const transport=async(_url,init)=>{
@@ -51,7 +54,7 @@ for(const provider of ['codex','gemini','openai'])test(`${provider}: brief verif
   if(provider==='gemini')value=geminiEvidenceAnswer(value,payload,schema);
   return Response.json(openai?{status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(value)}]}]}:{candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(value)}]}}]});
  };
- const p=createReaderProvider({SHIQU_AI_PROVIDER:provider,GEMINI_API_KEY:'controlled',OPENAI_API_KEY:'controlled'}, {},transport,runner),g=p.generator();
+ const p=createReaderProvider({SHIQU_AI_PROVIDER:provider,GEMINI_API_KEY:'controlled',OPENAI_API_KEY:'controlled'}, {},transport,runner),g=p.generator(),dag=dagGenerator(g.textCall);
  const entries=Array.from({length:4},(_,i)=>({id:String(i).repeat(64),title:'完整故事',text:original.text}));
  await p.matchStories('勇气',entries);assert.equal(calls.at(-1).schema.properties.matches.maxItems,provider==='gemini'?undefined:4);
  if(provider==='gemini')assert.match(calls.at(-1).schema.properties.matches.description,/At most 4 items/);
@@ -61,41 +64,37 @@ for(const provider of ['codex','gemini','openai'])test(`${provider}: brief verif
   const selection={bookId:'zhuangzi',storyTitle:'勇士护民',theme,length:2,artStyle:'ink-pencil',productionPrompt:'保留明确行动。',narrativeDetail:'balanced',voice:false},context=theme==='勇气与成长'?{mode:'theme',theme}:{mode:'source'};
   const pending={...original,storyBrief:{summary:'勇士准备迎战猛虎。',matchReason:'勇士因复仇杀死了老虎。',verified:false}};
   const checked=(await g.recommend(selection,'id',pending)).value,advice=calls.at(-1);
-  assert.match(advice.instructions,/2–3句/);assert.match(advice.instructions,/80–150字/);assert.ok(advice.schema.required.includes('storySummary'));assert.ok(advice.schema.required.includes('storyMatchReason'));assert.equal(advice.payload.storyBrief.summary,pending.storyBrief.summary);assert.equal(advice.payload.verifiedOriginal.text,original.text);assert.equal(advice.payload.verifiedOriginal.storyBrief,undefined);if(provider!=='codex')assert.equal(advice.limit,4096);
+  assert.match(advice.instructions,/2–3句/);assert.match(advice.instructions,/80–150字/);assert.ok(advice.schema.required.includes('storySummary'));assert.ok(advice.schema.required.includes('storyMatchReason'));assert.equal(advice.payload.storyBrief.summary,pending.storyBrief.summary);assert.equal(advice.payload.verifiedOriginal.text,original.text);assert.equal(advice.payload.verifiedOriginal.storyBrief,undefined);
   const ready={...original,storyBrief:{summary:checked.storySummary,matchReason:checked.storyMatchReason,verified:true}};
-  const before=calls.length;await assert.rejects(g.plan(selection,'id',pending),/STORY_BRIEF_UNVERIFIED/);assert.equal(calls.length,before);
-  const start=calls.length;const draft=(await g.plan(selection,'id',ready)).value;
-  const long={...selection,length:21},outline=(await g.outline(long,'id',ready)).value,board={outline,pages:[]};
-  const snapshot=structuredClone({plan,draft,outline,ready});
-  const issues=[{page:1,category:'caption',problem:'指代不清。',instruction:'保留事实，说清对象。'}];
-  await g.planBatch(long,'id',board,ready);
-  await g.review(selection,plan,ready,outline);await g.repair(selection,plan,ready,issues,outline);
-  await g.reflectionCandidates(selection,draft,ready);await g.reflection(selection,draft,ready);
-  await g.reflection(selection,draft,ready,{reflection:plan.reflection,issues});
-  assert.deepEqual({plan,draft,outline,ready},snapshot);
+  // 制作 DAG 的各调用：核对摘要只进审片，其余只读已核原文。
+  const source={original:ready,book:'庄子',chosenStory:'勇士护民',theme,variationSeed:'story-1'},settings={narrativeDetail:'balanced',length:2};
+  const start=calls.length,captions=plan.pages.map(page=>page.caption),outline=(await dag.outline({source,productionPrompt:selection.productionPrompt,settings})).value;
+  await dag.prepareBrief({source});await dag.characters({source,productionPrompt:selection.productionPrompt});
+  await dag.sceneBatch({source,outline,productionPrompt:selection.productionPrompt,first:1,previous:[]});
+  await dag.sceneRepair({source,outline,productionPrompt:selection.productionPrompt,frames:[{index:0,caption:captions[0],neighbors:{},issues:[{page:1,category:'caption',problem:'指代不清。',instruction:'保留事实，说清对象。',requiresReplan:false}]}]});
+  await dag.ending({source,outline,captions});await dag.endingRepair({source,outline,captions,reflection:plan.reflection,issues:[]});
+  await dag.review({source,brief:summary,outline,title:plan.title,productionPrompt:selection.productionPrompt,acceptancePrompt:'',style:{artStyle:'ink-pencil',artStylePrompt:null},characters:[{id:'c1',name:'勇士',aliases:[],text:'面对猛虎仍向前行的勇士。'}],frames:captions.map((caption,i)=>({id:'f'+i,caption,prompt:'勇士在山路上迎面遇到猛虎，中景，日光。'})),chosenEnding:plan.reflection,allowed:{pages:[1],criteria:[],narrative:false},itemIds:{}});
   for(const call of calls.slice(start)){
    const reviewing=!!call.schema.properties.issues;
    assert.deepEqual(call.payload.editorialContext,context);assert.equal(call.payload.verifiedOriginal.text,original.text);assert.equal(call.payload.verifiedOriginal.storyBrief,undefined);
    if(reviewing){
-    assert.deepEqual(call.payload.storyBrief,brief);assert.deepEqual(call.payload.plan,plan);assert.deepEqual(call.payload.outline,outline);
+    assert.equal(call.payload.plan.summary,summary);
     assert.ok(plain(call.instructions).includes(plain(storyReviewDirection)));
    }else{
     assert.equal(call.payload.storyBrief,undefined);
-    for(const marker of ['核对摘要专用标记','匹配理由专用标记','归档剧本摘要专用标记','归档提纲摘要专用标记'])assert.ok(!JSON.stringify(call.payload).includes(marker),marker);
-    for(const key of ['outline','draft','plan'])if(call.payload[key]){const {summary:_,...expected}=snapshot[key];void _;assert.deepEqual(call.payload[key],expected);}
+    for(const marker of ['核对摘要专用标记','匹配理由专用标记'])assert.ok(!JSON.stringify(call.payload).includes(marker),marker);
+    for(const key of ['outline','draft','plan'])if(call.payload[key])assert.equal(call.payload[key].summary,undefined,key);
     assert.doesNotMatch(call.instructions,/先参照摘要|摘要负责叙事主线/);
    }
-   if(call.schema.properties.summary)assert.match(call.instructions,/2–3句/);
-   if(!call.payload.draft){
-    assert.ok(plain(call.instructions).includes(plain(storyOpeningDirection)));
-    assert.ok(plain(call.instructions).includes(plain(narrativeMeaningDirection)));
-    // Outlines assign beats; detailed static staging belongs to scene execution and review.
-    assert.equal(plain(call.instructions).includes(plain(storyboardDirection)),!call.schema.properties.beats);
-   }
+   if(call.schema.properties.summary&&!call.schema.properties.beats)assert.match(call.instructions,/2–3句/);
   }
-  const guarded=calls.length;
-  for(const action of [()=>g.outline(long,'id',pending),()=>g.planBatch(long,'id',board,pending),()=>g.reflection(selection,draft,pending),()=>g.reflectionCandidates(selection,draft,pending),()=>g.review(selection,plan,pending,outline),()=>g.repair(selection,plan,pending,issues,outline)])await assert.rejects(action(),/STORY_BRIEF_UNVERIFIED/);
-  assert.equal(calls.length,guarded);
+  const outlineCall=calls.slice(start).find(call=>call.schema.properties.beats),batchCall=calls.slice(start).find(call=>call.payload.batch);
+  for(const call of [outlineCall,batchCall]){
+   assert.ok(plain(call.instructions).includes(plain(storyOpeningDirection)));
+   assert.ok(plain(call.instructions).includes(plain(narrativeMeaningDirection)));
+  }
+  // 提纲只分配节点；静态画面的细则属于逐幅执行与审片。
+  assert.equal(plain(outlineCall.instructions).includes(plain(storyboardDirection)),false);
   await g.recommend(selection,'legacy',original);assert.deepEqual(calls.at(-1).schema.required,['count','reason']);if(provider!=='codex')assert.equal(calls.at(-1).limit,provider==='gemini'?2000:2048);
  }
 });

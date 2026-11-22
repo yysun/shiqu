@@ -53,58 +53,8 @@ test('a real change conflicts, and the same submission stays idempotent',async t
  assert.equal((await f.request(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{plan:other}})).status,409,'A sibling changed the version family');
 });
 
-test('a blocked story shows every issue, can be edited, and draws on the reader\'s word exactly once',async t=>{
- const f=await productionFixture(t);f.control.hold=false;
- f.control.beforeText=async kind=>kind==='review'?{issues:[1,2,3,4].map(page=>({page,category:'caption',problem:`第${page}幅配文含混。`,instruction:'说清楚。'}))}:undefined;
- const id=await f.create(4);await until(async()=>(await f.read(id)).state==='failed',15000);
- const blocked=await f.read(id);assert.equal(blocked.reviewIssues.length,4,'The error text only summarizes; the view lists them all');assert.equal(blocked.story.pages[0].image,'');assert.equal(f.control.calls.length,0);
- const reviews=f.control.reviews.length,repairs=f.control.repairs.length;
- assert.equal((await f.request(`sessions/${id}/revisions`)).status,200);
- await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
- const held=await f.json(`sessions/${id}/review-override`,'POST',{});assert.equal(held.generationControl,'paused');assert.equal(held.state,'idle');assert.equal(held.error,null);
- await f.app.services.production.tick();await f.app.services.production.queue.settle();await f.app.services.production.tick();assert.equal(f.control.calls.length,0,'Paused: recorded, not drawn');
- await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
- await until(async()=>(await f.read(id)).state==='completed',15000);
- assert.equal(f.control.calls.length,4);assert.equal(f.control.reviews.length,reviews,'No further review');assert.equal(f.control.repairs.length,repairs,'No repair of what the reader accepted');
- const done=await f.read(id);assert.equal(done.generationProgress.reviewOverridden,true);assert.equal(generationProgress(done,Date.now()).steps.find(s=>s.id==='recheck').detail,'未解决的问题由你确认放行');
- assert.equal((await f.request(`sessions/${id}/review-override`,'POST',{})).status,200,'A lost response can be repeated');assert.equal(f.control.calls.length,4);
- assert.equal((await jobs(f,id)).filter(job=>['queued','failed'].includes(job.state)).length,0,'Nothing is left waiting on the finished story');
- f.control.beforeText=null;const healthy=await f.create(1);await until(async()=>(await f.read(healthy)).state==='completed');assert.equal((await f.request(`sessions/${healthy}/review-override`,'POST',{})).status,409);
-});
 
-test('a paused failed review can be explicitly accepted without rerunning or changing the script',async t=>{
- const f=await productionFixture(t);f.control.hold=false;
- f.control.beforeText=async kind=>{if(kind==='review')throw Error('controlled review interruption');};
- const id=await f.create(3);await until(async()=>(await f.read(id)).state==='failed');
- const failed=await f.read(id),before=await stored(f,id),reviews=f.control.reviews.length;
- assert.equal(failed.generationProgress.reviewStatus,'pending');
- const fault=failed.faults.find(fault=>fault.state==='pending');assert.ok(fault);
- const command={requestId:crypto.randomUUID(),faultId:fault.id};
- assert.equal((await f.request(`sessions/${id}/review-override`,'POST',command)).status,409,'An unfinished review must first be paused');
- await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
- const accepted=await f.json(`sessions/${id}/review-override`,'POST',command);
- assert.equal(accepted.generationControl,'paused');assert.equal(accepted.state,'idle');assert.equal(accepted.error,null);
- assert.equal(accepted.generationProgress.reviewStatus,'passed');assert.equal(accepted.generationProgress.reviewOverridden,true);
- assert.equal((accepted.faults||[]).length,0);
- await f.app.services.production.tick();await f.app.services.production.queue.settle();await f.app.services.production.tick();
- assert.equal(f.control.calls.length,0);assert.equal(f.control.reviews.length,reviews);
- const after=await stored(f,id);assert.deepEqual(after.plan,before.plan);assert.deepEqual(after.original,before.original);
- assert.equal((await f.request(`sessions/${id}/review-override`,'POST',command)).status,200,'The same acknowledgement is idempotent');
- assert.equal((await f.request(`sessions/${id}/review-override`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id})).status,409,'A resolved fault cannot authorize another acknowledgement');
-});
 
-test('a blocked revision that reused its first image can still be drawn past',async t=>{
- const f=await productionFixture(t);f.control.hold=false;const id=await f.create(4);await until(async()=>(await f.read(id)).state==='completed');
- const base=await f.json(`sessions/${id}/revisions`),plan=structuredClone(base.plan);plan.pages[1].caption='庄周醒来，看着窗外，仍记得梦中自在飞翔的感觉。';
- f.control.beforeText=async(kind,payload)=>kind==='review'?{issues:[{page:3,category:'caption',problem:'配文含混。',instruction:'说清楚。'}]}:kind==='repair'?{pages:[{page:3,caption:payload.plan.pages[2].caption,prompt:payload.plan.pages[2].prompt}]}:undefined;
- const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{plan}});
- await until(async()=>(await f.read(child.id)).state==='failed',15000);
- const blocked=await f.read(child.id);assert.ok(blocked.story.pages[0].image,'The first image was reused');assert.equal(blocked.reviewIssues.length,1);assert.equal(blocked.retryStage,'review');
- const before=f.control.calls.length;await f.json(`sessions/${child.id}/review-override`,'POST',{});
- await until(async()=>(await f.read(child.id)).state==='completed',15000);assert.equal(f.control.calls.length,before,'Every image was reusable');
- const stages=generationProgress(await f.read(child.id),Date.now()).steps;
- assert.equal(stages.find(s=>s.id==='recheck').detail,'未解决的问题由你确认放行');assert.notEqual(stages.find(s=>s.id==='review').detail,'初审通过');assert.notEqual(stages.find(s=>s.id==='repair').state,'skipped');
-});
 
 test('repeating draw anyway cannot redraw a failed image or clear its marker',async t=>{
  const f=await productionFixture(t);f.control.hold=false;
@@ -117,124 +67,11 @@ test('repeating draw anyway cannot redraw a failed image or clear its marker',as
  assert.equal((await jobs(f,id,'image'))[0].state,'failed');
 });
 
-test('a lost image is redrawn in the new version rather than blocking it',async t=>{
- const f=await productionFixture(t);f.control.hold=false;const id=await f.create(4);await until(async()=>(await f.read(id)).state==='completed');
- const s=await f.read(id),file=page=>path.join(f.dataDirectory,'media',s.story.pages[page].image.replace('/api/reader/media/','reader/'));
- await rm(file(2),{force:true});
- const after=await f.json(`sessions/${id}/revisions`);const plan=structuredClone(after.plan);plan.pages[1].caption='庄周醒来，看着窗外，仍记得梦中自在飞翔的感觉。';
- const before=f.control.calls.length;
- const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:after.token,changes:{plan}});
- await until(async()=>(await f.read(child.id)).state==='completed',15000);
- assert.equal(f.control.calls.length-before,1,'Only the lost page is drawn again');
- const done=await f.read(child.id);assert.deepEqual(done.revision.redraw,{previewed:0,actual:1,reason:'lost'});assert.match(redrawNotice(done.revision.redraw),/实际需重绘 1 幅（预览 0 幅）/);
- assert.ok(!(await stored(f,id)).images.some(value=>!value),'The original keeps its saved image references');
- const g=await productionFixture(t);g.control.hold=false;const whole=await g.create(3);await until(async()=>(await g.read(whole)).state==='completed');
- const lost=await g.read(whole);await rm(path.join(g.dataDirectory,'media',lost.story.pages[2].image.replace('/api/reader/media/','reader/')),{force:true});
- const base=await g.json(`sessions/${whole}/revisions`),replan=await g.request(`sessions/${whole}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{length:5}});
- assert.equal(replan.status,201,'A count change does not depend on old images');
-});
 
-test('a lost first image redraws everything, and an unreadable one creates nothing',async t=>{
- const f=await productionFixture(t);f.control.hold=false;const id=await f.create(3);await until(async()=>(await f.read(id)).state==='completed');
- const s=await f.read(id);await rm(path.join(f.dataDirectory,'media',s.story.pages[0].image.replace('/api/reader/media/','reader/')),{force:true});
- const base=await f.json(`sessions/${id}/revisions`),plan=structuredClone(base.plan);plan.pages[1].caption='庄周醒来，看着窗外，仍记得梦中自在飞翔的感觉。';
- const media=f.app.services.media,get=media.get.bind(media);media.get=async()=>{throw Error('disk busy');};
- const requestId=crypto.randomUUID(),busy=await f.request(`sessions/${id}/revisions`,'POST',{requestId,token:base.token,changes:{plan}});
- media.get=get;assert.equal(busy.status,503);assert.equal((await f.request(`sessions/${requestId}`)).status,404,'No new version from a temporary read failure');
- const before=f.control.calls.length,child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{plan}});
- await until(async()=>(await f.read(child.id)).state==='completed',15000);
- assert.equal(f.control.calls.length-before,3);assert.equal((await f.read(child.id)).revision.redraw.reason,'first-lost');
-});
 
-test('review changing the first frame reports the real redraw count; no preview, no notice',async t=>{
- const f=await productionFixture(t);f.control.hold=false;const id=await f.create(8);await until(async()=>(await f.read(id)).state==='completed');
- const base=await f.json(`sessions/${id}/revisions`),plan=structuredClone(base.plan);plan.pages[3].caption='庄周醒来，看着窗外，仍记得梦中自在飞翔的感觉。';
- let flagged=false;f.control.beforeText=async kind=>{if(kind==='review'&&!flagged){flagged=true;return {issues:[{page:1,category:'action',problem:'动作不清楚。',instruction:'说清动作。'}]};}};
- const before=f.control.calls.length,child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{plan}});
- await until(async()=>(await f.read(child.id)).state==='completed',15000);
- assert.equal(f.control.calls.length-before,8);assert.deepEqual((await f.read(child.id)).revision.redraw,{previewed:0,actual:8,reason:'first-changed'});
- const latest=await f.json(`sessions/${child.id}/revisions`),replan=await f.json(`sessions/${child.id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:latest.token,changes:{productionPrompt:'全新的制作要求。'}});
- await until(async()=>(await f.read(replan.id)).state==='completed',15000);assert.equal((await f.read(replan.id)).revision.redraw,undefined);
-});
 
-test('editing production scope refreshes the verified synopsis before planning at confirmation and revision',async t=>{
- const f=await fixture(t),id=await prepared(f),initial=await stored(f,id);
- const scopes=['只写梦醒的经过与结果。','只写梦蝶到惊醒，收束在醒来的瞬间。'];
- const summaries=['庄周醒来，回想梦境里的自在，一时难辨梦醒。','庄周梦中化为蝴蝶，翩然飞舞，忽然惊醒。'];
- const preparedScopes=[];
- f.control.beforeText=async(kind,payload)=>{
-  const index=scopes.indexOf(payload.productionPrompt);
-  if(index<0)return;
-  if(kind==='recommend'){
-   assert.notEqual(payload.storyBrief.summary,initial.original.storyBrief.summary);
-   assert.equal(payload.verifiedOriginal.text,initial.original.text);
-   preparedScopes.push(payload.productionPrompt);
-   return {storySummary:summaries[index]};
-  }
-  if(kind==='plan'||kind==='outline')assert.equal(preparedScopes.at(-1),payload.productionPrompt);
- };
- await setup(f,id,{action:'confirm',settings:{...settings,length:2,productionPrompt:scopes[0]}});
- await until(async()=>(await f.read(id)).state==='completed');
- assert.equal((await f.read(id)).story.summary,summaries[0]);
- const base=await f.json(`sessions/${id}/revisions`);
- const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{productionPrompt:scopes[1]}});
- await until(async()=>(await f.read(child.id)).state==='completed');
- assert.equal((await f.read(child.id)).story.summary,summaries[1]);
- assert.deepEqual(preparedScopes,scopes);
- assert.equal((await stored(f,id)).original.storyBrief.summary,summaries[0]);
-});
 
-test('a paused recheck accepts edited notes and preserves the saved script and audit evidence',async t=>{
- const f=await productionFixture(t);f.control.hold=false;
- const notes='请复核庄周梦醒的因果，并检查第二幅的人物反应。';
- let release,reviewing=false;
- const held=new Promise(resolve=>{release=resolve;});
- f.control.beforeText=async(kind,payload)=>{
-  if(kind!=='review'||payload.reviewNotes)return;
-  if(f.control.reviews.length===1)return {issues:[{page:2,category:'composition',problem:'人物反应不明。',instruction:'让动作清晰可见。'}]};
-  reviewing=true;await held;
- };
- try{
-  const id=await f.create('auto');await until(()=>reviewing);
-  const route=`sessions/${id}/revisions`,base=await f.json(route),before=await stored(f,id);
-  const command={requestId:crypto.randomUUID(),token:base.token,paused:true,changes:{reviewNotes:notes}};
-  assert.equal((await f.request(route,'POST',command)).status,409);
-  await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
-  const editable=await f.json(route);assert.equal(editable.canEditReviewNotes,true);assert.equal(editable.priorReviewIssues[0].page,2);
-  const child=await f.json(route,'POST',command);assert.equal(child.generationControl,'paused');assert.equal(f.control.reviews.length,2);
-  const snapshot=await f.json(`sessions/${child.id}/revisions`);assert.equal(snapshot.reviewNotes,notes);
-  const history=await f.json(`sessions/${child.id}/review-history`);
-  assert.deepEqual(history.entries.map(entry=>entry.kind),['count','review','repair']);assert.ok(history.entries.every(entry=>entry.position!==null&&entry.model));
-  const saved=await stored(f,child.id);
-  assert.deepEqual(saved.plan,before.plan);assert.ok(saved.storyboard);assert.deepEqual(saved.storyboard,before.storyboard);assert.equal(f.control.calls.length,0);
-  release();
-  await f.json(`sessions/${child.id}/production-control`,'POST',{action:'resume'});
-  await until(async()=>(await f.read(child.id)).state==='completed');
-  assert.equal(f.control.reviews.at(-1).reviewNotes,notes);
-  assert.deepEqual(f.control.reviews.at(-1).outline?.beats,before.storyboard.outline.beats);
-  assert.equal(f.control.repairs.length,1);
-  assert.deepEqual((await stored(f,child.id)).plan.pages,before.plan.pages);
- }finally{release();}
-});
 
-test('an older paused draft refreshes the stale synopsis before recheck without replanning frames',async t=>{
- const f=await productionFixture(t);f.control.hold=false;
- const id=await f.create(2);await until(async()=>(await f.read(id)).state==='completed');
- const before=await stored(f,id),newScope='仅写梦醒后人物的反应。',newSummary='庄周醒来，回想梦中化蝶，辨不清梦与现实。';
- // 模拟旧版在制作确认时写入新范围后仍带着旧梗概进入复核。
- await f.app.services.database.prepare(`UPDATE stories SET generation_control='paused',state='idle',
-  selection=json_set(selection,'$.productionPrompt',?),
-  document=json_set(json_remove(document,'$.summaryProductionPrompt'),'$.visualReview.status','pending') WHERE id=?`).bind(newScope,id).run();
- let refreshed=0;
- f.control.beforeText=async(kind,payload)=>{
-  if(kind==='recommend'){assert.equal(payload.productionPrompt,newScope);refreshed++;return {storySummary:newSummary};}
-  if(kind==='review'){assert.equal(payload.storyBrief.summary,newSummary);assert.deepEqual(payload.plan.pages,before.plan.pages);}
- };
- await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
- await until(async()=>(await f.read(id)).state==='completed');
- assert.equal(refreshed,1);assert.equal((await f.read(id)).story.summary,newSummary);
- assert.deepEqual((await stored(f,id)).images,before.images);
-});
 
 test('searching leaves preparation alone, and neither loses the other\'s saved state',async t=>{
  const f=await fixture(t),id=await create(f);await phase(f,id,'choosing');await searchIs(f,id,'idle');

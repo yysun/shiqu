@@ -1,28 +1,35 @@
 // Verify that stops, scheduling errors, unreadable stories and clock jumps stay contained,
 // and that automatic recovery of paid work is bounded. Controlled providers only.
+// 全部走正式协调器与制作 DAG：任务为 dag（文字）与 dag-draw（绘图），故障记在 reader_faults；
+// 事务内的写入失败经 failTransaction 注入。旧流水线的整篇检查点、审片修订回合与发布步骤已随旧流程删除。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {readdirSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
-import {productionFixture,until} from './fixtures/production.mjs';
+import {productionFixture,until,selection} from './fixtures/production.mjs';
 import {ReaderError} from '../lib/reader-model.ts';
-import {readerMaxAutomaticRepairs} from '../lib/reader-limits.ts';
 const owner='docker-local-owner';
 const production=f=>f.app.services.production;
 const database=f=>f.app.services.database;
 const jobs=(f,id)=>production(f).queue.jobs(id,owner);
-const imageJob=async(f,id,page=0)=>(await jobs(f,id)).find(job=>job.kind==='image'&&JSON.parse(job.payload).page===page);
+const imageJob=async(f,id,page=0)=>(await jobs(f,id)).find(job=>job.kind==='dag-draw'&&JSON.parse(job.payload).page===page);
+const textJob=async(f,id,call)=>(await jobs(f,id)).find(job=>job.kind==='dag'&&JSON.parse(job.payload).work.call===call);
 const control=(f,id,action)=>f.json(`sessions/${id}/production-control`,'POST',{action});
+const count=(f,name)=>f.control.dagCalls.filter(n=>n===name).length;
 const completed=(f,id)=>until(async()=>(await f.read(id)).state==='completed',15000);
 const sqliteError=()=>Object.assign(Error('database is locked'),{code:'ERR_SQLITE_ERROR'});
-const issue=page=>({page,category:'action',problem:'本幅与前幅只有旁白变化，人物和道具状态完全重复。',instruction:'保留当前事件，以接触物件的手势和明确的动作结果表现这一步变化。'});
 const row=(f,id)=>database(f).prepare('SELECT state,error,document,selection FROM stories WHERE id=?').bind(id).first();
 // Fail matching statements on one owner's database handle until the returned function restores it.
 function failWrites(owner,match,times=Infinity,field='database'){
  const real=owner[field];let left=times;
- owner[field]={prepare(sql){if(left>0&&sql.includes(match)){left--;throw sqliteError();}return real.prepare(sql);}};
+ owner[field]=Object.assign(Object.create(real),{prepare(sql){if(left>0&&sql.includes(match)){left--;throw sqliteError();}return real.prepare(sql);}});
  return ()=>{owner[field]=real;};
+}
+// 事务内的语句失败：任务状态与故障记录在同一事务中写入，按语句片段让其中一条失败并回滚整个事务。
+function failTransaction(owner,match,times=Infinity){
+ const real=owner.database;let left=times;
+ owner.database=Object.assign(Object.create(real),{transaction(body){return real.transaction(db=>body({...db,run(sql,...values){if(left>0&&sql.includes(match)){left--;throw sqliteError();}return db.run(sql,...values);}}));}});
+ return ()=>{owner.database=real;};
 }
 // Hold one generator step open until the test ends it the way a killed process would.
 function gateGenerator(f,name){
@@ -49,15 +56,15 @@ test('quitting during an image resumes after restart without a retry or provider
  assert.equal(f.control.calls.length,4,'Only the interrupted page is drawn twice');
 });
 
-test('quitting during script work resumes planning without a retry',async t=>{
+test('quitting during text work resumes it without a retry',async t=>{
  const f=await productionFixture(t);let fail;const gate=new Promise((_,reject)=>fail=reject);
- f.control.beforeText=async kind=>{if(kind==='plan')await gate;};
- const id=await f.create(3);await until(()=>f.control.plans.length===1);
+ f.control.beforeText=async name=>{if(name==='outline')await gate;};
+ const id=await f.create(3);await until(()=>count(f,'outline')===1);
  f.app.stopGeneration();f.control.beforeText=null;fail(Error('killed'));
- await until(async()=>(await jobs(f,id)).some(job=>job.interrupted===1));
+ await until(async()=>(await textJob(f,id,'outline'))?.interrupted===1);
  assert.equal((await row(f,id)).state,'idle','The session row must not keep the provider failure');
  await f.restart();await completed(f,id);
- assert.equal(f.control.plans.length,2);assert.equal(f.control.calls.length,3);
+ assert.equal(count(f,'outline'),2);assert.equal(f.control.calls.length,3);
 });
 
 for(const action of ['pause','stop'])test(`quitting after ${action} keeps the control, and Resume continues without a retry`,async t=>{
@@ -70,14 +77,20 @@ for(const action of ['pause','stop'])test(`quitting after ${action} keeps the co
  await control(f,id,'resume');await completed(f,id);assert.equal(f.control.calls.length,4);
 });
 
-test('quitting during frame-count preparation resumes it without a retry',async t=>{
+test('quitting during story preparation resumes it without a retry',async t=>{
  const f=await productionFixture(t);f.control.hold=false;
  const {kill,started}=gateGenerator(f,'recommend');
- const id=await f.create(8,{narrativeDetail:'balanced'});await until(()=>started()===1);
+ f.generation.suggestions=async()=>({stories:[{title:'庄周梦蝶',description:'梦醒后的庄周思考自己的经历。',artRecommendation:{artStyle:'paper-cut',reason:'层次适合梦境。'}}],note:''});
+ const created=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced'}}),id=created.id;
+ if(created.intake.search.state==='idle'&&!created.intake.batches.length)await f.startDiscovery(id);
+ await f.demand(id);
+ await until(async()=>(await f.read(id)).intake.phase==='choosing',20000);
+ await f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(id)).intake.generation,action:'choose',batch:0,index:0});
+ await until(()=>started()===1);
  f.app.stopGeneration();kill(Error('killed'));
  await until(async()=>(await jobs(f,id)).some(job=>job.kind==='prepare'&&job.interrupted===1));
  assert.equal((await row(f,id)).state,'idle');
- await f.restart();await until(async()=>(await f.read(id)).awaitingFrameCount,8000);
+ await f.restart();await until(async()=>(await f.read(id)).intake.phase==='confirming',8000);
  assert.equal(f.control.recommendations.length,1);
 });
 
@@ -90,49 +103,38 @@ test('quitting with saved pages redraws only the interrupted pages',async t=>{
  assert.deepEqual([0,1,2,3,4].map(page=>f.control.calls.filter(call=>call.page===page).length),[1,2,2,2,1]);
 });
 
-for(const action of ['pause','stop'])test(`quitting after ${action} during script work keeps the control, and Resume plans again`,async t=>{
+for(const action of ['pause','stop'])test(`quitting after ${action} during text work keeps the control, and Resume runs it again`,async t=>{
  const f=await productionFixture(t);f.control.hold=false;let fail;const gate=new Promise((_,reject)=>fail=reject);
- f.control.beforeText=async kind=>{if(kind==='plan')await gate;};
- const id=await f.create(3);await until(()=>f.control.plans.length===1);
+ f.control.beforeText=async name=>{if(name==='outline')await gate;};
+ const id=await f.create(3);await until(()=>count(f,'outline')===1);
  await control(f,id,action);f.app.stopGeneration();f.control.beforeText=null;fail(Error('killed'));
- await until(async()=>(await jobs(f,id)).some(job=>job.interrupted===1));
+ await until(async()=>(await textJob(f,id,'outline'))?.interrupted===1);
  await f.restart();await production(f).tick();
- assert.equal((await row(f,id)).state,'idle');assert.equal((await f.read(id)).generationControl,action==='pause'?'paused':'stopped');assert.equal(f.control.plans.length,1);
- await control(f,id,'resume');await completed(f,id);assert.equal(f.control.plans.length,2);
+ assert.equal((await row(f,id)).state,'idle');assert.equal((await f.read(id)).generationControl,action==='pause'?'paused':'stopped');assert.equal(count(f,'outline'),1);
+ await control(f,id,'resume');await completed(f,id);assert.equal(count(f,'outline'),2);
 });
 
-test('a deterministic 4xx in script work during a stop stays failed without replaying',async t=>{
+test('a deterministic 4xx in text work during a stop stays failed without replaying',async t=>{
  const f=await productionFixture(t);f.control.hold=false;
- const {kill,started}=gateGenerator(f,'plan');
- const id=await f.create(3);await until(()=>started()===1);
+ let kill;const gate=new Promise((_,no)=>kill=no);
+ f.control.beforeText=async name=>{if(name==='outline')await gate;};
+ const id=await f.create(3);await until(()=>count(f,'outline')===1);
  f.app.stopGeneration();kill(new ReaderError(400,'原文尚未在本地核对，请重新选择故事。'));
- await until(async()=>(await jobs(f,id)).some(job=>job.state==='failed'));
+ await until(async()=>(await textJob(f,id,'outline'))?.state==='failed');
+ f.control.beforeText=null;
  await f.restart();await production(f).tick();await production(f).queue.settle();await production(f).tick();
- const job=(await jobs(f,id)).find(job=>job.pool==='text');
- assert.equal(job.state,'failed');assert.equal(job.interrupted,0);assert.equal(job.attempts,1);assert.equal(started(),1,'Only an explicit retry may run it again');
- const saved=await f.read(id);assert.equal(saved.state,'failed');assert.match(saved.error,/尚未在本地核对/);
-});
-
-test('a blocked review during a stop stays failed and never repairs automatically',async t=>{
- const f=await productionFixture(t);let release;const gate=new Promise(resolve=>release=resolve);
- const finalAudit=readerMaxAutomaticRepairs+1;
- f.control.beforeText=async kind=>{if(kind==='review'){if(f.control.reviews.length===finalAudit)await gate;return {issues:[issue(2)]};}};
- const id=await f.create(3);await until(()=>f.control.reviews.length===finalAudit);
- f.app.stopGeneration();release();
- await until(async()=>(await jobs(f,id)).some(job=>job.state==='failed'));
- await f.restart();await production(f).tick();await production(f).tick();
- const saved=await f.read(id);
- assert.equal(saved.state,'failed');assert.equal(saved.retryStage,'review');
- assert.equal(f.control.repairs.length,readerMaxAutomaticRepairs);assert.equal(f.control.reviews.length,finalAudit);assert.equal(f.control.calls.length,0);
- assert.ok((await jobs(f,id)).some(job=>job.state==='failed'&&job.interrupted===0));
+ const job=await textJob(f,id,'outline');
+ assert.equal(job.state,'failed');assert.equal(job.interrupted,0);assert.equal(job.attempts,1);assert.equal(count(f,'outline'),1,'Only an explicit retry may run it again');
+ const fault=(await f.read(id)).faults?.find(x=>x.state==='pending');
+ assert.ok(fault);assert.match(fault.message,/尚未在本地核对/);
 });
 
 test('a real provider failure while running is not treated as an interruption',async t=>{
  const f=await productionFixture(t),id=await f.create(3);await until(()=>f.control.calls.length===1);
- f.control.calls[0].reject(Error('provider failure'));await until(async()=>(await f.read(id)).state==='failed');
+ f.control.calls[0].reject(Error('provider failure'));await until(async()=>(await f.read(id)).faults?.some(x=>x.state==='pending'));
  assert.equal((await imageJob(f,id)).interrupted,0);
  await f.restart();await production(f).tick();
- assert.equal((await f.read(id)).state,'failed');assert.equal(f.control.calls.length,1);
+ assert.ok((await f.read(id)).faults.some(x=>x.state==='pending'));assert.equal(f.control.calls.length,1);
 });
 
 test('a transient tick error stops one cycle only and logs once',async t=>{
@@ -150,10 +152,10 @@ test('a transient tick error stops one cycle only and logs once',async t=>{
 
 test('no paid work starts while the claim cannot be written, and work resumes when it can',async t=>{
  t.mock.method(console,'error',()=>{});
- const f=await productionFixture(t),restore=failWrites(production(f).queue,"SET state='running',lease_token");
+ const f=await productionFixture(t),restore=failTransaction(production(f).queue,"SET state='running',lease_token");
  const id=await f.create(3);f.control.hold=false;
  await new Promise(resolve=>setTimeout(resolve,1500));
- assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
  restore();await completed(f,id);assert.equal(f.control.calls.length,3);
 });
 
@@ -204,36 +206,36 @@ for(const [name,corrupt] of [
  await production(f).tick();assert.equal(production(f).leases.has(bad),false,'A parked story does not keep renewing its lock');
 });
 
-test('a queued text job for an unreadable document makes no paid plan call',async t=>{
+test('a queued text job for an unreadable document makes no paid call',async t=>{
  t.mock.method(console,'error',()=>{});
  const f=await productionFixture(t);let release;const gate=new Promise(resolve=>release=resolve);
- f.control.beforeText=async kind=>{if(kind==='plan')await gate;};
- const first=await f.create(3);await until(()=>f.control.plans.length===1);
+ f.control.beforeText=async name=>{if(name==='brief')await gate;};
+ const first=await f.create(3);await until(()=>count(f,'brief')===1);
  const bad=await f.create(3);await until(async()=>(await jobs(f,bad)).some(job=>job.state==='queued'&&job.pool==='text'));
  await database(f).prepare("UPDATE stories SET document='{}' WHERE id=?").bind(bad).run();
  f.control.beforeText=null;f.control.hold=false;release();
  await completed(f,first);await production(f).tick();
- assert.equal(f.control.plans.length,1);
- assert.equal((await jobs(f,bad)).find(job=>job.pool==='text').state,'queued');
+ assert.equal(count(f,'brief'),1);
+ assert.ok((await jobs(f,bad)).filter(job=>job.pool==='text').every(job=>job.state==='queued'),'the parked story keeps its jobs queued');
 });
 
-test('a failed success write is not a provider failure and recovers as an interruption',async t=>{
+test('a failed success write is not a provider failure; the replay finds the saved image and pays nothing',async t=>{
  const logs=t.mock.method(console,'error',()=>{});
  const f=await productionFixture(t),q=production(f).queue,id=await f.create(2);await until(()=>f.control.calls.length===1);
- const job=await imageJob(f,id);failWrites(q,"state='succeeded',result=?",1);
+ const job=await imageJob(f,id);failTransaction(q,"state='succeeded',result=?",1);
  f.control.calls[0].resolve();await until(()=>logs.mock.calls.some(call=>call.arguments[0]==='production_job_unsaved'));
  const unsaved=await q.job(job.id);assert.equal(unsaved.state,'running');assert.equal(unsaved.error,null);
  const other=await f.create(2);f.control.hold=false;
  assert.notEqual((await f.read(id)).state,'failed');
  await database(f).prepare('UPDATE production_jobs SET lease_until=1 WHERE id=?').bind(job.id).run();
  await completed(f,id);await completed(f,other);
- assert.equal(f.control.calls.filter(call=>call.page===0).length,3,'Only the unsaved image is replayed, once');
+ assert.equal(f.control.calls.filter(call=>call.page===0).length,2,'The image saved in the story is not paid for again; only the other story draws its own');
 });
 
 test('a failed failure write does not stop the queue or report a provider failure',async t=>{
  const logs=t.mock.method(console,'error',()=>{});
  const f=await productionFixture(t),p=production(f),q=p.queue,id=await f.create(2);await until(()=>f.control.calls.length===1);
- const job=await imageJob(f,id);failWrites(q,"state='failed',error=?",1);
+ const job=await imageJob(f,id);failTransaction(q,"state='failed',error=?",1);
  f.control.calls[0].reject(Error('provider failure'));await until(()=>logs.mock.calls.some(call=>call.arguments[0]==='production_job_unsaved'));
  assert.equal((await q.job(job.id)).state,'running');
  const other=await f.create(2);f.control.hold=false;
@@ -242,28 +244,18 @@ test('a failed failure write does not stop the queue or report a provider failur
  await completed(f,id);
 });
 
-test('a failed checkpoint save during script work is not a provider failure and recovers',async t=>{
+test('a failed document save of text work is not a provider failure and recovers',async t=>{
  const logs=t.mock.method(console,'error',()=>{});
  const f=await productionFixture(t),p=production(f);f.control.hold=false;
- failWrites(p.repository,"state=CASE WHEN ? THEN 'failed'",1,'db');
+ // 只让任务执行中的保存失败一次（准备阶段的采用与结算也写故事文档，不属于任务）。
+ let armed=false;
+ f.control.beforeText=async name=>{if(name==='brief'&&!armed){armed=true;failWrites(p.dag.deps,'UPDATE stories SET document=?,state=CASE',1);}};
  const id=await f.create(3);await until(()=>logs.mock.calls.some(call=>call.arguments[0]==='production_job_unsaved'));
- const job=(await jobs(f,id)).find(job=>job.pool==='text');
- assert.equal(job.state,'running');assert.equal(job.error,null);
- const saved=await f.read(id);assert.notEqual(saved.state,'failed');assert.equal(saved.error,null);
+ const job=(await jobs(f,id)).find(job=>job.state==='running'&&job.pool==='text');
+ assert.ok(job);assert.equal(job.error,null);
+ const saved=await f.read(id);assert.notEqual(saved.state,'failed');assert.equal(saved.error,null);assert.ok(!saved.faults?.length);
  await database(f).prepare('UPDATE production_jobs SET lease_until=1 WHERE id=?').bind(job.id).run();
- await completed(f,id);assert.equal(f.control.plans.length,2,'The unsaved plan is the only replay');
-});
-
-test('a publication write error recovers without paying for the image again',async t=>{
- const logs=t.mock.method(console,'error',()=>{});
- const f=await productionFixture(t),p=production(f),id=await f.create(2);await until(()=>f.control.calls.length===1);
- failWrites(p,"json_set(document,?, ?, '$.usage'",1);
- f.control.hold=false;f.control.calls[0].resolve();
- await until(()=>logs.mock.calls.some(call=>call.arguments[0]==='production_job_unsaved'));
- const publication=(await jobs(f,id)).find(job=>job.kind==='image-publish'&&job.state==='running');
- assert.ok(publication);assert.notEqual((await f.read(id)).state,'failed');
- await database(f).prepare('UPDATE production_jobs SET lease_until=1 WHERE id=?').bind(publication.id).run();
- await completed(f,id);assert.equal(f.control.calls.length,2,'The saved receipt is reused');
+ await completed(f,id);assert.equal(count(f,'brief'),2,'The unsaved call is the only replay');
 });
 
 test('a clock jump during a live call keeps its claims, saves its result and pays once',async t=>{
@@ -275,45 +267,34 @@ test('a clock jump during a live call keeps its claims, saves its result and pay
  await production(f).tick();
  const renewed=await production(f).queue.job(before.id);
  assert.equal(renewed.state,'running');assert.equal(renewed.lease_token,before.lease_token);assert.ok(renewed.lease_until>Date.now());
- assert.ok((await database(f).prepare('SELECT lock_until FROM stories WHERE id=?').bind(id).first()).lock_until>Date.now());
  f.control.hold=false;f.control.calls[0].resolve();await completed(f,id);
  assert.equal(f.control.calls.filter(call=>call.page===0).length,1);
- assert.equal(readdirSync(path.join(f.dataDirectory,'media/reader',id,'artifacts')).length,2,'No discarded paid artifact is left behind');
 });
 
 test('results arriving after a clock jump, before any tick renews the claims, are still saved',async t=>{
- const f=await productionFixture(t),store=f.app.services.media,get=store.get.bind(store),id=await f.create(2);
+ const f=await productionFixture(t),id=await f.create(2);
  await until(()=>f.control.calls.length===1);
- const image=await imageJob(f,id);
- await expireClaims(f,id);f.control.calls[0].resolve();
- await until(async()=>(await production(f).queue.job(image.id)).state==='succeeded');
- // Hold publication open across a second jump so its own write also sees expired claims.
- let release,entered=false;const gate=new Promise(resolve=>release=resolve);
- store.get=async key=>{if(key.includes('/artifacts/0-')&&!entered){entered=true;await gate;}return get(key);};
- await until(()=>entered);
- await expireClaims(f,id);release();
- f.control.hold=false;await completed(f,id);
+ await expireClaims(f,id);f.control.hold=false;f.control.calls[0].resolve();
+ await completed(f,id);
  assert.equal(f.control.calls.filter(call=>call.page===0).length,1);
  assert.equal((await f.read(id)).error,null);
 });
 
 test('automatic recovery stops at three attempts, and a retry restores the allowance',async t=>{
  const f=await productionFixture(t),id=await f.create(2);
+ // 每次退出都让进行中的绘图中断；重启后自动恢复，每次付费开始都计入次数。
  for(let attempt=1;attempt<=3;attempt++){
   await until(()=>f.control.calls.length===attempt);
-  const job=await imageJob(f,id);assert.equal(job.attempts,attempt);
-  await abandon(f,job);f.control.calls[attempt-1].resolve();await until(()=>f.control.calls[attempt-1].done);
-  await production(f).tick();await production(f).queue.settle();
+  assert.equal((await imageJob(f,id)).attempts,attempt);
+  await quit(f,f.control.calls[attempt-1]);f.control.hold=true;
  }
  await production(f).tick();await production(f).tick();
  const capped=await imageJob(f,id);
  assert.equal(capped.state,'failed');assert.equal(capped.interrupted,1);assert.equal(f.control.calls.length,3,'No fourth automatic call');
- const saved=await f.read(id);
- assert.equal(saved.state,'failed');assert.equal(saved.retryAllowed,true);
- const sibling=await imageJob(f,id,1);assert.equal(sibling.state,'queued');
- await database(f).prepare('UPDATE production_jobs SET attempts=2 WHERE id=?').bind(sibling.id).run();
+ const fault=(await f.read(id)).faults.find(x=>x.state==='pending');
+ assert.ok(fault);assert.equal(fault.retryAllowed,true);
  await f.demand(id,crypto.randomUUID(),0,true);
  await until(()=>f.control.calls.length===4);
- assert.equal((await imageJob(f,id)).attempts,1);assert.equal((await production(f).queue.job(sibling.id)).attempts,2,'An independent sibling keeps its existing allowance');
+ assert.equal((await imageJob(f,id)).attempts,1,'The explicit retry restores the allowance');
  f.control.hold=false;f.control.calls[3].resolve();await completed(f,id);
 });

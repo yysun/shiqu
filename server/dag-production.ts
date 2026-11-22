@@ -71,12 +71,12 @@ export class DagProduction{
  }
 
  /** 保存新的 dag 与投影：以读取时的文档为条件，冲突返回 false。 */
- private async save(row:SessionRow,story:DagStory,dag:DagDocument,usage?:Document['usage'][number]){
+ private async save(row:SessionRow,story:DagStory,dag:DagDocument,usage?:Document['usage'][number],retainDeleted=false){
   const {plan,images}=projectDocument(dag,story.doc.plan);
   const doc:Document={...story.doc,dag,plan,images,...(usage?{usage:[...(story.doc.usage||[]),usage]}:{})};
   const done=finished({...story,dag});
   const saved=await this.deps.database.prepare(`UPDATE stories SET document=?,state=CASE WHEN ?=1 AND state='idle' THEN 'completed' ELSE state END,updated_at=?
-   WHERE id=? AND user_id=? AND document=? AND ${visible}`)
+   WHERE id=? AND user_id=? AND document=?${retainDeleted?'':` AND ${visible}`}`)
    .bind(JSON.stringify(doc),done?1:0,new Date(this.deps.clock()).toISOString(),row.id,row.user_id,row.document).run();
   return saved.meta.changes>0;
  }
@@ -149,7 +149,8 @@ export class DagProduction{
    if(!row||!current||current.dag.continuation)return {obsolete:true};
    const next=apply(current,item,generated.value,{newId:()=>`f-${randomUUID().slice(0,12)}`});
    if(!next)return {obsolete:true};
-   if(await this.save(row,current,next,usage)){this.deps.wake();return {applied:item.call};}
+   // 已付费的结果即使故事已被删除也保存，恢复后不再重复付费。
+   if(await this.save(row,current,next,usage,true)){this.deps.wake();return {applied:item.call};}
   }
   throw new ReaderError(503,'故事正在更新，结果暂未保存，请重试继续。');
  }

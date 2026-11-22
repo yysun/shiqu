@@ -29,18 +29,19 @@ test('generic defaults are system rules; blank and historical automatic fields r
 for(const provider of flowProviders(['codex','gemini']))test(`${provider}: source-specific setup suggestions survive restart, edits and confirmation, then route to their own stages`,async t=>{
  const f=await productionFixture(t,provider);f.control.hold=false;const id=await prepared(f),before=await f.read(id),pair=makeRequirements('庄周梦蝶');
  assert.equal(before.selection.productionPrompt,'');assert.equal(before.intake.draft.productionPrompt,pair.productionPrompt);assert.equal(before.intake.draft.acceptancePrompt,pair.acceptancePrompt);assert.equal(before.intake.draft.artStyle,'paper-cut');
- assert.equal(f.control.recommendations.length,1);assert.equal(f.control.recommendations[0].prepareRequirements,true);assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ assert.equal(f.control.recommendations.length,1);assert.equal(f.control.recommendations[0].prepareRequirements,true);assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
  await f.restart();assert.deepEqual((await f.read(id)).intake.draft,before.intake.draft);
  const settings={...before.intake.draft,productionPrompt:'重点呈现庄周醒来后的停顿。',acceptancePrompt:'配文交代庄周已从梦中醒来。\n醒后的反应有对应画面描述。'};
- await action(f,id,{action:'draft',settings});await action(f,id,{action:'confirm',settings});await until(async()=>(await f.read(id)).state==='completed');
+ const seen=[];f.control.beforeText=async(name,payload)=>{if(name!=='recommend')seen.push({name,payload});};
+ await action(f,id,{action:'draft',settings});await action(f,id,{action:'confirm',settings});await until(async()=>(await f.read(id)).state==='completed',20000);
  assert.equal((await f.read(id)).selection.productionPrompt,settings.productionPrompt);
- const history=await f.json(`sessions/${id}/prompts`);
- for(const item of history.records.filter(item=>!item.step.startsWith('image'))){
-  const payload=JSON.parse(item.record.input),review=item.step.startsWith('review')&&!payload.frameCountReview&&item.record.schema.properties.acceptanceResults;
-  if(review){assert.equal(payload.acceptancePrompt,settings.acceptancePrompt);assert.deepEqual(payload.acceptanceCriteria,settings.acceptancePrompt.split('\n'));}
-  else{assert.equal(payload.acceptancePrompt,undefined,item.step);assert.equal(payload.acceptanceCriteria,undefined,item.step);}
+ // 验收要求只进入审片；制作要求进入文字制作的各调用，不进入任何其他阶段的验收字段。
+ assert.ok(seen.some(item=>item.name==='review'));
+ for(const {name,payload} of seen){
+  if(name==='review'){assert.equal(payload.acceptancePrompt,settings.acceptancePrompt);assert.deepEqual(payload.acceptanceCriteria,settings.acceptancePrompt.split('\n'));}
+  else{assert.equal(payload.acceptancePrompt,undefined,name);assert.equal(payload.acceptanceCriteria,undefined,name);}
  }
- assert.ok(f.control.outlines.every(call=>call.productionPrompt===settings.productionPrompt));
+ assert.ok(seen.filter(item=>item.name==='outline').every(item=>item.payload.productionPrompt===settings.productionPrompt));
  assert.equal(f.control.calls.length,(await f.read(id)).story.pages.length);
 });
 

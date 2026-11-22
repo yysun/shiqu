@@ -141,7 +141,7 @@ test('one-shot desktop upgrade returns the verified backup without listeners, cr
  let output='',errors='';child.stdout.on('data',chunk=>output+=chunk);child.stderr.on('data',chunk=>errors+=chunk);const exited=once(child,'exit');
  child.stdin.write(JSON.stringify({action:'upgrade',settings:{...f.settings,dataDirectory:directory,provider:'gemini'},key:''})+'\n');
  const [code]=await exited;assert.equal(code,0,errors);const response=JSON.parse(output.trim());assert.equal(response.upgraded,true);assert.equal(response.started,false);assert.ok(response.backup);await access(response.backup);
- const db=openDatabase(directory,f.root);assert.equal(db.sqlite.prepare('SELECT count(*) n FROM production_jobs').get().n,0);assert.equal(db.sqlite.prepare('PRAGMA user_version').get().user_version,1);db.close();
+ const db=openDatabase(directory,f.root);assert.equal(db.sqlite.prepare('SELECT count(*) n FROM production_jobs').get().n,0);assert.equal(db.sqlite.prepare('PRAGMA user_version').get().user_version,JSON.parse(await readFile('db/library-format.json','utf8')).schemaVersion,'the upgraded library carries the current format version');db.close();
  await assert.rejects(fetch('http://127.0.0.1:'+f.settings.port+'/api/reader/sessions'));
  const release=await ownDesktopData(directory);await release();
 });

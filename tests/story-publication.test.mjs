@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,until} from './fixtures/production.mjs';
-import {ReaderRepository} from '../lib/reader-repository.ts';
+import {confirmedStory} from './fixtures/production-dag-story.mjs';
 import {emptyPublication,publicationSchema,storyExportKey,publicationCredit} from '../lib/story-publication.ts';
 import {makeStory} from './fixtures/story.mjs';
 
@@ -10,19 +10,22 @@ const publication={author:'公开制作人',workUrl:'https://example.org/work',c
 const save=(f,id,value=publication,expected=null)=>f.json(`sessions/${id}/publication`,'POST',{publication:value,expected});
 const row=(f,id)=>f.app.services.database.prepare('SELECT * FROM stories WHERE id=?').bind(id).first();
 
-test('metadata survives late full checkpoints, queue completion, restart and revision inheritance without extra generation',async t=>{
- const f=await productionFixture(t),id=await f.create();await until(()=>f.control.calls.length>0);
- const before=await row(f,id),repo=new ReaderRepository(f.app.services.database),jobs=await f.app.services.database.prepare('SELECT * FROM production_jobs').all();
- const calls=[f.control.calls.length,f.control.plans.length,f.control.reviews.length];
+test('metadata survives running work, restart and revision inheritance without extra generation or leaking into prompts',async t=>{
+ const f=await productionFixture(t,'codex');
+ const payloads=[];f.control.beforeText=async(_name,payload)=>{payloads.push(JSON.stringify(payload));};
+ const id=await confirmedStory(f,4);
+ f.app.services.production.wake();
+ // 文字制作完成、绘图进行中保存署名：不改选择，不新增任务与调用。
+ await until(()=>f.control.calls.length>0,20000);
+ const before=await row(f,id),jobs=await f.app.services.database.prepare('SELECT * FROM production_jobs').all();
+ const calls=[f.control.calls.length,f.control.dagCalls.length,f.control.reviews.length];
  assert.equal((await f.read(id)).story.publication,undefined);
  assert.deepEqual((await save(f,id)).story.publication,publication);
  assert.deepEqual(JSON.parse((await row(f,id)).selection),JSON.parse(before.selection));
  assert.deepEqual(await f.app.services.database.prepare('SELECT * FROM production_jobs').all(),jobs);
- assert.deepEqual([f.control.calls.length,f.control.plans.length,f.control.reviews.length],calls);
- await repo.saveImageProgress(before,before.lock_token,JSON.parse(before.document));
- assert.deepEqual((await f.read(id)).story.publication,publication);
+ assert.deepEqual([f.control.calls.length,f.control.dagCalls.length,f.control.reviews.length],calls);
  f.control.hold=false;for(const call of f.control.calls)call.resolve();
- await until(async()=>(await f.read(id)).state==='completed');
+ await until(async()=>(await f.read(id)).state==='completed',20000);
  assert.deepEqual((await f.read(id)).story.publication,publication);
  f.generation.status=async()=>({configured:false});
  const updated={...publication,author:'修改署名'};
@@ -30,13 +33,15 @@ test('metadata survives late full checkpoints, queue completion, restart and rev
  assert.deepEqual((await f.read(id)).story.publication,updated);
  assert.deepEqual((await f.json('sessions')).find(s=>s.id===id).story.publication,updated);
  f.generation.status=async()=>({configured:true});
+ const drawn=f.control.calls.length,dagCalls=f.control.dagCalls.length;
  const base=await f.json(`sessions/${id}/revisions`);
- const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{length:3},paused:true});
- assert.deepEqual(child.story?.publication??JSON.parse((await row(f,child.id)).document).publication,updated);
+ const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{artStyle:'paper-cut'},paused:true});
+ assert.deepEqual(JSON.parse((await row(f,child.id)).document).publication,updated);
+ assert.equal(f.control.calls.length,drawn);assert.equal(f.control.dagCalls.length,dagCalls);
  assert.equal((await f.request(`sessions/${id}/publication`,'POST',{publication,expected:updated})).status,409);
- const fresh=await f.create(2);await until(async()=>(await f.read(fresh)).state==='completed');
+ f.control.hold=false;const fresh=await f.create(2);await until(async()=>(await f.read(fresh)).state==='completed',20000);
  assert.equal((await f.read(fresh)).story.publication,undefined);
- for(const payload of [...f.control.plans,...f.control.reviews])assert.ok(!JSON.stringify(payload).includes(publication.contact));
+ for(const payload of payloads)assert.ok(!payload.includes(publication.contact));
 });
 
 test('stale, invalid, cross-origin, other-owner and deleted writes leave saved metadata intact',async t=>{

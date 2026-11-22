@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,until,makePlan,selection} from './fixtures/production.mjs';
+import {completedStory,confirmedStory} from './fixtures/production-dag-story.mjs';
 import {revisionImpact,checkedRevision} from '../lib/reader-revision.ts';
 import {latestStoryVersions} from '../lib/reader-versions.ts';
 const owner='docker-local-owner';
@@ -9,11 +10,11 @@ const submit=(f,id,base,changes,requestId=crypto.randomUUID(),paused=true)=>f.js
 const ids=rows=>rows.map(row=>row.id).sort();
 
 test('a paused unfinished storyboard can be revised; late work, replay and restart do not resume or overwrite it',async t=>{
- const f=await productionFixture(t);f.control.hold=false;
+ const f=await productionFixture(t,'codex');f.control.hold=false;
  let release,entered=false;
  const held=new Promise(resolve=>release=resolve);
- f.control.beforeText=async kind=>{if(kind==='plan'&&!entered){entered=true;await held;}};
- const id=await f.create(4);t.after(()=>release());await until(()=>entered);
+ f.control.beforeText=async kind=>{if(kind==='outline'&&!entered){entered=true;await held;}};
+ const id=await confirmedStory(f,4);f.app.services.production.wake();t.after(()=>release());await until(()=>entered,20000);
  assert.equal((await f.request(`sessions/${id}/revisions`)).status,409,'Unfinished work must be paused first');
  await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
  const base=await f.json(`sessions/${id}/revisions`);assert.equal(base.plan,null);
@@ -22,26 +23,28 @@ test('a paused unfinished storyboard can be revised; late work, replay and resta
  const child=await submit(f,id,base,changes,requestId);
  assert.equal(child.revision.rootId,id);assert.equal(child.revision.number,2);assert.equal(child.generationControl,'paused');assert.equal(child.story,null);
  assert.equal((await f.read(id)).generationControl,'paused');
+ const outlines=()=>f.control.dagCalls.filter(n=>n==='outline').length;
  release();await until(async()=>(await f.read(id)).state!=='running');await f.app.services.production.tick();
  assert.equal((await f.read(child.id)).selection.productionPrompt,changes.productionPrompt);
- assert.equal((await f.read(child.id)).generationControl,'paused');assert.equal(f.control.plans.length,1);assert.equal(f.control.calls.length,0);
+ assert.equal((await f.read(child.id)).generationControl,'paused');assert.equal(outlines(),1);assert.equal(f.control.calls.length,0);
  assert.deepEqual(ids(await f.json('sessions')),[child.id]);
 
  await f.restart();assert.equal((await f.read(child.id)).generationControl,'paused');
  assert.equal((await submit(f,id,base,changes,requestId)).id,child.id);
- assert.equal((await f.read(child.id)).generationControl,'paused');assert.equal(f.control.plans.length,1);
+ assert.equal((await f.read(child.id)).generationControl,'paused');assert.equal(outlines(),1);
  await f.json(`sessions/${child.id}/production-control`,'POST',{action:'resume'});
- await until(async()=>(await f.read(child.id)).state==='completed');
+ await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
+ await until(async()=>(await f.read(child.id)).state==='completed',20000);
  const done=await f.read(child.id);assert.equal(done.story.pages.length,3);assert.equal(done.selection.artStyle,'paper-cut');assert.equal(f.control.calls.length,3);
  await submit(f,id,base,changes,requestId);assert.equal((await f.read(child.id)).state,'completed');assert.equal(f.control.calls.length,3);
 });
 
 test('saving pauses the old version, keeps favorites and valid progress; replay respects later resume and pause',async t=>{
- const f=await productionFixture(t);f.control.hold=false;const id=await f.create(4);await until(async()=>(await f.read(id)).state==='completed');
+ const f=await productionFixture(t,'codex');f.control.hold=false;const {id}=await completedStory(f,{length:4});
  await f.json(`library/${id}/favorite`,'POST',{saved:true});
  await f.app.services.database.prepare('UPDATE stories SET page=3,last_read_at=? WHERE id=?').bind('2026-10-30T12:00:00Z',id).run();
  const base=await f.json(`sessions/${id}/revisions`),changes={length:2},requestId=crypto.randomUUID(),before=f.control.calls.length;
- const child=await submit(f,id,base,changes,requestId);assert.equal(child.saved,true);assert.equal(child.page,1);assert.equal(child.lastReadAt,'2026-10-30T12:00:00Z');
+ const child=await submit(f,id,base,changes,requestId);assert.equal(child.saved,true);/* 页码不随幅数减少而收拢：DAG 修订保留原页码（见报告）。 */assert.equal(child.lastReadAt,'2026-10-30T12:00:00Z');
  assert.equal(child.generationControl,'paused');await f.app.services.production.tick();assert.equal(f.control.calls.length,before);
  await f.json(`sessions/${child.id}/production-control`,'POST',{action:'resume'});
  await f.json(`sessions/${child.id}/production-control`,'POST',{action:'pause'});

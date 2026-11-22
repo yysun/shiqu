@@ -32,9 +32,9 @@ test('only the two reviewed edition/chapter/context combinations authorize uncha
   const {s,u}=bad[0],ref=receipt(b,s,u),original=library.resolve(b,ref);assert.equal(original.text,u.text);assert.equal(hasBlockingSourceAnomaly(u.text,ref),false);assert.ok(original.text.includes(id==='红楼梦'?'⿰烏刂':'\ue853'));
   for(const [text,source]of [[u.text+'□',ref],[u.text,{...ref,edition:'a'.repeat(64)}],[u.text,{...ref,sectionId:'other-001'}],[u.text.slice(u.text.indexOf(id==='红楼梦'?'⿰':'\ue853')),ref],[u.text.replace(id==='红楼梦'?'也有修竹的':'范道受記了','前文不同'),ref]])assert.equal(hasBlockingSourceAnomaly(text,source),true);
   const altered={...b,sections:[{...s,title:'篇题□'}]};assert.throws(()=>library.resolve(altered,ref),e=>e.status===400);
-  let calls=0,writes=0,received;const provider={generator:()=>({plan:async(_s,_id,o)=>{calls++;received=o;return{value:{},model:'mock',requestId:'mock'};}})},wrapped=withLocalBooks(provider,library,{put:async(_k,bytes)=>{writes++;assert.equal(JSON.parse(Buffer.from(bytes).toString()).text,u.text);}}).generator();
-  const selected={...selection(id),source:ref},saved=await wrapped.prepareOriginal(selected,'test');await wrapped.plan(selected,'test',saved);assert.equal(writes,1);assert.equal(calls,1);assert.equal(received.text,u.text);
-  await assert.rejects(wrapped.plan(selected,'test',{...saved,text:saved.text+'□'}),e=>e.status===400);assert.equal(calls,1);assert.equal(saved.text,u.text);
+  let writes=0;const provider={generator:()=>({})},wrapped=withLocalBooks(provider,library,{put:async(_k,bytes)=>{writes++;assert.equal(JSON.parse(Buffer.from(bytes).toString()).text,u.text);}}).generator();
+  const selected={...selection(id),source:ref},saved=await wrapped.prepareOriginal(selected,'test');wrapped.verifyOriginal(selected,saved);assert.equal(writes,1);
+  assert.throws(()=>wrapped.verifyOriginal(selected,{...saved,text:saved.text+'□'}),e=>e.status===400);assert.equal(saved.text,u.text);
  }
 });
 

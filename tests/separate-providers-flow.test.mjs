@@ -11,7 +11,7 @@ test('production queue draws every frame through the separate image provider and
  const f=await productionFixture(t,'codex',{},{imageProvider:'gemini'}),id=await f.createLegacyReader();
  f.control.hold=false;await f.demand(id);await until(async()=>(await f.read(id)).ready===7);
  assert.equal(f.control.calls.length,7);assert.ok(f.control.calls.every(call=>call.via==='gemini'));
- assert.deepEqual([...f.control.textVia],['codex']);assert.equal(f.control.plans.length,1);
+ assert.deepEqual([...f.control.textVia],['codex']);assert.equal(f.control.dagCalls.filter(name=>name==='outline').length,1);
 });
 
 
@@ -28,7 +28,7 @@ test('saved provider snapshots keep an in-flight image and its timeout while new
  variables={SHIQU_AI_PROVIDER:'readonly',CODEX_MODEL:'new-model'};
  const changed=await f.read(id);assert.equal(changed.generationProgress.timeoutAt-changed.generationProgress.startedAt,111000);
  f.control.calls[0].resolve();await until(async()=>(await f.read(id)).ready===1);
- const jobs=await coordinator.queue.jobs(id,f.app.services.ownerId);assert.ok(jobs.filter(job=>job.kind==='image'&&job.state==='queued').every(job=>job.attempts===0));assert.deepEqual(models,['old-model']);
+ const jobs=await coordinator.queue.jobs(id,f.app.services.ownerId);const queued=jobs.filter(job=>job.kind==='dag-draw'&&job.state==='queued');assert.ok(queued.every(job=>job.attempts===0));assert.deepEqual(models,['old-model']);
  variables={SHIQU_AI_PROVIDER:'codex',CODEX_MODEL:'new-model'};f.control.hold=false;
  await until(async()=>(await f.read(id)).ready===7);
  assert.equal(models[0],'old-model');assert.ok(models.slice(1).every(model=>model==='new-model'));assert.equal(models.length,7);
@@ -40,7 +40,7 @@ test('an image error uses its captured provider after defaults change',async t=>
  const live=liveReaderProvider({SHIQU_AI_PROVIDER:'codex',CODEX_MODEL:model},()=>({SHIQU_AI_PROVIDER:'codex',CODEX_MODEL:model}),values=>({...f.generation,safeError:()=>values.CODEX_MODEL+' failure'}));
  const coordinator=new ReaderProductionCoordinator(f.app.services.database,live,f.media,{tickMs:1});f.coordinators.push(coordinator);f.app.services.production=coordinator;
  const id=await f.createLegacyReader();await f.demand(id);await until(()=>f.control.calls.length===1);model='new-model';await live.status();
- f.control.calls[0].reject(Error('controlled old-image failure'));await until(async()=>(await coordinator.queue.jobs(id,f.app.services.ownerId)).some(job=>job.kind==='image'&&job.state==='failed'));
- const failed=(await coordinator.queue.jobs(id,f.app.services.ownerId)).find(job=>job.kind==='image'&&job.state==='failed');assert.equal(failed.error,'old-model failure');
+ f.control.calls[0].reject(Error('controlled old-image failure'));await until(async()=>(await coordinator.queue.jobs(id,f.app.services.ownerId)).some(job=>job.kind==='dag-draw'&&job.state==='failed'));
+ const failed=(await coordinator.queue.jobs(id,f.app.services.ownerId)).find(job=>job.kind==='dag-draw'&&job.state==='failed');assert.equal(failed.error,'old-model failure');
  await coordinator.queue.settle();assert.equal(coordinator.jobProviders.size,0);
 });

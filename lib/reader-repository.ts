@@ -7,6 +7,8 @@ import type {Selection,SessionRow,Document,Step,ProductionAction} from './reader
 import type {OriginalSource} from './reader-source-types.ts';
 import type {StoryPublication} from './story-publication';
 import type {ArtRecommendation} from './reader-art-recommendation.ts';
+// 登记制作 DAG 的进度视图（view() 读取）；放在其余导入之后，避免与 reader-model 形成加载循环。
+import './production-dag/progress.ts';
 // The interface keeps the same SQL testable against SQLite without a Worker runtime.
 /** 同步执行的语句，只在 transaction() 的事务体中使用。 */
 export interface SyncStatements{run(query:string,...values:unknown[]):{changes:number};get<T>(query:string,...values:unknown[]):T|undefined;all<T>(query:string,...values:unknown[]):T[]}

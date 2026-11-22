@@ -5,9 +5,18 @@ import {createCanvas} from '@napi-rs/canvas';
 import {imageDimensions,imageRequestSize,matchesLandscapeImageRatio} from '../lib/reader-image-dimensions.ts';
 import {createReaderProvider} from '../server/generation.ts';
 import {imageBytes,png,jpeg} from './fixtures/images.mjs';
-import {productionFixture,makePlan,until} from './fixtures/production.mjs';
+import {productionFixture,makePlan,until,turn,selection} from './fixtures/production.mjs';
+import {owner} from './fixtures/book-reference.mjs';
+import {emptyDag} from '../lib/production-dag/document.ts';
 import {flowProvider} from './fixtures/test-tier.mjs';
 
+const zhuangzi={title:'齐物论',text:'昔者庄周梦为胡蝶，栩栩然胡蝶也，自喻适志与！不知周也。俄然觉，则蘧蘧然周也。不知周之梦为胡蝶与，胡蝶之梦为周与？',url:'https://example.test/zhuangzi',kind:'passage',provider:'fixture',retrievedAt:'2026-11-01'};
+/** 一篇已确认、尚未制作的 DAG 故事（原文已核对，不经准备流程）。 */
+async function confirmedStory(f,length=4){
+ const id=crypto.randomUUID(),now=new Date().toISOString(),doc={plan:null,images:[],audio:[],usage:[],original:zhuangzi,dag:emptyDag()};
+ await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'background','active','idle',?,?)").bind(id,owner,JSON.stringify({...selection,length}),JSON.stringify(doc),now,now).run();
+ return id;
+}
 const formats=[['portrait.png','image/png','.png'],['portrait.jpg','image/jpeg','.jpg'],['portrait-progressive.jpg','image/jpeg','.jpg'],['portrait.webp','image/webp','.webp'],['portrait-lossy.webp','image/webp','.webp'],['portrait-alpha.webp','image/webp','.webp']];
 const nativeImages=['square.png','landscape.png','small.png','rotated.png','rotated.jpg','rotated.webp','legacy-2-3.png','native.png','gemini.png','codex-native.png','codex-requested.png'];
 test('image metadata reads formats and EXIF rotation without imposing resolution or ratio limits',()=>{
@@ -86,15 +95,20 @@ for(const name of ['codex','gemini']){
   if(name==='gemini')assert.deepEqual(request.generationConfig.imageConfig,{aspectRatio:'9:16',imageSize:'1K'});
  });
 
- test(`${name}: only corrupt media fails the queue; explicit retry preserves completed work`,flowProvider(name),async t=>{
-  const f=await productionFixture(t,name),id=await f.createLegacyReader(),viewer=crypto.randomUUID();
-  await f.demand(id,viewer);await until(()=>f.control.calls.length===1);
+ test(`${name}: only corrupt media fails the drawing; explicit retry draws it again and keeps completed work`,flowProvider(name),async t=>{
+  // 制作 DAG：首幅绘图返回损坏的图片时，故障落在该画幅，故事不完成；读者恢复后重画，其余画幅照常完成。
+  const f=await productionFixture(t,name),id=await confirmedStory(f,4);
+  f.app.services.production.wake();
+  await until(()=>f.control.calls.length===1);
   f.control.calls[0].bytes=Buffer.from(png.subarray(0,24)).toString('base64');f.control.calls[0].resolve();
-  await until(async()=>(await f.read(id)).state==='failed');
-  let session=await f.read(id);assert.equal(session.ready,0);assert.ok(session.error);assert.ok(session.story.pages.every(page=>!page.image));
-  const jobs=await f.app.services.production.queue.jobs(id,'docker-local-owner'),failed=jobs.find(job=>job.kind==='image'&&job.state==='failed');assert.ok(failed);assert.equal(failed.result,null);
-  await f.demand(id,viewer);await f.app.services.production.tick();assert.equal(f.control.calls.length,1);
-  f.control.hold=false;await f.demand(id,viewer,0,true);await until(async()=>(await f.read(id)).ready===7);
-  session=await f.read(id);assert.equal(session.story.pages.filter(page=>page.image).length,7);assert.equal(f.control.calls.filter(call=>call.page===0).length,2);
+  await until(async()=>(await f.read(id)).faults?.length>0);
+  let session=await f.read(id);assert.notEqual(session.state,'completed');assert.ok(session.story.pages.every(page=>!page.image));
+  const fault=session.faults.find(item=>item.state==='pending');assert.ok(fault);
+  for(let i=0;i<10;i++){f.app.services.production.wake();await turn();}
+  assert.equal(f.control.calls.length,1,'nothing is paid again before the reader asks');
+  f.control.hold=false;
+  await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+  await until(async()=>(await f.read(id)).state==='completed',20000);
+  session=await f.read(id);assert.equal(session.story.pages.filter(page=>page.image).length,4);assert.equal(f.control.calls.filter(call=>call.page===0).length,2);
  });
 }

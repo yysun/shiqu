@@ -19,7 +19,10 @@ import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import type {ReviewCheckpoint,ReviewIssue} from './reader-review.ts';
 import type {FaultView,RecoveryReceiptView} from './reader-recovery.ts';
 import type {DagDocument} from './production-dag/document.ts';
-import {dagProgress} from './production-dag/progress.ts';
+import type {DagProgress} from './production-dag/progress.ts';
+// 制作 DAG 的进度视图由 production-dag/progress.ts 在加载时登记：它经引擎与调用契约回引本模块，直接导入会形成循环。
+let dagProgress:(doc:Document,selection:Selection)=>DagProgress|null=()=>null;
+export function registerDagProgress(fn:typeof dagProgress){dagProgress=fn;}
 export {readerBooks} from './reader-books.ts';
 // A reader's display name stays separate from the selected source and AI-authored script.
 export const displayTitleSchema=z.string().trim().min(1,'请输入故事名。').max(40,'故事名最多 40 字。').regex(/^[^\r\n]+$/,'故事名请写在一行内。');

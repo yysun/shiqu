@@ -8,6 +8,7 @@ import path from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {migrate} from '../server/database.ts';
 import {productionFixture,selection,makePlan} from './fixtures/production.mjs';
+import {completedStory} from './fixtures/production-dag-story.mjs';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {emptyPublication,withPublicationDefaults,storyExportKey} from '../lib/story-publication.ts';
 import {makeStory} from './fixtures/story.mjs';
@@ -54,16 +55,13 @@ test('defaults survive restart and are copied once for both creation paths, with
 
 test('a per-story override stays independent of defaults and sibling stories, including revision inheritance',async t=>{
  const f=await fixture(t),owner=f.app.services.ownerId,repo=new ReaderRepository(f.app.services.database);
- await save(f);const first=await f.create(2),second=await f.create(2),row=await repo.get(first,owner);
- const original={title:'《庄子》测试原文',text:'昔者庄周梦为胡蝶。',url:'https://example.org/source',kind:'passage',provider:'controlled',retrievedAt:'2026-11-02T00:00:00Z'};
- const doc={...JSON.parse(row.document),plan:makePlan(2),original};
- await f.app.services.database.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(doc),first).run();
+ await save(f);const second=await f.create(2),{id:first}=await completedStory(f,{extra:{publication:defaults}});
  const custom={...defaults,author:'本篇制作人',watermarkFontSize:16};
  assert.deepEqual((await f.json(`sessions/${first}/publication`,'POST',{publication:custom,expected:defaults})).story.publication,custom);
  assert.deepEqual(await f.json('publication-defaults'),{publication:defaults});
  assert.deepEqual(JSON.parse((await repo.get(second,owner)).document).publication,defaults);
  const base=await f.json(`sessions/${first}/revisions`);
- const child=await f.json(`sessions/${first}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{length:3},paused:true});
+ const child=await f.json(`sessions/${first}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{artStyle:'paper-cut'},paused:true});
  assert.deepEqual(JSON.parse((await repo.get(child.id,owner)).document).publication,custom);
  await save(f,{...emptyPublication},defaults);
  assert.deepEqual(JSON.parse((await repo.get(first,owner)).document).publication,custom);

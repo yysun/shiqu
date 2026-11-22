@@ -1,5 +1,6 @@
 // 制作 DAG 故事的进度视图：由引擎状态推出当前步骤与审片状态，供故事视图与制作时间线显示。
 // 纯函数，不做 I/O；只读文档中的 dag，不考虑故障（故障由协调器另行呈现）。
+import {registerDagProgress} from '../reader-model.ts';
 import type {Document,Selection,Step} from '../reader-model.ts';
 import {settle,work,attention,finished,type DagStory} from './runner.ts';
 
@@ -45,3 +46,5 @@ export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
  };
  return {step,review,complete};
 }
+
+registerDagProgress(dagProgress);

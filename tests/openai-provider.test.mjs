@@ -8,6 +8,7 @@ import os from 'node:os';
 import {createReaderProvider} from '../server/generation.ts';
 import {strictOpenAISchema,safeOpenAIError,OpenAIError} from '../server/openai-provider.ts';
 import {FileMedia} from '../server/media.ts';
+import {dagGenerator} from '../lib/production-dag/calls.ts';
 import {makePlan,selection} from './fixtures/production.mjs';
 import {encoded,png} from './fixtures/images.mjs';
 import {testDesktopProvider,desktopSettings} from '../server/desktop.ts';
@@ -22,25 +23,21 @@ async function fixture(t,handler){
  return {media,calls,provider:createReaderProvider({SHIQU_AI_PROVIDER:'openai',OPENAI_API_KEY:'test-only-key',SHIQU_REASONING_REVIEW:'xhigh'},media,transport)};
 }
 
-test('OpenAI covers suggestions, artwork advice, counts, drafts, outlines, batches, reflections and review',async t=>{
+test('OpenAI covers suggestions, artwork advice, counts and DAG text calls (outline, scenes, review)',async t=>{
  const provider=createReaderProvider({SHIQU_AI_PROVIDER:'openai'},{});
  assert.equal(provider.generationTimeoutMs('plan'),300000);assert.equal(provider.generationTimeoutMs('image'),300000);assert.equal(provider.generationTimeoutMs('source'),null);
  const contextualOriginal={...original,chapterContext:{title:'《庄子·齐物论》',text:'完整章节包含梦蝶的起因、经过与醒来后的思考。',source:original.localSource}};
  const f=await fixture(t,(_url,options)=>{
   const body=JSON.parse(options.body),schema=body.text.format.schema,payload=JSON.parse(body.input[0].content),plan=makePlan(payload.exactPageCount||8);
   assert.equal(body.store,false);assert.equal(body.text.format.type,'json_schema');assert.equal(body.text.format.strict,true);assert.equal(schema.additionalProperties,false);assert.ok(body.reasoning.effort);assert.ok(options.signal instanceof AbortSignal);
-  if(payload.verifiedOriginal&&!schema.properties.artStyle){assert.deepEqual(payload.editorialContext,{mode:'theme',theme:selection.theme});assert.equal(payload.theme,undefined);assert.equal(payload.productionPrompt,selection.productionPrompt);assert.deepEqual(payload.verifiedOriginal.chapterContext,contextualOriginal.chapterContext);assert.match(body.instructions,/片段首末不是硬边界/);assert.match(body.instructions,/不能单独证明后续必须纳入/);assert.match(body.instructions,/回应谁刚才的哪句或哪个动作/);assert.doesNotMatch(body.instructions,/同一次会面、连续对话或未完行动的后续应纳入/);}
+  if(payload.verifiedOriginal&&!schema.properties.artStyle){assert.deepEqual(payload.editorialContext,{mode:'theme',theme:selection.theme});assert.equal(payload.productionPrompt,selection.productionPrompt);assert.deepEqual(payload.verifiedOriginal.chapterContext,contextualOriginal.chapterContext);assert.match(body.instructions,/片段首末不是硬边界/);assert.match(body.instructions,/不能单独证明后续必须纳入/);assert.match(body.instructions,/回应谁刚才的哪句或哪个动作/);assert.doesNotMatch(body.instructions,/同一次会面、连续对话或未完行动的后续应纳入/);}
   if(schema.properties.stories)assert.equal(payload.theme,selection.theme);
   if(schema.properties.stories)return completed({stories:[{title:'庄周梦蝶',description:'梦与醒的边界。',artRecommendation:art,...(payload.localBook?{source:{sectionId:'chapter',firstUnit:'unit',lastUnit:'unit',continuations:[]}}:{})}],note:'',...(schema.properties.scan?{scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}}:{})});
   if(schema.properties.artStyle)return completed(art);
   if(schema.properties.count)return completed({count:8,reason:'保留故事的完整因果。'});
   if(schema.properties.issues){assert.equal(body.reasoning.effort,'xhigh');return completed({issues:[],titleReview:{title:payload.plan.title,reason:'标题准确对应当前故事。'}});}
-  if(payload.requestedPages)return completed({pages:payload.requestedPages.map(page=>({page,...payload.plan.pages[page-1]}))});
-  if(schema.properties.candidates)return completed({title:payload.draft.title,candidates:['梦醒之后，仍可记住自在。','梦中有梦中的天地。','醒来未必失去一切。']});
-  if(schema.properties.reflection)return completed({reflection:'梦醒之后，仍可记住自在。'});
-  if(schema.properties.beats){const {pages,reflection,...rest}=plan;return completed({...rest,beats:pages.map((_,i)=>'第'+i+'幅的关键动作。')});}
-  if(payload.batch)return completed({pages:plan.pages.slice(payload.batch.first-1,payload.batch.last)});
-  const {reflection,...draft}=plan;return completed(draft);
+  if(schema.properties.beats)return completed({title:'庄周梦蝶',summary:'梗概',sourceReference:'庄子',adaptationNote:'按原文',beats:Array.from({length:payload.exactPageCount||8},(_,i)=>'第'+i+'幅的关键动作。')});
+  return completed({ok:true});
  });
  assert.equal((await f.provider.status()).provider,'openai');assert.equal(f.calls.length,0);
  assert.equal((await f.provider.suggestions(selection,[])).stories[0].title,'庄周梦蝶');
@@ -49,13 +46,10 @@ test('OpenAI covers suggestions, artwork advice, counts, drafts, outlines, batch
  assert.equal((await f.provider.suggestions(selection,[],{...local,purpose:'scan'})).scan.blockComplete,true);
  assert.deepEqual(await f.provider.recommendArt(selection,original),art);
  const generator=f.provider.generator();assert.equal((await generator.recommend(selection,'test',contextualOriginal)).value.count,8);
- const draft=await generator.plan(selection,'test',contextualOriginal);assert.equal(draft.value.pages.length,8);assert.equal(draft.requestId,'response-fixture');
- const long={...selection,length:21},outline=(await generator.outline(long,'test',contextualOriginal)).value;
- assert.equal((await generator.planBatch(long,'test',{outline,pages:[]},contextualOriginal)).value.length,20);
- assert.equal((await generator.reflection(selection,makePlan(8),contextualOriginal)).value,'梦醒之后，仍可记住自在。');
- assert.equal((await generator.reflectionCandidates(selection,makePlan(8),contextualOriginal)).value.candidates.length,3);
- assert.deepEqual((await generator.review(selection,makePlan(8),contextualOriginal)).value.issues,[]);
- assert.equal((await generator.repair(selection,makePlan(8),contextualOriginal,[{page:1,category:'composition',problem:'构图重复。',instruction:'调整本幅可见动作。'}])).value[0].page,1);
+ const dag=dagGenerator(generator.textCall),source={original:contextualOriginal,book:'庄子',theme:selection.theme,variationSeed:'s'},settings={narrativeDetail:'balanced',length:8};
+ const outline=await dag.outline({source,productionPrompt:selection.productionPrompt,settings});assert.equal(outline.value.beats.length,8);assert.equal(outline.requestId,'response-fixture');
+ const generic=await generator.textCall('plan','指令',{},{type:'object',properties:{ok:{type:'boolean'}},required:['ok'],additionalProperties:false},4096);assert.deepEqual(generic.value,{ok:true});
+ const review=await generator.textCall('review','指令',{plan:{title:'庄周梦蝶'}},{type:'object',properties:{issues:{type:'array',items:{type:'string'}},titleReview:{type:'object',properties:{title:{type:'string'},reason:{type:'string'}},required:['title','reason'],additionalProperties:false}},required:['issues','titleReview'],additionalProperties:false},4096);assert.deepEqual(review.value.issues,[]);
 });
 test('image generation saves validated bytes and later frames send the saved anchor as multipart edits',async t=>{
  const f=await fixture(t,(url,options)=>{

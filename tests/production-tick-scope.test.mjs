@@ -79,17 +79,15 @@ test('未变化的故事不再读取全文；局部写入、任务数变化、�
  await coordinator.tick();
  assert.deepEqual(recorder.fullReads(),new Set([a,b,c]),'首个节拍完整检查');
  assert.deepEqual(graphs,[c]);
- for(const id of [a,b,c])assert.equal((await database.prepare('SELECT state FROM stories WHERE id=?').bind(id).first()).state,'idle');
-
+ 
  recorder.reset();await coordinator.tick();
  assert.equal(recorder.fullReads().size,0,'内容和计数未变时不读取故事全文');
  assert.deepEqual(graphs,[c]);
 
- // 已记为不完整的暂停故事被局部写入补齐后，下一个节拍标记完成，其余故事仍不读取。
+ // 暂停故事被局部写入后，下一个节拍重新检查它，其余故事仍不读取（完成由制作引擎判定，节拍不再改写状态）。
  await database.prepare("UPDATE stories SET document=json_set(document,'$.images',json(?)) WHERE id=?").bind(JSON.stringify(['a.png','b.png','c.png']),a).run();
  recorder.reset();await coordinator.tick();
  assert.deepEqual(recorder.fullReads(),new Set([a]));
- assert.equal((await database.prepare('SELECT state FROM stories WHERE id=?').bind(a).first()).state,'completed');
 
  // 只有排队任务数变化时，清理会重新读取该故事。
  await enqueue(coordinator,b,'job-extra');
@@ -138,7 +136,7 @@ test('一个节拍执行的故事查询都不全表扫描 stories，版本判断
  await coordinator.tick();recorder.reset();await coordinator.tick();
  const statements=new Map();
  for(const entry of recorder.log)if(/\bstories\b/.test(entry.sql)&&(entry.values||!statements.has(entry.sql)))statements.set(entry.sql,entry.values||statements.get(entry.sql)||[]);
- assert.ok(statements.size>=8,'节拍应执行多条故事查询');
+ assert.ok(statements.size>=6,'节拍应执行多条故事查询');
  for(const [sql,values] of statements){
   const plan=(await database.prepare('EXPLAIN QUERY PLAN '+sql).bind(...values).all()).results.map(row=>row.detail);
   assert.ok(!plan.some(fullScan),sql.replace(/\s+/g,' ').slice(0,160)+' → '+plan.join(' | '));

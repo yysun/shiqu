@@ -4,10 +4,11 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync} from 'node:fs';
 import {ProductionQueue,inputVersion,productionJobId} from '../server/production-queue.ts';
+import {transaction} from '../server/database.ts';
 import {until,turn} from './fixtures/production-data.mjs';
 function database(t){
  const db=new DatabaseSync(':memory:');for(const name of readdirSync('drizzle').filter(n=>n.endsWith('.sql')).sort())db.exec(readFileSync('drizzle/'+name,'utf8'));t.after(()=>db.close());
- return {db,adapter:{prepare(sql){let args=[];return {bind(...values){args=values;return this;},async first(){return db.prepare(sql).get(...args)||null;},async all(){return {results:db.prepare(sql).all(...args)};},async run(){return {meta:{changes:Number(db.prepare(sql).run(...args).changes)}};}};}}};
+ return {db,adapter:{prepare(sql){let args=[];return {bind(...values){args=values;return this;},async first(){return db.prepare(sql).get(...args)||null;},async all(){return {results:db.prepare(sql).all(...args)};},async run(){return {meta:{changes:Number(db.prepare(sql).run(...args).changes)}};}};},transaction(body){return transaction(db,body);}}};
 }
 const spec=(kind,pool,dependencies=[],version='v1',key='')=>({id:productionJobId('story',kind,version,key),sessionId:'story',ownerId:'owner',kind,pool,version,dependencies,payload:{key},priority:0});
 test('search and text each have one independent worker beside image and local pools',async t=>{

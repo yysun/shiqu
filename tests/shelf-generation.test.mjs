@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {shelfDrawingCount,shelfGenerationStatus,shelfNeedsUserGroups,shelfProductionPriority,sortShelfProductions} from '../lib/shelf-generation.ts';
 import {observeStoryGeneration,runQueuedStoryGeneration} from '../lib/reader-production-client.ts';
-import {productionFixture,until,turn} from './fixtures/production.mjs';
+import {productionFixture,until,turn,selection} from './fixtures/production.mjs';
 
 const base={state:'idle',error:null,awaitingFrameCount:false,stage:'正在编排故事'};
 test('shelf actions distinguish execution, queueing, user decisions, failure and pause',()=>{
@@ -37,12 +37,13 @@ test('shelf actions distinguish execution, queueing, user decisions, failure and
 test('shelf refresh reports running and queued work without dispatch or viewer renewal',async t=>{
  const f=await productionFixture(t),a=await f.createLegacyReader(),b=await f.createLegacyReader();
  let release,started=false;const gate=new Promise(resolve=>{release=resolve;});t.after(()=>release());
- const generator=f.generation.generator.bind(f.generation);
- f.generation.generator=()=>{const g=generator();return {...g,async plan(...args){if(args[1]===a){started=true;await gate;}return g.plan(...args);}};};
+ // 制作 DAG 的第一项文字工作（梗概）停在模型调用里；文字池一次只运行一项，另一篇故事排队。
+ f.control.beforeText=async name=>{if(name==='brief'){started=true;await gate;}};
  const initial=await f.json('sessions');assert.ok(initial.every(s=>s.productionState==='paused'));
- assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
  const viewerA=crypto.randomUUID(),viewerB=crypto.randomUUID();
  await f.demand(a,viewerA);await until(()=>started);await f.demand(b,viewerB);
+ for(let i=0;i<10;i++){f.app.services.production.wake();await turn();}
  const before=await f.app.services.database.prepare('SELECT * FROM production_demand ORDER BY session_id').all();
  const first=await f.json('sessions'),second=await f.json('sessions');
  for(const rows of [first,second]){
@@ -54,7 +55,7 @@ test('shelf refresh reports running and queued work without dispatch or viewer r
   assert.equal(running.phase,'plan');assert.equal(running.frameCount,8);assert.equal(queued.startedAt,null);
  }
  assert.deepEqual(await f.app.services.database.prepare('SELECT * FROM production_demand ORDER BY session_id').all(),before);
- assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
+ assert.deepEqual(f.control.dagCalls,['brief'],'only the held call has been dispatched');assert.equal(f.control.calls.length,0);
  await f.leave(a,viewerA);await f.leave(b,viewerB);release();
  await until(async()=>(await f.read(a)).productionState==='paused');
  const paused=await f.json('sessions');assert.ok(paused.every(s=>s.productionState==='paused'));
@@ -63,35 +64,45 @@ test('shelf refresh reports running and queued work without dispatch or viewer r
 });
 
 test('shelf refresh exposes choice and failure states without retrying',async t=>{
- const f=await productionFixture(t),choice=await f.createLegacyReader(8,{narrativeDetail:'balanced'});
- await f.demand(choice);await until(async()=>(await f.read(choice)).awaitingFrameCount);
- const failed=await f.createLegacyReader(),generator=f.generation.generator.bind(f.generation);
- f.generation.generator=()=>({...generator(),async plan(){throw Error('controlled plan failure');}});
- await f.demand(failed);await until(async()=>(await f.read(failed)).state==='failed');
- const jobs=await f.app.services.production.queue.jobs(failed,'docker-local-owner');
+ const f=await productionFixture(t);
+ // 待选故事：准备流程停在选题窗口，书架只展示，不付费。
+ f.generation.suggestions=async()=>({stories:[{title:'庄周梦蝶',description:'梦醒后的庄周思考自己的经历。',artRecommendation:{artStyle:'paper-cut',reason:'层次适合梦境。'}}],note:''});
+ const choice=(await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced'}})).id;
+ await f.startDiscovery(choice);await f.demand(choice);await until(async()=>(await f.read(choice)).intake.phase==='choosing',20000);
+ // 失败：DAG 的第一项文字工作失败，故障落在该工作上。
+ f.control.beforeText=async name=>{if(name==='brief')throw Error('controlled brief failure');};
+ const failed=await f.createLegacyReader();
+ await f.demand(failed);await until(async()=>(await f.read(failed)).state==='failed',20000);
+ // 与失败工作无关的文字工作先自行完成，再记录任务快照。
+ for(let i=0;i<20;i++){f.app.services.production.wake();await turn();}await f.app.services.production.queue.settle();
+ const jobs=await f.app.services.production.queue.jobs(failed,'docker-local-owner'),dagCalls=f.control.dagCalls.length;
  const rows=await f.json('sessions');
- assert.equal(shelfGenerationStatus(rows.find(s=>s.id===choice)).action,'选择画幅数');
+ assert.equal(shelfGenerationStatus(rows.find(s=>s.id===choice)).group,'待选故事');
  assert.equal(shelfGenerationStatus(rows.find(s=>s.id===failed)).action,'查看详情');
+ assert.equal(shelfGenerationStatus(rows.find(s=>s.id===failed)).group,'生成失败');
+ for(let i=0;i<10;i++){f.app.services.production.wake();await turn();}
  assert.deepEqual(await f.app.services.production.queue.jobs(failed,'docker-local-owner'),jobs);
+ assert.equal(f.control.dagCalls.length,dagCalls,'a shelf visit never retries');
  assert.equal(f.control.calls.length,0);
 });
 
 test('viewing a saved failure preserves its attempt count until an explicit retry resumes generation',async t=>{
- const f=await productionFixture(t),id=await f.createLegacyReader(),generator=f.generation.generator.bind(f.generation);
+ const f=await productionFixture(t),id=await f.createLegacyReader();
  let fail=true;
- f.generation.generator=()=>{const g=generator();return {...g,async plan(...args){if(fail)throw Error('controlled timeout');return g.plan(...args);}};};
- await f.demand(id);await until(async()=>(await f.read(id)).state==='failed');
- const attempts=async()=>(await f.app.services.production.queue.jobs(id,'docker-local-owner')).find(job=>job.kind==='script').attempts;
+ f.control.beforeText=async name=>{if(name==='brief'&&fail)throw Error('controlled timeout');};
+ await f.demand(id);await until(async()=>(await f.read(id)).state==='failed',20000);
+ const attempts=async()=>(await f.app.services.production.queue.jobs(id,'docker-local-owner')).find(job=>job.kind==='dag'&&job.state==='failed').attempts;
  const before=await attempts();let active=true,reads=0;
  await observeStoryGeneration({sessionId:id,isActive:()=>active,onSession:s=>{assert.equal(s.state,'failed');if(++reads===3)active=false;},sleep:async()=>{},request:path=>f.json(path.replace(/^reader\//,''))});
- assert.equal(await attempts(),before);assert.equal(f.control.plans.length,0);
+ assert.equal(await attempts(),before);assert.equal(f.control.dagCalls.filter(n=>n==='brief').length,1,'viewing a failure pays nothing');
  fail=false;f.control.hold=false;active=true;
  await runQueuedStoryGeneration({sessionId:id,viewerId:crypto.randomUUID(),initialRetry:true,page:()=>0,retries:new Map(),isActive:()=>active,sleep:turn,
   onSession:s=>{if(s.ready>0)active=false;},
   request:(path,method,body)=>f.json(path.replace(/^reader\//,''),method||'GET',body),
  });
- // An explicit retry starts a new run, so its count restarts rather than continuing from before.
- assert.equal(await attempts(),1);assert.ok(before>=1);assert.equal(f.control.plans.length,1);
+ // 显式重试之后同一项工作重新执行，其余文字工作各自只执行一次。
+ assert.ok(before>=1);assert.equal(f.control.dagCalls.filter(n=>n==='brief').length,2);
+ assert.equal(f.control.dagCalls.filter(n=>n==='outline').length,1);
  assert.ok((await f.read(id)).ready>0);
 });
 

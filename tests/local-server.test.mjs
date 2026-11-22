@@ -17,6 +17,7 @@ import {LocalBooks} from '../server/local-books.ts';
 import {importLegacy} from '../server/import-legacy.ts';
 import {historicalLibrary,insertStudio} from './fixtures/historical-library.mjs';
 import {makeStory,insertReaderStory} from './fixtures/story.mjs';
+import {productionFixture,until} from './fixtures/production.mjs';
 
 async function fixture(t){
  const root=await mkdtemp(path.join(os.tmpdir(),'shiqu node test '));t.after(()=>rm(root,{recursive:true,force:true}));
@@ -78,37 +79,29 @@ test('media validates keys, MIME and symlinks; replacing files is atomic and lea
  await assert.rejects(store.get('reader/link.png'));await symlink(root,path.join(root,'media/outside'));await assert.rejects(store.get('outside/private.png'));
  assert.ok((await readdir(path.join(root,'media/reader'))).every(name=>!name.endsWith('.tmp')));
 });
-test('real SQLite locks prevent duplicate paid requests through concurrent REST advances and survive restart',async t=>{
- const options=await fixture(t);let calls=0,release;const hold=new Promise(resolve=>release=resolve);
- const plan={title:'庄周梦蝶',summary:'梦醒之后',sourceReference:'《庄子·齐物论》庄周梦蝶',adaptationNote:'现代改编',reflection:'谁在梦中？',characters:'An adult Chinese philosopher in a plain linen robe in ancient China.',pages:Array.from({length:8},()=>({caption:'庄周梦见自己成为一只蝴蝶，自由自在地飞来飞去。',prompt:'An adult philosopher dreams of becoming a butterfly in an ancient garden.'}))};
- await copyBookLibrary(options.root,['zhuangzi']);
- const book=await new LocalBooks(options.root).book({bookId:'zhuangzi'}),section=book.sections[1],unit=section.units.at(-1);
- const source={edition:book.edition,sectionId:section.id,firstUnit:unit.id,lastUnit:unit.id};
- options.variables={GEMINI_API_KEY:'mock-only'};
- options.transport=async(_url,init)=>{
-  calls++;
-  await hold;
-  const {properties}=JSON.parse(init.body).generationConfig.responseFormat.text.schema;
-  let result=plan;
-  if(properties.count){
-   result={count:8,reason:'按完整故事编排。',storySummary:plan.summary,storyMatchReason:'按原文主线展开。',
-    storyTitle:plan.title,artRecommendation:{artStyle:'ink-pencil',reason:'适合用线条表现梦境中的蝴蝶和庄周醒来时的神态。'}};
-  }else if(properties.candidates){
-   await app.services.database.prepare("UPDATE stories SET generation_control='paused' WHERE id=?").bind(id).run();
-   result={title:plan.title,candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']};
-  }
-  return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(result)}]}}]});
- };
- let app=createApplication(options);const id=crypto.randomUUID();
- await request(app,'/api/reader/sessions','POST',{requestId:id,selection:{bookId:'zhuangzi',storyTitle:'庄周梦蝶',source,theme:'放下执念',length:8,voice:false}});
- await app.services.database.prepare("UPDATE stories SET generation_mode='reader' WHERE id=?").bind(id).run();
- const first=request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0});
- while(!calls)await new Promise(resolve=>setImmediate(resolve));
- const duplicate=await request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0});assert.equal(duplicate.status,202);assert.equal(calls,1);
- release();assert.equal((await first).status,202);let ready;const deadline=Date.now()+10000;do{ready=await(await request(app,'/api/reader/sessions/'+id)).json();if(ready.story)break;assert.notEqual(ready.state,'failed',JSON.stringify(ready));assert.ok(Date.now()<deadline);await new Promise(resolve=>setImmediate(resolve));}while(!ready.story);assert.equal(calls,3);await app.close();app=createApplication(options);
- try{const row=await (await request(app,'/api/reader/sessions/'+id)).json();assert.equal(row.state,'idle');assert.ok(row.story.sourceText);assert.equal(row.generationProgress.phase,'review');assert.equal(calls,3);
- const finished=await(await request(app,`/api/reader/sessions/${id}/advance`,'POST',{throughPage:0})).json();assert.ok(finished.story.sourceText);assert.equal(finished.story.pages[0].image,'');assert.equal(calls,3);}
- finally{app.close();}
+test('real SQLite claims and DAG job identity prevent duplicate paid requests through concurrent REST advances and survive restart',async t=>{
+ // 旧版 /advance 只登记阅读需求：并发请求不会各自付费，已保存的结果重启后也不重复。
+ const f=await productionFixture(t);f.control.hold=false;
+ let release;const gate=new Promise(resolve=>release=resolve);
+ f.control.beforeText=async name=>{if(name==='brief')await gate;};
+ const id=await f.create(4);
+ const first=f.request(`sessions/${id}/advance`,'POST',{throughPage:0}),second=f.request(`sessions/${id}/advance`,'POST',{throughPage:0});
+ assert.ok([(await first).status,(await second).status].every(status=>status===200||status===202),'advance only registers demand');
+ f.app.services.production.wake();
+ await until(()=>f.control.dagCalls.includes('brief'));
+ for(let i=0;i<10;i++){f.app.services.production.wake();await new Promise(resolve=>setImmediate(resolve));}
+ assert.equal(f.control.dagCalls.filter(name=>name==='brief').length,1,'one paid call while the first is still running');
+ release();
+ await until(async()=>(await f.read(id)).state==='completed',20000);
+ const names=['brief','characters','outline','sceneBatch','visual'];
+ for(const name of names)assert.equal(f.control.dagCalls.filter(n=>n===name).length,1,name);
+ assert.equal(f.control.calls.length,4);
+ const paid=[f.control.dagCalls.length,f.control.calls.length];
+ await f.restart();
+ assert.equal((await f.request(`sessions/${id}/advance`,'POST',{throughPage:0})).status,200);
+ f.app.services.production.wake();await f.app.services.production.queue.settle();
+ const row=await f.read(id);assert.equal(row.state,'completed');assert.ok(row.story.sourceText);
+ assert.deepEqual([f.control.dagCalls.length,f.control.calls.length],paid,'a completed story pays nothing again after restart');
 });
 async function legacyFixture(t){
  const options=await fixture(t),source=path.join(options.root,'legacy'),v3=path.join(source,'v3');

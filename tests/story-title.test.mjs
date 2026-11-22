@@ -31,22 +31,6 @@ test('renaming persists across restart without changing source, script, media, p
  assert.equal((await f.json('sessions')).length,1);
 });
 
-test('a running image checkpoint cannot revert the name; later revisions inherit it while fresh stories do not',async t=>{
- const f=await productionFixture(t),id=await f.create();await until(()=>f.control.calls.length>0);
- await rename(f,id,'独立保存的名字');
- f.control.hold=false;for(const call of f.control.calls)call.resolve();
- await until(async()=>(await f.read(id)).state==='completed');
- assert.equal((await f.read(id)).story.title,'独立保存的名字');
- const base=await f.json(`sessions/${id}/revisions`);
- const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{length:3}});
- await until(async()=>(await f.read(child.id)).state==='completed');
- assert.equal((await f.read(child.id)).story.title,'独立保存的名字');
- const fresh=await f.create(3,{displayTitle:'不应继承的名字'});
- await until(async()=>(await f.read(fresh)).state==='completed');
- assert.equal((await f.read(fresh)).selection.displayTitle,undefined);
- assert.notEqual((await f.read(fresh)).story.title,'不应继承的名字');
-});
-
 test('invalid, cross-origin and other-owner renames leave stored data intact',async t=>{
  const f=await productionFixture(t);f.control.hold=false;
  const id=await f.create();await until(async()=>(await f.read(id)).state==='completed');

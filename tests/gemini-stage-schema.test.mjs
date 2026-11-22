@@ -5,27 +5,37 @@ import assert from 'node:assert/strict';
 
 import {createReaderProvider} from '../server/generation.ts';
 
+import {dagGenerator} from '../lib/production-dag/calls.ts';
 import {makePlan,selection as legacy} from './fixtures/production.mjs';
 
 const original={title:'原文',text:'甲赠物，乙未接，后来二人相知相爱。',url:'',kind:'passage',provider:'fixture',retrievedAt:'2026-11-05',localSource:{edition:'a'.repeat(64),sectionId:'s',firstUnit:'u',lastUnit:'u'}};
 
 const issue={page:2,category:'progression',problem:'回应缺失',instruction:'保留回应',requiresReplan:true};
-
 const local=(purpose,maxStories=32)=>({title:'聊斋志异',edition:'a'.repeat(64),text:'[u]甲赠物，乙未接，后来二人相知相爱。',purpose,scan:{maxStories,excludedSources:[],pendingEvents:[],contextText:''}});
+const source={original,book:'聊斋志异',chosenStory:'赠物',variationSeed:'story-1'},style={artStyle:'ink-pencil',artStylePrompt:null};
+const outline={title:'赠物',summary:'梗概',sourceReference:'聊斋志异',adaptationNote:'按原文',beats:['甲赠物','乙未接']};
+const people=[{id:'c1',name:'甲',aliases:[],text:'赠物者。'}],visualFrames=[{index:0,caption:'甲向乙赠物，乙未接。',candidates:people}];
+const frameIssue={...issue,requiresReplan:false};
 
+// 提供方的发现、画风、幅数建议与生图入口，以及制作 DAG 经 textCall 发出的各调用，逐一检查线上请求契约。
 function stages(provider,length='auto'){
- const selection={...legacy,length,acceptancePrompt:'保留原文结局。'},plan=makePlan(80),{pages,...metadata}=plan,gen=provider.generator();
+ const selection={...legacy,length,acceptancePrompt:'保留原文结局。'},plan=makePlan(3),gen=provider.generator(),dag=dagGenerator(gen.textCall);
+ const settings={narrativeDetail:'balanced',length:length==='auto'?'auto':80},captions=['甲向乙赠物，乙未接。','乙沉默，转身离开。'];
  return [
   ['suggest',()=>provider.suggestions(selection,[])],['local-choices',()=>provider.suggestions(selection,[],local())],
   ['catalog-1',()=>provider.suggestions(selection,[],local('catalog',1))],['catalog-32',()=>provider.suggestions(selection,[],local('catalog'))],['scan',()=>provider.suggestions(selection,[],local('scan'))],
   ['match',()=>provider.matchStories('爱情',[{id:'a'.repeat(64),title:'赠物',text:original.text}])],['art',()=>provider.recommendArt(selection,original)],
-  ['recommend',()=>gen.recommend(selection,'fixture',original,true)],['plan',()=>gen.plan(selection,'fixture',original)],['outline',()=>gen.outline(selection,'fixture',original)],
-  ['batch',()=>gen.planBatch(selection,'fixture',{outline:{...metadata,beats:pages.map(()=> '原文行动与回应。')},pages:[]},original)],
-  ['reflection',()=>gen.reflection(selection,plan,original)],['reflection-repair',()=>gen.reflection(selection,plan,original,{reflection:plan.reflection,issues:[]})],
-  ['reflection-candidates',()=>gen.reflectionCandidates(selection,plan,original)],
-  ...length==='auto'?[['frame-review',()=>gen.reviewFrameCount(selection,plan,original)],['restructure',()=>gen.restructure(selection,plan,original,[issue])]]:[],
-  ['review',()=>gen.review(selection,plan,original,undefined,['梦醒之后，仍可以记住梦中的自在。','自在或许只在梦中。','醒来时，庄周又成了庄周。'])],
-  ['repair',()=>gen.repair(selection,plan,original,[{...issue,requiresReplan:false}])],['image',()=>gen.image(plan,0,'fixture','')],
+  ['recommend',()=>gen.recommend(selection,'fixture',original,true)],
+  ['brief',()=>dag.prepareBrief({source})],['characters',()=>dag.characters({source,productionPrompt:''})],['outline',()=>dag.outline({source,productionPrompt:'',settings})],
+  ['scenes',()=>dag.sceneBatch({source,outline,productionPrompt:'',first:1,previous:[]})],['visual',()=>dag.visual({outline,productionPrompt:'',style,frames:visualFrames})],
+  ['restyle',()=>dag.restyle({outline,productionPrompt:'',style,previousStyle:style,frames:visualFrames.map(f=>({...f,previousPrompt:'旧画面描述，人物站在庭院中央。'}))})],
+  ['scene-repair',()=>dag.sceneRepair({source,outline,productionPrompt:'',frames:[{index:0,caption:captions[0],neighbors:{},issues:[frameIssue]}]})],
+  ['visual-repair',()=>dag.visualRepair({outline,productionPrompt:'',style,frames:visualFrames.map(f=>({...f,prompt:'旧画面描述，人物站在庭院中央。',drawn:people,issues:[frameIssue]}))})],
+  ['structure-repair',()=>dag.structureRepair({source,outline,productionPrompt:'',settings,captions,issues:[issue]})],
+  ['ending',()=>dag.ending({source,outline,captions})],['ending-repair',()=>dag.endingRepair({source,outline,captions,reflection:plan.reflection,issues:[]})],
+  ['frame-check',()=>dag.frameCheck({source,outline,productionPrompt:'',settings,captions})],['register',()=>dag.registerItems({items:[{id:'i1',text:'保留原文结局。'}]})],
+  ['review',()=>dag.review({source,brief:'梗概',outline,title:'赠物',productionPrompt:'',acceptancePrompt:'保留原文结局。',style,characters:people,frames:captions.map(caption=>({id:caption,caption,prompt:'画面描述，人物站在庭院中央。'})),chosenEnding:plan.reflection,allowed:{pages:[1],criteria:[1],narrative:true},itemIds:{1:'i1'}})],
+  ['image',()=>gen.image(plan,0,'fixture','')],
  ];
 }
 
@@ -51,7 +61,7 @@ for(const model of ['gemini-3.8-flash','gemini-4-argon'])for(const length of ['a
    assert.equal(config.responseFormat.text.schema.additionalProperties,false);
    assert.ok(config.responseFormat.text.schema.required.length>0);
    if(stage==='catalog-32')assert.match(config.responseFormat.text.schema.properties.stories.description,/At most 32 items/);
-   if(stage==='plan')assert.match(config.responseFormat.text.schema.properties.pages.description,/At most 80 items/);
+   if(stage==='outline'&&length===80)assert.match(config.responseFormat.text.schema.properties.beats.description,/At most 80 items/);
   }
   throw captured;
  });
@@ -82,23 +92,18 @@ for(const [message,code] of [
  }finally{console.error=save;}
 });
 
-test('relaxed wire counts never relax production counts, exact page sets or saved prompt records',async()=>{
+test('relaxed wire counts never relax production counts or saved prompt records',async()=>{
  let answer,sent;
  const provider=createReaderProvider({SHIQU_AI_PROVIDER:'gemini',GEMINI_API_KEY:'controlled'},{},async(_url,options)=>{
   sent=JSON.parse(options.body).generationConfig.responseFormat.text.schema;
   return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(answer)}]}}]});
  });
- const gen=provider.generator(),selection={...legacy,length:'auto'},plan=makePlan(3),{pages,...metadata}=plan;
+ const gen=provider.generator(),dag=dagGenerator(gen.textCall),selection={...legacy,length:'auto'},settings={narrativeDetail:'balanced',length:'auto'};
  for(const count of [0,81]){
-  answer=makePlan(count);await assert.rejects(gen.plan(selection,'fixture',original),error=>error.name==='ZodError');
-  answer={...metadata,beats:Array(count).fill('原文行动。')};await assert.rejects(gen.outline(selection,'fixture',original),error=>error.name==='ZodError');
+  answer={...outline,beats:Array(count).fill('原文行动。')};await assert.rejects(dag.outline({source,productionPrompt:'',settings}),error=>error.name==='ZodError');
   answer={count,reason:'根据原文估算。'};await assert.rejects(gen.recommend(selection,'fixture',original),error=>error.name==='ZodError');
  }
- answer=makePlan(3);await assert.rejects(gen.plan({...selection,length:4},'fixture',original),/INVALID_PLAN/);
- answer={pages:[pages[0]]};await assert.rejects(gen.planBatch(selection,'fixture',{outline:{...metadata,beats:['一','二','三']},pages:[]},original),error=>error.name==='ZodError');
- answer={pages:[{page:1,...pages[0]}]};await assert.rejects(gen.repair(selection,plan,original,[{...issue,requiresReplan:false}]),error=>error.name==='ZodError');
- answer={title:plan.title,candidates:['第一句','第二句']};await assert.rejects(gen.reflectionCandidates(selection,plan,original),error=>error.name==='ZodError');
  answer={count:3,reason:'根据原文估算。'};
  const recommendation=await gen.recommend(selection,'fixture',original);assert.deepEqual(recommendation.promptRecord.schema,sent);
- answer=makePlan(3);const result=await gen.plan(selection,'fixture',original);assert.deepEqual(result.promptRecord.schema,sent);
+ answer=outline;const result=await dag.outline({source,productionPrompt:'',settings});assert.deepEqual(result.promptRecord.schema,sent);
 });

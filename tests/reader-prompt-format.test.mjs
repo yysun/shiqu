@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import {formatSystemPrompt} from '../lib/reader-prompt-format.ts';
 import {archivePromptHistory,promptRecord,promptRecordText} from '../lib/reader-prompt-records.ts';
 import {promptSections} from '../lib/reader-prompts.ts';
-import {draftInstructions,suggestionSystemPrompt} from '../lib/reader-generation-contract.ts';
+// 先载入审片模块：生成契约与审片模块经 reader-model 循环引用，顺序反过来会在初始化时失败。
 import {reviewSystemPrompt,repairSystemPrompt} from '../lib/reader-review.ts';
+import {draftInstructions,suggestionSystemPrompt} from '../lib/reader-generation-contract.ts';
 import {outlineDirection,batchDirection} from '../lib/reader-storyboard.ts';
 import {frameRecommendationPrompt} from '../lib/reader-frame-recommendation.ts';
 import {selectedArtRecommendationPrompt} from '../lib/reader-art-recommendation.ts';

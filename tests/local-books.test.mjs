@@ -70,7 +70,7 @@ test('direct whole-book choices preserve labels and reject duplicate and invalid
  const batch=await provider.suggestions(selected,['先读一篇']);
  assert.equal(batch.stories.length,1);assert.match(batch.stories[0].sourceLabel,/庄子·齊物論/);assert.match(batch.note,/未能完整核对/);
 });
-test('both providers directly select from the full original and only verified passages reach planning',async()=>{
+test('both providers directly select from the full original and only verified passages reach production',async()=>{
  for(const name of ['gemini','codex']){
   const book=await library.book(selected),reference=ref(book),jobs=[],store=memory();
   const result=job=>{jobs.push(job);if(job.schema.properties.matches)return JSON.stringify({matches:JSON.parse(job.prompt).stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。'}))});return JSON.stringify(job.schema.properties.stories?{stories:JSON.parse(job.prompt).localBook.text.includes('['+reference.firstUnit+']')?[{title:'庄周梦蝶',description:'醒来后的疑问',summary:'原文中的人物经历变故并采取行动，事件得到明确结果。',source:{sectionId:reference.sectionId,firstUnit:reference.firstUnit,lastUnit:reference.lastUnit,continuations:[]}}]:[],note:'',scan:{blockComplete:true,pendingEvents:[],resolvedEventIds:[]}}:plan);};
@@ -78,10 +78,10 @@ test('both providers directly select from the full original and only verified pa
   const transport=async(url,init)=>{const request=JSON.parse(init.body);return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:result({prompt:request.contents[0].parts[0].text,schema:request.generationConfig.responseFormat.text.schema,instructions:request.systemInstruction.parts[0].text})}]}}]});};
   const provider=withLocalBooks(createReaderProvider({SHIQU_AI_PROVIDER:name,GEMINI_API_KEY:'mock-only'},store,transport,runner),library,store);
   const batch=await provider.suggestions(selected,[]),selection={...selected,source:batch.stories[0].source},generator=provider.generator();
-  const original=await generator.prepareOriginal(selection,'test');await generator.plan(selection,'test',original);
-  const readings=jobs.filter(job=>JSON.parse(job.prompt).localBook),planned=JSON.parse(jobs.at(-1).prompt);
+  const original=await generator.prepareOriginal(selection,'test');generator.verifyOriginal(selection,original);
+  const readings=jobs.filter(job=>JSON.parse(job.prompt).localBook);
   const blocks=hydrateReadingPlan(book,buildReadingPlan(book,name)),chosenBlock=blocks.findIndex(block=>block.visible.has(reference.firstUnit));assert.equal(readings.length,chosenBlock+1);for(const [index,reading] of readings.entries()){assert.equal(JSON.parse(reading.prompt).localBook.purpose,'catalog');assert.equal(JSON.parse(reading.prompt).localBook.scan.maxStories,1);assert.equal(JSON.parse(reading.prompt).localBook.text,blocks[index].text);}assert.ok(blocks[chosenBlock].visible.has(reference.firstUnit));
-  assert.equal(planned.verifiedOriginal.text,original.text);assert.equal(planned.localBook,undefined);assert.ok(store.values.has('reader/test/source.json'));
+  assert.ok(original.text.length>0);assert.ok(store.values.has('reader/test/source.json'));
  }
 });
 test('token-based chapter manifests cover all shipped units without splitting small chapters',books,async()=>{
@@ -99,43 +99,33 @@ test('cross-chapter references preserve both original ranges, reject tampering, 
  const jingshi=await library.book({...selected,bookId:'警世通言'}),chapter=jingshi.sections.find(s=>s.units.reduce((n,u)=>n+u.text.length,0)>12000);
  const full=library.resolve(jingshi,ref(jingshi,chapter,0,chapter.units.length-1));assert.ok(full.text.length>12000);
 });
-test('verified original reaches SQLite and media before a paid plan, and survives plan failure/retry',async t=>{
- const root=await directory(t),db=openDatabase(root,process.cwd());t.after(()=>db.close());const repo=new ReaderRepository(db.database),store=new FileMedia(path.join(root,'media')),book=await library.book(selected),selection={...selected,source:ref(book)};
- let calls=0;const base=fake();base.generator=()=>({...fake().generator(),async plan(s,id,original){calls++;const row=await repo.get(id,'test'),doc=JSON.parse(row.document);assert.equal(doc.original.text,original.text);assert.ok(await store.get(`reader/${id}/source.json`));if(calls===1)throw Error('mock plan failure');return {value:structuredClone(plan),model:'mock',requestId:'mock',usage:null};}});
+test('verified original reaches SQLite and media before paid recommendation, and survives failure/retry',async t=>{
+ const root=await directory(t),db=openDatabase(root,process.cwd());t.after(()=>db.close());const repo=new ReaderRepository(db.database),store=new FileMedia(path.join(root,'media')),book=await library.book(selected),selection={...selected,length:'auto',narrativeDetail:'balanced',source:ref(book)};
+ let calls=0;const base=fake();base.generator=()=>({...fake().generator(),async recommend(s,id,original){calls++;const row=await repo.get(id,'test'),doc=JSON.parse(row.document);assert.equal(doc.original.text,original.text);assert.ok(await store.get(`reader/${id}/source.json`));if(calls===1)throw Error('mock recommend failure');return {value:{count:8,reason:'按这篇寓言的因果与转折完整叙述。',storySummary:plan.summary,storyMatchReason:'按原典主线展开。'},model:'mock',requestId:'mock',usage:null};}});
  const generator=withLocalBooks(base,library,store).generator(),id=crypto.randomUUID();await repo.create(id,'test',selection);
  const failed=await advanceStory(repo,generator,'test',id,0);assert.equal(failed.state,'failed');assert.equal(failed.story,null);assert.ok(JSON.parse((await repo.get(id,'test')).document).original);
- const draft=await advanceStory(repo,generator,'test',id,0,true);assert.equal(draft.story,null);
- const retried=await advanceStory(repo,generator,'test',id,0);assert.equal(calls,2);assert.match(retried.story.sourceText,/莊周夢/);assert.match(retried.story.sourceReference,/庄子·齊物論/);assert.deepEqual(retried.story.original.localSource,selection.source);
+ await advanceStory(repo,generator,'test',id,0,true);
+ const retried=await advanceStory(repo,generator,'test',id,0);assert.equal(calls,2);assert.equal(retried.story,null);assert.equal(retried.awaitingFrameCount,false);
+ const saved=JSON.parse((await repo.get(id,'test')).document).original;assert.match(saved.text,/莊周夢/);assert.deepEqual(saved.localSource,selection.source);
 });
-test('storage failures or missing local receipts cannot issue paid storyboard requests',async t=>{
+test('storage failures or missing local receipts cannot issue paid recommendation requests',async t=>{
  for(const mode of ['storage','missing']){
   const root=await directory(t),db=openDatabase(root,process.cwd());t.after(()=>db.close());const repo=new ReaderRepository(db.database),book=await library.book(selected);let calls=0;
-  const base=fake();base.generator=()=>({...fake().generator(),plan:async()=>{calls++;throw Error('must not run');}});
-  const media=mode==='storage'?{put:async()=>{throw Error('disk full');}}:memory(),selection={...selected,...(mode==='storage'?{source:ref(book)}:{})};
+  const base=fake();base.generator=()=>({...fake().generator(),recommend:async()=>{calls++;throw Error('must not run');}});
+  const media=mode==='storage'?{put:async()=>{throw Error('disk full');}}:memory(),selection={...selected,length:'auto',narrativeDetail:'balanced',...(mode==='storage'?{source:ref(book)}:{})};
   const id=crypto.randomUUID();await repo.create(id,'test',selection);const row=await advanceStory(repo,withLocalBooks(base,library,media).generator(),'test',id,0);assert.equal(row.state,'failed');assert.equal(calls,0);assert.equal(row.story,null);
  }
 });
-test('storyboard directory and batch calls both verify local source receipts before inference',async()=>{
- const book=await library.book(selected),selection={...selected,length:45,source:ref(book)},media=memory();let outlines=0,batches=0;
- const base=fake();base.generator=()=>({...fake().generator(),async outline(){outlines++;return {value:{...plan,beats:Array(45).fill('梦醒之后，人物继续追问。')},model:'mock',requestId:null,usage:null};},async planBatch(){batches++;return {value:plan.pages,model:'mock',requestId:null,usage:null};}});
+test('DAG source verification and recommendation both verify local source receipts before inference',async()=>{
+ const book=await library.book(selected),selection={...selected,length:45,source:ref(book)},media=memory();let recommends=0;
+ const base=fake();base.generator=()=>({...fake().generator(),async recommend(){recommends++;return {value:{count:8,reason:'完整叙述。',storySummary:plan.summary,storyMatchReason:'按原典主线展开。'},model:'mock',requestId:null,usage:null};}});
  const g=withLocalBooks(base,library,media).generator(),original=await g.prepareOriginal(selection,'receipt-test');
- const result=await g.outline(selection,'receipt-test',original),draft={outline:result.value,pages:[]};assert.equal(result.value.sourceReference,original.chapterContext.title);
- await g.planBatch(selection,'receipt-test',draft,original);
+ g.verifyOriginal(selection,original);await g.recommend(selection,'receipt-test',original);
  for(const bad of [undefined,{...original,text:original.text+'□'},{...original,localSource:{...original.localSource,edition:'0'.repeat(64)}}]){
-  await assert.rejects(g.outline(selection,'receipt-test',bad),e=>e.status===400);
-  await assert.rejects(g.planBatch(selection,'receipt-test',draft,bad),e=>e.status===400);
+  assert.throws(()=>g.verifyOriginal(selection,bad),e=>e.status===400);
+  await assert.rejects(g.recommend(selection,'receipt-test',bad),e=>e.status===400);
  }
- assert.equal(outlines,1);assert.equal(batches,1);
-});
-test('ending, review, structural and local repair require the same verified local original as planning',async()=>{
- const book=await library.book(selected),selection={...selected,source:ref(book)};let calls=0;
- const base=fake();base.generator=()=>({...fake().generator(),async reflectionCandidates(){calls++;return {value:{title:plan.title,candidates:[plan.reflection,'醒来之后，梦中的自在仍值得回味。','梦与醒的分界，也未必是心境的分界。']},model:'mock',requestId:null,usage:null};},async reflection(){calls++;return {value:plan.reflection,model:'mock',requestId:null,usage:null};},async review(){calls++;return {value:{issues:[],titleReview:{title:plan.title,reason:'标题准确对应当前故事。'}},model:'mock',requestId:null,usage:null};},async repair(){calls++;return {value:[],model:'mock',requestId:null,usage:null};},async restructure(){calls++;return {value:{edits:[]},model:'mock',requestId:null,usage:null};}});
- const g=withLocalBooks(base,library,memory()).generator(),original=await g.prepareOriginal(selection,'review-receipt');
- await g.reflectionCandidates(selection,plan,original);await g.reflection(selection,plan,original);await g.review(selection,plan,original);await g.repair(selection,plan,original,[]);await g.restructure({...selection,length:'auto'},plan,original,[]);
- for(const bad of [undefined,{...original,text:original.text+'□'},{...original,localSource:{...original.localSource,edition:'0'.repeat(64)}}]){
-  await assert.rejects(g.reflectionCandidates(selection,plan,bad),e=>e.status===400);await assert.rejects(g.reflection(selection,plan,bad),e=>e.status===400);await assert.rejects(g.review(selection,plan,bad),e=>e.status===400);await assert.rejects(g.repair(selection,plan,bad,[]),e=>e.status===400);await assert.rejects(g.restructure({...selection,length:'auto'},plan,bad,[]),e=>e.status===400);
- }
- assert.equal(calls,5);
+ assert.equal(recommends,1);
 });
 test('explicit legacy backfill uses a local chapter and does not plan, draw, or fetch a public source',async t=>{
  const root=await directory(t),media=new FileMedia(path.join(root,'media')),provider=withLocalBooks(fake(),library,media),app=createApplication({root:process.cwd(),dataDirectory:root,generation:provider});t.after(()=>app.close());
