@@ -11,7 +11,7 @@ import {getArtDirection} from './reader-styles.ts';
 import {promptRecord} from './reader-prompt-records.ts';
 import type {StoryPromptHistory} from './reader-prompt-records.ts';
 import {storyRequirementsSchema} from './reader-requirements.ts';
-import {storyReviewHistory} from './reader-review-history.ts';
+import {storyReviewHistory,dagAcceptanceResults} from './reader-review-history.ts';
 import {loadPromptRecords,usageRecord} from './reader-prompt-store.ts';
 import {BookImageReferences,withBookReference} from '../server/book-image-reference.ts';
 import {events} from '../db/schema.ts';
@@ -264,7 +264,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
      missingRecords:(doc.usage||[]).flatMap((item,index)=>usageRecord(item,stored)?[]:[{step:item.step,model:item.model,originId:item.originId||id,index}]),
     };
     const suggestions=storyRequirementsSchema.safeParse(doc.setupRequirements?.suggestions);
-    return json({...history,...(suggestions.success?{suggestedRequirements:suggestions.data}:{}),criteria:acceptanceCriteria(selection.acceptancePrompt),results:doc.visualReview?.reports.at(-1)?.acceptanceResults||[],overridden:!!doc.visualReview?.overridden,previews:{production:promptRecord(draftInstructions(!!doc.original?.localSource)+'\n\n## 提纲阶段\n'+outlineDirection+'\n\n## 分批细化阶段\n'+batchDirection,preferences),acceptance:promptRecord(reviewSystemPrompt+'\n\n'+acceptanceDirection+'\n\n## 定向修订\n'+repairSystemPrompt,preferences)}});
+    return json({...history,...(suggestions.success?{suggestedRequirements:suggestions.data}:{}),criteria:acceptanceCriteria(selection.acceptancePrompt),results:doc.dag?dagAcceptanceResults(doc.dag):doc.visualReview?.reports.at(-1)?.acceptanceResults||[],overridden:!!doc.visualReview?.overridden,previews:{production:promptRecord(draftInstructions(!!doc.original?.localSource)+'\n\n## 提纲阶段\n'+outlineDirection+'\n\n## 分批细化阶段\n'+batchDirection,preferences),acceptance:promptRecord(reviewSystemPrompt+'\n\n'+acceptanceDirection+'\n\n## 定向修订\n'+repairSystemPrompt,preferences)}});
    }
    if(path[2]==='publication'&&path.length===3&&req.method==='POST'){
     const parsed=z.object({publication:publicationSchema,expected:publicationSchema.nullable()}).strict().safeParse(await body(req,32768));

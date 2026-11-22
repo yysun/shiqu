@@ -183,8 +183,18 @@ export class DagProduction{
  }
 
  /** 横图状态：由各画幅的横图、请求标记与失败说明得出；只对已完成的故事开放。 */
+ /** 已保存的横图文件现在读不出（丢失或损坏）的画幅身份；读取暂时失败时不判为丢失。 */
+ private async lostLandscapes(story:DagStory){
+  const lost=new Set<string>();
+  for(const id of story.dag.order){
+   const url=story.dag.frames[id]?.landscape,key=url?referenceImageKey(story.id,url):null;
+   if(url&&key&&await this.deps.fileLost(key,true).catch(()=>false))lost.add(id);
+  }
+  return lost;
+ }
+
  async landscapeStatus(row:SessionRow):Promise<LandscapeStatus>{
-  const story=(await this.story(row))!,frames=story.dag.order.map(id=>story.dag.frames[id]);
+  const story=(await this.story(row))!,lost=await this.lostLandscapes(story),frames=story.dag.order.map(id=>({...story.dag.frames[id],...(lost.has(id)?{landscape:'',landscapeError:'横图文件已丢失或损坏，请重试本幅。'}:{})}));
   const images=frames.map(f=>f.landscape||''),failed=frames.flatMap((f,i)=>f.landscapeError?[i+1]:[]);
   const pending=frames.some(f=>f.landscape===''&&!f.landscapeError),ready=images.filter(Boolean).length,available=row.state==='completed';
   const state=pending?'running':ready===frames.length&&frames.length?'completed':ready||failed.length?'partial':'idle';
@@ -201,8 +211,11 @@ export class DagProduction{
   const story=(await this.story(row))!,dag=structuredClone(story.dag);
   const start=!!status.startToken&&command.startToken===status.startToken,retry=!!status.retryToken&&command.retryToken===status.retryToken;
   if(!start&&!retry)return status;
+  const lost=retry?await this.lostLandscapes(story):new Set<string>();
   for(const id of dag.order){
    const frame=dag.frames[id];
+   // 文件已丢失的横图：清除记录与产物，重试时重新绘制。
+   if(lost.has(id)){delete dag.products[`landscape:${id}`];frame.landscape='';delete frame.landscapeError;continue;}
    if(start&&frame.landscape===undefined)frame.landscape='';
    if(retry&&frame.landscapeError){delete frame.landscapeError;frame.landscape='';}
   }

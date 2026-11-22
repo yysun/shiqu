@@ -138,6 +138,8 @@ function handEditLabel(id:string){const [node,key]=id.split(':');return `${({sce
  * 新修订重新开始自动修订额度，审片问题与建议不带入。不写入、不读媒体；保存另外复制图片与首幅原图后再 settle。
  */
 function deriveRevision(doc:Document,row:SessionRow,changes:RevisionChanges,childId:string,strict:boolean){
+ // 原文出处与改编说明是来源信息，不随分镜编辑改变（v0.14.0 同样拒绝）。
+ if(changes.plan&&doc.plan&&(['sourceReference','adaptationNote'] as const).some(key=>changes.plan![key]!==doc.plan![key]))throw new ReaderError(400,'本次仅修改分镜、人物与余味，原文出处和改编说明保持不变。');
  const selection=nextSelection(selectionSchema.parse(JSON.parse(row.selection)),changes);
  const reviewNotes=(changes.reviewNotes!==undefined?changes.reviewNotes:doc.reviewNotes)?.trim()||undefined;
  const parent:DagStory={id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag!,confirmed:true,faults:[]};
@@ -242,9 +244,9 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
  transaction.call(repo.db,db=>{
   const inserted=db.run(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,error,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
-  SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),'background',?,?,NULL,0,0,p.page,p.saved,p.last_read_at,?,? FROM stories p
+  SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),'background',?,?,NULL,0,0,MIN(p.page,?),p.saved,p.last_read_at,?,? FROM stories p
   WHERE p.id=? AND p.user_id=? AND p.document=? AND p.selection=? AND ${currentFamilyVersion('p')} AND (${familyEpoch.replace(' AS epoch','')})=?
-  ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused||pending?'paused':'active',completed?'completed':'idle',now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch);
+  ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused||pending?'paused':'active',completed?'completed':'idle',Math.max(0,dag.order.length-1),now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch);
   if(!inserted.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
   for(const fault of carried){
    if(lost.some(page=>fault.node==='frameImage'&&dag.order[page]===fault.node_key))continue;

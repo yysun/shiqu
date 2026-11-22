@@ -712,3 +712,52 @@ test('preview and save share one calculation: review notes count, hand edits are
  assert.deepEqual(style.conflicts,[]);
  assert.equal(text(),calls,'preview and a refused save started no model call');
 });
+
+// ——— 阶段 3：正确性缺口 ———
+
+test('ready does not count a lost image; the review history and acceptance results come from the engine',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ const {rm}=await import('node:fs/promises');const path=await import('node:path');
+ const before=await f.read(id);assert.equal(before.ready,6);
+ const image=before.story.pages[2].image;
+ await rm(path.join(f.dataDirectory,'media','reader',id,'2.png'));
+ await f.json(`sessions/${id}/image-health`,'POST',{page:2,image});
+ assert.equal((await f.read(id)).ready,5,'the lost image is not ready');
+ const history=await f.json(`sessions/${id}/review-history`);
+ assert.equal(history.status,'passed');
+ assert.ok(history.entries.some(e=>e.kind==='review'&&e.outcome==='passed'),'the current review verdicts are listed');
+ const prompts=await f.json(`sessions/${id}/prompts`);
+ assert.ok(Array.isArray(prompts.results));
+});
+
+test('a revision cannot change the source reference, and a shortened story keeps the reading position inside it',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ const snapshot=await f.json(`sessions/${id}/revisions`);
+ const invented=await f.request(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:snapshot.token,changes:{plan:{...snapshot.plan,sourceReference:'虚构的出处'}}});
+ assert.equal(invented.status,400);
+ await f.app.services.database.prepare('UPDATE stories SET page=5 WHERE id=?').bind(id).run();
+ const child=crypto.randomUUID();
+ await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{removedFrames:[5,6],plan:{...snapshot.plan,pages:snapshot.plan.pages.slice(0,4)}}});
+ assert.ok((await f.read(child)).page<=3,'the reading position stays inside the shortened story');
+});
+
+test('a landscape file that is no longer readable shows as failed and is redrawn on retry',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ let status=await f.json(`sessions/${id}/landscape`);
+ await f.json(`sessions/${id}/landscape`,'POST',{startToken:status.startToken});
+ await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
+ status=await f.json(`sessions/${id}/landscape`);
+ await f.media.put(referenceImageKey(id,status.images[2]),new TextEncoder().encode('not an image'),{contentType:'image/png'});
+ status=await f.json(`sessions/${id}/landscape`);
+ assert.deepEqual(status.failed,[3]);assert.equal(status.state,'partial');
+ const before=f.control.calls.filter(c=>c.landscape).length;
+ await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
+ await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
+ assert.equal(f.control.calls.filter(c=>c.landscape).length-before,1,'only the damaged landscape is redrawn');
+});

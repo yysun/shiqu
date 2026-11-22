@@ -7,6 +7,9 @@ import type {PromptRecord} from './reader-prompt-records.ts';
 import type {ReviewCheckpoint,ReviewIssue,ReviewRecordMeta,ReviewRepairRecord,FrameCountReview,FrameRequirement,RepairedPage} from './reader-review.ts';
 import type {AcceptanceResult} from './reader-acceptance.ts';
 import type {EditorialCoverage} from './reader-editorial.ts';
+import {dagProgress} from './production-dag/progress.ts';
+import {acceptanceCriteria} from './reader-acceptance.ts';
+import type {DagDocument} from './production-dag/document.ts';
 
 type Frame=Plan['pages'][number];
 export type ReviewPageChange={page:number;before:Frame|null;after:Frame};
@@ -37,8 +40,38 @@ function stepParts(step:string){
 }
 
 // 提示词全文由调用方按引用读取后传入；仍内嵌的记录直接使用。
+/** 制作 DAG 故事的验收结果：每个验收条目取当前的结论（通过 / 未通过 / 无法判断）及其说明。 */
+export function dagAcceptanceResults(dag:DagDocument):AcceptanceResult[]{
+ return dag.items.flatMap((item,index)=>{
+  const verdict=dag.verdicts?.[`itemVerdict:${item.id}`],product=dag.products[`itemVerdict:${item.id}`];
+  if(!product&&!verdict)return [];
+  const passed=verdict?verdict.outcome==='pass':product?.outcome!=='fail';
+  return [{criterion:index+1,status:passed?'passed' as const:verdict?.requirements?'unknown' as const:'failed' as const,pages:[],evidence:verdict?.detail??''}];
+ });
+}
+
+/**
+ * 制作 DAG 故事的审片记录：引擎只保存当前结论而不保存逐轮报告，因此这里给出**当前**的幅数核对与审片结论，
+ * 不重建历史轮次（历史轮次只存在于升级前的旧故事）。
+ */
+function dagReviewHistory(row:SessionRow,doc:Document,selection:ObjectValue):StoryReviewHistory{
+ const dag=doc.dag!,progress=dagProgress(doc,selection as never),review=progress?.review;
+ const entries:ReviewHistoryEntry[]=[];
+ const base={recordedAt:null,model:null,position:null};
+ if(dag.frameCheck)entries.push({...base,id:'count:current',kind:'count',title:'幅数与结构核对',outcome:dag.frameCheck.frameCountReview.decision==='keep'?'passed':'needs-change',issues:dag.frameCheck.issues,countReview:dag.frameCheck.frameCountReview,requirements:dag.frameCheck.requirements,coverage:dag.frameCheck.coverage});
+ const verdicts=Object.entries(dag.verdicts||{});
+ if(verdicts.length||dag.issues?.length){
+  const criteria=acceptanceCriteria(typeof selection.acceptancePrompt==='string'?selection.acceptancePrompt:'');
+  const acceptance=dagAcceptanceResults(dag).map(result=>({...result,text:criteria[result.criterion-1]??null}));
+  const failing=verdicts.some(([,v])=>v.outcome==='fail');
+  entries.push({...base,id:'review:current',kind:'review',title:'全篇审片（当前结论）',outcome:acceptance.some(a=>a.status==='unknown')?'unknown':failing?'needs-change':'passed',issues:dag.issues??[],...(acceptance.length?{acceptance}:{})});
+ }
+ return {id:row.id,title:typeof selection.displayTitle==='string'?selection.displayTitle:doc.plan?.title||'故事',revision:doc.revision?.number||1,parentId:doc.revision?.parentId||null,status:review?.reviewStatus??null,phase:review?.reviewPhase??null,stopReason:(review?.reviewStopReason as ReviewCheckpoint['stopReason'])??null,overridden:!!review?.reviewOverridden,error:row.error,entries};
+}
+
 export function storyReviewHistory(row:SessionRow,records:Map<string,PromptRecord>=new Map()):StoryReviewHistory{
  const doc=JSON.parse(row.document) as Document,selection=object(JSON.parse(row.selection))!,review=doc.visualReview;
+ if(doc.dag)return dagReviewHistory(row,doc,selection);
  const calls=(doc.usage||[]).flatMap((call,position)=>{
   const parts=stepParts(call.step);
   return parts?[{...call,position,input:input(usageRecord(call,records)?.input),parts}]:[];
