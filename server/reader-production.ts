@@ -331,7 +331,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const {doc,selection}=this.parsed(row)!;
   // 制作确认后（或没有准备流程的故事）进入制作 DAG：首次在这里建立 dag，旧版内容按转换规则采用。
   if(!doc.dag&&await this.dag.adopt(row))return;
-  if(doc.dag){await this.dag.schedule(row);return;}
+  if(doc.dag){
+   // 正在阅读这篇故事的读者（不含后台与旧入口的推进请求）决定绘图的阅读优先。
+   const viewers=(await this.demands(row.id)).filter(d=>d.viewer_id!=='background'&&d.viewer_id!=='legacy-advance').map(d=>({page:d.page,through:d.through_page}));
+   await this.dag.schedule(row,viewers);return;
+  }
   if(!doc.intake)return;
   const search=intakeSearch(doc.intake),searching=search.state==='searching'&&!doc.plan&&doc.intake.phase!=='confirmed';
   // A record written by an older release has no stored search to fence its result against.
@@ -488,10 +492,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const provider=this.jobProvider(job);
   let row=await this.raw(job.session_id,job.owner_id),doc=JSON.parse(row.document) as Document;
   if(!this.generationCurrent(row,job))return {obsolete:true};
-  if(doc.plan&&doc.original&&reviewPassed(doc)&&!doc.revision?.restyle)return {pages:doc.plan.pages.length};
+  // 已有 dag 或旧版内容的故事不再经准备任务：由 DAG 路径接管。
+  if(doc.dag||doc.plan||doc.storyboard||doc.draft)return {adopted:true};
   const selection=selectionSchema.parse(JSON.parse(row.selection)),stepKey=(JSON.parse(job.payload) as {stepKey?:string}).stepKey;
-  // A crash can save a batch before settling its queue receipt. Never replay that paid call.
-  if(stepKey&&stepKey!==nextStep(doc,selection,0)?.key)return {storyboardFrames:doc.storyboard?.pages.length||0};
+  // 准备调用的结果可能已保存而回执尚未写入：不重复付费。
+  if(stepKey&&stepKey!==nextStep(doc,selection)?.key)return {prepared:true};
   let failure:unknown,acquired:string|undefined,result:SessionView;
   try{
    result=await advanceStory(this.repository,provider.generator(),row.user_id,row.id,0,true,token=>{acquired=token;this.leases.set(row.id,{ownerId:row.user_id,token});},error=>{failure=error;});
@@ -518,14 +523,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(result.awaitingFrameCount)return {awaitingFrameCount:true};
   if(result.intake?.phase==='confirming')return {awaitingProductionConfirmation:true};
   row=await this.raw(row.id,row.user_id);doc=JSON.parse(row.document) as Document;
-  if(doc.visualReview&&!reviewPassed(doc))return {review:doc.visualReview.status};
-  if(doc.draft)return {storyboardFrames:doc.draft.pages.length,reflectionPending:true};
-  if(doc.storyboard&&!doc.plan)return {storyboardFrames:doc.storyboard.pages.length};
-  if((job.kind==='prepare'||stepKey==='recommend')&&doc.frameRecommendation&&!doc.plan)return {prepared:true};
-  // A retried legacy script may finish its saved summary before it can plan; keep the same grant.
-  if(job.kind==='script'&&!doc.plan&&doc.original?.storyBrief?.verified&&doc.frameRecommendation)throw new JobYield();
-  if(!doc.plan||!doc.original)throw new ReaderError(503,'故事仍在更新，请重试继续。');
-  return {pages:doc.plan.pages.length};
+  if(doc.frameRecommendation)return {prepared:true};
+  throw new ReaderError(503,'故事仍在更新，请重试继续。');
  }
  wake(){
   if(!this.enabled||this.closed||this.scheduled)return;

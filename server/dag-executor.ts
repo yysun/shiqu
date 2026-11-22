@@ -22,6 +22,8 @@ export async function executeWork(generator:StoryGenerator,story:DagStory,item:W
   return generator.image(drawingPlan(story),input.index,story.id,input.reference,input.style.artStyle,'',artifactId,input.layout,input.style.artStylePrompt,input.prompt);
  }
  if(!generator.textCall)throw Error('DAG_TEXT_CALL_UNAVAILABLE');
+ // 原文核对之后的文字调用都读取保存的原文：本地出处不符时在付费前停止。
+ if(item.call!=='verifySource'&&story.doc.original)generator.verifyOriginal?.(story.selection,story.doc.original);
  const {method,args}=requestFor(story,item);
  const calls=dagGenerator(generator.textCall) as unknown as Record<string,(args:unknown)=>Promise<Generated<unknown>>>;
  const run=calls[method];

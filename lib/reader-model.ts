@@ -19,6 +19,7 @@ import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import type {ReviewCheckpoint,ReviewIssue} from './reader-review.ts';
 import type {FaultView,RecoveryReceiptView} from './reader-recovery.ts';
 import type {DagDocument} from './production-dag/document.ts';
+import {dagProgress} from './production-dag/progress.ts';
 export {readerBooks} from './reader-books.ts';
 // A reader's display name stays separate from the selected source and AI-authored script.
 export const displayTitleSchema=z.string().trim().min(1,'请输入故事名。').max(40,'故事名最多 40 字。').regex(/^[^\r\n]+$/,'故事名请写在一行内。');
@@ -55,44 +56,24 @@ export function reviewPhase(review:ReviewCheckpoint,selection:Selection):'frames
 // An unchanged repair resolved the pages it did change; only the rest still need the reader.
 export function blockedIssues(review:ReviewCheckpoint){return review.stopReason==='unchanged'?review.issues.filter(issue=>!review.repaired.includes(issue.page)):review.issues;}
 export function emptyDocument():Document{return {plan:null,images:[],audio:[],usage:[]};}
-export function nextStep(doc:Document,selection:Selection,through:number):Step|null{
+/**
+ * 准备阶段的下一步：候选查找与「准备故事」（原文、梗概、制作建议）。进入制作 DAG 之后的全部工作由引擎调度，这里不再给出步骤。
+ * 尚无 dag 且已有旧版内容的故事由 DagProduction.adopt() 转换，也不在此推进。
+ */
+export function nextStep(doc:Document,selection:Selection,_through?:number):Step|null{
  if(doc.reselection&&doc.intake?.phase!=='discovering')return null;
  if(doc.intake?.phase==='discovering')return {kind:'discover',page:0,key:'discover:'+doc.intake.generation};
+ if(doc.dag||doc.plan||doc.storyboard||doc.draft)return null;
  if(doc.intake&&['choosing','confirming'].includes(doc.intake.phase))return null;
- if(doc.storyboard&&!doc.original)return {kind:'source',page:0,key:'source'};
- if(!doc.plan&&doc.draft)return {kind:doc.original?'reflection':'source',page:0,key:doc.original?'reflection':'source'};
- if(!doc.plan){
-  if((doc.original?.storyBrief||doc.intake?.briefRequired&&doc.intake.selected)&&!storyBriefVerified(doc.original))return {kind:'recommend',page:0,key:'recommend'};
-  if(selection.narrativeDetail){
-   if(!doc.frameRecommendation)return {kind:'recommend',page:0,key:'recommend'};
-   if(!doc.frameCountConfirmed&&selection.length!=='auto')return null;
-  }
-  return {kind:'plan',page:doc.storyboard?.pages.length||0,key:doc.storyboard?'plan:'+doc.storyboard.pages.length:'plan'};
- }
- if(!doc.original)return {kind:'source',page:0,key:'source'};
- if(doc.visualReview&&!reviewPassed(doc)){
-  const review=doc.visualReview;
-  const key=selection.length==='auto'?`${reviewPhase(review,selection)}:${review.round}:${review.frameCountReports?.length||0}`:String(review.round);
-  if(review.status==='repair'){
-   const pages=review.issues.map(issue=>issue.page).filter(page=>!review.repaired.includes(page));
-   const page=pages.filter(page=>page>0).sort((a,b)=>a-b)[0]??0;
-   return {kind:'repair',page:Math.max(0,page-1),key:review.issues.some(issue=>issue.requiresReplan)?`repair:${key}:structure`:`repair:${key}:${page}`};
-  }
-  return {kind:'review',page:0,key:'review:'+key};
- }
- if(doc.revision?.restyle){
-  const page=doc.revision.restyle.next;
-  return {kind:'restyle',page,key:'restyle:'+page};
- }
- const end=Math.min(doc.plan.pages.length-1,Math.max(0,through));
- for(let page=0;page<=end;page++){if(!doc.images[page])return {kind:'image',page,key:'image:'+page};}
+ if((doc.original?.storyBrief||doc.intake?.briefRequired&&doc.intake.selected)&&!storyBriefVerified(doc.original))return {kind:'recommend',page:0,key:'recommend'};
+ if(selection.narrativeDetail&&!doc.frameRecommendation)return {kind:'recommend',page:0,key:'recommend'};
  return null;
 }
 export function productionComplete(doc:Document,selection:Selection){return (!doc.intake||doc.intake.phase==='confirmed')&&!awaitingFrameCount(doc,selection)&&!nextStep(doc,selection,readerMaxFrames-1);}
 export function awaitingFrameCount(doc:Document,selection:Selection){return !doc.intake&&selection.length!=='auto'&&!!selection.narrativeDetail&&!doc.plan&&!!doc.frameRecommendation&&!doc.frameCountConfirmed;}
 export function view(row:SessionRow):SessionView{
  const selection=selectionSchema.parse(JSON.parse(row.selection)),doc=JSON.parse(row.document) as Document,p=doc.plan;
- const step=nextStep(doc,selection,readerMaxFrames-1),intakePhase=effectiveIntakePhase(doc,selection);
+ const progress=dagProgress(doc,selection),step=progress?progress.step:nextStep(doc,selection),intakePhase=effectiveIntakePhase(doc,selection);
  const retryAt=null;
  const waiting=awaitingFrameCount(doc,selection);
  const storyboardBatch=doc.storyboard&&!p&&!doc.draft?{first:doc.storyboard.pages.length+1,last:Math.min(doc.storyboard.pages.length+readerStoryboardBatchSize,doc.storyboard.outline.beats.length)}:undefined;
@@ -103,7 +84,7 @@ export function view(row:SessionRow):SessionView{
  if(story&&doc.publication)story.publication=doc.publication;
  if(story)story.generationModels=(doc.usage||[]).map(({step,model})=>({step,model}));
  const frameCountConfirmed=!!p||!!doc.draft||!!doc.storyboard||!!doc.frameCountConfirmed||!selection.narrativeDetail&&typeof selection.length==='number';
- const generationProgress:GenerationProgress={sourceReady:!!doc.original,frameCountConfirmed,frameCount:p?.pages.length??doc.draft?.pages.length??doc.storyboard?.outline.beats.length??(frameCountConfirmed&&typeof selection.length==='number'?selection.length:null),...(doc.storyboard||doc.draft?{storyboardFrames:doc.draft?.pages.length??doc.storyboard!.pages.length,storyboardBatch}:{}),...(doc.visualReview?{reviewStatus:doc.visualReview.status,reviewPhase:reviewPhase(doc.visualReview,selection),reviewRound:doc.visualReview.round,repairCompleted:doc.visualReview.repaired.length,repairTotal:doc.visualReview.issues.length,reviewAudits:doc.visualReview.reports.length,repairBatches:doc.visualReview.history?.length,repairPasses:doc.visualReview.repairs,reviewStopReason:doc.visualReview.stopReason,reviewOverridden:!!doc.visualReview.overridden}:{}),phase:intakePhase==='choosing'?'story-choice':intakePhase==='confirming'?'production-confirmation':waiting?'frame-count':step?.kind||'completed',startedAt:null,attempt:row.step_attempts||0};
+ const generationProgress:GenerationProgress={sourceReady:!!doc.original,frameCountConfirmed,frameCount:p?.pages.length??doc.draft?.pages.length??doc.storyboard?.outline.beats.length??(frameCountConfirmed&&typeof selection.length==='number'?selection.length:null),...(doc.storyboard||doc.draft?{storyboardFrames:doc.draft?.pages.length??doc.storyboard!.pages.length,storyboardBatch}:{}),...(progress?progress.review:doc.visualReview?{reviewStatus:doc.visualReview.status,reviewPhase:reviewPhase(doc.visualReview,selection),reviewRound:doc.visualReview.round,repairCompleted:doc.visualReview.repaired.length,repairTotal:doc.visualReview.issues.length,reviewAudits:doc.visualReview.reports.length,repairBatches:doc.visualReview.history?.length,repairPasses:doc.visualReview.repairs,reviewStopReason:doc.visualReview.stopReason,reviewOverridden:!!doc.visualReview.overridden}:{}),phase:intakePhase==='choosing'?'story-choice':intakePhase==='confirming'?'production-confirmation':waiting?'frame-count':step?.kind||'completed',startedAt:null,attempt:row.step_attempts||0};
  const search=doc.intake?intakeSearch(doc.intake):undefined;
  const intake=doc.intake?{phase:intakePhase!,generation:doc.intake.generation,batches:doc.intake.batches,selected:doc.intake.selected,manualArt:doc.intake.manualArt,draft:doc.intake.draft,...(['preparing','confirming'].includes(intakePhase!)?{draftToken:intakeDraftToken(doc.intake.draft)}:{}),search:{state:search!.state,error:search!.error}}:undefined;
  const redraw=doc.revision&&p&&reviewPassed(doc)?revisionRedraw(doc.revision,selection,p,doc.images):undefined;

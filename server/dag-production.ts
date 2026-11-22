@@ -30,6 +30,13 @@ import {transact,deleteJobs} from './production-records.ts';
 
 export const dagTextKind='dag',dagDrawKind='dag-draw';
 type Deps={database:Database;media:MediaStore;queue:ProductionQueue;clock:()=>number;wake:()=>void;snapshot?:()=>ModelSnapshot|undefined;fileLost:(key:string,strict?:boolean)=>Promise<boolean>};
+/** 正在阅读的读者：当前页到预读范围内的画幅优先于其他故事的绘图（决策：恢复旧版的阅读优先）。 */
+export type Viewing={page:number;through:number};
+const viewedPriority=(page:number,viewers:Viewing[])=>{
+ // 首幅是其余各幅的参考，只要有人在读这篇故事就一并提前；范围内的画幅按页序先于所有未被阅读的绘图。
+ const viewed=viewers.some(v=>page>=v.page&&page<=v.through)||page===0&&viewers.length>0;
+ return viewed?page-100:page;
+};
 const drawing=(call:string)=>call==='draw'||call==='drawLandscape';
 const visible="NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)";
 
@@ -74,7 +81,7 @@ export class DagProduction{
   return saved.meta.changes>0;
  }
 
- private spec(row:SessionRow,story:DagStory,item:Work,priority:number):JobSpec{
+ private spec(row:SessionRow,story:DagStory,item:Work,priority:number,viewers:Viewing[]=[]):JobSpec{
   // 任务身份覆盖本次请求实际读取的全部输入（含来源与核对输入，如修订读取的当前配文与问题），
   // 因此同一产物在来源变化后再次修订会得到新任务；产物有效性仍只按硬输入判断。
   const request=drawing(item.call)?drawInput(story,item):item.call==='verifySource'?{selection:story.selection}:requestFor(story,item);
@@ -82,11 +89,11 @@ export class DagProduction{
   const page=drawing(item.call)?story.dag.order.indexOf(item.instances[0].key):undefined;
   return {id,sessionId:row.id,ownerId:row.user_id,kind:drawing(item.call)?dagDrawKind:dagTextKind,pool:drawing(item.call)?'image':'text',version:'dag',dependencies:[],
    // 准备流程的世代与旧任务相同：选题或确认改变世代后，上一世代的任务不再算作当前任务。
-   payload:{work:item,...(page!==undefined?{page}:{}),...(story.doc.intake?{setupGeneration:story.doc.intake.generation}:{}),timingStage:drawing(item.call)?'image':item.call},priority:page??priority};
+   payload:{work:item,...(page!==undefined?{page}:{}),...(story.doc.intake?{setupGeneration:story.doc.intake.generation}:{}),timingStage:drawing(item.call)?'image':item.call},priority:page===undefined?priority:viewedPriority(page,viewers)};
  }
 
  /** 为一篇故事安排工作；返回 true 表示已由 DAG 路径处理。 */
- async schedule(row:SessionRow):Promise<boolean>{
+ async schedule(row:SessionRow,viewers:Viewing[]=[]):Promise<boolean>{
   const story=await this.story(row);if(!story)return false;
   const queued=(await this.deps.database.prepare(`SELECT id FROM production_jobs WHERE session_id=? AND owner_id=? AND kind IN ('${dagTextKind}','${dagDrawKind}') AND state='queued'`).bind(row.id,row.user_id).all<{id:string}>()).results;
   if(story.dag.continuation){await this.drop(queued.map(j=>j.id));return true;}
@@ -99,7 +106,7 @@ export class DagProduction{
   // 正在执行的任务覆盖的实例不再派发新任务：其结果保存后若仍需重做，下一轮再安排。
   const running=new Set((await this.deps.database.prepare(`SELECT payload FROM production_jobs WHERE session_id=? AND owner_id=? AND kind IN ('${dagTextKind}','${dagDrawKind}') AND state='running'`).bind(row.id,row.user_id).all<{payload:string}>()).results
    .flatMap(j=>(JSON.parse(j.payload) as {work:Work}).work.instances.map(i=>i.id)));
-  const specs=this.specs(row,story,items.filter(item=>!item.instances.some(i=>running.has(i.id))));
+  const specs=this.specs(row,story,items.filter(item=>!item.instances.some(i=>running.has(i.id))),viewers);
   for(const spec of specs)await this.deps.queue.enqueue(spec);
   // 当前需要的工作与已完成的任务同身份（例如内容改回之前的输入）：重新排队；执行前的当前性核对避免重复付费。
   for(const spec of specs){
@@ -109,7 +116,7 @@ export class DagProduction{
   await this.drop(queued.map(j=>j.id).filter(id=>!specs.some(s=>s.id===id)));
   return true;
  }
- private specs(row:SessionRow,story:DagStory,items=work(story)){return items.map((item,i)=>this.spec(row,story,item,-10+i));}
+ private specs(row:SessionRow,story:DagStory,items=work(story),viewers:Viewing[]=[]){return items.map((item,i)=>this.spec(row,story,item,-10+i,viewers));}
  private async drop(ids:string[]){const now=this.deps.clock();transact(this.deps.database,db=>{for(const id of ids)deleteJobs(db,"id=? AND state='queued'",[id],now);});}
 
  async run(job:ProductionJob,provider:ReaderProvider){

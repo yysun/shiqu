@@ -2,18 +2,14 @@
 import {formatSystemPrompt} from '../lib/reader-prompt-format.ts';
 import {promptRecord} from '../lib/reader-prompt-records.ts';
 import {discoveryCall} from '../lib/reader-discovery-call.ts';
-import {normalizeProductionPrompt,storyEditorialContext} from '../lib/reader-prompts.ts';
-import {verifiedOriginalPayload} from '../lib/reader-source-types.ts';
-import {assertStoryBriefReady} from '../lib/reader-story-brief.ts';
 import {createOpenAIProvider,createDeepSeekProvider} from './openai-provider.ts';
 import {preparesSelectedStory,frameRecommendationOutputSchema,frameRecommendationOutputJson,frameRecommendationPrompt,frameRecommendationPayload} from '../lib/reader-frame-recommendation.ts';
 import {configuredModels,makeGenerator,suggestStories,safeGeminiError,recommendStoryArt,matchStoryThemes,verifyStoryThemes} from '../lib/reader-gemini.ts';
-import {storyDraftSchema,ReaderError} from '../lib/reader-model.ts';
+import {ReaderError} from '../lib/reader-model.ts';
 import {geminiGenerationTimeoutMs} from '../lib/reader-limits.ts';
 import {codexGenerationTimeoutMs} from '../lib/codex-settings.ts';
-import {choicesJson,storyDraftJson,suggestionSystemPrompt,draftInstructions,imagePrompt,nativeImageInstructions,imageTypes,mediaType,storySource} from '../lib/reader-generation-contract.ts';
+import {choicesJson,suggestionSystemPrompt,imagePrompt,nativeImageInstructions,imageTypes,mediaType,storySource} from '../lib/reader-generation-contract.ts';
 import {freshSuggestions,suggestionBatchSchema} from '../lib/reader-suggestions.ts';
-import {getArtDirection} from '../lib/reader-styles.ts';
 import {saveStoryOriginal} from '../lib/reader-source-storage.ts';
 import type {MediaStore} from '../lib/services.ts';
 import type {ReaderProvider,ProviderStatus} from '../lib/reader-provider.ts';
@@ -149,12 +145,6 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
    async recommend(selection,id,original,prepareRequirements=false){
     const result=await run({instructions:frameRecommendationPrompt,prompt:JSON.stringify(frameRecommendationPayload(selection,original,prepareRequirements)),schema:frameRecommendationOutputJson(original,prepareRequirements,preparesSelectedStory(selection,original)),reasoningEffort:taskReasoningEfforts.frames});
     return {value:frameRecommendationOutputSchema(original,prepareRequirements,preparesSelectedStory(selection,original)).parse(JSON.parse(result.text)),model:result.model,requestId:result.requestId,usage:result.usage,promptRecord:result.promptRecord,reasoningEffort:result.reasoningEffort};
-   },
-   async plan(selection,id,original){
-    assertStoryBriefReady(original);
-    const result=await run({instructions:draftInstructions(!!original?.localSource),prompt:JSON.stringify({book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtDirection(selection),variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})}),schema:storyDraftJson(selection.length),timeoutMs:codexGenerationTimeoutMs,reasoningEffort:taskReasoningEfforts.plan});
-    const value=storyDraftSchema.parse(JSON.parse(result.text));if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new CodexError('INVALID_PLAN');
-    return {value,model:result.model,requestId:result.requestId,usage:result.usage,promptRecord:result.promptRecord,reasoningEffort:result.reasoningEffort};
    },
    async image(plan,page,id,reference,style='ink-pencil',productionPrompt='',artifactId,layout='portrait',artStylePrompt,promptOverride){
     if(claude)throw new ClaudeError('TEXT_ONLY');

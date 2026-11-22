@@ -4,7 +4,7 @@
 import {z} from 'zod';
 import {acceptancePromptSchema} from './reader-acceptance.ts';
 import {planSchema,ReaderError} from './reader-model.ts';
-import type {Document,Plan,Selection} from './reader-model.ts';
+import type {Selection} from './reader-model.ts';
 import type {ReviewCheckpoint,ReviewIssue} from './reader-review.ts';
 import {artStylePromptSchema,artStyleIds,artStyleSettings,sameArtDirection} from './reader-styles.ts';
 import {readerMinFrames,readerMaxFrames} from './reader-limits.ts';
@@ -91,9 +91,6 @@ export function checkedRevision(base:RevisionContent,input:RevisionChanges){
  if(plan&&changes.storySummary!==undefined)plan.summary=changes.storySummary;
  return {impact,selection,plan,sourcePages};
 }
-export function syncRevisionImages(doc:Document,selection:Selection,sourcePages?:number[]){
- if(doc.revision&&doc.plan)doc.images=reusableRevisionImages(doc.revision.base,selection,doc.plan,sourcePages).map((image,index)=>doc.revision!.redrawPages?.includes(index+1)?'':image);
-}
 
 // 换画风后，本篇后续版本也用自己的首幅作参考。旧版换画风记录可从修订基准识别。
 export function usesStoryImageReference(revision:RevisionRecord|undefined,style:Selection['artStyle']){
@@ -103,10 +100,3 @@ export function usesStoryImageReference(revision:RevisionRecord|undefined,style:
 }
 
 // 只在绘图请求中应用说明，保留审核过的分镜与后续编辑的基准。
-export function redrawImagePlan(plan:Plan,revision:RevisionRecord|undefined,page:number):Plan{
- const note=revision?.redrawNotes?.[page+1];
- if(!note)return plan;
- const pages=[...plan.pages],scene=pages[page];
- pages[page]={...scene,prompt:scene.prompt+'\n本幅重绘说明（限于画面细节，沿用场景、人物和画风）：'+note};
- return {...plan,pages};
-}

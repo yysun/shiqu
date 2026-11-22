@@ -69,39 +69,8 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
    }
    return {...generator,
     ...(provider.recommendArt?{recommendArt}:{}),
-    async reflection(selection,draft,original,revision){
-     if(localBookId(selection))verifyOriginal(selection,original);
-     return generator.reflection(selection,draft,original,revision);
-    },
-    async reflectionCandidates(selection,draft,original){
-     if(localBookId(selection))verifyOriginal(selection,original);
-     return generator.reflectionCandidates(selection,draft,original);
-    },
-    ...(generator.reviewFrameCount?{async reviewFrameCount(selection,plan,original,reviewNotes){
-     if(localBookId(selection))verifyOriginal(selection,original);
-     return generator.reviewFrameCount!(selection,plan,original,reviewNotes);
-    }} satisfies Pick<typeof generator,'reviewFrameCount'>:{}),
-    ...(generator.review?{async review(selection,plan,original,outline,candidates,reviewNotes){
-     if(localBookId(selection))verifyOriginal(selection,original);
-     return generator.review!(selection,plan,original,outline,candidates,reviewNotes);
-    }} satisfies Pick<typeof generator,'review'>:{}),
-    ...(generator.restructure?{async restructure(selection,plan,original,issues,coverage,frameCountContext){
-     if(localBookId(selection))verifyOriginal(selection,original);
-     return generator.restructure!(selection,plan,original,issues,coverage,frameCountContext);
-    }} satisfies Pick<typeof generator,'restructure'>:{}),
-    ...(generator.repair?{async repair(selection,plan,original,issues,outline){
-     if(localBookId(selection))verifyOriginal(selection,original);
-     return generator.repair!(selection,plan,original,issues,outline);
-    }} satisfies Pick<typeof generator,'repair'>:{}),
-    ...(generator.outline?{async outline(selection,id,original){
-     if(localBookId(selection))verifyOriginal(selection,original);
-     const result=await generator.outline!(selection,id,original);
-     return original?{...result,value:{...result.value,sourceReference:original.chapterContext?.title||original.title}}:result;
-    }} satisfies Pick<typeof generator,'outline'>:{}),
-    ...(generator.planBatch?{async planBatch(selection,id,draft,original){
-     if(localBookId(selection))verifyOriginal(selection,original);
-     return generator.planBatch!(selection,id,draft,original);
-    }} satisfies Pick<typeof generator,'planBatch'>:{}),
+    /** 制作 DAG 的文字调用前核对保存的原文仍属于所选本地出处。 */
+    verifyOriginal(selection,original){if(localBookId(selection))verifyOriginal(selection,original);},
     async prepareOriginal(selection,id){
      if(!localBookId(selection)){
       if(selection.source)throw new ReaderError(400,'出处与所选书籍不一致，请重新选择故事。');
@@ -119,13 +88,6 @@ export function withLocalBooks(provider:ReaderProvider,books:LocalBooks,media:Me
      if(localBookId(selection))verifyOriginal(selection,original);
      if(!generator.recommend)throw new ReaderError(503,'生成服务暂不支持画幅建议，请更新服务后重试。');
      return generator.recommend(selection,id,original,prepareRequirements);
-    },
-    async plan(selection,id,original){
-     if(!localBookId(selection))return generator.plan(selection,id,original);
-     verifyOriginal(selection,original);
-     // The checkpoint owns the exact verified version; readable retries keep that saved original.
-     const result=await generator.plan(selection,id,original);
-     return {...result,value:{...result.value,sourceReference:original!.chapterContext?.title||original!.title}};
     },
     async original(selection,plan,id){
      if(!localBookId(selection))return generator.original(selection,plan,id);
