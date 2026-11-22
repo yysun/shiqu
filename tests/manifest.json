@@ -4553,6 +4553,53 @@
         "lib/production-dag/convert.ts",
         "tests/fixtures/production-dag.mjs"
       ]
+    },
+    {
+      "file": "tests/production-dag-call-contract.test.mjs",
+      "groups": [
+        "production",
+        "review",
+        "providers"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "lib/production-dag/calls.ts",
+        "lib/production-dag/errors.ts",
+        "lib/production-dag/frames.ts",
+        "lib/reader-generation-contract.ts",
+        "lib/reader-review.ts",
+        "lib/reader-storyboard.ts"
+      ]
+    },
+    {
+      "file": "tests/production-dag-provider-snapshot.test.mjs",
+      "groups": [
+        "providers",
+        "production"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/provider-snapshot.ts",
+        "server/provider-runtime.ts"
+      ]
     }
   ]
 }

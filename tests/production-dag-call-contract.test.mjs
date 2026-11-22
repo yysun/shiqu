@@ -1,0 +1,98 @@
+// 调用契约：用哨兵值证明每个调用的指令与载荷不含契约外的输入；场景 41、52、56、57。
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {dagGenerator,framePrompt,acceptanceItems} from '../lib/production-dag/calls.ts';
+
+const STYLE='哨兵画风请勿出现',REQ='哨兵制作要求请勿出现',CAPTION='哨兵配文请勿出现于图',VISUAL='哨兵画面描述请勿出现',NOTES='哨兵审核意见请勿出现';
+const original={title:'管晏列传',text:'管仲夷吾者，颍上人也。少时常与鲍叔牙游，鲍叔知其贤。',url:'https://example.test/guanyan',kind:'passage',provider:'local',retrievedAt:'2026-01-01'};
+const source={original,book:'史记',chosenStory:'管鲍之交',variationSeed:'story-1'};
+const style={artStyle:'ink-pencil',artStylePrompt:STYLE};
+const outline={title:'管鲍之交',summary:'梗概',sourceReference:'史记',adaptationNote:'按原文',beats:['少时同游','鲍叔知贤']};
+const people=[{id:'c1',name:'管仲',aliases:['夷吾'],text:'齐国人，青年时清贫。'},{id:'c2',name:'鲍叔牙',aliases:['鲍叔'],text:'管仲好友，宽厚。'}];
+
+function recorder(reply){
+ const calls=[];
+ const call=async(task,instructions,payload,schema)=>{calls.push({task,text:instructions+'\n'+JSON.stringify(payload)});return {value:reply(schema,payload),model:'fake',requestId:null,usage:null};};
+ return {calls,gen:dagGenerator(call)};
+}
+const without=(text,...sentinels)=>{for(const s of sentinels)assert.ok(!text.includes(s),`unexpected ${s}`);};
+const contains=(text,...sentinels)=>{for(const s of sentinels)assert.ok(text.includes(s),`missing ${s}`);};
+
+test('outline, characters and storyboard text never see the style; image descriptions do',async()=>{
+ const {calls,gen}=recorder((schema,payload)=>{
+  if(schema.properties.beats)return {title:'管鲍之交',summary:'梗概',sourceReference:'史记',adaptationNote:'按原文',beats:['少时同游','鲍叔知贤']};
+  if(schema.properties.characters)return {characters:[{name:'管仲',aliases:['夷吾'],text:'齐国人，青年时清贫。'}]};
+  if(schema.properties.pages)return {pages:payload.batch?[{caption:'管仲与鲍叔牙少时同游。',people:['管仲','鲍叔']},{caption:'鲍叔深知管仲之贤。',people:['鲍叔']}]:[]};
+  return {prompt:'两位少年并肩走在乡间小路上，中景，晨光从左侧照来，远处是低矮的土墙与柳树。',drawn:['管仲','鲍叔牙']};
+ });
+ await gen.outline({source,productionPrompt:REQ,settings:{narrativeDetail:'balanced',length:2}});
+ await gen.characters({source,productionPrompt:REQ});
+ const scenes=await gen.sceneBatch({source,outline,productionPrompt:REQ,first:1,previous:[],characters:people});
+ // 第二幅配文提到管仲，因此两人都是候选人物。
+ assert.deepEqual(scenes.value.map(s=>s.candidates),[['c1','c2'],['c1','c2']]);
+ const visual=await gen.visual({outline,index:0,productionPrompt:REQ,style,caption:'管仲与鲍叔牙少时同游。',candidates:people,all:people});
+ assert.deepEqual(visual.value.drawn,['c1','c2']);
+ for(const c of calls.slice(0,3)){without(c.text,STYLE);contains(c.text,REQ);}
+ contains(calls[3].text,STYLE,REQ);
+});
+
+test('the summary reads only the source; endings read captions but not requirements or image descriptions',async()=>{
+ const {calls,gen}=recorder(schema=>schema.properties.summary?{summary:'管仲与鲍叔牙少时相知。'}:schema.properties.candidates?{title:'管鲍之交',candidates:['一','二','三']}:{reflection:'知己难得。'});
+ await gen.prepareBrief({source});
+ await gen.ending({source,outline,captions:[CAPTION,'第二幅配文八个字以上']});
+ await gen.endingRepair({source,outline,captions:[CAPTION],reflection:'旧结语',issues:[],notes:NOTES});
+ without(calls[0].text,STYLE,REQ,CAPTION,VISUAL);
+ without(calls[1].text,STYLE,REQ,VISUAL);contains(calls[1].text,CAPTION);
+ without(calls[2].text,STYLE,REQ,VISUAL);contains(calls[2].text,NOTES);
+});
+
+test('the frame-count check reads captions and requirements but no image descriptions or style',async()=>{
+ const {calls,gen}=recorder(()=>({frameCountReview:{decision:'keep',proposedCount:2,reason:'幅数合适'},requirements:[]}));
+ await gen.frameCheck({source,outline,productionPrompt:REQ,settings:{narrativeDetail:'balanced',length:'auto'},captions:[CAPTION,'第二幅配文八个字以上']});
+ without(calls[0].text,STYLE,VISUAL);contains(calls[0].text,REQ,CAPTION);
+});
+
+test('item registration reads only the item texts and returns stable identities',async()=>{
+ const items=acceptanceItems('结尾才揭示身份\n每幅都有动作');
+ assert.deepEqual(acceptanceItems('结尾才揭示身份\n每幅都有动作'),items);
+ const {calls,gen}=recorder(()=>({items:[{index:1,scope:'story',evidence:['scenes','order']},{index:2,scope:'frame',evidence:[]}]}));
+ const result=await gen.registerItems({items});
+ assert.deepEqual(result.value.map(r=>[r.id,r.scope,r.evidence]),[[items[0].id,'story',['scenes','order']],[items[1].id,'frame',[]]]);
+ without(calls[0].text,STYLE,REQ,CAPTION,VISUAL);
+});
+
+test('scenario 52: review replaces only allowed verdicts; everything else becomes a suggestion',async()=>{
+ const frames=Array.from({length:3},(_,i)=>({id:`f${i+1}`,caption:`第${i+1}幅配文八个字以上`,prompt:`第${i+1}幅画面描述二十个字以上的内容，人物站立在庭院中央。`}));
+ const {calls,gen}=recorder(()=>({
+  issues:[{page:2,category:'progression',problem:'动作不清',instruction:'补足动作',requiresReplan:false},{page:3,category:'progression',problem:'服饰不一致',instruction:'统一服饰',requiresReplan:false}],
+  titleReview:{title:'管鲍之交',reason:'准确'},
+  coverage:[{quote:'管仲夷吾者',task:'交代人物',pages:[1],assessment:'adequate',reason:'已交代',issuePage:0}],
+  acceptanceResults:[{criterion:1,status:'passed',pages:[0],evidence:'结尾揭示'}],
+ }));
+ const result=await gen.review({source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'结尾才揭示身份',style,adaptive:false,characters:people,frames,chosenEnding:'知己难得。',notes:NOTES,allowed:{pages:[1,2],criteria:[],narrative:false},itemIds:{1:'i-x'}});
+ assert.deepEqual(result.value.judgements.map(j=>[j.id,j.outcome]),[['frameVerdict:f1','pass'],['frameVerdict:f2','fail']]);
+ assert.deepEqual(result.value.suggestions.map(j=>j.id),['frameVerdict:f3']);
+ contains(calls[0].text,STYLE,REQ,NOTES);
+});
+
+test('scenario 57: drawing and landscape prompts carry no caption or production requirements',()=>{
+ const drawn=[people[0]];
+ for(const layout of ['portrait','landscape']){
+  const prompt=framePrompt({visual:VISUAL,redrawNote:'调暗背景',drawn,style,index:0,reference:true,layout});
+  contains(prompt,VISUAL,'调暗背景','管仲');
+  without(prompt,REQ,CAPTION,'鲍叔牙');
+ }
+});
+
+test('provider failures classify into fault kinds: content blocks and service faults never auto-retry',async()=>{
+ const {errorCode,serviceLevel,autoRetryable}=await import('../lib/production-dag/errors.ts');
+ assert.equal(errorCode(Object.assign(new Error('CONTENT_BLOCKED'),{status:400})),'CONTENT_BLOCKED');
+ assert.equal(errorCode({message:'Your request was rejected by the moderation system',status:400}),'CONTENT_BLOCKED');
+ assert.equal(errorCode({message:'KEY_REQUIRED',status:401}),'SERVICE_AUTH');
+ assert.equal(errorCode({message:'CLAUDE_LOGIN_REQUIRED'}),'SERVICE_AUTH');
+ assert.equal(errorCode({message:'quota',status:429}),'RATE_LIMITED');
+ assert.equal(errorCode({name:'AbortError',message:'aborted'}),'TIMEOUT');
+ assert.equal(errorCode(new Error('INVALID_OUTPUT')),'GENERIC');
+ assert.ok(serviceLevel('SERVICE_AUTH')&&serviceLevel('RATE_LIMITED')&&!serviceLevel('CONTENT_BLOCKED'));
+ assert.ok(autoRetryable('TIMEOUT')&&!autoRetryable('CONTENT_BLOCKED'));
+});

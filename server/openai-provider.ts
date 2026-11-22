@@ -154,11 +154,11 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
     const result=await text(draftInstructions(!!original?.localSource),{book:book(selection),chosenStory:selection.storyTitle,...(selection.storyTitle?{}:{theme:selection.theme}),editorialContext:storyEditorialContext(selection.theme),exactPageCount:selection.length,narrativeDetail:selection.narrativeDetail,productionPrompt:normalizeProductionPrompt(selection.productionPrompt||'',selection.theme),artDirection:getArtDirection(selection),variationSeed:id,...(original?{verifiedOriginal:verifiedOriginalPayload(original)}:{})},storyDraftJson(selection.length),reasoning.plan,Math.max(8192,(selection.length==='auto'?20:selection.length)*800));
     const value=storyDraftSchema.parse(result.value);if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new OpenAIError('PLAN_LENGTH');return {...result,value};
    },
-   async image(plan,page,id,reference,style='ink-pencil',productionPrompt='',artifactId,layout='portrait',artStylePrompt){
+   async image(plan,page,id,reference,style='ink-pencil',productionPrompt='',artifactId,layout='portrait',artStylePrompt,promptOverride){
     if(deepseek)throw new ReaderError(400,'DeepSeek 当前仅支持文字制作，请在分镜审核后停止；不会自动调用其他提供方生图。');
     if(layout==='landscape'&&(!reference||!artifactId))throw new OpenAIError('INVALID_ANCHOR');
     const size=layout==='landscape'?landscapeImageSize:imageRequestSize(variables.IMAGE_SIZE)?.size;if(!size)throw new OpenAIError('INVALID_IMAGE_SIZE',400);
-    const prompt=imagePrompt(plan,page,style,productionPrompt,!!reference,layout,artStylePrompt);
+    const prompt=promptOverride??imagePrompt(plan,page,style,productionPrompt,!!reference,layout,artStylePrompt);
     let body:Record<string,unknown>|FormData={model:models.image,prompt,n:1,size,output_format:'png'},route='/images/generations';
     if(reference){
      const ref=referenceImageKey(id,reference);if(!ref)throw new OpenAIError('INVALID_ANCHOR');

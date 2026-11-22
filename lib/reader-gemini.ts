@@ -195,7 +195,7 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
    if(selection.length!=='auto'&&value.pages.length!==selection.length)throw new GeminiError('INVALID_PLAN');
    return {value,...metadata,reasoningEffort:reasoning.plan,promptRecord:promptRecord(instructions,payload,input.generationConfig.responseFormat.text.schema)};
   },
-  async image(plan:Plan,page:number,id:string,reference:string,style:ArtStyleId='ink-pencil',productionPrompt='',artifactId?:string,layout:ImageLayout='portrait',artStylePrompt?:string|null){
+  async image(plan:Plan,page:number,id:string,reference:string,style:ArtStyleId='ink-pencil',productionPrompt='',artifactId?:string,layout:ImageLayout='portrait',artStylePrompt?:string|null,promptOverride?:string){
    if(layout==='landscape'&&(!reference||!artifactId))throw new GeminiError('INVALID_ANCHOR');
    const parts:Part[]=[];
    if(reference){
@@ -207,7 +207,7 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
     if(!mimeType||bytes.length>12*1024*1024)throw new GeminiError('INVALID_ANCHOR');
     parts.push({inlineData:{mimeType,data:encode(bytes)}});
    }
-   const prompt=imagePrompt(plan,page,style,productionPrompt,!!reference,layout,artStylePrompt);
+   const prompt=promptOverride??imagePrompt(plan,page,style,productionPrompt,!!reference,layout,artStylePrompt);
    parts.push({text:prompt});
    const {candidate,metadata}=await generate(models.image,{contents:[{role:'user',parts}],generationConfig:{responseModalities:['TEXT','IMAGE'],imageConfig:{aspectRatio:layout==='landscape'?'3:2':'9:16',imageSize:'1K'}}},'image');
    const output=candidate.content?.parts?.find(p=>!p.thought&&p.inlineData)?.inlineData;

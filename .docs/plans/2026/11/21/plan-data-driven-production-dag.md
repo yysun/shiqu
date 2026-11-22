@@ -58,13 +58,25 @@ Git 基线：`52ddf58b810ff80c19f40f618ef52134ca658094`（SS 开始时的 HEAD�
 - [x] `tests/production-dag-convert.test.mjs`：完成、部分完成、缺审核、旧放行、重复转换结果相同、投影与原 `Plan` 一致；登记 `covers`。
 - SS 记录：v2 类型、根输入、引擎状态与投影放在 `lib/production-dag/document.ts`，`lib/reader-model.ts` 的 `Document` 增加 `dag` 字段。准备阶段的原文、梗概与建议由转换映射为产物；要求字段的「建议、填写、留空」状态仍由 intake 管理，确认后的值经选择进入根输入。旧版缺少审核记录但已完成的故事，转换为带 `unreviewed` 标记的旧规则结论：计入完成判定，不授权新的绘图（规范「缺少审核记录」）。没有页码的旧文字步骤故障挂到转换后下一个可运行的节点。
 - 证据：`pnpm test:related` 125 项通过，`pnpm typecheck` 与 eslint 通过。
+- 里程碑提交：`1db709e`（M2 文档 v2 与转换，未接入启动；已验证：相关测试、类型检查、lint）。
 
 ### M3 按调用契约的生成调用与模型快照（新方法并存，不接入调度）
 
-- [ ] `lib/reader-engine.ts` 的 `StoryGenerator`：按调用契约新增方法（原文核对、梗概、建议、人物设定、提纲、叙事分镜批次、画面描述、换画风转换、叙事修订、画面修订、结构修订、结语修订、登记验收条目、幅数与结构核对、分阶段审片、绘图、横图），参数只含契约输入。
-- [ ] 提示词与结构：`lib/reader-prompts.ts`、`lib/reader-generation-contract.ts`（绘图与横图去掉配文和制作要求，人物取入画人物切片）、`lib/reader-gemini-schema.ts`。
-- [ ] 提供方实现：`lib/reader-gemini.ts`、`server/openai-provider.ts`、`server/generation.ts`、`server/local-generation.ts`；内容拦截返回结构化错误码；密钥、登录、额度错误映射为服务状态；按决策 7 实现快照工厂与「快照服务不可用」。
-- [ ] `tests/production-dag-call-contract.test.mjs`：替身提供方记录完整 `PromptRecord`（指令、输入、参考图），对每个调用用哨兵值证明契约外的输入（如画风、配文、制作要求）不出现在任何部分；`tests/production-dag-provider-snapshot.test.mjs` 覆盖工厂与不可用状态。登记 `covers`。
+- [x] `lib/reader-engine.ts` 的 `StoryGenerator`：按调用契约新增方法（原文核对、梗概、建议、人物设定、提纲、叙事分镜批次、画面描述、换画风转换、叙事修订、画面修订、结构修订、结语修订、登记验收条目、幅数与结构核对、分阶段审片、绘图、横图），参数只含契约输入。
+- [x] 提示词与结构：`lib/reader-prompts.ts`、`lib/reader-generation-contract.ts`（绘图与横图去掉配文和制作要求，人物取入画人物切片）、`lib/reader-gemini-schema.ts`。
+- [x] 提供方实现：`lib/reader-gemini.ts`、`server/openai-provider.ts`、`server/generation.ts`、`server/local-generation.ts`；内容拦截返回结构化错误码；密钥、登录、额度错误映射为服务状态；按决策 7 实现快照工厂与「快照服务不可用」。
+- [x] `tests/production-dag-call-contract.test.mjs`：替身提供方记录完整 `PromptRecord`（指令、输入、参考图），对每个调用用哨兵值证明契约外的输入（如画风、配文、制作要求）不出现在任何部分；`tests/production-dag-provider-snapshot.test.mjs` 覆盖工厂与不可用状态。登记 `covers`。
+- SS 记录：
+  - 调用契约方法集中在 `lib/production-dag/calls.ts` 的 `dagGenerator(call)`；提供方通过 `StoryGenerator.textCall` 暴露各自的文字调用，不改提供方的请求实现。
+  - 正式流程的提示词文字不复制：`lib/reader-review.ts` 抽出 `frameCountReviewRequest`、`fullReviewRequest` 并导出 `reviewNotesDirection`；`lib/reader-storyboard.ts` 导出结语与换画风指令；`lib/reader-generation-contract.ts` 把逐幅要求拆为配文、画面指令、画风三段，`imagePrompt` 改为字段化的 `imagePromptFor`。旧流程拼出的提示词逐字不变。
+  - 绘图沿用提供方的 `image()`，新增可选的 `promptOverride` 接收契约提示词（`framePrompt`）。
+  - 结构化错误码在 `lib/production-dag/errors.ts`；模型快照工厂在 `server/provider-snapshot.ts`。
+  - 叙事分镜由模型返回涉及人物名字，系统按名字与别名匹配为候选人物；画面描述逐幅单独调用。
+- [x] P0.3（M3 门槛）快照工厂探查，2026-11-21，全局设置指向不存在的模型，快照指向真实模型：
+  - Claude：通过，调用按快照模型完成。
+  - Gemini：请求发往快照模型 `gemini-3.8-flash`，路由正确；项目返回 402（计费余额不足），无法完成调用。
+  - Codex：本机 Codex 对旧流程的调用同样返回 `GENERATION_FAILED`，属本机登录或额度问题，与快照无关；变量映射由单元测试覆盖。
+  - 探查发现并修正一处缺陷：Codex 未配置模型时运行配置给出的显示名 `codex-default` 被当作模型名写入快照；快照改为记录 `null` 表示沿用服务默认模型，并加测试。
 - [ ] P0.2 门槛探查（在 M3 方法上执行，接入调度前）：同一会话、同一模型，用 2 个故事（12 幅与 24 幅）各跑 3 次，比较拆分调用与现有合并批次。指标：结构校验一次通过率与修订轮次；成本上限为 12 次完整编排。判据：通过率不低于现状减 5 个百分点；否则修正提示词后重测，仍不达标则停止并回到 AR。结果记入本计划。
 
 ### M4 切换：迁移、触发器、调度与服务端修订

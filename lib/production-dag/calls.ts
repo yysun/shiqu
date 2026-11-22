@@ -1,0 +1,251 @@
+// 按调用契约实现的生成调用：每个方法只接收契约所列输入的类型化参数，提示词由这些参数拼装。
+// 指令文字复用正式流程的标准（编排、配文、画面、审片、修订），不另写一套；载荷按契约各自构造，
+// 例如叙事分镜与提纲不含画风，结语与幅数核对只读配文。审片是唯一的批量调用，允许清单外的判断记为建议。
+import {z} from 'zod';
+import type {Generated} from '../reader-engine.ts';
+import type {OriginalSource} from '../reader-source-types.ts';
+import {verifiedOriginalPayload} from '../reader-source-types.ts';
+import type {ReasoningTask} from '../reader-reasoning.ts';
+import type {ArtStyleId} from '../reader-styles.ts';
+import {getArtDirection,getArtStyle} from '../reader-styles.ts';
+import {promptSections,inputBoundaryDirection,storyOpeningDirection,storyboardDirection,storyEditorialContext,normalizeProductionPrompt,titleDirection} from '../reader-prompts.ts';
+import {storyPlanningDirection,storySceneDirection,storyMetadataDirection,storyDraftMetadataDirection,storyCaptionDirection,storyVisualDirection,storyStyleBoundaryDirection,storyDraftJson,imagePromptFor} from '../reader-generation-contract.ts';
+import {outlineDirection,batchDirection,reflectionSystemPrompt,reflectionCandidatesDirection,restyleInstructions} from '../reader-storyboard.ts';
+import {frameCountReviewRequest,fullReviewRequest,parseFrameCountReport,reviewReportSchema,reviewNotesDirection,reviewSystemPrompt,type FrameCountReport,type ReviewIssue} from '../reader-review.ts';
+import {validateEditorialCoverage} from '../reader-editorial.ts';
+import {storySummaryDirection} from '../reader-story-brief.ts';
+import {localPlanConstraint} from '../reader-local-contract.ts';
+import {acceptanceCriteria} from '../reader-acceptance.ts';
+import {readerMinFrames,readerMaxFrames,readerStoryboardBatchSize} from '../reader-limits.ts';
+import {castFrom,type CharacterEntry} from './frames.ts';
+import {fingerprint} from './fingerprint.ts';
+import type {Evidence} from './registry.ts';
+
+export type Call=(task:ReasoningTask,instructions:string,payload:unknown,schema:unknown,maxOutputTokens:number,original?:OriginalSource)=>Promise<Generated<unknown>>;
+
+/** 已核原文与出处：原文、书名、选定故事与主题都属于来源，本身是原文核对的产物。 */
+export type SourceInput={original:OriginalSource;book:string;chosenStory?:string;theme?:string;variationSeed:string};
+export type StyleInput={artStyle:ArtStyleId;artStylePrompt?:string|null};
+export type SettingsInput={narrativeDetail:string;length:number|'auto'};
+export type Character=CharacterEntry&{text:string};
+export type Outline={title:string;summary:string;sourceReference:string;adaptationNote:string;beats:string[]};
+export type Scene={caption:string;candidates:string[]};
+export type Visual={prompt:string;drawn:string[]};
+
+const str=(min:number,max:number)=>({type:'string',minLength:min,maxLength:max});
+const obj=(properties:Record<string,unknown>)=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false});
+const names={type:'array',maxItems:16,items:str(1,40)};
+const local=(source:SourceInput)=>source.original.localSource?localPlanConstraint:'';
+
+function sourcePayload(source:SourceInput,{seed=false}={}){
+ const theme=source.theme||'';
+ return {book:source.book,chosenStory:source.chosenStory,...(source.chosenStory?{}:{theme}),editorialContext:storyEditorialContext(theme),...(seed?{variationSeed:source.variationSeed}:{}),verifiedOriginal:verifiedOriginalPayload(source.original)};
+}
+const production=(source:SourceInput,prompt:string)=>normalizeProductionPrompt(prompt||'',source.theme||'');
+const characterId=(name:string)=>`c-${fingerprint(name).slice(0,10)}`;
+const characterCard=(c:Character)=>({name:c.name,aliases:c.aliases||[],setting:c.text});
+const withoutSummary=({summary:_,...rest}:Outline)=>{void _;return rest;};
+
+const outlineSchema=z.object({title:z.string().min(1).max(40),summary:z.string().trim().min(1).max(1200),sourceReference:z.string().min(1).max(150),adaptationNote:z.string().min(1).max(600),beats:z.array(z.string().min(1).max(180)).min(readerMinFrames).max(readerMaxFrames)}).strict();
+const captionSchema=z.string().min(8).max(90);
+const promptSchema=z.string().min(20).max(1800);
+
+export function dagGenerator(call:Call){
+ return {
+  /** 准备梗概：只读已核原文。 */
+  async prepareBrief(input:{source:SourceInput}):Promise<Generated<string>>{
+   const instructions=promptSections(['任务','依据 verifiedOriginal 撰写本篇选定范围的事实梗概，只交代原文中的起因、关键行动与结果，不加评价，不补写原文没有的情节。'],['篇幅',storySummaryDirection],['输入与输出',inputBoundaryDirection+'只返回 {summary}。']);
+   const result=await call('frames',instructions,sourcePayload(input.source),obj({summary:str(1,1200)}),4096,input.source.original);
+   return {...result,value:z.object({summary:z.string().trim().min(1).max(1200)}).parse(result.value).summary};
+  },
+
+  /** 人物设定：只读原文与制作要求，不读提纲。 */
+  async characters(input:{source:SourceInput;productionPrompt:string}):Promise<Generated<Character[]>>{
+   const instructions=promptSections(['任务','你是古典连环画人物设定编辑。依据 verifiedOriginal 列出本篇有据出场的人物，每人一条。'],['人物标准',storyMetadataDirection],['本次输出','只返回 {characters:[{name,aliases,text}]}。name 用原文通行称谓，aliases 列出原文中的其他称呼；text 记录有据的时代、年龄、外貌、服饰、辨识特征及关键物件，不写画风或构图。'],['本地原文',local(input.source)],['输入与输出',inputBoundaryDirection]);
+   const schema=obj({characters:{type:'array',minItems:1,maxItems:24,items:obj({name:str(1,40),aliases:names,text:str(10,600)})}});
+   const result=await call('outline',instructions,{...sourcePayload(input.source),productionPrompt:production(input.source,input.productionPrompt)},schema,8192,input.source.original);
+   const parsed=z.object({characters:z.array(z.object({name:z.string().trim().min(1).max(40),aliases:z.array(z.string().trim().min(1).max(40)).max(16),text:z.string().trim().min(10).max(600)}).strict()).min(1).max(24)}).strict().parse(result.value);
+   const seen=new Set<string>();
+   const value=parsed.characters.filter(c=>!seen.has(c.name)&&seen.add(c.name)).map(c=>({id:characterId(c.name),name:c.name,aliases:c.aliases,text:c.text}));
+   return {...result,value};
+  },
+
+  /** 全篇提纲：读原文、制作要求、详略与幅数策略；不读画风与人物设定。 */
+  async outline(input:{source:SourceInput;productionPrompt:string;settings:SettingsInput}):Promise<Generated<Outline>>{
+   const length=input.settings.length;
+   const full=storyDraftJson(length),{pages:_p,characters:_c,...properties}=full.properties as Record<string,unknown>;void _p;void _c;
+   const schema={...full,properties:{...properties,beats:{type:'array',minItems:length==='auto'?readerMinFrames:length,maxItems:length==='auto'?readerMaxFrames:length,items:str(1,180)}},required:[...Object.keys(properties),'beats']};
+   const instructions=promptSections(['任务','你是古典连环画编剧，本次只制定全篇提纲。'],['编排标准',storyPlanningDirection],['元数据',storyMetadataDirection],['本地原文',local(input.source)],['本次输出',storyDraftMetadataDirection+'\n'+outlineDirection+'\n人物设定另行生成，本次不输出 characters。']);
+   const result=await call('outline',instructions,{...sourcePayload(input.source,{seed:true}),exactPageCount:length,narrativeDetail:input.settings.narrativeDetail,productionPrompt:production(input.source,input.productionPrompt)},schema,8192,input.source.original);
+   const value=outlineSchema.parse(result.value);
+   if(length!=='auto'&&value.beats.length!==length)throw Error('PLAN_LENGTH');
+   return {...result,value};
+  },
+
+  /** 叙事分镜批次：读提纲、原文、制作要求及同批已完成的配文；不读画风。返回配文与涉及人物名字。 */
+  async sceneBatch(input:{source:SourceInput;outline:Outline;productionPrompt:string;first:number;previous:string[];characters?:CharacterEntry[]}):Promise<Generated<Scene[]>>{
+   const total=input.outline.beats.length,first=input.first,last=Math.min(first+readerStoryboardBatchSize-1,total),count=last-first+1;
+   if(count<1)throw Error('PLAN_LENGTH');
+   const schema=obj({pages:{type:'array',minItems:count,maxItems:count,items:obj({caption:str(8,90),people:names})}});
+   const instructions=promptSections(['任务','你是古典连环画分镜导演，本次只为指定批次撰写配文。'],['共同标准',storySceneDirection],['首幅要求',first===1?storyOpeningDirection:''],['配文',storyCaptionDirection],['人物','people 列出本幅叙事涉及的人物名字，包括配文未点名但在本幅出场或被指代的人物，用原文称谓。'],['本地原文',local(input.source)],['批次边界',batchDirection+'\n本次只返回配文与涉及人物，画面指令另行生成。'],['输入与输出',inputBoundaryDirection]);
+   const result=await call('plan',instructions,{...sourcePayload(input.source,{seed:true}),productionPrompt:production(input.source,input.productionPrompt),exactPageCount:total,outline:withoutSummary(input.outline),batch:{first,last},previousCaptions:input.previous},schema,Math.max(4096,count*300),input.source.original);
+   const pages=z.object({pages:z.array(z.object({caption:captionSchema,people:z.array(z.string().max(40)).max(16)}).strict()).length(count)}).strict().parse(result.value).pages;
+   return {...result,value:pages.map(p=>({caption:p.caption,candidates:castFrom([p.caption,...p.people].join(' '),input.characters||[])}))};
+  },
+
+  /** 画面描述：每幅单独调用，读提纲、制作要求、画风、本幅配文与候选人物设定。 */
+  async visual(input:{outline:Outline;index:number;productionPrompt:string;theme?:string;style:StyleInput;caption:string;candidates:Character[];all:CharacterEntry[]}):Promise<Generated<Visual>>{
+   const instructions=promptSections(['任务','你是古典连环画分镜导演，本次只为一幅撰写画面指令。'],['静态画面与衔接',storyboardDirection],['画面指令',storyVisualDirection],['画风',storyStyleBoundaryDirection],['人物','candidateCharacters 是本幅可能入画人物的设定，只用于辨认身份与外貌；drawn 列出画面中实际出现的人物名字。'],['输入与输出',inputBoundaryDirection+'只返回 {prompt,drawn}。']);
+   const result=await call('plan',instructions,{outline:withoutSummary(input.outline),frame:{number:input.index+1,total:input.outline.beats.length,beat:input.outline.beats[input.index],caption:input.caption},productionPrompt:normalizeProductionPrompt(input.productionPrompt||'',input.theme||''),artDirection:getArtDirection(input.style),candidateCharacters:input.candidates.map(characterCard)},obj({prompt:str(20,1800),drawn:names}),4096);
+   return {...result,value:visualValue(result.value,input.all)};
+  },
+
+  /** 换画风转换：在画面描述的输入之外，以旧画面描述与旧画风为来源。 */
+  async restyle(input:{outline:Outline;index:number;productionPrompt:string;theme?:string;style:StyleInput;previousStyle:StyleInput;previousPrompt:string;caption:string;candidates:Character[];all:CharacterEntry[]}):Promise<Generated<Visual>>{
+   const instructions=restyleInstructions+'\n\n'+promptSections(['本次范围','只转换一幅：scenePrompt 是该幅旧画面指令；caption、candidateCharacters 只用于核对人物与情节。只返回 {prompt,drawn}，drawn 列出画面中实际出现的人物名字。']);
+   const result=await call('repair',instructions,{outline:withoutSummary(input.outline),frame:{number:input.index+1,beat:input.outline.beats[input.index],caption:input.caption},productionPrompt:normalizeProductionPrompt(input.productionPrompt||'',input.theme||''),previousArtDirection:{...getArtStyle(input.previousStyle.artStyle),prompt:getArtDirection(input.previousStyle)},artDirection:{...getArtStyle(input.style.artStyle),prompt:getArtDirection(input.style)},scenePrompt:input.previousPrompt,candidateCharacters:input.candidates.map(characterCard)},obj({prompt:str(20,1800),drawn:names}),4096);
+   return {...result,value:visualValue(result.value,input.all)};
+  },
+
+  /** 叙事修订：只改指定一幅的配文；当前配文、相邻配文、问题与审核意见是来源。 */
+  async sceneRepair(input:{source:SourceInput;outline:Outline;productionPrompt:string;index:number;caption:string;neighbors:{before?:string;after?:string};issues:ReviewIssue[];notes?:string;characters?:CharacterEntry[]}):Promise<Generated<Scene>>{
+   const instructions=promptSections(['任务','你是静态连环画修订编辑，只修订指定一幅的配文，不重新编排全篇。'],['共同标准',storySceneDirection],['配文',storyCaptionDirection],['修订','按 issues 回查原文逐项解决；只改需要改的部分。people 列出本幅叙事涉及的人物名字。'],['审核意见',input.notes?reviewNotesDirection:''],['本地原文',local(input.source)],['输入与输出',inputBoundaryDirection+'只返回 {caption,people}。']);
+   const result=await call('repair',instructions,{...sourcePayload(input.source),productionPrompt:production(input.source,input.productionPrompt),outline:withoutSummary(input.outline),frame:{number:input.index+1,beat:input.outline.beats[input.index],caption:input.caption},neighbors:input.neighbors,issues:input.issues,...(input.notes?{reviewNotes:input.notes}:{})},obj({caption:str(8,90),people:names}),4096,input.source.original);
+   const value=z.object({caption:captionSchema,people:z.array(z.string().max(40)).max(16)}).strict().parse(result.value);
+   return {...result,value:{caption:value.caption,candidates:castFrom([value.caption,...value.people].join(' '),input.characters||[])}};
+  },
+
+  /** 画面修订：只改指定一幅的画面描述；当前画面描述与入画人物、问题与审核意见是来源。 */
+  async visualRepair(input:{outline:Outline;index:number;productionPrompt:string;theme?:string;style:StyleInput;caption:string;candidates:Character[];prompt:string;drawn:Character[];issues:ReviewIssue[];notes?:string;all:CharacterEntry[]}):Promise<Generated<Visual>>{
+   const instructions=promptSections(['任务','你是静态连环画修订编辑，只修订指定一幅的画面指令。'],['静态画面与衔接',storyboardDirection],['画面指令',storyVisualDirection],['画风',storyStyleBoundaryDirection],['修订','按 issues 逐项解决，保留无问题的可见细节；drawn 列出画面中实际出现的人物名字。'],['审核意见',input.notes?reviewNotesDirection:''],['输入与输出',inputBoundaryDirection+'只返回 {prompt,drawn}。']);
+   const result=await call('repair',instructions,{outline:withoutSummary(input.outline),frame:{number:input.index+1,beat:input.outline.beats[input.index],caption:input.caption},productionPrompt:normalizeProductionPrompt(input.productionPrompt||'',input.theme||''),artDirection:getArtDirection(input.style),candidateCharacters:input.candidates.map(characterCard),current:{prompt:input.prompt,drawn:input.drawn.map(characterCard)},issues:input.issues,...(input.notes?{reviewNotes:input.notes}:{})},obj({prompt:str(20,1800),drawn:names}),4096);
+   return {...result,value:visualValue(result.value,input.all)};
+  },
+
+  /** 结构修订：返回按幅号替换的配文段落；画面描述随后对新画幅逐幅生成。 */
+  async structureRepair(input:{source:SourceInput;outline:Outline;productionPrompt:string;settings:SettingsInput;captions:string[];issues:ReviewIssue[];notes?:string;characters?:CharacterEntry[]}):Promise<Generated<{from:number;to:number;scenes:Scene[]}[]>>{
+   const count=input.captions.length;
+   const direction=`按原文及 issues 返回 {edits:[{from,to,pages:[{caption,people}]}]}。from/to 指修改前 1 起始的幅号，按 from 递增且范围不重叠；替换 from 至 to，from=k,to=k-1 表示在原第 k 幅前插入，from=原幅数+1 表示末尾追加，pages 为空表示删除。只改需协同的连续段落，一次合计最多 ${readerStoryboardBatchSize} 个新或替换画幅，总数 ${readerMinFrames}–${readerMaxFrames}。只返回配文与涉及人物，画面指令另行生成。`;
+   const instructions=promptSections(['任务','你是古典静态连环画结构修订编辑。'],['共同标准',storySceneDirection],['配文',storyCaptionDirection],['结构输出',direction],['审核意见',input.notes?reviewNotesDirection:''],['本地原文',local(input.source)],['输入边界',inputBoundaryDirection]);
+   const schema=obj({edits:{type:'array',maxItems:readerStoryboardBatchSize,items:obj({from:{type:'integer',minimum:1,maximum:count+1},to:{type:'integer',minimum:0,maximum:count},pages:{type:'array',maxItems:readerStoryboardBatchSize,items:obj({caption:str(8,90),people:names})}})}});
+   const result=await call('repair',instructions,{...sourcePayload(input.source),productionPrompt:production(input.source,input.productionPrompt),narrativeDetail:input.settings.narrativeDetail,countPolicy:input.settings.length==='auto'?'adaptive':'fixed',outline:withoutSummary(input.outline),captions:input.captions,issues:input.issues,...(input.notes?{reviewNotes:input.notes}:{})},schema,16000,input.source.original);
+   const edits=z.object({edits:z.array(z.object({from:z.number().int().min(1),to:z.number().int().min(0),pages:z.array(z.object({caption:captionSchema,people:z.array(z.string().max(40)).max(16)}).strict())}).strict())}).strict().parse(result.value).edits;
+   return {...result,value:edits.map(e=>({from:e.from,to:e.to,scenes:e.pages.map(p=>({caption:p.caption,candidates:castFrom([p.caption,...p.people].join(' '),input.characters||[])}))}))};
+  },
+
+  /** 标题与结语候选：读原文、提纲与配文；不读制作要求与画面描述。 */
+  async ending(input:{source:SourceInput;outline:Outline;captions:string[]}):Promise<Generated<{title:string;candidates:string[]}>>{
+   const instructions=reflectionSystemPrompt+'\n\n'+promptSections(['标题标准',titleDirection],['本地原文',local(input.source)],['本次输出',reflectionCandidatesDirection]);
+   const schema=obj({title:str(1,40),candidates:{type:'array',minItems:3,maxItems:3,items:str(1,100)}});
+   const result=await call('plan',instructions,{...sourcePayload(input.source),draft:{...withoutSummary(input.outline),pages:input.captions.map(caption=>({caption}))}},schema,4096,input.source.original);
+   return {...result,value:z.object({title:z.string().trim().min(1).max(40),candidates:z.array(z.string().trim().min(1).max(100)).length(3)}).strict().parse(result.value)};
+  },
+
+  /** 结语修订：当前候选与选定结果、问题与审核意见是来源。 */
+  async endingRepair(input:{source:SourceInput;outline:Outline;captions:string[];reflection:string;issues:ReviewIssue[];notes?:string}):Promise<Generated<string>>{
+   const instructions=reflectionSystemPrompt+'\n\n'+promptSections(['本地原文',local(input.source)],['审核意见',input.notes?reviewNotesDirection:''],['本次输出','只返回 {reflection}，修订一句结语；不输出候选或其他字段。']);
+   const result=await call('repair',instructions,{...sourcePayload(input.source),draft:{...withoutSummary(input.outline),pages:input.captions.map(caption=>({caption}))},revision:{reflection:input.reflection,issues:input.issues},...(input.notes?{reviewNotes:input.notes}:{})},obj({reflection:str(1,100)}),4096,input.source.original);
+   return {...result,value:z.object({reflection:z.string().trim().min(1).max(100)}).strict().parse(result.value).reflection};
+  },
+
+  /** 幅数与结构核对：读原文、提纲、画幅顺序、制作要求、详略与幅数策略、审核意见与配文；不读画面描述。 */
+  async frameCheck(input:{source:SourceInput;outline:Outline;productionPrompt:string;settings:SettingsInput;captions:string[];notes?:string}):Promise<Generated<FrameCountReport>>{
+   const count=input.captions.length,{schema,instructions}=frameCountReviewRequest(count);
+   const scope='\n\n'+promptSections(['本次输入','本次核对只提供配文，不提供画面描述；visualEvidence 一律填写「本次不提供画面描述」，判断依据写入 captionEvidence。']);
+   const result=await call('review',instructions+(local(input.source)?'\n'+local(input.source):'')+scope+(input.notes?'\n\n'+reviewNotesDirection:''),{...sourcePayload(input.source),exactPageCount:count,narrativeDetail:input.settings.narrativeDetail||'balanced',countPolicy:input.settings.length==='auto'?'adaptive':'fixed',productionPrompt:production(input.source,input.productionPrompt),plan:{...withoutSummary(input.outline),pages:input.captions.map(caption=>({caption}))},...(input.notes?{reviewNotes:input.notes}:{})},schema,24000,input.source.original);
+   const value=parseFrameCountReport(count,result.value);validateEditorialCoverage(value.coverage,input.source.original);
+   return {...result,value};
+  },
+
+  /** 登记验收条目：只读条目文字，用全部条目区分各条。 */
+  async registerItems(input:{items:{id:string;text:string}[]}):Promise<Generated<{id:string;scope:'story'|'frame';evidence:Evidence[]}[]>>{
+   const instructions=promptSections(['任务','你是连环画验收条目登记员。为每条验收要求登记范围与依据，不判断是否满足。'],['范围','只涉及单幅内容即可判断的为 frame；涉及多幅、全篇、先后顺序、标题或结语的为 story。'],['依据','story 条目从 scenes（配文与叙事）、visuals（画面描述、人物外观与画风）、order（画幅先后顺序）、ending（标题与结语）中选择判断所需的全部依据；frame 条目 evidence 为空数组。'],['输入与输出',inputBoundaryDirection+'只返回 {items:[{index,scope,evidence}]}，index 为 1 起始的条目编号，每条一次。']);
+   const count=input.items.length;
+   const schema=obj({items:{type:'array',minItems:count,maxItems:count,items:obj({index:{type:'integer',minimum:1,maximum:count},scope:{type:'string',enum:['story','frame']},evidence:{type:'array',maxItems:4,items:{type:'string',enum:['scenes','visuals','order','ending']}}})}});
+   const result=await call('review',instructions,{items:input.items.map((item,i)=>({index:i+1,text:item.text}))},schema,4096);
+   const parsed=z.object({items:z.array(z.object({index:z.number().int().min(1).max(count),scope:z.enum(['story','frame']),evidence:z.array(z.enum(['scenes','visuals','order','ending'])).max(4)}).strict()).length(count)}).strict().parse(result.value).items;
+   if(new Set(parsed.map(p=>p.index)).size!==count)throw Error('ITEM_REGISTRATION_INCOMPLETE');
+   return {...result,value:parsed.map(p=>{const item=input.items[p.index-1];const evidence=[...new Set(p.evidence)] as Evidence[];return {id:item.id,scope:p.scope,evidence:p.scope==='story'&&!evidence.length?['scenes','visuals']:evidence};})};
+  },
+
+  /**
+   * 分阶段审片：一次调用读取全篇作为上下文，只对允许清单内的结论作出判断。
+   * 允许清单外的判断作为建议返回，调用方据此只替换允许的结论。
+   */
+  async review(input:ReviewInput):Promise<Generated<ReviewOutcome>>{
+   const count=input.frames.length,criteria=acceptanceCriteria(input.acceptancePrompt);
+   const choosing=input.allowed.narrative&&!input.confirmedEnding&&input.candidates?.length===3?input.candidates as [string,string,string]:undefined;
+   const {schema,instructions}=fullReviewRequest(count,input.adaptive,choosing,input.acceptancePrompt);
+   const allowedText=`只对以下对象作出结论：画幅 ${input.allowed.pages.join('、')||'无'}；验收条目编号 ${input.allowed.criteria.join('、')||'无'}；${input.allowed.narrative?'标题与结语（page=0）':'不含标题与结语'}。其余发现仍可列入 issues，系统会作为建议处理。`;
+   const sections=promptSections(['本次结论范围',allowedText],['读者确认',input.confirmedEnding?'plan.title 与 plan.reflection 是读者确认的标题与结语，只判断是否合格，不改选。':'']);
+   const reflection=input.confirmedEnding?.ending??input.chosenEnding??input.candidates?.[0]??'';
+   const title=input.confirmedEnding?.title??input.title;
+   // 与正式审片相同的顺序：系统指令、本地原文约束、本次范围，再加本轮结论范围与审核意见。
+   const system=instructions.slice(0,reviewSystemPrompt.length),rest=instructions.slice(reviewSystemPrompt.length);
+   const result=await call('review',system+(local(input.source)?'\n'+local(input.source):'')+rest+'\n\n'+sections+(input.notes?'\n\n'+reviewNotesDirection:''),{
+    ...sourcePayload(input.source),storyBrief:{summary:input.brief},exactPageCount:count,narrativeDetail:input.narrativeDetail||'balanced',countPolicy:input.adaptive?'adaptive':'fixed',
+    ...(criteria.length?{acceptancePrompt:input.acceptancePrompt,acceptanceCriteria:criteria}:{}),
+    productionPrompt:production(input.source,input.productionPrompt),artDirection:getArtDirection(input.style),
+    plan:{title,summary:input.brief,sourceReference:input.outline.sourceReference,adaptationNote:input.outline.adaptationNote,reflection,characters:input.characters.map(c=>`${c.name}：${c.text}`).join('\n'),pages:input.frames.map(f=>({caption:f.caption,prompt:f.prompt}))},
+    outline:withoutSummary(input.outline),...(choosing?{reflectionCandidates:choosing}:{}),...(input.notes?{reviewNotes:input.notes}:{}),
+   },schema,24000,input.source.original);
+   const report=reviewReportSchema(count,choosing,input.acceptancePrompt).parse(result.value);
+   if(report.coverage)validateEditorialCoverage(report.coverage,input.source.original);
+   return {...result,value:reviewOutcome(input,report,choosing)};
+  },
+ };
+}
+
+export type ReviewInput={
+ source:SourceInput;brief:string;outline:Outline;title:string;productionPrompt:string;acceptancePrompt?:string;style:StyleInput;
+ narrativeDetail?:string;adaptive:boolean;characters:Character[];
+ frames:{id:string;caption:string;prompt:string}[];
+ candidates?:string[];chosenEnding?:string;confirmedEnding?:{title:string;ending:string};notes?:string;
+ /** 允许清单：画幅为 1 起始幅号，条目为 1 起始的验收条目编号。 */
+ allowed:{pages:number[];criteria:number[];narrative:boolean};
+ /** 验收条目编号到条目身份。 */
+ itemIds:Record<number,string>;
+};
+export type Judgement={id:string;outcome:'pass'|'fail';detail?:string;requirements?:boolean};
+export type ReviewOutcome={judgements:Judgement[];suggestions:Judgement[];endingChoice?:string;issues:ReviewIssue[]};
+
+type Report=ReturnType<ReturnType<typeof reviewReportSchema>['parse']>;
+function reviewOutcome(input:ReviewInput,report:Report,choosing?:string[]):ReviewOutcome{
+ const judgements:Judgement[]=[],suggestions:Judgement[]=[];
+ const pages=new Set(input.allowed.pages),criteria=new Set(input.allowed.criteria);
+ const issuesOn=(page:number)=>report.issues.filter(i=>i.page===page);
+ for(let page=1;page<=input.frames.length;page++){
+  const issues=issuesOn(page),id=`frameVerdict:${input.frames[page-1].id}`;
+  const judgement:Judgement={id,outcome:issues.length?'fail':'pass',...(issues.length?{detail:issues.map(i=>i.problem).join('；')}:{})};
+  if(pages.has(page))judgements.push(judgement);else if(issues.length)suggestions.push(judgement);
+ }
+ const narrativeIssues=[...issuesOn(0),...report.issues.filter(i=>i.requiresReplan)];
+ const narrative:Judgement={id:'narrativeVerdict:',outcome:narrativeIssues.length?'fail':'pass',...(narrativeIssues.length?{detail:narrativeIssues.map(i=>i.problem).join('；')}:{})};
+ if(input.allowed.narrative)judgements.push(narrative);else if(narrativeIssues.length)suggestions.push(narrative);
+ for(const result of report.acceptanceResults||[]){
+  const itemId=input.itemIds[result.criterion];if(!itemId)continue;
+  const judgement:Judgement={id:`itemVerdict:${itemId}`,outcome:result.status==='passed'?'pass':'fail',detail:result.evidence,...(result.status==='unknown'?{requirements:true}:{})};
+  if(criteria.has(result.criterion))judgements.push(judgement);else if(judgement.outcome==='fail')suggestions.push(judgement);
+ }
+ const choice=choosing&&report.reflectionChoice?choosing[report.reflectionChoice.index-1]:undefined;
+ return {judgements,suggestions,...(choice?{endingChoice:choice}:{}),issues:report.issues};
+}
+
+function visualValue(value:unknown,all:CharacterEntry[]):Visual{
+ const parsed=z.object({prompt:promptSchema,drawn:z.array(z.string().max(40)).max(16)}).strict().parse(value);
+ return {prompt:parsed.prompt,drawn:castFrom(parsed.drawn.join(' '),all)};
+}
+
+/** 验收要求按行拆成条目；条目身份由文字决定，文字改变即成为新条目，登记随之清空。 */
+export function acceptanceItems(text:string|undefined){
+ return acceptanceCriteria(text).map(line=>({id:`i-${fingerprint(line).slice(0,10)}`,text:line}));
+}
+
+/**
+ * 绘图与横图的提示词：只用本幅画面描述、入画人物设定、画风与重绘说明，不含配文和制作要求。
+ * 提供方以 promptOverride 接收，参考图与画幅比例仍按原参数传入。
+ */
+export function framePrompt(input:{visual:string;redrawNote?:string;drawn:Character[];style:StyleInput;index:number;reference:boolean;layout?:'portrait'|'landscape'}){
+ const scene=input.redrawNote?input.visual+'\n本幅重绘说明（限于画面细节，沿用场景、人物和画风）：'+input.redrawNote:input.visual;
+ return imagePromptFor({scene,characters:input.drawn.map(c=>`${c.name}：${c.text}`).join('\n'),page:input.index,style:input.style.artStyle,artStylePrompt:input.style.artStylePrompt,reference:input.reference,layout:input.layout});
+}
