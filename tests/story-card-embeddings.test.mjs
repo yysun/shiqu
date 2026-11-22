@@ -1,13 +1,19 @@
 // 验证 Ollama 身份兼容、故事卡构建原子性、实时查询和书库备份恢复。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,rm,stat} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,rm,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {StoryCardEmbeddingStore,validateOllamaUrl} from '../server/story-card-embeddings.ts';
 import {createLibraryBackup,restoreLibraryBackup,verifyLibraryBackup} from '../server/library-backup.ts';
 import {createApplication} from '../server/app.ts';
+import {localSourceKey} from '../lib/reader-local-contract.ts';
+
+async function bundledCardCount(bookId){
+ const {edition,cards}=JSON.parse(await readFile(path.join('data/library/story-cards',encodeURIComponent(bookId)+'.json'),'utf8'));
+ return new Set(cards.map(card=>localSourceKey({...card.source,edition}))).size;
+}
 
 function ollama(){
  const state={digest:'model-digest-a',modified:'v1',dimension:3,delay:false,calls:[]};
@@ -91,7 +97,7 @@ test('正式 reader API 提供设置、逐书建库、章节和精确故事检�
  assert.equal(events[0].type,'start');assert.equal(events.at(-1).type,'complete',body);
  // 只加载随包故事卡的用户也能浏览整章卡，关键词可跨标题与梗概。
  for(const [bookId,count,query,title] of [
-  ['三国演义',120,'桃园 黄巾',/^宴桃园豪杰三结义/u],
+  ['三国演义',await bundledCardCount('三国演义'),'桃园 黄巾',/^宴桃园豪杰三结义/u],
   ['战国策',501,'九鼎 颜率',/求九鼎/u],
  ]){
   const endpoint='books/'+encodeURIComponent(bookId)+'/contents';
@@ -99,16 +105,46 @@ test('正式 reader API 提供设置、逐书建库、章节和精确故事检�
   assert.equal(list.entries.length,count);
   assert.ok(list.entries.every(entry=>entry.kind==='story'&&entry.source));
   const chapters=await (await call(endpoint+'?view=chapters')).json();
-  assert.deepEqual(list.entries[0].source,chapters.entries[0].source);
+  const whole=list.entries.find(entry=>localSourceKey(entry.source)===localSourceKey(chapters.entries[0].source));
+  assert.ok(whole);
   if(bookId==='三国演义'){
    assert.match(chapters.entries[0].title,/^第一回/u);
    const byNumber=await (await call(endpoint+'?view=stories&q='+encodeURIComponent('第一回'))).json();
-   assert.equal(byNumber.entries[0].title,list.entries[0].title);
+   assert.ok(byNumber.entries.some(entry=>entry.title===whole.title));
   }
   const matches=await (await call(endpoint+'?view=stories&q='+encodeURIComponent(query))).json();
   assert.ok(matches.entries.some(entry=>title.test(entry.title)));
  }
- const longBooks=[['三国演义',120],['西游记',96],['红楼梦',120],['水浒传',120],['儒林外史',56],['史记',127]];
+ const guanYan=await (await call('books/'+encodeURIComponent('史记')+'/contents?view=stories&section=shiji-062')).json();
+ for(const title of ['管晏列传','管鲍之交','管仲相齐','晏子赎越石父','晏子御者之妻'])
+  assert.ok(guanYan.entries.some(entry=>entry.title===title));
+ const guanBao=guanYan.entries.find(entry=>entry.title==='管鲍之交').source;
+ assert.deepEqual([guanBao.firstUnit,guanBao.lastUnit],['shiji-062-002','shiji-062-004']);
+ for(const [bookId,section,title] of [
+  ['史记','shiji-007','鸿门宴'],
+  ['三国演义','sanguo-021','青梅煮酒论英雄'],
+  ['水浒传','shuihu-003','鲁提辖拳打镇关西'],
+  ['西游记','xiyou-003','龙宫取得金箍棒'],
+  ['红楼梦','honglou-006','刘姥姥一进荣国府'],
+  ['儒林外史','rulin-003','范进中举发疯'],
+ ]){
+  const endpoint='books/'+encodeURIComponent(bookId)+'/contents';
+  const chapter=await (await call(endpoint+'?view=chapters&section='+section)).json();
+  const stories=await (await call(endpoint+'?view=stories&section='+section)).json();
+  const episode=stories.entries.find(entry=>entry.title===title);
+  const whole=chapter.entries.find(entry=>entry.source?.sectionId===section);
+  assert.ok(episode?.source&&whole?.source,title);
+  assert.notEqual(localSourceKey(episode.source),localSourceKey(whole.source),title);
+  assert.ok(stories.entries.some(entry=>localSourceKey(entry.source)===localSourceKey(whole.source)),title);
+ }
+ const rulinEndpoint='books/'+encodeURIComponent('儒林外史')+'/contents?view=stories';
+ const lampTitle='严监生两茎灯草不肯断气';
+ const lamp=(await (await call(rulinEndpoint+'&q='+encodeURIComponent(lampTitle))).json()).entries.find(entry=>entry.title===lampTitle);
+ assert.equal(lamp?.source.sectionId,'rulin-005');
+ assert.equal(lamp?.source.continuations?.[0].sectionId,'rulin-006');
+ const rulinChapter=await (await call(rulinEndpoint+'&section=rulin-005')).json();
+ assert.ok(!rulinChapter.entries.some(entry=>entry.title===lampTitle));
+ const longBooks=await Promise.all(['三国演义','西游记','红楼梦','水浒传','儒林外史','史记'].map(async bookId=>[bookId,await bundledCardCount(bookId)]));
  for(const [bookId,count] of longBooks){
   embeddingInputs.length=0;
   const longBook=await call('books/'+encodeURIComponent(bookId)+'/embedding-index',{method:'POST'});

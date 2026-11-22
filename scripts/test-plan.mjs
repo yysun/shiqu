@@ -51,7 +51,7 @@ const rules=[
  [/^scripts\/export-story\.mjs$/,['media','tooling']],
  [/^scripts\/(?:desktop-node|desktop-resources|desktop-smoke)\.mjs$/,['desktop'],true],
  [/^scripts\/eval-story-discovery\.mjs$/,['discovery']],
- [/^scripts\/(?:prepare-reading-blocks|experiment-soushen-search)\.mjs$/,['books','discovery']],
+ [/^scripts\/(?:prepare-reading-blocks|experiment-soushen-search|build-chapter-story-cards)\.mjs$/,['books','discovery']],
  [/^scripts\/(?:compare-storyboard-reasoning|storyboard-evaluation)\.mjs$/,['review','tooling']],
  [/^scripts\/(?:codex-env|codex-login)\.mjs$/,['providers','tooling']],
  [/^scripts\/(?:dev|development-server)\.mjs$/,['tooling','startup']],
