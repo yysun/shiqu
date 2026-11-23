@@ -2,7 +2,7 @@
 import {restoreAndUpgradeLibrary} from './library-upgrade.ts';
 import path from 'node:path';
 import {readFileSync,writeFileSync,existsSync,lstatSync} from 'node:fs';
-import {createLibraryBackup,verifyLibraryBackup,containsPath} from './library-backup.ts';
+import {createLibraryBackup,verifyBackupForMaintenance,containsPath} from './library-backup.ts';
 import {diagnosticReport} from './diagnostics.ts';
 import {ownDesktopData} from './desktop-owner.ts';
 import {savedDesktopLibraryDirectory,desktopLibraryPaths} from './library-directory.ts';
@@ -10,7 +10,7 @@ import type {CliOptions} from './cli-options.ts';
 
 export async function maintainLibrary(root:string,options:CliOptions){
  if(!options.backup&&!options.restore&&!options.verifyBackup&&!options.diagnostics)return false;
- if(options.verifyBackup){const manifest=verifyLibraryBackup(path.resolve(options.verifyBackup));console.log(`备份完整：${manifest.files.length} 个文件。`);return true;}
+ if(options.verifyBackup){const manifest=verifyBackupForMaintenance(path.resolve(options.verifyBackup));console.log(`备份完整：${manifest.files.length} 个文件。`);return true;}
  const explicit=options.dataDirectory||process.env.SHIQU_DATA_DIR?.trim();
  const directory=path.resolve(explicit||savedDesktopLibraryDirectory()||desktopLibraryPaths().library);
  const output=options.backup||options.diagnostics||options.restore&&directory;

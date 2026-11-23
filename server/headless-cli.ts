@@ -16,7 +16,7 @@ import {SystemSettingsStore} from './system-settings.ts';
 import {effectiveProviderVariables} from './cli-setup.ts';
 import {installDiagnostics} from './diagnostics.ts';
 import {diagnosticReport} from './diagnostics.ts';
-import {createLibraryBackup,verifyLibraryBackup,containsPath} from './library-backup.ts';
+import {createLibraryBackup,verifyBackupForMaintenance,containsPath} from './library-backup.ts';
 import {bundledSkill,installSkill,checkSkill,updateSkill} from './cli-skill.ts';
 import type {StartupSkillRuntime} from './cli-skill.ts';
 import {agentSkillPreference} from './agent-skill.ts';
@@ -140,7 +140,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    return {settings:store.settings(),revision:store.revision(),keyPresent:{gemini:!!store.key('gemini'),openai:!!store.key('openai')}};
   }finally{store.close();}
  }
- if(command==='verify-backup'){need(action,'BACKUP_PATH_REQUIRED','Specify a backup directory.');const verified=verifyLibraryBackup(path.resolve(action));return {verified:true,files:verified.files.length,createdAt:verified.createdAt};}
+ if(command==='verify-backup'){need(action,'BACKUP_PATH_REQUIRED','Specify a backup directory.');const verified=verifyBackupForMaintenance(path.resolve(action));return {verified:true,files:verified.files.length,createdAt:verified.createdAt};}
  const directory=path.resolve(value('data-dir')||variables.SHIQU_DATA_DIR||savedDesktopLibraryDirectory({variables})||locations.library);
  // 检索只访问独立索引和随应用发布的原文，不初始化或锁定正式书库。
  if(command==='books'&&action==='index-import'){

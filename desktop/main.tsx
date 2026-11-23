@@ -4,6 +4,7 @@ import {createRoot} from 'react-dom/client';
 import {invoke,isTauri} from '@tauri-apps/api/core';
 import QRCode from 'qrcode';
 import {ServiceCard} from './ServiceCard';
+import {LibraryBackupCard} from './LibraryBackupCard';
 import {PhoneAccessCard} from './PhoneAccessCard';
 import {localReaderUrl} from './reader-url';
 import {useReleaseUpdate} from './release-update';
@@ -42,6 +43,12 @@ function Desktop(){
  function update<K extends keyof SystemSettings>(name:K,value:SystemSettings[K]){setSettings(current=>current?{...current,[name]:value}:current);}
  async function browse(kind:string,field:keyof SystemSettings){const path=await invoke<string|null>('choose_path',{kind});if(path)update(field,path as never);}
  async function save(){if(!settings||!view)throw Error('请先重新读取设置。');const result=await invoke<View>('save_settings',{settings:nativeValues(settings),expectedRevision:view.revision});adopt(result);return result;}
+ async function switchLibrary(directory:string){
+  if(!view||dirty)throw Error('请先处理未保存的本机设置。');
+  const next={...view.settings,dataDirectory:directory};
+  adopt(await invoke<View>('save_settings',{settings:nativeValues(next),expectedRevision:view.revision}));
+  setMessage('已选择恢复的书库，请在需要时启动服务。');
+ }
  async function start(){if(dirty)await save();accept({running:false,phoneUrls:[],state:'starting'});try{const next=await invoke<Status>('start_server');accept(next);if(!next.running)throw Error(next.error||'服务尚未启动。');}catch(e){accept({running:false,phoneUrls:[],state:'failed',error:String(e)});throw e;}}
  async function stop(){accept(await invoke<Status>('stop_server'));await reload();}
  async function restart(){if(!window.confirm(status.generating?'正在生成故事。重启会停止当前生成，之后可从浏览器继续。是否重启？':'重启会停止正在生成的工作，之后可从浏览器继续。是否重启？'))return;await stop();await start();}
@@ -62,6 +69,7 @@ function Desktop(){
     <label>Codex 登录目录<div className="input-row"><input value={settings.codexHome} placeholder="留空使用默认登录目录" onChange={e=>update('codexHome',e.target.value)}/><button className="secondary" onClick={()=>void action('选择目录',()=>browse('codexHome','codexHome'))}>选择目录</button></div></label>
     </details>
    </fieldset><div className="save-row"><p className="help">{dirty?'有未保存的本机更改':'与已保存设置一致'}</p><button className="secondary" disabled={!native||!!busy} onClick={()=>void action('读取设置',reload)}>重新读取设置</button><button className="secondary" disabled={locked||!dirty} onClick={()=>void action('保存设置',async()=>{await save();setMessage('本机设置已保存。');})}>保存本机设置</button></div></section>
+   {view&&<LibraryBackupCard native={native} library={view.settings.dataDirectory} busy={busy} running={status.running} starting={state==='starting'||state==='upgrading'} canSwitch={!locked} untouched={!dirty} onSwitch={switchLibrary} action={action}/>}
   </div><PhoneAccessCard state={state} running={status.running} busy={!!busy} locked={locked} links={links} phone={phone} publicUrl={status.publicUrl} qr={qr} internetEnabled={settings.internetEnabled} cloudflaredPath={settings.cloudflaredPath} internetError={status.internetError} onChoose={setPhone} onInternetChange={value=>update('internetEnabled',value)} onCloudflaredChange={value=>update('cloudflaredPath',value)} onBrowseCloudflared={()=>void action('选择文件',()=>browse('cloudflared','cloudflaredPath'))} onCopy={()=>void action('复制链接',()=>copy(phone))}/></div>}
   <footer><span>关闭窗口后在托盘运行，退出应用时停止服务。</span>{native&&<div className="release-status">{release.current&&<span>当前版本 {release.current}</span>}<button className="text-button" disabled={release.checking} onClick={()=>void release.check(true)}>{release.checking?'正在检查…':'检查更新'}</button>{release.feedback&&<span role="status">{release.feedback}</span>}</div>}<button className="text-button" disabled={!native||!!busy} onClick={()=>void action('退出应用',async()=>{await invoke('quit_app');})}>退出拾趣</button></footer>
  </main>;

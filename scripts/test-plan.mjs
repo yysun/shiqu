@@ -22,7 +22,7 @@ const rules=[
  [/^server\/(?:desktop|desktop-access|desktop-owner|desktop-remote|desktop-tunnel|phone-access)\.ts$/,['desktop']],
  [/^server\/(?:development|development-access|cli-skill)\.ts$/,['tooling','startup']],
  [/^server\/(?:database|database-migrations|library-schema)\.ts$/,['storage','books','startup'],true],
- [/^server\/(?:library-backup|library-directory|library-maintenance|library-upgrade|import-legacy|diagnostics)\.ts$/,['storage','startup'],true],
+ [/^server\/(?:desktop-backups|library-backup|library-directory|library-maintenance|library-schema|library-upgrade|import-legacy|diagnostics)\.ts$/,['storage','startup'],true],
  [/^server\/(?:app|http|media)\.ts$/,['storage','production','reader','media']],
  [/^server\/(?:local-books|local-book-[\w-]+|local-source-[\w-]+|story-reading-inputs)\.ts$/,['books','discovery']],
  [/^server\/(?:local-story-search|local-story-events|local-story-segmentation|story-card-embeddings|story-index-paths)\.ts$/,['books','discovery']],

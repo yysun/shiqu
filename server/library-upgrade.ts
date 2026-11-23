@@ -8,7 +8,7 @@ import {existsSync,mkdirSync,readFileSync,writeFileSync,renameSync,rmSync,readdi
 import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
-import {createLibraryBackup,verifyLibraryBackup,restoreLibraryBackup,containsPath} from './library-backup.ts';
+import {createLibraryBackup,verifyLibraryBackup,restoreLibraryBackup,containsPath,backupDirectory,checkBackupDirectory,canonicalPath,assertBackupDestination,withBackupAccess,checkDatabase} from './library-backup.ts';
 import {inspectLibrary,withLibraryGate,pendingUpgrade,upgradeJournal,libraryFormat} from './library-schema.ts';
 import {ownsDesktopData,ownDesktopDataSync} from './desktop-owner.ts';
 import {migrate,migrationNames} from './database-migrations.ts';
@@ -136,15 +136,17 @@ function clearSidecars(directory:string){for(const suffix of ['-wal','-shm','-jo
 function recover(directory:string){
  const journal=pendingUpgrade(directory);if(!journal)return;
  if(journal.backup){
-  const allowed=path.join(path.dirname(directory),path.basename(directory)+'-backups');
-  if(!containsPath(allowed,journal.backup))throw Error('LIBRARY_INVALID_BACKUP_PATH');
-  const manifest=verifyLibraryBackup(journal.backup);
-  clearSidecars(directory);
-  // Restore DB last. Access remains excluded until every original file has been verified/restored.
-  for(const file of [...manifest.files].sort((a,b)=>Number(a.path==='shiqu.sqlite')-Number(b.path==='shiqu.sqlite'))){
-   const target=path.join(directory,file.path);durableFile(target,readFileSync(path.join(journal.backup,file.path)));
-   if(hash(target)!==file.sha256)throw Error('LIBRARY_RECOVERY_HASH_MISMATCH');
-  }
+  const backup=journal.backup;
+  if(!containsPath(backupDirectory(directory),backup))throw Error('LIBRARY_INVALID_BACKUP_PATH');
+  withBackupAccess(backup,()=>{
+   const manifest=verifyLibraryBackup(backup);
+   clearSidecars(directory);
+   // 最后恢复数据库，门内先核对所有媒体与原文件。
+   for(const file of [...manifest.files].sort((a,b)=>Number(a.path==='shiqu.sqlite')-Number(b.path==='shiqu.sqlite'))){
+    const target=path.join(directory,file.path);durableFile(target,readFileSync(path.join(backup,file.path)));
+    if(hash(target)!==file.sha256)throw Error('LIBRARY_RECOVERY_HASH_MISMATCH');
+   }
+  },true);
  }else{clearSidecars(directory);rmSync(path.join(directory,'shiqu.sqlite'),{force:true});}
  rmSync(path.join(directory,'.desktop-upgrade-result.json'),{force:true});
  rmSync(path.join(directory,journal.work),{recursive:true,force:true});
@@ -153,40 +155,66 @@ function recover(directory:string){
 function appVersion(root:string){
  try{return String(JSON.parse(readFileSync(path.join(root,'package.json'),'utf8')).version||'unknown');}catch{return 'unknown';}
 }
+const migrationBackupFile='.desktop-migration-backup.json';
+function migrationBackupPath(directory:string){return path.join(directory,migrationBackupFile);}
+export function migrationBackupDependency(directory:string){
+ const filename=migrationBackupPath(directory);
+ let info;
+ try{info=lstatSync(filename);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}
+ if(!info.isFile()||info.isSymbolicLink()||info.size>32768)throw Error('LIBRARY_INVALID_BACKUP_PATH');
+ const {backup,migrations}=JSON.parse(readFileSync(filename,'utf8'));
+ if(typeof backup!=='string'||path.dirname(backup)!==backupDirectory(directory)||!Array.isArray(migrations)||
+    !migrations.length||migrations.some(name=>typeof name!=='string'))throw Error('LIBRARY_INVALID_BACKUP_PATH');
+ return {backup,migrations:migrations as string[]};
+}
+export function backupOriginFile(backup:string){return path.join(path.dirname(backup),'.'+path.basename(backup)+'.origin.json');}
 function safetyBackup(directory:string,root:string){
- const backup=path.join(path.dirname(directory),path.basename(directory)+'-backups','pre-upgrade-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+randomUUID().slice(0,8));
+ const backup=path.join(checkBackupDirectory(directory),'pre-upgrade-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+randomUUID().slice(0,8));
  createLibraryBackup(directory,backup,appVersion(root),root);const manifest=verifyLibraryBackup(backup);
  // Windows 的 FlushFileBuffers 要求句柄有写权限。用 r+ 打开已校验的备份文件，避免截断或创建文件。
  for(const file of [...manifest.files.map(f=>f.path),'shiqu-backup.json']){
   const fd=openSync(path.join(backup,file),'r+');
   try{fsyncSync(fd);}finally{closeSync(fd);}
  }
- syncDirectory(backup);syncDirectory(path.dirname(backup));
+ syncDirectory(backup);
+ durableFile(backupOriginFile(backup),JSON.stringify({library:canonicalPath(directory)})+'\n');
  console.warn('升级前备份已校验：'+backup);
  return backup;
 }
-function pendingMigrations(directory:string,root:string){
+export function pendingMigrations(directory:string,root:string){
  const db=new DatabaseSync(path.join(directory,'shiqu.sqlite'),{readOnly:true});
  try{const applied=new Set(db.prepare('SELECT name FROM app_migrations').all().map(row=>String(row.name)));return migrationNames(root).filter(name=>name>consolidationMigration&&!applied.has(name));}
  finally{db.close();}
 }
 function applyPendingMigrations(directory:string,root:string){
- // Each migration commits on its own; the verified backup is the rollback point for a partial failure.
- const migrations=pendingMigrations(directory,root);if(!migrations.length)return;
+ // 各迁移单独提交。中断后保留最初的回退点，直到所有待处理迁移成功。
+ const dependency=migrationBackupDependency(directory),migrations=pendingMigrations(directory,root);
+ if(dependency){
+  const known=new Set(migrationNames(root));
+  if(dependency.migrations.some(name=>!known.has(name)))throw Error('LIBRARY_NEWER_UPGRADER: use a newer Shiqu app');
+ }
+ if(!migrations.length){
+  if(dependency){rmSync(migrationBackupPath(directory));syncDirectory(directory);}
+  return;
+ }
  const started=Date.now();
  console.warn(`书库数据库正在迁移（${migrations.join('、')}），先做整库备份，请勿关闭……`);
- const backup=safetyBackup(directory,root),sqlite=new DatabaseSync(path.join(directory,'shiqu.sqlite'));
+ const backup=dependency?.backup||safetyBackup(directory,root);
+ if(dependency)withBackupAccess(backup,()=>verifyLibraryBackup(backup),true);
+ durableFile(migrationBackupPath(directory),JSON.stringify({backup,migrations:[...new Set([...(dependency?.migrations||[]),...migrations])]})+'\n');
+ const sqlite=new DatabaseSync(path.join(directory,'shiqu.sqlite'));
  console.warn('正在应用数据库迁移……');
  try{sqlite.exec('PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON');migrate(sqlite,root,directory,undefined,consolidationMigration);sqlite.exec('PRAGMA wal_checkpoint(TRUNCATE)');}
  catch(error){throw Error(`LIBRARY_MIGRATION_FAILED; backup: ${backup}; ${String(error)}`,{cause:error});}
  finally{sqlite.close();}
  if(inspectLibrary(directory)!=='current')throw Error(`LIBRARY_MIGRATION_FAILED; backup: ${backup}; invalid schema`);
+ rmSync(migrationBackupPath(directory));syncDirectory(directory);
  console.warn(`书库数据库迁移完成，用时 ${((Date.now()-started)/1000).toFixed(1)} 秒。`);
  return {backup,migrations};
 }
 export type UpgradePoint='journal'|'staged'|'quarantined'|'database-retired'|'database-published'|'files-published'|'cleanup';
 export function ensureLibraryReady(directory:string,root:string,options:{onStep?:(point:UpgradePoint)=>void}={}){
- const initial=inspectLibrary(directory);if(initial==='current'&&!pendingMigrations(directory,root).length)return;
+ const initial=inspectLibrary(directory);if(initial==='current'&&!migrationBackupDependency(directory)&&!pendingMigrations(directory,root).length)return;
  const release=ownsDesktopData(directory)?()=>{}:ownDesktopDataSync(directory);
  try{return withLibraryGate(directory,()=>{
   const pending=pendingUpgrade(directory);
@@ -201,7 +229,7 @@ export function ensureLibraryReady(directory:string,root:string,options:{onStep?
   durableFile(path.join(directory,upgradeJournal),JSON.stringify({version:libraryFormat.schemaVersion,work:workName,backup})+'\n');
   try{
    options.onStep?.('journal');
-   if(backup)restoreLibraryBackup(backup,work);else mkdirSync(work,{mode:0o700});
+   if(backup)withBackupAccess(backup,()=>restoreLibraryBackup(backup,work),true);else mkdirSync(work,{mode:0o700});
    const sqlite=new DatabaseSync(path.join(work,'shiqu.sqlite'));
    let removal:string[]=[],kept=new Map<string,string>(),shared:string[]=[],uncertain:string[]=[];
    try{
@@ -259,18 +287,21 @@ function inspectLibraryWithoutJournal(directory:string){
  const db=new DatabaseSync(path.join(directory,'shiqu.sqlite'),{readOnly:true});
  try{const version=Number(db.prepare('PRAGMA user_version').get()!.user_version);return version>=1&&version<=libraryFormat.schemaVersion&&db.prepare("SELECT 1 FROM pragma_table_info('stories') WHERE name='document'").get()?'current':'invalid';}finally{db.close();}
 }
-export function restoreAndUpgradeLibrary(source:string,target:string,root:string){
- if(existsSync(target))throw Error('BACKUP_TARGET_EXISTS');
- const stage=target+'.restore-'+randomUUID(),stageBackups=stage+'-backups';
- try{
-  const manifest=restoreLibraryBackup(source,stage);
-  try{ensureLibraryReady(stage,root);}
-  catch(error){throw Error(`LIBRARY_RESTORE_FAILED; nothing restored; source backup unchanged: ${path.resolve(source)}; ${String(error)}`,{cause:error});}
-  // The verified source already holds the pre-upgrade state, so report it instead of the staging snapshot.
-  const report=path.join(stage,'.desktop-upgrade-result.json');
-  if(existsSync(report))durableFile(report,JSON.stringify({...JSON.parse(readFileSync(report,'utf8')),backup:path.resolve(source)})+'\n');
-  renameSync(stage,target);return manifest;
- }finally{rmSync(stage,{recursive:true,force:true});rmSync(stageBackups,{recursive:true,force:true});}
+export function restoreAndUpgradeLibrary(source:string,target:string,root:string,expectedCreatedAt?:string){
+ assertBackupDestination(source,target);
+ return withBackupAccess(source,()=>{
+  const stage=path.join(path.dirname(target),'.'+path.basename(target)+'.restore-'+randomUUID()),stageBackups=backupDirectory(stage);
+  try{
+   const manifest=restoreLibraryBackup(source,stage);
+   if(expectedCreatedAt&&manifest.createdAt!==expectedCreatedAt)throw Error('BACKUP_CHANGED');
+   try{ensureLibraryReady(stage,root);checkDatabase(path.join(stage,'shiqu.sqlite'));}
+   catch(error){throw Error(`LIBRARY_RESTORE_FAILED; nothing restored; source backup unchanged: ${path.resolve(source)}; ${String(error)}`,{cause:error});}
+   // 已校验的源快照保留升级前状态，恢复结果应指向它。
+   const report=path.join(stage,'.desktop-upgrade-result.json');
+   if(existsSync(report))durableFile(report,JSON.stringify({...JSON.parse(readFileSync(report,'utf8')),backup:path.resolve(source)})+'\n');
+   assertBackupDestination(source,target);renameSync(stage,target);return manifest;
+  }finally{rmSync(stage,{recursive:true,force:true});rmSync(stageBackups,{recursive:true,force:true});}
+ },true);
 }
 
 export function libraryUpgradeBackup(directory:string):string|undefined{

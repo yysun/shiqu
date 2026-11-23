@@ -22,6 +22,7 @@ struct Control {
     runtime: Option<runtime::Runtime>,
     last_error: Option<String>,
     starting: bool,
+    maintaining_library: bool,
     progress: Arc<Mutex<Value>>,
 }
 #[derive(Clone, Default)]
@@ -164,7 +165,7 @@ async fn save_settings(
     let shared = state.0.clone();
     blocking(move || {
         let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
-        if control.starting || control.runtime.is_some() {
+        if control.starting || control.runtime.is_some() || control.maintaining_library {
             return Err("请先停止服务，再修改本机设置。".into());
         }
         let mut store = open_store(&app, &mut control)?;
@@ -205,6 +206,50 @@ async fn choose_path(app: tauri::AppHandle, kind: String) -> Result<Option<Strin
 }
 
 #[tauri::command]
+async fn library_backup(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DesktopState>,
+    mut request: Value,
+) -> Result<Value, String> {
+    let shared = state.0.clone();
+    blocking(move || {
+        let operation = request["operation"].as_str().unwrap_or_default().to_owned();
+        let root = resource_root(&app)?;
+        let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
+        if control.maintaining_library {
+            return Err("书库维护正在进行，请稍候。".into());
+        }
+        if operation == "create" && (control.starting || control.runtime.is_some()) {
+            return Err("请先停止服务，再创建书库备份。".into());
+        }
+        let store = open_store(&app, &mut control)?;
+        let settings = store.settings()?;
+        if request["library"].as_str() != Some(settings.data_directory.as_str()) {
+            return Err("已保存的书库位置已更改，请刷新设置后重试。".into());
+        }
+        let fields = request.as_object_mut().ok_or("备份维护请求无效。")?;
+        fields.insert("library".into(), json!(settings.data_directory));
+        drop(store);
+        control.maintaining_library = true;
+        drop(control);
+        let result = runtime::backup_operation(&root, request);
+        shared
+            .lock()
+            .map_err(|_| "服务控制器不可用。")?
+            .maintaining_library = false;
+        let result = result?;
+        if operation == "reveal" {
+            let path = result["path"].as_str().ok_or("备份路径无效。")?;
+            app.opener()
+                .reveal_item_in_dir(path)
+                .map_err(|_| "无法在文件管理器中定位备份。")?;
+        }
+        Ok(result)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn start_server(
     app: tauri::AppHandle,
     state: tauri::State<'_, DesktopState>,
@@ -214,6 +259,9 @@ async fn start_server(
         let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
         if let Some(runtime) = &mut control.runtime {
             return Ok(runtime.snapshot());
+        }
+        if control.maintaining_library {
+            return Err("书库维护正在进行，请稍候。".into());
         }
         if control.starting {
             return Err("服务正在启动或升级书库，请等待完成。".into());
@@ -257,7 +305,7 @@ fn stop_control(state: &DesktopState) {
         let Ok(mut control) = state.0.lock() else {
             return;
         };
-        if control.starting {
+        if control.starting || control.maintaining_library {
             drop(control);
             std::thread::sleep(std::time::Duration::from_millis(100));
             continue;
@@ -376,6 +424,7 @@ pub fn run() {
             save_settings,
             detect_node,
             choose_path,
+            library_backup,
             start_server,
             stop_server,
             server_status,

@@ -65,7 +65,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 | 跨库复制 | `stories copy <来源故事id> --from-data-dir <来源书库> --data-dir <目标书库>` 默认仅复制已通过且未越过审核的文本与审核记录，新故事初始暂停。显式 `--draft` 或输入 `draft:true` 可复制尚未通过审核、但已有完整原文、分镜与审核检查点的文本；保留原审核状态、不复制图片，也不允许再用 copy-images 补图。`stories copy-images <目标故事id>` 用同一对书库及输入 `{sourceId:"来源故事id"}` 给普通文本副本补充图片，不创建另一个故事。`copy` 也支持显式 `--copy-images` / `--no-copy-images` 或输入 `copyImages`；仅在用户已决定时使用。换画风时不能复制旧图片。 |
 | 署名与转载 | 默认值通过 `api GET/POST reader/publication-defaults` 读取/保存；单篇通过 `stories get <id>` 读取 story.publication，再 `api POST reader/sessions/<id>/publication` 保存。输入均为 `{publication:<完整署名对象>,expected:<原对象或null>}`，保留未修改字段，expected 必须沿用原始读取结果；修改全局默认与单篇设置是不同操作。 |
 | 预览与交付 | preview 输出独立离线 HTML；export 支持 zip/pdf/png/json/md，使用共享序列化、图片编码、水印和元数据规则。自主程序可组织导出清单，不能自己重建作品包。 |
-| 维护 | backup 创建完整私有快照，verify-backup 验证；restore 仅恢复到新的 data-dir，不覆盖原库或自动切换默认位置。diagnostics 输出脱敏诊断；它与私有完整备份用途不同。 |
+| 维护 | backup 创建完整私有快照，verify-backup 验证；restore 仅恢复到新的 data-dir，不覆盖原库或自动切换默认位置。等待同目录正在运行的校验或恢复结束再重试；格式 V1 可由 0.15.0 经 0025 恢复成 V2 副本，原快照留作回退。diagnostics 输出脱敏诊断；它与私有完整备份用途不同。 |
 
 暂停审核后，先用 `stories revisions ID` 取得 token，再用 `stories edit ID --input review.json` 提交 `{"token":"当前 token","changes":{"reviewNotes":"请复核第 4 幅的人物选择及其后果。"}}`。意见最多 1200 字，传空字符串可清除。仅修改审核意见时，新版保留已保存的分镜和审核修订记录，运行新版后按意见复核。用 `help --json` 查看 `inputs.reviewNotes`。
 

@@ -19,10 +19,42 @@ export function canonicalPath(filename:string):string{
  return path.join(realpathSync(parent),...suffix);
 }
 export function containsPath(parent:string,child:string){const r=path.relative(canonicalPath(parent),canonicalPath(child));return r===''||!r.startsWith('..'+path.sep)&&r!=='..'&&!path.isAbsolute(r);}
-function targets(source:string,target:string){
+export function backupDirectory(library:string){return path.resolve(library)+'-backups';}
+export function checkBackupDirectory(library:string){
+ const folder=backupDirectory(library);
+ try{directory(folder);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+ return folder;
+}
+export function assertBackupDestination(source:string,target:string){
  if(containsPath(source,target)||containsPath(target,source))throw Error('BACKUP_OVERLAPPING_PATHS');
  // lstat also rejects dangling links, which existsSync deliberately does not report.
  try{lstatSync(target);throw Error('BACKUP_TARGET_EXISTS');}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+}
+// 校验、恢复和删除共享父目录锁。只读介质上的快照仍可读取。
+export function withBackupAccess<T>(backup:string,action:()=>T,readOnly=false):T{
+ directory(backup);
+ const filename=path.join(path.dirname(realpathSync(backup)),'.shiqu-backup-lock.sqlite');
+ let lock:DatabaseSync;
+ try{
+  const fd=openSync(filename,constants.O_CREAT|constants.O_RDWR|constants.O_NOFOLLOW,0o600);closeSync(fd);
+  lock=new DatabaseSync(filename);
+ }
+ catch(error){
+  if(!readOnly||!['EROFS','EACCES','EPERM'].includes((error as NodeJS.ErrnoException).code||''))throw error;
+  let info;
+  try{info=lstatSync(filename);}catch(check){if((check as NodeJS.ErrnoException).code==='ENOENT')return action();throw check;}
+  if(!info.isFile()||info.isSymbolicLink())throw error;
+  lock=new DatabaseSync(filename,{readOnly:true});
+ }
+ try{
+  try{
+   lock.exec('PRAGMA busy_timeout=0');
+   if(readOnly)lock.exec('BEGIN; SELECT name FROM sqlite_schema LIMIT 1');
+   else lock.exec('BEGIN EXCLUSIVE');
+  }
+  catch(error){throw Error('BACKUP_IN_USE',{cause:error});}
+  return action();
+ }finally{lock.close();}
 }
 function hash(filename:string){
  const file=openSync(filename,constants.O_RDONLY|constants.O_NOFOLLOW),digest=createHash('sha256'),buffer=Buffer.alloc(1024*1024);let size=0;
@@ -57,22 +89,27 @@ export function checkDatabase(filename:string){
  try{db.exec('PRAGMA busy_timeout=2000');if(db.prepare('PRAGMA integrity_check').all().some(row=>row.integrity_check!=='ok'))throw Error('BACKUP_DATABASE_CORRUPT');}
  finally{db.close();}
 }
-export function verifyLibraryBackup(folder:string):Manifest{
+export function readBackupManifest(folder:string):Manifest{
  directory(folder);const filename=path.join(folder,manifestName),info=lstatSync(filename);
  if(!info.isFile()||info.isSymbolicLink()||info.size>32*1024*1024)throw Error('BACKUP_INVALID_MANIFEST');
  const manifest=manifestSchema.parse(JSON.parse(readFileSync(filename,'utf8'))),names=manifest.files.map(f=>f.path);
  if(new Set(names).size!==names.length||!names.includes('shiqu.sqlite')||names.some(n=>n===manifestName||runtimeFile(n.split('/')[0])))throw Error('BACKUP_INVALID_MANIFEST');
+ return manifest;
+}
+export function verifyLibraryBackup(folder:string):Manifest{
+ const manifest=readBackupManifest(folder),names=manifest.files.map(f=>f.path);
  const actual=files(folder);if(JSON.stringify(actual.sort())!==JSON.stringify([...names].sort()))throw Error('BACKUP_FILE_SET_MISMATCH');
  for(const file of manifest.files){const actual=hash(path.join(folder,file.path));if(actual.size!==file.size||actual.sha256!==file.sha256)throw Error('BACKUP_FILE_MISMATCH');}
  checkDatabase(path.join(folder,'shiqu.sqlite'));return manifest;
 }
+export function verifyBackupForMaintenance(folder:string){return withBackupAccess(folder,()=>verifyLibraryBackup(folder),true);}
 function stageDirectory(target:string){
  mkdirSync(path.dirname(target),{recursive:true,mode:0o700});
  const stage=path.join(path.dirname(target),'.'+path.basename(target)+'.partial-'+randomUUID());mkdirSync(stage,{mode:0o700});return stage;
 }
 function copyPrivate(source:string,target:string){mkdirSync(path.dirname(target),{recursive:true,mode:0o700});copyFileSync(source,target,constants.COPYFILE_EXCL);chmodSync(target,0o600);}
 export function createLibraryBackup(source:string,target:string,appVersion='unknown',root?:string){
- source=path.resolve(source);target=path.resolve(target);directory(source);targets(source,target);checkDatabase(path.join(source,'shiqu.sqlite'));
+ source=path.resolve(source);target=path.resolve(target);directory(source);assertBackupDestination(source,target);checkDatabase(path.join(source,'shiqu.sqlite'));
  // 只排除当前应用的正式资源。旧备份仍按原清单校验和恢复。
  const actualSource=realpathSync(source);
  const forSource=(resource:string)=>path.join(source,path.relative(actualSource,canonicalPath(resource)));
@@ -84,14 +121,14 @@ export function createLibraryBackup(source:string,target:string,appVersion='unkn
   for(const name of names)if(name!=='shiqu.sqlite')copyPrivate(path.join(source,name),path.join(stage,name));
   const manifest:Manifest={format:'shiqu-library-backup',version:1,createdAt:new Date().toISOString(),appVersion,files:files(stage).map(name=>({path:name,...hash(path.join(stage,name))}))};
   writeFileSync(path.join(stage,manifestName),JSON.stringify(manifest,null,2)+'\n',{mode:0o600,flag:'wx'});
-  verifyLibraryBackup(stage);targets(source,target);renameSync(stage,target);return manifest;
+  verifyLibraryBackup(stage);assertBackupDestination(source,target);renameSync(stage,target);return manifest;
  }finally{rmSync(stage,{recursive:true,force:true});}
 }
 export function restoreLibraryBackup(source:string,target:string){
- source=path.resolve(source);target=path.resolve(target);targets(source,target);const manifest=verifyLibraryBackup(source),stage=stageDirectory(target);
+ source=path.resolve(source);target=path.resolve(target);assertBackupDestination(source,target);const manifest=verifyLibraryBackup(source),stage=stageDirectory(target);
  try{
   for(const file of manifest.files)copyPrivate(path.join(source,file.path),path.join(stage,file.path));
   for(const file of manifest.files){const actual=hash(path.join(stage,file.path));if(actual.sha256!==file.sha256||actual.size!==file.size)throw Error('BACKUP_CHANGED_DURING_RESTORE');}
-  checkDatabase(path.join(stage,'shiqu.sqlite'));targets(source,target);renameSync(stage,target);return manifest;
+  checkDatabase(path.join(stage,'shiqu.sqlite'));assertBackupDestination(source,target);renameSync(stage,target);return manifest;
  }finally{rmSync(stage,{recursive:true,force:true});}
 }

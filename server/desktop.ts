@@ -7,7 +7,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createInterface} from 'node:readline';
 import {once} from 'node:events';
 import {z} from 'zod';
-import {realpathSync} from 'node:fs';
+import {readFileSync,realpathSync} from 'node:fs';
 import {createApplication} from './app.ts';
 import {createHttpServer} from './http.ts';
 import {desktopAccess} from './desktop-access.ts';
@@ -27,6 +27,7 @@ import {browserProviderSettings} from './browser-provider-settings.ts';
 import {providerSettingsPath} from '../lib/provider-settings.ts';
 import {checkProviderVariables,runtimeConfiguration} from './provider-runtime.ts';
 import {installDiagnostics,recordDiagnostic,safeErrorCode} from './diagnostics.ts';
+import {desktopBackupError,runDesktopBackup} from './desktop-backups.ts';
 
 export const desktopSettings=systemSettingsSchema;
 export type DesktopSettings=z.infer<typeof desktopSettings>;
@@ -143,4 +144,20 @@ async function main(){
  });
  const timer=setTimeout(()=>{if(!runtime&&!starting)void stop();},10000);timer.unref();
 }
-if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1])).href)void main();
+async function backupMain(){
+ const lines=createInterface({input:process.stdin,crlfDelay:Infinity});
+ for await(const line of lines){
+  try{
+   if(line.length>40000)throw Error('BACKUP_INVALID');
+   const root=process.cwd();
+   const version=JSON.parse(readFileSync(path.join(root,'package.json'),'utf8')).version;
+   const result=runDesktopBackup(root,version,JSON.parse(line));
+   process.stdout.write(JSON.stringify({result})+'\n');
+  }catch(error){process.stdout.write(JSON.stringify({error:desktopBackupError(error)})+'\n');}
+  finally{lines.close();}
+  return;
+ }
+}
+if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1])).href){
+ if(process.argv[2]==='--library-maintenance')void backupMain();else void main();
+}

@@ -834,6 +834,36 @@
       ]
     },
     {
+      "file": "tests/desktop-backups.test.mjs",
+      "groups": [
+        "desktop",
+        "storage"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "flows",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/desktop.ts",
+        "server/desktop-backups.ts",
+        "server/desktop-owner.ts",
+        "server/library-backup.ts",
+        "server/library-schema.ts",
+        "server/library-upgrade.ts",
+        "tests/fixtures/historical-library.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production-data.mjs",
+        "tests/fixtures/startup.mjs",
+        "tests/fixtures/story.mjs"
+      ]
+    },
+    {
       "file": "tests/desktop-runtime.test.mjs",
       "groups": [
         "desktop"

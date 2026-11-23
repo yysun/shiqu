@@ -100,6 +100,50 @@ pub fn command(binary: &Path) -> Command {
     command_with_env(binary, |name| std::env::var_os(name))
 }
 
+// 私有维护子进程只接收本次操作和路径，不加载提供方配置。
+pub fn backup_operation(root: &Path, request: Value) -> Result<Value, String> {
+    let node = node_info("", root)?;
+    backup_operation_with_node(Path::new(&node.path), root, request)
+}
+
+fn backup_operation_with_node(node: &Path, root: &Path, request: Value) -> Result<Value, String> {
+    let mut child = command(node)
+        .arg("--no-warnings")
+        .arg(root.join("dist/server/desktop.js"))
+        .arg("--library-maintenance")
+        .current_dir(root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "无法启动备份维护进程。")?;
+    let wrote = child
+        .stdin
+        .take()
+        .ok_or("无法打开维护输入。")?
+        .write_all(format!("{request}\n").as_bytes());
+    if wrote.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("无法发送备份维护请求。".into());
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|_| "备份维护进程已中断。")?;
+    if !output.status.success() {
+        return Err("备份维护进程已中断，请重新打开备份列表检查结果。".into());
+    }
+    let mut response: Value =
+        serde_json::from_slice(&output.stdout).map_err(|_| "无法读取备份维护结果。")?;
+    if let Some(error) = response["error"].as_str() {
+        return Err(error.into());
+    }
+    response
+        .get_mut("result")
+        .map(Value::take)
+        .ok_or_else(|| "备份维护结果缺失。".into())
+}
+
 fn command_with_env(
     binary: &Path,
     environment: impl Fn(&str) -> Option<std::ffi::OsString>,
@@ -444,6 +488,30 @@ mod tests {
             }))
             .unwrap()
         );
+    }
+    #[test]
+    fn backup_bridge_sends_single_private_request_and_returns_failure() {
+        let resources =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../desktop/resources/runtime");
+        let node = node_info("", &resources).unwrap();
+        let root = std::env::temp_dir().join(format!("shiqu-backup-test-{}", std::process::id()));
+        let server = root.join("dist/server");
+        fs::create_dir_all(&server).unwrap();
+        fs::write(
+            server.join("desktop.js"),
+            r#"const fs = require('node:fs');
+const request = JSON.parse(fs.readFileSync(0, 'utf8'));
+if (process.argv[2] !== '--library-maintenance' || process.env.OPENAI_API_KEY) process.exit(1);
+console.log(JSON.stringify(request.operation === 'list' ? {result: request} : {error: '备份损坏'}));"#,
+        )
+        .unwrap();
+        let node = Path::new(&node.path);
+        let request = json!({"operation":"list","library":root.join("隔离的 书库")});
+        let result = backup_operation_with_node(node, &root, request.clone());
+        let error = backup_operation_with_node(node, &root, json!({"operation":"verify"}));
+        fs::remove_dir_all(root).unwrap();
+        assert_eq!(result.unwrap(), request);
+        assert_eq!(error.unwrap_err(), "备份损坏");
     }
     #[test]
     fn desktop_rejects_missing_or_modified_bundle_without_fallback() {

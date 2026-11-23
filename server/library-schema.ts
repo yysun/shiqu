@@ -41,8 +41,9 @@ export function inspectLibrary(directory:string):'missing'|'legacy'|'current'|'p
   return 'legacy';
  }finally{db.close();}
 }
-export function withLibraryGate<T>(directory:string,action:()=>T):T{
- inspectLibrary(directory);mkdirSync(directory,{recursive:true});
+export function withLibraryGate<T>(directory:string,action:()=>T,existingOnly=false):T{
+ inspectLibrary(directory);
+ if(!existingOnly)mkdirSync(directory,{recursive:true});
  const gate=new DatabaseSync(path.join(directory,'.desktop-upgrade-lock.sqlite'));
  try{
   try{gate.exec('PRAGMA busy_timeout=0; BEGIN EXCLUSIVE');}catch{throw Error('DATA_BUSY: library upgrade in progress');}

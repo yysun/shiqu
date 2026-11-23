@@ -44,10 +44,10 @@ test('pending migration creates verified old-schema backup once; failed snapshot
  const f=await startupFixture(t),source=path.join(f.root,'library');historicalLibrary(source,f.root).close();let local;
  await writeFile(path.join(f.root,'drizzle/0017a_maintenance_probe.sql'),'CREATE TABLE maintenance_probe(value TEXT);');
  local=openDatabase(source,f.root);assert.ok(local.sqlite.prepare("SELECT name FROM sqlite_master WHERE name='maintenance_probe'").get());local.close();
- const backups=path.join(f.root,'library-backups'),names=await readdir(backups);assert.equal(names.length,1);const backup=path.join(backups,names[0]);verifyLibraryBackup(backup);
+ const backups=path.join(f.root,'library-backups'),names=(await readdir(backups)).filter(name=>name.startsWith('pre-upgrade-'));assert.equal(names.length,1);const backup=path.join(backups,names[0]);verifyLibraryBackup(backup);
  restoreLibraryBackup(backup,path.join(f.root,'restored'));
  const old=new DatabaseSync(path.join(f.root,'restored/shiqu.sqlite'),{readOnly:true});assert.equal(old.prepare("SELECT name FROM sqlite_master WHERE name='maintenance_probe'").get(),undefined);old.close();
- local=openDatabase(source,f.root);local.close();assert.equal((await readdir(backups)).length,1);
+ local=openDatabase(source,f.root);local.close();assert.equal((await readdir(backups)).filter(name=>name.startsWith('pre-upgrade-')).length,1);
  // A real filesystem obstruction prevents even the next SQL migration from starting.
  const blocked=path.join(f.root,'blocked');historicalLibrary(blocked,f.root).close();await writeFile(path.join(f.root,'blocked-backups'),'obstruction');
  assert.throws(()=>openDatabase(blocked,f.root));const unchanged=new DatabaseSync(path.join(blocked,'shiqu.sqlite'),{readOnly:true});assert.equal(unchanged.prepare("SELECT name FROM sqlite_master WHERE name='must_not_appear'").get(),undefined);unchanged.close();

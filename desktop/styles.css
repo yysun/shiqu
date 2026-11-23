@@ -12,3 +12,13 @@
 /* 少用的 Codex 路径默认收起，展开后仍受原生设置的禁用规则约束。 */
 .advanced-settings{margin-top:20px;border-top:1px solid #edf0e5;padding-top:15px}.advanced-settings>summary{cursor:pointer;font-size:12px;font-weight:550;color:#527048}.advanced-settings>summary:focus-visible{outline:3px solid #b38438;outline-offset:3px;border-radius:3px}.advanced-settings>p{margin-top:9px}
 .release-notice,.release-status{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}.release-notice{justify-content:space-between}.release-notice .error{flex-basis:100%}
+
+.backup-card .backup-location{overflow-wrap:anywhere}
+.backup-card p{margin:.45rem 0}
+.backup-actions{display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:.5rem;margin-top:.65rem}
+.backup-list{display:grid;gap:.75rem;list-style:none;margin:.9rem 0;padding:0}
+.backup-list li,.backup-panel{border:1px solid var(--line,#d9ddcf);border-radius:.65rem;padding:.8rem}
+.backup-list li>span{display:inline-block;margin-left:.65rem}
+.backup-panel{margin-top:.85rem}
+.backup-panel h3{margin:0}
+.backup-panel label{display:grid;gap:.35rem}

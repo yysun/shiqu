@@ -349,6 +349,9 @@ test('the production upgrade preserves saved text and media, and resumes only un
  verifyLibraryBackup(backup);
  const replay=path.join(f.root,'upgrade-replay');
  restoreLibraryBackup(backup,replay);
+ // 重试保留首次回退点，其中仍有测试注入的故障触发器；只从隔离重放副本移除。
+ const replayBefore=new DatabaseSync(path.join(replay,'shiqu.sqlite'));
+ try{replayBefore.exec('DROP TRIGGER simulate_interruption');}finally{replayBefore.close();}
  ensureLibraryReady(replay,f.root);
  const replayDb=new DatabaseSync(path.join(replay,'shiqu.sqlite'),{readOnly:true});
  try{assert.deepEqual(documentsIn(replayDb),converted,'the same backup produces identical converted documents');}
