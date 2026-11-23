@@ -60,6 +60,9 @@ export function migrateProductionDag(sqlite:DatabaseSync,sql:string,directory?:s
    convertStory(sqlite,read.get(id,user_id) as Row,save,directory);
    sqlite.exec('RELEASE dag_story');
   }catch(error){
+   // 空间不足会使恢复不完整，交给整库迁移回滚并报告磁盘错误。
+   const failure=error as (NodeJS.ErrnoException&{errcode?:number})|undefined;
+   if(!sqlite.isTransaction||failure?.errcode===13||failure?.code==='ENOSPC')throw error;
    sqlite.exec('ROLLBACK TO dag_story');sqlite.exec('RELEASE dag_story');
    console.error('production_dag_conversion_skipped',JSON.stringify({id,code:error instanceof Error?error.message.slice(0,80):'UNKNOWN'}));
   }

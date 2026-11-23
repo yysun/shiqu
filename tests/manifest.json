@@ -850,6 +850,8 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "server/dag-migration.ts",
+        "server/database-migrations.ts",
         "server/desktop.ts",
         "server/desktop-backups.ts",
         "server/desktop-owner.ts",

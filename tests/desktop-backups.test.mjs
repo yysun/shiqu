@@ -2,11 +2,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync,spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
 import {chmodSync,existsSync,mkdirSync,readFileSync,renameSync,rmSync,writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {startupFixture} from './fixtures/startup.mjs';
+import {startupFixture,startFixtureCli} from './fixtures/startup.mjs';
 import {historicalLibrary} from './fixtures/historical-library.mjs';
 import {makePlan,selection} from './fixtures/production-data.mjs';
 import {png} from './fixtures/images.mjs';
@@ -91,6 +92,34 @@ test('desktop lists and locates existing snapshots, verifies external copies, an
  assert.match(f.invoke('verify',{backup:external}).error,/多余文件/);
  assert.match(f.invoke('restore',{backup:external,target:path.join(f.root,'broken')}).error,/多余文件/);
  assert.equal(existsSync(path.join(f.root,'broken')),false);
+ const manifestPath=path.join(external,'shiqu-backup.json'),manifest=JSON.parse(readFileSync(manifestPath,'utf8'));
+ writeFileSync(manifestPath,'corrupt manifest');
+ assert.match(f.invoke('verify',{backup:external}).error,/备份清单损坏/);
+ rmSync(path.join(external,'unexpected.txt'));
+ const corrupt=Buffer.from('not a SQLite database');
+ writeFileSync(path.join(external,'shiqu.sqlite'),corrupt);
+ Object.assign(manifest.files.find(file=>file.path==='shiqu.sqlite'),{size:corrupt.length,sha256:createHash('sha256').update(corrupt).digest('hex')});
+ writeFileSync(manifestPath,JSON.stringify(manifest));
+ assert.match(f.invoke('verify',{backup:external}).error,/书库数据库损坏/);
+});
+
+test('desktop and current CLI can verify and restore each other’s backups',async t=>{
+ const f=await fixture(t);
+ f.sqlite.close();
+ async function cli(args){
+  const command=startFixtureCli(f,args);
+  assert.equal(await command.ended(),0,command.output());
+ }
+ const cliBackup=path.join(f.root,'cli-backup'),desktopRestore=path.join(f.root,'desktop-restore');
+ await cli(['backup',cliBackup,'--data-dir',f.library]);
+ assert.equal(f.run('verify',{backup:cliBackup}).compatibility.version,2);
+ assert.equal(f.run('restore',{backup:cliBackup,target:desktopRestore}).path,desktopRestore);
+ const desktopBackup=f.run('create').path,cliRestore=path.join(f.root,'cli-restore');
+ await cli(['verify-backup',desktopBackup]);
+ await cli(['restore',desktopBackup,'--data-dir',cliRestore]);
+ const db=new DatabaseSync(path.join(cliRestore,'shiqu.sqlite'),{readOnly:true});
+ try{assert.equal(db.prepare('PRAGMA user_version').get().user_version,2);}
+ finally{db.close();}
 });
 
 test('desktop restore applies 0025 to a new library and leaves every V1 backup byte intact',async t=>{
@@ -117,6 +146,18 @@ test('desktop restore applies 0025 to a new library and leaves every V1 backup b
  const migration=path.join(f.root,'drizzle','0025_production_dag.sql'),sql=readFileSync(migration);
  writeFileSync(migration,'NOT VALID SQL');
  assert.match(f.invoke('restore',{backup,target}).error,/恢复或迁移未完成/);
+ assert.equal(existsSync(target),false);
+ writeFileSync(migration,sql.toString()+
+  '\nPRAGMA max_page_count=5; CREATE TABLE overflow_test(value BLOB); INSERT INTO overflow_test VALUES(randomblob(2097152));');
+ assert.match(f.invoke('restore',{backup,target}).error,/存储空间不足/);
+ assert.equal(existsSync(target),false);
+ writeFileSync(migration,sql.toString()+`
+CREATE TABLE overflow_test(value BLOB);
+CREATE TRIGGER overflow_story AFTER UPDATE OF document ON stories BEGIN
+ INSERT INTO overflow_test VALUES(randomblob(2097152));
+END;
+PRAGMA max_page_count=5;`);
+ assert.match(f.invoke('restore',{backup,target}).error,/存储空间不足/);
  assert.equal(existsSync(target),false);
  writeFileSync(migration,sql);
  assert.deepEqual(f.run('restore',{backup,target}),{path:target});

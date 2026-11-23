@@ -18,6 +18,7 @@ const requestSchema=z.object({
 function failureCode(error:unknown){
  const failure=error as (NodeJS.ErrnoException&{errcode?:number})|undefined;
  if(failure?.errcode===13)return 'ENOSPC';
+ if(failure?.errcode!==undefined&&[11,26].includes(failure.errcode&255))return 'BACKUP_DATABASE_CORRUPT';
  return failure?.code||failure?.message?.match(/^[A-Z][A-Z_]+\b/)?.[0]||'BACKUP_INVALID';
 }
 export function desktopBackupError(error:unknown){
@@ -39,6 +40,9 @@ export function desktopBackupError(error:unknown){
   BACKUP_PROTECTED:'未完成的升级或恢复仍需要此备份。',
   BACKUP_DELETE_UNCERTAIN:'无法确认此备份可安全删除。请检查书库或重新读取列表。',
   BACKUP_CHANGED:'备份已变更。请刷新列表后重新确认。',
+  BACKUP_INVALID_MANIFEST:'备份清单损坏或格式不受支持，请选择其他快照。',
+  BACKUP_DATABASE_CORRUPT:'备份中的书库数据库损坏，请选择其他快照。',
+  BACKUP_INVALID_DATABASE:'备份中的书库数据库文件无效，请选择其他快照。',
   BACKUP_FILE_SET_MISMATCH:'备份有缺失或多余文件，请选择其他快照。',
   BACKUP_FILE_MISMATCH:'备份文件大小或校验值不符，请选择其他快照。',
   LIBRARY_NEWER_SCHEMA:'此备份来自较新的书库格式，请使用支持该格式的拾趣版本。',

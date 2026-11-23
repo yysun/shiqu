@@ -22,6 +22,10 @@ export function migrate(sqlite:DatabaseSync,root:string,directory?:string,throug
     sqlite.prepare('INSERT INTO app_migrations VALUES(?,?)').run(name,new Date().toISOString());
    }
    sqlite.exec('COMMIT');
-  }catch(error){sqlite.exec('ROLLBACK');throw error;}
+  }catch(error){
+   // 磁盘满等 SQLite 错误可能已回滚事务，保留原有失败原因。
+   if(sqlite.isTransaction)sqlite.exec('ROLLBACK');
+   throw error;
+  }
  }
 }

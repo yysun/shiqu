@@ -92,7 +92,11 @@ export function checkDatabase(filename:string){
 export function readBackupManifest(folder:string):Manifest{
  directory(folder);const filename=path.join(folder,manifestName),info=lstatSync(filename);
  if(!info.isFile()||info.isSymbolicLink()||info.size>32*1024*1024)throw Error('BACKUP_INVALID_MANIFEST');
- const manifest=manifestSchema.parse(JSON.parse(readFileSync(filename,'utf8'))),names=manifest.files.map(f=>f.path);
+ const content=readFileSync(filename,'utf8');
+ let manifest:Manifest;
+ try{manifest=manifestSchema.parse(JSON.parse(content));}
+ catch(error){throw Error('BACKUP_INVALID_MANIFEST',{cause:error});}
+ const names=manifest.files.map(f=>f.path);
  if(new Set(names).size!==names.length||!names.includes('shiqu.sqlite')||names.some(n=>n===manifestName||runtimeFile(n.split('/')[0])))throw Error('BACKUP_INVALID_MANIFEST');
  return manifest;
 }
