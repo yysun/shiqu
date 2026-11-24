@@ -7,6 +7,7 @@
 // 任务状态变化与故障、恢复回执在同一事务中写入（production-records.ts），失败同时记录结构化错误码。
 import {createHash,randomUUID} from 'node:crypto';
 import {persistenceError} from '../lib/reader-repository.ts';
+import {authorizeJobLease,classifyJobFailure} from '../lib/production-lifecycle.ts';
 import type {Database,SyncStatements} from '../lib/reader-repository.ts';
 import {transact,recordJobFailed,recordJobRequeued,recordJobRunning,recordJobSucceeded} from './production-records.ts';
 
@@ -168,22 +169,19 @@ export class ProductionQueue{
   let result:unknown;
   try{result=await handler.run(job,{outputs,isCurrent});}
   catch(error){
-   if(persistenceError(error)){unsaved(error);return;}
-   if(error instanceof JobYield){
-    try{this.releaseClaim(job,error.waitingFor);}
-    catch(writeError){unsaved(writeError);}
-    return;
-   }
-   // A stop kills provider processes, so a failure now is not evidence about the work itself.
-   const interrupted=this.stopping&&!handler.drain&&!this.options.terminal?.(error,job);
-   // Only safe application messages are persisted; provider responses may contain private data.
-   const message=interrupted?interruptedMessage:this.options.safeError?.(error,job)||'制作暂时未完成，已保存的结果会保留。';
-   const finishedAt=this.clock(),timing=JSON.stringify({startedAt:job.updated_at,finishedAt});
    try{
-    const code=interrupted?'TIMEOUT':this.options.errorCode?.(error,job);
+    const persistence=persistenceError(error),yielded=error instanceof JobYield;
+    const code=persistence||yielded?undefined:this.options.errorCode?.(error,job);
+    const outcome=classifyJobFailure({persistence,yielded,stopping:this.stopping,drains:!!handler.drain,
+     terminal:this.stopping&&!handler.drain&&!!this.options.terminal?.(error,job),timeout:code==='TIMEOUT',contentBlocked:code==='CONTENT_BLOCKED'});
+    if(outcome==='unsaved'){unsaved(error);return;}
+    if(error instanceof JobYield&&outcome==='yield'){this.releaseClaim(job,error.waitingFor);return;}
+    const interrupted=outcome==='interrupted';
+    const message=interrupted?interruptedMessage:this.options.safeError?.(error,job)||'制作暂时未完成，已保存的结果会保留。';
+    const finishedAt=this.clock(),timing=JSON.stringify({startedAt:job.updated_at,finishedAt});
     transact(this.database,db=>{
      const payload=db.get<{payload:string}>(`SELECT ${timedPayload} AS payload FROM production_jobs WHERE id=?`,timing,job.id)?.payload;
-     recordJobFailed(db,job,{message,interrupted,errorCode:code,failureId:interrupted&&job.failure_id?job.failure_id:randomUUID(),now:finishedAt,payload});
+     recordJobFailed(db,job,{message,interrupted,errorCode:interrupted?'TIMEOUT':code,failureId:interrupted&&job.failure_id?job.failure_id:randomUUID(),now:finishedAt,payload});
     });
    }
    catch(writeError){unsaved(writeError);}
@@ -193,8 +191,10 @@ export class ProductionQueue{
   try{
    const saved=JSON.stringify(result??null);
    transact(this.database,db=>{
-    const changes=db.run(`UPDATE production_jobs SET payload=json_remove(${timedPayload},'$.waitingFor'),state='succeeded',result=?,error=NULL,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token=?`,timing,saved,finishedAt,job.id,job.lease_token).changes;
-    if(changes)recordJobSucceeded(db,job,saved,finishedAt);
+    const current=db.get<{lease_until:number}>("SELECT lease_until FROM production_jobs WHERE id=? AND state='running' AND lease_token=?",job.id,job.lease_token);
+    if(authorizeJobLease({event:'settle',held:!!current,expired:!!current&&current.lease_until<=finishedAt})!=='allow')return;
+    db.run(`UPDATE production_jobs SET payload=json_remove(${timedPayload},'$.waitingFor'),state='succeeded',result=?,error=NULL,lease_token=NULL,lease_until=0,updated_at=? WHERE id=?`,timing,saved,finishedAt,job.id);
+    recordJobSucceeded(db,job,saved,finishedAt);
    });
   }
   catch(error){unsaved(error);}

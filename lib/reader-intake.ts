@@ -12,7 +12,7 @@ import {localSourceKey} from './reader-source-key.ts';
 import {storyBriefVerified} from './reader-story-brief.ts';
 import {localSourceSchema} from './reader-local-contract.ts';
 import type {SuggestionBatch,SuggestionProgress} from './reader-suggestions.ts';
-export type IntakeSearch={round:number;state:'idle'|'searching'|'failed';error?:string|null;requestId?:string;cycleId?:string;commandHash?:string};
+export type IntakeSearch={round:number;state:'idle'|'searching'|'failed';error?:string|null;failureCode?:'TIMEOUT'|'CONTENT_BLOCKED';requestId?:string;cycleId?:string;commandHash?:string};
 export const setupSettingsSchema=z.object({artStyle:z.enum(artStyleIds),artStylePrompt:artStylePromptSchema,productionPrompt:z.string().max(1200),acceptancePrompt:acceptancePromptSchema.optional(),narrativeDetail:narrativeDetailSchema});
 const productionSettingsSchema=setupSettingsSchema.extend({length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')])});
 export type IntakeDraft=z.infer<typeof productionSettingsSchema>;

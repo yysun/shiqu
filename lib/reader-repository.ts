@@ -2,6 +2,7 @@
 // 写入文档前把提示词全文存入 prompt_records，文档只保留引用。
 import {createHash} from 'node:crypto';
 import {storePromptRecords} from './reader-prompt-store.ts';
+import {authorizeLibraryControl} from './production-lifecycle.ts';
 import {emptyDocument,ReaderError,selectionSchema} from './reader-model.ts';
 import type {Selection,SessionRow,Document,ProductionAction} from './reader-model.ts';
 import type {OriginalSource} from './reader-source-types.ts';
@@ -115,15 +116,19 @@ export class ReaderRepository{
  async remove(id:string,uid:string){
   if(!this.db.transaction)throw Error('TRANSACTION_UNAVAILABLE');
   return this.db.transaction(db=>{
-   if(!db.get('SELECT id FROM stories WHERE id=? AND user_id=?',id,uid))throw new ReaderError(404,'这篇故事不在你的书架里');
+   const owned=!!db.get('SELECT id FROM stories WHERE id=? AND user_id=?',id,uid);
+   if(authorizeLibraryControl({event:'delete',owned})==='missing')throw new ReaderError(404,'这篇故事不在你的书架里');
    return markStoryDeleted(db,id,uid);
   });
  }
  async restore(id:string,uid:string){
   if(!this.db.transaction)throw Error('TRANSACTION_UNAVAILABLE');
   return this.db.transaction(db=>{
-   if(!db.get('SELECT id FROM stories WHERE id=? AND user_id=?',id,uid))throw new ReaderError(404,'这篇故事不在你的书架里');
-   const restored=db.run('DELETE FROM library_deletions WHERE user_id=? AND story_id=?',uid,id).changes>0;
+   const story=db.get<{deleted:number}>(`SELECT NOT (${visible}) AS deleted FROM stories WHERE id=? AND user_id=?`,id,uid);
+   const decision=authorizeLibraryControl({event:'restore',owned:!!story,deleted:!!story?.deleted});
+   if(decision==='missing')throw new ReaderError(404,'这篇故事不在你的书架里');
+   const restored=decision==='restore';
+   if(restored)db.run('DELETE FROM library_deletions WHERE user_id=? AND story_id=?',uid,id);
    // 旧版删除记录也按停止恢复，读者须再明确恢复生成。
    if(restored)db.run("UPDATE stories SET generation_control='stopped' WHERE id=? AND user_id=? AND generation_control!='stopped'",id,uid);
    return {storyId:id,restored};

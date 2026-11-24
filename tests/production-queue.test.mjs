@@ -108,6 +108,35 @@ test('expired local renewal cannot take a slot already claimed by another runtim
   assert.equal((await first.job(a.id)).lease_until,200);
  }finally{hold.resolve();await Promise.all([first.settle(),second.settle()]);}
 });
+test('a provider timeout shares the interruption cap and content rejection remains terminal during stop',async t=>{
+ const {adapter}=database(t);
+ const timeout=spec('text','text',[],'v1','timeout'),blocked=spec('text','text',[],'v1','blocked');
+ const started=Promise.withResolvers(),release=Promise.withResolvers();
+ let timeouts=0;
+ const options={
+  limits:{text:1},errorCode:error=>error.message,resumeInterrupted:async job=>job.attempts<3,
+  handlers:{text:{pool:'text',async run(job){
+   if(job.id===timeout.id){timeouts++;throw Error('TIMEOUT');}
+   started.resolve();await release.promise;throw Error('CONTENT_BLOCKED');
+  }}},
+ };
+ const queue=new ProductionQueue(adapter,options);
+ await queue.enqueue(timeout);
+ for(let attempt=1;attempt<=3;attempt++){
+  await queue.pump();await queue.settle();
+  const failure=await queue.job(timeout.id);
+  assert.deepEqual([failure.state,failure.interrupted,failure.attempts],['failed',1,attempt]);
+  await queue.recoverExpired();
+ }
+ assert.equal(timeouts,3);
+ await queue.enqueue(blocked);
+ try{await queue.pump();await started.promise;queue.stop();}
+ finally{release.resolve();await queue.settle();}
+ const failure=await queue.job(blocked.id);
+ assert.deepEqual([failure.state,failure.interrupted,failure.error_code],['failed',0,'CONTENT_BLOCKED']);
+ await new ProductionQueue(adapter,options).recoverExpired();
+ assert.equal((await queue.job(blocked.id)).state,'failed');
+});
 test('a stop-time failure is an interruption unless the handler says it is terminal or it drains',async t=>{
  const {adapter}=database(t);const fail={};
  const handler=pool=>({pool,run:async()=>{await new Promise(resolve=>fail[pool]=resolve);throw Error(pool);}});

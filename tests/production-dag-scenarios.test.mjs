@@ -16,6 +16,9 @@ import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {generationProgress} from '../lib/generation-progress.ts';
 import {shelfGenerationStatus} from '../lib/shelf-generation.ts';
 import {authorizeDispatch,dispatchRules,authorizeProductionCommand,commandRules,productionCommandEvents,productionControlEvents} from '../lib/production-lifecycle.ts';
+import {authorizeSetup,setupEvents,setupRules,authorizeReselectionCancel,reselectionCancelRules,
+ authorizeReselectionCommit,reselectionCommitRules,authorizeLibraryControl,libraryControlRules,
+ authorizeJobLease,jobLeaseRules,classifyJobFailure,jobFailureRules} from '../lib/production-lifecycle.ts';
 
 /** 一篇已完成、审片通过的 DAG 故事，图片文件写入隔离书库。 */
 async function completedStory(f){
@@ -331,6 +334,65 @@ test('production command guards choose one rule for every combination of persist
     assert.equal(matching.length,1);
     assert.deepEqual(authorizeProductionCommand(event,state),matching[0].decide(event,state));
    }
+});
+
+function booleanStates(keys){
+ return Array.from({length:2**keys.length},(_,bits)=>Object.fromEntries(keys.map((key,index)=>[key,!!(bits&(1<<index))])));
+}
+
+function checkRules(inputs,rules,authorize){
+ const reached=new Set();
+ for(const input of inputs){
+  const candidates=rules.filter(rule=>rule.matches(input));
+  assert.equal(candidates.length,1,JSON.stringify(input));
+  const [matched]=candidates;
+  reached.add(matched.id);
+  assert.deepEqual(authorize(input),matched.decision);
+ }
+ assert.deepEqual([...reached].sort(),rules.map(rule=>rule.id).sort());
+}
+
+test('setup rules select one result over phase, token, lease and search equivalence classes',()=>{
+ const common=['superseded','replacement','confirmed'];
+ const extra={
+  conditions:['generationCurrent','selected','locked'],
+  search:['generationCurrent','selected','locked'],
+  more:['selected','sameSearch','automatic','hasCandidates','searchLimit','combined'],
+  choose:['generationCurrent','draftCurrent','locked','candidateExists'],
+  draft:['generationCurrent','draftCurrent'],
+  recommend:['generationCurrent','draftCurrent','locked','selected'],
+  confirm:['generationCurrent','draftCurrent','locked','selected','preparationReady','briefReady'],
+ };
+ function* inputs(){
+  for(const event of setupEvents)for(const guard of booleanStates([...common,...extra[event]]))
+   for(const phase of [undefined,'discovering','choosing','preparing','confirming','confirmed'])
+    for(const state of event==='more'?['idle','searching','failed']:['idle'])
+     yield {event,state:{phase,search:{state},...guard}};
+ }
+ checkRules(inputs(),setupRules,({event,state})=>authorizeSetup(event,state));
+});
+
+test('replacement and library guards exhaust ownership, membership, token and deletion classes',()=>{
+ checkRules(['foreign','draft','promoted'],reselectionCancelRules,authorizeReselectionCancel);
+ checkRules(booleanStates(['draftCurrent','generationCurrent','basisCurrent','requirementsCurrent','candidateExists']),reselectionCommitRules,authorizeReselectionCommit);
+ checkRules(['delete','restore'].flatMap(event=>booleanStates(['owned','deleted']).map(state=>({event,...state}))),libraryControlRules,authorizeLibraryControl);
+});
+
+test('job rules select one result through lease expiry, send, settlement and failure classes',()=>{
+ checkRules(['paid-send','settle'].flatMap(event=>booleanStates(['held','expired']).map(state=>({event,...state}))),jobLeaseRules,authorizeJobLease);
+ checkRules(booleanStates(['persistence','yielded','stopping','drains','terminal','timeout','contentBlocked']),jobFailureRules,classifyJobFailure);
+});
+
+test('delete and restore require an owned story and replay a completed restore without resuming',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f),missing=crypto.randomUUID();
+ assert.equal((await f.request(`library/${missing}`,'DELETE')).status,404);
+ assert.equal((await f.request(`library/${missing}/restore`,'POST',{})).status,404);
+ const removed=await f.json(`library/${id}`,'DELETE');
+ assert.deepEqual(await f.json(`library/${id}`,'DELETE'),removed);
+ assert.equal((await f.request(`sessions/${id}`)).status,404);
+ assert.equal((await f.json(`library/${id}/restore`,'POST',{})).restored,true);
+ assert.equal((await f.json(`library/${id}/restore`,'POST',{})).restored,false);
+ assert.equal((await f.read(id)).lifecycle.control,'stopped');
 });
 
 test('production control routes accept current work and reject a finished or superseded version',async t=>{
@@ -688,6 +750,29 @@ test('a retained queue-level landscape failure never blocks the completed story 
  assert.equal((await f.json('library/shelf')).find(row=>row.id===id).lifecycle.phase,'completed');
  assert.ok((await queue.jobs(id,owner)).some(job=>job.state==='failed'));
  assert.equal((await f.read(id)).lifecycle.faults.length,0);
+});
+
+test('a provider content rejection on a landscape remains a scoped optional fault',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ f.control.hold=false;
+ const generator=f.generation.generator.bind(f.generation);
+ f.generation.generator=()=>{
+  const active=generator();
+  return {...active,async image(...args){
+   if(args[1]===2)throw Error('CONTENT_BLOCKED');
+   return active.image(...args);
+  }};
+ };
+ const route=`sessions/${id}/landscape`,{startToken}=await f.json(route);
+ await f.json(route,'POST',{startToken});
+ await until(async()=>(await f.json(route)).failed.includes(3));
+ const state=(await f.read(id)).lifecycle;
+ assert.equal(state.phase,'completed');
+ const fault=state.faults.find(fault=>fault.scope==='optional');
+ assert.equal(fault.kind,'content-blocked');
+ assert.deepEqual(fault.targets.map(target=>target.page),[2]);
+ const jobs=(await f.app.services.production.queue.jobs(id,owner)).filter(job=>job.error_code==='CONTENT_BLOCKED');
+ assert.deepEqual(jobs.map(job=>[job.attempts,job.interrupted]),[[1,0]]);
 });
 
 test('preparation results carry into production: a verified summary and saved suggestions are not paid for again',async t=>{
@@ -1075,6 +1160,25 @@ test('viewed pages and the first image go ahead of unread drawings; leaving rest
  assert.equal(viewedPriority(5,[]),5,'without a reader every page keeps page order');
 });
 
+test('the copy command requires passed review unless the reader explicitly copies a draft',async t=>{
+ const {copySavedStory}=await import('../server/reader-copy.ts');
+ const source=await productionFixture(t,'codex');
+ source.control.beforeText=name=>{if(name==='review')throw Error('controlled failure before the review receipt');};
+ const id=await confirmedStory(source,4);
+ source.app.services.production.wake();
+ await until(async()=>(await source.read(id)).faults?.some(fault=>fault.retryReview));
+ await source.stop();
+ const target=await productionFixture(t,'codex'),copy=options=>copySavedStory(target.app,process.cwd(),target.dataDirectory,source.dataDirectory,id,crypto.randomUUID(),undefined,options);
+ await assert.rejects(copy({}),error=>error.status===409);
+ await assert.rejects(copy({draft:true,images:true}),error=>error.status===400);
+ const draft=await copy({draft:true});
+ assert.equal(draft.lifecycle.control,'paused');
+ assert.equal(draft.lifecycle.review,'pending');
+ assert.equal(draft.story.pages.length,4);
+ assert.equal(draft.ready,0);
+ assert.equal(target.control.calls.length,0);
+});
+
 // ——— 审查：修订不得绕过明确恢复 ———
 
 test('a revision keeps an unresolved drawing fault whose inputs did not change; a general continue does not redraw that frame',async t=>{
@@ -1213,6 +1317,7 @@ test('apply-model replays by its request id and never rewrites the snapshot from
  await f.app.services.database.prepare("UPDATE stories SET generation_control='paused' WHERE id=?").bind(id).run();
  f.app.services.production.wake();
  const requestId=crypto.randomUUID(),second={provider:'codex',models:{text:'model-second',image:null}};
+ assert.ok((await f.read(id)).lifecycle.actions.some(action=>action.event==='apply-model'));
  await f.json(`sessions/${id}/production-control`,'POST',{requestId,action:'apply-model'});
  assert.deepEqual((await saved(f,id)).dag.modelSnapshot,snapshotA);
  now=second;
@@ -1379,6 +1484,31 @@ test('a file restored before the reader clicks recover is reused for free, witho
  await until(async()=>(await f.read(id)).state==='completed',20000);
  assert.equal(f.control.calls.length,0,'the restored file is reused, nothing is drawn or paid');
  assert.ok(!(await f.read(id)).faults?.length);
+});
+
+test('unconfigured service only offers an image recovery when the current file can be probed',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.options.production={autoStart:false,snapshots:{current:()=>undefined,provider:()=>null}};
+ await f.restart();
+ f.generation.status=async()=>({configured:false,message:'controlled provider outage'});
+ const {id}=await completedStory(f),doc=await saved(f,id);
+ const first=doc.dag.order[1],second=doc.dag.order[2],a=crypto.randomUUID(),b=crypto.randomUUID();
+ delete doc.dag.frames[first].image;
+ doc.dag.products[`frameImage:${first}`].readable=false;
+ doc.dag.products[`frameImage:${second}`].readable=false;
+ doc.images[1]='';
+ const db=f.app.services.database,now=Date.now();
+ await db.prepare("UPDATE stories SET document=?,state='idle' WHERE id=?").bind(JSON.stringify(doc),id).run();
+ for(const [fault,key] of [[a,first],[b,second]])await db.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage',?,'dag','图片丢失',?,?)").bind(fault,id,owner,key,now,now).run();
+ const lifecycle=(await f.read(id)).lifecycle;
+ assert.equal(lifecycle.service,'unconfigured');
+ assert.deepEqual(lifecycle.actions.filter(action=>action.event==='retry'),[{event:'retry',faultId:b}]);
+ assert.equal((await f.request(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:a})).status,503);
+ assert.equal((await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:b})).recoveryReceipt.status,'succeeded');
+ f.app.stopGeneration();
+ const stopping=(await f.read(id)).lifecycle;
+ assert.equal(stopping.service,'unconfigured');
+ assert.deepEqual(stopping.actions,[]);
 });
 
 test('CLI: a saved revision waits for stories continue; run reports continue_required and never continues on its own',async t=>{

@@ -50,6 +50,21 @@ test('setup routes accept each current intake action and reject stale input or u
  assert.deepEqual([...seen].sort(),[...setupEvents].sort());
 });
 
+test('search timeouts use the same interruption cap and content rejection does not retry',async t=>{
+ const f=await fixture(t);
+ let attempts=0;
+ f.generation.suggestions=async()=>{attempts++;throw Error('TIMEOUT');};
+ const timedOut=await create(f);
+ await until(async()=>(await f.read(timedOut)).intake.search.state==='failed');
+ assert.equal(attempts,3);
+ assert.equal((await f.read(timedOut)).lifecycle.faults.find(fault=>fault.stage==='source').kind,'interrupted');
+ f.generation.suggestions=async()=>{attempts++;throw Error('CONTENT_BLOCKED');};
+ const blocked=await create(f);
+ await until(async()=>(await f.read(blocked)).intake.search.state==='failed');
+ assert.equal(attempts,4);
+ assert.equal((await f.read(blocked)).lifecycle.faults.find(fault=>fault.stage==='source').kind,'content-blocked');
+});
+
 test('intent is saved before discovery; restart and waiting for story choice never commission scripts/images',async t=>{
  const f=await fixture(t);let release;f.generation.suggestions=async()=>{f.discoveries.push(1);await new Promise(r=>release=r);return batch;};
  const id=await create(f),saved=await f.read(id);assert.equal(saved.selection.bookId,'zhuangzi');assert.equal(saved.selection.theme,selection.theme);

@@ -235,10 +235,16 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    try{
     while(!abort.signal.aborted){
      snapshot=await app.services.production!.request(app.services.ownerId,target!,viewerId,0,false);
-     const intake=snapshot.intake,doc=await app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(target).first<{document:string}>(),saved=JSON.parse(doc!.document);
-     // 制作 DAG 的故事由引擎判断审片是否通过；旧故事沿用投影与审片记录。
-     const dagReview=until==='reviewed'&&saved.dag?await app.services.production!.reviewState?.(app.services.ownerId,target!):null;
-     const reviewed=saved.dag?dagReview==='approved':saved.plan&&reviewPassed(saved)&&!saved.revision?.restyle;
+     const intake=snapshot.intake;
+     let dagReview=until==='reviewed'?snapshot.lifecycle?.review:null,legacyReviewed=false;
+     if(until==='reviewed'&&dagReview==null){
+      // 兼容没有 DAG 投影的历史文档和旧服务。
+      const doc=await app.services.database.prepare('SELECT document FROM stories WHERE id=? AND user_id=?').bind(target,app.services.ownerId).first<{document:string}>();
+      const saved=JSON.parse(doc?.document??'{}');
+      if(saved.dag)dagReview=await app.services.production!.reviewState?.(app.services.ownerId,target!);
+      else legacyReviewed=!!saved.plan&&reviewPassed(saved)&&!saved.revision?.restyle;
+     }
+     const reviewed=dagReview==='approved'||legacyReviewed;
      const reason=(snapshot.lifecycle?.version==='superseded'||snapshot.superseded)?'superseded':(snapshot.lifecycle?.continuation??snapshot.awaitingContinue)?'continue_required':snapshot.state==='failed'||snapshot.lifecycle?.phase==='production'&&snapshot.lifecycle.service!=='available'?'blocked':(snapshot.lifecycle?.control??snapshot.generationControl)!=='active'?'paused':boundary(snapshot)|| (until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates':intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':until==='reviewed'&&reviewed?'reviewed':dagReview==='attention'?'blocked':null);
      if(reason)return {reason,session:snapshot};await delay(80,undefined,{signal:abort.signal}).catch(()=>{});
     }

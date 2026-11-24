@@ -14,6 +14,7 @@ import type {Story} from '@/lib/content';
 import type {ProductionAction} from '@/lib/reader-model';
 import type {ShelfSession,ShelfStory} from '@/lib/reader-shelf';
 import StoryGenerationControl from './StoryGenerationControl';
+import {recoveryFaultId} from '@/lib/production-lifecycle';
 import StoryFlowAction from './StoryFlowAction';
 import type {ReadingProgress} from '@/lib/reader-home';
 import {getArtStyle} from '@/lib/reader-styles';
@@ -76,15 +77,18 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
   return <div className="yu-shelf-card-actions"><button type="button" className={'yu-shelf-favorite'+(item.saved?' is-saved':'')} aria-label={(item.saved?'不再收藏':'收藏')+'《'+item.title+'》'} title={item.saved?'不再收藏':'收藏'} aria-pressed={item.saved} disabled={busyAny} onClick={()=>onFavorite(item.id,!item.saved)}><Bookmark size={17} fill={item.saved?'currentColor':'none'}/><span>{favoriteBusy===item.id?'保存中…':item.saved?'不再收藏':'收藏'}</span></button><button className="yu-delete-story" aria-label={'删除《'+item.title+'》'} title="删除故事" disabled={busyAny} onClick={()=>onDelete(item.id,item.title)}><Trash2 size={17}/></button></div>;
  }
  // 失败且可重试时只给“重试生成”；其余状态沿用暂停/恢复控制。
+ function canRetry(session:ShelfSession){
+  return session.lifecycle?.actions?!!recoveryFaultId(session):session.retryAllowed&&(!session.generationControl||session.generationControl==='active');
+ }
  function control(session:ShelfSession,group:string){
-  if(group==='生成失败')return session.retryAllowed?<StoryFlowAction disabled={busyAny||!!controlBusy} onClick={()=>onRetry(session)}>重试生成</StoryFlowAction>:null;
+  if(group==='生成失败')return canRetry(session)?<StoryFlowAction disabled={busyAny||!!controlBusy} onClick={()=>onRetry(session)}>重试生成</StoryFlowAction>:null;
   return <StoryGenerationControl session={session} busy={!!controlBusy} onControl={onControl} link/>;
  }
  function productionRow(item:ShelfItem){
   const session=item.session!,generation=shelfGenerationStatus(session),number=edition(item,session);
   const tone=generation.group==='生成失败'?'failed':(shelfNeedsUserGroups as readonly string[]).includes(generation.group)?'needs':generation.group==='生成已暂停'?'paused':'active';
   // 系统自动暂停且可重试时给出重试；需要用户选择的状态以整行按钮进入。
-  const autoRetry=generation.group==='生成已暂停'&&session.retryAllowed&&(!session.generationControl||session.generationControl==='active');
+  const autoRetry=generation.group==='生成已暂停'&&canRetry(session);
   const side=autoRetry?<StoryFlowAction disabled={busyAny} onClick={()=>onRetry(session)}>重试生成</StoryFlowAction>:tone==='needs'?null:control(session,generation.group);
   const selected=!!onSelect&&selectedId===item.id;
   return <li className={'yu-production-row '+tone+(selected?' is-selected':'')} key={item.id} data-story-id={item.id}>

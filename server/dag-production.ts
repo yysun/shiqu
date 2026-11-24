@@ -13,6 +13,7 @@ import {lostImageMessage,referenceImageKey} from '../lib/reader-image-assets.ts'
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {projectDocument,emptyDag,type DagDocument} from '../lib/production-dag/document.ts';
 import {convertDocument} from '../lib/production-dag/convert.ts';
+import {errorCode} from '../lib/production-dag/errors.ts';
 import {productionTimingScope} from '../lib/production-timing.ts';
 import {preparationCandidate,preparationOriginal,preparationPending,preparationResult} from '../lib/reader-preparation.ts';
 import type {FrameRecommendation} from '../lib/reader-frame-recommendation.ts';
@@ -96,7 +97,7 @@ export class DagProduction{
  /** 从快照推导完成和审片阻断，避免分别读取故障或访问图片文件。 */
  lifecycleFrom(row:SessionRow,faults:ReaderFault[],jobs:ProductionJob[]){
   const doc=JSON.parse(row.document) as Document,dag=doc.dag;
-  if(!dag)return {complete:undefined,blocking:null};
+  if(!dag)return {complete:undefined,blocking:null,review:null};
   const byId=new Map(jobs.map(job=>[job.id,job]));
   const targets=faults.filter(fault=>fault.state==='pending'||fault.state==='recovering'||fault.state==='awaiting-match').map(fault=>{
    const job=fault.job_id?byId.get(fault.job_id):undefined;
@@ -107,7 +108,8 @@ export class DagProduction{
   const complete=confirmed&&finished(story);
   const reviewing={...story,faults:dagFaultTargets(targets.filter(target=>target.state!=='recovering'))};
   const blocking=complete||work(reviewing).some(item=>!drawing(item.call))?null:this.reviewBlock(reviewing);
-  return {complete,blocking:blocking?{...blocking,canOverride:!!blocking.id&&!!overrideReview(reviewing,blocking.targets)}:null};
+  const review=evaluate(stateOf(reviewing)).approved()?'approved':blocking?.reasons.length?'attention':'pending';
+  return {complete,blocking:blocking?{...blocking,canOverride:!!blocking.id&&!!overrideReview(reviewing,blocking.targets)}:null,review} as const;
  }
 
  /** 在领取事务中按当前硬输入和故障复核；参考图的文件可用性在发送前核对。 */
@@ -260,6 +262,8 @@ export class DagProduction{
    catch(error){
     // 横图是可选产物：失败记在画幅上，不形成阻断完成的故障；读者可重试失败的幅。
     if(item.call!=='drawLandscape'||persistenceError(error)||error instanceof PaidDispatchDenied||error instanceof JobYield)throw error;
+    const code=errorCode(error);
+    if(code==='TIMEOUT'||code==='CONTENT_BLOCKED')throw error;
     await this.markLandscape(job,item.instances[0].key,error instanceof ReaderError?error.message:provider.safeError(error));
     return {failed:true};
    }

@@ -36,7 +36,7 @@ import {DagProduction,dagTextKind,dagDrawKind} from './dag-production.ts';
 import {transact,deleteJobs} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
-import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeProductionCommand,type ProductionFault,type ProductionImageCheck,type ProductionService} from '../lib/production-lifecycle.ts';
+import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeJobLease,authorizeProductionCommand,type ProductionFault,type ProductionImageCheck,type ProductionService} from '../lib/production-lifecycle.ts';
 import type {Work} from '../lib/production-dag/runner.ts';
 import {PaidDispatchDenied,withPaidDispatch} from './paid-dispatch.ts';
 import {drawingReferenceBinding} from './book-image-reference.ts';
@@ -280,6 +280,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return {id:fault.id,message:fault.message,page:page>=0?page:null,stage,state:fault.state as FaultView['state'],retryAllowed:fault.state==='pending',
    kind,scope,targets,...(retryReview?{retryReview:true as const}:{})};
  }
+ private imageRecoveryTarget(id:string,doc:Document,fault:ReaderFault){
+  if(fault.kind!=='image-loss'||fault.job_id||fault.node!=='frameImage'||!doc.dag)return;
+  const page=doc.dag.order.indexOf(fault.node_key),image=doc.dag.frames[fault.node_key]?.image;
+  if(page>=0&&image&&referenceImageKey(id,image))return {page,image};
+ }
  async checkImage(ownerId:string,id:string,page:number,image:string){
   const row=await this.repository.get(id,ownerId);
   await this.dag.checkImage(row,page,image,{superseded:await this.repository.superseded(id,ownerId)});
@@ -309,18 +314,16 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    this.wake();
    return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:command.requestId,status:'succeeded',error:null}};
   }
-  const target=fault!;
+  const target=fault!,doc=JSON.parse(row.document) as Document;
+  const probe=this.imageRecoveryTarget(id,doc,target);
   // 图片丢失的恢复：文件在点击前已被恢复时，核对后免费解除，不重新绘制、不付费。
-  if(target.kind==='image-loss'&&!target.job_id&&target.node==='frameImage'){
-   const doc=JSON.parse(row.document) as Document,page=doc.dag?doc.dag.order.indexOf(target.node_key):-1,image=page>=0?doc.dag!.frames[target.node_key]?.image:undefined;
-   if(image&&await this.dag.checkImage(row,page,image,{recovery:command})){
+  if(probe&&await this.dag.checkImage(row,probe.page,probe.image,{recovery:command})){
     const receipt=(await commandReceipt(this.database,ownerId,command.requestId))!;
     return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
-   }
   }
   await requirePaidService?.();
   const job=target.job_id?await this.queue.job(target.job_id):null;
-  const dag=(JSON.parse(row.document) as Document).dag;
+  const dag=doc.dag;
   const resumeUnreviewed=target.kind==='image-loss'&&target.node==='frameImage'&&dag?.legacy===true&&Object.values(dag.products).some(product=>product.unreviewed);
   const receipt=job
    ?await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[job.id],resolutionJob:job.id,basis:row},this.clock())
@@ -391,11 +394,16 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    return [{id:`landscape:${key}`,message,page,stage:'generation',state:'pending',retryAllowed:false,kind:'step-failure',
     scope:'optional',targets:[{node:'landscape',key,page}]}];
   })??[];
+  const failedSearch=parsed.doc.intake&&intakeSearch(parsed.doc.intake);
+  const searchFault:ProductionFault|undefined=failedSearch?.state==='failed'&&failedSearch.failureCode&&failedSearch.error?{
+   id:`search:${failedSearch.round}`,message:failedSearch.error,page:null,stage:'source',state:'pending',retryAllowed:false,
+   kind:failedSearch.failureCode==='CONTENT_BLOCKED'?'content-blocked':'interrupted',scope:'required',targets:[],
+  }:undefined;
   const reviewFault=views.find(fault=>fault.retryReview);
   const rawReviewFault=reviewFault&&faults.find(fault=>fault.id===reviewFault.id);
   const failedReviewJob=rawReviewFault&&allJobs.find(job=>job.id===rawReviewFault.job_id);
   const reviewSkip=!superseded&&rawReviewFault&&failedReviewJob?this.dag.skipReviewOffer(row,rawReviewFault,failedReviewJob):null;
-  const {blocking,complete}=this.dag.lifecycleFrom(row,faults,allJobs);
+  const {blocking,complete,review}=this.dag.lifecycleFrom(row,faults,allJobs);
   const service=this.serviceAvailability(parsed.doc.dag?.modelSnapshot);
   const dag=parsed.doc.dag;
   const pendingImageChecks=dag?.order.flatMap((key,page):ProductionImageCheck[]=>{
@@ -408,9 +416,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   })??[];
   const optionalWork=dag?.order.some(key=>dag.frames[key]?.landscape===''&&dag.frames[key].landscapeError===undefined)??false;
   const lifecycle=productionLifecycle({...saved,complete,generationControl:row.generation_control,superseded,replacementOpen:!!parsed.doc.reselection||replacementOpen,
-   faults:[...projectedFaults,...landscapeFaults],reviewAttention:blocking?.reasons??[],service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
-   now,order:dag?.order??[],pendingImageChecks,optionalWork,
-   modelApplicable:service==='snapshot-unavailable'&&!!dag&&(!parsed.doc.intake||parsed.doc.intake.phase==='confirmed')&&
+   faults:[...projectedFaults,...landscapeFaults,...(searchFault?[searchFault]:[])],reviewAttention:blocking?.reasons??[],review,service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
+   now,order:dag?.order??[],pendingImageChecks,optionalWork,stopping:this.stopping,
+   freeImageRecoveries:new Set(faults.filter(fault=>this.imageRecoveryTarget(id,parsed.doc,fault)).map(fault=>fault.id)),
+   modelApplicable:!!dag&&(!parsed.doc.intake||parsed.doc.intake.phase==='confirmed')&&!!this.snapshotNow()&&
     (parsed.doc as Document&{legacyFramePreparation?:unknown}).legacyFramePreparation==null,
    reviewBlockId:blocking?.id??undefined,canOverrideReview:!!blocking?.canOverride,reviewSkipId:reviewSkip?.faultId},jobs);
   const active=lifecycle.activity.state==='running'?lifecycle.activity.jobs:[];
@@ -572,13 +581,13 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     const decision=transact(this.database,db=>{
      const now=this.clock();
      const live=db.get<ProductionJob>("SELECT * FROM production_jobs WHERE id=? AND state='running' AND lease_token=?",job.id,job.lease_token);
-     if(!live)return 'obsolete';
-     if(live.lease_until<=now)return 'yield';
+     const lease=authorizeJobLease({event:'paid-send',held:!!live,expired:!!live&&live.lease_until<=now});
+     if(lease!=='allow')return lease;
      if(job.kind!=='discover'&&this.options.snapshots){
       const stored=db.get<{snapshot:string|null}>("SELECT json_extract(document,'$.dag.modelSnapshot') AS snapshot FROM stories WHERE id=? AND user_id=?",job.session_id,job.owner_id);
       if(fingerprint(stored?.snapshot?JSON.parse(stored.snapshot):null)!==fingerprint(snapshot??null))return 'yield';
      }
-     const authorization=this.checkDispatch(db,live,now);
+     const authorization=this.checkDispatch(db,live!,now);
      if(authorization!=='allow')return authorization;
      if(draw&&reference!==drawingReferenceBinding(db,job.owner_id,job.session_id))return 'yield';
      if(this.serviceAvailability(snapshot)!=='available')return 'yield';
@@ -644,6 +653,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(signal.aborted&&error===signal.reason)throw new JobYield();
    if(this.stopping&&!terminal)throw error;
    if(signal.aborted&&!terminal)throw new JobYield();
+   const code=errorCode(error);
+   if(code==='TIMEOUT'||code==='CONTENT_BLOCKED')throw error;
    await this.finishSearch(row.id,row.user_id,round,{...search,state:'failed',error:error instanceof ReaderError?error.message:provider.safeError(error)});
    return {failed:true};
   }finally{this.searches.delete(row.id);}
@@ -686,7 +697,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(row&&round!==undefined&&this.searchCurrent(row,round)){
     if(job.interrupted&&(job.attempts<maxAutomaticAttempts||!await this.searchRunnable(row,round)))continue;
     const search=intakeSearch((JSON.parse(row.document) as Document).intake!);
-    await this.finishSearch(row.id,row.user_id,round,{...search,state:'failed',error:job.error});
+    const failureCode=job.error_code==='TIMEOUT'||job.error_code==='CONTENT_BLOCKED'?job.error_code:undefined;
+    await this.finishSearch(row.id,row.user_id,round,{...search,state:'failed',error:job.error,failureCode});
    }
    transact(this.database,db=>deleteJobs(db,"id=? AND state='failed'",[job.id],this.clock()));
   }

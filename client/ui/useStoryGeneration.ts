@@ -7,6 +7,7 @@ import type {StoryPublication} from '@/lib/story-publication';
 import {useEffect,useRef,useState} from 'react';
 import {randomId,request} from './shared';
 import {observeOnlyGeneration,observeStoryGeneration,runQueuedStoryGeneration} from '@/lib/reader-production-client';
+import {recoveryFaultId} from '@/lib/production-lifecycle';
 import type {IntakeCommand} from '@/lib/reader-intake';
 import {latestStoryVersions} from '@/lib/reader-versions';
 import {keepSnapshot,shareRows} from '@/lib/reader-snapshots';
@@ -61,9 +62,9 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   setWake(v=>v+1);return s;
  }
  function recoveryFor(s:SessionView,faultId?:string){
-  const fault=s.faults?.find(f=>f.retryAllowed&&(!faultId||f.id===faultId));
-  if(!fault)throw Error(s.error||'这项问题已更新，请刷新后再操作。');
-  let command=recoveries.current.get(fault.id);if(!command){command={requestId:randomId(),faultId:fault.id};recoveries.current.set(fault.id,command);}
+  const target=recoveryFaultId(s,faultId);
+  if(!target)throw Error(s.error||'这项问题已更新，请刷新后再操作。');
+  let command=recoveries.current.get(target);if(!command){command={requestId:randomId(),faultId:target};recoveries.current.set(target,command);}
   recoveryCommand.current=command;return command;
  }
  function adopt(s:SessionView,readOnly=false,initialPage?:number){

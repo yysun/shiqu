@@ -7,6 +7,7 @@ import type {SessionView} from './reader-model.ts';
 import type {RecoveryRequest} from './reader-recovery.ts';
 import {maxSuggestionBatches} from './reader-suggestions.ts';
 import {randomId} from './reader-random-id.ts';
+import {recoveryFaultId} from './production-lifecycle.ts';
 // Mode/control changes and passive reads must never turn a saved failure into a paid retry.
 export function observeOnlyGeneration(session:SessionView){
  return session.state==='failed'||session.state==='completed'||session.generationMode==='background'||!!session.generationControl&&session.generationControl!=='active';
@@ -69,9 +70,9 @@ export async function runQueuedStoryGeneration({sessionId,viewerId,page,request,
     const currentPage=Math.max(0,Math.min(page(),(session.story?.pages.length||80)-1));
     if(needsRecovery){
      if(!command){
-      const fault=session.faults?.find(fault=>fault.retryAllowed);
-      if(!fault)return session.error||'没有可恢复的问题，请刷新后再试。';
-      command={requestId:randomId(),faultId:fault.id};
+      const faultId=recoveryFaultId(session);
+      if(!faultId)return session.error||'没有可恢复的问题，请刷新后再试。';
+      command={requestId:randomId(),faultId};
      }
      // A lost reply repeats the same command; never infer a new grant from a later failure.
      session=await request(path+'/recover','POST',command);needsRecovery=false;
