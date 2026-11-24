@@ -360,13 +360,19 @@ export class DagProduction{
   catch{throw new JobYield('image-availability');}
  }
 
+ /**
+  * 横图失败记在原版画幅上。与成功结果一样，在任务租约内保存到已删除的故事，恢复删除后仍可重试本幅。
+  * 无法保存时抛出，交由队列记录失败，避免任务显示成功而画幅停在未完成状态。
+  */
  private async markLandscape(job:ProductionJob,key:string,message:string){
   for(let attempt=0;attempt<5;attempt++){
    const row=await this.row(job.session_id,job.owner_id),story=row&&await this.story(row);
    if(!row||!story?.dag.frames[key])return;
    const dag=structuredClone(story.dag);dag.frames[key].landscapeError=message;
-   if(await this.save(row,story,dag))return;
+   if(await this.save(row,story,dag,{retainDeleted:true,job}))return;
+   if(!await this.deps.database.prepare("SELECT 1 FROM production_jobs WHERE id=? AND state='running' AND lease_token IS ?").bind(job.id,job.lease_token??null).first())return;
   }
+  throw new ReaderError(409,'横图失败未能保存，请重试本幅。');
  }
 
  /** 横图状态：由各画幅的横图、请求标记与失败说明得出；只对已完成的故事开放。 */

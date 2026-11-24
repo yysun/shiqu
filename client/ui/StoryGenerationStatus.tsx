@@ -2,6 +2,7 @@
 // Failed work offers recovery in the control slot; only active work offers pause.
 // Standalone flows name the story; embedded settings reuse the title already shown above.
 // Changing progress shares the navigation row in both presentations.
+// 已完成作品的可选工作暂停时，没有横版步骤可承载恢复操作，就在当前步骤给出恢复入口。
 import {useEffect,useState} from 'react';
 import type {ComponentProps,ReactNode} from 'react';
 import {Check,Clock3,Feather,Pause,X} from 'lucide-react';
@@ -56,8 +57,8 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
   </div>}
   <StoryFlowHeader title={progress.measured?'画面生成进度':'制作流程'} status={message} {...flowNavigation}/>
   <section className="yu-generation-progress" aria-label="生成进展">
-   <StoryProductionTimeline session={session} busy={busy||controlBusy} error={error} onRetry={onRetry} onAcceptance={onAcceptance} reviewTools={reviewTools} stageContent={refreshing?{...stageContent,count:<div className="production-stage-actions">{generationControl}</div>}:stageContent} onHistory={onHistory} stages={displayedSteps} moving={moving} queued={progress.queued} {...timeline} links={links} currentTiming={moving?<><Clock3 size={12} aria-hidden="true"/>{progress.remaining===null?'超时信息待同步':progress.remaining>0?`距超时 ${generationDuration(progress.remaining)}`:'已达超时，等待状态更新'}</>:undefined} currentContent={session.state!=='completed'&&!refreshing?generationControl:null}>
-    {showLandscape&&<StoryLandscapeStep key={session.id} storyId={session.id}/>}
+   <StoryProductionTimeline session={session} busy={busy||controlBusy} error={error} onRetry={onRetry} onAcceptance={onAcceptance} reviewTools={reviewTools} stageContent={refreshing?{...stageContent,count:<div className="production-stage-actions">{generationControl}</div>}:stageContent} onHistory={onHistory} stages={displayedSteps} moving={moving} queued={progress.queued} {...timeline} links={links} currentTiming={moving?<><Clock3 size={12} aria-hidden="true"/>{progress.remaining===null?'超时信息待同步':progress.remaining>0?`距超时 ${generationDuration(progress.remaining)}`:'已达超时，等待状态更新'}</>:undefined} currentContent={!refreshing&&(session.state!=='completed'||!showLandscape)?generationControl:null}>
+    {showLandscape&&<StoryLandscapeStep key={session.id} storyId={session.id} session={session} onControl={onControl}/>}
    </StoryProductionTimeline>
   </section>
   {session.story&&<GenerationModelsDetails story={session.story}/>}

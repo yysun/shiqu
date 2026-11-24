@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {setImmediate} from 'node:timers/promises';
-import {request} from '../lib/reader-request.ts';
+import {conflictSession,request} from '../lib/reader-request.ts';
 
 test('a read recovers from a disconnected server and a restarting proxy',async t=>{
  let calls=0;
@@ -77,4 +77,14 @@ test('writes retain multipart bodies and server error messages',async t=>{
  const data=new FormData();data.append('file',new Blob(['image']),'image.png');let calls=0;
  t.mock.method(globalThis,'fetch',async(url,init)=>{calls++;assert.equal(init.body,data);assert.deepEqual(init.headers,{});return Response.json({error:'上传失败'},{status:503});});
  await assert.rejects(request('reader/example-write','POST',data),/上传失败/);assert.equal(calls,1);
+});
+
+test('a write conflict keeps the current version the server attaches, and is never replayed',async t=>{
+ let calls=0;
+ t.mock.method(globalThis,'fetch',async()=>{calls++;return Response.json({error:'当前选题或制作设置已更新',session:{id:'winner'}},{status:409});});
+ const error=await request('reader/sessions/a/reselection/b','POST',{requestId:'r'}).catch(e=>e);
+ assert.equal(calls,1);
+ assert.equal(error.message,'当前选题或制作设置已更新');
+ assert.deepEqual(conflictSession(error),{id:'winner'});
+ assert.equal(conflictSession(new Error('other')),undefined);
 });

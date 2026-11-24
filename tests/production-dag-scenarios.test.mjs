@@ -938,6 +938,31 @@ test('landscape images are drawn on request for a completed story; a failure sta
  assert.ok(landscapes.every(c=>c.reference),'each landscape uses its portrait as reference');
 });
 
+test('a landscape failure that lands after deletion stays retryable once the story is restored',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=true;
+ const {id}=await completedStory(f);
+ const {startToken}=await f.json(`sessions/${id}/landscape`);
+ await f.json(`sessions/${id}/landscape`,'POST',{startToken});
+ await until(()=>f.control.calls.some(call=>call.landscape&&call.page===2),20000);
+ await f.json(`library/${id}`,'DELETE');
+ // 已发出的第三幅横图在删除后返回不可读的结果：失败须记在原版画幅上。
+ const broken=f.control.calls.find(call=>call.landscape&&call.page===2);
+ broken.bytes=Buffer.from('not an image').toString('base64');
+ f.control.hold=false;for(const call of f.control.calls)call.resolve();
+ await until(async()=>!(await f.app.services.database.prepare("SELECT 1 FROM production_jobs WHERE session_id=? AND state='running'").bind(id).first()),20000);
+ await f.json(`library/${id}/restore`,'POST',{});
+ await f.json(`sessions/${id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'resume'});
+ await until(async()=>{const s=await f.json(`sessions/${id}/landscape`);return s.state!=='running'&&s.state!=='queued';},20000);
+ const status=await f.json(`sessions/${id}/landscape`);
+ assert.equal(status.state,'partial');
+ assert.deepEqual(status.failed,[3]);
+ assert.ok(status.retryToken,'the failed frame offers a retry');
+ assert.ok(offered(await f.read(id),'retry-landscape'));
+ await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
+ await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
+});
+
 test('replacing a completed story withdraws its landscape action and rejects the old token',async t=>{
  const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
  const route=`sessions/${id}`;

@@ -2246,7 +2246,46 @@
         "lib/shelf-generation.ts",
         "client/ui/StoryGenerationControl.tsx",
         "client/ui/StoryRetry.tsx",
-        "client/ui/StoryFlowAction.tsx"
+        "client/ui/StoryFlowAction.tsx",
+        "client/ui/StoryGenerationStatus.tsx",
+        "client/ui/ReaderShelf.tsx",
+        "tests/fixtures/reader-surfaces.mjs"
+      ]
+    },
+    {
+      "file": "tests/production-reader-exit-flows.test.mjs",
+      "groups": [
+        "production",
+        "reader"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "flows",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "client/ui/StoryGenerationStatus.tsx",
+        "client/ui/ReaderShelf.tsx",
+        "client/ui/StoryGenerationControl.tsx",
+        "client/ui/StoryRetry.tsx",
+        "lib/shelf-generation.ts",
+        "lib/production-lifecycle.ts",
+        "server/reader-production.ts",
+        "tests/fixtures/reader-surfaces.mjs",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/production-data.mjs",
+        "tests/fixtures/production-dag-story.mjs",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/book-reference.mjs",
+        "lib/production-dag/document.ts",
+        "lib/reader-image-assets.ts"
       ]
     },
     {

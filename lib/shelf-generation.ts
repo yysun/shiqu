@@ -26,7 +26,9 @@ export function shelfGenerationStatus(session:SessionView|ShelfSession):Status{
 function savedStatus(session:SessionView|ShelfSession):Status{
  const lifecycle=session.lifecycle,complete=lifecycle?.phase==='completed'||!lifecycle&&session.state==='completed';
  const refreshing=lifecycle?.preparationRefresh==='pending';
- const completedWork=complete&&(refreshing||lifecycle?.activity.state==='running'||lifecycle?.activity.state==='queued');
+ // 已完成作品的可选工作（刷新建议、横图）被暂停且可恢复时，同样需要读者处理。
+ const resumable=!!session.generationControl&&session.generationControl!=='active'&&(lifecycle?.optionalWork??offersProductionAction(session,'resume',false));
+ const completedWork=complete&&(refreshing||lifecycle?.activity.state==='running'||lifecycle?.activity.state==='queued'||resumable);
  const redraw=session.redrawPage?`重绘第 ${session.redrawPage} 幅`:null;
  if(redraw&&session.awaitingContinue)return {group:'生成已暂停',message:`等待${redraw}`,detail:'分镜、审片结果和其他画幅已保留。',action:redraw,expects:'continue'};
  if(session.awaitingContinue&&session.state!=='completed')return {group:'生成已暂停',message:'已保存，等待继续',detail:'修改已保存为新版本，点击“继续制作”后才开始重新制作，已有的结果会保留。',action:'继续制作',expects:'continue'};
@@ -42,7 +44,8 @@ function savedStatus(session:SessionView|ShelfSession):Status{
  if((!complete||completedWork)&&session.generationControl&&session.generationControl!=='active')return {group:'生成已暂停',message:refreshing?'已暂停 · 重新准备':pausedStage?`已暂停 · ${pausedStage}`:'生成已暂停',detail:`已保存的结果会保留。点击“${preparing?'恢复准备':'恢复生成'}”后继续。`,action:'查看详情',expects:'resume'};
  if(completedWork&&lifecycle?.activity.state==='running')return {group:'生成中',message:session.stage,detail:'原有内容及成图仍可阅读。',action:'查看进度'};
  if(completedWork&&lifecycle?.activity.state==='queued')return {group:'等待生成',message:refreshing?'等待重新准备':'等待绘制横图',detail:'原有内容及成图仍可阅读。',action:'查看进度'};
- if(session.state==='failed'||session.error)return {group:'生成失败',message:'生成失败',detail:session.error||'已保存的结果会保留，请重试继续。',action:'查看详情'};
+ // 已完成作品的可选产物失败（如横图）由所在步骤提供重试，不把整篇显示为生成失败。
+ if(!complete&&(session.state==='failed'||session.error))return {group:'生成失败',message:'生成失败',detail:session.error||'已保存的结果会保留，请重试继续。',action:'查看详情'};
  if(complete)return {group:'已完成',message:'故事已完整展开',detail:'所有画面已保存。',action:'开始阅读'};
  const intake=session.intake;
  const search=intake&&('searchState'in intake?intake.searchState:intake.search?.state);

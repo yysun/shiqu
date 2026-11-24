@@ -68,6 +68,7 @@ import Sheet from './StorySheet';
 import StorySettingsPanel,{StorySettingsContent,storyWorkflowHeading} from './StorySettingsPanel';
 import {narrativeDetailSchema} from '@/lib/reader-frame-recommendation';
 import StoryRetry from './StoryRetry';
+import StoryGenerationControl from './StoryGenerationControl';
 import StoryGenerationStatus from './StoryGenerationStatus';
 import StoryEndingSurface from './StoryEndingSurface';
 import StoryFilmstrip from './StoryFilmstrip';
@@ -567,6 +568,9 @@ export default function Reader(){
  const visibleCaption=typedCaption.key===captionKey?typedCaption.text:'';
  const activeProgress=mergeReadingProgress(progress,gen.sessions.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}))).filter(p=>!deletedIds.includes(p.storyId)&&shelfSessionsById.has(p.storyId));
  const readingSession=story&&gen.active?.id===story.id?gen.active:undefined;
+ // 空画幅的提示跟随生命周期：暂停、失败或服务不可用时不显示「正在绘制」，并给出与故事设置相同的入口或原因。
+ const readingStatus=readingSession?shelfGenerationStatus(readingSession):null;
+ const drawingHeld=!!readingStatus&&(readingStatus.group==='生成已暂停'||readingStatus.group==='生成失败');
  const redrawStatus=readingSession?.redrawPage===page+1?shelfGenerationStatus(readingSession).message:null;
  const reviewStatus=readingSession?.generationProgress?.reviewStatus;
  const canRedraw=isGenerated(story)&&!!readingSession&&offersProductionAction(readingSession,'redraw',readingSession.state==='completed'&&!readingSession.superseded&&(!reviewStatus||reviewStatus==='passed'));
@@ -696,7 +700,7 @@ export default function Reader(){
   }} aria-label={'阅读'+story.title} data-main={dockedView?undefined:''}>
  <StoryFilmstrip key={story.id} pages={story.pages} page={ended?story.pages.length:page} ending={readerEnding} reloads={imageReloads} onImageError={onFrameError} onImageLoad={onFrameLoad} onPageChange={readScrolledPage} onCaptionOpacity={setCaptionOpacity} onSwipeBack={leaveReader} onToggleMetadata={()=>setMetadataVisible(visible=>!visible)}/>
  {ended&&<div className="yu-scene-shade"/>}
- {!ended&&!current?.image&&<div className="yu-drawing" role="status"><div className="yu-drawing-orbit"><Feather size={35} strokeWidth={1}/></div><span>{gen.error?'画笔暂停了一下':redrawStatus||'这一幅，正在展开'}</span><small>{gen.error||(redrawStatus?'已保存的分镜和其他画幅已保留':gen.active?.stage)||'正在为你绘制画面'}</small>{gen.error&&gen.active&&<StoryRetry session={gen.active} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}
+ {!ended&&!current?.image&&<div className="yu-drawing" role="status"><div className="yu-drawing-orbit"><Feather size={35} strokeWidth={1}/></div><span>{gen.error||drawingHeld?'画笔暂停了一下':redrawStatus||'这一幅，正在展开'}</span><small>{gen.error||(drawingHeld?readingStatus!.detail:redrawStatus?'已保存的分镜和其他画幅已保留':gen.active?.stage)||'正在为你绘制画面'}</small>{gen.error&&gen.active?<StoryRetry session={gen.active} busy={gen.busy} onRetry={gen.retryStep}/>:drawingHeld&&readingSession&&(readingStatus!.group==='生成失败'?<StoryRetry session={readingSession} busy={gen.busy} onRetry={gen.retryStep} display="actions" link/>:<StoryGenerationControl session={readingSession} busy={!!gen.controlBusy} onControl={gen.control} link/>)}</div>}
  <header className="yu-reader-top">
   <div className="yu-progress" aria-label={`第${page+1}幅，共${story.pages.length}幅`}>{story.pages.map((_,i)=><span key={i} className={i<=page?'read':''}/>)}</div>
   <div className="yu-reader-heading">

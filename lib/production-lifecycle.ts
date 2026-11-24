@@ -39,6 +39,8 @@ export type ProductionLifecycle={
  replacementDraft:'open'|'none';
  control:GenerationControl;
  continuation:boolean;
+ /** 已完成作品仍有可选工作（刷新建议、横图）待做。 */
+ optionalWork:boolean;
  draining:boolean;
  faults:ProductionFault[];
  reviewAttention:ProductionReviewAttention[];
@@ -107,7 +109,7 @@ export function productionLifecycle(input:ActivityInput,jobs:readonly ActivityJo
   const {waitingFor,pages}=details(job);
   return waitingFor==='image-availability'?[{state:'temporarily-unavailable',kind:'job',pages,jobId:job.id}]:[];
  });
- return {phase,version:input.deleted?'deleted':input.superseded?'superseded':'current',preparationRefresh:input.repreparing?'pending':'none',replacementDraft:input.replacementOpen?'open':'none',control,continuation:!!input.awaitingContinue,
+ return {phase,version:input.deleted?'deleted':input.superseded?'superseded':'current',preparationRefresh:input.repreparing?'pending':'none',replacementDraft:input.replacementOpen?'open':'none',control,continuation:!!input.awaitingContinue,optionalWork:input.optionalWork,
   faults:input.faults,reviewAttention:input.reviewAttention,review:input.review,service:input.service,
   imageAvailability:waiting.length?'unavailable':'available',imageChecks:[...input.pendingImageChecks,...waiting],
   actions:productionActionOffers(input,control),

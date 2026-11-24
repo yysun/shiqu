@@ -1,6 +1,7 @@
 // 替换选题共用选材页。草稿独立于书架，提交选中的原文后才切换版本。
+// 提交冲突时采用服务端附带的当前版本：已由其他窗口替换时转到新版，否则保留草稿并更新依据，不重复发送过时的请求。
 import {useEffect,useRef,useState} from 'react';
-import {request,randomId} from './shared';
+import {conflictSession,request,randomId} from './shared';
 import Sheet from './StorySheet';
 import StoryDiscoveryForm from './StoryDiscoveryForm';
 import StoryFlowAction from './StoryFlowAction';
@@ -48,7 +49,15 @@ export default function StoryReselection({parentId,books,semanticIndexBooks,onSu
    throw Error('当前选题或制作设置已更新，请保留草稿并重新核对。');
   }
   if(pending?.generation!==generation||pending.batch!==batch||pending.index!==index)replacement.current={requestId:randomId(),generation,batch,index};
-  const next:SessionView=await request(`reader/sessions/${parentId}/reselection/${id}`,'POST',replacement.current);
+  let next:SessionView;
+  try{next=await request(`reader/sessions/${parentId}/reselection/${id}`,'POST',replacement.current);}
+  catch(e){
+   replacement.current=null;
+   const current=conflictSession<SessionView>(e);
+   if(current&&current.id!==parentId&&!current.reselection){closed.current=true;onSubmitted(current);return;}
+   if(current?.id===id)setDraft(current);
+   throw e;
+  }
   closed.current=true;onSubmitted(next);
  }
  async function submit({discovery,source,sourceCard,bookId,customBook,theme,discoverySources,productionPrompt}:Selection){

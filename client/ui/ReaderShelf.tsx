@@ -103,7 +103,7 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
  function card(item:ShelfItem){
   const story=item.story!,session=sessionById.get(item.id),generation=session?shelfGenerationStatus(session):null,number=edition(item,session);
   const total=story.frameCount,finished=total>0&&item.page+1>=total;
-  const feedback=session&&session.state!=='completed'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{shelfDrawingCount(session,generation!.group)}</span>{control(session,generation!.group)}</div>;
+  const feedback=session&&generation!.group!=='已完成'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{shelfDrawingCount(session,generation!.group)}</span>{control(session,generation!.group)}</div>;
   const selected=!!onSelect&&selectedId===item.id,pick=onSelect?()=>onSelect(item.id):()=>onOpen(story);
   return <div className={'yu-shelf-row yu-shelf-row-readable'+(selected?' is-selected':'')} key={item.id} data-story-id={item.id}>
    <div className="yu-shelf-cover-wrap">

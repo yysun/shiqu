@@ -1,9 +1,15 @@
 // Bound the whole read, including retries and JSON bodies, without replaying writes or generation requests.
+// 冲突响应附带的当前版本保留在错误上，调用方据此改用最新版本，而不是重复发送已过时的请求。
 const retryableStatuses=new Set([500,502,503,504]);
 const retryDelays=[250,500,1000];
-class ResponseError extends Error{
+export class ResponseError extends Error{
  readonly status:number;
- constructor(message:string,status:number){super(message);this.status=status;}
+ readonly session?:unknown;
+ constructor(message:string,status:number,session?:unknown){super(message);this.status=status;this.session=session;}
+}
+/** 409 冲突时服务端回读的当前版本；没有附带时返回 undefined。 */
+export function conflictSession<T>(error:unknown):T|undefined{
+ return error instanceof ResponseError&&error.status===409&&error.session&&typeof error.session==='object'?error.session as T:undefined;
 }
 export async function request(path:string,method='GET',data?:unknown,read=method.toUpperCase()==='GET'){
  const abort=read?new AbortController():undefined;
@@ -15,7 +21,7 @@ export async function request(path:string,method='GET',data?:unknown,read=method
    const response=await fetch('/api/'+path,{method,headers:data instanceof FormData?{}:data?{'Content-Type':'application/json'}:{},body:data instanceof FormData?data:data?JSON.stringify(data):undefined,signal:abort?.signal});
    if(!response.ok){
     const value=await response.json().catch(()=>null);
-    throw new ResponseError(value?.error||'请求失败',response.status);
+    throw new ResponseError(value?.error||'请求失败',response.status,value?.session);
    }
    return await response.json();
   }catch(error){
