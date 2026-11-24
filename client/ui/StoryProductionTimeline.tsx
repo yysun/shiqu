@@ -15,7 +15,7 @@ export default function StoryProductionTimeline({session,busy=false,error='',onR
  const meta=session.generationProgress;
  const focused=stages.find(step=>step.state==='failed')||stages.find(step=>step.state==='current'||step.state==='paused');
  const phase=meta?.phase;
- const current=focused?.id||(phase==='image'?'image':phase==='source'||phase==='discover'?'source':phase==='recommend'||phase==='production-confirmation'?'count':phase==='repair'?'repair':phase==='review'?'review':'plan');
+ const current=focused?.id||(phase==='image'||phase==='restyle'?'image':phase==='source'||phase==='discover'?'source':phase==='recommend'||phase==='production-confirmation'?'count':phase==='repair'?'repair':phase==='review'?'review':'plan');
  const review=stages.find(step=>['review','repair','recheck'].includes(step.id)&&step.state==='failed')?.id||stages.find(step=>['review','repair','recheck'].includes(step.id)&&step.state==='current')?.id||'review';
  const reviewBlocked=!!session.reviewIssues?.length||meta?.reviewStopReason==='requirements';
  const ownsReview=reviewBlocked&&!!reviewTools,intakePhase=session.intake?.phase;
@@ -43,5 +43,5 @@ export default function StoryProductionTimeline({session,busy=false,error='',onR
  for(const [stage,node] of Object.entries(stageContent))add(stage,node);
  if(currentContent)(footer[current]||=[]).push(<Fragment key="control">{currentContent}</Fragment>);
  for(const [stage,nodes] of Object.entries(footer))add(stage,<div key="footer" className="production-stage-footer">{nodes}</div>);
- return <ProductionTimeline {...props} stageDurations={props.stageDurations??meta?.stageDurations} stageTimes={{...props.stageTimes,[current]:currentTiming}} stageContent={Object.fromEntries(Object.entries(content).map(([stage,nodes])=>[stage,<Fragment key={stage}>{nodes.map((node,index)=><Fragment key={index}>{node}</Fragment>)}</Fragment>]))}/>;
+ return <ProductionTimeline {...props} awaitingContinue={session.awaitingContinue} stageDurations={props.stageDurations??meta?.stageDurations} stageTimes={{...props.stageTimes,[current]:currentTiming}} stageContent={Object.fromEntries(Object.entries(content).map(([stage,nodes])=>[stage,<Fragment key={stage}>{nodes.map((node,index)=><Fragment key={index}>{node}</Fragment>)}</Fragment>]))}/>;
 }

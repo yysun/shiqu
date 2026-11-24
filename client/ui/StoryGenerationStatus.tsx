@@ -16,6 +16,7 @@ import StoryGenerationControl from './StoryGenerationControl';
 import StoryFlowHeader from './StoryFlowHeader';
 import type {StoryFlowNavigation} from './StoryFlowHeader';
 import {getArtStyle} from '@/lib/reader-styles';
+import {narrativeDetails} from '@/lib/reader-frame-recommendation';
 import {GenerationModelsDetails} from './StoryPublication';
 import StoryLandscapeStep from './StoryLandscapeStep';
 
@@ -28,7 +29,8 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
   return()=>clearInterval(timer);
  },[session.id,session.generationProgress?.startedAt,moving]);
  const title=session.selection.displayTitle||session.story?.title||session.selection.storyTitle||'你的故事';
- const message=busy&&stopped?(session.state==='failed'?'正在重试生成':'正在请求生成'):error&&session.state!=='failed'?'暂时无法确认生成状态':status.message;
+ const queuedActivity=session.generationProgress?.activity;
+ const message=busy&&stopped?(session.state==='failed'?'正在重试生成':'正在请求生成'):error&&session.state!=='failed'?'暂时无法确认生成状态':progress.queued&&queuedActivity?`等待生成 · ${queuedActivity}`:status.message;
  const failed=!!error||status.group==='生成失败';
  const paused=!!session.generationControl&&session.generationControl!=='active';
  const generationControl=control===undefined?(paused||!failed?<StoryGenerationControl session={session} busy={controlBusy} onControl={onControl} primary={paused} link/>:null):control;
@@ -38,9 +40,11 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
  const sourceLinks=source?[{...source,label:'查看原文'},...(timeline?.links?.source||[])]:timeline?.links?.source;
  const timelineLinks={...timeline?.links,...(sourceLinks?{source:sourceLinks}:{})};
  const countAction=timeline?.actions?.count;
+ const narrativeLabel=(narrativeDetails.find(detail=>detail.id===session.selection.narrativeDetail)??narrativeDetails[1]).label;
+ const styleLabel=getArtStyle(session.selection.artStyle).label;
  const links=onEditStyle?{...timelineLinks,count:[
-  ...(timeline?.links?.count?.length?timeline.links.count:countAction?[countAction]:[]),
-  {label:`画风：${getArtStyle(session.selection.artStyle).label}`,ariaLabel:'修改画风',disabled:paused&&controlBusy,onClick:onEditStyle},
+  ...(timeline?.links?.count?.length?timeline.links.count:countAction?[{...countAction,label:`详略：${narrativeLabel}`,ariaLabel:`修改叙事详略，当前${narrativeLabel}`}]:[]),
+  {label:`画风：${styleLabel}`,ariaLabel:`修改画风，当前${styleLabel}`,disabled:paused&&controlBusy,onClick:onEditStyle},
  ]}:timelineLinks;
  return <div className={'yu-generation-stage has-progress'+(compact||!showSummary?' is-compact':'')+(moving?' is-generating':'')+(failed?' has-error':'')+(session.reviewIssues?.length?' has-review-issues':'')}>
   {showSummary&&(!compact||failed)&&<div className="yu-generation-summary">

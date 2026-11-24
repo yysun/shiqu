@@ -600,7 +600,7 @@ export default function Reader(){
     onAcceptance={()=>revision.open('acceptance')} onHistory={()=>setReviewHistoryId(workflowSession.id)} onEditStyle={()=>revision.open('style')}
     timeline={{
      links:{source:[{label:'制作要求',onClick:()=>revision.open('requirements')},{label:'验收要求',onClick:()=>revision.open('acceptance')}]},
-     actions:{count:{label:'修改叙事详略',onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:'查看分镜',onClick:openScript}}:{})}
+     actions:{count:{label:'修改叙事详略',onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:workflowSession.generationProgress?.phase==='plan'?'查看已有分镜':'查看分镜',onClick:openScript}}:{})}
     }}
     editor={revision} onReselect={()=>void reselectStory()}
     reviewTools={<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review')?.id)} onDrawAnyway={()=>void gen.drawAnyway(workflowSession.id)}/>}

@@ -2,7 +2,8 @@
 // 纯函数，不做 I/O；只读文档中的 dag，不考虑故障（故障由协调器另行呈现）。
 import {registerDagProgress} from '../reader-model.ts';
 import type {Document,Selection,Step} from '../reader-model.ts';
-import {settle,work,attention,finished,type DagStory} from './runner.ts';
+import {evaluate} from './engine.ts';
+import {settle,work,attention,finished,stateOf,type DagStory} from './runner.ts';
 
 export type DagReviewProgress={
  reviewStatus:'pending'|'repair'|'blocked'|'passed';
@@ -11,42 +12,63 @@ export type DagReviewProgress={
  reviewStopReason?:'limit'|'unchanged'|'requirements'|'replan';
  reviewOverridden:boolean;
 };
-export type DagProgress={step:Step|null;review:DagReviewProgress;complete:boolean;redrawPage?:number};
+export type DagProgress={step:Step|null;review:DagReviewProgress;complete:boolean;frameCount:number|null;storyboardFrames:number;drawingFrames:number;activity?:string;redrawPage?:number};
 
 const repairCalls=new Set(['sceneRepair','visualRepair','structureRepair','endingRepair']);
 const callKinds:Record<string,Step['kind']>={
- verifySource:'source',brief:'plan',characters:'plan',outline:'plan',registerItems:'plan',sceneBatch:'plan',visual:'plan',
+ verifySource:'source',prepareBrief:'plan',characters:'plan',outline:'plan',registerItems:'plan',sceneBatch:'plan',visual:'plan',
  restyle:'restyle',ending:'reflection',frameCheck:'review',review:'review',
  sceneRepair:'repair',visualRepair:'repair',structureRepair:'repair',endingRepair:'repair',
 };
+const activities:Record<string,string>={
+ prepareBrief:'整理故事梗概',characters:'设定人物',outline:'编排全篇提纲',registerItems:'登记验收要求',
+ ending:'拟定标题与结语',frameCheck:'审核画幅数',review:'审核全篇分镜',
+ sceneRepair:'修订叙事分镜',visualRepair:'修订画面描述',structureRepair:'修订分镜结构',endingRepair:'修订结语',
+};
+const frameActivities:Record<string,string>={sceneBatch:'编排叙事分镜',visual:'生成画面描述',restyle:'按新画风转换画面描述'};
 
 /** 故事当前在做什么：第一项文字工作决定步骤，只剩绘图时为绘图；无工作时 step 为 null。 */
 export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
  if(!doc.dag||doc.intake&&doc.intake.phase!=='confirmed')return null;
  const base:DagStory={id:'',doc,selection,dag:doc.dag,confirmed:true,faults:[]};
  const story={...base,dag:settle(base)};
+ const {order}=story.dag,evaluation=evaluate(stateOf(story));
+ // 旧版产物仍可阅读，制作进度只统计当前设置下有效的产物。
+ const frameCount=evaluation.instance('outline').status==='valid'?order.length:typeof selection.length==='number'?selection.length:null;
+ const storyboardFrames=order.filter(id=>evaluation.instance('scene',id).status==='valid').length;
+ const drawingFrames=order.filter(id=>evaluation.instance('frameImage',id).status==='valid').length;
  // 等待继续时仍显示真实的接续步骤，调度由持久化等待状态阻止。
  const items=work(story);
  const text=items.find(item=>item.call!=='draw'&&item.call!=='drawLandscape');
  const drawing=items.find(item=>item.call==='draw');
  const waiting=attention(story);
  const complete=finished(story);
+ const used=story.dag.repairs?.used??0;
  const key=text?`${text.call}:${text.stage??0}`:'';
+ let activity=text?activities[text.call]:undefined;
+ if(text?.call==='review'&&used)activity='复核全篇分镜';
+ if(text&&frameActivities[text.call]){
+  const frames=text.instances.map(instance=>order.indexOf(instance.key)+1);
+  const contiguous=frames.every((frame,index)=>frame===frames[0]+index);
+  const scope=frames.length===1?`第 ${frames[0]} 幅`:contiguous?`第 ${frames[0]}–${frames.at(-1)} 幅`:`本批 ${frames.length} 幅`;
+  activity=`${frameActivities[text.call]}（${scope}）`;
+ }
  const step:Step|null=text?{kind:callKinds[text.call]??'plan',page:0,key}
   :drawing?{kind:'image',page:Math.max(0,story.dag.order.indexOf(drawing.instances[0].key)),key:`image:${drawing.instances[0].key}`}:null;
  const redrawPage=step?.kind==='image'&&items.length===1&&doc.revision?.base?.images?.[step.page]&&!doc.images[step.page]&&doc.images.filter(Boolean).length===story.dag.order.length-1?step.page+1:undefined;
  const reviewWork=items.some(item=>item.call==='frameCheck'||item.call==='review');
  const repairing=items.some(item=>repairCalls.has(item.call));
  const stop=waiting[0]?.reason;
- const used=story.dag.repairs?.used??0;
+ const frameCheck=story.dag.products['frameCheck:'];
+ const frameCheckPassed=evaluation.instance('frameCheck').status==='valid'&&(frameCheck?.outcome==='pass'||frameCheck?.overridden);
  const review:DagReviewProgress={
   reviewStatus:complete||(!text&&!!drawing&&!waiting.length)?'passed':waiting.length&&!text?'blocked':repairing?'repair':'pending',
-  reviewPhase:typeof selection.length==='number'?'full':items.some(item=>item.call==='frameCheck')||!story.dag.frameCheck?'frames':'full',
+  reviewPhase:typeof selection.length==='number'||frameCheckPassed?'full':'frames',
   reviewRound:used+1,repairCompleted:0,repairTotal:story.dag.issues?.length??0,reviewAudits:used+(reviewWork?0:1),repairPasses:used,
   ...(stop==='limit'||stop==='unchanged'||stop==='requirements'?{reviewStopReason:stop}:stop==='unrepairable'?{reviewStopReason:'replan' as const}:{}),
   reviewOverridden:Object.values(story.dag.products).some(product=>product.overridden),
  };
- return {step,review,complete,...(redrawPage?{redrawPage}:{})};
+ return {step,review,complete,frameCount,storyboardFrames,drawingFrames,activity,...(redrawPage?{redrawPage}:{})};
 }
 
 registerDagProgress(dagProgress);

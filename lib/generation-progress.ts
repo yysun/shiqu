@@ -9,15 +9,18 @@ import type {RevisionRedraw} from './reader-revision-images.ts';
 export function generationProgress(session:SessionView,now:number){
  const status=shelfGenerationStatus(session),meta=session.generationProgress;
  const running=status.group==='生成中',queued=status.group==='等待生成',failed=status.group==='生成失败';
- const total=meta?.frameCount??session.story?.pages.length??(typeof session.selection.length==='number'?session.selection.length:null);
- const ready=Math.max(0,Math.min(session.ready,total??session.ready));
+ const total=meta?.frameCount!==undefined?meta.frameCount:session.story?.pages.length??(typeof session.selection.length==='number'?session.selection.length:null);
+ const savedImages=meta?.drawingFrames??session.ready;
+ const ready=Math.max(0,Math.min(savedImages,total??savedImages));
  const phase=meta?.phase??(session.story?'image':session.frameRecommendation?'plan':'recommend');
  const sourceReady=meta?.sourceReady??!!session.story?.original;
  const countReady=meta?.frameCountConfirmed??(!!session.story||!!session.frameRecommendation);
+ const dagProgress=meta?.drawingFrames!==undefined;
+ const planReady=dagProgress?total!==null&&meta.storyboardFrames===total&&phase!=='plan'&&phase!=='reflection':!!session.story;
  const activeState=failed?'failed' as const:running||queued||session.intake&&['choosing','confirming'].includes(session.intake.phase)?'current' as const:'paused' as const;
  const {intake,selection}=session,selected=intake?.selected;
  const intakeSource=selection.discovery?.mode==='auto'&&selection.discovery.combine?'combined':isDirectSourceSelection(selection)?'direct':'candidates';
- const production=productionSteps({intakePhase:intake?.phase,intakeSource,intakeSelected:!!selected,candidateBatches:intake?.batches.length,selectedSourceLabel:selected?intake?.batches[selected.batch]?.stories[selected.index]?.sourceLabel:undefined,preparedSummary:!!session.frameRecommendation?.storySummary,estimatedFrames:session.frameRecommendation?.count,planReady:!!session.story,sourceReady,frameCountConfirmed:countReady,storyboardFrames:meta?.storyboardFrames,storyboardBatch:meta?.storyboardBatch,reviewOverridden:meta?.reviewOverridden,reviewStatus:meta?.reviewStatus,reviewPhase:meta?.reviewPhase,reviewRound:meta?.reviewRound,repairCompleted:meta?.repairCompleted,repairTotal:meta?.repairTotal,reviewAudits:meta?.reviewAudits,repairBatches:meta?.repairBatches,repairPasses:meta?.repairPasses,reviewStopReason:meta?.reviewStopReason,phase,total,ready,activeState});
+ const production=productionSteps({intakePhase:intake?.phase,intakeSource,intakeSelected:!!selected,candidateBatches:intake?.batches.length,selectedSourceLabel:selected?intake?.batches[selected.batch]?.stories[selected.index]?.sourceLabel:undefined,preparedSummary:!!session.frameRecommendation?.storySummary,estimatedFrames:session.frameRecommendation?.count,planReady,sourceReady,frameCountConfirmed:countReady,storyboardFrames:meta?.storyboardFrames,storyboardBatch:meta?.storyboardBatch,activity:meta?.activity,reviewOverridden:meta?.reviewOverridden,reviewStatus:meta?.reviewStatus,reviewPhase:meta?.reviewPhase,reviewRound:meta?.reviewRound,repairCompleted:meta?.repairCompleted,repairTotal:meta?.repairTotal,reviewAudits:meta?.reviewAudits,repairBatches:meta?.repairBatches,repairPasses:meta?.repairPasses,reviewStopReason:meta?.reviewStopReason,phase,total,ready,activeState});
  const steps=session.redrawPage?production.filter(step=>step.id!=='repair'&&step.id!=='recheck'):production;
  if(!session.intake&&!countReady&&session.frameRecommendation)steps[1].detail=`建议 ${session.frameRecommendation.count} 幅`;
  if(session.redrawPage){
