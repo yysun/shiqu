@@ -101,6 +101,7 @@ test('opening and cancelling selection drafts never adds a shelf card; cancellat
  const {f,id}=await fixture(t),s=await draft(f,id);
  assert.ok(s.reselection);assert.equal((await f.json('sessions')).length,1);
  assert.equal(f.control.calls.length,3);
+ assert.equal((await f.request(`sessions/${crypto.randomUUID()}/reselection/${s.id}`,'DELETE')).status,409);
  const cancelled=await f.json(`sessions/${id}/reselection/${s.id}`,'DELETE');assert.equal(cancelled.id,id);assert.equal(cancelled.state,'completed');
  assert.equal((await f.json('sessions')).length,1);assert.equal((await f.json('deletions')).length,0);
  assert.equal((await f.json(`sessions/${id}/reselection/${s.id}`,'DELETE')).id,id);
@@ -113,6 +114,7 @@ test('another story replaces one family card, leaves history intact, rejects old
  assert.equal((await f.read(next.id)).story,null);assert.equal(f.control.calls.length,3);
  const cards=await f.json('sessions');assert.deepEqual(cards.map(card=>card.id),[next.id]);
  assert.deepEqual((await f.read(id)).story.pages,before.story.pages);
+ assert.equal((await f.request(`sessions/${id}/reselection`,'POST',{requestId:crypto.randomUUID()})).status,409);
  assert.equal((await f.request(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{artStyle:'watercolor'}})).status,409);
  await f.json(`sessions/${next.id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'pause'});
  assert.equal((await choose(f,id,s,body)).generationControl,'paused');
@@ -153,7 +155,25 @@ test('same source selection is a durable no-op, including replay after the draft
  f.generation.suggestions=async()=>({stories:[{...candidates.stories[0],source}],note:''});
  const s=await draft(f,id),body={requestId:crypto.randomUUID(),batch:0,index:0,settings};
  assert.equal((await choose(f,id,s,body)).id,id);assert.equal((await choose(f,id,s,body)).id,id);assert.equal((await f.json('sessions')).length,1);assert.equal(f.control.calls.length,3);
+ const {generation_control}=await f.app.services.database.prepare('SELECT generation_control FROM stories WHERE id=?').bind(s.id).first();
+ assert.equal(generation_control,'stopped');
  const children=await f.app.services.database.prepare("SELECT id FROM stories WHERE json_extract(document,'$.revision.rootId')=?").bind(id).all();assert.equal(children.results.length,0);
+});
+test('cancelling a draft and promoting it cannot delete the promoted version',async t=>{
+ const {f,id}=await fixture(t),s=await draft(f,id),route=`sessions/${id}/reselection/${s.id}`;
+ const [replacement,cancellation]=await Promise.all([
+  f.request(route,'POST',{requestId:crypto.randomUUID(),batch:0,index:1,settings}),
+  f.request(route,'DELETE'),
+ ]);
+ assert.equal(cancellation.status,200);
+ const current=await f.json(`sessions/${id}/current`);
+ if(replacement.ok)assert.equal(current.id,s.id);
+ else{
+  assert.ok([404,409].includes(replacement.status));
+  assert.equal(current.id,id);
+ }
+ const cards=await f.json('sessions');
+ assert.deepEqual(cards.map(card=>card.id),[current.id]);
 });
 test('concurrent ordinary edit and replacement share one family CAS; stale choice remains inspectable',async t=>{
  const {f,id}=await fixture(t),s=await draft(f,id),base=await f.json(`sessions/${id}/revisions`),body={requestId:crypto.randomUUID(),batch:0,index:1,settings},plan=structuredClone(base.plan);plan.reflection='醒来后，仍能记住梦中的自由。';

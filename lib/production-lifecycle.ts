@@ -97,7 +97,7 @@ export function authorizeDispatch(state:DispatchState):DispatchDecision{
 
 export const productionControlEvents=['background','pause','stop','resume'] as const;
 export type ProductionControlEvent=(typeof productionControlEvents)[number];
-export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|'apply-model'|'image-health'|'start-landscape'|'retry-landscape'|ProductionControlEvent;
+export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|'override-review'|'apply-model'|'image-health'|'start-landscape'|'retry-landscape'|'open-reselection'|ProductionControlEvent;
 type CommandState={
  version:DispatchState['version'];control:GenerationControl;continuation:boolean;
  targetCurrent:boolean;targetReady:boolean;stopping:boolean;
@@ -105,6 +105,8 @@ type CommandState={
 type CommandDecision={allowed:true}|{allowed:false;status:409|503;message:string};
 
 const controlCommand={allows:(state:CommandState)=>state.targetReady,denial:'故事已完成或版本已更新，请刷新后再操作。'};
+const landscapeCommand={allows:(state:CommandState)=>state.targetCurrent&&state.targetReady,
+ denial:(state:CommandState)=>state.targetReady?'横图状态已更新，请刷新后再操作。':'请先完成当前版本的竖版插图。'};
 const commands={
  background:controlCommand,
  pause:controlCommand,
@@ -117,14 +119,15 @@ const commands={
   denial:'审片结果、制作许可或修订额度已更新，请刷新后再操作。'},
  'skip-review':{allows:state=>(state.control!=='active'||state.continuation)&&state.targetCurrent&&state.targetReady,
   denial:'请先暂停制作并保存完整稿件，或刷新后重试当前审核。'},
+ 'override-review':{allows:state=>state.targetCurrent&&state.targetReady,
+  denial:state=>state.targetCurrent?'分镜和结语仍在准备，请等稿件保存后再放行绘图。':'审核结果已更新，请刷新后再操作。'},
  'apply-model':{allows:state=>state.targetCurrent&&state.targetReady,
   denial:state=>state.targetReady?'这篇故事还没有进入制作或已有新版，无法应用模型设置。':'当前模型设置不可用，请先在设置中配置生成服务。'},
  'image-health':{allows:state=>state.targetCurrent&&state.targetReady,
   denial:state=>state.targetCurrent?'图片地址无法核对。':'这幅图片已更新，请刷新后再检查。'},
- 'start-landscape':{allows:state=>state.targetCurrent&&state.targetReady,
-  denial:state=>state.targetReady?'横图状态已更新，请刷新后再操作。':'请先完成当前版本的竖版插图。'},
- 'retry-landscape':{allows:state=>state.targetCurrent&&state.targetReady,
-  denial:state=>state.targetReady?'横图状态已更新，请刷新后再操作。':'请先完成当前版本的竖版插图。'},
+ 'start-landscape':landscapeCommand,
+ 'retry-landscape':landscapeCommand,
+ 'open-reselection':{allows:state=>state.targetReady,denial:'请先选择一篇故事。'},
 } satisfies Record<ProductionCommand,{allows:(state:CommandState)=>boolean;denial:string|((state:CommandState)=>string)}>;
 export const productionCommandEvents=Object.keys(commands) as ProductionCommand[];
 
@@ -184,4 +187,19 @@ export function authorizeSetup(event:IntakeAction['action'],state:SetupState):Se
  if(event==='recommend')return applySetup;
  if(!state.preparationReady)return rejectSetup('原文和制作建议尚未保存。');
  return state.briefReady?applySetup:rejectSetup('故事摘要尚未对照原文核对，请重新准备制作。');
+}
+
+export function authorizeReselectionCancel(target:'draft'|'promoted'|'foreign'):SetupDecision{
+ if(target==='foreign')return rejectSetup('草稿不属于这篇故事。');
+ return target==='draft'?applySetup:noSetupChange;
+}
+
+export function authorizeReselectionCommit(state:{
+ draftCurrent:boolean;generationCurrent:boolean;basisCurrent:boolean;requirementsCurrent:boolean;candidateExists:boolean;
+}):SetupDecision{
+ if(!state.draftCurrent)return rejectSetup('这不是当前故事的重选草稿。');
+ if(!state.generationCurrent)return rejectSetup('选材条件已更新，请重新选择。');
+ if(!state.basisCurrent)return rejectSetup('当前选题或制作设置已更新，请保留草稿并重新核对。');
+ if(!state.requirementsCurrent)return rejectSetup('原故事的制作或验收要求已更新，请重新打开选题。');
+ return state.candidateExists?applySetup:rejectSetup('请选择已保存的候选故事。',400);
 }

@@ -23,6 +23,12 @@ export const familyRoot=(alias:string)=>`COALESCE(json_extract(CASE WHEN json_va
 export const familyNumber=(alias:string)=>`COALESCE(json_extract(CASE WHEN json_valid(${alias}.document) THEN ${alias}.document ELSE '{}' END,'$.revision.number'),1)`;
 export const supersededSql=(alias='stories')=>`EXISTS(SELECT 1 FROM stories newer WHERE newer.user_id=${alias}.user_id AND ${familyRoot('newer')}=${familyRoot(alias)} AND ${familyNumber('newer')}>${familyNumber(alias)})`;
 export const latestVersionMessage='这是旧版本，请打开书架中的最新版本继续生成。';
+/** 在调用方事务中标记已核对归属的故事，并停止后续制作。 */
+export function markStoryDeleted(db:SyncStatements,id:string,uid:string,deletedAt=new Date().toISOString()){
+ db.run("INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) VALUES(?,?,'generated',?) ON CONFLICT(user_id,story_id) DO NOTHING",uid,id,deletedAt);
+ db.run("UPDATE stories SET generation_control='stopped' WHERE id=? AND user_id=? AND generation_control!='stopped'",id,uid);
+ return db.get<{storyId:string;deletedAt:string}>('SELECT story_id AS storyId,deleted_at AS deletedAt FROM library_deletions WHERE user_id=? AND story_id=?',uid,id)!;
+}
 // A failed write says nothing about the work, so callers must not report it as a provider failure.
 export const persistenceError=(error:unknown)=>(error as {code?:string}|null)?.code==='ERR_SQLITE_ERROR';
 // Full checkpoints own the intake phase and may initialize an absent setup draft.
@@ -103,10 +109,7 @@ export class ReaderRepository{
   if(!this.db.transaction)throw Error('TRANSACTION_UNAVAILABLE');
   return this.db.transaction(db=>{
    if(!db.get('SELECT id FROM stories WHERE id=? AND user_id=?',id,uid))throw new ReaderError(404,'这篇故事不在你的书架里');
-   const deletedAt=new Date().toISOString();
-   db.run("INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) VALUES(?,?,'generated',?) ON CONFLICT(user_id,story_id) DO NOTHING",uid,id,deletedAt);
-   db.run("UPDATE stories SET generation_control='stopped' WHERE id=? AND user_id=? AND generation_control!='stopped'",id,uid);
-   return db.get<{storyId:string;deletedAt:string}>('SELECT story_id AS storyId,deleted_at AS deletedAt FROM library_deletions WHERE user_id=? AND story_id=?',uid,id)!;
+   return markStoryDeleted(db,id,uid);
   });
  }
  async restore(id:string,uid:string){

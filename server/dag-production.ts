@@ -603,10 +603,6 @@ export class DagProduction{
   */
  async override(ownerId:string,id:string,command:ReviewOverride){
   const {requestId,faultId}=command;
-  const row=await this.row(id,ownerId);
-  if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');
-  const block=await this.blocking(row),targets=block?.targets??[];
-  const story=(await this.story(row,'skip'))!;
   const fingerprint=commandFingerprint(['override',id,faultId,command.ending??null]);
   transact(this.deps.database,db=>{
    const receipt=db.get<{session_id:string;fingerprint:string;action:string;fault_id:string|null;payload:string}>(
@@ -618,14 +614,26 @@ export class DagProduction{
     return;
    }
    const current=db.get<SessionRow>(`SELECT * FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,id,ownerId);
-   if(!current||current.document!==row.document)throw new ReaderError(409,'审核结果已更新，请刷新后再操作。');
    const now=this.deps.clock(),skip=command.ending!==undefined||!faultId.startsWith('review:');
-   if(skip)this.skipFailedReview(db,current,command,now);
+   let targets:string[]=[];
+   if(skip){
+    if(!current)throw new ReaderError(409,'审核结果已更新，请刷新后再操作。');
+    this.skipFailedReview(db,current,command,now);
+   }
    else{
-    if(!block?.id||faultId!==block.id)throw new ReaderError(409,'审核结果已更新，请刷新后再操作。');
-    const dag=overrideReview(story,targets);
-    if(!dag)throw new ReaderError(409,'分镜和结语仍在准备，请等稿件保存后再放行绘图。');
-    db.run("UPDATE stories SET document=?,state=CASE WHEN state='failed' THEN 'idle' ELSE state END,error=NULL,updated_at=? WHERE id=? AND user_id=?",JSON.stringify({...story.doc,dag}),new Date(now).toISOString(),id,ownerId);
+    // 结论指纹包含故障带来的可执行性，在回执事务内读取，不采用此前的轮询快照。
+    const doc=current&&JSON.parse(current.document) as Document|undefined;
+    const story:DagStory|null=current&&doc?.dag?{id,doc,dag:doc.dag,selection:selectionSchema.parse(JSON.parse(current.selection)),
+     confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,id,ownerId))}:null;
+    const block=story&&!work(story).some(item=>!drawing(item.call))?this.reviewBlock(story):null;
+    targets=block?.targets??[];
+    const dag=story&&block?.id===faultId?overrideReview(story,targets):null;
+    const authorization=authorizeProductionCommand('override-review',{
+     version:current?'current':'superseded',control:current?.generation_control??'active',continuation:!!doc?.dag?.continuation,
+     targetCurrent:block?.id===faultId,targetReady:!!dag,stopping:false,
+    });
+    if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
+    db.run("UPDATE stories SET document=?,state=CASE WHEN state='failed' THEN 'idle' ELSE state END,error=NULL,updated_at=? WHERE id=? AND user_id=?",JSON.stringify({...doc!,dag}),new Date(now).toISOString(),id,ownerId);
    }
    db.run("INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,fault_id,created_at,updated_at) VALUES(?,?,?,'override',?,?,?,?,?)",
     requestId,ownerId,id,fingerprint,JSON.stringify({version:2,targets,skip,ending:command.ending}),faultId,now,now);
@@ -656,17 +664,15 @@ export class DagProduction{
     if(receipt.action!=='control'||receipt.session_id!==id||!receipt.fingerprint.startsWith('continue:'))throw new ReaderError(409,'这个操作编号已用于其他内容，请重新操作。');
     return true;
    }
-   if(stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
    const story=db.get<{document:string}>(`SELECT document FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,id,ownerId);
-   if(!story)throw new ReaderError(409,'故事已更新，请刷新后再操作。');
-   const waiting=(JSON.parse(story.document) as Document).dag?.continuation;
+   const waiting=story?(JSON.parse(story.document) as Document).dag?.continuation:undefined;
    if(db.get('SELECT id FROM stories WHERE id=? AND user_id=?',requestId,ownerId))throw new ReaderError(409,'这个操作编号已用于创建或提交故事。');
-   const authorization=authorizeProductionCommand('continue',{version:'current',control:'active',continuation:!!waiting,
-    targetCurrent:true,targetReady:true,stopping:false});
-   if(!authorization.allowed||!waiting)throw new ReaderError(409,'这篇故事没有等待继续的修改，或版本已更新。');
-   const fingerprint=`continue:${commandFingerprint(['continue',id,waiting.revision])}`;
+   const authorization=authorizeProductionCommand('continue',{version:story?'current':'superseded',control:'active',continuation:!!waiting,
+    targetCurrent:true,targetReady:true,stopping});
+   if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
+   const fingerprint=`continue:${commandFingerprint(['continue',id,waiting!.revision])}`;
    db.run(`UPDATE stories SET document=json_remove(document,'$.dag.continuation'),generation_control='active',generation_mode='background',updated_at=? WHERE id=? AND user_id=?`,new Date(now).toISOString(),id,ownerId);
-   db.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,result_id,created_at,updated_at) VALUES(?,?,?,'control',?,?,?,?,?)`,requestId,ownerId,id,fingerprint,JSON.stringify({action:'continue',revision:waiting.revision}),id,now,now);
+   db.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,result_id,created_at,updated_at) VALUES(?,?,?,'control',?,?,?,?,?)`,requestId,ownerId,id,fingerprint,JSON.stringify({action:'continue',revision:waiting!.revision}),id,now,now);
    return false;
   });
   if(!replayed)this.deps.wake();

@@ -14,6 +14,7 @@ import type {RevisionChanges,RevisionSnapshot} from '../lib/reader-revision.ts';
 import {commandReceipt} from './reader-commands.ts';
 import {forkDagRevision,previewDagRevision} from './dag-revisions.ts';
 import {dagProgress,reviewAttention} from '../lib/production-dag/progress.ts';
+import {authorizeProductionCommand} from '../lib/production-lifecycle.ts';
 export {previewDagRevision};
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 export const revisionCoverMaxBytes=12*1024*1024;
@@ -29,9 +30,18 @@ const savedFrameCount=(doc:Document)=>doc.draft?.pages.length??doc.storyboard?.o
 const canEditReviewNotes=(row:SessionRow,doc:Document)=>!!doc.plan&&!!doc.visualReview&&row.state!=='completed'&&(row.generation_control==='paused'||row.generation_control==='stopped');
 export async function revisionBasis(repo:ReaderRepository,row:SessionRow,forReselection=false){
  const doc=JSON.parse(row.document) as Document;
- if(doc.reselection||await repo.superseded(row.id,row.user_id))throw new ReaderError(409,'这是草稿或旧版本，请打开书架当前版本。');
+ const current=!doc.reselection&&!await repo.superseded(row.id,row.user_id);
  const unconfirmed=doc.intake?.phase!=='confirmed'?doc.intake:undefined;
- if(unconfirmed&&(!forReselection||!unconfirmed.selected))throw new ReaderError(409,forReselection?'请先选择一篇故事。':'请在制作确认前保存设置草稿。');
+ if(forReselection){
+  const authorization=authorizeProductionCommand('open-reselection',{
+   version:current?'current':'superseded',control:row.generation_control??'active',continuation:!!doc.dag?.continuation,
+   targetCurrent:true,targetReady:!unconfirmed||!!unconfirmed.selected,stopping:false,
+  });
+  if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
+ }else{
+  if(!current)throw new ReaderError(409,'这是草稿或旧版本，请打开书架当前版本。');
+  if(unconfirmed)throw new ReaderError(409,'请在制作确认前保存设置草稿。');
+ }
  if(!forReselection&&!doc.plan&&row.generation_control!=='paused'&&row.generation_control!=='stopped')throw new ReaderError(409,'请先暂停生成，再修改制作内容。');
  const rootId=doc.revision?.rootId||row.id;
  const epoch=(await repo.db.prepare(familyEpoch).bind(row.user_id,rootId,rootId).first<{epoch:number}>())!.epoch;
