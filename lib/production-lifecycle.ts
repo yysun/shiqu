@@ -2,6 +2,7 @@
 import type {GenerationControl,SessionView,Step} from './reader-model.ts';
 import type {FaultView} from './reader-recovery.ts';
 import type {Attention,Work} from './production-dag/runner.ts';
+import type {IntakeAction,IntakeSearch,StoryIntake} from './reader-intake.ts';
 
 export type ProductionActivity={
  id:string;call:string;pages:number[];startedAt:number;attempt:number;
@@ -94,14 +95,21 @@ export function authorizeDispatch(state:DispatchState):DispatchDecision{
  return dispatchRules.find(rule=>rule.matches(state))!.decision;
 }
 
-export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review';
+export const productionControlEvents=['background','pause','stop','resume'] as const;
+export type ProductionControlEvent=(typeof productionControlEvents)[number];
+export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|ProductionControlEvent;
 type CommandState={
  version:DispatchState['version'];control:GenerationControl;continuation:boolean;
  targetCurrent:boolean;targetReady:boolean;stopping:boolean;
 };
 type CommandDecision={allowed:true}|{allowed:false;status:409|503;message:string};
 
-const commands:Record<ProductionCommand,{allows:(state:CommandState)=>boolean;denial:string}>={
+const controlCommand={allows:(state:CommandState)=>state.targetReady,denial:'故事已完成或版本已更新，请刷新后再操作。'};
+const commands={
+ background:controlCommand,
+ pause:controlCommand,
+ stop:controlCommand,
+ resume:controlCommand,
  continue:{allows:state=>state.continuation,denial:'这篇故事没有等待继续的修改，或版本已更新。'},
  retry:{allows:state=>state.control==='active'&&!state.continuation&&state.targetCurrent&&state.targetReady,
   denial:'请恢复当前版本的制作，再重试当前问题。'},
@@ -109,7 +117,8 @@ const commands:Record<ProductionCommand,{allows:(state:CommandState)=>boolean;de
   denial:'审片结果、制作许可或修订额度已更新，请刷新后再操作。'},
  'skip-review':{allows:state=>(state.control!=='active'||state.continuation)&&state.targetCurrent&&state.targetReady,
   denial:'请先暂停制作并保存完整稿件，或刷新后重试当前审核。'},
-};
+} satisfies Record<ProductionCommand,{allows:(state:CommandState)=>boolean;denial:string}>;
+export const productionCommandEvents=Object.keys(commands) as ProductionCommand[];
 
 export const commandRules:readonly {matches:(event:ProductionCommand,state:CommandState)=>boolean;decide:(event:ProductionCommand)=>CommandDecision}[]=[
  {matches:(_,state)=>state.version!=='current',decide:()=>({allowed:false,status:409,message:'故事或版本已更新，请刷新后再操作。'})},
@@ -121,4 +130,47 @@ export const commandRules:readonly {matches:(event:ProductionCommand,state:Comma
 /** 回执已在调用方处理。对尚未接受的命令按当前状态与目标作唯一判定。 */
 export function authorizeProductionCommand(event:ProductionCommand,state:CommandState):CommandDecision{
  return commandRules.find(rule=>rule.matches(event,state))!.decide(event);
+}
+
+export type SetupState={
+ phase:StoryIntake['phase']|undefined;superseded:boolean;replacement:boolean;confirmed:boolean;
+ generationCurrent:boolean;draftCurrent:boolean;selected:boolean;locked:boolean;candidateExists:boolean;
+ search:Pick<IntakeSearch,'state'>;sameSearch:boolean;automatic:boolean;hasCandidates:boolean;searchLimit:boolean;
+ combined:boolean;preparationReady:boolean;briefReady:boolean;
+};
+type SetupDecision={effect:'apply'|'noop'}|{effect:'reject';status:400|409;message:string};
+const applySetup={effect:'apply'} as const;
+const noSetupChange={effect:'noop'} as const;
+const rejectSetup=(message:string,status:400|409=409):SetupDecision=>({effect:'reject',status,message});
+export const setupEvents=['conditions','search','more','choose','draft','recommend','confirm'] as const satisfies readonly IntakeAction['action'][];
+
+/** 已接受的回执由调用方重放。此处判定新查找、选题与确认前的操作。 */
+export function authorizeSetup(event:IntakeAction['action'],state:SetupState):SetupDecision{
+ const {phase}=state;
+ if(state.replacement&&event!=='more'&&event!=='search'&&event!=='conditions')
+  return rejectSetup('请在替换选题窗口提交选择；草稿不能开始制作。');
+ if(!phase)return rejectSetup('这篇故事使用旧制作流程，请继续原来的步骤。');
+ if(state.superseded)return rejectSetup('这篇故事已被替换，请打开书架当前版本。');
+ if(event==='more'){
+  if(state.selected&&state.combined)return rejectSetup('原文已选定，请继续准备故事。');
+  if(state.search.state==='searching'||state.search.state==='idle'&&state.sameSearch||
+    state.automatic&&(state.selected||phase!=='choosing'||state.search.state!=='idle'||!state.hasCandidates))return noSetupChange;
+ }else if(!state.generationCurrent)return rejectSetup('制作内容已由另一次操作更新，请重新打开后继续。');
+ if(state.confirmed||phase==='confirmed')return rejectSetup('制作已确认；需要调整时请创建修订版本。');
+ if(event==='more')return state.searchLimit?rejectSetup('已保存40批候选，请回看选择，或新建其他书籍与主题。',400):applySetup;
+ if(event==='conditions'||event==='search'){
+  const stagedReplacement=event==='conditions'&&state.replacement&&phase==='preparing';
+  if(!stagedReplacement&&(state.selected||phase!=='discovering'&&phase!=='choosing'))
+   return rejectSetup(event==='conditions'?'这篇故事已经选定，不能修改提取条件。':'这篇故事已经选定，请在重选草稿中修改提取标题。');
+  if(state.locked)return rejectSetup(event==='conditions'?'当前任务正在保存，请稍后再修改提取条件。':'当前任务正在保存，请稍后再修改提取标题。');
+  return applySetup;
+ }
+ if(!state.draftCurrent)return rejectSetup('另一台设备更新了制作内容。请查看最新草稿后再操作。');
+ if(event==='draft')return phase==='preparing'||phase==='confirming'?applySetup:rejectSetup('请先选择故事。');
+ if(state.locked)return rejectSetup('当前任务正在保存，请稍后再修改选择。');
+ if(event==='choose')return state.candidateExists?applySetup:rejectSetup('请选择已保存的候选故事。',400);
+ if(!state.selected||phase!=='confirming')return rejectSetup('请先选择故事并等待制作建议保存。');
+ if(event==='recommend')return applySetup;
+ if(!state.preparationReady)return rejectSetup('原文和制作建议尚未保存。');
+ return state.briefReady?applySetup:rejectSetup('故事摘要尚未对照原文核对，请重新准备制作。');
 }

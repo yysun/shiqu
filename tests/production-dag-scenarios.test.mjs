@@ -15,7 +15,7 @@ import {selection} from './fixtures/production-data.mjs';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {generationProgress} from '../lib/generation-progress.ts';
 import {shelfGenerationStatus} from '../lib/shelf-generation.ts';
-import {authorizeDispatch,dispatchRules,authorizeProductionCommand,commandRules} from '../lib/production-lifecycle.ts';
+import {authorizeDispatch,dispatchRules,authorizeProductionCommand,commandRules,productionCommandEvents,productionControlEvents} from '../lib/production-lifecycle.ts';
 
 /** 一篇已完成、审片通过的 DAG 故事，图片文件写入隔离书库。 */
 async function completedStory(f){
@@ -290,7 +290,7 @@ test('dispatch rule guards are exhaustive and mutually exclusive',()=>{
 
 test('production command guards choose one rule for every combination of persisted control and target validity',()=>{
  const flags=[false,true];
- for(const event of ['continue','retry','continue-repair','skip-review'])for(const version of ['current','superseded','deleted'])
+ for(const event of productionCommandEvents)for(const version of ['current','superseded','deleted'])
   for(const control of ['active','paused','stopped'])for(const continuation of flags)for(const targetCurrent of flags)
    for(const targetReady of flags)for(const stopping of flags){
     const state={version,control,continuation,targetCurrent,targetReady,stopping};
@@ -298,6 +298,27 @@ test('production command guards choose one rule for every combination of persist
     assert.equal(matching.length,1);
     assert.deepEqual(authorizeProductionCommand(event,state),matching[0].decide(event));
    }
+});
+
+test('production control routes accept current work and reject a finished or superseded version',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ const route=`sessions/${id}`,{token}=await f.json(`${route}/revisions`);
+ for(const action of productionControlEvents){
+  const response=await f.request(`${route}/production-control`,'POST',{requestId:crypto.randomUUID(),action});
+  assert.equal(response.status,409,action);
+ }
+ const child=crypto.randomUUID(),plan=structuredClone((await f.json(`${route}/revisions`)).plan);
+ plan.pages[0].caption='庄周从梦中醒来。';
+ await f.json(`${route}/revisions`,'POST',{requestId:child,token,changes:{plan}});
+ const childRoute=`sessions/${child}/production-control`;
+ for(const [action,expected] of [['pause','paused'],['background','paused'],['stop','stopped'],['resume','active']]){
+  const command={requestId:crypto.randomUUID(),action};
+  const changed=await f.json(childRoute,'POST',command);
+  assert.equal(changed.lifecycle.control,expected,action);
+  assert.equal(changed.lifecycle.continuation,true,action);
+  assert.equal((await f.json(childRoute,'POST',command)).lifecycle.control,expected,`重放 ${action}`);
+  assert.equal((await f.request(`${route}/production-control`,'POST',{...command,requestId:crypto.randomUUID()})).status,409,action);
+ }
 });
 
 test('pausing between the async prescreen and claim leaves the drawing queued without a lease',async t=>{

@@ -19,6 +19,7 @@ import {maxSuggestionBatches} from '../lib/reader-suggestions.ts';
 import {artStyleSettings,sameArtDirection} from '../lib/reader-styles.ts';
 import {invalidateStoryBrief,storyBriefVerified} from '../lib/reader-story-brief.ts';
 import {commandReceipt,recordNoop} from './reader-commands.ts';
+import {authorizeSetup} from '../lib/production-lifecycle.ts';
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const currentStory=`NOT ${supersededSql()} AND NOT EXISTS(SELECT 1 FROM library_deletions WHERE story_id=stories.id AND user_id=stories.user_id)`;
 async function intakeSelection(input:Selection,books?:LocalBooks){
@@ -61,11 +62,7 @@ export async function createIntake(repo:ReaderRepository,id:string,uid:string,in
  return row;
 }
 // Manual search stands outside selection generations; automatic continuation must still be unselected at write time.
-async function requestSearch(repo:ReaderRepository,row:SessionRow,doc:Document,requestId:string,fingerprint:string,automatic=false){
- const intake=doc.intake!,search=intakeSearch(intake);
- if(automatic&&(intake.selected||intake.phase!=='choosing'||search.state!=='idle'||!intake.batches.at(-1)?.stories.length)||search.state==='searching'||search.state==='idle'&&search.requestId===requestId){await recordNoop(repo.db,row.user_id,row.id,requestId,'setup',fingerprint);return row;}
- if(doc.plan||intake.phase==='confirmed')throw new ReaderError(409,'制作已确认；需要调整时请创建修订版本。');
- if(intake.batches.length>=maxSuggestionBatches)throw new ReaderError(400,'已保存40批候选，请回看选择，或新建其他书籍与主题。');
+async function requestSearch(repo:ReaderRepository,row:SessionRow,search:IntakeSearch,requestId:string,fingerprint:string,automatic=false){
  const next:IntakeSearch={round:search.round+1,state:'searching',requestId,commandHash:fingerprint,cycleId:automatic?(search.cycleId||hash([row.id,search.round])):requestId};
  const changed={meta:{changes:writeStory(repo.db,row.id,row.user_id,`UPDATE stories SET document=json_set(document,'$.intake.search',json(?),'$.intake.phase',CASE WHEN json_type(document,'$.intake.selected')='object' THEN json_extract(document,'$.intake.phase') ELSE 'discovering' END),updated_at=?
   WHERE id=? AND user_id=? AND COALESCE(json_extract(document,'$.intake.search.round'),0)=? AND json_extract(document,'$.intake.phase')!='confirmed'${automatic?" AND json_type(document,'$.intake.selected') IS NOT 'object' AND json_extract(document,'$.intake.phase')='choosing' AND json_extract(document,'$.intake.search.state')='idle'":''} AND ${currentStory}`,[JSON.stringify(next),new Date().toISOString(),row.id,row.user_id,search.round])}};
@@ -74,25 +71,42 @@ async function requestSearch(repo:ReaderRepository,row:SessionRow,doc:Document,r
  return repo.get(row.id,row.user_id);
 }
 export async function changeIntake(repo:ReaderRepository,id:string,uid:string,action:IntakeAction,books?:LocalBooks,attempt=0):Promise<SessionRow>{
- const row=await repo.get(id,uid),doc=JSON.parse(row.document) as Document,intake=doc.intake,selection=selectionSchema.parse(JSON.parse(row.selection));
+ const row=await repo.get(id,uid),doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
  const fingerprint=hash(action),receipt=await commandReceipt(repo.db,uid,action.requestId,fingerprint);
  if(receipt){if(receipt.action!=='setup'||receipt.session_id!==id)throw new ReaderError(409,'这个操作编号已用于其他内容。');return row;}
- // 重选草稿可以换选材条件；原文和候选须经替换提交后才进入制作。
- if(doc.reselection&&!['more','search','conditions'].includes(action.action))throw new ReaderError(409,'请在替换选题窗口提交选择；草稿不能开始制作。');
- if(!intake)throw new ReaderError(409,'这篇故事使用旧制作流程，请继续原来的步骤。');
- intake.phase=effectiveIntakePhase(doc,selection)!;
- if(action.action!=='more'&&intake.lastAction?.id===action.requestId){if(intake.lastAction.hash!==fingerprint)throw new ReaderError(409,'此操作编号已用于其他内容。');return row;}
- if(await repo.superseded(id,uid))throw new ReaderError(409,'这篇故事已被替换，请打开书架当前版本。');
- if(action.action==='more'){
-  if(intake.selected&&selection.discovery?.mode==='auto'&&selection.discovery.combine)throw new ReaderError(409,'原文已选定，请继续准备故事。');
-  return requestSearch(repo,row,doc,action.requestId,fingerprint,action.automatic);
+ const savedIntake=doc.intake,phase=effectiveIntakePhase(doc,selection);
+ if(action.action!=='more'&&savedIntake?.lastAction?.id===action.requestId){
+  if(savedIntake.lastAction.hash!==fingerprint)throw new ReaderError(409,'此操作编号已用于其他内容。');
+  return row;
  }
- if(intake.generation!==action.generation)throw new ReaderError(409,'制作内容已由另一次操作更新，请重新打开后继续。');
- if(doc.plan||intake.phase==='confirmed')throw new ReaderError(409,'制作已确认；需要调整时请创建修订版本。');
+ const styling=artStyleSettings(savedIntake?.draft??selection,'settings' in action?action.settings??{}:{});
+ const search=savedIntake?intakeSearch(savedIntake):{round:0,state:'idle' as const};
+ const chosen=savedIntake?.selected,candidate=action.action==='choose'?savedIntake?.batches[action.batch]?.stories[action.index]:undefined;
+ const requiresBrief=savedIntake?.briefRequired||chosen&&savedIntake.batches[chosen.batch]?.stories[chosen.index]?.storyBrief||doc.original?.storyBrief;
+ let draftCurrent=true;
+ if(savedIntake&&(action.action==='draft'||action.action==='recommend'||action.action==='confirm')){
+  const current=intakeDraftToken(savedIntake.draft);
+  const {suggestions,overrides}=doc.setupRequirements||{};
+  // 兼容旧客户端提交未修改的系统建议，同时保护已保存的草稿。
+  const userDraft=!!savedIntake.draft&&(!!savedIntake.draftEdited||!suggestions||intakeDraftToken(suggestedSettings(selection,suggestions,overrides))!==current);
+  const legacyToken=intakeDraftToken(savedIntake.draft?{...savedIntake.draft,acceptancePrompt:savedIntake.draft.acceptancePrompt??selection.acceptancePrompt??''}:undefined);
+  const requested=intakeDraftToken({...action.settings,...styling,acceptancePrompt:action.settings.acceptancePrompt??selection.acceptancePrompt??'',length:action.action==='recommend'?savedIntake.draft?.length??'auto':action.settings.length});
+  draftCurrent=action.draftToken!==undefined?action.draftToken===current:!userDraft||requested===legacyToken;
+ }
+ const decision=authorizeSetup(action.action,{
+  phase,superseded:await repo.superseded(id,uid),replacement:!!doc.reselection,confirmed:!!doc.plan,
+  generationCurrent:savedIntake?.generation===action.generation,draftCurrent,selected:!!chosen,
+  locked:row.state==='running'&&row.lock_until>Date.now(),candidateExists:!!candidate,search,sameSearch:search.requestId===action.requestId,
+  automatic:action.action==='more'&&!!action.automatic,hasCandidates:!!savedIntake?.batches.at(-1)?.stories.length,
+  searchLimit:(savedIntake?.batches.length??0)>=maxSuggestionBatches,combined:selection.discovery?.mode==='auto'&&!!selection.discovery.combine,
+  preparationReady:!!doc.original&&!!doc.frameRecommendation,briefReady:!requiresBrief||storyBriefVerified(doc.original),
+ });
+ if(decision.effect==='reject')throw new ReaderError(decision.status,decision.message);
+ if(decision.effect==='noop'){await recordNoop(repo.db,uid,id,action.requestId,'setup',fingerprint);return row;}
+ if(action.action==='more')return requestSearch(repo,row,search,action.requestId,fingerprint,action.automatic);
+ const intake=savedIntake!;
+ intake.phase=phase!;
  if(action.action==='conditions'){
-  const stagedReplacement=doc.reselection&&intake.phase==='preparing';
-  if(!stagedReplacement&&(intake.selected||!['discovering','choosing'].includes(intake.phase)))throw new ReaderError(409,'这篇故事已经选定，不能修改提取条件。');
-  if(row.state==='running'&&row.lock_until>Date.now())throw new ReaderError(409,'当前任务正在保存，请稍后再修改提取条件。');
   const requested=action.conditions.discovery;
   const discovery=action.conditions.source
    ?action.conditions.sourceCard&&requested?.mode==='auto'&&requested.themeInput?{mode:'auto' as const,themeInput:requested.themeInput}:undefined
@@ -116,8 +130,6 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   return repo.get(id,uid);
  }
  if(action.action==='search'){
-  if(intake.selected||!['discovering','choosing'].includes(intake.phase))throw new ReaderError(409,'这篇故事已经选定，请在重选草稿中修改提取标题。');
-  if(row.state==='running'&&row.lock_until>Date.now())throw new ReaderError(409,'当前任务正在保存，请稍后再修改提取标题。');
   if(action.title&&!localBookId(selection))throw new ReaderError(400,'按标题提取需要可核对原文的本地书籍。');
   const themeInput=selection.discovery?.mode==='auto'?selection.discovery.themeInput:undefined;
   const discovery=action.title?{mode:'title' as const,title:action.title}:{mode:'auto' as const,themeInput},search=intakeSearch(intake);
@@ -136,20 +148,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   return repo.get(id,uid);
  }
  const manual=(settings:ReturnType<typeof artStyleSettings>)=>!sameArtDirection(settings,selection)||!!intake.manualArt;
- const styling=artStyleSettings(intake.draft??selection,action.settings??{});
- if(action.action==='draft'||action.action==='recommend'||action.action==='confirm'){
-  const current=intakeDraftToken(intake.draft);
-  const {suggestions,overrides}=doc.setupRequirements||{};
-  // 旧客户端仍可编辑系统原样建议；历史草稿与新写入的草稿同样要避免覆盖。
-  const userDraft=!!intake.draft&&(!!intake.draftEdited||!suggestions||intakeDraftToken(suggestedSettings(selection,suggestions,overrides))!==current);
-  const legacyToken=intakeDraftToken(intake.draft?{...intake.draft,acceptancePrompt:intake.draft.acceptancePrompt??selection.acceptancePrompt??''}:undefined);
-  const requested=intakeDraftToken({...action.settings,...styling,acceptancePrompt:action.settings.acceptancePrompt??selection.acceptancePrompt??'',length:action.action==='recommend'?intake.draft?.length??'auto':action.settings.length});
-  if(action.draftToken!==undefined?action.draftToken!==current:userDraft&&requested!==legacyToken)
-   throw new ReaderError(409,'另一台设备更新了制作内容。请查看最新草稿后再操作。');
- }
  if(action.action==='draft'){
   // 同时保存草稿和动作回执；后台仍持有原来的工作锁和输入世代。
-  if(!['preparing','confirming'].includes(intake.phase))throw new ReaderError(409,'请先选择故事。');
   const saved={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET document=json_set(document,'$.intake.draft',json(?),'$.intake.draftEdited',json('true'),'$.intake.manualArt',json(?),'$.intake.lastAction',json(?)),updated_at=?
    WHERE id=? AND user_id=? AND document=? AND selection=? AND ${currentStory}`,[JSON.stringify({...action.settings,...styling}),JSON.stringify(manual(styling)),JSON.stringify({id:action.requestId,hash:fingerprint}),new Date().toISOString(),id,uid,row.document,row.selection])}};
   if(!saved.meta.changes){
@@ -158,10 +158,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   }
   return repo.get(id,uid);
  }
- // The lock of a service that died cannot be released by a story that will not run again.
- if(row.state==='running'&&row.lock_until>Date.now())throw new ReaderError(409,'当前任务正在保存，请稍后再修改选择。');
  if(action.action==='choose'){
-  const candidate=intake.batches[action.batch]?.stories[action.index];if(!candidate)throw new ReaderError(400,'请选择已保存的候选故事。');
+  const choice=candidate!;
   if(intake.selected?.batch===action.batch&&intake.selected.index===action.index&&['preparing','confirming'].includes(intake.phase))return row;
   const settings=action.settings||intake.draft;
   const nextStyle=artStyleSettings(selection,settings||{});
@@ -170,13 +168,12 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   else if(intake.selected)delete selection.artStylePrompt;
   const reset=requirementsForReselection(selection,doc.setupRequirements);
   Object.assign(selection,reset.selection);doc.setupRequirements=reset.setup;
-  selection.storyTitle=candidate.title;selection.source=candidate.source;delete selection.sourceCard;
-  if(!intake.manualArt&&candidate.artRecommendation)selection.artStyle=candidate.artRecommendation.artStyle;
+  selection.storyTitle=choice.title;selection.source=choice.source;delete selection.sourceCard;
+  if(!intake.manualArt&&choice.artRecommendation)selection.artStyle=choice.artRecommendation.artStyle;
   intake.selected={batch:action.batch,index:action.index};intake.phase='preparing';
   intake.search={...intakeSearch(intake),state:'idle',error:null};
   delete doc.original;delete doc.dag;delete doc.frameRecommendation;doc.frameCountConfirmed=false;selection.length='auto';
  }else{
-  if(!intake.selected||intake.phase!=='confirming')throw new ReaderError(409,'请先选择故事并等待制作建议保存。');
   const requirementsChanged=action.settings.productionPrompt!==selection.productionPrompt;
   intake.manualArt=manual(styling);Object.assign(selection,action.settings,styling);
   if(action.action==='recommend'){
@@ -184,9 +181,6 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
    intake.draft={...action.settings,...styling,length:'auto'};intake.draftEdited=true;delete doc.frameRecommendation;doc.frameCountConfirmed=false;intake.phase='preparing';selection.length='auto';
   }
   else{
-   if(!doc.original||!doc.frameRecommendation)throw new ReaderError(409,'原文和制作建议尚未保存。');
-   const chosen=intake.batches[intake.selected.batch]?.stories[intake.selected.index];
-   if((intake.briefRequired||chosen?.storyBrief||doc.original.storyBrief)&&!storyBriefVerified(doc.original))throw new ReaderError(409,'故事摘要尚未对照原文核对，请重新准备制作。');
    if(requirementsChanged)invalidateStoryBrief(doc);
    doc.frameCountConfirmed=true;intake.phase='confirmed';
    // Results could no longer be chosen. A call in flight stops at its end and saves its reading position.

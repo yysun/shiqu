@@ -6,10 +6,49 @@ import {saveStoryOriginal} from '../lib/reader-source-storage.ts';
 import {observeStoryGeneration} from '../lib/reader-production-client.ts';
 import {shelfGenerationStatus} from '../lib/shelf-generation.ts';
 import {heavy} from './fixtures/test-tier.mjs';
+import {setupEvents} from '../lib/production-lifecycle.ts';
 const batch={stories:[{title:'庄周梦蝶',description:'梦醒后的庄周思考自己的经历。',artRecommendation:{artStyle:'paper-cut',reason:'层次适合梦境。'}},{title:'大葫芦',description:'惠子与庄子谈论大葫芦的用处。'}],note:''};
 async function fixture(t){const f=await productionFixture(t);f.control.hold=false;f.discoveries=[];f.generation.suggestions=async(s,excluded,_local,reading)=>{f.discoveries.push({s,excluded});reading?.onProgress({completed:1,total:1,completedChars:100,totalChars:100,stage:'selecting'});return structuredClone(batch);};return f;}
 async function create(f,requestId=crypto.randomUUID(),overrides={}) {const s=await f.json('sessions','POST',{requestId,intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced',...overrides}});if(s.intake.search.state==='idle'&&!s.intake.batches.length)await f.startDiscovery(s.id);await f.demand(s.id);return s.id;}
 const setup=async(f,id,action,s)=>f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(s||await f.read(id)).intake.generation,...action});
+
+test('setup routes accept each current intake action and reject stale input or unavailable preparation',async t=>{
+ const f=await fixture(t),id=await create(f);
+ const route=`sessions/${id}/setup`,seen=new Set();
+ const settings={artStyle:'paper-cut',productionPrompt:'',narrativeDetail:'balanced'};
+ const request=async(action,status,session=undefined)=>{
+  const reply=await f.request(route,'POST',{requestId:crypto.randomUUID(),generation:(session??await f.read(id)).intake.generation,...action});
+  assert.equal(reply.status,status,`${action.action}: ${await reply.text()}`);
+  if(status===200)seen.add(action.action);
+ };
+ const choosing=()=>until(async()=>(await f.read(id)).intake.phase==='choosing');
+ const confirming=()=>until(async()=>(await f.read(id)).intake.phase==='confirming');
+ await choosing();
+ await request({action:'conditions',conditions:{bookId:'zhuangzi',theme:selection.theme,productionPrompt:'',discovery:{mode:'auto'}}},200);
+ await choosing();
+ await request({action:'search',title:''},200);
+ await choosing();
+ await request({action:'more'},200);
+ await choosing();
+ await request({action:'confirm',settings:{...settings,length:4}},409);
+ await request({action:'draft',settings:{...settings,length:4}},409);
+ await request({action:'recommend',settings},409);
+ await request({action:'choose',batch:20,index:0},400);
+ const unselected=await f.read(id);
+ await request({action:'choose',batch:0,index:0},200);
+ await confirming();
+ await request({action:'conditions',conditions:{bookId:'zhuangzi',theme:selection.theme,productionPrompt:''}},409,unselected);
+ await request({action:'search',title:''},409);
+ let prepared=await f.read(id);
+ await request({action:'recommend',settings,draftToken:prepared.intake.draftToken},200);
+ await confirming();
+ prepared=await f.read(id);
+ await request({action:'draft',settings:{...settings,length:4},draftToken:prepared.intake.draftToken},200);
+ prepared=await f.read(id);
+ await request({action:'confirm',settings:{...settings,length:4},draftToken:prepared.intake.draftToken},200);
+ await request({action:'more'},409);
+ assert.deepEqual([...seen].sort(),[...setupEvents].sort());
+});
 
 test('intent is saved before discovery; restart and waiting for story choice never commission scripts/images',async t=>{
  const f=await fixture(t);let release;f.generation.suggestions=async()=>{f.discoveries.push(1);await new Promise(r=>release=r);return batch;};

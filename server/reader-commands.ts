@@ -4,7 +4,9 @@ import {createHash} from 'node:crypto';
 import {ReaderError} from '../lib/reader-model.ts';
 import type {Database} from '../lib/reader-repository.ts';
 import {supersededSql} from '../lib/reader-repository.ts';
-import type {ProductionAction} from '../lib/reader-model.ts';
+import {authorizeProductionCommand} from '../lib/production-lifecycle.ts';
+import type {ProductionControlEvent} from '../lib/production-lifecycle.ts';
+import type {GenerationControl} from '../lib/reader-model.ts';
 import {transact} from './production-records.ts';
 
 export type ReaderFault={id:string;session_id:string;owner_id:string;job_id:string|null;kind:'job'|'image-loss'|'interrupted';node:string|null;node_key:string;input_hash:string|null;origin_fault_id:string|null;optional:number;version:string;image:string|null;message:string;state:'pending'|'recovering'|'awaiting-match'|'resolved'|'replaced';command_id:string|null;created_at:number;updated_at:number};
@@ -69,15 +71,26 @@ export async function authorizeRecovery(db:Database,input:{ownerId:string;sessio
 }
 
 /** 生成方式与暂停控制：回执与控制字段在一个事务中写入，修订等待仅由继续制作解除。 */
-export async function authorizeControl(db:Database,ownerId:string,sessionId:string,requestId:string,action:ProductionAction,now=Date.now(),stopping=false){
+export async function authorizeControl(db:Database,ownerId:string,sessionId:string,requestId:string,action:ProductionControlEvent,now=Date.now(),stopping=false){
  const fingerprint=commandFingerprint(['control',sessionId,action]),replay=await commandReceipt(db,ownerId,requestId,fingerprint);if(replay)return replay;
  transact(db,tx=>{
-  if(stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
+  // 事务内先查回执，覆盖另一实例刚提交同编号的情况。
+  const existing=tx.get<CommandReceipt>('SELECT * FROM reader_commands WHERE owner_id=? AND request_id=?',ownerId,requestId);
+  if(existing)return;
+  const row=tx.get<{state:string;generation_control:GenerationControl;superseded:number;deleted:number;optionalWork:number}>(`SELECT s.state,s.generation_control,
+   ${supersededSql('s')} AS superseded,
+   EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id) AS deleted,
+   EXISTS(SELECT 1 FROM json_each(s.document,'$.dag.frames') f WHERE json_extract(f.value,'$.landscape')='' AND json_type(f.value,'$.landscapeError') IS NULL) AS optionalWork
+   FROM stories s WHERE s.id=? AND s.user_id=?`,sessionId,ownerId);
+  if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');
+  const decision=authorizeProductionCommand(action,{
+   version:row.deleted?'deleted':row.superseded?'superseded':'current',stopping,control:row.generation_control,
+   continuation:false,targetCurrent:true,targetReady:row.state!=='completed'||action!=='background'&&!!row.optionalWork,
+  });
+  if(!decision.allowed)throw new ReaderError(decision.status,decision.message);
   const inserted=tx.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,created_at,updated_at)
-   SELECT ?,?,?,'control',?,?,?,? FROM stories s WHERE s.id=? AND s.user_id=? AND (s.state!='completed' OR ? IN('pause','stop','resume') AND EXISTS(
-     SELECT 1 FROM json_each(s.document,'$.dag.frames') f WHERE json_extract(f.value,'$.landscape')='' AND json_type(f.value,'$.landscapeError') IS NULL))
-    AND NOT ${supersededSql('s')} AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)
-   ON CONFLICT(owner_id,request_id) DO NOTHING`,requestId,ownerId,sessionId,fingerprint,JSON.stringify({action}),now,now,sessionId,ownerId,action).changes;
+   VALUES(?,?,?,'control',?,?,?,?) ON CONFLICT(owner_id,request_id) DO NOTHING`,
+   requestId,ownerId,sessionId,fingerprint,JSON.stringify({action}),now,now).changes;
   if(!inserted)return;
   const control=action==='resume'?'active':action==='pause'?'paused':action==='stop'?'stopped':null;
   const mode=action==='resume'||action==='background'?'background':null;
