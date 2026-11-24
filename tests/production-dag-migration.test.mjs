@@ -73,7 +73,7 @@ test('0025 converts stories, adopts a paid image, maps faults and clears old job
  assert.equal(faults.text.job_id,null);
  assert.deepEqual(sqlite.prepare('SELECT id FROM production_jobs').all().map(r=>r.id),['search']);
  assert.equal(sqlite.prepare("SELECT status FROM reader_commands WHERE request_id='cmd'").get().status,'failed');
- assert.equal(sqlite.prepare('PRAGMA user_version').get().user_version,2);
+ assert.equal(sqlite.prepare('PRAGMA user_version').get().user_version,3);
  const triggers=sqlite.prepare("SELECT name FROM sqlite_schema WHERE type='trigger' ORDER BY name").all().map(r=>r.name);
  assert.deepEqual(triggers,['book_image_reference_on_delete','books_refuse_pre_consolidation_seed','production_disarm_deleted','reader_command_id_guard','reader_session_id_guard','story_content_revision','story_content_revision_insert']);
  assert.ok(sqlite.prepare("SELECT 1 FROM pragma_table_info('production_jobs') WHERE name='error_code'").get());
@@ -307,7 +307,7 @@ test('the production upgrade preserves saved text and media, and resumes only un
  const upgraded=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'),{readOnly:true});
  let converted;
  try{
-  assert.equal(upgraded.prepare('PRAGMA user_version').get().user_version,2);
+  assert.equal(upgraded.prepare('PRAGMA user_version').get().user_version,3);
   assert.equal(upgraded.prepare("SELECT count(*) AS count FROM sqlite_schema WHERE type='trigger'").get().count,7);
   converted=documentsIn(upgraded);
  }finally{upgraded.close();}
@@ -424,4 +424,31 @@ test('the production upgrade preserves saved text and media, and resumes only un
  assert.deepEqual(draftDoc.plan.pages,draft.pages);
  assert.deepEqual(f.control.dagCalls.slice(beforeDraft),[],'saved draft text does not generate again');
  assertMedia(f.dataDirectory);
+});
+
+test('0026 auto-migrates format 2 after a verified backup and can retry a rolled back migration',t=>{
+ const root=process.cwd(),parent=mkdtempSync(path.join(os.tmpdir(),'shiqu lifecycle migration ')),directory=path.join(parent,'library');
+ t.after(()=>rmSync(parent,{recursive:true,force:true}));
+ let sqlite=historicalLibrary(directory,root,'0025_production_dag.sql');
+ sqlite.exec(`CREATE TRIGGER interrupt_lifecycle BEFORE INSERT ON app_migrations WHEN NEW.name='0026_production_lifecycle.sql'
+  BEGIN SELECT RAISE(ABORT,'controlled lifecycle interruption'); END`);
+ sqlite.close();
+ assert.throws(()=>ensureLibraryReady(directory,root),/LIBRARY_MIGRATION_FAILED.*controlled lifecycle interruption/);
+ sqlite=new DatabaseSync(path.join(directory,'shiqu.sqlite'));
+ assert.equal(sqlite.prepare('PRAGMA user_version').get().user_version,2);
+ assert.equal(sqlite.prepare("SELECT name FROM sqlite_master WHERE name='reader_faults_origin_frame'").get(),undefined);
+ sqlite.exec('DROP TRIGGER interrupt_lifecycle');
+ sqlite.close();
+ const result=ensureLibraryReady(directory,root);
+ assert.deepEqual(result.migrations,['0026_production_lifecycle.sql']);
+ verifyLibraryBackup(result.backup);
+ const original=new DatabaseSync(path.join(result.backup,'shiqu.sqlite'),{readOnly:true});
+ try{assert.equal(original.prepare('PRAGMA user_version').get().user_version,2);}finally{original.close();}
+ const upgraded=new DatabaseSync(path.join(directory,'shiqu.sqlite'),{readOnly:true});
+ try{
+  assert.equal(upgraded.prepare('PRAGMA user_version').get().user_version,3);
+  assert.ok(upgraded.prepare("SELECT name FROM sqlite_master WHERE name='reader_faults_origin_frame'").get());
+  assert.ok(upgraded.prepare("SELECT name FROM app_migrations WHERE name='0026_production_lifecycle.sql'").get());
+ }finally{upgraded.close();}
+ assert.equal(ensureLibraryReady(directory,root),undefined);
 });

@@ -7,10 +7,12 @@ import type {SessionView} from '@/lib/reader-model';
 import type {FaultView} from '@/lib/reader-recovery';
 
 function label(fault:FaultView){
+ if(fault.retryReview)return '重试审核';
  if(fault.stage==='redraw')return fault.page===null?'重绘图片':`重绘第 ${fault.page+1} 幅`;
  return {prepare:'重试准备',source:'重试原文检索',publication:'重试保存图片',review:'继续自动修复',generation:'重试生成'}[fault.stage];
 }
 function recoveryLabel(fault:FaultView){
+ if(fault.retryReview)return '正在重新审核';
  if(fault.stage==='redraw')return fault.page===null?'正在重绘图片':`正在重绘第 ${fault.page+1} 幅`;
  return {prepare:'正在重新准备',source:'正在重新检索原文',publication:'正在重新保存图片',review:'正在继续修订',generation:'正在恢复生成'}[fault.stage];
 }

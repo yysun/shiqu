@@ -2,6 +2,7 @@
 // 纯函数，不做 I/O；只读文档中的 dag，不考虑故障（故障由协调器另行呈现）。
 import {registerDagProgress} from '../reader-model.ts';
 import type {Document,Selection,Step} from '../reader-model.ts';
+import {activeReviewSkip} from './review-skip.ts';
 import {evaluate} from './engine.ts';
 import {describeProductionCall} from '../production-lifecycle.ts';
 import {settle,work,attention,finished,stateOf,type Attention,type DagStory} from './runner.ts';
@@ -57,7 +58,7 @@ export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
   reviewPhase:typeof selection.length==='number'||frameCheckPassed?'full':'frames',
   reviewRound:used+1,repairCompleted:0,repairTotal:story.dag.issues?.length??0,reviewAudits:used+(reviewWork?0:1),repairPasses:used,
   ...(stop==='limit'||stop==='unchanged'||stop==='requirements'?{reviewStopReason:stop}:stop==='unrepairable'?{reviewStopReason:'replan' as const}:{}),
-  reviewOverridden:Object.values(story.dag.products).some(product=>product.overridden),
+  reviewOverridden:!!activeReviewSkip(stateOf(story,{includeReviewSkip:false}),story.dag)||Object.values(story.dag.products).some(product=>product.overridden),
  };
  return {step,review,complete,frameCount,storyboardFrames,drawingFrames,activity,...(redrawPage?{redrawPage}:{})};
 }

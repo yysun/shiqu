@@ -25,7 +25,7 @@ import type {Document,SessionRow,SessionView} from './reader-model.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
 import {checkedRevision,revisionChangesSchema} from './reader-revision.ts';
 import {intakeActionSchema} from './reader-intake.ts';
-import {recoveryRequestSchema} from './reader-recovery.ts';
+import {recoveryRequestSchema,reviewOverrideSchema} from './reader-recovery.ts';
 import {bookContents} from '../server/local-book-contents.ts';
 import {createIntake,changeIntake} from '../server/reader-intake.ts';
 import {forkRevision,previewDagRevision,revisionCoverMaxBytes,revisionSnapshot} from '../server/reader-revisions.ts';
@@ -349,8 +349,8 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
    if(path[2]==='review-override'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
-    const command=recoveryRequestSchema.parse(await body(req));
-    if(!await requestRecorded(command.requestId))await requireProvider();
+    const command=reviewOverrideSchema.parse(await body(req));
+    if(command.ending===undefined&&!await requestRecorded(command.requestId))await requireProvider();
     return json(await services.production.overrideReview(uid,id,command));
    }
    if(path[2]==='production-control'&&path.length===3&&req.method==='POST'){

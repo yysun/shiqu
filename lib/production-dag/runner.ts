@@ -13,6 +13,7 @@ import {preparesSelectedStory} from '../reader-frame-recommendation.ts';
 import {storyBriefVerified} from '../reader-story-brief.ts';
 import {evaluate,instanceId,reusable,complete,type Instance,type Fault,type Product,type VersionState} from './engine.ts';
 import {nodeSpec} from './registry.ts';
+import {withReviewSkip} from './review-skip.ts';
 import {fingerprint} from './fingerprint.ts';
 import {callGroups,type CallGroup} from './schedule.ts';
 import {acknowledgedChecks,reviewStage,newRepairBudget,canRepair,liveSuggestions,verdictNodes,type Suggestion} from './review.ts';
@@ -49,11 +50,12 @@ export function syncItems(dag:DagDocument,selection:Selection):DagDocument{
  return JSON.stringify(items)===JSON.stringify(dag.items)?dag:{...dag,items};
 }
 
-export function stateOf(story:DagStory):VersionState{
+export function stateOf(story:DagStory,{includeReviewSkip=true}={}):VersionState{
  const preparing=preparationPending(story.doc)||story.doc.intake?.phase==='confirming';
  const seed=preparing?{generation:story.doc.intake?.generation,production:productionRequirement(story.selection),detail:story.selection.narrativeDetail}:undefined;
  const roots=rootProducts(story.selection,story.dag,{notes:story.doc.reviewNotes,refSource:story.refSource,seed});
- return versionState(story.dag,roots,{confirmed:story.confirmed,faults:story.faults,reprepare:story.reprepare,skipFrameCheck:typeof story.selection.length==='number'});
+ const state=versionState(story.dag,roots,{confirmed:story.confirmed,faults:story.faults,reprepare:story.reprepare,skipFrameCheck:typeof story.selection.length==='number'});
+ return includeReviewSkip?withReviewSkip(state,story.dag):state;
 }
 
 const clone=(dag:DagDocument):DagDocument=>structuredClone(dag);
@@ -108,7 +110,7 @@ export function settle(story:DagStory):DagDocument{
  }
  // 复用：硬输入与某份旧图完全一致时直接沿用，不要求画幅身份相同。
  for(const node of ['frameImage','landscape'] as const){
-  const state=stateOf({...story,dag});
+  const state=stateOf({...story,dag,faults:story.faults.filter(fault=>!fault.imageLoss)});
   const pool=Object.entries(dag.products).filter(([id,p])=>id.startsWith(node+':')&&p.readable!==false);
   for(const inst of evaluate(state).all().filter(i=>i.node===node&&i.ready&&i.hard)){
    const match=reusable(pool.map(([,p])=>p),inst.hard!);

@@ -1,5 +1,7 @@
 # 故事生成状态机
 
+故事当前与历史版本的生命周期及守卫以[故事制作生命周期](story-production-lifecycle.md)为准。下面按旧检查点推导的分镜与审片细节保留用于旧文档转换。
+
 本文定义故事生成的生产状态机：从创建意图、选择故事、确认制作，到分镜、审核、绘图和整篇完成，并覆盖替换选题、失败恢复和历史版本隔离。本轮按已审规格更新正式 API、持久队列和阅读界面；验证记录见[验收规格](tests/test-story-generation-state-machine.md)。
 
 > **制作流程已由数据驱动的 DAG 取代。** 选定故事后的准备（原文核对、缺少的候选画风、梗概核对与制作建议）以及确认后的制作（提纲、分镜、审片、修订、绘图和横图）由 `lib/production-dag/` 的引擎调度，`server/dag-production.ts` 执行，规则见 [制作 DAG](story-production-dag.md)。本文第 3、4、8 节中按 `nextStep()` 逐步推导分镜、审核与绘图的描述、以及 `visualReview` 检查点，只适用于升级前的旧故事（由转换钩子转入 DAG）；候选查找仍由独立队列运行，`nextStep()` 为查找和确认前准备提供兼容视图，审片结论、按结论放行、暂停恢复与故障按依赖阻断均以 DAG 规范为准。代码索引见第 10 节，另加 `lib/production-dag/`（引擎、注册表、请求读取、进度视图 `progress.ts`、复制 `copy.ts`）、`server/dag-production.ts`、`server/dag-executor.ts`、`server/dag-revisions.ts`、`server/provider-snapshot.ts`（模型快照，缺凭据时显示「快照服务不可用」，「应用当前模型设置」即 `production-control` 的 `apply-model`）。阅读中的故事优先绘制当前页及随后六幅，由 `viewedPriority` 按读者需求排序。

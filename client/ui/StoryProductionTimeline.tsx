@@ -17,7 +17,7 @@ export default function StoryProductionTimeline({session,busy=false,error='',onR
  const phase=meta?.phase;
  const current=focused?.id||(phase==='image'||phase==='restyle'?'image':phase==='source'||phase==='discover'?'source':phase==='recommend'||phase==='production-confirmation'?'count':phase==='repair'?'repair':phase==='review'?'review':'plan');
  const review=stages.find(step=>['review','repair','recheck'].includes(step.id)&&step.state==='failed')?.id||stages.find(step=>['review','repair','recheck'].includes(step.id)&&step.state==='current')?.id||'review';
- const reviewBlocked=!!session.reviewIssues?.length||meta?.reviewStopReason==='requirements';
+ const reviewBlocked=!!session.reviewSkip||!!session.reviewIssues?.length||meta?.reviewStopReason==='requirements';
  const ownsReview=reviewBlocked&&!!reviewTools,intakePhase=session.intake?.phase;
  function stageFor(fault:FaultView){
   if(fault.stage==='prepare'||fault.stage==='source'&&intakePhase&&intakePhase!=='confirmed')return 'count';
@@ -32,7 +32,7 @@ export default function StoryProductionTimeline({session,busy=false,error='',onR
  }
  const faults=session.faults||[];
  for(const stage of new Set(faults.map(stageFor))){
-  const scoped=faults.filter(fault=>stageFor(fault)===stage&&!(fault.stage==='review'&&(ownsReview||meta?.reviewStopReason==='requirements')));
+  const scoped=faults.filter(fault=>stageFor(fault)===stage&&!(fault.stage==='review'&&!fault.retryReview&&(ownsReview||meta?.reviewStopReason==='requirements')));
   if(scoped.length&&onRetry)retry(stage,{...session,faults:scoped},'faults');
  }
  const message=error||session.error;

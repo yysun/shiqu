@@ -1,7 +1,7 @@
 // Keep the browser contract independent of the server scheduler and future media handlers.
 import type {SessionRow,SessionView,ProductionAction,GenerationControl} from './reader-model.ts';
 import type {ProductionService} from './production-lifecycle.ts';
-import type {RecoveryRequest} from './reader-recovery.ts';
+import type {RecoveryRequest,ReviewOverride} from './reader-recovery.ts';
 export const productionReadAhead=6;
 export const productionViewerLeaseMs=30000;
 export type LandscapeStatus={state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;retryToken?:string;error?:string;service?:ProductionService;control?:GenerationControl};
@@ -9,7 +9,7 @@ export interface ReaderProduction{
  referencesChanged?():void;
  wake():void;
  control(ownerId:string,id:string,action:ProductionAction,requestId?:string):Promise<SessionView>;
- overrideReview(ownerId:string,id:string,command?:RecoveryRequest):Promise<SessionView>;
+ overrideReview(ownerId:string,id:string,command?:ReviewOverride):Promise<SessionView>;
  request(ownerId:string,id:string,viewerId:string,page:number,retry?:boolean):Promise<SessionView>;
  leave(ownerId:string,id:string,viewerId:string):Promise<void>;
  managed(ownerId:string,id:string):Promise<boolean>;

@@ -1,39 +1,33 @@
-// 故障随修订延续：按节点实例的硬输入指纹决定延续、放弃或暂存为待匹配。
-// 延续故障在新版建立新实例并记录来源，恢复动作须针对新版；上一版的恢复请求仍归上一版。
-import {hardInputHash,type Fault,type VersionState} from './engine.ts';
-import {nodeSpec} from './registry.ts';
+// 丢图来源按绘图硬输入跨画幅匹配，各实例独立恢复，关闭后的记录始终用于去重。
+import {evaluate,type Fault,type VersionState} from './engine.ts';
+import {fingerprint} from './fingerprint.ts';
 
-export type CarryResult={carried:Fault[];awaiting:Fault[];dropped:Fault[]};
+const open=(fault:Fault)=>fault.state==='pending'||fault.state==='recovering';
 
-const open=(f:Fault)=>f.state==='pending'||f.state==='recovering'||f.state==='awaiting-match';
-
-/** 提交普通修订时处理上一版未解除的故障。替换选题不调用本函数，故障不延续。 */
-export function carryFaults(previous:Fault[],next:VersionState,newId:(f:Fault)=>string):CarryResult{
- const result:CarryResult={carried:[],awaiting:[],dropped:[]};
- for(const fault of previous.filter(open)){
-  const decision=matchFault(fault,next);
-  if(decision==='carry')result.carried.push({...fault,id:newId(fault),state:'pending',origin:fault.origin??fault.id});
-  else if(decision==='awaiting')result.awaiting.push({...fault,id:newId(fault),state:'awaiting-match',origin:fault.origin??fault.id});
-  else result.dropped.push(fault);
+/** 每幅独立匹配。来源在提纲与全部在制画幅的绘图硬输入齐备后才关闭。 */
+export function matchImageLoss(state:VersionState,sources:Fault[],instances:Fault[]){
+ const evaluation=evaluate(state);
+ const frames=state.order.map(key=>{
+  const frame=evaluation.instance('frameImage',key);
+  return {key,readable:frame.status==='valid',inputHash:frame.hard&&fingerprint(frame.hard)};
+ });
+ const close=instances.flatMap<{id:string;state:'resolved'|'replaced'}>(fault=>{
+  const frame=frames.find(item=>item.key===fault.key);
+  if(!open(fault))return [];
+  if(frame?.readable)return [{id:fault.id,state:'resolved' as const}];
+  if(!frame||frame.inputHash&&fault.inputHash&&frame.inputHash!==fault.inputHash)return [{id:fault.id,state:'replaced' as const}];
+  return [];
+ });
+ const additions:{source:Fault;key:string;inputHash:string}[]=[];
+ const finished:{id:string;state:'resolved'|'replaced'}[]=[];
+ for(const source of sources){
+  for(const frame of frames){
+   if(frame.readable||!frame.inputHash||frame.inputHash!==source.inputHash)continue;
+   if(instances.some(fault=>fault.key===frame.key&&(!!fault.origin&&fault.inputHash===frame.inputHash||open(fault)&&!close.some(record=>record.id===fault.id))))continue;
+   if(!additions.some(item=>item.key===frame.key))additions.push({source,key:frame.key,inputHash:frame.inputHash});
+  }
+  if(evaluation.instance('outline').status==='valid'&&frames.length&&frames.every(frame=>frame.readable||frame.inputHash))
+   finished.push({id:source.id,state:frames.some(frame=>frame.inputHash===source.inputHash)||instances.some(fault=>fault.origin===source.id)?'resolved':'replaced'});
  }
- return result;
-}
-
-/** 待匹配故障在新指纹确定后、为该节点启动任务前处理。 */
-export function settleAwaiting(state:VersionState):{carry:Fault[];drop:Fault[]}{
- const carry:Fault[]=[],drop:Fault[]=[];
- for(const fault of state.faults.filter(f=>f.state==='awaiting-match')){
-  const decision=matchFault(fault,state);
-  if(decision==='carry')carry.push({...fault,state:'pending'});
-  else if(decision==='drop')drop.push(fault);
- }
- return {carry,drop};
-}
-
-function matchFault(fault:Fault,state:VersionState):'carry'|'awaiting'|'drop'{
- const exists=nodeSpec(fault.node).per!=='frame'||state.order.includes(fault.key);
- if(!exists)return 'drop';
- const current=hardInputHash(state,fault.node,fault.key);
- if(current===undefined)return 'awaiting';
- return current===fault.inputHash?'carry':'drop';
+ return {close,additions,finished};
 }

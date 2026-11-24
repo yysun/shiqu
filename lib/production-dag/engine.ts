@@ -26,7 +26,7 @@ export type Product={
  evidence?:Evidence[];
 };
 
-export type Fault={id:string;node:string;key:string;state:'pending'|'recovering'|'awaiting-match';inputHash?:string;optional?:boolean;origin?:string};
+export type Fault={id:string;node:string;key:string;state:'pending'|'recovering'|'awaiting-match'|'resolved';inputHash?:string;optional?:boolean;origin?:string;imageLoss?:true};
 
 export type VersionState={
  confirmed:boolean;
@@ -85,7 +85,7 @@ export class Evaluation{
    this.memo.set(id,skipped);return skipped;
   }
   const spec=nodeSpec(node),product=this.state.products[id];
-  const faulted=this.state.faults.some(f=>f.node===node&&f.key===key);
+  const faulted=this.state.faults.some(f=>(f.state==='pending'||f.state==='recovering')&&f.node===node&&f.key===key);
   if(spec.kind!=='model'){
    const result:Instance={node,key,id,status:'valid',basedOnOld:false,blocked:false,ready:false};
    this.memo.set(id,result);return result;
@@ -229,7 +229,7 @@ export function complete(state:VersionState):boolean{
  if(!evaluation.approved(true))return false;
  const required=evaluation.all().filter(i=>nodeSpec(i.node).required);
  if(required.some(i=>i.status!=='valid'))return false;
- return !state.faults.some(f=>!f.optional&&nodeSpec(f.node).required);
+ return !state.faults.some(f=>f.state!=='resolved'&&!f.optional&&nodeSpec(f.node).required);
 }
 
 /** 图片按绘图硬输入复用，不要求画幅身份相同：在候选产物中找硬输入完全一致且可读的一份。 */

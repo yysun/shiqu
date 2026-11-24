@@ -7,7 +7,7 @@ import {supersededSql} from '../lib/reader-repository.ts';
 import type {ProductionAction} from '../lib/reader-model.ts';
 import {transact} from './production-records.ts';
 
-export type ReaderFault={id:string;session_id:string;owner_id:string;job_id:string|null;kind:'job'|'image-loss'|'interrupted';node:string|null;node_key:string;input_hash:string|null;origin_fault_id:string|null;optional:number;version:string;image:string|null;message:string;state:'pending'|'recovering'|'resolved'|'replaced';command_id:string|null;created_at:number;updated_at:number};
+export type ReaderFault={id:string;session_id:string;owner_id:string;job_id:string|null;kind:'job'|'image-loss'|'interrupted';node:string|null;node_key:string;input_hash:string|null;origin_fault_id:string|null;optional:number;version:string;image:string|null;message:string;state:'pending'|'recovering'|'awaiting-match'|'resolved'|'replaced';command_id:string|null;created_at:number;updated_at:number};
 export type CommandReceipt={request_id:string;owner_id:string;session_id:string;action:string;fingerprint:string;payload:string;fault_id:string|null;result_id:string|null;status:'queued'|'running'|'succeeded'|'failed';result:string|null;error:string|null;created_at:number;updated_at:number};
 export const commandFingerprint=(input:unknown)=>createHash('sha256').update(JSON.stringify(input)).digest('hex');
 export async function commandReceipt(db:Database,ownerId:string,requestId:string,fingerprint?:string){
@@ -17,7 +17,7 @@ export async function commandReceipt(db:Database,ownerId:string,requestId:string
  return row;
 }
 export async function sessionFaults(db:Database,sessionId:string,ownerId:string){
- return (await db.prepare("SELECT * FROM reader_faults WHERE session_id=? AND owner_id=? AND state IN ('pending','recovering') ORDER BY created_at,id").bind(sessionId,ownerId).all<ReaderFault>()).results;
+ return (await db.prepare("SELECT * FROM reader_faults WHERE session_id=? AND owner_id=? AND state IN ('pending','recovering','awaiting-match') ORDER BY created_at,id").bind(sessionId,ownerId).all<ReaderFault>()).results;
 }
 export async function recordNoop(db:Database,ownerId:string,sessionId:string,requestId:string,action:string,fingerprint:string,resultId=sessionId,now=Date.now()){
  const existing=await commandReceipt(db,ownerId,requestId,fingerprint);if(existing)return existing;

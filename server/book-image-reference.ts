@@ -22,12 +22,12 @@ function bookKey(id:string,custom?:string){const name=(id==='other'?custom||'':i
 function picture(bytes:Uint8Array){const type=mediaType(bytes);if(!type||bytes.length>12*1024*1024||!imageDimensions(bytes))throw new ReaderError(400,'请选择有效的PNG、JPEG或WebP图片（不超过12MB）。');return type;}
 const visible="NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=? AND d.user_id=?)";
 /** 读取绘图参考的持久身份。发送前在同一事务核对星标、来源归属与本篇首幅。 */
-export function drawingReferenceBinding(db:SyncStatements,ownerId:string,id:string){
+export function drawingReferenceBinding(db:SyncStatements,ownerId:string,id:string,starOnly=false){
  const row=db.get<{selection:string;document:string}>('SELECT selection,document FROM stories WHERE id=? AND user_id=?',id,ownerId);
  if(!row)return null;
  const selection=JSON.parse(row.selection) as Selection,doc=JSON.parse(row.document) as Document;
  const fallback=doc.dag?.frames[doc.dag.order[0]]?.image??null;
- if(usesStoryImageReference(doc.revision,selection.artStyle))return fallback;
+ if(usesStoryImageReference(doc.revision,selection.artStyle))return starOnly?null:fallback;
  const key=bookKey(selection.bookId,selection.customBook);
  const selected=db.get<{token:string;selection:string}>(`SELECT r.token,s.selection FROM book_image_references r JOIN stories s
   ON s.id=r.story_id AND s.user_id=r.owner_id WHERE r.owner_id=? AND r.book_key=?
@@ -36,7 +36,7 @@ export function drawingReferenceBinding(db:SyncStatements,ownerId:string,id:stri
   const source=JSON.parse(selected.selection) as Selection;
   if(bookKey(source.bookId,source.customBook)===key)return selected.token;
  }
- return fallback;
+ return starOnly?null:fallback;
 }
 
 export class BookImageReferences{

@@ -78,9 +78,9 @@ for(const point of ['journal','quarantined','database-retired','database-publish
  ensureLibraryReady(f.directory,root);assert.deepEqual(rawRows(f.directory,'stories'),f.before);
 });
 test('future schema and recovery formats refuse before runtime files or backups are written',async t=>{
- const f=fixture(t);let db=new DatabaseSync(path.join(f.directory,'shiqu.sqlite'));db.exec('PRAGMA user_version=3');db.close();const before=readdirSync(f.directory);
+ const f=fixture(t);let db=new DatabaseSync(path.join(f.directory,'shiqu.sqlite'));db.exec('PRAGMA user_version=4');db.close();const before=readdirSync(f.directory);
  assert.throws(()=>ensureLibraryReady(f.directory,root),/NEWER_SCHEMA/);await assert.rejects(ownDesktopData(f.directory),/NEWER_SCHEMA/);assert.deepEqual(readdirSync(f.directory),before);
- writeFileSync(path.join(f.directory,'.desktop-upgrade.json'),JSON.stringify({version:3}));assert.throws(()=>ensureLibraryReady(f.directory,root),/NEWER_UPGRADER/);
+ writeFileSync(path.join(f.directory,'.desktop-upgrade.json'),JSON.stringify({version:4}));assert.throws(()=>ensureLibraryReady(f.directory,root),/NEWER_UPGRADER/);
 });
 test('a separate process cannot enter the brief gate during publication',async t=>{
  const f=fixture(t);ensureLibraryReady(f.directory,root);
@@ -176,6 +176,6 @@ test('a library consolidated before the refusal guard receives it in place',t=>{
  cpSync(path.join(root,'drizzle'),path.join(previous,'drizzle'),{recursive:true,filter:source=>!/^\d{4}_.*\.sql$/.test(path.basename(source))||path.basename(source)<'0019_'});
  ensureLibraryReady(f.directory,previous);
  const db=new DatabaseSync(path.join(f.directory,'shiqu.sqlite'));db.exec(releasedSeed);db.close();
- const result=ensureLibraryReady(f.directory,root);assert.deepEqual(result.migrations,['0019_refuse_pre_consolidation_apps.sql','0020_blocked_revision_faults.sql','0021_landscape_job_isolation.sql','0022_story_content_revisions.sql','0023_story_scan_indexes.sql','0024_prompt_records.sql','0025_production_dag.sql']);verifyLibraryBackup(result.backup);
+ const result=ensureLibraryReady(f.directory,root);assert.deepEqual(result.migrations,['0019_refuse_pre_consolidation_apps.sql','0020_blocked_revision_faults.sql','0021_landscape_job_isolation.sql','0022_story_content_revisions.sql','0023_story_scan_indexes.sql','0024_prompt_records.sql','0025_production_dag.sql','0026_production_lifecycle.sql']);verifyLibraryBackup(result.backup);
  assertRefusesReleasedSeed(f.directory);assert.deepEqual(rawRows(f.directory,'stories'),f.before);
 });

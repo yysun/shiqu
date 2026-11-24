@@ -9,12 +9,13 @@ import {owner} from './fixtures/book-reference.mjs';
 import {png} from './fixtures/images.mjs';
 import {projectDocument,emptyDag} from '../lib/production-dag/document.ts';
 import {evaluate} from '../lib/production-dag/engine.ts';
+import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {stateOf} from '../lib/production-dag/runner.ts';
 import {selection} from './fixtures/production-data.mjs';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {generationProgress} from '../lib/generation-progress.ts';
 import {shelfGenerationStatus} from '../lib/shelf-generation.ts';
-import {authorizeDispatch,dispatchRules} from '../lib/production-lifecycle.ts';
+import {authorizeDispatch,dispatchRules,authorizeProductionCommand,commandRules} from '../lib/production-lifecycle.ts';
 
 /** 一篇已完成、审片通过的 DAG 故事，图片文件写入隔离书库。 */
 async function completedStory(f){
@@ -287,6 +288,18 @@ test('dispatch rule guards are exhaustive and mutually exclusive',()=>{
  assert.equal(authorizeDispatch({version:'current',control:'active',continuation:false,generationCurrent:true,demand:true,fault:false,inputCurrent:true}),'allow');
 });
 
+test('production command guards choose one rule for every combination of persisted control and target validity',()=>{
+ const flags=[false,true];
+ for(const event of ['continue','retry','continue-repair','skip-review'])for(const version of ['current','superseded','deleted'])
+  for(const control of ['active','paused','stopped'])for(const continuation of flags)for(const targetCurrent of flags)
+   for(const targetReady of flags)for(const stopping of flags){
+    const state={version,control,continuation,targetCurrent,targetReady,stopping};
+    const matching=commandRules.filter(rule=>rule.matches(event,state));
+    assert.equal(matching.length,1);
+    assert.deepEqual(authorizeProductionCommand(event,state),matching[0].decide(event));
+   }
+});
+
 test('pausing between the async prescreen and claim leaves the drawing queued without a lease',async t=>{
  const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
  const route=`sessions/${id}`,requestId=crypto.randomUUID(),{token}=await f.json(`${route}/revisions`);
@@ -336,6 +349,31 @@ for(const [provider,action] of [['codex','pause'],['codex','replace'],['codex','
   assert.equal((await f.read(requestId)).lifecycle.control,'stopped');
   assert.equal(f.control.calls.length,0);
  }
+});
+
+test('dispatch skips an already claimed drawing if the target becomes readable during preparation',async t=>{
+ const f=await productionFixture(t,'codex'),{id,dag}=await completedStory(f);
+ const route=`sessions/${id}`,requestId=crypto.randomUUID(),{token}=await f.json(`${route}/revisions`);
+ const started=Promise.withResolvers(),release=Promise.withResolvers(),get=f.media.get.bind(f.media);
+ let held=false;
+ f.media.get=async key=>{
+  if(!held&&key.startsWith(`reader/${requestId}/`)){held=true;started.resolve();await release.promise;}
+  return get(key);
+ };
+ await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{redrawPages:[2]},startRedraw:true});
+ try{
+  await until(async()=>await Promise.race([started.promise.then(()=>true),turn().then(()=>false)]));
+  const doc=await saved(f,requestId),key=doc.dag.order[1];
+  const replacement=`/api/reader/media/${requestId}/1.png`;
+  await f.media.put(referenceImageKey(requestId,replacement),png,{contentType:'image/png'});
+  doc.dag.frames[key].image=replacement;
+  doc.dag.products[`frameImage:${key}`]=dag.products[`frameImage:${dag.order[1]}`];
+  doc.images[1]=replacement;
+  await f.app.services.database.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(doc),requestId).run();
+ }finally{release.resolve();}
+ await until(()=>!f.app.services.production.queue.busy);
+ assert.equal(f.control.calls.length,0);
+ assert.equal((await f.read(requestId)).lifecycle.phase,'completed');
 });
 
 test('temporary reference read failure yields the drawing without spending an attempt',async t=>{
@@ -850,7 +888,7 @@ test('a revision keeps an unresolved drawing fault whose inputs did not change; 
  assert.equal(f.control.calls.length,0,'nothing is drawn without an explicit recovery');
 });
 
-test('replanning matches a lost-image fault by drawing inputs before dispatching a new frame',{todo:'正式修订在新绘图输入尚未就绪时丢弃了上一版的故障'},async t=>{
+test('replanning matches a lost-image fault by drawing inputs before dispatching a new frame',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  const id=await f.create(3),route=`sessions/${id}`;
@@ -886,6 +924,45 @@ test('replanning matches a lost-image fault by drawing inputs before dispatching
  assert.deepEqual(evaluation.instance('frameImage',newKey).hard,prior.dag.products[`frameImage:${oldKey}`].inputs);
  assert.deepEqual({state:current.state,lostFrames:current.faults?.filter(fault=>fault.stage==='redraw').map(fault=>fault.page)??[],drawn:f.control.calls.slice(before).map(call=>call.page)},
   {state:'failed',lostFrames:[1],drawn:[]});
+});
+
+test('one lost drawing binds two new frames, and recovering one supplies the other for free after restart',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const id=await f.create(3),route=`sessions/${id}`;
+ await until(async()=>(await f.read(id)).state==='completed');
+ const prior=await saved(f,id),oldKey=prior.dag.order[1],image=prior.images[1];
+ const {rm}=await import('node:fs/promises'),{join}=await import('node:path');
+ await rm(join(f.dataDirectory,'media',referenceImageKey(id,image)));
+ await f.json(`${route}/image-health`,'POST',{page:1,image});
+ f.control.beforeText=(name,payload)=>{
+  if(name==='visual')return {frames:payload.frames.map(frame=>({number:frame.number,
+   prompt:prior.dag.frames[prior.dag.order[frame.number===3?1:frame.number-1]].visual,drawn:['庄周']}))};
+ };
+ const {token}=await f.json(`${route}/revisions`),before=f.control.calls.length;
+ const child=await f.json(`${route}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{productionPrompt:'采用新的主线编排方式。'}});
+ await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
+ let blocked;
+ await until(async()=>{blocked=await f.read(child.id);return blocked.faults?.filter(fault=>fault.stage==='redraw').length===2;});
+ const faults=blocked.faults.filter(fault=>fault.stage==='redraw').sort((a,b)=>a.page-b.page);
+ assert.deepEqual(faults.map(fault=>fault.page),[1,2]);
+ assert.equal(f.control.calls.length,before);
+ f.control.hold=true;
+ await f.json(`sessions/${child.id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:faults[0].id});
+ await until(()=>f.control.calls.length===before+1);
+ assert.equal(f.control.calls.at(-1).page,1);
+ assert.ok((await f.read(child.id)).faults.some(fault=>fault.id===faults[1].id));
+ f.control.calls.at(-1).resolve();
+ await until(async()=>(await f.read(child.id)).state==='completed');
+ await f.restart();
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(child.id)).state==='completed');
+ const rows=(await f.app.services.database.prepare("SELECT node_key,input_hash,origin_fault_id,state FROM reader_faults WHERE session_id=? ORDER BY node_key").bind(child.id).all()).results;
+ assert.equal(rows.length,3);
+ assert.ok(rows.every(row=>row.state==='resolved'));
+ assert.equal(rows[1].origin_fault_id,rows[2].origin_fault_id);
+ assert.equal(rows[1].input_hash,rows[2].input_hash);
+ assert.equal(f.control.calls.length,before+1);
 });
 
 test('a paid drawing is kept on its job before it is saved: a failed save and its retry do not pay twice',async t=>{
@@ -978,7 +1055,7 @@ test('an exhausted DAG review exposes its issues and can grant another repair at
   {claimsCompletion:false,issues:[2],retryable:true,canEditNotes:true,status:202});
 });
 
-test('a paused complete draft can explicitly skip the current failed review without starting drawing',{todo:'审核调用失败只登记通用任务故障，暂停后也没有人工放行'},async t=>{
+test('a paused complete draft can explicitly skip the current failed review without starting drawing',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.beforeText=name=>{if(name==='review')throw Error('controlled review failure before any verdict');};
  const id=await confirmedStory(f,4),route=`sessions/${id}`;
@@ -993,7 +1070,7 @@ test('a paused complete draft can explicitly skip the current failed review with
  assert.equal(f.control.calls.length,0);
  await f.json(`${route}/production-control`,'POST',{action:'pause'});
  const paused=await f.read(id),fault=paused.faults.find(fault=>fault.state==='pending');
- const override=`${route}/review-override`,command={requestId:crypto.randomUUID(),faultId:fault.id};
+ const override=`${route}/review-override`,command={requestId:crypto.randomUUID(),faultId:fault.id,ending:'default'};
  assert.equal((await f.request(override,'POST',{...command,faultId:crypto.randomUUID()})).status,409);
  const result=await f.request(override,'POST',command),after=await f.read(id);
  assert.deepEqual({faultStage:fault.stage,status:result.status,control:after.generationControl,overridden:after.generationProgress.reviewOverridden,drawings:f.control.calls.length},
@@ -1005,6 +1082,39 @@ test('a paused complete draft can explicitly skip the current failed review with
  await f.json(`${route}/production-control`,'POST',{action:'resume'});
  await until(async()=>(await f.read(id)).state==='completed');
  assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[0,1,2,3]);
+});
+
+for(const change of ['registration','ending','visual'])test(`review skip is invalidated before any drawing when ${change} changes`,async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.beforeText=name=>{if(name==='review')throw Error('controlled review failure');};
+ const id=await confirmedStory(f,4),route=`sessions/${id}`,db=f.app.services.database;
+ await db.prepare("UPDATE stories SET selection=json_set(selection,'$.acceptancePrompt',?) WHERE id=?").bind('验收时核对人物行动。',id).run();
+ f.app.services.production.wake();
+ let view;
+ await until(async()=>{view=await f.read(id);return view.faults?.some(fault=>fault.retryReview);});
+ const command={requestId:crypto.randomUUID(),faultId:view.faults.find(fault=>fault.retryReview).id,ending:'default'};
+ assert.equal((await f.request(`${route}/review-override`,'POST',command)).status,409);
+ await f.json(`${route}/production-control`,'POST',{action:'pause'});
+ const offer=(await f.read(id)).reviewSkip;
+ assert.equal(offer.faultId,command.faultId);
+ const skipped=await f.json(`${route}/review-override`,'POST',command);
+ assert.equal(skipped.generationProgress.reviewOverridden,true);
+ assert.equal((await f.json(`${route}/review-history`)).entries.find(item=>item.title==='跳过本次审核').outcome,'unknown');
+ const doc=await saved(f,id);
+ if(change==='registration'){
+  const item=doc.dag.items[0],product=doc.dag.products[`itemRegistration:${item.id}`];
+  item.scope='frame';product.scope='frame';
+ }else if(change==='ending')doc.dag.ending.confirmed.ending='修改后的结语使审核绑定失效。';
+ else{
+  const frame=doc.dag.order[1];
+  doc.dag.frames[frame].visual+=' 改为暮色。';
+  doc.dag.products[`visual:${frame}`].hash=fingerprint(doc.dag.frames[frame].visual);
+ }
+ await db.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(doc),id).run();
+ assert.equal((await f.read(id)).generationProgress.reviewOverridden,false);
+ await f.json(`${route}/production-control`,'POST',{action:'resume'});
+ await until(async()=>(await f.read(id)).faults?.some(fault=>fault.retryReview&&fault.id!==command.faultId));
+ assert.equal(f.control.calls.length,0);
 });
 
 test('a failed task before the draft is complete cannot be manually released for drawing',async t=>{

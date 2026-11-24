@@ -93,3 +93,32 @@ export const dispatchRules:readonly {matches:(state:DispatchState)=>boolean;deci
 export function authorizeDispatch(state:DispatchState):DispatchDecision{
  return dispatchRules.find(rule=>rule.matches(state))!.decision;
 }
+
+export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review';
+type CommandState={
+ version:DispatchState['version'];control:GenerationControl;continuation:boolean;
+ targetCurrent:boolean;targetReady:boolean;stopping:boolean;
+};
+type CommandDecision={allowed:true}|{allowed:false;status:409|503;message:string};
+
+const commands:Record<ProductionCommand,{allows:(state:CommandState)=>boolean;denial:string}>={
+ continue:{allows:state=>state.continuation,denial:'这篇故事没有等待继续的修改，或版本已更新。'},
+ retry:{allows:state=>state.control==='active'&&!state.continuation&&state.targetCurrent&&state.targetReady,
+  denial:'请恢复当前版本的制作，再重试当前问题。'},
+ 'continue-repair':{allows:state=>state.control==='active'&&!state.continuation&&state.targetCurrent&&state.targetReady,
+  denial:'审片结果、制作许可或修订额度已更新，请刷新后再操作。'},
+ 'skip-review':{allows:state=>(state.control!=='active'||state.continuation)&&state.targetCurrent&&state.targetReady,
+  denial:'请先暂停制作并保存完整稿件，或刷新后重试当前审核。'},
+};
+
+export const commandRules:readonly {matches:(event:ProductionCommand,state:CommandState)=>boolean;decide:(event:ProductionCommand)=>CommandDecision}[]=[
+ {matches:(_,state)=>state.version!=='current',decide:()=>({allowed:false,status:409,message:'故事或版本已更新，请刷新后再操作。'})},
+ {matches:(_,state)=>state.version==='current'&&state.stopping,decide:()=>({allowed:false,status:503,message:'制作服务正在停止，请稍后重试。'})},
+ {matches:(event,state)=>state.version==='current'&&!state.stopping&&commands[event].allows(state),decide:()=>({allowed:true})},
+ {matches:(event,state)=>state.version==='current'&&!state.stopping&&!commands[event].allows(state),decide:event=>({allowed:false,status:409,message:commands[event].denial})},
+];
+
+/** 回执已在调用方处理。对尚未接受的命令按当前状态与目标作唯一判定。 */
+export function authorizeProductionCommand(event:ProductionCommand,state:CommandState):CommandDecision{
+ return commandRules.find(rule=>rule.matches(event,state))!.decide(event);
+}

@@ -5,6 +5,7 @@ import type {Plan,Selection} from '../reader-model.ts';
 import {normalizeProductionPrompt} from '../reader-prompts.ts';
 import type {ProviderSettingsView} from '../provider-settings.ts';
 import type {FrameCountReport,ReviewIssue} from '../reader-review.ts';
+import type {ReviewSkip} from './review-skip.ts';
 import type {RepairBudget,Suggestion} from './review.ts';
 import type {Product,Fault,VersionState} from './engine.ts';
 import type {Evidence} from './registry.ts';
@@ -57,6 +58,8 @@ export type DagDocument={
  suggestions?:Suggestion[];
  /** 本修订的自动修订额度。 */
  repairs?:RepairBudget;
+ /** 本版读者跳过审核的记录，使用时重新核对绑定。 */
+ reviewSkip?:ReviewSkip;
  /** 用过的画风设置，键为画风输入指纹；换画风转换据此取得旧画风。 */
  styles?:Record<string,{artStyle:Selection['artStyle'];artStylePrompt?:string|null}>;
  products:Record<string,Product>;

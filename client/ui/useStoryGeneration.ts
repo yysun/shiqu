@@ -12,7 +12,7 @@ import {latestStoryVersions} from '@/lib/reader-versions';
 import {keepSnapshot,shareRows} from '@/lib/reader-snapshots';
 import type {GeneratedStory,Selection,SessionView,ProductionAction} from '@/lib/reader-model';
 import {summarizeShelfSession,type ShelfSession,type ShelfChanges} from '@/lib/reader-shelf';
-import type {RecoveryRequest} from '@/lib/reader-recovery';
+import type {RecoveryRequest,ReviewOverride} from '@/lib/reader-recovery';
 type Callbacks={onStory:(story:GeneratedStory,initialPage?:number,saved?:boolean)=>void;onProgress:(rows:{storyId:string;page:number;saved:number;updatedAt?:string|null}[],fromShelf?:boolean)=>void};
 function readableStory(session:SessionView){
  const {story}=session;
@@ -34,7 +34,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
  const controlLock=useRef(false);
  const generationMode=useRef<'observe'|'generate'>('observe'),retryRequested=useRef(false);
  const passive=useRef(false),recoveryCommand=useRef<RecoveryRequest|null>(null);
- const controlRequest=useRef<{signature:string;body:{requestId:string;action:ProductionAction}}|null>(null),overrideRequest=useRef<{signature:string;body:RecoveryRequest}|null>(null);
+ const controlRequest=useRef<{signature:string;body:{requestId:string;action:ProductionAction}}|null>(null),overrideRequest=useRef<{signature:string;body:ReviewOverride}|null>(null);
  const imageChecks=useRef(new Map<string,Promise<SessionView>>());
  const recoveries=useRef(new Map<string,RecoveryRequest>()),recovering=useRef(new Set<string>());
  function collect(s:SessionView,submitted=false){
@@ -143,12 +143,12 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   }catch(error){if((error as {status?:number}).status!==undefined)controlRequest.current=null;setControlError(error instanceof Error?error.message:'生成方式暂未保存，请重试。');}
   finally{controlLock.current=false;setControlBusy('');}
  }
- async function drawAnyway(sessionId:string){
+ async function drawAnyway(sessionId:string,skipFaultId?:string){
   if(controlLock.current)return;controlLock.current=true;setControlBusy(sessionId);setControlError('');
   try{
    const current:SessionView=active?.id===sessionId?active:await request('reader/sessions/'+sessionId);
-   const fault=current.faults?.find(f=>f.stage==='review'&&f.state==='pending');if(!fault&&!overrideRequest.current?.signature.startsWith(JSON.stringify([sessionId]).slice(0,-1)+','))throw Error('审核问题已更新，请刷新后再处理。');
-   if(fault){const signature=JSON.stringify([sessionId,fault.id]);if(overrideRequest.current?.signature!==signature)overrideRequest.current={signature,body:{requestId:randomId(),faultId:fault.id}};}
+   const fault=current.faults?.find(f=>f.stage==='review'&&f.state==='pending'&&(skipFaultId?f.id===skipFaultId:!f.retryReview));if(!fault&&!overrideRequest.current?.signature.startsWith(JSON.stringify([sessionId]).slice(0,-1)+','))throw Error('审核问题已更新，请刷新后再处理。');
+   if(fault){const signature=JSON.stringify([sessionId,fault.id,!!skipFaultId]);if(overrideRequest.current?.signature!==signature)overrideRequest.current={signature,body:{requestId:randomId(),faultId:fault.id,...(skipFaultId?{ending:'default' as const}:{})}};}
    const s:SessionView=await request(`reader/sessions/${sessionId}/review-override`,'POST',overrideRequest.current!.body);
    overrideRequest.current=null;passive.current=false;
    collect(s);

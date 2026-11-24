@@ -280,7 +280,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   if(['pause','resume','stop','continue'].includes(action))return {requestId,session:await api(app,'POST',route+'/production-control',{requestId,action})};
   if(['retry','override'].includes(action)){
    const faultId=data.faultId;
-   need(faultId,'FAULT_ID_REQUIRED','Choose a current faultId from stories get.');return {requestId,session:await api(app,'POST',route+(action==='retry'?'/recover':'/review-override'),{requestId,faultId})};
+   need(faultId,'FAULT_ID_REQUIRED','Choose a current faultId from stories get.');return {requestId,session:await api(app,'POST',route+(action==='retry'?'/recover':'/review-override'),{requestId,faultId,...(action==='override'&&data.ending!==undefined?{ending:data.ending}:{})})};
   }
   if(action==='edit'){
    need(typeof data.token==='string'&&data.token,'TOKEN_REQUIRED','Read stories revisions ID and submit its token with changes.');

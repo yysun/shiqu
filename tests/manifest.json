@@ -4301,6 +4301,8 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "lib/production-dag/review-skip.ts",
+        "server/dag-image-faults.ts",
         "server/paid-dispatch.ts",
         "server/dag-production.ts",
         "server/dag-revisions.ts",
@@ -4521,6 +4523,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "drizzle/0026_production_lifecycle.sql",
         "server/dag-migration.ts",
         "server/database-migrations.ts",
         "server/library-upgrade.ts",

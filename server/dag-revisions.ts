@@ -124,16 +124,17 @@ async function copyImages(media:MediaStore,parentId:string,childId:string,dag:Da
    const url=dag.frames[id][field];if(!url)continue;
    const key=referenceImageKey(parentId,url),asset=key?await media.get(key).catch(()=>{throw new ReaderError(503,`第 ${index+1} 幅原图暂时无法读取，未创建新版，请稍后重试。`);}):null;
    const bytes=asset?new Uint8Array(await asset.arrayBuffer()):null,type=bytes&&mediaType(bytes);
-   if(!bytes||!type){
+   const product=instanceId(field==='image'?'frameImage':'landscape',id),record=dag.products[product];
+   if(!bytes||!type||record?.readable===false&&!await readableImage(bytes)){
     delete dag.frames[id][field];
-    const product=field==='image'?'frameImage':'landscape';
-    if(field==='image'&&dag.products[instanceId(product,id)]){dag.products[instanceId(product,id)]={...dag.products[instanceId(product,id)],readable:false};lost.push(index);}
-    else delete dag.products[instanceId(product,id)];
+    if(field==='image'&&record){dag.products[product]={...record,readable:false};lost.push(index);}
+    else delete dag.products[product];
     continue;
    }
    const target=readerImageAsset(childId,index,imageTypes[type],hash(bytes));
    await media.put(target.key,bytes,{contentType:type});
    dag.frames[id][field]=target.url;
+   if(record?.readable===false)dag.products[product]={...record,readable:true};
   }
  }
  return lost;
@@ -198,14 +199,16 @@ function deriveRevision(doc:Document,row:SessionRow,changes:RevisionChanges,chil
  return {parent,child,selection,reviewNotes,changed,choices:outcome.choices,conflicts:outcome.conflicts};
 }
 
-type CarriedFault={kind:string;node:string;node_key:string;message:string;image:string|null};
+type CarriedFault={id:string;kind:string;node:string;node_key:string;message:string;image:string|null;input_hash:string|null;state:string};
+type FaultToCarry=CarriedFault&{payload:string|null};
+const carriedFaultRows=`SELECT f.id,f.kind,f.node,f.node_key,f.message,f.image,f.state,f.input_hash,j.payload
+ FROM reader_faults f LEFT JOIN production_jobs j ON j.id=f.job_id AND j.session_id=f.session_id AND j.owner_id=f.owner_id
+ WHERE f.session_id=? AND f.owner_id=? AND f.state IN ('pending','recovering','awaiting-match') AND f.node IS NOT NULL`;
 /**
  * 上一版待处理或恢复中的故障里，其涉及的全部节点实例的输入在新版都没有改变的部分。
  * 涉及的实例取故障任务记录的实例（批量任务覆盖多个实例），没有任务的故障取记录的节点与键；输入已变或画幅已不存在的不带入。
  */
-async function carryFaults(repo:ReaderRepository,row:SessionRow,ownerId:string,parent:DagStory,child:DagStory):Promise<CarriedFault[]>{
- const faults=(await repo.db.prepare(`SELECT f.kind,f.node,f.node_key,f.message,f.image,j.payload FROM reader_faults f LEFT JOIN production_jobs j ON j.id=f.job_id AND j.session_id=f.session_id AND j.owner_id=f.owner_id
-  WHERE f.session_id=? AND f.owner_id=? AND f.state IN ('pending','recovering') AND f.node IS NOT NULL`).bind(row.id,ownerId).all<CarriedFault&{payload:string|null}>()).results;
+function carryFaults(faults:FaultToCarry[],parent:DagStory,child:DagStory):CarriedFault[]{
  if(!faults.length)return [];
  const before=evaluate(stateOf(parent)),after=evaluate(stateOf(child));
  const same=(node:string,key:string)=>{
@@ -213,6 +216,11 @@ async function carryFaults(repo:ReaderRepository,row:SessionRow,ownerId:string,p
   try{return JSON.stringify(before.instance(node,key).hard)===JSON.stringify(after.instance(node,key).hard);}catch{return false;}
  };
  return faults.filter(fault=>{
+  if(fault.kind==='image-loss'&&fault.node==='frameImage'){
+   const product=parent.dag.products[instanceId(fault.node,fault.node_key)];
+   fault.input_hash??=product?fingerprint(product.inputs):null;
+   if(fault.input_hash)return true;
+  }
   let instances:{node:string;key:string}[]=[{node:fault.node,key:fault.node_key}];
   try{const work=fault.payload?(JSON.parse(fault.payload) as {work?:{instances?:{node:string;key:string}[]}}).work:undefined;if(work?.instances?.length)instances=work.instances;}catch{/* 沿用记录的节点 */}
   return instances.every(i=>same(i.node,i.key));
@@ -246,7 +254,8 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
  const redraw=order.filter(id=>ev.instance('frameImage',id).status!=='valid').length;
  const items=work(child),textWork:Record<string,number>={};
  for(const item of items)if(item.call!=='draw'&&item.call!=='drawLandscape')textWork[item.call]=(textWork[item.call]??0)+item.instances.length;
- const carried=await carryFaults(repo,row,row.user_id,parent,child);
+ const rows=(await repo.db.prepare(carriedFaultRows).bind(row.id,row.user_id).all<FaultToCarry>()).results;
+ const carried=carryFaults(rows,parent,child);
  return {changed,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices,conflicts:conflicts.map(id=>({id,message:`重新编排会丢弃${handEditLabel(id,doc.dag!.order)}的手改`})),carriedFaults:carried.length};
 }
 
@@ -313,7 +322,6 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  delete document.visualReview;delete document.reselection;
  const now=new Date().toISOString(),completed=!pending&&row.state==='completed';
  // 故障延续：上一版仍待处理的故障，其节点的输入在新版里没有改变时继续阻断，须读者明确恢复；输入已变的故障不带入（新内容重新开始）。
- const carried=await carryFaults(repo,row,ownerId,parent,{...child,dag});
  // 普通修订在同一事务设置等待并保留读者控制；已确认的单幅重绘在同一事务启用绘图。
  // 新版与其图片丢失故障在同一事务中写入：中断不会留下未经读者恢复就可重绘的新版。
  const transaction=repo.db.transaction;
@@ -324,15 +332,23 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   WHERE p.id=? AND p.user_id=? AND p.document=? AND p.selection=? AND ${currentFamilyVersion('p')} AND (${familyEpoch.replace(' AS epoch','')})=?
   ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),startRedraw?1:0,paused?1:0,completed?'completed':'idle',Math.max(0,dag.order.length-1),now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch);
   if(!inserted.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
+  const carried=carryFaults(db.all<FaultToCarry>(carriedFaultRows,row.id,ownerId),parent,{...child,dag});
   for(const fault of carried){
-   if(lost.some(page=>fault.node==='frameImage'&&dag.order[page]===fault.node_key))continue;
+   if(!fault.input_hash&&lost.some(page=>fault.node==='frameImage'&&dag.order[page]===fault.node_key))continue;
    const at=Date.now();
+   if(fault.kind==='image-loss'&&fault.input_hash){
+    db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,input_hash,origin_fault_id,version,state,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage','',?,?,'dag','awaiting-match',?,?,?)",
+     randomUUID(),requestId,ownerId,fault.input_hash,fault.id,'待核对旧版丢图是否影响新版画幅。',at,at);
+    continue;
+   }
    db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,image,message,created_at,updated_at) VALUES(?,?,?,?,?,?,'dag',?,?,?,?)",randomUUID(),requestId,ownerId,fault.kind==='interrupted'?'job':fault.kind,fault.node,fault.node_key,fault.image,fault.message,at,at);
   }
   // 丢失的成图记为待处理的图片丢失故障：阻断该幅及依赖它的工作与整篇完成，读者明确恢复后才重绘。
   for(const page of lost){
    const at=Date.now();
-   db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage',?,'dag',?,?,?)",randomUUID(),requestId,ownerId,dag.order[page],lostImageMessage(page),at,at);
+   const key=dag.order[page],product=dag.products[instanceId('frameImage',key)];
+   if(product&&carried.some(fault=>fault.kind==='image-loss'&&fault.input_hash===fingerprint(product.inputs)))continue;
+   db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,input_hash,version,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage',?,?,'dag',?,?,?)",randomUUID(),requestId,ownerId,key,product?fingerprint(product.inputs):null,lostImageMessage(page),at,at);
   }
  });
  return repo.get(requestId,ownerId);

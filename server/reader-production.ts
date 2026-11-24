@@ -30,12 +30,12 @@ import {JobYield,ProductionQueue,productionJobId} from './production-queue.ts';
 import type {ProductionJob,JobSpec} from './production-queue.ts';
 import {authorizeRecovery,authorizeControl,commandReceipt,sessionFaults} from './reader-commands.ts';
 import type {ReaderFault} from './reader-commands.ts';
-import type {FaultView,RecoveryRequest} from '../lib/reader-recovery.ts';
+import type {FaultView,RecoveryRequest,ReviewOverride} from '../lib/reader-recovery.ts';
 import {DagProduction,dagTextKind,dagDrawKind} from './dag-production.ts';
 import {transact,deleteJobs} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
-import {productionLifecycle,describeProductionCall,authorizeDispatch,type ProductionService} from '../lib/production-lifecycle.ts';
+import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeProductionCommand,type ProductionService} from '../lib/production-lifecycle.ts';
 import {PaidDispatchDenied,withPaidDispatch} from './paid-dispatch.ts';
 import {drawingReferenceBinding} from './book-image-reference.ts';
 
@@ -239,13 +239,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   this.wake();return this.snapshot(ownerId,id);
  }
  /** 放行：只更新当前需读者处理的审片结论，可绘图仍由全部结论推导。 */
- async overrideReview(ownerId:string,id:string,command?:RecoveryRequest){
-  if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
+ async overrideReview(ownerId:string,id:string,command?:ReviewOverride){
   if(!command)throw new ReaderError(400,'放行需要提交操作编号。');
   const row=await this.repository.get(id,ownerId);
-  if(await this.repository.superseded(id,ownerId))throw new ReaderError(409,latestVersionMessage);
+  const receipt=await commandReceipt(this.database,ownerId,command.requestId);
+  if(!receipt&&this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
+  if(!receipt&&await this.repository.superseded(id,ownerId))throw new ReaderError(409,latestVersionMessage);
   if(!this.parsed(row)?.doc.dag)throw new ReaderError(409,'这篇故事没有待处理的审片问题。');
-  await this.dag.override(ownerId,id,command.requestId,command.faultId);
+  await this.dag.override(ownerId,id,command);
   this.wake();return this.snapshot(ownerId,id);
  }
  async leave(ownerId:string,id:string,viewerId:string){
@@ -253,9 +254,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  private faultView(row:SessionRow,fault:ReaderFault,jobs:ProductionJob[]):FaultView{
   const doc=JSON.parse(row.document) as Document,job=jobs.find(job=>job.id===fault.job_id);
-  const page=fault.node==='frameImage'||fault.node==='landscape'?doc.dag?.order.indexOf(fault.node_key)??-1:-1;
-  const stage=fault.kind==='image-loss'?'redraw':job?.kind==='discover'?'source':job?.kind==='prepare'||doc.intake&&doc.intake.phase!=='confirmed'?'prepare':'generation';
-  return {id:fault.id,message:fault.message,page:page>=0?page:null,stage,state:fault.state as FaultView['state'],retryAllowed:fault.state==='pending'};
+  const page=fault.state!=='awaiting-match'&&(fault.node==='frameImage'||fault.node==='landscape')?doc.dag?.order.indexOf(fault.node_key)??-1:-1;
+  const retryReview=job?.kind===dagTextKind&&(JSON.parse(job.payload) as {work?:{call:string}}).work?.call==='review';
+  const stage=retryReview?'review':fault.kind==='image-loss'&&fault.state!=='awaiting-match'?'redraw':job?.kind==='discover'?'source':job?.kind==='prepare'||doc.intake&&doc.intake.phase!=='confirmed'?'prepare':'generation';
+  return {id:fault.id,message:fault.message,page:page>=0?page:null,stage,state:fault.state as FaultView['state'],retryAllowed:fault.state==='pending',...(retryReview?{retryReview:true as const}:{})};
  }
  async checkImage(ownerId:string,id:string,page:number,image:string){
   const row=await this.repository.get(id,ownerId),doc=JSON.parse(row.document) as Document;
@@ -277,7 +279,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重试。');
   if(await this.repository.superseded(id,ownerId))throw new ReaderError(409,latestVersionMessage);
-  if(row.generation_control!=='active'||this.parsed(row)?.doc.dag?.continuation)throw new ReaderError(409,'请先恢复生成许可，再重试或重绘。');
+  const retry=authorizeProductionCommand('retry',{version:'current',control:row.generation_control??'active',
+   continuation:!!this.parsed(row)?.doc.dag?.continuation,targetCurrent:true,targetReady:true,stopping:false});
+  if(!retry.allowed)throw new ReaderError(retry.status,retry.message);
   if(command.faultId.startsWith('review:')){
    this.dag.grantRepairBudget(row,command.requestId,command.faultId);
    this.wake();
@@ -323,6 +327,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   });
   const search=this.searches.get(id),progress=saved.generationProgress!;
   const views=faults.map(fault=>this.faultView(row,fault,allJobs));
+  const reviewFault=views.find(fault=>fault.retryReview);
+  const rawReviewFault=reviewFault&&faults.find(fault=>fault.id===reviewFault.id);
+  const failedReviewJob=rawReviewFault&&allJobs.find(job=>job.id===rawReviewFault.job_id);
+  const reviewSkip=!superseded&&rawReviewFault&&failedReviewJob?this.dag.skipReviewOffer(row,rawReviewFault,failedReviewJob):null;
   const blocking=parsed.doc.dag&&row.state!=='completed'?await this.dag.blocking(row):null;
   const service=this.serviceAvailability(parsed.doc.dag?.modelSnapshot);
   const lifecycle=productionLifecycle({...saved,complete:this.dag.completeFrom(row,faults,allJobs),generationControl:row.generation_control,superseded,faults:[...views],reviewAttention:blocking?.reasons??[],service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
@@ -335,7 +343,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const timeoutAt=startedAt!==null&&timeoutMs?startedAt+timeoutMs:null;
   const liveProgress=parsed.doc.intake&&search?.round===intakeSearch(parsed.doc.intake).round&&saved.intake?.search.state==='searching'?search.progress:undefined;
   const snapshotUnavailable=service==='snapshot-unavailable';
-  const session:SessionView={...saved,lifecycle,...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
+  const session:SessionView={...saved,lifecycle,...(reviewSkip?{reviewSkip}:{}),...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
    ...(description?.label?{stage:`正在${description.label}`}:{}),
    ...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),
    generationProgress:{...progress,phase,activity:current?description?.label:progress.activity,startedAt,timeoutAt,
