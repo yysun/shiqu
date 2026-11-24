@@ -1,0 +1,924 @@
+{
+  "commit": "2b6d1c715c7a4994556c2037ef82b296902616ba",
+  "runs": {
+    "review": {
+      "counts": {
+        "tests": 684,
+        "pass": 673,
+        "fail": 10,
+        "cancelled": 0,
+        "skipped": 1,
+        "todo": 0
+      },
+      "failures": [
+        "missing synopsis is saved before a 2-frame plan and a planning retry does not regenerate it",
+        "missing synopsis is saved before a 21-frame plan and a planning retry does not regenerate it",
+        "invalid missing-summary preparation blocks planning and retries with the saved original",
+        "a confirmed legacy intake stays confirmed and keeps its selected frame count while a missing synopsis is prepared",
+        "paused preparation saves settings beside a live call, then allows a different candidate without resuming",
+        "concurrent paused submission replay cannot overwrite a later user control",
+        "ready orphaned jobs in all three pools are contained and logged once while a valid job runs",
+        "a missing file after drawing asks first, then redraws only on explicit retry",
+        "a corrupt file after drawing asks first, then redraws only on explicit retry",
+        "control request replay cannot undo a later pause; concurrent fault grants spend only once across restart"
+      ]
+    },
+    "adjacentFull": {
+      "counts": {
+        "tests": 158,
+        "pass": 154,
+        "fail": 4,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "failures": [
+        "missing synopsis is saved before a 2-frame plan and a planning retry does not regenerate it",
+        "missing synopsis is saved before a 21-frame plan and a planning retry does not regenerate it",
+        "invalid missing-summary preparation blocks planning and retries with the saved original",
+        "a confirmed legacy intake stays confirmed and keeps its selected frame count while a missing synopsis is prepared"
+      ]
+    },
+    "eightyFrames": {
+      "counts": {
+        "tests": 1,
+        "pass": 1,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "failures": []
+    },
+    "changedSource": {
+      "counts": {
+        "tests": 440,
+        "pass": 438,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 2,
+        "todo": 0
+      },
+      "failures": []
+    },
+    "workingTree": {
+      "counts": {
+        "tests": 30,
+        "pass": 30,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "failures": []
+    }
+  },
+  "reviewFiles": [
+    "tests/background-generation.test.mjs",
+    "tests/blocked-revision-recovery.test.mjs",
+    "tests/book-reference-star.e2e.mjs",
+    "tests/book-reference-star.test.mjs",
+    "tests/export-story.test.mjs",
+    "tests/frame-count-continuation.test.mjs",
+    "tests/frame-count-replay.test.mjs",
+    "tests/generation-progress.test.mjs",
+    "tests/incremental-story-library.e2e.mjs",
+    "tests/library-recovery.test.mjs",
+    "tests/paused-editing-versions.test.mjs",
+    "tests/production-dag-call-contract.test.mjs",
+    "tests/production-dag-convert.test.mjs",
+    "tests/production-dag-engine.test.mjs",
+    "tests/production-dag-executor.test.mjs",
+    "tests/production-dag-faults.test.mjs",
+    "tests/production-dag-hand-edits.test.mjs",
+    "tests/production-dag-migration.test.mjs",
+    "tests/production-dag-provider-snapshot.test.mjs",
+    "tests/production-dag-registry.test.mjs",
+    "tests/production-dag-requests.test.mjs",
+    "tests/production-dag-review.test.mjs",
+    "tests/production-dag-runner.test.mjs",
+    "tests/production-dag-scenarios.test.mjs",
+    "tests/production-queue-hardening.test.mjs",
+    "tests/production-queue.test.mjs",
+    "tests/production-reader-exit-flows.test.mjs",
+    "tests/production-reader-exits.test.mjs",
+    "tests/production-stages.test.mjs",
+    "tests/production-tick-scope.test.mjs",
+    "tests/prompt-records-storage.test.mjs",
+    "tests/queue-image-recovery.test.mjs",
+    "tests/queue-image-versions.test.mjs",
+    "tests/queue-interruption.test.mjs",
+    "tests/reader-display-labels.test.mjs",
+    "tests/reader-generation.test.mjs",
+    "tests/reader-image-health.test.mjs",
+    "tests/reader-intake.test.mjs",
+    "tests/reader-interaction.test.mjs",
+    "tests/reader-production-client.test.mjs",
+    "tests/reader-production.test.mjs",
+    "tests/reader-request.test.mjs",
+    "tests/reader-revisions.test.mjs",
+    "tests/reader-snapshots.test.mjs",
+    "tests/reader-zip.test.mjs",
+    "tests/reading-cache.test.mjs",
+    "tests/review-history-api.test.mjs",
+    "tests/review-history.test.mjs",
+    "tests/shelf-favorites.test.mjs",
+    "tests/shelf-generation.test.mjs",
+    "tests/story-brief.test.mjs",
+    "tests/story-completeness.test.mjs",
+    "tests/story-continuation-overlap.test.mjs",
+    "tests/story-editorial.test.mjs",
+    "tests/story-flow-control.test.mjs",
+    "tests/story-generation-membership.test.mjs",
+    "tests/story-generation-state-machine-client.test.mjs",
+    "tests/story-generation-state-machine-commands.test.mjs",
+    "tests/story-generation-state-machine-flow.test.mjs",
+    "tests/story-generation-state-machine-reselection.test.mjs",
+    "tests/story-generation-state-machine.e2e.mjs",
+    "tests/story-publication-defaults.test.mjs",
+    "tests/story-publication.test.mjs",
+    "tests/story-requirements.test.mjs",
+    "tests/story-revision-flow.test.mjs",
+    "tests/story-specific-requirements.test.mjs",
+    "tests/story-summary.test.mjs",
+    "tests/story-title.test.mjs",
+    "tests/unified-story-review.e2e.mjs"
+  ],
+  "additionalReviewTests": [
+    "../2026-11-24-current-dag-review/replay-faults.mjs"
+  ],
+  "currentBuildProbes": [
+    {
+      "name": "sameRevisionReceipt",
+      "passes": true,
+      "result": {
+        "revise": false,
+        "receiptRecorded": true,
+        "readable": true,
+        "parentFrameDraws": 1,
+        "extraFirstFrameDraws": 0,
+        "blocked": {
+          "state": "failed",
+          "ready": 0,
+          "control": "active",
+          "skip": false,
+          "faults": [
+            {
+              "stage": "generation",
+              "kind": "step-failure",
+              "retryReview": false,
+              "targets": [
+                [
+                  "frameImage",
+                  "f-eb1fcaab-005"
+                ]
+              ]
+            }
+          ],
+          "actions": [
+            "background",
+            "pause",
+            "stop",
+            "reprepare",
+            "retry",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "copy",
+            "copy-draft",
+            "delete"
+          ]
+        },
+        "after": {
+          "state": "completed",
+          "ready": 2,
+          "control": "active",
+          "skip": false,
+          "faults": [],
+          "actions": [
+            "reprepare",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "redraw",
+            "cover",
+            "copy",
+            "copy-draft",
+            "start-landscape",
+            "image-health",
+            "image-health",
+            "delete"
+          ]
+        }
+      }
+    },
+    {
+      "name": "carriedReceipt",
+      "passes": false,
+      "result": {
+        "revise": true,
+        "receiptRecorded": true,
+        "readable": true,
+        "parentFrameDraws": 1,
+        "extraFirstFrameDraws": 1,
+        "blocked": {
+          "state": "failed",
+          "ready": 0,
+          "control": "active",
+          "skip": false,
+          "faults": [
+            {
+              "stage": "generation",
+              "kind": "step-failure",
+              "retryReview": false,
+              "targets": [
+                [
+                  "frameImage",
+                  "f-16bece7c-577"
+                ]
+              ]
+            }
+          ],
+          "actions": [
+            "background",
+            "pause",
+            "stop",
+            "reprepare",
+            "retry",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "copy",
+            "copy-draft",
+            "delete"
+          ]
+        },
+        "after": {
+          "state": "completed",
+          "ready": 2,
+          "control": "active",
+          "skip": false,
+          "faults": [],
+          "actions": [
+            "reprepare",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "redraw",
+            "cover",
+            "copy",
+            "copy-draft",
+            "start-landscape",
+            "image-health",
+            "image-health",
+            "delete"
+          ]
+        }
+      }
+    },
+    {
+      "name": "carriedReview",
+      "passes": false,
+      "result": {
+        "parent": {
+          "state": "failed",
+          "ready": 0,
+          "control": "paused",
+          "skip": true,
+          "faults": [
+            {
+              "stage": "review",
+              "kind": "step-failure",
+              "retryReview": true,
+              "targets": [
+                [
+                  "frameVerdict",
+                  "f-1b6917a9-6f5"
+                ],
+                [
+                  "frameVerdict",
+                  "f-5add8388-941"
+                ],
+                [
+                  "frameVerdict",
+                  "f-4da1690f-b9f"
+                ],
+                [
+                  "frameVerdict",
+                  "f-18f2950e-ce9"
+                ],
+                [
+                  "narrativeVerdict",
+                  ""
+                ]
+              ]
+            }
+          ],
+          "actions": [
+            "background",
+            "pause",
+            "stop",
+            "resume",
+            "reprepare",
+            "skip-review",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "copy-draft",
+            "delete"
+          ]
+        },
+        "carried": 4,
+        "after": {
+          "state": "failed",
+          "ready": 0,
+          "control": "paused",
+          "skip": false,
+          "faults": [
+            {
+              "stage": "generation",
+              "kind": "step-failure",
+              "retryReview": false,
+              "targets": [
+                [
+                  "frameVerdict",
+                  "f-18f2950e-ce9"
+                ],
+                [
+                  "frameVerdict",
+                  "f-4da1690f-b9f"
+                ],
+                [
+                  "frameVerdict",
+                  "f-5add8388-941"
+                ],
+                [
+                  "frameVerdict",
+                  "f-1b6917a9-6f5"
+                ]
+              ]
+            }
+          ],
+          "actions": [
+            "background",
+            "pause",
+            "stop",
+            "resume",
+            "reprepare",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "copy-draft",
+            "delete"
+          ]
+        },
+        "skipStatus": 409,
+        "message": "请先暂停制作并保存完整稿件，或刷新后重试当前审核。",
+        "storyboardFrames": 4
+      }
+    },
+    {
+      "name": "transient",
+      "passes": false,
+      "result": {
+        "carried": 0,
+        "before": {
+          "state": "idle",
+          "ready": 0,
+          "control": "paused",
+          "skip": false,
+          "faults": [],
+          "actions": [
+            "background",
+            "pause",
+            "stop",
+            "resume",
+            "continue",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "copy-draft",
+            "delete"
+          ]
+        },
+        "after": {
+          "state": "completed",
+          "ready": 4,
+          "control": "active",
+          "skip": false,
+          "faults": [],
+          "actions": [
+            "reprepare",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "redraw",
+            "cover",
+            "copy",
+            "copy-draft",
+            "start-landscape",
+            "image-health",
+            "image-health",
+            "image-health",
+            "image-health",
+            "delete"
+          ]
+        },
+        "first": [
+          {
+            "key": "f-a29c83cc-3c8",
+            "hard": {
+              "visual@self": "3918fcd49925d92a9568d035e43a7e57118827b409347804f71de57878c553e3",
+              "characters@drawn": "bd2fde7f17a07b3994af3f224e4528efb6724d5c144f090a485b78e2c92ab01e",
+              "style": "8a6ad4a142a180e7fe59fccd58df07a36a95d07d276955649d80f9e7de966f9f",
+              "renderer": "cf132aff48ba8e13d26d45c6bbb033813bf944abba98307635da35141578dd55",
+              "redrawNote@self": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+            }
+          }
+        ],
+        "redraw": {
+          "key": "f-a29c83cc-3c8",
+          "hard": {
+            "visual@self": "3918fcd49925d92a9568d035e43a7e57118827b409347804f71de57878c553e3",
+            "characters@drawn": "bd2fde7f17a07b3994af3f224e4528efb6724d5c144f090a485b78e2c92ab01e",
+            "style": "8a6ad4a142a180e7fe59fccd58df07a36a95d07d276955649d80f9e7de966f9f",
+            "renderer": "cf132aff48ba8e13d26d45c6bbb033813bf944abba98307635da35141578dd55",
+            "redrawNote@self": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+          }
+        },
+        "totalNewDrawings": 4,
+        "extraFirstFrameDraws": 1,
+        "identical": true
+      }
+    },
+    {
+      "name": "changedInputs",
+      "passes": true,
+      "result": {
+        "carried": 0,
+        "before": {
+          "state": "idle",
+          "ready": 0,
+          "control": "paused",
+          "skip": false,
+          "faults": [],
+          "actions": [
+            "background",
+            "pause",
+            "stop",
+            "resume",
+            "continue",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "copy-draft",
+            "delete"
+          ]
+        },
+        "after": {
+          "state": "completed",
+          "ready": 4,
+          "control": "active",
+          "skip": false,
+          "faults": [],
+          "actions": [
+            "reprepare",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "redraw",
+            "cover",
+            "copy",
+            "copy-draft",
+            "start-landscape",
+            "image-health",
+            "image-health",
+            "image-health",
+            "image-health",
+            "delete"
+          ]
+        },
+        "first": [
+          {
+            "key": "f-04cceccc-a6f",
+            "hard": {
+              "visual@self": "3918fcd49925d92a9568d035e43a7e57118827b409347804f71de57878c553e3",
+              "characters@drawn": "bd2fde7f17a07b3994af3f224e4528efb6724d5c144f090a485b78e2c92ab01e",
+              "style": "8a6ad4a142a180e7fe59fccd58df07a36a95d07d276955649d80f9e7de966f9f",
+              "renderer": "cf132aff48ba8e13d26d45c6bbb033813bf944abba98307635da35141578dd55",
+              "redrawNote@self": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+            }
+          }
+        ],
+        "redraw": {
+          "key": "f-04cceccc-a6f",
+          "hard": {
+            "visual@self": "3918fcd49925d92a9568d035e43a7e57118827b409347804f71de57878c553e3",
+            "characters@drawn": "bd2fde7f17a07b3994af3f224e4528efb6724d5c144f090a485b78e2c92ab01e",
+            "style": "89456fc8ab9c749030adabc3767333b5a1af663a11b8c24f0a490134b8c8e0e4",
+            "renderer": "cf132aff48ba8e13d26d45c6bbb033813bf944abba98307635da35141578dd55",
+            "redrawNote@self": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+          }
+        },
+        "totalNewDrawings": 4,
+        "extraFirstFrameDraws": 1,
+        "identical": false
+      }
+    }
+  ],
+  "upgrades": {
+    "v0.15.0 (46809ae0)": [
+      {
+        "name": "oldVisual",
+        "passes": false,
+        "result": {
+          "call": "visual",
+          "parent": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "retryReview": false,
+                "targets": []
+              }
+            ],
+            "actions": []
+          },
+          "carried": 1,
+          "before": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "visual",
+                    ""
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "continue",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "failed",
+            "ready": 4,
+            "control": "active",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "visual",
+                    ""
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "reprepare",
+              "retry",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy",
+              "copy-draft",
+              "image-health",
+              "image-health",
+              "image-health",
+              "image-health",
+              "delete"
+            ]
+          },
+          "extraCalls": 1
+        }
+      },
+      {
+        "name": "oldItems",
+        "passes": false,
+        "result": {
+          "call": "registerItems",
+          "parent": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "retryReview": false,
+                "targets": []
+              }
+            ],
+            "actions": []
+          },
+          "carried": 0,
+          "before": {
+            "state": "idle",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "continue",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "completed",
+            "ready": 4,
+            "control": "active",
+            "skip": false,
+            "faults": [],
+            "actions": [
+              "reprepare",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "redraw",
+              "cover",
+              "copy",
+              "copy-draft",
+              "start-landscape",
+              "image-health",
+              "image-health",
+              "image-health",
+              "image-health",
+              "delete"
+            ]
+          },
+          "extraCalls": 1
+        }
+      }
+    ],
+    "69495ab8": [
+      {
+        "name": "oldVisual",
+        "passes": false,
+        "result": {
+          "call": "visual",
+          "parent": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "visual",
+                    "f-33330d37-9f8"
+                  ],
+                  [
+                    "visual",
+                    "f-ebf6b912-771"
+                  ],
+                  [
+                    "visual",
+                    "f-6121d628-8b8"
+                  ],
+                  [
+                    "visual",
+                    "f-5185b328-fe9"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "reprepare",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "delete"
+            ]
+          },
+          "carried": 1,
+          "before": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "visual",
+                    ""
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "continue",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "failed",
+            "ready": 4,
+            "control": "active",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "visual",
+                    ""
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "reprepare",
+              "retry",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy",
+              "copy-draft",
+              "image-health",
+              "image-health",
+              "image-health",
+              "image-health",
+              "delete"
+            ]
+          },
+          "extraCalls": 1
+        }
+      },
+      {
+        "name": "oldItems",
+        "passes": false,
+        "result": {
+          "call": "registerItems",
+          "parent": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "itemRegistration",
+                    "i-b8f0f67def"
+                  ],
+                  [
+                    "itemRegistration",
+                    "i-b88a6fc9d5"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "reprepare",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "carried": 0,
+          "before": {
+            "state": "idle",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "continue",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "completed",
+            "ready": 4,
+            "control": "active",
+            "skip": false,
+            "faults": [],
+            "actions": [
+              "reprepare",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "redraw",
+              "cover",
+              "copy",
+              "copy-draft",
+              "start-landscape",
+              "image-health",
+              "image-health",
+              "image-health",
+              "image-health",
+              "delete"
+            ]
+          },
+          "extraCalls": 1
+        }
+      }
+    ]
+  },
+  "browser": {
+    "fixture": "Four finished portraits, held landscape draws",
+    "interaction": [
+      "Generate landscape illustrations in story settings",
+      "Pause in story settings",
+      "Release sent calls in the controlled adapter",
+      "Resume from bookshelf",
+      "Reopen settings and observe complete landscape set"
+    ],
+    "finalReaderText": "插图已齐全，横版 PDF 会使用这套图。",
+    "finalSession": {
+      "state": "completed",
+      "ready": 4
+    }
+  }
+}

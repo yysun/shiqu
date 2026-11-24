@@ -54,7 +54,10 @@ export function stateOf(story:DagStory,{includeReviewSkip=true}={}):VersionState
  const preparing=reprepare||preparationPending(story.doc)||story.doc.intake?.phase==='confirming';
  const seed=preparing?{generation:story.dag.preparationGeneration??story.doc.intake?.generation,production:productionRequirement(story.selection),detail:story.selection.narrativeDetail}:undefined;
  const roots=rootProducts(story.selection,story.dag,{notes:story.doc.reviewNotes,refSource:story.refSource,seed});
- const state=versionState(story.dag,roots,{confirmed:story.confirmed,faults:story.faults,reprepare,skipFrameCheck:typeof story.selection.length==='number'});
+ // 横图局部失败也须读者明确重试，查看作品或重建队列不能自动重新购买。
+ const landscapeFaults=story.dag.order.flatMap((key):Fault[]=>story.dag.frames[key]?.landscape===''&&story.dag.frames[key].landscapeError?
+  [{id:`landscape:${key}`,node:'landscape',key,state:'pending',optional:true}]:[]);
+ const state=versionState(story.dag,roots,{confirmed:story.confirmed,faults:[...story.faults,...landscapeFaults],reprepare,skipFrameCheck:typeof story.selection.length==='number'});
  return includeReviewSkip?withReviewSkip(state,story.dag):state;
 }
 

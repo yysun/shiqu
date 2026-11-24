@@ -35,7 +35,8 @@ function savedStatus(session:SessionView|ShelfSession):Status{
  const phase=session.intake?.phase,preparing=phase==='preparing'||phase==='discovering';
  const pausedStage=session.stage?.replace(/^正在/,'');
  const service=session.lifecycle?.service;
- if(service&&service!=='available'&&(!complete||completedWork)&&lifecycle?.activity.state!=='running'){
+ const offlineRetry=service==='unconfigured'&&offersProductionAction(session,'retry',false);
+ if(service&&service!=='available'&&!offlineRetry&&(!complete||completedWork)&&lifecycle?.activity.state!=='running'){
   const detail=productionServiceMessages[service];
   return {group:'生成已暂停',message:detail.replace(/，.*|。$/g,''),detail,action:'查看详情'};
  }

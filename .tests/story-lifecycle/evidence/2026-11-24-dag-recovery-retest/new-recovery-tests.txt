@@ -1,0 +1,22 @@
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ changing length from four to five preserves drawing faults at new pages 1 (520.606292ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ changing length from four to five preserves drawing faults at new pages 2 (252.35ms)
+✔ changing length from four to five preserves drawing faults at new pages 2, 3 (190.621ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a revision keeps the failed landscape available for targeted retry after restart (183.923291ms)
+✔ landscape retry verifies the first read failed receipt before paying (131.207958ms)
+✔ landscape retry verifies the previously published receipt before paying (123.75125ms)
+✔ landscape retry verifies the lost acknowledgement receipt before paying (121.996041ms)
+✔ landscape retry verifies the invalid landscape receipt before paying (136.792125ms)
+✔ settings and shelf offer local retry for an inherited paid portrait without a model (228.456958ms)
+✔ a revision adopts the paid artifact when readable at authorization (187.588041ms)
+✔ a revision adopts the paid artifact when readable at dispatch (209.708125ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2719.618625

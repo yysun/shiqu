@@ -1,0 +1,28 @@
+▶ confirming a reader redraw starts one frame immediately and replays without drawing again
+  ✔ a display-only write returns the same running status consumed by the reader (0.288583ms)
+✔ confirming a reader redraw starts one frame immediately and replays without drawing again (410.248417ms)
+✔ running status names the active drawing when an earlier frame awaits recovery (182.343334ms)
+✔ replanning matches a lost-image fault by drawing inputs before dispatching a new frame (421.031375ms)
+✔ replanning releases a lost-image fault by drawing inputs before dispatching a new frame (438.4055ms)
+✔ one lost drawing binds two new frames, and recovering one supplies the other for free after restart (408.486916ms)
+✔ a review override only approves the problem the reader saw: a stale or wrong fault id is refused (437.7405ms)
+✔ an exhausted DAG review exposes its issues and can grant another repair attempt (500.827834ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a complete draft under pause can skip failed review without starting drawing (443.969958ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a complete draft under stop can skip failed review without starting drawing (671.657958ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a complete draft under continue can skip failed review without starting drawing (663.979583ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a current failed review can be retried while active using its saved fault identity (513.49425ms)
+✔ saving notes against exhausted repair gives a new saved revision and waits for explicit continue (1045.9895ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a failed task before the draft is complete cannot be manually released for drawing (256.233209ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6908.024666

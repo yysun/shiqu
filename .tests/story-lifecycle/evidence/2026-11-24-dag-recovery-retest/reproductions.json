@@ -1,0 +1,190 @@
+[
+  {
+    "name": "optionalFault",
+    "passed": true,
+    "result": {
+      "parent": {
+        "state": "partial",
+        "ready": 3,
+        "total": 4,
+        "failed": [
+          3
+        ],
+        "canRetry": true
+      },
+      "parentView": {
+        "state": "completed",
+        "ready": 4,
+        "service": "available",
+        "activity": "idle",
+        "faults": [
+          {
+            "kind": "content-blocked",
+            "scope": "optional",
+            "targets": [
+              {
+                "node": "landscape",
+                "key": "n3",
+                "page": 2
+              }
+            ],
+            "state": "pending"
+          }
+        ],
+        "actions": [
+          "retry-landscape"
+        ]
+      },
+      "exportedFrames": 4,
+      "child": {
+        "state": "partial",
+        "ready": 3,
+        "total": 4,
+        "failed": [
+          3
+        ],
+        "canRetry": true
+      },
+      "childView": {
+        "state": "completed",
+        "ready": 4,
+        "service": "available",
+        "activity": "idle",
+        "faults": [
+          {
+            "kind": "step-failure",
+            "scope": "optional",
+            "targets": [
+              {
+                "node": "landscape",
+                "key": "n3",
+                "page": 2
+              }
+            ],
+            "state": "pending"
+          }
+        ],
+        "actions": [
+          "retry-landscape"
+        ]
+      },
+      "activeLandscapeJobs": 0,
+      "detailButtons": [],
+      "afterResume": {
+        "state": "partial",
+        "ready": 3,
+        "total": 4,
+        "failed": [
+          3
+        ],
+        "canRetry": true
+      },
+      "directRecoveryStatus": 202,
+      "afterDirectRecovery": {
+        "state": "running",
+        "ready": 3,
+        "total": 4,
+        "failed": [],
+        "controlAction": "pause",
+        "canRetry": false
+      }
+    }
+  },
+  {
+    "name": "offlineReceipt",
+    "passed": true,
+    "result": {
+      "detail": {
+        "state": "failed",
+        "ready": 1,
+        "service": "unconfigured",
+        "activity": "idle",
+        "faults": [
+          {
+            "kind": "step-failure",
+            "scope": "required",
+            "targets": [
+              {
+                "node": "frameImage",
+                "key": "f-4e721636-3b5",
+                "page": 1
+              }
+            ],
+            "state": "pending"
+          }
+        ],
+        "actions": [
+          "pause",
+          "retry"
+        ]
+      },
+      "shelf": {
+        "state": "failed",
+        "ready": 1,
+        "service": "unconfigured",
+        "activity": "idle",
+        "faults": [
+          {
+            "kind": "step-failure",
+            "scope": "required",
+            "targets": [
+              {
+                "node": "frameImage",
+                "key": "f-4e721636-3b5",
+                "page": 1
+              }
+            ],
+            "state": "pending"
+          }
+        ],
+        "actions": [
+          "pause",
+          "retry"
+        ]
+      },
+      "detailButtons": [
+        "重试生成"
+      ],
+      "shelfButtons": [
+        "重试生成"
+      ],
+      "status": 202,
+      "receipt": "succeeded",
+      "after": {
+        "state": "completed",
+        "ready": 2,
+        "service": "unconfigured",
+        "activity": "idle",
+        "faults": [],
+        "actions": []
+      },
+      "extraDraws": 0
+    }
+  },
+  {
+    "name": "paidLandscape",
+    "passed": true,
+    "result": {
+      "status": {
+        "state": "partial",
+        "ready": 3,
+        "total": 4,
+        "failed": [
+          3
+        ],
+        "canRetry": true
+      },
+      "receiptMatchesFile": true,
+      "readable": true,
+      "originalBytes": 133,
+      "extraDraws": 0,
+      "after": {
+        "state": "completed",
+        "ready": 4,
+        "total": 4,
+        "failed": [],
+        "canRetry": false
+      }
+    }
+  }
+]

@@ -1,0 +1,310 @@
+[
+  {
+    "name": "oldVisual",
+    "passes": true,
+    "result": {
+      "call": "visual",
+      "verifiedUpgrade": {
+        "backupPath": "/var/folders/nd/nc0dhmfs7r5gnrb23bg_f6yj4k83kd/T/shiqu production gvJiBm/data-backups/pre-upgrade-2026-11-24T21-27-50-534Z-2a02eb32",
+        "backupVerified": true,
+        "backupFaults": [
+          {
+            "id": "70d08ad7-f738-44a3-a079-9efeebf21e70",
+            "kind": "job",
+            "node": "visual",
+            "node_key": "",
+            "state": "pending"
+          }
+        ],
+        "migrationsBefore": [
+          "0020_blocked_revision_faults.sql",
+          "0021_landscape_job_isolation.sql",
+          "0022_story_content_revisions.sql",
+          "0023_story_scan_indexes.sql",
+          "0024_prompt_records.sql",
+          "0025_production_dag.sql"
+        ],
+        "migrationsAfter": [
+          "0020_blocked_revision_faults.sql",
+          "0021_landscape_job_isolation.sql",
+          "0022_story_content_revisions.sql",
+          "0023_story_scan_indexes.sql",
+          "0024_prompt_records.sql",
+          "0025_production_dag.sql",
+          "0026_production_lifecycle.sql",
+          "0027_revision_fault_targets.sql"
+        ]
+      },
+      "parent": {
+        "state": "failed",
+        "ready": 0,
+        "control": "paused",
+        "skip": false,
+        "faults": [
+          {
+            "stage": "generation",
+            "retryReview": false,
+            "targets": []
+          }
+        ],
+        "actions": []
+      },
+      "carried": 1,
+      "before": {
+        "state": "failed",
+        "ready": 0,
+        "control": "paused",
+        "skip": false,
+        "faults": [
+          {
+            "stage": "generation",
+            "kind": "step-failure",
+            "retryReview": false,
+            "targets": [
+              [
+                "visual",
+                "f-9d19a9aa-8f3"
+              ],
+              [
+                "visual",
+                "f-890344dc-b37"
+              ],
+              [
+                "visual",
+                "f-c8b53bde-d62"
+              ],
+              [
+                "visual",
+                "f-d669a05f-422"
+              ]
+            ]
+          }
+        ],
+        "actions": [
+          "background",
+          "pause",
+          "stop",
+          "resume",
+          "continue",
+          "open-reselection",
+          "edit-revision",
+          "save-revision",
+          "delete"
+        ]
+      },
+      "after": {
+        "state": "failed",
+        "ready": 0,
+        "control": "active",
+        "skip": false,
+        "faults": [
+          {
+            "stage": "generation",
+            "kind": "step-failure",
+            "retryReview": false,
+            "targets": [
+              [
+                "visual",
+                "f-9d19a9aa-8f3"
+              ],
+              [
+                "visual",
+                "f-890344dc-b37"
+              ],
+              [
+                "visual",
+                "f-c8b53bde-d62"
+              ],
+              [
+                "visual",
+                "f-d669a05f-422"
+              ]
+            ]
+          }
+        ],
+        "actions": [
+          "background",
+          "pause",
+          "stop",
+          "reprepare",
+          "retry",
+          "open-reselection",
+          "delete"
+        ]
+      },
+      "extraCalls": 0,
+      "retryStatus": 202,
+      "replayStatus": 202,
+      "callsAfterRetry": 1,
+      "completed": {
+        "state": "completed",
+        "ready": 4,
+        "control": "active",
+        "skip": false,
+        "faults": [],
+        "actions": [
+          "reprepare",
+          "open-reselection",
+          "edit-revision",
+          "save-revision",
+          "edit-review-notes",
+          "redraw",
+          "cover",
+          "copy",
+          "copy-draft",
+          "start-landscape",
+          "image-health",
+          "image-health",
+          "image-health",
+          "image-health",
+          "delete"
+        ]
+      }
+    }
+  },
+  {
+    "name": "oldItems",
+    "passes": true,
+    "result": {
+      "call": "registerItems",
+      "verifiedUpgrade": {
+        "backupPath": "/var/folders/nd/nc0dhmfs7r5gnrb23bg_f6yj4k83kd/T/shiqu production cFA7mK/data-backups/pre-upgrade-2026-11-24T21-27-51-102Z-4384e6c9",
+        "backupVerified": true,
+        "backupFaults": [],
+        "migrationsBefore": [
+          "0020_blocked_revision_faults.sql",
+          "0021_landscape_job_isolation.sql",
+          "0022_story_content_revisions.sql",
+          "0023_story_scan_indexes.sql",
+          "0024_prompt_records.sql",
+          "0025_production_dag.sql"
+        ],
+        "migrationsAfter": [
+          "0020_blocked_revision_faults.sql",
+          "0021_landscape_job_isolation.sql",
+          "0022_story_content_revisions.sql",
+          "0023_story_scan_indexes.sql",
+          "0024_prompt_records.sql",
+          "0025_production_dag.sql",
+          "0026_production_lifecycle.sql",
+          "0027_revision_fault_targets.sql"
+        ]
+      },
+      "parent": {
+        "state": "failed",
+        "ready": 0,
+        "control": "paused",
+        "skip": false,
+        "faults": [
+          {
+            "stage": "generation",
+            "retryReview": false,
+            "targets": []
+          }
+        ],
+        "actions": []
+      },
+      "carried": 0,
+      "before": {
+        "state": "failed",
+        "ready": 0,
+        "control": "paused",
+        "skip": false,
+        "faults": [
+          {
+            "stage": "generation",
+            "kind": "step-failure",
+            "retryReview": false,
+            "targets": [
+              [
+                "itemRegistration",
+                "i-b8f0f67def"
+              ],
+              [
+                "itemRegistration",
+                "i-b88a6fc9d5"
+              ]
+            ]
+          }
+        ],
+        "actions": [
+          "background",
+          "pause",
+          "stop",
+          "resume",
+          "continue",
+          "open-reselection",
+          "edit-revision",
+          "save-revision",
+          "edit-review-notes",
+          "copy-draft",
+          "delete"
+        ]
+      },
+      "after": {
+        "state": "failed",
+        "ready": 0,
+        "control": "active",
+        "skip": false,
+        "faults": [
+          {
+            "stage": "generation",
+            "kind": "step-failure",
+            "retryReview": false,
+            "targets": [
+              [
+                "itemRegistration",
+                "i-b8f0f67def"
+              ],
+              [
+                "itemRegistration",
+                "i-b88a6fc9d5"
+              ]
+            ]
+          }
+        ],
+        "actions": [
+          "background",
+          "pause",
+          "stop",
+          "reprepare",
+          "retry",
+          "open-reselection",
+          "edit-revision",
+          "save-revision",
+          "edit-review-notes",
+          "copy-draft",
+          "delete"
+        ]
+      },
+      "extraCalls": 0,
+      "retryStatus": 202,
+      "replayStatus": 202,
+      "callsAfterRetry": 1,
+      "completed": {
+        "state": "completed",
+        "ready": 4,
+        "control": "active",
+        "skip": false,
+        "faults": [],
+        "actions": [
+          "reprepare",
+          "open-reselection",
+          "edit-revision",
+          "save-revision",
+          "edit-review-notes",
+          "redraw",
+          "cover",
+          "copy",
+          "copy-draft",
+          "start-landscape",
+          "image-health",
+          "image-health",
+          "image-health",
+          "image-health",
+          "delete"
+        ]
+      }
+    }
+  }
+]

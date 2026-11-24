@@ -1,0 +1,843 @@
+{
+  "tag": {
+    "summary": {
+      "tests": 217,
+      "pass": 217,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "failedAssertions": [],
+    "skipped": [],
+    "files": [
+      "tests/production-dag-call-contract.test.mjs",
+      "tests/production-dag-convert.test.mjs",
+      "tests/production-dag-engine.test.mjs",
+      "tests/production-dag-executor.test.mjs",
+      "tests/production-dag-faults.test.mjs",
+      "tests/production-dag-hand-edits.test.mjs",
+      "tests/production-dag-migration.test.mjs",
+      "tests/production-dag-provider-snapshot.test.mjs",
+      "tests/production-dag-registry.test.mjs",
+      "tests/production-dag-requests.test.mjs",
+      "tests/production-dag-review.test.mjs",
+      "tests/production-dag-runner.test.mjs",
+      "tests/production-dag-scenarios.test.mjs",
+      "tests/paused-editing-versions.test.mjs",
+      "tests/production-queue-hardening.test.mjs",
+      "tests/queue-image-recovery.test.mjs",
+      "tests/story-flow-control.test.mjs",
+      "tests/story-generation-state-machine-flow.test.mjs"
+    ]
+  },
+  "audit": {
+    "summary": {
+      "tests": 519,
+      "pass": 510,
+      "fail": 7,
+      "cancelled": 0,
+      "skipped": 1,
+      "todo": 1
+    },
+    "failedAssertions": [
+      "paused preparation saves settings beside a live call, then allows a different candidate without resuming",
+      "concurrent paused submission replay cannot overwrite a later user control",
+      "hand-editing a picture description passes the newly drawn character to the drawing job # TODO 保存画面描述沿用旧入画名单，绘图请求缺少新入画人物设定",
+      "ready orphaned jobs in all three pools are contained and logged once while a valid job runs",
+      "a missing file after drawing asks first, then redraws only on explicit retry",
+      "a corrupt file after drawing asks first, then redraws only on explicit retry",
+      "a preparation whose receipt was lost after saving settles instead of cycling",
+      "control request replay cannot undo a later pause; concurrent fault grants spend only once across restart"
+    ],
+    "skipped": [
+      "confirmed intake draws eighty frames once across four storyboard batches # SKIP heavy case: run pnpm test:providers"
+    ],
+    "files": [
+      "tests/background-generation.test.mjs",
+      "tests/blocked-revision-recovery.test.mjs",
+      "tests/export-story.test.mjs",
+      "tests/generation-progress.test.mjs",
+      "tests/library-recovery.test.mjs",
+      "tests/paused-editing-versions.test.mjs",
+      "tests/production-dag-call-contract.test.mjs",
+      "tests/production-dag-convert.test.mjs",
+      "tests/production-dag-engine.test.mjs",
+      "tests/production-dag-executor.test.mjs",
+      "tests/production-dag-faults.test.mjs",
+      "tests/production-dag-hand-edits.test.mjs",
+      "tests/production-dag-migration.test.mjs",
+      "tests/production-dag-provider-snapshot.test.mjs",
+      "tests/production-dag-registry.test.mjs",
+      "tests/production-dag-requests.test.mjs",
+      "tests/production-dag-review.test.mjs",
+      "tests/production-dag-runner.test.mjs",
+      "tests/production-dag-scenarios.test.mjs",
+      "tests/production-queue-hardening.test.mjs",
+      "tests/production-queue.test.mjs",
+      "tests/production-reader-exit-flows.test.mjs",
+      "tests/production-reader-exits.test.mjs",
+      "tests/production-stages.test.mjs",
+      "tests/production-tick-scope.test.mjs",
+      "tests/queue-image-recovery.test.mjs",
+      "tests/queue-image-versions.test.mjs",
+      "tests/queue-interruption.test.mjs",
+      "tests/reader-image-health.test.mjs",
+      "tests/reader-intake.test.mjs",
+      "tests/reader-production-client.test.mjs",
+      "tests/reader-production.test.mjs",
+      "tests/reader-request.test.mjs",
+      "tests/reader-revisions.test.mjs",
+      "tests/shelf-generation.test.mjs",
+      "tests/story-completeness.test.mjs",
+      "tests/story-continuation-overlap.test.mjs",
+      "tests/story-flow-control.test.mjs",
+      "tests/story-generation-membership.test.mjs",
+      "tests/story-generation-state-machine-client.test.mjs",
+      "tests/story-generation-state-machine-commands.test.mjs",
+      "tests/story-generation-state-machine-flow.test.mjs",
+      "tests/story-generation-state-machine-reselection.test.mjs",
+      "tests/story-publication.test.mjs",
+      "tests/story-requirements.test.mjs",
+      "tests/story-revision-flow.test.mjs",
+      "tests/story-title.test.mjs"
+    ]
+  },
+  "extra": {
+    "summary": {
+      "tests": 65,
+      "pass": 61,
+      "fail": 4,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "failedAssertions": [
+      "missing synopsis is saved before a 2-frame plan and a planning retry does not regenerate it",
+      "missing synopsis is saved before a 21-frame plan and a planning retry does not regenerate it",
+      "invalid missing-summary preparation blocks planning and retries with the saved original",
+      "a confirmed legacy intake stays confirmed and keeps its selected frame count while a missing synopsis is prepared"
+    ],
+    "skipped": [],
+    "files": [
+      "tests/story-generation-state-machine.e2e.mjs",
+      "tests/unified-story-review.e2e.mjs",
+      "tests/incremental-story-library.e2e.mjs",
+      "tests/book-reference-star.e2e.mjs",
+      "tests/reader-generation.test.mjs",
+      "tests/reader-interaction.test.mjs"
+    ]
+  },
+  "adjacent": {
+    "summary": {
+      "tests": 93,
+      "pass": 93,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "failedAssertions": [],
+    "skipped": [],
+    "files": [
+      "tests/frame-count-continuation.test.mjs",
+      "tests/frame-count-replay.test.mjs",
+      "tests/reader-snapshots.test.mjs",
+      "tests/review-history-api.test.mjs",
+      "tests/review-history.test.mjs",
+      "tests/story-specific-requirements.test.mjs",
+      "tests/story-editorial.test.mjs",
+      "tests/story-brief.test.mjs",
+      "tests/story-summary.test.mjs",
+      "tests/story-publication-defaults.test.mjs",
+      "tests/reader-display-labels.test.mjs",
+      "tests/book-reference-star.test.mjs",
+      "tests/shelf-favorites.test.mjs",
+      "tests/reader-zip.test.mjs",
+      "tests/prompt-records-storage.test.mjs",
+      "tests/reading-cache.test.mjs"
+    ]
+  },
+  "focused": {
+    "summary": {
+      "tests": 9,
+      "pass": 1,
+      "fail": 8,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "failedAssertions": [
+      "paused preparation saves settings beside a live call, then allows a different candidate without resuming",
+      "concurrent paused submission replay cannot overwrite a later user control",
+      "ready orphaned jobs in all three pools are contained and logged once while a valid job runs",
+      "a missing file after drawing asks first, then redraws only on explicit retry",
+      "a corrupt file after drawing asks first, then redraws only on explicit retry",
+      "confirmed intake draws eighty frames once across four storyboard batches",
+      "a preparation whose receipt was lost after saving settles instead of cycling",
+      "control request replay cannot undo a later pause; concurrent fault grants spend only once across restart"
+    ],
+    "skipped": []
+  },
+  "changed": {
+    "summary": {
+      "tests": 565,
+      "pass": 562,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 2,
+      "todo": 1
+    }
+  },
+  "faults": {
+    "tag": {
+      "visual": {
+        "from": {
+          "state": "failed",
+          "ready": 0,
+          "faults": [
+            "generation"
+          ]
+        },
+        "preview": {
+          "changed": true,
+          "total": 4,
+          "redraw": 4,
+          "reused": 0,
+          "textWork": {
+            "visual": 4,
+            "ending": 1,
+            "registerItems": 1
+          },
+          "continues": true,
+          "handEdits": [],
+          "conflicts": [],
+          "carriedFaults": 1
+        },
+        "saved": {
+          "state": "failed",
+          "ready": 0,
+          "faults": [
+            "generation"
+          ]
+        },
+        "end": {
+          "state": "failed",
+          "ready": 4,
+          "faults": [
+            "generation"
+          ]
+        },
+        "newCalls": 1
+      },
+      "registerItems": {
+        "from": {
+          "state": "failed",
+          "ready": 0,
+          "faults": [
+            "generation"
+          ]
+        },
+        "preview": {
+          "changed": true,
+          "total": 4,
+          "redraw": 4,
+          "reused": 0,
+          "textWork": {
+            "restyle": 4,
+            "registerItems": 2,
+            "review": 1
+          },
+          "continues": true,
+          "handEdits": [],
+          "conflicts": [],
+          "carriedFaults": 0
+        },
+        "saved": {
+          "state": "idle",
+          "ready": 0
+        },
+        "end": {
+          "state": "completed",
+          "ready": 4
+        },
+        "newCalls": 1
+      }
+    },
+    "current": {
+      "visual": {
+        "from": {
+          "state": "failed",
+          "phase": "production",
+          "service": "available",
+          "faults": [
+            {
+              "scope": "required",
+              "kind": "step-failure",
+              "targets": [
+                {
+                  "node": "visual",
+                  "key": "f-25c0b515-151",
+                  "page": 0
+                },
+                {
+                  "node": "visual",
+                  "key": "f-89b31766-97d",
+                  "page": 1
+                },
+                {
+                  "node": "visual",
+                  "key": "f-3ea08353-e67",
+                  "page": 2
+                },
+                {
+                  "node": "visual",
+                  "key": "f-ed20505d-d94",
+                  "page": 3
+                }
+              ]
+            }
+          ],
+          "actions": [
+            "background",
+            "pause",
+            "stop",
+            "reprepare",
+            "retry",
+            "open-reselection",
+            "delete"
+          ],
+          "settings": [
+            "重试生成"
+          ]
+        },
+        "preview": {
+          "changed": true,
+          "total": 4,
+          "redraw": 4,
+          "reused": 0,
+          "textWork": {
+            "visual": 4,
+            "ending": 1,
+            "registerItems": 1
+          },
+          "continues": true,
+          "handEdits": [],
+          "conflicts": [],
+          "carriedFaults": 1
+        },
+        "saved": {
+          "state": "failed",
+          "phase": "production",
+          "service": "available",
+          "faults": [
+            {
+              "scope": "required",
+              "kind": "step-failure",
+              "targets": [
+                {
+                  "node": "visual",
+                  "key": "",
+                  "page": null
+                }
+              ]
+            }
+          ],
+          "actions": [
+            "background",
+            "pause",
+            "stop",
+            "resume",
+            "continue",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "delete"
+          ],
+          "settings": [
+            "继续制作"
+          ]
+        },
+        "end": {
+          "state": "failed",
+          "phase": "production",
+          "service": "available",
+          "faults": [
+            {
+              "scope": "required",
+              "kind": "step-failure",
+              "targets": [
+                {
+                  "node": "visual",
+                  "key": "",
+                  "page": null
+                }
+              ]
+            }
+          ],
+          "actions": [
+            "background",
+            "pause",
+            "stop",
+            "reprepare",
+            "retry",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "copy",
+            "copy-draft",
+            "image-health",
+            "image-health",
+            "image-health",
+            "image-health",
+            "delete"
+          ],
+          "settings": [
+            "重试生成"
+          ]
+        },
+        "newCalls": 1
+      },
+      "registerItems": {
+        "from": {
+          "state": "failed",
+          "phase": "production",
+          "service": "available",
+          "faults": [
+            {
+              "scope": "required",
+              "kind": "step-failure",
+              "targets": [
+                {
+                  "node": "itemRegistration",
+                  "key": "i-b8f0f67def",
+                  "page": null
+                },
+                {
+                  "node": "itemRegistration",
+                  "key": "i-b88a6fc9d5",
+                  "page": null
+                }
+              ]
+            }
+          ],
+          "actions": [
+            "background",
+            "pause",
+            "stop",
+            "reprepare",
+            "retry",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "copy-draft",
+            "delete"
+          ],
+          "settings": [
+            "重试生成"
+          ]
+        },
+        "preview": {
+          "changed": true,
+          "total": 4,
+          "redraw": 4,
+          "reused": 0,
+          "textWork": {
+            "restyle": 4,
+            "registerItems": 2,
+            "review": 1
+          },
+          "continues": true,
+          "handEdits": [],
+          "conflicts": [],
+          "carriedFaults": 0
+        },
+        "saved": {
+          "state": "idle",
+          "phase": "production",
+          "service": "available",
+          "faults": [],
+          "actions": [
+            "background",
+            "pause",
+            "stop",
+            "resume",
+            "continue",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "copy-draft",
+            "delete"
+          ],
+          "settings": [
+            "继续制作"
+          ]
+        },
+        "end": {
+          "state": "completed",
+          "phase": "completed",
+          "service": "available",
+          "faults": [],
+          "actions": [
+            "reprepare",
+            "open-reselection",
+            "edit-revision",
+            "save-revision",
+            "edit-review-notes",
+            "redraw",
+            "cover",
+            "copy",
+            "copy-draft",
+            "start-landscape",
+            "image-health",
+            "image-health",
+            "image-health",
+            "image-health",
+            "delete"
+          ],
+          "settings": []
+        },
+        "newCalls": 1
+      }
+    }
+  },
+  "serviceFixture": {
+    "401": [
+      {
+        "state": "failed",
+        "phase": "production",
+        "service": "available",
+        "faults": [
+          {
+            "scope": "required",
+            "kind": "step-failure",
+            "targets": [
+              {
+                "node": "frameImage",
+                "key": "f-0ed50c64-fbc",
+                "page": 0
+              }
+            ]
+          }
+        ],
+        "actions": [
+          "background",
+          "pause",
+          "stop",
+          "reprepare",
+          "retry",
+          "open-reselection",
+          "edit-revision",
+          "save-revision",
+          "edit-review-notes",
+          "copy",
+          "copy-draft",
+          "delete"
+        ],
+        "settings": [
+          "重试生成"
+        ]
+      },
+      {
+        "state": "failed",
+        "phase": "production",
+        "service": "available",
+        "faults": [
+          {
+            "scope": "required",
+            "kind": "step-failure",
+            "targets": [
+              {
+                "node": "frameImage",
+                "key": "f-d36fb3b7-8bf",
+                "page": 0
+              }
+            ]
+          }
+        ],
+        "actions": [
+          "background",
+          "pause",
+          "stop",
+          "reprepare",
+          "retry",
+          "open-reselection",
+          "edit-revision",
+          "save-revision",
+          "edit-review-notes",
+          "copy",
+          "copy-draft",
+          "delete"
+        ],
+        "settings": [
+          "重试生成"
+        ]
+      }
+    ],
+    "402": [
+      {
+        "state": "failed",
+        "phase": "production",
+        "service": "available",
+        "faults": [
+          {
+            "scope": "required",
+            "kind": "step-failure",
+            "targets": [
+              {
+                "node": "frameImage",
+                "key": "f-788eab19-308",
+                "page": 0
+              }
+            ]
+          }
+        ],
+        "actions": [
+          "background",
+          "pause",
+          "stop",
+          "reprepare",
+          "retry",
+          "open-reselection",
+          "edit-revision",
+          "save-revision",
+          "edit-review-notes",
+          "copy",
+          "copy-draft",
+          "delete"
+        ],
+        "settings": [
+          "重试生成"
+        ]
+      },
+      {
+        "state": "failed",
+        "phase": "production",
+        "service": "available",
+        "faults": [
+          {
+            "scope": "required",
+            "kind": "step-failure",
+            "targets": [
+              {
+                "node": "frameImage",
+                "key": "f-0cccffa1-9c5",
+                "page": 0
+              }
+            ]
+          }
+        ],
+        "actions": [
+          "background",
+          "pause",
+          "stop",
+          "reprepare",
+          "retry",
+          "open-reselection",
+          "edit-revision",
+          "save-revision",
+          "edit-review-notes",
+          "copy",
+          "copy-draft",
+          "delete"
+        ],
+        "settings": [
+          "重试生成"
+        ]
+      }
+    ],
+    "429": [
+      {
+        "state": "failed",
+        "phase": "production",
+        "service": "available",
+        "faults": [
+          {
+            "scope": "required",
+            "kind": "step-failure",
+            "targets": [
+              {
+                "node": "frameImage",
+                "key": "f-4ffdbef2-742",
+                "page": 0
+              }
+            ]
+          }
+        ],
+        "actions": [
+          "background",
+          "pause",
+          "stop",
+          "reprepare",
+          "retry",
+          "open-reselection",
+          "edit-revision",
+          "save-revision",
+          "edit-review-notes",
+          "copy",
+          "copy-draft",
+          "delete"
+        ],
+        "settings": [
+          "重试生成"
+        ]
+      },
+      {
+        "state": "failed",
+        "phase": "production",
+        "service": "available",
+        "faults": [
+          {
+            "scope": "required",
+            "kind": "step-failure",
+            "targets": [
+              {
+                "node": "frameImage",
+                "key": "f-48e8f552-bd9",
+                "page": 0
+              }
+            ]
+          }
+        ],
+        "actions": [
+          "background",
+          "pause",
+          "stop",
+          "reprepare",
+          "retry",
+          "open-reselection",
+          "edit-revision",
+          "save-revision",
+          "edit-review-notes",
+          "copy",
+          "copy-draft",
+          "delete"
+        ],
+        "settings": [
+          "重试生成"
+        ]
+      }
+    ]
+  },
+  "browserControl": {
+    "before": {
+      "phase": "completed",
+      "control": "active",
+      "optionalWork": true,
+      "inFlight": [
+        {
+          "call": "drawLandscape",
+          "pages": [
+            1
+          ]
+        },
+        {
+          "call": "drawLandscape",
+          "pages": [
+            2
+          ]
+        },
+        {
+          "call": "drawLandscape",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "actions": [
+        "pause",
+        "stop",
+        "reprepare",
+        "open-reselection",
+        "edit-revision",
+        "save-revision",
+        "edit-review-notes",
+        "redraw",
+        "cover",
+        "copy",
+        "copy-draft",
+        "image-health",
+        "image-health",
+        "image-health",
+        "image-health",
+        "delete"
+      ]
+    },
+    "status": 200,
+    "after": {
+      "phase": "completed",
+      "control": "paused",
+      "optionalWork": true,
+      "inFlight": [
+        {
+          "call": "drawLandscape",
+          "pages": [
+            1
+          ]
+        },
+        {
+          "call": "drawLandscape",
+          "pages": [
+            2
+          ]
+        },
+        {
+          "call": "drawLandscape",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "actions": [
+        "pause",
+        "stop",
+        "resume",
+        "reprepare",
+        "open-reselection",
+        "edit-revision",
+        "save-revision",
+        "edit-review-notes",
+        "redraw",
+        "cover",
+        "copy",
+        "copy-draft",
+        "image-health",
+        "image-health",
+        "image-health",
+        "image-health",
+        "delete"
+      ]
+    }
+  },
+  "largeBoard": {
+    "fixture": "confirmed intake with 80 frames",
+    "originalDeadlineMs": 60000,
+    "initialFullTierResult": "timed out",
+    "diagnosticDeadlineMs": 180000,
+    "diagnosticElapsedMs": 72051,
+    "batches": [
+      [
+        1,
+        20
+      ],
+      [
+        21,
+        40
+      ],
+      [
+        41,
+        60
+      ],
+      [
+        61,
+        80
+      ]
+    ],
+    "framesReady": 80,
+    "drawCalls": 80,
+    "result": "completed"
+  }
+}

@@ -2293,7 +2293,10 @@
         "tests/fixtures/images.mjs",
         "tests/fixtures/book-reference.mjs",
         "lib/production-dag/document.ts",
-        "lib/reader-image-assets.ts"
+        "lib/production-dag/engine.ts",
+        "lib/production-dag/runner.ts",
+        "lib/reader-image-assets.ts",
+        "server/reader-image-health.ts"
       ]
     },
     {

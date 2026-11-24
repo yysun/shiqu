@@ -628,3 +628,410 @@ Run ID、构建、数据库位置、实际状态序列及断言；UI例含截图
 ### Evidence Required
 
 稿件齐备证据、失败的审核任务及故障号、界面入口、授权响应、放行记录、暂停状态与绘图调用数。
+
+## STORY-LIFECYCLE-C018 — 失败批次在修订后保留每幅的恢复授权
+
+- State: READY
+- Priority: P0
+- Type: INTEGRATION
+- Requirement / Risk: R1/R3/R4；制作 DAG 与生命周期
+- Automation: EXPLORATORY
+- Owner: UNASSIGNED
+
+### Objective
+
+证明无关修订保留全部故障目标；普通继续不能替代逐项恢复。
+
+### Preconditions
+
+隔离 SQLite 和受控生成器。先让四幅画面描述同批失败。
+
+### Test Data
+
+4 幅已确认作品，有两条验收要求。
+
+### Runner Instructions
+
+暂停，单改验收要求，查看预估并保存修订。读回新版的目标与幅号，移除受控故障，点击继续。
+
+### Expected Outcome
+
+新版保留四个故障幅号。普通继续只执行独立工作，本批调用数不增加。
+
+### Negative Assertions
+
+到达全部绘图完成时不能仍显示无幅号的必需故障。
+
+### Evidence Required
+
+正式会话、节点与键、预估故障数、继续前后同类调用数。
+
+## STORY-LIFECYCLE-C019 — 修订画风保留验收条目登记的故障
+
+- State: READY
+- Priority: P0
+- Type: INTEGRATION
+- Requirement / Risk: R1/R3；制作 DAG 与生命周期
+- Automation: EXPLORATORY
+- Owner: UNASSIGNED
+
+### Objective
+
+证明逐条产物按条目身份保留故障。
+
+### Preconditions
+
+隔离 SQLite 和可控的条目登记回执。
+
+### Test Data
+
+两条验收要求、四幅分镜，首次条目登记失败。
+
+### Runner Instructions
+
+暂停，单改画风并预览、保存。让提供方恢复，然后继续新版。
+
+### Expected Outcome
+
+未发生变化的两条要求保留故障目标，明确重试前不再登记。
+
+### Negative Assertions
+
+改变画风不构成再次登记未改变条目的授权。
+
+### Evidence Required
+
+旧新版故障目标、预估、登记调用增量和新版状态。
+
+## STORY-LIFECYCLE-C020 — 已持久化的制作建议在回执丢失后结束排队
+
+- State: READY
+- Priority: P0
+- Type: INTEGRATION
+- Requirement / Risk: R1/R3；制作 DAG 与生命周期
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+确认已完成的准备不会留下进行中的假象。
+
+### Preconditions
+
+当前故事已进入确认，制作建议已保存，原任务已成功。
+
+### Test Data
+
+隔离书库中一个已准备就绪的候选。
+
+### Runner Instructions
+
+运行 story-flow-control 中 a preparation whose receipt was lost，用队列重排已完成任务来模拟该检查点，观察多个生产节拍。
+
+### Expected Outcome
+
+任务结算，确认动作仍可用，无运行中准备，建议调用总数仍为一次。
+
+### Negative Assertions
+
+轮询、重试保存或重复节拍不得再次请求制作建议。
+
+### Evidence Required
+
+任务状态与尝试次数、会话状态、可用动作和建议调用总数。
+
+## STORY-LIFECYCLE-C021 — 已完成作品生成可选横图时可以暂停
+
+- State: READY
+- Priority: P1
+- Type: BUSINESS_E2E
+- Requirement / Risk: R1/R3；制作 DAG 与生命周期
+- Automation: EXPLORATORY
+- Owner: UNASSIGNED
+
+### Objective
+
+让读者在队列仍将继续绘制时暂停横图制作。
+
+### Preconditions
+
+使用应用内浏览器打开隔离服务，四幅竖图已齐，挂起受控横图调用。
+
+### Test Data
+
+四幅合成作品，三项任务持有租约，一幅尚未发送。
+
+### Runner Instructions
+
+在故事设置启动横图，核对所属步骤和书架卡片提供的控制，用同一时刻的服务动作和控制响应作对照。
+
+### Expected Outcome
+
+书架或制作步骤提供可用的暂停入口。暂停后保留成品及已发送结果，并阻止新付费工作。
+
+### Negative Assertions
+
+读者暂停可选工作不能撤销竖图完成或丢弃已付费结果。
+
+### Evidence Required
+
+界面截图、在途幅号、生命周期动作和控制响应。
+
+## STORY-LIFECYCLE-C022 — 重编排后相同的首图输入仍需明确恢复
+
+- State: READY
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: R3；普通故障的待匹配规则
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+重编排后相同的首图输入仍需明确恢复。
+
+### Preconditions
+
+独立临时书库，使用生产服务、SQLite 和受控生成器。
+
+### Test Data
+
+首幅绘图失败，修改叙事详略后，受控编排重新产出完全相同的绘图输入。
+
+### Runner Instructions
+
+对照只改详略与同时修改画风。比较前后任务中的画幅键及全部硬输入。 [复现程序](evidence/2026-11-24-dag-retest/replay.mjs)
+
+### Expected Outcome
+
+输入一致时新版保留恢复要求。画风变化时允许按新输入绘制。
+
+### Negative Assertions
+
+普通继续不能再次派发输入相同的首图。
+
+### Evidence Required
+
+保留 transient / changedInputs 的服务响应、调用数量或目标指纹。
+
+## STORY-LIFECYCLE-C023 — 已付费且恢复可读的图片跨修订复用
+
+- State: READY
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: R3；已保存输出重试
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+已付费且恢复可读的图片跨修订复用。
+
+### Preconditions
+
+独立临时书库，使用生产服务、SQLite 和受控生成器。
+
+### Test Data
+
+两幅故事的首图已保存。首次核对暂时读不到文件而报错，随后恢复可读。
+
+### Runner Instructions
+
+分别在原版和只改验收要求的新版明确恢复，记录第一幅的额外绘图调用。 [复现程序](evidence/2026-11-24-dag-retest/replay.mjs)
+
+### Expected Outcome
+
+两种路径都从已存图片完成，第一幅的额外调用均为零。
+
+### Negative Assertions
+
+恢复新版故障不能丢弃可用的原始结果。
+
+### Evidence Required
+
+保留 sameRevisionReceipt / carriedReceipt 的服务响应、调用数量或目标指纹。
+
+## STORY-LIFECYCLE-C024 — 新版继承审核故障后保留完整稿件的放行入口
+
+- State: READY
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: R3；C017 审核失败的人工出口
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+新版继承审核故障后保留完整稿件的放行入口。
+
+### Preconditions
+
+独立临时书库，使用生产服务、SQLite 和受控生成器。
+
+### Test Data
+
+四幅稿件齐备，首次审核失败。暂停并仅修改梗概。
+
+### Runner Instructions
+
+继续到独立工作结束，再暂停，核对故障阶段、稿件幅数、可见动作及放行响应。 [复现程序](evidence/2026-11-24-dag-retest/replay.mjs)
+
+### Expected Outcome
+
+新版保留逐幅审核故障的审核分类和跳过入口，针对当前稿件确认后可保存放行。
+
+### Negative Assertions
+
+稿件齐备时不得因修订丢失审核故障的身份。
+
+### Evidence Required
+
+保留 carriedReview 的服务响应、调用数量或目标指纹。
+
+## STORY-LIFECYCLE-C025 — 升级已保存坏修订时恢复原有目标和授权
+
+- State: READY
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: R3/R4；既有书库升级
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+升级已保存坏修订时恢复原有目标和授权。
+
+### Preconditions
+
+独立临时书库，使用生产服务、SQLite 和受控生成器。
+
+### Test Data
+
+在 0.15.0 与修复前构建各生成一篇视觉批次失败和一篇条目登记失败的故事，保存无关修订。
+
+### Runner Instructions
+
+正常关闭旧服务，把隔离书库复制到当前版本，通过正式初始化打开后点击继续，记录派发及状态。 [复现程序](evidence/2026-11-24-dag-retest/replay.mjs)
+
+### Expected Outcome
+
+四幅或两个条目的原故障均可定向恢复。未获授权前没有重复调用。
+
+### Negative Assertions
+
+升级后的书架不得把全图齐备的作品卡在失败，也不得丢弃登记故障。
+
+### Evidence Required
+
+保留 oldVisual / oldItems 的服务响应、调用数量或目标指纹。
+
+## STORY-LIFECYCLE-C026 — 修订后仍可重试被拦截的横图
+
+- State: READY
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: R3；故障恢复、付费输出及界面状态
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+修订后仍可重试被拦截的横图。
+
+### Preconditions
+
+使用独立临时书库、正式协调器及受控生成器。
+
+### Test Data
+
+四幅作品已完成，第三幅横图被提供方拦截。
+
+### Runner Instructions
+
+修改验收要求，继续并重启服务，比较当前版的故障、活动、横图状态和设置操作。 [复现程序](evidence/2026-11-24-dag-recovery-verification/edges.mjs)
+
+### Expected Outcome
+
+第三幅保留横图失败原因和重试入口，完整竖图仍可导出。
+
+### Negative Assertions
+
+无任务时不得显示横图仍在生成。
+
+### Evidence Required
+
+保留 optionalFault 的结果，包括状态、调用或恢复入口。
+
+## STORY-LIFECYCLE-C027 — 恢复可读的横图输出不重复付费
+
+- State: READY
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: R3；故障恢复、付费输出及界面状态
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+恢复可读的横图输出不重复付费。
+
+### Preconditions
+
+使用独立临时书库、正式协调器及受控生成器。
+
+### Test Data
+
+第三幅横图有付费回执，首次文件核对失败。
+
+### Runner Instructions
+
+让原文件恢复可读，通过正式入口重试。核对回执、像素和绘图请求数。 [复现程序](evidence/2026-11-24-dag-recovery-verification/edges.mjs)
+
+### Expected Outcome
+
+直接采用记录在回执中的原文件，四幅横图完整。
+
+### Negative Assertions
+
+文件确认可读时，重试的额外绘图请求数为零。
+
+### Evidence Required
+
+保留 paidLandscape 的结果，包括状态、调用或恢复入口。
+
+## STORY-LIFECYCLE-C028 — 未配置模型时仍可从界面恢复已付费图片
+
+- State: READY
+- Priority: P2
+- Type: INTEGRATION
+- Requirement / Risk: R3；故障恢复、付费输出及界面状态
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+未配置模型时仍可从界面恢复已付费图片。
+
+### Preconditions
+
+使用独立临时书库、正式协调器及受控生成器。
+
+### Test Data
+
+两幅作品，末幅在祖先版本留有可读取的付费图片。
+
+### Runner Instructions
+
+修订后移除测试提供方配置并重启，比较书架、故事设置、动作清单及当前故障的恢复响应。 [复现程序](evidence/2026-11-24-dag-recovery-verification/edges.mjs)
+
+### Expected Outcome
+
+书架与故事设置提供可用的本地恢复操作，作品完成并保留两幅图。
+
+### Negative Assertions
+
+本地恢复不依赖模型配置或额外绘图。
+
+### Evidence Required
+
+保留 offlineReceipt 的结果，包括状态、调用或恢复入口。

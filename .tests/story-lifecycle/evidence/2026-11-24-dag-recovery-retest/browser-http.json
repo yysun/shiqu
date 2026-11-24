@@ -1,0 +1,288 @@
+{
+  "C013": {
+    "before": {
+      "pathname": "/api/reader/sessions/66ff5356-abe1-44fb-8d65-ce07416d6471",
+      "method": "GET",
+      "status": 200,
+      "time": 1795555231025,
+      "title": "管鲍之交",
+      "state": "running",
+      "activity": {
+        "state": "running",
+        "jobs": [
+          {
+            "id": "c0acb7337e2d4e45635844ecdcaa4019fdc607f153003321741c6cf1ebf00371",
+            "call": "draw",
+            "pages": [
+              2
+            ],
+            "startedAt": 1795555184400,
+            "attempt": 1
+          }
+        ]
+      },
+      "actions": [
+        "background",
+        "pause",
+        "stop",
+        "reprepare",
+        "open-reselection",
+        "edit-revision",
+        "save-revision",
+        "edit-review-notes",
+        "copy",
+        "copy-draft",
+        "image-health",
+        "image-health",
+        "image-health",
+        "image-health",
+        "image-health",
+        "delete"
+      ],
+      "startedAt": 1795555184400,
+      "overridden": false,
+      "ready": 5,
+      "calls": [
+        {
+          "page": 1,
+          "landscape": false
+        }
+      ]
+    },
+    "save": {
+      "pathname": "/api/reader/sessions/66ff5356-abe1-44fb-8d65-ce07416d6471/title",
+      "method": "POST",
+      "status": 200,
+      "time": 1795555242561,
+      "title": "核对用书架显示名",
+      "state": "running",
+      "activity": {
+        "state": "running",
+        "jobs": [
+          {
+            "id": "c0acb7337e2d4e45635844ecdcaa4019fdc607f153003321741c6cf1ebf00371",
+            "call": "draw",
+            "pages": [
+              2
+            ],
+            "startedAt": 1795555184400,
+            "attempt": 1
+          }
+        ]
+      },
+      "actions": [
+        "background",
+        "pause",
+        "stop",
+        "reprepare",
+        "open-reselection",
+        "edit-revision",
+        "save-revision",
+        "edit-review-notes",
+        "copy",
+        "copy-draft",
+        "image-health",
+        "image-health",
+        "image-health",
+        "image-health",
+        "image-health",
+        "delete"
+      ],
+      "startedAt": 1795555184400,
+      "overridden": false,
+      "ready": 5,
+      "calls": [
+        {
+          "page": 1,
+          "landscape": false
+        }
+      ]
+    },
+    "poll": {
+      "pathname": "/api/reader/sessions/66ff5356-abe1-44fb-8d65-ce07416d6471",
+      "method": "GET",
+      "status": 200,
+      "time": 1795555243377,
+      "title": "核对用书架显示名",
+      "state": "running",
+      "activity": {
+        "state": "running",
+        "jobs": [
+          {
+            "id": "c0acb7337e2d4e45635844ecdcaa4019fdc607f153003321741c6cf1ebf00371",
+            "call": "draw",
+            "pages": [
+              2
+            ],
+            "startedAt": 1795555184400,
+            "attempt": 1
+          }
+        ]
+      },
+      "actions": [
+        "background",
+        "pause",
+        "stop",
+        "reprepare",
+        "open-reselection",
+        "edit-revision",
+        "save-revision",
+        "edit-review-notes",
+        "copy",
+        "copy-draft",
+        "image-health",
+        "image-health",
+        "image-health",
+        "image-health",
+        "image-health",
+        "delete"
+      ],
+      "startedAt": 1795555184400,
+      "overridden": false,
+      "ready": 5,
+      "calls": [
+        {
+          "page": 1,
+          "landscape": false
+        }
+      ]
+    }
+  },
+  "C017": {
+    "before": {
+      "pathname": "/api/reader/sessions/f1213cfe-5dc8-42e5-9813-9de41b40b7c2",
+      "method": "GET",
+      "status": 200,
+      "time": 1795555246382,
+      "title": "庄周梦蝶",
+      "state": "failed",
+      "activity": {
+        "state": "idle"
+      },
+      "actions": [
+        "background",
+        "pause",
+        "stop",
+        "resume",
+        "reprepare",
+        "skip-review",
+        "open-reselection",
+        "edit-revision",
+        "save-revision",
+        "edit-review-notes",
+        "copy-draft",
+        "delete"
+      ],
+      "startedAt": null,
+      "overridden": false,
+      "ready": 0,
+      "calls": [
+        {
+          "page": 1,
+          "landscape": false
+        }
+      ]
+    },
+    "override": {
+      "pathname": "/api/reader/sessions/f1213cfe-5dc8-42e5-9813-9de41b40b7c2/review-override",
+      "method": "POST",
+      "status": 200,
+      "time": 1795555248958,
+      "title": "庄周梦蝶",
+      "state": "idle",
+      "activity": {
+        "state": "idle"
+      },
+      "actions": [
+        "background",
+        "pause",
+        "stop",
+        "resume",
+        "reprepare",
+        "open-reselection",
+        "edit-revision",
+        "save-revision",
+        "edit-review-notes",
+        "copy-draft",
+        "delete"
+      ],
+      "startedAt": null,
+      "overridden": true,
+      "ready": 0,
+      "calls": [
+        {
+          "page": 1,
+          "landscape": false
+        }
+      ]
+    }
+  },
+  "C028": {
+    "before": {
+      "pathname": "/api/reader/sessions/dbb987bb-1c70-41e4-98c8-031916ff2267",
+      "method": "GET",
+      "status": 200,
+      "time": 1795555258963,
+      "title": "庄周梦蝶",
+      "state": "failed",
+      "activity": {
+        "state": "idle"
+      },
+      "actions": [
+        "pause",
+        "stop",
+        "retry",
+        "edit-revision",
+        "copy-draft",
+        "image-health",
+        "delete"
+      ],
+      "startedAt": null,
+      "overridden": false,
+      "ready": 1,
+      "calls": [
+        {
+          "page": 0,
+          "landscape": false
+        },
+        {
+          "page": 1,
+          "landscape": false
+        }
+      ]
+    },
+    "recover": {
+      "pathname": "/api/reader/sessions/dbb987bb-1c70-41e4-98c8-031916ff2267/recover",
+      "method": "POST",
+      "status": 202,
+      "time": 1795555259411,
+      "title": "庄周梦蝶",
+      "state": "idle",
+      "activity": {
+        "state": "idle"
+      },
+      "actions": [
+        "pause",
+        "stop",
+        "edit-revision",
+        "copy-draft",
+        "image-health",
+        "image-health",
+        "delete"
+      ],
+      "startedAt": null,
+      "overridden": false,
+      "ready": 2,
+      "calls": [
+        {
+          "page": 0,
+          "landscape": false
+        },
+        {
+          "page": 1,
+          "landscape": false
+        }
+      ]
+    }
+  }
+}

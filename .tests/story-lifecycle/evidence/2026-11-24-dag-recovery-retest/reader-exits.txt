@@ -1,0 +1,54 @@
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ each reader-facing waiting state exposes the same action on every surface, and that action moves the story on (1605.70475ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a revision blocks 4 surviving visual targets until one explicit recovery (434.52275ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a revision blocks 2 surviving registerItems targets until one explicit recovery (429.182458ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a revision blocks 1 surviving registerItems targets until one explicit recovery (473.378292ms)
+✔ a saved recommendation with a lost receipt settles on restart without another model call (110.873833ms)
+✔ settings and shelf expose landscape pause, which drains sent work and holds the last drawing until resume (196.666875ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ replanning blocks matching drawing inputs (494.945625ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ replanning releases changed drawing inputs (282.185583ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ changing length from four to five preserves drawing faults at new pages 1 (581.917833ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ changing length from four to five preserves drawing faults at new pages 2 (392.463042ms)
+✔ changing length from four to five preserves drawing faults at new pages 2, 3 (286.215083ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a revision keeps the failed landscape available for targeted retry after restart (279.753292ms)
+✔ landscape retry verifies the first read failed receipt before paying (194.385583ms)
+✔ landscape retry verifies the previously published receipt before paying (181.789042ms)
+✔ landscape retry verifies the lost acknowledgement receipt before paying (174.690125ms)
+✔ landscape retry verifies the invalid landscape receipt before paying (172.322541ms)
+✔ settings and shelf offer local retry for an inherited paid portrait without a model (241.85775ms)
+✔ a revision adopts the paid artifact when readable at authorization (288.1615ms)
+✔ a revision adopts the paid artifact when readable at dispatch (282.916875ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ an inherited review failure still offers and authorizes Skip Review on the complete paused draft (426.144416ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+codex_generation_error {"code":"INVALID_OUTPUT"}
+codex_generation_error {"code":"INVALID_OUTPUT"}
+codex_generation_error {"code":"INVALID_OUTPUT"}
+书库数据库正在迁移（0027_revision_fault_targets.sql），先做整库备份，请勿关闭……
+正在应用数据库迁移……
+书库数据库迁移完成，用时 0.1 秒。
+✔ library update repairs old fault rows across revisions and preserves saved results and recoveries (1117.381625ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ switching to a fixed length releases the failed automatic frame check (311.940458ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+codex_generation_error {"code":"INVALID_OUTPUT"}
+书库数据库正在迁移（0027_revision_fault_targets.sql），先做整库备份，请勿关闭……
+正在应用数据库迁移……
+书库数据库迁移完成，用时 0.0 秒。
+✔ migration keeps distinct legacy batches with the same failure message independently recoverable (3740.807917ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13304.362958

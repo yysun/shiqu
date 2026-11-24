@@ -1449,7 +1449,7 @@ test('a revision keeps an unresolved drawing fault whose inputs did not change; 
  assert.equal(f.control.calls.length,0,'nothing is drawn without an explicit recovery');
 });
 
-test('replanning matches a lost-image fault by drawing inputs before dispatching a new frame',async t=>{
+for(const changed of [false,true])test(`replanning ${changed?'releases':'matches'} a lost-image fault by drawing inputs before dispatching a new frame`,async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  const id=await f.create(3),route=`sessions/${id}`;
@@ -1459,7 +1459,9 @@ test('replanning matches a lost-image fault by drawing inputs before dispatching
  await rm(join(f.dataDirectory,'media',referenceImageKey(id,image)));
  const lost=await f.json(`${route}/image-health`,'POST',{page:1,image});
  assert.equal(lost.faults.find(fault=>fault.stage==='redraw').page,1);
- f.control.beforeText=name=>{
+ f.control.beforeText=(name,payload)=>{
+  if(changed&&name==='visual')return {frames:payload.frames.map(frame=>({number:frame.number,
+   prompt:prior.dag.frames[prior.dag.order[frame.number-1]].visual+(frame.number===2?' 第二幅改为雨夜，室内点灯。':''),drawn:['庄周']}))};
   if(name!=='outline')return;
   const {title,summary,sourceReference,adaptationNote}=makePlan(3);
   return {title,summary,sourceReference,adaptationNote,beats:['新版开场提纲','新版转折提纲','新版结局提纲']};
@@ -1482,9 +1484,15 @@ test('replanning matches a lost-image fault by drawing inputs before dispatching
  const newKey=next.dag.order[1];
  assert.notEqual(newKey,oldKey);
  const evaluation=evaluate(stateOf({id:child.id,doc:next,dag:next.dag,selection:current.selection,confirmed:true,faults:[]}));
- assert.deepEqual(evaluation.instance('frameImage',newKey).hard,prior.dag.products[`frameImage:${oldKey}`].inputs);
- assert.deepEqual({state:current.state,lostFrames:current.faults?.filter(fault=>fault.stage==='redraw').map(fault=>fault.page)??[],drawn:f.control.calls.slice(before).map(call=>call.page)},
-  {state:'failed',lostFrames:[1],drawn:[]});
+ const inputs=evaluation.instance('frameImage',newKey).hard,priorInputs=prior.dag.products[`frameImage:${oldKey}`].inputs;
+ const result={state:current.state,lostFrames:current.faults?.filter(fault=>fault.stage==='redraw').map(fault=>fault.page)??[],drawn:f.control.calls.slice(before).map(call=>call.page)};
+ if(changed){
+  assert.notDeepEqual(inputs,priorInputs);
+  assert.deepEqual(result,{state:'completed',lostFrames:[],drawn:[1]});
+ }else{
+  assert.deepEqual(inputs,priorInputs);
+  assert.deepEqual(result,{state:'failed',lostFrames:[1],drawn:[]});
+ }
 });
 
 test('one lost drawing binds two new frames, and recovering one supplies the other for free after restart',async t=>{

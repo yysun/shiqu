@@ -32,7 +32,7 @@ import type {ProductionJob,JobSpec} from './production-queue.ts';
 import {authorizeRecovery,authorizeControl,carriedJobFaultGroup,commandReceipt,sessionFaults} from './reader-commands.ts';
 import type {ReaderFault} from './reader-commands.ts';
 import type {FaultView,RecoveryRequest,ReviewOverride} from '../lib/reader-recovery.ts';
-import {canReprepare,DagProduction,dagTextKind,dagDrawKind,landscapeFrames} from './dag-production.ts';
+import {canReprepare,DagProduction,dagTextKind,dagDrawKind,landscapeFrames,offersCarriedPortraitRecovery} from './dag-production.ts';
 import {transact,deleteJobs,recordJobSucceeded} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
@@ -49,7 +49,7 @@ import {replacementCommitState} from './reader-reselection.ts';
 type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;through_page:number;expires_at:number;runtime_id:string};
 type SnapshotInputs={
  row:SessionRow;superseded:boolean;deleted:boolean;replacementOpen:boolean;now:number;
- allJobs:ProductionJob[];faults:ReaderFault[];viewerThrough:number|null;
+ allJobs:ProductionJob[];faults:ReaderFault[];viewerThrough:number|null;carriedPortraitRecoveries:Set<string>;
  replacementBasis?:ReturnType<typeof replacementCommitState>;
 };
 type ActiveSearch={round:number;controller:AbortController;startedAt:number;progress?:SuggestionProgress};
@@ -409,12 +409,15 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(!rows.length)return [];
    const ids=JSON.stringify(rows.map(row=>row.id)),bySession='session_id IN (SELECT value FROM json_each(?))';
    const inputs=new Map<string,SnapshotInputs>(rows.map(row=>[row.id,{
-    row,superseded:!!row.superseded,deleted,now,replacementOpen:false,allJobs:[],faults:[],viewerThrough:null,
+    row,superseded:!!row.superseded,deleted,now,replacementOpen:false,allJobs:[],faults:[],viewerThrough:null,carriedPortraitRecoveries:new Set(),
    }]));
    for(const job of db.all<ProductionJob>(`SELECT * FROM production_jobs WHERE owner_id=? AND ${bySession} ORDER BY created_at,id`,ownerId,ids))
     inputs.get(job.session_id)!.allJobs.push(job);
-   for(const fault of db.all<ReaderFault>(`SELECT * FROM reader_faults WHERE owner_id=? AND ${bySession} AND state IN ('pending','recovering','awaiting-match') ORDER BY created_at,id`,ownerId,ids))
-    inputs.get(fault.session_id)!.faults.push(fault);
+   for(const fault of db.all<ReaderFault>(`SELECT * FROM reader_faults WHERE owner_id=? AND ${bySession} AND state IN ('pending','recovering','awaiting-match') ORDER BY created_at,id`,ownerId,ids)){
+    const input=inputs.get(fault.session_id)!;
+    input.faults.push(fault);
+    if(!deleted&&!input.superseded&&offersCarriedPortraitRecovery(db,input.row,fault))input.carriedPortraitRecoveries.add(fault.id);
+   }
    for(const demand of db.all<{session_id:string;through:number}>(`SELECT session_id,max(through_page) AS through FROM production_demand
     WHERE owner_id=? AND runtime_id=? AND expires_at>? AND ${bySession} GROUP BY session_id`,ownerId,this.runtimeId,now,ids)){
     if(!this.options.targetSessionId||demand.session_id===this.options.targetSessionId)inputs.get(demand.session_id)!.viewerThrough=demand.through;
@@ -460,7 +463,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    const state=carriedJobFaultState(evaluation,fault);
    return state==='replaced'?[]:[{...fault,state}];
   }):input.faults;
-  const optionalFrames=dag?landscapeFrames(dag,jobs,checkedLandscapeLosses):[];
+  const optionalFrames=dag?landscapeFrames(dag,jobs,checkedLandscapeLosses,faults):[];
   const jobsById=new Map(allJobs.map(job=>[job.id,job]));
   const faultGroups=new Map<string,ProductionFault>();
   for(const fault of faults){
@@ -505,7 +508,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    return checks;
   })??[];
   const landscapePending=optionalFrames.some(frame=>frame.landscape===''&&!frame.landscapeError);
-  const optionalWork=dag?.order.some(key=>dag.frames[key]?.landscape===''&&dag.frames[key].landscapeError===undefined)??false;
+  const optionalWork=landscapePending;
   const {doc,selection}=parsed,{intake,reselection}=doc;
   const revisionOptions=revisionAvailability(row,doc),copy=copyAvailability(row,doc,selection);
   const unreviewed=!!dag&&Object.values(dag.products).some(product=>product.unreviewed);
@@ -530,7 +533,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     {event:'copy',ready:copy.current&&copy.reviewed},{event:'copy-draft',ready:copy.current&&copy.draft},
     {event:'start-landscape',ready:configured&&savedComplete&&!landscapePending&&unrequested},
     {event:'retry-landscape',ready:configured&&savedComplete&&!landscapePending&&landscapeFailed}],
-   freeImageRecoveries:new Set(faults.filter(fault=>this.imageRecoveryTarget(id,parsed.doc,fault)).map(fault=>fault.id)),
+   freeImageRecoveries:new Set(faults.filter(fault=>input.carriedPortraitRecoveries.has(fault.id)||this.imageRecoveryTarget(id,parsed.doc,fault)).map(fault=>fault.id)),
    modelApplicable:!!dag&&(!parsed.doc.intake||parsed.doc.intake.phase==='confirmed')&&!!this.snapshotNow()&&
     (parsed.doc as Document&{legacyFramePreparation?:unknown}).legacyFramePreparation==null,
    reviewBlockId:blocking?.id??undefined,canOverrideReview:!!blocking?.canOverride,reviewSkipId:reviewSkip?.faultId},jobs);

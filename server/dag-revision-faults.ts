@@ -32,7 +32,11 @@ export function carryFaults(faults:FaultToCarry[],parent:DagStory,child:DagStory
   }catch{/* 沿用记录的节点 */}
   return instances.flatMap(({node,key,hard})=>{
    try{
-    if(!instanceKeys(after.state,node).includes(key))return [];
+    if(!instanceKeys(after.state,node).includes(key)){
+     if(node==='frameImage'&&fault.origin_fault_id&&fault.input_hash&&!before.state.order.includes(key)&&
+        carriedJobFaultState(before,fault)==='awaiting-match')return [{...fault,input_hash:fault.input_hash}];
+     return [];
+    }
     const inputs=hard??before.instance(node,key).hard,instance=after.instance(node,key),current=instance.hard;
     if(fault.kind==='image-loss')return fingerprint(inputs??null)===fingerprint(current??null)?[{...fault,node,node_key:key}]:[];
     const input_hash=fault.input_hash??(inputs?fingerprint(inputs):null);
@@ -46,7 +50,8 @@ export function carryFaults(faults:FaultToCarry[],parent:DagStory,child:DagStory
 /** 仅对从原任务继承且绑定了输入的故障重新匹配；原任务故障仍由任务及读者命令管理。 */
 export function carriedJobFaultState(evaluation:Evaluation,fault:Pick<ReaderFault,'node'|'node_key'|'input_hash'>){
  const {node,node_key:key,input_hash:hash}=fault;
- if(!node||!hash||!instanceKeys(evaluation.state,node).includes(key))return 'replaced';
+ if(!node||!hash)return 'replaced';
+ if(!instanceKeys(evaluation.state,node).includes(key))return node==='frameImage'?'awaiting-match':'replaced';
  const instance=evaluation.instance(node,key);
  if(!instance.hard)return instance.status==='valid'?'replaced':'awaiting-match';
  return fingerprint(instance.hard)===hash?'pending':'replaced';
@@ -57,11 +62,35 @@ export const isCarriedReviewFault=(fault:ReaderFault)=>fault.kind==='job'&&!faul
 
 export function reconcileCarriedJobFaults(db:SyncStatements,ownerId:string,story:DagStory,now:number){
  const rows=db.all<ReaderFault>(`SELECT * FROM reader_faults WHERE session_id=? AND owner_id=? AND state='pending'
-  AND kind='job' AND job_id IS NULL AND origin_fault_id IS NOT NULL AND input_hash IS NOT NULL`,story.id,ownerId);
+  AND kind='job' AND job_id IS NULL AND origin_fault_id IS NOT NULL AND input_hash IS NOT NULL ORDER BY created_at,id`,story.id,ownerId);
  if(!rows.length)return;
  const evaluation=evaluate(stateOf(story));
- for(const row of rows)if(carriedJobFaultState(evaluation,row)==='replaced'){
-  db.run("UPDATE reader_faults SET state='replaced',updated_at=? WHERE id=?",now,row.id);
+ const occupied=new Set(rows.filter(row=>row.node==='frameImage'&&carriedJobFaultState(evaluation,row)==='pending').map(row=>row.node_key));
+ const rebound:{row:ReaderFault;matches:Instance[]}[]=[];
+ for(const row of rows){
+  let state=carriedJobFaultState(evaluation,row);
+  if(state==='awaiting-match'&&row.node==='frameImage'&&!story.dag.order.includes(row.node_key)){
+   // 重做提纲可能更换键。画幅输入齐备后，优先在原幅号保留故障编号，再阻断其余绘图输入完全相同的画幅。
+   if(evaluation.instance('outline').status!=='valid')continue;
+   const frames=story.dag.order.map(key=>evaluation.instance('frameImage',key));
+   if(frames.some(frame=>!frame.hard&&frame.status!=='valid'))continue;
+   const matches=frames.filter(frame=>frame.status!=='valid'&&frame.hard&&!occupied.has(frame.key)&&fingerprint(frame.hard)===row.input_hash);
+   const source=db.get<{page:number|null}>(`SELECT json_extract(j.payload,'$.page') AS page FROM reader_faults f
+    JOIN production_jobs j ON j.id=f.job_id AND j.session_id=f.session_id AND j.owner_id=f.owner_id
+    WHERE f.id=? AND f.owner_id=? AND json_valid(j.payload)`,row.origin_fault_id,ownerId);
+   const target=matches.find(frame=>source?.page!=null&&frame===frames[source.page])??matches[0];
+   if(target){
+    occupied.add(target.key);
+    db.run('UPDATE reader_faults SET node_key=?,updated_at=? WHERE id=?',target.key,now,row.id);
+    rebound.push({row,matches});
+   }else state='replaced';
+  }
+  if(state==='replaced')db.run("UPDATE reader_faults SET state='replaced',updated_at=? WHERE id=?",now,row.id);
+ }
+ for(const {row,matches} of rebound)for(const {key} of matches){
+  if(occupied.has(key))continue;
+  occupied.add(key);
+  insertCarriedJobFault(db,story.id,ownerId,{...row,node:'frameImage',node_key:key},now,row.created_at+1);
  }
 }
 
