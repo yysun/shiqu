@@ -22,7 +22,7 @@ export default function StoryReviewTools({session,busy,error,onEdit,onReplan,onR
   </>}
   {issues.length>0&&canOverride&&<div className="yu-review-skip"><StoryFlowAction type="button" className="yu-review-override" disabled={busy} onClick={onDrawAnyway}>{paused?'跳过问题，保持暂停':'跳过问题并绘图'}</StoryFlowAction><p>{paused?'记录跳过，仍保持暂停；恢复后按当前分镜绘制。':'不再修订以上问题，按当前分镜绘制。'}</p></div>}
   {skip&&onSkipReview&&<div className="yu-review-skip">
-   <p>采用《{skip.title}》与结语「{skip.reflection}」。继续制作时将按这份未审核的分镜绘图。</p>
+   <p>采用《{skip.title}》与结语「{skip.reflection}」。点击“{session.awaitingContinue?'继续制作':'恢复生成'}”后将按这份未审核的分镜绘图。</p>
    <StoryFlowAction disabled={busy} onClick={()=>onSkipReview(skip.faultId)}>跳过本次审核</StoryFlowAction>
   </div>}
   {error&&<p className="yu-batch-error" role="alert">{error}</p>}

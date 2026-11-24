@@ -2226,6 +2226,30 @@
       ]
     },
     {
+      "file": "tests/production-reader-exits.test.mjs",
+      "groups": [
+        "production",
+        "reader"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "lib/production-lifecycle.ts",
+        "lib/shelf-generation.ts",
+        "client/ui/StoryGenerationControl.tsx",
+        "client/ui/StoryRetry.tsx",
+        "client/ui/StoryFlowAction.tsx"
+      ]
+    },
+    {
       "file": "tests/production-queue.test.mjs",
       "groups": [
         "production"
