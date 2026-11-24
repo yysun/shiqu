@@ -1,16 +1,18 @@
-// 导出竖版阅读 PDF 和定尺寸的横版试印 PDF，保留作品署名与原典出处。
+// 导出竖版阅读、横版试印和 Letter 双面 PDF，保留作品署名与原典出处。
+import type {PDFPage,PDFDocument as StoryPdfDocument} from 'pdf-lib';
 import type {Story} from './content';
 import {browserExportRuntime,type ExportRuntime} from './story-export-runtime.ts';
 import {aiDisclosure,publicationCredit,publicationText} from './story-publication.ts';
 
-export type StoryPdfLayout='portrait'|'landscape';
+export type StoryPdfLayout='portrait'|'landscape'|'letter';
+const pdfSuffixes:Record<StoryPdfLayout,string>={portrait:'-拾趣.pdf',landscape:'-拾趣-横版7x5.pdf',letter:'-拾趣-Letter双面.pdf'};
 const serif='"Noto Serif SC", "Songti SC", "STSong", serif';
 const sans='"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif';
 export function storySourceReference(story:Story){
  if('sourceReference'in story&&typeof story.sourceReference==='string')return story.sourceReference;
  return '原典见出处链接';
 }
-export function pdfFilename(title:string,layout:StoryPdfLayout='portrait'){return (title.replace(/[<>:"/\\|?*\u0000-\u001f]/g,'').trim().slice(0,60)||'拾趣故事')+(layout==='landscape'?'-拾趣-横版7x5.pdf':'-拾趣.pdf');}
+export function pdfFilename(title:string,layout:StoryPdfLayout='portrait'){return (title.replace(/[<>:"/\\|?*\u0000-\u001f]/g,'').trim().slice(0,60)||'拾趣故事')+pdfSuffixes[layout];}
 export function assertPdfReady(story:Story){if(!story.pages.length||story.pages.some(page=>!page.image))throw Error('等所有画面生成完成后，就能导出完整 PDF。');}
 export function wrapPdfText(text:string,width:number,measure:(text:string)=>number):string[]{
  const lines:string[]=[];
@@ -27,13 +29,53 @@ export function wrapPdfText(text:string,width:number,measure:(text:string)=>numb
  }
  return lines;
 }
+// 横版源页以封面、扉页开头，以封底结束。画幅与配文续页分别拼版，避免续页打乱正反配对。
+export async function imposeStoryLetterPdf(source:StoryPdfDocument,scenePageIndices:readonly number[]){
+ const {PDFDocument,Duplex,PrintScaling}=await import('pdf-lib');
+ await source.flush();
+ const pdf=await PDFDocument.create();
+ pdf.setTitle(source.getTitle()??'');
+ pdf.setAuthor(source.getAuthor()??'');
+ pdf.setSubject(source.getSubject()??'');
+ pdf.setCreator(source.getCreator()??'拾趣故事阅读器');
+ const preferences=pdf.catalog.getOrCreateViewerPreferences();
+ preferences.setDuplex(Duplex.DuplexFlipLongEdge);
+ preferences.setPrintScaling(PrintScaling.None);
+ const width=612,height=792;
+ const pages=source.getPages();
+ const panels=await pdf.embedPages(pages,pages.map(page=>{
+  const {x,y,width,height}=page.getTrimBox();
+  return {left:x,bottom:y,right:x+width,top:y+height};
+ }));
+ const addSheet=()=>[pdf.addPage([width,height]),pdf.addPage([width,height])] as const;
+ function place(page:PDFPage,index:number,top:boolean){
+  const panel=panels[index],halfHeight=height/2;
+  page.drawPage(panel,{x:(width-panel.width)/2,y:(top?halfHeight:0)+(halfHeight-panel.height)/2});
+ }
+ function impose(indices:readonly number[]){
+  for(let offset=0;offset<indices.length;offset+=4){
+   const sides=addSheet();
+   indices.slice(offset,offset+4).forEach((index,slot)=>place(sides[slot%2],index,slot<2));
+  }
+ }
+ const [front,reverse]=addSheet();
+ place(front,0,true);
+ place(reverse,1,true);
+ place(reverse,pages.length-1,false);
+ impose(scenePageIndices);
+ const sceneSet=new Set(scenePageIndices);
+ impose(pages.map((_,index)=>index).slice(2,-1).filter(index=>!sceneSet.has(index)));
+ return pdf.save();
+}
+
 export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime(),layout:StoryPdfLayout='portrait',landscapeImages?:readonly string[],coverIndex=0){
  assertPdfReady(story);
- const landscape=layout==='landscape';
+ const landscape=layout!=='portrait';
  if(landscape&&(!Number.isInteger(coverIndex)||!story.pages[coverIndex]))throw Error('请选择有效的封面画幅。');
  const {PDFDocument,rgb}=await import('pdf-lib');
  await runtime.ready();
  const pdf=await PDFDocument.create();pdf.setTitle(story.title);pdf.setAuthor(story.publication?.author||'未署名');pdf.setSubject(story.theme);pdf.setCreator('拾趣故事阅读器');
+ const scenePageIndices:number[]=[];
  const supplementary=landscape&&landscapeImages?.length===story.pages.length&&landscapeImages.every(Boolean)?landscapeImages:null;
  const [W,H,pageWidth,pageHeight]=landscape?[2100,1500,504,360]:[900,1350,360,540];
  const M=landscape?75:72;
@@ -194,7 +236,10 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   for(let i=0;i<story.pages.length;i++){
    onProgress(`正在整理第 ${i+1} / ${story.pages.length} 幅`);
    const scene=story.pages[i],blob=i===coverIndex&&cover?cover:await runtime.read(supplementary?.[i]??scene.image,i);
-   if(landscape){await addLandscapeScene(scene,i,blob);continue;}
+   if(landscape){
+    if(layout==='letter')scenePageIndices.push(pdf.getPageCount());
+    await addLandscapeScene(scene,i,blob);continue;
+   }
    await runtime.image(blob,image=>{
     const scale=Math.max(W/image.width,H/image.height),width=image.width*scale,height=image.height*scale;
     ctx.clearRect(0,0,W,H);ctx.drawImage(image.value,(W-width)/2,(H-height)/2,width,height);
@@ -210,6 +255,9 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   }
   if(landscape){
    onProgress('正在整理封底');await addLandscapeBack();
+   if(layout==='letter'){
+    onProgress('正在排版 Letter 双面 PDF');return await imposeStoryLetterPdf(pdf,scenePageIndices);
+   }
    onProgress('正在保存 PDF');return await pdf.save();
   }
   onProgress('正在整理故事梗概、余味与出处');

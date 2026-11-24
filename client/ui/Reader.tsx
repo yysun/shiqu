@@ -92,10 +92,12 @@ type Progress = {storyId:string; page:number; saved?:number; updatedAt?:string|n
 const exportOptions={
  pdf:{label:'竖版 PDF',description:'逐幅阅读',Icon:FileDown},
  'pdf-landscape':{label:'横版 PDF',description:'7×5 英寸试印',Icon:FileDown},
+ 'pdf-letter':{label:'Letter 双面 PDF',description:'上下两幅',Icon:FileDown},
  png:{label:'下载 PNG',description:'一页总览',Icon:ImageDown},
  zip:{label:'下载 ZIP',description:'原文与完整提示词',Icon:FileArchive},
 };
 type ExportFormat=keyof typeof exportOptions;
+type PrintPdfFormat='pdf-landscape'|'pdf-letter';
 type LandscapeCover={index:number;images?:readonly string[]};
 const choices:Book[] = [...readerBooks,{id:'other',title:'其他',author:'书名或 URL',era:'自选',genre:'自选',note:'带上你自己的那本书'}];
 const moods=discoveryThemes;
@@ -168,7 +170,7 @@ export default function Reader(){
  const favoriteLock=useRef(false);
  const deleted=useRef(new Set<string>());
  const [exporting,setExporting]=useState<ExportFormat|null>(null),[exportProgress,setExportProgress]=useState(''),[pdfDownload,setPdfDownload]=useState<{url:string;filename:string;storyId:string;key:string}|null>(null),[pngDownload,setPngDownload]=useState<{url:string;filename:string;storyId:string;key:string}|null>(null),[zipDownload,setZipDownload]=useState<{url:string;filename:string;storyId:string;key:string}|null>(null);
- const [landscapeCover,setLandscapeCover]=useState<{story:Story;cover:LandscapeCover}|null>(null);
+ const [landscapeCover,setLandscapeCover]=useState<{format:PrintPdfFormat;story:Story;cover:LandscapeCover}|null>(null);
  useEffect(()=>()=>{if(pdfDownload)URL.revokeObjectURL(pdfDownload.url);},[pdfDownload]);
  useEffect(()=>()=>{if(pngDownload)URL.revokeObjectURL(pngDownload.url);},[pngDownload]);
  useEffect(()=>()=>{if(zipDownload)URL.revokeObjectURL(zipDownload.url);},[zipDownload]);
@@ -403,13 +405,13 @@ export default function Reader(){
   if(exportLock.current)return;
   exportLock.current=true;setExporting(format);setExportProgress('正在准备 '+exportOptions[format].label);
   try{
-   if(format==='pdf-landscape'&&!cover){
+   if((format==='pdf-landscape'||format==='pdf-letter')&&!cover){
     let images:readonly string[]|undefined;
     if(isGenerated(output)){
      const status:LandscapeStatus=await request(storyLandscapeRoute(output.id));
      if(status.state==='completed'&&status.images.length===output.pages.length&&status.images.every(Boolean))images=status.images;
     }
-    setLandscapeCover({story:output,cover:{index:0,images}});return;
+    setLandscapeCover({format,story:output,cover:{index:0,images}});return;
    }
    const key=format+':'+storyExportKey(output)+(cover?JSON.stringify(cover):''),cached=format==='zip'?zipDownload:format==='png'?pngDownload:pdfDownload;
    if(cached?.storyId===output.id&&cached.key===key){
@@ -425,7 +427,8 @@ export default function Reader(){
     notify('一页 PNG 已准备好，可再次下载。');
    }else{
     const {downloadStoryPdf}=await import('@/lib/reader-pdf');
-    const result=await downloadStoryPdf(output,setExportProgress,format==='pdf-landscape'?'landscape':'portrait',cover?.images,cover?.index);setPdfDownload({...result,storyId:output.id,key});
+    const layout=format==='pdf-letter'?'letter':format==='pdf-landscape'?'landscape':'portrait';
+    const result=await downloadStoryPdf(output,setExportProgress,layout,cover?.images,cover?.index);setPdfDownload({...result,storyId:output.id,key});
     notify('PDF 已准备好，可再次下载。');
    }
   }catch(e){notify(e instanceof Error?e.message:'导出失败，请保持联网后重试。');}
@@ -532,7 +535,7 @@ export default function Reader(){
   const busy=exporting===format;
   const content=<>{busy?<Loader2 size={20} className="spin"/>:<Icon size={20}/>}<span>{busy?(format==='zip'?'打包中…':'导出中…'):label}<small>{description}</small></span></>;
   if(!target)return <button key={format} type="button" className={className} disabled>{content}</button>;
-  return <StoryExportControl key={target.id+':'+format} story={target} format={format==='pdf-landscape'?'pdf':format} className={className} busy={busy} disabled={!!exporting||!target.pages.length||target.pages.some(p=>!p.image)} onExport={output=>exportStory(format,output)} onEdit={isGenerated(target)?()=>setPublicationTarget(target):undefined}>{content}</StoryExportControl>;
+  return <StoryExportControl key={target.id+':'+format} story={target} format={format==='zip'||format==='png'?format:'pdf'} className={className} busy={busy} disabled={!!exporting||!target.pages.length||target.pages.some(p=>!p.image)} onExport={output=>exportStory(format,output)} onEdit={isGenerated(target)?()=>setPublicationTarget(target):undefined}>{content}</StoryExportControl>;
  }
  function exportStatus(showReadiness=true){
   if(!story)return null;
@@ -819,10 +822,11 @@ export default function Reader(){
  {publicationTarget&&<StoryPublicationEditor key={publicationTarget.id} story={publicationTarget} onClose={()=>setPublicationTarget(null)} onSave={async(value,expected)=>{
   await gen.savePublication(publicationTarget.id,value,expected);notify('署名与转载说明已保存。');
  }}/>}
- {landscapeCover&&<Sheet title="选择横版 PDF 封面" onClose={()=>setLandscapeCover(null)}>
+ {landscapeCover&&<Sheet title={'选择'+exportOptions[landscapeCover.format].label+'封面'} onClose={()=>setLandscapeCover(null)}>
   <div className="yu-export-confirmation">
    <p className="yu-publication-work">{landscapeCover.story.title}</p>
-   {!landscapeCover.cover.images&&<p>横版插图尚未齐全，将使用原竖图试排 7×5 英寸横版 PDF，部分画面可能被裁切。</p>}
+   {landscapeCover.format==='pdf-letter'&&<p>打印时选 Letter 纵向、实际大小（100%）、每张一页、双面长边翻转。</p>}
+   {!landscapeCover.cover.images&&<p>横版插图尚未齐全，将使用原竖图试排，部分画面可能被裁切。</p>}
    <fieldset className="yu-cover-options" aria-label="封面画幅">
     {landscapeCover.story.pages.map((scene,index)=><label key={index}>
      <img src={landscapeCover.cover.images?.[index]??scene.image} alt="" loading="lazy" decoding="async"/>
@@ -830,7 +834,7 @@ export default function Reader(){
     </label>)}
    </fieldset>
    <div className="yu-export-confirmation-actions">
-    <button type="button" className="yu-primary" onClick={()=>{setLandscapeCover(null);void exportStory('pdf-landscape',landscapeCover.story,landscapeCover.cover);}}>导出横版 PDF</button>
+    <button type="button" className="yu-primary" onClick={()=>{setLandscapeCover(null);void exportStory(landscapeCover.format,landscapeCover.story,landscapeCover.cover);}}>导出{exportOptions[landscapeCover.format].label}</button>
     <button type="button" className="yu-revision-open" onClick={()=>setLandscapeCover(null)}>取消</button>
    </div>
   </div>

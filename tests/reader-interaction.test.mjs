@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCanvas} from '@napi-rs/canvas';
-import {PDFDocument} from 'pdf-lib';
+import {decodePDFRawStream,PDFArray,PDFDict,PDFDocument,PDFName,PDFRawStream} from 'pdf-lib';
 import {newWheelGesture,wheelPageDirection,wheelBackAtStart,wheelBackFromEnding,listenForEndingTouchSwipe,swipePageDirection,readerAtStart,readerCaptionOpacity} from '../lib/reader-navigation.ts';
 
 test('the ending scrolls back to the final frame only from its top edge',()=>{
@@ -163,7 +163,7 @@ test('themes share source-faithful production defaults while reader-written requ
 
 
 import {freshSuggestions,suggestionKey,suggestionRequestSchema} from '../lib/reader-suggestions.ts';
-import {assertPdfReady,createStoryPdf,pdfFilename,wrapPdfText} from '../lib/reader-pdf.ts';
+import {assertPdfReady,createStoryPdf,imposeStoryLetterPdf,pdfFilename,wrapPdfText} from '../lib/reader-pdf.ts';
 import {makeStory} from './fixtures/story.mjs';
 test('batch history isolates book, custom source and theme without splitting on style or length',()=>{
  assert.equal(suggestionKey('liaozhai','irrelevant','反转'),suggestionKey('liaozhai',undefined,' 反转 '));
@@ -238,6 +238,44 @@ test('print PDF uses complete landscape artwork without cropping and otherwise p
  assert.ok(reading.textDraws.some(({text})=>text==='01 / 2'));
  assert.deepEqual(reading.pdf.getPage(0).getSize(),{width:360,height:540});
  assert.deepEqual(story.pages.map(page=>page.image),portrait);
+ const letter=await render('letter',landscape,1);
+ assert.deepEqual(letter.reads,selectedLandscape.reads);
+ assert.deepEqual(letter.draws,selectedLandscape.draws);
+ assert.equal(letter.pdf.getPageCount(),4);
+ assert.equal(pdfFilename(story.title,'letter'),`${story.title}-拾趣-Letter双面.pdf`);
+});
+
+test('Letter PDF matches odd and even frames across halves, with separate covers and continuation pages',async()=>{
+ const source=await PDFDocument.create();
+ source.setTitle('测试故事');
+ for(let index=1;index<=9;index++){
+  const page=source.addPage([522,378]);
+  page.setTrimBox(9,9,504,360);
+  page.drawRectangle({x:100+index,y:0,width:1,height:1});
+ }
+ const pdf=await PDFDocument.load(await imposeStoryLetterPdf(source,[2,3,5,6,7]));
+ const preferences=pdf.catalog.getOrCreateViewerPreferences();
+ assert.equal(pdf.getTitle(),'测试故事');
+ assert.equal(preferences.getDuplex(),'DuplexFlipLongEdge');
+ assert.equal(preferences.getPrintScaling(),'None');
+ const decode=stream=>Buffer.from(decodePDFRawStream(stream).decode()).toString();
+ const placements=pdf.getPages().map(page=>{
+  assert.deepEqual(page.getSize(),{width:612,height:792});
+  const streams=page.node.lookupMaybe(PDFName.of('Contents'),PDFArray);
+  if(!streams)return [];
+  const content=decode(streams.lookup(0,PDFRawStream));
+  const forms=page.node.Resources().lookup(PDFName.of('XObject'),PDFDict);
+  return [...content.matchAll(/1 0 0 1 54 (414|18) cm\n[\s\S]*?\n\/(EmbeddedPdfPage-[^ ]+) Do/g)].map(([,y,name])=>{
+   const form=forms.lookup(PDFName.of(name),PDFRawStream);
+   const [,index]=decode(form).match(/1 0 0 1 (10\d) 0 cm/);
+   return [Number(index)-100,Number(y)];
+  });
+ });
+ assert.deepEqual(placements,[
+  [[1,414]],[[2,414],[9,18]],
+  [[3,414],[6,18]],[[4,414],[7,18]],
+  [[8,414]],[],[[5,414]],[],
+ ]);
 });
 
 
