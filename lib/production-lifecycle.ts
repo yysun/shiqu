@@ -7,6 +7,11 @@ import type {IntakeAction,IntakeSearch,StoryIntake} from './reader-intake.ts';
 export type ProductionActivity={
  id:string;call:string;pages:number[];startedAt:number;attempt:number;
 };
+export type ProductionFault=FaultView&{
+ kind:'step-failure'|'content-blocked'|'interrupted'|'image-loss';
+ scope:'required'|'optional';
+ targets:{node:string;key:string;page:number|null}[];
+};
 export type ProductionService='available'|'unconfigured'|'snapshot-unavailable'|'stopping';
 export const productionServiceMessages={
  unconfigured:'当前制作服务未配置或处于只读模式。',
@@ -16,10 +21,11 @@ export const productionServiceMessages={
 export type ProductionLifecycle={
  phase:'selection'|'preparation'|'confirmation'|'production'|'completed';
  version:'current'|'superseded';
+ replacementDraft:'open'|'none';
  control:GenerationControl;
  continuation:boolean;
  draining:boolean;
- faults:FaultView[];
+ faults:ProductionFault[];
  reviewAttention:Attention[];
  service:ProductionService;
  imageAvailability:'available'|'unavailable';
@@ -27,7 +33,7 @@ export type ProductionLifecycle={
 };
 
 type ActivityJob={id:string;kind:string;payload:string;state:string;lease_until:number;updated_at:number;attempts:number};
-type ActivityInput=Pick<SessionView,'state'|'intake'|'generationControl'|'awaitingContinue'> & {complete?:boolean;superseded:boolean;queued:boolean;faults:FaultView[];reviewAttention:Attention[];service:ProductionService;now:number;order:readonly string[]};
+type ActivityInput=Pick<SessionView,'state'|'intake'|'generationControl'|'awaitingContinue'> & {complete?:boolean;superseded:boolean;replacementOpen:boolean;queued:boolean;faults:ProductionFault[];reviewAttention:Attention[];service:ProductionService;now:number;order:readonly string[]};
 
 export function productionLifecycle(input:ActivityInput,jobs:readonly ActivityJob[]):ProductionLifecycle{
  const intake=input.intake?.phase;
@@ -43,7 +49,7 @@ export function productionLifecycle(input:ActivityInput,jobs:readonly ActivityJo
     page===undefined?[]:[page+1];
    return {id:job.id,call:work?.call??job.kind,pages,startedAt:job.updated_at,attempt:job.attempts};
   });
- return {phase,version:input.superseded?'superseded':'current',control,continuation:!!input.awaitingContinue,
+ return {phase,version:input.superseded?'superseded':'current',replacementDraft:input.replacementOpen?'open':'none',control,continuation:!!input.awaitingContinue,
   faults:input.faults,reviewAttention:input.reviewAttention,service:input.service,
   imageAvailability:jobs.some(job=>['queued','running'].includes(job.state)&&JSON.parse(job.payload).waitingFor==='image-availability')?'unavailable':'available',
   draining:running.length>0&&(control!=='active'||input.superseded),
@@ -97,7 +103,7 @@ export function authorizeDispatch(state:DispatchState):DispatchDecision{
 
 export const productionControlEvents=['background','pause','stop','resume'] as const;
 export type ProductionControlEvent=(typeof productionControlEvents)[number];
-export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|'override-review'|'apply-model'|'image-health'|'start-landscape'|'retry-landscape'|'open-reselection'|ProductionControlEvent;
+export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|'override-review'|'apply-model'|'image-health'|'start-landscape'|'retry-landscape'|'open-reselection'|'edit-revision'|'save-revision'|'redraw'|'cover'|'copy'|'copy-draft'|ProductionControlEvent;
 type CommandState={
  version:DispatchState['version'];control:GenerationControl;continuation:boolean;
  targetCurrent:boolean;targetReady:boolean;stopping:boolean;
@@ -127,7 +133,19 @@ const commands={
   denial:state=>state.targetCurrent?'图片地址无法核对。':'这幅图片已更新，请刷新后再检查。'},
  'start-landscape':landscapeCommand,
  'retry-landscape':landscapeCommand,
- 'open-reselection':{allows:state=>state.targetReady,denial:'请先选择一篇故事。'},
+ 'open-reselection':{allows:state=>state.targetCurrent&&state.targetReady,
+  denial:state=>state.targetReady?'当前选题或制作设置已更新，请重新打开选题。':'请先选择一篇故事。'},
+ 'edit-revision':{allows:state=>state.targetCurrent&&state.targetReady,
+  denial:state=>state.targetCurrent?'请先暂停生成，再修改制作内容。':'请在制作确认前保存设置草稿。'},
+ 'save-revision':{allows:state=>state.targetCurrent&&state.targetReady,
+  denial:state=>state.targetReady?'故事或版本已更新，请重新载入后再修改。':'这篇故事还没有进入制作，请稍后再修改。'},
+ redraw:{allows:state=>state.targetCurrent&&state.targetReady,
+  denial:state=>state.targetCurrent?'目前无法只重绘选中的画幅，请检查作品状态后重试。':'仅换图需要已完成的故事，且不能同时修改文字或设置。'},
+ cover:{allows:state=>state.targetReady,denial:'指定首幅原图仅适用于已完成且审核通过的故事换画风。'},
+ copy:{allows:state=>state.targetCurrent&&state.targetReady,
+  denial:state=>state.targetCurrent?'只能复制已保存原文、分镜及已通过审核的故事；未通过的文本请显式选择草稿复制。':'只能复制已停止且已保存完整原文、分镜的故事。'},
+ 'copy-draft':{allows:state=>state.targetCurrent&&state.targetReady,
+  denial:state=>state.targetCurrent?'草稿须有完整分镜、原文和已保存的审核检查点。':'只能复制已停止且已保存完整原文、分镜的故事。'},
 } satisfies Record<ProductionCommand,{allows:(state:CommandState)=>boolean;denial:string|((state:CommandState)=>string)}>;
 export const productionCommandEvents=Object.keys(commands) as ProductionCommand[];
 

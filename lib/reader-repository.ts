@@ -97,6 +97,13 @@ export class ReaderRepository{
   WHERE editions.submitted AND ${visible}
   ORDER BY COALESCE(last_read_at,created_at) DESC`).bind(uid).all<SessionRow>()).results;}
  async currentStoryIds(uid:string){return (await this.db.prepare('SELECT id FROM stories WHERE user_id=? ORDER BY id').bind(uid).all<{id:string}>()).results.map(row=>row.id);}
+ async openReplacementParents(uid:string,parentId?:string){
+  const parent="json_extract(CASE WHEN json_valid(document) THEN document ELSE '{}' END,'$.reselection.parentId')";
+  const filter=parentId===undefined?`${parent} IS NOT NULL`:`${parent}=?`;
+  const {results}=await this.db.prepare(`SELECT DISTINCT ${parent} AS parentId FROM stories WHERE user_id=? AND ${filter} AND ${visible}`)
+   .bind(uid,...(parentId===undefined?[]:[parentId])).all<{parentId:string}>();
+  return new Set(results.map(row=>row.parentId));
+ }
  async deletions(uid:string){
   return (await this.db.prepare(`SELECT d.story_id AS storyId,d.deleted_at AS deletedAt,d.kind,
    COALESCE(json_extract(s.selection,'$.displayTitle'),json_extract(s.document,'$.plan.title'),json_extract(s.selection,'$.storyTitle'),'未命名故事') AS title
@@ -149,12 +156,25 @@ export class ReaderRepository{
   if(!result.meta.changes)throw new ReaderError(409,'故事正在更新，请稍后再保存原文。');
   return this.get(row.id,row.user_id);
  }
- async create(id:string,uid:string,selection:Selection,document:Document=emptyDocument()){
+ async create(id:string,uid:string,selection:Selection,document:Document=emptyDocument(),beforeInsert?:(db:SyncStatements)=>void){
  const normalized=selectionSchema.parse(selection),creationHash=createHash('sha256').update(JSON.stringify([normalized,!!document.intake,document.reselection||null,...(document.copiedFrom?[document.copiedFrom]:[])])).digest('hex');
  const command=await this.db.prepare('SELECT request_id FROM reader_commands WHERE owner_id=? AND request_id=?').bind(uid,id).first();if(command)throw new ReaderError(409,'此创建编号已用于其他操作。');
  const now=new Date().toISOString(),saved=JSON.stringify(await storePromptRecords(this.db,{...document,creationHash}));
  // Read defaults inside the insert: retries cannot change a story's original attribution snapshot.
- await this.db.prepare(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,step_attempts,lock_until,page,saved,created_at,updated_at) VALUES(?,?,?,COALESCE((SELECT json_set(?,'$.publication',json(publication)) FROM reader_publication_defaults WHERE owner_id=?),?),?,?,'idle',0,0,0,0,?,?) ON CONFLICT(id) DO NOTHING`).bind(id,uid,JSON.stringify(selection),saved,uid,saved,'background',document.copiedFrom?'paused':'active',now,now).run();
+ const insert=`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,step_attempts,lock_until,page,saved,created_at,updated_at) VALUES(?,?,?,COALESCE((SELECT json_set(?,'$.publication',json(publication)) FROM reader_publication_defaults WHERE owner_id=?),?),?,?,'idle',0,0,0,0,?,?) ON CONFLICT(id) DO NOTHING`;
+ const values=[id,uid,JSON.stringify(selection),saved,uid,saved,'background',document.copiedFrom?'paused':'active',now,now];
+ if(this.db.transaction){
+  this.db.transaction(db=>{
+   if(db.get('SELECT id FROM stories WHERE id=?',id))return;
+   if(db.get('SELECT request_id FROM reader_commands WHERE owner_id=? AND request_id=?',uid,id))
+    throw new ReaderError(409,'此创建编号已用于其他操作。');
+   beforeInsert?.(db);
+   db.run(insert,...values);
+  });
+ }else{
+  if(beforeInsert)throw Error('TRANSACTION_UNAVAILABLE');
+  await this.db.prepare(insert).bind(...values).run();
+ }
  const row=await this.get(id,uid),doc=JSON.parse(row.document) as Document;
  if(doc.creationHash?doc.creationHash!==creationHash:doc.revision||doc.intake?.creationHash!==document.intake?.creationHash||JSON.stringify(selectionSchema.parse(JSON.parse(row.selection)))!==JSON.stringify(normalized))throw new ReaderError(409,'此创建编号已用于其他内容，请重新创建。');
  return row;}

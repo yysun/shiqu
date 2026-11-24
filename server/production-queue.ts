@@ -11,7 +11,7 @@ import type {Database,SyncStatements} from '../lib/reader-repository.ts';
 import {transact,recordJobFailed,recordJobRequeued,recordJobRunning,recordJobSucceeded} from './production-records.ts';
 
 export type JobSpec={id:string;sessionId:string;ownerId:string;kind:string;pool:string;version:string;dependencies:string[];payload:unknown;priority:number};
-export type ProductionJob={id:string;session_id:string;owner_id:string;kind:string;pool:string;version:string;dependencies:string;payload:string;result:string|null;state:'queued'|'running'|'succeeded'|'failed';priority:number;attempts:number;lease_token:string|null;lease_until:number;error:string|null;interrupted:number;failure_id?:string|null;recovery_id?:string|null;created_at:number;updated_at:number};
+export type ProductionJob={id:string;session_id:string;owner_id:string;kind:string;pool:string;version:string;dependencies:string;payload:string;result:string|null;state:'queued'|'running'|'succeeded'|'failed';priority:number;attempts:number;lease_token:string|null;lease_until:number;error:string|null;error_code?:string|null;interrupted:number;failure_id?:string|null;recovery_id?:string|null;created_at:number;updated_at:number};
 export type JobContext={outputs:Record<string,unknown>;isCurrent:()=>Promise<boolean>};
 export type JobHandler={pool:string;drain?:boolean;run:(job:ProductionJob,context:JobContext)=>Promise<unknown>};
 type Options={targetSessionId?:string;limits:Record<string,number>;handlers:Record<string,JobHandler>;candidateFilter?:string;skipCandidate?:(job:ProductionJob)=>boolean;canRun?:(job:ProductionJob)=>Promise<boolean>;canClaim?:(db:SyncStatements,job:ProductionJob,now:number)=>boolean;onSettled?:()=>void;resumeInterrupted?:(job:ProductionJob)=>Promise<boolean>;safeError?:(error:unknown,job:ProductionJob)=>string;errorCode?:(error:unknown,job:ProductionJob)=>string|undefined;terminal?:(error:unknown,job:ProductionJob)=>boolean;now?:()=>number;leaseMs?:number};
@@ -102,8 +102,12 @@ export class ProductionQueue{
  }
  async renew(){
   for(const [id,token] of this.tokens){
-   await this.database.prepare("UPDATE production_jobs SET lease_until=? WHERE id=? AND lease_token=? AND state='running'")
-    .bind(this.clock()+this.leaseMs,id,token).run();
+   const now=this.clock();
+   // 时钟跳过到期点后，仍持有原令牌的任务也要先核对池容量，避免挤占已被重新分配的名额。
+   await this.database.prepare(`UPDATE production_jobs AS j SET lease_until=? WHERE id=? AND lease_token=? AND state='running'
+    AND (lease_until>? OR (SELECT count(*) FROM production_jobs active WHERE active.pool=j.pool AND active.state='running' AND active.lease_until>?)<
+     COALESCE(json_extract(?,'$.'||json_quote(j.pool)),1))`)
+    .bind(now+this.leaseMs,id,token,now,now,JSON.stringify(this.options.limits)).run();
   }
  }
  async pump(){

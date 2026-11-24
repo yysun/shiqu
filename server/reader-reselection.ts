@@ -13,7 +13,7 @@ import {isDirectSourceSelection} from '../lib/reader-discovery-themes.ts';
 import {createIntake} from './reader-intake.ts';
 import {revisionBasis,replacementToken,familyEpoch,currentFamilyVersion} from './reader-revisions.ts';
 import {commandFingerprint,commandReceipt} from './reader-commands.ts';
-import {authorizeReselectionCancel,authorizeReselectionCommit} from '../lib/production-lifecycle.ts';
+import {authorizeProductionCommand,authorizeReselectionCancel,authorizeReselectionCommit} from '../lib/production-lifecycle.ts';
 
 function inheritedRequirements(row:SessionRow,doc:Document,intakeGeneration?:number){
  const selection=selectionSchema.parse(JSON.parse(row.selection));
@@ -51,7 +51,18 @@ export async function openReselection(repo:ReaderRepository,parentId:string,owne
  }
  const draft={parentId,rootId,epoch,baseToken:replacementToken(row.selection,epoch,intakeGeneration),
   ...(intakeGeneration===undefined?{}:{requirementsToken:inheritedRequirementsToken(reset)})};
- return createIntake(repo,requestId,ownerId,{...settings,length:'auto'},books,draft,reset.setup);
+ return createIntake(repo,requestId,ownerId,{...settings,length:'auto'},books,{draft,setup:reset.setup,beforeInsert:db=>{
+  const current=db.get<SessionRow>(`SELECT p.* FROM stories p WHERE p.id=? AND p.user_id=? AND ${currentFamilyVersion('p')}`,parentId,ownerId);
+  const currentDoc=current&&JSON.parse(current.document) as Document|undefined;
+  const intake=currentDoc?.intake?.phase!=='confirmed'?currentDoc?.intake:undefined;
+  const basisCurrent=!!current&&replacementToken(current.selection,epoch,intake?.generation)===draft.baseToken
+   &&(!draft.requirementsToken||draft.requirementsToken===inheritedRequirementsToken(inheritedRequirements(current,currentDoc!,intake?.generation)));
+  const authorization=authorizeProductionCommand('open-reselection',{
+   version:current?'current':'superseded',control:current?.generation_control??'active',continuation:!!currentDoc?.dag?.continuation,
+   targetCurrent:basisCurrent,targetReady:!intake||!!intake.selected,stopping:false,
+  });
+  if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
+ }});
 }
 
 export async function commitReselection(repo:ReaderRepository,parentId:string,draftId:string,ownerId:string,choice:ReplacementChoice,attempt=0):Promise<SessionRow>{

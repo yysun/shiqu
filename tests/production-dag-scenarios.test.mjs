@@ -372,6 +372,33 @@ for(const [provider,action] of [['codex','pause'],['codex','replace'],['codex','
  }
 });
 
+test('a drawing held after claim cannot send at the lease expiry boundary',async t=>{
+ const f=await productionFixture(t,'codex');
+ let now=Date.now();
+ f.options.production={now:()=>now};
+ await f.restart();
+ const {id}=await completedStory(f),route=`sessions/${id}`,requestId=crypto.randomUUID();
+ const {token}=await f.json(`${route}/revisions`);
+ const media=f.media,read=media.get.bind(media),ready=Promise.withResolvers(),release=Promise.withResolvers();
+ media.get=async key=>{
+  if(key.startsWith(`reader/${requestId}/`)){ready.resolve();await release.promise;}
+  return read(key);
+ };
+ await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{redrawPages:[2]},startRedraw:true});
+ const {queue}=f.app.services.production;
+ try{
+  await ready.promise;
+  const [job]=await queue.jobs(requestId,owner);
+  assert.equal(job.state,'running');
+  queue.options.canRun=async()=>false;
+  queue.renew=async()=>{};
+  now=job.lease_until;
+ }finally{release.resolve();}
+ await until(()=>!queue.busy);
+ assert.equal(f.control.calls.length,0);
+ assert.deepEqual((await jobAttempts(f,requestId)).map(({state,attempts})=>[state,attempts]),[['queued',0]]);
+});
+
 test('dispatch skips an already claimed drawing if the target becomes readable during preparation',async t=>{
  const f=await productionFixture(t,'codex'),{id,dag}=await completedStory(f);
  const route=`sessions/${id}`,requestId=crypto.randomUUID(),{token}=await f.json(`${route}/revisions`);
@@ -576,6 +603,10 @@ test('landscape images are drawn on request for a completed story; a failure sta
  assert.equal(status.state,'partial');
  assert.deepEqual(status.failed,[3]);
  assert.equal((await f.read(id)).state,'completed','an optional failure never undoes completion');
+ const optional=(await f.read(id)).lifecycle.faults.find(fault=>fault.scope==='optional');
+ assert.equal(optional.kind,'step-failure');
+ assert.equal(optional.targets[0].node,'landscape');
+ assert.equal(optional.targets[0].page,2);
  assert.equal((await f.request(`sessions/${id}/landscape`,'POST',{retryToken:'0'.repeat(64)})).status,409);
  status=await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
  await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
@@ -596,6 +627,30 @@ test('replacing a completed story withdraws its landscape action and rejects the
  assert.equal((await f.request(`${route}/landscape`,'POST',{startToken})).status,409);
  const {dag}=await saved(f,id);
  assert.ok(dag.order.every(frame=>dag.frames[frame].landscape===undefined));
+});
+
+test('a retained queue-level landscape failure never blocks the completed story after retry',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ f.control.hold=false;
+ const {queue}=f.app.services.production,handler=queue.options.handlers['dag-draw'],run=handler.run;
+ handler.run=async(job,context)=>{
+  const payload=JSON.parse(job.payload);
+  if(payload.work.call==='drawLandscape'&&payload.page===2&&payload.landscapeAttempt===undefined)
+   throw Error('controlled failure in the queue boundary');
+  return run(job,context);
+ };
+ const route=`sessions/${id}/landscape`,{startToken}=await f.json(route);
+ await f.json(route,'POST',{startToken});
+ let landscape;
+ await until(async()=>{landscape=await f.json(route);return !!landscape.retryToken;});
+ assert.equal((await f.read(id)).state,'completed');
+ assert.ok((await f.read(id)).lifecycle.faults.some(fault=>fault.scope==='optional'));
+ await f.json(route,'POST',{retryToken:landscape.retryToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ assert.equal((await f.read(id)).state,'completed');
+ assert.equal((await f.json('library/shelf')).find(row=>row.id===id).lifecycle.phase,'completed');
+ assert.ok((await queue.jobs(id,owner)).some(job=>job.state==='failed'));
+ assert.equal((await f.read(id)).lifecycle.faults.length,0);
 });
 
 test('preparation results carry into production: a verified summary and saved suggestions are not paid for again',async t=>{
@@ -805,6 +860,10 @@ test('a live image check marks the loss with its fault; recovery redraws it and 
  assert.notEqual(checked.state,'completed');
  const fault=checked.faults.find(x=>x.stage==='redraw');
  assert.ok(fault);
+ const observed=checked.lifecycle.faults.find(item=>item.id===fault.id);
+ assert.equal(observed.kind,'image-loss');
+ assert.equal(observed.scope,'required');
+ assert.equal(observed.targets[0].page,2);
  for(let i=0;i<20;i++){f.app.services.production.wake();await turn();}
  assert.equal(f.control.calls.length,0,'nothing is redrawn before the reader asks');
  await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
@@ -908,7 +967,8 @@ test('copying a DAG story keeps its text and review; only the images run in the 
  const withImages=await productionFixture(t,'codex');
  withImages.control.hold=false;
  const imageCopy=crypto.randomUUID();
- await copySavedStory(withImages.app,process.cwd(),withImages.dataDirectory,source.dataDirectory,id,imageCopy,undefined,{images:true});
+ const copied=await copySavedStory(withImages.app,process.cwd(),withImages.dataDirectory,source.dataDirectory,id,imageCopy,undefined,{images:true});
+ assert.equal(copied.lifecycle.control,'paused');
  doc=await saved(withImages,imageCopy);
  assert.equal(doc.copiedFrom.images,'complete');
  assert.ok(doc.dag.order.every(key=>doc.dag.frames[key].image&&doc.dag.products[`frameImage:${key}`]));
@@ -916,6 +976,53 @@ test('copying a DAG story keeps its text and review; only the images run in the 
  await withImages.json(`sessions/${imageCopy}/production-control`,'POST',{action:'resume'});
  await until(async()=>(await withImages.read(imageCopy)).state==='completed',20000);
  assert.equal(withImages.control.calls.length,0,'copied images are not drawn again');
+});
+
+test('a paused image copy cannot publish attachments after it is superseded',async t=>{
+ const {copySavedStory}=await import('../server/reader-copy.ts');
+ const source=await productionFixture(t,'codex'),{id}=await completedStory(source);
+ await source.stop();
+ const target=await productionFixture(t,'codex'),requestId=crypto.randomUUID();
+ const media=target.app.services.media,put=media.put.bind(media);
+ const writing=Promise.withResolvers(),release=Promise.withResolvers();
+ media.put=async(key,bytes,options)=>{
+  if(key.startsWith(`reader/${requestId}/`)){writing.resolve();await release.promise;}
+  return put(key,bytes,options);
+ };
+ const copying=assert.rejects(copySavedStory(target.app,process.cwd(),target.dataDirectory,source.dataDirectory,id,requestId,undefined,{images:true}),error=>error.status===409);
+ const route=`sessions/${requestId}`,nextId=crypto.randomUUID();
+ try{
+  await writing.promise;
+  const {token}=await target.json(`${route}/revisions`);
+  await target.json(`${route}/revisions`,'POST',{requestId:nextId,token,changes:{artStyle:'watercolor'}});
+ }finally{release.resolve();}
+ await copying;
+ assert.ok(!(await saved(target,requestId)).images.some(Boolean));
+ assert.equal((await target.json(`${route}/current`)).id,nextId);
+});
+
+for(const duplicate of [true,false])test(`a revision media copy rechecks ${duplicate?'matching replay':'a conflicting request number'} before publication`,async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f),requestId=crypto.randomUUID();
+ const route=`sessions/${id}`,{token}=await f.json(`${route}/revisions`);
+ const command={requestId,token,changes:{artStyle:'watercolor'}},media=f.app.services.media;
+ const read=media.get.bind(media),reached=Promise.withResolvers(),resume=Promise.withResolvers();
+ let held=false;
+ media.get=async key=>{
+  if(!held&&key.startsWith(`reader/${id}/`)){held=true;reached.resolve();await resume.promise;}
+  return read(key);
+ };
+ const pending=f.request(`${route}/revisions`,'POST',command);
+ try{
+  await reached.promise;
+  if(duplicate)assert.equal((await f.request(`${route}/revisions`,'POST',command)).status,201);
+  else{
+   const other=await confirmedStory(f,4);
+   await f.json(`sessions/${other}/production-control`,'POST',{requestId,action:'pause'});
+  }
+ }finally{resume.resolve();}
+ assert.equal((await pending).status,duplicate?201:409);
+ const current=await f.json(`${route}/current`);
+ assert.equal(current.id,duplicate?requestId:id);
 });
 
 test('viewed pages and the first image go ahead of unread drawings; leaving restores page order',async()=>{
@@ -1217,7 +1324,9 @@ test('a file restored before the reader clicks recover is reused for free, witho
   assert.equal((await f.request(`sessions/${id}/recover`,'POST',command)).status,503);
   assert.equal((await f.read(id)).faults.find(item=>item.id===fault.id).state,'pending');
  }finally{media.get=read;}
- const response=await f.json(`sessions/${id}/recover`,'POST',command);
+ const providerStatus=f.generation.status;
+ f.generation.status=async()=>({configured:false,message:'controlled provider outage'});
+ const response=await f.json(`sessions/${id}/recover`,'POST',command).finally(()=>{f.generation.status=providerStatus;});
  assert.equal(response.recoveryReceipt.status,'succeeded');
  assert.deepEqual((await f.json(`sessions/${id}/recover`,'POST',command)).recoveryReceipt,response.recoveryReceipt);
  assert.equal((await f.request(`sessions/${id}/recover`,'POST',{...command,requestId:crypto.randomUUID()})).status,409);
@@ -1304,10 +1413,11 @@ test('a style revision saves the supplied first frame byte for byte and draws on
  await f.json(`library/${id}/reference`,'POST',{page:0,starred:true}).catch(()=>{});
  const snapshot=await f.json(`sessions/${id}/revisions`),image=new Blob([Uint8Array.from(jpeg)],{type:'image/jpeg'});
  const requestId=crypto.randomUUID(),revision={requestId,token:snapshot.token,changes:{artStyle:'watercolor'}};
- const send=cover=>{
-  const form=new FormData();form.set('revision',JSON.stringify(revision));form.set('cover',cover,'first.jpg');
+ const send=(cover,submitted=revision)=>{
+  const form=new FormData();form.set('revision',JSON.stringify(submitted));form.set('cover',cover,'first.jpg');
   return f.app.handle(new Request(`http://shiqu.local/api/reader/sessions/${id}/revisions`,{method:'POST',body:form}));
  };
+ assert.equal((await send(image,{...revision,requestId:crypto.randomUUID(),changes:{productionPrompt:'重新安排制作重点'}})).status,409);
  assert.equal((await send(new Blob(['broken']))).status,400,'an unreadable file is refused');
  const response=await send(image);assert.equal(response.status,201);
  const child=await response.json();
@@ -1395,9 +1505,13 @@ test('a landscape file that is no longer readable shows as failed and is redrawn
  status=await f.json(`sessions/${id}/landscape`);
  assert.deepEqual(status.failed,[3]);assert.equal(status.state,'partial');
  const before=f.control.calls.filter(c=>c.landscape).length;
+ const oldJobs=(await f.app.services.production.queue.jobs(id,owner)).filter(job=>JSON.parse(job.payload).work?.call==='drawLandscape');
  await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
  await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
  assert.equal(f.control.calls.filter(c=>c.landscape).length-before,1,'only the damaged landscape is redrawn');
+ const newJobs=await f.app.services.production.queue.jobs(id,owner);
+ for(const old of oldJobs)assert.equal(newJobs.find(job=>job.id===old.id)?.result,old.result,'the original landscape result is retained');
+ assert.equal(newJobs.filter(job=>JSON.parse(job.payload).landscapeAttempt===1).length,1);
 });
 
 // ——— 审查意见：快照停滞、画风预设与横图比例 ———

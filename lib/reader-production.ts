@@ -14,9 +14,9 @@ export interface ReaderProduction{
  leave(ownerId:string,id:string,viewerId:string):Promise<void>;
  managed(ownerId:string,id:string):Promise<boolean>;
  advance(ownerId:string,id:string,throughPage:number,retry:boolean):Promise<SessionView>;
- shelfSnapshot(row:SessionRow,saved:SessionView,includeTimings?:boolean):Promise<SessionView>;
+ shelfSnapshot(row:SessionRow,saved:SessionView,includeTimings?:boolean,replacementOpen?:boolean):Promise<SessionView>;
  snapshot(ownerId:string,id:string):Promise<SessionView>;
- recover(ownerId:string,id:string,command:RecoveryRequest):Promise<SessionView>;
+ recover(ownerId:string,id:string,command:RecoveryRequest,requirePaidService?:()=>Promise<unknown>):Promise<SessionView>;
  checkImage(ownerId:string,id:string,page:number,image:string):Promise<SessionView>;
  landscapeStatus(ownerId:string,id:string):Promise<LandscapeStatus>;
  /** 制作 DAG 故事的审片状态：approved 可绘图，attention 需读者处理，pending 仍在审片；非 DAG 故事为 null。 */

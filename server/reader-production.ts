@@ -12,7 +12,7 @@ import {productionTimingScope,productionStageDurations} from '../lib/production-
 import {randomUUID} from 'node:crypto';
 import {ReaderRepository,persistenceError,supersededSql,latestVersionMessage} from '../lib/reader-repository.ts';
 import type {Database,SyncStatements} from '../lib/reader-repository.ts';
-import {ReaderError,readableStory,selectionSchema,view,reviewPassed} from '../lib/reader-model.ts';
+import {ReaderError,readableStory,selectionSchema,view} from '../lib/reader-model.ts';
 import type {Document,SessionRow,SessionView,ProductionAction,Selection} from '../lib/reader-model.ts';
 import type {ModelSnapshot} from '../lib/production-dag/document.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
@@ -35,7 +35,8 @@ import {DagProduction,dagTextKind,dagDrawKind} from './dag-production.ts';
 import {transact,deleteJobs} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
-import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeProductionCommand,type ProductionService} from '../lib/production-lifecycle.ts';
+import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeProductionCommand,type ProductionFault,type ProductionService} from '../lib/production-lifecycle.ts';
+import type {Work} from '../lib/production-dag/runner.ts';
 import {PaidDispatchDenied,withPaidDispatch} from './paid-dispatch.ts';
 import {drawingReferenceBinding} from './book-image-reference.ts';
 
@@ -165,8 +166,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  // 准备流程的世代改变后，上一世代的任务不再是当前任务；查找任务由查找轮次单独核对。
  private generationCurrent(row:SessionRow,job:ProductionJob){
-  const generation=this.parsed(row)?.doc.intake?.generation;
-  return job.kind==='discover'||generation===undefined||(JSON.parse(job.payload) as {setupGeneration?:number}).setupGeneration===generation;
+  if(job.kind==='discover')return true;
+  const doc=this.parsed(row)?.doc,generation=doc?.intake?.generation;
+  const {setupGeneration,work,landscapeAttempt}=JSON.parse(job.payload) as {setupGeneration?:number;work?:Work;landscapeAttempt?:number};
+  if(work?.call==='drawLandscape'&&doc?.dag?.frames[work.instances[0].key]?.landscapeAttempt!==landscapeAttempt)return false;
+  return generation===undefined||setupGeneration===generation;
  }
  private async demands(id?:string){
   id=this.options.targetSessionId||id;
@@ -254,12 +258,21 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  async leave(ownerId:string,id:string,viewerId:string){
   await this.database.prepare('DELETE FROM production_demand WHERE session_id=? AND owner_id=? AND viewer_id=? AND runtime_id=?').bind(id,ownerId,viewerId,this.runtimeId).run();this.wake();
  }
- private faultView(row:SessionRow,fault:ReaderFault,jobs:ProductionJob[]):FaultView{
-  const doc=JSON.parse(row.document) as Document,job=jobs.find(job=>job.id===fault.job_id);
-  const page=fault.state!=='awaiting-match'&&(fault.node==='frameImage'||fault.node==='landscape')?doc.dag?.order.indexOf(fault.node_key)??-1:-1;
-  const retryReview=job?.kind===dagTextKind&&(JSON.parse(job.payload) as {work?:{call:string}}).work?.call==='review';
+ private faultView(doc:Document,fault:ReaderFault,job?:ProductionJob):ProductionFault{
+  const work=job&&(JSON.parse(job.payload) as {work?:Work}).work;
+  const order=doc.dag?.order??[];
+  const page=fault.state!=='awaiting-match'&&(fault.node==='frameImage'||fault.node==='landscape')?order.indexOf(fault.node_key):-1;
+  const retryReview=job?.kind===dagTextKind&&work?.call==='review';
   const stage=retryReview?'review':fault.kind==='image-loss'&&fault.state!=='awaiting-match'?'redraw':job?.kind==='discover'?'source':job?.kind==='prepare'||doc.intake&&doc.intake.phase!=='confirmed'?'prepare':'generation';
-  return {id:fault.id,message:fault.message,page:page>=0?page:null,stage,state:fault.state as FaultView['state'],retryAllowed:fault.state==='pending',...(retryReview?{retryReview:true as const}:{})};
+  const instances=work?.instances??(fault.node?[{node:fault.node,key:fault.node_key}]:[]);
+  const targets=instances.map(({node,key})=>{
+   const index=order.indexOf(key);
+   return {node,key,page:index<0?null:index};
+  });
+  const kind=fault.kind==='image-loss'||fault.kind==='interrupted'?fault.kind:job?.error_code==='CONTENT_BLOCKED'?'content-blocked':'step-failure';
+  const scope=fault.optional||fault.node==='landscape'||work?.call==='drawLandscape'?'optional':'required';
+  return {id:fault.id,message:fault.message,page:page>=0?page:null,stage,state:fault.state as FaultView['state'],retryAllowed:fault.state==='pending',
+   kind,scope,targets,...(retryReview?{retryReview:true as const}:{})};
  }
  async checkImage(ownerId:string,id:string,page:number,image:string){
   const row=await this.repository.get(id,ownerId);
@@ -270,7 +283,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   * 恢复：有任务的故障以本授权重新执行该任务（任务的工作已过时则不付费，由调度重新安排）；
   * 没有任务的故障（图片丢失、转换的旧故障）直接解除，引擎随后重做对应节点。
   */
- async recover(ownerId:string,id:string,command:RecoveryRequest):Promise<SessionView>{
+ async recover(ownerId:string,id:string,command:RecoveryRequest,requirePaidService?:()=>Promise<unknown>):Promise<SessionView>{
   const row=await this.repository.get(id,ownerId);
   const replay=await commandReceipt(this.database,ownerId,command.requestId);
   if(replay){
@@ -285,6 +298,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   });
   if(!retry.allowed)throw new ReaderError(retry.status,retry.message);
   if(repair){
+   await requirePaidService?.();
    this.dag.grantRepairBudget(row,command.requestId,command.faultId);
    this.wake();
    return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:command.requestId,status:'succeeded',error:null}};
@@ -298,6 +312,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
    }
   }
+  await requirePaidService?.();
   const job=target.job_id?await this.queue.job(target.job_id):null;
   const dag=(JSON.parse(row.document) as Document).dag;
   const resumeUnreviewed=target.kind==='image-loss'&&target.node==='frameImage'&&dag?.legacy===true&&Object.values(dag.products).some(product=>product.unreviewed);
@@ -313,12 +328,13 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const row=await this.repository.get(id,ownerId);
   return this.snapshotView(row,view(row),true,await this.repository.superseded(id,ownerId));
  }
- async shelfSnapshot(row:SessionRow,saved:SessionView,includeTimings=false){
-  return this.snapshotView(row,saved,includeTimings,false);
+ async shelfSnapshot(row:SessionRow,saved:SessionView,includeTimings=false,replacementOpen?:boolean){
+  return this.snapshotView(row,saved,includeTimings,false,replacementOpen);
  }
- private async snapshotView(row:SessionRow,saved:SessionView,includeTimings:boolean,superseded:boolean):Promise<SessionView>{
+ private async snapshotView(row:SessionRow,saved:SessionView,includeTimings:boolean,superseded:boolean,replacementOpen?:boolean):Promise<SessionView>{
   const id=row.id,parsed=this.parsed(row)!,now=this.clock();
-  const [allJobs,faults,demands]=await Promise.all([this.queue.jobs(id,row.user_id),sessionFaults(this.database,id,row.user_id),this.demands(id)]);
+  const draft=replacementOpen??(!superseded&&!parsed.doc.reselection?this.repository.openReplacementParents(row.user_id,id).then(parents=>parents.has(id)):false);
+  const [allJobs,faults,demands,openDraft]=await Promise.all([this.queue.jobs(id,row.user_id),sessionFaults(this.database,id,row.user_id),this.demands(id),draft]);
   const jobs=allJobs.filter(job=>this.generationCurrent(row,job)&&(job.kind!=='discover'||this.searchCurrent(row,searchRound(job))));
   const eligible=jobs.some(job=>{
    if(job.state!=='queued')return false;
@@ -326,14 +342,23 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    return payload.work?.call==='drawLandscape'||demands.some(d=>d.session_id===id&&(job.pool==='text'||(payload.page??0)<=d.through_page));
   });
   const search=this.searches.get(id),progress=saved.generationProgress!;
-  const views=faults.map(fault=>this.faultView(row,fault,allJobs));
+  const jobsById=new Map(allJobs.map(job=>[job.id,job]));
+  const projectedFaults=faults.map(fault=>this.faultView(parsed.doc,fault,fault.job_id?jobsById.get(fault.job_id):undefined));
+  const views:FaultView[]=projectedFaults.filter(fault=>fault.scope==='required');
+  const landscapeFaults=parsed.doc.dag?.order.flatMap((key,page):ProductionFault[]=>{
+   const message=parsed.doc.dag?.frames[key]?.landscapeError;
+   if(!message||projectedFaults.some(fault=>fault.targets.some(target=>target.node==='landscape'&&target.key===key)))return [];
+   return [{id:`landscape:${key}`,message,page,stage:'generation',state:'pending',retryAllowed:false,kind:'step-failure',
+    scope:'optional',targets:[{node:'landscape',key,page}]}];
+  })??[];
   const reviewFault=views.find(fault=>fault.retryReview);
   const rawReviewFault=reviewFault&&faults.find(fault=>fault.id===reviewFault.id);
   const failedReviewJob=rawReviewFault&&allJobs.find(job=>job.id===rawReviewFault.job_id);
   const reviewSkip=!superseded&&rawReviewFault&&failedReviewJob?this.dag.skipReviewOffer(row,rawReviewFault,failedReviewJob):null;
   const blocking=parsed.doc.dag&&row.state!=='completed'?await this.dag.blocking(row):null;
   const service=this.serviceAvailability(parsed.doc.dag?.modelSnapshot);
-  const lifecycle=productionLifecycle({...saved,complete:this.dag.completeFrom(row,faults,allJobs),generationControl:row.generation_control,superseded,faults:[...views],reviewAttention:blocking?.reasons??[],service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
+  const lifecycle=productionLifecycle({...saved,complete:this.dag.completeFrom(row,faults,allJobs),generationControl:row.generation_control,superseded,replacementOpen:!!parsed.doc.reselection||!!openDraft,
+   faults:[...projectedFaults,...landscapeFaults],reviewAttention:blocking?.reasons??[],service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
    now,order:parsed.doc.dag?.order??[]},jobs);
   const active=lifecycle.activity.state==='running'?lifecycle.activity.jobs:[];
   const current=active[0],description=current&&describeProductionCall(current.call,current.pages,progress.repairPasses??0);
@@ -360,7 +385,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    return {...session,faults:views,state:recovering?'running':row.state==='completed'?'completed':'failed',error:recovering?null:pending.message,retryAllowed:views.some(f=>f.retryAllowed),retryStage:pending.stage,
     productionState:manual?'paused':recovering?'running':'paused'};
   }
-  const failed=jobs.find(job=>job.state==='failed');
+  const failed=jobs.find(job=>job.state==='failed'&&(JSON.parse(job.payload) as {work?:Work}).work?.call!=='drawLandscape');
   if(failed&&!working)return {...session,state:'failed',error:failed.error,retryAllowed:true};
   // No story is chosen yet, so finding one is what this story is doing.
   if(!manual&&saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching')return {...session,productionState:search?'running':'queued'};
@@ -488,6 +513,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
      const now=this.clock();
      const live=db.get<ProductionJob>("SELECT * FROM production_jobs WHERE id=? AND state='running' AND lease_token=?",job.id,job.lease_token);
      if(!live)return 'obsolete';
+     if(live.lease_until<=now)return 'yield';
      if(job.kind!=='discover'&&this.options.snapshots){
       const stored=db.get<{snapshot:string|null}>("SELECT json_extract(document,'$.dag.modelSnapshot') AS snapshot FROM stories WHERE id=? AND user_id=?",job.session_id,job.owner_id);
       if(fingerprint(stored?.snapshot?JSON.parse(stored.snapshot):null)!==fingerprint(snapshot??null))return 'yield';

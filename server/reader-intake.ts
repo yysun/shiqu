@@ -12,7 +12,7 @@ import {emptyDocument,selectionSchema,ReaderError} from '../lib/reader-model.ts'
 import type {Document,Selection,SessionRow} from '../lib/reader-model.ts';
 import {effectiveIntakePhase,intakeDraftToken,intakeSearch} from '../lib/reader-intake.ts';
 import type {IntakeAction,IntakeSearch,ReselectionDraft} from '../lib/reader-intake.ts';
-import type {ReaderRepository} from '../lib/reader-repository.ts';
+import type {ReaderRepository,SyncStatements} from '../lib/reader-repository.ts';
 import {writeStory} from './production-records.ts';
 import {supersededSql} from '../lib/reader-repository.ts';
 import {maxSuggestionBatches} from '../lib/reader-suggestions.ts';
@@ -49,15 +49,16 @@ function selectSourceCard(doc:Document,choice:NonNullable<Awaited<ReturnType<typ
   batches:[{stories:[{title:choice.entry.title,description:choice.entry.excerpt,source:choice.entry.source,sourceLabel:choice.original.title.slice(0,150)}],note:''}],
  });
 }
-export async function createIntake(repo:ReaderRepository,id:string,uid:string,input:Selection,books?:LocalBooks,reselection?:ReselectionDraft,setupRequirements?:RequirementsSetup){
+export async function createIntake(repo:ReaderRepository,id:string,uid:string,input:Selection,books?:LocalBooks,replacement?:{
+ draft:ReselectionDraft;setup:RequirementsSetup;beforeInsert:(db:SyncStatements)=>void;
+}){
  const {selection,choice}=await intakeSelection(input,books);
  const creationHash=hash(selection),doc:Document={...emptyDocument(),intake:{phase:'choosing',generation:0,creationHash,batches:[],briefRequired:true,search:{round:0,state:'idle'}}};
- if(input.discovery&&!choice&&!reselection){doc.intake!.phase='discovering';doc.intake!.search={round:1,state:'searching',cycleId:id};}
+ if(input.discovery&&!choice&&!replacement){doc.intake!.phase='discovering';doc.intake!.search={round:1,state:'searching',cycleId:id};}
  if(choice)selectSourceCard(doc,choice,0);
- if(setupRequirements)doc.setupRequirements=setupRequirements;
- if(selection.artStylePrompt||reselection)doc.intake!.manualArt=true;
- if(reselection)doc.reselection=reselection;
- const row=await repo.create(id,uid,selection,doc);
+ if(selection.artStylePrompt||replacement)doc.intake!.manualArt=true;
+ if(replacement){doc.reselection=replacement.draft;doc.setupRequirements=replacement.setup;}
+ const row=await repo.create(id,uid,selection,doc,replacement?.beforeInsert);
  if((JSON.parse(row.document) as Document).intake?.creationHash!==creationHash)throw new ReaderError(409,'此创建编号已用于其他内容，请重新创建。');
  return row;
 }
@@ -160,7 +161,9 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  }
  if(action.action==='choose'){
   const choice=candidate!;
-  if(intake.selected?.batch===action.batch&&intake.selected.index===action.index&&['preparing','confirming'].includes(intake.phase))return row;
+  if(intake.selected?.batch===action.batch&&intake.selected.index===action.index&&['preparing','confirming'].includes(intake.phase)){
+   await recordNoop(repo.db,uid,id,action.requestId,'setup',fingerprint);return row;
+  }
   const settings=action.settings||intake.draft;
   const nextStyle=artStyleSettings(selection,settings||{});
   if(intake.selected&&action.settings?.artStylePrompt===undefined)nextStyle.artStylePrompt=undefined;

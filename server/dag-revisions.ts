@@ -23,6 +23,7 @@ import {imageDimensions} from '../lib/reader-image-dimensions.ts';
 import {sameArtDirection} from '../lib/reader-styles.ts';
 import {dagProgress} from '../lib/production-dag/progress.ts';
 import {transact} from './production-records.ts';
+import {authorizeProductionCommand} from '../lib/production-lifecycle.ts';
 
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 const frameNodes=['scene','visual','frameImage','landscape',...verdictNodes];
@@ -245,8 +246,11 @@ export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:n
  */
 export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,token:string,changes:RevisionChanges):Promise<RevisionPreview>{
  const {doc,token:current}=await revisionBasis(repo,row);
- if(current!==token)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
- if(!doc.dag)throw new ReaderError(409,'这篇故事还没有进入制作，请稍后再修改。');
+ const authorization=authorizeProductionCommand('save-revision',{
+  version:'current',control:row.generation_control??'active',continuation:!!doc.dag?.continuation,stopping:false,
+  targetCurrent:current===token,targetReady:!!doc.dag,
+ });
+ if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
  const {parent,child,changed,choices,conflicts}=deriveRevision(doc,row,changes,row.id,false);
  if(!changed)return {changed:false,total:child.dag.order.length,redraw:0,reused:doc.images.filter(Boolean).length,textWork:{},continues:false,handEdits:[],conflicts:[],carriedFaults:0};
  child.dag=settle(child);
@@ -263,15 +267,23 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  if(!Object.keys(changes).length)throw new ReaderError(400,'没有需要保存的修改。');
  if(startRedraw&&(paused||changes.redrawPages?.length!==1))throw new ReaderError(400,'直接重绘只支持立即生成一幅画。');
  const {doc,rootId,epoch,token:current}=await revisionBasis(repo,row);
- if(changes.redrawPages&&(Object.values(doc.dag!.products).some(product=>product.unreviewed)||row.state!=='completed'||Object.keys(changes).some(key=>!['redrawPages','redrawNotes'].includes(key))))throw new ReaderError(409,'仅换图需要已完成的故事，且不能同时修改文字或设置。');
+ const state={version:'current' as const,control:row.generation_control??'active',continuation:!!doc.dag?.continuation,stopping:false};
+ const authorization=authorizeProductionCommand('save-revision',{...state,targetCurrent:current===token,targetReady:!!doc.dag});
+ if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
+ if(changes.redrawPages){
+  const redraw=authorizeProductionCommand('redraw',{...state,targetReady:true,targetCurrent:row.state==='completed'&&
+   !Object.values(doc.dag!.products).some(product=>product.unreviewed)&&Object.keys(changes).every(key=>['redrawPages','redrawNotes'].includes(key))});
+  if(!redraw.allowed)throw new ReaderError(redraw.status,redraw.message);
+ }
  if(changes.redrawNotes&&Object.keys(changes.redrawNotes).some(page=>!changes.redrawPages?.includes(Number(page))))throw new ReaderError(400,'重绘说明只能用于本次选中的画幅。');
- if(current!==token)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
  // 指定首幅原图（v0.14.0 的 --cover）：只用于已完成且审核通过的故事换画风；文件须是可读取的 PNG/JPEG/WebP，不超过 12 MiB、宽高各不超过 4096。
  const coverType=cover&&mediaType(cover);
  if(cover){
   const dimensions=imageDimensions(cover);
   const reviewPassed=dagProgress(doc,selectionSchema.parse(JSON.parse(row.selection)))?.review.reviewStatus==='passed'&&!Object.values(doc.dag!.products).some(product=>product.unreviewed);
-  if(Object.keys(changes).length!==1||!changes.artStyle||row.state!=='completed'||!reviewPassed)throw new ReaderError(409,'指定首幅原图仅适用于已完成且审核通过的故事换画风。');
+  const accepted=authorizeProductionCommand('cover',{...state,targetCurrent:true,
+   targetReady:Object.keys(changes).length===1&&!!changes.artStyle&&row.state==='completed'&&reviewPassed});
+  if(!accepted.allowed)throw new ReaderError(accepted.status,accepted.message);
   if(cover.length>revisionCoverMaxBytes||!coverType||!dimensions||dimensions.width>4096||dimensions.height>4096||!await readableImage(cover))throw new ReaderError(400,'请选择可读取的 PNG、JPEG 或 WebP，文件不超过 12 MiB，宽高各不超过 4096 像素。');
  }
  const {parent,child,selection,reviewNotes,changed}=deriveRevision(doc,row,changes,requestId,true);
@@ -283,6 +295,8 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
     if(replay.session_id!==row.id||replay.action!=='revision-noop'||replay.fingerprint!==requestHash)throw new ReaderError(409,'这个操作编号已用于其他内容。');
     return;
    }
+   if(db.get('SELECT id FROM stories WHERE user_id=? AND id=?',ownerId,requestId))
+    throw new ReaderError(409,'这个操作编号已用于其他内容。');
    const latest=db.get<SessionRow>(`SELECT p.* FROM stories p WHERE p.id=? AND p.user_id=? AND ${currentFamilyVersion('p')}`,row.id,ownerId);
    if(!latest)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
    const currentDoc=JSON.parse(latest.document) as Document;
@@ -312,7 +326,11 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  }
  child.dag=settle(child);
  const items=work(child),pending=items.length>0;
- if(redrawFrame&&(lost.length||!items.some(item=>item.call==='draw')||items.some(item=>!['draw','drawLandscape'].includes(item.call)||item.instances.some(instance=>instance.key!==redrawFrame))))throw new ReaderError(409,'目前无法只重绘选中的画幅，请检查作品状态后重试。');
+ if(redrawFrame){
+  const redraw=authorizeProductionCommand('redraw',{...state,targetCurrent:true,targetReady:lost.length===0&&items.some(item=>item.call==='draw')&&
+   items.every(item=>['draw','drawLandscape'].includes(item.call)&&item.instances.every(instance=>instance.key===redrawFrame))});
+  if(!redraw.allowed)throw new ReaderError(redraw.status,redraw.message);
+ }
  const waiting=pending&&!startRedraw;
  const dag:DagDocument={...child.dag,...(waiting?{continuation:{revision:epoch+1,reason:'revision-saved' as const}}:{})};
  if(!waiting)delete dag.continuation;
@@ -327,6 +345,8 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  const transaction=repo.db.transaction;
  if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
  transaction.call(repo.db,db=>{
+  if(db.get('SELECT request_id FROM reader_commands WHERE owner_id=? AND request_id=?',ownerId,requestId))
+   throw new ReaderError(409,'这个操作编号已用于其他内容。');
   const inserted=db.run(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,error,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
   SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),'background',CASE WHEN ? THEN 'active' WHEN ? THEN 'paused' ELSE p.generation_control END,?,NULL,0,0,MIN(p.page,?),p.saved,p.last_read_at,?,? FROM stories p
   WHERE p.id=? AND p.user_id=? AND p.document=? AND p.selection=? AND ${currentFamilyVersion('p')} AND (${familyEpoch.replace(' AS epoch','')})=?

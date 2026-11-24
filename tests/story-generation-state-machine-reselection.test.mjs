@@ -98,13 +98,45 @@ test('preparation can finish and update recommendations while a replacement is o
  assert.equal((await f.json(`sessions/${id}/current`)).id,next.id);
 });
 test('opening and cancelling selection drafts never adds a shelf card; cancellation returns the current saved state',async t=>{
- const {f,id}=await fixture(t),s=await draft(f,id);
+ const {f,id}=await fixture(t),[before]=await f.json('library/shelf');
+ const s=await draft(f,id);
  assert.ok(s.reselection);assert.equal((await f.json('sessions')).length,1);
  assert.equal(f.control.calls.length,3);
+ assert.equal(s.lifecycle.replacementDraft,'open');
+ assert.equal((await f.read(id)).lifecycle.replacementDraft,'open');
+ const {changed:[opened]}=await f.json('library/shelf','POST',[[id,before.version]]);
+ assert.equal(opened.lifecycle.replacementDraft,'open');
  assert.equal((await f.request(`sessions/${crypto.randomUUID()}/reselection/${s.id}`,'DELETE')).status,409);
  const cancelled=await f.json(`sessions/${id}/reselection/${s.id}`,'DELETE');assert.equal(cancelled.id,id);assert.equal(cancelled.state,'completed');
+ assert.equal(cancelled.lifecycle.replacementDraft,'none');
+ const {changed:[closed]}=await f.json('library/shelf','POST',[[id,opened.version]]);
+ assert.equal(closed.lifecycle.replacementDraft,'none');
  assert.equal((await f.json('sessions')).length,1);assert.equal((await f.json('deletions')).length,0);
  assert.equal((await f.json(`sessions/${id}/reselection/${s.id}`,'DELETE')).id,id);
+});
+test('opening a replacement rechecks the parent before publishing the draft',async t=>{
+ const {f,id}=await fixture(t),requestId=crypto.randomUUID();
+ const db=f.app.services.database,prepare=db.prepare.bind(db),reached=Promise.withResolvers(),release=Promise.withResolvers();
+ db.prepare=sql=>{
+  const query=prepare(sql);
+  if(sql==='SELECT request_id FROM reader_commands WHERE owner_id=? AND request_id=?'){
+   const bind=query.bind.bind(query);
+   query.bind=(...values)=>{
+    const bound=bind(...values);
+    if(values[1]===requestId){
+     const first=bound.first.bind(bound);
+     bound.first=async()=>{reached.resolve();await release.promise;return first();};
+    }
+    return bound;
+   };
+  }
+  return query;
+ };
+ const opening=f.request(`sessions/${id}/reselection`,'POST',{requestId});
+ try{await reached.promise;await f.json(`library/${id}`,'DELETE');}
+ finally{release.resolve();db.prepare=prepare;}
+ assert.equal((await opening).status,409);
+ assert.equal(await prepare('SELECT id FROM stories WHERE id=?').bind(requestId).first(),null);
 });
 test('another story replaces one family card, leaves history intact, rejects old editing and replays without reactivation',async t=>{
  const {f,id}=await fixture(t),before=await f.read(id),base=await f.json(`sessions/${id}/revisions`),s=await draft(f,id);

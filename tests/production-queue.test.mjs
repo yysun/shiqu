@@ -93,6 +93,21 @@ test('a live attempt survives a clock jump; a second scheduler that recovers it 
  await live.renew();assert.equal((await live.job(job.id)).lease_until,0,'A recovered claim cannot be renewed');
  release();await live.settle();const late=await live.job(job.id);assert.equal(late.state,'queued');assert.equal(late.result,null,'The late result is fenced out');
 });
+test('expired local renewal cannot take a slot already claimed by another runtime',async t=>{
+ const {adapter}=database(t),hold=Promise.withResolvers();
+ let now=100;
+ const options={limits:{image:1},leaseMs:100,now:()=>now,handlers:{image:{pool:'image',run:async()=>{await hold.promise;return {};}}}};
+ const first=new ProductionQueue(adapter,options),second=new ProductionQueue(adapter,options);
+ const a=spec('image','image',[],'v1','a'),b=spec('image','image',[],'v1','b');
+ try{
+  await first.enqueue(a);await first.pump();
+  now=200;
+  await second.enqueue(b);await second.pump();
+  assert.equal((await second.job(b.id)).lease_until,300);
+  await first.renew();
+  assert.equal((await first.job(a.id)).lease_until,200);
+ }finally{hold.resolve();await Promise.all([first.settle(),second.settle()]);}
+});
 test('a stop-time failure is an interruption unless the handler says it is terminal or it drains',async t=>{
  const {adapter}=database(t);const fail={};
  const handler=pool=>({pool,run:async()=>{await new Promise(resolve=>fail[pool]=resolve);throw Error(pool);}});

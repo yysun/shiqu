@@ -44,6 +44,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 - 创建、选题动作、编辑、控制和恢复等支持 requestId 的操作，发出前保存 UUID 与原始输入。重放沿用同一 requestId 及原 generation/token/faultId，不能重新取当前值。跨步骤重新读取状态；新动作使用新 UUID。CONFLICT 时停止该项并重新读取，不通过换 requestId 自动重试原动作来掩盖冲突。
 - search/choose/confirm/setup 携带读取时的 `intake.generation`。保存设置草稿、重新推荐或确认制作时，把同一次读取的 `intake.draftToken` 放入 JSON 的 `draftToken`。收到冲突时先读取最新草稿，由用户决定采用哪份。重放保留原操作编号、世代和指纹。编辑和重选会创建版本，后续使用操作返回的新 id 或 current 返回的 id；旧版不能继续制作或完整导出。
 - 暂停保持暂停；获准继续时用 `stories resume <id>`，再 run。已保存的修订（`awaitingContinue`，显示为「已保存，等待继续」）不同：`stories resume` 不会解除，须用户授权后执行 `stories continue <新id> --request-id <UUID>`（同时解除等待与暂停），`run` 在此状态返回 `continue_required`，不会隐式继续。失败先检查 faults 和已保存依据，`retry/override` 输入针对当前 faultId；审核越过需要明确 override 意图，不能把越过说成审核通过。恢复丢图时，如果原文件已可读，`stories retry` 保存成功回执并复用原文件。同一请求编号可重放。暂时无法核对文件时，稍后用原请求编号重试。超时或中断后先读取保存状态，不循环重跑。
+- 会话的 `lifecycle.replacementDraft` 标记是否有打开的替换草稿。`lifecycle.faults` 按种类、状态和必需／可选范围给出故障及其节点目标，目标的 `page` 从零开始。横图处理使用阅读器的横图入口。需处理的现有审片结论见 `lifecycle.reviewAttention`。
 - 批量程序逐项记录目标 id、请求身份、结果和停止原因；遇到需要用户决定、冲突、暂停或故障时停止该项。其他独立项仅在原授权内继续；报告成功、失败、跳过和未处理项，不能把部分完成称为全部完成。
 
 ## 可用操作与停止条件

@@ -61,6 +61,8 @@ test('intent is saved before discovery; restart and waiting for story choice nev
 test('choosing prepares saved source and count; only full production confirmation starts generation',async t=>{
  const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');const prepared=await f.read(id);
+ const sameChoice={requestId:crypto.randomUUID(),generation:prepared.intake.generation,action:'choose',batch:0,index:0};
+ assert.equal((await f.json(`sessions/${id}/setup`,'POST',sameChoice)).intake.generation,prepared.intake.generation);
  assert.equal(prepared.selection.storyTitle,'庄周梦蝶');assert.equal(prepared.selection.artStyle,'paper-cut');assert.equal(prepared.frameRecommendation.count,7);assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
  const stored=await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first();
  const doc=JSON.parse(stored.document);
@@ -81,6 +83,13 @@ test('choosing prepares saved source and count; only full production confirmatio
  await f.json(`sessions/${id}/setup`,'POST',action);await until(async()=>(await f.read(id)).state==='completed');assert.equal((await f.read(id)).story.pages.length,4);assert.equal(f.control.calls.length,4);
  assert.deepEqual(scopes,[action.settings.productionPrompt]);
  await f.json(`sessions/${id}/setup`,'POST',action);assert.equal(f.control.calls.length,4);
+ const status=f.generation.status;
+ f.generation.status=async()=>({configured:false,message:'controlled provider outage'});
+ try{
+  assert.equal((await f.request(`sessions/${id}/setup`,'POST',action)).status,200);
+  assert.equal((await f.request(`sessions/${id}/setup`,'POST',sameChoice)).status,200);
+  assert.equal((await f.request(`sessions/${id}/setup`,'POST',{...action,requestId:crypto.randomUUID()})).status,503);
+ }finally{f.generation.status=status;}
 });
 
 test('a story-only style prompt survives draft reload and reaches storyboard and image jobs',async t=>{

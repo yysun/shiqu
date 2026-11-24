@@ -73,12 +73,12 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path.join('/')==='deletions'&&req.method==='GET')return json(new URL(req.url).searchParams.get('inventory')==='1'?{deletions:await repo.deletions(uid),currentStoryIds:await repo.currentStoryIds(uid),complete:true}:await repo.deletions(uid));
   if(path.join('/')==='library/shelf'&&['GET','POST'].includes(req.method)){
    const known=req.method==='POST'?new Map(z.array(z.tuple([uuid,z.string().max(64)])).parse(await body(req,12*1024*1024))):null;
-   const rows=await repo.listShelf(uid);
+   const [rows,openDrafts]=await Promise.all([repo.listShelf(uid),services.production?repo.openReplacementParents(uid):undefined]);
    const cards=(await Promise.all(rows.map(async row=>{
     let saved:SessionView;
     // 单个坏故事不应阻塞书架；完整会话仍由详情接口返回。
     try{saved=view(row);}catch{return null;}
-    const card=summarizeShelfSession(services.production?await services.production.shelfSnapshot(row,saved):saved);
+    const card=summarizeShelfSession(services.production?await services.production.shelfSnapshot(row,saved,false,openDrafts?.has(row.id)):saved);
     const version=createHash('sha256').update(JSON.stringify(card)).digest('hex').slice(0,24);
     const changed=known?.get(row.id)!==version;
     known?.delete(row.id);
@@ -233,13 +233,13 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='sessions'&&path.length===1){
    // One unreadable saved story must not take the whole shelf down with it.
    if(req.method==='GET'){
-    const rows=(await repo.list(uid)).filter(readableStory);
-    return json(await Promise.all(rows.map(async row=>{
+    const [rows,openDrafts]=await Promise.all([repo.list(uid),services.production?repo.openReplacementParents(uid):undefined]);
+    return json(await Promise.all(rows.filter(readableStory).map(async row=>{
      const saved=view(row);
-     return shelfView(services.production?await services.production.shelfSnapshot(row,saved,true):saved);
+     return shelfView(services.production?await services.production.shelfSnapshot(row,saved,true,openDrafts?.has(row.id)):saved);
     })));
    }
-   if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema.omit({displayTitle:true}),intake:z.boolean().optional()}).parse(await body(req,32768));if((b.selection.discoverySources||b.selection.discovery?.mode==='title')&&b.intake!==true)throw new ReaderError(400,'章节或标题提取必须通过选题流程创建。');return json(await sessionView(b.intake?await createIntake(repo,b.requestId,uid,b.selection,services.localBooks):await repo.create(b.requestId,uid,b.selection)),201);}
+   if(req.method==='POST'){const b=z.object({requestId:uuid,selection:selectionSchema.omit({displayTitle:true}),intake:z.boolean().optional()}).parse(await body(req,32768));if((b.selection.discoverySources||b.selection.discovery?.mode==='title')&&b.intake!==true)throw new ReaderError(400,'章节或标题提取必须通过选题流程创建。');if(!await requestRecorded(b.requestId))await requireProvider();return json(await sessionView(b.intake?await createIntake(repo,b.requestId,uid,b.selection,services.localBooks):await repo.create(b.requestId,uid,b.selection)),201);}
   }
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);
@@ -272,13 +272,13 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     const row=await repo.current(id,uid);return json(services.production?await services.production.snapshot(uid,row.id):view(row));
    }
    if(path[2]==='reselection'&&path.length===3&&req.method==='POST'){
-    await requireProvider();const b=z.object({requestId:uuid}).strict().parse(await body(req));
+    const b=z.object({requestId:uuid}).strict().parse(await body(req));if(!await requestRecorded(b.requestId))await requireProvider();
     return json(await sessionView(await openReselection(repo,id,uid,b.requestId,services.localBooks)),201);
    }
    if(path[2]==='reselection'&&path[3]&&path.length===4){
     const draftId=uuid.parse(path[3]);
     if(req.method==='POST'){
-     await requireProvider();const command=replacementChoiceSchema.parse(await body(req,32768));
+     const command=replacementChoiceSchema.parse(await body(req,32768));if(!await requestRecorded(command.requestId))await requireProvider();
      const row=await commitReselection(repo,id,draftId,uid,command);services.production?.wake();
      return json(services.production?await services.production.snapshot(uid,row.id):view(row));
     }
@@ -288,15 +288,18 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
    if(path[2]==='recover'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
-    const command=recoveryRequestSchema.parse(await body(req));if(!await requestRecorded(command.requestId))await requireProvider();
-    return json(await services.production.recover(uid,id,command),202);
+    const command=recoveryRequestSchema.parse(await body(req));
+    return json(await services.production.recover(uid,id,command,requireProvider),202);
    }
    if(path[2]==='image-health'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const b=z.object({page:z.number().int().min(0).max(readerMaxFrames-1),image:z.string().min(1).max(1024)}).strict().parse(await body(req));
     return json(await services.production.checkImage(uid,id,b.page,b.image));
    }
-   if(path[2]==='setup'&&path.length===3&&req.method==='POST'){await requireProvider();const action=intakeActionSchema.parse(await body(req,32768));await changeIntake(repo,id,uid,action,services.localBooks);return json(services.production?await services.production.snapshot(uid,id):view(await repo.get(id,uid)));}
+   if(path[2]==='setup'&&path.length===3&&req.method==='POST'){
+    const action=intakeActionSchema.parse(await body(req,32768));if(!await requestRecorded(action.requestId))await requireProvider();
+    return json(await sessionView(await changeIntake(repo,id,uid,action,services.localBooks)));
+   }
    if(path[2]==='landscape'&&path.length===3&&['GET','POST'].includes(req.method)){
     const production=services.production;
     if(!production)throw new ReaderError(503,'制作队列暂不可用');
