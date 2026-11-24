@@ -172,7 +172,8 @@ test('confirming a reader redraw starts one frame immediately and replays withou
  assert.equal(generationProgress(running,Date.now()).ready,5);
  const renamed=await f.json(`sessions/${requestId}/title`,'POST',{title:'改过的书架显示名'});
  assert.equal(renamed.story.title,'改过的书架显示名');
- await t.test('a display-only write returns the same running status consumed by the reader',{todo:'改名回包缺少队列状态及计时，页面会暂时显示排队'},()=>{
+ await t.test('a display-only write returns the same running status consumed by the reader',()=>{
+  assert.deepEqual(renamed.lifecycle,running.lifecycle);
   assert.deepEqual([shelfGenerationStatus(renamed).message,renamed.generationProgress.startedAt],
    [shelfGenerationStatus(running).message,running.generationProgress.startedAt]);
  });
@@ -237,7 +238,7 @@ test('saving normalized-equivalent production settings leaves the current runnin
   {changed:false,sameId:true,control:before.generationControl,state:before.productionState,ready:before.ready,jobs});
 });
 
-test('running status names the active drawing when an earlier frame awaits recovery',{todo:'状态标题使用了被故障阻断的第一项待办，而不是在途任务'},async t=>{
+test('running status names the active drawing when an earlier frame awaits recovery',async t=>{
  const f=await productionFixture(t,'codex');
  const {id}=await completedStory(f),db=f.app.services.database,doc=await saved(f,id);
  const blocked=doc.dag.order[1],drawable=doc.dag.order[4],now=Date.now();
@@ -254,6 +255,13 @@ test('running status names the active drawing when an earlier frame awaits recov
  assert.deepEqual(f.control.calls.map(call=>call.page+1),[5]);
  assert.equal(current.productionState,'running');
  assert.deepEqual(current.faults.map(fault=>[fault.page+1,fault.state]),[[2,'pending']]);
+ assert.equal(current.lifecycle.activity.state,'running');
+ assert.deepEqual(current.lifecycle.activity.jobs.map(job=>job.pages),[[5]]);
+ assert.equal(current.lifecycle.activity.jobs[0].startedAt,current.generationProgress.startedAt);
+ assert.deepEqual(shelf.lifecycle,current.lifecycle);
+ const card=(await f.json('library/shelf')).find(s=>s.id===id);
+ assert.deepEqual(card.lifecycle,current.lifecycle);
+ assert.equal(shelfGenerationStatus(card).detail,'第 2 幅待处理');
  f.control.calls[0].resolve();
  await until(async()=>(await f.read(id)).state==='failed');
  assert.deepEqual(f.control.calls.map(call=>call.page+1),[5]);

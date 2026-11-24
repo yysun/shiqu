@@ -34,6 +34,7 @@ import type {FaultView,RecoveryRequest} from '../lib/reader-recovery.ts';
 import {DagProduction,dagTextKind,dagDrawKind} from './dag-production.ts';
 import {transact,deleteJobs} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
+import {productionLifecycle,describeProductionCall} from '../lib/production-lifecycle.ts';
 
 type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;through_page:number;expires_at:number;runtime_id:string};
 type ActiveSearch={round:number;controller:AbortController;startedAt:number;progress?:SuggestionProgress};
@@ -291,31 +292,43 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   this.wake();return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
  }
  async snapshot(ownerId:string,id:string):Promise<SessionView>{
-  const row=await this.repository.get(id,ownerId),saved=view(row);
-  if(row.state!=='completed'&&await this.repository.superseded(id,ownerId))return {...saved,superseded:true,generationControl:'paused',productionState:'paused'};
-  return this.snapshotView(row,saved,true);
+  const row=await this.repository.get(id,ownerId);
+  return this.snapshotView(row,view(row),true,await this.repository.superseded(id,ownerId));
  }
- async shelfSnapshot(row:SessionRow,saved:SessionView){
-  return this.snapshotView(row,saved,false);
+ async shelfSnapshot(row:SessionRow,saved:SessionView,includeTimings=false){
+  return this.snapshotView(row,saved,includeTimings,false);
  }
- private async snapshotView(row:SessionRow,saved:SessionView,includeTimings:boolean):Promise<SessionView>{
-  const id=row.id,allJobs=await this.queue.jobs(row.id,row.user_id),jobs=allJobs.filter(job=>this.generationCurrent(row,job)&&(job.kind!=='discover'||this.parsed(row)?.doc.intake?.phase==='discovering')),faults=await sessionFaults(this.database,row.id,row.user_id);
-  const active=jobs.filter(job=>job.state==='running'&&job.lease_until>this.clock()).sort((a,b)=>a.updated_at-b.updated_at);
-  // A background search must not supply the selected story step's clock. Renewals only
-  // extend leases, leaving the persisted claim timestamp stable across screen visits.
-  const phase=saved.generationProgress!.phase,parsed=this.parsed(row)!;
-  const current=active.find(job=>phase==='discover'?job.kind==='discover':job.kind!=='discover');
+ private async snapshotView(row:SessionRow,saved:SessionView,includeTimings:boolean,superseded:boolean):Promise<SessionView>{
+  const id=row.id,parsed=this.parsed(row)!,now=this.clock();
+  const [allJobs,faults,demands]=await Promise.all([this.queue.jobs(id,row.user_id),sessionFaults(this.database,id,row.user_id),this.demands(id)]);
+  const jobs=allJobs.filter(job=>this.generationCurrent(row,job)&&(job.kind!=='discover'||this.searchCurrent(row,searchRound(job))));
+  const eligible=jobs.some(job=>{
+   if(job.state!=='queued')return false;
+   const payload=JSON.parse(job.payload) as {page?:number;work?:{call:string}};
+   return payload.work?.call==='drawLandscape'||demands.some(d=>d.session_id===id&&(job.pool==='text'||(payload.page??0)<=d.through_page));
+  });
+  const search=this.searches.get(id),progress=saved.generationProgress!;
+  const views=faults.map(fault=>this.faultView(row,fault,allJobs));
+  const lifecycle=productionLifecycle({...saved,superseded,faults:[...views],queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
+   now,order:parsed.doc.dag?.order??[]},jobs);
+  const active=lifecycle.activity.state==='running'?lifecycle.activity.jobs:[];
+  const current=active[0],description=current&&describeProductionCall(current.call,current.pages,progress.repairPasses??0);
+  const phase=description?.phase??progress.phase;
   const timingProvider=current&&(this.jobProviders.get(current.id)||(!this.provider.capture?this.provider:undefined));
-  const startedAt=current?.updated_at??null,timeoutMs=timingProvider?.generationTimeoutMs?.(phase);
+  const startedAt=current?.startedAt??null,timeoutMs=timingProvider?.generationTimeoutMs?.(phase);
   const timeoutAt=startedAt!==null&&timeoutMs?startedAt+timeoutMs:null;
-  const search=this.searches.get(id);
   const liveProgress=parsed.doc.intake&&search?.round===intakeSearch(parsed.doc.intake).round&&saved.intake?.search.state==='searching'?search.progress:undefined;
   // 任务因快照服务不可用而失败：界面据此提供「应用当前模型设置」。
   const snapshotUnavailable=allJobs.some(job=>job.state==='failed'&&(job as {error_code?:string|null}).error_code==='SNAPSHOT_UNAVAILABLE');
-  const session={...saved,...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),generationProgress:{...saved.generationProgress!,startedAt,timeoutAt,...(includeTimings?{stageDurations:productionStageDurations(allJobs,parsed.selection)}:{}),attempt:current?.attempts??saved.generationProgress!.attempt}};
+  const session:SessionView={...saved,lifecycle,...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
+   ...(description?.label?{stage:`正在${description.label}`}:{}),
+   ...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),
+   generationProgress:{...progress,phase,activity:current?description?.label:progress.activity,startedAt,timeoutAt,
+    ...(includeTimings?{stageDurations:productionStageDurations(allJobs,parsed.selection)}:{}),attempt:current?.attempt??progress.attempt}};
+  // 兼容旧字段。历史版本的真实控制和收尾活动保存在 lifecycle。
+  if(superseded&&row.state!=='completed')return {...session,generationControl:'paused',productionState:'paused'};
   const working=active.length>0;
-  const manual=row.generation_control!=='active';
-  const views=faults.map(fault=>this.faultView(row,fault,allJobs));
+  const manual=lifecycle.control!=='active';
   // 审片停在需读者处理：以一条审片问题呈现，放行或修改后解除。
   const blocking=parsed.doc.dag&&!working&&row.state!=='completed'?await this.dag.blocking(row):[];
   if(blocking.length)views.push({id:await this.dag.reviewFaultId(row)??'review',message:[...new Set(blocking.map(b=>attentionMessages[b.reason]))].join(''),page:null,stage:'review',state:'pending',retryAllowed:false});
@@ -327,10 +340,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   const failed=jobs.find(job=>job.state==='failed');
   if(failed&&!working)return {...session,state:'failed',error:failed.error,retryAllowed:true};
-  const demands=await this.demands(id),eligible=jobs.some(job=>job.state==='queued'&&demands.some(d=>job.pool==='text'||((JSON.parse(job.payload) as {page?:number}).page??0)<=d.through_page));
   // No story is chosen yet, so finding one is what this story is doing.
   if(!manual&&saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching')return {...session,productionState:search?'running':'queued'};
-  const productionState=manual?'paused':working?'running':eligible?'queued':'paused';
+  const productionState=manual?'paused':working?'running':lifecycle.activity.state==='queued'?'queued':'paused';
   const preparingInFlight=working&&saved.intake?.phase==='preparing';
   if(session.state!=='failed'&&session.state!=='completed'&&(preparingInFlight||!manual&&(working||eligible)))return {...session,state:'running',productionState};
   // A saved session state alone cannot prove that the queue is still executing.

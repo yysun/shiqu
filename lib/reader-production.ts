@@ -13,7 +13,7 @@ export interface ReaderProduction{
  leave(ownerId:string,id:string,viewerId:string):Promise<void>;
  managed(ownerId:string,id:string):Promise<boolean>;
  advance(ownerId:string,id:string,throughPage:number,retry:boolean):Promise<SessionView>;
- shelfSnapshot(row:SessionRow,saved:SessionView):Promise<SessionView>;
+ shelfSnapshot(row:SessionRow,saved:SessionView,includeTimings?:boolean):Promise<SessionView>;
  snapshot(ownerId:string,id:string):Promise<SessionView>;
  recover(ownerId:string,id:string,command:RecoveryRequest):Promise<SessionView>;
  checkImage(ownerId:string,id:string,page:number,image:string):Promise<SessionView>;

@@ -1,7 +1,6 @@
 import {createHash} from 'node:crypto';
 // Route reading, recovery and generation through the single local library.
 // 提示词与审校历史按引用从 prompt_records 读取全文。
-import {productionStageDurations} from './production-timing.ts';
 import {publicationSchema} from './story-publication.ts';
 import {draftInstructions} from './reader-generation-contract.ts';
 import {outlineDirection,batchDirection} from './reader-storyboard.ts';
@@ -22,7 +21,7 @@ import {suggestionRequestSchema} from './reader-suggestions.ts';
 import {ReaderError,readableStory,selectionSchema,displayTitleSchema,planSchema,view} from './reader-model.ts';
 import {sourceSearchUrl} from './reader-source.ts';
 import {readerMaxFrames} from './reader-limits.ts';
-import type {Document,SessionView} from './reader-model.ts';
+import type {Document,SessionRow,SessionView} from './reader-model.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
 import {checkedRevision,revisionChangesSchema} from './reader-revision.ts';
 import {intakeActionSchema} from './reader-intake.ts';
@@ -60,6 +59,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   const url=new URL(req.url);if(req.method!=='GET'){const origin=req.headers.get('origin');if(origin&&origin!==url.origin)throw new ReaderError(403,'不允许跨站请求');}
   if(!services.database)throw new ReaderError(503,'书架暂时不可用');
   const repo=new ReaderRepository(services.database);
+  const sessionView=(row:SessionRow)=>services.production?services.production.snapshot(uid,row.id):view(row);
   if(path.join('/')==='publication-defaults'){
    if(req.method==='GET')return json({publication:await repo.publicationDefaults(uid)});
    if(req.method==='POST'){
@@ -73,16 +73,11 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    const known=req.method==='POST'?new Map(z.array(z.tuple([uuid,z.string().max(64)])).parse(await body(req,12*1024*1024))):null;
    const rows=await repo.listShelf(uid);
    const cards=(await Promise.all(rows.map(async row=>{
-    // 已完成的故事没有实时制作状态。直接比较存档，轮询无需重新解码其分镜。
-    const savedVersion=row.state==='completed'?createHash('sha256').update(row.document).update('\0')
-     .update(JSON.stringify([row.id,row.selection,row.page,row.saved,row.last_read_at,row.created_at,row.generation_mode,row.generation_control,row.error]))
-     .digest('hex').slice(0,24):null;
-    if(savedVersion&&known?.get(row.id)===savedVersion){known.delete(row.id);return null;}
     let saved:SessionView;
     // 单个坏故事不应阻塞书架；完整会话仍由详情接口返回。
     try{saved=view(row);}catch{return null;}
-    const card=summarizeShelfSession(services.production&&row.state!=='completed'?await services.production.shelfSnapshot(row,saved):saved);
-    const version=savedVersion||createHash('sha256').update(JSON.stringify(card)).digest('hex').slice(0,24);
+    const card=summarizeShelfSession(services.production?await services.production.shelfSnapshot(row,saved):saved);
+    const version=createHash('sha256').update(JSON.stringify(card)).digest('hex').slice(0,24);
     const changed=known?.get(row.id)!==version;
     known?.delete(row.id);
     return changed?{...card,version}:null;
@@ -236,18 +231,13 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='sessions'&&path.length===1){
    // One unreadable saved story must not take the whole shelf down with it.
    if(req.method==='GET'){
-    const rows=(await repo.list(uid)).filter(readableStory),completed=rows.filter(row=>row.state==='completed').map(row=>row.id);
-    // Load completed timing in one owner-scoped read; shelf visits never inspect media or start work.
-    const timings=completed.length?(await repo.db.prepare("SELECT session_id,kind,payload FROM production_jobs WHERE owner_id=? AND session_id IN (SELECT value FROM json_each(?)) AND json_type(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END,'$.timings')='array'").bind(uid,JSON.stringify(completed)).all<{session_id:string;kind:string;payload:string}>()).results:[];
-    const bySession=new Map<string,typeof timings>();
-    for(const timing of timings){const group=bySession.get(timing.session_id)||[];group.push(timing);bySession.set(timing.session_id,group);}
+    const rows=(await repo.list(uid)).filter(readableStory);
     return json(await Promise.all(rows.map(async row=>{
-     const session=services.production&&row.state!=='completed'?await services.production.snapshot(uid,row.id):view(row);
-     if(row.state==='completed')session.generationProgress={...session.generationProgress!,stageDurations:productionStageDurations(bySession.get(row.id)||[],session.selection)};
-     return shelfView(session);
+     const saved=view(row);
+     return shelfView(services.production?await services.production.shelfSnapshot(row,saved,true):saved);
     })));
    }
-   if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema.omit({displayTitle:true}),intake:z.boolean().optional()}).parse(await body(req,32768));if((b.selection.discoverySources||b.selection.discovery?.mode==='title')&&b.intake!==true)throw new ReaderError(400,'章节或标题提取必须通过选题流程创建。');return json(view(b.intake?await createIntake(repo,b.requestId,uid,b.selection,services.localBooks):await repo.create(b.requestId,uid,b.selection)),201);}
+   if(req.method==='POST'){await requireProvider();const b=z.object({requestId:uuid,selection:selectionSchema.omit({displayTitle:true}),intake:z.boolean().optional()}).parse(await body(req,32768));if((b.selection.discoverySources||b.selection.discovery?.mode==='title')&&b.intake!==true)throw new ReaderError(400,'章节或标题提取必须通过选题流程创建。');return json(await sessionView(b.intake?await createIntake(repo,b.requestId,uid,b.selection,services.localBooks):await repo.create(b.requestId,uid,b.selection)),201);}
   }
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);
@@ -268,12 +258,12 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(path[2]==='publication'&&path.length===3&&req.method==='POST'){
     const parsed=z.object({publication:publicationSchema,expected:publicationSchema.nullable()}).strict().safeParse(await body(req,32768));
     if(!parsed.success)throw new ReaderError(400,parsed.error.issues[0].message);
-    return json(view(await repo.savePublication(id,uid,parsed.data.publication,parsed.data.expected)));
+    return json(await sessionView(await repo.savePublication(id,uid,parsed.data.publication,parsed.data.expected)));
    }
    if(path[2]==='title'&&path.length===3&&req.method==='POST'){
     const parsed=z.object({title:displayTitleSchema}).strict().safeParse(await body(req));
     if(!parsed.success)throw new ReaderError(400,parsed.error.issues[0].message);
-    return json(view(await repo.rename(id,uid,parsed.data.title)));
+    return json(await sessionView(await repo.rename(id,uid,parsed.data.title)));
    }
    if(path.length===2&&req.method==='GET')return json(services.production?await services.production.snapshot(uid,id):view(await repo.get(id,uid)));
    if(path[2]==='current'&&path.length===3&&req.method==='GET'){
@@ -281,7 +271,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
    if(path[2]==='reselection'&&path.length===3&&req.method==='POST'){
     await requireProvider();const b=z.object({requestId:uuid}).strict().parse(await body(req));
-    return json(view(await openReselection(repo,id,uid,b.requestId,services.localBooks)),201);
+    return json(await sessionView(await openReselection(repo,id,uid,b.requestId,services.localBooks)),201);
    }
    if(path[2]==='reselection'&&path[3]&&path.length===4){
     const draftId=uuid.parse(path[3]);
@@ -291,7 +281,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
      return json(services.production?await services.production.snapshot(uid,row.id):view(row));
     }
     if(req.method==='DELETE'){
-     const row=await cancelReselection(repo,id,draftId,uid);return json(view(row));
+     const row=await cancelReselection(repo,id,draftId,uid);return json(await sessionView(row));
     }
    }
    if(path[2]==='recover'&&path.length===3&&req.method==='POST'){
@@ -392,7 +382,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     return json(result);
    }
    if(path[2]==='events'&&req.method==='POST'){const row=await repo.get(id,uid);const b=z.object({id:z.string().max(200),visitor:uuid,session:uuid,storyId:uuid,kind:z.enum(['start','page','complete','next','save','audio','feedback_positive','feedback_negative']),page:z.number().int().min(0).max(readerMaxFrames-1).nullable(),mode:z.enum(['manual','audio']),cohort:z.enum(['internal','pilot'])}).parse(await body(req));const current=view(row);if(b.storyId!==id||(b.page!==null&&!current.story?.pages[b.page]?.image))throw new ReaderError(400,'这幅画面还没有展开');await services.db.insert(events).values({...b,createdAt:new Date().toISOString()}).onConflictDoNothing();return json({ok:true});}
-   if(path[2]==='progress'&&req.method==='POST'){const b=z.object({page:z.number().int().min(0).max(readerMaxFrames-1),saved:z.boolean()}).parse(await body(req));return json(view(await repo.progress(id,uid,b.page,b.saved)));}
+   if(path[2]==='progress'&&req.method==='POST'){const b=z.object({page:z.number().int().min(0).max(readerMaxFrames-1),saved:z.boolean()}).parse(await body(req));return json(await sessionView(await repo.progress(id,uid,b.page,b.saved)));}
    if(path[2]==='advance'&&req.method==='POST'){await requireProvider();const b=z.object({throughPage:z.number().int().min(0).max(readerMaxFrames-1),retry:z.boolean().default(false)}).parse(await body(req));if(b.retry)throw new ReaderError(400,'重试必须提交当前故障实例与操作编号，请使用恢复入口。');if(!services.production)throw new ReaderError(503,'制作队列暂不可用');const result=await services.production.advance(uid,id,b.throughPage,false);return json(result,result.state==='running'?202:200);}
   }
   if(path[0]==='media'&&path[1]&&path[2]&&path.length===3&&req.method==='GET'){

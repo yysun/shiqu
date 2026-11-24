@@ -3,6 +3,7 @@
 import {registerDagProgress} from '../reader-model.ts';
 import type {Document,Selection,Step} from '../reader-model.ts';
 import {evaluate} from './engine.ts';
+import {describeProductionCall} from '../production-lifecycle.ts';
 import {settle,work,attention,finished,stateOf,type DagStory} from './runner.ts';
 
 export type DagReviewProgress={
@@ -15,18 +16,6 @@ export type DagReviewProgress={
 export type DagProgress={step:Step|null;review:DagReviewProgress;complete:boolean;frameCount:number|null;storyboardFrames:number;drawingFrames:number;activity?:string;redrawPage?:number};
 
 const repairCalls=new Set(['sceneRepair','visualRepair','structureRepair','endingRepair']);
-const callKinds:Record<string,Step['kind']>={
- verifySource:'source',prepareBrief:'plan',characters:'plan',outline:'plan',registerItems:'plan',sceneBatch:'plan',visual:'plan',
- restyle:'restyle',ending:'reflection',frameCheck:'review',review:'review',
- sceneRepair:'repair',visualRepair:'repair',structureRepair:'repair',endingRepair:'repair',
-};
-const activities:Record<string,string>={
- prepareBrief:'整理故事梗概',characters:'设定人物',outline:'编排全篇提纲',registerItems:'登记验收要求',
- ending:'拟定标题与结语',frameCheck:'审核画幅数',review:'审核全篇分镜',
- sceneRepair:'修订叙事分镜',visualRepair:'修订画面描述',structureRepair:'修订分镜结构',endingRepair:'修订结语',
-};
-const frameActivities:Record<string,string>={sceneBatch:'编排叙事分镜',visual:'生成画面描述',restyle:'按新画风转换画面描述'};
-
 /** 故事当前在做什么：第一项文字工作决定步骤，只剩绘图时为绘图；无工作时 step 为 null。 */
 export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
  if(!doc.dag||doc.intake&&doc.intake.phase!=='confirmed')return null;
@@ -45,15 +34,9 @@ export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
  const complete=finished(story);
  const used=story.dag.repairs?.used??0;
  const key=text?`${text.call}:${text.stage??0}`:'';
- let activity=text?activities[text.call]:undefined;
- if(text?.call==='review'&&used)activity='复核全篇分镜';
- if(text&&frameActivities[text.call]){
-  const frames=text.instances.map(instance=>order.indexOf(instance.key)+1);
-  const contiguous=frames.every((frame,index)=>frame===frames[0]+index);
-  const scope=frames.length===1?`第 ${frames[0]} 幅`:contiguous?`第 ${frames[0]}–${frames.at(-1)} 幅`:`本批 ${frames.length} 幅`;
-  activity=`${frameActivities[text.call]}（${scope}）`;
- }
- const step:Step|null=text?{kind:callKinds[text.call]??'plan',page:0,key}
+ const description=text&&describeProductionCall(text.call,text.instances.map(instance=>order.indexOf(instance.key)+1).filter(n=>n>0),used);
+ const activity=description?.label;
+ const step:Step|null=text?{kind:description?.phase??'plan',page:0,key}
   :drawing?{kind:'image',page:Math.max(0,story.dag.order.indexOf(drawing.instances[0].key)),key:`image:${drawing.instances[0].key}`}:null;
  const redrawPage=step?.kind==='image'&&items.length===1&&doc.revision?.base?.images?.[step.page]&&!doc.images[step.page]&&doc.images.filter(Boolean).length===story.dag.order.length-1?step.page+1:undefined;
  const reviewWork=items.some(item=>item.call==='frameCheck'||item.call==='review');

@@ -18,7 +18,9 @@ export function shelfGenerationStatus(session:SessionView|ShelfSession){
  if(intake?.phase==='choosing'&&!intake.selected&&search==='idle'&&!hasCandidates)return {group:'待提取故事',message:'等待开始提取',detail:'原文范围和主题已保存，进入窗口后点击按钮开始提取。',action:'提取故事'};
  if(session.intake?.phase==='choosing')return {group:'待选故事',message:'等待选择故事',detail:search==='failed'?'这次查找未完成，已找到的候选都保留，可以重试查找。':'书籍、主题和候选已保存，选定后继续准备制作内容。',action:'选择故事'};
  if(session.intake?.phase==='confirming')return {group:'待制作确认',message:'等待确认制作内容',detail:'确认故事、画风、叙事详略、制作要求和验收要求后才编排分镜。',action:'确认制作'};
- if(session.productionState==='running'||!session.productionState&&session.state==='running')return {group:'生成中',message:redraw?`正在${redraw}`:session.stage,detail:redraw?'重绘在后台继续，其他画幅可随时阅读。':session.intake&&session.intake.phase!=='confirmed'?'正在准备制作内容，离开后继续，确认前不编排分镜或绘图。':'正在生成整篇，离开页面后继续，可随时暂停。',action:'查看进度'};
+ const primary=session.lifecycle?.activity.state==='running'?session.lifecycle.activity.jobs[0]:undefined;
+ const pending=session.lifecycle?.faults.filter(fault=>fault.state==='pending')??[];
+ if(session.productionState==='running'||!session.productionState&&session.state==='running')return {group:'生成中',message:redraw&&(!primary||primary.call==='draw'&&primary.pages[0]===session.redrawPage)?`正在${redraw}`:session.stage,detail:pending.length?pending.map(fault=>fault.page===null?fault.message:`第 ${fault.page+1} 幅待处理`).join('；'):redraw?'重绘在后台继续，其他画幅可随时阅读。':session.intake&&session.intake.phase!=='confirmed'?'正在准备制作内容，离开后继续，确认前不编排分镜或绘图。':'正在生成整篇，离开页面后继续，可随时暂停。',action:'查看进度'};
  if(session.productionState==='queued'||session.generationMode==='background')return {group:'等待生成',message:redraw?`排队${redraw}`:'等待生成',detail:'已进入队列，轮到后自动开始。',action:'查看进度'};
  return {group:'生成已暂停',message:pausedStage?`已暂停 · ${pausedStage}`:'生成已暂停',detail:'可用时点击“重试生成”，已保存的结果会保留。',action:'查看详情'};
 }

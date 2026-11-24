@@ -4319,6 +4319,7 @@
         "lib/reader-review.ts",
         "server/reader-copy.ts",
         "lib/production-dag/copy.ts",
+        "lib/production-lifecycle.ts",
         "lib/production-dag/progress.ts",
         "lib/generation-progress.ts",
         "lib/shelf-generation.ts",
