@@ -3,13 +3,17 @@
 // 已确认的新故事从提纲一路制作到最后一幅图，按批调用，参考图取首幅成图。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {productionFixture,until,turn} from './fixtures/production.mjs';
+import {productionFixture,until,turn,makePlan} from './fixtures/production.mjs';
 import {story,replies,drive} from './fixtures/production-dag-runner.mjs';
 import {owner} from './fixtures/book-reference.mjs';
 import {png} from './fixtures/images.mjs';
 import {projectDocument,emptyDag} from '../lib/production-dag/document.ts';
+import {evaluate} from '../lib/production-dag/engine.ts';
+import {stateOf} from '../lib/production-dag/runner.ts';
 import {selection} from './fixtures/production-data.mjs';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
+import {generationProgress} from '../lib/generation-progress.ts';
+import {shelfGenerationStatus} from '../lib/shelf-generation.ts';
 
 /** 一篇已完成、审片通过的 DAG 故事，图片文件写入隔离书库。 */
 async function completedStory(f){
@@ -23,6 +27,8 @@ async function completedStory(f){
 }
 const saved=async(f,id)=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
 const textCalls=control=>control.plans.length+control.outlines.length+control.batches.length+control.reflections.length+control.reflectionRepairs.length+control.frameReviews.length+control.structures.length+control.repairs.length;
+const timelineStep=(session,id)=>generationProgress(session,Date.now()).steps.find(step=>step.id===id);
+const jobAttempts=async(f,id)=>(await f.app.services.database.prepare('SELECT id,kind,state,attempts,lease_token FROM production_jobs WHERE session_id=? ORDER BY id').bind(id).all()).results;
 
 test('edit a caption, save, restart and continue: only the affected review runs and nothing is redrawn',async t=>{
  const f=await productionFixture(t,'codex');
@@ -158,12 +164,37 @@ test('confirming a reader redraw starts one frame immediately and replays withou
  assert.equal(session.generationProgress.reviewStatus,'passed');
  await until(()=>f.control.calls.length===1);
  assert.equal(f.control.calls[0].page,1);
+
+ const running=await f.read(requestId),jobs=await jobAttempts(f,requestId);
+ assert.equal(running.productionState,'running');
+ assert.equal(shelfGenerationStatus(running).message,'正在重绘第 2 幅');
+ assert.equal(timelineStep(running,'image').state,'current');
+ assert.equal(generationProgress(running,Date.now()).ready,5);
+ const renamed=await f.json(`sessions/${requestId}/title`,'POST',{title:'改过的书架显示名'});
+ assert.equal(renamed.story.title,'改过的书架显示名');
+ await t.test('a display-only write returns the same running status consumed by the reader',{todo:'改名回包缺少队列状态及计时，页面会暂时显示排队'},()=>{
+  assert.deepEqual([shelfGenerationStatus(renamed).message,renamed.generationProgress.startedAt],
+   [shelfGenerationStatus(running).message,running.generationProgress.startedAt]);
+ });
+ const current=await f.read(requestId);
+ assert.equal(current.id,running.id);
+ assert.equal(current.revision.number,running.revision.number);
+ assert.equal(current.generationControl,'active');
+ assert.equal(current.productionState,'running');
+ assert.equal(current.awaitingContinue,undefined);
+ assert.equal(current.redrawPage,2);
+ assert.deepEqual(current.generationProgress,running.generationProgress);
+ assert.deepEqual(await jobAttempts(f,requestId),jobs);
+ const shelf=await f.json('sessions');
+ assert.deepEqual(shelf.map(s=>[s.id,s.story.title]),[[requestId,'改过的书架显示名']]);
+
  assert.equal((await f.json(route,'POST',submission)).id,requestId);
  f.control.calls[0].resolve();
  await until(async()=>(await f.read(requestId)).state==='completed',15000);
 
  const after=await saved(f,requestId);
  assert.deepEqual(after.plan,snapshot.plan);
+ assert.equal((await f.read(requestId)).story.title,'改过的书架显示名');
  assert.equal(after.images.filter(Boolean).length,6);
  assert.equal(f.control.calls.length,1);
  assert.deepEqual(f.control.dagCalls,[]);
@@ -173,6 +204,62 @@ test('confirming a reader redraw starts one frame immediately and replays withou
  assert.deepEqual((await saved(f,id)).images,snapshot.images);
 });
 
+test('renaming a revision waiting for continue preserves its authorization and edit token',async t=>{
+ const f=await productionFixture(t,'codex');
+ const {id}=await completedStory(f);
+ const parent=await f.json(`sessions/${id}/revisions`);
+ const {id:child}=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:parent.token,changes:{artStyle:'watercolor'}});
+ const route=`sessions/${child}`,before=await f.read(child),document=await saved(f,child);
+ const {token}=await f.json(`${route}/revisions`);
+ await f.json(`${route}/title`,'POST',{title:'等待继续的新故事名'});
+ const current=await f.read(child),snapshot=await f.json(`${route}/revisions`);
+ assert.equal(current.story.title,'等待继续的新故事名');
+ assert.deepEqual(current.revision,before.revision);
+ assert.equal(current.awaitingContinue,true);
+ assert.equal(current.generationControl,'paused');
+ assert.equal(shelfGenerationStatus(current).message,'已保存，等待继续');
+ assert.equal(snapshot.token,token);
+ assert.deepEqual(await saved(f,child),document);
+ assert.deepEqual(await jobAttempts(f,child),[]);
+ assert.equal(f.control.dagCalls.length+f.control.calls.length+f.control.reviews.length,0);
+});
+
+test('saving normalized-equivalent production settings leaves the current running revision alone',{todo:'直接提交等价的制作要求会创建新版并切换到等待继续'},async t=>{
+ const f=await productionFixture(t,'codex');
+ const id=await f.create(3,{productionPrompt:''});
+ await until(()=>f.control.calls.length===1);
+ const route=`sessions/${id}`,before=await f.read(id),jobs=await jobAttempts(f,id);
+ const {token}=await f.json(`${route}/revisions`),changes={productionPrompt:'   '};
+ const preview=await f.json(`${route}/revisions/preview`,'POST',{token,changes});
+ await f.request(`${route}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes});
+ const latest=await f.json(`${route}/current`),current=await f.read(latest.id);
+ assert.deepEqual({changed:preview.changed,sameId:current.id===id,control:current.generationControl,state:current.productionState,ready:current.ready,jobs:await jobAttempts(f,id)},
+  {changed:false,sameId:true,control:before.generationControl,state:before.productionState,ready:before.ready,jobs});
+});
+
+test('running status names the active drawing when an earlier frame awaits recovery',{todo:'状态标题使用了被故障阻断的第一项待办，而不是在途任务'},async t=>{
+ const f=await productionFixture(t,'codex');
+ const {id}=await completedStory(f),db=f.app.services.database,doc=await saved(f,id);
+ const blocked=doc.dag.order[1],drawable=doc.dag.order[4],now=Date.now();
+ for(const [page,key] of [[1,blocked],[4,drawable]]){
+  delete doc.dag.frames[key].image;
+  delete doc.dag.products[`frameImage:${key}`];
+  doc.images[page]='';
+ }
+ await db.prepare("UPDATE stories SET document=?,generation_control='paused',state='idle' WHERE id=?").bind(JSON.stringify(doc),id).run();
+ await db.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES(?,?,?,'job','frameImage',?,'dag','第 2 幅绘图失败',?,?)").bind(crypto.randomUUID(),id,owner,blocked,now,now).run();
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
+ await until(()=>f.control.calls.length===1);
+ const current=await f.read(id),shelf=(await f.json('sessions')).find(s=>s.id===id);
+ assert.deepEqual(f.control.calls.map(call=>call.page+1),[5]);
+ assert.equal(current.productionState,'running');
+ assert.deepEqual(current.faults.map(fault=>[fault.page+1,fault.state]),[[2,'pending']]);
+ f.control.calls[0].resolve();
+ await until(async()=>(await f.read(id)).state==='failed');
+ assert.deepEqual(f.control.calls.map(call=>call.page+1),[5]);
+ assert.deepEqual([current.stage,shelfGenerationStatus(shelf).message],['正在绘制第 5 幅','正在绘制第 5 幅']);
+});
+
 test('confirming a redraw of the first frame also replaces just its existing landscape',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
@@ -180,6 +267,7 @@ test('confirming a redraw of the first frame also replaces just its existing lan
  const landscape=await f.json(`sessions/${id}/landscape`);
  await f.json(`sessions/${id}/landscape`,'POST',{startToken:landscape.startToken});
  await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',15000);
+ const original=await saved(f,id);
  const before=f.control.calls.length;
  const snapshot=await f.json(`sessions/${id}/revisions`);
  const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:snapshot.token,changes:{redrawPages:[1]},startRedraw:true});
@@ -187,14 +275,27 @@ test('confirming a redraw of the first frame also replaces just its existing lan
  assert.deepEqual(f.control.calls.slice(before).map(({page,landscape})=>[page,landscape]),[[0,false],[0,true]]);
  assert.equal(f.control.reviews.length+textCalls(f.control),0);
  assert.equal((await f.read(child.id)).state,'completed');
- assert.equal((await saved(f,child.id)).revision.landscapeRedraw,undefined,'finished landscapes leave the pending redraw index');
+ const after=await saved(f,child.id);
+ assert.equal(after.revision.landscapeRedraw,undefined,'finished landscapes leave the pending redraw index');
+ for(const key of original.dag.order.slice(1))for(const node of ['frameImage','landscape']){
+  const product=`${node}:${key}`;
+  assert.deepEqual(after.dag.products[product],original.dag.products[product]);
+ }
 });
 
 test('a style change converts image descriptions in one batch, re-reviews frames and redraws every image',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  const {id}=await completedStory(f);
- await revise(f,id,{artStyle:'watercolor'});
+ const {token}=await f.json(`sessions/${id}/revisions`);
+ const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{artStyle:'watercolor'}});
+ assert.equal(child.story.pages.length,6);
+ assert.equal(timelineStep(child,'plan').state,'done');
+ assert.equal(timelineStep(child,'image').state,'paused');
+ assert.match(timelineStep(child,'image').detail,/按新画风转换画面描述（第 1–6 幅），完成后重新审片/);
+ assert.equal(generationProgress(child,Date.now()).ready,0,'prior images remain readable but do not count toward the new style');
+ await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
+ await until(async()=>(await f.read(child.id)).state==='completed',15000);
  assert.equal(count(f.control.dagCalls,'restyle'),1,'six frames in one conversion batch');
  assert.equal(count(f.control.dagCalls,'visual'),0);
  assert.equal(f.control.reviews.length,1);
@@ -202,6 +303,45 @@ test('a style change converts image descriptions in one batch, re-reviews frames
  // 其余画幅等新首幅完成后再以它为参考绘制。
  assert.equal(f.control.calls[0].page,0);
  assert.ok(f.control.calls.slice(1).every(c=>c.page>0));
+});
+
+test('changing detail and style shows the new storyboard progress while the previous pages are readable',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ f.control.autoLength=9;
+ const {id}=await completedStory(f);
+ const {token}=await f.json(`sessions/${id}/revisions`);
+ const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{artStyle:'watercolor',narrativeDetail:'detailed',length:'auto'}});
+ assert.equal(child.story.pages.length,6);
+ assert.equal(shelfGenerationStatus(child).message,'已保存，等待继续');
+ assert.equal(timelineStep(child,'plan').state,'paused');
+ assert.equal(timelineStep(child,'plan').detail,'编排全篇提纲 · 新画幅数待编排');
+ assert.equal(generationProgress(child,Date.now()).total,null);
+
+ const outline=Promise.withResolvers(),scenes=Promise.withResolvers(),frameCheck=Promise.withResolvers();
+ f.control.beforeText=name=>name==='outline'?outline.promise:name==='sceneBatch'?scenes.promise:name==='frames'?frameCheck.promise:undefined;
+ const readRunning=async phase=>{
+  let session;
+  await until(async()=>{session=await f.read(child.id);return session.productionState==='running'&&session.generationProgress.activity?.startsWith(phase);},15000);
+  return session;
+ };
+ try{
+  await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
+  const planning=await readRunning('编排全篇提纲');
+  assert.equal(shelfGenerationStatus(planning).message,'正在编排全篇提纲');
+  assert.equal(timelineStep(planning,'plan').state,'current');
+  outline.resolve();
+  const drafting=await readRunning('编排叙事分镜');
+  assert.equal(timelineStep(drafting,'plan').detail,'编排叙事分镜（第 1–9 幅） · 已保存 0 / 9 幅叙事分镜');
+  scenes.resolve();
+  const checking=await readRunning('审核画幅数');
+  assert.equal(timelineStep(checking,'plan').detail,'9 幅分镜已保存');
+  assert.equal(timelineStep(checking,'review').state,'current');
+  assert.equal(f.control.calls.length,0,'drawing waits for approval');
+ }finally{
+  outline.resolve();scenes.resolve();frameCheck.resolve();
+ }
+ await until(async()=>(await f.read(child.id)).state==='completed',15000);
 });
 
 test('a save that would discard a hand edit needs the reader to choose; discarding it then replans',async t=>{
@@ -591,6 +731,44 @@ test('a revision keeps an unresolved drawing fault whose inputs did not change; 
  assert.equal(f.control.calls.length,0,'nothing is drawn without an explicit recovery');
 });
 
+test('replanning matches a lost-image fault by drawing inputs before dispatching a new frame',{todo:'正式修订在新绘图输入尚未就绪时丢弃了上一版的故障'},async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const id=await f.create(3),route=`sessions/${id}`;
+ await until(async()=>(await f.read(id)).state==='completed');
+ const prior=await saved(f,id),image=prior.images[1],oldKey=prior.dag.order[1];
+ const {rm}=await import('node:fs/promises'),{join}=await import('node:path');
+ await rm(join(f.dataDirectory,'media',referenceImageKey(id,image)));
+ const lost=await f.json(`${route}/image-health`,'POST',{page:1,image});
+ assert.equal(lost.faults.find(fault=>fault.stage==='redraw').page,1);
+ f.control.beforeText=name=>{
+  if(name!=='outline')return;
+  const {title,summary,sourceReference,adaptationNote}=makePlan(3);
+  return {title,summary,sourceReference,adaptationNote,beats:['新版开场提纲','新版转折提纲','新版结局提纲']};
+ };
+ const {token}=await f.json(`${route}/revisions`),before=f.control.calls.length;
+ const child=await f.json(`${route}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{productionPrompt:'在不改变情节的前提下重新编排。'}});
+ await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
+ let current,next;
+ await until(async()=>{
+  next=await saved(f,child.id);
+  if(next.dag.order[1]===oldKey)return false;
+  current=await f.read(child.id);
+  return current.generationProgress.reviewStatus==='passed'&&['failed','completed'].includes(current.state);
+ },15000);
+ for(let attempt=0;attempt<20;attempt++){
+  await f.app.services.production.tick();
+  await turn();
+ }
+ current=await f.read(child.id);
+ const newKey=next.dag.order[1];
+ assert.notEqual(newKey,oldKey);
+ const evaluation=evaluate(stateOf({id:child.id,doc:next,dag:next.dag,selection:current.selection,confirmed:true,faults:[]}));
+ assert.deepEqual(evaluation.instance('frameImage',newKey).hard,prior.dag.products[`frameImage:${oldKey}`].inputs);
+ assert.deepEqual({state:current.state,lostFrames:current.faults?.filter(fault=>fault.stage==='redraw').map(fault=>fault.page)??[],drawn:f.control.calls.slice(before).map(call=>call.page)},
+  {state:'failed',lostFrames:[1],drawn:[]});
+});
+
 test('a paid drawing is kept on its job before it is saved: a failed save and its retry do not pay twice',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
@@ -655,6 +833,68 @@ test('a review override only approves the problem the reader saw: a stale or wro
  const wrong=await f.request(`sessions/${id}/review-override`,'POST',{requestId:crypto.randomUUID(),faultId:'review:'+'0'.repeat(32)});
  assert.equal(wrong.status,409);
  assert.equal((await f.json(`sessions/${id}/review-override`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id})).id,id);
+});
+
+test('an exhausted DAG review exposes its issues and can grant another repair attempt',{todo:'制作状态漏掉 DAG 审片问题，继续自动修复接口不接受审片故障'},async t=>{
+ const f=await productionFixture(t,'codex');
+ const issue={page:2,category:'caption',problem:'配文没有交代庄周醒来',instruction:'补写醒来的动作',requiresReplan:false};
+ f.control.beforeText=async name=>name==='review'?{issues:[issue]}:undefined;
+ const id=await confirmedStory(f,4),route=`sessions/${id}`;
+ f.app.services.production.wake();
+ let blocked;
+ await until(async()=>{blocked=await f.read(id);return blocked.faults?.some(fault=>fault.stage==='review');},30000);
+ const fault=blocked.faults.find(fault=>fault.stage==='review');
+ assert.equal(blocked.generationProgress.reviewStopReason,'limit');
+ assert.equal(f.control.calls.length,0);
+ await f.json(`${route}/production-control`,'POST',{action:'pause'});
+ const paused=await f.json(`${route}/revisions`);
+ await f.json(`${route}/production-control`,'POST',{action:'resume'});
+ const retry=await f.request(`${route}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ assert.deepEqual({claimsCompletion:blocked.generationProgress.phase==='completed',issues:blocked.reviewIssues?.map(item=>item.page)??[],retryable:fault.retryAllowed,canEditNotes:paused.canEditReviewNotes??false,status:retry.status},
+  {claimsCompletion:false,issues:[2],retryable:true,canEditNotes:true,status:202});
+});
+
+test('a paused complete draft can explicitly skip the current failed review without starting drawing',{todo:'审核调用失败只登记通用任务故障，暂停后也没有人工放行'},async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.beforeText=name=>{if(name==='review')throw Error('controlled review failure before any verdict');};
+ const id=await confirmedStory(f,4),route=`sessions/${id}`;
+ f.app.services.production.wake();
+ let failed;
+ await until(async()=>{failed=await f.read(id);return failed.state==='failed';});
+ assert.equal(failed.generationProgress.phase,'review');
+ assert.equal(failed.generationProgress.reviewStatus,'pending');
+ assert.equal(failed.story.pages.length,4);
+ assert.ok(failed.story.original);
+ assert.ok((await saved(f,id)).plan.reflection,'the complete draft has an ending available');
+ assert.equal(f.control.calls.length,0);
+ await f.json(`${route}/production-control`,'POST',{action:'pause'});
+ const paused=await f.read(id),fault=paused.faults.find(fault=>fault.state==='pending');
+ const override=`${route}/review-override`,command={requestId:crypto.randomUUID(),faultId:fault.id};
+ assert.equal((await f.request(override,'POST',{...command,faultId:crypto.randomUUID()})).status,409);
+ const result=await f.request(override,'POST',command),after=await f.read(id);
+ assert.deepEqual({faultStage:fault.stage,status:result.status,control:after.generationControl,overridden:after.generationProgress.reviewOverridden,drawings:f.control.calls.length},
+  {faultStage:'review',status:200,control:'paused',overridden:true,drawings:0});
+ assert.equal((await f.request(override,'POST',command)).status,200);
+ await f.app.services.production.tick();
+ assert.equal(f.control.calls.length,0);
+ f.control.hold=false;
+ await f.json(`${route}/production-control`,'POST',{action:'resume'});
+ await until(async()=>(await f.read(id)).state==='completed');
+ assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[0,1,2,3]);
+});
+
+test('a failed task before the draft is complete cannot be manually released for drawing',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.beforeText=name=>{if(name==='visual')throw Error('controlled failure before complete storyboard');};
+ const id=await confirmedStory(f,4),route=`sessions/${id}`;
+ f.app.services.production.wake();
+ let failed;
+ await until(async()=>{failed=await f.read(id);return failed.state==='failed';});
+ const fault=failed.faults[0];
+ assert.equal(failed.story,null);
+ await f.json(`${route}/production-control`,'POST',{action:'pause'});
+ assert.equal((await f.request(`${route}/review-override`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id})).status,409);
+ assert.equal(f.control.calls.length,0);
 });
 
 test('a file restored before the reader clicks recover is reused for free, without a redraw',async t=>{
@@ -922,6 +1162,21 @@ test('saving an edited character setting or ending keeps the edit and redraws on
  const bad=structuredClone(snapshot.plan);bad.characters='随便一行';
  const refused=await f.request(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:snapshot.token,changes:{plan:bad}});
  assert.equal(refused.status,400);
+});
+
+test('hand-editing a picture description passes the newly drawn character to the drawing job',{todo:'保存画面描述沿用旧入画名单，绘图请求缺少新入画人物设定'},async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id,dag}=await completedStory(f),newCharacter=dag.characters.find(character=>character.name==='鲍叔牙');
+ const {doc}=await revise(f,id,snapshot=>{
+  const plan=structuredClone(snapshot.plan);
+  plan.pages[1].prompt+='，画面右侧新增入画人物鲍叔牙，与主人公对坐。';
+  return {plan};
+ });
+ assert.deepEqual(f.control.calls.map(call=>call.page),[1]);
+ const frame=doc.dag.frames[doc.dag.order[1]];
+ assert.deepEqual({includedInFrame:frame.drawn.includes(newCharacter.id),includedInDraw:f.control.calls[0].prompt.includes(newCharacter.text)},
+  {includedInFrame:true,includedInDraw:true});
 });
 
 test('a transient read error while checking a paid image is not treated as a lost file, so it is never drawn twice',async t=>{

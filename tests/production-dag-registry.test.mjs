@@ -5,10 +5,10 @@ import {readFileSync} from 'node:fs';
 import {nodes,calls,evidenceInputs} from '../lib/production-dag/registry.ts';
 
 const spec=readFileSync(new URL('../.docs/story-production-dag.md',import.meta.url),'utf8');
-function firstColumn(heading){
- const start=spec.indexOf(`\n${heading}\n`);
+function firstColumn(heading,document=spec){
+ const start=document.indexOf(`\n${heading}\n`);
  assert.ok(start>=0,`missing section ${heading}`);
- const section=spec.slice(start+heading.length+2);
+ const section=document.slice(start+heading.length+2);
  const end=section.search(/\n## /);
  return (end<0?section:section.slice(0,end)).split('\n').filter(l=>l.startsWith('| ')&&!l.startsWith('| ---')).slice(1).map(l=>l.split('|')[1].trim());
 }
@@ -55,4 +55,33 @@ test('input references only name known nodes or selectors',()=>{
   const name=ref.split('@')[0];
   assert.ok(nodes[name]||special.has(name),`unknown input ${ref}`);
  }
+});
+
+test('every numbered specification scenario has exactly one individual acceptance case',()=>{
+ const scenarios=spec.slice(spec.indexOf('## 实现后的验收场景'));
+ const expected=[...scenarios.matchAll(/^(\d+)\. /gm)].map(([,number])=>number);
+ const audit=readFileSync(new URL('../.docs/tests/test-data-driven-production-dag.md',import.meta.url),'utf8');
+ assert.ok(expected.length>0);
+ assert.deepEqual(firstColumn('## 逐场景路径与验收',audit),expected);
+});
+
+test('declared dependencies and gates have no cycle outside specific frame references',()=>{
+ const gates={preparing:[],confirmed:[],brief:['brief'],frameCheck:['frameCheck','ending'],approved:['frameCheck','frameVerdict','narrativeVerdict','itemVerdict']};
+ const aliases={endingChoice:['endingConfirmed','narrativeVerdict'],item:['acceptanceReq'],order:[],reference:['refSource']};
+ const visited=new Set(),visiting=new Set();
+ function visit(key){
+  if(visited.has(key))return;
+  assert.ok(!visiting.has(key),`cycle: ${[...visiting,key].join(' → ')}`);
+  visiting.add(key);
+  const node=nodes[key];
+  const evidence=node.evidence?Object.values(evidenceInputs).flat():[];
+  const refs=[...node.hard,...(node.check??[]),...evidence];
+  const edges=refs.flatMap(ref=>{const name=ref.split('@')[0];return aliases[name]??[name];});
+  edges.push(...(gates[node.gate]??[]));
+  for(const dependency of edges)visit(dependency);
+  visiting.delete(key);
+  visited.add(key);
+ }
+ // 同节点的首幅引用按画幅实例展开，由执行层首幅及后续画幅的测试验证。
+ for(const key of Object.keys(nodes))visit(key);
 });

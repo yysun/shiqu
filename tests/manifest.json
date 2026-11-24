@@ -4168,7 +4168,8 @@
       "gates": [],
       "covers": [
         "lib/production-dag/registry.ts",
-        ".docs/story-production-dag.md"
+        ".docs/story-production-dag.md",
+        ".docs/tests/test-data-driven-production-dag.md"
       ]
     },
     {
@@ -4301,6 +4302,7 @@
         "server/reader-production.ts",
         "server/reader-revisions.ts",
         "lib/production-dag/runner.ts",
+        "lib/production-dag/engine.ts",
         "lib/production-dag/requests.ts",
         "tests/fixtures/production.mjs",
         "tests/fixtures/production-data.mjs",
@@ -4318,6 +4320,8 @@
         "server/reader-copy.ts",
         "lib/production-dag/copy.ts",
         "lib/production-dag/progress.ts",
+        "lib/generation-progress.ts",
+        "lib/shelf-generation.ts",
         "server/provider-snapshot.ts",
         "server/app.ts",
         "lib/production-dag/document.ts",

@@ -1,7 +1,7 @@
 // 制作 DAG 执行层：用替身生成器驱动 work → requestFor → apply，核对调用数、修订、结构修订、迟到结果与复用。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {attention,finished,stateOf} from '../lib/production-dag/runner.ts';
+import {attention,finished,stateOf,work} from '../lib/production-dag/runner.ts';
 import {story,replies,drive,calls} from './fixtures/production-dag-runner.mjs';
 import {evaluate} from '../lib/production-dag/engine.ts';
 
@@ -13,6 +13,22 @@ test('a confirmed 12-frame story runs to completion with batched text calls',()=
  assert.equal(s.dag.order.length,12);
  assert.equal(s.dag.ending.chosen,'知己难得。');
  assert.ok(s.dag.order.every(id=>s.dag.frames[id].image));
+});
+
+test('fixed and adaptive frame counts complete across storyboard batch boundaries',()=>{
+ for(const [length,frames] of [[1,1],[20,20],[21,21],[80,80],['auto',21]]){
+  const s=story({length}),reply=replies();
+  const log=drive(s,(method,args)=>{
+   const value=reply(method,args);
+   return method==='outline'&&length==='auto'?{...value,beats:Array.from({length:frames},(_,index)=>`第 ${index+1} 幅叙事节点`)}:value;
+  });
+  const batchSizes=Array.from({length:Math.ceil(frames/20)},(_,index)=>Math.min(20,frames-index*20));
+  for(const name of ['sceneBatch','visual'])assert.deepEqual(log.filter(job=>job.call===name).map(job=>job.ids.length),batchSizes,`${length}: ${name}`);
+  assert.equal(calls(log,'frameCheck'),length==='auto'?1:0);
+  assert.equal(calls(log,'draw'),frames);
+  assert.deepEqual(work(s),[]);
+  assert.ok(finished(s));
+ }
 });
 
 test('a style change converts image descriptions in batches of 6 and redraws, without replanning',()=>{
