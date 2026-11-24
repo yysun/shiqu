@@ -18,6 +18,7 @@ import type {ModelSnapshot} from '../lib/production-dag/document.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {MediaStore} from '../lib/services.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
+import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {readableImage,readableLandscapeImage} from './reader-image-health.ts';
 import {intakeSearch} from '../lib/reader-intake.ts';
 import type {IntakeSearch} from '../lib/reader-intake.ts';
@@ -35,7 +36,7 @@ import {DagProduction,dagTextKind,dagDrawKind} from './dag-production.ts';
 import {transact,deleteJobs} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
-import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeProductionCommand,type ProductionFault,type ProductionService} from '../lib/production-lifecycle.ts';
+import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeProductionCommand,type ProductionFault,type ProductionImageCheck,type ProductionService} from '../lib/production-lifecycle.ts';
 import type {Work} from '../lib/production-dag/runner.ts';
 import {PaidDispatchDenied,withPaidDispatch} from './paid-dispatch.ts';
 import {drawingReferenceBinding} from './book-image-reference.ts';
@@ -84,6 +85,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  readonly repository:ReaderRepository;
  private readonly runtimeId=randomUUID();
  private readonly searches=new Map<string,ActiveSearch>();
+ private readonly imageReads=new Map<string,number>();
  private readonly clock:()=>number;
  private timer:ReturnType<typeof setInterval>|undefined;
  private enabled=false;
@@ -395,9 +397,22 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const reviewSkip=!superseded&&rawReviewFault&&failedReviewJob?this.dag.skipReviewOffer(row,rawReviewFault,failedReviewJob):null;
   const {blocking,complete}=this.dag.lifecycleFrom(row,faults,allJobs);
   const service=this.serviceAvailability(parsed.doc.dag?.modelSnapshot);
+  const dag=parsed.doc.dag;
+  const pendingImageChecks=dag?.order.flatMap((key,page):ProductionImageCheck[]=>{
+   const frame=dag.frames[key],checks:ProductionImageCheck[]=[];
+   for(const [kind,url] of [['portrait',frame?.image],['landscape',frame?.landscape]] as const){
+    const file=url&&referenceImageKey(id,url);
+    if(file&&this.imageReads.has(file))checks.push({kind,pages:[page+1],state:'pending'});
+   }
+   return checks;
+  })??[];
+  const optionalWork=dag?.order.some(key=>dag.frames[key]?.landscape===''&&dag.frames[key].landscapeError===undefined)??false;
   const lifecycle=productionLifecycle({...saved,complete,generationControl:row.generation_control,superseded,replacementOpen:!!parsed.doc.reselection||replacementOpen,
    faults:[...projectedFaults,...landscapeFaults],reviewAttention:blocking?.reasons??[],service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
-   now,order:parsed.doc.dag?.order??[]},jobs);
+   now,order:dag?.order??[],pendingImageChecks,optionalWork,
+   modelApplicable:service==='snapshot-unavailable'&&!!dag&&(!parsed.doc.intake||parsed.doc.intake.phase==='confirmed')&&
+    (parsed.doc as Document&{legacyFramePreparation?:unknown}).legacyFramePreparation==null,
+   reviewBlockId:blocking?.id??undefined,canOverrideReview:!!blocking?.canOverride,reviewSkipId:reviewSkip?.faultId},jobs);
   const active=lifecycle.activity.state==='running'?lifecycle.activity.jobs:[];
   const current=active[0],description=current&&describeProductionCall(current.call,current.pages,progress.repairPasses??0);
   const phase=description?.phase??progress.phase;
@@ -406,7 +421,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const timeoutAt=startedAt!==null&&timeoutMs?startedAt+timeoutMs:null;
   const liveProgress=parsed.doc.intake&&search?.round===intakeSearch(parsed.doc.intake).round&&saved.intake?.search.state==='searching'?search.progress:undefined;
   const snapshotUnavailable=service==='snapshot-unavailable';
-  const session:SessionView={...saved,lifecycle,...(reviewSkip?{reviewSkip}:{}),...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
+  const session:SessionView={...saved,lifecycle,...(reviewSkip&&lifecycle.actions.some(action=>action.event==='skip-review')?{reviewSkip}:{}),...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
    ...(description?.label?{stage:`正在${description.label}`}:{}),
    ...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),
    generationProgress:{...progress,phase,activity:current?description?.label:progress.activity,startedAt,timeoutAt,
@@ -493,10 +508,17 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return job.kind===dagTextKind||job.kind===dagDrawKind;
  }
  private async fileLost(key:string,strict=false,landscape=false){
-  const asset=await this.media.get(key);if(!asset)return true;
-  const bytes=new Uint8Array(await asset.arrayBuffer()),type=mediaType(bytes);
-  // 横图必须是 3∶2；方图等其他比例不能算作完整的印刷套图。
-  return (strict?type!==asset.contentType:!type)||!await (landscape?readableLandscapeImage(bytes):readableImage(bytes));
+  this.imageReads.set(key,(this.imageReads.get(key)??0)+1);
+  try{
+   const asset=await this.media.get(key);if(!asset)return true;
+   const bytes=new Uint8Array(await asset.arrayBuffer()),type=mediaType(bytes);
+   // 横图必须是 3∶2；方图等其他比例不能算作完整的印刷套图。
+   return (strict?type!==asset.contentType:!type)||!await (landscape?readableLandscapeImage(bytes):readableImage(bytes));
+  }finally{
+   const remaining=(this.imageReads.get(key)??1)-1;
+   if(remaining)this.imageReads.set(key,remaining);
+   else this.imageReads.delete(key);
+  }
  }
  private async finishSearch(id:string,ownerId:string,round:number,search:IntakeSearch,batch?:SuggestionBatch,clearIndexed=false){
   // The fence refuses a result that arrives after confirmation or after a crash already saved it.

@@ -469,10 +469,14 @@ test('temporary reference read failure yields the drawing without spending an at
  };
  await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{redrawPages:[2]},startRedraw:true});
  await until(async()=>(await f.read(requestId)).lifecycle.imageAvailability==='unavailable',5000);
+ const pending=await f.read(requestId);
+ assert.deepEqual(pending.lifecycle.imageChecks.map(({state,pages})=>({state,pages})),[{state:'temporarily-unavailable',pages:[2]}]);
+ assert.equal(pending.lifecycle.faults.length,0);
  assert.equal(f.control.calls.length,0);
  assert.deepEqual((await jobAttempts(f,requestId)).map(({state,attempts})=>[state,attempts]),[['queued',0]]);
  inaccessible=false;
  await until(async()=>(await f.read(requestId)).state==='completed',5000);
+ assert.deepEqual((await f.read(requestId)).lifecycle.imageChecks,[]);
  assert.deepEqual(f.control.calls.map(call=>call.page),[1]);
 });
 
@@ -921,6 +925,9 @@ test('an image check in flight cannot record a new fault after deletion',async t
  const checking=f.request(`sessions/${id}/image-health`,'POST',{page:2,image});
  try{
   await started.promise;
+  const pending=(await f.read(id)).lifecycle;
+  assert.deepEqual(pending.imageChecks,[{kind:'portrait',pages:[3],state:'pending'}]);
+  assert.equal(pending.faults.length,0);
   await f.json(`library/${id}`,'DELETE');
  }finally{resume.resolve();}
  assert.equal((await checking).status,409);
@@ -1241,9 +1248,15 @@ test('an exhausted DAG review exposes its issues and can grant another repair at
  let blocked;
  await until(async()=>{blocked=await f.read(id);return blocked.faults?.some(fault=>fault.stage==='review');},30000);
  const fault=blocked.faults.find(fault=>fault.stage==='review');
+ const repairOffer={event:'continue-repair',faultId:fault.id};
+ assert.ok(blocked.lifecycle.actions.some(action=>JSON.stringify(action)===JSON.stringify(repairOffer)));
+ assert.deepEqual((await f.json('library/shelf')).find(card=>card.id===id).lifecycle.actions,blocked.lifecycle.actions);
  assert.equal(blocked.generationProgress.reviewStopReason,'limit');
  assert.equal(f.control.calls.length,0);
- await f.json(`${route}/production-control`,'POST',{action:'pause'});
+ const held=await f.json(`${route}/production-control`,'POST',{action:'pause'});
+ assert.ok(!held.lifecycle.actions.some(action=>action.event==='continue-repair'));
+ const rejected=await f.request(`${route}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ assert.equal(rejected.status,409);
  const paused=await f.json(`${route}/revisions`);
  await f.json(`${route}/production-control`,'POST',{action:'resume'});
  const command={requestId:crypto.randomUUID(),faultId:fault.id};

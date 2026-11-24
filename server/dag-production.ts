@@ -107,7 +107,7 @@ export class DagProduction{
   const complete=confirmed&&finished(story);
   const reviewing={...story,faults:dagFaultTargets(targets.filter(target=>target.state!=='recovering'))};
   const blocking=complete||work(reviewing).some(item=>!drawing(item.call))?null:this.reviewBlock(reviewing);
-  return {complete,blocking};
+  return {complete,blocking:blocking?{...blocking,canOverride:!!blocking.id&&!!overrideReview(reviewing,blocking.targets)}:null};
  }
 
  /** 在领取事务中按当前硬输入和故障复核；参考图的文件可用性在发送前核对。 */

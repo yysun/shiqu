@@ -12,6 +12,12 @@ export type ProductionFault=FaultView&{
  scope:'required'|'optional';
  targets:{node:string;key:string;page:number|null}[];
 };
+export type ProductionImageCheck={
+ state:'pending'|'temporarily-unavailable';pages:number[];kind:'portrait'|'landscape'|'job';jobId?:string;
+};
+export type ProductionActionOffer=
+ {event:ProductionControlEvent|'continue'|'apply-model'}|
+ {event:'retry'|'continue-repair'|'skip-review'|'override-review';faultId:string};
 export type ProductionService='available'|'unconfigured'|'snapshot-unavailable'|'stopping';
 export const productionServiceMessages={
  unconfigured:'当前制作服务未配置或处于只读模式。',
@@ -29,31 +35,70 @@ export type ProductionLifecycle={
  reviewAttention:Attention[];
  service:ProductionService;
  imageAvailability:'available'|'unavailable';
+ imageChecks:ProductionImageCheck[];
+ actions:ProductionActionOffer[];
  activity:{state:'running';jobs:ProductionActivity[]}|{state:'queued'|'idle'};
 };
 
 type ActivityJob={id:string;kind:string;payload:string;state:string;lease_until:number;updated_at:number;attempts:number};
-type ActivityInput=Pick<SessionView,'state'|'intake'|'generationControl'|'awaitingContinue'> & {complete?:boolean;superseded:boolean;replacementOpen:boolean;queued:boolean;faults:ProductionFault[];reviewAttention:Attention[];service:ProductionService;now:number;order:readonly string[]};
+type ActivityInput=Pick<SessionView,'state'|'intake'|'generationControl'|'awaitingContinue'> & {
+ complete?:boolean;superseded:boolean;replacementOpen:boolean;queued:boolean;faults:ProductionFault[];
+ reviewAttention:Attention[];service:ProductionService;now:number;order:readonly string[];
+ pendingImageChecks:ProductionImageCheck[];optionalWork:boolean;modelApplicable:boolean;
+ reviewBlockId?:string;canOverrideReview:boolean;reviewSkipId?:string;
+};
 
 export function productionLifecycle(input:ActivityInput,jobs:readonly ActivityJob[]):ProductionLifecycle{
  const intake=input.intake?.phase;
  const phase=intake==='choosing'||intake==='discovering'?'selection':intake==='preparing'?'preparation':
   intake==='confirming'?'confirmation':(input.complete??input.state==='completed')?'completed':'production';
  const control=input.generationControl??'active';
- const running=jobs
-  .filter(job=>job.state==='running'&&job.lease_until>input.now&&(job.kind!=='discover'||intake==='discovering'))
+ const inFlight=(job:ActivityJob)=>job.state==='running'&&job.lease_until>input.now&&(job.kind!=='discover'||intake==='discovering');
+ const details=(job:ActivityJob)=>{
+  const {work,page,waitingFor}=JSON.parse(job.payload) as {work?:Work;page?:number;waitingFor?:string};
+  const pages=work?[...new Set(work.instances.map(instance=>input.order.indexOf(instance.key)+1).filter(n=>n>0))]:
+   page===undefined?[]:[page+1];
+  return {call:work?.call??job.kind,pages,waitingFor};
+ };
+ const running=jobs.filter(inFlight)
   .sort((a,b)=>a.updated_at-b.updated_at||(a.id<b.id?-1:a.id>b.id?1:0))
   .map(job=>{
-   const {work,page}=JSON.parse(job.payload) as {work?:Work;page?:number};
-   const pages=work?[...new Set(work.instances.map(instance=>input.order.indexOf(instance.key)+1).filter(n=>n>0))]:
-    page===undefined?[]:[page+1];
-   return {id:job.id,call:work?.call??job.kind,pages,startedAt:job.updated_at,attempt:job.attempts};
+   const {call,pages}=details(job);
+   return {id:job.id,call,pages,startedAt:job.updated_at,attempt:job.attempts};
   });
+ const waiting=jobs.flatMap<ProductionImageCheck>(job=>{
+  if(job.state!=='queued'&&!inFlight(job))return [];
+  const {waitingFor,pages}=details(job);
+  return waitingFor==='image-availability'?[{state:'temporarily-unavailable',kind:'job',pages,jobId:job.id}]:[];
+ });
  return {phase,version:input.superseded?'superseded':'current',replacementDraft:input.replacementOpen?'open':'none',control,continuation:!!input.awaitingContinue,
   faults:input.faults,reviewAttention:input.reviewAttention,service:input.service,
-  imageAvailability:jobs.some(job=>['queued','running'].includes(job.state)&&JSON.parse(job.payload).waitingFor==='image-availability')?'unavailable':'available',
+  imageAvailability:waiting.length?'unavailable':'available',imageChecks:[...input.pendingImageChecks,...waiting],
+  actions:productionActionOffers(input,control),
   draining:running.length>0&&(control!=='active'||input.superseded),
   activity:running.length?{state:'running',jobs:running}:{state:input.queued&&control==='active'&&!input.superseded&&!input.awaitingContinue?'queued':'idle'}};
+}
+
+function productionActionOffers(input:ActivityInput,control:GenerationControl):ProductionActionOffer[]{
+ const state:CommandState={version:input.superseded?'superseded':'current',control,continuation:!!input.awaitingContinue,
+  stopping:input.service==='stopping',targetCurrent:true,targetReady:true};
+ const configured=input.service!=='unconfigured',actions:ProductionActionOffer[]=[];
+ const allowed=(event:ProductionCommand,ready=true)=>authorizeProductionCommand(event,{...state,targetReady:ready}).allowed;
+ for(const event of productionControlEvents){
+  if((event!=='resume'&&event!=='background'||configured)&&allowed(event,input.state!=='completed'||event!=='background'&&input.optionalWork))actions.push({event});
+ }
+ if(configured&&allowed('continue'))actions.push({event:'continue'});
+ if(input.modelApplicable&&allowed('apply-model'))actions.push({event:'apply-model'});
+ if(input.reviewBlockId){
+  if(configured&&allowed('continue-repair',input.reviewAttention.some(reason=>reason.reason==='limit')))actions.push({event:'continue-repair',faultId:input.reviewBlockId});
+  if(configured&&allowed('override-review',input.canOverrideReview))actions.push({event:'override-review',faultId:input.reviewBlockId});
+ }
+ if(input.reviewSkipId&&allowed('skip-review'))actions.push({event:'skip-review',faultId:input.reviewSkipId});
+ for(const fault of input.faults){
+  if(fault.scope==='required'&&fault.state==='pending'&&fault.retryAllowed&&(configured||fault.kind==='image-loss')&&allowed('retry'))
+   actions.push({event:'retry',faultId:fault.id});
+ }
+ return actions;
 }
 
 const phases:Record<string,Step['kind']>={
