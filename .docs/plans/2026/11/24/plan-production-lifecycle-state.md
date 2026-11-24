@@ -150,6 +150,7 @@ CR review round: 3; reviewer: reused
 
 ## 格式 3 与审核恢复验证
 
+- 实现里程碑 `ecf7de6`。
 - 已沿用 `ensureLibraryReady()` 的自动迁移。格式 2 临时书库在回执写入前注入中断，索引与版本回滚，移除注入后重试得到格式 3。升级前备份通过完整校验。
 - `v0.15.0` 标签的隔离应用启动返回 `LIBRARY_NEWER_SCHEMA: library 3, supported 2`，预置绘图任务状态 `queued`，尝试次数 0，租约为空。
 - C015 匹配了第 2、3 幅，仅恢复第 2 幅触发一次绘图。第 3 幅在该图可读后免费复用，重启不重建故障。
