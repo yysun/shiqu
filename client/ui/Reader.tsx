@@ -53,7 +53,6 @@ import {shelfGroupings,type ShelfGrouping} from '@/lib/shelf-browser';
 import DeletedStories,{type DeletedStory} from './DeletedStories';
 import StorySource from './StorySource';
 import StoryTitleEditor from './StoryTitleEditor';
-import StoryShelfCover from './StoryShelfCover';
 import StoryScript from './StoryScript';
 import StorySceneList from './StorySceneList';
 import {discoveryThemePresets} from '@/lib/reader-discovery-themes';
@@ -148,7 +147,7 @@ export default function Reader(){
  const [reviewHistoryId,setReviewHistoryId]=useState<string|null>(null);
  const [publicationTarget,setPublicationTarget]=useState<Story|null>(null),[publicationDefaultsOpen,setPublicationDefaultsOpen]=useState(false);
  const [presentation,setPresentation]=useState<{id:string;title:string;session?:SessionView;error?:string}|null>(null);
- const [presentationRead,setPresentationRead]=useState(0),[editingShelfCover,setEditingShelfCover]=useState(false);
+ const [presentationRead,setPresentationRead]=useState(0);
  const presentationId=presentation?.id;
  useEffect(()=>{
   if(!presentationId)return;
@@ -849,17 +848,10 @@ export default function Reader(){
  {presentation&&<Sheet title="作品与导出" onClose={()=>setPresentation(null)}>
   <p className="yu-publication-work">{presentation.session?.story?.title||presentation.title}</p>
   {presentation.error?<div role="alert"><p>{presentation.error}</p><StoryFlowAction onClick={()=>{setPresentation({...presentation,error:undefined});setPresentationRead(value=>value+1);}}>重试打开</StoryFlowAction></div>
-   :presentation.session?.story?<><div className="yu-setting-row">
-    <div><strong>书架封面</strong>{(presentation.session.shelfCover||presentation.session.story.pages[0]?.image)&&<img className="yu-presentation-cover" src={presentation.session.shelfCover||presentation.session.story.pages[0].image} alt="当前书架封面"/>}</div>
-    <StoryFlowAction onClick={()=>setEditingShelfCover(true)}>修改书架封面</StoryFlowAction>
-   </div><StoryDownloads story={presentation.session.story} downloads={(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,'yu-settings-download',presentation.session!.story))}
-    exportStatus={exportProgress} exporting={!!exporting} onPublicationEdit={()=>setPublicationTarget(presentation.session!.story)}/></>
+   :presentation.session?.story?<StoryDownloads story={presentation.session.story} downloads={(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,'yu-settings-download',presentation.session!.story))}
+    exportStatus={exportProgress} exporting={!!exporting} onPublicationEdit={()=>setPublicationTarget(presentation.session!.story)}/>
    :<p role="status">正在打开作品…</p>}
  </Sheet>}
- {editingShelfCover&&presentation?.session?.story&&<StoryShelfCover story={presentation.session.story} cover={presentation.session.shelfCover} onClose={()=>setEditingShelfCover(false)} onSaved={cover=>{
-  setPresentation(item=>item?.session?{...item,session:{...item.session,shelfCover:cover??undefined}}:item);
-  void gen.refreshLibrary().catch(()=>{});notify('书架封面已保存。');
- }}/>}
  {publicationTarget&&<StoryPublicationEditor key={publicationTarget.id} story={publicationTarget} onClose={()=>setPublicationTarget(null)} onSave={async(value,expected)=>{
   const session=await gen.savePublication(publicationTarget.id,value,expected);
   setPresentation(item=>item?.id===session.id?{...item,session}:item);

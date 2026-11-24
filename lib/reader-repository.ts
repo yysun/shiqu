@@ -24,7 +24,6 @@ export const visibleStory="NOT EXISTS (SELECT 1 FROM library_deletions d WHERE d
 const visible=visibleStory;
 export const familyRoot=(alias:string)=>`COALESCE(json_extract(CASE WHEN json_valid(${alias}.document) THEN ${alias}.document ELSE '{}' END,'$.revision.rootId'),${alias}.id)`;
 export const familyNumber=(alias:string)=>`COALESCE(json_extract(CASE WHEN json_valid(${alias}.document) THEN ${alias}.document ELSE '{}' END,'$.revision.number'),1)`;
-export const familyShelfCoverSql=(alias:string)=>`(SELECT root.shelf_cover FROM stories root WHERE root.id=${familyRoot(alias)} AND root.user_id=${alias}.user_id) AS family_shelf_cover`;
 export const supersededSql=(alias='stories')=>`EXISTS(SELECT 1 FROM stories newer WHERE newer.user_id=${alias}.user_id AND ${familyRoot('newer')}=${familyRoot(alias)} AND ${familyNumber('newer')}>${familyNumber(alias)})`;
 export const latestVersionMessage='这是旧版本，请打开书架中的最新版本继续生成。';
 // 最大版本先包含已删除项，避免删除后把历史版推回书架。
@@ -33,7 +32,7 @@ export const shelfRowsSql=`WITH editions AS MATERIALIZED (
   json_type(CASE WHEN json_valid(document) THEN document ELSE '{}' END,'$.reselection') IS NULL AS submitted
  FROM stories WHERE user_id=?
 ), latest AS (SELECT root,max(revision) AS revision FROM editions GROUP BY root)
-SELECT stories.*,${familyShelfCoverSql('stories')} FROM editions JOIN latest USING(root,revision) JOIN stories USING(id)
+SELECT stories.* FROM editions JOIN latest USING(root,revision) JOIN stories USING(id)
 WHERE editions.submitted AND ${visible}
 ORDER BY COALESCE(last_read_at,created_at) DESC`;
 export const openReplacementParentsSql=(singleStory:boolean)=>{
@@ -62,7 +61,7 @@ export class ReaderRepository{
  db:Database;
  constructor(db:Database){this.db=db;}
  async superseded(id:string,uid:string){return !!await this.db.prepare(`SELECT id FROM stories WHERE id=? AND user_id=? AND ${supersededSql()}`).bind(id,uid).first();}
- async get(id:string,uid:string){const row=await this.db.prepare(`SELECT *,${familyShelfCoverSql('stories')} FROM stories WHERE id = ? AND user_id = ? AND ${visible}`).bind(id,uid).first<SessionRow>();if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');return row;}
+ async get(id:string,uid:string){const row=await this.db.prepare(`SELECT * FROM stories WHERE id = ? AND user_id = ? AND ${visible}`).bind(id,uid).first<SessionRow>();if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');return row;}
  async current(id:string,uid:string){
   const origin=await this.db.prepare('SELECT * FROM stories WHERE id=? AND user_id=?').bind(id,uid).first<SessionRow>();
   if(!origin)throw new ReaderError(404,'这篇故事不在你的书架里');

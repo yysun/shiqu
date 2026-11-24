@@ -14,7 +14,6 @@ import type {OriginalSource} from './reader-source-types.ts';
 import {artStylePromptSchema,artStyleIds,getArtStyle} from './reader-styles.ts';
 import {localSourceSchema} from './reader-local-contract.ts';
 import {readerMinFrames,readerMaxFrames,readerStoryboardBatchSize} from './reader-limits.ts';
-import {shelfCoverAsset,shelfCoverFilePattern} from './reader-image-assets.ts';
 import {storyBriefVerified} from './reader-story-brief.ts';
 import {narrativeDetailSchema} from './reader-frame-recommendation.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
@@ -53,12 +52,11 @@ export type GenerationMode='background';
 export type GenerationControl='active'|'paused'|'stopped';
 /** continue 只用于制作 DAG 的「已保存，等待继续」：清除等待并恢复后台制作。 */
 export type ProductionAction='background'|'pause'|'stop'|'resume'|'continue'|'apply-model'|'reprepare';
-export type SessionRow={family_shelf_cover?:string|null;id:string;user_id:string;selection:string;document:string;generation_mode?:GenerationMode;generation_control?:GenerationControl;state:'idle'|'running'|'failed'|'completed';error:string|null;step_key:string|null;step_attempts:number;lock_token:string|null;lock_until:number;page:number;saved:number;last_read_at:string|null;created_at:string;updated_at:string};
+export type SessionRow={id:string;user_id:string;selection:string;document:string;generation_mode?:GenerationMode;generation_control?:GenerationControl;state:'idle'|'running'|'failed'|'completed';error:string|null;step_key:string|null;step_attempts:number;lock_token:string|null;lock_until:number;page:number;saved:number;last_read_at:string|null;created_at:string;updated_at:string};
 export type Step={kind:'discover'|'recommend'|'plan'|'source'|'reflection'|'review'|'repair'|'restyle'|'image'|'audio';page:number;key:string};
 export type GenerationProgress={sourceReady:boolean;frameCountConfirmed:boolean;frameCount:number|null;storyboardFrames?:number;storyboardBatch?:{first:number;last:number};drawingFrames?:number;activity?:string;reviewStatus?:ReviewCheckpoint['status'];reviewPhase?:'frames'|'full';reviewRound?:number;repairCompleted?:number;repairTotal?:number;reviewAudits?:number;repairBatches?:number;repairPasses?:number;reviewStopReason?:'limit'|'unchanged'|'replan'|'requirements';reviewOverridden?:boolean;phase:Step['kind']|'frame-count'|'story-choice'|'production-confirmation'|'completed';startedAt:number|null;timeoutAt?:number|null;stageDurations?:Record<string,number>;attempt:number};
 export type SessionView={
  reviewSkip?:ReviewSkipOffer;lifecycle?:ProductionLifecycle;
- shelfCover?:string;
  landscapeWork?:{printId:string;action:'pause'|'resume'};
  /** @deprecated 使用 lifecycle.continuation。 */
  awaitingContinue?:true;
@@ -120,9 +118,7 @@ export function view(row:SessionRow):SessionView{
  const search=doc.intake?intakeSearch(doc.intake):undefined;
  const intake=doc.intake?{phase:intakePhase!,generation:doc.intake.generation,batches:doc.intake.batches,selected:doc.intake.selected,manualArt:doc.intake.manualArt,draft:doc.intake.draft,...(['preparing','confirming'].includes(intakePhase!)?{draftToken:intakeDraftToken(doc.intake.draft)}:{}),search:{state:search!.state,error:search!.error}}:undefined;
  const redraw=doc.revision&&p&&(doc.dag?progress?.review.reviewStatus==='passed':reviewPassed(doc))?revisionRedraw(doc.revision,selection,p,doc.images):undefined;
- const cover=row.family_shelf_cover;
- const shelfCover=cover&&shelfCoverFilePattern.test(cover)?shelfCoverAsset(doc.revision?.rootId||row.id,cover).url:undefined;
- return {...(shelfCover?{shelfCover}:{}),...(doc.dag?.continuation?{awaitingContinue:true as const}:{}),...(progress?.redrawPage?{redrawPage:progress.redrawPage}:{}),...(doc.reselection?{reselection:doc.reselection}:{}),...(doc.intake?{intake:intake as IntakeView}:{}),...(doc.revision?{revision:{parentId:doc.revision.parentId,rootId:doc.revision.rootId,number:doc.revision.number,...(redraw?{redraw}:{})}}:{}),...(legacyReview?.status==='blocked'?{reviewIssues:blockedIssues(legacyReview)}:{}),id:row.id,selection,generationMode:'background',generationControl:doc.dag?.continuation&&row.generation_control==='active'?'paused':row.generation_control||'active',state:row.state,generationProgress,error:row.error,retryAllowed:!!step&&!['replan','requirements'].includes(legacyReview?.stopReason||''),retryAt,...(legacyReview?.status==='blocked'?{retryStage:'review' as const}:step?.kind==='source'||row.state==='failed'&&!doc.original&&row.error?.startsWith('原文未能核对')?{retryStage:'source' as const}:{}),stage,frameRecommendation:doc.frameRecommendation||null,ready:doc.dag?doc.dag.order.filter(id=>doc.dag!.frames[id]?.image&&doc.dag!.products[`frameImage:${id}`]?.readable!==false).length:doc.images.filter(Boolean).length,story,page:row.page,saved:!!row.saved,lastReadAt:row.last_read_at||null,createdAt:row.created_at};
+ return {...(doc.dag?.continuation?{awaitingContinue:true as const}:{}),...(progress?.redrawPage?{redrawPage:progress.redrawPage}:{}),...(doc.reselection?{reselection:doc.reselection}:{}),...(doc.intake?{intake:intake as IntakeView}:{}),...(doc.revision?{revision:{parentId:doc.revision.parentId,rootId:doc.revision.rootId,number:doc.revision.number,...(redraw?{redraw}:{})}}:{}),...(legacyReview?.status==='blocked'?{reviewIssues:blockedIssues(legacyReview)}:{}),id:row.id,selection,generationMode:'background',generationControl:doc.dag?.continuation&&row.generation_control==='active'?'paused':row.generation_control||'active',state:row.state,generationProgress,error:row.error,retryAllowed:!!step&&!['replan','requirements'].includes(legacyReview?.stopReason||''),retryAt,...(legacyReview?.status==='blocked'?{retryStage:'review' as const}:step?.kind==='source'||row.state==='failed'&&!doc.original&&row.error?.startsWith('原文未能核对')?{retryStage:'source' as const}:{}),stage,frameRecommendation:doc.frameRecommendation||null,ready:doc.dag?doc.dag.order.filter(id=>doc.dag!.frames[id]?.image&&doc.dag!.products[`frameImage:${id}`]?.readable!==false).length:doc.images.filter(Boolean).length,story,page:row.page,saved:!!row.saved,lastReadAt:row.last_read_at||null,createdAt:row.created_at};
 }
 // Saved documents are not schema-checked, so rendering is the proof that a row can be used at all.
 export function readableStory(row:SessionRow){try{view(row);return true;}catch{return false;}}

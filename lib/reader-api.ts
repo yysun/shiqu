@@ -35,7 +35,6 @@ import {summarizeShelfSession,type ShelfChanges} from './reader-shelf.ts';
 import {readerBooks} from './reader-books.ts';
 import {localSourceSchema} from './reader-local-contract.ts';
 import {themeStoryId} from '../server/story-theme-matching.ts';
-import {loadShelfCover,saveShelfCover,shelfCoverCommand} from '../server/shelf-cover.ts';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
 const uuid=z.string().uuid();
 const lifecycleMutations=new Set(['setup','reselection','recover','image-health','landscape','revisions','review-override','production-control']);
@@ -270,15 +269,6 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     if(!parsed.success)throw new ReaderError(400,parsed.error.issues[0].message);
     return json(await sessionView(await repo.rename(id,uid,parsed.data.title)));
    }
-   if(path[2]==='shelf-cover'&&path.length===3&&req.method==='POST'){
-    if(req.headers.get('content-type')?.startsWith('multipart/form-data;')){
-     const form=await req.formData().catch(()=>{throw new ReaderError(400,'封面文件格式不正确。');});
-     const files=form.getAll('cover'),expected=form.getAll('expected');
-     if(files.length!==1||typeof files[0]==='string'||expected.length!==1||typeof expected[0]!=='string')throw new ReaderError(400,'请提交一张书架封面。');
-     return json(await saveShelfCover(repo,services.media,uid,id,{...shelfCoverCommand.parse({expected:expected[0]||null}),upload:files[0]}));
-    }
-    return json(await saveShelfCover(repo,services.media,uid,id,shelfCoverCommand.parse(await body(req))));
-   }
    if(path.length===2&&req.method==='GET')return json(services.production?await services.production.snapshot(uid,id):view(await repo.get(id,uid)));
    if(path[2]==='current'&&path.length===3&&req.method==='GET'){
     const row=await repo.current(id,uid);return json(services.production?await services.production.snapshot(uid,row.id):view(row));
@@ -416,11 +406,6 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(!file||Number(file[1])>=readerMaxFrames)throw new ReaderError(404,'画面不存在');
    const asset=await services.media?.get(`reader/${id}/artifacts/${path[3]}`);if(!asset)throw new ReaderError(404,'这幅还没有生成');
    return new Response(asset.body,{headers:{'Cache-Control':'private, max-age=31536000, immutable','X-Content-Type-Options':'nosniff','Content-Type':asset.contentType}});
-  }
-  if(path[0]==='media'&&path[1]&&path[2]==='shelf-covers'&&path.length===4&&req.method==='GET'){
-   const asset=await loadShelfCover(repo,services.media,uid,uuid.parse(path[1]),path[3]);
-   if(!asset)throw new ReaderError(404,'找不到这张书架封面。');
-   return new Response(asset.body,{headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Type':asset.contentType}});
   }
   throw new ReaderError(404,'找不到这个故事入口');
  }catch(error){
