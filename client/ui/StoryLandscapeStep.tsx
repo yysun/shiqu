@@ -1,8 +1,8 @@
-// 已完成作品的横版插图步骤，后台继续生成，界面只读取状态并提交明确的启动或重试操作。 启动操作与重试一致，使用文字链接。
+// 已完成作品的横版插图步骤：显示后台进度，并提供启动、暂停、恢复及重试的文字链接。
 // 服务不可用时无论横图处于哪一阶段都说明原因；快照服务不可用且生命周期提供「应用当前模型设置」时给出该操作。
 import {offersProductionAction,productionServiceMessages} from '@/lib/production-lifecycle';
 import {productionBlockedReason} from '@/lib/shelf-generation';
-import {useEffect,useState} from 'react';
+import {useEffect,useEffectEvent,useRef,useState} from 'react';
 import type {LandscapeStatus} from '@/lib/reader-production';
 import type {ProductionAction,SessionView} from '@/lib/reader-model';
 import type {ProductionStageState} from '@/lib/production-stages';
@@ -12,14 +12,22 @@ import {request} from './shared';
 
 export function storyLandscapeRoute(id:string){return `reader/sessions/${encodeURIComponent(id)}/landscape`;}
 
-type Props={storyId:string;session?:Pick<SessionView,'lifecycle'|'superseded'>;onControl?:(id:string,action:ProductionAction)=>Promise<void>};
-export default function StoryLandscapeStep({storyId,session,onControl}:Props){
+type Props={storyId:string;session:Pick<SessionView,'lifecycle'|'superseded'>;busy:boolean;onControl:(id:string,action:ProductionAction)=>Promise<void>;onActivityChange?:()=>void};
+export default function StoryLandscapeStep({storyId,session,busy,onControl,onActivityChange}:Props){
  const path=storyLandscapeRoute(storyId);
  const [status,setStatus]=useState<LandscapeStatus|null>(null);
  const [refresh,setRefresh]=useState(0);
  const [submitting,setSubmitting]=useState(false);
  const [readError,setReadError]=useState('');
  const [actionError,setActionError]=useState('');
+ const wasRunning=useRef(false);
+ const activityChanged=useEffectEvent(()=>onActivityChange?.());
+ const pending=status?.state==='running';
+ useEffect(()=>{
+  if(wasRunning.current===pending)return;
+  wasRunning.current=pending;
+  activityChanged();
+ },[pending]);
  useEffect(()=>{
   let live=true,timer:ReturnType<typeof setTimeout>|undefined;
   async function poll(){
@@ -48,27 +56,23 @@ export default function StoryLandscapeStep({storyId,session,onControl}:Props){
    setRefresh(value=>value+1);
   }finally{setSubmitting(false);}
  }
- async function resume(){
+ async function control(action:ProductionAction){
   setSubmitting(true);setActionError('');
-  try{await request(`reader/sessions/${encodeURIComponent(storyId)}/production-control`,'POST',{action:'resume',requestId:crypto.randomUUID()});}
-  catch(error){setActionError(error instanceof Error?error.message:'暂时无法恢复生成。');}
+  try{await onControl(storyId,action);}
+  catch(error){setActionError(error instanceof Error?error.message:'暂时无法更新生成状态。');}
   finally{setSubmitting(false);setRefresh(value=>value+1);}
  }
- async function applyModel(){
-  if(!onControl)return;
-  setSubmitting(true);setActionError('');
-  try{await onControl(storyId,'apply-model');}
-  catch(error){setActionError(error instanceof Error?error.message:'暂时无法应用当前模型设置。');}
-  finally{setSubmitting(false);setRefresh(value=>value+1);}
- }
+ const sessionControl=session.lifecycle?.control==='active'?'pause':'resume';
+ const offeredControl=status?status.controlAction:
+  session.lifecycle?.optionalWork&&offersProductionAction(session,sessionControl,false)?sessionControl:undefined;
  const manual=status?.state==='running'&&status.control&&status.control!=='active';
  const partial=status?.state==='partial';
  const serviceBlocked=status&&status.state!=='completed'&&status.service&&status.service!=='available'?status.service:null;
  const canSubmit=status?.available&&!!(status.startToken||status.retryToken);
  // 可以启动或重试却没有令牌（旧版本、服务停止等）时说明原因，不只隐藏操作。
  const withheld=!!status?.available&&!canSubmit&&(status.state==='idle'||status.state==='partial'&&status.failed.length>0);
- const applyable=serviceBlocked==='snapshot-unavailable'&&!!session&&!!onControl&&offersProductionAction(session,'apply-model',false);
- const detail=serviceBlocked?productionServiceMessages[serviceBlocked]:withheld&&!manual?(session?productionBlockedReason(session):'当前暂无法启动横版生成。'):manual?'横版制作等待恢复，已保存的画幅会保留。':status?.state==='completed'?'插图已齐全，横版 PDF 会使用这套图。':
+ const applyable=serviceBlocked==='snapshot-unavailable'&&offersProductionAction(session,'apply-model',false);
+ const detail=serviceBlocked?productionServiceMessages[serviceBlocked]:withheld&&!manual?productionBlockedReason(session):manual?'横版制作等待恢复，已保存的画幅会保留。':status?.state==='completed'?'插图已齐全，横版 PDF 会使用这套图。':
   status?.state==='running'? `正在生成，已保存 ${status.ready} / ${status.total} 幅。`:
   partial?`已保存 ${status.ready} / ${status.total} 幅${status.failed.length?'，待重试第 '+status.failed.join('、')+' 幅':''}。`:
   status?.available?'按原图和分镜绘制 3∶2 横图，供印刷使用。':status?'当前暂无法启动横版生成。':'正在读取横版进度…';
@@ -77,8 +81,8 @@ export default function StoryLandscapeStep({storyId,session,onControl}:Props){
  const state:ProductionStageState=readError?'failed':serviceBlocked||manual?'paused':running?'current':status?.state==='completed'?'done':partial||actionError?'failed':status&&!status.available?'unavailable':'pending';
  const stateLabel={paused:serviceBlocked?'等待服务':'等待恢复',failed:readError?'读取失败':partial?'待重试':'提交失败',current:'进行中',done:'已完成',unavailable:'暂不可用',pending:status?'未生成':'读取中'}[state];
  const action=readError?<StoryFlowAction onClick={()=>setRefresh(value=>value+1)}>重新读取进度</StoryFlowAction>:
-  applyable?<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={applyModel}>应用当前模型设置</StoryFlowAction>:
-  manual&&!serviceBlocked?<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={resume}>恢复生成</StoryFlowAction>:
+  applyable?<StoryFlowAction disabled={busy||submitting} aria-busy={busy||submitting} onClick={()=>void control('apply-model')}>应用当前模型设置</StoryFlowAction>:
+  offeredControl&&(offeredControl==='pause'||!serviceBlocked)?<StoryFlowAction disabled={busy||submitting} aria-busy={busy||submitting} onClick={()=>void control(offeredControl)}>{offeredControl==='pause'?'暂停生成':'恢复生成'}</StoryFlowAction>:
   canSubmit&&(status.retryToken
    ?<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={start}>{submitting?'正在提交…':'重试未完成画幅'}</StoryFlowAction>
    :<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={start}>{submitting?'正在提交…':'生成横版插图'}</StoryFlowAction>);

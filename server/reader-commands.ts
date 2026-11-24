@@ -10,6 +10,8 @@ import type {GenerationControl} from '../lib/reader-model.ts';
 import {transact} from './production-records.ts';
 
 export type ReaderFault={id:string;session_id:string;owner_id:string;job_id:string|null;kind:'job'|'image-loss'|'interrupted';node:string|null;node_key:string;input_hash:string|null;origin_fault_id:string|null;optional:number;version:string;image:string|null;message:string;state:'pending'|'recovering'|'awaiting-match'|'resolved'|'replaced';command_id:string|null;created_at:number;updated_at:number};
+// 修订中延续的批量故障共享原故障编号；丢图仍逐幅恢复。
+export const carriedJobFaultGroup=(fault:ReaderFault)=>fault.kind==='job'&&!fault.job_id?fault.origin_fault_id:null;
 export type CommandReceipt={request_id:string;owner_id:string;session_id:string;action:string;fingerprint:string;payload:string;fault_id:string|null;result_id:string|null;status:'queued'|'running'|'succeeded'|'failed';result:string|null;error:string|null;created_at:number;updated_at:number};
 export const commandFingerprint=(input:unknown)=>createHash('sha256').update(JSON.stringify(input)).digest('hex');
 export async function commandReceipt(db:Database,ownerId:string,requestId:string,fingerprint?:string){
@@ -68,7 +70,9 @@ export async function authorizeRecovery(db:Database,input:{ownerId:string;sessio
   if(tx.get('SELECT id FROM stories WHERE id=? AND user_id=?',requestId,ownerId))throw new ReaderError(409,'这个操作编号已用于创建或提交故事。');
   tx.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,fault_id,status,created_at,updated_at)
    VALUES(?,?,?,'recover',?,?,?,?,?,?)`,requestId,ownerId,sessionId,fingerprint,payload,faultId,resolved?'succeeded':'queued',now,now);
-  tx.run("UPDATE reader_faults SET state=?,command_id=?,updated_at=? WHERE id=? AND owner_id=? AND session_id=? AND state='pending'",resolved?'resolved':'recovering',requestId,now,faultId,ownerId,sessionId);
+  const group=resolved&&fault?carriedJobFaultGroup(fault):null;
+  tx.run(`UPDATE reader_faults SET state=?,command_id=?,updated_at=? WHERE owner_id=? AND session_id=? AND state='pending'
+   AND (id=? OR kind='job' AND job_id IS NULL AND origin_fault_id=?)`,resolved?'resolved':'recovering',requestId,now,ownerId,sessionId,faultId,group);
   tx.run(`UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,recovery_id=?${redraw?',result=NULL':''},updated_at=?
    WHERE session_id=? AND owner_id=? AND id IN (SELECT value FROM json_each(?)) AND state!='running'`,requestId,now,sessionId,ownerId,selected);
   if(input.resumeUnreviewed)tx.run("UPDATE stories SET document=json_set(document,'$.dag.resumeUnreviewed',json('true')) WHERE id=? AND user_id=?",sessionId,ownerId);

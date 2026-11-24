@@ -602,6 +602,7 @@ export default function Reader(){
    />:<GenerationSurface
     session={workflowSession} busy={gen.busy} controlBusy={!!gen.controlBusy||creating} onControl={gen.control} error={workflowError||gen.error} onRetry={retryWorkflow} onBack={backToShelf} hideBack showSummary={false}
     showLandscape={workflowSession.state==='completed'&&!workflowSession.superseded&&!!panelStory?.pages.length&&panelStory.pages.every(page=>!!page.image)}
+    onLandscapeActivityChange={()=>void gen.refreshLibrary().catch(()=>{})}
     navigation={{source:{onClick:()=>setSource(true),disabled:!workflowSession.generationProgress?.sourceReady},reselect:{label:'替换选题',onClick:()=>void reselectStory(),disabled:creating||revision.busy||!!gen.controlBusy||!offersProductionAction(workflowSession,'open-reselection'),title:'替换当前选题，书架保留一张卡片，旧结果保留历史'},reselecting:creating}}
     onAcceptance={()=>revision.open('acceptance')} onHistory={()=>setReviewHistoryId(workflowSession.id)} onEditStyle={()=>revision.open('style')}
     timeline={{

@@ -9,9 +9,9 @@ type Props={session:ControlState;busy:boolean;onControl:(id:string,action:Produc
 export default function StoryGenerationControl({session,busy,onControl,primary=false,link=false}:Props){
  const offers=session.lifecycle?.actions;
  const available=(action:ProductionAction)=>offers?.some(offer=>offer.event===action)??true;
- // 已完成作品只在刷新建议进行中，或可选工作暂停且可恢复时显示控制。
- const pausedOptional=!!session.generationControl&&session.generationControl!=='active'&&(session.lifecycle?.optionalWork??!!offers?.some(offer=>offer.event==='resume'));
- if(session.state==='completed'&&session.lifecycle?.preparationRefresh!=='pending'&&!pausedOptional)return null;
+ // 已完成作品在刷新建议或制作横图时仍可暂停及恢复。
+ const optionalWork=session.lifecycle?.optionalWork??!!offers?.some(offer=>offer.event==='resume');
+ if(session.state==='completed'&&session.lifecycle?.preparationRefresh!=='pending'&&!optionalWork)return null;
  const blocked=<p className="yu-generation-control" role="status">{productionBlockedReason(session)}</p>;
  // 已保存的修订：只有「继续制作」开始制作，不与暂停、恢复混用。任务清单里的主要操作一律是文字链接（AGENTS.md 界面规则），不受 link 参数影响。
  if(session.awaitingContinue&&!session.superseded)return available('continue')?<StoryFlowAction type="button" className="yu-generation-control" disabled={busy} aria-busy={busy} onClick={()=>void onControl(session.id,'continue')}>{session.redrawPage?`重绘第 ${session.redrawPage} 幅`:'继续制作'}</StoryFlowAction>:blocked;

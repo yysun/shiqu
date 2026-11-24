@@ -9,7 +9,7 @@ import type {MediaStore} from '../lib/services.ts';
 import type {RevisionChanges} from '../lib/reader-revision.ts';
 import {lostImageMessage,readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
-import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
+import {evaluate,instanceId,instanceKeys,type Instance} from '../lib/production-dag/engine.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {castFrom} from '../lib/production-dag/frames.ts';
 import {projectDocument,rootProducts,type DagDocument} from '../lib/production-dag/document.ts';
@@ -216,32 +216,39 @@ function deriveRevision(doc:Document,row:SessionRow,changes:RevisionChanges,chil
  return {parent,child,selection,reviewNotes,changed,choices:outcome.choices,conflicts:outcome.conflicts};
 }
 
-type CarriedFault={id:string;kind:string;node:string;node_key:string;message:string;image:string|null;input_hash:string|null;state:string};
+type CarriedFault={id:string;kind:string;node:string;node_key:string;message:string;image:string|null;input_hash:string|null;origin_fault_id:string|null;optional:number};
 type FaultToCarry=CarriedFault&{payload:string|null};
-const carriedFaultRows=`SELECT f.id,f.kind,f.node,f.node_key,f.message,f.image,f.state,f.input_hash,j.payload
+const carriedFaultRows=`SELECT f.id,f.kind,f.node,f.node_key,f.message,f.image,f.input_hash,f.origin_fault_id,f.optional,j.payload
  FROM reader_faults f LEFT JOIN production_jobs j ON j.id=f.job_id AND j.session_id=f.session_id AND j.owner_id=f.owner_id
  WHERE f.session_id=? AND f.owner_id=? AND f.state IN ('pending','recovering','awaiting-match') AND f.node IS NOT NULL`;
 /**
- * 上一版待处理或恢复中的故障里，其涉及的全部节点实例的输入在新版都没有改变的部分。
- * 涉及的实例取故障任务记录的实例（批量任务覆盖多个实例），没有任务的故障取记录的节点与键；输入已变或画幅已不存在的不带入。
+ * 逐个延续输入未变的故障实例。批量故障拆成具体节点与键保存，保留原故障编号，供读者一次恢复该批留下的目标。
  */
 function carryFaults(faults:FaultToCarry[],parent:DagStory,child:DagStory):CarriedFault[]{
  if(!faults.length)return [];
  const before=evaluate(stateOf(parent)),after=evaluate(stateOf(child));
- const same=(node:string,key:string)=>{
-  if(key!==''&&!child.dag.order.includes(key))return false;
-  try{return JSON.stringify(before.instance(node,key).hard)===JSON.stringify(after.instance(node,key).hard);}catch{return false;}
- };
- return faults.filter(fault=>{
+ return faults.flatMap(({payload,...fault})=>{
   if(fault.kind==='image-loss'&&fault.node==='frameImage'){
    const product=parent.dag.products[instanceId(fault.node,fault.node_key)];
-   fault.input_hash??=product?fingerprint(product.inputs):null;
-   if(fault.input_hash)return true;
+   const input_hash=fault.input_hash??(product?fingerprint(product.inputs):null);
+   if(input_hash)return [{...fault,input_hash}];
   }
-  let instances:{node:string;key:string}[]=[{node:fault.node,key:fault.node_key}];
-  try{const work=fault.payload?(JSON.parse(fault.payload) as {work?:{instances?:{node:string;key:string}[]}}).work:undefined;if(work?.instances?.length)instances=work.instances;}catch{/* 沿用记录的节点 */}
-  return instances.every(i=>same(i.node,i.key));
- }).map(({payload:_,...fault})=>{void _;return fault;});
+  let instances:Pick<Instance,'node'|'key'|'hard'>[]=[{node:fault.node,key:fault.node_key}];
+  try{
+   const recorded=payload?(JSON.parse(payload) as {work?:{instances?:Instance[]}}).work?.instances:undefined;
+   if(recorded?.length)instances=recorded;
+  }catch{/* 沿用记录的节点 */}
+  return instances.flatMap(({node,key,hard})=>{
+   try{
+    if(!instanceKeys(after.state,node).includes(key))return [];
+    const inputs=hard??before.instance(node,key).hard,current=after.instance(node,key).hard;
+    if(fault.kind==='image-loss')return fingerprint(inputs??null)===fingerprint(current??null)?[{...fault,node,node_key:key}]:[];
+    const input_hash=fault.input_hash??(inputs?fingerprint(inputs):null);
+    if(!current||input_hash!==fingerprint(current))return [];
+    return [{...fault,node,node_key:key,input_hash}];
+   }catch{return [];}
+  });
+ });
 }
 
 export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:number;
@@ -253,7 +260,7 @@ export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:n
  handEdits:{id:string;options:string[]}[];
  /** 无法保留的手改：保存会被拒绝（读者须先撤销该设置修改）；预估对它们按放弃估算。 */
  conflicts:{id:string;message:string}[];
- /** 已有未结故障中，保存后继续阻断的数量。 */
+ /** 已有未结故障中，保存后继续阻断的目标数量。 */
  carriedFaults:number};
 
 /**
@@ -379,14 +386,16 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   if(!inserted.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
   const carried=carryFaults(db.all<FaultToCarry>(carriedFaultRows,row.id,ownerId),parent,{...child,dag});
   for(const fault of carried){
-   if(!fault.input_hash&&lost.some(page=>fault.node==='frameImage'&&dag.order[page]===fault.node_key))continue;
+   if((fault.kind!=='image-loss'||!fault.input_hash)&&fault.node==='frameImage'&&lost.some(page=>dag.order[page]===fault.node_key))continue;
    const at=Date.now();
    if(fault.kind==='image-loss'&&fault.input_hash){
     db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,input_hash,origin_fault_id,version,state,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage','',?,?,'dag','awaiting-match',?,?,?)",
      randomUUID(),requestId,ownerId,fault.input_hash,fault.id,'待核对旧版丢图是否影响新版画幅。',at,at);
     continue;
    }
-   db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,image,message,created_at,updated_at) VALUES(?,?,?,?,?,?,'dag',?,?,?,?)",randomUUID(),requestId,ownerId,fault.kind==='interrupted'?'job':fault.kind,fault.node,fault.node_key,fault.image,fault.message,at,at);
+   const kind=fault.kind==='interrupted'?'job':fault.kind;
+   db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,input_hash,origin_fault_id,optional,version,image,message,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'dag',?,?,?,?)",
+    randomUUID(),requestId,ownerId,kind,fault.node,fault.node_key,fault.input_hash,kind==='job'?fault.origin_fault_id??fault.id:null,fault.optional,fault.image,fault.message,at,at);
   }
   // 丢失的成图记为待处理的图片丢失故障：阻断该幅及依赖它的工作与整篇完成，读者明确恢复后才重绘。
   for(const page of lost){

@@ -4,7 +4,7 @@ import type {ProductionLifecycle,ProductionService} from './production-lifecycle
 import type {RecoveryRequest,ReviewOverride} from './reader-recovery.ts';
 export const productionReadAhead=6;
 export const productionViewerLeaseMs=30000;
-export type LandscapeStatus={state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;retryToken?:string;error?:string;service?:ProductionService;control?:GenerationControl};
+export type LandscapeStatus={state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;retryToken?:string;error?:string;service?:ProductionService;control?:GenerationControl;controlAction?:'pause'|'resume'};
 export interface ReaderProduction{
  referencesChanged?():void;
  wake():void;

@@ -29,11 +29,11 @@ import {productionReadAhead,productionViewerLeaseMs} from '../lib/reader-product
 import type {LandscapeStatus,ReaderProduction} from '../lib/reader-production.ts';
 import {JobYield,ProductionQueue,productionJobId} from './production-queue.ts';
 import type {ProductionJob,JobSpec} from './production-queue.ts';
-import {authorizeRecovery,authorizeControl,commandReceipt,sessionFaults} from './reader-commands.ts';
+import {authorizeRecovery,authorizeControl,carriedJobFaultGroup,commandReceipt,sessionFaults} from './reader-commands.ts';
 import type {ReaderFault} from './reader-commands.ts';
 import type {FaultView,RecoveryRequest,ReviewOverride} from '../lib/reader-recovery.ts';
 import {canReprepare,DagProduction,dagTextKind,dagDrawKind,landscapeFrames} from './dag-production.ts';
-import {transact,deleteJobs} from './production-records.ts';
+import {transact,deleteJobs,recordJobSucceeded} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeJobLease,authorizeProductionCommand,resolveProductionService,type ProductionFault,type ProductionImageCheck,type ProductionService} from '../lib/production-lifecycle.ts';
@@ -171,19 +171,29 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    });
    if(lost.size)this.lostLandscapeChecks.set(id,lost);
    else this.lostLandscapeChecks.delete(id);
-   const service=this.serviceAvailability(dag.modelSnapshot);
-   if(service==='unconfigured'||this.stopping||await this.repository.superseded(id,ownerId)){
-    delete status.startToken;
-    delete status.retryToken;
-   }
-   return {...status,control:row.generation_control??'active',service};
+   return this.landscapeControls(row,status);
   }
   return {state:'idle',available:false,total:0,ready:0,images:[],failed:[]};
  }
  async startLandscape(ownerId:string,id:string,command:{startToken?:string;retryToken?:string}){
   const row=await this.repository.get(id,ownerId);
   const status=await this.dag.startLandscape(row,command,this.stopping);
-  return {...status,control:row.generation_control??'active',service:this.serviceAvailability(this.parsed(row)?.doc.dag?.modelSnapshot)};
+  return this.landscapeControls(await this.repository.get(id,ownerId),status);
+ }
+ private async landscapeControls(row:SessionRow,status:LandscapeStatus):Promise<LandscapeStatus>{
+  const doc=this.parsed(row)?.doc;
+  const control=row.generation_control??'active',service=this.serviceAvailability(doc?.dag?.modelSnapshot);
+  const superseded=await this.repository.superseded(row.id,row.user_id);
+  if(service==='unconfigured'||this.stopping||superseded){
+   delete status.startToken;
+   delete status.retryToken;
+  }
+  const action=control==='active'?'pause':'resume';
+  const offered=(action==='pause'||service!=='unconfigured')&&authorizeProductionCommand(action,{
+   version:superseded?'superseded':'current',control,continuation:!!doc?.dag?.continuation,stopping:this.stopping,
+   targetCurrent:true,targetReady:status.available&&status.state==='running',
+  }).allowed;
+  return {...status,control,service,...(offered?{controlAction:action}:{})};
  }
  private searchCurrent(row:SessionRow,round:number|undefined){
   const doc=JSON.parse(row.document) as Document;
@@ -443,7 +453,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const dag=parsed.doc.dag,checkedLandscapeLosses=this.checkedLandscapeLosses(id,dag);
   const optionalFrames=dag?landscapeFrames(dag,jobs,checkedLandscapeLosses):[];
   const jobsById=new Map(allJobs.map(job=>[job.id,job]));
-  const projectedFaults=faults.map(fault=>this.faultView(parsed.doc,fault,fault.job_id?jobsById.get(fault.job_id):undefined));
+  const faultGroups=new Map<string,ProductionFault>();
+  for(const fault of faults){
+   const view=this.faultView(parsed.doc,fault,fault.job_id?jobsById.get(fault.job_id):undefined);
+   const group=carriedJobFaultGroup(fault)??fault.id,previous=faultGroups.get(group);
+   if(previous)previous.targets.push(...view.targets);
+   else faultGroups.set(group,view);
+  }
+  const projectedFaults=[...faultGroups.values()];
   const views:FaultView[]=projectedFaults.filter(fault=>fault.scope==='required');
   const landscapeFaults=parsed.doc.dag?.order.flatMap((key,page):ProductionFault[]=>{
    const message=optionalFrames[page]?.landscapeError;
@@ -742,7 +759,28 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    return {failed:true};
   }finally{this.searches.delete(row.id);}
  }
- // 准备流程世代或查找轮次已过时的排队与失败任务不再可能执行，删除以免每轮调度都要跳过；其未结故障一并作废。
+ /** 建议已经保存但任务回执未落盘时，按原世代补记成功，无需领取任务或再调用模型。 */
+ private settleSavedPreparation(db:SyncStatements,row:SessionRow,now:number){
+  const {doc}=this.parsed(row)!;
+  if(!doc.frameRecommendation||!doc.dag||doc.dag.repreparing)return 0;
+  const confirming=doc.intake?.phase==='confirming';
+  const refresh=doc.dag.preparationGeneration;
+  if(!confirming&&refresh===undefined)return 0;
+  const result=JSON.stringify({applied:'prepareSuggestions'});
+  const jobs=db.all<ProductionJob>(`UPDATE production_jobs
+   SET state='succeeded',result=?,error=NULL,error_code=NULL,interrupted=0,lease_token=NULL,lease_until=0,updated_at=?
+   WHERE session_id=? AND owner_id=? AND kind=? AND (state='queued' OR state='failed' AND interrupted=1)
+   AND json_extract(payload,'$.work.call')='prepareSuggestions'
+   AND json_extract(payload,'$.setupGeneration') IS ?
+   AND (json_extract(payload,'$.preparationGeneration') IS NULL AND ?
+        OR json_extract(payload,'$.preparationGeneration')=?)
+   AND EXISTS(SELECT 1 FROM stories s WHERE s.id=production_jobs.session_id AND s.user_id=production_jobs.owner_id AND s.document=?)
+   RETURNING *`,result,now,row.id,row.user_id,dagTextKind,doc.intake?.generation??null,confirming?1:0,refresh??null,row.document);
+  for(const job of jobs)recordJobSucceeded(db,job,result,now);
+  return jobs.length;
+ }
+
+ // 已保存的准备工作补记成功；世代或查找轮次已过时的任务及其未结故障作废。
  private async pruneSuperseded(forceId?:string){
   const candidates=(await this.database.prepare(productionRevisionSql.prune).all<StoryRevision&{queued_count:number;failed_count:number}>()).results;
   const seen=new Set<string>();
@@ -755,13 +793,17 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    const row=await this.find(candidate.id,candidate.user_id);
    if(!row)continue;
    if(!this.readable(row)){this.pruneKeys.set(row.id,key);continue;}
-   transact(this.database,db=>deleteJobs(db,`session_id=? AND owner_id=? AND state IN('queued','failed') AND EXISTS(SELECT 1 FROM stories s WHERE s.id=production_jobs.session_id AND s.user_id=production_jobs.owner_id
-   AND CASE WHEN json_valid(s.document) AND json_type(s.document,'$.intake')='object' THEN
-    CASE WHEN production_jobs.kind='discover'
-     THEN COALESCE(json_extract(production_jobs.payload,'$.searchRound'),-1)!=CASE WHEN json_extract(s.document,'$.intake.search.state')='searching' THEN json_extract(s.document,'$.intake.search.round') ELSE -2 END
-     ELSE COALESCE(json_extract(production_jobs.payload,'$.setupGeneration'),-1)!=json_extract(s.document,'$.intake.generation') END
-    ELSE 0 END)`,[row.id,row.user_id],this.clock()));
-   this.pruneKeys.set(row.id,key);
+   const changed=transact(this.database,db=>{
+    const now=this.clock(),settled=this.settleSavedPreparation(db,row,now);
+    return settled+deleteJobs(db,`session_id=? AND owner_id=? AND state IN('queued','failed') AND EXISTS(SELECT 1 FROM stories s WHERE s.id=production_jobs.session_id AND s.user_id=production_jobs.owner_id
+     AND CASE WHEN json_valid(s.document) AND json_type(s.document,'$.intake')='object' THEN
+      CASE WHEN production_jobs.kind='discover'
+       THEN COALESCE(json_extract(production_jobs.payload,'$.searchRound'),-1)!=CASE WHEN json_extract(s.document,'$.intake.search.state')='searching' THEN json_extract(s.document,'$.intake.search.round') ELSE -2 END
+       ELSE COALESCE(json_extract(production_jobs.payload,'$.setupGeneration'),-1)!=json_extract(s.document,'$.intake.generation') END
+      ELSE 0 END)`,[row.id,row.user_id],now);
+   });
+   if(changed)this.pruneKeys.delete(row.id);
+   else this.pruneKeys.set(row.id,key);
   }
   for(const id of this.pruneKeys.keys())if(!seen.has(id))this.pruneKeys.delete(id);
  }
