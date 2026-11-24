@@ -79,6 +79,10 @@ export class DagProduction{
  private async save(row:SessionRow,story:DagStory,dag:DagDocument,usage?:Document['usage'][number],retainDeleted=false,selection?:Selection,job?:ProductionJob){
   const {plan,images}=projectDocument(dag,story.doc.plan);
   const doc:Document={...story.doc,dag,plan,images,...(usage?{usage:[...(story.doc.usage||[]),usage]}:{})};
+  const revision=doc.revision,redrawFrame=revision?.redrawFrame&&dag.frames[revision.redrawFrame];
+  if(revision?.landscapeRedraw&&revision.redrawFrame&&(!redrawFrame||redrawFrame.landscape!==''||redrawFrame.landscapeError)){
+   doc.revision={...revision};delete doc.revision.landscapeRedraw;
+  }
   const done=finished({...story,dag});
   const reordered=story.dag.order.length!==dag.order.length||story.dag.order.some((frame,index)=>frame!==dag.order[index]);
   // 用正在阅读的画幅身份计算位置；读取进度更新与制作写入可以并发。

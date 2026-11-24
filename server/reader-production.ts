@@ -161,9 +161,13 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   id=this.options.targetSessionId||id;
   const viewers=(await this.database.prepare(`SELECT * FROM production_demand WHERE runtime_id=? AND expires_at>? AND NOT EXISTS(SELECT 1 FROM stories s WHERE s.id=production_demand.session_id AND s.user_id=production_demand.owner_id AND ${supersededSql('s')})${id?' AND session_id=?':''}`)
    .bind(this.runtimeId,this.clock(),...(id?[id]:[])).all<Demand>()).results;
-  const background=(await this.database.prepare(`SELECT id,user_id FROM stories WHERE generation_control='active' AND state!='completed'
-   AND NOT ${supersededSql()} AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)${id?' AND id=?':''}`)
-   .bind(...(id?[id]:[])).all<{id:string;user_id:string}>()).results;
+  const current=`AND NOT ${supersededSql()} AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)${id?' AND id=?':''}`;
+  // 单幅重绘的横图在竖图完成后接续，用既有横图重绘索引定位待派发的版本。
+  const background=(await this.database.prepare(`SELECT id,user_id FROM stories WHERE generation_control='active' AND state!='completed' ${current}
+   UNION ALL SELECT id,user_id FROM stories WHERE generation_control='active' AND state='completed'
+    AND (CASE WHEN json_valid(document) THEN json_type(document,'$.revision.landscapeRedraw')='array' END)=1
+    AND json_type(CASE WHEN json_valid(document) THEN document ELSE '{}' END,'$.revision.redrawFrame')='text' ${current}`)
+   .bind(...(id?[id,id]:[])).all<{id:string;user_id:string}>()).results;
   return [...viewers,...background.map(row=>({session_id:row.id,owner_id:row.user_id,viewer_id:'background',page:0,through_page:readerMaxFrames-1,expires_at:Infinity,runtime_id:this.runtimeId}))];
  }
  private parsed(row:SessionRow){

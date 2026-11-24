@@ -11,7 +11,7 @@ export type DagReviewProgress={
  reviewStopReason?:'limit'|'unchanged'|'requirements'|'replan';
  reviewOverridden:boolean;
 };
-export type DagProgress={step:Step|null;review:DagReviewProgress;complete:boolean};
+export type DagProgress={step:Step|null;review:DagReviewProgress;complete:boolean;redrawPage?:number};
 
 const repairCalls=new Set(['sceneRepair','visualRepair','structureRepair','endingRepair']);
 const callKinds:Record<string,Step['kind']>={
@@ -25,7 +25,8 @@ export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
  if(!doc.dag||doc.intake&&doc.intake.phase!=='confirmed')return null;
  const base:DagStory={id:'',doc,selection,dag:doc.dag,confirmed:true,faults:[]};
  const story={...base,dag:settle(base)};
- const items=story.dag.continuation?[]:work(story);
+ // 等待继续时仍显示真实的接续步骤，调度由持久化等待状态阻止。
+ const items=work(story);
  const text=items.find(item=>item.call!=='draw'&&item.call!=='drawLandscape');
  const drawing=items.find(item=>item.call==='draw');
  const waiting=attention(story);
@@ -33,6 +34,7 @@ export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
  const key=text?`${text.call}:${text.stage??0}`:'';
  const step:Step|null=text?{kind:callKinds[text.call]??'plan',page:0,key}
   :drawing?{kind:'image',page:Math.max(0,story.dag.order.indexOf(drawing.instances[0].key)),key:`image:${drawing.instances[0].key}`}:null;
+ const redrawPage=step?.kind==='image'&&items.length===1&&doc.revision?.base?.images?.[step.page]&&!doc.images[step.page]&&doc.images.filter(Boolean).length===story.dag.order.length-1?step.page+1:undefined;
  const reviewWork=items.some(item=>item.call==='frameCheck'||item.call==='review');
  const repairing=items.some(item=>repairCalls.has(item.call));
  const stop=waiting[0]?.reason;
@@ -44,7 +46,7 @@ export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
   ...(stop==='limit'||stop==='unchanged'||stop==='requirements'?{reviewStopReason:stop}:stop==='unrepairable'?{reviewStopReason:'replan' as const}:{}),
   reviewOverridden:Object.values(story.dag.products).some(product=>product.overridden),
  };
- return {step,review,complete};
+ return {step,review,complete,...(redrawPage?{redrawPage}:{})};
 }
 
 registerDagProgress(dagProgress);

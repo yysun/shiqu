@@ -2,12 +2,12 @@
 import StoryFlowAction from './StoryFlowAction';
 import type {ProductionAction,SessionView} from '@/lib/reader-model';
 
-type ControlState=Pick<SessionView,'awaitingContinue'|'snapshotUnavailable'|'id'|'state'|'superseded'|'generationControl'|'error'>&{intake?:Pick<NonNullable<SessionView['intake']>,'phase'>};
+type ControlState=Pick<SessionView,'awaitingContinue'|'redrawPage'|'snapshotUnavailable'|'id'|'state'|'superseded'|'generationControl'|'error'>&{intake?:Pick<NonNullable<SessionView['intake']>,'phase'>};
 type Props={session:ControlState;busy:boolean;onControl:(id:string,action:ProductionAction)=>Promise<void>;primary?:boolean;link?:boolean};
 export default function StoryGenerationControl({session,busy,onControl,primary=false,link=false}:Props){
  if(session.state==='completed')return null;
  // 已保存的修订：只有「继续制作」开始制作，不与暂停、恢复混用。任务清单里的主要操作一律是文字链接（AGENTS.md 界面规则），不受 link 参数影响。
- if(session.awaitingContinue&&!session.superseded)return <StoryFlowAction type="button" className="yu-generation-control" disabled={busy} aria-busy={busy} onClick={()=>void onControl(session.id,'continue')}>继续制作</StoryFlowAction>;
+ if(session.awaitingContinue&&!session.superseded)return <StoryFlowAction type="button" className="yu-generation-control" disabled={busy} aria-busy={busy} onClick={()=>void onControl(session.id,'continue')}>{session.redrawPage?`重绘第 ${session.redrawPage} 幅`:'继续制作'}</StoryFlowAction>;
  // 快照服务不可用：先应用当前模型设置，再用故障的重试继续。
  if(session.snapshotUnavailable&&!session.superseded)return <StoryFlowAction type="button" className="yu-generation-control" disabled={busy} aria-busy={busy} onClick={()=>void onControl(session.id,'apply-model')}>应用当前模型设置</StoryFlowAction>;
  if(session.superseded)return <p className="yu-generation-control">这是旧版本，请打开书架中的最新版本继续生成。</p>;

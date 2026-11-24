@@ -85,6 +85,7 @@ import './reader.css';
 // 宽屏手机规则必须最后加载（同等特异性时覆盖放宽后的手机规则）
 import './compact.css';
 import StoryFlowAction from './StoryFlowAction';
+import {shelfGenerationStatus} from '@/lib/shelf-generation';
 
 type Book = ReaderBook;
 type Progress = {storyId:string; page:number; saved?:number; updatedAt?:string|null};
@@ -224,9 +225,9 @@ export default function Reader(){
  useEffect(()=>{setReviewHistoryId(null);},[historyOwner]);
  const revision=useStoryRevision(story?story.id:gen.active&&(!gen.active.intake||gen.active.intake.phase==='confirmed')?gen.active.id:undefined,async(next,changes)=>{await switchVersion(next.id,changes.removedFrames||changes.storySummary?next.page:0);},switchVersion);
  // 仅换图使用单独的修订草稿，保留故事设置里未提交的编辑。
- const redraw=useStoryRevision(story?.id,async next=>{setRedrawPage(null);await switchVersion(next.id,redrawPage??0);});
- async function switchVersion(id:string,initialPage=0){
-  const previous={story,page,saved,ended,drag:drag.get(),motion,seen:seen.current,session:session.current,workflowTarget};setWorkflowTarget(id);setWorkflowError('');setSettings(false);setSource(false);setScript(false);revision.setTab(null);setStory(null);setPage(initialPage);setEnded(false);setSaved(false);setDrag(0);setMotion('forward');seen.current=new Set();session.current=randomId();gen.leave();
+ const redraw=useStoryRevision(story?.id,async next=>{setRedrawPage(null);await switchVersion(next.id,redrawPage??0,false);});
+ async function switchVersion(id:string,initialPage=0,showWorkflow=true){
+  const previous={story,page,saved,ended,drag:drag.get(),motion,seen:seen.current,session:session.current,workflowTarget};setWorkflowTarget(showWorkflow?id:null);setWorkflowError('');setSettings(false);setSource(false);setScript(false);revision.setTab(null);setStory(null);setPage(initialPage);setEnded(false);setSaved(false);setDrag(0);setMotion('forward');seen.current=new Set();session.current=randomId();gen.leave();
   try{await gen.resume(id,initialPage,false,true);}catch{setPage(previous.page);setSaved(previous.saved);setEnded(previous.ended);setDrag(previous.drag);setMotion(previous.motion);seen.current=previous.seen;session.current=previous.session;setStory(previous.story);setWorkflowTarget(previous.workflowTarget);setWorkflowError('新版暂时无法打开，请重新加载制作流程。');void gen.refreshLibrary().catch(()=>{});notify('这个版本暂时无法打开，已保存的新版可从书架继续。');}
  }
  const [heroStoryId,setHeroStoryId]=useState('');
@@ -562,6 +563,7 @@ export default function Reader(){
  const visibleCaption=typedCaption.key===captionKey?typedCaption.text:'';
  const activeProgress=mergeReadingProgress(progress,gen.sessions.map(s=>({storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}))).filter(p=>!deletedIds.includes(p.storyId)&&shelfSessionsById.has(p.storyId));
  const readingSession=story&&gen.active?.id===story.id?gen.active:undefined;
+ const redrawStatus=readingSession?.redrawPage===page+1?shelfGenerationStatus(readingSession).message:null;
  const reviewStatus=readingSession?.generationProgress?.reviewStatus;
  const canRedraw=isGenerated(story)&&readingSession?.state==='completed'&&!readingSession.superseded&&(!reviewStatus||reviewStatus==='passed');
  const workflowSession=workflowTarget?(gen.active?.id===workflowTarget?gen.active:null):settings?readingSession:!story?gen.active:null;
@@ -684,7 +686,7 @@ export default function Reader(){
  const readerMain=story&&<ReaderTag className={'yu-reader'+(!metadataVisible&&!ended?' yu-metadata-hidden':'')} ref={readerRef} aria-label={'阅读'+story.title} data-main={dockedView?undefined:''}>
  <StoryFilmstrip key={story.id} pages={story.pages} page={ended?story.pages.length:page} ending={readerEnding} reloads={imageReloads} onImageError={onFrameError} onImageLoad={onFrameLoad} onPageChange={readScrolledPage} onTurn={turn} onToggleMetadata={()=>setMetadataVisible(visible=>!visible)}/>
  {ended&&<div className="yu-scene-shade"/>}
- {!ended&&!current?.image&&<div className="yu-drawing" role="status"><div className="yu-drawing-orbit"><Feather size={35} strokeWidth={1}/></div><span>{gen.error?'画笔暂停了一下':'这一幅，正在展开'}</span><small>{gen.error||gen.active?.stage||'正在为你绘制画面'}</small>{gen.error&&gen.active&&<StoryRetry session={gen.active} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}
+ {!ended&&!current?.image&&<div className="yu-drawing" role="status"><div className="yu-drawing-orbit"><Feather size={35} strokeWidth={1}/></div><span>{gen.error?'画笔暂停了一下':redrawStatus||'这一幅，正在展开'}</span><small>{gen.error||(redrawStatus?'已保存的分镜和其他画幅已保留':gen.active?.stage)||'正在为你绘制画面'}</small>{gen.error&&gen.active&&<StoryRetry session={gen.active} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}
  <header className="yu-reader-top">
   <div className="yu-progress" aria-label={`第${page+1}幅，共${story.pages.length}幅`}>{story.pages.map((_,i)=><span key={i} className={i<=page?'read':''}/>)}</div>
   <div className="yu-reader-heading">
@@ -792,7 +794,7 @@ export default function Reader(){
  {embeddingSheet}
  {storySheets}
  {story&&redrawPage!==null&&<Sheet title="重新生图" busy={redraw.busy} onClose={()=>setRedrawPage(null)}>
-  <p className="yu-sheet-intro">重新生成第 {redrawPage+1} 幅竖图。如果本幅已有横图，也会自动重绘横图。两次生成均可能消耗额度。新版沿用分镜和其他图片，原版保留。</p>
+  <p className="yu-sheet-intro">确认后立即重绘第 {redrawPage+1} 幅竖图，本幅已有的横图也会重绘。重绘可能消耗额度。新版沿用分镜、审片结果和其他图片，原版保留。</p>
   <div className="yu-redraw-models"><p>原图像模型：{isGenerated(story)?generationImageModelForPage(story.generationModels,redrawPage)||'未记录':'未记录'}</p><p>本次将使用的图像模型：{providerRuntime?.models.image.trim()||(providerRuntime?'未配置':'正在读取…')}</p></div>
   {redraw.loading&&<p role="status">正在载入制作内容…</p>}
   {redraw.error&&<p role="alert">{redraw.error}</p>}
@@ -800,7 +802,7 @@ export default function Reader(){
   <div className="yu-revision-buttons">
    {!redraw.loading&&!redraw.base?<StoryFlowAction onClick={()=>void redraw.load()}>重新载入</StoryFlowAction>:<button type="button" className="yu-primary" disabled={!redraw.base||redraw.loading||redraw.busy} onClick={()=>{
     const frame=redrawPage+1,note=redrawNote.trim();
-    void redraw.submit({redrawPages:[frame],...(note?{redrawNotes:{[frame]:note}}:{})});
+    void redraw.submit({redrawPages:[frame],...(note?{redrawNotes:{[frame]:note}}:{})},true);
    }}>{redraw.busy?'正在提交…':'确认重新生图'}</button>}
    <button type="button" disabled={redraw.busy} onClick={()=>setRedrawPage(null)}>取消</button>
   </div>

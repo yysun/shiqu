@@ -40,10 +40,10 @@ export async function revisionSnapshot(repo:ReaderRepository,id:string,ownerId:s
  const row=await repo.get(id,ownerId),{doc,epoch,token}=await revisionBasis(repo,row);
  return {selection:selectionSchema.parse(JSON.parse(row.selection)),plan:doc.plan,images:doc.images,savedFrameCount:savedFrameCount(doc),...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{}),token,epoch,reviewStatus:doc.visualReview?.status,reviewNotes:doc.reviewNotes,...(canEditReviewNotes(row,doc)?{canEditReviewNotes:true,priorReviewIssues:doc.visualReview!.issues}:{}),...(doc.revision?{revision:{parentId:doc.revision.parentId,rootId:doc.revision.rootId,number:doc.revision.number}}:{})};
 }
-export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,parentId:string,requestId:string,token:string,changes:RevisionChanges,paused=false,cover?:Uint8Array,landscapeImages?:()=>Promise<readonly string[]>){
+export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,parentId:string,requestId:string,token:string,changes:RevisionChanges,paused=false,cover?:Uint8Array,startRedraw=false){
  // Preserve fingerprints of requests saved before explicit paused submissions were added.
  const coverHash=cover?hash(cover):undefined;
- const requestHash=hash(JSON.stringify([parentId,token,changes,...(paused?[true]:[]),...(coverHash?[{cover:coverHash}]:[])]));
+ const requestHash=hash(JSON.stringify([parentId,token,changes,...(paused?[true]:[]),...(coverHash?[{cover:coverHash}]:[]),...(startRedraw?[{startRedraw}]:[])]));
  const replay=async()=>{
   const existing=await repo.db.prepare('SELECT * FROM stories WHERE id=?').bind(requestId).first<SessionRow>();
   if(!existing)return null;
@@ -56,5 +56,5 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  const row=await repo.get(parentId,ownerId);
  // 全部故事都由制作 DAG 推导失效范围；尚未进入 DAG 的故事（准备中）没有可修订的内容。
  if(!(JSON.parse(row.document) as Document).dag)throw new ReaderError(409,'这篇故事还没有进入制作，请稍后再修改。');
- return forkDagRevision(repo,media,ownerId,row,requestId,token,changes,paused,requestHash,cover);
+ return forkDagRevision(repo,media,ownerId,row,requestId,token,changes,paused,requestHash,cover,startRedraw);
 }

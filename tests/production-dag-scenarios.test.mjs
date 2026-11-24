@@ -101,6 +101,12 @@ async function revise(f,id,changes,{expectContinue=true}={}){
  await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:typeof changes==='function'?changes(snapshot):changes});
  if(expectContinue){
   assert.equal((await saved(f,child)).dag.continuation?.reason,'revision-saved');
+  if(typeof changes!=='function'&&changes.redrawPages?.length===1){
+   const waiting=await f.read(child);
+   assert.equal(waiting.redrawPage,changes.redrawPages[0]);
+   assert.equal(waiting.generationProgress.phase,'image');
+   assert.equal(waiting.generationProgress.reviewStatus,'passed');
+  }
   await f.json(`sessions/${child}/production-control`,'POST',{action:'continue'});
  }
  await until(async()=>(await f.read(child)).state==='completed',20000);
@@ -132,6 +138,56 @@ test('redrawing one image with a note draws only that frame, with the note and t
  assert.ok(f.control.calls[0].reference,'the first image is the reference');
  assert.equal(f.control.reviews.length+textCalls(f.control),0,'no text calls');
  assert.equal(doc.dag.frames[doc.dag.order[1]].redrawNote,'把背景改成雨夜');
+});
+
+test('confirming a reader redraw starts one frame immediately and replays without drawing again',async t=>{
+ const f=await productionFixture(t,'codex');
+ const {id,dag:before}=await completedStory(f);
+ const snapshot=await f.json(`sessions/${id}/revisions`);
+ const requestId=crypto.randomUUID(),route=`sessions/${id}/revisions`;
+ const submission={requestId,token:snapshot.token,changes:{redrawPages:[2]},startRedraw:true};
+ const invalid=await f.request(route,'POST',{...submission,changes:{redrawPages:[2,3]}});
+ assert.equal(invalid.status,400);
+ assert.equal(f.control.calls.length,0);
+
+ const session=await f.json(route,'POST',submission);
+ assert.equal(session.id,requestId);
+ assert.equal(session.awaitingContinue,undefined);
+ assert.equal(session.generationControl,'active');
+ assert.equal(session.redrawPage,2);
+ assert.equal(session.generationProgress.reviewStatus,'passed');
+ await until(()=>f.control.calls.length===1);
+ assert.equal(f.control.calls[0].page,1);
+ assert.equal((await f.json(route,'POST',submission)).id,requestId);
+ f.control.calls[0].resolve();
+ await until(async()=>(await f.read(requestId)).state==='completed',15000);
+
+ const after=await saved(f,requestId);
+ assert.deepEqual(after.plan,snapshot.plan);
+ assert.equal(after.images.filter(Boolean).length,6);
+ assert.equal(f.control.calls.length,1);
+ assert.deepEqual(f.control.dagCalls,[]);
+ assert.equal(f.control.reviews.length+textCalls(f.control),0);
+ const reused=before.order.filter((_,index)=>index!==1).map(key=>`frameImage:${key}`);
+ assert.deepEqual(reused.map(key=>after.dag.products[key]),reused.map(key=>before.products[key]));
+ assert.deepEqual((await saved(f,id)).images,snapshot.images);
+});
+
+test('confirming a redraw of the first frame also replaces just its existing landscape',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f);
+ const landscape=await f.json(`sessions/${id}/landscape`);
+ await f.json(`sessions/${id}/landscape`,'POST',{startToken:landscape.startToken});
+ await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',15000);
+ const before=f.control.calls.length;
+ const snapshot=await f.json(`sessions/${id}/revisions`);
+ const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:snapshot.token,changes:{redrawPages:[1]},startRedraw:true});
+ await until(async()=>(await f.json(`sessions/${child.id}/landscape`)).state==='completed',15000);
+ assert.deepEqual(f.control.calls.slice(before).map(({page,landscape})=>[page,landscape]),[[0,false],[0,true]]);
+ assert.equal(f.control.reviews.length+textCalls(f.control),0);
+ assert.equal((await f.read(child.id)).state,'completed');
+ assert.equal((await saved(f,child.id)).revision.landscapeRedraw,undefined,'finished landscapes leave the pending redraw index');
 });
 
 test('a style change converts image descriptions in one batch, re-reviews frames and redraws every image',async t=>{

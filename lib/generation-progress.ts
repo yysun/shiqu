@@ -17,8 +17,14 @@ export function generationProgress(session:SessionView,now:number){
  const activeState=failed?'failed' as const:running||queued||session.intake&&['choosing','confirming'].includes(session.intake.phase)?'current' as const:'paused' as const;
  const {intake,selection}=session,selected=intake?.selected;
  const intakeSource=selection.discovery?.mode==='auto'&&selection.discovery.combine?'combined':isDirectSourceSelection(selection)?'direct':'candidates';
- const steps=productionSteps({intakePhase:intake?.phase,intakeSource,intakeSelected:!!selected,candidateBatches:intake?.batches.length,selectedSourceLabel:selected?intake?.batches[selected.batch]?.stories[selected.index]?.sourceLabel:undefined,preparedSummary:!!session.frameRecommendation?.storySummary,estimatedFrames:session.frameRecommendation?.count,planReady:!!session.story,sourceReady,frameCountConfirmed:countReady,storyboardFrames:meta?.storyboardFrames,storyboardBatch:meta?.storyboardBatch,reviewOverridden:meta?.reviewOverridden,reviewStatus:meta?.reviewStatus,reviewPhase:meta?.reviewPhase,reviewRound:meta?.reviewRound,repairCompleted:meta?.repairCompleted,repairTotal:meta?.repairTotal,reviewAudits:meta?.reviewAudits,repairBatches:meta?.repairBatches,repairPasses:meta?.repairPasses,reviewStopReason:meta?.reviewStopReason,phase,total,ready,activeState});
+ const production=productionSteps({intakePhase:intake?.phase,intakeSource,intakeSelected:!!selected,candidateBatches:intake?.batches.length,selectedSourceLabel:selected?intake?.batches[selected.batch]?.stories[selected.index]?.sourceLabel:undefined,preparedSummary:!!session.frameRecommendation?.storySummary,estimatedFrames:session.frameRecommendation?.count,planReady:!!session.story,sourceReady,frameCountConfirmed:countReady,storyboardFrames:meta?.storyboardFrames,storyboardBatch:meta?.storyboardBatch,reviewOverridden:meta?.reviewOverridden,reviewStatus:meta?.reviewStatus,reviewPhase:meta?.reviewPhase,reviewRound:meta?.reviewRound,repairCompleted:meta?.repairCompleted,repairTotal:meta?.repairTotal,reviewAudits:meta?.reviewAudits,repairBatches:meta?.repairBatches,repairPasses:meta?.repairPasses,reviewStopReason:meta?.reviewStopReason,phase,total,ready,activeState});
+ const steps=session.redrawPage?production.filter(step=>step.id!=='repair'&&step.id!=='recheck'):production;
  if(!session.intake&&!countReady&&session.frameRecommendation)steps[1].detail=`建议 ${session.frameRecommendation.count} 幅`;
+ if(session.redrawPage){
+  const review=steps.find(step=>step.id==='review'),drawing=steps.find(step=>step.id==='image');
+  if(review)review.detail='沿用上一版审片结果';
+  if(drawing)drawing.detail=`本次重绘第 ${session.redrawPage} 幅 · ${ready} / ${total} 幅画面已保存`;
+ }
  const elapsed=running&&meta?.startedAt!==null&&meta?.startedAt!==undefined&&Number.isFinite(meta.startedAt)?Math.max(0,Math.floor((now-meta.startedAt)/1000)):null;
  const remaining=elapsed!==null&&meta?.timeoutAt!==null&&meta?.timeoutAt!==undefined&&Number.isFinite(meta.timeoutAt)?Math.max(0,Math.ceil((meta.timeoutAt-now)/1000)):null;
  const measured=phase==='image'&&total!==null;

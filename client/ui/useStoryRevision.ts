@@ -94,17 +94,17 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
    return false;
   }finally{lock.current=false;setBusy(false);setSummarizing(false);}
  }
- async function submit(submittedChanges=changes){
+ async function submit(submittedChanges=changes,startRedraw=false){
   if(!base||!storyId||lock.current)return;
   try{checkedRevision(base,submittedChanges);}catch(e){setError(e instanceof Error?e.message:'请检查修改内容。');return;}
-  const signature=JSON.stringify([storyId,base.token,submittedChanges]);
+  const signature=JSON.stringify([storyId,base.token,submittedChanges,startRedraw]);
   if(submission.current?.signature!==signature)submission.current={signature,id:randomId()};
   // 提交时废弃先前的快照读取，避免回写已经提交的版本。
   read.current++;
   lock.current=true;setBusy(true);setError('');
   try{
    const originId=storyId;
-   const session:SessionView=await request(`reader/sessions/${storyId}/revisions`,'POST',{requestId:submission.current.id,token:base.token,changes:submittedChanges});
+   const session:SessionView=await request(`reader/sessions/${storyId}/revisions`,'POST',{requestId:submission.current.id,token:base.token,changes:submittedChanges,...(startRedraw?{startRedraw:true}:{})});
    if(latest.current!==originId)return;
    setTab(null);setBase(null);setChanges({});submission.current=null;
    await callback.current(session,submittedChanges);

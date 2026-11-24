@@ -1,5 +1,5 @@
 // 制作 DAG 故事的修订保存：新版复制上一版的 dag 与图片，读者改动按手改记录，失效范围由引擎按输入推导。
-// 有需要重做的工作时新版进入「已保存，等待继续」（dag.continuation），只有「继续制作」清除；没有时保持原制作状态。
+// 有重做工作时保留「已保存，等待继续」，阅读器明确确认的单幅重绘直接进入绘图队列。
 // 支持文字修改、删除画幅、设置修改（含画风、幅数策略）与仅换图（可带重绘说明）。文字修改按上一版的输入记录为手改，
 // 再合入设置修改；保存会使手改失效时，读者须对每处手改选择「以手改为基础」或「放弃」，未选择时不保存。
 import {createHash,randomUUID} from 'node:crypto';
@@ -245,8 +245,9 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
  return {changed:Object.keys(changes).length>0,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices,conflicts:conflicts.map(id=>({id,message:`重新编排会丢弃${handEditLabel(id,doc.dag!.order)}的手改`})),carriedFaults:carried.length};
 }
 
-export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string,cover?:Uint8Array):Promise<SessionRow>{
+export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string,cover?:Uint8Array,startRedraw=false):Promise<SessionRow>{
  if(!Object.keys(changes).length)throw new ReaderError(400,'没有需要保存的修改。');
+ if(startRedraw&&(paused||changes.redrawPages?.length!==1))throw new ReaderError(400,'直接重绘只支持立即生成一幅画。');
  const {doc,rootId,epoch,token:current}=await revisionBasis(repo,row);
  if(changes.redrawPages&&(Object.values(doc.dag!.products).some(product=>product.unreviewed)||row.state!=='completed'||Object.keys(changes).some(key=>!['redrawPages','redrawNotes'].includes(key))))throw new ReaderError(409,'仅换图需要已完成的故事，且不能同时修改文字或设置。');
  if(changes.redrawNotes&&Object.keys(changes.redrawNotes).some(page=>!changes.redrawPages?.includes(Number(page))))throw new ReaderError(400,'重绘说明只能用于本次选中的画幅。');
@@ -260,6 +261,13 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   if(cover.length>revisionCoverMaxBytes||!coverType||!dimensions||dimensions.width>4096||dimensions.height>4096||!await readableImage(cover))throw new ReaderError(400,'请选择可读取的 PNG、JPEG 或 WebP，文件不超过 12 MiB，宽高各不超过 4096 像素。');
  }
  const {parent,child,selection,reviewNotes}=deriveRevision(doc,row,changes,requestId,true);
+ const redrawFrame=startRedraw?child.dag.order[changes.redrawPages![0]-1]:undefined;
+ const redrawLandscape=redrawFrame&&!!child.dag.frames[redrawFrame].landscape;
+ if(redrawLandscape){
+  child.dag.frames[redrawFrame].landscape='';
+  delete child.dag.frames[redrawFrame].landscapeError;
+  delete child.dag.products[instanceId('landscape',redrawFrame)];
+ }
  const lost=await copyImages(media,row.id,requestId,child.dag);
  if(cover&&coverType){
   // 首幅原图字节不变地保存到新版，立即作为首幅显示；其成图产物在画面描述转换完成、输入就绪后由 settle() 记录。
@@ -270,17 +278,19 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   child.dag.frames[first].image=asset.url;delete child.dag.products[instanceId('frameImage',first)];
  }
  child.dag=settle(child);
- const pending=work(child).length>0;
- const dag:DagDocument={...child.dag,...(pending?{continuation:{revision:epoch+1,reason:'revision-saved' as const}}:{})};
- if(!pending)delete dag.continuation;
+ const items=work(child),pending=items.length>0;
+ if(redrawFrame&&(lost.length||!items.some(item=>item.call==='draw')||items.some(item=>!['draw','drawLandscape'].includes(item.call)||item.instances.some(instance=>instance.key!==redrawFrame))))throw new ReaderError(409,'目前无法只重绘选中的画幅，请检查作品状态后重试。');
+ const waiting=pending&&!startRedraw;
+ const dag:DagDocument={...child.dag,...(waiting?{continuation:{revision:epoch+1,reason:'revision-saved' as const}}:{})};
+ if(!waiting)delete dag.continuation;
  const {plan,images}=projectDocument(dag,doc.plan);
  const document:Document={...doc,dag,plan,images,reviewNotes,usage:(doc.usage||[]).map(item=>({...item,originId:item.originId||row.id})),
-  revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,...(cover||!sameArtDirection(parent.selection,selection)||usesStoryImageReference(doc.revision,parent.selection.artStyle)?{storyImageReference:true}:{}),base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
+  revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,...(redrawLandscape?{redrawFrame,landscapeRedraw:dag.order.map(id=>id===redrawFrame?null:dag.frames[id].landscape||'')}:{}),...(cover||!sameArtDirection(parent.selection,selection)||usesStoryImageReference(doc.revision,parent.selection.artStyle)?{storyImageReference:true}:{}),base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
  delete document.visualReview;delete document.reselection;
  const now=new Date().toISOString(),completed=!pending&&row.state==='completed';
  // 故障延续：上一版仍待处理的故障，其节点的输入在新版里没有改变时继续阻断，须读者明确恢复；输入已变的故障不带入（新内容重新开始）。
  const carried=await carryFaults(repo,row,ownerId,parent,{...child,dag});
- // 需要重做工作的新版保存为「已保存，等待继续」并同时暂停：沿用 v0.14.0 的暂停编辑界面（可继续修改、恢复前的文案），「继续制作」一次解除等待与暂停。
+ // 普通修订在同一事务设置等待与暂停；已确认的单幅重绘在同一事务启用绘图。
  // 新版与其图片丢失故障在同一事务中写入：中断不会留下未经读者恢复就可重绘的新版。
  const transaction=repo.db.transaction;
  if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
@@ -288,7 +298,7 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   const inserted=db.run(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,error,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
   SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),'background',?,?,NULL,0,0,MIN(p.page,?),p.saved,p.last_read_at,?,? FROM stories p
   WHERE p.id=? AND p.user_id=? AND p.document=? AND p.selection=? AND ${currentFamilyVersion('p')} AND (${familyEpoch.replace(' AS epoch','')})=?
-  ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused||pending?'paused':'active',completed?'completed':'idle',Math.max(0,dag.order.length-1),now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch);
+  ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused||waiting?'paused':'active',completed?'completed':'idle',Math.max(0,dag.order.length-1),now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch);
   if(!inserted.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
   for(const fault of carried){
    if(lost.some(page=>fault.node==='frameImage'&&dag.order[page]===fault.node_key))continue;

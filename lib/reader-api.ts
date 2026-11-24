@@ -348,9 +348,9 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
       metadata=await body(new Request(req.url,{method:'POST',body:fields[0]}),262144);
       cover=new Uint8Array(await files[0].arrayBuffer());
      }else metadata=await body(req,262144);
-     const b=z.object({requestId:uuid,token:z.string().regex(/^[a-f0-9]{64}$/),changes:revisionChangesSchema,paused:z.boolean().default(false)}).strict().parse(metadata);
-     const landscapeImages=services.commandOnly?undefined:async()=>(await production.landscapeStatus(uid,id)).images;
-     const row=await forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes,b.paused,cover,landscapeImages);
+     const b=z.object({requestId:uuid,token:z.string().regex(/^[a-f0-9]{64}$/),changes:revisionChangesSchema,paused:z.boolean().default(false),startRedraw:z.literal(true).optional()}).strict().parse(metadata);
+     if(b.startRedraw&&services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中直接重绘，或使用命令行的继续与运行命令。');
+     const row=await forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes,b.paused,cover,b.startRedraw);
      if(!b.paused)production.wake();
      return json(await production.snapshot(uid,row.id),201);
     }

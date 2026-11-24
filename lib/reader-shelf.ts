@@ -4,7 +4,7 @@ import type {GeneratedStory,SessionView} from './reader-model.ts';
 export type ShelfStory=Pick<GeneratedStory,'id'|'title'|'bookId'|'theme'|'revision'|'artStyleLabel'>&{
  cover:string;resumeImage:string;resumePage:number;frameCount:number;
 };
-export type ShelfSession=Pick<SessionView,'awaitingContinue'|'id'|'state'|'generationMode'|'generationControl'|'productionState'|'error'|'retryAllowed'|'stage'|'ready'|'page'|'saved'|'lastReadAt'|'createdAt'>&{
+export type ShelfSession=Pick<SessionView,'awaitingContinue'|'redrawPage'|'id'|'state'|'generationMode'|'generationControl'|'productionState'|'error'|'retryAllowed'|'stage'|'ready'|'page'|'saved'|'lastReadAt'|'createdAt'>&{
  selection:Pick<SessionView['selection'],'bookId'|'customBook'|'theme'|'artStyle'|'displayTitle'|'storyTitle'>;
  intake?:{phase:NonNullable<SessionView['intake']>['phase'];selected:boolean;hasCandidates:boolean;searchState:NonNullable<SessionView['intake']>['search']['state'];artStyle?:SessionView['selection']['artStyle']};
  revision?:Pick<NonNullable<SessionView['revision']>,'rootId'|'number'>;
@@ -14,10 +14,10 @@ export type ShelfSession=Pick<SessionView,'awaitingContinue'|'id'|'state'|'gener
 export type ShelfChanges={changed:ShelfSession[];removed:string[]};
 
 export function summarizeShelfSession(session:SessionView):ShelfSession{
- const {awaitingContinue,id,state,generationMode,generationControl,productionState,error,retryAllowed,stage,ready,page,saved,lastReadAt,createdAt,selection,intake,revision,story}=session;
+ const {awaitingContinue,redrawPage,id,state,generationMode,generationControl,productionState,error,retryAllowed,stage,ready,page,saved,lastReadAt,createdAt,selection,intake,revision,story}=session;
  const {bookId,customBook,theme,artStyle,displayTitle,storyTitle}=selection;
  const resumePage=story?Math.max(0,Math.min(page,story.pages.length-1)):0;
- return {...(awaitingContinue?{awaitingContinue}:{}),id,state,generationMode,generationControl,productionState,error,retryAllowed,stage,ready,page,saved,lastReadAt,createdAt,
+ return {...(awaitingContinue?{awaitingContinue}:{}),...(redrawPage?{redrawPage}:{}),id,state,generationMode,generationControl,productionState,error,retryAllowed,stage,ready,page,saved,lastReadAt,createdAt,
   selection:{bookId,customBook,theme,artStyle,displayTitle,storyTitle},
   ...(intake?{intake:{phase:intake.phase,selected:!!intake.selected,hasCandidates:!!intake.batches?.length,searchState:intake.search?.state||'idle',artStyle:intake.draft?.artStyle}}:{}),
   ...(revision?{revision:{rootId:revision.rootId,number:revision.number}}:{}),

@@ -14,6 +14,10 @@ import type {GeneratedStory,Selection,SessionView,ProductionAction} from '@/lib/
 import {summarizeShelfSession,type ShelfSession,type ShelfChanges} from '@/lib/reader-shelf';
 import type {RecoveryRequest} from '@/lib/reader-recovery';
 type Callbacks={onStory:(story:GeneratedStory,initialPage?:number,saved?:boolean)=>void;onProgress:(rows:{storyId:string;page:number;saved:number;updatedAt?:string|null}[],fromShelf?:boolean)=>void};
+function readableStory(session:SessionView){
+ const {story}=session;
+ return story&&(session.redrawPage||story.pages[0]?.image)?story:null;
+}
 export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=false){
  const cb=useRef(callbacks);cb.current=callbacks;
  const currentPage=useRef(page);currentPage.current=page;
@@ -67,7 +71,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   setActive(s);collect(s,true);setBusy(false);setError(s.state==='failed'?s.error||'生成失败，请选择对应问题恢复。':'');
   try{history.replaceState(history.state,'','/read?id='+s.id);}catch{}
   cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);
-  if(s.story?.pages[0]?.image)cb.current.onStory(s.story,initialPage,s.saved);setWake(v=>v+1);
+  const story=readableStory(s);if(story)cb.current.onStory(story,initialPage,s.saved);setWake(v=>v+1);
  }
  async function resume(sessionId:string,initialPage?:number,retry=false,submitted=false,faultId?:string){
   const read=++resumeRead.current;
@@ -78,7 +82,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   generationMode.current=retry||!passive.current&&!observeOnlyGeneration(s)?'generate':'observe';retryRequested.current=retry;
   setBusy(retry);setError(!retry&&s.state==='failed'?s.error||'生成失败，请选择对应问题恢复。':'');setActive(s);collect(s,submitted);
   history.replaceState(history.state,'','/read?id='+s.id);cb.current.onProgress([{storyId:s.id,page:s.page,saved:s.saved?1:0,updatedAt:s.lastReadAt||s.createdAt}]);
-  if(s.story?.pages[0]?.image)cb.current.onStory(s.story,Math.max(0,Math.min(initialPage??s.page,s.story.pages.length-1)),s.saved);setWake(v=>v+1);return s;
+  const story=readableStory(s);if(story)cb.current.onStory(story,Math.max(0,Math.min(initialPage??s.page,story.pages.length-1)),s.saved);setWake(v=>v+1);return s;
  }
  async function checkImage(sessionId:string,page:number,image:string){
   const key=JSON.stringify([sessionId,page,image]),existing=imageChecks.current.get(key);if(existing)return existing;
@@ -220,8 +224,9 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
     const generating=s.productionState?s.productionState==='running'||s.productionState==='queued':s.state==='running';
     if(s.generationMode==='background'||s.generationControl&&s.generationControl!=='active'){if(!inspecting){generationMode.current='observe';setWake(v=>v+1);}}
     collect(s);setActive(old=>keepSnapshot(old,s));setBusy(!inspecting&&(generating||s.state==='failed'));setError(s.state==='failed'?(s.error||'生成失败，请重试继续。'):'');
-    if(s.story?.pages[0]?.image){
-     cb.current.onStory(s.story);
+    const story=readableStory(s);
+    if(story){
+     cb.current.onStory(story);
      if(inspecting&&!passive.current&&!observeOnlyGeneration(s)){generationMode.current='generate';setWake(v=>v+1);}
     }
    };
