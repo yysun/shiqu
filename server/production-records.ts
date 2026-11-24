@@ -37,6 +37,8 @@ export function recordJobFailed(db:SyncStatements,job:Job,input:{message:string;
   :db.run(`UPDATE production_jobs SET ${input.payload!==undefined?'payload=?,':''}state='failed',error=?,interrupted=?,failure_id=?,error_code=?,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token IS ?`,
    ...(input.payload!==undefined?[input.payload]:[]),input.message,input.interrupted?1:0,failureId,input.errorCode??null,input.now,job.id,job.lease_token??null);
  if(!updated.changes)return false;
+ // 横图从其独立队列读取逐幅失败，不登记故事制作故障。
+ if(job.kind==='landscape-print')return true;
  db.run(`UPDATE reader_faults SET state='replaced',updated_at=? WHERE session_id=? AND owner_id=? AND ${open} AND (job_id=? OR (? IS NOT NULL AND command_id=?)) AND id!=?`,input.now,job.session_id,job.owner_id,job.id,job.recovery_id??null,job.recovery_id??null,failureId);
  const {node,key}=faultNode(job);
  db.run(`INSERT INTO reader_faults(id,session_id,owner_id,job_id,kind,node,node_key,version,message,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)

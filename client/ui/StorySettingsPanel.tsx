@@ -17,7 +17,7 @@ export function StorySettingsContent({story,session,busy,disabled,onBack,onRenam
  const title=session?.selection.displayTitle||story?.title||session?.selection.storyTitle||'未命名故事';
  const summary=story?.summary?.trim()||session?.frameRecommendation?.storySummary?.trim();
  const storyId=session?.id||story?.id;
- const canDownload=!!story?.pages.length&&story.pages.every(page=>!!page.image);
+ const canDownload=!!story?.pages.length&&(!!session?.revision||story.pages.every(page=>!!page.image));
  return <fieldset className="yu-revision-fields" disabled={disabled}>
   {storyId&&session?.selection.storyTitle!=='待拟标题'&&(!session?.intake||session.intake.selected||session.intake.phase==='confirmed')&&<div className="yu-story-name">
    <div className="yu-setting-row">

@@ -26,7 +26,7 @@ import {offersProductionAction} from '@/lib/production-lifecycle';
 import {pruneReadingCaches,type LibraryInventory} from '../reading-cache.ts';
 import StoryExportControl from './StoryExportControl';
 import {storyLandscapeRoute} from './StoryLandscapeStep';
-import type {LandscapeStatus} from '@/lib/reader-production';
+import type {LandscapePrintSet} from '@/lib/reader-production';
 import StoryPublicationEditor,{StoryPublicationDetails,StoryPublicationDefaults} from './StoryPublication';
 import {generationImageModelForPage,generationModelNames,storyExportKey} from '@/lib/story-publication';
 import ProviderSettings,{ProviderRuntimeSummary} from './ProviderSettings';
@@ -172,7 +172,7 @@ export default function Reader(){
  const favoriteLock=useRef(false);
  const deleted=useRef(new Set<string>());
  const [exporting,setExporting]=useState<ExportFormat|null>(null),[exportProgress,setExportProgress]=useState(''),[pdfDownload,setPdfDownload]=useState<{url:string;filename:string;storyId:string;key:string}|null>(null),[pngDownload,setPngDownload]=useState<{url:string;filename:string;storyId:string;key:string}|null>(null),[zipDownload,setZipDownload]=useState<{url:string;filename:string;storyId:string;key:string}|null>(null);
- const [landscapeCover,setLandscapeCover]=useState<{format:PrintPdfFormat;story:Story;cover:LandscapeCover}|null>(null);
+ const [landscapeCover,setLandscapeCover]=useState<{format:PrintPdfFormat;current:Story;story:Story;sets:LandscapePrintSet[];setId:string;cover:LandscapeCover}|null>(null);
  useEffect(()=>()=>{if(pdfDownload)URL.revokeObjectURL(pdfDownload.url);},[pdfDownload]);
  useEffect(()=>()=>{if(pngDownload)URL.revokeObjectURL(pngDownload.url);},[pngDownload]);
  useEffect(()=>()=>{if(zipDownload)URL.revokeObjectURL(zipDownload.url);},[zipDownload]);
@@ -408,12 +408,11 @@ export default function Reader(){
   exportLock.current=true;setExporting(format);setExportProgress('正在准备 '+exportOptions[format].label);
   try{
    if((format==='pdf-landscape'||format==='pdf-letter')&&!cover){
-    let images:readonly string[]|undefined;
-    if(isGenerated(output)){
-     const status:LandscapeStatus=await request(storyLandscapeRoute(output.id));
-     if(status.state==='completed'&&status.images.length===output.pages.length&&status.images.every(Boolean))images=status.images;
-    }
-    setLandscapeCover({format,story:output,cover:{index:0,images}});return;
+    const sets:LandscapePrintSet[]=isGenerated(output)?await request(storyLandscapeRoute(output.id)+'/sets'):[];
+    const portraits=output.pages.length>0&&output.pages.every(page=>!!page.image);
+    const own=sets.find(set=>set.story.id===output.id)??(!portraits?sets[0]:undefined);
+    if(!own&&!portraits)throw Error('当前竖图尚未齐全，也没有可打印的横图套图。');
+    setLandscapeCover({format,current:output,story:own?.story??output,sets,setId:own?.id??'',cover:{index:0,images:own?.images}});return;
    }
    const key=format+':'+storyExportKey(output)+(cover?JSON.stringify(cover):''),cached=format==='zip'?zipDownload:format==='png'?pngDownload:pdfDownload;
    if(cached?.storyId===output.id&&cached.key===key){
@@ -538,7 +537,9 @@ export default function Reader(){
   const busy=exporting===format;
   const content=<>{busy?<Loader2 size={20} className="spin"/>:<Icon size={20}/>}<span>{busy?(format==='zip'?'打包中…':'导出中…'):label}<small>{description}</small></span></>;
   if(!target)return <button key={format} type="button" className={className} disabled>{content}</button>;
-  return <StoryExportControl key={target.id+':'+format} story={target} format={format==='zip'||format==='png'?format:'pdf'} className={className} busy={busy} disabled={!!exporting||!target.pages.length||target.pages.some(p=>!p.image)} onExport={output=>exportStory(format,output)} onEdit={isGenerated(target)?()=>setPublicationTarget(target):undefined}>{content}</StoryExportControl>;
+  const incomplete=target.pages.some(p=>!p.image);
+  if(format==='pdf-landscape'||format==='pdf-letter')return <button key={target.id+':'+format} type="button" className={className} aria-busy={busy} disabled={!!exporting||!target.pages.length||incomplete&&!isGenerated(target)} onClick={()=>void exportStory(format,target)}>{content}</button>;
+  return <StoryExportControl key={target.id+':'+format} story={target} format={format==='zip'||format==='png'?format:'pdf'} className={className} busy={busy} disabled={!!exporting||!target.pages.length||incomplete} onExport={output=>exportStory(format,output)} onEdit={isGenerated(target)?()=>setPublicationTarget(target):undefined}>{content}</StoryExportControl>;
  }
  function exportStatus(showReadiness=true){
   if(!story)return null;
@@ -601,7 +602,7 @@ export default function Reader(){
     progress={{busy:gen.busy,controlBusy:!!gen.controlBusy,onControl:gen.control,error:workflowError||gen.error,onRetry:retryWorkflow,onBack:backToShelf,hideBack:true,showSummary:false}}
    />:<GenerationSurface
     session={workflowSession} busy={gen.busy} controlBusy={!!gen.controlBusy||creating} onControl={gen.control} error={workflowError||gen.error} onRetry={retryWorkflow} onBack={backToShelf} hideBack showSummary={false}
-    showLandscape={workflowSession.state==='completed'&&!workflowSession.superseded&&!!panelStory?.pages.length&&panelStory.pages.every(page=>!!page.image)}
+    showLandscape={!!workflowSession.revision||workflowSession.state==='completed'&&!!panelStory?.pages.length&&panelStory.pages.every(page=>!!page.image)}
     onLandscapeActivityChange={()=>void gen.refreshLibrary().catch(()=>{})}
     navigation={{source:{onClick:()=>setSource(true),disabled:!workflowSession.generationProgress?.sourceReady},reselect:{label:'替换选题',onClick:()=>void reselectStory(),disabled:creating||revision.busy||!!gen.controlBusy||!offersProductionAction(workflowSession,'open-reselection'),title:'替换当前选题，书架保留一张卡片，旧结果保留历史'},reselecting:creating}}
     onAcceptance={()=>revision.open('acceptance')} onHistory={()=>setReviewHistoryId(workflowSession.id)} onEditStyle={()=>revision.open('style')}
@@ -667,7 +668,9 @@ export default function Reader(){
  {discoverSurprise}
  {discoverNote}
  {discoverStatus}</>;
- const shelfView=<ReaderShelf onControl={gen.control} controlBusy={gen.controlBusy} stories={shelf} pending={pendingStories} sessions={gen.sessions} progress={activeProgress} refreshing={shelfRefreshing||gen.libraryRefreshing} onRefresh={()=>{void refreshShelf();}} loading={loading||gen.libraryLoading} error={loadError||gen.libraryError} tab={shelfTab} onTab={changeShelfTab} query={shelfQuery} onQuery={changeShelfQuery} grouping={shelfGrouping} onGrouping={changeShelfGrouping} bookName={bookName} onOpen={open} onResume={session=>openWorkflow(session.id)} onRetry={session=>{if(session.intake&&!session.intake.selected){openWorkflow(session.id);return;}cancelOpening();setWorkflowTarget(session.id);setWorkflowError('');setStory(null);gen.retrySession(session.id).catch(e=>setWorkflowError(e.message));}} onDelete={askDelete} onFavorite={favoriteFromShelf} favoriteBusy={favoriteBusy} onCreate={()=>choose()} onDiscover={()=>setTab('discover')}/>;
+ const shelfView=<ReaderShelf onControl={gen.control} onLandscapeControl={(id,printId,control)=>{
+  void request(storyLandscapeRoute(id),'POST',{control,printId}).then(()=>gen.refreshLibrary()).catch(error=>notify(error instanceof Error?error.message:'横图状态暂未更新，请重试。'));
+ }} controlBusy={gen.controlBusy} stories={shelf} pending={pendingStories} sessions={gen.sessions} progress={activeProgress} refreshing={shelfRefreshing||gen.libraryRefreshing} onRefresh={()=>{void refreshShelf();}} loading={loading||gen.libraryLoading} error={loadError||gen.libraryError} tab={shelfTab} onTab={changeShelfTab} query={shelfQuery} onQuery={changeShelfQuery} grouping={shelfGrouping} onGrouping={changeShelfGrouping} bookName={bookName} onOpen={open} onResume={session=>openWorkflow(session.id)} onRetry={session=>{if(session.intake&&!session.intake.selected){openWorkflow(session.id);return;}cancelOpening();setWorkflowTarget(session.id);setWorkflowError('');setStory(null);gen.retrySession(session.id).catch(e=>setWorkflowError(e.message));}} onDelete={askDelete} onFavorite={favoriteFromShelf} favoriteBusy={favoriteBusy} onCreate={()=>choose()} onDiscover={()=>setTab('discover')}/>;
  const profileView=<section className="yu-profile" aria-label="设置">
   <section className="yu-profile-group" aria-labelledby="profile-overview"><h2 id="profile-overview">故事概览</h2>
   <div className="yu-profile-stats" aria-busy={libraryLoading}>{[[shelfCount,'书架故事'],[favoriteCount,'已收藏'],[deletedStories.length,'已删除']].map(([count,label])=><div key={label}><strong>{libraryLoading?<span className="yu-profile-stat-loading" aria-label="正在统计">—</span>:count}</strong><span>{label}</span></div>)}</div>
@@ -809,7 +812,7 @@ export default function Reader(){
  {embeddingSheet}
  {storySheets}
  {story&&redrawPage!==null&&<Sheet title="重新生图" busy={redraw.busy} onClose={()=>setRedrawPage(null)}>
-  <p className="yu-sheet-intro">确认后立即重绘第 {redrawPage+1} 幅竖图，本幅已有的横图也会重绘。重绘可能消耗额度。新版沿用分镜、审片结果和其他图片，原版保留。</p>
+  <p className="yu-sheet-intro">确认后立即重绘第 {redrawPage+1} 幅竖图。重绘可能消耗额度。新版沿用分镜、审片结果和其他竖图，已保存的横图套图仍可打印。</p>
   <div className="yu-redraw-models"><p>原图像模型：{isGenerated(story)?generationImageModelForPage(story.generationModels,redrawPage)||'未记录':'未记录'}</p><p>本次将使用的图像模型：{providerRuntime?.models.image.trim()||(providerRuntime?'未配置':'正在读取…')}</p></div>
   {redraw.loading&&<p role="status">正在载入制作内容…</p>}
   {redraw.error&&<p role="alert">{redraw.error}</p>}
@@ -836,7 +839,14 @@ export default function Reader(){
   <div className="yu-export-confirmation">
    <p className="yu-publication-work">{landscapeCover.story.title}</p>
    {landscapeCover.format==='pdf-letter'&&<p>打印时选 Letter 纵向、实际大小（100%）、每张一页、双面长边翻转。</p>}
-   {!landscapeCover.cover.images&&<p>横版插图尚未齐全，将使用原竖图试排，部分画面可能被裁切。</p>}
+   {landscapeCover.sets.length>0&&<label className="yu-revision-field">打印图稿<select value={landscapeCover.setId} onChange={event=>{
+    const selected=landscapeCover.sets.find(set=>set.id===event.target.value);
+    setLandscapeCover({...landscapeCover,story:selected?.story??landscapeCover.current,setId:selected?.id??'',cover:{index:0,images:selected?.images}});
+   }}>
+    {landscapeCover.current.pages.every(page=>!!page.image)&&<option value="">当前竖图试排</option>}
+    {landscapeCover.sets.map((set,index)=><option key={set.id} value={set.id}>横图套图 {index+1} · 第 {set.story.revision} 版 · {set.story.pages.length} 幅</option>)}
+   </select></label>}
+   {!landscapeCover.cover.images&&<p>将使用当前竖图试排，部分画面可能被裁切。</p>}
    <fieldset className="yu-cover-options" aria-label="封面画幅">
     {landscapeCover.story.pages.map((scene,index)=><label key={index}>
      <img src={landscapeCover.cover.images?.[index]??scene.image} alt="" loading="lazy" decoding="async"/>
@@ -844,7 +854,11 @@ export default function Reader(){
     </label>)}
    </fieldset>
    <div className="yu-export-confirmation-actions">
-    <button type="button" className="yu-primary" onClick={()=>{setLandscapeCover(null);void exportStory(landscapeCover.format,landscapeCover.story,landscapeCover.cover);}}>导出{exportOptions[landscapeCover.format].label}</button>
+    <StoryExportControl key={landscapeCover.setId} story={landscapeCover.story} format="pdf" className="yu-primary" busy={exporting===landscapeCover.format} disabled={!!exporting} onEdit={isGenerated(landscapeCover.current)&&landscapeCover.story.id===landscapeCover.current.id?()=>{
+     setPublicationTarget(landscapeCover.current);setLandscapeCover(null);
+    }:undefined} onExport={output=>{
+     setLandscapeCover(null);return exportStory(landscapeCover.format,output,landscapeCover.cover);
+    }}>导出{exportOptions[landscapeCover.format].label}</StoryExportControl>
     <button type="button" className="yu-revision-open" onClick={()=>setLandscapeCover(null)}>取消</button>
    </div>
   </div>

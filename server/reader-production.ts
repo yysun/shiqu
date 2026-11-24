@@ -26,7 +26,8 @@ import {suggestionBatchSchema,freshSuggestions,maxSuggestionBatches} from '../li
 import type {SuggestionBatch,SuggestionProgress} from '../lib/reader-suggestions.ts';
 import {readerMaxFrames} from '../lib/reader-limits.ts';
 import {productionReadAhead,productionViewerLeaseMs} from '../lib/reader-production.ts';
-import type {LandscapeStatus,ReaderProduction} from '../lib/reader-production.ts';
+import type {EarlierLandscapeWork,LandscapeCommand,LandscapePrintSet,LandscapeStatus,ReaderProduction} from '../lib/reader-production.ts';
+import {LandscapePrints,currentLandscapePrint,landscapePrintKind} from './landscape-print.ts';
 import {JobYield,ProductionQueue,productionJobId} from './production-queue.ts';
 import type {ProductionJob,JobSpec} from './production-queue.ts';
 import {authorizeRecovery,authorizeControl,carriedJobFaultGroup,commandReceipt,sessionFaults} from './reader-commands.ts';
@@ -51,6 +52,7 @@ type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;thro
 type SnapshotInputs={
  row:SessionRow;superseded:boolean;deleted:boolean;replacementOpen:boolean;now:number;
  allJobs:ProductionJob[];faults:ReaderFault[];viewerThrough:number|null;carriedPortraitRecoveries:Set<string>;landscapeDag?:Document['dag'];
+ landscapeWork?:SessionView['landscapeWork'];
  replacementBasis?:ReturnType<typeof replacementCommitState>;
 };
 type ActiveSearch={round:number;controller:AbortController;startedAt:number;progress?:SuggestionProgress};
@@ -73,7 +75,6 @@ export type ProductionOptions={snapshots?:SnapshotService;imageWorkers?:number;n
 type Options=ProductionOptions;
 const maxAutomaticAttempts=3;
 // 「审片后停止」不得启动任何付费绘图。
-const imageKinds=[dagDrawKind];
 const searchRound=(job:ProductionJob)=>(JSON.parse(job.payload) as {searchRound?:number}).searchRound;
 const attentionMessages:Record<string,string>={
  'hand-edited':'审片问题只能通过修改手改内容解决，请手动修改或放行。',
@@ -114,17 +115,21 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private media:MediaStore;
  private options:Options;
  private readonly dag:DagProduction;
+ private readonly prints:LandscapePrints;
  constructor(database:Database,provider:ReaderProvider,media:MediaStore,options:Options={}){
   if(options.targetSessionId&&!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(options.targetSessionId))throw Error('INVALID_TARGET_SESSION');
   this.database=database;this.provider=provider;this.media=media;this.options=options;
   this.clock=options.now||Date.now;this.repository=new ReaderRepository(database);
   this.queue=new ProductionQueue(database,{
    targetSessionId:options.targetSessionId,
-   limits:{search:1,text:1,image:options.imageWorkers??3},now:this.clock,leaseMs:options.leaseMs,
+   limits:{search:1,text:1,image:options.imageWorkers??3,landscape:1},now:this.clock,leaseMs:options.leaseMs,
    canRun:job=>this.canRun(job),canClaim:(db,job,now)=>this.checkDispatch(db,job,now)==='allow',resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>{for(const id of this.jobProviders.keys())if(!this.queue.tasks.has(id))this.jobProviders.delete(id);this.wake();},
    // 暂停、删除的故事不派发。DAG 任务按节点故障独立阻断。
-   candidateFilter:`NOT EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND (s.generation_control!='active' OR (s.state='failed' AND j.kind NOT IN ('${dagTextKind}','${dagDrawKind}') AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=s.id AND f.owner_id=s.user_id AND f.state='recovering' AND (f.command_id=j.recovery_id OR f.kind='interrupted' AND f.job_id=j.id))) OR EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)))`,
-   skipCandidate:job=>!!options.targetSessionId&&job.session_id!==options.targetSessionId||!!options.stopBeforeImages&&imageKinds.includes(job.kind)||this.supersededJobs.has(job.session_id),
+   candidateFilter:`NOT EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND (
+    (j.kind='${landscapePrintKind}' AND CASE WHEN json_valid(s.document) THEN COALESCE(json_extract(s.document,'$.landscapePrints[#-1].control'),'')!='active' ELSE 1 END) OR
+    (j.kind!='${landscapePrintKind}' AND (s.generation_control!='active' OR (s.state='failed' AND j.kind NOT IN ('${dagTextKind}','${dagDrawKind}') AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=s.id AND f.owner_id=s.user_id AND f.state='recovering' AND (f.command_id=j.recovery_id OR f.kind='interrupted' AND f.job_id=j.id))))) OR
+    EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)))`,
+   skipCandidate:job=>!!options.targetSessionId&&job.session_id!==options.targetSessionId||!!options.stopBeforeImages&&(job.pool==='image'||job.kind===landscapePrintKind)||job.kind!==landscapePrintKind&&this.supersededJobs.has(job.session_id),
    safeError:(error,job)=>error instanceof ReaderError?error.message:(this.jobProviders.get(job.id)||this.provider).safeError(error),
    errorCode:error=>errorCode(error),
    terminal:error=>error instanceof ReaderError&&error.status<500,
@@ -132,9 +137,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     discover:{pool:'search',run:job=>this.discover(job)},
     [dagTextKind]:{pool:'text',run:job=>this.runDag(job)},
     [dagDrawKind]:{pool:'image',run:job=>this.runDag(job)},
+    [landscapePrintKind]:{pool:'landscape',run:job=>this.runDag(job)},
    },
   });
   this.dag=new DagProduction({database,media,queue:this.queue,clock:this.clock,wake:()=>this.wake(),snapshot:()=>this.snapshotNow(),fileLost:(key,strict,landscape)=>this.fileLost(key,strict,landscape)});
+  this.prints=new LandscapePrints(database,this.clock,key=>this.fileLost(key,true,true));
   if(options.autoStart!==false)this.start();
  }
  start(){if(this.enabled||this.stopping||this.closed)return;this.enabled=true;this.timer=setInterval(()=>this.wake(),this.options.tickMs||1000);this.timer.unref();this.wake();}
@@ -163,7 +170,24 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  async landscapeStatus(ownerId:string,id:string):Promise<LandscapeStatus>{
   const row=await this.repository.get(id,ownerId);
   const doc=this.parsed(row)?.doc;
+  const earlier:EarlierLandscapeWork[]=[];
+  for await(const source of this.landscapeVersions(row)){
+   if(source.id===row.id)continue;
+   const work=await this.prints.unfinished(source)??await this.earlierLegacyLandscape(source);
+   if(work){
+    const {state,ready,total,failed,error,control,controlAction,startToken,retryToken,printId}=work;
+    earlier.push({storyId:source.id,revision:this.parsed(source)?.doc.revision?.number??1,state,ready,total,failed,error,control,controlAction,startToken,retryToken,printId});
+   }
+  }
+  const canStart=await this.landscapeEligible(row),print=doc&&currentLandscapePrint(doc);
+  if(print){
+   const status=(await this.prints.status(row,canStart))!,service=this.serviceAvailability(print.modelSnapshot);
+   if(this.serviceAvailability()!=='available')delete status.startToken;
+   return {...status,service,earlier};
+  }
   if(doc?.dag){
+   const legacy=await this.earlierLegacyLandscape(row);
+   if(legacy)return {...legacy,earlier};
    const dag=doc.dag;
    const {status,lost:missing}=await this.dag.landscapeProjection(row,this.checkedLandscapeLosses(id,dag));
    // 复用已核对的丢图，直到对应画幅的图片变化或再次核对可读。
@@ -174,14 +198,58 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    }
    if(lost.size)this.lostLandscapeChecks.set(id,lost);
    else this.lostLandscapeChecks.delete(id);
-   return this.landscapeControls(row,status);
+   const projected=await this.landscapeControls(row,status);
+   if(canStart&&this.serviceAvailability()==='available'&&projected.state!=='running')projected.startToken=this.prints.startToken(row);
+   return {...projected,earlier};
   }
   return {state:'idle',available:false,total:0,ready:0,images:[],failed:[]};
  }
- async startLandscape(ownerId:string,id:string,command:{startToken?:string;retryToken?:string}){
+ async startLandscape(ownerId:string,id:string,command:LandscapeCommand,requireProvider?:()=>Promise<unknown>){
+  if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后再试。');
   const row=await this.repository.get(id,ownerId);
-  const status=await this.dag.startLandscape(row,command,this.stopping);
-  return this.landscapeControls(await this.repository.get(id,ownerId),status);
+  if(this.parsed(row)?.doc.landscapePrints?.length||'startToken'in command){
+   const legacy='startToken'in command?await this.earlierLegacyLandscape(row):undefined;
+   const canStart='startToken'in command&&(legacy?!!legacy.startToken:await this.landscapeEligible(row)&&(await this.landscapeStatus(ownerId,id)).state!=='running');
+   await this.prints.command(row,command,canStart,requireProvider,this.snapshotNow(),legacy?.images);
+  }else if('retryToken'in command){
+   await requireProvider?.();
+   await this.dag.startLandscape(row,command,this.stopping);
+  }else{
+   if(command.control==='resume')await requireProvider?.();
+   await this.control(ownerId,id,command.control,randomUUID());
+  }
+  this.wake();
+  return this.landscapeStatus(ownerId,id);
+ }
+ private async earlierLegacyLandscape(row:SessionRow):Promise<LandscapeStatus|undefined>{
+  const legacy=await this.prints.legacyResume(row);
+  if(!legacy)return;
+  const {status}=await this.dag.landscapeProjection(row);
+  const {images,failed,total,ready,error}=status;
+  return {state:legacy.available?'partial':'running',available:true,images,failed,total,ready,error,
+   ...(legacy.available?{startToken:this.prints.startToken(row)}:{})};
+ }
+ async landscapePrintSets(ownerId:string,id:string):Promise<LandscapePrintSet[]>{
+  const row=await this.repository.get(id,ownerId),sets:LandscapePrintSet[]=[];
+  for await(const source of this.landscapeVersions(row)){
+   sets.push(...await this.prints.sets(source));
+   const story=view(source).story,dag=this.parsed(source)?.doc.dag;
+   if(story&&dag?.order.some(key=>dag.frames[key]?.landscape)){
+    const {status}=await this.dag.landscapeProjection(source);
+    if(status.state==='completed')sets.push({id:'legacy:'+source.id,story,images:status.images});
+   }
+  }
+  return sets;
+ }
+ private async *landscapeVersions(initial:SessionRow){
+  let row:SessionRow|null=initial;
+  const seen=new Set<string>(),ownerId=initial.user_id;
+  while(row&&!seen.has(row.id)){
+   const current:SessionRow=row,parsed=this.parsed(current);
+   seen.add(current.id);
+   if(parsed&&!await this.database.prepare('SELECT 1 FROM library_deletions WHERE story_id=? AND user_id=?').bind(current.id,ownerId).first())yield current;
+   row=parsed?.doc.revision?await this.find(parsed.doc.revision.parentId,ownerId):null;
+  }
  }
  private async landscapeControls(row:SessionRow,status:LandscapeStatus):Promise<LandscapeStatus>{
   const doc=this.parsed(row)?.doc;
@@ -256,6 +324,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // Attempts count every paid start, so a crash loop stops here and waits for an explicit retry.
   if(this.stopping||job.attempts>=maxAutomaticAttempts)return false;
   const row=await this.raw(job.session_id,job.owner_id);
+  if(job.kind===landscapePrintKind){
+   const doc=this.parsed(row)?.doc,print=doc&&currentLandscapePrint(doc);
+   return print?.id===job.version&&print.control==='active'&&!!JSON.parse(job.payload).paid&&
+    !await this.database.prepare('SELECT 1 FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
+  }
   if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
   if(!this.readable(row)||!this.generationCurrent(row,job))return false;
   if(await this.repository.superseded(row.id,row.user_id))return false;
@@ -287,7 +360,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   this.wake();return this.snapshot(ownerId,id);
  }
- async managed(ownerId:string,id:string){const saved=await this.database.prepare('SELECT document FROM stories WHERE id=? AND user_id=?').bind(id,ownerId).first<{document:string}>();if(saved&&(JSON.parse(saved.document) as Document).intake)return true;return !!await this.database.prepare("SELECT id FROM production_jobs WHERE owner_id=? AND session_id=? AND kind!='landscape-image' LIMIT 1").bind(ownerId,id).first();}
+ async managed(ownerId:string,id:string){const saved=await this.database.prepare('SELECT document FROM stories WHERE id=? AND user_id=?').bind(id,ownerId).first<{document:string}>();if(saved&&(JSON.parse(saved.document) as Document).intake)return true;return !!await this.database.prepare("SELECT id FROM production_jobs WHERE owner_id=? AND session_id=? AND kind NOT IN ('landscape-image','landscape-print') LIMIT 1").bind(ownerId,id).first();}
  async request(ownerId:string,id:string,viewerId:string,page:number,retry=false){return this.demand(ownerId,id,viewerId,page,page+productionReadAhead,retry);}
  async advance(ownerId:string,id:string,throughPage:number,retry:boolean){return this.demand(ownerId,id,'legacy-advance',0,throughPage,retry);}
  private async demand(ownerId:string,id:string,viewerId:string,page:number,throughPage:number,retry:boolean){
@@ -421,10 +494,13 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    }]));
    for(const input of inputs.values()){
     const parsed=this.parsed(input.row),dag=parsed?.doc.dag;
+    const print=parsed&&currentLandscapePrint(parsed.doc);
+    if(!deleted&&print&&db.get("SELECT 1 FROM production_jobs WHERE session_id=? AND owner_id=? AND kind=? AND version=? AND state IN ('queued','running') LIMIT 1",input.row.id,ownerId,landscapePrintKind,print.id))
+     input.landscapeWork={printId:print.id,action:print.control==='active'?'pause':'resume'};
     if(parsed?.doc.revision&&dag)input.landscapeDag=bindLegacyLandscapeRequests(db,ownerId,{id:input.row.id,doc:parsed.doc,
      dag,selection:parsed.selection,confirmed:true,faults:[]}).dag;
    }
-   for(const job of db.all<ProductionJob>(`SELECT * FROM production_jobs WHERE owner_id=? AND ${bySession} ORDER BY created_at,id`,ownerId,ids))
+   for(const job of db.all<ProductionJob>(`SELECT * FROM production_jobs WHERE owner_id=? AND ${bySession} AND kind!='${landscapePrintKind}' ORDER BY created_at,id`,ownerId,ids))
     inputs.get(job.session_id)!.allJobs.push(job);
    for(const fault of db.all<ReaderFault>(`SELECT * FROM reader_faults f WHERE owner_id=? AND ${bySession}
     AND (state IN ('pending','recovering','awaiting-match') OR ${unexecutedLandscapeRecovery}) ORDER BY created_at,id`,ownerId,ids)){
@@ -561,7 +637,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const timeoutAt=startedAt!==null&&timeoutMs?startedAt+timeoutMs:null;
   const liveProgress=parsed.doc.intake&&search?.round===intakeSearch(parsed.doc.intake).round&&saved.intake?.search.state==='searching'?search.progress:undefined;
   const snapshotUnavailable=service==='snapshot-unavailable';
-  const session:SessionView={...saved,lifecycle,...(reviewSkip&&lifecycle.actions.some(action=>action.event==='skip-review')?{reviewSkip}:{}),...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
+  const session:SessionView={...saved,lifecycle,...(input.landscapeWork?{landscapeWork:input.landscapeWork}:{}),...(reviewSkip&&lifecycle.actions.some(action=>action.event==='skip-review')?{reviewSkip}:{}),...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
    ...(description?.label?{stage:`正在${description.label}`}:{}),
    ...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),
    generationProgress:{...progress,phase,activity:current?description?.label:progress.activity,startedAt,timeoutAt,
@@ -621,6 +697,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const discover=job.kind==='discover';
   const {page,work,waitingFor}=JSON.parse(job.payload) as {page?:number;work?:{call:string};waitingFor?:string};
   if(job.state==='queued'&&waitingFor==='image-availability'&&job.updated_at+Math.max(1000,this.options.tickMs??1000)>now)return 'yield';
+  if(job.kind===landscapePrintKind){
+   const print=currentLandscapePrint(doc);
+   return authorizeDispatch({version:row.deleted?'deleted':'current',control:print?.control??'paused',continuation:false,
+    generationCurrent:print?.id===job.version,demand:!this.stopping,fault:false,inputCurrent:true});
+  }
   const landscape=work?.call==='drawLandscape';
   const demand=(!discover&&(row.state!=='completed'||!!doc.dag?.repreparing))||(landscape&&row.state==='completed')||
    !!db.get('SELECT 1 FROM production_demand WHERE session_id=? AND owner_id=? AND runtime_id=? AND expires_at>? AND (? OR through_page>=?) LIMIT 1',
@@ -632,10 +713,16 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
 
  private async canRun(job:ProductionJob){
-  if(this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&imageKinds.includes(job.kind))return false;
+  if(this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&(job.pool==='image'||job.kind===landscapePrintKind))return false;
+  const row=await this.raw(job.session_id,job.owner_id);
+  if(job.kind===landscapePrintKind){
+   const doc=this.parsed(row)?.doc,print=doc&&currentLandscapePrint(doc);
+   const {paid,retry,legacy}=JSON.parse(job.payload) as {paid?:unknown;retry?:true;legacy?:unknown};
+   return !this.stopping&&print?.id===job.version&&print.control==='active'&&
+    (this.serviceAvailability(print.modelSnapshot)==='available'||!!paid||!!retry||!!legacy);
+  }
   const snapshot=job.kind===dagTextKind||job.kind===dagDrawKind?await this.dag.snapshotOf(job):undefined;
   if(this.serviceAvailability(snapshot)!=='available')return false;
-  const row=await this.raw(job.session_id,job.owner_id);
   if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
   // 横图是读者对已完成故事的明确请求，不需要阅读需求。
   if(job.kind===dagDrawKind&&(JSON.parse(job.payload) as {work:{call:string}}).work.call==='drawLandscape')return !this.stopping&&await this.landscapeEligible(row);
@@ -686,7 +773,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  /** DAG 任务按故事的模型快照构造提供方；没有快照服务或故事没有快照时沿用当前提供方。 */
  private async runDag(job:ProductionJob){
-  const snapshots=this.options.snapshots,snapshot=snapshots&&await this.dag.snapshotOf(job);
+  const snapshots=this.options.snapshots,printRow=job.kind===landscapePrintKind?await this.raw(job.session_id,job.owner_id):null;
+  const printDoc=printRow&&this.parsed(printRow)?.doc,print=printDoc&&currentLandscapePrint(printDoc);
+  if(printRow){
+   const receipt=await this.prints.resumePaid(job);
+   if(receipt)return receipt;
+   if(this.serviceAvailability(print?.modelSnapshot)!=='available')throw new JobYield();
+  }
+  const snapshot=snapshots&&(printRow?print?.modelSnapshot:await this.dag.snapshotOf(job));
   let provider:ReaderProvider;
   if(snapshot&&snapshots){
    // 当前设置为只读时不得发起任何调用，即使故事有可用的快照。
@@ -697,6 +791,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    provider=savedProvider;
    this.jobProviders.set(job.id,provider);
   }else provider=this.jobProvider(job);
+  if(printRow)return this.runPaid(job,provider,snapshot,()=>this.prints.run(job,provider.generator()));
   const result=await this.runPaid(job,provider,snapshot,()=>this.dag.run(job,provider));
   // 星标参考图等输入可能在故事文档未变化时失效。下一轮重新安排当前输入的任务。
   if(result.obsolete)this.rebuildKeys.delete(job.session_id);
@@ -715,7 +810,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
      const lease=authorizeJobLease({event:'paid-send',held:!!live,expired:!!live&&live.lease_until<=now});
      if(lease!=='allow')return lease;
      if(job.kind!=='discover'&&this.options.snapshots){
-      const stored=db.get<{snapshot:string|null}>("SELECT json_extract(document,'$.dag.modelSnapshot') AS snapshot FROM stories WHERE id=? AND user_id=?",job.session_id,job.owner_id);
+      const path=job.kind===landscapePrintKind?'$.landscapePrints[#-1].modelSnapshot':'$.dag.modelSnapshot';
+      const stored=db.get<{snapshot:string|null}>("SELECT json_extract(document,?) AS snapshot FROM stories WHERE id=? AND user_id=?",path,job.session_id,job.owner_id);
       if(fingerprint(stored?.snapshot?JSON.parse(stored.snapshot):null)!==fingerprint(snapshot??null))return 'yield';
      }
      const authorization=this.checkDispatch(db,live!,now);
@@ -826,7 +922,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(!this.readable(row)){this.pruneKeys.set(row.id,key);continue;}
    const changed=transact(this.database,db=>{
     const now=this.clock(),settled=this.settleSavedPreparation(db,row,now);
-    return settled+deleteJobs(db,`session_id=? AND owner_id=? AND state IN('queued','failed') AND EXISTS(SELECT 1 FROM stories s WHERE s.id=production_jobs.session_id AND s.user_id=production_jobs.owner_id
+    return settled+deleteJobs(db,`session_id=? AND owner_id=? AND kind!='${landscapePrintKind}' AND state IN('queued','failed') AND EXISTS(SELECT 1 FROM stories s WHERE s.id=production_jobs.session_id AND s.user_id=production_jobs.owner_id
      AND CASE WHEN json_valid(s.document) AND json_type(s.document,'$.intake')='object' THEN
       CASE WHEN production_jobs.kind='discover'
        THEN COALESCE(json_extract(production_jobs.payload,'$.searchRound'),-1)!=CASE WHEN json_extract(s.document,'$.intake.search.state')='searching' THEN json_extract(s.document,'$.intake.search.round') ELSE -2 END

@@ -56,7 +56,7 @@ function ProductionGroup({needs,limit,children,docked=false}:{needs:number;limit
 type ShelfItem={processingStatus:string;id:string;title:string;book:string;theme:string;artStyleLabel:string;story:ShelfStory|null;session?:ShelfSession;page:number;saved:boolean};
 type ProductionDock={active:boolean;show:()=>void;layout:(shelf:ReactNode,productions:ReactNode)=>ReactNode};
 type Props={productionDock?:ProductionDock;onControl:(id:string,action:ProductionAction)=>Promise<void>;controlBusy:string;stories:ShelfStory[];pending:ShelfSession[];sessions:ShelfSession[];progress:ReadingProgress[];loading:boolean;refreshing:boolean;onRefresh:()=>void;error:string;tab:string;onTab:(tab:string)=>void;query:string;onQuery:(query:string)=>void;grouping:ShelfGrouping;onGrouping:(grouping:ShelfGrouping)=>void;bookName:(story:Pick<Story,'id'|'bookId'>)=>string;onOpen:(story:ShelfStory,restart?:boolean)=>void;onResume:(session:ShelfSession)=>void;onRetry:(session:ShelfSession)=>void;onDelete:(id:string,title:string)=>void;onFavorite:(id:string,saved:boolean)=>void;favoriteBusy:string;onCreate:()=>void;onDiscover:()=>void;selectedId?:string|null;onSelect?:(id:string|null)=>void};
-export default function ReaderShelf({onControl,controlBusy,stories,pending,sessions,progress,loading,refreshing,onRefresh,error,tab,onTab,query,onQuery,grouping,onGrouping,bookName,onOpen,onResume,onRetry,onDelete,onFavorite,favoriteBusy,onCreate,onDiscover,selectedId,onSelect,productionDock}:Props){
+export default function ReaderShelf({onControl,onLandscapeControl,controlBusy,stories,pending,sessions,progress,loading,refreshing,onRefresh,error,tab,onTab,query,onQuery,grouping,onGrouping,bookName,onOpen,onResume,onRetry,onDelete,onFavorite,favoriteBusy,onCreate,onDiscover,selectedId,onSelect,productionDock}:Props&{onLandscapeControl?:(id:string,printId:string,action:'pause'|'resume')=>void}){
  const progressById=new Map(progress.map(row=>[row.storyId,row]));
  const sessionById=new Map(sessions.map(session=>[session.id,session]));
  const processingStatus=(story:ShelfStory)=>{const session=sessionById.get(story.id);return session?shelfGenerationStatus(session).group:'已完成';};
@@ -104,6 +104,7 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
   const story=item.story!,session=sessionById.get(item.id),generation=session?shelfGenerationStatus(session):null,number=edition(item,session);
   const total=story.frameCount,finished=total>0&&item.page+1>=total;
   const feedback=session&&generation!.group!=='已完成'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{shelfDrawingCount(session,generation!.group)}</span>{control(session,generation!.group)}</div>;
+  const landscapeWork=session?.landscapeWork;
   const selected=!!onSelect&&selectedId===item.id,pick=onSelect?()=>onSelect(item.id):()=>onOpen(story);
   return <div className={'yu-shelf-row yu-shelf-row-readable'+(selected?' is-selected':'')} key={item.id} data-story-id={item.id}>
    <div className="yu-shelf-cover-wrap">
@@ -113,6 +114,7 @@ export default function ReaderShelf({onControl,controlBusy,stories,pending,sessi
    <div className="yu-shelf-card-body">
     <button className="yu-shelf-card yu-shelf-card-details" aria-label={(onSelect?'选择《':'阅读《')+item.title+'》'} aria-pressed={onSelect?selected:undefined} onClick={pick}><h2>{item.title}</h2><span className="yu-shelf-tags"><span title={item.theme}>{item.theme}</span><span title={item.artStyleLabel}>{item.artStyleLabel}</span>{number&&<span>第 {number} 版</span>}</span></button>
     {feedback}
+    {landscapeWork&&onLandscapeControl&&<div className="yu-shelf-generation-progress"><span role="status">{landscapeWork.action==='pause'?'正在绘制横图':'横图已暂停'}</span><StoryFlowAction disabled={busyAny} onClick={()=>onLandscapeControl(item.id,landscapeWork.printId,landscapeWork.action)}>{landscapeWork.action==='pause'?'暂停横图':'恢复横图'}</StoryFlowAction></div>}
     <button className={'yu-shelf-reading-footer'+(finished?' finished':'')} aria-label={(finished?'重读《':'继续阅读《')+item.title+'》'} onClick={()=>finished?onOpen(story,true):onOpen(story)}>
      <span className="yu-shelf-progress" aria-hidden="true"><i style={{width:`${total?Math.min(100,Math.round((item.page+1)/total*100)):0}%`}}/></span>
      <span className="yu-shelf-reading-meta">{finished?<><span>已读完 · {total} 幅</span><span className="yu-shelf-continue">重读 <RotateCcw size={14}/></span></>:<><span>第 {item.page+1} / {total} 幅</span><span className="yu-shelf-continue">接着看 <ArrowRight size={15}/></span></>}</span>

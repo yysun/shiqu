@@ -43,6 +43,9 @@ export const openReplacementParentsSql=(singleStory:boolean)=>{
 export function markStoryDeleted(db:SyncStatements,id:string,uid:string,deletedAt=new Date().toISOString()){
  db.run("INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) VALUES(?,?,'generated',?) ON CONFLICT(user_id,story_id) DO NOTHING",uid,id,deletedAt);
  db.run("UPDATE stories SET generation_control='stopped' WHERE id=? AND user_id=? AND generation_control!='stopped'",id,uid);
+ // 删除使独立横图也暂停，恢复书籍时仍需从横图步骤恢复该任务。
+ db.run(`UPDATE stories SET document=json_set(document,'$.landscapePrints[#-1].control','paused') WHERE id=? AND user_id=?
+  AND CASE WHEN json_valid(document) THEN json_type(document,'$.landscapePrints[#-1]')='object' ELSE 0 END`,id,uid);
  return db.get<{storyId:string;deletedAt:string}>('SELECT story_id AS storyId,deleted_at AS deletedAt FROM library_deletions WHERE user_id=? AND story_id=?',uid,id)!;
 }
 // A failed write says nothing about the work, so callers must not report it as a provider failure.

@@ -9,6 +9,7 @@ import type {StoryIntake,IntakeView,ReselectionDraft} from './reader-intake.ts';
 import type {RevisionRecord,RevisionView} from './reader-revision.ts';
 import {revisionRedraw} from './reader-revision-images.ts';
 import type {Story} from './content';
+import type {LandscapePrint} from './reader-production.ts';
 import type {OriginalSource} from './reader-source-types.ts';
 import {artStylePromptSchema,artStyleIds,getArtStyle} from './reader-styles.ts';
 import {localSourceSchema} from './reader-local-contract.ts';
@@ -45,7 +46,7 @@ export type StoryboardOutline=z.infer<typeof storyboardOutlineSchema>;
 export type Storyboard={outline:StoryboardOutline;pages:Plan['pages']};
 export const storyboardBatchSchema=(count:number)=>z.object({pages:planSchema.shape.pages.length(count)});
 export type GeneratedStory=Story&{generated:true;original?:OriginalSource;sourceReference:string;voiceRequested:boolean;artStyleLabel:string;productionPrompt:string;generationModels?:{step:string;model:string}[]};
-export type Document={/** 文档 v2：制作内容与产物记录的权威来源，plan、images 为其存储投影。 */dag?:DagDocument;copiedFrom?:{storyId:string;contentHash:string;draft?:boolean;imageChoice?:boolean;images?:'pending'|'complete'|'skipped'};setupRequirements?:RequirementsSetup;creationHash?:string;reselection?:ReselectionDraft;publication?:StoryPublication;intake?:StoryIntake;revision?:RevisionRecord;plan:Plan|null;draft?:StoryDraft;reflectionCandidates?:ReflectionCandidates;storyboard?:Storyboard;visualReview?:ReviewCheckpoint;reviewNotes?:string;original?:OriginalSource;summaryProductionPrompt?:string;storySummaryFromStoryboard?:true;frameRecommendation?:FrameRecommendation;frameCountConfirmed?:boolean;images:string[];audio:string[];usage:{step:string;model:string;requestId:string|null;usage:unknown;reasoningEffort?:string;promptRecord?:PromptRecord;promptRecordId?:string;originId?:string}[]};
+export type Document={/** 文档 v2：制作内容与产物记录的权威来源，plan、images 为其存储投影。 */dag?:DagDocument;landscapePrints?:LandscapePrint[];copiedFrom?:{storyId:string;contentHash:string;draft?:boolean;imageChoice?:boolean;images?:'pending'|'complete'|'skipped'};setupRequirements?:RequirementsSetup;creationHash?:string;reselection?:ReselectionDraft;publication?:StoryPublication;intake?:StoryIntake;revision?:RevisionRecord;plan:Plan|null;draft?:StoryDraft;reflectionCandidates?:ReflectionCandidates;storyboard?:Storyboard;visualReview?:ReviewCheckpoint;reviewNotes?:string;original?:OriginalSource;summaryProductionPrompt?:string;storySummaryFromStoryboard?:true;frameRecommendation?:FrameRecommendation;frameCountConfirmed?:boolean;images:string[];audio:string[];usage:{step:string;model:string;requestId:string|null;usage:unknown;reasoningEffort?:string;promptRecord?:PromptRecord;promptRecordId?:string;originId?:string}[]};
 /** 阅读模式已退役，所有故事都是整篇后台制作；保留类型以兼容已保存的视图。 */
 export type GenerationMode='background';
 export type GenerationControl='active'|'paused'|'stopped';
@@ -56,6 +57,7 @@ export type Step={kind:'discover'|'recommend'|'plan'|'source'|'reflection'|'revi
 export type GenerationProgress={sourceReady:boolean;frameCountConfirmed:boolean;frameCount:number|null;storyboardFrames?:number;storyboardBatch?:{first:number;last:number};drawingFrames?:number;activity?:string;reviewStatus?:ReviewCheckpoint['status'];reviewPhase?:'frames'|'full';reviewRound?:number;repairCompleted?:number;repairTotal?:number;reviewAudits?:number;repairBatches?:number;repairPasses?:number;reviewStopReason?:'limit'|'unchanged'|'replan'|'requirements';reviewOverridden?:boolean;phase:Step['kind']|'frame-count'|'story-choice'|'production-confirmation'|'completed';startedAt:number|null;timeoutAt?:number|null;stageDurations?:Record<string,number>;attempt:number};
 export type SessionView={
  reviewSkip?:ReviewSkipOffer;lifecycle?:ProductionLifecycle;
+ landscapeWork?:{printId:string;action:'pause'|'resume'};
  /** @deprecated 使用 lifecycle.continuation。 */
  awaitingContinue?:true;
  /** 仅换图的画幅号，从 1 开始。 */

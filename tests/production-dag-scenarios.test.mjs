@@ -73,7 +73,7 @@ test('reprepare refreshes suggestions in a new generation without altering a con
  assert.equal(f.control.recommendations.length,1);
 });
 
-test('reprepare drains sent drawings and keeps unsent drawings queued until suggestions are saved',async t=>{
+test('reprepare and standalone landscape drawings settle independently',async t=>{
  const f=await productionFixture(t,'codex'),{id}=await completedStory(f),route=`sessions/${id}`;
  const {startToken}=await f.json(`${route}/landscape`);
  await f.json(`${route}/landscape`,'POST',{startToken});
@@ -87,19 +87,16 @@ test('reprepare drains sent drawings and keeps unsent drawings queued until sugg
  try{
   await f.json(`${route}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'reprepare'});
   await until(()=>started);
-  const sent=f.control.calls.slice();
-  assert.ok(sent.length<6);
-  for(const call of sent)call.resolve();
-  await until(async()=>{
-   const doc=await saved(f,id);
-   return sent.every(({page})=>!!doc.dag.frames[doc.dag.order[page]].landscape);
-  });
+  assert.equal(f.control.calls.length,1);
+  f.control.hold=false;
+  f.control.calls[0].resolve();
+  await until(async()=>(await f.json(`${route}/landscape`)).state==='completed');
   assert.equal((await saved(f,id)).dag.repreparing,true);
-  assert.equal(f.control.calls.length,sent.length);
-  assert.ok((await jobAttempts(f,id)).some(job=>job.kind==='dag-draw'&&job.state==='queued'));
+  assert.equal(f.control.calls.length,6);
+  assert.ok(f.control.calls.every(call=>call.landscape));
  }finally{f.control.hold=false;release.resolve();}
- await until(async()=>(await f.json(`${route}/landscape`)).state==='completed');
- assert.equal(f.control.calls.length,6);
+ await until(async()=>(await f.read(id)).lifecycle.preparationRefresh==='none');
+ assert.equal(f.control.recommendations.length,1);
 });
 
 test('CLI reprepare records intent and run awaits the refreshed recommendation',async t=>{
@@ -787,27 +784,22 @@ for(const action of ['pause','stop','replace','delete'])test(`a sent drawing sav
  }
 });
 
-test('confirming a redraw of the first frame also replaces just its existing landscape',async t=>{
+test('confirming a portrait redraw leaves the earlier landscape set available without a paired draw',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
- const {id}=await completedStory(f);
- const landscape=await f.json(`sessions/${id}/landscape`);
- await f.json(`sessions/${id}/landscape`,'POST',{startToken:landscape.startToken});
- await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',15000);
- const original=await saved(f,id);
- const before=f.control.calls.length;
+ const {id}=await completedStory(f),route=`sessions/${id}/landscape`;
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(async()=>(await f.json(route)).state==='completed',15000);
+ const before=f.control.calls.length,old=(await f.json(route)).images;
  const snapshot=await f.json(`sessions/${id}/revisions`);
  const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:snapshot.token,changes:{redrawPages:[1]},startRedraw:true});
- await until(async()=>(await f.json(`sessions/${child.id}/landscape`)).state==='completed',15000);
- assert.deepEqual(f.control.calls.slice(before).map(({page,landscape})=>[page,landscape]),[[0,false],[0,true]]);
+ await until(async()=>(await f.read(child.id)).state==='completed',15000);
+ assert.deepEqual(f.control.calls.slice(before).map(({page,landscape})=>[page,landscape]),[[0,false]]);
  assert.equal(f.control.reviews.length+textCalls(f.control),0);
- assert.equal((await f.read(child.id)).state,'completed');
- const after=await saved(f,child.id);
- assert.equal(after.revision.landscapeRedraw,undefined,'finished landscapes leave the pending redraw index');
- for(const key of original.dag.order.slice(1))for(const node of ['frameImage','landscape']){
-  const product=`${node}:${key}`;
-  assert.deepEqual(after.dag.products[product],original.dag.products[product]);
- }
+ const [original]=await f.json(`sessions/${child.id}/landscape/sets`);
+ assert.equal(original.story.id,id);
+ assert.deepEqual(original.images,old);
+ assert.equal((await f.json(`sessions/${child.id}/landscape`)).state,'idle');
 });
 
 test('a style change converts image descriptions in one batch, re-reviews frames and redraws every image',async t=>{
@@ -925,11 +917,8 @@ test('landscape images are drawn on request for a completed story; a failure sta
  assert.equal(status.state,'partial');
  assert.deepEqual(status.failed,[3]);
  assert.equal((await f.read(id)).state,'completed','an optional failure never undoes completion');
- const optional=(await f.read(id)).lifecycle.faults.find(fault=>fault.scope==='optional');
- assert.equal(optional.kind,'step-failure');
- assert.equal(optional.targets[0].node,'landscape');
- assert.equal(optional.targets[0].page,2);
- assert.ok(offered(await f.read(id),'retry-landscape'));
+ assert.deepEqual((await f.read(id)).lifecycle.faults,[]);
+ assert.ok(status.retryToken);
  assert.equal((await f.request(`sessions/${id}/landscape`,'POST',{retryToken:'0'.repeat(64)})).status,409);
  status=await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
  await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
@@ -940,7 +929,8 @@ test('landscape images are drawn on request for a completed story; a failure sta
 
 test('a landscape failure that lands after deletion stays retryable once the story is restored',async t=>{
  const f=await productionFixture(t,'codex');
- f.control.hold=true;
+ f.control.hold=false;
+ f.control.beforeImage=call=>{f.control.hold=call.landscape&&call.page===2;};
  const {id}=await completedStory(f);
  const {startToken}=await f.json(`sessions/${id}/landscape`);
  await f.json(`sessions/${id}/landscape`,'POST',{startToken});
@@ -952,13 +942,15 @@ test('a landscape failure that lands after deletion stays retryable once the sto
  f.control.hold=false;for(const call of f.control.calls)call.resolve();
  await until(async()=>!(await f.app.services.database.prepare("SELECT 1 FROM production_jobs WHERE session_id=? AND state='running'").bind(id).first()),20000);
  await f.json(`library/${id}/restore`,'POST',{});
- await f.json(`sessions/${id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'resume'});
- await until(async()=>{const s=await f.json(`sessions/${id}/landscape`);return s.state!=='running'&&s.state!=='queued';},20000);
+ f.control.beforeImage=null;
+ const {printId}=await f.json(`sessions/${id}/landscape`);
+ await f.json(`sessions/${id}/landscape`,'POST',{control:'resume',printId});
+ await until(async()=>(await f.json(`sessions/${id}/landscape`)).state!=='running',20000);
  const status=await f.json(`sessions/${id}/landscape`);
  assert.equal(status.state,'partial');
  assert.deepEqual(status.failed,[3]);
  assert.ok(status.retryToken,'the failed frame offers a retry');
- assert.ok(offered(await f.read(id),'retry-landscape'));
+ assert.deepEqual((await f.read(id)).lifecycle.faults,[]);
  await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
  await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
 });
@@ -980,10 +972,10 @@ test('replacing a completed story withdraws its landscape action and rejects the
 test('a retained queue-level landscape failure never blocks the completed story after retry',async t=>{
  const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
  f.control.hold=false;
- const {queue}=f.app.services.production,handler=queue.options.handlers['dag-draw'],run=handler.run;
+ const {queue}=f.app.services.production,handler=queue.options.handlers['landscape-print'],run=handler.run;
  handler.run=async(job,context)=>{
   const payload=JSON.parse(job.payload);
-  if(payload.work.call==='drawLandscape'&&payload.page===2&&payload.landscapeAttempt===undefined)
+  if(payload.input.index===2&&!payload.retry)
    throw Error('controlled failure in the queue boundary');
   return run(job,context);
  };
@@ -992,7 +984,7 @@ test('a retained queue-level landscape failure never blocks the completed story 
  let landscape;
  await until(async()=>{landscape=await f.json(route);return !!landscape.retryToken;});
  assert.equal((await f.read(id)).state,'completed');
- assert.ok((await f.read(id)).lifecycle.faults.some(fault=>fault.scope==='optional'));
+ assert.deepEqual((await f.read(id)).lifecycle.faults,[]);
  await f.json(route,'POST',{retryToken:landscape.retryToken});
  await until(async()=>(await f.json(route)).state==='completed');
  assert.equal((await f.read(id)).state,'completed');
@@ -1001,7 +993,7 @@ test('a retained queue-level landscape failure never blocks the completed story 
  assert.equal((await f.read(id)).lifecycle.faults.length,0);
 });
 
-test('a provider content rejection on a landscape remains a scoped optional fault',async t=>{
+test('a provider content rejection stays on the landscape job',async t=>{
  const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
  f.control.hold=false;
  const generator=f.generation.generator.bind(f.generation);
@@ -1017,9 +1009,7 @@ test('a provider content rejection on a landscape remains a scoped optional faul
  await until(async()=>(await f.json(route)).failed.includes(3));
  const state=(await f.read(id)).lifecycle;
  assert.equal(state.phase,'completed');
- const fault=state.faults.find(fault=>fault.scope==='optional');
- assert.equal(fault.kind,'content-blocked');
- assert.deepEqual(fault.targets.map(target=>target.page),[2]);
+ assert.deepEqual(state.faults,[]);
  const jobs=(await f.app.services.production.queue.jobs(id,owner)).filter(job=>job.error_code==='CONTENT_BLOCKED');
  assert.deepEqual(jobs.map(job=>[job.attempts,job.interrupted]),[[1,0]]);
 });
@@ -1973,24 +1963,23 @@ test('a landscape file that is no longer readable shows as failed and is redrawn
  await f.media.put(file,new TextEncoder().encode('not an image'),{contentType:'image/png'});
  status=await f.json(`sessions/${id}/landscape`);
  assert.deepEqual(status.failed,[3]);assert.equal(status.state,'partial');
- const get=f.media.get.bind(f.media);
+ const media=f.app.services.media,get=media.get.bind(media);
  try{
-  f.media.get=key=>{if(key===file)throw Error('controlled transient landscape read');return get(key);};
-  assert.deepEqual((await f.json(`sessions/${id}/landscape`)).failed,[3]);
- }finally{f.media.get=get;}
- await f.app.services.production.tick();
- assert.ok(offered(await f.read(id),'retry-landscape'));
- const delta=await f.json('library/shelf','POST',[[id,beforeCard.version]]),card=delta.changed.find(card=>card.id===id);
- assert.ok(offered(card,'retry-landscape'));
- assert.equal(card.lifecycle.faults.find(fault=>fault.scope==='optional').kind,'image-loss');
+  media.get=key=>{if(key===file)throw Error('controlled transient landscape read');return get(key);};
+  const unavailable=await f.json(`sessions/${id}/landscape`);
+  assert.deepEqual(unavailable.failed,[]);
+  assert.equal(unavailable.retryToken,undefined);
+ }finally{media.get=get;}
+ const afterCard=(await f.json('library/shelf')).find(card=>card.id===id);
+ assert.deepEqual(afterCard.lifecycle,beforeCard.lifecycle);
  const before=f.control.calls.filter(c=>c.landscape).length;
- const oldJobs=(await f.app.services.production.queue.jobs(id,owner)).filter(job=>JSON.parse(job.payload).work?.call==='drawLandscape');
+ const oldJobs=(await f.app.services.production.queue.jobs(id,owner)).filter(job=>job.kind==='landscape-print');
  await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
  await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
  assert.equal(f.control.calls.filter(c=>c.landscape).length-before,1,'only the damaged landscape is redrawn');
  const newJobs=await f.app.services.production.queue.jobs(id,owner);
  for(const old of oldJobs)assert.equal(newJobs.find(job=>job.id===old.id)?.result,old.result,'the original landscape result is retained');
- assert.equal(newJobs.filter(job=>JSON.parse(job.payload).landscapeAttempt===1).length,1);
+ assert.equal(newJobs.filter(job=>JSON.parse(job.payload).attempt===1).length,1);
 });
 
 // ——— 审查意见：快照停滞、画风预设与横图比例 ———
@@ -2138,7 +2127,7 @@ test('queued landscapes show a snapshot service blocker and resume after service
  assert.equal(f.control.calls.filter(c=>c.landscape).length,6);
 });
 
-test('a restored completed story keeps its optional drawings stopped until resume',async t=>{
+test('a restored completed story can explicitly start landscapes while portrait work stays stopped',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  const {id}=await completedStory(f),route=`sessions/${id}/landscape`;
@@ -2146,12 +2135,11 @@ test('a restored completed story keeps its optional drawings stopped until resum
  await f.json(`library/${id}/restore`,'POST',{});
  const {startToken}=await f.json(route);
  const queued=await f.json(route,'POST',{startToken});
- assert.equal(queued.control,'stopped');
- await f.app.services.production.tick();
- assert.equal(f.control.calls.length,0);
- await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
+ assert.equal(queued.control,'active');
  await until(async()=>(await f.json(route)).state==='completed',10000);
+ assert.equal((await f.read(id)).generationControl,'stopped');
  assert.equal(f.control.calls.length,6);
+ assert.ok(f.control.calls.every(call=>call.landscape));
 });
 
 test('read-only mode starts no generation even when the story has a usable model snapshot',async t=>{

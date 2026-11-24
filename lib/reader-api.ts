@@ -302,15 +302,20 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     const action=intakeActionSchema.parse(await body(req,32768));if(!await requestRecorded(action.requestId))await requireProvider();
     return json(await sessionView(await changeIntake(repo,id,uid,action,services.localBooks)));
    }
+   if(path[2]==='landscape'&&path[3]==='sets'&&path.length===4&&req.method==='GET'){
+    if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
+    return json(await services.production.landscapePrintSets(uid,id));
+   }
    if(path[2]==='landscape'&&path.length===3&&['GET','POST'].includes(req.method)){
     const production=services.production;
     if(!production)throw new ReaderError(503,'制作队列暂不可用');
     if(req.method==='GET')return json(await production.landscapeStatus(uid,id));
     if(services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中启动横版绘图。');
     const token=z.string().regex(/^[a-f0-9]{64}$/);
-    const command=z.union([z.object({startToken:token}).strict(),z.object({retryToken:token}).strict()]).parse(await body(req));
-    if(!(await requireProvider())?.models.image)throw new ReaderError(503,'请先配置支持绘图的图片服务。');
-    return json(await production.startLandscape(uid,id,command),202);
+    const command=z.union([z.object({startToken:token}).strict(),z.object({retryToken:token}).strict(),z.object({control:z.enum(['pause','resume']),printId:uuid.optional()}).strict()]).parse(await body(req));
+    return json(await production.startLandscape(uid,id,command,async()=>{
+     if(!(await requireProvider())?.models.image)throw new ReaderError(503,'请先配置支持绘图的图片服务。');
+    }),202);
    }
    if(path[2]==='storyboard-summary'&&path.length===3&&req.method==='POST'){
     if(services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中生成分镜梗概。');

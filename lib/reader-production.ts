@@ -2,9 +2,17 @@
 import type {SessionView,ProductionAction,GenerationControl} from './reader-model.ts';
 import type {ProductionLifecycle,ProductionService} from './production-lifecycle.ts';
 import type {RecoveryRequest,ReviewOverride} from './reader-recovery.ts';
+import type {Story} from './content';
+import type {Plan} from './reader-model.ts';
+import type {ModelSnapshot} from './production-dag/document.ts';
 export const productionReadAhead=6;
 export const productionViewerLeaseMs=30000;
-export type LandscapeStatus={state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;retryToken?:string;error?:string;service?:ProductionService;control?:GenerationControl;controlAction?:'pause'|'resume'};
+export type LandscapeStatus={state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;retryToken?:string;error?:string;service?:ProductionService;control?:GenerationControl;controlAction?:'pause'|'resume';printId?:string;earlier?:EarlierLandscapeWork[]};
+export type EarlierLandscapeWork=Pick<LandscapeStatus,'state'|'ready'|'total'|'control'|'controlAction'|'startToken'|'retryToken'|'failed'|'error'|'printId'>&{storyId:string;revision:number};
+export type LandscapePrintSet={id:string;story:Story;images:string[]};
+/** 横图套图留在发起版本，故事与分镜是印刷时使用的快照。 */
+export type LandscapePrint={id:string;story:Story;plan:Plan;control:'active'|'paused';modelSnapshot?:ModelSnapshot};
+export type LandscapeCommand={startToken:string}|{retryToken:string}|{control:'pause'|'resume';printId?:string};
 export interface ReaderProduction{
  referencesChanged?():void;
  wake():void;
@@ -24,5 +32,6 @@ export interface ReaderProduction{
  /** 这个编号已作为本篇的「继续制作」被接受；重放无需再检查服务配置。 */
  continueAccepted?(ownerId:string,id:string,requestId:string):Promise<boolean>;
  reviewState?(ownerId:string,id:string):Promise<'approved'|'attention'|'pending'|null>;
- startLandscape(ownerId:string,id:string,command:{startToken?:string;retryToken?:string}):Promise<LandscapeStatus>;
+ startLandscape(ownerId:string,id:string,command:LandscapeCommand,requireProvider?:()=>Promise<unknown>):Promise<LandscapeStatus>;
+ landscapePrintSets(ownerId:string,id:string):Promise<LandscapePrintSet[]>;
 }

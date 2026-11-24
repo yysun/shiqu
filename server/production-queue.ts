@@ -62,7 +62,7 @@ export class ProductionQueue{
   // Search is retried on its own, so a retried story never starts another round of it.
   const now=this.clock();
   transact(this.database,db=>{
-   const where="session_id=? AND owner_id=? AND state IN('failed','queued') AND kind NOT IN ('discover','landscape-image') AND (? IS NULL OR json_extract(payload,'$.setupGeneration')=?)";
+   const where="session_id=? AND owner_id=? AND state IN('failed','queued') AND kind NOT IN ('discover','landscape-image','landscape-print') AND (? IS NULL OR json_extract(payload,'$.setupGeneration')=?)";
    const interrupted=db.all<ProductionJob>(`SELECT * FROM production_jobs WHERE ${where} AND state='failed' AND interrupted=1`,sessionId,ownerId,generation??null,generation??null);
    db.run(`UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE ${where}`,now,sessionId,ownerId,generation??null,generation??null);
    for(const job of interrupted)recordJobRequeued(db,job,now);

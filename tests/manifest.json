@@ -2298,6 +2298,7 @@
         "lib/reader-image-assets.ts",
         "lib/reader-pdf.ts",
         "server/reader-image-health.ts",
+        "server/landscape-print.ts",
         "server/story-export.ts"
       ]
     },

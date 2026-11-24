@@ -246,15 +246,11 @@ function deriveRevision(db:ReadStatements,doc:Document,row:SessionRow,changes:Re
  for(const [id,product] of Object.entries(edited.products))if(product.unreviewed)delete edited.products[id];
  const outcome=settleHandEdits(child,changes.handEdits,strict);
  child.dag={...outcome.dag,repairs:undefined,issues:[],suggestions:[]};
- const previous=evaluate(stateOf(parent)),failed=landscapeFaultKeys(db,row.id,row.user_id);
+ // 横图随发起版本独立保留，新版只有再次明确发起时才有横图任务。
  for(const key of child.dag.order){
   const frame=child.dag.frames[key];
-  if(frame.landscape!=='')continue;
-  const hard=previous.instance('landscape',key).hard;
-  if((frame.landscapeError||failed.has(key))&&!frame.landscapeInputHash&&hard)frame.landscapeInputHash=fingerprint(hard);
-  if(!(frame.landscapeError||failed.has(key))||!frame.landscapeInputHash){
-   delete frame.landscape;delete frame.landscapeInputHash;delete frame.landscapeError;delete frame.landscapeAttempt;
-  }
+  delete frame.landscape;delete frame.landscapeInputHash;delete frame.landscapeError;delete frame.landscapeAttempt;
+  delete child.dag.products[instanceId('landscape',key)];
  }
  return {parent,child,selection,reviewNotes,changed,choices:outcome.choices,conflicts:outcome.conflicts};
 }
@@ -351,13 +347,6 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   return repo.get(row.id,ownerId);
  }
  const redrawFrame=startRedraw?child.dag.order[changes.redrawPages![0]-1]:undefined;
- const redrawLandscape=redrawFrame&&!!parent.dag.frames[redrawFrame].landscape&&evaluate(stateOf(parent)).instance('landscape',redrawFrame).status==='valid';
- if(redrawLandscape){
-  child.dag.frames[redrawFrame].landscape='';
-  delete child.dag.frames[redrawFrame].landscapeInputHash;
-  delete child.dag.frames[redrawFrame].landscapeError;
-  delete child.dag.products[instanceId('landscape',redrawFrame)];
- }
  const lost=await copyImages(media,row.id,requestId,child.dag);
  if(cover&&coverType){
   // 首幅原图字节不变地保存到新版，立即作为首幅显示；其成图产物在画面描述转换完成、输入就绪后由 settle() 记录。
@@ -379,8 +368,8 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  if(!waiting)delete dag.continuation;
  const {plan,images}=projectDocument(dag,doc.plan);
  const document:Document={...doc,dag,plan,images,reviewNotes,usage:(doc.usage||[]).map(item=>({...item,originId:item.originId||row.id})),
-  revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,...(redrawLandscape?{redrawFrame,landscapeRedraw:dag.order.map(id=>id===redrawFrame?null:dag.frames[id].landscape||'')}:{}),...(cover||!sameArtDirection(parent.selection,selection)||usesStoryImageReference(doc.revision,parent.selection.artStyle)?{storyImageReference:true}:{}),base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
- delete document.visualReview;delete document.reselection;
+  revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,...(cover||!sameArtDirection(parent.selection,selection)||usesStoryImageReference(doc.revision,parent.selection.artStyle)?{storyImageReference:true}:{}),base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
+ delete document.visualReview;delete document.reselection;delete document.landscapePrints;
  const now=new Date().toISOString(),completed=!pending&&row.state==='completed';
  // 故障延续：上一版仍待处理的故障，其节点的输入在新版里没有改变时继续阻断，须读者明确恢复；输入已变的故障不带入（新内容重新开始）。
  // 普通修订在同一事务设置等待并保留读者控制；已确认的单幅重绘在同一事务启用绘图。
@@ -392,7 +381,7 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
    throw new ReaderError(409,'这个操作编号已用于其他内容。');
   const inserted=db.run(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,error,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
   SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),'background',CASE WHEN ? THEN 'active' WHEN ? THEN 'paused' ELSE p.generation_control END,?,NULL,0,0,MIN(p.page,?),p.saved,p.last_read_at,?,? FROM stories p
-  WHERE p.id=? AND p.user_id=? AND p.document=? AND p.selection=? AND ${currentFamilyVersion('p')} AND (${familyEpoch.replace(' AS epoch','')})=?
+  WHERE p.id=? AND p.user_id=? AND json_remove(p.document,'$.landscapePrints')=json_remove(?,'$.landscapePrints') AND p.selection=? AND ${currentFamilyVersion('p')} AND (${familyEpoch.replace(' AS epoch','')})=?
   ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),startRedraw?1:0,paused?1:0,completed?'completed':'idle',Math.max(0,dag.order.length-1),now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch);
   if(!inserted.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
   const carried=carryFaults(db.all<FaultToCarry>(carriedFaultRows,row.id,ownerId),parent,{...child,dag});
