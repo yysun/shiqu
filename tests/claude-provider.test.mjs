@@ -112,9 +112,9 @@ test('Claude invocation-only configuration preserves desktop profile and matches
  assert.match(safeClaudeError(new ClaudeError('CLAUDE_LOGIN_REQUIRED')),/claude auth login/);
 });
 
-test('Claude fences the prompted process after the free login check',async t=>{
+for(const decision of ['yield','obsolete'])test(`Claude fences the ${decision} prompted process after the free login check`,async t=>{
  const fake=await fakeCli(t),runner=createClaudeRunner({CLAUDE_BIN:fake.binary});
- const deny=new PaidDispatchDenied('obsolete');
+ const deny=new PaidDispatchDenied(decision);
  await assert.rejects(withPaidDispatch({authorize:()=>{throw deny;},receipt:()=>assert.fail('no paid receipt')},
   ()=>runner.run(job)),error=>error===deny);
  const calls=await fake.calls();

@@ -251,6 +251,11 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
   targetCurrent:current===token,targetReady:!!doc.dag,
  });
  if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
+ if(changes.reviewNotes!==undefined){
+  const edit=authorizeProductionCommand('edit-review-notes',{version:'current',control:row.generation_control??'active',continuation:!!doc.dag?.continuation,
+   stopping:false,targetCurrent:current===token,targetReady:!!doc.plan});
+  if(!edit.allowed)throw new ReaderError(edit.status,edit.message);
+ }
  const {parent,child,changed,choices,conflicts}=deriveRevision(doc,row,changes,row.id,false);
  if(!changed)return {changed:false,total:child.dag.order.length,redraw:0,reused:doc.images.filter(Boolean).length,textWork:{},continues:false,handEdits:[],conflicts:[],carriedFaults:0};
  child.dag=settle(child);
@@ -270,6 +275,10 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  const state={version:'current' as const,control:row.generation_control??'active',continuation:!!doc.dag?.continuation,stopping:false};
  const authorization=authorizeProductionCommand('save-revision',{...state,targetCurrent:current===token,targetReady:!!doc.dag});
  if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
+ if(changes.reviewNotes!==undefined){
+  const edit=authorizeProductionCommand('edit-review-notes',{...state,targetCurrent:current===token,targetReady:!!doc.plan});
+  if(!edit.allowed)throw new ReaderError(edit.status,edit.message);
+ }
  if(changes.redrawPages){
   const redraw=authorizeProductionCommand('redraw',{...state,targetReady:true,targetCurrent:row.state==='completed'&&
    !Object.values(doc.dag!.products).some(product=>product.unreviewed)&&Object.keys(changes).every(key=>['redrawPages','redrawNotes'].includes(key))});
@@ -301,7 +310,7 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
    if(!latest)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
    const currentDoc=JSON.parse(latest.document) as Document;
    const currentEpoch=db.get<{epoch:number}>(familyEpoch,ownerId,rootId,rootId)!.epoch;
-   if(revisionToken(latest,currentDoc,currentEpoch)!==token||deriveRevision(currentDoc,latest,changes,requestId,true).changed)
+   if(currentDoc.dag?.repreparing||revisionToken(latest,currentDoc,currentEpoch)!==token||deriveRevision(currentDoc,latest,changes,requestId,true).changed)
     throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
    const now=Date.now();
    db.run("INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,result_id,created_at,updated_at) VALUES(?,?,?,'revision-noop',?,'{}',?,?,?)",requestId,ownerId,row.id,requestHash,row.id,now,now);

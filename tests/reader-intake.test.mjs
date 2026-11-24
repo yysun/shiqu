@@ -17,7 +17,10 @@ test('setup routes accept each current intake action and reject stale input or u
  const route=`sessions/${id}/setup`,seen=new Set();
  const settings={artStyle:'paper-cut',productionPrompt:'',narrativeDetail:'balanced'};
  const request=async(action,status,session=undefined)=>{
-  const reply=await f.request(route,'POST',{requestId:crypto.randomUUID(),generation:(session??await f.read(id)).intake.generation,...action});
+  const snapshot=session??await f.read(id);
+  const offer=snapshot.lifecycle.actions.find(offer=>offer.event===action.action);
+  if(status===200)assert.equal(offer?.generation,snapshot.intake.generation,action.action);
+  const reply=await f.request(route,'POST',{requestId:crypto.randomUUID(),generation:snapshot.intake.generation,...action});
   assert.equal(reply.status,status,`${action.action}: ${await reply.text()}`);
   if(status===200)seen.add(action.action);
  };

@@ -51,6 +51,7 @@ test('a paused direct-source intake can cancel or replace before confirmation, a
  assert.equal((await f.request(`sessions/${id}/revisions`)).status,409);
 
  const staged=await selectNext(),command=replace(staged),next=await choose(f,id,staged,command);
+ assert.ok(staged.lifecycle.actions.some(action=>action.event==='commit-reselection'&&action.parentId===id&&action.generation===staged.intake.generation));
  assert.deepEqual(next.selection.source,second.source);
  assert.equal(next.revision.parentId,id);
  assert.equal(next.generationControl,'paused');
@@ -77,6 +78,7 @@ test('a prepared story confirmed in another window rejects an older replacement 
 
  const accepted=await f.json(`sessions/${id}/setup`,'POST',confirm(await f.read(id)));
  assert.equal(accepted.intake.phase,'confirmed');
+ assert.equal((await f.read(staged.id)).lifecycle.actions.some(action=>action.event==='commit-reselection'),false);
  const stale=await f.request(`sessions/${id}/reselection/${staged.id}`,'POST',replace(staged));
  assert.equal(stale.status,409);
  assert.equal((await f.json(`sessions/${id}/current`)).id,id);

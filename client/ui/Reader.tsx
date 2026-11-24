@@ -1,5 +1,6 @@
 // Hydrate the owner library once, preserve current reading caches, and coordinate reader actions.
 'use client';
+import {offersProductionAction} from '@/lib/production-lifecycle';
 // Coordinate story discovery, resumable generation, and the reading sheets.
 // Display-name editing uses a saved session even before a generated story exists.
 // 横向阅读使用与发现页主图区相同的原生吸附滚动；结语拖动仍使用独立位移存储。
@@ -470,6 +471,7 @@ export default function Reader(){
  function openScript(){setScript(true);revision.prepare();}
  function reselectStory(originId=story&&isGenerated(story)?story.id:gen.active?.id){
   if(!originId||reselectLock.current||creating||revision.busy||gen.setupBusy||gen.controlBusy||gen.active?.superseded)return;
+  if(gen.active?.id===originId&&!offersProductionAction(gen.active,'open-reselection'))return;
   reselectLock.current=true;setReselectTarget(originId);
  }
  function finishReselection(next:SessionView,readOnly=false){
@@ -567,7 +569,7 @@ export default function Reader(){
  const readingSession=story&&gen.active?.id===story.id?gen.active:undefined;
  const redrawStatus=readingSession?.redrawPage===page+1?shelfGenerationStatus(readingSession).message:null;
  const reviewStatus=readingSession?.generationProgress?.reviewStatus;
- const canRedraw=isGenerated(story)&&readingSession?.state==='completed'&&!readingSession.superseded&&(!reviewStatus||reviewStatus==='passed');
+ const canRedraw=isGenerated(story)&&!!readingSession&&offersProductionAction(readingSession,'redraw',readingSession.state==='completed'&&!readingSession.superseded&&(!reviewStatus||reviewStatus==='passed'));
  const workflowSession=workflowTarget?(gen.active?.id===workflowTarget?gen.active:null):settings?readingSession:!story?gen.active:null;
  // 旧任务打开后沿用同一条记录，在选材页接着选。
  const awaitingMaterials=!!workflowSession?.intake&&!workflowSession.intake.selected&&workflowSession.intake.phase!=='confirmed'
@@ -596,14 +598,14 @@ export default function Reader(){
    />:<GenerationSurface
     session={workflowSession} busy={gen.busy} controlBusy={!!gen.controlBusy||creating} onControl={gen.control} error={workflowError||gen.error} onRetry={retryWorkflow} onBack={backToShelf} hideBack showSummary={false}
     showLandscape={workflowSession.state==='completed'&&!workflowSession.superseded&&!!panelStory?.pages.length&&panelStory.pages.every(page=>!!page.image)}
-    navigation={{source:{onClick:()=>setSource(true),disabled:!workflowSession.generationProgress?.sourceReady},reselect:{label:'替换选题',onClick:()=>void reselectStory(),disabled:creating||revision.busy||!!gen.controlBusy,title:'替换当前选题，书架保留一张卡片，旧结果保留历史'},reselecting:creating}}
+    navigation={{source:{onClick:()=>setSource(true),disabled:!workflowSession.generationProgress?.sourceReady},reselect:{label:'替换选题',onClick:()=>void reselectStory(),disabled:creating||revision.busy||!!gen.controlBusy||!offersProductionAction(workflowSession,'open-reselection'),title:'替换当前选题，书架保留一张卡片，旧结果保留历史'},reselecting:creating}}
     onAcceptance={()=>revision.open('acceptance')} onHistory={()=>setReviewHistoryId(workflowSession.id)} onEditStyle={()=>revision.open('style')}
     timeline={{
-     links:{source:[{label:'制作要求',onClick:()=>revision.open('requirements')},{label:'验收要求',onClick:()=>revision.open('acceptance')}],
+     links:{source:[{label:'制作要求',disabled:!offersProductionAction(workflowSession,'edit-revision'),onClick:()=>revision.open('requirements')},{label:'验收要求',disabled:!offersProductionAction(workflowSession,'edit-revision'),onClick:()=>revision.open('acceptance')}],
       ...(workflowSession.lifecycle?.actions.some(action=>action.event==='reprepare')?{count:[{
        label:'按当前要求重新准备',disabled:!!gen.controlBusy||revision.busy,onClick:()=>void gen.control(workflowSession.id,'reprepare'),
       }]}:{})},
-     actions:{count:{label:'修改叙事详略',onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:workflowSession.generationProgress?.phase==='plan'?'查看已有分镜':'查看分镜',onClick:openScript}}:{})}
+     actions:{count:{label:'修改叙事详略',disabled:!offersProductionAction(workflowSession,'edit-revision'),onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:workflowSession.generationProgress?.phase==='plan'?'查看已有分镜':'查看分镜',onClick:openScript}}:{})}
     }}
     editor={revision} onReselect={()=>void reselectStory()}
     reviewTools={<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review'&&!f.retryReview)?.id)} onDrawAnyway={()=>void gen.drawAnyway(workflowSession.id)} onSkipReview={faultId=>void gen.drawAnyway(workflowSession.id,faultId)}/>}

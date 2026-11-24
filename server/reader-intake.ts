@@ -19,7 +19,7 @@ import {maxSuggestionBatches} from '../lib/reader-suggestions.ts';
 import {artStyleSettings,sameArtDirection} from '../lib/reader-styles.ts';
 import {invalidateStoryBrief,storyBriefVerified} from '../lib/reader-story-brief.ts';
 import {commandReceipt,recordNoop} from './reader-commands.ts';
-import {authorizeSetup} from '../lib/production-lifecycle.ts';
+import {authorizeSetup,type SetupState} from '../lib/production-lifecycle.ts';
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const currentStory=`NOT ${supersededSql()} AND NOT EXISTS(SELECT 1 FROM library_deletions WHERE story_id=stories.id AND user_id=stories.user_id)`;
 async function intakeSelection(input:Selection,books?:LocalBooks){
@@ -71,6 +71,16 @@ async function requestSearch(repo:ReaderRepository,row:SessionRow,search:IntakeS
  if(!changed.meta.changes)await recordNoop(repo.db,row.user_id,row.id,requestId,'setup',fingerprint);
  return repo.get(row.id,row.user_id);
 }
+export function setupState(row:SessionRow,doc:Document,selection:Selection,superseded:boolean,now:number):SetupState{
+ const intake=doc.intake,chosen=intake?.selected;
+ const requiresBrief=intake?.briefRequired||chosen&&intake.batches[chosen.batch]?.stories[chosen.index]?.storyBrief||doc.original?.storyBrief;
+ return {phase:effectiveIntakePhase(doc,selection),superseded,replacement:!!doc.reselection,confirmed:!!doc.plan,
+  generationCurrent:true,draftCurrent:true,selected:!!chosen,locked:row.state==='running'&&row.lock_until>now,
+  candidateExists:intake?.batches.some(batch=>batch.stories.length>0)??false,search:intake?intakeSearch(intake):{state:'idle'},
+  sameSearch:false,automatic:false,hasCandidates:!!intake?.batches.at(-1)?.stories.length,
+  searchLimit:(intake?.batches.length??0)>=maxSuggestionBatches,combined:selection.discovery?.mode==='auto'&&!!selection.discovery.combine,
+  preparationReady:!!doc.original&&!!doc.frameRecommendation,briefReady:!requiresBrief||storyBriefVerified(doc.original)};
+}
 export async function changeIntake(repo:ReaderRepository,id:string,uid:string,action:IntakeAction,books?:LocalBooks,attempt=0):Promise<SessionRow>{
  const row=await repo.get(id,uid),doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
  const fingerprint=hash(action),receipt=await commandReceipt(repo.db,uid,action.requestId,fingerprint);
@@ -82,8 +92,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  }
  const styling=artStyleSettings(savedIntake?.draft??selection,'settings' in action?action.settings??{}:{});
  const search=savedIntake?intakeSearch(savedIntake):{round:0,state:'idle' as const};
- const chosen=savedIntake?.selected,candidate=action.action==='choose'?savedIntake?.batches[action.batch]?.stories[action.index]:undefined;
- const requiresBrief=savedIntake?.briefRequired||chosen&&savedIntake.batches[chosen.batch]?.stories[chosen.index]?.storyBrief||doc.original?.storyBrief;
+ const candidate=action.action==='choose'?savedIntake?.batches[action.batch]?.stories[action.index]:undefined;
  let draftCurrent=true;
  if(savedIntake&&(action.action==='draft'||action.action==='recommend'||action.action==='confirm')){
   const current=intakeDraftToken(savedIntake.draft);
@@ -95,12 +104,9 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   draftCurrent=action.draftToken!==undefined?action.draftToken===current:!userDraft||requested===legacyToken;
  }
  const decision=authorizeSetup(action.action,{
-  phase,superseded:await repo.superseded(id,uid),replacement:!!doc.reselection,confirmed:!!doc.plan,
-  generationCurrent:savedIntake?.generation===action.generation,draftCurrent,selected:!!chosen,
-  locked:row.state==='running'&&row.lock_until>Date.now(),candidateExists:!!candidate,search,sameSearch:search.requestId===action.requestId,
-  automatic:action.action==='more'&&!!action.automatic,hasCandidates:!!savedIntake?.batches.at(-1)?.stories.length,
-  searchLimit:(savedIntake?.batches.length??0)>=maxSuggestionBatches,combined:selection.discovery?.mode==='auto'&&!!selection.discovery.combine,
-  preparationReady:!!doc.original&&!!doc.frameRecommendation,briefReady:!requiresBrief||storyBriefVerified(doc.original),
+  ...setupState(row,doc,selection,await repo.superseded(id,uid),Date.now()),
+  generationCurrent:savedIntake?.generation===action.generation,draftCurrent,candidateExists:!!candidate,
+  sameSearch:search.requestId===action.requestId,automatic:action.action==='more'&&!!action.automatic,
  });
  if(decision.effect==='reject')throw new ReaderError(decision.status,decision.message);
  if(decision.effect==='noop'){await recordNoop(repo.db,uid,id,action.requestId,'setup',fingerprint);return row;}

@@ -3,6 +3,7 @@
 // 传入 retainKey 时，未保存的设置与打开的子面板跨布局切换保留；恢复后只要服务器保存值未变，就不提示“另一台设备更新了制作内容”。
 import {isDirectSourceSelection} from '@/lib/reader-discovery-themes';
 import StoryFlowAction from './StoryFlowAction';
+import {offersProductionAction} from '@/lib/production-lifecycle';
 import {useEffect,useRef,useState} from 'react';
 import {useRetainedState,hasRetained,retainedValue,retain} from './useRetainedState';
 import type {ComponentProps} from 'react';
@@ -52,7 +53,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  const searching=finding||search.state==='searching';
  const locked=busy||session.state==='running'&&!paused,ready=intake.phase==='confirming';
  const editable=ready||paused&&intake.phase==='preparing';
- const canRecommend=ready&&!remote&&session.state!=='running'&&(editing==='requirements'||editing==='count');
+ const canRecommend=ready&&!remote&&session.state!=='running'&&offersProductionAction(session,'recommend')&&(editing==='requirements'||editing==='count');
  const selected=intake.selected?intake.batches[intake.selected.batch]?.stories[intake.selected.index]:null;
  const preparable=!!selected&&intake.phase==='choosing'&&session.state!=='failed';
  const preferences={artStyle:settings.artStyle,artStylePrompt:settings.artStylePrompt,productionPrompt:settings.productionPrompt,...(settings.acceptancePrompt!==undefined?{acceptancePrompt:settings.acceptancePrompt}:{}),narrativeDetail:settings.narrativeDetail};
@@ -81,7 +82,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   if(paused)return progress.onControl(session.id,'resume');
   void act({action:'more'});
  }}>{paused?'恢复整理':'重试整理'}</StoryFlowAction>;
- const startProduction=<StoryFlowAction disabled={busy||remote||session.state==='running'} aria-busy={busy} onClick={()=>void act({action:'confirm',settings,draftToken:baselineToken.current})}>{busy?'正在提交…':'开始制作'}</StoryFlowAction>;
+ const startProduction=<StoryFlowAction disabled={busy||remote||session.state==='running'||!offersProductionAction(session,'confirm')} aria-busy={busy} onClick={()=>void act({action:'confirm',settings,draftToken:baselineToken.current})}>{busy?'正在提交…':'开始制作'}</StoryFlowAction>;
  const artStyleLabel=getArtStyle(settings.artStyle).label;
  const narrativeLabel=settings.narrativeDetail==='brief'?'简短':settings.narrativeDetail==='detailed'?'详细':'适中';
  if(combining&&!selected)return <section className="yu-creation-setup" aria-label="准备故事">
@@ -101,7 +102,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   <StoryGenerationStatus session={session} {...progress} navigation={undefined} compact={ready||preparingSelected} control={ready?null:undefined}
    timeline={{links:{source:[
     {label:'查看原文',disabled:busy||!session.generationProgress?.sourceReady,onClick:()=>setSourceOpen(true)},
-    {label:'重新选择故事',disabled:busy||progress.controlBusy||session.superseded,onClick:onReselect},
+    {label:'重新选择故事',disabled:busy||progress.controlBusy||!offersProductionAction(session,'open-reselection',!session.superseded),onClick:onReselect},
    ]}}} stageContent={{count:<>
    {!editing&&remoteChoice}
    {!editing&&error&&<p className="yu-batch-error" role="alert">{error}</p>}

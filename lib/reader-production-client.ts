@@ -7,7 +7,7 @@ import type {SessionView} from './reader-model.ts';
 import type {RecoveryRequest} from './reader-recovery.ts';
 import {maxSuggestionBatches} from './reader-suggestions.ts';
 import {randomId} from './reader-random-id.ts';
-import {recoveryFaultId} from './production-lifecycle.ts';
+import {preparationRefreshFault,recoveryFaultId} from './production-lifecycle.ts';
 // Mode/control changes and passive reads must never turn a saved failure into a paid retry.
 export function observeOnlyGeneration(session:SessionView){
  return session.state==='failed'||session.state==='completed'||session.generationMode==='background'||!!session.generationControl&&session.generationControl!=='active';
@@ -25,9 +25,10 @@ export async function observeStoryGeneration({sessionId,request,isActive,onSessi
     failures=0;onSession(session);
     // A choice can wait on another device or a search, so an open page keeps following it.
     const choosing=!!session.intake&&['choosing','confirming'].includes(session.intake.phase);waiting=choosing&&watchChoices;
-    if(session.state==='completed'||choosing&&!watchChoices&&session.intake?.search?.state!=='searching')return '';
+    const refreshing=session.lifecycle?.preparationRefresh==='pending';
+    if(session.state==='completed'&&(!refreshing||preparationRefreshFault(session))||choosing&&!watchChoices&&session.intake?.search?.state!=='searching')return '';
     const intake=session.intake,canDiscover=!!intake&&(intake.search.state==='searching'||watchChoices&&!intake.selected&&intake.phase==='choosing'&&intake.batches.length>0);
-    if(focus&&(canDiscover||!choosing&&session.generationMode==='background')&&session.generationControl==='active'&&session.state!=='failed'){
+    if(focus&&!refreshing&&(canDiscover||!choosing&&session.generationMode==='background')&&session.generationControl==='active'&&session.state!=='failed'){
      // The reader's page can be left over from another story until this one has a first image.
      const pages=session.story?.pages,page=pages?.[0]?.image?Math.min(focus.page(),pages.length-1):0;
      if(!posting&&(page!==focusPage||now()-focusAt>=10000)){

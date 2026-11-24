@@ -32,19 +32,23 @@ import type {ProductionJob,JobSpec} from './production-queue.ts';
 import {authorizeRecovery,authorizeControl,commandReceipt,sessionFaults} from './reader-commands.ts';
 import type {ReaderFault} from './reader-commands.ts';
 import type {FaultView,RecoveryRequest,ReviewOverride} from '../lib/reader-recovery.ts';
-import {canReprepare,DagProduction,dagTextKind,dagDrawKind} from './dag-production.ts';
+import {canReprepare,DagProduction,dagTextKind,dagDrawKind,landscapeFrames} from './dag-production.ts';
 import {transact,deleteJobs} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
-import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeJobLease,authorizeProductionCommand,type ProductionFault,type ProductionImageCheck,type ProductionService} from '../lib/production-lifecycle.ts';
+import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeJobLease,authorizeProductionCommand,resolveProductionService,type ProductionFault,type ProductionImageCheck,type ProductionService} from '../lib/production-lifecycle.ts';
 import type {Work} from '../lib/production-dag/runner.ts';
 import {PaidDispatchDenied,withPaidDispatch} from './paid-dispatch.ts';
 import {drawingReferenceBinding} from './book-image-reference.ts';
+import {setupState} from './reader-intake.ts';
+import {copyAvailability,familyEpoch,revisionAvailability} from './reader-revisions.ts';
+import {replacementCommitState} from './reader-reselection.ts';
 
 type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;through_page:number;expires_at:number;runtime_id:string};
 type SnapshotInputs={
- row:SessionRow;superseded:boolean;replacementOpen:boolean;now:number;
+ row:SessionRow;superseded:boolean;deleted:boolean;replacementOpen:boolean;now:number;
  allJobs:ProductionJob[];faults:ReaderFault[];viewerThrough:number|null;
+ replacementBasis?:ReturnType<typeof replacementCommitState>;
 };
 type ActiveSearch={round:number;controller:AbortController;startedAt:number;progress?:SuggestionProgress};
 type RebuildKey={rev:number;state:string;demands:string;references:number};
@@ -96,6 +100,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private tickFailing=false;
  private readonly unreadable=new Set<string>();
  private readonly parsedRows=new Map<string,{document:string;selection:string;parsed:{doc:Document;selection:Selection}|null}>();
+ private readonly lostLandscapeChecks=new Map<string,Map<string,{image:string;attempt?:number}>>();
  private readonly rebuildKeys=new Map<string,RebuildKey>();
  private referenceGeneration=0;
  private readonly pruneKeys=new Map<string,PruneKey>();
@@ -141,16 +146,37 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  async continueAccepted(ownerId:string,id:string,requestId:string){return this.dag.continueAccepted(ownerId,id,requestId);}
  async reviewState(ownerId:string,id:string){return this.dag.reviewState(await this.repository.get(id,ownerId));}
+ private checkedLandscapeLosses(id:string,dag:Document['dag']){
+  const known=this.lostLandscapeChecks.get(id),current=new Set<string>();
+  if(!known)return current;
+  for(const [key,{image,attempt}] of known){
+   const frame=dag?.frames[key];
+   if(frame?.landscape===image&&frame.landscapeAttempt===attempt)current.add(key);
+   else known.delete(key);
+  }
+  if(!known.size)this.lostLandscapeChecks.delete(id);
+  return current;
+ }
  async landscapeStatus(ownerId:string,id:string):Promise<LandscapeStatus>{
   const row=await this.repository.get(id,ownerId);
-  const dag=this.parsed(row)?.doc.dag;
-  if(dag){
-   const status=await this.dag.landscapeStatus(row);
-   if(await this.repository.superseded(id,ownerId)){
+  const doc=this.parsed(row)?.doc;
+  if(doc?.dag){
+   const dag=doc.dag;
+   const status=await this.dag.landscapeStatus(row,this.checkedLandscapeLosses(id,dag));
+   // 复用已核对的丢图，直到对应画幅的图片变化或再次核对可读。
+   const lost=new Map<string,{image:string;attempt?:number}>();
+   dag.order.forEach((key,page)=>{
+    const frame=dag.frames[key];
+    if(frame?.landscape&&!status.images[page])lost.set(key,{image:frame.landscape,attempt:frame.landscapeAttempt});
+   });
+   if(lost.size)this.lostLandscapeChecks.set(id,lost);
+   else this.lostLandscapeChecks.delete(id);
+   const service=this.serviceAvailability(dag.modelSnapshot);
+   if(service==='unconfigured'||this.stopping||await this.repository.superseded(id,ownerId)){
     delete status.startToken;
     delete status.retryToken;
    }
-   return {...status,control:row.generation_control??'active',service:this.serviceAvailability(dag.modelSnapshot)};
+   return {...status,control:row.generation_control??'active',service};
   }
   return {state:'idle',available:false,total:0,ready:0,images:[],failed:[]};
  }
@@ -187,8 +213,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // 单幅重绘的横图在竖图完成后接续，用既有横图重绘索引定位待派发的版本。
   const background=(await this.database.prepare(`SELECT id,user_id FROM stories WHERE generation_control='active' AND state!='completed' ${current}
    UNION ALL SELECT id,user_id FROM stories WHERE generation_control='active' AND state='completed'
-    AND (CASE WHEN json_valid(document) THEN json_type(document,'$.revision.landscapeRedraw')='array' END)=1
-    AND json_type(CASE WHEN json_valid(document) THEN document ELSE '{}' END,'$.revision.redrawFrame')='text' ${current}`)
+    AND (CASE WHEN json_valid(document) THEN json_type(document,'$.dag.repreparing')='true'
+     OR json_type(document,'$.revision.landscapeRedraw')='array' AND json_type(document,'$.revision.redrawFrame')='text' END)=1 ${current}`)
    .bind(...(id?[id,id]:[])).all<{id:string;user_id:string}>()).results;
   return [...viewers,...background.map(row=>({session_id:row.id,owner_id:row.user_id,viewer_id:'background',page:0,through_page:readerMaxFrames-1,expires_at:Infinity,runtime_id:this.runtimeId}))];
  }
@@ -276,7 +302,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const order=doc.dag?.order??[];
   const page=fault.state!=='awaiting-match'&&(fault.node==='frameImage'||fault.node==='landscape')?order.indexOf(fault.node_key):-1;
   const retryReview=job?.kind===dagTextKind&&work?.call==='review';
-  const stage=retryReview?'review':fault.kind==='image-loss'&&fault.state!=='awaiting-match'?'redraw':job?.kind==='discover'?'source':job?.kind==='prepare'||doc.intake&&doc.intake.phase!=='confirmed'?'prepare':'generation';
+  const stage=retryReview?'review':fault.kind==='image-loss'&&fault.state!=='awaiting-match'?'redraw':job?.kind==='discover'?'source':work?.call==='prepareSuggestions'||job?.kind==='prepare'||doc.intake&&doc.intake.phase!=='confirmed'?'prepare':'generation';
   const instances=work?.instances??(fault.node?[{node:fault.node,key:fault.node_key}]:[]);
   const targets=instances.map(({node,key})=>{
    const index=order.indexOf(key);
@@ -352,16 +378,25 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    return [this.snapshotView(input,saved,includeTimings)];
   });
  }
+ deletedLifecycles(ownerId:string){
+  const lifecycles=new Map<string,NonNullable<SessionView['lifecycle']>>();
+  for(const input of this.snapshotInputs(ownerId,undefined,true)){
+   if(this.parsed(input.row))lifecycles.set(input.row.id,this.snapshotView(input,view(input.row),false).lifecycle!);
+  }
+  return lifecycles;
+ }
  /** 使用一次读事务截取完成、阻断、书架与活动所依赖的数据。提交后再运行引擎和查询实时服务。 */
- private snapshotInputs(ownerId:string,id?:string):SnapshotInputs[]{
+ private snapshotInputs(ownerId:string,id?:string,deleted=false):SnapshotInputs[]{
   const read=(db:ReadStatements)=>{
    const now=this.clock();
-   const rows=id===undefined?db.all<SessionRow&{superseded?:number}>(shelfRowsSql,ownerId):
+   const rows=deleted?db.all<SessionRow&{superseded?:number}>(`SELECT *,${supersededSql()} AS superseded FROM stories
+    WHERE user_id=? AND NOT (${visibleStory}) AND json_type(document,'$.reselection') IS NULL`,ownerId):
+    id===undefined?db.all<SessionRow&{superseded?:number}>(shelfRowsSql,ownerId):
     db.all<SessionRow&{superseded?:number}>(`SELECT *,${supersededSql()} AS superseded FROM stories WHERE id=? AND user_id=? AND ${visibleStory}`,id,ownerId);
    if(!rows.length)return [];
    const ids=JSON.stringify(rows.map(row=>row.id)),bySession='session_id IN (SELECT value FROM json_each(?))';
    const inputs=new Map<string,SnapshotInputs>(rows.map(row=>[row.id,{
-    row,superseded:!!row.superseded,now,replacementOpen:false,allJobs:[],faults:[],viewerThrough:null,
+    row,superseded:!!row.superseded,deleted,now,replacementOpen:false,allJobs:[],faults:[],viewerThrough:null,
    }]));
    for(const job of db.all<ProductionJob>(`SELECT * FROM production_jobs WHERE owner_id=? AND ${bySession} ORDER BY created_at,id`,ownerId,ids))
     inputs.get(job.session_id)!.allJobs.push(job);
@@ -375,6 +410,19 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     const input=inputs.get(parentId);
     if(input&&!input.superseded)input.replacementOpen=true;
    }
+   if(id!==undefined){
+    const input=inputs.get(id)!,draft=this.parsed(input.row)?.doc.reselection;
+    if(draft){
+     const parent=db.get<SessionRow>(`SELECT * FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visibleStory}`,draft.parentId,ownerId);
+     const parsed=parent&&this.parsed(parent);
+     if(parent&&parsed){
+      const {open,unconfirmed}=revisionAvailability(parent,parsed.doc);
+      const root=parsed.doc.revision?.rootId||parent.id;
+      const epoch=db.get<{epoch:number}>(familyEpoch,ownerId,root,root)!.epoch;
+      input.replacementBasis=replacementCommitState(draft,parent,open?{doc:parsed.doc,epoch,intakeGeneration:unconfirmed?.generation}:undefined);
+     }
+    }
+   }
    return [...inputs.values()];
   };
   return this.database.readTransaction?.(read)??transact(this.database,read);
@@ -384,7 +432,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const id=row.id,parsed=this.parsed(row)!;
   const revision=parsed.doc.revision;
   const background=row.generation_control==='active'&&!superseded&&(!this.options.targetSessionId||id===this.options.targetSessionId)&&
-   (row.state!=='completed'||Array.isArray(revision?.landscapeRedraw)&&typeof revision.redrawFrame==='string');
+   (row.state!=='completed'||!!parsed.doc.dag?.repreparing||Array.isArray(revision?.landscapeRedraw)&&typeof revision.redrawFrame==='string');
   const jobs=allJobs.filter(job=>this.generationCurrent(row,job)&&(job.kind!=='discover'||this.searchCurrent(row,searchRound(job))));
   const eligible=jobs.some(job=>{
    if(job.state!=='queued')return false;
@@ -392,13 +440,15 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    return payload.work?.call==='drawLandscape'||background||viewerThrough!==null&&(job.pool==='text'||(payload.page??0)<=viewerThrough);
   });
   const search=this.searches.get(id),progress=saved.generationProgress!;
+  const dag=parsed.doc.dag,checkedLandscapeLosses=this.checkedLandscapeLosses(id,dag);
+  const optionalFrames=dag?landscapeFrames(dag,jobs,checkedLandscapeLosses):[];
   const jobsById=new Map(allJobs.map(job=>[job.id,job]));
   const projectedFaults=faults.map(fault=>this.faultView(parsed.doc,fault,fault.job_id?jobsById.get(fault.job_id):undefined));
   const views:FaultView[]=projectedFaults.filter(fault=>fault.scope==='required');
   const landscapeFaults=parsed.doc.dag?.order.flatMap((key,page):ProductionFault[]=>{
-   const message=parsed.doc.dag?.frames[key]?.landscapeError;
+   const message=optionalFrames[page]?.landscapeError;
    if(!message||projectedFaults.some(fault=>fault.targets.some(target=>target.node==='landscape'&&target.key===key)))return [];
-   return [{id:`landscape:${key}`,message,page,stage:'generation',state:'pending',retryAllowed:false,kind:'step-failure',
+   return [{id:`landscape:${key}`,message,page,stage:'generation',state:'pending',retryAllowed:false,kind:checkedLandscapeLosses.has(key)?'image-loss':'step-failure',
     scope:'optional',targets:[{node:'landscape',key,page}]}];
   })??[];
   const failedSearch=parsed.doc.intake&&intakeSearch(parsed.doc.intake);
@@ -411,8 +461,12 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const failedReviewJob=rawReviewFault&&allJobs.find(job=>job.id===rawReviewFault.job_id);
   const reviewSkip=!superseded&&rawReviewFault&&failedReviewJob?this.dag.skipReviewOffer(row,rawReviewFault,failedReviewJob):null;
   const {blocking,complete,review}=this.dag.lifecycleFrom(row,faults,allJobs);
+  const reviewAttention:NonNullable<SessionView['lifecycle']>['reviewAttention']=[...(blocking?.reasons??[])];
+  const blockedTargets=new Set(reviewAttention.map(reason=>reason.target));
+  for(const target of new Set(dag?.issues?.filter(issue=>issue.requiresReplan&&blockedTargets.has(issue.target)).map(issue=>issue.target))){
+   reviewAttention.push({target,reason:'replan'});
+  }
   const service=this.serviceAvailability(parsed.doc.dag?.modelSnapshot);
-  const dag=parsed.doc.dag;
   const pendingImageChecks=dag?.order.flatMap((key,page):ProductionImageCheck[]=>{
    const frame=dag.frames[key],checks:ProductionImageCheck[]=[];
    for(const [kind,url] of [['portrait',frame?.image],['landscape',frame?.landscape]] as const){
@@ -421,10 +475,32 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    }
    return checks;
   })??[];
+  const landscapePending=optionalFrames.some(frame=>frame.landscape===''&&!frame.landscapeError);
   const optionalWork=dag?.order.some(key=>dag.frames[key]?.landscape===''&&dag.frames[key].landscapeError===undefined)??false;
-  const lifecycle=productionLifecycle({...saved,complete,generationControl:row.generation_control,superseded,replacementOpen:!!parsed.doc.reselection||replacementOpen,
-   faults:[...projectedFaults,...landscapeFaults,...(searchFault?[searchFault]:[])],reviewAttention:blocking?.reasons??[],review,service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
-   now,order:dag?.order??[],pendingImageChecks,optionalWork,stopping:this.stopping,canReprepare:canReprepare(parsed.doc),repreparing:!!dag?.repreparing,
+  const {doc,selection}=parsed,{intake,reselection}=doc;
+  const revisionOptions=revisionAvailability(row,doc),copy=copyAvailability(row,doc,selection);
+  const unreviewed=!!dag&&Object.values(dag.products).some(product=>product.unreviewed);
+  const savedComplete=row.state==='completed';
+  const unrequested=optionalFrames.some(frame=>frame.landscape===undefined);
+  const landscapeFailed=optionalFrames.some(frame=>frame.landscapeError);
+  const configured=service!=='unconfigured';
+  const setup=intake&&configured?{state:setupState(row,doc,selection,superseded,now),generation:intake.generation}:undefined;
+  const replacement=reselection&&intake?{parentId:reselection.parentId,generation:intake.generation,commit:{draftCurrent:!superseded,
+   generationCurrent:true,candidateExists:configured&&intake.batches.some(batch=>batch.stories.length>0),
+   ...(input.replacementBasis??{basisCurrent:false,requirementsCurrent:false})}}:undefined;
+  const lifecycle=productionLifecycle({...saved,complete,generationControl:row.generation_control,superseded,deleted:input.deleted,replacementOpen:!!parsed.doc.reselection||replacementOpen,
+   faults:[...projectedFaults,...landscapeFaults,...(searchFault?[searchFault]:[])],reviewAttention,review,service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
+   now,order:dag?.order??[],pendingImageChecks,optionalWork,stopping:this.stopping,canReprepare:canReprepare(doc),repreparing:!!dag?.repreparing,
+   setup,replacement,owned:true,imagePages:dag?.order.flatMap((key,page)=>referenceImageKey(id,dag.frames[key]?.image??'')?[page+1]:[]),
+   storyActions:[{event:'open-reselection',ready:revisionOptions.open&&configured},
+    {event:'edit-revision',ready:revisionOptions.edit},
+    {event:'save-revision',ready:configured&&revisionOptions.edit&&!!dag},
+    {event:'edit-review-notes',ready:configured&&revisionOptions.edit&&!!dag&&!!doc.plan},
+    {event:'redraw',ready:configured&&revisionOptions.edit&&!!dag&&savedComplete&&!unreviewed},
+    {event:'cover',ready:configured&&revisionOptions.edit&&!!dag&&savedComplete&&review==='approved'&&!unreviewed},
+    {event:'copy',ready:copy.current&&copy.reviewed},{event:'copy-draft',ready:copy.current&&copy.draft},
+    {event:'start-landscape',ready:configured&&savedComplete&&!landscapePending&&unrequested},
+    {event:'retry-landscape',ready:configured&&savedComplete&&!landscapePending&&landscapeFailed}],
    freeImageRecoveries:new Set(faults.filter(fault=>this.imageRecoveryTarget(id,parsed.doc,fault)).map(fault=>fault.id)),
    modelApplicable:!!dag&&(!parsed.doc.intake||parsed.doc.intake.phase==='confirmed')&&!!this.snapshotNow()&&
     (parsed.doc as Document&{legacyFramePreparation?:unknown}).legacyFramePreparation==null,
@@ -498,7 +574,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const {page,work,waitingFor}=JSON.parse(job.payload) as {page?:number;work?:{call:string};waitingFor?:string};
   if(job.state==='queued'&&waitingFor==='image-availability'&&job.updated_at+Math.max(1000,this.options.tickMs??1000)>now)return 'yield';
   const landscape=work?.call==='drawLandscape';
-  const demand=(!discover&&row.state!=='completed')||(landscape&&row.state==='completed')||
+  const demand=(!discover&&(row.state!=='completed'||!!doc.dag?.repreparing))||(landscape&&row.state==='completed')||
    !!db.get('SELECT 1 FROM production_demand WHERE session_id=? AND owner_id=? AND runtime_id=? AND expires_at>? AND (? OR through_page>=?) LIMIT 1',
     row.id,row.user_id,this.runtimeId,now,discover||job.pool==='text'?1:0,page??0);
   return authorizeDispatch({version:row.superseded?'superseded':row.deleted?'deleted':'current',
@@ -553,12 +629,12 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private snapshotNow(){try{return this.options.snapshots?.current();}catch{return undefined;}}
  private serviceAvailability(snapshot?:ModelSnapshot):ProductionService{
   const snapshots=this.options.snapshots;
-  if(snapshots&&!this.snapshotNow())return 'unconfigured';
-  if(this.stopping)return 'stopping';
+  const configured=!snapshots||!!this.snapshotNow(),stopping=this.stopping;
+  if(!configured||stopping)return resolveProductionService({configured,stopping,snapshotAvailable:true});
   try{
-   if(snapshot&&snapshots)return snapshots.provider(snapshot)?'available':'snapshot-unavailable';
-   return this.provider.capture&&!this.provider.capture()?'unconfigured':'available';
-  }catch{return snapshot&&snapshots?'snapshot-unavailable':'unconfigured';}
+   if(snapshot&&snapshots)return resolveProductionService({configured,stopping,snapshotAvailable:!!snapshots.provider(snapshot)});
+   return resolveProductionService({configured:!this.provider.capture||!!this.provider.capture(),stopping,snapshotAvailable:true});
+  }catch{return resolveProductionService({configured:!!snapshot&&!!snapshots,stopping,snapshotAvailable:false});}
  }
  /** DAG 任务按故事的模型快照构造提供方；没有快照服务或故事没有快照时沿用当前提供方。 */
  private async runDag(job:ProductionJob){

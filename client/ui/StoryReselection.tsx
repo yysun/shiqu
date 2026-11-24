@@ -8,6 +8,7 @@ import type {Selection,SessionView} from '@/lib/reader-model';
 import type {IntakeCommand} from '@/lib/reader-intake';
 import type {ReplacementChoice} from '@/lib/reader-reselection';
 import {observeStoryGeneration} from '@/lib/reader-production-client';
+import {offersProductionAction} from '@/lib/production-lifecycle';
 
 type Conditions=Extract<IntakeCommand,{action:'conditions'}>['conditions'];
 type Setup={signature:string;requestId:string;generation:number;saved?:SessionView};
@@ -43,6 +44,9 @@ export default function StoryReselection({parentId,books,semanticIndexBooks,onSu
  }
  async function replace(id:string,generation:number,batch:number,index:number){
   const pending=replacement.current;
+  if(pending?.generation!==generation&&draft?.id===id&&draft.intake?.generation===generation&&!offersProductionAction(draft,'commit-reselection')){
+   throw Error('当前选题或制作设置已更新，请保留草稿并重新核对。');
+  }
   if(pending?.generation!==generation||pending.batch!==batch||pending.index!==index)replacement.current={requestId:randomId(),generation,batch,index};
   const next:SessionView=await request(`reader/sessions/${parentId}/reselection/${id}`,'POST',replacement.current);
   closed.current=true;onSubmitted(next);

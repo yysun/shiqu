@@ -18,7 +18,8 @@ import {shelfGenerationStatus} from '../lib/shelf-generation.ts';
 import {authorizeDispatch,dispatchRules,authorizeProductionCommand,commandRules,productionCommandEvents,productionControlEvents} from '../lib/production-lifecycle.ts';
 import {authorizeSetup,setupEvents,setupRules,authorizeReselectionCancel,reselectionCancelRules,
  authorizeReselectionCommit,reselectionCommitRules,authorizeLibraryControl,libraryControlRules,
- authorizeJobLease,jobLeaseRules,classifyJobFailure,jobFailureRules} from '../lib/production-lifecycle.ts';
+ authorizeJobLease,jobLeaseRules,classifyJobFailure,jobFailureRules,resolveProductionService,runtimeServiceRules,
+ resolveImageRead,imageReadRules,resolveInterruptedJob,interruptedJobRules} from '../lib/production-lifecycle.ts';
 
 /** 一篇已完成、审片通过的 DAG 故事，图片文件写入隔离书库。 */
 async function completedStory(f){
@@ -34,13 +35,49 @@ const saved=async(f,id)=>JSON.parse((await f.app.services.database.prepare('SELE
 const textCalls=control=>control.plans.length+control.outlines.length+control.batches.length+control.reflections.length+control.reflectionRepairs.length+control.frameReviews.length+control.structures.length+control.repairs.length;
 const timelineStep=(session,id)=>generationProgress(session,Date.now()).steps.find(step=>step.id===id);
 const jobAttempts=async(f,id)=>(await f.app.services.database.prepare('SELECT id,kind,state,attempts,lease_token FROM production_jobs WHERE session_id=? ORDER BY id').bind(id).all()).results;
+const offered=(session,event)=>session.lifecycle.actions.some(action=>action.event===event);
 
 test('reprepare refreshes suggestions in a new generation without altering a confirmed story',async t=>{
  const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
  const route=`sessions/${id}`,before=await f.read(id),command={requestId:crypto.randomUUID(),action:'reprepare'};
- assert.ok(before.lifecycle.actions.some(action=>action.event==='reprepare'));
+ assert.ok(offered(before,'reprepare'));
+ const revision=await f.json(`${route}/revisions`);
  const draft=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection});
  assert.equal((await f.request(`sessions/${draft.id}/production-control`,'POST',{...command,requestId:crypto.randomUUID()})).status,409);
+ const release=Promise.withResolvers(),generator=f.generation.generator.bind(f.generation);
+ let started=false;
+ f.generation.generator=()=>{
+  const active=generator();
+  return {...active,async recommend(...args){const result=await active.recommend(...args);started=true;await release.promise;return result;}};
+ };
+ try{
+  const accepted=await f.json(`${route}/production-control`,'POST',command);
+  assert.equal(accepted.lifecycle.phase,'completed');
+  assert.equal(accepted.lifecycle.preparationRefresh,'pending');
+  await until(()=>started);
+  assert.equal((await f.request(`${route}/production-control`,'POST',{...command,requestId:crypto.randomUUID()})).status,409);
+  assert.equal((await f.json(`${route}/production-control`,'POST',command)).id,id);
+  assert.equal(offered(accepted,'edit-revision'),false);
+  assert.equal((await f.request(`${route}/revisions`,'POST',{requestId:crypto.randomUUID(),token:revision.token,changes:{artStyle:before.selection.artStyle}})).status,409);
+  await f.json(`${route}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'pause'});
+ }finally{release.resolve();}
+ await until(async()=>(await f.read(id)).lifecycle.preparationRefresh==='none');
+ const after=await f.read(id),stored=await saved(f,id);
+ assert.equal(after.state,'completed');
+ assert.equal(after.lifecycle.control,'paused');
+ assert.equal(after.frameRecommendation.count,7);
+ assert.equal(stored.dag.preparationGeneration,1);
+ assert.deepEqual(after.selection,before.selection);
+ assert.deepEqual(after.story.pages,before.story.pages);
+ assert.equal(f.control.calls.length,0);
+ assert.equal(f.control.recommendations.length,1);
+});
+
+test('reprepare drains sent drawings and keeps unsent drawings queued until suggestions are saved',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f),route=`sessions/${id}`;
+ const {startToken}=await f.json(`${route}/landscape`);
+ await f.json(`${route}/landscape`,'POST',{startToken});
+ await until(()=>f.control.calls.length>0);
  const release=Promise.withResolvers(),generator=f.generation.generator.bind(f.generation);
  let started=false;
  f.generation.generator=()=>{
@@ -48,20 +85,82 @@ test('reprepare refreshes suggestions in a new generation without altering a con
   return {...active,async recommend(...args){started=true;await release.promise;return active.recommend(...args);}};
  };
  try{
-  const accepted=await f.json(`${route}/production-control`,'POST',command);
-  assert.equal(accepted.lifecycle.phase,'preparation');
+  await f.json(`${route}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'reprepare'});
   await until(()=>started);
-  assert.equal((await f.request(`${route}/production-control`,'POST',{...command,requestId:crypto.randomUUID()})).status,409);
-  assert.equal((await f.json(`${route}/production-control`,'POST',command)).id,id);
- }finally{release.resolve();}
- await until(async()=>(await f.read(id)).lifecycle.phase==='completed');
- const after=await f.read(id),stored=await saved(f,id);
- assert.equal(after.frameRecommendation.count,7);
- assert.equal(stored.dag.preparationGeneration,1);
- assert.deepEqual(after.selection,before.selection);
- assert.deepEqual(after.story.pages,before.story.pages);
- assert.equal(f.control.calls.length,0);
+  const sent=f.control.calls.slice();
+  assert.ok(sent.length<6);
+  for(const call of sent)call.resolve();
+  await until(async()=>{
+   const doc=await saved(f,id);
+   return sent.every(({page})=>!!doc.dag.frames[doc.dag.order[page]].landscape);
+  });
+  assert.equal((await saved(f,id)).dag.repreparing,true);
+  assert.equal(f.control.calls.length,sent.length);
+  assert.ok((await jobAttempts(f,id)).some(job=>job.kind==='dag-draw'&&job.state==='queued'));
+ }finally{f.control.hold=false;release.resolve();}
+ await until(async()=>(await f.json(`${route}/landscape`)).state==='completed');
+ assert.equal(f.control.calls.length,6);
+});
+
+test('CLI reprepare records intent and run awaits the refreshed recommendation',async t=>{
+ const {executeHeadless}=await import('../server/headless-cli.ts');
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f),before=await f.read(id);
+ await f.stop();
+ const run=(...args)=>executeHeadless(process.cwd(),[...args,'--data-dir',f.dataDirectory],{generation:f.generation,variables:{}});
+ const accepted=await run('stories','reprepare',id,'--request-id',crypto.randomUUID());
+ assert.equal(accepted.session.lifecycle.phase,'completed');
+ assert.equal(accepted.session.lifecycle.preparationRefresh,'pending');
+ assert.equal(f.control.recommendations.length,0);
+ const refreshed=await run('run',id,'--until','prepared','--timeout','20');
+ assert.equal(refreshed.session.lifecycle.phase,'completed');
+ assert.equal(refreshed.session.frameRecommendation.count,7);
+ assert.deepEqual(refreshed.session.story.pages,before.story.pages);
  assert.equal(f.control.recommendations.length,1);
+ assert.equal(f.control.calls.length,0);
+});
+
+test('CLI run reports a failed preparation refresh on a completed story',async t=>{
+ const {executeHeadless}=await import('../server/headless-cli.ts');
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ await f.stop();
+ const generator=f.generation.generator.bind(f.generation);
+ f.generation.generator=()=>({...generator(),async recommend(){throw Error('controlled refresh failure');}});
+ const command=(...args)=>executeHeadless(process.cwd(),[...args,'--data-dir',f.dataDirectory],{generation:f.generation,variables:{}});
+ await command('stories','reprepare',id,'--request-id',crypto.randomUUID());
+ const result=await command('run',id,'--until','prepared','--timeout','5');
+ assert.equal(result.reason,'blocked');assert.equal(result.session.lifecycle.phase,'completed');
+ assert.equal(result.session.lifecycle.faults.find(fault=>fault.stage==='prepare').state,'pending');
+});
+
+test('detail, shelf and revision write responses agree on current story action offers',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f),route=`sessions/${id}`;
+ const initial=await f.read(id);
+ for(const event of ['open-reselection','edit-revision','save-revision','redraw','cover','copy','copy-draft','start-landscape','image-health','delete']){
+  assert.ok(offered(initial,event),event);
+ }
+ assert.deepEqual(initial.lifecycle.actions.filter(action=>action.event==='image-health').map(action=>action.page),[1,2,3,4,5,6]);
+ const draft=await f.json(`${route}/reselection`,'POST',{requestId:crypto.randomUUID()});
+ assert.ok(offered(draft,'conditions'));
+ assert.ok(offered(draft,'cancel-reselection'));
+ assert.equal(offered(draft,'commit-reselection'),false);
+ assert.equal(offered(draft,'confirm'),false);
+ const staleDraft=await f.request(`sessions/${draft.id}/setup`,'POST',{action:'conditions',generation:draft.intake.generation+1,
+  requestId:crypto.randomUUID(),conditions:{bookId:'zhuangzi',theme:'另一个主题',productionPrompt:''}});
+ assert.equal(staleDraft.status,409);
+ assert.equal((await staleDraft.json()).session.id,draft.id);
+ assert.equal((await f.request(`${route}/reselection/${draft.id}`,'POST',{requestId:crypto.randomUUID(),batch:0,index:0,generation:draft.intake.generation})).status,400);
+ assert.equal((await f.json(`${route}/reselection/${draft.id}`,'DELETE')).id,id);
+ const {token}=await f.json(`${route}/revisions`),requestId=crypto.randomUUID();
+ const revised=await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{artStyle:'watercolor'}});
+ const detail=await f.read(requestId),card=(await f.json('library/shelf')).find(item=>item.id===requestId);
+ assert.deepEqual(revised.lifecycle.actions,detail.lifecycle.actions);
+ assert.deepEqual(card.lifecycle.actions,detail.lifecycle.actions);
+ assert.deepEqual((await f.read(id)).lifecycle.actions,[{event:'delete'}]);
+ assert.equal((await f.request(`${route}/revisions`)).status,409);
+ const conflict=await f.request(`${route}/reselection`,'POST',{requestId:crypto.randomUUID()});
+ assert.equal(conflict.status,409);
+ assert.deepEqual((await conflict.json()).session.lifecycle,detail.lifecycle);
+ assert.equal((await f.request(`${route}/image-health`,'POST',{page:0,image:initial.story.pages[0].image})).status,409);
 });
 
 test('edit a caption, save, restart and continue: only the affected review runs and nothing is redrawn',async t=>{
@@ -342,27 +441,53 @@ for(const shelf of [false,true])test(`${shelf?'shelf':'detail'} reports one data
 });
 
 test('dispatch rule guards are exhaustive and mutually exclusive',()=>{
- const checks=[false,true];
+ const checks=[false,true],reached=new Set();
  for(const version of ['current','superseded','deleted'])for(const control of ['active','paused','stopped'])
   for(const continuation of checks)for(const generationCurrent of checks)for(const demand of checks)for(const fault of checks)for(const inputCurrent of checks){
    const state={version,control,continuation,generationCurrent,demand,fault,inputCurrent};
    const matches=dispatchRules.filter(rule=>rule.matches(state));
    assert.equal(matches.length,1,JSON.stringify(state));
+   reached.add(matches[0]);
    assert.equal(authorizeDispatch(state),matches[0].decision);
   }
  assert.equal(authorizeDispatch({version:'current',control:'active',continuation:false,generationCurrent:true,demand:true,fault:false,inputCurrent:true}),'allow');
+ assert.equal(reached.size,dispatchRules.length);
 });
 
 test('production command guards choose one rule for every combination of persisted control and target validity',()=>{
- const flags=[false,true];
+ const flags=[false,true],reached=new Set();
  for(const event of productionCommandEvents)for(const version of ['current','superseded','deleted'])
   for(const control of ['active','paused','stopped'])for(const continuation of flags)for(const targetCurrent of flags)
    for(const targetReady of flags)for(const stopping of flags){
     const state={version,control,continuation,targetCurrent,targetReady,stopping};
     const matching=commandRules.filter(rule=>rule.matches(event,state));
     assert.equal(matching.length,1);
+    reached.add(matching[0]);
     assert.deepEqual(authorizeProductionCommand(event,state),matching[0].decide(event,state));
    }
+ assert.equal(reached.size,commandRules.length);
+});
+
+test('each production command has its own effect and refuses an invalid target or gate',()=>{
+ const expected={
+  background:{kind:'control',mode:'background',control:null},pause:{kind:'control',mode:null,control:'paused'},
+  stop:{kind:'control',mode:null,control:'stopped'},resume:{kind:'control',mode:'background',control:'active'},
+  continue:'continue-revision',retry:'recover-fault','continue-repair':'grant-repair-budget','skip-review':'save-skipped-review',
+  'override-review':'release-review-target','apply-model':'replace-model-snapshot',reprepare:'refresh-preparation','image-health':'probe-image',
+  'start-landscape':'queue-landscape','retry-landscape':'recover-landscape','open-reselection':'create-selection-draft','edit-revision':'read-edit-basis',
+  'save-revision':'publish-revision','edit-review-notes':'save-review-notes',redraw:'queue-redraw',cover:'save-cover',copy:'copy-reviewed','copy-draft':'copy-text-draft',
+ };
+ assert.deepEqual([...productionCommandEvents].sort(),Object.keys(expected).sort());
+ for(const event of productionCommandEvents){
+  const state={version:'current',control:['resume','skip-review'].includes(event)?'paused':'active',
+   continuation:event==='continue',targetCurrent:true,targetReady:true,stopping:false};
+  const effect=expected[event];
+  assert.deepEqual(authorizeProductionCommand(event,state),{allowed:true,effect:typeof effect==='string'?{kind:effect}:effect},event);
+  const denied=authorizeProductionCommand(event,{...state,continuation:false,targetReady:false});
+  assert.deepEqual([denied.allowed,denied.status],[false,409],event);
+  const stopping=authorizeProductionCommand(event,{...state,stopping:true});
+  assert.deepEqual([stopping.allowed,stopping.status],[false,503],event);
+ }
 });
 
 function booleanStates(keys){
@@ -412,6 +537,12 @@ test('job rules select one result through lease expiry, send, settlement and fai
  checkRules(booleanStates(['persistence','yielded','stopping','drains','terminal','timeout','contentBlocked']),jobFailureRules,classifyJobFailure);
 });
 
+test('service availability, image checks and interrupted tasks partition their observed inputs',()=>{
+ checkRules(booleanStates(['configured','stopping','snapshotAvailable']),runtimeServiceRules,resolveProductionService);
+ checkRules(['missing','readable','unavailable'].flatMap(result=>[true,false].map(fault=>({result,fault}))),imageReadRules,resolveImageRead);
+ checkRules(booleanStates(['running','localLease','resume']).filter(state=>state.running||!state.localLease),interruptedJobRules,resolveInterruptedJob);
+});
+
 test('delete and restore require an owned story and replay a completed restore without resuming',async t=>{
  const f=await productionFixture(t,'codex'),{id}=await completedStory(f),missing=crypto.randomUUID();
  assert.equal((await f.request(`library/${missing}`,'DELETE')).status,404);
@@ -445,7 +576,21 @@ test('production control routes accept current work and reject a finished or sup
  }
 });
 
-test('pausing between the async prescreen and claim leaves the drawing queued without a lease',async t=>{
+test('preparation only offers and accepts resume after an explicit pause',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.options.production={autoStart:false};await f.restart();
+ const {id}=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection});
+ await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.intake.phase','preparing') WHERE id=?").bind(id).run();
+ const route=`sessions/${id}/production-control`,active=await f.read(id);
+ assert.equal(active.lifecycle.phase,'preparation');assert.equal(offered(active,'resume'),false);
+ assert.equal((await f.request(route,'POST',{action:'resume'})).status,409);
+ const paused=await f.json(route,'POST',{action:'pause'});
+ assert.equal(offered(paused,'resume'),true);
+ const resumed=await f.json(route,'POST',{action:'resume'});
+ assert.equal(resumed.lifecycle.control,'active');assert.equal(offered(resumed,'resume'),false);
+});
+
+for(const action of ['pause','stop','delete','replace'])test(`${action} between prescreen and claim grants no lease or drawing call`,async t=>{
  const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
  const route=`sessions/${id}`,requestId=crypto.randomUUID(),{token}=await f.json(`${route}/revisions`);
  const {queue}=f.app.services.production,canRun=queue.options.canRun;
@@ -458,15 +603,26 @@ test('pausing between the async prescreen and claim leaves the drawing queued wi
  await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{redrawPages:[2]},startRedraw:true});
  try{
   await until(async()=>await Promise.race([screened.promise.then(()=>true),turn().then(()=>false)]));
-  await f.json(`sessions/${requestId}/production-control`,'POST',{action:'pause'});
+  await changeBeforeDrawing(f,requestId,action);
  }finally{release.resolve();}
  await until(()=>!queue.busy);
- assert.deepEqual((await jobAttempts(f,requestId)).map(({state,attempts,lease_token})=>[state,attempts,lease_token]),[['queued',0,null]]);
+ const jobs=await jobAttempts(f,requestId);
+ assert.ok(jobs.every(job=>job.attempts===0&&job.lease_token===null));
+ if(action!=='replace')assert.deepEqual(jobs.map(job=>job.state),['queued']);
  assert.equal(f.control.calls.length,0);
 });
 
-for(const [provider,action] of [['codex','pause'],['codex','replace'],['codex','delete'],['gemini','pause']])test(`${provider}: a drawing held in reference reading pays nothing when ${action} commits`,async t=>{
- const f=await productionFixture(t,provider),{id}=await completedStory(f);
+async function changeBeforeDrawing(f,id,action){
+ const route=`sessions/${id}`;
+ if(action==='delete')return f.json(`library/${id}`,'DELETE');
+ if(action!=='replace')return f.json(`${route}/production-control`,'POST',{action});
+ const {token}=await f.json(`${route}/revisions`),requestId=crypto.randomUUID();
+ return f.json(`${route}/revisions`,'POST',{requestId,token,changes:{artStyle:'watercolor'}});
+}
+
+for(const [provider,action] of [['codex','pause'],['codex','stop'],['codex','replace'],['codex','delete'],['gemini','pause'],['gemini','replace'],['openai','pause'],['openai','replace']])test(`${provider}: a drawing held in reference reading pays nothing when ${action} commits`,async t=>{
+ const f=provider==='openai'?await productionFixture(t,'codex',{},{imageProvider:'openai'}):await productionFixture(t,provider);
+ const {id}=await completedStory(f);
  const route=`sessions/${id}`,requestId=crypto.randomUUID(),{token}=await f.json(`${route}/revisions`);
  const gotReference=Promise.withResolvers(),release=Promise.withResolvers();
  const get=f.media.get.bind(f.media);
@@ -476,24 +632,58 @@ for(const [provider,action] of [['codex','pause'],['codex','replace'],['codex','
   return get(key);
  };
  await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{redrawPages:[2]},startRedraw:true});
- const childRoute=`sessions/${requestId}`;
  try{
   await until(async()=>await Promise.race([gotReference.promise.then(()=>true),turn().then(()=>false)]));
-  if(action==='pause')await f.json(`${childRoute}/production-control`,'POST',{action});
-  else if(action==='delete')await f.json(`library/${requestId}`,'DELETE');
-  else{
-   const basis=await f.json(`${childRoute}/revisions`);
-   await f.json(`${childRoute}/revisions`,'POST',{requestId:crypto.randomUUID(),token:basis.token,changes:{artStyle:'watercolor'}});
-  }
+  await changeBeforeDrawing(f,requestId,action);
  }finally{release.resolve();}
  await until(()=>!f.app.services.production.queue.busy);
  assert.equal(f.control.calls.length,0);
- if(action==='pause')assert.deepEqual((await jobAttempts(f,requestId)).map(({state,attempts})=>[state,attempts]),[['queued',0]]);
+ if(action==='pause'||action==='stop')assert.deepEqual((await jobAttempts(f,requestId)).map(({state,attempts})=>[state,attempts]),[['queued',0]]);
  if(action==='delete'){
   await f.json(`library/${requestId}/restore`,'POST',{});
   assert.equal((await f.read(requestId)).lifecycle.control,'stopped');
   assert.equal(f.control.calls.length,0);
  }
+});
+
+for(const provider of ['deepseek','claude'])for(const action of ['pause','replace'])test(`${provider}: production text pays nothing when ${action} commits before send`,async t=>{
+ const f=await productionFixture(t,provider==='deepseek'?'deepseek':'codex');
+ let cliLog,providerApi=f.generation;
+ if(provider==='claude'){
+  const {writeFile}=await import('node:fs/promises');
+  const {join}=await import('node:path'),binary=join(f.root,'claude-fixture');
+  cliLog=join(f.root,'claude-paid');
+  await writeFile(binary,`#!${process.execPath}
+import {appendFileSync} from 'node:fs';
+if(process.argv.includes('auth'))console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty'}));
+else appendFileSync(${JSON.stringify(cliLog)},'paid\\n');
+`,{mode:0o755});
+  const {createReaderProvider}=await import('../server/generation.ts');
+  providerApi=createReaderProvider({SHIQU_AI_PROVIDER:'claude',CLAUDE_BIN:binary},f.media,async()=>assert.fail('no external request'));
+  f.options.generation=providerApi;
+  await f.restart();
+ }
+ const {id}=await completedStory(f),route=`sessions/${id}`;
+ const {plan,token}=await f.json(`${route}/revisions`),requestId=crypto.randomUUID();
+ plan.pages[1].caption='庄周梦醒后从柳树下起身。';
+ await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{plan}});
+ const release=Promise.withResolvers(),generator=providerApi.generator.bind(providerApi);
+ let held=false;
+ providerApi.generator=()=>{
+  const active=generator();
+  return {...active,async textCall(...args){held=true;await release.promise;return active.textCall(...args);}};
+ };
+ try{
+  await f.json(`sessions/${requestId}/production-control`,'POST',{action:'continue'});
+  await until(()=>held);
+  await changeBeforeDrawing(f,requestId,action);
+ }finally{release.resolve();}
+ await until(()=>!f.app.services.production.queue.busy);
+ if(cliLog){
+  const {existsSync}=await import('node:fs');
+  assert.equal(existsSync(cliLog),false);
+ }else assert.equal(f.control.dagCalls.length,0);
+ if(action==='pause')assert.ok((await jobAttempts(f,requestId)).every(job=>job.state==='queued'&&job.attempts===0));
 });
 
 test('a drawing held after claim cannot send at the lease expiry boundary',async t=>{
@@ -576,19 +766,22 @@ for(const action of ['pause','stop','replace','delete'])test(`a sent drawing sav
  const route=`sessions/${id}`,requestId=crypto.randomUUID(),{token}=await f.json(`${route}/revisions`);
  await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{redrawPages:[2]},startRedraw:true});
  await until(()=>f.control.calls.length===1);
- const childRoute=`sessions/${requestId}`;
- let successor;
- if(action==='delete')await f.json(`library/${requestId}`,'DELETE');
- else if(action==='replace'){
-  const basis=await f.json(`${childRoute}/revisions`);
-  successor=await f.json(`${childRoute}/revisions`,'POST',{requestId:crypto.randomUUID(),token:basis.token,changes:{artStyle:'watercolor'}});
- }else await f.json(`${childRoute}/production-control`,'POST',{action});
+ const successor=await changeBeforeDrawing(f,requestId,action);
+ if(action==='delete'){
+  const entry=(await f.json('deletions')).find(item=>item.storyId===requestId);
+  assert.equal(entry.lifecycle.version,'deleted');assert.equal(entry.lifecycle.draining,true);
+  assert.deepEqual(entry.lifecycle.actions,[{event:'restore'}]);
+ }
  f.control.calls[0].resolve();
- await until(async()=>!!(await saved(f,requestId)).images[1]);
+ await until(async()=>(await jobAttempts(f,requestId)).some(job=>job.state==='succeeded'));
+ assert.ok((await saved(f,requestId)).images[1]);
  assert.equal((await saved(f,requestId)).usage.filter(item=>item.step==='dag:draw'&&!item.originId).length,1);
  assert.equal(f.control.calls.length,1);
- if(successor)assert.equal((await saved(f,successor.id)).images[1],'');
+ if(action==='replace')assert.equal((await saved(f,successor.id)).images[1],'');
  if(action==='delete'){
+  const entry=(await f.json('deletions')).find(item=>item.storyId===requestId);
+  assert.equal(entry.lifecycle.draining,false);
+  assert.equal(entry.lifecycle.phase,'completed');
   await f.json(`library/${requestId}/restore`,'POST',{});
   assert.equal((await f.read(requestId)).lifecycle.control,'stopped');
  }
@@ -722,6 +915,7 @@ test('landscape images are drawn on request for a completed story; a failure sta
  let status=await f.json(`sessions/${id}/landscape`);
  assert.equal(status.state,'idle');
  assert.ok(status.startToken);
+ assert.ok(offered(await f.read(id),'start-landscape'));
  assert.equal((await f.request(`sessions/${id}/landscape`,'POST',{startToken:'0'.repeat(64)})).status,409);
  // 第三幅的横图第一次失败。
  f.control.beforeImage=call=>{if(call.landscape&&call.page===2&&failing){failing=false;throw Error('controlled landscape failure');}};
@@ -735,6 +929,7 @@ test('landscape images are drawn on request for a completed story; a failure sta
  assert.equal(optional.kind,'step-failure');
  assert.equal(optional.targets[0].node,'landscape');
  assert.equal(optional.targets[0].page,2);
+ assert.ok(offered(await f.read(id),'retry-landscape'));
  assert.equal((await f.request(`sessions/${id}/landscape`,'POST',{retryToken:'0'.repeat(64)})).status,409);
  status=await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
  await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
@@ -1403,7 +1598,7 @@ test('an exhausted DAG review exposes its issues and can grant another repair at
   {claimsCompletion:false,issues:[2],retryable:true,canEditNotes:true,status:202});
 });
 
-test('a paused complete draft can explicitly skip the current failed review without starting drawing',async t=>{
+for(const action of ['pause','stop','continue'])test(`a complete draft under ${action} can skip failed review without starting drawing`,async t=>{
  const f=await productionFixture(t,'codex');
  f.control.beforeText=name=>{if(name==='review')throw Error('controlled review failure before any verdict');};
  const id=await confirmedStory(f,4),route=`sessions/${id}`;
@@ -1416,20 +1611,52 @@ test('a paused complete draft can explicitly skip the current failed review with
  assert.ok(failed.story.original);
  assert.ok((await saved(f,id)).plan.reflection,'the complete draft has an ending available');
  assert.equal(f.control.calls.length,0);
- await f.json(`${route}/production-control`,'POST',{action:'pause'});
+ if(action==='continue'){
+  await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag.continuation',json(?)) WHERE id=?")
+   .bind(JSON.stringify({revision:1,reason:'revision-saved'}),id).run();
+ }else await f.json(`${route}/production-control`,'POST',{action});
  const paused=await f.read(id),fault=paused.faults.find(fault=>fault.state==='pending');
  const override=`${route}/review-override`,command={requestId:crypto.randomUUID(),faultId:fault.id,ending:'default'};
  assert.equal((await f.request(override,'POST',{...command,faultId:crypto.randomUUID()})).status,409);
  const result=await f.request(override,'POST',command),after=await f.read(id);
- assert.deepEqual({faultStage:fault.stage,status:result.status,control:after.generationControl,overridden:after.generationProgress.reviewOverridden,drawings:f.control.calls.length},
-  {faultStage:'review',status:200,control:'paused',overridden:true,drawings:0});
+ assert.deepEqual({faultStage:fault.stage,status:result.status,control:after.lifecycle.control,continuation:after.lifecycle.continuation,overridden:after.generationProgress.reviewOverridden,drawings:f.control.calls.length},
+  {faultStage:'review',status:200,control:action==='pause'?'paused':action==='stop'?'stopped':'active',continuation:action==='continue',overridden:true,drawings:0});
  assert.equal((await f.request(override,'POST',command)).status,200);
  await f.app.services.production.tick();
  assert.equal(f.control.calls.length,0);
  f.control.hold=false;
- await f.json(`${route}/production-control`,'POST',{action:'resume'});
+ await f.json(`${route}/production-control`,'POST',{action:action==='continue'?'continue':'resume'});
  await until(async()=>(await f.read(id)).state==='completed');
  assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[0,1,2,3]);
+});
+
+test('a current failed review can be retried while active using its saved fault identity',async t=>{
+ const f=await productionFixture(t,'codex');f.control.hold=false;
+ let failing=true;
+ f.control.beforeText=name=>{if(name==='review'&&failing){failing=false;throw Error('controlled first review failure');}};
+ const id=await confirmedStory(f,4),route=`sessions/${id}`;
+ let fault;
+ await until(async()=>{fault=(await f.read(id)).faults?.find(fault=>fault.retryReview);return !!fault;});
+ assert.equal((await f.request(`${route}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:crypto.randomUUID()})).status,409);
+ assert.equal(f.control.calls.length,0);
+ await f.json(`${route}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ await until(async()=>(await f.read(id)).state==='completed');
+ assert.equal(f.control.reviews.length,2);
+ assert.equal(f.control.calls.length,4);
+});
+
+test('saving notes against exhausted repair gives a new saved revision and waits for explicit continue',async t=>{
+ const f=await productionFixture(t,'codex');
+ const issue={page:2,category:'caption',problem:'配文没有交代庄周醒来',instruction:'补写醒来的动作',requiresReplan:false};
+ f.control.beforeText=name=>name==='review'?{issues:[issue]}:undefined;
+ const id=await confirmedStory(f,4),route=`sessions/${id}`;
+ await until(async()=>(await f.read(id)).lifecycle.reviewAttention.some(reason=>reason.reason==='limit'));
+ const snapshot=await f.json(`${route}/revisions`),requestId=crypto.randomUUID(),reviewNotes='第 2 幅要明确写出醒来的动作。';
+ assert.equal(snapshot.canEditReviewNotes,true);
+ const result=await f.json(`${route}/revisions`,'POST',{requestId,token:snapshot.token,changes:{reviewNotes}});
+ assert.equal(result.id,requestId);assert.equal(result.lifecycle.continuation,true);
+ assert.equal((await saved(f,requestId)).reviewNotes,reviewNotes);
+ assert.equal(f.control.calls.length,0);
 });
 
 for(const change of ['registration','ending','visual'])test(`review skip is invalidated before any drawing when ${change} changes`,async t=>{
@@ -1537,7 +1764,9 @@ test('unconfigured service only offers an image recovery when the current file c
  f.app.stopGeneration();
  const stopping=(await f.read(id)).lifecycle;
  assert.equal(stopping.service,'unconfigured');
- assert.deepEqual(stopping.actions,[]);
+ assert.deepEqual(stopping.actions.filter(action=>['retry','resume','apply-model','continue','reprepare'].includes(action.event)),[]);
+ assert.ok(stopping.actions.some(action=>action.event==='edit-revision'));
+ assert.ok(stopping.actions.some(action=>action.event==='delete'));
 });
 
 test('CLI: a saved revision waits for stories continue; run reports continue_required and never continues on its own',async t=>{
@@ -1706,9 +1935,21 @@ test('a landscape file that is no longer readable shows as failed and is redrawn
  await f.json(`sessions/${id}/landscape`,'POST',{startToken:status.startToken});
  await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
  status=await f.json(`sessions/${id}/landscape`);
- await f.media.put(referenceImageKey(id,status.images[2]),new TextEncoder().encode('not an image'),{contentType:'image/png'});
+ const beforeCard=(await f.json('library/shelf')).find(card=>card.id===id);
+ const file=referenceImageKey(id,status.images[2]);
+ await f.media.put(file,new TextEncoder().encode('not an image'),{contentType:'image/png'});
  status=await f.json(`sessions/${id}/landscape`);
  assert.deepEqual(status.failed,[3]);assert.equal(status.state,'partial');
+ const get=f.media.get.bind(f.media);
+ try{
+  f.media.get=key=>{if(key===file)throw Error('controlled transient landscape read');return get(key);};
+  assert.deepEqual((await f.json(`sessions/${id}/landscape`)).failed,[3]);
+ }finally{f.media.get=get;}
+ await f.app.services.production.tick();
+ assert.ok(offered(await f.read(id),'retry-landscape'));
+ const delta=await f.json('library/shelf','POST',[[id,beforeCard.version]]),card=delta.changed.find(card=>card.id===id);
+ assert.ok(offered(card,'retry-landscape'));
+ assert.equal(card.lifecycle.faults.find(fault=>fault.scope==='optional').kind,'image-loss');
  const before=f.control.calls.filter(c=>c.landscape).length;
  const oldJobs=(await f.app.services.production.queue.jobs(id,owner)).filter(job=>JSON.parse(job.payload).work?.call==='drawLandscape');
  await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});

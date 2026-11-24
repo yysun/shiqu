@@ -323,6 +323,8 @@ pnpm cli export STORY_ID --format zip --output /private/story.zip --data-dir /pr
 
 编辑后若新版显示「已保存，等待继续」，`run` 返回 `continue_required`。对编辑返回的新 ID 执行 `stories continue NEW_ID --request-id UUID`，再运行 `run NEW_ID`。只改梗概等无需重做的修订，按新版返回的状态处理。
 
+刷新当前已确认版本的画幅建议，可执行 `stories reprepare STORY_ID --request-id UUID`，再运行 `run STORY_ID --until prepared`。如果故事已暂停或停止，先明确恢复生成。已确认的设置、分镜和成图继续可用。
+
 子命令 stdout 为单个 `{schemaVersion,ok,data|error}` JSON，日志在 stderr；失败退出非零。skill show 默认输出 Markdown，增加 `--json` 才返回 JSON 信封。`--input file.json` 或 `--input -` 接受JSON。保存可固定 `--request-id UUID` 供重放。search/choose/confirm/setup 必须带 JSON generation 或 `--generation N`（由 stories get 返回的 intake.generation 取得）；同一请求重放沿用原代数。retry/override 必须带当前 faultId，不自动挑选。编辑先用 `stories revisions ID` 读取 token，再提交 `{"token":"...","changes":{"acceptancePrompt":"保留关键人物反应"}}`；返回的新 id 是后续制作对象。旧版本拒绝制作/完整导出，过期 token 或 faultId 返回冲突。config 复用桌面/CLI设置，密钥只通过输入文件/stdin传递，不放进命令参数。init/读取/导出不检查云端，run 未配置时明确报错。
 
 `stories copy STORY_ID --from-data-dir /private/source-library --data-dir /private/target-library` 可跨书库复制已通过审核的故事，默认只保存文本与审核记录。CLI 子命令始终无交互；拾趣 Skill 在对话中报告文本复制完成，再询问是否复制已有图片。用户同意后，Skill 使用 `stories copy-images TARGET_ID --from-data-dir /private/source-library --data-dir /private/target-library --input source.json`，其中 `source.json` 为 `{"sourceId":"来源故事id"}`，向已有的目标副本补图，不再创建故事。用户已明确要求连图片一起复制时，`copy` 也可通过 `--copy-images` 或 JSON 的 `copyImages:true` 一次完成；`--no-copy-images` 或 `copyImages:false` 明确仅复制文本。
@@ -418,6 +420,8 @@ API 密钥可保留、替换或移除；新输入密钥通过本机或可信局�
 在「制作流程」中，可以分别打开两个并列入口：
 
 准备故事时会依据完整原文自动提供可编辑的制作要求和 2–4 条对应验收要求；摘要另存，不代替改编方向。两项建议可分别修改或清空，确认制作后才生效。通用叙事与质量规则由系统提示词负责，不重复填入这两个字段。
+
+确认后，可在画幅建议步骤使用「按当前要求重新准备」。它刷新画幅建议，保留已确认设置、分镜与成图。暂停或停止的故事仍需明确恢复。正在发送的新制作任务会等建议保存，已发出的任务可以收尾。
 
 候选提取、故事准备、草稿保留和制作确认的分工见[从候选故事到文字分镜](story-creation-flow.md)。
 

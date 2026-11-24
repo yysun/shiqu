@@ -31,6 +31,7 @@ import type {ReaderProvider} from '../lib/reader-provider.ts';
 import {LocalBooks} from './local-books.ts';
 import {applicationStorySearch,installStoryIndex} from './local-story-search.ts';
 import {revisionCoverMaxBytes} from './reader-revisions.ts';
+import {preparationRefreshFault} from '../lib/production-lifecycle.ts';
 
 const commandNames=new Set(['skill','help','init','status','catalog','books','themes','styles','stories','run','preview','export','backup','restore','verify-backup','diagnostics','config','api']);
 const commands=[
@@ -49,7 +50,7 @@ const commands=[
  ['stories edit','Save a revision using the current token. Supply a revised plan plus changes.removedFrames to shorten a storyboard. changes.storySummary sets the displayed synopsis. On a paused audit, changes.reviewNotes guides another review. changes.redrawPages uses 1-based pages and accepts optional changes.redrawNotes. If the revision needs more work, it is saved waiting (已保存，等待继续). --cover FILE saves that image byte for byte as the first frame of a style-only change on a completed, review-passed story. Continue the new revision and run it to draw the remaining frames.','stories edit ID --input revision.json --request-id UUID'],
  ['stories continue','Authorize a saved revision that is waiting (已保存，等待继续). This clears the wait and the pause. Run the new version to perform inference. A run attempted while waiting returns continue_required.','stories continue NEW_ID --request-id UUID'],
  ['stories pause|resume|stop|retry|override','Control or explicitly recover the current fault; input faultId is required for retry/override.','stories retry ID --input recovery.json --request-id UUID'],
- ['stories reprepare','Queue refreshed recommendations for an active confirmed story, preserving accepted settings and saved images. Inference requires run.','stories reprepare ID --request-id UUID'],
+ ['stories reprepare','Queue refreshed recommendations for the current confirmed story, preserving accepted settings and saved images. Inference requires run.','stories reprepare ID --request-id UUID'],
  ['stories rename|delete|restore|favorite|reference','Shared library actions; reference input is {page,starred,token?}.','stories rename ID --title 新标题'],
  ['stories revisions|prompts|review-history|source','Read saved production checkpoints and history.','stories review-history ID'],
  ['stories reselect|replace|cancel-reselection','Replace a choice within the same family. Set new discovery conditions or stage verified local originals with stories setup. Commit the candidate from the latest draft generation with stories replace.','stories replace ID DRAFT_ID --input replacement.json'],
@@ -200,7 +201,6 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   if(running&&!context.generation){
    if(existsSync(locations.settings)){const store=new SystemSettingsStore(locations.settings,locations.library);try{effective=effectiveProviderVariables(store,variables);}finally{store.close();}}
    else effective={...variables,SHIQU_AI_PROVIDER:variables.SHIQU_AI_PROVIDER||'readonly'};
-   need(effective.SHIQU_AI_PROVIDER!=='readonly','PROVIDER_UNAVAILABLE','Configure a provider using config set, --configure or environment variables before run.');
   }
   if(running){need(target&&uuid(target),'STORY_ID_REQUIRED','run requires a story UUID.');need(['candidates','prepared','reviewed','completed'].includes(until),'INVALID_UNTIL','Use candidates|prepared|reviewed|completed.');need(Number.isFinite(timeout)&&timeout>0&&timeout<=86400,'INVALID_TIMEOUT','Timeout must be between 0 and 86400 seconds.');}
   const transport:typeof fetch=(url,options)=>fetch(url,{...options,signal:options?.signal?AbortSignal.any([options.signal,abort.signal]):abort.signal});
@@ -219,13 +219,16 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    const current=await api(app,'GET',`sessions/${action}/current`);need(current.id===action,'SUPERSEDED_VERSION','Export the current family version.');const session=await api(app,'GET',`sessions/${action}`);const {exportLocalStory}=await import('./story-export.ts');return await exportLocalStory(root,app,session,{output,format:value('format')||'zip',preview:command==='preview',includePrompts:!!v['include-prompts'],allowUnsigned:!!v['allow-unsigned']});
   }
   if(running){
-   const status=await app.services.generation.status();need(status.configured,'PROVIDER_UNAVAILABLE',status.message||'Provider is not ready.');
    const current=await api(app,'GET',`sessions/${target}/current`);const initial=await api(app,'GET',`sessions/${target}`);need(current.id===target&&!initial.superseded,'SUPERSEDED_VERSION','Use the current family version.');
    // 已保存的修订等待明确的「继续制作」：run 不会隐式继续。
    if(initial.lifecycle?.continuation??initial.awaitingContinue)return {reason:'continue_required',session:initial};
    if((initial.lifecycle?.control??initial.generationControl)!=='active')return {reason:'paused',session:initial};
-   if(initial.state==='failed'||initial.lifecycle?.phase==='production'&&initial.lifecycle.service!=='available')return {reason:'blocked',session:initial};
+   const status=await app.services.generation.status();
+   if(!status.configured)throw new CliCommandError('PROVIDER_UNAVAILABLE',status.message||'Provider is not ready.',2,{lifecycle:initial.lifecycle});
+   const serviceBlocked=(snapshot:any)=>snapshot.lifecycle&&(['production','preparation'].includes(snapshot.lifecycle.phase)||snapshot.lifecycle.preparationRefresh==='pending')&&snapshot.lifecycle.service!=='available';
+   if(initial.state==='failed'||serviceBlocked(initial)||preparationRefreshFault(initial))return {reason:'blocked',session:initial};
    const boundary=(snapshot:any)=>{
+    if(snapshot.lifecycle?.preparationRefresh==='pending')return null;
     if(snapshot.lifecycle?.phase==='completed'||!snapshot.lifecycle&&snapshot.state==='completed')return 'completed';
     if(until==='prepared'&&snapshot.lifecycle?.phase!=='preparation'){
      if(snapshot.intake?.phase==='confirmed')return 'already_prepared';
@@ -235,7 +238,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    };
    const reached=boundary(initial);if(reached)return {reason:reached,session:initial};
    if(until==='candidates')need(initial.intake,'BOUNDARY_UNAVAILABLE','Candidates require an intake story.');
-   if(until==='prepared'&&!initial.intake)need(initial.selection.narrativeDetail&&initial.selection.length!=='auto','BOUNDARY_UNAVAILABLE','This legacy story has no preparation gate; use --until reviewed or completed.');
+   if(until==='prepared'&&!initial.intake&&initial.lifecycle?.preparationRefresh!=='pending')need(initial.selection.narrativeDetail&&initial.selection.length!=='auto','BOUNDARY_UNAVAILABLE','This legacy story has no preparation gate; use --until reviewed or completed.');
    process.once('SIGINT',interrupt);process.once('SIGTERM',interrupt);context.signal?.addEventListener('abort',interrupt,{once:true});
    if(context.signal?.aborted)interrupt();
    timer=setTimeout(()=>{timedOut=true;interrupt();},timeout*1000);
@@ -253,7 +256,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
       else legacyReviewed=!!saved.plan&&reviewPassed(saved)&&!saved.revision?.restyle;
      }
      const reviewed=dagReview==='approved'||legacyReviewed;
-     const reason=(snapshot.lifecycle?.version==='superseded'||snapshot.superseded)?'superseded':(snapshot.lifecycle?.continuation??snapshot.awaitingContinue)?'continue_required':snapshot.state==='failed'||snapshot.lifecycle?.phase==='production'&&snapshot.lifecycle.service!=='available'?'blocked':(snapshot.lifecycle?.control??snapshot.generationControl)!=='active'?'paused':boundary(snapshot)|| (until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates':intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':until==='reviewed'&&reviewed?'reviewed':dagReview==='attention'?'blocked':null);
+     const reason=(snapshot.lifecycle?.version==='superseded'||snapshot.superseded)?'superseded':(snapshot.lifecycle?.continuation??snapshot.awaitingContinue)?'continue_required':snapshot.state==='failed'||serviceBlocked(snapshot)||preparationRefreshFault(snapshot)?'blocked':(snapshot.lifecycle?.control??snapshot.generationControl)!=='active'?'paused':boundary(snapshot)|| (until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates':intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':until==='reviewed'&&reviewed?'reviewed':dagReview==='attention'?'blocked':null);
      if(reason)return {reason,session:snapshot};await delay(80,undefined,{signal:abort.signal}).catch(()=>{});
     }
     throw new CliCommandError(timedOut?'TIMEOUT':'INTERRUPTED',timedOut?'Run timed out; saved checkpoints are retained.':'Run interrupted; saved checkpoints are retained.',timedOut?5:130,{session:snapshot});

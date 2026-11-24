@@ -84,24 +84,25 @@ export async function authorizeControl(db:Database,ownerId:string,sessionId:stri
   // 事务内先查回执，覆盖另一实例刚提交同编号的情况。
   const existing=tx.get<CommandReceipt>('SELECT * FROM reader_commands WHERE owner_id=? AND request_id=?',ownerId,requestId);
   if(existing)return;
-  const row=tx.get<{state:string;generation_control:GenerationControl;superseded:number;deleted:number;optionalWork:number}>(`SELECT s.state,s.generation_control,
+  const row=tx.get<{state:string;generation_control:GenerationControl;superseded:number;deleted:number;optionalWork:number;continuation:number}>(`SELECT s.state,s.generation_control,
    ${supersededSql('s')} AS superseded,
    EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id) AS deleted,
-   EXISTS(SELECT 1 FROM json_each(s.document,'$.dag.frames') f WHERE json_extract(f.value,'$.landscape')='' AND json_type(f.value,'$.landscapeError') IS NULL) AS optionalWork
+   json_type(s.document,'$.dag.continuation')='object' AS continuation,
+   (json_type(s.document,'$.dag.repreparing')='true' OR EXISTS(SELECT 1 FROM json_each(s.document,'$.dag.frames') f WHERE json_extract(f.value,'$.landscape')='' AND json_type(f.value,'$.landscapeError') IS NULL)) AS optionalWork
    FROM stories s WHERE s.id=? AND s.user_id=?`,sessionId,ownerId);
   if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');
   const decision=authorizeProductionCommand(action,{
    version:row.deleted?'deleted':row.superseded?'superseded':'current',stopping,control:row.generation_control,
-   continuation:false,targetCurrent:true,targetReady:row.state!=='completed'||action!=='background'&&!!row.optionalWork,
+   continuation:!!row.continuation,targetCurrent:true,targetReady:row.state!=='completed'||action!=='background'&&!!row.optionalWork,
   });
   if(!decision.allowed)throw new ReaderError(decision.status,decision.message);
   const inserted=tx.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,created_at,updated_at)
    VALUES(?,?,?,'control',?,?,?,?) ON CONFLICT(owner_id,request_id) DO NOTHING`,
    requestId,ownerId,sessionId,fingerprint,JSON.stringify({action}),now,now).changes;
   if(!inserted)return;
-  const control=action==='resume'?'active':action==='pause'?'paused':action==='stop'?'stopped':null;
-  const mode=action==='resume'||action==='background'?'background':null;
-  tx.run(`UPDATE stories SET generation_control=COALESCE(?,generation_control),generation_mode=COALESCE(?,generation_mode) WHERE id=? AND user_id=?`,control,mode,sessionId,ownerId);
+  if(decision.effect.kind!=='control')throw Error('INVALID_PRODUCTION_CONTROL_EFFECT');
+  tx.run(`UPDATE stories SET generation_control=COALESCE(?,generation_control),generation_mode=COALESCE(?,generation_mode) WHERE id=? AND user_id=?`,
+   decision.effect.control,decision.effect.mode,sessionId,ownerId);
  });
  const receipt=await commandReceipt(db,ownerId,requestId,fingerprint);if(!receipt)throw new ReaderError(409,'故事已完成或版本已更新，请刷新后再操作。');return receipt;
 }

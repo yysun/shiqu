@@ -76,10 +76,10 @@ test('DeepSeek reports safe failures without leaking keys, provider bodies or fa
  assert.doesNotMatch(captured.join('\n'),/private provider|private-deepseek-key/);
 });
 
-test('DeepSeek rechecks each paid request and preserves the first receipt',async()=>{
+for(const decision of ['yield','obsolete'])test(`DeepSeek rechecks each paid request and preserves the first receipt on ${decision}`,async()=>{
  let calls=0;
  const provider=createReaderProvider({SHIQU_AI_PROVIDER:'deepseek',DEEPSEEK_API_KEY:'controlled'},{},async()=>{calls++;return completed(outline);});
- const receipts=[],deny=new PaidDispatchDenied('obsolete');
+ const receipts=[],deny=new PaidDispatchDenied(decision);
  await assert.rejects(withPaidDispatch({authorize:()=>{if(calls)throw deny;},receipt:value=>receipts.push(value)},async()=>{
   await outlineCall(provider.generator());
   await outlineCall(provider.generator());

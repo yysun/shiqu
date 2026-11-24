@@ -17,9 +17,8 @@ import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
 import {artStyleSettings,sameArtDirection} from '../lib/reader-styles.ts';
 import {readableImage} from './reader-image-health.ts';
 import {textOnlyDag,attachImages} from '../lib/production-dag/copy.ts';
-import {dagProgress} from '../lib/production-dag/progress.ts';
 import {authorizeProductionCommand} from '../lib/production-lifecycle.ts';
-import {currentFamilyVersion} from './reader-revisions.ts';
+import {copyAvailability,currentFamilyVersion} from './reader-revisions.ts';
 
 type StoryCopyOptions={images?:boolean;existing?:boolean;draft?:boolean};
 
@@ -33,20 +32,14 @@ export async function copySavedStory(target:ReturnType<typeof createApplication>
   const repo=new ReaderRepository(source.services.database),row=await repo.current(sourceId,source.services.ownerId);
   // 提示词记录只在来源库中：先原位还原为内嵌，目标库写入时再存入自己的记录表。
   const saved=await resolvePromptRecords(repo.db,JSON.parse(row.document) as Document);
-  // 制作 DAG 的故事以引擎的审片结论为准：通过且没有被放行；旧版文档沿用审核检查点。
-  const review=saved.dag?dagProgress(saved,selectionSchema.parse(JSON.parse(row.selection)))?.review:undefined;
-  const unreviewed=saved.dag&&Object.values(saved.dag.products).some(product=>product.unreviewed);
-  const reviewed=saved.dag?review?.reviewStatus==='passed'&&!review.reviewOverridden&&!unreviewed:
-   saved.visualReview?.status==='passed'&&!saved.visualReview.overridden;
-  const draftReady=(!!saved.dag&&!unreviewed||!!saved.visualReview)&&typeof saved.original?.text==='string'&&!!saved.original.text.trim();
+ const sourceSelection=selectionSchema.parse(JSON.parse(row.selection));
+ const availability=copyAvailability(row,saved,sourceSelection);
   const authorization=authorizeProductionCommand(options.draft?'copy-draft':'copy',{
    version:row.id===sourceId?'current':'superseded',control:row.generation_control??'active',continuation:!!saved.dag?.continuation,stopping:false,
-   targetCurrent:row.state!=='running'&&!!saved.plan&&!!saved.original&&(!saved.intake||saved.intake.phase==='confirmed')&&!saved.reselection&&!saved.dag?.repreparing,
-   targetReady:options.draft?draftReady:reviewed,
+   targetCurrent:availability.current,targetReady:options.draft?availability.draft:availability.reviewed,
   });
   if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
   if(options.draft)planSchema.parse(saved.plan);
-  const sourceSelection=selectionSchema.parse(JSON.parse(row.selection));
   // 哈希输入形状不变；文档文本取还原后的规范形式，迁移前创建的副本仍能匹配。
   const contentHash=createHash('sha256').update(JSON.stringify([sourceSelection,JSON.stringify(saved)])).digest('hex');
   const selected=selectionSchema.parse({...sourceSelection,...(artStyle===undefined?{}:{artStyle})});

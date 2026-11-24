@@ -6,7 +6,7 @@
 // Style-only revisions inherit review checkpoints, including unresolved or overridden reviews.
 import {createHash} from 'node:crypto';
 import {ReaderError,selectionSchema} from '../lib/reader-model.ts';
-import type {Document,SessionRow} from '../lib/reader-model.ts';
+import type {Document,Selection,SessionRow} from '../lib/reader-model.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
 import {familyRoot,familyNumber,supersededSql} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
@@ -27,16 +27,30 @@ export const replacementToken=(selection:string,epoch:number,intakeGeneration?:n
 ));
 const savedFrameCount=(doc:Document)=>doc.draft?.pages.length??doc.storyboard?.outline.beats.length;
 const canEditReviewNotes=(row:SessionRow,doc:Document)=>!!doc.plan&&!!doc.visualReview&&row.state!=='completed'&&(row.generation_control==='paused'||row.generation_control==='stopped');
+export function revisionAvailability(row:SessionRow,doc:Document){
+ const unconfirmed=doc.intake?.phase!=='confirmed'?doc.intake:undefined;
+ const control=row.generation_control??'active';
+ return {control,unconfirmed,open:!doc.reselection&&(!unconfirmed||!!unconfirmed.selected),
+  edit:!doc.reselection&&!doc.dag?.repreparing&&!unconfirmed&&(!!doc.plan||control!=='active')};
+}
+export function copyAvailability(row:SessionRow,saved:Document,selection:Selection){
+ const review=saved.dag?dagProgress(saved,selection)?.review:undefined;
+ const unreviewed=saved.dag&&Object.values(saved.dag.products).some(product=>product.unreviewed);
+ const reviewed=saved.dag?review?.reviewStatus==='passed'&&!review.reviewOverridden&&!unreviewed:
+  saved.visualReview?.status==='passed'&&!saved.visualReview.overridden;
+ const draft=(!!saved.dag&&!unreviewed||!!saved.visualReview)&&typeof saved.original?.text==='string'&&!!saved.original.text.trim();
+ const current=row.state!=='running'&&!!saved.plan&&!!saved.original&&(!saved.intake||saved.intake.phase==='confirmed')&&!saved.reselection&&!saved.dag?.repreparing;
+ return {current,reviewed,draft};
+}
 export async function revisionBasis(repo:ReaderRepository,row:SessionRow,forReselection=false){
  const doc=JSON.parse(row.document) as Document;
  if(!forReselection&&doc.dag?.repreparing)throw new ReaderError(409,'这篇故事正在重新准备，请等新的制作建议保存后再修改。');
  const current=!doc.reselection&&!await repo.superseded(row.id,row.user_id);
- const unconfirmed=doc.intake?.phase!=='confirmed'?doc.intake:undefined;
- const control=row.generation_control??'active';
+ const {unconfirmed,control,open,edit}=revisionAvailability(row,doc);
  const authorization=authorizeProductionCommand(forReselection?'open-reselection':'edit-revision',{
   version:current?'current':'superseded',control,continuation:!!doc.dag?.continuation,
   targetCurrent:forReselection||!unconfirmed,
-  targetReady:forReselection?!unconfirmed||!!unconfirmed.selected:!!doc.plan||control!=='active',stopping:false,
+  targetReady:forReselection?open:edit,stopping:false,
  });
  if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
  const rootId=doc.revision?.rootId||row.id;
@@ -50,7 +64,7 @@ export async function revisionSnapshot(repo:ReaderRepository,id:string,ownerId:s
  const progress=dagProgress(doc,selection);
  const issues=doc.dag?reviewAttention({id,doc,selection,dag:doc.dag,confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:[]}).issues:
   canEditReviewNotes(row,doc)?doc.visualReview!.issues:[];
- const editable=!!doc.plan&&(doc.dag?issues.length>0:canEditReviewNotes(row,doc));
+ const editable=!!doc.plan&&(!!doc.dag||canEditReviewNotes(row,doc));
  return {selection,plan:doc.plan,images:doc.images,savedFrameCount:savedFrameCount(doc),...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{}),token,epoch,
   reviewStatus:doc.dag?progress?.review.reviewStatus:doc.visualReview?.status,reviewNotes:doc.reviewNotes,...(editable?{canEditReviewNotes:true,priorReviewIssues:issues}:{}),
   ...(doc.revision?{revision:{parentId:doc.revision.parentId,rootId:doc.revision.rootId,number:doc.revision.number}}:{})};

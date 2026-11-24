@@ -7,7 +7,7 @@
 // 任务状态变化与故障、恢复回执在同一事务中写入（production-records.ts），失败同时记录结构化错误码。
 import {createHash,randomUUID} from 'node:crypto';
 import {persistenceError} from '../lib/reader-repository.ts';
-import {authorizeJobLease,classifyJobFailure} from '../lib/production-lifecycle.ts';
+import {authorizeJobLease,classifyJobFailure,resolveInterruptedJob} from '../lib/production-lifecycle.ts';
 import type {Database,SyncStatements} from '../lib/reader-repository.ts';
 import {transact,recordJobFailed,recordJobRequeued,recordJobRunning,recordJobSucceeded} from './production-records.ts';
 
@@ -81,17 +81,16 @@ export class ProductionQueue{
   for(const job of expired){
    try{
    // This process is still running the attempt, so its clock jumped; the attempt is not abandoned.
-   if(job.state==='running'&&this.tokens.get(job.id)===job.lease_token)continue;
-   const resume=!!await this.options.resumeInterrupted?.(job);
-   if(job.state==='failed'&&!resume)continue;
+   const running=job.state==='running',localLease=running&&this.tokens.get(job.id)===job.lease_token;
+   const resume=!localLease&&!!await this.options.resumeInterrupted?.(job);
+   const effect=resolveInterruptedJob({running,localLease,resume});
+   if(effect==='preserve')continue;
    const now=this.clock();
    transact(this.database,db=>{
-    if(!resume){
+    if(effect==='fail'){
      // 失败记录与新故障同时写入；运行中的任务以租约核对，已失败的中断任务保留原失败编号。
-     if(job.state==='running'){
-      const live=db.get('SELECT id FROM production_jobs WHERE id=? AND state=\'running\' AND lease_token IS ? AND lease_until=? AND lease_until<=?',job.id,job.lease_token,job.lease_until,now);
-      if(live)recordJobFailed(db,job,{message:interruptedMessage,interrupted:true,errorCode:'TIMEOUT',failureId:job.failure_id??undefined,now});
-     }
+     const live=db.get('SELECT id FROM production_jobs WHERE id=? AND state=\'running\' AND lease_token IS ? AND lease_until=? AND lease_until<=?',job.id,job.lease_token,job.lease_until,now);
+     if(live)recordJobFailed(db,job,{message:interruptedMessage,interrupted:true,errorCode:'TIMEOUT',failureId:job.failure_id??undefined,now});
      return;
     }
     const changed=db.run(`UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,updated_at=?

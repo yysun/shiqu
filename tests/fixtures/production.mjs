@@ -55,6 +55,13 @@ export async function productionFixture(t,provider='codex',variables={},storage=
   return override??(payload.batch?{pages:plan.pages.slice(payload.batch.first-1,payload.batch.last)}:plan);
  }
  const transport=async(url,options)=>{
+  if(storage.imageProvider==='openai'){
+   assert.match(String(url),/^https:\/\/api.openai.com\/v1\/images\/(generations|edits)$/);
+   const form=options.body instanceof FormData?options.body:null;
+   const prompt=form?form.get('prompt'):JSON.parse(options.body).prompt;
+   const reference=form?Buffer.from(await form.get('image[]').arrayBuffer()).toString('base64'):null;
+   return Response.json({data:[{b64_json:await image(prompt,reference,'openai')}]});
+  }
   if(provider==='deepseek'){
    assert.equal(String(url),'https://api.deepseek.com/responses','No external source/inference request');
    assert.equal(options.headers.Authorization,'Bearer controlled');
@@ -71,7 +78,7 @@ export async function productionFixture(t,provider='codex',variables={},storage=
  const runner={async status(){return {configured:true};},async run(job){if(!job.generateImage)control.textVia.add('codex');return {text:job.generateImage?'':JSON.stringify(await planned(job.prompt,job.schema)),image:job.generateImage?await image(job.prompt,job.image&&Buffer.from(job.image.bytes).toString('base64'),'codex'):null,model:'controlled',requestId:'controlled',usage:{calls:1}};}};
  const media=new FileMedia(path.join(dataDirectory,'media'));
  // storage.imageProvider exercises the production composition with a separate drawing provider.
- const keys={gemini:{GEMINI_API_KEY:'controlled'},deepseek:{DEEPSEEK_API_KEY:'controlled'}};
+ const keys={gemini:{GEMINI_API_KEY:'controlled'},deepseek:{DEEPSEEK_API_KEY:'controlled'},openai:{OPENAI_API_KEY:'controlled'}};
  const generation=createReaderProvider({SHIQU_AI_PROVIDER:provider,...(storage.imageProvider?{SHIQU_IMAGE_PROVIDER:storage.imageProvider}:{}),...keys[provider],...keys[storage.imageProvider]},media,transport,runner);
  // 如需演练历史迁移，在生产应用打开书库之前写入隔离数据。
  const options={root,dataDirectory,generation,transport,variables};

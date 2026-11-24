@@ -213,7 +213,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
  async function retryStep(faultId?:string){if(!active?.retryAllowed)return;await recoverFault(active,faultId);}
 
  useEffect(()=>{
-  const sessionId=active?.id;if(!sessionId||active.state==='completed'&&!retryRequested.current)return;
+  const sessionId=active?.id;if(!sessionId||active.state==='completed'&&active.lifecycle?.preparationRefresh!=='pending'&&!retryRequested.current)return;
   let cancelled=false;
   async function run(){
    if(pending.current)await pending.current;

@@ -15,6 +15,7 @@ test('deleted generated stories retain titles, favorite flags and exact checkpoi
  const rows=await f.json('deletions');assert.equal(rows.length,1);
  assert.deepEqual({id:rows[0].storyId,title:rows[0].title,kind:rows[0].kind},{id,title:'恢复原来的故事',kind:'generated'});
  assert.ok(!Number.isNaN(Date.parse(rows[0].deletedAt)));
+ assert.equal(rows[0].canRestore,true);
  assert.equal((await f.request(`sessions/${id}`)).status,404);
  assert.equal((await f.request(`library/${id}/restore`,'POST',{}, {Origin:'https://foreign.example'})).status,403);
  assert.equal((await f.json('deletions')).length,1);
@@ -41,6 +42,7 @@ test('recovery metadata does not expose foreign generated titles and supports un
  let rows=await f.json('deletions');assert.equal(rows.some(row=>row.storyId===sample.id),false);
  db.prepare(`INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) VALUES(?,?,'generated','2026-10-29')`).run(owner,foreign);
  rows=await f.json('deletions');assert.equal(rows.find(row=>row.storyId===foreign).title,'未命名故事');
+ assert.equal(rows.find(row=>row.storyId===foreign).canRestore,false);
  assert.equal(JSON.stringify(rows).includes('私有故事'),false);
  assert.equal((await f.request(`library/${sample.id}/restore`,'POST')).status,404);
  assert.equal((await f.json('deletions')).some(row=>row.storyId===sample.id),false);

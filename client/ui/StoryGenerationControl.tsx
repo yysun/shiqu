@@ -5,7 +5,7 @@ import type {ProductionAction,SessionView} from '@/lib/reader-model';
 type ControlState=Pick<SessionView,'awaitingContinue'|'redrawPage'|'snapshotUnavailable'|'id'|'state'|'superseded'|'generationControl'|'error'|'lifecycle'>&{intake?:Pick<NonNullable<SessionView['intake']>,'phase'>};
 type Props={session:ControlState;busy:boolean;onControl:(id:string,action:ProductionAction)=>Promise<void>;primary?:boolean;link?:boolean};
 export default function StoryGenerationControl({session,busy,onControl,primary=false,link=false}:Props){
- if(session.state==='completed')return null;
+ if(session.state==='completed'&&session.lifecycle?.preparationRefresh!=='pending')return null;
  const offers=session.lifecycle?.actions;
  const available=(action:ProductionAction)=>offers?.some(offer=>offer.event===action)??true;
  // 已保存的修订：只有「继续制作」开始制作，不与暂停、恢复混用。任务清单里的主要操作一律是文字链接（AGENTS.md 界面规则），不受 link 参数影响。

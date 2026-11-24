@@ -15,24 +15,33 @@ export type ProductionFault=FaultView&{
 export type ProductionImageCheck={
  state:'pending'|'temporarily-unavailable';pages:number[];kind:'portrait'|'landscape'|'job';jobId?:string;
 };
+export type ProductionReviewAttention=Attention|{target:string;reason:'replan'};
 export type ProductionActionOffer=
  {event:ProductionControlEvent|'continue'|'apply-model'|'reprepare'}|
- {event:'retry'|'continue-repair'|'skip-review'|'override-review';faultId:string};
-export type ProductionService='available'|'unconfigured'|'snapshot-unavailable'|'stopping';
+ {event:'retry'|'continue-repair'|'skip-review'|'override-review';faultId:string}|
+ {event:SetupEvent;generation:number}|
+ {event:'image-health';page:number}|
+ {event:StoryCommand|'delete'|'restore'}|
+ {event:'cancel-reselection'|'commit-reselection';parentId:string;generation:number};
+export type ProductionService='available'|'unconfigured'|'snapshot-unavailable'|'credentials-invalid'|'quota-exhausted'|'rate-limited'|'stopping';
 export const productionServiceMessages={
  unconfigured:'当前制作服务未配置或处于只读模式。',
  'snapshot-unavailable':'快照服务不可用，请恢复原模型服务或应用当前模型设置。',
+ 'credentials-invalid':'模型服务登录或密钥失效，请检查生成服务设置。',
+ 'quota-exhausted':'模型服务额度不足，请恢复额度或更换服务。',
+ 'rate-limited':'模型服务正在限流，请稍后继续。',
  stopping:'制作服务正在停止。',
 };
 export type ProductionLifecycle={
  phase:'selection'|'preparation'|'confirmation'|'production'|'completed';
- version:'current'|'superseded';
+ version:'current'|'superseded'|'deleted';
+ preparationRefresh:'pending'|'none';
  replacementDraft:'open'|'none';
  control:GenerationControl;
  continuation:boolean;
  draining:boolean;
  faults:ProductionFault[];
- reviewAttention:Attention[];
+ reviewAttention:ProductionReviewAttention[];
  review:'approved'|'attention'|'pending'|null;
  service:ProductionService;
  imageAvailability:'available'|'unavailable';
@@ -40,6 +49,15 @@ export type ProductionLifecycle={
  actions:ProductionActionOffer[];
  activity:{state:'running';jobs:ProductionActivity[]}|{state:'queued'|'idle'};
 };
+
+export function offersProductionAction(session:Pick<SessionView,'lifecycle'>,event:ProductionActionOffer['event'],legacy=true){
+ return session.lifecycle?.actions.some(action=>action.event===event)??legacy;
+}
+
+export function preparationRefreshFault(session:Pick<SessionView,'lifecycle'>){
+ return session.lifecycle?.preparationRefresh==='pending'?
+  session.lifecycle.faults.find(fault=>fault.stage==='prepare'&&fault.state==='pending'):undefined;
+}
 
 export function recoveryFaultId(session:Pick<SessionView,'lifecycle'|'faults'>,requested?:string){
  const offers=session.lifecycle?.actions;
@@ -54,16 +72,21 @@ export function recoveryFaultId(session:Pick<SessionView,'lifecycle'|'faults'>,r
 
 type ActivityJob={id:string;kind:string;payload:string;state:string;lease_until:number;updated_at:number;attempts:number};
 type ActivityInput=Pick<SessionView,'state'|'intake'|'generationControl'|'awaitingContinue'> & {
- complete?:boolean;superseded:boolean;replacementOpen:boolean;queued:boolean;faults:ProductionFault[];
- reviewAttention:Attention[];review:ProductionLifecycle['review'];service:ProductionService;now:number;order:readonly string[];
+ complete?:boolean;superseded:boolean;deleted?:boolean;replacementOpen:boolean;queued:boolean;faults:ProductionFault[];
+ reviewAttention:ProductionReviewAttention[];review:ProductionLifecycle['review'];service:ProductionService;now:number;order:readonly string[];
  pendingImageChecks:ProductionImageCheck[];optionalWork:boolean;modelApplicable:boolean;canReprepare:boolean;repreparing:boolean;stopping:boolean;
  freeImageRecoveries:ReadonlySet<string>;
  reviewBlockId?:string;canOverrideReview:boolean;reviewSkipId?:string;
+ setup?:{state:SetupState;generation:number};
+ storyActions?:{event:StoryCommand;ready:boolean}[];
+ replacement?:{parentId:string;generation:number;commit:ReselectionCommitState};
+ imagePages?:number[];
+ owned?:boolean;
 };
 
 export function productionLifecycle(input:ActivityInput,jobs:readonly ActivityJob[]):ProductionLifecycle{
  const intake=input.intake?.phase;
- const phase=intake==='choosing'||intake==='discovering'?'selection':intake==='preparing'||input.repreparing?'preparation':
+ const phase=intake==='choosing'||intake==='discovering'?'selection':intake==='preparing'?'preparation':
   intake==='confirming'?'confirmation':(input.complete??input.state==='completed')?'completed':'production';
  const control=input.generationControl??'active';
  const inFlight=(job:ActivityJob)=>job.state==='running'&&job.lease_until>input.now&&(job.kind!=='discover'||intake==='discovering');
@@ -84,21 +107,23 @@ export function productionLifecycle(input:ActivityInput,jobs:readonly ActivityJo
   const {waitingFor,pages}=details(job);
   return waitingFor==='image-availability'?[{state:'temporarily-unavailable',kind:'job',pages,jobId:job.id}]:[];
  });
- return {phase,version:input.superseded?'superseded':'current',replacementDraft:input.replacementOpen?'open':'none',control,continuation:!!input.awaitingContinue,
+ return {phase,version:input.deleted?'deleted':input.superseded?'superseded':'current',preparationRefresh:input.repreparing?'pending':'none',replacementDraft:input.replacementOpen?'open':'none',control,continuation:!!input.awaitingContinue,
   faults:input.faults,reviewAttention:input.reviewAttention,review:input.review,service:input.service,
   imageAvailability:waiting.length?'unavailable':'available',imageChecks:[...input.pendingImageChecks,...waiting],
   actions:productionActionOffers(input,control),
-  draining:running.length>0&&(control!=='active'||input.superseded),
-  activity:running.length?{state:'running',jobs:running}:{state:input.queued&&control==='active'&&!input.superseded&&!input.awaitingContinue?'queued':'idle'}};
+  draining:running.length>0&&(control!=='active'||input.superseded||!!input.deleted),
+  activity:running.length?{state:'running',jobs:running}:{state:input.queued&&control==='active'&&!input.deleted&&!input.superseded&&!input.awaitingContinue?'queued':'idle'}};
 }
 
 function productionActionOffers(input:ActivityInput,control:GenerationControl):ProductionActionOffer[]{
+ if(input.deleted)return authorizeLibraryControl({event:'restore',owned:!!input.owned,deleted:true})==='restore'?[{event:'restore'}]:[];
  const state:CommandState={version:input.superseded?'superseded':'current',control,continuation:!!input.awaitingContinue,
   stopping:input.stopping,targetCurrent:true,targetReady:true};
  const configured=input.service!=='unconfigured',actions:ProductionActionOffer[]=[];
  const allowed=(event:ProductionCommand,ready=true)=>authorizeProductionCommand(event,{...state,targetReady:ready}).allowed;
  for(const event of productionControlEvents){
-  if((event!=='resume'&&event!=='background'||configured)&&allowed(event,input.state!=='completed'||event!=='background'&&input.optionalWork))actions.push({event});
+  if(event==='resume'&&state.control==='active')continue;
+  if((event!=='resume'&&event!=='background'||configured)&&allowed(event,input.state!=='completed'||event!=='background'&&(input.optionalWork||input.repreparing)))actions.push({event});
  }
  if(configured&&allowed('continue'))actions.push({event:'continue'});
  if(input.modelApplicable&&allowed('apply-model'))actions.push({event:'apply-model'});
@@ -112,6 +137,24 @@ function productionActionOffers(input:ActivityInput,control:GenerationControl):P
   if(fault.scope==='required'&&fault.state==='pending'&&fault.retryAllowed&&(configured||input.freeImageRecoveries.has(fault.id))&&allowed('retry'))
    actions.push({event:'retry',faultId:fault.id});
  }
+ if(input.setup){
+  for(const event of setupEvents){
+   if(authorizeSetup(event,input.setup.state).effect==='apply')actions.push({event,generation:input.setup.generation});
+  }
+ }
+ for(const {event,ready} of input.storyActions??[]){
+  if(authorizeProductionCommand(event,{...state,targetReady:ready,stopping:event==='start-landscape'||event==='retry-landscape'?state.stopping:false}).allowed)actions.push({event});
+ }
+ const replacement=input.replacement;
+ if(replacement){
+  const {parentId,generation,commit}=replacement;
+  if(authorizeReselectionCancel('draft').effect==='apply')actions.push({event:'cancel-reselection',parentId,generation});
+  if(authorizeReselectionCommit(commit).effect==='apply')actions.push({event:'commit-reselection',parentId,generation});
+ }
+ if(authorizeProductionCommand('image-health',{...state,stopping:false}).allowed){
+  for(const page of input.imagePages??[])actions.push({event:'image-health',page});
+ }
+ if(authorizeLibraryControl({event:'delete',owned:!!input.owned})==='delete')actions.push({event:'delete'});
  return actions;
 }
 
@@ -122,6 +165,7 @@ const phases:Record<string,Step['kind']>={
  sceneRepair:'repair',visualRepair:'repair',structureRepair:'repair',endingRepair:'repair',
 };
 const labels:Record<string,string>={
+ prepareSuggestions:'准备制作建议',
  prepareBrief:'整理故事梗概',characters:'设定人物',outline:'编排全篇提纲',registerItems:'登记验收要求',
  ending:'拟定标题与结语',frameCheck:'审核画幅数',review:'审核全篇分镜',
  sceneRepair:'修订叙事分镜',visualRepair:'修订画面描述',structureRepair:'修订分镜结构',endingRepair:'修订结语',
@@ -162,12 +206,27 @@ export function authorizeDispatch(state:DispatchState):DispatchDecision{
 
 export const productionControlEvents=['background','pause','stop','resume'] as const;
 export type ProductionControlEvent=(typeof productionControlEvents)[number];
-export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|'override-review'|'apply-model'|'reprepare'|'image-health'|'start-landscape'|'retry-landscape'|'open-reselection'|'edit-revision'|'save-revision'|'redraw'|'cover'|'copy'|'copy-draft'|ProductionControlEvent;
+export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|'override-review'|'apply-model'|'reprepare'|'image-health'|'start-landscape'|'retry-landscape'|'open-reselection'|'edit-revision'|'save-revision'|'edit-review-notes'|'redraw'|'cover'|'copy'|'copy-draft'|ProductionControlEvent;
+type SetupEvent=IntakeAction['action'];
+type StoryCommand=Extract<ProductionCommand,'open-reselection'|'edit-revision'|'save-revision'|'edit-review-notes'|'redraw'|'cover'|'copy'|'copy-draft'|'start-landscape'|'retry-landscape'>;
 type CommandState={
  version:DispatchState['version'];control:GenerationControl;continuation:boolean;
  targetCurrent:boolean;targetReady:boolean;stopping:boolean;
 };
-type CommandDecision={allowed:true}|{allowed:false;status:409|503;message:string};
+const commandEffects={
+ background:{kind:'control',mode:'background',control:null},
+ pause:{kind:'control',mode:null,control:'paused'},
+ stop:{kind:'control',mode:null,control:'stopped'},
+ resume:{kind:'control',mode:'background',control:'active'},
+ continue:{kind:'continue-revision'},retry:{kind:'recover-fault'},
+ 'continue-repair':{kind:'grant-repair-budget'},'skip-review':{kind:'save-skipped-review'},'override-review':{kind:'release-review-target'},
+ 'apply-model':{kind:'replace-model-snapshot'},reprepare:{kind:'refresh-preparation'},'image-health':{kind:'probe-image'},
+ 'start-landscape':{kind:'queue-landscape'},'retry-landscape':{kind:'recover-landscape'},'open-reselection':{kind:'create-selection-draft'},
+ 'edit-revision':{kind:'read-edit-basis'},'save-revision':{kind:'publish-revision'},'edit-review-notes':{kind:'save-review-notes'},
+ redraw:{kind:'queue-redraw'},cover:{kind:'save-cover'},copy:{kind:'copy-reviewed'},'copy-draft':{kind:'copy-text-draft'},
+} as const satisfies Record<ProductionCommand,{kind:string;mode?:'background'|null;control?:GenerationControl|null}>;
+type CommandEffect=(typeof commandEffects)[ProductionCommand];
+type CommandDecision={allowed:true;effect:CommandEffect}|{allowed:false;status:409|503;message:string};
 
 const controlCommand={allows:(state:CommandState)=>state.targetReady,denial:'故事已完成或版本已更新，请刷新后再操作。'};
 const landscapeCommand={allows:(state:CommandState)=>state.targetCurrent&&state.targetReady,
@@ -178,7 +237,7 @@ const commands={
  background:controlCommand,
  pause:controlCommand,
  stop:controlCommand,
- resume:controlCommand,
+ resume:{allows:(state:CommandState)=>(state.control!=='active'||state.continuation)&&state.targetReady,denial:'当前制作没有暂停，或版本已更新。'},
  continue:{allows:state=>state.continuation,denial:'这篇故事没有等待继续的修改，或版本已更新。'},
  retry:{allows:state=>state.control==='active'&&!state.continuation&&state.targetCurrent&&state.targetReady,
   denial:state=>state.control==='active'&&!state.continuation?'这项问题或输入已更新，请刷新后再操作。':'请恢复当前版本的制作，再重试当前问题。'},
@@ -200,6 +259,7 @@ const commands={
   denial:state=>state.targetCurrent?'请先暂停生成，再修改制作内容。':'请在制作确认前保存设置草稿。'},
  'save-revision':{allows:state=>state.targetCurrent&&state.targetReady,
   denial:state=>state.targetReady?'故事或版本已更新，请重新载入后再修改。':'这篇故事还没有进入制作，请稍后再修改。'},
+ 'edit-review-notes':{allows:state=>state.targetCurrent&&state.targetReady,denial:'请打开当前版本的完整稿件后重新修改审核意见。'},
  redraw:{allows:state=>state.targetCurrent&&state.targetReady,
   denial:state=>state.targetCurrent?'目前无法只重绘选中的画幅，请检查作品状态后重试。':'仅换图需要已完成的故事，且不能同时修改文字或设置。'},
  cover:{allows:state=>state.targetReady,denial:'指定首幅原图仅适用于已完成且审核通过的故事换画风。'},
@@ -213,7 +273,7 @@ export const productionCommandEvents=Object.keys(commands) as ProductionCommand[
 export const commandRules:readonly {matches:(event:ProductionCommand,state:CommandState)=>boolean;decide:(event:ProductionCommand,state:CommandState)=>CommandDecision}[]=[
  {matches:(_,state)=>state.version!=='current',decide:()=>({allowed:false,status:409,message:'故事或版本已更新，请刷新后再操作。'})},
  {matches:(_,state)=>state.version==='current'&&state.stopping,decide:()=>({allowed:false,status:503,message:'制作服务正在停止，请稍后重试。'})},
- {matches:(event,state)=>state.version==='current'&&!state.stopping&&commands[event].allows(state),decide:()=>({allowed:true})},
+ {matches:(event,state)=>state.version==='current'&&!state.stopping&&commands[event].allows(state),decide:event=>({allowed:true,effect:commandEffects[event]})},
  {matches:(event,state)=>state.version==='current'&&!state.stopping&&!commands[event].allows(state),decide:(event,state)=>{
   const {denial}=commands[event];
   return {allowed:false,status:409,message:typeof denial==='function'?denial(state):denial};
@@ -344,4 +404,37 @@ export const jobFailureRules=exclusiveRules<JobFailureState,JobFailureDecision>(
 ]);
 export function classifyJobFailure(state:JobFailureState):JobFailureDecision{
  return jobFailureRules.find(rule=>rule.matches(state))!.decision;
+}
+
+type RuntimeServiceState={configured:boolean;stopping:boolean;snapshotAvailable:boolean};
+export const runtimeServiceRules=exclusiveRules<RuntimeServiceState,ProductionService>([
+ {id:'unconfigured',when:state=>!state.configured,decision:'unconfigured'},
+ {id:'stopping',when:state=>state.stopping,decision:'stopping'},
+ {id:'snapshot-unavailable',when:state=>!state.snapshotAvailable,decision:'snapshot-unavailable'},
+ {id:'available',when:()=>true,decision:'available'},
+]);
+export function resolveProductionService(state:RuntimeServiceState):ProductionService{
+ return runtimeServiceRules.find(rule=>rule.matches(state))!.decision;
+}
+
+type ImageReadState={result:'missing'|'readable'|'unavailable';fault:boolean};
+export const imageReadRules=exclusiveRules<ImageReadState,'defer'|'mark-lost'|'restore-readable'|'preserve'>([
+ {id:'defer',when:state=>state.result==='unavailable',decision:'defer'},
+ {id:'mark-lost',when:state=>state.result==='missing',decision:'mark-lost'},
+ {id:'restore-readable',when:state=>state.fault,decision:'restore-readable'},
+ {id:'preserve',when:()=>true,decision:'preserve'},
+]);
+export function resolveImageRead(state:ImageReadState){
+ return imageReadRules.find(rule=>rule.matches(state))!.decision;
+}
+
+type InterruptedJobState={running:boolean;localLease:boolean;resume:boolean};
+export const interruptedJobRules=exclusiveRules<InterruptedJobState,'requeue'|'fail'|'preserve'>([
+ {id:'local-lease',when:state=>state.running&&state.localLease,decision:'preserve'},
+ {id:'requeue',when:state=>state.resume,decision:'requeue'},
+ {id:'fail',when:state=>state.running,decision:'fail'},
+ {id:'already-failed',when:()=>true,decision:'preserve'},
+]);
+export function resolveInterruptedJob(state:InterruptedJobState){
+ return interruptedJobRules.find(rule=>rule.matches(state))!.decision;
 }

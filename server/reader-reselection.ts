@@ -34,6 +34,13 @@ function inheritedRequirementsToken(inherited:ReturnType<typeof inheritedRequire
  ]);
 }
 
+export function replacementCommitState(draft:NonNullable<Document['reselection']>,parent:SessionRow|undefined,basis:Pick<Awaited<ReturnType<typeof revisionBasis>>,'doc'|'epoch'|'intakeGeneration'>|undefined){
+ return {
+  basisCurrent:!!parent&&!!basis&&basis.epoch===draft.epoch&&replacementToken(parent.selection,basis.epoch,basis.intakeGeneration)===draft.baseToken,
+  requirementsCurrent:!!parent&&!!basis&&(!draft.requirementsToken||draft.requirementsToken===inheritedRequirementsToken(inheritedRequirements(parent,basis.doc,basis.intakeGeneration))),
+ };
+}
+
 export async function openReselection(repo:ReaderRepository,parentId:string,ownerId:string,requestId:string,books?:LocalBooks){
  const existing=await repo.db.prepare('SELECT * FROM stories WHERE id=?').bind(requestId).first<SessionRow>();
  if(existing){
@@ -81,8 +88,7 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
  const picked=intake?.batches[choice.batch]?.stories[choice.index];
  const authorization=authorizeReselectionCommit({
   draftCurrent,generationCurrent,candidateExists:!!picked,
-  basisCurrent:!!basis&&basis.epoch===draft.epoch&&replacementToken(parent!.selection,basis.epoch,basis.intakeGeneration)===draft.baseToken,
-  requirementsCurrent:!!basis&&(!draft.requirementsToken||draft.requirementsToken===inheritedRequirementsToken(inheritedRequirements(parent!,basis.doc,basis.intakeGeneration))),
+  ...(draft?replacementCommitState(draft,parent,basis):{basisCurrent:false,requirementsCurrent:false}),
  });
  if(authorization.effect==='reject')throw new ReaderError(authorization.status,authorization.message);
  const source=parent!,current=basis!,candidate=picked!;

@@ -133,14 +133,14 @@ test('read-only mode never starts queued work and rejects historical generation 
  assert.equal((await app.services.database.prepare('SELECT COUNT(*) AS n FROM production_jobs WHERE attempts>0').first()).n,0);
 });
 
-test('OpenAI fences image dispatch after the reference has been prepared',async t=>{
+for(const decision of ['yield','obsolete'])test(`OpenAI fences ${decision} image dispatch after the reference has been prepared`,async t=>{
  const f=await fixture(t,()=>Response.json({data:[{b64_json:encoded}]}));
  const generator=f.provider.generator(),plan=makePlan(3);
  const first=await generator.image(plan,0,'test','');
  const baseGet=f.media.get.bind(f.media);
  let read=false;
  f.media.get=async key=>{read=true;return baseGet(key);};
- const deny=new PaidDispatchDenied('yield');
+ const deny=new PaidDispatchDenied(decision);
  await assert.rejects(withPaidDispatch({authorize:()=>{assert.ok(read);throw deny;},receipt:()=>assert.fail('no paid image')},
   ()=>generator.image(plan,1,'test',first.value)),error=>error===deny);
  assert.equal(f.calls.length,1);

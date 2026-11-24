@@ -106,12 +106,13 @@ export class ReaderRepository{
  async listShelf(uid:string){return (await this.db.prepare(shelfRowsSql).bind(uid).all<SessionRow>()).results;}
  async currentStoryIds(uid:string){return (await this.db.prepare('SELECT id FROM stories WHERE user_id=? ORDER BY id').bind(uid).all<{id:string}>()).results.map(row=>row.id);}
  async deletions(uid:string){
-  return (await this.db.prepare(`SELECT d.story_id AS storyId,d.deleted_at AS deletedAt,d.kind,
+  const rows=(await this.db.prepare(`SELECT d.story_id AS storyId,d.deleted_at AS deletedAt,d.kind,s.id IS NOT NULL AS owned,
    COALESCE(json_extract(s.selection,'$.displayTitle'),json_extract(s.document,'$.plan.title'),json_extract(s.selection,'$.storyTitle'),'未命名故事') AS title
    FROM library_deletions d
    LEFT JOIN stories s ON s.id=d.story_id AND s.user_id=d.user_id
    WHERE d.user_id=? AND d.kind='generated' AND (s.id IS NULL OR json_type(s.document,'$.reselection') IS NULL)
-   ORDER BY d.deleted_at DESC,d.story_id`).bind(uid).all<{storyId:string;deletedAt:string;kind:'generated';title:string}>()).results;
+   ORDER BY d.deleted_at DESC,d.story_id`).bind(uid).all<{storyId:string;deletedAt:string;kind:'generated';title:string;owned:number}>()).results;
+  return rows.map(({owned,...item})=>({...item,canRestore:authorizeLibraryControl({event:'restore',owned:!!owned,deleted:true})==='restore'}));
  }
  async remove(id:string,uid:string){
   if(!this.db.transaction)throw Error('TRANSACTION_UNAVAILABLE');

@@ -3,6 +3,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {observeOnlyGeneration,observeStoryGeneration,runQueuedStoryGeneration} from '../lib/reader-production-client.ts';
 const base={id:'story',state:'idle',ready:7,stage:'drawing 8',selection:{length:8},retryAllowed:true,error:null,story:{pages:[]}};
+test('a completed story observes an explicit preparation refresh until it saves or reports its own fault',async()=>{
+ for(const fault of [false,true]){
+  const observed=[],refreshed={...base,state:'completed',generationMode:'background',generationControl:'active',
+   lifecycle:{preparationRefresh:'pending',faults:[]}};
+  const terminal={...refreshed,lifecycle:fault?{preparationRefresh:'pending',faults:[{stage:'prepare',state:'pending'}]}:{preparationRefresh:'none',faults:[]}};
+  await observeStoryGeneration({sessionId:'story',isActive:()=>true,onSession:session=>observed.push(session),
+   focus:{viewerId:'viewer',page:()=>0},sleep:async()=>{},request:async(_path,method)=>{
+    assert.equal(method,undefined);
+    assert.ok(observed.length<2);
+    return observed.length?terminal:refreshed;
+   }});
+  assert.deepEqual(observed,[refreshed,terminal]);
+ }
+});
 test('LAN HTTP without crypto.randomUUID still automatically requests the next story with a valid UUID',async()=>{
  const descriptor=Object.getOwnPropertyDescriptor(crypto,'randomUUID');Object.defineProperty(crypto,'randomUUID',{value:undefined,configurable:true});
  try{

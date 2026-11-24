@@ -37,6 +37,7 @@ import {localSourceSchema} from './reader-local-contract.ts';
 import {themeStoryId} from '../server/story-theme-matching.ts';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
 const uuid=z.string().uuid();
+const lifecycleMutations=new Set(['setup','reselection','recover','image-health','landscape','revisions','review-override','production-control']);
 export function shelfView(session:SessionView):SessionView{
  if(!session.story)return session;
  const story={...session.story};delete story.original;story.sourceText='';
@@ -70,7 +71,14 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     return json({publication:await repo.savePublicationDefaults(uid,parsed.data.publication,parsed.data.expected)});
    }
   }
-  if(path.join('/')==='deletions'&&req.method==='GET')return json(new URL(req.url).searchParams.get('inventory')==='1'?{deletions:await repo.deletions(uid),currentStoryIds:await repo.currentStoryIds(uid),complete:true}:await repo.deletions(uid));
+  if(path.join('/')==='deletions'&&req.method==='GET'){
+   const rows=await repo.deletions(uid),lifecycles=services.production?.deletedLifecycles?.(uid);
+   const deletions=rows.map(item=>{
+    const lifecycle=lifecycles?.get(item.storyId);
+    return lifecycle?{...item,lifecycle}:item;
+   });
+   return json(url.searchParams.get('inventory')==='1'?{deletions,currentStoryIds:await repo.currentStoryIds(uid),complete:true}:deletions);
+  }
   if(path.join('/')==='library/shelf'&&['GET','POST'].includes(req.method)){
    const known=req.method==='POST'?new Map(z.array(z.tuple([uuid,z.string().max(64)])).parse(await body(req,12*1024*1024))):null;
    const sessions=services.production?await services.production.shelfSnapshots(uid):(await repo.listShelf(uid)).filter(readableStory).map(view);
@@ -395,7 +403,32 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    return new Response(asset.body,{headers:{'Cache-Control':'private, max-age=31536000, immutable','X-Content-Type-Options':'nosniff','Content-Type':asset.contentType}});
   }
   throw new ReaderError(404,'找不到这个故事入口');
- }catch(error){if(error instanceof Error&&error.message.includes('reader_request_id_conflict'))return json({error:'这个操作编号已用于其他内容，请重新操作。'},409);if(error instanceof ReaderError)return json({error:error.message},error.status);if(error instanceof z.ZodError)return json({error:'请选择有效的书籍、主题与页数'},400);return json({error:'故事暂时无法打开，请稍后再试。'},500);}
+ }catch(error){
+  const conflict=error instanceof Error&&error.message.includes('reader_request_id_conflict');
+  if(conflict||error instanceof ReaderError){
+   const status=conflict?409:(error as ReaderError).status;
+   const message=conflict?'这个操作编号已用于其他内容，请重新操作。':(error as ReaderError).message;
+   if(status===409&&req.method!=='GET'&&path[0]==='sessions'&&lifecycleMutations.has(path[2])&&services.database){
+    // 只在冲突时回读有权打开的当前版，帮助客户端刷新编辑依据和动作。
+    const ownerId=services.ownerId,repo=new ReaderRepository(services.database);
+    const session=await (async()=>{
+     const origin=await repo.get(path[1],ownerId);
+     if((JSON.parse(origin.document) as Document).reselection){
+      return services.production?await services.production.snapshot(ownerId,origin.id):view(origin);
+     }
+     for(let attempt=0;attempt<2;attempt++){
+      const current=await repo.current(origin.id,ownerId);
+      const snapshot=services.production?await services.production.snapshot(ownerId,current.id):view(current);
+      if(!snapshot.superseded)return snapshot;
+     }
+    })().catch(()=>undefined);
+    if(session)return json({error:message,session},status);
+   }
+   return json({error:message},status);
+  }
+  if(error instanceof z.ZodError)return json({error:'请选择有效的书籍、主题与页数'},400);
+  return json({error:'故事暂时无法打开，请稍后再试。'},500);
+ }
 }
 
 }

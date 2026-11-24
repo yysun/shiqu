@@ -19,6 +19,7 @@ import {getArtStyle} from '@/lib/reader-styles';
 import {narrativeDetails} from '@/lib/reader-frame-recommendation';
 import {GenerationModelsDetails} from './StoryPublication';
 import StoryLandscapeStep from './StoryLandscapeStep';
+import {offersProductionAction} from '@/lib/production-lifecycle';
 
 export default function StoryGenerationStatus({session,busy,controlBusy,error,onControl,onRetry,onBack,onHistory,onAcceptance,onEditStyle,navigation,timeline,stages,control,compact=false,reviewTools,stageContent,children,hideBack=false,showSummary=true,showLandscape=false}:{reviewTools?:ReactNode;stageContent?:Record<string,ReactNode>;compact?:boolean;children?:ReactNode;control?:ReactNode;timeline?:ProductionTimelineNavigation&Pick<ComponentProps<typeof StoryProductionTimeline>,'stageDurations'>;stages?:ProductionStage[];session:SessionView;busy:boolean;controlBusy:boolean;error:string;onControl:(id:string,action:ProductionAction)=>Promise<void>;onRetry:(faultId?:string)=>void;onBack:()=>void;hideBack?:boolean;showSummary?:boolean;showLandscape?:boolean;onHistory?:()=>void;onAcceptance?:()=>void;onEditStyle?:()=>void;navigation?:StoryFlowNavigation}){
  const status=shelfGenerationStatus(session),stopped=status.group==='生成失败'||status.group==='生成已暂停';
@@ -42,9 +43,11 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
  const countAction=timeline?.actions?.count;
  const narrativeLabel=(narrativeDetails.find(detail=>detail.id===session.selection.narrativeDetail)??narrativeDetails[1]).label;
  const styleLabel=getArtStyle(session.selection.artStyle).label;
+ const refreshing=session.lifecycle?.preparationRefresh==='pending';
  const links=onEditStyle?{...timelineLinks,count:[
-  ...(timeline?.links?.count?.length?timeline.links.count:countAction?[{...countAction,label:`详略：${narrativeLabel}`,ariaLabel:`修改叙事详略，当前${narrativeLabel}`}]:[]),
-  {label:`画风：${styleLabel}`,ariaLabel:`修改画风，当前${styleLabel}`,disabled:paused&&controlBusy,onClick:onEditStyle},
+  ...(countAction?[{...countAction,label:`详略：${narrativeLabel}`,ariaLabel:`修改叙事详略，当前${narrativeLabel}`}]:[]),
+  {label:`画风：${styleLabel}`,ariaLabel:`修改画风，当前${styleLabel}`,disabled:paused&&controlBusy||!offersProductionAction(session,'edit-revision'),onClick:onEditStyle},
+  ...(timeline?.links?.count??[]),
  ]}:timelineLinks;
  return <div className={'yu-generation-stage has-progress'+(compact||!showSummary?' is-compact':'')+(moving?' is-generating':'')+(failed?' has-error':'')+(session.reviewIssues?.length?' has-review-issues':'')}>
   {showSummary&&(!compact||failed)&&<div className="yu-generation-summary">
@@ -53,7 +56,7 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
   </div>}
   <StoryFlowHeader title={progress.measured?'画面生成进度':'制作流程'} status={message} {...flowNavigation}/>
   <section className="yu-generation-progress" aria-label="生成进展">
-   <StoryProductionTimeline session={session} busy={busy||controlBusy} error={error} onRetry={onRetry} onAcceptance={onAcceptance} reviewTools={reviewTools} stageContent={stageContent} onHistory={onHistory} stages={displayedSteps} moving={moving} queued={progress.queued} {...timeline} links={links} currentTiming={moving?<><Clock3 size={12} aria-hidden="true"/>{progress.remaining===null?'超时信息待同步':progress.remaining>0?`距超时 ${generationDuration(progress.remaining)}`:'已达超时，等待状态更新'}</>:undefined} currentContent={session.state!=='completed'?generationControl:null}>
+   <StoryProductionTimeline session={session} busy={busy||controlBusy} error={error} onRetry={onRetry} onAcceptance={onAcceptance} reviewTools={reviewTools} stageContent={refreshing?{...stageContent,count:<div className="production-stage-actions">{generationControl}</div>}:stageContent} onHistory={onHistory} stages={displayedSteps} moving={moving} queued={progress.queued} {...timeline} links={links} currentTiming={moving?<><Clock3 size={12} aria-hidden="true"/>{progress.remaining===null?'超时信息待同步':progress.remaining>0?`距超时 ${generationDuration(progress.remaining)}`:'已达超时，等待状态更新'}</>:undefined} currentContent={session.state!=='completed'&&!refreshing?generationControl:null}>
     {showLandscape&&<StoryLandscapeStep key={session.id} storyId={session.id}/>}
    </StoryProductionTimeline>
   </section>

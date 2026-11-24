@@ -29,7 +29,6 @@ export type DagStory={
  faults:Fault[];
  /** 本书星标的参考图；缺省时由各幅按原规则选择本篇首幅。 */
  refSource?:string;
- reprepare?:boolean;
 };
 
 /** 一项待派发的工作：一次调用及其产出的实例（派发时的硬输入随实例记录）。 */
@@ -51,7 +50,7 @@ export function syncItems(dag:DagDocument,selection:Selection):DagDocument{
 }
 
 export function stateOf(story:DagStory,{includeReviewSkip=true}={}):VersionState{
- const reprepare=story.reprepare||!!story.dag.repreparing;
+ const reprepare=!!story.dag.repreparing;
  const preparing=reprepare||preparationPending(story.doc)||story.doc.intake?.phase==='confirming';
  const seed=preparing?{generation:story.dag.preparationGeneration??story.doc.intake?.generation,production:productionRequirement(story.selection),detail:story.selection.narrativeDetail}:undefined;
  const roots=rootProducts(story.selection,story.dag,{notes:story.doc.reviewNotes,refSource:story.refSource,seed});
@@ -144,7 +143,7 @@ export function work(story:DagStory):Work[]{
  if(story.doc.reselection)return [];
  const state=stateOf(story);
  const groups=callGroups(state,callFor(state));
- if(story.reprepare||story.dag.repreparing)return groups.filter(item=>item.call==='prepareSuggestions');
+ if(story.dag.repreparing)return groups.filter(item=>item.call==='prepareSuggestions');
  if(!story.confirmed){
   if(!preparationPending(story.doc)||story.doc.frameRecommendation)return [];
   const candidate=preparationCandidate(story.doc),source=story.doc.original;
@@ -449,4 +448,4 @@ export function overrideReview(story:DagStory,targets:string[]):DagDocument|null
 export function stageOf(story:DagStory,inst:Instance){return reviewStage(stateOf(story),inst);}
 
 /** 整篇完成。 */
-export function finished(story:DagStory){return !story.reprepare&&!story.dag.repreparing&&complete(stateOf(story));}
+export function finished(story:DagStory){return complete(stateOf(story));}
