@@ -31,19 +31,19 @@ export function openDatabase(directory:string,root:string){
     async first<T>(){return (statement.get(...values) as T|undefined)??null;},
     async all<T>(){return {results:statement.all(...values) as T[]};},
     async run(){return {meta:{changes:Number(statement.run(...values).changes)}};}};
-  },transaction(body){return transaction(sqlite,body);}};
+  },transaction(body){return transaction(sqlite,body);},readTransaction(body){return transaction(sqlite,body,'read');}};
   return {sqlite,db,database,close(){sqlite.close();}};
  }catch(error){sqlite.close();throw error;}
 }
 export type LocalDatabase=ReturnType<typeof openDatabase>;
-/** 同步事务：BEGIN IMMEDIATE 内执行事务体，异常时回滚；事务体不得含 await。 */
-export function transaction<T>(sqlite:DatabaseSync,body:(db:SyncStatements)=>T):T{
+/** 写事务先占写锁；只读投影使用延迟事务固定同一 WAL 快照。事务体不得含 await。 */
+export function transaction<T>(sqlite:DatabaseSync,body:(db:SyncStatements)=>T,mode:'write'|'read'='write'):T{
  const statements:SyncStatements={
   run(query,...values){return {changes:Number(sqlite.prepare(query).run(...values as SQLInputValue[]).changes)};},
   get<R>(query:string,...values:unknown[]){return sqlite.prepare(query).get(...values as SQLInputValue[]) as R|undefined;},
   all<R>(query:string,...values:unknown[]){return sqlite.prepare(query).all(...values as SQLInputValue[]) as R[];},
  };
- sqlite.exec('BEGIN IMMEDIATE');
+ sqlite.exec(mode==='read'?'BEGIN':'BEGIN IMMEDIATE');
  try{
   const result=body(statements);
   if(result instanceof Promise)throw Error('TRANSACTION_MUST_BE_SYNC');

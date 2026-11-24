@@ -31,7 +31,7 @@ import {createIntake,changeIntake} from '../server/reader-intake.ts';
 import {forkRevision,previewDagRevision,revisionCoverMaxBytes,revisionSnapshot} from '../server/reader-revisions.ts';
 import {openReselection,commitReselection,cancelReselection} from '../server/reader-reselection.ts';
 import {replacementChoiceSchema} from './reader-reselection.ts';
-import {summarizeShelfSession,type ShelfSession,type ShelfChanges} from './reader-shelf.ts';
+import {summarizeShelfSession,type ShelfChanges} from './reader-shelf.ts';
 import {readerBooks} from './reader-books.ts';
 import {localSourceSchema} from './reader-local-contract.ts';
 import {themeStoryId} from '../server/story-theme-matching.ts';
@@ -73,17 +73,14 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path.join('/')==='deletions'&&req.method==='GET')return json(new URL(req.url).searchParams.get('inventory')==='1'?{deletions:await repo.deletions(uid),currentStoryIds:await repo.currentStoryIds(uid),complete:true}:await repo.deletions(uid));
   if(path.join('/')==='library/shelf'&&['GET','POST'].includes(req.method)){
    const known=req.method==='POST'?new Map(z.array(z.tuple([uuid,z.string().max(64)])).parse(await body(req,12*1024*1024))):null;
-   const [rows,openDrafts]=await Promise.all([repo.listShelf(uid),services.production?repo.openReplacementParents(uid):undefined]);
-   const cards=(await Promise.all(rows.map(async row=>{
-    let saved:SessionView;
-    // 单个坏故事不应阻塞书架；完整会话仍由详情接口返回。
-    try{saved=view(row);}catch{return null;}
-    const card=summarizeShelfSession(services.production?await services.production.shelfSnapshot(row,saved,false,openDrafts?.has(row.id)):saved);
+   const sessions=services.production?await services.production.shelfSnapshots(uid):(await repo.listShelf(uid)).filter(readableStory).map(view);
+   const cards=sessions.flatMap(session=>{
+    const card=summarizeShelfSession(session);
     const version=createHash('sha256').update(JSON.stringify(card)).digest('hex').slice(0,24);
-    const changed=known?.get(row.id)!==version;
-    known?.delete(row.id);
-    return changed?{...card,version}:null;
-   }))).filter((card):card is ShelfSession&{version:string}=>card!==null);
+    const changed=known?.get(session.id)!==version;
+    known?.delete(session.id);
+    return changed?[{...card,version}]:[];
+   });
    return json(known?{changed:cards,removed:[...known.keys()]} satisfies ShelfChanges:cards);
   }
   if(path[0]==='library'&&path.length===2&&req.method==='DELETE'){const id=z.string().min(1).max(100).parse(path[1]),removed=await repo.remove(id,uid);services.production?.referencesChanged?.();return json(removed);}
@@ -233,11 +230,8 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='sessions'&&path.length===1){
    // One unreadable saved story must not take the whole shelf down with it.
    if(req.method==='GET'){
-    const [rows,openDrafts]=await Promise.all([repo.list(uid),services.production?repo.openReplacementParents(uid):undefined]);
-    return json(await Promise.all(rows.filter(readableStory).map(async row=>{
-     const saved=view(row);
-     return shelfView(services.production?await services.production.shelfSnapshot(row,saved,true,openDrafts?.has(row.id)):saved);
-    })));
+    const sessions=services.production?await services.production.shelfSnapshots(uid,true):(await repo.list(uid)).filter(readableStory).map(view);
+    return json(sessions.map(shelfView));
    }
    if(req.method==='POST'){const b=z.object({requestId:uuid,selection:selectionSchema.omit({displayTitle:true}),intake:z.boolean().optional()}).parse(await body(req,32768));if((b.selection.discoverySources||b.selection.discovery?.mode==='title')&&b.intake!==true)throw new ReaderError(400,'章节或标题提取必须通过选题流程创建。');if(!await requestRecorded(b.requestId))await requireProvider();return json(await sessionView(b.intake?await createIntake(repo,b.requestId,uid,b.selection,services.localBooks):await repo.create(b.requestId,uid,b.selection)),201);}
   }

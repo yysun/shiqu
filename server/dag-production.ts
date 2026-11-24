@@ -93,18 +93,21 @@ export class DagProduction{
   return dagFaultTargets(rows);
  }
 
- /** 以同一组已读取的故事、故障及任务推导完成，书架和详情均无需读取图片文件。 */
- completeFrom(row:SessionRow,faults:ReaderFault[],jobs:ProductionJob[]){
+ /** 从快照推导完成和审片阻断，避免分别读取故障或访问图片文件。 */
+ lifecycleFrom(row:SessionRow,faults:ReaderFault[],jobs:ProductionJob[]){
   const doc=JSON.parse(row.document) as Document,dag=doc.dag;
-  if(!dag)return undefined;
+  if(!dag)return {complete:undefined,blocking:null};
   const byId=new Map(jobs.map(job=>[job.id,job]));
   const targets=faults.filter(fault=>fault.state==='pending'||fault.state==='recovering'||fault.state==='awaiting-match').map(fault=>{
    const job=fault.job_id?byId.get(fault.job_id):undefined;
    return {...fault,faultKind:fault.kind,kind:job?.kind??null,payload:job?.payload??null};
   });
-  return (!doc.intake||doc.intake.phase==='confirmed')&&finished({
-   id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed:true,faults:dagFaultTargets(targets),
-  });
+  const confirmed=!doc.intake||doc.intake.phase==='confirmed';
+  const story:DagStory={id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed,faults:dagFaultTargets(targets)};
+  const complete=confirmed&&finished(story);
+  const reviewing={...story,faults:dagFaultTargets(targets.filter(target=>target.state!=='recovering'))};
+  const blocking=complete||work(reviewing).some(item=>!drawing(item.call))?null:this.reviewBlock(reviewing);
+  return {complete,blocking};
  }
 
  /** 在领取事务中按当前硬输入和故障复核；参考图的文件可用性在发送前核对。 */
@@ -560,12 +563,6 @@ export class DagProduction{
   const id=targets.length?'review:'+commandFingerprint(['review-fault',story.id,reasons,story.dag.repairs,
    targets.map(target=>[target,story.dag.products[target]?.hash??null])]).slice(0,32):null;
   return {id,reasons,issues,targets};
- }
-
- async blocking(row:SessionRow){
-  const story=await this.story(row,'skip');
-  if(!story||work(story).some(item=>!drawing(item.call)))return null;
-  return this.reviewBlock(story);
  }
 
  /** 一次明确命令给当前额度已用尽的结论授予一轮修订，回执与额度同时提交。 */

@@ -11,18 +11,33 @@ import './production-dag/progress.ts';
 // The interface keeps the same SQL testable against SQLite without a Worker runtime.
 /** 同步执行的语句，只在 transaction() 的事务体中使用。 */
 export interface SyncStatements{run(query:string,...values:unknown[]):{changes:number};get<T>(query:string,...values:unknown[]):T|undefined;all<T>(query:string,...values:unknown[]):T[]}
+export type ReadStatements=Pick<SyncStatements,'get'|'all'>;
 /**
  * 数据库：逐条执行的异步语句，以及本地书库的同步事务。
  * 多表状态变化（任务、故障、命令回执、故事状态）在一个事务中原子完成；事务体同步执行、不含 await，
  * 因此同一连接上的其他异步写入不会插入其中。
  */
-export interface Database{prepare(query:string):Statement;transaction?<T>(body:(db:SyncStatements)=>T):T}
+export interface Database{prepare(query:string):Statement;transaction?<T>(body:(db:SyncStatements)=>T):T;readTransaction?<T>(body:(db:ReadStatements)=>T):T}
 interface Statement{bind(...values:unknown[]):Statement;first<T>():Promise<T|null>;all<T>():Promise<{results:T[]}>;run():Promise<{meta:{changes:number}}>}
-const visible="NOT EXISTS (SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)";
+export const visibleStory="NOT EXISTS (SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)";
+const visible=visibleStory;
 export const familyRoot=(alias:string)=>`COALESCE(json_extract(CASE WHEN json_valid(${alias}.document) THEN ${alias}.document ELSE '{}' END,'$.revision.rootId'),${alias}.id)`;
 export const familyNumber=(alias:string)=>`COALESCE(json_extract(CASE WHEN json_valid(${alias}.document) THEN ${alias}.document ELSE '{}' END,'$.revision.number'),1)`;
 export const supersededSql=(alias='stories')=>`EXISTS(SELECT 1 FROM stories newer WHERE newer.user_id=${alias}.user_id AND ${familyRoot('newer')}=${familyRoot(alias)} AND ${familyNumber('newer')}>${familyNumber(alias)})`;
 export const latestVersionMessage='这是旧版本，请打开书架中的最新版本继续生成。';
+// 最大版本先包含已删除项，避免删除后把历史版推回书架。
+export const shelfRowsSql=`WITH editions AS MATERIALIZED (
+ SELECT id,${familyRoot('stories')} AS root,${familyNumber('stories')} AS revision,
+  json_type(CASE WHEN json_valid(document) THEN document ELSE '{}' END,'$.reselection') IS NULL AS submitted
+ FROM stories WHERE user_id=?
+), latest AS (SELECT root,max(revision) AS revision FROM editions GROUP BY root)
+SELECT stories.* FROM editions JOIN latest USING(root,revision) JOIN stories USING(id)
+WHERE editions.submitted AND ${visible}
+ORDER BY COALESCE(last_read_at,created_at) DESC`;
+export const openReplacementParentsSql=(singleStory:boolean)=>{
+ const parent="json_extract(CASE WHEN json_valid(document) THEN document ELSE '{}' END,'$.reselection.parentId')";
+ return `SELECT DISTINCT ${parent} AS parentId FROM stories WHERE user_id=? AND ${singleStory?`${parent}=?`:`${parent} IS NOT NULL`} AND ${visible}`;
+};
 /** 在调用方事务中标记已核对归属的故事，并停止后续制作。 */
 export function markStoryDeleted(db:SyncStatements,id:string,uid:string,deletedAt=new Date().toISOString()){
  db.run("INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) VALUES(?,?,'generated',?) ON CONFLICT(user_id,story_id) DO NOTHING",uid,id,deletedAt);
@@ -87,23 +102,8 @@ export class ReaderRepository{
   AND json_type(CASE WHEN json_valid(document) THEN document ELSE '{}' END,'$.reselection') IS NULL
   AND NOT ${supersededSql()}
   ORDER BY COALESCE(last_read_at,created_at) DESC`).bind(uid).all<SessionRow>()).results;}
- // 先计算所有版本的家族与序号，再过滤草稿和删除项，避免删除最新版本后露出旧版本。
- async listShelf(uid:string){return (await this.db.prepare(`WITH editions AS MATERIALIZED (
-   SELECT id,${familyRoot('stories')} AS root,${familyNumber('stories')} AS revision,
-    json_type(CASE WHEN json_valid(document) THEN document ELSE '{}' END,'$.reselection') IS NULL AS submitted
-   FROM stories WHERE user_id=?
-  ), latest AS (SELECT root,max(revision) AS revision FROM editions GROUP BY root)
-  SELECT stories.* FROM editions JOIN latest USING(root,revision) JOIN stories USING(id)
-  WHERE editions.submitted AND ${visible}
-  ORDER BY COALESCE(last_read_at,created_at) DESC`).bind(uid).all<SessionRow>()).results;}
+ async listShelf(uid:string){return (await this.db.prepare(shelfRowsSql).bind(uid).all<SessionRow>()).results;}
  async currentStoryIds(uid:string){return (await this.db.prepare('SELECT id FROM stories WHERE user_id=? ORDER BY id').bind(uid).all<{id:string}>()).results.map(row=>row.id);}
- async openReplacementParents(uid:string,parentId?:string){
-  const parent="json_extract(CASE WHEN json_valid(document) THEN document ELSE '{}' END,'$.reselection.parentId')";
-  const filter=parentId===undefined?`${parent} IS NOT NULL`:`${parent}=?`;
-  const {results}=await this.db.prepare(`SELECT DISTINCT ${parent} AS parentId FROM stories WHERE user_id=? AND ${filter} AND ${visible}`)
-   .bind(uid,...(parentId===undefined?[]:[parentId])).all<{parentId:string}>();
-  return new Set(results.map(row=>row.parentId));
- }
  async deletions(uid:string){
   return (await this.db.prepare(`SELECT d.story_id AS storyId,d.deleted_at AS deletedAt,d.kind,
    COALESCE(json_extract(s.selection,'$.displayTitle'),json_extract(s.document,'$.plan.title'),json_extract(s.selection,'$.storyTitle'),'未命名故事') AS title

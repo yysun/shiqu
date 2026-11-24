@@ -10,8 +10,8 @@
 // 节拍中的过期任务清理和任务图重建先查覆盖索引与内容修订号，只读取上次检查后有变化的故事全文。
 import {productionTimingScope,productionStageDurations} from '../lib/production-timing.ts';
 import {randomUUID} from 'node:crypto';
-import {ReaderRepository,persistenceError,supersededSql,latestVersionMessage} from '../lib/reader-repository.ts';
-import type {Database,SyncStatements} from '../lib/reader-repository.ts';
+import {ReaderRepository,persistenceError,supersededSql,latestVersionMessage,openReplacementParentsSql,shelfRowsSql,visibleStory} from '../lib/reader-repository.ts';
+import type {Database,ReadStatements,SyncStatements} from '../lib/reader-repository.ts';
 import {ReaderError,readableStory,selectionSchema,view} from '../lib/reader-model.ts';
 import type {Document,SessionRow,SessionView,ProductionAction,Selection} from '../lib/reader-model.ts';
 import type {ModelSnapshot} from '../lib/production-dag/document.ts';
@@ -41,6 +41,10 @@ import {PaidDispatchDenied,withPaidDispatch} from './paid-dispatch.ts';
 import {drawingReferenceBinding} from './book-image-reference.ts';
 
 type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;through_page:number;expires_at:number;runtime_id:string};
+type SnapshotInputs={
+ row:SessionRow;superseded:boolean;replacementOpen:boolean;now:number;
+ allJobs:ProductionJob[];faults:ReaderFault[];viewerThrough:number|null;
+};
 type ActiveSearch={round:number;controller:AbortController;startedAt:number;progress?:SuggestionProgress};
 type RebuildKey={rev:number;state:string;demands:string;references:number};
 type PruneKey={rev:number;queued:number;failed:number};
@@ -325,21 +329,55 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   this.wake();return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
  }
  async snapshot(ownerId:string,id:string):Promise<SessionView>{
-  const row=await this.repository.get(id,ownerId);
-  return this.snapshotView(row,view(row),true,await this.repository.superseded(id,ownerId));
+  const [input]=this.snapshotInputs(ownerId,id);
+  if(!input)throw new ReaderError(404,'这篇故事不在你的书架里');
+  return this.snapshotView(input,view(input.row),true);
  }
- async shelfSnapshot(row:SessionRow,saved:SessionView,includeTimings=false,replacementOpen?:boolean){
-  return this.snapshotView(row,saved,includeTimings,false,replacementOpen);
+ async shelfSnapshots(ownerId:string,includeTimings=false):Promise<SessionView[]>{
+  return this.snapshotInputs(ownerId).flatMap(input=>{
+   let saved:SessionView;
+   try{saved=view(input.row);}catch{return [];}
+   return [this.snapshotView(input,saved,includeTimings)];
+  });
  }
- private async snapshotView(row:SessionRow,saved:SessionView,includeTimings:boolean,superseded:boolean,replacementOpen?:boolean):Promise<SessionView>{
-  const id=row.id,parsed=this.parsed(row)!,now=this.clock();
-  const draft=replacementOpen??(!superseded&&!parsed.doc.reselection?this.repository.openReplacementParents(row.user_id,id).then(parents=>parents.has(id)):false);
-  const [allJobs,faults,demands,openDraft]=await Promise.all([this.queue.jobs(id,row.user_id),sessionFaults(this.database,id,row.user_id),this.demands(id),draft]);
+ /** 使用一次读事务截取完成、阻断、书架与活动所依赖的数据。提交后再运行引擎和查询实时服务。 */
+ private snapshotInputs(ownerId:string,id?:string):SnapshotInputs[]{
+  const read=(db:ReadStatements)=>{
+   const now=this.clock();
+   const rows=id===undefined?db.all<SessionRow&{superseded?:number}>(shelfRowsSql,ownerId):
+    db.all<SessionRow&{superseded?:number}>(`SELECT *,${supersededSql()} AS superseded FROM stories WHERE id=? AND user_id=? AND ${visibleStory}`,id,ownerId);
+   if(!rows.length)return [];
+   const ids=JSON.stringify(rows.map(row=>row.id)),bySession='session_id IN (SELECT value FROM json_each(?))';
+   const inputs=new Map<string,SnapshotInputs>(rows.map(row=>[row.id,{
+    row,superseded:!!row.superseded,now,replacementOpen:false,allJobs:[],faults:[],viewerThrough:null,
+   }]));
+   for(const job of db.all<ProductionJob>(`SELECT * FROM production_jobs WHERE owner_id=? AND ${bySession} ORDER BY created_at,id`,ownerId,ids))
+    inputs.get(job.session_id)!.allJobs.push(job);
+   for(const fault of db.all<ReaderFault>(`SELECT * FROM reader_faults WHERE owner_id=? AND ${bySession} AND state IN ('pending','recovering','awaiting-match') ORDER BY created_at,id`,ownerId,ids))
+    inputs.get(fault.session_id)!.faults.push(fault);
+   for(const demand of db.all<{session_id:string;through:number}>(`SELECT session_id,max(through_page) AS through FROM production_demand
+    WHERE owner_id=? AND runtime_id=? AND expires_at>? AND ${bySession} GROUP BY session_id`,ownerId,this.runtimeId,now,ids)){
+    if(!this.options.targetSessionId||demand.session_id===this.options.targetSessionId)inputs.get(demand.session_id)!.viewerThrough=demand.through;
+   }
+   for(const {parentId} of db.all<{parentId:string}>(openReplacementParentsSql(id!==undefined),ownerId,...(id===undefined?[]:[id]))){
+    const input=inputs.get(parentId);
+    if(input&&!input.superseded)input.replacementOpen=true;
+   }
+   return [...inputs.values()];
+  };
+  return this.database.readTransaction?.(read)??transact(this.database,read);
+ }
+ private snapshotView(input:SnapshotInputs,saved:SessionView,includeTimings:boolean):SessionView{
+  const {row,now,allJobs,faults,superseded,replacementOpen,viewerThrough}=input;
+  const id=row.id,parsed=this.parsed(row)!;
+  const revision=parsed.doc.revision;
+  const background=row.generation_control==='active'&&!superseded&&(!this.options.targetSessionId||id===this.options.targetSessionId)&&
+   (row.state!=='completed'||Array.isArray(revision?.landscapeRedraw)&&typeof revision.redrawFrame==='string');
   const jobs=allJobs.filter(job=>this.generationCurrent(row,job)&&(job.kind!=='discover'||this.searchCurrent(row,searchRound(job))));
   const eligible=jobs.some(job=>{
    if(job.state!=='queued')return false;
    const payload=JSON.parse(job.payload) as {page?:number;work?:{call:string}};
-   return payload.work?.call==='drawLandscape'||demands.some(d=>d.session_id===id&&(job.pool==='text'||(payload.page??0)<=d.through_page));
+   return payload.work?.call==='drawLandscape'||background||viewerThrough!==null&&(job.pool==='text'||(payload.page??0)<=viewerThrough);
   });
   const search=this.searches.get(id),progress=saved.generationProgress!;
   const jobsById=new Map(allJobs.map(job=>[job.id,job]));
@@ -355,9 +393,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const rawReviewFault=reviewFault&&faults.find(fault=>fault.id===reviewFault.id);
   const failedReviewJob=rawReviewFault&&allJobs.find(job=>job.id===rawReviewFault.job_id);
   const reviewSkip=!superseded&&rawReviewFault&&failedReviewJob?this.dag.skipReviewOffer(row,rawReviewFault,failedReviewJob):null;
-  const blocking=parsed.doc.dag&&row.state!=='completed'?await this.dag.blocking(row):null;
+  const {blocking,complete}=this.dag.lifecycleFrom(row,faults,allJobs);
   const service=this.serviceAvailability(parsed.doc.dag?.modelSnapshot);
-  const lifecycle=productionLifecycle({...saved,complete:this.dag.completeFrom(row,faults,allJobs),generationControl:row.generation_control,superseded,replacementOpen:!!parsed.doc.reselection||!!openDraft,
+  const lifecycle=productionLifecycle({...saved,complete,generationControl:row.generation_control,superseded,replacementOpen:!!parsed.doc.reselection||replacementOpen,
    faults:[...projectedFaults,...landscapeFaults],reviewAttention:blocking?.reasons??[],service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
    now,order:parsed.doc.dag?.order??[]},jobs);
   const active=lifecycle.activity.state==='running'?lifecycle.activity.jobs:[];

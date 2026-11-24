@@ -276,6 +276,39 @@ test('running status names the active drawing when an earlier frame awaits recov
  assert.deepEqual([current.stage,shelfGenerationStatus(shelf).message],['正在绘制第 5 幅','正在绘制第 5 幅']);
 });
 
+for(const shelf of [false,true])test(`${shelf?'shelf':'detail'} reports one database state across a concurrent image health update`,async t=>{
+ const {DatabaseSync}=await import('node:sqlite'),{join}=await import('node:path');
+ const f=await productionFixture(t,'codex');
+ f.options.production={autoStart:false};
+ await f.restart();
+ const {id}=await completedStory(f),doc=await saved(f,id),frame=doc.dag.order[1];
+ const writer=new DatabaseSync(join(f.dataDirectory,'shiqu.sqlite'));
+ const db=f.app.services.database,read=db.readTransaction.bind(db),faultId=crypto.randomUUID();
+ const now=Date.now();
+ let changed=false;
+ doc.dag.products[`frameImage:${frame}`].readable=false;
+ db.readTransaction=body=>read(tx=>body({...tx,all(sql,...args){
+  const rows=tx.all(sql,...args);
+  if(!changed&&sql.includes('FROM stories')){
+   changed=true;
+   writer.exec('BEGIN IMMEDIATE');
+   writer.prepare("UPDATE stories SET generation_control='stopped',document=?,state='idle' WHERE id=?").run(JSON.stringify(doc),id);
+   writer.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,image,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage',?,'dag',?,?,?,?)")
+    .run(faultId,id,owner,frame,doc.images[1],'图片丢失',now,now);
+   writer.exec('COMMIT');
+  }
+  return rows;
+ }}));
+ const snapshot=async()=>shelf?(await f.json('library/shelf')).find(card=>card.id===id):f.read(id);
+ try{
+  const before=(await snapshot()).lifecycle;
+  assert.equal(changed,true);
+  assert.deepEqual([before.phase,before.control,before.faults.length],['completed','active',0]);
+  const after=(await snapshot()).lifecycle;
+  assert.deepEqual([after.phase,after.control,after.faults[0].id],['production','stopped',faultId]);
+ }finally{db.readTransaction=read;writer.close();}
+});
+
 test('dispatch rule guards are exhaustive and mutually exclusive',()=>{
  const checks=[false,true];
  for(const version of ['current','superseded','deleted'])for(const control of ['active','paused','stopped'])
