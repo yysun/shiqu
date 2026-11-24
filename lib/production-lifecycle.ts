@@ -97,7 +97,7 @@ export function authorizeDispatch(state:DispatchState):DispatchDecision{
 
 export const productionControlEvents=['background','pause','stop','resume'] as const;
 export type ProductionControlEvent=(typeof productionControlEvents)[number];
-export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|ProductionControlEvent;
+export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|'apply-model'|'image-health'|'start-landscape'|'retry-landscape'|ProductionControlEvent;
 type CommandState={
  version:DispatchState['version'];control:GenerationControl;continuation:boolean;
  targetCurrent:boolean;targetReady:boolean;stopping:boolean;
@@ -117,19 +117,30 @@ const commands={
   denial:'审片结果、制作许可或修订额度已更新，请刷新后再操作。'},
  'skip-review':{allows:state=>(state.control!=='active'||state.continuation)&&state.targetCurrent&&state.targetReady,
   denial:'请先暂停制作并保存完整稿件，或刷新后重试当前审核。'},
-} satisfies Record<ProductionCommand,{allows:(state:CommandState)=>boolean;denial:string}>;
+ 'apply-model':{allows:state=>state.targetCurrent&&state.targetReady,
+  denial:state=>state.targetReady?'这篇故事还没有进入制作或已有新版，无法应用模型设置。':'当前模型设置不可用，请先在设置中配置生成服务。'},
+ 'image-health':{allows:state=>state.targetCurrent&&state.targetReady,
+  denial:state=>state.targetCurrent?'图片地址无法核对。':'这幅图片已更新，请刷新后再检查。'},
+ 'start-landscape':{allows:state=>state.targetCurrent&&state.targetReady,
+  denial:state=>state.targetReady?'横图状态已更新，请刷新后再操作。':'请先完成当前版本的竖版插图。'},
+ 'retry-landscape':{allows:state=>state.targetCurrent&&state.targetReady,
+  denial:state=>state.targetReady?'横图状态已更新，请刷新后再操作。':'请先完成当前版本的竖版插图。'},
+} satisfies Record<ProductionCommand,{allows:(state:CommandState)=>boolean;denial:string|((state:CommandState)=>string)}>;
 export const productionCommandEvents=Object.keys(commands) as ProductionCommand[];
 
-export const commandRules:readonly {matches:(event:ProductionCommand,state:CommandState)=>boolean;decide:(event:ProductionCommand)=>CommandDecision}[]=[
+export const commandRules:readonly {matches:(event:ProductionCommand,state:CommandState)=>boolean;decide:(event:ProductionCommand,state:CommandState)=>CommandDecision}[]=[
  {matches:(_,state)=>state.version!=='current',decide:()=>({allowed:false,status:409,message:'故事或版本已更新，请刷新后再操作。'})},
  {matches:(_,state)=>state.version==='current'&&state.stopping,decide:()=>({allowed:false,status:503,message:'制作服务正在停止，请稍后重试。'})},
  {matches:(event,state)=>state.version==='current'&&!state.stopping&&commands[event].allows(state),decide:()=>({allowed:true})},
- {matches:(event,state)=>state.version==='current'&&!state.stopping&&!commands[event].allows(state),decide:event=>({allowed:false,status:409,message:commands[event].denial})},
+ {matches:(event,state)=>state.version==='current'&&!state.stopping&&!commands[event].allows(state),decide:(event,state)=>{
+  const {denial}=commands[event];
+  return {allowed:false,status:409,message:typeof denial==='function'?denial(state):denial};
+ }},
 ];
 
 /** 回执已在调用方处理。对尚未接受的命令按当前状态与目标作唯一判定。 */
 export function authorizeProductionCommand(event:ProductionCommand,state:CommandState):CommandDecision{
- return commandRules.find(rule=>rule.matches(event,state))!.decide(event);
+ return commandRules.find(rule=>rule.matches(event,state))!.decide(event,state);
 }
 
 export type SetupState={

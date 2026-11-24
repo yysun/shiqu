@@ -296,7 +296,7 @@ test('production command guards choose one rule for every combination of persist
     const state={version,control,continuation,targetCurrent,targetReady,stopping};
     const matching=commandRules.filter(rule=>rule.matches(event,state));
     assert.equal(matching.length,1);
-    assert.deepEqual(authorizeProductionCommand(event,state),matching[0].decide(event));
+    assert.deepEqual(authorizeProductionCommand(event,state),matching[0].decide(event,state));
    }
 });
 
@@ -567,6 +567,7 @@ test('landscape images are drawn on request for a completed story; a failure sta
  let status=await f.json(`sessions/${id}/landscape`);
  assert.equal(status.state,'idle');
  assert.ok(status.startToken);
+ assert.equal((await f.request(`sessions/${id}/landscape`,'POST',{startToken:'0'.repeat(64)})).status,409);
  // 第三幅的横图第一次失败。
  f.control.beforeImage=call=>{if(call.landscape&&call.page===2&&failing){failing=false;throw Error('controlled landscape failure');}};
  status=await f.json(`sessions/${id}/landscape`,'POST',{startToken:status.startToken});
@@ -575,11 +576,26 @@ test('landscape images are drawn on request for a completed story; a failure sta
  assert.equal(status.state,'partial');
  assert.deepEqual(status.failed,[3]);
  assert.equal((await f.read(id)).state,'completed','an optional failure never undoes completion');
+ assert.equal((await f.request(`sessions/${id}/landscape`,'POST',{retryToken:'0'.repeat(64)})).status,409);
  status=await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
  await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
  const landscapes=f.control.calls.filter(c=>c.landscape);
  assert.equal(landscapes.length,7,'six landscapes plus one retry');
  assert.ok(landscapes.every(c=>c.reference),'each landscape uses its portrait as reference');
+});
+
+test('replacing a completed story withdraws its landscape action and rejects the old token',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ const route=`sessions/${id}`;
+ const {startToken}=await f.json(`${route}/landscape`);
+ assert.ok(startToken);
+ const {token,plan}=await f.json(`${route}/revisions`);
+ plan.pages[0].caption='庄周从梦中醒来。';
+ await f.json(`${route}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{plan}});
+ assert.equal((await f.json(`${route}/landscape`)).startToken,undefined);
+ assert.equal((await f.request(`${route}/landscape`,'POST',{startToken})).status,409);
+ const {dag}=await saved(f,id);
+ assert.ok(dag.order.every(frame=>dag.frames[frame].landscape===undefined));
 });
 
 test('preparation results carry into production: a verified summary and saved suggestions are not paid for again',async t=>{
@@ -780,6 +796,7 @@ test('a live image check marks the loss with its fault; recovery redraws it and 
  const {rm}=await import('node:fs/promises');const path=await import('node:path');
  const before=await f.read(id);
  const image=before.story.pages[2].image;
+ assert.equal((await f.request(`sessions/${id}/image-health`,'POST',{page:1,image})).status,409);
  await rm(path.join(f.dataDirectory,'media','reader',id,'2.png'));
  await f.json(`sessions/${id}/image-health`,'POST',{page:2,image});
  let doc=await saved(f,id);
@@ -795,6 +812,29 @@ test('a live image check marks the loss with its fault; recovery redraws it and 
  assert.deepEqual(f.control.calls.map(c=>c.page),[2]);
  doc=await saved(f,id);
  assert.equal(doc.dag.products[`frameImage:${doc.dag.order[2]}`].readable,undefined);
+});
+
+test('an image check in flight cannot record a new fault after deletion',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ const before=await f.read(id),image=before.story.pages[2].image;
+ const key=referenceImageKey(id,image),started=Promise.withResolvers(),resume=Promise.withResolvers();
+ const media=f.app.services.media,read=media.get.bind(media);
+ t.after(()=>resume.resolve());
+ media.get=async path=>{
+  if(path!==key)return read(path);
+  started.resolve();
+  await resume.promise;
+  return null;
+ };
+ const checking=f.request(`sessions/${id}/image-health`,'POST',{page:2,image});
+ try{
+  await started.promise;
+  await f.json(`library/${id}`,'DELETE');
+ }finally{resume.resolve();}
+ assert.equal((await checking).status,409);
+ assert.equal((await f.app.services.database.prepare('SELECT count(*) AS count FROM reader_faults WHERE session_id=?').bind(id).first()).count,0);
+ const {dag}=await saved(f,id);
+ assert.equal(dag.products[`frameImage:${dag.order[2]}`].readable,undefined);
 });
 
 

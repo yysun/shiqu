@@ -139,15 +139,17 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const dag=this.parsed(row)?.doc.dag;
   if(dag){
    const status=await this.dag.landscapeStatus(row);
+   if(await this.repository.superseded(id,ownerId)){
+    delete status.startToken;
+    delete status.retryToken;
+   }
    return {...status,control:row.generation_control??'active',service:this.serviceAvailability(dag.modelSnapshot)};
   }
   return {state:'idle',available:false,total:0,ready:0,images:[],failed:[]};
  }
  async startLandscape(ownerId:string,id:string,command:{startToken?:string;retryToken?:string}){
-  if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重试。');
   const row=await this.repository.get(id,ownerId);
-  if(!this.parsed(row)?.doc.dag)throw new ReaderError(409,'请先完成当前版本的竖版插图。');
-  const status=await this.dag.startLandscape(row,command);
+  const status=await this.dag.startLandscape(row,command,this.stopping);
   return {...status,control:row.generation_control??'active',service:this.serviceAvailability(this.parsed(row)?.doc.dag?.modelSnapshot)};
  }
  private searchCurrent(row:SessionRow,round:number|undefined){
@@ -260,10 +262,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return {id:fault.id,message:fault.message,page:page>=0?page:null,stage,state:fault.state as FaultView['state'],retryAllowed:fault.state==='pending',...(retryReview?{retryReview:true as const}:{})};
  }
  async checkImage(ownerId:string,id:string,page:number,image:string){
-  const row=await this.repository.get(id,ownerId),doc=JSON.parse(row.document) as Document;
-  if(await this.repository.superseded(id,ownerId))throw new ReaderError(409,latestVersionMessage);
-  if(!doc.dag||!doc.images[page]||doc.images[page]!==image)throw new ReaderError(409,'这幅图片已更新，请刷新后再检查。');
-  await this.dag.checkImage(row,page,image);
+  const row=await this.repository.get(id,ownerId);
+  await this.dag.checkImage(row,page,image,await this.repository.superseded(id,ownerId));
   return this.snapshot(ownerId,id);
  }
  /**

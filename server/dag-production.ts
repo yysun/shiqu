@@ -131,7 +131,10 @@ export class DagProduction{
  }
 
  /** 保存新的 dag 与投影：以读取时的文档为条件，冲突返回 false。 */
- private async save(row:SessionRow,story:DagStory,dag:DagDocument,usage?:Document['usage'][number],retainDeleted=false,selection?:Selection,job?:ProductionJob){
+ private async save(row:SessionRow,story:DagStory,dag:DagDocument,options:{
+  usage?:Document['usage'][number];retainDeleted?:boolean;selection?:Selection;job?:ProductionJob;landscape?:{retry:boolean};
+ }={}){
+  const {usage,retainDeleted,selection,job,landscape}=options;
   const {plan,images}=projectDocument(dag,story.doc.plan);
   const doc:Document={...story.doc,dag,plan,images,...(usage?{usage:[...(story.doc.usage||[]),usage]}:{})};
   const revision=doc.revision,redrawFrame=revision?.redrawFrame&&dag.frames[revision.redrawFrame];
@@ -142,10 +145,17 @@ export class DagProduction{
   const reordered=story.dag.order.length!==dag.order.length||story.dag.order.some((frame,index)=>frame!==dag.order[index]);
   // 用正在阅读的画幅身份计算位置；读取进度更新与制作写入可以并发。
   const positions=reordered?JSON.stringify(story.dag.order.map(frame=>{const index=dag.order.indexOf(frame);return index<0?null:index;})):null;
-  const saved=await this.deps.database.prepare(`UPDATE stories SET document=?,state=CASE WHEN ?=1 AND state='idle' THEN 'completed' ELSE state END,updated_at=?${selection?',selection=?':''}${reordered?",page=COALESCE(json_extract(?,'$['||max(0,page)||']'),max(0,min(page,?)))":''}
+  const sql=`UPDATE stories SET document=?,state=CASE WHEN ?=1 AND state='idle' THEN 'completed' ELSE state END,updated_at=?${selection?',selection=?':''}${reordered?",page=COALESCE(json_extract(?,'$['||max(0,page)||']'),max(0,min(page,?)))":''}
    WHERE id=? AND user_id=? AND document=?${selection?' AND selection=?':''}${retainDeleted?'':` AND ${visible}`}
-   ${job?" AND EXISTS(SELECT 1 FROM production_jobs WHERE id=? AND state='running' AND lease_token IS ?)":''}`)
-   .bind(JSON.stringify(doc),done?1:0,new Date(this.deps.clock()).toISOString(),...(selection?[JSON.stringify(selection)]:[]),...(reordered?[positions,Math.max(0,dag.order.length-1)]:[]),row.id,row.user_id,row.document,...(selection?[row.selection]:[]),...(job?[job.id,job.lease_token??null]:[])).run();
+   ${job?" AND EXISTS(SELECT 1 FROM production_jobs WHERE id=? AND state='running' AND lease_token IS ?)":''}`;
+  const params=[JSON.stringify(doc),done?1:0,new Date(this.deps.clock()).toISOString(),...(selection?[JSON.stringify(selection)]:[]),
+   ...(reordered?[positions,Math.max(0,dag.order.length-1)]:[]),row.id,row.user_id,row.document,...(selection?[row.selection]:[]),...(job?[job.id,job.lease_token??null]:[])];
+  if(landscape)return transact(this.deps.database,db=>{
+   if(!db.run(`${sql} AND NOT ${supersededSql()} AND state='completed'`,...params).changes)return false;
+   if(landscape.retry)deleteJobs(db,`session_id=? AND owner_id=? AND kind='${dagDrawKind}' AND state IN ('succeeded','failed') AND json_extract(payload,'$.work.call')='drawLandscape'`,[row.id,row.user_id],this.deps.clock());
+   return true;
+  });
+  const saved=await this.deps.database.prepare(sql).bind(...params).run();
   return saved.meta.changes>0;
  }
 
@@ -275,7 +285,7 @@ export class DagProduction{
     }
    }
    const dag=selection?settle({...current,dag:next}):next;
-   if(await this.save(row,current,dag,usage,true,selection,job)){this.deps.wake();return {applied:item.call};}
+   if(await this.save(row,current,dag,{usage,retainDeleted:true,selection,job})){this.deps.wake();return {applied:item.call};}
   }
   throw new ReaderError(503,'故事正在更新，结果暂未保存，请重试继续。');
  }
@@ -348,22 +358,26 @@ export class DagProduction{
  }
 
  /** 请求横图：开始时为尚未请求的画幅加请求标记；重试时清除失败说明并作废失败的任务，然后立即安排。 */
- async startLandscape(row:SessionRow,command:{startToken?:string;retryToken?:string}){
-  const status=await this.landscapeStatus(row);
-  if(!status.available)throw new ReaderError(409,'请先完成当前版本的竖版插图。');
+ async startLandscape(row:SessionRow,command:{startToken?:string;retryToken?:string},stopping=false){
+  const status=hasDag(row)?await this.landscapeStatus(row):undefined;
+  const retry=command.retryToken!==undefined,event=retry?'retry-landscape':'start-landscape';
+  const superseded=await this.deps.database.prepare(`SELECT id FROM stories WHERE id=? AND user_id=? AND ${supersededSql()}`).bind(row.id,row.user_id).first();
+  const authorization=authorizeProductionCommand(event,{
+   version:superseded?'superseded':'current',control:row.generation_control??'active',continuation:false,stopping,
+   targetCurrent:retry?!!status?.retryToken&&command.retryToken===status.retryToken:!!status?.startToken&&command.startToken===status.startToken,
+   targetReady:!!status?.available,
+  });
+  if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
   const story=(await this.story(row))!,dag=structuredClone(story.dag);
-  const start=!!status.startToken&&command.startToken===status.startToken,retry=!!status.retryToken&&command.retryToken===status.retryToken;
-  if(!start&&!retry)return status;
   const lost=retry?await this.lostLandscapes(story):new Set<string>();
   for(const id of dag.order){
    const frame=dag.frames[id];
    // 文件已丢失的横图：清除记录与产物，重试时重新绘制。
    if(lost.has(id)){delete dag.products[`landscape:${id}`];frame.landscape='';delete frame.landscapeError;continue;}
-   if(start&&frame.landscape===undefined)frame.landscape='';
+   if(!retry&&frame.landscape===undefined)frame.landscape='';
    if(retry&&frame.landscapeError){delete frame.landscapeError;frame.landscape='';}
   }
-  if(retry)transact(this.deps.database,db=>deleteJobs(db,`session_id=? AND owner_id=? AND kind='${dagDrawKind}' AND state IN ('succeeded','failed') AND json_extract(payload,'$.work.call')='drawLandscape'`,[row.id,row.user_id],this.deps.clock()));
-  if(!await this.save(row,story,dag))throw new ReaderError(409,'故事已更新，请刷新后再试。');
+  if(!await this.save(row,story,dag,{landscape:{retry}}))throw new ReaderError(409,'故事已更新，请刷新后再试。');
   const saved=await this.row(row.id,row.user_id);
   if(saved)await this.schedule(saved);
   this.deps.wake();
@@ -374,22 +388,26 @@ export class DagProduction{
   * 读者端发现图片读不出时的核对：确认丢失则在一个事务中把该幅成图标为不可读并记录图片丢失故障，须读者明确恢复才重绘；
   * 文件恢复可读时同样在一个事务中解除没有任务的丢失故障并恢复成图记录。不改变整篇完成状态，完成只由引擎判定。
   */
- async checkImage(row:SessionRow,page:number,image:string){
+ async checkImage(row:SessionRow,page:number,image:string,superseded=false){
   const doc=JSON.parse(row.document) as Document,id=doc.dag?.order[page];
-  if(!doc.dag||!id||doc.dag.frames[id]?.image!==image)throw new ReaderError(409,'这幅图片已更新，请刷新后再检查。');
-  const key=referenceImageKey(row.id,image);if(!key)throw new ReaderError(409,'图片地址无法核对。');
-  let lost:boolean;try{lost=await this.deps.fileLost(key,true);}catch{throw new ReaderError(503,'图片暂时无法读取，请重试检查；尚未重新绘图。');}
+  const key=referenceImageKey(row.id,image);
+  const authorization=authorizeProductionCommand('image-health',{
+   version:superseded?'superseded':'current',control:row.generation_control??'active',continuation:!!doc.dag?.continuation,stopping:false,
+   targetCurrent:!!id&&doc.dag?.frames[id]?.image===image&&doc.images[page]===image,targetReady:!!key,
+  });
+  if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
+  let lost:boolean;try{lost=await this.deps.fileLost(key!,true);}catch{throw new ReaderError(503,'图片暂时无法读取，请重试检查；尚未重新绘图。');}
   const transaction=this.deps.database.transaction;if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
-  const product=`frameImage:${id}`,now=this.deps.clock();
+  const frameId=id!,product=`frameImage:${frameId}`,now=this.deps.clock();
   transaction.call(this.deps.database,db=>{
-   const current=db.get<{document:string}>('SELECT document FROM stories WHERE id=? AND user_id=?',row.id,row.user_id);
+   const current=db.get<{document:string}>(`SELECT document FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,row.id,row.user_id);
    if(!current||current.document!==row.document)throw new ReaderError(409,'故事已更新，请刷新后再检查。');
    const dag=structuredClone(doc.dag!),record=dag.products[product];
-   const fault=db.get<{id:string}>("SELECT id FROM reader_faults WHERE session_id=? AND owner_id=? AND kind='image-loss' AND job_id IS NULL AND node='frameImage' AND node_key=? AND state='pending'",row.id,row.user_id,id);
+   const fault=db.get<{id:string}>("SELECT id FROM reader_faults WHERE session_id=? AND owner_id=? AND kind='image-loss' AND job_id IS NULL AND node='frameImage' AND node_key=? AND state='pending'",row.id,row.user_id,frameId);
    if(lost){
     if(record)dag.products[product]={...record,readable:false};
     db.run('UPDATE stories SET document=? WHERE id=? AND user_id=?',JSON.stringify({...doc,dag}),row.id,row.user_id);
-    if(!fault)db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,input_hash,version,image,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage',?,?,'dag',?,?,?,?)",randomUUID(),row.id,row.user_id,id,record?fingerprint(record.inputs):null,image,lostImageMessage(page),now,now);
+    if(!fault)db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,input_hash,version,image,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage',?,?,'dag',?,?,?,?)",randomUUID(),row.id,row.user_id,frameId,record?fingerprint(record.inputs):null,image,lostImageMessage(page),now,now);
    }else if(fault){
     if(record){const {readable:_,...restored}=record;void _;dag.products[product]=restored;}
     db.run('UPDATE stories SET document=? WHERE id=? AND user_id=?',JSON.stringify({...doc,dag}),row.id,row.user_id);
@@ -480,12 +498,18 @@ export class DagProduction{
     if(receipt.action!=='control'||receipt.session_id!==id||!receipt.fingerprint.startsWith('apply-model:'))throw new ReaderError(409,'这个操作编号已用于其他内容，请重新操作。');
     return;
    }
-   if(stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
    const current=this.deps.snapshot?.();
-   if(!current)throw new ReaderError(409,'当前模型设置不可用，请先在设置中配置生成服务。');
    if(db.get('SELECT id FROM stories WHERE id=? AND user_id=?',requestId,ownerId))throw new ReaderError(409,'这个操作编号已用于创建或提交故事。');
-   const changed=db.run(`UPDATE stories SET document=json_set(document,'$.dag.modelSnapshot',json(?)),updated_at=? WHERE id=? AND user_id=? AND json_type(document,'$.dag') IS NOT NULL AND COALESCE(json_extract(document,'$.intake.phase'),'confirmed')='confirmed' AND json_extract(document,'$.legacyFramePreparation') IS NULL AND NOT ${supersededSql()} AND ${visible}`,JSON.stringify(current),new Date(now).toISOString(),id,ownerId).changes;
-   if(!changed)throw new ReaderError(409,'这篇故事还没有进入制作或已有新版，无法应用模型设置。');
+   const row=db.get<{generation_control:SessionRow['generation_control'];confirmed:number}>(`SELECT generation_control,
+    json_type(document,'$.dag') IS NOT NULL AND COALESCE(json_extract(document,'$.intake.phase'),'confirmed')='confirmed' AND json_extract(document,'$.legacyFramePreparation') IS NULL AS confirmed
+    FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,id,ownerId);
+   const authorization=authorizeProductionCommand('apply-model',{
+    version:row?'current':'superseded',control:row?.generation_control??'active',continuation:false,stopping,
+    targetCurrent:!!row?.confirmed,targetReady:!!current,
+   });
+   if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
+   db.run("UPDATE stories SET document=json_set(document,'$.dag.modelSnapshot',json(?)),updated_at=? WHERE id=? AND user_id=?",
+    JSON.stringify(current),new Date(now).toISOString(),id,ownerId);
    db.run("INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,result_id,created_at,updated_at) VALUES(?,?,?,'control',?,?,?,?,?)",requestId,ownerId,id,'apply-model:'+commandFingerprint(['apply-model',id,current]),JSON.stringify({action:'apply-model',snapshot:current}),id,now,now);
   });
   this.deps.wake();
