@@ -33,13 +33,14 @@ import {authorizeRecovery,authorizeControl,carriedJobFaultGroup,commandReceipt,s
 import type {ReaderFault} from './reader-commands.ts';
 import type {FaultView,RecoveryRequest,ReviewOverride} from '../lib/reader-recovery.ts';
 import {canReprepare,DagProduction,dagTextKind,dagDrawKind,landscapeFrames,offersCarriedPortraitRecovery} from './dag-production.ts';
+import {bindLegacyLandscapeRequests} from './dag-revisions.ts';
 import {transact,deleteJobs,recordJobSucceeded} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeJobLease,authorizeProductionCommand,resolveProductionService,type ProductionFault,type ProductionImageCheck,type ProductionService} from '../lib/production-lifecycle.ts';
 import {stateOf,type Work} from '../lib/production-dag/runner.ts';
-import {evaluate} from '../lib/production-dag/engine.ts';
-import {carriedJobFaultState,isCarriedReviewFault} from './dag-revision-faults.ts';
+import {evaluate,type Evaluation} from '../lib/production-dag/engine.ts';
+import {carriedJobFaultState,isCarriedReviewFault,unexecutedLandscapeRecovery} from './dag-revision-faults.ts';
 import {PaidDispatchDenied,withPaidDispatch} from './paid-dispatch.ts';
 import {drawingReferenceBinding} from './book-image-reference.ts';
 import {setupState} from './reader-intake.ts';
@@ -49,7 +50,7 @@ import {replacementCommitState} from './reader-reselection.ts';
 type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;through_page:number;expires_at:number;runtime_id:string};
 type SnapshotInputs={
  row:SessionRow;superseded:boolean;deleted:boolean;replacementOpen:boolean;now:number;
- allJobs:ProductionJob[];faults:ReaderFault[];viewerThrough:number|null;carriedPortraitRecoveries:Set<string>;
+ allJobs:ProductionJob[];faults:ReaderFault[];viewerThrough:number|null;carriedPortraitRecoveries:Set<string>;landscapeDag?:Document['dag'];
  replacementBasis?:ReturnType<typeof replacementCommitState>;
 };
 type ActiveSearch={round:number;controller:AbortController;startedAt:number;progress?:SuggestionProgress};
@@ -164,13 +165,13 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const doc=this.parsed(row)?.doc;
   if(doc?.dag){
    const dag=doc.dag;
-   const status=await this.dag.landscapeStatus(row,this.checkedLandscapeLosses(id,dag));
+   const {status,lost:missing}=await this.dag.landscapeProjection(row,this.checkedLandscapeLosses(id,dag));
    // 复用已核对的丢图，直到对应画幅的图片变化或再次核对可读。
    const lost=new Map<string,{image:string;attempt?:number}>();
-   dag.order.forEach((key,page)=>{
+   for(const key of missing){
     const frame=dag.frames[key];
-    if(frame?.landscape&&!status.images[page])lost.set(key,{image:frame.landscape,attempt:frame.landscapeAttempt});
-   });
+    if(frame?.landscape)lost.set(key,{image:frame.landscape,attempt:frame.landscapeAttempt});
+   }
    if(lost.size)this.lostLandscapeChecks.set(id,lost);
    else this.lostLandscapeChecks.delete(id);
    return this.landscapeControls(row,status);
@@ -209,11 +210,17 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return !await this.repository.superseded(row.id,row.user_id)&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
  // 准备流程的世代改变后，上一世代的任务不再是当前任务；查找任务由查找轮次单独核对。
- private generationCurrent(row:SessionRow,job:ProductionJob){
+ private generationCurrent(row:SessionRow,job:ProductionJob,evaluation?:Evaluation){
   if(job.kind==='discover')return true;
-  const doc=this.parsed(row)?.doc,generation=doc?.intake?.generation;
+  const parsed=this.parsed(row),doc=parsed?.doc,generation=doc?.intake?.generation;
   const {setupGeneration,work,landscapeAttempt,preparationGeneration}=JSON.parse(job.payload) as {setupGeneration?:number;work?:Work;landscapeAttempt?:number;preparationGeneration?:number};
-  if(work?.call==='drawLandscape'&&doc?.dag?.frames[work.instances[0].key]?.landscapeAttempt!==landscapeAttempt)return false;
+  if(work?.call==='drawLandscape'){
+   const frame=doc?.dag?.frames[work.instances[0].key];
+   if(frame?.landscape!==''||frame.landscapeAttempt!==landscapeAttempt)return false;
+   const inputs=evaluation?.state??(frame.landscapeInputHash&&parsed&&doc?.dag?stateOf({id:row.id,doc,dag:doc.dag,selection:parsed.selection,
+    confirmed:true,faults:[]}):undefined);
+   if(inputs&&!inputs.landscapes?.includes(work.instances[0].key))return false;
+  }
   if(preparationGeneration!==undefined&&doc?.dag?.preparationGeneration!==preparationGeneration)return false;
   return generation===undefined||setupGeneration===generation;
  }
@@ -322,7 +329,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   });
   const kind=fault.kind==='image-loss'||fault.kind==='interrupted'?fault.kind:job?.error_code==='CONTENT_BLOCKED'?'content-blocked':'step-failure';
   const scope=fault.optional||fault.node==='landscape'||work?.call==='drawLandscape'?'optional':'required';
-  return {id:fault.id,message:fault.message,page:page>=0?page:null,stage,state:fault.state as FaultView['state'],retryAllowed:fault.state==='pending',
+  return {id:fault.id,message:fault.message,page:page>=0?page:null,stage,state:fault.state as FaultView['state'],retryAllowed:fault.state==='pending'&&fault.node!=='landscape',
    kind,scope,targets,...(retryReview?{retryReview:true as const}:{})};
  }
  private imageRecoveryTarget(id:string,doc:Document,fault:ReaderFault){
@@ -348,6 +355,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   const repair=command.faultId.startsWith('review:');
   const fault=repair?undefined:(await sessionFaults(this.database,id,ownerId)).find(fault=>fault.id===command.faultId);
+  if(fault?.node==='landscape')throw new ReaderError(409,'请在故事设置的横版插图步骤重试横图。');
   const retry=authorizeProductionCommand(repair?'continue-repair':'retry',{
    version:await this.repository.superseded(id,ownerId)?'superseded':'current',control:row.generation_control??'active',
    continuation:!!this.parsed(row)?.doc.dag?.continuation,targetCurrent:repair||fault?.state==='pending',targetReady:true,stopping:this.stopping,
@@ -411,11 +419,17 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    const inputs=new Map<string,SnapshotInputs>(rows.map(row=>[row.id,{
     row,superseded:!!row.superseded,deleted,now,replacementOpen:false,allJobs:[],faults:[],viewerThrough:null,carriedPortraitRecoveries:new Set(),
    }]));
+   for(const input of inputs.values()){
+    const parsed=this.parsed(input.row),dag=parsed?.doc.dag;
+    if(parsed?.doc.revision&&dag)input.landscapeDag=bindLegacyLandscapeRequests(db,ownerId,{id:input.row.id,doc:parsed.doc,
+     dag,selection:parsed.selection,confirmed:true,faults:[]}).dag;
+   }
    for(const job of db.all<ProductionJob>(`SELECT * FROM production_jobs WHERE owner_id=? AND ${bySession} ORDER BY created_at,id`,ownerId,ids))
     inputs.get(job.session_id)!.allJobs.push(job);
-   for(const fault of db.all<ReaderFault>(`SELECT * FROM reader_faults WHERE owner_id=? AND ${bySession} AND state IN ('pending','recovering','awaiting-match') ORDER BY created_at,id`,ownerId,ids)){
+   for(const fault of db.all<ReaderFault>(`SELECT * FROM reader_faults f WHERE owner_id=? AND ${bySession}
+    AND (state IN ('pending','recovering','awaiting-match') OR ${unexecutedLandscapeRecovery}) ORDER BY created_at,id`,ownerId,ids)){
     const input=inputs.get(fault.session_id)!;
-    input.faults.push(fault);
+    input.faults.push(fault.state==='resolved'?{...fault,state:'pending'}:fault);
     if(!deleted&&!input.superseded&&offersCarriedPortraitRecovery(db,input.row,fault))input.carriedPortraitRecoveries.add(fault.id);
    }
    for(const demand of db.all<{session_id:string;through:number}>(`SELECT session_id,max(through_page) AS through FROM production_demand
@@ -449,22 +463,24 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const revision=parsed.doc.revision;
   const background=row.generation_control==='active'&&!superseded&&(!this.options.targetSessionId||id===this.options.targetSessionId)&&
    (row.state!=='completed'||!!parsed.doc.dag?.repreparing||Array.isArray(revision?.landscapeRedraw)&&typeof revision.redrawFrame==='string');
-  const jobs=allJobs.filter(job=>this.generationCurrent(row,job)&&(job.kind!=='discover'||this.searchCurrent(row,searchRound(job))));
+  const dag=input.landscapeDag??parsed.doc.dag,checkedLandscapeLosses=this.checkedLandscapeLosses(id,dag);
+  const evaluation=dag&&evaluate(stateOf({id,doc:parsed.doc,dag,selection:parsed.selection,confirmed:true,faults:[]}));
+  const jobs=allJobs.filter(job=>this.generationCurrent(row,job,evaluation||undefined)&&(job.kind!=='discover'||this.searchCurrent(row,searchRound(job))));
   const eligible=jobs.some(job=>{
    if(job.state!=='queued')return false;
    const payload=JSON.parse(job.payload) as {page?:number;work?:{call:string}};
    return payload.work?.call==='drawLandscape'||background||viewerThrough!==null&&(job.pool==='text'||(payload.page??0)<=viewerThrough);
   });
   const search=this.searches.get(id),progress=saved.generationProgress!;
-  const dag=parsed.doc.dag,checkedLandscapeLosses=this.checkedLandscapeLosses(id,dag);
-  const evaluation=dag&&input.faults.some(carriedJobFaultGroup)?evaluate(stateOf({id,doc:parsed.doc,dag,selection:parsed.selection,confirmed:true,faults:[]})):null;
+  const jobsById=new Map(allJobs.map(job=>[job.id,job]));
   const faults=evaluation?input.faults.flatMap<ReaderFault>(fault=>{
+   const job=fault.job_id?jobsById.get(fault.job_id):undefined;
+   if(fault.node==='landscape'&&(!evaluation.state.landscapes?.includes(fault.node_key)||job&&!this.generationCurrent(row,job,evaluation)))return [];
    if(fault.state!=='pending'||!carriedJobFaultGroup(fault))return [fault];
    const state=carriedJobFaultState(evaluation,fault);
    return state==='replaced'?[]:[{...fault,state}];
   }):input.faults;
-  const optionalFrames=dag?landscapeFrames(dag,jobs,checkedLandscapeLosses,faults):[];
-  const jobsById=new Map(allJobs.map(job=>[job.id,job]));
+  const optionalFrames=dag&&evaluation?landscapeFrames(dag,evaluation,jobs,checkedLandscapeLosses,faults):[];
   const faultGroups=new Map<string,ProductionFault>();
   for(const fault of faults){
    const view=this.faultView(parsed.doc,fault,fault.job_id?jobsById.get(fault.job_id):undefined);

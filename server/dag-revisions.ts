@@ -4,7 +4,7 @@
 // 再合入设置修改；保存会使手改失效时，读者须对每处手改选择「以手改为基础」或「放弃」，未选择时不保存。
 import {createHash,randomUUID} from 'node:crypto';
 import {ReaderError,selectionSchema,type Document,type SessionRow,type Selection} from '../lib/reader-model.ts';
-import type {ReaderRepository} from '../lib/reader-repository.ts';
+import type {ReaderRepository,ReadStatements} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
 import type {RevisionChanges} from '../lib/reader-revision.ts';
 import {lostImageMessage,readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
@@ -24,10 +24,42 @@ import {sameArtDirection} from '../lib/reader-styles.ts';
 import {dagProgress} from '../lib/production-dag/progress.ts';
 import {transact} from './production-records.ts';
 import {authorizeProductionCommand} from '../lib/production-lifecycle.ts';
-import {carryFaults,carriedFaultRows,insertCarriedJobFault,type FaultToCarry} from './dag-revision-faults.ts';
+import {carryFaults,carriedFaultRows,insertCarriedJobFault,unexecutedLandscapeRecovery,type FaultToCarry} from './dag-revision-faults.ts';
 
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 const frameNodes=['scene','visual','frameImage','landscape',...verdictNodes];
+const landscapeFaultKeys=(db:ReadStatements,id:string,ownerId:string)=>new Set(db.all<{node_key:string}>(`SELECT node_key FROM reader_faults f
+ WHERE session_id=? AND owner_id=? AND node='landscape' AND (state IN ('pending','recovering') OR ${unexecutedLandscapeRecovery})`,id,ownerId).map(fault=>fault.node_key));
+
+/** 旧版未记录请求输入：只有与父版同代次的请求才是继承。以原授权的硬输入核对，无法查清时等待新的明确授权。 */
+export function bindLegacyLandscapeRequests(db:ReadStatements,ownerId:string,story:DagStory):DagStory{
+ const visited=new Set<string>();
+ const bind=(current:DagStory):DagStory=>{
+  const {id,doc,dag}=current,revision=doc.revision;
+  if(!revision||visited.has(id))return current;
+  const keys=dag.order.filter(key=>{
+   const frame=dag.frames[key];
+   return frame.landscape===''&&!frame.landscapeInputHash&&revision.redrawFrame!==key;
+  });
+  if(!keys.length)return current;
+  visited.add(id);
+  const row=visited.has(revision.parentId)?undefined:db.get<Pick<SessionRow,'document'|'selection'>>(
+   'SELECT document,selection FROM stories WHERE id=? AND user_id=? AND json_valid(document) AND json_valid(selection)',revision.parentId,ownerId);
+  const parentDoc=row?JSON.parse(row.document) as Document:null;
+  const selection=row&&selectionSchema.safeParse(JSON.parse(row.selection));
+  const parent=parentDoc?.dag&&selection?.success?bind({id:revision.parentId,doc:parentDoc,dag:parentDoc.dag,selection:selection.data,confirmed:true,faults:[]}):null;
+  const evaluation=parent&&evaluate(stateOf(parent)),frames={...dag.frames},failed=landscapeFaultKeys(db,id,ownerId);
+  for(const key of keys){
+   const before=parent?.dag.frames[key],frame=frames[key];
+   if(parent&&(before?.landscape===undefined||before.landscapeAttempt!==frame.landscapeAttempt))continue;
+   const inputs=(before?.landscape?parent?.dag.products[instanceId('landscape',key)]?.inputs:undefined)??evaluation?.instance('landscape',key).hard;
+   const binding=frame.landscapeError||failed.has(key)?before?.landscapeInputHash??fingerprint(inputs??null):fingerprint(null);
+   frames[key]={...frame,landscapeInputHash:binding};
+  }
+  return {...current,dag:{...dag,frames}};
+ };
+ return bind(story);
+}
 
 /** 读者的设置修改合入选择；幅数策略改变由引擎重新编排。 */
 function nextSelection(selection:Selection,changes:RevisionChanges):Selection{
@@ -197,12 +229,12 @@ function handEditLabel(id:string,order:string[]){const [node,key]=id.split(':'),
  * 修订的唯一计算（保存与预估共用）：合入设置与文字修改（含审核意见），按手改默认保护处理手改，
  * 新修订重新开始自动修订额度，审片问题与建议不带入。不写入、不读媒体；保存另外复制图片与首幅原图后再 settle。
  */
-function deriveRevision(doc:Document,row:SessionRow,changes:RevisionChanges,childId:string,strict:boolean){
+function deriveRevision(db:ReadStatements,doc:Document,row:SessionRow,changes:RevisionChanges,childId:string,strict:boolean){
  // 原文出处与改编说明是来源信息，不随分镜编辑改变（v0.14.0 同样拒绝）。
  if(changes.plan&&doc.plan&&(['sourceReference','adaptationNote'] as const).some(key=>changes.plan![key]!==doc.plan![key]))throw new ReaderError(400,'本次仅修改分镜、人物与余味，原文出处和改编说明保持不变。');
  const selection=nextSelection(selectionSchema.parse(JSON.parse(row.selection)),changes);
  const reviewNotes=(changes.reviewNotes!==undefined?changes.reviewNotes:doc.reviewNotes)?.trim()||undefined;
- const parent:DagStory={id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag!,confirmed:true,faults:[]};
+ const parent=bindLegacyLandscapeRequests(db,row.user_id,{id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag!,confirmed:true,faults:[]});
  // 文字修改按上一版的输入记录为手改，再合入设置修改，由引擎判断哪些产物失效。
  const edited=applyEdits(parent,changes);
  applyRedraw(edited,changes);
@@ -214,6 +246,16 @@ function deriveRevision(doc:Document,row:SessionRow,changes:RevisionChanges,chil
  for(const [id,product] of Object.entries(edited.products))if(product.unreviewed)delete edited.products[id];
  const outcome=settleHandEdits(child,changes.handEdits,strict);
  child.dag={...outcome.dag,repairs:undefined,issues:[],suggestions:[]};
+ const previous=evaluate(stateOf(parent)),failed=landscapeFaultKeys(db,row.id,row.user_id);
+ for(const key of child.dag.order){
+  const frame=child.dag.frames[key];
+  if(frame.landscape!=='')continue;
+  const hard=previous.instance('landscape',key).hard;
+  if((frame.landscapeError||failed.has(key))&&!frame.landscapeInputHash&&hard)frame.landscapeInputHash=fingerprint(hard);
+  if(!(frame.landscapeError||failed.has(key))||!frame.landscapeInputHash){
+   delete frame.landscape;delete frame.landscapeInputHash;delete frame.landscapeError;delete frame.landscapeAttempt;
+  }
+ }
  return {parent,child,selection,reviewNotes,changed,choices:outcome.choices,conflicts:outcome.conflicts};
 }
 
@@ -245,7 +287,8 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
    stopping:false,targetCurrent:current===token,targetReady:!!doc.plan});
   if(!edit.allowed)throw new ReaderError(edit.status,edit.message);
  }
- const {parent,child,changed,choices,conflicts}=deriveRevision(doc,row,changes,row.id,false);
+ const derive=(db:ReadStatements)=>deriveRevision(db,doc,row,changes,row.id,false);
+ const {parent,child,changed,choices,conflicts}=repo.db.readTransaction?.(derive)??transact(repo.db,derive);
  if(!changed)return {changed:false,total:child.dag.order.length,redraw:0,reused:doc.images.filter(Boolean).length,textWork:{},continues:false,handEdits:[],conflicts:[],carriedFaults:0};
  child.dag=settle(child);
  const ev=evaluate(stateOf(child)),order=child.dag.order;
@@ -284,7 +327,8 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   if(!accepted.allowed)throw new ReaderError(accepted.status,accepted.message);
   if(cover.length>revisionCoverMaxBytes||!coverType||!dimensions||dimensions.width>4096||dimensions.height>4096||!await readableImage(cover))throw new ReaderError(400,'请选择可读取的 PNG、JPEG 或 WebP，文件不超过 12 MiB，宽高各不超过 4096 像素。');
  }
- const {parent,child,selection,reviewNotes,changed}=deriveRevision(doc,row,changes,requestId,true);
+ const derive=(db:ReadStatements)=>deriveRevision(db,doc,row,changes,requestId,true);
+ const {parent,child,selection,reviewNotes,changed}=repo.db.readTransaction?.(derive)??transact(repo.db,derive);
  if(!changed&&!cover){
   // 等价保存只记回执。重新读取当前稿件允许正在收尾的成图写入，同时拒绝过期版本与编辑依据。
   transact(repo.db,db=>{
@@ -299,7 +343,7 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
    if(!latest)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
    const currentDoc=JSON.parse(latest.document) as Document;
    const currentEpoch=db.get<{epoch:number}>(familyEpoch,ownerId,rootId,rootId)!.epoch;
-   if(currentDoc.dag?.repreparing||revisionToken(latest,currentDoc,currentEpoch)!==token||deriveRevision(currentDoc,latest,changes,requestId,true).changed)
+   if(currentDoc.dag?.repreparing||revisionToken(latest,currentDoc,currentEpoch)!==token||deriveRevision(db,currentDoc,latest,changes,requestId,true).changed)
     throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
    const now=Date.now();
    db.run("INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,result_id,created_at,updated_at) VALUES(?,?,?,'revision-noop',?,'{}',?,?,?)",requestId,ownerId,row.id,requestHash,row.id,now,now);
@@ -307,9 +351,10 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   return repo.get(row.id,ownerId);
  }
  const redrawFrame=startRedraw?child.dag.order[changes.redrawPages![0]-1]:undefined;
- const redrawLandscape=redrawFrame&&!!child.dag.frames[redrawFrame].landscape;
+ const redrawLandscape=redrawFrame&&!!parent.dag.frames[redrawFrame].landscape&&evaluate(stateOf(parent)).instance('landscape',redrawFrame).status==='valid';
  if(redrawLandscape){
   child.dag.frames[redrawFrame].landscape='';
+  delete child.dag.frames[redrawFrame].landscapeInputHash;
   delete child.dag.frames[redrawFrame].landscapeError;
   delete child.dag.products[instanceId('landscape',redrawFrame)];
  }

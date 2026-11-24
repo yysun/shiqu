@@ -58,6 +58,14 @@ export function stateOf(story:DagStory,{includeReviewSkip=true}={}):VersionState
  const landscapeFaults=story.dag.order.flatMap((key):Fault[]=>story.dag.frames[key]?.landscape===''&&story.dag.frames[key].landscapeError?
   [{id:`landscape:${key}`,node:'landscape',key,state:'pending',optional:true}]:[]);
  const state=versionState(story.dag,roots,{confirmed:story.confirmed,faults:[...story.faults,...landscapeFaults],reprepare,skipFrameCheck:typeof story.selection.length==='number'});
+ if(state.landscapes?.some(key=>story.dag.frames[key].landscapeInputHash)){
+  const evaluation=evaluate(state);
+  state.landscapes=state.landscapes.filter(key=>{
+   const binding=story.dag.frames[key].landscapeInputHash;
+   const hard=binding?evaluation.instance('landscape',key).hard:undefined;
+   return !hard||fingerprint(hard)===binding;
+  });
+ }
  return includeReviewSkip?withReviewSkip(state,story.dag):state;
 }
 
@@ -317,7 +325,7 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
   }
   case 'draw':case 'drawLandscape':{
    const url=value as string,f=frame(dag,one.key);
-   if(item.call==='draw')f.image=url;else{f.landscape=url;delete f.landscapeError;}
+   if(item.call==='draw')f.image=url;else{f.landscape=url;delete f.landscapeError;delete f.landscapeInputHash;}
    record(dag,one,url);break;
   }
   default:throw Error(`DAG_CALL_UNKNOWN: ${item.call}`);

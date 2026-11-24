@@ -2296,7 +2296,9 @@
         "lib/production-dag/engine.ts",
         "lib/production-dag/runner.ts",
         "lib/reader-image-assets.ts",
-        "server/reader-image-health.ts"
+        "lib/reader-pdf.ts",
+        "server/reader-image-health.ts",
+        "server/story-export.ts"
       ]
     },
     {

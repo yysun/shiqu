@@ -9,6 +9,8 @@ import {evaluate} from '../lib/production-dag/engine.ts';
 import {stateOf} from '../lib/production-dag/runner.ts';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {readableLandscapeImage} from '../server/reader-image-health.ts';
+import {createStoryPdf} from '../lib/reader-pdf.ts';
+import {nativeExportRuntime} from '../server/story-export.ts';
 
 /** 按界面操作名称调用正式接口；返回 HTTP 响应。 */
 function click(f,session,label){
@@ -303,7 +305,7 @@ for(const [targetPages,paid] of [[[0],false],[[1],false],[[1,2],true]])test(`cha
  }
 });
 
-test('a revision keeps the failed landscape available for targeted retry after restart',async t=>{
+for(const legacy of [false,true])test(`a revision keeps the failed landscape retry ${legacy?'after a legacy false success':'when generic recovery is rejected'}`,async t=>{
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4});
  f.control.hold=false;
  const make=f.generation.generator.bind(f.generation);
@@ -330,10 +332,165 @@ test('a revision keeps the failed landscape available for targeted retry after r
  assert.equal(snapshot.lifecycle.activity.state,'idle');
  assert.ok(snapshot.lifecycle.actions.some(action=>action.event==='retry-landscape'));
  assert.ok(status.retryToken);
+ const [fault]=snapshot.lifecycle.faults.filter(fault=>fault.scope==='optional');
+ assert.equal(fault.retryAllowed,false);
+ const requestId=crypto.randomUUID(),db=f.app.services.database;
+ const generic=await f.request(`sessions/${child}/recover`,'POST',{requestId,faultId:fault.id});
+ assert.equal(generic.status,409);
+ assert.match((await generic.json()).error,/横版插图步骤/);
+ assert.equal(await db.prepare('SELECT status FROM reader_commands WHERE request_id=?').bind(requestId).first(),null);
+ if(legacy){
+  const now=Date.now();
+  await db.prepare(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,fault_id,status,created_at,updated_at)
+   SELECT ?,owner_id,session_id,'recover','legacy','{}',id,'succeeded',?,? FROM reader_faults WHERE id=?`).bind(requestId,now,now,fault.id).run();
+  await db.prepare("UPDATE reader_faults SET state='resolved',command_id=? WHERE id=?").bind(requestId,fault.id).run();
+ }
+ await f.restart();
+ await f.demand(child);
+ await drain(f);
+ const retained=await f.json(current),stillFailed=await f.read(child);
+ assert.deepEqual([retained.state,retained.ready,retained.failed,retained.retryToken],['partial',3,[3],status.retryToken]);
+ assert.equal(stillFailed.lifecycle.faults.find(target=>target.id===fault.id).state,'pending');
+ assert.equal(stillFailed.lifecycle.activity.state,'idle');
  const before=f.control.calls.length;
- await f.json(current,'POST',{retryToken:status.retryToken});
+ await f.json(current,'POST',{retryToken:retained.retryToken});
  await until(async()=>(await f.json(current)).state==='completed');
  assert.deepEqual(f.control.calls.slice(before).map(call=>[call.page,call.landscape]),[[2,true]]);
+ assert.equal((await f.read(child)).lifecycle.faults.length,0);
+ if(legacy)assert.equal((await f.app.services.database.prepare('SELECT status FROM reader_commands WHERE request_id=?').bind(requestId).first()).status,'succeeded');
+});
+
+for(const artStyle of [true,false])test(`ordinary ${artStyle?'style change':'single-frame redraw'} leaves stale landscapes out of PDF and requires a new request`,async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4});
+ f.control.hold=false;
+ const route=`sessions/${id}/landscape`;
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ const parentStatus=await f.json(route),hidden=referenceImageKey(id,parentStatus.images[0]);
+ const media=f.app.services.media,get=media.get.bind(media);
+ media.get=async key=>{if(key===hidden)throw Error('受控横图读取中断');return get(key);};
+ const temporary=await f.json(route);
+ assert.deepEqual([temporary.state,temporary.ready,temporary.failed,temporary.images[0]],['partial',3,[],'']);
+ assert.equal(temporary.startToken??temporary.retryToken,undefined);
+ media.get=get;
+ const afterParent=f.control.calls.length;
+ const child=await fork(f,id,artStyle?{artStyle:'watercolor'}:{redrawPages:[2],redrawNotes:{'2':'背景改成雨夜。'}});
+ await control(f,child,'continue');
+ await until(async()=>(await f.read(child)).state==='completed');
+ await f.restart();
+ await f.demand(child);
+ await drain(f);
+ const current=`sessions/${child}/landscape`,status=await f.json(current),session=await f.read(child);
+ const stale=artStyle?[0,1,2,3]:[1];
+ assert.equal(status.ready,4-stale.length);
+ assert.equal(status.state,artStyle?'idle':'partial');
+ assert.deepEqual(status.failed,[]);
+ assert.deepEqual(status.images.flatMap((url,page)=>url?[]:[page]),stale);
+ assert.ok(status.startToken);
+ assert.equal(status.retryToken,undefined);
+ assert.equal(session.lifecycle.optionalWork,false);
+ assert.ok(session.lifecycle.actions.some(action=>action.event==='start-landscape'));
+ assert.equal(f.control.calls.slice(afterParent).filter(call=>call.landscape).length,0);
+ const doc=await saved(f,child);
+ const engine=evaluate(stateOf({id:child,doc,dag:doc.dag,selection:await savedSelection(f,child),confirmed:true,faults:[]}));
+ for(const page of stale){
+  const key=doc.dag.order[page];
+  assert.ok(doc.dag.frames[key].landscape,'旧地址仍可从旧书库字段读到');
+  assert.equal(engine.instance('landscape',key).status,'invalid');
+ }
+ if(artStyle)for(const layout of ['landscape','letter']){
+  const runtime=nativeExportRuntime(process.cwd(),f.app),read=runtime.read,sources=new Set();
+  runtime.read=(source,page)=>{sources.add(source);return read(source,page);};
+  const pdf=await createStoryPdf(session.story,()=>{},runtime,layout,status.images);
+  assert.equal(Buffer.from(pdf).subarray(0,5).toString(),'%PDF-');
+  assert.deepEqual(sources,new Set(session.story.pages.map(page=>page.image)));
+ }
+ const db=f.app.services.database,coordinator=f.app.services.production;
+ const row=await db.prepare('SELECT * FROM stories WHERE id=?').bind(child).first(),historical=await coordinator.dag.story(row,'skip');
+ for(const page of stale)historical.dag.frames[historical.dag.order[page]].landscape='';
+ const [failed,queued]=coordinator.dag.specs(row,historical).filter(spec=>spec.payload.work.call==='drawLandscape');
+ await coordinator.queue.enqueue(failed);
+ const now=Date.now(),target=failed.payload.work.instances[0].key;
+ await db.prepare("UPDATE production_jobs SET state='failed',error='旧版派发失败' WHERE id=?").bind(failed.id).run();
+ await db.prepare(`INSERT INTO reader_faults(id,session_id,owner_id,job_id,kind,node,node_key,version,message,created_at,updated_at)
+  VALUES(?,?,?,?,'job','landscape',?,'dag','旧版派发失败',?,?)`).bind(crypto.randomUUID(),child,row.user_id,failed.id,target,now,now).run();
+ if(queued)await coordinator.queue.enqueue(queued);
+ const paid=f.control.calls.length;
+ await f.json(current,'POST',{startToken:status.startToken});
+ await until(async()=>(await f.json(current)).state==='completed');
+ assert.deepEqual(f.control.calls.slice(paid).map(call=>call.page).sort((a,b)=>a-b),stale);
+ assert.ok(f.control.calls.slice(paid).every(call=>call.landscape));
+ assert.equal((await coordinator.queue.job(failed.id)).state,'failed');
+ assert.equal((await f.read(child)).lifecycle.faults.length,0);
+});
+
+test('an inherited unfinished landscape request only authorizes its original drawing inputs',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4});
+ const route=`sessions/${id}/landscape`;
+ f.control.hold=false;
+ const media=f.app.services.media,get=media.get.bind(media);
+ media.get=key=>key.startsWith(`reader/${id}/artifacts/2-`)?Promise.resolve(null):get(key);
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(async()=>{
+  const status=await f.json(route);
+  return status.ready===3&&status.failed.includes(3)&&!!status.retryToken;
+ });
+ await drain(f);
+ media.get=get;
+ const faulted=await saved(f,id),key=faulted.dag.order[2];
+ assert.equal(faulted.dag.frames[key].landscape,'');
+ assert.ok(faulted.dag.frames[key].landscapeError);
+ const unchanged=await fork(f,id,{acceptancePrompt:'核对画面动作。'});
+ await control(f,unchanged,'continue');
+ await until(async()=>(await f.read(unchanged)).state==='completed');
+ assert.deepEqual((await f.json(`sessions/${unchanged}/landscape`)).failed,[3]);
+ const before=f.control.calls.length;
+ const child=await fork(f,unchanged,{artStyle:'watercolor'});
+ await control(f,child,'continue');
+ await until(async()=>(await f.read(child)).state==='completed');
+ const doc=await saved(f,child);
+ assert.ok(doc.dag.frames[key].landscapeInputHash);
+ delete doc.dag.frames[key].landscapeInputHash;
+ await f.app.services.database.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(doc),child).run();
+ await f.restart();
+ await f.demand(child);
+ await drain(f);
+ const status=await f.json(`sessions/${child}/landscape`);
+ assert.deepEqual([status.state,status.ready,status.failed,status.retryToken],['idle',0,[],undefined]);
+ assert.ok(status.startToken);
+ assert.equal(f.control.calls.slice(before).filter(call=>call.landscape).length,0);
+});
+
+for(const stale of [true,false])test(`confirmed reader redraw ${stale?'ignores an obsolete landscape':'preserves Retry after a paired landscape fails'}`,async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4});
+ f.control.hold=false;
+ const route=`sessions/${id}/landscape`;
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ let source=id;
+ if(stale){
+  source=await fork(f,id,{artStyle:'watercolor'});
+  await control(f,source,'continue');
+  await until(async()=>(await f.read(source)).state==='completed');
+ }else f.control.beforeImage=call=>{if(call.landscape&&call.page===1)throw Error('受控横图失败');};
+ const revisions=`sessions/${source}/revisions`,{token}=await f.json(revisions),child=crypto.randomUUID(),before=f.control.calls.length;
+ await f.json(revisions,'POST',{requestId:child,token,changes:{redrawPages:[2],redrawNotes:{'2':'雨夜。'}},startRedraw:true});
+ await until(async()=>(await f.read(child)).state==='completed');
+ const path=`sessions/${child}/landscape`;
+ if(stale){
+  await drain(f);
+  assert.ok((await f.json(path)).startToken);
+  assert.deepEqual(f.control.calls.slice(before).map(call=>[call.page,call.landscape]),[[1,false]]);
+ }else{
+  await until(async()=>!!(await f.json(path)).retryToken);
+  assert.deepEqual((await f.json(path)).failed,[2]);
+  assert.deepEqual(f.control.calls.slice(before).map(call=>[call.page,call.landscape]),[[1,false],[1,true]]);
+  await f.restart();
+  f.control.beforeImage=null;
+  await f.json(path,'POST',{retryToken:(await f.json(path)).retryToken});
+  await until(async()=>(await f.json(path)).state==='completed');
+  assert.deepEqual(f.control.calls.slice(before).map(call=>[call.page,call.landscape]),[[1,false],[1,true],[1,true]]);
+ }
 });
 
 for(const receiptState of ['first read failed','previously published','lost acknowledgement','invalid landscape'])test(`landscape retry verifies the ${receiptState} receipt before paying`,async t=>{

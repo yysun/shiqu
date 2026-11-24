@@ -12,7 +12,7 @@ export function textOnlyDag(dag:DagDocument):DagDocument{
  for(const id of copy.order){
   const frame=copy.frames[id];
   if(!frame)continue;
-  delete frame.image;delete frame.landscape;delete frame.landscapeError;
+  delete frame.image;delete frame.landscape;delete frame.landscapeError;delete frame.landscapeInputHash;
   delete copy.products[`frameImage:${id}`];delete copy.products[`landscape:${id}`];
  }
  return copy;

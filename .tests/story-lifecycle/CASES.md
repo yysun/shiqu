@@ -1035,3 +1035,151 @@ Run ID、构建、数据库位置、实际状态序列及断言；UI例含截图
 ### Evidence Required
 
 保留 offlineReceipt 的结果，包括状态、调用或恢复入口。
+
+## STORY-LIFECYCLE-C029 — 换画风后的横图状态与 PDF
+
+- State: READY
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: R4
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+换画风后的横图状态与 PDF。
+
+### Preconditions
+
+独立临时书库、正式应用、生产队列与受控绘图服务。
+
+### Test Data
+
+原版四幅横图已齐全，新版换用水彩画风。
+
+### Runner Instructions
+
+继续新版，挂起所有新版横图，比较状态、逐幅输入有效性、两版文件字节及 PDF 实际取图。 [复现程序](evidence/2026-11-24-landscape-independent-review/replay.mjs)
+
+### Expected Outcome
+
+就绪计数只包含当前输入有效的横图。
+
+### Negative Assertions
+
+PDF 不选用旧画风的失效横图。
+
+### Evidence Required
+
+保留正式接口、调用记录及对应断言的结果。
+
+## STORY-LIFECYCLE-C030 — 可选横图故障的通用重试
+
+- State: READY
+- Priority: P2
+- Type: INTEGRATION
+- Requirement / Risk: R3
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+可选横图故障的通用重试。
+
+### Preconditions
+
+独立临时书库、正式应用、生产队列与受控绘图服务。
+
+### Test Data
+
+第三幅横图被拦截，只修改验收要求并重启。
+
+### Runner Instructions
+
+把当前可选故障号提交给通用恢复接口，等待队列排空并重启，再读横图状态和任务。 [复现程序](evidence/2026-11-24-landscape-independent-review/replay.mjs)
+
+### Expected Outcome
+
+通用恢复成功完成该幅，或拒绝命令并保留专用重试入口。
+
+### Negative Assertions
+
+不得记录成功后留下无任务、无重试入口的进行中状态。
+
+### Evidence Required
+
+保留正式接口、调用记录及对应断言的结果。
+
+## STORY-LIFECYCLE-C031 — 未配置模型时恢复本版的绘图回执
+
+- State: READY
+- Priority: P2
+- Type: INTEGRATION
+- Requirement / Risk: R3
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+未配置模型时恢复本版的绘图回执。
+
+### Preconditions
+
+独立临时书库、正式应用、生产队列与受控绘图服务。
+
+### Test Data
+
+两幅竖图的第二幅、四幅横图的第三幅各有本版可读取的绘图回执。
+
+### Runner Instructions
+
+模拟首次文件核对缺失，恢复文件后断开模型并重启。检查动作和恢复响应，再接回模型作对照。 [复现程序](evidence/2026-11-24-landscape-independent-review/replay.mjs)
+
+### Expected Outcome
+
+离线操作能够将可读回执保存为当前画幅。
+
+### Negative Assertions
+
+恢复文件不增加绘图调用。
+
+### Evidence Required
+
+保留正式接口、调用记录及对应断言的结果。
+
+## STORY-LIFECYCLE-C032 — 普通画风修订的可选横图授权
+
+- State: READY
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: R1
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+普通画风修订的可选横图授权。
+
+### Preconditions
+
+独立临时书库、正式应用、生产队列与受控绘图服务。
+
+### Test Data
+
+原版已生成四幅横图，随后只保存画风修改。
+
+### Runner Instructions
+
+仅提交继续制作，允许竖图完成并记录已进入提供方的可选横图调用。 [复现程序](evidence/2026-11-24-landscape-independent-review/replay.mjs)
+
+### Expected Outcome
+
+原横图失效后等待读者明确授权重绘。
+
+### Negative Assertions
+
+普通换画风并继续不应派发可选横图。
+
+### Evidence Required
+
+保留正式接口、调用记录及对应断言的结果。

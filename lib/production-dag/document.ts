@@ -26,6 +26,8 @@ export type DagFrame={
  image?:string;
  /** 横图：空字符串表示读者已请求、尚未生成。 */
  landscape?:string;
+ /** 未完成的横图请求或故障绑定的绘图输入。 */
+ landscapeInputHash?:string;
  /** 读者授权的横图重试代次，旧任务及其付费回执保留。 */
  landscapeAttempt?:number;
  /** 横图生成失败的说明；横图是可选产物，失败不阻断完成或导出。 */
@@ -128,7 +130,7 @@ export function versionState(dag:DagDocument,roots:Record<string,Product>,option
   order:dag.order,
   items:dag.items.filter(i=>i.scope!=='frame').map(i=>i.id),
   frames:Object.fromEntries(dag.order.map(id=>[id,{candidates:dag.frames[id]?.candidates,drawn:dag.frames[id]?.drawn}])),
-  landscapes:dag.order.filter(id=>dag.frames[id]?.landscape!==undefined),
+  landscapes:dag.order.filter(id=>dag.frames[id]?.landscape===''),
   products:{...dag.products,...roots},
   faults:options.faults||[],
   reprepare:options.reprepare,

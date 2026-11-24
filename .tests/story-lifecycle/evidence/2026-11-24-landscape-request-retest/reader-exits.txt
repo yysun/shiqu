@@ -1,0 +1,62 @@
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ each reader-facing waiting state exposes the same action on every surface, and that action moves the story on (908.88175ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a revision blocks 4 surviving visual targets until one explicit recovery (362.591792ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a revision blocks 2 surviving registerItems targets until one explicit recovery (352.126125ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a revision blocks 1 surviving registerItems targets until one explicit recovery (325.097791ms)
+✔ a saved recommendation with a lost receipt settles on restart without another model call (91.1465ms)
+✔ settings and shelf expose landscape pause, which drains sent work and holds the last drawing until resume (169.220791ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ replanning blocks matching drawing inputs (275.511166ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ replanning releases changed drawing inputs (166.306625ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ changing length from four to five preserves drawing faults at new pages 1 (407.033542ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ changing length from four to five preserves drawing faults at new pages 2 (298.175875ms)
+✔ changing length from four to five preserves drawing faults at new pages 2, 3 (231.822ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a revision keeps the failed landscape retry when generic recovery is rejected (276.330208ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ a revision keeps the failed landscape retry after a legacy false success (260.955167ms)
+✔ ordinary style change leaves stale landscapes out of PDF and requires a new request (843.773875ms)
+✔ ordinary single-frame redraw leaves stale landscapes out of PDF and requires a new request (317.803792ms)
+✔ an inherited unfinished landscape request only authorizes its original drawing inputs (572.444917ms)
+✔ confirmed reader redraw ignores an obsolete landscape (551.77775ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ confirmed reader redraw preserves Retry after a paired landscape fails (323.886042ms)
+✔ landscape retry verifies the first read failed receipt before paying (167.60775ms)
+✔ landscape retry verifies the previously published receipt before paying (144.805ms)
+✔ landscape retry verifies the lost acknowledgement receipt before paying (149.196708ms)
+✔ landscape retry verifies the invalid landscape receipt before paying (195.983583ms)
+✔ settings and shelf offer local retry for an inherited paid portrait without a model (214.874042ms)
+✔ a revision adopts the paid artifact when readable at authorization (213.627375ms)
+✔ a revision adopts the paid artifact when readable at dispatch (250.462ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ an inherited review failure still offers and authorizes Skip Review on the complete paused draft (384.865875ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+codex_generation_error {"code":"INVALID_OUTPUT"}
+codex_generation_error {"code":"INVALID_OUTPUT"}
+codex_generation_error {"code":"INVALID_OUTPUT"}
+书库数据库正在迁移（0027_revision_fault_targets.sql），先做整库备份，请勿关闭……
+正在应用数据库迁移……
+书库数据库迁移完成，用时 0.1 秒。
+✔ library update repairs old fault rows across revisions and preserves saved results and recoveries (1152.159167ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+✔ switching to a fixed length releases the failed automatic frame check (301.469625ms)
+codex_generation_error {"code":"INVALID_OUTPUT"}
+codex_generation_error {"code":"INVALID_OUTPUT"}
+书库数据库正在迁移（0027_revision_fault_targets.sql），先做整库备份，请勿关闭……
+正在应用数据库迁移……
+书库数据库迁移完成，用时 0.0 秒。
+✔ migration keeps distinct legacy batches with the same failure message independently recoverable (3571.456416ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13910.592958

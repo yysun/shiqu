@@ -1,0 +1,91 @@
+[
+  {
+    "name": "styleRevision",
+    "checks": {
+      "C029": true,
+      "C032": true
+    },
+    "result": {
+      "status": {
+        "state": "idle",
+        "ready": 0,
+        "total": 4,
+        "failed": [],
+        "retry": false
+      },
+      "validity": [
+        "invalid",
+        "invalid",
+        "invalid",
+        "invalid"
+      ],
+      "matchesParent": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "waiting": [],
+      "pdfBytes": 0,
+      "pdfPagesUsingOldImages": []
+    }
+  },
+  {
+    "name": "genericRecovery",
+    "checks": {
+      "C030": true
+    },
+    "result": {
+      "before": {
+        "state": "partial",
+        "ready": 3,
+        "total": 4,
+        "failed": [
+          3
+        ],
+        "retry": true
+      },
+      "status": 409,
+      "afterRestart": {
+        "state": "partial",
+        "ready": 3,
+        "total": 4,
+        "failed": [
+          3
+        ],
+        "retry": true
+      },
+      "activeJobs": 0
+    }
+  },
+  {
+    "name": "offlinePortrait",
+    "checks": {
+      "C031": false
+    },
+    "result": {
+      "readable": true,
+      "offered": false,
+      "offlineStatus": 503,
+      "offlineReady": 1,
+      "total": 2,
+      "reconnectedReady": 2,
+      "extraDraws": 0
+    }
+  },
+  {
+    "name": "offlineLandscape",
+    "checks": {
+      "C031": false
+    },
+    "result": {
+      "readable": true,
+      "offered": false,
+      "offlineStatus": 503,
+      "offlineReady": 3,
+      "total": 4,
+      "reconnectedReady": 4,
+      "extraDraws": 0
+    }
+  }
+]

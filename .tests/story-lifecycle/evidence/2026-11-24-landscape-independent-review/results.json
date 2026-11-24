@@ -1,0 +1,1641 @@
+{
+  "build": "839a0f9fe9d1311f750720e226b1f24c7e90db76",
+  "regressions": [
+    {
+      "name": "optionalFault",
+      "passed": true,
+      "result": {
+        "parent": {
+          "state": "partial",
+          "ready": 3,
+          "total": 4,
+          "failed": [
+            3
+          ],
+          "canRetry": true
+        },
+        "parentView": {
+          "state": "completed",
+          "ready": 4,
+          "service": "available",
+          "activity": "idle",
+          "faults": [
+            {
+              "kind": "content-blocked",
+              "scope": "optional",
+              "targets": [
+                {
+                  "node": "landscape",
+                  "key": "n3",
+                  "page": 2
+                }
+              ],
+              "state": "pending"
+            }
+          ],
+          "actions": [
+            "retry-landscape"
+          ]
+        },
+        "exportedFrames": 4,
+        "child": {
+          "state": "partial",
+          "ready": 3,
+          "total": 4,
+          "failed": [
+            3
+          ],
+          "canRetry": true
+        },
+        "childView": {
+          "state": "completed",
+          "ready": 4,
+          "service": "available",
+          "activity": "idle",
+          "faults": [
+            {
+              "kind": "step-failure",
+              "scope": "optional",
+              "targets": [
+                {
+                  "node": "landscape",
+                  "key": "n3",
+                  "page": 2
+                }
+              ],
+              "state": "pending"
+            }
+          ],
+          "actions": [
+            "retry-landscape"
+          ]
+        },
+        "activeLandscapeJobs": 0,
+        "detailButtons": [],
+        "afterResume": {
+          "state": "partial",
+          "ready": 3,
+          "total": 4,
+          "failed": [
+            3
+          ],
+          "canRetry": true
+        },
+        "directRecoveryStatus": 202,
+        "afterDirectRecovery": {
+          "state": "running",
+          "ready": 3,
+          "total": 4,
+          "failed": [],
+          "controlAction": "pause",
+          "canRetry": false
+        }
+      }
+    },
+    {
+      "name": "offlineReceipt",
+      "passed": true,
+      "result": {
+        "detail": {
+          "state": "failed",
+          "ready": 1,
+          "service": "unconfigured",
+          "activity": "idle",
+          "faults": [
+            {
+              "kind": "step-failure",
+              "scope": "required",
+              "targets": [
+                {
+                  "node": "frameImage",
+                  "key": "f-7c8ef0f5-6b6",
+                  "page": 1
+                }
+              ],
+              "state": "pending"
+            }
+          ],
+          "actions": [
+            "pause",
+            "retry"
+          ]
+        },
+        "shelf": {
+          "state": "failed",
+          "ready": 1,
+          "service": "unconfigured",
+          "activity": "idle",
+          "faults": [
+            {
+              "kind": "step-failure",
+              "scope": "required",
+              "targets": [
+                {
+                  "node": "frameImage",
+                  "key": "f-7c8ef0f5-6b6",
+                  "page": 1
+                }
+              ],
+              "state": "pending"
+            }
+          ],
+          "actions": [
+            "pause",
+            "retry"
+          ]
+        },
+        "detailButtons": [
+          "重试生成"
+        ],
+        "shelfButtons": [
+          "重试生成"
+        ],
+        "status": 202,
+        "receipt": "succeeded",
+        "after": {
+          "state": "completed",
+          "ready": 2,
+          "service": "unconfigured",
+          "activity": "idle",
+          "faults": [],
+          "actions": []
+        },
+        "extraDraws": 0
+      }
+    },
+    {
+      "name": "paidLandscape",
+      "passed": true,
+      "result": {
+        "status": {
+          "state": "partial",
+          "ready": 3,
+          "total": 4,
+          "failed": [
+            3
+          ],
+          "canRetry": true
+        },
+        "receiptMatchesFile": true,
+        "readable": true,
+        "originalBytes": 133,
+        "extraDraws": 0,
+        "after": {
+          "state": "completed",
+          "ready": 4,
+          "total": 4,
+          "failed": [],
+          "canRetry": false
+        }
+      }
+    }
+  ],
+  "newCases": [
+    {
+      "name": "styleRevision",
+      "checks": {
+        "C029": false,
+        "C032": false
+      },
+      "result": {
+        "status": {
+          "state": "completed",
+          "ready": 4,
+          "total": 4,
+          "failed": [],
+          "retry": false
+        },
+        "validity": [
+          "invalid",
+          "invalid",
+          "invalid",
+          "invalid"
+        ],
+        "matchesParent": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "waiting": [
+          1,
+          2,
+          3
+        ],
+        "pdfBytes": 436103,
+        "pdfPagesUsingOldImages": [
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    },
+    {
+      "name": "genericRecovery",
+      "checks": {
+        "C030": false
+      },
+      "result": {
+        "before": {
+          "state": "partial",
+          "ready": 3,
+          "total": 4,
+          "failed": [
+            3
+          ],
+          "retry": true
+        },
+        "status": 202,
+        "receipt": "succeeded",
+        "afterRestart": {
+          "state": "running",
+          "ready": 3,
+          "total": 4,
+          "failed": [],
+          "retry": false
+        },
+        "activeJobs": 0
+      }
+    },
+    {
+      "name": "offlinePortrait",
+      "checks": {
+        "C031": false
+      },
+      "result": {
+        "readable": true,
+        "offered": false,
+        "offlineStatus": 503,
+        "offlineReady": 1,
+        "total": 2,
+        "reconnectedReady": 2,
+        "extraDraws": 0
+      }
+    },
+    {
+      "name": "offlineLandscape",
+      "checks": {
+        "C031": false
+      },
+      "result": {
+        "readable": true,
+        "offered": false,
+        "offlineStatus": 503,
+        "offlineReady": 3,
+        "total": 4,
+        "reconnectedReady": 4,
+        "extraDraws": 0
+      }
+    }
+  ],
+  "earlierCases": {
+    "v0.15.0": [
+      {
+        "name": "sameRevisionReceipt",
+        "passes": true,
+        "result": {
+          "revise": false,
+          "receiptRecorded": true,
+          "readable": true,
+          "parentFrameDraws": 1,
+          "extraFirstFrameDraws": 0,
+          "blocked": {
+            "state": "failed",
+            "ready": 0,
+            "control": "active",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "frameImage",
+                    "f-e3592185-5b7"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "reprepare",
+              "retry",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "completed",
+            "ready": 2,
+            "control": "active",
+            "skip": false,
+            "faults": [],
+            "actions": [
+              "reprepare",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "redraw",
+              "cover",
+              "copy",
+              "copy-draft",
+              "start-landscape",
+              "image-health",
+              "image-health",
+              "delete"
+            ]
+          }
+        }
+      },
+      {
+        "name": "carriedReceipt",
+        "passes": true,
+        "result": {
+          "revise": true,
+          "receiptRecorded": true,
+          "readable": true,
+          "parentFrameDraws": 1,
+          "extraFirstFrameDraws": 0,
+          "blocked": {
+            "state": "failed",
+            "ready": 0,
+            "control": "active",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "frameImage",
+                    "f-43b9e806-bdd"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "reprepare",
+              "retry",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "completed",
+            "ready": 2,
+            "control": "active",
+            "skip": false,
+            "faults": [],
+            "actions": [
+              "reprepare",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "redraw",
+              "cover",
+              "copy",
+              "copy-draft",
+              "start-landscape",
+              "image-health",
+              "image-health",
+              "delete"
+            ]
+          }
+        }
+      },
+      {
+        "name": "oldVisual",
+        "passes": true,
+        "result": {
+          "call": "visual",
+          "parent": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "retryReview": false,
+                "targets": []
+              }
+            ],
+            "actions": []
+          },
+          "carried": 1,
+          "before": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "visual",
+                    "f-18c16e2a-37e"
+                  ],
+                  [
+                    "visual",
+                    "f-af707d9f-2f9"
+                  ],
+                  [
+                    "visual",
+                    "f-4909fce5-cd8"
+                  ],
+                  [
+                    "visual",
+                    "f-4233c0bf-473"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "continue",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "failed",
+            "ready": 0,
+            "control": "active",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "visual",
+                    "f-18c16e2a-37e"
+                  ],
+                  [
+                    "visual",
+                    "f-af707d9f-2f9"
+                  ],
+                  [
+                    "visual",
+                    "f-4909fce5-cd8"
+                  ],
+                  [
+                    "visual",
+                    "f-4233c0bf-473"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "reprepare",
+              "retry",
+              "open-reselection",
+              "delete"
+            ]
+          },
+          "extraCalls": 0
+        }
+      },
+      {
+        "name": "oldItems",
+        "passes": true,
+        "result": {
+          "call": "registerItems",
+          "parent": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "retryReview": false,
+                "targets": []
+              }
+            ],
+            "actions": []
+          },
+          "carried": 0,
+          "before": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "itemRegistration",
+                    "i-b88a6fc9d5"
+                  ],
+                  [
+                    "itemRegistration",
+                    "i-b8f0f67def"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "continue",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "failed",
+            "ready": 0,
+            "control": "active",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "itemRegistration",
+                    "i-b88a6fc9d5"
+                  ],
+                  [
+                    "itemRegistration",
+                    "i-b8f0f67def"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "reprepare",
+              "retry",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "extraCalls": 0
+        }
+      },
+      {
+        "name": "carriedReview",
+        "passes": true,
+        "result": {
+          "parent": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": true,
+            "faults": [
+              {
+                "stage": "review",
+                "kind": "step-failure",
+                "retryReview": true,
+                "targets": [
+                  [
+                    "frameVerdict",
+                    "f-d0868356-ec9"
+                  ],
+                  [
+                    "frameVerdict",
+                    "f-35ab2889-63d"
+                  ],
+                  [
+                    "frameVerdict",
+                    "f-803a6a62-9b9"
+                  ],
+                  [
+                    "frameVerdict",
+                    "f-00ab86aa-2df"
+                  ],
+                  [
+                    "narrativeVerdict",
+                    ""
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "reprepare",
+              "skip-review",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "carried": 4,
+          "after": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": true,
+            "faults": [
+              {
+                "stage": "review",
+                "kind": "step-failure",
+                "retryReview": true,
+                "targets": [
+                  [
+                    "frameVerdict",
+                    "f-803a6a62-9b9"
+                  ],
+                  [
+                    "frameVerdict",
+                    "f-00ab86aa-2df"
+                  ],
+                  [
+                    "frameVerdict",
+                    "f-d0868356-ec9"
+                  ],
+                  [
+                    "frameVerdict",
+                    "f-35ab2889-63d"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "reprepare",
+              "skip-review",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "skipStatus": 200,
+          "message": null,
+          "storyboardFrames": 4
+        }
+      },
+      {
+        "name": "transient",
+        "passes": true,
+        "result": {
+          "carried": 1,
+          "before": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "frameImage",
+                    "f-c149fd6e-f8d"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "continue",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "failed",
+            "ready": 0,
+            "control": "active",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "frameImage",
+                    "f-c149fd6e-f8d"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "reprepare",
+              "retry",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "first": [
+            {
+              "key": "f-c149fd6e-f8d",
+              "hard": {
+                "visual@self": "3918fcd49925d92a9568d035e43a7e57118827b409347804f71de57878c553e3",
+                "characters@drawn": "bd2fde7f17a07b3994af3f224e4528efb6724d5c144f090a485b78e2c92ab01e",
+                "style": "8a6ad4a142a180e7fe59fccd58df07a36a95d07d276955649d80f9e7de966f9f",
+                "renderer": "cf132aff48ba8e13d26d45c6bbb033813bf944abba98307635da35141578dd55",
+                "redrawNote@self": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              }
+            }
+          ],
+          "totalNewDrawings": 0,
+          "extraFirstFrameDraws": 0,
+          "identical": false
+        }
+      },
+      {
+        "name": "changedInputs",
+        "passes": true,
+        "result": {
+          "carried": 1,
+          "before": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "frameImage",
+                    "f-7ddbf408-e65"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "continue",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "completed",
+            "ready": 4,
+            "control": "active",
+            "skip": false,
+            "faults": [],
+            "actions": [
+              "reprepare",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "redraw",
+              "cover",
+              "copy",
+              "copy-draft",
+              "start-landscape",
+              "image-health",
+              "image-health",
+              "image-health",
+              "image-health",
+              "delete"
+            ]
+          },
+          "first": [
+            {
+              "key": "f-7ddbf408-e65",
+              "hard": {
+                "visual@self": "3918fcd49925d92a9568d035e43a7e57118827b409347804f71de57878c553e3",
+                "characters@drawn": "bd2fde7f17a07b3994af3f224e4528efb6724d5c144f090a485b78e2c92ab01e",
+                "style": "8a6ad4a142a180e7fe59fccd58df07a36a95d07d276955649d80f9e7de966f9f",
+                "renderer": "cf132aff48ba8e13d26d45c6bbb033813bf944abba98307635da35141578dd55",
+                "redrawNote@self": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              }
+            }
+          ],
+          "redraw": {
+            "key": "f-7ddbf408-e65",
+            "hard": {
+              "visual@self": "3918fcd49925d92a9568d035e43a7e57118827b409347804f71de57878c553e3",
+              "characters@drawn": "bd2fde7f17a07b3994af3f224e4528efb6724d5c144f090a485b78e2c92ab01e",
+              "style": "89456fc8ab9c749030adabc3767333b5a1af663a11b8c24f0a490134b8c8e0e4",
+              "renderer": "cf132aff48ba8e13d26d45c6bbb033813bf944abba98307635da35141578dd55",
+              "redrawNote@self": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+            }
+          },
+          "totalNewDrawings": 4,
+          "extraFirstFrameDraws": 1,
+          "identical": false
+        }
+      }
+    ],
+    "69495ab8": [
+      {
+        "name": "sameRevisionReceipt",
+        "passes": true,
+        "result": {
+          "revise": false,
+          "receiptRecorded": true,
+          "readable": true,
+          "parentFrameDraws": 1,
+          "extraFirstFrameDraws": 0,
+          "blocked": {
+            "state": "failed",
+            "ready": 0,
+            "control": "active",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "frameImage",
+                    "f-327c7e9c-73a"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "reprepare",
+              "retry",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "completed",
+            "ready": 2,
+            "control": "active",
+            "skip": false,
+            "faults": [],
+            "actions": [
+              "reprepare",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "redraw",
+              "cover",
+              "copy",
+              "copy-draft",
+              "start-landscape",
+              "image-health",
+              "image-health",
+              "delete"
+            ]
+          }
+        }
+      },
+      {
+        "name": "carriedReceipt",
+        "passes": true,
+        "result": {
+          "revise": true,
+          "receiptRecorded": true,
+          "readable": true,
+          "parentFrameDraws": 1,
+          "extraFirstFrameDraws": 0,
+          "blocked": {
+            "state": "failed",
+            "ready": 0,
+            "control": "active",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "frameImage",
+                    "f-65ea8d61-9be"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "reprepare",
+              "retry",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "completed",
+            "ready": 2,
+            "control": "active",
+            "skip": false,
+            "faults": [],
+            "actions": [
+              "reprepare",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "redraw",
+              "cover",
+              "copy",
+              "copy-draft",
+              "start-landscape",
+              "image-health",
+              "image-health",
+              "delete"
+            ]
+          }
+        }
+      },
+      {
+        "name": "oldVisual",
+        "passes": true,
+        "result": {
+          "call": "visual",
+          "parent": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "visual",
+                    "f-bbe22b84-fa1"
+                  ],
+                  [
+                    "visual",
+                    "f-d0421923-b91"
+                  ],
+                  [
+                    "visual",
+                    "f-cc66bf1e-510"
+                  ],
+                  [
+                    "visual",
+                    "f-a565ab89-1fe"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "reprepare",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "delete"
+            ]
+          },
+          "carried": 1,
+          "before": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "visual",
+                    "f-a565ab89-1fe"
+                  ],
+                  [
+                    "visual",
+                    "f-d0421923-b91"
+                  ],
+                  [
+                    "visual",
+                    "f-cc66bf1e-510"
+                  ],
+                  [
+                    "visual",
+                    "f-bbe22b84-fa1"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "continue",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "failed",
+            "ready": 0,
+            "control": "active",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "visual",
+                    "f-a565ab89-1fe"
+                  ],
+                  [
+                    "visual",
+                    "f-d0421923-b91"
+                  ],
+                  [
+                    "visual",
+                    "f-cc66bf1e-510"
+                  ],
+                  [
+                    "visual",
+                    "f-bbe22b84-fa1"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "reprepare",
+              "retry",
+              "open-reselection",
+              "delete"
+            ]
+          },
+          "extraCalls": 0
+        }
+      },
+      {
+        "name": "oldItems",
+        "passes": true,
+        "result": {
+          "call": "registerItems",
+          "parent": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "itemRegistration",
+                    "i-b8f0f67def"
+                  ],
+                  [
+                    "itemRegistration",
+                    "i-b88a6fc9d5"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "reprepare",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "carried": 0,
+          "before": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "itemRegistration",
+                    "i-b88a6fc9d5"
+                  ],
+                  [
+                    "itemRegistration",
+                    "i-b8f0f67def"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "continue",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "failed",
+            "ready": 0,
+            "control": "active",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "itemRegistration",
+                    "i-b88a6fc9d5"
+                  ],
+                  [
+                    "itemRegistration",
+                    "i-b8f0f67def"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "reprepare",
+              "retry",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "extraCalls": 0
+        }
+      },
+      {
+        "name": "carriedReview",
+        "passes": true,
+        "result": {
+          "parent": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": true,
+            "faults": [
+              {
+                "stage": "review",
+                "kind": "step-failure",
+                "retryReview": true,
+                "targets": [
+                  [
+                    "frameVerdict",
+                    "f-005000f9-ffb"
+                  ],
+                  [
+                    "frameVerdict",
+                    "f-8e342489-954"
+                  ],
+                  [
+                    "frameVerdict",
+                    "f-9c2ddff5-b6f"
+                  ],
+                  [
+                    "frameVerdict",
+                    "f-77e6bcf7-085"
+                  ],
+                  [
+                    "narrativeVerdict",
+                    ""
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "reprepare",
+              "skip-review",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "carried": 4,
+          "after": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": true,
+            "faults": [
+              {
+                "stage": "review",
+                "kind": "step-failure",
+                "retryReview": true,
+                "targets": [
+                  [
+                    "frameVerdict",
+                    "f-005000f9-ffb"
+                  ],
+                  [
+                    "frameVerdict",
+                    "f-8e342489-954"
+                  ],
+                  [
+                    "frameVerdict",
+                    "f-9c2ddff5-b6f"
+                  ],
+                  [
+                    "frameVerdict",
+                    "f-77e6bcf7-085"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "reprepare",
+              "skip-review",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "skipStatus": 200,
+          "message": null,
+          "storyboardFrames": 4
+        }
+      },
+      {
+        "name": "transient",
+        "passes": true,
+        "result": {
+          "carried": 1,
+          "before": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "frameImage",
+                    "f-64188fef-73b"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "continue",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "failed",
+            "ready": 0,
+            "control": "active",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "frameImage",
+                    "f-64188fef-73b"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "reprepare",
+              "retry",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "first": [
+            {
+              "key": "f-64188fef-73b",
+              "hard": {
+                "visual@self": "3918fcd49925d92a9568d035e43a7e57118827b409347804f71de57878c553e3",
+                "characters@drawn": "bd2fde7f17a07b3994af3f224e4528efb6724d5c144f090a485b78e2c92ab01e",
+                "style": "8a6ad4a142a180e7fe59fccd58df07a36a95d07d276955649d80f9e7de966f9f",
+                "renderer": "cf132aff48ba8e13d26d45c6bbb033813bf944abba98307635da35141578dd55",
+                "redrawNote@self": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              }
+            }
+          ],
+          "totalNewDrawings": 0,
+          "extraFirstFrameDraws": 0,
+          "identical": false
+        }
+      },
+      {
+        "name": "changedInputs",
+        "passes": true,
+        "result": {
+          "carried": 1,
+          "before": {
+            "state": "failed",
+            "ready": 0,
+            "control": "paused",
+            "skip": false,
+            "faults": [
+              {
+                "stage": "generation",
+                "kind": "step-failure",
+                "retryReview": false,
+                "targets": [
+                  [
+                    "frameImage",
+                    "f-9cb0bc9f-1a6"
+                  ]
+                ]
+              }
+            ],
+            "actions": [
+              "background",
+              "pause",
+              "stop",
+              "resume",
+              "continue",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "copy-draft",
+              "delete"
+            ]
+          },
+          "after": {
+            "state": "completed",
+            "ready": 4,
+            "control": "active",
+            "skip": false,
+            "faults": [],
+            "actions": [
+              "reprepare",
+              "open-reselection",
+              "edit-revision",
+              "save-revision",
+              "edit-review-notes",
+              "redraw",
+              "cover",
+              "copy",
+              "copy-draft",
+              "start-landscape",
+              "image-health",
+              "image-health",
+              "image-health",
+              "image-health",
+              "delete"
+            ]
+          },
+          "first": [
+            {
+              "key": "f-9cb0bc9f-1a6",
+              "hard": {
+                "visual@self": "3918fcd49925d92a9568d035e43a7e57118827b409347804f71de57878c553e3",
+                "characters@drawn": "bd2fde7f17a07b3994af3f224e4528efb6724d5c144f090a485b78e2c92ab01e",
+                "style": "8a6ad4a142a180e7fe59fccd58df07a36a95d07d276955649d80f9e7de966f9f",
+                "renderer": "cf132aff48ba8e13d26d45c6bbb033813bf944abba98307635da35141578dd55",
+                "redrawNote@self": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              }
+            }
+          ],
+          "redraw": {
+            "key": "f-9cb0bc9f-1a6",
+            "hard": {
+              "visual@self": "3918fcd49925d92a9568d035e43a7e57118827b409347804f71de57878c553e3",
+              "characters@drawn": "bd2fde7f17a07b3994af3f224e4528efb6724d5c144f090a485b78e2c92ab01e",
+              "style": "89456fc8ab9c749030adabc3767333b5a1af663a11b8c24f0a490134b8c8e0e4",
+              "renderer": "cf132aff48ba8e13d26d45c6bbb033813bf944abba98307635da35141578dd55",
+              "redrawNote@self": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+            }
+          },
+          "totalNewDrawings": 4,
+          "extraFirstFrameDraws": 1,
+          "identical": false
+        }
+      }
+    ]
+  },
+  "runs": {
+    "review": {
+      "tests": 702,
+      "pass": 701,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 1,
+      "todo": 0
+    },
+    "sourceImpact": {
+      "tests": 625,
+      "pass": 623,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 2,
+      "todo": 0
+    },
+    "adjacent": {
+      "tests": 158,
+      "pass": 157,
+      "fail": 1,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "adjacentSerialRerun": {
+      "tests": 158,
+      "pass": 158,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "full80": {
+      "tests": 1,
+      "pass": 1,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "rollbackWithV014": {
+      "tests": 17,
+      "pass": 17,
+      "fail": 0,
+      "skipped": 0
+    },
+    "workingTree": {
+      "tests": 30,
+      "pass": 30,
+      "fail": 0
+    },
+    "desktopNative": {
+      "tests": 27,
+      "pass": 27,
+      "fail": 0
+    },
+    "typecheck": "pass",
+    "lint": "pass"
+  },
+  "browser": {
+    "before": "已保存 3 / 4 幅，待重试第 3 幅。",
+    "action": "重试未完成画幅",
+    "after": "插图已齐全，横版 PDF 会使用这套图。",
+    "drawsAfterClick": [
+      {
+        "page": 3,
+        "landscape": true
+      }
+    ]
+  }
+}

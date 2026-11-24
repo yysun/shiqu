@@ -1,0 +1,12 @@
+# Landscape status, export, and recovery retest
+
+Retested against the implementation based on `839a0f9f`, on local macOS with Node 24.22.1 and pnpm 11.25.0. The tests use the production application, disposable SQLite and media, controlled drawing transport, and the production PDF renderer.
+
+- **C029 passed.** The style revision retained its historical landscape references in storage while the API correctly returned zero ready images. Both the 7×5 and Letter PDF renderers used the current portrait URLs, including on the cover. A mixed set retained its three current landscapes in their correct positions. Temporarily unreadable output was excluded without offering a paid redraw for the uncertain file. [Production regression results](reader-exits.txt)
+- **C032 passed.** Continue, restart, and reader demand made zero landscape calls after an ordinary style or portrait redraw. An explicit Start drew only the stale pages, including when a stale failed or queued job had previously occupied a target. A revision of a failed landscape retained its fault only for matching inputs. The same result held for an older document without a stored request hash. A direct reader redraw paired the portrait with an existing current-valid landscape. Its landscape failure retained Retry after restart, and a direct redraw of a stale landscape drew only the portrait. [Production regression results](reader-exits.txt)
+- **C030 passed.** Generic Retry returned 409, recorded no command, and left the fault and dedicated Retry intact through restart. A fixture with a legacy false-success receipt also retained the dedicated action without authorizing a new draw. The dedicated Retry completed page 3 and preserved the historical receipt. [Production regression results](reader-exits.txt)
+- **C031 remains open.** The historical replay still observes HTTP 503 for same-version offline recovery. Its results are included for traceability. [Reproductions](reproductions.json)
+
+## Verification
+
+The changed-source gate passed 369/369 with the actual `v0.14.0` rollback fixtures enabled. The focused reader exits passed 29/29. The full-tier 80-frame test, 27 native library tests, typecheck, and lint passed. Independent review replayed six additional isolated production paths covering old jobs and receipts, inherited requests, direct redraw, and temporary file reads. The [QA ledger](../../../STATUS.md) has 31 passes and one open case.

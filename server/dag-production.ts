@@ -22,7 +22,7 @@ import type {FrameRecommendation} from '../lib/reader-frame-recommendation.ts';
 import type {ArtRecommendation} from '../lib/reader-art-recommendation.ts';
 import type {OriginalSource} from '../lib/reader-source-types.ts';
 import {settle,work,apply,stale,finished,requestFor,drawInput,attention,stateOf,overrideReview,type DagStory,type Work} from '../lib/production-dag/runner.ts';
-import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
+import {evaluate,instanceId,type Evaluation} from '../lib/production-dag/engine.ts';
 import type {Fault} from '../lib/production-dag/engine.ts';
 import {nodeSpec} from '../lib/production-dag/registry.ts';
 import {executeWork} from './dag-executor.ts';
@@ -40,7 +40,8 @@ import {grantRepairs,newRepairBudget} from '../lib/production-dag/review.ts';
 import {createReviewSkip} from '../lib/production-dag/review-skip.ts';
 import type {RecoveryRequest,ReviewOverride} from '../lib/reader-recovery.ts';
 import {reconcileImageFaults} from './dag-image-faults.ts';
-import {carriedJobFaultState,isCarriedReviewFault,reconcileCarriedJobFaults} from './dag-revision-faults.ts';
+import {carriedJobFaultState,isCarriedReviewFault,reconcileCarriedJobFaults,unexecutedLandscapeRecovery} from './dag-revision-faults.ts';
+import {bindLegacyLandscapeRequests} from './dag-revisions.ts';
 import {PaidDispatchDenied} from './paid-dispatch.ts';
 
 export const dagTextKind='dag',dagDrawKind='dag-draw';
@@ -56,11 +57,14 @@ export const viewedPriority=(page:number,viewers:Viewing[])=>{
 type FaultTarget={id:string;node:string|null;node_key:string;optional:number;kind:string|null;faultKind:string;state:string;payload:string|null};
 const pendingFaultTargets=`SELECT f.id,f.node,f.node_key,f.optional,f.kind AS faultKind,f.state,j.kind,j.payload FROM reader_faults f
  LEFT JOIN production_jobs j ON j.id=f.job_id AND j.session_id=f.session_id AND j.owner_id=f.owner_id
- WHERE f.session_id=? AND f.owner_id=? AND f.state IN ('pending','awaiting-match')`;
-function dagFaultTargets(rows:FaultTarget[]):Fault[]{
+ WHERE f.session_id=? AND f.owner_id=? AND (f.state IN ('pending','awaiting-match') OR ${unexecutedLandscapeRecovery})`;
+function dagFaultTargets(rows:FaultTarget[],dag:DagDocument):Fault[]{
  return rows.flatMap<Fault>(f=>{
-  if(f.payload&&(f.kind===dagTextKind||f.kind===dagDrawKind))
-   return (JSON.parse(f.payload) as {work:Work}).work.instances.map(i=>({id:f.id,node:i.node,key:i.key,state:'pending' as const}));
+  if(f.payload&&(f.kind===dagTextKind||f.kind===dagDrawKind)){
+   const {work:item,landscapeAttempt}=JSON.parse(f.payload) as {work:Work;landscapeAttempt?:number};
+   if(item.call==='drawLandscape'&&dag.frames[item.instances[0].key]?.landscapeAttempt!==landscapeAttempt)return [];
+   return item.instances.map(i=>({id:f.id,node:i.node,key:i.key,state:'pending' as const}));
+  }
   return f.node?[{id:f.id,node:f.node,key:f.node_key,state:f.state==='awaiting-match'?'awaiting-match':'pending',...(f.optional?{optional:true}:{}),...(f.faultKind==='image-loss'?{imageLoss:true}:{})}]:[];
  });
 }
@@ -73,14 +77,15 @@ export const canReprepare=(doc:Document)=>!!doc.dag&&!!doc.original&&!doc.resele
  (!doc.intake||doc.intake.phase==='confirmed')&&!doc.dag.repreparing;
 
 type LandscapeFault=Pick<ReaderFault,'node'|'node_key'|'state'|'message'|'origin_fault_id'|'job_id'>;
-export function landscapeFrames(dag:DagDocument,jobs:readonly Pick<ProductionJob,'kind'|'state'|'payload'|'error'>[],lost:ReadonlySet<string>=new Set(),faults:readonly LandscapeFault[]=[]){
+export function landscapeFrames(dag:DagDocument,evaluation:Evaluation,jobs:readonly Pick<ProductionJob,'kind'|'state'|'payload'|'error'>[],lost:ReadonlySet<string>=new Set(),faults:readonly LandscapeFault[]=[]){
+ const requested=new Set(evaluation.state.landscapes);
  const busy=new Set<string>(),failed=new Map<string,string>();
  for(const job of jobs){
   if(job.kind!==dagDrawKind||!['queued','running','failed'].includes(job.state))continue;
   const {work,landscapeAttempt}=JSON.parse(job.payload) as {work:Work;landscapeAttempt?:number};
   if(work.call!=='drawLandscape')continue;
   for(const {key} of work.instances){
-   if(dag.frames[key]?.landscapeAttempt!==landscapeAttempt)continue;
+   if(!requested.has(key)||dag.frames[key]?.landscapeAttempt!==landscapeAttempt)continue;
    if(job.state==='failed')failed.set(key,job.error||'横图绘制失败，请重试本幅。');
    else busy.add(key);
   }
@@ -91,6 +96,8 @@ export function landscapeFrames(dag:DagDocument,jobs:readonly Pick<ProductionJob
  }
  return dag.order.map(key=>{
   const frame=dag.frames[key];
+  if(frame.landscape?evaluation.instance('landscape',key).status!=='valid':!requested.has(key))
+   return {...frame,landscape:undefined,landscapeError:undefined};
   if(lost.has(key))return {...frame,landscape:'',landscapeError:'横图文件已丢失或损坏，请重试本幅。'};
   if(frame.landscape===''&&!frame.landscapeError&&!busy.has(key)&&failed.has(key))return {...frame,landscapeError:failed.get(key)};
   return frame;
@@ -146,8 +153,11 @@ export class DagProduction{
    if(referenceMode==='for-drawing'&&error instanceof PaidDispatchDenied)throw error;
    return '';
   });
-  return {id:row.id,doc,selection,dag:doc.dag,confirmed:!doc.intake||doc.intake.phase==='confirmed',
-   faults:await this.faults(row),...(refSource?{refSource}:{})};
+  const story={id:row.id,doc,selection,dag:doc.dag,confirmed:!doc.intake||doc.intake.phase==='confirmed',
+   faults:await this.faults(row,doc.dag),...(refSource?{refSource}:{})};
+  if(!doc.revision)return story;
+  const bind=(db:ReadStatements)=>bindLegacyLandscapeRequests(db,row.user_id,story);
+  return this.deps.database.readTransaction?.(bind)??transact(this.deps.database,bind);
  }
 
  /**
@@ -155,9 +165,9 @@ export class DagProduction{
   * 没有任务的故障（图片丢失、转换的旧故障）按记录的节点与键。可选产物的故障不阻断完成。
   * 恢复中的故障不阻断：读者授权的恢复任务与同输入的新工作身份相同，不会重复派发。
   */
- private async faults(row:SessionRow):Promise<Fault[]>{
+ private async faults(row:SessionRow,dag:DagDocument):Promise<Fault[]>{
   const rows=(await this.deps.database.prepare(pendingFaultTargets).bind(row.id,row.user_id).all<FaultTarget>()).results;
-  return dagFaultTargets(rows);
+  return dagFaultTargets(rows,dag);
  }
 
  /** 从快照推导完成和审片阻断，避免分别读取故障或访问图片文件。 */
@@ -170,9 +180,9 @@ export class DagProduction{
    return {...fault,faultKind:fault.kind,kind:job?.kind??null,payload:job?.payload??null};
   });
   const confirmed=!doc.intake||doc.intake.phase==='confirmed';
-  const story:DagStory={id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed,faults:dagFaultTargets(targets)};
+  const story:DagStory={id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed,faults:dagFaultTargets(targets,dag)};
   const complete=confirmed&&finished(story);
-  const reviewing={...story,faults:dagFaultTargets(targets.filter(target=>target.state!=='recovering'))};
+  const reviewing={...story,faults:dagFaultTargets(targets.filter(target=>target.state!=='recovering'),dag)};
   const blocking=complete||work(reviewing).some(item=>!drawing(item.call))?null:this.reviewBlock(reviewing);
   const review=evaluate(stateOf(reviewing)).approved()?'approved':blocking?.reasons.length?'attention':'pending';
   return {complete,blocking:blocking?{...blocking,canOverride:!!blocking.id&&!!overrideReview(reviewing,blocking.targets)}:null,review} as const;
@@ -184,18 +194,19 @@ export class DagProduction{
   if(!dag)return {inputCurrent:false,fault:false};
   const {work:item,landscapeAttempt}=JSON.parse(job.payload) as {work:Work;landscapeAttempt?:number};
   if(dag.repreparing&&item.call!=='prepareSuggestions')return {inputCurrent:true,fault:true};
-  if(item.call==='drawLandscape'&&dag.frames[item.instances[0].key]?.landscapeAttempt!==landscapeAttempt)
-   return {inputCurrent:false,fault:false};
-  const story:DagStory={id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),
-   confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:[]};
+  const story=bindLegacyLandscapeRequests(db,row.user_id,{id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),
+   confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:[]});
   if(item.call==='draw'){
    const reference=drawingReferenceBinding(db,row.user_id,row.id,true);
    if(reference)story.refSource=reference;
    reconcileImageFaults(db,row.user_id,story,this.deps.clock());
   }
   if(doc.revision)reconcileCarriedJobFaults(db,row.user_id,story,this.deps.clock());
-  story.faults=dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,row.id,row.user_id));
+  story.faults=dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,row.id,row.user_id),dag);
   const evaluation=evaluate(stateOf(story));
+  const key=item.instances[0]?.key;
+  if(item.call==='drawLandscape'&&(!evaluation.state.landscapes?.includes(key)||dag.frames[key]?.landscapeAttempt!==landscapeAttempt))
+   return {inputCurrent:false,fault:false};
   if(drawing(item.call)){
    const reusable=evaluate(stateOf({...story,dag:settle(story)}));
    if(item.instances.every(instance=>reusable.instance(instance.node,instance.key).status==='valid'))return {inputCurrent:false,fault:false};
@@ -207,7 +218,7 @@ export class DagProduction{
 
  /** 保存新的 dag 与投影：以读取时的文档为条件，冲突返回 false。 */
  private async save(row:SessionRow,story:DagStory,dag:DagDocument,options:{
-  usage?:Document['usage'][number];retainDeleted?:boolean;selection?:Selection;job?:ProductionJob;landscape?:{retryFrames:string[]};
+  usage?:Document['usage'][number];retainDeleted?:boolean;selection?:Selection;job?:ProductionJob;landscape?:{resetFrames:string[]};
  }={}){
   const {usage,retainDeleted,selection,job,landscape}=options;
   const {plan,images}=projectDocument(dag,story.doc.plan);
@@ -227,15 +238,21 @@ export class DagProduction{
    ...(reordered?[positions,Math.max(0,dag.order.length-1)]:[]),row.id,row.user_id,row.document,...(selection?[row.selection]:[]),...(job?[job.id,job.lease_token??null]:[])];
   if(landscape)return transact(this.deps.database,db=>{
    if(!db.run(`${sql} AND NOT ${supersededSql()} AND state='completed'`,...params).changes)return false;
-   const published=landscape.retryFrames.flatMap(key=>story.dag.frames[key].landscape?[{key,url:story.dag.frames[key].landscape}]:[]);
+   const keys=JSON.stringify(landscape.resetFrames);
+   const published=landscape.resetFrames.flatMap(key=>story.dag.frames[key].landscape?[{key,url:story.dag.frames[key].landscape}]:[]);
    // 旧任务可能丢失完成回执。清除画幅原图前，把已发布原图的记账状态保存到同一回执。
    if(published.length)db.run(`UPDATE production_jobs SET payload=json_set(payload,'$.paid.usageRecorded',json('true'))
     WHERE session_id=? AND owner_id=? AND kind=? AND state IN ('failed','succeeded') AND json_extract(payload,'$.work.call')='drawLandscape'
     AND EXISTS(SELECT 1 FROM json_each(?) frame WHERE json_extract(frame.value,'$.key')=json_extract(payload,'$.work.instances[0].key')
      AND json_extract(frame.value,'$.url')=json_extract(payload,'$.paid.value'))`,row.id,row.user_id,dagDrawKind,JSON.stringify(published));
-   if(landscape.retryFrames.length)db.run(`UPDATE reader_faults SET state='replaced',updated_at=? WHERE session_id=? AND owner_id=?
-    AND node='landscape' AND node_key IN (SELECT value FROM json_each(?)) AND state IN ('pending','recovering')`,
-    this.deps.clock(),row.id,row.user_id,JSON.stringify(landscape.retryFrames));
+   const now=this.deps.clock();
+   db.run(`UPDATE reader_faults AS f SET state='replaced',updated_at=? WHERE session_id=? AND owner_id=?
+    AND node='landscape' AND node_key IN (SELECT value FROM json_each(?)) AND (state IN ('pending','recovering') OR ${unexecutedLandscapeRecovery})`,
+    now,row.id,row.user_id,keys);
+   // 旧排队任务的回执可以复用，但不能用旧授权领取或阻塞新任务。
+   db.run(`UPDATE production_jobs SET state='succeeded',result=json_object('obsolete',1),error=NULL,updated_at=?
+    WHERE session_id=? AND owner_id=? AND kind=? AND state='queued' AND json_extract(payload,'$.work.call')='drawLandscape'
+    AND json_extract(payload,'$.work.instances[0].key') IN (SELECT value FROM json_each(?))`,now,row.id,row.user_id,dagDrawKind,keys);
    return true;
   });
   const saved=await this.deps.database.prepare(sql).bind(...params).run();
@@ -277,7 +294,7 @@ export class DagProduction{
    if(current?.document!==row.document)return null;
    reconcileImageFaults(db,row.user_id,story,this.deps.clock());
    if(story.doc.revision)reconcileCarriedJobFaults(db,row.user_id,story,this.deps.clock());
-   return dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,row.id,row.user_id));
+   return dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,row.id,row.user_id),story.dag);
   });
   if(!refreshed)return true;
   story.faults=refreshed;
@@ -287,7 +304,10 @@ export class DagProduction{
   }
   // 正在执行的任务覆盖的实例不再派发新任务：其结果保存后若仍需重做，下一轮再安排。
   const running=new Set((await this.deps.database.prepare(`SELECT payload FROM production_jobs WHERE session_id=? AND owner_id=? AND kind IN ('${dagTextKind}','${dagDrawKind}') AND state='running'`).bind(row.id,row.user_id).all<{payload:string}>()).results
-   .flatMap(j=>(JSON.parse(j.payload) as {work:Work}).work.instances.map(i=>i.id)));
+   .flatMap(j=>{
+    const {work:item,landscapeAttempt}=JSON.parse(j.payload) as {work:Work;landscapeAttempt?:number};
+    return item.instances.filter(i=>item.call!=='drawLandscape'||story.dag.frames[i.key]?.landscapeAttempt===landscapeAttempt).map(i=>i.id);
+   }));
   const retained=new Set<string>();
   for(const job of queued){
    const {work:item,paid}=JSON.parse(job.payload) as {work:Work;paid?:Paid};
@@ -432,6 +452,7 @@ export class DagProduction{
   const story=initial&&await this.story(initial,item.call==='draw'&&!paid?'for-drawing':'resolve');
   if(!initial||!story||story.doc.intake?.generation!==setupGeneration||
    preparationGeneration!==undefined&&story.dag.preparationGeneration!==preparationGeneration||story.dag.continuation||stale(story,item))return {obsolete:true};
+  if(item.call==='drawLandscape'&&!stateOf(story).landscapes?.includes(item.instances[0].key))return {obsolete:true};
   if(story.dag.repreparing&&item.call!=='prepareSuggestions')throw new JobYield();
   const readablePaid=paid&&drawing(item.call)&&this.currentDrawingReceipt(story,item)&&!await this.paidFileLost(job,paid.value,item.call==='drawLandscape');
   // 尚未付费的任务必须仍属于当前请求。可读的已付费成图沿用派发时的参考图。
@@ -459,7 +480,7 @@ export class DagProduction{
     if(item.call!=='drawLandscape'||persistenceError(error)||error instanceof PaidDispatchDenied||error instanceof JobYield)throw error;
     const code=errorCode(error);
     if(code==='TIMEOUT'||code==='CONTENT_BLOCKED')throw error;
-    await this.markLandscape(job,item.instances[0].key,error instanceof ReaderError?error.message:provider.safeError(error));
+    await this.markLandscape(job,item.instances[0].key,error instanceof ReaderError?error.message:provider.safeError(error),landscapeAttempt);
     return {failed:true};
    }
    const promptRecordId=generated.promptRecord?await storePromptRecord(this.deps.database,generated.promptRecord):undefined;
@@ -468,7 +489,7 @@ export class DagProduction{
    await this.storePaid(job,entry);
    if(drawing(item.call)){
     if(await this.paidFileLost(job,generated.value,item.call==='drawLandscape')){
-     if(item.call==='drawLandscape'){await this.markLandscape(job,item.instances[0].key,'图片服务未返回可读取的 3∶2 横图，请重试本幅。');return {failed:true};}
+     if(item.call==='drawLandscape'){await this.markLandscape(job,item.instances[0].key,'图片服务未返回可读取的 3∶2 横图，请重试本幅。',landscapeAttempt);return {failed:true};}
      throw new ReaderError(409,'图片服务未返回可读取的图片，请重试本幅。');
     }
    }
@@ -477,6 +498,7 @@ export class DagProduction{
    const row=await this.row(job.session_id,job.owner_id),current=row&&await this.story(row);
    if(!row||!current||current.doc.intake?.generation!==setupGeneration||
     preparationGeneration!==undefined&&current.dag.preparationGeneration!==preparationGeneration||current.dag.continuation)return {obsolete:true};
+   if(item.call==='drawLandscape'&&current.dag.frames[item.instances[0].key]?.landscapeAttempt!==landscapeAttempt)return {obsolete:true};
    const next=apply(current,appliedWork,generated!.value,{newId:()=>`f-${randomUUID().slice(0,12)}`});
    if(!next)return {obsolete:true};
    // 已付费的结果即使故事已被删除也保存，恢复后不再重复付费。
@@ -531,10 +553,11 @@ export class DagProduction{
   * 横图失败记在原版画幅上。与成功结果一样，在任务租约内保存到已删除的故事，恢复删除后仍可重试本幅。
   * 无法保存时抛出，交由队列记录失败，避免任务显示成功而画幅停在未完成状态。
   */
- private async markLandscape(job:ProductionJob,key:string,message:string){
+ private async markLandscape(job:ProductionJob,key:string,message:string,landscapeAttempt?:number){
   for(let attempt=0;attempt<5;attempt++){
    const row=await this.row(job.session_id,job.owner_id),story=row&&await this.story(row);
-   if(!row||!story?.dag.frames[key])return;
+   const frame=story?.dag.frames[key];
+   if(!row||!story||frame?.landscape!==''||frame.landscapeAttempt!==landscapeAttempt)return;
    const dag=structuredClone(story.dag);dag.frames[key].landscapeError=message;
    if(await this.save(row,story,dag,{retainDeleted:true,job}))return;
    if(!await this.deps.database.prepare("SELECT 1 FROM production_jobs WHERE id=? AND state='running' AND lease_token IS ?").bind(job.id,job.lease_token??null).first())return;
@@ -544,36 +567,38 @@ export class DagProduction{
 
  /** 横图状态：由各画幅的横图、请求标记与失败说明得出；只对已完成的故事开放。 */
  /** 已保存的横图文件现在读不出（丢失或损坏）的画幅身份；读取暂时失败时不判为丢失。 */
- private async lostLandscapes(story:DagStory,knownLosses?:ReadonlySet<string>){
-  const lost=new Set<string>();
+ private async checkLandscapes(story:DagStory,evaluation:Evaluation,knownLosses?:ReadonlySet<string>){
+  const lost=new Set<string>(),unavailable=new Set<string>();
   for(const id of story.dag.order){
    const url=story.dag.frames[id]?.landscape,key=url?referenceImageKey(story.id,url):null;
-   if(url&&key&&await this.deps.fileLost(key,true,true).catch(()=>knownLosses?.has(id)??false))lost.add(id);
+   if(!url||evaluation.instance('landscape',id).status!=='valid')continue;
+   try{if(!key||await this.deps.fileLost(key,true,true))lost.add(id);}
+   catch{(knownLosses?.has(id)?lost:unavailable).add(id);}
   }
-  return lost;
+  return {lost,unavailable};
  }
 
- async landscapeStatus(row:SessionRow,knownLosses?:ReadonlySet<string>):Promise<LandscapeStatus>{
-  const story=(await this.story(row))!,lost=await this.lostLandscapes(story,knownLosses);
+ async landscapeProjection(row:SessionRow,knownLosses?:ReadonlySet<string>){
+  const story=(await this.story(row,'skip'))!,evaluation=evaluate(stateOf(story)),{lost,unavailable}=await this.checkLandscapes(story,evaluation,knownLosses);
   const jobs=(await this.deps.database.prepare("SELECT kind,state,payload,error FROM production_jobs WHERE session_id=? AND owner_id=? AND kind=? AND state IN ('queued','running','failed') AND json_extract(payload,'$.work.call')='drawLandscape' ORDER BY created_at,id").bind(row.id,row.user_id,dagDrawKind).all()).results as Pick<ProductionJob,'kind'|'state'|'payload'|'error'>[];
-  const inherited=story.doc.revision?(await this.deps.database.prepare(`SELECT * FROM reader_faults
-   WHERE session_id=? AND owner_id=? AND node='landscape' AND state='pending' AND job_id IS NULL AND origin_fault_id IS NOT NULL`)
+  const inherited=story.doc.revision?(await this.deps.database.prepare(`SELECT * FROM reader_faults f
+   WHERE session_id=? AND owner_id=? AND node='landscape' AND (state='pending' OR ${unexecutedLandscapeRecovery}) AND job_id IS NULL AND origin_fault_id IS NOT NULL`)
    .bind(row.id,row.user_id).all<ReaderFault>()).results:[];
-  const evaluation=inherited.length?evaluate(stateOf(story)):undefined;
-  const matched=evaluation?inherited.filter(fault=>carriedJobFaultState(evaluation,fault)==='pending'):[];
-  const frames=landscapeFrames(story.dag,jobs,lost,matched);
-  const images=frames.map(f=>f.landscape||''),failed=frames.flatMap((f,i)=>f.landscapeError?[i+1]:[]);
+  const matched=inherited.filter(fault=>carriedJobFaultState(evaluation,fault)==='pending').map(fault=>({...fault,state:'pending' as const}));
+  const frames=landscapeFrames(story.dag,evaluation,jobs,lost,matched);
+  const images=frames.map((frame,page)=>unavailable.has(story.dag.order[page])?'':frame.landscape||''),failed=frames.flatMap((f,i)=>f.landscapeError?[i+1]:[]);
   const pending=frames.some(f=>f.landscape===''&&!f.landscapeError),ready=images.filter(Boolean).length,available=row.state==='completed';
-  const state=pending?'running':ready===frames.length&&frames.length?'completed':ready||failed.length?'partial':'idle';
-  const missing=frames.some(f=>f.landscape===undefined);
-  return {state,available,total:frames.length,ready,images,failed,
-   ...(available&&!pending&&missing?{startToken:inputVersion(['dag-landscape',row.document])}:{}),
+  const missing=story.dag.order.filter((_,page)=>frames[page].landscape===undefined);
+  const status:LandscapeStatus={state:pending?'running':ready===frames.length&&frames.length?'completed':ready||failed.length?'partial':'idle',available,total:frames.length,ready,images,failed,
+   ...(unavailable.size?{error:'部分横图暂时无法读取。'}:{}),
+   ...(available&&!pending&&missing.length?{startToken:inputVersion(['dag-landscape',row.document,missing])}:{}),
    ...(available&&!pending&&failed.length?{retryToken:inputVersion(['dag-landscape-retry',row.document,failed]),error:frames.find(f=>f.landscapeError)!.landscapeError}:{})};
+  return {status,lost,missing};
  }
 
  /** 请求横图：开始时为尚未请求的画幅加请求标记；重试时清除失败说明并作废失败的任务，然后立即安排。 */
  async startLandscape(row:SessionRow,command:{startToken?:string;retryToken?:string},stopping=false){
-  const status=hasDag(row)?await this.landscapeStatus(row):undefined;
+  const projection=hasDag(row)?await this.landscapeProjection(row):undefined,status=projection?.status;
   const retry=command.retryToken!==undefined,event=retry?'retry-landscape':'start-landscape';
   const superseded=await this.deps.database.prepare(`SELECT id FROM stories WHERE id=? AND user_id=? AND ${supersededSql()}`).bind(row.id,row.user_id).first();
   const authorization=authorizeProductionCommand(event,{
@@ -582,23 +607,22 @@ export class DagProduction{
    targetReady:!!status?.available,
   });
   if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
-  const story=(await this.story(row))!,dag=structuredClone(story.dag);
-  const retryFrames=retry?status!.failed.map(page=>dag.order[page-1]):[];
-  const selected=new Set(retryFrames);
-  for(const id of dag.order){
+  const story=(await this.story(row,'skip'))!,dag=structuredClone(story.dag),evaluation=evaluate(stateOf(story));
+  const resetFrames=retry?status!.failed.map(page=>dag.order[page-1]):projection!.missing;
+  for(const id of resetFrames){
    const frame=dag.frames[id];
-   // 只重绘令牌所绑定的画幅，原任务与付费回执按上一代保留。
-   if(selected.has(id)){
-    delete dag.products[`landscape:${id}`];frame.landscape='';delete frame.landscapeError;
-    frame.landscapeAttempt=(frame.landscapeAttempt??0)+1;
-   }
-   if(!retry&&frame.landscape===undefined)frame.landscape='';
+   // 只绘制令牌绑定的画幅；重试保留旧任务及回执，并赋予新任务独立代次。
+   if(retry||frame.landscape!==undefined)frame.landscapeAttempt=(frame.landscapeAttempt??0)+1;
+   const inputs=evaluation.instance('landscape',id).hard;
+   if(!inputs)throw new ReaderError(409,'横图的绘图输入尚未就绪，请刷新后重试。');
+   delete dag.products[instanceId('landscape',id)];frame.landscape='';delete frame.landscapeError;
+   frame.landscapeInputHash=fingerprint(inputs);
   }
-  if(!await this.save(row,story,dag,{landscape:{retryFrames}}))throw new ReaderError(409,'故事已更新，请刷新后再试。');
+  if(!await this.save(row,story,dag,{landscape:{resetFrames}}))throw new ReaderError(409,'故事已更新，请刷新后再试。');
   const saved=await this.row(row.id,row.user_id);
   if(saved)await this.schedule(saved);
   this.deps.wake();
-  return this.landscapeStatus(saved??row);
+  return (await this.landscapeProjection(saved??row)).status;
  }
 
  /**
@@ -805,7 +829,7 @@ export class DagProduction{
    const doc=current&&JSON.parse(current.document) as Document|undefined;
    if(!current||!doc?.dag)throw new ReaderError(409,'制作版本已更新，请刷新后重试。');
    const story:DagStory={id:row.id,doc,selection:selectionSchema.parse(JSON.parse(current.selection)),dag:doc.dag,confirmed:!doc.intake||doc.intake.phase==='confirmed',
-    faults:dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,row.id,row.user_id))};
+    faults:dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,row.id,row.user_id),doc.dag)};
    const block=this.reviewBlock(story),targets=[...new Set(block.reasons.filter(item=>item.reason==='limit').map(item=>item.target))];
    const authorization=authorizeProductionCommand('continue-repair',{version:'current',control:current.generation_control??'active',
     continuation:!!doc.dag.continuation,targetCurrent:block.id===faultId,targetReady:story.confirmed&&targets.length>0,stopping:false});
@@ -895,7 +919,7 @@ export class DagProduction{
     // 结论指纹包含故障带来的可执行性，在回执事务内读取，不采用此前的轮询快照。
     const doc=current&&JSON.parse(current.document) as Document|undefined;
     const story:DagStory|null=current&&doc?.dag?{id,doc,dag:doc.dag,selection:selectionSchema.parse(JSON.parse(current.selection)),
-     confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,id,ownerId))}:null;
+     confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,id,ownerId),doc.dag)}:null;
     const block=story&&!work(story).some(item=>!drawing(item.call))?this.reviewBlock(story):null;
     targets=block?.targets??[];
     const dag=story&&block?.id===faultId?overrideReview(story,targets):null;

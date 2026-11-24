@@ -12,7 +12,9 @@ export type FaultToCarry=CarriedFault&{payload:string|null};
 export const recordedFaultRows=`SELECT f.id,f.kind,f.node,f.node_key,f.message,f.image,f.input_hash,f.origin_fault_id,f.optional,f.created_at,j.payload
  FROM reader_faults f LEFT JOIN production_jobs j ON j.id=f.job_id AND j.session_id=f.session_id AND j.owner_id=f.owner_id
  WHERE f.session_id=? AND f.owner_id=? AND f.node IS NOT NULL`;
-export const carriedFaultRows=recordedFaultRows+" AND f.state IN ('pending','recovering','awaiting-match')";
+// 旧版通用重试错误地解除横图故障，却没有建立绘图任务。保留历史回执，并继续提供专用重试。
+export const unexecutedLandscapeRecovery="(f.state='resolved' AND f.node='landscape' AND f.kind='job' AND f.job_id IS NULL AND f.origin_fault_id IS NOT NULL AND f.command_id IS NOT NULL)";
+export const carriedFaultRows=recordedFaultRows+` AND (f.state IN ('pending','recovering','awaiting-match') OR ${unexecutedLandscapeRecovery})`;
 /**
  * 逐个延续输入未变的故障实例。批量故障拆成具体节点与键保存，保留原故障编号，供读者一次恢复该批留下的目标。
  */
@@ -61,7 +63,7 @@ export const isCarriedReviewFault=(fault:ReaderFault)=>fault.kind==='job'&&!faul
  verdictNodes.some(node=>node===fault.node);
 
 export function reconcileCarriedJobFaults(db:SyncStatements,ownerId:string,story:DagStory,now:number){
- const rows=db.all<ReaderFault>(`SELECT * FROM reader_faults WHERE session_id=? AND owner_id=? AND state='pending'
+ const rows=db.all<ReaderFault>(`SELECT * FROM reader_faults f WHERE session_id=? AND owner_id=? AND (state='pending' OR ${unexecutedLandscapeRecovery})
   AND kind='job' AND job_id IS NULL AND origin_fault_id IS NOT NULL AND input_hash IS NOT NULL ORDER BY created_at,id`,story.id,ownerId);
  if(!rows.length)return;
  const evaluation=evaluate(stateOf(story));
