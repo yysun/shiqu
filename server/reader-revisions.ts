@@ -29,6 +29,7 @@ const savedFrameCount=(doc:Document)=>doc.draft?.pages.length??doc.storyboard?.o
 const canEditReviewNotes=(row:SessionRow,doc:Document)=>!!doc.plan&&!!doc.visualReview&&row.state!=='completed'&&(row.generation_control==='paused'||row.generation_control==='stopped');
 export async function revisionBasis(repo:ReaderRepository,row:SessionRow,forReselection=false){
  const doc=JSON.parse(row.document) as Document;
+ if(!forReselection&&doc.dag?.repreparing)throw new ReaderError(409,'这篇故事正在重新准备，请等新的制作建议保存后再修改。');
  const current=!doc.reselection&&!await repo.superseded(row.id,row.user_id);
  const unconfirmed=doc.intake?.phase!=='confirmed'?doc.intake:undefined;
  const control=row.generation_control??'active';

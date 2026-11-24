@@ -66,6 +66,8 @@ const drawing=(call:string)=>call==='draw'||call==='drawLandscape';
 const visible="NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)";
 
 export const hasDag=(row:SessionRow)=>{try{return !!(JSON.parse(row.document) as Document).dag;}catch{return false;}};
+export const canReprepare=(doc:Document)=>!!doc.dag&&!!doc.original&&!doc.reselection&&
+ (!doc.intake||doc.intake.phase==='confirmed')&&!doc.dag.repreparing;
 
 export class DagProduction{
  private readonly deps:Deps;
@@ -81,7 +83,8 @@ export class DagProduction{
    if(referenceMode==='for-drawing'&&error instanceof PaidDispatchDenied)throw error;
    return '';
   });
-  return {id:row.id,doc,selection,dag:doc.dag,confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:await this.faults(row),...(refSource?{refSource}:{})};
+  return {id:row.id,doc,selection,dag:doc.dag,confirmed:!doc.intake||doc.intake.phase==='confirmed',reprepare:!!doc.dag.repreparing,
+   faults:await this.faults(row),...(refSource?{refSource}:{})};
  }
 
  /**
@@ -104,7 +107,7 @@ export class DagProduction{
    return {...fault,faultKind:fault.kind,kind:job?.kind??null,payload:job?.payload??null};
   });
   const confirmed=!doc.intake||doc.intake.phase==='confirmed';
-  const story:DagStory={id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed,faults:dagFaultTargets(targets)};
+  const story:DagStory={id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed,reprepare:!!dag.repreparing,faults:dagFaultTargets(targets)};
   const complete=confirmed&&finished(story);
   const reviewing={...story,faults:dagFaultTargets(targets.filter(target=>target.state!=='recovering'))};
   const blocking=complete||work(reviewing).some(item=>!drawing(item.call))?null:this.reviewBlock(reviewing);
@@ -117,6 +120,7 @@ export class DagProduction{
   const doc=JSON.parse(row.document) as Document,dag=doc.dag;
   if(!dag)return {inputCurrent:false,fault:false};
   const {work:item,landscapeAttempt}=JSON.parse(job.payload) as {work:Work;landscapeAttempt?:number};
+  if(dag.repreparing&&item.call!=='prepareSuggestions')return {inputCurrent:true,fault:true};
   if(item.call==='drawLandscape'&&dag.frames[item.instances[0].key]?.landscapeAttempt!==landscapeAttempt)
    return {inputCurrent:false,fault:false};
   const story:DagStory={id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),
@@ -171,17 +175,18 @@ export class DagProduction{
  private spec(row:SessionRow,story:DagStory,item:Work,priority:number,viewers:Viewing[]=[]):JobSpec{
   // 任务身份覆盖本次请求实际读取的全部输入（含来源与核对输入，如修订读取的当前配文与问题），
   // 因此同一产物在来源变化后再次修订会得到新任务；产物有效性仍只按硬输入判断。
-  const preparation=!story.confirmed&&(item.call==='verifySource'||preparingCall(item.call));
+  const preparation=(!story.confirmed||story.reprepare)&&(item.call==='verifySource'||preparingCall(item.call));
   const {displayTitle:_,...selection}=story.selection;void _;
   const request=drawing(item.call)?drawInput(story,item):item.call==='verifySource'||preparingCall(item.call)?{selection,requirements:item.call==='prepareSuggestions'&&!!story.doc.intake&&!story.doc.setupRequirements?.suggestions}:requestFor(story,item);
   const landscapeAttempt=item.call==='drawLandscape'?story.dag.frames[item.instances[0].key]?.landscapeAttempt:undefined;
   const attempt=landscapeAttempt===undefined?{}:{landscapeAttempt};
+  const preparationGeneration=story.reprepare&&item.call==='prepareSuggestions'?story.dag.preparationGeneration:undefined;
   const id=fingerprint(['dag-job',row.id,story.doc.intake?.generation??null,item.call,item.stage??0,item.instances.map(i=>[i.id,i.hard??null]),request,
-   ...(landscapeAttempt===undefined?[]:[landscapeAttempt])]);
+   ...(landscapeAttempt===undefined?[]:[landscapeAttempt]),...(preparationGeneration===undefined?[]:[{preparationGeneration}])]);
   const page=drawing(item.call)?story.dag.order.indexOf(item.instances[0].key):undefined;
   return {id,sessionId:row.id,ownerId:row.user_id,kind:drawing(item.call)?dagDrawKind:dagTextKind,pool:drawing(item.call)?'image':'text',version:'dag',dependencies:[],
    // 准备流程的世代与旧任务相同：选题或确认改变世代后，上一世代的任务不再算作当前任务。
-   payload:{work:item,...attempt,...(page!==undefined?{page}:{}),...(story.doc.intake?{setupGeneration:story.doc.intake.generation}:{}),timingStage:preparation?'count':drawing(item.call)?'image':item.call,...(preparation?{timingScope:productionTimingScope(story.selection,false)}:{})},priority:page===undefined?priority:viewedPriority(page,viewers)};
+   payload:{work:item,...attempt,...(preparationGeneration===undefined?{}:{preparationGeneration}),...(page!==undefined?{page}:{}),...(story.doc.intake?{setupGeneration:story.doc.intake.generation}:{}),timingStage:preparation?'count':drawing(item.call)?'image':item.call,...(preparation?{timingScope:productionTimingScope(story.selection,false)}:{})},priority:page===undefined?priority:viewedPriority(page,viewers)};
  }
 
  /** 为一篇故事安排工作；返回 true 表示已由 DAG 路径处理。 */
@@ -226,7 +231,8 @@ export class DagProduction{
    const done=await this.deps.database.prepare("SELECT id FROM production_jobs WHERE id=? AND state='succeeded'").bind(spec.id).first();
    if(done)await this.deps.queue.rerun(spec.id);
   }
-  await this.drop(queued.map(j=>j.id).filter(id=>!retained.has(id)&&!specs.some(s=>s.id===id)));
+  const supersededQueue=queued.filter(job=>!story.reprepare||(JSON.parse(job.payload) as {work:Work}).work.call==='prepareSuggestions');
+  await this.drop(supersededQueue.map(j=>j.id).filter(id=>!retained.has(id)&&!specs.some(s=>s.id===id)));
   return true;
  }
  private specs(row:SessionRow,story:DagStory,items=work(story),viewers:Viewing[]=[]){return items.map((item,i)=>this.spec(row,story,item,-10+i,viewers));}
@@ -240,10 +246,11 @@ export class DagProduction{
  }
 
  async run(job:ProductionJob,provider:ReaderProvider){
-  const {work:item,paid,setupGeneration}=JSON.parse(job.payload) as {work:Work;paid?:Paid;setupGeneration?:number};
+  const {work:item,paid,setupGeneration,preparationGeneration}=JSON.parse(job.payload) as {work:Work;paid?:Paid;setupGeneration?:number;preparationGeneration?:number};
   const initial=await this.row(job.session_id,job.owner_id);
   const story=initial&&await this.story(initial,item.call==='draw'&&!paid?'for-drawing':'resolve');
-  if(!initial||!story||story.doc.intake?.generation!==setupGeneration||story.dag.continuation||stale(story,item))return {obsolete:true};
+  if(!initial||!story||story.doc.intake?.generation!==setupGeneration||
+   preparationGeneration!==undefined&&story.dag.preparationGeneration!==preparationGeneration||story.dag.continuation||stale(story,item))return {obsolete:true};
   const readablePaid=paid&&drawing(item.call)&&this.currentDrawingReceipt(story,item)&&!await this.paidFileLost(job,paid.value,item.call==='drawLandscape');
   // 尚未付费的任务必须仍属于当前请求。可读的已付费成图沿用派发时的参考图。
   if(!job.recovery_id&&!readablePaid&&!this.specs(initial,story).some(spec=>spec.id===job.id))return {obsolete:true};
@@ -280,13 +287,17 @@ export class DagProduction{
   }
   for(let attempt=0;attempt<5;attempt++){
    const row=await this.row(job.session_id,job.owner_id),current=row&&await this.story(row);
-   if(!row||!current||current.doc.intake?.generation!==setupGeneration||current.dag.continuation)return {obsolete:true};
+   if(!row||!current||current.doc.intake?.generation!==setupGeneration||
+    preparationGeneration!==undefined&&current.dag.preparationGeneration!==preparationGeneration||current.dag.continuation)return {obsolete:true};
    const next=apply(current,item,generated!.value,{newId:()=>`f-${randomUUID().slice(0,12)}`});
    if(!next)return {obsolete:true};
    // 已付费的结果即使故事已被删除也保存，恢复后不再重复付费。
    let selection:Selection|undefined;
    if(item.call==='verifySource')current.doc.original=generated!.value as OriginalSource;
-   if(preparingCall(item.call)){
+   if(current.reprepare&&item.call==='prepareSuggestions'){
+    current.doc.frameRecommendation=generated!.value as FrameRecommendation;
+    delete next.repreparing;
+   }else if(preparingCall(item.call)){
     if(!preparationPending(current.doc))return {obsolete:true};
     selection=current.selection;
     if(item.call==='prepareSuggestions')preparationResult(current.doc,selection,generated!.value as FrameRecommendation);
@@ -556,6 +567,30 @@ export class DagProduction{
    db.run("UPDATE stories SET document=json_set(document,'$.dag.modelSnapshot',json(?)),updated_at=? WHERE id=? AND user_id=?",
     JSON.stringify(current),new Date(now).toISOString(),id,ownerId);
    db.run("INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,result_id,created_at,updated_at) VALUES(?,?,?,'control',?,?,?,?,?)",requestId,ownerId,id,'apply-model:'+commandFingerprint(['apply-model',id,current]),JSON.stringify({action:'apply-model',snapshot:current}),id,now,now);
+  });
+  this.deps.wake();
+ }
+
+ reprepare(ownerId:string,id:string,requestId:string,stopping=false){
+  const now=this.deps.clock(),fingerprint=commandFingerprint(['reprepare',id]);
+  transact(this.deps.database,db=>{
+   const receipt=db.get<CommandReceipt>('SELECT * FROM reader_commands WHERE owner_id=? AND request_id=?',ownerId,requestId);
+   if(receipt){
+    if(receipt.action!=='control'||receipt.session_id!==id||receipt.fingerprint!==fingerprint)throw new ReaderError(409,'这个操作编号已用于其他内容。');
+    return;
+   }
+   if(db.get('SELECT id FROM stories WHERE id=? AND user_id=?',requestId,ownerId))throw new ReaderError(409,'这个操作编号已用于创建或提交故事。');
+   const row=db.get<SessionRow>(`SELECT * FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,id,ownerId);
+   const doc=row?JSON.parse(row.document) as Document:undefined;
+   const decision=authorizeProductionCommand('reprepare',{version:row?'current':'superseded',control:row?.generation_control??'active',
+    continuation:!!doc?.dag?.continuation,stopping,targetCurrent:true,targetReady:!!doc&&canReprepare(doc)});
+   if(!decision.allowed)throw new ReaderError(decision.status,decision.message);
+   const dag=doc!.dag!;
+   dag.repreparing=true;dag.preparationGeneration=(dag.preparationGeneration??0)+1;
+   delete dag.products['suggestions:'];
+   db.run("UPDATE stories SET document=?,state='idle',error=NULL,updated_at=? WHERE id=? AND user_id=?",JSON.stringify(doc),new Date(now).toISOString(),id,ownerId);
+   db.run("INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,result_id,created_at,updated_at) VALUES(?,?,?,'control',?,?,?,?,?)",
+    requestId,ownerId,id,fingerprint,JSON.stringify({action:'reprepare',generation:dag.preparationGeneration}),id,now,now);
   });
   this.deps.wake();
  }

@@ -16,7 +16,7 @@ export type ProductionImageCheck={
  state:'pending'|'temporarily-unavailable';pages:number[];kind:'portrait'|'landscape'|'job';jobId?:string;
 };
 export type ProductionActionOffer=
- {event:ProductionControlEvent|'continue'|'apply-model'}|
+ {event:ProductionControlEvent|'continue'|'apply-model'|'reprepare'}|
  {event:'retry'|'continue-repair'|'skip-review'|'override-review';faultId:string};
 export type ProductionService='available'|'unconfigured'|'snapshot-unavailable'|'stopping';
 export const productionServiceMessages={
@@ -56,14 +56,14 @@ type ActivityJob={id:string;kind:string;payload:string;state:string;lease_until:
 type ActivityInput=Pick<SessionView,'state'|'intake'|'generationControl'|'awaitingContinue'> & {
  complete?:boolean;superseded:boolean;replacementOpen:boolean;queued:boolean;faults:ProductionFault[];
  reviewAttention:Attention[];review:ProductionLifecycle['review'];service:ProductionService;now:number;order:readonly string[];
- pendingImageChecks:ProductionImageCheck[];optionalWork:boolean;modelApplicable:boolean;stopping:boolean;
+ pendingImageChecks:ProductionImageCheck[];optionalWork:boolean;modelApplicable:boolean;canReprepare:boolean;repreparing:boolean;stopping:boolean;
  freeImageRecoveries:ReadonlySet<string>;
  reviewBlockId?:string;canOverrideReview:boolean;reviewSkipId?:string;
 };
 
 export function productionLifecycle(input:ActivityInput,jobs:readonly ActivityJob[]):ProductionLifecycle{
  const intake=input.intake?.phase;
- const phase=intake==='choosing'||intake==='discovering'?'selection':intake==='preparing'?'preparation':
+ const phase=intake==='choosing'||intake==='discovering'?'selection':intake==='preparing'||input.repreparing?'preparation':
   intake==='confirming'?'confirmation':(input.complete??input.state==='completed')?'completed':'production';
  const control=input.generationControl??'active';
  const inFlight=(job:ActivityJob)=>job.state==='running'&&job.lease_until>input.now&&(job.kind!=='discover'||intake==='discovering');
@@ -102,6 +102,7 @@ function productionActionOffers(input:ActivityInput,control:GenerationControl):P
  }
  if(configured&&allowed('continue'))actions.push({event:'continue'});
  if(input.modelApplicable&&allowed('apply-model'))actions.push({event:'apply-model'});
+ if(configured&&allowed('reprepare',input.canReprepare))actions.push({event:'reprepare'});
  if(input.reviewBlockId){
   if(configured&&allowed('continue-repair',input.reviewAttention.some(reason=>reason.reason==='limit')))actions.push({event:'continue-repair',faultId:input.reviewBlockId});
   if(configured&&allowed('override-review',input.canOverrideReview))actions.push({event:'override-review',faultId:input.reviewBlockId});
@@ -161,7 +162,7 @@ export function authorizeDispatch(state:DispatchState):DispatchDecision{
 
 export const productionControlEvents=['background','pause','stop','resume'] as const;
 export type ProductionControlEvent=(typeof productionControlEvents)[number];
-export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|'override-review'|'apply-model'|'image-health'|'start-landscape'|'retry-landscape'|'open-reselection'|'edit-revision'|'save-revision'|'redraw'|'cover'|'copy'|'copy-draft'|ProductionControlEvent;
+export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|'override-review'|'apply-model'|'reprepare'|'image-health'|'start-landscape'|'retry-landscape'|'open-reselection'|'edit-revision'|'save-revision'|'redraw'|'cover'|'copy'|'copy-draft'|ProductionControlEvent;
 type CommandState={
  version:DispatchState['version'];control:GenerationControl;continuation:boolean;
  targetCurrent:boolean;targetReady:boolean;stopping:boolean;
@@ -172,6 +173,8 @@ const controlCommand={allows:(state:CommandState)=>state.targetReady,denial:'故
 const landscapeCommand={allows:(state:CommandState)=>state.targetCurrent&&state.targetReady,
  denial:(state:CommandState)=>state.targetReady?'横图状态已更新，请刷新后再操作。':'请先完成当前版本的竖版插图。'};
 const commands={
+ reprepare:{allows:(state:CommandState)=>state.targetCurrent&&state.targetReady&&!state.continuation,
+  denial:'请先确认制作并保存原文。已有准备任务时，请等待或重试该任务。'},
  background:controlCommand,
  pause:controlCommand,
  stop:controlCommand,

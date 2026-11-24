@@ -49,6 +49,7 @@ const commands=[
  ['stories edit','Save a revision using the current token. Supply a revised plan plus changes.removedFrames to shorten a storyboard. changes.storySummary sets the displayed synopsis. On a paused audit, changes.reviewNotes guides another review. changes.redrawPages uses 1-based pages and accepts optional changes.redrawNotes. If the revision needs more work, it is saved waiting (已保存，等待继续). --cover FILE saves that image byte for byte as the first frame of a style-only change on a completed, review-passed story. Continue the new revision and run it to draw the remaining frames.','stories edit ID --input revision.json --request-id UUID'],
  ['stories continue','Authorize a saved revision that is waiting (已保存，等待继续). This clears the wait and the pause. Run the new version to perform inference. A run attempted while waiting returns continue_required.','stories continue NEW_ID --request-id UUID'],
  ['stories pause|resume|stop|retry|override','Control or explicitly recover the current fault; input faultId is required for retry/override.','stories retry ID --input recovery.json --request-id UUID'],
+ ['stories reprepare','Queue refreshed recommendations for an active confirmed story, preserving accepted settings and saved images. Inference requires run.','stories reprepare ID --request-id UUID'],
  ['stories rename|delete|restore|favorite|reference','Shared library actions; reference input is {page,starred,token?}.','stories rename ID --title 新标题'],
  ['stories revisions|prompts|review-history|source','Read saved production checkpoints and history.','stories review-history ID'],
  ['stories reselect|replace|cancel-reselection','Replace a choice within the same family. Set new discovery conditions or stage verified local originals with stories setup. Commit the candidate from the latest draft generation with stories replace.','stories replace ID DRAFT_ID --input replacement.json'],
@@ -224,7 +225,14 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    if(initial.lifecycle?.continuation??initial.awaitingContinue)return {reason:'continue_required',session:initial};
    if((initial.lifecycle?.control??initial.generationControl)!=='active')return {reason:'paused',session:initial};
    if(initial.state==='failed'||initial.lifecycle?.phase==='production'&&initial.lifecycle.service!=='available')return {reason:'blocked',session:initial};
-   const boundary=(snapshot:any)=>(snapshot.lifecycle?.phase==='completed'||!snapshot.lifecycle&&snapshot.state==='completed')?'completed':until==='prepared'&&snapshot.intake?.phase==='confirmed'?'already_prepared':until==='prepared'&&snapshot.frameRecommendation?'prepared':until==='candidates'&&snapshot.intake?.selected?'already_selected':null;
+   const boundary=(snapshot:any)=>{
+    if(snapshot.lifecycle?.phase==='completed'||!snapshot.lifecycle&&snapshot.state==='completed')return 'completed';
+    if(until==='prepared'&&snapshot.lifecycle?.phase!=='preparation'){
+     if(snapshot.intake?.phase==='confirmed')return 'already_prepared';
+     if(snapshot.frameRecommendation)return 'prepared';
+    }
+    return until==='candidates'&&snapshot.intake?.selected?'already_selected':null;
+   };
    const reached=boundary(initial);if(reached)return {reason:reached,session:initial};
    if(until==='candidates')need(initial.intake,'BOUNDARY_UNAVAILABLE','Candidates require an intake story.');
    if(until==='prepared'&&!initial.intake)need(initial.selection.narrativeDetail&&initial.selection.length!=='auto','BOUNDARY_UNAVAILABLE','This legacy story has no preparation gate; use --until reviewed or completed.');
@@ -283,7 +291,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   if(action==='rename')return await api(app,'POST',route+'/title',{title:value('title')||data.title});
   if(action==='delete')return await api(app,'DELETE',`library/${id}`);
   if(['restore','favorite','reference'].includes(action))return await api(app,'POST',`library/${id}/${action}`,data);
-  if(['pause','resume','stop','continue'].includes(action))return {requestId,session:await api(app,'POST',route+'/production-control',{requestId,action})};
+  if(['pause','resume','stop','continue','reprepare'].includes(action))return {requestId,session:await api(app,'POST',route+'/production-control',{requestId,action})};
   if(['retry','override'].includes(action)){
    const faultId=data.faultId;
    need(faultId,'FAULT_ID_REQUIRED','Choose a current faultId from stories get.');return {requestId,session:await api(app,'POST',route+(action==='retry'?'/recover':'/review-override'),{requestId,faultId,...(action==='override'&&data.ending!==undefined?{ending:data.ending}:{})})};

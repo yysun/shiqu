@@ -52,8 +52,9 @@ export async function authorizeRecovery(db:Database,input:{ownerId:string;sessio
    json_remove(s.selection,'$.displayTitle')=json_remove(?,'$.displayTitle')
    AND json_extract(s.document,'$.plan') IS json_extract(?,'$.plan')
    AND COALESCE(json_extract(s.document,'$.intake.generation'),-1)=COALESCE(json_extract(?,'$.intake.generation'),-1)
+   AND json_extract(s.document,'$.dag.preparationGeneration') IS json_extract(?,'$.dag.preparationGeneration')
    AND (? IS NULL OR json_extract(s.document,'$.dag.frames.'||json_quote(?)||'.image')=?) AS basisCurrent
-   FROM stories s WHERE s.id=? AND s.user_id=?`,input.basis.selection,input.basis.document,input.basis.document,
+   FROM stories s WHERE s.id=? AND s.user_id=?`,input.basis.selection,input.basis.document,input.basis.document,input.basis.document,
    fault?.image??null,fault?.node_key??'',fault?.image??null,sessionId,ownerId):undefined;
   const decision=authorizeProductionCommand('retry',{
    version:story?.deleted?'deleted':story?.superseded||input.basis&&!story?'superseded':'current',control:story?.generation_control??'active',

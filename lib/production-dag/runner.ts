@@ -51,10 +51,11 @@ export function syncItems(dag:DagDocument,selection:Selection):DagDocument{
 }
 
 export function stateOf(story:DagStory,{includeReviewSkip=true}={}):VersionState{
- const preparing=preparationPending(story.doc)||story.doc.intake?.phase==='confirming';
- const seed=preparing?{generation:story.doc.intake?.generation,production:productionRequirement(story.selection),detail:story.selection.narrativeDetail}:undefined;
+ const reprepare=story.reprepare||!!story.dag.repreparing;
+ const preparing=reprepare||preparationPending(story.doc)||story.doc.intake?.phase==='confirming';
+ const seed=preparing?{generation:story.dag.preparationGeneration??story.doc.intake?.generation,production:productionRequirement(story.selection),detail:story.selection.narrativeDetail}:undefined;
  const roots=rootProducts(story.selection,story.dag,{notes:story.doc.reviewNotes,refSource:story.refSource,seed});
- const state=versionState(story.dag,roots,{confirmed:story.confirmed,faults:story.faults,reprepare:story.reprepare,skipFrameCheck:typeof story.selection.length==='number'});
+ const state=versionState(story.dag,roots,{confirmed:story.confirmed,faults:story.faults,reprepare,skipFrameCheck:typeof story.selection.length==='number'});
  return includeReviewSkip?withReviewSkip(state,story.dag):state;
 }
 
@@ -105,7 +106,7 @@ export function settle(story:DagStory):DagDocument{
   if(dag.brief===undefined){dag=dag===story.dag?clone(dag):dag;dag.brief=verified;}
   adopt('brief',verified);
  }
- if((!story.confirmed||story.reprepare)&&story.doc.frameRecommendation){
+ if(!story.confirmed&&story.doc.frameRecommendation){
   adopt('suggestions',{requirements:story.doc.setupRequirements?.suggestions??null,frames:story.doc.frameRecommendation});
  }
  // 复用：硬输入与某份旧图完全一致时直接沿用，不要求画幅身份相同。
@@ -143,6 +144,7 @@ export function work(story:DagStory):Work[]{
  if(story.doc.reselection)return [];
  const state=stateOf(story);
  const groups=callGroups(state,callFor(state));
+ if(story.reprepare||story.dag.repreparing)return groups.filter(item=>item.call==='prepareSuggestions');
  if(!story.confirmed){
   if(!preparationPending(story.doc)||story.doc.frameRecommendation)return [];
   const candidate=preparationCandidate(story.doc),source=story.doc.original;
@@ -447,4 +449,4 @@ export function overrideReview(story:DagStory,targets:string[]):DagDocument|null
 export function stageOf(story:DagStory,inst:Instance){return reviewStage(stateOf(story),inst);}
 
 /** 整篇完成。 */
-export function finished(story:DagStory){return complete(stateOf(story));}
+export function finished(story:DagStory){return !story.reprepare&&!story.dag.repreparing&&complete(stateOf(story));}

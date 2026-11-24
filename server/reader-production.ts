@@ -32,7 +32,7 @@ import type {ProductionJob,JobSpec} from './production-queue.ts';
 import {authorizeRecovery,authorizeControl,commandReceipt,sessionFaults} from './reader-commands.ts';
 import type {ReaderFault} from './reader-commands.ts';
 import type {FaultView,RecoveryRequest,ReviewOverride} from '../lib/reader-recovery.ts';
-import {DagProduction,dagTextKind,dagDrawKind} from './dag-production.ts';
+import {canReprepare,DagProduction,dagTextKind,dagDrawKind} from './dag-production.ts';
 import {transact,deleteJobs} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
@@ -174,8 +174,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private generationCurrent(row:SessionRow,job:ProductionJob){
   if(job.kind==='discover')return true;
   const doc=this.parsed(row)?.doc,generation=doc?.intake?.generation;
-  const {setupGeneration,work,landscapeAttempt}=JSON.parse(job.payload) as {setupGeneration?:number;work?:Work;landscapeAttempt?:number};
+  const {setupGeneration,work,landscapeAttempt,preparationGeneration}=JSON.parse(job.payload) as {setupGeneration?:number;work?:Work;landscapeAttempt?:number;preparationGeneration?:number};
   if(work?.call==='drawLandscape'&&doc?.dag?.frames[work.instances[0].key]?.landscapeAttempt!==landscapeAttempt)return false;
+  if(preparationGeneration!==undefined&&doc?.dag?.preparationGeneration!==preparationGeneration)return false;
   return generation===undefined||setupGeneration===generation;
  }
  private async demands(id?:string){
@@ -216,6 +217,12 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return row.generation_control==='active'&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
  async control(ownerId:string,id:string,action:ProductionAction,requestId?:string){
+  if(action==='reprepare'){
+   if(!requestId)throw new ReaderError(400,'重新准备需要提交操作编号。');
+   await this.repository.get(id,ownerId);
+   this.dag.reprepare(ownerId,id,requestId,this.stopping);
+   return this.snapshot(ownerId,id);
+  }
   // 「继续制作」的已接受编号先于其他核对重放。
   if(action==='apply-model'){
    if(!requestId)throw new ReaderError(400,'应用模型设置需要提交操作编号。');
@@ -417,7 +424,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const optionalWork=dag?.order.some(key=>dag.frames[key]?.landscape===''&&dag.frames[key].landscapeError===undefined)??false;
   const lifecycle=productionLifecycle({...saved,complete,generationControl:row.generation_control,superseded,replacementOpen:!!parsed.doc.reselection||replacementOpen,
    faults:[...projectedFaults,...landscapeFaults,...(searchFault?[searchFault]:[])],reviewAttention:blocking?.reasons??[],review,service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
-   now,order:dag?.order??[],pendingImageChecks,optionalWork,stopping:this.stopping,
+   now,order:dag?.order??[],pendingImageChecks,optionalWork,stopping:this.stopping,canReprepare:canReprepare(parsed.doc),repreparing:!!dag?.repreparing,
    freeImageRecoveries:new Set(faults.filter(fault=>this.imageRecoveryTarget(id,parsed.doc,fault)).map(fault=>fault.id)),
    modelApplicable:!!dag&&(!parsed.doc.intake||parsed.doc.intake.phase==='confirmed')&&!!this.snapshotNow()&&
     (parsed.doc as Document&{legacyFramePreparation?:unknown}).legacyFramePreparation==null,

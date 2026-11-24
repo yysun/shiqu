@@ -50,7 +50,7 @@ export type Document={/** 文档 v2：制作内容与产物记录的权威来源
 export type GenerationMode='background';
 export type GenerationControl='active'|'paused'|'stopped';
 /** continue 只用于制作 DAG 的「已保存，等待继续」：清除等待并恢复后台制作。 */
-export type ProductionAction='background'|'pause'|'stop'|'resume'|'continue'|'apply-model';
+export type ProductionAction='background'|'pause'|'stop'|'resume'|'continue'|'apply-model'|'reprepare';
 export type SessionRow={id:string;user_id:string;selection:string;document:string;generation_mode?:GenerationMode;generation_control?:GenerationControl;state:'idle'|'running'|'failed'|'completed';error:string|null;step_key:string|null;step_attempts:number;lock_token:string|null;lock_until:number;page:number;saved:number;last_read_at:string|null;created_at:string;updated_at:string};
 export type Step={kind:'discover'|'recommend'|'plan'|'source'|'reflection'|'review'|'repair'|'restyle'|'image'|'audio';page:number;key:string};
 export type GenerationProgress={sourceReady:boolean;frameCountConfirmed:boolean;frameCount:number|null;storyboardFrames?:number;storyboardBatch?:{first:number;last:number};drawingFrames?:number;activity?:string;reviewStatus?:ReviewCheckpoint['status'];reviewPhase?:'frames'|'full';reviewRound?:number;repairCompleted?:number;repairTotal?:number;reviewAudits?:number;repairBatches?:number;repairPasses?:number;reviewStopReason?:'limit'|'unchanged'|'replan'|'requirements';reviewOverridden?:boolean;phase:Step['kind']|'frame-count'|'story-choice'|'production-confirmation'|'completed';startedAt:number|null;timeoutAt?:number|null;stageDurations?:Record<string,number>;attempt:number};

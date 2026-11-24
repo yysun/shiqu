@@ -25,7 +25,9 @@ function faultNode(job:Job):{node:string|null;key:string}{
 export function recordJobFailed(db:SyncStatements,job:Job,input:{message:string;interrupted:boolean;errorCode?:string;failureId?:string;now:number;payload?:string;fromState?:'running'|'failed'}):boolean{
  // 读者换选后，上一世代正在退出的任务不能给新故事登记故障。
  if((job.kind==='dag'||job.kind==='dag-draw')&&db.get(`SELECT id FROM stories WHERE id=? AND user_id=? AND json_valid(document)
-  AND json_extract(document,'$.intake.generation') IS NOT json_extract(?,'$.setupGeneration')`,job.session_id,job.owner_id,job.payload)){
+  AND (json_extract(document,'$.intake.generation') IS NOT json_extract(?,'$.setupGeneration')
+    OR json_type(?,'$.preparationGeneration') IS NOT NULL
+       AND json_extract(document,'$.dag.preparationGeneration') IS NOT json_extract(?,'$.preparationGeneration'))`,job.session_id,job.owner_id,job.payload,job.payload,job.payload)){
   db.run("UPDATE production_jobs SET state='succeeded',result=json_object('obsolete',1),lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token IS ?",input.now,job.id,job.lease_token??null);
   return false;
  }

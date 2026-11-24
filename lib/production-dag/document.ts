@@ -52,6 +52,9 @@ export type DagDocument={
  outline?:DagOutline;
  /** 本轮已尝试独立画风建议，缺少该能力的服务也可继续给出制作建议。 */
  preparedArt?:true;
+ /** 已确认作品重新准备时单独更新建议，隔离旧世代的制作任务。 */
+ preparationGeneration?:number;
+ repreparing?:true;
  frameCheck?:FrameCountReport;
  /** 各结论的说明，键为结论实例身份；结论本身记录在 products。 */
  verdicts?:Record<string,{outcome:'pass'|'fail';detail?:string;requirements?:true}>;

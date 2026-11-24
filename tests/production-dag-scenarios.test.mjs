@@ -35,6 +35,35 @@ const textCalls=control=>control.plans.length+control.outlines.length+control.ba
 const timelineStep=(session,id)=>generationProgress(session,Date.now()).steps.find(step=>step.id===id);
 const jobAttempts=async(f,id)=>(await f.app.services.database.prepare('SELECT id,kind,state,attempts,lease_token FROM production_jobs WHERE session_id=? ORDER BY id').bind(id).all()).results;
 
+test('reprepare refreshes suggestions in a new generation without altering a confirmed story',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ const route=`sessions/${id}`,before=await f.read(id),command={requestId:crypto.randomUUID(),action:'reprepare'};
+ assert.ok(before.lifecycle.actions.some(action=>action.event==='reprepare'));
+ const draft=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection});
+ assert.equal((await f.request(`sessions/${draft.id}/production-control`,'POST',{...command,requestId:crypto.randomUUID()})).status,409);
+ const release=Promise.withResolvers(),generator=f.generation.generator.bind(f.generation);
+ let started=false;
+ f.generation.generator=()=>{
+  const active=generator();
+  return {...active,async recommend(...args){started=true;await release.promise;return active.recommend(...args);}};
+ };
+ try{
+  const accepted=await f.json(`${route}/production-control`,'POST',command);
+  assert.equal(accepted.lifecycle.phase,'preparation');
+  await until(()=>started);
+  assert.equal((await f.request(`${route}/production-control`,'POST',{...command,requestId:crypto.randomUUID()})).status,409);
+  assert.equal((await f.json(`${route}/production-control`,'POST',command)).id,id);
+ }finally{release.resolve();}
+ await until(async()=>(await f.read(id)).lifecycle.phase==='completed');
+ const after=await f.read(id),stored=await saved(f,id);
+ assert.equal(after.frameRecommendation.count,7);
+ assert.equal(stored.dag.preparationGeneration,1);
+ assert.deepEqual(after.selection,before.selection);
+ assert.deepEqual(after.story.pages,before.story.pages);
+ assert.equal(f.control.calls.length,0);
+ assert.equal(f.control.recommendations.length,1);
+});
+
 test('edit a caption, save, restart and continue: only the affected review runs and nothing is redrawn',async t=>{
  const f=await productionFixture(t,'codex');
  const {id,dag:before}=await completedStory(f);

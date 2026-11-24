@@ -599,7 +599,10 @@ export default function Reader(){
     navigation={{source:{onClick:()=>setSource(true),disabled:!workflowSession.generationProgress?.sourceReady},reselect:{label:'替换选题',onClick:()=>void reselectStory(),disabled:creating||revision.busy||!!gen.controlBusy,title:'替换当前选题，书架保留一张卡片，旧结果保留历史'},reselecting:creating}}
     onAcceptance={()=>revision.open('acceptance')} onHistory={()=>setReviewHistoryId(workflowSession.id)} onEditStyle={()=>revision.open('style')}
     timeline={{
-     links:{source:[{label:'制作要求',onClick:()=>revision.open('requirements')},{label:'验收要求',onClick:()=>revision.open('acceptance')}]},
+     links:{source:[{label:'制作要求',onClick:()=>revision.open('requirements')},{label:'验收要求',onClick:()=>revision.open('acceptance')}],
+      ...(workflowSession.lifecycle?.actions.some(action=>action.event==='reprepare')?{count:[{
+       label:'按当前要求重新准备',disabled:!!gen.controlBusy||revision.busy,onClick:()=>void gen.control(workflowSession.id,'reprepare'),
+      }]}:{})},
      actions:{count:{label:'修改叙事详略',onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:workflowSession.generationProgress?.phase==='plan'?'查看已有分镜':'查看分镜',onClick:openScript}}:{})}
     }}
     editor={revision} onReselect={()=>void reselectStory()}

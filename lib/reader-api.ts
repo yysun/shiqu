@@ -352,8 +352,8 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
    if(path[2]==='production-control'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
-    const b=z.object({requestId:uuid,action:z.enum(['background','pause','stop','resume','continue','apply-model'])}).strict().parse(await body(req));
-    if(['background','resume','apply-model','continue'].includes(b.action)&&!await requestRecorded(b.requestId))await requireProvider();
+    const b=z.object({requestId:uuid,action:z.enum(['background','pause','stop','resume','continue','apply-model','reprepare'])}).strict().parse(await body(req));
+    if(['background','resume','apply-model','continue','reprepare'].includes(b.action)&&!await requestRecorded(b.requestId))await requireProvider();
     return json(await services.production.control(uid,id,b.action,b.requestId));
    }
    if(path[2]==='production'&&path.length===3){

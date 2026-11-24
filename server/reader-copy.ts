@@ -41,7 +41,7 @@ export async function copySavedStory(target:ReturnType<typeof createApplication>
   const draftReady=(!!saved.dag&&!unreviewed||!!saved.visualReview)&&typeof saved.original?.text==='string'&&!!saved.original.text.trim();
   const authorization=authorizeProductionCommand(options.draft?'copy-draft':'copy',{
    version:row.id===sourceId?'current':'superseded',control:row.generation_control??'active',continuation:!!saved.dag?.continuation,stopping:false,
-   targetCurrent:row.state!=='running'&&!!saved.plan&&!!saved.original&&(!saved.intake||saved.intake.phase==='confirmed')&&!saved.reselection,
+   targetCurrent:row.state!=='running'&&!!saved.plan&&!!saved.original&&(!saved.intake||saved.intake.phase==='confirmed')&&!saved.reselection&&!saved.dag?.repreparing,
    targetReady:options.draft?draftReady:reviewed,
   });
   if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
