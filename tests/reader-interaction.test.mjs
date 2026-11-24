@@ -3,9 +3,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCanvas} from '@napi-rs/canvas';
 import {PDFDocument} from 'pdf-lib';
-import {newWheelGesture,wheelPageDirection,wheelBackAtStart,swipePageDirection} from '../lib/reader-navigation.ts';
+import {newWheelGesture,wheelPageDirection,wheelBackAtStart,wheelBackFromEnding,listenForEndingTouchSwipe,swipePageDirection,readerAtStart,readerCaptionOpacity} from '../lib/reader-navigation.ts';
 
-test('a scroll back returns only when it starts at the start edge',()=>{
+test('the ending scrolls back to the final frame only from its top edge',()=>{
  const input=(y,time)=>({x:0,y,mode:0,time,height:800});
  const atTop=newWheelGesture();
  assert.equal(wheelBackAtStart(atTop,input(-30,0),true),0);
@@ -17,18 +17,72 @@ test('a scroll back returns only when it starts at the start edge',()=>{
  assert.equal(wheelBackAtStart(coasting,input(-120,400),true),-1,'a new upward scroll at the top turns back');
  const down=newWheelGesture();
  assert.equal(wheelBackAtStart(down,input(120,0),true),0,'scrolling down never turns');
- const sideways=(x,time)=>({x,y:0,mode:0,time,height:800});
- const arriving=newWheelGesture();
- assert.equal(wheelBackAtStart(arriving,sideways(-90,0),false),0,'a swipe back to the first frame scrolls natively');
- assert.equal(wheelBackAtStart(arriving,sideways(-60,40),true),0,'its momentum at the first frame does not leave');
- assert.equal(wheelBackAtStart(arriving,sideways(-50,400),true),0);assert.equal(wheelBackAtStart(arriving,sideways(-40,416),true),-1,'a new swipe right at the first frame leaves');
- assert.equal(wheelBackAtStart(newWheelGesture(),sideways(90,0),true),0,'a swipe left from the first frame never leaves');
  const arrivingAfterTurn=newWheelGesture();
  assert.equal(wheelPageDirection(arrivingAfterTurn,input(70,0)),1);
  assert.equal(wheelPageDirection(arrivingAfterTurn,input(10,16)),0);
  assert.equal(wheelBackAtStart(arrivingAfterTurn,input(-30,32),false),0);
  assert.equal(wheelBackAtStart(arrivingAfterTurn,input(-70,48),true),0,'acceleration during an edge approach stays in the same gesture');
  assert.equal(wheelBackAtStart(arrivingAfterTurn,input(-70,400),true),-1);
+});
+test('a short right swipe leaves the ending on the final frame and absorbs its horizontal momentum',()=>{
+ const gesture=newWheelGesture();
+ const move=(time,x,atEnding,y=0)=>wheelBackFromEnding(gesture,{x,y,mode:0,time,height:800},atEnding);
+ assert.equal(move(0,90,false),'native','a swipe from the last image enters the ending normally');
+ assert.equal(move(30,-90,true),'hold','recoil from entering the ending cannot return immediately');
+ assert.equal(move(400,-35,true),'hold');
+ assert.equal(move(420,-30,true),'previous','the gesture threshold is independent of page width');
+ assert.equal(move(440,-400,false),'hold','a large tail cannot skip the final image');
+ assert.equal(move(455,0,false,100),'native','vertical scrolling keeps its own handling');
+ assert.equal(move(470,20,false),'hold','the same swipe can rebound after turning');
+ assert.equal(move(800,-90,false),'native','after the swipe settles, normal paging resumes');
+});
+test('ending touch swipes use the actual release position when Safari omits touch movement',()=>{
+ const reader=new EventTarget(),offsets=[];
+ let turns=0;
+ const unlisten=listenForEndingTouchSwipe(reader,distance=>offsets.push(distance),()=>turns++);
+ const point=(clientX,clientY)=>({identifier:1,clientX,clientY});
+ const emit=(type,details)=>{
+  const event=Object.assign(new Event(type,{cancelable:true}),details);
+  reader.dispatchEvent(event);
+  return event.defaultPrevented;
+ };
+ const start=()=>emit('touchstart',{touches:[point(40,55)]});
+ const touchEnd=(x,y)=>emit('touchend',{changedTouches:[point(x,y)]});
+ const pointerUp=(x,y)=>emit('pointerup',{pointerType:'touch',isPrimary:true,clientX:x,clientY:y});
+ start();touchEnd(40,55);pointerUp(260,55);
+ assert.equal(turns,1,'a release farther right still turns when touchend repeats the start');
+ start();touchEnd(40,55);pointerUp(40,55);
+ assert.equal(turns,1,'taps do not turn');
+ start();
+ assert.equal(emit('touchmove',{touches:[point(44,80)]}),false,'vertical swipes stay native');
+ touchEnd(120,90);pointerUp(120,90);
+ assert.equal(turns,1,'a vertical scroll cannot turn by drifting sideways');
+ start();
+ assert.equal(emit('touchmove',{touches:[point(102,62)]}),true);
+ assert.equal(touchEnd(120,62),true);
+ pointerUp(120,62);
+ assert.equal(turns,2,'touchend and pointerup together turn only once');
+ assert.deepEqual(offsets,[62,0]);
+ unlisten();
+ start();pointerUp(260,55);
+ assert.equal(turns,2,'the handler is removed when the ending closes');
+});
+test('a backward swipe must start with the first frame selected and centered to leave the reader',()=>{
+ const gesture=newWheelGesture();
+ const move=(time,page,left,x=-80)=>wheelBackAtStart(gesture,{x,y:0,mode:0,time,height:800},readerAtStart(page,left));
+ assert.equal(move(0,1,400),0);
+ assert.equal(move(25,1,0),0,'the filmstrip has reached the start but the first frame is not selected yet');
+ assert.equal(move(50,0,0),0,'momentum continues after the first frame snaps into place');
+ assert.equal(move(400,0,0),-1,'a fresh swipe from the centered first frame leaves the reader');
+ assert.equal(readerAtStart(0,100),false,'swiping while the first frame moves into place stays in the reader');
+ assert.equal(readerAtStart(0,0.5),true,'fractional alignment at the first frame counts as centered');
+});
+test('the caption fades with frame displacement and recovers as the frame re-centers',()=>{
+ for(const width of [400,800])for(const direction of [-1,1]){
+  const offsets=[0,.125,.25,.5,.75,.25,0];
+  assert.deepEqual(offsets.map(offset=>readerCaptionOpacity(offset*width*direction,width)),[1,.75,.5,0,0,.5,1]);
+ }
+ assert.equal(readerCaptionOpacity(0,0),1);
 });
 import {defaultProductionDirection,defaultProductionPrompt,normalizeProductionPrompt,promptAfterThemeChange,directStorySettings} from '../lib/reader-prompts.ts';
 

@@ -1,34 +1,38 @@
-// 结语页向右拖动返回最后一幅，不拦截页内按钮与链接；点按不翻页。
-// 停在顶部时滚轮上滚由 Reader 处理；上下滑动只滚动结语，不翻页。拖动、长按不会误触页内控件。
-// The drag offset is subscribed here, so a swipe re-renders this surface but not Reader or its children.
-import {useRef,type ReactNode,type RefObject,type PointerEvent} from 'react';
-import {swipePageDirection} from '@/lib/reader-navigation';
+// 结语页在阅读区内识别触摸横滑，覆盖正文和页眉。纵向触摸继续由浏览器滚动。
+// 单独订阅拖动位移，避免每次移动都重绘整个阅读器。
+import {useEffect,useEffectEvent,useRef,type ReactNode,type RefObject,type PointerEvent} from 'react';
+import {listenForEndingTouchSwipe,swipePageDirection} from '@/lib/reader-navigation';
 import {useDragOffset,type DragOffset} from './useDragOffset';
 
-export default function StoryEndingSurface({children,onTurn,onDrag,drag:dragOffset,surfaceRef}:{children:ReactNode;onTurn:(direction:number)=>void;onDrag:(distance:number)=>void;drag:DragOffset;surfaceRef:RefObject<HTMLElement|null>}){
+export default function StoryEndingSurface({children,onSwipeBack,onDrag,drag:dragOffset,surfaceRef,readerRef}:{children:ReactNode;onSwipeBack:()=>void;onDrag:(distance:number)=>void;drag:DragOffset;surfaceRef:RefObject<HTMLElement|null>;readerRef:RefObject<HTMLElement|null>}){
  const drag=useDragOffset(dragOffset);
- const pointer=useRef<{id:number;x:number;y:number;startedAt:number;travel:number}|null>(null);
- const control=(target:EventTarget)=>target instanceof Element&&!!target.closest('button,a,input,textarea,select,[role="button"]');
+ const pointer=useRef<{id:number;x:number;y:number}|null>(null);
+ const returnToImage=useEffectEvent(onSwipeBack);
+ useEffect(()=>{
+  const reader=readerRef.current;if(!reader)return;
+  return listenForEndingTouchSwipe(reader,onDrag,returnToImage);
+ },[readerRef,onDrag]);
  function cancel(){pointer.current=null;onDrag(0);}
  function down(event:PointerEvent<HTMLElement>){
-  if(control(event.target)||!event.isPrimary||event.button!==0){pointer.current=null;return;}
-  pointer.current={id:event.pointerId,x:event.clientX,y:event.clientY,startedAt:event.timeStamp,travel:0};
-  event.currentTarget.setPointerCapture(event.pointerId);
+  if(event.pointerType==='touch')return;
+  if(!event.isPrimary||event.button!==0){cancel();return;}
+  pointer.current={id:event.pointerId,x:event.clientX,y:event.clientY};
  }
  function move(event:PointerEvent<HTMLElement>){
   const start=pointer.current;if(!start||start.id!==event.pointerId)return;
   const dx=event.clientX-start.x,dy=event.clientY-start.y;
-  start.travel=Math.max(start.travel,Math.hypot(dx,dy));
-  if(dx>0&&Math.abs(dx)>Math.abs(dy)*1.3)onDrag(Math.min(180,dx));
+  const horizontal=Math.abs(dx)>6&&Math.abs(dx)>Math.abs(dy)*1.3;
+  if(horizontal&&!event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.setPointerCapture(event.pointerId);
+  onDrag(horizontal?Math.min(180,Math.max(0,dx)):0);
  }
  function up(event:PointerEvent<HTMLElement>){
   const start=pointer.current;if(!start||start.id!==event.pointerId)return;
   const dx=event.clientX-start.x,dy=event.clientY-start.y;
   const previous=swipePageDirection(dx,dy)===-1;
   pointer.current=null;onDrag(0);
-  if(previous)onTurn(-1);
+  if(previous)onSwipeBack();
  }
  return <section className="yu-ending" ref={surfaceRef} aria-label="故事结束：向右滑动，或在顶部向上滚动，返回最后一幅"
-  onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel}
+  onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={event=>{if(pointer.current?.id===event.pointerId)cancel();}}
   style={{transform:`translateX(${drag}px)`,transition:drag?'none':'transform 180ms ease-out'}}>{children}</section>;
 }
