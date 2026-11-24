@@ -100,17 +100,24 @@ export class ReaderRepository{
    ORDER BY d.deleted_at DESC,d.story_id`).bind(uid).all<{storyId:string;deletedAt:string;kind:'generated';title:string}>()).results;
  }
  async remove(id:string,uid:string){
-  const owned=await this.db.prepare('SELECT id FROM stories WHERE id=? AND user_id=?').bind(id,uid).first();
-  if(!owned)throw new ReaderError(404,'这篇故事不在你的书架里');
-  const existing=await this.db.prepare('SELECT story_id AS storyId,deleted_at AS deletedAt FROM library_deletions WHERE user_id=? AND story_id=?').bind(uid,id).first<{storyId:string;deletedAt:string}>();if(existing)return existing;
-  const deletedAt=new Date().toISOString();await this.db.prepare("INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) VALUES(?,?,'generated',?) ON CONFLICT(user_id,story_id) DO NOTHING").bind(uid,id,deletedAt).run();
-  return {storyId:id,deletedAt};
+  if(!this.db.transaction)throw Error('TRANSACTION_UNAVAILABLE');
+  return this.db.transaction(db=>{
+   if(!db.get('SELECT id FROM stories WHERE id=? AND user_id=?',id,uid))throw new ReaderError(404,'这篇故事不在你的书架里');
+   const deletedAt=new Date().toISOString();
+   db.run("INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) VALUES(?,?,'generated',?) ON CONFLICT(user_id,story_id) DO NOTHING",uid,id,deletedAt);
+   db.run("UPDATE stories SET generation_control='stopped' WHERE id=? AND user_id=? AND generation_control!='stopped'",id,uid);
+   return db.get<{storyId:string;deletedAt:string}>('SELECT story_id AS storyId,deleted_at AS deletedAt FROM library_deletions WHERE user_id=? AND story_id=?',uid,id)!;
+  });
  }
  async restore(id:string,uid:string){
-  const owned=await this.db.prepare('SELECT id FROM stories WHERE id=? AND user_id=?').bind(id,uid).first();
-  if(!owned)throw new ReaderError(404,'这篇故事不在你的书架里');
-  const result=await this.db.prepare('DELETE FROM library_deletions WHERE user_id=? AND story_id=?').bind(uid,id).run();
-  return {storyId:id,restored:result.meta.changes>0};
+  if(!this.db.transaction)throw Error('TRANSACTION_UNAVAILABLE');
+  return this.db.transaction(db=>{
+   if(!db.get('SELECT id FROM stories WHERE id=? AND user_id=?',id,uid))throw new ReaderError(404,'这篇故事不在你的书架里');
+   const restored=db.run('DELETE FROM library_deletions WHERE user_id=? AND story_id=?',uid,id).changes>0;
+   // 旧版删除记录也按停止恢复，读者须再明确恢复生成。
+   if(restored)db.run("UPDATE stories SET generation_control='stopped' WHERE id=? AND user_id=? AND generation_control!='stopped'",id,uid);
+   return {storyId:id,restored};
+  });
  }
  async favorite(id:string,uid:string,saved:boolean){
   // Favorites never move a reading checkpoint or enqueue production.

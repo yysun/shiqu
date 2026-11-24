@@ -1,4 +1,5 @@
 // 已完成作品的横版插图步骤，后台继续生成，界面只读取状态并提交明确的启动或重试操作。 启动操作与重试一致，使用文字链接。
+import {productionServiceMessages} from '@/lib/production-lifecycle';
 import {useEffect,useState} from 'react';
 import type {LandscapeStatus} from '@/lib/reader-production';
 import type {ProductionStageState} from '@/lib/production-stages';
@@ -43,17 +44,26 @@ export default function StoryLandscapeStep({storyId}:{storyId:string}){
    setRefresh(value=>value+1);
   }finally{setSubmitting(false);}
  }
+ async function resume(){
+  setSubmitting(true);setActionError('');
+  try{await request(`reader/sessions/${encodeURIComponent(storyId)}/production-control`,'POST',{action:'resume',requestId:crypto.randomUUID()});}
+  catch(error){setActionError(error instanceof Error?error.message:'暂时无法恢复生成。');}
+  finally{setSubmitting(false);setRefresh(value=>value+1);}
+ }
+ const manual=status?.state==='running'&&status.control&&status.control!=='active';
  const partial=status?.state==='partial';
+ const serviceBlocked=status?.state==='running'&&status.service&&status.service!=='available'?status.service:null;
  const canSubmit=status?.available&&!!(status.startToken||status.retryToken);
- const detail=status?.state==='completed'?'插图已齐全，横版 PDF 会使用这套图。':
+ const detail=serviceBlocked?productionServiceMessages[serviceBlocked]:manual?'横版制作等待恢复，已保存的画幅会保留。':status?.state==='completed'?'插图已齐全，横版 PDF 会使用这套图。':
   status?.state==='running'? `正在生成，已保存 ${status.ready} / ${status.total} 幅。`:
   partial?`已保存 ${status.ready} / ${status.total} 幅${status.failed.length?'，待重试第 '+status.failed.join('、')+' 幅':''}。`:
   status?.available?'按原图和分镜绘制 3∶2 横图，供印刷使用。':status?'当前暂无法启动横版生成。':'正在读取横版进度…';
  const error=readError||actionError||status?.error;
- const running=status?.state==='running';
- const state:ProductionStageState=readError?'failed':running?'current':status?.state==='completed'?'done':partial||actionError?'failed':status&&!status.available?'unavailable':'pending';
- const stateLabel={failed:readError?'读取失败':partial?'待重试':'提交失败',current:'进行中',done:'已完成',unavailable:'暂不可用',pending:status?'未生成':'读取中'}[state];
+ const running=status?.state==='running'&&!serviceBlocked&&!manual;
+ const state:ProductionStageState=readError?'failed':serviceBlocked||manual?'paused':running?'current':status?.state==='completed'?'done':partial||actionError?'failed':status&&!status.available?'unavailable':'pending';
+ const stateLabel={paused:serviceBlocked?'等待服务':'等待恢复',failed:readError?'读取失败':partial?'待重试':'提交失败',current:'进行中',done:'已完成',unavailable:'暂不可用',pending:status?'未生成':'读取中'}[state];
  const action=readError?<StoryFlowAction onClick={()=>setRefresh(value=>value+1)}>重新读取进度</StoryFlowAction>:
+  manual&&!serviceBlocked?<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={resume}>恢复生成</StoryFlowAction>:
   canSubmit&&(status.retryToken
    ?<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={start}>{submitting?'正在提交…':'重试未完成画幅'}</StoryFlowAction>
    :<StoryFlowAction disabled={submitting} aria-busy={submitting} onClick={start}>{submitting?'正在提交…':'生成横版插图'}</StoryFlowAction>);

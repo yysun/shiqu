@@ -1,9 +1,10 @@
 // Keep the browser contract independent of the server scheduler and future media handlers.
-import type {SessionRow,SessionView,ProductionAction} from './reader-model.ts';
+import type {SessionRow,SessionView,ProductionAction,GenerationControl} from './reader-model.ts';
+import type {ProductionService} from './production-lifecycle.ts';
 import type {RecoveryRequest} from './reader-recovery.ts';
 export const productionReadAhead=6;
 export const productionViewerLeaseMs=30000;
-export type LandscapeStatus={state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;retryToken?:string;error?:string};
+export type LandscapeStatus={state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;retryToken?:string;error?:string;service?:ProductionService;control?:GenerationControl};
 export interface ReaderProduction{
  referencesChanged?():void;
  wake():void;

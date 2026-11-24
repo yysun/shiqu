@@ -1,10 +1,16 @@
 // 从故事阶段、控制和任务租约推导生命周期视图。使用同一项在途任务提供步骤、幅号和计时。
 import type {GenerationControl,SessionView,Step} from './reader-model.ts';
 import type {FaultView} from './reader-recovery.ts';
-import type {Work} from './production-dag/runner.ts';
+import type {Attention,Work} from './production-dag/runner.ts';
 
 export type ProductionActivity={
  id:string;call:string;pages:number[];startedAt:number;attempt:number;
+};
+export type ProductionService='available'|'unconfigured'|'snapshot-unavailable'|'stopping';
+export const productionServiceMessages={
+ unconfigured:'当前制作服务未配置或处于只读模式。',
+ 'snapshot-unavailable':'快照服务不可用，请恢复原模型服务或应用当前模型设置。',
+ stopping:'制作服务正在停止。',
 };
 export type ProductionLifecycle={
  phase:'selection'|'preparation'|'confirmation'|'production'|'completed';
@@ -13,11 +19,14 @@ export type ProductionLifecycle={
  continuation:boolean;
  draining:boolean;
  faults:FaultView[];
+ reviewAttention:Attention[];
+ service:ProductionService;
+ imageAvailability:'available'|'unavailable';
  activity:{state:'running';jobs:ProductionActivity[]}|{state:'queued'|'idle'};
 };
 
 type ActivityJob={id:string;kind:string;payload:string;state:string;lease_until:number;updated_at:number;attempts:number};
-type ActivityInput=Pick<SessionView,'state'|'intake'|'generationControl'|'awaitingContinue'> & {complete?:boolean;superseded:boolean;queued:boolean;faults:FaultView[];now:number;order:readonly string[]};
+type ActivityInput=Pick<SessionView,'state'|'intake'|'generationControl'|'awaitingContinue'> & {complete?:boolean;superseded:boolean;queued:boolean;faults:FaultView[];reviewAttention:Attention[];service:ProductionService;now:number;order:readonly string[]};
 
 export function productionLifecycle(input:ActivityInput,jobs:readonly ActivityJob[]):ProductionLifecycle{
  const intake=input.intake?.phase;
@@ -34,7 +43,8 @@ export function productionLifecycle(input:ActivityInput,jobs:readonly ActivityJo
    return {id:job.id,call:work?.call??job.kind,pages,startedAt:job.updated_at,attempt:job.attempts};
   });
  return {phase,version:input.superseded?'superseded':'current',control,continuation:!!input.awaitingContinue,
-  faults:input.faults,
+  faults:input.faults,reviewAttention:input.reviewAttention,service:input.service,
+  imageAvailability:jobs.some(job=>['queued','running'].includes(job.state)&&JSON.parse(job.payload).waitingFor==='image-availability')?'unavailable':'available',
   draining:running.length>0&&(control!=='active'||input.superseded),
   activity:running.length?{state:'running',jobs:running}:{state:input.queued&&control==='active'&&!input.superseded&&!input.awaitingContinue?'queued':'idle'}};
 }
@@ -62,4 +72,24 @@ export function describeProductionCall(call:string,pages:readonly number[],repai
   label=`${batches[call]}（${scope}）`;
  }
  return {phase,label};
+}
+
+export type DispatchState={
+ version:'current'|'superseded'|'deleted';control:GenerationControl;continuation:boolean;
+ generationCurrent:boolean;demand:boolean;fault:boolean;inputCurrent:boolean;
+};
+export type DispatchDecision='allow'|'yield'|'obsolete';
+
+const obsoleteDispatch=(state:DispatchState)=>state.version==='superseded'||!state.generationCurrent||!state.inputCurrent;
+const waitingDispatch=(state:DispatchState)=>state.version==='deleted'||state.control!=='active'||state.continuation||!state.demand||state.fault;
+
+export const dispatchRules:readonly {matches:(state:DispatchState)=>boolean;decision:DispatchDecision}[]=[
+ {matches:obsoleteDispatch,decision:'obsolete'},
+ {matches:state=>!obsoleteDispatch(state)&&waitingDispatch(state),decision:'yield'},
+ {matches:state=>!obsoleteDispatch(state)&&!waitingDispatch(state),decision:'allow'},
+];
+
+/** 领取和发送使用相同的工作许可。输入已换代的任务作废，暂时受阻的任务可以等待。 */
+export function authorizeDispatch(state:DispatchState):DispatchDecision{
+ return dispatchRules.find(rule=>rule.matches(state))!.decision;
 }

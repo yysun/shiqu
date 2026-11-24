@@ -11,7 +11,7 @@
 import {productionTimingScope,productionStageDurations} from '../lib/production-timing.ts';
 import {randomUUID} from 'node:crypto';
 import {ReaderRepository,persistenceError,supersededSql,latestVersionMessage} from '../lib/reader-repository.ts';
-import type {Database} from '../lib/reader-repository.ts';
+import type {Database,SyncStatements} from '../lib/reader-repository.ts';
 import {ReaderError,readableStory,selectionSchema,view,reviewPassed} from '../lib/reader-model.ts';
 import type {Document,SessionRow,SessionView,ProductionAction,Selection} from '../lib/reader-model.ts';
 import type {ModelSnapshot} from '../lib/production-dag/document.ts';
@@ -34,7 +34,10 @@ import type {FaultView,RecoveryRequest} from '../lib/reader-recovery.ts';
 import {DagProduction,dagTextKind,dagDrawKind} from './dag-production.ts';
 import {transact,deleteJobs} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
-import {productionLifecycle,describeProductionCall} from '../lib/production-lifecycle.ts';
+import {fingerprint} from '../lib/production-dag/fingerprint.ts';
+import {productionLifecycle,describeProductionCall,authorizeDispatch,type ProductionService} from '../lib/production-lifecycle.ts';
+import {PaidDispatchDenied,withPaidDispatch} from './paid-dispatch.ts';
+import {drawingReferenceBinding} from './book-image-reference.ts';
 
 type Demand={session_id:string;owner_id:string;viewer_id:string;page:number;through_page:number;expires_at:number;runtime_id:string};
 type ActiveSearch={round:number;controller:AbortController;startedAt:number;progress?:SuggestionProgress};
@@ -60,7 +63,7 @@ const maxAutomaticAttempts=3;
 const imageKinds=[dagDrawKind];
 const searchRound=(job:ProductionJob)=>(JSON.parse(job.payload) as {searchRound?:number}).searchRound;
 const attentionMessages:Record<string,string>={
- 'hand-edited':'审片问题只能通过修改手改内容解决，请修改、允许自动修订覆盖或放行。',
+ 'hand-edited':'审片问题只能通过修改手改内容解决，请手动修改或放行。',
  limit:'自动修订额度已用完，请手改、继续自动修复或放行。',
  unchanged:'自动修订没有改变内容，请手改或放行。',
  requirements:'验收要求存在冲突或无法从文字分镜判断，请修改验收要求或放行。',
@@ -103,7 +106,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   this.queue=new ProductionQueue(database,{
    targetSessionId:options.targetSessionId,
    limits:{search:1,text:1,image:options.imageWorkers??3},now:this.clock,leaseMs:options.leaseMs,
-   canRun:job=>this.canRun(job),resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>{for(const id of this.jobProviders.keys())if(!this.queue.tasks.has(id))this.jobProviders.delete(id);this.wake();},
+   canRun:job=>this.canRun(job),canClaim:(db,job,now)=>this.checkDispatch(db,job,now)==='allow',resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>{for(const id of this.jobProviders.keys())if(!this.queue.tasks.has(id))this.jobProviders.delete(id);this.wake();},
    // 暂停、删除的故事不派发。DAG 任务按节点故障独立阻断。
    candidateFilter:`NOT EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND (s.generation_control!='active' OR (s.state='failed' AND j.kind NOT IN ('${dagTextKind}','${dagDrawKind}') AND NOT EXISTS(SELECT 1 FROM reader_faults f WHERE f.session_id=s.id AND f.owner_id=s.user_id AND f.state='recovering' AND (f.command_id=j.recovery_id OR f.kind='interrupted' AND f.job_id=j.id))) OR EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)))`,
    skipCandidate:job=>!!options.targetSessionId&&job.session_id!==options.targetSessionId||!!options.stopBeforeImages&&imageKinds.includes(job.kind)||this.supersededJobs.has(job.session_id),
@@ -133,14 +136,19 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  async reviewState(ownerId:string,id:string){return this.dag.reviewState(await this.repository.get(id,ownerId));}
  async landscapeStatus(ownerId:string,id:string):Promise<LandscapeStatus>{
   const row=await this.repository.get(id,ownerId);
-  if(this.parsed(row)?.doc.dag)return this.dag.landscapeStatus(row);
+  const dag=this.parsed(row)?.doc.dag;
+  if(dag){
+   const status=await this.dag.landscapeStatus(row);
+   return {...status,control:row.generation_control??'active',service:this.serviceAvailability(dag.modelSnapshot)};
+  }
   return {state:'idle',available:false,total:0,ready:0,images:[],failed:[]};
  }
  async startLandscape(ownerId:string,id:string,command:{startToken?:string;retryToken?:string}){
   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重试。');
   const row=await this.repository.get(id,ownerId);
   if(!this.parsed(row)?.doc.dag)throw new ReaderError(409,'请先完成当前版本的竖版插图。');
-  return this.dag.startLandscape(row,command);
+  const status=await this.dag.startLandscape(row,command);
+  return {...status,control:row.generation_control??'active',service:this.serviceAvailability(this.parsed(row)?.doc.dag?.modelSnapshot)};
  }
  private searchCurrent(row:SessionRow,round:number|undefined){
   const doc=JSON.parse(row.document) as Document;
@@ -198,9 +206,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  async control(ownerId:string,id:string,action:ProductionAction,requestId?:string){
   // 「继续制作」的已接受编号先于其他核对重放。
   if(action==='apply-model'){
-   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
    if(!requestId)throw new ReaderError(400,'应用模型设置需要提交操作编号。');
-   await this.repository.get(id,ownerId);await this.dag.applyCurrentModel(ownerId,id,requestId);return this.snapshot(ownerId,id);
+   await this.repository.get(id,ownerId);await this.dag.applyCurrentModel(ownerId,id,requestId,this.stopping);return this.snapshot(ownerId,id);
   }
   if(action==='continue'){
    if(!requestId)throw new ReaderError(400,'继续制作需要提交操作编号。');
@@ -208,10 +215,12 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    this.dag.continue(ownerId,id,requestId,this.stopping);
    return this.snapshot(ownerId,id);
   }
-  if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
   await this.repository.get(id,ownerId);
-  if(requestId)await authorizeControl(this.database,ownerId,id,requestId,action,this.clock());
-  else await this.repository.control(id,ownerId,action);
+  if(requestId)await authorizeControl(this.database,ownerId,id,requestId,action,this.clock(),this.stopping);
+  else{
+   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
+   await this.repository.control(id,ownerId,action);
+  }
   this.wake();return this.snapshot(ownerId,id);
  }
  async managed(ownerId:string,id:string){const saved=await this.database.prepare('SELECT document FROM stories WHERE id=? AND user_id=?').bind(id,ownerId).first<{document:string}>();if(saved&&(JSON.parse(saved.document) as Document).intake)return true;return !!await this.database.prepare("SELECT id FROM production_jobs WHERE owner_id=? AND session_id=? AND kind!='landscape-image' LIMIT 1").bind(ownerId,id).first();}
@@ -259,16 +268,21 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   * 恢复：有任务的故障以本授权重新执行该任务（任务的工作已过时则不付费，由调度重新安排）；
   * 没有任务的故障（图片丢失、转换的旧故障）直接解除，引擎随后重做对应节点。
   */
- async recover(ownerId:string,id:string,command:RecoveryRequest){
+ async recover(ownerId:string,id:string,command:RecoveryRequest):Promise<SessionView>{
   const row=await this.repository.get(id,ownerId);
   const replay=await commandReceipt(this.database,ownerId,command.requestId);
   if(replay){
-   if(replay.action!=='recover'||replay.session_id!==id||replay.fault_id!==command.faultId)throw new ReaderError(409,'这个操作编号已用于其他内容。');
+   if(!['recover','continue-repair'].includes(replay.action)||replay.session_id!==id||replay.fault_id!==command.faultId)throw new ReaderError(409,'这个操作编号已用于其他内容。');
    return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:command.requestId,status:replay.status,error:replay.error}};
   }
   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重试。');
   if(await this.repository.superseded(id,ownerId))throw new ReaderError(409,latestVersionMessage);
-  if(row.generation_control!=='active')throw new ReaderError(409,'请先恢复生成许可，再重试或重绘。');
+  if(row.generation_control!=='active'||this.parsed(row)?.doc.dag?.continuation)throw new ReaderError(409,'请先恢复生成许可，再重试或重绘。');
+  if(command.faultId.startsWith('review:')){
+   this.dag.grantRepairBudget(row,command.requestId,command.faultId);
+   this.wake();
+   return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:command.requestId,status:'succeeded',error:null}};
+  }
   let fault=(await sessionFaults(this.database,id,ownerId)).find(fault=>fault.id===command.faultId);
   // 图片丢失的恢复：文件在点击前已被恢复时，核对后免费解除，不重新绘制、不付费。
   if(fault?.state==='pending'&&fault.kind==='image-loss'&&!fault.job_id&&fault.node==='frameImage'){
@@ -309,7 +323,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   });
   const search=this.searches.get(id),progress=saved.generationProgress!;
   const views=faults.map(fault=>this.faultView(row,fault,allJobs));
-  const lifecycle=productionLifecycle({...saved,superseded,faults:[...views],queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
+  const blocking=parsed.doc.dag&&row.state!=='completed'?await this.dag.blocking(row):null;
+  const service=this.serviceAvailability(parsed.doc.dag?.modelSnapshot);
+  const lifecycle=productionLifecycle({...saved,complete:this.dag.completeFrom(row,faults,allJobs),generationControl:row.generation_control,superseded,faults:[...views],reviewAttention:blocking?.reasons??[],service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
    now,order:parsed.doc.dag?.order??[]},jobs);
   const active=lifecycle.activity.state==='running'?lifecycle.activity.jobs:[];
   const current=active[0],description=current&&describeProductionCall(current.call,current.pages,progress.repairPasses??0);
@@ -318,9 +334,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const startedAt=current?.startedAt??null,timeoutMs=timingProvider?.generationTimeoutMs?.(phase);
   const timeoutAt=startedAt!==null&&timeoutMs?startedAt+timeoutMs:null;
   const liveProgress=parsed.doc.intake&&search?.round===intakeSearch(parsed.doc.intake).round&&saved.intake?.search.state==='searching'?search.progress:undefined;
-  // 任务因快照服务不可用而失败：界面据此提供「应用当前模型设置」。
-  const snapshotUnavailable=allJobs.some(job=>job.state==='failed'&&(job as {error_code?:string|null}).error_code==='SNAPSHOT_UNAVAILABLE');
-  const session:SessionView={...saved,lifecycle,...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
+  const snapshotUnavailable=service==='snapshot-unavailable';
+  const session:SessionView={...saved,lifecycle,...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
    ...(description?.label?{stage:`正在${description.label}`}:{}),
    ...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),
    generationProgress:{...progress,phase,activity:current?description?.label:progress.activity,startedAt,timeoutAt,
@@ -330,8 +345,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const working=active.length>0;
   const manual=lifecycle.control!=='active';
   // 审片停在需读者处理：以一条审片问题呈现，放行或修改后解除。
-  const blocking=parsed.doc.dag&&!working&&row.state!=='completed'?await this.dag.blocking(row):[];
-  if(blocking.length)views.push({id:await this.dag.reviewFaultId(row)??'review',message:[...new Set(blocking.map(b=>attentionMessages[b.reason]))].join(''),page:null,stage:'review',state:'pending',retryAllowed:false});
+  if(blocking?.id)views.push({id:blocking.id,message:[...new Set(blocking.reasons.map(b=>attentionMessages[b.reason]))].join(''),page:null,stage:'review',state:'pending',retryAllowed:blocking.reasons.some(b=>b.reason==='limit')});
   if(views.length){
    const pending=views.find(f=>f.retryAllowed&&f.stage==='redraw')||views.find(f=>f.retryAllowed)||views[0];
    const recovering=working||faults.some(fault=>fault.state==='recovering');
@@ -372,12 +386,29 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(searching)await this.queue.enqueue(this.spec(row,'discover','search',String(search.round),'',[],{searchRound:search.round},-10));
   if(doc.dag&&['preparing','confirming'].includes(doc.intake.phase))await this.dag.schedule(row);
  }
+ private checkDispatch(db:SyncStatements,job:ProductionJob,now:number){
+  const row=db.get<SessionRow&{superseded:number;deleted:number}>(`SELECT *,
+   ${supersededSql()} AS superseded,EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id) AS deleted
+   FROM stories WHERE id=? AND user_id=?`,job.session_id,job.owner_id);
+  if(!row||!this.parsed(row))return 'obsolete';
+  const {doc}=this.parsed(row)!;
+  const discover=job.kind==='discover';
+  const {page,work,waitingFor}=JSON.parse(job.payload) as {page?:number;work?:{call:string};waitingFor?:string};
+  if(job.state==='queued'&&waitingFor==='image-availability'&&job.updated_at+Math.max(1000,this.options.tickMs??1000)>now)return 'yield';
+  const landscape=work?.call==='drawLandscape';
+  const demand=(!discover&&row.state!=='completed')||(landscape&&row.state==='completed')||
+   !!db.get('SELECT 1 FROM production_demand WHERE session_id=? AND owner_id=? AND runtime_id=? AND expires_at>? AND (? OR through_page>=?) LIMIT 1',
+    row.id,row.user_id,this.runtimeId,now,discover||job.pool==='text'?1:0,page??0);
+  return authorizeDispatch({version:row.superseded?'superseded':row.deleted?'deleted':'current',
+   control:row.generation_control??'active',continuation:!!doc.dag?.continuation,
+   generationCurrent:discover?this.searchCurrent(row,searchRound(job)):this.generationCurrent(row,job),
+   demand,...(discover?{fault:false,inputCurrent:true}:this.dag.dispatchInputs(db,row,job))});
+ }
+
  private async canRun(job:ProductionJob){
   if(this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&imageKinds.includes(job.kind))return false;
-  // 有模型快照的 DAG 故事按快照运行，当前全局服务不可用不阻塞；缺少快照服务时仍由 runDag 报告「快照服务不可用」。
-  // 先看只读模式：当前设置为只读时 current() 无快照，任何任务都不得派发。
-  const snapshotted=(job.kind===dagTextKind||job.kind===dagDrawKind)&&!!this.options.snapshots&&!!this.snapshotNow()&&!!await this.dag.snapshotOf(job);
-  if(!snapshotted&&this.provider.capture&&!this.provider.capture())return false;
+  const snapshot=job.kind===dagTextKind||job.kind===dagDrawKind?await this.dag.snapshotOf(job):undefined;
+  if(this.serviceAvailability(snapshot)!=='available')return false;
   const row=await this.raw(job.session_id,job.owner_id);
   if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
   // 横图是读者对已完成故事的明确请求，不需要阅读需求。
@@ -411,6 +442,15 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(!provider)throw new JobYield();this.jobProviders.set(job.id,provider);return provider;
  }
  private snapshotNow(){try{return this.options.snapshots?.current();}catch{return undefined;}}
+ private serviceAvailability(snapshot?:ModelSnapshot):ProductionService{
+  const snapshots=this.options.snapshots;
+  if(snapshots&&!this.snapshotNow())return 'unconfigured';
+  if(this.stopping)return 'stopping';
+  try{
+   if(snapshot&&snapshots)return snapshots.provider(snapshot)?'available':'snapshot-unavailable';
+   return this.provider.capture&&!this.provider.capture()?'unconfigured':'available';
+  }catch{return snapshot&&snapshots?'snapshot-unavailable':'unconfigured';}
+ }
  /** DAG 任务按故事的模型快照构造提供方；没有快照服务或故事没有快照时沿用当前提供方。 */
  private async runDag(job:ProductionJob){
   const snapshots=this.options.snapshots,snapshot=snapshots&&await this.dag.snapshotOf(job);
@@ -420,17 +460,56 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(!this.snapshotNow())throw new JobYield();
    // 故事有快照时只看快照服务；当前全局服务不可用不应阻塞这篇故事。
    const savedProvider=snapshots.provider(snapshot);
-   if(!savedProvider)throw Object.assign(new ReaderError(409,'快照服务不可用：这篇故事制作时选用的模型服务目前缺少凭据或已不可用。请在设置中恢复该服务，或选择「应用当前模型设置」后再重试。'),{code:'SNAPSHOT_UNAVAILABLE'});
+   if(!savedProvider)throw new JobYield();
    provider=savedProvider;
    this.jobProviders.set(job.id,provider);
   }else provider=this.jobProvider(job);
-  const result=await this.dag.run(job,provider);
+  const result=await this.runPaid(job,provider,snapshot,()=>this.dag.run(job,provider));
   // 星标参考图等输入可能在故事文档未变化时失效。下一轮重新安排当前输入的任务。
   if(result.obsolete)this.rebuildKeys.delete(job.session_id);
   return result;
  }
+ /** 付费边界使用当前租约、流程控制和该次尝试实际捕获的服务配置。 */
+ private runPaid<T extends object>(job:ProductionJob,provider:ReaderProvider,snapshot:ModelSnapshot|undefined,task:()=>Promise<T>){
+  const receipts:unknown[]=[];
+  const draw=job.kind===dagDrawKind&&(JSON.parse(job.payload) as {work?:{call:string}}).work?.call==='draw';
+  const reference=draw?transact(this.database,db=>drawingReferenceBinding(db,job.owner_id,job.session_id)):null;
+  return withPaidDispatch({
+   authorize:()=>{
+    const decision=transact(this.database,db=>{
+     const now=this.clock();
+     const live=db.get<ProductionJob>("SELECT * FROM production_jobs WHERE id=? AND state='running' AND lease_token=?",job.id,job.lease_token);
+     if(!live)return 'obsolete';
+     if(job.kind!=='discover'&&this.options.snapshots){
+      const stored=db.get<{snapshot:string|null}>("SELECT json_extract(document,'$.dag.modelSnapshot') AS snapshot FROM stories WHERE id=? AND user_id=?",job.session_id,job.owner_id);
+      if(fingerprint(stored?.snapshot?JSON.parse(stored.snapshot):null)!==fingerprint(snapshot??null))return 'yield';
+     }
+     const authorization=this.checkDispatch(db,live,now);
+     if(authorization!=='allow')return authorization;
+     if(draw&&reference!==drawingReferenceBinding(db,job.owner_id,job.session_id))return 'yield';
+     if(this.serviceAvailability(snapshot)!=='available')return 'yield';
+     if(!snapshot&&this.provider.capture&&this.provider.capture()!==provider)return 'yield';
+     return 'allow';
+    });
+    if(decision!=='allow')throw new PaidDispatchDenied(decision);
+   },
+   receipt:receipt=>receipts.push(receipt),
+  },async()=>{
+   try{return await task();}
+   catch(error){
+    if(!(error instanceof PaidDispatchDenied))throw error;
+    if(receipts.length)await this.database.prepare(`UPDATE production_jobs SET payload=json_set(payload,'$.dispatchReceipts',json(
+      (SELECT json_group_array(json(value)) FROM (SELECT value FROM json_each(payload,'$.dispatchReceipts') UNION ALL SELECT value FROM json_each(?))))) WHERE id=? AND state='running' AND lease_token=?`).bind(JSON.stringify(receipts),job.id,job.lease_token).run();
+    if(error.reason==='obsolete')return {obsolete:true};
+    throw new JobYield(error.waitingFor);
+   }
+  });
+ }
  private async discover(job:ProductionJob){
   const provider=this.jobProvider(job);
+  return this.runPaid(job,provider,undefined,()=>this.runDiscovery(job,provider));
+ }
+ private async runDiscovery(job:ProductionJob,provider:ReaderProvider){
   const round=searchRound(job),row=await this.raw(job.session_id,job.owner_id);
   if(round===undefined||!this.searchCurrent(row,round))return {obsolete:true};
   if(!await this.searchRunnable(row,round))throw new JobYield();
@@ -464,7 +543,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    const saved=await this.finishSearch(row.id,row.user_id,round,{...search,state:'idle',error:null},append?batch:undefined,!!intake.indexedCandidates);
    return saved?{batches:intake.batches.length+Number(append)}:{obsolete:true};
   }catch(error){
-   if(persistenceError(error))throw error;
+   if(persistenceError(error)||error instanceof PaidDispatchDenied)throw error;
    if(!this.searchCurrent(await this.raw(row.id,row.user_id),round))return {obsolete:true};
    const {signal}=active.controller,terminal=error instanceof ReaderError&&error.status<500;
    // Stopping cleanly between calls spends no attempt. A call a stop killed did spend one.

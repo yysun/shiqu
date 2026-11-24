@@ -36,7 +36,7 @@ export async function authorizeRecovery(db:Database,input:{ownerId:string;sessio
  const replay=await commandReceipt(db,ownerId,requestId,fingerprint);if(replay)return replay;
  if(!resolved&&(!jobs.length||!jobs.includes(resolutionJob)||new Set(jobs).size!==jobs.length))throw new ReaderError(400,'恢复任务不完整。');
  const eligible=input.basis?`AND EXISTS(SELECT 1 FROM stories s WHERE s.id=f.session_id AND s.user_id=f.owner_id
-  AND s.generation_control='active' AND NOT ${supersededSql('s')}
+  AND s.generation_control='active' AND json_type(s.document,'$.dag.continuation') IS NULL AND NOT ${supersededSql('s')}
   AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)
   AND json_remove(s.selection,'$.displayTitle')=json_remove(?,'$.displayTitle')
   AND json_extract(s.document,'$.plan') IS json_extract(?,'$.plan')
@@ -68,14 +68,16 @@ export async function authorizeRecovery(db:Database,input:{ownerId:string;sessio
  throw new ReaderError(409,'这项问题或输入已更新，请刷新后再操作。');
 }
 
-/** 生成方式与暂停控制：回执与故事的控制字段在一个事务中写入；恢复与暂停同时清除旧的修订交接标记。 */
-export async function authorizeControl(db:Database,ownerId:string,sessionId:string,requestId:string,action:ProductionAction,now=Date.now()){
+/** 生成方式与暂停控制：回执与控制字段在一个事务中写入，修订等待仅由继续制作解除。 */
+export async function authorizeControl(db:Database,ownerId:string,sessionId:string,requestId:string,action:ProductionAction,now=Date.now(),stopping=false){
  const fingerprint=commandFingerprint(['control',sessionId,action]),replay=await commandReceipt(db,ownerId,requestId,fingerprint);if(replay)return replay;
  transact(db,tx=>{
+  if(stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
   const inserted=tx.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,created_at,updated_at)
-   SELECT ?,?,?,'control',?,?,?,? FROM stories s WHERE s.id=? AND s.user_id=? AND s.state!='completed'
+   SELECT ?,?,?,'control',?,?,?,? FROM stories s WHERE s.id=? AND s.user_id=? AND (s.state!='completed' OR ? IN('pause','stop','resume') AND EXISTS(
+     SELECT 1 FROM json_each(s.document,'$.dag.frames') f WHERE json_extract(f.value,'$.landscape')='' AND json_type(f.value,'$.landscapeError') IS NULL))
     AND NOT ${supersededSql('s')} AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)
-   ON CONFLICT(owner_id,request_id) DO NOTHING`,requestId,ownerId,sessionId,fingerprint,JSON.stringify({action}),now,now,sessionId,ownerId).changes;
+   ON CONFLICT(owner_id,request_id) DO NOTHING`,requestId,ownerId,sessionId,fingerprint,JSON.stringify({action}),now,now,sessionId,ownerId,action).changes;
   if(!inserted)return;
   const control=action==='resume'?'active':action==='pause'?'paused':action==='stop'?'stopped':null;
   const mode=action==='resume'||action==='background'?'background':null;

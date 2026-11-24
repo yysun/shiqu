@@ -1,4 +1,5 @@
 // 适配器与配置契约使用受控输入；真实启动和制作流程由独立文件覆盖。
+import {PaidDispatchDenied,withPaidDispatch} from '../server/paid-dispatch.ts';
 import test from 'node:test';
 
 import assert from 'node:assert/strict';
@@ -73,4 +74,16 @@ test('DeepSeek reports safe failures without leaking keys, provider bodies or fa
   await assert.rejects(outlineCall(provider.generator()),error=>{assert.match(provider.safeError(error),/DeepSeek/);return error.status===status;});assert.equal(calls,1);
  }}finally{console.error=saved;}
  assert.doesNotMatch(captured.join('\n'),/private provider|private-deepseek-key/);
+});
+
+test('DeepSeek rechecks each paid request and preserves the first receipt',async()=>{
+ let calls=0;
+ const provider=createReaderProvider({SHIQU_AI_PROVIDER:'deepseek',DEEPSEEK_API_KEY:'controlled'},{},async()=>{calls++;return completed(outline);});
+ const receipts=[],deny=new PaidDispatchDenied('obsolete');
+ await assert.rejects(withPaidDispatch({authorize:()=>{if(calls)throw deny;},receipt:value=>receipts.push(value)},async()=>{
+  await outlineCall(provider.generator());
+  await outlineCall(provider.generator());
+ }),error=>error===deny);
+ assert.equal(calls,1);
+ assert.deepEqual(receipts,[{requestId:'controlled',usage:{input_tokens:12,output_tokens:34}}]);
 });

@@ -30,7 +30,7 @@ const rules=[
  [/^server\/provider-settings-access\.ts$/,['startup','providers','desktop'],true],
  [/^server\/(?:local-story-discovery|story-discovery-[\w-]+|story-theme-matching|story-token-budget)\.ts$/,['discovery']],
  [/^server\/local-generation\.ts$/,['books','providers','discovery','preparation','review','production','media']],
- [/^server\/(?:generation|provider-runtime)\.ts$/,['providers','discovery','preparation','review','production','media']],
+ [/^server\/(?:generation|provider-runtime|paid-dispatch)\.ts$/,['providers','discovery','preparation','review','production','media']],
  [/^server\/(?:codex-runner|claude-runner|openai-provider)\.ts$/,['providers']],
  [/^server\/(?:production-queue|reader-commands|reader-production|reader-reselection|reader-revisions|reader-input-migration|story-summary-migration|prompt-record-migration)\.ts$/,['production','storage']],
  [/^server\/reader-intake\.ts$/,['preparation','discovery']],

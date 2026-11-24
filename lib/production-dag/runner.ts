@@ -159,7 +159,7 @@ export function work(story:DagStory):Work[]{
  return [...result,...repairWork(story,state)];
 }
 
-type Attention={target:string;reason:'hand-edited'|'limit'|'unchanged'|'requirements'|'unrepairable'};
+export type Attention={target:string;reason:'hand-edited'|'limit'|'unchanged'|'requirements'|'unrepairable'};
 
 function failing(state:VersionState){
  const ev=evaluate(state);

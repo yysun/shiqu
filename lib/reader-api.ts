@@ -60,6 +60,8 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(!services.database)throw new ReaderError(503,'书架暂时不可用');
   const repo=new ReaderRepository(services.database);
   const sessionView=(row:SessionRow)=>services.production?services.production.snapshot(uid,row.id):view(row);
+  const requestRecorded=async(id:string)=>!!await repo.db.prepare(`SELECT request_id FROM reader_commands WHERE owner_id=? AND request_id=?
+   UNION ALL SELECT id FROM stories WHERE user_id=? AND id=? LIMIT 1`).bind(uid,id,uid,id).first();
   if(path.join('/')==='publication-defaults'){
    if(req.method==='GET')return json({publication:await repo.publicationDefaults(uid)});
    if(req.method==='POST'){
@@ -286,7 +288,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
    if(path[2]==='recover'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
-    const command=recoveryRequestSchema.parse(await body(req));await requireProvider();
+    const command=recoveryRequestSchema.parse(await body(req));if(!await requestRecorded(command.requestId))await requireProvider();
     return json(await services.production.recover(uid,id,command),202);
    }
    if(path[2]==='image-health'&&path.length===3&&req.method==='POST'){
@@ -327,7 +329,6 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(path[2]==='revisions'&&path.length===3){
     if(req.method==='GET')return json(await revisionSnapshot(repo,id,uid));
     if(req.method==='POST'){
-     await requireProvider();
      const production=services.production;
      if(!production)throw new ReaderError(503,'制作队列暂不可用');
      let metadata:unknown,cover:Uint8Array|undefined;
@@ -339,6 +340,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
       cover=new Uint8Array(await files[0].arrayBuffer());
      }else metadata=await body(req,262144);
      const b=z.object({requestId:uuid,token:z.string().regex(/^[a-f0-9]{64}$/),changes:revisionChangesSchema,paused:z.boolean().default(false),startRedraw:z.literal(true).optional()}).strict().parse(metadata);
+     if(!await requestRecorded(b.requestId))await requireProvider();
      if(b.startRedraw&&services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中直接重绘，或使用命令行的继续与运行命令。');
      const row=await forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes,b.paused,cover,b.startRedraw);
      if(!b.paused)production.wake();
@@ -348,13 +350,13 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(path[2]==='review-override'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const command=recoveryRequestSchema.parse(await body(req));
-    await requireProvider();
+    if(!await requestRecorded(command.requestId))await requireProvider();
     return json(await services.production.overrideReview(uid,id,command));
    }
    if(path[2]==='production-control'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const b=z.object({requestId:uuid,action:z.enum(['background','pause','stop','resume','continue','apply-model'])}).strict().parse(await body(req));
-    if(b.action==='background'||b.action==='resume'||b.action==='apply-model'||b.action==='continue'&&!await services.production.continueAccepted?.(uid,id,b.requestId))await requireProvider();
+    if(['background','resume','apply-model','continue'].includes(b.action)&&!await requestRecorded(b.requestId))await requireProvider();
     return json(await services.production.control(uid,id,b.action,b.requestId));
    }
    if(path[2]==='production'&&path.length===3){

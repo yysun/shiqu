@@ -1,5 +1,6 @@
 // Explain saved generation checkpoints without treating a shelf visit as demand for new work.
 // 书架“制作中”区域按状态优先级排序：需要用户处理的排在运行、排队与暂停之前，同一状态内保持原顺序。
+import {productionServiceMessages} from './production-lifecycle.ts';
 import type {SessionView} from './reader-model.ts';
 import type {ShelfSession} from './reader-shelf.ts';
 
@@ -9,6 +10,13 @@ export function shelfGenerationStatus(session:SessionView|ShelfSession){
  if(session.awaitingContinue&&session.state!=='completed')return {group:'生成已暂停',message:'已保存，等待继续',detail:'修改已保存为新版本，点击“继续制作”后才开始重新制作，已有的结果会保留。',action:'继续制作'};
  const phase=session.intake?.phase,preparing=phase==='preparing'||phase==='discovering';
  const pausedStage=session.stage?.replace(/^正在/,'');
+ const service=session.lifecycle?.service;
+ if(service&&service!=='available'&&session.state!=='completed'&&session.lifecycle?.activity.state!=='running'){
+  const detail=productionServiceMessages[service];
+  return {group:'生成已暂停',message:detail.replace(/，.*|。$/g,''),detail,action:'查看详情'};
+ }
+ if(session.lifecycle?.imageAvailability==='unavailable'&&session.lifecycle.activity.state!=='running')
+  return {group:'生成已暂停',message:'图片暂时无法核对',detail:'系统会继续核对已保存的图片，暂时不会重新绘制。',action:'查看详情'};
  if(session.state!=='completed'&&session.generationControl&&session.generationControl!=='active')return {group:'生成已暂停',message:pausedStage?`已暂停 · ${pausedStage}`:'生成已暂停',detail:`已保存的结果会保留。点击“${preparing?'恢复准备':'恢复生成'}”后继续。`,action:'查看详情'};
  if(session.state==='failed'||session.error)return {group:'生成失败',message:'生成失败',detail:session.error||'已保存的结果会保留，请重试继续。',action:'查看详情'};
  if(session.state==='completed')return {group:'已完成',message:'故事已完整展开',detail:'所有画面已保存。',action:'开始阅读'};

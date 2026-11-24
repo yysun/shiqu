@@ -14,6 +14,7 @@ import {selection} from './fixtures/production-data.mjs';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {generationProgress} from '../lib/generation-progress.ts';
 import {shelfGenerationStatus} from '../lib/shelf-generation.ts';
+import {authorizeDispatch,dispatchRules} from '../lib/production-lifecycle.ts';
 
 /** 一篇已完成、审片通过的 DAG 故事，图片文件写入隔离书库。 */
 async function completedStory(f){
@@ -45,7 +46,10 @@ test('edit a caption, save, restart and continue: only the affected review runs 
  assert.equal(doc.dag.frames[doc.dag.order[2]].scene,plan.pages[2].caption);
  // 桌面端据此显示「已保存，等待继续」与「继续制作」。
  assert.equal((await f.read(child)).awaitingContinue,true);
- assert.equal((await f.read(child)).generationControl,'paused','the saved revision is also paused, so the paused-editing screens apply');
+ const waiting=await f.read(child);
+ assert.equal(waiting.generationControl,'paused','旧界面字段仍显示等待');
+ assert.equal(waiting.lifecycle.control,'active','修订等待与读者暂停分别保存');
+ assert.equal(waiting.lifecycle.continuation,true);
  for(let i=0;i<20;i++){f.app.services.production.wake();await turn();}
  assert.equal(f.control.reviews.length,0);
 
@@ -225,14 +229,17 @@ test('renaming a revision waiting for continue preserves its authorization and e
  assert.equal(f.control.dagCalls.length+f.control.calls.length+f.control.reviews.length,0);
 });
 
-test('saving normalized-equivalent production settings leaves the current running revision alone',{todo:'直接提交等价的制作要求会创建新版并切换到等待继续'},async t=>{
+test('saving normalized-equivalent production settings leaves the current running revision alone',async t=>{
  const f=await productionFixture(t,'codex');
  const id=await f.create(3,{productionPrompt:''});
  await until(()=>f.control.calls.length===1);
  const route=`sessions/${id}`,before=await f.read(id),jobs=await jobAttempts(f,id);
  const {token}=await f.json(`${route}/revisions`),changes={productionPrompt:'   '};
  const preview=await f.json(`${route}/revisions/preview`,'POST',{token,changes});
- await f.request(`${route}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes});
+ const command={requestId:crypto.randomUUID(),token,changes};
+ assert.equal((await f.json(`${route}/revisions`,'POST',command)).id,id);
+ assert.equal((await f.json(`${route}/revisions`,'POST',command)).id,id);
+ assert.equal((await f.request(`${route}/revisions`,'POST',{...command,changes:{productionPrompt:'不同制作要求'}})).status,409);
  const latest=await f.json(`${route}/current`),current=await f.read(latest.id);
  assert.deepEqual({changed:preview.changed,sameId:current.id===id,control:current.generationControl,state:current.productionState,ready:current.ready,jobs:await jobAttempts(f,id)},
   {changed:false,sameId:true,control:before.generationControl,state:before.productionState,ready:before.ready,jobs});
@@ -266,6 +273,111 @@ test('running status names the active drawing when an earlier frame awaits recov
  await until(async()=>(await f.read(id)).state==='failed');
  assert.deepEqual(f.control.calls.map(call=>call.page+1),[5]);
  assert.deepEqual([current.stage,shelfGenerationStatus(shelf).message],['正在绘制第 5 幅','正在绘制第 5 幅']);
+});
+
+test('dispatch rule guards are exhaustive and mutually exclusive',()=>{
+ const checks=[false,true];
+ for(const version of ['current','superseded','deleted'])for(const control of ['active','paused','stopped'])
+  for(const continuation of checks)for(const generationCurrent of checks)for(const demand of checks)for(const fault of checks)for(const inputCurrent of checks){
+   const state={version,control,continuation,generationCurrent,demand,fault,inputCurrent};
+   const matches=dispatchRules.filter(rule=>rule.matches(state));
+   assert.equal(matches.length,1,JSON.stringify(state));
+   assert.equal(authorizeDispatch(state),matches[0].decision);
+  }
+ assert.equal(authorizeDispatch({version:'current',control:'active',continuation:false,generationCurrent:true,demand:true,fault:false,inputCurrent:true}),'allow');
+});
+
+test('pausing between the async prescreen and claim leaves the drawing queued without a lease',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ const route=`sessions/${id}`,requestId=crypto.randomUUID(),{token}=await f.json(`${route}/revisions`);
+ const {queue}=f.app.services.production,canRun=queue.options.canRun;
+ const screened=Promise.withResolvers(),release=Promise.withResolvers();
+ queue.options.canRun=async job=>{
+  const allowed=await canRun(job);
+  if(allowed&&job.session_id===requestId){screened.resolve();await release.promise;}
+  return allowed;
+ };
+ await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{redrawPages:[2]},startRedraw:true});
+ try{
+  await until(async()=>await Promise.race([screened.promise.then(()=>true),turn().then(()=>false)]));
+  await f.json(`sessions/${requestId}/production-control`,'POST',{action:'pause'});
+ }finally{release.resolve();}
+ await until(()=>!queue.busy);
+ assert.deepEqual((await jobAttempts(f,requestId)).map(({state,attempts,lease_token})=>[state,attempts,lease_token]),[['queued',0,null]]);
+ assert.equal(f.control.calls.length,0);
+});
+
+for(const [provider,action] of [['codex','pause'],['codex','replace'],['codex','delete'],['gemini','pause']])test(`${provider}: a drawing held in reference reading pays nothing when ${action} commits`,async t=>{
+ const f=await productionFixture(t,provider),{id}=await completedStory(f);
+ const route=`sessions/${id}`,requestId=crypto.randomUUID(),{token}=await f.json(`${route}/revisions`);
+ const gotReference=Promise.withResolvers(),release=Promise.withResolvers();
+ const get=f.media.get.bind(f.media);
+ let held=false;
+ f.media.get=async key=>{
+  if(!held&&key.startsWith(`reader/${requestId}/`)){held=true;gotReference.resolve();await release.promise;}
+  return get(key);
+ };
+ await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{redrawPages:[2]},startRedraw:true});
+ const childRoute=`sessions/${requestId}`;
+ try{
+  await until(async()=>await Promise.race([gotReference.promise.then(()=>true),turn().then(()=>false)]));
+  if(action==='pause')await f.json(`${childRoute}/production-control`,'POST',{action});
+  else if(action==='delete')await f.json(`library/${requestId}`,'DELETE');
+  else{
+   const basis=await f.json(`${childRoute}/revisions`);
+   await f.json(`${childRoute}/revisions`,'POST',{requestId:crypto.randomUUID(),token:basis.token,changes:{artStyle:'watercolor'}});
+  }
+ }finally{release.resolve();}
+ await until(()=>!f.app.services.production.queue.busy);
+ assert.equal(f.control.calls.length,0);
+ if(action==='pause')assert.deepEqual((await jobAttempts(f,requestId)).map(({state,attempts})=>[state,attempts]),[['queued',0]]);
+ if(action==='delete'){
+  await f.json(`library/${requestId}/restore`,'POST',{});
+  assert.equal((await f.read(requestId)).lifecycle.control,'stopped');
+  assert.equal(f.control.calls.length,0);
+ }
+});
+
+test('temporary reference read failure yields the drawing without spending an attempt',async t=>{
+ const f=await productionFixture(t,'gemini'),{id}=await completedStory(f);
+ f.control.hold=false;
+ const route=`sessions/${id}`,requestId=crypto.randomUUID(),{token}=await f.json(`${route}/revisions`);
+ const get=f.media.get.bind(f.media);
+ let inaccessible=true;
+ f.media.get=async key=>{
+  if(inaccessible&&key.startsWith(`reader/${requestId}/artifacts/0-`))throw Error('controlled reference I/O failure');
+  return get(key);
+ };
+ await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{redrawPages:[2]},startRedraw:true});
+ await until(async()=>(await f.read(requestId)).lifecycle.imageAvailability==='unavailable',5000);
+ assert.equal(f.control.calls.length,0);
+ assert.deepEqual((await jobAttempts(f,requestId)).map(({state,attempts})=>[state,attempts]),[['queued',0]]);
+ inaccessible=false;
+ await until(async()=>(await f.read(requestId)).state==='completed',5000);
+ assert.deepEqual(f.control.calls.map(call=>call.page),[1]);
+});
+
+for(const action of ['pause','stop','replace','delete'])test(`a sent drawing saves its receipt on the original version when ${action} commits`,async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ const route=`sessions/${id}`,requestId=crypto.randomUUID(),{token}=await f.json(`${route}/revisions`);
+ await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{redrawPages:[2]},startRedraw:true});
+ await until(()=>f.control.calls.length===1);
+ const childRoute=`sessions/${requestId}`;
+ let successor;
+ if(action==='delete')await f.json(`library/${requestId}`,'DELETE');
+ else if(action==='replace'){
+  const basis=await f.json(`${childRoute}/revisions`);
+  successor=await f.json(`${childRoute}/revisions`,'POST',{requestId:crypto.randomUUID(),token:basis.token,changes:{artStyle:'watercolor'}});
+ }else await f.json(`${childRoute}/production-control`,'POST',{action});
+ f.control.calls[0].resolve();
+ await until(async()=>!!(await saved(f,requestId)).images[1]);
+ assert.equal((await saved(f,requestId)).usage.filter(item=>item.step==='dag:draw'&&!item.originId).length,1);
+ assert.equal(f.control.calls.length,1);
+ if(successor)assert.equal((await saved(f,successor.id)).images[1],'');
+ if(action==='delete'){
+  await f.json(`library/${requestId}/restore`,'POST',{});
+  assert.equal((await f.read(requestId)).lifecycle.control,'stopped');
+ }
 });
 
 test('confirming a redraw of the first frame also replaces just its existing landscape',async t=>{
@@ -645,17 +757,16 @@ test('an unavailable snapshot service stops the story with a clear message; appl
  let available=false,now=snapshotA;
  const f=await snapshotFixture(t,{current:()=>now,provider:snapshot=>available||snapshot.models.text==='model-now'?f.generation:null});
  const id=await confirmThroughIntake(f);
- await until(async()=>(await f.read(id)).faults?.length>0,20000);
+ await until(async()=>(await f.read(id)).lifecycle.service==='snapshot-unavailable',20000);
  const blocked=await f.read(id);
- assert.match(blocked.faults[0].message||blocked.error||'', /快照服务不可用/);
+ assert.equal(blocked.faults,undefined);
+ assert.match(shelfGenerationStatus(blocked).detail,/快照服务不可用/);
  assert.equal(blocked.snapshotUnavailable,true,'the view offers 应用当前模型设置');
  assert.equal(f.control.dagCalls.length,0,'no model call is paid while the snapshot service is unavailable');
  now=current;
  await f.json(`sessions/${id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'apply-model'});
  assert.deepEqual((await saved(f,id)).dag.modelSnapshot,current);
- assert.equal((await f.read(id)).snapshotUnavailable,true,'the failed job stays until the reader retries');
- const fault=(await f.read(id)).faults.find(x=>x.state==='pending');
- if(fault)await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ assert.equal((await f.read(id)).lifecycle.service,'available');
  await until(async()=>(await f.read(id)).state==='completed',20000);
  assert.equal(f.control.calls.length,4);
 });
@@ -731,7 +842,7 @@ test('a revision keeps an unresolved drawing fault whose inputs did not change; 
  const now=Date.now();
  await f.app.services.database.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES('drawfault',?,?,'job','frameImage',?,'dag','绘图失败',?,?)").bind(id,owner,key,now,now).run();
  const snapshot=await f.json(`sessions/${id}/revisions`),childId=crypto.randomUUID();
- await f.json(`sessions/${id}/revisions`,'POST',{requestId:childId,token:snapshot.token,changes:{plan:{...snapshot.plan,summary:'一段与绘图无关的新梗概，只改变梗概文字。'}}});
+ await f.json(`sessions/${id}/revisions`,'POST',{requestId:childId,token:snapshot.token,changes:{storySummary:'一段与绘图无关的新梗概，只改变梗概文字。'}});
  const faults=(await f.app.services.database.prepare("SELECT node,node_key,state FROM reader_faults WHERE session_id=?").bind(childId).all()).results;
  assert.deepEqual(faults.map(x=>[x.node,x.node_key,x.state]),[['frameImage',key,'pending']],'the unchanged fault is carried to the new version');
  await f.json(`sessions/${childId}/production-control`,'POST',{action:'continue'}).catch(()=>{});
@@ -843,7 +954,7 @@ test('a review override only approves the problem the reader saw: a stale or wro
  assert.equal((await f.json(`sessions/${id}/review-override`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id})).id,id);
 });
 
-test('an exhausted DAG review exposes its issues and can grant another repair attempt',{todo:'制作状态漏掉 DAG 审片问题，继续自动修复接口不接受审片故障'},async t=>{
+test('an exhausted DAG review exposes its issues and can grant another repair attempt',async t=>{
  const f=await productionFixture(t,'codex');
  const issue={page:2,category:'caption',problem:'配文没有交代庄周醒来',instruction:'补写醒来的动作',requiresReplan:false};
  f.control.beforeText=async name=>name==='review'?{issues:[issue]}:undefined;
@@ -857,7 +968,12 @@ test('an exhausted DAG review exposes its issues and can grant another repair at
  await f.json(`${route}/production-control`,'POST',{action:'pause'});
  const paused=await f.json(`${route}/revisions`);
  await f.json(`${route}/production-control`,'POST',{action:'resume'});
- const retry=await f.request(`${route}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ const command={requestId:crypto.randomUUID(),faultId:fault.id};
+ const retry=await f.request(`${route}/recover`,'POST',command);
+ const grant=(await saved(f,id)).dag.repairs;
+ assert.equal((await f.request(`${route}/recover`,'POST',command)).status,202);
+ assert.equal((await saved(f,id)).dag.repairs.limit,grant.limit);
+ assert.equal((await f.request(`${route}/recover`,'POST',{...command,requestId:crypto.randomUUID()})).status,409);
  assert.deepEqual({claimsCompletion:blocked.generationProgress.phase==='completed',issues:blocked.reviewIssues?.map(item=>item.page)??[],retryable:fault.retryAllowed,canEditNotes:paused.canEditReviewNotes??false,status:retry.status},
   {claimsCompletion:false,issues:[2],retryable:true,canEditNotes:true,status:202});
 });
@@ -1187,40 +1303,62 @@ test('hand-editing a picture description passes the newly drawn character to the
   {includedInFrame:true,includedInDraw:true});
 });
 
-test('a transient read error while checking a paid image is not treated as a lost file, so it is never drawn twice',async t=>{
+test('a transient read error keeps the paid image receipt and the queue reads it without paying again',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
- const {id,dag}=await completedStory(f);
- const url=dag.frames[dag.order[0]].image,job={session_id:id},dagProduction=f.app.services.production.dag;
- assert.equal(await dagProduction.paidFileLost(job,url),false,'a readable file is kept');
- const media=f.app.services.media,original=media.get.bind(media);
- media.get=async()=>{throw Error('controlled transient read error');};
- await assert.rejects(()=>dagProduction.paidFileLost(job,url),error=>error.status===503,'verification is retried later');
- media.get=async()=>null;
- assert.equal(await dagProduction.paidFileLost(job,url),true,'a file that is really gone is redrawn');
- media.get=original;
- assert.equal(f.control.calls.length,0,'nothing was drawn while checking');
+ const {id}=await completedStory(f),route=`sessions/${id}`,requestId=crypto.randomUUID(),{token}=await f.json(`${route}/revisions`);
+ const media=f.app.services.media,read=media.get.bind(media);
+ let unavailable=true;
+ media.get=async key=>{
+  if(unavailable&&key.startsWith(`reader/${requestId}/artifacts/1-`))throw Error('controlled transient read error');
+  return read(key);
+ };
+ await f.json(`${route}/revisions`,'POST',{requestId,token,changes:{redrawPages:[2]},startRedraw:true});
+ await until(async()=>(await f.read(requestId)).lifecycle.imageAvailability==='unavailable',5000);
+ const blocked=await f.read(requestId);
+ assert.equal(blocked.faults,undefined);
+ assert.equal(f.control.calls.length,1);
+ const [queued]=await f.app.services.production.queue.jobs(requestId,owner);
+ assert.equal(queued.attempts,0);
+ assert.ok(JSON.parse(queued.payload).paid.value);
+ unavailable=false;
+ await until(async()=>(await f.read(requestId)).state==='completed',5000);
+ assert.equal(f.control.calls.length,1);
+ assert.equal((await f.read(requestId)).lifecycle.imageAvailability,'available');
 });
 
-test('landscape jobs that fail because the saved provider is unavailable show as failed with a retry, not as running',async t=>{
+test('queued landscapes show a snapshot service blocker and resume after service recovery',async t=>{
  let available=false;
  const f=await snapshotFixture(t,{current:()=>snapshotA,provider:()=>available?f.generation:null});
  const {id}=await completedStory(f);
  await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag.modelSnapshot',json(?)) WHERE id=?").bind(JSON.stringify(snapshotA),id).run();
- let status=await f.json(`sessions/${id}/landscape`);
- await f.json(`sessions/${id}/landscape`,'POST',{startToken:status.startToken});
- await until(async()=>(await f.json(`sessions/${id}/landscape`)).state!=='running',20000);
- status=await f.json(`sessions/${id}/landscape`);
- assert.equal(status.state,'partial');
- assert.equal(status.failed.length,6,'every frame is listed as failed');
- assert.match(status.error,/快照服务不可用/);
- assert.ok(status.retryToken,'the reader can retry');
- assert.equal(f.control.calls.length,0,'nothing was drawn');
- // 服务恢复后重试，全部画完。
+ const route=`sessions/${id}/landscape`,start=await f.json(route);
+ const status=await f.json(route,'POST',{startToken:start.startToken});
+ assert.equal(status.service,'snapshot-unavailable');
+ assert.deepEqual(status.failed,[]);
+ assert.equal(status.retryToken,undefined);
+ await f.app.services.production.tick();
+ assert.equal(f.control.calls.length,0);
  available=true;
- await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
- await until(async()=>(await f.json(`sessions/${id}/landscape`)).state==='completed',20000);
+ f.app.services.production.wake();
+ await until(async()=>(await f.json(route)).state==='completed',20000);
  assert.equal(f.control.calls.filter(c=>c.landscape).length,6);
+});
+
+test('a restored completed story keeps its optional drawings stopped until resume',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f),route=`sessions/${id}/landscape`;
+ await f.json(`library/${id}`,'DELETE');
+ await f.json(`library/${id}/restore`,'POST',{});
+ const {startToken}=await f.json(route);
+ const queued=await f.json(route,'POST',{startToken});
+ assert.equal(queued.control,'stopped');
+ await f.app.services.production.tick();
+ assert.equal(f.control.calls.length,0);
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
+ await until(async()=>(await f.json(route)).state==='completed',10000);
+ assert.equal(f.control.calls.length,6);
 });
 
 test('read-only mode starts no generation even when the story has a usable model snapshot',async t=>{

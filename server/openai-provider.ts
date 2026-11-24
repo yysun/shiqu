@@ -1,5 +1,6 @@
 // Share the Responses text adapter with DeepSeek; only OpenAI supports image generation here.
 // Never log provider bodies or credentials, fetch returned image URLs, retry, or fall back to another provider.
+import {beforePaidSend,recordPaidResponse,readDrawingReference} from './paid-dispatch.ts';
 import {formatSystemPrompt} from '../lib/reader-prompt-format.ts';
 import {promptRecord} from '../lib/reader-prompt-records.ts';
 import {discoveryCall} from '../lib/reader-discovery-call.ts';
@@ -89,11 +90,15 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
  async function request(route:string,body:Record<string,unknown>|FormData,timeout=timeoutMs){
   if(!key)throw new OpenAIError('KEY_REQUIRED',401);
   const multipart=body instanceof FormData;
-  const response=await transport(base+route,{method:'POST',headers:{Authorization:'Bearer '+key,...(!multipart?{'Content-Type':'application/json'}:{})},body:multipart?body:JSON.stringify(body),signal:AbortSignal.timeout(timeout),redirect:'error'});
+  const options:RequestInit={method:'POST',headers:{Authorization:'Bearer '+key,...(!multipart?{'Content-Type':'application/json'}:{})},body:multipart?body:JSON.stringify(body),signal:AbortSignal.timeout(timeout),redirect:'error'};
+  beforePaidSend();
+  const response=await transport(base+route,options);
   if(!response.ok){await response.body?.cancel();throw new OpenAIError('PROVIDER_ERROR',response.status);}
   let value:any;try{value=await response.json();}catch{throw new OpenAIError('PROVIDER_ERROR',502);}
   if(!value||typeof value!=='object')throw new OpenAIError('PROVIDER_ERROR',502);
-  return {value,requestId:response.headers.get('x-request-id')};
+  const requestId=response.headers.get('x-request-id');
+  recordPaidResponse({requestId:value.id||requestId,usage:value.usage??null});
+  return {value,requestId};
  }
  async function text(instructions:string,payload:unknown,schema:unknown,effort:ReasoningEffort,maxOutputTokens=8192,requestedModel=models.text,task?:ReasoningTask){
   // Resolve only exact saved source references before the unchanged canonical review validators.
@@ -153,8 +158,8 @@ function createResponsesProvider(provider:'openai'|'deepseek',variables:Record<s
     let body:Record<string,unknown>|FormData={model:models.image,prompt,n:1,size,output_format:'png'},route='/images/generations';
     if(reference){
      const ref=referenceImageKey(id,reference);if(!ref)throw new OpenAIError('INVALID_ANCHOR');
-     const saved=await media.get(ref);if(!saved)throw new OpenAIError('INVALID_ANCHOR');
-     const bytes=new Uint8Array(await saved.arrayBuffer()),mime=mediaType(bytes);
+     const saved=await readDrawingReference(()=>media.get(ref));if(!saved)throw new OpenAIError('INVALID_ANCHOR');
+     const bytes=new Uint8Array(await readDrawingReference(()=>saved.arrayBuffer())),mime=mediaType(bytes);
      if(!mime||!imageDimensions(bytes)||bytes.length>12*1024*1024)throw new OpenAIError('INVALID_ANCHOR');
      const form=new FormData();for(const [name,value] of Object.entries(body))form.set(name,String(value));
      form.set('image[]',new Blob([bytes],{type:mime}),'reference.'+imageTypes[mime]);body=form;route='/images/edits';

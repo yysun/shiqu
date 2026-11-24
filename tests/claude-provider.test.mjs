@@ -1,4 +1,5 @@
 // 适配器与配置契约使用受控输入；真实启动和制作流程由独立文件覆盖。
+import {PaidDispatchDenied,withPaidDispatch} from '../server/paid-dispatch.ts';
 import test from 'node:test';
 
 import assert from 'node:assert/strict';
@@ -109,4 +110,14 @@ test('Claude invocation-only configuration preserves desktop profile and matches
  await provider.matchStories('主题',[{id:'a'.repeat(64),title:'故事',text:'原文'}]);assert.equal(seen.model,'claude-test');
  await assert.rejects(provider.generator().image({},0,'id'),/TEXT_ONLY/);
  assert.match(safeClaudeError(new ClaudeError('CLAUDE_LOGIN_REQUIRED')),/claude auth login/);
+});
+
+test('Claude fences the prompted process after the free login check',async t=>{
+ const fake=await fakeCli(t),runner=createClaudeRunner({CLAUDE_BIN:fake.binary});
+ const deny=new PaidDispatchDenied('obsolete');
+ await assert.rejects(withPaidDispatch({authorize:()=>{throw deny;},receipt:()=>assert.fail('no paid receipt')},
+  ()=>runner.run(job)),error=>error===deny);
+ const calls=await fake.calls();
+ assert.equal(calls.length,1);
+ assert.ok(calls[0].args.includes('auth'));
 });

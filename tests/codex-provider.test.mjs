@@ -1,4 +1,5 @@
 // Verify subscription routing, native image validation and subprocess isolation without live inference.
+import {PaidDispatchDenied,withPaidDispatch} from '../server/paid-dispatch.ts';
 import test from 'node:test';
 import {spawnSync} from 'node:child_process';
 import assert from 'node:assert/strict';
@@ -239,4 +240,14 @@ test('per-job model routing uses Luna only for matching and rejects ignored over
  await assert.rejects(runner.run({model:'bad model',instructions:'JSON',prompt:'invalid'}),error=>error.message==='INVALID_MODEL');
  const ignored=await fakeCli(t,'ignored-model');await assert.rejects(createCodexRunner({CODEX_BIN:ignored.binary}).run({model:'gpt-6-luna',instructions:'JSON',prompt:'match',reasoningEffort:'low'}),error=>error.message==='MODEL_UNAVAILABLE');
  assert.ok(!(await ignored.log()).some(row=>row.method==='turn/start'));
+});
+
+test('Codex fences turn/start after free thread setup and preserves the denial',async t=>{
+ const fake=await fakeCli(t),runner=createCodexRunner({CODEX_BIN:fake.binary});
+ const deny=new PaidDispatchDenied('yield');
+ await assert.rejects(withPaidDispatch({authorize:()=>{throw deny;},receipt:()=>assert.fail('no paid receipt')},
+  ()=>runner.run({instructions:'controlled',prompt:'controlled'})),error=>error===deny);
+ const calls=await fake.log();
+ assert.ok(calls.some(call=>call.method==='thread/start'));
+ assert.equal(calls.filter(call=>call.method==='turn/start').length,0);
 });

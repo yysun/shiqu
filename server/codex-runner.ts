@@ -1,4 +1,5 @@
 // Drive the official Codex stdio protocol with subscription auth and no file/command tools.
+import {beforePaidSend,PaidDispatchDenied,recordPaidResponse} from './paid-dispatch.ts';
 import {spawn} from 'node:child_process';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -88,6 +89,7 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
      }
      if(message.method==='turn/completed'){
       if(message.params.turn.status!=='completed'){fail(new CodexError('GENERATION_FAILED'));return;}
+      recordPaidResponse({requestId:message.params.turn.id,usage});
       closed=true;resolve({text,image,model:actualModel,requestId:message.params.turn.id,usage,...(actualEffort?{reasoningEffort:actualEffort}:{})});
      }
     });
@@ -112,13 +114,15 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
       const input:any[]=[{type:'text',text:job.prompt,text_elements:[]}];
       if(job.image)input.push({type:'image',url:`data:${job.image.contentType};base64,${Buffer.from(job.image.bytes).toString('base64')}`});
       await call('turn/start',{threadId,input,...(job.schema?{outputSchema:job.schema}:{})});
-     }catch(error){fail(error instanceof CodexError?error:new CodexError('PROTOCOL_ERROR'));}
+     }catch(error){fail(error instanceof CodexError||error instanceof PaidDispatchDenied?error:new CodexError('PROTOCOL_ERROR'));}
     })();
    });
    function send(message:Message){if(!closed)child?.stdin?.write(JSON.stringify(message)+'\n');}
    function call(method:string,params:Message={}){return new Promise<any>((resolve,reject)=>{
     if(closed){reject(new CodexError('PROCESS_EXIT'));return;}
-    const id=++sequence;pending.set(id,{resolve,reject});send({id,method,params});
+    const id=++sequence,request=JSON.stringify({id,method,params})+'\n';
+    if(method==='turn/start')beforePaidSend();
+    pending.set(id,{resolve,reject});child?.stdin?.write(request);
    });}
    return await completion;
   }finally{closed=true;if(timer)clearTimeout(timer);kill();lines?.close();

@@ -504,6 +504,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "server/paid-dispatch.ts",
         "lib/system-settings.ts",
         "server/claude-runner.ts",
         "server/cli-setup.ts",
@@ -608,6 +609,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "server/paid-dispatch.ts",
         "lib/reader-model.ts",
         "server/app.ts",
         "server/codex-runner.ts",
@@ -691,6 +693,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "server/paid-dispatch.ts",
         "server/generation.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
@@ -2055,6 +2058,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "server/paid-dispatch.ts",
         "server/app.ts",
         "server/desktop.ts",
         "server/generation.ts",
@@ -2385,6 +2389,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "server/database.ts",
         "lib/reader-engine.ts",
         "lib/reader-gemini.ts",
         "lib/reader-model.ts",
@@ -4296,6 +4301,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "server/paid-dispatch.ts",
         "server/dag-production.ts",
         "server/dag-revisions.ts",
         "server/dag-executor.ts",

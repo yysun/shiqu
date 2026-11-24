@@ -1,3 +1,4 @@
+import {beforePaidSend,recordPaidResponse,readDrawingReference} from './paid-dispatch.ts';
 // Select a complete provider explicitly; subscription mode never falls back to API billing.
 import {formatSystemPrompt} from '../lib/reader-prompt-format.ts';
 import {promptRecord} from '../lib/reader-prompt-records.ts';
@@ -94,10 +95,19 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
  const taskReasoningEfforts=configuredTaskReasoning(variables);
  if(name==='gemini'){
   const key=variables.GEMINI_API_KEY?.trim()||'',models=configuredModels(variables);
-  return {generationTimeoutMs:phase=>['recommend','plan','reflection','review','repair','restyle','image'].includes(phase)?geminiGenerationTimeoutMs:null,async status(){return {configured:!!key,provider:'gemini',models,voiceEnabled:false,taskReasoningEfforts,themeMatching:{model:models.text,reasoningEffort:themeMatchEffort}};},suggestions:(selection,excluded,localBook,reading)=>suggestStories(key,selection,models,transport,excluded,localBook,taskReasoningEfforts,reading?.maxStories,reading),matchStories:(theme,stories,context)=>matchStoryThemes(key,theme,stories,models,transport,context),verifyThemeStories:(theme,stories,context,evidence)=>verifyStoryThemes(key,theme,stories,models,transport,context,evidence),async recommendArt(selection,original){if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');return recommendStoryArt(key,selection,original,models,transport,taskReasoningEfforts);},generator:()=>makeGenerator(key,media,models,transport,taskReasoningEfforts),safeError:safeGeminiError};
+  const paidTransport:typeof fetch=async(input,options)=>{
+   const paid=options?.method==='POST'&&typeof input==='string'&&/^https:\/\/generativelanguage\.googleapis\.com\/v1beta\/models\/[\w.-]+:generateContent$/.test(input);
+   if(paid)beforePaidSend();
+   return transport(input,options);
+  };
+  return {generationTimeoutMs:phase=>['recommend','plan','reflection','review','repair','restyle','image'].includes(phase)?geminiGenerationTimeoutMs:null,async status(){return {configured:!!key,provider:'gemini',models,voiceEnabled:false,taskReasoningEfforts,themeMatching:{model:models.text,reasoningEffort:themeMatchEffort}};},suggestions:(selection,excluded,localBook,reading)=>suggestStories(key,selection,models,paidTransport,excluded,localBook,taskReasoningEfforts,reading?.maxStories,reading),matchStories:(theme,stories,context)=>matchStoryThemes(key,theme,stories,models,paidTransport,context),verifyThemeStories:(theme,stories,context,evidence)=>verifyStoryThemes(key,theme,stories,models,paidTransport,context,evidence),async recommendArt(selection,original){if(!original?.localSource)throw new ReaderError(400,'请先选择已核对出处的故事。');return recommendStoryArt(key,selection,original,models,paidTransport,taskReasoningEfforts);},generator:()=>makeGenerator(key,media,models,paidTransport,taskReasoningEfforts,recordPaidResponse,readDrawingReference),safeError:safeGeminiError};
  }
  const claude=name==='claude',safeError=claude?safeClaudeError:safeCodexError,message=claude?(code:string)=>safeClaudeError(new ClaudeError(code)):codexMessage;
- const rawRunner=runner||(claude?createClaudeRunner(variables):createCodexRunner(variables)),cli:CodexRunner={status:()=>rawRunner.status(),run:job=>rawRunner.run({...job,instructions:formatSystemPrompt(job.instructions)})},models=claude?{text:variables.CLAUDE_MODEL?.trim()||'opus',image:''}:{text:variables.CODEX_MODEL?.trim()||'codex-default',image:'codex-image-generation'};
+ const rawRunner=runner||(claude?createClaudeRunner(variables):createCodexRunner(variables)),cli:CodexRunner={status:()=>rawRunner.status(),run:job=>{
+  const prepared={...job,instructions:formatSystemPrompt(job.instructions)};
+  if(runner)beforePaidSend();
+  return rawRunner.run(prepared);
+ }},models=claude?{text:variables.CLAUDE_MODEL?.trim()||'opus',image:''}:{text:variables.CODEX_MODEL?.trim()||'codex-default',image:'codex-image-generation'};
  const matchingModel=claude?models.text:themeMatchModel;
  let cached:Promise<ProviderStatus>|undefined,expires=0;
  function book(selection:Parameters<ReaderProvider['suggestions']>[0]){
@@ -152,8 +162,8 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
     let image:{bytes:Uint8Array;contentType:string}|undefined;
     if(reference){
      const key=referenceImageKey(id,reference);if(!key)throw new CodexError('INVALID_ANCHOR');
-     const object=await media.get(key);if(!object)throw new CodexError('INVALID_ANCHOR');
-     const bytes=new Uint8Array(await object.arrayBuffer()),contentType=mediaType(bytes);
+     const object=await readDrawingReference(()=>media.get(key));if(!object)throw new CodexError('INVALID_ANCHOR');
+     const bytes=new Uint8Array(await readDrawingReference(()=>object.arrayBuffer())),contentType=mediaType(bytes);
      if(!contentType||bytes.length>12*1024*1024)throw new CodexError('INVALID_ANCHOR');image={bytes,contentType};
     }
     const result=await run({instructions:nativeImageInstructions,prompt:promptOverride??imagePrompt(plan,page,style,productionPrompt,!!image,layout,artStylePrompt),image,generateImage:true});

@@ -90,7 +90,7 @@ export function safeGeminiError(error:unknown){
  if(error instanceof Error&&/timeout|abort/i.test(error.name))return '生成等待超时，已保留前面的内容。可手动重试。';
  return '这一步暂时没能生成，已保留前面的内容。可手动重试。';
 }
-function client(key:string,transport:typeof fetch){
+function client(key:string,transport:typeof fetch,recordReceipt?:(receipt:unknown)=>void){
  return async(model:string,input:Record<string,unknown>,task:ReasoningTask|'image')=>{
   const started=Date.now();
   if(!/^[a-zA-Z0-9._-]+$/.test(model))throw new GeminiError('INVALID_MODEL',400);
@@ -108,6 +108,7 @@ function client(key:string,transport:typeof fetch){
   }
   let result:Result;try{result=await response.json() as Result;}catch{throw new GeminiError('PROVIDER_ERROR',502);}
   if(!result||typeof result!=='object')throw new GeminiError('PROVIDER_ERROR',502);
+  recordReceipt?.({requestId:result.responseId||response.headers.get('x-request-id'),usage:result.usageMetadata??null});
   const candidate=result.candidates?.[0];
   const config=input.generationConfig as {maxOutputTokens?:number;thinkingConfig?:{thinkingLevel?:string}}|undefined;
   console.info('gemini_response',JSON.stringify(geminiResponseDiagnostic({...result.usageMetadata as object,finishReason:candidate?candidate.finishReason||'FINISH_REASON_UNSPECIFIED':'NO_CANDIDATE',task,maxOutputTokens:config?.maxOutputTokens,thinkingLevel:config?.thinkingConfig?.thinkingLevel,elapsedMs:Date.now()-started})));
@@ -162,8 +163,8 @@ export async function recommendStoryArt(key:string,selection:Selection,original:
  const {candidate}=await client(key,transport)(config.text,textRequest(config.text,selectedArtRecommendationPrompt,selectedArtRecommendationPayload(selection,original),artRecommendationJson,'',600,reasoning.art),'art');
  return artRecommendationSchema.parse(parseText(candidate));
 }
-export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={},transport:typeof fetch=fetch,reasoning:TaskReasoningEfforts=taskReasoningDefaults):StoryGenerator{
- const models={...defaultModels,...config},generate=client(key,transport);
+export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={},transport:typeof fetch=fetch,reasoning:TaskReasoningEfforts=taskReasoningDefaults,recordReceipt?:(receipt:unknown)=>void,readReference:<T>(read:()=>Promise<T>)=>Promise<T>=read=>read()):StoryGenerator{
+ const models={...defaultModels,...config},generate=client(key,transport,recordReceipt);
  return {
   ...storyboardGenerator(selection=>source(selection).book,async(task,instructions,payload,schema,maxOutputTokens,original)=>{
    const evidence=geminiReviewEvidence(payload,schema);
@@ -187,8 +188,8 @@ export function makeGenerator(key:string,assets:Assets,config:Partial<Models>={}
     // Authorized book snapshots are copied into the target story namespace before this call.
     const key=referenceImageKey(id,reference);
     if(!key)throw new GeminiError(reference.startsWith(`/api/reader/media/${id}/`)?'INVALID_ANCHOR':'MISSING_ANCHOR');
-    const anchor=await assets.get(key);if(!anchor)throw new GeminiError('MISSING_ANCHOR');
-    const bytes=new Uint8Array(await anchor.arrayBuffer()),mimeType=mediaType(bytes);
+    const anchor=await readReference(()=>assets.get(key));if(!anchor)throw new GeminiError('MISSING_ANCHOR');
+    const bytes=new Uint8Array(await readReference(()=>anchor.arrayBuffer())),mimeType=mediaType(bytes);
     if(!mimeType||bytes.length>12*1024*1024)throw new GeminiError('INVALID_ANCHOR');
     parts.push({inlineData:{mimeType,data:encode(bytes)}});
    }

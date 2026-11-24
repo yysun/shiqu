@@ -12,16 +12,17 @@ import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
 import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {castFrom} from '../lib/production-dag/frames.ts';
-import {projectDocument,type DagDocument} from '../lib/production-dag/document.ts';
-import {settle,stateOf,work,type DagStory} from '../lib/production-dag/runner.ts';
+import {projectDocument,rootProducts,type DagDocument} from '../lib/production-dag/document.ts';
+import {settle,stateOf,syncItems,work,type DagStory} from '../lib/production-dag/runner.ts';
 import {handEditChoices} from '../lib/production-dag/hand-edits.ts';
 import {verdictNodes} from '../lib/production-dag/review.ts';
 import {survivingRevisionFrames,usesStoryImageReference} from '../lib/reader-revision.ts';
-import {revisionBasis,familyEpoch,currentFamilyVersion,revisionCoverMaxBytes} from './reader-revisions.ts';
+import {revisionBasis,familyEpoch,currentFamilyVersion,revisionCoverMaxBytes,revisionToken} from './reader-revisions.ts';
 import {readableImage} from './reader-image-health.ts';
 import {imageDimensions} from '../lib/reader-image-dimensions.ts';
 import {sameArtDirection} from '../lib/reader-styles.ts';
 import {dagProgress} from '../lib/production-dag/progress.ts';
+import {transact} from './production-records.ts';
 
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 const frameNodes=['scene','visual','frameImage','landscape',...verdictNodes];
@@ -72,7 +73,7 @@ function editCharacters(dag:DagDocument,text:string,handEdit:(node:string,key:st
 /** 标题与余味的修改记为读者确认的结语；它是根产物，由 settle 重新记录，依赖它的审片随之重做。 */
 function editEnding(dag:DagDocument,story:DagStory,plan:NonNullable<RevisionChanges['plan']>){
  const shown=projectDocument(dag,story.doc.plan??null).plan;
- if(!shown||(plan.title===shown.title&&plan.reflection===shown.reflection))return;
+ if(!shown||(plan.title.trim()===shown.title.trim()&&plan.reflection.trim()===shown.reflection.trim()))return;
  dag.ending={...(dag.ending??{title:shown.title,candidates:[]}),confirmed:{title:plan.title,ending:plan.reflection}};
 }
 
@@ -96,11 +97,11 @@ function applyEdits(story:DagStory,changes:RevisionChanges):DagDocument{
   if(changes.plan.pages.length!==dag.order.length)throw new ReaderError(400,'减幅时请提供原稿中删除的幅号。');
   changes.plan.pages.forEach((page,i)=>{
    const id=dag.order[i],frame=dag.frames[id];
-   if(page.caption!==frame.scene){
+   if(page.caption.trim()!==frame.scene.trim()){
     frame.scene=page.caption;frame.candidates=castFrom([page.caption,...(frame.people??[])].join(' '),dag.characters);
     handEdit('scene',id,page.caption);
    }
-   if(page.prompt!==frame.visual){
+   if(page.prompt.trim()!==frame.visual.trim()){
     frame.visual=page.prompt;
     handEdit('visual',id,{prompt:page.prompt,drawn:frame.drawnNames??frame.drawn});
    }
@@ -185,13 +186,16 @@ function deriveRevision(doc:Document,row:SessionRow,changes:RevisionChanges,chil
  const parent:DagStory={id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag!,confirmed:true,faults:[]};
  // 文字修改按上一版的输入记录为手改，再合入设置修改，由引擎判断哪些产物失效。
  const edited=applyEdits(parent,changes);
- delete edited.resumeUnreviewed;
- for(const [id,product] of Object.entries(edited.products))if(product.unreviewed)delete edited.products[id];
  applyRedraw(edited,changes);
  const child:DagStory={...parent,id:childId,selection,doc:{...doc,reviewNotes},dag:edited};
+ const roots=(story:DagStory)=>rootProducts(story.selection,syncItems(story.dag,story.selection),{notes:story.doc.reviewNotes});
+ const changed=!!changes.redrawPages||fingerprint(edited)!==fingerprint(parent.dag)||fingerprint(roots(child))!==fingerprint(roots(parent));
+ if(!changed)return {parent,child,selection,reviewNotes,changed,choices:[],conflicts:[]};
+ delete edited.resumeUnreviewed;
+ for(const [id,product] of Object.entries(edited.products))if(product.unreviewed)delete edited.products[id];
  const outcome=settleHandEdits(child,changes.handEdits,strict);
  child.dag={...outcome.dag,repairs:undefined,issues:[],suggestions:[]};
- return {parent,child,selection,reviewNotes,choices:outcome.choices,conflicts:outcome.conflicts};
+ return {parent,child,selection,reviewNotes,changed,choices:outcome.choices,conflicts:outcome.conflicts};
 }
 
 type CarriedFault={kind:string;node:string;node_key:string;message:string;image:string|null};
@@ -235,14 +239,15 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
  const {doc,token:current}=await revisionBasis(repo,row);
  if(current!==token)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
  if(!doc.dag)throw new ReaderError(409,'这篇故事还没有进入制作，请稍后再修改。');
- const {parent,child,choices,conflicts}=deriveRevision(doc,row,changes,row.id,false);
+ const {parent,child,changed,choices,conflicts}=deriveRevision(doc,row,changes,row.id,false);
+ if(!changed)return {changed:false,total:child.dag.order.length,redraw:0,reused:doc.images.filter(Boolean).length,textWork:{},continues:false,handEdits:[],conflicts:[],carriedFaults:0};
  child.dag=settle(child);
  const ev=evaluate(stateOf(child)),order=child.dag.order;
  const redraw=order.filter(id=>ev.instance('frameImage',id).status!=='valid').length;
  const items=work(child),textWork:Record<string,number>={};
  for(const item of items)if(item.call!=='draw'&&item.call!=='drawLandscape')textWork[item.call]=(textWork[item.call]??0)+item.instances.length;
  const carried=await carryFaults(repo,row,row.user_id,parent,child);
- return {changed:Object.keys(changes).length>0,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices,conflicts:conflicts.map(id=>({id,message:`重新编排会丢弃${handEditLabel(id,doc.dag!.order)}的手改`})),carriedFaults:carried.length};
+ return {changed,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices,conflicts:conflicts.map(id=>({id,message:`重新编排会丢弃${handEditLabel(id,doc.dag!.order)}的手改`})),carriedFaults:carried.length};
 }
 
 export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string,cover?:Uint8Array,startRedraw=false):Promise<SessionRow>{
@@ -260,7 +265,26 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   if(Object.keys(changes).length!==1||!changes.artStyle||row.state!=='completed'||!reviewPassed)throw new ReaderError(409,'指定首幅原图仅适用于已完成且审核通过的故事换画风。');
   if(cover.length>revisionCoverMaxBytes||!coverType||!dimensions||dimensions.width>4096||dimensions.height>4096||!await readableImage(cover))throw new ReaderError(400,'请选择可读取的 PNG、JPEG 或 WebP，文件不超过 12 MiB，宽高各不超过 4096 像素。');
  }
- const {parent,child,selection,reviewNotes}=deriveRevision(doc,row,changes,requestId,true);
+ const {parent,child,selection,reviewNotes,changed}=deriveRevision(doc,row,changes,requestId,true);
+ if(!changed&&!cover){
+  // 等价保存只记回执。重新读取当前稿件允许正在收尾的成图写入，同时拒绝过期版本与编辑依据。
+  transact(repo.db,db=>{
+   const replay=db.get<{session_id:string;action:string;fingerprint:string}>('SELECT session_id,action,fingerprint FROM reader_commands WHERE owner_id=? AND request_id=?',ownerId,requestId);
+   if(replay){
+    if(replay.session_id!==row.id||replay.action!=='revision-noop'||replay.fingerprint!==requestHash)throw new ReaderError(409,'这个操作编号已用于其他内容。');
+    return;
+   }
+   const latest=db.get<SessionRow>(`SELECT p.* FROM stories p WHERE p.id=? AND p.user_id=? AND ${currentFamilyVersion('p')}`,row.id,ownerId);
+   if(!latest)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
+   const currentDoc=JSON.parse(latest.document) as Document;
+   const currentEpoch=db.get<{epoch:number}>(familyEpoch,ownerId,rootId,rootId)!.epoch;
+   if(revisionToken(latest,currentDoc,currentEpoch)!==token||deriveRevision(currentDoc,latest,changes,requestId,true).changed)
+    throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
+   const now=Date.now();
+   db.run("INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,result_id,created_at,updated_at) VALUES(?,?,?,'revision-noop',?,'{}',?,?,?)",requestId,ownerId,row.id,requestHash,row.id,now,now);
+  });
+  return repo.get(row.id,ownerId);
+ }
  const redrawFrame=startRedraw?child.dag.order[changes.redrawPages![0]-1]:undefined;
  const redrawLandscape=redrawFrame&&!!child.dag.frames[redrawFrame].landscape;
  if(redrawLandscape){
@@ -290,15 +314,15 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  const now=new Date().toISOString(),completed=!pending&&row.state==='completed';
  // 故障延续：上一版仍待处理的故障，其节点的输入在新版里没有改变时继续阻断，须读者明确恢复；输入已变的故障不带入（新内容重新开始）。
  const carried=await carryFaults(repo,row,ownerId,parent,{...child,dag});
- // 普通修订在同一事务设置等待与暂停；已确认的单幅重绘在同一事务启用绘图。
+ // 普通修订在同一事务设置等待并保留读者控制；已确认的单幅重绘在同一事务启用绘图。
  // 新版与其图片丢失故障在同一事务中写入：中断不会留下未经读者恢复就可重绘的新版。
  const transaction=repo.db.transaction;
  if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
  transaction.call(repo.db,db=>{
   const inserted=db.run(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,error,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
-  SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),'background',?,?,NULL,0,0,MIN(p.page,?),p.saved,p.last_read_at,?,? FROM stories p
+  SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),'background',CASE WHEN ? THEN 'active' WHEN ? THEN 'paused' ELSE p.generation_control END,?,NULL,0,0,MIN(p.page,?),p.saved,p.last_read_at,?,? FROM stories p
   WHERE p.id=? AND p.user_id=? AND p.document=? AND p.selection=? AND ${currentFamilyVersion('p')} AND (${familyEpoch.replace(' AS epoch','')})=?
-  ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),paused||waiting?'paused':'active',completed?'completed':'idle',Math.max(0,dag.order.length-1),now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch);
+  ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),startRedraw?1:0,paused?1:0,completed?'completed':'idle',Math.max(0,dag.order.length-1),now,now,row.id,ownerId,row.document,row.selection,ownerId,rootId,rootId,epoch);
   if(!inserted.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
   for(const fault of carried){
    if(lost.some(page=>fault.node==='frameImage'&&dag.order[page]===fault.node_key))continue;

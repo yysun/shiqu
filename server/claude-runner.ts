@@ -1,5 +1,6 @@
 // Run subscription-authenticated Claude Code as an isolated text transport for production jobs.
 // Never inherit API billing, tools or project customizations; retain only validated protocol receipts.
+import {beforePaidSend,PaidDispatchDenied,recordPaidResponse} from './paid-dispatch.ts';
 import {spawn} from 'node:child_process';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -24,6 +25,7 @@ export function createClaudeRunner(variables:Record<string,string|undefined>,opt
  let resolvedModel:string|undefined;
  async function execute(args:string[],directory:string,input:string,timeoutMs:number,onLine?:(line:string)=>void){
   return new Promise<{code:number|null;text:string}>((resolve,reject)=>{
+   if(onLine)beforePaidSend();
    const child=spawn(binary,args,{cwd:directory,env,stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32',windowsHide:true});
    children.add(child);let text='',bytes=0,failure:Error|undefined;
    const fail=(error:Error)=>{failure??=error;kill(child);};
@@ -85,6 +87,7 @@ export function createClaudeRunner(variables:Record<string,string|undefined>,opt
      }
      if(message.type==='result'){if(result)throw new ClaudeError('INVALID_PROTOCOL');result=message;usage=message.usage;}
     });
+    if(result)recordPaidResponse({requestId:result.session_id,usage});
     if(output.code!==0||!initialized||!result||result.is_error||result.subtype!=='success')throw new ClaudeError('GENERATION_FAILED');
     if(!actualModel||requested.startsWith('claude-')&&actualModel!==requested)throw new ClaudeError('MODEL_UNAVAILABLE');
     if(!result.modelUsage||!Object.hasOwn(result.modelUsage,actualModel)||typeof result.session_id!=='string'||!result.session_id)throw new ClaudeError('INVALID_PROTOCOL');
@@ -93,7 +96,7 @@ export function createClaudeRunner(variables:Record<string,string|undefined>,opt
     // Effort is the CLI request value, not a provider-confirmed thinking budget.
     resolvedModel=actualModel;
     return {text,image:null,model:actualModel,requestId:result.session_id,usage:{...result.usage,modelUsage:result.modelUsage,totalCostUsd:result.total_cost_usd,durationMs:result.duration_ms,numTurns:result.num_turns},...(effort.data?{reasoningEffort:effort.data}:{})};
-   }catch(error){const safe=error instanceof ClaudeError?error:new ClaudeError('INVALID_OUTPUT');safe.inferenceStarted=started;safe.usage=usage;throw safe;}
+   }catch(error){if(error instanceof PaidDispatchDenied)throw error;const safe=error instanceof ClaudeError?error:new ClaudeError('INVALID_OUTPUT');safe.inferenceStarted=started;safe.usage=usage;throw safe;}
    finally{await rm(directory,{recursive:true,force:true});}
   },
  };

@@ -221,10 +221,10 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    const status=await app.services.generation.status();need(status.configured,'PROVIDER_UNAVAILABLE',status.message||'Provider is not ready.');
    const current=await api(app,'GET',`sessions/${target}/current`);const initial=await api(app,'GET',`sessions/${target}`);need(current.id===target&&!initial.superseded,'SUPERSEDED_VERSION','Use the current family version.');
    // 已保存的修订等待明确的「继续制作」：run 不会隐式继续。
-   if(initial.awaitingContinue)return {reason:'continue_required',session:initial};
-   if(initial.generationControl!=='active')return {reason:'paused',session:initial};
-   if(initial.state==='failed')return {reason:'blocked',session:initial};
-   const boundary=(snapshot:any)=>snapshot.state==='completed'?'completed':until==='prepared'&&snapshot.intake?.phase==='confirmed'?'already_prepared':until==='prepared'&&snapshot.frameRecommendation?'prepared':until==='candidates'&&snapshot.intake?.selected?'already_selected':null;
+   if(initial.lifecycle?.continuation??initial.awaitingContinue)return {reason:'continue_required',session:initial};
+   if((initial.lifecycle?.control??initial.generationControl)!=='active')return {reason:'paused',session:initial};
+   if(initial.state==='failed'||initial.lifecycle?.phase==='production'&&initial.lifecycle.service!=='available')return {reason:'blocked',session:initial};
+   const boundary=(snapshot:any)=>(snapshot.lifecycle?.phase==='completed'||!snapshot.lifecycle&&snapshot.state==='completed')?'completed':until==='prepared'&&snapshot.intake?.phase==='confirmed'?'already_prepared':until==='prepared'&&snapshot.frameRecommendation?'prepared':until==='candidates'&&snapshot.intake?.selected?'already_selected':null;
    const reached=boundary(initial);if(reached)return {reason:reached,session:initial};
    if(until==='candidates')need(initial.intake,'BOUNDARY_UNAVAILABLE','Candidates require an intake story.');
    if(until==='prepared'&&!initial.intake)need(initial.selection.narrativeDetail&&initial.selection.length!=='auto','BOUNDARY_UNAVAILABLE','This legacy story has no preparation gate; use --until reviewed or completed.');
@@ -239,7 +239,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
      // 制作 DAG 的故事由引擎判断审片是否通过；旧故事沿用投影与审片记录。
      const dagReview=until==='reviewed'&&saved.dag?await app.services.production!.reviewState?.(app.services.ownerId,target!):null;
      const reviewed=saved.dag?dagReview==='approved':saved.plan&&reviewPassed(saved)&&!saved.revision?.restyle;
-     const reason=snapshot.superseded?'superseded':snapshot.awaitingContinue?'continue_required':snapshot.state==='failed'?'blocked':snapshot.generationControl!=='active'?'paused':boundary(snapshot)|| (until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates':intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':until==='reviewed'&&reviewed?'reviewed':dagReview==='attention'?'blocked':null);
+     const reason=(snapshot.lifecycle?.version==='superseded'||snapshot.superseded)?'superseded':(snapshot.lifecycle?.continuation??snapshot.awaitingContinue)?'continue_required':snapshot.state==='failed'||snapshot.lifecycle?.phase==='production'&&snapshot.lifecycle.service!=='available'?'blocked':(snapshot.lifecycle?.control??snapshot.generationControl)!=='active'?'paused':boundary(snapshot)|| (until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates':intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':until==='reviewed'&&reviewed?'reviewed':dagReview==='attention'?'blocked':null);
      if(reason)return {reason,session:snapshot};await delay(80,undefined,{signal:abort.signal}).catch(()=>{});
     }
     throw new CliCommandError(timedOut?'TIMEOUT':'INTERRUPTED',timedOut?'Run timed out; saved checkpoints are retained.':'Run interrupted; saved checkpoints are retained.',timedOut?5:130,{session:snapshot});
