@@ -25,9 +25,12 @@ export function withPublicationDefaults(story:Story,defaults:StoryPublication|nu
  return {...story,publication};
 }
 export const rightsBoundary='代码开源许可不自动适用于作品内容。原作及来源版本遵循各自适用的权利和许可；本次改编中的受保护贡献，除另有许可或法律允许外，再使用请联系相应权利人。制作人的说明不能收紧公版材料或已有许可赋予的权利。';
+function isImageGenerationStep(step:string){
+ return step.startsWith('image:')||step==='dag:draw'||step==='dag:drawLandscape';
+}
 export function generationModelNames(models:readonly {step:string;model:string}[]|undefined,kind:'text'|'image'){
  const image=kind==='image';
- return [...new Set((models||[]).filter(item=>item.step.startsWith('image:')===image).map(item=>item.model.trim()).filter(Boolean))];
+ return [...new Set((models||[]).filter(item=>isImageGenerationStep(item.step)===image).map(item=>item.model.trim()).filter(Boolean))];
 }
 export function generationImageModelForPage(models:readonly {step:string;model:string}[]|undefined,page:number){
  const step=`image:${page}`;
