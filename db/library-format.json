@@ -1,1 +1,1 @@
-{"schemaVersion":3,"minimumAppVersion":"0.16.0","latestMigration":"0026_production_lifecycle.sql"}
+{"schemaVersion":3,"minimumAppVersion":"0.16.0","latestMigration":"0027_revision_fault_targets.sql"}

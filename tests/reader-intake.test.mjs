@@ -1,6 +1,7 @@
 // Prove that initial intent, candidate receipts and confirmation gates survive real queued execution.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {setTimeout as delay} from 'node:timers/promises';
 import {productionFixture,until,selection} from './fixtures/production.mjs';
 import {saveStoryOriginal} from '../lib/reader-source-storage.ts';
 import {observeStoryGeneration} from '../lib/reader-production-client.ts';
@@ -285,8 +286,8 @@ test('confirmed intake draws eighty frames once across four storyboard batches',
  const id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');
  await setup(f,id,{action:'confirm',settings:{artStyle:'paper-cut',productionPrompt:'Complete causality without repeated scenes.',narrativeDetail:'detailed',length:80}});
- // Eighty durable image/prompt receipts need headroom while the full suite shares the CI runner.
- await until(async()=>(await f.read(id)).state==='completed',60000);
+ // 以有间隔的详情轮询检查完成，避免连续读取 80 幅作品的全量状态占用队列的执行时间。
+ await until(async()=>{await delay(100);return (await f.read(id)).state==='completed';},60000);
  assert.deepEqual(batches,[{first:1,last:20},{first:21,last:40},{first:41,last:60},{first:61,last:80}]);
  assert.deepEqual(f.control.calls.map(call=>call.page).sort((a,b)=>a-b),Array.from({length:80},(_,page)=>page));assert.equal((await f.read(id)).ready,80);
 });

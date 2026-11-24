@@ -9,6 +9,7 @@ import {storySummaryMigration,migrateStorySummary} from './story-summary-migrati
 import {readerInputMigration,migrateReaderInputs,legacyInputFaultMigration,retainLegacyInputFaults} from './reader-input-migration.ts';
 import {promptRecordMigration,migratePromptRecords} from './prompt-record-migration.ts';
 import {productionDagMigration,migrateProductionDag} from './dag-migration.ts';
+import {revisionFaultMigration,migrateRevisionFaults} from './dag-fault-migration.ts';
 export const migrationNames=(root:string)=>readdirSync(path.join(root,'drizzle')).filter(f=>f.endsWith('.sql')).sort();
 export function migrate(sqlite:DatabaseSync,root:string,directory?:string,through?:string,after?:string){
  sqlite.exec('CREATE TABLE IF NOT EXISTS app_migrations(name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)');
@@ -18,7 +19,7 @@ export function migrate(sqlite:DatabaseSync,root:string,directory?:string,throug
    if(!sqlite.prepare('SELECT 1 FROM app_migrations WHERE name=?').get(name)){
     const legacy=sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='d1_migrations'").get();
     const applied=legacy&&sqlite.prepare('SELECT 1 FROM d1_migrations WHERE name=?').get(name);
-    if(!applied){const sql=readFileSync(path.join(root,'drizzle',name),'utf8');if(name===storySummaryMigration)migrateStorySummary(sqlite,sql,directory);else if(name===readerInputMigration)migrateReaderInputs(sqlite);else if(name===legacyInputFaultMigration)retainLegacyInputFaults(sqlite);else if(name===promptRecordMigration)migratePromptRecords(sqlite,sql);else if(name===productionDagMigration)migrateProductionDag(sqlite,sql,directory);else sqlite.exec(sql);}
+    if(!applied){const sql=readFileSync(path.join(root,'drizzle',name),'utf8');if(name===storySummaryMigration)migrateStorySummary(sqlite,sql,directory);else if(name===readerInputMigration)migrateReaderInputs(sqlite);else if(name===legacyInputFaultMigration)retainLegacyInputFaults(sqlite);else if(name===promptRecordMigration)migratePromptRecords(sqlite,sql);else if(name===productionDagMigration)migrateProductionDag(sqlite,sql,directory);else if(name===revisionFaultMigration)migrateRevisionFaults(sqlite,sql);else sqlite.exec(sql);}
     sqlite.prepare('INSERT INTO app_migrations VALUES(?,?)').run(name,new Date().toISOString());
    }
    sqlite.exec('COMMIT');

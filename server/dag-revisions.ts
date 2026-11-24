@@ -9,7 +9,7 @@ import type {MediaStore} from '../lib/services.ts';
 import type {RevisionChanges} from '../lib/reader-revision.ts';
 import {lostImageMessage,readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
-import {evaluate,instanceId,instanceKeys,type Instance} from '../lib/production-dag/engine.ts';
+import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {castFrom} from '../lib/production-dag/frames.ts';
 import {projectDocument,rootProducts,type DagDocument} from '../lib/production-dag/document.ts';
@@ -24,6 +24,7 @@ import {sameArtDirection} from '../lib/reader-styles.ts';
 import {dagProgress} from '../lib/production-dag/progress.ts';
 import {transact} from './production-records.ts';
 import {authorizeProductionCommand} from '../lib/production-lifecycle.ts';
+import {carryFaults,carriedFaultRows,insertCarriedJobFault,type FaultToCarry} from './dag-revision-faults.ts';
 
 const hash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 const frameNodes=['scene','visual','frameImage','landscape',...verdictNodes];
@@ -216,41 +217,6 @@ function deriveRevision(doc:Document,row:SessionRow,changes:RevisionChanges,chil
  return {parent,child,selection,reviewNotes,changed,choices:outcome.choices,conflicts:outcome.conflicts};
 }
 
-type CarriedFault={id:string;kind:string;node:string;node_key:string;message:string;image:string|null;input_hash:string|null;origin_fault_id:string|null;optional:number};
-type FaultToCarry=CarriedFault&{payload:string|null};
-const carriedFaultRows=`SELECT f.id,f.kind,f.node,f.node_key,f.message,f.image,f.input_hash,f.origin_fault_id,f.optional,j.payload
- FROM reader_faults f LEFT JOIN production_jobs j ON j.id=f.job_id AND j.session_id=f.session_id AND j.owner_id=f.owner_id
- WHERE f.session_id=? AND f.owner_id=? AND f.state IN ('pending','recovering','awaiting-match') AND f.node IS NOT NULL`;
-/**
- * 逐个延续输入未变的故障实例。批量故障拆成具体节点与键保存，保留原故障编号，供读者一次恢复该批留下的目标。
- */
-function carryFaults(faults:FaultToCarry[],parent:DagStory,child:DagStory):CarriedFault[]{
- if(!faults.length)return [];
- const before=evaluate(stateOf(parent)),after=evaluate(stateOf(child));
- return faults.flatMap(({payload,...fault})=>{
-  if(fault.kind==='image-loss'&&fault.node==='frameImage'){
-   const product=parent.dag.products[instanceId(fault.node,fault.node_key)];
-   const input_hash=fault.input_hash??(product?fingerprint(product.inputs):null);
-   if(input_hash)return [{...fault,input_hash}];
-  }
-  let instances:Pick<Instance,'node'|'key'|'hard'>[]=[{node:fault.node,key:fault.node_key}];
-  try{
-   const recorded=payload?(JSON.parse(payload) as {work?:{instances?:Instance[]}}).work?.instances:undefined;
-   if(recorded?.length)instances=recorded;
-  }catch{/* 沿用记录的节点 */}
-  return instances.flatMap(({node,key,hard})=>{
-   try{
-    if(!instanceKeys(after.state,node).includes(key))return [];
-    const inputs=hard??before.instance(node,key).hard,current=after.instance(node,key).hard;
-    if(fault.kind==='image-loss')return fingerprint(inputs??null)===fingerprint(current??null)?[{...fault,node,node_key:key}]:[];
-    const input_hash=fault.input_hash??(inputs?fingerprint(inputs):null);
-    if(!current||input_hash!==fingerprint(current))return [];
-    return [{...fault,node,node_key:key,input_hash}];
-   }catch{return [];}
-  });
- });
-}
-
 export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:number;
  /** 需要重做的文字工作，按调用名计数（批量调用按产出的实例数）。 */
  textWork:Record<string,number>;
@@ -393,9 +359,9 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
      randomUUID(),requestId,ownerId,fault.input_hash,fault.id,'待核对旧版丢图是否影响新版画幅。',at,at);
     continue;
    }
-   const kind=fault.kind==='interrupted'?'job':fault.kind;
-   db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,input_hash,origin_fault_id,optional,version,image,message,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'dag',?,?,?,?)",
-    randomUUID(),requestId,ownerId,kind,fault.node,fault.node_key,fault.input_hash,kind==='job'?fault.origin_fault_id??fault.id:null,fault.optional,fault.image,fault.message,at,at);
+   if(fault.kind==='job'||fault.kind==='interrupted')insertCarriedJobFault(db,requestId,ownerId,fault,at);
+   else db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,image,message,created_at,updated_at) VALUES(?,?,?,?,?,?,'dag',?,?,?,?)",
+    randomUUID(),requestId,ownerId,fault.kind,fault.node,fault.node_key,fault.image,fault.message,at,at);
   }
   // 丢失的成图记为待处理的图片丢失故障：阻断该幅及依赖它的工作与整篇完成，读者明确恢复后才重绘。
   for(const page of lost){

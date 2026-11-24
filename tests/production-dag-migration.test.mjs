@@ -440,7 +440,7 @@ test('0026 auto-migrates format 2 after a verified backup and can retry a rolled
  sqlite.exec('DROP TRIGGER interrupt_lifecycle');
  sqlite.close();
  const result=ensureLibraryReady(directory,root);
- assert.deepEqual(result.migrations,['0026_production_lifecycle.sql']);
+ assert.deepEqual(result.migrations,['0026_production_lifecycle.sql','0027_revision_fault_targets.sql']);
  verifyLibraryBackup(result.backup);
  const original=new DatabaseSync(path.join(result.backup,'shiqu.sqlite'),{readOnly:true});
  try{assert.equal(original.prepare('PRAGMA user_version').get().user_version,2);}finally{original.close();}

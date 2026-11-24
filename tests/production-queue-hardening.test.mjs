@@ -9,6 +9,7 @@ import {productionFixture,makePlan,selection,until,turn} from './fixtures/produc
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {shelfView} from '../lib/reader-api.ts';
 import {emptyDag} from '../lib/production-dag/document.ts';
+import {settle,work} from '../lib/production-dag/runner.ts';
 const original={title:'庄周梦蝶',text:'庄周梦为胡蝶。',url:'https://example.com',kind:'passage',provider:'fixture',retrievedAt:new Date().toISOString()};
 async function seeded(t,plan=makePlan(8)){
  const f=await productionFixture(t);f.app.stopGeneration();await f.app.services.production.close();
@@ -84,8 +85,13 @@ test('ready orphaned jobs in all three pools are contained and logged once while
  for(const [kind,pool] of [['discover','search'],['dag','text'],['dag-draw','image']]){
   await coordinator.queue.enqueue({id:`orphan-${kind}`,sessionId:'missing',ownerId:owner,kind,pool,version:'v',dependencies:[],payload:{work:{call:'brief',instances:[]}},priority:-100});
  }
- await repo.db.prepare("UPDATE stories SET generation_control='active',generation_mode='background' WHERE id=?").bind(id).run();
- await coordinator.queue.enqueue({id:'valid',sessionId:id,ownerId:owner,kind:'dag',pool:'text',version:'v',dependencies:[],payload:{},priority:100});
+ const doc={plan:null,original,images:[],audio:[],usage:[],dag:emptyDag()};
+ const story={id,doc,selection,dag:doc.dag,confirmed:true,faults:[]};
+ story.dag=doc.dag=settle(story);
+ const item=work(story).find(item=>item.call==='prepareBrief');
+ assert.ok(item,'有效任务使用生产引擎生成的实例及输入');
+ await repo.db.prepare("UPDATE stories SET document=?,generation_control='active',generation_mode='background' WHERE id=?").bind(JSON.stringify(doc),id).run();
+ await coordinator.queue.enqueue({id:'valid',sessionId:id,ownerId:owner,kind:'dag',pool:'text',version:'dag',dependencies:[],payload:{work:item},priority:100});
  await coordinator.queue.pump();await coordinator.queue.settle();await coordinator.queue.pump();
  assert.equal(valid,1);assert.equal(logged.filter(args=>args[0]==='production_job_unreadable').length,3);
  for(const kind of ['discover','dag','dag-draw'])assert.equal((await coordinator.queue.job(`orphan-${kind}`)).attempts,0);

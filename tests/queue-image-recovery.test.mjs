@@ -46,7 +46,7 @@ async function drawOrder(f,labels,count,afterEach=async()=>{}){
 const singleWorker=t=>productionFixture(t,'codex',{SHIQU_IMAGE_WORKERS:'1'});
 
 
-for(const [name,outcome] of Object.entries(unreadable))test(`a ${name} file after drawing asks first, then redraws only on explicit retry`,async t=>{
+for(const [name,outcome] of Object.entries(unreadable))test(`a ${name} file after drawing asks first, then reuses the restored receipt on explicit retry`,async t=>{
  const f=await productionFixture(t),id=await f.create(2);await until(()=>f.control.calls.length===1);
  const lost=loseFirstFile(f,0,outcome);
  f.control.hold=false;f.control.calls[0].resolve();await failed(f,id);lost.restore();
@@ -55,7 +55,7 @@ for(const [name,outcome] of Object.entries(unreadable))test(`a ${name} file afte
  await settled(f);await f.demand(id,crypto.randomUUID(),0,false);await settled(f);
  assert.equal(f.control.calls.length,1,'Polling, ticks and a non-retry request never redraw');
  await retry(f,id);await completed(f,id);
- assert.equal(pageCalls(f,0),2);assert.equal(pageCalls(f,1),1);
+ assert.equal(pageCalls(f,0),1);assert.equal(pageCalls(f,1),1);
 });
 
 test('an invalid saved image address is treated as lost, and redraws only on explicit retry',async t=>{

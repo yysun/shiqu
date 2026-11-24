@@ -201,3 +201,256 @@ test('settings and shelf expose landscape pause, which drains sent work and hold
  assert.ok(f.control.calls.every(call=>call.landscape));
  assert.equal((await f.json(route)).controlAction,undefined);
 });
+
+const control=(f,id,action)=>f.json(`sessions/${id}/production-control`,'POST',{action});
+async function fork(f,id,changes){
+ const route=`sessions/${id}/revisions`,{token}=await f.json(route),child=crypto.randomUUID();
+ await f.json(route,'POST',{requestId:child,token,changes});
+ return child;
+}
+async function drain(f,cycles=12){
+ for(let n=0;n<cycles;n++){
+  await f.app.services.production.tick();
+  await f.app.services.production.queue.settle();
+ }
+}
+
+for(const changedStyle of [false,true])test(`replanning ${changedStyle?'releases changed':'blocks matching'} drawing inputs`,async t=>{
+ const f=await productionFixture(t);
+ f.control.hold=false;
+ f.control.beforeImage=call=>{if(call.page===0)throw Error('受控绘图失败');};
+ const id=await confirmedStory(f);
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).state==='failed');
+ const original=(await f.read(id)).lifecycle.faults[0].targets[0];
+ await control(f,id,'pause');
+ const child=await fork(f,id,{narrativeDetail:'detailed',...(changedStyle?{artStyle:'watercolor'}:{})});
+ const unresolved=(await f.read(child)).lifecycle.faults[0];
+ assert.equal(unresolved.state,'awaiting-match');
+ assert.deepEqual(unresolved.targets,[original]);
+ f.control.beforeImage=null;
+ await control(f,child,'continue');
+ await f.restart();
+ await drain(f);
+ if(changedStyle){
+  assert.equal((await f.read(child)).state,'completed');
+  assert.equal(f.control.calls.filter(call=>call.page===0).length,2);
+ }else{
+  const [blocked]=(await f.read(child)).lifecycle.faults;
+  assert.equal(blocked.state,'pending');
+  assert.deepEqual(blocked.targets,[original]);
+  assert.equal(f.control.calls.length,1);
+  await f.json(`sessions/${child}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:blocked.id});
+  await until(async()=>(await f.read(child)).state==='completed');
+  assert.equal(f.control.calls.filter(call=>call.page===0).length,2);
+ }
+ assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
+});
+
+for(const restoredAtDispatch of [false,true])test(`a revision adopts the paid artifact when readable at ${restoredAtDispatch?'dispatch':'authorization'}`,async t=>{
+ const f=await productionFixture(t),id=await f.create(2);
+ await until(()=>f.control.calls.length===1);
+ const store=f.app.services.media,get=store.get.bind(store);
+ let unavailable='missing',originKey;
+ store.get=async key=>{
+  if(key.startsWith(`reader/${id}/artifacts/0-`)){
+   originKey=key;
+   if(unavailable==='missing')return null;
+   if(unavailable==='once'){unavailable=null;return null;}
+   if(unavailable==='temporary')throw Error('受控图片读取中断');
+  }
+  return get(key);
+ };
+ f.control.hold=false;
+ f.control.calls[0].resolve();
+ await until(async()=>(await f.read(id)).state==='failed');
+ unavailable=null;
+ await control(f,id,'pause');
+ const child=await fork(f,id,{acceptancePrompt:'请核对画面动作。'});
+ await control(f,child,'continue');
+ await drain(f);
+ assert.equal(f.control.calls.length,1,'普通继续不采用故障的付费图片，也不重新绘图');
+ const fault=(await f.read(child)).lifecycle.faults[0],route=`sessions/${child}/recover`;
+ const recovery={requestId:crypto.randomUUID(),faultId:fault.id};
+ unavailable='temporary';
+ assert.equal((await f.request(route,'POST',recovery)).status,503);
+ assert.equal((await f.read(child)).lifecycle.faults[0].id,fault.id);
+ unavailable=restoredAtDispatch?'once':null;
+ const result=await f.json(route,'POST',recovery);
+ assert.equal(result.recoveryReceipt.status,'succeeded');
+ await f.json(route,'POST',recovery);
+ await until(async()=>(await f.read(child)).state==='completed');
+ assert.equal(f.control.calls.filter(call=>call.page===0).length,1);
+ const row=await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(child).first();
+ const doc=JSON.parse(row.document),image=doc.images[0];
+ assert.ok(image.startsWith(`/api/reader/media/${child}/`));
+ assert.deepEqual(await (await get(originKey)).arrayBuffer(),await (await get(`reader/${image.slice('/api/reader/media/'.length)}`)).arrayBuffer());
+ assert.equal(doc.usage.filter(item=>item.step==='dag:draw'&&item.originId===id).length,1);
+ assert.equal((await f.read(id)).lifecycle.faults.length,1,'祖先版本的任务和故障不被改写');
+});
+
+test('an inherited review failure still offers and authorizes Skip Review on the complete paused draft',async t=>{
+ const f=await productionFixture(t);
+ f.control.hold=false;
+ f.control.beforeText=async name=>{if(name==='review')throw Error('受控审核失败');};
+ const id=await confirmedStory(f);
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).faults?.some(fault=>fault.retryReview));
+ const parent=await control(f,id,'pause');
+ assert.ok(parent.reviewSkip);
+ const child=await fork(f,id,{storySummary:'庄周醒后细想梦蝶的经历。'});
+ await control(f,child,'continue');
+ f.control.beforeText=null;
+ await drain(f);
+ const active=await f.read(child),route=`sessions/${child}/review-override`;
+ const failure=active.lifecycle.faults[0],command={requestId:crypto.randomUUID(),faultId:failure.id,ending:'default'};
+ assert.equal(failure.stage,'review');assert.equal(failure.targets.length,4);
+ assert.equal(active.generationProgress.storyboardFrames,4);
+ assert.equal((await f.request(route,'POST',command)).status,409);
+ const paused=await control(f,child,'pause');
+ assert.equal(paused.reviewSkip.faultId,failure.id);
+ assert.equal((await f.request(route,'POST',{...command,faultId:parent.reviewSkip.faultId})).status,409);
+ const skipped=await f.json(route,'POST',command);
+ assert.equal(skipped.generationControl,'paused');
+ assert.deepEqual(skipped.lifecycle.faults,[]);
+ await f.json(route,'POST',command);
+ assert.equal(f.control.calls.length,0,'跳过审核没有恢复绘图');
+ await control(f,child,'resume');
+ await until(async()=>(await f.read(child)).state==='completed');
+ assert.equal(f.control.calls.length,4);
+});
+
+test('library update repairs old fault rows across revisions and preserves saved results and recoveries',async t=>{
+ const f=await productionFixture(t);
+ f.control.hold=false;
+ const faultsFor=id=>f.app.services.database.prepare('SELECT * FROM reader_faults WHERE session_id=? ORDER BY id').bind(id).all();
+ const recovery=async(id,faultId)=>
+  f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId});
+ async function failedParent(call){
+  f.control.beforeText=async name=>{if(name===call)throw Error('受控批量故障');};
+  const id=await confirmedStory(f,4,{}, {acceptancePrompt:'第一条要求。\n第二条要求。'});
+  f.app.services.production.wake();
+  await until(async()=>(await f.read(id)).state==='failed');
+  await control(f,id,'pause');
+  f.control.beforeText=null;
+  return id;
+ }
+ const visual=await failedParent('visual'),visualTargets=(await f.read(visual)).lifecycle.faults[0].targets;
+ const visualChild=await fork(f,visual,{acceptancePrompt:'另一条。'});
+ const items=await failedParent('registerItems'),itemTargets=(await f.read(items)).lifecycle.faults[0].targets;
+ const draft=await fork(f,items,{artStyle:'watercolor'});
+ const grandchild=await fork(f,draft,{artStyle:'paper-cut'});
+ const recoveredParent=await failedParent('visual');
+ const recovered=await fork(f,recoveredParent,{acceptancePrompt:'另一条。'});
+ await control(f,recovered,'continue');
+ const recoveredFault=(await f.read(recovered)).lifecycle.faults[0];
+ await recovery(recovered,recoveredFault.id);
+ await until(async()=>(await f.read(recovered)).state==='completed');
+ const exported=(await f.read(recovered)).story;
+ const ghostParent=await failedParent('visual'),ghost=await fork(f,ghostParent,{acceptancePrompt:'另一条。'});
+ await control(f,ghost,'continue');
+ const ghostFault=(await f.read(ghost)).lifecycle.faults[0];
+ await recovery(ghost,ghostFault.id);
+ await until(async()=>(await f.read(ghost)).state==='completed');
+ const ghostImages=(await f.read(ghost)).story.pages.map(page=>page.image);
+ const database=f.app.services.database;
+ // 模拟迁移前的格式 3 行。空键故障仅保留一行，登记故障完全遗漏，已获授权的故障保留原回执。
+ const legacyId=(await faultsFor(visualChild)).results[0].id;
+ await database.prepare('DELETE FROM reader_faults WHERE session_id=? AND id!=?').bind(visualChild,legacyId).run();
+ await database.prepare("UPDATE reader_faults SET node_key='',input_hash=NULL,origin_fault_id=NULL,created_at=created_at+2000 WHERE id=?").bind(legacyId).run();
+ for(const id of [draft,grandchild])await database.prepare('DELETE FROM reader_faults WHERE session_id=?').bind(id).run();
+ await database.prepare('DELETE FROM reader_faults WHERE session_id=? AND id!=?').bind(recovered,recoveredFault.id).run();
+ await database.prepare("UPDATE reader_faults SET node_key='',input_hash=NULL,origin_fault_id=NULL WHERE id=?").bind(recoveredFault.id).run();
+ // 模拟旧版已重复生成且留有空键故障的作品，保留全部已生成结果。
+ await database.prepare('DELETE FROM reader_faults WHERE session_id=? AND id!=?').bind(ghost,ghostFault.id).run();
+ await database.prepare("UPDATE reader_faults SET node_key='',input_hash=NULL,origin_fault_id=NULL,command_id=NULL,state='pending' WHERE id=?").bind(ghostFault.id).run();
+ await database.prepare("DELETE FROM reader_commands WHERE session_id=? AND action='recover' AND fault_id=?").bind(ghost,ghostFault.id).run();
+ await database.prepare("UPDATE stories SET state='idle',generation_control='paused' WHERE id=?").bind(ghost).run();
+ assert.equal((await f.read(ghost)).state,'failed');
+ await database.prepare('DROP INDEX reader_faults_origin_job').run();
+ await database.prepare("DELETE FROM app_migrations WHERE name='0027_revision_fault_targets.sql'").run();
+ await f.restart();
+ const sorted=targets=>targets.map(target=>target.key).sort();
+ const assertion=async(id,expected)=>{
+  const [fault]=(await f.read(id)).lifecycle.faults;
+  assert.deepEqual(sorted(fault.targets),sorted(expected));
+  return fault.id;
+ };
+ const visualFault=await assertion(visualChild,visualTargets);
+ assert.equal((await faultsFor(visualChild)).results.find(fault=>fault.id===legacyId).state,'pending');
+ await assertion(draft,itemTargets);
+ const itemFault=await assertion(grandchild,itemTargets);
+ assert.deepEqual((await f.read(recovered)).story.pages,exported.pages);
+ assert.equal((await faultsFor(recovered)).results[0].state,'resolved');
+ const repaired=await f.read(ghost);
+ assert.equal(repaired.state,'completed');
+ assert.equal(repaired.generationControl,'paused');
+ assert.deepEqual(repaired.story.pages.map(page=>page.image),ghostImages);
+ await f.restart();
+ assert.equal(await assertion(visualChild,visualTargets),visualFault);
+ assert.equal(await assertion(grandchild,itemTargets),itemFault);
+ const count=call=>f.control.dagCalls.filter(name=>name===call).length;
+ for(const [id,call,fault] of [[visualChild,'visual',legacyId],[grandchild,'registerItems',itemFault]]){
+  const before=count(call);
+  await control(f,id,'continue');
+  await drain(f);
+  assert.equal(count(call),before);
+  await recovery(id,fault);
+  await until(async()=>(await f.read(id)).state==='completed');
+  assert.equal(count(call),before+1);
+ }
+});
+
+test('switching to a fixed length releases the failed automatic frame check',async t=>{
+ const f=await productionFixture(t);
+ f.control.hold=false;f.control.autoLength=4;
+ f.control.beforeText=async name=>{if(name==='frames')throw Error('受控幅数核对故障');};
+ const id=await confirmedStory(f,'auto');
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).lifecycle.faults.some(fault=>fault.targets.some(target=>target.node==='frameCheck')));
+ await control(f,id,'pause');
+ const child=await fork(f,id,{length:4});
+ assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
+ await control(f,child,'continue');
+ await until(async()=>(await f.read(child)).state==='completed');
+ assert.equal(f.control.calls.length,4);
+});
+
+test('migration keeps distinct legacy batches with the same failure message independently recoverable',async t=>{
+ const f=await productionFixture(t);
+ f.control.hold=false;
+ f.control.beforeText=async name=>{if(name==='visual')throw Error('受控同类故障');};
+ const id=await confirmedStory(f,22);
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).lifecycle.faults.filter(fault=>fault.targets[0]?.node==='visual').length===2);
+ const parent=(await f.read(id)).lifecycle.faults;
+ assert.equal(parent[0].message,parent[1].message);
+ await control(f,id,'pause');
+ const child=await fork(f,id,{acceptancePrompt:'另一条。'});
+ const database=f.app.services.database,legacyIds=[];
+ for(const fault of parent){
+  const rows=await database.prepare('SELECT id FROM reader_faults WHERE session_id=? AND origin_fault_id=? ORDER BY rowid').bind(child,fault.id).all();
+  const legacy=rows.results[0].id;
+  legacyIds.push(legacy);
+  await database.prepare('DELETE FROM reader_faults WHERE session_id=? AND origin_fault_id=? AND id!=?').bind(child,fault.id,legacy).run();
+  await database.prepare("UPDATE reader_faults SET node_key='',input_hash=NULL,origin_fault_id=NULL WHERE id=?").bind(legacy).run();
+ }
+ await database.prepare('DROP INDEX reader_faults_origin_job').run();
+ await database.prepare("DELETE FROM app_migrations WHERE name='0027_revision_fault_targets.sql'").run();
+ await f.restart();
+ const repaired=(await f.read(child)).lifecycle.faults;
+ const targetSets=faults=>faults.map(fault=>fault.targets.map(target=>target.key).sort().join(',')).sort();
+ assert.deepEqual(targetSets(repaired),targetSets(parent));
+ const before=f.control.dagCalls.filter(name=>name==='visual').length;
+ f.control.beforeText=null;
+ await control(f,child,'continue');
+ await drain(f);
+ assert.equal(f.control.dagCalls.filter(name=>name==='visual').length,before);
+ await f.json(`sessions/${child}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:legacyIds[0]});
+ await drain(f);
+ assert.equal((await f.read(child)).lifecycle.faults.length,1);
+ assert.equal(f.control.dagCalls.filter(name=>name==='visual').length,before+1);
+ await f.json(`sessions/${child}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:legacyIds[1]});
+ await until(async()=>(await f.read(child)).state==='completed',20000);
+ assert.equal(f.control.dagCalls.filter(name=>name==='visual').length,before+2);
+});

@@ -45,7 +45,7 @@ const rules=[
  // 制作 DAG 的配置与纯函数引擎服务调度、修订与审片。
  [/^server\/provider-snapshot\.ts$/,['providers','production']],
  [/^server\/dag-executor\.ts$/,['production','providers']],
- [/^server\/dag-(?:production|revisions|image-faults)\.ts$/,['production','storage']],
+ [/^server\/dag-(?:production|revisions|image-faults|revision-faults|fault-migration)\.ts$/,['production','storage']],
  [/^lib\/reader-preparation\.ts$/,['preparation','production']],
  [/^lib\/production-dag\/[\w-]+\.ts$/,['production','review']],
  [/^lib\/(?:reader-prompt-store|reader-repository|reader-recovery|reader-production|reader-reselection|reader-revision[\w-]*|reader-versions|production-[\w-]+|generation-progress)\.ts$/,['production','storage']],

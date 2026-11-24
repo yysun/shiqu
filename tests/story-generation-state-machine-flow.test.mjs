@@ -78,11 +78,13 @@ test('independent recoveries can run together; first-image loss holds nonfirst r
 });
 test('control request replay cannot undo a later pause; concurrent fault grants spend only once across restart',async t=>{
  const f=await productionFixture(t),id=await f.create(2);await until(()=>f.control.calls.length===1);f.control.calls[0].reject(Error('controlled failure'));await until(async()=>(await f.read(id)).state==='failed');
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
  const requestId=crypto.randomUUID();await f.json(`sessions/${id}/production-control`,'POST',{requestId,action:'resume'});await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
  await f.json(`sessions/${id}/production-control`,'POST',{requestId,action:'resume'});assert.equal((await f.read(id)).generationControl,'paused');assert.equal(f.control.calls.length,1);
  await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});const fault=(await f.read(id)).faults[0],grant=crypto.randomUUID();
  const results=await Promise.all([f.request(`sessions/${id}/recover`,'POST',{requestId:grant,faultId:fault.id}),f.request(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id})]);assert.deepEqual(results.map(r=>r.status).sort(),[202,409]);
- f.control.hold=false;await until(async()=>(await f.read(id)).state==='completed');await f.restart();const before=f.control.calls.length;
+ f.control.hold=false;for(const call of f.control.calls)call.resolve();
+ await until(async()=>(await f.read(id)).state==='completed');await f.restart();const before=f.control.calls.length;
  if(results[0].ok)await recover(f,id,fault,grant);await f.app.services.production.tick();assert.equal(f.control.calls.length,before);
  await assert.rejects(f.app.services.production.recover('foreign',id,{requestId:grant,faultId:fault.id}),error=>error.status===404);
 });

@@ -16,7 +16,7 @@ import {verifyLibraryBackup,withBackupAccess} from '../server/library-backup.ts'
 
 const entry=fileURLToPath(new URL('../server/desktop.ts',import.meta.url));
 
-async function fixture(t,through='0026_production_lifecycle.sql'){
+async function fixture(t,through='0027_revision_fault_targets.sql'){
  const f=await startupFixture(t),library=path.join(f.root,'library');
  const sqlite=historicalLibrary(library,f.root,through);
  const invoke=(operation,fields={})=>{
@@ -136,7 +136,7 @@ test('desktop restore applies 0025 to a new library and leaves every V1 backup b
  const backup=f.run('create').path;
  const originalManifest=readFileSync(path.join(backup,'shiqu-backup.json'));
  const manifest=verifyLibraryBackup(backup);
- const expectedStatus={version:1,state:'migration',migrations:['0025_production_dag.sql','0026_production_lifecycle.sql']};
+ const expectedStatus={version:1,state:'migration',migrations:['0025_production_dag.sql','0026_production_lifecycle.sql','0027_revision_fault_targets.sql']};
  assert.deepEqual(f.run('verify',{backup}).compatibility,expectedStatus);
  const target=path.join(f.root,'restored');
  assert.match(f.invoke('restore',{backup,target:f.library}).error,/重叠/);

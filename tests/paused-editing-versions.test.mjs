@@ -93,13 +93,13 @@ test('client snapshots cannot replace the latest card with a historical direct r
 test('paused preparation saves settings beside a live call, then allows a different candidate without resuming',async t=>{
  const f=await productionFixture(t);f.control.hold=false;
  f.generation.suggestions=async()=>({stories:[{title:'庄周梦蝶',description:'梦醒后思考自己。'},{title:'大葫芦',description:'讨论葫芦的用处。'}],note:''});
- let release,entered=false;const held=new Promise(resolve=>release=resolve),generator=f.generation.generator.bind(f.generation);
- f.generation.generator=()=>{const g=generator();return {...g,async recommend(...args){entered=true;await held;return g.recommend(...args);}};};
+ let release;const held=new Promise(resolve=>release=resolve);
+ f.control.beforeText=async call=>{if(call==='recommend')await held;};
  t.after(()=>release());const id=crypto.randomUUID();await f.json('sessions','POST',{requestId:id,intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced'}});
  await f.startDiscovery(id);await f.demand(id);
  await until(async()=>(await f.read(id)).intake.phase==='choosing');
  const setup=async action=>f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(id)).intake.generation,...action});
- await setup({action:'choose',batch:0,index:0});await until(()=>entered);
+ await setup({action:'choose',batch:0,index:0});await until(()=>f.control.recommendations.length===1);
  await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
  const settings={artStyle:'watercolor',productionPrompt:'保留手动修改。',narrativeDetail:'balanced',length:5};
  await setup({action:'draft',settings});assert.equal((await f.read(id)).state,'running');
@@ -125,5 +125,7 @@ for(const paused of [true,false])test(`concurrent ${paused?'paused':'running'} s
  assert.equal((await first).status,201);
  await f.json(`sessions/${requestId}/production-control`,'POST',{action:paused?'resume':'pause'});
  release();assert.equal((await second).status,201);
- assert.equal((await f.read(requestId)).generationControl,paused?'active':'paused');
+ const saved=await f.read(requestId);
+ assert.equal(saved.lifecycle.control,paused?'active':'paused');
+ assert.equal(saved.lifecycle.continuation,true);
 });

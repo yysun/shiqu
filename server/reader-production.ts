@@ -37,7 +37,9 @@ import {transact,deleteJobs,recordJobSucceeded} from './production-records.ts';
 import {errorCode} from '../lib/production-dag/errors.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeJobLease,authorizeProductionCommand,resolveProductionService,type ProductionFault,type ProductionImageCheck,type ProductionService} from '../lib/production-lifecycle.ts';
-import type {Work} from '../lib/production-dag/runner.ts';
+import {stateOf,type Work} from '../lib/production-dag/runner.ts';
+import {evaluate} from '../lib/production-dag/engine.ts';
+import {carriedJobFaultState,isCarriedReviewFault} from './dag-revision-faults.ts';
 import {PaidDispatchDenied,withPaidDispatch} from './paid-dispatch.ts';
 import {drawingReferenceBinding} from './book-image-reference.ts';
 import {setupState} from './reader-intake.ts';
@@ -311,7 +313,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const work=job&&(JSON.parse(job.payload) as {work?:Work}).work;
   const order=doc.dag?.order??[];
   const page=fault.state!=='awaiting-match'&&(fault.node==='frameImage'||fault.node==='landscape')?order.indexOf(fault.node_key):-1;
-  const retryReview=job?.kind===dagTextKind&&work?.call==='review';
+  const retryReview=job?.kind===dagTextKind&&work?.call==='review'||isCarriedReviewFault(fault);
   const stage=retryReview?'review':fault.kind==='image-loss'&&fault.state!=='awaiting-match'?'redraw':job?.kind==='discover'?'source':work?.call==='prepareSuggestions'||job?.kind==='prepare'||doc.intake&&doc.intake.phase!=='confirmed'?'prepare':'generation';
   const instances=work?.instances??(fault.node?[{node:fault.node,key:fault.node_key}]:[]);
   const targets=instances.map(({node,key})=>{
@@ -364,13 +366,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     const receipt=(await commandReceipt(this.database,ownerId,command.requestId))!;
     return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
   }
-  await requirePaidService?.();
-  const job=target.job_id?await this.queue.job(target.job_id):null;
+  const restored=await this.dag.restoreCarriedDrawing(row,target,command);
+  if(!restored)await requirePaidService?.();
+  const job=!restored&&target.job_id?await this.queue.job(target.job_id):null;
   const dag=doc.dag;
   const resumeUnreviewed=target.kind==='image-loss'&&target.node==='frameImage'&&dag?.legacy===true&&Object.values(dag.products).some(product=>product.unreviewed);
-  const receipt=job
+  const receipt=restored??(job
    ?await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[job.id],resolutionJob:job.id,basis:row},this.clock())
-   :await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[],resolutionJob:'',resolved:true,resumeUnreviewed,basis:row},this.clock());
+   :await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[],resolutionJob:'',resolved:true,resumeUnreviewed,basis:row},this.clock()));
   if(!job)await this.dag.settleState(id,ownerId);
   // 故障表的变化不改变故事的内容修订号：清除本篇的重建记录，下一轮重新安排工作。
   this.rebuildKeys.delete(id);
@@ -438,7 +441,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return this.database.readTransaction?.(read)??transact(this.database,read);
  }
  private snapshotView(input:SnapshotInputs,saved:SessionView,includeTimings:boolean):SessionView{
-  const {row,now,allJobs,faults,superseded,replacementOpen,viewerThrough}=input;
+  const {row,now,allJobs,superseded,replacementOpen,viewerThrough}=input;
   const id=row.id,parsed=this.parsed(row)!;
   const revision=parsed.doc.revision;
   const background=row.generation_control==='active'&&!superseded&&(!this.options.targetSessionId||id===this.options.targetSessionId)&&
@@ -451,13 +454,22 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   });
   const search=this.searches.get(id),progress=saved.generationProgress!;
   const dag=parsed.doc.dag,checkedLandscapeLosses=this.checkedLandscapeLosses(id,dag);
+  const evaluation=dag&&input.faults.some(carriedJobFaultGroup)?evaluate(stateOf({id,doc:parsed.doc,dag,selection:parsed.selection,confirmed:true,faults:[]})):null;
+  const faults=evaluation?input.faults.flatMap<ReaderFault>(fault=>{
+   if(fault.state!=='pending'||!carriedJobFaultGroup(fault))return [fault];
+   const state=carriedJobFaultState(evaluation,fault);
+   return state==='replaced'?[]:[{...fault,state}];
+  }):input.faults;
   const optionalFrames=dag?landscapeFrames(dag,jobs,checkedLandscapeLosses):[];
   const jobsById=new Map(allJobs.map(job=>[job.id,job]));
   const faultGroups=new Map<string,ProductionFault>();
   for(const fault of faults){
    const view=this.faultView(parsed.doc,fault,fault.job_id?jobsById.get(fault.job_id):undefined);
    const group=carriedJobFaultGroup(fault)??fault.id,previous=faultGroups.get(group);
-   if(previous)previous.targets.push(...view.targets);
+   if(previous){
+    previous.targets.push(...view.targets);
+    if(view.state==='awaiting-match'){previous.state=view.state;previous.retryAllowed=false;}
+   }
    else faultGroups.set(group,view);
   }
   const projectedFaults=[...faultGroups.values()];
@@ -476,7 +488,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const reviewFault=views.find(fault=>fault.retryReview);
   const rawReviewFault=reviewFault&&faults.find(fault=>fault.id===reviewFault.id);
   const failedReviewJob=rawReviewFault&&allJobs.find(job=>job.id===rawReviewFault.job_id);
-  const reviewSkip=!superseded&&rawReviewFault&&failedReviewJob?this.dag.skipReviewOffer(row,rawReviewFault,failedReviewJob):null;
+  const reviewSkip=!superseded&&rawReviewFault&&reviewFault.state==='pending'?this.dag.skipReviewOffer(row,rawReviewFault,failedReviewJob,faults):null;
   const {blocking,complete,review}=this.dag.lifecycleFrom(row,faults,allJobs);
   const reviewAttention:NonNullable<SessionView['lifecycle']>['reviewAttention']=[...(blocking?.reasons??[])];
   const blockedTargets=new Set(reviewAttention.map(reason=>reason.target));
