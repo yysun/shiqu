@@ -37,37 +37,43 @@ export async function authorizeRecovery(db:Database,input:{ownerId:string;sessio
  const resolved=input.resolved||false,payload=JSON.stringify({jobs,resolutionJob,redraw}),fingerprint=commandFingerprint(['recover',sessionId,faultId,jobs,resolutionJob,redraw,resolved]);
  const replay=await commandReceipt(db,ownerId,requestId,fingerprint);if(replay)return replay;
  if(!resolved&&(!jobs.length||!jobs.includes(resolutionJob)||new Set(jobs).size!==jobs.length))throw new ReaderError(400,'恢复任务不完整。');
- const eligible=input.basis?`AND EXISTS(SELECT 1 FROM stories s WHERE s.id=f.session_id AND s.user_id=f.owner_id
-  AND s.generation_control='active' AND json_type(s.document,'$.dag.continuation') IS NULL AND NOT ${supersededSql('s')}
-  AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)
-  AND json_remove(s.selection,'$.displayTitle')=json_remove(?,'$.displayTitle')
-  AND json_extract(s.document,'$.plan') IS json_extract(?,'$.plan')
-  AND COALESCE(json_extract(s.document,'$.intake.generation'),-1)=COALESCE(json_extract(?,'$.intake.generation'),-1)
-  AND (f.image IS NULL OR json_extract(s.document,'$.dag.frames.'||json_quote(f.node_key)||'.image')=f.image))`:'';
  const selected=JSON.stringify(jobs);
  transact(db,tx=>{
-  const inserted=tx.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,fault_id,status,created_at,updated_at)
-   SELECT ?,?,?,'recover',?,?,?,?,?,? FROM reader_faults f
-   WHERE f.id=? AND f.session_id=? AND f.owner_id=? AND f.state='pending'
-    AND NOT EXISTS(SELECT 1 FROM json_each(?) selected LEFT JOIN production_jobs j ON j.id=selected.value
-     WHERE j.id IS NULL OR j.session_id!=? OR j.owner_id!=? OR j.state='running')
-    AND NOT EXISTS(SELECT 1 FROM json_each(?) selected JOIN production_jobs j ON j.id=selected.value
-     JOIN reader_commands c ON c.request_id=j.recovery_id AND c.owner_id=j.owner_id
-     WHERE c.status IN ('queued','running'))
-    ${eligible}
-   ON CONFLICT(owner_id,request_id) DO NOTHING`,requestId,ownerId,sessionId,fingerprint,payload,faultId,resolved?'succeeded':'queued',now,now,faultId,sessionId,ownerId,selected,sessionId,ownerId,selected,...(input.basis?[input.basis.selection,input.basis.document,input.basis.document]:[])).changes;
-  if(!inserted)return;
+  const existing=tx.get<CommandReceipt>('SELECT * FROM reader_commands WHERE owner_id=? AND request_id=?',ownerId,requestId);
+  if(existing)return;
+  const fault=tx.get<ReaderFault>('SELECT * FROM reader_faults WHERE id=? AND owner_id=? AND session_id=?',faultId,ownerId,sessionId);
+  const unavailable=tx.get(`SELECT 1 FROM json_each(?) selected LEFT JOIN production_jobs j ON j.id=selected.value
+   LEFT JOIN reader_commands c ON c.request_id=j.recovery_id AND c.owner_id=j.owner_id
+   WHERE j.id IS NULL OR j.session_id!=? OR j.owner_id!=? OR j.state='running' OR c.status IN ('queued','running') LIMIT 1`,selected,sessionId,ownerId);
+  const story=input.basis?tx.get<{generation_control:GenerationControl;continuation:number;superseded:number;deleted:number;basisCurrent:number}>(`SELECT
+   s.generation_control,json_type(s.document,'$.dag.continuation') IS NOT NULL AS continuation,
+   ${supersededSql('s')} AS superseded,
+   EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id) AS deleted,
+   json_remove(s.selection,'$.displayTitle')=json_remove(?,'$.displayTitle')
+   AND json_extract(s.document,'$.plan') IS json_extract(?,'$.plan')
+   AND COALESCE(json_extract(s.document,'$.intake.generation'),-1)=COALESCE(json_extract(?,'$.intake.generation'),-1)
+   AND (? IS NULL OR json_extract(s.document,'$.dag.frames.'||json_quote(?)||'.image')=?) AS basisCurrent
+   FROM stories s WHERE s.id=? AND s.user_id=?`,input.basis.selection,input.basis.document,input.basis.document,
+   fault?.image??null,fault?.node_key??'',fault?.image??null,sessionId,ownerId):undefined;
+  const decision=authorizeProductionCommand('retry',{
+   version:story?.deleted?'deleted':story?.superseded||input.basis&&!story?'superseded':'current',control:story?.generation_control??'active',
+   continuation:!!story?.continuation,targetCurrent:fault?.state==='pending',targetReady:!unavailable&&(!input.basis||!!story?.basisCurrent),
+   stopping:false,
+  });
+  if(!decision.allowed){
+   if(fault?.state==='recovering')throw new ReaderError(409,'这项问题正在处理，请等待已提交的恢复任务。');
+   throw new ReaderError(decision.status,decision.message);
+  }
+  if(tx.get('SELECT id FROM stories WHERE id=? AND user_id=?',requestId,ownerId))throw new ReaderError(409,'这个操作编号已用于创建或提交故事。');
+  tx.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,fault_id,status,created_at,updated_at)
+   VALUES(?,?,?,'recover',?,?,?,?,?,?)`,requestId,ownerId,sessionId,fingerprint,payload,faultId,resolved?'succeeded':'queued',now,now);
   tx.run("UPDATE reader_faults SET state=?,command_id=?,updated_at=? WHERE id=? AND owner_id=? AND session_id=? AND state='pending'",resolved?'resolved':'recovering',requestId,now,faultId,ownerId,sessionId);
   tx.run(`UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,recovery_id=?${redraw?',result=NULL':''},updated_at=?
    WHERE session_id=? AND owner_id=? AND id IN (SELECT value FROM json_each(?)) AND state!='running'`,requestId,now,sessionId,ownerId,selected);
   if(input.resumeUnreviewed)tx.run("UPDATE stories SET document=json_set(document,'$.dag.resumeUnreviewed',json('true')) WHERE id=? AND user_id=?",sessionId,ownerId);
   tx.run("UPDATE stories SET state='idle',error=NULL WHERE id=? AND user_id=? AND state='failed'",sessionId,ownerId);
  });
- const receipt=await commandReceipt(db,ownerId,requestId,fingerprint);
- if(receipt)return receipt;
- const fault=await db.prepare('SELECT * FROM reader_faults WHERE id=? AND owner_id=? AND session_id=?').bind(faultId,ownerId,sessionId).first<ReaderFault>();
- if(fault?.state==='recovering')throw new ReaderError(409,'这项问题正在处理，请等待已提交的恢复任务。');
- throw new ReaderError(409,'这项问题或输入已更新，请刷新后再操作。');
+ return (await commandReceipt(db,ownerId,requestId,fingerprint))!;
 }
 
 /** 生成方式与暂停控制：回执与控制字段在一个事务中写入，修订等待仅由继续制作解除。 */

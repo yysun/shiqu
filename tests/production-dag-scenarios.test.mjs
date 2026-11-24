@@ -1206,7 +1206,21 @@ test('a file restored before the reader clicks recover is reused for free, witho
  assert.ok(fault);
  // 点击恢复之前，文件已被放回原处。
  await writeFile(file,bytes);
- await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ const command={requestId:crypto.randomUUID(),faultId:fault.id};
+ const media=f.app.services.media,read=media.get.bind(media);
+ const key=referenceImageKey(id,image);
+ media.get=async path=>{
+  if(path===key)throw Error('controlled transient read error');
+  return read(path);
+ };
+ try{
+  assert.equal((await f.request(`sessions/${id}/recover`,'POST',command)).status,503);
+  assert.equal((await f.read(id)).faults.find(item=>item.id===fault.id).state,'pending');
+ }finally{media.get=read;}
+ const response=await f.json(`sessions/${id}/recover`,'POST',command);
+ assert.equal(response.recoveryReceipt.status,'succeeded');
+ assert.deepEqual((await f.json(`sessions/${id}/recover`,'POST',command)).recoveryReceipt,response.recoveryReceipt);
+ assert.equal((await f.request(`sessions/${id}/recover`,'POST',{...command,requestId:crypto.randomUUID()})).status,409);
  await until(async()=>(await f.read(id)).state==='completed',20000);
  assert.equal(f.control.calls.length,0,'the restored file is reused, nothing is drawn or paid');
  assert.ok(!(await f.read(id)).faults?.length);

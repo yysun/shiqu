@@ -114,7 +114,7 @@ const commands={
  resume:controlCommand,
  continue:{allows:state=>state.continuation,denial:'这篇故事没有等待继续的修改，或版本已更新。'},
  retry:{allows:state=>state.control==='active'&&!state.continuation&&state.targetCurrent&&state.targetReady,
-  denial:'请恢复当前版本的制作，再重试当前问题。'},
+  denial:state=>state.control==='active'&&!state.continuation?'这项问题或输入已更新，请刷新后再操作。':'请恢复当前版本的制作，再重试当前问题。'},
  'continue-repair':{allows:state=>state.control==='active'&&!state.continuation&&state.targetCurrent&&state.targetReady,
   denial:'审片结果、制作许可或修订额度已更新，请刷新后再操作。'},
  'skip-review':{allows:state=>(state.control!=='active'||state.continuation)&&state.targetCurrent&&state.targetReady,

@@ -128,6 +128,8 @@ test('an uncertain reference read cannot reach a provider that has a separately 
  const f=await productionFixture(t),id=await f.create(8);await until(()=>f.control.calls.length===1);
  const get=f.media.get.bind(f.media);let blocked=true;
  f.media.get=async value=>{if(blocked&&value.startsWith(`reader/${id}/`)&&/\.(png|webp|jpe?g)$/.test(value))throw Error('temporarily cannot verify reference');return get(value);};
- f.control.calls[0].resolve();await until(async()=>(await f.read(id)).state==='failed');const s=await f.read(id);assert.equal(s.retryStage,'generation');assert.equal(f.control.calls.length,1,'Unknown upstream readability must stop before inference');
- blocked=false;f.media.get=get;f.control.hold=false;for(const fault of s.faults.filter(x=>x.state==='pending'))await recover(f,id,fault);await until(async()=>(await f.read(id)).state==='completed',20000);assert.equal(f.control.calls.length,8);
+ f.control.calls[0].resolve();await until(async()=>(await f.read(id)).lifecycle.imageAvailability==='unavailable');const s=await f.read(id);
+ assert.equal(s.faults,undefined);assert.equal(f.control.calls.length,1,'Unknown upstream readability must stop before inference');
+ blocked=false;f.media.get=get;f.control.hold=false;
+ await until(async()=>(await f.read(id)).state==='completed',20000);assert.equal(f.control.calls.length,8);
 });

@@ -263,7 +263,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  async checkImage(ownerId:string,id:string,page:number,image:string){
   const row=await this.repository.get(id,ownerId);
-  await this.dag.checkImage(row,page,image,await this.repository.superseded(id,ownerId));
+  await this.dag.checkImage(row,page,image,{superseded:await this.repository.superseded(id,ownerId)});
   return this.snapshot(ownerId,id);
  }
  /**
@@ -277,30 +277,30 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(!['recover','continue-repair'].includes(replay.action)||replay.session_id!==id||replay.fault_id!==command.faultId)throw new ReaderError(409,'这个操作编号已用于其他内容。');
    return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:command.requestId,status:replay.status,error:replay.error}};
   }
-  if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重试。');
-  if(await this.repository.superseded(id,ownerId))throw new ReaderError(409,latestVersionMessage);
-  const retry=authorizeProductionCommand('retry',{version:'current',control:row.generation_control??'active',
-   continuation:!!this.parsed(row)?.doc.dag?.continuation,targetCurrent:true,targetReady:true,stopping:false});
+  const repair=command.faultId.startsWith('review:');
+  const fault=repair?undefined:(await sessionFaults(this.database,id,ownerId)).find(fault=>fault.id===command.faultId);
+  const retry=authorizeProductionCommand(repair?'continue-repair':'retry',{
+   version:await this.repository.superseded(id,ownerId)?'superseded':'current',control:row.generation_control??'active',
+   continuation:!!this.parsed(row)?.doc.dag?.continuation,targetCurrent:repair||fault?.state==='pending',targetReady:true,stopping:this.stopping,
+  });
   if(!retry.allowed)throw new ReaderError(retry.status,retry.message);
-  if(command.faultId.startsWith('review:')){
+  if(repair){
    this.dag.grantRepairBudget(row,command.requestId,command.faultId);
    this.wake();
    return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:command.requestId,status:'succeeded',error:null}};
   }
-  let fault=(await sessionFaults(this.database,id,ownerId)).find(fault=>fault.id===command.faultId);
+  const target=fault!;
   // 图片丢失的恢复：文件在点击前已被恢复时，核对后免费解除，不重新绘制、不付费。
-  if(fault?.state==='pending'&&fault.kind==='image-loss'&&!fault.job_id&&fault.node==='frameImage'){
-   const doc=JSON.parse(row.document) as Document,page=doc.dag?doc.dag.order.indexOf(fault.node_key):-1,image=page>=0?doc.dag!.frames[fault.node_key]?.image:undefined;
-   if(image){
-    await this.dag.checkImage(row,page,image).catch(()=>undefined);
-    fault=(await sessionFaults(this.database,id,ownerId)).find(f=>f.id===command.faultId);
-    if(!fault||fault.state==='resolved')return this.snapshot(ownerId,id);
+  if(target.kind==='image-loss'&&!target.job_id&&target.node==='frameImage'){
+   const doc=JSON.parse(row.document) as Document,page=doc.dag?doc.dag.order.indexOf(target.node_key):-1,image=page>=0?doc.dag!.frames[target.node_key]?.image:undefined;
+   if(image&&await this.dag.checkImage(row,page,image,{recovery:command})){
+    const receipt=(await commandReceipt(this.database,ownerId,command.requestId))!;
+    return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
    }
   }
-  if(!fault||fault.state!=='pending')throw new ReaderError(409,'这项问题正在处理或已更新，请刷新后再操作。');
-  const job=fault.job_id?await this.queue.job(fault.job_id):null;
+  const job=target.job_id?await this.queue.job(target.job_id):null;
   const dag=(JSON.parse(row.document) as Document).dag;
-  const resumeUnreviewed=fault.kind==='image-loss'&&fault.node==='frameImage'&&dag?.legacy===true&&Object.values(dag.products).some(product=>product.unreviewed);
+  const resumeUnreviewed=target.kind==='image-loss'&&target.node==='frameImage'&&dag?.legacy===true&&Object.values(dag.products).some(product=>product.unreviewed);
   const receipt=job
    ?await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[job.id],resolutionJob:job.id,basis:row},this.clock())
    :await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[],resolutionJob:'',resolved:true,resumeUnreviewed,basis:row},this.clock());

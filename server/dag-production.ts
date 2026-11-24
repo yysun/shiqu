@@ -30,12 +30,12 @@ import type {LandscapeStatus} from '../lib/reader-production.ts';
 import {persistenceError} from '../lib/reader-repository.ts';
 import {JobYield,inputVersion} from './production-queue.ts';
 import {randomUUID} from 'node:crypto';
-import {commandFingerprint,type ReaderFault} from './reader-commands.ts';
+import {commandFingerprint,type CommandReceipt,type ReaderFault} from './reader-commands.ts';
 import {transact,deleteJobs} from './production-records.ts';
 import {reviewAttention} from '../lib/production-dag/progress.ts';
 import {grantRepairs,newRepairBudget} from '../lib/production-dag/review.ts';
 import {createReviewSkip} from '../lib/production-dag/review-skip.ts';
-import type {ReviewOverride} from '../lib/reader-recovery.ts';
+import type {RecoveryRequest,ReviewOverride} from '../lib/reader-recovery.ts';
 import {reconcileImageFaults} from './dag-image-faults.ts';
 import {PaidDispatchDenied} from './paid-dispatch.ts';
 
@@ -388,22 +388,43 @@ export class DagProduction{
   * 读者端发现图片读不出时的核对：确认丢失则在一个事务中把该幅成图标为不可读并记录图片丢失故障，须读者明确恢复才重绘；
   * 文件恢复可读时同样在一个事务中解除没有任务的丢失故障并恢复成图记录。不改变整篇完成状态，完成只由引擎判定。
   */
- async checkImage(row:SessionRow,page:number,image:string,superseded=false){
+ async checkImage(row:SessionRow,page:number,image:string,options:{superseded?:boolean;recovery?:RecoveryRequest}={}){
   const doc=JSON.parse(row.document) as Document,id=doc.dag?.order[page];
   const key=referenceImageKey(row.id,image);
   const authorization=authorizeProductionCommand('image-health',{
-   version:superseded?'superseded':'current',control:row.generation_control??'active',continuation:!!doc.dag?.continuation,stopping:false,
-   targetCurrent:!!id&&doc.dag?.frames[id]?.image===image&&doc.images[page]===image,targetReady:!!key,
+   version:options.superseded?'superseded':'current',control:row.generation_control??'active',continuation:!!doc.dag?.continuation,stopping:false,
+   targetCurrent:!!id&&doc.dag?.frames[id]?.image===image,targetReady:!!key,
   });
   if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
   let lost:boolean;try{lost=await this.deps.fileLost(key!,true);}catch{throw new ReaderError(503,'图片暂时无法读取，请重试检查；尚未重新绘图。');}
   const transaction=this.deps.database.transaction;if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
   const frameId=id!,product=`frameImage:${frameId}`,now=this.deps.clock();
-  transaction.call(this.deps.database,db=>{
-   const current=db.get<{document:string}>(`SELECT document FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,row.id,row.user_id);
+  const restored=transaction.call(this.deps.database,db=>{
+   const recovery=options.recovery;
+   const receiptFingerprint=recovery?commandFingerprint(['recover',row.id,recovery.faultId,[],'',false,true]):null;
+   if(recovery){
+    const replay=db.get<CommandReceipt>('SELECT * FROM reader_commands WHERE owner_id=? AND request_id=?',row.user_id,recovery.requestId);
+    if(replay){
+     if(replay.action!=='recover'||replay.session_id!==row.id||replay.fault_id!==recovery.faultId)
+      throw new ReaderError(409,'这个操作编号已用于其他内容。');
+     return true;
+    }
+   }
+   const current=db.get<{document:string;generation_control:SessionRow['generation_control']}>(`SELECT document,generation_control FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,row.id,row.user_id);
    if(!current||current.document!==row.document)throw new ReaderError(409,'故事已更新，请刷新后再检查。');
    const dag=structuredClone(doc.dag!),record=dag.products[product];
    const fault=db.get<{id:string}>("SELECT id FROM reader_faults WHERE session_id=? AND owner_id=? AND kind='image-loss' AND job_id IS NULL AND node='frameImage' AND node_key=? AND state='pending'",row.id,row.user_id,frameId);
+   if(recovery){
+    const retry=authorizeProductionCommand('retry',{
+     version:'current',control:current.generation_control??'active',continuation:!!dag.continuation,stopping:false,
+     targetCurrent:fault?.id===recovery.faultId,targetReady:true,
+    });
+    if(!retry.allowed)throw new ReaderError(retry.status,retry.message);
+    if(lost)return false;
+    if(db.get('SELECT id FROM stories WHERE id=? AND user_id=?',recovery.requestId,row.user_id))throw new ReaderError(409,'这个操作编号已用于创建或提交故事。');
+    db.run("INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,fault_id,status,created_at,updated_at) VALUES(?,?,?,'recover',?,?,?,'succeeded',?,?)",
+     recovery.requestId,row.user_id,row.id,receiptFingerprint,JSON.stringify({jobs:[],resolutionJob:'',redraw:false}),recovery.faultId,now,now);
+   }
    if(lost){
     if(record)dag.products[product]={...record,readable:false};
     db.run('UPDATE stories SET document=? WHERE id=? AND user_id=?',JSON.stringify({...doc,dag}),row.id,row.user_id);
@@ -411,11 +432,14 @@ export class DagProduction{
    }else if(fault){
     if(record){const {readable:_,...restored}=record;void _;dag.products[product]=restored;}
     db.run('UPDATE stories SET document=? WHERE id=? AND user_id=?',JSON.stringify({...doc,dag}),row.id,row.user_id);
-    db.run("UPDATE reader_faults SET state='resolved',updated_at=? WHERE id=?",now,fault.id);
+    db.run("UPDATE reader_faults SET state='resolved',updated_at=?,command_id=COALESCE(?,command_id) WHERE id=?",now,recovery?.requestId??null,fault.id);
+    return true;
    }
+   return false;
   });
   await this.settleState(row.id,row.user_id);
   this.deps.wake();
+  return restored===true;
  }
 
  /**
