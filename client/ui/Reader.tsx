@@ -53,6 +53,7 @@ import {shelfGroupings,type ShelfGrouping} from '@/lib/shelf-browser';
 import DeletedStories,{type DeletedStory} from './DeletedStories';
 import StorySource from './StorySource';
 import StoryTitleEditor from './StoryTitleEditor';
+import StoryShelfCover from './StoryShelfCover';
 import StoryScript from './StoryScript';
 import StorySceneList from './StorySceneList';
 import {discoveryThemePresets} from '@/lib/reader-discovery-themes';
@@ -65,7 +66,7 @@ import StoryReviewTools from './StoryReviewTools';
 import StoryReviewHistory from './StoryReviewHistory';
 import StoryPausedEditing from './StoryPausedEditing';
 import Sheet from './StorySheet';
-import StorySettingsPanel,{StorySettingsContent,storyWorkflowHeading} from './StorySettingsPanel';
+import StorySettingsPanel,{StoryDownloads,StorySettingsContent,storyWorkflowHeading} from './StorySettingsPanel';
 import {narrativeDetailSchema} from '@/lib/reader-frame-recommendation';
 import StoryRetry from './StoryRetry';
 import StoryGenerationControl from './StoryGenerationControl';
@@ -146,6 +147,19 @@ export default function Reader(){
  const [imageIssues,setImageIssues]=useState<Record<string,string>>({}),[imageReloads,setImageReloads]=useState<Record<string,number>>({});
  const [reviewHistoryId,setReviewHistoryId]=useState<string|null>(null);
  const [publicationTarget,setPublicationTarget]=useState<Story|null>(null),[publicationDefaultsOpen,setPublicationDefaultsOpen]=useState(false);
+ const [presentation,setPresentation]=useState<{id:string;title:string;session?:SessionView;error?:string}|null>(null);
+ const [presentationRead,setPresentationRead]=useState(0),[editingShelfCover,setEditingShelfCover]=useState(false);
+ const presentationId=presentation?.id;
+ useEffect(()=>{
+  if(!presentationId)return;
+  let active=true;
+  request('reader/sessions/'+presentationId).then((session:SessionView)=>{
+   if(active)setPresentation(item=>item?.id===session.id?{...item,session,error:undefined}:item);
+  }).catch(error=>{
+   if(active)setPresentation(item=>item?.id===presentationId?{...item,error:error instanceof Error?error.message:'暂时无法打开作品。'}:item);
+  });
+  return()=>{active=false;};
+ },[presentationId,presentationRead]);
  const [providerAllowed,setProviderAllowed]=useState(false),[providerOpen,setProviderOpen]=useState(0);
  useEffect(()=>{const open=()=>{if(location.hash==='#provider-settings'){setTab('me');setProviderOpen(n=>n+1);}};open();window.addEventListener('hashchange',open);return()=>window.removeEventListener('hashchange',open);},[]);
  const [providerRuntime,setProviderRuntime]=useState<ProviderSettingsView['runtime']|null>(null);
@@ -668,7 +682,7 @@ export default function Reader(){
  {discoverSurprise}
  {discoverNote}
  {discoverStatus}</>;
- const shelfView=<ReaderShelf onControl={gen.control} onLandscapeControl={(id,printId,control)=>{
+ const shelfView=<ReaderShelf onControl={gen.control} onPresentation={(id,title)=>setPresentation({id,title})} onLandscapeControl={(id,printId,control)=>{
   void request(storyLandscapeRoute(id),'POST',{control,printId}).then(()=>gen.refreshLibrary()).catch(error=>notify(error instanceof Error?error.message:'横图状态暂未更新，请重试。'));
  }} controlBusy={gen.controlBusy} stories={shelf} pending={pendingStories} sessions={gen.sessions} progress={activeProgress} refreshing={shelfRefreshing||gen.libraryRefreshing} onRefresh={()=>{void refreshShelf();}} loading={loading||gen.libraryLoading} error={loadError||gen.libraryError} tab={shelfTab} onTab={changeShelfTab} query={shelfQuery} onQuery={changeShelfQuery} grouping={shelfGrouping} onGrouping={changeShelfGrouping} bookName={bookName} onOpen={open} onResume={session=>openWorkflow(session.id)} onRetry={session=>{if(session.intake&&!session.intake.selected){openWorkflow(session.id);return;}cancelOpening();setWorkflowTarget(session.id);setWorkflowError('');setStory(null);gen.retrySession(session.id).catch(e=>setWorkflowError(e.message));}} onDelete={askDelete} onFavorite={favoriteFromShelf} favoriteBusy={favoriteBusy} onCreate={()=>choose()} onDiscover={()=>setTab('discover')}/>;
  const profileView=<section className="yu-profile" aria-label="设置">
@@ -832,8 +846,24 @@ export default function Reader(){
  {gen.controlError&&<div className="yu-toast" role="alert">{gen.controlError}</div>}
  {settings&&!story&&!workflowTarget&&!gen.active&&<Sheet title="舒服地读" onClose={()=>setSettings(false)}><div className="yu-setting-row"><div><strong>大一点的文字</strong><p>让画面上的旁白更容易读</p></div><button className={'yu-switch '+(largeText?'on':'')} role="switch" aria-checked={largeText} aria-label="大一点的文字" onClick={()=>{setLargeText(!largeText);localStorage.setItem('yiyu-large-text',largeText?'0':'1');}}><i/></button></div></Sheet>}
  {publicationDefaultsOpen&&<StoryPublicationDefaults onClose={()=>setPublicationDefaultsOpen(false)} onSaved={()=>notify('默认说明已保存，导出时会实时补全单篇未填写的内容。')}/>}
+ {presentation&&<Sheet title="作品与导出" onClose={()=>setPresentation(null)}>
+  <p className="yu-publication-work">{presentation.session?.story?.title||presentation.title}</p>
+  {presentation.error?<div role="alert"><p>{presentation.error}</p><StoryFlowAction onClick={()=>{setPresentation({...presentation,error:undefined});setPresentationRead(value=>value+1);}}>重试打开</StoryFlowAction></div>
+   :presentation.session?.story?<><div className="yu-setting-row">
+    <div><strong>书架封面</strong>{(presentation.session.shelfCover||presentation.session.story.pages[0]?.image)&&<img className="yu-presentation-cover" src={presentation.session.shelfCover||presentation.session.story.pages[0].image} alt="当前书架封面"/>}</div>
+    <StoryFlowAction onClick={()=>setEditingShelfCover(true)}>修改书架封面</StoryFlowAction>
+   </div><StoryDownloads story={presentation.session.story} downloads={(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,'yu-settings-download',presentation.session!.story))}
+    exportStatus={exportProgress} exporting={!!exporting} onPublicationEdit={()=>setPublicationTarget(presentation.session!.story)}/></>
+   :<p role="status">正在打开作品…</p>}
+ </Sheet>}
+ {editingShelfCover&&presentation?.session?.story&&<StoryShelfCover story={presentation.session.story} cover={presentation.session.shelfCover} onClose={()=>setEditingShelfCover(false)} onSaved={cover=>{
+  setPresentation(item=>item?.session?{...item,session:{...item.session,shelfCover:cover??undefined}}:item);
+  void gen.refreshLibrary().catch(()=>{});notify('书架封面已保存。');
+ }}/>}
  {publicationTarget&&<StoryPublicationEditor key={publicationTarget.id} story={publicationTarget} onClose={()=>setPublicationTarget(null)} onSave={async(value,expected)=>{
-  await gen.savePublication(publicationTarget.id,value,expected);notify('署名与转载说明已保存。');
+  const session=await gen.savePublication(publicationTarget.id,value,expected);
+  setPresentation(item=>item?.id===session.id?{...item,session}:item);
+  notify('署名与转载说明已保存。');
  }}/>}
  {landscapeCover&&<Sheet title={'选择'+exportOptions[landscapeCover.format].label+'封面'} onClose={()=>setLandscapeCover(null)}>
   <div className="yu-export-confirmation">

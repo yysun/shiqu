@@ -34,13 +34,14 @@ function fixture(t,mixed=true){
  return {directory,parent,before,files};
 }
 function rawRows(directory,table){const db=new DatabaseSync(path.join(directory,'shiqu.sqlite'),{readOnly:true});try{return db.prepare(`SELECT * FROM ${table} ORDER BY id`).all();}finally{db.close();}}
+function assertConsolidatedRows(rows,f){assert.deepEqual(rows.map(row=>({...row})),f.before.map(row=>({...row,shelf_cover:null})));}
 function fileManifest(f){return Object.fromEntries(f.files.map(key=>[key,readFileSync(path.join(f.directory,'media',key)).toString('hex')]));}
 function assertOriginal(f,manifest){assert.deepEqual(rawRows(f.directory,'reader_sessions'),f.before);for(const [key,bytes]of Object.entries(manifest))assert.equal(readFileSync(path.join(f.directory,'media',key)).toString('hex'),bytes);}
 test('fresh and mixed upgrades converge; all owners/revisions/states and current/shared/unknown bytes survive',t=>{
  const f=fixture(t),manifest=fileManifest(f),result=ensureLibraryReady(f.directory,root);
  assert.ok(result.shared.includes('legacy-art/pear-1.png'));assert.ok(result.shared.includes('shared.png'));assert.ok(result.uncertain.includes('unknown.png'));
  assert.deepEqual(JSON.parse(readFileSync(path.join(f.directory,'.desktop-upgrade-result.json'),'utf8')).uncertain,result.uncertain);
- assert.equal(inspectLibrary(f.directory),'current');assert.deepEqual(rawRows(f.directory,'stories'),f.before);verifyLibraryBackup(result.backup);
+ assert.equal(inspectLibrary(f.directory),'current');assertConsolidatedRows(rawRows(f.directory,'stories'),f);verifyLibraryBackup(result.backup);
  const local=openDatabase(f.directory,root);
  try{
   for(const table of ['reader_sessions','jobs','progress'])assert.equal(local.sqlite.prepare('SELECT 1 FROM sqlite_schema WHERE name=?').get(table),undefined);
@@ -65,7 +66,7 @@ test('fresh and mixed upgrades converge; all owners/revisions/states and current
 for(const point of ['journal','staged','quarantined','database-retired','database-published','files-published','cleanup'])test('exception at '+point+' restores original DB and media, then retries once',t=>{
  const f=fixture(t),manifest=fileManifest(f);assert.throws(()=>ensureLibraryReady(f.directory,root,{onStep(step){if(step===point)throw Error('injected');}}),/restored original library; backup:/);
  assertOriginal(f,manifest);assert.equal(existsSync(path.join(f.directory,'.desktop-upgrade.json')),false);
- ensureLibraryReady(f.directory,root);assert.deepEqual(rawRows(f.directory,'stories'),f.before);
+ ensureLibraryReady(f.directory,root);assertConsolidatedRows(rawRows(f.directory,'stories'),f);
 });
 for(const point of ['journal','quarantined','database-retired','database-published','cleanup'])test('process death at '+point+' recovers before access, including missing live DB',async t=>{
  const f=fixture(t),manifest=fileManifest(f);
@@ -75,7 +76,7 @@ for(const point of ['journal','quarantined','database-retired','database-publish
  assert.equal(inspectLibrary(f.directory),'pending');
  // Fail immediately after recovery creates the next journal, proving original state was recovered first.
  assert.throws(()=>ensureLibraryReady(f.directory,root,{onStep(step){if(step==='journal')throw Error('retry stop');}}));assertOriginal(f,manifest);
- ensureLibraryReady(f.directory,root);assert.deepEqual(rawRows(f.directory,'stories'),f.before);
+ ensureLibraryReady(f.directory,root);assertConsolidatedRows(rawRows(f.directory,'stories'),f);
 });
 test('future schema and recovery formats refuse before runtime files or backups are written',async t=>{
  const f=fixture(t);let db=new DatabaseSync(path.join(f.directory,'shiqu.sqlite'));db.exec('PRAGMA user_version=4');db.close();const before=readdirSync(f.directory);
@@ -91,7 +92,7 @@ test('a separate process cannot enter the brief gate during publication',async t
 });
 test('normal restore upgrades before publication and current-use legacy art reads through HTTP and Node export',async t=>{
  const f=fixture(t),backup=path.join(f.parent,'saved');createLibraryBackup(f.directory,backup);
- const target=path.join(f.parent,'restored');restoreAndUpgradeLibrary(backup,target,root);assert.equal(inspectLibrary(target),'current');assert.deepEqual(rawRows(target,'stories'),f.before);
+ const target=path.join(f.parent,'restored');restoreAndUpgradeLibrary(backup,target,root);assert.equal(inspectLibrary(target),'current');assertConsolidatedRows(rawRows(target,'stories'),f);
  // The verified source is the reported rollback point; no staging snapshot is left beside the target.
  assert.equal(JSON.parse(readFileSync(path.join(target,'.desktop-upgrade-result.json'),'utf8')).backup,backup);
  assert.deepEqual(readdirSync(f.parent).filter(name=>name.includes('.restore-')),[]);
@@ -107,7 +108,7 @@ test('normal restore upgrades before publication and current-use legacy art read
 
 test('a library containing only current stories preserves all raw row values and creates one verified backup',t=>{
  const f=fixture(t,false),db=new DatabaseSync(path.join(f.directory,'shiqu.sqlite'));assert.equal(db.prepare('SELECT count(*) n FROM stories').get().n,0);db.close();
- const result=ensureLibraryReady(f.directory,root);assert.deepEqual(rawRows(f.directory,'stories'),f.before);verifyLibraryBackup(result.backup);
+ const result=ensureLibraryReady(f.directory,root);assertConsolidatedRows(rawRows(f.directory,'stories'),f);verifyLibraryBackup(result.backup);
 });
 
 for(const mode of ['missing image','missing receipt','corrupt original','corrupt revision'])test(mode+' blocks purge and restores original state with a backup path',t=>{
@@ -126,7 +127,7 @@ test('titles, prompts and original prose that look like filenames do not become 
  const f=fixture(t),db=new DatabaseSync(path.join(f.directory,'shiqu.sqlite'));
  db.exec("UPDATE reader_sessions SET selection=json_set(selection,'$.storyTitle','notes.json','$.displayTitle','cover.png','$.productionPrompt','instructions.json'),document=json_set(document,'$.original',json('{\"title\":\"notes.json\",\"text\":\"cover.png\"}'))");
  f.before=db.prepare('SELECT * FROM reader_sessions ORDER BY id').all();db.close();
- ensureLibraryReady(f.directory,root);assert.deepEqual(rawRows(f.directory,'stories'),f.before);
+ ensureLibraryReady(f.directory,root);assertConsolidatedRows(rawRows(f.directory,'stories'),f);
 });
 test('relocated restore protects absolute saved-original references without consulting the original path',t=>{
  const f=fixture(t),file=path.join(f.directory,'media/reader/trash/source.json');writeFileSync(file,JSON.stringify({image:path.join(f.directory,'media/legacy-art/pear-2.png')}));
@@ -148,7 +149,7 @@ test('a consolidated library applies a later migration in place after a verified
  assert.deepEqual(result.migrations,['9999_later_change.sql']);verifyLibraryBackup(result.backup);
  assert.equal(JSON.parse(readFileSync(path.join(result.backup,'shiqu-backup.json'),'utf8')).appVersion,JSON.parse(readFileSync(path.join(root,'package.json'),'utf8')).version);
  const local=openDatabase(f.directory,next);
- try{assert.ok(local.sqlite.prepare("SELECT 1 FROM sqlite_schema WHERE name='later_change'").get());assert.deepEqual(local.sqlite.prepare('SELECT * FROM stories ORDER BY id').all(),f.before);}
+ try{assert.ok(local.sqlite.prepare("SELECT 1 FROM sqlite_schema WHERE name='later_change'").get());assertConsolidatedRows(local.sqlite.prepare('SELECT * FROM stories ORDER BY id').all(),f);}
  finally{local.close();}
  assert.equal(ensureLibraryReady(f.directory,next),undefined);
 });
@@ -176,6 +177,6 @@ test('a library consolidated before the refusal guard receives it in place',t=>{
  cpSync(path.join(root,'drizzle'),path.join(previous,'drizzle'),{recursive:true,filter:source=>!/^\d{4}_.*\.sql$/.test(path.basename(source))||path.basename(source)<'0019_'});
  ensureLibraryReady(f.directory,previous);
  const db=new DatabaseSync(path.join(f.directory,'shiqu.sqlite'));db.exec(releasedSeed);db.close();
- const result=ensureLibraryReady(f.directory,root);assert.deepEqual(result.migrations,['0019_refuse_pre_consolidation_apps.sql','0020_blocked_revision_faults.sql','0021_landscape_job_isolation.sql','0022_story_content_revisions.sql','0023_story_scan_indexes.sql','0024_prompt_records.sql','0025_production_dag.sql','0026_production_lifecycle.sql','0027_revision_fault_targets.sql']);verifyLibraryBackup(result.backup);
- assertRefusesReleasedSeed(f.directory);assert.deepEqual(rawRows(f.directory,'stories'),f.before);
+ const result=ensureLibraryReady(f.directory,root);assert.deepEqual(result.migrations,['0019_refuse_pre_consolidation_apps.sql','0020_blocked_revision_faults.sql','0021_landscape_job_isolation.sql','0022_story_content_revisions.sql','0023_story_scan_indexes.sql','0024_prompt_records.sql','0025_production_dag.sql','0026_production_lifecycle.sql','0027_revision_fault_targets.sql','0028_shelf_cover.sql']);verifyLibraryBackup(result.backup);
+ assertRefusesReleasedSeed(f.directory);assertConsolidatedRows(rawRows(f.directory,'stories'),f);
 });

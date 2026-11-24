@@ -22,5 +22,5 @@ export function summarizeShelfSession(session:SessionView):ShelfSession{
   ...(intake?{intake:{phase:intake.phase,selected:!!intake.selected,hasCandidates:!!intake.batches?.length,searchState:intake.search?.state||'idle',artStyle:intake.draft?.artStyle}}:{}),
   ...(revision?{revision:{rootId:revision.rootId,number:revision.number}}:{}),
   story:story?{id:story.id,title:story.title,bookId:story.bookId,theme:story.theme,revision:story.revision,artStyleLabel:story.artStyleLabel,
-   cover:story.pages[0]?.image||'',resumeImage:story.pages[resumePage]?.image||story.pages.find(frame=>frame.image)?.image||'',resumePage,frameCount:story.pages.length}:null};
+   cover:story.pages[0]?.image?session.shelfCover||story.pages[0].image:'',resumeImage:story.pages[resumePage]?.image||story.pages.find(frame=>frame.image)?.image||'',resumePage,frameCount:story.pages.length}:null};
 }

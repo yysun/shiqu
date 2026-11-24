@@ -122,6 +122,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   try{
    const s:SessionView=await request(`reader/sessions/${sessionId}/publication`,'POST',{publication,expected});
    collect(s);if(id.current===sessionId){setActive(s);if(s.story)cb.current.onStory(s.story);}
+   return s;
   }catch(error){
    if((error as {status?:number}).status===409){
     const s:SessionView=await request(`reader/sessions/${sessionId}`);

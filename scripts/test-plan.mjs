@@ -37,6 +37,7 @@ const rules=[
  [/^server\/(?:reader-image-health|story-export|book-image-reference)\.ts$/,['media','review']],
  [/^server\/reader-copy\.ts$/,['reader','production']],
  [/^server\/landscape-print\.ts$/,['production','reader','storage','media']],
+ [/^server\/shelf-cover\.ts$/,['reader','storage','media']],
  [/^lib\/(?:reader-model|reader-api|reader-generation-contract|reader-local-contract|reader-source-types|services|server)\.ts$/,['discovery','preparation','review','production','reader','storage','providers','media'],true],
  [/^lib\/(?:reader-provider|reader-gemini[\w-]*|reader-responses-diagnostics|reader-reasoning|codex-settings)\.ts$/,['providers']],
  [/^lib\/(?:reader-limits|reader-engine)\.ts$/,['providers','preparation','review','production','discovery']],

@@ -3946,7 +3946,9 @@
     {
       "file": "tests/story-title.test.mjs",
       "groups": [
-        "preparation"
+        "preparation",
+        "reader",
+        "storage"
       ],
       "level": "integration",
       "cost": "standard",
@@ -3959,6 +3961,10 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "drizzle/0028_shelf_cover.sql",
+        "lib/reader-image-assets.ts",
+        "lib/reader-shelf.ts",
+        "server/shelf-cover.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",

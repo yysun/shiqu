@@ -10,7 +10,7 @@
 // 节拍中的过期任务清理和任务图重建先查覆盖索引与内容修订号，只读取上次检查后有变化的故事全文。
 import {productionTimingScope,productionStageDurations} from '../lib/production-timing.ts';
 import {randomUUID} from 'node:crypto';
-import {ReaderRepository,persistenceError,supersededSql,latestVersionMessage,openReplacementParentsSql,shelfRowsSql,visibleStory} from '../lib/reader-repository.ts';
+import {ReaderRepository,persistenceError,supersededSql,latestVersionMessage,familyShelfCoverSql,openReplacementParentsSql,shelfRowsSql,visibleStory} from '../lib/reader-repository.ts';
 import type {Database,ReadStatements,SyncStatements} from '../lib/reader-repository.ts';
 import {ReaderError,readableStory,selectionSchema,view} from '../lib/reader-model.ts';
 import type {Document,SessionRow,SessionView,ProductionAction,Selection} from '../lib/reader-model.ts';
@@ -486,7 +486,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    const rows=deleted?db.all<SessionRow&{superseded?:number}>(`SELECT *,${supersededSql()} AS superseded FROM stories
     WHERE user_id=? AND NOT (${visibleStory}) AND json_type(document,'$.reselection') IS NULL`,ownerId):
     id===undefined?db.all<SessionRow&{superseded?:number}>(shelfRowsSql,ownerId):
-    db.all<SessionRow&{superseded?:number}>(`SELECT *,${supersededSql()} AS superseded FROM stories WHERE id=? AND user_id=? AND ${visibleStory}`,id,ownerId);
+    db.all<SessionRow&{superseded?:number}>(`SELECT *,${familyShelfCoverSql('stories')},${supersededSql()} AS superseded FROM stories WHERE id=? AND user_id=? AND ${visibleStory}`,id,ownerId);
    if(!rows.length)return [];
    const ids=JSON.stringify(rows.map(row=>row.id)),bySession='session_id IN (SELECT value FROM json_each(?))';
    const inputs=new Map<string,SnapshotInputs>(rows.map(row=>[row.id,{
