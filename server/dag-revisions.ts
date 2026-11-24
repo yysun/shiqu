@@ -104,6 +104,7 @@ function applyEdits(story:DagStory,changes:RevisionChanges):DagDocument{
    }
    if(page.prompt.trim()!==frame.visual.trim()){
     frame.visual=page.prompt;
+    addDrawnFrom(frame,page.prompt,dag.characters);
     handEdit('visual',id,{prompt:page.prompt,drawn:frame.drawnNames??frame.drawn});
    }
   });
@@ -112,6 +113,21 @@ function applyEdits(story:DagStory,changes:RevisionChanges):DagDocument{
  }
  if(changes.storySummary!==undefined&&changes.storySummary!==dag.brief){dag.brief=changes.storySummary;handEdit('brief','',changes.storySummary);}
  return dag;
+}
+
+/**
+ * 手改画面描述后，按名字和别名在新描述中匹配人物，并入本幅入画人物。原有入画人物保留：
+ * 手写描述常用「他」「二人」等称呼，严格按文字重配会丢掉这些人物的设定。没有入画记录的旧稿按全部人物计算，保持不变。
+ */
+function addDrawnFrom(frame:DagDocument['frames'][string],prompt:string,characters:DagDocument['characters']){
+ if(frame.drawn===undefined&&frame.drawnNames===undefined)return;
+ const previous=frame.drawn??castFrom((frame.drawnNames??[]).join(' '),characters);
+ const added=castFrom(prompt,characters).filter(id=>!previous.includes(id));
+ if(!added.length)return;
+ const ids=new Set([...previous,...added]);
+ frame.drawn=characters.filter(character=>ids.has(character.id)).map(character=>character.id);
+ frame.drawnNames=[...(frame.drawnNames??characters.filter(character=>previous.includes(character.id)).map(character=>character.name)),
+  ...characters.filter(character=>added.includes(character.id)).map(character=>character.name)];
 }
 
 /**

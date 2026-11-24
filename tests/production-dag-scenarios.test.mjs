@@ -2058,7 +2058,7 @@ test('saving an edited character setting or ending keeps the edit and redraws on
  assert.equal(refused.status,400);
 });
 
-test('hand-editing a picture description passes the newly drawn character to the drawing job',{todo:'保存画面描述沿用旧入画名单，绘图请求缺少新入画人物设定'},async t=>{
+test('hand-editing a picture description passes the newly drawn character to the drawing job',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  const {id,dag}=await completedStory(f),newCharacter=dag.characters.find(character=>character.name==='鲍叔牙');
@@ -2071,6 +2071,21 @@ test('hand-editing a picture description passes the newly drawn character to the
  const frame=doc.dag.frames[doc.dag.order[1]];
  assert.deepEqual({includedInFrame:frame.drawn.includes(newCharacter.id),includedInDraw:f.control.calls[0].prompt.includes(newCharacter.text)},
   {includedInFrame:true,includedInDraw:true});
+});
+
+test('a hand-edited picture description that refers to people only by pronoun keeps the frame cast',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id,dag}=await completedStory(f),key=dag.order[1],before=dag.frames[key].drawn;
+ assert.ok(before?.length,'the frame has a recorded cast');
+ const {doc}=await revise(f,id,snapshot=>{
+  const plan=structuredClone(snapshot.plan);
+  plan.pages[1].prompt='他独自坐在窗前，神情专注，暮色中只见侧影。';
+  return {plan};
+ });
+ assert.deepEqual(doc.dag.frames[key].drawn,before,'no one named in the text, so the existing cast stays');
+ const character=dag.characters.find(item=>item.id===before[0]);
+ assert.ok(f.control.calls.at(-1).prompt.includes(character.text),'the redraw still sends the existing character description');
 });
 
 test('a transient read error keeps the paid image receipt and the queue reads it without paying again',async t=>{
