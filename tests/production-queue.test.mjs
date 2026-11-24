@@ -5,6 +5,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync} from 'node:fs';
 import {ProductionQueue,inputVersion,productionJobId} from '../server/production-queue.ts';
 import {transaction} from '../server/database.ts';
+import {beforePaidSend,PaidDispatchUnfenced,withPaidDispatch,withProductionJob} from '../server/paid-dispatch.ts';
 import {until,turn} from './fixtures/production-data.mjs';
 function database(t){
  const db=new DatabaseSync(':memory:');for(const name of readdirSync('drizzle').filter(n=>n.endsWith('.sql')).sort())db.exec(readFileSync('drizzle/'+name,'utf8'));t.after(()=>db.close());
@@ -173,4 +174,20 @@ test('completed timing is saved with the receipt and retained across queue insta
  assert.equal(saved.state,'succeeded');assert.deepEqual(JSON.parse(saved.result),{saved:true});
  assert.deepEqual(JSON.parse(saved.payload).timings,[{startedAt:20000,finishedAt:22500},{startedAt:90000,finishedAt:92500}]);
  await reopened.enqueue(job);assert.deepEqual(JSON.parse((await reopened.job(job.id)).payload).timings,JSON.parse(saved.payload).timings);
+});
+test('a job without a paid-send permission fails before sending, while calls outside the queue are unchanged',async t=>{
+ const {adapter}=database(t),sends=[];
+ const send=label=>{beforePaidSend();sends.push(label);return {};};
+ const queue=new ProductionQueue(adapter,{limits:{text:1},handlers:{
+  unfenced:{pool:'text',run:async()=>send('unfenced')},
+  fenced:{pool:'text',run:async()=>withPaidDispatch({authorize(){},receipt(){}},()=>send('fenced'))},
+ }});
+ await queue.enqueue(spec('unfenced','text'));await queue.enqueue(spec('fenced','text'));
+ await queue.pump();await queue.settle();await queue.pump();await queue.settle();
+ const jobs=await queue.jobs('story','owner');
+ assert.equal(jobs.find(job=>job.kind==='unfenced').state,'failed');
+ assert.equal(jobs.find(job=>job.kind==='fenced').state,'succeeded');
+ assert.deepEqual(sends,['fenced'],'the unfenced job sends nothing');
+ assert.doesNotThrow(()=>beforePaidSend(),'settings tests and interactive requests keep their own authorization');
+ assert.throws(()=>withProductionJob(()=>beforePaidSend()),PaidDispatchUnfenced);
 });

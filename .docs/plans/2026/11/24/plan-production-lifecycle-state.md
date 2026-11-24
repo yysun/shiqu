@@ -184,6 +184,8 @@ CR fixed: 修复重准备调度与观察、已删除版本的收尾投影、横�
 
 CR review round: 16; reviewer: reused
 
+- 交付后复核（2026-11-24）：付费发送点在没有发送许可时原本直接放行，今后新增的制作路径若漏接复核会静默付费。现在队列为每个任务建立任务范围，范围内缺少发送许可的发送抛出 `PaidDispatchUnfenced`，任务按失败记录、不发出请求。队列之外的调用不受影响。`tests/production-queue.test.mjs` 覆盖拒绝、放行和队列外调用三种情况。
+
 ## 最终验收
 
 VR passed: all acceptance criteria complete

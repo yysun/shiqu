@@ -2242,6 +2242,7 @@
       "gates": [],
       "covers": [
         "server/production-queue.ts",
+        "server/paid-dispatch.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production-data.mjs",

@@ -5,11 +5,13 @@
 // Finished jobs re-run only through an explicit rerun, which the caller must have consent for.
 // Scoped step timing is saved atomically with receipts, under the same attempt token.
 // 任务状态变化与故障、恢复回执在同一事务中写入（production-records.ts），失败同时记录结构化错误码。
+// 每个任务在任务范围内执行，范围内缺少发送许可的付费发送会被拒绝（paid-dispatch.ts）。
 import {createHash,randomUUID} from 'node:crypto';
 import {persistenceError} from '../lib/reader-repository.ts';
 import {authorizeJobLease,classifyJobFailure,resolveInterruptedJob} from '../lib/production-lifecycle.ts';
 import type {Database,SyncStatements} from '../lib/reader-repository.ts';
 import {transact,recordJobFailed,recordJobRequeued,recordJobRunning,recordJobSucceeded} from './production-records.ts';
+import {withProductionJob} from './paid-dispatch.ts';
 
 export type JobSpec={id:string;sessionId:string;ownerId:string;kind:string;pool:string;version:string;dependencies:string[];payload:unknown;priority:number};
 export type ProductionJob={id:string;session_id:string;owner_id:string;kind:string;pool:string;version:string;dependencies:string;payload:string;result:string|null;state:'queued'|'running'|'succeeded'|'failed';priority:number;attempts:number;lease_token:string|null;lease_until:number;error:string|null;error_code?:string|null;interrupted:number;failure_id?:string|null;recovery_id?:string|null;created_at:number;updated_at:number};
@@ -166,7 +168,8 @@ export class ProductionQueue{
    }
   }catch(error){unsaved(error);return;}
   let result:unknown;
-  try{result=await handler.run(job,{outputs,isCurrent});}
+  // 任务范围使付费发送点能识别漏接发送许可的制作路径。
+  try{result=await withProductionJob(()=>handler.run(job,{outputs,isCurrent}));}
   catch(error){
    try{
     const persistence=persistenceError(error),yielded=error instanceof JobYield;
