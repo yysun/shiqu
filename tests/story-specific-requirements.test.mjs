@@ -53,16 +53,34 @@ test('a paused draft saved during inference wins through progress and final chec
  const settings={artStyle:'watercolor',narrativeDetail:'brief',length:'auto',productionPrompt:'',acceptancePrompt:''};
  try{
   await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
-  await action(f,id,{action:'draft',settings});
+  await action(f,id,{action:'draft',settings,requirementsEdited:{productionPrompt:true,acceptancePrompt:true}});
   const inFlight=await f.read(id);
   assert.equal(inFlight.state,'running');
   assert.deepEqual(inFlight.intake.draft,settings);
+  assert.deepEqual(inFlight.intake.requirementsEdited,{productionPrompt:true,acceptancePrompt:true});
  }finally{release();}
  await until(async()=>(await f.read(id)).intake.phase==='confirming');assert.deepEqual((await f.read(id)).intake.draft,settings);
  await f.restart();assert.deepEqual((await f.read(id)).intake.draft,settings);
  await action(f,id,{action:'recommend',settings});await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
  await until(async()=>(await f.read(id)).intake.phase==='confirming');assert.deepEqual((await f.read(id)).intake.draft,settings);
- assert.equal(f.control.recommendations.at(-1).prepareRequirements,undefined,'Repreparing the same story preserves edited requirements');
+ assert.equal(f.control.recommendations.at(-1).prepareRequirements,true);
+});
+
+test('blank acceptance stays edited while late preparation fills the other requirement',async t=>{
+ const f=await productionFixture(t),entered=Promise.withResolvers(),release=Promise.withResolvers();
+ f.control.beforeText=async kind=>{if(kind==='recommend'){entered.resolve();await release.promise;}};
+ const id=await create(f);await action(f,id,{action:'choose',batch:0,index:0});await entered.promise;
+ try{
+  const inFlight=await f.read(id),{generation,draftToken}=inFlight.intake;
+  const settings={artStyle:inFlight.selection.artStyle,narrativeDetail:'balanced',length:'auto',productionPrompt:'',acceptancePrompt:''};
+  const saved=await f.json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation,draftToken,action:'draft',settings,requirementsEdited:{acceptancePrompt:true}});
+  assert.deepEqual(saved.intake.requirementsEdited,{acceptancePrompt:true});
+ }finally{release.resolve();}
+ await until(async()=>(await f.read(id)).intake.phase==='confirming');
+ const {intake}=await f.read(id);
+ assert.equal(intake.draft.productionPrompt,makeRequirements('庄周梦蝶').productionPrompt);
+ assert.equal(intake.draft.acceptancePrompt,'');
+ assert.deepEqual(intake.requirementsEdited,{acceptancePrompt:true});
 });
 
 test('reselection replaces unchanged automatic guidance and preserves authored draft fields even without settings',async t=>{
@@ -110,7 +128,8 @@ test('saved requirements can be recovered after re-preparation and confirmation 
  await action(f,id,{action:'recommend',settings});await until(async()=>(await f.read(id)).intake.phase==='confirming');
  const saved=await action(f,id,{action:'confirm',settings});
  await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
- assert.equal(saved.frameRecommendation.requirements,undefined);
+ assert.deepEqual(saved.frameRecommendation.requirements,makeRequirements('庄周梦蝶'));
+ assert.deepEqual(saved.intake.requirementsEdited,{productionPrompt:true,acceptancePrompt:true});
  assert.equal(saved.selection.productionPrompt,'');assert.equal(saved.selection.acceptancePrompt,'');
  const prompts=await f.json(`sessions/${id}/prompts`);
  assert.deepEqual(prompts.suggestedRequirements,makeRequirements('庄周梦蝶'));

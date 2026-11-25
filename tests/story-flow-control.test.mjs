@@ -5,7 +5,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import {rm} from 'node:fs/promises';
 import path from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
-import {productionFixture,until,selection} from './fixtures/production.mjs';
+import {productionFixture,until,selection,makeRequirements} from './fixtures/production.mjs';
 import {shelfGenerationStatus} from '../lib/shelf-generation.ts';
 import {generationProgress,redrawNotice} from '../lib/generation-progress.ts';
 
@@ -85,7 +85,7 @@ test('searching leaves preparation alone, and neither loses the other\'s saved s
  await setup(f,id,{action:'draft',settings:{...settings,length:5}},running);
  assert.equal((await f.read(id)).state,'running','A draft leaves the running step and its lock in place');
  release();await phase(f,id,'confirming');await searchIs(f,id,'idle');
- const s=await f.read(id);assert.equal(s.intake.batches.length,2,'Search and preparation finish in independent pools');assert.deepEqual(s.intake.draft,{...settings,length:5},'The worker save kept the draft');assert.equal(s.frameRecommendation.count,7);assert.equal(f.discoveries.length,2);
+ const s=await f.read(id);assert.equal(s.intake.batches.length,2,'Search and preparation finish in independent pools');assert.deepEqual(s.intake.draft,{...settings,length:5,acceptancePrompt:makeRequirements('庄周梦蝶').acceptancePrompt},'Preparation fills only the unedited requirement field');assert.equal(s.frameRecommendation.count,7);assert.equal(f.discoveries.length,2);
 });
 
 test('a queued preparation survives a search requested before it starts',async t=>{
@@ -205,11 +205,12 @@ test('art recommendations apply until the reader really changes the style',async
 
 test('saved settings survive search, restart and re-preparation, and confirmation applies the draft',async t=>{
  const f=await fixture(t),id=await prepared(f);await reuseSource(f,id);
- const draft={...settings,length:5},s=await setup(f,id,{action:'draft',settings:draft});assert.deepEqual(s.intake.draft,draft);assert.equal(s.selection.artStyle,'paper-cut','Selection stays put, so no job version changes');assert.equal(s.intake.manualArt,true);
+ const draft={...settings,length:5},acceptancePrompt=makeRequirements('庄周梦蝶').acceptancePrompt;
+ const s=await setup(f,id,{action:'draft',settings:draft});assert.deepEqual(s.intake.draft,{...draft,acceptancePrompt});assert.equal(s.selection.artStyle,'paper-cut','Selection stays put, so no job version changes');assert.equal(s.intake.manualArt,true);
  await setup(f,id,{action:'more'});await searchIs(f,id,'idle');await f.restart();
- assert.deepEqual((await f.read(id)).intake.draft,draft);
+ assert.deepEqual((await f.read(id)).intake.draft,{...draft,acceptancePrompt});
  assert.equal((await f.request(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:s.intake.generation-1,action:'draft',settings:draft})).status,409,'A stale device cannot save onto a newer selection');
- const recommended=await setup(f,id,{action:'recommend',settings});assert.deepEqual(recommended.intake.draft,{...settings,length:'auto'});
+ const recommended=await setup(f,id,{action:'recommend',settings});assert.deepEqual(recommended.intake.draft,{...settings,length:'auto',acceptancePrompt});
  await phase(f,id,'confirming');await setup(f,id,{action:'draft',settings:draft});
  const changed=await setup(f,id,{action:'choose',batch:0,index:1,settings});assert.equal(changed.intake.draft,undefined);
  await phase(f,id,'confirming');await setup(f,id,{action:'draft',settings:draft});

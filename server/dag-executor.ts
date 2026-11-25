@@ -45,7 +45,7 @@ export async function executeWork(generator:StoryGenerator,story:DagStory,item:W
    return {value,model:'',requestId:null,usage:null};
   }
   if(!generator.recommend)throw new ReaderError(503,'生成服务暂不支持画幅建议，请更新服务后重试。');
-  const requirements=!!doc.intake&&!doc.setupRequirements?.suggestions;
+  const requirements=preparationPending(doc);
   const result=await generator.recommend(selection,id,doc.original,requirements);
   const value=frameRecommendationOutputSchema(doc.original,requirements,preparesSelectedStory(selection,doc.original)).parse(result.value);
   return {...result,value};

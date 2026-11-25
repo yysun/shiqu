@@ -273,7 +273,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
      records:(doc.usage||[]).flatMap((item,index)=>{const record=usageRecord(item,stored);return record?[{step:item.step,model:item.model,originId:item.originId||id,index,record}]:[];}),
      missingRecords:(doc.usage||[]).flatMap((item,index)=>usageRecord(item,stored)?[]:[{step:item.step,model:item.model,originId:item.originId||id,index}]),
     };
-    const suggestions=storyRequirementsSchema.safeParse(doc.setupRequirements?.suggestions);
+    const suggestions=storyRequirementsSchema.safeParse(doc.frameRecommendation?.requirements??doc.setupRequirements?.suggestions);
     return json({...history,...(suggestions.success?{suggestedRequirements:suggestions.data}:{}),criteria:acceptanceCriteria(selection.acceptancePrompt),results:doc.dag?dagAcceptanceResults(doc.dag):doc.visualReview?.reports.at(-1)?.acceptanceResults||[],overridden:doc.dag?Object.values(doc.dag.products).some(product=>product.overridden):!!doc.visualReview?.overridden,previews:{production:promptRecord(draftInstructions(!!doc.original?.localSource)+'\n\n## 提纲阶段\n'+outlineDirection+'\n\n## 分批细化阶段\n'+batchDirection,preferences),acceptance:promptRecord(reviewSystemPrompt+'\n\n'+acceptanceDirection+'\n\n## 定向修订\n'+repairSystemPrompt,preferences)}});
    }
    if(path[2]==='publication'&&path.length===3&&req.method==='POST'){

@@ -10,6 +10,7 @@ import {artStylePromptMaxLength,getArtStyle} from '@/lib/reader-styles';
 import type {ArtStyleId} from '@/lib/reader-styles';
 import type {FrameRecommendation} from '@/lib/reader-frame-recommendation';
 import type {ArtRecommendation} from '@/lib/reader-art-recommendation';
+import type {RequirementEdits} from '@/lib/reader-requirements';
 import StoryFlowAction from './StoryFlowAction';
 export type StoryEditorTab='requirements'|'acceptance'|'style'|'count'|'script';
 export type ProductionSettings=IntakeDraft;
@@ -17,15 +18,20 @@ const tabs:{id:StoryEditorTab;label:string}[]=[{id:'requirements',label:'制作�
 export function StoryEditorTabs({tab,onChange,script=false,disabled=false}:{tab:StoryEditorTab;onChange:(tab:StoryEditorTab)=>void;script?:boolean;disabled?:boolean}){
  return <nav className="yu-revision-tabs" aria-label="修改内容">{tabs.filter(t=>script||t.id!=='script').map(t=><button type="button" key={t.id} disabled={disabled} aria-pressed={tab===t.id} onClick={()=>onChange(t.id)}>{t.label}</button>)}</nav>;
 }
-export default function StoryProductionEditor({tab,settings,disabled,onChange,sessionId,creation=false,recommendation,artRecommendation}:{tab:Exclude<StoryEditorTab,'script'>;settings:ProductionSettings;sessionId?:string;disabled:boolean;onChange:(patch:Partial<ProductionSettings>)=>void;creation?:boolean;recommendation?:FrameRecommendation|null;artRecommendation?:ArtRecommendation}){
+export default function StoryProductionEditor({tab,settings,disabled,onChange,sessionId,creation=false,requirementsEdited,preparationPaused=false,recommendation,artRecommendation}:{tab:Exclude<StoryEditorTab,'script'>;settings:ProductionSettings;sessionId?:string;disabled:boolean;onChange:(patch:Partial<ProductionSettings>)=>void;creation?:boolean;requirementsEdited?:RequirementEdits;preparationPaused?:boolean;recommendation?:FrameRecommendation|null;artRecommendation?:ArtRecommendation}){
  const promptId=useId(),promptField=useRef<HTMLTextAreaElement>(null);
  const defaultPrompt=getArtStyle(settings.artStyle).prompt;
  const customPrompt=!!settings.artStylePrompt?.trim()&&settings.artStylePrompt.trim()!==defaultPrompt;
  const missingProduction=!settings.productionPrompt.trim(),missingAcceptance=!settings.acceptancePrompt?.trim();
+ const emptyField=tab==='requirements'&&missingProduction?'productionPrompt':tab==='acceptance'&&missingAcceptance?'acceptancePrompt':null;
  const chooseStyle=(artStyle:ArtStyleId)=>onChange({artStyle,artStylePrompt:null});
  return <fieldset className="yu-revision-fields" disabled={disabled}>
   {tab==='requirements'&&<label className="yu-revision-field">制作要求<textarea rows={7} maxLength={1200} value={settings.productionPrompt} onChange={e=>onChange({productionPrompt:e.target.value})}/><small>调整制作要求后，按已核原文重新生成梗概，再编排分镜。</small></label>}
   {tab==='acceptance'&&<label className="yu-revision-field">验收要求<textarea rows={7} maxLength={1200} value={settings.acceptancePrompt||''} placeholder="每行一条，例如：关键反应必须落实到可见画面。" onChange={e=>onChange({acceptancePrompt:e.target.value})}/><small>{creation?'根据本篇改编重点提供验收建议，可修改或清空；仅用于审核，不参与分镜生成。':''}每行一条，最多20条。审核逐条给出结论和依据；只改验收要求会保留分镜与可复用图片，重新审核。与原文或制作要求冲突、无法从文字分镜判断时会停下说明。</small></label>}
+  {creation&&emptyField&&<div className="production-stage-actions">
+   <small role="status">{requirementsEdited?.[emptyField]?'已留空':preparationPaused?'准备已暂停':'等待准备建议'}</small>
+   {!requirementsEdited?.[emptyField]&&<StoryFlowAction disabled={disabled} onClick={()=>onChange({[emptyField]:''})}>留空</StoryFlowAction>}
+  </div>}
   {(tab==='requirements'||tab==='acceptance')&&<StoryPromptDetails key={sessionId} sessionId={sessionId} kind={tab==='acceptance'?'acceptance':'production'} preferences={{...settings}}
    onUseSuggestions={missingProduction||missingAcceptance?suggestions=>onChange({
     ...(missingProduction?{productionPrompt:suggestions.productionPrompt}:{}),

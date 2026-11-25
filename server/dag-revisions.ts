@@ -26,6 +26,7 @@ import {dagProgress} from '../lib/production-dag/progress.ts';
 import {transact} from './production-records.ts';
 import {authorizeProductionCommand} from '../lib/production-lifecycle.ts';
 import {unexecutedLandscapeRecovery} from './dag-revision-faults.ts';
+import {editRequirements} from '../lib/reader-requirements.ts';
 
 type SaveImage=(index:number,bytes:Uint8Array,type:keyof typeof imageTypes)=>Promise<string>;
 const frameNodes=['scene','visual','frameImage','landscape',...verdictNodes];
@@ -394,6 +395,9 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   const portrait=portraitDocument(doc);
   const document:Document={...portrait,dag,plan,images,reviewNotes,usage:portrait.usage.map(item=>({...item,originId:item.originId||row.id})),
    revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,...(cover||redrawAll||!sameArtDirection(parent.selection,selection)||usesStoryImageReference(doc.revision,parent.selection.artStyle)?{storyImageReference:true}:{}),base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
+  if(changes.productionPrompt!==undefined||changes.acceptancePrompt!==undefined){
+   document.setupRequirements={edited:editRequirements(parent.selection,doc.setupRequirements,selection)};
+  }
   delete document.visualReview;delete document.reselection;
   const now=new Date().toISOString(),completed=!pending&&row.state==='completed';
   // 旧版故障留在原版本。新版继续后按当前稿件的缺幅及失效产物接续。

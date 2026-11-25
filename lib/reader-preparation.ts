@@ -5,7 +5,7 @@ import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import {preparesSelectedStory} from './reader-frame-recommendation.ts';
 import {pendingStorySummary,storyBriefSchema} from './reader-story-brief.ts';
 import {normalizeProductionPrompt,storyEditorialContext} from './reader-prompts.ts';
-import {suggestedSettings} from './reader-requirements.ts';
+import {requirementEdits,requirementKeys,suggestedSettings} from './reader-requirements.ts';
 
 export function preparationPending(doc:Document){
  return doc.intake?.phase==='preparing';
@@ -39,9 +39,11 @@ export function preparationResult(doc:Document,selection:Selection,recommendatio
   candidate.artRecommendation=art;
   if(!intake.manualArt)selection.artStyle=art.artStyle;
  }
- if(intake&&recommendation.requirements&&!doc.setupRequirements?.suggestions){
-  doc.setupRequirements={...doc.setupRequirements,suggestions:recommendation.requirements};
-  intake.draft??=suggestedSettings(selection,recommendation.requirements,doc.setupRequirements.overrides);
+ if(intake&&recommendation.requirements){
+  const previous=intake.draft??selection,edited=requirementEdits(previous,doc.setupRequirements);
+  intake.draft={...suggestedSettings(selection,recommendation.requirements),...intake.draft};
+  for(const key of requirementKeys)intake.draft[key]=edited[key]?previous[key]??'':recommendation.requirements[key];
+  doc.setupRequirements={edited};
  }
  doc.original={...original,storyBrief:{summary:recommendation.storySummary!,matchReason:recommendation.storyMatchReason!,verified:true}};
  doc.summaryProductionPrompt=normalizeProductionPrompt(selection.productionPrompt,selection.theme);

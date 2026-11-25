@@ -111,7 +111,7 @@ stateDiagram-v2
 | `choosing` | `choose` | `preparing`；绑定候选，清除旧原文和建议，停止当前搜索，递增 `intake.generation` |
 | 未确认制作 | `more` | 新一轮搜索；没有已选故事时进入 `discovering`，已有选择时保留当前准备阶段 |
 | `preparing` | `recommend` 步骤成功 | `confirming`；保存原文、核对为 `verified` 的完整摘要、制作建议；必要时准备画风推荐 |
-| `preparing / confirming` | `draft` | 原阶段；只保存制作设置草稿，不启动分镜 |
+| `preparing / confirming` | `draft` | 原阶段；保存设置草稿与两项要求的编辑标志，不启动分镜。准备结果只更新未编辑字段 |
 | `confirming` | `recommend` 动作 | `preparing`；删除旧建议，重新准备 |
 | `confirming` | `confirm`，原文、建议和所需核对摘要齐备 | `confirmed`；设置 `frameCountConfirmed=true`，切到 `background + active`，允许生产 |
 | `confirmed` 及其后的制作阶段 | 修改制作内容 | 提交同一家族的修订版本，原版本保留历史 |

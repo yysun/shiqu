@@ -3,7 +3,8 @@
 // Changing discovery conditions updates the same task, fencing obsolete searches without starting a new one.
 // An explicit query keeps the original scope and controls, and never bypasses a production lock.
 import type {RequirementsSetup} from '../lib/reader-requirements.ts';
-import {requirementsForReselection,suggestedSettings} from '../lib/reader-requirements.ts';
+import {editRequirements,requirementEdits,requirementsForReselection,suggestedSettings} from '../lib/reader-requirements.ts';
+import {normalizeProductionPrompt} from '../lib/reader-prompts.ts';
 import {combinedOriginal,directBookChoice,selectedChapterScope} from './local-book-contents.ts';
 import type {LocalBooks} from './local-books.ts';
 import {localBookId} from './local-books.ts';
@@ -53,11 +54,12 @@ export async function createIntake(repo:ReaderRepository,id:string,uid:string,in
  draft:ReselectionDraft;setup:RequirementsSetup;beforeInsert:(db:SyncStatements)=>void;
 }){
  const {selection,choice}=await intakeSelection(input,books);
- const creationHash=hash(selection),doc:Document={...emptyDocument(),intake:{phase:'choosing',generation:0,creationHash,batches:[],briefRequired:true,search:{round:0,state:'idle'}}};
+ const edited=requirementEdits({...selection,productionPrompt:normalizeProductionPrompt(selection.productionPrompt,selection.theme)});
+ const creationHash=hash(selection),doc:Document={...emptyDocument(),setupRequirements:replacement?.setup??{edited},intake:{phase:'choosing',generation:0,creationHash,batches:[],briefRequired:true,search:{round:0,state:'idle'}}};
  if(input.discovery&&!choice&&!replacement){doc.intake!.phase='discovering';doc.intake!.search={round:1,state:'searching',cycleId:id};}
  if(choice)selectSourceCard(doc,choice,0);
  if(selection.artStylePrompt||replacement)doc.intake!.manualArt=true;
- if(replacement){doc.reselection=replacement.draft;doc.setupRequirements=replacement.setup;}
+ if(replacement)doc.reselection=replacement.draft;
  const row=await repo.create(id,uid,selection,doc,replacement?.beforeInsert);
  if((JSON.parse(row.document) as Document).intake?.creationHash!==creationHash)throw new ReaderError(409,'此创建编号已用于其他内容，请重新创建。');
  return row;
@@ -95,12 +97,13 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  const candidate=action.action==='choose'?savedIntake?.batches[action.batch]?.stories[action.index]:undefined;
  let draftCurrent=true;
  if(savedIntake&&(action.action==='draft'||action.action==='recommend'||action.action==='confirm')){
-  const current=intakeDraftToken(savedIntake.draft);
+  const current=intakeDraftToken(savedIntake.draft,doc.setupRequirements?.edited);
   const {suggestions,overrides}=doc.setupRequirements||{};
+  const advice=doc.frameRecommendation?.requirements??suggestions;
   // 兼容旧客户端提交未修改的系统建议，同时保护已保存的草稿。
-  const userDraft=!!savedIntake.draft&&(!!savedIntake.draftEdited||!suggestions||intakeDraftToken(suggestedSettings(selection,suggestions,overrides))!==current);
+  const userDraft=!!savedIntake.draft&&(!!savedIntake.draftEdited||!advice||intakeDraftToken(suggestedSettings(selection,advice,overrides))!==intakeDraftToken(savedIntake.draft));
   const legacyToken=intakeDraftToken(savedIntake.draft?{...savedIntake.draft,acceptancePrompt:savedIntake.draft.acceptancePrompt??selection.acceptancePrompt??''}:undefined);
-  const requested=intakeDraftToken({...action.settings,...styling,acceptancePrompt:action.settings.acceptancePrompt??selection.acceptancePrompt??'',length:action.action==='recommend'?savedIntake.draft?.length??'auto':action.settings.length});
+  const requested=intakeDraftToken({...action.settings,...styling,acceptancePrompt:action.settings.acceptancePrompt??savedIntake.draft?.acceptancePrompt??selection.acceptancePrompt??'',length:action.action==='recommend'?savedIntake.draft?.length??'auto':action.settings.length});
   draftCurrent=action.draftToken!==undefined?action.draftToken===current:!userDraft||requested===legacyToken;
  }
  const decision=authorizeSetup(action.action,{
@@ -127,9 +130,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   delete intake.indexedCandidates;
   intake.search=action.conditions.discovery?{round,state:'searching',cycleId:action.requestId}:{round,state:'idle'};intake.lastAction={id:action.requestId,hash:fingerprint};
   delete intake.selected;delete intake.draft;delete intake.draftEdited;delete doc.original;delete doc.dag;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
-  if(doc.reselection&&next.productionPrompt!==selection.productionPrompt){
-   doc.setupRequirements={...doc.setupRequirements,overrides:{...doc.setupRequirements?.overrides,productionPrompt:next.productionPrompt}};
-  }
+  doc.setupRequirements={edited:editRequirements(selection,doc.setupRequirements,next)};
   if(choice)selectSourceCard(doc,choice,round);
   const result={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
    WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`,[JSON.stringify(next),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state])}};
@@ -155,10 +156,16 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   return repo.get(id,uid);
  }
  const manual=(settings:ReturnType<typeof artStyleSettings>)=>!sameArtDirection(settings,selection)||!!intake.manualArt;
+ const previous=intake.draft??selection;
+ const withSavedAcceptance=<T extends {acceptancePrompt?:string}>(settings:T)=>settings.acceptancePrompt===undefined&&previous.acceptancePrompt!==undefined?
+  {...settings,acceptancePrompt:previous.acceptancePrompt}:settings;
  if(action.action==='draft'){
+  // 旧客户端提交全表单时，准备建议出现前显式提供的空值也视为编辑。
+  const explicit=action.requirementsEdited??(!intake.draft?{productionPrompt:true as const,...(action.settings.acceptancePrompt===undefined?{}:{acceptancePrompt:true as const})}:undefined);
+  const setup={edited:editRequirements(previous,doc.setupRequirements,action.settings,explicit)};
   // 同时保存草稿和动作回执；后台仍持有原来的工作锁和输入世代。
-  const saved={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET document=json_set(document,'$.intake.draft',json(?),'$.intake.draftEdited',json('true'),'$.intake.manualArt',json(?),'$.intake.lastAction',json(?)),updated_at=?
-   WHERE id=? AND user_id=? AND document=? AND selection=? AND ${currentStory}`,[JSON.stringify({...action.settings,...styling}),JSON.stringify(manual(styling)),JSON.stringify({id:action.requestId,hash:fingerprint}),new Date().toISOString(),id,uid,row.document,row.selection])}};
+  const saved={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET document=json_set(document,'$.intake.draft',json(?),'$.intake.draftEdited',json('true'),'$.intake.manualArt',json(?),'$.intake.lastAction',json(?),'$.setupRequirements',json(?)),updated_at=?
+   WHERE id=? AND user_id=? AND document=? AND selection=? AND ${currentStory}`,[JSON.stringify({...withSavedAcceptance(action.settings),...styling}),JSON.stringify(manual(styling)),JSON.stringify({id:action.requestId,hash:fingerprint}),JSON.stringify(setup),new Date().toISOString(),id,uid,row.document,row.selection])}};
   if(!saved.meta.changes){
    if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);
    throw new ReaderError(409,'制作内容已更新，请重新打开后继续。');
@@ -170,12 +177,13 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   if(intake.selected?.batch===action.batch&&intake.selected.index===action.index&&['preparing','confirming'].includes(intake.phase)){
    await recordNoop(repo.db,uid,id,action.requestId,'setup',fingerprint);return row;
   }
-  const settings=action.settings||intake.draft;
+  const settings=action.settings?withSavedAcceptance(action.settings):intake.draft;
   const nextStyle=artStyleSettings(selection,settings||{});
   if(intake.selected&&action.settings?.artStylePrompt===undefined)nextStyle.artStylePrompt=undefined;
   if(settings){intake.manualArt=manual(nextStyle);Object.assign(selection,settings,nextStyle);}
   else if(intake.selected)delete selection.artStylePrompt;
-  const reset=requirementsForReselection(selection,doc.setupRequirements);
+  const edited=editRequirements(previous,doc.setupRequirements,settings??{},action.requirementsEdited);
+  const reset=requirementsForReselection(selection,{edited});
   Object.assign(selection,reset.selection);doc.setupRequirements=reset.setup;
   selection.storyTitle=choice.title;selection.source=choice.source;delete selection.sourceCard;
   if(!intake.manualArt&&choice.artRecommendation)selection.artStyle=choice.artRecommendation.artStyle;
@@ -183,11 +191,13 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   intake.search={...intakeSearch(intake),state:'idle',error:null};
   delete doc.original;delete doc.dag;delete doc.frameRecommendation;doc.frameCountConfirmed=false;selection.length='auto';
  }else{
-  const requirementsChanged=action.settings.productionPrompt!==selection.productionPrompt;
-  intake.manualArt=manual(styling);Object.assign(selection,action.settings,styling);
+  const settings=withSavedAcceptance(action.settings),requirementsChanged=settings.productionPrompt!==selection.productionPrompt;
+  const preservedAdvice=action.action==='confirm'&&requirementsChanged?(doc.frameRecommendation?.requirements??doc.setupRequirements?.suggestions):undefined;
+  doc.setupRequirements={edited:editRequirements(previous,doc.setupRequirements,settings,action.requirementsEdited),...(preservedAdvice?{suggestions:preservedAdvice}:{})};
+  intake.manualArt=manual(styling);Object.assign(selection,settings,styling);
   if(action.action==='recommend'){
    if(requirementsChanged)invalidateStoryBrief(doc);
-   intake.draft={...action.settings,...styling,length:'auto'};intake.draftEdited=true;delete doc.frameRecommendation;doc.frameCountConfirmed=false;intake.phase='preparing';selection.length='auto';
+   intake.draft={...settings,...styling,length:'auto'};intake.draftEdited=true;delete doc.frameRecommendation;doc.frameCountConfirmed=false;intake.phase='preparing';selection.length='auto';
   }
   else{
    if(requirementsChanged)invalidateStoryBrief(doc);

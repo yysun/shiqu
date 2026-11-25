@@ -12,28 +12,29 @@ import {localSourceKey} from './reader-source-key.ts';
 import {storyBriefVerified} from './reader-story-brief.ts';
 import {localSourceSchema} from './reader-local-contract.ts';
 import type {SuggestionBatch,SuggestionProgress} from './reader-suggestions.ts';
+import {requirementEditsSchema,type RequirementEdits} from './reader-requirements.ts';
 export type IntakeSearch={round:number;state:'idle'|'searching'|'failed';error?:string|null;failureCode?:'TIMEOUT'|'CONTENT_BLOCKED';requestId?:string;cycleId?:string;commandHash?:string};
 export const setupSettingsSchema=z.object({artStyle:z.enum(artStyleIds),artStylePrompt:artStylePromptSchema,productionPrompt:z.string().max(1200),acceptancePrompt:acceptancePromptSchema.optional(),narrativeDetail:narrativeDetailSchema});
 const productionSettingsSchema=setupSettingsSchema.extend({length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')])});
 export type IntakeDraft=z.infer<typeof productionSettingsSchema>;
 export type ReselectionDraft={parentId:string;rootId:string;epoch:number;baseToken:string;requirementsToken?:string};
 export type StoryIntake={phase:'discovering'|'choosing'|'preparing'|'confirming'|'confirmed';generation:number;creationHash:string;batches:SuggestionBatch[];/** 旧版本写入的索引候选；只为读取旧文档保留，查找完成或更换条件时清除。 */indexedCandidates?:unknown[];briefRequired?:boolean;selected?:{batch:number;index:number};search?:IntakeSearch|null;draft?:IntakeDraft;draftEdited?:true;manualArt?:boolean;lastAction?:{id:string;hash:string}};
-export type IntakeView=Omit<StoryIntake,'creationHash'|'lastAction'|'search'|'draftEdited'>&{draftToken?:string;search:Pick<IntakeSearch,'state'|'error'>;progress?:SuggestionProgress};
+export type IntakeView=Omit<StoryIntake,'creationHash'|'lastAction'|'search'|'draftEdited'>&{draftToken?:string;requirementsEdited?:RequirementEdits;search:Pick<IntakeSearch,'state'|'error'>;progress?:SuggestionProgress};
 // 指纹只随已存草稿变化，查找结果和后台阶段进度不影响确认。
-export function intakeDraftToken(draft?:IntakeDraft){
+export function intakeDraftToken(draft?:IntakeDraft,edited?:RequirementEdits){
  const fields=draft?[draft.artStyle,draft.productionPrompt,draft.acceptancePrompt??null,draft.narrativeDetail??'balanced',draft.length??'auto',...(draft.artStylePrompt?.trim()?[draft.artStylePrompt.trim()]:[])]:null;
- return bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(fields))));
+ return bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(edited?[fields,!!edited.productionPrompt,!!edited.acceptancePrompt]:fields))));
 }
 // A discovering record without search state came from a release that kept search in the phase.
 export function intakeSearch(intake:StoryIntake):IntakeSearch{return intake.search||{round:0,state:intake.phase==='discovering'?'searching':'idle'};}
 const common={requestId:z.string().uuid(),generation:z.number().int().min(0)};
-const draftAction={...common,draftToken:z.string().regex(/^[0-9a-f]{64}$/).optional()};
+const draftAction={...common,draftToken:z.string().regex(/^[0-9a-f]{64}$/).optional(),requirementsEdited:requirementEditsSchema.optional()};
 export const discoverySchema=z.discriminatedUnion('mode',[z.object({mode:z.literal('auto'),plot:z.literal(true).optional(),combine:z.literal(true).optional(),vectorFirst:z.literal(true).optional(),themeInput:z.enum(['preset','custom']).optional(),scanOnly:z.literal(true).optional()}),z.object({mode:z.literal('title'),scanOnly:z.literal(true).optional(),title:z.string().trim().min(1,'请输入要提取的故事标题。').max(100).regex(/^[^\r\n]+$/,'故事标题请写在一行内。')})]);
 export const sourceCardSchema=z.object({title:z.string().trim().min(1).max(100),description:z.string().trim().min(1).max(180)});
 export const intakeActionSchema=z.discriminatedUnion('action',[
  z.object({...common,action:z.literal('conditions'),conditions:z.object({discovery:discoverySchema.optional(),source:localSourceSchema.optional(),sourceCard:sourceCardSchema.optional(),bookId:z.string().min(1).max(100),customBook:z.string().max(500).optional(),theme:z.string().trim().min(1).max(100),discoverySources:z.array(localSourceSchema).min(1).max(24).optional(),productionPrompt:z.string().max(1200)}).strict()}).strict(),
  z.object({...common,action:z.literal('search'),title:z.string().trim().max(100).regex(/^[^\r\n]*$/,'故事标题请写在一行内。')}).strict(),
- z.object({...common,action:z.literal('choose'),settings:setupSettingsSchema.optional(),batch:z.number().int().nonnegative(),index:z.number().int().min(0).max(4)}).strict(),
+ z.object({...common,action:z.literal('choose'),settings:setupSettingsSchema.optional(),requirementsEdited:requirementEditsSchema.optional(),batch:z.number().int().nonnegative(),index:z.number().int().min(0).max(4)}).strict(),
  z.object({...common,action:z.literal('more'),automatic:z.boolean().optional(),settings:setupSettingsSchema.optional()}).strict(),
  z.object({...draftAction,action:z.literal('recommend'),settings:setupSettingsSchema}).strict(),
  z.object({...draftAction,action:z.literal('confirm'),settings:productionSettingsSchema}).strict(),

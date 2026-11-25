@@ -270,7 +270,7 @@ export class DagProduction{
   // 因此同一产物在来源变化后再次修订会得到新任务；产物有效性仍只按硬输入判断。
   const preparation=(!story.confirmed||story.dag.repreparing)&&(item.call==='verifySource'||preparingCall(item.call));
   const {displayTitle:_,...selection}=story.selection;void _;
-  const request=drawing(item.call)?drawInput(story,item):item.call==='verifySource'||preparingCall(item.call)?{selection,requirements:item.call==='prepareSuggestions'&&!!story.doc.intake&&!story.doc.setupRequirements?.suggestions}:requestFor(story,item);
+  const request=drawing(item.call)?drawInput(story,item):item.call==='verifySource'||preparingCall(item.call)?{selection,requirements:item.call==='prepareSuggestions'&&preparationPending(story.doc)}:requestFor(story,item);
   const landscapeAttempt=item.call==='drawLandscape'?story.dag.frames[item.instances[0].key]?.landscapeAttempt:undefined;
   const attempt=landscapeAttempt===undefined?{}:{landscapeAttempt};
   const preparationGeneration=story.dag.repreparing&&item.call==='prepareSuggestions'?story.dag.preparationGeneration:undefined;

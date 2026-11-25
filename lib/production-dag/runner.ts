@@ -117,7 +117,7 @@ export function settle(story:DagStory):DagDocument{
   adopt('brief',verified);
  }
  if(!story.confirmed&&story.doc.frameRecommendation){
-  adopt('suggestions',{requirements:story.doc.setupRequirements?.suggestions??null,frames:story.doc.frameRecommendation});
+  adopt('suggestions',{requirements:story.doc.frameRecommendation.requirements??story.doc.setupRequirements?.suggestions??null,frames:story.doc.frameRecommendation});
  }
  // 复用：硬输入与某份旧图完全一致时直接沿用，不要求画幅身份相同。
  for(const node of ['frameImage','landscape'] as const){

@@ -1,6 +1,6 @@
 // Draft discovery stays off the shelf; one current-family CAS promotes only an explicit new choice.
 // Existing rows are the durable version receipts, so replay never reapplies inherited control.
-import {requirementsForReselection} from '../lib/reader-requirements.ts';
+import {editRequirements,requirementKeys,requirementsForReselection} from '../lib/reader-requirements.ts';
 import {ReaderError,selectionSchema} from '../lib/reader-model.ts';
 import type {Document,SessionRow} from '../lib/reader-model.ts';
 import type {ReaderRepository} from '../lib/reader-repository.ts';
@@ -27,11 +27,8 @@ function inheritedRequirements(row:SessionRow,doc:Document,intakeGeneration?:num
 }
 
 function inheritedRequirementsToken(inherited:ReturnType<typeof inheritedRequirements>){
- const {selection,setup:{overrides}}=inherited;
- return commandFingerprint([
-  overrides?.productionPrompt??(selection.productionPrompt||null),
-  overrides?.acceptancePrompt??(selection.acceptancePrompt||null),
- ]);
+ const {selection,setup:{edited}}=inherited;
+ return commandFingerprint(requirementKeys.map(key=>edited?.[key]?selection[key]??'':null));
 }
 
 export function replacementCommitState(draft:NonNullable<Document['reselection']>,parent:SessionRow|undefined,basis:Pick<Awaited<ReturnType<typeof revisionBasis>>,'doc'|'epoch'|'intakeGeneration'>|undefined){
@@ -117,22 +114,18 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
   }
   return repo.current(parentId,ownerId);
  }
- const baseline=selectionSchema.parse(JSON.parse(row.selection)),inherited=current.doc.setupRequirements?.suggestions;
- const settings={...intake.draft,...choice.settings},overrides={...doc.setupRequirements?.overrides};
- // A draft starts with inherited automatic text removed. Preserve edits to that baseline,
- // including blanks; older callers may still submit the parent's unchanged suggestions.
- for(const key of ['productionPrompt','acceptancePrompt'] as const){
-  const value=settings[key];
-  if(value===undefined)continue;
-  if(value===inherited?.[key]){settings[key]='';delete overrides[key];}
-  else if(value!==(baseline[key]||''))overrides[key]=value;
- }
+ const baseline=selectionSchema.parse(JSON.parse(row.selection)),settings={...intake.draft,...choice.settings};
+ const inherited=current.intakeGeneration===undefined?previous:current.doc.intake?.draft??previous;
+ const inheritedEdits=inheritedRequirements(source,current.doc,current.intakeGeneration).setup.edited;
+ // 旧客户端可能提交原版未编辑的建议。明确标为修改的同文案仍属于读者。
+ for(const key of requirementKeys)if(!choice.requirementsEdited?.[key]&&!doc.setupRequirements?.edited?.[key]&&!inheritedEdits?.[key]&&settings[key]===inherited[key])delete settings[key];
+ const edited=editRequirements(baseline,doc.setupRequirements,settings,choice.requirementsEdited);
  const selection=selectionSchema.parse({...baseline,...settings,storyTitle:candidate.title,source:candidate.source,length:'auto'});
  // 直接选段已保存并核对原文；普通搜索候选仍按现有流程在提交后准备。
  const combined=baseline.discovery?.mode==='auto'&&baseline.discovery.combine;
  const direct=!!doc.original&&(combined||isDirectSourceSelection(baseline))&&!!candidate.source&&!!baseline.source&&
   localSourceKey(baseline.source)===localSourceKey(candidate.source);
- doc.setupRequirements={overrides};
+ doc.setupRequirements={edited};
  delete selection.displayTitle;
  if(!intake.manualArt&&!choice.settings&&candidate.artRecommendation)selection.artStyle=candidate.artRecommendation.artStyle;
  delete doc.reselection;if(!direct)delete doc.original;

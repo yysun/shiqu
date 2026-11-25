@@ -10,6 +10,7 @@ import type {ComponentProps} from 'react';
 import {ArrowLeft} from 'lucide-react';
 import type {SessionView} from '@/lib/reader-model';
 import {intakeDraftToken,type IntakeCommand} from '@/lib/reader-intake';
+import {requirementKeys,type RequirementEdits} from '@/lib/reader-requirements';
 import {getArtStyle} from '@/lib/reader-styles';
 import StoryProductionEditor,{StoryEditorTabs} from './StoryProductionEditor';
 import type {StoryEditorTab,ProductionSettings} from './StoryProductionEditor';
@@ -21,15 +22,17 @@ import StoryExtractionContext from './StoryExtractionContext';
 import './story-revision.css';
 type SetupTab=Exclude<StoryEditorTab,'script'>;
 type Props={session:SessionView;book:string;busy:boolean;onAction:(command:IntakeCommand)=>Promise<unknown>;onBackToDiscovery?:()=>void;onReselect:()=>void;progress:Omit<ComponentProps<typeof StoryGenerationStatus>,'session'|'timeline'|'stages'|'children'|'compact'>};
-function savedSettings(session:SessionView):ProductionSettings{
+type SetupSettings=ProductionSettings&{length:'auto';requirementsEdited:RequirementEdits};
+const draftKey=(settings:SetupSettings)=>intakeDraftToken(settings,settings.requirementsEdited);
+function savedSettings(session:SessionView):SetupSettings{
  const settings=session.intake!.draft??session.selection;
  return {
   artStyle:settings.artStyle,artStylePrompt:settings.artStylePrompt,productionPrompt:settings.productionPrompt,
-  acceptancePrompt:settings.acceptancePrompt,narrativeDetail:settings.narrativeDetail??'balanced',length:'auto',
+  acceptancePrompt:settings.acceptancePrompt,narrativeDetail:settings.narrativeDetail??'balanced',length:'auto',requirementsEdited:session.intake!.requirementsEdited??{},
  };
 }
 export default function StoryCreationSetup({session,book,busy,onAction,onBackToDiscovery,onReselect,progress,retainKey}:Props&{retainKey?:string}){
- const intake=session.intake!,saved={...savedSettings(session),length:'auto' as const},savedKey=intakeDraftToken(saved);
+ const intake=session.intake!,saved=savedSettings(session),savedKey=draftKey(saved);
  const [error,setError]=useState('');
  const [finding,setFinding]=useState(false);
  const part=(name:string)=>retainKey&&retainKey+':'+name;
@@ -44,7 +47,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  useEffect(()=>{
   const same=shown.current===session.id;shown.current=session.id;
   if(same&&savedKey===baseline.current&&intake.draftToken===baselineToken.current)return;
-  const localKey=intakeDraftToken(settings);
+  const localKey=draftKey(settings);
   if(same&&localKey!==baseline.current&&localKey!==savedKey){setRemote(true);return;}
   rememberSaved();setSettings(saved);setRemote(false);
   if(!same){setSourceOpen(false);setEditing(null);setError('');}
@@ -52,7 +55,9 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  const search=intake.search,paused=!!session.generationControl&&session.generationControl!=='active';
  const searching=finding||search.state==='searching';
  const locked=busy||session.state==='running'&&!paused,ready=intake.phase==='confirming';
- const editable=ready||paused&&intake.phase==='preparing';
+ const editable=ready||intake.phase==='preparing';
+ const editingRequirements=editing==='requirements'||editing==='acceptance';
+ const editLocked=editingRequirements?busy:locked;
  const canRecommend=ready&&!remote&&session.state!=='running'&&offersProductionAction(session,'recommend')&&(editing==='requirements'||editing==='count');
  const selected=intake.selected?intake.batches[intake.selected.batch]?.stories[intake.selected.index]:null;
  const preparable=!!selected&&intake.phase==='choosing'&&session.state!=='failed';
@@ -60,13 +65,18 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  async function act(command:IntakeCommand){
   setError('');
   if(command.action==='more'||command.action==='search')setFinding(true);
-  try{await onAction(command);return true;}
+  try{
+   if(command.action==='draft'||command.action==='confirm'||command.action==='recommend'||command.action==='choose'){
+    await onAction({...command,requirementsEdited:settings.requirementsEdited});
+   }else await onAction(command);
+   return true;
+  }
   catch(e){setError(e instanceof Error?e.message:'操作暂未保存，请重试。');return false;}
   finally{if(command.action==='more'||command.action==='search')setFinding(false);}
  }
- function closeEditor(){setEditing(null);if(intakeDraftToken(settings)!==baseline.current&&!busy&&!remote)void act({action:'draft',settings,draftToken:baselineToken.current});}
+ function closeEditor(){setEditing(null);if(draftKey(settings)!==baseline.current&&!busy&&!remote)void act({action:'draft',settings,draftToken:baselineToken.current});}
  async function saveSettings(){
-  if(intakeDraftToken(settings)===baseline.current||await act({action:'draft',settings,draftToken:baselineToken.current}))setEditing(null);
+  if(draftKey(settings)===baseline.current||await act({action:'draft',settings,draftToken:baselineToken.current}))setEditing(null);
  }
  function adoptRemote(){rememberSaved();setSettings(saved);setRemote(false);setError('');}
  async function keepEdits(){
@@ -107,8 +117,8 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
    {!editing&&remoteChoice}
    {!editing&&error&&<p className="yu-batch-error" role="alert">{error}</p>}
    {editable&&<div className="production-stage-actions production-stage-actions--settings" role="group" aria-label="制作设置">
-    <StoryFlowAction disabled={locked} onClick={()=>setEditing('requirements')}>制作要求</StoryFlowAction>
-    <StoryFlowAction disabled={locked} onClick={()=>setEditing('acceptance')}>验收要求</StoryFlowAction>
+    <StoryFlowAction disabled={busy} onClick={()=>setEditing('requirements')}>制作要求</StoryFlowAction>
+    <StoryFlowAction disabled={busy} onClick={()=>setEditing('acceptance')}>验收要求</StoryFlowAction>
     <StoryFlowAction disabled={locked} aria-label={`修改画风，当前${artStyleLabel}`} onClick={()=>setEditing('style')}><span><span className="production-setting-style-prefix">画风·</span>{artStyleLabel}</span></StoryFlowAction>
     <StoryFlowAction disabled={locked} aria-label={`修改叙事详略，当前${narrativeLabel}`} onClick={()=>setEditing('count')}><span><span className="production-setting-narrative-prefix">叙事</span>详略·{narrativeLabel}</span></StoryFlowAction>
    </div>}
@@ -118,8 +128,12 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   {sourceOpen&&<Sheet title="故事原文" onClose={()=>setSourceOpen(false)}><StorySource sessionId={session.id} book={book}/></Sheet>}
   {editing&&<Sheet title="修改故事" busy={busy} onClose={closeEditor}>
    {remoteChoice}
-   <StoryEditorTabs tab={editing} disabled={locked} onChange={tab=>{if(tab!=='script')setEditing(tab);}}/>
-   <StoryProductionEditor sessionId={session.id} tab={editing} settings={settings} creation disabled={locked} recommendation={session.frameRecommendation} artRecommendation={selected?.artRecommendation} onChange={patch=>setSettings(s=>({...s,...patch,length:'auto'}))}/>
+   <StoryEditorTabs tab={editing} disabled={busy} onChange={tab=>{if(tab!=='script')setEditing(tab);}}/>
+   <StoryProductionEditor sessionId={session.id} tab={editing} settings={settings} creation disabled={editLocked} requirementsEdited={settings.requirementsEdited} preparationPaused={paused} recommendation={session.frameRecommendation} artRecommendation={selected?.artRecommendation} onChange={patch=>setSettings(s=>{
+    const requirementsEdited={...s.requirementsEdited};
+    for(const key of requirementKeys)if(key in patch)requirementsEdited[key]=true;
+    return {...s,...patch,length:'auto',requirementsEdited};
+   })}/>
    {canRecommend&&<p className="yu-count-help">重新准备会保存设置并核对原文；审核通过前不会绘图。</p>}
    {error&&<p className="yu-batch-error" role="alert">{error}</p>}
    <div className="production-stage-actions">

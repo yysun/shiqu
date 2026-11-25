@@ -318,7 +318,7 @@ pnpm cli preview STORY_ID --output /private/preview.html --data-dir /private/shi
 pnpm cli export STORY_ID --format zip --output /private/story.zip --data-dir /private/shiqu-library
 ```
 
-`selection.json` 例如 `{"bookId":"zhuangzi","theme":"善意与误解","artStyle":"ink-pencil","narrativeDetail":"balanced"}`。确认制作前从 `stories get STORY_ID` 读取同一份草稿的 `intake.generation` 和 `intake.draftToken`，用前者替换 `--generation N`，在 `confirm.json` 中写入 `{"draftToken":"读到的令牌"}`。
+`selection.json` 例如 `{"bookId":"zhuangzi","theme":"善意与误解","artStyle":"ink-pencil","narrativeDetail":"balanced"}`。确认制作前从 `stories get STORY_ID` 读取同一份草稿的 `intake.generation` 和 `intake.draftToken`，用前者替换 `--generation N`，在 `confirm.json` 中写入 `{"draftToken":"读到的令牌"}`。如果准备中的验收要求已经为空，提交设置草稿时用 `requirementsEdited:{"acceptancePrompt":true}` 明确表示留空。
 
 保存、确认和查看只记录或读取状态。只有显式 `run` 执行指定故事并可能付费。`run` 默认最多 900 秒，可用 `--timeout` 调整。中断保留已保存的检查点。读取返回的 `reason` 和 `session` 决定下一步。暂停返回 `paused`，恢复后再运行。已确认的故事请求 `prepared` 时返回 `already_prepared`。不适用的旧故事阶段返回 `BOUNDARY_UNAVAILABLE`。
 
