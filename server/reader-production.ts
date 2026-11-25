@@ -8,6 +8,7 @@
 // 准备和制作都由制作 DAG 安排与执行，故障只阻断依赖它的工作。
 // 任务、故障与命令回执的联动在 production-records.ts 的事务中完成，取代迁移 0025 删除的触发器。
 // 节拍中的过期任务清理和任务图重建先查覆盖索引与内容修订号，只读取上次检查后有变化的故事全文。
+// 书架轮询对行、故障和任务都未变化的故事复用上次的制作推导；租约、计时和服务状态每次仍按当前时间计算。
 import {appendProductionAttempt,productionAttemptCount} from './production-attempts.ts';
 import {decodeDocument} from '../lib/production-dag/document.ts';
 import {productionTimingScope,productionStageDurations} from '../lib/production-timing.ts';
@@ -85,6 +86,14 @@ const attentionMessages:Record<string,string>={
  requirements:'验收要求存在冲突或无法从文字分镜判断，请修改验收要求或放行。',
  unrepairable:'审片发现的问题需要读者处理，请手改或放行。',
 };
+/** 输入逐项全等时返回上次结果；计算抛错时不缓存。结果供只读使用。 */
+function reuseUnchanged<T>(cache:Map<string,{key:unknown[];value:T}>,id:string,key:unknown[],compute:()=>T):T{
+ const previous=cache.get(id);
+ if(previous&&previous.key.length===key.length&&previous.key.every((part,index)=>part===key[index]))return previous.value;
+ const value=compute();
+ cache.set(id,{key,value});
+ return value;
+}
 export function configuredImageWorkers(value?:string){
  if(!value?.trim())return 3;
  if(!/^[1-8]$/.test(value.trim()))throw Error('SHIQU_IMAGE_WORKERS must be an integer from 1 to 8');
@@ -108,6 +117,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private readonly candidateRows=new Map<string,{owner:string;rev:number;row:SessionRow}>();
  private readonly parsedRows=new Map<string,{document:string;selection:string;products?:string;repair?:string|null;parsed:{doc:Document;selection:Selection}|null}>();
  private readonly rebuildKeys=new Map<string,RebuildKey>();
+ // 书架轮询复用：行内容不变时沿用保存视图；行、故障与任务都不变时沿用制作推导。
+ private readonly savedViews=new Map<string,{key:unknown[];value:SessionView}>();
+ private readonly lifecycles=new Map<string,{key:unknown[];value:ReturnType<DagProduction['lifecycleFrom']>}>();
  private referenceGeneration=0;
  private readonly pruneKeys=new Map<string,PruneKey>();
  private supersededJobs=new Set<string>();
@@ -438,14 +450,18 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  async snapshot(ownerId:string,id:string):Promise<SessionView>{
   const [input]=this.snapshotInputs(ownerId,id);
   if(!input)throw new ReaderError(404,'这篇故事不在你的书架里');
-  return this.liveSnapshotView(input,view(input.row),true);
+  return this.liveSnapshotView(input,this.savedView(input.row),true);
  }
  async shelfSnapshots(ownerId:string,includeTimings=false):Promise<SessionView[]>{
-  const snapshots=await Promise.all(this.snapshotInputs(ownerId).flatMap(input=>{
+  const inputs=this.snapshotInputs(ownerId);
+  const snapshots=await Promise.all(inputs.flatMap(input=>{
    let saved:SessionView;
-   try{saved=view(input.row);}catch{return [];}
+   try{saved=this.savedView(input.row);}catch{return [];}
    return [this.liveSnapshotView(input,saved,includeTimings)];
   }));
+  // 整张书架读取后清掉已不在书架上的缓存，缓存规模随书架而定。
+  const shown=new Set(inputs.map(input=>input.row.id));
+  for(const cache of [this.savedViews,this.lifecycles])for(const id of cache.keys())if(!shown.has(id))cache.delete(id);
   const broken=await this.database.prepare(`SELECT s.* FROM production_migration_diagnostics m JOIN story_rows s ON s.id=m.session_id AND s.user_id=m.owner_id
    WHERE s.user_id=? AND NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id) AND NOT ${supersededSql('s')}`).bind(ownerId).all<SessionRow>();
   const marked=new Set(broken.results.map(row=>row.id));
@@ -456,6 +472,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    catch{return {...view({...stopped,selection:JSON.stringify({bookId:'other',theme:'旧书库故事'}),document:'{}'}),stage:'旧书库记录需要处理',retryAllowed:false};}
   })];
  }
+ /** 保存视图只取决于故事行本身。 */
+ private savedView(row:SessionRow){return reuseUnchanged(this.savedViews,row.id,Object.values(row),()=>view(row));}
  private async liveSnapshotView(input:SnapshotInputs,saved:SessionView,includeTimings:boolean){
 
   return this.snapshotView(input,saved,includeTimings);
@@ -463,7 +481,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  deletedLifecycles(ownerId:string){
   const lifecycles=new Map<string,NonNullable<SessionView['lifecycle']>>();
   for(const input of this.snapshotInputs(ownerId,undefined,true)){
-   if(this.parsed(input.row))lifecycles.set(input.row.id,this.snapshotView(input,view(input.row),false).lifecycle!);
+   if(this.parsed(input.row))lifecycles.set(input.row.id,this.snapshotView(input,this.savedView(input.row),false).lifecycle!);
   }
   return lifecycles;
  }
@@ -538,7 +556,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    id:`search:${failedSearch.round}`,message:failedSearch.error,page:null,stage:'source',state:'pending',retryAllowed:false,
    kind:failedSearch.failureCode==='CONTENT_BLOCKED'?'content-blocked':'interrupted',scope:'required',targets:[],
   }:undefined;
-  const {blocking,complete,review,release}=this.dag.lifecycleFrom(row,faults,allJobs);
+  const lifecycleKey=[...Object.values(row),...faults.flatMap(fault=>[...Object.values(fault),'\0']),
+   ...allJobs.flatMap(job=>[job.id,job.kind,job.state,job.updated_at,job.payload])];
+  const {blocking,complete,review,release}=reuseUnchanged(this.lifecycles,id,lifecycleKey,()=>this.dag.lifecycleFrom(row,faults,allJobs));
   const reviewAttention:NonNullable<SessionView['lifecycle']>['reviewAttention']=[...(blocking?.reasons??[])];
   const blockedTargets=new Set(reviewAttention.map(reason=>reason.target));
   for(const target of new Set(dag?.issues?.filter(issue=>issue.requiresReplan&&blockedTargets.has(issue.target)).map(issue=>issue.target))){
@@ -559,7 +579,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
 
   const {doc,selection}=parsed,{intake,reselection}=doc;
   const revisionOptions=revisionAvailability(row,doc);
-  const copy=copyAvailability(doc,selection,portraitJobs.some(job=>job.state==='running'&&job.lease_until>now));
+  // 审片状态已在保存视图中按同一稿件推导，复制可用性直接沿用。
+  const copy=copyAvailability(doc,selection,portraitJobs.some(job=>job.state==='running'&&job.lease_until>now),progress);
   const savedComplete=complete===true;
   const runningLandscape=!!input.printActivity?.running;
   const landscapeReady=landscapeSourceReady(doc)&&!this.prints.referencesBlocked(id,doc.images)&&this.serviceAvailability()==='available'&&!runningLandscape&&!input.printActivity?.unavailable;

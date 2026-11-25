@@ -33,8 +33,9 @@ export function revisionAvailability(row:SessionRow,doc:Document){
  return {control,unconfirmed,open:!doc.reselection&&(!unconfirmed||!!unconfirmed.selected),
   edit:!doc.reselection&&!doc.dag?.repreparing&&!unconfirmed&&(!!doc.plan||control!=='active')};
 }
-export function copyAvailability(saved:Document,selection:Selection,busy:boolean){
- const review=saved.dag?dagProgress(saved,selection)?.review:undefined;
+/** known 是调用方已按同一稿件推导出的审片状态，可省去再次推导。 */
+export function copyAvailability(saved:Document,selection:Selection,busy:boolean,known?:{reviewStatus?:string|null;reviewOverridden?:unknown}){
+ const review=known??(saved.dag?dagProgress(saved,selection)?.review:undefined);
  const reviewed=review?.reviewStatus==='passed'&&!review.reviewOverridden;
  const draft=!!saved.dag&&typeof saved.original?.text==='string'&&!!saved.original.text.trim();
  const current=!busy&&!!saved.plan&&!!saved.original&&(!saved.intake||saved.intake.phase==='confirmed')&&!saved.reselection&&!saved.dag?.repreparing;

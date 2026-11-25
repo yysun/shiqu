@@ -1094,3 +1094,20 @@ test('an authorized landscape print finishes from a restored saved portrait whil
  const after=await f.read(id);assert.equal(after.state,'failed');assert.deepEqual(after.faults,before.faults);
  assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[0,1,2,3]);assert.ok(f.control.calls.every(call=>call.landscape&&call.reference));
 });
+
+test('shelf polling reports a fault that changes no story row',async t=>{
+ // 书架复用未变化故事的推导；只新增故障时仍须报告变化。
+ const f=await productionFixture(t);f.control.hold=false;
+ const id=await f.create(4);
+ await until(async()=>(await f.read(id)).state==='completed');
+ const db=f.app.services.database;
+ const before=(await f.json('library/shelf')).find(row=>row.id===id);
+ assert.deepEqual(await f.json('library/shelf','POST',[[id,before.version]]),{changed:[],removed:[]});
+ const story=await db.prepare('SELECT user_id,document FROM stories WHERE id=?').bind(id).first();
+ const key=JSON.parse(story.document).dag.order[0],now=Date.now();
+ await db.prepare(`INSERT INTO production_faults(id,session_id,owner_id,job_id,kind,node,node_key,input_hash,origin_fault_id,optional,version,image,message,state,command_id,created_at,updated_at)
+  VALUES(?,?,?,NULL,'image-loss','frameImage',?,NULL,NULL,0,'current',NULL,'受控丢图','pending',NULL,?,?)`).bind(crypto.randomUUID(),id,story.user_id,key,now,now).run();
+ const {changed:[after]}=await f.json('library/shelf','POST',[[id,before.version]]);
+ assert.ok(after,'新增故障后书架应返回变化');
+ assert.notEqual(after.version,before.version);
+});
