@@ -1,5 +1,5 @@
 // 隔离配置与书库，通过正式桌面启动器和 HTTP 验证首次启动、共享设置及访问边界；不调用推理。
-// 待执行迁移的制造方式：迁移 0025 删去了旧触发器，改为删除 0023 的扫描索引及其迁移记录。
+// 待执行迁移使用实际格式 3 书库，验证运行时报告本次备份。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -14,7 +14,6 @@ import {browserProviderSettings} from '../server/browser-provider-settings.ts';
 import {effectiveProviderVariables} from '../server/cli-setup.ts';
 import {verifyLibraryBackup} from '../server/library-backup.ts';
 import {desktopRemote} from '../server/desktop-remote.ts';
-import {openDatabase} from '../server/database.ts';
 import {checkProviderVariables} from '../server/provider-runtime.ts';
 import {providerSettingsPath as route} from '../lib/provider-settings.ts';
 import {privateNetworkAddress} from '../server/provider-settings-access.ts';
@@ -105,9 +104,8 @@ test('failed pending-journal recovery reports its backup safely before any servi
 });
 
 test('in-place migration reports its new verified backup rather than an older consolidation report',async t=>{
- const f=await startupFixture(t),library=path.join(f.root,'current-library'),database=openDatabase(library,f.root);
- // 迁移 0025 已删去旧的 SQL 规则触发器；改用 0023 的扫描索引制造一次待执行迁移：删除索引与迁移记录，启动时重新应用。
- database.sqlite.exec("DROP INDEX stories_family; DROP INDEX stories_lock_scan; DROP INDEX stories_landscape_scan; DELETE FROM app_migrations WHERE name='0023_story_scan_indexes.sql'");database.close();
+ const f=await startupFixture(t),library=path.join(f.root,'current-library');
+ historicalLibrary(library,f.root,'0027_revision_fault_targets.sql').close();
  const previous=path.join(f.root,'previous-consolidation-backup');await writeFile(path.join(library,'.desktop-upgrade-result.json'),JSON.stringify({backup:previous}));
  const store=new SystemSettingsStore(path.join(f.root,'native/desktop.sqlite'),library),settings=store.save({port:await freeStartupPort()});store.close();const events=[];
  const runtime=await startDesktop(settings,'',f.root,{onStatus:status=>events.push(status)});f.defer(()=>runtime.stop());

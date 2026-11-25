@@ -47,7 +47,7 @@ const rules=[
  [/^server\/provider-snapshot\.ts$/,['providers','production']],
  [/^server\/dag-executor\.ts$/,['production','providers']],
  [/^server\/dag-(?:production|revisions|image-faults|revision-faults|fault-migration)\.ts$/,['production','storage']],
- [/^server\/(?:dag-migration\.ts|migrations\/production-(?:v[24]|review-history)\.ts)$/,['production','storage','startup'],true],
+ [/^server\/(?:dag-migration\.ts|migrations\/production-(?:v[24]|v4-repair|review-history)\.ts)$/,['production','storage','startup'],true],
  [/^lib\/reader-preparation\.ts$/,['preparation','production']],
  [/^lib\/production-dag\/[\w-]+\.ts$/,['production','review']],
  [/^lib\/(?:reader-prompt-store|reader-repository|reader-recovery|reader-production|reader-reselection|reader-revision[\w-]*|reader-versions|production-[\w-]+|generation-progress)\.ts$/,['production','storage']],

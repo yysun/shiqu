@@ -143,9 +143,11 @@ test('a failed search leaves a prepared story confirmable without repeating any 
 test('a candidate can be chosen while a search runs, and the late result is refused',async t=>{
  const f=await fixture(t),id=await create(f);await phase(f,id,'choosing');await searchIs(f,id,'idle');
  const held=heldSearch(f);await setup(f,id,{action:'more'});await until(()=>held.reading);
- const s=await f.read(id);assert.equal(s.intake.phase,'discovering');assert.equal(s.productionState,'running');assert.equal(s.state,'idle');
- const chosen=await setup(f,id,{action:'choose',batch:0,index:1},s);assert.equal(chosen.intake.phase,'preparing');assert.equal(held.reading.signal.aborted,false);
- held.release();await searchIs(f,id,'idle');const after=await f.read(id);assert.equal(after.intake.batches.length,1);assert.equal(after.intake.phase,'preparing','The late result cannot append or change the selected phase');
+ try{
+  const s=await f.read(id);assert.equal(s.intake.phase,'discovering');assert.equal(s.productionState,'running');assert.equal(s.state,'running');
+  const chosen=await setup(f,id,{action:'choose',batch:0,index:1},s);assert.equal(chosen.intake.phase,'preparing');assert.equal(held.reading.signal.aborted,false);
+ }finally{held.release();}
+ await searchIs(f,id,'idle');const after=await f.read(id);assert.equal(after.intake.batches.length,1);assert.ok(['preparing','confirming'].includes(after.intake.phase));assert.equal(after.intake.selected.index,1);
 });
 
 test('confirming ends the search: nothing queued starts and nothing late is added',async t=>{
@@ -292,9 +294,12 @@ test('a call killed by a stop counts as an interruption, resumes after restart a
  f.generation.suggestions=async()=>({stories:[],note:'暂无更多。'});
  await f.restart();await f.demand(resumed.id);await until(async()=>(await f.read(resumed.id)).intake.search.state==='idle');assert.equal((await f.read(resumed.id)).intake.batches.length,2);
  const g=await fixture(t),capped=await killed(g);
- await g.app.services.database.prepare('UPDATE production_jobs SET attempts=3 WHERE id=?').bind(capped.job.id).run();
+ await g.app.services.database.prepare("INSERT INTO production_attempt_events(owner_id,session_id,job_id,attempt_id,event,recorded_at,detail) VALUES(?,?,?,?,'historical',?,?)")
+  .bind(owner,capped.id,capped.job.id,crypto.randomUUID(),Date.now(),JSON.stringify({attempts:3})).run();
+ let extraCalls=0;
+ g.generation.suggestions=async()=>{extraCalls++;throw Error('unexpected fourth attempt');};
  await g.restart();await g.demand(capped.id);await searchIs(g,capped.id,'failed');
- assert.equal((await jobs(g,capped.id,'discover')).some(job=>job.id===capped.job.id),false);assert.equal((await g.read(capped.id)).state,'idle');
+ assert.equal(extraCalls,0);assert.equal((await jobs(g,capped.id,'discover')).some(job=>job.id===capped.job.id),false);assert.equal((await g.read(capped.id)).state,'idle');
 });
 
 test('an interrupted search on a paused story waits instead of failing',async t=>{

@@ -76,7 +76,7 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 
 ## 导出与发布
 
-全部插图生成后，在「故事设置」或故事末页导出：
+全部插图生成后，在书架「作品与导出」或故事末页导出：
 
 - **PDF**：竖版逐幅阅读、7×5 英寸横版试印，或在 Letter 纸上双面打印，每面上下两幅。横版和 Letter 双面打印需要完整的横版插图。
 - **PNG**：全部插图排成一张总览长图，适合社交分享。
@@ -88,7 +88,7 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 
 ## 更多说明
 
-[使用指南](.docs/user-guide.md) · [使用前了解](.docs/user-guide.md#使用前了解) · [升级到 0.16.0](.docs/user-guide.md#升级到-0160) · [书库说明](data/README.md) · [画风](.docs/user-guide.md#画风) · [手机阅读](.docs/user-guide.md#在手机上阅读) · [常见问题](.docs/user-guide.md#常见问题)
+[使用指南](.docs/user-guide.md) · [使用前了解](.docs/user-guide.md#使用前了解) · [升级到 0.17.0](.docs/user-guide.md#升级到-0170) · [书库说明](data/README.md) · [画风](.docs/user-guide.md#画风) · [手机阅读](.docs/user-guide.md#在手机上阅读) · [常见问题](.docs/user-guide.md#常见问题)
 
 ## 开发者
 

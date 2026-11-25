@@ -54,7 +54,9 @@ test('pending migration creates verified old-schema backup once; failed snapshot
 });
 test('CLI maintenance refuses busy library and works without provider setup, preserving full production checkpoints',async t=>{
  const f=await productionFixture(t);f.control.hold=false;const id=await f.create();await until(async()=>(await f.read(id)).state==='completed');
- await f.json(`sessions/${id}/progress`,'POST',{page:3,saved:true});const before=f.app.services.database;const row=await before.prepare('SELECT * FROM stories WHERE id=?').bind(id).first();await f.stop();
+ const checkpoint=await f.json(`sessions/${id}/progress`,'POST',{page:3,saved:true});
+ const before=f.app.services.database,row=await before.prepare('SELECT * FROM stories WHERE id=?').bind(id).first();
+ await f.stop();
  const cli=await startupFixture(t),backup=path.join(cli.root,'backup'),restore=path.join(cli.root,'restored');
  const release=await ownDesktopData(f.dataDirectory);
  const busy=startFixtureCli(cli,['--data-dir',f.dataDirectory,'--backup',backup]);assert.notEqual(await busy.ended(),0);assert.match(busy.output(),/DATA_BUSY/);await release();
@@ -64,6 +66,6 @@ test('CLI maintenance refuses busy library and works without provider setup, pre
  const recovery=startFixtureCli(cli,['--restore',backup,'--data-dir',restore]);assert.equal(await recovery.ended(),0,recovery.output());
  const app=createApplication({root:f.root,dataDirectory:restore,variables:{SHIQU_AI_PROVIDER:'readonly'}});t.after(()=>app.close());
  assert.deepEqual(await app.services.database.prepare('SELECT * FROM stories WHERE id=?').bind(id).first(),row);
- const mediaKey=JSON.parse(row.document).images[0].replace('/api/reader/media/','reader/');assert.deepEqual(await readFile(path.join(restore,'media',mediaKey)),await readFile(path.join(f.dataDirectory,'media',mediaKey)));
+ const mediaKey=checkpoint.story.pages[0].image.replace('/api/reader/media/','reader/');assert.deepEqual(await readFile(path.join(restore,'media',mediaKey)),await readFile(path.join(f.dataDirectory,'media',mediaKey)));
  assert.equal(app.services.production.busy,false);
 });

@@ -244,11 +244,11 @@ test('edit a caption, save, restart and continue: only the affected review runs 
 
 const zhuangzi={title:'齐物论',text:'昔者庄周梦为胡蝶，栩栩然胡蝶也，自喻适志与！不知周也。俄然觉，则蘧蘧然周也。不知周之梦为胡蝶与，胡蝶之梦为周与？',url:'https://example.test/zhuangzi',kind:'passage',provider:'fixture',retrievedAt:'2026-11-01'};
 /** 一篇已确认、尚未制作的 DAG 故事。 */
-async function confirmedStory(f,length=4,prepared={}){
+async function confirmedStory(f,length=4,prepared={},settings={}){
  const id=crypto.randomUUID(),now=new Date().toISOString();
  const doc={plan:null,images:[],audio:[],usage:[],original:zhuangzi,dag:emptyDag(),...prepared};
  await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,'active',0,?,?)")
-  .bind(id,owner,JSON.stringify({...selection,length}),JSON.stringify(doc),now,now).run();
+  .bind(id,owner,JSON.stringify({...selection,length,...settings}),JSON.stringify(doc),now,now).run();
  return id;
 }
 const count=(list,name)=>list.filter(n=>n===name).length;
@@ -2114,17 +2114,77 @@ test('a landscape file that is no longer readable shows as failed and is redrawn
 
 // ——— 审查意见：快照停滞、画风预设与横图比例 ———
 
-test('an approved story can finish drawing while the current global text provider is unavailable',async t=>{
+test('an approved story can resume and retry drawing while the current global text provider is unavailable',async t=>{
  const f=await snapshotFixture(t,{current:()=>snapshotA,provider:()=>f.generation});
  const {id}=await completedStory(f),doc=await saved(f,id),key=doc.dag.order[1];
  doc.dag.modelSnapshot=snapshotA;
  delete doc.dag.products[`frameImage:${key}`];delete doc.dag.frames[key].image;doc.images[1]='';
- await f.app.services.database.prepare("UPDATE stories SET document=?,production_complete=0 WHERE id=?").bind(JSON.stringify(doc),id).run();
+ await f.app.services.database.prepare("UPDATE stories SET document=?,production_complete=0,generation_control='paused' WHERE id=?").bind(JSON.stringify(doc),id).run();
  f.generation.capture=()=>undefined;
- f.app.services.production.wake();
+ assert.ok(offered(await f.read(id),'resume'));
+ assert.ok(!offered(await f.read(id),'reprepare'));
+ f.control.beforeImage=()=>{throw Error('受控绘图失败');};
+ const command={action:'resume',requestId:crypto.randomUUID()};
+ await f.json(`sessions/${id}/production-control`,'POST',command);
+ await until(async()=>(await f.read(id)).state==='failed');
+ const failed=await f.read(id),retry=failed.lifecycle.actions.find(action=>action.event==='retry');
+ assert.ok(retry);
+ f.control.beforeImage=undefined;
+ await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:retry.faultId});
  await until(async()=>(await f.read(id)).state==='completed',20000);
- assert.deepEqual(f.control.calls.map(call=>call.page),[1]);
+ assert.equal((await f.json(`sessions/${id}/production-control`,'POST',command)).state,'completed');
+ assert.equal((await f.request(`sessions/${id}/production-control`,'POST',{...command,action:'reprepare'})).status,409);
+ assert.deepEqual(f.control.calls.map(call=>call.page),[1,1]);
  assert.deepEqual(f.control.dagCalls,[]);
+});
+
+test('a saved landscape resumes on its image snapshot and does not require the global text provider',async t=>{
+ const f=await snapshotFixture(t,{current:()=>snapshotA,provider:()=>f.generation});
+ const {id}=await completedStory(f),route=`sessions/${id}/landscape`;
+ const initial=await f.json(route);
+ f.control.hold=true;
+ await f.json(route,'POST',{startToken:initial.startToken});
+ await until(()=>f.control.calls.length===1);
+ const {printId}=await f.json(route);
+ await f.json(route,'POST',{control:'pause',printId});
+ f.control.calls[0].resolve();
+ await f.app.services.production.queue.settle();
+ f.generation.capture=()=>undefined;
+ f.control.hold=false;
+ await f.json(route,'POST',{control:'resume',printId});
+ await until(async()=>(await f.json(route)).state==='completed');
+ assert.ok(f.control.calls.every(call=>call.landscape));
+ assert.equal(f.control.calls.length,6);
+});
+
+test('CLI reviewed boundary succeeds when a saved drawing provider is unavailable',async t=>{
+ const {executeHeadless}=await import('../server/headless-cli.ts');
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ f.app.stopGeneration();
+ const doc=await saved(f,id),key=doc.dag.order[0];
+ doc.dag.modelSnapshot={provider:'gemini',models:{image:'missing-drawing-provider'}};
+ delete doc.dag.products[`frameImage:${key}`];delete doc.dag.frames[key].image;doc.images[0]='';
+ await f.app.services.database.prepare('UPDATE stories SET document=?,production_complete=0 WHERE id=?').bind(JSON.stringify(doc),id).run();
+ await f.stop();
+ const reviewed=await executeHeadless(process.cwd(),['run',id,'--until','reviewed','--data-dir',f.dataDirectory],{
+  variables:{SHIQU_AI_PROVIDER:'openai',OPENAI_API_KEY:'',GEMINI_API_KEY:''},
+ });
+ assert.equal(reviewed.reason,'reviewed');
+ assert.equal(reviewed.session.lifecycle.service,'snapshot-unavailable');
+});
+
+test('a prepared draft can refresh its recommendations while the drawing provider is unavailable',async t=>{
+ const f=await snapshotFixture(t,{current:()=>snapshotA,provider:()=>null});
+ const {id}=await completedStory(f);
+ const doc=await saved(f,id);
+ doc.dag.modelSnapshot=snapshotA;
+ await f.app.services.database.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(doc),id).run();
+ const before=await f.read(id);
+ assert.equal(before.lifecycle.service,'snapshot-unavailable');
+ assert.ok(offered(before,'reprepare'));
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'reprepare'});
+ await until(()=>f.control.recommendations.length===1);
+ assert.deepEqual(f.control.calls,[]);
 });
 
 test('a preset change without a new custom prompt drops the old custom art instructions',async t=>{
@@ -2446,6 +2506,69 @@ test('structural preview lists exactly the merged and split frames whose redraw 
  assert.deepEqual(next.order.filter(key=>doc.dag.order.includes(key)),[doc.dag.order[0],doc.dag.order[1],doc.dag.order[4]]);
  assert.equal(next.order.length,6);
  assert.ok(next.order.every(key=>!next.frames[key].redrawNote));
+});
+
+test('merged frames reuse media through the new version and independent copies discard retired images',async t=>{
+ const {copySavedStory}=await import('../server/reader-copy.ts');
+ const {exportLocalStory}=await import('../server/story-export.ts'),{unzipSync}=await import('fflate');
+ const {readFile}=await import('node:fs/promises'),{join}=await import('node:path');
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const id=await confirmedStory(f);
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).state==='completed');
+ const original=await saved(f,id),route=`sessions/${id}/revisions`;
+ const {token}=await f.json(route);
+ f.control.beforeText=(kind,payload)=>kind==='visual'
+  ?{frames:payload.frames.map(frame=>({number:frame.number,prompt:original.plan.pages[frame.number-1].prompt,drawn:['庄周']}))}
+  :undefined;
+ const {id:child}=await f.json(route,'POST',{token,requestId:crypto.randomUUID(),changes:{
+  structureEdits:[{from:1,to:2,scenes:[{caption:original.plan.pages[0].caption}]}],
+ }});
+ const before=f.control.calls.length;
+ await f.json(`sessions/${child}/production-control`,'POST',{action:'continue'});
+ await until(async()=>(await f.read(child)).state==='completed');
+ assert.ok(!f.control.calls.slice(before).some(call=>call.page===0));
+ await f.json(`library/${id}`,'DELETE');
+ const {story:exported}=await f.json(`sessions/${child}/export`);
+ const image=exported.pages[0].image;
+ assert.ok(referenceImageKey(child,image));
+ const response=await f.app.handle(new Request('http://localhost'+image));
+ assert.equal(response.status,200);
+ assert.deepEqual(new Uint8Array(await response.arrayBuffer()),new Uint8Array(png));
+ const output=join(f.root,'merged.zip');
+ await exportLocalStory(process.cwd(),f.app,await f.read(child),{format:'zip',output,allowUnsigned:true});
+ const entries=unzipSync(await readFile(output));
+ assert.equal(Object.keys(entries).filter(name=>name.endsWith('.webp')).length,exported.pages.length);
+ await f.stop();
+ const destination=await productionFixture(t,'codex'),copyId=crypto.randomUUID();
+ await copySavedStory(destination.app,process.cwd(),destination.dataDirectory,f.dataDirectory,child,copyId,undefined,{});
+ const {dag}=await saved(destination,copyId);
+ assert.ok(Object.values(dag.frames).every(frame=>!frame.image));
+ assert.ok(Object.keys(dag.products).every(key=>!key.startsWith('frameImage:')));
+});
+
+test('edited acceptance requirements have no current verdict until reviewed again',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const older='现有要求：保留庄周入梦。',updated='新版要求：增加一处关键冲突。';
+ const id=await confirmedStory(f,4,{}, {acceptancePrompt:older});
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).state==='completed');
+ const route=`sessions/${id}/revisions`,{token}=await f.json(route);
+ const {id:child}=await f.json(route,'POST',{token,requestId:crypto.randomUUID(),changes:{acceptancePrompt:updated}});
+ const history=async key=>f.json(`sessions/${key}/review-history`);
+ const currentEntry=entry=>entry.id==='review:current';
+ const oldEntry=(await history(id)).entries.find(currentEntry);
+ assert.equal(oldEntry.acceptance[0].text,older);
+ const pending=await history(child);
+ assert.equal(pending.status,'pending');
+ assert.ok(!pending.entries.some(currentEntry));
+ assert.deepEqual((await f.json(`sessions/${child}/prompts`)).results,[]);
+ await f.json(`sessions/${child}/production-control`,'POST',{action:'continue'});
+ await until(async()=>(await f.read(child)).state==='completed');
+ assert.equal((await history(child)).entries.find(currentEntry).acceptance[0].text,updated);
+ assert.deepEqual((await history(id)).entries.find(currentEntry),oldEntry);
 });
 
 test('moving the reveal to the opening fails the whole-story acceptance and keeps drawing blocked',async t=>{

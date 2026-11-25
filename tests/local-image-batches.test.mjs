@@ -2,6 +2,7 @@
 // Batch-era assertions follow saved checkpoints rather than synchronous HTTP completion.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {setTimeout as delay} from 'node:timers/promises';
 import {productionFixture,until,turn,makePlan,selection} from './fixtures/production.mjs';
 import {emptyDag} from '../lib/production-dag/document.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
@@ -15,7 +16,13 @@ async function confirmedStory(f,length=4){
  return id;
 }
 const control=(f,id,action)=>f.json(`sessions/${id}/production-control`,'POST',{action});
-async function finish(f,id,page=0){await f.demand(id,crypto.randomUUID(),page);await until(async()=>(await f.read(id)).state==='completed',60000);return f.read(id);}
+// 大稿的读取会投影整篇故事，轮询留出制作节拍写入的时间。
+const waitCompleted=(f,id)=>until(async()=>{await delay(40);return (await f.read(id)).state==='completed';},60000);
+async function finish(f,id,page=0){
+ await f.demand(id,crypto.randomUUID(),page);
+ await waitCompleted(f,id);
+ return f.read(id);
+}
 async function waiting(f,id){await until(async()=>{const s=await f.read(id);return s.state==='failed';});return f.read(id);}
 
 test('auto is the count default; invalid counts never create a production story',async t=>{
@@ -29,7 +36,7 @@ for(const provider of flowProviders(['gemini','codex'])){
   f.control.beforeText=async kind=>kind==='outline'?{...makePlan(1),beats:['只有一幅。']}:undefined;
   // Outlines exist only for batched stories (over 20 frames); 21 is the smallest, the full tier uses a long story.
   const length=fullTier?60:21,id=await f.create(length);await until(async()=>(await f.read(id)).state==='failed');assert.equal(f.control.calls.length,0);
-  f.control.beforeText=null;await f.demand(id,crypto.randomUUID(),0,true);await until(async()=>(await f.read(id)).state==='completed',60000);assert.equal((await f.read(id)).ready,length);
+  f.control.beforeText=null;await f.demand(id,crypto.randomUUID(),0,true);await waitCompleted(f,id);assert.equal((await f.read(id)).ready,length);
  });
  test(`${provider}: anchor runs alone, later scenes publish out of order through the DAG drawing jobs`,async t=>{
   const f=await productionFixture(t,provider),id=await confirmedStory(f,8);f.app.services.production.wake();
@@ -37,9 +44,8 @@ for(const provider of flowProviders(['gemini','codex'])){
   await turn();assert.equal(f.control.calls.length,1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
   const first=f.control.calls.find(c=>c.page===1);for(const page of [3,2]){f.control.calls.find(c=>c.page===page).resolve();await until(async()=>(await f.read(id)).story.pages[page].image);assert.equal((await f.read(id)).story.pages[1].image,'');}
   first.resolve();f.control.hold=false;for(const c of f.control.calls)c.resolve();await until(async()=>(await f.read(id)).state==='completed',20000);
-  const doc=JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
   for(let page=0;page<8;page++)assert.equal(f.control.calls.filter(c=>c.page===page).length,1,`frame ${page} is drawn once`);
-  assert.equal(doc.images.filter(Boolean).length,8);
+  assert.equal((await f.read(id)).ready,8);
  });
  test(`${provider}: invalid recommendations preserve the original and require an authorized retry`,async t=>{
   // 准备流程里的幅数建议校验：无效建议不进入确认，保留原文，不产生任何绘图，读者授权重试后才继续。
@@ -71,9 +77,11 @@ test('frame 80 media, events and saved progress remain owner scoped and survive 
  await f.restart();const restored=await f.read(id);assert.equal(restored.page,79);assert.equal(restored.saved,true);assert.equal(restored.ready,80);
  const short=await f.create(1);await finish(f,short);assert.equal((await f.request(`sessions/${short}/progress`,'POST',{page:79,saved:true})).status,400);
 });
-test('reader lease exit drains started calls and dispatches no additional images',async t=>{
+test('reader lease exit leaves the authorized background story running',async t=>{
  const f=await productionFixture(t),id=await f.create(10),viewer=crypto.randomUUID();await f.demand(id,viewer);await until(()=>f.control.calls.length===1);
- f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);await f.leave(id,viewer);for(const call of f.control.calls)call.resolve();await until(async()=>(await f.read(id)).ready===4);await f.app.services.production.tick();assert.equal(f.control.calls.length,4);
+ f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);await f.leave(id,viewer);
+ f.control.hold=false;for(const call of f.control.calls)call.resolve();
+ await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.calls.length,10);
 });
 test('unverifiable originals stop before recommendation, plan or images',async t=>{
  const f=await productionFixture(t,'gemini'),id=await f.create(8,{bookId:'other',customBook:'https://example.com/story',storyTitle:'未知故事',narrativeDetail:'balanced'});

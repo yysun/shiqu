@@ -131,6 +131,12 @@ export function view(row:SessionRow):SessionView{
  const redraw=doc.revision&&p&&progress?.review.reviewStatus==='passed'?revisionRedraw(doc.revision,selection,p,doc.images):undefined;
  return {...(doc.dag?.continuation?{awaitingContinue:true as const}:{}),...(progress?.redrawPage?{redrawPage:progress.redrawPage}:{}),...(doc.reselection?{reselection:doc.reselection}:{}),...(doc.intake?{intake:intake as IntakeView}:{}),...(doc.revision?{revision:{parentId:doc.revision.parentId,rootId:doc.revision.rootId,number:doc.revision.number,...(redraw?{redraw}:{})}}:{}),id:row.id,selection,generationMode:'background',generationControl:doc.dag?.continuation&&row.generation_control==='active'?'paused':row.generation_control||'active',state,generationProgress,error:row.error,retryAllowed:!!step,retryAt,...(step?.kind==='source'||state==='failed'&&!doc.original&&row.error?.startsWith('原文未能核对')?{retryStage:'source' as const}:{}),stage,frameRecommendation:doc.frameRecommendation||null,ready:doc.dag?doc.dag.order.filter(id=>doc.dag!.frames[id]?.image&&doc.dag!.products[`frameImage:${id}`]?.readable!==false).length:doc.images.filter(Boolean).length,story,page:row.page,saved:!!row.saved,lastReadAt:row.last_read_at||null,createdAt:row.created_at};
 }
-// Saved documents are not schema-checked, so rendering is the proof that a row can be used at all.
-export function readableStory(row:SessionRow){try{view(row);return true;}catch{return false;}}
+/** 已损坏的占位对象不能被调度当成从未制作的新稿。合法历史文档仍带原图投影。 */
+export function readableStory(row:SessionRow){
+ try{
+  const stored=JSON.parse(row.document);
+  if(!stored||!Array.isArray(stored.images)&&!(Array.isArray(stored.audio)&&Array.isArray(stored.usage)))return false;
+  view(row);return true;
+ }catch{return false;}
+}
 export class ReaderError extends Error{status:number;constructor(status:number,message:string){super(message);this.status=status;}}

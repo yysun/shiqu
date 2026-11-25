@@ -13,7 +13,7 @@ import {getArtDirection} from './reader-styles.ts';
 import {promptRecord} from './reader-prompt-records.ts';
 import type {StoryPromptHistory} from './reader-prompt-records.ts';
 import {storyRequirementsSchema} from './reader-requirements.ts';
-import {storyReviewHistory,dagAcceptanceResults} from './reader-review-history.ts';
+import {storyReviewHistory,currentStoryReview} from './reader-review-history.ts';
 import {loadPromptRecords,usageRecord} from './reader-prompt-store.ts';
 import {BookImageReferences} from '../server/book-image-reference.ts';
 import {events} from '../db/schema.ts';
@@ -284,7 +284,8 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
      missingRecords:(doc.usage||[]).flatMap((item,index)=>usageRecord(item,stored)?[]:[{step:item.step,model:item.model,originId:item.originId||id,index}]),
     };
     const suggestions=storyRequirementsSchema.safeParse(doc.frameRecommendation?.requirements??doc.setupRequirements?.suggestions);
-    return json({...history,...(suggestions.success?{suggestedRequirements:suggestions.data}:{}),criteria:acceptanceCriteria(selection.acceptancePrompt),results:doc.dag?dagAcceptanceResults(doc.dag):[],overridden:!!doc.dag&&Object.values(doc.dag.products).some(product=>product.overridden),previews:{production:promptRecord(draftInstructions(!!doc.original?.localSource)+'\n\n## 提纲阶段\n'+outlineDirection+'\n\n## 分批细化阶段\n'+batchDirection,preferences),acceptance:promptRecord(reviewSystemPrompt+'\n\n'+acceptanceDirection+'\n\n## 定向修订\n'+repairSystemPrompt,preferences)}});
+    const {results,overridden}=currentStoryReview(doc,selection);
+    return json({...history,...(suggestions.success?{suggestedRequirements:suggestions.data}:{}),criteria:acceptanceCriteria(selection.acceptancePrompt),results,overridden,previews:{production:promptRecord(draftInstructions(!!doc.original?.localSource)+'\n\n## 提纲阶段\n'+outlineDirection+'\n\n## 分批细化阶段\n'+batchDirection,preferences),acceptance:promptRecord(reviewSystemPrompt+'\n\n'+acceptanceDirection+'\n\n## 定向修订\n'+repairSystemPrompt,preferences)}});
    }
    if(path[2]==='publication'&&path.length===3&&req.method==='POST'){
     const parsed=z.object({publication:publicationSchema,expected:publicationSchema.nullable()}).strict().safeParse(await body(req,32768));
@@ -318,7 +319,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(path[2]==='recover'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const command=recoveryRequestSchema.parse(await body(req));
-    return json(await services.production.recover(uid,id,command,requireProvider),202);
+    return json(await services.production.recover(uid,id,command,!services.commandOnly),202);
    }
    if(path[2]==='image-health'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
@@ -340,9 +341,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     if(services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中启动横版绘图。');
     const token=z.string().regex(/^[a-f0-9]{64}$/);
     const command=z.union([z.object({startToken:token}).strict(),z.object({retryToken:token}).strict(),z.object({modelToken:token}).strict(),z.object({control:z.enum(['pause','resume']),printId:uuid.optional()}).strict()]).parse(await body(req));
-    return json(await production.startLandscape(uid,id,command,async()=>{
-     if(!(await requireProvider())?.models.image)throw new ReaderError(503,'请先配置支持绘图的图片服务。');
-    }),202);
+    return json(await production.startLandscape(uid,id,command),202);
    }
    if(path[2]==='storyboard-summary'&&path.length===3&&req.method==='POST'){
     if(services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中生成分镜梗概。');
@@ -392,13 +391,12 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(path[2]==='production-control'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const b=z.object({requestId:uuid,action:z.enum(['pause','stop','resume','continue','apply-model','reprepare'])}).strict().parse(await body(req));
-    if(['resume','continue','reprepare'].includes(b.action)&&!await requestRecorded(b.requestId))await requireProvider();
-    return json(await services.production.control(uid,id,b.action,b.requestId));
+    return json(await services.production.control(uid,id,b.action,b.requestId,!services.commandOnly));
    }
    if(path[2]==='production'&&path.length===3){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     if(req.method==='POST'){
-     await requireProvider();const b=z.object({viewerId:uuid,page:z.number().int().min(0).max(readerMaxFrames-1),retry:z.boolean().default(false)}).strict().parse(await body(req));
+     const b=z.object({viewerId:uuid,page:z.number().int().min(0).max(readerMaxFrames-1),retry:z.boolean().default(false)}).strict().parse(await body(req));
      if(b.retry)throw new ReaderError(400,'重试必须提交当前故障实例与操作编号，请使用恢复入口。');
      return json(await services.production.request(uid,id,b.viewerId,b.page,b.retry),202);
     }

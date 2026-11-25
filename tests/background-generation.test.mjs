@@ -102,8 +102,10 @@ for(const provider of flowProviders(['codex','gemini']))test(`${provider}: an ex
  const db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));
  // 第 7 幅的绘图在远端完成前进程中断：任务租约已过期，文档里没有这幅图的记录。
  const saved=JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(id).document),key=saved.dag.order[6];
- delete saved.dag.products[`frameImage:${key}`];delete saved.dag.frames[key].image;saved.images[6]='';
- db.prepare("UPDATE stories SET document=? WHERE id=?").run(JSON.stringify(saved),id);
+ const target=`frameImage:${key}`;
+ db.prepare('DELETE FROM production_product_refs WHERE session_id=? AND target=?').run(id,target);
+ db.prepare('DELETE FROM production_products WHERE root_id=? AND target=?').run(id,target);
+ db.prepare("UPDATE stories SET document=json_remove(document,'$.dag.productSignature'),production_complete=0 WHERE id=?").run(id);
  // 远端结果从未到达：任务记录里也没有已付费的结果。
  db.prepare("UPDATE production_jobs SET payload=json_remove(payload,'$.paid'),state='running',result=NULL,lease_token='crashed',lease_until=1 WHERE session_id=? AND kind='dag-draw' AND json_extract(payload,'$.page')=6").run(id);db.close();
  await f.restart();await until(async()=>(await f.read(id)).state==='completed');
@@ -164,6 +166,6 @@ test('single-control upgrade preserves background intent, manual controls, failu
   assert.deepEqual({...after,generation_mode:undefined,generation_control:undefined},{...old,generation_mode:undefined,generation_control:undefined});
  }
  assert.deepEqual(db.prepare('SELECT * FROM production_jobs ORDER BY id').all().map(({failure_id,recovery_id,error_code,...job})=>{assert.equal(failure_id,null);assert.equal(recovery_id,null);assert.equal(error_code,null);return job;}),jobs.map(job=>({...job})));
- const after=db.prepare('SELECT * FROM stories ORDER BY id').all();migrate(db,process.cwd());
+ const after=db.prepare('SELECT * FROM stories ORDER BY id').all();migrate(db,process.cwd(),undefined,'0027_revision_fault_targets.sql');
  assert.deepEqual(db.prepare('SELECT * FROM stories ORDER BY id').all(),after);
 });

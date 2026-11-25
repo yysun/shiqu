@@ -102,9 +102,8 @@ for(const kind of ['transient','corrupt'])test(`a ${kind} copied asset ${kind===
   assert.equal(res.status,503);assert.equal(await f.app.services.database.prepare('SELECT id FROM stories WHERE id=?').bind(child).first(),null);return;
  }
  assert.equal(res.status,201);f.app.services.media.get=get;
- const fault=(await f.read(child)).faults.find(x=>x.stage==='redraw');assert.ok(fault,'the unusable image is a fault the reader recovers');
+ assert.deepEqual((await f.read(child)).lifecycle.faults,[],'the new revision simply has an unfinished frame');
  await f.json(`sessions/${child}/production-control`,'POST',{action:'continue'});
- await f.json(`sessions/${child}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
  await until(async()=>(await f.read(child)).state==='completed',20000);
  assert.deepEqual(f.control.calls.map(c=>c.page),[3],'only the unusable page is drawn again');
  assert.equal((await f.read(id)).ready,6,'the original keeps what it has');
@@ -117,7 +116,8 @@ test('invalid inputs, unchanged drafts and stale parents never create a child or
  assert.equal((await send({length:81})).status,400);
  const plan=structuredClone(base.plan);plan.pages[0].caption='短';assert.equal((await send({plan})).status,400);
  let writes=0;const put=f.app.services.media.put.bind(f.app.services.media);f.app.services.media.put=async(...args)=>{writes++;return put(...args);};
- await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.plan.reflection',?) WHERE id=?").bind('新的余味。',id).run();
+ await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag.ending.confirmed',json_object('title',?,'ending',?)) WHERE id=?")
+  .bind(base.plan.title,'新的余味。',id).run();
  assert.equal((await send({artStyle:'paper-cut'})).status,409);
  assert.equal(writes,0);assert.equal(f.control.calls.length,0);
  const rows=await f.app.services.database.prepare("SELECT id FROM stories WHERE json_extract(document,'$.revision.parentId')=?").bind(id).all();assert.equal(rows.results.length,0);

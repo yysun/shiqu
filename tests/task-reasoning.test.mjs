@@ -35,7 +35,7 @@ function output(payload,schema){
 }
 
 // 各 DAG 调用所属的任务强度：简介归画幅数，人物与提纲归提纲，分镜与画面归编排，修订归修订，核对与审片归审核。
-const dagTasks=['frames','outline','outline','plan','plan','repair','repair','repair','repair','plan','repair','review','review','review'];
+const dagTasks=['frames','outline','outline','plan','plan','repair','repair','repair','repair','plan','repair','review','review'];
 const dagCalls=dag=>[
  ()=>dag.prepareBrief({source}),()=>dag.characters({source,productionPrompt:''}),()=>dag.outline({source,productionPrompt:'',settings}),
  ()=>dag.sceneBatch({source,outline,productionPrompt:'',first:1,previous:[]}),()=>dag.visual({outline,productionPrompt:'',style,characters:people,frames}),

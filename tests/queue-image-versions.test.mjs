@@ -12,6 +12,6 @@ test('draws finishing together are all saved, each recorded once',async t=>{
  f.control.hold=false;for(const call of f.control.calls.slice(1))call.resolve();
  await until(async()=>(await f.read(id)).state==='completed',15000);
  const saved=await document(f,id);
- assert.equal(saved.images.filter(Boolean).length,3);assert.equal(saved.usage.filter(u=>/draw/i.test(u.step)).length,3);
+ assert.equal((await f.read(id)).ready,3);assert.equal(saved.usage.filter(u=>/draw/i.test(u.step)).length,3);
  assert.equal(f.control.calls.length,3);
 });

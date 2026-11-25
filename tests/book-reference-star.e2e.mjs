@@ -1,15 +1,29 @@
 // Exercise real page selection and paid-dispatch boundaries with SQLite/files and controlled images.
 import test from 'node:test';import assert from 'node:assert/strict';import path from 'node:path';import {rm} from 'node:fs/promises';
-import {productionFixture,until,makePlan} from './fixtures/production.mjs';import {savedStory,star,unstar,owner} from './fixtures/book-reference.mjs';import {png,jpeg} from './fixtures/images.mjs';
+import {productionFixture,until} from './fixtures/production.mjs';import {savedStory,star,unstar,owner} from './fixtures/book-reference.mjs';import {png,jpeg} from './fixtures/images.mjs';
+import {drive,replies,story} from './fixtures/production-dag-runner.mjs';
+import {decodeDocument,projectDocument} from '../lib/production-dag/document.ts';
+import {ReaderRepository} from '../lib/reader-repository.ts';
 import {readerImageAsset} from '../lib/reader-image-assets.ts';
 const original={title:'测试原文',text:'人物采取行动，回应彼此，故事在实际结果处结束。',kind:'passage',url:'https://example.org/original',provider:'fixture',retrievedAt:'2026-11-01'};
-async function target(f,{bookId='红楼梦',length=3,images=[],control='paused'}={}){
- const id=crypto.randomUUID(),doc={plan:makePlan(length),original,frameCountConfirmed:true,images,audio:[],usage:[]},now=new Date().toISOString();
- await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,?,0,?,?)").bind(id,owner,JSON.stringify({bookId,theme:'原典故事',artStyle:'cartoon',length,voice:false,productionPrompt:''}),JSON.stringify(doc),control,now,now).run();return id;
+async function target(f,{bookId='红楼梦',length=3,missingFirst=false}={}){
+ const draft=story({bookId,length,theme:'原典故事',artStyle:'cartoon',productionPrompt:''});
+ draft.id=crypto.randomUUID();
+ draft.doc.original=original;
+ drive(draft,replies());
+ for(const [index,key] of draft.dag.order.entries()){
+  if(missingFirst&&index===0)continue;
+  delete draft.dag.frames[key].image;
+  delete draft.dag.products[`frameImage:${key}`];
+ }
+ const database=f.app.services.database;
+ await new ReaderRepository(database).create(draft.id,owner,draft.selection,{...draft.doc,...projectDocument(draft.dag),dag:draft.dag});
+ await database.prepare("UPDATE stories SET generation_control='paused' WHERE id=?").bind(draft.id).run();
+ return draft.id;
 }
 // 目标故事先保持暂停，测试明确恢复后才开始制作。
 const go=async(f,id)=>{await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});};
-const doc=async(f,id)=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
+const doc=async(f,id)=>decodeDocument(await new ReaderRepository(f.app.services.database).get(id,owner));
 
 test('in-flight references stay fixed; new calls use replacement and cancellation restores own anchor without redrawing',async t=>{
  const f=await productionFixture(t,'codex',{SHIQU_IMAGE_WORKERS:'1'}),a=await savedStory(f),b=await savedStory(f,{bytes:jpeg}),id=await target(f);
@@ -25,7 +39,7 @@ test('in-flight references stay fixed; new calls use replacement and cancellatio
 
 test('changing the star before a queued first frame dispatches replaces its queued work',async t=>{
  const f=await productionFixture(t,'codex',{SHIQU_IMAGE_WORKERS:'1'});
- const blocker=await target(f,{bookId:'三国演义',length:1}),a=await savedStory(f),b=await savedStory(f,{bytes:jpeg}),id=await target(f,{length:1,control:'paused'});
+ const blocker=await target(f,{bookId:'三国演义',length:1}),a=await savedStory(f),b=await savedStory(f,{bytes:jpeg}),id=await target(f,{length:1});
  await go(f,blocker);
  await until(()=>f.control.calls.length===1);
  await star(f,a.id);
@@ -74,15 +88,12 @@ test('restart keeps the selected bytes and a resumed story uses the same book re
 });
 
 test('a valid book reference can serve a later frame without loading its unused missing first-image file',async t=>{
- const f=await productionFixture(t),source=await savedStory(f,{bytes:jpeg});await star(f,source.id);const id=await target(f,{length:2});
- await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.images[0]',?) WHERE id=?").bind(`/api/reader/media/${id}/0.png`,id).run();
+ const f=await productionFixture(t),source=await savedStory(f,{bytes:jpeg});await star(f,source.id);const id=await target(f,{length:2,missingFirst:true});
  await go(f,id);await until(()=>f.control.calls.length===1);assert.equal(f.control.calls[0].page,1);assert.equal(f.control.calls[0].reference,Buffer.from(jpeg).toString('base64'));f.control.calls[0].resolve();await until(async()=>!!(await doc(f,id)).images[1]);
 });
 
 test('adding a star wakes drawings that were waiting for a lost first frame',async t=>{
- const f=await productionFixture(t),source=await savedStory(f,{bytes:jpeg}),id=await target(f,{length:2});
- const image=`/api/reader/media/${id}/0.png`;
- await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.images[0]',?) WHERE id=?").bind(image,id).run();
+ const f=await productionFixture(t),source=await savedStory(f,{bytes:jpeg}),id=await target(f,{length:2,missingFirst:true});
  await go(f,id);
  await until(async()=>(await f.read(id)).faults?.some(fault=>fault.page===0));
  assert.equal(f.control.calls.length,0);

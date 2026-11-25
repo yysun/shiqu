@@ -8,6 +8,7 @@ import path from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {productionFixture,until,selection} from './fixtures/production.mjs';
 import {ReaderError} from '../lib/reader-model.ts';
+import {decodeDocument} from '../lib/production-dag/document.ts';
 const owner='docker-local-owner';
 const production=f=>f.app.services.production;
 const database=f=>f.app.services.database;
@@ -19,12 +20,6 @@ const count=(f,name)=>f.control.dagCalls.filter(n=>n===name).length;
 const completed=(f,id)=>until(async()=>(await f.read(id)).state==='completed',15000);
 const sqliteError=()=>Object.assign(Error('database is locked'),{code:'ERR_SQLITE_ERROR'});
 const row=(f,id)=>database(f).prepare('SELECT state,error,document,selection FROM story_rows WHERE id=?').bind(id).first();
-// Fail matching statements on one owner's database handle until the returned function restores it.
-function failWrites(owner,match,times=Infinity,field='database'){
- const real=owner[field];let left=times;
- owner[field]=Object.assign(Object.create(real),{prepare(sql){if(left>0&&sql.includes(match)){left--;throw sqliteError();}return real.prepare(sql);}});
- return ()=>{owner[field]=real;};
-}
 // 事务内的语句失败：任务状态与故障记录在同一事务中写入，按语句片段让其中一条失败并回滚整个事务。
 function failTransaction(owner,match,times=Infinity){
  const real=owner.database;let left=times;
@@ -61,7 +56,7 @@ test('quitting during text work resumes it without a retry',async t=>{
  const id=await f.create(3);await until(()=>count(f,'outline')===1);
  f.app.stopGeneration();f.control.beforeText=null;fail(Error('killed'));
  await until(async()=>(await textJob(f,id,'outline'))?.interrupted===1);
- assert.equal((await row(f,id)).state,'idle','The session row must not keep the provider failure');
+ assert.match((await row(f,id)).error,/中断/);
  await f.restart();await completed(f,id);
  assert.equal(count(f,'outline'),2);assert.equal(f.control.calls.length,3);
 });
@@ -72,7 +67,7 @@ for(const action of ['pause','stop'])test(`quitting after ${action} keeps the co
  await quit(f,f.control.calls[0]);await production(f).tick();
  const saved=await f.read(id);
  assert.equal(saved.generationControl,action==='pause'?'paused':'stopped');assert.equal(f.control.calls.length,1);
- assert.equal((await row(f,id)).state,'idle');
+ assert.match((await row(f,id)).error,/中断/);
  await control(f,id,'resume');await completed(f,id);assert.equal(f.control.calls.length,4);
 });
 
@@ -88,7 +83,7 @@ test('quitting during story preparation resumes it without a retry',async t=>{
  await until(()=>started()===1);
  f.app.stopGeneration();kill(Error('killed'));
  await until(async()=>(await jobs(f,id)).some(job=>job.kind==='dag'&&JSON.parse(job.payload).work.call==='prepareSuggestions'&&job.interrupted===1));
- assert.equal((await row(f,id)).state,'idle');
+ assert.match((await row(f,id)).error,/中断/);
  await f.restart();await until(async()=>(await f.read(id)).intake.phase==='confirming',8000);
  assert.equal(f.control.recommendations.length,1);
 });
@@ -109,7 +104,7 @@ for(const action of ['pause','stop'])test(`quitting after ${action} during text 
  await control(f,id,action);f.app.stopGeneration();f.control.beforeText=null;fail(Error('killed'));
  await until(async()=>(await textJob(f,id,'outline'))?.interrupted===1);
  await f.restart();await production(f).tick();
- assert.equal((await row(f,id)).state,'idle');assert.equal((await f.read(id)).generationControl,action==='pause'?'paused':'stopped');assert.equal(count(f,'outline'),1);
+ assert.match((await row(f,id)).error,/中断/);assert.equal((await f.read(id)).generationControl,action==='pause'?'paused':'stopped');assert.equal(count(f,'outline'),1);
  await control(f,id,'resume');await completed(f,id);assert.equal(count(f,'outline'),2);
 });
 
@@ -179,8 +174,8 @@ test('one failed tick during shutdown does not stop the drain: finished work is 
  const closing=f.app.close();await until(()=>thrown>0);
  f.control.calls[0].resolve();await closing;
  const saved=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));
- const {document,state}=saved.prepare('SELECT document,state FROM stories WHERE id=?').get(id);saved.close();
- assert.ok(JSON.parse(document).images[0],'The paid image is published before close resolves');assert.equal(state,'idle');
+ const published=saved.prepare('SELECT * FROM story_rows WHERE id=?').get(id);saved.close();
+ assert.ok(decodeDocument(published).images[0],'The paid image is published before close resolves');assert.equal(published.state,'idle');
 });
 
 for(const [name,corrupt] of [
@@ -250,7 +245,7 @@ test('a failed document save of text work is not a provider failure and recovers
  const f=await productionFixture(t),p=production(f);f.control.hold=false;
  // 只让任务执行中的保存失败一次（准备阶段的采用与结算也写故事文档，不属于任务）。
  let armed=false;
- f.control.beforeText=async name=>{if(name==='brief'&&!armed){armed=true;failWrites(p.dag.deps,'UPDATE stories SET document=?,production_complete=?',1);}};
+ f.control.beforeText=async name=>{if(name==='brief'&&!armed){armed=true;failTransaction(p.dag.deps,'UPDATE stories SET document=?,production_complete=?',1);}};
  const id=await f.create(3);await until(()=>logs.mock.calls.some(call=>call.arguments[0]==='production_job_unsaved'));
  const job=(await jobs(f,id)).find(job=>job.state==='running'&&job.pool==='text');
  assert.ok(job);assert.equal(job.error,null);

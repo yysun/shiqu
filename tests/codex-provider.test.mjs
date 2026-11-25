@@ -177,9 +177,10 @@ test('a real desktop quit during Codex work is recorded as an interruption, not 
  const end=Date.now()+15000;while(!(await fake.log().catch(()=>[])).some(row=>row.method==='turn/start')){assert.ok(Date.now()<end,'Codex work never started: '+JSON.stringify(await(await fetch(origin+'/api/reader/sessions/'+id)).json()).slice(0,400));await new Promise(resolve=>setTimeout(resolve,20));}
  await running.stop();
  const saved=new DatabaseSync(path.join(dataDirectory,'shiqu.sqlite'));t.after(()=>saved.close());
- const job=saved.prepare('SELECT state,interrupted,error FROM production_jobs WHERE session_id=?').get(id),session=saved.prepare('SELECT state,error FROM story_rows WHERE id=?').get(id);
+ const job=saved.prepare('SELECT id,state,interrupted,error FROM production_jobs WHERE session_id=?').get(id);
  assert.equal(job.state,'failed');assert.equal(job.interrupted,1,'A restart can resume this job');assert.doesNotMatch(job.error,/订阅|登录/);
- assert.equal(session.state,'idle');assert.equal(session.error,null);
+ const fault=saved.prepare('SELECT kind,state,job_id FROM production_faults WHERE session_id=?').get(id);
+ assert.deepEqual({...fault},{kind:'interrupted',state:'pending',job_id:job.id});
 });
 
 test('runner accepts native image bytes and attaches the first scene without reading returned paths',async t=>{

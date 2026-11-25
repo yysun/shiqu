@@ -47,7 +47,7 @@ test('derived eligibility includes deleted children and ignores corrupt unrelate
  assert.equal((await repo.list(owner)).some(row=>row.id===id),false);
 });
 
-for(const action of ['resume','background'])test(`${action} control on an old version is refused and changes nothing`,async t=>{
+for(const action of ['resume','continue'])test(`${action} control on an old version is refused and changes nothing`,async t=>{
  const {f,repo,id,owner}=await seeded(t);
  f.app.services.production=await coordinatorFor(f,repo,true);
  await supersede(repo,id,owner);

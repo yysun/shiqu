@@ -18,15 +18,12 @@ export function textOnlyDag(dag:DagDocument):DagDocument{
  delete copy.continuation;
  delete copy.repairs;
  for(const [id,product] of Object.entries(copy.products)){
-  if(product.overridden&&!copy.verdicts?.[id]&&!(id==='frameCheck:'&&copy.frameCheck))delete copy.products[id];
+  if(id.startsWith('frameImage:')||product.overridden&&!copy.verdicts?.[id]&&!(id==='frameCheck:'&&copy.frameCheck))delete copy.products[id];
   else if(product.overridden)delete product.overridden;
  }
- for(const id of copy.order){
-  const frame=copy.frames[id];
-  if(!frame)continue;
+ for(const frame of Object.values(copy.frames)){
   delete frame.image;
   delete frame.redrawRequested;
-  delete copy.products[`frameImage:${id}`];
  }
  return copy;
 }

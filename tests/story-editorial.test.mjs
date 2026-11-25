@@ -2,11 +2,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,until,turn} from './fixtures/production.mjs';
-import {confirmedStory} from './fixtures/production-dag-story.mjs';
+import {confirmedStory,saved as document} from './fixtures/production-dag-story.mjs';
 import {storyEditorialContext} from '../lib/reader-prompts.ts';
 
 const candidates=['梦与醒各有真实，不必急着抹去其中一种。','自在的一刻，可以照见平日未察的拘束。','熟悉的身份，也未必穷尽一个人的感受。'];
-const document=async(f,id)=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
 for(const theme of ['放下执念','原典故事'])test(`${theme}: the editorial context reaches scene work, then the ending is drafted and chosen in the review before any drawing`,async t=>{
  const f=await productionFixture(t,'codex'),context=theme==='原典故事'?{mode:'source'}:{mode:'theme',theme};
  f.control.hold=false;

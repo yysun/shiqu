@@ -1,5 +1,5 @@
 // 协调器的制作 DAG 路径：由执行层决定选题后的准备与制作工作。
-// 调度：settle() 的免调用步骤先保存；work() 的每项工作成为一个任务，身份由调用、阶段与各实例派发时的硬输入决定，
+// 调度：settle() 的免调用步骤先保存；work() 的每项工作成为一个任务，身份绑定实际请求与各实例派发时的硬输入，
 // 不再需要的排队任务删除。执行：调用前后各核对一次输入，结果用 apply() 写回，并以文档内容做比较并交换保存，
 // 冲突时按最新文档重算。已付费结果保留在故事家族内。完成判定用 finished()。「已保存，等待继续」期间不派发任何工作。
 import {recordFamilyImage,type FamilyImage} from './media.ts';
@@ -65,6 +65,20 @@ function dagFaultTargets(rows:FaultTarget[]):Fault[]{
 const preparingCall=(call:string)=>call==='prepareArt'||call==='prepareSuggestions';
 const drawing=(call:string)=>call==='draw';
 const textWorkHash=(item:Work)=>fingerprint([item.call,item.instances.map(target=>[target.id,target.hard]),item.issues??null]);
+
+/** 请求身份覆盖来源与核对输入，产物有效性仍只由硬输入决定。 */
+export function dagJobSpec(ownerId:string,story:DagStory,item:Work,priority:number,opened=false){
+ const preparation=(!story.confirmed||story.dag.repreparing)&&(item.call==='verifySource'||preparingCall(item.call));
+ const {displayTitle:_,...selection}=story.selection;void _;
+ const request=drawing(item.call)?drawInput(story,item):item.call==='verifySource'||preparingCall(item.call)?{selection,requirements:item.call==='prepareSuggestions'&&preparationPending(story.doc)}:requestFor(story,item);
+ const preparationGeneration=story.dag.repreparing&&item.call==='prepareSuggestions'?story.dag.preparationGeneration:undefined;
+ const identity=['dag-job',story.id,story.doc.intake?.generation??null,item.call,item.instances.map(i=>[i.id,i.hard??null]),request,
+  ...(preparationGeneration===undefined?[]:[{preparationGeneration}])];
+ const page=drawing(item.call)?story.dag.order.indexOf(item.instances[0].key):undefined;
+ const spec:JobSpec={id:fingerprint(identity),sessionId:story.id,ownerId,kind:drawing(item.call)?dagDrawKind:dagTextKind,pool:drawing(item.call)?'image':'text',version:'dag',
+  payload:{work:item,...(preparationGeneration===undefined?{}:{preparationGeneration}),...(page!==undefined?{page}:{}),...(story.doc.intake?{setupGeneration:story.doc.intake.generation}:{}),timingStage:preparation?'count':drawing(item.call)?'image':item.call,...(preparation?{timingScope:productionTimingScope(story.selection,false)}:{})},priority:page===undefined?priority:viewedPriority(page,opened)};
+ return {spec,identity};
+}
 
 export const reviewCall=(call:string|undefined)=>call==='review'||call==='frameCheck';
 const visible="NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)";
@@ -190,21 +204,6 @@ export class DagProduction{
   return transact(this.deps.database,db=>writeStoryProducts(db,row.id,row.user_id,doc,stored=>db.run(sql,stored,...params).changes,job?{now:this.deps.clock(),attempt:job}:undefined)>0);
  }
 
- private spec(row:SessionRow,story:DagStory,item:Work,priority:number,opened=false):JobSpec{
-  // 任务身份覆盖本次请求实际读取的全部输入（含来源与核对输入，如修订读取的当前配文与问题），
-  // 因此同一产物在来源变化后再次修订会得到新任务；产物有效性仍只按硬输入判断。
-  const preparation=(!story.confirmed||story.dag.repreparing)&&(item.call==='verifySource'||preparingCall(item.call));
-  const {displayTitle:_,...selection}=story.selection;void _;
-  const request=drawing(item.call)?drawInput(story,item):item.call==='verifySource'||preparingCall(item.call)?{selection,requirements:item.call==='prepareSuggestions'&&preparationPending(story.doc)}:requestFor(story,item);
-  const preparationGeneration=story.dag.repreparing&&item.call==='prepareSuggestions'?story.dag.preparationGeneration:undefined;
-  const id=fingerprint(['dag-job',row.id,story.doc.intake?.generation??null,item.call,item.instances.map(i=>[i.id,i.hard??null]),request,
-   ...(preparationGeneration===undefined?[]:[{preparationGeneration}])]);
-  const page=drawing(item.call)?story.dag.order.indexOf(item.instances[0].key):undefined;
-  return {id,sessionId:row.id,ownerId:row.user_id,kind:drawing(item.call)?dagDrawKind:dagTextKind,pool:drawing(item.call)?'image':'text',version:'dag',
-   // 准备流程的世代与旧任务相同：选题或确认改变世代后，上一世代的任务不再算作当前任务。
-   payload:{work:item,...(preparationGeneration===undefined?{}:{preparationGeneration}),...(page!==undefined?{page}:{}),...(story.doc.intake?{setupGeneration:story.doc.intake.generation}:{}),timingStage:preparation?'count':drawing(item.call)?'image':item.call,...(preparation?{timingScope:productionTimingScope(story.selection,false)}:{})},priority:page===undefined?priority:viewedPriority(page,opened)};
- }
-
  /** 为一篇故事安排工作；返回 true 表示已由 DAG 路径处理。 */
  async schedule(row:SessionRow,opened=false):Promise<boolean>{
   const story=await this.story(row);if(!story)return false;
@@ -272,7 +271,7 @@ export class DagProduction{
   await this.drop(supersededQueue.map(j=>j.id).filter(id=>!retained.has(id)&&!specs.some(s=>s.id===id)));
   return true;
  }
- private specs(row:SessionRow,story:DagStory,items=work(story),opened=false){return items.map((item,i)=>this.spec(row,story,item,-10+i,opened));}
+ private specs(row:SessionRow,story:DagStory,items=work(story),opened=false){return items.map((item,i)=>dagJobSpec(row.user_id,story,item,-10+i,opened).spec);}
  private async drop(ids:string[]){const now=this.deps.clock();transact(this.deps.database,db=>{for(const id of ids)deleteJobs(db,"id=? AND state='queued'",[id],now);});}
 
  /** 已付费成图绑定硬输入。星标等核对输入变化时，仍须保存原已付费成果。 */
@@ -504,7 +503,7 @@ export class DagProduction{
   const page=0;
   const key=referenceImageKey(row.id,input.reference);if(!key)return false;
   let lost:boolean;
-  try{lost=await this.deps.fileLost(key,true);}catch{throw new JobYield('image-availability');}
+  try{lost=await this.deps.fileLost(key);}catch{throw new JobYield('image-availability');}
   if(!lost)return false;
   try{await this.checkImage(row,page,input.reference);}
   catch(error){if(!(error instanceof ReaderError&&error.status===409))throw error;}
@@ -605,7 +604,7 @@ export class DagProduction{
   const story={id:row.id,doc,selection,dag:base,confirmed,faults:[]};
   const dag=preparation?settle(story):base;
   const first=preparationPending(doc)?work({...story,dag})[0]:undefined;
-  const replacement=first?this.spec(row,{...story,dag},first,-10):undefined;
+  const replacement=first?dagJobSpec(row.user_id,{...story,dag},first,-10).spec:undefined;
   const saved=transact(this.deps.database,db=>{
    const now=this.deps.clock();
    const changes=writeStoryProducts(db,row.id,row.user_id,{...doc,dag},stored=>db.run(

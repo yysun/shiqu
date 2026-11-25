@@ -93,6 +93,7 @@ type ActivityInput=Pick<SessionView,'state'|'intake'|'generationControl'|'awaiti
  reviewAttention:ProductionReviewAttention[];review:ProductionLifecycle['review'];service:ProductionService;now:number;order:readonly string[];
  pendingImageChecks:ProductionImageCheck[];optionalWork:boolean;modelApplicable:boolean;canReprepare:boolean;repreparing:boolean;stopping:boolean;
  freeImageRecoveries:ReadonlySet<string>;
+ reprepareService?:ProductionService;
  reviewBlockId?:string;reviewOverrideId?:string;
  setup?:{state:SetupState;generation:number};
  storyActions?:{event:StoryCommand;ready:boolean}[];
@@ -143,7 +144,7 @@ function productionActionOffers(input:ActivityInput,execution:ReturnType<typeof 
  }
  if(configured&&allowed('continue'))actions.push({event:'continue'});
  if(input.modelApplicable&&allowed('apply-model'))actions.push({event:'apply-model'});
- if(configured&&allowed('reprepare',input.canReprepare))actions.push({event:'reprepare'});
+ if((input.reprepareService??input.service)!=='unconfigured'&&allowed('reprepare',input.canReprepare))actions.push({event:'reprepare'});
  if(input.reviewBlockId){
   if(configured&&allowed('continue-repair',input.reviewAttention.some(reason=>reason.reason==='limit')))actions.push({event:'continue-repair',faultId:input.reviewBlockId});
  }

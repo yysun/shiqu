@@ -181,10 +181,14 @@ test('old discovery flights remain visible and settle without rereading broken l
 });
 
 
+function paidReaderRequests(){
+ const selection={bookId:'zhuangzi',theme:'庄周梦蝶'};
+ return [['suggestions',selection],['art-recommendation',selection],['sessions',{requestId:crypto.randomUUID(),selection}]];
+}
 test('paid API calls reject a null captured provider without consulting the live facade',async t=>{
  const options=await fixture(t),app=createApplication({...options,production:{autoStart:false}});t.after(()=>app.close());let captured=0,status=0,calls=0;
  app.services.generation={capture(){captured++;return null;},status:async()=>{status++;return {configured:true,provider:'gemini',models:{text:'must-not-run',image:''}};},suggestions:async()=>{calls++;throw Error('must not call');},recommendArt:async()=>{calls++;throw Error('must not call');}};
- for(const route of ['suggestions','art-recommendation','sessions'])assert.equal((await request(app,'/api/reader/'+route,'POST',{})).status,503);
+ for(const [route,body] of paidReaderRequests())assert.equal((await request(app,'/api/reader/'+route,'POST',body)).status,503);
  assert.equal(captured,3);assert.equal(status,0);assert.equal(calls,0);
  assert.deepEqual(await(await request(app,'/api/reader/sessions')).json(),[]);
 });
@@ -193,7 +197,7 @@ test('invalid live API-key overrides never dispatch direct suggestions or art re
  const options=await fixture(t);let calls=0;const variables={SHIQU_AI_PROVIDER:'gemini',GEMINI_API_KEY:'bad\nkey'};
  const app=createApplication({...options,variables,providerVariables:()=>variables,production:{autoStart:false},transport:async()=>{calls++;throw Error('must not send invalid credential');}});t.after(()=>app.close());
  const status=await(await request(app,'/api/reader/status')).json();assert.equal(status.configured,false);
- for(const route of ['suggestions','art-recommendation','sessions'])assert.equal((await request(app,'/api/reader/'+route,'POST',{})).status,503);
+ for(const [route,body] of paidReaderRequests())assert.equal((await request(app,'/api/reader/'+route,'POST',body)).status,503);
  assert.equal(calls,0);
 });
 

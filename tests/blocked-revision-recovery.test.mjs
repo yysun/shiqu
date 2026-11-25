@@ -30,7 +30,7 @@ test('upgrade backs up and repairs stranded blocked revisions without replacing 
  for(const state of ['pending','recovering'])db.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,version,message,state,created_at,updated_at) VALUES(?,?,'owner','job','legacy','saved',?,1,1)").run(state+'-fault',state,state);
  const before=db.prepare('SELECT * FROM stories ORDER BY id').all();db.close();
  const result=ensureLibraryReady(directory,root);
- assert.deepEqual(result.migrations,['0020_blocked_revision_faults.sql','0021_landscape_job_isolation.sql','0022_story_content_revisions.sql','0023_story_scan_indexes.sql','0024_prompt_records.sql','0025_production_dag.sql','0026_production_lifecycle.sql','0027_revision_fault_targets.sql','0028_production_spec.sql','0029_finalize_production_spec.sql']);verifyLibraryBackup(result.backup);
+ assert.deepEqual(result.migrations,['0020_blocked_revision_faults.sql','0021_landscape_job_isolation.sql','0022_story_content_revisions.sql','0023_story_scan_indexes.sql','0024_prompt_records.sql','0025_production_dag.sql','0026_production_lifecycle.sql','0027_revision_fault_targets.sql','0028_production_spec.sql','0029_finalize_production_spec.sql','0030_rebind_production_receipts.sql']);verifyLibraryBackup(result.backup);
  const backup=new DatabaseSync(path.join(result.backup,'shiqu.sqlite'),{readOnly:true});
  assert.equal(backup.prepare("SELECT count(*) n FROM reader_faults WHERE session_id='stranded'").get().n,0);backup.close();
  db=new DatabaseSync(path.join(directory,'shiqu.sqlite'));

@@ -57,8 +57,8 @@ test('latest means submitted version, independent of status, reads, deletion and
  const f=await productionFixture(t);f.control.hold=false;const id=await f.create(3);await until(async()=>(await f.read(id)).state==='completed');
  const sameTitle=await f.create(3);await until(async()=>(await f.read(sameTitle)).state==='completed');
  const base=await f.json(`sessions/${id}/revisions`),child=await submit(f,id,base,{productionPrompt:'重新讲述。'});
- for(const state of ['idle','failed']){
-  await f.app.services.database.prepare('UPDATE stories SET state=? WHERE id=?').bind(state,child.id).run();
+ for(const control of ['paused','stopped']){
+  await f.app.services.database.prepare('UPDATE stories SET generation_control=? WHERE id=?').bind(control,child.id).run();
   await f.app.services.database.prepare('UPDATE stories SET last_read_at=? WHERE id=?').bind('2099-01-01',id).run();
   assert.deepEqual(ids(await f.json('sessions')),ids([child,{id:sameTitle}]));
 
@@ -104,7 +104,9 @@ test('paused preparation saves settings beside a live call, then allows a differ
  const settings={artStyle:'watercolor',productionPrompt:'保留手动修改。',narrativeDetail:'balanced',length:5};
  await setup({action:'draft',settings});assert.equal((await f.read(id)).state,'running');
  release();await until(async()=>(await f.read(id)).intake.phase==='confirming');
- const saved=await f.read(id);assert.deepEqual(saved.intake.draft,settings);assert.equal(saved.generationControl,'paused');
+ const saved=await f.read(id);
+ assert.deepEqual(saved.intake.draft,{...settings,acceptancePrompt:saved.frameRecommendation.requirements.acceptancePrompt});
+ assert.equal(saved.generationControl,'paused');
  const other=await setup({action:'choose',batch:0,index:1,settings});assert.equal(other.selection.storyTitle,'大葫芦');assert.equal(other.generationControl,'paused');
  assert.equal(f.control.plans.length,0);assert.equal(f.control.calls.length,0);
 });

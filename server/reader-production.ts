@@ -205,12 +205,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   return {state:'idle',available:false,total:0,ready:0,images:[],failed:[]};
  }
- async startLandscape(ownerId:string,id:string,command:LandscapeCommand,requireProvider?:()=>Promise<unknown>){
+ async startLandscape(ownerId:string,id:string,command:LandscapeCommand,beforeDrawing?:()=>Promise<unknown>){
   if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后再试。');
   const row=await this.landscapeSource(id,ownerId);
   const doc=this.parsed(row)?.doc,print=doc&&currentLandscapePrint(doc);
   if('modelToken'in command){
-   await requireProvider?.();
    const status=await this.landscapeStatus(ownerId,id),replacement=this.snapshotNow();
    if(!print||!replacement||status.modelToken!==command.modelToken||this.printModelStatus(print,replacement).modelToken!==command.modelToken)
     throw new ReaderError(409,'横图或模型设置已更新，请刷新后再试。');
@@ -218,9 +217,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }else{
    const canStart='startToken'in command&&!!(await this.landscapeStatusFor(row)).startToken;
    const requireDrawing=async()=>{
-    await requireProvider?.();
-    if(!('startToken'in command)&&print&&this.serviceAvailability(print.modelSnapshot)!=='available')
-     throw new ReaderError(503,'这套横图的模型不可用，请先更新横图模型。');
+    await this.requireWorkService('image','startToken'in command?undefined:print?.modelSnapshot);
+    await beforeDrawing?.();
    };
    await this.prints.command(row,command,canStart,requireDrawing,this.snapshotNow());
   }
@@ -309,25 +307,28 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(await this.repository.superseded(row.id,row.user_id))return false;
   return row.generation_control==='active'&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
- async control(ownerId:string,id:string,action:ProductionAction,requestId?:string){
+ async control(ownerId:string,id:string,action:ProductionAction,requestId?:string,checkService=false){
+  await this.repository.get(id,ownerId);
+  // 控制只登记本次工作。恢复和继续看当前阶段，重新准备只需要文字模型；实际发送仍由队列核对。
+  if(checkService&&['resume','continue','reprepare'].includes(action)&&!(requestId&&await commandReceipt(this.database,ownerId,requestId))){
+   const service=action==='reprepare'?this.serviceAvailability(undefined,'text'):(await this.snapshot(ownerId,id)).lifecycle?.service;
+   if(service==='unconfigured')throw new ReaderError(503,'请先配置此步骤的生成服务：使用本机或可信局域网地址打开「设置 → 生成服务与模型」。');
+  }
   if(action==='reprepare'){
    if(!requestId)throw new ReaderError(400,'重新准备需要提交操作编号。');
-   await this.repository.get(id,ownerId);
    this.dag.reprepare(ownerId,id,requestId,this.stopping);
    return this.snapshot(ownerId,id);
   }
   // 「继续制作」的已接受编号先于其他核对重放。
   if(action==='apply-model'){
    if(!requestId)throw new ReaderError(400,'应用模型设置需要提交操作编号。');
-   await this.repository.get(id,ownerId);await this.dag.applyCurrentModel(ownerId,id,requestId,this.stopping);return this.snapshot(ownerId,id);
+   await this.dag.applyCurrentModel(ownerId,id,requestId,this.stopping);return this.snapshot(ownerId,id);
   }
   if(action==='continue'){
    if(!requestId)throw new ReaderError(400,'继续制作需要提交操作编号。');
-   await this.repository.get(id,ownerId);
    this.dag.continue(ownerId,id,requestId,this.stopping);
    return this.snapshot(ownerId,id);
   }
-  await this.repository.get(id,ownerId);
   if(requestId)await authorizeControl(this.database,ownerId,id,requestId,action,this.clock(),this.stopping);
   else{
    if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
@@ -392,7 +393,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   * 恢复：有任务的故障以本授权重新执行该任务（任务的工作已过时则不付费，由调度重新安排）；
   * 没有任务的故障（图片丢失、转换的旧故障）直接解除，引擎随后重做对应节点。
   */
- async recover(ownerId:string,id:string,command:RecoveryRequest,requirePaidService?:()=>Promise<unknown>):Promise<SessionView>{
+ async recover(ownerId:string,id:string,command:RecoveryRequest,checkService=false):Promise<SessionView>{
   const row=await this.repository.get(id,ownerId);
   const replay=await commandReceipt(this.database,ownerId,command.requestId);
   if(replay){
@@ -408,7 +409,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   });
   if(!retry.allowed)throw new ReaderError(retry.status,retry.message);
   if(repair){
-   await requirePaidService?.();
+   if(checkService)await this.requireWorkService('text');
    this.dag.grantRepairBudget(row,command.requestId,command.faultId);
    this.wake();
    return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:command.requestId,status:'succeeded',error:null}};
@@ -421,8 +422,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
   }
   const restored=await this.dag.restorePortraitDrawing(row,target,command);
-  if(!restored)await requirePaidService?.();
   const job=!restored&&target.job_id?await this.queue.job(target.job_id):null;
+  if(!restored&&checkService){
+   const image=job?.kind===dagDrawKind||target.node==='frameImage';
+   await this.requireWorkService(image?'image':'text',image?doc.dag?.modelSnapshot:undefined);
+  }
   const receipt=restored??(job
    ?await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[job.id],resolutionJob:job.id,basis:row},this.clock())
    :await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[],resolutionJob:'',resolved:true,basis:row},this.clock()));
@@ -566,7 +570,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    ...(input.replacementBasis??{basisCurrent:false,requirementsCurrent:false})}}:undefined;
   const lifecycle=productionLifecycle({...saved,complete:savedComplete,generationControl:row.generation_control,superseded,deleted:input.deleted,replacementOpen:!!parsed.doc.reselection||replacementOpen,
    faults:[...projectedFaults,...(searchFault?[searchFault]:[])],reviewAttention,review,service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
-   now,order:dag?.order??[],pendingImageChecks,optionalWork:false,stopping:this.stopping,canReprepare:canReprepare(doc),repreparing:!!dag?.repreparing,
+   now,order:dag?.order??[],pendingImageChecks,optionalWork:false,stopping:this.stopping,canReprepare:canReprepare(doc),
+   reprepareService:this.serviceAvailability(undefined,'text'),repreparing:!!dag?.repreparing,
    setup,replacement,owned:true,imagePages:dag?.order.flatMap((key,page)=>referenceImageKey(id,dag.frames[key]?.image??'')?[page+1]:[]),
    storyActions:[{event:'open-reselection',ready:revisionOptions.open&&configured},
     {event:'edit-revision',ready:revisionOptions.edit},
@@ -685,7 +690,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async canRun(job:ProductionJob){
   if(this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&(job.pool==='image'||job.kind===landscapePrintKind))return false;
   const row=await this.candidateRow(job);
-  if(!row)return false;
+  if(!row)throw new ReaderError(404,'制作任务的故事记录不可用。');
   if(job.kind===landscapePrintKind){
    const doc=this.parsed(row)?.doc,print=doc&&currentLandscapePrint(doc);
    return !this.stopping&&print?.id===job.version&&print.control==='active'&&
@@ -745,6 +750,13 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(!drawing&&failure&&failure.provider===current&&failure.retryAt>this.clock())return failure.service;
    return resolveProductionService({configured:!!current,stopping,snapshotAvailable:true});
   }catch{return resolveProductionService({configured:!!snapshot&&!!snapshots,stopping,snapshotAvailable:false});}
+ }
+ /** 付费恢复检查真正执行该任务的服务。本地已有回执的恢复不经过此处。 */
+ private async requireWorkService(kind:'text'|'image',snapshot?:ModelSnapshot){
+  const service=this.serviceAvailability(snapshot,kind);
+  if(service==='snapshot-unavailable')throw new ReaderError(503,'保存的绘图模型不可用，请先更新绘图模型。');
+  if(service==='unconfigured'||!this.options.snapshots&&!this.options.textProvider&&!this.provider.capture&&!(await this.provider.status()).configured)
+   throw new ReaderError(503,'请先在「设置 → 生成服务与模型」配置此步骤所需的服务。');
  }
  /** 文字任务在调用前取当前设置；绘图使用故事保存的图片快照。 */
  private async runDag(job:ProductionJob){

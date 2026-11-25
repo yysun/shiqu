@@ -7,6 +7,7 @@ import {withLocalBooks} from '../server/local-generation.ts';
 import {LocalBooks} from '../server/local-books.ts';
 import {bookContents} from '../server/local-book-contents.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
+import {decodeDocument} from '../lib/production-dag/document.ts';
 import {StoryDiscoveryCache,discoveryHash} from '../server/story-discovery-cache.ts';
 import {legacySummaryDiscoveryNamespace,discoveryNamespace} from '../server/local-story-discovery.ts';
 import {previousReadingPlanKey} from '../server/story-discovery-legacy.ts';
@@ -140,7 +141,7 @@ test('historical direct selections without a synopsis prepare one before any new
  assert.equal((await f.json(`sessions/${saved.id}/source`)).source.storyBrief.verified,true);assert.ok(f.control.recommendations[0].storyBrief.summary);assert.equal(f.control.recommendations.length,1);assert.equal(f.control.plans.length,0);
 });
 
-const savedDocument=async(f,id)=>JSON.parse((await new ReaderRepository(f.app.services.database).get(id,'docker-local-owner')).document);
+const savedDocument=async(f,id)=>decodeDocument(await new ReaderRepository(f.app.services.database).get(id,'docker-local-owner'));
 const recover=async(f,id)=>{
  const {faults}=await f.read(id),fault=faults.find(item=>item.retryAllowed);
  assert.ok(fault,'the reader can recover the saved production fault');

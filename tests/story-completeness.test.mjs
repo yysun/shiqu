@@ -2,15 +2,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,until} from './fixtures/production.mjs';
-import {confirmedStory} from './fixtures/production-dag-story.mjs';
+import {confirmedStory,saved} from './fixtures/production-dag-story.mjs';
 const count=(list,name)=>list.filter(n=>n===name).length;
 import {reviewReportSchema} from '../lib/reader-review.ts';
 
 const omission={page:18,category:'progression',requiresReplan:true,problem:'分镜停在董卓携貂蝉回郿坞，遗漏王允说服吕布、诱董入朝及吕布诛董的结果。',instruction:'按原文从定计到诛董重新编排，压缩前半段宴饮与示情，为关键行动及结果分配画幅。'};
-const document=async(f,id)=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
 
 test('a structural omission gets one structure repair that adds the missing frame, then a fresh review, and only then drawing',async t=>{
  const f=await productionFixture(t,'codex');f.control.hold=false;let structures=0,localRepairs=0;
+ const reviewsAtDraw=[];
+ f.control.beforeImage=()=>reviewsAtDraw.push(f.control.reviews.length);
  f.control.beforeText=async(kind,payload,schema)=>{
   if(kind==='review'){
    assert.ok(schema.properties.issues.items.required.includes('requiresReplan'));
@@ -21,10 +22,13 @@ test('a structural omission gets one structure repair that adds the missing fram
  };
  const id=await confirmedStory(f,6);f.app.services.production.wake();
  await until(async()=>(await f.read(id)).state==='completed',20000);
- const saved=await document(f,id);
+ const document=await saved(f,id);
  assert.equal(structures,1);assert.equal(localRepairs,0,'a structural issue is not hidden by a local caption fix');
- assert.equal(saved.plan.pages.length,7);assert.equal(f.control.reviews.length,2,'the repaired story is reviewed again');
- assert.equal(f.control.calls.length,7,'images are drawn only after the review approved the new structure');
+ assert.equal(document.plan.pages.length,7);assert.equal(f.control.reviews.length,2,'the repaired story is reviewed again');
+ assert.deepEqual(reviewsAtDraw,Array(6).fill(2),'all paid drawings start after the new review');
+ assert.equal((await f.read(id)).ready,7);
+ assert.equal(document.images[4],document.images[5],'identical drawing inputs share one paid image');
+ for(const url of document.images)assert.equal((await f.app.handle(new Request('http://localhost'+url))).status,200);
 });
 
 test('a missing opening introduction is repaired in frame one without replanning or adding frames',async t=>{
@@ -36,8 +40,8 @@ test('a missing opening introduction is repaired in frame one without replanning
  };
  const id=await confirmedStory(f,3);f.app.services.production.wake();
  await until(async()=>(await f.read(id)).state==='completed',20000);
- const saved=await document(f,id);
- assert.equal(saved.plan.pages.length,3);assert.equal(saved.plan.pages[0].caption,opening);
+ const document=await saved(f,id);
+ assert.equal(document.plan.pages.length,3);assert.equal(document.plan.pages[0].caption,opening);
  assert.equal(count(f.control.dagCalls,'outline'),1);assert.deepEqual(requested,[1]);
  assert.equal(f.control.reviews.length,2);
 });

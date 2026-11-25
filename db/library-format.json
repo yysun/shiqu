@@ -1,1 +1,1 @@
-{"schemaVersion":4,"minimumAppVersion":"0.17.0","latestMigration":"0029_finalize_production_spec.sql"}
+{"schemaVersion":4,"minimumAppVersion":"0.17.0","latestMigration":"0030_rebind_production_receipts.sql"}

@@ -237,6 +237,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    const boundary=(snapshot:any)=>{
     if(snapshot.lifecycle?.preparationRefresh==='pending')return null;
     if(snapshot.lifecycle?.phase==='completed'||!snapshot.lifecycle&&snapshot.state==='completed')return 'completed';
+    if(until==='reviewed'&&snapshot.lifecycle?.review==='approved')return 'reviewed';
     if(until==='prepared'&&snapshot.lifecycle?.phase!=='preparation'){
      if(snapshot.intake?.phase==='confirmed')return 'already_prepared';
      if(snapshot.frameRecommendation)return 'prepared';
@@ -244,9 +245,11 @@ export async function executeHeadless(root:string,args:string[],context:Context=
     return until==='candidates'&&snapshot.intake?.selected?'already_selected':null;
    };
    const reached=boundary(initial);
-   if(reached==='completed'&&initial.state!=='failed')return {reason:reached,session:initial};
-   const status=await app.services.generation.status();
-   if(!status.configured)throw new CliCommandError('PROVIDER_UNAVAILABLE',status.message||'Provider is not ready.',2,{lifecycle:initial.lifecycle});
+   if(reached==='reviewed'||reached==='completed'&&initial.state!=='failed')return {reason:reached,session:initial};
+   if(!initial.lifecycle||initial.lifecycle.service==='unconfigured'){
+    const status=await app.services.generation.status();
+    if(!status.configured)throw new CliCommandError('PROVIDER_UNAVAILABLE',status.message||'Provider is not ready.',2,{lifecycle:initial.lifecycle});
+   }
    const serviceBlocked=(snapshot:any)=>snapshot.lifecycle&&(['production','preparation'].includes(snapshot.lifecycle.phase)||snapshot.lifecycle.preparationRefresh==='pending')&&snapshot.lifecycle.service!=='available';
    if(initial.state==='failed'||serviceBlocked(initial)||preparationRefreshFault(initial))return {reason:'blocked',session:initial};
    if(reached)return {reason:reached,session:initial};
@@ -261,8 +264,14 @@ export async function executeHeadless(root:string,args:string[],context:Context=
      snapshot=await app.services.production!.request(app.services.ownerId,target!,viewerId,0,false);
      const intake=snapshot.intake;
      const dagReview=until==='reviewed'?snapshot.lifecycle?.review:null;
-     const reviewed=dagReview==='approved';
-     const reason=(snapshot.lifecycle?.version==='superseded'||snapshot.superseded)?'superseded':(snapshot.lifecycle?.continuation??snapshot.awaitingContinue)?'continue_required':snapshot.state==='failed'||serviceBlocked(snapshot)||preparationRefreshFault(snapshot)?'blocked':(snapshot.lifecycle?.control??snapshot.generationControl)!=='active'?'paused':boundary(snapshot)|| (until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates':intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':until==='reviewed'&&reviewed?'reviewed':dagReview==='attention'?'blocked':null);
+     const reached=boundary(snapshot);
+     const reason=(snapshot.lifecycle?.version==='superseded'||snapshot.superseded)?'superseded'
+      :(snapshot.lifecycle?.continuation??snapshot.awaitingContinue)?'continue_required'
+      :(snapshot.lifecycle?.control??snapshot.generationControl)!=='active'?'paused'
+      :reached==='reviewed'?'reviewed'
+      :snapshot.state==='failed'||serviceBlocked(snapshot)||preparationRefreshFault(snapshot)?'blocked'
+      :reached||(until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates'
+       :intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':dagReview==='attention'?'blocked':null);
      if(reason)return {reason,session:snapshot};await delay(80,undefined,{signal:abort.signal}).catch(()=>{});
     }
     throw new CliCommandError(timedOut?'TIMEOUT':'INTERRUPTED',timedOut?'Run timed out; saved checkpoints are retained.':'Run interrupted; saved checkpoints are retained.',timedOut?5:130,{session:snapshot});

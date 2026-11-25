@@ -8,6 +8,7 @@ import {observeStoryGeneration} from '../lib/reader-production-client.ts';
 import {shelfGenerationStatus} from '../lib/shelf-generation.ts';
 import {heavy} from './fixtures/test-tier.mjs';
 import {setupEvents} from '../lib/production-lifecycle.ts';
+import {decodeDocument} from '../lib/production-dag/document.ts';
 const batch={stories:[{title:'庄周梦蝶',description:'梦醒后的庄周思考自己的经历。',artRecommendation:{artStyle:'paper-cut',reason:'层次适合梦境。'}},{title:'大葫芦',description:'惠子与庄子谈论大葫芦的用处。'}],note:''};
 async function fixture(t){const f=await productionFixture(t);f.control.hold=false;f.discoveries=[];f.generation.suggestions=async(s,excluded,_local,reading)=>{f.discoveries.push({s,excluded});reading?.onProgress({completed:1,total:1,completedChars:100,totalChars:100,stage:'selecting'});return structuredClone(batch);};return f;}
 async function create(f,requestId=crypto.randomUUID(),overrides={}) {const s=await f.json('sessions','POST',{requestId,intake:true,selection:{...selection,storyTitle:undefined,length:'auto',narrativeDetail:'balanced',...overrides}});if(s.intake.search.state==='idle'&&!s.intake.batches.length)await f.startDiscovery(s.id);await f.demand(s.id);return s.id;}
@@ -83,8 +84,8 @@ test('choosing prepares saved source and count; only full production confirmatio
  const sameChoice={requestId:crypto.randomUUID(),generation:prepared.intake.generation,action:'choose',batch:0,index:0};
  assert.equal((await f.json(`sessions/${id}/setup`,'POST',sameChoice)).intake.generation,prepared.intake.generation);
  assert.equal(prepared.selection.storyTitle,'庄周梦蝶');assert.equal(prepared.selection.artStyle,'paper-cut');assert.equal(prepared.frameRecommendation.count,7);assert.equal(f.control.dagCalls.length,0);assert.equal(f.control.calls.length,0);
- const stored=await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first();
- const doc=JSON.parse(stored.document);
+ const stored=await f.app.services.database.prepare('SELECT * FROM story_rows WHERE id=?').bind(id).first();
+ const doc=decodeDocument(stored);
  assert.ok(doc.dag.products['source:']);
  assert.ok(doc.dag.products['suggestions:']);
  assert.ok(doc.original.storyBrief.verified);
@@ -192,17 +193,15 @@ test('an obsolete recommendation failure cannot block a newer selection',async t
 test('recovering a saved recommendation receipt preserves edits and calls the provider once',async t=>{
  const f=await fixture(t),id=await create(f);
  await until(async()=>(await f.read(id)).intake.phase==='choosing');
- const database=f.app.services.database,prepare=database.prepare.bind(database);
+ const database=f.app.services.database,transaction=database.transaction.bind(database);
  let reject=true;
- database.prepare=query=>{
-  const statement=prepare(query);
-  if(!/UPDATE stories SET document=\?,production_complete=\?/.test(query))return statement;
-  return {...statement,bind:(...values)=>{
-   const bound=statement.bind(...values);
-   if(!reject||JSON.parse(values[0]).intake?.phase!=='confirming')return bound;
-   return {...bound,run:async()=>{reject=false;throw Object.assign(Error('SQLITE_BUSY'),{code:'SQLITE_BUSY'});}};
-  }};
- };
+ database.transaction=body=>transaction(tx=>body({...tx,run(query,...values){
+  if(reject&&query.startsWith('UPDATE stories SET document=?,production_complete=?')&&JSON.parse(values[0]).intake?.phase==='confirming'){
+   reject=false;
+   throw Error('controlled document write failure');
+  }
+  return tx.run(query,...values);
+ }}));
  await setup(f,id,{action:'choose',batch:0,index:0});
  await until(async()=>(await f.read(id)).faults?.some(fault=>fault.retryAllowed),20000);
  const failed=await f.read(id);
@@ -309,7 +308,8 @@ test('legacy prepared choice receipts read as confirming without writes or paid 
 test('phase recovery compares local source ranges canonically and rejects partial or mismatched checkpoints',async t=>{
  const f=await fixture(t),id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');await f.app.services.production.queue.settle();await f.app.services.production.tick();
- const row=await f.app.services.database.prepare('SELECT document,selection FROM stories WHERE id=?').bind(id).first(),base=JSON.parse(row.document),selected=JSON.parse(row.selection);
+ const row=await f.app.services.database.prepare('SELECT * FROM story_rows WHERE id=?').bind(id).first(),base=decodeDocument(row),selected=JSON.parse(row.selection);
+ await f.app.services.database.prepare("DELETE FROM production_product_refs WHERE session_id=? AND target='source:'").bind(id).run();
  const source={sectionId:'s1',firstUnit:'u1',lastUnit:'u2',continuations:[{sectionId:'s2',firstUnit:'u3',lastUnit:'u4'}],edition:'a'.repeat(64)};
  base.intake.phase='choosing';base.intake.batches[0].stories[0].source=source;selected.source=source;
  base.original.localSource={edition:source.edition,continuations:[{lastUnit:'u4',firstUnit:'u3',sectionId:'s2'}],lastUnit:'u2',firstUnit:'u1',sectionId:'s1'};

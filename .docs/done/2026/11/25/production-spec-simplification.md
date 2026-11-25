@@ -30,3 +30,26 @@
 > VR review round: 2; reviewer: reused
 
 验收复核结束后，最终影响检查 715 项全部通过。
+
+## 0.17.0 发布候选
+
+- 0030 按实际请求身份重新绑定可继续采用的已付费文字回执。格式 3 和格式 4 开发预览的隔离用例证明恢复和重放不会重复调用，输入变化时会重新制作。
+- 合并画幅后删除旧版，现行版本仍可读取原图片并导出 ZIP。跨库文字副本清除退役画幅中的旧图引用。此前保存在错误扩展名下的有效图片仍可作为绘图参考。
+- 继续、恢复及重新准备以本次步骤所需的服务为准。CLI 到达审片目标可直接结束。验收要求变更后，当前结论等待复核，原版审片历史保留。
+- 损坏故事保留原数据并停止付费派发。孤立任务记录一次，不阻断同一队列。同步桌面、命令行的 0.17.0 版本与随包技能的操作说明。
+
+### 发布验证
+
+- 全部自动 JavaScript 影响检查 733 项、安全与启动及回环 305 项、受控模型流程 491 项、macOS 原生 27 项通过。
+- 发布门槛 15 项、npm 门槛 6 项通过，包含类型检查、lint 与 Rust 格式检查。安装的 `@apprun/shiqu@0.17.0` 通过隔离环境的命令行冒烟检查。
+- 桌面安装包仍由发布 CI 验证。候选提交只保留在本地。
+
+> CR passed: no major findings
+>
+> VR passed: all acceptance criteria complete
+>
+> CR / VR risk: non-low — 书库格式、共享媒体及付费派发。
+>
+> CR review round: 4 for this release candidate; reviewer: reused
+>
+> VR review round: 1 for this release candidate; reviewer: reused

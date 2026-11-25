@@ -52,9 +52,9 @@ test('recovery metadata does not expose foreign generated titles and supports un
 test('an older restored story remains listed beyond 80 entries without starting production',async t=>{
  const f=await productionFixture(t),id=await f.create();
  const db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));t.after(()=>db.close());
- db.prepare(`UPDATE stories SET created_at='1990-01-01',updated_at='1990-01-01' WHERE id=?`).run(id);
- const insert=db.prepare(`INSERT INTO stories(id,user_id,selection,document,state,page,saved,created_at,updated_at)
-  SELECT ?,user_id,selection,document,state,page,saved,'2000-01-01','2000-01-01' FROM stories WHERE id=?`);
+ db.prepare(`UPDATE stories SET generation_control='stopped',created_at='1990-01-01',updated_at='1990-01-01' WHERE id=?`).run(id);
+ const insert=db.prepare(`INSERT INTO stories(id,user_id,selection,document,generation_control,page,saved,created_at,updated_at)
+  SELECT ?,user_id,selection,document,generation_control,page,saved,'2000-01-01','2000-01-01' FROM stories WHERE id=?`);
  for(let n=0;n<81;n++)insert.run(crypto.randomUUID(),id);
  await f.json(`library/${id}`,'DELETE');await f.json(`library/${id}/restore`,'POST');
  const rows=await f.json('sessions');assert.equal(rows.length,82);assert.equal(rows.some(row=>row.id===id),true);

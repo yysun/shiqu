@@ -1,5 +1,4 @@
-// Verify that a lost image file is redrawn only on explicit retry, and that an open story's
-// first image, current page and read-ahead are drawn first. Controlled providers only.
+// 验证丢图恢复需要明确重试，后台优先绘制当前打开的故事并按幅序推进。
 // 走制作 DAG：绘图任务为 dag-draw，保存前核对图片可读，丢失或损坏记为本幅的故障，读者明确恢复才重绘。
 // 旧流水线的发布步骤（image-publish）、发布回执与「文件回来后免费发布」随旧流程删除，阅读优先的次序用 viewedPriority 推导。
 import test from 'node:test';
@@ -17,7 +16,6 @@ const completed=(f,id)=>until(async()=>(await f.read(id)).state==='completed',15
 const failed=(f,id)=>until(async()=>(await f.read(id)).faults?.some(x=>x.state==='pending'),15000);
 const fault=async(f,id)=>(await f.read(id)).faults.find(x=>x.state==='pending');
 const retry=(f,id)=>f.demand(id,crypto.randomUUID(),0,true);
-const document=async(f,id)=>JSON.parse((await database(f).prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
 const pageCalls=(f,page)=>f.control.calls.filter(call=>call.page===page).length;
 const settled=async f=>{for(let n=0;n<3;n++){await production(f).tick();await production(f).queue.settle();}};
 const artifact=async(f,id,page)=>path.join(f.dataDirectory,'media/reader',id,'artifacts',readdirSync(path.join(f.dataDirectory,'media/reader',id,'artifacts')).find(name=>name.startsWith(page+'-')));
@@ -81,13 +79,12 @@ test('saving requires the bytes to match the file type; a reference only needs a
  assert.ok(!(await f.read(second)).faults?.length);
 });
 
-test('an open story draws its first image, current page and read-ahead ahead of other work',async t=>{
+test('an open story draws in page order ahead of other work',async t=>{
  const f=await singleWorker(t),other=await f.create(10);await until(()=>f.control.calls.length===1);
  const viewed=await f.create(10);await until(async()=>(await jobs(f,viewed)).some(job=>job.kind==='dag-draw'));
  await f.demand(viewed,crypto.randomUUID(),3);
  const order=await drawOrder(f,{[other]:'o',[viewed]:'v'},6);
- assert.deepEqual(order.slice(0,4),['o0','v0','v3','v4']);
- assert.ok(order.slice(2).filter(label=>label[0]==='v').every(label=>Number(label.slice(1))>=3),'the viewed story draws from the current page on');
+ assert.deepEqual(order,['o0','v0','v1','v2','v3','v4']);
 });
 
 test("a viewed first image goes ahead of an older story's waiting first image",async t=>{
@@ -98,21 +95,20 @@ test("a viewed first image goes ahead of an older story's waiting first image",a
  assert.deepEqual(await drawOrder(f,{[busy]:'b',[older]:'o',[viewed]:'v'},2),['b0','v0']);
 });
 
-test('moving to another page changes what comes next without cancelling the running page',async t=>{
+test('moving to another page preserves drawing order and the running page',async t=>{
  const f=await singleWorker(t),id=await f.create(12);await until(()=>f.control.calls.length===1);
  const viewer=crypto.randomUUID();await f.demand(id,viewer,3);
- const order=await drawOrder(f,{[id]:'p'},4,async label=>{if(label==='p3'){await f.demand(id,viewer,8);await production(f).tick();}});
- assert.deepEqual(order,['p0','p3','p8','p9']);
+ const order=await drawOrder(f,{[id]:'p'},4,async label=>{if(label==='p1'){await f.demand(id,viewer,8);await production(f).tick();}});
+ assert.deepEqual(order,['p0','p1','p2','p3']);
  assert.equal(f.control.calls.filter(call=>call.done).length,4);
 });
 
-test('closing the story returns it to page order, and it keeps generating',async t=>{
+test('closing the story removes its priority and both stories keep generating',async t=>{
  const f=await singleWorker(t),other=await f.create(8);await until(()=>f.control.calls.length===1);
  const viewed=await f.create(8);await until(async()=>(await jobs(f,viewed)).some(job=>job.kind==='dag-draw'));
  const viewer=crypto.randomUUID();await f.demand(viewed,viewer,5);
- const order=await drawOrder(f,{[other]:'o',[viewed]:'v'},4,async label=>{if(label==='v5'){await f.leave(viewed,viewer);await production(f).tick();}});
- assert.deepEqual(order.slice(0,3),['o0','v0','v5']);
- assert.equal(order[3].slice(1),'1','After closing, the lowest page number comes next');
+ const order=await drawOrder(f,{[other]:'o',[viewed]:'v'},4,async label=>{if(label==='v1'){await f.leave(viewed,viewer);await production(f).tick();}});
+ assert.deepEqual(order,['o0','v0','v1','o1']);
  f.control.hold=false;for(const call of f.control.calls)call.resolve();
  await completed(f,other);await completed(f,viewed);
 });

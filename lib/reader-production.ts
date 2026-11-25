@@ -15,7 +15,7 @@ export type LandscapeCommand={startToken:string}|{retryToken:string}|{modelToken
 export interface ReaderProduction{
  referencesChanged?():void;
  wake():void;
- control(ownerId:string,id:string,action:ProductionAction,requestId?:string):Promise<SessionView>;
+ control(ownerId:string,id:string,action:ProductionAction,requestId?:string,checkService?:boolean):Promise<SessionView>;
  overrideReview(ownerId:string,id:string,command?:ReviewOverride):Promise<SessionView>;
  request(ownerId:string,id:string,viewerId:string,page:number,retry?:boolean):Promise<SessionView>;
  leave(ownerId:string,id:string,viewerId:string):Promise<void>;
@@ -23,13 +23,13 @@ export interface ReaderProduction{
  shelfSnapshots(ownerId:string,includeTimings?:boolean):Promise<SessionView[]>;
  deletedLifecycles?(ownerId:string):Map<string,ProductionLifecycle>;
  snapshot(ownerId:string,id:string):Promise<SessionView>;
- recover(ownerId:string,id:string,command:RecoveryRequest,requirePaidService?:()=>Promise<unknown>):Promise<SessionView>;
+ recover(ownerId:string,id:string,command:RecoveryRequest,checkService?:boolean):Promise<SessionView>;
  checkImage(ownerId:string,id:string,page:number,image:string):Promise<SessionView>;
  landscapeStatus(ownerId:string,id:string):Promise<LandscapeStatus>;
  /** 制作 DAG 故事的审片状态：approved 可绘图，attention 需读者处理，pending 仍在审片；非 DAG 故事为 null。 */
  /** 这个编号已作为本篇的「继续制作」被接受；重放无需再检查服务配置。 */
  continueAccepted?(ownerId:string,id:string,requestId:string):Promise<boolean>;
  reviewState?(ownerId:string,id:string):Promise<'approved'|'attention'|'pending'|null>;
- startLandscape(ownerId:string,id:string,command:LandscapeCommand,requireProvider?:()=>Promise<unknown>):Promise<LandscapeStatus>;
+ startLandscape(ownerId:string,id:string,command:LandscapeCommand,beforeDrawing?:()=>Promise<unknown>):Promise<LandscapeStatus>;
  landscapePrintSets(ownerId:string,id:string):Promise<LandscapePrintSet[]>;
 }

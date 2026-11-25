@@ -28,7 +28,7 @@ npx @apprun/shiqu
 
 打开拾趣，在「设置」中选择生成服务，保存并启动，再点击「在浏览器打开」。安装包未签名，首次打开的系统提示见[桌面版入门](https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md#桌面版入门)。
 
-升级现有书库前，停止共用该书库的服务，并将桌面与 CLI 一起更新到 0.16.0。首次打开旧书库时会创建并校验整库备份，再迁移到格式 3。[升级与回退说明](https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md#升级到-0160)
+升级现有书库前，停止共用该书库的服务，并将桌面与 CLI 一起更新到 0.17.0。首次打开时会创建并校验整库备份，再将格式 1、2、3 直接升级到格式 4。[升级与回退说明](https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md#升级到-0170)
 
 ### 3. Skill：让 Codex 帮你制作
 

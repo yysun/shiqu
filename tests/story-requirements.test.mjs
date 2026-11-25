@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,until,turn,makePlan,selection} from './fixtures/production.mjs';
-import {confirmedStory,revise} from './fixtures/production-dag-story.mjs';
+import {confirmedStory,revise,saved} from './fixtures/production-dag-story.mjs';
 const count=(list,name)=>list.filter(n=>n===name).length;
 import {acceptanceCriteria,acceptancePromptSchema} from '../lib/reader-acceptance.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
@@ -26,8 +26,7 @@ test('missing, duplicate, out-of-range and unactionable failed criterion results
  assert.equal(schema.safeParse({...report,acceptanceResults:results('unknown')}).success,true);
 });
 const itemResults=(...status)=>criteria.split('\n').map((_,index)=>({criterion:index+1,status:status[index]??'passed',pages:status[index]==='unknown'?[]:[2],evidence:status[index]==='unknown'?'无法从文字分镜判断生成图中的手指数量。':'第二幅的手部反应与配文提供依据。'}));
-const itemVerdicts=doc=>Object.entries(doc.dag.products).filter(([key])=>key.startsWith('itemVerdict:')).map(([,product])=>product);
-const saved=async(f,id)=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
+const itemVerdicts=doc=>doc.dag.verdicts['narrativeVerdict:'].acceptance.map(result=>result.status);
 
 test('saved per-story requirements reach the review, survive restart, and an acceptance-only revision redraws nothing',async t=>{
  const f=await productionFixture(t,'codex');f.control.hold=false;
@@ -36,20 +35,19 @@ test('saved per-story requirements reach the review, survive restart, and an acc
  await until(async()=>(await f.read(id)).state==='completed',20000);
  const before=await f.read(id),doc=await saved(f,id),captures=await f.json(`sessions/${id}/prompts`);
  assert.equal(before.selection.acceptancePrompt,criteria);
- assert.deepEqual(doc.dag.items.map(i=>i.text),criteria.split('\n'));
- assert.equal(itemVerdicts(doc).length,2,'one verdict per requirement');
+ assert.deepEqual(itemVerdicts(doc),['passed','passed'],'one verdict per requirement');
  assert.deepEqual(captures.criteria,criteria.split('\n'));
  assert.equal(captures.productionPrompt,before.selection.productionPrompt);assert.equal(captures.acceptancePrompt,criteria);assert.deepEqual(captures.missingRecords,[]);
  assert.deepEqual(f.control.reviews[0].acceptanceCriteria,criteria.split('\n'),'the review sees the saved requirements');
  assert.equal('records' in before,false);assert.equal('usage' in before,false);
- const drawn=f.control.calls.length,reviews=f.control.reviews.length,textBefore=f.control.dagCalls.filter(n=>n!=='registerItems').length;
+ const drawn=f.control.calls.length,reviews=f.control.reviews.length,textBefore=f.control.dagCalls.length;
  await f.restart();
  const extended=criteria+'\n结语不复述情节。';
  const {child,doc:next}=await revise(f,id,{acceptancePrompt:extended});
  assert.equal(f.control.calls.length,drawn,'no image is drawn again');
  assert.equal(f.control.reviews.length,reviews+1);
- assert.equal(f.control.dagCalls.filter(n=>n!=='registerItems').length,textBefore+0,'no planning or repair call');
- assert.equal(next.dag.items.length,3);assert.equal(itemVerdicts(next).length,3);
+ assert.equal(f.control.dagCalls.length,textBefore,'no planning or repair call');
+ assert.deepEqual(itemVerdicts(next),['passed','passed','passed']);
  assert.deepEqual(next.images.length,3);
  assert.equal((await f.json(`sessions/${child}/prompts`)).acceptancePrompt,extended);
  assert.equal((await f.read(id)).selection.acceptancePrompt,criteria);
@@ -61,7 +59,7 @@ test('failed criteria enter the targeted repair and must pass a fresh review bef
  const id=await confirmedStory(f,3,{},{acceptancePrompt:criteria});f.app.services.production.wake();
  await until(async()=>(await f.read(id)).state==='completed',20000);
  assert.equal(count(f.control.dagCalls,'sceneRepair'),1);assert.equal(f.control.reviews.length,2);
- assert.ok(itemVerdicts(await saved(f,id)).every(product=>product));
+ assert.deepEqual(itemVerdicts(await saved(f,id)),['passed','passed']);
  assert.equal(f.control.calls.length,3,'drawing only after the review approved');
 });
 test('unknown criteria stop for the reader with their evidence: no fabricated repair or drawing',async t=>{

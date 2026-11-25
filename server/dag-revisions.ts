@@ -140,26 +140,36 @@ function addDrawnFrom(frame:DagDocument['frames'][string],prompt:string,characte
  */
 async function retainImages(media:MediaStore,parentId:string,dag:DagDocument,aliasImage:(index:number,key:string,type:keyof typeof imageTypes)=>string):Promise<number[]>{
  const lost:number[]=[];
- for(const [index,id] of dag.order.entries()){
-  const field='image';
-  {
-   const url=dag.frames[id][field];if(!url)continue;
-   const key=referenceImageKey(parentId,url),asset=key?await media.get(key).catch(()=>{throw new ReaderError(503,`第 ${index+1} 幅原图暂时无法读取，未创建新版，请稍后重试。`);}):null;
-   const bytes=asset?new Uint8Array(await asset.arrayBuffer()):null,type=bytes&&mediaType(bytes);
-   const product=instanceId('frameImage',id),record=dag.products[product];
-   const supplied=dag.cover?.frame===id;
-   if(!bytes||!type||(supplied||record?.readable===false)&&!await readableImage(bytes)){
-    delete dag.frames[id][field];
-    if((record||supplied))lost.push(index);
-    if(record)dag.products[product]={...record,readable:false};
-    else delete dag.products[product];
-    continue;
+ const positions=new Map(dag.order.map((id,index)=>[id,index]));
+ const reads=new Map<string,{type:keyof typeof imageTypes;readable?:boolean}|null>();
+ // 结构修订之后仍可按输入采用退役画幅的旧图，保存新版时也为这些图绑定别名。
+ for(const [id,frame] of Object.entries(dag.frames)){
+  if(!frame.image)continue;
+  const index=positions.get(id),key=referenceImageKey(parentId,frame.image);
+  const product=instanceId('frameImage',id),record=dag.products[product],supplied=dag.cover?.frame===id;
+  const verify=index===undefined||supplied||record?.readable===false;
+  let image=key?reads.get(key):null;
+  if(key&&(image===undefined||image&&verify&&image.readable===undefined)){
+   try{
+    const asset=await media.get(key);
+    const bytes=asset?new Uint8Array(await asset.arrayBuffer()):null,type=bytes&&mediaType(bytes);
+    image=type?{type,readable:verify?await readableImage(bytes!):undefined}:null;
+    reads.set(key,image);
+   }catch{
+    const name=index===undefined?'可复用的原图':`第 ${index+1} 幅原图`;
+    throw new ReaderError(503,`${name}暂时无法读取，未创建新版，请稍后重试。`);
    }
-   dag.frames[id][field]=aliasImage(index,key!,type);
-   if(record?.readable===false)dag.products[product]={...record,readable:true};
   }
+  if(!image||image.readable===false){
+   delete frame.image;
+   if(index!==undefined&&(record||supplied))lost.push(index);
+   if(record)dag.products[product]={...record,readable:false};
+   continue;
+  }
+  frame.image=aliasImage(index??0,key!,image.type);
+  if(record?.readable===false)dag.products[product]={...record,readable:true};
  }
- return lost;
+ return lost.sort((a,b)=>a-b);
 }
 
 /** 仅换图：选中画幅删除旧图与产物，重绘说明作为该幅绘图输入；其余内容与结论不变。 */
