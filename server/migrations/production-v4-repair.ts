@@ -1,51 +1,15 @@
-// 格式 4 的发布前数据修复。只重绑同稿件的已付费请求，以及同所有者、同家族的现有媒体。
+// 0028 转换后，把同稿件可继续采用的已付费文字回执接到现行任务身份，避免升级后重复付费。
 import type {DatabaseSync,SQLInputValue} from 'node:sqlite';
 import {decodeDocument,emptyDag} from '../../lib/production-dag/document.ts';
 import {fingerprint} from '../../lib/production-dag/fingerprint.ts';
 import {settle,work} from '../../lib/production-dag/runner.ts';
-import {readerImageAsset,referenceImageKey} from '../../lib/reader-image-assets.ts';
 import {selectionSchema,type SessionRow} from '../../lib/reader-model.ts';
 import {preparationOriginal,preparationPending} from '../../lib/reader-preparation.ts';
 import type {SyncStatements} from '../../lib/reader-repository.ts';
 import {dagJobSpec,dagTextKind} from '../dag-production.ts';
-import {landscapePrintKind} from '../landscape-print.ts';
-import {recordFamilyImage} from '../media.ts';
 import {productionAttemptCount} from '../production-attempts.ts';
 import type {ProductionJob} from '../production-queue.ts';
 import {currentFamilyVersion} from '../reader-revisions.ts';
-
-export const rebindProductionReceiptsMigration='0030_rebind_production_receipts.sql';
-
-/** 旧预览版可能已采用退役画幅的地址。原文件与产物不动，只让当前版本通过自己的地址读取。 */
-function rebindPictures(db:SyncStatements){
- const refs=db.all<{session_id:string;owner_id:string;root_id:string;picture:string}>(`SELECT DISTINCT r.session_id,r.owner_id,s.root_id,
-  json_extract(r.record,'$.picture') AS picture FROM production_product_refs r
-  JOIN story_revisions s ON s.story_id=r.session_id AND s.owner_id=r.owner_id
-  JOIN stories story ON story.id=r.session_id AND story.user_id=r.owner_id
-  WHERE json_valid(story.document) AND r.target LIKE 'frameImage:%' AND json_type(r.record,'$.picture')='text'
-  AND instr(json_extract(r.record,'$.picture'),'/api/reader/media/'||r.session_id||'/')!=1`);
- for(const {session_id:id,owner_id:ownerId,root_id:rootId,picture} of refs){
-  const sourceId=picture.split('/')[4],target=sourceId&&referenceImageKey(sourceId,picture);
-  if(!target||!db.get('SELECT 1 FROM story_revisions WHERE story_id=? AND owner_id=? AND root_id=?',sourceId,ownerId,rootId))continue;
-  const alias=readerImageAsset(id,0,target.slice(target.lastIndexOf('.')+1),fingerprint(['family-image',target]));
-  recordFamilyImage(db,{alias:alias.key,sessionId:id,sourceId,ownerId,rootId,target});
-  db.run(`UPDATE production_product_refs SET record=json_set(record,'$.picture',?)
-   WHERE session_id=? AND owner_id=? AND target LIKE 'frameImage:%' AND json_extract(record,'$.picture')=?`,alias.url,id,ownerId,picture);
-  const row=db.get<{document:string}>('SELECT document FROM stories WHERE id=? AND user_id=?',id,ownerId)!;
-  const document=JSON.parse(row.document) as Pick<ReturnType<typeof decodeDocument>,'landscapePrints'>;
-  // 横图套图仍按原来那幅竖图匹配，继续绘制时也可通过当前版本的地址读取参考图。
-  if(Array.isArray(document?.landscapePrints))for(const print of document.landscapePrints){
-   if(!Array.isArray(print?.story?.pages))continue;
-   for(const page of print.story.pages)if(page?.image===picture)page.image=alias.url;
-  }
-  db.run(`UPDATE stories SET document=json_remove(
-   CASE WHEN json_type(document,'$.landscapePrints')='array' THEN json_set(document,'$.landscapePrints',json(?)) ELSE document END,
-   '$.dag.productSignature') WHERE id=? AND user_id=?`,JSON.stringify(document?.landscapePrints??[]),id,ownerId);
-  db.run(`UPDATE production_jobs SET payload=json_set(payload,'$.input.reference',?)
-   WHERE session_id=? AND owner_id=? AND kind=?
-    AND CASE WHEN json_valid(payload) THEN json_extract(payload,'$.input.reference') END=?`,alias.url,id,ownerId,landscapePrintKind,picture);
- }
-}
 
 function rebindPaidText(db:SyncStatements){
  const rows=db.all<SessionRow>(`WITH candidates AS (
@@ -81,27 +45,9 @@ function rebindPaidText(db:SyncStatements){
      AND json_extract(detail,'$.recoveryId') IS NULL AND json_type(detail,'$.paid.value') IS NOT NULL
     ORDER BY sequence DESC LIMIT 1`,legacyId,row.user_id,row.id);
    if(!saved)continue;
-   let paid=previous?saved.paid:JSON.parse(saved.paid);
-   // 正式身份已有结果时优先保留；仅为从未领取的替代任务补上匹配的回执。
-   const existing=db.get<ProductionJob&{payload_type:string|null;paid_json:string|null}>(`SELECT *,
-    CASE WHEN json_valid(payload) THEN json_type(payload) END AS payload_type,
-    CASE WHEN json_valid(payload) THEN CASE WHEN json_type(payload,'$.paid.value') IS NOT NULL THEN json_extract(payload,'$.paid') END END AS paid_json
-    FROM production_jobs WHERE id=?`,spec.id);
-   if(existing){
-    if(existing.owner_id!==row.user_id||existing.session_id!==row.id||existing.kind!==dagTextKind||
-     existing.state!=='queued')continue;
-    if(!previous){
-     if(!existing.paid_json){
-      if(existing.payload_type==='object')db.run("UPDATE production_jobs SET payload=json_set(payload,'$.paid',json(?)) WHERE id=?",JSON.stringify(paid),spec.id);
-      else db.run('UPDATE production_jobs SET payload=? WHERE id=?',JSON.stringify({...spec.payload as object,paid}),spec.id);
-     }
-     continue;
-    }
-    if(existing.attempts||existing.recovery_id)continue;
-    // 预览版可能已排入正式身份，却在清除旧身份前退出。保留其现成结果，同时转移旧工作的恢复授权。
-    if(existing.paid_json)paid=JSON.parse(existing.paid_json);
-    db.run('DELETE FROM production_jobs WHERE id=?',spec.id);
-   }
+   const paid=previous?saved.paid:JSON.parse(saved.paid);
+   // 现行身份已有任务时不覆盖。
+   if(db.get('SELECT 1 FROM production_jobs WHERE id=?',spec.id))continue;
    const payload=JSON.stringify({...spec.payload as object,paid});
    if(!previous){
     db.run(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,payload,state,priority,created_at,updated_at)
@@ -137,6 +83,5 @@ export function rebindProductionReceipts(sqlite:DatabaseSync){
   get:<T>(query:string,...values:unknown[])=>sqlite.prepare(query).get(...values as SQLInputValue[]) as T|undefined,
   all:<T>(query:string,...values:unknown[])=>sqlite.prepare(query).all(...values as SQLInputValue[]) as T[],
  };
- rebindPictures(db);
  rebindPaidText(db);
 }

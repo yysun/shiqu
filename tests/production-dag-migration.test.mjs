@@ -517,7 +517,7 @@ test('0026 auto-migrates format 2 after a verified backup and can retry a rolled
  sqlite.exec('DROP TRIGGER interrupt_lifecycle');
  sqlite.close();
  const result=ensureLibraryReady(directory,root);
- assert.deepEqual(result.migrations,['0026_production_lifecycle.sql','0027_revision_fault_targets.sql','0028_production_spec.sql','0029_finalize_production_spec.sql','0030_rebind_production_receipts.sql']);
+ assert.deepEqual(result.migrations,['0026_production_lifecycle.sql','0027_revision_fault_targets.sql','0028_production_spec.sql']);
  verifyLibraryBackup(result.backup);
  const original=new DatabaseSync(path.join(result.backup,'shiqu.sqlite'),{readOnly:true});
  try{assert.equal(original.prepare('PRAGMA user_version').get().user_version,2);}finally{original.close();}
@@ -565,7 +565,7 @@ for(const format of [2,3])test(`0028 merges format ${format} whole-story decisio
   VALUES('old-inherited','old-review-pass',?,'image-loss','frameImage','legacy-1','dag','已丢图','awaiting-match','parent-fault',1,1)`).run(owner);
  const report=ensureLibraryReady(directory,process.cwd());
  assert.deepEqual(report.migrations,[...(format===2?['0026_production_lifecycle.sql','0027_revision_fault_targets.sql']:[]),
-  '0028_production_spec.sql','0029_finalize_production_spec.sql','0030_rebind_production_receipts.sql']);
+  '0028_production_spec.sql']);
  verifyLibraryBackup(report.backup);
  if(format===3)assert.equal(sqlite.prepare("SELECT state FROM production_faults WHERE id='old-inherited'").get().state,'replaced');
  for(const mask of ['pass','override','blocked','deferred']){
@@ -584,54 +584,6 @@ for(const format of [2,3])test(`0028 merges format ${format} whole-story decisio
   assert.equal(!!verdict.overridden,mask==='override');
   assert.equal(dag.verdicts['narrativeVerdict:'].acceptance[1].evidence,'旧审片依据');
  }
-});
-
-test('0029 repairs the preview format 4 receipt and the production scheduler resumes after a verified backup',async t=>{
- const {productionFixture}=await import('./fixtures/production.mjs');
- const {normalizeStoryDocument}=await import('../server/migrations/production-v4.ts');
- const id=crypto.randomUUID(),legacy=crypto.randomUUID(),plan=makePlan(3);
- const selected=selectionSchema.parse({...selection,length:3});
- const doc={plan,images:[],audio:[],usage:[]};
- const dag=normalizeStoryDocument(id,doc,selected);
- const report=[];
- const f=await productionFixture(t,'codex',{}, {initialize(directory,root){
-  const db=historicalLibrary(directory,root,'0027_revision_fault_targets.sql');
-  try{
-   db.exec(`CREATE TABLE production_migration_diagnostics(session_id TEXT NOT NULL,owner_id TEXT NOT NULL,code TEXT NOT NULL,
-    PRIMARY KEY(session_id,owner_id));
-    ALTER TABLE stories ADD COLUMN shelf_cover TEXT;
-    PRAGMA user_version=4;
-    INSERT INTO app_migrations VALUES('0028_production_spec.sql','preview'),('0028_shelf_cover.sql','parallel');`);
-   const insert=db.prepare(`INSERT INTO stories(id,user_id,selection,document,state,generation_control,shelf_cover,created_at,updated_at)
-    VALUES(?,?,?,?,'idle','paused','saved-cover','c','u')`);
-   insert.run(id,localOwner,JSON.stringify(selected),JSON.stringify({audio:[],usage:[],dag}));
-   insert.run(legacy,localOwner,JSON.stringify(selected),JSON.stringify(doc));
-  }finally{db.close();}
-  report.push(ensureLibraryReady(directory,root));
- }});
- const [upgrade]=report;
- assert.deepEqual(upgrade.migrations,['0029_finalize_production_spec.sql','0030_rebind_production_receipts.sql']);
- verifyLibraryBackup(upgrade.backup);
- const backup=new DatabaseSync(path.join(upgrade.backup,'shiqu.sqlite'),{readOnly:true});
- try{
-  assert.equal(backup.prepare('PRAGMA user_version').get().user_version,4);
-  assert.equal(backup.prepare("SELECT name FROM sqlite_schema WHERE name='story_rows'").get(),undefined);
- }finally{backup.close();}
- await f.demand(id);
- await f.app.services.production.tick();
- for(const storyId of [id,legacy]){
-  const row=await f.app.services.database.prepare('SELECT * FROM story_rows WHERE id=?').bind(storyId).first();
-  assert.equal(row.shelf_cover,'saved-cover');
-  assert.equal(row.generation_control,'paused');
-  assert.equal(Object.hasOwn(JSON.parse(row.document),'images'),false);
-  assert.deepEqual((await f.read(storyId)).story.pages.map(page=>page.caption),plan.pages.map(page=>page.caption));
- }
- const db=f.app.services.database;
- assert.equal((await db.prepare("SELECT applied_at FROM app_migrations WHERE name='0028_production_spec.sql'").first()).applied_at,'preview');
- assert.equal((await db.prepare("SELECT applied_at FROM app_migrations WHERE name='0028_shelf_cover.sql'").first()).applied_at,'parallel');
- assert.deepEqual(decodeDocument(await db.prepare('SELECT * FROM story_rows WHERE id=?').bind(id).first()).dag.products,dag.products);
- assert.equal(f.control.calls.length+f.control.dagCalls.length,0);
- assert.equal(ensureLibraryReady(f.dataDirectory,f.root),undefined);
 });
 
 test('a migrated paused landscape resumes through the standard endpoint with its returned ID',async t=>{
@@ -703,7 +655,7 @@ test('format four keeps all four setup requirement states from the effective his
  }
 });
 
-for(const mode of ['active','reader-paused','preview-archive','preview-crash','recovery','recovery-collision','stale','canonical','canonical-retry','canonical-damaged'])test(`an outline receipt is migrated only for a matching request (${mode})`,async t=>{
+for(const mode of ['active','reader-paused','recovery','stale'])test(`an outline receipt is migrated only for a matching request (${mode})`,async t=>{
  const {productionFixture,until}=await import('./fixtures/production.mjs');
  const {apply,requestFor,settle,work}=await import('../lib/production-dag/runner.ts');
  const {emptyDag}=await import('../lib/production-dag/document.ts');
@@ -720,14 +672,13 @@ for(const mode of ['active','reader-paused','preview-archive','preview-crash','r
  const request=requestFor(basis,outline),targets=outline.instances.map(item=>[item.id,item.hard??null]);
  const legacyId=stableFingerprint(['dag-job',id,null,'outline',0,targets,
   mode==='stale'?{...request,args:{...request.args,productionPrompt:'已经变更的请求。'}}:request]);
- const currentId=stableFingerprint(['dag-job',id,null,'outline',targets,request]);
- const paidTitle='已经付费的提纲',canonicalTitle='按正式身份保存的提纲';
+ const paidTitle='已经付费的提纲';
  const receipt=title=>({value:{title,summary:plan.summary,sourceReference:plan.sourceReference,adaptationNote:plan.adaptationNote,
   beats:plan.pages.map(page=>page.caption)},model:'paid-fixture',requestId:'original-paid-request',usage:{calls:1},
   entry:{step:'dag:outline',model:'paid-fixture',requestId:'original-paid-request',usage:{calls:1}}});
  const report=[];
- const recovering=mode==='recovery'||mode==='recovery-collision';
- const running=recovering||mode==='preview-crash';
+ const recovering=mode==='recovery';
+ const running=recovering;
  const f=await productionFixture(t,'codex',{}, {initialize(directory,root){
   const sqlite=historicalLibrary(directory,root,'0027_revision_fault_targets.sql');
   try{
@@ -743,19 +694,10 @@ for(const mode of ['active','reader-paused','preview-archive','preview-crash','r
     sqlite.prepare(`INSERT INTO reader_faults(id,session_id,owner_id,job_id,kind,node,node_key,version,message,state,command_id,created_at,updated_at)
      VALUES(?,?,?,?,'job','outline','','dag','重复派发不应发生','recovering',?,1,2)`).run(faultId,id,localOwner,legacyId,requestId);
    }
-   if(['preview-archive','preview-crash','canonical','canonical-retry','canonical-damaged','recovery-collision'].includes(mode)){
-    migrate(sqlite,root,directory,'0029_finalize_production_spec.sql');
-    if(mode!=='recovery-collision')sqlite.prepare('DELETE FROM production_jobs WHERE id=?').run(legacyId);
-    if(mode.startsWith('canonical'))sqlite.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,payload,state,attempts,created_at,updated_at)
-     VALUES(?,?,?,'dag','text','dag',?,'queued',1,1,2)`).run(currentId,id,localOwner,
-      mode==='canonical-damaged'?'not a valid job payload':JSON.stringify({work:outline,...(mode==='canonical'?{paid:receipt(canonicalTitle)}:{})}));
-    if(mode==='recovery-collision')sqlite.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,payload,state,created_at,updated_at)
-     VALUES(?,?,?,'dag','text','dag',?,'queued',1,2)`).run(currentId,id,localOwner,JSON.stringify({work:outline}));
-   }
   }finally{sqlite.close();}
   report.push(ensureLibraryReady(directory,root));
  }});
- assert.ok(report[0].migrations.includes('0030_rebind_production_receipts.sql'));
+ assert.ok(report[0].migrations.includes('0028_production_spec.sql'));
  verifyLibraryBackup(report[0].backup);
  f.control.hold=false;
  if(mode==='reader-paused'){
@@ -769,7 +711,7 @@ for(const mode of ['active','reader-paused','preview-archive','preview-crash','r
  const database=f.app.services.database;
  const saved=decodeDocument(await database.prepare('SELECT * FROM story_rows WHERE id=?').bind(id).first());
  assert.equal(f.control.dagCalls.filter(call=>call==='outline').length,mode==='stale'?1:0);
- assert.equal(saved.dag.outline.title,mode==='stale'?plan.title:mode==='canonical'?canonicalTitle:paidTitle);
+ assert.equal(saved.dag.outline.title,mode==='stale'?plan.title:paidTitle);
  assert.equal(saved.usage.filter(call=>call.requestId==='original-paid-request').length,mode==='stale'?0:1);
  if(recovering){
   const replay=await f.json(`sessions/${id}/recover`,'POST',{requestId,faultId});
@@ -778,52 +720,3 @@ for(const mode of ['active','reader-paused','preview-archive','preview-crash','r
  }
 });
 
-test('0030 rebinds a preview revision’s leaked portrait URLs and preserves print bindings',async t=>{
- const {productionFixture}=await import('./fixtures/production.mjs');
- const {transaction}=await import('../server/database.ts');
- const {writeStoryProducts}=await import('../server/production-products.ts');
- const {normalizeStoryDocument}=await import('../server/migrations/production-v4.ts');
- const {referenceImageKey}=await import('../lib/reader-image-assets.ts');
- const {makeStory}=await import('./fixtures/story.mjs');
- const parent=crypto.randomUUID(),id=crypto.randomUUID(),printId=crypto.randomUUID();
- const plan=makePlan(3),picked=selectionSchema.parse({...selection,length:3});
- const images=plan.pages.map((_,index)=>`/api/reader/media/${parent}/${index}.png`);
- const original={title:'庄子',text:'昔者庄周梦为胡蝶。',url:'https://example.test',kind:'passage',provider:'fixture',retrievedAt:'2026-01-01'};
- const report=[];
- const f=await productionFixture(t,'codex',{}, {initialize(directory,root){
-  const sqlite=historicalLibrary(directory,root,'0029_finalize_production_spec.sql');
-  try{
-   const folder=path.join(directory,'media','reader',parent);
-   mkdirSync(folder,{recursive:true});
-   for(let index=0;index<images.length;index++)writeFileSync(path.join(folder,index+'.png'),png);
-   const print={id:printId,story:{...makeStory(3),pages:plan.pages.map((page,index)=>({...page,image:images[index]}))},plan,control:'paused'};
-   for(const key of [parent,id]){
-    const doc={plan,images,audio:[],usage:[],original,...(key===id?{revision:{rootId:parent,parentId:parent,number:2},landscapePrints:[print,null]}:{})};
-    doc.dag=normalizeStoryDocument(key,doc,picked);
-    transaction(sqlite,db=>writeStoryProducts(db,key,localOwner,doc,stored=>db.run(`INSERT INTO stories(
-     id,user_id,selection,document,generation_control,production_complete,created_at,updated_at)
-     VALUES(?,?,?,?,'paused',1,'c','u')`,key,localOwner,JSON.stringify(picked),stored).changes));
-   }
-   sqlite.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,payload,state,created_at,updated_at)
-    VALUES('print',?,?,'landscape-print','landscape',?,?,'queued',1,1)`)
-    .run(id,localOwner,printId,JSON.stringify({input:{index:0,reference:images[0]}}));
-  }finally{sqlite.close();}
-  report.push(ensureLibraryReady(directory,root));
- }});
- const [upgrade]=report;
- assert.deepEqual(upgrade.migrations,['0030_rebind_production_receipts.sql']);
- verifyLibraryBackup(upgrade.backup);
- const database=f.app.services.database;
- const child=decodeDocument(await database.prepare('SELECT * FROM story_rows WHERE id=?').bind(id).first());
- assert.ok(child.images.every(image=>referenceImageKey(id,image)));
- assert.deepEqual(child.landscapePrints[0].story.pages.map(page=>page.image),child.images);
- assert.equal(child.landscapePrints[1],null);
- assert.equal(JSON.parse((await database.prepare("SELECT payload FROM production_jobs WHERE id='print'").first()).payload).input.reference,child.images[0]);
- await f.json(`library/${parent}`,'DELETE');
- for(const image of child.images){
-  const response=await f.app.handle(new Request('http://localhost'+image));
-  assert.equal(response.status,200);
-  assert.deepEqual(new Uint8Array(await response.arrayBuffer()),new Uint8Array(png));
- }
- assert.equal(f.control.calls.length+f.control.dagCalls.length,0);
-});

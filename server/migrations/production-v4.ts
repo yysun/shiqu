@@ -7,7 +7,6 @@ import {acceptanceCriteria,type AcceptanceResult} from '../../lib/reader-accepta
 import {savedStory,selectionSchema,type Document,type Selection,type SessionRow} from '../../lib/reader-model.ts';
 import {requirementEdits,requirementKeys,suggestedSettings,type RequirementEdits} from '../../lib/reader-requirements.ts';
 import {endingChoice,type DagDocument} from '../../lib/production-dag/document.ts';
-import {projectDocument} from '../../lib/production-dag/projection.ts';
 import {evaluate,type Product} from '../../lib/production-dag/engine.ts';
 import {fingerprint} from '../../lib/production-dag/fingerprint.ts';
 import {drawInput,finished,stateOf} from '../../lib/production-dag/runner.ts';
@@ -134,27 +133,9 @@ function normalizeRequirementEdits(doc:Document,selection:Selection){
 }
 
 export const productionSpecMigration='0028_production_spec.sql';
-export const finalizeProductionSpecMigration='0029_finalize_production_spec.sql';
 type Row=Omit<SessionRow,'generation_control'|'production_complete'>&{generation_mode:string;generation_control:string};
 
-/** 开发预览已写入 0028 回执并转换文档，但仍保留旧队列表和修订索引。 */
-export function finalizeProductionSpec(db:DatabaseSync,readSchema:()=>string,directory?:string){
- const columns=(table:string)=>new Set(db.prepare('SELECT name FROM pragma_table_info(?)').all(table).map(row=>row.name));
- const revisions=columns('story_revisions'),stories=columns('stories'),jobs=columns('production_jobs');
- const tableExists=db.prepare("SELECT 1 FROM sqlite_schema WHERE name=? AND type=?");
- const layout=[['story_rows','view'],['production_faults','view'],['production_repair_budgets','view'],
-  ['production_products','table'],['production_product_refs','table'],['production_attempt_events','table'],
-  ['production_media_health','table'],['production_media_aliases','table']];
- if(layout.every(([name,type])=>tableExists.get(name,type))&&
-  ['owner_id','root_id','edition','control'].every(column=>revisions.has(column))&&stories.has('production_complete')&&!jobs.has('dependencies'))return;
- if(revisions.size!==2||!revisions.has('story_id')||!revisions.has('rev')||!stories.has('generation_mode')||
-  !stories.has('state')||stories.has('production_complete')||!jobs.has('dependencies')||
-  !tableExists.get('production_migration_diagnostics','table')||!tableExists.get('reader_faults','table')||
-  layout.some(([name,type])=>tableExists.get(name,type)))throw Error('UNRECOGNIZED_PRODUCTION_SPEC_SCHEMA');
- migrateProductionSpec(db,readSchema(),directory,true);
-}
-
-export function migrateProductionSpec(db:DatabaseSync,sql:string,directory?:string,finishPreview=false){
+export function migrateProductionSpec(db:DatabaseSync,sql:string,directory?:string){
  db.exec(sql);
  db.exec('ALTER TABLE stories ADD COLUMN production_complete INTEGER NOT NULL DEFAULT 0');
  const ids=db.prepare('SELECT id,user_id FROM stories').all() as {id:string;user_id:string}[];
@@ -171,8 +152,7 @@ export function migrateProductionSpec(db:DatabaseSync,sql:string,directory?:stri
   db.exec('SAVEPOINT normalize_production_story');
   try{
    const doc=JSON.parse(row.document) as OldPrintDocument,selection=selectionSchema.parse(JSON.parse(row.selection));
-   const normalized=finishPreview&&!!doc.dag&&!Object.hasOwn(doc.dag,'items');
-   if((!normalized||doc.images!==undefined)&&!Array.isArray(doc.images)||!Array.isArray(doc.usage)||
+   if(!Array.isArray(doc.images)||!Array.isArray(doc.usage)||
     doc.dag&&!Array.isArray(doc.dag.order))throw Error('INVALID_PRODUCTION_DOCUMENT');
    if(doc.visualReview){
     const records=new Map<string,PromptRecord>();
@@ -183,15 +163,12 @@ export function migrateProductionSpec(db:DatabaseSync,sql:string,directory?:stri
     const {entries}=legacyReviewHistory(row,records);
     if(entries.length)doc.archivedReviewHistory=entries;
    }
-   if(normalized&&doc.dag){
-    // 预览格式已经按当时的稿件采纳审片结论。这里只将产物移入共享存储。
-    if(!doc.plan||!doc.images)Object.assign(doc,projectDocument(doc.dag,doc.plan??null));
-   }else if(doc.dag||doc.plan||doc.storyboard||doc.draft||!doc.intake){
+   if(doc.dag||doc.plan||doc.storyboard||doc.draft||!doc.intake){
     doc.dag=normalizeStoryDocument(row.id,doc,selection);
     if(doc.dag.modelSnapshot)doc.dag.modelSnapshot=drawingSnapshot(doc.dag.modelSnapshot);
     if(!doc.dag.order.length&&doc.intake?.phase!=='confirmed'&&doc.intake)delete doc.dag;
    }
-   if(!normalized||!doc.landscapePrints?.length)restoreLandscapePrint(db,row,doc,selection,hasLegacyLandscapeJobs,directory);
+   restoreLandscapePrint(db,row,doc,selection,hasLegacyLandscapeJobs,directory);
    for(const print of doc.landscapePrints??[])if(print.modelSnapshot)print.modelSnapshot=drawingSnapshot(print.modelSnapshot);
    if(doc.setupRequirements||doc.intake?.draft||doc.frameRecommendation?.requirements)
     doc.setupRequirements={edited:normalizeRequirementEdits(doc,selection),suggestions:doc.setupRequirements?.suggestions};

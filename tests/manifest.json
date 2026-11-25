@@ -4652,7 +4652,7 @@
         "server/library-backup.ts",
         "server/migrations/production-v4.ts",
         "server/migrations/production-v4-repair.ts",
-        "drizzle/0030_rebind_production_receipts.sql",
+        "drizzle/0028_production_spec.sql",
         "server/database.ts",
         "server/production-products.ts",
         "tests/fixtures/historical-library.mjs",
