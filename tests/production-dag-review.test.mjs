@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {evaluate,complete,runnable} from '../lib/production-dag/engine.ts';
 import {callGroups} from '../lib/production-dag/schedule.ts';
-import {splitJudgements,liveSuggestions,override,newRepairBudget,canRepair,grantRepairs} from '../lib/production-dag/review.ts';
+import {override,newRepairBudget,canRepair,grantRepairs} from '../lib/production-dag/review.ts';
 import {story,run,handEdit,count,clone,root} from './fixtures/production-dag.mjs';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 
@@ -45,24 +45,17 @@ test('scenario 18: an override covers only its verdict and lapses when that verd
  assert.ok(!evaluate(s).approved());
 });
 
-test('scenarios 30 and 52: only allowed verdicts are replaced; other judgements become suggestions',()=>{
- const batch={stage:1,allowed:['frameVerdict:f9','frameVerdict:f10','frameVerdict:f11']};
- const {replace,suggestions}=splitJudgements(batch,[{id:'frameVerdict:f10',outcome:'pass'},{id:'frameVerdict:f30',outcome:'fail',detail:'服饰不一致'}]);
- assert.deepEqual(replace.map(j=>j.id),['frameVerdict:f10']);
- assert.deepEqual(suggestions.map(j=>j.id),['frameVerdict:f30']);
-});
-
 test('scenarios 31 and 36: one review call per stage, planned by the same grouping the scheduler uses',()=>{
  const s=story({frames:6});run(s);
  for(const id of ['f1','f2','f3','f4'])handEdit(s,'visual',id);
- const plan=callGroups(s).filter(g=>g.call==='review');
+ const plan=callGroups(evaluate(s)).filter(g=>g.call==='review');
  assert.deepEqual(plan.map(g=>g.stage),[1]);
  assert.deepEqual(plan[0].instances.map(i=>i.id).sort(),['frameVerdict:f1','frameVerdict:f2','frameVerdict:f3','frameVerdict:f4','frameVerdict:f5'].sort(),'image-description edits leave the narrative verdict valid');
  const log=run(s);
  assert.deepEqual(log.filter(l=>l.call.startsWith('review')).map(l=>l.ids.sort()),[plan[0].instances.map(i=>i.id).sort()]);
  const big=story({frames:40});run(big);
  for(let i=1;i<=15;i++)handEdit(big,'visual',`f${i}`);
- const bigPlan=callGroups(big).filter(g=>g.call==='review');
+ const bigPlan=callGroups(evaluate(big)).filter(g=>g.call==='review');
  assert.equal(bigPlan.length,1);
  assert.ok(!bigPlan[0].instances.some(i=>i.id==='frameVerdict:f30'));
 });
@@ -95,14 +88,6 @@ test('scenario 37: each saved revision has 20 automatic repairs; continuing gran
  b=grantRepairs(b);
  assert.ok(canRepair(b));
  assert.equal(b.limit-b.used,20);
-});
-
-test('scenario 39: a suggestion disappears once its target verdict is produced again',()=>{
- const s=story({frames:40});run(s);
- const suggestion={target:'frameVerdict:f30',targetHash:s.products['frameVerdict:f30'].hash,detail:'服饰不一致'};
- assert.equal(liveSuggestions(s,[suggestion]).length,1);
- handEdit(s,'visual','f30');run(s);
- assert.equal(liveSuggestions(s,[suggestion]).length,0);
 });
 
 test('scenario 47: reordering re-checks order-dependent items without redrawing',()=>{

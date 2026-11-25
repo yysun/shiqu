@@ -3,9 +3,8 @@
 import {registerDagProgress} from '../reader-model.ts';
 import type {Document,Selection,Step} from '../reader-model.ts';
 import {activeReviewSkip} from './review-skip.ts';
-import {evaluate} from './engine.ts';
 import {describeProductionCall} from '../production-lifecycle.ts';
-import {settle,work,attention,finished,stateOf,type Attention,type DagStory} from './runner.ts';
+import {settle,deriveProduction,attention,stateOf,type DagStory} from './runner.ts';
 
 export type DagReviewProgress={
  reviewStatus:'pending'|'repair'|'blocked'|'passed';
@@ -18,8 +17,7 @@ export type DagProgress={step:Step|null;review:DagReviewProgress;complete:boolea
 
 const repairCalls=new Set(['sceneRepair','visualRepair','structureRepair','endingRepair']);
 /** 只展示当前结论对应的问题，已失效或已放行的问题仍可在历史中查看。 */
-export function reviewAttention(story:DagStory){
- const reasons=attention(story);
+export function reviewAttention(story:DagStory,reasons=attention(story)){
  const targets=new Set(reasons.map(item=>item.target));
  const issues=(story.dag.issues??[]).filter(issue=>targets.has(issue.target));
  return {reasons,issues};
@@ -30,17 +28,14 @@ export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
  if(!doc.dag||doc.intake&&doc.intake.phase!=='confirmed')return null;
  const base:DagStory={id:'',doc,selection,dag:doc.dag,confirmed:true,faults:[]};
  const story={...base,dag:settle(base)};
- const {order}=story.dag,evaluation=evaluate(stateOf(story));
+ const {order}=story.dag,{evaluation,work:items,attention:waiting,complete}=deriveProduction(story);
  // 旧版产物仍可阅读，制作进度只统计当前设置下有效的产物。
  const frameCount=evaluation.instance('outline').status==='valid'?order.length:typeof selection.length==='number'?selection.length:null;
  const storyboardFrames=order.filter(id=>evaluation.instance('scene',id).status==='valid').length;
  const drawingFrames=order.filter(id=>evaluation.instance('frameImage',id).status==='valid').length;
  // 等待继续时仍显示真实的接续步骤，调度由持久化等待状态阻止。
- const items=work(story);
  const text=items.find(item=>item.call!=='draw'&&item.call!=='drawLandscape');
  const drawing=items.find(item=>item.call==='draw');
- const waiting:Attention[]=attention(story);
- const complete=finished(story);
  const used=story.dag.repairs?.used??0;
  const key=text?`${text.call}:${text.stage??0}`:'';
  const description=text&&describeProductionCall(text.call,text.instances.map(instance=>order.indexOf(instance.key)+1).filter(n=>n>0),used);

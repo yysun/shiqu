@@ -221,19 +221,19 @@ export function dagGenerator(call:Call){
 
   /**
    * 分阶段审片：一次调用读取全篇作为上下文，只对允许清单内的结论作出判断。
-   * 允许清单外的判断作为建议返回，调用方据此只替换允许的结论。
+   * 允许清单外的判断丢弃。
    */
   async review(input:ReviewInput):Promise<Generated<ReviewOutcome>>{
    const count=input.frames.length,criteria=acceptanceCriteria(input.acceptancePrompt);
    const choosing=input.allowed.narrative&&!input.confirmedEnding&&input.candidates?.length===3?input.candidates as [string,string,string]:undefined;
    // 幅数与详略由幅数与结构核对负责，审片不重复判断，因此不提供详略设置、按固定幅数审核。
    const {schema,instructions}=fullReviewRequest(count,false,choosing,input.acceptancePrompt);
-   const allowedText=`只对以下对象作出结论：画幅 ${input.allowed.pages.join('、')||'无'}；验收条目编号 ${input.allowed.criteria.join('、')||'无'}；${input.allowed.narrative?'标题与结语（page=0）':'不含标题与结语'}。其余发现仍可列入 issues，系统会作为建议处理。`;
+   const allowedText=`只对以下对象作出结论：画幅 ${input.allowed.pages.join('、')||'无'}；验收条目编号 ${input.allowed.criteria.join('、')||'无'}；${input.allowed.narrative?'标题与结语（page=0）':'不含标题与结语'}。issues 只列本次结论涉及的问题。`;
    const reflectionText=input.confirmedEnding?.ending??input.chosenEnding??input.candidates?.[0],titleText=input.confirmedEnding?.title??input.title;
    const omitted=[!input.style&&'画风',!input.characters&&'人物设定',!input.outline&&'提纲',!titleText&&!reflectionText&&'标题与结语'].filter(Boolean);
    // 本阶段须给出结果的验收条目：允许的全篇条目，以及有逐幅结论时的逐幅条目。
    const required=[...input.allowed.criteria,...(input.allowed.pages.length?input.frameCriteria??[]:[])].sort((a,b)=>a-b);
-   const sections=promptSections(['本次结论范围',allowedText],['读者确认',input.confirmedEnding?'plan.title 与 plan.reflection 是读者确认的标题与结语，只判断是否合格，不改选。':''],['本次输入',omitted.length?`本次结论不依据${omitted.join('、')}，因此未提供；不要就这些内容作出判断。`:''],['本次验收结果',criteria.length?(required.length?`acceptanceResults 须覆盖编号 ${required.join('、')}，每条一次；其余编号可以省略，返回的只作建议。`:'本次不需要 acceptanceResults 覆盖任何编号；返回的只作建议。'):'']);
+   const sections=promptSections(['本次结论范围',allowedText],['读者确认',input.confirmedEnding?'plan.title 与 plan.reflection 是读者确认的标题与结语，只判断是否合格，不改选。':''],['本次输入',omitted.length?`本次结论不依据${omitted.join('、')}，因此未提供；不要就这些内容作出判断。`:''],['本次验收结果',criteria.length?(required.length?`acceptanceResults 须覆盖编号 ${required.join('、')}，每条一次。`:'本次无需返回验收条目结果。'):'']);
    const reflection=reflectionText,title=titleText;
    const original=input.source.original,verified=original.storyBrief;
    // 只有当前梗概仍采用核对过的原文摘要时，才沿用对应的选题依据。
@@ -269,7 +269,7 @@ export type ReviewInput={
  frameCriteria?:number[];
 };
 export type Judgement={id:string;outcome:'pass'|'fail';detail?:string;requirements?:boolean};
-export type ReviewOutcome={judgements:Judgement[];suggestions:Judgement[];endingChoice?:string;issues:ReviewIssue[]};
+export type ReviewOutcome={judgements:Judgement[];endingChoice?:string;issues:ReviewIssue[]};
 
 type Report=ReturnType<ReturnType<typeof reviewReportSchema>['parse']>;
 /**
@@ -277,36 +277,38 @@ type Report=ReturnType<ReturnType<typeof reviewReportSchema>['parse']>;
  * 逐幅验收条目的未通过或无法判断落到所列画幅（未列画幅时落到全部允许画幅）的逐幅结论，无法判断记为需读者处理。
  */
 function reviewOutcome(input:ReviewInput,report:Report,choosing?:string[]):ReviewOutcome{
- const judgements:Judgement[]=[],suggestions:Judgement[]=[];
+ const judgements:Judgement[]=[];
  const pages=new Set(input.allowed.pages),criteria=new Set(input.allowed.criteria),frameCriteria=new Set(input.frameCriteria??[]);
  const results=report.acceptanceResults||[];
  const missing=[...criteria].filter(n=>!results.some(r=>r.criterion===n));
  if(missing.length)throw Error(`REVIEW_INCOMPLETE: criteria ${missing.join(',')}`);
+ const criteriaPages=new Set(results.filter(r=>criteria.has(r.criterion)&&r.status==='failed').flatMap(r=>r.pages));
+ const issues=report.issues.filter(issue=>pages.has(issue.page)||criteriaPages.has(issue.page)||input.allowed.narrative&&issue.page===0);
  const issuesOn=(page:number)=>report.issues.filter(i=>i.page===page);
  // 逐幅条目的结果按画幅归集。
  const frameResults=new Map<number,{detail:string;requirements:boolean}[]>();
  for(const result of results.filter(r=>frameCriteria.has(r.criterion)&&r.status!=='passed')){
-  // 报告列出了画幅就只落到所列画幅（范围外的画幅成为建议，不影响本次范围内的结论）；没有列出画幅时才落到全部允许画幅。
-  const listed=result.pages.filter(p=>Number.isInteger(p)&&p>=1&&p<=input.frames.length);
+  // 有幅号时只处理所列且允许判断的画幅；未列幅号时覆盖本次允许判断的画幅。
+  const listed=result.pages.filter(p=>pages.has(p));
   for(const page of result.pages.length?listed:[...pages])frameResults.set(page,[...(frameResults.get(page)??[]),{detail:result.evidence,requirements:result.status==='unknown'}]);
  }
- for(let page=1;page<=input.frames.length;page++){
+ for(const page of pages){
   const issues=issuesOn(page),items=frameResults.get(page)??[],id=`frameVerdict:${input.frames[page-1].id}`;
   const failed=issues.length>0||items.length>0;
   const detail=[...issues.map(i=>i.problem),...items.map(i=>i.detail)].join('；');
   const judgement:Judgement={id,outcome:failed?'fail':'pass',...(failed?{detail}:{}),...(items.some(i=>i.requirements)?{requirements:true}:{})};
-  if(pages.has(page))judgements.push(judgement);else if(failed)suggestions.push(judgement);
+  judgements.push(judgement);
  }
- const narrativeIssues=[...issuesOn(0),...report.issues.filter(i=>i.requiresReplan)];
+ const narrativeIssues=issues.filter(i=>i.page===0||i.requiresReplan);
  const narrative:Judgement={id:'narrativeVerdict:',outcome:narrativeIssues.length?'fail':'pass',...(narrativeIssues.length?{detail:narrativeIssues.map(i=>i.problem).join('；')}:{})};
- if(input.allowed.narrative)judgements.push(narrative);else if(narrativeIssues.length)suggestions.push(narrative);
+ if(input.allowed.narrative)judgements.push(narrative);
  for(const result of results){
   const itemId=input.itemIds[result.criterion];if(!itemId)continue;
   const judgement:Judgement={id:`itemVerdict:${itemId}`,outcome:result.status==='passed'?'pass':'fail',detail:result.evidence,...(result.status==='unknown'?{requirements:true}:{})};
-  if(criteria.has(result.criterion))judgements.push(judgement);else if(judgement.outcome==='fail')suggestions.push(judgement);
+  if(criteria.has(result.criterion))judgements.push(judgement);
  }
  const choice=choosing&&report.reflectionChoice?choosing[report.reflectionChoice.index-1]:undefined;
- return {judgements,suggestions,...(choice?{endingChoice:choice}:{}),issues:report.issues};
+ return {judgements,...(choice?{endingChoice:choice}:{}),issues};
 }
 
 

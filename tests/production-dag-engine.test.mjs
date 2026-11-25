@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {evaluate,complete,preview,reusable,runnable,instanceId} from '../lib/production-dag/engine.ts';
-import {applyStructure,castFrom} from '../lib/production-dag/frames.ts';
+import {castFrom} from '../lib/production-dag/frames.ts';
 import {story,run,handEdit,redraw,count,produced,clone,root} from './fixtures/production-dag.mjs';
 
 const done=(options={})=>{const s=story(options);run(s);return s;};
@@ -99,12 +99,6 @@ test('scenario 35: drawn characters follow the image description; captions are o
  assert.equal(evaluate(s).instance('frameImage','f2').status,'valid');
  s.frames.f2={...s.frames.f2,drawn:['c1','c3']};
  assert.equal(evaluate(s).instance('frameImage','f2').status,'invalid');
-});
-
-test('scenario 34: merge keeps the first identity; split keeps the original on the first piece',()=>{
- let n=0;const id=()=>`n${++n}`;
- assert.deepEqual(applyStructure(['a','b','c','d'],[{op:'merge',ids:['b','c']}],id),['a','b','d']);
- assert.deepEqual(applyStructure(['a','b'],[{op:'split',id:'a',parts:3}],id),['a','n1','n2','b']);
 });
 
 test('scenario 40: restyled image descriptions are valid immediately with the new style',()=>{

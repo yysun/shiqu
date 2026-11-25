@@ -9,7 +9,7 @@ import type {SessionView} from '@/lib/reader-model';
 import type {StoryEditorTab} from './StoryProductionEditor';
 export type RevisionTab=StoryEditorTab|'review';
 /** 服务端按引擎推导的保存前预估（server/dag-revisions.ts previewDagRevision）。 */
-export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:number;textWork:Record<string,number>;continues:boolean;handEdits:{id:string;options:string[]}[];carriedFaults:number};
+export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:number;textWork:Record<string,number>;continues:boolean;handEdits:{id:string;options:string[]}[];droppedRedrawNotePages:number[];carriedFaults:number};
 export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:SessionView,changes:RevisionChanges)=>Promise<void>,onOpenLatest?:(storyId:string)=>Promise<void>){
  const [tab,setTab]=useState<RevisionTab|null>(null),[base,setBase]=useState<RevisionSnapshot|null>(null),[changes,setChanges]=useState<RevisionChanges>({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[conflict,setConflict]=useState(false);
  const [scriptPage,setScriptPage]=useState(1),[summarizing,setSummarizing]=useState(false),[preview,setPreview]=useState<RevisionPreview|null>(null);

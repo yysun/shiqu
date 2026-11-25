@@ -41,7 +41,7 @@ export function replies({fail=()=>null,frameCheck=()=>'keep',repairSame=false}={
     }
     if(args.allowed.narrative)judgements.push({id:'narrativeVerdict:',outcome:'pass'});
     for(const n of args.allowed.criteria)judgements.push({id:`itemVerdict:${args.itemIds[n]}`,outcome:'pass'});
-    return {judgements,suggestions:[],...(args.allowed.narrative&&!args.chosenEnding?{endingChoice:args.candidates[0]}:{}),issues};
+    return {judgements,...(args.allowed.narrative&&!args.chosenEnding?{endingChoice:args.candidates[0]}:{}),issues};
    }
    default:throw Error('unexpected '+method);
   }

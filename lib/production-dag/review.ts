@@ -1,4 +1,4 @@
-// 审片规则：分阶段批量调用、允许清单、建议、核对标记确认与修订额度。
+// 审片规则：分阶段批量调用、核对标记确认与修订额度。
 // 结论的失效由引擎按各自输入推导；每阶段一次调用的分组由 schedule.ts 的 callGroups() 决定。
 // 第二阶段（依赖选定结语的条目）在引擎中天然等待叙事结论有效，因此每阶段最多一次调用。
 import {evaluate,instanceId,type Instance,type VersionState,type Product} from './engine.ts';
@@ -11,24 +11,6 @@ export function reviewStage(state:VersionState,instance:Pick<Instance,'node'|'ke
  if(instance.node!=='itemVerdict')return 1;
  const evidence=state.products[instanceId('itemRegistration',instance.key)]?.evidence;
  return !evidence?.length||evidence.includes('ending')?2:1;
-}
-
-/** 一次审片调用替换的结论；由调度分组 callGroups() 给出，测试与正式调度共用。 */
-export type ReviewBatch={stage:1|2;allowed:string[]};
-
-export type ReviewJudgement={id:string;outcome:'pass'|'fail';detail?:string};
-
-/** 只替换允许清单内的结论；清单外的判断记为建议，不阻断、不触发修订。 */
-export function splitJudgements(batch:ReviewBatch,judgements:ReviewJudgement[]){
- const allowed=new Set(batch.allowed);
- return {replace:judgements.filter(j=>allowed.has(j.id)),suggestions:judgements.filter(j=>!allowed.has(j.id))};
-}
-
-export type Suggestion={target:string;targetHash?:string;detail:string};
-
-/** 建议在目标下一次产出结论时消失；不带入之后的版本。 */
-export function liveSuggestions(state:VersionState,suggestions:Suggestion[]):Suggestion[]{
- return suggestions.filter(s=>state.products[s.target]?.hash===s.targetHash);
 }
 
 /**

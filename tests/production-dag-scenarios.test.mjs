@@ -1908,8 +1908,9 @@ test('preview and save share one calculation: review notes count, hand edits are
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  const {id}=await completedStory(f);
- // 先手改一幅配文并继续到完成，使其成为受保护的手改。
- const edit=await revise(f,id,snapshot=>{const plan=structuredClone(snapshot.plan);plan.pages[1].caption='鲍叔牙在集市上替管仲付了账。';return {plan};});
+ // 先保存重绘说明，再手改配文并继续到完成。
+ const redraw=await revise(f,id,()=>({redrawPages:[1],redrawNotes:{1:'首幅使用晨光。'}}));
+ const edit=await revise(f,redraw.child,snapshot=>{const plan=structuredClone(snapshot.plan);plan.pages[1].caption='鲍叔牙在集市上替管仲付了账。';return {plan};});
  const base=await f.json(`sessions/${edit.child}/revisions`);
  const text=()=>f.control.reviews.length+f.control.calls.length+f.control.dagCalls.length;
  const calls=text();
@@ -1919,6 +1920,7 @@ test('preview and save share one calculation: review notes count, hand edits are
  // 制作要求改变会重新编排并丢弃该手改：预估列为冲突，保存被拒绝且不留下新版。
  const prompt=await f.json(`sessions/${edit.child}/revisions/preview`,'POST',{token:base.token,changes:{productionPrompt:'写清选择与代价，突出转变'}});
  assert.ok(prompt.conflicts.length>0,'the hand edit conflicts with a re-plan');
+ assert.deepEqual(prompt.droppedRedrawNotePages,[1]);
  const stories=(await f.app.services.database.prepare('SELECT COUNT(*) AS n FROM stories').first()).n;
  const refused=await f.request(`sessions/${edit.child}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{productionPrompt:'写清选择与代价，突出转变'}});
  assert.equal(refused.status,409);const message=(await refused.json()).error;assert.match(message,/第 \d+ 幅的配文/,'names the frame, not an internal id');assert.doesNotMatch(message,/\bn\d+\b/);
@@ -1926,6 +1928,7 @@ test('preview and save share one calculation: review notes count, hand edits are
  // 画风改变只需以手改为基础转换：不弹窗、不拒绝。
  const style=await f.json(`sessions/${edit.child}/revisions/preview`,'POST',{token:base.token,changes:{artStyle:'watercolor'}});
  assert.deepEqual(style.conflicts,[]);
+ assert.deepEqual(style.droppedRedrawNotePages,[]);
  assert.equal(text(),calls,'preview and a refused save started no model call');
 });
 

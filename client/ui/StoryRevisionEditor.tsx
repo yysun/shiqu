@@ -37,6 +37,7 @@ function RevisionConflicts({editor}:{editor:StoryRevisionEditorState}){
 export function StoryRevisionActions({editor,resuming=false}:{editor:StoryRevisionEditorState;resuming?:boolean}){
  const {impact,base,changes,busy}=editor;
  if(!impact||!base)return null;
+ const droppedRedrawNotePages=editor.preview?.droppedRedrawNotePages??[];
  const style=artStyleSettings(base.selection,changes);
  const restyle=!impact.review&&!sameArtDirection(base.selection,style);
  const summaryOnly=!impact.review&&!restyle&&revisionStorySummaryChanged(base,changes);
@@ -56,6 +57,7 @@ export function StoryRevisionActions({editor,resuming=false}:{editor:StoryRevisi
  }
  return <section className="yu-revision-impact" aria-label="本次修改影响">
   {detail&&<p role="status">{detail}</p>}
+  {droppedRedrawNotePages.length>0&&<p role="status">将丢弃原第 {droppedRedrawNotePages.join('、')} 幅的重绘说明。</p>}
   <RevisionConflicts editor={editor}/>
   {editor.error&&<p role="alert">{editor.error}</p>}
   <div className="production-stage-actions"><button type="button" className="yu-primary" disabled={busy||editor.loading||!impact.changed||impact.conflict||editor.conflict} aria-busy={busy} onClick={()=>void editor.submit()}>{busy?'正在提交…':action}</button></div>

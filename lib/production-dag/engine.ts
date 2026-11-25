@@ -202,6 +202,14 @@ export class Evaluation{
  all():Instance[]{
   return Object.keys(nodes).filter(node=>nodeSpec(node).kind==='model').flatMap(node=>instanceKeys(this.state,node).map(key=>this.instance(node,key)));
  }
+
+ /** 必需节点和审核都有效、且没有未解除的必需故障时完成。 */
+ complete():boolean{
+  if(!this.approved(true))return false;
+  const required=this.all().filter(i=>nodeSpec(i.node).required);
+  if(required.some(i=>i.status!=='valid'))return false;
+  return !this.state.faults.some(f=>f.state!=='resolved'&&!f.optional&&nodeSpec(f.node).required);
+ }
 }
 
 const sameInputs=(a:Record<string,string>,b:Record<string,string>)=>{
@@ -228,11 +236,7 @@ export function jobIdentity(sessionId:string,node:string,key:string,inputs:Recor
 
 /** 整篇完成：必需节点全部有效、可绘图、必需节点没有未解除故障；可选产物不影响。 */
 export function complete(state:VersionState):boolean{
- const evaluation=evaluate(state);
- if(!evaluation.approved(true))return false;
- const required=evaluation.all().filter(i=>nodeSpec(i.node).required);
- if(required.some(i=>i.status!=='valid'))return false;
- return !state.faults.some(f=>f.state!=='resolved'&&!f.optional&&nodeSpec(f.node).required);
+ return evaluate(state).complete();
 }
 
 /** 图片按绘图硬输入复用，不要求画幅身份相同：在候选产物中找硬输入完全一致且可读的一份。 */

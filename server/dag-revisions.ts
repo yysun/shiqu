@@ -13,7 +13,7 @@ import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {castFrom} from '../lib/production-dag/frames.ts';
 import {projectDocument,rootProducts,type DagDocument} from '../lib/production-dag/document.ts';
-import {settle,stateOf,syncItems,work,type DagStory} from '../lib/production-dag/runner.ts';
+import {settle,stateOf,syncItems,work,deriveProduction,type DagStory} from '../lib/production-dag/runner.ts';
 import {handEditChoices} from '../lib/production-dag/hand-edits.ts';
 import {verdictNodes} from '../lib/production-dag/review.ts';
 import {survivingRevisionFrames,usesStoryImageReference} from '../lib/reader-revision.ts';
@@ -228,7 +228,7 @@ function handEditLabel(id:string,order:string[]){const [node,key]=id.split(':'),
 
 /**
  * 修订的唯一计算（保存与预估共用）：合入设置与文字修改（含审核意见），按手改默认保护处理手改，
- * 新修订重新开始自动修订额度，审片问题与建议不带入。不写入、不读媒体；保存另外复制图片与首幅原图后再 settle。
+ * 新修订重新开始自动修订额度。计算不写入、不读媒体；保存另复制图片与首幅原图，再确定可复用产物。
  */
 function deriveRevision(db:ReadStatements,doc:Document,row:SessionRow,changes:RevisionChanges,childId:string,strict:boolean){
  // 原文出处与改编说明是来源信息，不随分镜编辑改变（v0.14.0 同样拒绝）。
@@ -252,7 +252,8 @@ function deriveRevision(db:ReadStatements,doc:Document,row:SessionRow,changes:Re
  delete edited.resumeUnreviewed;
  for(const [id,product] of Object.entries(edited.products))if(product.unreviewed)delete edited.products[id];
  const outcome=settleHandEdits(child,changes.handEdits,strict);
- child.dag={...outcome.dag,repairs:undefined,issues:[],suggestions:[]};
+ child.dag={...outcome.dag,repairs:undefined,issues:[]};
+ delete child.dag.suggestions;
  // 横图随发起版本独立保留，新版只有再次明确发起时才有横图任务。
  for(const key of child.dag.order){
   const frame=child.dag.frames[key];
@@ -271,6 +272,8 @@ export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:n
  handEdits:{id:string;options:string[]}[];
  /** 无法保留的手改：保存会被拒绝（读者须先撤销该设置修改）；预估对它们按放弃估算。 */
  conflicts:{id:string;message:string}[];
+ /** 失去画幅身份时会丢弃重绘说明的原幅号。 */
+ droppedRedrawNotePages:number[];
  /** 已有未结故障中，保存后继续阻断的目标数量。 */
  carriedFaults:number};
 
@@ -292,15 +295,18 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
  }
  const derive=(db:ReadStatements)=>deriveRevision(db,doc,row,changes,row.id,false);
  const {parent,child,changed,choices,conflicts}=repo.db.readTransaction?.(derive)??transact(repo.db,derive);
- if(!changed)return {changed:false,total:child.dag.order.length,redraw:0,reused:doc.images.filter(Boolean).length,textWork:{},continues:false,handEdits:[],conflicts:[],carriedFaults:0};
+ if(!changed)return {changed:false,total:child.dag.order.length,redraw:0,reused:doc.images.filter(Boolean).length,textWork:{},continues:false,handEdits:[],conflicts:[],droppedRedrawNotePages:[],carriedFaults:0};
  child.dag=settle(child);
- const ev=evaluate(stateOf(child)),order=child.dag.order;
+ const {evaluation:ev,work:items}=deriveProduction(child),order=child.dag.order;
  const redraw=order.filter(id=>ev.instance('frameImage',id).status!=='valid').length;
- const items=work(child),textWork:Record<string,number>={};
+ const textWork:Record<string,number>={};
  for(const item of items)if(item.call!=='draw'&&item.call!=='drawLandscape')textWork[item.call]=(textWork[item.call]??0)+item.instances.length;
  const rows=(await repo.db.prepare(carriedFaultRows).bind(row.id,row.user_id).all<FaultToCarry>()).results;
  const carried=carryFaults(rows,parent,child);
- return {changed,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices,conflicts:conflicts.map(id=>({id,message:`重新编排会丢弃${handEditLabel(id,doc.dag!.order)}的手改`})),carriedFaults:carried.length};
+ const keepsOutline=ev.instance('outline').status==='valid',remaining=new Set(order);
+ const droppedRedrawNotePages=parent.dag.order.flatMap((key,index)=>
+  parent.dag.frames[key]?.redrawNote&&(!keepsOutline||!remaining.has(key))?[index+1]:[]);
+ return {changed,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices,conflicts:conflicts.map(id=>({id,message:`重新编排会丢弃${handEditLabel(id,doc.dag!.order)}的手改`})),droppedRedrawNotePages,carriedFaults:carried.length};
 }
 
 export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string,cover?:Uint8Array,startRedraw=false):Promise<SessionRow>{

@@ -107,17 +107,18 @@ test('item registration reads only the item texts and returns stable identities'
  without(calls[0].text,STYLE,REQ,CAPTION,VISUAL);
 });
 
-test('scenario 52: review replaces only allowed verdicts; everything else becomes a suggestion',async()=>{
+test('scenario 52: review discards judgements and issues outside the allowlist',async()=>{
  const frames=Array.from({length:3},(_,i)=>({id:`f${i+1}`,caption:`第${i+1}幅配文八个字以上`,prompt:`第${i+1}幅画面描述二十个字以上的内容，人物站立在庭院中央。`}));
  const {calls,gen}=recorder(()=>({
-  issues:[{page:2,category:'progression',problem:'动作不清',instruction:'补足动作',requiresReplan:false},{page:3,category:'progression',problem:'服饰不一致',instruction:'统一服饰',requiresReplan:false}],
+  issues:[{page:2,category:'progression',problem:'动作不清',instruction:'补足动作',requiresReplan:false},{page:3,category:'progression',problem:'服饰不一致',instruction:'统一服饰',requiresReplan:true}],
   titleReview:{title:'管鲍之交',reason:'准确'},
   coverage:[{quote:'管仲夷吾者',task:'交代人物',pages:[1],assessment:'adequate',reason:'已交代',issuePage:0}],
   acceptanceResults:[{criterion:1,status:'passed',pages:[0],evidence:'结尾揭示'}],
  }));
- const result=await gen.review({source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'结尾才揭示身份',style,characters:people,frames,chosenEnding:'知己难得。',notes:NOTES,allowed:{pages:[1,2],criteria:[],narrative:false},itemIds:{1:'i-x'}});
- assert.deepEqual(result.value.judgements.map(j=>[j.id,j.outcome]),[['frameVerdict:f1','pass'],['frameVerdict:f2','fail']]);
- assert.deepEqual(result.value.suggestions.map(j=>j.id),['frameVerdict:f3']);
+ const result=await gen.review({source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'结尾才揭示身份',style,characters:people,frames,chosenEnding:'知己难得。',notes:NOTES,allowed:{pages:[1,2],criteria:[],narrative:true},itemIds:{1:'i-x'}});
+ assert.deepEqual(result.value.judgements.map(j=>[j.id,j.outcome]),[['frameVerdict:f1','pass'],['frameVerdict:f2','fail'],['narrativeVerdict:','pass']]);
+ assert.deepEqual(result.value.issues.map(issue=>issue.page),[2]);
+ assert.ok(!Object.hasOwn(result.value,'suggestions'));
  contains(calls[0].text,STYLE,REQ,NOTES,'优先核对点名的段落、幅号或结语');
  contains(calls[0].text,'可见的环境线索或空间关系会造成具体误读','用category=composition、requiresReplan=false','近景、留白与沿用布局可以通过');
 });
@@ -181,7 +182,8 @@ test('a scoped review keeps an out-of-scope frame finding out of the verdicts of
  const reply=()=>({issues:[],titleReview:{title:'管鲍之交',reason:'准确'},coverage:[{quote:'管仲夷吾者',task:'交代人物',pages:[1],assessment:'adequate',reason:'已交代',issuePage:0}],acceptanceResults:[{criterion:1,status:'unknown',pages:[3],evidence:'第三幅文字无法判断冠服'}]});
  const scoped=await recorder(reply).gen.review({...base,allowed:{pages:[1,2],criteria:[],narrative:false}});
  assert.ok(scoped.value.judgements.every(j=>j.outcome==='pass'),'the findings on frame 3 do not fail frames 1 and 2');
- assert.ok(scoped.value.suggestions.some(j=>j.id==='frameVerdict:f3'&&j.outcome==='fail'),'the out-of-scope finding is kept as a suggestion for its own frame');
+ assert.deepEqual(scoped.value.judgements.map(j=>j.id),['frameVerdict:f1','frameVerdict:f2']);
+ assert.deepEqual(scoped.value.issues,[]);
 });
 
 test('structural repairs reject overlaps, out-of-range edits and invalid frame counts',async()=>{

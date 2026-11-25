@@ -31,7 +31,7 @@ export function story({frames=8,items=[],cast={}}={}){
 export function run(state,options={}){
  const log=[];
  for(let round=0;round<200;round++){
-  const groups=callGroups(state);
+  const groups=callGroups(evaluate(state));
   if(!groups.length)return log;
   // stopAt：本轮出现该调用时停下，供测试查看就绪集合。
   if(options.stopAt&&groups.some(g=>g.call===options.stopAt))return log;

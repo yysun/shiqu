@@ -21,7 +21,7 @@ import {preparationCandidate,preparationOriginal,preparationPending,preparationR
 import type {FrameRecommendation} from '../lib/reader-frame-recommendation.ts';
 import type {ArtRecommendation} from '../lib/reader-art-recommendation.ts';
 import type {OriginalSource} from '../lib/reader-source-types.ts';
-import {settle,work,apply,stale,finished,requestFor,drawInput,attention,stateOf,overrideReview,type DagStory,type Work} from '../lib/production-dag/runner.ts';
+import {settle,work,apply,stale,finished,requestFor,drawInput,deriveProduction,stateOf,overrideReview,type Attention,type DagStory,type Work} from '../lib/production-dag/runner.ts';
 import {evaluate,instanceId,type Evaluation} from '../lib/production-dag/engine.ts';
 import type {Fault} from '../lib/production-dag/engine.ts';
 import {nodeSpec} from '../lib/production-dag/registry.ts';
@@ -191,10 +191,11 @@ export class DagProduction{
   });
   const confirmed=!doc.intake||doc.intake.phase==='confirmed';
   const story:DagStory={id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed,faults:dagFaultTargets(targets,dag)};
-  const complete=confirmed&&finished(story);
-  const reviewing={...story,faults:dagFaultTargets(targets.filter(target=>target.state!=='recovering'),dag)};
-  const blocking=complete||work(reviewing).some(item=>!drawing(item.call))?null:this.reviewBlock(reviewing);
-  const review=evaluate(stateOf(reviewing)).approved()?'approved':blocking?.reasons.length?'attention':'pending';
+  const recovering=targets.some(target=>target.state==='recovering');
+  const reviewing=recovering?{...story,faults:dagFaultTargets(targets.filter(target=>target.state!=='recovering'),dag)}:story;
+  const derived=deriveProduction(reviewing),complete=confirmed&&(recovering?finished(story):derived.complete);
+  const blocking=complete||derived.work.some(item=>!drawing(item.call))?null:this.reviewBlock(reviewing,derived.attention);
+  const review=derived.evaluation.approved()?'approved':blocking?.reasons.length?'attention':'pending';
   return {complete,blocking:blocking?{...blocking,canOverride:!!blocking.id&&!!overrideReview(reviewing,blocking.targets)}:null,review} as const;
  }
 
@@ -308,8 +309,8 @@ export class DagProduction{
   });
   if(!refreshed)return true;
   story.faults=refreshed;
-  const items=work(story).filter(item=>!this.deps.portraitOnly||item.call!=='drawLandscape');
-  if(row.state==='idle'&&items.every(item=>item.call==='drawLandscape')&&finished(story)){
+  const derived=deriveProduction(story),items=derived.work.filter(item=>!this.deps.portraitOnly||item.call!=='drawLandscape');
+  if(row.state==='idle'&&items.every(item=>item.call==='drawLandscape')&&derived.complete){
    await this.deps.database.prepare("UPDATE stories SET state='completed',error=NULL WHERE id=? AND user_id=? AND state='idle' AND document=?").bind(row.id,row.user_id,row.document).run();
   }
   // 正在执行的任务覆盖的实例不再派发新任务：其结果保存后若仍需重做，下一轮再安排。
@@ -890,8 +891,8 @@ export class DagProduction{
  }
 
  /** 审片阻断随结论与额度绑定，任何变化后旧操作令牌均失效。 */
- private reviewBlock(story:DagStory){
-  const {reasons,issues}=reviewAttention(story);
+ private reviewBlock(story:DagStory,attention?:Attention[]){
+  const {reasons,issues}=reviewAttention(story,attention);
   const targets=[...new Set(reasons.map(item=>item.target))];
   const id=targets.length?'review:'+commandFingerprint(['review-fault',story.id,reasons,story.dag.repairs,
    targets.map(target=>[target,story.dag.products[target]?.hash??null])]).slice(0,32):null;
@@ -1003,7 +1004,8 @@ export class DagProduction{
     const doc=current&&JSON.parse(current.document) as Document|undefined;
     const story:DagStory|null=current&&doc?.dag?{id,doc,dag:doc.dag,selection:selectionSchema.parse(JSON.parse(current.selection)),
      confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,id,ownerId),doc.dag)}:null;
-    const block=story&&!work(story).some(item=>!drawing(item.call))?this.reviewBlock(story):null;
+    const derived=story&&deriveProduction(story);
+    const block=story&&derived&&!derived.work.some(item=>!drawing(item.call))?this.reviewBlock(story,derived.attention):null;
     targets=block?.targets??[];
     const dag=story&&block?.id===faultId?overrideReview(story,targets):null;
     const authorization=authorizeProductionCommand('override-review',{
@@ -1022,9 +1024,10 @@ export class DagProduction{
  /** 审片状态：全部结论有效且通过或被放行为 approved；审片停在需读者处理且没有可派发的文字工作为 attention。 */
  async reviewState(row:SessionRow):Promise<'approved'|'attention'|'pending'|null>{
   const story=await this.story(row);if(!story)return null;
-  if(evaluate(stateOf(story)).approved())return 'approved';
-  const textWork=work(story).some(item=>!drawing(item.call));
-  return attention(story).length&&!textWork?'attention':'pending';
+  const derived=deriveProduction(story);
+  if(derived.evaluation.approved())return 'approved';
+  const textWork=derived.work.some(item=>!drawing(item.call));
+  return derived.attention.length&&!textWork?'attention':'pending';
  }
 
  /**

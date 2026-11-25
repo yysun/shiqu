@@ -6,7 +6,7 @@ import {normalizeProductionPrompt} from '../reader-prompts.ts';
 import type {ProviderSettingsView} from '../provider-settings.ts';
 import type {FrameCountReport,ReviewIssue} from '../reader-review.ts';
 import type {ReviewSkip} from './review-skip.ts';
-import type {RepairBudget,Suggestion} from './review.ts';
+import type {RepairBudget} from './review.ts';
 import type {Product,Fault,VersionState} from './engine.ts';
 import type {Evidence} from './registry.ts';
 import {fingerprint} from './fingerprint.ts';
@@ -44,8 +44,8 @@ export type DagItem={id:string;text:string;scope?:'story'|'frame';evidence?:Evid
 /** 模型快照：提供方、模型与推理强度，不含凭据。models 中 null 表示沿用该服务自身的默认模型。 */
 export type ModelSnapshot=Pick<ProviderSettingsView['runtime'],'provider'|'imageProvider'|'taskReasoningEfforts'>&{models:{text:string|null;image:string|null}};
 export type DagOutline={title:string;summary:string;sourceReference:string;adaptationNote:string;beats:string[]};
-/** 审片问题按结论归属：target 为结论实例身份（逐幅、叙事或条目）。stalled 表示自动修订后内容未变。 */
-export type DagIssue=ReviewIssue&{target:string;stalled?:true};
+/** 审片问题按结论归属；自动修订未改变内容或会破坏手改时，保留阻断原因。 */
+export type DagIssue=ReviewIssue&{target:string;stalled?:true|'hand-edited'};
 export type Renderer={layout:'portrait';aspectRatio:'9:16';size:'1K'};
 
 export type DagDocument={
@@ -68,7 +68,8 @@ export type DagDocument={
  verdicts?:Record<string,{outcome:'pass'|'fail';detail?:string;requirements?:true}>;
  /** 最近一次审片中失败结论的问题，供自动修订使用。 */
  issues?:DagIssue[];
- suggestions?:Suggestion[];
+ /** 格式 3 已保存的审片建议；此字段不参与推导。 */
+ suggestions?:unknown;
  /** 本修订的自动修订额度。 */
  repairs?:RepairBudget;
  /** 本版读者跳过审核的记录，使用时重新核对绑定。 */
