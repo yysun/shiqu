@@ -14,7 +14,7 @@ export async function reusableTextProducts(db:Database,owner:string,story:DagSto
  const root=story.doc.revision?.rootId,call=work.call;
  if(!root)return undefined;
  if(call==='storyboard'){
-  // 0.17 保存的独立提纲、人物仍可免费采用。已采用的部分由下一次合批沿用。
+  // 家族中按相同输入保存的提纲、人物设定可免费采用，下一次合批分镜沿用。
   for(const target of work.instances.filter(target=>target.node==='outline'||target.node==='characters')){
    const reused=await reusableTextProducts(db,owner,story,{call:target.node,instances:[target]});
    if(reused)return reused;

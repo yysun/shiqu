@@ -49,8 +49,6 @@ export type DagDocument={
  /** 事实梗概（准备梗概或读者手改）。 */
  brief?:string;
  outline?:DagOutline;
- /** 新制作和重新编排使用合批；旧稿保留其未完成的 0.17 调用。 */
- combinedStoryboard?:true;
  /** 本轮已尝试独立画风建议，缺少该能力的服务也可继续给出制作建议。 */
  preparedArt?:true;
  /** 已确认作品重新准备时单独更新建议，隔离旧世代的制作任务。 */

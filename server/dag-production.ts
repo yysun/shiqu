@@ -607,7 +607,7 @@ export class DagProduction{
   const selection=selectionSchema.parse(JSON.parse(row.selection));
   const modelSnapshot=confirmed?this.deps.snapshot?.():undefined;
   if(doc.plan||doc.storyboard||doc.draft)return false;
-  const base={...emptyDag(),combinedStoryboard:true as const,...(modelSnapshot?{modelSnapshot}:{})};
+  const base={...emptyDag(),...(modelSnapshot?{modelSnapshot}:{})};
   if(preparationPending(doc)&&doc.original)doc.original=preparationOriginal(doc,selection,doc.original);
   const story={id:row.id,doc,selection,dag:base,confirmed,faults:[]};
   const dag=preparation?settle(story):base;

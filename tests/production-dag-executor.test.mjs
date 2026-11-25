@@ -18,7 +18,7 @@ function generator(){
    return {
     ...(p.outline?{outline:{title:'管鲍之交',summary:'梗概',sourceReference:'史记',adaptationNote:'按原文',beats:Array.from({length:payload.exactPageCount},(_,i)=>`第${i+1}幅`)}}:{}),
     ...(p.characters?{characters:[{name:'管仲',aliases:['夷吾'],text:'齐国人，青年时清贫。'}]}:{}),
-    frames:Array.from({length:last-first+1},(_,i)=>({number:first+i,caption:`第${first+i}幅配文：管仲与鲍叔牙相识。`,prompt:'两位少年并肩走在乡间小路上，构图为中景。',drawn:['管仲']})),
+    frames:Array.from({length:last-first+1},(_,i)=>({number:first+i,caption:`第${first+i}幅配文：管仲与鲍叔牙相识。`,prompt:`第${first+i}幅：两位少年并肩走在乡间小路上，构图为中景。`,drawn:['管仲']})),
    };
   }
   if(p.summary&&!p.beats)return {summary:'管仲与鲍叔牙少时相知。'};
@@ -46,18 +46,17 @@ async function runUntil(s,g,stop){
 
 test('text work goes through the contract method and returns the parsed value with usage',async()=>{
  const s=story(),g=generator();
- const item=await runUntil(s,g,i=>i.call==='visual');
+ const item=await runUntil(s,g,i=>i.call==='storyboard');
  const result=await executeWork(g.gen,s,item,'a'.repeat(64));
  assert.equal(result.model,'fake-text');
  assert.deepEqual(result.usage,{input:1});
- assert.equal(result.value.length,2);
- assert.ok(g.text.at(-1).payload.artDirection,'the image-description call carries the art direction');
+ assert.equal(result.value.pages.length,2);
+ assert.ok(g.text.at(-1).payload.artDirection,'the storyboard call carries the art direction');
 });
 
 test('combined receipts for either batch stop applying after bound inputs change or adoption',async()=>{
  const s=story(),g=generator();
  s.selection.length=25;
- s.dag.combinedStoryboard=true;
  const first=await runUntil(s,g,i=>i.call==='storyboard');
  const paidFirst=await executeWork(g.gen,s,first,'a');
  const changedStyle={...s,selection:{...s.selection,artStyle:'watercolor'}};
@@ -81,10 +80,8 @@ test('combined receipts for either batch stop applying after bound inputs change
 
 test('drawing uses the contract prompt and the current book reference, falling back to the first image',async()=>{
  const s=story(),g=generator();
- await runUntil(s,g,i=>i.call==='visual');
- // 直接构造可绘图状态：跳过审片，只验证绘图参数。
- s.dag=settle(s);
- for(const item of work(s).filter(i=>i.call==='visual')){const r=await executeWork(g.gen,s,item,'x');s.dag=apply(s,item,r.value,{newId:()=>'z'});}
+ // 合批分镜写入画面描述后即可构造绘图输入：跳过审片，只验证绘图参数。
+ await runUntil(s,g,i=>i.call==='ending');
  const [first,second]=s.dag.order;
  const draw=key=>({call:'draw',instances:[{node:'frameImage',key,id:`frameImage:${key}`}]});
  await executeWork(g.gen,s,draw(first),'b'.repeat(64));

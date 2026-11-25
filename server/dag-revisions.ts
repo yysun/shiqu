@@ -251,7 +251,6 @@ function deriveRevision(db:ReadStatements,doc:Document,row:SessionRow,changes:Re
  if(strict&&lostHandEdits.length&&!changes.confirmHandEditLoss)
   throw new ReaderError(409,`本次保存会移除第 ${lostHandEdits.map(edit=>edit.page).join('、')} 幅的手改，请查看保存预览并确认放弃。`);
  const restyle=!sameArtDirection(parent.selection,selection);
- if(replan||restyle)edited.combinedStoryboard=true;
  if(edited.cover&&restyle){
   const first=edited.cover.frame;
   delete edited.cover;

@@ -9,7 +9,7 @@ test('a confirmed 12-frame story runs to completion with batched text calls',()=
  const s=story({acceptancePrompt:'每幅都有动作'});
  const log=drive(s,replies());
  assert.ok(finished(s));
- for(const [name,n] of [['characters',1],['outline',1],['sceneBatch',1],['visual',1],['ending',1],['frameCheck',0],['review',1],['prepareBrief',1],['draw',12]])assert.equal(calls(log,name),n,name);
+ for(const [name,n] of [['storyboard',1],['characters',0],['outline',0],['sceneBatch',0],['visual',0],['ending',1],['frameCheck',0],['review',1],['prepareBrief',1],['draw',12]])assert.equal(calls(log,name),n,name);
  assert.equal(s.dag.order.length,12);
  assert.equal(s.dag.ending.chosen,'知己难得。');
  assert.ok(s.dag.order.every(id=>s.dag.frames[id].image));
@@ -20,10 +20,13 @@ test('fixed and adaptive frame counts complete across storyboard batch boundarie
   const s=story({length}),reply=replies();
   const log=drive(s,(method,args)=>{
    const value=reply(method,args);
-   return method==='outline'&&length==='auto'?{...value,beats:Array.from({length:frames},(_,index)=>`第 ${index+1} 幅叙事节点`)}:value;
+   // 自动幅数时由首批分镜决定全篇幅数。
+   if(method!=='storyboard'||args.outline||length!=='auto')return value;
+   const beats=Array.from({length:frames},(_,index)=>`第 ${index+1} 幅叙事节点`);
+   return {...value,outline:{...value.outline,beats},pages:beats.slice(0,args.count).map((_,index)=>({...value.pages[0],caption:`第${index+1}幅：管仲与鲍叔牙同行的配文。`}))};
   });
-  const batchSizes=Array.from({length:Math.ceil(frames/20)},(_,index)=>Math.min(20,frames-index*20));
-  for(const name of ['sceneBatch','visual'])assert.deepEqual(log.filter(job=>job.call===name).map(job=>job.ids.length),batchSizes,`${length}: ${name}`);
+  assert.equal(calls(log,'storyboard'),Math.ceil(frames/20),`${length}: storyboard`);
+  for(const name of ['outline','characters','sceneBatch','visual'])assert.equal(calls(log,name),0,`${length}: ${name}`);
   assert.equal(calls(log,'frameCheck'),length==='auto'?1:0);
   assert.equal(calls(log,'draw'),frames);
   assert.deepEqual(work(s),[]);
@@ -31,12 +34,12 @@ test('fixed and adaptive frame counts complete across storyboard batch boundarie
  }
 });
 
-test('a style change converts image descriptions in batches of 6 and redraws, without replanning',()=>{
+test('a style change converts image descriptions in one batch and redraws, without replanning',()=>{
  const s=story();drive(s,replies());
  s.selection={...s.selection,artStyle:'watercolor'};
  const log=drive(s,replies());
- assert.equal(calls(log,'restyle'),2);
- assert.equal(calls(log,'outline')+calls(log,'sceneBatch')+calls(log,'visual'),0);
+ assert.equal(calls(log,'restyle'),1);
+ assert.equal(calls(log,'storyboard')+calls(log,'outline')+calls(log,'sceneBatch')+calls(log,'visual'),0);
  assert.equal(calls(log,'draw'),12);
  assert.ok(finished(s));
  assert.match(s.dag.frames[s.dag.order[0]].visual,/watercolor/);
@@ -81,7 +84,7 @@ test('a frame-count expansion inserts a new frame with a new identity and rechec
  assert.equal(s.dag.order.length,13);
  assert.equal(s.dag.frames[s.dag.order[2]].scene,'新增的分金一幅配文。');
  assert.equal(calls(log,'frameCheck'),2);
- assert.deepEqual(log.filter(l=>l.call==='visual'&&l.applied).map(l=>l.ids.length),[12,1]);
+ assert.deepEqual(log.filter(l=>l.call==='visual'&&l.applied).map(l=>l.ids.length),[1]);
 });
 
 test('scenario 34: production structure repair keeps untouched identities and reuses matching retired images',()=>{
@@ -131,9 +134,9 @@ test('production structure repair reports reader attention and leaves protected 
 test('a result whose inputs changed after dispatch is discarded and redone',()=>{
  const s=story();
  let changed=false;
- const log=drive(s,replies(),{between:(st,item)=>{if(item.call==='visual'&&!changed){changed=true;st.selection={...st.selection,productionPrompt:'改为写清代价'};}}});
+ const log=drive(s,replies(),{between:(st,item)=>{if(item.call==='storyboard'&&!changed){changed=true;st.selection={...st.selection,productionPrompt:'改为写清代价'};}}});
  assert.ok(finished(s));
- assert.ok(log.some(l=>l.call==='visual'&&!l.applied));
+ assert.ok(log.some(l=>l.call==='storyboard'&&!l.applied));
 });
 
 test('an image whose drawing inputs match an existing image is reused without a call',()=>{

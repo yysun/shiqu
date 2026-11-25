@@ -187,8 +187,8 @@ export function migrateProductionSpec(db:DatabaseSync,sql:string,directory?:stri
    db.prepare('INSERT INTO production_migration_diagnostics VALUES(?,?,?) ON CONFLICT DO NOTHING').run(row.id,row.user_id,'INVALID_PRODUCTION_DOCUMENT');
   }
  }
- // 分阶段审片与条目登记的队列身份已失效。重算只使用现行稿件和保存后的结论。
- const retired="json_valid(payload) AND json_extract(payload,'$.work.call') IN ('registerItems','review','drawLandscape')";
+ // 分阶段审片、条目登记和独立提纲的队列身份已失效；未完成稿件改用合批分镜。重算只使用现行稿件和保存后的结论。
+ const retired="json_valid(payload) AND json_extract(payload,'$.work.call') IN ('registerItems','review','drawLandscape','outline')";
  db.exec(`UPDATE reader_commands SET status='failed',error='制作规则已升级，请刷新后重试。' WHERE status IN ('queued','running')
   AND EXISTS(SELECT 1 FROM production_jobs j WHERE j.owner_id=reader_commands.owner_id AND j.recovery_id=reader_commands.request_id AND ${retired});
   UPDATE reader_faults SET state='replaced',job_id=NULL WHERE state IN ('pending','recovering','awaiting-match')

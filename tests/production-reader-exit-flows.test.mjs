@@ -55,7 +55,7 @@ test('each reader-facing waiting state exposes the same action on every surface,
  await until(async()=>(await f.read(revision)).state==='completed',20000);
 
  // 某一步失败，等待重试。
- let failing=true;f.control.beforeText=async name=>{if(name==='visual'&&failing)throw Error('controlled failure');};
+ let failing=true;f.control.beforeText=async name=>{if(name==='storyboard'&&failing)throw Error('controlled failure');};
  const failed=await confirmedStory(f,4);f.app.services.production.wake();
  await until(async()=>(await f.read(failed)).lifecycle.actions.some(action=>action.event==='retry'),20000);
  failing=false;f.control.beforeText=null;
@@ -95,7 +95,7 @@ test('each reader-facing waiting state exposes the same action on every surface,
 });
 
 const revisionCases=[
- {call:'visual',requirements:['第一条要求。','第二条要求。'],changes:{acceptancePrompt:'另一条要求。'},expected:[1,2,3,4]},
+ {call:'storyboard',requirements:['第一条要求。','第二条要求。'],changes:{acceptancePrompt:'另一条要求。'},expected:[1,4]},
  {call:'review',requirements:['第一条要求。','第二条要求。'],changes:{artStyle:'watercolor'},expected:['第一条要求。','第二条要求。']},
  {call:'review',requirements:['第一条要求。','第二条要求。','第三条要求。'],changes:{acceptancePrompt:'第一条要求。\n改写后的要求。'},expected:['第一条要求。','改写后的要求。']},
 ];
@@ -113,7 +113,7 @@ for(const {call,requirements,changes,expected} of revisionCases){
   const child=await fork(f,id,changes),route=`sessions/${child}`;
   assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
   const batches=[];
-  f.control.beforeText=async(name,payload)=>{if(name===call)batches.push(payload.acceptanceCriteria??payload.frames.map(frame=>frame.number));};
+  f.control.beforeText=async(name,payload)=>{if(name===call)batches.push(payload.acceptanceCriteria??[payload.batch.first,payload.batch.last]);};
   await f.json(route+'/production-control','POST',{action:'continue'});
   await until(async()=>(await f.read(child)).state==='completed');
   await f.restart();

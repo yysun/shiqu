@@ -22,7 +22,6 @@ import {type Outline,type Scene,type Visual,type Character,type ReviewOutcome,ty
 import {requestFor} from './requests.ts';
 import {rootProducts,versionState,endingChoice,type DagDocument,type DagIssue,type DagFrame} from './document.ts';
 import type {FrameCountReport,ReviewIssue} from '../reader-review.ts';
-import {readerRestyleBatchSize} from '../reader-limits.ts';
 
 export type DagStory={
  id:string;doc:Document;selection:Selection;dag:DagDocument;
@@ -133,10 +132,9 @@ export function settle(story:DagStory):DagDocument{
 /** 本轮可派发的工作：引擎的可运行实例按调用合批，叙事分镜批次按顺序逐批进行，其后是自动修订。 */
 function planWork(story:DagStory,evaluation:Evaluation,repairs:Work[]):Work[]{
  if(story.doc.reselection)return [];
- // 旧稿的转换批次保留原有任务边界，以便采用 0.17 已返回的回执。
  const ordinaryCall=callFor(evaluation.state);
  const groups=callGroups(evaluation,instance=>instance.node==='scene'&&story.dag.resetText?.includes(instance.id)?
-  'sceneReset':ordinaryCall(instance),call=>call==='restyle'&&!story.dag.combinedStoryboard?readerRestyleBatchSize:undefined);
+  'sceneReset':ordinaryCall(instance));
  if(story.dag.repreparing)return groups.filter(item=>item.call==='prepareSuggestions');
  if(!story.confirmed){
   if(!preparationPending(story.doc)||story.doc.frameRecommendation)return [];
@@ -150,7 +148,8 @@ function planWork(story:DagStory,evaluation:Evaluation,repairs:Work[]):Work[]{
   const item={call:'storyboard',instances};
   return {...item,requestHash:fingerprint(requestFor(story,item))};
  };
- if(story.dag.combinedStoryboard&&evaluation.instance('outline').status!=='valid'){
+ // 提纲未完成时，首批分镜一次给出提纲、人物与本批配文和画面描述；升级上来的未完成稿件同样如此。
+ if(evaluation.instance('outline').status!=='valid'){
   const outline=evaluation.instance('outline'),characters=evaluation.instance('characters');
   production=production.filter(item=>item.call!=='outline'&&item.call!=='characters'&&item.call!=='visual'&&item.call!=='restyle');
   if(outline.ready&&(characters.ready||characters.status==='valid'&&!characters.blocked))
@@ -165,9 +164,10 @@ function planWork(story:DagStory,evaluation:Evaluation,repairs:Work[]):Work[]{
   if(before.some(id=>evaluation.instance('scene',id).status!=='valid'))return result.filter(g=>g!==firstScene);
  }
  const characters=evaluation.instance('characters');
- if(story.dag.combinedStoryboard&&firstScene&&(characters.ready||characters.status==='valid'&&!characters.blocked)){
+ if(firstScene&&(characters.ready||characters.status==='valid'&&!characters.blocked)){
   const visuals=firstScene.instances.map(scene=>evaluation.instance('visual',scene.key));
-  if(visuals.every(visual=>visual.status==='missing'&&!!visual.hard&&!visual.blocked)){
+  // 本批画面描述都需重做且没有手改时，叙事分镜与画面描述合为一次分镜调用。
+  if(visuals.every(visual=>visual.status!=='valid'&&!!visual.hard&&!visual.blocked&&!story.dag.products[visual.id]?.handEdited)){
    result[result.indexOf(firstScene)]=storyboard([...firstScene.instances,...visuals,...(characters.ready?[characters]:[])]);
    return [...result.filter(item=>item.call!=='characters'),...repairs];
   }
@@ -309,7 +309,7 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
    writeCharacters(dag,one,value as Character[]);break;
   }
   case 'outline':{
-   const next=value as Outline,changed=dag.combinedStoryboard||dag.products[one.id]?.hash!==fingerprint(next)||dag.order.length!==next.beats.length;
+   const next=value as Outline,changed=dag.products[one.id]?.hash!==fingerprint(next)||dag.order.length!==next.beats.length;
    dag.outline=next;record(dag,one,next);
    if(changed)replanFrames(dag,next.beats.length,options.newId);
    break;

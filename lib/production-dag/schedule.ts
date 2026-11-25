@@ -8,7 +8,7 @@ export type CallGroup={call:string;instances:Instance[]};
 
 const defaultCall=(instance:Instance)=>nodeSpec(instance.node).call!;
 
-export function callGroups(evaluation:Evaluation,callFor:(instance:Instance)=>string=defaultCall,batchLimit?:(call:string)=>number|undefined):CallGroup[]{
+export function callGroups(evaluation:Evaluation,callFor:(instance:Instance)=>string=defaultCall):CallGroup[]{
  const {state}=evaluation;
  const position=new Map(state.order.map((id,i)=>[id,i]));
  const ready=evaluation.all().filter(i=>i.ready&&nodeSpec(i.node).call);
@@ -20,7 +20,7 @@ export function callGroups(evaluation:Evaluation,callFor:(instance:Instance)=>st
  }
  const result:CallGroup[]=[];
  for(const group of grouped.values()){
-  const batch=batchLimit?.(group.call)??(calls as Record<string,CallSpec>)[group.call]?.batch;
+  const batch=(calls as Record<string,CallSpec>)[group.call]?.batch;
   if(batch==='all'){result.push(group);continue;}
   const size=batch||1;
   const instances=[...group.instances].sort((a,b)=>(position.get(a.key)??-1)-(position.get(b.key)??-1));

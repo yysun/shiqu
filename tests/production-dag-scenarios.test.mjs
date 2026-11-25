@@ -27,7 +27,9 @@ async function completedStory(f,{length=6,splitCast=false}={}){
  const reply=replies();
  drive(s,(method,args)=>{
   const value=reply(method,args);
-  return splitCast&&method==='visual'?value.map((item,index)=>({...item,drawn:index%2?['鲍叔牙']:['管仲']})):value;
+  if(!splitCast||method!=='storyboard')return value;
+  // 偶数幅只画鲍叔牙，便于核对改人物只重绘其出场画幅。
+  return {...value,pages:value.pages.map((item,index)=>({...item,drawn:(args.first+index-1)%2?['鲍叔牙']:['管仲']}))};
  });
  for(const key of s.dag.order)await f.media.put(referenceImageKey(id,s.dag.frames[key].image),png,{contentType:'image/png'});
  const doc={...s.doc,dag:s.dag,...projectDocument(s.dag,null)},now=new Date().toISOString();
@@ -471,7 +473,7 @@ test('a confirmed story runs from the outline to its last image through the prod
  f.app.services.production.wake();
  await until(async()=>(await f.read(id)).state==='completed',20000);
  const doc=await saved(f,id);
- for(const [name,n] of [['brief',1],['characters',1],['outline',1],['sceneBatch',1],['visual',1]])assert.equal(count(f.control.dagCalls,name),n,name);
+ for(const [name,n] of [['brief',1],['storyboard',1],['characters',0],['outline',0],['sceneBatch',0],['visual',0]])assert.equal(count(f.control.dagCalls,name),n,name);
  assert.equal(f.control.reflections.length,1,'one ending call');
  assert.equal(f.control.frameReviews.length,0,'a fixed-length story has no frame-count check (as in v0.14.0)');
  assert.equal(f.control.reviews.length,1,'one review call');
@@ -1150,22 +1152,23 @@ test('confirming a lost hand edit once allows the new frame count to replan',asy
  assert.equal(count(f.control.dagCalls,'storyboard'),1);
 });
 
-test('a failed step blocks only its dependants: independent steps finish, and recovery completes the story',async t=>{
+test('a failed storyboard call stops its dependants, and recovery completes the story',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  let failing=true;
- f.control.beforeText=async name=>{if(name==='visual'&&failing){failing=false;throw Error('controlled failure');}};
+ f.control.beforeText=async name=>{if(name==='storyboard'&&failing){failing=false;throw Error('controlled failure');}};
  const id=await confirmedStory(f,4);
  f.app.services.production.wake();
- await until(async()=>(await f.read(id)).faults?.length>0&&f.control.reflections.length===1,20000);
- // 不依赖画面描述的结语与幅数核对照常完成；依赖它的审片与绘图都未开始。
+ await until(async()=>(await f.read(id)).faults?.length>0,20000);
+ // 结语、审片与绘图都依赖分镜，失败后都未开始。
+ assert.equal(f.control.reflections.length,0);
  assert.equal(f.control.reviews.length,0);
  assert.equal(f.control.calls.length,0);
  const fault=(await f.read(id)).faults[0];
  assert.equal(fault.state,'pending');
  await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
  await until(async()=>(await f.read(id)).state==='completed',20000);
- assert.equal(count(f.control.dagCalls,'visual'),2);
+ assert.equal(count(f.control.dagCalls,'storyboard'),2);
  assert.equal(f.control.reviews.length,1);
  assert.equal(f.control.calls.length,4);
  assert.ok(!(await f.read(id)).faults?.length);
@@ -2042,7 +2045,7 @@ for(const change of ['requirements','ending','visual'])test(`drawing approval re
 
 test('a failed task before the draft is complete cannot be manually released for drawing',async t=>{
  const f=await productionFixture(t,'codex');
- f.control.beforeText=name=>{if(name==='visual')throw Error('controlled failure before complete storyboard');};
+ f.control.beforeText=name=>{if(name==='storyboard')throw Error('controlled failure before complete storyboard');};
  const id=await confirmedStory(f,4),route=`sessions/${id}`;
  f.app.services.production.wake();
  let failed;
@@ -2166,12 +2169,12 @@ test('the revision preview uses the same engine rules as saving and writes nothi
  assert.equal((await f.read(child)).awaitingContinue,true);
 });
 
-test('a revision with changed requirements starts a new outline attempt',async t=>{
+test('a revision with changed requirements starts a new storyboard attempt',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
- // 提纲失败：读者改了制作要求后，旧故障不再适用，新提纲在「继续制作」后运行。
+ // 分镜失败：读者改了制作要求后，旧故障不再适用，新的分镜调用在「继续制作」后运行。
  let failing=true;
- f.control.beforeText=async name=>{if(name==='outline'&&failing){failing=false;throw Error('controlled outline failure');}};
+ f.control.beforeText=async name=>{if(name==='storyboard'&&failing){failing=false;throw Error('controlled storyboard failure');}};
  const id=await confirmedStory(f,4);
  f.app.services.production.wake();
  await until(async()=>(await f.read(id)).faults?.length>0,20000);
@@ -2179,11 +2182,11 @@ test('a revision with changed requirements starts a new outline attempt',async t
  const snapshot=await f.json(`sessions/${id}/revisions`),child=crypto.randomUUID();
  await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{productionPrompt:'写清选择与代价，突出人物的转变'}});
  const carried=(await f.app.services.database.prepare("SELECT node FROM production_faults WHERE session_id=? AND state='pending'").bind(child).all()).results;
- assert.deepEqual(carried,[],'the outline fault is not carried: its inputs changed');
+ assert.deepEqual(carried,[],'the storyboard fault is not carried: its inputs changed');
  await f.json(`sessions/${child}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'continue'});
  await until(async()=>(await f.read(child)).state==='completed',30000);
- assert.equal(count(f.control.dagCalls,'outline'),1,'the original 0.17 outline fault stays in its version');
- assert.equal(count(f.control.dagCalls,'storyboard'),1,'the replan uses the combined call');
+ assert.equal(count(f.control.dagCalls,'outline'),0);
+ assert.equal(count(f.control.dagCalls,'storyboard'),2,'the failed attempt stays in its version; the revision makes one new call');
 });
 
 // ——— v0.14.0 对等：换画风并指定首幅原图 ———

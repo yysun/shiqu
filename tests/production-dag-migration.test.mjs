@@ -481,7 +481,7 @@ test('the production upgrade preserves saved text and media, and resumes only un
  await until(async()=>(await f.read(ids['pixel-corrupt'])).state==='completed',15000);
  assert.deepEqual(f.control.calls.slice(beforePixelCheck).map(call=>call.page),[0,1]);
  const storyboard=JSON.parse(documents.get(ids.storyboard)).storyboard,batches=[];
- f.control.beforeText=(name,payload)=>{if(name==='sceneBatch')batches.push(payload.batch);};
+ f.control.beforeText=(name,payload)=>{if(name==='storyboard')batches.push(payload.batch);};
  const start=f.control.calls.length;
  await f.json(`sessions/${ids.storyboard}/production-control`,'POST',{action:'resume'});
  await until(async()=>(await f.read(ids.storyboard)).state==='completed',25000);
@@ -655,9 +655,10 @@ test('format four keeps all four setup requirement states from the effective his
  }
 });
 
-for(const mode of ['active','reader-paused','recovery','stale'])test(`an outline receipt is migrated only for a matching request (${mode})`,async t=>{
+for(const mode of ['active','reader-paused','recovery'])test(`an upgraded draft with a paid separate outline continues with one storyboard call (${mode})`,async t=>{
  const {productionFixture,until}=await import('./fixtures/production.mjs');
- const {apply,requestFor,settle,work}=await import('../lib/production-dag/runner.ts');
+ const {apply,requestFor,settle,stateOf,work}=await import('../lib/production-dag/runner.ts');
+ const {evaluate}=await import('../lib/production-dag/engine.ts');
  const {emptyDag}=await import('../lib/production-dag/document.ts');
  const {fingerprint:stableFingerprint}=await import('../lib/production-dag/fingerprint.ts');
  const id=crypto.randomUUID(),faultId=crypto.randomUUID(),requestId=crypto.randomUUID();
@@ -666,12 +667,14 @@ for(const mode of ['active','reader-paused','recovery','stale'])test(`an outline
  const basis={id,doc,selection:picked,dag:emptyDag(),confirmed:true,faults:[]};
  for(const [name,value] of [['prepareBrief',plan.summary],['characters',[{id:'c1',name:'庄周',aliases:['庄子'],text:plan.characters}]]]){
   basis.dag=settle(basis);
-  basis.dag=apply(basis,work(basis).find(item=>item.call===name),value,{newId:()=>crypto.randomUUID()});
+  // 旧版先单独完成人物设定；新版不再单独派发，这里按旧任务写入。
+  const item=work(basis).find(entry=>entry.call===name)??{call:name,instances:[evaluate(stateOf(basis)).instance(name==='prepareBrief'?'brief':name)]};
+  basis.dag=apply(basis,item,value,{newId:()=>crypto.randomUUID()});
  }
- const outline=work(basis).find(item=>item.call==='outline');
+ // 旧版的独立提纲任务。新版不再派发它，未完成稿件改用合批分镜。
+ const outline={call:'outline',instances:[evaluate(stateOf({...basis,dag:settle(basis)})).instance('outline')]};
  const request=requestFor(basis,outline),targets=outline.instances.map(item=>[item.id,item.hard??null]);
- const legacyId=stableFingerprint(['dag-job',id,null,'outline',0,targets,
-  mode==='stale'?{...request,args:{...request.args,productionPrompt:'已经变更的请求。'}}:request]);
+ const legacyId=stableFingerprint(['dag-job',id,null,'outline',0,targets,request]);
  const paidTitle='已经付费的提纲';
  const receipt=title=>({value:{title,summary:plan.summary,sourceReference:plan.sourceReference,adaptationNote:plan.adaptationNote,
   beats:plan.pages.map(page=>page.caption)},model:'paid-fixture',requestId:'original-paid-request',usage:{calls:1},
@@ -687,7 +690,7 @@ for(const mode of ['active','reader-paused','recovery','stale'])test(`an outline
     mode==='reader-paused'?'reader':'background');
    sqlite.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,state,attempts,lease_token,lease_until,recovery_id,created_at,updated_at)
     VALUES(?,?,?,'dag','text','dag','[]',?,?,1,?,?,?,1,2)`).run(legacyId,id,localOwner,JSON.stringify({work:outline,paid:receipt(paidTitle)}),
-    running?'running':'queued',running?'old-lease':null,running?9999999999999:0,recovering?requestId:null);
+    running?'running':'queued',running?'old-lease':null,running?1:0,recovering?requestId:null);
    if(recovering){
     sqlite.prepare(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,fault_id,status,created_at,updated_at)
      VALUES(?,?,?,'recover','preserved-fingerprint',?,?,'running',1,2)`).run(requestId,localOwner,id,JSON.stringify({jobs:[legacyId],resolutionJob:legacyId}),faultId);
@@ -710,13 +713,9 @@ for(const mode of ['active','reader-paused','recovery','stale'])test(`an outline
  await until(async()=>(await f.read(id)).state==='completed',15000);
  const database=f.app.services.database;
  const saved=decodeDocument(await database.prepare('SELECT * FROM story_rows WHERE id=?').bind(id).first());
- assert.equal(f.control.dagCalls.filter(call=>call==='outline').length,mode==='stale'?1:0);
- assert.equal(saved.dag.outline.title,mode==='stale'?plan.title:paidTitle);
- assert.equal(saved.usage.filter(call=>call.requestId==='original-paid-request').length,mode==='stale'?0:1);
- if(recovering){
-  const replay=await f.json(`sessions/${id}/recover`,'POST',{requestId,faultId});
-  assert.equal(replay.recoveryReceipt.status,'succeeded');
-  assert.equal((await database.prepare('SELECT state FROM production_faults WHERE id=?').bind(faultId).first()).state,'resolved');
- }
+ assert.equal(f.control.dagCalls.filter(call=>call==='outline').length,0);
+ assert.equal(f.control.dagCalls.filter(call=>call==='storyboard').length,1);
+ assert.notEqual(saved.dag.outline.title,paidTitle);
+ assert.equal(saved.usage.filter(call=>call.requestId==='original-paid-request').length,0);
 });
 
