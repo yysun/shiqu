@@ -774,7 +774,7 @@ for(const temporarilyUnavailable of [false,true])test(`a continued revision adop
  assert.equal((await f.read(id)).lifecycle.faults.length,1,'祖先版本的任务和故障不被改写');
 });
 
-test('a new review failure offers Skip Review independently of the parent',async t=>{
+test('a new review failure can be released while active, independently of the parent',async t=>{
  const f=await productionFixture(t);
  f.control.hold=false;
  f.control.beforeText=async name=>{if(name==='review')throw Error('受控审核失败');};
@@ -782,7 +782,7 @@ test('a new review failure offers Skip Review independently of the parent',async
  f.app.services.production.wake();
  await until(async()=>(await f.read(id)).faults?.some(fault=>fault.retryReview));
  const parent=await control(f,id,'pause');
- assert.ok(parent.reviewSkip);
+ assert.ok(parent.reviewOverride);
  const child=await fork(f,id,{storySummary:'庄周醒后细想梦蝶的经历。'});
  assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
  await control(f,child,'continue');
@@ -791,16 +791,12 @@ test('a new review failure offers Skip Review independently of the parent',async
  const failure=active.lifecycle.faults[0],command={requestId:crypto.randomUUID(),faultId:failure.id,ending:'default'};
  assert.equal(failure.stage,'review');assert.equal(failure.targets.filter(target=>target.node==='frameVerdict').length,4);
  assert.equal(active.generationProgress.storyboardFrames,4);
- assert.equal((await f.request(route,'POST',command)).status,409);
- const paused=await control(f,child,'pause');
- assert.equal(paused.reviewSkip.faultId,failure.id);
- assert.equal((await f.request(route,'POST',{...command,faultId:parent.reviewSkip.faultId})).status,409);
- const skipped=await f.json(route,'POST',command);
- assert.equal(skipped.generationControl,'paused');
- assert.deepEqual(skipped.lifecycle.faults,[]);
+ assert.equal(active.reviewOverride.faultId,failure.id);
+ assert.equal((await f.request(route,'POST',{...command,faultId:parent.reviewOverride.faultId})).status,409);
+ const released=await f.json(route,'POST',command);
+ assert.equal(released.generationControl,'active');
+ assert.deepEqual(released.lifecycle.faults,[]);
  await f.json(route,'POST',command);
- assert.equal(f.control.calls.length,0,'跳过审核没有恢复绘图');
- await control(f,child,'resume');
  await until(async()=>(await f.read(child)).state==='completed');
  assert.equal(f.control.calls.length,4);
 });

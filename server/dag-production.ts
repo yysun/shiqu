@@ -37,7 +37,6 @@ import {preserveLegacyLandscapeControl,authorizeRecovery,carriedJobFaultGroup,co
 import {transact,deleteJobs} from './production-records.ts';
 import {reviewAttention} from '../lib/production-dag/progress.ts';
 import {grantRepairs,newRepairBudget} from '../lib/production-dag/review.ts';
-import {createReviewSkip} from '../lib/production-dag/review-skip.ts';
 import type {RecoveryRequest,ReviewOverride} from '../lib/reader-recovery.ts';
 import {reconcileImageFaults} from './dag-image-faults.ts';
 import {carriedJobFaultState,isCarriedReviewFault,reconcileCarriedJobFaults,unexecutedLandscapeRecovery} from './dag-revision-faults.ts';
@@ -65,6 +64,7 @@ function dagFaultTargets(rows:FaultTarget[],dag:DagDocument):Fault[]{
 }
 const preparingCall=(call:string)=>call==='prepareArt'||call==='prepareSuggestions';
 const drawing=(call:string)=>call==='draw'||call==='drawLandscape';
+export const reviewCall=(call:string|undefined)=>call==='review'||call==='frameCheck';
 const visible="NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)";
 
 export const hasDag=(row:SessionRow)=>{try{return !!(JSON.parse(row.document) as Document).dag;}catch{return false;}};
@@ -178,7 +178,7 @@ export class DagProduction{
  /** 从快照推导完成和审片阻断，避免分别读取故障或访问图片文件。 */
  lifecycleFrom(row:SessionRow,faults:ReaderFault[],jobs:ProductionJob[]){
   const doc=JSON.parse(row.document) as Document,dag=doc.dag;
-  if(!dag)return {complete:undefined,blocking:null,review:null};
+  if(!dag)return {complete:undefined,blocking:null,release:null,review:null};
   const byId=new Map(jobs.map(job=>[job.id,job]));
   const targets=faults.filter(fault=>fault.state==='pending'||fault.state==='recovering'||fault.state==='awaiting-match').map(fault=>{
    const job=fault.job_id?byId.get(fault.job_id):undefined;
@@ -191,7 +191,8 @@ export class DagProduction{
   const derived=deriveProduction(reviewing),complete=confirmed&&(recovering?finished(story):derived.complete);
   const blocking=complete||derived.work.some(item=>!drawing(item.call))?null:this.reviewBlock(reviewing,derived.attention);
   const review=derived.evaluation.approved()?'approved':blocking?.reasons.length?'attention':'pending';
-  return {complete,blocking:blocking?{...blocking,canOverride:!!blocking.id&&!!overrideReview(reviewing,blocking.targets)}:null,review} as const;
+  const release=complete?null:this.reviewRelease(reviewing,blocking?.id,faults,jobs);
+  return {complete,blocking,release,review} as const;
  }
 
  /** 在领取事务中按当前硬输入和故障复核；参考图的文件可用性在发送前核对。 */
@@ -960,60 +961,22 @@ export class DagProduction{
   });
  }
 
- private skipDraft(story:DagStory,faultId:string,choice:ReviewOverride['ending'],now:number){
-  const source=story.dag.ending;
-  if(!source)return null;
-  const confirmed=typeof choice==='object'?{title:choice.title,ending:choice.reflection}:
-   choice!==undefined?{title:source.confirmed?.title??source.title,ending:choice==='default'?(source.confirmed?.ending??source.chosen??source.candidates[0]):source.candidates[choice-1]}:source.confirmed;
-  if(!confirmed?.title||!confirmed.ending)return null;
-  const dag={...story.dag,ending:{...source,confirmed}};
-  const record=createReviewSkip(stateOf({...story,dag},{includeReviewSkip:false}),dag,faultId,new Date(now).toISOString());
-  return record?{...dag,reviewSkip:record}:null;
+ /** 审核调用的运行和失败均按本版当前输入核对。 */
+ private reviewRelease(story:DagStory,blockId:string|null|undefined,faults:ReaderFault[],jobs:ProductionJob[]){
+  const reviews=new Map(jobs.filter(job=>job.kind===dagTextKind).flatMap(job=>{
+   const item=(JSON.parse(job.payload) as {work?:Work}).work;
+   return reviewCall(item?.call)&&!stale(story,item!)?[[job.id,job] as const]:[];
+  }));
+  if([...reviews.values()].some(job=>job.state==='running'))return null;
+  const graph=evaluate(stateOf(story));
+  const failed=faults.filter(fault=>fault.state==='pending'&&(fault.job_id?reviews.get(fault.job_id)?.state==='failed':
+   isCarriedReviewFault(fault)&&carriedJobFaultState(graph,fault)==='pending'));
+  const faultId=blockId??failed[0]?.id;
+  const draft=faultId?overrideReview(story,'default'):null;
+  return draft&&faultId?{faultId,title:draft.title,reflection:draft.reflection,needsEnding:draft.needsEnding,failed}:null;
  }
 
- skipReviewOffer(row:SessionRow,fault:ReaderFault,job:ProductionJob|undefined,faults:ReaderFault[]){
-  if(fault.state!=='pending')return null;
-  const doc=JSON.parse(row.document) as Document;
-  if(!doc.dag)return null;
-  const story:DagStory={id:row.id,doc,dag:doc.dag,selection:selectionSchema.parse(JSON.parse(row.selection)),
-   confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:[]};
-  const item=job?.state==='failed'?(JSON.parse(job.payload) as {work?:Work}).work:undefined;
-  const group=isCarriedReviewFault(fault)?carriedJobFaultGroup(fault):null;
-  const evaluation=group?evaluate(stateOf(story)):null;
-  const targetCurrent=group&&evaluation?faults.every(member=>
-   carriedJobFaultGroup(member)!==group||isCarriedReviewFault(member)&&carriedJobFaultState(evaluation,member)==='pending'):
-   item?.call==='review'&&!stale(story,item);
-  const draft=story.confirmed?this.skipDraft(story,fault.id,'default',this.deps.clock()):null;
-  const authorization=authorizeProductionCommand('skip-review',{version:'current',control:row.generation_control??'active',
-   continuation:!!doc.dag.continuation,targetCurrent:!!targetCurrent,targetReady:!!draft,stopping:false});
-  if(!authorization.allowed)return null;
-  return draft?.ending?.confirmed?{faultId:fault.id,title:draft.ending.confirmed.title,reflection:draft.ending.confirmed.ending}:null;
- }
-
- private skipFailedReview(db:SyncStatements,row:SessionRow,command:ReviewOverride,now:number){
-  const doc=JSON.parse(row.document) as Document;
-  const fault=db.get<ReaderFault>("SELECT * FROM reader_faults WHERE id=? AND session_id=? AND owner_id=?",command.faultId,row.id,row.user_id);
-  const job=fault?.job_id?db.get<ProductionJob>("SELECT * FROM production_jobs WHERE id=? AND session_id=? AND owner_id=?",fault.job_id,row.id,row.user_id):undefined;
-  if(!fault||!doc.dag)throw new ReaderError(409,'请先暂停制作并保存完整稿件，或刷新后重试当前审核。');
-  const story:DagStory={id:row.id,doc,dag:doc.dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed:true,faults:[]};
-  const group=carriedJobFaultGroup(fault);
-  if(group)reconcileCarriedJobFaults(db,row.user_id,story,now);
-  const members=group?db.all<ReaderFault>(`SELECT * FROM reader_faults WHERE session_id=? AND owner_id=? AND origin_fault_id=?
-   AND kind='job' AND job_id IS NULL AND state='pending'`,row.id,row.user_id,group):[];
-  if(group&&!members.some(member=>member.id===fault.id)||!this.skipReviewOffer(row,fault,job,members))
-   throw new ReaderError(409,'请先暂停制作并保存完整稿件，或刷新后重试当前审核。');
-  const dag=this.skipDraft(story,fault.id,command.ending,now);
-  if(!dag)throw new ReaderError(409,'请确认标题与结语，再跳过本次审核。');
-  db.run("UPDATE stories SET document=?,state='idle',error=NULL,updated_at=? WHERE id=? AND user_id=?",
-   JSON.stringify({...doc,dag,...projectDocument(dag,doc.plan)}),new Date(now).toISOString(),row.id,row.user_id);
-  for(const target of members.length?members:[fault])db.run("UPDATE reader_faults SET state='resolved',updated_at=? WHERE id=?",now,target.id);
-  if(job)db.run("UPDATE production_jobs SET state='succeeded',result=json_object('skippedReview',1),error=NULL,updated_at=? WHERE id=?",now,job.id);
- }
-
- /**
-  * 放行：在一个事务中核对操作编号与当前需读者处理的结论，只把这些结论标为放行，并写入回执。
-  * 可绘图仍由全部结论推导；被放行结论的输入之后改变时，放行随产物失效。
-  */
+ /** 当前失败或待定结论在一个事务中放行，并保存可重放的操作回执。 */
  async override(ownerId:string,id:string,command:ReviewOverride){
   const {requestId,faultId}=command;
   const fingerprint=commandFingerprint(['override',id,faultId,command.ending??null]);
@@ -1023,34 +986,33 @@ export class DagProduction{
    if(receipt){
     const previous=JSON.parse(receipt.payload) as {version?:number};
     if(receipt.action!=='override'||receipt.session_id!==id||receipt.fault_id!==null&&receipt.fault_id!==faultId||
-     previous.version===2&&receipt.fingerprint!==fingerprint)throw new ReaderError(409,'这个操作编号已用于其他内容。');
+     (previous.version??0)>=2&&receipt.fingerprint!==fingerprint)throw new ReaderError(409,'这个操作编号已用于其他内容。');
     return;
    }
    const current=db.get<SessionRow>(`SELECT * FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,id,ownerId);
-   const now=this.deps.clock(),skip=command.ending!==undefined||!faultId.startsWith('review:');
-   let targets:string[]=[];
-   if(skip){
-    if(!current)throw new ReaderError(409,'审核结果已更新，请刷新后再操作。');
-    this.skipFailedReview(db,current,command,now);
-   }
-   else{
-    // 结论指纹包含故障带来的可执行性，在回执事务内读取，不采用此前的轮询快照。
-    const doc=current&&JSON.parse(current.document) as Document|undefined;
-    const story:DagStory|null=current&&doc?.dag?{id,doc,dag:doc.dag,selection:selectionSchema.parse(JSON.parse(current.selection)),
-     confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,id,ownerId),doc.dag)}:null;
-    const derived=story&&deriveProduction(story);
-    const block=story&&derived&&!derived.work.some(item=>!drawing(item.call))?this.reviewBlock(story,derived.attention):null;
-    targets=block?.targets??[];
-    const dag=story&&block?.id===faultId?overrideReview(story,targets):null;
-    const authorization=authorizeProductionCommand('override-review',{
-     version:current?'current':'superseded',control:current?.generation_control??'active',continuation:!!doc?.dag?.continuation,
-     targetCurrent:block?.id===faultId,targetReady:!!dag,stopping:false,
-    });
-    if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
-    db.run("UPDATE stories SET document=?,state=CASE WHEN state='failed' THEN 'idle' ELSE state END,error=NULL,updated_at=? WHERE id=? AND user_id=?",JSON.stringify({...doc!,dag}),new Date(now).toISOString(),id,ownerId);
+   const doc=current&&JSON.parse(current.document) as Document|undefined;
+   const faults=db.all<ReaderFault>("SELECT * FROM reader_faults WHERE session_id=? AND owner_id=? AND state='pending' ORDER BY created_at,id",id,ownerId);
+   const jobs=db.all<ProductionJob>("SELECT * FROM production_jobs WHERE session_id=? AND owner_id=? AND kind=? AND state IN ('running','failed')",id,ownerId,dagTextKind);
+   const story:DagStory|null=current&&doc?.dag?{id,doc,dag:doc.dag,selection:selectionSchema.parse(JSON.parse(current.selection)),
+    confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,id,ownerId),doc.dag)}:null;
+   const derived=story&&deriveProduction(story);
+   const block=story&&derived&&!derived.work.some(item=>!drawing(item.call))?this.reviewBlock(story,derived.attention):null;
+   const release=story&&this.reviewRelease(story,block?.id,faults,jobs);
+   const decision=release?.faultId===faultId&&story?overrideReview(story,command.ending):null;
+   const authorization=authorizeProductionCommand('override-review',{
+    version:current?'current':'superseded',control:current?.generation_control??'active',continuation:!!doc?.dag?.continuation,
+    targetCurrent:release?.faultId===faultId,targetReady:!!decision,stopping:false,
+   });
+   if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
+   const {dag,targets}=decision!,now=this.deps.clock();
+   db.run("UPDATE stories SET document=?,state=CASE WHEN state='failed' THEN 'idle' ELSE state END,error=NULL,updated_at=? WHERE id=? AND user_id=?",
+    JSON.stringify({...doc!,dag,...projectDocument(dag,doc!.plan)}),new Date(now).toISOString(),id,ownerId);
+   for(const fault of release!.failed){
+    db.run("UPDATE reader_faults SET state='resolved',updated_at=? WHERE id=?",now,fault.id);
+    if(fault.job_id)db.run("UPDATE production_jobs SET state='succeeded',result=json_object('reviewOverridden',1),error=NULL,updated_at=? WHERE id=?",now,fault.job_id);
    }
    db.run("INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,fault_id,created_at,updated_at) VALUES(?,?,?,'override',?,?,?,?,?)",
-    requestId,ownerId,id,fingerprint,JSON.stringify({version:2,targets,skip,ending:command.ending}),faultId,now,now);
+    requestId,ownerId,id,fingerprint,JSON.stringify({version:3,targets,ending:command.ending}),faultId,now,now);
   });
   this.deps.wake();
  }

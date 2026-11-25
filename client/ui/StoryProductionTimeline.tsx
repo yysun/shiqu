@@ -17,7 +17,7 @@ export default function StoryProductionTimeline({session,busy=false,error='',onR
  const phase=meta?.phase;
  const current=focused?.id||(phase==='image'||phase==='restyle'?'image':phase==='source'||phase==='discover'?'source':phase==='recommend'||phase==='production-confirmation'?'count':phase==='repair'?'repair':phase==='review'?'review':'plan');
  const review=stages.find(step=>['review','repair','recheck'].includes(step.id)&&step.state==='failed')?.id||stages.find(step=>['review','repair','recheck'].includes(step.id)&&step.state==='current')?.id||'review';
- const reviewBlocked=!!session.reviewSkip||!!session.reviewIssues?.length||meta?.reviewStopReason==='requirements';
+ const reviewBlocked=!!session.reviewOverride||!!session.reviewIssues?.length||meta?.reviewStopReason==='requirements';
  const ownsReview=reviewBlocked&&!!reviewTools,intakePhase=session.intake?.phase;
  function stageFor(fault:FaultView){
   if(fault.stage==='prepare'||fault.stage==='source'&&intakePhase&&intakePhase!=='confirmed')return 'count';

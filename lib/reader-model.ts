@@ -18,7 +18,7 @@ import {storyBriefVerified} from './reader-story-brief.ts';
 import {narrativeDetailSchema} from './reader-frame-recommendation.ts';
 import type {FrameRecommendation} from './reader-frame-recommendation.ts';
 import type {ReviewCheckpoint,ReviewIssue} from './reader-review.ts';
-import type {FaultView,RecoveryReceiptView,ReviewSkipOffer} from './reader-recovery.ts';
+import type {FaultView,RecoveryReceiptView,ReviewOverrideOffer} from './reader-recovery.ts';
 import type {DagDocument} from './production-dag/document.ts';
 import type {DagProgress} from './production-dag/progress.ts';
 import type {ProductionService,ProductionLifecycle} from './production-lifecycle.ts';
@@ -56,7 +56,7 @@ export type SessionRow={id:string;user_id:string;selection:string;document:strin
 export type Step={kind:'discover'|'recommend'|'plan'|'source'|'reflection'|'review'|'repair'|'restyle'|'image'|'audio';page:number;key:string};
 export type GenerationProgress={sourceReady:boolean;frameCountConfirmed:boolean;frameCount:number|null;storyboardFrames?:number;storyboardBatch?:{first:number;last:number};drawingFrames?:number;activity?:string;reviewStatus?:ReviewCheckpoint['status'];reviewPhase?:'frames'|'full';reviewRound?:number;repairCompleted?:number;repairTotal?:number;reviewAudits?:number;repairBatches?:number;repairPasses?:number;reviewStopReason?:'limit'|'unchanged'|'replan'|'requirements';reviewOverridden?:boolean;phase:Step['kind']|'frame-count'|'story-choice'|'production-confirmation'|'completed';startedAt:number|null;timeoutAt?:number|null;stageDurations?:Record<string,number>;attempt:number};
 export type SessionView={
- reviewSkip?:ReviewSkipOffer;lifecycle?:ProductionLifecycle;
+ reviewOverride?:ReviewOverrideOffer;lifecycle?:ProductionLifecycle;
  hasLandscape?:true;
  landscapeWork?:{printId?:string;action:'pause'|'resume';modelToken?:string;service?:ProductionService};
  /** @deprecated 使用 lifecycle.continuation。 */

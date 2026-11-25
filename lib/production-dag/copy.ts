@@ -25,7 +25,10 @@ export function textOnlyDag(dag:DagDocument):DagDocument{
  delete copy.continuation;
  delete copy.reviewSkip;
  delete copy.resumeUnreviewed;
- for(const [id,product] of Object.entries(copy.products))if(product.unreviewed)delete copy.products[id];
+ for(const [id,product] of Object.entries(copy.products)){
+  if(product.unreviewed||product.overridden&&!copy.verdicts?.[id]&&!(id==='frameCheck:'&&copy.frameCheck))delete copy.products[id];
+  else if(product.overridden)delete product.overridden;
+ }
  for(const id of copy.order){
   const frame=copy.frames[id];
   if(!frame)continue;

@@ -470,14 +470,14 @@ test('production command guards choose one rule for every combination of persist
 test('each production command has its own effect and refuses an invalid target or gate',()=>{
  const expected={
   pause:{kind:'control',control:'paused'},stop:{kind:'control',control:'stopped'},resume:{kind:'control',control:'active'},
-  continue:'continue-revision',retry:'recover-fault','continue-repair':'grant-repair-budget','skip-review':'save-skipped-review',
+  continue:'continue-revision',retry:'recover-fault','continue-repair':'grant-repair-budget',
   'override-review':'release-review-target','apply-model':'replace-model-snapshot',reprepare:'refresh-preparation','image-health':'probe-image',
   'start-landscape':'queue-landscape','retry-landscape':'recover-landscape','open-reselection':'create-selection-draft','edit-revision':'read-edit-basis',
   'save-revision':'publish-revision','edit-review-notes':'save-review-notes',redraw:'queue-redraw',cover:'save-cover',copy:'copy-reviewed','copy-draft':'copy-text-draft',
  };
  assert.deepEqual([...productionCommandEvents].sort(),Object.keys(expected).sort());
  for(const event of productionCommandEvents){
-  const state={version:'current',control:['resume','skip-review'].includes(event)?'paused':'active',
+  const state={version:'current',control:event==='resume'?'paused':'active',
    continuation:event==='continue',targetCurrent:true,targetReady:true,stopping:false};
   const effect=expected[event];
   assert.deepEqual(authorizeProductionCommand(event,state),{allowed:true,effect:typeof effect==='string'?{kind:effect}:effect},event);
@@ -1661,7 +1661,7 @@ test('an exhausted DAG review exposes its issues and can grant another repair at
   {claimsCompletion:false,issues:[2],retryable:true,canEditNotes:true,status:202});
 });
 
-for(const action of ['pause','stop','continue'])test(`a complete draft under ${action} can skip failed review without starting drawing`,async t=>{
+for(const action of ['pause','stop','continue'])test(`a complete draft under ${action} can allow drawing while preserving its reader control`,async t=>{
  const f=await productionFixture(t,'codex');
  f.control.beforeText=name=>{if(name==='review')throw Error('controlled review failure before any verdict');};
  const id=await confirmedStory(f,4),route=`sessions/${id}`;
@@ -1708,6 +1708,45 @@ test('a current failed review can be retried while active using its saved fault 
  assert.equal(f.control.calls.length,4);
 });
 
+test('the drawing approval is withheld once a failed review is running again',async t=>{
+ const f=await productionFixture(t,'codex'),entered=Promise.withResolvers(),release=Promise.withResolvers();
+ f.control.hold=false;
+ let first=true;
+ f.control.beforeText=async name=>{
+  if(name!=='review')return;
+  if(first){first=false;throw Error('受控审片故障');}
+  entered.resolve();await release.promise;
+ };
+ const id=await confirmedStory(f),route=`sessions/${id}`;
+ await until(async()=>!!(await f.read(id)).reviewOverride);
+ const {faultId}= (await f.read(id)).reviewOverride;
+ await f.json(route+'/recover','POST',{requestId:crypto.randomUUID(),faultId});
+ try{
+  await entered.promise;
+  assert.equal((await f.read(id)).reviewOverride,undefined);
+  assert.equal((await f.request(route+'/review-override','POST',{requestId:crypto.randomUUID(),faultId,ending:'default'})).status,409);
+  assert.equal(f.control.calls.length,0);
+ }finally{release.resolve();}
+ await until(async()=>(await f.read(id)).state==='completed');
+});
+
+test('the same drawing approval covers a failed count check and binds the reader ending',async t=>{
+ const f=await productionFixture(t,'codex');f.control.hold=false;f.control.autoLength=4;
+ f.control.beforeText=name=>{if(name==='frames')throw Error('受控幅数核对故障');};
+ const id=await confirmedStory(f,'auto'),route=`sessions/${id}`;
+ await until(async()=>!!(await f.read(id)).reviewOverride);
+ const {reviewOverride:offer,lifecycle}=await f.read(id);
+ assert.equal(lifecycle.control,'active');assert.equal(offer.needsEnding,true);
+ const ending={title:'庄周醒来',reflection:'梦醒后，庄周仍想起蝴蝶飞舞。'};
+ await f.json(route+'/review-override','POST',{requestId:crypto.randomUUID(),faultId:offer.faultId,ending});
+ await until(async()=>(await f.read(id)).state==='completed');
+ const {dag,plan}=await saved(f,id);
+ assert.equal(dag.products['frameCheck:'].overridden,true);
+ assert.equal(plan.title,ending.title);assert.equal(plan.reflection,ending.reflection);
+ assert.deepEqual((await f.read(id)).lifecycle.faults,[]);
+ assert.equal(f.control.reviews.length,0);
+});
+
 test('saving notes against exhausted repair gives a new saved revision and waits for explicit continue',async t=>{
  const f=await productionFixture(t,'codex');
  const issue={page:2,category:'caption',problem:'配文没有交代庄周醒来',instruction:'补写醒来的动作',requiresReplan:false};
@@ -1722,7 +1761,7 @@ test('saving notes against exhausted repair gives a new saved revision and waits
  assert.equal(f.control.calls.length,0);
 });
 
-for(const change of ['registration','ending','visual'])test(`review skip is invalidated before any drawing when ${change} changes`,async t=>{
+for(const change of ['requirements','ending','visual'])test(`drawing approval requires re-review when ${change} changes`,async t=>{
  const f=await productionFixture(t,'codex');
  f.control.beforeText=name=>{if(name==='review')throw Error('controlled review failure');};
  const id=await confirmedStory(f,4),route=`sessions/${id}`,db=f.app.services.database;
@@ -1731,17 +1770,15 @@ for(const change of ['registration','ending','visual'])test(`review skip is inva
  let view;
  await until(async()=>{view=await f.read(id);return view.faults?.some(fault=>fault.retryReview);});
  const command={requestId:crypto.randomUUID(),faultId:view.faults.find(fault=>fault.retryReview).id,ending:'default'};
- assert.equal((await f.request(`${route}/review-override`,'POST',command)).status,409);
  await f.json(`${route}/production-control`,'POST',{action:'pause'});
- const offer=(await f.read(id)).reviewSkip;
+ const offer=(await f.read(id)).reviewOverride;
  assert.equal(offer.faultId,command.faultId);
  const skipped=await f.json(`${route}/review-override`,'POST',command);
  assert.equal(skipped.generationProgress.reviewOverridden,true);
- assert.equal((await f.json(`${route}/review-history`)).entries.find(item=>item.title==='跳过本次审核').outcome,'unknown');
+ assert.equal((await f.json(`${route}/review-history`)).entries.find(item=>item.title==='仍然绘图').outcome,'unknown');
  const doc=await saved(f,id);
- if(change==='registration'){
-  const item=doc.dag.items[0],product=doc.dag.products[`itemRegistration:${item.id}`];
-  item.scope='frame';product.scope='frame';
+ if(change==='requirements'){
+  await db.prepare("UPDATE stories SET selection=json_set(selection,'$.acceptancePrompt','核对修改后的验收要求。') WHERE id=?").bind(id).run();
  }else if(change==='ending')doc.dag.ending.confirmed.ending='修改后的结语使审核绑定失效。';
  else{
   const frame=doc.dag.order[1];
@@ -1749,7 +1786,7 @@ for(const change of ['registration','ending','visual'])test(`review skip is inva
   doc.dag.products[`visual:${frame}`].hash=fingerprint(doc.dag.frames[frame].visual);
  }
  await db.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(doc),id).run();
- assert.equal((await f.read(id)).generationProgress.reviewOverridden,false);
+ assert.notEqual((await f.read(id)).lifecycle.review,'approved');
  await f.json(`${route}/production-control`,'POST',{action:'resume'});
  await until(async()=>(await f.read(id)).faults?.some(fault=>fault.retryReview&&fault.id!==command.faultId));
  assert.equal(f.control.calls.length,0);

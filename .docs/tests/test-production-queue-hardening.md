@@ -45,8 +45,8 @@ For each:
 ### Stale tab
 
 - **Given** a stale tab showing a blocked version that has been superseded.
-- **When** the reader retries, chooses **跳过问题并绘图**, or resumes.
-- **Then** the skip and resume are refused with a message pointing to the newest version, the retry starts no work, nothing changes, and no paid call starts.
+- **When** the reader retries, chooses **仍然绘图**, or resumes.
+- **Then** drawing approval and resume are refused with a message pointing to the newest version, the retry starts no work, nothing changes, and no paid call starts.
 
 ### Corrupt row
 
@@ -149,7 +149,7 @@ Run these separately, because one version can't have a script step and an image 
 ### Unchanged actions
 
 - **Given** a blocked newest version.
-- **When** the reader chooses **继续自动修复**, or **跳过问题并绘图**.
+- **When** the reader chooses **继续自动修复**, or **仍然绘图**.
 - **Then** repair runs up to 20 more rounds and stops early if nothing changes, or drawing starts from the current storyboard. Paid work already saved doesn't run again.
 
 ## Optimization

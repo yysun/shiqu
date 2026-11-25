@@ -24,11 +24,6 @@ function skipBasis(state:VersionState,dag:DagDocument){
  return {binding,pending};
 }
 
-export function createReviewSkip(state:VersionState,dag:DagDocument,faultId:string,recordedAt:string):ReviewSkip|null{
- const basis=skipBasis(state,dag);
- return basis?{faultId,recordedAt,binding:basis.binding,targets:basis.pending.map(item=>item.id)}:null;
-}
-
 export function activeReviewSkip(state:VersionState,dag:DagDocument){
  const record=dag.reviewSkip;
  if(!record)return null;

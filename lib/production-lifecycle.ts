@@ -18,7 +18,7 @@ export type ProductionImageCheck={
 export type ProductionReviewAttention=Attention|{target:string;reason:'replan'};
 export type ProductionActionOffer=
  {event:ProductionControlEvent|'continue'|'apply-model'|'reprepare'}|
- {event:'retry'|'continue-repair'|'skip-review'|'override-review';faultId:string}|
+ {event:'retry'|'continue-repair'|'override-review';faultId:string}|
  {event:SetupEvent;generation:number}|
  {event:'image-health';page:number}|
  {event:StoryCommand|'delete'|'restore'}|
@@ -78,7 +78,7 @@ type ActivityInput=Pick<SessionView,'state'|'intake'|'generationControl'|'awaiti
  reviewAttention:ProductionReviewAttention[];review:ProductionLifecycle['review'];service:ProductionService;now:number;order:readonly string[];
  pendingImageChecks:ProductionImageCheck[];optionalWork:boolean;modelApplicable:boolean;canReprepare:boolean;repreparing:boolean;stopping:boolean;
  freeImageRecoveries:ReadonlySet<string>;
- reviewBlockId?:string;canOverrideReview:boolean;reviewSkipId?:string;
+ reviewBlockId?:string;reviewOverrideId?:string;
  setup?:{state:SetupState;generation:number};
  storyActions?:{event:StoryCommand;ready:boolean}[];
  replacement?:{parentId:string;generation:number;commit:ReselectionCommitState};
@@ -132,9 +132,8 @@ function productionActionOffers(input:ActivityInput,control:GenerationControl):P
  if(configured&&allowed('reprepare',input.canReprepare))actions.push({event:'reprepare'});
  if(input.reviewBlockId){
   if(configured&&allowed('continue-repair',input.reviewAttention.some(reason=>reason.reason==='limit')))actions.push({event:'continue-repair',faultId:input.reviewBlockId});
-  if(configured&&allowed('override-review',input.canOverrideReview))actions.push({event:'override-review',faultId:input.reviewBlockId});
  }
- if(input.reviewSkipId&&allowed('skip-review'))actions.push({event:'skip-review',faultId:input.reviewSkipId});
+ if(input.reviewOverrideId&&allowed('override-review'))actions.push({event:'override-review',faultId:input.reviewOverrideId});
  for(const fault of input.faults){
   if(fault.scope==='required'&&fault.state==='pending'&&fault.retryAllowed&&(configured||input.freeImageRecoveries.has(fault.id))&&allowed('retry'))
    actions.push({event:'retry',faultId:fault.id});
@@ -208,7 +207,7 @@ export function authorizeDispatch(state:DispatchState):DispatchDecision{
 
 export const productionControlEvents=['pause','stop','resume'] as const;
 export type ProductionControlEvent=(typeof productionControlEvents)[number];
-export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|'override-review'|'apply-model'|'reprepare'|'image-health'|'start-landscape'|'retry-landscape'|'open-reselection'|'edit-revision'|'save-revision'|'edit-review-notes'|'redraw'|'cover'|'copy'|'copy-draft'|ProductionControlEvent;
+export type ProductionCommand='continue'|'retry'|'continue-repair'|'override-review'|'apply-model'|'reprepare'|'image-health'|'start-landscape'|'retry-landscape'|'open-reselection'|'edit-revision'|'save-revision'|'edit-review-notes'|'redraw'|'cover'|'copy'|'copy-draft'|ProductionControlEvent;
 type SetupEvent=IntakeAction['action'];
 type StoryCommand=Extract<ProductionCommand,'open-reselection'|'edit-revision'|'save-revision'|'edit-review-notes'|'redraw'|'cover'|'copy'|'copy-draft'|'start-landscape'|'retry-landscape'>;
 type CommandState={
@@ -220,7 +219,7 @@ const commandEffects={
  stop:{kind:'control',control:'stopped'},
  resume:{kind:'control',control:'active'},
  continue:{kind:'continue-revision'},retry:{kind:'recover-fault'},
- 'continue-repair':{kind:'grant-repair-budget'},'skip-review':{kind:'save-skipped-review'},'override-review':{kind:'release-review-target'},
+ 'continue-repair':{kind:'grant-repair-budget'},'override-review':{kind:'release-review-target'},
  'apply-model':{kind:'replace-model-snapshot'},reprepare:{kind:'refresh-preparation'},'image-health':{kind:'probe-image'},
  'start-landscape':{kind:'queue-landscape'},'retry-landscape':{kind:'recover-landscape'},'open-reselection':{kind:'create-selection-draft'},
  'edit-revision':{kind:'read-edit-basis'},'save-revision':{kind:'publish-revision'},'edit-review-notes':{kind:'save-review-notes'},
@@ -243,8 +242,6 @@ const commands={
   denial:state=>state.control==='active'&&!state.continuation?'这项问题或输入已更新，请刷新后再操作。':'请恢复当前版本的制作，再重试当前问题。'},
  'continue-repair':{allows:state=>state.control==='active'&&!state.continuation&&state.targetCurrent&&state.targetReady,
   denial:'审片结果、制作许可或修订额度已更新，请刷新后再操作。'},
- 'skip-review':{allows:state=>(state.control!=='active'||state.continuation)&&state.targetCurrent&&state.targetReady,
-  denial:'请先暂停制作并保存完整稿件，或刷新后重试当前审核。'},
  'override-review':{allows:state=>state.targetCurrent&&state.targetReady,
   denial:state=>state.targetCurrent?'分镜和结语仍在准备，请等稿件保存后再放行绘图。':'审核结果已更新，请刷新后再操作。'},
  'apply-model':{allows:state=>state.targetCurrent&&state.targetReady,

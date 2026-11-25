@@ -377,7 +377,6 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(path[2]==='review-override'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const command=reviewOverrideSchema.parse(await body(req));
-    if(command.ending===undefined&&!await requestRecorded(command.requestId))await requireProvider();
     return json(await services.production.overrideReview(uid,id,command));
    }
    if(path[2]==='production-control'&&path.length===3&&req.method==='POST'){

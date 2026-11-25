@@ -34,7 +34,7 @@ import type {ProductionJob,JobSpec} from './production-queue.ts';
 import {authorizeRecovery,authorizeControl,carriedJobFaultGroup,commandReceipt,sessionFaults} from './reader-commands.ts';
 import type {ReaderFault} from './reader-commands.ts';
 import type {FaultView,RecoveryRequest,ReviewOverride} from '../lib/reader-recovery.ts';
-import {canReprepare,DagProduction,dagTextKind,dagDrawKind,landscapeFrames,retryableLandscapePages,portraitRecoveryReceipt} from './dag-production.ts';
+import {canReprepare,DagProduction,dagTextKind,dagDrawKind,reviewCall,landscapeFrames,retryableLandscapePages,portraitRecoveryReceipt} from './dag-production.ts';
 import {bindLegacyLandscapeRequests} from './dag-revisions.ts';
 import {transact,deleteJobs,recordJobSucceeded} from './production-records.ts';
 import {errorCode,serviceLevel} from '../lib/production-dag/errors.ts';
@@ -453,7 +453,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const work=job&&(JSON.parse(job.payload) as {work?:Work}).work;
   const order=doc.dag?.order??[];
   const page=fault.state!=='awaiting-match'&&(fault.node==='frameImage'||fault.node==='landscape')?order.indexOf(fault.node_key):-1;
-  const retryReview=job?.kind===dagTextKind&&work?.call==='review'||isCarriedReviewFault(fault);
+  const retryReview=job?.kind===dagTextKind&&reviewCall(work?.call)||isCarriedReviewFault(fault);
   const stage=retryReview?'review':fault.kind==='image-loss'&&fault.state!=='awaiting-match'?'redraw':job?.kind==='discover'?'source':work?.call==='prepareSuggestions'||job?.kind==='prepare'||doc.intake&&doc.intake.phase!=='confirmed'?'prepare':'generation';
   const instances=work?.instances??(fault.node?[{node:fault.node,key:fault.node_key}]:[]);
   const targets=instances.map(({node,key})=>{
@@ -652,11 +652,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    id:`search:${failedSearch.round}`,message:failedSearch.error,page:null,stage:'source',state:'pending',retryAllowed:false,
    kind:failedSearch.failureCode==='CONTENT_BLOCKED'?'content-blocked':'interrupted',scope:'required',targets:[],
   }:undefined;
-  const reviewFault=views.find(fault=>fault.retryReview);
-  const rawReviewFault=reviewFault&&faults.find(fault=>fault.id===reviewFault.id);
-  const failedReviewJob=rawReviewFault&&allJobs.find(job=>job.id===rawReviewFault.job_id);
-  const reviewSkip=!superseded&&rawReviewFault&&reviewFault.state==='pending'?this.dag.skipReviewOffer(row,rawReviewFault,failedReviewJob,faults):null;
-  const {blocking,complete,review}=this.dag.lifecycleFrom(row,faults,allJobs);
+  const {blocking,complete,review,release}=this.dag.lifecycleFrom(row,faults,allJobs);
   const reviewAttention:NonNullable<SessionView['lifecycle']>['reviewAttention']=[...(blocking?.reasons??[])];
   const blockedTargets=new Set(reviewAttention.map(reason=>reason.target));
   for(const target of new Set(dag?.issues?.filter(issue=>issue.requiresReplan&&blockedTargets.has(issue.target)).map(issue=>issue.target))){
@@ -703,7 +699,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    freeImageRecoveries:new Set(faults.filter(fault=>input.portraitRecoveries.has(fault.id)||this.imageRecoveryTarget(id,parsed.doc,fault)).map(fault=>fault.id)),
    modelApplicable:!!dag&&(!parsed.doc.intake||parsed.doc.intake.phase==='confirmed')&&!!currentImage&&this.serviceAvailability(currentImage)==='available'&&
     (parsed.doc as Document&{legacyFramePreparation?:unknown}).legacyFramePreparation==null,
-   reviewBlockId:blocking?.id??undefined,canOverrideReview:!!blocking?.canOverride,reviewSkipId:reviewSkip?.faultId},portraitJobs);
+   reviewBlockId:blocking?.id??undefined,reviewOverrideId:release?.faultId},portraitJobs);
   const active=lifecycle.activity.state==='running'?lifecycle.activity.jobs:[];
   const current=active[0],description=current&&describeProductionCall(current.call,current.pages,progress.repairPasses??0);
   const phase=description?.phase??progress.phase;
@@ -719,7 +715,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const model=work&&this.printModelStatus(print??{id,modelSnapshot:doc.legacyLandscapeModelSnapshot??dag?.modelSnapshot});
   const landscapeWork=work&&{...work,...(model?.service!=='available'?model:{})};
   const hasLandscape=!!print||dag?.order.some(key=>dag.frames[key]?.landscape!==undefined);
-  const session:SessionView={...saved,lifecycle,...(hasLandscape?{hasLandscape:true as const}:{}),...(landscapeWork?{landscapeWork}:{}),...(reviewSkip&&lifecycle.actions.some(action=>action.event==='skip-review')?{reviewSkip}:{}),...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
+  const session:SessionView={...saved,lifecycle,...(hasLandscape?{hasLandscape:true as const}:{}),...(landscapeWork?{landscapeWork}:{}),...(release&&lifecycle.actions.some(action=>action.event==='override-review')?{reviewOverride:{faultId:release.faultId,title:release.title,reflection:release.reflection,needsEnding:release.needsEnding}}:{}),...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
    ...(description?.label?{stage:`正在${description.label}`}:{}),
    ...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),
    generationProgress:{...progress,phase,activity:current?description?.label:progress.activity,startedAt,timeoutAt,

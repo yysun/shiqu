@@ -145,12 +145,11 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
   }catch(error){if((error as {status?:number}).status!==undefined)controlRequest.current=null;setControlError(error instanceof Error?error.message:'制作控制暂未保存，请重试。');}
   finally{controlLock.current=false;setControlBusy('');}
  }
- async function drawAnyway(sessionId:string,skipFaultId?:string){
+ async function drawAnyway(sessionId:string,faultId:string,ending?:ReviewOverride['ending']){
   if(controlLock.current)return;controlLock.current=true;setControlBusy(sessionId);setControlError('');
   try{
-   const current:SessionView=active?.id===sessionId?active:await request('reader/sessions/'+sessionId);
-   const fault=current.faults?.find(f=>f.stage==='review'&&f.state==='pending'&&(skipFaultId?f.id===skipFaultId:!f.retryReview));if(!fault&&!overrideRequest.current?.signature.startsWith(JSON.stringify([sessionId]).slice(0,-1)+','))throw Error('审核问题已更新，请刷新后再处理。');
-   if(fault){const signature=JSON.stringify([sessionId,fault.id,!!skipFaultId]);if(overrideRequest.current?.signature!==signature)overrideRequest.current={signature,body:{requestId:randomId(),faultId:fault.id,...(skipFaultId?{ending:'default' as const}:{})}};}
+   const signature=JSON.stringify([sessionId,faultId,ending??null]);
+   if(overrideRequest.current?.signature!==signature)overrideRequest.current={signature,body:{requestId:randomId(),faultId,ending}};
    const s:SessionView=await request(`reader/sessions/${sessionId}/review-override`,'POST',overrideRequest.current!.body);
    overrideRequest.current=null;passive.current=false;
    collect(s);

@@ -11,12 +11,13 @@ import {castFrom} from './frames.ts';
 import {preparationCandidate,preparationPending} from '../reader-preparation.ts';
 import {preparesSelectedStory} from '../reader-frame-recommendation.ts';
 import {storyBriefVerified} from '../reader-story-brief.ts';
-import {evaluate,instanceId,reusable,complete,type Evaluation,type Instance,type Fault,type Product,type VersionState} from './engine.ts';
+import {evaluate,instanceId,instanceKeys,reusable,complete,type Evaluation,type Instance,type Fault,type Product,type VersionState} from './engine.ts';
 import {nodeSpec} from './registry.ts';
 import {withReviewSkip} from './review-skip.ts';
 import {fingerprint} from './fingerprint.ts';
 import {callGroups,type CallGroup} from './schedule.ts';
 import {reviewStage,newRepairBudget,canRepair,verdictNodes} from './review.ts';
+import type {ReviewOverride} from '../reader-recovery.ts';
 import {structuralLoss} from './hand-edits.ts';
 import {acceptanceItems,type Outline,type Scene,type Visual,type Character,type ReviewOutcome} from './calls.ts';
 import {rootProducts,versionState,endingChoice,type DagDocument,type DagIssue,type DagFrame} from './document.ts';
@@ -258,6 +259,7 @@ export {requestFor,drawInput} from './requests.ts';
 
 /** 派发时记录的实例与当前实例的硬输入不同：结果属于旧输入，丢弃。 */
 export function stale(story:DagStory,item:Work):boolean{
+ if(item.issues?.length&&item.issues.every(issue=>story.dag.products[issue.target]?.overridden))return true;
  const ev=evaluate(stateOf(story));
  return item.instances.some(i=>!sameInputs(ev.instance(i.node,i.key).hard,i.hard));
 }
@@ -448,20 +450,38 @@ function applyStructureRepair(story:DagStory,dag:DagDocument,item:Work,edits:{fr
  return 'applied';
 }
 
-/** 放行幅数审核时沿用旧版的一次性绘图授权，绑定当前分镜和结语的输入。 */
-export function overrideReview(story:DagStory,targets:string[]):DagDocument|null{
+/** 放行当前失效、失败或尚未生成的结论，按每个结论的输入独立绑定。 */
+export function overrideReview(story:DagStory,choice:ReviewOverride['ending']){
+ const source=story.dag.ending;
+ if(!story.confirmed||!source)return null;
+ const needsEnding=!source.confirmed&&!source.chosen;
+ const title=source.confirmed?.title??source.title,reflection=source.confirmed?.ending??source.chosen??source.candidates[0];
+ if(!title||!reflection||needsEnding&&choice===undefined)return null;
  const dag=clone(story.dag);
- for(const target of targets)if(dag.products[target])dag.products[target]={...dag.products[target],overridden:true};
- if(!targets.includes('frameCheck:'))return dag;
- const state=stateOf({...story,dag});
- for(const {node,key} of evaluate(state).all().filter(instance=>verdictNodes.some(node=>node===instance.node))){
-  const instance=evaluate(state).instance(node,key);
-  if(instance.status==='valid')continue;
-  if(!instance.hard||!instance.check)return null;
-  const parts=node==='narrativeVerdict'?{endingChoice:fingerprint(endingChoice(dag.ending)??null)}:undefined;
-  record(dag,instance,[instance.id,'override'],{outcome:'fail',overridden:true,...(parts?{parts}:{})});
+ if(needsEnding){
+  const confirmed=typeof choice==='object'?{title:choice.title,ending:choice.reflection}:
+   {title,ending:typeof choice==='number'?source.candidates[choice-1]:reflection};
+  if(!confirmed.ending)return null;
+  dag.ending={...source,confirmed};
  }
- return dag;
+ delete dag.reviewSkip;
+ const targets:string[]=[];
+ const working={...story,dag,faults:[]};
+ const initial=stateOf(working);
+ const nodes=[...(initial.skipFrameCheck?[]:['frameCheck']),...verdictNodes];
+ for(const node of nodes){
+  const graph=evaluate(stateOf(working));
+  for(const key of instanceKeys(graph.state,node)){
+   const instance=graph.instance(node,key),product=dag.products[instance.id];
+   if(instance.status==='valid'&&(product?.outcome==='pass'||product?.overridden))continue;
+   if(!instance.hard||!instance.check)return null;
+   targets.push(instance.id);
+   if(instance.status==='valid'&&product){dag.products[instance.id]={...product,overridden:true};continue;}
+   const parts=node==='narrativeVerdict'?{endingChoice:fingerprint(endingChoice(dag.ending)??null)}:undefined;
+   record(dag,instance,[instance.id,'override'],{outcome:'fail',overridden:true,...(parts?{parts}:{})});
+  }
+ }
+ return targets.length?{dag,targets,title,reflection,needsEnding}:null;
 }
 
 /** 本次工作的阶段标记（审片第一或第二阶段），用于任务身份与界面。 */

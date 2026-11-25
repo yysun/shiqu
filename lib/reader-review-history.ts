@@ -59,8 +59,8 @@ function dagReviewHistory(row:SessionRow,doc:Document,selection:ObjectValue):Sto
  const entries:ReviewHistoryEntry[]=[];
  const base={recordedAt:null,model:null,position:null};
  if(dag.frameCheck)entries.push({...base,id:'count:current',kind:'count',title:'幅数与结构核对',outcome:dag.frameCheck.frameCountReview.decision==='keep'?'passed':'needs-change',issues:dag.frameCheck.issues,countReview:dag.frameCheck.frameCountReview,requirements:dag.frameCheck.requirements,coverage:dag.frameCheck.coverage});
- if(dag.reviewSkip)entries.push({...base,id:'review:skip:'+dag.reviewSkip.faultId,kind:'review',title:'跳过本次审核',
-  recordedAt:dag.reviewSkip.recordedAt,outcome:'unknown',issues:[]});
+ if(dag.reviewSkip||Object.values(dag.products).some(product=>product.overridden))entries.push({...base,id:'review:overridden',kind:'review',title:'仍然绘图',
+  recordedAt:dag.reviewSkip?.recordedAt??null,outcome:'unknown',issues:[]});
  const verdicts=Object.entries(dag.verdicts||{});
  if(verdicts.length||dag.issues?.length){
   const criteria=acceptanceCriteria(typeof selection.acceptancePrompt==='string'?selection.acceptancePrompt:'');
