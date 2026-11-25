@@ -1,7 +1,6 @@
 // Agent-facing local commands use production Requests and a dormant/scoped coordinator, never HTTP.
 // stdout is a versioned JSON receipt; only explicit run can invoke generation, all writes retain API guards.
 import {restoreAndUpgradeLibrary} from './library-upgrade.ts';
-import {libraryFormat} from './library-schema.ts';
 import {readerStoryboardBatchSize} from '../lib/reader-limits.ts';
 import path from 'node:path';
 import os from 'node:os';
@@ -74,7 +73,6 @@ const inputs={
  copyImages:{sourceId:'source story UUID',note:'stories copy-images TARGET_ID --from-data-dir SOURCE_LIBRARY --input source.json; TARGET_ID is the existing text copy, not a new creation request.'},
  setup:{note:'stories setup ID accepts an action; requestId defaults to a new UUID; generation is required from stories get ID. Keep both fixed for replay.',examples:[{action:'conditions',conditions:{bookId:'zhuangzi',theme:'善意的处境',discovery:{mode:'auto',themeInput:'preset'},productionPrompt:''}},{action:'more'},{action:'draft',requirementsEdited:{acceptancePrompt:true},settings:{artStyle:'ink-pencil',productionPrompt:'',acceptancePrompt:'',narrativeDetail:'balanced',length:'auto'}}]},
  confirm:{draftToken:'intake.draftToken from stories get ID',settings:{productionPrompt:'保留关键行动',acceptancePrompt:'人物回应落实到画面',artStylePrompt:'以冷灰墨色和少量石青表现暮色。'}},
- library:{minimumReadableFormat:libraryFormat.minimumReadableFormat,earlierFormatGuide:libraryFormat.earlierFormatGuide},
  storyboard:{batch:readerStoryboardBatchSize,note:'A fixed 10-frame story with a passing first audit uses four text calls before drawing, or three after a prepared synopsis.'},
  stylePrompt:{command:'stories edit ID --input style.json',input:{token:'from stories revisions ID',changes:{artStylePrompt:'以冷灰墨色和少量石青表现暮色。'}},note:'Replace the selected preset prompt for this story, up to 3000 characters. Set null to restore the preset. Changing the preset without supplying a prompt also restores the new preset default.'},
  reviewNotes:{command:'stories edit ID --input review.json',input:{token:'from stories revisions ID',changes:{reviewNotes:'请复核第 4 幅是否已交代人物选择及其后果。'}},note:'Pause the story during review before editing. reviewNotes can be up to 1200 characters or an empty string to clear earlier notes. Continue the new revision before running it to recheck the saved storyboard.'},
@@ -351,7 +349,7 @@ export async function routeHeadless(root:string,args:string[],context:Pick<Conte
  try{const data=await executeHeadless(root,args[0]?.startsWith('-')?['help',...args]:args,context);const plainText=args[0]==='skill'&&args[1]==='show'||args[0]==='books'&&args[1]==='search'&&args.includes('--brief')&&!args.includes('--help');process.stdout.write(plainText&&!args.includes('--json')?(data as {text:string}).text:JSON.stringify({schemaVersion:1,ok:true,data})+'\n');}
  catch(error){
   const known=error instanceof CliCommandError,skillCode=(error as NodeJS.ErrnoException)?.code,code=known?error.code:typeof skillCode==='string'&&/^SKILL_[A-Z_]+$/.test(skillCode)?skillCode:(error as NodeJS.ErrnoException)?.code==='EEXIST'?'TARGET_EXISTS':(error as Error)?.message==='DATA_BUSY'?'LIBRARY_BUSY':(error as Error)?.name==='ZodError'?'INVALID_INPUT':'COMMAND_FAILED';
-  const message=known?error.message:code==='TARGET_EXISTS'?'Output already exists.':code==='LIBRARY_BUSY'?'Stop all services using this library and retry.':code==='INVALID_INPUT'?'Input does not match the production schema.':/^(EXPORT_|BACKUP_|SKILL_|LIBRARY_UPGRADE_REQUIRED|LIBRARY_NEWER_SCHEMA|LIBRARY_EARLIER_FORMAT)/.test((error as Error)?.message||'')?(error as Error).message:'Command failed; check paths, provider configuration and diagnostics.';
+  const message=known?error.message:code==='TARGET_EXISTS'?'Output already exists.':code==='LIBRARY_BUSY'?'Stop all services using this library and retry.':code==='INVALID_INPUT'?'Input does not match the production schema.':/^(EXPORT_|BACKUP_|SKILL_|LIBRARY_UPGRADE_REQUIRED|LIBRARY_NEWER_SCHEMA)/.test((error as Error)?.message||'')?(error as Error).message:'Command failed; check paths, provider configuration and diagnostics.';
   process.stdout.write(JSON.stringify({schemaVersion:1,ok:false,error:{code,message,...(known&&error.details?{details:error.details}:{})}})+'\n');process.exitCode=known?error.exitCode:1;
  }finally{Object.assign(console,saved);}return true;
 }

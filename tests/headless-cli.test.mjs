@@ -19,6 +19,7 @@ import {zipMetadataStory} from '../lib/reader-zip-content.ts';
 import {DatabaseSync} from 'node:sqlite';
 import {createApplication} from '../server/app.ts';
 import {heavy} from './fixtures/test-tier.mjs';
+import {migratePromptRecords} from '../server/prompt-record-migration.ts';
 
 async function fixture(t){
  const f=await productionFixture(t);await f.stop();
@@ -37,16 +38,17 @@ async function copySource(t){
  return {source,target,sourceId:session.id,args:['stories','copy',session.id,'--from-data-dir',source.f.dataDirectory,'--request-id',crypto.randomUUID()]};
 }
 
-test('cross-library copy stores prompt records in the target; an older text copy can still attach images',async t=>{
+test('cross-library copy stores prompt records in the target; a text copy made before migration can still attach images',async t=>{
  const {source,target,sourceId,args}=await copySource(t),id=args.at(-1),file=path.join(source.f.dataDirectory,'shiqu.sqlite');
  // 把来源文档还原为旧版内嵌形式，模拟升级前创建文字副本。
- const db=new DatabaseSync(file);const load=db.prepare('SELECT record FROM prompt_records WHERE id=?');
+ let db=new DatabaseSync(file);const load=db.prepare('SELECT record FROM prompt_records WHERE id=?');
  const doc=JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(sourceId).document);
  doc.usage=doc.usage.map(call=>Object.fromEntries(Object.entries(call).map(([key,value])=>key==='promptRecordId'?['promptRecord',JSON.parse(load.get(value).record)]:[key,value])));
  assert.ok(doc.usage.some(call=>call.promptRecord));
  db.prepare('UPDATE stories SET document=? WHERE id=?').run(JSON.stringify(doc),sourceId);db.close();
  assert.equal((await target.call([...args,'--no-copy-images'])).session.ready,0);
-
+ db=new DatabaseSync(file);db.exec('BEGIN IMMEDIATE');migratePromptRecords(db,'');db.exec('COMMIT');
+ assert.ok(JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(sourceId).document).usage.every(call=>!call.promptRecord));db.close();
  assert.equal((await target.call(['stories','copy-images',id,'--from-data-dir',source.f.dataDirectory],{sourceId})).session.ready,3);
  const sourcePrompts=await source.call(['stories','prompts',sourceId]),targetPrompts=await target.call(['stories','prompts',id]);
  assert.ok(targetPrompts.records.length>0);assert.deepEqual(targetPrompts.records.map(item=>item.record),sourcePrompts.records.map(item=>item.record));

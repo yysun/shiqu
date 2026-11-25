@@ -1,5 +1,5 @@
 // Verify direct desktop reader access, private configuration, ownership, and real process cleanup without AI billing.
-import {ensureLibraryReady} from '../server/library-upgrade.ts';
+import {historicalLibrary} from './fixtures/historical-library.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,cp,readFile,writeFile,rm,symlink,access} from 'node:fs/promises';
@@ -132,8 +132,7 @@ test('parent EOF kills active detached Codex groups before releasing the data di
 });
 
 test('one-shot desktop upgrade returns the verified backup without listeners, credentials or worker jobs',async t=>{
- const f=await fixture(t),directory=path.join(f.root,'current library');ensureLibraryReady(directory,f.root);
- await writeFile(path.join(f.root,'drizzle/0031_upgrade_probe.sql'),'CREATE TABLE upgrade_probe(value TEXT)');
+ const f=await fixture(t),directory=path.join(f.root,'historical library');historicalLibrary(directory,f.root).close();
  const file=path.join(f.root,'dist/server/desktop.js');
  // Isolated server entry compilation follows the same production entry graph; no desktop package is built.
  await build({entryPoints:['server/desktop.ts'],outfile:file,bundle:true,platform:'node',format:'esm',target:'node24',packages:'external',banner:{js:"globalThis.fetch=async()=>{throw Error('Unexpected provider request during upgrade')};"}});

@@ -2,7 +2,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 
-type Compatibility={version:number;state:'current'|'migration'|'unsupported'|'unknown';migrations:string[];message?:string};
+type Compatibility={version:number;state:'current'|'migration'|'unsupported'|'unknown';migrations:string[]};
 type Snapshot={path:string;kind:'manual'|'upgrade'|'unknown';createdAt?:string;bytes?:number;appVersion?:string;error?:string;deletion?:'protected'|'uncertain'|null;deleteToken?:string;verifiedAt?:string;compatibility?:Compatibility};
 type BackupList={directory:string;available:boolean;entries:Snapshot[]};
 type Operation='list'|'create'|'inspect'|'verify'|'restore'|'delete'|'reveal';
@@ -23,7 +23,7 @@ function compatibilityText(compatibility:Compatibility){
  switch(compatibility.state){
   case 'current':return schema+'，当前版本可打开。';
   case 'migration':return schema+'，恢复副本需要迁移'+(compatibility.migrations.length?'（'+compatibility.migrations.join('、')+'）':'')+'。回退时使用原备份和匹配的拾趣版本。';
-  case 'unsupported':return schema+'，'+(compatibility.message??'当前版本无法恢复。请使用支持此格式的拾趣版本。');
+  case 'unsupported':return schema+'，当前版本无法恢复。请使用支持此格式的拾趣版本。';
   case 'unknown':return schema+'，暂无法判断兼容性。恢复时将执行正式校验。';
  }
 }

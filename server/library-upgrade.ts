@@ -1,15 +1,20 @@
-// 新库在门锁内暂存并原子发布。现有书库先校验整库备份，再逐个提交普通迁移。
-// 中断日志在访问书库前恢复。恢复副本以调用者提供的备份为回退点。
+// Publish one canonical story store only after a verified whole-library backup. The pending journal
+// survives every destructive step; recovery restores files in place so service/gate lock inodes stay stable.
+// Consolidated libraries take later migrations in place after their own verified backup. Restores report
+// the caller's source backup instead of keeping a second snapshot beside the staging directory.
+// 升级开始和结束时在终端提示书库正在迁移，避免启动期间长时间无输出。
 import {DatabaseSync} from 'node:sqlite';
 import {existsSync,mkdirSync,readFileSync,writeFileSync,renameSync,rmSync,readdirSync,lstatSync,openSync,closeSync,fsyncSync} from 'node:fs';
 import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
 import {createLibraryBackup,verifyLibraryBackup,restoreLibraryBackup,containsPath,backupDirectory,checkBackupDirectory,canonicalPath,assertBackupDestination,withBackupAccess,checkDatabase} from './library-backup.ts';
-import {checkLibraryHeader,inspectLibrary,withLibraryGate,pendingUpgrade,upgradeJournal,libraryFormat} from './library-schema.ts';
+import {inspectLibrary,withLibraryGate,pendingUpgrade,upgradeJournal,libraryFormat} from './library-schema.ts';
 import {ownsDesktopData,ownDesktopDataSync} from './desktop-owner.ts';
 import {migrate,migrationNames} from './database-migrations.ts';
 import {mediaKey} from './media.ts';
 
+export const consolidationMigration='0018_consolidate_story_storage.sql';
 const demos=new Set([...Array.from({length:10},(_,i)=>`legacy-art/pear-${i+1}.png`),...Array.from({length:30},(_,i)=>`legacy-art/dongguo-${i+1}.png`)]);
 export function localMediaKey(value:string):string|null{
  const url=/^\/(?:api\/(?:reader\/)?media|art)\//.test(value);
@@ -62,19 +67,23 @@ function walk(folder:string,prefix=''):string[]{
  return result;
 }
 const hash=(file:string)=>createHash('sha256').update(readFileSync(file)).digest('hex');
-export function currentMediaKeys(db:DatabaseSync,directory:string){
- const rows=db.prepare('SELECT * FROM stories').all(),ids=new Set(rows.map(row=>String(row.id))),keep=new Set<string>(),roots=[directory];
+export function currentMediaKeys(db:DatabaseSync,directory:string,table='stories',originalDirectory=directory){
+ // table is internal migration context, never user input.
+ const rows=db.prepare(`SELECT * FROM ${table}`).all(),ids=new Set(rows.map(row=>String(row.id))),keep=new Set<string>(),roots=[directory,originalDirectory];
  for(const row of rows){references(protectedJson(String(row.selection),'selection '+row.id),keep,roots,'',true);references(protectedJson(String(row.document),'document '+row.id),keep,roots,'',true);}
- for(const table of ['production_jobs','reader_commands','production_faults'])for(const row of db.prepare(`SELECT * FROM ${table}`).all())if(ids.has(String(row.session_id)))for(const field of ['payload','result','image'])if(typeof row[field]==='string'){
+ const current=!!db.prepare("SELECT 1 FROM sqlite_schema WHERE type='view' AND name='production_faults'").get();
+ for(const table of ['production_jobs','reader_commands',current?'production_faults':'reader_faults'])for(const row of db.prepare(`SELECT * FROM ${table}`).all())if(ids.has(String(row.session_id)))for(const field of ['payload','result','image'])if(typeof row[field]==='string'){
   const text=String(row[field]);
   let value:unknown;
   try{value=JSON.parse(text);}catch{if(text.trimStart().startsWith('{')||text.trimStart().startsWith('['))throw Error('LIBRARY_PROTECTED_JSON_INVALID: '+table+' '+field+' '+row.session_id);value=text;}
   references(value,keep,roots,'',true);
  }
  for(const row of db.prepare('SELECT * FROM book_image_references').all())if(ids.has(String(row.story_id))&&!demos.has(String(row.asset_key)))keep.add(String(row.asset_key));
- for(const row of db.prepare('SELECT target_key FROM production_media_aliases').all())keep.add(String(row.target_key));
- for(const row of db.prepare('SELECT content FROM production_products').all())
-  references(protectedJson(String(row.content),'production product'),keep,roots,'',true);
+ if(current){
+  for(const row of db.prepare('SELECT target_key FROM production_media_aliases').all())keep.add(String(row.target_key));
+  for(const row of db.prepare('SELECT content FROM production_products').all())
+   references(protectedJson(String(row.content),'production product'),keep,roots,'',true);
+ }
  const files=walk(path.join(directory,'media'));
  for(const key of walk(directory).filter(key=>!key.split('/').some(part=>part.startsWith('.desktop'))&&!key.startsWith('media/')&&/\.(json|html|md)$/.test(key))){
   const text=readFileSync(path.join(directory,key),'utf8');
@@ -93,6 +102,29 @@ export function currentMediaKeys(db:DatabaseSync,directory:string){
   for(const ref of references(value,new Set<string>(),roots,'',true))if(!keep.has(ref)){keep.add(ref);queue.push(ref);}
  }
  return keep;
+}
+function purgePlan(db:DatabaseSync,directory:string,originalDirectory:string){
+ const candidates=new Set(demos);
+ for(const row of db.prepare('SELECT pages FROM stories').all()){
+  let pages;try{pages=JSON.parse(String(row.pages));}catch{continue;}
+  references(pages,candidates,[directory,originalDirectory]);
+ }
+ const current=new Set(db.prepare('SELECT id FROM reader_sessions').all().map(row=>String(row.id)));
+ for(const row of db.prepare('SELECT * FROM book_image_references').all()){
+  let demo=demos.has(String(row.asset_key));
+  const source=db.prepare('SELECT document FROM reader_sessions WHERE id=?').get(row.story_id);
+  if(source){const doc=JSON.parse(String(source.document));demo||=demos.has(localMediaKey(String(doc.images?.[Number(row.page)]||''))||'');}
+  if(!current.has(String(row.story_id))||demo){
+   candidates.add(String(row.asset_key));
+   db.prepare('DELETE FROM book_image_references WHERE owner_id=? AND book_key=?').run(row.owner_id,row.book_key);
+  }
+ }
+ const keep=currentMediaKeys(db,directory,'reader_sessions',originalDirectory);
+ const present=new Set(walk(path.join(directory,'media')));
+ const missing=[...keep].filter(key=>!present.has(key));
+ if(missing.length)throw Error('LIBRARY_PROTECTED_MEDIA_MISSING: '+missing.slice(0,10).join(', '));
+ const remove=[...candidates].filter(key=>{try{mediaKey(key);return present.has(key)&&!keep.has(key);}catch{return false;}});
+ return {remove,keep:[...keep],shared:[...candidates].filter(key=>keep.has(key)),uncertain:[...present].filter(key=>!keep.has(key)&&!remove.includes(key))};
 }
 function syncDirectory(directory:string){
  // Windows does not expose directory fsync through Node; file handles still sync before rename.
@@ -157,7 +189,7 @@ function safetyBackup(directory:string,root:string){
 }
 export function pendingMigrations(directory:string,root:string){
  const db=new DatabaseSync(path.join(directory,'shiqu.sqlite'),{readOnly:true});
- try{const applied=new Set(db.prepare('SELECT name FROM app_migrations').all().map(row=>String(row.name)));return migrationNames(root).filter(name=>!applied.has(name));}
+ try{const applied=new Set(db.prepare('SELECT name FROM app_migrations').all().map(row=>String(row.name)));return migrationNames(root).filter(name=>name>consolidationMigration&&!applied.has(name));}
  finally{db.close();}
 }
 function applyPendingMigrations(directory:string,root:string){
@@ -178,7 +210,7 @@ function applyPendingMigrations(directory:string,root:string){
  durableFile(migrationBackupPath(directory),JSON.stringify({backup,migrations:[...new Set([...(dependency?.migrations||[]),...migrations])]})+'\n');
  const sqlite=new DatabaseSync(path.join(directory,'shiqu.sqlite'));
  console.warn('正在应用数据库迁移……');
- try{sqlite.exec('PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON');migrate(sqlite,root,directory);sqlite.exec('PRAGMA wal_checkpoint(TRUNCATE)');}
+ try{sqlite.exec('PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON');migrate(sqlite,root,directory,undefined,consolidationMigration);sqlite.exec('PRAGMA wal_checkpoint(TRUNCATE)');}
  catch(error){throw Error(`LIBRARY_MIGRATION_FAILED; backup: ${backup}; ${String(error)}`,{cause:error});}
  finally{sqlite.close();}
  if(inspectLibrary(directory)!=='current')throw Error(`LIBRARY_MIGRATION_FAILED; backup: ${backup}; invalid schema`);
@@ -186,16 +218,9 @@ function applyPendingMigrations(directory:string,root:string){
  console.warn(`书库数据库迁移完成，用时 ${((Date.now()-started)/1000).toFixed(1)} 秒。`);
  return {backup,migrations};
 }
-export type UpgradePoint='journal'|'staged'|'database-published'|'cleanup';
+export type UpgradePoint='journal'|'staged'|'quarantined'|'database-retired'|'database-published'|'files-published'|'cleanup';
 export function ensureLibraryReady(directory:string,root:string,options:{onStep?:(point:UpgradePoint)=>void;readOnly?:boolean}={}){
- const initial=inspectLibrary(directory);
- if(initial==='pending'){
-  const backup=pendingUpgrade(directory)?.backup;
-  const database=backup&&path.join(backup,'shiqu.sqlite');
-  if(backup&&database&&containsPath(backupDirectory(directory),backup)&&existsSync(database)&&lstatSync(database).isFile())
-   checkLibraryHeader(database);
- }
- if(initial==='current'&&!migrationBackupDependency(directory)&&!pendingMigrations(directory,root).length)return;
+ const initial=inspectLibrary(directory);if(initial==='current'&&!migrationBackupDependency(directory)&&!pendingMigrations(directory,root).length)return;
  if(options.readOnly)throw Error(initial==='missing'?'LIBRARY_NOT_FOUND':'LIBRARY_UPGRADE_REQUIRED: open the library in Shiqu before exporting.');
  const release=ownsDesktopData(directory)?()=>{}:ownDesktopDataSync(directory);
  try{return withLibraryGate(directory,()=>{
@@ -203,36 +228,74 @@ export function ensureLibraryReady(directory:string,root:string,options:{onStep?
   if(pending)try{recover(directory);}catch(error){throw Error(`LIBRARY_RECOVERY_FAILED; backup: ${pending.backup||'fresh library'}; ${String(error)}`,{cause:error});}
   const state=inspectLibrary(directory);if(state==='current')return applyPendingMigrations(directory,root);
   const workName='.desktop-upgrade-'+randomUUID(),work=path.join(directory,workName);
-  durableFile(path.join(directory,upgradeJournal),JSON.stringify({version:libraryFormat.schemaVersion,work:workName,backup:null})+'\n');
+  let backup:string|null=null;
+  if(state==='legacy'){
+   console.warn('书库数据库正在升级到当前格式，先做整库备份，请勿关闭……');
+   backup=safetyBackup(directory,root);
+  }
+  durableFile(path.join(directory,upgradeJournal),JSON.stringify({version:libraryFormat.schemaVersion,work:workName,backup})+'\n');
   try{
    options.onStep?.('journal');
-   mkdirSync(work,{mode:0o700});
-   const staged=path.join(work,'shiqu.sqlite');
-   const sqlite=new DatabaseSync(staged);
+   if(backup)withBackupAccess(backup,()=>restoreLibraryBackup(backup,work),true);else mkdirSync(work,{mode:0o700});
+   const sqlite=new DatabaseSync(path.join(work,'shiqu.sqlite'));
+   let removal:string[]=[],kept=new Map<string,string>(),shared:string[]=[],uncertain:string[]=[];
    try{
-    sqlite.exec('PRAGMA foreign_keys=ON');
-    migrate(sqlite,root,work);
-    sqlite.exec(readFileSync(path.join(root,'docker/seed.sql'),'utf8'));
+    sqlite.exec('PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON');
+    migrate(sqlite,root,work,'0017_command_receipt_links.sql');
+    // Keep immutable current values across consolidation; prior historical hooks have their own mapping.
+    const rows=sqlite.prepare('SELECT * FROM reader_sessions ORDER BY id').all();
+    const durableTables=['production_jobs','production_demand','reader_commands','reader_faults','reader_publication_defaults'];
+    const values=durableTables.map(t=>sqlite.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all());
+    const plan=purgePlan(sqlite,work,directory);removal=plan.remove;shared=plan.shared;uncertain=plan.uncertain;kept=new Map(plan.keep.map(key=>[key,hash(path.join(work,'media',key))]));
+    migrate(sqlite,root,work,consolidationMigration);
+    if(!isDeepStrictEqual(rows,sqlite.prepare('SELECT * FROM stories ORDER BY id').all()))throw Error('LIBRARY_STORY_PRESERVATION_FAILED');
+    for(let i=0;i<durableTables.length;i++)if(!isDeepStrictEqual(values[i],sqlite.prepare(`SELECT * FROM ${durableTables[i]} ORDER BY rowid`).all()))throw Error('LIBRARY_QUEUE_PRESERVATION_FAILED');
+    if(sqlite.prepare("SELECT name FROM sqlite_schema WHERE type='trigger' AND sql LIKE '%reader_sessions%'").get())throw Error('LIBRARY_TRIGGER_RENAME_FAILED');
+    // Later migrations join the same staged publication, after preservation is proven on the consolidated shape.
+    migrate(sqlite,root,work);sqlite.exec(readFileSync(path.join(root,'docker/seed.sql'),'utf8'));
     if(sqlite.prepare('PRAGMA integrity_check').get()!.integrity_check!=='ok')throw Error('LIBRARY_DATABASE_CORRUPT');
     sqlite.exec('PRAGMA wal_checkpoint(TRUNCATE)');
    }finally{sqlite.close();}
    options.onStep?.('staged');
-   renameSync(staged,path.join(directory,'shiqu.sqlite'));syncDirectory(directory);
+   // Only positively retired files move out of live media, each with reversible backup bytes.
+   for(const key of removal){
+    const live=path.join(directory,'media',key);if(!existsSync(live))continue;
+    const target=path.join(work,'quarantine',key);mkdirSync(path.dirname(target),{recursive:true});renameSync(live,target);syncDirectory(path.dirname(live));
+   }
+   options.onStep?.('quarantined');
+   clearSidecars(directory);
+   const live=path.join(directory,'shiqu.sqlite');if(existsSync(live))renameSync(live,path.join(work,'original.sqlite'));
+   syncDirectory(directory);options.onStep?.('database-retired');
+   renameSync(path.join(work,'shiqu.sqlite'),live);syncDirectory(directory);
    options.onStep?.('database-published');
-   rmSync(work,{recursive:true,force:true});syncDirectory(directory);
-   options.onStep?.('cleanup');
+   // Historical hooks may update saved JSON. Publish only changed files from the staged library.
+   for(const file of walk(path.join(work,'media'))){
+    if(removal.includes(file))continue;
+    const staged=path.join(work,'media',file),target=path.join(directory,'media',file);
+    if(!existsSync(target)||hash(staged)!==hash(target))durableFile(target,readFileSync(staged));
+   }
+   for(const [key,digest] of kept)if(hash(path.join(directory,'media',key))!==digest)throw Error('LIBRARY_MEDIA_PRESERVATION_FAILED');
+   if(inspectLibraryWithoutJournal(directory)!=='current')throw Error('LIBRARY_PUBLICATION_FAILED');
+   options.onStep?.('files-published');
+   rmSync(work,{recursive:true,force:true});syncDirectory(directory);options.onStep?.('cleanup');
+   if(backup)durableFile(path.join(directory,'.desktop-upgrade-result.json'),JSON.stringify({backup,removed:removal,protected:[...kept.keys()],shared,uncertain})+'\n');
    rmSync(path.join(directory,upgradeJournal));syncDirectory(directory);
-   return {backup:null};
+   if(backup)console.warn('书库数据库升级完成。');
+   return {backup,removed:removal,retained:[...kept.keys()],shared,uncertain};
   }catch(error){
-   try{recover(directory);}catch(recovery){throw Error(`LIBRARY_RECOVERY_FAILED; backup: fresh library; ${String(recovery)}`,{cause:error});}
-   throw Error(`LIBRARY_UPGRADE_FAILED; restored original library; backup: fresh library; ${String(error)}`,{cause:error});
+   try{recover(directory);}catch(recovery){throw Error(`LIBRARY_RECOVERY_FAILED; backup: ${backup||'fresh library'}; ${String(recovery)}`,{cause:error});}
+   throw Error(`LIBRARY_UPGRADE_FAILED; restored original library; backup: ${backup||'fresh library'}; ${String(error)}`,{cause:error});
   }
  });}finally{release();}
 }
+function inspectLibraryWithoutJournal(directory:string){
+ // Pending journal deliberately takes precedence in public preflight. Inspect the published DB
+ // directly here without making the journal disappear before all file work is complete.
+ const db=new DatabaseSync(path.join(directory,'shiqu.sqlite'),{readOnly:true});
+ try{const version=Number(db.prepare('PRAGMA user_version').get()!.user_version);return version>=1&&version<=libraryFormat.schemaVersion&&db.prepare("SELECT 1 FROM pragma_table_info('stories') WHERE name='document'").get()?'current':'invalid';}finally{db.close();}
+}
 export function restoreAndUpgradeLibrary(source:string,target:string,root:string,expectedCreatedAt?:string){
  assertBackupDestination(source,target);
- const database=path.join(source,'shiqu.sqlite');
- if(lstatSync(database).isFile())checkLibraryHeader(database);
  return withBackupAccess(source,()=>{
   const stage=path.join(path.dirname(target),'.'+path.basename(target)+'.restore-'+randomUUID()),stageBackups=backupDirectory(stage);
   try{

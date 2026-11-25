@@ -1,9 +1,11 @@
-// 0029 用这些历史指纹读取格式 4 开发预览仍保存的旧制作记录。
-import {createHash} from 'node:crypto';
+// 0025 与 0027 的历史制作模型。保留格式 2–3 的指纹、就绪门槛与旧故障匹配，只供迁移使用。
+// 新制作用途不得导入本模块。历史回放由迁移测试维护，正式制作模型可以独立修改。
+import {createHash,randomUUID} from 'node:crypto';
 import type {Plan,Selection} from '../../lib/reader-model.ts';
 import type {ProviderSettingsView} from '../../lib/provider-settings.ts';
 import type {FrameCountReport,ReviewCheckpoint,ReviewIssue} from '../../lib/reader-review.ts';
 import type {OriginalSource} from '../../lib/reader-source-types.ts';
+import type {SyncStatements} from '../../lib/reader-repository.ts';
 import {normalizeProductionPrompt} from '../../lib/reader-prompts.ts';
 import {storyBriefVerified} from '../../lib/reader-story-brief.ts';
 
@@ -343,6 +345,19 @@ const sameInputs=(a:Record<string,string>,b:Record<string,string>)=>{
 
 export const evaluate=(state:VersionState)=>new Evaluation(state);
 
+/** 当前可以运行的实例；调度只需按调用分组提交。 */
+export function runnable(state:VersionState):Instance[]{
+ return evaluate(state).all().filter(i=>i.ready);
+}
+
+/** 整篇完成：必需节点全部有效、可绘图、必需节点没有未解除故障；可选产物不影响。 */
+export function complete(state:VersionState):boolean{
+ const evaluation=evaluate(state);
+ if(!evaluation.approved(true))return false;
+ const required=evaluation.all().filter(i=>nodeSpec(i.node).required);
+ if(required.some(i=>i.status!=='valid'))return false;
+ return !state.faults.some(f=>f.state!=='resolved'&&!f.optional&&nodeSpec(f.node).required);
+}
 export type DagFrame={
  /** 叙事分镜正文（配文、对白与动作）。 */
  scene:string;
@@ -542,6 +557,22 @@ export function convertDocument(doc:HistoricalDocument,selection:Selection,optio
  return dag;
 }
 
+export type LegacyFault={id:string;kind:string;page:number|null;state:string};
+
+/**
+ * 未结的旧故障映射到新节点，版本记为 legacy。图片相关故障按页码（从 0 开始）映射到画幅身份；
+ * 没有页码的旧文字步骤故障挂到转换后下一个可运行的节点上，即当初失败的那一步，避免继续时被静默重试。
+ */
+export function mapLegacyFaults(faults:LegacyFault[],state:VersionState):(Fault&{version:'legacy'})[]{
+ const next=runnable(state)[0];
+ return faults.filter(f=>f.state==='pending'||f.state==='recovering').flatMap(f=>{
+  const base={id:f.id,state:f.state as Fault['state'],version:'legacy' as const};
+  if(f.page===null||f.page===undefined)return next?[{...base,node:next.node,key:next.key}]:[];
+  const key=state.order[f.page];
+  if(!key)return [];
+  return f.kind==='landscape-image'?[{...base,node:'landscape',key,optional:true}]:[{...base,node:'frameImage',key}];
+ });
+}
 export type ReviewSkip={faultId:string;recordedAt:string;binding:string;targets:string[]};
 
 function skipBasis(state:VersionState,dag:DagDocument){
@@ -597,4 +628,57 @@ export function stateOf(story:DagStory):VersionState{
   });
  }
  return withReviewSkip(state,story.dag);
+}
+export type CarriedFault={id:string;kind:string;node:string;node_key:string;message:string;image:string|null;input_hash:string|null;origin_fault_id:string|null;optional:number;created_at:number};
+export type FaultToCarry=CarriedFault&{payload:string|null};
+export const recordedFaultRows=`SELECT f.id,f.kind,f.node,f.node_key,f.message,f.image,f.input_hash,f.origin_fault_id,f.optional,f.created_at,j.payload
+ FROM reader_faults f LEFT JOIN production_jobs j ON j.id=f.job_id AND j.session_id=f.session_id AND j.owner_id=f.owner_id
+ WHERE f.session_id=? AND f.owner_id=? AND f.node IS NOT NULL`;
+/**
+ * 逐个延续输入未变的故障实例。批量故障拆成具体节点与键保存，保留原故障编号，供读者一次恢复该批留下的目标。
+ */
+export function carryFaults(faults:FaultToCarry[],parent:DagStory,child:DagStory):CarriedFault[]{
+ if(!faults.length)return [];
+ const before=evaluate(stateOf(parent)),after=evaluate(stateOf(child));
+ return faults.flatMap(({payload,...fault})=>{
+  if(fault.kind==='image-loss'&&fault.node==='frameImage'){
+   const product=parent.dag.products[instanceId(fault.node,fault.node_key)];
+   const input_hash=fault.input_hash??(product?fingerprint(product.inputs):null);
+   if(input_hash)return [{...fault,input_hash}];
+  }
+  let instances:Pick<Instance,'node'|'key'|'hard'>[]=[{node:fault.node,key:fault.node_key}];
+  try{
+   const recorded=payload?(JSON.parse(payload) as {work?:{instances?:Instance[]}}).work?.instances:undefined;
+   if(recorded?.length)instances=recorded;
+  }catch{/* 沿用记录的节点 */}
+  return instances.flatMap(({node,key,hard})=>{
+   try{
+    if(!instanceKeys(after.state,node).includes(key)){
+     if(node==='frameImage'&&fault.origin_fault_id&&fault.input_hash&&!before.state.order.includes(key)&&
+        carriedJobFaultState(before,fault)==='awaiting-match')return [{...fault,input_hash:fault.input_hash}];
+     return [];
+    }
+    const inputs=hard??before.instance(node,key).hard,instance=after.instance(node,key),current=instance.hard;
+    if(fault.kind==='image-loss')return fingerprint(inputs??null)===fingerprint(current??null)?[{...fault,node,node_key:key}]:[];
+    const input_hash=fault.input_hash??(inputs?fingerprint(inputs):null);
+    if(!input_hash||(!current?instance.status==='valid':input_hash!==fingerprint(current)))return [];
+    return [{...fault,node,node_key:key,input_hash}];
+   }catch{return [];}
+  });
+ });
+}
+
+/** 仅对从原任务继承且绑定了输入的故障重新匹配；原任务故障仍由任务及读者命令管理。 */
+function carriedJobFaultState(evaluation:Evaluation,fault:Pick<CarriedFault,'node'|'node_key'|'input_hash'>){
+ const {node,node_key:key,input_hash:hash}=fault;
+ if(!node||!hash)return 'replaced';
+ if(!instanceKeys(evaluation.state,node).includes(key))return node==='frameImage'?'awaiting-match':'replaced';
+ const instance=evaluation.instance(node,key);
+ if(!instance.hard)return instance.status==='valid'?'replaced':'awaiting-match';
+ return fingerprint(instance.hard)===hash?'pending':'replaced';
+}
+
+export function insertCarriedJobFault(db:SyncStatements,sessionId:string,ownerId:string,fault:CarriedFault,now:number,createdAt=now){
+ db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,input_hash,origin_fault_id,optional,version,image,message,created_at,updated_at) VALUES(?,?,?,'job',?,?,?,?,?,'dag',NULL,?,?,?)",
+  randomUUID(),sessionId,ownerId,fault.node,fault.node_key,fault.input_hash,fault.origin_fault_id??fault.id,fault.optional,fault.message,createdAt,now);
 }

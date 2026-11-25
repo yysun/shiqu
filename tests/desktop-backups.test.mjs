@@ -1,24 +1,25 @@
 // 用桌面私有维护协议和隔离书库验证备份生命周期、删除保护及格式 V1 的恢复。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {spawnSync} from 'node:child_process';
+import {execFileSync,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
 import {chmodSync,existsSync,mkdirSync,readFileSync,renameSync,rmSync,writeFileSync} from 'node:fs';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {startupFixture,startFixtureCli} from './fixtures/startup.mjs';
-import {ensureLibraryReady} from '../server/library-upgrade.ts';
+import {historicalLibrary} from './fixtures/historical-library.mjs';
+import {makePlan,selection} from './fixtures/production-data.mjs';
 import {png} from './fixtures/images.mjs';
+import {decodeDocument} from '../lib/production-dag/document.ts';
 import {ownDesktopDataSync} from '../server/desktop-owner.ts';
 import {verifyLibraryBackup,withBackupAccess} from '../server/library-backup.ts';
 
 const entry=fileURLToPath(new URL('../server/desktop.ts',import.meta.url));
 
-async function fixture(t){
+async function fixture(t,through='0030_rebind_production_receipts.sql'){
  const f=await startupFixture(t),library=path.join(f.root,'library');
- ensureLibraryReady(library,f.root);
- const sqlite=new DatabaseSync(path.join(library,'shiqu.sqlite'));
+ const sqlite=historicalLibrary(library,f.root,through);
  const invoke=(operation,fields={})=>{
   const child=spawnSync(process.execPath,['--no-warnings',entry,'--library-maintenance'],{
    cwd:f.root,env:f.env,input:JSON.stringify({operation,library,...fields})+'\n',encoding:'utf8',timeout:15000,
@@ -70,7 +71,7 @@ test('desktop lists and locates existing snapshots, verifies external copies, an
   assert.ok(f.run('verify',{backup:saved.path}).verifiedAt);
  },true);
  const journal=path.join(f.library,'.desktop-upgrade.json');
- writeFileSync(journal,JSON.stringify({version:4,work:'.desktop-upgrade-12345678-1234-1234-1234-123456789012',backup:saved.path}));
+ writeFileSync(journal,JSON.stringify({version:2,work:'.desktop-upgrade-12345678-1234-1234-1234-123456789012',backup:saved.path}));
  assert.equal(f.run('list').entries[0].deletion,'protected');
  assert.match(f.invoke('delete',request).error,/仍需要此备份/);
  writeFileSync(journal,'invalid JSON');
@@ -161,36 +162,79 @@ test('desktop and current CLI can verify and restore each other’s backups',asy
  finally{db.close();}
 });
 
-test('desktop restore applies an ordinary migration to a new library and preserves the source snapshot',async t=>{
- const f=await fixture(t);
+test('desktop restore applies 0025 to a new library and leaves every V1 backup byte intact',async t=>{
+ const f=await fixture(t,'0024_prompt_records.sql'),story='11111111-1111-4111-8111-111111111111';
+ const plan=makePlan(3),owner='docker-local-owner';
+ const image=`/api/reader/media/${story}/0.png`;
+ const original={title:'庄子',text:'昔者庄周梦为胡蝶。',url:'https://example.test',kind:'passage',provider:'local',retrievedAt:'2026-01-01'};
+ const doc={plan,original,images:[image,'',''],audio:[],usage:[]};
+ const media=path.join('media','reader',story,'0.png');
+ f.sqlite.prepare("INSERT INTO stories(id,user_id,selection,document,state,created_at,updated_at) VALUES(?,?,?,?,'idle','c','u')").run(story,owner,JSON.stringify({...selection,length:3}),JSON.stringify(doc));
  f.sqlite.close();
+ mkdirSync(path.dirname(path.join(f.library,media)),{recursive:true});
+ writeFileSync(path.join(f.library,media),png);
  const backup=f.run('create').path;
+ const originalManifest=readFileSync(path.join(backup,'shiqu-backup.json'));
  const manifest=verifyLibraryBackup(backup);
- const bytes=readFileSync(path.join(backup,'shiqu.sqlite'));
- const migration=path.join(f.root,'drizzle','0031_restore_probe.sql');
- writeFileSync(migration,'NOT VALID SQL');
+ const expectedStatus={version:1,state:'migration',migrations:['0025_production_dag.sql','0026_production_lifecycle.sql','0027_revision_fault_targets.sql','0028_production_spec.sql','0029_finalize_production_spec.sql','0030_rebind_production_receipts.sql']};
+ assert.deepEqual(f.run('verify',{backup}).compatibility,expectedStatus);
  const target=path.join(f.root,'restored');
  assert.match(f.invoke('restore',{backup,target:f.library}).error,/重叠/);
  const existing=path.join(f.root,'already-exists');
  mkdirSync(existing);
  assert.match(f.invoke('restore',{backup,target:existing}).error,/目录已存在/);
+ const migration=path.join(f.root,'drizzle','0025_production_dag.sql'),sql=readFileSync(migration);
+ writeFileSync(migration,'NOT VALID SQL');
  assert.match(f.invoke('restore',{backup,target}).error,/恢复或迁移未完成/);
  assert.equal(existsSync(target),false);
- writeFileSync(migration,'CREATE TABLE restore_probe(value BLOB); PRAGMA max_page_count=5; INSERT INTO restore_probe VALUES(randomblob(2097152));');
+ writeFileSync(migration,sql.toString()+
+  '\nPRAGMA max_page_count=5; CREATE TABLE overflow_test(value BLOB); INSERT INTO overflow_test VALUES(randomblob(2097152));');
  assert.match(f.invoke('restore',{backup,target}).error,/存储空间不足/);
  assert.equal(existsSync(target),false);
- writeFileSync(migration,'CREATE TABLE restore_probe(value BLOB);');
+ writeFileSync(migration,sql.toString()+`
+CREATE TABLE overflow_test(value BLOB);
+CREATE TRIGGER overflow_story AFTER UPDATE OF document ON stories BEGIN
+ INSERT INTO overflow_test VALUES(randomblob(2097152));
+END;
+PRAGMA max_page_count=5;`);
+ assert.match(f.invoke('restore',{backup,target}).error,/存储空间不足/);
+ assert.equal(existsSync(target),false);
+ writeFileSync(migration,sql);
  assert.deepEqual(f.run('restore',{backup,target}),{path:target});
- assert.deepEqual(readFileSync(path.join(backup,'shiqu.sqlite')),bytes);
+ assert.deepEqual(f.run('inspect',{backup}).compatibility,expectedStatus);
+ assert.deepEqual(readFileSync(path.join(backup,'shiqu-backup.json')),originalManifest);
  assert.deepEqual(verifyLibraryBackup(backup),manifest);
- const db=new DatabaseSync(path.join(target,'shiqu.sqlite'),{readOnly:true});
- try{assert.ok(db.prepare("SELECT 1 FROM app_migrations WHERE name='0031_restore_probe.sql'").get());}
- finally{db.close();}
+ assert.deepEqual(readFileSync(path.join(target,media)),Buffer.from(png));
+ const newDb=new DatabaseSync(path.join(target,'shiqu.sqlite'),{readOnly:true});
+ try{
+  assert.equal(newDb.prepare('PRAGMA user_version').get().user_version,4);
+  assert.ok(newDb.prepare("SELECT 1 FROM app_migrations WHERE name='0025_production_dag.sql'").get());
+  const converted=decodeDocument(newDb.prepare('SELECT * FROM story_rows WHERE id=?').get(story));
+  assert.deepEqual(converted.original,original);
+  assert.equal(converted.dag.frames['legacy-1'].scene,plan.pages[0].caption);
+ }finally{newDb.close();}
+ const oldDb=new DatabaseSync(path.join(backup,'shiqu.sqlite'),{readOnly:true});
+ try{assert.equal(oldDb.prepare('PRAGMA user_version').get().user_version,1);}
+ finally{oldDb.close();}
+ await t.test('matching v0.14.0 restores the original for rollback', {skip:!process.env.SHIQU_TEST_V014_ROOT},()=>{
+  const oldRoot=process.env.SHIQU_TEST_V014_ROOT,rollback=path.join(f.root,'rollback');
+  const oldCli=pathToFileURL(path.join(oldRoot,'server/cli.ts')).href;
+  assert.equal(JSON.parse(readFileSync(path.join(oldRoot,'package.json'),'utf8')).version,'0.14.0');
+  const script=`const {runCli}=await import(${JSON.stringify(oldCli)});await runCli(process.argv[1],process.argv.slice(2));`;
+  execFileSync(process.execPath,['--no-warnings','--input-type=module','-e',script,oldRoot,'--restore',backup,'--data-dir',rollback],{cwd:f.root,env:f.env});
+  const db=new DatabaseSync(path.join(rollback,'shiqu.sqlite'),{readOnly:true});
+  try{
+   assert.equal(db.prepare('PRAGMA user_version').get().user_version,1);
+   assert.deepEqual(JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(story).document),doc);
+  }finally{db.close();}
+  assert.deepEqual(readFileSync(path.join(rollback,media)),Buffer.from(png));
+ });
 });
+
 test('interrupted in-place migration keeps its original rollback dependency across retries',async t=>{
  const f=await fixture(t),library=f.library;
  f.sqlite.close();
- const latest=path.join(f.root,'drizzle','0031_backup_test.sql');
+ const latest=path.join(f.root,'drizzle','0026_backup_test.sql');
  writeFileSync(latest,'NOT VALID SQL');
  const {ensureLibraryReady}=await import('../server/library-upgrade.ts');
  assert.throws(()=>ensureLibraryReady(library,f.root),/LIBRARY_MIGRATION_FAILED/);

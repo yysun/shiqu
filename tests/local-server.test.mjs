@@ -6,6 +6,7 @@ import {mkdtemp,mkdir,writeFile,readFile,cp,rm,symlink,readdir} from 'node:fs/pr
 import path from 'node:path';
 import os from 'node:os';
 import {once} from 'node:events';
+import {DatabaseSync} from 'node:sqlite';
 import {createApplication,liveReaderProvider} from '../server/app.ts';
 import {StoryDiscoveryCache} from '../server/story-discovery-cache.ts';
 import {createHttpServer} from '../server/http.ts';
@@ -14,6 +15,7 @@ import {FileMedia} from '../server/media.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {LocalBooks} from '../server/local-books.ts';
 import {importLegacy} from '../server/import-legacy.ts';
+import {historicalLibrary,insertStudio} from './fixtures/historical-library.mjs';
 import {makeStory,insertReaderStory} from './fixtures/story.mjs';
 import {productionFixture,until} from './fixtures/production.mjs';
 
@@ -46,11 +48,11 @@ test('SQLite reopen preserves current reader checkpoints, media, owner identity 
  }finally{app.close();}
 });
 test('failed migrations roll back DDL and can retry after the migration is corrected',async t=>{
- const {root,dataDirectory}=await fixture(t);await writeFile(path.join(root,'drizzle/0031_test.sql'),'CREATE TABLE retry_probe(id TEXT); INVALID SQL;');
+ const {root,dataDirectory}=await fixture(t);await writeFile(path.join(root,'drizzle/0003_test.sql'),'CREATE TABLE retry_probe(id TEXT); INVALID SQL;');
  assert.throws(()=>openDatabase(dataDirectory,root));
  assert.equal((await readdir(dataDirectory)).includes('shiqu.sqlite'),false);
- await writeFile(path.join(root,'drizzle/0031_test.sql'),'CREATE TABLE retry_probe(id TEXT);');
- const local=openDatabase(dataDirectory,root);assert.equal(local.sqlite.prepare('SELECT COUNT(*) AS n FROM app_migrations').get().n,(await readdir(path.join(root,'drizzle'))).filter(name=>/^\d.*\.sql$/.test(name)).length);local.close();
+ await writeFile(path.join(root,'drizzle/0003_test.sql'),'CREATE TABLE retry_probe(id TEXT);');
+ const local=openDatabase(dataDirectory,root);assert.equal(local.sqlite.prepare('SELECT COUNT(*) AS n FROM app_migrations').get().n,(await readdir(path.join(root,'drizzle'))).filter(name=>name.endsWith('.sql')).length);local.close();
 });
 test('HTTP serves SPA deep links and binary uploads, blocks origin writes, and never serves private data',async t=>{
  const options=await fixture(t),app=createApplication(options),server=createHttpServer(app.handle);
@@ -101,22 +103,50 @@ test('real SQLite claims and DAG job identity prevent duplicate paid requests th
  const row=await f.read(id);assert.equal(row.state,'completed');assert.ok(row.story.sourceText);
  assert.deepEqual([f.control.dagCalls.length,f.control.calls.length],paid,'a completed story pays nothing again after restart');
 });
-test('offline import directs older libraries through 0.17 without creating a destination',async t=>{
- const options=await fixture(t);
- const source=path.join(options.root,'legacy'),target=path.join(options.root,'new');
- await mkdir(source);
- const file=path.join(source,'retained.txt');
- await writeFile(file,'legacy source');
- await assert.rejects(importLegacy(source,target,options.root),/LIBRARY_EARLIER_FORMAT.*0\.17\.x/);
- assert.equal(await readFile(file,'utf8'),'legacy source');
- assert.ok(!(await readdir(options.root)).includes('new'));
+async function legacyFixture(t){
+ const options=await fixture(t),source=path.join(options.root,'legacy'),v3=path.join(source,'v3');
+ await mkdir(path.join(v3,'d1/miniflare-D1DatabaseObject'),{recursive:true});await mkdir(path.join(v3,'r2/miniflare-R2BucketObject'),{recursive:true});await mkdir(path.join(v3,'r2/shiqu-media/blobs'),{recursive:true});
+ const initial=historicalLibrary(options.dataDirectory,options.root);const saved=makeStory();saved.pages=saved.pages.map(p=>({...p,image:''}));insertStudio(initial,saved);
+ initial.prepare("INSERT INTO reader_sessions(id,user_id,selection,document,created_at,updated_at) VALUES('current','docker-local-owner','{\"bookId\":\"zhuangzi\",\"theme\":\"test\",\"length\":8,\"voice\":false,\"artStyle\":\"ink-pencil\",\"productionPrompt\":\"\"}','{\"images\":[],\"audio\":[]}', 'date','date')").run();initial.close();
+ const databaseFile=path.join(v3,'d1/miniflare-D1DatabaseObject/database.sqlite');await cp(path.join(options.dataDirectory,'shiqu.sqlite'),databaseFile);
+ const database=new DatabaseSync(databaseFile);database.exec("DROP TABLE app_migrations; CREATE TABLE d1_migrations(name TEXT);");for(const name of (await readdir('drizzle')).filter(f=>f.endsWith('.sql')&&f<'0018_'))database.prepare('INSERT INTO d1_migrations VALUES(?)').run(name);
+ database.exec("UPDATE stories SET title='imported story'; INSERT INTO progress VALUES('docker-local-owner:test','docker-local-owner','test',3,1,'2026-10-27')");database.close();
+ const metadataFile=path.join(v3,'r2/miniflare-R2BucketObject/bucket.sqlite'),metadata=new DatabaseSync(metadataFile);metadata.exec('CREATE TABLE _mf_objects(key TEXT,blob_id TEXT,size INTEGER,http_metadata TEXT)');
+ const bytes=new Uint8Array([137,80,78,71]);metadata.prepare('INSERT INTO _mf_objects VALUES(?,?,?,?)').run('reader/story/0.png','blob-id',bytes.length,'{"contentType":"image/png"}');metadata.close();await writeFile(path.join(v3,'r2/shiqu-media/blobs/blob-id'),bytes);
+ return {...options,source,databaseFile,metadataFile,bytes,target:path.join(options.root,'new data')};
+}
+test('offline importer preserves records, identities, media keys and source bytes and prevents migration replay',async t=>{
+ const fixture=await legacyFixture(t),before=await readFile(fixture.databaseFile),metadataBefore=await readFile(fixture.metadataFile);
+ const result=await importLegacy(fixture.source,fixture.target,fixture.root);assert.equal(result.mediaObjects,1);
+ assert.deepEqual(await readFile(fixture.databaseFile),before);assert.deepEqual(await readFile(fixture.metadataFile),metadataBefore);
+ const app=createApplication({root:fixture.root,dataDirectory:fixture.target});
+ try{assert.equal((await app.services.database.prepare('SELECT id FROM stories').first()).id,'current');assert.equal((await app.services.database.prepare("SELECT name FROM sqlite_schema WHERE name='progress'").first()),null);assert.deepEqual((await app.services.media.get('reader/story/0.png')).body,fixture.bytes);assert.equal((await (await request(app,'/api/reader/sessions')).json()).length,1);}
+ finally{app.close();}
+ await assert.rejects(importLegacy(fixture.source,fixture.target,fixture.root),/empty/);
 });
-test('retired studio has no runtime API',async t=>{
- const app=createApplication(await fixture(t));t.after(()=>app.close());
- const id=crypto.randomUUID();
- for(const [route,method] of [['/api/stories','GET'],['/api/admin/stories/'+id,'GET'],['/api/admin/stories/'+id,'PUT'],['/api/admin/stories','POST'],['/api/admin/generate','POST']])
-  assert.equal((await request(app,route,method,method==='GET'?undefined:{})).status,404);
+test('offline importer upgrades a pre-summary legacy database without requiring the local-only migration',async t=>{
+ const f=await legacyFixture(t),db=new DatabaseSync(f.databaseFile);
+ db.exec("ALTER TABLE stories RENAME COLUMN summary TO hook; DROP TABLE book_image_references; DROP TRIGGER IF EXISTS book_image_reference_on_delete; DELETE FROM d1_migrations WHERE name IN('0009_story_summary.sql','0010_book_image_references.sql')");db.close();const before=await readFile(f.databaseFile);
+ await importLegacy(f.source,f.target,f.root);assert.deepEqual(await readFile(f.databaseFile),before);
+ const local=openDatabase(f.target,f.root);assert.ok(local.sqlite.prepare('PRAGMA table_info(stories)').all().some(column=>column.name==='document'));assert.equal(local.sqlite.prepare('SELECT id FROM stories').get().id,'current');assert.equal(local.sqlite.prepare('SELECT count(*) n FROM book_image_references').get().n,0);local.close();
+});
+test('import failure keeps destination absent and rejects live WAL, missing blobs and unsupported multipart objects',async t=>{
+ for(const mode of ['wal','blob','multipart']){
+  const f=await legacyFixture(t);
+  if(mode==='wal')await writeFile(f.databaseFile+'-wal','uncheckpointed');
+  if(mode==='blob')await rm(path.join(f.source,'v3/r2/shiqu-media/blobs/blob-id'));
+  if(mode==='multipart'){const db=new DatabaseSync(f.metadataFile);db.exec('UPDATE _mf_objects SET blob_id=NULL');db.close();}
+  await assert.rejects(importLegacy(f.source,f.target,f.root));
+  assert.equal((await readdir(f.root)).some(name=>name.startsWith('new data')),false);
+ }
+});
+
+test('retired studio rows are discarded before reopen and have no runtime API',async t=>{
+ const options=await fixture(t),old=historicalLibrary(options.dataDirectory,options.root),initial=insertStudio(old);old.close();
+ const app=createApplication(options);t.after(()=>app.close());
+ for(const [route,method] of [['/api/stories','GET'],['/api/admin/stories/'+initial.id,'GET'],['/api/admin/stories/'+initial.id,'PUT'],['/api/admin/stories','POST'],['/api/admin/generate','POST']])assert.equal((await request(app,route,method,method==='GET'?undefined:{})).status,404);
  assert.deepEqual(await (await request(app,'/api/reader/sessions')).json(),[]);
+ assert.equal(await app.services.database.prepare('SELECT * FROM stories WHERE id=?').bind(initial.id).first(),null);
 });
 test('single-owner shelf returns more than 80 stories and keeps hidden stories excluded',async t=>{
  const app=createApplication(await fixture(t));t.after(()=>app.close());const repo=new ReaderRepository(app.services.database),ids=[];

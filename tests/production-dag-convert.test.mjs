@@ -1,9 +1,10 @@
 // v1 → v2 转换：完成、部分完成、缺审核、旧放行、阻断、重复转换与投影一致；场景 38、44、45、46 的转换部分。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeStoryDocument,legacyFrameId} from '../server/migrations/production-v4.ts';
+import {normalizeStoryDocument,mapLegacyFaults,legacyFrameId} from '../server/migrations/production-v4.ts';
 import {versionState,rootProducts,projectDocument} from '../lib/production-dag/document.ts';
 import {evaluate,complete,runnable} from '../lib/production-dag/engine.ts';
+import {convertDocument as convertHistorical,rootProducts as historicalRoots,versionState as historicalVersion} from '../server/migrations/production-v2.ts';
 import {handEdit,run} from './fixtures/production-dag.mjs';
 
 function v1({frames=8,images=frames,review='passed',overridden=false,issues=[],acceptance='结尾才揭示身份',handoff=false,redrawNotes}={}){
@@ -19,6 +20,7 @@ function v1({frames=8,images=frames,review='passed',overridden=false,issues=[],a
  const selection={bookId:'shiji',artStyle:'ink-pencil',productionPrompt:'写清选择与后果',acceptancePrompt:acceptance,length:frames};
  return {doc,selection};
 }
+const historicalState=({doc,selection})=>{const dag=convertHistorical(doc,selection,{confirmed:true});return historicalVersion(dag,historicalRoots(selection,dag),{confirmed:true,skipFrameCheck:true});};
 const convert=input=>normalizeStoryDocument('fixture',input.doc,input.selection);
 const stateOf=(input,dag,faults=[])=>versionState(dag,rootProducts(input.selection,dag),{confirmed:true,faults,skipFrameCheck:typeof input.selection.length==='number'});
 
@@ -92,6 +94,18 @@ test('pending save-wait and redraw notes carry over',()=>{
  assert.deepEqual(dag.continuation,{revision:3,reason:'revision-saved'});
  assert.equal(dag.frames['legacy-2'].redrawNote,'调暗背景');
  assert.ok(complete(stateOf(input,dag)));
+});
+
+test('open legacy faults map to frame identities; a text-step fault attaches to the step that runs next',()=>{
+ const input=v1({images:5}),state=historicalState(input);
+ const mapped=mapLegacyFaults([
+  {id:'a',kind:'image-loss',page:1,state:'pending'},
+  {id:'b',kind:'landscape-image',page:2,state:'pending'},
+  {id:'c',kind:'generation',page:null,state:'pending'},
+  {id:'d',kind:'image-loss',page:0,state:'resolved'},
+ ],state);
+ assert.deepEqual(mapped.map(f=>[f.id,f.node,f.key,!!f.optional]),[['a','frameImage','legacy-2',false],['b','landscape','legacy-3',true],['c','frameImage','legacy-6',false]]);
+ assert.ok(mapped.every(f=>f.version==='legacy'));
 });
 
 // 转换后的故事经执行层继续：提纲与梗概可读；验收要求不变时旧条目及其结论保留，不重复登记与审片。

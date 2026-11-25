@@ -15,7 +15,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 - 没有有效桌面内置入口时，使用 Node 24 及随附的 npm/npx。通过发布包安装的技能默认用 `npx --yes @apprun/shiqu` 调用 CLI；版本确定后使用 `npx --yes @apprun/shiqu@<version>`，版本选择见下方“版本检查与更新”。`skill install` 只安装技能正文与版本记录，不安装 pnpm 或全局 shiqu 命令。
 - 源码项目沿用该源码目录的 `pnpm cli`；用户明确已安装 `shiqu` 命令或指定 `pnpm dlx` 等入口时沿用其选择。用户指定版本和项目版本锁优先，不因安装了技能就切换启动器或要求安装 pnpm。先读取所选入口的 `help --json`，核对 appVersion、当前输入与可用操作；下面是稳定语义，不是完整输入 Schema。
-- 所有书库操作使用同一绝对路径：显式 `--data-dir` 优先，其次 `SHIQU_DATA_DIR`、已保存位置和默认书库。首次访问直接建立当前格式的书库，无需先 init；不因此更改默认位置或模型配置。书库被其他服务占用时报告占用，不绕过锁。
+- 所有书库操作使用同一绝对路径：显式 `--data-dir` 优先，其次 `SHIQU_DATA_DIR`、已保存位置和默认书库。首次访问自动建库并迁移，无需先 init；不因此更改默认位置或模型配置。书库被其他服务占用时报告占用，不绕过锁。
 - 自主程序使用进程 API 的可执行文件与参数数组，JSON 经 `--input -` 的 stdin 或私有文件传入；不要把标题、路径、原文、提示词拼接成 shell 命令。沿用入口及其工作目录，处理 stdout 与 stderr，设置有限超时。同一书库的写入和制作调用串行执行。preview 和 export 只读已升级书库，可与正在运行的拾趣服务并行。
 - 子命令 stdout 为一个 JSON 信封：成功 `{schemaVersion:1,ok:true,data:...}`，失败 `{schemaVersion:1,ok:false,error:{code,message,details?}}`；日志在 stderr。检查退出码、信封及业务结果。`skill show` 默认是 Markdown，带 `--json` 才是信封。不要把非零退出的 JSON 丢弃，也不要把退出码 0 或 `ok:true` 当作故事完成。
 - CLI 子命令无交互，所有询问、检查点和阶段选择由本技能在对话中处理；不要向 CLI 发送终端按键或等待它提问。
@@ -69,7 +69,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 | 跨库复制 | `stories copy <来源故事id> --from-data-dir <来源书库> --data-dir <目标书库>` 默认仅复制已通过且未越过审核的文本与审核记录，新故事初始暂停。显式 `--draft` 或输入 `draft:true` 可复制尚未通过审核、但已有完整原文、分镜与审核检查点的文本；保留原审核状态、不复制图片，也不允许再用 copy-images 补图。`stories copy-images <目标故事id>` 用同一对书库及输入 `{sourceId:"来源故事id"}` 给普通文本副本补充图片，不创建另一个故事。`copy` 也支持显式 `--copy-images` / `--no-copy-images` 或输入 `copyImages`；仅在用户已决定时使用。换画风时不能复制旧图片。 |
 | 署名与转载 | 默认值通过 `api GET/POST reader/publication-defaults` 读取/保存；单篇通过 `stories get <id>` 读取 story.publication，再 `api POST reader/sessions/<id>/publication` 保存。输入均为 `{publication:<完整署名对象>,expected:<原对象或null>}`，保留未修改字段，expected 必须沿用原始读取结果；修改全局默认与单篇设置是不同操作。 |
 | 预览与交付 | preview 输出独立离线 HTML；export 支持 zip/pdf/png/json/md，使用共享序列化、图片编码、水印和元数据规则。自主程序可组织导出清单，不能自己重建作品包。 |
-| 维护 | backup 创建完整私有快照，verify-backup 验证；restore 仅恢复到新的 data-dir，不覆盖原库或自动切换默认位置。等待同目录正在运行的校验或恢复结束再重试；当前版本打开格式 4 及更新的受支持格式。格式 1、2、3 或合并前离线导入须先用 0.17.x 完成升级，由 0.17.x 校验整库备份。回退须使用升级前的备份及配套旧应用，恢复到另一目录。diagnostics 输出脱敏诊断；它与私有完整备份用途不同。 |
+| 维护 | backup 创建完整私有快照，verify-backup 验证；restore 仅恢复到新的 data-dir，不覆盖原库或自动切换默认位置。等待同目录正在运行的校验或恢复结束再重试；0.17.0 打开格式 1、2、3 时先创建并校验整库备份，再直接迁移到格式 4。回退须使用升级前的备份及配套旧应用，恢复到另一目录。diagnostics 输出脱敏诊断；它与私有完整备份用途不同。 |
 
 暂停审核后，先用 `stories revisions ID` 取得 token，再用 `stories edit ID --input review.json` 提交 `{"token":"当前 token","changes":{"reviewNotes":"请复核第 4 幅的人物选择及其后果。"}}`。意见最多 1200 字，传空字符串可清除。仅修改审核意见时，新版保留已保存的分镜和审核修订记录，运行新版后按意见复核。用 `help --json` 查看 `inputs.reviewNotes`。
 
