@@ -51,7 +51,7 @@ export const nodes={
  acceptanceReq:{label:'验收要求',specRow:'制作要求、验收要求、叙事详略与幅数策略、画风',per:'story',kind:'root',hard:[],required:true,editable:true},
  settings:{label:'叙事详略与幅数策略',specRow:'制作要求、验收要求、叙事详略与幅数策略、画风',per:'story',kind:'root',hard:[],required:true,editable:true},
  style:{label:'画风',specRow:'制作要求、验收要求、叙事详略与幅数策略、画风',per:'story',kind:'root',hard:[],required:true,editable:true},
- modelSnapshot:{label:'模型快照',specRow:'模型快照',per:'story',kind:'root',hard:[],required:true},
+ modelSnapshot:{label:'图片快照',specRow:'图片快照',per:'story',kind:'root',hard:[],required:true},
  renderer:{label:'绘图参数',specRow:'绘图参数',per:'story',kind:'root',hard:[],required:true,editable:true},
  outline:{label:'全篇提纲',specRow:'全篇提纲',per:'story',kind:'model',hard:['source','productionReq','settings'],call:'outline',gate:'brief',required:true},
  characters:{label:'人物设定',specRow:'人物设定',per:'story',kind:'model',hard:['source','productionReq'],call:'characters',gate:'confirmed',required:true,editable:true},

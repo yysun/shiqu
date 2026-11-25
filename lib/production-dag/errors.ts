@@ -20,6 +20,6 @@ export function errorCode(error:unknown):ErrorCode{
 }
 
 /** 服务级故障：所有使用该服务的故事显示同一原因，不写入各篇的步骤故障。 */
-export const serviceLevel=(code:ErrorCode)=>code==='SERVICE_AUTH'||code==='SERVICE_QUOTA'||code==='RATE_LIMITED';
+export const serviceLevel=(code:ErrorCode):code is 'SERVICE_AUTH'|'SERVICE_QUOTA'|'RATE_LIMITED'=>code==='SERVICE_AUTH'||code==='SERVICE_QUOTA'||code==='RATE_LIMITED';
 /** 中断恢复可以自动重试的错误：内容拦截与服务级故障不自动重试。 */
 export const autoRetryable=(code:ErrorCode)=>code==='TIMEOUT';

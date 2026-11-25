@@ -37,7 +37,7 @@ import type {FaultView,RecoveryRequest,ReviewOverride} from '../lib/reader-recov
 import {canReprepare,DagProduction,dagTextKind,dagDrawKind,landscapeFrames,retryableLandscapePages,portraitRecoveryReceipt} from './dag-production.ts';
 import {bindLegacyLandscapeRequests} from './dag-revisions.ts';
 import {transact,deleteJobs,recordJobSucceeded} from './production-records.ts';
-import {errorCode} from '../lib/production-dag/errors.ts';
+import {errorCode,serviceLevel} from '../lib/production-dag/errors.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {productionLifecycle,describeProductionCall,authorizeDispatch,authorizeJobLease,authorizeProductionCommand,resolveProductionService,type ProductionFault,type ProductionImageCheck,type ProductionService} from '../lib/production-lifecycle.ts';
 import {stateOf,type Work} from '../lib/production-dag/runner.ts';
@@ -73,7 +73,7 @@ export const productionRevisionSql={
 };
 /** 模型快照服务：记录当前设置的快照；按快照构造提供方，快照服务不可用时返回 null。 */
 export type SnapshotService={current():ModelSnapshot|undefined;provider(snapshot:ModelSnapshot):ReaderProvider|null};
-export type ProductionOptions={snapshots?:SnapshotService;imageWorkers?:number;now?:()=>number;leaseMs?:number;tickMs?:number;autoStart?:boolean;targetSessionId?:string;portraitOnly?:boolean;stopBeforeImages?:boolean};
+export type ProductionOptions={snapshots?:SnapshotService;textProvider?:ReaderProvider;imageWorkers?:number;now?:()=>number;leaseMs?:number;tickMs?:number;autoStart?:boolean;targetSessionId?:string;portraitOnly?:boolean;stopBeforeImages?:boolean};
 type Options=ProductionOptions;
 const maxAutomaticAttempts=3;
 // 「审片后停止」不得启动任何付费绘图。
@@ -113,6 +113,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private supersededJobs=new Set<string>();
  private database:Database;
  private provider:ReaderProvider;
+ private textFailure?:{provider:ReaderProvider;service:ProductionService;retryAt:number};
  private readonly jobProviders=new Map<string,ReaderProvider>();
  private media:MediaStore;
  private options:Options;
@@ -144,7 +145,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     [landscapePrintKind]:{pool:'landscape',run:job=>this.runDag(job)},
    },
   });
-  this.dag=new DagProduction({portraitOnly:options.portraitOnly,database,media,queue:this.queue,clock:this.clock,wake:()=>this.wake(),snapshot:()=>this.snapshotNow(),fileLost:(key,strict,landscape)=>this.fileLost(key,strict,landscape)});
+  this.dag=new DagProduction({portraitOnly:options.portraitOnly,database,media,queue:this.queue,clock:this.clock,wake:()=>this.wake(),snapshot:()=>this.snapshotNow(),imageSnapshotAvailable:snapshot=>this.serviceAvailability(snapshot)==='available',fileLost:(key,strict,landscape)=>this.fileLost(key,strict,landscape)});
   this.prints=new LandscapePrints(database,media,this.clock,key=>this.fileLost(key,true,true));
   if(options.autoStart!==false)this.start();
  }
@@ -661,7 +662,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   for(const target of new Set(dag?.issues?.filter(issue=>issue.requiresReplan&&blockedTargets.has(issue.target)).map(issue=>issue.target))){
    reviewAttention.push({target,reason:'replan'});
   }
-  const service=this.serviceAvailability(parsed.doc.dag?.modelSnapshot);
+  const preparing=!!dag?.repreparing||!!parsed.doc.intake&&parsed.doc.intake.phase!=='confirmed';
+  const service=review==='approved'&&!preparing?this.serviceAvailability(dag?.modelSnapshot):this.serviceAvailability(undefined,'text');
+  const currentImage=this.snapshotNow();
   const pendingImageChecks=dag?.order.flatMap((key,page):ProductionImageCheck[]=>{
    const frame=dag.frames[key],checks:ProductionImageCheck[]=[];
    for(const [kind,url] of [['portrait',frame?.image],['landscape',frame?.landscape]] as const){
@@ -698,7 +701,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     {event:'start-landscape',ready:landscapeReady},
     {event:'retry-landscape',ready:!runningLandscape&&(input.printActivity?.failed??(landscapeFailed&&(input.legacyLandscapeRetry??true)))}],
    freeImageRecoveries:new Set(faults.filter(fault=>input.portraitRecoveries.has(fault.id)||this.imageRecoveryTarget(id,parsed.doc,fault)).map(fault=>fault.id)),
-   modelApplicable:!!dag&&(!parsed.doc.intake||parsed.doc.intake.phase==='confirmed')&&!!this.snapshotNow()&&
+   modelApplicable:!!dag&&(!parsed.doc.intake||parsed.doc.intake.phase==='confirmed')&&!!currentImage&&this.serviceAvailability(currentImage)==='available'&&
     (parsed.doc as Document&{legacyFramePreparation?:unknown}).legacyFramePreparation==null,
    reviewBlockId:blocking?.id??undefined,canOverrideReview:!!blocking?.canOverride,reviewSkipId:reviewSkip?.faultId},portraitJobs);
   const active=lifecycle.activity.state==='running'?lifecycle.activity.jobs:[];
@@ -796,8 +799,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    return !this.stopping&&print?.id===job.version&&print.control==='active'&&
     (this.serviceAvailability(print.modelSnapshot)==='available'||await this.prints.canResumeOffline(job));
   }
-  const snapshot=job.kind===dagTextKind||job.kind===dagDrawKind?await this.dag.snapshotOf(job):undefined;
-  if(this.serviceAvailability(snapshot)!=='available')return false;
+  const snapshot=job.kind===dagDrawKind?await this.dag.snapshotOf(job):undefined;
+  if(this.serviceAvailability(snapshot,job.kind===dagDrawKind?'image':'text')!=='available')return false;
   if(job.kind==='discover')return this.searchRunnable(row,searchRound(job));
   // 横图是读者对已完成故事的明确请求，不需要阅读需求。
   if(job.kind===dagDrawKind&&(JSON.parse(job.payload) as {work:{call:string}}).work.call==='drawLandscape')return !this.stopping&&!await this.repository.superseded(row.id,row.user_id);
@@ -832,21 +835,27 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    .bind(JSON.stringify(search),...(batch?[JSON.stringify(batch)]:[]),new Date(this.clock()).toISOString(),id,ownerId,round).run();
   return saved.meta.changes>0;
  }
+ private providerForJob(job:ProductionJob){return job.pool==='image'||job.pool==='landscape'?this.provider:this.options.textProvider??this.provider;}
  private jobProvider(job:ProductionJob){
-  const provider=this.provider.capture?this.provider.capture():this.provider;
+  const source=this.providerForJob(job),provider=source.capture?source.capture():source;
   if(!provider)throw new JobYield();this.jobProviders.set(job.id,provider);return provider;
  }
  private snapshotNow(){try{return this.options.snapshots?.current();}catch{return undefined;}}
- private serviceAvailability(snapshot?:ModelSnapshot):ProductionService{
+ private serviceAvailability(snapshot?:ModelSnapshot,kind:'text'|'image'='image'):ProductionService{
   const snapshots=this.options.snapshots;
-  const configured=!snapshots||!!this.snapshotNow(),stopping=this.stopping;
+  const drawing=kind==='image',source=drawing?this.provider:this.options.textProvider??this.provider;
+  const configured=(!drawing&&!!this.options.textProvider)||!snapshots||!!this.snapshotNow(),stopping=this.stopping;
   if(!configured||stopping)return resolveProductionService({configured,stopping,snapshotAvailable:true});
   try{
    if(snapshot&&snapshots)return resolveProductionService({configured,stopping,snapshotAvailable:!!snapshots.provider(snapshot)});
-   return resolveProductionService({configured:!this.provider.capture||!!this.provider.capture(),stopping,snapshotAvailable:true});
+   if(drawing&&snapshots){const current=this.snapshotNow();return resolveProductionService({configured:!!current&&!!snapshots.provider(current),stopping,snapshotAvailable:true});}
+   const current=source.capture?source.capture():source;
+   const failure=this.textFailure;
+   if(!drawing&&failure&&failure.provider===current&&failure.retryAt>this.clock())return failure.service;
+   return resolveProductionService({configured:!!current,stopping,snapshotAvailable:true});
   }catch{return resolveProductionService({configured:!!snapshot&&!!snapshots,stopping,snapshotAvailable:false});}
  }
- /** DAG 任务按故事的模型快照构造提供方；没有快照服务或故事没有快照时沿用当前提供方。 */
+ /** 文字任务在调用前取当前设置；绘图使用故事保存的图片快照。 */
  private async runDag(job:ProductionJob){
   const snapshots=this.options.snapshots,printRow=job.kind===landscapePrintKind?await this.raw(job.session_id,job.owner_id):null;
   const printDoc=printRow&&this.parsed(printRow)?.doc,print=printDoc&&currentLandscapePrint(printDoc);
@@ -855,7 +864,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(receipt)return receipt;
    if(this.serviceAvailability(print?.modelSnapshot)!=='available')throw new JobYield();
   }
-  const snapshot=snapshots&&(printRow?print?.modelSnapshot:await this.dag.snapshotOf(job));
+  const snapshot=snapshots&&(printRow?print?.modelSnapshot:job.kind===dagDrawKind?await this.dag.snapshotOf(job):undefined);
   let provider:ReaderProvider;
   if(snapshot&&snapshots){
    // 当前设置为只读时不得发起任何调用，即使故事有可用的快照。
@@ -875,6 +884,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  /** 付费边界使用当前租约、流程控制和该次尝试实际捕获的服务配置。 */
  private runPaid<T extends object>(job:ProductionJob,provider:ReaderProvider,snapshot:ModelSnapshot|undefined,task:()=>Promise<T>){
   const receipts:unknown[]=[];
+  const imageJob=job.kind===dagDrawKind||job.kind===landscapePrintKind;
   const draw=job.kind===dagDrawKind&&(JSON.parse(job.payload) as {work?:{call:string}}).work?.call==='draw';
   const reference=draw?transact(this.database,db=>drawingReferenceBinding(db,job.owner_id,job.session_id)):null;
   return withPaidDispatch({
@@ -884,7 +894,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
      const live=db.get<ProductionJob>("SELECT * FROM production_jobs WHERE id=? AND state='running' AND lease_token=?",job.id,job.lease_token);
      const lease=authorizeJobLease({event:'paid-send',held:!!live,expired:!!live&&live.lease_until<=now});
      if(lease!=='allow')return lease;
-     if(job.kind!=='discover'&&this.options.snapshots){
+     if(imageJob&&this.options.snapshots){
       const path=job.kind===landscapePrintKind?'$.landscapePrints[#-1].modelSnapshot':'$.dag.modelSnapshot';
       const legacy=job.kind===dagDrawKind&&JSON.parse(job.payload).work?.call==='drawLandscape';
       const stored=db.get<{snapshot:string|null}>("SELECT COALESCE(json_extract(document,?),json_extract(document,?)) AS snapshot FROM stories WHERE id=? AND user_id=?",legacy?'$.legacyLandscapeModelSnapshot':path,path,job.session_id,job.owner_id);
@@ -893,8 +903,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
      const authorization=this.checkDispatch(db,live!,now);
      if(authorization!=='allow')return authorization;
      if(draw&&reference!==drawingReferenceBinding(db,job.owner_id,job.session_id))return 'yield';
-     if(this.serviceAvailability(snapshot)!=='available')return 'yield';
-     if(!snapshot&&this.provider.capture&&this.provider.capture()!==provider)return 'yield';
+     if(this.serviceAvailability(snapshot,imageJob?'image':'text')!=='available')return 'yield';
+     const source=this.providerForJob(job);
+     if(!snapshot&&source.capture&&source.capture()!==provider)return 'yield';
      return 'allow';
     });
     if(decision!=='allow')throw new PaidDispatchDenied(decision);
@@ -903,7 +914,13 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   },async()=>{
    try{return await task();}
    catch(error){
-    if(!(error instanceof PaidDispatchDenied))throw error;
+    if(!(error instanceof PaidDispatchDenied)){
+     const code=errorCode(error);
+     if(imageJob||!serviceLevel(code))throw error;
+     const service={SERVICE_AUTH:'credentials-invalid',SERVICE_QUOTA:'quota-exhausted',RATE_LIMITED:'rate-limited'} as const;
+     this.textFailure={provider,service:service[code],retryAt:this.clock()+30_000};
+     throw new JobYield();
+    }
     if(receipts.length)await this.database.prepare(`UPDATE production_jobs SET payload=json_set(payload,'$.dispatchReceipts',json(
       (SELECT json_group_array(json(value)) FROM (SELECT value FROM json_each(payload,'$.dispatchReceipts') UNION ALL SELECT value FROM json_each(?))))) WHERE id=? AND state='running' AND lease_token=?`).bind(JSON.stringify(receipts),job.id,job.lease_token).run();
     if(error.reason==='obsolete')return {obsolete:true};
@@ -957,7 +974,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    if(this.stopping&&!terminal)throw error;
    if(signal.aborted&&!terminal)throw new JobYield();
    const code=errorCode(error);
-   if(code==='TIMEOUT'||code==='CONTENT_BLOCKED')throw error;
+   if(code==='TIMEOUT'||code==='CONTENT_BLOCKED'||serviceLevel(code))throw error;
    await this.finishSearch(row.id,row.user_id,round,{...search,state:'failed',error:error instanceof ReaderError?error.message:provider.safeError(error)});
    return {failed:true};
   }finally{this.searches.delete(row.id);}

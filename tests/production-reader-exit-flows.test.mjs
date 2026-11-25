@@ -1011,8 +1011,11 @@ test('portrait model recovery is available from both settings and shelf',async t
  const f=await productionFixture(t),previous={provider:'codex',models:{text:'A',image:'A'}},current={provider:'codex',models:{text:'B',image:'B'}};
  f.options.production={autoStart:false,snapshots:{current:()=>current,provider:s=>s.models.image===current.models.image?f.generation:null}};
  await f.restart();
- const id=await confirmedStory(f,4);
- await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag.modelSnapshot',json(?)) WHERE id=?").bind(JSON.stringify(previous),id).run();
+ f.app.startGeneration();
+ const {id}=await completedStory(f,{length:4}),doc=await saved(f,id),key=doc.dag.order[1];
+ doc.dag.modelSnapshot=previous;
+ delete doc.dag.products[`frameImage:${key}`];delete doc.dag.frames[key].image;doc.images[1]='';
+ await f.app.services.database.prepare("UPDATE stories SET document=?,state='idle' WHERE id=?").bind(JSON.stringify(doc),id).run();
  const updated=await exitBoth(f,id,/^应用当前模型设置$/);
  assert.equal(updated.lifecycle.service,'available');
  assert.deepEqual((await saved(f,id)).dag.modelSnapshot,current);

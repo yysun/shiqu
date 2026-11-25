@@ -1076,7 +1076,7 @@ test('changing the production scope refreshes the factual synopsis once with the
 
 // ——— 审查意见第 2 轮：正式入口与边界 ———
 
-const snapshotA={provider:'codex',models:{text:'model-at-confirmation',image:null}};
+const snapshotA={provider:'codex',models:{image:'model-at-confirmation'}};
 /** 带模型快照服务的夹具：current 给出确认时的快照，provider 按快照给出提供方（null 表示服务不可用）。 */
 async function snapshotFixture(t,service){
  const f=await productionFixture(t,'codex');
@@ -1284,34 +1284,73 @@ test('an image check in flight cannot record a new fault after deletion',async t
 
 // ——— 决策 7：模型快照 ———
 
-test('confirmation records the model snapshot and its jobs are built from it, not from the current settings',async t=>{
+test('confirmation records the drawing snapshot for subsequent image jobs',async t=>{
  const built=[];
  const f=await snapshotFixture(t,{current:()=>snapshotA,provider:snapshot=>{built.push(snapshot);return f.generation;}});
  const id=await confirmThroughIntake(f);
  await until(async()=>(await f.read(id)).state==='completed',20000);
  const doc=await saved(f,id);
  assert.deepEqual(doc.dag.modelSnapshot,snapshotA);
- assert.ok(built.length>0&&built.every(snapshot=>snapshot.models.text==='model-at-confirmation'),'every job builds its provider from the recorded snapshot');
+ assert.ok(built.length>0&&built.every(snapshot=>snapshot.models.image==='model-at-confirmation'));
  assert.equal(f.control.calls.length,4);
 });
 
 test('an unavailable snapshot service stops the story with a clear message; applying the current settings lets it finish',async t=>{
- const current={provider:'codex',models:{text:'model-now',image:null}};
- let available=false,now=snapshotA;
- const f=await snapshotFixture(t,{current:()=>now,provider:snapshot=>available||snapshot.models.text==='model-now'?f.generation:null});
+ const current={provider:'codex',models:{image:'model-now'}};
+ let now=snapshotA;
+ const f=await snapshotFixture(t,{current:()=>now,provider:snapshot=>snapshot.models.image==='model-now'?f.generation:null});
  const id=await confirmThroughIntake(f);
  await until(async()=>(await f.read(id)).lifecycle.service==='snapshot-unavailable',20000);
  const blocked=await f.read(id);
  assert.equal(blocked.faults,undefined);
  assert.match(shelfGenerationStatus(blocked).detail,/快照服务不可用/);
  assert.equal(blocked.snapshotUnavailable,true,'the view offers 应用当前模型设置');
- assert.equal(f.control.dagCalls.length,0,'no model call is paid while the snapshot service is unavailable');
+ assert.ok(f.control.dagCalls.length>0,'image snapshot availability does not prevent review');
+ assert.equal(f.control.calls.length,0);
  now=current;
  await f.json(`sessions/${id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'apply-model'});
  assert.deepEqual((await saved(f,id)).dag.modelSnapshot,current);
  assert.equal((await f.read(id)).lifecycle.service,'available');
  await until(async()=>(await f.read(id)).state==='completed',20000);
  assert.equal(f.control.calls.length,4);
+});
+
+test('queued text waits for global service and uses new text settings while images use their saved model',async t=>{
+ let activeText=null,currentImage=snapshotA;
+ const imageModels=[];
+ const f=await snapshotFixture(t,{current:()=>currentImage,provider:snapshot=>({...f.generation,generator:()=>{
+  const generator=f.generation.generator();
+  return {...generator,image:(...args)=>{imageModels.push(snapshot.models.image);return generator.image(...args);}};
+ }})});
+ f.options.production.textProvider={...f.generation,capture:()=>activeText};
+ await f.restart();
+ const id=await confirmedStory(f,4,{dag:{...emptyDag(),modelSnapshot:snapshotA}});
+ await f.app.services.production.tick();
+ const blocked=await f.read(id);
+ assert.equal(blocked.lifecycle.service,'unconfigured');
+ assert.deepEqual(blocked.lifecycle.faults,[]);
+ assert.equal(f.control.dagCalls.length+f.control.calls.length,0);
+ activeText={...f.generation,generator:()=>({...f.generation.generator(),textCall:async()=>{
+  throw Object.assign(Error('受控文字凭据无法使用'),{status:401});
+ }})};
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).lifecycle.service==='credentials-invalid');
+ const other=await confirmedStory(f);
+ assert.equal((await f.read(other)).lifecycle.service,'credentials-invalid');
+ assert.deepEqual((await f.read(other)).lifecycle.faults,[]);
+ assert.deepEqual((await f.read(id)).lifecycle.faults,[]);
+ await f.json(`sessions/${other}/production-control`,'POST',{action:'pause'});
+ currentImage={provider:'codex',models:{image:'newer-drawing-model'}};
+ activeText={...f.generation,generator:()=>{
+  const generator=f.generation.generator();
+  return {...generator,textCall:async(...args)=>({...await generator.textCall(...args),model:'new-global-text',reasoningEffort:'low'})};
+ }};
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).state==='completed');
+ const doc=await saved(f,id),text=doc.usage.filter(entry=>entry.step!=='dag:draw');
+ assert.ok(text.length&&text.every(entry=>entry.model==='new-global-text'&&entry.reasoningEffort==='low'));
+ assert.deepEqual(imageModels,Array(4).fill(snapshotA.models.image));
+ assert.deepEqual(doc.dag.modelSnapshot,snapshotA);
 });
 
 // ——— 没有准备流程的故事：原文核对经 DAG ———
@@ -1564,7 +1603,7 @@ test('apply-model replays by its request id and never rewrites the snapshot from
  const id=await confirmedStory(f,4);
  await f.app.services.database.prepare("UPDATE stories SET generation_control='paused' WHERE id=?").bind(id).run();
  f.app.services.production.wake();
- const requestId=crypto.randomUUID(),second={provider:'codex',models:{text:'model-second',image:null}};
+ const requestId=crypto.randomUUID(),second={provider:'codex',models:{image:'model-second'}};
  assert.ok((await f.read(id)).lifecycle.actions.some(action=>action.event==='apply-model'));
  await f.json(`sessions/${id}/production-control`,'POST',{requestId,action:'apply-model'});
  assert.deepEqual((await saved(f,id)).dag.modelSnapshot,snapshotA);
@@ -2001,13 +2040,17 @@ test('a landscape file that is no longer readable shows as failed and is redrawn
 
 // ——— 审查意见：快照停滞、画风预设与横图比例 ———
 
-test('a story with a saved snapshot keeps running when the current global provider is unavailable',async t=>{
+test('an approved story can finish drawing while the current global text provider is unavailable',async t=>{
  const f=await snapshotFixture(t,{current:()=>snapshotA,provider:()=>f.generation});
+ const {id}=await completedStory(f),doc=await saved(f,id),key=doc.dag.order[1];
+ doc.dag.modelSnapshot=snapshotA;
+ delete doc.dag.products[`frameImage:${key}`];delete doc.dag.frames[key].image;doc.images[1]='';
+ await f.app.services.database.prepare("UPDATE stories SET document=?,state='idle' WHERE id=?").bind(JSON.stringify(doc),id).run();
  f.generation.capture=()=>undefined;
- const id=await confirmedStory(f,4,{dag:{...emptyDag(),modelSnapshot:snapshotA}});
- for(let i=0;i<5;i++){f.app.services.production.wake();await turn();}
+ f.app.services.production.wake();
  await until(async()=>(await f.read(id)).state==='completed',20000);
- assert.equal(f.control.calls.length,4,'all four drawings ran on the saved provider');
+ assert.deepEqual(f.control.calls.map(call=>call.page),[1]);
+ assert.deepEqual(f.control.dagCalls,[]);
 });
 
 test('a preset change without a new custom prompt drops the old custom art instructions',async t=>{
@@ -2127,17 +2170,23 @@ test('a transient read error keeps the paid image receipt and the queue reads it
 });
 
 test('queued landscapes show a snapshot service blocker and resume after service recovery',async t=>{
- let available=false;
+ let available=true;
  const f=await snapshotFixture(t,{current:()=>snapshotA,provider:()=>available?f.generation:null});
+ f.control.hold=true;
  const {id}=await completedStory(f);
  await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag.modelSnapshot',json(?)) WHERE id=?").bind(JSON.stringify(snapshotA),id).run();
  const route=`sessions/${id}/landscape`,start=await f.json(route);
- const status=await f.json(route,'POST',{startToken:start.startToken});
+ await f.json(route,'POST',{startToken:start.startToken});
+ await until(()=>f.control.calls.length===1);
+ available=false;
+ f.control.hold=false;f.control.calls[0].resolve();
+ await until(async()=>(await f.json(route)).ready===1);
+ const status=await f.json(route);
  assert.equal(status.service,'snapshot-unavailable');
  assert.deepEqual(status.failed,[]);
  assert.equal(status.retryToken,undefined);
  await f.app.services.production.tick();
- assert.equal(f.control.calls.length,0);
+ assert.equal(f.control.calls.length,1);
  available=true;
  f.app.services.production.wake();
  await until(async()=>(await f.json(route)).state==='completed',20000);

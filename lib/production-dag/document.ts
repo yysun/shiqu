@@ -41,8 +41,11 @@ export type DagFrame={
 };
 export type DagCharacter={id:string;name:string;aliases?:string[];text:string;legacy?:true};
 export type DagItem={id:string;text:string;scope?:'story'|'frame';evidence?:Evidence[];legacy?:true};
-/** 模型快照：提供方、模型与推理强度，不含凭据。models 中 null 表示沿用该服务自身的默认模型。 */
-export type ModelSnapshot=Pick<ProviderSettingsView['runtime'],'provider'|'imageProvider'|'taskReasoningEfforts'>&{models:{text:string|null;image:string|null}};
+/** 绘图使用版本记下的服务与模型。分辨率和构图参数由对应绘图流程保存。 */
+type DrawingSnapshot={provider:ProviderSettingsView['runtime']['provider'];models:{image:string|null}};
+/** 旧库迁移前兼容读取原快照。文字设置不再参与生产派发。 */
+type LegacyModelSnapshot=Pick<ProviderSettingsView['runtime'],'provider'|'imageProvider'|'taskReasoningEfforts'>&{models:{text:string|null;image:string|null}};
+export type ModelSnapshot=DrawingSnapshot|LegacyModelSnapshot;
 export type DagOutline={title:string;summary:string;sourceReference:string;adaptationNote:string;beats:string[]};
 /** 审片问题按结论归属；自动修订未改变内容或会破坏手改时，保留阻断原因。 */
 export type DagIssue=ReviewIssue&{target:string;stalled?:true|'hand-edited'};

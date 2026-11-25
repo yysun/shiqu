@@ -45,7 +45,7 @@ import {bindLegacyLandscapeRequests} from './dag-revisions.ts';
 import {PaidDispatchDenied} from './paid-dispatch.ts';
 
 export const dagTextKind='dag',dagDrawKind='dag-draw';
-type Deps={portraitOnly?:boolean;database:Database;media:MediaStore;queue:ProductionQueue;clock:()=>number;wake:()=>void;snapshot?:()=>ModelSnapshot|undefined;fileLost:(key:string,strict?:boolean,landscape?:boolean)=>Promise<boolean>};
+type Deps={portraitOnly?:boolean;database:Database;media:MediaStore;queue:ProductionQueue;clock:()=>number;wake:()=>void;snapshot?:()=>ModelSnapshot|undefined;imageSnapshotAvailable?:(snapshot:ModelSnapshot)=>boolean;fileLost:(key:string,strict?:boolean,landscape?:boolean)=>Promise<boolean>};
 type Paid={value:unknown;model:string;requestId:string|null;usage:unknown;entry?:Document['usage'][number];usageRecorded?:boolean};
 /** 阅读中的故事优先。每篇仍按幅序绘图。 */
 export const viewedPriority=(page:number,opened:boolean)=>opened?page-100:page;
@@ -886,7 +886,7 @@ export class DagProduction{
     FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,id,ownerId);
    const authorization=authorizeProductionCommand('apply-model',{
     version:row?'current':'superseded',control:row?.generation_control??'active',continuation:false,stopping,
-    targetCurrent:!!row?.confirmed,targetReady:!!current,
+    targetCurrent:!!row?.confirmed,targetReady:!!current&&this.deps.imageSnapshotAvailable?.(current)!==false,
    });
    if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
    // 升级前发起的横图继续沿用原快照，直到读者在横图步骤单独确认更换。

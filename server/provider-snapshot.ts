@@ -1,5 +1,4 @@
-// 模型快照：制作确认时记录提供方、模型与推理强度，不含凭据；之后的调用按快照选择模型。
-// 构造时以快照覆盖当前设置中的提供方与模型变量，凭据仍取当前设置；快照服务缺少凭据时视为不可用。
+// 图片快照只记录绘图服务和模型。由当前配置取凭据；文字任务使用当时的全局设置。
 import type {ModelSnapshot} from '../lib/production-dag/document.ts';
 import type {MediaStore} from '../lib/services.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
@@ -9,31 +8,23 @@ import {createReaderProvider} from './generation.ts';
 type Variables=Record<string,string|undefined>;
 export type {ModelSnapshot};
 
-const textModelVariable:Record<string,string>={gemini:'GEMINI_TEXT_MODEL',openai:'OPENAI_TEXT_MODEL',codex:'CODEX_MODEL',claude:'CLAUDE_MODEL',deepseek:'DEEPSEEK_TEXT_MODEL'};
-const imageModelVariable:Record<string,string>={gemini:'GEMINI_IMAGE_MODEL',openai:'OPENAI_IMAGE_MODEL'};
-// 运行配置在变量缺省时只给出的显示名，不是可调用的模型名。
-const displayOnly=new Set(['codex-default','codex-image-generation']);
+const imageModelVariable:Record<string,string>={gemini:'GEMINI_IMAGE_MODEL',openai:'OPENAI_IMAGE_MODEL',codex:'CODEX_MODEL'};
 
 /** 记录当前设置的快照，供制作确认与旧故事转换使用。 */
 export function currentSnapshot(variables:Variables):ModelSnapshot{
- const {provider,imageProvider,models,taskReasoningEfforts}=runtimeConfiguration(variables);
+ const {provider,imageProvider,models}=runtimeConfiguration(variables);
  const imageSide=imageProvider||provider;
- // 有对应变量的服务记录实际模型（变量缺省时运行配置给出的即该服务的真实默认模型名）；
- // 没有对应变量或运行配置只给出显示名的服务记为 null，调用时沿用其默认模型。
- const text=textModelVariable[provider]&&!displayOnly.has(models.text)?models.text:null;
- const image=imageModelVariable[imageSide]&&!displayOnly.has(models.image)?models.image:null;
- return {provider,...(imageProvider?{imageProvider}:{}),models:{text,image},...(taskReasoningEfforts?{taskReasoningEfforts}:{})};
+ const image=imageSide==='codex'?variables.CODEX_MODEL?.trim()||null:models.image||null;
+ return {provider:imageSide,models:{image}};
 }
 
-/** 以快照覆盖提供方、模型与推理强度变量；凭据与其他变量保持当前值。 */
+/** 构造独立绘图服务，避免文字侧凭据缺失影响本版成图。 */
 export function snapshotVariables(snapshot:ModelSnapshot,variables:Variables):Variables{
- const next:Variables={...variables,SHIQU_AI_PROVIDER:snapshot.provider,SHIQU_IMAGE_PROVIDER:snapshot.imageProvider||''};
- const imageSide=snapshot.imageProvider||snapshot.provider;
- const setModel=(name:string|undefined,value:string|null)=>{if(!name)return;if(value===null)delete next[name];else next[name]=value;};
- setModel(textModelVariable[snapshot.provider],snapshot.models.text);
- setModel(imageModelVariable[imageSide],snapshot.models.image);
- for(const key of Object.keys(next))if(key.startsWith('SHIQU_REASONING_'))delete next[key];
- for(const [task,effort] of Object.entries(snapshot.taskReasoningEfforts||{}))next['SHIQU_REASONING_'+task.toUpperCase()]=effort;
+ const imageSide=('imageProvider'in snapshot?snapshot.imageProvider:undefined)||snapshot.provider;
+ const model=imageSide==='codex'&&snapshot.provider==='codex'&&'text'in snapshot.models?snapshot.models.text:snapshot.models.image;
+ const next:Variables={...variables,SHIQU_AI_PROVIDER:imageSide,SHIQU_IMAGE_PROVIDER:''};
+ const name=imageModelVariable[imageSide];
+ if(name)next[name]=model??undefined;
  return next;
 }
 
@@ -42,6 +33,6 @@ export type SnapshotProvider={available:true;provider:ReaderProvider}|{available
 /** 按快照构造提供方；快照指定的服务在当前设置中缺少凭据时返回不可用，由故事显示「快照服务不可用」。 */
 export function providerForSnapshot(snapshot:ModelSnapshot,variables:Variables,media:MediaStore,transport:typeof fetch=fetch):SnapshotProvider{
  const merged=snapshotVariables(snapshot,variables);
- if(snapshot.provider==='readonly'||runtimeConfiguration(merged).configured===false)return {available:false,reason:'snapshot-unavailable'};
+ if(!imageModelVariable[merged.SHIQU_AI_PROVIDER??'']||runtimeConfiguration(merged).configured===false)return {available:false,reason:'snapshot-unavailable'};
  return {available:true,provider:createReaderProvider(merged,media,transport)};
 }
