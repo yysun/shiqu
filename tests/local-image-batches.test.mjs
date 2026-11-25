@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {setTimeout as delay} from 'node:timers/promises';
-import {productionFixture,until,turn,makePlan,selection} from './fixtures/production.mjs';
+import {productionFixture,until,turn,selection} from './fixtures/production.mjs';
 import {emptyDag} from '../lib/production-dag/document.ts';
 import {selectionSchema} from '../lib/reader-model.ts';
 import {flowProviders,fullTier,heavy} from './fixtures/test-tier.mjs';
@@ -31,11 +31,13 @@ test('auto is the count default; invalid counts never create a production story'
  assert.equal((await f.json('sessions')).length,0);
 });
 for(const provider of flowProviders(['gemini','codex'])){
- test(`${provider}: invalid exact outline fails before images; only explicit fault recovery proceeds`,async t=>{
+ test(`${provider}: an invalid fixed-length storyboard fails before images and requires explicit recovery`,async t=>{
   const f=await productionFixture(t,provider);f.control.hold=false;
-  f.control.beforeText=async kind=>kind==='outline'?{...makePlan(1),beats:['只有一幅。']}:undefined;
-  // Outlines exist only for batched stories (over 20 frames); 21 is the smallest, the full tier uses a long story.
+  f.control.beforeText=async (kind,payload,schema,result)=>kind==='storyboard'&&schema.properties.outline
+   ?{...result,outline:{...result.outline,beats:['只有一幅。']}}:undefined;
+  // 用跨批次的固定幅数测试，首批提纲幅数不符时应在续批和绘图前报错。
   const length=fullTier?60:21,id=await f.create(length);await until(async()=>(await f.read(id)).state==='failed');assert.equal(f.control.calls.length,0);
+  assert.equal(f.control.dagCalls.filter(name=>name==='storyboard').length,1);
   f.control.beforeText=null;await f.demand(id,crypto.randomUUID(),0,true);await waitCompleted(f,id);assert.equal((await f.read(id)).ready,length);
  });
  test(`${provider}: anchor runs alone, later scenes publish out of order through the DAG drawing jobs`,async t=>{

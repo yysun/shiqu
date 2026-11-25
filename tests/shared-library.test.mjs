@@ -32,7 +32,7 @@ test('direct desktop and development share stories/media/progress and exclude du
  assert.ok((await f.read(id)).story.pages[2].image);
  await f.leave(id,devViewer);f.control.hold=false;for(const call of f.control.calls)call.resolve();
  await until(async()=>(await request(`sessions/${id}`)).state==='completed',20000);
- for(const name of ['brief','characters','outline','sceneBatch','visual'])assert.equal(f.control.dagCalls.filter(n=>n===name).length,1,`${name} is paid once across both connections`);
+ assert.deepEqual(f.control.dagCalls,['brief','storyboard'],'synopsis and storyboard are each paid once across both connections');
  assert.equal(f.control.calls.length,4,'one drawing per frame');assert.ok(f.control.maxActive<=3);
  await request(`sessions/${id}/progress`,'POST',{page:2,saved:true});assert.equal((await f.read(id)).page,2);assert.equal((await f.read(id)).saved,true);
  const current=await request(`sessions/${id}`),media=await gate.handle(new Request('http://localhost'+current.story.pages[2].image));assert.equal(media.status,200);assert.equal(media.headers.get('content-type'),'image/png');

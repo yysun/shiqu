@@ -281,7 +281,7 @@ test('finding another batch leaves the prepared story in place and observes unti
 
 test('confirmed intake draws eighty frames once across four storyboard batches',heavy,async t=>{
  const f=await fixture(t),batches=[];
- f.control.beforeText=(kind,payload)=>{if(kind==='sceneBatch')batches.push(payload.batch);};
+ f.control.beforeText=(kind,payload)=>{if(kind==='storyboard')batches.push(payload.batch);};
  const id=await create(f);await until(async()=>(await f.read(id)).intake.phase==='choosing');
  await setup(f,id,{action:'choose',batch:0,index:0});await until(async()=>(await f.read(id)).intake.phase==='confirming');
  await setup(f,id,{action:'confirm',settings:{artStyle:'paper-cut',productionPrompt:'Complete causality without repeated scenes.',narrativeDetail:'detailed',length:80}});
