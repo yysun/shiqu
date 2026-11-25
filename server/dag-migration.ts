@@ -1,29 +1,27 @@
 // 迁移 0025 的代码钩子：在本迁移的 SQL 之后、同一事务内把每篇故事转换为文档 v2，不调用模型。
 // 每篇用一个 SAVEPOINT 隔离：不可读或转换失败的故事保持原样并记录诊断，协调器读取时按同一转换补做。
-// 顺序：先采用已付费、输入未变且文件可读的旧绘图结果，再转换；横图结果同样采用；
+// 顺序：先采用已付费、输入未变且文件可读的旧绘图结果，再转换；未完成的横图请求另存供后续迁移；
 // 没有页码的旧故障按转换后的下一个可运行节点归属；旧任务除查找外全部作废，相关恢复回执标为失败、故障回到待处理。
 // 文件检查使用 migrate() 传入的目录（升级暂存目录或正式书库），不访问其他路径。
 import type {DatabaseSync} from 'node:sqlite';
 import {createHash} from 'node:crypto';
 import {existsSync,lstatSync,readFileSync} from 'node:fs';
 import path from 'node:path';
-import {selectionSchema,type Document} from '../lib/reader-model.ts';
-import {convertDocument,mapLegacyFaults} from '../lib/production-dag/convert.ts';
-import {rootProducts,versionState} from '../lib/production-dag/document.ts';
-import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
-import {fingerprint} from '../lib/production-dag/fingerprint.ts';
+import {selectionSchema} from '../lib/reader-model.ts';
+import {convertDocument,mapLegacyFaults,rootProducts,versionState,evaluate,instanceId,fingerprint,type HistoricalDocument} from './migrations/production-v2.ts';
 import {lostImageMessage,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
 import {imageDimensions,matchesLandscapeImageRatio} from '../lib/reader-image-dimensions.ts';
 
 export const productionDagMigration='0025_production_dag.sql';
 type Row={id:string;user_id:string;selection:string;document:string;updated_at:string};
-type JobRow={id:string;kind:string;version:string;payload:string;result:string|null};
+type JobRow={version:string;payload:string;result:string|null};
+type LandscapeJob={id:string;page:number|null;state:string;result:string|null;image:unknown};
 type FaultRow={id:string;kind:string;node:string|null;node_key:string;state:string};
 
 const version=(input:unknown)=>createHash('sha256').update(JSON.stringify(input)).digest('hex');
 /** 旧版绘图任务的输入版本（与 0.14 的协调器一致），只用于判断旧结果是否属于当前内容。 */
-function legacyImageVersion(doc:Document,selection:ReturnType<typeof selectionSchema.parse>){
+function legacyImageVersion(doc:HistoricalDocument,selection:ReturnType<typeof selectionSchema.parse>){
  const {displayTitle:_,...generationSelection}=selection;void _;
  const scriptVersion=version({selection:generationSelection,...(doc.intake?{setupGeneration:doc.intake.generation}:{})});
  return version({scriptVersion,plan:doc.plan,style:selection.artStyle,prompt:selection.productionPrompt,...(doc.revision?.redrawNotes?{redrawNotes:doc.revision.redrawNotes}:{})});
@@ -41,12 +39,34 @@ function readableFile(directory:string|undefined,storyId:string,url:string,lands
  }catch{return false;}
 }
 /** 旧版横图任务的输入版本（与 0.14 的 landscapeInputs 一致）：竖图、分镜、画风与制作要求任一变化，旧横图都不再属于当前内容。 */
-function legacyLandscapeVersion(doc:Document,selection:ReturnType<typeof selectionSchema.parse>,row:Row){
+function legacyLandscapeVersion(doc:HistoricalDocument,selection:ReturnType<typeof selectionSchema.parse>,row:Row){
  const plan=doc.plan;
  if(!plan?.pages.length)return null;
  const images=plan.pages.map((_,i)=>doc.images[i]||'');
  if(images.some(image=>!referenceImageKey(row.id,image)))return null;
  return version(['landscape-image',plan.characters,plan.pages,images,selection.artStyle,selection.productionPrompt,...(selection.artStylePrompt?[selection.artStylePrompt]:[])]);
+}
+
+/** 在旧队列删除前保留当前输入下的横图授权和可读付费回执。 */
+function migrateLegacyLandscapes(sqlite:DatabaseSync,row:Row,doc:HistoricalDocument,selection:ReturnType<typeof selectionSchema.parse>,dag:ReturnType<typeof convertDocument>,directory?:string){
+ const inputVersion=legacyLandscapeVersion(doc,selection,row);
+ if(!inputVersion)return;
+ const jobs=sqlite.prepare(`SELECT id,state,result,CASE WHEN json_valid(payload) THEN json_extract(payload,'$.page') END AS page,
+  CASE WHEN json_valid(result) THEN json_extract(result,'$.value') END AS image FROM production_jobs
+  WHERE session_id=? AND owner_id=? AND kind='landscape-image' AND version=?`).all(row.id,row.user_id,inputVersion) as LandscapeJob[];
+ const current=jobs.flatMap(job=>{
+  const {page,image:value}=job;
+  if(page===null||!Number.isInteger(page)||page<0||page>=dag.order.length)return [];
+  const paid=typeof value==='string'&&readableFile(directory,row.id,value,true);
+  if(paid)dag.frames[dag.order[page]].landscape=value;
+  return [{job,page,paid}];
+ });
+ if(!current.some(({job,paid})=>job.state!=='succeeded'||!paid))return;
+ sqlite.exec(`CREATE TABLE IF NOT EXISTS migration_landscape_jobs(
+  session_id TEXT NOT NULL,owner_id TEXT NOT NULL,job_id TEXT PRIMARY KEY,input_version TEXT NOT NULL,
+  page INTEGER NOT NULL,state TEXT NOT NULL,paid_result TEXT)`);
+ const retain=sqlite.prepare('INSERT INTO migration_landscape_jobs VALUES(?,?,?,?,?,?,?)');
+ for(const {job,page,paid} of current)retain.run(row.id,row.user_id,job.id,inputVersion,page,job.state,paid?job.result:null);
 }
 
 export function migrateProductionDag(sqlite:DatabaseSync,sql:string,directory?:string){
@@ -70,7 +90,7 @@ export function migrateProductionDag(sqlite:DatabaseSync,sql:string,directory?:s
 }
 
 function convertStory(sqlite:DatabaseSync,row:Row,save:ReturnType<DatabaseSync['prepare']>,directory?:string){
- const doc=JSON.parse(row.document) as Document;
+ const doc=JSON.parse(row.document) as HistoricalDocument;
  if(doc.dag)return;
  // 仍在准备阶段（候选查找、选题、准备、待确认）或有重选草稿的故事不转换：保持原样，由运行时接管准备任务。
  if(doc.reselection||doc.intake&&doc.intake.phase!=='confirmed')return;
@@ -81,25 +101,19 @@ function convertStory(sqlite:DatabaseSync,row:Row,save:ReturnType<DatabaseSync['
  const interruptedPreparation=!doc.intake&&typeof selection.length==='number'&&!!selection.narrativeDetail&&!doc.plan&&!doc.storyboard&&!doc.draft&&!doc.frameCountConfirmed&&
   !!sqlite.prepare("SELECT 1 FROM production_jobs WHERE session_id=? AND owner_id=? AND kind='prepare' AND state!='succeeded' LIMIT 1").get(row.id,row.user_id);
  const needsConsent=awaitingCount||interruptedPreparation;
- const jobs=sqlite.prepare("SELECT id,kind,version,payload,result FROM production_jobs WHERE session_id=? AND owner_id=? AND state='succeeded'").all(row.id,row.user_id) as JobRow[];
+ const jobs=sqlite.prepare("SELECT version,payload,result FROM production_jobs WHERE session_id=? AND owner_id=? AND kind='image' AND state='succeeded'").all(row.id,row.user_id) as JobRow[];
  // 已付费的绘图结果：版本与当前内容一致、该页尚无图且文件可读时采用。
  if(doc.plan){
   const current=legacyImageVersion(doc,selection);
   doc.images=doc.plan.pages.map((_,page)=>doc.images[page]||'');
-  for(const job of jobs.filter(j=>j.kind==='image'&&j.version===current&&j.result)){
+  for(const job of jobs.filter(j=>j.version===current&&j.result)){
    const page=Number(JSON.parse(job.payload).page),value=(JSON.parse(job.result!) as {value?:unknown}).value;
    if(Number.isInteger(page)&&page>=0&&page<doc.images.length&&!doc.images[page]&&typeof value==='string'&&readableFile(directory,row.id,value))doc.images[page]=value;
   }
  }
  const confirmed=true;
  const dag=convertDocument(doc,selection,{confirmed,notes:doc.reviewNotes});
- // 横图：采用已完成且文件可读的结果，按当前竖图记录输入。
- const landscapeVersion=legacyLandscapeVersion(doc,selection,row);
- for(const job of jobs.filter(j=>j.kind==='landscape-image'&&j.result&&landscapeVersion&&j.version===landscapeVersion)){
-  const page=Number(JSON.parse(job.payload).page),value=(JSON.parse(job.result!) as {value?:unknown}).value,key=dag.order[page];
-  if(!key||typeof value!=='string'||!readableFile(directory,row.id,value,true))continue;
-  dag.frames[key].landscape=value;
- }
+ migrateLegacyLandscapes(sqlite,row,doc,selection,dag,directory);
  // 保留已发布图片的原始路径和文件；本地图片确认损坏时只标记故障，待读者明确恢复。
  if(directory){
   const lost=sqlite.prepare(`INSERT OR IGNORE INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,image,message,created_at,updated_at)

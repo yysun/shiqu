@@ -174,6 +174,45 @@ test('0025 does not adopt an image that is not a real picture, nor a landscape f
  assert.equal(saved.dag.frames['legacy-2'].image,undefined,'a paid result whose file is not a picture is not adopted');
 });
 
+test('0025 retains the current authorized unfinished landscape work before clearing the old queue',t=>{
+ const {directory,sqlite}=library(t);
+ const plan=makePlan(4),images=plan.pages.map((_,page)=>url(page));
+ const doc={plan,images,audio:[],usage:[],original:{title:'庄子',text:'庄周梦蝶。',kind:'passage',provider:'local',retrievedAt:'2026-01-01'}};
+ seed({directory,sqlite},doc);
+ const folder=path.join(directory,'media','reader',story);
+ for(const page of [2,3])writeFileSync(path.join(folder,`${page}.png`),png);
+ const filename=`0-${'a'.repeat(64)}.png`;
+ const landscape=`/api/reader/media/${story}/artifacts/${filename}`;
+ const landscapeBytes=createCanvas(96,64).toBuffer('image/png');
+ mkdirSync(path.join(folder,'artifacts'));
+ writeFileSync(path.join(folder,'artifacts',filename),landscapeBytes);
+ const selected=selectionSchema.parse({...selection,length:3});
+ const version=fingerprint(['landscape-image',plan.characters,plan.pages,images,selected.artStyle,selected.productionPrompt]);
+ const job=sqlite.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,created_at,updated_at)
+  VALUES(?,?,?,'landscape-image','image',?,'[]',?,?,?,1,1)`);
+ job.run('paid',story,owner,version,JSON.stringify({page:0}),JSON.stringify({value:landscape}),'succeeded');
+ job.run('in-flight',story,owner,version,JSON.stringify({page:1}),null,'running');
+ job.run('queued',story,owner,version,JSON.stringify({page:2}),null,'queued');
+ job.run('failed',story,owner,version,JSON.stringify({page:3}),null,'failed');
+ job.run('obsolete',story,owner,'old-input',JSON.stringify({page:2}),null,'queued');
+ job.run('bad-page',story,owner,version,JSON.stringify({page:4}),null,'queued');
+ sqlite.exec(`CREATE TRIGGER interrupt_landscape_migration BEFORE INSERT ON app_migrations
+  WHEN NEW.name='0025_production_dag.sql' BEGIN SELECT RAISE(ABORT,'controlled interruption'); END`);
+ assert.throws(()=>migrate(sqlite,process.cwd(),directory),/controlled interruption/);
+ assert.equal(sqlite.prepare("SELECT count(*) AS total FROM production_jobs").get().total,6);
+ assert.equal(sqlite.prepare("SELECT name FROM sqlite_schema WHERE name='migration_landscape_jobs'").get(),undefined);
+ sqlite.exec('DROP TRIGGER interrupt_landscape_migration');
+ migrate(sqlite,process.cwd(),directory);
+ const saved=JSON.parse(sqlite.prepare('SELECT document FROM stories WHERE id=?').get(story).document);
+ assert.equal(saved.dag.frames['legacy-1'].landscape,landscape);
+ assert.deepEqual(readFileSync(path.join(folder,'artifacts',filename)),landscapeBytes);
+ assert.equal(sqlite.prepare("SELECT count(*) AS total FROM production_jobs WHERE kind='landscape-image'").get().total,0);
+ const retained=sqlite.prepare("SELECT job_id,page,state,json_extract(paid_result,'$.value') AS paid_image FROM migration_landscape_jobs WHERE session_id=? AND owner_id=? AND input_version=? ORDER BY page").all(story,owner,version);
+ assert.deepEqual(retained.map(row=>[row.job_id,row.page,row.state,row.paid_image]),[
+  ['paid',0,'succeeded',landscape],['in-flight',1,'running',null],['queued',2,'queued',null],['failed',3,'failed',null],
+ ]);
+});
+
 for(const prepared of [true,false])test(`an upgraded story with ${prepared?'saved':'interrupted'} recommendations converts paused with its saved frame count and starts nothing`,async t=>{
  const {productionFixture,until}=await import('./fixtures/production.mjs');
  const id=crypto.randomUUID();

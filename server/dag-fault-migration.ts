@@ -1,10 +1,8 @@
 // 迁移 0027：用父版本留存的失败任务修复已保存修订，不触碰已采用的成果或读者授权。
 import type {DatabaseSync,SQLInputValue} from 'node:sqlite';
-import {selectionSchema,type Document,type SessionRow} from '../lib/reader-model.ts';
+import {selectionSchema,type SessionRow} from '../lib/reader-model.ts';
 import type {SyncStatements} from '../lib/reader-repository.ts';
-import {evaluate} from '../lib/production-dag/engine.ts';
-import {finished,stateOf,type DagStory} from '../lib/production-dag/runner.ts';
-import {carryFaults,recordedFaultRows,insertCarriedJobFault,type FaultToCarry} from './dag-revision-faults.ts';
+import {evaluate,complete,stateOf,carryFaults,recordedFaultRows,insertCarriedJobFault,type DagStory,type FaultToCarry,type HistoricalDocument} from './migrations/production-v2.ts';
 import type {ReaderFault} from './reader-commands.ts';
 
 export const revisionFaultMigration='0027_revision_fault_targets.sql';
@@ -12,7 +10,7 @@ export const revisionFaultMigration='0027_revision_fault_targets.sql';
 function story(row:SessionRow|undefined):DagStory|null{
  if(!row)return null;
  try{
-  const doc=JSON.parse(row.document) as Document,selection=selectionSchema.safeParse(JSON.parse(row.selection)),dag=doc.dag;
+  const doc=JSON.parse(row.document) as HistoricalDocument,selection=selectionSchema.safeParse(JSON.parse(row.selection)),dag=doc.dag;
   if(!dag||!selection.success||doc.intake&&doc.intake.phase!=='confirmed')return null;
   const saved={id:row.id,doc,dag,selection:selection.data,confirmed:true,faults:[]};
   stateOf(saved);
@@ -78,7 +76,7 @@ export function migrateRevisionFaults(sqlite:DatabaseSync,sql:string){
    }
   }
   if(removed&&['idle','failed'].includes(row.state)&&!db.get("SELECT 1 FROM reader_faults WHERE session_id=? AND owner_id=? AND state IN ('pending','recovering','awaiting-match') AND optional=0",row.id,row.user_id)){
-   if(finished(child))db.run("UPDATE stories SET state='completed',error=NULL WHERE id=? AND user_id=?",row.id,row.user_id);
+   if(complete(stateOf(child)))db.run("UPDATE stories SET state='completed',error=NULL WHERE id=? AND user_id=?",row.id,row.user_id);
    else if(row.state==='failed')db.run("UPDATE stories SET state='idle',error=NULL WHERE id=? AND user_id=?",row.id,row.user_id);
   }
  }
