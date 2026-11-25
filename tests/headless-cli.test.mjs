@@ -156,6 +156,25 @@ test('in-process CLI saves intent without inference, runs bounded discovery/prep
  await executeHeadless(process.cwd(),['restore',backup,'--data-dir',restored],{variables:{}});
  const copied=await executeHeadless(process.cwd(),['stories','get',edited.session.id,'--data-dir',restored],{variables:{}});assert.equal(copied.id,edited.session.id);assert.equal(f.control.dagCalls.length,before);
 });
+test('the text-only CLI run records the first adaptive count decision and first audit without drawing',async t=>{
+ const {f,library,call,inspect}=await fixture(t);
+ const source=library.stories[0];
+ const {session}=await call(['stories','create','--no-intake'],{...selection,length:'auto',source:source.source,storyTitle:source.title});
+ const result=await call(['run',session.id,'--until','reviewed','--timeout','10']);
+ assert.equal(result.reason,'reviewed');
+ const db=inspect();
+ try{
+  const first=type=>JSON.parse(db.prepare(`SELECT json_extract(detail,'$.receipt.value') AS value
+   FROM production_attempt_events WHERE session_id=? AND event='paid-result' AND json_extract(detail,'$.work.call')=?
+   ORDER BY sequence LIMIT 1`).get(session.id,type).value);
+  assert.equal(first('frameCheck').frameCountReview.decision,'keep');
+  assert.ok(first('review').judgements.every(judgement=>judgement.outcome==='pass'));
+  assert.equal(db.prepare(`SELECT count(*) AS n FROM production_attempt_events a JOIN production_jobs j ON j.id=a.job_id
+   WHERE a.session_id=? AND a.event='sent' AND j.pool='image'`).get(session.id).n,0);
+  assert.equal(f.control.calls.length,0);
+ }finally{db.close();}
+});
+
 test('CLI extends the verified original as a new version of one shelf story', {timeout:30000},async t=>{
  const {f,library,call}=await fixture(t),card=library.stories[0];
  const {session:{id}}=await call(['stories','create','--no-intake'],{...selection,length:3,storyTitle:card.title,source:card.source});

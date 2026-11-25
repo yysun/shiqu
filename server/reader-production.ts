@@ -632,7 +632,11 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const working=active.length>0;
   const manual=lifecycle.control!=='active';
   // 审片停在需读者处理：以一条审片问题呈现，放行或修改后解除。
-  if(blocking?.id)views.push({id:blocking.id,message:[...new Set(blocking.reasons.map(b=>attentionMessages[b.reason]))].join(''),page:null,stage:'review',state:'pending',retryAllowed:blocking.reasons.some(b=>b.reason==='limit')});
+  if(blocking?.id){
+   const pages=[...new Set(blocking.reasons.flatMap(reason=>reason.pages??[]))].sort((a,b)=>a-b);
+   const message=[...new Set(blocking.reasons.map(b=>attentionMessages[b.reason]))].join('');
+   views.push({id:blocking.id,message:message+(pages.length?`受影响的是第 ${pages.join('、')} 幅。`:''),page:null,stage:'review',state:'pending',retryAllowed:blocking.reasons.some(b=>b.reason==='limit')});
+  }
   if(views.length){
    const pending=views.find(f=>f.retryAllowed&&f.stage==='redraw')||views.find(f=>f.retryAllowed)||views[0];
    const recovering=working||faults.some(fault=>fault.state==='recovering');

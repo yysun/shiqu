@@ -93,7 +93,7 @@ test('real SQLite claims and DAG job identity prevent duplicate paid requests th
  assert.equal(f.control.dagCalls.filter(name=>name==='brief').length,1,'one paid call while the first is still running');
  release();
  await until(async()=>(await f.read(id)).state==='completed',20000);
- const names=['brief','characters','outline','sceneBatch','visual'];
+ const names=['brief','storyboard'];
  for(const name of names)assert.equal(f.control.dagCalls.filter(n=>n===name).length,1,name);
  assert.equal(f.control.calls.length,4);
  const paid=[f.control.dagCalls.length,f.control.calls.length];

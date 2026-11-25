@@ -52,13 +52,13 @@ test('quitting during an image resumes after restart without a retry or provider
 
 test('quitting during text work resumes it without a retry',async t=>{
  const f=await productionFixture(t);let fail;const gate=new Promise((_,reject)=>fail=reject);
- f.control.beforeText=async name=>{if(name==='outline')await gate;};
- const id=await f.create(3);await until(()=>count(f,'outline')===1);
+ f.control.beforeText=async name=>{if(name==='storyboard')await gate;};
+ const id=await f.create(3);await until(()=>count(f,'storyboard')===1);
  f.app.stopGeneration();f.control.beforeText=null;fail(Error('killed'));
- await until(async()=>(await textJob(f,id,'outline'))?.interrupted===1);
+ await until(async()=>(await textJob(f,id,'storyboard'))?.interrupted===1);
  assert.match((await row(f,id)).error,/中断/);
  await f.restart();await completed(f,id);
- assert.equal(count(f,'outline'),2);assert.equal(f.control.calls.length,3);
+ assert.equal(count(f,'storyboard'),2);assert.equal(f.control.calls.length,3);
 });
 
 for(const action of ['pause','stop'])test(`quitting after ${action} keeps the control, and Resume continues without a retry`,async t=>{
@@ -99,26 +99,26 @@ test('quitting with saved pages redraws only the interrupted pages',async t=>{
 
 for(const action of ['pause','stop'])test(`quitting after ${action} during text work keeps the control, and Resume runs it again`,async t=>{
  const f=await productionFixture(t);f.control.hold=false;let fail;const gate=new Promise((_,reject)=>fail=reject);
- f.control.beforeText=async name=>{if(name==='outline')await gate;};
- const id=await f.create(3);await until(()=>count(f,'outline')===1);
+ f.control.beforeText=async name=>{if(name==='storyboard')await gate;};
+ const id=await f.create(3);await until(()=>count(f,'storyboard')===1);
  await control(f,id,action);f.app.stopGeneration();f.control.beforeText=null;fail(Error('killed'));
- await until(async()=>(await textJob(f,id,'outline'))?.interrupted===1);
+ await until(async()=>(await textJob(f,id,'storyboard'))?.interrupted===1);
  await f.restart();await production(f).tick();
- assert.match((await row(f,id)).error,/中断/);assert.equal((await f.read(id)).generationControl,action==='pause'?'paused':'stopped');assert.equal(count(f,'outline'),1);
- await control(f,id,'resume');await completed(f,id);assert.equal(count(f,'outline'),2);
+ assert.match((await row(f,id)).error,/中断/);assert.equal((await f.read(id)).generationControl,action==='pause'?'paused':'stopped');assert.equal(count(f,'storyboard'),1);
+ await control(f,id,'resume');await completed(f,id);assert.equal(count(f,'storyboard'),2);
 });
 
 test('a deterministic 4xx in text work during a stop stays failed without replaying',async t=>{
  const f=await productionFixture(t);f.control.hold=false;
  let kill;const gate=new Promise((_,no)=>kill=no);
- f.control.beforeText=async name=>{if(name==='outline')await gate;};
- const id=await f.create(3);await until(()=>count(f,'outline')===1);
+ f.control.beforeText=async name=>{if(name==='storyboard')await gate;};
+ const id=await f.create(3);await until(()=>count(f,'storyboard')===1);
  f.app.stopGeneration();kill(new ReaderError(400,'原文尚未在本地核对，请重新选择故事。'));
- await until(async()=>(await textJob(f,id,'outline'))?.state==='failed');
+ await until(async()=>(await textJob(f,id,'storyboard'))?.state==='failed');
  f.control.beforeText=null;
  await f.restart();await production(f).tick();await production(f).queue.settle();await production(f).tick();
- const job=await textJob(f,id,'outline');
- assert.equal(job.state,'failed');assert.equal(job.interrupted,0);assert.equal(job.attempts,1);assert.equal(count(f,'outline'),1,'Only an explicit retry may run it again');
+ const job=await textJob(f,id,'storyboard');
+ assert.equal(job.state,'failed');assert.equal(job.interrupted,0);assert.equal(job.attempts,1);assert.equal(count(f,'storyboard'),1,'Only an explicit retry may run it again');
  const fault=(await f.read(id)).faults?.find(x=>x.state==='pending');
  assert.ok(fault);assert.match(fault.message,/尚未在本地核对/);
 });

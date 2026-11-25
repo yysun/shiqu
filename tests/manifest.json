@@ -4509,7 +4509,9 @@
         "lib/production-dag/hand-edits.ts",
         "lib/production-dag/frames.ts",
         "lib/production-dag/schedule.ts",
-        "tests/fixtures/production-dag.mjs"
+        "tests/fixtures/production-dag-runner.mjs",
+        "lib/production-dag/runner.ts",
+        "lib/production-dag/document.ts"
       ]
     },
     {
@@ -4650,7 +4652,7 @@
         "server/library-backup.ts",
         "server/migrations/production-v4.ts",
         "server/migrations/production-v4-repair.ts",
-        "drizzle/0030_rebind_production_receipts.sql",
+        "drizzle/0028_production_spec.sql",
         "server/database.ts",
         "server/production-products.ts",
         "tests/fixtures/historical-library.mjs",

@@ -16,7 +16,7 @@ import {validateEditorialCoverage} from '../reader-editorial.ts';
 import {combinedOriginalsSummaryDirection,storyBriefVerified,storySummaryDirection,storySummaryScopeDirection} from '../reader-story-brief.ts';
 import {localPlanConstraint} from '../reader-local-contract.ts';
 import {acceptanceCriteria,type AcceptanceResult} from '../reader-acceptance.ts';
-import {readerMinFrames,readerMaxFrames,readerStoryboardBatchSize,readerRestyleBatchSize} from '../reader-limits.ts';
+import {readerMinFrames,readerMaxFrames,readerStoryboardBatchSize} from '../reader-limits.ts';
 import type {CharacterEntry} from './frames.ts';
 import {fingerprint} from './fingerprint.ts';
 
@@ -32,6 +32,10 @@ export type Outline={title:string;summary:string;sourceReference:string;adaptati
 export type Scene={caption:string};
 /** 画面描述与实际入画人物名字。 */
 export type Visual={prompt:string;drawn:string[]};
+export type StoryboardPage=Scene&Visual;
+export type StoryboardValue={outline?:Outline;characters?:Character[];pages:StoryboardPage[]};
+type StoryboardInput={source:SourceInput;productionPrompt:string;settings:SettingsInput;style:StyleInput;
+ characters?:Character[];outline?:Outline;first:number;count:number;previous:string[]};
 
 const str=(min:number,max:number)=>({type:'string',minLength:min,maxLength:max});
 const obj=(properties:Record<string,unknown>)=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false});
@@ -49,6 +53,24 @@ const withoutSummary=({summary:_,...rest}:Outline)=>{void _;return rest;};
 const outlineSchema=z.object({title:z.string().min(1).max(40),summary:z.string().trim().min(1).max(1200),sourceReference:z.string().min(1).max(150),adaptationNote:z.string().min(1).max(600),beats:z.array(z.string().min(1).max(180)).min(readerMinFrames).max(readerMaxFrames)}).strict();
 const captionSchema=z.string().min(8).max(90);
 const promptSchema=z.string().min(20).max(1800);
+const drawnSchema=z.array(z.string().max(40)).max(16);
+const charactersJson={type:'array',minItems:1,maxItems:24,items:obj({name:str(1,40),aliases:names,text:str(10,600)})};
+const characterSchema=z.array(z.object({name:z.string().trim().min(1).max(40),aliases:z.array(z.string().trim().min(1).max(40)).max(16),text:z.string().trim().min(10).max(600)}).strict()).min(1).max(24);
+function parseCharacters(value:unknown):Character[]{
+ const seen=new Set<string>();
+ return characterSchema.parse(value).filter(c=>!seen.has(c.name)&&seen.add(c.name)).map(c=>({id:characterId(c.name),...c}));
+}
+
+function outlineProperties(length:SettingsInput['length']){
+ const {pages:_pages,characters:_characters,...properties}=storyDraftJson(length).properties;void _pages;void _characters;
+ return {...properties,beats:{type:'array',minItems:length==='auto'?readerMinFrames:length,maxItems:length==='auto'?readerMaxFrames:length,items:str(1,180)}};
+}
+
+function validateOutline(value:unknown,length:SettingsInput['length']){
+ const outline=outlineSchema.parse(value);
+ if(length!=='auto'&&outline.beats.length!==length)throw Error('PLAN_LENGTH');
+ return outline;
+}
 /** 逐幅调用每批最多幅数，与叙事分镜批次一致；登记表 calls 的 batch 引用同一上限。 */
 export const frameBatchSize=readerStoryboardBatchSize;
 type VisualFrame={index:number;caption:string};
@@ -62,7 +84,8 @@ function byFrame<T extends {number:number}>(rows:T[],frames:{index:number}[]):T[
  if(map.size!==frames.length||frames.some(f=>!map.has(f.index+1)))throw Error('INVALID_OUTPUT');
  return frames.map(f=>map.get(f.index+1)!);
 }
-const visualRows=(count:number,outline:Outline)=>obj({frames:{type:'array',minItems:count,maxItems:count,items:obj({number:{type:'integer',minimum:1,maximum:outline.beats.length},prompt:str(20,1800),drawn:names})}});
+const frameNumber=(frames:{index:number}[])=>({type:'integer',minimum:1,maximum:Math.max(...frames.map(frame=>frame.index+1))});
+const visualRows=(frames:{index:number}[])=>obj({frames:{type:'array',minItems:frames.length,maxItems:frames.length,items:obj({number:frameNumber(frames),prompt:str(20,1800),drawn:names})}});
 const visualTokens=(frames:unknown[])=>Math.max(4096,frames.length*1200);
 function parseVisuals(value:unknown,frames:{index:number}[]):Visual[]{
  const rows=z.object({frames:z.array(z.object({number:z.number().int(),prompt:promptSchema,drawn:z.array(z.string().max(40)).max(16)}).strict()).length(frames.length)}).strict().parse(value).frames;
@@ -79,27 +102,57 @@ export function dagGenerator(call:Call){
    return {...result,value:z.object({summary:z.string().trim().min(1).max(1200)}).parse(result.value).summary};
   },
 
+  /** 首批建立全篇提纲与人物设定，后续批次续写已经采用的分镜。 */
+  async storyboard(input:StoryboardInput):Promise<Generated<StoryboardValue>>{
+   const {source,productionPrompt,settings,style,characters,outline,first,count,previous}=input;
+   const length=settings.length,starts=!outline,last=first+count-1;
+   const adaptiveStart=starts&&length==='auto';
+   const makeCharacters=characters===undefined;
+   const instructions=promptSections(
+    ['任务',starts?'你是古典连环画编剧与分镜导演。先确定全篇提纲和人物设定，再完整写出首批画幅。':'你是古典连环画分镜导演。沿用已保存的全篇提纲、人物设定和前批配文，完整写出本批画幅。'],
+    ['编排标准',starts?storyPlanningDirection:storySceneDirection],
+    ['元数据',starts?storyOutlineMetadataDirection+'\n'+storyDraftMetadataDirection+'\n'+outlineDirection:''],
+    ['人物设定',makeCharacters?storyCharacterDirection+'\n按人物分别返回 name、aliases 和 text。':'以输入 characters 为准。'],
+    ['配文',storyCaptionDirection],['画面指令',storyVisualDirection],['画风',storyStyleBoundaryDirection],
+    ['实际入画人物',cardDirection],['本地原文',local(source)],
+    ['本批范围',adaptiveStart?`首批从第 1 幅开始，幅数取全篇 beats 长度与 ${count} 的较小者。`:`生成第 ${first} 到第 ${last} 幅。`],
+    ['逐幅输出',frameBatchDirection+'每条包括 number、caption、prompt、drawn。'],['输入与输出',inputBoundaryDirection]);
+   const schema=obj({
+    ...(starts?{outline:obj(outlineProperties(length))}:{}),
+    ...(makeCharacters?{characters:charactersJson}:{}),
+    frames:{type:'array',minItems:adaptiveStart?readerMinFrames:count,maxItems:count,
+     items:obj({number:{type:'integer',minimum:first,maximum:last},caption:str(8,90),prompt:str(20,1800),drawn:names})},
+   });
+   const payload={...sourcePayload(source,{seed:true}),productionPrompt,narrativeDetail:settings.narrativeDetail,
+    exactPageCount:outline?.beats.length??length,batch:{first,last},previousCaptions:previous,artDirection:getArtDirection(style),
+    ...(outline?{outline:withoutSummary(outline)}:{}),...(characters?{characters:characters.map(characterCard)}:{})};
+   const result=await call('plan',instructions,payload,schema,Math.max(4096,count*1200+(starts?8192:0)),source.original);
+   const raw=z.object({outline:z.unknown().optional(),characters:z.unknown().optional(),frames:z.array(z.object({
+    number:z.number().int(),caption:captionSchema,prompt:promptSchema,drawn:drawnSchema,
+   }).strict())}).strict().parse(result.value);
+   const prepared=starts?validateOutline(raw.outline,length):undefined;
+   const expected=adaptiveStart?Math.min(count,prepared!.beats.length):count;
+   if(raw.frames.length!==expected)throw Error('PLAN_LENGTH');
+   const pages=byFrame(raw.frames,Array.from({length:expected},(_,i)=>({index:first-1+i})))
+    .map(({caption,prompt,drawn})=>({caption,prompt,drawn}));
+   return {...result,value:{...(prepared?{outline:prepared}:{}),...(makeCharacters?{characters:parseCharacters(raw.characters)}:{}),pages}};
+  },
+
   /** 人物设定：只读原文与制作要求，不读提纲。 */
   async characters(input:{source:SourceInput;productionPrompt:string}):Promise<Generated<Character[]>>{
    const instructions=promptSections(['任务','你是古典连环画人物设定编辑。依据 verifiedOriginal 列出本篇有据出场的人物，每人一条。'],['人物标准',storyCharacterDirection],['本次输出','只返回 {characters:[{name,aliases,text}]}。name 用原文通行称谓，aliases 列出原文中的其他称呼；text 记录有据的时代、年龄、外貌、服饰、辨识特征及关键物件，不写画风或构图。'],['本地原文',local(input.source)],['输入与输出',inputBoundaryDirection]);
-   const schema=obj({characters:{type:'array',minItems:1,maxItems:24,items:obj({name:str(1,40),aliases:names,text:str(10,600)})}});
-   const result=await call('outline',instructions,{...sourcePayload(input.source),productionPrompt:input.productionPrompt},schema,8192,input.source.original);
-   const parsed=z.object({characters:z.array(z.object({name:z.string().trim().min(1).max(40),aliases:z.array(z.string().trim().min(1).max(40)).max(16),text:z.string().trim().min(10).max(600)}).strict()).min(1).max(24)}).strict().parse(result.value);
-   const seen=new Set<string>();
-   const value=parsed.characters.filter(c=>!seen.has(c.name)&&seen.add(c.name)).map(c=>({id:characterId(c.name),name:c.name,aliases:c.aliases,text:c.text}));
-   return {...result,value};
+   const result=await call('outline',instructions,{...sourcePayload(input.source),productionPrompt:input.productionPrompt},obj({characters:charactersJson}),8192,input.source.original);
+   const {characters}=z.object({characters:z.unknown()}).strict().parse(result.value);
+   return {...result,value:parseCharacters(characters)};
   },
 
   /** 全篇提纲：读原文、制作要求、详略与幅数策略；不读画风与人物设定。 */
   async outline(input:{source:SourceInput;productionPrompt:string;settings:SettingsInput}):Promise<Generated<Outline>>{
    const length=input.settings.length;
-   const full=storyDraftJson(length),{pages:_p,characters:_c,...properties}=full.properties as Record<string,unknown>;void _p;void _c;
-   const schema={...full,properties:{...properties,beats:{type:'array',minItems:length==='auto'?readerMinFrames:length,maxItems:length==='auto'?readerMaxFrames:length,items:str(1,180)}},required:[...Object.keys(properties),'beats']};
+   const schema=obj(outlineProperties(length));
    const instructions=promptSections(['任务','你是古典连环画编剧，本次只制定全篇提纲。'],['编排标准',storyPlanningDirection],['元数据',storyOutlineMetadataDirection],['本地原文',local(input.source)],['本次输出',storyDraftMetadataDirection+'\n'+outlineDirection+'\n人物设定另行生成，本次不输出 characters。']);
    const result=await call('outline',instructions,{...sourcePayload(input.source,{seed:true}),exactPageCount:length,narrativeDetail:input.settings.narrativeDetail,productionPrompt:input.productionPrompt},schema,8192,input.source.original);
-   const value=outlineSchema.parse(result.value);
-   if(length!=='auto'&&value.beats.length!==length)throw Error('PLAN_LENGTH');
-   return {...result,value};
+   return {...result,value:validateOutline(result.value,length)};
   },
 
   /** 叙事分镜批次：依据提纲、原文、制作要求与之前批次撰写配文。 */
@@ -120,25 +173,27 @@ export function dagGenerator(call:Call){
    const {frames,outline}=input;checkBatch(frames);
    const instructions=promptSections(['任务','你是古典连环画分镜导演，本次为 frames 中列出的各幅分别撰写画面指令。'],['静态画面与衔接',storyboardDirection],['画面指令',storyVisualDirection],['画风',storyStyleBoundaryDirection],['人物',cardDirection],['批次边界',frameBatchDirection],['输入与输出',inputBoundaryDirection+'只返回 {frames:[{number,prompt,drawn}]}。']);
    const payload={outline:withoutSummary(outline),total:outline.beats.length,frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption})),productionPrompt:input.productionPrompt,artDirection:getArtDirection(input.style),characters:input.characters.map(characterCard)};
-   const result=await call('plan',instructions,payload,visualRows(frames.length,outline),visualTokens(frames));
+   const result=await call('plan',instructions,payload,visualRows(frames),visualTokens(frames));
    return {...result,value:parseVisuals(result.value,frames)};
   },
 
   /** 换画风转换：按批调用；在画面描述的输入之外，以各幅旧画面描述与旧画风为来源。 */
   async restyle(input:{outline:Outline;productionPrompt:string;style:StyleInput;characters:Character[];previousStyle:StyleInput;frames:(VisualFrame&{previousPrompt:string})[]}):Promise<Generated<Visual[]>>{
-   const {frames,outline}=input;checkBatch(frames,readerRestyleBatchSize);
+   const {frames,outline}=input;checkBatch(frames);
    const instructions=restyleInstructions+'\n\n'+promptSections(['本次范围','逐幅转换 frames 中列出的各幅：scenePrompt 是该幅旧画面指令；caption 与 characters 只用于核对人物与情节。drawn 列出该幅画面中实际出现的人物名字。'],['批次边界',frameBatchDirection],['输入与输出','只返回 {frames:[{number,prompt,drawn}]}。']);
    const payload={outline:withoutSummary(outline),frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,scenePrompt:f.previousPrompt})),productionPrompt:input.productionPrompt,previousArtDirection:{...getArtStyle(input.previousStyle.artStyle),prompt:getArtDirection(input.previousStyle)},artDirection:{...getArtStyle(input.style.artStyle),prompt:getArtDirection(input.style)},characters:input.characters.map(characterCard)};
-   const result=await call('repair',instructions,payload,visualRows(frames.length,outline),visualTokens(frames));
+   const result=await call('repair',instructions,payload,visualRows(frames),visualTokens(frames));
    return {...result,value:parseVisuals(result.value,frames)};
   },
 
   /** 叙事修订：按批调用，只改列出各幅的配文；各幅当前配文、相邻配文、问题与审核意见是来源。 */
   async sceneRepair(input:{source:SourceInput;outline:Outline;productionPrompt:string;frames:{index:number;caption:string;neighbors:{before?:string;after?:string};issues:ReviewIssue[]}[];notes?:string}):Promise<Generated<Scene[]>>{
    const {frames,outline}=input;checkBatch(frames);
-   const instructions=promptSections(['任务','你是静态连环画修订编辑，只修订 frames 中列出各幅的配文，不重新编排全篇。'],['共同标准',storySceneDirection],['配文',storyCaptionDirection],['修订','按各幅 issues 回查原文逐项解决；只改需要改的部分。'],['审核意见',input.notes?reviewNotesDirection:''],['本地原文',local(input.source)],['批次边界',frameBatchDirection],['输入与输出',inputBoundaryDirection+'只返回 {frames:[{number,caption}]}。']);
+   const resetting=frames.every(frame=>!frame.caption&&!frame.issues.length);
+   const direction=resetting?'结合已核原文、当前制作要求和相邻配文，重新撰写 frames 列出的空白配文。':'按各幅 issues 回查原文逐项解决；只改需要改的部分。';
+   const instructions=promptSections(['任务','你是静态连环画修订编辑，只修订 frames 中列出各幅的配文，不重新编排全篇。'],['共同标准',storySceneDirection],['配文',storyCaptionDirection],['修订',direction],['审核意见',input.notes?reviewNotesDirection:''],['本地原文',local(input.source)],['批次边界',frameBatchDirection],['输入与输出',inputBoundaryDirection+'只返回 {frames:[{number,caption}]}。']);
    const payload={...sourcePayload(input.source),productionPrompt:input.productionPrompt,outline:withoutSummary(outline),frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,neighbors:f.neighbors,issues:f.issues})),...(input.notes?{reviewNotes:input.notes}:{})};
-   const schema=obj({frames:{type:'array',minItems:frames.length,maxItems:frames.length,items:obj({number:{type:'integer',minimum:1,maximum:outline.beats.length},caption:str(8,90)})}});
+   const schema=obj({frames:{type:'array',minItems:frames.length,maxItems:frames.length,items:obj({number:frameNumber(frames),caption:str(8,90)})}});
    const result=await call('repair',instructions,payload,schema,Math.max(4096,frames.length*400),input.source.original);
    const rows=z.object({frames:z.array(z.object({number:z.number().int(),caption:captionSchema}).strict()).length(frames.length)}).strict().parse(result.value).frames;
    return {...result,value:byFrame(rows,frames).map(r=>({caption:r.caption}))};
@@ -149,7 +204,7 @@ export function dagGenerator(call:Call){
    const {frames,outline}=input;checkBatch(frames);
    const instructions=promptSections(['任务','你是静态连环画修订编辑，只修订 frames 中列出各幅的画面指令。'],['静态画面与衔接',storyboardDirection],['画面指令',storyVisualDirection],['画风',storyStyleBoundaryDirection],['人物',cardDirection],['修订','按各幅 issues 逐项解决，保留无问题的可见细节。'],['审核意见',input.notes?reviewNotesDirection:''],['批次边界',frameBatchDirection],['输入与输出',inputBoundaryDirection+'只返回 {frames:[{number,prompt,drawn}]}。']);
    const payload={outline:withoutSummary(outline),frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,current:{prompt:f.prompt,drawn:f.drawn.map(c=>c.name)},issues:f.issues})),productionPrompt:input.productionPrompt,artDirection:getArtDirection(input.style),characters:input.characters.map(characterCard),...(input.notes?{reviewNotes:input.notes}:{})};
-   const result=await call('repair',instructions,payload,visualRows(frames.length,outline),visualTokens(frames));
+   const result=await call('repair',instructions,payload,visualRows(frames),visualTokens(frames));
    return {...result,value:parseVisuals(result.value,frames)};
   },
 
@@ -203,7 +258,7 @@ export function dagGenerator(call:Call){
   /** 同一轮补齐允许清单内的逐幅结论以及全篇结论，逐条验收只在全篇结论中执行。 */
   async review(input:ReviewInput):Promise<Generated<ReviewOutcome>>{
    const count=input.frames.length,criteria=input.allowed.narrative?acceptanceCriteria(input.acceptancePrompt):[];
-   const choosing=input.allowed.narrative&&!input.confirmedEnding&&input.candidates?.length===3?input.candidates as [string,string,string]:undefined;
+   const choosing=input.allowed.narrative&&!input.confirmedEnding?.ending&&input.candidates?.length===3?input.candidates as [string,string,string]:undefined;
    // 幅数与详略由幅数与结构核对负责，审片不重复判断，因此不提供详略设置、按固定幅数审核。
    const acceptancePrompt=criteria.length?input.acceptancePrompt:undefined;
    const {schema:fullSchema,instructions}=fullReviewRequest(count,false,choosing,acceptancePrompt);
@@ -211,7 +266,9 @@ export function dagGenerator(call:Call){
     required:[...fullSchema.required,'storyIssues']}:fullSchema;
    const allowedText=`issues 只列允许清单内画幅（${input.allowed.pages.join('、')||'无'}）的局部问题，requiresReplan 为 false。${input.allowed.narrative?'storyIssues 单独列影响全篇的叙事、结构、标题、结语或验收问题。可用幅号定位全篇问题。coverage 和验收条目的问题引用 storyIssues，不从 issues 推定全篇问题。':'本轮无需全篇结论；不要判定标题、结语、全篇叙事和验收条目。'}`;
    const reflectionText=input.confirmedEnding?.ending??input.candidates?.[0],titleText=input.confirmedEnding?.title??input.title;
-   const sections=promptSections(['本次结论范围',allowedText],['读者确认',input.confirmedEnding?'plan.title 与 plan.reflection 是读者确认的标题与结语，只判断是否合格。':''],['本次验收结果',criteria.length?'每条验收要求只判断一次。涉及全篇且无法定位到单幅的结果使用空 pages；可局部修订时在 pages 标出相关幅号及相应问题。':'']);
+   const confirmed=input.confirmedEnding?.ending?'plan.title 与 plan.reflection 是读者确认的标题与结语，只判断是否合格。':
+    input.confirmedEnding?'plan.title 是读者确认的标题，只判断标题是否合格。':'';
+   const sections=promptSections(['本次结论范围',allowedText],['读者确认',confirmed],['本次验收结果',criteria.length?'每条验收要求只判断一次。涉及全篇且无法定位到单幅的结果使用空 pages；可局部修订时在 pages 标出相关幅号及相应问题。':'']);
    const reflection=reflectionText,title=titleText;
    const original=input.source.original,verified=original.storyBrief;
    // 只有当前梗概仍采用核对过的原文摘要时，才沿用对应的选题依据。
@@ -245,7 +302,7 @@ export type ReviewInput={
  source:SourceInput;brief?:string;outline?:Outline;title?:string;productionPrompt?:string;acceptancePrompt?:string;style?:StyleInput;
  characters?:Character[];
  frames:{id:string;caption:string;prompt:string}[];
- candidates?:string[];confirmedEnding?:{title:string;ending:string};notes?:string;frameCheck?:FrameCountReport;
+ candidates?:string[];confirmedEnding?:{title:string;ending?:string};notes?:string;frameCheck?:FrameCountReport;
  allowed:{pages:number[];narrative:boolean};
 };
 export type Judgement={id:string;outcome:'pass'|'fail';detail?:string;requirements?:boolean;acceptance?:AcceptanceResult[]};
@@ -272,7 +329,8 @@ function reviewOutcome(input:ReviewInput,report:Report,issues:ReviewIssue[],choo
  const detail=[...storyIssues.map(issue=>issue.problem),...results.filter(result=>result.status!=='passed').map(result=>result.evidence)].join('；');
  judgements.push({id:'narrativeVerdict:',outcome:storyIssues.length||failed.length||requirements?'fail':'pass',acceptance:results,...(detail?{detail}:{}),...(requirements?{requirements:true}:{})});
  const choice=choosing&&report.reflectionChoice?choosing[report.reflectionChoice.index-1]:input.candidates?.[0];
- return {judgements,issues,storyIssues,...(input.confirmedEnding?{}:{titleChoice:report.titleReview.title,...(choice?{endingChoice:choice}:{})})};
+ return {judgements,issues,storyIssues,...(!input.confirmedEnding?{titleChoice:report.titleReview.title}:{}),
+  ...(!input.confirmedEnding?.ending&&choice?{endingChoice:choice}:{})};
 }
 
 /**

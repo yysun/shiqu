@@ -23,7 +23,7 @@ function RevisionConflicts({editor}:{editor:StoryRevisionEditorState}){
   {editor.impact?.conflict&&<div role="alert">
    <p>重新编排会替换草稿的分镜与梗概，请选择保留哪类修改。</p>
    <div className="production-stage-actions">
-    <StoryFlowAction disabled={waiting} onClick={()=>editor.setChanges(c=>({...c,plan:undefined,removedFrames:undefined,storySummary:undefined}))}>保留重新编排设置</StoryFlowAction>
+    <StoryFlowAction disabled={waiting} onClick={()=>editor.setChanges(c=>({...c,plan:undefined,removedFrames:undefined,mergeTargets:undefined,storySummary:undefined}))}>保留重新编排设置</StoryFlowAction>
     <StoryFlowAction disabled={waiting} onClick={()=>editor.setChanges(c=>({...c,productionPrompt:undefined,length:undefined,narrativeDetail:undefined}))}>保留分镜或梗概修改</StoryFlowAction>
    </div>
   </div>}
@@ -36,7 +36,10 @@ function RevisionConflicts({editor}:{editor:StoryRevisionEditorState}){
 
 export function StoryRevisionActions({editor,resuming=false}:{editor:StoryRevisionEditorState;resuming?:boolean}){
  const {impact,base,changes,busy}=editor;
+ const [confirming,setConfirming]=useState<typeof changes>();
  if(!impact||!base)return null;
+ const lostHandEdits=editor.preview?.lostHandEdits??[];
+ const confirmLoss=lostHandEdits.length>0&&confirming===changes;
  const droppedRedrawNotePages=editor.preview?.droppedRedrawNotePages??[];
  const lostImagePages=editor.preview?.lostImagePages??[];
  const redrawPages=editor.preview?.redrawPages.filter(page=>!lostImagePages.includes(page))??[];
@@ -62,9 +65,23 @@ export function StoryRevisionActions({editor,resuming=false}:{editor:StoryRevisi
   {droppedRedrawNotePages.length>0&&<p role="status">将丢弃原第 {droppedRedrawNotePages.join('、')} 幅的重绘说明。</p>}
   {lostImagePages.length>0&&<p role="status">第 {lostImagePages.join('、')} 幅已确认丢失，继续后重绘。</p>}
   {redrawPages.length>0&&<p role="status">继续后将重绘第 {redrawPages.join('、')} 幅。</p>}
+  {lostHandEdits.length>0&&<section aria-label="将移除的手改">
+   <p>保存会移除以下画幅里的手改内容。</p>
+   <ul>{lostHandEdits.map(({page,caption,prompt})=><li key={page}>原第 {page} 幅
+    {caption!==undefined&&<p>旁白 · {caption}</p>}
+    {prompt!==undefined&&<p>画面提示词 · {prompt}</p>}
+   </li>)}</ul>
+  </section>}
   <RevisionConflicts editor={editor}/>
   {editor.error&&<p role="alert">{editor.error}</p>}
-  <div className="production-stage-actions"><button type="button" className="yu-primary" disabled={busy||editor.loading||!impact.changed||impact.conflict||editor.conflict} aria-busy={busy} onClick={()=>void editor.submit()}>{busy?'正在提交…':action}</button></div>
+  <div className="production-stage-actions">
+   {confirmLoss&&<button type="button" disabled={busy} onClick={()=>setConfirming(undefined)}>取消保存</button>}
+   <StoryFlowAction disabled={busy||editor.loading||!impact.changed||impact.conflict||editor.conflict} onClick={()=>{
+    if(confirmLoss)void editor.submit({...changes,confirmHandEditLoss:true});
+    else if(lostHandEdits.length)setConfirming(changes);
+    else void editor.submit();
+   }}>{busy?'正在提交…':confirmLoss?'确认放弃手改并保存':action}</StoryFlowAction>
+  </div>
  </section>;
 }
 
@@ -112,7 +129,9 @@ export default function StoryRevisionEditor({editor,resuming=false,reviewIssues=
     </details>}
     {target>0&&<><section aria-label={`修改第 ${page+1} 幅`}><h3>第 {page+1} 幅</h3><label className="yu-revision-field">旁白<textarea rows={3} minLength={8} maxLength={90} value={plan.pages[page].caption} onChange={e=>updatePlan(p=>{p.pages[page].caption=e.target.value;},true)}/></label><label className="yu-revision-field">画面提示词<textarea rows={5} minLength={20} maxLength={1800} value={plan.pages[page].prompt} onChange={e=>updatePlan(p=>{p.pages[page].prompt=e.target.value;},true)}/></label></section>
     <details><summary>人物设定（修改后重绘受影响画幅）</summary><label className="yu-revision-field">人物设定<textarea rows={4} minLength={20} maxLength={2500} value={plan.characters} onChange={e=>updatePlan(p=>{p.characters=e.target.value;})}/></label></details></>}
+    {target===0&&<label className="yu-revision-field">故事梗概<textarea rows={4} maxLength={1200} value={changes.storySummary??plan.summary} onChange={e=>editor.setChanges(c=>({...c,storySummary:e.target.value}))}/></label>}
     <label className="yu-revision-field">余味<textarea rows={3} minLength={1} maxLength={100} value={plan.reflection} onChange={e=>updatePlan(p=>{p.reflection=e.target.value;})}/></label>
+    <small>清空已手改的文字，继续制作时会重新生成。</small>
    </section>}
 
   </fieldset>

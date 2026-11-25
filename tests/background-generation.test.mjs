@@ -7,7 +7,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import {migrate} from '../server/database.ts';
 import {productionFixture,until} from './fixtures/production.mjs';
 import {flowProviders} from './fixtures/test-tier.mjs';
-const outlines=f=>f.control.dagCalls.filter(name=>name==='outline').length;
+const outlines=f=>f.control.dagCalls.filter(name=>name==='storyboard').length;
 const control=(f,id,action)=>f.json(`sessions/${id}/production-control`,'POST',{action});
 
 for(const provider of flowProviders(['codex','gemini']))test(`${provider}: new stories generate every page without a viewer or a mode request`,async t=>{

@@ -17,13 +17,20 @@ export type {RevisionBase};
 export const redrawNoteMaxLength=500;
 export const reviewNotesMaxLength=1200;
 const redrawNotesSchema=z.record(z.string().regex(/^[1-9]\d*$/),z.string().trim().min(1).max(redrawNoteMaxLength));
-export const revisionChangesSchema=z.object({artStylePrompt:artStylePromptSchema,productionPrompt:z.string().max(1200).optional(),acceptancePrompt:acceptancePromptSchema.optional(),reviewNotes:z.string().trim().max(reviewNotesMaxLength).optional(),artStyle:z.enum(artStyleIds).optional(),length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')]).optional(),narrativeDetail:narrativeDetailSchema.optional(),plan:planSchema.optional(),storySummary:planSchema.shape.summary.optional(),removedFrames:z.array(z.number().int().min(1).max(readerMaxFrames)).min(1).max(readerMaxFrames-1).refine(frames=>new Set(frames).size===frames.length,'删除幅号不能重复。').optional(),redrawPages:z.array(z.number().int().min(1).max(readerMaxFrames)).min(1).max(readerMaxFrames).refine(pages=>new Set(pages).size===pages.length,'重绘页码不能重复。').optional(),redrawNotes:redrawNotesSchema.optional(),
+const clearable=(value:z.ZodString)=>z.union([z.string().trim().length(0),value]);
+const page=planSchema.shape.pages.element;
+const revisionPlanSchema=planSchema.extend({reflection:clearable(planSchema.shape.reflection),characters:clearable(planSchema.shape.characters),
+ pages:z.array(page.extend({caption:clearable(page.shape.caption),prompt:clearable(page.shape.prompt)})).min(readerMinFrames).max(readerMaxFrames)});
+export const revisionChangesSchema=z.object({artStylePrompt:artStylePromptSchema,productionPrompt:z.string().max(1200).optional(),acceptancePrompt:acceptancePromptSchema.optional(),reviewNotes:z.string().trim().max(reviewNotesMaxLength).optional(),artStyle:z.enum(artStyleIds).optional(),length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')]).optional(),narrativeDetail:narrativeDetailSchema.optional(),plan:revisionPlanSchema.optional(),storySummary:clearable(planSchema.shape.summary).optional(),removedFrames:z.array(z.number().int().min(1).max(readerMaxFrames)).min(1).max(readerMaxFrames-1).refine(frames=>new Set(frames).size===frames.length,'删除幅号不能重复。').optional(),redrawPages:z.array(z.number().int().min(1).max(readerMaxFrames)).min(1).max(readerMaxFrames).refine(pages=>new Set(pages).size===pages.length,'重绘页码不能重复。').optional(),redrawNotes:redrawNotesSchema.optional(),
  /** 原稿幅号一基，闭区间替换；to=from-1 表示在该幅前插入。 */
  structureEdits:z.array(z.object({from:z.number().int().min(1).max(readerMaxFrames+1),to:z.number().int().min(0).max(readerMaxFrames),
   scenes:z.array(z.object({caption:planSchema.shape.pages.element.shape.caption}).strict()).max(readerMaxFrames)}).strict()).min(1).max(readerMaxFrames).optional(),
- /** 制作 DAG：保存会使手改失效时，读者对每处手改的选择（以手改为基础或放弃）。 */
- handEdits:z.record(z.string().regex(/^(?:scene|visual|brief|characters|ending):[\w-]*$/),z.enum(['use-as-base','discard'])).optional()}).strict();
+ /** 合并草稿将替代内容放在这些原幅号处。其余被合并的幅号列在 removedFrames。 */
+ mergeTargets:z.array(z.number().int().min(1).max(readerMaxFrames)).min(1).max(readerMaxFrames-1).optional(),
+ /** 确认放弃本次保存会移除的全部手改画幅内容。 */
+ confirmHandEditLoss:z.boolean().optional()}).strict();
 export type RevisionChanges=z.infer<typeof revisionChangesSchema>;
+export type LostHandEdit={page:number;caption?:string;prompt?:string};
 export type RevisionInfo={parentId:string;rootId:string;number:number};
 export type RevisionView=RevisionInfo&{redraw?:RevisionRedraw};
 // 横图按幅号排列。URL 代表继承的图片，null 代表待重绘，空字符串代表原版缺幅。
@@ -81,6 +88,8 @@ export function checkedRevision(base:RevisionContent,input:RevisionChanges){
  }
  if((changes.plan||changes.storySummary!==undefined)&&!base.plan)throw new ReaderError(400,'请先保存完整分镜，再修改分镜或梗概。');
  const removed=changes.removedFrames;
+ if(changes.mergeTargets&&(!removed||!base.plan||new Set(changes.mergeTargets).size!==changes.mergeTargets.length||
+  changes.mergeTargets.some(page=>page>base.plan!.pages.length||removed.includes(page))))throw new ReaderError(400,'请检查合并保留位置和删除幅号。');
  const sourcePages=removed&&base.plan?survivingRevisionFrames(base.plan.pages.length,removed):undefined;
  if(removed&&(!base.plan||!changes.plan||removed.some(page=>page>base.plan!.pages.length)||!sourcePages?.length||sourcePages.length!==changes.plan.pages.length))throw new ReaderError(400,'删除幅号和修改后的分镜数量必须一致，故事至少保留一幅。');
  if(!removed&&changes.plan&&changes.plan.pages.length!==base.plan!.pages.length)throw new ReaderError(400,'减幅时请提供原稿中删除的幅号。');

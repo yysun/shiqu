@@ -1,32 +1,29 @@
-// 手改保护：保存时的处理选项与自动结构修订的损失检查，按规范场景编号核对。
+// 手改的有效性、换画风转换与精确结构损失。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {handEditChoices,structuralLoss} from '../lib/production-dag/hand-edits.ts';
-import {story,run,handEdit,clone,root} from './fixtures/production-dag.mjs';
+import {structuralLoss} from '../lib/production-dag/hand-edits.ts';
+import {evaluate} from '../lib/production-dag/engine.ts';
+import {stateOf,work} from '../lib/production-dag/runner.ts';
+import {story,drive,replies} from './fixtures/production-dag-runner.mjs';
 
-const done=()=>{const s=story({frames:16});run(s);return s;};
-
-test('scenario 28: restyling a hand-edited image description offers keeping it as the base or discarding it',()=>{
- const base=done();handEdit(base,'visual','f2');
- const next=clone(base);next.products['style:']=root('watercolor');
- assert.deepEqual(handEditChoices(base,next),[{id:'visual:f2',options:['use-as-base','discard']}]);
+function edited(){
+ const saved=story({length:16});
+ drive(saved,replies());
+ const second=saved.dag.order[1];
+ saved.dag.products[`scene:${second}`].handEdited=true;
+ saved.dag.products[`visual:${second}`].handEdited=true;
+ return {saved,second};
+}
+test('changing style converts a protected visual without invalidating its caption',()=>{
+ const {saved,second}=edited();
+ saved.selection.artStyle='watercolor';
+ const ev=evaluate(stateOf(saved));
+ assert.equal(ev.instance('scene',second).status,'valid');
+ assert.equal(ev.instance('visual',second).status,'invalid');
+ assert.ok(work(saved).some(group=>group.call==='restyle'&&group.instances.some(i=>i.key===second)));
 });
-
-test('scenario 33: re-planning over a hand-edited caption offers only discarding it or cancelling the save',()=>{
- const base=done();handEdit(base,'scene','f2');
- const next=clone(base);next.products['productionReq:']=root('改写主线');
- assert.deepEqual(handEditChoices(base,next),[{id:'scene:f2',options:['discard','cancel']}]);
-});
-
-test('an unrelated edit leaves hand edits alone',()=>{
- const base=done();handEdit(base,'scene','f2');
- const next=clone(base);handEdit(next,'visual','f9');
- assert.deepEqual(handEditChoices(base,next),[]);
-});
-
-test('scenarios 19 and 43: automatic structural repair that touches a hand-edited frame must stop for the reader',()=>{
- const s=done();handEdit(s,'scene','f12');
- assert.deepEqual(structuralLoss(s,{merged:[['f12','f13']]}),['f12']);
- assert.deepEqual(structuralLoss(s,{rewritten:['f12']}),['f12']);
- assert.deepEqual(structuralLoss(s,{deleted:['f3'],split:['f7']}),[]);
+test('structural loss reports the protected content with the original page number',()=>{
+ const {saved,second}=edited(),frame=saved.dag.frames[second];
+ assert.deepEqual(structuralLoss(saved.dag,[saved.dag.order[0],second]),[{page:2,caption:frame.scene,prompt:frame.visual}]);
+ assert.deepEqual(structuralLoss(saved.dag,[saved.dag.order[0]]),[]);
 });

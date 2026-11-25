@@ -64,7 +64,9 @@ function dagFaultTargets(rows:FaultTarget[]):Fault[]{
 }
 const preparingCall=(call:string)=>call==='prepareArt'||call==='prepareSuggestions';
 const drawing=(call:string)=>call==='draw';
-const textWorkHash=(item:Work)=>fingerprint([item.call,item.instances.map(target=>[target.id,target.hard]),item.issues??null]);
+const textWorkHash=(item:Work)=>item.call==='storyboard'?
+ fingerprint([item.call,item.requestHash]):
+ fingerprint([item.call,item.instances.map(target=>[target.id,target.hard]),item.issues??null,...(item.requestHash?[item.requestHash]:[])]);
 
 /** 请求身份覆盖来源与核对输入，产物有效性仍只由硬输入决定。 */
 export function dagJobSpec(ownerId:string,story:DagStory,item:Work,priority:number,opened=false){
@@ -181,8 +183,13 @@ export class DagProduction{
    const reusable=evaluate(stateOf({...story,dag:settle(story)}));
    if(item.instances.every(instance=>reusable.instance(instance.node,instance.key).status==='valid'))return {inputCurrent:false,fault:false};
   }
-  const fault=item.instances.some(instance=>evaluation.instance(instance.node,instance.key).blocked||
-   !evaluation.gateOpen(nodeSpec(instance.node).gate));
+  const suppliesCharacters=item.call==='storyboard'&&item.instances.some(instance=>instance.node==='characters');
+  const fault=item.instances.some(instance=>{
+   const gate=nodeSpec(instance.node).gate;
+   // 合批可以在同一次调用里补齐人物与依赖它的画面描述。
+   return evaluation.instance(instance.node,instance.key).blocked||
+    !(gate==='characters'&&suppliesCharacters)&&!evaluation.gateOpen(gate);
+  });
   return {inputCurrent:!stale(story,item),fault};
  }
 
@@ -436,8 +443,9 @@ export class DagProduction{
   let generated:Awaited<ReturnType<typeof executeWork>>|undefined,usage:Document['usage'][number]|undefined;
   const reused=!readablePaid?await this.revisionDrawingReceipt(initial,story,item):null;
   const existing=reused?.receipt??(paid&&(!drawing(item.call)||readablePaid)?paid:undefined);
-  const sharedText=existing?undefined:await this.familyTextReceipt(initial,story,item);
-  const reusedText=existing||sharedText?undefined:await reusableTextProducts(this.deps.database,initial.user_id,story,item);
+  const resetting=item.instances.some(i=>story.dag.resetText?.includes(i.id));
+  const sharedText=existing||resetting?undefined:await this.familyTextReceipt(initial,story,item);
+  const reusedText=existing||sharedText||resetting||item.call==='restyle'&&item.requestHash?undefined:await reusableTextProducts(this.deps.database,initial.user_id,story,item);
   const receipt=existing??sharedText;
   const rootId=story.doc.revision?.rootId??initial.id;
   if(reused)this.storePaid(job,reused.receipt,item,rootId,reused.alias);

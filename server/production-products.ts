@@ -68,8 +68,8 @@ export function writeStoryProducts(db:SyncStatements,id:string,owner:string,docu
    case 'visual':if(frame){content={prompt:frame.visual,drawn:frame.drawnNames??[],recordedDrawn:frame.drawn??[]};frame.visual='';}break;
    case 'frameImage':if(frame){content=frame.image;delete frame.image;}break;
    case 'frameVerdict':case 'narrativeVerdict':
-    content={verdict:dag.verdicts?.[target],issues:dag.issues?.filter(issue=>issue.target===target).map(({target:_,stalled:__,...issue})=>{
-     void _;void __;return issue;
+    content={verdict:dag.verdicts?.[target],issues:dag.issues?.filter(issue=>issue.target===target).map(({target:_,stalled:__,handEditedPages:___,...issue})=>{
+     void _;void __;void ___;return issue;
     }),...(node==='narrativeVerdict'?{titleChoice:dag.ending?.selectedTitle,endingChoice:dag.ending?.chosen}:{})};
     if(dag.verdicts)delete dag.verdicts[target];
     break;

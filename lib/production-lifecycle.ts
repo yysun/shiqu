@@ -176,17 +176,17 @@ function productionActionOffers(input:ActivityInput,execution:ReturnType<typeof 
 
 const phases:Record<string,Step['kind']>={
  discover:'discover',verifySource:'source',prepareArt:'recommend',prepareSuggestions:'recommend',
- prepareBrief:'plan',characters:'plan',outline:'plan',sceneBatch:'plan',visual:'plan',
+ prepareBrief:'plan',characters:'plan',outline:'plan',storyboard:'plan',sceneBatch:'plan',sceneReset:'plan',visual:'plan',
  restyle:'restyle',ending:'reflection',frameCheck:'review',review:'review',draw:'image',drawLandscape:'image',
  sceneRepair:'repair',visualRepair:'repair',structureRepair:'repair',endingRepair:'repair',
 };
 const labels:Record<string,string>={
  prepareSuggestions:'准备制作建议',
- prepareBrief:'整理故事梗概',characters:'设定人物',outline:'编排全篇提纲',
+ prepareBrief:'整理故事梗概',characters:'设定人物',outline:'编排全篇提纲',storyboard:'编排文字分镜',
  ending:'拟定标题与结语',frameCheck:'审核画幅数',review:'审核全篇分镜',
  sceneRepair:'修订叙事分镜',visualRepair:'修订画面描述',structureRepair:'修订分镜结构',endingRepair:'修订结语',
 };
-const batches:Record<string,string>={sceneBatch:'编排叙事分镜',visual:'生成画面描述',restyle:'按新画风转换画面描述'};
+const batches:Record<string,string>={storyboard:'编排文字分镜',sceneBatch:'编排叙事分镜',sceneReset:'重新生成配文',visual:'生成画面描述',restyle:'按新画风转换画面描述'};
 
 export function describeProductionCall(call:string,pages:readonly number[],repairPasses:number){
  const phase=phases[call];

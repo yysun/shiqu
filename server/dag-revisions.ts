@@ -2,14 +2,13 @@ import {productionStorageHash,writeStoryProducts} from './production-products.ts
 import {recordFamilyImage} from './media.ts';
 // 制作 DAG 故事的修订保存：新版复制上一版的 dag 与图片，读者改动按手改记录，失效范围由引擎按输入推导。
 // 有重做工作时保留「已保存，等待继续」，阅读器明确确认的单幅重绘直接进入绘图队列。
-// 支持文字修改、删除画幅、设置修改（含画风、幅数策略）与仅换图（可带重绘说明）。文字修改按上一版的输入记录为手改，
-// 再合入设置修改；保存会使手改失效时，读者须对每处手改选择「以手改为基础」或「放弃」，未选择时不保存。
+// 只在结构变化移除手改画幅时确认一次；清空手改字段后，下次继续重新生成该字段。
 import {decodeDocument} from '../lib/production-dag/document.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import {ReaderError,selectionSchema,type Document,type SessionRow,type Selection} from '../lib/reader-model.ts';
 import type {ReaderRepository,ReadStatements} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
-import type {RevisionChanges} from '../lib/reader-revision.ts';
+import type {LostHandEdit,RevisionChanges} from '../lib/reader-revision.ts';
 import {readerMinFrames,readerMaxFrames} from '../lib/reader-limits.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
@@ -18,7 +17,7 @@ import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {castFrom} from '../lib/production-dag/frames.ts';
 import {projectDocument,rootProducts,type DagDocument} from '../lib/production-dag/document.ts';
 import {settle,stateOf,work,deriveProduction,applyStructureEdits,structureEditPlan,type DagStory} from '../lib/production-dag/runner.ts';
-import {handEditChoices,structuralLoss} from '../lib/production-dag/hand-edits.ts';
+import {structuralLoss} from '../lib/production-dag/hand-edits.ts';
 import {verdictNodes} from '../lib/production-dag/review.ts';
 import {survivingRevisionFrames,usesStoryImageReference} from '../lib/reader-revision.ts';
 import {revisionBasis,familyEpoch,currentFamilyVersion,revisionCoverMaxBytes,revisionToken} from './reader-revisions.ts';
@@ -82,13 +81,26 @@ function editEnding(dag:DagDocument,story:DagStory,plan:NonNullable<RevisionChan
  dag.ending={...(dag.ending??{title:shown.title,candidates:[]}),confirmed:{title:plan.title,ending:plan.reflection}};
 }
 
+function resetHandEdit(dag:DagDocument,node:string,key=''){
+ const id=instanceId(node,key);
+ if(!dag.products[id]?.handEdited&&!(node==='ending'&&dag.ending?.confirmed))
+  throw new ReaderError(400,'仅可清空已经手改的文字。');
+ delete dag.products[id];
+ dag.resetText=[...new Set([...(dag.resetText??[]),id])];
+}
+
 /** 把读者改动写入 dag：改过的叙事分镜、画面描述与梗概按当前输入记录为手改。 */
-function applyEdits(story:DagStory,changes:RevisionChanges):DagDocument{
+function applyEdits(story:DagStory,changes:RevisionChanges,childId:string):DagDocument{
  const dag=structuredClone(story.dag);
  const handEdit=(node:string,key:string,content:unknown)=>{
   const inst=evaluate(stateOf({...story,dag})).instance(node,key);
   if(!inst.hard)throw new ReaderError(409,'这篇故事的上游内容尚未完成，暂不能修改此处。');
-  dag.products[instanceId(node,key)]={hash:fingerprint(content),inputs:inst.hard,handEdited:true};
+  const id=instanceId(node,key);
+  dag.products[id]={hash:fingerprint(content),inputs:inst.hard,handEdited:true};
+  if(dag.resetText?.includes(id)){
+   dag.resetText=dag.resetText.filter(target=>target!==id);
+   if(!dag.resetText.length)delete dag.resetText;
+  }
  };
  // 删除画幅：按原幅号移除，其产物一并删除；其余画幅保留身份。
  if(changes.removedFrames){
@@ -98,24 +110,50 @@ function applyEdits(story:DagStory,changes:RevisionChanges):DagDocument{
   dag.order=dag.order.filter(id=>!removed.includes(id));
   for(const id of removed){delete dag.frames[id];for(const node of frameNodes)delete dag.products[instanceId(node,id)];}
  }
+ if(changes.mergeTargets){
+  const targets=new Set(changes.mergeTargets.map(page=>story.dag.order[page-1]));
+  if(!changes.removedFrames||targets.size!==changes.mergeTargets.length||[...targets].some(id=>!dag.order.includes(id)))
+   throw new ReaderError(400,'请检查合并保留位置和删除幅号。');
+  dag.order=dag.order.map((id,index)=>{
+   if(!targets.has(id))return id;
+   const page=changes.plan!.pages[index];
+   if(!page.caption||!page.prompt)throw new ReaderError(400,'请填写合并后的旁白和画面描述。');
+   const {image,drawn,drawnNames}=dag.frames[id],key=`f-${fingerprint([childId,'merge',id]).slice(0,16)}`;
+   for(const node of frameNodes)if(node!=='frameImage'||!image)delete dag.products[instanceId(node,id)];
+   if(image)dag.frames[id]={scene:'',visual:'',image};else delete dag.frames[id];
+   dag.frames[key]={scene:'',visual:'',drawn,drawnNames};
+   return key;
+  });
+ }
  if(changes.plan){
   if(changes.plan.pages.length!==dag.order.length)throw new ReaderError(400,'减幅时请提供原稿中删除的幅号。');
   changes.plan.pages.forEach((page,i)=>{
    const id=dag.order[i],frame=dag.frames[id];
    if(page.caption.trim()!==frame.scene.trim()){
     frame.scene=page.caption;
-    handEdit('scene',id,page.caption);
+    if(page.caption)handEdit('scene',id,page.caption);else resetHandEdit(dag,'scene',id);
    }
    if(page.prompt.trim()!==frame.visual.trim()){
     frame.visual=page.prompt;
-    addDrawnFrom(frame,page.prompt,dag.characters);
-    handEdit('visual',id,{prompt:page.prompt,drawn:frame.drawnNames??frame.drawn});
+    if(page.prompt){
+     addDrawnFrom(frame,page.prompt,dag.characters);
+     handEdit('visual',id,{prompt:page.prompt,drawn:frame.drawnNames??frame.drawn});
+    }else resetHandEdit(dag,'visual',id);
    }
   });
-  editCharacters(dag,changes.plan.characters,handEdit);
-  editEnding(dag,story,changes.plan);
+  if(changes.plan.characters)editCharacters(dag,changes.plan.characters,handEdit);
+  else{resetHandEdit(dag,'characters');dag.characters=[];}
+  if(changes.plan.reflection)editEnding(dag,story,changes.plan);
+  else{
+   resetHandEdit(dag,'ending');
+   const title=dag.ending?.confirmed?.title;
+   if(title)dag.ending={title,candidates:[],confirmed:{title}};else delete dag.ending;
+  }
  }
- if(changes.storySummary!==undefined&&changes.storySummary!==dag.brief){dag.brief=changes.storySummary;handEdit('brief','',changes.storySummary);}
+ if(changes.storySummary!==undefined&&changes.storySummary!==dag.brief){
+  if(changes.storySummary){dag.brief=changes.storySummary;handEdit('brief','',changes.storySummary);}
+  else{resetHandEdit(dag,'brief');delete dag.brief;}
+ }
  return dag;
 }
 
@@ -183,33 +221,8 @@ function applyRedraw(dag:DagDocument,changes:RevisionChanges){
  }
 }
 
-/** 手改处理的结果：已按决定改写的 dag，以及无法保留、须读者明确放弃的手改。 */
-type HandEditOutcome={dag:DagDocument;choices:{id:string;options:string[]}[];conflicts:string[]};
-
 /**
- * 保存会使手改失效时的处理（默认保护）：
- * - 能「以手改为基础」的一律保留其内容（由修订或转换在其上生成，不丢弃）；
- * - 重新编排会产生新画幅、无法保留的手改：未被读者在 API 里明确 `discard` 时，列为冲突，保存被拒绝、草稿保留，不默默放弃。
- * 预估（strict=false）对冲突按放弃估算，同时返回冲突列表。
- */
-function settleHandEdits(story:DagStory,decisions:RevisionChanges['handEdits'],strict:boolean):HandEditOutcome{
- const state=stateOf(story),choices=handEditChoices(state,state),conflicts:string[]=[];
- const dag=structuredClone(story.dag);
- for(const choice of choices){
-  const explicit=decisions?.[choice.id];
-  if(explicit&&!choice.options.includes(explicit))throw new ReaderError(400,`${choice.id} 只能放弃手改或取消保存。`);
-  const decision=explicit??(choice.options.includes('use-as-base')?'use-as-base':undefined);
-  if(!decision){conflicts.push(choice.id);if(!strict)delete dag.products[choice.id];continue;}
-  if(decision==='discard')delete dag.products[choice.id];
-  else dag.products[choice.id]={...dag.products[choice.id],handEdited:undefined};
- }
- if(strict&&conflicts.length)throw new ReaderError(409,`这次修改会重新编排并丢弃你手改过的内容：${conflicts.map(id=>handEditLabel(id,story.dag.order)).join('、')}。请先撤销该设置修改；草稿已保留。命令行可用 handEdits 明确放弃。`);
- return {dag,choices:choices.map(c=>({id:c.id,options:[...c.options]})),conflicts};
-}
-function handEditLabel(id:string,order:string[]){const [node,key]=id.split(':'),number=key?order.indexOf(key)+1:0,name=({scene:'配文',visual:'画面描述',brief:'梗概',characters:'人物设定',ending:'标题与结语'} as Record<string,string>)[node]??node;return number>0?`第 ${number} 幅的${name}`:name;}
-
-/**
- * 修订的唯一计算（保存与预估共用）：合入设置与文字修改（含审核意见），按手改默认保护处理手改，
+ * 修订的唯一计算（保存与预估共用）：合入设置与文字修改（含审核意见），收集将被移除的手改，
  * 新修订重新开始自动修订额度。计算不写入、不读媒体；保存另复制图片与首幅原图，再确定可复用产物。
  */
 function deriveRevision(db:ReadStatements,doc:Document,row:SessionRow,changes:RevisionChanges,childId:string,strict:boolean){
@@ -219,22 +232,26 @@ function deriveRevision(db:ReadStatements,doc:Document,row:SessionRow,changes:Re
  const reviewNotes=(changes.reviewNotes!==undefined?changes.reviewNotes:doc.reviewNotes)?.trim()||undefined;
  const parent=({id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag!,confirmed:true,faults:[]});
  // 文字修改按上一版的输入记录为手改，再合入设置修改，由引擎判断哪些产物失效。
- const edited=applyEdits(parent,changes);
- let removedHandEdits:string[]=[];
+ const edited=applyEdits(parent,changes,childId);
+ const before=rootProducts(parent.selection,parent.dag);
+ const after=rootProducts(selection,edited);
+ const replan=before['productionReq:'].hash!==after['productionReq:'].hash||before['settings:'].hash!==after['settings:'].hash;
+ let retired=replan?[...parent.dag.order]:parent.dag.order.filter(id=>!edited.order.includes(id));
  if(changes.structureEdits){
   if(changes.plan||changes.removedFrames||changes.length!==undefined||changes.productionPrompt!==undefined||changes.narrativeDetail!==undefined)
    throw new ReaderError(400,'请先单独保存结构修改。');
   const structure=structureEditPlan(edited,changes.structureEdits);
   if(!structure||structure.entries.length<readerMinFrames||structure.entries.length>readerMaxFrames)
    throw new ReaderError(400,'请提交互不重叠的有效画幅范围，并保留允许的画幅数量。');
-  removedHandEdits=structuralLoss(stateOf(parent),{deleted:structure.retired})
-   .filter(id=>changes.handEdits?.[id]!=='discard');
-  if(strict&&removedHandEdits.length)throw new ReaderError(409,'本次结构修改会丢弃手改，请先核对保存预估。');
-  for(const id of structuralLoss(stateOf(parent),{deleted:structure.retired}))delete edited.products[id];
+  retired=structure.retired;
   let created=0;
   applyStructureEdits(parent,edited,changes.structureEdits,()=>`f-${fingerprint([childId,'structure',created++]).slice(0,16)}`,true);
  }
- if(edited.cover&&!sameArtDirection(parent.selection,selection)){
+ const lostHandEdits=structuralLoss(parent.dag,retired);
+ if(strict&&lostHandEdits.length&&!changes.confirmHandEditLoss)
+  throw new ReaderError(409,`本次保存会移除第 ${lostHandEdits.map(edit=>edit.page).join('、')} 幅的手改，请查看保存预览并确认放弃。`);
+ const restyle=!sameArtDirection(parent.selection,selection);
+ if(edited.cover&&restyle){
   const first=edited.cover.frame;
   delete edited.cover;
   if(edited.frames[first])delete edited.frames[first].image;
@@ -244,11 +261,8 @@ function deriveRevision(db:ReadStatements,doc:Document,row:SessionRow,changes:Re
  const child:DagStory={...parent,id:childId,selection,doc:{...doc,reviewNotes},dag:edited};
  const roots=(story:DagStory)=>rootProducts(story.selection,story.dag,{notes:story.doc.reviewNotes});
  const changed=!!changes.redrawPages||fingerprint(edited)!==fingerprint(parent.dag)||fingerprint(roots(child))!==fingerprint(roots(parent));
- if(!changed)return {parent,child,selection,reviewNotes,changed,choices:[],conflicts:[]};
- const outcome=settleHandEdits(child,changes.handEdits,strict);
- child.dag={...outcome.dag,repairs:undefined,issues:[]};
-
- return {parent,child,selection,reviewNotes,changed,choices:[...outcome.choices,...removedHandEdits.map(id=>({id,options:['discard']}))],conflicts:[...outcome.conflicts,...removedHandEdits]};
+ if(changed)child.dag={...edited,repairs:undefined,issues:[]};
+ return {parent,child,selection,reviewNotes,changed,lostHandEdits};
 }
 
 export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:number;
@@ -256,18 +270,15 @@ export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:n
  textWork:Record<string,number>;
  /** 保存后是否有需要重做的工作，即是否进入「已保存，等待继续」。 */
  continues:boolean;
- /** 这次修改会使哪些手改失效，及读者可选的处理。 */
- handEdits:{id:string;options:string[]}[];
- /** 无法保留的手改：保存会被拒绝（读者须先撤销该设置修改）；预估对它们按放弃估算。 */
- conflicts:{id:string;message:string}[];
+ /** 原稿中因本次结构修改将被移除的手改。 */
+ lostHandEdits:LostHandEdit[];
  /** 失去画幅身份时会丢弃重绘说明的原幅号。 */
  droppedRedrawNotePages:number[];
  /** 需要重绘的新幅号及其中确认丢图的幅号。 */
  redrawPages:number[];lostImagePages:number[]};
 
 /**
- * 保存前的预估：与保存使用同一套引擎推导（手改失效、设置合入、失效范围），只计算不写入。
- * 未选择的手改按「以手改为基础」估算；需要读者选择的会列在 handEdits。
+ * 保存前的预估：与保存使用同一套引擎推导（手改损失、设置合入、失效范围），只计算不写入。
  */
 export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,token:string,changes:RevisionChanges):Promise<RevisionPreview>{
  const {doc,token:current}=await revisionBasis(repo,row);
@@ -282,8 +293,8 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
   if(!edit.allowed)throw new ReaderError(edit.status,edit.message);
  }
  const derive=(db:ReadStatements)=>deriveRevision(db,doc,row,changes,row.id,false);
- const {parent,child,changed,choices,conflicts}=repo.db.readTransaction?.(derive)??transact(repo.db,derive);
- if(!changed)return {changed:false,total:child.dag.order.length,redraw:0,reused:doc.images.filter(Boolean).length,textWork:{},continues:false,handEdits:[],conflicts:[],droppedRedrawNotePages:[],redrawPages:[],lostImagePages:[]};
+ const {parent,child,changed,lostHandEdits}=repo.db.readTransaction?.(derive)??transact(repo.db,derive);
+ if(!changed)return {changed:false,total:child.dag.order.length,redraw:0,reused:doc.images.filter(Boolean).length,textWork:{},continues:false,lostHandEdits:[],droppedRedrawNotePages:[],redrawPages:[],lostImagePages:[]};
  child.dag=settle(child);
  const {evaluation:ev,work:items}=deriveProduction(child),order=child.dag.order;
  const redrawPages=order.flatMap((id,index)=>ev.instance('frameImage',id).status==='valid'?[]:[index+1]);
@@ -294,7 +305,7 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
  const keepsOutline=ev.instance('outline').status==='valid',remaining=new Set(order);
  const droppedRedrawNotePages=parent.dag.order.flatMap((key,index)=>
   parent.dag.frames[key]?.redrawNote&&(!keepsOutline||!remaining.has(key))?[index+1]:[]);
- return {changed,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices,conflicts:conflicts.map(id=>({id,message:`重新编排会丢弃${handEditLabel(id,doc.dag!.order)}的手改`})),droppedRedrawNotePages,redrawPages,lostImagePages};
+ return {changed,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,lostHandEdits,droppedRedrawNotePages,redrawPages,lostImagePages};
 }
 
 export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string,cover?:Uint8Array,startRedraw=false):Promise<SessionRow>{

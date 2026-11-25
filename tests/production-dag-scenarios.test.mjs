@@ -22,9 +22,15 @@ import {authorizeSetup,setupEvents,setupRules,authorizeReselectionCancel,reselec
  resolveImageRead,imageReadRules,resolveInterruptedJob,interruptedJobRules} from '../lib/production-lifecycle.ts';
 
 /** 一篇已完成、审片通过的 DAG 故事，图片文件写入隔离书库。 */
-async function completedStory(f){
- const id=crypto.randomUUID(),s=story({length:6});s.id=id;
- drive(s,replies());
+async function completedStory(f,{length=6,splitCast=false}={}){
+ const id=crypto.randomUUID(),s=story({length});s.id=id;
+ const reply=replies();
+ drive(s,(method,args)=>{
+  const value=reply(method,args);
+  if(!splitCast||method!=='storyboard')return value;
+  // 偶数幅只画鲍叔牙，便于核对改人物只重绘其出场画幅。
+  return {...value,pages:value.pages.map((item,index)=>({...item,drawn:(args.first+index-1)%2?['鲍叔牙']:['管仲']}))};
+ });
  for(const key of s.dag.order)await f.media.put(referenceImageKey(id,s.dag.frames[key].image),png,{contentType:'image/png'});
  const doc={...s.doc,dag:s.dag,...projectDocument(s.dag,null)},now=new Date().toISOString();
  await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,'active',1,?,?)")
@@ -253,6 +259,213 @@ async function confirmedStory(f,length=4,prepared={},settings={}){
 }
 const count=(list,name)=>list.filter(n=>n===name).length;
 
+for(const [length,prepared] of [[10,false],[10,true],[25,false]])test(`combined storyboard completes ${length} frames with ${prepared?'a prepared synopsis':'a new synopsis'}`,async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const original=prepared?{...zhuangzi,storyBrief:{summary:'庄周梦为胡蝶，醒后思考梦与醒的分别。',matchReason:'选定原文含有全部因果。',verified:true}}:zhuangzi;
+ const id=await confirmedStory(f,length,{original,dag:undefined});
+ const payloads=[];
+ f.control.beforeText=(name,payload)=>{if(name==='storyboard')payloads.push(payload);};
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).state==='completed',25000);
+ const doc=await saved(f,id);
+ assert.deepEqual(f.control.dagCalls,[...(prepared?[]:['brief']),...Array(Math.ceil(length/20)).fill('storyboard')]);
+ assert.equal(f.control.reflections.length,1);
+ assert.equal(f.control.reviews.length,1);
+ assert.equal(f.control.frameReviews.length,0);
+ assert.equal(f.control.calls.length,length);
+ assert.equal(doc.dag.order.length,length);
+ if(length>20){
+  assert.deepEqual(payloads[1].batch,{first:21,last:25});
+  assert.deepEqual(payloads[1].previousCaptions,doc.plan.pages.slice(0,20).map(page=>page.caption));
+  assert.equal(payloads[1].characters[0].name,'庄周');
+ }
+});
+
+test('a family adopts a paid combined receipt only for a matching request',async t=>{
+ const f=await productionFixture(t,'codex');
+ const id=await confirmedStory(f,3,{dag:undefined});
+ f.control.hold=false;
+ const original=(await f.read(id)).selection.productionPrompt;
+ const briefs=['把原文中的因果讲清楚。','沿原文顺序着重介绍人物选择。'];
+ await until(async()=>(await f.read(id)).state==='completed');
+ const a=await revise(f,id,{productionPrompt:briefs[0]});
+ const b=await revise(f,a.child,{productionPrompt:briefs[1]});
+ f.control.dagCalls.length=0;
+ const adopted=await revise(f,b.child,{productionPrompt:briefs[0]});
+ assert.ok(!f.control.dagCalls.includes('storyboard'));
+ assert.deepEqual(adopted.doc.plan.pages,a.doc.plan.pages);
+ const request=[];
+ f.control.beforeText=(name,payload)=>{if(name==='storyboard')request.push(payload);};
+ const restarted=await revise(f,adopted.child,{productionPrompt:original,artStyle:'watercolor'});
+ assert.equal(request.length,1);
+ assert.equal(restarted.doc.dag.products['visual:'+restarted.doc.dag.order[0]].inputs.style,
+  fingerprint({artStyle:'watercolor',artStylePrompt:null}));
+});
+
+test('one caption edit reuses all images, and editing a cast member redraws only their frames',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f,{length:10,splitCast:true});
+ f.control.hold=false;
+ const caption='管仲与鲍叔牙分金时，鲍叔让管仲多拿一份。';
+ const edited=await revise(f,id,({plan})=>{
+  plan.pages[1].caption=caption;
+  return {plan};
+ });
+ assert.equal(f.control.reviews.length,1);
+ assert.deepEqual(f.control.dagCalls,[]);
+ assert.deepEqual(f.control.calls,[]);
+ const character=await revise(f,edited.child,({plan})=>{
+  plan.characters=plan.characters.replace('管仲好友，宽厚。','管仲的好友，战国时齐国人，身穿深色布衣。');
+  return {plan};
+ });
+ assert.deepEqual(f.control.dagCalls,[]);
+ assert.deepEqual(f.control.calls.map(call=>call.page).sort((a,b)=>a-b),[1,3,5,7,9]);
+ const key=character.doc.dag.order[1];
+ assert.equal(character.doc.dag.frames[key].scene,caption);
+ assert.equal(character.doc.dag.products[`scene:${key}`].handEdited,true);
+});
+
+test('ten-frame restyle converts the existing hand edit in one call and clearing regenerates the field',async t=>{
+ const f=await productionFixture(t,'codex'),id=await confirmedStory(f,10,{dag:undefined});
+ f.control.hold=false;
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).state==='completed');
+ const manual='画幅中央有一扇木门，庄周倚门望向庭中，午后光影分明。';
+ let edit=await revise(f,id,({plan})=>{plan.pages[1].prompt=manual;return {plan};});
+ const key=edit.doc.dag.order[1],seen=[];
+ f.control.beforeText=(name,payload)=>{
+  if(name!=='restyle')return;
+  seen.push(payload.frames[1].scenePrompt);
+  return {frames:payload.frames.map(frame=>({number:frame.number,prompt:frame.scenePrompt+' 光影按新画风转换。',drawn:['庄周']}))};
+ };
+ for(const artStyle of ['watercolor','ink-pencil']){
+  const before=edit.doc.dag.frames[key].visual,token=(await f.json(`sessions/${edit.child}/revisions`)).token;
+  const preview=await f.json(`sessions/${edit.child}/revisions/preview`,'POST',{token,changes:{artStyle}});
+  assert.deepEqual(preview.lostHandEdits,[]);
+  f.control.dagCalls.length=f.control.reviews.length=f.control.calls.length=0;
+  edit=await revise(f,edit.child,{artStyle});
+  assert.deepEqual(f.control.dagCalls,['restyle']);
+  assert.equal(f.control.reviews.length,1);
+  assert.equal(f.control.calls.length,10);
+  assert.equal(seen.at(-1),before);
+  assert.equal(edit.doc.dag.products[`visual:${key}`].handEdited,true);
+ }
+ f.control.dagCalls.length=0;
+ edit=await revise(f,edit.child,({plan})=>{plan.pages[1].prompt='';return {plan};});
+ assert.deepEqual(f.control.dagCalls,['visual']);
+ assert.equal(edit.doc.dag.products[`visual:${key}`].handEdited,undefined);
+ assert.ok(edit.doc.dag.frames[key].visual);
+});
+
+test('review stops and names the frame when a repair would overwrite its manual description',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ const route=`sessions/${id}`,{plan,token}=await f.json(`${route}/revisions`),child=crypto.randomUUID();
+ const manual='庄周站在窗边注视庭中的蝴蝶，屋内以桌案和灯盏确定前后距离。';
+ plan.pages[1].prompt=manual;
+ await f.json(`${route}/revisions`,'POST',{requestId:child,token,changes:{plan}});
+ f.control.beforeText=(call)=>call==='review'?{issues:[{page:2,category:'composition',problem:'窗与小径的关系不清。',
+  instruction:'交代窗外小径的方向。',requiresReplan:false}]}:undefined;
+ await f.json(`sessions/${child}/production-control`,'POST',{action:'continue'});
+ let snapshot;
+ await until(async()=>{snapshot=await f.read(child);return snapshot.lifecycle.review==='attention';});
+ assert.ok(snapshot.lifecycle.reviewAttention.some(item=>item.reason==='hand-edited'&&item.pages.includes(2)));
+ assert.match(snapshot.faults.find(fault=>fault.stage==='review').message,/审片问题只能通过修改手改内容解决.*第 2 幅/);
+ assert.equal(snapshot.story.pages[1].prompt,manual);
+ assert.equal(f.control.dagCalls.includes('visualRepair'),false);
+});
+
+test('clearing nonadjacent manual frames regenerates only their selected fields',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ f.control.hold=false;
+ const manual=await revise(f,id,({plan})=>{
+  for(const index of [1,3]){
+   plan.pages[index].caption=`第 ${index+1} 幅是读者重新填写的旁白。`;
+   plan.pages[index].prompt=`第 ${index+1} 幅窗前的两人并肩站立，庭院光影分明。`;
+  }
+  return {plan};
+ });
+ const scope=[];
+ f.control.beforeText=(call,payload)=>{
+  if(call==='sceneRepair'||call==='visual')scope.push([call,payload.frames.map(frame=>frame.number)]);
+ };
+ const reset=await revise(f,manual.child,({plan})=>{
+  for(const index of [1,3])plan.pages[index].caption='';
+  plan.pages[3].prompt='';
+  return {plan};
+ });
+ assert.deepEqual(scope,[['sceneRepair',[2,4]],['visual',[4]]]);
+ assert.equal(reset.doc.plan.pages[1].prompt,manual.doc.plan.pages[1].prompt);
+ assert.match(reset.doc.plan.pages[1].caption,/第 2 幅/);
+ assert.match(reset.doc.plan.pages[3].caption,/第 4 幅/);
+});
+
+test('deleting one frame preserves a surviving manual prompt, while merging reports its replacement',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ f.control.hold=false;
+ const prompt='窗挡住庭院半边光线，两位少年扶着桌沿交谈。';
+ const manual=await revise(f,id,({plan})=>{plan.pages[1].prompt=prompt;return {plan};});
+ const route=`sessions/${manual.child}/revisions`,{token,plan}=await f.json(route);
+ plan.pages.shift();
+ plan.pages[0].caption='两位少年在满是树影的庭院里说话。';
+ const changes={plan,removedFrames:[1]};
+ const preview=changes=>f.json(`${route}/preview`,'POST',{token,changes});
+ assert.deepEqual((await preview(changes)).lostHandEdits,[]);
+ const merge={...changes,mergeTargets:[2]};
+ assert.deepEqual((await preview(merge)).lostHandEdits,[{page:2,prompt}]);
+ assert.equal((await f.request(route,'POST',{token,changes:merge,requestId:crypto.randomUUID()})).status,409);
+ const child=crypto.randomUUID();
+ await f.json(route,'POST',{token,changes:{...merge,confirmHandEditLoss:true},requestId:child});
+ const stored=await saved(f,child);
+ assert.notEqual(stored.dag.order[0],manual.doc.dag.order[1]);
+ assert.equal(stored.dag.frames[stored.dag.order[0]].visual,prompt);
+});
+
+test('a completed 0.17 hand-edited story reads and exports byte-for-byte with no new inference',
+ {skip:!process.env.SHIQU_TEST_V017_ROOT},async t=>{
+ const {pathToFileURL}=await import('node:url'),{join}=await import('node:path');
+ const {readFile}=await import('node:fs/promises'),{unzipSync}=await import('fflate');
+ const baseline=process.env.SHIQU_TEST_V017_ROOT;
+ const [{createApplication},{exportLocalStory:exportOld}]=await Promise.all(['app','story-export'].map(file=>
+  import(pathToFileURL(join(baseline,`server/${file}.ts`)).href)));
+ const {exportLocalStory}=await import('../server/story-export.ts');
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const parent=await confirmedStory(f,3,{dag:undefined});
+ await f.stop();
+ const old=createApplication({...f.options,root:baseline});
+ const api=async(route,method='GET',data)=>{
+  const response=await old.handle(new Request(`http://localhost/api/reader/${route}`,{method,
+   headers:{'Content-Type':'application/json'},...(data?{body:JSON.stringify(data)}:{})}));
+  assert.ok(response.ok,route);
+  return response.json();
+ };
+ const id=crypto.randomUUID(),oldZip=join(f.root,'old.zip'),newZip=join(f.root,'new.zip');
+ let before;
+ try{
+  old.services.production.wake();
+  await until(async()=>(await api(`sessions/${parent}`)).state==='completed');
+  const {token,plan}=await api(`sessions/${parent}/revisions`);
+  plan.pages[1].caption='庄周梦醒，窗前还留着梦中的光影。';
+  await api(`sessions/${parent}/revisions`,'POST',{requestId:id,token,changes:{plan}});
+  await api(`sessions/${id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'continue'});
+  await until(async()=>(await api(`sessions/${id}`)).state==='completed');
+  before=await api(`sessions/${id}`);
+  await exportOld(process.cwd(),old,before,{format:'zip',output:oldZip,allowUnsigned:true});
+ }finally{await old.close();}
+ const calls=()=>[f.control.dagCalls.length,f.control.reviews.length,f.control.reflections.length,f.control.calls.length];
+ const paid=calls();
+ await f.restart();
+ const after=await f.read(id),doc=await saved(f,id),key=doc.dag.order[1];
+ assert.equal(after.state,'completed');
+ assert.deepEqual(after.story.pages,before.story.pages);
+ assert.equal(doc.dag.products[`scene:${key}`].handEdited,true);
+ assert.equal(doc.dag.frames[key].scene,before.story.pages[1].caption);
+ await exportLocalStory(process.cwd(),f.app,after,{format:'zip',output:newZip,allowUnsigned:true});
+ assert.deepEqual(unzipSync(await readFile(newZip)),unzipSync(await readFile(oldZip)));
+ assert.deepEqual(calls(),paid);
+});
+
+
 test('a confirmed story runs from the outline to its last image through the production path',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
@@ -260,7 +473,7 @@ test('a confirmed story runs from the outline to its last image through the prod
  f.app.services.production.wake();
  await until(async()=>(await f.read(id)).state==='completed',20000);
  const doc=await saved(f,id);
- for(const [name,n] of [['brief',1],['characters',1],['outline',1],['sceneBatch',1],['visual',1]])assert.equal(count(f.control.dagCalls,name),n,name);
+ for(const [name,n] of [['brief',1],['storyboard',1],['characters',0],['outline',0],['sceneBatch',0],['visual',0]])assert.equal(count(f.control.dagCalls,name),n,name);
  assert.equal(f.control.reflections.length,1,'one ending call');
  assert.equal(f.control.frameReviews.length,0,'a fixed-length story has no frame-count check (as in v0.14.0)');
  assert.equal(f.control.reviews.length,1,'one review call');
@@ -893,11 +1106,11 @@ test('changing detail and style shows the new storyboard progress while the prev
  assert.equal(child.story.pages.length,6);
  assert.equal(shelfGenerationStatus(child).message,'已保存，等待继续');
  assert.equal(timelineStep(child,'plan').state,'paused');
- assert.equal(timelineStep(child,'plan').detail,'编排全篇提纲 · 新画幅数待编排');
+ assert.equal(timelineStep(child,'plan').detail,'编排文字分镜 · 新画幅数待编排');
  assert.equal(generationProgress(child,Date.now()).total,null);
 
- const outline=Promise.withResolvers(),scenes=Promise.withResolvers(),frameCheck=Promise.withResolvers();
- f.control.beforeText=name=>name==='outline'?outline.promise:name==='sceneBatch'?scenes.promise:name==='frames'?frameCheck.promise:undefined;
+ const storyboard=Promise.withResolvers(),frameCheck=Promise.withResolvers();
+ f.control.beforeText=name=>name==='storyboard'?storyboard.promise:name==='frames'?frameCheck.promise:undefined;
  const readRunning=async phase=>{
   let session;
   await until(async()=>{session=await f.read(child.id);return session.productionState==='running'&&session.generationProgress.activity?.startsWith(phase);},15000);
@@ -905,54 +1118,57 @@ test('changing detail and style shows the new storyboard progress while the prev
  };
  try{
   await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
-  const planning=await readRunning('编排全篇提纲');
-  assert.equal(shelfGenerationStatus(planning).message,'正在编排全篇提纲');
+  const planning=await readRunning('编排文字分镜');
+  assert.equal(shelfGenerationStatus(planning).message,'正在编排文字分镜');
   assert.equal(timelineStep(planning,'plan').state,'current');
-  outline.resolve();
-  const drafting=await readRunning('编排叙事分镜');
-  assert.equal(timelineStep(drafting,'plan').detail,'编排叙事分镜（第 1–9 幅） · 已保存 0 / 9 幅叙事分镜');
-  scenes.resolve();
+  storyboard.resolve();
   const checking=await readRunning('审核画幅数');
   assert.equal(timelineStep(checking,'plan').detail,'9 幅分镜已保存');
   assert.equal(timelineStep(checking,'review').state,'current');
   assert.equal(f.control.calls.length,0,'drawing waits for approval');
  }finally{
-  outline.resolve();scenes.resolve();frameCheck.resolve();
+  storyboard.resolve();frameCheck.resolve();
  }
  await until(async()=>(await f.read(child.id)).state==='completed',15000);
 });
 
-test('a save that would discard a hand edit needs the reader to choose; discarding it then replans',async t=>{
+test('confirming a lost hand edit once allows the new frame count to replan',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  const {id}=await completedStory(f);
  const edit=await revise(f,id,snapshot=>{const plan=structuredClone(snapshot.plan);plan.pages[1].caption='鲍叔牙在集市上替管仲付了账。';return {plan};});
  const snapshot=await f.json(`sessions/${edit.child}/revisions`);
- const refused=await f.request(`sessions/${edit.child}/revisions`,'POST',{requestId:crypto.randomUUID(),token:snapshot.token,changes:{productionPrompt:'写清选择与代价'}});
+ const route=`sessions/${edit.child}/revisions`,changes={length:1};
+ const preview=await f.json(`${route}/preview`,'POST',{token:snapshot.token,changes});
+ assert.deepEqual(preview.lostHandEdits,[{page:2,caption:edit.doc.dag.frames[edit.doc.dag.order[1]].scene}]);
+ const refused=await f.request(route,'POST',{requestId:crypto.randomUUID(),token:snapshot.token,changes});
  assert.equal(refused.status,409);
  assert.match((await refused.json()).error,/手改/);
- const scene=`scene:${edit.doc.dag.order[1]}`;
- const {doc}=await revise(f,edit.child,{productionPrompt:'写清选择与代价',handEdits:{[scene]:'discard'}});
+ const rejected=await f.request(route,'POST',{requestId:crypto.randomUUID(),token:snapshot.token,changes:{...changes,handEdits:{any:'discard'}}});
+ assert.equal(rejected.status,400);
+ assert.equal((await f.json(`sessions/${edit.child}/current`)).id,edit.child);
+ const {doc}=await revise(f,edit.child,{...changes,confirmHandEditLoss:true});
  assert.notDeepEqual(doc.dag.order,edit.doc.dag.order,'replanning gives frames new identities');
- assert.ok(count(f.control.dagCalls,'outline')>=1);
+ assert.equal(count(f.control.dagCalls,'storyboard'),1);
 });
 
-test('a failed step blocks only its dependants: independent steps finish, and recovery completes the story',async t=>{
+test('a failed storyboard call stops its dependants, and recovery completes the story',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  let failing=true;
- f.control.beforeText=async name=>{if(name==='visual'&&failing){failing=false;throw Error('controlled failure');}};
+ f.control.beforeText=async name=>{if(name==='storyboard'&&failing){failing=false;throw Error('controlled failure');}};
  const id=await confirmedStory(f,4);
  f.app.services.production.wake();
- await until(async()=>(await f.read(id)).faults?.length>0&&f.control.reflections.length===1,20000);
- // 不依赖画面描述的结语与幅数核对照常完成；依赖它的审片与绘图都未开始。
+ await until(async()=>(await f.read(id)).faults?.length>0,20000);
+ // 结语、审片与绘图都依赖分镜，失败后都未开始。
+ assert.equal(f.control.reflections.length,0);
  assert.equal(f.control.reviews.length,0);
  assert.equal(f.control.calls.length,0);
  const fault=(await f.read(id)).faults[0];
  assert.equal(fault.state,'pending');
  await f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
  await until(async()=>(await f.read(id)).state==='completed',20000);
- assert.equal(count(f.control.dagCalls,'visual'),2);
+ assert.equal(count(f.control.dagCalls,'storyboard'),2);
  assert.equal(f.control.reviews.length,1);
  assert.equal(f.control.calls.length,4);
  assert.ok(!(await f.read(id)).faults?.length);
@@ -1543,12 +1759,11 @@ for(const changed of [false,true])test(`replanning draws a missing frame with ${
  await rm(join(f.dataDirectory,'media',referenceImageKey(id,image)));
  const lost=await f.json(`${route}/image-health`,'POST',{page:1,image});
  assert.equal(lost.faults.find(fault=>fault.stage==='redraw').page,1);
- f.control.beforeText=(name,payload)=>{
-  if(changed&&name==='visual')return {frames:payload.frames.map(frame=>({number:frame.number,
-   prompt:prior.dag.frames[prior.dag.order[frame.number-1]].visual+(frame.number===2?' 第二幅改为雨夜，室内点灯。':''),drawn:['庄周']}))};
-  if(name!=='outline')return;
-  const {title,summary,sourceReference,adaptationNote}=makePlan(3);
-  return {title,summary,sourceReference,adaptationNote,beats:['新版开场提纲','新版转折提纲','新版结局提纲']};
+ f.control.beforeText=(name,payload,schema,result)=>{
+  if(name!=='storyboard')return;
+  return {...result,outline:{...result.outline,beats:['新版开场提纲','新版转折提纲','新版结局提纲']},
+   frames:result.frames.map(frame=>({...frame,prompt:prior.dag.frames[prior.dag.order[frame.number-1]].visual+
+    (changed&&frame.number===2?' 第二幅改为雨夜，室内点灯。':'')}))};
  };
  const {token}=await f.json(`${route}/revisions`),before=f.control.calls.length;
  const child=await f.json(`${route}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{productionPrompt:'在不改变情节的前提下重新编排。'}});
@@ -1584,10 +1799,9 @@ test('two new frames sharing a missing drawing pay for it once after continuatio
  const {rm}=await import('node:fs/promises'),{join}=await import('node:path');
  await rm(join(f.dataDirectory,'media',referenceImageKey(id,image)));
  await f.json(`${route}/image-health`,'POST',{page:1,image});
- f.control.beforeText=(name,payload)=>{
-  if(name==='visual')return {frames:payload.frames.map(frame=>({number:frame.number,
-   prompt:prior.dag.frames[prior.dag.order[frame.number===3?1:frame.number-1]].visual,drawn:['庄周']}))};
- };
+ f.control.beforeText=(name,payload,schema,result)=>name==='storyboard'?{
+  ...result,frames:result.frames.map(frame=>({...frame,prompt:prior.dag.frames[prior.dag.order[frame.number===3?1:frame.number-1]].visual})),
+ }:undefined;
  const {token}=await f.json(`${route}/revisions`),before=f.control.calls.length;
  const child=await f.json(`${route}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{productionPrompt:'采用新的主线编排方式。'}});
  await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
@@ -1831,7 +2045,7 @@ for(const change of ['requirements','ending','visual'])test(`drawing approval re
 
 test('a failed task before the draft is complete cannot be manually released for drawing',async t=>{
  const f=await productionFixture(t,'codex');
- f.control.beforeText=name=>{if(name==='visual')throw Error('controlled failure before complete storyboard');};
+ f.control.beforeText=name=>{if(name==='storyboard')throw Error('controlled failure before complete storyboard');};
  const id=await confirmedStory(f,4),route=`sessions/${id}`;
  f.app.services.production.wake();
  let failed;
@@ -1955,12 +2169,12 @@ test('the revision preview uses the same engine rules as saving and writes nothi
  assert.equal((await f.read(child)).awaitingContinue,true);
 });
 
-test('a revision with changed requirements starts a new outline attempt',async t=>{
+test('a revision with changed requirements starts a new storyboard attempt',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
- // 提纲失败：读者改了制作要求后，旧故障不再适用，新提纲在「继续制作」后运行。
+ // 分镜失败：读者改了制作要求后，旧故障不再适用，新的分镜调用在「继续制作」后运行。
  let failing=true;
- f.control.beforeText=async name=>{if(name==='outline'&&failing){failing=false;throw Error('controlled outline failure');}};
+ f.control.beforeText=async name=>{if(name==='storyboard'&&failing){failing=false;throw Error('controlled storyboard failure');}};
  const id=await confirmedStory(f,4);
  f.app.services.production.wake();
  await until(async()=>(await f.read(id)).faults?.length>0,20000);
@@ -1968,10 +2182,11 @@ test('a revision with changed requirements starts a new outline attempt',async t
  const snapshot=await f.json(`sessions/${id}/revisions`),child=crypto.randomUUID();
  await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{productionPrompt:'写清选择与代价，突出人物的转变'}});
  const carried=(await f.app.services.database.prepare("SELECT node FROM production_faults WHERE session_id=? AND state='pending'").bind(child).all()).results;
- assert.deepEqual(carried,[],'the outline fault is not carried: its inputs changed');
+ assert.deepEqual(carried,[],'the storyboard fault is not carried: its inputs changed');
  await f.json(`sessions/${child}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'continue'});
  await until(async()=>(await f.read(child)).state==='completed',30000);
- assert.equal(count(f.control.dagCalls,'outline'),2,'the failed outline plus the new one');
+ assert.equal(count(f.control.dagCalls,'outline'),0);
+ assert.equal(count(f.control.dagCalls,'storyboard'),2,'the failed attempt stays in its version; the revision makes one new call');
 });
 
 // ——— v0.14.0 对等：换画风并指定首幅原图 ———
@@ -2033,15 +2248,15 @@ test('preview and save share one calculation: review notes count, hand edits are
  assert.equal(notes.continues,true);assert.ok(notes.textWork.review>=1||Object.keys(notes.textWork).length>0,'the review notes make the review run again');
  // 制作要求改变会重新编排并丢弃该手改：预估列为冲突，保存被拒绝且不留下新版。
  const prompt=await f.json(`sessions/${edit.child}/revisions/preview`,'POST',{token:base.token,changes:{productionPrompt:'写清选择与代价，突出转变'}});
- assert.ok(prompt.conflicts.length>0,'the hand edit conflicts with a re-plan');
+ assert.deepEqual(prompt.lostHandEdits,[{page:2,caption:'鲍叔牙在集市上替管仲付了账。'}]);
  assert.deepEqual(prompt.droppedRedrawNotePages,[1]);
  const stories=(await f.app.services.database.prepare('SELECT COUNT(*) AS n FROM stories').first()).n;
  const refused=await f.request(`sessions/${edit.child}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{productionPrompt:'写清选择与代价，突出转变'}});
- assert.equal(refused.status,409);const message=(await refused.json()).error;assert.match(message,/第 \d+ 幅的配文/,'names the frame, not an internal id');assert.doesNotMatch(message,/\bn\d+\b/);
+ assert.equal(refused.status,409);const message=(await refused.json()).error;assert.match(message,/第 2 幅/,'names the frame, not an internal id');assert.doesNotMatch(message,/\bn\d+\b/);
  assert.equal((await f.app.services.database.prepare('SELECT COUNT(*) AS n FROM stories').first()).n,stories,'nothing is saved when it would drop a hand edit');
  // 画风改变只需以手改为基础转换：不弹窗、不拒绝。
  const style=await f.json(`sessions/${edit.child}/revisions/preview`,'POST',{token:base.token,changes:{artStyle:'watercolor'}});
- assert.deepEqual(style.conflicts,[]);
+ assert.deepEqual(style.lostHandEdits,[]);
  assert.deepEqual(style.droppedRedrawNotePages,[]);
  assert.equal(text(),calls,'preview and a refused save started no model call');
 });
@@ -2462,14 +2677,20 @@ test('restoring earlier text inputs adopts the stored outline without a model re
   const {token}=await f.json(`sessions/${parent}/revisions`);
   const child=await f.json(`sessions/${parent}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{productionPrompt}});
   await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
-  await until(async()=>(await f.read(child.id)).state==='completed');
+  await until(async()=>{
+   const snapshot=await f.read(child.id);
+   if(snapshot.state==='failed')assert.fail(JSON.stringify(snapshot.faults));
+   return snapshot.state==='completed';
+  },10000);
+
   return child.id;
  };
  const child=await change(id,'按原文顺序整理对话，突出人物的实际回应。');
- const count=f.control.dagCalls.filter(call=>call==='outline').length;
- assert.equal(count,1);
+ const payloads=[];
+ f.control.beforeText=(call,payload)=>{if(call==='storyboard')payloads.push(payload);};
  const restored=await change(child,selection.productionPrompt);
- assert.equal(f.control.dagCalls.filter(call=>call==='outline').length,count);
+ assert.equal(payloads.length,1);
+ assert.equal(payloads[0].outline.title,original.dag.outline.title,'the model receives the adopted outline as an input');
  assert.deepEqual((await saved(f,restored)).dag.outline,original.dag.outline);
 });
 

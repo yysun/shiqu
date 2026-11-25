@@ -117,7 +117,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 ### 换画风并指定首幅图
 
-合并或拆分叙事画幅可提交 `changes.structureEdits`，每条是 `{from,to,scenes:[{caption}]}`。范围对应原稿，从 1 开始且包含两端。用 `stories revisions` 获取 token，再调用 `api POST reader/sessions/<id>/revisions/preview` 查看 `droppedRedrawNotePages` 与手改冲突。确认后用 `stories edit` 保存新版并继续制作。
+合并或拆分叙事画幅可提交 `changes.structureEdits`，每条是 `{from,to,scenes:[{caption}]}`。范围对应原稿，从 1 开始且包含两端。用 `stories revisions` 获取 token，再调用 `api POST reader/sessions/<id>/revisions/preview` 查看 `droppedRedrawNotePages` 与 `lostHandEdits`（原幅号和手改文字）。如有损失，读者确认后才把 `changes.confirmHandEditLoss` 设为 `true`，用同一 token 执行 `stories edit`。取消时不提交。手改默认保留，清空字段可在继续时重新生成。换画风自动转换手改画面描述，保留手改标记。
 
 对已完成且审核通过的故事，仅替换首幅时，同一命令传入 `{"token":"当前修订token","changes":{"redrawPages":[1]}}`。如需按新首幅重绘其余画幅，将所有幅号写入 `redrawPages`，新版保存后再继续制作。首幅图片直接采用上传文件。
 
@@ -143,3 +143,5 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 - 通过发布包安装、无版本锁且 `autoUpdateReady` 为 true 时，以返回的 updateCwd 为工作目录执行 updateCommand 参数数组；它固定 npm 正式发布版本并带 `--automatic`，更新时会再次检查偏好。本地修改或未知来源副本不自动覆盖。用户明确要求单次更新但未开启自动更新时，也可执行返回的 updateCommand。
 - 更新成功后重新读取返回 path 的技能；有有效桌面运行时记录时继续使用同版本绝对命令，其余默认用 `npx --yes @apprun/shiqu@<version> help --json` 核对返回 version 对应的 CLI，后续任务沿用该固定版本。未更新且无用户/项目版本锁、非桌面/源码入口时，已管理副本使用 `npx --yes @apprun/shiqu@<installedVersion>`，不随 latest 漂移；未获知安装版本时先通过 help/skill check 核对版本，再执行书库任务。用户明确指定其他启动器时保留启动器并固定相同版本；自定义副本或源码入口沿用用户选择并核对兼容性。更新失败保留现状，不手工覆盖或删除状态以绕过保护。
 - `skill update --scope project|global` 只安装正在运行的 CLI 包自带技能，不自行寻找最新包。安装记录缺失时，仅与运行包正文完全相同的旧副本可用该版本 `skill install` 建立记录；不同内容需人工比较合并。检查/更新不操作书库或生成配置。
+
+首次制作或重新编排按每批最多 20 幅合并生成文字分镜。定长 10 幅直接制作到绘图前为 4 次文字调用，选题已准备后为 3 次；有审片修订时会增加调用。

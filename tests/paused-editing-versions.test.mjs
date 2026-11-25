@@ -13,7 +13,7 @@ test('a paused unfinished storyboard can be revised; late work, replay and resta
  const f=await productionFixture(t,'codex');f.control.hold=false;
  let release,entered=false;
  const held=new Promise(resolve=>release=resolve);
- f.control.beforeText=async kind=>{if(kind==='outline'&&!entered){entered=true;await held;}};
+ f.control.beforeText=async kind=>{if(kind==='storyboard'&&!entered){entered=true;await held;}};
  const id=await confirmedStory(f,4);f.app.services.production.wake();t.after(()=>release());await until(()=>entered,20000);
  assert.equal((await f.request(`sessions/${id}/revisions`)).status,409,'Unfinished work must be paused first');
  await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
@@ -23,7 +23,7 @@ test('a paused unfinished storyboard can be revised; late work, replay and resta
  const child=await submit(f,id,base,changes,requestId);
  assert.equal(child.revision.rootId,id);assert.equal(child.revision.number,2);assert.equal(child.generationControl,'paused');assert.equal(child.story,null);
  assert.equal((await f.read(id)).generationControl,'paused');
- const outlines=()=>f.control.dagCalls.filter(n=>n==='outline').length;
+ const outlines=()=>f.control.dagCalls.filter(n=>n==='storyboard').length;
  release();await until(async()=>(await f.read(id)).state!=='running');await f.app.services.production.tick();
  assert.equal((await f.read(child.id)).selection.productionPrompt,changes.productionPrompt);
  assert.equal((await f.read(child.id)).generationControl,'paused');assert.equal(outlines(),1);assert.equal(f.control.calls.length,0);

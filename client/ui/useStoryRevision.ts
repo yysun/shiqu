@@ -4,15 +4,17 @@
 import {useEffect,useRef,useState} from 'react';
 import {randomId,request} from './shared';
 import {checkedRevision,revisionImpact} from '@/lib/reader-revision';
-import type {RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
+import type {LostHandEdit,RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
 import type {SessionView} from '@/lib/reader-model';
 import type {StoryEditorTab} from './StoryProductionEditor';
 export type RevisionTab=StoryEditorTab|'review';
 /** 服务端按引擎推导的保存前预估（server/dag-revisions.ts previewDagRevision）。 */
-export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:number;textWork:Record<string,number>;continues:boolean;handEdits:{id:string;options:string[]}[];droppedRedrawNotePages:number[];redrawPages:number[];lostImagePages:number[]};
+export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:number;textWork:Record<string,number>;continues:boolean;lostHandEdits:LostHandEdit[];droppedRedrawNotePages:number[];redrawPages:number[];lostImagePages:number[]};
 export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:SessionView,changes:RevisionChanges)=>Promise<void>,onOpenLatest?:(storyId:string)=>Promise<void>){
  const [tab,setTab]=useState<RevisionTab|null>(null),[base,setBase]=useState<RevisionSnapshot|null>(null),[changes,setChanges]=useState<RevisionChanges>({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[conflict,setConflict]=useState(false);
- const [scriptPage,setScriptPage]=useState(1),[summarizing,setSummarizing]=useState(false),[preview,setPreview]=useState<RevisionPreview|null>(null);
+ const [scriptPage,setScriptPage]=useState(1),[summarizing,setSummarizing]=useState(false);
+ const [previewResult,setPreview]=useState<{id:string;token:string;changes:RevisionChanges;value:RevisionPreview}|null>(null);
+ const preview=previewResult&&previewResult.id===storyId&&previewResult.token===base?.token&&previewResult.changes===changes?previewResult.value:null;
  const latest=useRef(storyId);latest.current=storyId;
  const currentChanges=useRef(changes);currentChanges.current=changes;
  const read=useRef(0),lock=useRef(false),submission=useRef<{signature:string;id:string;cover?:File}|null>(null),callback=useRef(onSubmitted);callback.current=onSubmitted;
@@ -65,7 +67,9 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
   if(!base||!storyId||!Object.keys(changes).length)return;
   let live=true;
   const timer=setTimeout(()=>{
-   request(`reader/sessions/${storyId}/revisions/preview`,'POST',{token:base.token,changes}).then((value:RevisionPreview)=>{if(live)setPreview(value);},()=>{});
+   request(`reader/sessions/${storyId}/revisions/preview`,'POST',{token:base.token,changes}).then((value:RevisionPreview)=>{
+    if(live)setPreview({id:storyId,token:base.token,changes,value});
+   },()=>{});
   },300);
   return()=>{live=false;clearTimeout(timer);};
  },[storyId,base?.token,changes]);

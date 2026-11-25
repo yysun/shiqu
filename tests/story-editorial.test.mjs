@@ -12,7 +12,7 @@ for(const theme of ['放下执念','原典故事'])test(`${theme}: the editorial
  const proposed=theme==='原典故事'?'梦中的片段':'放下所有执念才有自由';const contexts=[];let reviewCalls=0;
  f.control.beforeText=async(kind,payload,schema)=>{
   assert.equal(payload.theme,undefined);
-  if(['outline','sceneBatch','sceneRepair'].includes(kind)){contexts.push(kind);assert.deepEqual(payload.editorialContext,context);return;}
+  if(['storyboard','sceneRepair'].includes(kind)){contexts.push(kind);assert.deepEqual(payload.editorialContext,context);return;}
   if(kind==='reflection'){
    assert.equal(f.control.calls.length,0);assert.deepEqual(payload.editorialContext,context);
    assert.ok(schema.required.includes('title'));assert.ok(schema.required.includes('candidates'));
@@ -27,7 +27,7 @@ for(const theme of ['放下执念','原典故事'])test(`${theme}: the editorial
  const id=await confirmedStory(f,4,{},{theme});f.app.services.production.wake();
  await until(async()=>(await f.read(id)).state==='completed',20000);
  const doc=await document(f,id),session=await f.read(id);
- assert.ok(contexts.includes('outline')&&contexts.includes('sceneBatch'));
+ assert.ok(contexts.includes('storyboard'));
  assert.equal(doc.plan.title,proposed);assert.equal(doc.plan.reflection,candidates[1]);
  assert.equal(session.story.title,proposed);assert.equal(session.story.theme,theme);
  assert.equal(f.control.reflections.length,1);assert.equal(reviewCalls,1);

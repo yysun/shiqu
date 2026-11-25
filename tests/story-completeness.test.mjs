@@ -42,7 +42,7 @@ test('a missing opening introduction is repaired in frame one without replanning
  await until(async()=>(await f.read(id)).state==='completed',20000);
  const document=await saved(f,id);
  assert.equal(document.plan.pages.length,3);assert.equal(document.plan.pages[0].caption,opening);
- assert.equal(count(f.control.dagCalls,'outline'),1);assert.deepEqual(requested,[1]);
+ assert.equal(count(f.control.dagCalls,'storyboard'),1);assert.deepEqual(requested,[1]);
  assert.equal(f.control.reviews.length,2);
 });
 

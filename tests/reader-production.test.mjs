@@ -14,7 +14,7 @@ test('image concurrency is configurable and global across stories; text/source a
  await f.demand(a);await f.demand(b);await until(()=>f.control.calls.length===2);assert.ok(f.control.calls.every(c=>c.page===0));
  for(const call of f.control.calls)call.resolve();await until(()=>f.control.active===4);await turn();assert.equal(f.control.maxActive,4);
  f.control.hold=false;for(const call of f.control.calls)call.resolve();await until(async()=>(await f.read(a)).ready===7&&(await f.read(b)).ready===7);
- assert.equal(f.control.maxActive,4);assert.equal(f.control.dagCalls.filter(n=>n==='outline').length,2);
+ assert.equal(f.control.maxActive,4);assert.equal(f.control.dagCalls.filter(n=>n==='storyboard').length,2);
  assert.equal(configuredImageWorkers(),3);for(const invalid of ['0','9','2.5','many'])assert.throws(()=>configuredImageWorkers(invalid));
 });
 

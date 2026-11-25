@@ -9,9 +9,19 @@ import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 const scalarCalls=new Set(['verifySource','prepareBrief','prepareSuggestions','characters','outline','ending','frameCheck']);
 const batchCalls=new Set(['sceneBatch','visual','restyle']);
 
-export async function reusableTextProducts(db:Database,owner:string,story:DagStory,work:Work){
+type ReusedText={value:unknown;work:Work;products:Record<string,Product>};
+export async function reusableTextProducts(db:Database,owner:string,story:DagStory,work:Work):Promise<ReusedText|undefined>{
  const root=story.doc.revision?.rootId,call=work.call;
- if(!root||!scalarCalls.has(call)&&!batchCalls.has(call)&&call!=='review')return undefined;
+ if(!root)return undefined;
+ if(call==='storyboard'){
+  // 家族中按相同输入保存的提纲、人物设定可免费采用，下一次合批分镜沿用。
+  for(const target of work.instances.filter(target=>target.node==='outline'||target.node==='characters')){
+   const reused=await reusableTextProducts(db,owner,story,{call:target.node,instances:[target]});
+   if(reused)return reused;
+  }
+  return undefined;
+ }
+ if(!scalarCalls.has(call)&&!batchCalls.has(call)&&call!=='review')return undefined;
  const receiptRows=batchCalls.has(call)?await db.prepare(`SELECT detail FROM production_attempt_events
   WHERE event='paid-result' AND owner_id=? AND session_id!=? AND json_extract(detail,'$.rootId')=?
   AND json_extract(detail,'$.work.call')=? ORDER BY sequence DESC`).bind(owner,story.id,root,call).all<{detail:string}>():undefined;

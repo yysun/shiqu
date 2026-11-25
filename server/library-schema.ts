@@ -30,6 +30,8 @@ export function inspectLibrary(directory:string):'missing'|'legacy'|'current'|'p
   if(version>=1){
    const columns=new Set(db.prepare('PRAGMA table_info(stories)').all().map(row=>row.name));
    if(!columns.has('document')||!columns.has('user_id')||['reader_sessions','jobs','progress'].some(n=>tables.has(n)))throw Error('LIBRARY_INVALID_SCHEMA');
+   // 格式 4 只有一个最终结构；开发预览留下的未完成结构不能直接打开，应以升级前备份重新升级。
+   if(version>=4&&!columns.has('production_complete'))throw Error('LIBRARY_PREVIEW_SCHEMA: restore the pre-upgrade backup to a new folder and open it with this version.');
    return 'current';
   }
   if(version!==0||['books','stories','jobs','progress','events','reader_sessions'].some(n=>!tables.has(n))||!tables.has('app_migrations')&&!tables.has('d1_migrations'))throw Error('LIBRARY_UNKNOWN_SCHEMA');
