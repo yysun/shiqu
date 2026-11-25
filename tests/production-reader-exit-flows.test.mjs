@@ -367,8 +367,20 @@ for(const [targetPages,paid] of [[[0],false],[[1],false],[[1,2],true]])test(`cha
 test('an older version keeps its landscape failure and dedicated Retry after a revision',async t=>{
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
  f.control.hold=false;
- f.control.beforeImage=call=>{if(call.landscape&&call.page===2)throw Error('受控横图失败');};
- await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ f.control.beforeImage=call=>{
+  if(!call.landscape)return;
+  if(call.page===2)throw Error('受控横图失败');
+  if(call.page===3)f.control.hold=true;
+ };
+ const {printId}=await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(()=>f.control.calls.length===4);
+ const running=await f.json(route);
+ assert.deepEqual([running.state,running.ready,running.failed],['running',2,[3]]);
+ assert.equal(running.error,undefined);
+ await f.json(route,'POST',{printId,control:'pause'});
+ const resumed=await f.json(route,'POST',{printId,control:'resume'});
+ assert.deepEqual([resumed.state,resumed.control,resumed.failed,resumed.error],['running','active',[3],undefined]);
+ f.control.hold=false;f.control.calls[3].resolve();
  await until(async()=>!!(await f.json(route)).retryToken);
  const child=await fork(f,id,{acceptancePrompt:'核对画面动作。'});
  await control(f,child,'continue');
@@ -376,6 +388,7 @@ test('an older version keeps its landscape failure and dedicated Retry after a r
  assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
  const [previous]=(await f.json(`sessions/${child}/landscape`)).earlier;
  assert.deepEqual([previous.storyId,previous.state,previous.ready,previous.failed],[id,'partial',3,[3]]);
+ assert.ok(previous.error);
  assert.equal((await f.read(id)).lifecycle.faults.length,0);
  const count=f.control.calls.filter(call=>call.landscape).length;
  await f.restart();

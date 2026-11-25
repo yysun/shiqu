@@ -201,7 +201,10 @@ export class LandscapePrints{
   if(retryIssue)this.blockedRetries.add(print.id);
   else this.blockedRetries.delete(print.id);
   const retryToken=!running&&failed.length&&!retryIssue?retryIdentity(print.id,failed):undefined;
-  const error=failed.find(job=>job.error)?.error||(failed.length?'部分横图丢失或损坏，请重试。':unavailable?'部分横图暂时无法读取。':undefined);
+  // 等待其余画幅绘制结束后，再提示需要重试的失败画幅。
+  const error=!running&&failed.length
+   ?failed.find(job=>job.error)?.error||'部分横图丢失或损坏，请重试。'
+   :unavailable?'部分横图暂时无法读取。':undefined;
   return {state,available:canStart||jobs.length>0,total,ready,images,control:print.control,printId:print.id,matchesSavedPages:!!landscapePageOrder(doc,print),
    failed:failed.map(job=>(JSON.parse(job.payload) as Payload).input.index+1),retryToken,error,referenceError:retryIssue?.message,
    ...(unavailable?{readUnavailable:true}:{}),
