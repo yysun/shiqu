@@ -57,7 +57,7 @@ function ProductionGroup({needs,limit,children,docked=false}:{needs:number;limit
 type ShelfItem={processingStatus:string;id:string;title:string;book:string;theme:string;artStyleLabel:string;story:ShelfStory|null;session?:ShelfSession;page:number;saved:boolean};
 type ProductionDock={active:boolean;show:()=>void;layout:(shelf:ReactNode,productions:ReactNode)=>ReactNode};
 type Props={productionDock?:ProductionDock;onControl:(id:string,action:ProductionAction)=>Promise<void>;controlBusy:string;stories:ShelfStory[];pending:ShelfSession[];sessions:ShelfSession[];progress:ReadingProgress[];loading:boolean;refreshing:boolean;onRefresh:()=>void;error:string;tab:string;onTab:(tab:string)=>void;query:string;onQuery:(query:string)=>void;grouping:ShelfGrouping;onGrouping:(grouping:ShelfGrouping)=>void;bookName:(story:Pick<Story,'id'|'bookId'>)=>string;onOpen:(story:ShelfStory,restart?:boolean)=>void;onResume:(session:ShelfSession)=>void;onRetry:(session:ShelfSession,faultId?:string)=>void;onDelete:(id:string,title:string)=>void;onFavorite:(id:string,saved:boolean)=>void;favoriteBusy:string;onCreate:()=>void;onDiscover:()=>void;selectedId?:string|null;onSelect?:(id:string|null)=>void};
-export default function ReaderShelf({onControl,onLandscapeControl,onPresentation,controlBusy,stories,pending,sessions,progress,loading,refreshing,onRefresh,error,tab,onTab,query,onQuery,grouping,onGrouping,bookName,onOpen,onResume,onRetry,onDelete,onFavorite,favoriteBusy,onCreate,onDiscover,selectedId,onSelect,productionDock}:Props&{onPresentation?:(id:string,title:string)=>void;onLandscapeControl?:(id:string,command:LandscapeCommand)=>void}){
+export default function ReaderShelf({onControl,onLandscapeControl,onStorySettings,onPresentation,controlBusy,stories,pending,sessions,progress,loading,refreshing,onRefresh,error,tab,onTab,query,onQuery,grouping,onGrouping,bookName,onOpen,onResume,onRetry,onDelete,onFavorite,favoriteBusy,onCreate,onDiscover,selectedId,onSelect,productionDock}:Props&{onStorySettings?:(id:string)=>void;onPresentation?:(id:string,title:string)=>void;onLandscapeControl?:(id:string,command:LandscapeCommand)=>void}){
  const progressById=new Map(progress.map(row=>[row.storyId,row]));
  const sessionById=new Map(sessions.map(session=>[session.id,session]));
  const processingStatus=(story:ShelfStory)=>{const session=sessionById.get(story.id);return session?shelfGenerationStatus(session).group:'已完成';};
@@ -110,6 +110,11 @@ export default function ReaderShelf({onControl,onLandscapeControl,onPresentation
   const landscapeWork=session?.landscapeWork;
   const landscapeStatus=landscapeWork?.service?'横图等待绘图服务':landscapeWork?.action==='resume'?'横图已暂停':
    landscapeWork?.activePage?`正在绘制第 ${landscapeWork.activePage} 幅横图`:'等待绘制横图';
+  const landscapeControlLink=landscapeWork&&onLandscapeControl&&(!landscapeWork.service||landscapeWork.action==='pause')&&<StoryFlowAction disabled={busyAny}
+   onClick={()=>onLandscapeControl(item.id,{printId:landscapeWork.printId,control:landscapeWork.action})}>{landscapeWork.action==='pause'?'暂停横图':'恢复横图'}</StoryFlowAction>;
+  const modelToken=landscapeWork?.modelToken;
+  const landscapeModelLink=modelToken&&onLandscapeControl&&<StoryFlowAction disabled={busyAny}
+   onClick={()=>onLandscapeControl(item.id,{modelToken})}>应用当前横图模型</StoryFlowAction>;
   const selected=!!onSelect&&selectedId===item.id,pick=onSelect?()=>onSelect(item.id):()=>onOpen(story);
   return <div className={'yu-shelf-row yu-shelf-row-readable'+(selected?' is-selected':'')} key={item.id} data-story-id={item.id}>
    <div className="yu-shelf-cover-wrap">
@@ -120,13 +125,13 @@ export default function ReaderShelf({onControl,onLandscapeControl,onPresentation
     <button className="yu-shelf-card yu-shelf-card-details" aria-label={(onSelect?'选择《':'阅读《')+item.title+'》'} aria-pressed={onSelect?selected:undefined} onClick={pick}><h2>{item.title}</h2><span className="yu-shelf-tags"><span title={item.theme}>{item.theme}</span><span title={item.artStyleLabel}>{item.artStyleLabel}</span>{number&&<span>第 {number} 版</span>}</span></button>
     {feedback}
     {landscapeWork&&onLandscapeControl&&<div className="yu-shelf-generation-progress">
-     <span role="status">{landscapeStatus} · <span className="yu-shelf-landscape-count">{landscapeWork.ready} / {landscapeWork.total} 幅</span></span>
-     {landscapeWork.modelToken&&<StoryFlowAction disabled={busyAny}
-      onClick={()=>onLandscapeControl(item.id,{modelToken:landscapeWork.modelToken!})}>应用当前横图模型</StoryFlowAction>}
-     {(!landscapeWork.service||landscapeWork.action==='pause')&&<StoryFlowAction disabled={busyAny}
-      onClick={()=>onLandscapeControl(item.id,{printId:landscapeWork.printId,control:landscapeWork.action})}>{landscapeWork.action==='pause'?'暂停横图':'恢复横图'}</StoryFlowAction>}
+     <span className="yu-shelf-landscape-status" role="status">{landscapeStatus} · <span className="yu-shelf-landscape-count">{landscapeWork.ready} / {landscapeWork.total} 幅</span></span>
+     {landscapeControlLink}{landscapeModelLink}
     </div>}
-    {onPresentation&&<div className="yu-shelf-presentation"><StoryFlowAction aria-label={'《'+item.title+'》作品与导出'} onClick={()=>onPresentation(item.id,item.title)}>作品与导出</StoryFlowAction></div>}
+    {(onStorySettings||onPresentation)&&<div className="yu-shelf-card-links">
+     {onStorySettings&&<StoryFlowAction aria-label={'《'+item.title+'》故事设置'} onClick={()=>onStorySettings(item.id)}>故事设置</StoryFlowAction>}
+     {onPresentation&&<StoryFlowAction aria-label={'《'+item.title+'》作品与导出'} onClick={()=>onPresentation(item.id,item.title)}>作品与导出</StoryFlowAction>}
+    </div>}
     <button className={'yu-shelf-reading-footer'+(finished?' finished':'')} aria-label={(finished?'重读《':'继续阅读《')+item.title+'》'} onClick={()=>finished?onOpen(story,true):onOpen(story)}>
      <span className="yu-shelf-progress" aria-hidden="true"><i style={{width:`${total?Math.min(100,Math.round((item.page+1)/total*100)):0}%`}}/></span>
      <span className="yu-shelf-reading-meta">{finished?<><span>已读完 · {total} 幅</span><span className="yu-shelf-continue">重读 <RotateCcw size={14}/></span></>:<><span>第 {item.page+1} / {total} 幅</span><span className="yu-shelf-continue">接着看 <ArrowRight size={15}/></span></>}</span>

@@ -109,7 +109,6 @@
 .yu-shelf-cover>img,.yu-shelf-cover>.yu-shelf-pending{display:block;width:100%;aspect-ratio:3/4;object-fit:cover}
 .yu-shelf-cover>.yu-shelf-pending{display:grid;place-items:center;color:#819a68}
 .yu-shelf-cover:focus-visible{outline:2px solid #648354;outline-offset:2px}
-.yu-shelf-presentation{align-self:flex-start}
 .yu-shelf-cover-overlay{position:absolute;left:6px;right:6px;bottom:6px;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;pointer-events:none}
 .yu-shelf-book-badge{flex:0 1 auto;min-width:0;max-width:calc(100% - 80px);padding:3px 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid #fff9;border-radius:6px;background:#faf9f1cc;color:#3a563f;font-size:var(--yu-meta-size);font-weight:500;line-height:1.6}
 .yu-shelf-cover-overlay .yu-shelf-card-actions{pointer-events:auto;gap:14px}
@@ -125,7 +124,10 @@
 .yu-shelf-generation-progress>span{min-width:0;overflow-wrap:anywhere}
 .yu-shelf-generation-progress>.story-flow-link{margin-inline-start:auto}
 .yu-shelf-generation-progress>.yu-generation-control{min-height:44px;padding:2px 0}
+.yu-shelf-landscape-status{flex:1 1 60px}
 .yu-shelf-landscape-count{white-space:nowrap}
+.yu-shelf-card-links{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 8px}
+.yu-shelf-card-links>.story-flow-link{white-space:nowrap}
 .yu-shelf-reading-footer{display:grid;gap:6px;width:100%;min-height:44px;margin-top:auto;padding:4px 0 0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .yu-shelf-reading-footer:focus-visible{outline:2px solid #648354;outline-offset:2px;border-radius:4px}
 .yu-shelf-progress{display:block;height:3px;border-radius:3px;background:#e6eadc;overflow:hidden}

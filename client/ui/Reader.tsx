@@ -26,7 +26,7 @@ import {offersProductionAction} from '@/lib/production-lifecycle';
 import {pruneReadingCaches,type LibraryInventory} from '../reading-cache.ts';
 import StoryExportControl from './StoryExportControl';
 import {storyLandscapeRoute} from './StoryLandscapeStep';
-import StoryPublicationEditor,{StoryPublicationDetails,StoryPublicationDefaults} from './StoryPublication';
+import StoryPublicationEditor,{StoryDownloads,StoryPublicationDetails,StoryPublicationDefaults} from './StoryPublication';
 import {generationImageModelForPage,generationModelNames} from '@/lib/story-publication';
 import ProviderSettings,{ProviderRuntimeSummary} from './ProviderSettings';
 import type {ProviderSettingsView} from '@/lib/provider-settings';
@@ -64,7 +64,7 @@ import StoryReviewTools from './StoryReviewTools';
 import StoryReviewHistory from './StoryReviewHistory';
 import StoryPausedEditing from './StoryPausedEditing';
 import Sheet from './StorySheet';
-import StorySettingsPanel,{StoryDownloads,StorySettingsContent,storyWorkflowHeading} from './StorySettingsPanel';
+import StorySettingsPanel,{StorySettingsContent,storyWorkflowHeading} from './StorySettingsPanel';
 import {narrativeDetailSchema} from '@/lib/reader-frame-recommendation';
 import StoryRetry from './StoryRetry';
 import StoryGenerationControl from './StoryGenerationControl';
@@ -222,18 +222,18 @@ export default function Reader(){
    return merged;
   });
  }
- const gen=useStoryGeneration(page,{onStory:(s,p,b)=>{if(deleted.current.has(s.id))return;setStory(old=>keepSnapshot(old,s));if(p!==undefined){setPage(p);setSaved(!!b);}},onProgress:acceptServerProgress},!loading&&tab==='shelf'&&!story&&!opening&&!configure&&!favoriteBusy&&!deleting&&!restoring&&!shelfRefreshing);
+ // 从书架直达设置时只打开制作流程，留在书架并保留阅读位置。
+ const workflowOrigin=useRef<'reader'|'shelf'|null>(null);
+ const gen=useStoryGeneration(page,{onStory:(s,p,b)=>{if(workflowOrigin.current==='shelf'||deleted.current.has(s.id))return;setStory(old=>keepSnapshot(old,s));if(p!==undefined){setPage(p);setSaved(!!b);}},onProgress:acceptServerProgress},!loading&&tab==='shelf'&&!story&&!opening&&!configure&&!favoriteBusy&&!deleting&&!restoring&&!shelfRefreshing);
  // Keep the same panel open when the first image arrives underneath it.
  useEffect(()=>{if(gen.active&&!story&&!configure&&!workflowTarget)setWorkflowTarget(gen.active.id);},[gen.active?.id,story?.id,configure,workflowTarget]);
- // 记录打开制作流程时是否正在阅读：从书架打开设置会顺带载入故事，离开时应回到书架而不是阅读。
- const workflowFromReader=useRef(false);
- function openWorkflow(id:string,dock=false){
+ function openWorkflow(id:string,dock=false,fromShelf=false){
   cancelOpening();
-  workflowFromReader.current=!dock&&!!story;
+  workflowOrigin.current=fromShelf?'shelf':!dock&&story?'reader':null;
   setWorkflowDocked(dock);
   if(dock){setDocked(false);setExpanded(false);setSource(false);setSceneList(false);setScript(false);setReviewHistoryId(null);revision.setTab(null);}
   setSettings(false);setWorkflowError('');setWorkflowTarget(id);
-  if(story?.id!==id)setStory(null);
+  if(fromShelf||story?.id!==id)setStory(null);
   if(gen.active?.id!==id)void gen.resume(id,story?.id===id?page:undefined).catch(error=>setWorkflowError(error instanceof Error?error.message:'制作流程暂时无法打开，请重试。'));
  }
  // 桌面阅读的侧栏不是模态；打开故事设置前先关闭，否则工作区会落到“原文”分区。
@@ -241,7 +241,7 @@ export default function Reader(){
  // 设置面板关闭时，丢弃选题设置与标题输入的保留草稿。
  function forgetSetup(){clearRetained('setup:');clearRetained('search:');}
  function closeWorkflow(){
-  forgetSetup();workflowFromReader.current=false;setWorkflowTarget(null);setWorkflowDocked(false);setWorkflowError('');
+  forgetSetup();workflowOrigin.current=null;setWorkflowTarget(null);setWorkflowDocked(false);setWorkflowError('');
   if(!story){gen.leave();history.replaceState(history.state,'','/');}
  }
  async function retryWorkflow(faultId?:string){
@@ -286,6 +286,7 @@ export default function Reader(){
  function remember(s:Story,index:number,isSaved:boolean){if(deleted.current.has(s.id))return;authoritativeProgress.current=reconcileReadingProgress(authoritativeProgress.current,[{storyId:s.id,page:index,saved:isSaved?1:0,updatedAt:new Date().toISOString()}]);setLastReadId(s.id);try{localStorage.setItem('shiqu-last-read',s.id);}catch{}setProgress(pr=>{const rows=[{storyId:s.id,page:index,saved:isSaved?1:0,updatedAt:new Date().toISOString()},...pr.filter(p=>p.storyId!==s.id)];localStorage.setItem('yiyu-reading',JSON.stringify(rows));return rows;});request('reader/sessions/'+s.id+'/progress','POST',{storyId:s.id,page:index,saved:isSaved}).catch(()=>{});}
  function open(target:Pick<Story,'id'>,restart=false,dock=false){
   if(deleted.current.has(target.id))return;
+  workflowOrigin.current=null;
   const attempt=++openRead.current;
   if(!story&&!dock)listScroll.current=window.scrollY;
   gen.leave();setOpening(target.id);setStory(null);setWorkflowTarget(null);setWorkflowDocked(false);setDrag(0);
@@ -305,7 +306,7 @@ export default function Reader(){
   if(opening){setOpening(null);gen.leave();}
  }
  function setTab(next:string){cancelOpening();updateTab(next);}
- function home(){cancelOpening();forgetSetup();setWorkflowTarget(null);setWorkflowDocked(false);setWorkflowError('');setDrag(0);gen.leave();setStory(null);setEnded(false);setSource(false);setDocked(false);setExpanded(false);history.replaceState(history.state,'','/');}
+ function home(){cancelOpening();forgetSetup();workflowOrigin.current=null;setWorkflowTarget(null);setWorkflowDocked(false);setWorkflowError('');setDrag(0);gen.leave();setStory(null);setEnded(false);setSource(false);setDocked(false);setExpanded(false);history.replaceState(history.state,'','/');}
  // 右栏阅读：展开为全屏、收回右栏（同时关闭原文与分镜列表）；离开阅读时右栏故事只收回，不关闭
  function expand(){if(!story)return;setExpanded(true);history.replaceState(history.state,'','/read?id='+encodeURIComponent(story.id));}
  function collapse(){setExpanded(false);setSource(false);setSceneList(false);history.replaceState(history.state,'','/');}
@@ -337,7 +338,7 @@ export default function Reader(){
   if(discoveryTarget&&gen.active?.id===discoveryTarget&&gen.active.intake&&!gen.active.intake.selected)closeWorkflow();
  }
  // 离开故事设置：清除子面板标志（修订草稿保留），再关闭制作流程。
- function leaveWorkspace(){const toShell=!workflowFromReader.current&&!!story;setScript(false);setReviewHistoryId(null);setSource(false);revision.setTab(null);setSettings(false);closeWorkflow();if(toShell)home();}
+ function leaveWorkspace(){const toShell=workflowOrigin.current!=='reader'&&!!story;setScript(false);setReviewHistoryId(null);setSource(false);revision.setTab(null);setSettings(false);closeWorkflow();if(toShell)home();}
  function exitToShell(steps:ExitStep[]){for(const step of steps){if(step==='closeCreate')closeCreate();else if(step==='leaveWorkspace')leaveWorkspace();else home();}}
  useEffect(()=>{visitor.current=localStorage.getItem('yiyu-visitor')||randomId();localStorage.setItem('yiyu-visitor',visitor.current);try{setLargeText(localStorage.getItem('yiyu-large-text')==='1');}catch{}if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
  const entryId=new URLSearchParams(location.search).get('id'),entryRead=openRead.current;
@@ -362,8 +363,8 @@ export default function Reader(){
  const dockedView=!!story&&docked&&!expanded&&wide&&tab==='shelf'&&(!source||!!workflowTarget)&&!sceneList;
  const dockedWorkflow=!!workflowTarget&&workflowDocked&&wide&&tab==='shelf';
  const dockedSettings=dockedWorkflow;
- // 生成钩子恢复会话后会写入 /read?id=；停靠时地址始终留在书架
- useEffect(()=>{if((dockedView||dockedSettings)&&(location.pathname!=='/'||location.search))history.replaceState(history.state,'','/');});
+ // 生成钩子恢复会话后会写入 /read?id=；停靠和书架设置入口都沿用书架地址。
+ useEffect(()=>{if((dockedView||dockedSettings||workflowOrigin.current==='shelf')&&(location.pathname!=='/'||location.search))history.replaceState(history.state,'','/');});
  // 停靠时方向键只在焦点位于右栏阅读里时翻页，Escape 把焦点还给卡片
  useEffect(()=>{function key(e:KeyboardEvent){if(!story||(!desktop&&(source||sceneList))||settings||workflowTarget||configure||landscapeCover)return;if(dockedView&&!readerRef.current?.contains(document.activeElement))return;if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();turn(-1);}if(e.key==='Escape'){if(dockedView)focusShelfCard(story.id);else if(source||sceneList){setSource(false);setSceneList(false);}else leaveReader();}}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[story,page,ended,source,settings,workflowTarget,configure,sceneList,desktop,wide,dockedView,docked,landscapeCover]);
  useEffect(()=>{
@@ -629,7 +630,7 @@ export default function Reader(){
     editor={revision} onReselect={()=>void reselectStory()}
     reviewTools={<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review'&&!f.retryReview)?.id)} onDrawAnyway={(faultId,ending)=>void gen.drawAnyway(workflowSession.id,faultId,ending)}/>}
    />}
-  </>:<div role="status">{workflowError?<><p role="alert">{workflowError}</p><StoryFlowAction onClick={()=>openWorkflow(workflowTarget!)}>重新加载制作流程</StoryFlowAction></>:<p>正在打开制作流程…</p>}</div>);
+  </>:<div role="status">{workflowError?<><p role="alert">{workflowError}</p><StoryFlowAction onClick={()=>openWorkflow(workflowTarget!,workflowDocked,workflowOrigin.current==='shelf')}>重新加载制作流程</StoryFlowAction></>:<p>正在打开制作流程…</p>}</div>);
 
  const panelOpen=!awaitingMaterials&&!!(workflowTarget||(!story&&gen.active)||(settings&&story));
  // 故事设置及其子面板在所有宽度共用小屏布局；书架右栏始终保留在子面板下面。
@@ -651,8 +652,6 @@ export default function Reader(){
  const settingsProps={
   story:panelStory,session:workflowSession,busy:gen.setupBusy||revision.busy||creating,disabled:creating,onBack:backToShelf,
   onRename:workflowSession||isGenerated(panelStory)?(id:string,title:string)=>setRenameTarget({id,title}):undefined,
-  downloads:(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,'yu-settings-download',panelStory)),
-  exportStatus:exportProgress,exporting:!!exporting,onPublicationEdit:isGenerated(panelStory)?()=>setPublicationTarget(panelStory):undefined,
   workflow:workflowSession||workflowTarget?workflowContent:undefined,
  };
  const discoverLead=<><section className="yu-intro"><div><p className="yu-kicker">把片刻，留给一个好故事</p><h1>今天，想遇见<br/>什么<span>故事</span>？</h1></div><span className="yu-stamp">古意<br/>新生</span></section>
@@ -681,7 +680,7 @@ export default function Reader(){
  {discoverSurprise}
  {discoverNote}
  {discoverStatus}</>;
- const shelfView=<ReaderShelf onControl={gen.control} onPresentation={(id,title)=>setPresentation({id,title})} onLandscapeControl={(id,command)=>{
+ const shelfView=<ReaderShelf onControl={gen.control} onStorySettings={id=>openWorkflow(id,wide,true)} onPresentation={(id,title)=>setPresentation({id,title})} onLandscapeControl={(id,command)=>{
   void request(storyLandscapeRoute(id),'POST',command).then(()=>gen.refreshLibrary()).catch(error=>notify(error instanceof Error?error.message:'横图状态暂未更新，请重试。'));
  }} controlBusy={gen.controlBusy} stories={shelf} pending={pendingStories} sessions={gen.sessions} progress={activeProgress} refreshing={shelfRefreshing||gen.libraryRefreshing} onRefresh={()=>{void refreshShelf();}} loading={loading||gen.libraryLoading} error={loadError||gen.libraryError} tab={shelfTab} onTab={changeShelfTab} query={shelfQuery} onQuery={changeShelfQuery} grouping={shelfGrouping} onGrouping={changeShelfGrouping} bookName={bookName} onOpen={open} onResume={session=>openWorkflow(session.id)} onRetry={(session,faultId)=>{if(session.intake&&!session.intake.selected){openWorkflow(session.id);return;}cancelOpening();setWorkflowTarget(session.id);setWorkflowError('');setStory(null);gen.retrySession(session.id,faultId).catch(e=>setWorkflowError(e.message));}} onDelete={askDelete} onFavorite={favoriteFromShelf} favoriteBusy={favoriteBusy} onCreate={()=>choose()} onDiscover={()=>setTab('discover')}/>;
  const profileView=<section className="yu-profile" aria-label="设置">
