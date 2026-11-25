@@ -18,7 +18,7 @@ planned_end: UNPLANNED
 
 进入测试须用例就绪、隔离服务可用。验收须适用用例在待验构建上通过，且 P0/P1 无未解决缺陷。早期制作 DAG 回归保留原用例 ID。从下方[制作 DAG 验收索引](#制作-dag-验收索引)按原编号定位；已退役用例只保留原构建的结论。C001–C007 的旧运行只作为对应构建的历史证据。每次复跑追加记录。测试使用合成书库和受控生成器。
 
-回归使用仓库登记的源码测试。C008 和 C013 的阅读器验证用应用内浏览器，在隔离 Vite 服务上执行。制作状态及授权用正式 API、协调器和 SQLite 验证。修改启动目录时复测 local、默认目录兼容性和私有文件。修改制作状态时复测重试、版本隔离以及界面状态与队列一致性。
+回归使用仓库登记的源码测试。C065 和 C013 的阅读器验证用应用内浏览器，在隔离 Vite 服务上执行。制作状态及授权用正式 API、协调器和 SQLite 验证。修改启动目录时复测 local、默认目录兼容性和私有文件。修改制作状态时复测重试、版本隔离以及界面状态与队列一致性。
 
 已知限制：受控回执不能证明真实AI内容/图片质量；Playwright是独立会话。UI没有停止按钮时以协议覆盖，不声称UI支持停止。
 
@@ -31,12 +31,12 @@ planned_end: UNPLANNED
 | <a id="dag-1"></a>1 | 重选后等待确认 | 现行 | [C037](CASES.md#case-c037)、[C005](CASES.md#case-c005) |
 | <a id="dag-2"></a>2 | 清空验收要求后收到准备结果 | 现行 | [C038](CASES.md#case-c038)、[C020](CASES.md#case-c020) |
 | <a id="dag-3"></a>3 | 只改验收要求 | 现行 | [C039](CASES.md#case-c039) |
-| <a id="dag-4"></a>4 | 单幅、首幅及重排 | 部分入口待核 | [C040](CASES.md#case-c040) · 重排按画幅身份验规则；手动重排入口未证实。 |
+| <a id="dag-4"></a>4 | 单幅、首幅及重排 | 部分入口待核 | [C040](CASES.md#case-c040)、[C065](CASES.md#case-c065) · 重排按画幅身份验规则；手动重排入口未证实。 |
 | <a id="dag-5"></a>5 | 旧绘图在修订后返回 | 现行 | [C041](CASES.md#case-c041)、[C023](CASES.md#case-c023) |
 | <a id="dag-6"></a>6 | 放回过期审片 | 现行 | [C039](CASES.md#case-c039) |
 | <a id="dag-7"></a>7 | 查找范围变化与晚到结果 | 现行 | [C037](CASES.md#case-c037)、[C001](CASES.md#case-c001)、[C005](CASES.md#case-c005) |
 | <a id="dag-8"></a>8 | 部分分镜时同时修改两项设置 | 现行 | [C039](CASES.md#case-c039) |
-| <a id="dag-9"></a>9 | 暂停改普通幅、按授权替换首幅 | 现行 | [C040](CASES.md#case-c040) · 部分出图稿的编辑与完成稿的首幅整篇重绘分开执行。 |
+| <a id="dag-9"></a>9 | 暂停改普通幅、按授权替换首幅 | 现行 | [C040](CASES.md#case-c040)、[C065](CASES.md#case-c065) · 部分出图稿的编辑与完成稿的首幅整篇重绘分开执行。 |
 | <a id="dag-10"></a>10 | 保存失败与文件可读性 | 现行 | [C042](CASES.md#case-c042)、[C006](CASES.md#case-c006)、[C023](CASES.md#case-c023)、[C031](CASES.md#case-c031) |
 | <a id="dag-11"></a>11 | 只恢复两个故障中的一个 | 现行 | [C043](CASES.md#case-c043)、[C004](CASES.md#case-c004)、[C011](CASES.md#case-c011) |
 | <a id="dag-12"></a>12 | 并发提交及重放 | 现行 | [C044](CASES.md#case-c044)、[C006](CASES.md#case-c006) |
@@ -51,7 +51,7 @@ planned_end: UNPLANNED
 | <a id="dag-21"></a>21 | 两篇共用图片服务凭据 | 待复验 | [C051](CASES.md#case-c051) · 早期两篇图片服务故障核查出现逐篇故障；共享文字服务或横图快照阻断的结果不能证明此分支。待隔离复验。 |
 | <a id="dag-22"></a>22 | 模型快照与全局设置 | 现行 | [C052](CASES.md#case-c052) |
 | <a id="dag-23"></a>23 | 提示词模板升级 | 现行 | [C052](CASES.md#case-c052) |
-| <a id="dag-24"></a>24 | 竖图重绘与横图套图 | 现行 | [C053](CASES.md#case-c053) · 旧核查表及 C008 当时要求连带重绘横图；现行独立套图只归原版。 |
+| <a id="dag-24"></a>24 | 竖图重绘与横图套图 | 现行 | [C053](CASES.md#case-c053) · 旧表与 C008 曾要求连带重绘；独立套图归原版。[C029/C032 · cd412ed6 原套图打印与零横图调用](evidence/2026-11-24-independent-print-review/review.md)。 |
 | <a id="dag-25"></a>25 | 确认后改重点或更新建议 | 现行 | [C054](CASES.md#case-c054) |
 | <a id="dag-26"></a>26 | 同输入的新幅复用旧图 | 现行 | [C041](CASES.md#case-c041) |
 | <a id="dag-27"></a>27 | 把历史版设为当前 | 不提供 | 历史版保持可读，不能设为当前；[现行场景矩阵](../../.docs/story-production-dag.md#完整场景矩阵) · [旧核查](../../.docs/tests/test-data-driven-production-dag.md#逐场景路径与验收) |
@@ -84,6 +84,6 @@ planned_end: UNPLANNED
 | <a id="dag-54"></a>54 | 追加登记条目 | 已删除 | 追加或重新登记条目；[取消依据](../../.docs/reqs/2026/11/24/req-production-spec-simplification.md#受影响的现有场景) · [旧核查](../../.docs/tests/test-data-driven-production-dag.md#逐场景路径与验收) |
 | <a id="dag-55"></a>55 | 单幅故障期间任务继续领取 | 现行 | [C043](CASES.md#case-c043)、[C011](CASES.md#case-c011) |
 | <a id="dag-56"></a>56 | 三类文字调用的输入契约 | 现行 | [C063](CASES.md#case-c063) · 旧核查曾列条目登记；现行核对的第三类请求是审片。 |
-| <a id="dag-57"></a>57 | 原版横图输入与打印 | 现行 | [C053](CASES.md#case-c053) · 旧核查要求该横图失效；现行原稿套图可打印。 |
+| <a id="dag-57"></a>57 | 原版横图输入与打印 | 现行 | [C053](CASES.md#case-c053) · 旧核查要求该横图失效；现行原稿套图可打印。[C029/C032 · cd412ed6 原套图打印与零横图调用](evidence/2026-11-24-independent-print-review/review.md)。 |
 | <a id="dag-58"></a>58 | 首次选择标题结语并放行 | 现行 | [C048](CASES.md#case-c048)、[C017](CASES.md#case-c017) · 旧核查只放行目标结论；现行操作放行所有待定或阻断项，各自绑定输入。 |
-| <a id="dag-59"></a>59 | 横图失败时仍可导出 | 现行 | [C064](CASES.md#case-c064)、[C026](CASES.md#case-c026) |
+| <a id="dag-59"></a>59 | 横图失败时仍可导出 | 现行 | [C064](CASES.md#case-c064)；[C026 · 原构建的竖图导出证据](evidence/2026-11-24-dag-recovery-retest/review.md)。现行横图故障和重试归原套图。 |

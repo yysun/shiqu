@@ -103,6 +103,14 @@ test('all 59 DAG scenarios resolve to managed cases or an explicit historical de
  assert.deepEqual(numbers, Array.from({length: 59}, (_, index) => index + 1), 'expected each legacy DAG number once in order');
 });
 
+test('the project runner prompt includes every branch and its evidence requirements', () => {
+ const template = readFileSync(new URL('../.tests/RUNNER_PROMPT.md', import.meta.url), 'utf8');
+ for (const field of ['Preconditions', 'Test Data', 'Expected Outcome', 'Negative Assertions', 'Evidence Required']) {
+  const projection = template.match(new RegExp(`{{\\s*${field}\\s*(?:\\|\\s*(\\w+)\\s*)?}}`));
+  assert.ok(projection && projection[1] !== 'first', `runner must include all lines of ${field}`);
+ }
+});
+
 test('declared dependencies and gates have no cycle outside specific frame references',()=>{
  const gates={preparing:[],confirmed:[],brief:['brief'],characters:['characters'],review:['frameCheck','ending','scene','visual'],approved:['frameCheck','frameVerdict','narrativeVerdict']};
  const aliases={order:[],reference:['refSource']};

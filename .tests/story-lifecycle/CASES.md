@@ -282,7 +282,7 @@ Run ID、构建、数据库位置、实际状态序列及断言；UI例含截图
 - Automation: HYBRID
 - Owner: UNASSIGNED
 
-退役依据：现行单幅、首幅和横图分列 C040、C053；本用例曾要求竖图重绘连带更新横图。原运行按当时构建保留。
+退役依据：现行阅读器单幅重绘见 C065，首幅与横图分列 C040、C053；本用例曾要求竖图重绘连带更新横图。原运行按当时构建保留。
 
 ### Objective
 
@@ -975,12 +975,14 @@ Run ID、构建、数据库位置、实际状态序列及断言；UI例含截图
 
 <a id="case-c026"></a>
 
-- State: READY
+- State: RETIRED
 - Priority: P1
 - Type: INTEGRATION
 - Requirement / Risk: R3；故障恢复、付费输出及界面状态
 - Automation: AUTOMATED
 - Owner: UNASSIGNED
+
+退役依据：独立套图的故障和重试归原版，竖图导出与原版横图恢复见 C064。保留下文供解读旧构建记录。
 
 ### Objective
 
@@ -1364,6 +1366,8 @@ PDF 不选用旧画风的失效横图。
 
 在隔离书库打开可编辑的完成稿，选择一幅原本没有曹操的画面。记录当前入画提示和图片。
 
+就绪条件：先在现行阅读器确认可见入画提示的具体位置，以便修改前后取同一视图。
+
 ### Test Data
 
 只在本幅配文加入「此时曹操尚在许都」，保留原画面描述。
@@ -1388,7 +1392,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c037"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: BUSINESS_E2E
 - Requirement / Risk: 制作 DAG 1, 7
@@ -1428,7 +1432,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c038"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: BUSINESS_E2E
 - Requirement / Risk: 制作 DAG 2, 14
@@ -1468,7 +1472,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c039"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: INTEGRATION
 - Requirement / Risk: 制作 DAG 3, 6, 8
@@ -1509,7 +1513,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c040"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: BUSINESS_E2E
 - Requirement / Risk: 制作 DAG 4, 9
@@ -1628,7 +1632,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c043"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: INTEGRATION
 - Requirement / Risk: 制作 DAG 11, 50, 55
@@ -1669,7 +1673,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c044"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: BUSINESS_E2E
 - Requirement / Risk: 制作 DAG 12
@@ -1708,7 +1712,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c045"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: BUSINESS_E2E
 - Requirement / Risk: 制作 DAG 13
@@ -1761,6 +1765,8 @@ PDF 不选用旧画风的失效横图。
 ### Preconditions
 
 使用隔离书库与受控提供方。已有完整故事、相邻幅及全篇结论。
+
+就绪条件：先确认现行编辑器是否提供配文联动更新描述的入口。配文单改已有正式流程回归。
 
 ### Test Data
 
@@ -1865,7 +1871,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c049"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: BUSINESS_E2E
 - Requirement / Risk: 制作 DAG 19, 43
@@ -1905,7 +1911,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c050"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: INTEGRATION
 - Requirement / Risk: 制作 DAG 20, 29
@@ -1960,6 +1966,8 @@ PDF 不选用旧画风的失效横图。
 
 使用隔离书库与受控提供方。在隔离服务内为两篇在途故事设置同一受控图片服务，另备配置正常的对照。
 
+就绪条件：备好可对两篇在制作品共享注入、解除图片凭据故障的隔离配置，并验证两篇都指向该服务。
+
 ### Test Data
 
 两篇共用图片服务凭据。数量、位置与对照输入见下列原编号。
@@ -1984,7 +1992,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c052"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: INTEGRATION
 - Requirement / Risk: 制作 DAG 22, 23
@@ -2045,7 +2053,7 @@ PDF 不选用旧画风的失效横图。
 
 ### Runner Instructions
 
-捕获横图请求，重绘第 8 幅竖图，从新版导出并回原稿打印横图。可复用的自动化见[production-dag-call-contract](../../tests/production-dag-call-contract.test.mjs)、[production-dag-scenarios](../../tests/production-dag-scenarios.test.mjs)。旧核查表及 C008 当时要求连带重绘横图；现行独立套图只归原版。 旧核查要求该横图失效；现行原稿套图可打印。
+捕获横图请求，重绘第 8 幅竖图，从新版导出并回原稿打印横图。可复用的自动化见[production-dag-call-contract](../../tests/production-dag-call-contract.test.mjs)、[production-dag-scenarios](../../tests/production-dag-scenarios.test.mjs)。旧核查表及 C008 当时要求连带重绘横图；现行[生命周期动作](../../.docs/story-production-lifecycle.md)与独立套图交付规则一致。 旧核查要求该横图失效；现行原稿套图可打印。
 
 ### Expected Outcome
 
@@ -2143,7 +2151,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c056"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: INTEGRATION
 - Requirement / Risk: 制作 DAG 30, 31, 36, 52
@@ -2264,7 +2272,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c059"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P0
 - Type: INTEGRATION
 - Requirement / Risk: 制作 DAG 38
@@ -2343,7 +2351,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c061"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: INTEGRATION
 - Requirement / Risk: 制作 DAG 42
@@ -2382,7 +2390,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c062"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: INTEGRATION
 - Requirement / Risk: 制作 DAG 47, 48
@@ -2461,7 +2469,7 @@ PDF 不选用旧画风的失效横图。
 
 <a id="case-c064"></a>
 
-- State: DRAFT
+- State: READY
 - Priority: P1
 - Type: BUSINESS_E2E
 - Requirement / Risk: 制作 DAG 59
@@ -2482,7 +2490,7 @@ PDF 不选用旧画风的失效横图。
 
 ### Runner Instructions
 
-发起横图，失败后查看第 8 幅、书架和其他画幅，随后从生产导出入口导出作品。可复用的自动化见[production-dag-scenarios](../../tests/production-dag-scenarios.test.mjs)、[production-reader-exit-flows](../../tests/production-reader-exit-flows.test.mjs)。
+发起横图，失败后查看第 8 幅、书架和其他画幅，随后从生产导出入口导出作品。另保存一次验收要求修订：回到原套图明确重试，记录重试归属和新版的竖图导出。可复用的自动化见[production-dag-scenarios](../../tests/production-dag-scenarios.test.mjs)、[production-reader-exit-flows](../../tests/production-reader-exit-flows.test.mjs)。
 
 ### Expected Outcome
 
@@ -2490,8 +2498,47 @@ PDF 不选用旧画风的失效横图。
 
 ### Negative Assertions
 
-可选横图故障不能阻断竖图导出、取消完成状态或污染其他幅。
+可选横图故障不能阻断竖图导出、取消完成状态或污染其他幅。修改验收要求不能把旧套图的故障或重试转给新版；明确重试只恢复原套图的失败幅。
 
 ### Evidence Required
 
 保存逐幅与整篇状态、导出文件及图片清单，标明仅横图的失败。记录构建和实际执行的原编号；缺一个分支时注明缺口。
+
+## STORY-LIFECYCLE-C065 — 阅读器取消、确认和重放单幅重绘
+
+<a id="case-c065"></a>
+
+- State: READY
+- Priority: P0
+- Type: BUSINESS_E2E
+- Requirement / Risk: 制作 DAG 4、9、24；读者可能被重复扣费或产生无用修订。
+- Automation: HYBRID
+- Owner: UNASSIGNED
+
+### Objective
+
+保留 C008 仍适用的阅读器承诺。独立横图的原版打印、请求字段和导出由 C053 验收。
+
+### Preconditions
+
+隔离书库有已完成的六幅故事，竖图均可读；记录版本列表、图像标识与调用计数。在应用内浏览器以手机宽度打开第 2 幅。
+
+### Test Data
+
+同一画幅先取消，再确认。保留确认请求的标识，用于服务层重放。
+
+### Runner Instructions
+
+在阅读器选择「重新生图」并取消，检查提交和版本计数；再次打开并确认。观察当前幅位置和进行中状态，等图片可读，回原版核对旧图。用[正式流程回归](../../tests/production-dag-scenarios.test.mjs)的 `confirming a reader redraw starts one frame immediately` 检验相同请求的重放。
+
+### Expected Outcome
+
+取消后保留原版。确认后只建一个新版并立即开始第 2 幅的重绘，界面保持在第 2 幅。完成后新版新图与原版旧图都可读，其他幅、分镜与审核沿用。重放返回同一修订。
+
+### Negative Assertions
+
+取消产生零提交、零新版、零绘图；确认后无需再点继续。同一请求重放产生零额外修订与模型调用。其他竖图、横图、文字和审片的新增调用均为零。
+
+### Evidence Required
+
+保存取消前后的提交、版本及调用数，确认后与完成后的阅读器状态、图像可读性，两次请求返回的版本 ID，以及全部实际派发幅号。C008 的旧构建记录只供追溯。

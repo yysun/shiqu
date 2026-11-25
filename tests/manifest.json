@@ -4434,6 +4434,7 @@
       "covers": [
         "lib/production-dag/registry.ts",
         ".docs/story-production-dag.md",
+        ".tests/RUNNER_PROMPT.md",
         ".tests/story-lifecycle/SUITE.md",
         ".tests/story-lifecycle/CASES.md"
       ]

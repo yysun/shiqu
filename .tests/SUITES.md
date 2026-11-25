@@ -6,6 +6,6 @@ This registry is derived from suite state. Regenerate it with `test-manager.mjs 
 
 | Suite | Title | Risk | State | Owner | Cases | Current result |
 | ----- | ----- | ---- | ----- | ----- | ----: | -------------- |
-| story-lifecycle | 故事新建、编辑与状态机 | HIGH | ACTIVE | UNASSIGNED | 64 | PARTIAL |
+| story-lifecycle | 故事新建、编辑与状态机 | HIGH | ACTIVE | UNASSIGNED | 65 | PARTIAL |
 
 <!-- TEST-MANAGER:SUITES:END -->
