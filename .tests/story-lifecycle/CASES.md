@@ -557,6 +557,8 @@ Run ID、构建、数据库位置、实际状态序列及断言；UI例含截图
 
 ## STORY-LIFECYCLE-C016 — 手改描述和配文分别影响入画人物
 
+<a id="case-c016"></a>
+
 - State: READY
 - Priority: P1
 - Type: INTEGRATION
@@ -578,7 +580,7 @@ Run ID、构建、数据库位置、实际状态序列及断言；UI例含截图
 
 ### Runner Instructions
 
-运行 hand-editing a picture description 用例，以正式修订、继续和绘图请求核对入画集合。另执行配文对照，比较复用范围。
+在 [生产流程回归](../../tests/production-dag-scenarios.test.mjs) 运行 `hand-editing a picture description passes` 和 `edit a caption, save, restart and continue`，分别核对实际绘图请求和配文对照的绘图调用数。按 C016 在 [RUNS](RUNS.md) 查找各构建的独立结果。
 
 ### Expected Outcome
 
@@ -1294,3 +1296,42 @@ PDF 不选用旧画风的失效横图。
 ### Evidence Required
 
 记录返回状态、动作入口和实际绘图调用。
+
+## STORY-LIFECYCLE-C036 — 只在配文提及人物时核对编辑器入画提示
+
+<a id="case-c036"></a>
+
+- State: DRAFT
+- Priority: P2
+- Type: E2E
+- Requirement / Risk: DAG 35；编辑器可能把配文里的提及显示成入画人物。
+- Automation: MANUAL
+- Owner: UNASSIGNED
+
+### Objective
+
+核对读者看到的入画提示与已保存的入画名单一致。
+
+### Preconditions
+
+在隔离书库打开可编辑的完成稿，选择一幅原本没有曹操的画面。记录当前入画提示和图片。
+
+### Test Data
+
+只在本幅配文加入「此时曹操尚在许都」，保留原画面描述。
+
+### Runner Instructions
+
+在阅读器打开修订编辑器，更改配文，比较修改前、保存并重开后的入画提示。点击继续并核对绘图次数。
+
+### Expected Outcome
+
+提示和入画名单保持原样，绘图调用数为零。
+
+### Negative Assertions
+
+配文提及不能把曹操加入画面。正式请求的断言不能证明编辑器显示正确。
+
+### Evidence Required
+
+同一画幅两次编辑器截图、该次修订及受控绘图计数。尚缺此 UI 对照的运行证据。
