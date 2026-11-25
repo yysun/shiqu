@@ -25,6 +25,9 @@ const visible=visibleStory;
 export const familyRoot=(alias:string)=>`COALESCE(json_extract(CASE WHEN json_valid(${alias}.document) THEN ${alias}.document ELSE '{}' END,'$.revision.rootId'),${alias}.id)`;
 export const familyNumber=(alias:string)=>`COALESCE(json_extract(CASE WHEN json_valid(${alias}.document) THEN ${alias}.document ELSE '{}' END,'$.revision.number'),1)`;
 export const supersededSql=(alias='stories')=>`EXISTS(SELECT 1 FROM stories newer WHERE newer.user_id=${alias}.user_id AND ${familyRoot('newer')}=${familyRoot(alias)} AND ${familyNumber('newer')}>${familyNumber(alias)})`;
+// 横图属于来源版本；删除该版本或书架当前版本都会阻止新的派发。
+export const landscapePrintHiddenSql=(alias='stories')=>`EXISTS(SELECT 1 FROM library_deletions d JOIN stories removed ON removed.id=d.story_id AND removed.user_id=d.user_id
+ WHERE d.user_id=${alias}.user_id AND (removed.id=${alias}.id OR (${familyRoot('removed')}=${familyRoot(alias)} AND NOT ${supersededSql('removed')})))`;
 export const latestVersionMessage='这是旧版本，请打开书架中的最新版本继续生成。';
 // 最大版本先包含已删除项，避免删除后把历史版推回书架。
 export const shelfRowsSql=`WITH editions AS MATERIALIZED (
@@ -39,13 +42,21 @@ export const openReplacementParentsSql=(singleStory:boolean)=>{
  const parent="json_extract(CASE WHEN json_valid(document) THEN document ELSE '{}' END,'$.reselection.parentId')";
  return `SELECT DISTINCT ${parent} AS parentId FROM stories WHERE user_id=? AND ${singleStory?`${parent}=?`:`${parent} IS NOT NULL`} AND ${visible}`;
 };
+function pauseDeletedLandscapePrints(db:SyncStatements,id:string,uid:string){
+ db.run(`UPDATE stories SET document=json_set(document,'$.legacyLandscapeControl','paused') WHERE id=? AND user_id=?
+  AND CASE WHEN json_valid(document) THEN EXISTS(SELECT 1 FROM json_each(document,'$.dag.frames') WHERE json_type(value,'$.landscape')='text') END`,id,uid);
+ // 删除历史版只影响它自己；删除书架当前版本还要暂停同一作品历史版的在途套图。
+ db.run(`UPDATE stories SET document=json_set(document,'$.landscapePrints[#-1].control','paused')
+  WHERE user_id=? AND CASE WHEN json_valid(document) THEN json_extract(document,'$.landscapePrints[#-1].control')='active' END
+  AND (id=? OR (${familyRoot('stories')}=(SELECT ${familyRoot('card')} FROM stories card WHERE card.id=? AND card.user_id=? AND NOT ${supersededSql('card')})
+   AND EXISTS(SELECT 1 FROM production_jobs j WHERE j.session_id=stories.id AND j.owner_id=stories.user_id
+    AND j.kind='landscape-print' AND j.version=json_extract(stories.document,'$.landscapePrints[#-1].id') AND j.state IN ('queued','running'))))`,uid,id,id,uid);
+}
 /** 在调用方事务中标记已核对归属的故事，并停止后续制作。 */
 export function markStoryDeleted(db:SyncStatements,id:string,uid:string,deletedAt=new Date().toISOString()){
  db.run("INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) VALUES(?,?,'generated',?) ON CONFLICT(user_id,story_id) DO NOTHING",uid,id,deletedAt);
  db.run("UPDATE stories SET generation_control='stopped' WHERE id=? AND user_id=? AND generation_control!='stopped'",id,uid);
- // 删除使独立横图也暂停，恢复书籍时仍需从横图步骤恢复该任务。
- db.run(`UPDATE stories SET document=json_set(document,'$.landscapePrints[#-1].control','paused') WHERE id=? AND user_id=?
-  AND CASE WHEN json_valid(document) THEN json_type(document,'$.landscapePrints[#-1]')='object' ELSE 0 END`,id,uid);
+ pauseDeletedLandscapePrints(db,id,uid);
  return db.get<{storyId:string;deletedAt:string}>('SELECT story_id AS storyId,deleted_at AS deletedAt FROM library_deletions WHERE user_id=? AND story_id=?',uid,id)!;
 }
 // A failed write says nothing about the work, so callers must not report it as a provider failure.
@@ -110,10 +121,12 @@ export class ReaderRepository{
  async currentStoryIds(uid:string){return (await this.db.prepare('SELECT id FROM stories WHERE user_id=? ORDER BY id').bind(uid).all<{id:string}>()).results.map(row=>row.id);}
  async deletions(uid:string){
   const rows=(await this.db.prepare(`SELECT d.story_id AS storyId,d.deleted_at AS deletedAt,d.kind,s.id IS NOT NULL AS owned,
-   COALESCE(json_extract(s.selection,'$.displayTitle'),json_extract(s.document,'$.plan.title'),json_extract(s.selection,'$.storyTitle'),'未命名故事') AS title
+   COALESCE(CASE WHEN json_valid(s.selection) THEN json_extract(s.selection,'$.displayTitle') END,
+    CASE WHEN json_valid(s.document) THEN json_extract(s.document,'$.plan.title') END,
+    CASE WHEN json_valid(s.selection) THEN json_extract(s.selection,'$.storyTitle') END,'未命名故事') AS title
    FROM library_deletions d
    LEFT JOIN stories s ON s.id=d.story_id AND s.user_id=d.user_id
-   WHERE d.user_id=? AND d.kind='generated' AND (s.id IS NULL OR json_type(s.document,'$.reselection') IS NULL)
+   WHERE d.user_id=? AND d.kind='generated' AND (CASE WHEN json_valid(s.document) THEN json_type(s.document,'$.reselection') END) IS NULL
    ORDER BY d.deleted_at DESC,d.story_id`).bind(uid).all<{storyId:string;deletedAt:string;kind:'generated';title:string;owned:number}>()).results;
   return rows.map(({owned,...item})=>({...item,canRestore:authorizeLibraryControl({event:'restore',owned:!!owned,deleted:true})==='restore'}));
  }
@@ -132,9 +145,12 @@ export class ReaderRepository{
    const decision=authorizeLibraryControl({event:'restore',owned:!!story,deleted:!!story?.deleted});
    if(decision==='missing')throw new ReaderError(404,'这篇故事不在你的书架里');
    const restored=decision==='restore';
-   if(restored)db.run('DELETE FROM library_deletions WHERE user_id=? AND story_id=?',uid,id);
-   // 旧版删除记录也按停止恢复，读者须再明确恢复生成。
-   if(restored)db.run("UPDATE stories SET generation_control='stopped' WHERE id=? AND user_id=? AND generation_control!='stopped'",id,uid);
+   if(restored){
+    // 旧版删除记录可能仍有活动套图，恢复前一并暂停。
+    pauseDeletedLandscapePrints(db,id,uid);
+    db.run("UPDATE stories SET generation_control='stopped' WHERE id=? AND user_id=? AND generation_control!='stopped'",id,uid);
+    db.run('DELETE FROM library_deletions WHERE user_id=? AND story_id=?',uid,id);
+   }
    return {storyId:id,restored};
   });
  }

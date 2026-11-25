@@ -8,17 +8,29 @@ import {drizzle} from 'drizzle-orm/sqlite-proxy';
 import type {SQLInputValue} from 'node:sqlite';
 import type {Database,SyncStatements} from '../lib/reader-repository.ts';
 import * as schema from '../db/schema.ts';
+import {withLibraryGate} from './library-schema.ts';
 import {ensureLibraryReady} from './library-upgrade.ts';
 export {migrate} from './database-migrations.ts';
 
-export function openDatabase(directory:string,root:string){
- ensureLibraryReady(directory,root);
- const sqlite=new DatabaseSync(path.join(directory,'shiqu.sqlite'));
+export function openDatabase(directory:string,root:string,readOnly=false){
+ const filename=path.join(directory,'shiqu.sqlite');
+ const open=()=>{
+  ensureLibraryReady(directory,root,{readOnly});
+  const sqlite=new DatabaseSync(filename,{readOnly});
+  if(readOnly)try{
+   // 在升级门内固定快照；制作可在导出期间继续写入 WAL。
+   sqlite.exec('PRAGMA busy_timeout=5000; BEGIN; SELECT name FROM sqlite_schema LIMIT 1');
+  }catch(error){sqlite.close();throw error;}
+  return sqlite;
+ };
+ const sqlite=readOnly?withLibraryGate(directory,open,'shared'):open();
  try{
-  sqlite.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
-  sqlite.exec('BEGIN IMMEDIATE');
-  try{sqlite.exec(readFileSync(path.join(root,'docker/seed.sql'),'utf8'));sqlite.exec('COMMIT');}
-  catch(error){sqlite.exec('ROLLBACK');throw error;}
+  if(!readOnly){
+   sqlite.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
+   sqlite.exec('BEGIN IMMEDIATE');
+   try{sqlite.exec(readFileSync(path.join(root,'docker/seed.sql'),'utf8'));sqlite.exec('COMMIT');}
+   catch(error){sqlite.exec('ROLLBACK');throw error;}
+  }
   const db=drizzle(async(query,params,method)=>{
    const statement=sqlite.prepare(query),values=params as SQLInputValue[];
    if(method==='run'){statement.run(...values);return {rows:[]};}

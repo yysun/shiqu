@@ -41,14 +41,14 @@ export function liveReaderProvider(initial:Variables,read:()=>Variables,create:(
 }
 
 const types:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.woff':'font/woff','.woff2':'font/woff2','.ico':'image/x-icon'};
-export function createApplication(options:{root:string;dataDirectory:string;variables?:Variables;providerVariables?:()=>Variables;snapshotVariables?:(snapshot:ModelSnapshot)=>Variables;transport?:typeof fetch;generation?:ReaderProvider;production?:ProductionOptions;commandOnly?:boolean}){
+export function createApplication(options:{root:string;dataDirectory:string;variables?:Variables;providerVariables?:()=>Variables;snapshotVariables?:(snapshot:ModelSnapshot)=>Variables;transport?:typeof fetch;generation?:ReaderProvider;production?:ProductionOptions;commandOnly?:boolean;exportOnly?:boolean}){
  const media=new FileMedia(path.join(options.dataDirectory,'media'));
  const storySearch=applicationStorySearch(options.root,options.dataDirectory,()=>localBooks,options.transport||fetch);
  const localBooks:LocalBooks=new LocalBooks(options.root,storySearch);
  const cache=new StoryDiscoveryCache(media),create=(variables:Variables)=>withLocalBooks(createReaderProvider(variables,media,options.transport||fetch),localBooks,media,cache,storySearch);
  const generation=options.generation||(options.providerVariables?liveReaderProvider(options.variables||{},options.providerVariables,create):create(options.variables||{}));
  const imageWorkers=configuredImageWorkers(options.variables?.SHIQU_IMAGE_WORKERS);
- const local=openDatabase(options.dataDirectory,options.root);
+ const local=openDatabase(options.dataDirectory,options.root,options.exportOnly);
  let retainedLegacyArt:Set<string>|undefined;
  // 模型快照服务只在由设置构造提供方时启用；测试等直接注入的提供方沿用其自身，不按快照重建。
  const liveVariables=()=>options.providerVariables?options.providerVariables():options.variables||{};
@@ -56,15 +56,15 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
   current:()=>{const variables=liveVariables();return variables.SHIQU_AI_PROVIDER==='readonly'?undefined:currentSnapshot(variables);},
   provider:snapshot=>{const result=providerForSnapshot(snapshot,options.snapshotVariables?options.snapshotVariables(snapshot):liveVariables(),media,options.transport||fetch);return result.available?withLocalBooks(result.provider,localBooks,media,cache,storySearch):null;},
  };
- const production=new ReaderProductionCoordinator(local.database,generation,media,{imageWorkers,...(snapshots?{snapshots}:{}),...options.production});
- if(!options.providerVariables&&options.variables?.SHIQU_AI_PROVIDER==='readonly'&&options.production?.autoStart!==false)production.stop();
+ const production=options.exportOnly?undefined:new ReaderProductionCoordinator(local.database,generation,media,{imageWorkers,...(snapshots?{snapshots}:{}),...options.production});
+ if(!options.providerVariables&&options.variables?.SHIQU_AI_PROVIDER==='readonly'&&options.production?.autoStart!==false)production?.stop();
  const services:Services={db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,localBooks,transport:options.transport||fetch,generation,production,commandOnly:options.commandOnly};
  const api=createApi(services),publicDirectory=path.resolve(options.root,'dist/client');
  let closed=false,closing:Promise<void>|undefined;
- return {services,get generating(){return production.busy;},startGeneration:()=>production.start(),stopGeneration:()=>production.stop(),close(){
+ return {services,get generating(){return production?.busy??false;},startGeneration:()=>production?.start(),stopGeneration:()=>production?.stop(),close(){
   if(closed)return closing;
-  production.stop();closed=true;
-  if(!production.busy){void production.close();local.close();return;}
+  production?.stop();closed=true;
+  if(!production?.busy){void production?.close();local.close();return;}
   return closing=production.close().then(()=>local.close());
  },async handle(request:Request){
   const url=new URL(request.url);

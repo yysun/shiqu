@@ -12,6 +12,8 @@ import {framePrompt,type SourceInput,type StyleInput,type Character,type Outline
 import {endingChoice,type DagDocument,type DagIssue} from './document.ts';
 import type {DagStory,Work} from './runner.ts';
 
+type RequestInputs=Omit<Work,'instances'>&{instances:Pick<Instance,'key'|'node'>[]};
+
 export function bookLabel(selection:Selection){
  return ((selection.bookId==='other'?selection.customBook:readerBooks.find(b=>b.id===selection.bookId)?.title||selection.bookId)||'').trim();
 }
@@ -25,7 +27,7 @@ const at=(dag:DagDocument,key:string)=>dag.order.indexOf(key);
 const stripTarget=({target:_t,stalled:_s,...issue}:DagIssue):ReviewIssue=>{void _t;void _s;return issue;};
 
 /** 输入引用到实际值；与引擎 resolve() 的引用一一对应。 */
-function value(story:DagStory,item:Work,ref:string,key:string):unknown{
+function value(story:DagStory,item:RequestInputs,ref:string,key:string):unknown{
  const {dag,doc,selection}=story,frame=dag.frames[key];
  switch(ref){
   case 'source':if(!doc.original)throw Error('DAG_SOURCE_MISSING');return {original:doc.original,book:bookLabel(selection),chosenStory:selection.storyTitle,theme:selection.theme,variationSeed:story.id} satisfies SourceInput;
@@ -62,7 +64,7 @@ function value(story:DagStory,item:Work,ref:string,key:string):unknown{
 }
 
 /** 本次工作声明的输入；审片为允许结论各自的硬输入（含条目依据）与上下文之并。 */
-export function declaredInputs(story:DagStory,item:Work):Set<string>{
+export function declaredInputs(story:DagStory,item:RequestInputs):Set<string>{
  const spec=(calls as Record<string,CallSpec>)[item.call];
  if(!spec)throw Error(`DAG_CALL_UNKNOWN: ${item.call}`);
  const refs=new Set([...spec.bound,...(spec.check||[]),...(spec.sources||[]),...(spec.context||[])]);
@@ -86,7 +88,7 @@ export type Reader={has(ref:string):boolean;get<T=unknown>(ref:string,key?:strin
  * 读取器：只交出声明的输入。按画幅或条目的引用（@self、@candidates 等）只能读本次工作的实例；
  * @window 与 @all 的声明允许读对应画幅；同批其他实例按 @batch 声明作为来源可读。
  */
-export function reader(story:DagStory,item:Work):Reader{
+export function reader(story:DagStory,item:RequestInputs):Reader{
  const declared=declaredInputs(story,item);
  const keys=new Set(item.instances.map(i=>i.key));
  const window=new Set<string>();
@@ -193,7 +195,7 @@ export function requestFor(story:DagStory,item:Work):CallInput{
 }
 
 /** 绘图与横图的输入：同样经读取器，只读本幅画面描述、入画人物设定、画风、重绘说明与参考图。 */
-export function drawInput(story:DagStory,item:Work){
+export function drawInput(story:DagStory,item:RequestInputs){
  const read=reader(story,item),key=item.instances[0].key,index=at(story.dag,key),landscape=item.call==='drawLandscape';
  const style=read.get<StyleInput>('style');
  const reference=landscape?read.get<string|undefined>('frameImage@self',key):read.get<string|undefined>('reference',key);

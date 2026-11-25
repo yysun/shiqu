@@ -135,11 +135,19 @@ test('in-process CLI saves intent without inference, runs bounded discovery/prep
  const pauseId=crypto.randomUUID();await call(['stories','pause',id,'--request-id',pauseId]);await call(['stories','pause',id,'--request-id',pauseId]);assert.equal((await call(['run',id,'--timeout','1'])).reason,'paused');assert.equal(f.control.dagCalls.length,0);
  await call(['stories','resume',id]);const reviewed=await call(['run',id,'--until','reviewed','--timeout','10']);assert.equal(reviewed.reason,'reviewed');assert.equal(f.control.calls.length,0);
  const completed=await call(['run',id,'--timeout','10']);assert.equal(completed.reason,'completed');assert.equal(f.control.calls.length,3);
+ const offline=await executeHeadless(process.cwd(),['run',id,'--data-dir',f.dataDirectory],{
+  variables:{},generation:{...f.generation,status:async()=>({configured:false})},
+ });
+ assert.equal(offline.reason,'completed');
  const before=f.control.dagCalls.length;
  await call(['stories','rename',id,'--title','离线故事']);assert.equal((await call(['stories','get',id])).story.title,'离线故事');
  const editId=crypto.randomUUID(),changes={token:(await call(['stories','revisions',id])).token,changes:{acceptancePrompt:'保留原文关键行动'}};
  const edited=await call(['stories','edit',id,'--request-id',editId],changes);assert.notEqual(edited.session.id,id);assert.equal(f.control.dagCalls.length,before);
  const replay=await call(['stories','edit',id,'--request-id',editId],changes);assert.equal(replay.session.id,edited.session.id);
+ const output=path.join(f.root,'latest.json');
+ await call(['export',id,'--format','json','--allow-unsigned','--output',output]);
+ assert.equal(JSON.parse(await readFile(output,'utf8')).id,edited.session.id);
+ assert.equal(f.control.dagCalls.length,before);
  await assert.rejects(call(['run',id,'--timeout','1']),error=>error.code==='SUPERSEDED_VERSION');
  const db=inspect();assert.equal(db.prepare('SELECT count(*) AS n FROM stories').get().n,2);db.close();
  const backup=path.join(f.root,'backup'),restored=path.join(f.root,'restored');await call(['backup',backup]);await call(['verify-backup',backup]);
@@ -223,6 +231,23 @@ test('same native/browser export core produces credited public ZIP, PDF, PNG and
  await assert.rejects(call(['export',id,'--format','zip','--output',path.join(f.root,'unsigned.zip')]),/EXPORT_UNSIGNED/);
  await call(['api','POST','reader/publication-defaults'],{publication:{...emptyPublication,author:'测试作者'},expected:null});
  const snapshot=await call(['stories','get',id]),source=snapshot.story.pages[0].image.replace('/api/reader/media/','reader/'),original=await readFile(path.join(f.dataDirectory,'media',source));
+ await call(['stories','rename',id,'--title','<script>alert(1)</script>']);
+ // 另一个进程持有真实桌面服务锁时，所有导出格式都可读取同一已保存作品。
+ const ownerModule=new URL('../server/desktop-owner.ts',import.meta.url).href;
+ const holder=spawn(process.execPath,['--input-type=module','-e',`import {ownDesktopDataSync} from ${JSON.stringify(ownerModule)};
+  const release=ownDesktopDataSync(process.argv[1]);process.send('ready');process.on('disconnect',release);`,f.dataDirectory],{stdio:['ignore','ignore','inherit','ipc']});
+ const exited=once(holder,'exit');
+ t.after(async()=>{if(holder.connected)holder.disconnect();await exited;});
+ assert.deepEqual(await Promise.race([once(holder,'message'),exited]),['ready',undefined]);
+ const db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'),{readOnly:true});
+ t.after(()=>db.close());
+ const version=()=>db.prepare('PRAGMA data_version').get().data_version;
+ const before=version(),calls=f.control.calls.length;
+ for(const format of ['json','md']){
+  const output=path.join(f.root,'export.'+format);
+  await call(['export',id,'--format',format,'--output',output]);
+  assert.ok((await readFile(output,'utf8')).includes('<script>alert(1)</script>'));
+ }
  const zipFile=path.join(f.root,'story.zip');await call(['export',id,'--format','zip','--output',zipFile]);
  const files=unzipSync(await readFile(zipFile)),saved=JSON.parse(strFromU8(files['故事.json']));assert.equal(saved.author,'测试作者');assert.equal(saved.pages.length,8);
  assert.deepEqual(Object.keys(files).filter(n=>!n.startsWith('图片/')).sort(),['分镜.md','故事.json','署名与转载.txt']);
@@ -230,9 +255,20 @@ test('same native/browser export core produces credited public ZIP, PDF, PNG and
  assert.deepEqual(await readFile(path.join(f.dataDirectory,'media',source)),original);
  const pdfFile=path.join(f.root,'story.pdf'),pngFile=path.join(f.root,'story.png');await call(['export',id,'--format','pdf','--output',pdfFile]);await call(['export',id,'--format','png','--output',pngFile]);
  assert.ok((await PDFDocument.load(await readFile(pdfFile))).getPageCount()>=9);assert.ok((await loadImage(await readFile(pngFile))).height>1000);
- await call(['stories','rename',id,'--title','<script>alert(1)</script>']);const preview=path.join(f.root,'preview.html');await call(['preview',id,'--output',preview]);const html=await readFile(preview,'utf8');assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script>'));assert.ok(html.includes('data:image/png;base64,'));
+ const preview=path.join(f.root,'preview.html');await call(['preview',id,'--output',preview]);const html=await readFile(preview,'utf8');assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script>'));assert.ok(html.includes('data:image/png;base64,'));
  await assert.rejects(call(['export',id,'--output',zipFile]),/EEXIST/);
+ assert.equal(version(),before);assert.equal(f.control.calls.length,calls);
 });
+test('preview refuses a pending upgrade without migrating the library',async t=>{
+ const {f,call}=await fixture(t),db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));
+ const latest=db.prepare('SELECT name FROM app_migrations ORDER BY name DESC LIMIT 1').get().name;
+ db.prepare('DELETE FROM app_migrations WHERE name=?').run(latest);
+ try{
+  await assert.rejects(call(['preview',crypto.randomUUID(),'--output',path.join(f.root,'story.html')]),/LIBRARY_UPGRADE_REQUIRED/);
+  assert.equal(db.prepare('SELECT name FROM app_migrations WHERE name=?').get(latest),undefined);
+ }finally{db.close();}
+});
+
 test('real CLI subcommands initialize/inspect/export diagnostics with one JSON stdout and no network listener', {...heavy,timeout:30000},async t=>{
  const f=await startupFixture(t),source=new URL('../server/cli.ts',import.meta.url).href,directory=path.join(f.root,'headless-library');
  async function cli(args){
@@ -259,4 +295,21 @@ test('real CLI subcommands initialize/inspect/export diagnostics with one JSON s
  const missing=path.join(f.root,'missing-backup-source');const backup=await cli(['backup',path.join(f.root,'unused-backup'),'--data-dir',missing]);assert.notEqual(backup.exit,0);assert.equal(backup.value.error.code,'LIBRARY_NOT_FOUND');await assert.rejects(readFile(path.join(missing,'shiqu.sqlite')),{code:'ENOENT'});
  const corrupt=path.join(f.root,'corrupt');await mkdir(corrupt);const broken=Buffer.from('not a SQLite database');await writeFile(path.join(corrupt,'shiqu.sqlite'),broken);
  assert.notEqual((await cli(['stories','list','--data-dir',corrupt])).exit,0);assert.deepEqual(await readFile(path.join(corrupt,'shiqu.sqlite')),broken);
+});
+
+test('a portrait CLI run leaves queued landscape drawings for the independent landscape worker',async t=>{
+ const {f,library,call}=await fixture(t);
+ const {session:{id}}=await call(['stories','create','--no-intake'],{...selection,length:3,source:library.stories[0].source,storyTitle:library.stories[0].title});
+ assert.equal((await call(['run',id])).reason,'completed');
+ f.options.production={autoStart:false};await f.restart();
+ const route=`sessions/${id}/landscape`;
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'reprepare'});
+ await f.stop();const count=f.control.calls.length;
+ assert.equal((await call(['run',id,'--until','completed','--timeout','5'])).reason,'completed');
+ assert.equal(f.control.calls.length,count);
+ await f.restart();
+ assert.equal((await f.json(route)).state,'running');
+ const {n}=await f.app.services.database.prepare("SELECT count(*) AS n FROM production_jobs WHERE kind='landscape-print' AND state='queued' AND attempts=0 AND session_id=?").bind(id).first();
+ assert.equal(n,3);
 });

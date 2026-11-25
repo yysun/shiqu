@@ -91,7 +91,9 @@ export class Evaluation{
    this.memo.set(id,result);return result;
   }
   const hardRefs=[...spec.hard,...(spec.evidence?this.evidenceRefs(key):[])];
-  const hardResolved=hardRefs.map(ref=>[ref,this.resolve(ref,key)] as const);
+  // 横图绑定已保存的竖图。其文件在派发前单独核对，竖图制作的故障不阻断已授权的横图。
+  const hardResolved=hardRefs.map(ref=>[ref,node==='landscape'&&ref==='frameImage@self'?
+   {hash:this.state.products[instanceId('frameImage',key)]?.hash,blocked:false}:this.resolve(ref,key)] as const);
   const checkResolved=(spec.check||[]).map(ref=>[ref,this.resolve(ref,key)] as const);
   const hard=hardResolved.every(([,r])=>r.hash!==undefined)?Object.fromEntries(hardResolved.map(([ref,r])=>[ref,r.hash!])):undefined;
   const check=checkResolved.every(([,r])=>r.hash!==undefined)?Object.fromEntries(checkResolved.map(([ref,r])=>[ref,r.hash!])):undefined;

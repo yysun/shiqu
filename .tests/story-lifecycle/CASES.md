@@ -1183,3 +1183,114 @@ PDF 不选用旧画风的失效横图。
 ### Evidence Required
 
 保留正式接口、调用记录及对应断言的结果。
+
+## STORY-LIFECYCLE-C033 — 删除书架作品应停止旧版本横图派发
+
+- State: READY
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: R1
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+删除书架作品应停止旧版本横图派发。
+
+### Preconditions
+
+隔离 SQLite 书库、生产协调器和受控绘图提供方。
+
+### Test Data
+
+旧版四幅横图已发送第一幅；书架只显示已完成的修订版。
+
+### Runner Instructions
+
+删除修订版卡片，释放已发送的第一幅，排空队列并读取绘图调用。 [复现程序](evidence/2026-11-24-independent-print-review/replay.mjs)
+
+### Expected Outcome
+
+允许第一幅收尾，删除后不再派发其余三幅。
+
+### Negative Assertions
+
+书架清空后不能继续产生新的绘图调用。
+
+### Evidence Required
+
+记录返回状态、动作入口和实际绘图调用。
+
+## STORY-LIFECYCLE-C034 — 横图使用的模型失效后可以恢复或替换套图
+
+- State: READY
+- Priority: P2
+- Type: INTEGRATION
+- Requirement / Risk: R3
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+横图使用的模型失效后可以恢复或替换套图。
+
+### Preconditions
+
+隔离 SQLite 书库、生产协调器和受控绘图提供方。
+
+### Test Data
+
+四幅套图已发出一幅，旧模型不可用，新模型可用。
+
+### Runner Instructions
+
+暂停横图，切换到新配置，尝试恢复并应用当前模型，重启后检查任务。 [复现程序](evidence/2026-11-24-independent-print-review/replay.mjs)
+
+### Expected Outcome
+
+有可用的恢复或替换操作，读者可以完成这套横图或重新发起。
+
+### Negative Assertions
+
+不得在进度停于一幅时长期占用唯一的新建入口。
+
+### Evidence Required
+
+记录返回状态、动作入口和实际绘图调用。
+
+## STORY-LIFECYCLE-C035 — 旧横图控制不得暂停新版竖图
+
+- State: READY
+- Priority: P2
+- Type: INTEGRATION
+- Requirement / Risk: R3
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+旧横图控制不得暂停新版竖图。
+
+### Preconditions
+
+隔离 SQLite 书库、生产协调器和受控绘图提供方。
+
+### Test Data
+
+旧版套图完整；新版仅已启动竖图制作。
+
+### Runner Instructions
+
+向新版横图控制接口提交旧版真实套图编号，读取 HTTP 返回和新版制作控制。 [复现程序](evidence/2026-11-24-independent-print-review/replay.mjs)
+
+### Expected Outcome
+
+服务拒绝不匹配的套图编号，竖图保持制作中。
+
+### Negative Assertions
+
+不能把针对旧横图的暂停转交给新版主制作流程。
+
+### Evidence Required
+
+记录返回状态、动作入口和实际绘图调用。

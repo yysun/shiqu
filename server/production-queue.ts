@@ -17,7 +17,7 @@ export type JobSpec={id:string;sessionId:string;ownerId:string;kind:string;pool:
 export type ProductionJob={id:string;session_id:string;owner_id:string;kind:string;pool:string;version:string;dependencies:string;payload:string;result:string|null;state:'queued'|'running'|'succeeded'|'failed';priority:number;attempts:number;lease_token:string|null;lease_until:number;error:string|null;error_code?:string|null;interrupted:number;failure_id?:string|null;recovery_id?:string|null;created_at:number;updated_at:number};
 export type JobContext={outputs:Record<string,unknown>;isCurrent:()=>Promise<boolean>};
 export type JobHandler={pool:string;drain?:boolean;run:(job:ProductionJob,context:JobContext)=>Promise<unknown>};
-type Options={targetSessionId?:string;limits:Record<string,number>;handlers:Record<string,JobHandler>;candidateFilter?:string;skipCandidate?:(job:ProductionJob)=>boolean;canRun?:(job:ProductionJob)=>Promise<boolean>;canClaim?:(db:SyncStatements,job:ProductionJob,now:number)=>boolean;onSettled?:()=>void;resumeInterrupted?:(job:ProductionJob)=>Promise<boolean>;safeError?:(error:unknown,job:ProductionJob)=>string;errorCode?:(error:unknown,job:ProductionJob)=>string|undefined;terminal?:(error:unknown,job:ProductionJob)=>boolean;now?:()=>number;leaseMs?:number};
+type Options={targetSessionId?:string;ownsJob?:(job:ProductionJob)=>boolean;limits:Record<string,number>;handlers:Record<string,JobHandler>;candidateFilter?:string;skipCandidate?:(job:ProductionJob)=>boolean;canRun?:(job:ProductionJob)=>Promise<boolean>;canClaim?:(db:SyncStatements,job:ProductionJob,now:number)=>boolean;onSettled?:()=>void;resumeInterrupted?:(job:ProductionJob)=>Promise<boolean>;safeError?:(error:unknown,job:ProductionJob)=>string;errorCode?:(error:unknown,job:ProductionJob)=>string|undefined;terminal?:(error:unknown,job:ProductionJob)=>boolean;now?:()=>number;leaseMs?:number};
 const interruptedMessage='上次生成已中断，已保留保存的结果。请重试继续。';
 // A handler that stopped without spending an attempt: the job waits in the queue for its next turn.
 export class JobYield extends Error{
@@ -62,7 +62,7 @@ export class ProductionQueue{
   // Search is retried on its own, so a retried story never starts another round of it.
   const now=this.clock();
   transact(this.database,db=>{
-   const where="session_id=? AND owner_id=? AND state IN('failed','queued') AND kind NOT IN ('discover','landscape-image','landscape-print') AND (? IS NULL OR json_extract(payload,'$.setupGeneration')=?)";
+   const where="session_id=? AND owner_id=? AND state IN('failed','queued') AND kind NOT IN ('discover','landscape-image','landscape-print') AND json_extract(payload,'$.work.call') IS NOT 'drawLandscape' AND (? IS NULL OR json_extract(payload,'$.setupGeneration')=?)";
    const interrupted=db.all<ProductionJob>(`SELECT * FROM production_jobs WHERE ${where} AND state='failed' AND interrupted=1`,sessionId,ownerId,generation??null,generation??null);
    db.run(`UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE ${where}`,now,sessionId,ownerId,generation??null,generation??null);
    for(const job of interrupted)recordJobRequeued(db,job,now);
@@ -82,6 +82,7 @@ export class ProductionQueue{
   const expired=(await this.database.prepare(`SELECT * FROM production_jobs WHERE ((state='running' AND lease_until<=?) OR (state='failed' AND interrupted=1))${this.options.targetSessionId?" AND session_id=?":""}`).bind(this.clock(),...(this.options.targetSessionId?[this.options.targetSessionId]:[])).all<ProductionJob>()).results;
   for(const job of expired){
    try{
+   if(this.options.ownsJob&&!this.options.ownsJob(job))continue;
    // This process is still running the attempt, so its clock jumped; the attempt is not abandoned.
    const running=job.state==='running',localLease=running&&this.tokens.get(job.id)===job.lease_token;
    const resume=!localLease&&!!await this.options.resumeInterrupted?.(job);
@@ -118,7 +119,7 @@ export class ProductionQueue{
    const candidates=(await this.database.prepare(`SELECT j.* FROM production_jobs j WHERE j.state='queued' AND ${ready}${this.options.candidateFilter?` AND (${this.options.candidateFilter})`:''} ORDER BY j.priority,j.created_at,j.id`).all<ProductionJob>()).results;
    for(const job of candidates){
     try{
-    if(this.options.skipCandidate?.(job))continue;
+    if(this.options.ownsJob&&!this.options.ownsJob(job)||this.options.skipCandidate?.(job))continue;
     const handler=this.options.handlers[job.kind],limit=this.options.limits[job.pool];
     if(!handler||handler.pool!==job.pool||!limit||(this.stopping&&!handler.drain))continue;
     const running=await this.database.prepare("SELECT COUNT(*) AS n FROM production_jobs WHERE pool=? AND state='running' AND lease_until>?").bind(job.pool,this.clock()).first<{n:number}>();

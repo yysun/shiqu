@@ -54,8 +54,8 @@ const commands=[
  ['stories rename|delete|restore|favorite|reference','Shared library actions; reference input is {page,starred,token?}.','stories rename ID --title 新标题'],
  ['stories revisions|prompts|review-history|source','Read saved production checkpoints and history.','stories review-history ID'],
  ['stories reselect|replace|cancel-reselection','Replace a choice within the same family. Set new discovery conditions or stage verified local originals with stories setup. Commit the candidate from the latest draft generation with stories replace.','stories replace ID DRAFT_ID --input replacement.json'],
- ['preview','Write an offline HTML preview with escaped text and embedded saved images.','preview ID --output /private/preview.html'],
- ['export','Write json|md|zip|pdf|png using shared export rules. ZIP defaults public; internal prompts require --include-prompts.','export ID --format zip --output /private/story.zip'],
+ ['preview','Preview the latest saved revision as offline HTML with embedded images.','preview ID --output /private/preview.html'],
+ ['export','Export the latest saved revision as json|md|zip|pdf|png. ZIP defaults public; internal prompts require --include-prompts.','export ID --format zip --output /private/story.zip'],
  ['backup|verify-backup|restore|diagnostics','Private verified library maintenance; restore requires an explicit new --data-dir.','backup /private/new-backup'],
  ['config get|set|reset','Shared saved settings; secret replacement only in JSON input, never argv or output.','config set --input settings.json'],
  ['api METHOD reader/ROUTE','In-process allowlisted reader persistence/inspection. Direct inference is rejected; run advances production.','api GET reader/sessions'],
@@ -188,6 +188,19 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   const output=value('output')||action;need(output,'OUTPUT_REQUIRED','Specify --output NEW_FILE.');outputOutside(root,path.resolve(output));need(!containsPath(directory,path.resolve(output)),'PRIVATE_OUTPUT_REQUIRED','Diagnostic output must be outside the library.');
   await writeFile(path.resolve(output),JSON.stringify(diagnosticReport(directory,appVersion),null,2)+'\n',{flag:'wx',mode:0o600});return {path:path.resolve(output)};
  }
+ // 导出在同一只读快照中取数，可与正在使用书库的桌面或制作服务并行。
+ if(command==='preview'||command==='export'){
+  need(action&&uuid(action),'STORY_ID_REQUIRED','Specify a story UUID.');
+  const output=value('output');need(output,'OUTPUT_REQUIRED','Specify --output NEW_FILE.');
+  outputOutside(root,path.resolve(output));need(!containsPath(directory,path.resolve(output)),'PRIVATE_OUTPUT_REQUIRED','Export outside the private library.');
+  need(existsSync(path.join(directory,'shiqu.sqlite')),'LIBRARY_NOT_FOUND','No saved library to export.');
+  const app=createApplication({root,dataDirectory:directory,variables:{SHIQU_AI_PROVIDER:'readonly'},commandOnly:true,exportOnly:true});
+  try{
+   const session=await api(app,'GET',`sessions/${action}/export`);
+   const {exportLocalStory}=await import('./story-export.ts');
+   return await exportLocalStory(root,app,session,{output,format:value('format')||'zip',preview:command==='preview',includePrompts:!!v['include-prompts'],allowUnsigned:!!v['allow-unsigned']});
+  }finally{await app.close();}
+ }
  // Normal commands share desktop/server automatic initialization; backup must never create an empty source.
  if(command==='backup')need(existsSync(path.join(directory,'shiqu.sqlite')),'LIBRARY_NOT_FOUND','Cannot back up a library without an existing database.');
  const release=await ownDesktopData(directory),removeDiagnostics=installDiagnostics(directory);let app:ReturnType<typeof createApplication>|undefined;
@@ -204,7 +217,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   }
   if(running){need(target&&uuid(target),'STORY_ID_REQUIRED','run requires a story UUID.');need(['candidates','prepared','reviewed','completed'].includes(until),'INVALID_UNTIL','Use candidates|prepared|reviewed|completed.');need(Number.isFinite(timeout)&&timeout>0&&timeout<=86400,'INVALID_TIMEOUT','Timeout must be between 0 and 86400 seconds.');}
   const transport:typeof fetch=(url,options)=>fetch(url,{...options,signal:options?.signal?AbortSignal.any([options.signal,abort.signal]):abort.signal});
-  app=createApplication({root,dataDirectory:directory,variables:effective,transport,generation:context.generation,commandOnly:!running,production:{autoStart:false,targetSessionId:running?target:undefined,stopBeforeImages:running&&until!=='completed'}});
+  app=createApplication({root,dataDirectory:directory,variables:effective,transport,generation:context.generation,commandOnly:!running,production:{autoStart:false,targetSessionId:running?target:undefined,portraitOnly:running,stopBeforeImages:running&&until!=='completed'}});
   if(context.localBooks)app.services.localBooks=context.localBooks;
   if(command==='init')return {initialized:true,path:directory,started:false};
   if(command==='status')return diagnosticReport(directory,appVersion);
@@ -214,19 +227,11 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    const data={...(input as any)};if(action.toUpperCase()==='POST'&&(route==='sessions'||/\/(setup|revisions|recover|review-override|reselection|production-control)$/.test(route)))data.requestId??=requestId;
    return await api(app,action.toUpperCase(),route,['GET','HEAD'].includes(action.toUpperCase())?undefined:data);
   }
-  if(command==='preview'||command==='export'){
-   need(action&&uuid(action),'STORY_ID_REQUIRED','Specify a story UUID.');const output=value('output');need(output,'OUTPUT_REQUIRED','Specify --output NEW_FILE.');outputOutside(root,path.resolve(output));need(!containsPath(directory,path.resolve(output)),'PRIVATE_OUTPUT_REQUIRED','Export outside the private library.');
-   const current=await api(app,'GET',`sessions/${action}/current`);need(current.id===action,'SUPERSEDED_VERSION','Export the current family version.');const session=await api(app,'GET',`sessions/${action}`);const {exportLocalStory}=await import('./story-export.ts');return await exportLocalStory(root,app,session,{output,format:value('format')||'zip',preview:command==='preview',includePrompts:!!v['include-prompts'],allowUnsigned:!!v['allow-unsigned']});
-  }
   if(running){
    const current=await api(app,'GET',`sessions/${target}/current`);const initial=await api(app,'GET',`sessions/${target}`);need(current.id===target&&!initial.superseded,'SUPERSEDED_VERSION','Use the current family version.');
    // 已保存的修订等待明确的「继续制作」：run 不会隐式继续。
    if(initial.lifecycle?.continuation??initial.awaitingContinue)return {reason:'continue_required',session:initial};
    if((initial.lifecycle?.control??initial.generationControl)!=='active')return {reason:'paused',session:initial};
-   const status=await app.services.generation.status();
-   if(!status.configured)throw new CliCommandError('PROVIDER_UNAVAILABLE',status.message||'Provider is not ready.',2,{lifecycle:initial.lifecycle});
-   const serviceBlocked=(snapshot:any)=>snapshot.lifecycle&&(['production','preparation'].includes(snapshot.lifecycle.phase)||snapshot.lifecycle.preparationRefresh==='pending')&&snapshot.lifecycle.service!=='available';
-   if(initial.state==='failed'||serviceBlocked(initial)||preparationRefreshFault(initial))return {reason:'blocked',session:initial};
    const boundary=(snapshot:any)=>{
     if(snapshot.lifecycle?.preparationRefresh==='pending')return null;
     if(snapshot.lifecycle?.phase==='completed'||!snapshot.lifecycle&&snapshot.state==='completed')return 'completed';
@@ -236,7 +241,13 @@ export async function executeHeadless(root:string,args:string[],context:Context=
     }
     return until==='candidates'&&snapshot.intake?.selected?'already_selected':null;
    };
-   const reached=boundary(initial);if(reached)return {reason:reached,session:initial};
+   const reached=boundary(initial);
+   if(reached==='completed'&&initial.state!=='failed')return {reason:reached,session:initial};
+   const status=await app.services.generation.status();
+   if(!status.configured)throw new CliCommandError('PROVIDER_UNAVAILABLE',status.message||'Provider is not ready.',2,{lifecycle:initial.lifecycle});
+   const serviceBlocked=(snapshot:any)=>snapshot.lifecycle&&(['production','preparation'].includes(snapshot.lifecycle.phase)||snapshot.lifecycle.preparationRefresh==='pending')&&snapshot.lifecycle.service!=='available';
+   if(initial.state==='failed'||serviceBlocked(initial)||preparationRefreshFault(initial))return {reason:'blocked',session:initial};
+   if(reached)return {reason:reached,session:initial};
    if(until==='candidates')need(initial.intake,'BOUNDARY_UNAVAILABLE','Candidates require an intake story.');
    if(until==='prepared'&&!initial.intake&&initial.lifecycle?.preparationRefresh!=='pending')need(initial.selection.narrativeDetail&&initial.selection.length!=='auto','BOUNDARY_UNAVAILABLE','This legacy story has no preparation gate; use --until reviewed or completed.');
    process.once('SIGINT',interrupt);process.once('SIGTERM',interrupt);context.signal?.addEventListener('abort',interrupt,{once:true});
@@ -332,7 +343,7 @@ export async function routeHeadless(root:string,args:string[],context:Pick<Conte
  try{const data=await executeHeadless(root,args[0]?.startsWith('-')?['help',...args]:args,context);const plainText=args[0]==='skill'&&args[1]==='show'||args[0]==='books'&&args[1]==='search'&&args.includes('--brief')&&!args.includes('--help');process.stdout.write(plainText&&!args.includes('--json')?(data as {text:string}).text:JSON.stringify({schemaVersion:1,ok:true,data})+'\n');}
  catch(error){
   const known=error instanceof CliCommandError,skillCode=(error as NodeJS.ErrnoException)?.code,code=known?error.code:typeof skillCode==='string'&&/^SKILL_[A-Z_]+$/.test(skillCode)?skillCode:(error as NodeJS.ErrnoException)?.code==='EEXIST'?'TARGET_EXISTS':(error as Error)?.message==='DATA_BUSY'?'LIBRARY_BUSY':(error as Error)?.name==='ZodError'?'INVALID_INPUT':'COMMAND_FAILED';
-  const message=known?error.message:code==='TARGET_EXISTS'?'Output already exists.':code==='LIBRARY_BUSY'?'Stop all services using this library and retry.':code==='INVALID_INPUT'?'Input does not match the production schema.':/^(EXPORT_|BACKUP_|SKILL_)/.test((error as Error)?.message||'')?(error as Error).message:'Command failed; check paths, provider configuration and diagnostics.';
+  const message=known?error.message:code==='TARGET_EXISTS'?'Output already exists.':code==='LIBRARY_BUSY'?'Stop all services using this library and retry.':code==='INVALID_INPUT'?'Input does not match the production schema.':/^(EXPORT_|BACKUP_|SKILL_|LIBRARY_UPGRADE_REQUIRED|LIBRARY_NEWER_SCHEMA)/.test((error as Error)?.message||'')?(error as Error).message:'Command failed; check paths, provider configuration and diagnostics.';
   process.stdout.write(JSON.stringify({schemaVersion:1,ok:false,error:{code,message,...(known&&error.details?{details:error.details}:{})}})+'\n');process.exitCode=known?error.exitCode:1;
  }finally{Object.assign(console,saved);}return true;
 }

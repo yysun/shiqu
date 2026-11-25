@@ -2,6 +2,7 @@
 import type {PDFPage,PDFDocument as StoryPdfDocument} from 'pdf-lib';
 import type {Story} from './content';
 import {browserExportRuntime,type ExportRuntime} from './story-export-runtime.ts';
+import {matchesLandscapeImageRatio} from './reader-image-dimensions.ts';
 import {aiDisclosure,publicationCredit,publicationText} from './story-publication.ts';
 
 export type StoryPdfLayout='portrait'|'landscape'|'letter';
@@ -69,14 +70,14 @@ export async function imposeStoryLetterPdf(source:StoryPdfDocument,scenePageIndi
 }
 
 export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime(),layout:StoryPdfLayout='portrait',landscapeImages?:readonly string[],coverIndex=0){
- assertPdfReady(story);
  const landscape=layout!=='portrait';
+ const supplementary=landscape&&landscapeImages?.length===story.pages.length&&landscapeImages.every(Boolean)?landscapeImages:null;
+ if(!supplementary||!story.pages.length)assertPdfReady(story);
  if(landscape&&(!Number.isInteger(coverIndex)||!story.pages[coverIndex]))throw Error('请选择有效的封面画幅。');
  const {PDFDocument,rgb}=await import('pdf-lib');
  await runtime.ready();
  const pdf=await PDFDocument.create();pdf.setTitle(story.title);pdf.setAuthor(story.publication?.author||'未署名');pdf.setSubject(story.theme);pdf.setCreator('拾趣故事阅读器');
  const scenePageIndices:number[]=[];
- const supplementary=landscape&&landscapeImages?.length===story.pages.length&&landscapeImages.every(Boolean)?landscapeImages:null;
  const [W,H,pageWidth,pageHeight]=landscape?[2100,1500,504,360]:[900,1350,360,540];
  const M=landscape?75:72;
  // 印刷模板的 0.13 英寸为 1/8 英寸出血的显示值。
@@ -186,6 +187,7 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   const numberedCaption=`${i+1}. ${scene.caption}`;
   whitePaper();
   const {caption,firstLines,x,width,height}=await runtime.image(blob,image=>{
+   if(supplementary&&!matchesLandscapeImageRatio(image))throw Error(`第 ${i+1} 幅横图的尺寸不是 3∶2，无法打印这套图稿。`);
    font(captionSize);
    const ratio=image.width/image.height;
    let firstLines=0,caption:string[],width:number,height:number;

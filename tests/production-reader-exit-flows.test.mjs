@@ -9,6 +9,8 @@ import {evaluate} from '../lib/production-dag/engine.ts';
 import {stateOf} from '../lib/production-dag/runner.ts';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {createStoryPdf} from '../lib/reader-pdf.ts';
+import {copySavedStory} from '../server/reader-copy.ts';
+import {emptyPublication} from '../lib/story-publication.ts';
 import {nativeExportRuntime} from '../server/story-export.ts';
 
 /** 按界面操作名称调用正式接口；返回 HTTP 响应。 */
@@ -234,6 +236,82 @@ async function drain(f,cycles=12){
  }
 }
 
+for(const legacyDeletion of [false,true])test(`deleting a shelf card holds earlier prints through restore (${legacyDeletion?'older deletion record':'current delete'})`,async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4});
+ const route=`sessions/${id}/landscape`,{startToken}=await f.json(route);
+ const {printId}=await f.json(route,'POST',{startToken});
+ await until(()=>f.control.calls.length===1);
+ const child=await fork(f,id,{acceptancePrompt:'核对画面动作。'});
+ if((await f.read(child)).lifecycle.continuation)await control(f,child,'continue');
+ await until(async()=>(await f.read(child)).state==='completed');
+ assert.deepEqual((await f.json('library/shelf')).map(item=>item.id),[child]);
+ if(legacyDeletion){
+  // 旧版删除书架卡片时没有暂停父版套图，保留当时的数据库状态。
+  await f.app.services.database.prepare("INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) SELECT user_id,id,'generated',? FROM stories WHERE id=?")
+   .bind(new Date().toISOString(),child).run();
+ }else await f.json(`library/${child}`,'DELETE');
+ assert.deepEqual(await f.json('library/shelf'),[]);
+ assert.equal((await f.request(route)).status,404);
+ assert.equal((await f.request(route,'POST',{control:'resume',printId})).status,404);
+ f.control.hold=false;f.control.calls[0].resolve();
+ await drain(f,3);
+ await f.restart();await drain(f,3);
+ const sent=()=>f.control.calls.filter(call=>call.landscape).map(call=>call.page+1);
+ assert.deepEqual(sent(),[1]);
+ await f.json(`library/${child}/restore`,'POST',{});
+ await drain(f,3);
+ const [previous]=(await f.json(`sessions/${child}/landscape`)).earlier;
+ assert.deepEqual([previous.storyId,previous.printId,previous.ready,previous.total,previous.controlAction],[id,printId,1,4,'resume']);
+ assert.deepEqual(sent(),[1]);
+ await f.json(route,'POST',{control:'resume',printId:previous.printId});
+ await until(async()=>(await f.json(route)).state==='completed');
+ assert.deepEqual(sent(),[1,2,3,4]);
+});
+
+test('a claimed landscape waits if the visible card is deleted before the paid send',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4});
+ const route=`sessions/${id}/landscape`,{startToken}=await f.json(route);
+ const generator=f.generation.generator.bind(f.generation),release=Promise.withResolvers();
+ let entered=false;
+ f.generation.generator=()=>{
+  const active=generator();
+  return {...active,async image(...args){entered=true;await release.promise;return active.image(...args);}};
+ };
+ f.control.hold=false;
+ let child,printId;
+ try{
+  ({printId}=await f.json(route,'POST',{startToken}));
+  await until(()=>entered);
+  child=await fork(f,id,{acceptancePrompt:'核对画面动作。'});
+  if((await f.read(child)).lifecycle.continuation)await control(f,child,'continue');
+  await until(async()=>(await f.read(child)).state==='completed');
+  await f.json(`library/${child}`,'DELETE');
+ }finally{release.resolve();}
+ await drain(f,3);
+ assert.equal(f.control.calls.length,0);
+ await f.json(`library/${child}/restore`,'POST',{});
+ await drain(f,3);
+ assert.equal(f.control.calls.length,0);
+ await f.json(route,'POST',{control:'resume',printId});
+ await until(async()=>(await f.json(route)).state==='completed');
+ assert.deepEqual(f.control.calls.map(call=>call.page+1),[1,2,3,4]);
+});
+
+test('deleting a historical revision leaves the current print running',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4});
+ const child=await fork(f,id,{acceptancePrompt:'核对画面动作。'});
+ if((await f.read(child)).lifecycle.continuation)await control(f,child,'continue');
+ await until(async()=>(await f.read(child)).state==='completed');
+ const route=`sessions/${child}/landscape`,{startToken}=await f.json(route);
+ await f.json(route,'POST',{startToken});
+ await until(()=>f.control.calls.length===1);
+ await f.json(`library/${id}`,'DELETE');
+ assert.deepEqual((await f.json('library/shelf')).map(row=>row.id),[child]);
+ f.control.hold=false;f.control.calls[0].resolve();
+ await until(async()=>(await f.json(route)).state==='completed');
+ assert.deepEqual(f.control.calls.filter(call=>call.landscape).map(call=>call.page+1),[1,2,3,4]);
+});
+
 for(const changedStyle of [false,true])test(`replanning ${changedStyle?'releases changed':'blocks matching'} drawing inputs`,async t=>{
  const f=await productionFixture(t);
  f.control.hold=false;
@@ -347,10 +425,13 @@ test('a completed legacy landscape set is printable from a revised story in the 
  await dag.startLandscape(source,{startToken:status.startToken});
  await until(async()=>(await f.json(route)).state==='completed');
  const original=(await f.json(route)).images;
+ assert.deepEqual((await f.json(`sessions/${id}/export?layout=landscape`)).images,original);
  const child=await fork(f,id,{artStyle:'watercolor'});
  await control(f,child,'continue');
  await until(async()=>(await f.read(child)).state==='completed');
  const [print]=await f.json(`sessions/${child}/landscape/sets`);
+ const latest=await f.json(`sessions/${id}/export?layout=landscape`);
+ assert.equal(latest.story.id,child);assert.equal(latest.images,undefined);
  assert.equal(print.story.id,id);
  assert.deepEqual(print.images,original);
  assert.equal((await f.json(`sessions/${child}/landscape`)).ready,0);
@@ -388,24 +469,112 @@ for(const beforeBinding of [false,true])test(`an authorized legacy landscape ${b
  assert.equal(print.images.length,4);
 });
 
-test('a locally readable paid landscape completes its request offline without another draw',async t=>{
+for(const legacy of [false,true])test(`a locally readable paid ${legacy?'legacy landscape':'standalone print'} completes offline without another draw`,async t=>{
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
  f.control.hold=false;
  const store=f.app.services.media,get=store.get.bind(store);
  let hiding=true;
  store.get=async key=>hiding&&key.startsWith(`reader/${id}/artifacts/2-`)?null:get(key);
- await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ if(legacy){
+  const row=await f.app.services.database.prepare('SELECT * FROM stories WHERE id=?').bind(id).first();
+  const dag=f.app.services.production.dag,{status}=await dag.landscapeProjection(row);
+  await dag.startLandscape(row,{startToken:status.startToken});
+ }else await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
  await until(async()=>!!(await f.json(route)).retryToken);
  const before=f.control.calls.length;
  hiding=false;
+ await f.media.remove(referenceImageKey(id,(await saved(f,id)).images[2]));
  f.options.production={autoStart:false,snapshots:{current:()=>undefined,provider:()=>null}};
  await f.restart();
  f.generation.status=async()=>({configured:false});
  const status=await f.json(route);
  assert.deepEqual([status.ready,status.failed],[3,[3]]);
+ if(legacy){
+  for(const session of [await f.read(id),(await f.json('library/shelf')).find(row=>row.id===id)]){
+   assert.ok(session.lifecycle.actions.some(action=>action.event==='retry-landscape'));
+  }
+ }
  const recovered=await f.json(route,'POST',{retryToken:status.retryToken});
  assert.equal(recovered.state,'completed');
+ await f.restart();
+ assert.equal((await f.json(route)).ready,4);
  assert.equal(f.control.calls.length,before);
+});
+
+test('changing the unavailable model of an earlier print only resumes explicitly authorized pages',async t=>{
+ const f=await productionFixture(t);
+ const original={provider:'codex',models:{text:'A',image:'A'}},replacement={provider:'codex',models:{text:'B',image:'B'}};
+ let current=original,available=true;
+ f.options.production={snapshots:{current:()=>current,provider:key=>available||key.models.image==='B'?f.generation:null}};
+ await f.restart();f.control.hold=true;
+ const {id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
+ const {printId}=await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(()=>f.control.calls.length===1);
+ await f.json(route,'POST',{control:'pause',printId});
+ f.control.hold=false;f.control.calls[0].resolve();await drain(f,3);
+ const child=await fork(f,id,{acceptancePrompt:'核对画面动作。'});
+ if((await f.read(child)).lifecycle.continuation)await control(f,child,'continue');
+ await until(async()=>(await f.read(child)).state==='completed');
+ const portraitBefore=(await saved(f,id)).dag;
+ available=false;current=replacement;
+ const childRoute=`sessions/${child}/landscape`;
+ const [work]=(await f.json(childRoute)).earlier;
+ assert.equal(work.service,'snapshot-unavailable');assert.ok(work.modelToken);
+ assert.equal((await f.request(route,'POST',{control:'resume',printId})).status,503);
+ for(const cmd of [{modelToken:work.modelToken},{control:'pause',printId},{control:'pause'}])
+  assert.equal((await f.request(childRoute,'POST',cmd)).status,409);
+ const status=await f.json(route,'POST',{modelToken:work.modelToken});
+ assert.deepEqual([status.service,status.control,status.ready],['available','paused',1]);
+ assert.equal((await f.request(route,'POST',{modelToken:work.modelToken})).status,409);
+ await f.restart();await drain(f,3);
+ assert.equal(f.control.calls.length,1);
+ await f.json(route,'POST',{control:'resume',printId});
+ await until(async()=>(await f.json(route)).ready===4);
+ assert.deepEqual(f.control.calls.map(call=>[call.landscape,call.page]),[[true,0],[true,1],[true,2],[true,3]]);
+ assert.deepEqual((await saved(f,id)).dag,portraitBefore);
+ assert.equal((await f.read(child)).lifecycle.control,'active');
+ assert.equal((await f.json(childRoute)).ready,0);
+});
+
+test('the shelf can switch an active print model while an already sent page finishes',async t=>{
+ const f=await productionFixture(t),a={provider:'codex',models:{text:'A',image:'A'}},b={provider:'codex',models:{text:'B',image:'B'}};
+ let current=a;
+ const draws=[];
+ const providerFor=model=>({...f.generation,generator(){
+  const generator=f.generation.generator();
+  return {...generator,async image(...args){draws.push([args[1]+1,model]);return generator.image(...args);}};
+ }});
+ const providers={A:providerFor('A'),B:providerFor('B')};
+ f.options.production={snapshots:{current:()=>current,provider:s=>s.models.image===current.models.image?providers[s.models.image]:null}};
+ await f.restart();f.control.hold=true;
+ const {id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});await until(()=>f.control.calls.length===1);
+ const before=(await saved(f,id)).dag;
+ current=b;
+ const [{landscapeWork}]=await f.json('library/shelf');assert.ok(landscapeWork.modelToken);
+ assert.equal(landscapeWork.service,'snapshot-unavailable');
+ await f.json(route,'POST',{modelToken:landscapeWork.modelToken});
+ f.control.hold=false;f.control.calls[0].resolve();
+ await until(async()=>(await f.json(route)).ready===4);
+ assert.deepEqual(draws,[[1,'A'],[2,'B'],[3,'B'],[4,'B']]);
+ assert.deepEqual((await saved(f,id)).dag,before);
+});
+
+test('legacy landscape controls leave portrait control intact and survive restart',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
+ const db=f.app.services.database,row=await db.prepare('SELECT * FROM stories WHERE id=?').bind(id).first(),dag=f.app.services.production.dag;
+ await dag.startLandscape(row,{startToken:(await dag.landscapeProjection(row)).status.startToken});
+ await until(()=>f.control.calls.length>0);
+ await f.json(route,'POST',{control:'pause'});
+ assert.equal((await f.read(id)).lifecycle.control,'active');
+ f.control.hold=false;for(const call of f.control.calls)call.resolve();
+ await drain(f,3);const count=f.control.calls.length;assert.ok(count<4);
+ await f.restart();await drain(f,3);
+ assert.equal(f.control.calls.length,count);
+ assert.equal((await f.json(route)).controlAction,'resume');
+ await f.json(route,'POST',{control:'resume'});
+ await until(async()=>(await f.json(route)).ready===4);
+ assert.equal((await f.read(id)).lifecycle.control,'active');
 });
 
 test('a new print set preserves its predecessor and rejects controls for the previous set',async t=>{
@@ -413,9 +582,11 @@ test('a new print set preserves its predecessor and rejects controls for the pre
  f.control.hold=false;
  const first=await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
  await until(async()=>(await f.json(route)).state==='completed');
+ const exportRoute=`sessions/${id}/export?layout=landscape`,firstImages=(await f.json(route)).images;
  f.control.hold=true;
  const next=await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
  assert.deepEqual((await f.json(route+'/sets')).map(set=>set.id),[first.printId]);
+ assert.deepEqual((await f.json(exportRoute)).images,firstImages);
  const stale=await f.request(route,'POST',{control:'pause',printId:first.printId});
  assert.equal(stale.status,409);
  assert.deepEqual([(await f.json(route)).printId,(await f.json(route)).control],[next.printId,'active']);
@@ -423,6 +594,142 @@ test('a new print set preserves its predecessor and rejects controls for the pre
  for(const call of f.control.calls)call.resolve();
  await until(async()=>(await f.json(route)).state==='completed');
  assert.deepEqual((await f.json(route+'/sets')).map(set=>set.id),[next.printId,first.printId]);
+ const currentImages=(await f.json(route)).images;
+ assert.notDeepEqual(currentImages,firstImages);
+ await f.json(`sessions/${id}/title`,'POST',{title:'最新印本'});
+ assert.ok((await f.json(route+'/sets')).every(set=>set.story.title==='最新印本'));
+ f.options.production={autoStart:false};await f.restart();
+ const db=f.app.services.database;
+ await db.prepare("UPDATE stories SET state='idle',generation_control='paused' WHERE id=?").bind(id).run();
+ const tables=['stories','production_jobs','reader_commands','reader_faults','production_demand'];
+ const capture=()=>Promise.all(tables.map(name=>db.prepare('SELECT * FROM '+name+' ORDER BY rowid').all()));
+ const before=await capture(),calls=f.control.calls.length;
+ const worker=f.app.services.production;
+ try{
+  f.app.services.production=undefined;
+  for(const layout of ['landscape','letter']){
+   const source=await f.json(exportRoute);
+   assert.equal(source.story.title,'最新印本');assert.deepEqual(source.images,currentImages);
+   const bytes=await createStoryPdf(source.story,()=>{},nativeExportRuntime(process.cwd(),f.app),layout,source.images);
+   assert.equal(Buffer.from(bytes).subarray(0,5).toString(),'%PDF-');
+  }
+  const media=f.app.services.media,get=media.get.bind(media);
+  const newestKey=referenceImageKey(id,currentImages[2]),olderKey=referenceImageKey(id,firstImages[1]);
+  let olderUnavailable=false;
+  media.get=async key=>{if(key===newestKey||olderUnavailable&&key===olderKey)throw Error('受控读取失败');return get(key);};
+  try{
+   assert.deepEqual((await f.json(exportRoute)).images,firstImages);
+   olderUnavailable=true;
+   assert.equal((await f.json(exportRoute)).images,undefined);
+  }finally{media.get=get;}
+  await f.media.remove(referenceImageKey(id,currentImages[2]));
+  const fallback=await f.json(exportRoute);
+  assert.deepEqual(fallback.images,firstImages);
+  const render=async source=>{
+   for(const layout of ['letter','landscape']){
+    const bytes=await createStoryPdf(source.story,()=>{},nativeExportRuntime(process.cwd(),f.app),layout,source.images);
+    assert.equal(Buffer.from(bytes).subarray(0,5).toString(),'%PDF-');
+   }
+  };
+  await render(fallback);
+  await f.media.put(referenceImageKey(id,firstImages[1]),new Uint8Array([0,1,2]),{contentType:'image/png'});
+  const portraits=await f.json(exportRoute);
+  assert.equal(portraits.images,undefined);
+  await render(portraits);
+  assert.equal((await f.json(`sessions/${id}/export`)).images,undefined);
+ }finally{f.app.services.production=worker;}
+ assert.deepEqual(await capture(),before);assert.equal(f.control.calls.length,calls);
+});
+
+test('a queued retry keeps its print set when a competing start finishes authorization',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
+ f.control.hold=false;f.control.beforeImage=call=>{if(call.landscape&&call.page===2)throw Error('受控横图失败');};
+ const first=await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(async()=>!!(await f.json(route)).retryToken);
+ f.options.production={autoStart:false};await f.restart();f.control.beforeImage=null;
+ const {startToken,retryToken}=await f.json(route),entered=Promise.withResolvers(),release=Promise.withResolvers();
+ const second=f.app.services.production.startLandscape(f.app.services.ownerId,id,{startToken},async()=>{entered.resolve();await release.promise;});
+ await entered.promise;
+ try{
+  assert.ok((await f.request(route,'POST',{retryToken})).ok);
+ }finally{release.resolve();}
+ await assert.rejects(second,error=>error.status===409);
+ assert.equal((await f.json(route)).printId,first.printId);
+ f.app.startGeneration();
+ await until(async()=>(await f.json(route)).ready===4);
+ assert.equal(f.control.calls.filter(call=>call.landscape&&call.page===2).length,2);
+});
+
+test('legacy landscape switches models from the shelf and resumes without changing the portrait snapshot',async t=>{
+ const f=await productionFixture(t),a={provider:'codex',models:{text:'A',image:'A'}},b={provider:'codex',models:{text:'B',image:'B'}};
+ let current=a;
+ f.options.production={autoStart:false,snapshots:{current:()=>current,provider:s=>s.models.image===current.models.image?f.generation:null}};
+ await f.restart();
+ const {id}=await completedStory(f,{length:4}),db=f.app.services.database,route=`sessions/${id}/landscape`,dag=f.app.services.production.dag;
+ await db.prepare("UPDATE stories SET document=json_set(document,'$.dag.modelSnapshot',json(?)) WHERE id=?").bind(JSON.stringify(a),id).run();
+ const row=await db.prepare('SELECT * FROM stories WHERE id=?').bind(id).first();
+ await dag.startLandscape(row,{startToken:(await dag.landscapeProjection(row)).status.startToken});
+ await f.json(route,'POST',{control:'pause'});current=b;
+ const status=await f.json(route),[shelf]=await f.json('library/shelf');
+ assert.equal(status.controlAction,undefined);assert.ok(status.modelToken);
+ assert.equal(shelf.landscapeWork.modelToken,status.modelToken);
+ assert.equal(shelf.lifecycle.optionalWork,false);
+ assert.equal((await f.request(route,'POST',{control:'resume'})).status,409);
+ const next=await f.json(route,'POST',{modelToken:shelf.landscapeWork.modelToken});
+ assert.equal(next.controlAction,'resume');
+ assert.equal((await f.request(route,'POST',{modelToken:status.modelToken})).status,409);
+ assert.deepEqual((await saved(f,id)).dag.modelSnapshot,a);
+ await f.restart();f.control.hold=false;await f.json(route,'POST',{control:'resume'});
+ f.app.startGeneration();await until(async()=>(await f.json(route)).ready===4);
+ assert.deepEqual((await saved(f,id)).dag.modelSnapshot,a);
+ assert.equal(f.control.calls.filter(call=>call.landscape).length,4);
+});
+
+test('copy-images accepts a paused portrait copy after independent landscape work',async t=>{
+ const source=await productionFixture(t),target=await productionFixture(t),{id}=await completedStory(source,{length:4});
+ const route=`sessions/${id}/landscape`,requestId=crypto.randomUUID(),original=await source.read(id);
+ const copy=options=>copySavedStory(target.app,process.cwd(),target.dataDirectory,source.dataDirectory,id,requestId,original.selection.artStyle,options);
+ await source.stop();await copy({});
+ await source.restart();source.control.hold=false;
+ await source.json(route,'POST',{startToken:(await source.json(route)).startToken});
+ await until(async()=>(await source.json(route)).ready===4);
+ await source.stop();
+ const copied=await copy({images:true,existing:true});
+ assert.equal(copied.ready,4);assert.equal(copied.generationControl,'paused');
+ assert.equal((await saved(target,requestId)).landscapePrints,undefined);
+});
+
+for(const conflict of ['metadata','new revision','same request'])test('concurrent revision save handles '+conflict,async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/revisions`;
+ const child=crypto.randomUUID(),{token}=await f.json(route),input={requestId:child,token,changes:{acceptancePrompt:'核对画面动作。'}};
+ const entered=Promise.withResolvers(),release=Promise.withResolvers(),media=f.app.services.media,put=media.put.bind(media);
+ let held=false;const keys=[];
+ media.put=async(key,...args)=>{
+  if(key.startsWith('reader/'+child+'/')){
+   keys.push(key);
+   if(!held){held=true;entered.resolve();await release.promise;}
+  }
+  return put(key,...args);
+ };
+ const first=f.request(route,'POST',input);
+ await entered.promise;
+ try{
+  if(conflict==='metadata'){
+   await f.json(`sessions/${id}/title`,'POST',{title:'新书名'});
+   await f.json(`sessions/${id}/publication`,'POST',{expected:null,publication:{...emptyPublication,author:'新署名'}});
+  }else await f.json(route,'POST',{...input,requestId:conflict==='same request'?child:crypto.randomUUID()});
+ }finally{release.resolve();}
+ const response=await first;
+ if(conflict==='new revision'){
+  assert.equal(response.status,409);
+  assert.ok(keys.length);for(const key of keys)assert.equal(await media.get(key),null);
+ }else{
+  assert.ok(response.ok);
+  const result=(await f.read(child)).story;
+  if(conflict==='metadata'){assert.equal(result.title,'新书名');assert.equal(result.publication.author,'新署名');}
+  const expected=result.pages.map(page=>referenceImageKey(child,page.image));
+  for(const key of keys)assert.equal(!!await media.get(key),expected.includes(key));
+ }
 });
 
 test('landscape retry only dispatches the pages authorized by its token',async t=>{
@@ -450,7 +757,7 @@ test('landscape retry only dispatches the pages authorized by its token',async t
  assert.equal((await f.json(route)).state,'completed');
 });
 
-test('settings and shelf offer local retry for an inherited paid portrait without a model',async t=>{
+for(const inherited of [false,true])test(`settings and shelf offer local retry for ${inherited?'an inherited':'an original'} paid portrait without a model`,async t=>{
  const f=await productionFixture(t),id=await f.create(2);
  await until(()=>f.control.calls.length===1);
  const media=f.app.services.media,get=media.get.bind(media);
@@ -460,9 +767,12 @@ test('settings and shelf offer local retry for an inherited paid portrait withou
  f.control.calls[0].resolve();
  await until(async()=>(await f.read(id)).state==='failed');
  hidden=false;
- await control(f,id,'pause');
- const child=await fork(f,id,{acceptancePrompt:'核对画面动作。'});
- await control(f,child,'continue');
+ let child=id;
+ if(inherited){
+  await control(f,id,'pause');
+  child=await fork(f,id,{acceptancePrompt:'核对画面动作。'});
+  await control(f,child,'continue');
+ }
  await drain(f);
  f.options.production={autoStart:false,snapshots:{current:()=>undefined,provider:()=>null}};
  await f.restart();
@@ -690,4 +1000,294 @@ test('migration keeps distinct legacy batches with the same failure message inde
  await f.json(`sessions/${child}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:legacyIds[1]});
  await until(async()=>(await f.read(child)).state==='completed',20000);
  assert.equal(f.control.dagCalls.filter(name=>name==='visual').length,before+2);
+});
+
+test('a queued landscape retry waits for its saved model without reclaiming the job',async t=>{
+ const f=await productionFixture(t);
+ const original={provider:'codex',models:{text:'A',image:'A'}},replacement={provider:'codex',models:{text:'B',image:'B'}};
+ let current=original;
+ f.options.production={autoStart:false,snapshots:{current:()=>current,provider:s=>s.models.image===current.models.image?f.generation:null}};
+ await f.restart();f.control.hold=false;
+ f.control.beforeImage=call=>{if(call.landscape&&call.page===1)throw Error('controlled failure');};
+ const {id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await drain(f,6);
+ const {retryToken}=await f.json(route);assert.ok(retryToken);
+ await f.json(route,'POST',{retryToken});current=replacement;f.control.beforeImage=null;
+ const db=f.app.services.database;
+ await db.prepare('CREATE TEMP TABLE claims(id TEXT)').run();
+ await db.prepare("CREATE TEMP TRIGGER count_claim AFTER UPDATE OF state ON production_jobs WHEN NEW.kind='landscape-print' AND NEW.state='running' BEGIN INSERT INTO claims VALUES(NEW.id); END").run();
+ await drain(f,5);
+ assert.equal((await db.prepare('SELECT count(*) AS n FROM claims').first()).n,0);
+ assert.equal(f.control.calls.length,4);
+ current=original;
+ await drain(f,3);
+ assert.equal((await f.json(route)).state,'completed');
+ assert.deepEqual(f.control.calls.slice(4).map(call=>[call.landscape,call.page]),[[true,1]]);
+});
+
+test('a portrait fault leaves an existing partial print visible and independently retryable',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
+ f.control.hold=false;
+ f.control.beforeImage=call=>{if(call.landscape&&call.page===1)throw Error('controlled failure');};
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(async()=>!!(await f.json(route)).retryToken);
+ const image=(await f.read(id)).story.pages[3].image;
+ await f.media.remove(referenceImageKey(id,image));
+ assert.ok((await f.request(`sessions/${id}/image-health`,'POST',{page:3,image})).ok);
+ const failed=await f.read(id);
+ assert.equal(failed.state,'failed');
+ assert.match((await surfaces()).settings(failed),/横版插图（可选）/);
+ const status=await f.json(route);assert.ok(status.retryToken);assert.equal(status.startToken,undefined);
+ const dag=(await saved(f,id)).dag,before=f.control.calls.length;
+ f.control.beforeImage=null;
+ await f.json(route,'POST',{retryToken:status.retryToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ assert.deepEqual(f.control.calls.slice(before).map(call=>[call.landscape,call.page]),[[true,1]]);
+ assert.deepEqual((await saved(f,id)).dag,dag);
+ assert.equal((await f.read(id)).state,'failed');
+});
+
+test('portrait model recovery is available from both settings and shelf',async t=>{
+ const f=await productionFixture(t),previous={provider:'codex',models:{text:'A',image:'A'}},current={provider:'codex',models:{text:'B',image:'B'}};
+ f.options.production={autoStart:false,snapshots:{current:()=>current,provider:s=>s.models.image===current.models.image?f.generation:null}};
+ await f.restart();
+ const id=await confirmedStory(f,4);
+ await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag.modelSnapshot',json(?)) WHERE id=?").bind(JSON.stringify(previous),id).run();
+ const updated=await exitBoth(f,id,/^应用当前模型设置$/);
+ assert.equal(updated.lifecycle.service,'available');
+ assert.deepEqual((await saved(f,id)).dag.modelSnapshot,current);
+});
+
+test('failed re-preparation stays retryable on the shelf while the completed story remains readable',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),generator=f.generation.generator.bind(f.generation);
+ const images=(await saved(f,id)).images;
+ f.generation.generator=()=>({...generator(),async recommend(){throw Error('controlled failure');}});
+ await control(f,id,'reprepare');
+ await until(async()=>(await f.read(id)).lifecycle.faults.some(fault=>fault.stage==='prepare'));
+ const render=await surfaces(),card=shelfEntry(render.shelf(await f.json('library/shelf')),id);
+ assert.match(card,/重新准备失败/);assert.match(card,/接着看/);
+ f.generation.generator=generator;
+ await exitBoth(f,id,/^重试准备$/);
+ await until(async()=>(await f.read(id)).lifecycle.preparationRefresh==='none');
+ assert.equal((await f.read(id)).state,'completed');
+ assert.deepEqual((await saved(f,id)).images,images);
+});
+
+test('a landscape set starts from saved frames while portrait production is paused and survives metadata edits',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
+ f.options.production={autoStart:false};await f.restart();
+ const db=f.app.services.database;
+ await db.prepare("UPDATE stories SET state='idle',generation_control='paused' WHERE id=?").bind(id).run();
+ const {startToken}=await f.json(route);assert.ok(startToken);
+ await f.json(`sessions/${id}/title`,'POST',{title:'改名后的故事'});
+ const started=await f.app.services.production.startLandscape(f.app.services.ownerId,id,{startToken},()=>
+  f.json(`sessions/${id}/publication`,'POST',{expected:null,publication:{...emptyPublication,author:'新署名'}}));
+ assert.ok(started.printId);
+ assert.equal(started.state,'running');
+ const events=async()=>(await f.read(id)).lifecycle.actions.map(action=>action.event);
+ assert.ok(!(await events()).includes('start-landscape'));
+ f.control.hold=false;f.control.beforeImage=call=>{if(call.landscape&&call.page===1)throw Error('受控横图失败');};
+ f.app.startGeneration();await until(async()=>!!(await f.json(route)).retryToken);
+ assert.ok((await events()).includes('retry-landscape'));
+ assert.equal((await f.read(id)).generationControl,'paused');
+ assert.ok(f.control.calls.every(call=>call.landscape&&call.reference));
+ const [print]=(await saved(f,id)).landscapePrints;
+ assert.equal(print.story.title,'改名后的故事');assert.equal(print.story.publication.author,'新署名');
+});
+
+test('a temporary read failure offers a recheck of the same landscape set',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
+ f.control.hold=false;await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ const original=await f.json(route),key=referenceImageKey(id,original.images[2]);
+ const media=f.app.services.media,get=media.get.bind(media);
+ media.get=async name=>{if(name===key)throw Error('介质暂不可读');return get(name);};
+ try{
+  const partial=await f.json(route);
+  assert.ok(partial.readUnavailable);assert.equal(partial.retryToken,undefined);assert.equal(partial.startToken,undefined);
+  assert.equal((await f.request(route,'POST',{startToken:original.startToken})).status,409);
+  assert.ok(!(await f.read(id)).lifecycle.actions.some(action=>action.event==='start-landscape'));
+ }finally{media.get=get;}
+ const recovered=await f.json(route);
+ assert.equal(recovered.state,'completed');assert.equal(recovered.printId,original.printId);
+ assert.equal(f.control.calls.length,4);
+});
+
+test('an older landscape set retries page two while an unrelated portrait fault remains open',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
+ const db=f.app.services.database,row=await db.prepare('SELECT * FROM stories WHERE id=?').bind(id).first(),dag=f.app.services.production.dag;
+ f.control.hold=false;f.control.beforeImage=call=>{if(call.landscape&&call.page===1)throw Error('受控失败');};
+ await dag.startLandscape(row,{startToken:(await dag.landscapeProjection(row)).status.startToken});
+ await until(async()=>!!(await f.json(route)).retryToken);
+ const {retryToken}=await f.json(route),img=(await f.read(id)).story.pages[3].image;
+ await f.media.remove(referenceImageKey(id,img));await f.json(`sessions/${id}/image-health`,'POST',{page:3,image:img});
+ assert.equal((await f.read(id)).state,'failed');
+ await control(f,id,'pause');
+ assert.equal((await f.json(route)).retryToken,retryToken);
+ assert.equal((await f.json(route)).startToken,undefined);
+ f.control.beforeImage=null;const count=f.control.calls.length;
+ await f.json(route,'POST',{retryToken});
+ await until(()=>f.control.calls.length>count);
+ await until(async()=>!(await f.json(route)).failed.includes(2)&&(await f.json(route)).images[1]);
+ assert.equal((await f.json(route)).ready,4);
+ assert.deepEqual((await f.json(`sessions/${id}/export?layout=landscape`)).images,(await f.json(route)).images);
+ assert.deepEqual(f.control.calls.slice(count).map(call=>[call.page,call.landscape]),[[1,true]]);
+ const portrait=await f.read(id);assert.equal(portrait.state,'failed');assert.equal(portrait.generationControl,'paused');
+});
+
+test('a landscape start verifies saved portraits before queueing and accepts a restored reference independently',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),base='sessions/'+id,route=base+'/landscape';
+ const initial=await f.read(id),image=initial.story.pages[3].image,key=referenceImageKey(id,image),asset=await f.media.get(key);
+ const {startToken}=await f.json(route);
+ const store=f.app.services.media,get=store.get.bind(store);
+ store.get=async name=>{if(name===key)throw Error('受控读取失败');return get(name);};
+ try{
+  const blocked=await f.json(route);assert.match(blocked.referenceError,/第 4 幅/);assert.equal(blocked.startToken,undefined);
+  assert.equal((await f.request(route,'POST',{startToken})).status,503);
+ }finally{store.get=get;}
+ await f.media.remove(key);
+ const refused=await f.request(route,'POST',{startToken});
+ assert.equal(refused.status,409);assert.match((await refused.json()).error,/第 4 幅/);
+ assert.equal((await f.json(route)).startToken,undefined);
+ assert.equal((await saved(f,id)).landscapePrints,undefined);assert.equal(f.control.calls.length,0);
+ await f.json(base+'/image-health','POST',{page:3,image});
+ await f.media.put(key,asset.body,{contentType:asset.contentType});
+ const portraitState=await f.read(id);
+ assert.equal((await f.json(route)).startToken,startToken);
+ assert.ok((await f.read(id)).lifecycle.actions.some(action=>action.event==='start-landscape'));
+ f.control.hold=false;
+ await f.json(route,'POST',{startToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ const after=await f.read(id);
+ assert.equal(after.state,portraitState.state);assert.deepEqual(after.faults,portraitState.faults);
+ assert.equal(f.control.calls.length,4);assert.ok(f.control.calls.every(call=>call.landscape&&call.reference));
+});
+
+test('late pause is refused and retry of a previously paused terminal print runs immediately',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route='sessions/'+id+'/landscape';
+ const {printId,controlAction}=await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ assert.equal(controlAction,'pause');
+ f.control.hold=false;for(const call of f.control.calls)call.resolve();
+ await until(async()=>(await f.json(route)).state==='completed');
+ const done=await f.json(route);
+ assert.equal((await f.request(route,'POST',{printId,control:'pause'})).status,409);
+ assert.equal((await f.json(route)).control,'active');
+ const db=f.app.services.database;
+ await db.prepare("UPDATE stories SET document=json_set(document,'$.landscapePrints[#-1].control','paused') WHERE id=?").bind(id).run();
+ await f.media.remove(referenceImageKey(id,done.images[2]));
+ const {retryToken}=await f.json(route);
+ assert.equal((await f.json(route,'POST',{retryToken})).control,'active');
+ await until(async()=>(await f.json(route)).state==='completed');
+ assert.deepEqual(f.control.calls.slice(4).map(call=>call.page),[2]);
+});
+
+test('landscape PDF and Letter print the latest saved pages after a replan without truncating an earlier set',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),child=await fork(f,id,{length:3});
+ const base='sessions/'+child,route=base+'/landscape';
+ f.control.hold=false;
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ assert.equal((await f.json(route)).images.length,4);
+ await control(f,child,'continue');
+ await until(async()=>(await f.read(child)).state==='completed');
+ const latest=await f.read(child),db=f.app.services.database;
+ const capture=()=>Promise.all(['stories','production_jobs','reader_commands','reader_faults'].map(table=>db.prepare('SELECT * FROM '+table+' ORDER BY rowid').all()));
+ const before=await capture(),calls=f.control.calls.length;
+ const status=await f.json(route);assert.equal(status.state,'completed');assert.equal(status.matchesSavedPages,false);assert.ok(status.startToken);
+ const source=await f.json('sessions/'+id+'/export?layout=landscape');
+ assert.equal(source.id,child);assert.equal(source.story.pages.length,3);assert.deepEqual(source.story.pages,latest.story.pages);assert.equal(source.images,undefined);
+ for(const layout of ['landscape','letter']){
+  const pdf=await createStoryPdf(source.story,()=>{},nativeExportRuntime(process.cwd(),f.app),layout,source.images);
+  assert.equal(Buffer.from(pdf).subarray(0,5).toString(),'%PDF-');
+ }
+ assert.deepEqual(await capture(),before);assert.equal(f.control.calls.length,calls);
+});
+
+test('saved landscape sets align with current page order, including sets created before frame keys were recorded',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),base='sessions/'+id,route=base+'/landscape';
+ f.control.hold=false;await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ const original=(await f.json(route)).images,doc=await saved(f,id),db=f.app.services.database;
+ const order=[1,2,0,3];
+ doc.dag.order=order.map(index=>doc.dag.order[index]);doc.images=order.map(index=>doc.images[index]);doc.plan.pages=order.map(index=>doc.plan.pages[index]);
+ for(const old of [false,true]){
+  if(old)delete doc.landscapePrints[0].frameKeys;
+  await db.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(doc),id).run();
+  const source=await f.json(base+'/export?layout=landscape');
+  assert.equal((await f.json(route)).matchesSavedPages,true);
+  assert.deepEqual(source.images,order.map(index=>original[index]));assert.deepEqual(source.story.pages.map(page=>page.image),doc.images);
+  const replaced=structuredClone(doc);
+  if(old)replaced.plan.pages[0].prompt+=' 改为全新的画面。';
+  else replaced.dag.order[0]=crypto.randomUUID();
+  await db.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(replaced),id).run();
+  assert.equal((await f.json(base+'/export?layout=landscape')).images,undefined);
+ }
+});
+
+test('legacy retry disappears from the reader and shelf when its failed page lacks its required portrait',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),base='sessions/'+id,route=base+'/landscape';
+ const row=await f.app.services.database.prepare('SELECT * FROM stories WHERE id=?').bind(id).first(),dag=f.app.services.production.dag;
+ f.control.hold=false;f.control.beforeImage=call=>{if(call.landscape&&call.page===1)throw Error('受控横图失败');};
+ await dag.startLandscape(row,{startToken:(await dag.landscapeProjection(row)).status.startToken});
+ await until(async()=>!!(await f.json(route)).retryToken);
+ const img=(await f.read(id)).story.pages[1].image;
+ await f.media.remove(referenceImageKey(id,img));await f.json(base+'/image-health','POST',{page:1,image:img});
+ assert.equal((await f.json(route)).retryToken,undefined);
+ for(const session of [await f.read(id),(await f.json('library/shelf')).find(row=>row.id===id)]){
+  assert.ok(!session.lifecycle.actions.some(action=>action.event==='retry-landscape'));
+ }
+});
+
+test('a landscape retry validates only the saved references needed for redraw before authorizing the batch',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route='sessions/'+id+'/landscape';
+ f.control.hold=false;f.control.beforeImage=call=>{if(call.landscape&&[1,3].includes(call.page))throw Error('受控失败');};
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(async()=>!!(await f.json(route)).retryToken);
+ const {retryToken}=await f.json(route),images=(await saved(f,id)).images;
+ const key=referenceImageKey(id,images[3]),asset=await f.media.get(key);
+ await f.media.remove(key);f.control.beforeImage=null;
+ const db=f.app.services.database,before=await db.prepare('SELECT * FROM production_jobs WHERE session_id=? ORDER BY id').bind(id).all(),calls=f.control.calls.length;
+ const withheld=await f.json(route);
+ assert.equal(withheld.retryToken,undefined);assert.match(withheld.referenceError,/第 4 幅/);
+ assert.ok(!(await f.read(id)).lifecycle.actions.some(action=>action.event==='retry-landscape'));
+ const refused=await f.request(route,'POST',{retryToken});
+ assert.equal(refused.status,409);assert.match((await refused.json()).error,/第 4 幅/);
+ assert.deepEqual(await db.prepare('SELECT * FROM production_jobs WHERE session_id=? ORDER BY id').bind(id).all(),before);
+ assert.equal(f.control.calls.length,calls);
+ await f.media.put(key,asset.body,{contentType:asset.contentType});await f.media.remove(referenceImageKey(id,images[0]));
+ assert.equal((await f.json(route)).retryToken,retryToken);
+ await f.json(route,'POST',{retryToken});await until(async()=>(await f.json(route)).state==='completed');
+ assert.deepEqual(f.control.calls.slice(calls).map(call=>call.page).sort(),[1,3]);
+});
+
+test('retrying a damaged completed legacy set runs even when portrait production is paused',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),base='sessions/'+id,route=base+'/landscape';
+ const db=f.app.services.database,row=await db.prepare('SELECT * FROM stories WHERE id=?').bind(id).first(),dag=f.app.services.production.dag;
+ f.control.hold=false;
+ await dag.startLandscape(row,{startToken:(await dag.landscapeProjection(row)).status.startToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ const landscape=(await f.json(route)).images,portrait=(await f.read(id)).story.pages[0].image;
+ await f.media.remove(referenceImageKey(id,portrait));await f.json(base+'/image-health','POST',{page:0,image:portrait});
+ await control(f,id,'pause');await f.media.remove(referenceImageKey(id,landscape[2]));
+ const before=await f.read(id),{retryToken}=await f.json(route);assert.ok(retryToken);
+ const retry=await f.json(route,'POST',{retryToken});assert.equal(retry.control,'active');
+ await until(async()=>(await f.json(route)).state==='completed');
+ const after=await f.read(id);assert.equal(after.generationControl,'paused');assert.deepEqual(after.faults,before.faults);
+ assert.deepEqual(f.control.calls.slice(4).map(call=>call.page),[2]);
+});
+
+
+test('an authorized legacy landscape finishes from a restored saved portrait while its portrait fault stays open',async t=>{
+ const f=await productionFixture(t);f.options.production={autoStart:false};await f.restart();
+ const {id}=await completedStory(f,{length:4}),base='sessions/'+id,route=base+'/landscape';
+ const dag=f.app.services.production.dag,row=await f.app.services.database.prepare('SELECT * FROM stories WHERE id=?').bind(id).first();
+ await dag.startLandscape(row,{startToken:(await dag.landscapeProjection(row)).status.startToken});
+ const image=(await saved(f,id)).images[3],key=referenceImageKey(id,image),asset=await f.media.get(key);
+ await f.media.remove(key);await f.json(base+'/image-health','POST',{page:3,image});
+ await f.media.put(key,asset.body,{contentType:asset.contentType});
+ const before=await f.read(id);assert.equal(before.state,'failed');
+ f.control.hold=false;f.app.startGeneration();await until(async()=>(await f.json(route)).state==='completed');
+ const after=await f.read(id);assert.equal(after.state,'failed');assert.deepEqual(after.faults,before.faults);
+ assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[0,1,2,3]);assert.ok(f.control.calls.every(call=>call.landscape&&call.reference));
 });

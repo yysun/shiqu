@@ -1,11 +1,14 @@
 // 横版印刷的授权与画幅任务属于发起版本。队列保留实际调用和成图，竖图制作不接收横图的进度或故障。
+import type {MediaStore} from '../lib/services.ts';
+import {readableSavedPortrait,readableLandscapeImage} from './reader-image-health.ts';
+import {mediaType} from '../lib/reader-generation-contract.ts';
 import {randomUUID} from 'node:crypto';
 import {ReaderError,selectionSchema,view,type Document,type SessionRow} from '../lib/reader-model.ts';
 import type {LandscapeCommand,LandscapePrint,LandscapePrintSet,LandscapeStatus} from '../lib/reader-production.ts';
-import type {Database} from '../lib/reader-repository.ts';
-import {supersededSql} from '../lib/reader-repository.ts';
+import type {Database,ReadStatements} from '../lib/reader-repository.ts';
+import {landscapePrintHiddenSql,supersededSql} from '../lib/reader-repository.ts';
 import type {StoryGenerator} from '../lib/reader-engine.ts';
-import type {ModelSnapshot} from '../lib/production-dag/document.ts';
+import {landscapeSourceReady,type ModelSnapshot} from '../lib/production-dag/document.ts';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {evaluate} from '../lib/production-dag/engine.ts';
 import {drawInput,stateOf} from '../lib/production-dag/runner.ts';
@@ -25,23 +28,102 @@ const matches=(print:LandscapePrint|undefined,job:ProductionJob)=>print?.id===jo
 const retryIdentity=(id:string,failed:ProductionJob[])=>inputVersion([id,failed.map(job=>[job.id,job.state,job.updated_at,job.payload])]);
 const runningLegacyLandscape="session_id=stories.id AND owner_id=stories.user_id AND state='running' AND json_extract(payload,'$.work.call')='drawLandscape'";
 
+const printJobOrder="ORDER BY json_extract(payload,'$.input.index'),COALESCE(json_extract(payload,'$.attempt'),0)";
+const printJobFilter='FROM production_jobs WHERE session_id=? AND owner_id=? AND kind=? AND version=?';
+function latestByPage<T>(jobs:T[],page:(job:T)=>number){
+ return [...new Map(jobs.map(job=>[page(job),job])).values()];
+}
+async function latestPrintJobs(db:Database,row:SessionRow,print:LandscapePrint){
+ const {results}=await db.prepare(`SELECT * ${printJobFilter} ${printJobOrder}`).bind(row.id,row.user_id,landscapePrintKind,print.id).all<ProductionJob>();
+ return latestByPage(results,job=>(JSON.parse(job.payload) as Payload).input.index);
+}
+
+function landscapePageOrder(doc:Document,print:LandscapePrint){
+ const pages=doc.plan?.pages,count=pages?.length;
+ if(!count||print.story.pages.length!==count||print.frameKeys&&print.frameKeys.length!==count)return;
+ // 旧套图未存画幅身份，用保存的竖图和画面描述匹配；有歧义时改用下一套。
+ const binding=(key:string|undefined,image:string,prompt:string)=>JSON.stringify([key,image,prompt]);
+ const positions=new Map(print.story.pages.map((page,index)=>[binding(print.frameKeys?.[index],page.image,page.prompt),index]));
+ if(positions.size!==count)return;
+ const order:number[]=[];
+ for(const [index,page] of pages.entries()){
+  const position=positions.get(binding(print.frameKeys?doc.dag?.order[index]:undefined,doc.images[index],page.prompt));
+  if(position===undefined)return;
+  order.push(position);
+ }
+ return new Set(order).size===count?order:undefined;
+}
+
+// 导出按本版本的保存顺序选择整套可读取的横图，媒体读取不触发制作或修复。
+export async function savedLandscapeImages(db:Database,media:MediaStore,row:SessionRow,doc:Document){
+ const pages=doc.plan?.pages;
+ if(!pages?.length)return;
+ const count=pages.length;
+ async function readableSet(images:string[]){
+  if(!images.every(Boolean))return false;
+  for(const image of images){
+   const key=referenceImageKey(row.id,image);
+   try{
+    const asset=key&&await media.get(key);
+    if(!asset||mediaType(asset.body)!==asset.contentType||!await readableLandscapeImage(asset.body))return false;
+   }catch{return false;}
+  }
+  return true;
+ }
+ for(const print of [...(doc.landscapePrints??[])].reverse()){
+  const order=landscapePageOrder(doc,print);
+  if(!order)continue;
+  const images=Array<string>(count).fill('');
+  for(const job of await latestPrintJobs(db,row,print)){
+   const {input}=JSON.parse(job.payload) as Payload;
+   if(job.state==='succeeded'&&input.index>=0&&input.index<count)images[input.index]=(JSON.parse(job.result||'{}') as Partial<Receipt>).image??'';
+  }
+  if(await readableSet(images))return order.map(index=>images[index]);
+ }
+ const dag=doc.dag;
+ if(dag?.order.length!==count||!dag.order.every(key=>dag.frames[key]?.landscape))return;
+ const graph=evaluate(stateOf({id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed:true,faults:[]}));
+ const images=dag.order.map(key=>dag.frames[key].landscape!);
+ if(dag.order.every(key=>graph.instance('landscape',key).status==='valid')&&await readableSet(images))return images;
+}
+
 export class LandscapePrints{
  private readonly database:Database;
  private readonly now:()=>number;
  private readonly fileLost:(key:string)=>Promise<boolean>;
- constructor(database:Database,now:()=>number,fileLost:(key:string)=>Promise<boolean>){
-  this.database=database;this.now=now;this.fileLost=fileLost;
- }
-
- private jobs(row:SessionRow,print:LandscapePrint){
-  return this.database.prepare(`SELECT * FROM production_jobs WHERE session_id=? AND owner_id=? AND kind=? AND version=?
-   ORDER BY json_extract(payload,'$.input.index'),COALESCE(json_extract(payload,'$.attempt'),0)`).bind(row.id,row.user_id,landscapePrintKind,print.id).all<ProductionJob>()
-   .then(result=>[...new Map(result.results.map(job=>[(JSON.parse(job.payload) as Payload).input.index,job])).values()]);
+ private readonly media:MediaStore;
+ constructor(database:Database,media:MediaStore,now:()=>number,fileLost:(key:string)=>Promise<boolean>){
+  this.database=database;this.media=media;this.now=now;this.fileLost=fileLost;
  }
 
  private async verify(id:string,image:string){
   const key=referenceImageKey(id,image);
   return !!key&&!await this.fileLost(key);
+ }
+
+ private readonly missingReferences=new Map<string,string>();
+ referencesBlocked(id:string,images:string[]){
+  return this.missingReferences.get(id)===JSON.stringify(images);
+ }
+
+ private async referenceIssue(id:string,inputs:readonly Pick<Input,'index'|'reference'>[]){
+  const missing:number[]=[],unavailable:number[]=[];
+  for(const {index,reference} of inputs){
+   try{if(!await readableSavedPortrait(this.media,id,reference))missing.push(index+1);}
+   catch{unavailable.push(index+1);}
+  }
+  if(!missing.length&&!unavailable.length)return;
+  if(unavailable.length)return new ReaderError(503,'第 '+unavailable.join('、')+' 幅参考竖图暂时无法读取，请重新核对。');
+  return new ReaderError(409,'第 '+missing.join('、')+' 幅参考竖图缺失或损坏，请核对保存的图片。');
+ }
+
+ async checkStartOffer(row:SessionRow,status:LandscapeStatus){
+  if(!status.startToken)return status;
+  const images=documentOf(row).images;
+  const issue=await this.referenceIssue(row.id,images.map((reference,index)=>({reference,index})));
+  if(issue)this.missingReferences.set(row.id,JSON.stringify(images));
+  else this.missingReferences.delete(row.id);
+  return issue?{...status,startToken:undefined,referenceError:issue.message}:status;
  }
 
  private async readableReceipt(job:ProductionJob){
@@ -66,8 +148,34 @@ export class LandscapePrints{
   if(unavailable)throw new JobYield('image-availability');
  }
 
+ private readonly blockedRetries=new Set<string>();
+ private async retryPlan(row:SessionRow,failed:ProductionJob[]){
+  const decisions=await Promise.all(failed.map(async job=>{
+   const payload=JSON.parse(job.payload) as Payload;
+   try{return {job,payload,restored:await this.readableReceipt(job)};}
+   catch(error){
+    if(!(error instanceof JobYield))throw error;
+    return {job,payload,unavailable:true};
+   }
+  }));
+  const issue=decisions.some(item=>item.unavailable)?new ReaderError(503,'已保存的横图暂时无法核对，请稍后重试。'):
+   await this.referenceIssue(row.id,decisions.filter(item=>!item.restored).map(item=>item.payload.input));
+  return {decisions,issue};
+ }
+
+ private readonly readIssues=new Map<string,'lost'|'unavailable'>();
+
+ activity(db:ReadStatements,row:SessionRow,print:LandscapePrint){
+  const jobs=db.all<{id:string;page:number;state:ProductionJob['state']}>(`SELECT id,state,json_extract(payload,'$.input.index') AS page ${printJobFilter} ${printJobOrder}`,
+   row.id,row.user_id,landscapePrintKind,print.id);
+  const latest=latestByPage(jobs,job=>job.page);
+  return {running:latest.some(job=>job.state==='running'||job.state==='queued'),
+   failed:latest.some(job=>job.state==='failed'||this.readIssues.get(job.id)==='lost')&&!this.blockedRetries.has(print.id),
+   unavailable:latest.some(job=>this.readIssues.get(job.id)==='unavailable')};
+ }
+
  private async project(row:SessionRow,print:LandscapePrint){
-  const jobs=await this.jobs(row,print),images=Array.from({length:print.story.pages.length},()=>''),failed:ProductionJob[]=[];
+  const jobs=await latestPrintJobs(this.database,row,print),images=Array.from({length:print.story.pages.length},()=>''),failed:ProductionJob[]=[];
   let unavailable=false;
   for(const job of jobs){
    const {input}=JSON.parse(job.payload) as Payload;
@@ -75,34 +183,47 @@ export class LandscapePrints{
    if(job.state!=='succeeded')continue;
    const image=(JSON.parse(job.result||'{}') as Partial<Receipt>).image;
    try{
-    if(image&&await this.verify(row.id,image))images[input.index]=image;
-    else failed.push(job);
-   }catch{unavailable=true;}
+    if(image&&await this.verify(row.id,image)){images[input.index]=image;this.readIssues.delete(job.id);}
+    else{failed.push(job);this.readIssues.set(job.id,'lost');}
+   }catch{unavailable=true;this.readIssues.set(job.id,'unavailable');}
   }
   return {jobs,images,failed,unavailable,running:jobs.some(job=>job.state==='queued'||job.state==='running')};
  }
 
- startToken(row:SessionRow){return inputVersion(['landscape-print',row.id,row.selection,row.document]);}
+ private drawingInputs(row:SessionRow){
+  const doc=documentOf(row),dag=doc.dag!;
+  const story={id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed:true,faults:[]};
+  return dag.order.map(key=>drawInput(story,{call:'drawLandscape',instances:[{node:'landscape',key}]}));
+ }
+
+ startToken(row:SessionRow){
+  const doc=documentOf(row);
+  return inputVersion(['landscape-print',row.id,currentLandscapePrint(doc)?.id,doc.dag!.order,this.drawingInputs(row)]);
+ }
 
  async status(row:SessionRow,canStart:boolean):Promise<LandscapeStatus|undefined>{
-  const print=currentLandscapePrint(documentOf(row));
+  const doc=documentOf(row),print=currentLandscapePrint(doc);
   if(!print)return;
   const {jobs,images,failed,running,unavailable}=await this.project(row,print);
   const ready=images.filter(Boolean).length,total=images.length;
   const state=running?'running':ready===total?'completed':ready||failed.length||unavailable?'partial':'idle';
-  const retryToken=!running&&failed.length?retryIdentity(print.id,failed):undefined;
+  const retryIssue=!running&&failed.length?(await this.retryPlan(row,failed)).issue:undefined;
+  if(retryIssue)this.blockedRetries.add(print.id);
+  else this.blockedRetries.delete(print.id);
+  const retryToken=!running&&failed.length&&!retryIssue?retryIdentity(print.id,failed):undefined;
   const error=failed.find(job=>job.error)?.error||(failed.length?'部分横图丢失或损坏，请重试。':unavailable?'部分横图暂时无法读取。':undefined);
-  return {state,available:canStart||jobs.length>0,total,ready,images,control:print.control,printId:print.id,
-   failed:failed.map(job=>(JSON.parse(job.payload) as Payload).input.index+1),retryToken,error,
-   ...(canStart&&!running?{startToken:this.startToken(row)}:{}),
+  return {state,available:canStart||jobs.length>0,total,ready,images,control:print.control,printId:print.id,matchesSavedPages:!!landscapePageOrder(doc,print),
+   failed:failed.map(job=>(JSON.parse(job.payload) as Payload).input.index+1),retryToken,error,referenceError:retryIssue?.message,
+   ...(unavailable?{readUnavailable:true}:{}),
+   ...(canStart&&!running&&!unavailable?{startToken:this.startToken(row)}:{}),
    ...(running?{controlAction:print.control==='active'?'pause' as const:'resume' as const}:{})};
  }
 
  async sets(row:SessionRow):Promise<LandscapePrintSet[]>{
-  const sets:LandscapePrintSet[]=[],publication=view(row).story?.publication;
+  const sets:LandscapePrintSet[]=[],story=view(row).story;
   for(const print of [...(documentOf(row).landscapePrints??[])].reverse()){
    const {images}=await this.project(row,print);
-   if(images.length&&images.every(Boolean))sets.push({id:print.id,story:{...print.story,publication},images});
+   if(images.length&&images.every(Boolean))sets.push({id:print.id,story:{...print.story,title:story?.title??print.story.title,publication:story?.publication},images});
   }
   return sets;
  }
@@ -117,7 +238,7 @@ export class LandscapePrints{
  // 旧版在修订后不再运行原任务。读者可以确认接续有原授权记录的套图。
  async legacyResume(row:SessionRow){
   const doc=documentOf(row),{dag}=doc;
-  if(row.state!=='completed'||doc.landscapePrints?.length||!dag?.order.some(key=>dag.frames[key]?.landscape===''))return;
+  if(!landscapeSourceReady(doc)||doc.landscapePrints?.length||!dag?.order.some(key=>dag.frames[key]?.landscape===''))return;
   const source=await this.database.prepare(`SELECT NOT EXISTS(SELECT 1 FROM production_jobs WHERE ${runningLegacyLandscape} AND lease_until>?) AS available
    FROM stories WHERE id=? AND user_id=? AND ${supersededSql()}`).bind(this.now(),row.id,row.user_id).first<{available:number}>();
   if(!source)return;
@@ -162,32 +283,49 @@ export class LandscapePrints{
   }));
  }
 
- async command(row:SessionRow,command:LandscapeCommand,canStart:boolean,requireProvider?:()=>Promise<unknown>,modelSnapshot?:ModelSnapshot,legacyImages?:string[]){
+ async applyModel(row:SessionRow,print:LandscapePrint,replacement:ModelSnapshot){
+  const updated=await this.database.prepare(`UPDATE stories SET document=json_set(document,'$.landscapePrints[#-1].modelSnapshot',json(?))
+   WHERE id=? AND user_id=? AND document=? AND json_extract(document,'$.landscapePrints[#-1].id')=? AND NOT ${landscapePrintHiddenSql()}`)
+   .bind(JSON.stringify(replacement),row.id,row.user_id,row.document,print.id).run();
+  if(!updated.meta.changes)throw new ReaderError(409,'横图已更新，请刷新后再试。');
+ }
+
+ async command(row:SessionRow,command:Exclude<LandscapeCommand,{modelToken:string}>,canStart:boolean,requireProvider?:()=>Promise<unknown>,modelSnapshot?:ModelSnapshot,legacyImages?:string[]){
   const doc=documentOf(row),print=currentLandscapePrint(doc);
   if('startToken'in command){
-   if(!canStart||command.startToken!==this.startToken(row)||print&&(await this.jobs(row,print)).some(job=>job.state==='queued'||job.state==='running'))
+   if(!canStart||command.startToken!==this.startToken(row)||print&&(await latestPrintJobs(this.database,row,print)).some(job=>job.state==='queued'||job.state==='running'))
     throw new ReaderError(409,'作品或横图状态已更新，请刷新后再试。');
    const story=view(row).story,dag=doc.dag;
    if(!story||!doc.plan||!dag||!story.pages.length||story.pages.some(page=>!page.image))throw new ReaderError(409,'请先完成竖图再绘制横图。');
-   const basis={id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed:true,faults:[]};
-   const graph=evaluate(stateOf(basis));
-   const targets=dag.order.map(key=>{
-    const target=graph.instance('landscape',key);
-    if(!target.hard)throw new ReaderError(409,'请先完成当前画幅，再绘制横图。');
-    return target;
-   });
-   const inputs=targets.map(target=>drawInput(basis,{call:'drawLandscape',instances:[target]}));
-   const legacy=legacyImages?targets.map(target=>({key:target.key,hash:fingerprint(target.hard)})):[];
+   const inputs=this.drawingInputs(row);
+   const legacy:LegacyBinding[]=[];
+   if(legacyImages){
+    const graph=evaluate(stateOf({id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed:true,faults:[]}));
+    for(const key of dag.order){
+     const {hard}=graph.instance('landscape',key);
+     if(!hard)throw new ReaderError(409,'旧版画幅输入已更新。');
+     legacy.push({key,hash:fingerprint(hard)});
+    }
+   }
    const adopted=legacyImages?await this.adoptLegacy(row,legacy,legacyImages).catch(()=>{throw new ReaderError(503,'旧版图片暂时无法核对，请稍后重试。');}):[];
    if(inputs.some(input=>!adopted[input.index]))await requireProvider?.();
-   const next:LandscapePrint={id:randomUUID(),story,plan:doc.plan,control:'active',modelSnapshot};
+   const issue=await this.referenceIssue(row.id,inputs.filter(input=>!adopted[input.index]));
+   if(issue)throw issue;
+   const next:LandscapePrint={id:randomUUID(),story,plan:doc.plan,frameKeys:dag.order,control:'active',modelSnapshot};
    const now=this.now();
    transact(this.database,db=>{
+    if(print&&db.get(`SELECT 1 FROM production_jobs WHERE session_id=? AND owner_id=? AND kind=? AND version=? AND state IN ('queued','running')`,
+     row.id,row.user_id,landscapePrintKind,print.id))throw new ReaderError(409,'横图仍在制作，请刷新后再试。');
     const targetVersion=legacyImages?`${supersededSql()} AND NOT EXISTS(SELECT 1 FROM production_jobs WHERE ${runningLegacyLandscape} AND lease_until>?)`:`NOT ${supersededSql()}`;
-    if(!db.run(`UPDATE stories SET document=json_set(document,'$.landscapePrints',json(?)) WHERE id=? AND user_id=? AND document=? AND selection=? AND state='completed'
-     AND ${targetVersion} AND NOT EXISTS (SELECT 1 FROM library_deletions WHERE story_id=? AND user_id=?)`,
-     JSON.stringify([...(doc.landscapePrints??[]),next]),row.id,row.user_id,row.document,row.selection,...(legacyImages?[now]:[]),row.id,row.user_id).changes)
+    const current=db.get<SessionRow>(`SELECT * FROM stories WHERE id=? AND user_id=? AND ${targetVersion} AND NOT ${landscapePrintHiddenSql()}`,
+     row.id,row.user_id,...(legacyImages?[now]:[]));
+    if(!current||!landscapeSourceReady(documentOf(current))||command.startToken!==this.startToken(current))
      throw new ReaderError(409,'作品已更新，请刷新后再试。');
+    const currentDoc=documentOf(current);
+    next.story=view(current).story!;
+    next.plan=currentDoc.plan!;
+    db.run("UPDATE stories SET document=json_set(document,'$.landscapePrints',json(?)) WHERE id=? AND user_id=?",
+     JSON.stringify([...(currentDoc.landscapePrints??[]),next]),row.id,row.user_id);
     for(const input of inputs){
      const receipt=adopted[input.index];
      db.run(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,state,result,priority,attempts,lease_until,created_at,updated_at)
@@ -204,24 +342,22 @@ export class LandscapePrints{
    const control=command.control==='pause'?'paused':'active';
    const result=await this.database.prepare(`UPDATE stories SET document=json_set(document,'$.landscapePrints[#-1].control',?)
     WHERE id=? AND user_id=? AND json_extract(document,'$.landscapePrints[#-1].id')=?
-    AND NOT EXISTS (SELECT 1 FROM library_deletions WHERE story_id=? AND user_id=?)`).bind(control,row.id,row.user_id,print.id,row.id,row.user_id).run();
+    AND json_extract(document,'$.landscapePrints[#-1].control')<>?
+    AND EXISTS(SELECT 1 FROM production_jobs WHERE session_id=stories.id AND owner_id=stories.user_id AND kind=? AND version=? AND state IN ('queued','running'))
+    AND NOT ${landscapePrintHiddenSql()}`).bind(control,row.id,row.user_id,print.id,control,landscapePrintKind,print.id).run();
    if(!result.meta.changes)throw new ReaderError(409,'横图已更新，请刷新后再试。');
    return;
   }
   const {failed,running}=await this.project(row,print);
   if(running||!failed.length||command.retryToken!==retryIdentity(print.id,failed))throw new ReaderError(409,'横图状态已更新，请刷新后再试。');
-  const decisions=await Promise.all(failed.map(async job=>{
-   const payload=JSON.parse(job.payload) as Payload;
-   const restored=await this.readableReceipt(job).catch(error=>{
-    if(error instanceof JobYield)throw new ReaderError(503,'图片暂时无法核对，请稍后重试。');
-    throw error;
-   });
-   return {job,restored,payload};
-  }));
+  const {decisions,issue}=await this.retryPlan(row,failed);
+  if(issue)throw issue;
   if(decisions.some(item=>!item.restored))await requireProvider?.();
   transact(this.database,db=>{
-   if(!db.get("SELECT 1 FROM stories WHERE id=? AND user_id=? AND json_extract(document,'$.landscapePrints[#-1].id')=? AND NOT EXISTS (SELECT 1 FROM library_deletions WHERE story_id=? AND user_id=?)",row.id,row.user_id,print.id,row.id,row.user_id))
+   if(!db.get(`SELECT 1 FROM stories WHERE id=? AND user_id=? AND json_extract(document,'$.landscapePrints[#-1].id')=? AND NOT ${landscapePrintHiddenSql()}`,row.id,row.user_id,print.id))
     throw new ReaderError(409,'横图已更新，请刷新后再试。');
+   // 重试是本次明确授权，已结束套图留下的暂停状态不应阻止新任务。
+   db.run("UPDATE stories SET document=json_set(document,'$.landscapePrints[#-1].control','active') WHERE id=? AND user_id=?",row.id,row.user_id);
    for(const {job,restored,payload} of decisions){
     const now=this.now();
     const unchanged=db.get(`SELECT 1 FROM production_jobs j WHERE j.id=? AND j.state=? AND j.updated_at=? AND j.payload=?
@@ -241,6 +377,14 @@ export class LandscapePrints{
       throw new ReaderError(409,'横图已更新，请刷新后再试。');
    }
   });
+ }
+
+ async canResumeOffline(job:ProductionJob){
+  const {paid,retry,legacy}=JSON.parse(job.payload) as Payload;
+  if(paid&&!retry)return true;
+  if(!retry&&!legacy)return false;
+  try{return !!await this.readableReceipt(job);}
+  catch(error){if(error instanceof JobYield)return false;throw error;}
  }
 
  async resumePaid(job:ProductionJob){

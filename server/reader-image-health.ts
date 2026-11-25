@@ -8,6 +8,8 @@ import png,{init as initPng} from '@jsquash/png/decode.js';
 import jpegFactory from '@jsquash/jpeg/codec/dec/mozjpeg_dec.js';
 import webpFactory from '@jsquash/webp/codec/dec/webp_dec.js';
 import {initEmscriptenModule} from '@jsquash/jpeg/utils.js';
+import type {MediaStore} from '../lib/services.ts';
+import {referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
 import {imageDimensions,matchesLandscapeImageRatio} from '../lib/reader-image-dimensions.ts';
 const require=createRequire(import.meta.url),verdicts=new Map<string,boolean>();
@@ -43,4 +45,9 @@ export async function readableImage(bytes:Uint8Array){
 export async function readableLandscapeImage(bytes:Uint8Array){
  const dimensions=imageDimensions(bytes);
  return !!dimensions&&matchesLandscapeImageRatio(dimensions)&&await readableImage(bytes);
+}
+
+export async function readableSavedPortrait(media:MediaStore,id:string,image:string){
+ const key=referenceImageKey(id,image),asset=key&&await media.get(key);
+ return !!asset&&mediaType(asset.body)===asset.contentType&&await readableImage(asset.body);
 }

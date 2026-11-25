@@ -8,6 +8,7 @@ import type {ReaderProduction} from './reader-production.ts';
 
 export interface MediaObject {body:Uint8Array<ArrayBuffer>;contentType:string;arrayBuffer():Promise<ArrayBuffer>}
 export interface MediaStore {
+ remove(key:string):Promise<void>;
  get(key:string):Promise<MediaObject|null>;
  put(key:string,value:ArrayBuffer|Uint8Array,options:{contentType:string}):Promise<unknown>;
 }

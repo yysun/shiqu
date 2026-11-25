@@ -1,0 +1,214 @@
+{
+  "build": "cd412ed635cc0b7e3e051570c20901b28e1899f3",
+  "style": [
+    {
+      "name": "styleRevision",
+      "checks": {
+        "C029": true,
+        "C032": true
+      },
+      "result": {
+        "status": {
+          "state": "idle",
+          "ready": 0,
+          "total": 4,
+          "failed": [],
+          "retry": false
+        },
+        "validity": [
+          "missing",
+          "missing",
+          "missing",
+          "missing"
+        ],
+        "matchesParent": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "waiting": [],
+        "pdfBytes": 0,
+        "pdfPagesUsingOldImages": []
+      }
+    }
+  ],
+  "upgradedFaults": [
+    {
+      "falseSuccess": false,
+      "before": {
+        "state": "partial",
+        "ready": 3,
+        "total": 4,
+        "failed": [
+          3
+        ],
+        "canRetry": true
+      },
+      "generic": 409,
+      "dedicated": 202,
+      "after": {
+        "state": "completed",
+        "ready": 4,
+        "total": 4,
+        "failed": [],
+        "canRetry": false
+      },
+      "draws": [
+        3
+      ]
+    },
+    {
+      "falseSuccess": true,
+      "before": {
+        "state": "partial",
+        "ready": 3,
+        "total": 4,
+        "failed": [
+          3
+        ],
+        "canRetry": true
+      },
+      "generic": 409,
+      "dedicated": 202,
+      "after": {
+        "state": "completed",
+        "ready": 4,
+        "total": 4,
+        "failed": [],
+        "canRetry": false
+      },
+      "draws": [
+        3
+      ]
+    }
+  ],
+  "originalJob": [
+    {
+      "name": "offlinePortrait",
+      "checks": {
+        "C031": false
+      },
+      "result": {
+        "readable": true,
+        "offered": false,
+        "offlineStatus": 503,
+        "offlineReady": 1,
+        "total": 2,
+        "reconnectedReady": 2,
+        "extraDraws": 0
+      }
+    },
+    {
+      "name": "offlineLandscape",
+      "checks": {
+        "C031": true
+      },
+      "result": {
+        "readable": true,
+        "offered": true,
+        "offlineStatus": 202,
+        "offlineReady": 4,
+        "total": 4,
+        "reconnectedReady": 4,
+        "extraDraws": 0
+      }
+    }
+  ],
+  "upgradedLandscape": [
+    {
+      "readable": true,
+      "matches": true,
+      "offline": 503,
+      "ready": 3,
+      "offersRetry": false,
+      "online": 202,
+      "extraCalls": 0
+    }
+  ],
+  "newFindings": [
+    {
+      "name": "familyDeletion",
+      "result": {
+        "shelfBefore": 1,
+        "currentWasOnlyCard": true,
+        "earlier": [
+          [
+            0,
+            4,
+            "pause"
+          ]
+        ],
+        "hidden": true,
+        "oldStatus": "completed",
+        "afterDelete": [
+          2,
+          3,
+          4
+        ]
+      }
+    },
+    {
+      "name": "snapshot",
+      "result": {
+        "pausedService": "snapshot-unavailable",
+        "resume": 202,
+        "status": "running",
+        "after": "running",
+        "ready": 1,
+        "start": false,
+        "retry": false,
+        "action": "pause",
+        "apply": 200,
+        "offersApply": true,
+        "queued": 3,
+        "draws": 1
+      }
+    },
+    {
+      "name": "staleControl",
+      "result": {
+        "before": "active",
+        "sourcePrintId": "afb4f6ff-8516-41ef-8c5f-1656bc456bd5",
+        "targetPrintId": null,
+        "landscapeState": "idle",
+        "response": 202,
+        "after": "paused"
+      }
+    },
+    {
+      "name": "sameVersionDelete",
+      "result": {
+        "afterRestore": "paused",
+        "drawsBeforeResume": 1,
+        "readyAfterResume": 4
+      }
+    }
+  ],
+  "browser": {
+    "operation": "Delete only visible shelf card after revising the source of a running four-page print",
+    "confirmation": "已删除《管鲍之交》 / 撤销删除",
+    "alreadySent": 1,
+    "newLandscapePagesAfterDeletion": [
+      2,
+      3,
+      4
+    ]
+  },
+  "verification": {
+    "broad": {
+      "files": 69,
+      "passedInitially": 700,
+      "loopbackBindDenied": 1,
+      "heavyDeferred": 1,
+      "loopbackRerun": "passed",
+      "heavyRerun": "passed"
+    },
+    "sourceImpactPassed": 656,
+    "focusedPassed": 176,
+    "nativePassed": 27,
+    "workingTreePassed": 30,
+    "typecheck": "passed",
+    "lint": "passed"
+  }
+}

@@ -124,6 +124,7 @@ export function settle(story:DagStory):DagDocument{
   const state=stateOf({...story,dag,faults:story.faults.filter(fault=>!fault.imageLoss)});
   const pool=Object.entries(dag.products).filter(([id,p])=>id.startsWith(node+':')&&p.readable!==false);
   for(const inst of evaluate(state).all().filter(i=>i.node===node&&i.ready&&i.hard)){
+   if(node==='frameImage'&&inst.key===dag.cover?.frame)continue;
    const match=reusable(pool.map(([,p])=>p),inst.hard!);
    if(!match)continue;
    const [sourceId]=pool.find(([,p])=>p===match)!;
@@ -136,12 +137,12 @@ export function settle(story:DagStory):DagDocument{
  }
  // 读者指定的首幅原图：该幅的输入就绪时记为成图产物（输入指纹按当前画风与画面描述），之后其余画幅以它为参考。
  if(dag.cover){
-  const cover=dag.cover,inst=dag.order.includes(cover.frame)?evaluate(stateOf({...story,dag})).instance('frameImage',cover.frame):undefined;
+  const {frame:key}=dag.cover,image=dag.frames[key]?.image;
+  const inst=image&&dag.order.includes(key)?evaluate(stateOf({...story,dag})).instance('frameImage',key):undefined;
   if(!inst)dag={...(dag===story.dag?clone(dag):dag),cover:undefined};
   else if(inst.ready&&inst.hard){
    dag=dag===story.dag?clone(dag):dag;
-   frame(dag,cover.frame).image=cover.image;
-   dag.products[inst.id]={hash:fingerprint(cover.image),inputs:inst.hard,...(inst.check&&Object.keys(inst.check).length?{checks:inst.check}:{})};
+   record(dag,inst,image);
    delete dag.cover;
   }
   if(dag.cover===undefined&&'cover'in dag)delete dag.cover;
@@ -154,7 +155,7 @@ export function work(story:DagStory):Work[]{
  if(story.doc.reselection)return [];
  const state=stateOf(story);
  const groups=callGroups(state,callFor(state));
- if(story.dag.repreparing)return groups.filter(item=>item.call==='prepareSuggestions');
+ if(story.dag.repreparing)return groups.filter(item=>item.call==='prepareSuggestions'||item.call==='drawLandscape');
  if(!story.confirmed){
   if(!preparationPending(story.doc)||story.doc.frameRecommendation)return [];
   const candidate=preparationCandidate(story.doc),source=story.doc.original;

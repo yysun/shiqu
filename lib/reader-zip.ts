@@ -57,10 +57,10 @@ function systemPromptText(story:Story,history:StoryPromptArchive){
   ...(history.systemPrompts.length?history.systemPrompts.map(system=>`<a id="${system.id}"></a>\n\n## ${system.label}\n\n${system.instructions}`):['未留存非空的系统指令；各次调用是否留存完整提示词请查看 [提示词](提示词.md)。']),
  ].join('\n\n')+'\n';
 }
-export async function createStoryZip(story:Story,history:StoryPromptHistory|null,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime()){
+export async function createStoryZip(story:Story,history:StoryPromptHistory|null,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime(),includePrompts=true){
  assertZipReady(story);
  const generated='generated'in story&&story.generated===true?story as GeneratedStory:null;
- if(generated&&!history)throw Error('提示词记录未载入，无法打包 ZIP，请重试。');
+ if(includePrompts&&generated&&!history)throw Error('提示词记录未载入，无法打包 ZIP，请重试。');
  await runtime.ready();
  const files:Record<string,Uint8Array>={},images:string[]=[],hashes:StoryImageHashes[]=[];
  for(const [index,page] of story.pages.entries()){
@@ -74,12 +74,13 @@ export async function createStoryZip(story:Story,history:StoryPromptHistory|null
   images.push(filename);files[filename]=output;hashes.push(imageHashes);
  }
  onProgress('正在整理分镜与保存 ZIP');
- const archive=archivePromptHistory(history);
  Object.assign(files,storyZipFiles(storyZipData(story,images,hashes,history)));
- files['提示词.md']=strToU8(promptText(story,archive));
- files['系统提示词.md']=strToU8(systemPromptText(story,archive));
- // Keep full call inputs outside the story metadata consumed by reading sites.
- files['提示词.json']=strToU8(JSON.stringify(archive,null,2)+'\n');
+ if(includePrompts){
+  const archive=archivePromptHistory(history);
+  files['提示词.md']=strToU8(promptText(story,archive));
+  files['系统提示词.md']=strToU8(systemPromptText(story,archive));
+  files['提示词.json']=strToU8(JSON.stringify(archive,null,2)+'\n');
+ }
  // WebP is already compressed; avoid repeating compression while building the archive.
  return new Blob([zipSync(files,{level:0}) as BlobPart],{type:'application/zip'});
 }

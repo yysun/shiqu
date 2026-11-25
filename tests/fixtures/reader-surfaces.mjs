@@ -13,7 +13,7 @@ const compiled=build({stdin:{contents:`
  export const controls=session=>renderToStaticMarkup(createElement('div',null,
   createElement(StoryGenerationControl,{session,busy:false,onControl:async,link:true}),
   createElement(StoryRetry,{session,busy:false,onRetry:noop,display:'actions',link:true})));
- export const settings=(session,showLandscape=false)=>renderToStaticMarkup(createElement(StoryGenerationStatus,{session,busy:false,controlBusy:false,error:'',onControl:async,onRetry:noop,onBack:noop,hideBack:true,showSummary:false,showLandscape}));
+ export const settings=(session,showLandscape)=>renderToStaticMarkup(createElement(StoryGenerationStatus,{session,busy:false,controlBusy:false,error:'',onControl:async,onRetry:noop,onBack:noop,hideBack:true,showSummary:false,showLandscape}));
  export const shelf=sessions=>{
   const stories=sessions.filter(s=>s.story?.cover).map(s=>({id:s.id,title:s.story.title||'',bookId:s.selection?.bookId||'',theme:s.selection?.theme||'',artStyleLabel:'',revision:s.story.revision,cover:s.story.cover,resumeImage:'',resumePage:0,frameCount:s.story.frameCount||0}));
   return renderToStaticMarkup(createElement(ReaderShelf,{onControl:async,controlBusy:'',stories,pending:sessions.filter(s=>!s.story?.cover),sessions,progress:[],loading:false,refreshing:false,onRefresh:noop,error:'',

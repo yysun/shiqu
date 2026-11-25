@@ -7,12 +7,12 @@ import type {Plan} from './reader-model.ts';
 import type {ModelSnapshot} from './production-dag/document.ts';
 export const productionReadAhead=6;
 export const productionViewerLeaseMs=30000;
-export type LandscapeStatus={state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;retryToken?:string;error?:string;service?:ProductionService;control?:GenerationControl;controlAction?:'pause'|'resume';printId?:string;earlier?:EarlierLandscapeWork[]};
-export type EarlierLandscapeWork=Pick<LandscapeStatus,'state'|'ready'|'total'|'control'|'controlAction'|'startToken'|'retryToken'|'failed'|'error'|'printId'>&{storyId:string;revision:number};
+export type LandscapeStatus={matchesSavedPages?:boolean;referenceError?:string;readUnavailable?:boolean;state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;retryToken?:string;modelToken?:string;error?:string;service?:ProductionService;control?:GenerationControl;controlAction?:'pause'|'resume';printId?:string;earlier?:EarlierLandscapeWork[]};
+export type EarlierLandscapeWork=Pick<LandscapeStatus,'referenceError'|'readUnavailable'|'state'|'ready'|'total'|'control'|'controlAction'|'startToken'|'retryToken'|'failed'|'error'|'printId'|'modelToken'|'service'>&{storyId:string;revision:number};
 export type LandscapePrintSet={id:string;story:Story;images:string[]};
 /** 横图套图留在发起版本，故事与分镜是印刷时使用的快照。 */
-export type LandscapePrint={id:string;story:Story;plan:Plan;control:'active'|'paused';modelSnapshot?:ModelSnapshot};
-export type LandscapeCommand={startToken:string}|{retryToken:string}|{control:'pause'|'resume';printId?:string};
+export type LandscapePrint={id:string;story:Story;plan:Plan;frameKeys?:string[];control:'active'|'paused';modelSnapshot?:ModelSnapshot};
+export type LandscapeCommand={startToken:string}|{retryToken:string}|{modelToken:string}|{control:'pause'|'resume';printId?:string};
 export interface ReaderProduction{
  referencesChanged?():void;
  wake():void;

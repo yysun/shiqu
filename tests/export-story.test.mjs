@@ -39,9 +39,8 @@ function nativeApi(t){
   const parsed=new URL(url);assert.equal(parsed.origin,'http://export.test');assert.equal(options.method||'GET','GET');
   state.requests.push(parsed.pathname);
   const route=parsed.pathname.replace('/api/reader/','');
-  if(route==='sessions')return Response.json([{...session,story:{...story,sourceText:''}}]);
-  if(route===`sessions/${story.id}`)return Response.json(session);
-  if(route.endsWith('/current'))return Response.json({id:state.current});
+  if(route==='sessions'&&parsed.searchParams.get('view')==='export')return Response.json([{id:session.id,title:story.title}]);
+  if(route.endsWith('/export'))return Response.json({...session,id:state.current});
   if(route==='publication-defaults')return Response.json({publication:{...fixture().story.publication,author:state.author}});
   if(route===`sessions/${story.id}/prompts`)return Response.json({productionPrompt:'PRIVATE_PRODUCTION',acceptancePrompt:'PRIVATE_ACCEPTANCE',records:[],missingRecords:[]});
   if(route.startsWith('media/')){state.afterMedia();return new Response(raw,{status:state.mediaStatus,headers:{'Content-Type':'image/webp'}});}
@@ -65,6 +64,7 @@ test('named Node export reads the complete story, applies default credits and en
   }
   for(const name of ['故事.json','分镜.md','署名与转载.txt'])assert.ok(!strFromU8(files[name]).includes('PRIVATE_'));
   assert.equal(state.requests.filter(route=>route.includes('/media/')).length,story.pages.length);
+  assert.ok(!state.requests.some(route=>route.endsWith('/prompts')));
   assert.deepEqual(await readdir(root),[path.basename(result.path)]);
  }finally{await rm(root,{recursive:true,force:true});}
 });
@@ -106,7 +106,7 @@ test('named export rejects ambiguous names and incomplete current versions inste
  assert.throws(()=>selectExportSession([current,{...current,id:'other'}],'测试故事'),/同名/);
  assert.throws(()=>selectExportSession([current],'不存在'),/没有找到/);
  assert.throws(()=>selectExportSession([old,{...current,state:'running',story:{...current.story,pages:[{image:''}]}}],'测试故事'),/缺少第 1 幅/);
- assert.throws(()=>selectExportSession([{...current,state:'running'}],'current'),/尚未制作完成/);
+ assert.equal(selectExportSession([{...current,state:'running'}],'current').id,current.id);
 });
 
 test('named export preserves the original sharing filename across a new revision ID and renamed title',async()=>{

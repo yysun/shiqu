@@ -6,7 +6,7 @@ self.addEventListener('install',event=>{event.waitUntil(caches.open(SHELL).then(
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('yiyu-shell-')&&k!==SHELL).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
 self.addEventListener('fetch',event=>{
  const req=event.request,url=new URL(req.url);
- if(req.method!=='GET'||url.origin!==location.origin)return;
+ if(req.method!=='GET'||url.origin!==location.origin||req.cache==='no-store')return;
  if(req.mode==='navigate'&&(url.pathname==='/'||url.pathname==='/read'||url.pathname==='/offline.html')){
   event.respondWith(fetch(req).catch(()=>caches.open(SHELL).then(c=>c.match('/offline.html'))));return;
  }

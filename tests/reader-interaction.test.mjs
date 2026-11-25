@@ -196,6 +196,7 @@ test('print PDF uses complete landscape artwork without cropping and otherwise p
    image:async(url,draw)=>{const wide=landscape.includes(url);return draw({value:url,width:wide?30:20,height:wide?20:30});}};
   return {reads,draws,textDraws,pdf:await PDFDocument.load(await createStoryPdf(story,undefined,runtime,layout,images,coverIndex))};
  }
+ await assert.rejects(render('landscape',[landscape[0],portrait[1]]),/第 2 幅横图/);
  const complete=await render('landscape',landscape);
  assert.deepEqual(complete.reads,landscape.map((url,index)=>[url,index]));
  assert.deepEqual(complete.draws.map(draw=>draw[0]),[landscape[0],...landscape]);
@@ -335,4 +336,23 @@ test('direct source selection drops inherited theme directions and preserves aut
  assert.equal(direct.theme,'原典故事');assert.equal(direct.productionPrompt,'');assert.doesNotMatch(direct.productionPrompt,/开头制造一个可信的预期/);
  assert.equal(directStorySettings('','').productionPrompt,direct.productionPrompt);
  assert.equal(directStorySettings('保持克制，保留原文结局。','其他').productionPrompt,'保持克制，保留原文结局。');
+});
+
+test('browser exporters read the saved image even when offline reading has an older copy at the same URL',async t=>{
+ const {browserExportRuntime}=await import('../lib/story-export-runtime.ts');
+ const {runInNewContext}=await import('node:vm'),{readFile}=await import('node:fs/promises');
+ const location=new URL('http://reader.test'),image='/api/reader/media/book/1.png',handlers={};
+ const response=value=>new Response(value,{headers:{'Content-Type':'image/png'}});
+ const cache={match:async()=>response('offline copy')};
+ runInNewContext(await readFile('public/sw.js','utf8'),{
+  self:{addEventListener:(name,action)=>{handlers[name]=action;}},location,URL,caches:{open:async()=>cache},fetch:async()=>response('saved image'),
+ });
+ globalThis.location=location;t.after(()=>{delete globalThis.location;});
+ t.mock.method(globalThis,'fetch',async(url,options)=>{
+  const request=new Request(url,options);let handled;
+  handlers.fetch({request,respondWith:result=>{handled=result;}});
+  return handled??response('saved image');
+ });
+ assert.equal(await(await fetch(new URL(image,location))).text(),'offline copy');
+ assert.equal(await(await browserExportRuntime().read(image,0)).text(),'saved image');
 });

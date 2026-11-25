@@ -213,8 +213,9 @@ function applyPendingMigrations(directory:string,root:string){
  return {backup,migrations};
 }
 export type UpgradePoint='journal'|'staged'|'quarantined'|'database-retired'|'database-published'|'files-published'|'cleanup';
-export function ensureLibraryReady(directory:string,root:string,options:{onStep?:(point:UpgradePoint)=>void}={}){
+export function ensureLibraryReady(directory:string,root:string,options:{onStep?:(point:UpgradePoint)=>void;readOnly?:boolean}={}){
  const initial=inspectLibrary(directory);if(initial==='current'&&!migrationBackupDependency(directory)&&!pendingMigrations(directory,root).length)return;
+ if(options.readOnly)throw Error(initial==='missing'?'LIBRARY_NOT_FOUND':'LIBRARY_UPGRADE_REQUIRED: open the library in Shiqu before exporting.');
  const release=ownsDesktopData(directory)?()=>{}:ownDesktopDataSync(directory);
  try{return withLibraryGate(directory,()=>{
   const pending=pendingUpgrade(directory);

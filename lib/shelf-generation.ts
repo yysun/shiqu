@@ -1,7 +1,7 @@
 // Explain saved generation checkpoints without treating a shelf visit as demand for new work.
 // 书架“制作中”区域按状态优先级排序：需要用户处理的排在运行、排队与暂停之前，同一状态内保持原顺序。
 // 提示读者点击某项操作的状态都标明所需动作（expects）。生命周期没有提供该动作时改为说明原因，界面不会只提示而没有入口。
-import {offersProductionAction,productionServiceMessages,type ProductionActionOffer} from './production-lifecycle.ts';
+import {offersProductionAction,preparationRefreshFault,productionServiceMessages,type ProductionActionOffer} from './production-lifecycle.ts';
 import type {SessionView} from './reader-model.ts';
 import type {ShelfSession} from './reader-shelf.ts';
 
@@ -44,6 +44,8 @@ function savedStatus(session:SessionView|ShelfSession):Status{
   return {group:'生成已暂停',message:'图片暂时无法核对',detail:'系统会继续核对已保存的图片，暂时不会重新绘制。',action:'查看详情'};
  if((!complete||completedWork)&&session.generationControl&&session.generationControl!=='active')return {group:'生成已暂停',message:refreshing?'已暂停 · 重新准备':pausedStage?`已暂停 · ${pausedStage}`:'生成已暂停',detail:`已保存的结果会保留。点击“${preparing?'恢复准备':'恢复生成'}”后继续。`,action:'查看详情',expects:'resume'};
  if(completedWork&&lifecycle?.activity.state==='running')return {group:'生成中',message:session.stage,detail:'原有内容及成图仍可阅读。',action:'查看进度'};
+ const refreshFault=preparationRefreshFault(session);
+ if(complete&&refreshFault)return {group:'生成失败',message:'重新准备失败',detail:refreshFault.message,action:'查看详情'};
  if(completedWork&&lifecycle?.activity.state==='queued')return {group:'等待生成',message:refreshing?'等待重新准备':'等待绘制横图',detail:'原有内容及成图仍可阅读。',action:'查看进度'};
  // 已完成作品的可选产物失败（如横图）由所在步骤提供重试，不把整篇显示为生成失败。
  if(!complete&&(session.state==='failed'||session.error))return {group:'生成失败',message:'生成失败',detail:session.error||'已保存的结果会保留，请重试继续。',action:'查看详情'};

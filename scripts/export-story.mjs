@@ -59,15 +59,17 @@ export async function exportStory(input,{output,outputDirectory=path.join(collec
  return {path:target,title:story.title,pages:story.pages.length,bytes:bytes.length,sha256:digest(bytes)};
 }
 
-export function selectExportSession(sessions,name){
- const matches=sessions.filter(session=>!session.superseded&&(session.id===name||session.story?.title===name||session.selection?.storyTitle===name));
+function matchExportSession(sessions,name){
+ const matches=sessions.filter(session=>!session.superseded&&(session.id===name||(session.title??session.story?.title)===name||(session.sourceTitle??session.selection?.storyTitle)===name));
  assert(matches.length,`书架没有找到：${name}`);
- assert(matches.length===1,`同名故事不止一篇，请指定作品 ID：${matches.map(session=>`${session.story?.title||name} (${session.id})`).join('；')}`);
- const session=matches[0],pages=session.story?.pages;
+ assert(matches.length===1,`同名故事不止一篇，请指定作品 ID：${matches.map(session=>session.id).join('、')}`);
+ return matches[0];
+}
+export function selectExportSession(sessions,name){
+ const session=matchExportSession(sessions,name),pages=session.story?.pages;
  assert(pages?.length,'这篇故事尚未保存分镜。');
  const missing=pages.flatMap((page,index)=>page.image?[]:[index+1]);
  assert(!missing.length,`缺少第 ${missing.join('、')} 幅图片；请完成当前版本，不导出旧版。`);
- assert(session.state==='completed','当前故事版本尚未制作完成，请完成后再导出。');
  return session;
 }
 
@@ -80,11 +82,10 @@ export async function exportNamedStory(name,{appUrl='http://localhost:3000',onPr
   assert(response.ok,`无法读取拾趣 ${route}：HTTP ${response.status}。请确认应用地址及访问权限。`);
   return response.json();
  }
- const selected=selectExportSession(await api('sessions'),name);
- // Shelf summaries omit saved original text; the production exporter needs the complete current story.
- const session=selectExportSession([await api(`sessions/${selected.id}`)],selected.id);
- assert((await api(`sessions/${session.id}/current`)).id===session.id,'书架已切换到新版，请重新导出。');
- onProgress(`已选择：${session.story.title} · 版本 ${session.revision?.number||1} · ${session.story.pages.length} 幅`);
+ const id=/^[0-9a-f-]{36}$/i.test(name)?name:matchExportSession(await api('sessions?view=export'),name).id;
+ const session=await api(`sessions/${id}/export`);
+ selectExportSession([session],session.id);
+ onProgress(`已选择：${session.story.title} · 版本 ${session.story.revision} · ${session.story.pages.length} 幅`);
  const temporary=await mkdtemp(path.join(tmpdir(),'shiqu-native-export-'));
  try{
   const {exportLocalStory}=await import('../server/story-export.ts');
@@ -92,12 +93,12 @@ export async function exportNamedStory(name,{appUrl='http://localhost:3000',onPr
   onProgress('正在通过 Node 生成公开 ZIP…');
   await exportLocalStory(project,app,session,{format:'zip',output:input});
   const data=savedJSON(new Uint8Array(await readFile(input)));
-  assert(data.id===session.id&&data.revision===(session.revision?.number||1),'导出文件不是所选的当前版本。');
-  assert((await api(`sessions/${session.id}/current`)).id===session.id,'导出期间书架已切换到新版，请重新导出。');
+  assert(data.id===session.id&&data.revision===session.story.revision,'导出文件不是所选的当前版本。');
+  assert((await api(`sessions/${session.id}/export`)).id===session.id,'导出期间书架已切换到新版，请重新导出。');
   const currentIds=new Map();
   async function resolveCurrentId(id){
    if(!currentIds.has(id)){
-    const current=/^[0-9a-f-]{36}$/i.test(id)?await api(`sessions/${id}/current`,true):null;
+    const current=/^[0-9a-f-]{36}$/i.test(id)?await api(`sessions/${id}/export`,true):null;
     currentIds.set(id,current?.id);
    }
    return currentIds.get(id);

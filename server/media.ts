@@ -14,7 +14,7 @@ export class FileMedia implements MediaStore {
  directory:string;
  constructor(directory:string){this.directory=path.resolve(directory);}
  private async filename(key:string,create:boolean){
-  mediaKey(key);await mkdir(this.directory,{recursive:true});
+  mediaKey(key);if(create)await mkdir(this.directory,{recursive:true});
   const root=await realpath(this.directory);let current=root;
   const parts=key.split('/');
   for(const part of parts.slice(0,-1)){
@@ -35,6 +35,10 @@ export class FileMedia implements MediaStore {
    return {body:bytes,contentType:mediaTypes[path.extname(key)]||'application/octet-stream',async arrayBuffer(){return bytes.slice().buffer;}};
   }catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}
   finally{await handle?.close();}
+ }
+ async remove(key:string){
+  try{await rm(await this.filename(key,false),{force:true});}
+  catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
  }
  async put(key:string,value:ArrayBuffer|Uint8Array,options:{contentType:string}){
   const expected=mediaTypes[path.extname(key)];

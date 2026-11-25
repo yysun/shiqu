@@ -17,6 +17,13 @@ export type ReaderFault={id:string;session_id:string;owner_id:string;job_id:stri
 export const carriedJobFaultGroup=(fault:ReaderFault)=>fault.kind==='job'&&!fault.job_id?fault.origin_fault_id:null;
 export type CommandReceipt={request_id:string;owner_id:string;session_id:string;action:string;fingerprint:string;payload:string;fault_id:string|null;result_id:string|null;status:'queued'|'running'|'succeeded'|'failed';result:string|null;error:string|null;created_at:number;updated_at:number};
 export const commandFingerprint=(input:unknown)=>createHash('sha256').update(JSON.stringify(input)).digest('hex');
+/** 旧书库共用制作控制。竖图控制首次改变时，保留未完成横图原有的运行或暂停状态。 */
+export function preserveLegacyLandscapeControl(db:SyncStatements,id:string,ownerId:string){
+ db.run(`UPDATE stories SET document=json_set(document,'$.legacyLandscapeControl',generation_control)
+  WHERE id=? AND user_id=? AND json_type(document,'$.legacyLandscapeControl') IS NULL
+  AND EXISTS(SELECT 1 FROM json_each(document,'$.dag.frames') WHERE json_extract(value,'$.landscape')='')`,id,ownerId);
+}
+
 export async function commandReceipt(db:Database,ownerId:string,requestId:string,fingerprint?:string){
  const row=await db.prepare('SELECT * FROM reader_commands WHERE owner_id=? AND request_id=?').bind(ownerId,requestId).first<CommandReceipt>();
  if(!row&&await db.prepare('SELECT id FROM stories WHERE id=? AND user_id=?').bind(requestId,ownerId).first())throw new ReaderError(409,'这个操作编号已用于创建或提交故事。');
@@ -103,16 +110,16 @@ export async function authorizeControl(db:Database,ownerId:string,sessionId:stri
   // 事务内先查回执，覆盖另一实例刚提交同编号的情况。
   const existing=tx.get<CommandReceipt>('SELECT * FROM reader_commands WHERE owner_id=? AND request_id=?',ownerId,requestId);
   if(existing)return;
-  const row=tx.get<{state:string;generation_control:GenerationControl;superseded:number;deleted:number;optionalWork:number;continuation:number}>(`SELECT s.state,s.generation_control,
+  const row=tx.get<{state:string;generation_control:GenerationControl;superseded:number;deleted:number;repreparing:number;continuation:number}>(`SELECT s.state,s.generation_control,
    ${supersededSql('s')} AS superseded,
    EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id) AS deleted,
    json_type(s.document,'$.dag.continuation')='object' AS continuation,
-   (json_type(s.document,'$.dag.repreparing')='true' OR EXISTS(SELECT 1 FROM json_each(s.document,'$.dag.frames') f WHERE json_extract(f.value,'$.landscape')='' AND json_type(f.value,'$.landscapeError') IS NULL)) AS optionalWork
+   json_type(s.document,'$.dag.repreparing')='true' AS repreparing
    FROM stories s WHERE s.id=? AND s.user_id=?`,sessionId,ownerId);
   if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');
   const decision=authorizeProductionCommand(action,{
    version:row.deleted?'deleted':row.superseded?'superseded':'current',stopping,control:row.generation_control,
-   continuation:!!row.continuation,targetCurrent:true,targetReady:row.state!=='completed'||action!=='background'&&!!row.optionalWork,
+   continuation:!!row.continuation,targetCurrent:true,targetReady:row.state!=='completed'||action!=='background'&&!!row.repreparing,
   });
   if(!decision.allowed)throw new ReaderError(decision.status,decision.message);
   const inserted=tx.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,created_at,updated_at)
@@ -120,6 +127,7 @@ export async function authorizeControl(db:Database,ownerId:string,sessionId:stri
    requestId,ownerId,sessionId,fingerprint,JSON.stringify({action}),now,now).changes;
   if(!inserted)return;
   if(decision.effect.kind!=='control')throw Error('INVALID_PRODUCTION_CONTROL_EFFECT');
+  if(decision.effect.control&&decision.effect.control!==row.generation_control)preserveLegacyLandscapeControl(tx,sessionId,ownerId);
   tx.run(`UPDATE stories SET generation_control=COALESCE(?,generation_control),generation_mode=COALESCE(?,generation_mode) WHERE id=? AND user_id=?`,
    decision.effect.control,decision.effect.mode,sessionId,ownerId);
  });

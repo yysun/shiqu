@@ -176,7 +176,7 @@ export function runDesktopBackup(root:string,version:string,input:unknown){
     retired=path.join(path.dirname(backup),'.deleted-'+randomUUID());
     renameSync(backup,retired);
     if(snapshotKind(backup)==='upgrade')rmSync(backupOriginFile(backup),{force:true});
-   },true);
+   },'existing');
   }catch(error){
    if(failureCode(error)==='DATA_BUSY')throw Error('BACKUP_IN_USE',{cause:error});
    throw error;

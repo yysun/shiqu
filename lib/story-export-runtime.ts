@@ -9,7 +9,7 @@ export function browserExportRuntime():ExportRuntime{
   canvas:()=>document.createElement('canvas'),
   read:async(source,page)=>{
    const url=new URL(source,location.origin);if(url.origin!==location.origin)throw Error('画面来源不可用，无法导出。');
-   const response=await fetch(url.href,{credentials:'same-origin',signal:AbortSignal.timeout(30000)});
+   const response=await fetch(url.href,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(30000)});
    if(!response.ok)throw Error(`第 ${page+1} 幅读取失败，请保持联网后重试。`);
    const blob=await response.blob();if(!/^image\/(png|jpeg|webp)(;|$)/.test(blob.type)||!blob.size)throw Error(`第 ${page+1} 幅画面暂不可用。`);return blob;
   },

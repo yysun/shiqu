@@ -1,7 +1,7 @@
 // 文档 v2：document.dag 是制作内容与产物记录的权威来源，plan、images 是由它生成的存储投影。
 // 画幅以身份为键存放，另存顺序；人物按条目、验收要求按条目保存。投影保持 v1 的 Plan 形状，
 // 阅读、导出、复制等只读方继续读投影；每次保存在同一条语句中写入 dag 与投影。
-import type {Plan,Selection} from '../reader-model.ts';
+import type {Document,Plan,Selection} from '../reader-model.ts';
 import {normalizeProductionPrompt} from '../reader-prompts.ts';
 import type {ProviderSettingsView} from '../provider-settings.ts';
 import type {FrameCountReport,ReviewIssue} from '../reader-review.ts';
@@ -10,6 +10,12 @@ import type {RepairBudget,Suggestion} from './review.ts';
 import type {Product,Fault,VersionState} from './engine.ts';
 import type {Evidence} from './registry.ts';
 import {fingerprint} from './fingerprint.ts';
+
+export function landscapeSourceReady(doc:Document){
+ const dag=doc.dag;
+ return !!dag?.order.length&&dag.order.length===doc.plan?.pages.length&&dag.order.every((key,i)=>
+  !!dag.frames[key]?.visual&&!!doc.images[i]&&dag.frames[key].image===doc.images[i]);
+}
 
 export type DagFrame={
  /** 叙事分镜正文（配文、对白与动作）。 */
@@ -75,7 +81,7 @@ export type DagDocument={
  /** 已保存、等待「继续制作」的修订；只有 continue 清除，resume 不清除。 */
  continuation?:{revision:number;reason:'revision-saved'};
  /** 读者指定的首幅原图（换画风时）：画面描述转换完成、首幅的输入就绪后由 settle() 记为该幅的成图产物，不再绘制。 */
- cover?:{frame:string;image:string};
+ cover?:{frame:string};
  /** 转换自 v1，记录按旧规则产生。 */
  legacy?:true;
  /** 旧版已有未完成成稿且原本无需审核；只延续此稿的绘图权限。 */

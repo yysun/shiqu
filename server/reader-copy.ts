@@ -16,7 +16,7 @@ import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts'
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
 import {artStyleSettings,sameArtDirection} from '../lib/reader-styles.ts';
 import {readableImage} from './reader-image-health.ts';
-import {textOnlyDag,attachImages} from '../lib/production-dag/copy.ts';
+import {textOnlyDag,attachImages,portraitDocument} from '../lib/production-dag/copy.ts';
 import {authorizeProductionCommand} from '../lib/production-lifecycle.ts';
 import {copyAvailability,currentFamilyVersion} from './reader-revisions.ts';
 
@@ -31,24 +31,33 @@ export async function copySavedStory(target:ReturnType<typeof createApplication>
   source=createApplication({root,dataDirectory:sourceDirectory,variables:{SHIQU_AI_PROVIDER:'readonly'},commandOnly:true,production:{autoStart:false}});
   const repo=new ReaderRepository(source.services.database),row=await repo.current(sourceId,source.services.ownerId);
   // 提示词记录只在来源库中：先原位还原为内嵌，目标库写入时再存入自己的记录表。
-  const saved=await resolvePromptRecords(repo.db,JSON.parse(row.document) as Document);
- const sourceSelection=selectionSchema.parse(JSON.parse(row.selection));
- const availability=copyAvailability(row,saved,sourceSelection);
+  const sourceDoc=await resolvePromptRecords(repo.db,JSON.parse(row.document) as Document);
+  const saved=portraitDocument(sourceDoc);
+  const sourceSelection=selectionSchema.parse(JSON.parse(row.selection));
+  const availability=copyAvailability(row,saved,sourceSelection);
   const authorization=authorizeProductionCommand(options.draft?'copy-draft':'copy',{
    version:row.id===sourceId?'current':'superseded',control:row.generation_control??'active',continuation:!!saved.dag?.continuation,stopping:false,
    targetCurrent:availability.current,targetReady:options.draft?availability.draft:availability.reviewed,
   });
   if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
   if(options.draft)planSchema.parse(saved.plan);
-  // 哈希输入形状不变；文档文本取还原后的规范形式，迁移前创建的副本仍能匹配。
-  const contentHash=createHash('sha256').update(JSON.stringify([sourceSelection,JSON.stringify(saved)])).digest('hex');
+  const destination=new ReaderRepository(target.services.database),owner=target.services.ownerId;
+  const digest=(doc:Document)=>createHash('sha256').update(JSON.stringify([sourceSelection,JSON.stringify(doc)])).digest('hex');
+  let contentHash=digest(saved);
+  // 旧版副本使用完整文档哈希；保留已接受的创建回执。
+  const prior=await destination.db.prepare("SELECT json_extract(document,'$.copiedFrom.contentHash') AS hash FROM stories WHERE id=? AND user_id=?")
+   .bind(requestId,owner).first<{hash:string|null}>();
+  if(prior?.hash&&prior.hash!==contentHash){
+   const beforePrint={...sourceDoc};
+   delete beforePrint.landscapePrints;delete beforePrint.legacyLandscapeControl;delete beforePrint.legacyLandscapeModelSnapshot;
+   if(prior.hash===digest(sourceDoc)||prior.hash===digest(beforePrint))contentHash=prior.hash;
+  }
   const selected=selectionSchema.parse({...sourceSelection,...(artStyle===undefined?{}:{artStyle})});
   const selection={...selected,...artStyleSettings(sourceSelection,{artStyle:selected.artStyle})};
   const styleChanged=!sameArtDirection(selection,sourceSelection);
   if(options.images&&styleChanged)throw new ReaderError(400,'更改画风时不能复制旧图片，请选择不复制图片，后续按新画风绘制。');
   // Keep runtime/family state in the source; attach independent media only after the optional step.
   const document:Document={plan:saved.plan,original:saved.original,...(saved.dag?{dag:textOnlyDag(saved.dag)}:{}),visualReview:saved.visualReview,reviewNotes:saved.reviewNotes,summaryProductionPrompt:saved.summaryProductionPrompt,storySummaryFromStoryboard:saved.storySummaryFromStoryboard,frameRecommendation:saved.frameRecommendation,frameCountConfirmed:options.draft?saved.frameCountConfirmed:true,...(options.draft?{storyboard:saved.storyboard}:{}),reflectionCandidates:saved.reflectionCandidates,setupRequirements:saved.setupRequirements,publication:saved.publication,images:[],audio:[],usage:saved.usage.map(call=>({...call,originId:call.originId||sourceId})),copiedFrom:{storyId:saved.copiedFrom?.storyId||sourceId,contentHash,...(options.draft?{draft:true}:{}),...(options.images===undefined?{}:{imageChoice:options.images})}};
-  const destination=new ReaderRepository(target.services.database),owner=target.services.ownerId;
   let result=options.existing?await destination.get(requestId,owner):await destination.create(requestId,owner,selection,document),current=JSON.parse(result.document) as Document;
   const snapshot=()=>target.services.production?target.services.production.snapshot(owner,result.id):view(result);
   if(current.copiedFrom?.storyId!==document.copiedFrom!.storyId||current.copiedFrom.contentHash!==contentHash)throw new ReaderError(409,'此创建编号已用于其他内容。');

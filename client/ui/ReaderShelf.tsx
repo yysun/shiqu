@@ -8,13 +8,14 @@
 // 桌面宽档（≥1024px，有右栏）传入 onSelect：封面与标题按钮改为选中故事（“选择《…》”），底部“继续阅读/重读”仍直接打开；
 // 选中状态覆盖可阅读与制作中条目；不传 onSelect 时（手机与 768–1023px）封面与标题直接打开阅读。
 // 所有故事条目都带 data-story-id，供焦点归还与测试定位。
+import type {LandscapeCommand} from '@/lib/reader-production';
 import {useEffect,useState,type ReactNode} from 'react';
 import {ArrowRight,Bookmark,BookOpen,ChevronDown,ChevronRight,Feather,ListTodo,Plus,RefreshCw,RotateCcw,Search,Trash2,X} from 'lucide-react';
 import type {Story} from '@/lib/content';
 import type {ProductionAction} from '@/lib/reader-model';
 import type {ShelfSession,ShelfStory} from '@/lib/reader-shelf';
 import StoryGenerationControl from './StoryGenerationControl';
-import {recoveryFaultId} from '@/lib/production-lifecycle';
+import {preparationRefreshFault,recoveryFaultId} from '@/lib/production-lifecycle';
 import StoryFlowAction from './StoryFlowAction';
 import type {ReadingProgress} from '@/lib/reader-home';
 import {getArtStyle} from '@/lib/reader-styles';
@@ -55,8 +56,8 @@ function ProductionGroup({needs,limit,children,docked=false}:{needs:number;limit
 
 type ShelfItem={processingStatus:string;id:string;title:string;book:string;theme:string;artStyleLabel:string;story:ShelfStory|null;session?:ShelfSession;page:number;saved:boolean};
 type ProductionDock={active:boolean;show:()=>void;layout:(shelf:ReactNode,productions:ReactNode)=>ReactNode};
-type Props={productionDock?:ProductionDock;onControl:(id:string,action:ProductionAction)=>Promise<void>;controlBusy:string;stories:ShelfStory[];pending:ShelfSession[];sessions:ShelfSession[];progress:ReadingProgress[];loading:boolean;refreshing:boolean;onRefresh:()=>void;error:string;tab:string;onTab:(tab:string)=>void;query:string;onQuery:(query:string)=>void;grouping:ShelfGrouping;onGrouping:(grouping:ShelfGrouping)=>void;bookName:(story:Pick<Story,'id'|'bookId'>)=>string;onOpen:(story:ShelfStory,restart?:boolean)=>void;onResume:(session:ShelfSession)=>void;onRetry:(session:ShelfSession)=>void;onDelete:(id:string,title:string)=>void;onFavorite:(id:string,saved:boolean)=>void;favoriteBusy:string;onCreate:()=>void;onDiscover:()=>void;selectedId?:string|null;onSelect?:(id:string|null)=>void};
-export default function ReaderShelf({onControl,onLandscapeControl,onPresentation,controlBusy,stories,pending,sessions,progress,loading,refreshing,onRefresh,error,tab,onTab,query,onQuery,grouping,onGrouping,bookName,onOpen,onResume,onRetry,onDelete,onFavorite,favoriteBusy,onCreate,onDiscover,selectedId,onSelect,productionDock}:Props&{onPresentation?:(id:string,title:string)=>void;onLandscapeControl?:(id:string,printId:string,action:'pause'|'resume')=>void}){
+type Props={productionDock?:ProductionDock;onControl:(id:string,action:ProductionAction)=>Promise<void>;controlBusy:string;stories:ShelfStory[];pending:ShelfSession[];sessions:ShelfSession[];progress:ReadingProgress[];loading:boolean;refreshing:boolean;onRefresh:()=>void;error:string;tab:string;onTab:(tab:string)=>void;query:string;onQuery:(query:string)=>void;grouping:ShelfGrouping;onGrouping:(grouping:ShelfGrouping)=>void;bookName:(story:Pick<Story,'id'|'bookId'>)=>string;onOpen:(story:ShelfStory,restart?:boolean)=>void;onResume:(session:ShelfSession)=>void;onRetry:(session:ShelfSession,faultId?:string)=>void;onDelete:(id:string,title:string)=>void;onFavorite:(id:string,saved:boolean)=>void;favoriteBusy:string;onCreate:()=>void;onDiscover:()=>void;selectedId?:string|null;onSelect?:(id:string|null)=>void};
+export default function ReaderShelf({onControl,onLandscapeControl,onPresentation,controlBusy,stories,pending,sessions,progress,loading,refreshing,onRefresh,error,tab,onTab,query,onQuery,grouping,onGrouping,bookName,onOpen,onResume,onRetry,onDelete,onFavorite,favoriteBusy,onCreate,onDiscover,selectedId,onSelect,productionDock}:Props&{onPresentation?:(id:string,title:string)=>void;onLandscapeControl?:(id:string,command:LandscapeCommand)=>void}){
  const progressById=new Map(progress.map(row=>[row.storyId,row]));
  const sessionById=new Map(sessions.map(session=>[session.id,session]));
  const processingStatus=(story:ShelfStory)=>{const session=sessionById.get(story.id);return session?shelfGenerationStatus(session).group:'已完成';};
@@ -81,6 +82,8 @@ export default function ReaderShelf({onControl,onLandscapeControl,onPresentation
   return session.lifecycle?.actions?!!recoveryFaultId(session):session.retryAllowed&&(!session.generationControl||session.generationControl==='active');
  }
  function control(session:ShelfSession,group:string){
+  const refreshFault=preparationRefreshFault(session);
+  if(group==='生成失败'&&refreshFault)return recoveryFaultId(session,refreshFault.id)?<StoryFlowAction disabled={busyAny||!!controlBusy} onClick={()=>onRetry(session,refreshFault.id)}>重试准备</StoryFlowAction>:null;
   if(group==='生成失败')return canRetry(session)?<StoryFlowAction disabled={busyAny||!!controlBusy} onClick={()=>onRetry(session)}>重试生成</StoryFlowAction>:null;
   return <StoryGenerationControl session={session} busy={!!controlBusy} onControl={onControl} link/>;
  }
@@ -114,7 +117,13 @@ export default function ReaderShelf({onControl,onLandscapeControl,onPresentation
    <div className="yu-shelf-card-body">
     <button className="yu-shelf-card yu-shelf-card-details" aria-label={(onSelect?'选择《':'阅读《')+item.title+'》'} aria-pressed={onSelect?selected:undefined} onClick={pick}><h2>{item.title}</h2><span className="yu-shelf-tags"><span title={item.theme}>{item.theme}</span><span title={item.artStyleLabel}>{item.artStyleLabel}</span>{number&&<span>第 {number} 版</span>}</span></button>
     {feedback}
-    {landscapeWork&&onLandscapeControl&&<div className="yu-shelf-generation-progress"><span role="status">{landscapeWork.action==='pause'?'正在绘制横图':'横图已暂停'}</span><StoryFlowAction disabled={busyAny} onClick={()=>onLandscapeControl(item.id,landscapeWork.printId,landscapeWork.action)}>{landscapeWork.action==='pause'?'暂停横图':'恢复横图'}</StoryFlowAction></div>}
+    {landscapeWork&&onLandscapeControl&&<div className="yu-shelf-generation-progress">
+     <span role="status">{landscapeWork.service?'横图等待绘图服务':landscapeWork.action==='pause'?'正在绘制横图':'横图已暂停'}</span>
+     {landscapeWork.modelToken&&<StoryFlowAction disabled={busyAny}
+      onClick={()=>onLandscapeControl(item.id,{modelToken:landscapeWork.modelToken!})}>应用当前横图模型</StoryFlowAction>}
+     {(!landscapeWork.service||landscapeWork.action==='pause')&&<StoryFlowAction disabled={busyAny}
+      onClick={()=>onLandscapeControl(item.id,{printId:landscapeWork.printId,control:landscapeWork.action})}>{landscapeWork.action==='pause'?'暂停横图':'恢复横图'}</StoryFlowAction>}
+    </div>}
     {onPresentation&&<div className="yu-shelf-presentation"><StoryFlowAction aria-label={'《'+item.title+'》作品与导出'} onClick={()=>onPresentation(item.id,item.title)}>作品与导出</StoryFlowAction></div>}
     <button className={'yu-shelf-reading-footer'+(finished?' finished':'')} aria-label={(finished?'重读《':'继续阅读《')+item.title+'》'} onClick={()=>finished?onOpen(story,true):onOpen(story)}>
      <span className="yu-shelf-progress" aria-hidden="true"><i style={{width:`${total?Math.min(100,Math.round((item.page+1)/total*100)):0}%`}}/></span>

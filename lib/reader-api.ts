@@ -1,3 +1,4 @@
+import {savedLandscapeImages} from '../server/landscape-print.ts';
 import {createHash} from 'node:crypto';
 // Route reading, recovery and generation through the single local library.
 // 提示词与审校历史按引用从 prompt_records 读取全文。
@@ -18,7 +19,7 @@ import type {Services} from './services.ts';
 import {z} from 'zod';
 import {ReaderRepository,latestVersionMessage} from './reader-repository.ts';
 import {suggestionRequestSchema} from './reader-suggestions.ts';
-import {ReaderError,readableStory,selectionSchema,displayTitleSchema,planSchema,view} from './reader-model.ts';
+import {ReaderError,readableStory,selectionSchema,displayTitleSchema,planSchema,savedStory,view} from './reader-model.ts';
 import {sourceSearchUrl} from './reader-source.ts';
 import {readerMaxFrames} from './reader-limits.ts';
 import type {Document,SessionRow,SessionView} from './reader-model.ts';
@@ -236,6 +237,16 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    try{return json(artRecommendationSchema.parse(await provider.recommendArt(selection)));}catch(error){if(error instanceof ReaderError)throw error;throw new ReaderError(502,provider.safeError(error));}
   }
   if(path[0]==='sessions'&&path.length===1){
+   if(req.method==='GET'&&url.searchParams.get('view')==='export'){
+    const rows=await repo.listShelf(uid);
+    return json(rows.flatMap(row=>{
+     try{
+      const selection=JSON.parse(row.selection) as {displayTitle?:string;storyTitle?:string};
+      const {plan}=JSON.parse(row.document) as Document;
+      return [{id:row.id,title:selection.displayTitle||plan?.title,sourceTitle:selection.storyTitle}];
+     }catch{return [];}
+    }));
+   }
    // One unreadable saved story must not take the whole shelf down with it.
    if(req.method==='GET'){
     const sessions=services.production?await services.production.shelfSnapshots(uid,true):(await repo.list(uid)).filter(readableStory).map(view);
@@ -245,6 +256,12 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   }
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);
+   if(path[2]==='export'&&path.length===3&&req.method==='GET'){
+    const row=await repo.current(id,uid),doc=JSON.parse(row.document) as Document;
+    const story=savedStory(row,selectionSchema.parse(JSON.parse(row.selection)),doc);
+    const images=url.searchParams.get('layout')==='landscape'?await savedLandscapeImages(repo.db,services.media,row,doc):undefined;
+    return json({id:row.id,story,images});
+   }
    if(path[2]==='review-history'&&path.length===3&&req.method==='GET'){const row=await repo.get(id,uid);return json(storyReviewHistory(row,await loadPromptRecords(repo.db,(JSON.parse(row.document) as Document).usage)));}
    if(path[2]==='prompts'&&path.length===3&&req.method==='GET'){
     const row=await repo.get(id,uid),doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
@@ -312,7 +329,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     if(req.method==='GET')return json(await production.landscapeStatus(uid,id));
     if(services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中启动横版绘图。');
     const token=z.string().regex(/^[a-f0-9]{64}$/);
-    const command=z.union([z.object({startToken:token}).strict(),z.object({retryToken:token}).strict(),z.object({control:z.enum(['pause','resume']),printId:uuid.optional()}).strict()]).parse(await body(req));
+    const command=z.union([z.object({startToken:token}).strict(),z.object({retryToken:token}).strict(),z.object({modelToken:token}).strict(),z.object({control:z.enum(['pause','resume']),printId:uuid.optional()}).strict()]).parse(await body(req));
     return json(await production.startLandscape(uid,id,command,async()=>{
      if(!(await requireProvider())?.models.image)throw new ReaderError(503,'请先配置支持绘图的图片服务。');
     }),202);

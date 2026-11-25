@@ -42,9 +42,11 @@ export function nativeExportRuntime(root:string,app:Application):ExportRuntime{
  };
 }
 const escape=(s:unknown)=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
-export async function exportLocalStory(root:string,app:Application,session:any,options:{format:string;output:string;includePrompts?:boolean;allowUnsigned?:boolean;preview?:boolean}){
- if(session.superseded)throw Error('EXPORT_SUPERSEDED_VERSION');let story:Story=session.story;if(!story)throw Error('EXPORT_NO_STORYBOARD');
- const defaults=await(await app.handle(new Request('http://shiqu.local/api/reader/publication-defaults'))).json();story=withPublicationDefaults(story,defaults.publication);
+export async function exportLocalStory(root:string,app:Application,session:{story:Story|null},options:{format:string;output:string;includePrompts?:boolean;allowUnsigned?:boolean;preview?:boolean}){
+ let story=session.story;if(!story)throw Error('EXPORT_NO_STORYBOARD');
+ const response=await app.handle(new Request('http://shiqu.local/api/reader/publication-defaults'));
+ if(!response.ok)throw Error('EXPORT_PUBLICATION_UNAVAILABLE');
+ story=withPublicationDefaults(story,(await response.json()).publication);
  if(!options.preview&&!hasPublicationAuthor(story.publication)&&!options.allowUnsigned)throw Error('EXPORT_UNSIGNED: set publication author or explicitly pass --allow-unsigned');
  const runtime=nativeExportRuntime(root,app);let bytes:Uint8Array;const format=options.preview?'html':options.format;
  if(format==='json'){bytes=new TextEncoder().encode(JSON.stringify(storyZipData(story,story.pages.map(p=>p.image||''),[],null),null,2)+'\n');}
@@ -56,10 +58,16 @@ export async function exportLocalStory(root:string,app:Application,session:any,o
   }
   bytes=new TextEncoder().encode(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'"><title>${escape(story.title)}</title><style>body{max-width:850px;margin:2rem auto;padding:0 1rem;font:18px/1.8 system-ui;background:#faf8f1;color:#243b2c}figure{margin:2rem 0}img{max-width:100%;max-height:80vh;display:block;margin:auto}figcaption{white-space:pre-wrap}details{white-space:pre-wrap}</style><h1>${escape(story.title)}</h1>${frames.join('')}<p>${escape(story.reflection)}</p><details><summary>原文</summary>${escape(story.sourceText)}</details><p>${escape(story.publication?.author||'未署名')} · AI辅助改编</p></html>`);
  }else{
-  if(session.state!=='completed'||!story.pages.length||story.pages.some(p=>!p.image))throw Error('EXPORT_INCOMPLETE: complete the current version before image export');
+  const missing=story.pages.flatMap((page,index)=>page.image?[]:[index+1]);
+  if(!story.pages.length||missing.length)throw Error('EXPORT_INCOMPLETE: missing saved frames '+missing.join(', '));
   if(format==='zip'){
-   const response=await app.handle(new Request(`http://shiqu.local/api/reader/sessions/${story.id}/prompts`));if(!response.ok)throw Error('EXPORT_PROMPTS_UNAVAILABLE');
-   const blob=await createStoryZip(story,await response.json() as StoryPromptHistory,()=>{},runtime),archive=new Uint8Array(await blob.arrayBuffer());bytes=options.includePrompts?archive:publicStoryZip(archive).bytes;
+   let history:StoryPromptHistory|null=null;
+   if(options.includePrompts){
+    const response=await app.handle(new Request(`http://shiqu.local/api/reader/sessions/${story.id}/prompts`));
+    if(!response.ok)throw Error('EXPORT_PROMPTS_UNAVAILABLE');
+    history=await response.json() as StoryPromptHistory;
+   }
+   const blob=await createStoryZip(story,history,()=>{},runtime,!!options.includePrompts),archive=new Uint8Array(await blob.arrayBuffer());bytes=options.includePrompts?archive:publicStoryZip(archive).bytes;
   }else if(format==='pdf')bytes=await createStoryPdf(story,()=>{},runtime);
   else if(format==='png')bytes=new Uint8Array(await(await createStoryPng(story,()=>{},runtime)).arrayBuffer());
   else throw Error('EXPORT_FORMAT_INVALID');

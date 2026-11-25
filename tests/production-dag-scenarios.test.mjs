@@ -1883,14 +1883,25 @@ test('a style revision saves the supplied first frame byte for byte and draws on
  assert.deepEqual(await (await f.request(child.story.pages[0].image.replace('/api/reader/',''))).arrayBuffer(),await image.arrayBuffer(),'the bytes are kept as supplied');
  assert.equal((await send(image)).status,201,'a replay reuses the same version');
  assert.equal((await send(new Blob(['different']))).status,409,'the request id cannot carry another image');
+ const next=crypto.randomUUID(),route=`sessions/${child.id}/revisions`;
+ await f.json(route,'POST',{requestId:next,token:(await f.json(route)).token,changes:{acceptancePrompt:'核对角色动作。'}});
+ const first=(await saved(f,next)).images[0];
+ assert.ok(referenceImageKey(next,first));
+ // 旧稿可能还带有上一版的首幅地址。继续制作和导出都应使用本版的画幅。
+ await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag.cover.image',?) WHERE id=?").bind(child.story.pages[0].image,next).run();
  const before=f.control.calls.length;
- await f.json(`sessions/${child.id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'continue'});
- await until(async()=>(await f.read(child.id)).state==='completed',30000);
+ await f.json(`sessions/${next}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'continue'});
+ await until(async()=>(await f.read(next)).state==='completed',30000);
  const calls=f.control.calls.slice(before);
- assert.deepEqual(calls.map(call=>call.page).sort((a,b)=>a-b),[1,2,3,4,5],'only the remaining frames are drawn');
+ assert.deepEqual(calls.map(call=>call.page).sort((a,b)=>a-b),[1,2,3,4,5]);
  const reference=Buffer.from(await image.arrayBuffer()).toString('base64');
- assert.ok(calls.every(call=>call.reference===reference),'every later frame uses the supplied image as its reference, not the starred book reference');
- assert.equal((await saved(f,child.id)).dag.cover,undefined,'the cover is recorded as the first frame image');
+ assert.ok(calls.every(call=>call.reference===reference));
+ assert.equal((await saved(f,next)).dag.cover,undefined);
+ await f.json(`library/${child.id}`,'DELETE');
+ const output=await f.json(`sessions/${id}/export`);
+ assert.equal(output.story.id,next);
+ assert.equal(output.story.pages[0].image,first);
+ assert.deepEqual(await (await f.request(first.replace('/api/reader/',''))).arrayBuffer(),await image.arrayBuffer());
 });
 
 test('preview and save share one calculation: review notes count, hand edits are protected, and neither starts a model call',async t=>{
@@ -1971,7 +1982,9 @@ test('a landscape file that is no longer readable shows as failed and is redrawn
   assert.equal(unavailable.retryToken,undefined);
  }finally{media.get=get;}
  const afterCard=(await f.json('library/shelf')).find(card=>card.id===id);
- assert.deepEqual(afterCard.lifecycle,beforeCard.lifecycle);
+ const portrait=({actions,...state})=>({...state,actions:actions.filter(action=>!action.event.endsWith('-landscape'))});
+ assert.deepEqual(portrait(afterCard.lifecycle),portrait(beforeCard.lifecycle));
+ assert.ok(!afterCard.lifecycle.actions.some(action=>action.event==='start-landscape'));
  const before=f.control.calls.filter(c=>c.landscape).length;
  const oldJobs=(await f.app.services.production.queue.jobs(id,owner)).filter(job=>job.kind==='landscape-print');
  await f.json(`sessions/${id}/landscape`,'POST',{retryToken:status.retryToken});
@@ -2149,4 +2162,22 @@ test('read-only mode starts no generation even when the story has a usable model
  for(let i=0;i<15;i++){f.app.services.production.wake();await turn();}
  assert.equal(f.control.dagCalls.length+f.control.calls.length,0,'no paid call was made');
  assert.notEqual((await f.read(id)).state,'completed');
+});
+
+test('changing art direction again before continuing redraws the supplied first illustration',async t=>{
+ const {jpeg}=await import('./fixtures/images.mjs');
+ const f=await productionFixture(t),{id}=await completedStory(f);f.control.hold=false;
+ const a=crypto.randomUUID(),b=crypto.randomUUID(),parent=`sessions/${id}/revisions`;
+ const form=new FormData();form.set('revision',JSON.stringify({token:(await f.json(parent)).token,requestId:a,changes:{artStyle:'watercolor'}}));
+ form.set('cover',new Blob([Uint8Array.from(jpeg)],{type:'image/jpeg'}),'first.jpg');
+ assert.equal((await f.app.handle(new Request('http://localhost/api/reader/'+parent,{method:'POST',body:form}))).status,201);
+ const route=`sessions/${a}/revisions`;
+ await f.json(route,'POST',{token:(await f.json(route)).token,requestId:b,changes:{artStyle:'clay'}});
+ assert.ok((await saved(f,a)).images[0]);
+ await f.json(`sessions/${b}/production-control`,'POST',{action:'continue'});
+ await until(async()=>(await f.read(b)).state==='completed');
+ assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[0,1,2,3,4,5]);
+ const latest=await f.json(`sessions/${id}/export`);assert.equal(latest.story.id,b);
+ const bytes=await (await f.request(latest.story.pages[0].image.replace('/api/reader/',''))).arrayBuffer();
+ assert.notDeepEqual(Buffer.from(bytes),Buffer.from(jpeg));
 });

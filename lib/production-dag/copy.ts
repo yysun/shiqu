@@ -1,10 +1,27 @@
 // 复制制作 DAG 故事：副本带上文字、结论与审片记录，图片按画幅身份另行附加；不带图片时，副本里的绘图产物记为尚未完成。
 // 纯函数，不做 I/O。
+import type {Document} from '../reader-model.ts';
 import type {DagDocument} from './document.ts';
+
+/** 复制或修订竖稿时，只比较该版本自身的制作内容。 */
+export function portraitDocument(doc:Document){
+ const copy={...doc};
+ delete copy.landscapePrints;delete copy.legacyLandscapeControl;delete copy.legacyLandscapeModelSnapshot;
+ if(copy.dag){
+  copy.dag=structuredClone(copy.dag);
+  for(const [id,frame] of Object.entries(copy.dag.frames)){
+   delete frame.landscape;delete frame.landscapeError;delete frame.landscapeInputHash;delete frame.landscapeAttempt;
+   delete copy.dag.products[`landscape:${id}`];
+  }
+ }
+ copy.usage=(doc.usage??[]).filter(call=>call.step!=='dag:drawLandscape');
+ return copy;
+}
 
 /** 只含文字的 dag：去掉成图、横图与它们的产物记录，以及等待继续的状态。 */
 export function textOnlyDag(dag:DagDocument):DagDocument{
  const copy=structuredClone(dag);
+ delete copy.cover;
  delete copy.continuation;
  delete copy.reviewSkip;
  delete copy.resumeUnreviewed;
@@ -12,7 +29,7 @@ export function textOnlyDag(dag:DagDocument):DagDocument{
  for(const id of copy.order){
   const frame=copy.frames[id];
   if(!frame)continue;
-  delete frame.image;delete frame.landscape;delete frame.landscapeError;delete frame.landscapeInputHash;
+  delete frame.image;delete frame.landscapeAttempt;delete frame.landscape;delete frame.landscapeError;delete frame.landscapeInputHash;
   delete copy.products[`frameImage:${id}`];delete copy.products[`landscape:${id}`];
  }
  return copy;

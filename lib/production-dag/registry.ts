@@ -70,7 +70,7 @@ export const nodes={
  refSource:{label:'书籍参考图或旧版画面',specRow:null,per:'story',kind:'root',hard:[],required:false},
  reference:{label:'参考图',specRow:'参考图',per:'frame',kind:'derived',hard:[],required:false},
  frameImage:{label:'画幅图片',specRow:'画幅图片',per:'frame',kind:'model',hard:['visual@self','characters@drawn','style','renderer','redrawNote@self'],check:['reference'],call:'draw',gate:'approved',required:true,rerunWaitsForCheck:true},
- landscape:{label:'横图',specRow:'横图',per:'frame',kind:'model',hard:['frameImage@self','visual@self','characters@drawn','style','renderer'],call:'drawLandscape',gate:'approved',required:false,onDemand:true},
+ landscape:{label:'横图',specRow:'横图',per:'frame',kind:'model',hard:['frameImage@self','visual@self','characters@drawn','style','renderer'],call:'drawLandscape',required:false,onDemand:true},
  complete:{label:'完整作品',specRow:'完整作品',per:'story',kind:'derived',hard:[],required:false},
 } satisfies Record<string,NodeSpec>;
 

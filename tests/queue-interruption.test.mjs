@@ -204,6 +204,9 @@ for(const [name,corrupt] of [
  assert.equal(logs.mock.calls.filter(call=>call.arguments[0]==='production_story_unreadable').length,1);
  assert.doesNotMatch(JSON.stringify(logs.mock.calls),/庄周|philosopher/);
  await production(f).tick();assert.ok((await jobs(f,bad)).every(job=>job.state!=='running'),'A parked story does not keep renewing its lock');
+ await f.json(`library/${bad}`,'DELETE');
+ assert.ok((await f.json('deletions')).some(item=>item.storyId===bad&&item.canRestore));
+ assert.deepEqual((await f.json('library/shelf')).map(item=>item.id),[good]);
 });
 
 test('a queued text job for an unreadable document makes no paid call',async t=>{
