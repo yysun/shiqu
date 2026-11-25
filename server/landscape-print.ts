@@ -151,11 +151,15 @@ export class LandscapePrints{
 
  private readonly readIssues=new Map<string,'lost'|'unavailable'>();
 
- activity(db:ReadStatements,row:SessionRow,print:LandscapePrint){
-  const jobs=db.all<{id:string;page:number;state:ProductionJob['state']}>(`SELECT id,state,json_extract(payload,'$.input.index') AS page ${printJobFilter} ${printJobOrder}`,
+ activity(db:ReadStatements,row:SessionRow,print:LandscapePrint,now:number){
+  const jobs=db.all<Pick<ProductionJob,'id'|'state'|'lease_until'>&{page:number}>(`SELECT id,state,lease_until,json_extract(payload,'$.input.index') AS page ${printJobFilter} ${printJobOrder}`,
    row.id,row.user_id,landscapePrintKind,print.id);
   const latest=latestByPage(jobs,job=>job.page);
+  const active=latest.find(job=>job.state==='running'&&job.lease_until>now);
   return {running:latest.some(job=>job.state==='running'||job.state==='queued'),
+   activePage:active?active.page+1:undefined,
+   // 书架轮询只看最新任务与已知读图故障，不逐幅读取成图。
+   ready:latest.filter(job=>job.state==='succeeded'&&!this.readIssues.has(job.id)).length,total:print.story.pages.length,
    failed:latest.some(job=>job.state==='failed'||this.readIssues.get(job.id)==='lost')&&!this.blockedRetries.has(print.id),
    unavailable:latest.some(job=>this.readIssues.get(job.id)==='unavailable')};
  }

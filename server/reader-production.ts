@@ -481,7 +481,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    for(const input of inputs.values()){
     const parsed=this.parsed(input.row);
     const print=parsed&&currentLandscapePrint(parsed.doc);
-    if(!deleted&&print)input.printActivity=this.prints.activity(db,input.row,print);
+    if(!deleted&&print)input.printActivity=this.prints.activity(db,input.row,print,now);
 
    }
    for(const job of db.all<ProductionJob>(`SELECT * FROM production_jobs WHERE owner_id=? AND ${bySession} AND kind!='${landscapePrintKind}' ORDER BY created_at,id`,ownerId,ids))
@@ -589,7 +589,9 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const liveProgress=parsed.doc.intake&&search?.round===intakeSearch(parsed.doc.intake).round&&saved.intake?.search.state==='searching'?search.progress:undefined;
   const snapshotUnavailable=service==='snapshot-unavailable';
   const print=currentLandscapePrint(doc);
-  const work=print&&input.printActivity?.running?{printId:print.id,action:print.control==='active'?'pause' as const:'resume' as const}:undefined;
+  const printActivity=input.printActivity;
+  const work=print&&printActivity?.running?{printId:print.id,action:print.control==='active'?'pause' as const:'resume' as const,
+   ready:printActivity.ready,total:printActivity.total,activePage:printActivity.activePage}:undefined;
   const model=print&&work?this.printModelStatus(print):undefined;
   const landscapeWork=work&&{...work,...(model?.service!=='available'?model:{})};
   const hasLandscape=!!print;

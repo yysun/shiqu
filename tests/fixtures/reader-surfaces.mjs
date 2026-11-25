@@ -16,7 +16,7 @@ const compiled=build({stdin:{contents:`
  export const settings=(session,showLandscape)=>renderToStaticMarkup(createElement(StoryGenerationStatus,{session,busy:false,controlBusy:false,error:'',onControl:async,onRetry:noop,onBack:noop,hideBack:true,showSummary:false,showLandscape}));
  export const shelf=sessions=>{
   const stories=sessions.filter(s=>s.story?.cover).map(s=>({id:s.id,title:s.story.title||'',bookId:s.selection?.bookId||'',theme:s.selection?.theme||'',artStyleLabel:'',revision:s.story.revision,cover:s.story.cover,resumeImage:'',resumePage:0,frameCount:s.story.frameCount||0}));
-  return renderToStaticMarkup(createElement(ReaderShelf,{onControl:async,controlBusy:'',stories,pending:sessions.filter(s=>!s.story?.cover),sessions,progress:[],loading:false,refreshing:false,onRefresh:noop,error:'',
+  return renderToStaticMarkup(createElement(ReaderShelf,{onControl:async,onLandscapeControl:noop,controlBusy:'',stories,pending:sessions.filter(s=>!s.story?.cover),sessions,progress:[],loading:false,refreshing:false,onRefresh:noop,error:'',
    tab:'all',onTab:noop,query:'',onQuery:noop,grouping:'none',onGrouping:noop,bookName:()=>'',onOpen:noop,onResume:noop,onRetry:noop,onDelete:noop,onFavorite:noop,favoriteBusy:'',onCreate:noop,onDiscover:noop}));
  };
 `,resolveDir:root,loader:'tsx'},bundle:true,write:false,platform:'node',format:'cjs',jsx:'automatic',packages:'external',loader:{'.css':'empty'},

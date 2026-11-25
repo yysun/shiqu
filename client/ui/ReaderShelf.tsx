@@ -108,6 +108,8 @@ export default function ReaderShelf({onControl,onLandscapeControl,onPresentation
   const total=story.frameCount,finished=total>0&&item.page+1>=total;
   const feedback=session&&generation!.group!=='已完成'&&<div className="yu-shelf-generation-progress"><span role="status">{generation!.message}{shelfDrawingCount(session,generation!.group)}</span>{control(session,generation!.group)}</div>;
   const landscapeWork=session?.landscapeWork;
+  const landscapeStatus=landscapeWork?.service?'横图等待绘图服务':landscapeWork?.action==='resume'?'横图已暂停':
+   landscapeWork?.activePage?`正在绘制第 ${landscapeWork.activePage} 幅横图`:'等待绘制横图';
   const selected=!!onSelect&&selectedId===item.id,pick=onSelect?()=>onSelect(item.id):()=>onOpen(story);
   return <div className={'yu-shelf-row yu-shelf-row-readable'+(selected?' is-selected':'')} key={item.id} data-story-id={item.id}>
    <div className="yu-shelf-cover-wrap">
@@ -118,7 +120,7 @@ export default function ReaderShelf({onControl,onLandscapeControl,onPresentation
     <button className="yu-shelf-card yu-shelf-card-details" aria-label={(onSelect?'选择《':'阅读《')+item.title+'》'} aria-pressed={onSelect?selected:undefined} onClick={pick}><h2>{item.title}</h2><span className="yu-shelf-tags"><span title={item.theme}>{item.theme}</span><span title={item.artStyleLabel}>{item.artStyleLabel}</span>{number&&<span>第 {number} 版</span>}</span></button>
     {feedback}
     {landscapeWork&&onLandscapeControl&&<div className="yu-shelf-generation-progress">
-     <span role="status">{landscapeWork.service?'横图等待绘图服务':landscapeWork.action==='pause'?'正在绘制横图':'横图已暂停'}</span>
+     <span role="status">{landscapeStatus} · <span className="yu-shelf-landscape-count">{landscapeWork.ready} / {landscapeWork.total} 幅</span></span>
      {landscapeWork.modelToken&&<StoryFlowAction disabled={busyAny}
       onClick={()=>onLandscapeControl(item.id,{modelToken:landscapeWork.modelToken!})}>应用当前横图模型</StoryFlowAction>}
      {(!landscapeWork.service||landscapeWork.action==='pause')&&<StoryFlowAction disabled={busyAny}

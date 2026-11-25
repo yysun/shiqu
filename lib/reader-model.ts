@@ -60,7 +60,7 @@ export type GenerationProgress={sourceReady:boolean;frameCountConfirmed:boolean;
 export type SessionView={
  reviewOverride?:ReviewOverrideOffer;lifecycle?:ProductionLifecycle;
  hasLandscape?:true;
- landscapeWork?:{printId?:string;action:'pause'|'resume';modelToken?:string;service?:ProductionService};
+ landscapeWork?:{printId?:string;action:'pause'|'resume';ready:number;total:number;activePage?:number;modelToken?:string;service?:ProductionService};
  /** @deprecated 使用 lifecycle.continuation。 */
  awaitingContinue?:true;
  /** 仅换图的画幅号，从 1 开始。 */
