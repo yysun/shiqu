@@ -124,7 +124,7 @@ test('production structure repair reports reader attention and leaves protected 
  s.dag=apply(s,repair,[{from:1,to:2,scenes:[{caption:before.scene}]}],{newId});
  assert.deepEqual(s.dag.order.slice(0,2),[first,second]);
  assert.deepEqual(s.dag.frames[first],before);
- assert.deepEqual(attention(s),[{target:instance.id,reason:'hand-edited'}]);
+ assert.deepEqual(attention(s),[{target:instance.id,reason:'hand-edited',pages:[1]}]);
  assert.ok(!work(s).some(item=>item.call==='structureRepair'));
 });
 

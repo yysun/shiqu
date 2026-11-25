@@ -1,12 +1,6 @@
 // Verify saved defaults, creation snapshots and per-work overrides using isolated SQLite and controlled providers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,copyFile,rm} from 'node:fs/promises';
-import {readdirSync} from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import {DatabaseSync} from 'node:sqlite';
-import {migrate} from '../server/database.ts';
 import {productionFixture,selection,makePlan} from './fixtures/production.mjs';
 import {completedStory} from './fixtures/production-dag-story.mjs';
 import {ReaderRepository} from '../lib/reader-repository.ts';
@@ -81,16 +75,4 @@ test('default settings require valid same-owner CAS writes and remain editable w
  assert.deepEqual(responses.map(r=>r.status).sort(),[200,409]);
  const saved=(await f.json('publication-defaults')).publication;assert.ok(['甲','乙'].includes(saved.author));
  assert.deepEqual(await save(f,emptyPublication,saved),{publication:emptyPublication});
-});
-
-test('the additive defaults migration preserves an existing library and is safe on repeated startup',async t=>{
- const root=await mkdtemp(path.join(os.tmpdir(),'shiqu-publication-migration-'));t.after(()=>rm(root,{recursive:true,force:true}));
- await mkdir(path.join(root,'drizzle'));
- for(const name of readdirSync('drizzle').filter(name=>name.endsWith('.sql')&&!name.startsWith('0011_')))await copyFile(path.join('drizzle',name),path.join(root,'drizzle',name));
- const db=new DatabaseSync(':memory:');t.after(()=>db.close());migrate(db,root);
- db.prepare("INSERT INTO stories(id,user_id,selection,document,created_at,updated_at) VALUES(?,?,?,?,?,?)").run('existing','owner',JSON.stringify(selection),JSON.stringify({publication:defaults,plan:makePlan(2),images:[],audio:[],usage:[]}),'before','before');
- const before=db.prepare('SELECT * FROM stories').all();
- migrate(db,process.cwd());migrate(db,process.cwd());
- assert.deepEqual(db.prepare('SELECT * FROM stories').all(),before);
- assert.equal(db.prepare('SELECT count(*) AS count FROM reader_publication_defaults').get().count,0);
 });

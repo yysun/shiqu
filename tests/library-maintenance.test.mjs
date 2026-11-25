@@ -1,5 +1,5 @@
 // Exercise production maintenance with disposable real SQLite/media, including upgrade rollback and hostile archives.
-import {historicalLibrary} from './fixtures/historical-library.mjs';
+import {ensureLibraryReady} from '../server/library-upgrade.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
@@ -41,15 +41,16 @@ for(const kind of ['tampered','missing','extra','path','duplicate','symlink'])te
  assert.deepEqual(await readFile(path.join(f.source,'media/image.webp')),Buffer.from([1,2,3,4]));
 });
 test('pending migration creates verified old-schema backup once; failed snapshots do not change the source',async t=>{
- const f=await startupFixture(t),source=path.join(f.root,'library');historicalLibrary(source,f.root).close();let local;
- await writeFile(path.join(f.root,'drizzle/0017a_maintenance_probe.sql'),'CREATE TABLE maintenance_probe(value TEXT);');
+ const f=await startupFixture(t),source=path.join(f.root,'library');ensureLibraryReady(source,f.root);let local;
+ await writeFile(path.join(f.root,'drizzle/0031_maintenance_probe.sql'),'CREATE TABLE maintenance_probe(value TEXT);');
  local=openDatabase(source,f.root);assert.ok(local.sqlite.prepare("SELECT name FROM sqlite_master WHERE name='maintenance_probe'").get());local.close();
  const backups=path.join(f.root,'library-backups'),names=(await readdir(backups)).filter(name=>name.startsWith('pre-upgrade-'));assert.equal(names.length,1);const backup=path.join(backups,names[0]);verifyLibraryBackup(backup);
  restoreLibraryBackup(backup,path.join(f.root,'restored'));
  const old=new DatabaseSync(path.join(f.root,'restored/shiqu.sqlite'),{readOnly:true});assert.equal(old.prepare("SELECT name FROM sqlite_master WHERE name='maintenance_probe'").get(),undefined);old.close();
  local=openDatabase(source,f.root);local.close();assert.equal((await readdir(backups)).filter(name=>name.startsWith('pre-upgrade-')).length,1);
  // A real filesystem obstruction prevents even the next SQL migration from starting.
- const blocked=path.join(f.root,'blocked');historicalLibrary(blocked,f.root).close();await writeFile(path.join(f.root,'blocked-backups'),'obstruction');
+ const blocked=path.join(f.root,'blocked');ensureLibraryReady(blocked,f.root);
+ await writeFile(path.join(f.root,'drizzle/0032_blocked_probe.sql'),'CREATE TABLE must_not_appear(value TEXT);');await writeFile(path.join(f.root,'blocked-backups'),'obstruction');
  assert.throws(()=>openDatabase(blocked,f.root));const unchanged=new DatabaseSync(path.join(blocked,'shiqu.sqlite'),{readOnly:true});assert.equal(unchanged.prepare("SELECT name FROM sqlite_master WHERE name='must_not_appear'").get(),undefined);unchanged.close();
 });
 test('CLI maintenance refuses busy library and works without provider setup, preserving full production checkpoints',async t=>{

@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {executeWork} from '../server/dag-executor.ts';
-import {settle,work,apply} from '../lib/production-dag/runner.ts';
+import {settle,work,apply,requestFor} from '../lib/production-dag/runner.ts';
 import {emptyDag,projectDocument} from '../lib/production-dag/document.ts';
 
 const original={title:'管晏列传',text:'管仲夷吾者，颍上人也。少时常与鲍叔牙游，鲍叔知其贤。',url:'https://example.test/guanyan',kind:'passage',provider:'local',retrievedAt:'2026-01-01'};
@@ -13,6 +13,14 @@ function generator(){
  const text=[],images=[];
  const reply=(schema,payload)=>{
   const p=schema.properties;
+  if(p.frames?.items.properties.caption&&p.frames.items.properties.prompt){
+   const {first,last}=payload.batch;
+   return {
+    ...(p.outline?{outline:{title:'管鲍之交',summary:'梗概',sourceReference:'史记',adaptationNote:'按原文',beats:Array.from({length:payload.exactPageCount},(_,i)=>`第${i+1}幅`)}}:{}),
+    ...(p.characters?{characters:[{name:'管仲',aliases:['夷吾'],text:'齐国人，青年时清贫。'}]}:{}),
+    frames:Array.from({length:last-first+1},(_,i)=>({number:first+i,caption:`第${first+i}幅配文：管仲与鲍叔牙相识。`,prompt:'两位少年并肩走在乡间小路上，构图为中景。',drawn:['管仲']})),
+   };
+  }
   if(p.summary&&!p.beats)return {summary:'管仲与鲍叔牙少时相知。'};
   if(p.characters)return {characters:[{name:'管仲',aliases:['夷吾'],text:'齐国人，青年时清贫。'}]};
   if(p.beats)return {title:'管鲍之交',summary:'梗概',sourceReference:'史记',adaptationNote:'按原文',beats:['少时同游','鲍叔知贤']};
@@ -44,6 +52,31 @@ test('text work goes through the contract method and returns the parsed value wi
  assert.deepEqual(result.usage,{input:1});
  assert.equal(result.value.length,2);
  assert.ok(g.text.at(-1).payload.artDirection,'the image-description call carries the art direction');
+});
+
+test('combined receipts for either batch stop applying after bound inputs change or adoption',async()=>{
+ const s=story(),g=generator();
+ s.selection.length=25;
+ s.dag.combinedStoryboard=true;
+ const first=await runUntil(s,g,i=>i.call==='storyboard');
+ const paidFirst=await executeWork(g.gen,s,first,'a');
+ const changedStyle={...s,selection:{...s.selection,artStyle:'watercolor'}};
+ const newId=(()=>{let count=0;return ()=>`storyboard-${++count}`;})();
+ assert.equal(apply(changedStyle,first,paidFirst.value,{newId}),null);
+ assert.notEqual(work(changedStyle).find(i=>i.call==='storyboard').requestHash,first.requestHash);
+ s.dag=apply(s,first,paidFirst.value,{newId});
+ assert.ok(s.dag);
+ assert.equal(apply(s,first,paidFirst.value,{newId}),null);
+ const second=work(s).find(i=>i.call==='storyboard');
+ assert.equal(requestFor(s,second).args.first,21);
+ const paidSecond=await executeWork(g.gen,s,second,'b');
+ const changedContext=structuredClone(s);
+ changedContext.dag.frames[changedContext.dag.order[0]].scene='早已采用的上一幅配文发生了变化。';
+ assert.notEqual(work(changedContext).find(i=>i.call==='storyboard').requestHash,second.requestHash);
+ assert.equal(apply(changedContext,second,paidSecond.value,{newId}),null);
+ s.dag=apply(s,second,paidSecond.value,{newId});
+ assert.ok(s.dag);
+ assert.equal(apply(s,second,paidSecond.value,{newId}),null);
 });
 
 test('drawing uses the contract prompt and the current book reference, falling back to the first image',async()=>{

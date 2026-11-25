@@ -27,13 +27,26 @@ export async function productionFixture(t,provider='codex',variables={},storage=
  async function planned(prompt,schema){
   const payload=JSON.parse(prompt);
   // 制作 DAG 按调用契约拆分的调用；dagCalls 记录调用名称，供场景测试计数。
-  const dag=name=>{control.dagCalls.push(name);return control.beforeText?.(name,payload,schema);};
+  const dag=(name,result)=>{control.dagCalls.push(name);return control.beforeText?.(name,payload,schema,result);};
+  const defaultVisual=number=>({number,prompt:`第 ${number} 幅：成年的庄周身着布衣，坐在柳树下沉思，中景，晨光柔和。`,drawn:['庄周']});
+  if(schema.properties.frames?.items?.properties?.caption&&schema.properties.frames.items.properties.prompt){
+   const length=payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount;
+   const {title,summary,sourceReference,adaptationNote,pages}=makePlan(length);
+   const result={
+    ...(schema.properties.outline?{outline:{title,summary,sourceReference,adaptationNote,beats:pages.map((_,i)=>`第 ${i+1} 幅的关键事件与动作`)}}:{}),
+    ...(schema.properties.characters?{characters:[{name:'庄周',aliases:['庄子'],text:'战国时宋国蒙人，清瘦，布衣束发，神情安闲。'}]}:{}),
+    frames:pages.slice(payload.batch.first-1,payload.batch.last).map((page,index)=>({
+     ...defaultVisual(payload.batch.first+index),caption:page.caption,
+    })),
+   };
+   return await dag('storyboard',result)??result;
+  }
   if(schema.properties.summary&&!schema.properties.beats&&!schema.properties.title&&!payload.storyboardPages)return await dag('brief')??{summary:'庄周梦见自己化为蝴蝶，醒来后思索自己与蝴蝶的分别。'};
   if(schema.properties.characters?.type==='array'&&!schema.properties.beats)return await dag('characters')??{characters:[{name:'庄周',aliases:['庄子'],text:'战国时宋国蒙人，清瘦，布衣束发，神情安闲。'}]};
   if(schema.properties.beats&&!schema.properties.characters&&!schema.properties.reflection){const {title,summary,sourceReference,adaptationNote,pages}=makePlan(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount);return await dag('outline')??{title,summary,sourceReference,adaptationNote,beats:pages.map((_,i)=>`第 ${i+1} 幅的关键事件与动作`)};}
   if(schema.properties.pages?.items?.properties?.caption&&payload.batch){const pages=makePlan(payload.exactPageCount).pages.slice(payload.batch.first-1,payload.batch.last);return await dag('sceneBatch')??{pages:pages.map(p=>({caption:p.caption}))};}
   if(schema.properties.frames?.items?.properties?.caption){const n=count=>control.dagCalls.filter(c=>c==='sceneRepair').length;return await dag('sceneRepair')??{frames:payload.frames.map(f=>({number:f.number,caption:`第 ${f.number} 幅第 ${n()} 次修订的配文，庄周在梦中化蝶。`}))};}
-  if(schema.properties.frames?.items?.properties?.prompt){const name=payload.scenePrompt||payload.frames[0]?.scenePrompt?'restyle':payload.frames[0]?.current?'visualRepair':'visual';return await dag(name)??{frames:payload.frames.map(f=>({number:f.number,prompt:`第 ${f.number} 幅：成年的庄周身着布衣，坐在柳树下沉思，中景，晨光柔和。`,drawn:['庄周']}))};}
+  if(schema.properties.frames?.items?.properties?.prompt){const name=payload.scenePrompt||payload.frames[0]?.scenePrompt?'restyle':payload.frames[0]?.current?'visualRepair':'visual';return await dag(name)??{frames:payload.frames.map(f=>defaultVisual(f.number))};}
   if(schema.properties.scenePrompts)return await control.beforeText?.('restyle',payload,schema)??{scenePrompts:payload.scenePrompts};
   if(schema.properties.artStyle)return {artStyle:'ink-pencil',reason:'与本篇人物动作及叙事相符。'};
   if(payload.storyboardPages)return await control.beforeText?.('storyboard-summary',payload,schema)??{summary:'庄周梦中化蝶，醒来后想起了梦里的自在。'};

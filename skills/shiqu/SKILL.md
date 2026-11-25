@@ -15,7 +15,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 - 没有有效桌面内置入口时，使用 Node 24 及随附的 npm/npx。通过发布包安装的技能默认用 `npx --yes @apprun/shiqu` 调用 CLI；版本确定后使用 `npx --yes @apprun/shiqu@<version>`，版本选择见下方“版本检查与更新”。`skill install` 只安装技能正文与版本记录，不安装 pnpm 或全局 shiqu 命令。
 - 源码项目沿用该源码目录的 `pnpm cli`；用户明确已安装 `shiqu` 命令或指定 `pnpm dlx` 等入口时沿用其选择。用户指定版本和项目版本锁优先，不因安装了技能就切换启动器或要求安装 pnpm。先读取所选入口的 `help --json`，核对 appVersion、当前输入与可用操作；下面是稳定语义，不是完整输入 Schema。
-- 所有书库操作使用同一绝对路径：显式 `--data-dir` 优先，其次 `SHIQU_DATA_DIR`、已保存位置和默认书库。首次访问自动建库并迁移，无需先 init；不因此更改默认位置或模型配置。书库被其他服务占用时报告占用，不绕过锁。
+- 所有书库操作使用同一绝对路径：显式 `--data-dir` 优先，其次 `SHIQU_DATA_DIR`、已保存位置和默认书库。首次访问直接建立当前格式的书库，无需先 init；不因此更改默认位置或模型配置。书库被其他服务占用时报告占用，不绕过锁。
 - 自主程序使用进程 API 的可执行文件与参数数组，JSON 经 `--input -` 的 stdin 或私有文件传入；不要把标题、路径、原文、提示词拼接成 shell 命令。沿用入口及其工作目录，处理 stdout 与 stderr，设置有限超时。同一书库的写入和制作调用串行执行。preview 和 export 只读已升级书库，可与正在运行的拾趣服务并行。
 - 子命令 stdout 为一个 JSON 信封：成功 `{schemaVersion:1,ok:true,data:...}`，失败 `{schemaVersion:1,ok:false,error:{code,message,details?}}`；日志在 stderr。检查退出码、信封及业务结果。`skill show` 默认是 Markdown，带 `--json` 才是信封。不要把非零退出的 JSON 丢弃，也不要把退出码 0 或 `ok:true` 当作故事完成。
 - CLI 子命令无交互，所有询问、检查点和阶段选择由本技能在对话中处理；不要向 CLI 发送终端按键或等待它提问。
@@ -69,7 +69,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 | 跨库复制 | `stories copy <来源故事id> --from-data-dir <来源书库> --data-dir <目标书库>` 默认仅复制已通过且未越过审核的文本与审核记录，新故事初始暂停。显式 `--draft` 或输入 `draft:true` 可复制尚未通过审核、但已有完整原文、分镜与审核检查点的文本；保留原审核状态、不复制图片，也不允许再用 copy-images 补图。`stories copy-images <目标故事id>` 用同一对书库及输入 `{sourceId:"来源故事id"}` 给普通文本副本补充图片，不创建另一个故事。`copy` 也支持显式 `--copy-images` / `--no-copy-images` 或输入 `copyImages`；仅在用户已决定时使用。换画风时不能复制旧图片。 |
 | 署名与转载 | 默认值通过 `api GET/POST reader/publication-defaults` 读取/保存；单篇通过 `stories get <id>` 读取 story.publication，再 `api POST reader/sessions/<id>/publication` 保存。输入均为 `{publication:<完整署名对象>,expected:<原对象或null>}`，保留未修改字段，expected 必须沿用原始读取结果；修改全局默认与单篇设置是不同操作。 |
 | 预览与交付 | preview 输出独立离线 HTML；export 支持 zip/pdf/png/json/md，使用共享序列化、图片编码、水印和元数据规则。自主程序可组织导出清单，不能自己重建作品包。 |
-| 维护 | backup 创建完整私有快照，verify-backup 验证；restore 仅恢复到新的 data-dir，不覆盖原库或自动切换默认位置。等待同目录正在运行的校验或恢复结束再重试；0.17.0 打开格式 1、2、3 时先创建并校验整库备份，再直接迁移到格式 4。回退须使用升级前的备份及配套旧应用，恢复到另一目录。diagnostics 输出脱敏诊断；它与私有完整备份用途不同。 |
+| 维护 | backup 创建完整私有快照，verify-backup 验证；restore 仅恢复到新的 data-dir，不覆盖原库或自动切换默认位置。等待同目录正在运行的校验或恢复结束再重试；当前版本打开格式 4 及更新的受支持格式。格式 1、2、3 或合并前离线导入须先用 0.17.x 完成升级，由 0.17.x 校验整库备份。回退须使用升级前的备份及配套旧应用，恢复到另一目录。diagnostics 输出脱敏诊断；它与私有完整备份用途不同。 |
 
 暂停审核后，先用 `stories revisions ID` 取得 token，再用 `stories edit ID --input review.json` 提交 `{"token":"当前 token","changes":{"reviewNotes":"请复核第 4 幅的人物选择及其后果。"}}`。意见最多 1200 字，传空字符串可清除。仅修改审核意见时，新版保留已保存的分镜和审核修订记录，运行新版后按意见复核。用 `help --json` 查看 `inputs.reviewNotes`。
 
@@ -117,7 +117,7 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 ### 换画风并指定首幅图
 
-合并或拆分叙事画幅可提交 `changes.structureEdits`，每条是 `{from,to,scenes:[{caption}]}`。范围对应原稿，从 1 开始且包含两端。用 `stories revisions` 获取 token，再调用 `api POST reader/sessions/<id>/revisions/preview` 查看 `droppedRedrawNotePages` 与手改冲突。确认后用 `stories edit` 保存新版并继续制作。
+合并或拆分叙事画幅可提交 `changes.structureEdits`，每条是 `{from,to,scenes:[{caption}]}`。范围对应原稿，从 1 开始且包含两端。用 `stories revisions` 获取 token，再调用 `api POST reader/sessions/<id>/revisions/preview` 查看 `droppedRedrawNotePages` 与 `lostHandEdits`（原幅号和手改文字）。如有损失，读者确认后才把 `changes.confirmHandEditLoss` 设为 `true`，用同一 token 执行 `stories edit`。取消时不提交。手改默认保留，清空字段可在继续时重新生成。换画风自动转换手改画面描述，保留手改标记。
 
 对已完成且审核通过的故事，仅替换首幅时，同一命令传入 `{"token":"当前修订token","changes":{"redrawPages":[1]}}`。如需按新首幅重绘其余画幅，将所有幅号写入 `redrawPages`，新版保存后再继续制作。首幅图片直接采用上传文件。
 
@@ -143,3 +143,5 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 - 通过发布包安装、无版本锁且 `autoUpdateReady` 为 true 时，以返回的 updateCwd 为工作目录执行 updateCommand 参数数组；它固定 npm 正式发布版本并带 `--automatic`，更新时会再次检查偏好。本地修改或未知来源副本不自动覆盖。用户明确要求单次更新但未开启自动更新时，也可执行返回的 updateCommand。
 - 更新成功后重新读取返回 path 的技能；有有效桌面运行时记录时继续使用同版本绝对命令，其余默认用 `npx --yes @apprun/shiqu@<version> help --json` 核对返回 version 对应的 CLI，后续任务沿用该固定版本。未更新且无用户/项目版本锁、非桌面/源码入口时，已管理副本使用 `npx --yes @apprun/shiqu@<installedVersion>`，不随 latest 漂移；未获知安装版本时先通过 help/skill check 核对版本，再执行书库任务。用户明确指定其他启动器时保留启动器并固定相同版本；自定义副本或源码入口沿用用户选择并核对兼容性。更新失败保留现状，不手工覆盖或删除状态以绕过保护。
 - `skill update --scope project|global` 只安装正在运行的 CLI 包自带技能，不自行寻找最新包。安装记录缺失时，仅与运行包正文完全相同的旧副本可用该版本 `skill install` 建立记录；不同内容需人工比较合并。检查/更新不操作书库或生成配置。
+
+首次制作或重新编排按每批最多 20 幅合并生成文字分镜。定长 10 幅直接制作到绘图前为 4 次文字调用，选题已准备后为 3 次；有审片修订时会增加调用。

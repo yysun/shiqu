@@ -346,8 +346,11 @@ for(const [targetPages,paid] of [[[0],false],[[1],false],[[1,2],true]])test(`cha
  assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
  if(paid)media.get=get;
  f.control.beforeImage=null;
- if(!targetPages.includes(0))f.control.beforeText=(call,payload)=>call==='visual'?{frames:payload.frames.map(({number})=>({number,
-  prompt:`第 ${targetPages.includes(number-1)?1:number===1?2:number} 幅：成年的庄周身着布衣，坐在柳树下沉思，中景，晨光柔和。`,drawn:['庄周']}))}:undefined;
+ if(!targetPages.includes(0))f.control.beforeText=(call,payload,schema,result)=>call==='storyboard'?{
+  ...result,frames:result.frames.map(frame=>({...frame,
+   prompt:`第 ${targetPages.includes(frame.number-1)?1:frame.number===1?2:frame.number} 幅：成年的庄周身着布衣，坐在柳树下沉思，中景，晨光柔和。`,
+  })),
+ }:undefined;
  await control(f,child,'continue');
  await until(async()=>(await f.read(child)).state==='completed');
  const doc=await saved(f,child),snapshot=await f.read(child);

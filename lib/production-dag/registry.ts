@@ -2,9 +2,9 @@
 // 引擎只读本文件推导有效性、就绪与任务身份；新增或修改节点只改这里，并同步规范表格。
 // specRow 与规范表格首列精确对应，一行可对应多项；没有表格行的派生节点标为 null。
 // 逐幅调用按 batch 合批以减少调用数；同批其他实例只作来源（@batch），不参与有效性。
-import {readerStoryboardBatchSize,readerRestyleBatchSize} from '../reader-limits.ts';
+import {readerStoryboardBatchSize} from '../reader-limits.ts';
 
-/** 逐幅调用每批最多幅数，与叙事分镜批次一致；换画风沿用正式流程的转换批量。 */
+/** 文字逐幅工作与分镜合批共用每批上限。 */
 const frameBatch=readerStoryboardBatchSize;
 
 /** 产物粒度：story 每版一份；frame 按画幅身份。 */
@@ -97,10 +97,12 @@ export const calls={
  prepareSuggestions:{label:'准备建议',specRow:'准备建议',produces:['suggestions'],bound:['source','seed']},
  characters:{label:'人物设定',specRow:'人物设定',produces:['characters'],bound:['source','productionReq']},
  outline:{label:'编排提纲',specRow:'编排提纲',produces:['outline'],bound:['source','productionReq','settings']},
+ storyboard:{label:'编排文字分镜批次',specRow:'编排文字分镜批次',produces:['outline','characters','scene','visual'],bound:['source','productionReq','settings','style'],sources:['outline','characters','scene@batchDone'],batch:frameBatch},
  sceneBatch:{label:'编排叙事分镜批次',specRow:'编排叙事分镜批次',produces:['scene'],bound:['outline','source','productionReq'],sources:['scene@batchDone'],batch:frameBatch},
  visual:{label:'生成画面描述',specRow:'生成画面描述',produces:['visual'],bound:['outline','productionReq','style'],check:['scene@self'],sources:['scene@batch','characters'],batch:frameBatch},
- restyle:{label:'换画风转换',specRow:'换画风转换',produces:['visual'],bound:['outline','productionReq','style'],check:['scene@self'],sources:['visual@previous','style@previous','scene@batch','characters'],batch:readerRestyleBatchSize},
+ restyle:{label:'换画风转换',specRow:'换画风转换',produces:['visual'],bound:['outline','productionReq','style'],check:['scene@self'],sources:['visual@previous','style@previous','scene@batch','characters'],batch:frameBatch},
  sceneRepair:{label:'叙事修订',specRow:'叙事修订',produces:['scene'],bound:['outline','source','productionReq'],sources:['scene@self','scene@neighbors','issues','notes','scene@batch'],batch:frameBatch},
+ sceneReset:{label:'重新生成配文',specRow:'重新生成配文',produces:['scene'],bound:['outline','source','productionReq'],sources:['scene@self','scene@neighbors','issues','notes'],batch:frameBatch},
  visualRepair:{label:'画面修订',specRow:'画面修订',produces:['visual'],bound:['outline','productionReq','style'],check:['scene@self'],sources:['visual@self','characters@drawn','issues','notes','scene@batch','characters'],batch:frameBatch},
  structureRepair:{label:'结构修订',specRow:'结构修订',produces:['scene'],bound:['outline','source','productionReq','settings'],sources:['scene@all','issues','notes','frameCheck']},
  ending:{label:'拟定标题与结语',specRow:'拟定标题与结语',produces:['ending'],bound:['source','outline','order'],check:['scene@all']},

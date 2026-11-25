@@ -101,7 +101,9 @@ export default function StoryScript({story,editor,onEdit,resuming=false}:{story:
     const id=surviving[index]+1;
     return omitted.has(id)?[]:[replacement&&id===first?replacement:frame];
    });
-   return {...current,plan:{...savedPlan,pages},storySummary:undefined,removedFrames:[...(current.removedFrames||[]),...removed].sort((a,b)=>a-b)};
+   const mergeTargets=[...(current.mergeTargets??[]).filter(id=>!omitted.has(id)),...(replacement?[first]:[])];
+   return {...current,plan:{...savedPlan,pages},storySummary:undefined,removedFrames:[...(current.removedFrames||[]),...removed].sort((a,b)=>a-b),
+    mergeTargets:mergeTargets.length?[...new Set(mergeTargets)]:undefined};
   });
   setOpen(null);setSelected(new Set());setMerge(null);setSelecting(false);
   setNotice(replacement?`已合并 ${ids.length} 幅，修改已加入草稿。`:`已删除 ${ids.length} 幅，修改已加入草稿。`);

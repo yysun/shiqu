@@ -19,7 +19,6 @@ import {zipMetadataStory} from '../lib/reader-zip-content.ts';
 import {DatabaseSync} from 'node:sqlite';
 import {createApplication} from '../server/app.ts';
 import {heavy} from './fixtures/test-tier.mjs';
-import {migratePromptRecords} from '../server/prompt-record-migration.ts';
 
 async function fixture(t){
  const f=await productionFixture(t);await f.stop();
@@ -38,17 +37,16 @@ async function copySource(t){
  return {source,target,sourceId:session.id,args:['stories','copy',session.id,'--from-data-dir',source.f.dataDirectory,'--request-id',crypto.randomUUID()]};
 }
 
-test('cross-library copy stores prompt records in the target; a text copy made before migration can still attach images',async t=>{
+test('cross-library copy stores prompt records in the target; an older text copy can still attach images',async t=>{
  const {source,target,sourceId,args}=await copySource(t),id=args.at(-1),file=path.join(source.f.dataDirectory,'shiqu.sqlite');
  // 把来源文档还原为旧版内嵌形式，模拟升级前创建文字副本。
- let db=new DatabaseSync(file);const load=db.prepare('SELECT record FROM prompt_records WHERE id=?');
+ const db=new DatabaseSync(file);const load=db.prepare('SELECT record FROM prompt_records WHERE id=?');
  const doc=JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(sourceId).document);
  doc.usage=doc.usage.map(call=>Object.fromEntries(Object.entries(call).map(([key,value])=>key==='promptRecordId'?['promptRecord',JSON.parse(load.get(value).record)]:[key,value])));
  assert.ok(doc.usage.some(call=>call.promptRecord));
  db.prepare('UPDATE stories SET document=? WHERE id=?').run(JSON.stringify(doc),sourceId);db.close();
  assert.equal((await target.call([...args,'--no-copy-images'])).session.ready,0);
- db=new DatabaseSync(file);db.exec('BEGIN IMMEDIATE');migratePromptRecords(db,'');db.exec('COMMIT');
- assert.ok(JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(sourceId).document).usage.every(call=>!call.promptRecord));db.close();
+
  assert.equal((await target.call(['stories','copy-images',id,'--from-data-dir',source.f.dataDirectory],{sourceId})).session.ready,3);
  const sourcePrompts=await source.call(['stories','prompts',sourceId]),targetPrompts=await target.call(['stories','prompts',id]);
  assert.ok(targetPrompts.records.length>0);assert.deepEqual(targetPrompts.records.map(item=>item.record),sourcePrompts.records.map(item=>item.record));
@@ -156,6 +154,25 @@ test('in-process CLI saves intent without inference, runs bounded discovery/prep
  await executeHeadless(process.cwd(),['restore',backup,'--data-dir',restored],{variables:{}});
  const copied=await executeHeadless(process.cwd(),['stories','get',edited.session.id,'--data-dir',restored],{variables:{}});assert.equal(copied.id,edited.session.id);assert.equal(f.control.dagCalls.length,before);
 });
+test('the text-only CLI run records the first adaptive count decision and first audit without drawing',async t=>{
+ const {f,library,call,inspect}=await fixture(t);
+ const source=library.stories[0];
+ const {session}=await call(['stories','create','--no-intake'],{...selection,length:'auto',source:source.source,storyTitle:source.title});
+ const result=await call(['run',session.id,'--until','reviewed','--timeout','10']);
+ assert.equal(result.reason,'reviewed');
+ const db=inspect();
+ try{
+  const first=type=>JSON.parse(db.prepare(`SELECT json_extract(detail,'$.receipt.value') AS value
+   FROM production_attempt_events WHERE session_id=? AND event='paid-result' AND json_extract(detail,'$.work.call')=?
+   ORDER BY sequence LIMIT 1`).get(session.id,type).value);
+  assert.equal(first('frameCheck').frameCountReview.decision,'keep');
+  assert.ok(first('review').judgements.every(judgement=>judgement.outcome==='pass'));
+  assert.equal(db.prepare(`SELECT count(*) AS n FROM production_attempt_events a JOIN production_jobs j ON j.id=a.job_id
+   WHERE a.session_id=? AND a.event='sent' AND j.pool='image'`).get(session.id).n,0);
+  assert.equal(f.control.calls.length,0);
+ }finally{db.close();}
+});
+
 test('CLI extends the verified original as a new version of one shelf story', {timeout:30000},async t=>{
  const {f,library,call}=await fixture(t),card=library.stories[0];
  const {session:{id}}=await call(['stories','create','--no-intake'],{...selection,length:3,storyTitle:card.title,source:card.source});

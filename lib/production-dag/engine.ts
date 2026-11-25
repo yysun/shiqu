@@ -81,7 +81,7 @@ export class Evaluation{
   let status:Status;
   if(!product||product.readable===false)status='missing';
   else if(!hard)status='waiting';
-  else if(!sameInputs(product.inputs,hard))status='invalid';
+  else if(product.handEdited?(node==='visual'&&product.inputs.style!==hard.style):!sameInputs(product.inputs,hard))status='invalid';
   else status='valid';
   const result:Instance={node,key,id,status,blocked,hard,check,ready:false};
   this.memo.set(id,result);

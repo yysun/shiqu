@@ -5,11 +5,12 @@
 import type {Selection} from '../reader-model.ts';
 import {readerBooks} from '../reader-books.ts';
 import {normalizeProductionPrompt} from '../reader-prompts.ts';
+import {readerStoryboardBatchSize} from '../reader-limits.ts';
 import type {ReviewIssue} from '../reader-review.ts';
 import {calls,nodeSpec,type CallSpec} from './registry.ts';
 import {instanceId,type Instance} from './engine.ts';
 import {framePrompt,type SourceInput,type StyleInput,type Character,type Outline,type ReviewInput} from './calls.ts';
-import {type DagDocument,type DagIssue} from './document.ts';
+import {endingChoice,type DagDocument,type DagIssue} from './document.ts';
 import type {DagStory,Work} from './runner.ts';
 
 type RequestInputs=Omit<Work,'instances'>&{instances:Pick<Instance,'key'|'node'>[]};
@@ -24,7 +25,7 @@ export const productionRequirement=(selection:Selection)=>normalizeProductionPro
 const characters=(dag:DagDocument):Character[]=>dag.characters.map(c=>({id:c.id,name:c.name,aliases:c.aliases??[],text:c.text}));
 const pick=(dag:DagDocument,ids:string[]=[])=>(characters(dag)).filter(c=>ids.includes(c.id));
 const at=(dag:DagDocument,key:string)=>dag.order.indexOf(key);
-const stripTarget=({target:_t,stalled:_s,...issue}:DagIssue):ReviewIssue=>{void _t;void _s;return issue;};
+const stripTarget=({target:_t,stalled:_s,handEditedPages:_p,...issue}:DagIssue):ReviewIssue=>{void _t;void _s;void _p;return issue;};
 
 /** 输入引用到实际值；与引擎 resolve() 的引用一一对应。 */
 function value(story:DagStory,item:RequestInputs,ref:string,key:string):unknown{
@@ -51,7 +52,7 @@ function value(story:DagStory,item:RequestInputs,ref:string,key:string):unknown{
   case 'visual@all':return dag.order.map(id=>dag.frames[id]?.visual??'');
   case 'style@previous':{const recorded=dag.products[instanceId('visual',key)]?.inputs.style;return dag.styles?.[recorded??'']??styleOf(selection);}
   case 'ending':return dag.ending;
-  case 'endingChoice':{const ending=dag.ending;return ending?.confirmed??(ending?{title:ending.selectedTitle??ending.title,ending:ending.chosen??ending.candidates[0]}:undefined);}
+  case 'endingChoice':return endingChoice(dag.ending);
   case 'endingConfirmed':return dag.ending?.confirmed;
   case 'redrawNote@self':return frame?.redrawNote;
   case 'frameImage@self':return frame?.image;
@@ -113,10 +114,22 @@ type Builder=(read:Reader,story:DagStory,item:Work)=>unknown;
 const keysOf=(item:Work)=>item.instances.map(i=>i.key);
 const visualFrame=(read:Reader,story:DagStory,key:string)=>({index:at(story.dag,key),caption:read.get<string>('scene@self',key)});
 
+const sceneRepairArgs:Builder=(read,story,item)=>({source:read.get('source'),outline:read.get('outline'),productionPrompt:read.get('productionReq'),notes:read.get('notes'),
+  frames:keysOf(item).map(k=>({index:at(story.dag,k),caption:read.get<string>('scene@self',k),neighbors:read.get('scene@neighbors',k),issues:read.get('issues',k)}))});
+
 const builders:Record<string,Builder>={
  prepareBrief:read=>({source:read.get('source'),productionPrompt:read.get('productionReq')}),
  characters:read=>({source:read.get('source'),productionPrompt:read.get('productionReq')}),
  outline:read=>({source:read.get('source'),productionPrompt:read.get('productionReq'),settings:read.get('settings')}),
+ storyboard:(read,story,item)=>{
+  const starts=item.instances.some(i=>i.node==='outline'),scenes=item.instances.filter(i=>i.node==='scene');
+  const settings=read.get<import('./calls.ts').SettingsInput>('settings');
+  const source=read.get<SourceInput>('source'),first=scenes[0]?.key;
+  return {source:{...source,variationSeed:story.doc.revision?.rootId??story.id},settings,productionPrompt:read.get('productionReq'),style:read.get('style'),
+   ...(!item.instances.some(i=>i.node==='characters')?{characters:read.get('characters')}:{}),
+   ...(starts?{first:1,count:settings.length==='auto'?readerStoryboardBatchSize:Math.min(settings.length,readerStoryboardBatchSize),previous:[]}:
+    {outline:read.get('outline'),first:at(story.dag,first)+1,count:scenes.length,previous:read.get('scene@batchDone',first)})};
+ },
  sceneBatch:(read,story,item)=>{
   const first=keysOf(item)[0];
   return {source:read.get('source'),outline:read.get('outline'),productionPrompt:read.get('productionReq'),first:at(story.dag,first)+1,count:item.instances.length,previous:read.get('scene@batchDone',first)};
@@ -124,8 +137,8 @@ const builders:Record<string,Builder>={
  visual:(read,story,item)=>({outline:read.get('outline'),productionPrompt:read.get('productionReq'),style:read.get('style'),characters:read.get('characters'),frames:keysOf(item).map(k=>visualFrame(read,story,k))}),
  restyle:(read,story,item)=>({outline:read.get('outline'),productionPrompt:read.get('productionReq'),style:read.get('style'),characters:read.get('characters'),previousStyle:read.get('style@previous',keysOf(item)[0]),
   frames:keysOf(item).map(k=>({...visualFrame(read,story,k),previousPrompt:read.get<string>('visual@previous',k)}))}),
- sceneRepair:(read,story,item)=>({source:read.get('source'),outline:read.get('outline'),productionPrompt:read.get('productionReq'),notes:read.get('notes'),
-  frames:keysOf(item).map(k=>({index:at(story.dag,k),caption:read.get<string>('scene@self',k),neighbors:read.get('scene@neighbors',k),issues:read.get('issues',k)}))}),
+ sceneRepair:sceneRepairArgs,
+ sceneReset:sceneRepairArgs,
  visualRepair:(read,story,item)=>({outline:read.get('outline'),productionPrompt:read.get('productionReq'),style:read.get('style'),characters:read.get('characters'),notes:read.get('notes'),
   frames:keysOf(item).map(k=>({...visualFrame(read,story,k),prompt:read.get<string>('visual@self',k),drawn:read.get<Character[]>('characters@drawn',k),issues:read.get('issues',k)}))}),
  structureRepair:(read,_story,item)=>{
@@ -152,7 +165,7 @@ function reviewArgs(read:Reader,story:DagStory,item:Work):ReviewInput{
  const drawnOf=(ids:string[])=>[...new Map(ids.flatMap(id=>read.get<Character[]>('characters@drawn',id)).map(c=>[c.id,c])).values()];
  const frameKeys=item.instances.filter(i=>i.node==='frameVerdict').map(i=>i.key);
  const cast=read.has('characters')?read.get<Character[]>('characters'):read.has('characters@drawn')?drawnOf(frameKeys):undefined;
- const confirmed=read.has('endingConfirmed')?read.get<{title:string;ending:string}|undefined>('endingConfirmed'):undefined;
+ const confirmed=read.has('endingConfirmed')?read.get<ReviewInput['confirmedEnding']>('endingConfirmed'):undefined;
  return {
   source:read.get('source'),
   ...(read.has('brief')?{brief:read.get<string>('brief')}:{}),
@@ -177,7 +190,7 @@ function reviewArgs(read:Reader,story:DagStory,item:Work):ReviewInput{
 export function requestFor(story:DagStory,item:Work):CallInput{
  const build=builders[item.call];
  if(!build)throw Error(`DAG_CALL_NOT_TEXT: ${item.call}`);
- return {method:item.call,args:build(reader(story,item),story,item)};
+ return {method:item.call==='sceneReset'?'sceneRepair':item.call,args:build(reader(story,item),story,item)};
 }
 
 /** 绘图与横图的输入：同样经读取器，只读本幅画面描述、入画人物设定、画风、重绘说明与参考图。 */

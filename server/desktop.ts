@@ -99,6 +99,7 @@ export function desktopFailure(error:unknown){
  const failure=error as (NodeJS.ErrnoException&{port?:number})|undefined;
  const code=failure?.code,message=failure?.message;
  if(code==='EADDRINUSE')return '端口已被占用，请更换端口或停止其他实例。';
+ if(message?.startsWith('LIBRARY_EARLIER_FORMAT:'))return message;
  if(message&&/^(LIBRARY_|BACKUP_|DATA_BUSY:)/.test(message)){
   const code=message.split(/[;: ]/)[0],backup=message.match(/(?:^|; )backup: ([^;]+)/)?.[1];
   return `${code}：书库暂时无法升级或打开，请保留现有书库并检查备份。${backup?' 备份：'+backup:''}`;
@@ -134,7 +135,11 @@ async function main(){
    try{
     const input=z.object({action:z.enum(['start','test','upgrade']),settings:desktopSettings,key:z.string().max(4096).default(''),imageKey:z.string().max(4096).default(''),settingsFile:z.string().optional(),overrides:z.record(z.string()).default({})}).strict().parse(JSON.parse(line));
     const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
-    if(input.action==='upgrade'){ensureLibraryReady(input.settings.dataDirectory,root);send({upgraded:true,started:false,backup:libraryUpgradeBackup(input.settings.dataDirectory)});await stop();return;}
+    if(input.action==='upgrade'){
+     const result=ensureLibraryReady(input.settings.dataDirectory,root);
+     send({upgraded:true,started:false,backup:result?.backup??libraryUpgradeBackup(input.settings.dataDirectory)});
+     await stop();return;
+    }
     if(input.action==='test'){send(await testDesktopProvider(input.settings,input.key,root,fetch,input.imageKey));await stop();return;}
     runtime=await startDesktop(input.settings,input.key,root,{signal:abort.signal,onStatus:send,imageKey:input.imageKey,settingsFile:input.settingsFile,overrides:input.overrides,installAgentSkill:true});starting=false;
     if(inputClosed){await stop();return;}

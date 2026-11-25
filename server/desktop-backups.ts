@@ -5,7 +5,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {z} from 'zod';
 import {assertBackupDestination,backupDirectory,canonicalPath,checkBackupDirectory,containsPath,createLibraryBackup,readBackupManifest,verifyLibraryBackup,withBackupAccess} from './library-backup.ts';
-import {inspectLibrary,libraryFormat,pendingUpgrade,withLibraryGate} from './library-schema.ts';
+import {inspectLibrary,libraryFormat,libraryHeaderVersion,pendingUpgrade,withLibraryGate} from './library-schema.ts';
 import {backupOriginFile,migrationBackupDependency,pendingMigrations,restoreAndUpgradeLibrary} from './library-upgrade.ts';
 import {ownDesktopDataSync} from './desktop-owner.ts';
 
@@ -47,6 +47,7 @@ export function desktopBackupError(error:unknown){
   BACKUP_FILE_SET_MISMATCH:'备份有缺失或多余文件，请选择其他快照。',
   BACKUP_FILE_MISMATCH:'备份文件大小或校验值不符，请选择其他快照。',
   LIBRARY_NEWER_SCHEMA:'此备份来自较新的书库格式，请使用支持该格式的拾趣版本。',
+  LIBRARY_EARLIER_FORMAT:libraryFormat.earlierFormatGuide,
   LIBRARY_RESTORE_FAILED:'恢复或迁移未完成，原备份仍可使用。请检查所选快照和目标磁盘后重试。',
  };
  return messages[code]||'备份操作未通过检查。请检查文件和目录后重试。';
@@ -117,13 +118,15 @@ function compatibility(backup:string,root:string){
  const filename=path.join(backup,'shiqu.sqlite');
  const info=lstatSync(filename);
  if(!info.isFile()||info.isSymbolicLink())throw Error('BACKUP_INVALID_DATABASE');
+ const onDisk=libraryHeaderVersion(filename);
+ if(onDisk!==undefined&&onDisk<libraryFormat.minimumReadableFormat)
+  return {version:onDisk,state:'unsupported',migrations:[],message:libraryFormat.earlierFormatGuide};
  const db=new DatabaseSync(filename,{readOnly:true});
  let version:number;
  try{version=Number(db.prepare('PRAGMA user_version').get()!.user_version);}finally{db.close();}
  if(version>libraryFormat.schemaVersion)return {version,state:'unsupported',migrations:[]};
  try{
   const state=inspectLibrary(backup);
-  if(state==='legacy')return {version,state:'migration',migrations:[]};
   if(state==='current'){
    const migrations=pendingMigrations(backup,root);
    if(version===libraryFormat.schemaVersion||migrations.length)return {version,state:migrations.length?'migration':'current',migrations};

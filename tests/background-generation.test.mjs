@@ -3,11 +3,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
-import {readFileSync,readdirSync} from 'node:fs';
-import {migrate} from '../server/database.ts';
 import {productionFixture,until} from './fixtures/production.mjs';
 import {flowProviders} from './fixtures/test-tier.mjs';
-const outlines=f=>f.control.dagCalls.filter(name=>name==='outline').length;
+const outlines=f=>f.control.dagCalls.filter(name=>name==='storyboard').length;
 const control=(f,id,action)=>f.json(`sessions/${id}/production-control`,'POST',{action});
 
 for(const provider of flowProviders(['codex','gemini']))test(`${provider}: new stories generate every page without a viewer or a mode request`,async t=>{
@@ -118,54 +116,4 @@ test('startup reconciles a fully published background story whose final session 
  const db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));
  db.prepare("UPDATE stories SET production_complete=0 WHERE id=?").run(id);db.close();
  await f.restart();await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.calls.length,8);assert.equal(outlines(f),1);
-});
-
-test('upgrading a pre-background library preserves checkpoints and pauses old stories',t=>{
- const db=new DatabaseSync(':memory:');t.after(()=>db.close());
- db.exec('CREATE TABLE app_migrations(name TEXT PRIMARY KEY,applied_at TEXT NOT NULL)');
- for(const file of readdirSync('drizzle').filter(name=>name.endsWith('.sql')&&name<'0004').sort()){
-  db.exec(readFileSync(path.join('drizzle',file),'utf8'));db.prepare('INSERT INTO app_migrations VALUES(?,?)').run(file,'before-upgrade');
- }
- db.prepare("INSERT INTO reader_sessions(id,user_id,selection,document,state,page,saved,created_at,updated_at) VALUES('legacy','owner','{}',?, 'idle',3,1,'created','updated')").run(JSON.stringify({plan:{title:'saved'},images:['saved.png'],usage:[{step:'image:0'}]}));
- db.prepare("INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,created_at,updated_at) VALUES('job','legacy','owner','image','image','v','[]','{}','saved-result','succeeded',1,2)").run();
- const before=db.prepare('SELECT * FROM reader_sessions').get(),job=db.prepare('SELECT * FROM production_jobs').get();
- migrate(db,process.cwd(),undefined,'0027_revision_fault_targets.sql');
- const after=db.prepare('SELECT * FROM stories').get(),savedJob=db.prepare('SELECT * FROM production_jobs').get();
- assert.deepEqual({...after,generation_mode:undefined,generation_control:undefined},{...before,generation_mode:undefined,generation_control:undefined});
- assert.equal(after.generation_mode,'background');assert.equal(after.generation_control,'paused');
- assert.deepEqual({...savedJob,interrupted:undefined,failure_id:undefined,recovery_id:undefined,error_code:undefined},{...job,interrupted:undefined,failure_id:undefined,recovery_id:undefined,error_code:undefined});assert.equal(savedJob.interrupted,0);assert.equal(savedJob.error_code,null,'the added failure-code column starts empty');
- migrate(db,process.cwd(),undefined,'0027_revision_fault_targets.sql');assert.deepEqual(db.prepare('SELECT * FROM stories').get(),after);
-});
-
-test('single-control upgrade preserves background intent, manual controls, failures, leases and receipts',t=>{
- const db=new DatabaseSync(':memory:');t.after(()=>db.close());
- db.exec('CREATE TABLE app_migrations(name TEXT PRIMARY KEY,applied_at TEXT NOT NULL)');
- for(const file of readdirSync('drizzle').filter(name=>name.endsWith('.sql')&&name<'0005').sort()){
-  db.exec(readFileSync(path.join('drizzle',file),'utf8'));db.prepare('INSERT INTO app_migrations VALUES(?,?)').run(file,'before-upgrade');
- }
- const cases=[
-  ['idle','reader','active','idle','paused'],['running','reader','active','running','paused'],
-  ['failed','reader','active','failed','paused'],['paused','reader','paused','idle','paused'],
-  ['stopped','reader','stopped','idle','stopped'],['completed','reader','active','completed','active'],
-  ['background','background','active','idle','active'],['background-paused','background','paused','idle','paused'],
-  ['deleted','reader','active','idle','paused'],
- ];
- for(const [id,mode,control,state] of cases){
-  db.prepare(`INSERT INTO reader_sessions(id,user_id,selection,document,state,generation_mode,generation_control,page,saved,created_at,updated_at,lock_token,lock_until,error)
-   VALUES(?,'owner','{}',?,?,?, ?,3,1,'created','updated','live-lease',123456,'saved error')`)
-   .run(id,JSON.stringify({plan:{title:'saved'},images:['saved.png'],usage:[{step:'image:0'}]}),state,mode,control);
-  db.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,lease_token,lease_until,created_at,updated_at)
-   VALUES(?,?,'owner','image','image','v','[]','{}','saved-result','succeeded','job-lease',123456,1,2)`).run('job-'+id,id);
- }
- db.exec("INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) VALUES('owner','deleted','generated','saved deletion')");
- const before=db.prepare('SELECT * FROM reader_sessions ORDER BY id').all(),jobs=db.prepare('SELECT * FROM production_jobs ORDER BY id').all();
- migrate(db,process.cwd(),undefined,'0027_revision_fault_targets.sql');
- for(const [id,,,,expected] of cases){
-  const after=db.prepare('SELECT * FROM stories WHERE id=?').get(id),old=before.find(row=>row.id===id);
-  assert.equal(after.generation_mode,'background');assert.equal(after.generation_control,expected);
-  assert.deepEqual({...after,generation_mode:undefined,generation_control:undefined},{...old,generation_mode:undefined,generation_control:undefined});
- }
- assert.deepEqual(db.prepare('SELECT * FROM production_jobs ORDER BY id').all().map(({failure_id,recovery_id,error_code,...job})=>{assert.equal(failure_id,null);assert.equal(recovery_id,null);assert.equal(error_code,null);return job;}),jobs.map(job=>({...job})));
- const after=db.prepare('SELECT * FROM stories ORDER BY id').all();migrate(db,process.cwd(),undefined,'0027_revision_fault_targets.sql');
- assert.deepEqual(db.prepare('SELECT * FROM stories ORDER BY id').all(),after);
 });

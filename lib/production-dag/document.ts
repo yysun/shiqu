@@ -37,7 +37,7 @@ type LegacyModelSnapshot=Pick<ProviderSettingsView['runtime'],'provider'|'imageP
 export type ModelSnapshot=DrawingSnapshot|LegacyModelSnapshot;
 export type DagOutline={title:string;summary:string;sourceReference:string;adaptationNote:string;beats:string[]};
 /** 审片问题按结论归属；自动修订未改变内容或会破坏手改时，保留阻断原因。 */
-export type DagIssue=ReviewIssue&{target:string;stalled?:true|'hand-edited'};
+export type DagIssue=ReviewIssue&{target:string;stalled?:true|'hand-edited';handEditedPages?:number[]};
 export type Renderer={layout:'portrait';aspectRatio:'9:16';size:'1K'};
 
 export type DagDocument={
@@ -45,10 +45,12 @@ export type DagDocument={
  order:string[];
  frames:Record<string,DagFrame>;
  characters:DagCharacter[];
- ending?:{title:string;candidates:string[];selectedTitle?:string;chosen?:string;confirmed?:{title:string;ending:string}};
+ ending?:{title:string;candidates:string[];selectedTitle?:string;chosen?:string;confirmed?:{title:string;ending?:string}};
  /** 事实梗概（准备梗概或读者手改）。 */
  brief?:string;
  outline?:DagOutline;
+ /** 新制作和重新编排使用合批；旧稿保留其未完成的 0.17 调用。 */
+ combinedStoryboard?:true;
  /** 本轮已尝试独立画风建议，缺少该能力的服务也可继续给出制作建议。 */
  preparedArt?:true;
  /** 已确认作品重新准备时单独更新建议，隔离旧世代的制作任务。 */
@@ -64,6 +66,8 @@ export type DagDocument={
  /** 用过的画风设置，键为画风输入指纹；换画风转换据此取得旧画风。 */
  styles?:Record<string,{artStyle:Selection['artStyle'];artStylePrompt?:string|null}>;
  products:Record<string,Product>;
+ /** 清空手改后的目标，写回新内容以前不采用以前的自动产物。 */
+ resetText?:string[];
  /** 产物引用变化时同步改变，作为版本写入的内容校验。 */
  productSignature?:string;
  modelSnapshot?:ModelSnapshot;
@@ -82,9 +86,8 @@ export const defaultRenderer:Renderer={layout:'portrait',aspectRatio:'9:16',size
  * 依据「标题与结语」的条目绑定这一对值的指纹，标题或结语任一改变都会使其失效。
  */
 export function endingChoice(ending:DagDocument['ending']):{title:string;ending:string}|undefined{
- if(ending?.confirmed)return ending.confirmed;
- const chosen=ending?.chosen??ending?.candidates[0];
- return ending&&chosen?{title:ending.selectedTitle??ending.title,ending:chosen}:undefined;
+ const chosen=ending?.confirmed?.ending??ending?.chosen??ending?.candidates[0];
+ return ending&&chosen?{title:ending.confirmed?.title??ending.selectedTitle??ending.title,ending:chosen}:undefined;
 }
 
 export const emptyDag=():DagDocument=>({version:2,order:[],frames:{},characters:[],products:{},renderer:defaultRenderer});

@@ -72,8 +72,7 @@ for(const [theme,length] of [['勇气',2],['原典故事',21]])test(`${theme}: s
  const reason='原文中的行动和实际结果支持本次选题，没有复仇杀人的事实。';
  const planInputs=[],batches=[];
  f.control.beforeText=async(kind,payload)=>{
-  if(kind==='outline'||kind==='sceneBatch')planInputs.push(payload);
-  if(kind==='sceneBatch')batches.push(payload.batch);
+  if(kind==='storyboard'){planInputs.push(payload);batches.push(payload.batch);}
   if(kind==='recommend'){assert.equal(candidate.storyBrief,undefined);assert.equal(payload.storyBrief.summary,'尚未准备完整摘要，请依据已核原文生成。');assert.equal(payload.storyBrief.matchReason,candidate.matchReason);assert.ok(payload.verifiedOriginal.text);return {storySummary:complete,storyMatchReason:reason};}
  };
  await f.json(`sessions/${first.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:first.intake.generation,action:'choose',batch:0,index:0});
@@ -82,10 +81,10 @@ for(const [theme,length] of [['勇气',2],['原典故事',21]])test(`${theme}: s
  assert.deepEqual(source.storyBrief,{summary:complete,matchReason:reason,verified:true});assert.equal(saved.frameRecommendation.storySummary,complete);assert.equal(f.control.plans.length,0);
  await restart();saved=await f.read(first.id);assert.deepEqual((await f.json(`sessions/${first.id}/source`)).source.storyBrief,source.storyBrief);
  await f.json(`sessions/${first.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:saved.intake.generation,action:'confirm',settings:{artStyle:'ink-pencil',productionPrompt:saved.selection.productionPrompt,narrativeDetail:'balanced',length}});
- await until(async()=>(await f.read(first.id)).state==='completed');
+ await until(async()=>(await f.read(first.id)).state==='completed',20000);
  const context=theme==='原典故事'?{mode:'source'}:{mode:'theme',theme};
  for(const payload of [...planInputs,...f.control.reviews]){assert.deepEqual(payload.storyBrief,f.control.reviews.includes(payload)?{summary:complete,matchReason:reason}:undefined);if(payload.outline&&!f.control.reviews.includes(payload))assert.equal(payload.outline.summary,undefined);assert.deepEqual(payload.editorialContext,context);assert.equal(payload.verifiedOriginal.text,source.text);assert.equal(payload.verifiedOriginal.storyBrief,undefined);}
- assert.equal(f.control.dagCalls.filter(name=>name==='outline').length,1);
+ assert.equal(f.control.dagCalls.filter(name=>name==='storyboard').length,Math.ceil(length/20));
  assert.equal(f.control.dagCalls.filter(name=>name==='brief').length,0);
  if(length>20)assert.deepEqual(batches,[{first:1,last:20},{first:21,last:21}]);
  assert.equal(f.control.recommendations.length,1,'Synopsis verification reuses the existing advice call');
@@ -154,7 +153,7 @@ for(const length of [2,21])test(`missing synopsis is saved before a ${length}-fr
  let fail=true;
  f.control.beforeText=async(kind,payload)=>{
   if(kind==='brief'){assert.ok(payload.verifiedOriginal.text);return {summary:preparedSummary};}
-  if(kind==='outline'){
+  if(kind==='storyboard'){
    const doc=await savedDocument(f,id);
    assert.equal(doc.dag.brief,preparedSummary);
    assert.equal(doc.usage.filter(item=>item.step==='dag:prepareBrief').length,1);
@@ -172,7 +171,7 @@ for(const length of [2,21])test(`missing synopsis is saved before a ${length}-fr
  assert.deepEqual(doc.original,source);
  assert.equal(doc.plan.pages.length,length);
  assert.equal(f.control.dagCalls.filter(name=>name==='brief').length,1);
- assert.equal(f.control.dagCalls.filter(name=>name==='outline').length,2);
+ assert.equal(f.control.dagCalls.filter(name=>name==='storyboard').length,1+Math.ceil(length/20));
 });
 
 test('invalid missing-summary preparation blocks planning and retries with the saved original',async t=>{
@@ -183,7 +182,7 @@ test('invalid missing-summary preparation blocks planning and retries with the s
  const pending=await savedDocument(f,id);
  assert.ok(pending.original.text);
  assert.equal(pending.dag.brief,undefined);
- assert.equal(f.control.dagCalls.includes('outline'),false);
+ assert.equal(f.control.dagCalls.includes('storyboard'),false);
  assert.equal(f.control.calls.length,0);
  invalid=false;await recover(f,id);
  await until(async()=>(await f.read(id)).state==='completed',15000);
@@ -191,7 +190,7 @@ test('invalid missing-summary preparation blocks planning and retries with the s
  assert.deepEqual(ready.original,pending.original);
  assert.equal(ready.plan.summary,preparedSummary);
  assert.equal(f.control.dagCalls.filter(name=>name==='brief').length,2);
- assert.equal(f.control.dagCalls.filter(name=>name==='outline').length,1);
+ assert.equal(f.control.dagCalls.filter(name=>name==='storyboard').length,1);
 });
 
 test('a confirmed legacy intake stays confirmed and keeps its selected frame count while a missing synopsis is prepared',async t=>{

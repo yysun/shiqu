@@ -1,1 +1,1 @@
-{"schemaVersion":4,"minimumAppVersion":"0.17.0","latestMigration":"0030_rebind_production_receipts.sql"}
+{"schemaVersion":4,"minimumReadableFormat":4,"minimumAppVersion":"0.17.0","latestMigration":"0030_rebind_production_receipts.sql","earlierFormatGuide":"请先用 0.17.x 打开一次以完成升级。升级说明：https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md#经-017x-升级旧书库"}

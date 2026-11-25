@@ -69,7 +69,7 @@ test('viewing a saved failure preserves its attempt count until an explicit retr
  await f.demand(id,crypto.randomUUID(),0,true);await until(async()=>(await f.read(id)).ready>0,20000);
  // 显式重试之后同一项工作重新执行，其余文字工作各自只执行一次。
  assert.ok(before>=1);assert.equal(f.control.dagCalls.filter(n=>n==='brief').length,2);
- assert.equal(f.control.dagCalls.filter(n=>n==='outline').length,1);
+ assert.equal(f.control.dagCalls.filter(n=>n==='storyboard').length,1);
  assert.ok((await f.read(id)).ready>0);
 });
 

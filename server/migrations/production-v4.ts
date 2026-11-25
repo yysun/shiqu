@@ -19,9 +19,25 @@ import {
 import type {LandscapePrint} from '../../lib/reader-production.ts';
 import {landscapePrintKind} from '../landscape-print.ts';
 import {productionJobId} from '../production-queue.ts';
-import {readableMigrationImage} from '../dag-migration.ts';
+import {existsSync,lstatSync,readFileSync} from 'node:fs';
+import path from 'node:path';
+import {referenceImageKey} from '../../lib/reader-image-assets.ts';
+import {mediaType} from '../../lib/reader-generation-contract.ts';
+import {imageDimensions,matchesLandscapeImageRatio} from '../../lib/reader-image-dimensions.ts';
 
-export {legacyFrameId,mapLegacyFaults} from './production-v2.ts';
+/** 迁移里同步核对的图片：是真实的 PNG/JPEG/WebP 且尺寸可解析（不解码像素）；横图另须符合横图比例。内容不合格的文件不采用，仍由引擎按需重绘。 */
+function readableMigrationImage(directory:string|undefined,storyId:string,url:string,landscape=false){
+ const key=referenceImageKey(storyId,url);
+ if(!key||!directory)return false;
+ const file=path.join(directory,'media',key);
+ try{
+  if(!existsSync(file)||!lstatSync(file).isFile()||lstatSync(file).size===0)return false;
+  const bytes=new Uint8Array(readFileSync(file)),dimensions=imageDimensions(bytes);
+  return !!mediaType(bytes)&&!!dimensions&&(!landscape||matchesLandscapeImageRatio(dimensions));
+ }catch{return false;}
+}
+
+export {legacyFrameId} from './production-v2.ts';
 
 type Verdict=NonNullable<DagDocument['verdicts']>[string];
 type OldDag=HistoricalDag&{verdicts?:Record<string,Verdict>};
@@ -151,10 +167,10 @@ export function finalizeProductionSpec(db:DatabaseSync,readSchema:()=>string,dir
   !stories.has('state')||stories.has('production_complete')||!jobs.has('dependencies')||
   !tableExists.get('production_migration_diagnostics','table')||!tableExists.get('reader_faults','table')||
   layout.some(([name,type])=>tableExists.get(name,type)))throw Error('UNRECOGNIZED_PRODUCTION_SPEC_SCHEMA');
- migrateProductionSpec(db,readSchema(),directory,true);
+ migrateProductionSpec(db,readSchema(),directory);
 }
 
-export function migrateProductionSpec(db:DatabaseSync,sql:string,directory?:string,finishPreview=false){
+function migrateProductionSpec(db:DatabaseSync,sql:string,directory?:string){
  db.exec(sql);
  db.exec('ALTER TABLE stories ADD COLUMN production_complete INTEGER NOT NULL DEFAULT 0');
  const ids=db.prepare('SELECT id,user_id FROM stories').all() as {id:string;user_id:string}[];
@@ -171,7 +187,7 @@ export function migrateProductionSpec(db:DatabaseSync,sql:string,directory?:stri
   db.exec('SAVEPOINT normalize_production_story');
   try{
    const doc=JSON.parse(row.document) as OldPrintDocument,selection=selectionSchema.parse(JSON.parse(row.selection));
-   const normalized=finishPreview&&!!doc.dag&&!Object.hasOwn(doc.dag,'items');
+   const normalized=!!doc.dag&&!Object.hasOwn(doc.dag,'items');
    if((!normalized||doc.images!==undefined)&&!Array.isArray(doc.images)||!Array.isArray(doc.usage)||
     doc.dag&&!Array.isArray(doc.dag.order))throw Error('INVALID_PRODUCTION_DOCUMENT');
    if(doc.visualReview){

@@ -7,7 +7,7 @@ import {existsSync,readFileSync} from 'node:fs';
 import {rm,writeFile} from 'node:fs/promises';
 import {get} from 'node:http';
 import {startupFixture,freeStartupPort} from './fixtures/startup.mjs';
-import {historicalLibrary} from './fixtures/historical-library.mjs';
+import {ensureLibraryReady} from '../server/library-upgrade.ts';
 import {SystemSettingsStore} from '../server/system-settings.ts';
 import {startDesktop,desktopFailure} from '../server/desktop.ts';
 import {browserProviderSettings} from '../server/browser-provider-settings.ts';
@@ -87,17 +87,10 @@ test('tunnel refuses generation settings before forwarding even with a loopback-
  for(const path of [route,'/art/../api/local/provider-settings','/api/x/%2e%2e/local/provider-settings'])assert.equal((await remote.handle(new Request('https://isolated-test.trycloudflare.com'+path,{headers:{Host:'127.0.0.1','X-Forwarded-For':'127.0.0.1'}}))).status,403);
  assert.equal(calls,0);
 });
-test('desktop startup upgrades an isolated legacy library before serving and reports its verified backup',async t=>{
- const f=await startupFixture(t),library=path.join(f.root,'legacy-library');historicalLibrary(library,f.root).close();const file=path.join(f.root,'native','desktop.sqlite'),store=new SystemSettingsStore(file,library),settings=store.save({port:await freeStartupPort()});store.close();const events=[];
- const runtime=await startDesktop(settings,'',f.root,{settingsFile:file,onStatus:status=>events.push(status),transport:failNetwork});f.defer(()=>runtime.stop());
- assert.equal(events[0].state,'upgrading');assert.ok(events.find(s=>s.state==='starting').backup);assert.ok(runtime.status.backup);assert.ok(verifyLibraryBackup(runtime.status.backup));assert.equal((await fetch(runtime.status.url+'/api/reader/sessions')).status,200);assert.equal(existsSync(path.join(library,'.desktop-upgrade.json')),false);
- const message=desktopFailure(Error('LIBRARY_RECOVERY_FAILED; backup: '+runtime.status.backup+'; private internals'));assert.ok(message.includes(runtime.status.backup));assert.doesNotMatch(message,/private internals/);
-});
-
 test('failed pending-journal recovery reports its backup safely before any service listener opens',async t=>{
- const f=await startupFixture(t),library=path.join(f.root,'recovery-library');historicalLibrary(library,f.root).close();
+ const f=await startupFixture(t),library=path.join(f.root,'recovery-library');ensureLibraryReady(library,f.root);
  const backup=path.join(f.root,'recovery-library-backups','unavailable-backup');
- await writeFile(path.join(library,'.desktop-upgrade.json'),JSON.stringify({version:1,work:'.desktop-upgrade-00000000-0000-0000-0000-000000000000',backup}));
+ await writeFile(path.join(library,'.desktop-upgrade.json'),JSON.stringify({version:4,work:'.desktop-upgrade-00000000-0000-0000-0000-000000000000',backup}));
  const store=new SystemSettingsStore(path.join(f.root,'config/desktop.sqlite'),library),settings=store.save({port:await freeStartupPort()});store.close();const events=[];
  await assert.rejects(startDesktop(settings,'',f.root,{onStatus:value=>events.push(value)}),error=>{const safe=desktopFailure(error);assert.match(safe,/LIBRARY_RECOVERY_FAILED/);assert.ok(safe.includes(backup));return true;});
  assert.deepEqual(events.map(s=>s.state),['upgrading']);await assert.rejects(fetch('http://127.0.0.1:'+settings.port));
@@ -105,7 +98,8 @@ test('failed pending-journal recovery reports its backup safely before any servi
 
 test('in-place migration reports its new verified backup rather than an older consolidation report',async t=>{
  const f=await startupFixture(t),library=path.join(f.root,'current-library');
- historicalLibrary(library,f.root,'0027_revision_fault_targets.sql').close();
+ ensureLibraryReady(library,f.root);
+ await writeFile(path.join(f.root,'drizzle/0031_upgrade_probe.sql'),'CREATE TABLE upgrade_probe(value TEXT)');
  const previous=path.join(f.root,'previous-consolidation-backup');await writeFile(path.join(library,'.desktop-upgrade-result.json'),JSON.stringify({backup:previous}));
  const store=new SystemSettingsStore(path.join(f.root,'native/desktop.sqlite'),library),settings=store.save({port:await freeStartupPort()});store.close();const events=[];
  const runtime=await startDesktop(settings,'',f.root,{onStatus:status=>events.push(status)});f.defer(()=>runtime.stop());
