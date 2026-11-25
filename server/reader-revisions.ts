@@ -4,6 +4,7 @@
 // cannot be reused and is redrawn; one that cannot be read right now stops the submission.
 // Image-only redraws require a completed story and preserve review and all unselected artwork.
 // Style-only revisions inherit review checkpoints, including unresolved or overridden reviews.
+import {decodeDocument} from '../lib/production-dag/document.ts';
 import {createHash} from 'node:crypto';
 import {ReaderError,selectionSchema} from '../lib/reader-model.ts';
 import type {Document,Selection,SessionRow} from '../lib/reader-model.ts';
@@ -26,24 +27,21 @@ export const replacementToken=(selection:string,epoch:number,intakeGeneration?:n
  intakeGeneration===undefined?[editableSelection(selection),epoch]:[epoch,'intake',intakeGeneration],
 ));
 const savedFrameCount=(doc:Document)=>doc.draft?.pages.length??doc.storyboard?.outline.beats.length;
-const canEditReviewNotes=(row:SessionRow,doc:Document)=>!!doc.plan&&!!doc.visualReview&&row.state!=='completed'&&(row.generation_control==='paused'||row.generation_control==='stopped');
 export function revisionAvailability(row:SessionRow,doc:Document){
  const unconfirmed=doc.intake?.phase!=='confirmed'?doc.intake:undefined;
  const control=row.generation_control??'active';
  return {control,unconfirmed,open:!doc.reselection&&(!unconfirmed||!!unconfirmed.selected),
   edit:!doc.reselection&&!doc.dag?.repreparing&&!unconfirmed&&(!!doc.plan||control!=='active')};
 }
-export function copyAvailability(row:SessionRow,saved:Document,selection:Selection){
+export function copyAvailability(saved:Document,selection:Selection,busy:boolean){
  const review=saved.dag?dagProgress(saved,selection)?.review:undefined;
- const unreviewed=saved.dag&&Object.values(saved.dag.products).some(product=>product.unreviewed);
- const reviewed=saved.dag?review?.reviewStatus==='passed'&&!review.reviewOverridden&&!unreviewed:
-  saved.visualReview?.status==='passed'&&!saved.visualReview.overridden;
- const draft=(!!saved.dag&&!unreviewed||!!saved.visualReview)&&typeof saved.original?.text==='string'&&!!saved.original.text.trim();
- const current=row.state!=='running'&&!!saved.plan&&!!saved.original&&(!saved.intake||saved.intake.phase==='confirmed')&&!saved.reselection&&!saved.dag?.repreparing;
+ const reviewed=review?.reviewStatus==='passed'&&!review.reviewOverridden;
+ const draft=!!saved.dag&&typeof saved.original?.text==='string'&&!!saved.original.text.trim();
+ const current=!busy&&!!saved.plan&&!!saved.original&&(!saved.intake||saved.intake.phase==='confirmed')&&!saved.reselection&&!saved.dag?.repreparing;
  return {current,reviewed,draft};
 }
 export async function revisionBasis(repo:ReaderRepository,row:SessionRow,forReselection=false){
- const doc=JSON.parse(row.document) as Document;
+ const doc=decodeDocument(row);
  if(!forReselection&&doc.dag?.repreparing)throw new ReaderError(409,'这篇故事正在重新准备，请等新的制作建议保存后再修改。');
  const current=!doc.reselection&&!await repo.superseded(row.id,row.user_id);
  const {unconfirmed,control,open,edit}=revisionAvailability(row,doc);
@@ -62,11 +60,10 @@ export async function revisionSnapshot(repo:ReaderRepository,id:string,ownerId:s
  const row=await repo.get(id,ownerId),{doc,epoch,token}=await revisionBasis(repo,row);
  const selection=selectionSchema.parse(JSON.parse(row.selection));
  const progress=dagProgress(doc,selection);
- const issues=doc.dag?reviewAttention({id,doc,selection,dag:doc.dag,confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:[]}).issues:
-  canEditReviewNotes(row,doc)?doc.visualReview!.issues:[];
- const editable=!!doc.plan&&(!!doc.dag||canEditReviewNotes(row,doc));
+ const issues=doc.dag?reviewAttention({id,doc,selection,dag:doc.dag,confirmed:!doc.intake||doc.intake.phase==='confirmed',faults:[]}).issues:[];
+ const editable=!!doc.plan&&!!doc.dag;
  return {selection,plan:doc.plan,images:doc.images,savedFrameCount:savedFrameCount(doc),...(doc.frameRecommendation?{frameRecommendation:doc.frameRecommendation}:{}),token,epoch,
-  reviewStatus:doc.dag?progress?.review.reviewStatus:doc.visualReview?.status,reviewNotes:doc.reviewNotes,...(editable?{canEditReviewNotes:true,priorReviewIssues:issues}:{}),
+  reviewStatus:progress?.review.reviewStatus,reviewNotes:doc.reviewNotes,...(editable?{canEditReviewNotes:true,priorReviewIssues:issues}:{}),
   ...(doc.revision?{revision:{parentId:doc.revision.parentId,rootId:doc.revision.rootId,number:doc.revision.number}}:{})};
 }
 export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,parentId:string,requestId:string,token:string,changes:RevisionChanges,paused=false,cover?:Uint8Array,startRedraw=false){
@@ -74,9 +71,9 @@ export async function forkRevision(repo:ReaderRepository,media:MediaStore,ownerI
  const coverHash=cover?hash(cover):undefined;
  const requestHash=hash(JSON.stringify([parentId,token,changes,...(paused?[true]:[]),...(coverHash?[{cover:coverHash}]:[]),...(startRedraw?[{startRedraw}]:[])]));
  const replay=async()=>{
-  const existing=await repo.db.prepare('SELECT * FROM stories WHERE id=?').bind(requestId).first<SessionRow>();
+  const existing=await repo.db.prepare('SELECT * FROM story_rows stories WHERE id=?').bind(requestId).first<SessionRow>();
   if(!existing)return null;
-  const revision=(JSON.parse(existing.document) as Document).revision;
+  const revision=(decodeDocument(existing)).revision;
   if(existing.user_id!==ownerId||revision?.parentId!==parentId||revision.requestHash!==requestHash)throw new ReaderError(409,'这个提交编号已用于其他修改，请重新打开编辑。');
   return repo.get(requestId,ownerId);
  };

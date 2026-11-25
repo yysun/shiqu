@@ -1,6 +1,6 @@
 // 按调用契约实现的生成调用：每个方法只接收契约所列输入的类型化参数，提示词由这些参数拼装。
 // 指令文字复用正式流程的标准（编排、配文、画面、审片、修订），不另写一套；载荷按契约各自构造，
-// 例如叙事分镜与提纲不含画风，结语与幅数核对只读配文。叙事分镜与画面描述按批调用，每幅结果仍按本幅输入记录；审片允许清单外的判断记为建议。
+// 例如叙事分镜与提纲不含画风，结语与幅数核对只读配文。叙事分镜与画面描述按批调用，每幅结果仍按本幅输入记录；审片丢弃允许清单外的判断。
 import {z} from 'zod';
 import type {Generated} from '../reader-engine.ts';
 import type {OriginalSource} from '../reader-source-types.ts';
@@ -11,15 +11,14 @@ import {getArtDirection,getArtStyle} from '../reader-styles.ts';
 import {promptSections,inputBoundaryDirection,storyOpeningDirection,storyboardDirection,storyEditorialContext,titleDirection} from '../reader-prompts.ts';
 import {storyPlanningDirection,storySceneDirection,storyOutlineMetadataDirection,storyCharacterDirection,storyDraftMetadataDirection,storyCaptionDirection,storyVisualDirection,storyStyleBoundaryDirection,storyDraftJson,imagePromptFor} from '../reader-generation-contract.ts';
 import {outlineDirection,batchDirection,reflectionSystemPrompt,reflectionCandidatesDirection,restyleInstructions} from '../reader-storyboard.ts';
-import {frameCountReviewRequest,fullReviewRequest,parseFrameCountReport,reviewReportSchema,reviewNotesDirection,reviewSystemPrompt,type FrameCountContext,type FrameCountReport,type ReviewIssue} from '../reader-review.ts';
+import {frameCountReviewRequest,fullReviewRequest,parseFrameCountReport,reviewReportSchema,scopedReviewIssuesSchema,reviewNotesDirection,reviewSystemPrompt,type FrameCountContext,type FrameCountReport,type ReviewIssue} from '../reader-review.ts';
 import {validateEditorialCoverage} from '../reader-editorial.ts';
 import {combinedOriginalsSummaryDirection,storyBriefVerified,storySummaryDirection,storySummaryScopeDirection} from '../reader-story-brief.ts';
 import {localPlanConstraint} from '../reader-local-contract.ts';
-import {acceptanceCriteria} from '../reader-acceptance.ts';
+import {acceptanceCriteria,type AcceptanceResult} from '../reader-acceptance.ts';
 import {readerMinFrames,readerMaxFrames,readerStoryboardBatchSize,readerRestyleBatchSize} from '../reader-limits.ts';
 import type {CharacterEntry} from './frames.ts';
 import {fingerprint} from './fingerprint.ts';
-import type {Evidence} from './registry.ts';
 
 export type Call=(task:ReasoningTask,instructions:string,payload:unknown,schema:unknown,maxOutputTokens:number,original?:OriginalSource)=>Promise<Generated<unknown>>;
 
@@ -201,32 +200,18 @@ export function dagGenerator(call:Call){
    return {...result,value};
   },
 
-  /** 登记验收条目：只读条目文字，用全部条目区分各条。 */
-  async registerItems(input:{items:{id:string;text:string}[]}):Promise<Generated<{id:string;scope:'story'|'frame';evidence:Evidence[]}[]>>{
-   const instructions=promptSections(['任务','你是连环画验收条目登记员。为每条验收要求登记范围与依据，不判断是否满足。'],['范围','只涉及单幅内容即可判断的为 frame；涉及多幅、全篇、先后顺序、标题或结语的为 story。'],['依据','story 条目从 scenes（配文与叙事）、visuals（画面描述、人物外观与画风）、order（画幅先后顺序）、ending（标题与结语）中选择判断所需的全部依据；frame 条目 evidence 为空数组。'],['输入与输出',inputBoundaryDirection+'只返回 {items:[{index,scope,evidence}]}，index 为 1 起始的条目编号，每条一次。']);
-   const count=input.items.length;
-   const schema=obj({items:{type:'array',minItems:count,maxItems:count,items:obj({index:{type:'integer',minimum:1,maximum:count},scope:{type:'string',enum:['story','frame']},evidence:{type:'array',maxItems:4,items:{type:'string',enum:['scenes','visuals','order','ending']}}})}});
-   const result=await call('review',instructions,{items:input.items.map((item,i)=>({index:i+1,text:item.text}))},schema,4096);
-   const parsed=z.object({items:z.array(z.object({index:z.number().int().min(1).max(count),scope:z.enum(['story','frame']),evidence:z.array(z.enum(['scenes','visuals','order','ending'])).max(4)}).strict()).length(count)}).strict().parse(result.value).items;
-   if(new Set(parsed.map(p=>p.index)).size!==count)throw Error('ITEM_REGISTRATION_INCOMPLETE');
-   return {...result,value:parsed.map(p=>{const item=input.items[p.index-1];const evidence=[...new Set(p.evidence)] as Evidence[];return {id:item.id,scope:p.scope,evidence:p.scope==='story'&&!evidence.length?['scenes','visuals']:evidence};})};
-  },
-
-  /**
-   * 分阶段审片：一次调用读取全篇作为上下文，只对允许清单内的结论作出判断。
-   * 允许清单外的判断丢弃。
-   */
+  /** 同一轮补齐允许清单内的逐幅结论以及全篇结论，逐条验收只在全篇结论中执行。 */
   async review(input:ReviewInput):Promise<Generated<ReviewOutcome>>{
-   const count=input.frames.length,criteria=acceptanceCriteria(input.acceptancePrompt);
+   const count=input.frames.length,criteria=input.allowed.narrative?acceptanceCriteria(input.acceptancePrompt):[];
    const choosing=input.allowed.narrative&&!input.confirmedEnding&&input.candidates?.length===3?input.candidates as [string,string,string]:undefined;
    // 幅数与详略由幅数与结构核对负责，审片不重复判断，因此不提供详略设置、按固定幅数审核。
-   const {schema,instructions}=fullReviewRequest(count,false,choosing,input.acceptancePrompt);
-   const allowedText=`只对以下对象作出结论：画幅 ${input.allowed.pages.join('、')||'无'}；验收条目编号 ${input.allowed.criteria.join('、')||'无'}；${input.allowed.narrative?'标题与结语（page=0）':'不含标题与结语'}。issues 只列本次结论涉及的问题。`;
-   const reflectionText=input.confirmedEnding?.ending??input.chosenEnding??input.candidates?.[0],titleText=input.confirmedEnding?.title??input.title;
-   const omitted=[!input.style&&'画风',!input.characters&&'人物设定',!input.outline&&'提纲',!titleText&&!reflectionText&&'标题与结语'].filter(Boolean);
-   // 本阶段须给出结果的验收条目：允许的全篇条目，以及有逐幅结论时的逐幅条目。
-   const required=[...input.allowed.criteria,...(input.allowed.pages.length?input.frameCriteria??[]:[])].sort((a,b)=>a-b);
-   const sections=promptSections(['本次结论范围',allowedText],['读者确认',input.confirmedEnding?'plan.title 与 plan.reflection 是读者确认的标题与结语，只判断是否合格，不改选。':''],['本次输入',omitted.length?`本次结论不依据${omitted.join('、')}，因此未提供；不要就这些内容作出判断。`:''],['本次验收结果',criteria.length?(required.length?`acceptanceResults 须覆盖编号 ${required.join('、')}，每条一次。`:'本次无需返回验收条目结果。'):'']);
+   const acceptancePrompt=criteria.length?input.acceptancePrompt:undefined;
+   const {schema:fullSchema,instructions}=fullReviewRequest(count,false,choosing,acceptancePrompt);
+   const schema=input.allowed.narrative?{...fullSchema,properties:{...fullSchema.properties,storyIssues:fullSchema.properties.issues},
+    required:[...fullSchema.required,'storyIssues']}:fullSchema;
+   const allowedText=`issues 只列允许清单内画幅（${input.allowed.pages.join('、')||'无'}）的局部问题，requiresReplan 为 false。${input.allowed.narrative?'storyIssues 单独列影响全篇的叙事、结构、标题、结语或验收问题。可用幅号定位全篇问题。coverage 和验收条目的问题引用 storyIssues，不从 issues 推定全篇问题。':'本轮无需全篇结论；不要判定标题、结语、全篇叙事和验收条目。'}`;
+   const reflectionText=input.confirmedEnding?.ending??input.candidates?.[0],titleText=input.confirmedEnding?.title??input.title;
+   const sections=promptSections(['本次结论范围',allowedText],['读者确认',input.confirmedEnding?'plan.title 与 plan.reflection 是读者确认的标题与结语，只判断是否合格。':''],['本次验收结果',criteria.length?'每条验收要求只判断一次。涉及全篇且无法定位到单幅的结果使用空 pages；可局部修订时在 pages 标出相关幅号及相应问题。':'']);
    const reflection=reflectionText,title=titleText;
    const original=input.source.original,verified=original.storyBrief;
    // 只有当前梗概仍采用核对过的原文摘要时，才沿用对应的选题依据。
@@ -237,13 +222,20 @@ export function dagGenerator(call:Call){
    const plan={...(title?{title}:{}),...(input.brief?{summary:input.brief}:{}),...(input.outline?{sourceReference:input.outline.sourceReference,adaptationNote:input.outline.adaptationNote}:{}),...(reflection?{reflection}:{}),...(input.characters?{characters:input.characters.map(c=>`${c.name}：${c.text}`).join('\n')}:{}),pages:input.frames.map(f=>({caption:f.caption,prompt:f.prompt}))};
    const result=await call('review',system+(local(input.source)?'\n'+local(input.source):'')+rest+'\n\n'+sections+(input.notes?'\n\n'+reviewNotesDirection:''),{
     ...sourcePayload(input.source),...(input.brief?{storyBrief:{summary:input.brief,...(matchReason?{matchReason}:{})}}:{}),exactPageCount:count,
-    ...(criteria.length?{acceptancePrompt:input.acceptancePrompt,acceptanceCriteria:criteria}:{}),
+    ...(criteria.length?{acceptancePrompt,acceptanceCriteria:criteria}:{}),
     ...(input.productionPrompt!==undefined?{productionPrompt:input.productionPrompt}:{}),...(input.style?{artDirection:getArtDirection(input.style)}:{}),
-    plan,...(input.outline?{outline:withoutSummary(input.outline)}:{}),...(choosing?{reflectionCandidates:choosing}:{}),...(input.notes?{reviewNotes:input.notes}:{}),
+    plan,...(input.frameCheck?{frameCheck:input.frameCheck}:{}),...(input.outline?{outline:withoutSummary(input.outline)}:{}),...(choosing?{reflectionCandidates:choosing}:{}),...(input.notes?{reviewNotes:input.notes}:{}),
    },schema,24000,input.source.original);
-   const report=reviewReportSchema(count,choosing,input.acceptancePrompt,required).parse(result.value);
+   const raw=result.value as Record<string,unknown>;
+   const acceptance=Array.isArray(raw?.acceptanceResults)?raw.acceptanceResults.filter(r=>Number.isInteger(r?.criterion)&&r.criterion>=1&&r.criterion<=criteria.length):raw?.acceptanceResults;
+   const pages=new Set(input.allowed.pages);
+   const localIssues=scopedReviewIssuesSchema(count).parse(Array.isArray(raw?.issues)?
+    raw.issues.filter(issue=>pages.has(issue?.page)&&!issue.requiresReplan):raw.issues);
+   const report=reviewReportSchema(count,choosing,acceptancePrompt,undefined,true).parse({...raw,
+    issues:input.allowed.narrative?raw.storyIssues??[]:[],
+    coverage:input.allowed.narrative?raw.coverage:undefined,acceptanceResults:criteria.length?acceptance:undefined});
    if(report.coverage)validateEditorialCoverage(report.coverage,input.source.original);
-   return {...result,value:reviewOutcome(input,report,choosing)};
+   return {...result,value:reviewOutcome(input,report,localIssues,choosing)};
   },
  };
 }
@@ -253,61 +245,34 @@ export type ReviewInput={
  source:SourceInput;brief?:string;outline?:Outline;title?:string;productionPrompt?:string;acceptancePrompt?:string;style?:StyleInput;
  characters?:Character[];
  frames:{id:string;caption:string;prompt:string}[];
- candidates?:string[];chosenEnding?:string;confirmedEnding?:{title:string;ending:string};notes?:string;
- /** 允许清单：画幅为 1 起始幅号，条目为 1 起始的验收条目编号。 */
- allowed:{pages:number[];criteria:number[];narrative:boolean};
- /** 验收条目编号到条目身份。 */
- itemIds:Record<number,string>;
- /** 逐幅验收条目的编号：结果按其画幅落到逐幅结论。 */
- frameCriteria?:number[];
+ candidates?:string[];confirmedEnding?:{title:string;ending:string};notes?:string;frameCheck?:FrameCountReport;
+ allowed:{pages:number[];narrative:boolean};
 };
-export type Judgement={id:string;outcome:'pass'|'fail';detail?:string;requirements?:boolean};
-export type ReviewOutcome={judgements:Judgement[];endingChoice?:string;issues:ReviewIssue[]};
+export type Judgement={id:string;outcome:'pass'|'fail';detail?:string;requirements?:boolean;acceptance?:AcceptanceResult[]};
+export type ReviewOutcome={
+ judgements:Judgement[];
+ titleChoice?:string;
+ endingChoice?:string;
+ issues:ReviewIssue[];
+ storyIssues?:ReviewIssue[];
+};
 
 type Report=ReturnType<ReturnType<typeof reviewReportSchema>['parse']>;
-/**
- * 把审片报告映射为结论，并核对报告覆盖本次要求的全部结论：缺少任一允许条目的结果视为报告不完整，调用失败重试；
- * 逐幅验收条目的未通过或无法判断落到所列画幅（未列画幅时落到全部允许画幅）的逐幅结论，无法判断记为需读者处理。
- */
-function reviewOutcome(input:ReviewInput,report:Report,choosing?:string[]):ReviewOutcome{
- const judgements:Judgement[]=[];
- const pages=new Set(input.allowed.pages),criteria=new Set(input.allowed.criteria),frameCriteria=new Set(input.frameCriteria??[]);
- const results=report.acceptanceResults||[];
- const missing=[...criteria].filter(n=>!results.some(r=>r.criterion===n));
- if(missing.length)throw Error(`REVIEW_INCOMPLETE: criteria ${missing.join(',')}`);
- const criteriaPages=new Set(results.filter(r=>criteria.has(r.criterion)&&r.status==='failed').flatMap(r=>r.pages));
- const issues=report.issues.filter(issue=>pages.has(issue.page)||criteriaPages.has(issue.page)||input.allowed.narrative&&issue.page===0);
- const issuesOn=(page:number)=>report.issues.filter(i=>i.page===page);
- // 逐幅条目的结果按画幅归集。
- const frameResults=new Map<number,{detail:string;requirements:boolean}[]>();
- for(const result of results.filter(r=>frameCriteria.has(r.criterion)&&r.status!=='passed')){
-  // 有幅号时只处理所列且允许判断的画幅；未列幅号时覆盖本次允许判断的画幅。
-  const listed=result.pages.filter(p=>pages.has(p));
-  for(const page of result.pages.length?listed:[...pages])frameResults.set(page,[...(frameResults.get(page)??[]),{detail:result.evidence,requirements:result.status==='unknown'}]);
- }
- for(const page of pages){
-  const issues=issuesOn(page),items=frameResults.get(page)??[],id=`frameVerdict:${input.frames[page-1].id}`;
-  const failed=issues.length>0||items.length>0;
-  const detail=[...issues.map(i=>i.problem),...items.map(i=>i.detail)].join('；');
-  const judgement:Judgement={id,outcome:failed?'fail':'pass',...(failed?{detail}:{}),...(items.some(i=>i.requirements)?{requirements:true}:{})};
-  judgements.push(judgement);
- }
- const narrativeIssues=issues.filter(i=>i.page===0||i.requiresReplan);
- const narrative:Judgement={id:'narrativeVerdict:',outcome:narrativeIssues.length?'fail':'pass',...(narrativeIssues.length?{detail:narrativeIssues.map(i=>i.problem).join('；')}:{})};
- if(input.allowed.narrative)judgements.push(narrative);
- for(const result of results){
-  const itemId=input.itemIds[result.criterion];if(!itemId)continue;
-  const judgement:Judgement={id:`itemVerdict:${itemId}`,outcome:result.status==='passed'?'pass':'fail',detail:result.evidence,...(result.status==='unknown'?{requirements:true}:{})};
-  if(criteria.has(result.criterion))judgements.push(judgement);
- }
- const choice=choosing&&report.reflectionChoice?choosing[report.reflectionChoice.index-1]:undefined;
- return {judgements,...(choice?{endingChoice:choice}:{}),issues};
-}
 
-
-/** 验收要求按行拆成条目；条目身份由文字决定，文字改变即成为新条目，登记随之清空。 */
-export function acceptanceItems(text:string|undefined){
- return acceptanceCriteria(text).map(line=>({id:`i-${fingerprint(line).slice(0,10)}`,text:line}));
+/** 只映射允许清单内的结论。验收问题单独归属全篇结论，可定向修订未参与本轮逐幅审片的画幅。 */
+function reviewOutcome(input:ReviewInput,report:Report,issues:ReviewIssue[],choosing?:string[]){
+ const results=report.acceptanceResults??[],storyIssues=report.issues;
+ const failed=results.filter(result=>result.status==='failed');
+ const judgements:Judgement[]=input.allowed.pages.map(page=>{
+  const local=issues.filter(issue=>issue.page===page);
+  return {id:`frameVerdict:${input.frames[page-1].id}`,outcome:local.length?'fail':'pass',...(local.length?{detail:local.map(issue=>issue.problem).join('；')}:{})};
+ });
+ if(!input.allowed.narrative)return {judgements,issues};
+ const requirements=results.some(result=>result.status==='unknown');
+ const detail=[...storyIssues.map(issue=>issue.problem),...results.filter(result=>result.status!=='passed').map(result=>result.evidence)].join('；');
+ judgements.push({id:'narrativeVerdict:',outcome:storyIssues.length||failed.length||requirements?'fail':'pass',acceptance:results,...(detail?{detail}:{}),...(requirements?{requirements:true}:{})});
+ const choice=choosing&&report.reflectionChoice?choosing[report.reflectionChoice.index-1]:input.candidates?.[0];
+ return {judgements,issues,storyIssues,...(input.confirmedEnding?{}:{titleChoice:report.titleReview.title,...(choice?{endingChoice:choice}:{})})};
 }
 
 /**

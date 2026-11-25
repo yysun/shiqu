@@ -28,7 +28,7 @@ function legacyImageVersion(doc:HistoricalDocument,selection:ReturnType<typeof s
 }
 
 /** 迁移里同步核对的图片：是真实的 PNG/JPEG/WebP 且尺寸可解析（不解码像素）；横图另须符合横图比例。内容不合格的文件不采用，仍由引擎按需重绘。 */
-function readableFile(directory:string|undefined,storyId:string,url:string,landscape=false){
+export function readableMigrationImage(directory:string|undefined,storyId:string,url:string,landscape=false){
  const key=referenceImageKey(storyId,url);
  if(!key||!directory)return false;
  const file=path.join(directory,'media',key);
@@ -57,7 +57,7 @@ function migrateLegacyLandscapes(sqlite:DatabaseSync,row:Row,doc:HistoricalDocum
  const current=jobs.flatMap(job=>{
   const {page,image:value}=job;
   if(page===null||!Number.isInteger(page)||page<0||page>=dag.order.length)return [];
-  const paid=typeof value==='string'&&readableFile(directory,row.id,value,true);
+  const paid=typeof value==='string'&&readableMigrationImage(directory,row.id,value,true);
   if(paid)dag.frames[dag.order[page]].landscape=value;
   return [{job,page,paid}];
  });
@@ -108,7 +108,7 @@ function convertStory(sqlite:DatabaseSync,row:Row,save:ReturnType<DatabaseSync['
   doc.images=doc.plan.pages.map((_,page)=>doc.images[page]||'');
   for(const job of jobs.filter(j=>j.version===current&&j.result)){
    const page=Number(JSON.parse(job.payload).page),value=(JSON.parse(job.result!) as {value?:unknown}).value;
-   if(Number.isInteger(page)&&page>=0&&page<doc.images.length&&!doc.images[page]&&typeof value==='string'&&readableFile(directory,row.id,value))doc.images[page]=value;
+   if(Number.isInteger(page)&&page>=0&&page<doc.images.length&&!doc.images[page]&&typeof value==='string'&&readableMigrationImage(directory,row.id,value))doc.images[page]=value;
   }
  }
  const confirmed=true;
@@ -121,7 +121,7 @@ function convertStory(sqlite:DatabaseSync,row:Row,save:ReturnType<DatabaseSync['
   const at=Date.parse(row.updated_at)||0;
   for(const [page,key] of dag.order.entries()){
    const image=dag.frames[key].image,product=dag.products[instanceId('frameImage',key)];
-   if(!image||!product||!referenceImageKey(row.id,image)||readableFile(directory,row.id,image))continue;
+   if(!image||!product||!referenceImageKey(row.id,image)||readableMigrationImage(directory,row.id,image))continue;
    product.readable=false;
    lost.run(fingerprint([productionDagMigration,row.id,key]),row.id,row.user_id,key,image,lostImageMessage(page),at,at);
   }

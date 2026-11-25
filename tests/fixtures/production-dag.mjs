@@ -10,12 +10,11 @@ export const root=(value,parts)=>({hash:fingerprint(value),inputs:{},...(parts?{
 /** 一篇已确认、尚未生成任何模型产物的故事。 */
 export function story({frames=8,items=[],cast={}}={}){
  const order=Array.from({length:frames},(_,i)=>`f${i+1}`);
- const itemParts=Object.fromEntries(items.map(i=>[i.id,fingerprint(i.text||i.id)]));
  return {
-  confirmed:true,order,items:items.map(i=>i.id),
+  confirmed:true,order,
   frames:Object.fromEntries(order.map(id=>[id,{drawn:cast[id]||['c1']}])),
   products:{
-   'selection:':root('管鲍之交'),'productionReq:':root('写清选择与后果'),'acceptanceReq:':root(items.map(i=>i.text),itemParts),
+   'selection:':root('管鲍之交'),'productionReq:':root('写清选择与后果'),'acceptanceReq:':root(items.map(i=>i.text)),
    'settings:':root('balanced'),'style:':root('ink'),'modelSnapshot:':root('m1'),'renderer:':root('9:16'),'refSource:':root(null),
   },
   faults:[],
@@ -23,8 +22,7 @@ export function story({frames=8,items=[],cast={}}={}){
 }
 
 /**
- * 运行到没有可运行实例。options.review(id) 返回 'pass'|'fail'；options.register(key) 返回登记；
- * options.ending() 返回叙事结论选定的结语。
+ * 运行到没有可运行实例。options.review(id) 返回 'pass'|'fail'。
  * 返回每次调用的记录 {call,ids}；分组与批量上限来自正式调度分组 callGroups。
  */
 export function run(state,options={}){
@@ -34,9 +32,8 @@ export function run(state,options={}){
   if(!groups.length)return log;
   // stopAt：本轮出现该调用时停下，供测试查看就绪集合。
   if(options.stopAt&&groups.some(g=>g.call===options.stopAt))return log;
-  for(const {call,stage,instances} of groups){
-   const name=stage?`${call}#${stage}`:call;
-   log.push({call:name,ids:instances.map(x=>x.id)});
+  for(const {call,instances} of groups){
+   log.push({call,ids:instances.map(x=>x.id)});
    for(const inst of instances)state.products[inst.id]=produce(state,inst,options);
   }
  }
@@ -45,12 +42,10 @@ export function run(state,options={}){
 
 function produce(state,inst,options){
  const previous=state.products[inst.id];
- const product={hash:fingerprint([inst.id,++counter]),inputs:inst.hard,...(inst.node==='narrativeVerdict'?{checks:inst.check}:{})};
+ const product={hash:fingerprint([inst.id,++counter]),inputs:inst.hard};
  if(inst.node==='characters')product.parts={c1:fingerprint('c1'),c2:fingerprint('c2'),c3:fingerprint('c3')};
  if(inst.node==='frameCheck')product.outcome='pass';
- if(['frameVerdict','narrativeVerdict','itemVerdict'].includes(inst.node))product.outcome=options.review?.(inst.id)??'pass';
- if(inst.node==='narrativeVerdict')product.parts={endingChoice:fingerprint(options.ending?.()??'结语一')};
- if(inst.node==='itemRegistration')Object.assign(product,options.register?.(inst.key)??{scope:'story',evidence:['scenes']});
+ if(['frameVerdict','narrativeVerdict'].includes(inst.node))product.outcome=options.review?.(inst.id)??'pass';
  if(previous?.handEdited&&options.keepHandEdits)product.handEdited=true;
  return product;
 }

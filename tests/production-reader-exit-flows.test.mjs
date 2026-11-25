@@ -1,5 +1,6 @@
 // 读者出口的端到端核对：用正式应用和受控模型把故事放进需要读者处理的状态，
 // 渲染故事设置和书架的实际界面，取出界面给出的操作，调用对应的正式接口，确认服务端接受且故事继续向前。
+import {decodeDocument} from '../lib/production-dag/document.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {productionFixture,selection,until} from './fixtures/production.mjs';
@@ -95,8 +96,8 @@ test('each reader-facing waiting state exposes the same action on every surface,
 
 const revisionCases=[
  {call:'visual',requirements:['第一条要求。','第二条要求。'],changes:{acceptancePrompt:'另一条要求。'},expected:[1,2,3,4]},
- {call:'registerItems',requirements:['第一条要求。','第二条要求。'],changes:{artStyle:'watercolor'},expected:['第一条要求。','第二条要求。']},
- {call:'registerItems',requirements:['第一条要求。','第二条要求。','第三条要求。'],changes:{acceptancePrompt:'第一条要求。\n改写后的要求。'},expected:['第一条要求。','改写后的要求。']},
+ {call:'review',requirements:['第一条要求。','第二条要求。'],changes:{artStyle:'watercolor'},expected:['第一条要求。','第二条要求。']},
+ {call:'review',requirements:['第一条要求。','第二条要求。','第三条要求。'],changes:{acceptancePrompt:'第一条要求。\n改写后的要求。'},expected:['第一条要求。','改写后的要求。']},
 ];
 
 for(const {call,requirements,changes,expected} of revisionCases){
@@ -112,7 +113,7 @@ for(const {call,requirements,changes,expected} of revisionCases){
   const child=await fork(f,id,changes),route=`sessions/${child}`;
   assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
   const batches=[];
-  f.control.beforeText=async(name,payload)=>{if(name===call)batches.push(payload.items?.map(item=>item.text)??payload.frames.map(frame=>frame.number));};
+  f.control.beforeText=async(name,payload)=>{if(name===call)batches.push(payload.acceptanceCriteria??payload.frames.map(frame=>frame.number));};
   await f.json(route+'/production-control','POST',{action:'continue'});
   await until(async()=>(await f.read(child)).state==='completed');
   await f.restart();
@@ -147,10 +148,15 @@ test('a saved recommendation with a lost receipt settles on restart without anot
  const queue=()=>f.app.services.production.queue;
  await queue().rerun(job.id);
  assert.equal((await queue().job(job.id)).state,'queued');
+ const restoredFault=crypto.randomUUID();
+ const persisted=await queue().job(job.id);
+ await f.app.services.database.prepare(`INSERT INTO production_faults(id,session_id,owner_id,job_id,kind,version,message,state,created_at,updated_at)
+  VALUES(?,?,?,?,'interrupted',?,'准备结果回执丢失','recovering',1,1)`).bind(restoredFault,id,persisted.owner_id,job.id,persisted.version).run();
  await f.restart();
  await until(async()=>(await queue().job(job.id))?.state==='succeeded');
  const after=await f.read(id),shelf=(await f.json('library/shelf')).find(session=>session.id===id);
  assert.equal((await queue().job(job.id)).attempts,0);
+ assert.equal((await f.app.services.database.prepare('SELECT state FROM production_faults WHERE id=?').bind(restoredFault).first()).state,'resolved');
  assert.deepEqual(after.frameRecommendation,before.frameRecommendation);
  assert.deepEqual(after.intake.draft,before.intake.draft);
  assert.deepEqual(await savedUsage(),usage);
@@ -372,12 +378,10 @@ test('an older version keeps its landscape failure and dedicated Retry after a r
  assert.deepEqual(f.control.calls.filter(call=>call.landscape).slice(count).map(call=>call.page),[2]);
 });
 
-test('a completed legacy landscape set is printable from a revised story in the original order',async t=>{
+test('a completed landscape set is printable from a revised story in the original order',async t=>{
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
  f.control.hold=false;
- const db=f.app.services.database,source=await db.prepare('SELECT * FROM stories WHERE id=?').bind(id).first();
- const dag=f.app.services.production.dag,{status}=await dag.landscapeProjection(source);
- await dag.startLandscape(source,{startToken:status.startToken});
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
  await until(async()=>(await f.json(route)).state==='completed');
  const original=(await f.json(route)).images;
  assert.deepEqual((await f.json(`sessions/${id}/export?layout=landscape`)).images,original);
@@ -393,68 +397,6 @@ test('a completed legacy landscape set is printable from a revised story in the 
  assert.equal(f.control.calls.filter(call=>call.landscape).length,4);
 });
 
-for(const beforeBinding of [false,true])test(`an authorized legacy landscape ${beforeBinding?'without a stored hash':'with a stored hash'} can be resumed manually on its original version`,async t=>{
- const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
- const database=f.app.services.database,source=await database.prepare('SELECT * FROM stories WHERE id=?').bind(id).first();
- const dag=f.app.services.production.dag,{status}=await dag.landscapeProjection(source);
- await dag.startLandscape(source,{startToken:status.startToken});
- await until(()=>f.control.calls.length===3);
- if(beforeBinding){
-  const {document}=await database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first(),legacy=JSON.parse(document);
-  for(const frame of Object.values(legacy.dag.frames))delete frame.landscapeInputHash;
-  await database.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(legacy),id).run();
- }
- const child=await fork(f,id,{acceptancePrompt:'核对画面动作。'}),childRoute=`sessions/${child}/landscape`;
- const media=f.app.services.media,get=media.get.bind(media);
- media.get=key=>key.startsWith(`reader/${id}/artifacts/2-`)?null:get(key);
- f.control.hold=false;
- for(const call of f.control.calls)call.resolve();
- await until(async()=>!!(await f.json(childRoute)).earlier[0]?.startToken);
- const [old]=(await f.json(childRoute)).earlier;
- assert.equal(old.ready,2);
- assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[0,1,2]);
- let paidReads=0;
- media.get=key=>key.startsWith(`reader/${id}/artifacts/2-`)&&++paidReads===1?null:get(key);
- await f.json(route,'POST',{startToken:old.startToken});
- await until(async()=>(await f.json(route)).state==='completed');
- assert.deepEqual(f.control.calls.slice(3).map(call=>call.page),[3]);
- assert.ok(paidReads>1,'the original receipt becomes readable only after authorization');
- const [print]=await f.json(childRoute+'/sets');
- assert.equal(print.story.id,id);
- assert.equal(print.images.length,4);
-});
-
-for(const legacy of [false,true])test(`a locally readable paid ${legacy?'legacy landscape':'standalone print'} completes offline without another draw`,async t=>{
- const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
- f.control.hold=false;
- const store=f.app.services.media,get=store.get.bind(store);
- let hiding=true;
- store.get=async key=>hiding&&key.startsWith(`reader/${id}/artifacts/2-`)?null:get(key);
- if(legacy){
-  const row=await f.app.services.database.prepare('SELECT * FROM stories WHERE id=?').bind(id).first();
-  const dag=f.app.services.production.dag,{status}=await dag.landscapeProjection(row);
-  await dag.startLandscape(row,{startToken:status.startToken});
- }else await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
- await until(async()=>!!(await f.json(route)).retryToken);
- const before=f.control.calls.length;
- hiding=false;
- await f.media.remove(referenceImageKey(id,(await saved(f,id)).images[2]));
- f.options.production={autoStart:false,snapshots:{current:()=>undefined,provider:()=>null}};
- await f.restart();
- f.generation.status=async()=>({configured:false});
- const status=await f.json(route);
- assert.deepEqual([status.ready,status.failed],[3,[3]]);
- if(legacy){
-  for(const session of [await f.read(id),(await f.json('library/shelf')).find(row=>row.id===id)]){
-   assert.ok(session.lifecycle.actions.some(action=>action.event==='retry-landscape'));
-  }
- }
- const recovered=await f.json(route,'POST',{retryToken:status.retryToken});
- assert.equal(recovered.state,'completed');
- await f.restart();
- assert.equal((await f.json(route)).ready,4);
- assert.equal(f.control.calls.length,before);
-});
 
 test('changing the unavailable model of an earlier print only resumes explicitly authorized pages',async t=>{
  const f=await productionFixture(t);
@@ -515,19 +457,18 @@ test('the shelf can switch an active print model while an already sent page fini
  assert.deepEqual((await saved(f,id)).dag,before);
 });
 
-test('legacy landscape controls leave portrait control intact and survive restart',async t=>{
+test('standalone landscape controls leave portrait control intact and survive restart',async t=>{
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
- const db=f.app.services.database,row=await db.prepare('SELECT * FROM stories WHERE id=?').bind(id).first(),dag=f.app.services.production.dag;
- await dag.startLandscape(row,{startToken:(await dag.landscapeProjection(row)).status.startToken});
+ const {printId}=await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
  await until(()=>f.control.calls.length>0);
- await f.json(route,'POST',{control:'pause'});
+ await f.json(route,'POST',{control:'pause',printId});
  assert.equal((await f.read(id)).lifecycle.control,'active');
  f.control.hold=false;for(const call of f.control.calls)call.resolve();
  await drain(f,3);const count=f.control.calls.length;assert.ok(count<4);
  await f.restart();await drain(f,3);
  assert.equal(f.control.calls.length,count);
  assert.equal((await f.json(route)).controlAction,'resume');
- await f.json(route,'POST',{control:'resume'});
+ await f.json(route,'POST',{control:'resume',printId});
  await until(async()=>(await f.json(route)).ready===4);
  assert.equal((await f.read(id)).lifecycle.control,'active');
 });
@@ -555,9 +496,9 @@ test('a new print set preserves its predecessor and rejects controls for the pre
  assert.ok((await f.json(route+'/sets')).every(set=>set.story.title==='最新印本'));
  f.options.production={autoStart:false};await f.restart();
  const db=f.app.services.database;
- await db.prepare("UPDATE stories SET state='idle',generation_control='paused' WHERE id=?").bind(id).run();
- const tables=['stories','production_jobs','reader_commands','reader_faults','production_demand'];
- const capture=()=>Promise.all(tables.map(name=>db.prepare('SELECT * FROM '+name+' ORDER BY rowid').all()));
+ await db.prepare("UPDATE stories SET production_complete=0,generation_control='paused' WHERE id=?").bind(id).run();
+ const tables=['stories','production_jobs','reader_commands','production_faults','production_demand'];
+ const capture=()=>Promise.all(tables.map(name=>db.prepare('SELECT * FROM '+name+' ORDER BY '+(name==='production_faults'?'id':'rowid')).all()));
  const before=await capture(),calls=f.control.calls.length;
  const worker=f.app.services.production;
  try{
@@ -615,26 +556,25 @@ test('a queued retry keeps its print set when a competing start finishes authori
  assert.equal(f.control.calls.filter(call=>call.landscape&&call.page===2).length,2);
 });
 
-test('legacy landscape switches models from the shelf and resumes without changing the portrait snapshot',async t=>{
+test('a landscape print switches models from the shelf and resumes without changing the portrait snapshot',async t=>{
  const f=await productionFixture(t),a={provider:'codex',models:{text:'A',image:'A'}},b={provider:'codex',models:{text:'B',image:'B'}};
  let current=a;
  f.options.production={autoStart:false,snapshots:{current:()=>current,provider:s=>s.models.image===current.models.image?f.generation:null}};
  await f.restart();
- const {id}=await completedStory(f,{length:4}),db=f.app.services.database,route=`sessions/${id}/landscape`,dag=f.app.services.production.dag;
+ const {id}=await completedStory(f,{length:4}),db=f.app.services.database,route=`sessions/${id}/landscape`;
  await db.prepare("UPDATE stories SET document=json_set(document,'$.dag.modelSnapshot',json(?)) WHERE id=?").bind(JSON.stringify(a),id).run();
- const row=await db.prepare('SELECT * FROM stories WHERE id=?').bind(id).first();
- await dag.startLandscape(row,{startToken:(await dag.landscapeProjection(row)).status.startToken});
- await f.json(route,'POST',{control:'pause'});current=b;
+ const {printId}=await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await f.json(route,'POST',{control:'pause',printId});current=b;
  const status=await f.json(route),[shelf]=await f.json('library/shelf');
  assert.equal(status.controlAction,undefined);assert.ok(status.modelToken);
  assert.equal(shelf.landscapeWork.modelToken,status.modelToken);
  assert.equal(shelf.lifecycle.optionalWork,false);
- assert.equal((await f.request(route,'POST',{control:'resume'})).status,409);
+ assert.equal((await f.request(route,'POST',{control:'resume',printId})).status,503);
  const next=await f.json(route,'POST',{modelToken:shelf.landscapeWork.modelToken});
  assert.equal(next.controlAction,'resume');
  assert.equal((await f.request(route,'POST',{modelToken:status.modelToken})).status,409);
  assert.deepEqual((await saved(f,id)).dag.modelSnapshot,a);
- await f.restart();f.control.hold=false;await f.json(route,'POST',{control:'resume'});
+ await f.restart();f.control.hold=false;await f.json(route,'POST',{control:'resume',printId});
  f.app.startGeneration();await until(async()=>(await f.json(route)).ready===4);
  assert.deepEqual((await saved(f,id)).dag.modelSnapshot,a);
  assert.equal(f.control.calls.filter(call=>call.landscape).length,4);
@@ -657,14 +597,11 @@ test('copy-images accepts a paused portrait copy after independent landscape wor
 for(const conflict of ['metadata','new revision','same request'])test('concurrent revision save handles '+conflict,async t=>{
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/revisions`;
  const child=crypto.randomUUID(),{token}=await f.json(route),input={requestId:child,token,changes:{acceptancePrompt:'核对画面动作。'}};
- const entered=Promise.withResolvers(),release=Promise.withResolvers(),media=f.app.services.media,put=media.put.bind(media);
- let held=false;const keys=[];
- media.put=async(key,...args)=>{
-  if(key.startsWith('reader/'+child+'/')){
-   keys.push(key);
-   if(!held){held=true;entered.resolve();await release.promise;}
-  }
-  return put(key,...args);
+ const entered=Promise.withResolvers(),release=Promise.withResolvers(),media=f.app.services.media,get=media.get.bind(media);
+ let held=false;
+ media.get=async key=>{
+  if(key.startsWith('reader/'+id+'/')&&!held){held=true;entered.resolve();await release.promise;}
+  return get(key);
  };
  const first=f.request(route,'POST',input);
  await entered.promise;
@@ -675,15 +612,16 @@ for(const conflict of ['metadata','new revision','same request'])test('concurren
   }else await f.json(route,'POST',{...input,requestId:conflict==='same request'?child:crypto.randomUUID()});
  }finally{release.resolve();}
  const response=await first;
+ const aliases=await f.app.services.database.prepare('SELECT alias_key FROM production_media_aliases WHERE session_id=?').bind(child).all();
  if(conflict==='new revision'){
   assert.equal(response.status,409);
-  assert.ok(keys.length);for(const key of keys)assert.equal(await media.get(key),null);
+  assert.deepEqual(aliases.results,[]);
  }else{
   assert.ok(response.ok);
   const result=(await f.read(child)).story;
   if(conflict==='metadata'){assert.equal(result.title,'新书名');assert.equal(result.publication.author,'新署名');}
   const expected=result.pages.map(page=>referenceImageKey(child,page.image));
-  for(const key of keys)assert.equal(!!await media.get(key),expected.includes(key));
+  assert.deepEqual(aliases.results.map(row=>row.alias_key).sort(),expected.sort());
  }
 });
 
@@ -766,8 +704,8 @@ for(const temporarilyUnavailable of [false,true])test(`a continued revision adop
  await control(f,child,'continue');
  await until(async()=>(await f.read(child)).state==='completed');
  assert.equal(f.control.calls.filter(call=>call.page===0).length,1);
- const row=await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(child).first();
- const doc=JSON.parse(row.document),image=doc.images[0];
+ const row=await f.app.services.database.prepare('SELECT * FROM story_rows WHERE id=?').bind(child).first();
+ const doc=decodeDocument(row),image=doc.images[0];
  assert.ok(image.startsWith(`/api/reader/media/${child}/`));
  assert.deepEqual(await (await get(originKey)).arrayBuffer(),await (await get(`reader/${image.slice('/api/reader/media/'.length)}`)).arrayBuffer());
  assert.equal(doc.usage.filter(item=>item.step==='dag:draw'&&item.originId===id).length,1);
@@ -816,99 +754,6 @@ test('a continued revision waits for a matching parent drawing in flight',async 
  assert.equal((await saved(f,child)).usage.filter(entry=>entry.step==='dag:draw'&&entry.originId===id).length,1);
 });
 
-// 填入旧应用保存的空键故障，避免用当前修订流程来生成历史测试资料。
-async function legacyRevisionFault(database,parent,child,faultId){
- const id=crypto.randomUUID(),row=await database.prepare('SELECT created_at FROM stories WHERE id=?').bind(child).first();
- await database.prepare(`INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at)
-  SELECT ?,?,owner_id,kind,node,node_key,version,message,?,? FROM reader_faults WHERE session_id=? AND id=?`)
-  .bind(id,child,Date.parse(row.created_at),Date.parse(row.created_at),parent,faultId).run();
- return id;
-}
-
-test('library update repairs old fault rows across revisions and preserves saved results and recoveries',async t=>{
- const f=await productionFixture(t);
- f.control.hold=false;
- const faultsFor=id=>f.app.services.database.prepare('SELECT * FROM reader_faults WHERE session_id=? ORDER BY id').bind(id).all();
- const recovery=async(id,faultId)=>
-  f.json(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId});
- async function failedParent(call){
-  f.control.beforeText=async name=>{if(name===call)throw Error('受控批量故障');};
-  const id=await confirmedStory(f,4,{}, {acceptancePrompt:'第一条要求。\n第二条要求。'});
-  f.app.services.production.wake();
-  await until(async()=>(await f.read(id)).state==='failed');
-  await control(f,id,'pause');
-  f.control.beforeText=null;
-  return id;
- }
- const visual=await failedParent('visual'),visualTargets=(await f.read(visual)).lifecycle.faults[0].targets;
- const visualChild=await fork(f,visual,{acceptancePrompt:'另一条。'});
- const items=await failedParent('registerItems'),itemTargets=(await f.read(items)).lifecycle.faults[0].targets;
- const draft=await fork(f,items,{artStyle:'watercolor'});
- const grandchild=await fork(f,draft,{artStyle:'paper-cut'});
- const recoveredParent=await failedParent('visual');
- const recovered=await fork(f,recoveredParent,{acceptancePrompt:'另一条。'});
- f.control.beforeText=async name=>{if(name==='visual')throw Error('受控批量故障');};
- await control(f,recovered,'continue');
- await until(async()=>(await f.read(recovered)).state==='failed');
- const recoveredFault=(await f.read(recovered)).lifecycle.faults[0];
- f.control.beforeText=null;
- await recovery(recovered,recoveredFault.id);
- await until(async()=>(await f.read(recovered)).state==='completed');
- const exported=(await f.read(recovered)).story;
- const ghostParent=await failedParent('visual'),ghost=await fork(f,ghostParent,{acceptancePrompt:'另一条。'});
- f.control.beforeText=async name=>{if(name==='visual')throw Error('受控批量故障');};
- await control(f,ghost,'continue');
- await until(async()=>(await f.read(ghost)).state==='failed');
- const ghostFault=(await f.read(ghost)).lifecycle.faults[0];
- f.control.beforeText=null;
- await recovery(ghost,ghostFault.id);
- await until(async()=>(await f.read(ghost)).state==='completed');
- const ghostImages=(await f.read(ghost)).story.pages.map(page=>page.image);
- const database=f.app.services.database;
- // 模拟迁移前的格式 3 行。空键故障仅保留一行，登记故障完全遗漏，已获授权的故障保留原回执。
- const legacyId=await legacyRevisionFault(database,visual,visualChild,(await f.read(visual)).lifecycle.faults[0].id);
- await database.prepare('DELETE FROM reader_faults WHERE session_id=? AND id!=?').bind(recovered,recoveredFault.id).run();
- await database.prepare("UPDATE reader_faults SET node_key='',input_hash=NULL,origin_fault_id=NULL,job_id=NULL WHERE id=?").bind(recoveredFault.id).run();
- // 模拟旧版已重复生成且留有空键故障的作品，保留全部已生成结果。
- await database.prepare('DELETE FROM reader_faults WHERE session_id=? AND id!=?').bind(ghost,ghostFault.id).run();
- await database.prepare("UPDATE reader_faults SET node_key='',input_hash=NULL,origin_fault_id=NULL,job_id=NULL,command_id=NULL,state='pending' WHERE id=?").bind(ghostFault.id).run();
- await database.prepare("DELETE FROM reader_commands WHERE session_id=? AND action='recover' AND fault_id=?").bind(ghost,ghostFault.id).run();
- await database.prepare("UPDATE stories SET state='idle',generation_control='paused' WHERE id=?").bind(ghost).run();
- assert.equal((await f.read(ghost)).state,'failed');
- await database.prepare('DROP INDEX reader_faults_origin_job').run();
- await database.prepare("DELETE FROM app_migrations WHERE name='0027_revision_fault_targets.sql'").run();
- await f.restart();
- const sorted=targets=>targets.map(target=>target.key).sort();
- const assertion=async(id,expected)=>{
-  const [fault]=(await f.read(id)).lifecycle.faults;
-  assert.deepEqual(sorted(fault.targets),sorted(expected));
-  return fault.id;
- };
- const visualFault=await assertion(visualChild,visualTargets);
- assert.equal((await faultsFor(visualChild)).results.find(fault=>fault.id===legacyId).state,'pending');
- await assertion(draft,itemTargets);
- const itemFault=await assertion(grandchild,itemTargets);
- assert.deepEqual((await f.read(recovered)).story.pages,exported.pages);
- assert.equal((await faultsFor(recovered)).results[0].state,'resolved');
- const repaired=await f.read(ghost);
- assert.equal(repaired.state,'completed');
- assert.equal(repaired.generationControl,'paused');
- assert.deepEqual(repaired.story.pages.map(page=>page.image),ghostImages);
- await f.restart();
- assert.equal(await assertion(visualChild,visualTargets),visualFault);
- assert.equal(await assertion(grandchild,itemTargets),itemFault);
- const count=call=>f.control.dagCalls.filter(name=>name===call).length;
- for(const [id,call,fault] of [[visualChild,'visual',legacyId],[grandchild,'registerItems',itemFault]]){
-  const before=count(call);
-  await control(f,id,'continue');
-  await drain(f);
-  assert.equal(count(call),before);
-  await recovery(id,fault);
-  await until(async()=>(await f.read(id)).state==='completed');
-  assert.equal(count(call),before+1);
- }
-});
-
 test('switching to a fixed length releases the failed automatic frame check',async t=>{
  const f=await productionFixture(t);
  f.control.hold=false;f.control.autoLength=4;
@@ -922,39 +767,6 @@ test('switching to a fixed length releases the failed automatic frame check',asy
  await control(f,child,'continue');
  await until(async()=>(await f.read(child)).state==='completed');
  assert.equal(f.control.calls.length,4);
-});
-
-test('migration keeps distinct legacy batches with the same failure message independently recoverable',async t=>{
- const f=await productionFixture(t);
- f.control.hold=false;
- f.control.beforeText=async name=>{if(name==='visual')throw Error('受控同类故障');};
- const id=await confirmedStory(f,22);
- f.app.services.production.wake();
- await until(async()=>(await f.read(id)).lifecycle.faults.filter(fault=>fault.targets[0]?.node==='visual').length===2);
- const parent=(await f.read(id)).lifecycle.faults;
- assert.equal(parent[0].message,parent[1].message);
- await control(f,id,'pause');
- const child=await fork(f,id,{acceptancePrompt:'另一条。'});
- const database=f.app.services.database,legacyIds=[];
- for(const fault of parent)legacyIds.push(await legacyRevisionFault(database,id,child,fault.id));
- await database.prepare('DROP INDEX reader_faults_origin_job').run();
- await database.prepare("DELETE FROM app_migrations WHERE name='0027_revision_fault_targets.sql'").run();
- await f.restart();
- const repaired=(await f.read(child)).lifecycle.faults;
- const targetSets=faults=>faults.map(fault=>fault.targets.map(target=>target.key).sort().join(',')).sort();
- assert.deepEqual(targetSets(repaired),targetSets(parent));
- const before=f.control.dagCalls.filter(name=>name==='visual').length;
- f.control.beforeText=null;
- await control(f,child,'continue');
- await drain(f);
- assert.equal(f.control.dagCalls.filter(name=>name==='visual').length,before);
- await f.json(`sessions/${child}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:legacyIds[0]});
- await drain(f);
- assert.equal((await f.read(child)).lifecycle.faults.length,1);
- assert.equal(f.control.dagCalls.filter(name=>name==='visual').length,before+1);
- await f.json(`sessions/${child}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:legacyIds[1]});
- await until(async()=>(await f.read(child)).state==='completed',20000);
- assert.equal(f.control.dagCalls.filter(name=>name==='visual').length,before+2);
 });
 
 test('a queued landscape retry waits for its saved model without reclaiming the job',async t=>{
@@ -1011,7 +823,7 @@ test('portrait model recovery is available from both settings and shelf',async t
  const {id}=await completedStory(f,{length:4}),doc=await saved(f,id),key=doc.dag.order[1];
  doc.dag.modelSnapshot=previous;
  delete doc.dag.products[`frameImage:${key}`];delete doc.dag.frames[key].image;doc.images[1]='';
- await f.app.services.database.prepare("UPDATE stories SET document=?,state='idle' WHERE id=?").bind(JSON.stringify(doc),id).run();
+ await f.app.services.database.prepare("UPDATE stories SET document=?,production_complete=0 WHERE id=?").bind(JSON.stringify(doc),id).run();
  const updated=await exitBoth(f,id,/^应用当前模型设置$/);
  assert.equal(updated.lifecycle.service,'available');
  assert.deepEqual((await saved(f,id)).dag.modelSnapshot,current);
@@ -1036,7 +848,7 @@ test('a landscape set starts from saved frames while portrait production is paus
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
  f.options.production={autoStart:false};await f.restart();
  const db=f.app.services.database;
- await db.prepare("UPDATE stories SET state='idle',generation_control='paused' WHERE id=?").bind(id).run();
+ await db.prepare("UPDATE stories SET production_complete=0,generation_control='paused' WHERE id=?").bind(id).run();
  const {startToken}=await f.json(route);assert.ok(startToken);
  await f.json(`sessions/${id}/title`,'POST',{title:'改名后的故事'});
  const started=await f.app.services.production.startLandscape(f.app.services.ownerId,id,{startToken},()=>
@@ -1074,9 +886,8 @@ test('a temporary read failure offers a recheck of the same landscape set',async
 
 test('an older landscape set retries page two while an unrelated portrait fault remains open',async t=>{
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
- const db=f.app.services.database,row=await db.prepare('SELECT * FROM stories WHERE id=?').bind(id).first(),dag=f.app.services.production.dag;
  f.control.hold=false;f.control.beforeImage=call=>{if(call.landscape&&call.page===1)throw Error('受控失败');};
- await dag.startLandscape(row,{startToken:(await dag.landscapeProjection(row)).status.startToken});
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
  await until(async()=>!!(await f.json(route)).retryToken);
  const {retryToken}=await f.json(route),img=(await f.read(id)).story.pages[3].image;
  await f.media.remove(referenceImageKey(id,img));await f.json(`sessions/${id}/image-health`,'POST',{page:3,image:img});
@@ -1150,7 +961,7 @@ test('landscape PDF and Letter print the latest saved pages after a replan witho
  await control(f,child,'continue');
  await until(async()=>(await f.read(child)).state==='completed');
  const latest=await f.read(child),db=f.app.services.database;
- const capture=()=>Promise.all(['stories','production_jobs','reader_commands','reader_faults'].map(table=>db.prepare('SELECT * FROM '+table+' ORDER BY rowid').all()));
+ const capture=()=>Promise.all(['stories','production_jobs','reader_commands','production_faults'].map(table=>db.prepare('SELECT * FROM '+table+' ORDER BY '+(table==='production_faults'?'id':'rowid')).all()));
  const before=await capture(),calls=f.control.calls.length;
  const status=await f.json(route);assert.equal(status.state,'completed');assert.equal(status.matchesSavedPages,false);assert.ok(status.startToken);
  const source=await f.json('sessions/'+id+'/export?layout=landscape');
@@ -1176,18 +987,17 @@ test('saved landscape sets align with current page order, including sets created
   assert.equal((await f.json(route)).matchesSavedPages,true);
   assert.deepEqual(source.images,order.map(index=>original[index]));assert.deepEqual(source.story.pages.map(page=>page.image),doc.images);
   const replaced=structuredClone(doc);
-  if(old)replaced.plan.pages[0].prompt+=' 改为全新的画面。';
+  if(old)replaced.dag.frames[replaced.dag.order[0]].visual+=' 改为全新的画面。';
   else replaced.dag.order[0]=crypto.randomUUID();
   await db.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(replaced),id).run();
   assert.equal((await f.json(base+'/export?layout=landscape')).images,undefined);
  }
 });
 
-test('legacy retry disappears from the reader and shelf when its failed page lacks its required portrait',async t=>{
+test('landscape retry disappears from the reader and shelf when its failed page lacks its required portrait',async t=>{
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),base='sessions/'+id,route=base+'/landscape';
- const row=await f.app.services.database.prepare('SELECT * FROM stories WHERE id=?').bind(id).first(),dag=f.app.services.production.dag;
  f.control.hold=false;f.control.beforeImage=call=>{if(call.landscape&&call.page===1)throw Error('受控横图失败');};
- await dag.startLandscape(row,{startToken:(await dag.landscapeProjection(row)).status.startToken});
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
  await until(async()=>!!(await f.json(route)).retryToken);
  const img=(await f.read(id)).story.pages[1].image;
  await f.media.remove(referenceImageKey(id,img));await f.json(base+'/image-health','POST',{page:1,image:img});
@@ -1219,11 +1029,10 @@ test('a landscape retry validates only the saved references needed for redraw be
  assert.deepEqual(f.control.calls.slice(calls).map(call=>call.page).sort(),[1,3]);
 });
 
-test('retrying a damaged completed legacy set runs even when portrait production is paused',async t=>{
+test('retrying a damaged completed print set runs even when portrait production is paused',async t=>{
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),base='sessions/'+id,route=base+'/landscape';
- const db=f.app.services.database,row=await db.prepare('SELECT * FROM stories WHERE id=?').bind(id).first(),dag=f.app.services.production.dag;
  f.control.hold=false;
- await dag.startLandscape(row,{startToken:(await dag.landscapeProjection(row)).status.startToken});
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
  await until(async()=>(await f.json(route)).state==='completed');
  const landscape=(await f.json(route)).images,portrait=(await f.read(id)).story.pages[0].image;
  await f.media.remove(referenceImageKey(id,portrait));await f.json(base+'/image-health','POST',{page:0,image:portrait});
@@ -1236,11 +1045,10 @@ test('retrying a damaged completed legacy set runs even when portrait production
 });
 
 
-test('an authorized legacy landscape finishes from a restored saved portrait while its portrait fault stays open',async t=>{
+test('an authorized landscape print finishes from a restored saved portrait while its portrait fault stays open',async t=>{
  const f=await productionFixture(t);f.options.production={autoStart:false};await f.restart();
  const {id}=await completedStory(f,{length:4}),base='sessions/'+id,route=base+'/landscape';
- const dag=f.app.services.production.dag,row=await f.app.services.database.prepare('SELECT * FROM stories WHERE id=?').bind(id).first();
- await dag.startLandscape(row,{startToken:(await dag.landscapeProjection(row)).status.startToken});
+ await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
  const image=(await saved(f,id)).images[3],key=referenceImageKey(id,image),asset=await f.media.get(key);
  await f.media.remove(key);await f.json(base+'/image-health','POST',{page:3,image});
  await f.media.put(key,asset.body,{contentType:asset.contentType});

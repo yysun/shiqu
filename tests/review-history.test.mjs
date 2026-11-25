@@ -1,7 +1,7 @@
 // Historical views must distinguish model results from inputs and never infer missing evidence.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {storyReviewHistory} from '../lib/reader-review-history.ts';
+import {legacyReviewHistory as storyReviewHistory} from '../server/migrations/production-review-history.ts';
 import {newReview} from '../lib/reader-review.ts';
 import {makePlan,selection} from './fixtures/production-data.mjs';
 const page=(caption,prompt='An ancient listener pauses beside a table.')=>({caption,prompt});

@@ -8,7 +8,7 @@ export async function insertReaderStory(app,story=makeStory()){
  const plan={title:story.title,summary:story.summary,reflection:story.reflection,sourceReference:original.title,adaptationNote:story.adaptationNote,characters:'测试人物有清楚而稳定的外貌、服装与时代特征。',pages:story.pages.map(({caption,prompt})=>({caption,prompt}))};
  const document={plan,original,frameCountConfirmed:true,images:story.pages.map(page=>page.image),audio:story.pages.map(page=>page.audio),usage:[]};
  const selection={bookId:story.bookId,theme:story.theme,artStyle:'ink-pencil',length:story.pages.length,voice:false,productionPrompt:''};
- await app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'reader','stopped','completed',?,?)")
+ await app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,'stopped',1,?,?)")
   .bind(id,'docker-local-owner',JSON.stringify(selection),JSON.stringify(document),story.createdAt,story.updatedAt).run();
  return {...story,id};
 }

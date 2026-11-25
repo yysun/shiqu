@@ -6,6 +6,7 @@
 // Scoped step timing is saved atomically with receipts, under the same attempt token.
 // 任务状态变化与故障、恢复回执在同一事务中写入（production-records.ts），失败同时记录结构化错误码。
 // 每个任务在任务范围内执行，范围内缺少发送许可的付费发送会被拒绝（paid-dispatch.ts）。
+import {appendProductionAttempt,productionAttemptCount} from './production-attempts.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import {persistenceError} from '../lib/reader-repository.ts';
 import {authorizeJobLease,classifyJobFailure,resolveInterruptedJob} from '../lib/production-lifecycle.ts';
@@ -13,9 +14,9 @@ import type {Database,SyncStatements} from '../lib/reader-repository.ts';
 import {transact,recordJobFailed,recordJobRequeued,recordJobRunning,recordJobSucceeded} from './production-records.ts';
 import {withProductionJob} from './paid-dispatch.ts';
 
-export type JobSpec={id:string;sessionId:string;ownerId:string;kind:string;pool:string;version:string;dependencies:string[];payload:unknown;priority:number};
-export type ProductionJob={id:string;session_id:string;owner_id:string;kind:string;pool:string;version:string;dependencies:string;payload:string;result:string|null;state:'queued'|'running'|'succeeded'|'failed';priority:number;attempts:number;lease_token:string|null;lease_until:number;error:string|null;error_code?:string|null;interrupted:number;failure_id?:string|null;recovery_id?:string|null;created_at:number;updated_at:number};
-export type JobContext={outputs:Record<string,unknown>;isCurrent:()=>Promise<boolean>};
+export type JobSpec={id:string;sessionId:string;ownerId:string;kind:string;pool:string;version:string;payload:unknown;priority:number};
+export type ProductionJob={id:string;session_id:string;owner_id:string;kind:string;pool:string;version:string;payload:string;result:string|null;state:'queued'|'running'|'succeeded'|'failed';priority:number;attempts:number;lease_token:string|null;lease_until:number;error:string|null;error_code?:string|null;interrupted:number;failure_id?:string|null;recovery_id?:string|null;created_at:number;updated_at:number};
+export type JobContext={isCurrent:()=>Promise<boolean>};
 export type JobHandler={pool:string;drain?:boolean;run:(job:ProductionJob,context:JobContext)=>Promise<unknown>};
 type Options={targetSessionId?:string;ownsJob?:(job:ProductionJob)=>boolean;limits:Record<string,number>;handlers:Record<string,JobHandler>;candidateFilter?:string;skipCandidate?:(job:ProductionJob)=>boolean;canRun?:(job:ProductionJob)=>Promise<boolean>;canClaim?:(db:SyncStatements,job:ProductionJob,now:number)=>boolean;onSettled?:()=>void;resumeInterrupted?:(job:ProductionJob)=>Promise<boolean>;safeError?:(error:unknown,job:ProductionJob)=>string;errorCode?:(error:unknown,job:ProductionJob)=>string|undefined;terminal?:(error:unknown,job:ProductionJob)=>boolean;now?:()=>number;leaseMs?:number};
 const interruptedMessage='上次生成已中断，已保留保存的结果。请重试继续。';
@@ -26,10 +27,7 @@ export class JobYield extends Error{
 }
 export function inputVersion(input:unknown){return createHash('sha256').update(JSON.stringify(input)).digest('hex');}
 export function productionJobId(scope:string,kind:string,version:string,key=''){return inputVersion([scope,kind,version,key]);}
-const dependencyCache=new WeakMap<ProductionJob,string[]>();
-export function jobDependencies(job:ProductionJob){let value=dependencyCache.get(job);if(!value){value=JSON.parse(job.dependencies) as string[];dependencyCache.set(job,value);}return value;}
 const timedPayload="CASE WHEN json_type(payload,'$.timingStage')='text' THEN json_insert(json_set(payload,'$.timings',COALESCE(json_extract(payload,'$.timings'),json('[]'))),'$.timings[#]',json(?)) ELSE payload END";
-const ready=`NOT EXISTS (SELECT 1 FROM json_each(j.dependencies) d LEFT JOIN production_jobs parent ON parent.id=d.value WHERE parent.id IS NULL OR parent.state!='succeeded')`;
 
 export class ProductionQueue{
  readonly database:Database;
@@ -51,9 +49,9 @@ export class ProductionQueue{
  }
  async enqueue(spec:JobSpec,completed?:unknown){
   const now=this.clock();
-  await this.database.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,priority,attempts,lease_until,created_at,updated_at)
-   VALUES(?,?,?,?,?,?,?,?,?,?,?,0,0,?,?) ON CONFLICT(id) DO UPDATE SET priority=excluded.priority`)
-   .bind(spec.id,spec.sessionId,spec.ownerId,spec.kind,spec.pool,spec.version,JSON.stringify(spec.dependencies),JSON.stringify(spec.payload),completed===undefined?null:JSON.stringify(completed),completed===undefined?'queued':'succeeded',spec.priority,now,now).run();
+  await this.database.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,payload,result,state,priority,attempts,lease_until,created_at,updated_at)
+   VALUES(?,?,?,?,?,?,?,?,?,?,0,0,?,?) ON CONFLICT(id) DO UPDATE SET priority=excluded.priority`)
+   .bind(spec.id,spec.sessionId,spec.ownerId,spec.kind,spec.pool,spec.version,JSON.stringify(spec.payload),completed===undefined?null:JSON.stringify(completed),completed===undefined?'queued':'succeeded',spec.priority,now,now).run();
  }
  async job(id:string){return this.database.prepare('SELECT * FROM production_jobs WHERE id=?').bind(id).first<ProductionJob>();}
  async jobs(sessionId:string,ownerId:string){return (await this.database.prepare('SELECT * FROM production_jobs WHERE session_id=? AND owner_id=? ORDER BY created_at,id').bind(sessionId,ownerId).all<ProductionJob>()).results;}
@@ -62,7 +60,7 @@ export class ProductionQueue{
   // Search is retried on its own, so a retried story never starts another round of it.
   const now=this.clock();
   transact(this.database,db=>{
-   const where="session_id=? AND owner_id=? AND state IN('failed','queued') AND kind NOT IN ('discover','landscape-image','landscape-print') AND json_extract(payload,'$.work.call') IS NOT 'drawLandscape' AND (? IS NULL OR json_extract(payload,'$.setupGeneration')=?)";
+   const where="session_id=? AND owner_id=? AND state IN('failed','queued') AND kind NOT IN ('discover','landscape-print') AND (? IS NULL OR json_extract(payload,'$.setupGeneration')=?)";
    const interrupted=db.all<ProductionJob>(`SELECT * FROM production_jobs WHERE ${where} AND state='failed' AND interrupted=1`,sessionId,ownerId,generation??null,generation??null);
    db.run(`UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,attempts=0,updated_at=? WHERE ${where}`,now,sessionId,ownerId,generation??null,generation??null);
    for(const job of interrupted)recordJobRequeued(db,job,now);
@@ -85,7 +83,8 @@ export class ProductionQueue{
    if(this.options.ownsJob&&!this.options.ownsJob(job))continue;
    // This process is still running the attempt, so its clock jumped; the attempt is not abandoned.
    const running=job.state==='running',localLease=running&&this.tokens.get(job.id)===job.lease_token;
-   const resume=!localLease&&!!await this.options.resumeInterrupted?.(job);
+   const attempts=transact(this.database,db=>productionAttemptCount(db,job.id));
+   const resume=!localLease&&!!await this.options.resumeInterrupted?.({...job,attempts});
    const effect=resolveInterruptedJob({running,localLease,resume});
    if(effect==='preserve')continue;
    const now=this.clock();
@@ -93,11 +92,12 @@ export class ProductionQueue{
     if(effect==='fail'){
      // 失败记录与新故障同时写入；运行中的任务以租约核对，已失败的中断任务保留原失败编号。
      const live=db.get('SELECT id FROM production_jobs WHERE id=? AND state=\'running\' AND lease_token IS ? AND lease_until=? AND lease_until<=?',job.id,job.lease_token,job.lease_until,now);
-     if(live)recordJobFailed(db,job,{message:interruptedMessage,interrupted:true,errorCode:'TIMEOUT',failureId:job.failure_id??undefined,now});
+     if(live)recordJobFailed(db,{...job,attempts},{message:interruptedMessage,interrupted:true,errorCode:'TIMEOUT',failureId:job.failure_id??undefined,now});
      return;
     }
     const changed=db.run(`UPDATE production_jobs SET state='queued',error=NULL,interrupted=0,lease_token=NULL,lease_until=0,updated_at=?
      WHERE id=? AND state=? AND lease_token IS ? AND lease_until=? AND (state!='running' OR lease_until<=?)`,now,job.id,job.state,job.lease_token,job.lease_until,now).changes;
+    if(changed&&job.state==='running')appendProductionAttempt(db,job,'interrupted',now,{reason:'lease-expired'});
     if(changed&&job.state==='failed'&&job.interrupted)recordJobRequeued(db,job,now);
    });
    }catch(error){this.contain(job,error);}
@@ -116,7 +116,7 @@ export class ProductionQueue{
  async pump(){
   if(this.pumping)return;this.pumping=true;
   try{
-   const candidates=(await this.database.prepare(`SELECT j.* FROM production_jobs j WHERE j.state='queued' AND ${ready}${this.options.candidateFilter?` AND (${this.options.candidateFilter})`:''} ORDER BY j.priority,j.created_at,j.id`).all<ProductionJob>()).results;
+   const candidates=(await this.database.prepare(`SELECT j.* FROM production_jobs j WHERE j.state='queued'${this.options.candidateFilter?` AND (${this.options.candidateFilter})`:''} ORDER BY j.priority,j.created_at,j.id`).all<ProductionJob>()).results;
    for(const job of candidates){
     try{
     if(this.options.ownsJob&&!this.options.ownsJob(job)||this.options.skipCandidate?.(job))continue;
@@ -130,10 +130,11 @@ export class ProductionQueue{
      const live=db.get<ProductionJob>("SELECT * FROM production_jobs WHERE id=? AND state='queued'",job.id);
      if(!live||this.stopping&&!handler.drain||this.options.canClaim&&!this.options.canClaim(db,live,now))return null;
      const changes=db.run(`UPDATE production_jobs AS j SET state='running',lease_token=?,lease_until=?,attempts=attempts+1,error=NULL,interrupted=0,updated_at=?
-      WHERE id=? AND state='queued' AND ${ready} AND (SELECT COUNT(*) FROM production_jobs WHERE pool=? AND state='running' AND lease_until>?)<?`,token,now+this.leaseMs,now,live.id,live.pool,now,limit).changes;
+      WHERE id=? AND state='queued' AND (SELECT COUNT(*) FROM production_jobs WHERE pool=? AND state='running' AND lease_until>?)<?`,token,now+this.leaseMs,now,live.id,live.pool,now,limit).changes;
      if(!changes)return null;
+     appendProductionAttempt(db,{...live,lease_token:token},'claimed',now,{kind:live.kind,version:live.version,payload:JSON.parse(live.payload),recoveryId:live.recovery_id??null});
      recordJobRunning(db,live,now);
-     return {...live,state:'running' as const,lease_token:token,lease_until:now+this.leaseMs,attempts:live.attempts+1,updated_at:now};
+     return {...live,state:'running' as const,lease_token:token,lease_until:now+this.leaseMs,attempts:productionAttemptCount(db,live.id),updated_at:now};
     });
     if(!claimed)continue;
     const task=this.execute(claimed,handler)
@@ -150,7 +151,10 @@ export class ProductionQueue{
    const changed=db.run(`UPDATE production_jobs SET state='queued',attempts=attempts-1,lease_token=NULL,lease_until=0,updated_at=?
     ${waitingFor?",payload=json_set(payload,'$.waitingFor',?)":''} WHERE id=? AND state='running' AND lease_token=?`,
     now,...(waitingFor?[waitingFor]:[]),job.id,job.lease_token).changes;
-   if(changed)recordJobRequeued(db,job,now);
+   if(changed){
+    appendProductionAttempt(db,job,'yielded',now,{waitingFor:waitingFor??null});
+    recordJobRequeued(db,job,now);
+   }
   });
  }
  private async execute(job:ProductionJob,handler:JobHandler){
@@ -158,9 +162,7 @@ export class ProductionQueue{
   // A write that fails says nothing about the work. Leave the job running: its lease expires
   // once this task settles, and it recovers as an interruption against the replay cap.
   const unsaved=(error:unknown)=>console.error('production_job_unsaved',JSON.stringify({id:job.id,code:(error as {code?:string}|null)?.code||(error instanceof Error?error.name:'UNKNOWN')}));
-  const outputs:Record<string,unknown>={};
   try{
-   for(const id of jobDependencies(job)){const parent=await this.job(id);if(parent?.state!=='succeeded')throw Error('DEPENDENCY_UNAVAILABLE');outputs[id]=JSON.parse(parent.result!);}
    if(!await isCurrent())return;
    // Demand or a sibling failure may change while a claim is being prepared.
    if(this.stopping&&!handler.drain||this.options.canRun&&!await this.options.canRun(job)){
@@ -170,7 +172,7 @@ export class ProductionQueue{
   }catch(error){unsaved(error);return;}
   let result:unknown;
   // 任务范围使付费发送点能识别漏接发送许可的制作路径。
-  try{result=await withProductionJob(()=>handler.run(job,{outputs,isCurrent}));}
+  try{result=await withProductionJob(()=>handler.run(job,{isCurrent}));}
   catch(error){
    try{
     const persistence=persistenceError(error),yielded=error instanceof JobYield;

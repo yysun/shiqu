@@ -117,6 +117,10 @@ description: 根据拾趣的数据契约与业务规则，自主编写任务程�
 
 ### 换画风并指定首幅图
 
+合并或拆分叙事画幅可提交 `changes.structureEdits`，每条是 `{from,to,scenes:[{caption}]}`。范围对应原稿，从 1 开始且包含两端。用 `stories revisions` 获取 token，再调用 `api POST reader/sessions/<id>/revisions/preview` 查看 `droppedRedrawNotePages` 与手改冲突。确认后用 `stories edit` 保存新版并继续制作。
+
+对已完成且审核通过的故事，仅替换首幅时，同一命令传入 `{"token":"当前修订token","changes":{"redrawPages":[1]}}`。如需按新首幅重绘其余画幅，将所有幅号写入 `redrawPages`，新版保存后再继续制作。首幅图片直接采用上传文件。
+
 对已完成且审核通过的故事，使用 `stories edit <当前id> --request-id <UUID> --input <私有JSON文件> --cover <本地图片>`，输入 `{"token":"当前修订token","changes":{"artStyle":"watercolor"}}`。新版立即显示原样保存的首幅图，文件限 PNG、JPEG 或 WebP，最大 12 MiB，宽高各不超过 4096 像素。沿用原文、分镜内容和审核记录，绘图前由文字模型把旧画风的表现手法改写为新版提示词。用户授权后，对返回的新 id 执行 `stories continue`，再 `run <新id> --until completed`。指定首幅时，只用它作参考绘制其余画幅。已指定首幅且等待继续时，再次修订沿用同一画风会保留首幅。更换画风（含自定义画风说明）且未重新指定首幅时，先按新画风绘制首幅，再以它为参考画其余画幅。完成后检查首幅和全部生成图。
 
 ## 验收与交付

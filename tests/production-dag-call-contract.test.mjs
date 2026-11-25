@@ -1,7 +1,7 @@
 // 调用契约：用哨兵值证明每个调用的指令与载荷不含契约外的输入；场景 41、52、56、57。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {dagGenerator,framePrompt,acceptanceItems} from '../lib/production-dag/calls.ts';
+import {dagGenerator,framePrompt} from '../lib/production-dag/calls.ts';
 
 const STYLE='哨兵画风请勿出现',REQ='哨兵制作要求请勿出现',CAPTION='哨兵配文请勿出现于图',VISUAL='哨兵画面描述请勿出现',NOTES='哨兵审核意见请勿出现';
 const original={title:'管晏列传',text:'管仲夷吾者，颍上人也。少时常与鲍叔牙游，鲍叔知其贤。',url:'https://example.test/guanyan',kind:'passage',provider:'local',retrievedAt:'2026-01-01'};
@@ -100,24 +100,15 @@ test('the frame-count check reads captions and requirements but no image descrip
  without(calls[0].text,STYLE,VISUAL);contains(calls[0].text,REQ,CAPTION);
 });
 
-test('item registration reads only the item texts and returns stable identities',async()=>{
- const items=acceptanceItems('结尾才揭示身份\n每幅都有动作');
- assert.deepEqual(acceptanceItems('结尾才揭示身份\n每幅都有动作'),items);
- const {calls,gen}=recorder(()=>({items:[{index:1,scope:'story',evidence:['scenes','order']},{index:2,scope:'frame',evidence:[]}]}));
- const result=await gen.registerItems({items});
- assert.deepEqual(result.value.map(r=>[r.id,r.scope,r.evidence]),[[items[0].id,'story',['scenes','order']],[items[1].id,'frame',[]]]);
- without(calls[0].text,STYLE,REQ,CAPTION,VISUAL);
-});
-
 test('scenario 52: review discards judgements and issues outside the allowlist',async()=>{
  const frames=Array.from({length:3},(_,i)=>({id:`f${i+1}`,caption:`第${i+1}幅配文八个字以上`,prompt:`第${i+1}幅画面描述二十个字以上的内容，人物站立在庭院中央。`}));
  const {calls,gen}=recorder(()=>({
-  issues:[{page:2,category:'progression',problem:'动作不清',instruction:'补足动作',requiresReplan:false},{page:3,category:'progression',problem:'服饰不一致',instruction:'统一服饰',requiresReplan:true}],
+  issues:[{page:2,category:'progression',problem:'动作不清',instruction:'补足动作',requiresReplan:false},{page:3,category:'style',problem:'服饰不一致',instruction:'统一服饰',requiresReplan:false}],
   titleReview:{title:'管鲍之交',reason:'准确'},
   coverage:[{quote:'管仲夷吾者',task:'交代人物',pages:[1],assessment:'adequate',reason:'已交代',issuePage:0}],
   acceptanceResults:[{criterion:1,status:'passed',pages:[0],evidence:'结尾揭示'}],
  }));
- const result=await gen.review({source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'结尾才揭示身份',style,characters:people,frames,chosenEnding:'知己难得。',notes:NOTES,allowed:{pages:[1,2],criteria:[],narrative:true},itemIds:{1:'i-x'}});
+ const result=await gen.review({source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'结尾才揭示身份',style,characters:people,frames,candidates:['知己难得。'],notes:NOTES,allowed:{pages:[1,2],narrative:true}});
  assert.deepEqual(result.value.judgements.map(j=>[j.id,j.outcome]),[['frameVerdict:f1','pass'],['frameVerdict:f2','fail'],['narrativeVerdict:','pass']]);
  assert.deepEqual(result.value.issues.map(issue=>issue.page),[2]);
  assert.ok(!Object.hasOwn(result.value,'suggestions'));
@@ -148,44 +139,33 @@ test('provider failures classify into fault kinds: content blocks and service fa
  assert.ok(autoRetryable('TIMEOUT')&&!autoRetryable('CONTENT_BLOCKED'));
 });
 
-test('review answers are checked against the requested verdicts: a missing item fails, an unknown frame-scope item needs the reader',async()=>{
- const frames=Array.from({length:3},(_,i)=>({id:`f${i+1}`,caption:`第${i+1}幅配文八个字以上`,prompt:`第${i+1}幅画面描述二十个字以上的内容，人物站立在庭院中央。`}));
- const base={source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'每幅人物衣冠合乎时代\n结尾才揭示身份',style,characters:people,frames,notes:undefined,itemIds:{2:'i-end'},frameCriteria:[1]};
- const reply=results=>()=>({issues:[],titleReview:{title:'管鲍之交',reason:'准确'},coverage:[{quote:'管仲夷吾者',task:'交代人物',pages:[1],assessment:'adequate',reason:'已交代',issuePage:0}],acceptanceResults:results});
- const unknown=recorder(reply([{criterion:1,status:'unknown',pages:[2],evidence:'文字分镜无法判断冠服年代'},{criterion:2,status:'passed',pages:[3],evidence:'结尾揭示'}]));
- const result=await unknown.gen.review({...base,allowed:{pages:[1,2,3],criteria:[2],narrative:false}});
- const second=result.value.judgements.find(j=>j.id==='frameVerdict:f2');
- assert.equal(second.outcome,'fail');
- assert.equal(second.requirements,true);
- assert.equal(result.value.judgements.find(j=>j.id==='frameVerdict:f1').outcome,'pass');
- const missing=recorder(reply([{criterion:1,status:'passed',pages:[1],evidence:'合乎时代'}]));
- // 报告结构已要求每条验收条目恰好一条结果；缺少时调用失败并按故障重试，不会把结论当作通过。
- await assert.rejects(missing.gen.review({...base,allowed:{pages:[1,2,3],criteria:[2],narrative:false}}));
+test('single-round audit requires every criterion and keeps an unknown outcome on the whole-story verdict',async()=>{
+ const frames=Array.from({length:3},(_,i)=>({id:`f${i+1}`,caption:CAPTION,prompt:VISUAL}));
+ const input={source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'每幅人物衣冠合乎时代\n结尾才揭示身份',style,characters:people,frames,
+  candidates:['知己难得。','患难见人心。','共守其道。'],allowed:{pages:[1,2],narrative:true}};
+ const results=[{criterion:1,status:'unknown',pages:[2],evidence:'文字分镜无法判断冠服年代'},{criterion:2,status:'passed',pages:[0],evidence:'结尾揭示'}];
+ const reply=acceptanceResults=>()=>({issues:[],titleReview:{title:'管鲍与分金',reason:'准确'},reflectionChoice:{index:2,reason:'照应'},
+  coverage:[{quote:'管仲夷吾者',task:'交代人物',pages:[1],assessment:'adequate',reason:'已交代',issuePage:0}],acceptanceResults});
+ const {value}=await recorder(reply(results)).gen.review(input);
+ assert.deepEqual(value.judgements.map(({id,outcome})=>[id,outcome]),[['frameVerdict:f1','pass'],['frameVerdict:f2','pass'],['narrativeVerdict:','fail']]);
+ assert.equal(value.judgements.at(-1).requirements,true);
+ assert.deepEqual(value.judgements.at(-1).acceptance,results);
+ assert.equal(value.titleChoice,'管鲍与分金');assert.equal(value.endingChoice,'患难见人心。');
+ await assert.rejects(recorder(reply(results.slice(0,1))).gen.review(input),/each criterion exactly once/);
+ const frameOnly=recorder(()=>({...reply(results)(),reflectionChoice:undefined}));
+ const scoped=await frameOnly.gen.review({...input,allowed:{pages:[1],narrative:false}});
+ assert.deepEqual(scoped.value.judgements,[{id:'frameVerdict:f1',outcome:'pass'}]);
+ assert.equal(frameOnly.calls[0].payload.acceptancePrompt,undefined);
 });
 
-test('a stage answers only the items it asks for, and the omission note lists only what was left out',async()=>{
- const frames=Array.from({length:3},(_,i)=>({id:`f${i+1}`,caption:`第${i+1}幅配文八个字以上`,prompt:`第${i+1}幅画面描述二十个字以上的内容，人物站立在庭院中央。`}));
- const reply=results=>()=>({issues:[],titleReview:{title:'管鲍之交',reason:'准确'},coverage:[{quote:'管仲夷吾者',task:'交代人物',pages:[1],assessment:'adequate',reason:'已交代',issuePage:0}],acceptanceResults:results});
- // 第一阶段：逐幅结论与逐幅条目 1，依据结语的条目 2 留到第二阶段；只答条目 1 即可。
- const first=recorder(reply([{criterion:1,status:'passed',pages:[1],evidence:'合乎时代'}]));
- const result=await first.gen.review({source,productionPrompt:REQ,acceptancePrompt:'每幅人物衣冠合乎时代\n结尾才揭示身份',style,characters:people,frames,itemIds:{2:'i-end'},frameCriteria:[1],allowed:{pages:[1,2,3],criteria:[],narrative:false}});
- assert.ok(result.value.judgements.every(j=>j.outcome==='pass'));
- assert.match(first.calls[0].text,/acceptanceResults 须覆盖编号 1/);
- // 第二阶段：只有依据标题与结语的条目；标题与结语已提供，不应说明为未提供。
- const second=recorder(reply([{criterion:1,status:'passed',pages:[3],evidence:'结尾揭示'}]));
- await second.gen.review({source,title:'管鲍之交',chosenEnding:'知己难得。',acceptancePrompt:'结尾才揭示身份',frames,itemIds:{1:'i-end'},allowed:{pages:[],criteria:[1],narrative:false}});
- assert.ok(!/不依据[^。]*标题与结语/.test(second.calls[0].text));
- assert.match(second.calls[0].text,/不依据[^。]*提纲/);
-});
-
-test('a scoped review keeps an out-of-scope frame finding out of the verdicts of the frames in scope',async()=>{
- const frames=Array.from({length:3},(_,i)=>({id:`f${i+1}`,caption:`第${i+1}幅配文八个字以上`,prompt:`第${i+1}幅画面描述二十个字以上的内容，人物站立在庭院中央。`}));
- const base={source,brief:'梗概',outline,title:'管鲍之交',productionPrompt:REQ,acceptancePrompt:'每幅人物衣冠合乎时代',style,characters:people,frames,notes:undefined,itemIds:{},frameCriteria:[1]};
- const reply=()=>({issues:[],titleReview:{title:'管鲍之交',reason:'准确'},coverage:[{quote:'管仲夷吾者',task:'交代人物',pages:[1],assessment:'adequate',reason:'已交代',issuePage:0}],acceptanceResults:[{criterion:1,status:'unknown',pages:[3],evidence:'第三幅文字无法判断冠服'}]});
- const scoped=await recorder(reply).gen.review({...base,allowed:{pages:[1,2],criteria:[],narrative:false}});
- assert.ok(scoped.value.judgements.every(j=>j.outcome==='pass'),'the findings on frame 3 do not fail frames 1 and 2');
- assert.deepEqual(scoped.value.judgements.map(j=>j.id),['frameVerdict:f1','frameVerdict:f2']);
- assert.deepEqual(scoped.value.issues,[]);
+test('failed acceptance with a related frame remains a whole-story issue, including a frame outside the local allowlist',async()=>{
+ const frame={id:'f',caption:CAPTION,prompt:VISUAL};
+ const issue={page:2,category:'caption',problem:'没有点明结局',instruction:'补出结局',requiresReplan:false};
+ const report=()=>({titleReview:{title:'管鲍之交',reason:'准确'},issues:[],storyIssues:[issue],acceptanceResults:[{criterion:1,status:'failed',pages:[2],evidence:'配文省略了结果'}]});
+ const {value}=await recorder(report).gen.review({source,frames:[{...frame,id:'f1'},{...frame,id:'f2'}],acceptancePrompt:'写出结局',allowed:{pages:[1],narrative:true}});
+ assert.deepEqual(value.issues,[]);
+ assert.deepEqual(value.storyIssues,[issue]);
+ assert.equal(value.judgements.at(-1).outcome,'fail');
 });
 
 test('structural repairs reject overlaps, out-of-range edits and invalid frame counts',async()=>{
@@ -201,4 +181,16 @@ test('structural repairs reject overlaps, out-of-range edits and invalid frame c
  }
  const {gen}=recorder(()=>({edits:[{from:81,to:80,pages:[page]}]}));
  await assert.rejects(gen.structureRepair({...input,captions:Array(80).fill('这一幅的原有配文。')}),/STRUCTURAL_FRAME_LIMIT/);
+});
+
+
+test('a frame-scoped structural finding outside the allowed list cannot fail the whole-story verdict',async()=>{
+ const frames=Array.from({length:30},(_,index)=>({id:`f${index+1}`,caption:'读者看见两人同行。',prompt:'The protagonists walk beside a lake.'}));
+ const issue={page:30,category:'progression',problem:'这里缺少转折',instruction:'拆出后续的行动',requiresReplan:true};
+ const report=()=>({titleReview:{title:'管鲍之交',reason:'准确'},issues:[issue],storyIssues:[]});
+ const {value}=await recorder(report).gen.review({source,frames,allowed:{pages:[9,10,11],narrative:true}});
+ assert.deepEqual(value.issues,[]);assert.deepEqual(value.storyIssues,[]);
+ assert.deepEqual(value.judgements.map(vote=>[vote.id,vote.outcome]),[
+  ['frameVerdict:f9','pass'],['frameVerdict:f10','pass'],['frameVerdict:f11','pass'],['narrativeVerdict:','pass'],
+ ]);
 });

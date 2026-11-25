@@ -39,27 +39,27 @@ test('reading an undeclared input fails',()=>{
  assert.equal(read.get('scene@self',s.dag.order[0]),s.dag.frames[s.dag.order[0]].scene);
 });
 
-test('a narrative-only review sends no art direction, cast or image-description inputs beyond the shared context',async()=>{
+test('a whole-story-only review sends art direction and all visual descriptions while omitting frame cast',async()=>{
  const s=finished();
  handEdit(s,'brief','',dag=>{dag.brief='读者改写的梗概。';});
  s.dag=settle(s);
  const review=work(s).find(i=>i.call==='review');
  assert.deepEqual(review.instances.map(i=>i.id),['narrativeVerdict:']);
  const declared=declaredInputs(s,review);
- assert.ok(!declared.has('style')&&!declared.has('characters@drawn')&&!declared.has('characters'));
+ assert.ok(declared.has('style')&&!declared.has('characters@drawn')&&!declared.has('characters'));
  const {args}=requestFor(s,review);
- assert.equal(args.style,undefined);
+ assert.ok(args.style);
  assert.equal(args.characters,undefined);
  assert.equal(args.brief,'读者改写的梗概。');
  const payload=await sent(s,review);
- assert.ok(!payload.includes('artDirection'));
+ assert.ok(payload.includes('artDirection'));
  assert.ok(!payload.includes('齐国人，青年时清贫。'),'character settings are not sent');
 });
 
 test('a frame-only review sends the drawn cast and style but no outline, brief or ending',async()=>{
  const s=finished();
  const id=s.dag.order[4];
- handEdit(s,'visual',id,dag=>{dag.frames[id].visual='读者手改：管仲独坐灯下，中景。';});
+ delete s.dag.products[`frameVerdict:${id}`];
  s.dag=settle(s);
  const review=work(s).find(i=>i.call==='review');
  assert.ok(review.instances.every(i=>i.node==='frameVerdict'));
@@ -84,26 +84,23 @@ test('every call with a request builder is declared in the registry',()=>{
  }
 });
 
-test('an item judged on the ending receives the chosen title with the ending, and a title edit re-checks it',()=>{
+test('one review receives the title and ending candidates with all criteria and preserves a reader confirmation',()=>{
  const s=story({acceptancePrompt:'标题点明主题'});
  const reviews=[];
  const reply=replies();
  const answer=(method,args)=>{
-  if(method==='registerItems')return args.items.map(i=>({id:i.id,scope:'story',evidence:['ending']}));
   if(method==='review')reviews.push(args);
   return reply(method,args);
  };
  drive(s,answer);
- const itemId=s.dag.items[0].id;
- assert.equal(evaluate(stateOf(s)).instance('itemVerdict',itemId).status,'valid');
- // 读者手改标题：标题与结语候选产物改变，叙事结论与依据「标题与结语」的条目随之复核。
- handEdit(s,'ending','',dag=>{dag.ending={...dag.ending,title:'读者改写的标题'};});
- assert.notEqual(evaluate(stateOf(s)).instance('itemVerdict',itemId).status,'valid');
+ assert.equal(reviews.length,1);
+ assert.equal(reviews[0].acceptancePrompt,'标题点明主题');
+ assert.deepEqual(reviews[0].candidates,s.dag.ending.candidates);
+ s.dag.ending.confirmed={title:'读者改写的标题',ending:'读者确认的结语'};
+ assert.equal(evaluate(stateOf(s)).instance('narrativeVerdict').status,'invalid');
  reviews.length=0;
  drive(s,answer);
- const stage2=reviews.find(r=>r.allowed.criteria.length&&!r.allowed.narrative);
- assert.ok(stage2,'the ending-dependent item is reviewed in the second stage');
- assert.equal(stage2.title,'读者改写的标题');
- assert.equal(stage2.chosenEnding,s.dag.ending.chosen);
- assert.equal(stage2.style,undefined);
+ assert.equal(reviews.length,1);
+ assert.deepEqual(reviews[0].confirmedEnding,s.dag.ending.confirmed);
+ assert.deepEqual(reviews[0].allowed,{pages:[],narrative:true});
 });

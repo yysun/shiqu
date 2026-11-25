@@ -225,8 +225,8 @@ test('cancel follows another window current version and never revives a deleted 
 for(const stopped of [false,true])test(`replacement of a ${stopped?'stopped':'failed active'} story inherits current control but clears only the new work`,async t=>{
  const {f,id}=await fixture(t,true);f.control.calls[0].reject(Error('controlled old story failure'));await until(async()=>(await f.read(id)).state==='failed');
  if(stopped)await f.json(`sessions/${id}/production-control`,'POST',{action:'stop'});
- const old=await f.read(id),rawOf=()=>f.app.services.database.prepare('SELECT state,error,generation_control FROM stories WHERE id=?').bind(id).first(),rawBefore=await rawOf(),s=await draft(f,id),next=await choose(f,id,s);assert.equal(next.generationControl,stopped?'stopped':'active');assert.equal(next.error,null);assert.equal(next.faults,undefined);
- assert.deepEqual(await rawOf(),rawBefore,'the replaced story row is left untouched');const history=await f.app.services.database.prepare('SELECT message FROM reader_faults WHERE id=?').bind(old.faults[0].id).first();assert.equal(history.message,old.faults[0].message);assert.equal(f.control.calls.length,1);
+ const old=await f.read(id),rawOf=()=>f.app.services.database.prepare('SELECT state,error,generation_control FROM story_rows WHERE id=?').bind(id).first(),rawBefore=await rawOf(),s=await draft(f,id),next=await choose(f,id,s);assert.equal(next.generationControl,stopped?'stopped':'active');assert.equal(next.error,null);assert.equal(next.faults,undefined);
+ assert.deepEqual(await rawOf(),rawBefore,'the replaced story row is left untouched');const history=await f.app.services.database.prepare('SELECT message FROM production_faults WHERE id=?').bind(old.faults[0].id).first();assert.equal(history.message,old.faults[0].message);assert.equal(f.control.calls.length,1);
  if(stopped){await f.app.services.production.tick();assert.equal((await f.read(next.id)).intake.phase,'preparing');await f.json(`sessions/${next.id}/production-control`,'POST',{action:'resume'});}
  await until(async()=>(await f.read(next.id)).intake.phase==='confirming');assert.equal(f.control.calls.length,1);
 });

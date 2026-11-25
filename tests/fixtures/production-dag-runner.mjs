@@ -31,17 +31,15 @@ export function replies({fail=()=>null,frameCheck=()=>'keep',repairSame=false}={
      :{frameCountReview:{decision,proposedCount:args.captions.length+1,reason:'缺一段'},requirements:[{page:2}],issues:[{page:2,category:'progression',problem:'缺少分金一段',instruction:'在第 2 幅后补一幅分金',requiresReplan:true}],coverage:[]};
    }
    case 'structureRepair':return [{from:3,to:2,scenes:[{caption:'新增的分金一幅配文。'}]}];
-   case 'registerItems':return args.items.map(i=>({id:i.id,scope:'story',evidence:['scenes']}));
    case 'review':{
-    const judgements=[],issues=[];
+    const judgements=[],issues=[],storyIssues=[];
     for(const page of args.allowed.pages){
      const id=`frameVerdict:${args.frames[page-1].id}`,failure=fail(id);
      judgements.push({id,outcome:failure?'fail':'pass',...(failure?{detail:failure.problem}:{})});
-     if(failure)issues.push({page,...failure});
+     if(failure)(failure.requiresReplan?storyIssues:issues).push({page,...failure});
     }
-    if(args.allowed.narrative)judgements.push({id:'narrativeVerdict:',outcome:'pass'});
-    for(const n of args.allowed.criteria)judgements.push({id:`itemVerdict:${args.itemIds[n]}`,outcome:'pass'});
-    return {judgements,...(args.allowed.narrative&&!args.chosenEnding?{endingChoice:args.candidates[0]}:{}),issues};
+    if(args.allowed.narrative)judgements.push({id:'narrativeVerdict:',outcome:storyIssues.length?'fail':'pass'});
+    return {judgements,...(args.allowed.narrative&&!args.confirmedEnding?{endingChoice:args.candidates[0]}:{}),issues,storyIssues};
    }
    default:throw Error('unexpected '+method);
   }

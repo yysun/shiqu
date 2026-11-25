@@ -5,7 +5,7 @@ import {until} from './production.mjs';
 import {story,replies,drive} from './production-dag-runner.mjs';
 import {owner} from './book-reference.mjs';
 import {png} from './images.mjs';
-import {projectDocument,emptyDag} from '../../lib/production-dag/document.ts';
+import {decodeDocument,projectDocument,emptyDag} from '../../lib/production-dag/document.ts';
 import {selection} from './production-data.mjs';
 import {referenceImageKey} from '../../lib/reader-image-assets.ts';
 
@@ -15,11 +15,11 @@ export async function completedStory(f,{length=6,selection:over={},extra={}}={})
  drive(s,replies());
  for(const key of s.dag.order)await f.media.put(referenceImageKey(id,s.dag.frames[key].image),png,{contentType:'image/png'});
  const doc={...s.doc,dag:s.dag,...projectDocument(s.dag,null),...extra},now=new Date().toISOString();
- await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'background','active','completed',?,?)")
+ await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,'active',1,?,?)")
   .bind(id,owner,JSON.stringify(s.selection),JSON.stringify(doc),now,now).run();
  return {id,dag:s.dag};
 }
-export const saved=async(f,id)=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
+export const saved=async(f,id)=>decodeDocument(await f.app.services.database.prepare('SELECT * FROM story_rows WHERE id=?').bind(id).first());
 export const savedSelection=async(f,id)=>JSON.parse((await f.app.services.database.prepare('SELECT selection FROM stories WHERE id=?').bind(id).first()).selection);
 
 export const zhuangzi={title:'齐物论',text:'昔者庄周梦为胡蝶，栩栩然胡蝶也，自喻适志与！不知周也。俄然觉，则蘧蘧然周也。不知周之梦为胡蝶与，胡蝶之梦为周与？',url:'https://example.test/zhuangzi',kind:'passage',provider:'fixture',retrievedAt:'2026-11-01'};
@@ -27,7 +27,7 @@ export const zhuangzi={title:'齐物论',text:'昔者庄周梦为胡蝶，栩栩
 export async function confirmedStory(f,length=4,prepared={},over={}){
  const id=crypto.randomUUID(),now=new Date().toISOString();
  const doc={plan:null,images:[],audio:[],usage:[],original:zhuangzi,dag:emptyDag(),...prepared};
- await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'background','active','idle',?,?)")
+ await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,'active',0,?,?)")
   .bind(id,owner,JSON.stringify({...selection,length,...over}),JSON.stringify(doc),now,now).run();
  return id;
 }

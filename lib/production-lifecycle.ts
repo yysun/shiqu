@@ -73,6 +73,21 @@ export function recoveryFaultId(session:Pick<SessionView,'lifecycle'|'faults'>,r
 }
 
 type ActivityJob={id:string;kind:string;payload:string;state:string;lease_until:number;updated_at:number;attempts:number};
+type ExecutionBasis=Pick<DispatchState,'version'|'control'|'continuation'>&{stopping:boolean;now:number;discovering?:boolean};
+type ExecutionTarget=Omit<DispatchState,'version'|'control'|'continuation'>;
+
+/** 调度和界面使用同一份版本权限与尝试活动；任务领取或发送时用最新输入重算。 */
+export function deriveProductionExecution(basis:ExecutionBasis,jobs:readonly ActivityJob[]=[]){
+ const {version,control,continuation,stopping,now,discovering}=basis;
+ const dispatch=(target:ExecutionTarget)=>authorizeDispatch({version,control,continuation,...target,demand:target.demand&&!stopping});
+ const command=(event:ProductionCommand,targetReady=true,targetCurrent=true,commandStopping=stopping)=>
+  authorizeProductionCommand(event,{version,control,continuation,stopping:commandStopping,targetReady,targetCurrent});
+ const inFlight=(job:ActivityJob)=>job.state==='running'&&job.lease_until>now&&(job.kind!=='discover'||!!discovering);
+ const running=jobs.filter(inFlight).sort((a,b)=>a.updated_at-b.updated_at||(a.id<b.id?-1:a.id>b.id?1:0));
+ const available=dispatch({generationCurrent:true,demand:true,fault:false,inputCurrent:true})==='allow';
+ return {version,control,continuation,stopping,dispatch,command,inFlight,running,available};
+}
+
 type ActivityInput=Pick<SessionView,'state'|'intake'|'generationControl'|'awaitingContinue'> & {
  complete?:boolean;superseded:boolean;deleted?:boolean;replacementOpen:boolean;queued:boolean;faults:ProductionFault[];
  reviewAttention:ProductionReviewAttention[];review:ProductionLifecycle['review'];service:ProductionService;now:number;order:readonly string[];
@@ -88,19 +103,20 @@ type ActivityInput=Pick<SessionView,'state'|'intake'|'generationControl'|'awaiti
 
 export function productionLifecycle(input:ActivityInput,jobs:readonly ActivityJob[]):ProductionLifecycle{
  const intake=input.intake?.phase;
+ const complete=input.complete??input.state==='completed';
  const phase=intake==='choosing'||intake==='discovering'?'selection':intake==='preparing'?'preparation':
-  intake==='confirming'?'confirmation':(input.complete??input.state==='completed')?'completed':'production';
- const control=input.generationControl??'active';
- const inFlight=(job:ActivityJob)=>job.state==='running'&&job.lease_until>input.now&&(job.kind!=='discover'||intake==='discovering');
+  intake==='confirming'?'confirmation':complete?'completed':'production';
+ const execution=deriveProductionExecution({version:input.deleted?'deleted':input.superseded?'superseded':'current',
+  control:input.generationControl??'active',continuation:!!input.awaitingContinue,stopping:input.stopping,now:input.now,
+  discovering:intake==='discovering'},jobs);
+ const {control,version,continuation,inFlight}=execution;
  const details=(job:ActivityJob)=>{
   const {work,page,waitingFor}=JSON.parse(job.payload) as {work?:Work;page?:number;waitingFor?:string};
   const pages=work?[...new Set(work.instances.map(instance=>input.order.indexOf(instance.key)+1).filter(n=>n>0))]:
    page===undefined?[]:[page+1];
   return {call:work?.call??job.kind,pages,waitingFor};
  };
- const running=jobs.filter(inFlight)
-  .sort((a,b)=>a.updated_at-b.updated_at||(a.id<b.id?-1:a.id>b.id?1:0))
-  .map(job=>{
+ const running=execution.running.map(job=>{
    const {call,pages}=details(job);
    return {id:job.id,call,pages,startedAt:job.updated_at,attempt:job.attempts};
   });
@@ -109,23 +125,21 @@ export function productionLifecycle(input:ActivityInput,jobs:readonly ActivityJo
   const {waitingFor,pages}=details(job);
   return waitingFor==='image-availability'?[{state:'temporarily-unavailable',kind:'job',pages,jobId:job.id}]:[];
  });
- return {phase,version:input.deleted?'deleted':input.superseded?'superseded':'current',preparationRefresh:input.repreparing?'pending':'none',replacementDraft:input.replacementOpen?'open':'none',control,continuation:!!input.awaitingContinue,optionalWork:input.optionalWork,
+ return {phase,version,preparationRefresh:input.repreparing?'pending':'none',replacementDraft:input.replacementOpen?'open':'none',control,continuation,optionalWork:input.optionalWork,
   faults:input.faults,reviewAttention:input.reviewAttention,review:input.review,service:input.service,
   imageAvailability:waiting.length?'unavailable':'available',imageChecks:[...input.pendingImageChecks,...waiting],
-  actions:productionActionOffers(input,control),
+  actions:productionActionOffers(input,execution,complete),
   draining:running.length>0&&(control!=='active'||input.superseded||!!input.deleted),
-  activity:running.length?{state:'running',jobs:running}:{state:input.queued&&control==='active'&&!input.deleted&&!input.superseded&&!input.awaitingContinue?'queued':'idle'}};
+  activity:running.length?{state:'running',jobs:running}:{state:input.queued&&execution.available?'queued':'idle'}};
 }
 
-function productionActionOffers(input:ActivityInput,control:GenerationControl):ProductionActionOffer[]{
+function productionActionOffers(input:ActivityInput,execution:ReturnType<typeof deriveProductionExecution>,complete:boolean):ProductionActionOffer[]{
  if(input.deleted)return authorizeLibraryControl({event:'restore',owned:!!input.owned,deleted:true})==='restore'?[{event:'restore'}]:[];
- const state:CommandState={version:input.superseded?'superseded':'current',control,continuation:!!input.awaitingContinue,
-  stopping:input.stopping,targetCurrent:true,targetReady:true};
  const configured=input.service!=='unconfigured',actions:ProductionActionOffer[]=[];
- const allowed=(event:ProductionCommand,ready=true)=>authorizeProductionCommand(event,{...state,targetReady:ready}).allowed;
+ const allowed=(event:ProductionCommand,ready=true)=>execution.command(event,ready).allowed;
  for(const event of productionControlEvents){
-  if(event==='resume'&&state.control==='active')continue;
-  if((event!=='resume'||configured)&&allowed(event,input.state!=='completed'||input.optionalWork||input.repreparing))actions.push({event});
+  if(event==='resume'&&execution.control==='active')continue;
+  if((event!=='resume'||configured)&&allowed(event,!complete||input.optionalWork||input.repreparing))actions.push({event});
  }
  if(configured&&allowed('continue'))actions.push({event:'continue'});
  if(input.modelApplicable&&allowed('apply-model'))actions.push({event:'apply-model'});
@@ -144,7 +158,7 @@ function productionActionOffers(input:ActivityInput,control:GenerationControl):P
   }
  }
  for(const {event,ready} of input.storyActions??[]){
-  if(authorizeProductionCommand(event,{...state,targetReady:ready,stopping:event==='start-landscape'||event==='retry-landscape'?state.stopping:false}).allowed)actions.push({event});
+  if(execution.command(event,ready,true,event==='start-landscape'||event==='retry-landscape'?execution.stopping:false).allowed)actions.push({event});
  }
  const replacement=input.replacement;
  if(replacement){
@@ -152,7 +166,7 @@ function productionActionOffers(input:ActivityInput,control:GenerationControl):P
   if(authorizeReselectionCancel('draft').effect==='apply')actions.push({event:'cancel-reselection',parentId,generation});
   if(authorizeReselectionCommit(commit).effect==='apply')actions.push({event:'commit-reselection',parentId,generation});
  }
- if(authorizeProductionCommand('image-health',{...state,stopping:false}).allowed){
+ if(execution.command('image-health',true,true,false).allowed){
   for(const page of input.imagePages??[])actions.push({event:'image-health',page});
  }
  if(authorizeLibraryControl({event:'delete',owned:!!input.owned})==='delete')actions.push({event:'delete'});
@@ -161,13 +175,13 @@ function productionActionOffers(input:ActivityInput,control:GenerationControl):P
 
 const phases:Record<string,Step['kind']>={
  discover:'discover',verifySource:'source',prepareArt:'recommend',prepareSuggestions:'recommend',
- prepareBrief:'plan',characters:'plan',outline:'plan',registerItems:'plan',sceneBatch:'plan',visual:'plan',
+ prepareBrief:'plan',characters:'plan',outline:'plan',sceneBatch:'plan',visual:'plan',
  restyle:'restyle',ending:'reflection',frameCheck:'review',review:'review',draw:'image',drawLandscape:'image',
  sceneRepair:'repair',visualRepair:'repair',structureRepair:'repair',endingRepair:'repair',
 };
 const labels:Record<string,string>={
  prepareSuggestions:'准备制作建议',
- prepareBrief:'整理故事梗概',characters:'设定人物',outline:'编排全篇提纲',registerItems:'登记验收要求',
+ prepareBrief:'整理故事梗概',characters:'设定人物',outline:'编排全篇提纲',
  ending:'拟定标题与结语',frameCheck:'审核画幅数',review:'审核全篇分镜',
  sceneRepair:'修订叙事分镜',visualRepair:'修订画面描述',structureRepair:'修订分镜结构',endingRepair:'修订结语',
 };
@@ -284,7 +298,7 @@ export function authorizeProductionCommand(event:ProductionCommand,state:Command
 
 export type SetupState={
  phase:StoryIntake['phase']|undefined;superseded:boolean;replacement:boolean;confirmed:boolean;
- generationCurrent:boolean;draftCurrent:boolean;selected:boolean;locked:boolean;candidateExists:boolean;
+ generationCurrent:boolean;draftCurrent:boolean;selected:boolean;candidateExists:boolean;
  search:Pick<IntakeSearch,'state'>;sameSearch:boolean;automatic:boolean;hasCandidates:boolean;searchLimit:boolean;
  combined:boolean;preparationReady:boolean;briefReady:boolean;
 };
@@ -320,11 +334,8 @@ const setupClauses:GuardedClause<SetupInput,SetupDecision>[]=[
  {id:'search-limit',when:({event,state})=>event==='more'&&state.searchLimit,decision:rejectSetup('已保存40批候选，请回看选择，或新建其他书籍与主题。',400)},
  {id:'conditions-after-choice',when:input=>input.event==='conditions'&&!canChangeScope(input),decision:rejectSetup('这篇故事已经选定，不能修改提取条件。')},
  {id:'title-after-choice',when:input=>input.event==='search'&&!canChangeScope(input),decision:rejectSetup('这篇故事已经选定，请在重选草稿中修改提取标题。')},
- {id:'conditions-locked',when:({event,state})=>event==='conditions'&&state.locked,decision:rejectSetup('当前任务正在保存，请稍后再修改提取条件。')},
- {id:'title-locked',when:({event,state})=>event==='search'&&state.locked,decision:rejectSetup('当前任务正在保存，请稍后再修改提取标题。')},
  {id:'draft-token',when:({event,state})=>!browsing(event)&&!state.draftCurrent,decision:rejectSetup('另一台设备更新了制作内容。请查看最新草稿后再操作。')},
  {id:'draft-needs-choice',when:({event,state})=>event==='draft'&&!preparing(state),decision:rejectSetup('请先选择故事。')},
- {id:'selection-locked',when:({event,state})=>!browsing(event)&&event!=='draft'&&state.locked,decision:rejectSetup('当前任务正在保存，请稍后再修改选择。')},
  {id:'candidate-missing',when:({event,state})=>event==='choose'&&!state.candidateExists,decision:rejectSetup('请选择已保存的候选故事。',400)},
  {id:'choice-not-prepared',when:({event,state})=>(event==='confirm'||event==='recommend')&&(!state.selected||state.phase!=='confirming'),
   decision:rejectSetup('请先选择故事并等待制作建议保存。')},

@@ -30,18 +30,20 @@ test('upgrade backs up and repairs stranded blocked revisions without replacing 
  for(const state of ['pending','recovering'])db.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,version,message,state,created_at,updated_at) VALUES(?,?,'owner','job','legacy','saved',?,1,1)").run(state+'-fault',state,state);
  const before=db.prepare('SELECT * FROM stories ORDER BY id').all();db.close();
  const result=ensureLibraryReady(directory,root);
- assert.deepEqual(result.migrations,['0020_blocked_revision_faults.sql','0021_landscape_job_isolation.sql','0022_story_content_revisions.sql','0023_story_scan_indexes.sql','0024_prompt_records.sql','0025_production_dag.sql','0026_production_lifecycle.sql','0027_revision_fault_targets.sql']);verifyLibraryBackup(result.backup);
+ assert.deepEqual(result.migrations,['0020_blocked_revision_faults.sql','0021_landscape_job_isolation.sql','0022_story_content_revisions.sql','0023_story_scan_indexes.sql','0024_prompt_records.sql','0025_production_dag.sql','0026_production_lifecycle.sql','0027_revision_fault_targets.sql','0028_production_spec.sql','0029_finalize_production_spec.sql']);verifyLibraryBackup(result.backup);
  const backup=new DatabaseSync(path.join(result.backup,'shiqu.sqlite'),{readOnly:true});
  assert.equal(backup.prepare("SELECT count(*) n FROM reader_faults WHERE session_id='stranded'").get().n,0);backup.close();
  db=new DatabaseSync(path.join(directory,'shiqu.sqlite'));
  try{
-  assert.deepEqual(db.prepare('SELECT * FROM stories ORDER BY id').all(),before);
-  const faults=db.prepare('SELECT id,session_id,owner_id,state FROM reader_faults ORDER BY session_id').all();
+  const oldColumns=new Set(['generation_mode','step_key','step_attempts','lock_token','lock_until','state','error','production_complete']);
+  const removeLegacy=row=>Object.fromEntries(Object.entries(row).filter(([name])=>!oldColumns.has(name)));
+  assert.deepEqual(db.prepare('SELECT * FROM stories ORDER BY id').all().map(removeLegacy),before.map(removeLegacy));
+  const faults=db.prepare('SELECT id,session_id,owner_id,state FROM production_faults ORDER BY session_id').all();
   assert.deepEqual(faults.map(fault=>[fault.session_id,fault.owner_id,fault.state]),[['other-owner','other-owner','pending'],['pending','owner','pending'],['recovering','owner','recovering'],['stranded','owner','pending']]);
   assert.equal(faults.find(fault=>fault.session_id==='pending').id,'pending-fault');
   assert.equal(faults.find(fault=>fault.session_id==='recovering').id,'recovering-fault');
   assert.equal(ensureLibraryReady(directory,root),undefined);
-  assert.deepEqual(db.prepare('SELECT id,session_id,owner_id,state FROM reader_faults ORDER BY session_id').all(),faults);
+  assert.deepEqual(db.prepare('SELECT id,session_id,owner_id,state FROM production_faults ORDER BY session_id').all(),faults);
  }finally{db.close();}
 });
 
@@ -51,43 +53,25 @@ async function loseImage(f,id,page){
  await rm(path.join(f.dataDirectory,'media','reader',id,`${page}.png`));
 }
 
-test('a fault storage failure rolls back the blocked child instead of publishing an unrecoverable revision',async t=>{
+test('a saved revision leaves confirmed image loss with its original version',async t=>{
  const f=await productionFixture(t,'codex');
+ f.control.hold=false;
  const {id}=await completedStory(f);
  await loseImage(f,id,4);
- const base=await f.json(`sessions/${id}/revisions`),child=crypto.randomUUID();
- await f.app.services.database.prepare("CREATE TRIGGER reject_child_fault BEFORE INSERT ON reader_faults WHEN NEW.session_id='"+child+"' BEGIN SELECT RAISE(ABORT,'injected fault write failure'); END").run();
- const response=await f.request(`sessions/${id}/revisions`,'POST',{requestId:child,token:base.token,changes:{artStyle:'paper-cut'}});
- assert.equal(response.ok,false);
- assert.equal(await f.app.services.database.prepare('SELECT id FROM stories WHERE id=?').bind(child).first(),null);
- assert.ok(!(await f.read(id)).superseded);
- // 去掉注入后，同一请求可重放成功：新版与故障一起出现。
- await f.app.services.database.prepare('DROP TRIGGER reject_child_fault').run();
- await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:base.token,changes:{artStyle:'paper-cut'}});
- assert.equal((await f.read(child)).faults.filter(x=>x.stage==='redraw'&&x.state==='pending').length,1);
-});
-
-test('a paused revision with a lost image requires resume before an explicit retry redraws and completes it once',async t=>{
- const f=await productionFixture(t,'codex');f.control.hold=false;
- const {id}=await completedStory(f);
- await loseImage(f,id,4);
+ const image=(await f.read(id)).story.pages[4].image;
+ const checked=await f.json(`sessions/${id}/image-health`,'POST',{page:4,image});
+ assert.equal(checked.faults.find(fault=>fault.state==='pending')?.page,4);
  const base=await f.json(`sessions/${id}/revisions`);
  const plan=structuredClone(base.plan);plan.pages[0].caption='庄周在柳树下打盹，梦里化作蝴蝶。';
- const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes:{plan},paused:true});
- const fault=child.faults.find(x=>x.stage==='redraw'&&x.state==='pending');assert.ok(fault?.retryAllowed);
- const command={requestId:crypto.randomUUID(),faultId:fault.id};
- assert.equal((await f.request(`sessions/${child.id}/recover`,'POST',command)).status,409);
- await f.app.services.production.tick();
- assert.equal(f.control.calls.length,0);
- await f.json(`sessions/${child.id}/production-control`,'POST',{action:'resume'});
- await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
- await f.json(`sessions/${child.id}/recover`,'POST',command);
- await until(async()=>(await f.read(child.id)).state==='completed',20000);
- assert.deepEqual(f.control.calls.map(c=>c.page),[4],'only the lost image is drawn');
+ const changes={plan},preview=await f.json(`sessions/${id}/revisions/preview`,'POST',{token:base.token,changes});
+ assert.deepEqual(preview.lostImagePages,[5]);
+ const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:base.token,changes,paused:true});
  assert.ok(!(await f.read(child.id)).faults?.length);
- const counts=[f.control.reviews.length,f.control.calls.length];
- await f.json(`sessions/${child.id}/recover`,'POST',command);
- await f.app.services.production.tick();await f.app.services.production.queue.settle();
- assert.deepEqual([f.control.reviews.length,f.control.calls.length],counts);
+ await f.app.services.production.tick();
+ const before=f.control.calls.length;
+ await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
+ await until(async()=>(await f.read(child.id)).state==='completed',20000);
+ assert.deepEqual(f.control.calls.slice(before).map(call=>call.page),[4]);
+ assert.ok(await f.app.services.database.prepare("SELECT id FROM production_faults WHERE session_id=? AND kind='image-loss' AND state='pending'").bind(id).first());
  assert.equal((await saved(f,child.id)).dag.continuation,undefined);
 });

@@ -4,6 +4,7 @@ import {open,mkdir,rename,rm,lstat,realpath} from 'node:fs/promises';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import type {MediaStore} from '../lib/services.ts';
+import type {Database,SyncStatements} from '../lib/reader-repository.ts';
 
 export const mediaTypes:Record<string,string>={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.mp3':'audio/mpeg','.wav':'audio/wav','.json':'application/json'};
 export function mediaKey(key:string){
@@ -50,5 +51,33 @@ export class FileMedia implements MediaStore {
    finally{await handle.close();}
    await rename(temp,filename);
   }finally{await rm(temp,{force:true});}
+ }
+}
+
+
+export type FamilyImage={alias:string;sessionId:string;sourceId:string;ownerId:string;rootId:string;target:string};
+const familyMediaQuery=`SELECT a.target_key AS target,a.source_id AS sourceId FROM production_media_aliases a
+ JOIN story_revisions destination ON destination.story_id=a.session_id AND destination.owner_id=a.owner_id AND destination.root_id=a.root_id
+ JOIN story_revisions source ON source.story_id=a.source_id AND source.owner_id=a.owner_id AND source.root_id=a.root_id
+ WHERE a.alias_key=?`;
+
+/** 在保存新版本的事务中固定媒体引用。再次修订时直接引用原文件，保留一层别名。 */
+export function recordFamilyImage(db:SyncStatements,image:FamilyImage){
+ const previous=db.get<{sourceId:string;target:string}>(familyMediaQuery,image.target);
+ const source=previous??{sourceId:image.sourceId,target:image.target};
+ const owned=db.get(`SELECT 1 FROM story_revisions
+  WHERE story_id=? AND owner_id=? AND root_id=?`,source.sourceId,image.ownerId,image.rootId);
+ if(!owned)throw Error('INVALID_FAMILY_MEDIA_SOURCE');
+ db.run('INSERT INTO production_media_aliases VALUES(?,?,?,?,?,?) ON CONFLICT(alias_key) DO NOTHING',
+  image.alias,image.sessionId,source.sourceId,image.ownerId,image.rootId,source.target);
+}
+
+/** 书库媒体仍通过图片 URL 的原有归属检查。内部只解析同一所有者、同一家族的已保存引用。 */
+export class LibraryMedia extends FileMedia{
+ private readonly database:Database;
+ constructor(directory:string,database:Database){super(directory);this.database=database;}
+ override async get(key:string){
+  const alias=/^reader\/[^/]+\/artifacts\//.test(key)?await this.database.prepare(familyMediaQuery).bind(key).first<{target:string}>():null;
+  return super.get(alias?.target??key);
  }
 }

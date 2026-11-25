@@ -209,7 +209,7 @@ test('shelf summarizes current editions and sends only changed cards or removals
  const foreign=await insertReaderStory(app);
  await db.prepare("UPDATE stories SET document=json_set(document,'$.revision',json(?)) WHERE id=?").bind(JSON.stringify({rootId:root.id,parentId:root.id,number:2}),next.id).run();
  await db.prepare("UPDATE stories SET user_id='other-owner' WHERE id=?").bind(foreign.id).run();
- await db.prepare("UPDATE stories SET state='idle',generation_control='paused' WHERE id=?").bind(draft.id).run();
+ await db.prepare("UPDATE stories SET production_complete=0,generation_control='paused' WHERE id=?").bind(draft.id).run();
  await request(app,'/api/reader/sessions/'+next.id+'/progress','POST',{page:2,saved:false});
  const cards=await read();
  assert.deepEqual(new Set(cards.map(row=>row.id)),new Set([next.id,draft.id]));

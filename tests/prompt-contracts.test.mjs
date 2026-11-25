@@ -54,7 +54,6 @@ function responseFor(payload,schema){
  if(schema.properties.frames?.items?.properties.caption)return {frames:payload.frames.map(f=>({number:f.number,caption:plan.pages[0].caption}))};
  if(schema.properties.frames)return {frames:payload.frames.map(f=>({number:f.number,prompt:visualText,drawn:['庄周']}))};
  if(schema.properties.edits)return {edits:[]};
- if(schema.properties.items)return {items:payload.items.map(item=>({index:item.index,scope:'story',evidence:['scenes']}))};
  if(schema.properties.candidates)return {title:plan.title,candidates:makeReflectionCandidates(plan.reflection)};
  if(schema.properties.reflection)return {reflection:plan.reflection};
  if(schema.properties.issues)return {...(payload.acceptanceCriteria?.length?{acceptanceResults:payload.acceptanceCriteria.map((_,index)=>({criterion:index+1,status:'passed',pages:[0],evidence:'第一幅保留了要求中的可见反应。'}))}:{}),titleReview:{title:plan.title,reason:'符合实际范围。'},coverage:[{quote:'昔者庄周梦为胡蝶。',task:'庄周梦蝶',pages:[1],assessment:'adequate',reason:'第一幅保留梦中经历。',issuePage:0}],issues:[],...(payload.reflectionCandidates?{reflectionChoice:{index:1,reason:'细节支撑这句结语。'}}:{})};
@@ -102,7 +101,7 @@ async function requestsFor(provider,acceptancePrompt){
  await call('frames',()=>g.recommend(inputSelection,'fixed-id',original));
  await call('setup',()=>g.recommend(inputSelection,'fixed-id',{...original,storyBrief:{summary:plan.summary,matchReason:'原文包含梦与醒的经历。',verified:false}},true));
  const dag=dagGenerator(g.textCall),criteria=inputSelection.acceptancePrompt;
- const reviewInput={source:dagSource,brief:plan.summary,outline:dagOutline,title:plan.title,productionPrompt:inputSelection.productionPrompt,acceptancePrompt:criteria,style,characters:people,frames:captions.map((caption,i)=>({id:'f'+i,caption,prompt:visualText})),chosenEnding:plan.reflection,allowed:{pages:[1],criteria:criteria?[1]:[],narrative:false},itemIds:criteria?{1:'i1'}:{}};
+ const reviewInput={source:dagSource,brief:plan.summary,outline:dagOutline,title:plan.title,productionPrompt:inputSelection.productionPrompt,acceptancePrompt:criteria,style,characters:people,frames:captions.map((caption,i)=>({id:'f'+i,caption,prompt:visualText})),confirmedEnding:{title:plan.title,ending:plan.reflection},allowed:{pages:[1],narrative:true}};
  await call('brief',()=>dag.prepareBrief({source:dagSource}));
  await call('characters',()=>dag.characters({source:dagSource,productionPrompt:inputSelection.productionPrompt}));
  await call('outline',()=>dag.outline({source:dagSource,productionPrompt:inputSelection.productionPrompt,settings:{narrativeDetail:'balanced',length:8}}));
@@ -116,9 +115,8 @@ async function requestsFor(provider,acceptancePrompt){
  await call('candidates',()=>dag.ending({source:dagSource,outline:dagOutline,captions}));
  await call('reflection-repair',()=>dag.endingRepair({source:dagSource,outline:dagOutline,captions,reflection:plan.reflection,issues:[{...issue,page:0,category:'reflection'}]}));
  await call('frame-review',()=>dag.frameCheck({source:dagSource,outline:dagOutline,productionPrompt:inputSelection.productionPrompt,settings,captions}));
- if(criteria)await call('register',()=>dag.registerItems({items:[{id:'i1',text:criteria}]}));
  await call('review',()=>dag.review(reviewInput));
- await call('review-candidates',()=>dag.review({...reviewInput,chosenEnding:undefined,candidates:makeReflectionCandidates(plan.reflection),allowed:{...reviewInput.allowed,narrative:true}}));
+ await call('review-candidates',()=>dag.review({...reviewInput,confirmedEnding:undefined,candidates:makeReflectionCandidates(plan.reflection),allowed:{...reviewInput.allowed,narrative:true}}));
  await call('image',()=>g.image(plan,0,'fixed-id','',inputSelection.artStyle,inputSelection.productionPrompt));
  assert.equal(stored.length,1);
  return seen;
@@ -216,5 +214,4 @@ for(const provider of ['codex','gemini','openai'])test(`${provider}: story-speci
  assert.ok(requests.get('review').schema.required.includes('acceptanceResults'));
  assert.match(requests.get('review').instructions,/passed\/failed\/unknown/);
  // 验收条目登记只读条目文字。
- assert.deepEqual(requests.get('register').payload,{items:[{index:1,text:prompt}]});
 });

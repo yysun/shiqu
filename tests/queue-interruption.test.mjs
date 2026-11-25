@@ -1,6 +1,6 @@
 // Verify that stops, scheduling errors, unreadable stories and clock jumps stay contained,
 // and that automatic recovery of paid work is bounded. Controlled providers only.
-// 全部走正式协调器与制作 DAG：任务为 dag（文字）与 dag-draw（绘图），故障记在 reader_faults；
+// 全部走正式协调器与制作 DAG：任务为 dag（文字）与 dag-draw（绘图），故障记在 production_faults；
 // 事务内的写入失败经 failTransaction 注入。旧流水线的整篇检查点、审片修订回合与发布步骤已随旧流程删除。
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,7 +18,7 @@ const control=(f,id,action)=>f.json(`sessions/${id}/production-control`,'POST',{
 const count=(f,name)=>f.control.dagCalls.filter(n=>n===name).length;
 const completed=(f,id)=>until(async()=>(await f.read(id)).state==='completed',15000);
 const sqliteError=()=>Object.assign(Error('database is locked'),{code:'ERR_SQLITE_ERROR'});
-const row=(f,id)=>database(f).prepare('SELECT state,error,document,selection FROM stories WHERE id=?').bind(id).first();
+const row=(f,id)=>database(f).prepare('SELECT state,error,document,selection FROM story_rows WHERE id=?').bind(id).first();
 // Fail matching statements on one owner's database handle until the returned function restores it.
 function failWrites(owner,match,times=Infinity,field='database'){
  const real=owner[field];let left=times;
@@ -44,7 +44,6 @@ async function quit(f,call){
 }
 const expireClaims=async(f,id)=>{
  await database(f).prepare("UPDATE production_jobs SET lease_until=1 WHERE session_id=? AND state='running'").bind(id).run();
- await database(f).prepare("UPDATE stories SET lock_until=1 WHERE id=? AND state='running'").bind(id).run();
 };
 // Abandon a claim the way a dead service does: nothing here can renew its foreign token.
 const abandon=(f,job)=>database(f).prepare("UPDATE production_jobs SET lease_token='dead-service',lease_until=1 WHERE id=?").bind(job.id).run();
@@ -169,7 +168,6 @@ test('a tick error during shutdown still closes the database, and work resumes n
  await assert.rejects(async()=>closing.prepare('SELECT 1').first(),'SQLite is closed');
  await f.restart();f.control.hold=false;
  // The failed drain could not release its lock, so this behaves like a crash until the lock expires.
- await database(f).prepare('UPDATE stories SET lock_until=1 WHERE id=?').bind(id).run();
  await completed(f,id);assert.equal(f.control.calls.filter(call=>call.page===0).length,1,'The saved image is reused');
 });
 
@@ -252,7 +250,7 @@ test('a failed document save of text work is not a provider failure and recovers
  const f=await productionFixture(t),p=production(f);f.control.hold=false;
  // 只让任务执行中的保存失败一次（准备阶段的采用与结算也写故事文档，不属于任务）。
  let armed=false;
- f.control.beforeText=async name=>{if(name==='brief'&&!armed){armed=true;failWrites(p.dag.deps,'UPDATE stories SET document=?,state=CASE',1);}};
+ f.control.beforeText=async name=>{if(name==='brief'&&!armed){armed=true;failWrites(p.dag.deps,'UPDATE stories SET document=?,production_complete=?',1);}};
  const id=await f.create(3);await until(()=>logs.mock.calls.some(call=>call.arguments[0]==='production_job_unsaved'));
  const job=(await jobs(f,id)).find(job=>job.state==='running'&&job.pool==='text');
  assert.ok(job);assert.equal(job.error,null);

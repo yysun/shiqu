@@ -26,7 +26,7 @@ import {readerBooks} from '../lib/reader-books.ts';
 import {artStyleSettings,artStyles,artStyleGroups} from '../lib/reader-styles.ts';
 import {discoveryThemePresets as themes} from '../lib/reader-discovery-themes.ts';
 import {emptyPublication} from '../lib/story-publication.ts';
-import {selectionSchema,reviewPassed,ReaderError} from '../lib/reader-model.ts';
+import {selectionSchema,ReaderError} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import {LocalBooks} from './local-books.ts';
 import {applicationStorySearch,installStoryIndex} from './local-story-search.ts';
@@ -47,7 +47,7 @@ const commands=[
  ['run / stories run','Run only one current story to candidates, prepared, reviewed or completed; never resumes a pause/fault implicitly. Text uses live settings and drawing uses the version’s saved image provider and model.','run ID --until reviewed --timeout 900'],
  ['stories copy','Copy saved text and review from an offline library without inference. --draft explicitly preserves unreviewed text as a paused copy without images; default requires passed review.','stories copy ID --from-data-dir SOURCE --request-id UUID'],
  ['stories copy-images','Attach source images to an existing paused text copy without inference or prompts. Safe to repeat; retains text and review.','stories copy-images TARGET_ID --from-data-dir SOURCE --input source.json'],
- ['stories edit','Save a revision using the current token. Supply a revised plan plus changes.removedFrames to shorten a storyboard. changes.storySummary sets the displayed synopsis. On a paused audit, changes.reviewNotes guides another review. changes.redrawPages uses 1-based pages and accepts optional changes.redrawNotes. If the revision needs more work, it is saved waiting (已保存，等待继续). Continue it to fill missing or invalid results. Earlier versions retain their own faults. --cover FILE saves that image byte for byte as the first frame of a style-only change on a completed, review-passed story. Continue the new revision and run it to draw the remaining frames.','stories edit ID --input revision.json --request-id UUID'],
+ ['stories edit','Save a revision using the current token. Supply a revised plan plus changes.removedFrames to shorten a storyboard. changes.storySummary sets the displayed synopsis. Use changes.structureEdits with 1-based inclusive ranges and replacement scenes to merge or split frames; preview shows which redraw notes will be discarded. On a paused audit, changes.reviewNotes guides another review. changes.redrawPages uses 1-based pages and accepts optional changes.redrawNotes. If the revision needs more work, it is saved waiting (已保存，等待继续). Continue it to fill missing or invalid results. Earlier versions retain their own faults. --cover FILE saves that image byte for byte as the first frame of a style-only change on a completed, review-passed story. Use changes.redrawPages:[1] to replace only the first image, or list all frames to redraw the rest using the supplied image. After saving, continue and run if work is pending.','stories edit ID --input revision.json --request-id UUID'],
  ['stories continue','Authorize a saved revision that is waiting (已保存，等待继续). This clears the wait and the pause. Run the new version to perform inference. A run attempted while waiting returns continue_required.','stories continue NEW_ID --request-id UUID'],
  ['stories pause|resume|stop|retry|override','Control production, recover a fault, or draw anyway with stories override. Use reviewOverride.faultId and supply ending when reviewOverride.needsEnding is true.','stories retry ID --input recovery.json --request-id UUID'],
  ['stories reprepare','Queue refreshed recommendations for the current confirmed story, preserving accepted settings and saved images. Inference requires run.','stories reprepare ID --request-id UUID'],
@@ -82,6 +82,8 @@ const inputs={
   next:'Open with stories reselect CURRENT_ID once a story is chosen, before or after production confirmation. After setup, submit intake.selected.batch, intake.selected.index, and the updated intake.generation with stories replace CURRENT_ID DRAFT_ID. Resume first if the current story is paused, then run DRAFT_ID --until prepared.',
  },
  redraw:{command:'stories edit ID --input redraw.json --request-id UUID',input:{token:'from stories revisions ID',changes:{redrawPages:[1,2],redrawNotes:{2:'调暗背景光线，保留主体的位置。'}}},note:'Completed stories only. Optional redrawNotes apply to selected 1-based pages in this revision and its retries. Selecting every page uses the new first image as the reference for the remaining pages. Continue the revision and run it with the configured image provider.'},
+ structuralRevision:{command:'api POST reader/sessions/ID/revisions/preview --input structure.json',input:{token:'from stories revisions ID',changes:{structureEdits:[{from:3,to:4,scenes:[{caption:'二人把前因后果合在一次交谈中说清。'}]}]}},note:'Preview the original frame numbers whose redraw notes would be discarded. To save a new edition, submit the same token and changes with stories edit.'},
+ firstImage:{command:'stories edit ID --input first-image.json --cover first.png --request-id UUID',input:{token:'from stories revisions ID',changes:{redrawPages:[1]}},note:'Replace only the first frame on a complete, approved story. List all 1-based frames to use the replacement as the drawing reference for the rest. Continue the revision if it has pending work.'},
  styleCover:{command:'stories edit ID --input style.json --cover cover.png --request-id UUID',input:{token:'from stories revisions ID',changes:{artStyle:'watercolor'}},note:'A completed, approved story retains its scene content and review. The text model converts the scene prompts to the new style before drawing. The supplied first frame is stored as-is and serves as the reference for the remaining pages, even when the book has a starred reference.'},
  publication:{get:'api GET reader/publication-defaults',set:'api POST reader/publication-defaults --input publication.json',input:{publication:{...emptyPublication,author:'你的署名',watermarkFontSize:24},expected:'Use the exact publication object (or null) returned by GET.'}},
  config:{command:'config set --input settings.json',input:{settings:{provider:'codex',providerConfigured:true,imageProvider:'gemini'},expectedRevision:'from config get'},imageProvider:'Optional drawing provider (gemini|openai|codex); null or omitted follows provider.',key:'For API providers only: key:{provider:"openai"|"gemini",value:"secret"|null}, or a list for separate text/image providers; never pass a key in argv.'},
@@ -100,7 +102,7 @@ async function readInput(filename?:string){
 const apiAllow=(method:string,route:string)=>{
  const base=route.split('?')[0];
  if(method==='GET')return /^(?:sessions(?:\/[a-f0-9-]{36}(?:\/(?:current|revisions|prompts|review-history|source))?)?|deletions|publication-defaults|books\/[^/]+\/contents)$/.test(base);
- if(method==='POST')return /^(?:sessions|publication-defaults|sessions\/[a-f0-9-]{36}\/(?:setup|revisions|title|publication|production-control|recover|review-override|reselection|progress)|sessions\/[a-f0-9-]{36}\/reselection\/[a-f0-9-]{36}|library\/[^/]+\/(?:restore|favorite|reference))$/.test(base);
+ if(method==='POST')return /^(?:sessions|publication-defaults|sessions\/[a-f0-9-]{36}\/(?:setup|revisions(?:\/preview)?|title|publication|production-control|recover|review-override|reselection|progress)|sessions\/[a-f0-9-]{36}\/reselection\/[a-f0-9-]{36}|library\/[^/]+\/(?:restore|favorite|reference))$/.test(base);
  return method==='DELETE'&&/^(?:library\/[^/]+|sessions\/[a-f0-9-]{36}\/reselection\/[a-f0-9-]{36})$/.test(base);
 };
 async function api(app:ReturnType<typeof createApplication>,method:string,route:string,input?:unknown){
@@ -258,15 +260,8 @@ export async function executeHeadless(root:string,args:string[],context:Context=
     while(!abort.signal.aborted){
      snapshot=await app.services.production!.request(app.services.ownerId,target!,viewerId,0,false);
      const intake=snapshot.intake;
-     let dagReview=until==='reviewed'?snapshot.lifecycle?.review:null,legacyReviewed=false;
-     if(until==='reviewed'&&dagReview==null){
-      // 兼容没有 DAG 投影的历史文档和旧服务。
-      const doc=await app.services.database.prepare('SELECT document FROM stories WHERE id=? AND user_id=?').bind(target,app.services.ownerId).first<{document:string}>();
-      const saved=JSON.parse(doc?.document??'{}');
-      if(saved.dag)dagReview=await app.services.production!.reviewState?.(app.services.ownerId,target!);
-      else legacyReviewed=!!saved.plan&&reviewPassed(saved)&&!saved.revision?.restyle;
-     }
-     const reviewed=dagReview==='approved'||legacyReviewed;
+     const dagReview=until==='reviewed'?snapshot.lifecycle?.review:null;
+     const reviewed=dagReview==='approved';
      const reason=(snapshot.lifecycle?.version==='superseded'||snapshot.superseded)?'superseded':(snapshot.lifecycle?.continuation??snapshot.awaitingContinue)?'continue_required':snapshot.state==='failed'||serviceBlocked(snapshot)||preparationRefreshFault(snapshot)?'blocked':(snapshot.lifecycle?.control??snapshot.generationControl)!=='active'?'paused':boundary(snapshot)|| (until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates':intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':until==='reviewed'&&reviewed?'reviewed':dagReview==='attention'?'blocked':null);
      if(reason)return {reason,session:snapshot};await delay(80,undefined,{signal:abort.signal}).catch(()=>{});
     }

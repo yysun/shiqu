@@ -3,7 +3,8 @@ import type {DatabaseSync,SQLInputValue} from 'node:sqlite';
 import {selectionSchema,type SessionRow} from '../lib/reader-model.ts';
 import type {SyncStatements} from '../lib/reader-repository.ts';
 import {evaluate,complete,stateOf,carryFaults,recordedFaultRows,insertCarriedJobFault,type DagStory,type FaultToCarry,type HistoricalDocument} from './migrations/production-v2.ts';
-import type {ReaderFault} from './reader-commands.ts';
+import type {ReaderFault as CurrentReaderFault} from './reader-commands.ts';
+type ReaderFault=Omit<CurrentReaderFault,'state'>&{state:CurrentReaderFault['state']|'awaiting-match';origin_fault_id:string|null};
 
 export const revisionFaultMigration='0027_revision_fault_targets.sql';
 

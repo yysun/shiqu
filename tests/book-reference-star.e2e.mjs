@@ -5,7 +5,7 @@ import {readerImageAsset} from '../lib/reader-image-assets.ts';
 const original={title:'测试原文',text:'人物采取行动，回应彼此，故事在实际结果处结束。',kind:'passage',url:'https://example.org/original',provider:'fixture',retrievedAt:'2026-11-01'};
 async function target(f,{bookId='红楼梦',length=3,images=[],control='paused'}={}){
  const id=crypto.randomUUID(),doc={plan:makePlan(length),original,frameCountConfirmed:true,images,audio:[],usage:[]},now=new Date().toISOString();
- await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'background',?,'idle',?,?)").bind(id,owner,JSON.stringify({bookId,theme:'原典故事',artStyle:'cartoon',length,voice:false,productionPrompt:''}),JSON.stringify(doc),control,now,now).run();return id;
+ await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,?,0,?,?)").bind(id,owner,JSON.stringify({bookId,theme:'原典故事',artStyle:'cartoon',length,voice:false,productionPrompt:''}),JSON.stringify(doc),control,now,now).run();return id;
 }
 // 目标故事先保持暂停，测试明确恢复后才开始制作。
 const go=async(f,id)=>{await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});};

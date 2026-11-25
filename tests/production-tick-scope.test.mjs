@@ -53,7 +53,7 @@ test('内容修订号覆盖插入和局部写入，状态变化或写入相同�
  const start=await rev(id);assert.ok(start>=2,'插入与写入计划各加一');
  await database.prepare("UPDATE stories SET document=json_set(document,'$.images[0]','x') WHERE id=?").bind(id).run();
  assert.equal(await rev(id),start+1,'不更新 updated_at 的局部写入也会改变修订号');
- await database.prepare("UPDATE stories SET state='failed',document=document,selection=selection WHERE id=?").bind(id).run();
+ await database.prepare("UPDATE stories SET production_complete=0,document=document,selection=selection WHERE id=?").bind(id).run();
  assert.equal(await rev(id),start+1);
  await database.prepare("UPDATE stories SET selection=json_set(selection,'$.displayTitle','新题') WHERE id=?").bind(id).run();
  assert.equal(await rev(id),start+2);
@@ -127,8 +127,8 @@ test('未变化的故事不再读取全文；局部写入、任务数变化、�
 test('一个节拍执行的故事查询都不全表扫描 stories，版本判断使用表达式索引',async t=>{
  const {database,repo,owner,ids:[a,b,c],coordinatorFor,enqueue}=await library(t);
  const background=crypto.randomUUID();await repo.create(background,owner,selection);
- await database.prepare("UPDATE stories SET document=?,generation_mode='background',generation_control='active' WHERE id=?").bind(JSON.stringify({plan:makePlan(3),original,images:[],audio:[],usage:[]}),background).run();
- await database.prepare("UPDATE stories SET state='completed',generation_control='active',document=json_set(document,'$.revision',json('{\"landscapeRedraw\":[]}')) WHERE id=?").bind(a).run();
+ await database.prepare("UPDATE stories SET document=?,generation_control='active' WHERE id=?").bind(JSON.stringify({plan:makePlan(3),original,images:[],audio:[],usage:[]}),background).run();
+ await database.prepare("UPDATE stories SET production_complete=1,generation_control='active',document=json_set(document,'$.revision',json('{\"landscapeRedraw\":[]}')) WHERE id=?").bind(a).run();
  const {coordinator,recorder}=await coordinatorFor();coordinator.graph=async()=>{};
  for(const id of [b,c])await enqueue(coordinator,id,'job-'+id);
  await database.prepare('INSERT INTO production_demand(session_id,owner_id,viewer_id,page,through_page,expires_at,runtime_id) VALUES(?,?,?,?,?,?,?)')
@@ -136,11 +136,34 @@ test('一个节拍执行的故事查询都不全表扫描 stories，版本判断
  await coordinator.tick();recorder.reset();await coordinator.tick();
  const statements=new Map();
  for(const entry of recorder.log)if(/\bstories\b/.test(entry.sql)&&(entry.values||!statements.has(entry.sql)))statements.set(entry.sql,entry.values||statements.get(entry.sql)||[]);
- assert.ok(statements.size>=6,'节拍应执行多条故事查询');
+ assert.ok(statements.size>0,'节拍收集实际执行的故事查询');
+ assert.ok(recorder.log.some(entry=>/FROM story_revisions r WHERE control='active'/.test(entry.sql)));
  for(const [sql,values] of statements){
   const plan=(await database.prepare('EXPLAIN QUERY PLAN '+sql).bind(...values).all()).results.map(row=>row.detail);
   assert.ok(!plan.some(fullScan),sql.replace(/\s+/g,' ').slice(0,160)+' → '+plan.join(' | '));
  }
  const superseded=(await database.prepare(`EXPLAIN QUERY PLAN SELECT id FROM stories WHERE id=? AND user_id=? AND ${supersededSql()}`).bind(b,owner).all()).results.map(row=>row.detail).join(' | ');
  assert.match(superseded,/newer .*USING COVERING INDEX stories_family/,superseded);
+});
+
+test('active queued drawings with unavailable saved settings avoid repeated full reads',async t=>{
+ const {completedStory}=await import('./fixtures/production-dag-story.mjs');
+ const {f,database,owner}=await library(t,0),{id}=await completedStory(f,{length:4});
+ const row=await database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first(),doc=JSON.parse(row.document);
+ const frame=doc.dag.order[1],snapshot={provider:'codex',models:{image:'saved-image-model'}};
+ delete doc.dag.frames[frame].image;delete doc.dag.products[`frameImage:${frame}`];
+ doc.dag.modelSnapshot=snapshot;
+ await database.prepare("UPDATE stories SET document=?,production_complete=0,generation_control='active' WHERE id=?").bind(JSON.stringify(doc),id).run();
+ const recorder=recording(database);
+ const coordinator=new ReaderProductionCoordinator(recorder.db,f.generation,f.media,{
+  autoStart:false,snapshots:{current:()=>snapshot,provider:()=>null},
+ });
+ f.coordinators.push(coordinator);
+ await coordinator.tick();await coordinator.tick();await coordinator.tick();
+ const pending=(await coordinator.queue.jobs(id,owner)).filter(job=>job.kind==='dag-draw'&&job.state==='queued');
+ assert.ok(pending.length);assert.ok(recorder.fullReads().has(id));assert.equal(f.control.calls.length,0);
+ recorder.reset();
+ await coordinator.tick();await coordinator.tick();
+ assert.equal(recorder.fullReads().size,0);
+ assert.ok(recorder.log.some(({sql})=>sql.includes('SELECT rev FROM story_revisions')));
 });

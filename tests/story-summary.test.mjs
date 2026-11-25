@@ -1,4 +1,5 @@
 // Exercise a real pre-summary library upgrade, paid image receipts, file retries and read contracts.
+import {decodeDocument} from '../lib/production-dag/document.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,cp,rm,readFile,writeFile,symlink,stat} from 'node:fs/promises';
@@ -42,9 +43,9 @@ test('upgrade removes old fields from stories, drafts, outlines, revision bases 
  await writeFile(file,JSON.stringify({value:{hook:'旧引子。',summary:'已有摘要。',text:'原文中出现 "hook" 文字，不改写。'}}));
  const cache=path.join(f.directory,'media/reader-cache/library.json');await mkdir(path.dirname(cache),{recursive:true});await writeFile(cache,JSON.stringify({stories:[{summary:'已有通用摘要。'}]}));const cacheBefore=await readFile(cache);
  let local=openDatabase(f.directory,process.cwd());
- const row=local.sqlite.prepare('SELECT * FROM stories WHERE id=?').get(f.id),actual=JSON.parse(row.document);
- assert.equal(actual.plan.summary,plan.hook);assert.equal(actual.draft.summary,'已有完整摘要优先。');assert.equal(actual.storyboard.outline.summary,plan.hook);assert.equal(actual.revision.base.plan.summary,plan.hook);
- for(const value of [actual.plan,actual.draft,actual.storyboard.outline,actual.revision.base.plan])assert.equal(Object.hasOwn(value,'hook'),false);
+ const row=local.sqlite.prepare('SELECT * FROM story_rows WHERE id=?').get(f.id),actual=decodeDocument(row);
+ assert.equal(actual.plan.summary,plan.hook);assert.equal(actual.draft,undefined);assert.equal(actual.storyboard,undefined);assert.equal(actual.dag.outline.summary,plan.hook);assert.equal(actual.revision.base.plan.summary,plan.hook);
+ for(const value of [actual.plan,actual.dag.outline,actual.revision.base.plan])assert.equal(Object.hasOwn(value,'hook'),false);
  assert.deepEqual(actual.original,original);assert.deepEqual(actual.images,['saved.png',''],'images are padded to the frame count by the DAG conversion');assert.equal(actual.original.storyBrief,undefined);assert.equal(row.page,1);assert.equal(row.saved,1);assert.equal(row.generation_control,'paused');assert.equal(row.updated_at,'updated');
  assert.equal(local.sqlite.prepare('SELECT id FROM stories WHERE id=?').get(saved.id),undefined);assert.ok(!local.sqlite.prepare('PRAGMA table_info(stories)').all().some(col=>col.name==='hook'));
  const media=JSON.parse(await readFile(file,'utf8'));assert.deepEqual(media.value,{summary:'已有摘要。',text:'原文中出现 "hook" 文字，不改写。'});assert.deepEqual(await readFile(cache),cacheBefore);

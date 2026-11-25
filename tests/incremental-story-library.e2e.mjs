@@ -98,9 +98,9 @@ for(const omitted of ['storySummary','storyMatchReason'])test(`missing ${omitted
  const current=await f.read(saved.id),confirm={requestId:crypto.randomUUID(),generation:current.intake.generation,action:'confirm',settings:{artStyle:'ink-pencil',productionPrompt:'',narrativeDetail:'balanced',length:2}};
  assert.equal((await f.request(`sessions/${saved.id}/setup`,'POST',confirm)).status,409);
  // A stale count receipt cannot bypass the new source-bound synopsis gate either.
- await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.intake.phase','confirming','$.frameRecommendation',json(?)),state='idle' WHERE id=?").bind(JSON.stringify({count:2,reason:'旧建议'}),saved.id).run();
+ await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.intake.phase','confirming','$.frameRecommendation',json(?)),production_complete=0 WHERE id=?").bind(JSON.stringify({count:2,reason:'旧建议'}),saved.id).run();
  assert.equal((await f.request(`sessions/${saved.id}/setup`,'POST',{...confirm,requestId:crypto.randomUUID()})).status,409);
- await f.app.services.database.prepare("UPDATE stories SET document=json_remove(json_set(document,'$.intake.phase','preparing'),'$.frameRecommendation'),state='failed' WHERE id=?").bind(saved.id).run();
+ await f.app.services.database.prepare("UPDATE stories SET document=json_remove(json_set(document,'$.intake.phase','preparing'),'$.frameRecommendation'),production_complete=0 WHERE id=?").bind(saved.id).run();
  invalid=false;const scans=library.calls.catalog.length;await f.demand(saved.id,crypto.randomUUID(),0,true);await until(async()=>(await f.read(saved.id)).intake.phase==='confirming');
  const after=(await f.json(`sessions/${saved.id}/source`)).source;assert.equal(after.text,before.text);assert.equal(after.storyBrief.verified,true);assert.equal(library.calls.catalog.length,scans);assert.equal(f.control.recommendations.length,2);
 });

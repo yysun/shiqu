@@ -60,7 +60,7 @@ test('damaged saved originals reach no model call; readable historical receipts 
   const id=crypto.randomUUID(),selection={...select('zhuangzi'),length:4,narrativeDetail:'balanced',source};
   const original={title:mode==='bad-title'?'《庄子·篇题&KR0899;》':'《庄子·可读旧版》',text:mode==='bad-body'?'已存原文中的プ不能被当作正确汉字，也不能靠模型补全。':'旧版原文中，朋友一直信任彼此，终于携手渡过困难。',url:'https://example.test/old',kind:'passage',provider:'本地书库',retrievedAt:'2026-10-26T00:00:00Z',localSource:source};
   const now=new Date().toISOString(),document={plan:null,images:[],audio:[],usage:[],original,dag:emptyDag()};
-  await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'background','active','idle',?,?)").bind(id,owner,JSON.stringify(selection),JSON.stringify(document),now,now).run();
+  await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,'active',0,?,?)").bind(id,owner,JSON.stringify(selection),JSON.stringify(document),now,now).run();
   await f.media.put(`reader/${id}/source.json`,new TextEncoder().encode(JSON.stringify(original)),{contentType:'application/json'});
   f.app.services.production.wake();
   if(mode==='good-old-version')await until(()=>f.control.dagCalls.length>0,20000);

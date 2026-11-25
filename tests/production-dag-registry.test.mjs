@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {nodes,calls,evidenceInputs} from '../lib/production-dag/registry.ts';
+import {nodes,calls} from '../lib/production-dag/registry.ts';
 
 const spec=readFileSync(new URL('../.docs/story-production-dag.md',import.meta.url),'utf8');
 function firstColumn(heading,document=spec){
@@ -49,8 +49,8 @@ test('every model node\'s hard and check inputs match the call that produces it'
 });
 
 test('input references only name known nodes or selectors',()=>{
- const special=new Set(['order','endingChoice','reference','item']);
- const refs=[...Object.values(nodes).flatMap(n=>[...n.hard,...(n.check||[])]),...Object.values(evidenceInputs).flat()];
+ const special=new Set(['order','reference']);
+ const refs=[...Object.values(nodes).flatMap(n=>[...n.hard,...(n.check||[])])];
  for(const ref of refs){
   const name=ref.split('@')[0];
   assert.ok(nodes[name]||special.has(name),`unknown input ${ref}`);
@@ -66,16 +66,15 @@ test('every numbered specification scenario has exactly one individual acceptanc
 });
 
 test('declared dependencies and gates have no cycle outside specific frame references',()=>{
- const gates={preparing:[],confirmed:[],brief:['brief'],frameCheck:['frameCheck','ending'],approved:['frameCheck','frameVerdict','narrativeVerdict','itemVerdict']};
- const aliases={endingChoice:['endingConfirmed','narrativeVerdict'],item:['acceptanceReq'],order:[],reference:['refSource']};
+ const gates={preparing:[],confirmed:[],brief:['brief'],characters:['characters'],review:['frameCheck','ending','scene','visual'],approved:['frameCheck','frameVerdict','narrativeVerdict']};
+ const aliases={order:[],reference:['refSource']};
  const visited=new Set(),visiting=new Set();
  function visit(key){
   if(visited.has(key))return;
   assert.ok(!visiting.has(key),`cycle: ${[...visiting,key].join(' → ')}`);
   visiting.add(key);
   const node=nodes[key];
-  const evidence=node.evidence?Object.values(evidenceInputs).flat():[];
-  const refs=[...node.hard,...(node.check??[]),...evidence];
+  const refs=[...node.hard,...(node.check??[])];
   const edges=refs.flatMap(ref=>{const name=ref.split('@')[0];return aliases[name]??[name];});
   edges.push(...(gates[node.gate]??[]));
   for(const dependency of edges)visit(dependency);

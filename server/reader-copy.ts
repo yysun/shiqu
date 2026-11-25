@@ -3,6 +3,10 @@
 // An optional rendering style changes only new image inputs, retaining the exact saved script/review.
 // The Skill controls the text/image checkpoints; this service executes only explicit image choices.
 // 提示词记录随副本写入目标库自己的记录表。
+import {writeStoryProducts} from './production-products.ts';
+import {transact} from './production-records.ts';
+import {dagProgress} from '../lib/production-dag/progress.ts';
+import {decodeDocument} from '../lib/production-dag/document.ts';
 import {createHash} from 'node:crypto';
 import {existsSync,realpathSync} from 'node:fs';
 import path from 'node:path';
@@ -31,10 +35,11 @@ export async function copySavedStory(target:ReturnType<typeof createApplication>
   source=createApplication({root,dataDirectory:sourceDirectory,variables:{SHIQU_AI_PROVIDER:'readonly'},commandOnly:true,production:{autoStart:false}});
   const repo=new ReaderRepository(source.services.database),row=await repo.current(sourceId,source.services.ownerId);
   // 提示词记录只在来源库中：先原位还原为内嵌，目标库写入时再存入自己的记录表。
-  const sourceDoc=await resolvePromptRecords(repo.db,JSON.parse(row.document) as Document);
+  const sourceDoc=await resolvePromptRecords(repo.db,decodeDocument(row));
   const saved=portraitDocument(sourceDoc);
   const sourceSelection=selectionSchema.parse(JSON.parse(row.selection));
-  const availability=copyAvailability(row,saved,sourceSelection);
+  const status=await source.services.production?.snapshot(row.user_id,row.id);
+  const availability=copyAvailability(saved,sourceSelection,status?.lifecycle?.activity.state==='running');
   const authorization=authorizeProductionCommand(options.draft?'copy-draft':'copy',{
    version:row.id===sourceId?'current':'superseded',control:row.generation_control??'active',continuation:!!saved.dag?.continuation,stopping:false,
    targetCurrent:availability.current,targetReady:options.draft?availability.draft:availability.reviewed,
@@ -49,7 +54,7 @@ export async function copySavedStory(target:ReturnType<typeof createApplication>
    .bind(requestId,owner).first<{hash:string|null}>();
   if(prior?.hash&&prior.hash!==contentHash){
    const beforePrint={...sourceDoc};
-   delete beforePrint.landscapePrints;delete beforePrint.legacyLandscapeControl;delete beforePrint.legacyLandscapeModelSnapshot;
+   delete beforePrint.landscapePrints;
    if(prior.hash===digest(sourceDoc)||prior.hash===digest(beforePrint))contentHash=prior.hash;
   }
   const selected=selectionSchema.parse({...sourceSelection,...(artStyle===undefined?{}:{artStyle})});
@@ -57,24 +62,27 @@ export async function copySavedStory(target:ReturnType<typeof createApplication>
   const styleChanged=!sameArtDirection(selection,sourceSelection);
   if(options.images&&styleChanged)throw new ReaderError(400,'更改画风时不能复制旧图片，请选择不复制图片，后续按新画风绘制。');
   // Keep runtime/family state in the source; attach independent media only after the optional step.
-  const document:Document={plan:saved.plan,original:saved.original,...(saved.dag?{dag:textOnlyDag(saved.dag)}:{}),visualReview:saved.visualReview,reviewNotes:saved.reviewNotes,summaryProductionPrompt:saved.summaryProductionPrompt,storySummaryFromStoryboard:saved.storySummaryFromStoryboard,frameRecommendation:saved.frameRecommendation,frameCountConfirmed:options.draft?saved.frameCountConfirmed:true,...(options.draft?{storyboard:saved.storyboard}:{}),reflectionCandidates:saved.reflectionCandidates,setupRequirements:saved.setupRequirements,publication:saved.publication,images:[],audio:[],usage:saved.usage.map(call=>({...call,originId:call.originId||sourceId})),copiedFrom:{storyId:saved.copiedFrom?.storyId||sourceId,contentHash,...(options.draft?{draft:true}:{}),...(options.images===undefined?{}:{imageChoice:options.images})}};
-  let result=options.existing?await destination.get(requestId,owner):await destination.create(requestId,owner,selection,document),current=JSON.parse(result.document) as Document;
+  const document:Document={plan:saved.plan,original:saved.original,...(saved.dag?{dag:textOnlyDag(saved.dag)}:{}),archivedReviewHistory:saved.archivedReviewHistory,reviewNotes:saved.reviewNotes,summaryProductionPrompt:saved.summaryProductionPrompt,storySummaryFromStoryboard:saved.storySummaryFromStoryboard,frameRecommendation:saved.frameRecommendation,frameCountConfirmed:options.draft?saved.frameCountConfirmed:true,reflectionCandidates:saved.reflectionCandidates,setupRequirements:saved.setupRequirements,publication:saved.publication,images:[],audio:[],usage:saved.usage.map(call=>({...call,originId:call.originId||sourceId})),copiedFrom:{storyId:saved.copiedFrom?.storyId||sourceId,contentHash,...(options.draft?{draft:true}:{}),...(options.images===undefined?{}:{imageChoice:options.images})}};
+  let result=options.existing?await destination.get(requestId,owner):await destination.create(requestId,owner,selection,document),current=decodeDocument(result);
   const snapshot=()=>target.services.production?target.services.production.snapshot(owner,result.id):view(result);
   if(current.copiedFrom?.storyId!==document.copiedFrom!.storyId||current.copiedFrom.contentHash!==contentHash)throw new ReaderError(409,'此创建编号已用于其他内容。');
   if(options.existing&&current.copiedFrom.draft)throw new ReaderError(409,'草稿副本不能补复制图片；请先完成正式审核。');
   const progress=current.copiedFrom.images;
   if(progress==='complete'||progress==='skipped'&&!options.existing)return snapshot();
-  if(result.generation_control!=='paused'||result.state==='running'||current.images.some(Boolean)||await destination.superseded(requestId,owner)){
+  const busy=await destination.db.prepare("SELECT 1 FROM production_jobs WHERE session_id=? AND owner_id=? AND kind!='landscape-print' AND state='running' AND lease_until>?")
+   .bind(requestId,owner,Date.now()).first();
+  if(result.generation_control!=='paused'||busy||current.images.some(Boolean)||await destination.superseded(requestId,owner)){
    if(options.images||progress==='pending')throw new ReaderError(409,'目标故事已开始制作或已有新版，不能继续复制图片。');
    return snapshot();
   }
   const include=progress==='pending'||options.images===true;
   async function checkpoint(images:Document['images'],status:'pending'|'complete'|'skipped'){
    const next={...current,images,...(current.dag&&saved.dag?{dag:attachImages(current.dag,saved.dag,images)}:{}),copiedFrom:{...current.copiedFrom!,images:status}};
-   const updated=await destination.db.prepare(`UPDATE stories SET document=?,updated_at=? WHERE id=? AND user_id=? AND document=? AND generation_control='paused' AND state!='running' AND ${currentFamilyVersion('stories')}`)
-    .bind(JSON.stringify(next),new Date().toISOString(),requestId,owner,result.document).run();
-   if(!updated.meta.changes)throw new ReaderError(409,'目标故事已更新，文本已保留，请重新读取后再操作。');
-   result=await destination.get(requestId,owner);current=JSON.parse(result.document) as Document;
+   const complete=Number(dagProgress(next,selection)?.complete===true);
+   const updated=transact(destination.db,db=>writeStoryProducts(db,requestId,owner,next,stored=>db.run(`UPDATE stories SET document=?,production_complete=?,updated_at=? WHERE id=? AND user_id=? AND document=? AND generation_control='paused' AND NOT EXISTS(SELECT 1 FROM production_jobs j WHERE j.session_id=stories.id AND j.owner_id=stories.user_id AND j.kind!='landscape-print' AND j.state='running' AND j.lease_until>?) AND ${currentFamilyVersion('stories')}`,
+    stored,complete,new Date().toISOString(),requestId,owner,result.document,Date.now()).changes));
+   if(!updated)throw new ReaderError(409,'目标故事已更新，文本已保留，请重新读取后再操作。');
+   result=await destination.get(requestId,owner);current=decodeDocument(result);
   }
   if(!include){await checkpoint(current.images,'skipped');return snapshot();}
   if(styleChanged)throw new ReaderError(400,'更改画风时不能复制旧图片。文本已保留。');

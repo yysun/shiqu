@@ -18,13 +18,16 @@ export const redrawNoteMaxLength=500;
 export const reviewNotesMaxLength=1200;
 const redrawNotesSchema=z.record(z.string().regex(/^[1-9]\d*$/),z.string().trim().min(1).max(redrawNoteMaxLength));
 export const revisionChangesSchema=z.object({artStylePrompt:artStylePromptSchema,productionPrompt:z.string().max(1200).optional(),acceptancePrompt:acceptancePromptSchema.optional(),reviewNotes:z.string().trim().max(reviewNotesMaxLength).optional(),artStyle:z.enum(artStyleIds).optional(),length:z.union([z.number().int().min(readerMinFrames).max(readerMaxFrames),z.literal('auto')]).optional(),narrativeDetail:narrativeDetailSchema.optional(),plan:planSchema.optional(),storySummary:planSchema.shape.summary.optional(),removedFrames:z.array(z.number().int().min(1).max(readerMaxFrames)).min(1).max(readerMaxFrames-1).refine(frames=>new Set(frames).size===frames.length,'删除幅号不能重复。').optional(),redrawPages:z.array(z.number().int().min(1).max(readerMaxFrames)).min(1).max(readerMaxFrames).refine(pages=>new Set(pages).size===pages.length,'重绘页码不能重复。').optional(),redrawNotes:redrawNotesSchema.optional(),
+ /** 原稿幅号一基，闭区间替换；to=from-1 表示在该幅前插入。 */
+ structureEdits:z.array(z.object({from:z.number().int().min(1).max(readerMaxFrames+1),to:z.number().int().min(0).max(readerMaxFrames),
+  scenes:z.array(z.object({caption:planSchema.shape.pages.element.shape.caption}).strict()).max(readerMaxFrames)}).strict()).min(1).max(readerMaxFrames).optional(),
  /** 制作 DAG：保存会使手改失效时，读者对每处手改的选择（以手改为基础或放弃）。 */
  handEdits:z.record(z.string().regex(/^(?:scene|visual|brief|characters|ending):[\w-]*$/),z.enum(['use-as-base','discard'])).optional()}).strict();
 export type RevisionChanges=z.infer<typeof revisionChangesSchema>;
 export type RevisionInfo={parentId:string;rootId:string;number:number};
 export type RevisionView=RevisionInfo&{redraw?:RevisionRedraw};
 // 横图按幅号排列。URL 代表继承的图片，null 代表待重绘，空字符串代表原版缺幅。
-export type RevisionRecord=RevisionInfo&{kind?:'selection';selectionRequest?:string;baseToken:string;requestHash:string;/** 仅旧版本写入的字段；只由升级转换读取，新代码不再设置或使用。 */handoff?:boolean;base:RevisionBase;storyImageReference?:true;restyle?:{from:Selection['artStyle'];fromPrompt?:string;next:number};previewedRedraw?:number;actualRedraw?:number;lostPages?:number[];/** 阅读器已确认立即重绘的画幅身份。 */redrawFrame?:string;redrawPages?:number[];redrawNotes?:RevisionChanges['redrawNotes'];landscapeRedraw?:(string|null)[]};
+export type RevisionRecord=RevisionInfo&{kind?:'selection';selectionRequest?:string;baseToken:string;requestHash:string;/** 仅旧版本写入的字段；只由升级转换读取，新代码不再设置或使用。 */handoff?:boolean;base:Pick<RevisionBase,'selection'>&Partial<Omit<RevisionBase,'selection'>>&{readyFrames?:number[]};storyImageReference?:true;restyle?:{from:Selection['artStyle'];fromPrompt?:string;next:number};previewedRedraw?:number;actualRedraw?:number;lostPages?:number[];/** 阅读器已确认立即重绘的画幅身份。 */redrawFrame?:string;redrawPages?:number[];redrawNotes?:RevisionChanges['redrawNotes'];landscapeRedraw?:(string|null)[]};
 type RevisionContent=RevisionBase&{reviewNotes?:string};
 export type RevisionSnapshot=RevisionContent&{token:string;epoch:number;reviewStatus?:ReviewCheckpoint['status'];canEditReviewNotes?:boolean;priorReviewIssues?:ReviewIssue[];revision?:RevisionInfo};
 export type RevisionImpact={changed:boolean;replan:boolean;preserveScript:boolean;review:boolean;reused:number;redraw:number;total:number;reusePending:boolean;conflict:boolean};
@@ -52,7 +55,7 @@ export function revisionImpact(base:RevisionContent,changes:RevisionChanges):Rev
  const acceptance=(changes.acceptancePrompt??base.selection.acceptancePrompt??'')!==(base.selection.acceptancePrompt||'');
  const reviewNotes=revisionReviewNotesChanged(base,changes);
  const summary=revisionStorySummaryChanged(base,changes);
- const changed=acceptance||requirements||detail||count||manual||styleChanged||reviewNotes||summary||!!changes.redrawPages?.length;
+ const changed=acceptance||requirements||detail||count||manual||styleChanged||reviewNotes||summary||!!changes.redrawPages?.length||!!changes.structureEdits;
  const survivors=changes.removedFrames&&base.plan?survivingRevisionFrames(base.plan.pages.length,changes.removedFrames):undefined;
  const sourcePages=survivors?.length===plan?.pages.length?survivors:undefined;
  const total=!replan&&plan?plan.pages.length:typeof changes.length==='number'?changes.length:revisionFrameCount(base);

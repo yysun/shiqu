@@ -1,3 +1,4 @@
+import {decodeDocument} from './production-dag/document.ts';
 import {savedLandscapeImages} from '../server/landscape-print.ts';
 import {createHash} from 'node:crypto';
 // Route reading, recovery and generation through the single local library.
@@ -242,7 +243,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     return json(rows.flatMap(row=>{
      try{
       const selection=JSON.parse(row.selection) as {displayTitle?:string;storyTitle?:string};
-      const {plan}=JSON.parse(row.document) as Document;
+      const {plan}=decodeDocument(row);
       return [{id:row.id,title:selection.displayTitle||plan?.title,sourceTitle:selection.storyTitle}];
      }catch{return [];}
     }));
@@ -257,14 +258,14 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);
    if(path[2]==='export'&&path.length===3&&req.method==='GET'){
-    const row=await repo.current(id,uid),doc=JSON.parse(row.document) as Document;
+    const row=await repo.current(id,uid),doc=decodeDocument(row);
     const story=savedStory(row,selectionSchema.parse(JSON.parse(row.selection)),doc);
     const images=url.searchParams.get('layout')==='landscape'?await savedLandscapeImages(repo.db,services.media,row,doc):undefined;
     return json({id:row.id,story,images});
    }
-   if(path[2]==='review-history'&&path.length===3&&req.method==='GET'){const row=await repo.get(id,uid);return json(storyReviewHistory(row,await loadPromptRecords(repo.db,(JSON.parse(row.document) as Document).usage)));}
+   if(path[2]==='review-history'&&path.length===3&&req.method==='GET'){const row=await repo.get(id,uid);return json(storyReviewHistory(row));}
    if(path[2]==='prompts'&&path.length===3&&req.method==='GET'){
-    const row=await repo.get(id,uid),doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
+    const row=await repo.get(id,uid),doc=decodeDocument(row),selection=selectionSchema.parse(JSON.parse(row.selection));
     const preferences={productionPrompt:selection.productionPrompt,...acceptanceInput(selection),artDirection:getArtDirection(selection),narrativeDetail:selection.narrativeDetail||'balanced',exactPageCount:selection.length};
     // 提示词全文按引用读取；引用的记录缺失时与未保存记录一样列为缺失。
     const stored=await loadPromptRecords(repo.db,doc.usage);
@@ -274,7 +275,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
      missingRecords:(doc.usage||[]).flatMap((item,index)=>usageRecord(item,stored)?[]:[{step:item.step,model:item.model,originId:item.originId||id,index}]),
     };
     const suggestions=storyRequirementsSchema.safeParse(doc.frameRecommendation?.requirements??doc.setupRequirements?.suggestions);
-    return json({...history,...(suggestions.success?{suggestedRequirements:suggestions.data}:{}),criteria:acceptanceCriteria(selection.acceptancePrompt),results:doc.dag?dagAcceptanceResults(doc.dag):doc.visualReview?.reports.at(-1)?.acceptanceResults||[],overridden:doc.dag?Object.values(doc.dag.products).some(product=>product.overridden):!!doc.visualReview?.overridden,previews:{production:promptRecord(draftInstructions(!!doc.original?.localSource)+'\n\n## 提纲阶段\n'+outlineDirection+'\n\n## 分批细化阶段\n'+batchDirection,preferences),acceptance:promptRecord(reviewSystemPrompt+'\n\n'+acceptanceDirection+'\n\n## 定向修订\n'+repairSystemPrompt,preferences)}});
+    return json({...history,...(suggestions.success?{suggestedRequirements:suggestions.data}:{}),criteria:acceptanceCriteria(selection.acceptancePrompt),results:doc.dag?dagAcceptanceResults(doc.dag):[],overridden:!!doc.dag&&Object.values(doc.dag.products).some(product=>product.overridden),previews:{production:promptRecord(draftInstructions(!!doc.original?.localSource)+'\n\n## 提纲阶段\n'+outlineDirection+'\n\n## 分批细化阶段\n'+batchDirection,preferences),acceptance:promptRecord(reviewSystemPrompt+'\n\n'+acceptanceDirection+'\n\n## 定向修订\n'+repairSystemPrompt,preferences)}});
    }
    if(path[2]==='publication'&&path.length===3&&req.method==='POST'){
     const parsed=z.object({publication:publicationSchema,expected:publicationSchema.nullable()}).strict().safeParse(await body(req,32768));
@@ -397,7 +398,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     }
    }
    if(path[2]==='source'&&path.length===3&&['GET','POST'].includes(req.method)){
-    const row=await repo.get(id,uid),selection=selectionSchema.parse(JSON.parse(row.selection)),doc=JSON.parse(row.document) as Document;
+    const row=await repo.get(id,uid),selection=selectionSchema.parse(JSON.parse(row.selection)),doc=decodeDocument(row);
     if(doc.original)return json({source:doc.original,message:'',searchUrl:doc.original.url});
     if(!doc.plan)throw new ReaderError(409,'原文尚未保存，请稍后再查看。');
     const searchUrl=sourceSearchUrl(selection,doc.plan);
@@ -434,7 +435,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     const ownerId=services.ownerId,repo=new ReaderRepository(services.database);
     const session=await (async()=>{
      const origin=await repo.get(path[1],ownerId);
-     if((JSON.parse(origin.document) as Document).reselection){
+     if((decodeDocument(origin)).reselection){
       return services.production?await services.production.snapshot(ownerId,origin.id):view(origin);
      }
      for(let attempt=0;attempt<2;attempt++){

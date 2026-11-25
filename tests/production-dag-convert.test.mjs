@@ -1,9 +1,10 @@
 // v1 → v2 转换：完成、部分完成、缺审核、旧放行、阻断、重复转换与投影一致；场景 38、44、45、46 的转换部分。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {convertDocument,mapLegacyFaults,legacyFrameId} from '../lib/production-dag/convert.ts';
+import {normalizeStoryDocument,mapLegacyFaults,legacyFrameId} from '../server/migrations/production-v4.ts';
 import {versionState,rootProducts,projectDocument} from '../lib/production-dag/document.ts';
 import {evaluate,complete,runnable} from '../lib/production-dag/engine.ts';
+import {convertDocument as convertHistorical,rootProducts as historicalRoots,versionState as historicalVersion} from '../server/migrations/production-v2.ts';
 import {handEdit,run} from './fixtures/production-dag.mjs';
 
 function v1({frames=8,images=frames,review='passed',overridden=false,issues=[],acceptance='结尾才揭示身份',handoff=false,redrawNotes}={}){
@@ -19,14 +20,15 @@ function v1({frames=8,images=frames,review='passed',overridden=false,issues=[],a
  const selection={bookId:'shiji',artStyle:'ink-pencil',productionPrompt:'写清选择与后果',acceptancePrompt:acceptance,length:frames};
  return {doc,selection};
 }
-const convert=(input,confirmed=true)=>convertDocument(input.doc,input.selection,{confirmed,modelSnapshot:{provider:'gemini'}});
-const stateOf=(input,dag,faults=[])=>versionState(dag,rootProducts(input.selection,dag),{confirmed:true,faults});
+const historicalState=({doc,selection})=>{const dag=convertHistorical(doc,selection,{confirmed:true});return historicalVersion(dag,historicalRoots(selection,dag),{confirmed:true,skipFrameCheck:true});};
+const convert=input=>normalizeStoryDocument('fixture',input.doc,input.selection);
+const stateOf=(input,dag,faults=[])=>versionState(dag,rootProducts(input.selection,dag),{confirmed:true,faults,skipFrameCheck:typeof input.selection.length==='number'});
 
 test('a completed reviewed story stays complete with no work and legacy records',()=>{
  const input=v1(),dag=convert(input),state=stateOf(input,dag);
  assert.ok(complete(state));
  assert.equal(runnable(state).length,0);
- assert.ok(Object.values(dag.products).every(p=>p.legacy));
+ assert.ok(Object.values(dag.products).every(p=>!p.legacy));
  assert.deepEqual(dag.order,Array.from({length:8},(_,i)=>legacyFrameId(i)));
 });
 
@@ -50,23 +52,23 @@ test('scenario 38: a partly drawn story resumes only the missing frames',()=>{
  assert.ok(complete(state));
 });
 
-test('scenario 38: after conversion an edit is judged by the new rules; the legacy acceptance item is re-checked',()=>{
+test('scenario 38: after conversion an edit is judged by the new rules; the whole-story conclusion is rechecked',()=>{
  const input=v1(),dag=convert(input),state=stateOf(input,dag);
  handEdit(state,'visual','legacy-3');
  const e=evaluate(state);
- assert.equal(e.instance('itemVerdict','legacy').status,'invalid');
+ assert.equal(e.instance('narrativeVerdict').status,'invalid');
  assert.deepEqual(['legacy-2','legacy-3','legacy-4'].map(k=>e.instance('frameVerdict',k).status),['invalid','invalid','invalid']);
  assert.equal(e.instance('frameVerdict','legacy-6').status,'valid');
 });
 
-test('scenario 44: a completed story without review records stays complete but cannot authorise new drawing',()=>{
+test('scenario 44: completed and partially drawn stories with prior drawing permission keep a bound override',()=>{
  const done=v1({review:null}),dag=convert(done),state=stateOf(done,dag);
  assert.ok(complete(state));
  assert.equal(runnable(state).length,0);
- assert.ok(!evaluate(state).approved());
+ assert.ok(evaluate(state).approved());
  const partial=v1({review:null,images:5}),pdag=convert(partial),pstate=stateOf(partial,pdag);
  assert.ok(evaluate(pstate).approved(),'an unfinished unreviewed plan already had permission to draw in v0.14.0');
- assert.ok(pdag.products['narrativeVerdict:'].unreviewed);
+ assert.ok(pdag.products['narrativeVerdict:'].overridden);
  assert.deepEqual(run(pstate).map(l=>l.call),['draw','draw','draw']);
 });
 
@@ -95,7 +97,7 @@ test('pending save-wait and redraw notes carry over',()=>{
 });
 
 test('open legacy faults map to frame identities; a text-step fault attaches to the step that runs next',()=>{
- const input=v1({images:5}),dag=convert(input),state=stateOf(input,dag);
+ const input=v1({images:5}),state=historicalState(input);
  const mapped=mapLegacyFaults([
   {id:'a',kind:'image-loss',page:1,state:'pending'},
   {id:'b',kind:'landscape-image',page:2,state:'pending'},
@@ -113,20 +115,17 @@ const story=(input,dag)=>({id:'s',doc:input.doc,selection:input.selection,dag,co
 test('a partly drawn converted story draws its remaining frames without registering or reviewing again',()=>{
  const input=v1({images:5}),s=story(input,convert(input));
  s.dag=settle(s);
- assert.deepEqual(s.dag.items.map(i=>i.id),['legacy'],'the legacy acceptance item is kept while the requirements are unchanged');
  const items=work(s);
  assert.ok(items.length&&items.every(i=>i.call==='draw'),items.map(i=>i.call).join());
  assert.deepEqual(items.map(i=>i.instances[0].key),['legacy-6','legacy-7','legacy-8']);
 });
 
-test('changed acceptance requirements split the legacy item and are registered and reviewed before drawing',()=>{
+test('changed acceptance requirements are reviewed together before drawing',()=>{
  const input=v1({images:5}),s=story(input,convert(input));
  s.selection={...s.selection,acceptancePrompt:'结尾才揭示身份\n每幅都有动作'};
  s.dag=settle(s);
- assert.equal(s.dag.items.length,2);
- assert.ok(!s.dag.items.some(i=>i.legacy));
  const calls=work(s).map(i=>i.call);
- assert.ok(calls.includes('registerItems'));
+ assert.ok(calls.includes('review'));
  assert.ok(!calls.includes('draw'),'nothing is drawn before the new items are judged');
 });
 

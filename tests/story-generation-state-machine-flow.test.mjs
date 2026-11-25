@@ -116,13 +116,13 @@ for(const action of ['pause','stop'])test(`healthy restored files complete local
  const f=await productionFixture(t);f.control.hold=false;const id=await f.create(2);await until(async()=>(await f.read(id)).state==='completed');
  const image=(await f.read(id)).story.pages[1].image,key=`reader/${id}/${image.split(`/media/${id}/`)[1]}`,asset=await f.media.get(key),bytes=new Uint8Array(await asset.arrayBuffer());await lose(f,id,1);
  await f.json(`sessions/${id}/production-control`,'POST',{action});await f.media.put(key,bytes,{contentType:asset.contentType});const checked=await f.json(`sessions/${id}/image-health`,'POST',{page:1,image});assert.equal(checked.state,'completed');assert.equal(checked.generationControl,action==='pause'?'paused':action==='stop'?'stopped':'active');assert.equal(f.control.calls.length,2);
- const raw=await f.app.services.database.prepare('SELECT state FROM stories WHERE id=?').bind(id).first();assert.equal(raw.state,'completed');
+ const raw=await f.app.services.database.prepare('SELECT state FROM story_rows WHERE id=?').bind(id).first();assert.equal(raw.state,'completed');
 
  await f.restart();for(let i=0;i<10;i++){f.app.services.production.wake();await turn();}assert.equal((await f.read(id)).state,'completed');assert.equal(f.control.calls.length,2);
 });
 test('a display-title change while a drawing is saved cannot fail the already-paid image',async t=>{
  const f=await productionFixture(t),id=await f.create(2),database=f.app.services.database,prepare=database.prepare.bind(database);let renamed=false;
- database.prepare=sql=>{const statement=prepare(sql);if(!renamed&&sql.startsWith('UPDATE stories SET document=?,state=CASE')&&f.control.calls.length){const run=statement.run.bind(statement);statement.run=async()=>{renamed=true;await prepare("UPDATE stories SET selection=json_set(selection,'$.displayTitle','保存时改名') WHERE id=?").bind(id).run();return run();};}return statement;};
+ database.prepare=sql=>{const statement=prepare(sql);if(!renamed&&sql.startsWith('UPDATE stories SET document=?,production_complete=?')&&f.control.calls.length){const run=statement.run.bind(statement);statement.run=async()=>{renamed=true;await prepare("UPDATE stories SET selection=json_set(selection,'$.displayTitle','保存时改名') WHERE id=?").bind(id).run();return run();};}return statement;};
  f.control.hold=false;await until(async()=>(await f.read(id)).state==='completed');assert.equal(renamed,true);assert.equal(f.control.calls.length,2);assert.equal((await f.read(id)).story.title,'保存时改名');assert.equal((await f.read(id)).faults,undefined);
 });
 

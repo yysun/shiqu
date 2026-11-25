@@ -1,6 +1,9 @@
 // 制作任务、故障、命令回执与故事文档写入的联动，在一个同步事务中完成，取代迁移 0025 删除的触发器。
 // 任务失败记录故障（DAG 任务按其工作归属到节点）、恢复授权与任务状态互相对应；故事文档写入引出的
 // 准备与查找回执、替换回执，以及准备世代改变后作废旧故障，都与写入同属一个事务。事务体不含 await。
+import type {Document} from '../lib/reader-model.ts';
+import {writeStoryProducts} from './production-products.ts';
+import {appendProductionAttempt} from './production-attempts.ts';
 import {randomUUID} from 'node:crypto';
 import type {Database,SyncStatements} from '../lib/reader-repository.ts';
 
@@ -28,7 +31,9 @@ export function recordJobFailed(db:SyncStatements,job:Job,input:{message:string;
   AND (json_extract(document,'$.intake.generation') IS NOT json_extract(?,'$.setupGeneration')
     OR json_type(?,'$.preparationGeneration') IS NOT NULL
        AND json_extract(document,'$.dag.preparationGeneration') IS NOT json_extract(?,'$.preparationGeneration'))`,job.session_id,job.owner_id,job.payload,job.payload,job.payload)){
-  db.run("UPDATE production_jobs SET state='succeeded',result=json_object('obsolete',1),lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token IS ?",input.now,job.id,job.lease_token??null);
+  const obsolete=db.run("UPDATE production_jobs SET state='succeeded',result=json_object('obsolete',1),lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token IS ?",input.now,job.id,job.lease_token??null);
+  if(obsolete.changes)appendProductionAttempt(db,job,input.interrupted?'interrupted':input.errorCode==='CONTENT_BLOCKED'?'blocked':'failed',input.now,
+   {obsolete:true,code:input.errorCode??null,message:input.message});
   return false;
  }
  const failureId=input.failureId??randomUUID();
@@ -37,12 +42,14 @@ export function recordJobFailed(db:SyncStatements,job:Job,input:{message:string;
   :db.run(`UPDATE production_jobs SET ${input.payload!==undefined?'payload=?,':''}state='failed',error=?,interrupted=?,failure_id=?,error_code=?,lease_token=NULL,lease_until=0,updated_at=? WHERE id=? AND state='running' AND lease_token IS ?`,
    ...(input.payload!==undefined?[input.payload]:[]),input.message,input.interrupted?1:0,failureId,input.errorCode??null,input.now,job.id,job.lease_token??null);
  if(!updated.changes)return false;
+ appendProductionAttempt(db,job,input.interrupted?'interrupted':input.errorCode==='CONTENT_BLOCKED'?'blocked':'failed',input.now,{faultId:failureId,code:input.errorCode??null,message:input.message});
  // 横图从其独立队列读取逐幅失败，不登记故事制作故障。
  if(job.kind==='landscape-print')return true;
- db.run(`UPDATE reader_faults SET state='replaced',updated_at=? WHERE session_id=? AND owner_id=? AND ${open} AND (job_id=? OR (? IS NOT NULL AND command_id=?)) AND id!=?`,input.now,job.session_id,job.owner_id,job.id,job.recovery_id??null,job.recovery_id??null,failureId);
+ db.run(`UPDATE production_faults SET state='replaced',updated_at=? WHERE session_id=? AND owner_id=? AND ${open} AND (job_id=? OR (? IS NOT NULL AND command_id=?)) AND id!=?`,input.now,job.session_id,job.owner_id,job.id,job.recovery_id??null,job.recovery_id??null,failureId);
  const {node,key}=faultNode(job);
- db.run(`INSERT INTO reader_faults(id,session_id,owner_id,job_id,kind,node,node_key,version,message,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)
-  ON CONFLICT(id) DO UPDATE SET state='pending',message=excluded.message,updated_at=excluded.updated_at`,failureId,job.session_id,job.owner_id,job.id,input.interrupted?'interrupted':'job',node,key,job.version,input.message,input.now,input.now);
+ if(db.get('SELECT id FROM production_faults WHERE id=?',failureId)){
+  db.run("UPDATE production_faults SET state='pending',message=?,updated_at=? WHERE id=?",input.message,input.now,failureId);
+ }else db.run(`INSERT INTO production_faults(id,session_id,owner_id,job_id,kind,node,node_key,version,message,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,failureId,job.session_id,job.owner_id,job.id,input.interrupted?'interrupted':'job',node,key,job.version,input.message,input.now,input.now);
  db.run(`UPDATE reader_commands SET status=?,error=?,result=json_object('jobId',?,'faultId',?),updated_at=? WHERE request_id=? AND owner_id=? AND action='recover' AND status IN ('queued','running')`,
   input.interrupted&&job.attempts<3?'queued':'failed',input.message,job.id,failureId,input.now,job.recovery_id??null,job.owner_id);
  return true;
@@ -50,7 +57,7 @@ export function recordJobFailed(db:SyncStatements,job:Job,input:{message:string;
 
 /** 中断的任务重新排队：其故障进入恢复中，恢复回执回到排队。 */
 export function recordJobRequeued(db:SyncStatements,job:Job&{failure_id?:string|null},now:number){
- db.run("UPDATE reader_faults SET state='recovering',updated_at=? WHERE id=? AND session_id=? AND owner_id=? AND state='pending'",now,job.failure_id??null,job.session_id,job.owner_id);
+ db.run("UPDATE production_faults SET state='recovering',updated_at=? WHERE id=? AND session_id=? AND owner_id=? AND state='pending'",now,job.failure_id??null,job.session_id,job.owner_id);
  db.run("UPDATE reader_commands SET status='queued',updated_at=? WHERE request_id=? AND owner_id=? AND action='recover' AND status!='succeeded'",now,job.recovery_id??null,job.owner_id);
 }
 
@@ -61,9 +68,10 @@ export function recordJobRunning(db:SyncStatements,job:Job,now:number){
 
 /** 任务成功：解除本任务或本恢复授权的故障，恢复回执记为成功。 */
 export function recordJobSucceeded(db:SyncStatements,job:Job,result:string,now:number){
- db.run(`UPDATE reader_faults SET state='resolved',updated_at=? WHERE session_id=? AND owner_id=? AND ${open}
-  AND (job_id=? OR command_id=? AND EXISTS(SELECT 1 FROM reader_commands c WHERE c.owner_id=? AND c.request_id=? AND json_extract(c.payload,'$.resolutionJob')=?))
-  AND (command_id IS NULL OR command_id IS ?)`,now,job.session_id,job.owner_id,job.id,job.recovery_id??null,job.owner_id,job.recovery_id??null,job.id,job.recovery_id??null);
+ // 已保存的准备成果可在旧租约结束后结算，仍用成功事件解除该任务的故障。
+ const attempt=job.lease_token??db.get<{attempt_id:string}>(`SELECT attempt_id FROM production_attempt_events
+  WHERE job_id=? AND owner_id=? AND event='claimed' ORDER BY sequence DESC LIMIT 1`,job.id,job.owner_id)?.attempt_id??'reconciled:'+job.id;
+ appendProductionAttempt(db,{...job,lease_token:attempt},'succeeded',now,{result:JSON.parse(result),recoveryId:job.recovery_id??null});
  if(job.recovery_id)db.run("UPDATE reader_commands SET status='succeeded',error=NULL,result=?,updated_at=? WHERE request_id=? AND owner_id=? AND action='recover' AND status IN ('queued','running') AND json_extract(payload,'$.resolutionJob')=?",result,now,job.recovery_id,job.owner_id,job.id);
 }
 
@@ -71,7 +79,7 @@ export function recordJobSucceeded(db:SyncStatements,job:Job,result:string,now:n
 export function deleteJobs(db:SyncStatements,where:string,values:unknown[],now:number){
  const ids=db.all<{id:string;owner_id:string}>(`SELECT id,owner_id FROM production_jobs WHERE ${where}`,...values);
  for(const {id,owner_id} of ids){
-  db.run(`UPDATE reader_faults SET state='replaced',updated_at=? WHERE job_id=? AND owner_id=? AND ${open}`,now,id,owner_id);
+  db.run(`UPDATE production_faults SET state='replaced',updated_at=? WHERE job_id=? AND owner_id=? AND ${open}`,now,id,owner_id);
   db.run('DELETE FROM production_jobs WHERE id=?',id);
  }
  return ids.length;
@@ -85,10 +93,14 @@ const parse=(text:string|undefined):IntakeDoc=>{try{return text?JSON.parse(text)
  * 准备动作与查找请求的回执、准备世代改变后作废未结故障、重选草稿提交为替换时为原故事写入替换回执。
  * 返回写入的行数。
  */
-export function writeStory(database:Database,id:string,ownerId:string,sql:string,values:unknown[]):number{
+export function writeStory(database:Database,id:string,ownerId:string,sql:string,values:unknown[],document?:{value:Document;parameter:number}):number{
  return transact(database,db=>{
   const before=db.get<{document:string}>('SELECT document FROM stories WHERE id=? AND user_id=?',id,ownerId);
-  const changes=db.run(sql,...values).changes;
+  const changes=document?writeStoryProducts(db,id,ownerId,document.value,stored=>{
+   const params=values.slice();
+   params[document.parameter]=stored;
+   return db.run(sql,...params).changes;
+  }):db.run(sql,...values).changes;
   if(!changes)return 0;
   const after=db.get<{document:string}>('SELECT document FROM stories WHERE id=? AND user_id=?',id,ownerId);
   storyEffects(db,id,ownerId,parse(before?.document),parse(after?.document));
@@ -107,8 +119,8 @@ export function storyEffects(db:SyncStatements,id:string,ownerId:string,before:I
  if(before.intake?.generation!==undefined&&before.intake.phase!=='confirmed'&&after.intake?.generation!==before.intake.generation){
   db.run(`UPDATE reader_commands SET status='failed',error='选题或制作设置已更新。',updated_at=?
    WHERE session_id=? AND owner_id=? AND action='recover' AND status IN ('queued','running')
-   AND fault_id IN (SELECT id FROM reader_faults WHERE session_id=? AND owner_id=? AND ${open})`,now,id,ownerId,id,ownerId);
-  db.run(`UPDATE reader_faults SET state='replaced',updated_at=? WHERE session_id=? AND owner_id=? AND ${open}`,now,id,ownerId);
+   AND fault_id IN (SELECT id FROM production_faults WHERE session_id=? AND owner_id=? AND ${open})`,now,id,ownerId,id,ownerId);
+  db.run(`UPDATE production_faults SET state='replaced',updated_at=? WHERE session_id=? AND owner_id=? AND ${open}`,now,id,ownerId);
  }
  if(before.reselection&&typeof before.reselection==='object'&&after.revision?.kind==='selection'&&after.revision.selectionRequest&&after.revision.parentId)
   receipt(after.revision.selectionRequest,after.revision.parentId,'replace',after.revision.requestHash??'',id);

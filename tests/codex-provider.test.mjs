@@ -173,11 +173,11 @@ test('a real desktop quit during Codex work is recorded as an interruption, not 
  const dataDirectory=path.join(root,'library'),running=await startDesktop({nodePath:process.execPath,dataDirectory,port,internetEnabled:false,cloudflaredPath:'',provider:'codex',textModel:'gemini-3.8-flash',imageModel:'gemini-nano-banana-2.1',codexPath:fake.binary,codexModel:'',codexHome:path.join(root,'codex')},'',root);
  t.after(()=>running.stop());
  const id=crypto.randomUUID(),origin=new URL(running.status.url).origin,created=await fetch(origin+'/api/reader/sessions',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({requestId:id,selection:{...selection,bookId:'other',customBook:'一本未收录的书'}})});assert.equal(created.status,201);
- const seed=new DatabaseSync(path.join(dataDirectory,'shiqu.sqlite'));seed.prepare("UPDATE stories SET document=json_set(document,'$.original',json(?)),state='idle',error=NULL WHERE id=?").run(JSON.stringify({title:'《未收录书》选篇',text:'一个人在梦中经历变化，醒来后重新思考眼前的处境。',url:'https://example.org/pinned',kind:'passage',provider:'fixture',retrievedAt:'2026-11-01'}),id);seed.close();
+ const seed=new DatabaseSync(path.join(dataDirectory,'shiqu.sqlite'));seed.prepare("UPDATE stories SET document=json_set(document,'$.original',json(?)),production_complete=0 WHERE id=?").run(JSON.stringify({title:'《未收录书》选篇',text:'一个人在梦中经历变化，醒来后重新思考眼前的处境。',url:'https://example.org/pinned',kind:'passage',provider:'fixture',retrievedAt:'2026-11-01'}),id);seed.close();
  const end=Date.now()+15000;while(!(await fake.log().catch(()=>[])).some(row=>row.method==='turn/start')){assert.ok(Date.now()<end,'Codex work never started: '+JSON.stringify(await(await fetch(origin+'/api/reader/sessions/'+id)).json()).slice(0,400));await new Promise(resolve=>setTimeout(resolve,20));}
  await running.stop();
  const saved=new DatabaseSync(path.join(dataDirectory,'shiqu.sqlite'));t.after(()=>saved.close());
- const job=saved.prepare('SELECT state,interrupted,error FROM production_jobs WHERE session_id=?').get(id),session=saved.prepare('SELECT state,error FROM stories WHERE id=?').get(id);
+ const job=saved.prepare('SELECT state,interrupted,error FROM production_jobs WHERE session_id=?').get(id),session=saved.prepare('SELECT state,error FROM story_rows WHERE id=?').get(id);
  assert.equal(job.state,'failed');assert.equal(job.interrupted,1,'A restart can resume this job');assert.doesNotMatch(job.error,/订阅|登录/);
  assert.equal(session.state,'idle');assert.equal(session.error,null);
 });

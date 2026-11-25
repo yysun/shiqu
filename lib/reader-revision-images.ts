@@ -23,9 +23,9 @@ export function reusableRevisionImages(base:RevisionBase,selection:Selection,pla
  });
 }
 // Report redraws beyond the submitted preview. The first frame is every other frame's reference.
-export function revisionRedraw(revision:{base:RevisionBase;previewedRedraw?:number;actualRedraw?:number;lostPages?:number[]},selection:Selection,plan:Plan,images?:string[]):RevisionRedraw|undefined{
+export function revisionRedraw(revision:{base:Pick<RevisionBase,'selection'>&Partial<RevisionBase>;previewedRedraw?:number;actualRedraw?:number;lostPages?:number[]},selection:Selection,plan:Plan,images?:string[]):RevisionRedraw|undefined{
  const previewed=revision.previewedRedraw;if(previewed===undefined)return undefined;
- const actual=revision.actualRedraw??(plan.pages.length-(images||reusableRevisionImages(revision.base,selection,plan)).slice(0,plan.pages.length).filter(Boolean).length);
+ const actual=revision.actualRedraw??(plan.pages.length-(images||reusableRevisionImages({selection:revision.base.selection,plan:revision.base.plan??null,images:revision.base.images??[]},selection,plan)).slice(0,plan.pages.length).filter(Boolean).length);
  if(actual<=previewed)return undefined;
  const lost=revision.lostPages||[];
  return {previewed,actual,reason:lost.includes(0)?'first-lost':revision.base.plan?.pages[0]?.prompt!==plan.pages[0]?.prompt?'first-changed':lost.length?'lost':'review'};

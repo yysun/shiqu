@@ -30,7 +30,6 @@ export async function productionFixture(t,provider='codex',variables={},storage=
   const dag=name=>{control.dagCalls.push(name);return control.beforeText?.(name,payload,schema);};
   if(schema.properties.summary&&!schema.properties.beats&&!schema.properties.title&&!payload.storyboardPages)return await dag('brief')??{summary:'庄周梦见自己化为蝴蝶，醒来后思索自己与蝴蝶的分别。'};
   if(schema.properties.characters?.type==='array'&&!schema.properties.beats)return await dag('characters')??{characters:[{name:'庄周',aliases:['庄子'],text:'战国时宋国蒙人，清瘦，布衣束发，神情安闲。'}]};
-  if(schema.properties.items&&payload.items)return await dag('registerItems')??{items:payload.items.map(i=>({index:i.index,scope:'story',evidence:['scenes']}))};
   if(schema.properties.beats&&!schema.properties.characters&&!schema.properties.reflection){const {title,summary,sourceReference,adaptationNote,pages}=makePlan(payload.exactPageCount==='auto'?control.autoLength:payload.exactPageCount);return await dag('outline')??{title,summary,sourceReference,adaptationNote,beats:pages.map((_,i)=>`第 ${i+1} 幅的关键事件与动作`)};}
   if(schema.properties.pages?.items?.properties?.caption&&payload.batch){const pages=makePlan(payload.exactPageCount).pages.slice(payload.batch.first-1,payload.batch.last);return await dag('sceneBatch')??{pages:pages.map(p=>({caption:p.caption}))};}
   if(schema.properties.frames?.items?.properties?.caption){const n=count=>control.dagCalls.filter(c=>c==='sceneRepair').length;return await dag('sceneRepair')??{frames:payload.frames.map(f=>({number:f.number,caption:`第 ${f.number} 幅第 ${n()} 次修订的配文，庄周在梦中化蝶。`}))};}
@@ -40,7 +39,15 @@ export async function productionFixture(t,provider='codex',variables={},storage=
   if(payload.storyboardPages)return await control.beforeText?.('storyboard-summary',payload,schema)??{summary:'庄周梦中化蝶，醒来后想起了梦里的自在。'};
   if(schema.properties.count){control.recommendations.push(payload);return {count:7,reason:'保留完整因果和关键转折。',...(schema.properties.storyTitle?{storyTitle:payload.chosenStory||'所选故事',artRecommendation:{artStyle:'ink-pencil',reason:'与本篇人物动作及叙事相符。'}}:{}),...(schema.properties.requirements?{requirements:makeRequirements(payload.chosenStory||'所选故事')}:{ }),...(schema.properties.storySummary?{storySummary:payload.storyBrief.summary==='尚未准备完整摘要，请依据已核原文生成。'?makePlan(1).summary:payload.storyBrief.summary,storyMatchReason:payload.storyBrief.matchReason,...await control.beforeText?.('recommend',payload,schema)}:{})};}
   if(schema.properties.requirements){control.frameReviews.push(payload);return await control.beforeText?.('frames',payload,schema)??{frameCountReview:{decision:'keep',proposedCount:payload.plan.pages.length,reason:'受控任务已有空间。'},requirements:[]};}
-  if(schema.properties.issues){control.reviews.push(payload);return {coverage:[{quote:payload.verifiedOriginal.text.slice(0,30),task:'受控原文与分镜核对',pages:[1],assessment:'adequate',reason:'受控回执，不代表真实语义审核。',issuePage:0}],titleReview:{title:payload.plan.title??'庄周梦蝶',reason:'标题准确对应当前故事。'},...(payload.reflectionCandidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识，表达简洁。'}}:{}),...await control.beforeText?.('review',payload,schema)??{issues:[],...(payload.acceptanceCriteria?.length?{acceptanceResults:payload.acceptanceCriteria.map((_,index)=>({criterion:index+1,status:'passed',pages:[1],evidence:'受控分镜已包含要求中的关键行动与结果。'}))}:{})}};}
+  if(schema.properties.issues){control.reviews.push(payload);const value= {coverage:[{quote:payload.verifiedOriginal.text.slice(0,30),task:'受控原文与分镜核对',pages:[1],assessment:'adequate',reason:'受控回执，不代表真实语义审核。',issuePage:0}],titleReview:{title:payload.plan.title??'庄周梦蝶',reason:'标题准确对应当前故事。'},...(payload.reflectionCandidates?{reflectionChoice:{index:1,reason:'保留原文支持的认识，表达简洁。'}}:{}),...await control.beforeText?.('review',payload,schema)??{issues:[],...(payload.acceptanceCriteria?.length?{acceptanceResults:payload.acceptanceCriteria.map((_,index)=>({criterion:index+1,status:'passed',pages:[1],evidence:'受控分镜已包含要求中的关键行动与结果。'}))}:{})}};
+   if(schema.properties.storyIssues&&value.storyIssues===undefined){
+    const globalPages=new Set((value.acceptanceResults??[]).filter(result=>result.status==='failed').flatMap(result=>result.pages));
+    const whole=issue=>issue.page===0||issue.requiresReplan||globalPages.has(issue.page);
+    value.storyIssues=value.issues.filter(whole);
+    value.issues=value.issues.filter(issue=>!whole(issue));
+   }
+   return value;
+  }
   if(payload.draft){
    (payload.revision?control.reflectionRepairs:control.reflections).push(payload);
    const override=await control.beforeText?.(payload.revision?'reflection-repair':'reflection',payload,schema);
@@ -76,16 +83,17 @@ export async function productionFixture(t,provider='codex',variables={},storage=
   return Response.json({candidates:[{finishReason:'STOP',content:{parts:[output]}}],responseId:'controlled',usageMetadata:{calls:1}});
  };
  const runner={async status(){return {configured:true};},async run(job){if(!job.generateImage)control.textVia.add('codex');return {text:job.generateImage?'':JSON.stringify(await planned(job.prompt,job.schema)),image:job.generateImage?await image(job.prompt,job.image&&Buffer.from(job.image.bytes).toString('base64'),'codex'):null,model:'controlled',requestId:'controlled',usage:{calls:1}};}};
- const media=new FileMedia(path.join(dataDirectory,'media'));
+ let app,serving=false;
+ const media=new FileMedia(path.join(dataDirectory,'media')),getFile=media.get.bind(media);
+ media.get=key=>serving?app.services.media.get(key):getFile(key);
  // storage.imageProvider exercises the production composition with a separate drawing provider.
  const keys={gemini:{GEMINI_API_KEY:'controlled'},deepseek:{DEEPSEEK_API_KEY:'controlled'},openai:{OPENAI_API_KEY:'controlled'}};
  const generation=createReaderProvider({SHIQU_AI_PROVIDER:provider,...(storage.imageProvider?{SHIQU_IMAGE_PROVIDER:storage.imageProvider}:{}),...keys[provider],...keys[storage.imageProvider]},media,transport,runner);
  // 如需演练历史迁移，在生产应用打开书库之前写入隔离数据。
  const options={root,dataDirectory,generation,transport,variables};
- let app;
- try{if(storage.initialize)await storage.initialize(dataDirectory,root);app=createApplication(options);}
+ try{if(storage.initialize)await storage.initialize(dataDirectory,root);app=createApplication(options);serving=true;}
  catch(error){await rm(root,{recursive:true,force:true});throw error;}
- async function stop(){control.hold=false;for(const call of control.calls)call.resolve();await app.close();}
+ async function stop(){control.hold=false;for(const call of control.calls)call.resolve();await app.close();serving=false;}
  const coordinators=[];
  t?.after(async()=>{app.stopGeneration();for(const coordinator of coordinators)coordinator.stop();control.hold=false;for(const call of control.calls)call.resolve();for(const coordinator of coordinators)await coordinator.close();await stop();if(!storage.retain)await rm(root,{recursive:true,force:true});});
  const overrides=new Map();
@@ -111,5 +119,5 @@ export async function productionFixture(t,provider='codex',variables={},storage=
  // Model an explicit extraction-button click; requesting viewing demand never starts an idle intake.
  const startDiscovery=async(id,title)=>{const saved=await read(id);return json(`sessions/${id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:saved.intake.generation,action:'search',title:title??(saved.selection.discovery?.mode==='title'?saved.selection.discovery.title:'')});};
  const leave=(id,viewerId)=>json(`sessions/${id}/production`,'DELETE',{viewerId});
- return {root,dataDirectory,options,control,media,generation,request,json,create,demand,startDiscovery,read,leave,stop,coordinators,get app(){return app;},async restart(){await stop();app=createApplication(options);}};
+ return {root,dataDirectory,options,control,media,generation,request,json,create,demand,startDiscovery,read,leave,stop,coordinators,get app(){return app;},async restart(){await stop();app=createApplication(options);serving=true;}};
 }

@@ -14,7 +14,7 @@ const zhuangzi={title:'齐物论',text:'昔者庄周梦为胡蝶，栩栩然胡�
 /** 一篇已确认、尚未制作的 DAG 故事（原文已核对，不经准备流程）。 */
 async function confirmedStory(f,length=4){
  const id=crypto.randomUUID(),now=new Date().toISOString(),doc={plan:null,images:[],audio:[],usage:[],original:zhuangzi,dag:emptyDag()};
- await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'background','active','idle',?,?)").bind(id,owner,JSON.stringify({...selection,length}),JSON.stringify(doc),now,now).run();
+ await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,'active',0,?,?)").bind(id,owner,JSON.stringify({...selection,length}),JSON.stringify(doc),now,now).run();
  return id;
 }
 const formats=[['portrait.png','image/png','.png'],['portrait.jpg','image/jpeg','.jpg'],['portrait-progressive.jpg','image/jpeg','.jpg'],['portrait.webp','image/webp','.webp'],['portrait-lossy.webp','image/webp','.webp'],['portrait-alpha.webp','image/webp','.webp']];

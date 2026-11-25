@@ -33,8 +33,8 @@ function stages(provider,length='auto'){
   ['visual-repair',()=>dag.visualRepair({outline,productionPrompt:'',style,characters:people,frames:visualFrames.map(f=>({...f,prompt:'旧画面描述，人物站在庭院中央。',drawn:people,issues:[frameIssue]}))})],
   ['structure-repair',()=>dag.structureRepair({source,outline,productionPrompt:'',settings,captions,issues:[issue]})],
   ['ending',()=>dag.ending({source,outline,captions})],['ending-repair',()=>dag.endingRepair({source,outline,captions,reflection:plan.reflection,issues:[]})],
-  ['frame-check',()=>dag.frameCheck({source,outline,productionPrompt:'',settings,captions})],['register',()=>dag.registerItems({items:[{id:'i1',text:'保留原文结局。'}]})],
-  ['review',()=>dag.review({source,brief:'梗概',outline,title:'赠物',productionPrompt:'',acceptancePrompt:'保留原文结局。',style,characters:people,frames:captions.map(caption=>({id:caption,caption,prompt:'画面描述，人物站在庭院中央。'})),chosenEnding:plan.reflection,allowed:{pages:[1],criteria:[1],narrative:true},itemIds:{1:'i1'}})],
+  ['frame-check',()=>dag.frameCheck({source,outline,productionPrompt:'',settings,captions})],
+  ['review',()=>dag.review({source,brief:'梗概',outline,title:'赠物',productionPrompt:'',acceptancePrompt:'保留原文结局。',style,characters:people,frames:captions.map(caption=>({id:caption,caption,prompt:'画面描述，人物站在庭院中央。'})),confirmedEnding:{title:plan.title,ending:plan.reflection},allowed:{pages:[1],narrative:true}})],
   ['image',()=>gen.image(plan,0,'fixture','')],
  ];
 }

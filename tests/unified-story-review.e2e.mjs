@@ -1,9 +1,12 @@
-// 正式队列上的两阶段审核、结构修订、图片复用与明确放行。
+// 正式队列上的幅数核对与单轮审片、结构修订、图片复用与明确放行。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {rm} from 'node:fs/promises';
 import path from 'node:path';
 import {productionFixture,until,makePlan,makeReflectionCandidates,selection,encoded} from './fixtures/production.mjs';
+import {decodeDocument,encodeDocument} from '../lib/production-dag/document.ts';
+import {normalizeStoryDocument} from '../server/migrations/production-v4.ts';
+import {selectionSchema} from '../lib/reader-model.ts';
 import {ReaderRepository} from '../lib/reader-repository.ts';
 import {newReview} from '../lib/reader-review.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
@@ -26,9 +29,12 @@ async function seed(f,{count=4,saved=0,candidates=false,review=newReview()}={}){
  }
  const plan=makePlan(count);
  const doc={plan,original,images,audio:[],usage:[],...(review?{visualReview:review}:{}),...(candidates?{reflectionCandidates:makeReflectionCandidates('原结语')}:{})};
- await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,page,created_at,updated_at) VALUES(?,?,?,?,'background','paused','idle',?,'c','u')")
-  .bind(id,owner,JSON.stringify({...selection,length:'auto'}),JSON.stringify(doc),Math.min(2,count-1)).run();
- return {id,plan,images,read:async()=>JSON.parse((await new ReaderRepository(f.app.services.database).get(id,owner)).document),
+ const selected=selectionSchema.parse({...selection,length:'auto'});
+ doc.dag=normalizeStoryDocument(id,doc,selected);
+ delete doc.visualReview;delete doc.reflectionCandidates;
+ await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,page,created_at,updated_at) VALUES(?,?,?,?,?,0,?,'c','u')")
+  .bind(id,owner,JSON.stringify(selected),encodeDocument(doc),!review&&saved===count?'active':'paused',Math.min(2,count-1)).run();
+ return {id,plan,images,read:async()=>decodeDocument(await new ReaderRepository(f.app.services.database).get(id,owner)),
   resume:()=>f.json(`sessions/${id}/production-control`,'POST',{action:'resume'}),
   pause:()=>f.json(`sessions/${id}/production-control`,'POST',{action:'pause'})};
 }
@@ -132,14 +138,15 @@ for(const [label,review] of [['passed',{...newReview(),status:'passed'}],['absen
 
 test('explicit recovery of an unreadable image in an unchanged legacy archive draws only that frame',async t=>{
  const f=await productionFixture(t),s=await seed(f,{review:null,saved:4});f.control.hold=false;
- await s.resume();await until(async()=>(await f.read(s.id)).state==='completed');
+ await until(async()=>(await f.read(s.id)).state==='completed');
  const image=s.images[2],key=referenceImageKey(s.id,image);
  await rm(path.join(f.dataDirectory,'media',key));
  const checked=await f.json(`sessions/${s.id}/image-health`,'POST',{page:2,image});
  assert.equal(f.control.calls.length,0);
  const fault=checked.faults.find(item=>item.page===2);
  assert.ok(fault);
- await f.json(`sessions/${s.id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ const recovery=await f.request(`sessions/${s.id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ assert.equal(recovery.status,202,await recovery.text());
  await until(async()=>(await f.read(s.id)).state==='completed');
  assert.equal(f.control.frameReviews.length+f.control.reviews.length,0);
  assert.deepEqual(f.control.calls.map(call=>call.page),[2]);
@@ -150,15 +157,19 @@ test('unreviewed archive permission does not become review approval in a copy or
  const {copySavedStory}=await import('../server/reader-copy.ts');
  const f=await productionFixture(t),s=await seed(f,{review:null,saved:4});
  f.control.hold=false;
- await s.resume();await until(async()=>(await f.read(s.id)).state==='completed');
+ await until(async()=>(await f.read(s.id)).state==='completed');
  const destination=await productionFixture(t);
  await f.stop();
  const copy=options=>copySavedStory(destination.app,process.cwd(),destination.dataDirectory,f.dataDirectory,s.id,crypto.randomUUID(),undefined,options);
  await assert.rejects(copy({}),/已通过审核/);
- await assert.rejects(copy({draft:true}),/审核检查点/);
+ const copied=await copy({draft:true});
+ assert.equal(copied.lifecycle.review,'pending');
  await f.restart();
  const draft=await f.json(`sessions/${s.id}/revisions`);
- const {id:child}=await f.json(`sessions/${s.id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:draft.token,changes:{reviewNotes:'请审核第二幅的拒绝动作。'}});
+ const result=await f.request(`sessions/${s.id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:draft.token,changes:{reviewNotes:'请审核第二幅的拒绝动作。'}});
+ const revision=await result.json();
+ assert.equal(result.status,201,revision.error);
+ const child=revision.id;
  await f.json(`sessions/${child}/production-control`,'POST',{action:'continue'});
  await until(async()=>(await f.read(child)).state==='completed');
  assert.equal(f.control.reviews.length,1);

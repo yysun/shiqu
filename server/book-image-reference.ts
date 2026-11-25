@@ -1,5 +1,6 @@
 // Keep one owner-scoped reference per book. Only server-resolved local pictures become
 // immutable snapshots; selection changes affect future calls, never paid job identities.
+import {decodeDocument} from '../lib/production-dag/document.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import type {Database,SyncStatements} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
@@ -23,9 +24,9 @@ function picture(bytes:Uint8Array){const type=mediaType(bytes);if(!type||bytes.l
 const visible="NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=? AND d.user_id=?)";
 /** 读取绘图参考的持久身份。发送前在同一事务核对星标、来源归属与本篇首幅。 */
 export function drawingReferenceBinding(db:SyncStatements,ownerId:string,id:string,starOnly=false){
- const row=db.get<{selection:string;document:string}>('SELECT selection,document FROM stories WHERE id=? AND user_id=?',id,ownerId);
+ const row=db.get<{selection:string;document:string}>('SELECT selection,document,production_products FROM story_rows WHERE id=? AND user_id=?',id,ownerId);
  if(!row)return null;
- const selection=JSON.parse(row.selection) as Selection,doc=JSON.parse(row.document) as Document;
+ const selection=JSON.parse(row.selection) as Selection,doc=decodeDocument(row);
  const fallback=doc.dag?.frames[doc.dag.order[0]]?.image??null;
  if(usesStoryImageReference(doc.revision,selection.artStyle))return starOnly?null:fallback;
  const key=bookKey(selection.bookId,selection.customBook);
@@ -43,10 +44,10 @@ export class BookImageReferences{
  private database:Database;private media:MediaStore;private owner:string;
  constructor(database:Database,media:MediaStore,owner:string){this.database=database;this.media=media;this.owner=owner;}
  private async source(id:string,page=0):Promise<Source>{
-  const row=await this.database.prepare(`SELECT selection,document FROM stories WHERE id=? AND user_id=? AND ${visible}`).bind(id,this.owner,id,this.owner).first<{selection:string;document:string}>();
+  const row=await this.database.prepare(`SELECT selection,document,production_products FROM story_rows WHERE id=? AND user_id=? AND ${visible}`).bind(id,this.owner,id,this.owner).first<{selection:string;document:string}>();
   if(row){
-   const selection=JSON.parse(row.selection) as Selection,doc=JSON.parse(row.document) as Document,image=doc.plan?.pages[page]?doc.images[page]||'':'';
-   return {bookKey:bookKey(selection.bookId,selection.customBook),image,validPage:!!doc.plan?.pages[page],storyImageReference:usesStoryImageReference(doc.revision,selection.artStyle),guard:`EXISTS(SELECT 1 FROM stories WHERE id=? AND user_id=? AND selection=? AND json_extract(document,?)=? AND ${visible})`,values:[id,this.owner,row.selection,`$.images[${page}]`,image,id,this.owner]};
+   const selection=JSON.parse(row.selection) as Selection,doc=decodeDocument(row),image=doc.plan?.pages[page]?doc.images[page]||'':'';
+   return {bookKey:bookKey(selection.bookId,selection.customBook),image,validPage:!!doc.plan?.pages[page],storyImageReference:usesStoryImageReference(doc.revision,selection.artStyle),guard:`EXISTS(SELECT 1 FROM stories WHERE id=? AND user_id=? AND selection=? AND document=? AND ${visible})`,values:[id,this.owner,row.selection,row.document,id,this.owner]};
   }
   throw new ReaderError(404,'这篇故事不在你的书架里');
  }

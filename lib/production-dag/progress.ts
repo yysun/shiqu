@@ -2,7 +2,6 @@
 // 纯函数，不做 I/O；只读文档中的 dag，不考虑故障（故障由协调器另行呈现）。
 import {registerDagProgress} from '../reader-model.ts';
 import type {Document,Selection,Step} from '../reader-model.ts';
-import {activeReviewSkip} from './review-skip.ts';
 import {describeProductionCall} from '../production-lifecycle.ts';
 import {settle,deriveProduction,attention,stateOf,type DagStory} from './runner.ts';
 
@@ -34,15 +33,15 @@ export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
  const storyboardFrames=order.filter(id=>evaluation.instance('scene',id).status==='valid').length;
  const drawingFrames=order.filter(id=>evaluation.instance('frameImage',id).status==='valid').length;
  // 等待继续时仍显示真实的接续步骤，调度由持久化等待状态阻止。
- const text=items.find(item=>item.call!=='draw'&&item.call!=='drawLandscape');
+ const text=items.find(item=>item.call!=='draw');
  const drawing=items.find(item=>item.call==='draw');
  const used=story.dag.repairs?.used??0;
- const key=text?`${text.call}:${text.stage??0}`:'';
+ const key=text?text.call:'';
  const description=text&&describeProductionCall(text.call,text.instances.map(instance=>order.indexOf(instance.key)+1).filter(n=>n>0),used);
  const activity=description?.label;
  const step:Step|null=text?{kind:description?.phase??'plan',page:0,key}
   :drawing?{kind:'image',page:Math.max(0,story.dag.order.indexOf(drawing.instances[0].key)),key:`image:${drawing.instances[0].key}`}:waiting.length?{kind:'review',page:0,key:'review:attention'}:null;
- const redrawPage=step?.kind==='image'&&items.length===1&&doc.revision?.base?.images?.[step.page]&&!doc.images[step.page]&&doc.images.filter(Boolean).length===story.dag.order.length-1?step.page+1:undefined;
+ const redrawPage=step?.kind==='image'&&items.length===1&&(doc.revision?.base?.readyFrames?.includes(step.page)||doc.revision?.base?.images?.[step.page])&&!doc.images[step.page]&&doc.images.filter(Boolean).length===story.dag.order.length-1?step.page+1:undefined;
  const reviewWork=items.some(item=>item.call==='frameCheck'||item.call==='review');
  const repairing=items.some(item=>repairCalls.has(item.call));
  const stop=waiting[0]?.reason;
@@ -53,7 +52,7 @@ export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
   reviewPhase:typeof selection.length==='number'||frameCheckPassed?'full':'frames',
   reviewRound:used+1,repairCompleted:0,repairTotal:story.dag.issues?.length??0,reviewAudits:used+(reviewWork?0:1),repairPasses:used,
   ...(stop==='limit'||stop==='unchanged'||stop==='requirements'?{reviewStopReason:stop}:stop==='unrepairable'?{reviewStopReason:'replan' as const}:{}),
-  reviewOverridden:!!activeReviewSkip(stateOf(story,{includeReviewSkip:false}),story.dag)||Object.values(story.dag.products).some(product=>product.overridden),
+  reviewOverridden:Object.values(story.dag.products).some(product=>product.overridden),
  };
  return {step,review,complete,frameCount,storyboardFrames,drawingFrames,activity,...(redrawPage?{redrawPage}:{})};
 }

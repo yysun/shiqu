@@ -1,14 +1,11 @@
-// 文档 v2：document.dag 是制作内容与产物记录的权威来源，plan、images 是由它生成的存储投影。
-// 画幅以身份为键存放，另存顺序；人物按条目、验收要求按条目保存。投影保持 v1 的 Plan 形状，
-// 阅读、导出、复制等只读方继续读投影；每次保存在同一条语句中写入 dag 与投影。
-import type {Document,Plan,Selection} from '../reader-model.ts';
+// 制作内容以有序画幅和产物为准。读取时导出 Plan 与图片序列，供阅读、复制和导出使用。
+import type {Document,Selection} from '../reader-model.ts';
 import {normalizeProductionPrompt} from '../reader-prompts.ts';
 import type {ProviderSettingsView} from '../provider-settings.ts';
 import type {FrameCountReport,ReviewIssue} from '../reader-review.ts';
-import type {ReviewSkip} from './review-skip.ts';
 import type {RepairBudget} from './review.ts';
 import type {Product,Fault,VersionState} from './engine.ts';
-import type {Evidence} from './registry.ts';
+import type {AcceptanceResult} from '../reader-acceptance.ts';
 import {fingerprint} from './fingerprint.ts';
 
 export function landscapeSourceReady(doc:Document){
@@ -22,7 +19,7 @@ export type DagFrame={
  scene:string;
  /** 画面描述。 */
  visual:string;
- /** 入画人物；未记录时按全部人物计算。 */
+ /** 本幅入画的人物身份。 */
  drawn?:string[];
  /** 模型返回的入画人物名字。 */
  drawnNames?:string[];
@@ -30,17 +27,9 @@ export type DagFrame={
  /** 本版读者已明确要求重新绘制此幅。 */
  redrawRequested?:true;
  image?:string;
- /** 横图：空字符串表示读者已请求、尚未生成。 */
- landscape?:string;
- /** 未完成的横图请求或故障绑定的绘图输入。 */
- landscapeInputHash?:string;
- /** 读者授权的横图重试代次，旧任务及其付费回执保留。 */
- landscapeAttempt?:number;
- /** 横图生成失败的说明；横图是可选产物，失败不阻断完成或导出。 */
- landscapeError?:string;
+
 };
-export type DagCharacter={id:string;name:string;aliases?:string[];text:string;legacy?:true};
-export type DagItem={id:string;text:string;scope?:'story'|'frame';evidence?:Evidence[];legacy?:true};
+export type DagCharacter={id:string;name:string;aliases?:string[];text:string};
 /** 绘图使用版本记下的服务与模型。分辨率和构图参数由对应绘图流程保存。 */
 type DrawingSnapshot={provider:ProviderSettingsView['runtime']['provider'];models:{image:string|null}};
 /** 旧库迁移前兼容读取原快照。文字设置不再参与生产派发。 */
@@ -56,8 +45,7 @@ export type DagDocument={
  order:string[];
  frames:Record<string,DagFrame>;
  characters:DagCharacter[];
- items:DagItem[];
- ending?:{title:string;candidates:string[];chosen?:string;confirmed?:{title:string;ending:string}};
+ ending?:{title:string;candidates:string[];selectedTitle?:string;chosen?:string;confirmed?:{title:string;ending:string}};
  /** 事实梗概（准备梗概或读者手改）。 */
  brief?:string;
  outline?:DagOutline;
@@ -68,28 +56,22 @@ export type DagDocument={
  repreparing?:true;
  frameCheck?:FrameCountReport;
  /** 各结论的说明，键为结论实例身份；结论本身记录在 products。 */
- verdicts?:Record<string,{outcome:'pass'|'fail';detail?:string;requirements?:true}>;
+ verdicts?:Record<string,{outcome:'pass'|'fail';detail?:string;requirements?:true;acceptance?:AcceptanceResult[]}>;
  /** 最近一次审片中失败结论的问题，供自动修订使用。 */
  issues?:DagIssue[];
- /** 格式 3 已保存的审片建议；此字段不参与推导。 */
- suggestions?:unknown;
  /** 本修订的自动修订额度。 */
  repairs?:RepairBudget;
- /** 本版读者跳过审核的记录，使用时重新核对绑定。 */
- reviewSkip?:ReviewSkip;
  /** 用过的画风设置，键为画风输入指纹；换画风转换据此取得旧画风。 */
  styles?:Record<string,{artStyle:Selection['artStyle'];artStylePrompt?:string|null}>;
  products:Record<string,Product>;
+ /** 产物引用变化时同步改变，作为版本写入的内容校验。 */
+ productSignature?:string;
  modelSnapshot?:ModelSnapshot;
  renderer:Renderer;
  /** 已保存、等待「继续制作」的修订；只有 continue 清除，resume 不清除。 */
  continuation?:{revision:number;reason:'revision-saved'};
  /** 读者指定的首幅原图（换画风时）：画面描述转换完成、首幅的输入就绪后由 settle() 记为该幅的成图产物，不再绘制。 */
  cover?:{frame:string};
- /** 转换自 v1，记录按旧规则产生。 */
- legacy?:true;
- /** 旧版已有未完成成稿且原本无需审核；只延续此稿的绘图权限。 */
- resumeUnreviewed?:true;
 };
 
 export const defaultRenderer:Renderer={layout:'portrait',aspectRatio:'9:16',size:'1K'};
@@ -102,13 +84,13 @@ export const defaultRenderer:Renderer={layout:'portrait',aspectRatio:'9:16',size
 export function endingChoice(ending:DagDocument['ending']):{title:string;ending:string}|undefined{
  if(ending?.confirmed)return ending.confirmed;
  const chosen=ending?.chosen??ending?.candidates[0];
- return ending&&chosen?{title:ending.title,ending:chosen}:undefined;
+ return ending&&chosen?{title:ending.selectedTitle??ending.title,ending:chosen}:undefined;
 }
 
-export const emptyDag=():DagDocument=>({version:2,order:[],frames:{},characters:[],items:[],products:{},renderer:defaultRenderer});
+export const emptyDag=():DagDocument=>({version:2,order:[],frames:{},characters:[],products:{},renderer:defaultRenderer});
 
 /** 由选择与 dag 计算根输入产物；缺省值先展开为实际值，保证与显式填写同指纹。 */
-export function rootProducts(selection:Selection,dag:Pick<DagDocument,'items'|'modelSnapshot'|'renderer'|'ending'|'frames'|'order'>,extra:{notes?:string;seed?:unknown;refSource?:string}={}):Record<string,Product>{
+export function rootProducts(selection:Selection,dag:Pick<DagDocument,'modelSnapshot'|'renderer'|'ending'|'frames'|'order'>,extra:{notes?:string;seed?:unknown;refSource?:string}={}):Record<string,Product>{
  const root=(value:unknown,parts?:Record<string,string>):Product=>({hash:fingerprint(value),inputs:{},...(parts?{parts}:{})});
  const {displayTitle:_display,artStyle,artStylePrompt,productionPrompt,acceptancePrompt,narrativeDetail,length,voice:_voice,...source}=selection;
  void _display;void _voice;
@@ -117,7 +99,7 @@ export function rootProducts(selection:Selection,dag:Pick<DagDocument,'items'|'m
   'seed:':root(extra.seed??null),
   // 制作要求按主题规范化后的实际值计算指纹，与请求中发送的文字一致。
   'productionReq:':root(normalizeProductionPrompt(productionPrompt??'',source.theme||'')),
-  'acceptanceReq:':root(acceptancePrompt??'',Object.fromEntries(dag.items.map(i=>[i.id,fingerprint(i.text)]))),
+  'acceptanceReq:':root(acceptancePrompt??''),
   'settings:':root({narrativeDetail:narrativeDetail||'balanced',length}),
   'style:':root({artStyle,artStylePrompt:artStylePrompt??null}),
   'modelSnapshot:':root(dag.modelSnapshot??null),
@@ -138,38 +120,12 @@ export function versionState(dag:DagDocument,roots:Record<string,Product>,option
  return {
   confirmed:options.confirmed,
   order:dag.order,
-  items:dag.items.filter(i=>i.scope!=='frame').map(i=>i.id),
   frames:Object.fromEntries(dag.order.map(id=>[id,{drawn:dag.frames[id]?.drawn}])),
-  landscapes:dag.order.filter(id=>dag.frames[id]?.landscape===''),
   products:{...dag.products,...roots},
   faults:options.faults||[],
   reprepare:options.reprepare,
-  resumeUnreviewed:dag.resumeUnreviewed,
   skipFrameCheck:options.skipFrameCheck,
  };
 }
 
-/**
- * 存储投影：由 dag 生成 v1 的 plan 与 images，供阅读、导出、复制等只读方使用。
- * 全部画幅都有叙事分镜与画面描述、且已有结语候选时才有 plan；转换的旧故事没有提纲，沿用原 plan 的其余字段。
- */
-export function projectDocument(dag:DagDocument,base:Plan|null=null):{plan:Plan|null;images:string[]}{
- const images=dag.order.map(id=>dag.frames[id]?.image||'');
- const pages=dag.order.map(id=>({caption:dag.frames[id]?.scene??'',prompt:dag.frames[id]?.visual??''}));
- const reflection=dag.ending?.confirmed?.ending??dag.ending?.chosen??dag.ending?.candidates[0]??base?.reflection;
- const outline=dag.outline;
- if(!pages.length||pages.some(p=>!p.caption||!p.prompt)||!reflection||!(outline||base))return {plan:null,images};
- const characters=dag.characters.map(c=>c.legacy?c.text:`${c.name}：${c.text}`).join('\n');
- return {
-  plan:{
-   title:dag.ending?.confirmed?.title??dag.ending?.title??outline?.title??base!.title,
-   summary:dag.brief??outline?.summary??base!.summary,
-   sourceReference:outline?.sourceReference??base!.sourceReference,
-   adaptationNote:outline?.adaptationNote??base!.adaptationNote,
-   reflection,
-   characters:characters||base?.characters||'',
-   pages,
-  },
-  images,
- };
-}
+export {decodeDocument,encodeDocument,projectDocument} from './projection.ts';

@@ -15,7 +15,7 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
  const [scriptPage,setScriptPage]=useState(1),[summarizing,setSummarizing]=useState(false),[preview,setPreview]=useState<RevisionPreview|null>(null);
  const latest=useRef(storyId);latest.current=storyId;
  const currentChanges=useRef(changes);currentChanges.current=changes;
- const read=useRef(0),lock=useRef(false),submission=useRef<{signature:string;id:string}|null>(null),callback=useRef(onSubmitted);callback.current=onSubmitted;
+ const read=useRef(0),lock=useRef(false),submission=useRef<{signature:string;id:string;cover?:File}|null>(null),callback=useRef(onSubmitted);callback.current=onSubmitted;
  useEffect(()=>{read.current++;setTab(null);setScriptPage(1);setBase(null);setChanges({});setError('');setConflict(false);setLoading(false);submission.current=null;},[storyId]);
  async function readSnapshot(openLatest=false){
   if(!storyId)return;const serial=++read.current,id=storyId;setLoading(true);setError('');
@@ -94,17 +94,24 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
    return false;
   }finally{lock.current=false;setBusy(false);setSummarizing(false);}
  }
- async function submit(submittedChanges=changes,startRedraw=false){
+ async function submit(submittedChanges=changes,startRedraw=false,cover?:File){
   if(!base||!storyId||lock.current)return;
   try{checkedRevision(base,submittedChanges);}catch(e){setError(e instanceof Error?e.message:'请检查修改内容。');return;}
   const signature=JSON.stringify([storyId,base.token,submittedChanges,startRedraw]);
-  if(submission.current?.signature!==signature)submission.current={signature,id:randomId()};
+  if(submission.current?.signature!==signature||submission.current.cover!==cover)submission.current={signature,id:randomId(),cover};
   // 提交时废弃先前的快照读取，避免回写已经提交的版本。
   read.current++;
   lock.current=true;setBusy(true);setError('');
   try{
    const originId=storyId;
-   const session:SessionView=await request(`reader/sessions/${storyId}/revisions`,'POST',{requestId:submission.current.id,token:base.token,changes:submittedChanges,...(startRedraw?{startRedraw:true}:{})});
+   const revision={requestId:submission.current.id,token:base.token,changes:submittedChanges,...(startRedraw?{startRedraw:true}:{})};
+   let payload:typeof revision|FormData=revision;
+   if(cover){
+    payload=new FormData();
+    payload.set('revision',JSON.stringify(revision));
+    payload.set('cover',cover);
+   }
+   const session:SessionView=await request(`reader/sessions/${storyId}/revisions`,'POST',payload);
    if(latest.current!==originId)return;
    setTab(null);setBase(null);setChanges({});submission.current=null;
    await callback.current(session,submittedChanges);

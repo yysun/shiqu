@@ -53,7 +53,7 @@ async function legacyLibrary(t){
  return {f,db,ids,legacy};
 }
 const snapshot=async(f,ids)=>Object.fromEntries(await Promise.all(['parent','child','plain'].map(async key=>[key,{prompts:await f.json(`sessions/${ids[key]}/prompts`),review:await f.json(`sessions/${ids[key]}/review-history`)}])));
-const counts=db=>({commands:db.prepare('SELECT COUNT(*) AS n FROM reader_commands').get().n,faults:db.prepare('SELECT COUNT(*) AS n FROM reader_faults').get().n});
+const counts=db=>({commands:db.prepare('SELECT COUNT(*) AS n FROM reader_commands').get().n,faults:db.prepare(`SELECT COUNT(*) AS n FROM ${db.prepare("SELECT 1 FROM sqlite_schema WHERE name='production_faults'").get()?'production_faults':'reader_faults'}`).get().n});
 
 test('迁移按内容去重移出内嵌记录，接口输出、更新时间和触发器写入的行都不变',async t=>{
  const {f,db,ids,legacy}=await legacyLibrary(t);

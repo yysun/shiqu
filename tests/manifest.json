@@ -865,7 +865,8 @@
         "tests/fixtures/images.mjs",
         "tests/fixtures/production-data.mjs",
         "tests/fixtures/startup.mjs",
-        "tests/fixtures/story.mjs"
+        "tests/fixtures/story.mjs",
+        "lib/production-dag/document.ts"
       ]
     },
     {
@@ -1579,7 +1580,7 @@
         "extended"
       ],
       "covers": [
-        "lib/production-dag/convert.ts",
+        "server/migrations/production-v4.ts",
         "lib/production-dag/engine.ts",
         "lib/production-dag/runner.ts",
         "server/dag-production.ts",
@@ -2187,6 +2188,10 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "tests/fixtures/book-reference.mjs",
+        "tests/fixtures/production-dag.mjs",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/production-dag-story.mjs",
         "db/schema.ts",
         "drizzle/0022_story_content_revisions.sql",
         "drizzle/0023_story_scan_indexes.sql",
@@ -2248,6 +2253,14 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/book-reference.mjs",
+        "tests/fixtures/production-dag.mjs",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/production-dag-story.mjs",
+        "tests/fixtures/production-data.mjs",
+        "tests/fixtures/production.mjs",
         "lib/production-lifecycle.ts",
         "lib/shelf-generation.ts",
         "client/ui/StoryGenerationControl.tsx",
@@ -2285,7 +2298,6 @@
         "server/reader-production.ts",
         "server/dag-revisions.ts",
         "server/dag-production.ts",
-        "server/dag-revision-faults.ts",
         "server/dag-fault-migration.ts",
         "server/migrations/production-v2.ts",
         "drizzle/0027_revision_fault_targets.sql",
@@ -2909,6 +2921,7 @@
       "gates": [],
       "covers": [
         "lib/reader-review-history.ts",
+        "server/migrations/production-review-history.ts",
         "lib/reader-review.ts",
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
@@ -3951,7 +3964,8 @@
         "tests/fixtures/images.mjs",
         "tests/fixtures/production-data.mjs",
         "server/generation.ts",
-        "tests/fixtures/story.mjs"
+        "tests/fixtures/story.mjs",
+        "lib/production-dag/document.ts"
       ]
     },
     {
@@ -4210,7 +4224,7 @@
         "server/reader-copy.ts",
         "server/reader-production.ts",
         "lib/production-dag/calls.ts",
-        "lib/production-dag/convert.ts",
+        "server/migrations/production-v4.ts",
         "lib/production-dag/requests.ts",
         "lib/production-dag/runner.ts",
         "server/dag-production.ts",
@@ -4220,7 +4234,9 @@
         "tests/fixtures/gemini-evidence.mjs",
         "tests/fixtures/images.mjs",
         "tests/fixtures/production.mjs",
-        "tests/fixtures/production-data.mjs"
+        "tests/fixtures/production-data.mjs",
+        "lib/production-dag/document.ts",
+        "lib/reader-model.ts"
       ],
       "modelRelated": true,
       "manualOnly": true
@@ -4391,7 +4407,6 @@
       "pr": "affected",
       "gates": [],
       "covers": [
-        "lib/production-dag/review-skip.ts",
         "server/dag-image-faults.ts",
         "server/paid-dispatch.ts",
         "server/dag-production.ts",
@@ -4429,7 +4444,8 @@
         "lib/reader-image-assets.ts",
         "lib/production-dag/errors.ts",
         "client/ui/useStoryRevision.ts",
-        "client/ui/StoryGenerationControl.tsx"
+        "client/ui/StoryGenerationControl.tsx",
+        "server/production-products.ts"
       ]
     },
     {
@@ -4542,12 +4558,13 @@
         "lib/production-dag/hand-edits.ts",
         "lib/production-dag/frames.ts",
         "lib/production-dag/document.ts",
-        "lib/production-dag/convert.ts",
+        "server/migrations/production-v4.ts",
         "lib/production-dag/schedule.ts",
         "tests/fixtures/production-dag.mjs",
         "lib/production-dag/runner.ts",
         "lib/production-dag/requests.ts",
-        "lib/production-dag/calls.ts"
+        "lib/production-dag/calls.ts",
+        "server/migrations/production-v2.ts"
       ]
     },
     {
@@ -4615,6 +4632,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "server/story-export.ts",
         "drizzle/0026_production_lifecycle.sql",
         "drizzle/0027_revision_fault_targets.sql",
         "server/dag-migration.ts",
@@ -4622,7 +4640,7 @@
         "server/database-migrations.ts",
         "server/library-upgrade.ts",
         "server/library-backup.ts",
-        "lib/production-dag/convert.ts",
+        "server/migrations/production-v4.ts",
         "tests/fixtures/historical-library.mjs",
         "tests/fixtures/production-data.mjs",
         "lib/reader-model.ts",
@@ -4633,7 +4651,10 @@
         "server/dag-production.ts",
         "tests/fixtures/production.mjs",
         "tests/fixtures/gemini-evidence.mjs",
-        "tests/fixtures/book-reference.mjs"
+        "tests/fixtures/book-reference.mjs",
+        "lib/production-dag/document.ts",
+        "lib/production-dag/runner.ts",
+        "lib/production-dag/engine.ts"
       ]
     }
   ]

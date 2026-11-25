@@ -6,5 +6,5 @@ export const reviewOverrideSchema=recoveryRequestSchema.extend({ending:z.union([
 export type ReviewOverride=z.infer<typeof reviewOverrideSchema>;
 export type ReviewOverrideOffer={faultId:string;title:string;reflection:string;needsEnding:boolean};
 export type RecoveryRequest=z.infer<typeof recoveryRequestSchema>;
-export type FaultView={id:string;message:string;page:number|null;stage:'source'|'prepare'|'generation'|'publication'|'review'|'redraw';state:'pending'|'recovering'|'awaiting-match';retryAllowed:boolean;retryReview?:true};
+export type FaultView={id:string;message:string;page:number|null;stage:'source'|'prepare'|'generation'|'publication'|'review'|'redraw';state:'pending'|'recovering';retryAllowed:boolean;retryReview?:true};
 export type RecoveryReceiptView={requestId:string;status:'queued'|'running'|'succeeded'|'failed';error:string|null};

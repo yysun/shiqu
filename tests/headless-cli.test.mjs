@@ -96,8 +96,9 @@ test('image continuation rejects a changed source after the Skill checkpoint and
 test('copy retains partial image positions and later production draws only the missing page without review',async t=>{
  const {source,target,sourceId,args}=await copySource(t),db=new DatabaseSync(path.join(source.f.dataDirectory,'shiqu.sqlite'));
  try{
-  const doc=JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(sourceId).document);doc.images[1]='';
-  db.prepare("UPDATE stories SET document=?,state='idle',generation_control='paused' WHERE id=?").run(JSON.stringify(doc),sourceId);
+  const doc=JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(sourceId).document);
+  db.prepare('DELETE FROM production_product_refs WHERE session_id=? AND target=?').run(sourceId,`frameImage:${doc.dag.order[1]}`);
+  db.prepare("UPDATE stories SET production_complete=0,generation_control='paused' WHERE id=?").run(sourceId);
  }finally{db.close();}
  const copied=await target.call([...args,'--copy-images']);assert.equal(copied.session.ready,2);assert.equal(copied.session.story.pages[1].image,'');
  await target.call(['stories','resume',copied.session.id]);assert.equal((await target.call(['run',copied.session.id,'--timeout','10'])).reason,'completed');
@@ -129,7 +130,8 @@ test('in-process CLI saves intent without inference, runs bounded discovery/prep
  const prepared=await call(['run',id,'--until','prepared','--timeout','10']);assert.equal(prepared.reason,'prepared');assert.equal(f.control.dagCalls.length,0);
  const {intake}=prepared.session,{acceptancePrompt:_,...draftSettings}=intake.draft;
  const {session:{intake:savedDraft}}=await call(['stories','setup',id],{action:'draft',generation:intake.generation,draftToken:intake.draftToken,settings:draftSettings});
- assert.equal(savedDraft.draft.acceptancePrompt,undefined);
+ assert.equal(savedDraft.draft.acceptancePrompt,intake.draft.acceptancePrompt);
+ assert.notEqual(savedDraft.requirementsEdited.acceptancePrompt,true);
  const confirmId=crypto.randomUUID(),confirmInput={generation:savedDraft.generation,draftToken:savedDraft.draftToken};
  await call(['stories','confirm',id,'--request-id',confirmId],confirmInput);await call(['stories','confirm',id,'--request-id',confirmId],confirmInput);assert.equal((await call(['run',id,'--until','prepared','--timeout','1'])).reason,'already_prepared');assert.equal(f.control.dagCalls.length,0);
  const pauseId=crypto.randomUUID();await call(['stories','pause',id,'--request-id',pauseId]);await call(['stories','pause',id,'--request-id',pauseId]);assert.equal((await call(['run',id,'--timeout','1'])).reason,'paused');assert.equal(f.control.dagCalls.length,0);

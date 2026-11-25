@@ -175,6 +175,7 @@ export default function Reader(){
  const [redrawPage,setRedrawPage]=useState<number|null>(null);
  const [redrawNote,setRedrawNote]=useState('');
  const [redrawFromFirst,setRedrawFromFirst]=useState(false);
+ const [firstImage,setFirstImage]=useState<File>();
  const desktop=useDesktopLayout(),drawerForm=useDrawerForm(),wide=desktop&&!drawerForm;
  // 书架右栏分别保留阅读和制作设置的入口，避免设置载入首幅图片后自动变成阅读。
  const [docked,setDocked]=useState(false),[expanded,setExpanded]=useState(false);
@@ -586,6 +587,7 @@ export default function Reader(){
  const drawingHeld=!!readingStatus&&(readingStatus.group==='生成已暂停'||readingStatus.group==='生成失败');
  const redrawStatus=readingSession?.redrawPage===page+1?shelfGenerationStatus(readingSession).message:null;
  const reviewStatus=readingSession?.generationProgress?.reviewStatus;
+ const canCover=!!readingSession&&offersProductionAction(readingSession,'cover',false);
  const canRedraw=isGenerated(story)&&!!readingSession&&offersProductionAction(readingSession,'redraw',readingSession.state==='completed'&&!readingSession.superseded&&(!reviewStatus||reviewStatus==='passed'));
  const workflowSession=workflowTarget?(gen.active?.id===workflowTarget?gen.active:null):settings?readingSession:!story?gen.active:null;
  // 旧任务打开后沿用同一条记录，在选材页接着选。
@@ -734,7 +736,7 @@ export default function Reader(){
  {!ended&&<>
  <div className={'yu-scene-caption '+(largeText?'large':'')} key={'caption-'+page}><div className="yu-scene-number"><span>{String(page+1).padStart(2,'0')}</span><i/><span>{String(story.pages.length).padStart(2,'0')}</span>{isGenerated(story)&&gen.busy&&<span className="yu-scene-generation" role="status"><Loader2 size={12} className="spin"/>{gen.active?.stage||'正在生成'}</span>}</div><p aria-label={captionText}>{visibleCaption}</p>{current?.image&&(gen.error||imageIssues[current.image]||!!readingSession?.faults?.length)&&<div className="yu-reader-error">{gen.error||imageIssues[current.image]}{isGenerated(story)&&imageIssues[current.image]&&<StoryFlowAction tone="dark" onClick={()=>void inspectImage(story.id,page,current.image,true)}>重新检查图片</StoryFlowAction>}{readingSession&&<StoryRetry session={readingSession} busy={gen.busy} onRetry={gen.retryStep}/>}</div>}</div>
  <footer className="yu-reader-bottom"><button className="yu-source-button" onClick={()=>setSource(true)} aria-label="原文" title="原文"><BookOpen size={17}/><span>原文</span></button><button className="yu-glass" onClick={()=>setSceneList(true)} aria-label="分镜列表" title="分镜列表"><List size={20}/></button>
-  {canRedraw&&<button type="button" className="yu-glass yu-redraw-button" onClick={()=>{redraw.discard();setRedrawNote('');setRedrawFromFirst(false);setRedrawPage(page);void redraw.load();}} aria-label="重新生图" title="重新生图">
+  {canRedraw&&<button type="button" className="yu-glass yu-redraw-button" onClick={()=>{redraw.discard();setRedrawNote('');setRedrawFromFirst(false);setFirstImage(undefined);setRedrawPage(page);void redraw.load();}} aria-label="重新生图" title="重新生图">
    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M10 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3.5M3 16l4.5-4.5 4 4"/>
     <circle cx="8.5" cy="8" r="1"/>
@@ -822,19 +824,20 @@ export default function Reader(){
  {settingsDialogOpen&&<StorySettingsPanel {...settingsProps} onClose={()=>{setSettings(false);closeWorkflow();}}/>}
  {embeddingSheet}
  {storySheets}
- {story&&redrawPage!==null&&<Sheet title="重新生图" busy={redraw.busy} onClose={()=>setRedrawPage(null)}>
-  <p className="yu-sheet-intro">确认后立即重绘第 {redrawPage+1} 幅竖图。重绘可能消耗额度。已保存的横图套图仍可打印。</p>
-  <div className="yu-redraw-models"><p>原图像模型：{isGenerated(story)?generationImageModelForPage(story.generationModels,redrawPage)||'未记录':'未记录'}</p><p>本次将使用的图像模型：{providerRuntime?.models.image.trim()||(providerRuntime?'未配置':'正在读取…')}</p></div>
+ {story&&redrawPage!==null&&<Sheet title={firstImage?"替换首幅":"重新生图"} busy={redraw.busy} onClose={()=>setRedrawPage(null)}>
+  <p className="yu-sheet-intro">{firstImage?'确认后保存所选图片为首幅竖图。':`确认后立即重绘第 ${redrawPage+1} 幅竖图。`}{(!firstImage||redrawFromFirst)&&'重绘可能消耗额度。'}</p>
+  {(!firstImage||redrawFromFirst)&&<div className="yu-redraw-models"><p>原图像模型：{isGenerated(story)?generationImageModelForPage(story.generationModels,redrawPage)||'未记录':'未记录'}</p><p>本次将使用的图像模型：{providerRuntime?.models.image.trim()||(providerRuntime?'未配置':'正在读取…')}</p></div>}
   {redraw.loading&&<p role="status">正在载入制作内容…</p>}
   {redraw.error&&<p role="alert">{redraw.error}</p>}
-  <label className="yu-revision-field">重绘说明（选填）<textarea rows={3} maxLength={redrawNoteMaxLength} value={redrawNote} disabled={redraw.busy} onChange={event=>setRedrawNote(event.target.value)} placeholder="例如，把背景光线调暗，保留主体的位置"/></label>
+  {redrawPage===0&&canCover&&<label className="yu-revision-field">选择图片替换首幅（选填）<input type="file" accept="image/png,image/jpeg,image/webp" disabled={redraw.busy} onChange={event=>setFirstImage(event.target.files?.[0])}/></label>}
+  {!firstImage&&<label className="yu-revision-field">重绘说明（选填）<textarea rows={3} maxLength={redrawNoteMaxLength} value={redrawNote} disabled={redraw.busy} onChange={event=>setRedrawNote(event.target.value)} placeholder="例如，把背景光线调暗，保留主体的位置"/></label>}
   {redrawPage===0&&story.pages.length>1&&<label><input type="checkbox" checked={redrawFromFirst} disabled={redraw.busy} onChange={event=>setRedrawFromFirst(event.target.checked)}/> 同时按新首幅重绘其余 {story.pages.length-1} 幅</label>}
   <div className="yu-revision-buttons">
    {!redraw.loading&&!redraw.base?<StoryFlowAction onClick={()=>void redraw.load()}>重新载入</StoryFlowAction>:<button type="button" className="yu-primary" disabled={!redraw.base||redraw.loading||redraw.busy} onClick={()=>{
-    const frame=redrawPage+1,note=redrawNote.trim();
+    const frame=redrawPage+1,note=firstImage?'':redrawNote.trim();
     const redrawPages=redrawPage===0&&redrawFromFirst?story.pages.map((_,index)=>index+1):[frame];
-    void redraw.submit({redrawPages,...(note?{redrawNotes:{[frame]:note}}:{})},true);
-   }}>{redraw.busy?'正在提交…':'确认重新生图'}</button>}
+    void redraw.submit({redrawPages,...(note?{redrawNotes:{[frame]:note}}:{})},true,firstImage);
+   }}>{redraw.busy?'正在提交…':firstImage?'确认替换首幅':'确认重新生图'}</button>}
    <button type="button" disabled={redraw.busy} onClick={()=>setRedrawPage(null)}>取消</button>
   </div>
  </Sheet>}

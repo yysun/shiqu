@@ -1,20 +1,24 @@
+import {productionStorageHash,writeStoryProducts} from './production-products.ts';
+import {recordFamilyImage} from './media.ts';
 // 制作 DAG 故事的修订保存：新版复制上一版的 dag 与图片，读者改动按手改记录，失效范围由引擎按输入推导。
 // 有重做工作时保留「已保存，等待继续」，阅读器明确确认的单幅重绘直接进入绘图队列。
 // 支持文字修改、删除画幅、设置修改（含画风、幅数策略）与仅换图（可带重绘说明）。文字修改按上一版的输入记录为手改，
 // 再合入设置修改；保存会使手改失效时，读者须对每处手改选择「以手改为基础」或「放弃」，未选择时不保存。
+import {decodeDocument} from '../lib/production-dag/document.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import {ReaderError,selectionSchema,type Document,type SessionRow,type Selection} from '../lib/reader-model.ts';
 import type {ReaderRepository,ReadStatements} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
 import type {RevisionChanges} from '../lib/reader-revision.ts';
+import {readerMinFrames,readerMaxFrames} from '../lib/reader-limits.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
 import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {castFrom} from '../lib/production-dag/frames.ts';
 import {projectDocument,rootProducts,type DagDocument} from '../lib/production-dag/document.ts';
-import {settle,stateOf,syncItems,work,deriveProduction,type DagStory} from '../lib/production-dag/runner.ts';
-import {handEditChoices} from '../lib/production-dag/hand-edits.ts';
+import {settle,stateOf,work,deriveProduction,applyStructureEdits,structureEditPlan,type DagStory} from '../lib/production-dag/runner.ts';
+import {handEditChoices,structuralLoss} from '../lib/production-dag/hand-edits.ts';
 import {verdictNodes} from '../lib/production-dag/review.ts';
 import {survivingRevisionFrames,usesStoryImageReference} from '../lib/reader-revision.ts';
 import {revisionBasis,familyEpoch,currentFamilyVersion,revisionCoverMaxBytes,revisionToken} from './reader-revisions.ts';
@@ -25,45 +29,11 @@ import {portraitDocument} from '../lib/production-dag/copy.ts';
 import {dagProgress} from '../lib/production-dag/progress.ts';
 import {transact} from './production-records.ts';
 import {authorizeProductionCommand} from '../lib/production-lifecycle.ts';
-import {unexecutedLandscapeRecovery} from './dag-revision-faults.ts';
 import {editRequirements} from '../lib/reader-requirements.ts';
 
 type SaveImage=(index:number,bytes:Uint8Array,type:keyof typeof imageTypes)=>Promise<string>;
-const frameNodes=['scene','visual','frameImage','landscape',...verdictNodes];
-const landscapeFaultKeys=(db:ReadStatements,id:string,ownerId:string)=>new Set(db.all<{node_key:string}>(`SELECT node_key FROM reader_faults f
- WHERE session_id=? AND owner_id=? AND node='landscape' AND (state IN ('pending','recovering') OR ${unexecutedLandscapeRecovery})`,id,ownerId).map(fault=>fault.node_key));
+const frameNodes=['scene','visual','frameImage',...verdictNodes];
 
-/** 旧版未记录请求输入：只有与父版同代次的请求才是继承。以原授权的硬输入核对，无法查清时等待新的明确授权。 */
-export function bindLegacyLandscapeRequests(db:ReadStatements,ownerId:string,story:DagStory):DagStory{
- const visited=new Set<string>();
- const bind=(current:DagStory):DagStory=>{
-  const {id,doc,dag}=current,revision=doc.revision;
-  if(!revision||visited.has(id))return current;
-  const keys=dag.order.filter(key=>{
-   const frame=dag.frames[key];
-   return frame.landscape===''&&!frame.landscapeInputHash&&revision.redrawFrame!==key;
-  });
-  if(!keys.length)return current;
-  visited.add(id);
-  const row=visited.has(revision.parentId)?undefined:db.get<Pick<SessionRow,'document'|'selection'>>(
-   'SELECT document,selection FROM stories WHERE id=? AND user_id=? AND json_valid(document) AND json_valid(selection)',revision.parentId,ownerId);
-  const parentDoc=row?JSON.parse(row.document) as Document:null;
-  const selection=row&&selectionSchema.safeParse(JSON.parse(row.selection));
-  const parent=parentDoc?.dag&&selection?.success?bind({id:revision.parentId,doc:parentDoc,dag:parentDoc.dag,selection:selection.data,confirmed:true,faults:[]}):null;
-  const evaluation=parent&&evaluate(stateOf(parent)),frames={...dag.frames},failed=landscapeFaultKeys(db,id,ownerId);
-  for(const key of keys){
-   const before=parent?.dag.frames[key],frame=frames[key];
-   if(parent&&(before?.landscape===undefined||before.landscapeAttempt!==frame.landscapeAttempt))continue;
-   const inputs=(before?.landscape?parent?.dag.products[instanceId('landscape',key)]?.inputs:undefined)??evaluation?.instance('landscape',key).hard;
-   const binding=frame.landscapeError||failed.has(key)?before?.landscapeInputHash??fingerprint(inputs??null):fingerprint(null);
-   frames[key]={...frame,landscapeInputHash:binding};
-  }
-  return {...current,dag:{...dag,frames}};
- };
- return bind(story);
-}
-
-/** 读者的设置修改合入选择；幅数策略改变由引擎重新编排。 */
 function nextSelection(selection:Selection,changes:RevisionChanges):Selection{
  // 换预设画风而没有同时给出自定义画风说明时，旧预设的自定义说明不再适用，必须清除，否则整套重绘会用错画风。
  const presetChanged=!!changes.artStyle&&changes.artStyle!==selection.artStyle&&changes.artStylePrompt===undefined;
@@ -83,10 +53,10 @@ function nextSelection(selection:Selection,changes:RevisionChanges):Selection{
  * 其指纹变化只使画过该人物的画幅重绘。无法逐行对应时拒绝保存，不能静默丢弃。
  */
 function editCharacters(dag:DagDocument,text:string,handEdit:(node:string,key:string,content:unknown)=>void){
- const shown=dag.characters.map(c=>c.legacy?c.text:`${c.name}：${c.text}`).join('\n');
+ const shown=dag.characters.map(c=>c.name?`${c.name}：${c.text}`:c.text).join('\n');
  if(!dag.characters.length||text===shown)return;
  const next=dag.characters.map(c=>({...c}));
- if(next.length===1&&next[0].legacy)next[0].text=text;
+ if(next.length===1&&!next[0].name)next[0].text=text;
  else{
   const lines=text.split('\n').map(line=>line.trim()).filter(Boolean);
   if(lines.length!==next.length)throw new ReaderError(400,'人物设定需保持原有的人数，每行写成「姓名：设定」。');
@@ -102,7 +72,7 @@ function editCharacters(dag:DagDocument,text:string,handEdit:(node:string,key:st
  const content=next.map(c=>({id:c.id,name:c.name,aliases:c.aliases,text:c.text}));
  handEdit('characters','',content);
  const product=dag.products[instanceId('characters')];
- product.parts=Object.fromEntries(next.map((c,i)=>[c.id,c.legacy?fingerprint(c.text):fingerprint(content[i])]));
+ product.parts=Object.fromEntries(next.map((c,i)=>[c.id,c.name?fingerprint(content[i]):fingerprint(c.text)]));
 }
 
 /** 标题与余味的修改记为读者确认的结语；它是根产物，由 settle 重新记录，依赖它的审片随之重做。 */
@@ -165,26 +135,27 @@ function addDrawnFrom(frame:DagDocument['frames'][string],prompt:string,characte
 }
 
 /**
- * 新版的图片复制到新版目录；产物记录不变（同一份图片内容）。原图已丢失或无法辨认时，
+ * 新版引用原目录中的图片文件。原图已丢失或无法辨认时，
  * 丢失的成图标为不可读，新版继续后按缺幅补绘。横图丢失视为未请求。
  */
-async function copyImages(media:MediaStore,parentId:string,dag:DagDocument,saveImage:SaveImage):Promise<number[]>{
+async function retainImages(media:MediaStore,parentId:string,dag:DagDocument,aliasImage:(index:number,key:string,type:keyof typeof imageTypes)=>string):Promise<number[]>{
  const lost:number[]=[];
  for(const [index,id] of dag.order.entries()){
-  for(const field of ['image','landscape'] as const){
+  const field='image';
+  {
    const url=dag.frames[id][field];if(!url)continue;
    const key=referenceImageKey(parentId,url),asset=key?await media.get(key).catch(()=>{throw new ReaderError(503,`第 ${index+1} 幅原图暂时无法读取，未创建新版，请稍后重试。`);}):null;
    const bytes=asset?new Uint8Array(await asset.arrayBuffer()):null,type=bytes&&mediaType(bytes);
-   const product=instanceId(field==='image'?'frameImage':'landscape',id),record=dag.products[product];
-   const supplied=field==='image'&&dag.cover?.frame===id;
+   const product=instanceId('frameImage',id),record=dag.products[product];
+   const supplied=dag.cover?.frame===id;
    if(!bytes||!type||(supplied||record?.readable===false)&&!await readableImage(bytes)){
     delete dag.frames[id][field];
-    if(field==='image'&&(record||supplied))lost.push(index);
-    if(field==='image'&&record)dag.products[product]={...record,readable:false};
+    if((record||supplied))lost.push(index);
+    if(record)dag.products[product]={...record,readable:false};
     else delete dag.products[product];
     continue;
    }
-   dag.frames[id][field]=await saveImage(index,bytes,type);
+   dag.frames[id][field]=aliasImage(index,key!,type);
    if(record?.readable===false)dag.products[product]={...record,readable:true};
   }
  }
@@ -236,9 +207,23 @@ function deriveRevision(db:ReadStatements,doc:Document,row:SessionRow,changes:Re
  if(changes.plan&&doc.plan&&(['sourceReference','adaptationNote'] as const).some(key=>changes.plan![key]!==doc.plan![key]))throw new ReaderError(400,'本次仅修改分镜、人物与余味，原文出处和改编说明保持不变。');
  const selection=nextSelection(selectionSchema.parse(JSON.parse(row.selection)),changes);
  const reviewNotes=(changes.reviewNotes!==undefined?changes.reviewNotes:doc.reviewNotes)?.trim()||undefined;
- const parent=bindLegacyLandscapeRequests(db,row.user_id,{id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag!,confirmed:true,faults:[]});
+ const parent=({id:row.id,doc,selection:selectionSchema.parse(JSON.parse(row.selection)),dag:doc.dag!,confirmed:true,faults:[]});
  // 文字修改按上一版的输入记录为手改，再合入设置修改，由引擎判断哪些产物失效。
  const edited=applyEdits(parent,changes);
+ let removedHandEdits:string[]=[];
+ if(changes.structureEdits){
+  if(changes.plan||changes.removedFrames||changes.length!==undefined||changes.productionPrompt!==undefined||changes.narrativeDetail!==undefined)
+   throw new ReaderError(400,'请先单独保存结构修改。');
+  const structure=structureEditPlan(edited,changes.structureEdits);
+  if(!structure||structure.entries.length<readerMinFrames||structure.entries.length>readerMaxFrames)
+   throw new ReaderError(400,'请提交互不重叠的有效画幅范围，并保留允许的画幅数量。');
+  removedHandEdits=structuralLoss(stateOf(parent),{deleted:structure.retired})
+   .filter(id=>changes.handEdits?.[id]!=='discard');
+  if(strict&&removedHandEdits.length)throw new ReaderError(409,'本次结构修改会丢弃手改，请先核对保存预估。');
+  for(const id of structuralLoss(stateOf(parent),{deleted:structure.retired}))delete edited.products[id];
+  let created=0;
+  applyStructureEdits(parent,edited,changes.structureEdits,()=>`f-${fingerprint([childId,'structure',created++]).slice(0,16)}`,true);
+ }
  if(edited.cover&&!sameArtDirection(parent.selection,selection)){
   const first=edited.cover.frame;
   delete edited.cover;
@@ -247,21 +232,13 @@ function deriveRevision(db:ReadStatements,doc:Document,row:SessionRow,changes:Re
  }
  applyRedraw(edited,changes);
  const child:DagStory={...parent,id:childId,selection,doc:{...doc,reviewNotes},dag:edited};
- const roots=(story:DagStory)=>rootProducts(story.selection,syncItems(story.dag,story.selection),{notes:story.doc.reviewNotes});
+ const roots=(story:DagStory)=>rootProducts(story.selection,story.dag,{notes:story.doc.reviewNotes});
  const changed=!!changes.redrawPages||fingerprint(edited)!==fingerprint(parent.dag)||fingerprint(roots(child))!==fingerprint(roots(parent));
  if(!changed)return {parent,child,selection,reviewNotes,changed,choices:[],conflicts:[]};
- delete edited.resumeUnreviewed;
- for(const [id,product] of Object.entries(edited.products))if(product.unreviewed)delete edited.products[id];
  const outcome=settleHandEdits(child,changes.handEdits,strict);
  child.dag={...outcome.dag,repairs:undefined,issues:[]};
- delete child.dag.suggestions;
- // 横图随发起版本独立保留，新版只有再次明确发起时才有横图任务。
- for(const key of child.dag.order){
-  const frame=child.dag.frames[key];
-  delete frame.landscape;delete frame.landscapeInputHash;delete frame.landscapeError;delete frame.landscapeAttempt;
-  delete child.dag.products[instanceId('landscape',key)];
- }
- return {parent,child,selection,reviewNotes,changed,choices:outcome.choices,conflicts:outcome.conflicts};
+
+ return {parent,child,selection,reviewNotes,changed,choices:[...outcome.choices,...removedHandEdits.map(id=>({id,options:['discard']}))],conflicts:[...outcome.conflicts,...removedHandEdits]};
 }
 
 export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:number;
@@ -302,7 +279,7 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
  const redrawPages=order.flatMap((id,index)=>ev.instance('frameImage',id).status==='valid'?[]:[index+1]);
  const redraw=redrawPages.length;
  const textWork:Record<string,number>={};
- for(const item of items)if(item.call!=='draw'&&item.call!=='drawLandscape')textWork[item.call]=(textWork[item.call]??0)+item.instances.length;
+ for(const item of items)if(item.call!=='draw')textWork[item.call]=(textWork[item.call]??0)+item.instances.length;
  const lostImagePages=redrawPages.filter(page=>parent.dag.products[instanceId('frameImage',order[page-1])]?.readable===false);
  const keepsOutline=ev.instance('outline').status==='valid',remaining=new Set(order);
  const droppedRedrawNotePages=parent.dag.order.flatMap((key,index)=>
@@ -313,6 +290,8 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
 export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string,cover?:Uint8Array,startRedraw=false):Promise<SessionRow>{
  if(!Object.keys(changes).length)throw new ReaderError(400,'没有需要保存的修改。');
  const {doc,rootId,epoch,token:current}=await revisionBasis(repo,row);
+ const progress=dagProgress(doc,selectionSchema.parse(JSON.parse(row.selection)));
+ const completedParent=progress?.complete===true;
  const redrawPages=changes.redrawPages??[];
  const redrawAll=redrawPages.length>1&&redrawPages.length===doc.dag?.order.length&&redrawPages.includes(1);
  if(startRedraw&&(paused||redrawPages.length!==1&&!redrawAll))throw new ReaderError(400,'请确认立即重绘一幅画，或从首幅开始重绘整篇。');
@@ -324,18 +303,20 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   if(!edit.allowed)throw new ReaderError(edit.status,edit.message);
  }
  if(changes.redrawPages){
-  const redraw=authorizeProductionCommand('redraw',{...state,targetReady:true,targetCurrent:row.state==='completed'&&
-   !Object.values(doc.dag!.products).some(product=>product.unreviewed)&&Object.keys(changes).every(key=>['redrawPages','redrawNotes'].includes(key))});
+  const redraw=authorizeProductionCommand('redraw',{...state,targetReady:true,targetCurrent:completedParent&&
+   Object.keys(changes).every(key=>['redrawPages','redrawNotes'].includes(key))});
   if(!redraw.allowed)throw new ReaderError(redraw.status,redraw.message);
  }
  if(changes.redrawNotes&&Object.keys(changes.redrawNotes).some(page=>!changes.redrawPages?.includes(Number(page))))throw new ReaderError(400,'重绘说明只能用于本次选中的画幅。');
- // 指定首幅原图（v0.14.0 的 --cover）：只用于已完成且审核通过的故事换画风；文件须是可读取的 PNG/JPEG/WebP，不超过 12 MiB、宽高各不超过 4096。
+ // 已完稿的首幅可以用原图替换，也可以在换画风时指定新首幅。
  const coverType=cover&&mediaType(cover);
  if(cover){
   const dimensions=imageDimensions(cover);
-  const reviewPassed=dagProgress(doc,selectionSchema.parse(JSON.parse(row.selection)))?.review.reviewStatus==='passed'&&!Object.values(doc.dag!.products).some(product=>product.unreviewed);
+  const reviewPassed=progress?.review.reviewStatus==='passed';
+  const styleOnly=Object.keys(changes).length===1&&!!changes.artStyle;
+  const replaceFirst=redrawPages.includes(1)&&(redrawPages.length===1||redrawAll)&&!changes.redrawNotes;
   const accepted=authorizeProductionCommand('cover',{...state,targetCurrent:true,
-   targetReady:Object.keys(changes).length===1&&!!changes.artStyle&&row.state==='completed'&&reviewPassed});
+   targetReady:(styleOnly||replaceFirst)&&completedParent&&reviewPassed});
   if(!accepted.allowed)throw new ReaderError(accepted.status,accepted.message);
   if(cover.length>revisionCoverMaxBytes||!coverType||!dimensions||dimensions.width>4096||dimensions.height>4096||!await readableImage(cover))throw new ReaderError(400,'请选择可读取的 PNG、JPEG 或 WebP，文件不超过 12 MiB，宽高各不超过 4096 像素。');
  }
@@ -351,9 +332,9 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
    }
    if(db.get('SELECT id FROM stories WHERE user_id=? AND id=?',ownerId,requestId))
     throw new ReaderError(409,'这个操作编号已用于其他内容。');
-   const latest=db.get<SessionRow>(`SELECT p.* FROM stories p WHERE p.id=? AND p.user_id=? AND ${currentFamilyVersion('p')}`,row.id,ownerId);
+   const latest=db.get<SessionRow>(`SELECT p.* FROM story_rows p WHERE p.id=? AND p.user_id=? AND ${currentFamilyVersion('p')}`,row.id,ownerId);
    if(!latest)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
-   const currentDoc=JSON.parse(latest.document) as Document;
+   const currentDoc=decodeDocument(latest);
    const currentEpoch=db.get<{epoch:number}>(familyEpoch,ownerId,rootId,rootId)!.epoch;
    if(currentDoc.dag?.repreparing||revisionToken(latest,currentDoc,currentEpoch)!==token||deriveRevision(db,currentDoc,latest,changes,requestId,true).changed)
     throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
@@ -365,6 +346,7 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  const requestedFrames=new Set(redrawPages.map(page=>child.dag.order[page-1]));
  // 并发重放同一编号时，每次保存仅清理自己写入的图片。
  const attempt=randomUUID(),staged:string[]=[];
+ const aliases:{alias:string;target:string}[]=[];
  const saveImage:SaveImage=async(index,bytes,type)=>{
   const asset=readerImageAsset(requestId,index,imageTypes[type],createHash('sha256').update(attempt).update(bytes).digest('hex'));
   staged.push(asset.key);
@@ -373,19 +355,25 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
  };
  try{
   if(cover)delete child.dag.frames[child.dag.order[0]].image;
-  const lost=await copyImages(media,row.id,child.dag,saveImage);
+  const lost=await retainImages(media,row.id,child.dag,(index,target,type)=>{
+   const asset=readerImageAsset(requestId,index,imageTypes[type],fingerprint(['family-image',target]));
+   aliases.push({alias:asset.key,target});
+   return asset.url;
+  });
   if(cover&&coverType){
    // 首幅原图字节不变地保存到新版，立即作为首幅显示；其成图产物在画面描述转换完成、输入就绪后由 settle() 记录。
    const first=child.dag.order[0],image=await saveImage(0,cover,coverType);
    child.dag=structuredClone(child.dag);
    child.dag.cover={frame:first};
-   child.dag.frames[first].image=image;delete child.dag.products[instanceId('frameImage',first)];
+   child.dag.frames[first].image=image;
+   delete child.dag.frames[first].redrawRequested;
+   delete child.dag.products[instanceId('frameImage',first)];
   }
   child.dag=settle(child);
   const items=work(child),pending=items.length>0;
   if(startRedraw){
-   const redraw=authorizeProductionCommand('redraw',{...state,targetCurrent:true,targetReady:lost.length===0&&items.some(item=>item.call==='draw')&&
-    items.every(item=>['draw','drawLandscape'].includes(item.call)&&item.instances.every(instance=>requestedFrames.has(instance.key)))});
+   const redraw=authorizeProductionCommand('redraw',{...state,targetCurrent:true,targetReady:lost.length===0&&(items.length>0||!!cover)&&
+    items.every(item=>item.call==='draw'&&item.instances.every(instance=>requestedFrames.has(instance.key)))});
    if(!redraw.allowed)throw new ReaderError(redraw.status,redraw.message);
   }
   const waiting=pending&&!startRedraw;
@@ -394,12 +382,12 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   const {plan,images}=projectDocument(dag,doc.plan);
   const portrait=portraitDocument(doc);
   const document:Document={...portrait,dag,plan,images,reviewNotes,usage:portrait.usage.map(item=>({...item,originId:item.originId||row.id})),
-   revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,...(cover||redrawAll||!sameArtDirection(parent.selection,selection)||usesStoryImageReference(doc.revision,parent.selection.artStyle)?{storyImageReference:true}:{}),base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
+   revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,...(cover||redrawAll||!sameArtDirection(parent.selection,selection)||usesStoryImageReference(doc.revision,parent.selection.artStyle)?{storyImageReference:true}:{}),base:{selection:parent.selection,readyFrames:doc.images.flatMap((image,index)=>image?[index]:[])}}};
   if(changes.productionPrompt!==undefined||changes.acceptancePrompt!==undefined){
    document.setupRequirements={edited:editRequirements(parent.selection,doc.setupRequirements,selection)};
   }
-  delete document.visualReview;delete document.reselection;
-  const now=new Date().toISOString(),completed=!pending&&row.state==='completed';
+  delete document.archivedReviewHistory;delete document.reselection;
+  const now=new Date().toISOString(),completed=!pending&&completedParent;
   // 旧版故障留在原版本。新版继续后按当前稿件的缺幅及失效产物接续。
   // 普通修订在同一事务设置等待并保留读者控制；已确认的立即重绘在同一事务启用绘图。
   const transaction=repo.db.transaction;
@@ -407,16 +395,24 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   transaction.call(repo.db,db=>{
    if(db.get('SELECT request_id FROM reader_commands WHERE owner_id=? AND request_id=?',ownerId,requestId))
     throw new ReaderError(409,'这个操作编号已用于其他内容。');
-   const latest=db.get<{document:string}>('SELECT document FROM stories WHERE id=? AND user_id=?',row.id,ownerId);
-   const current=latest&&portraitDocument(JSON.parse(latest.document) as Document);
-   if(current)delete current.publication;
-   delete portrait.publication;
-   if(!current||JSON.stringify(current)!==JSON.stringify(portrait))throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
-   const inserted=db.run(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,error,step_attempts,lock_until,page,saved,last_read_at,created_at,updated_at)
-   SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),'background',CASE WHEN ? THEN 'active' WHEN ? THEN 'paused' ELSE p.generation_control END,?,NULL,0,0,MIN(p.page,?),p.saved,p.last_read_at,?,? FROM stories p
+   const latest=db.get<SessionRow>('SELECT * FROM story_rows WHERE id=? AND user_id=?',row.id,ownerId);
+   const current=latest&&portraitDocument(decodeDocument(latest));
+   const comparable=(value:Document)=>{
+    const {publication:_,...content}=value;void _;
+    const {styles:_styles,productSignature:_signature,...draft}=content.dag!;void _styles;void _signature;
+    return productionStorageHash({...content,dag:draft});
+   };
+   if(!current?.dag||comparable(current)!==comparable(portrait))throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
+   if(current.dag.styles)dag.styles={...current.dag.styles,...dag.styles};
+   const inserted=writeStoryProducts(db,requestId,ownerId,document,stored=>{
+    const result=db.run(`INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,page,saved,last_read_at,created_at,updated_at)
+   SELECT ?,?,json_patch(?,CASE WHEN json_type(p.selection,'$.displayTitle')='text' THEN json_object('displayTitle',json_extract(p.selection,'$.displayTitle')) ELSE '{}' END),json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),CASE WHEN ? THEN 'active' WHEN ? THEN 'paused' ELSE p.generation_control END,?,MIN(p.page,?),p.saved,p.last_read_at,?,? FROM stories p
    WHERE p.id=? AND p.user_id=? AND json_remove(p.selection,'$.displayTitle')=json_remove(?,'$.displayTitle') AND ${currentFamilyVersion('p')} AND (${familyEpoch.replace(' AS epoch','')})=?
-   ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),startRedraw?1:0,paused?1:0,completed?'completed':'idle',Math.max(0,dag.order.length-1),now,now,row.id,ownerId,row.selection,ownerId,rootId,rootId,epoch);
-   if(!inserted.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
+   ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),stored,startRedraw?1:0,paused?1:0,Number(completed),Math.max(0,dag.order.length-1),now,now,row.id,ownerId,row.selection,ownerId,rootId,rootId,epoch);
+    if(result.changes)for(const alias of aliases)recordFamilyImage(db,{...alias,sessionId:requestId,sourceId:row.id,ownerId,rootId});
+    return result.changes;
+   });
+   if(!inserted)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
   });
  }catch(error){
   await Promise.all(staged.map(key=>media.remove(key)));

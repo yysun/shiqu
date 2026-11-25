@@ -7,7 +7,7 @@ import {productionFixture,until,turn,makePlan} from './fixtures/production.mjs';
 import {story,replies,drive} from './fixtures/production-dag-runner.mjs';
 import {owner} from './fixtures/book-reference.mjs';
 import {png} from './fixtures/images.mjs';
-import {projectDocument,emptyDag} from '../lib/production-dag/document.ts';
+import {decodeDocument,projectDocument,emptyDag} from '../lib/production-dag/document.ts';
 import {evaluate} from '../lib/production-dag/engine.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {stateOf} from '../lib/production-dag/runner.ts';
@@ -27,11 +27,11 @@ async function completedStory(f){
  drive(s,replies());
  for(const key of s.dag.order)await f.media.put(referenceImageKey(id,s.dag.frames[key].image),png,{contentType:'image/png'});
  const doc={...s.doc,dag:s.dag,...projectDocument(s.dag,null)},now=new Date().toISOString();
- await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'background','active','completed',?,?)")
+ await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,'active',1,?,?)")
   .bind(id,owner,JSON.stringify(s.selection),JSON.stringify(doc),now,now).run();
  return {id,dag:s.dag};
 }
-const saved=async(f,id)=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document);
+const saved=async(f,id)=>decodeDocument(await f.app.services.database.prepare('SELECT * FROM story_rows WHERE id=?').bind(id).first());
 const textCalls=control=>control.plans.length+control.outlines.length+control.batches.length+control.reflections.length+control.reflectionRepairs.length+control.frameReviews.length+control.structures.length+control.repairs.length;
 const timelineStep=(session,id)=>generationProgress(session,Date.now()).steps.find(step=>step.id===id);
 const jobAttempts=async(f,id)=>(await f.app.services.database.prepare('SELECT id,kind,state,attempts,lease_token FROM production_jobs WHERE session_id=? ORDER BY id').bind(id).all()).results;
@@ -160,6 +160,44 @@ test('detail, shelf and revision write responses agree on current story action o
  assert.equal((await f.request(`${route}/image-health`,'POST',{page:0,image:initial.story.pages[0].image})).status,409);
 });
 
+for(const redrawAll of [false,true])test(`replace the first frame ${redrawAll?'and redraw the rest':'without redrawing the rest'}`,async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ f.control.hold=false;
+ const before=await saved(f,id),{token}=await f.json(`sessions/${id}/revisions`);
+ const {createCanvas}=await import('@napi-rs/canvas');
+ const cover=createCanvas(9,16).toBuffer('image/png');
+ const child=crypto.randomUUID(),redrawPages=redrawAll?before.dag.order.map((_,index)=>index+1):[1];
+ const form=new FormData();
+ form.set('revision',JSON.stringify({requestId:child,token,changes:{redrawPages},startRedraw:true}));
+ form.set('cover',new Blob([cover],{type:'image/png'}),'first.png');
+ const response=await f.app.handle(new Request(`http://localhost/api/reader/sessions/${id}/revisions`,{method:'POST',body:form}));
+ assert.equal(response.status,201,await response.text());
+ await until(async()=>(await f.read(child)).state==='completed');
+ const after=await saved(f,child),media=f.app.services.media;
+ const first=referenceImageKey(child,after.images[0]);
+ assert.ok(first);
+ assert.deepEqual(new Uint8Array(await (await media.get(first)).arrayBuffer()),new Uint8Array(cover));
+ assert.deepEqual(f.control.calls.map(call=>call.page),redrawAll?[1,2,3,4,5]:[]);
+ assert.ok(f.control.calls.every(call=>call.reference===cover.toString('base64')));
+ if(!redrawAll)assert.deepEqual(
+  after.dag.order.slice(1).map(key=>after.dag.products[`frameImage:${key}`].hash),
+  before.dag.order.slice(1).map(key=>before.dag.products[`frameImage:${key}`].hash));
+});
+
+test('dispatch, control and reader status use actual completion when the shelf summary is wrong',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f),db=f.app.services.database;
+ await db.prepare('UPDATE stories SET production_complete=0 WHERE id=?').bind(id).run();
+ assert.equal((await f.read(id)).lifecycle.phase,'completed');
+ assert.equal((await f.request(`sessions/${id}/production-control`,'POST',{action:'pause',requestId:crypto.randomUUID()})).status,409);
+ const pending=await confirmedStory(f,4);
+ await db.prepare("UPDATE stories SET production_complete=1,generation_control='paused' WHERE id=?").bind(pending).run();
+ assert.equal((await f.read(pending)).lifecycle.phase,'production');
+ f.control.hold=false;
+ await f.json(`sessions/${pending}/production-control`,'POST',{action:'resume',requestId:crypto.randomUUID()});
+ await until(async()=>(await f.read(pending)).state==='completed');
+ assert.equal(f.control.calls.length,4);
+});
+
 test('edit a caption, save, restart and continue: only the affected review runs and nothing is redrawn',async t=>{
  const f=await productionFixture(t,'codex');
  const {id,dag:before}=await completedStory(f);
@@ -209,7 +247,7 @@ const zhuangzi={title:'齐物论',text:'昔者庄周梦为胡蝶，栩栩然胡�
 async function confirmedStory(f,length=4,prepared={}){
  const id=crypto.randomUUID(),now=new Date().toISOString();
  const doc={plan:null,images:[],audio:[],usage:[],original:zhuangzi,dag:emptyDag(),...prepared};
- await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'background','active','idle',?,?)")
+ await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,'active',0,?,?)")
   .bind(id,owner,JSON.stringify({...selection,length}),JSON.stringify(doc),now,now).run();
  return id;
 }
@@ -385,8 +423,8 @@ test('running status names the active drawing when an earlier frame awaits recov
   delete doc.dag.products[`frameImage:${key}`];
   doc.images[page]='';
  }
- await db.prepare("UPDATE stories SET document=?,generation_control='paused',state='idle' WHERE id=?").bind(JSON.stringify(doc),id).run();
- await db.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES(?,?,?,'job','frameImage',?,'dag','第 2 幅绘图失败',?,?)").bind(crypto.randomUUID(),id,owner,blocked,now,now).run();
+ await db.prepare("UPDATE stories SET document=?,generation_control='paused',production_complete=0 WHERE id=?").bind(JSON.stringify(doc),id).run();
+ await db.prepare("INSERT INTO production_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES(?,?,?,'job','frameImage',?,'dag','第 2 幅绘图失败',?,?)").bind(crypto.randomUUID(),id,owner,blocked,now,now).run();
  await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
  await until(()=>f.control.calls.length===1);
  const current=await f.read(id),shelf=(await f.json('sessions')).find(s=>s.id===id);
@@ -422,8 +460,8 @@ for(const shelf of [false,true])test(`${shelf?'shelf':'detail'} reports one data
   if(!changed&&sql.includes('FROM stories')){
    changed=true;
    writer.exec('BEGIN IMMEDIATE');
-   writer.prepare("UPDATE stories SET generation_control='stopped',document=?,state='idle' WHERE id=?").run(JSON.stringify(doc),id);
-   writer.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,image,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage',?,'dag',?,?,?,?)")
+   writer.prepare("UPDATE stories SET generation_control='stopped',document=?,production_complete=0 WHERE id=?").run(JSON.stringify(doc),id);
+   writer.prepare("INSERT INTO production_faults(id,session_id,owner_id,kind,node,node_key,version,image,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage',?,'dag',?,?,?,?)")
     .run(faultId,id,owner,frame,doc.images[1],'图片丢失',now,now);
    writer.exec('COMMIT');
   }
@@ -1276,7 +1314,7 @@ test('an image check in flight cannot record a new fault after deletion',async t
   await f.json(`library/${id}`,'DELETE');
  }finally{resume.resolve();}
  assert.equal((await checking).status,409);
- assert.equal((await f.app.services.database.prepare('SELECT count(*) AS count FROM reader_faults WHERE session_id=?').bind(id).first()).count,0);
+ assert.equal((await f.app.services.database.prepare('SELECT count(*) AS count FROM production_faults WHERE session_id=?').bind(id).first()).count,0);
  const {dag}=await saved(f,id);
  assert.equal(dag.products[`frameImage:${dag.order[2]}`].readable,undefined);
 });
@@ -1397,8 +1435,7 @@ test('copying a DAG story keeps its text and review; only the images run in the 
  assert.equal(doc.copiedFrom.images,'complete');
  assert.ok(doc.dag.order.every(key=>doc.dag.frames[key].image&&doc.dag.products[`frameImage:${key}`]));
  assert.equal(doc.images.filter(Boolean).length,6);
- await withImages.json(`sessions/${imageCopy}/production-control`,'POST',{action:'resume'});
- await until(async()=>(await withImages.read(imageCopy)).state==='completed',20000);
+ assert.equal((await withImages.read(imageCopy)).state,'completed');
  assert.equal(withImages.control.calls.length,0,'copied images are not drawn again');
 });
 
@@ -1484,9 +1521,9 @@ test('a revision redraws an unchanged missing frame without inheriting its drawi
  const key=dag.order[1],doc0=await saved(f,id);
  // 第 2 幅绘图失败：没有成图记录，故障待读者恢复。
  delete doc0.dag.frames[key].image;delete doc0.dag.products[`frameImage:${key}`];doc0.images[1]='';
- await f.app.services.database.prepare("UPDATE stories SET document=?,state='idle' WHERE id=?").bind(JSON.stringify(doc0),id).run();
+ await f.app.services.database.prepare("UPDATE stories SET document=?,production_complete=0 WHERE id=?").bind(JSON.stringify(doc0),id).run();
  const now=Date.now();
- await f.app.services.database.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES('drawfault',?,?,'job','frameImage',?,'dag','绘图失败',?,?)").bind(id,owner,key,now,now).run();
+ await f.app.services.database.prepare("INSERT INTO production_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES('drawfault',?,?,'job','frameImage',?,'dag','绘图失败',?,?)").bind(id,owner,key,now,now).run();
  const snapshot=await f.json(`sessions/${id}/revisions`),childId=crypto.randomUUID();
  await f.json(`sessions/${id}/revisions`,'POST',{requestId:childId,token:snapshot.token,changes:{storySummary:'一段与绘图无关的新梗概，只改变梗概文字。'}});
  assert.deepEqual((await f.read(childId)).lifecycle.faults,[]);
@@ -1569,14 +1606,14 @@ test('a paid drawing is kept on its job before it is saved: a failed save and it
  f.control.hold=false;
  // 第一次保存绘图结果时让故事文档写入失败，之后恢复。
  let failing=true;
- const database=f.app.services.database,original=database.prepare.bind(database);
- database.prepare=query=>{
-  const statement=original(query);
-  if(failing&&/UPDATE stories SET document=\?,state=CASE/.test(query)&&f.control.calls.length>0){
-   return {...statement,bind:(...values)=>{const bound=statement.bind(...values);return {...bound,run:async()=>{failing=false;throw Object.assign(Error('SQLITE_BUSY'),{code:'SQLITE_BUSY'});}};}};
+ const database=f.app.services.database,original=database.transaction.bind(database);
+ database.transaction=body=>original(tx=>body({...tx,run(query,...values){
+  if(failing&&query.startsWith('UPDATE stories SET document=?,production_complete=?')&&f.control.calls.length>0){
+   failing=false;
+   throw Error('controlled document write failure');
   }
-  return statement;
- };
+  return tx.run(query,...values);
+ }}));
  const id=await confirmedStory(f,4);
  f.app.services.production.wake();
  await until(async()=>(await f.read(id)).faults?.length>0,20000);
@@ -1854,8 +1891,8 @@ test('unconfigured service only offers an image recovery when the current file c
  doc.dag.products[`frameImage:${second}`].readable=false;
  doc.images[1]='';
  const db=f.app.services.database,now=Date.now();
- await db.prepare("UPDATE stories SET document=?,state='idle' WHERE id=?").bind(JSON.stringify(doc),id).run();
- for(const [fault,key] of [[a,first],[b,second]])await db.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage',?,'dag','图片丢失',?,?)").bind(fault,id,owner,key,now,now).run();
+ await db.prepare("UPDATE stories SET document=?,production_complete=0 WHERE id=?").bind(JSON.stringify(doc),id).run();
+ for(const [fault,key] of [[a,first],[b,second]])await db.prepare("INSERT INTO production_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage',?,'dag','图片丢失',?,?)").bind(fault,id,owner,key,now,now).run();
  const lifecycle=(await f.read(id)).lifecycle;
  assert.equal(lifecycle.service,'unconfigured');
  assert.deepEqual(lifecycle.actions.filter(action=>action.event==='retry'),[{event:'retry',faultId:b}]);
@@ -1930,7 +1967,7 @@ test('a revision with changed requirements starts a new outline attempt',async t
  await f.json(`sessions/${id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'pause'});
  const snapshot=await f.json(`sessions/${id}/revisions`),child=crypto.randomUUID();
  await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{productionPrompt:'写清选择与代价，突出人物的转变'}});
- const carried=(await f.app.services.database.prepare("SELECT node FROM reader_faults WHERE session_id=? AND state='pending'").bind(child).all()).results;
+ const carried=(await f.app.services.database.prepare("SELECT node FROM production_faults WHERE session_id=? AND state='pending'").bind(child).all()).results;
  assert.deepEqual(carried,[],'the outline fault is not carried: its inputs changed');
  await f.json(`sessions/${child}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'continue'});
  await until(async()=>(await f.read(child)).state==='completed',30000);
@@ -2082,7 +2119,7 @@ test('an approved story can finish drawing while the current global text provide
  const {id}=await completedStory(f),doc=await saved(f,id),key=doc.dag.order[1];
  doc.dag.modelSnapshot=snapshotA;
  delete doc.dag.products[`frameImage:${key}`];delete doc.dag.frames[key].image;doc.images[1]='';
- await f.app.services.database.prepare("UPDATE stories SET document=?,state='idle' WHERE id=?").bind(JSON.stringify(doc),id).run();
+ await f.app.services.database.prepare("UPDATE stories SET document=?,production_complete=0 WHERE id=?").bind(JSON.stringify(doc),id).run();
  f.generation.capture=()=>undefined;
  f.app.services.production.wake();
  await until(async()=>(await f.read(id)).state==='completed',20000);
@@ -2270,4 +2307,165 @@ test('changing art direction again before continuing redraws the supplied first 
  const latest=await f.json(`sessions/${id}/export`);assert.equal(latest.story.id,b);
  const bytes=await (await f.request(latest.story.pages[0].image.replace('/api/reader/',''))).arrayBuffer();
  assert.notDeepEqual(Buffer.from(bytes),Buffer.from(jpeg));
+});
+
+test('a family revision references one original file across restart, and its independent copy survives source deletion',async t=>{
+ const {readFile}=await import('node:fs/promises'),{join}=await import('node:path');
+ const source=await productionFixture(t,'codex'),target=await productionFixture(t,'codex');
+ source.control.hold=false;
+ const {id}=await completedStory(source);
+ const route=`sessions/${id}`,base=await source.json(route+'/revisions');
+ const {id:version}=await source.json(route+'/revisions','POST',{requestId:crypto.randomUUID(),token:base.token,changes:{reviewNotes:'核对相认时的配文。'}});
+ await source.json(`sessions/${version}/production-control`,'POST',{action:'continue'});
+ await until(async()=>(await source.read(version)).state==='completed');
+ const before=await saved(source,id),after=await saved(source,version);
+ const db=source.app.services.database;
+ const alias=await db.prepare('SELECT * FROM production_media_aliases WHERE session_id=? AND alias_key=?').bind(version,referenceImageKey(version,after.images[0])).first();
+ assert.equal(alias.source_id,id);assert.equal(alias.target_key,referenceImageKey(id,before.images[0]));
+ await assert.rejects(readFile(join(source.dataDirectory,'media',alias.alias_key)),{code:'ENOENT'});
+ assert.deepEqual(Buffer.from((await source.app.services.media.get(alias.alias_key)).body),Buffer.from((await source.app.services.media.get(alias.target_key)).body));
+ const {copySavedStory}=await import('../server/reader-copy.ts');
+ await source.stop();
+ const copyId=crypto.randomUUID();
+ await copySavedStory(target.app,process.cwd(),target.dataDirectory,source.dataDirectory,version,copyId,undefined,{images:true});
+ await source.restart();
+ await source.request(route,'DELETE');
+ const revision=await source.app.handle(new Request('http://localhost'+after.images[0]));
+ assert.equal(revision.status,200);
+ const independent=(await target.read(copyId)).story.pages[0].image;
+ const response=await target.app.handle(new Request('http://localhost'+independent));
+ assert.equal(response.status,200);
+ assert.deepEqual(new Uint8Array(await revision.arrayBuffer()),new Uint8Array(await response.arrayBuffer()));
+});
+
+test('shared media checks change every reference but keep the fault on the checking version',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const id=await confirmedStory(f,4);
+ await until(async()=>(await f.read(id)).state==='completed');
+ const db=f.app.services.database,original=await saved(f,id),key=referenceImageKey(id,original.images[1]);
+ const bytes=await f.app.services.media.get(key),input=await f.json(`sessions/${id}/revisions`);
+ const {id:child}=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token:input.token,changes:{reviewNotes:'核对原文中二人的关系。'}});
+ await f.json(`sessions/${child}/production-control`,'POST',{action:'continue'});
+ await until(async()=>(await f.read(child)).state==='completed');
+ const childDoc=await saved(f,child);
+ assert.notEqual(childDoc.images[1],original.images[1]);
+ const rev=async()=>Number((await db.prepare('SELECT rev FROM story_revisions WHERE story_id=?').bind(id).first()).rev);
+ const before=await rev();
+ await f.app.services.media.remove(key);
+ await f.json(`sessions/${child}/image-health`,'POST',{page:1,image:childDoc.images[1]});
+ assert.equal((await f.read(child)).lifecycle.faults.find(fault=>fault.kind==='image-loss')?.page,1);
+ const history=await f.read(id);
+ assert.equal(history.ready,3);assert.notEqual(history.lifecycle.phase,'completed');
+ assert.deepEqual(history.lifecycle.faults,[]);
+ assert.ok(await rev()>before);
+ await f.app.services.media.put(key,new Uint8Array(await bytes.arrayBuffer()),{contentType:bytes.contentType});
+ await f.json(`sessions/${child}/image-health`,'POST',{page:1,image:childDoc.images[1]});
+ assert.equal((await f.read(id)).ready,4);
+ assert.equal((await f.read(id)).lifecycle.phase,'completed');
+ assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
+});
+
+test('restoring earlier drawing inputs uses the family product even when it has no paid job receipt',async t=>{
+ const {writeStoryProducts}=await import('../server/production-products.ts');
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f),db=f.app.services.database;
+ f.control.hold=false;
+ const original=await saved(f,id);
+ db.transaction(tx=>writeStoryProducts(tx,id,owner,original,stored=>tx.run('UPDATE stories SET document=? WHERE id=?',stored,id).changes));
+ assert.deepEqual(await jobAttempts(f,id),[]);
+ const change=async(parent,plan)=>{
+  const {token}=await f.json(`sessions/${parent}/revisions`);
+  const {id:child}=await f.json(`sessions/${parent}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{plan}});
+  await f.json(`sessions/${child}/production-control`,'POST',{action:'continue'});
+  await until(async()=>(await f.read(child)).state==='completed');
+  return child;
+ };
+ const edited=structuredClone(original.plan);
+ edited.pages[2].prompt='The protagonists sit across a table in a shaded courtyard, both visible in profile.';
+ const child=await change(id,edited);
+ assert.deepEqual(f.control.calls.map(call=>call.page),[2]);
+ const restored=await change(child,original.plan);
+ assert.deepEqual(f.control.calls.map(call=>call.page),[2]);
+ const version=await saved(f,restored),image=referenceImageKey(restored,version.images[2]);
+ const alias=await db.prepare('SELECT target_key FROM production_media_aliases WHERE alias_key=?').bind(image).first();
+ assert.equal(alias?.target_key,referenceImageKey(id,original.images[2]));
+});
+
+test('restoring earlier text inputs adopts the stored outline without a model receipt',async t=>{
+ const {writeStoryProducts}=await import('../server/production-products.ts');
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f),db=f.app.services.database;
+ f.control.hold=false;
+ const original=await saved(f,id),selection=(await f.read(id)).selection;
+ db.transaction(tx=>writeStoryProducts(tx,id,owner,original,stored=>tx.run('UPDATE stories SET document=? WHERE id=?',stored,id).changes));
+ assert.deepEqual(await jobAttempts(f,id),[]);
+ const change=async(parent,productionPrompt)=>{
+  const {token}=await f.json(`sessions/${parent}/revisions`);
+  const child=await f.json(`sessions/${parent}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{productionPrompt}});
+  await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
+  await until(async()=>(await f.read(child.id)).state==='completed');
+  return child.id;
+ };
+ const child=await change(id,'按原文顺序整理对话，突出人物的实际回应。');
+ const count=f.control.dagCalls.filter(call=>call==='outline').length;
+ assert.equal(count,1);
+ const restored=await change(child,selection.productionPrompt);
+ assert.equal(f.control.dagCalls.filter(call=>call==='outline').length,count);
+ assert.deepEqual((await saved(f,restored)).dag.outline,original.dag.outline);
+});
+
+test('copy eligibility ignores a dead execution lease on a completed version',async t=>{
+ const {copySavedStory}=await import('../server/reader-copy.ts');
+ const source=await productionFixture(t,'codex'),destination=await productionFixture(t,'codex');
+ source.app.stopGeneration();await source.app.services.production.close();
+ const {id}=await completedStory(source),db=source.app.services.database;
+ await db.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,payload,state,lease_until,lease_token,created_at,updated_at)
+  VALUES(?,?,?,'dag','text','dag',?,'running',1,'expired',1,1)`).bind(crypto.randomUUID(),id,owner,JSON.stringify({work:{call:'outline',instances:[]}})).run();
+ const session=await source.read(id);
+ assert.equal(session.lifecycle.activity.state,'idle');
+ assert.ok(offered(session,'copy'));
+ await source.stop();
+ const copy=await copySavedStory(destination.app,process.cwd(),destination.dataDirectory,source.dataDirectory,id,crypto.randomUUID(),undefined,{images:true});
+ assert.equal(copy.state,'completed');assert.equal(copy.ready,6);
+ assert.equal(destination.control.calls.length,0);
+});
+
+test('structural preview lists exactly the merged and split frames whose redraw notes will be discarded',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ const database=f.app.services.database,row=await database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first(),doc=JSON.parse(row.document);
+ for(const page of [3,4,6])doc.dag.frames[doc.dag.order[page-1]].redrawNote='保留同一场景';
+ await database.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(doc),id).run();
+ const route=`sessions/${id}/revisions`,{token}=await f.json(route);
+ const changes={structureEdits:[
+  {from:3,to:4,scenes:[{caption:'二人把前因后果合在一次交谈中说清。'}]},
+  {from:6,to:6,scenes:[{caption:'他先抬头向同伴道谢，说出心里的想法。'},{caption:'同伴递过旧物，二人终于相视一笑。'}]},
+ ]};
+ const preview=await f.json(route+'/preview','POST',{token,changes});
+ assert.deepEqual(preview.droppedRedrawNotePages,[3,4,6]);
+ const {id:child}=await f.json(route,'POST',{token,changes,requestId:crypto.randomUUID()});
+ const next=(await saved(f,child)).dag;
+ assert.deepEqual(next.order.filter(key=>doc.dag.order.includes(key)),[doc.dag.order[0],doc.dag.order[1],doc.dag.order[4]]);
+ assert.equal(next.order.length,6);
+ assert.ok(next.order.every(key=>!next.frames[key].redrawNote));
+});
+
+test('moving the reveal to the opening fails the whole-story acceptance and keeps drawing blocked',async t=>{
+ const f=await productionFixture(t,'codex'),{id}=await completedStory(f);
+ f.control.hold=false;
+ const route=`sessions/${id}/revisions`,original=await f.json(route),plan=structuredClone(original.plan);
+ [plan.pages[0],plan.pages[4]]=[plan.pages[4],plan.pages[0]];
+ plan.pages[0].caption='他在开篇就直接说出了自己隐藏的身份。';
+ let reviewCalls=0;
+ f.control.beforeText=(kind,payload)=>kind==='review'?(()=>{
+  reviewCalls++;
+  assert.match(payload.plan.pages[0].caption,/隐藏的身份/);
+  return {issues:[],storyIssues:[{page:1,category:'caption',problem:'开篇已揭示身份。',instruction:'将身份揭示移到结尾。',requiresReplan:false}],
+   acceptanceResults:[{criterion:1,status:'failed',pages:[1],evidence:'第一幅已经说出身份。'}]};
+ })():undefined;
+ const {id:child}=await f.json(route,'POST',{requestId:crypto.randomUUID(),token:original.token,changes:{plan,acceptancePrompt:'结尾才揭示身份'}});
+ await f.json(`sessions/${child}/production-control`,'POST',{action:'continue'});
+ await until(async()=>(await f.read(child)).lifecycle.review==='attention');
+ assert.equal(reviewCalls,1);
+ assert.equal(f.control.calls.length,0);
+ const result=(await saved(f,child)).dag.verdicts['narrativeVerdict:'].acceptance[0];
+ assert.deepEqual([result.status,result.pages],['failed',[1]]);
 });

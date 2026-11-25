@@ -13,13 +13,12 @@ import {preparesSelectedStory} from '../reader-frame-recommendation.ts';
 import {storyBriefVerified} from '../reader-story-brief.ts';
 import {evaluate,instanceId,instanceKeys,reusable,complete,type Evaluation,type Instance,type Fault,type Product,type VersionState} from './engine.ts';
 import {nodeSpec} from './registry.ts';
-import {withReviewSkip} from './review-skip.ts';
 import {fingerprint} from './fingerprint.ts';
 import {callGroups,type CallGroup} from './schedule.ts';
-import {reviewStage,newRepairBudget,canRepair,verdictNodes} from './review.ts';
+import {newRepairBudget,canRepair,verdictNodes} from './review.ts';
 import type {ReviewOverride} from '../reader-recovery.ts';
 import {structuralLoss} from './hand-edits.ts';
-import {acceptanceItems,type Outline,type Scene,type Visual,type Character,type ReviewOutcome} from './calls.ts';
+import {type Outline,type Scene,type Visual,type Character,type ReviewOutcome} from './calls.ts';
 import {rootProducts,versionState,endingChoice,type DagDocument,type DagIssue,type DagFrame} from './document.ts';
 import type {FrameCountReport,ReviewIssue} from '../reader-review.ts';
 
@@ -36,45 +35,21 @@ export type DagStory={
 export type Work=CallGroup&{issues?:DagIssue[]};
 
 const visualCategories=new Set(['composition','style','action']);
-const frameNodes=new Set(['scene','visual','frameImage','landscape','redrawNote']);
+const frameNodes=new Set(['scene','visual','frameImage','redrawNote']);
 
-/**
- * 验收条目随验收要求同步：条目身份由文字决定，已有登记按身份保留。转换得到的整体旧条目在验收要求文字不变时保留，
- * 连同其结论与放行；文字改变后才按条目拆分，重新登记并审片。
- */
-export function syncItems(dag:DagDocument,selection:Selection):DagDocument{
- const legacy=dag.items.length===1&&dag.items[0].legacy?dag.items[0]:undefined;
- if(legacy&&legacy.text.trim()===(selection.acceptancePrompt??'').trim())return dag;
- const previous=new Map(dag.items.map(i=>[i.id,i]));
- const items=acceptanceItems(selection.acceptancePrompt).map(i=>previous.get(i.id)??i);
- return JSON.stringify(items)===JSON.stringify(dag.items)?dag:{...dag,items};
-}
-
-export function stateOf(story:DagStory,{includeReviewSkip=true}={}):VersionState{
+export function stateOf(story:DagStory):VersionState{
  const reprepare=!!story.dag.repreparing;
  const preparing=reprepare||preparationPending(story.doc)||story.doc.intake?.phase==='confirming';
  const seed=preparing?{generation:story.dag.preparationGeneration??story.doc.intake?.generation,production:productionRequirement(story.selection),detail:story.selection.narrativeDetail}:undefined;
  const roots=rootProducts(story.selection,story.dag,{notes:story.doc.reviewNotes,refSource:story.refSource,seed});
- // 横图局部失败也须读者明确重试，查看作品或重建队列不能自动重新购买。
- const landscapeFaults=story.dag.order.flatMap((key):Fault[]=>story.dag.frames[key]?.landscape===''&&story.dag.frames[key].landscapeError?
-  [{id:`landscape:${key}`,node:'landscape',key,state:'pending',optional:true}]:[]);
- const state=versionState(story.dag,roots,{confirmed:story.confirmed,faults:[...story.faults,...landscapeFaults],reprepare,skipFrameCheck:typeof story.selection.length==='number'});
- if(state.landscapes?.some(key=>story.dag.frames[key].landscapeInputHash)){
-  const evaluation=evaluate(state);
-  state.landscapes=state.landscapes.filter(key=>{
-   const binding=story.dag.frames[key].landscapeInputHash;
-   const hard=binding?evaluation.instance('landscape',key).hard:undefined;
-   return !hard||fingerprint(hard)===binding;
-  });
- }
- return includeReviewSkip?withReviewSkip(state,story.dag):state;
+ return versionState(story.dag,roots,{confirmed:story.confirmed,faults:story.faults,reprepare,skipFrameCheck:typeof story.selection.length==='number'});
 }
 
 const clone=(dag:DagDocument):DagDocument=>structuredClone(dag);
 const sameInputs=(a:Record<string,string>|undefined,b:Record<string,string>|undefined)=>
  !!a&&!!b&&Object.keys(a).length===Object.keys(b).length&&Object.keys(b).every(k=>a[k]===b[k]);
 function record(dag:DagDocument,inst:Pick<Instance,'id'|'hard'|'check'>,content:unknown,extra:Partial<Product>={}){
- dag.products[inst.id]={hash:fingerprint(content),inputs:inst.hard!,...(inst.id==='narrativeVerdict:'?{checks:inst.check}:{}),...extra};
+ dag.products[inst.id]={hash:fingerprint(content),inputs:inst.hard!,...extra};
 }
 const frame=(dag:DagDocument,id:string):DagFrame=>dag.frames[id]??(dag.frames[id]={scene:'',visual:''});
 const framePosition=(dag:DagDocument,id:string)=>dag.order.indexOf(id);
@@ -92,11 +67,11 @@ export function callFor(state:VersionState){
 }
 
 /**
- * 无需调用模型的步骤：采用已核原文与已保存的准备结果、按绘图输入复用旧图、同步验收条目。
+ * 无需调用模型的步骤：采用已核原文与已保存的准备结果、按绘图输入复用旧图。
  * 返回新的 dag；没有变化时返回原对象。
  */
 export function settle(story:DagStory):DagDocument{
- let dag=syncItems(story.dag,story.selection);
+ let dag=story.dag;
  // 采用已保存的出处和准备结果，包括升级前的确认草稿。选择改变时会清除旧的准备内容。
  const adopt=(node:string,content:unknown)=>{
   if(content===undefined||content===null)return;
@@ -121,20 +96,20 @@ export function settle(story:DagStory):DagDocument{
   adopt('suggestions',{requirements:story.doc.frameRecommendation.requirements??story.doc.setupRequirements?.suggestions??null,frames:story.doc.frameRecommendation});
  }
  // 复用：硬输入与某份旧图完全一致时直接沿用，不要求画幅身份相同。
- for(const node of ['frameImage','landscape'] as const){
+ {
+  const node='frameImage';
   const state=stateOf({...story,dag,faults:story.faults.filter(fault=>!fault.imageLoss)});
   const pool=Object.entries(dag.products).filter(([id,p])=>id.startsWith(node+':')&&p.readable!==false);
   for(const inst of evaluate(state).all().filter(i=>i.node===node&&i.ready&&i.hard)){
-   if(node==='frameImage'&&(inst.key===dag.cover?.frame||dag.frames[inst.key]?.redrawRequested))continue;
+   if(inst.key===dag.cover?.frame||dag.frames[inst.key]?.redrawRequested)continue;
    const match=reusable(pool.map(([,p])=>p),inst.hard!);
    if(!match)continue;
    const [sourceId]=pool.find(([,p])=>p===match)!;
-   const url=node==='frameImage'?dag.frames[sourceId.slice(node.length+1)]?.image:dag.frames[sourceId.slice(node.length+1)]?.landscape;
+   const url=dag.frames[sourceId.slice(node.length+1)]?.image;
    if(!url)continue;
    dag=dag===story.dag?clone(dag):dag;
-   frame(dag,inst.key)[node==='frameImage'?'image':'landscape']=url;
+   frame(dag,inst.key).image=url;
    dag.products[inst.id]={...match,inputs:inst.hard!};
-   delete dag.products[inst.id].checks;
   }
  }
  // 读者指定的首幅原图：该幅的输入就绪时记为成图产物（输入指纹按当前画风与画面描述），之后其余画幅以它为参考。
@@ -156,7 +131,7 @@ export function settle(story:DagStory):DagDocument{
 function planWork(story:DagStory,evaluation:Evaluation,repairs:Work[]):Work[]{
  if(story.doc.reselection)return [];
  const groups=callGroups(evaluation,callFor(evaluation.state));
- if(story.dag.repreparing)return groups.filter(item=>item.call==='prepareSuggestions'||item.call==='drawLandscape');
+ if(story.dag.repreparing)return groups.filter(item=>item.call==='prepareSuggestions');
  if(!story.confirmed){
   if(!preparationPending(story.doc)||story.doc.frameRecommendation)return [];
   const candidate=preparationCandidate(story.doc),source=story.doc.original;
@@ -295,9 +270,11 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
    break;
   }
   case 'visual':case 'restyle':case 'visualRepair':{
-   const visuals=value as Visual[];
+   const visuals=value as (Visual&{recordedDrawn?:string[]})[];
    if(item.call==='visualRepair'&&unchanged(dag,item,visuals.map(v=>v.prompt),id=>dag.frames[id].visual))return markStalled(dag,item);
-   item.instances.forEach((inst,i)=>{const f=frame(dag,inst.key);f.visual=visuals[i].prompt;f.drawnNames=visuals[i].drawn;cast(dag,f);record(dag,inst,{prompt:visuals[i].prompt,drawn:visuals[i].drawn});});
+   item.instances.forEach((inst,i)=>{const f=frame(dag,inst.key);f.visual=visuals[i].prompt;f.drawnNames=visuals[i].drawn;
+    if(visuals[i].recordedDrawn)f.drawn=visuals[i].recordedDrawn;else cast(dag,f);
+    record(dag,inst,{prompt:visuals[i].prompt,drawn:visuals[i].drawn});});
    if(item.call==='visualRepair')spendRepair(dag,item);
    break;
   }
@@ -321,24 +298,17 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
    dag.issues=[...(dag.issues??[]).filter(i=>i.target!==one.id),...(pass?[]:report.issues.map(i=>({...i,requiresReplan:true,target:one.id})))];
    break;
   }
-  case 'registerItems':{
-   for(const r of value as {id:string;scope:'story'|'frame';evidence:import('./registry.ts').Evidence[]}[]){
-    const inst=item.instances.find(i=>i.key===r.id);if(!inst)continue;
-    dag.items=dag.items.map(i=>i.id===r.id?{...i,scope:r.scope,evidence:r.evidence}:i);
-    record(dag,inst,{scope:r.scope,evidence:r.evidence},{scope:r.scope,evidence:r.evidence});
-   }
-   break;
-  }
   case 'review':applyReview(dag,item,value as ReviewOutcome);break;
   case 'structureRepair':{
-   const result=applyStructureRepair(story,dag,item,value as {from:number;to:number;scenes:Scene[]}[],options.newId);
+   const result=applyStructureEdits(story,dag,value as StructureEdit[],options.newId);
    if(result!=='applied')return markStalled(dag,item,result==='hand-edited'?'hand-edited':true);
+   spendRepair(dag,item);
+   dag.issues=(dag.issues??[]).filter(i=>!i.requiresReplan&&i.target!=='frameCheck:');
    break;
   }
-  case 'draw':case 'drawLandscape':{
+  case 'draw':{
    const url=value as string,f=frame(dag,one.key);
-   if(item.call==='draw'){f.image=url;delete f.redrawRequested;}
-   else{f.landscape=url;delete f.landscapeError;delete f.landscapeInputHash;}
+   f.image=url;delete f.redrawRequested;
    record(dag,one,url);break;
   }
   default:throw Error(`DAG_CALL_UNKNOWN: ${item.call}`);
@@ -390,63 +360,69 @@ function spendRepair(dag:DagDocument,item:Work){
 function applyReview(dag:DagDocument,item:Work,outcome:ReviewOutcome){
  const allowed=new Map(item.instances.map(i=>[i.id,i]));
  const verdicts={...dag.verdicts};
- const failedItems=outcome.judgements.filter(j=>allowed.has(j.id)&&j.outcome==='fail'&&j.id.startsWith('itemVerdict:')).map(j=>j.id);
- if(allowed.has('narrativeVerdict:')&&outcome.endingChoice&&dag.ending&&!dag.ending.confirmed)dag.ending={...dag.ending,chosen:outcome.endingChoice};
+ const whole='narrativeVerdict:';
+ if(allowed.has(whole)&&outcome.judgements.some(j=>j.id===whole)&&dag.ending&&!dag.ending.confirmed){
+  if(outcome.endingChoice)dag.ending.chosen=outcome.endingChoice;
+  if(outcome.titleChoice)dag.ending.selectedTitle=outcome.titleChoice;
+ }
  for(const j of outcome.judgements){
   const inst=allowed.get(j.id);if(!inst)continue;
-  verdicts[j.id]={outcome:j.outcome,...(j.detail?{detail:j.detail}:{}),...(j.requirements?{requirements:true}:{})};
-  const parts=inst.node==='narrativeVerdict'?{endingChoice:fingerprint(endingChoice(dag.ending)??null)}:undefined;
-  record(dag,inst,[j.outcome,j.detail??''],{outcome:j.outcome,...(parts?{parts}:{})});
+  const verdict={outcome:j.outcome,...(j.detail?{detail:j.detail}:{}),...(j.requirements?{requirements:true as const}:{}),...(inst.node==='narrativeVerdict'&&j.acceptance?{acceptance:j.acceptance}:{})};
+  verdicts[j.id]=verdict;
+  const selected=inst.node==='narrativeVerdict'?endingChoice(dag.ending):undefined;
+  record(dag,inst,[verdict,selected??null],{outcome:j.outcome});
  }
  dag.verdicts=verdicts;
- // 问题按结论归属：画幅问题归本幅逐幅结论；本幅不在本次范围时归本次失败的验收条目；结语与重排问题归叙事结论。
- const targetOf=(issue:ReviewIssue):string|undefined=>{
-  if(issue.page===0||issue.requiresReplan)return allowed.has('narrativeVerdict:')?'narrativeVerdict:':failedItems[0];
-  const id=dag.order[issue.page-1],own=id&&`frameVerdict:${id}`;
-  return own&&allowed.has(own)?own:failedItems[0];
- };
  const kept=(dag.issues??[]).filter(i=>!allowed.has(i.target));
- const fresh=outcome.issues.flatMap(issue=>{const target=targetOf(issue);return target&&verdicts[target]?.outcome==='fail'?[{...issue,target}]:[];});
- dag.issues=[...kept,...fresh];
- delete dag.suggestions;
+ const local=outcome.issues.flatMap(issue=>{
+  const id=dag.order[issue.page-1],target=`frameVerdict:${id}`;
+  return !issue.requiresReplan&&allowed.has(target)&&verdicts[target]?.outcome==='fail'?[{...issue,target}]:[];
+ });
+ const global=allowed.has(whole)&&verdicts[whole]?.outcome==='fail'?(outcome.storyIssues??[]).map(issue=>({...issue,target:whole})):[];
+ dag.issues=[...kept,...local,...global];
 }
 
-/** 合并或拆分的整段使用新身份。幅数相同的替换只保留内容原样保留的画幅。 */
-function applyStructureRepair(story:DagStory,dag:DagDocument,item:Work,edits:{from:number;to:number;scenes:Scene[]}[],newId:()=>string):'applied'|'unchanged'|'hand-edited'{
- const old=dag.order,next:string[]=[],retired:string[]=[];
- const content=new Map<string,Scene>();
+export type StructureEdit={from:number;to:number;scenes:Scene[]};
+
+/** 预览与保存共用保留身份规则。幅数相同的替换只保留配文原样的画幅。 */
+export function structureEditPlan(dag:DagDocument,edits:readonly StructureEdit[]){
+ const old=dag.order,entries:({id:string}|{scene:Scene})[]=[],retired:string[]=[];
  let cursor=1;
- const sorted=[...edits].sort((a,b)=>a.from-b.from);
- for(const edit of sorted){
-  while(cursor<edit.from&&cursor<=old.length)next.push(old[cursor++-1]);
-  const range=old.slice(edit.from-1,Math.max(edit.from-1,edit.to));
-  const kept=new Set<string>();
+ for(const edit of [...edits].sort((a,b)=>a.from-b.from||a.to-b.to)){
+  if(edit.from<cursor||edit.from>old.length+1||edit.to<edit.from-1||edit.to>old.length)return null;
+  while(cursor<edit.from)entries.push({id:old[cursor++-1]});
+  const range=old.slice(edit.from-1,edit.to),kept=new Set<string>();
   edit.scenes.forEach((scene,i)=>{
    const original=range.length===edit.scenes.length?range[i]:undefined;
-   const before=original?dag.frames[original]:undefined;
-   if(original&&before?.scene===scene.caption){
-    kept.add(original);next.push(original);return;
-   }
-   const id=newId();content.set(id,scene);next.push(id);
+   if(original&&dag.frames[original]?.scene===scene.caption){
+    kept.add(original);entries.push({id:original});
+   }else entries.push({scene});
   });
   retired.push(...range.filter(id=>!kept.has(id)));
-  cursor=Math.max(cursor,edit.to+1);
+  cursor=edit.to+1;
  }
- while(cursor<=old.length)next.push(old[cursor++-1]);
- if(!next.length||!content.size&&!retired.length)return 'unchanged';
- if(structuralLoss(stateOf(story),{deleted:retired}).length)return 'hand-edited';
- // 自动幅数的结构修订要重新核对叙事空间，幅数不变的重分配也一样。
+ while(cursor<=old.length)entries.push({id:old[cursor++-1]});
+ return {entries,retired};
+}
+
+/** 自动修订和读者指定的结构替换走同一套画幅身份和手改保护。 */
+export function applyStructureEdits(story:DagStory,dag:DagDocument,edits:readonly StructureEdit[],newId:()=>string,manual=false):'applied'|'unchanged'|'hand-edited'{
+ const structure=structureEditPlan(dag,edits);
+ if(!structure?.entries.length||structure.entries.every(entry=>'id'in entry)&&!structure.retired.length)return 'unchanged';
+ if(structuralLoss(stateOf({...story,dag}),{deleted:structure.retired}).length)return 'hand-edited';
  if(story.selection.length==='auto')delete dag.products['frameCheck:'];
- dag.order=next;
- retireFrames(dag,retired);
+ const content=new Map<string,Scene>();
+ dag.order=structure.entries.map(entry=>{
+  if('id'in entry)return entry.id;
+  const id=newId();content.set(id,entry.scene);return id;
+ });
+ retireFrames(dag,structure.retired);
  const state=stateOf({...story,dag});
  for(const [id,scene] of content){
   frame(dag,id).scene=scene.caption;
   const inst=evaluate(state).instance('scene',id);
-  record(dag,{id:inst.id,hard:inst.hard,check:inst.check},scene.caption);
+  record(dag,{id:inst.id,hard:inst.hard,check:inst.check},scene.caption,manual?{handEdited:true}:undefined);
  }
- spendRepair(dag,item);
- dag.issues=(dag.issues??[]).filter(i=>!i.requiresReplan&&i.target!=='frameCheck:');
  return 'applied';
 }
 
@@ -455,7 +431,7 @@ export function overrideReview(story:DagStory,choice:ReviewOverride['ending']){
  const source=story.dag.ending;
  if(!story.confirmed||!source)return null;
  const needsEnding=!source.confirmed&&!source.chosen;
- const title=source.confirmed?.title??source.title,reflection=source.confirmed?.ending??source.chosen??source.candidates[0];
+ const title=source.confirmed?.title??source.selectedTitle??source.title,reflection=source.confirmed?.ending??source.chosen??source.candidates[0];
  if(!title||!reflection||needsEnding&&choice===undefined)return null;
  const dag=clone(story.dag);
  if(needsEnding){
@@ -464,7 +440,6 @@ export function overrideReview(story:DagStory,choice:ReviewOverride['ending']){
   if(!confirmed.ending)return null;
   dag.ending={...source,confirmed};
  }
- delete dag.reviewSkip;
  const targets:string[]=[];
  const working={...story,dag,faults:[]};
  const initial=stateOf(working);
@@ -477,15 +452,11 @@ export function overrideReview(story:DagStory,choice:ReviewOverride['ending']){
    if(!instance.hard||!instance.check)return null;
    targets.push(instance.id);
    if(instance.status==='valid'&&product){dag.products[instance.id]={...product,overridden:true};continue;}
-   const parts=node==='narrativeVerdict'?{endingChoice:fingerprint(endingChoice(dag.ending)??null)}:undefined;
-   record(dag,instance,[instance.id,'override'],{outcome:'fail',overridden:true,...(parts?{parts}:{})});
+   record(dag,instance,[instance.id,'override',node==='narrativeVerdict'?endingChoice(dag.ending):null],{outcome:'fail',overridden:true});
   }
  }
  return targets.length?{dag,targets,title,reflection,needsEnding}:null;
 }
-
-/** 本次工作的阶段标记（审片第一或第二阶段），用于任务身份与界面。 */
-export function stageOf(story:DagStory,inst:Instance){return reviewStage(stateOf(story),inst);}
 
 /** 整篇完成。 */
 export function finished(story:DagStory){return complete(stateOf(story));}

@@ -6,7 +6,7 @@ export async function savedStory(f,{id=crypto.randomUUID(),bookId='红楼梦',cu
  const ext=bytes[0]===255?'jpg':'png';
  const url=image??`/api/reader/media/${id}/${page}.${ext}`,doc={plan:makePlan(2),images:[],audio:[],usage:[]};doc.images[page]=url;
  const now=new Date().toISOString();
- await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'reader','paused','idle',?,?)").bind(id,ownerId,JSON.stringify({...selection,bookId,...(customBook?{customBook}:{})}),JSON.stringify(doc),now,now).run();
+ await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,'paused',0,?,?)").bind(id,ownerId,JSON.stringify({...selection,bookId,...(customBook?{customBook}:{})}),JSON.stringify(doc),now,now).run();
  if(!image)await f.app.services.media.put(`reader/${id}/${page}.${ext}`,bytes,{contentType:ext==='jpg'?'image/jpeg':'image/png'});
  return {id,url,doc};
 }

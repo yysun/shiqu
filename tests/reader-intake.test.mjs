@@ -196,7 +196,7 @@ test('recovering a saved recommendation receipt preserves edits and calls the pr
  let reject=true;
  database.prepare=query=>{
   const statement=prepare(query);
-  if(!/UPDATE stories SET document=\?,state=CASE/.test(query))return statement;
+  if(!/UPDATE stories SET document=\?,production_complete=\?/.test(query))return statement;
   return {...statement,bind:(...values)=>{
    const bound=statement.bind(...values);
    if(!reject||JSON.parse(values[0]).intake?.phase!=='confirming')return bound;

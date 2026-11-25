@@ -11,12 +11,13 @@ import {startupFixture,startFixtureCli} from './fixtures/startup.mjs';
 import {historicalLibrary} from './fixtures/historical-library.mjs';
 import {makePlan,selection} from './fixtures/production-data.mjs';
 import {png} from './fixtures/images.mjs';
+import {decodeDocument} from '../lib/production-dag/document.ts';
 import {ownDesktopDataSync} from '../server/desktop-owner.ts';
 import {verifyLibraryBackup,withBackupAccess} from '../server/library-backup.ts';
 
 const entry=fileURLToPath(new URL('../server/desktop.ts',import.meta.url));
 
-async function fixture(t,through='0027_revision_fault_targets.sql'){
+async function fixture(t,through='0029_finalize_production_spec.sql'){
  const f=await startupFixture(t),library=path.join(f.root,'library');
  const sqlite=historicalLibrary(library,f.root,through);
  const invoke=(operation,fields={})=>{
@@ -112,13 +113,13 @@ test('desktop and current CLI can verify and restore each other’s backups',asy
  }
  const cliBackup=path.join(f.root,'cli-backup'),desktopRestore=path.join(f.root,'desktop-restore');
  await cli(['backup',cliBackup,'--data-dir',f.library]);
- assert.equal(f.run('verify',{backup:cliBackup}).compatibility.version,3);
+ assert.equal(f.run('verify',{backup:cliBackup}).compatibility.version,4);
  assert.equal(f.run('restore',{backup:cliBackup,target:desktopRestore}).path,desktopRestore);
  const desktopBackup=f.run('create').path,cliRestore=path.join(f.root,'cli-restore');
  await cli(['verify-backup',desktopBackup]);
  await cli(['restore',desktopBackup,'--data-dir',cliRestore]);
  const db=new DatabaseSync(path.join(cliRestore,'shiqu.sqlite'),{readOnly:true});
- try{assert.equal(db.prepare('PRAGMA user_version').get().user_version,3);}
+ try{assert.equal(db.prepare('PRAGMA user_version').get().user_version,4);}
  finally{db.close();}
 });
 
@@ -136,7 +137,7 @@ test('desktop restore applies 0025 to a new library and leaves every V1 backup b
  const backup=f.run('create').path;
  const originalManifest=readFileSync(path.join(backup,'shiqu-backup.json'));
  const manifest=verifyLibraryBackup(backup);
- const expectedStatus={version:1,state:'migration',migrations:['0025_production_dag.sql','0026_production_lifecycle.sql','0027_revision_fault_targets.sql']};
+ const expectedStatus={version:1,state:'migration',migrations:['0025_production_dag.sql','0026_production_lifecycle.sql','0027_revision_fault_targets.sql','0028_production_spec.sql','0029_finalize_production_spec.sql']};
  assert.deepEqual(f.run('verify',{backup}).compatibility,expectedStatus);
  const target=path.join(f.root,'restored');
  assert.match(f.invoke('restore',{backup,target:f.library}).error,/重叠/);
@@ -167,9 +168,9 @@ PRAGMA max_page_count=5;`);
  assert.deepEqual(readFileSync(path.join(target,media)),Buffer.from(png));
  const newDb=new DatabaseSync(path.join(target,'shiqu.sqlite'),{readOnly:true});
  try{
-  assert.equal(newDb.prepare('PRAGMA user_version').get().user_version,3);
+  assert.equal(newDb.prepare('PRAGMA user_version').get().user_version,4);
   assert.ok(newDb.prepare("SELECT 1 FROM app_migrations WHERE name='0025_production_dag.sql'").get());
-  const converted=JSON.parse(newDb.prepare('SELECT document FROM stories WHERE id=?').get(story).document);
+  const converted=decodeDocument(newDb.prepare('SELECT * FROM story_rows WHERE id=?').get(story));
   assert.deepEqual(converted.original,original);
   assert.equal(converted.dag.frames['legacy-1'].scene,plan.pages[0].caption);
  }finally{newDb.close();}

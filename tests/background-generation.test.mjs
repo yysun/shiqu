@@ -54,7 +54,7 @@ test('leaving a new story keeps it generating; a manual pause still survives res
 for(const provider of flowProviders(['codex','gemini']))test(`${provider}: shutdown drains saved images; startup resumes only the missing background pages`,async t=>{
  const f=await productionFixture(t,provider),id=await f.create(10);
  await until(()=>f.control.calls.length===1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
- f.app.stopGeneration();for(const call of f.control.calls)call.resolve();await until(async()=>(await f.read(id)).ready===4&&(await f.app.services.database.prepare('SELECT state FROM stories WHERE id=?').bind(id).first()).state!=='running');
+ f.app.stopGeneration();for(const call of f.control.calls)call.resolve();await until(async()=>(await f.read(id)).ready===4&&(await f.app.services.database.prepare('SELECT state FROM story_rows WHERE id=?').bind(id).first()).state!=='running');
  const before=await f.read(id);assert.equal(before.ready,4);
  await f.restart();await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.calls.length,10);
  assert.deepEqual((await f.read(id)).story.pages.slice(0,4).map(p=>p.image),before.story.pages.slice(0,4).map(p=>p.image));
@@ -64,7 +64,7 @@ for(const provider of flowProviders(['codex','gemini']))test(`${provider}: shutd
 test('expired background script locks restart planning without viewers',async t=>{
  const f=await productionFixture(t),id=await f.create();await f.stop();
  const db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));
- db.prepare("UPDATE stories SET generation_mode='background',state='running',lock_token='dead-script',lock_until=1 WHERE id=?").run(id);db.close();
+ db.prepare("UPDATE stories SET production_complete=0 WHERE id=?").run(id);db.close();
  await f.restart();await until(async()=>(await f.read(id)).state==='completed');assert.equal(outlines(f),1);assert.equal(f.control.calls.length,8);
 });
 
@@ -103,7 +103,7 @@ for(const provider of flowProviders(['codex','gemini']))test(`${provider}: an ex
  // 第 7 幅的绘图在远端完成前进程中断：任务租约已过期，文档里没有这幅图的记录。
  const saved=JSON.parse(db.prepare('SELECT document FROM stories WHERE id=?').get(id).document),key=saved.dag.order[6];
  delete saved.dag.products[`frameImage:${key}`];delete saved.dag.frames[key].image;saved.images[6]='';
- db.prepare("UPDATE stories SET generation_mode='background',document=?,state='running',lock_token='crashed',lock_until=1 WHERE id=?").run(JSON.stringify(saved),id);
+ db.prepare("UPDATE stories SET document=? WHERE id=?").run(JSON.stringify(saved),id);
  // 远端结果从未到达：任务记录里也没有已付费的结果。
  db.prepare("UPDATE production_jobs SET payload=json_remove(payload,'$.paid'),state='running',result=NULL,lease_token='crashed',lease_until=1 WHERE session_id=? AND kind='dag-draw' AND json_extract(payload,'$.page')=6").run(id);db.close();
  await f.restart();await until(async()=>(await f.read(id)).state==='completed');
@@ -114,7 +114,7 @@ for(const provider of flowProviders(['codex','gemini']))test(`${provider}: an ex
 test('startup reconciles a fully published background story whose final session save was interrupted',async t=>{
  const f=await productionFixture(t),id=await f.create();f.control.hold=false;await until(async()=>(await f.read(id)).state==='completed');await f.stop();
  const db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));
- db.prepare("UPDATE stories SET state='running',lock_token='dead-finalizer',lock_until=1 WHERE id=?").run(id);db.close();
+ db.prepare("UPDATE stories SET production_complete=0 WHERE id=?").run(id);db.close();
  await f.restart();await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.calls.length,8);assert.equal(outlines(f),1);
 });
 
@@ -127,12 +127,12 @@ test('upgrading a pre-background library preserves checkpoints and pauses old st
  db.prepare("INSERT INTO reader_sessions(id,user_id,selection,document,state,page,saved,created_at,updated_at) VALUES('legacy','owner','{}',?, 'idle',3,1,'created','updated')").run(JSON.stringify({plan:{title:'saved'},images:['saved.png'],usage:[{step:'image:0'}]}));
  db.prepare("INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,result,state,created_at,updated_at) VALUES('job','legacy','owner','image','image','v','[]','{}','saved-result','succeeded',1,2)").run();
  const before=db.prepare('SELECT * FROM reader_sessions').get(),job=db.prepare('SELECT * FROM production_jobs').get();
- migrate(db,process.cwd());
+ migrate(db,process.cwd(),undefined,'0027_revision_fault_targets.sql');
  const after=db.prepare('SELECT * FROM stories').get(),savedJob=db.prepare('SELECT * FROM production_jobs').get();
  assert.deepEqual({...after,generation_mode:undefined,generation_control:undefined},{...before,generation_mode:undefined,generation_control:undefined});
  assert.equal(after.generation_mode,'background');assert.equal(after.generation_control,'paused');
  assert.deepEqual({...savedJob,interrupted:undefined,failure_id:undefined,recovery_id:undefined,error_code:undefined},{...job,interrupted:undefined,failure_id:undefined,recovery_id:undefined,error_code:undefined});assert.equal(savedJob.interrupted,0);assert.equal(savedJob.error_code,null,'the added failure-code column starts empty');
- migrate(db,process.cwd());assert.deepEqual(db.prepare('SELECT * FROM stories').get(),after);
+ migrate(db,process.cwd(),undefined,'0027_revision_fault_targets.sql');assert.deepEqual(db.prepare('SELECT * FROM stories').get(),after);
 });
 
 test('single-control upgrade preserves background intent, manual controls, failures, leases and receipts',t=>{
@@ -157,7 +157,7 @@ test('single-control upgrade preserves background intent, manual controls, failu
  }
  db.exec("INSERT INTO library_deletions(user_id,story_id,kind,deleted_at) VALUES('owner','deleted','generated','saved deletion')");
  const before=db.prepare('SELECT * FROM reader_sessions ORDER BY id').all(),jobs=db.prepare('SELECT * FROM production_jobs ORDER BY id').all();
- migrate(db,process.cwd());
+ migrate(db,process.cwd(),undefined,'0027_revision_fault_targets.sql');
  for(const [id,,,,expected] of cases){
   const after=db.prepare('SELECT * FROM stories WHERE id=?').get(id),old=before.find(row=>row.id===id);
   assert.equal(after.generation_mode,'background');assert.equal(after.generation_control,expected);

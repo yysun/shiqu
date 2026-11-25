@@ -1,10 +1,10 @@
 # 故事生成状态机
 
-故事当前与历史版本的生命周期及守卫以[故事制作生命周期](story-production-lifecycle.md)为准。下面按旧检查点推导的分镜与审片细节保留用于旧文档转换。
+故事当前与历史版本的生命周期及守卫以[故事制作生命周期](story-production-lifecycle.md)为准。
 
 本文定义故事生成的生产状态机：从创建意图、选择故事、确认制作，到分镜、审核、绘图和整篇完成，并覆盖替换选题、失败恢复和历史版本隔离。本轮按已审规格更新正式 API、持久队列和阅读界面；验证记录见[验收规格](tests/test-story-generation-state-machine.md)。
 
-> **制作流程已由数据驱动的 DAG 取代。** 选定故事后的准备（原文核对、缺少的候选画风、梗概核对与制作建议）以及确认后的制作（提纲、分镜、审片、修订、绘图和横图）由 `lib/production-dag/` 的引擎调度，`server/dag-production.ts` 执行，规则见 [制作 DAG](story-production-dag.md)。本文第 3、4、8 节中按 `nextStep()` 逐步推导分镜、审核与绘图的描述、以及 `visualReview` 检查点，只适用于升级前的旧故事（由转换钩子转入 DAG）；候选查找仍由独立队列运行，`nextStep()` 为查找和确认前准备提供兼容视图，审片结论、按结论放行、暂停恢复与故障按依赖阻断均以 DAG 规范为准。代码索引见第 10 节，另加 `lib/production-dag/`（引擎、注册表、请求读取、进度视图 `progress.ts`、复制 `copy.ts`）、`server/dag-production.ts`、`server/dag-executor.ts`、`server/dag-revisions.ts`、`server/provider-snapshot.ts`（图片快照，缺凭据时显示「快照服务不可用」，「应用当前模型设置」即 `production-control` 的 `apply-model`）。已打开的故事优先绘制，篇内按幅序，由 `viewedPriority` 排序。
+准备与确认后的制作按[制作 DAG](story-production-dag.md)推导。候选查找仍经独立队列，在候选界面有阅读需求时才发送。已打开的故事优先绘制，篇内按幅序。确认后的故事保存图片快照，文字任务取全局设置，横图从独立入口运行。
 
 | 原问题 | 生产行为 |
 | --- | --- |
@@ -12,22 +12,22 @@
 | 改名改变任务身份，可能多付一次 | 显示名与生成输入分离，改名不生成、不重试；升级迁移保留已有任务和付费回执 |
 | 有图片地址就永远完成 | 服务端确认文件失效后撤销完成，按幅等待授权；恢复文件只核对复用 |
 
-业务节点不等同于数据库枚举。`reader_faults` 独立保留故障，`reader_commands` 保存一次授权的回执；整份 Document 的迟到保存不能清除故障。
+故障从执行尝试日志推导，归属发起尝试或核对的版本。`reader_commands` 保存授权回执。迟到的付费结果留存，当前版本按硬输入判断是否采用。
 
 [开发指南](development.md) · [创建、编辑与队列概览](story-creation-editing-queue.md)
 
 ## 1. 核心模型：保存检查点，再决定下一步
 
-故事生成不是一个不断自增的进度枚举。每次执行先判断版本、用户控制、失败及确认门槛是否允许工作，再从已保存的 `Document` 推导 `nextStep()`；完成后保存检查点，再决定下一步。**有下一步不等于获准执行下一步。** 失败恢复主要依靠已保存结果，而不是把整条流程重跑。
+故事生成不是一个不断自增的进度枚举。每次执行先判断版本、用户控制、失败及确认门槛是否允许工作，再从当前版本采用的产物与授权推导就绪工作；完成后保存检查点，再决定下一步。**有下一步不等于获准执行下一步。** 失败恢复主要依靠已保存结果，而不是把整条流程重跑。
 
 状态分成几个维度，必须一起看：
 
 | 维度 | 字段与取值 | 回答的问题 |
 | --- | --- | --- |
 | 创建与确认 | `intake.phase`：`discovering / choosing / preparing / confirming / confirmed` | 是否已经选定故事、授权制作？ |
-| 会话执行 | 数据库 `state`：`idle / running / failed / completed` | 当前会话是否被工作器执行，或已失败、完成？ |
+| 会话执行 | 读取时推导：`idle / running / failed / completed` | 当前会话是否被工作器执行，或已失败、完成？ |
 | 下一步 | `generationProgress.phase`：如 `recommend / plan / reflection / review / repair / image` | 已保存结果还缺什么？ |
-| 审核检查点 | `visualReview.status`：`pending / repair / passed / blocked`；`phase`：`frames / full` | 正在审核什么，能否开始绘图？ |
+| 审核检查点 | `lifecycle.review`：`pending / attention / approved`，逐幅与全篇结论由制作稿记录 | 正在审核什么，能否开始绘图？ |
 | 用户控制 | `generationControl`：`active / paused / stopped` | 是否允许启动后续生成任务？ |
 | 队列执行 | 任务 `state`：`queued / running / succeeded / failed` | 某次具体工作是否取得执行资格、完成并保存回执？ |
 | 界面投影 | `productionState`：`running / queued / paused` | 此刻队列实际在做、在等，还是没有可运行工作？ |
@@ -121,7 +121,7 @@ stateDiagram-v2
 
 ## 3. 下一步如何决定
 
-生产调度器将分镜工作拆成检查点任务，实际执行由制作 DAG（`server/dag-production.ts`、`lib/production-dag`）按依赖推导；`nextStep()` 只用于旧版进度显示（`advanceStory()` 已移除）。下表列出已有步骤推导顺序；实现须在付费调用前再次校验以下执行门槛：
+调度器按制作 DAG、产物、尝试和当前授权推导任务。下表列出制作各阶段，付费发送前重新校验执行门槛。
 
 1. 当前用户可访问该任务，版本仍是家族的最新提交版本；被删除或替代的版本不能领取新生成工作。
 2. `generationControl=active`，且存在适用的后台或查看者需求。
@@ -254,7 +254,7 @@ flowchart LR
 
 | 转换 | 条件 |
 | --- | --- |
-| 新任务 → `queued` | 根据当前检查点、输入版本和任务依赖构建任务；已有保存结果可直接登记为 `succeeded` |
+| 新任务 → `queued` | 根据产物、输入版本和授权推导工作；已有保存结果可直接登记为 `succeeded` |
 | `queued → running` | 依赖全部成功、执行池有空位、需求和用户控制允许，取得租约令牌；恢复任务按已授权的故障范围判断，不被无依赖关系的故障拦住 |
 | `running → succeeded` | 工作结果和任务回执成功保存 |
 | `running → failed` | 普通业务或服务调用失败；服务停止造成的非终止性异常另记 `interrupted=1` |
@@ -438,7 +438,7 @@ stateDiagram-v2
 - `intake.generation` 防止旧选择的制作结果覆盖新选择；搜索还用 `search.round` 隔离旧轮次结果。
 - 队列任务身份包含实际生成输入版本和步骤键；保存检查点后，即使旧任务回执还没结算，也不会无条件重复已完成调用。
 - **显示名、署名、收藏和阅读位置不属于生成输入。** 修改这些信息不得改变图片或文本任务身份，不得清除普通失败、审核阻断或图片失效记录；尤其不能通过改名使失败任务获得一次新的付费尝试。
-- 会话锁、队列租约令牌及发布时的输入核对共同阻止迟到结果覆盖当前画幅。图片生成回执和故事图片发布分开保存，使发布重试可复用已付费结果。
+- 队列租约令牌与保存时的输入核对共同保护当前画幅。图片生成回执和故事图片发布分开保存，使发布重试可复用已付费结果。
 
 ## 8. 按钮名称必须对应真实转换
 
@@ -522,14 +522,14 @@ stateDiagram-v2
 
 | 入口 | 负责内容 |
 | --- | --- |
-| [`lib/reader-model.ts`](../lib/reader-model.ts) | `SessionRow / Document / SessionView`、`nextStep()`、`productionComplete()`、进度投影 |
+| [`lib/reader-model.ts`](../lib/reader-model.ts) | `SessionRow / Document / SessionView`、从制作稿组装阅读进度 |
 | [`lib/reader-intake.ts`](../lib/reader-intake.ts)、[`server/reader-intake.ts`](../server/reader-intake.ts) | 创建阶段、查找状态、选择、草稿、重新推荐和制作确认 |
 | [`lib/reader-engine.ts`](../lib/reader-engine.ts) | `StoryGenerator` 与调用结果类型；原 `advanceStory()` 已移除，准备与制作都由制作 DAG 执行 |
 | [`lib/production-dag/`](../lib/production-dag)、[`server/dag-production.ts`](../server/dag-production.ts) | 制作 DAG：引擎、调用契约、进度视图、复制、任务调度与执行（见 [制作 DAG](story-production-dag.md)） |
 | [`lib/reader-review.ts`](../lib/reader-review.ts) | 审核状态、报告契约、问题编号、局部修订批次 |
-| [`server/reader-production.ts`](../server/reader-production.ts) | 依赖图、执行资格、绘图与发布、人工放行、快照和中断恢复策略 |
+| [`server/reader-production.ts`](../server/reader-production.ts) | 候选调度、发送授权、生命周期和中断恢复 |
 | [`server/production-queue.ts`](../server/production-queue.ts) | 持久化任务、执行池、依赖、租约、重试和回执 |
-| [`lib/reader-repository.ts`](../lib/reader-repository.ts) | 会话锁、原子检查点保存、暂停恢复、完成写入 |
+| [`lib/reader-repository.ts`](../lib/reader-repository.ts) | 原子保存和读取、书架与读者控制 |
 | [`lib/reader-limits.ts`](../lib/reader-limits.ts) | 总幅数 `1–80`、分镜批次 `20`、自动修复上限 `20` |
 | [`lib/shelf-generation.ts`](../lib/shelf-generation.ts)、[`lib/generation-progress.ts`](../lib/generation-progress.ts) | 书架状态分组与制作进度显示 |
 

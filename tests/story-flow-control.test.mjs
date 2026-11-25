@@ -333,12 +333,12 @@ test('superseded jobs leave the queue on finished, paused and deleted stories to
 
 test('a dead lock on a paused story blocks nothing and does not resume it; confirming still starts it',async t=>{
  const f=await fixture(t),id=await prepared(f);
- await f.app.services.database.prepare("UPDATE stories SET state='running',lock_token='dead',lock_until=1,generation_control='paused' WHERE id=?").bind(id).run();
+ await f.app.services.database.prepare("UPDATE stories SET generation_control='paused' WHERE id=?").bind(id).run();
  assert.equal(await setupStatus(f,id,{action:'more'}),200,'Search ignores the lock');
  await f.app.services.production.tick();
  const s=await f.read(id);assert.equal(s.state,'idle');assert.equal(s.generationControl,'paused');
  await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});await searchIs(f,id,'idle');await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
- await f.app.services.database.prepare("UPDATE stories SET state='running',lock_token='dead',lock_until=1 WHERE id=?").bind(id).run();
+ await f.app.services.database.prepare("UPDATE stories SET production_complete=0 WHERE id=?").bind(id).run();
  await setup(f,id,{action:'confirm',settings:{...settings,length:2}});assert.equal((await f.read(id)).generationControl,'active');
  await until(async()=>(await f.read(id)).state==='completed');
 });

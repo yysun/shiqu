@@ -69,3 +69,30 @@ test('waiting to continue without a configured service names the reason instead 
  assert.match(markup,/当前制作服务未配置或处于只读模式/);
  assert.deepEqual(enabledActions(markup).filter(eventOf),[]);
 });
+
+test('reader exits and final dispatch derive from the same saved attempt and control',async t=>{
+ const {productionFixture}=await import('./fixtures/production.mjs');
+ const {completedStory}=await import('./fixtures/production-dag-story.mjs');
+ const f=await productionFixture(t,'codex');
+ f.options.production={autoStart:false};await f.restart();
+ const {id}=await completedStory(f,{length:4}),production=f.app.services.production,db=f.app.services.database;
+ const row=await db.prepare('SELECT document FROM stories WHERE id=?').bind(id).first(),doc=JSON.parse(row.document);
+ const frame=doc.dag.order[1];
+ delete doc.dag.frames[frame].image;delete doc.dag.products[`frameImage:${frame}`];
+ await db.prepare('UPDATE stories SET document=?,production_complete=0 WHERE id=?').bind(JSON.stringify(doc),id).run();
+ const saved=()=>production.repository.get(id,f.app.services.ownerId);
+ await production.dag.schedule(await saved());
+ await production.dag.schedule(await saved());
+ const jobs=await production.queue.jobs(id,f.app.services.ownerId),queued=jobs.find(job=>job.kind==='dag-draw'&&job.state==='queued');
+ assert.ok(queued);
+ const dispatch=()=>db.transaction(tx=>production.checkDispatch(tx,queued,Date.now()));
+ assert.equal(dispatch(),'allow');assert.equal((await f.read(id)).lifecycle.activity.state,'queued');
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
+ assert.equal(dispatch(),'yield');
+ const session=await f.read(id),render=await surfaces();
+ assert.equal(session.lifecycle.activity.state,'idle');
+ assert.ok(offered(session,'resume'));
+ assert.ok(enabledActions(render.settings(session)).some(label=>eventOf(label)==='resume'));
+ await f.json(`sessions/${id}/production-control`,'POST',{action:'resume'});
+ assert.equal(dispatch(),'allow');assert.equal((await f.read(id)).lifecycle.activity.state,'queued');
+});

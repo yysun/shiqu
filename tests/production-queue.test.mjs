@@ -1,22 +1,22 @@
-// Exercise generic dependency/pool/recovery contracts, including future voice and video work.
+// Exercise queue pool, fencing and recovery contracts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
-import {readFileSync,readdirSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {ProductionQueue,inputVersion,productionJobId} from '../server/production-queue.ts';
-import {transaction} from '../server/database.ts';
+import {transaction,migrate} from '../server/database.ts';
 import {beforePaidSend,PaidDispatchUnfenced,withPaidDispatch,withProductionJob} from '../server/paid-dispatch.ts';
 import {until,turn} from './fixtures/production-data.mjs';
 function database(t){
- const db=new DatabaseSync(':memory:');for(const name of readdirSync('drizzle').filter(n=>n.endsWith('.sql')).sort())db.exec(readFileSync('drizzle/'+name,'utf8'));t.after(()=>db.close());
+ const db=new DatabaseSync(':memory:');migrate(db,process.cwd());t.after(()=>db.close());
  return {db,adapter:{prepare(sql){let args=[];return {bind(...values){args=values;return this;},async first(){return db.prepare(sql).get(...args)||null;},async all(){return {results:db.prepare(sql).all(...args)};},async run(){return {meta:{changes:Number(db.prepare(sql).run(...args).changes)}};}};},transaction(body){return transaction(db,body);}}};
 }
-const spec=(kind,pool,dependencies=[],version='v1',key='')=>({id:productionJobId('story',kind,version,key),sessionId:'story',ownerId:'owner',kind,pool,version,dependencies,payload:{key},priority:0});
+const spec=(kind,pool,version='v1',key='')=>({id:productionJobId('story',kind,version,key),sessionId:'story',ownerId:'owner',kind,pool,version,payload:{key},priority:0});
 test('search and text each have one independent worker beside image and local pools',async t=>{
  const {adapter}=database(t),calls=[],releases=[];
  const run=async job=>{calls.push(job.pool);await new Promise(resolve=>releases.push({pool:job.pool,resolve}));return {};};
  const queue=new ProductionQueue(adapter,{limits:{search:1,text:1,image:3,local:2},handlers:{discover:{pool:'search',run},script:{pool:'text',run}}});
- for(let i=0;i<2;i++){await queue.enqueue(spec('discover','search',[],'v',String(i)));await queue.enqueue(spec('script','text',[],'v',String(i)));}
+ for(let i=0;i<2;i++){await queue.enqueue(spec('discover','search','v',String(i)));await queue.enqueue(spec('script','text','v',String(i)));}
  await queue.pump();await until(()=>calls.length===2);
  assert.deepEqual(calls.sort(),['search','text']);
  releases.find(release=>release.pool==='text').resolve();
@@ -26,7 +26,7 @@ test('search and text each have one independent worker beside image and local po
 });
 test('search pool migration upgrades queued and interrupted rows with stable ids and receipts',async t=>{
  const {adapter,db}=database(t),calls=[],queue=new ProductionQueue(adapter,{limits:{search:1},resumeInterrupted:async()=>true,handlers:{discover:{pool:'search',run:async job=>{calls.push(job.id);return {};}}}});
- for(const key of ['queued','interrupted'])await queue.enqueue(spec('discover','text',[],'old',key));
+ for(const key of ['queued','interrupted'])await queue.enqueue(spec('discover','text','old',key));
  db.exec("UPDATE production_jobs SET state='failed',interrupted=1 WHERE json_extract(payload,'$.key')='interrupted'");
  db.exec(readFileSync('drizzle/0008_search_pool.sql','utf8'));
  const jobs=await queue.jobs('story','owner');
@@ -43,27 +43,36 @@ test('recovery contains an orphan callback failure once and still recovers anoth
  assert.equal((await queue.job('valid')).state,'queued');assert.equal((await queue.job('orphan')).state,'running');
  assert.equal(logs.length,1);
 });
-test('voice/images branch after script; motion/processing feed video; assembly retry reuses every artifact',async t=>{
- const {adapter}=database(t),calls=[],gates=new Map();let failVideo=true;
- const run=kind=>async(job,{outputs})=>{calls.push(kind);assert.equal(Object.keys(outputs).length,JSON.parse(job.dependencies).length);if(gates.has(kind))await gates.get(kind).promise;if(kind==='video'&&failVideo)throw Error('controlled export failure');return {asset:`${kind}.asset`};};
- for(const kind of ['image','voice']){let resolve;const promise=new Promise(r=>resolve=r);gates.set(kind,{promise,resolve});}
- const queue=new ProductionQueue(adapter,{limits:{text:1,image:1,voice:1,local:2,video:1},handlers:{script:{pool:'text',run:run('script')},image:{pool:'image',run:run('image')},voice:{pool:'voice',run:run('voice')},processing:{pool:'local',run:run('processing')},motion:{pool:'video',run:run('motion')},video:{pool:'video',run:run('video')}}});
- const script=spec('script','text'),image=spec('image','image',[script.id]),voice=spec('voice','voice',[script.id]),processing=spec('processing','local',[image.id]),motion=spec('motion','video',[processing.id]),video=spec('video','video',[motion.id,voice.id]);
- for(const job of [video,motion,processing,voice,image,script])await queue.enqueue(job);
- await queue.pump();await queue.settle();assert.deepEqual(calls,['script']);
- await queue.pump();await until(()=>calls.includes('image')&&calls.includes('voice'));assert.equal(calls.includes('video'),false);
- gates.get('image').resolve();await until(async()=>(await queue.job(image.id)).state==='succeeded');await queue.pump();
- await until(async()=>(await queue.job(processing.id)).state==='succeeded');await queue.pump();await until(async()=>(await queue.job(motion.id)).state==='succeeded');assert.equal(calls.includes('video'),false);
- gates.get('voice').resolve();await queue.settle();await queue.pump();await queue.settle();assert.equal((await queue.job(video.id)).state,'failed');
- failVideo=false;await queue.retry('story','owner');await queue.pump();await queue.settle();assert.equal((await queue.job(video.id)).state,'succeeded');
- assert.deepEqual(calls.filter(k=>k!=='video').sort(),['image','motion','processing','script','voice']);assert.equal(calls.filter(k=>k==='video').length,2);
- assert.equal(productionJobId('story','image','v1'),productionJobId('story','image','v1'));assert.notEqual(productionJobId('story','image','v1'),productionJobId('story','image','v2'));assert.notEqual(inputVersion({caption:'a'}),inputVersion({caption:'b'}));
+test('retry uses the same job identity, appends a new attempt and preserves existing results',async t=>{
+ const {adapter,db}=database(t),calls=[];
+ let fail=true;
+ const queue=new ProductionQueue(adapter,{limits:{text:1,image:1},handlers:{
+  script:{pool:'text',run:async()=>{calls.push('script');return {asset:'script.asset'};}},
+  image:{pool:'image',run:async()=>{calls.push('image');if(fail)throw Error('controlled failure');return {asset:'image.asset'};}},
+ }});
+ const script=spec('script','text'),image=spec('image','image');
+ await queue.enqueue(script);await queue.pump();await queue.settle();
+ await queue.enqueue(image);await queue.pump();await queue.settle();
+ assert.equal((await queue.job(image.id)).state,'failed');
+ await queue.retry('story','owner');await queue.pump();await queue.settle();
+ assert.equal((await queue.job(image.id)).state,'failed');
+ fail=false;await queue.retry('story','owner');await queue.pump();await queue.settle();
+ assert.deepEqual(calls,['script','image','image','image']);
+ assert.equal((await queue.job(script.id)).result,'{"asset":"script.asset"}');
+ const events=db.prepare("SELECT event,attempt_id FROM production_attempt_events WHERE job_id=? AND event!='fault' ORDER BY sequence").all(image.id);
+ assert.deepEqual(events.map(row=>row.event),['claimed','failed','reset-attempts','claimed','failed','reset-attempts','claimed','succeeded']);
+ assert.equal(events[0].attempt_id,events[1].attempt_id);assert.equal(events[3].attempt_id,events[4].attempt_id);
+ assert.equal(events[6].attempt_id,events[7].attempt_id);
+ assert.equal(new Set([events[0].attempt_id,events[3].attempt_id,events[6].attempt_id]).size,3);
+ assert.equal(db.prepare("SELECT count(*) AS found FROM production_faults WHERE job_id=? AND state='pending'").get(image.id).found,0);
+ assert.notEqual(productionJobId('story','image','v1'),productionJobId('story','image','v2'));
+ assert.notEqual(inputVersion({caption:'a'}),inputVersion({caption:'b'}));
 });
 test('two schedulers share the SQL pool cap and never claim the same paid job',async t=>{
  const {adapter}=database(t),calls=[],releases=[];
  const options={limits:{image:2},handlers:{image:{pool:'image',run:async job=>{calls.push(job.id);await new Promise(resolve=>releases.push(resolve));return {image:job.id};}}}};
  const a=new ProductionQueue(adapter,options),b=new ProductionQueue(adapter,options);
- for(let i=0;i<6;i++)await a.enqueue(spec('image','image',[],'v1',String(i)));
+ for(let i=0;i<6;i++)await a.enqueue(spec('image','image','v1',String(i)));
  await Promise.all([a.pump(),b.pump()]);await until(()=>calls.length===2);await turn();assert.equal(calls.length,2);assert.equal(new Set(calls).size,2);
  releases.splice(0).forEach(resolve=>resolve());await Promise.all([a.settle(),b.settle()]);await Promise.all([a.pump(),b.pump()]);await until(()=>calls.length===4);
  a.stop();b.stop();releases.splice(0).forEach(resolve=>resolve());await Promise.all([a.settle(),b.settle()]);assert.equal(new Set(calls).size,4);
@@ -99,7 +108,7 @@ test('expired local renewal cannot take a slot already claimed by another runtim
  let now=100;
  const options={limits:{image:1},leaseMs:100,now:()=>now,handlers:{image:{pool:'image',run:async()=>{await hold.promise;return {};}}}};
  const first=new ProductionQueue(adapter,options),second=new ProductionQueue(adapter,options);
- const a=spec('image','image',[],'v1','a'),b=spec('image','image',[],'v1','b');
+ const a=spec('image','image','v1','a'),b=spec('image','image','v1','b');
  try{
   await first.enqueue(a);await first.pump();
   now=200;
@@ -111,7 +120,7 @@ test('expired local renewal cannot take a slot already claimed by another runtim
 });
 test('a provider timeout shares the interruption cap and content rejection remains terminal during stop',async t=>{
  const {adapter}=database(t);
- const timeout=spec('text','text',[],'v1','timeout'),blocked=spec('text','text',[],'v1','blocked');
+ const timeout=spec('text','text','v1','timeout'),blocked=spec('text','text','v1','blocked');
  const started=Promise.withResolvers(),release=Promise.withResolvers();
  let timeouts=0;
  const options={

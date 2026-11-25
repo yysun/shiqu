@@ -2,6 +2,7 @@
 // Continuation and setting drafts preserve the chosen story; title changes reset only unselected intake.
 // Changing discovery conditions updates the same task, fencing obsolete searches without starting a new one.
 // An explicit query keeps the original scope and controls, and never bypasses a production lock.
+import {decodeDocument} from '../lib/production-dag/document.ts';
 import type {RequirementsSetup} from '../lib/reader-requirements.ts';
 import {editRequirements,requirementEdits,requirementsForReselection,suggestedSettings} from '../lib/reader-requirements.ts';
 import {normalizeProductionPrompt} from '../lib/reader-prompts.ts';
@@ -61,7 +62,7 @@ export async function createIntake(repo:ReaderRepository,id:string,uid:string,in
  if(selection.artStylePrompt||replacement)doc.intake!.manualArt=true;
  if(replacement)doc.reselection=replacement.draft;
  const row=await repo.create(id,uid,selection,doc,replacement?.beforeInsert);
- if((JSON.parse(row.document) as Document).intake?.creationHash!==creationHash)throw new ReaderError(409,'此创建编号已用于其他内容，请重新创建。');
+ if((decodeDocument(row)).intake?.creationHash!==creationHash)throw new ReaderError(409,'此创建编号已用于其他内容，请重新创建。');
  return row;
 }
 // Manual search stands outside selection generations; automatic continuation must still be unselected at write time.
@@ -73,18 +74,18 @@ async function requestSearch(repo:ReaderRepository,row:SessionRow,search:IntakeS
  if(!changed.meta.changes)await recordNoop(repo.db,row.user_id,row.id,requestId,'setup',fingerprint);
  return repo.get(row.id,row.user_id);
 }
-export function setupState(row:SessionRow,doc:Document,selection:Selection,superseded:boolean,now:number):SetupState{
+export function setupState(doc:Document,selection:Selection,superseded:boolean):SetupState{
  const intake=doc.intake,chosen=intake?.selected;
  const requiresBrief=intake?.briefRequired||chosen&&intake.batches[chosen.batch]?.stories[chosen.index]?.storyBrief||doc.original?.storyBrief;
  return {phase:effectiveIntakePhase(doc,selection),superseded,replacement:!!doc.reselection,confirmed:!!doc.plan,
-  generationCurrent:true,draftCurrent:true,selected:!!chosen,locked:row.state==='running'&&row.lock_until>now,
+  generationCurrent:true,draftCurrent:true,selected:!!chosen,
   candidateExists:intake?.batches.some(batch=>batch.stories.length>0)??false,search:intake?intakeSearch(intake):{state:'idle'},
   sameSearch:false,automatic:false,hasCandidates:!!intake?.batches.at(-1)?.stories.length,
   searchLimit:(intake?.batches.length??0)>=maxSuggestionBatches,combined:selection.discovery?.mode==='auto'&&!!selection.discovery.combine,
   preparationReady:!!doc.original&&!!doc.frameRecommendation,briefReady:!requiresBrief||storyBriefVerified(doc.original)};
 }
 export async function changeIntake(repo:ReaderRepository,id:string,uid:string,action:IntakeAction,books?:LocalBooks,attempt=0):Promise<SessionRow>{
- const row=await repo.get(id,uid),doc=JSON.parse(row.document) as Document,selection=selectionSchema.parse(JSON.parse(row.selection));
+ const row=await repo.get(id,uid),doc=decodeDocument(row),selection=selectionSchema.parse(JSON.parse(row.selection));
  const fingerprint=hash(action),receipt=await commandReceipt(repo.db,uid,action.requestId,fingerprint);
  if(receipt){if(receipt.action!=='setup'||receipt.session_id!==id)throw new ReaderError(409,'这个操作编号已用于其他内容。');return row;}
  const savedIntake=doc.intake,phase=effectiveIntakePhase(doc,selection);
@@ -107,7 +108,7 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   draftCurrent=action.draftToken!==undefined?action.draftToken===current:!userDraft||requested===legacyToken;
  }
  const decision=authorizeSetup(action.action,{
-  ...setupState(row,doc,selection,await repo.superseded(id,uid),Date.now()),
+  ...setupState(doc,selection,await repo.superseded(id,uid)),
   generationCurrent:savedIntake?.generation===action.generation,draftCurrent,candidateExists:!!candidate,
   sameSearch:search.requestId===action.requestId,automatic:action.action==='more'&&!!action.automatic,
  });
@@ -132,8 +133,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   delete intake.selected;delete intake.draft;delete intake.draftEdited;delete doc.original;delete doc.dag;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
   doc.setupRequirements={edited:editRequirements(selection,doc.setupRequirements,next)};
   if(choice)selectSourceCard(doc,choice,round);
-  const result={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
-   WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`,[JSON.stringify(next),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state])}};
+  const result={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET selection=?,document=?,production_complete=0,updated_at=?
+   WHERE id=? AND user_id=? AND document=? AND selection=? AND ${currentStory}`,[JSON.stringify(next),null,new Date().toISOString(),id,uid,row.document,row.selection],{value:doc,parameter:1})}};
   if(!result.meta.changes){if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);throw new ReaderError(409,'提取条件已更新，请重新打开后继续。');}
   return repo.get(id,uid);
  }
@@ -150,8 +151,8 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
   delete intake.indexedCandidates;
   intake.search={round:search.round+1,state:'searching',requestId:action.requestId,commandHash:fingerprint,cycleId:action.requestId};
   delete doc.original;delete doc.dag;delete doc.frameRecommendation;doc.frameCountConfirmed=false;
-  const result={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?
-   WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`,[JSON.stringify(selection),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state])}};
+  const result={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET selection=?,document=?,production_complete=0,updated_at=?
+   WHERE id=? AND user_id=? AND document=? AND selection=? AND ${currentStory}`,[JSON.stringify(selection),null,new Date().toISOString(),id,uid,row.document,row.selection],{value:doc,parameter:1})}};
   if(!result.meta.changes){if(attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);throw new ReaderError(409,'查找条件已更新，请重新打开后继续。');}
   return repo.get(id,uid);
  }
@@ -208,10 +209,10 @@ export async function changeIntake(repo:ReaderRepository,id:string,uid:string,ac
  }
  if(action.action!=='recommend'){delete intake.draft;delete intake.draftEdited;}
  intake.generation++;intake.lastAction={id:action.requestId,hash:fingerprint};
- const result={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET selection=?,document=?,state='idle',error=NULL,lock_token=NULL,lock_until=0,step_key=NULL,step_attempts=0,updated_at=?${action.action==='confirm'?",generation_mode='background',generation_control='active'":''}
-  WHERE id=? AND user_id=? AND document=? AND selection=? AND state=? AND ${currentStory}`,[JSON.stringify(selection),JSON.stringify(doc),new Date().toISOString(),id,uid,row.document,row.selection,row.state])}};
+ const result={meta:{changes:writeStory(repo.db,id,uid,`UPDATE stories SET selection=?,document=?,production_complete=0,updated_at=?${action.action==='confirm'?",generation_control='active'":''}
+  WHERE id=? AND user_id=? AND document=? AND selection=? AND ${currentStory}`,[JSON.stringify(selection),null,new Date().toISOString(),id,uid,row.document,row.selection],{value:doc,parameter:1})}};
  if(!result.meta.changes){
-  const current=await repo.get(id,uid),saved=(JSON.parse(current.document) as Document).intake;
+  const current=await repo.get(id,uid),saved=(decodeDocument(current)).intake;
   if(saved?.lastAction?.id===action.requestId&&saved.lastAction.hash===fingerprint)return current;
   // 重读以容纳同一世代的后台进度；草稿操作会重新校验提交时的指纹。
   if(saved?.generation===action.generation&&attempt<3)return changeIntake(repo,id,uid,action,books,attempt+1);

@@ -6,14 +6,7 @@ import type {DagDocument} from './document.ts';
 /** 复制或修订竖稿时，只比较该版本自身的制作内容。 */
 export function portraitDocument(doc:Document){
  const copy={...doc};
- delete copy.landscapePrints;delete copy.legacyLandscapeControl;delete copy.legacyLandscapeModelSnapshot;
- if(copy.dag){
-  copy.dag=structuredClone(copy.dag);
-  for(const [id,frame] of Object.entries(copy.dag.frames)){
-   delete frame.landscape;delete frame.landscapeError;delete frame.landscapeInputHash;delete frame.landscapeAttempt;
-   delete copy.dag.products[`landscape:${id}`];
-  }
- }
+ delete copy.landscapePrints;
  copy.usage=(doc.usage??[]).filter(call=>call.step!=='dag:drawLandscape');
  return copy;
 }
@@ -23,18 +16,17 @@ export function textOnlyDag(dag:DagDocument):DagDocument{
  const copy=structuredClone(dag);
  delete copy.cover;
  delete copy.continuation;
- delete copy.reviewSkip;
- delete copy.resumeUnreviewed;
+ delete copy.repairs;
  for(const [id,product] of Object.entries(copy.products)){
-  if(product.unreviewed||product.overridden&&!copy.verdicts?.[id]&&!(id==='frameCheck:'&&copy.frameCheck))delete copy.products[id];
+  if(product.overridden&&!copy.verdicts?.[id]&&!(id==='frameCheck:'&&copy.frameCheck))delete copy.products[id];
   else if(product.overridden)delete product.overridden;
  }
  for(const id of copy.order){
   const frame=copy.frames[id];
   if(!frame)continue;
-  delete frame.image;delete frame.landscapeAttempt;delete frame.landscape;delete frame.landscapeError;delete frame.landscapeInputHash;
+  delete frame.image;
   delete frame.redrawRequested;
-  delete copy.products[`frameImage:${id}`];delete copy.products[`landscape:${id}`];
+  delete copy.products[`frameImage:${id}`];
  }
  return copy;
 }

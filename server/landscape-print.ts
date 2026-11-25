@@ -1,4 +1,5 @@
 // 横版印刷的授权与画幅任务属于发起版本。队列保留实际调用和成图，竖图制作不接收横图的进度或故障。
+import {decodeDocument} from '../lib/production-dag/document.ts';
 import type {MediaStore} from '../lib/services.ts';
 import {readableSavedPortrait,readableLandscapeImage} from './reader-image-health.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
@@ -10,23 +11,18 @@ import {landscapePrintHiddenSql,supersededSql} from '../lib/reader-repository.ts
 import type {StoryGenerator} from '../lib/reader-engine.ts';
 import {landscapeSourceReady,type ModelSnapshot} from '../lib/production-dag/document.ts';
 import {referenceImageKey} from '../lib/reader-image-assets.ts';
-import {evaluate} from '../lib/production-dag/engine.ts';
-import {drawInput,stateOf} from '../lib/production-dag/runner.ts';
-import {fingerprint} from '../lib/production-dag/fingerprint.ts';
+import {drawInput} from '../lib/production-dag/runner.ts';
 import {inputVersion,JobYield,productionJobId,type ProductionJob} from './production-queue.ts';
 import {transact} from './production-records.ts';
 
 export const landscapePrintKind='landscape-print';
 type Input=ReturnType<typeof drawInput>;
 type Receipt={image:string;model:string;requestId:string|null;usage:unknown};
-type LegacyBinding={key:string;hash:string};
-type LegacyReceipt={work:{instances:{key:string;hard?:Record<string,string>}[]};paid:{value:string;model:string;requestId:string|null;usage:unknown}};
-type Payload={input:Input;paid?:Receipt;retry?:true;attempt?:number;legacy?:LegacyBinding};
-const documentOf=(row:SessionRow)=>JSON.parse(row.document) as Document;
+type Payload={input:Input;paid?:Receipt;retry?:true;attempt?:number};
+const documentOf=(row:SessionRow)=>decodeDocument(row);
 export const currentLandscapePrint=(doc:Document)=>doc.landscapePrints?.at(-1);
 const matches=(print:LandscapePrint|undefined,job:ProductionJob)=>print?.id===job.version;
 const retryIdentity=(id:string,failed:ProductionJob[])=>inputVersion([id,failed.map(job=>[job.id,job.state,job.updated_at,job.payload])]);
-const runningLegacyLandscape="session_id=stories.id AND owner_id=stories.user_id AND state='running' AND json_extract(payload,'$.work.call')='drawLandscape'";
 
 const printJobOrder="ORDER BY json_extract(payload,'$.input.index'),COALESCE(json_extract(payload,'$.attempt'),0)";
 const printJobFilter='FROM production_jobs WHERE session_id=? AND owner_id=? AND kind=? AND version=?';
@@ -80,11 +76,7 @@ export async function savedLandscapeImages(db:Database,media:MediaStore,row:Sess
   }
   if(await readableSet(images))return order.map(index=>images[index]);
  }
- const dag=doc.dag;
- if(dag?.order.length!==count||!dag.order.every(key=>dag.frames[key]?.landscape))return;
- const graph=evaluate(stateOf({id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed:true,faults:[]}));
- const images=dag.order.map(key=>dag.frames[key].landscape!);
- if(dag.order.every(key=>graph.instance('landscape',key).status==='valid')&&await readableSet(images))return images;
+
 }
 
 export class LandscapePrints{
@@ -127,7 +119,7 @@ export class LandscapePrints{
  }
 
  private async readableReceipt(job:ProductionJob){
-  const {input,legacy}=JSON.parse(job.payload) as Payload;
+  const {input}=JSON.parse(job.payload) as Payload;
   const sources=await this.database.prepare(`SELECT payload,result FROM production_jobs WHERE session_id=? AND owner_id=? AND kind=? AND version=?
    AND json_extract(payload,'$.input')=json(?) ORDER BY COALESCE(json_extract(payload,'$.attempt'),0) DESC`)
    .bind(job.session_id,job.owner_id,landscapePrintKind,job.version,JSON.stringify(input)).all<Pick<ProductionJob,'payload'|'result'>>();
@@ -138,12 +130,6 @@ export class LandscapePrints{
    if(!key)continue;
    try{if(!await this.fileLost(key))return receipt;}
    catch{unavailable=true;}
-  }
-  if(legacy){
-   try{
-    const receipt=await this.readableLegacyReceipt(job.session_id,legacy,await this.legacyReceipts(job.session_id,job.owner_id));
-    if(receipt)return receipt;
-   }catch{unavailable=true;}
   }
   if(unavailable)throw new JobYield('image-availability');
  }
@@ -235,54 +221,6 @@ export class LandscapePrints{
   if(status?.state!=='completed')return status;
  }
 
- // 旧版在修订后不再运行原任务。读者可以确认接续有原授权记录的套图。
- async legacyResume(row:SessionRow){
-  const doc=documentOf(row),{dag}=doc;
-  if(!landscapeSourceReady(doc)||doc.landscapePrints?.length||!dag?.order.some(key=>dag.frames[key]?.landscape===''))return;
-  const source=await this.database.prepare(`SELECT NOT EXISTS(SELECT 1 FROM production_jobs WHERE ${runningLegacyLandscape} AND lease_until>?) AS available
-   FROM stories WHERE id=? AND user_id=? AND ${supersededSql()}`).bind(this.now(),row.id,row.user_id).first<{available:number}>();
-  if(!source)return;
-  const bindings=await this.database.prepare(`SELECT json_extract(j.payload,'$.work.instances[0].key') AS frame,json_extract(j.payload,'$.work.instances[0].hard') AS hard
-   FROM production_jobs j WHERE j.session_id=? AND j.owner_id=? AND json_extract(j.payload,'$.work.call')='drawLandscape'
-   AND NOT EXISTS (SELECT 1 FROM reader_faults f WHERE f.session_id=j.session_id AND f.owner_id=j.owner_id AND f.node='landscape'
-    AND f.node_key=json_extract(j.payload,'$.work.instances[0].key') AND f.origin_fault_id IS NOT NULL AND f.state IN ('pending','recovering') AND f.job_id IS NULL)`)
-   .bind(row.id,row.user_id).all<{frame:string;hard:string|null}>();
-  const requested=new Set(bindings.results.flatMap(({frame,hard})=>hard?[frame+':'+fingerprint(JSON.parse(hard))]:[]));
-  const graph=evaluate(stateOf({id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed:true,faults:[]}));
-  if(!dag.order.every(key=>{
-   const target=graph.instance('landscape',key),frame=dag.frames[key];
-   if(frame?.landscape)return target.status==='valid';
-   if(frame?.landscape!==''||!target.hard)return false;
-   const hash=fingerprint(target.hard);
-   const localBinding=frame.landscapeInputHash===hash||!doc.revision&&frame.landscapeInputHash===undefined;
-   return localBinding&&requested.has(key+':'+hash);
-  }))return;
-  return source;
- }
-
- private async legacyReceipts(id:string,ownerId:string){
-  const jobs=await this.database.prepare(`SELECT payload FROM production_jobs WHERE session_id=? AND owner_id=?
-   AND json_extract(payload,'$.work.call')='drawLandscape' AND json_type(payload,'$.paid')='object' ORDER BY updated_at DESC`)
-   .bind(id,ownerId).all<Pick<ProductionJob,'payload'>>();
-  return jobs.results.map(job=>JSON.parse(job.payload) as LegacyReceipt);
- }
-
- private async readableLegacyReceipt(id:string,target:LegacyBinding,receipts:LegacyReceipt[]){
-  for(const {work,paid} of receipts){
-   const instance=work.instances[0];
-   if(instance?.key===target.key&&fingerprint(instance.hard??null)===target.hash&&await this.verify(id,paid.value))
-    return {image:paid.value,model:paid.model,requestId:paid.requestId,usage:paid.usage};
-  }
- }
-
- private async adoptLegacy(row:SessionRow,targets:LegacyBinding[],images:string[]){
-  const receipts=await this.legacyReceipts(row.id,row.user_id);
-  return Promise.all(targets.map(async(target,index)=>{
-   if(images[index]&&await this.verify(row.id,images[index]))return {image:images[index],model:'',requestId:null,usage:null};
-   return this.readableLegacyReceipt(row.id,target,receipts);
-  }));
- }
-
  async applyModel(row:SessionRow,print:LandscapePrint,replacement:ModelSnapshot){
   const updated=await this.database.prepare(`UPDATE stories SET document=json_set(document,'$.landscapePrints[#-1].modelSnapshot',json(?))
    WHERE id=? AND user_id=? AND document=? AND json_extract(document,'$.landscapePrints[#-1].id')=? AND NOT ${landscapePrintHiddenSql()}`)
@@ -290,7 +228,7 @@ export class LandscapePrints{
   if(!updated.meta.changes)throw new ReaderError(409,'横图已更新，请刷新后再试。');
  }
 
- async command(row:SessionRow,command:Exclude<LandscapeCommand,{modelToken:string}>,canStart:boolean,requireProvider?:()=>Promise<unknown>,modelSnapshot?:ModelSnapshot,legacyImages?:string[]){
+ async command(row:SessionRow,command:Exclude<LandscapeCommand,{modelToken:string}>,canStart:boolean,requireProvider?:()=>Promise<unknown>,modelSnapshot?:ModelSnapshot){
   const doc=documentOf(row),print=currentLandscapePrint(doc);
   if('startToken'in command){
    if(!canStart||command.startToken!==this.startToken(row)||print&&(await latestPrintJobs(this.database,row,print)).some(job=>job.state==='queued'||job.state==='running'))
@@ -298,27 +236,15 @@ export class LandscapePrints{
    const story=view(row).story,dag=doc.dag;
    if(!story||!doc.plan||!dag||!story.pages.length||story.pages.some(page=>!page.image))throw new ReaderError(409,'请先完成竖图再绘制横图。');
    const inputs=this.drawingInputs(row);
-   const legacy:LegacyBinding[]=[];
-   if(legacyImages){
-    const graph=evaluate(stateOf({id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed:true,faults:[]}));
-    for(const key of dag.order){
-     const {hard}=graph.instance('landscape',key);
-     if(!hard)throw new ReaderError(409,'旧版画幅输入已更新。');
-     legacy.push({key,hash:fingerprint(hard)});
-    }
-   }
-   const adopted=legacyImages?await this.adoptLegacy(row,legacy,legacyImages).catch(()=>{throw new ReaderError(503,'旧版图片暂时无法核对，请稍后重试。');}):[];
-   if(inputs.some(input=>!adopted[input.index]))await requireProvider?.();
-   const issue=await this.referenceIssue(row.id,inputs.filter(input=>!adopted[input.index]));
+   await requireProvider?.();
+   const issue=await this.referenceIssue(row.id,inputs);
    if(issue)throw issue;
    const next:LandscapePrint={id:randomUUID(),story,plan:doc.plan,frameKeys:dag.order,control:'active',modelSnapshot};
    const now=this.now();
    transact(this.database,db=>{
     if(print&&db.get(`SELECT 1 FROM production_jobs WHERE session_id=? AND owner_id=? AND kind=? AND version=? AND state IN ('queued','running')`,
      row.id,row.user_id,landscapePrintKind,print.id))throw new ReaderError(409,'横图仍在制作，请刷新后再试。');
-    const targetVersion=legacyImages?`${supersededSql()} AND NOT EXISTS(SELECT 1 FROM production_jobs WHERE ${runningLegacyLandscape} AND lease_until>?)`:`NOT ${supersededSql()}`;
-    const current=db.get<SessionRow>(`SELECT * FROM stories WHERE id=? AND user_id=? AND ${targetVersion} AND NOT ${landscapePrintHiddenSql()}`,
-     row.id,row.user_id,...(legacyImages?[now]:[]));
+    const current=db.get<SessionRow>(`SELECT * FROM story_rows stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND NOT ${landscapePrintHiddenSql()}`,row.id,row.user_id);
     if(!current||!landscapeSourceReady(documentOf(current))||command.startToken!==this.startToken(current))
      throw new ReaderError(409,'作品已更新，请刷新后再试。');
     const currentDoc=documentOf(current);
@@ -327,10 +253,9 @@ export class LandscapePrints{
     db.run("UPDATE stories SET document=json_set(document,'$.landscapePrints',json(?)) WHERE id=? AND user_id=?",
      JSON.stringify([...(currentDoc.landscapePrints??[]),next]),row.id,row.user_id);
     for(const input of inputs){
-     const receipt=adopted[input.index];
-     db.run(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,state,result,priority,attempts,lease_until,created_at,updated_at)
-      VALUES(?,?,?,?,'landscape',?,'[]',?,?,?,?,0,0,?,?)`,productionJobId(row.id,landscapePrintKind,next.id,String(input.index)),
-      row.id,row.user_id,landscapePrintKind,next.id,JSON.stringify({input,legacy:legacy[input.index]}),receipt?'succeeded':'queued',receipt?JSON.stringify(receipt):null,100+input.index,now,now);
+     db.run(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,payload,state,priority,attempts,lease_until,created_at,updated_at)
+      VALUES(?,?,?,?,'landscape',?,?,'queued',?,0,0,?,?)`,productionJobId(row.id,landscapePrintKind,next.id,String(input.index)),
+      row.id,row.user_id,landscapePrintKind,next.id,JSON.stringify({input}),100+input.index,now,now);
     }
    });
    return;
@@ -370,33 +295,33 @@ export class LandscapePrints{
      continue;
     }
     const attempt=(payload.attempt??0)+1;
-    if(!db.run(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,state,priority,attempts,lease_until,created_at,updated_at)
-     VALUES(?,?,?,?,'landscape',?,'[]',?,'queued',?,0,0,?,?) ON CONFLICT(id) DO NOTHING`,
+    if(!db.run(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,payload,state,priority,attempts,lease_until,created_at,updated_at)
+     VALUES(?,?,?,?,'landscape',?,?,'queued',?,0,0,?,?) ON CONFLICT(id) DO NOTHING`,
      productionJobId(row.id,landscapePrintKind,print.id,payload.input.index+':'+attempt),row.id,row.user_id,landscapePrintKind,print.id,
-     JSON.stringify({input:payload.input,paid:payload.paid,retry:true,attempt,legacy:payload.legacy}),100+payload.input.index,now,now).changes)
+     JSON.stringify({input:payload.input,paid:payload.paid,retry:true,attempt}),100+payload.input.index,now,now).changes)
       throw new ReaderError(409,'横图已更新，请刷新后再试。');
    }
   });
  }
 
  async canResumeOffline(job:ProductionJob){
-  const {paid,retry,legacy}=JSON.parse(job.payload) as Payload;
+  const {paid,retry}=JSON.parse(job.payload) as Payload;
   if(paid&&!retry)return true;
-  if(!retry&&!legacy)return false;
+  if(!retry)return false;
   try{return !!await this.readableReceipt(job);}
   catch(error){if(error instanceof JobYield)return false;throw error;}
  }
 
  async resumePaid(job:ProductionJob){
-  const {paid,retry,legacy}=JSON.parse(job.payload) as Payload;
-  if(!paid&&!retry&&!legacy)return;
+  const {paid,retry}=JSON.parse(job.payload) as Payload;
+  if(!paid&&!retry)return;
   const receipt=await this.readableReceipt(job);
   if(receipt)return receipt;
   if(paid&&!retry)throw new ReaderError(409,'已付费横图的文件丢失，请重试本幅。');
  }
 
  async run(job:ProductionJob,generator:StoryGenerator){
-  const row=await this.database.prepare('SELECT * FROM stories WHERE id=? AND user_id=?').bind(job.session_id,job.owner_id).first<SessionRow>();
+  const row=await this.database.prepare('SELECT * FROM story_rows stories WHERE id=? AND user_id=?').bind(job.session_id,job.owner_id).first<SessionRow>();
   const print=row&&currentLandscapePrint(documentOf(row));
   if(!row||!print||!matches(print,job))return {obsolete:true};
   const {input}=JSON.parse(job.payload) as Payload;

@@ -19,7 +19,7 @@ test('per-frame and per-item calls run in batches: a 24-frame story makes one ca
  const s=story({frames:24,items:[{id:'i1',text:'结尾才揭示身份'},{id:'i2',text:'每幅都有动作'}]});
  const log=run(s);
  assert.ok(complete(s));
- for(const [call,calls,instances] of [['characters',1,1],['outline',1,1],['sceneBatch',2,24],['visual',2,24],['registerItems',1,2],['draw',24,24]]){
+ for(const [call,calls,instances] of [['characters',1,1],['outline',1,1],['sceneBatch',2,24],['visual',2,24],['draw',24,24]]){
   assert.equal(count(log,call),calls,call);
   assert.equal(produced(log,call),instances,call);
  }
@@ -66,14 +66,6 @@ test('scenario 23: an app upgrade that changes prompt templates leaves every pro
  assert.ok(complete(s));
 });
 
-test('scenario 24: redrawing a portrait invalidates only its landscape, which never blocks completion',()=>{
- const s=done();s.landscapes=['f2','f4'];run(s);
- redraw(s,'f2');
- const e=evaluate(s);
- assert.equal(e.instance('landscape','f2').status,'invalid');
- assert.equal(e.instance('landscape','f4').status,'valid');
- assert.ok(complete(s));
-});
 
 test('scenario 25: changing the adaptation seed after confirmation runs nothing',()=>{
  const s=done();s.products['seed:']=root('新的改编重点');
@@ -149,7 +141,7 @@ test('a fault blocks only its own node and dependants; optional faults never blo
  const log=run(s);
  assert.deepEqual(log.filter(l=>l.call==='draw').flatMap(l=>l.ids),['frameImage:f6']);
  assert.ok(!complete(s));
- s.faults=[{id:'y',node:'landscape',key:'f3',state:'pending',optional:true}];
+ s.faults=[{id:'y',node:'frameImage',key:'f3',state:'pending',optional:true}];
  s.products['frameImage:f2']={...s.products['frameImage:f2'],readable:true};
  assert.ok(complete(s));
  assert.equal(evaluate(s).instance('frameImage','f2').status,'valid');

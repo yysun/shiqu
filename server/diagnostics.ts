@@ -84,7 +84,7 @@ export function diagnosticReport(directory:string,appVersion:string){
    const tables=new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r=>String(r.name)));
    if(tables.has('stories'))database.sessions=Number(db.prepare('SELECT count(*) AS n FROM stories').get()!.n);
    if(tables.has('production_jobs')){database.jobs=Number(db.prepare('SELECT count(*) AS n FROM production_jobs').get()!.n);database.failedJobs=Number(db.prepare("SELECT count(*) AS n FROM production_jobs WHERE state='failed'").get()!.n);}
-   if(tables.has('reader_faults'))database.pendingFaults=Number(db.prepare("SELECT count(*) AS n FROM reader_faults WHERE state='pending'").get()!.n);
+   if(tables.has('production_faults'))database.pendingFaults=Number(db.prepare("SELECT count(*) AS n FROM production_faults WHERE state='pending'").get()!.n);
   }
  }catch(error){database.status='unreadable';database.code=safeErrorCode(error);}finally{db?.close();}
  return {format:'shiqu-diagnostics',version:1,createdAt:new Date().toISOString(),appVersion:/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(appVersion)?appVersion:'unknown',runtime:{node:process.versions.node,platform:process.platform,arch:process.arch},database,logsAvailable,events:events.slice(-500)};

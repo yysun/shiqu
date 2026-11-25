@@ -44,8 +44,8 @@ const dagCalls=dag=>[
  ()=>dag.visualRepair({outline,productionPrompt:'',style,characters:people,frames:frames.map(f=>({...f,prompt:'旧画面描述，人物站在庭院中央。',drawn:people,issues:[issue]}))}),
  ()=>dag.structureRepair({source,outline,productionPrompt:'',settings,captions,issues:[{...issue,requiresReplan:true}]}),
  ()=>dag.ending({source,outline,captions}),()=>dag.endingRepair({source,outline,captions,reflection:plan.reflection,issues:[]}),
- ()=>dag.frameCheck({source,outline,productionPrompt:'',settings,captions}),()=>dag.registerItems({items:[{id:'i1',text:'保留原文结局。'}]}),
- ()=>dag.review({source,brief:'梗概',outline,title:'庄周梦蝶',productionPrompt:'',acceptancePrompt:'',style,characters:people,frames:captions.map(caption=>({id:caption,caption,prompt:'画面描述，人物站在庭院中央。'})),chosenEnding:plan.reflection,allowed:{pages:[1],criteria:[],narrative:false},itemIds:{}}),
+ ()=>dag.frameCheck({source,outline,productionPrompt:'',settings,captions}),
+ ()=>dag.review({source,brief:'梗概',outline,title:'庄周梦蝶',productionPrompt:'',acceptancePrompt:'',style,characters:people,frames:captions.map(caption=>({id:caption,caption,prompt:'画面描述，人物站在庭院中央。'})),confirmedEnding:{title:plan.title,ending:plan.reflection},allowed:{pages:[1],narrative:false}}),
 ];
 
 for(const name of ['codex','gemini'])for(const custom of [false,true])test(`${name}: all text tasks use ${custom?'explicit overrides':'recommended defaults'}, not the old global effort`,async()=>{

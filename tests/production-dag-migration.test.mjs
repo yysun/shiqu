@@ -14,6 +14,7 @@ import {ensureLibraryReady} from '../server/library-upgrade.ts';
 import {restoreLibraryBackup,verifyLibraryBackup} from '../server/library-backup.ts';
 import {selection,makePlan} from './fixtures/production-data.mjs';
 import {selectionSchema} from '../lib/reader-model.ts';
+import {decodeDocument} from '../lib/production-dag/document.ts';
 import {png} from './fixtures/images.mjs';
 
 const localOwner='docker-local-owner';
@@ -57,7 +58,7 @@ test('0025 converts stories, adopts a paid image, maps faults and clears old job
  fault.run('text',story,owner,'paid','job',null,'v','制作未完成','recovering');
  sqlite.prepare("INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,fault_id,status,created_at,updated_at) VALUES('cmd',?,?,'recover','f','{}','text','queued',1,1)").run(owner,story);
 
- migrate(sqlite,process.cwd(),directory);
+ migrate(sqlite,process.cwd(),directory,'0025_production_dag.sql');
 
  const saved=JSON.parse(sqlite.prepare('SELECT document FROM stories WHERE id=?').get(story).document);
  assert.deepEqual(saved.dag.order,['legacy-1','legacy-2','legacy-3']);
@@ -73,7 +74,7 @@ test('0025 converts stories, adopts a paid image, maps faults and clears old job
  assert.equal(faults.text.job_id,null);
  assert.deepEqual(sqlite.prepare('SELECT id FROM production_jobs').all().map(r=>r.id),['search']);
  assert.equal(sqlite.prepare("SELECT status FROM reader_commands WHERE request_id='cmd'").get().status,'failed');
- assert.equal(sqlite.prepare('PRAGMA user_version').get().user_version,3);
+ assert.equal(sqlite.prepare('PRAGMA user_version').get().user_version,2);
  const triggers=sqlite.prepare("SELECT name FROM sqlite_schema WHERE type='trigger' ORDER BY name").all().map(r=>r.name);
  assert.deepEqual(triggers,['book_image_reference_on_delete','books_refuse_pre_consolidation_seed','production_disarm_deleted','reader_command_id_guard','reader_session_id_guard','story_content_revision','story_content_revision_insert']);
  assert.ok(sqlite.prepare("SELECT 1 FROM pragma_table_info('production_jobs') WHERE name='error_code'").get());
@@ -124,13 +125,21 @@ test('a setup story that an earlier upgrade already gave an empty dag resumes it
  await f.json(`sessions/${created.id}/production-control`,'POST',{action:'pause'});
  await f.json(`sessions/${created.id}/setup`,'POST',{requestId:crypto.randomUUID(),generation:(await f.read(created.id)).intake.generation,action:'choose',batch:0,index:0});
  // 模拟旧版升级为已选定、尚未准备的故事写入空转换 dag。
- const {convertDocument}=await import('../lib/production-dag/convert.ts');
+ const {convertDocument}=await import('../server/migrations/production-v2.ts');
  const row=await f.app.services.database.prepare('SELECT document,selection FROM stories WHERE id=?').bind(created.id).first();
- const dag=convertDocument(JSON.parse(row.document),selectionSchema.parse(JSON.parse(row.selection)),{confirmed:false});
- await f.app.services.database.prepare("UPDATE stories SET document=json_set(document,'$.dag',json(?)) WHERE id=?").bind(JSON.stringify(dag),created.id).run();
+ const historical=JSON.parse(row.document);
+ const dag=convertDocument(historical,selectionSchema.parse(JSON.parse(row.selection)),{confirmed:false});
+ const {directory,sqlite}=library(t);
+ migrate(sqlite,process.cwd(),directory,'0027_revision_fault_targets.sql');
+ sqlite.prepare("INSERT INTO stories(id,user_id,selection,document,state,generation_control,created_at,updated_at) VALUES(?,?,?,?,'idle','paused','c','u')")
+  .run(created.id,localOwner,row.selection,JSON.stringify({...historical,plan:null,images:[],dag}));
+ migrate(sqlite,process.cwd(),directory);
+ const migrated=sqlite.prepare('SELECT document FROM stories WHERE id=?').get(created.id).document;
+ assert.equal(JSON.parse(migrated).dag,undefined);
+ await f.app.services.database.prepare("UPDATE stories SET document=? WHERE id=?").bind(migrated,created.id).run();
  await f.json(`sessions/${created.id}/production-control`,'POST',{action:'resume'});
  await until(async()=>(await f.read(created.id)).intake.phase==='confirming',20000);
- const saved=JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(created.id).first()).document);
+ const saved=decodeDocument(await f.app.services.database.prepare('SELECT * FROM story_rows WHERE id=?').bind(created.id).first());
  assert.equal(saved.dag.legacy,undefined);
  assert.deepEqual(saved.dag.order,[]);
  assert.ok(saved.dag.products['source:']);
@@ -149,7 +158,7 @@ test('0025 keeps the pending slots of a partial storyboard and adopts only reada
  const doc={plan:null,storyboard:{outline:{title:'庄周梦蝶',summary:'梗概',sourceReference:'庄子',adaptationNote:'按原文',characters:plan.characters,beats},pages:plan.pages},images:[],audio:[],usage:[],original:{title:'庄子',text:'昔者庄周梦为胡蝶。',url:'https://example.test',kind:'passage',provider:'local',retrievedAt:'2026-01-01'}};
  seed(lib,doc);
  migrate(sqlite,process.cwd(),directory);
- const saved=JSON.parse(sqlite.prepare('SELECT document FROM stories WHERE id=?').get(story).document);
+ const saved=decodeDocument(sqlite.prepare('SELECT * FROM story_rows WHERE id=?').get(story));
  assert.equal(saved.dag.order.length,24);
  assert.equal(saved.dag.brief,doc.storyboard.outline.summary);
  assert.equal(saved.dag.characters[0].text,plan.characters);
@@ -202,7 +211,7 @@ test('0025 retains the current authorized unfinished landscape work before clear
  assert.equal(sqlite.prepare("SELECT count(*) AS total FROM production_jobs").get().total,6);
  assert.equal(sqlite.prepare("SELECT name FROM sqlite_schema WHERE name='migration_landscape_jobs'").get(),undefined);
  sqlite.exec('DROP TRIGGER interrupt_landscape_migration');
- migrate(sqlite,process.cwd(),directory);
+ migrate(sqlite,process.cwd(),directory,'0025_production_dag.sql');
  const saved=JSON.parse(sqlite.prepare('SELECT document FROM stories WHERE id=?').get(story).document);
  assert.equal(saved.dag.frames['legacy-1'].landscape,landscape);
  assert.deepEqual(readFileSync(path.join(folder,'artifacts',filename)),landscapeBytes);
@@ -211,6 +220,15 @@ test('0025 retains the current authorized unfinished landscape work before clear
  assert.deepEqual(retained.map(row=>[row.job_id,row.page,row.state,row.paid_image]),[
   ['paid',0,'succeeded',landscape],['in-flight',1,'running',null],['queued',2,'queued',null],['failed',3,'failed',null],
  ]);
+ migrate(sqlite,process.cwd(),directory);
+ const upgraded=JSON.parse(sqlite.prepare('SELECT document FROM stories WHERE id=?').get(story).document);
+ assert.equal(upgraded.dag.frames['legacy-1'].landscape,undefined);
+ const [print]=upgraded.landscapePrints;
+ assert.equal(print.control,'paused');
+ const dedicated=sqlite.prepare(`SELECT state,json_extract(result,'$.image') AS image FROM production_jobs
+  WHERE kind='landscape-print' AND version=? ORDER BY priority`).all(print.id);
+ assert.deepEqual(dedicated.map(row=>[row.state,row.image]),[['succeeded',landscape],['queued',null],['queued',null],['queued',null]]);
+ assert.deepEqual(readFileSync(path.join(folder,'artifacts',filename)),landscapeBytes);
 });
 
 for(const prepared of [true,false])test(`an upgraded story with ${prepared?'saved':'interrupted'} recommendations converts paused with its saved frame count and starts nothing`,async t=>{
@@ -249,6 +267,8 @@ for(const prepared of [true,false])test(`an upgraded story with ${prepared?'save
  await until(async()=>(await f.read(id)).state==='completed',20000);
  assert.equal((await saved()).dag.order.length,3);
  assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[0,1,2]);
+
+
 });
 
 
@@ -346,26 +366,28 @@ test('the production upgrade preserves saved text and media, and resumes only un
  const upgraded=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'),{readOnly:true});
  let converted;
  try{
-  assert.equal(upgraded.prepare('PRAGMA user_version').get().user_version,3);
-  assert.equal(upgraded.prepare("SELECT count(*) AS count FROM sqlite_schema WHERE type='trigger'").get().count,7);
-  converted=documentsIn(upgraded);
+  assert.equal(upgraded.prepare('PRAGMA user_version').get().user_version,4);
+  assert.ok(upgraded.prepare("SELECT 1 FROM sqlite_schema WHERE type='trigger' AND name='production_attempt_reset'").get());
+  converted=new Map(upgraded.prepare('SELECT * FROM story_rows').all().map(row=>[row.id,row]));
  }finally{upgraded.close();}
  assertMedia(f.dataDirectory);
  for(const [id,old] of documents){
-  if(id===ids.broken){assert.equal(converted.get(id),old);continue;}
+  if(id===ids.broken){assert.equal(converted.get(id).document,old);continue;}
   const {plan:oldPlan,original:oldOriginal,images,storyboard,draft}=JSON.parse(old);
-  const doc=JSON.parse(converted.get(id));
+  const row=converted.get(id),raw=row.document,doc=decodeDocument(row);
+  assert.equal(Object.hasOwn(JSON.parse(raw),'plan'),false);
+  assert.equal(Object.hasOwn(JSON.parse(raw),'images'),false);
   assert.deepEqual(doc.plan,oldPlan);
   assert.deepEqual(doc.original,oldOriginal);
   assert.deepEqual(doc.images.filter((_,page)=>images[page]),images.filter(Boolean));
   if(storyboard){
-   assert.deepEqual(doc.storyboard,storyboard);
+   assert.equal(doc.storyboard,undefined);
    assert.equal(doc.dag.order.length,24);
    assert.equal(doc.dag.characters[0].text,storyboard.outline.characters);
    continue;
   }
   if(draft){
-   assert.deepEqual(doc.draft,draft);
+   assert.equal(doc.draft,undefined);
    assert.deepEqual(doc.dag.outline.beats,draft.pages.map(page=>page.caption));
    assert.equal(doc.dag.ending,undefined);
    continue;
@@ -373,8 +395,10 @@ test('the production upgrade preserves saved text and media, and resumes only un
   assert.equal(doc.dag.frames['legacy-1'].scene,oldPlan.pages[0].caption);
   assert.equal(doc.dag.products['scene:legacy-1'].handEdited,undefined,'the legacy edit survives without a hand-edit marker');
  }
- assert.equal(JSON.parse(converted.get(ids.complete)).dag.frames['legacy-1'].landscape,`/api/reader/media/${ids.complete}/${landscapeFile}`);
- assert.equal(JSON.parse(converted.get(ids.paid)).dag.frames['legacy-2'].image,`/api/reader/media/${ids.paid}/1.png`);
+ const [legacyPrint]=JSON.parse(converted.get(ids.complete).document).landscapePrints;
+ const savedLandscape=await f.app.services.database.prepare("SELECT result FROM production_jobs WHERE kind='landscape-print' AND version=? AND state='succeeded'").bind(legacyPrint.id).first();
+ assert.equal(JSON.parse(savedLandscape.result).image,`/api/reader/media/${ids.complete}/${landscapeFile}`);
+ assert.equal(decodeDocument(converted.get(ids.paid)).dag.frames['legacy-2'].image,`/api/reader/media/${ids.paid}/1.png`);
  const lost=await f.read(ids.lost);
  assert.equal(lost.ready,1);
  const loss=lost.faults.find(fault=>fault.page===0&&fault.state==='pending');
@@ -393,7 +417,7 @@ test('the production upgrade preserves saved text and media, and resumes only un
  try{replayBefore.exec('DROP TRIGGER simulate_interruption');}finally{replayBefore.close();}
  ensureLibraryReady(replay,f.root);
  const replayDb=new DatabaseSync(path.join(replay,'shiqu.sqlite'),{readOnly:true});
- try{assert.deepEqual(documentsIn(replayDb),converted,'the same backup produces identical converted documents');}
+ try{assert.deepEqual(documentsIn(replayDb),new Map([...converted].map(([id,row])=>[id,row.document])),'the same backup produces identical converted documents');}
  finally{replayDb.close();}
  assertMedia(replay);
 
@@ -417,6 +441,18 @@ test('the production upgrade preserves saved text and media, and resumes only un
     assert.equal((await response.json()).id,id);
    }
    assertMedia(dataDirectory);
+   const {exportLocalStory}=await import('../server/story-export.ts'),{unzipSync}=await import('fflate');
+   const before=await (await app.handle(new Request('http://localhost/api/reader/sessions/'+ids.complete))).json();
+   const after=await f.read(ids.complete),archive=async(name,service,session)=>{
+    const output=path.join(f.root,name+'.zip');
+    await exportLocalStory(process.cwd(),service,session,{format:'zip',output,allowUnsigned:true});
+    return unzipSync(readFileSync(output));
+   };
+   const oldZip=await archive('before-upgrade',app,before),newZip=await archive('after-upgrade',f.app,after);
+   const filenames=Object.keys(oldZip).sort();
+   assert.deepEqual(Object.keys(newZip).sort(),filenames);
+   assert.ok(filenames.includes('故事.json')&&filenames.includes('分镜.md')&&filenames.filter(name=>name.endsWith('.webp')).length===before.story.pages.length);
+   for(const name of filenames)assert.deepEqual(newZip[name],oldZip[name],name);
    assert.throws(()=>createApplication({...options,dataDirectory:replay}),/LIBRARY_NEWER_SCHEMA.*use a newer Shiqu app/);
   }finally{await app.close();}
  });
@@ -456,12 +492,14 @@ test('the production upgrade preserves saved text and media, and resumes only un
  for(const name of ['brief','outline','characters'])assert.ok(!f.control.dagCalls.includes(name),name);
  assert.deepEqual(f.control.calls.slice(start).map(call=>call.page).sort((a,b)=>a-b),Array.from({length:24},(_,page)=>page));
  const draft=JSON.parse(documents.get(ids.draft)).draft;
- const beforeDraft=f.control.dagCalls.length;
+ const beforeDraft=f.control.dagCalls.length,endingCalls=f.control.reflections.length,reviewCalls=f.control.reviews.length;
  await f.json(`sessions/${ids.draft}/production-control`,'POST',{action:'resume'});
  await until(async()=>(await f.read(ids.draft)).state==='completed',15000);
- const draftDoc=JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(ids.draft).first()).document);
+ const draftDoc=decodeDocument(await f.app.services.database.prepare('SELECT * FROM story_rows WHERE id=?').bind(ids.draft).first());
  assert.deepEqual(draftDoc.plan.pages,draft.pages);
- assert.deepEqual(f.control.dagCalls.slice(beforeDraft),[],'saved draft text does not generate again');
+ assert.deepEqual(f.control.dagCalls.slice(beforeDraft),[],'saved text checkpoints are reused');
+ assert.equal(f.control.reflections.length-endingCalls,1);
+ assert.equal(f.control.reviews.length-reviewCalls,1);
  assertMedia(f.dataDirectory);
 });
 
@@ -479,15 +517,188 @@ test('0026 auto-migrates format 2 after a verified backup and can retry a rolled
  sqlite.exec('DROP TRIGGER interrupt_lifecycle');
  sqlite.close();
  const result=ensureLibraryReady(directory,root);
- assert.deepEqual(result.migrations,['0026_production_lifecycle.sql','0027_revision_fault_targets.sql']);
+ assert.deepEqual(result.migrations,['0026_production_lifecycle.sql','0027_revision_fault_targets.sql','0028_production_spec.sql','0029_finalize_production_spec.sql']);
  verifyLibraryBackup(result.backup);
  const original=new DatabaseSync(path.join(result.backup,'shiqu.sqlite'),{readOnly:true});
  try{assert.equal(original.prepare('PRAGMA user_version').get().user_version,2);}finally{original.close();}
  const upgraded=new DatabaseSync(path.join(directory,'shiqu.sqlite'),{readOnly:true});
  try{
-  assert.equal(upgraded.prepare('PRAGMA user_version').get().user_version,3);
-  assert.ok(upgraded.prepare("SELECT name FROM sqlite_master WHERE name='reader_faults_origin_frame'").get());
+  assert.equal(upgraded.prepare('PRAGMA user_version').get().user_version,4);
+  assert.equal(upgraded.prepare("SELECT type FROM sqlite_master WHERE name='production_faults'").get().type,'view');
   assert.ok(upgraded.prepare("SELECT name FROM app_migrations WHERE name='0026_production_lifecycle.sql'").get());
  }finally{upgraded.close();}
  assert.equal(ensureLibraryReady(directory,root),undefined);
+});
+
+for(const format of [2,3])test(`0028 merges format ${format} whole-story decisions in one backup-backed upgrade and pauses old reader work`,async t=>{
+ const {sqlite,directory}=library(t);
+ migrate(sqlite,process.cwd(),directory,format===2?'0025_production_dag.sql':'0027_revision_fault_targets.sql');
+ const {convertDocument,rootProducts,versionState,evaluate,fingerprint:oldFingerprint}=await import('../server/migrations/production-v2.ts');
+ const {stateOf,work}=await import('../lib/production-dag/runner.ts');
+ const {evaluate:current}=await import('../lib/production-dag/engine.ts');
+ const {selectionSchema}=await import('../lib/reader-model.ts');
+ const original={title:'庄子',text:'昔者庄周梦为胡蝶。',url:'https://example.test',kind:'passage',provider:'local',retrievedAt:'2026-01-01'};
+ const selected=selectionSchema.parse({...selection,length:3,acceptancePrompt:'保留原文结局\n首尾呼应'});
+ for(const mask of ['pass','override','blocked','deferred']){
+  const id='old-review-'+mask,doc={plan:makePlan(3),images:[],audio:[],usage:[],original};
+  const dag=convertDocument(doc,selected,{confirmed:true});
+  dag.items=[{id:'a',text:'保留原文结局',scope:'story',evidence:['scenes']},{id:'b',text:'首尾呼应',scope:'story',evidence:['ending']}];
+  delete dag.resumeUnreviewed;
+  for(const product of Object.values(dag.products)){delete product.unreviewed;delete product.legacy;}
+  const graph=()=>evaluate(versionState(dag,rootProducts(selected,dag),{confirmed:true,skipFrameCheck:true}));
+  for(const item of dag.items){
+   const inst=graph().instance('itemRegistration',item.id);
+   dag.products[inst.id]={hash:oldFingerprint(item),inputs:inst.hard,scope:item.scope,evidence:item.evidence};
+  }
+  for(const item of dag.items){
+   if(item.id==='b'&&mask==='deferred')continue;
+   const inst=graph().instance('itemVerdict',item.id);
+   const fail=item.id==='b'&&['override','blocked'].includes(mask);
+   dag.products[inst.id]={hash:oldFingerprint(item.text),inputs:inst.hard,outcome:fail?'fail':'pass',...(fail&&mask==='override'?{overridden:true}:{})};
+   (dag.verdicts??={})[inst.id]={outcome:fail?'fail':'pass',detail:'旧审片依据'};
+  }
+  dag.products['frameVerdict:legacy-2'].overridden=true;
+  sqlite.prepare(`INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at)
+   VALUES(?,?,?,?,'reader','active','idle','2026-11-01','2026-11-01')`).run(id,owner,JSON.stringify(selected),JSON.stringify({...doc,dag}));
+ }
+ if(format===3)sqlite.prepare(`INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,state,origin_fault_id,created_at,updated_at)
+  VALUES('old-inherited','old-review-pass',?,'image-loss','frameImage','legacy-1','dag','已丢图','awaiting-match','parent-fault',1,1)`).run(owner);
+ const report=ensureLibraryReady(directory,process.cwd());
+ assert.deepEqual(report.migrations,[...(format===2?['0026_production_lifecycle.sql','0027_revision_fault_targets.sql']:[]),
+  '0028_production_spec.sql','0029_finalize_production_spec.sql']);
+ verifyLibraryBackup(report.backup);
+ if(format===3)assert.equal(sqlite.prepare("SELECT state FROM production_faults WHERE id='old-inherited'").get().state,'replaced');
+ for(const mask of ['pass','override','blocked','deferred']){
+  const id='old-review-'+mask,row=sqlite.prepare('SELECT * FROM story_rows WHERE id=?').get(id),doc=decodeDocument(row),dag=doc.dag;
+  assert.equal(Object.hasOwn(row,'generation_mode'),false);assert.equal(row.generation_control,'paused');assert.equal(dag.items,undefined);
+  assert.equal(dag.products['frameVerdict:legacy-2'].overridden,true);
+  const story={id,doc,dag,selection:selected,confirmed:true,faults:[]};
+  const verdict=dag.products['narrativeVerdict:'];
+  if(mask==='deferred'){
+   assert.equal(verdict,undefined);
+   assert.deepEqual(work(story).filter(item=>item.call==='review').map(item=>item.instances.map(instance=>instance.id)),[['narrativeVerdict:']]);
+   continue;
+  }
+  assert.equal(current(stateOf(story)).instance('narrativeVerdict').status,'valid');
+  assert.equal(verdict.outcome,mask==='pass'?'pass':'fail');
+  assert.equal(!!verdict.overridden,mask==='override');
+  assert.equal(dag.verdicts['narrativeVerdict:'].acceptance[1].evidence,'旧审片依据');
+ }
+});
+
+test('0029 repairs the preview format 4 receipt and the production scheduler resumes after a verified backup',async t=>{
+ const {productionFixture}=await import('./fixtures/production.mjs');
+ const {normalizeStoryDocument}=await import('../server/migrations/production-v4.ts');
+ const id=crypto.randomUUID(),legacy=crypto.randomUUID(),plan=makePlan(3);
+ const selected=selectionSchema.parse({...selection,length:3});
+ const doc={plan,images:[],audio:[],usage:[]};
+ const dag=normalizeStoryDocument(id,doc,selected);
+ const report=[];
+ const f=await productionFixture(t,'codex',{}, {initialize(directory,root){
+  const db=historicalLibrary(directory,root,'0027_revision_fault_targets.sql');
+  try{
+   db.exec(`CREATE TABLE production_migration_diagnostics(session_id TEXT NOT NULL,owner_id TEXT NOT NULL,code TEXT NOT NULL,
+    PRIMARY KEY(session_id,owner_id));
+    ALTER TABLE stories ADD COLUMN shelf_cover TEXT;
+    PRAGMA user_version=4;
+    INSERT INTO app_migrations VALUES('0028_production_spec.sql','preview'),('0028_shelf_cover.sql','parallel');`);
+   const insert=db.prepare(`INSERT INTO stories(id,user_id,selection,document,state,generation_control,shelf_cover,created_at,updated_at)
+    VALUES(?,?,?,?,'idle','paused','saved-cover','c','u')`);
+   insert.run(id,localOwner,JSON.stringify(selected),JSON.stringify({audio:[],usage:[],dag}));
+   insert.run(legacy,localOwner,JSON.stringify(selected),JSON.stringify(doc));
+  }finally{db.close();}
+  report.push(ensureLibraryReady(directory,root));
+ }});
+ const [upgrade]=report;
+ assert.deepEqual(upgrade.migrations,['0029_finalize_production_spec.sql']);
+ verifyLibraryBackup(upgrade.backup);
+ const backup=new DatabaseSync(path.join(upgrade.backup,'shiqu.sqlite'),{readOnly:true});
+ try{
+  assert.equal(backup.prepare('PRAGMA user_version').get().user_version,4);
+  assert.equal(backup.prepare("SELECT name FROM sqlite_schema WHERE name='story_rows'").get(),undefined);
+ }finally{backup.close();}
+ await f.demand(id);
+ await f.app.services.production.tick();
+ for(const storyId of [id,legacy]){
+  const row=await f.app.services.database.prepare('SELECT * FROM story_rows WHERE id=?').bind(storyId).first();
+  assert.equal(row.shelf_cover,'saved-cover');
+  assert.equal(row.generation_control,'paused');
+  assert.equal(Object.hasOwn(JSON.parse(row.document),'images'),false);
+  assert.deepEqual((await f.read(storyId)).story.pages.map(page=>page.caption),plan.pages.map(page=>page.caption));
+ }
+ const db=f.app.services.database;
+ assert.equal((await db.prepare("SELECT applied_at FROM app_migrations WHERE name='0028_production_spec.sql'").first()).applied_at,'preview');
+ assert.equal((await db.prepare("SELECT applied_at FROM app_migrations WHERE name='0028_shelf_cover.sql'").first()).applied_at,'parallel');
+ assert.deepEqual(decodeDocument(await db.prepare('SELECT * FROM story_rows WHERE id=?').bind(id).first()).dag.products,dag.products);
+ assert.equal(f.control.calls.length+f.control.dagCalls.length,0);
+ assert.equal(ensureLibraryReady(f.dataDirectory,f.root),undefined);
+});
+
+test('a migrated paused landscape resumes through the standard endpoint with its returned ID',async t=>{
+ const {productionFixture,until}=await import('./fixtures/production.mjs');
+ const id=crypto.randomUUID(),plan=makePlan(3),images=plan.pages.map((_,index)=>`/api/reader/media/${id}/${index}.png`);
+ const source={plan,images,audio:[],usage:[],original:{title:'庄子',text:'庄周梦蝶。',kind:'passage',provider:'local',retrievedAt:'2026-01-01'}};
+ const f=await productionFixture(t,'codex',{}, {initialize(directory,root){
+  const sqlite=historicalLibrary(directory,root,'0024_prompt_records.sql');
+  try{
+   const selected=selectionSchema.parse({...selection,length:3});
+   sqlite.prepare("INSERT INTO stories(id,user_id,selection,document,state,created_at,updated_at) VALUES(?,?,?,?,'completed','c','u')")
+    .run(id,localOwner,JSON.stringify(selected),JSON.stringify(source));
+   const folder=path.join(directory,'media','reader',id);
+   mkdirSync(folder,{recursive:true});
+   for(let page=0;page<images.length;page++)writeFileSync(path.join(folder,page+'.png'),png);
+   const oldVersion=fingerprint(['landscape-image',plan.characters,plan.pages,images,selected.artStyle,selected.productionPrompt]);
+   const queue=sqlite.prepare(`INSERT INTO production_jobs(id,session_id,owner_id,kind,pool,version,dependencies,payload,state,created_at,updated_at)
+    VALUES(?,?,?,'landscape-image','image',?,'[]',?,'queued',1,1)`);
+   for(let page=0;page<images.length;page++)queue.run('print-'+page,id,localOwner,oldVersion,JSON.stringify({page}));
+  }finally{sqlite.close();}
+ }});
+ const route=`sessions/${id}/landscape`,paused=await f.json(route);
+ assert.equal(paused.control,'paused');assert.ok(paused.printId);
+ assert.equal(f.control.calls.length,0);
+ f.control.hold=false;
+ await f.json(route,'POST',{control:'resume',printId:paused.printId});
+ await until(async()=>(await f.json(route)).state==='completed');
+ assert.deepEqual(f.control.calls.map(call=>[call.page,call.landscape]),[[0,true],[1,true],[2,true]]);
+});
+
+test('format three migrates recoverable residual documents and preserves unreadable ones with a shelf diagnostic',async t=>{
+ const {productionFixture}=await import('./fixtures/production.mjs');
+ const valid=crypto.randomUUID(),invalid=crypto.randomUUID(),plan=makePlan(3),raw='not a valid story document';
+ const f=await productionFixture(t,'codex',{}, {initialize(directory,root){
+  const sqlite=historicalLibrary(directory,root,'0027_revision_fault_targets.sql');
+  try{
+   const insert=sqlite.prepare("INSERT INTO stories(id,user_id,selection,document,state,generation_control,created_at,updated_at) VALUES(?,?,?,?,'idle','paused','c','u')");
+   insert.run(valid,localOwner,JSON.stringify({...selection,length:3}),JSON.stringify({plan,images:[],audio:[],usage:[]}));
+   insert.run(invalid,localOwner,JSON.stringify({...selection,length:3}),raw);
+  }finally{sqlite.close();}
+ }});
+ const row=await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(invalid).first();
+ assert.equal(row.document,raw);
+ assert.equal((await f.read(valid)).story.pages[0].caption,plan.pages[0].caption);
+ const shelf=await f.json('library/shelf'),diagnostic=shelf.find(item=>item.id===invalid);
+ assert.match(diagnostic?.error??diagnostic?.stage??'',/转换|处理/);
+ assert.equal(f.control.calls.length+f.control.reviews.length,0);
+});
+
+test('format four keeps all four setup requirement states from the effective historical draft',t=>{
+ const {sqlite,directory}=library(t);migrate(sqlite,process.cwd(),directory,'0027_revision_fault_targets.sql');
+ const settings={artStyle:'ink-pencil',narrativeDetail:'balanced',length:'auto'};
+ const suggestions={productionPrompt:'保留主人公的回应。',acceptancePrompt:'结尾保留原文结果。'};
+ const entries=[
+  {id:'awaiting',draft:{...settings,productionPrompt:''},edited:{}},
+  {id:'suggested',draft:{...settings,...suggestions},suggestions,edited:{}},
+  {id:'written',draft:{...settings,...suggestions,productionPrompt:'以拒绝为核心场面。'},suggestions,edited:{productionPrompt:true}},
+  {id:'blank',draft:{...settings,...suggestions,acceptancePrompt:''},suggestions,edited:{acceptancePrompt:true}},
+ ];
+ const insert=sqlite.prepare("INSERT INTO stories(id,user_id,selection,document,state,generation_control,created_at,updated_at) VALUES(?,?,?,?,'idle','paused','c','u')");
+ for(const entry of entries)insert.run(entry.id,owner,JSON.stringify({...selection,productionPrompt:'',acceptancePrompt:'',length:'auto'}),
+  JSON.stringify({plan:null,images:[],audio:[],usage:[],intake:{phase:'confirming',generation:1,batches:[],draft:entry.draft},
+   ...(entry.suggestions?{setupRequirements:{suggestions:entry.suggestions}}:{})}));
+ migrate(sqlite,process.cwd(),directory);
+ for(const entry of entries){
+  const doc=decodeDocument(sqlite.prepare('SELECT * FROM story_rows WHERE id=?').get(entry.id));
+  assert.deepEqual(doc.intake.draft,entry.draft);
+  assert.deepEqual(doc.setupRequirements.edited,entry.edited);
+ }
 });

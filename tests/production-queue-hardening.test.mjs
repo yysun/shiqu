@@ -90,7 +90,7 @@ test('ready orphaned jobs in all three pools are contained and logged once while
  story.dag=doc.dag=settle(story);
  const item=work(story).find(item=>item.call==='prepareBrief');
  assert.ok(item,'有效任务使用生产引擎生成的实例及输入');
- await repo.db.prepare("UPDATE stories SET document=?,generation_control='active',generation_mode='background' WHERE id=?").bind(JSON.stringify(doc),id).run();
+ await repo.db.prepare("UPDATE stories SET document=?,generation_control='active' WHERE id=?").bind(JSON.stringify(doc),id).run();
  await coordinator.queue.enqueue({id:'valid',sessionId:id,ownerId:owner,kind:'dag',pool:'text',version:'dag',dependencies:[],payload:{work:item},priority:100});
  await coordinator.queue.pump();await coordinator.queue.settle();await coordinator.queue.pump();
  assert.equal(valid,1);assert.equal(logged.filter(args=>args[0]==='production_job_unreadable').length,3);
@@ -102,9 +102,9 @@ test('SQL candidates exclude paused, superseded and deleted work; failed rows st
  coordinator.pruneSuperseded=async()=>{};coordinator.graph=async()=>{};
  const ids=[id];
  for(let i=0;i<3;i++){const other=crypto.randomUUID();await repo.create(other,owner,selection);ids.push(other);}
- await repo.db.prepare("UPDATE stories SET generation_mode='background',generation_control='active' WHERE id=?").bind(ids[1]).run();
+ await repo.db.prepare("UPDATE stories SET generation_control='active' WHERE id=?").bind(ids[1]).run();
  await repo.remove(ids[1],owner);
- await repo.db.prepare("UPDATE stories SET state='failed' WHERE id=?").bind(ids[2]).run();
+ await repo.db.prepare("UPDATE stories SET production_complete=0 WHERE id=?").bind(ids[2]).run();
  await supersede(repo,ids[3],owner);
  const calls=[];coordinator.queue.options.canRun=async job=>{calls.push(job.id);return false;};
  const kinds=[['prepare','text'],['dag','text'],['dag-draw','image'],['discover','search']];
@@ -125,7 +125,7 @@ test('warm paused pass uses at most 60 statements; unchanged active state and vi
  const ids=[id];
  for(let i=1;i<20;i++){const next=crypto.randomUUID();await repo.create(next,owner,{...selection,length:80});ids.push(next);}
  // 已确认、尚未制作的 DAG 故事：节拍先采用并安排工作，之后状态不变时不再写入。
- for(const next of ids)await repo.db.prepare("UPDATE stories SET document=?,selection=?,generation_mode='background',generation_control='paused' WHERE id=?")
+ for(const next of ids)await repo.db.prepare("UPDATE stories SET document=?,selection=?,generation_control='paused' WHERE id=?")
   .bind(JSON.stringify({plan:null,original,images:[],audio:[],usage:[],dag:emptyDag()}),JSON.stringify({...selection,length:80}),next).run();
  await coordinator.tick();statements=0;await coordinator.tick();assert.ok(statements<=60,`${statements} statements`);
  await repo.db.prepare("UPDATE stories SET generation_control='active'").run();
@@ -157,7 +157,7 @@ test('pruning removes a preparation job left from an earlier setup generation, a
 test('deleting a story disarms its DAG work: nothing is paid, and restoring it waits for an explicit Resume',async t=>{
  const f=await productionFixture(t,'codex');f.control.hold=false;
  const repo=new ReaderRepository(f.app.services.database),owner=f.app.services.ownerId,id=crypto.randomUUID(),now=new Date().toISOString();
- await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_mode,generation_control,state,created_at,updated_at) VALUES(?,?,?,?,'background','active','idle',?,?)")
+ await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,generation_control,production_complete,created_at,updated_at) VALUES(?,?,?,?,'active',0,?,?)")
   .bind(id,owner,JSON.stringify({...selection,length:4}),JSON.stringify({plan:null,images:[],audio:[],usage:[],original,dag:emptyDag()}),now,now).run();
  await repo.remove(id,owner);
  assert.equal((await f.app.services.database.prepare('SELECT generation_control AS c FROM stories WHERE id=?').bind(id).first()).c,'stopped');

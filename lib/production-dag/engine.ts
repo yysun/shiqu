@@ -2,7 +2,7 @@
 // 纯函数，不做 I/O；调度、修订和测试共用同一套推导，规范中的修改范围表都是它的结果。
 // 规则：有效 = 内容可读且记录的硬输入指纹等于当前上游指纹；首次生成须硬输入与核对输入都就绪，
 // 失效重做只看硬输入；上游重算期间（硬输入未就绪）不判定复用；故障只阻断依赖它的工作。
-import {nodes,nodeSpec,evidenceInputs,allEvidence,type NodeSpec,type InputRef,type Evidence,type Gate} from './registry.ts';
+import {nodes,nodeSpec,type NodeSpec,type InputRef,type Gate} from './registry.ts';
 import {fingerprint,combine} from './fingerprint.ts';
 
 export type Product={
@@ -10,38 +10,25 @@ export type Product={
  hash:string;
  /** 生成时读取的硬输入指纹。 */
  inputs:Record<InputRef,string>;
- /** 格式 3 的全篇审片还使用核对输入指纹绑定配文。 */
- checks?:Record<InputRef,string>;
  /** 可分条引用的部分，例如人物设定按人物、验收要求按条目、叙事结论的选定结语。 */
  parts?:Record<string,string>;
  readable?:boolean;
  outcome?:'pass'|'fail';
  overridden?:boolean;
- legacy?:boolean;
- /** 旧版缺少审核记录：计入完成；仅原样延续尚未完成的旧稿时授权绘图。 */
- unreviewed?:boolean;
  handEdited?:boolean;
- /** 验收条目登记：范围与依据。 */
- scope?:'story'|'frame';
- evidence?:Evidence[];
 };
 
-export type Fault={id:string;node:string;key:string;state:'pending'|'recovering'|'awaiting-match'|'resolved';inputHash?:string;optional?:boolean;origin?:string;imageLoss?:true};
+export type Fault={id:string;node:string;key:string;state:'pending'|'recovering'|'resolved';inputHash?:string;optional?:boolean;imageLoss?:true};
 
 export type VersionState={
  confirmed:boolean;
  /** 画幅身份序列。 */
  order:string[];
- /** 全篇验收条目身份，按验收要求的条目顺序。 */
- items:string[];
  frames:Record<string,{drawn?:string[]}>;
- /** 已请求横图的画幅。 */
- landscapes?:string[];
  products:Record<string,Product>;
  faults:Fault[];
  /** 确认后读者明确「重新准备」。 */
  reprepare?:boolean;
- resumeUnreviewed?:boolean;
  /** 定长故事不做幅数与结构核对（与 v0.14.0 一致，只有「自动幅数」才核对）：该节点视为已通过，不派发。 */
  skipFrameCheck?:boolean;
 };
@@ -59,15 +46,13 @@ export type Instance={
 };
 
 export const instanceId=(node:string,key='')=>`${node}:${key}`;
-const verdictNodes=new Set(['frameVerdict','narrativeVerdict','itemVerdict']);
+const verdictNodes=new Set(['frameVerdict','narrativeVerdict']);
 const nullHash=fingerprint(null);
 
 export function instanceKeys(state:VersionState,node:string):string[]{
  const spec=nodeSpec(node);
  if(spec.per==='story')return [''];
- if(spec.per==='frame')return spec.onDemand?state.order.filter(id=>state.landscapes?.includes(id)):state.order;
- if(node==='itemVerdict')return state.items.filter(id=>state.products[instanceId('itemRegistration',id)]?.scope!=='frame');
- return state.items;
+ return state.order;
 }
 
 export class Evaluation{
@@ -88,10 +73,7 @@ export class Evaluation{
    const result:Instance={node,key,id,status:'valid',blocked:false,ready:false};
    this.memo.set(id,result);return result;
   }
-  const hardRefs=[...spec.hard,...(spec.evidence?this.evidenceRefs(key):[])];
-  // 横图绑定已保存的竖图。其文件在派发前单独核对，竖图制作的故障不阻断已授权的横图。
-  const hardResolved=hardRefs.map(ref=>[ref,node==='landscape'&&ref==='frameImage@self'?
-   {hash:this.state.products[instanceId('frameImage',key)]?.hash,blocked:false}:this.resolve(ref,key)] as const);
+  const hardResolved=spec.hard.map(ref=>[ref,this.resolve(ref,key)] as const);
   const checkResolved=(spec.check||[]).map(ref=>[ref,this.resolve(ref,key)] as const);
   const hard=hardResolved.every(([,r])=>r.hash!==undefined)?Object.fromEntries(hardResolved.map(([ref,r])=>[ref,r.hash!])):undefined;
   const check=checkResolved.every(([,r])=>r.hash!==undefined)?Object.fromEntries(checkResolved.map(([ref,r])=>[ref,r.hash!])):undefined;
@@ -100,34 +82,20 @@ export class Evaluation{
   if(!product||product.readable===false)status='missing';
   else if(!hard)status='waiting';
   else if(!sameInputs(product.inputs,hard))status='invalid';
-  else if(node==='narrativeVerdict'&&checkResolved.some(([ref,r])=>r.hash!==undefined&&product.checks?.[ref]!==undefined&&product.checks[ref]!==r.hash))status='invalid';
   else status='valid';
   const result:Instance={node,key,id,status,blocked,hard,check,ready:false};
   this.memo.set(id,result);
   // 首次生成须硬输入与核对输入都就绪；失效重做只看硬输入。
   // 失效重做一般只需硬输入；登记为 rerunWaitsForCheck 的节点（画幅图片）还须核对输入就绪，即等新首幅完成。
- result.ready=(!spec.onDemand||!!this.state.landscapes?.includes(key))&&!blocked&&this.gateOpen(spec.gate)&&
+ result.ready=!blocked&&this.gateOpen(spec.gate)&&
   (status==='missing'?!!hard&&!!check:status==='invalid'&&!!hard&&(!spec.rerunWaitsForCheck||!!check));
   return result;
- }
-
- private evidenceRefs(key:string):InputRef[]{
-  const registration=this.state.products[instanceId('itemRegistration',key)];
-  const evidence=registration?.evidence?.length?registration.evidence:allEvidence;
-  return evidence.flatMap(e=>evidenceInputs[e]);
  }
 
  /** 解析输入引用为指纹；上游未有效时为 undefined。 */
  resolve(ref:InputRef,key:string):{hash?:string;blocked:boolean}{
   const [name,selector]=ref.split('@') as [string,string|undefined];
   if(name==='order')return {hash:fingerprint(this.state.order),blocked:false};
-  if(name==='endingChoice'){
-   const confirmed=this.state.products[instanceId('endingConfirmed')];
-   if(confirmed&&confirmed.hash!==nullHash)return {hash:confirmed.hash,blocked:false};
-   const verdict=this.instance('narrativeVerdict');
-   const choice=this.state.products[verdict.id]?.parts?.endingChoice;
-   return {hash:verdict.status==='valid'?choice:undefined,blocked:verdict.blocked};
-  }
   if(name==='reference'){
    const first=this.state.order[0];
    const bookReference=this.one('refSource','');
@@ -135,16 +103,11 @@ export class Evaluation{
    return this.one('frameImage',first);
   }
   if(name==='characters'&&selector==='drawn'){
-   const list=this.state.frames[key]?.drawn;
+   const ids=this.state.frames[key]?.drawn??[];
    const base=this.one('characters','');
    if(base.hash===undefined)return base;
    const parts=this.state.products[instanceId('characters')]?.parts||{};
-   const ids=list??Object.keys(parts);
    return {hash:combine(ids.map(id=>[id,parts[id]??nullHash] as const)),blocked:base.blocked};
-  }
-  if(name==='item'){
-   const parts=this.state.products[instanceId('acceptanceReq')]?.parts||{};
-   return {hash:parts[key]??nullHash,blocked:false};
   }
   if(!selector)return this.one(name,'');
   if(selector==='self')return this.one(name,key);
@@ -158,6 +121,7 @@ export class Evaluation{
  }
 
  private one(node:string,key:string):{hash?:string;blocked:boolean}{
+  if(node==='frameCheck'&&this.state.skipFrameCheck)return {hash:nullHash,blocked:false};
   const spec=nodeSpec(node),product=this.state.products[instanceId(node,key)];
   if(spec.kind==='root')return {hash:product?.hash??nullHash,blocked:false};
   const inst=this.instance(node,key);
@@ -171,9 +135,10 @@ export class Evaluation{
   if(gate==='confirmed')return true;
   if(gate==='brief')return this.instance('brief').status==='valid';
   if(gate==='characters')return this.instance('characters').status==='valid';
-  // 定长故事没有幅数核对：审片仍等结语就绪（核对原本与结语同一轮完成），保持一次审片调用。
-  if(gate==='frameCheck')return this.state.skipFrameCheck?this.instance('ending').status==='valid':this.passed('frameCheck','');
-  return this.approved(false);
+  // 所有稿件就绪后，同一轮评审才能同时补齐全篇和逐幅结论。
+  if(gate==='review')return this.state.order.length>0&&this.passed('frameCheck','')&&this.instance('ending').status==='valid'&&
+   this.resolve('scene@all','').hash!==undefined&&this.resolve('visual@all','').hash!==undefined;
+  return this.approved();
  }
 
  private passed(node:string,key:string){
@@ -181,18 +146,10 @@ export class Evaluation{
   const inst=this.instance(node,key),product=this.state.products[inst.id];
   return inst.status==='valid'&&!!product&&(product.outcome==='pass'||!!product.overridden);
  }
- private accepted(node:string,key:string,forCompletion:boolean){
-  const product=this.state.products[instanceId(node,key)];
-  return this.passed(node,key)&&(forCompletion||this.state.resumeUnreviewed||!product?.unreviewed);
- }
-
- /**
-  * 可绘图：幅数与结构核对通过，且全部审片结论有效并通过或被放行。
-  * forCompletion 为真时接受旧版无审核记录的完成记录，只用于整篇完成判定。
-  */
- approved(forCompletion=false):boolean{
-  if(!this.accepted('frameCheck','',forCompletion))return false;
-  return [...verdictNodes].every(node=>instanceKeys(this.state,node).every(key=>this.accepted(node,key,forCompletion)));
+ /** 幅数核对、逐幅结论和全篇结论均有效且通过或已放行时可绘图。 */
+ approved():boolean{
+  if(!this.passed('frameCheck',''))return false;
+  return [...verdictNodes].every(node=>instanceKeys(this.state,node).every(key=>this.passed(node,key)));
  }
 
  all():Instance[]{
@@ -201,7 +158,7 @@ export class Evaluation{
 
  /** 必需节点和审核都有效、且没有未解除的必需故障时完成。 */
  complete():boolean{
-  if(!this.approved(true))return false;
+  if(!this.approved())return false;
   const required=this.all().filter(i=>nodeSpec(i.node).required);
   if(required.some(i=>i.status!=='valid'))return false;
   return !this.state.faults.some(f=>f.state!=='resolved'&&!f.optional&&nodeSpec(f.node).required);

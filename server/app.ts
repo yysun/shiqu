@@ -3,7 +3,7 @@ import path from 'node:path';
 import {readFile,realpath,stat} from 'node:fs/promises';
 import {currentMediaKeys} from './library-upgrade.ts';
 import {openDatabase} from './database.ts';
-import {FileMedia} from './media.ts';
+import {LibraryMedia} from './media.ts';
 import {localOwnerId} from './config.ts';
 import {createReaderProvider} from './generation.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
@@ -42,13 +42,13 @@ export function liveReaderProvider(initial:Variables,read:()=>Variables,create:(
 
 const types:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.woff':'font/woff','.woff2':'font/woff2','.ico':'image/x-icon'};
 export function createApplication(options:{root:string;dataDirectory:string;variables?:Variables;providerVariables?:()=>Variables;snapshotVariables?:(snapshot:ModelSnapshot)=>Variables;transport?:typeof fetch;generation?:ReaderProvider;production?:ProductionOptions;commandOnly?:boolean;exportOnly?:boolean}){
- const media=new FileMedia(path.join(options.dataDirectory,'media'));
+ const local=openDatabase(options.dataDirectory,options.root,options.exportOnly);
+ const media=new LibraryMedia(path.join(options.dataDirectory,'media'),local.database);
  const storySearch=applicationStorySearch(options.root,options.dataDirectory,()=>localBooks,options.transport||fetch);
  const localBooks:LocalBooks=new LocalBooks(options.root,storySearch);
  const cache=new StoryDiscoveryCache(media),create=(variables:Variables)=>withLocalBooks(createReaderProvider(variables,media,options.transport||fetch),localBooks,media,cache,storySearch);
  const generation=options.generation||(options.providerVariables?liveReaderProvider(options.variables||{},options.providerVariables,create):create(options.variables||{}));
  const imageWorkers=configuredImageWorkers(options.variables?.SHIQU_IMAGE_WORKERS);
- const local=openDatabase(options.dataDirectory,options.root,options.exportOnly);
  let retainedLegacyArt:Set<string>|undefined;
  // 模型快照服务只在由设置构造提供方时启用；测试等直接注入的提供方沿用其自身，不按快照重建。
  const liveVariables=()=>options.providerVariables?options.providerVariables():options.variables||{};

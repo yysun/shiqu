@@ -1,5 +1,6 @@
 // Draft discovery stays off the shelf; one current-family CAS promotes only an explicit new choice.
 // Existing rows are the durable version receipts, so replay never reapplies inherited control.
+import {decodeDocument,encodeDocument} from '../lib/production-dag/document.ts';
 import {editRequirements,requirementKeys,requirementsForReselection} from '../lib/reader-requirements.ts';
 import {ReaderError,selectionSchema} from '../lib/reader-model.ts';
 import type {Document,SessionRow} from '../lib/reader-model.ts';
@@ -39,9 +40,9 @@ export function replacementCommitState(draft:NonNullable<Document['reselection']
 }
 
 export async function openReselection(repo:ReaderRepository,parentId:string,ownerId:string,requestId:string,books?:LocalBooks){
- const existing=await repo.db.prepare('SELECT * FROM stories WHERE id=?').bind(requestId).first<SessionRow>();
+ const existing=await repo.db.prepare('SELECT * FROM story_rows stories WHERE id=?').bind(requestId).first<SessionRow>();
  if(existing){
-  const doc=JSON.parse(existing.document) as Document;
+  const doc=decodeDocument(existing);
   if(existing.user_id!==ownerId||(doc.reselection?.parentId!==parentId&&!(doc.revision?.kind==='selection'&&doc.revision.parentId===parentId)))throw new ReaderError(409,'这个操作编号已用于其他内容。');
   return repo.get(requestId,ownerId);
  }
@@ -57,7 +58,7 @@ export async function openReselection(repo:ReaderRepository,parentId:string,owne
   ...(intakeGeneration===undefined?{}:{requirementsToken:inheritedRequirementsToken(reset)})};
  return createIntake(repo,requestId,ownerId,{...settings,length:'auto'},books,{draft,setup:reset.setup,beforeInsert:db=>{
   const current=db.get<SessionRow>(`SELECT p.* FROM stories p WHERE p.id=? AND p.user_id=? AND ${currentFamilyVersion('p')}`,parentId,ownerId);
-  const currentDoc=current&&JSON.parse(current.document) as Document|undefined;
+  const currentDoc=current&&decodeDocument(current);
   const intake=currentDoc?.intake?.phase!=='confirmed'?currentDoc?.intake:undefined;
   const basisCurrent=!!current&&replacementToken(current.selection,epoch,intake?.generation)===draft.baseToken
    &&(!draft.requirementsToken||draft.requirementsToken===inheritedRequirementsToken(inheritedRequirements(current,currentDoc!,intake?.generation)));
@@ -73,7 +74,7 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
  const fingerprint=commandFingerprint(['replace',parentId,draftId,choice]);
  const receipt=await commandReceipt(repo.db,ownerId,choice.requestId,fingerprint);
  if(receipt){if(receipt.session_id!==parentId)throw new ReaderError(409,'操作编号冲突。');if(receipt.action==='replace'&&receipt.result_id)return repo.get(receipt.result_id,ownerId);if(receipt.action==='same-selection')return repo.current(parentId,ownerId);throw new ReaderError(409,'操作编号冲突。');}
- const row=await repo.get(draftId,ownerId),doc=JSON.parse(row.document) as Document;
+ const row=await repo.get(draftId,ownerId),doc=decodeDocument(row);
  if(doc.revision?.kind==='selection'){
   if(doc.revision.parentId!==parentId||doc.revision.selectionRequest!==choice.requestId||doc.revision.requestHash!==fingerprint)throw new ReaderError(409,'这次替换已提交或操作编号冲突，请刷新当前版本。');
   return row;
@@ -129,17 +130,16 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
  delete selection.displayTitle;
  if(!intake.manualArt&&!choice.settings&&candidate.artRecommendation)selection.artStyle=candidate.artRecommendation.artStyle;
  delete doc.reselection;if(!direct)delete doc.original;
- delete doc.dag;delete doc.frameRecommendation;delete doc.storyboard;delete doc.draft;delete doc.visualReview;
+ delete doc.dag;delete doc.frameRecommendation;delete doc.storyboard;delete doc.draft;
  doc.plan=null;doc.images=[];doc.audio=[];doc.usage=[];doc.frameCountConfirmed=false;
  intake.phase='preparing';intake.selected={batch:choice.batch,index:choice.index};intake.generation++;
  intake.search={...(intake.search||{round:0}),state:'idle',error:null};
  delete intake.draft;delete intake.draftEdited;
- doc.revision={kind:'selection',selectionRequest:choice.requestId,parentId,rootId:draft.rootId,number:draft.epoch+1,baseToken:draft.baseToken,requestHash:fingerprint,base:{selection,plan:null,images:[]}};
+ doc.revision={kind:'selection',selectionRequest:choice.requestId,parentId,rootId:draft.rootId,number:draft.epoch+1,baseToken:draft.baseToken,requestHash:fingerprint,base:{selection}};
  const now=new Date().toISOString(),requirementsBasis=draft.requirementsToken?source.document:null;
  const changed={meta:{changes:writeStory(repo.db,draftId,ownerId,`UPDATE stories AS d SET
   selection=?,document=json_patch(?,json_object('publication',json_extract(p.document,'$.publication'))),
-  generation_mode=p.generation_mode,generation_control=p.generation_control,state='idle',error=NULL,
-  step_key=NULL,step_attempts=0,lock_token=NULL,lock_until=0,page=0,saved=p.saved,last_read_at=NULL,updated_at=?
+  generation_control=p.generation_control,production_complete=0,page=0,saved=p.saved,last_read_at=NULL,updated_at=?
   FROM stories p WHERE d.id=? AND d.user_id=? AND d.document=? AND p.id=? AND p.user_id=?
    AND ${currentFamilyVersion('p')} AND json_remove(p.selection,'$.displayTitle')=json_remove(?,'$.displayTitle')
    AND NOT EXISTS(SELECT 1 FROM library_deletions x WHERE x.story_id=d.id AND x.user_id=d.user_id)
@@ -147,9 +147,9 @@ export async function commitReselection(repo:ReaderRepository,parentId:string,dr
    AND NOT EXISTS(SELECT 1 FROM stories occupied WHERE occupied.user_id=? AND occupied.id=?)
    AND (${familyEpoch.replace(' AS epoch','')})=?
    AND (? IS NULL OR json_extract(p.document,'$.intake.generation')=?)
-   AND (? IS NULL OR p.document=?)`,[JSON.stringify(selection),JSON.stringify(doc),now,draftId,ownerId,row.document,parentId,ownerId,source.selection,ownerId,choice.requestId,ownerId,choice.requestId,ownerId,draft.rootId,draft.rootId,draft.epoch,current.intakeGeneration??null,current.intakeGeneration??null,requirementsBasis,requirementsBasis])}};
+   AND (? IS NULL OR p.document=?)`,[JSON.stringify(selection),encodeDocument(doc),now,draftId,ownerId,row.document,parentId,ownerId,source.selection,ownerId,choice.requestId,ownerId,choice.requestId,ownerId,draft.rootId,draft.rootId,draft.epoch,current.intakeGeneration??null,current.intakeGeneration??null,requirementsBasis,requirementsBasis])}};
  if(!changed.meta.changes){
-  const current=await repo.get(draftId,ownerId),saved=JSON.parse(current.document) as Document;
+  const current=await repo.get(draftId,ownerId),saved=decodeDocument(current);
   if(saved.revision?.kind==='selection'||saved.reselection?.baseToken===draft.baseToken&&attempt<3)return commitReselection(repo,parentId,draftId,ownerId,choice,attempt+1);
   throw new ReaderError(409,'当前版本或草稿已更新，请重新核对。');
  }
@@ -161,7 +161,7 @@ export async function cancelReselection(repo:ReaderRepository,parentId:string,dr
  transact(repo.db,db=>{
   const row=db.get<{document:string}>('SELECT document FROM stories WHERE id=? AND user_id=?',draftId,ownerId);
   if(!row)throw new ReaderError(404,'选题草稿不存在。');
-  const doc=JSON.parse(row.document) as Document;
+  const doc=decodeDocument(row);
   const target=doc.reselection?.parentId===parentId?'draft':doc.revision?.kind==='selection'&&doc.revision.parentId===parentId?'promoted':'foreign';
   const authorization=authorizeReselectionCancel(target);
   if(authorization.effect==='reject')throw new ReaderError(authorization.status,authorization.message);

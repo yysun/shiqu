@@ -64,7 +64,7 @@ test('latest means submitted version, independent of status, reads, deletion and
 
  }
  const foreign=crypto.randomUUID();
- await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,state,created_at,updated_at) SELECT ?,'other-owner',selection,json_set(document,'$.revision.number',999),'idle',created_at,updated_at FROM stories WHERE id=?").bind(foreign,child.id).run();
+ await f.app.services.database.prepare("INSERT INTO stories(id,user_id,selection,document,production_complete,created_at,updated_at) SELECT ?,'other-owner',selection,json_set(document,'$.revision.number',999),0,created_at,updated_at FROM stories WHERE id=?").bind(foreign,child.id).run();
  assert.deepEqual(ids(await f.json('sessions')),ids([child,{id:sameTitle}]));
  assert.equal((await f.request(`sessions/${id}`)).status,200,'Historical record remains directly readable');
  await f.json(`library/${child.id}`,'DELETE');assert.deepEqual(ids(await f.json('sessions')),[sameTitle]);

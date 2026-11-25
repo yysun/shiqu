@@ -9,7 +9,7 @@ test('a confirmed 12-frame story runs to completion with batched text calls',()=
  const s=story({acceptancePrompt:'每幅都有动作'});
  const log=drive(s,replies());
  assert.ok(finished(s));
- for(const [name,n] of [['characters',1],['outline',1],['sceneBatch',1],['visual',1],['ending',1],['frameCheck',0],['registerItems',1],['review',1],['prepareBrief',1],['draw',12]])assert.equal(calls(log,name),n,name);
+ for(const [name,n] of [['characters',1],['outline',1],['sceneBatch',1],['visual',1],['ending',1],['frameCheck',0],['review',1],['prepareBrief',1],['draw',12]])assert.equal(calls(log,name),n,name);
  assert.equal(s.dag.order.length,12);
  assert.equal(s.dag.ending.chosen,'知己难得。');
  assert.ok(s.dag.order.every(id=>s.dag.frames[id].image));

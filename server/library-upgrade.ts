@@ -71,13 +71,19 @@ export function currentMediaKeys(db:DatabaseSync,directory:string,table='stories
  // table is internal migration context, never user input.
  const rows=db.prepare(`SELECT * FROM ${table}`).all(),ids=new Set(rows.map(row=>String(row.id))),keep=new Set<string>(),roots=[directory,originalDirectory];
  for(const row of rows){references(protectedJson(String(row.selection),'selection '+row.id),keep,roots,'',true);references(protectedJson(String(row.document),'document '+row.id),keep,roots,'',true);}
- for(const table of ['production_jobs','reader_commands','reader_faults'])for(const row of db.prepare(`SELECT * FROM ${table}`).all())if(ids.has(String(row.session_id)))for(const field of ['payload','result','image'])if(typeof row[field]==='string'){
+ const current=!!db.prepare("SELECT 1 FROM sqlite_schema WHERE type='view' AND name='production_faults'").get();
+ for(const table of ['production_jobs','reader_commands',current?'production_faults':'reader_faults'])for(const row of db.prepare(`SELECT * FROM ${table}`).all())if(ids.has(String(row.session_id)))for(const field of ['payload','result','image'])if(typeof row[field]==='string'){
   const text=String(row[field]);
   let value:unknown;
   try{value=JSON.parse(text);}catch{if(text.trimStart().startsWith('{')||text.trimStart().startsWith('['))throw Error('LIBRARY_PROTECTED_JSON_INVALID: '+table+' '+field+' '+row.session_id);value=text;}
   references(value,keep,roots,'',true);
  }
  for(const row of db.prepare('SELECT * FROM book_image_references').all())if(ids.has(String(row.story_id))&&!demos.has(String(row.asset_key)))keep.add(String(row.asset_key));
+ if(current){
+  for(const row of db.prepare('SELECT target_key FROM production_media_aliases').all())keep.add(String(row.target_key));
+  for(const row of db.prepare('SELECT content FROM production_products').all())
+   references(protectedJson(String(row.content),'production product'),keep,roots,'',true);
+ }
  const files=walk(path.join(directory,'media'));
  for(const key of walk(directory).filter(key=>!key.split('/').some(part=>part.startsWith('.desktop'))&&!key.startsWith('media/')&&/\.(json|html|md)$/.test(key))){
   const text=readFileSync(path.join(directory,key),'utf8');
