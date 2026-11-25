@@ -1,5 +1,6 @@
 import {decodeDocument} from './production-dag/document.ts';
-import {savedLandscapeImages} from '../server/landscape-print.ts';
+import {landscapeExportSource} from '../server/landscape-print.ts';
+import {landscapeIncompleteMessage} from './reader-pdf.ts';
 import {createHash} from 'node:crypto';
 // Route reading, recovery and generation through the single local library.
 // 提示词与审校历史按引用从 prompt_records 读取全文。
@@ -260,8 +261,16 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(path[2]==='export'&&path.length===3&&req.method==='GET'){
     const row=await repo.current(id,uid),doc=decodeDocument(row);
     const story=savedStory(row,selectionSchema.parse(JSON.parse(row.selection)),doc);
-    const images=url.searchParams.get('layout')==='landscape'?await savedLandscapeImages(repo.db,services.media,row,doc):undefined;
-    return json({id:row.id,story,images});
+    const layout=url.searchParams.get('layout');
+    if(layout==='landscape'||layout==='letter'){
+     const source=await landscapeExportSource(repo.db,services.media,row,doc);
+     if(source.missingPages){
+      const {total,missingPages}=source;
+      return json({id:row.id,error:landscapeIncompleteMessage(total,missingPages),ready:total-missingPages.length,total,missingPages},409);
+     }
+     return json({id:row.id,story,images:source.images});
+    }
+    return json({id:row.id,story});
    }
    if(path[2]==='review-history'&&path.length===3&&req.method==='GET'){const row=await repo.get(id,uid);return json(storyReviewHistory(row));}
    if(path[2]==='prompts'&&path.length===3&&req.method==='GET'){

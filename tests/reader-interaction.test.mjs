@@ -182,7 +182,7 @@ test('PDF refuses incomplete stories and wraps Chinese, newlines and long links 
  assert.equal(pdfFilename('故事/名字?'),'故事名字-拾趣.pdf');
 });
 
-test('print PDF uses complete landscape artwork without cropping and otherwise preserves portrait fallback',async()=>{
+test('print PDF requires complete landscape artwork and prints without cropping',async()=>{
  const story=makeStory(2),portrait=story.pages.map(page=>page.image),landscape=['/landscape-1.png','/landscape-2.png'];
  story.sourceUrl='https://a.test/'+encodeURIComponent('子不语')+'%2F';
  story.publication={...story.publication,workUrl:'https://b.test/'+encodeURIComponent('待尤郎')+'/%E9'};
@@ -219,18 +219,16 @@ test('print PDF uses complete landscape artwork without cropping and otherwise p
  const backText=complete.textDraws.map(draw=>draw.text).join('');
  assert.ok(backText.includes('出处链接：https://a.test/子不语%2F'));
  assert.ok(backText.includes('作品链接：https://b.test/待尤郎/%E9'));
- const partial=await render('landscape',[landscape[0],'']);
- assert.deepEqual(partial.reads,portrait.map((url,index)=>[url,index]));
- assert.ok(partial.draws.slice(1).every(draw=>draw.length===9&&draw[2]===0));
- const selectedLandscape=await render('landscape',landscape,1);
- const selectedPortrait=await render('landscape',[landscape[0],''],1);
- for(const [result,urls] of [[selectedLandscape,landscape],[selectedPortrait,portrait]]){
-  assert.deepEqual(result.reads,[[urls[1],1],[urls[0],0]]);
-  assert.deepEqual(result.draws.map(draw=>draw[0]),[urls[1],...urls]);
-  assert.equal(result.pdf.getPageCount(),5);
+ for(const layout of ['landscape','letter']){
+  await assert.rejects(render(layout),/横版插图未完成.*0 \/ 2 幅.*第 1、2 幅/);
+  await assert.rejects(render(layout,[landscape[0],'']),/横版插图未完成.*1 \/ 2 幅.*第 2 幅/);
  }
+ const selectedLandscape=await render('landscape',landscape,1);
+ assert.deepEqual(selectedLandscape.reads,[[landscape[1],1],[landscape[0],0]]);
+ assert.deepEqual(selectedLandscape.draws.map(draw=>draw[0]),[landscape[1],...landscape]);
+ assert.equal(selectedLandscape.pdf.getPageCount(),5);
  await assert.rejects(render('landscape',landscape,2),/请选择有效的封面画幅/);
- for(const result of [complete,partial,selectedLandscape,selectedPortrait]){
+ for(const result of [complete,selectedLandscape]){
   assert.deepEqual(result.textDraws.map(draw=>draw.text).filter(text=>/^\d+\. /.test(text)),story.pages.map((scene,index)=>`${index+1}. ${scene.caption}`));
   assert.deepEqual(result.textDraws.map(draw=>draw.text).filter(text=>/^\d+ \/ \d+$/.test(text)),['1 / 2','2 / 2']);
  }

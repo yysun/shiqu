@@ -50,33 +50,31 @@ function landscapePageOrder(doc:Document,print:LandscapePrint){
  return new Set(order).size===count?order:undefined;
 }
 
-// 导出按本版本的保存顺序选择整套可读取的横图，媒体读取不触发制作或修复。
-export async function savedLandscapeImages(db:Database,media:MediaStore,row:SessionRow,doc:Document){
- const pages=doc.plan?.pages;
- if(!pages?.length)return;
- const count=pages.length;
- async function readableSet(images:string[]){
-  if(!images.every(Boolean))return false;
-  for(const image of images){
-   const key=referenceImageKey(row.id,image);
-   try{
-    const asset=key&&await media.get(key);
-    if(!asset||mediaType(asset.body)!==asset.contentType||!await readableLandscapeImage(asset.body))return false;
-   }catch{return false;}
-  }
-  return true;
+// 选取本版最近一套完整可读的横图。缺少整套时，按当前页序报告最近匹配套图的未就绪画幅。
+export async function landscapeExportSource(db:Database,media:MediaStore,row:SessionRow,doc:Document){
+ const total=doc.plan?.pages.length??0;
+ let missingPages:number[]|undefined;
+ async function readable(image:string){
+  const key=image&&referenceImageKey(row.id,image);
+  try{
+   const asset=key&&await media.get(key);
+   return !!asset&&mediaType(asset.body)===asset.contentType&&await readableLandscapeImage(asset.body);
+  }catch{return false;}
  }
  for(const print of [...(doc.landscapePrints??[])].reverse()){
   const order=landscapePageOrder(doc,print);
   if(!order)continue;
-  const images=Array<string>(count).fill('');
+  const images=Array<string>(total).fill('');
   for(const job of await latestPrintJobs(db,row,print)){
    const {input}=JSON.parse(job.payload) as Payload;
-   if(job.state==='succeeded'&&input.index>=0&&input.index<count)images[input.index]=(JSON.parse(job.result||'{}') as Partial<Receipt>).image??'';
+   if(job.state==='succeeded'&&input.index>=0&&input.index<total)images[input.index]=(JSON.parse(job.result||'{}') as Partial<Receipt>).image??'';
   }
-  if(await readableSet(images))return order.map(index=>images[index]);
+  const ordered=order.map(index=>images[index]),missing:number[]=[];
+  for(const [index,image] of ordered.entries())if(!await readable(image))missing.push(index+1);
+  if(!missing.length)return {images:ordered};
+  missingPages??=missing;
  }
-
+ return {total,missingPages:missingPages??Array.from({length:total},(_,index)=>index+1)};
 }
 
 export class LandscapePrints{

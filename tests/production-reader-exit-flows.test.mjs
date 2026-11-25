@@ -409,8 +409,10 @@ test('a completed landscape set is printable from a revised story in the origina
  await control(f,child,'continue');
  await until(async()=>(await f.read(child)).state==='completed');
  const [print]=await f.json(`sessions/${child}/landscape/sets`);
- const latest=await f.json(`sessions/${id}/export?layout=landscape`);
- assert.equal(latest.story.id,child);assert.equal(latest.images,undefined);
+ const refused=await f.request(`sessions/${id}/export?layout=landscape`);
+ assert.equal(refused.status,409);
+ const latest=await refused.json();
+ assert.equal(latest.id,child);assert.deepEqual(latest.missingPages,[1,2,3,4]);
  assert.equal(print.story.id,id);
  assert.deepEqual(print.images,original);
  assert.equal((await f.json(`sessions/${child}/landscape`)).ready,0);
@@ -536,7 +538,8 @@ test('a new print set preserves its predecessor and rejects controls for the pre
   try{
    assert.deepEqual((await f.json(exportRoute)).images,firstImages);
    olderUnavailable=true;
-   assert.equal((await f.json(exportRoute)).images,undefined);
+   const refused=await f.request(exportRoute);
+   assert.equal(refused.status,409);assert.deepEqual((await refused.json()).missingPages,[3]);
   }finally{media.get=get;}
   await f.media.remove(referenceImageKey(id,currentImages[2]));
   const fallback=await f.json(exportRoute);
@@ -549,9 +552,14 @@ test('a new print set preserves its predecessor and rejects controls for the pre
   };
   await render(fallback);
   await f.media.put(referenceImageKey(id,firstImages[1]),new Uint8Array([0,1,2]),{contentType:'image/png'});
-  const portraits=await f.json(exportRoute);
-  assert.equal(portraits.images,undefined);
-  await render(portraits);
+  for(const layout of ['landscape','letter']){
+   const refused=await f.request(`sessions/${id}/export?layout=${layout}`);
+   assert.equal(refused.status,409);
+   const {error,ready,total,missingPages,story}=await refused.json();
+   assert.match(error,/横版插图未完成.*3 \/ 4 幅.*第 3 幅/);
+   assert.deepEqual({ready,total,missingPages},{ready:3,total:4,missingPages:[3]});
+   assert.equal(story,undefined);
+  }
   assert.equal((await f.json(`sessions/${id}/export`)).images,undefined);
  }finally{f.app.services.production=worker;}
  assert.deepEqual(await capture(),before);assert.equal(f.control.calls.length,calls);
@@ -909,6 +917,8 @@ test('an older landscape set retries page two while an unrelated portrait fault 
  f.control.hold=false;f.control.beforeImage=call=>{if(call.landscape&&call.page===1)throw Error('受控失败');};
  await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
  await until(async()=>!!(await f.json(route)).retryToken);
+ const refused=await f.request(`sessions/${id}/export?layout=landscape`);
+ assert.equal(refused.status,409);assert.deepEqual((await refused.json()).missingPages,[2]);
  const {retryToken}=await f.json(route),img=(await f.read(id)).story.pages[3].image;
  await f.media.remove(referenceImageKey(id,img));await f.json(`sessions/${id}/image-health`,'POST',{page:3,image:img});
  assert.equal((await f.read(id)).state,'failed');
@@ -971,7 +981,7 @@ test('late pause is refused and retry of a previously paused terminal print runs
  assert.deepEqual(f.control.calls.slice(4).map(call=>call.page),[2]);
 });
 
-test('landscape PDF and Letter print the latest saved pages after a replan without truncating an earlier set',async t=>{
+test('landscape PDF and Letter require a complete set for the latest saved pages after a replan',async t=>{
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),child=await fork(f,id,{length:3});
  const base='sessions/'+child,route=base+'/landscape';
  f.control.hold=false;
@@ -984,12 +994,14 @@ test('landscape PDF and Letter print the latest saved pages after a replan witho
  const capture=()=>Promise.all(['stories','production_jobs','reader_commands','production_faults'].map(table=>db.prepare('SELECT * FROM '+table+' ORDER BY '+(table==='production_faults'?'id':'rowid')).all()));
  const before=await capture(),calls=f.control.calls.length;
  const status=await f.json(route);assert.equal(status.state,'completed');assert.equal(status.matchesSavedPages,false);assert.ok(status.startToken);
- const source=await f.json('sessions/'+id+'/export?layout=landscape');
- assert.equal(source.id,child);assert.equal(source.story.pages.length,3);assert.deepEqual(source.story.pages,latest.story.pages);assert.equal(source.images,undefined);
  for(const layout of ['landscape','letter']){
-  const pdf=await createStoryPdf(source.story,()=>{},nativeExportRuntime(process.cwd(),f.app),layout,source.images);
-  assert.equal(Buffer.from(pdf).subarray(0,5).toString(),'%PDF-');
+  const refused=await f.request(`sessions/${id}/export?layout=${layout}`);
+  assert.equal(refused.status,409);
+  const result=await refused.json();
+  assert.equal(result.id,child);assert.deepEqual(result.missingPages,[1,2,3]);
  }
+ const source=await f.json('sessions/'+id+'/export');
+ assert.equal(source.id,child);assert.deepEqual(source.story.pages,latest.story.pages);
  assert.deepEqual(await capture(),before);assert.equal(f.control.calls.length,calls);
 });
 
@@ -1008,9 +1020,14 @@ test('saved landscape sets align with current page order, including sets created
   assert.deepEqual(source.images,order.map(index=>original[index]));assert.deepEqual(source.story.pages.map(page=>page.image),doc.images);
   const replaced=structuredClone(doc);
   if(old)replaced.dag.frames[replaced.dag.order[0]].visual+=' 改为全新的画面。';
-  else replaced.dag.order[0]=crypto.randomUUID();
+  else{
+   const [previous]=replaced.dag.order,replacement=crypto.randomUUID();
+   replaced.dag.frames[replacement]=replaced.dag.frames[previous];
+   replaced.dag.order[0]=replacement;
+  }
   await db.prepare('UPDATE stories SET document=? WHERE id=?').bind(JSON.stringify(replaced),id).run();
-  assert.equal((await f.json(base+'/export?layout=landscape')).images,undefined);
+  const refused=await f.request(base+'/export?layout=landscape');
+  assert.equal(refused.status,409);assert.deepEqual((await refused.json()).missingPages,[1,2,3,4]);
  }
 });
 
