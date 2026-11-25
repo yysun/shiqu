@@ -17,7 +17,7 @@ import type {ReaderProvider,ProviderStatus} from '../lib/reader-provider.ts';
 import {ClaudeError,createClaudeRunner} from './claude-runner.ts';
 import {CodexError,createCodexRunner} from './codex-runner.ts';
 import type {CodexRunner} from './codex-runner.ts';
-import {localChoicesJson,localScanJson,localCatalogOutputJson,localChoices,localReadingPrompt,localSuggestionPayload} from '../lib/reader-local-contract.ts';
+import {localChoicesJson,localScanJson,localCardsJson,localCardsOutputTokens,localCatalogOutputJson,localChoices,localReadingPrompt,localSuggestionPayload} from '../lib/reader-local-contract.ts';
 import type {ThemeMatchProtocol,ThemeStory} from '../lib/reader-theme-match.ts';
 import type {DiscoveryContext} from '../lib/reader-discovery-call.ts';
 import {binaryThemeMatch,themeVerificationProtocol,themeMatchModel,themeMatchEffort} from '../lib/reader-theme-match.ts';
@@ -26,6 +26,7 @@ import {imageDimensions,matchesLandscapeImageRatio} from '../lib/reader-image-di
 import {storyboardGenerator} from '../lib/reader-storyboard.ts';
 import {artRecommendationJson,artRecommendationSchema,selectedArtRecommendationPrompt,selectedArtRecommendationPayload} from '../lib/reader-art-recommendation.ts';
 import {configuredTaskReasoning} from '../lib/reader-reasoning.ts';
+import {cardsStoryLimit} from './story-token-budget.ts';
 
 function codexMessage(code:string){
  if(code==='INVALID_REASONING_EFFORT')return 'Codex 推理档位无效，请使用 low、medium、high、xhigh、max，或留空继承默认值。';
@@ -128,14 +129,16 @@ function createSingleProvider(name:string,variables:Record<string,string|undefin
   },
   async suggestions(selection,excluded,localBook,reading){
    const scanning=localBook?.purpose==='scan'||localBook?.purpose==='catalog';
+   const cards=localBook?.purpose==='cards';
+   reading?.signal?.throwIfAborted();
    const run=async(report:(meta:{model?:string;usage?:unknown;acceptedCount?:number})=>void)=>{
-    const result=await cli.run({instructions:localBook?localReadingPrompt(localBook):suggestionSystemPrompt,prompt:JSON.stringify(localSuggestionPayload(book(selection),selection.theme,excluded,localBook,reading?.maxStories)),schema:localBook?.purpose==='catalog'?localCatalogOutputJson(localBook):scanning?localScanJson:localBook?localChoicesJson:choicesJson,timeoutMs:codexGenerationTimeoutMs,reasoningEffort:taskReasoningEfforts.suggest});
+    const result=await cli.run({instructions:localBook?localReadingPrompt(localBook):suggestionSystemPrompt,prompt:JSON.stringify(localSuggestionPayload(book(selection),selection.theme,excluded,localBook,reading?.maxStories)),schema:localBook?.purpose==='catalog'?localCatalogOutputJson(localBook):cards?localCardsJson:scanning?localScanJson:localBook?localChoicesJson:choicesJson,timeoutMs:codexGenerationTimeoutMs,reasoningEffort:taskReasoningEfforts.suggest,...(reading?.signal?{signal:reading.signal}:{})});
     report(result);
     const batch=localBook?localChoices(JSON.parse(result.text),localBook):suggestionBatchSchema.parse(JSON.parse(result.text));
     const fresh=scanning?batch:freshSuggestions(batch,excluded);report({acceptedCount:fresh.stories.length});
     return reading?.maxStories?{...fresh,stories:fresh.stories.slice(0,reading.maxStories)}:fresh;
    };
-   return scanning?discoveryCall({stage:'extraction',provider:name,model:models.text,effort:taskReasoningEfforts.suggest,requestedCount:localBook.scan?.maxStories||1},reading,run):run(()=>{});
+   return scanning||cards?discoveryCall({stage:'extraction',provider:name,model:models.text,effort:taskReasoningEfforts.suggest,requestedCount:cards?cardsStoryLimit:localBook.scan?.maxStories||1},reading,run):run(()=>{});
   },
   matchStories:(theme,stories,context)=>checkThemes(theme,stories,context,binaryThemeMatch,matchingModel),
   verifyThemeStories:(theme,stories,context,evidence)=>checkThemes(theme,stories,context,themeVerificationProtocol(evidence)),

@@ -38,6 +38,10 @@ import {summarizeShelfSession,type ShelfChanges} from './reader-shelf.ts';
 import {readerBooks} from './reader-books.ts';
 import {localSourceSchema} from './reader-local-contract.ts';
 import {themeStoryId} from '../server/story-theme-matching.ts';
+import {ImportedBookCards} from '../server/imported-book-cards.ts';
+import {StoryDiscoveryCache} from '../server/story-discovery-cache.ts';
+import {importSourceLimit} from '../server/book-import-fetch.ts';
+import {isImportedBookId} from './reader-books.ts';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
 const uuid=z.string().uuid();
 const lifecycleMutations=new Set(['setup','reselection','recover','image-health','landscape','revisions','review-override','production-control']);
@@ -48,6 +52,7 @@ export function shelfView(session:SessionView):SessionView{
 }
 async function body(req:Request,maxLength=4096){const s=await req.text();if(s.length>maxLength)throw new ReaderError(413,'请求太长了');try{return JSON.parse(s);}catch{throw new ReaderError(400,'请求格式不正确');}}
 export function createReaderApi(services:Services){
+const cardCache=new StoryDiscoveryCache(services.media),cardJobs=services.localBooks?new ImportedBookCards(services.localBooks,services.generation,cardCache):null;
 return async function readerApi(req:Request,path:string[]):Promise<Response>{
  let provider=services.generation;
  // 只在需要提供方的请求边界取快照，普通书架读取不依赖设置库是否可用。
@@ -106,17 +111,81 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    const books=await services.localBooks?.semanticIndexBooks()??[];
    return json({bookIds:books.map(book=>book.id),books});
   }
+  if(path.join('/')==='books/imported'&&req.method==='GET'){
+   if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
+   return json({books:await services.localBooks.imported.list()});
+  }
+  if(path.join('/')==='books/imports'&&req.method==='POST'){
+   if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
+   const input=z.object({title:z.string().trim().min(1).max(100),author:z.string().max(100).optional(),era:z.string().max(100).optional(),sourceNote:z.string().max(1000).optional(),license:z.string().max(1000).optional(),acceptRights:z.literal(true),urls:z.array(z.string().url()).max(100).optional(),encoding:z.string().max(20).optional()}).strict().parse(await body(req,32768)),{urls,encoding,...metadata}=input;
+   const draft=await services.localBooks.imported.createDraft(metadata);
+   try{return json({draft,...(urls?.length?{preview:await services.localBooks.imported.addUrls(draft.id,urls,req.signal,encoding)}:{})},201);}
+   catch(error){await services.localBooks.imported.discardDraft(draft.id);throw error;}
+  }
+  if(path[0]==='books'&&path[1]==='imports'&&path.length===3&&req.method==='DELETE'){
+   if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
+   const id=z.string().regex(/^my-[a-f0-9]{16}$/).parse(path[2]);await services.localBooks.imported.discardDraft(id);return json({id,discarded:true});
+  }
+  if(path[0]==='books'&&path[1]==='imports'&&path.length===4&&path[3]==='files'&&req.method==='POST'){
+   if(!services.localBooks)throw new ReaderError(503,'本地书库暂不可用');
+   const declared=Number(req.headers.get('content-length')||0);if(declared>importSourceLimit)throw new ReaderError(413,'单个文件或网页最多 12 MB。');
+   const bytes=new Uint8Array(await req.arrayBuffer());if(!bytes.length||bytes.length>importSourceLimit)throw new ReaderError(413,'单个文件或网页最多 12 MB。');
+   let name=req.headers.get('x-file-name')||'source.txt';try{name=decodeURIComponent(name);}catch{throw new ReaderError(400,'文件名编码无效。');}const type=req.headers.get('content-type')?.split(';')[0];
+   const encoding=req.headers.get('x-text-encoding')||undefined;
+   return json(await services.localBooks.imported.appendSource(path[2],{bytes,name,contentType:type,encoding}));
+  }
+  if(path[0]==='books'&&path[1]==='imported'&&path[2]&&isImportedBookId(path[2])){
+   if(!services.localBooks||!cardJobs)throw new ReaderError(503,'本地书库暂不可用');
+   const id=path[2];
+   if(path.length===3&&req.method==='GET')return json(await services.localBooks.imported.manifestFor(id));
+   if(path.length===4&&path[3]==='structure'){
+    if(req.method==='GET')return json(await services.localBooks.imported.preview(id));
+    if(req.method==='PUT')return json(await services.localBooks.imported.updateStructure(id,await body(req,1048576)));
+   }
+   if(path.length===4&&path[3]==='confirm'&&req.method==='POST'){
+    const result=await services.localBooks.imported.confirm(id);services.localBooks.invalidateImported(id);return json(result);
+   }
+   if(path.length===5&&path[3]==='cards'&&path[4]==='estimate'&&req.method==='GET'){
+    await requireProvider();return json(await cardJobs.estimate(id));
+   }
+   if(path.length===4&&path[3]==='cards'&&req.method==='GET'){
+    return json({progress:await cardJobs.get(id),cards:await services.localBooks.imported.readCards(id)});
+   }
+   if(path.length===4&&path[3]==='cards'&&req.method==='POST'){
+    await requireProvider();const input=z.object({retryFailed:z.boolean().default(false)}).strict().parse(await body(req,8192)),abort=()=>{void cardJobs.cancel(id);},encoder=new TextEncoder();
+    req.signal.addEventListener('abort',abort,{once:true});
+    const stream=new ReadableStream<Uint8Array>({start(controller){
+     const send=(event:unknown)=>{if(!req.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
+     void cardJobs.run(id,input.retryFailed,event=>send(event)).then(progress=>send({type:'complete',progress})).catch(error=>{if(!req.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'故事卡生成失败，请重试。'});}).finally(()=>{req.signal.removeEventListener('abort',abort);if(!req.signal.aborted)controller.close();});
+    },cancel(){void cardJobs.cancel(id);}});
+    return new Response(stream,{headers:{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'private, no-store','X-Accel-Buffering':'no'}});
+   }
+   if(path.length===5&&path[3]==='cards'&&path[4]==='cancel'&&req.method==='POST')return json(await cardJobs.cancel(id));
+   if(path.length===4&&path[3]==='replace'&&req.method==='POST'){
+    const input=z.object({draftId:z.string().regex(/^my-[a-f0-9]{16}$/)}).strict().parse(await body(req,8192));
+    const result=await cardJobs.withBookMutation(id,async()=>{await provider.settleDiscovery?.();const cacheKeys=await services.localBooks!.imported.cardCacheKeysForCleanup(id);
+     for(const key of cacheKeys)await cardCache.remove(key);await services.localBooks!.imported.clearCardCacheKeys(id);
+     const replaced=await services.localBooks!.imported.replace(id,input.draftId);services.localBooks!.invalidateImported(id);return replaced;
+    });return json(result);
+   }
+   if(path.length===3&&req.method==='DELETE'){
+    const result=await cardJobs.withBookMutation(id,async()=>{await provider.settleDiscovery?.();const cacheKeys=await services.localBooks!.imported.cardCacheKeysForCleanup(id);
+     for(const key of cacheKeys)await cardCache.remove(key);await services.localBooks!.imported.clearCardCacheKeys(id);
+     await services.localBooks!.storySearch?.embeddings?.removeBook(id);const deleted=await services.localBooks!.imported.delete(id);services.localBooks!.invalidateImported(id);return deleted;
+    });return json(result);
+   }
+  }
   if(path.join('/')==='books/embedding-settings'){
    if(!services.localBooks?.storySearch?.embeddings)throw new ReaderError(503,'本地故事卡向量库暂不可用');
    const store=services.localBooks.storySearch.embeddings;
    if(req.method==='GET'){
     const books=[];
     for(const id of store.indexedBooks()){
-     const book=await services.localBooks.book(selectionSchema.parse({bookId:id,theme:'目录'}));
-     if(book)books.push({book,cards:await services.localBooks.storySearch.indexableCards(book)});
+     try{const book=await services.localBooks.book(selectionSchema.parse({bookId:id,theme:'目录'}));if(book)books.push({book,cards:await services.localBooks.storySearch.indexableCards(book)});}catch{/* 一本已删除或损坏的书不阻塞其他嵌入设置。 */}
     }
     const state=await store.status(books);
-    return json({...state,catalog:readerBooks.map(({id,title})=>({id,title}))});
+    const imported=(await services.localBooks.imported.list()).filter(book=>book.status==='ready').map(({id,title,status})=>({id,title,status}));
+    return json({...state,catalog:[...readerBooks.map(({id,title})=>({id,title})),...imported]});
    }
    if(req.method==='POST'){
     const input=z.object({settings:z.unknown()}).strict().parse(await body(req,8192));
@@ -131,7 +200,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   if(path[0]==='books'&&path.length===3&&path[2]==='embedding-index'&&req.method==='POST'){
    if(!services.localBooks?.storySearch?.embeddings)throw new ReaderError(503,'本地故事卡向量库暂不可用');
    const store=services.localBooks.storySearch.embeddings,id=z.string().min(1).max(100).parse(path[1]);
-   if(!readerBooks.some(book=>book.id===id))throw new ReaderError(400,'请选择内置书库中的一本书。');
+   if(!readerBooks.some(book=>book.id===id)&&!isImportedBookId(id))throw new ReaderError(400,'请选择本地书库中的一本书。');
    const book=await services.localBooks.book(selectionSchema.parse({bookId:id,theme:'目录'}));
    if(!book)throw new ReaderError(404,'本地书籍暂不可用。');
    const cards=await services.localBooks.storySearch.indexableCards(book),abort=new AbortController(),encoder=new TextEncoder();

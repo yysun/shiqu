@@ -28,3 +28,10 @@ export const readerBooks:ReaderBook[]=[
  {id:'史记',title:'史记',author:'司马迁',era:'西汉',genre:'历史',note:'成败之间，看人的选择'},
  {id:'太平广记',title:'太平广记',author:'李昉等 编',era:'北宋',genre:'传奇',note:'历代奇闻，择篇细读'},
 ];
+export function isImportedBookId(value:string){return /^my-[a-f0-9]{16}$/.test(value);}
+export function selectionBookTitle(selection:{bookId:string;customBook?:string},importedBooks:readonly {id:string;title:string}[]=[]){
+ if(selection.bookId==='other')return selection.customBook?.trim()||'其他';
+ const builtIn=readerBooks.find(book=>book.id===selection.bookId);if(builtIn)return builtIn.title;
+ const imported=importedBooks.find(book=>book.id===selection.bookId);if(imported)return imported.title;
+ return isImportedBookId(selection.bookId)?selection.customBook?.trim()||selection.bookId:selection.bookId;
+}

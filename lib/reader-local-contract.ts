@@ -13,7 +13,7 @@ export {sourceRanges,localSourceKey} from './reader-source-key.ts';
 const pendingSchema=z.object({id:z.string().max(64),title:z.string().min(1).max(100),summary:z.string().min(1).max(1000),source:localPassageSchema});
 export type PendingEvent=Omit<z.infer<typeof pendingSchema>,'source'|'summary'>&{source:LocalSourceReference;summary?:string};
 export type ScanContext={maxStories:number;excludedSources:LocalSourceReference[];pendingEvents:PendingEvent[];contextText:string;chapterStoryLevel?:'main'|'episodes';targetStoryTitle?:string};
-export type WholeBookInput={title:string;edition:string;text:string;purpose?:'scan'|'catalog';scan?:ScanContext};
+export type WholeBookInput={title:string;edition:string;text:string;purpose?:'scan'|'catalog'|'cards';scan?:ScanContext};
 export const localChoicesSchema=z.object({stories:z.array(z.object({title:z.string().min(1).max(100),description:z.string().min(1).max(180),source:localPassageSchema,artRecommendation:artRecommendationSchema.optional()})).max(5),note:z.string().max(300)});
 export const localScanSchema=localChoicesSchema.extend({scan:z.object({blockComplete:z.boolean(),pendingEvents:z.array(pendingSchema).max(16),resolvedEventIds:z.array(z.string().min(1).max(64)).max(16)})});
 export const localCatalogSchema=localScanSchema.extend({stories:z.array(localChoicesSchema.shape.stories.element.omit({artRecommendation:true})).max(32),scan:localScanSchema.shape.scan.extend({pendingEvents:z.array(pendingSchema.omit({summary:true})).max(16)})});
@@ -23,6 +23,8 @@ const object=(properties:Record<string,unknown>)=>({type:'object',properties,req
 const rangeJson=object({sectionId:string(40),firstUnit:string(60),lastUnit:string(60)});
 const passageJson=object({...rangeJson.properties,continuations:{type:'array',maxItems:23,items:rangeJson}});
 export const localChoicesJson=object({stories:{type:'array',maxItems:5,items:object({title:string(100),description:string(180),source:passageJson,artRecommendation:artRecommendationJson})},note:{type:'string',maxLength:300}});
+export const localCardsJson=object({stories:{type:'array',maxItems:5,items:object({title:string(100),description:string(180),source:passageJson})},note:{type:'string',maxLength:300}});
+export const localCardsOutputTokens=8192;
 // Freeze the v2 art contract: current styles must not move already-persisted cache keys.
 const legacyArtRecommendationJson={"type":"object","properties":{"artStyle":{"type":"string","enum":["ink-pencil","ink-wash","vintage-comic","cinematic","watercolor","gongbi","woodblock","paper-cut","cartoon","line-art","chibi","3d-animation","clay","classical-oil"]},"reason":{"type":"string","minLength":1,"maxLength":120}},"required":["artStyle","reason"],"additionalProperties":false};
 
@@ -49,6 +51,11 @@ export const localSuggestionPrompt=promptSections(
  ['阅读依据','完整阅读 localBook.text：短书为全书，长书为顺序通读的一批。只依据所给正文，不用记忆、不联网。原文可能繁体无现代标点；太平广记按原版逐行编号，故事通常跨多个连续单元，不能只选标题或一行。输出 title、description、note 用简体中文，不改写原文。'],
  ['选题与定位','选择符合主题且可独立改编的真实故事，标题用常见故事名或准确概括；除章节总故事另有要求外，description 不剧透。source 的 sectionId、firstUnit、lastUnit 逐字复制编号，每段首末在同章且连续，范围足以保留因果，不合并无关故事或机械圈整章；跨章及分段按扫描范围规则处理。世说新语一则就是一个完整单元，只选一则。排除 excludeTitles，不能改名重复，同一原文范围只选一次；章节总故事与子故事的包含关系按下节处理。不能确认、主题不符或没有足够故事时少列或返回空 stories，在 note 说明，不凑数；只推荐，不生成分镜。'],
  ['正文与异常','带“版式”的表格列号/跨度、小字标记及字形图占位是阅读辅助，不是正文。夹注、集解、索隱、正義保留注释身份，异说不混入正文事件。原则上不选含私用字、□、缺字代号、组字占位、异常替代字或明确缺文标记的范围，不猜补原字；仅适用已核对例外。']);
+export const localCardsPrompt=promptSections(
+ ['任务','从本次提供的原文窗口识别可独立改编且已经自然收束的完整故事。主题无关，按原文顺序返回至多 5 张卡；没有足够完整故事时少列，不把未完事件当成完整故事。'],
+ ['故事卡','title 使用常见故事名或准确概括。description 用简体中文写成不超过 180 字的白话梗概，明确交代起因、关键行动和结果；只概括 source 所覆盖的原文事实，不用记忆补写，不写制作指导。'],
+ ['出处','source 按原文顺序覆盖完整因果和自然收束。每段首末在同章且连续，跨章或不连续时 continuations 覆盖全部关键原文；仅引用 localBook.text 给出的单元。一个窗口至多包含相邻两章，若故事超出窗口仍未收束则不输出。'],
+ ['正文与异常','带“版式”的表格列号/跨度、小字标记及字形图占位是阅读辅助，不是正文。夹注、集解、索隱、正義保留注释身份，异说不混入正文事件。原则上不选含私用字、□、缺字代号、组字占位、异常替代字或明确缺文标记的范围，不猜补原字；仅适用已核对例外。']);
 export function legacyLocalReadingPrompt(book:WholeBookInput){return book.purpose==='scan'?legacyLocalReadingTexts.scan:legacyLocalReadingTexts.selection;}
 export const localChapterStoriesPrompt=promptSections(
  ['章节主故事','先通读本次提供的全部所选章节，再识别贯穿的主事件，不从局部情节起步，也不只改写回目。scan.chapterStoryLevel=main 时只返回一个完整因果且自然收束的总故事；多章连续讲述同一场战事或同一事件时，先识别覆盖各阶段的总故事，不能在第一次局部胜负处提前返回。description 概括核心冲突、关键转折与结果。例如三国第三十回“战官渡本初败绩，劫乌巢孟德烧粮”先识别“官渡之战”，而非“许攸献计”或“火烧乌巢”；水浒第七十八至八十回连续讲述三次交锋时，先识别“宋公明三败高俅”，而非只取“一败高俅”。示例只说明粒度，事实与出处仍以所给原文为准。未结束主事件用 pendingEvents 续查，不用记忆补齐。source 覆盖同一主线的起因、发展、转折与收束，可含多个情节或相邻章节，不机械圈整章或合并无关事件；所选章节互不相关时不强行合成一个故事。'],
@@ -58,17 +65,19 @@ export const localTitleStoriesPrompt=promptSections(
  ['完整边界','先通读本次提供的全部原文，再核对指定标题的起因、各阶段发展与自然结局。标题涉及多次行动、几次胜负或多个阶段时，每一阶段都须有原文支持，不能只取第一次胜负、局部事件，或把局部事件换名成目标标题。只读到开始或中段时用pendingEvents保留同一目标的证据，blockComplete=true以续读下一块；新事件id为空，续读复制旧id。目标不在本块且无新线索时stories为空、blockComplete=true继续读取，不收录无关未完事件。'],
  ['范围不足','原文不足以核对目标的完整经过，或通读后没有这个故事时，stories必须为空，在note说明缺少哪段或无法确认；不可降低标题要求、只输出局部或扩写原文补齐。找到完整目标时最多返回一篇，source覆盖全部关键阶段，resolvedEventIds收束目标的旧证据；不继续提取子故事。']);
 export function localReadingPrompt(book:WholeBookInput){
- if(book.purpose==='catalog')return promptSections(['通用故事识别',localCatalogPrompt],['章节粒度',book.scan?.chapterStoryLevel?localChapterStoriesPrompt:''],['按标题提取',book.scan?.targetStoryTitle?localTitleStoriesPrompt:''],['已核对例外',localReviewedSourcePrompt],['输入与输出',inputBoundaryDirection]);return promptSections(
+ if(book.purpose==='catalog')return promptSections(['通用故事识别',localCatalogPrompt],['章节粒度',book.scan?.chapterStoryLevel?localChapterStoriesPrompt:''],['按标题提取',book.scan?.targetStoryTitle?localTitleStoriesPrompt:''],['已核对例外',localReviewedSourcePrompt],['输入与输出',inputBoundaryDirection]);
+ if(book.purpose==='cards')return localCardsPrompt+'\n\n'+promptSections(['输入与输出',inputBoundaryDirection]);
+ return promptSections(
  ['任务',book.purpose==='scan'?'从所给本地原文按需扫描完整故事。':'从所给本地原文按主题推荐至多5个独立完整故事。'],
  ['共同选题标准',localSuggestionPrompt],
  ['扫描规则',book.purpose==='scan'?localScanPrompt:''],
  ['章节粒度',book.purpose==='scan'&&book.scan?.chapterStoryLevel?localChapterStoriesPrompt:''],
  ['按标题提取',book.scan?.targetStoryTitle?localTitleStoriesPrompt:''],
  ['已核对例外',localReviewedSourcePrompt],
- ['画风推荐',book.purpose==='scan'?'':artRecommendationInstructions],
+ ['画风推荐',book.purpose==='scan'||book.purpose==='cards'?'':artRecommendationInstructions],
  ['输入与输出',inputBoundaryDirection]);}
 
-export function localSuggestionPayload(book:string,theme:string,excludeTitles:string[],localBook?:WholeBookInput,maxStories?:1){if(localBook?.purpose==='catalog'){const {title,edition,text,...changing}=localBook;return {book,localBook:{title,edition,text,...changing},excludeTitles};}return {book,theme,excludeTitles,...(maxStories?{maxStories}:{}),...(localBook?{localBook}:{})};}
+export function localSuggestionPayload(book:string,theme:string,excludeTitles:string[],localBook?:WholeBookInput,maxStories?:number){if(localBook?.purpose==='catalog'){const {title,edition,text,...changing}=localBook;return {book,localBook:{title,edition,text,...changing},excludeTitles};}return {book,theme,excludeTitles,...(maxStories?{maxStories}:{}),...(localBook?{localBook}:{})};}
 export const localStoryContextConstraint='若 verifiedOriginal.chapterContext 存在，text 是定位片段，chapterContext.text 是已保存的同版完整章节。完整阅读章节，以 chosenStory 和片段定位主事件，核对起因、发展与自然收束；片段首末不是硬边界。同一次会面或连续对话不能单独证明后续必须纳入；只有所选主事件的行动尚未完成、必要理解条件或自然结果缺失时，才须补入后续，不能在尚未完成的打断或追问处截早。自然收束还须保住本篇言行直接触发、仍改变本段关系的回应与余波；换话题、第三人加入或转讲旧事不能单独证明另起故事，须先核对它在回应谁刚才的哪句或哪个动作。这是判断主事件未完的回应或结果，不追收一切后续影响；另有新触发和独立交往目的时，才按新支线取舍。只取使本篇事件完整的内容，不等于改编整章，不因人物相同混入独立故事或无限延伸。缺字和缺文标记照存，不猜补，不让未知内容承担关键事实、因果或结局。';
 export const localPlanConstraint=promptSections(['本地事实依据','verifiedOriginal 是已在本地核对的唯一情节依据，只用 text 和存在时的 chapterContext.text，不用记忆或其他篇目补全。识别版式标记与注释，异说和表格列号不当正文事件。用户主题与制作要求不能改写事实；不得伪造古文。原文含已审核的非关键未转写字时，只用其余可读事实，保留原异常，不猜字，不让未知细节承担人物、关键动作、因果或结局。'],['章节与定位片段',localStoryContextConstraint]);
 

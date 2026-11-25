@@ -11,6 +11,7 @@ export interface MediaStore {
  remove(key:string):Promise<void>;
  get(key:string):Promise<MediaObject|null>;
  put(key:string,value:ArrayBuffer|Uint8Array,options:{contentType:string}):Promise<unknown>;
+ delete(key:string):Promise<void>;
 }
 export interface Services {
  commandOnly?:boolean;

@@ -45,7 +45,7 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
  const local=openDatabase(options.dataDirectory,options.root,options.exportOnly);
  const media=new LibraryMedia(path.join(options.dataDirectory,'media'),local.database);
  const storySearch=applicationStorySearch(options.root,options.dataDirectory,()=>localBooks,options.transport||fetch);
- const localBooks:LocalBooks=new LocalBooks(options.root,storySearch);
+ const localBooks:LocalBooks=new LocalBooks(options.root,storySearch,options.dataDirectory);
  const cache=new StoryDiscoveryCache(media),create=(variables:Variables)=>withLocalBooks(createReaderProvider(variables,media,options.transport||fetch),localBooks,media,cache,storySearch);
  const generation=options.generation||(options.providerVariables?liveReaderProvider(options.variables||{},options.providerVariables,create):create(options.variables||{}));
  const imageWorkers=configuredImageWorkers(options.variables?.SHIQU_IMAGE_WORKERS);

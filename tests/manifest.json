@@ -219,6 +219,71 @@
       "manualOnly": true
     },
     {
+      "file": "tests/book-import-cli.test.mjs",
+      "groups": [
+        "books",
+        "storage",
+        "tooling"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/headless-cli.ts",
+        "lib/reader-api.ts",
+        "server/app.ts",
+        "server/imported-books.ts",
+        "server/book-import-parse.ts"
+      ]
+    },
+    {
+      "file": "tests/book-import-fetch.test.mjs",
+      "groups": [
+        "books",
+        "safety"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/book-import-fetch.ts"
+      ],
+      "manualOnly": true
+    },
+    {
+      "file": "tests/book-import-parse.test.mjs",
+      "groups": [
+        "books"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/book-import-parse.ts"
+      ]
+    },
+    {
       "file": "tests/book-integrity-smoke.test.mjs",
       "groups": [
         "safety"
@@ -1563,6 +1628,89 @@
         "tests/fixtures/book-reference.mjs"
       ],
       "modelRelated": true,
+      "manualOnly": true
+    },
+    {
+      "file": "tests/imported-book-cards.test.mjs",
+      "groups": [
+        "books",
+        "discovery",
+        "providers"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "books",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/imported-book-cards.ts",
+        "server/local-books.ts",
+        "server/local-generation.ts",
+        "server/local-source-ranges.ts",
+        "server/local-story-search.ts",
+        "server/story-discovery-cache.ts",
+        "server/story-reading-inputs.ts",
+        "lib/reader-local-contract.ts",
+        "lib/reader-provider.ts"
+      ],
+      "manualOnly": true
+    },
+    {
+      "file": "tests/imported-books-api.test.mjs",
+      "groups": [
+        "books",
+        "reader",
+        "storage"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "lib/reader-api.ts",
+        "server/app.ts",
+        "server/book-import-fetch.ts",
+        "server/imported-book-cards.ts",
+        "server/imported-books.ts",
+        "server/media.ts",
+        "server/story-discovery-cache.ts"
+      ]
+    },
+    {
+      "file": "tests/imported-books.test.mjs",
+      "groups": [
+        "books",
+        "storage"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "books",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "server/book-import-parse.ts",
+        "server/imported-books.ts",
+        "server/local-books.ts",
+        "server/local-source-ranges.ts",
+        "server/local-story-search.ts",
+        "lib/reader-local-contract.ts"
+      ],
       "manualOnly": true
     },
     {

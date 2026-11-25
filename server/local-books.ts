@@ -10,10 +10,11 @@ import {sourceText,sourceParts} from './local-source-ranges.ts';
 import type {LocalStorySearch} from './local-story-search.ts';
 import {readingTokens,wholeInputTokens} from './story-token-budget.ts';
 import type {LocalSourceReference,WholeBookInput} from '../lib/reader-local-contract.ts';
-import type {OriginalSource} from '../lib/reader-source-types.ts';
+import type {ImportedSourceDisclosure,OriginalSource} from '../lib/reader-source-types.ts';
 import {sourceQuery} from '../lib/reader-source.ts';
 import {Converter} from 'opencc-js';
-import {readerBooks} from '../lib/reader-books.ts';
+import {readerBooks,isImportedBookId} from '../lib/reader-books.ts';
+import {ImportedBooks} from './imported-books.ts';
 import {loadLicensedCollection} from './local-book-licensed.ts';
 import {parseWikiStories} from './local-book-wiki-stories.ts';
 import {parseWikiOriginal,parseShidianOriginal} from './local-book-html.ts';
@@ -26,7 +27,7 @@ import {correctShishuo} from './local-book-corrections.ts';
 export type LocalUnit={id:string;text:string;narrative?:boolean;unreadable?:boolean;url?:string;provider?:string};
 export type LocalSection={id:string;title:string;units:LocalUnit[];url?:string;provider?:string;sourceBreaks?:ReadonlySet<string>};
 type BookEntry={id:string;title:string;originalFile:string;originalFiles?:(Omit<HtmlOriginal,'sourceUrl'>&{sourceUrl?:string})[];format?:'wikisource-html'|'shidian-html'|'licensed-wikisource'|'kanripo-text';source:{url:string;provider:string;sha256:string};supplements:{file:string;sha256:string;sourceUrl:string;chapter:number;scope:string}[]};
-export type LocalBook={id:string;title:string;edition:string;url:string;provider:string;sections:LocalSection[];input:WholeBookInput};
+export type LocalBook={id:string;title:string;edition:string;url:string;provider:string;sections:LocalSection[];input:WholeBookInput;importedSourceDisclosure?:ImportedSourceDisclosure};
 const aliases:Record<string,string>=Object.fromEntries(readerBooks.flatMap(book=>[[book.id,book.id],[book.title,book.id]]));
 // Normalize legacy chapter labels only. Never convert source body glyphs.
 const simplifiedLabel=Converter({from:'t',to:'cn'});
@@ -42,7 +43,7 @@ export function originalBody(raw:string,provider:string){
  }else text=text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/,'').replace(/^#{1,6}\s+/gm,'').replace(/\\([()[\]{}*_`])/g,'$1');
  return text.replace(/\r\n/g,'\n').trim();
 }
-export function localBookId(selection:Selection){return aliases[simplifiedLabel((selection.bookId==='other'?selection.customBook||'':selection.bookId).replace(/[《》]/g,'').trim())];}
+export function localBookId(selection:Selection){if(isImportedBookId(selection.bookId))return selection.bookId;return aliases[simplifiedLabel((selection.bookId==='other'?selection.customBook||'':selection.bookId).replace(/[《》]/g,'').trim())];}
 export function parseLocalSections(id:string,text:string):LocalSection[]{
  if(id!=='zhuangzi'&&id!=='shishuo')return parseAdditionalSections(id,text);
  const shishuo=id==='shishuo';
@@ -65,25 +66,34 @@ export function parseLocalSections(id:string,text:string):LocalSection[]{
 export class LocalBooks{
  private directory:string;
  private cache=new Map<string,Promise<LocalBook>>();
+ private importedCache=new Map<string,{stamp:string;promise:Promise<LocalBook>}>();
+ readonly imported:ImportedBooks;
  readonly storySearch?:LocalStorySearch;
- constructor(root:string,storySearch?:LocalStorySearch){this.directory=path.resolve(root,'data/library');this.storySearch=storySearch;}
+ constructor(root:string,storySearch?:LocalStorySearch,dataDirectory?:string){this.directory=path.resolve(root,'data/library');this.storySearch=storySearch;this.imported=new ImportedBooks(dataDirectory?path.resolve(dataDirectory):this.directory);}
  async semanticIndexBooks(){
   const search=this.storySearch,store=search?.embeddings;
   if(!search||!store||!store.exists()||!store.settings().enabled)return [];
-  const installed=new Set(store.indexedBooks()),eligible=readerBooks.filter(({id})=>installed.has(id));
-  const books=await Promise.all(eligible.map(async ({id})=>{
-   const book=await this.book(selectionSchema.parse({bookId:id,theme:'目录'}));
-   return book?{book,cards:await search.indexableCards(book)}:null;
+  const installed=new Set(store.indexedBooks()),imported=await this.imported.list(),eligible=[...readerBooks.filter(({id})=>installed.has(id)).map(({id})=>id),...imported.filter(book=>book.status==='ready'&&installed.has(book.id)).map(({id})=>id)];
+  const books=await Promise.all(eligible.map(async id=>{
+   try{const book=await this.book(selectionSchema.parse({bookId:id,theme:'目录'}));return book?{book,cards:await search.indexableCards(book)}:null;}catch{return null;}
   }));
   return (await store.status(books.flatMap(value=>value?[value]:[]))).books.filter(book=>book.ready).map(book=>({id:book.id,cardCount:book.indexedCount}));
  }
  async book(selection:Selection):Promise<LocalBook|null>{
   const id=localBookId(selection);if(!id)return null;
+  if(isImportedBookId(id)){
+   const stamp=await this.imported.stamp(id),cached=this.importedCache.get(id);
+   if(cached?.stamp===stamp)return cached.promise;
+   const promise=this.imported.readBook(id);this.importedCache.set(id,{stamp,promise});
+   try{return await promise;}catch(error){if(this.importedCache.get(id)?.promise===promise)this.importedCache.delete(id);throw error;}
+  }
   let pending=this.cache.get(id);
   if(!pending){pending=this.load(id);this.cache.set(id,pending);}
-  return pending;
+  try{return await pending;}catch(error){if(this.cache.get(id)===pending)this.cache.delete(id);throw error;}
  }
+ invalidateImported(bookId:string){this.importedCache.delete(bookId);this.storySearch?.clearBook(bookId);}
  private async load(id:string):Promise<LocalBook>{
+  if(isImportedBookId(id))return this.imported.readBook(id);
   try{
    const catalog=JSON.parse(await readFile(path.join(this.directory,'catalog.json'),'utf8')) as {books:BookEntry[]};
    const entry=catalog.books.find(book=>book.id===id);if(!entry)throw unavailable();
@@ -169,7 +179,7 @@ export class LocalBooks{
  resolve(book:LocalBook,reference:LocalSourceReference,legacyChapter=false,allowCombined=false):OriginalSource{
   const {text,title,section,parts}=sourceText(book,reference,legacyChapter,allowCombined);
   const units=sourceParts(book,reference).flatMap(part=>part.units),providers=[...new Set([section.provider||book.provider,...units.flatMap(unit=>unit.provider?[unit.provider]:[])])];
-  return {title,text,url:(units.length===1?units[0].url:undefined)||section.url||book.url,kind:legacyChapter?'chapter':'passage',provider:`本地书库 · ${providers.join('；')}`,retrievedAt:new Date().toISOString(),localSource:reference,...(parts.length>1?{localParts:parts}:{})};
+  return {title,text,url:(units.length===1?units[0].url:undefined)||section.url||book.url,kind:legacyChapter?'chapter':'passage',provider:`本地书库 · ${providers.join('；')}`,retrievedAt:new Date().toISOString(),localSource:reference,...(parts.length>1?{localParts:parts}:{}),...(book.importedSourceDisclosure?{importedSourceDisclosure:book.importedSourceDisclosure}:{})};
  }
  async selected(selection:Selection){
   const book=await this.book(selection);if(!book)return null;

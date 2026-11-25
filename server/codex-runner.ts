@@ -11,7 +11,7 @@ import type {CodexReasoningEffort} from '../lib/codex-settings.ts';
 export {codexEnvironment} from '../scripts/codex-env.mjs';
 
 export class CodexError extends Error {inferenceStarted?:boolean;usage?:unknown;constructor(code:string){super(code);this.name='CodexError';}}
-export type CodexJob={model?:string;prompt:string;instructions:string;schema?:unknown;image?:{bytes:Uint8Array;contentType:string};generateImage?:boolean;timeoutMs?:number;reasoningEffort?:CodexReasoningEffort};
+export type CodexJob={model?:string;prompt:string;instructions:string;schema?:unknown;image?:{bytes:Uint8Array;contentType:string};generateImage?:boolean;timeoutMs?:number;reasoningEffort?:CodexReasoningEffort;signal?:AbortSignal};
 export type CodexResult={text:string;image:string|null;model:string;requestId:string;usage:unknown;reasoningEffort?:string};
 export interface CodexRunner {status():Promise<{configured:boolean;reason?:string;model?:string}>;run(job:CodexJob):Promise<CodexResult>}
 const disabled=['shell_tool','unified_exec','view_image','browser_use','computer_use','plugins','remote_plugin','apps','hooks','multi_agent','code_mode','code_mode_only','code_mode_tool_search','tool_suggest'];
@@ -36,6 +36,7 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
  const setting=codexReasoningEffortSchema.safeParse(variables.CODEX_REASONING_EFFORT?.trim());
  if(!setting.success)throw new CodexError('INVALID_REASONING_EFFORT');
  async function execute(job?:CodexJob):Promise<CodexResult|null>{
+  job?.signal?.throwIfAborted();
   const requestedModel=job?.model||model;
   if(requestedModel&&!/^[a-zA-Z0-9._-]{1,100}$/.test(requestedModel))throw new CodexError('INVALID_MODEL');
   const selected=codexReasoningEffortSchema.safeParse(job?.reasoningEffort??setting.data);
@@ -48,7 +49,7 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
   const env=codexEnvironment(variables.SHIQU_CODEX_HOME,options.environment);
   function kill(){if(child)killChild(child);}
   function fail(error:Error){if(closed)return;if(error instanceof CodexError){error.inferenceStarted=inferenceStarted;error.usage=callUsage;}closed=true;failure(error);for(const p of pending.values())p.reject(error);pending.clear();kill();}
-  let lines:ReturnType<typeof createInterface>|undefined,exited:Promise<void>|undefined;
+  let lines:ReturnType<typeof createInterface>|undefined,exited:Promise<void>|undefined,onAbort=()=>{};
   if(process.platform==='win32'){await rm(directory,{recursive:true,force:true});throw new CodexError('UNSUPPORTED_PLATFORM');}
   try{
    const completion=new Promise<CodexResult>((resolve,reject)=>{failure=reject;
@@ -116,6 +117,7 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
       await call('turn/start',{threadId,input,...(job.schema?{outputSchema:job.schema}:{})});
      }catch(error){fail(error instanceof CodexError||error instanceof PaidDispatchDenied?error:new CodexError('PROTOCOL_ERROR'));}
     })();
+    onAbort=()=>fail(new CodexError('CANCELLED'));job?.signal?.addEventListener('abort',onAbort,{once:true});if(job?.signal?.aborted)onAbort();
    });
    function send(message:Message){if(!closed)child?.stdin?.write(JSON.stringify(message)+'\n');}
    function call(method:string,params:Message={}){return new Promise<any>((resolve,reject)=>{
@@ -125,8 +127,8 @@ export function createCodexRunner(variables:Record<string,string|undefined>,opti
     pending.set(id,{resolve,reject});child?.stdin?.write(request);
    });}
    return await completion;
-  }finally{closed=true;if(timer)clearTimeout(timer);kill();lines?.close();
-   if(exited){let cleanupTimer:ReturnType<typeof setTimeout>|undefined;await Promise.race([exited,new Promise<void>(resolve=>{cleanupTimer=setTimeout(resolve,1000);})]);if(cleanupTimer)clearTimeout(cleanupTimer);}
+  }finally{closed=true;if(timer)clearTimeout(timer);job?.signal?.removeEventListener('abort',onAbort);kill();lines?.close();
+   if(exited)await exited;
    await rm(directory,{recursive:true,force:true});
   }
  }

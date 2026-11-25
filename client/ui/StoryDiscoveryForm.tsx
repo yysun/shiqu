@@ -6,6 +6,7 @@ import {useEffect,useId,useRef,useState} from 'react';
 import {ArrowRight} from 'lucide-react';
 import type {IntakeView} from '@/lib/reader-intake';
 import type {Selection} from '@/lib/reader-model';
+import {isImportedBookId} from '@/lib/reader-books';
 import type {LocalSourceReference} from '@/lib/reader-local-contract';
 import {localSourceKey} from '@/lib/reader-source-key';
 import type {BookContentEntry} from '@/lib/reader-contents';
@@ -32,7 +33,7 @@ function toggle<T>(values:T[],item:T,source:(item:T)=>LocalSourceReference){
   ?values.filter(value=>localSourceKey(source(value))!==key):values.length<24?[...values,item]:values;
 }
 
-export default function StoryDiscoveryForm({bookChosen=false,selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,submitLabel='准备故事',retainKey,savedIntake,savedSelection,onSavedChoice,savedSearchPaused,onSavedSearchControl,savedSearchControlBusy,autoSearch}:{autoSearch?:boolean;bookChosen?:boolean;selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange?:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;submitLabel?:string;retainKey?:string;savedIntake?:IntakeView;savedSelection?:Selection;onSavedChoice?:(batch:number,index:number)=>Promise<void>;savedSearchPaused?:boolean;onSavedSearchControl?:(action:'pause'|'resume')=>Promise<void>;savedSearchControlBusy?:boolean}){
+export default function StoryDiscoveryForm({bookChosen=false,selection,books,semanticIndexBooks,busy,error,onBookChange,onSubmit,onImportBook,submitLabel='准备故事',retainKey,savedIntake,savedSelection,onSavedChoice,savedSearchPaused,onSavedSearchControl,savedSearchControlBusy,autoSearch}:{autoSearch?:boolean;onImportBook?:()=>void;bookChosen?:boolean;selection:Selection;books:{id:string;title:string}[];semanticIndexBooks?:readonly {id:string}[];busy:boolean;error:string;onBookChange?:(bookId:string)=>void;onSubmit:(selection:Selection)=>Promise<void>;submitLabel?:string;retainKey?:string;savedIntake?:IntakeView;savedSelection?:Selection;onSavedChoice?:(batch:number,index:number)=>Promise<void>;savedSearchPaused?:boolean;onSavedSearchControl?:(action:'pause'|'resume')=>Promise<void>;savedSearchControlBusy?:boolean}){
  const part=(name:string)=>retainKey&&retainKey+':'+name;
  const openingSelection=savedSelection??selection;
  const originalTitle=openingSelection.discovery?.mode==='title'?openingSelection.discovery.title:'';
@@ -133,7 +134,7 @@ export default function StoryDiscoveryForm({bookChosen=false,selection,books,sem
   setSavedChoice(null);setExtraction(null);setExtractedChoices([]);setSearchError('');
  }
  function input(topic=active==='theme'?theme:'原典故事'):Selection{
-  return {...selection,bookId,customBook:local?undefined:customBook.trim(),theme:topic,
+  return {...selection,bookId,...(bookId==='other'?{customBook:customBook.trim()}:isImportedBookId(bookId)?{customBook:books.find(book=>book.id===bookId)?.title||selection.customBook}:{}),theme:topic,
    productionPrompt:promptAfterThemeChange(selection.productionPrompt,selection.theme,topic),
    storyTitle:undefined,source:undefined,sourceCard:undefined,discoverySources:undefined,discovery:undefined,length:'auto',voice:false};
  }
@@ -229,7 +230,7 @@ export default function StoryDiscoveryForm({bookChosen=false,selection,books,sem
     {semanticIndexBooks?.some(index=>index.id===book.id)?<strong>{book.title}</strong>:book.title}
    </button>)}
   </div>
-  {!local&&<label className="yu-custom-input">书名或公开网页 URL<input ref={customBookInput} disabled={blocked} maxLength={500} value={customBook} onChange={event=>{setCustomBook(event.target.value);setSavedChoice(null);}}/></label>}
+  {!local&&<section className="yu-custom-input"><p>有自己的原文，可导入后按章节浏览、生成故事卡并核对出处。</p><button type="button" disabled={blocked} onClick={onImportBook}>导入这本书</button><label>不导入，直接请模型推荐<input ref={customBookInput} disabled={blocked} maxLength={500} value={customBook} placeholder="书名或公开网页 URL" onChange={event=>{setCustomBook(event.target.value);setSavedChoice(null);}}/></label></section>}
   <div className="yu-discovery-mode-row">
    <h2 className="yu-discovery-heading">检索方式</h2>
    <div className="yu-discovery-modes" role="group" aria-label="检索方式">

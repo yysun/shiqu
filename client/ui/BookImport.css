@@ -1,0 +1,41 @@
+/* 自备书导入视图样式；异常原文详情在桌面与手机宽度下保持可读。 */
+.yu-book-import{display:grid;gap:14px;max-height:min(78vh,820px);overflow:auto;padding:4px 2px 12px;color:var(--yu-ink,#292720)}
+.yu-book-import form{display:grid;gap:12px}
+.yu-book-import label{display:grid;gap:5px;font-size:13px;font-weight:600}
+.yu-book-import input:not([type=checkbox]):not([type=file]),.yu-book-import textarea{width:100%;min-height:42px;border:1px solid #d8d1c3;border-radius:10px;background:#fffdf8;padding:10px 12px;color:inherit;font:inherit}
+.yu-book-import textarea{min-height:72px;resize:vertical}
+.yu-book-import-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.yu-book-import-encoding select{min-height:40px;border:1px solid #d8d1c3;border-radius:9px;background:#fffdf8;padding:8px 10px;color:inherit;font:inherit}.yu-book-import-encoding small{color:#716b5f;font-size:12px;font-weight:400;line-height:1.45}
+.yu-book-import-intro,.yu-book-import-note{margin:0;color:#716b5f;font-size:13px;line-height:1.6}
+.yu-book-import-file{display:flex!important;align-items:center;gap:8px;padding:11px 12px;border:1px dashed #b9ad97;border-radius:10px;color:#514932;cursor:pointer}
+.yu-book-import-file input{min-width:0;max-width:60%;font-size:12px}
+.yu-book-import-files{margin:0;padding-left:22px;color:#716b5f;font-size:12px}
+.yu-book-import-rights{display:flex!important;align-items:flex-start;gap:9px;font-weight:500!important;line-height:1.5}
+.yu-book-import-rights input,.yu-book-import-exclude input{accent-color:#66794f}
+.yu-book-import .yu-primary,.yu-book-import-actions button,.yu-book-import-close,.yu-book-import-heading button,.yu-book-import-chapters article>button,.yu-book-import>button{min-height:40px;border:1px solid #d8d1c3;border-radius:10px;background:#fffdf8;padding:8px 12px;color:inherit;font:inherit;display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}
+.yu-book-import .yu-primary{border-color:#64764e;background:#64764e;color:white}
+.yu-book-import button:disabled{opacity:.55;cursor:not-allowed}
+.yu-book-import-error,.yu-book-import-success{margin:0;padding:10px 12px;border-radius:9px;font-size:13px;line-height:1.5}
+.yu-book-import-error{background:#fff0ed;color:#983c2f}.yu-book-import-success{background:#eef3e8;color:#526b42}
+.yu-book-import-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid #e7e0d2}
+.yu-book-import-heading>div{display:grid;gap:4px}.yu-book-import-heading small{color:#716b5f;font-size:12px}
+.yu-book-import-library{display:grid;gap:8px}.yu-book-import-library>header{display:flex;align-items:center;justify-content:space-between}.yu-book-import-library h3{margin:0;font-size:15px}.yu-book-import-library>header span{color:#716b5f;font-size:12px}
+.yu-book-import-library>article{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;align-items:center;gap:7px;padding:10px;border:1px solid #e6dfd1;border-radius:10px;background:#fffdf8}
+.yu-book-import-library>article>div{min-width:0;display:grid;gap:4px}.yu-book-import-library>article strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.yu-book-import-library>article small{color:#716b5f;font-size:12px;line-height:1.4}
+.yu-book-import-library>article button,.yu-book-import-confirm button{min-height:34px;border:1px solid #d8d1c3;border-radius:8px;background:#fffdf8;padding:6px 9px;color:inherit;font:inherit;font-size:12px;cursor:pointer}
+.yu-book-import-confirm{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:7px;padding:10px;border:1px solid #d9c9a9;border-radius:10px;background:#f8f3e8}.yu-book-import-confirm p{grid-column:1/-1;margin:0;color:#716b5f;font-size:12px;line-height:1.5}
+.yu-book-import-chapters{display:grid;gap:8px}
+.yu-book-import-chapters article{display:grid;grid-template-columns:34px minmax(0,1fr) 34px;align-items:start;gap:8px;padding:9px;border:1px solid #e6dfd1;border-radius:10px;background:#fffdf8}
+.yu-book-import-chapters article.excluded{opacity:.55}
+.yu-book-import-exclude{display:flex!important;align-items:center;gap:3px;font-size:12px!important;color:#716b5f}
+.yu-book-import-chapters article>div{min-width:0;display:grid;gap:5px}
+.yu-book-import-chapters article>div input{min-height:34px!important;padding:6px 8px!important}
+.yu-book-import-chapters article small{display:-webkit-box;overflow:hidden;-webkit-line-clamp:2;-webkit-box-orient:vertical;color:#716b5f;font-size:12px;line-height:1.45}
+.yu-book-import-quality{display:grid;gap:5px;padding:11px 12px;border:1px solid #d9c9a9;border-radius:10px;background:#f8f3e8;font-size:12px;line-height:1.5}.yu-book-import-quality>span,.yu-book-import-quality p{margin:0;color:#716b5f}
+.yu-book-import-quality-detail{margin-top:3px;color:#75512f;font-size:12px;line-height:1.5}.yu-book-import-quality-detail summary{cursor:pointer}.yu-book-import-quality-detail>div{margin-top:7px;padding:8px;border-radius:7px;background:#f8f3e8}.yu-book-import-quality-detail strong{font-size:12px}.yu-book-import-quality-detail p{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;color:#514932}
+.yu-book-import-chapters article>button{min-height:32px;padding:6px;color:#746754}
+.yu-book-import-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-top:6px}
+.yu-book-import-progress{display:grid;gap:5px;padding:12px;border-radius:10px;background:#f5f1e8;font-size:13px}
+.yu-book-import-progress span,.yu-book-import-progress small{color:#716b5f}.yu-book-import-estimate{margin:0;padding:10px;border-radius:9px;background:#f5f1e8;font-size:12px;line-height:1.5}
+.yu-book-import-hidden{display:none}.yu-book-import-close{width:100%;margin-top:4px}
+@media(max-width:520px){.yu-book-import-row{grid-template-columns:1fr}.yu-book-import{max-height:75vh}.yu-book-import-library>article{grid-template-columns:minmax(0,1fr) auto auto auto}.yu-book-import-library>article>div{grid-column:1/-1}.yu-book-import-confirm{grid-template-columns:1fr auto}.yu-book-import-confirm button:first-of-type{grid-column:1}.yu-book-import-confirm button:last-of-type{grid-column:2;grid-row:2}}

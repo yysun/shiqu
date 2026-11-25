@@ -5,7 +5,9 @@ import type {GeneratedStory} from './reader-model';
 import {request} from './reader-request.ts';
 import {archivePromptHistory,promptRecordText} from './reader-prompt-records.ts';
 import type {StoryPromptArchive,StoryPromptHistory} from './reader-prompt-records.ts';
-import {zipFilename,zipImageFilename,assertZipReady,storyZipData,storyZipFiles} from './reader-zip-content.ts';
+import {zipFilename,zipImageFilename,assertZipReady,storyZipData,storyZipFiles,normalizeImportedSourceDisclosure} from './reader-zip-content.ts';
+import type {ImportedSourceDisclosure} from './reader-zip-content.ts';
+import {isImportedBookId} from './reader-books.ts';
 export {zipFilename,assertZipReady} from './reader-zip-content.ts';
 import {drawStoryWatermarks} from './story-watermark.ts';
 import {sha256Hex,webpPayloadHash,publicImageXmp,withWebpXmp,assertStoryWebp} from './story-webp-metadata.ts';
@@ -57,7 +59,7 @@ function systemPromptText(story:Story,history:StoryPromptArchive){
   ...(history.systemPrompts.length?history.systemPrompts.map(system=>`<a id="${system.id}"></a>\n\n## ${system.label}\n\n${system.instructions}`):['未留存非空的系统指令；各次调用是否留存完整提示词请查看 [提示词](提示词.md)。']),
  ].join('\n\n')+'\n';
 }
-export async function createStoryZip(story:Story,history:StoryPromptHistory|null,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime(),includePrompts=true){
+export async function createStoryZip(story:Story,history:StoryPromptHistory|null,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime(),includePrompts=true,sourceDisclosure?:ImportedSourceDisclosure){
  assertZipReady(story);
  const generated='generated'in story&&story.generated===true?story as GeneratedStory:null;
  if(includePrompts&&generated&&!history)throw Error('提示词记录未载入，无法打包 ZIP，请重试。');
@@ -74,7 +76,7 @@ export async function createStoryZip(story:Story,history:StoryPromptHistory|null
   images.push(filename);files[filename]=output;hashes.push(imageHashes);
  }
  onProgress('正在整理分镜与保存 ZIP');
- Object.assign(files,storyZipFiles(storyZipData(story,images,hashes,history)));
+ Object.assign(files,storyZipFiles(storyZipData(story,images,hashes,history,sourceDisclosure)));
  if(includePrompts){
   const archive=archivePromptHistory(history);
   files['提示词.md']=strToU8(promptText(story,archive));
@@ -88,7 +90,9 @@ export async function downloadStoryZip(story:Story,onProgress:(text:string)=>voi
  assertZipReady(story);
  onProgress('正在读取已保存的提示词');
  const history:StoryPromptHistory|null='generated'in story&&story.generated===true?await request(`reader/sessions/${encodeURIComponent(story.id)}/prompts`):null;
- const blob=await createStoryZip(story,history,onProgress),url=URL.createObjectURL(blob),link=document.createElement('a');
+ const generated='generated'in story&&story.generated===true?story as GeneratedStory:null;let sourceDisclosure:ImportedSourceDisclosure|undefined=generated?.original?.importedSourceDisclosure;
+ if(isImportedBookId(story.bookId)&&!sourceDisclosure){try{sourceDisclosure=normalizeImportedSourceDisclosure(await request(`reader/books/imported/${encodeURIComponent(story.bookId)}`));}catch{sourceDisclosure={sourceNote:'',license:'',sources:[]};}}
+ const blob=await createStoryZip(story,history,onProgress,undefined,true,sourceDisclosure),url=URL.createObjectURL(blob),link=document.createElement('a');
  link.href=url;link.download=zipFilename(story.title);(document.querySelector('dialog[open]')||document.body).appendChild(link);link.click();link.remove();
  return {url,filename:link.download};
 }

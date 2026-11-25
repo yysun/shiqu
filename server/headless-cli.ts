@@ -40,6 +40,14 @@ const commands=[
  ['init','Optional: create the library directory and database at --data-dir (shiqu.sqlite plus media). Does not change the saved default; library commands also initialize automatically.','init --data-dir /private/library'],
  ['status','Library integrity/counts and runtime metadata; no cloud readiness request.','status'],
  ['catalog','Books, themes and styles. books contents BOOK --query words reads local sources.','books contents zhuangzi'],
+ ['books imported','List user-imported books and their status.','books imported'],
+ ['books import','Import local files or URLs into a draft. Rights acceptance is required; adjust structure, then confirm.','books import ./novel.txt --title "书名" --accept-rights'],
+ ['books structure','Read or save a draft chapter structure using JSON {chapters:[...]}.','books structure DRAFT_ID --input structure.json'],
+ ['books confirm','Confirm a reviewed import draft and add it to the local library.','books confirm DRAFT_ID'],
+ ['books cards','Estimate story-card work or run/resume it; --retry-failed retries failed chapters and Ctrl-C pauses safely.','books cards BOOK_ID --estimate'],
+ ['books index','Build the configured local embedding index for an imported book.','books index BOOK_ID'],
+ ['books reimport','Create a replacement draft for structure review, then replace using --draft-id and reviewed --input; unchanged unique chapter cards are preserved.','books reimport BOOK_ID ./revised.txt --accept-rights'],
+ ['books remove','Delete an imported book, its story cards, embeddings and generation cache. Requires --yes.','books remove BOOK_ID --yes'],
  ['books index-import','Install one book’s offline search index in the selected library directory.','books index-import 搜神记 FILE --data-dir /private/library'],
  ['books search','Search bundled story cards or installed indexes offline. Specify the book for bundled cards. Returns ranked original excerpts and source references without inference.','books search 种梨 聊斋志异 --limit 5 --brief'],
  ['stories list|get|current','Inspect saved stories and current-family versions.','stories get STORY_ID'],
@@ -92,8 +100,8 @@ const inputs={
 };
 type Context={cwd?:string;home?:string;generation?:ReaderProvider;localBooks?:LocalBooks;variables?:Record<string,string|undefined>;input?:unknown;signal?:AbortSignal;skill?:{transport?:typeof fetch;now?:()=>number};skillRuntime?:StartupSkillRuntime};
 function parse(args:string[]){return parseArgs({args,allowPositionals:true,strict:true,options:Object.fromEntries([
- ...['data-dir','from-data-dir','input','output','format','until','timeout','title','request-id','query','batch','index','scope','generation','auto-update','limit','cover'].map(k=>[k,{type:'string'}]),
- ...['json','brief','help','allow-unsigned','include-prompts','no-intake','refresh','automatic','copy-images','no-copy-images','draft'].map(k=>[k,{type:'boolean'}]),
+ ...['data-dir','from-data-dir','input','output','format','until','timeout','title','author','era','source-note','license','encoding','request-id','query','batch','index','scope','generation','auto-update','limit','cover','draft-id'].map(k=>[k,{type:'string'}]),
+ ...['json','brief','help','allow-unsigned','include-prompts','no-intake','refresh','automatic','copy-images','no-copy-images','draft','accept-rights','estimate','retry-failed','yes'].map(k=>[k,{type:'boolean'}]),
  ]) as Record<string,{type:'string'|'boolean'}>});}
 async function readInput(filename?:string){
  if(!filename)return {};
@@ -103,23 +111,47 @@ async function readInput(filename?:string){
 }
 const apiAllow=(method:string,route:string)=>{
  const base=route.split('?')[0];
- if(method==='GET')return /^(?:sessions(?:\/[a-f0-9-]{36}(?:\/(?:current|revisions|prompts|review-history|source))?)?|deletions|publication-defaults|books\/[^/]+\/contents)$/.test(base);
- if(method==='POST')return /^(?:sessions|publication-defaults|sessions\/[a-f0-9-]{36}\/(?:setup|revisions(?:\/preview)?|title|publication|production-control|recover|review-override|reselection|progress)|sessions\/[a-f0-9-]{36}\/reselection\/[a-f0-9-]{36}|library\/[^/]+\/(?:restore|favorite|reference))$/.test(base);
- return method==='DELETE'&&/^(?:library\/[^/]+|sessions\/[a-f0-9-]{36}\/reselection\/[a-f0-9-]{36})$/.test(base);
+ if(method==='GET')return /^(?:sessions(?:\/[a-f0-9-]{36}(?:\/(?:current|revisions|prompts|review-history|source))?)?|deletions|publication-defaults|books\/imported(?:\/my-[a-f0-9]{16}(?:\/(?:structure|cards(?:\/estimate)?))?)?|books\/[^/]+\/contents)$/.test(base);
+ if(method==='POST')return /^(?:sessions|publication-defaults|books\/imports|books\/imported\/my-[a-f0-9]{16}\/(?:confirm|cards\/cancel|replace)|books\/my-[a-f0-9]{16}\/embedding-index|sessions\/[a-f0-9-]{36}\/(?:setup|revisions(?:\/preview)?|title|publication|production-control|recover|review-override|reselection|progress)|sessions\/[a-f0-9-]{36}\/reselection\/[a-f0-9-]{36}|library\/[^/]+\/(?:restore|favorite|reference))$/.test(base);
+ if(method==='PUT')return /^books\/imported\/my-[a-f0-9]{16}\/structure$/.test(base);
+ return method==='DELETE'&&/^(?:library\/[^/]+|books\/imports\/my-[a-f0-9]{16}|books\/imported\/my-[a-f0-9]{16}|sessions\/[a-f0-9-]{36}\/reselection\/[a-f0-9-]{36})$/.test(base);
 };
-async function api(app:ReturnType<typeof createApplication>,method:string,route:string,input?:unknown){
- const response=await app.handle(new Request('http://shiqu.local/api/reader/'+route,{method,...(input instanceof FormData?{body:input}:{headers:{'Content-Type':'application/json'},...(input===undefined?{}:{body:JSON.stringify(input)})})}));
+async function api(app:ReturnType<typeof createApplication>,method:string,route:string,input?:unknown,signal?:AbortSignal){
+ const response=await app.handle(new Request('http://shiqu.local/api/reader/'+route,{method,...(input instanceof FormData?{body:input}:{headers:{'Content-Type':'application/json'},...(input===undefined?{}:{body:JSON.stringify(input)})}),...(signal?{signal}:{})}));
  const data=await response.json();if(!response.ok)throw new CliCommandError(response.status===409?'CONFLICT':response.status===404?'NOT_FOUND':response.status===503?'PROVIDER_UNAVAILABLE':'INVALID_REQUEST',data.error||'The production action failed.',response.status>=500?4:2,{status:response.status});return data;
+}
+async function streamApi(app:ReturnType<typeof createApplication>,route:string,input:unknown,signal:AbortSignal,onEvent:(value:any)=>void=()=>{}){
+ const response=await app.handle(new Request('http://shiqu.local/api/reader/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input),signal}));
+ if(!response.ok){const data=await response.json().catch(()=>({}));throw new CliCommandError(response.status===409?'CONFLICT':response.status===404?'NOT_FOUND':response.status===503?'PROVIDER_UNAVAILABLE':'INVALID_REQUEST',data.error||'The production action failed.',response.status>=500?4:2,{status:response.status});}
+ const reader=response.body?.getReader();if(!reader)throw new CliCommandError('EMPTY_STREAM','The local task returned no progress stream.');
+ const decoder=new TextDecoder(),last:any={};let pending='';
+ const accept=(line:string)=>{if(!line.trim())return;const event=JSON.parse(line);onEvent(event);Object.assign(last,event);if(event.type==='error')throw new CliCommandError('TASK_FAILED',event.error||'The local task failed.',4);if(event.type==='complete')last.progress=event.progress;};
+ try{while(true){const {done,value}=await reader.read();pending+=decoder.decode(value,{stream:!done});const lines=pending.split('\n');pending=lines.pop()||'';for(const line of lines)accept(line);if(done){accept(pending);break;}}}finally{reader.releaseLock();}
+ return last.progress||last;
+}
+async function uploadImportFile(app:ReturnType<typeof createApplication>,draftId:string,filename:string,encoding?:string){
+ const absolute=path.resolve(filename),info=await stat(absolute);need(info.isFile()&&info.size>0&&info.size<=12*1024*1024,'INVALID_IMPORT_FILE','Each import file must be a non-empty regular file no larger than 12 MB.');
+ const bytes=await readFile(absolute),extension=path.extname(filename).toLowerCase(),contentType=extension==='.epub'?'application/epub+zip':extension==='.html'||extension==='.htm'?'text/html':'text/plain';
+ const response=await app.handle(new Request(`http://shiqu.local/api/reader/books/imports/${encodeURIComponent(draftId)}/files`,{method:'POST',headers:{'Content-Type':contentType,'X-File-Name':encodeURIComponent(path.basename(filename)),...(encoding&&['.txt','.html','.htm'].includes(extension)?{'X-Text-Encoding':encoding}:{})},body:new Uint8Array(bytes)}));
+ const data=await response.json().catch(()=>({}));if(!response.ok)throw new CliCommandError(response.status===413?'IMPORT_LIMIT':response.status===409?'CONFLICT':'INVALID_IMPORT_FILE',data.error||'Could not import the source file.',response.status>=500?4:2,{status:response.status});return data;
+}
+async function importSources(app:ReturnType<typeof createApplication>,sources:string[],metadata:any,encoding?:string){
+ need(sources.length>0&&sources.length<=100,'IMPORT_SOURCE_COUNT','Provide between 1 and 100 files or URLs.');
+ const urls=sources.map(source=>/^https?:\/\//i.test(source));need(urls.every(Boolean)||urls.every(value=>!value),'MIXED_IMPORT_INPUTS','Import either URLs or local files in one command.');
+ const created=await api(app,'POST','books/imports',{...metadata,...(urls[0]?{urls:sources,...(encoding?{encoding}:{})}:{})});let preview=created.preview;
+ try{if(!urls[0])for(const filename of sources)preview=await uploadImportFile(app,created.draft.id,filename,encoding);}
+ catch(error){await api(app,'DELETE',`books/imports/${encodeURIComponent(created.draft.id)}`).catch(()=>{});throw error;}
+ return {draft:created.draft,preview};
 }
 function outputOutside(root:string,filename:string){for(const served of ['public','dist/client'])need(!containsPath(path.join(root,served),filename),'PRIVATE_OUTPUT_REQUIRED','Output must be outside application static directories.');}
 export async function executeHeadless(root:string,args:string[],context:Context={}){
  const {values:v,positionals:p}=parse(args);const command=p[0]||'help',action=p[1],id=p[2],value=(name:string)=>typeof v[name]==='string'?v[name] as string:undefined;
  need(commandNames.has(command),'UNKNOWN_COMMAND','Use help --json for available commands.');
  const appVersion=JSON.parse(await readFile(path.join(root,'package.json'),'utf8')).version||'unknown';
- if(command==='help'||v.help)return {schemaVersion:1,appVersion,default:'No subcommand starts the existing browser service.',commands,inputs,options:{'--data-dir':'Private library, otherwise saved desktop/CLI location.','--input':'JSON file or - for stdin.','--query':'Query for books contents.','--limit':'Maximum results for books search (1–42, default 10).','--output':'New output path; never overwrites.','--request-id':'Stable UUID for mutation replay; retain original generation/token/faultId and input.','--generation':'Required intake generation from stories get ID for setup/search/choose/confirm.','--until':'candidates|prepared|reviewed|completed (default completed).','--timeout':'Explicit run timeout in seconds, default 900, max 86400.','--allow-unsigned':'Explicitly permit an unsigned export.','--draft':'Copy an unreviewed saved storyboard as a paused independent text draft; no images.','--brief':'Show book, indexed story title and source location for books search.','--json':'Return one JSON receipt on stdout (default).'},selectionExample:{bookId:'zhuangzi',theme:'原典故事',artStyle:'ink-pencil',narrativeDetail:'balanced'},editExample:{token:'from stories revisions ID',changes:{productionPrompt:'保留关键人物回应'}},runResults:['completed','candidates','prepared','choice','already_prepared','already_selected','reviewed','continue_required','paused','blocked','superseded'],execution:'Only explicit run performs inference. All other commands save or inspect local state.'};
+ if(command==='help'||v.help)return {schemaVersion:1,appVersion,default:'No subcommand starts the existing browser service.',commands,inputs,options:{'--data-dir':'Private library, otherwise saved desktop/CLI location.','--input':'JSON file or - for stdin; books reimport accepts reviewed {chapters:[...]} structure.','--query':'Query for books contents.','--limit':'Maximum results for books search (1–42, default 10).','--output':'New output path; never overwrites.','--request-id':'Stable UUID for mutation replay; retain original generation/token/faultId and input.','--generation':'Required intake generation from stories get ID for setup/search/choose/confirm.','--until':'candidates|prepared|reviewed|completed (default completed).','--timeout':'Explicit run timeout in seconds, default 900, max 86400.','--allow-unsigned':'Explicitly permit an unsigned export.','--draft':'Copy an unreviewed saved storyboard as a paused independent text draft; no images.','--draft-id':'Identify a books reimport draft after structure review.','--accept-rights':'Confirm you have the right to store and use imported source material.','--retry-failed':'Retry failed imported-book card chapters.','--estimate':'Estimate imported-book story-card work.','--yes':'Confirm irreversible imported-book deletion.','--encoding':'Explicit text encoding for imported TXT files or HTML pages.','--brief':'Show book, indexed story title and source location for books search.','--json':'Return one JSON receipt on stdout (default).'},selectionExample:{bookId:'zhuangzi',theme:'原典故事',artStyle:'ink-pencil',narrativeDetail:'balanced'},editExample:{token:'from stories revisions ID',changes:{productionPrompt:'保留关键人物回应'}},runResults:['completed','candidates','prepared','choice','already_prepared','already_selected','reviewed','continue_required','paused','blocked','superseded'],execution:'Only explicit run and books cards/index perform configured generation or embedding work. All other commands save or inspect local state.'};
  if(command==='books'&&action==='index-install')throw new CliCommandError('LEGACY_VECTOR_PACK_DISABLED','Official vector packs are no longer supported. Use My → Embedding model to build a local story-card index.');
- if(command==='catalog'||command==='themes'||command==='styles'||command==='books'&&!['contents','search','index-import'].includes(action)){
-  return command==='books'?readerBooks:command==='themes'?themes:command==='styles'?artStyles.map(({prompt,...style})=>style):{books:readerBooks,themes,styles:artStyles.map(({prompt,...style})=>style),styleGroups:artStyleGroups};
+ if(command==='themes'||command==='styles'){
+  return command==='themes'?themes:artStyles.map(({prompt,...style})=>style);
  }
  if(command==='skill'){
   if(action==='show')return {appVersion,text:await bundledSkill(root)};
@@ -137,7 +169,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  }
  const input=context.input??await readInput(value('input'));need(input&&typeof input==='object'&&!Array.isArray(input),'INVALID_INPUT','JSON input must be an object.');
  const supplied=(input as any).requestId||value('request-id'),requestId=supplied||randomUUID();need(uuid(requestId),'INVALID_REQUEST_ID','requestId must be a UUID.');
- const variables=context.variables||process.env,locations=desktopLibraryPaths({variables});
+ const variables=context.variables||process.env,locations=desktopLibraryPaths({variables,home:context.home});
  if(command==='config'){
   const store=new SystemSettingsStore(locations.settings,locations.library);
   try{
@@ -147,10 +179,14 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   }finally{store.close();}
  }
  if(command==='verify-backup'){need(action,'BACKUP_PATH_REQUIRED','Specify a backup directory.');const verified=verifyBackupForMaintenance(path.resolve(action));return {verified:true,files:verified.files.length,createdAt:verified.createdAt};}
- const directory=path.resolve(value('data-dir')||variables.SHIQU_DATA_DIR||savedDesktopLibraryDirectory({variables})||locations.library);
+ const directory=path.resolve(value('data-dir')||variables.SHIQU_DATA_DIR||savedDesktopLibraryDirectory({variables,home:context.home})||locations.library);
+ if(command==='catalog'&&!existsSync(path.join(directory,'shiqu.sqlite'))){
+  return {books:readerBooks,themes,styles:artStyles.map(({prompt,...style})=>style),styleGroups:artStyleGroups};
+ }
  // 检索只访问独立索引和随应用发布的原文，不初始化或锁定正式书库。
  if(command==='books'&&action==='index-import'){
   need(id&&p[3]&&p.length===4,'INVALID_INPUT','Use books index-import BOOK FILE.');
+  need(!/^my-[a-f0-9]{16}$/.test(id),'IMPORTED_BOOK_INDEX_DISABLED','Imported books use generated local story cards; use books cards, then books index.');
   outputOutside(root,directory);
   const books=context.localBooks||new LocalBooks(root),book=await books.book(selectionSchema.parse({bookId:id,theme:'原典故事'}));
   need(book,'BOOK_NOT_FOUND','This book is unavailable in the local collection.');
@@ -208,24 +244,75 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  // Normal commands share desktop/server automatic initialization; backup must never create an empty source.
  if(command==='backup')need(existsSync(path.join(directory,'shiqu.sqlite')),'LIBRARY_NOT_FOUND','Cannot back up a library without an existing database.');
  const release=await ownDesktopData(directory),removeDiagnostics=installDiagnostics(directory);let app:ReturnType<typeof createApplication>|undefined;
- const running=command==='run'||command==='stories'&&action==='run',target=command==='run'?action:id;
+ const running=command==='run'||command==='stories'&&action==='run',cardTask=command==='books'&&action==='cards'&&!v.estimate,cardEstimate=command==='books'&&action==='cards'&&!!v.estimate,indexTask=command==='books'&&action==='index',taskSignal=cardTask||indexTask,target=command==='run'?action:id;
  const until=value('until')||'completed',timeout=Number(value('timeout')||900);let timer:ReturnType<typeof setTimeout>|undefined;
  const abort=new AbortController();let timedOut=false;
  const interrupt=()=>{app?.stopGeneration();abort.abort();void Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);};
  try{
   if(command==='backup'){need(action,'BACKUP_PATH_REQUIRED','Specify a new backup directory.');outputOutside(root,path.resolve(action));const manifest=createLibraryBackup(directory,path.resolve(action),appVersion,root);return {path:path.resolve(action),files:manifest.files.length,verified:true};}
   let effective:Record<string,string|undefined>={...variables,SHIQU_AI_PROVIDER:'readonly'};
-  if(running&&!context.generation){
+ if((running||cardTask||cardEstimate)&&!context.generation){
    if(existsSync(locations.settings)){const store=new SystemSettingsStore(locations.settings,locations.library);try{effective=effectiveProviderVariables(store,variables);}finally{store.close();}}
    else effective={...variables,SHIQU_AI_PROVIDER:variables.SHIQU_AI_PROVIDER||'readonly'};
   }
   if(running){need(target&&uuid(target),'STORY_ID_REQUIRED','run requires a story UUID.');need(['candidates','prepared','reviewed','completed'].includes(until),'INVALID_UNTIL','Use candidates|prepared|reviewed|completed.');need(Number.isFinite(timeout)&&timeout>0&&timeout<=86400,'INVALID_TIMEOUT','Timeout must be between 0 and 86400 seconds.');}
   const transport:typeof fetch=(url,options)=>fetch(url,{...options,signal:options?.signal?AbortSignal.any([options.signal,abort.signal]):abort.signal});
   app=createApplication({root,dataDirectory:directory,variables:effective,transport,generation:context.generation,commandOnly:!running,production:{autoStart:false,targetSessionId:running?target:undefined,portraitOnly:running,stopBeforeImages:running&&until!=='completed'}});
+  if(running||taskSignal){process.once('SIGINT',interrupt);process.once('SIGTERM',interrupt);context.signal?.addEventListener('abort',interrupt,{once:true});if(context.signal?.aborted)interrupt();}
   if(context.localBooks)app.services.localBooks=context.localBooks;
   if(command==='init')return {initialized:true,path:directory,started:false};
   if(command==='status')return diagnosticReport(directory,appVersion);
+  if(command==='books'&&(!action||action==='imported')){
+   const imported=(await api(app,'GET','books/imported')).books;
+   const books=[...readerBooks,...imported];
+   if(action==='imported')return {books:imported};
+   if(action===undefined)return {books};
+  }
+  if(command==='catalog'){
+   const imported=(await api(app,'GET','books/imported')).books;
+   return {books:[...readerBooks,...imported],themes,styles:artStyles.map(({prompt,...style})=>style),styleGroups:artStyleGroups};
+  }
   if(command==='books'&&action==='contents'){need(id,'BOOK_ID_REQUIRED','Specify a book ID.');return await api(app,'GET',`books/${encodeURIComponent(id)}/contents?q=${encodeURIComponent(value('query')||'')}`);}
+  if(command==='books'&&action==='import'){
+   need(!!value('title'),'TITLE_REQUIRED','Use books import FILE|URL... --title TITLE --accept-rights.');need(v['accept-rights'],'RIGHTS_ACCEPTANCE_REQUIRED','Confirm the right to store and use these sources with --accept-rights.');need(p.length>=3,'IMPORT_SOURCE_REQUIRED','Provide one or more local files or HTTP(S) URLs.');
+   const result=await importSources(app,p.slice(2),{title:value('title'),author:value('author'),era:value('era'),sourceNote:value('source-note'),license:value('license'),acceptRights:true},value('encoding'));
+   return {id:result.draft.id,title:result.draft.title,status:'structuring',sources:result.preview?.manifest?.sources?.length||0,chapters:result.preview?.chapters?.length||0,structure:result.preview};
+  }
+  if(command==='books'&&action==='structure'){
+   need(id&&/^my-[a-f0-9]{16}$/.test(id),'BOOK_ID_REQUIRED','Specify an import draft ID.');const route=`books/imported/${encodeURIComponent(id)}/structure`;
+   return value('input')!==undefined||context.input!==undefined?await api(app,'PUT',route,input):await api(app,'GET',route);
+  }
+  if(command==='books'&&action==='confirm'){
+   need(id&&/^my-[a-f0-9]{16}$/.test(id),'BOOK_ID_REQUIRED','Specify an import draft ID.');return await api(app,'POST',`books/imported/${encodeURIComponent(id)}/confirm`,{});
+  }
+  if(command==='books'&&action==='cards'){
+   need(id&&/^my-[a-f0-9]{16}$/.test(id),'BOOK_ID_REQUIRED','Specify an imported book ID.');
+   if(v.estimate){need(!v['retry-failed'],'INVALID_INPUT','--retry-failed applies only when running cards.');return await api(app,'GET',`books/imported/${encodeURIComponent(id)}/cards/estimate`);}
+   need(value('encoding')===undefined,'INVALID_INPUT','--encoding applies only to books import.');
+   try{const result=await streamApi(app,`books/imported/${encodeURIComponent(id)}/cards`,{retryFailed:!!v['retry-failed']},abort.signal,event=>{if(event.type==='progress')process.stderr.write(`\r故事卡 ${event.progress?.status||''} · ${event.progress?.chapters?.filter((chapter:any)=>chapter.status==='done').length||0}/${event.progress?.chapters?.length||0} 章`);});process.stderr.write('\n');return result;}
+   catch(error){if(!abort.signal.aborted)throw error;await api(app,'POST',`books/imported/${encodeURIComponent(id)}/cards/cancel`,{});const current=await api(app,'GET',`books/imported/${encodeURIComponent(id)}/cards`);process.stderr.write('\n');return {cancelled:true,progress:current.progress};}
+  }
+  if(command==='books'&&action==='index'){
+   need(id&&/^my-[a-f0-9]{16}$/.test(id),'BOOK_ID_REQUIRED','Specify an imported book ID.');
+   try{const result=await streamApi(app,`books/${encodeURIComponent(id)}/embedding-index`,{},abort.signal,event=>{if(event.type==='progress')process.stderr.write(`\r向量索引 ${event.completed||0}/${event.total||0}`);});process.stderr.write('\n');return result;}
+   catch(error){if(!abort.signal.aborted)throw error;process.stderr.write('\n');return {cancelled:true};}
+  }
+  if(command==='books'&&action==='remove'){
+   need(id&&/^my-[a-f0-9]{16}$/.test(id),'BOOK_ID_REQUIRED','Specify an imported book ID.');need(v.yes,'CONFIRMATION_REQUIRED','Deleting the original, cards, vectors and generation cache requires --yes.');return await api(app,'DELETE',`books/imported/${encodeURIComponent(id)}`);
+  }
+  if(command==='books'&&action==='reimport'){
+   need(id&&/^my-[a-f0-9]{16}$/.test(id),'BOOK_ID_REQUIRED','Specify an imported book ID.');
+   if(value('draft-id')!==undefined){
+    const draftId=value('draft-id');need(p.length===3&&draftId&&/^my-[a-f0-9]{16}$/.test(draftId),'DRAFT_ID_REQUIRED','Use books reimport BOOK_ID --draft-id DRAFT_ID --input reviewed-structure.json.');
+    need(value('input')!==undefined||context.input!==undefined,'STRUCTURE_REVIEW_REQUIRED','Inspect the draft with books structure DRAFT_ID, then provide its reviewed {chapters:[...]} structure with --input.');
+    await api(app,'PUT',`books/imported/${encodeURIComponent(draftId)}/structure`,input);return await api(app,'POST',`books/imported/${encodeURIComponent(id)}/replace`,{draftId});
+   }
+   need(p.length>=4,'IMPORT_SOURCE_REQUIRED','Use books reimport BOOK_ID FILE|URL... --accept-rights, then review the returned draft structure.');need(v['accept-rights'],'RIGHTS_ACCEPTANCE_REQUIRED','Confirm the right to store and use replacement sources with --accept-rights.');
+   const current=await api(app,'GET',`books/imported/${encodeURIComponent(id)}`),metadata={title:value('title')||current.title,author:value('author')??current.author,era:value('era')??current.era,sourceNote:value('source-note')??current.sourceNote,license:value('license')??current.license,acceptRights:true};
+   const result=await importSources(app,p.slice(3),metadata,value('encoding')),draftId=result.draft.id;
+   if(value('input')===undefined&&context.input===undefined)return {id,title:metadata.title,status:'review-required',draftId,sources:result.preview?.manifest?.sources?.length||0,chapters:result.preview?.chapters?.length||0,structure:result.preview,message:`检查草稿：books structure ${draftId}；替换时提供已检查的结构：books reimport ${id} --draft-id ${draftId} --input reviewed-structure.json`};
+   await api(app,'PUT',`books/imported/${encodeURIComponent(draftId)}/structure`,input);return await api(app,'POST',`books/imported/${encodeURIComponent(id)}/replace`,{draftId});
+  }
   if(command==='api'){
    const route=(p[2]||'').replace(/^\/?(?:api\/)?reader\//,'');need(action&&apiAllow(action.toUpperCase(),route),'EXECUTION_REQUIRED','Only allowlisted non-inference reader actions are supported; use run for generation.');
    const data={...(input as any)};if(action.toUpperCase()==='POST'&&(route==='sessions'||/\/(setup|revisions|recover|review-override|reselection|production-control)$/.test(route)))data.requestId??=requestId;

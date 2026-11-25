@@ -5,6 +5,7 @@ import {readFile,writeFile,lstat} from 'node:fs/promises';
 import {createCanvas,loadImage,GlobalFonts} from '@napi-rs/canvas';
 import {createHash} from 'node:crypto';
 import type {Story} from '../lib/content.ts';
+import type {GeneratedStory} from '../lib/reader-model.ts';
 import type {ExportRuntime,ExportCanvas} from '../lib/story-export-runtime.ts';
 import {createStoryZip} from '../lib/reader-zip.ts';
 import {createStoryPdf} from '../lib/reader-pdf.ts';
@@ -14,6 +15,9 @@ import {storyZipData,storyZipFiles} from '../lib/reader-zip-content.ts';
 import {imageDimensions} from '../lib/reader-image-dimensions.ts';
 import {hasPublicationAuthor,withPublicationDefaults} from '../lib/story-publication.ts';
 import type {StoryPromptHistory} from '../lib/reader-prompt-records.ts';
+import type {ImportedSourceDisclosure} from '../lib/reader-zip-content.ts';
+import {normalizeImportedSourceDisclosure} from '../lib/reader-zip-content.ts';
+import {isImportedBookId} from '../lib/reader-books.ts';
 type Application={handle:(request:Request)=>Promise<Response>};
 const fontHash='2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b';
 const loaded=new Set<string>();
@@ -42,7 +46,7 @@ export function nativeExportRuntime(root:string,app:Application):ExportRuntime{
  };
 }
 const escape=(s:unknown)=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
-export async function exportLocalStory(root:string,app:Application,session:{story:Story|null},options:{format:string;output:string;includePrompts?:boolean;allowUnsigned?:boolean;preview?:boolean}){
+export async function exportLocalStory(root:string,app:Application,session:{story:Story|null},options:{format:string;output:string;includePrompts?:boolean;allowUnsigned?:boolean;preview?:boolean;requireImportLicense?:boolean}){
  let story=session.story;if(!story)throw Error('EXPORT_NO_STORYBOARD');
  const response=await app.handle(new Request('http://shiqu.local/api/reader/publication-defaults'));
  if(!response.ok)throw Error('EXPORT_PUBLICATION_UNAVAILABLE');
@@ -61,13 +65,19 @@ export async function exportLocalStory(root:string,app:Application,session:{stor
   const missing=story.pages.flatMap((page,index)=>page.image?[]:[index+1]);
   if(!story.pages.length||missing.length)throw Error('EXPORT_INCOMPLETE: missing saved frames '+missing.join(', '));
   if(format==='zip'){
+   let disclosure:ImportedSourceDisclosure|undefined;
+   if(isImportedBookId(story.bookId)){
+    const original=(story as GeneratedStory).original;disclosure=original?.importedSourceDisclosure?normalizeImportedSourceDisclosure(original.importedSourceDisclosure):undefined;
+    if(!disclosure){const imported=await app.handle(new Request(`http://shiqu.local/api/reader/books/imported/${encodeURIComponent(story.bookId)}`));disclosure=imported.ok?normalizeImportedSourceDisclosure(await imported.json()):{sourceNote:'',license:'',sources:[]};}
+    if(options.requireImportLicense&&!disclosure.license.trim())throw Error('EXPORT_IMPORTED_LICENSE_REQUIRED: add an authorization note to the imported book before using pnpm export:story');
+   }
    let history:StoryPromptHistory|null=null;
    if(options.includePrompts){
     const response=await app.handle(new Request(`http://shiqu.local/api/reader/sessions/${story.id}/prompts`));
     if(!response.ok)throw Error('EXPORT_PROMPTS_UNAVAILABLE');
     history=await response.json() as StoryPromptHistory;
    }
-   const blob=await createStoryZip(story,history,()=>{},runtime,!!options.includePrompts),archive=new Uint8Array(await blob.arrayBuffer());bytes=options.includePrompts?archive:publicStoryZip(archive).bytes;
+   const blob=await createStoryZip(story,history,()=>{},runtime,!!options.includePrompts,disclosure),archive=new Uint8Array(await blob.arrayBuffer());bytes=options.includePrompts?archive:publicStoryZip(archive).bytes;
   }else if(format==='pdf')bytes=await createStoryPdf(story,()=>{},runtime);
   else if(format==='png')bytes=new Uint8Array(await(await createStoryPng(story,()=>{},runtime)).arrayBuffer());
   else throw Error('EXPORT_FORMAT_INVALID');
