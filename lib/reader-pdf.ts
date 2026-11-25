@@ -57,24 +57,27 @@ export async function imposeStoryLetterPdf(source:StoryPdfDocument,scenePageIndi
   const {x,y,width,height}=page.getTrimBox();
   return {left:x,bottom:y,right:x+width,top:y+height};
  }));
- const addSheet=()=>[pdf.addPage([width,height]),pdf.addPage([width,height])] as const;
+ const addSide=()=>pdf.addPage([width,height]);
  function place(page:PDFPage,index:number,top:boolean){
   const panel=panels[index],halfHeight=height/2;
   page.drawPage(panel,{x:(width-panel.width)/2,y:(top?halfHeight:0)+(halfHeight-panel.height)/2});
  }
- function impose(indices:readonly number[]){
+ function impose(indices:readonly number[],hasFollowingSection:boolean){
   for(let offset=0;offset<indices.length;offset+=4){
-   const sides=addSheet();
+   const sides=[addSide()];
+   // 保留中间的空白反面，让下一组从新纸张的正面开始。
+   if(offset+1<indices.length||hasFollowingSection)sides.push(addSide());
    indices.slice(offset,offset+4).forEach((index,slot)=>place(sides[slot%2],index,slot<2));
   }
  }
- const [front,reverse]=addSheet();
+ const front=addSide(),reverse=addSide();
  place(front,0,true);
  place(reverse,1,true);
  place(reverse,pages.length-1,false);
- impose(scenePageIndices);
  const sceneSet=new Set(scenePageIndices);
- impose(pages.map((_,index)=>index).slice(2,-1).filter(index=>!sceneSet.has(index)));
+ const continuationPageIndices=pages.map((_,index)=>index).slice(2,-1).filter(index=>!sceneSet.has(index));
+ impose(scenePageIndices,continuationPageIndices.length>0);
+ impose(continuationPageIndices,false);
  return pdf.save();
 }
 

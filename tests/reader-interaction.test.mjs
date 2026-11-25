@@ -244,21 +244,25 @@ test('print PDF requires complete landscape artwork and prints without cropping'
  assert.equal(pdfFilename(story.title,'letter'),`${story.title}-拾趣-Letter双面.pdf`);
 });
 
-test('Letter PDF matches odd and even frames across halves, with separate covers and continuation pages',async()=>{
- const source=await PDFDocument.create();
- source.setTitle('测试故事');
- for(let index=1;index<=9;index++){
-  const page=source.addPage([522,378]);
-  page.setTrimBox(9,9,504,360);
-  page.drawRectangle({x:100+index,y:0,width:1,height:1});
+test('Letter PDF preserves duplex pairing and omits the trailing blank reverse',async()=>{
+ async function sourceWithPanels(numbers){
+  const source=await PDFDocument.create();
+  source.setTitle('测试故事');
+  for(const number of numbers){
+   const page=source.addPage([522,378]);
+   page.setTrimBox(9,9,504,360);
+   page.drawRectangle({x:100+number,y:0,width:1,height:1});
+  }
+  return source;
  }
+ const source=await sourceWithPanels([1,2,3,4,5,6,7,8,9]);
  const pdf=await PDFDocument.load(await imposeStoryLetterPdf(source,[2,3,5,6,7]));
  const preferences=pdf.catalog.getOrCreateViewerPreferences();
  assert.equal(pdf.getTitle(),'测试故事');
  assert.equal(preferences.getDuplex(),'DuplexFlipLongEdge');
  assert.equal(preferences.getPrintScaling(),'None');
  const decode=stream=>Buffer.from(decodePDFRawStream(stream).decode()).toString();
- const placements=pdf.getPages().map(page=>{
+ const placements=document=>document.getPages().map(page=>{
   assert.deepEqual(page.getSize(),{width:612,height:792});
   const streams=page.node.lookupMaybe(PDFName.of('Contents'),PDFArray);
   if(!streams)return [];
@@ -270,10 +274,17 @@ test('Letter PDF matches odd and even frames across halves, with separate covers
    return [Number(index)-100,Number(y)];
   });
  });
- assert.deepEqual(placements,[
+ assert.deepEqual(placements(pdf),[
   [[1,414]],[[2,414],[9,18]],
   [[3,414],[6,18]],[[4,414],[7,18]],
-  [[8,414]],[],[[5,414]],[],
+  [[8,414]],[],[[5,414]],
+ ]);
+ const sceneOnly=await sourceWithPanels([1,2,3,4,6,7,8,9]);
+ const withoutContinuation=await PDFDocument.load(await imposeStoryLetterPdf(sceneOnly,[2,3,4,5,6]));
+ assert.deepEqual(placements(withoutContinuation),[
+  [[1,414]],[[2,414],[9,18]],
+  [[3,414],[6,18]],[[4,414],[7,18]],
+  [[8,414]],
  ]);
 });
 
