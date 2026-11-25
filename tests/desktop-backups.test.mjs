@@ -49,6 +49,7 @@ test('desktop lists and locates existing snapshots, verifies external copies, an
  assert.equal(entries[0].kind,'manual');
  assert.equal(entries[0].createdAt,saved.createdAt);
  assert.ok(entries[0].bytes>0);
+ assert.ok(entries[0].deleteToken);
  assert.equal(f.run('reveal',{backup:saved.path}).path,saved.path);
  const external=path.join(f.root,'portable','my-copy');
  f.run('create',{target:external});
@@ -59,8 +60,8 @@ test('desktop lists and locates existing snapshots, verifies external copies, an
   try{assert.ok(f.run('verify',{backup:external}).verifiedAt);}finally{chmodSync(gate,0o600);}
  }
  assert.equal(f.run('list').entries.length,1);
- assert.match(f.invoke('delete',{backup:external,createdAt:saved.createdAt}).error,/无法确认/);
- const request={backup:saved.path,createdAt:saved.createdAt};
+ assert.match(f.invoke('delete',{backup:external,deleteToken:entries[0].deleteToken}).error,/无法确认/);
+ const request={backup:saved.path,deleteToken:entries[0].deleteToken};
  withBackupAccess(saved.path,()=>{
   assert.match(f.invoke('delete',request).error,/备份正在使用/);
   assert.match(f.invoke('restore',{backup:saved.path,target:path.join(f.root,'other')}).error,/备份正在使用/);
@@ -81,7 +82,7 @@ test('desktop lists and locates existing snapshots, verifies external copies, an
  renameSync(f.library,displaced);
  try{assert.match(f.invoke('delete',request).error,/无法确认/);assert.ok(!existsSync(f.library));}
  finally{renameSync(displaced,f.library);}
- assert.match(f.invoke('delete',{...request,createdAt:'2000-01-01T00:00:00.000Z'}).error,/备份已变更/);
+ assert.match(f.invoke('delete',{...request,deleteToken:'0'.repeat(64)}).error,/备份已变更/);
  const unrelated=path.join(directory,'unrelated');
  mkdirSync(unrelated);
  writeFileSync(path.join(unrelated,'notes.txt'),'keep');
@@ -102,6 +103,44 @@ test('desktop lists and locates existing snapshots, verifies external copies, an
  Object.assign(manifest.files.find(file=>file.path==='shiqu.sqlite'),{size:corrupt.length,sha256:createHash('sha256').update(corrupt).digest('hex')});
  writeFileSync(manifestPath,JSON.stringify(manifest));
  assert.match(f.invoke('verify',{backup:external}).error,/书库数据库损坏/);
+});
+
+test('desktop can delete damaged snapshots and requires a fresh confirmation after changes',async t=>{
+ const f=await fixture(t);
+ f.sqlite.close();
+ const damaged=f.run('create');
+ rmSync(path.join(damaged.path,'shiqu.sqlite'));
+ assert.match(f.invoke('verify',{backup:damaged.path}).error,/缺失/);
+ const [listed]=f.run('list').entries;
+ assert.ok(listed.deleteToken);
+ assert.equal(f.run('delete',{backup:listed.path,deleteToken:listed.deleteToken}).path,damaged.path);
+ assert.equal(existsSync(damaged.path),false);
+
+ const unreadable=f.run('create');
+ const [before]=f.run('list').entries;
+ writeFileSync(path.join(unreadable.path,'shiqu-backup.json'),'corrupt manifest');
+ assert.match(f.invoke('delete',{backup:before.path,deleteToken:before.deleteToken}).error,/备份已变更/);
+ const [after]=f.run('list').entries;
+ assert.match(after.error,/备份清单损坏/);
+ assert.equal(after.deletion,null);
+ assert.ok(after.deleteToken);
+ assert.equal(f.run('delete',{backup:after.path,deleteToken:after.deleteToken}).path,unreadable.path);
+ assert.equal(existsSync(unreadable.path),false);
+});
+
+test('desktop protects a backup directory opened as a live library',async t=>{
+ const f=await fixture(t);
+ f.sqlite.close();
+ const saved=f.run('create');
+ const [before]=f.run('list').entries;
+ const release=ownDesktopDataSync(saved.path);
+ try{
+  const [opened]=f.run('list').entries;
+  assert.equal(opened.deletion,'uncertain');
+  assert.equal(opened.deleteToken,undefined);
+  assert.match(f.invoke('delete',{backup:saved.path,deleteToken:before.deleteToken}).error,/无法确认/);
+  assert.ok(existsSync(path.join(saved.path,'shiqu.sqlite')));
+ }finally{release();}
 });
 
 test('desktop and current CLI can verify and restore each other’s backups',async t=>{
@@ -201,7 +240,8 @@ test('interrupted in-place migration keeps its original rollback dependency acro
  assert.throws(()=>ensureLibraryReady(library,f.root),/LIBRARY_MIGRATION_FAILED/);
  const [original]=f.run('list').entries;
  assert.equal(original.deletion,'protected');
- assert.match(f.invoke('delete',{backup:original.path,createdAt:original.createdAt}).error,/仍需要此备份/);
+ assert.equal(original.deleteToken,undefined);
+ assert.match(f.invoke('delete',{backup:original.path}).error,/仍需要此备份/);
 
  // 同格式的较旧应用看不见新迁移，仍必须保留正在使用的回退点。
  rmSync(latest);
@@ -213,7 +253,7 @@ test('interrupted in-place migration keeps its original rollback dependency acro
  const [completed]=f.run('list').entries;
  assert.equal(completed.path,original.path);
  assert.equal(completed.deletion,null);
- f.run('delete',{backup:completed.path,createdAt:completed.createdAt});
+ f.run('delete',{backup:completed.path,deleteToken:completed.deleteToken});
  assert.equal(existsSync(completed.path),false);
 });
 
@@ -221,9 +261,11 @@ test('unattributed old upgrade backups are kept even when listed under another l
  const f=await fixture(t);
  f.sqlite.close();
  const oldPath=path.join(f.library+'-backups','pre-upgrade-old');
- const saved=f.run('create',{target:oldPath});
+ f.run('create',{target:oldPath});
  writeFileSync(path.join(f.library,'.desktop-upgrade-result.json'),JSON.stringify({backup:oldPath}));
- assert.equal(f.run('list').entries[0].deletion,'uncertain');
- assert.match(f.invoke('delete',{backup:oldPath,createdAt:saved.createdAt}).error,/无法确认/);
+ const [old]=f.run('list').entries;
+ assert.equal(old.deletion,'uncertain');
+ assert.equal(old.deleteToken,undefined);
+ assert.match(f.invoke('delete',{backup:oldPath}).error,/无法确认/);
  assert.ok(verifyLibraryBackup(oldPath));
 });

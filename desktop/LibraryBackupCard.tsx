@@ -3,7 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 
 type Compatibility={version:number;state:'current'|'migration'|'unsupported'|'unknown';migrations:string[]};
-type Snapshot={path:string;kind:'manual'|'upgrade'|'unknown';createdAt?:string;bytes?:number;appVersion?:string;error?:string;deletion?:'protected'|'uncertain'|null;verifiedAt?:string;compatibility?:Compatibility};
+type Snapshot={path:string;kind:'manual'|'upgrade'|'unknown';createdAt?:string;bytes?:number;appVersion?:string;error?:string;deletion?:'protected'|'uncertain'|null;deleteToken?:string;verifiedAt?:string;compatibility?:Compatibility};
 type BackupList={directory:string;available:boolean;entries:Snapshot[]};
 type Operation='list'|'create'|'inspect'|'verify'|'restore'|'delete'|'reveal';
 type Props={native:boolean;library:string;busy:string;running:boolean;starting:boolean;canSwitch:boolean;untouched:boolean;onSwitch:(directory:string)=>Promise<void>;action:(label:string,work:()=>Promise<void>)=>Promise<void>};
@@ -68,9 +68,11 @@ export function LibraryBackupCard({native,library,busy,running,starting,canSwitc
   setChecks(current=>({...current,[backup]:verified}));
  }
  function deleteBackup(entry:Snapshot){
-  if(!entry.createdAt||entry.bytes===undefined||!window.confirm('永久删除此备份？\n'+formatDate(entry.createdAt)+' · '+size(entry.bytes)+'\n'+entry.path))return;
+  if(!entry.deleteToken)return;
+  const details=entry.createdAt&&entry.bytes!==undefined?formatDate(entry.createdAt)+' · '+size(entry.bytes):'备份信息不可用';
+  if(!window.confirm('永久删除此备份目录及其中所有文件？\n'+details+'\n'+entry.path))return;
   void perform('正在删除备份',async()=>{
-   try{await fetchBackup('delete',{backup:entry.path,createdAt:entry.createdAt});if(selection?.path===entry.path)setSelection(undefined);}
+   try{await fetchBackup('delete',{backup:entry.path,deleteToken:entry.deleteToken});if(selection?.path===entry.path)setSelection(undefined);}
    finally{await refresh();}
   });
  }
@@ -119,7 +121,7 @@ export function LibraryBackupCard({native,library,busy,running,starting,canSwitc
      <button className="secondary" disabled={disabled||!!entry.error} onClick={()=>void perform('正在校验备份',()=>verify(entry.path))}>校验</button>
      <button className="secondary" disabled={disabled||!!entry.error} onClick={()=>void perform('正在检查恢复兼容性',()=>inspect(entry.path))}>恢复…</button>
      <button className="secondary" disabled={disabled} onClick={()=>void perform('正在定位备份',async()=>{await fetchBackup('reveal',{backup:entry.path});})}>在文件管理器中显示</button>
-     <button className="secondary" disabled={disabled||!!entry.deletion||!!entry.error} onClick={()=>deleteBackup(entry)}>删除备份…</button>
+     <button className="secondary" disabled={disabled||!entry.deleteToken} onClick={()=>deleteBackup(entry)}>删除备份…</button>
     </div>
    </li>)}
   </ul>}

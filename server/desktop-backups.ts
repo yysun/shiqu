@@ -1,7 +1,7 @@
 // 桌面维护入口只处理私有书库快照，复用 CLI 的备份校验与正式恢复迁移。
 import {lstatSync,readFileSync,readdirSync,renameSync,rmSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {z} from 'zod';
 import {assertBackupDestination,backupDirectory,canonicalPath,checkBackupDirectory,containsPath,createLibraryBackup,readBackupManifest,verifyLibraryBackup,withBackupAccess} from './library-backup.ts';
@@ -13,6 +13,7 @@ const absolute=z.string().max(8192).refine(value=>path.isAbsolute(value)&&!value
 const requestSchema=z.object({
  operation:z.enum(['list','create','inspect','verify','restore','delete','reveal']),
  library:absolute,backup:absolute.optional(),target:absolute.optional(),createdAt:z.string().datetime().optional(),
+ deleteToken:z.string().regex(/^[a-f0-9]{64}$/).optional(),
 }).strict();
 
 function failureCode(error:unknown){
@@ -61,10 +62,20 @@ function snapshotInfo(filename:string,manifest=readBackupManifest(filename)){
  return {path:filename,createdAt:manifest.createdAt,appVersion:manifest.appVersion,kind:snapshotKind(filename),
   bytes:manifest.files.reduce((sum,file)=>sum+file.size,0)+lstatSync(path.join(filename,'shiqu-backup.json')).size};
 }
+// 删除只核对所确认的目录与清单身份，损坏的快照也能清理。
+function snapshotDeleteToken(backup:string){
+ const directory=lstatSync(backup,{bigint:true});
+ const manifest=lstatSync(path.join(backup,'shiqu-backup.json'),{bigint:true});
+ if(!directory.isDirectory()||!manifest.isFile())return null;
+ const identity=[directory,manifest].map(info=>[info.dev,info.ino,info.birthtimeNs,info.ctimeNs,info.mtimeNs,info.size].join(':')).join('/');
+ return createHash('sha256').update(identity).digest('hex');
+}
 function protectDeletion(library:string,backup:string,root:string){
  try{
   const dependencies=[pendingUpgrade(library)?.backup,migrationBackupDependency(library)?.backup];
   if(dependencies.some(file=>file&&canonicalPath(file)===canonicalPath(backup)))return 'protected';
+  // 有运行标记的目录曾作为书库打开，不能当作普通快照清理。
+  if(optionalStat(path.join(backup,'.desktop-owner.sqlite'))||optionalStat(path.join(backup,'.desktop.lock')))return 'uncertain';
   if(inspectLibrary(library)!=='current')return 'uncertain';
   if(snapshotKind(backup)==='upgrade'){
    if(pendingMigrations(library,root).length)return 'protected';
@@ -78,7 +89,7 @@ function protectDeletion(library:string,backup:string,root:string){
 }
 function listBackups(library:string,root:string){
  const directory=backupDirectory(library);
- const entries:(Partial<ReturnType<typeof snapshotInfo>>&{path:string;error?:string;deletion:string|null})[]=[];
+ const entries:(Partial<ReturnType<typeof snapshotInfo>>&{path:string;error?:string;deletion:string|null;deleteToken?:string})[]=[];
  const info=optionalStat(directory);
  if(!info)return {library,directory,available:false,entries};
  if(!info.isDirectory()||info.isSymbolicLink())throw Error('BACKUP_UNSAFE_DIRECTORY');
@@ -86,11 +97,17 @@ function listBackups(library:string,root:string){
   if(!entry.isDirectory()||entry.name.startsWith('.'))continue;
   const filename=path.join(directory,entry.name);
   if(!optionalStat(path.join(filename,'shiqu-backup.json')))continue;
+  let deletion:ReturnType<typeof protectDeletion>='uncertain';
+  let deleteToken:string|undefined;
   try{
-   const snapshot=snapshotInfo(filename);
-   entries.push({...snapshot,deletion:protectDeletion(library,filename,root)});
+   const token=snapshotDeleteToken(filename);
+   if(token){
+    deletion=protectDeletion(library,filename,root);
+    if(!deletion)deleteToken=token;
+   }
+   entries.push({...snapshotInfo(filename),deletion,deleteToken});
   }catch(error){
-   entries.push({path:filename,kind:snapshotKind(filename),error:desktopBackupError(error),deletion:'uncertain'});
+   entries.push({path:filename,kind:snapshotKind(filename),error:desktopBackupError(error),deletion,deleteToken});
   }
  }
  entries.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
@@ -172,7 +189,8 @@ export function runDesktopBackup(root:string,version:string,input:unknown){
    withLibraryGate(library,()=>{
     const protection=protectDeletion(library,backup,root);
     if(protection)throw Error(protection==='protected'?'BACKUP_PROTECTED':'BACKUP_DELETE_UNCERTAIN');
-    if(verifyLibraryBackup(backup).createdAt!==request.createdAt)throw Error('BACKUP_CHANGED');
+    const token=snapshotDeleteToken(backup);
+    if(!token||token!==request.deleteToken)throw Error('BACKUP_CHANGED');
     retired=path.join(path.dirname(backup),'.deleted-'+randomUUID());
     renameSync(backup,retired);
     if(snapshotKind(backup)==='upgrade')rmSync(backupOriginFile(backup),{force:true});
