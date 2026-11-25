@@ -309,9 +309,14 @@ export class DagProduction{
    await this.deps.database.prepare("UPDATE stories SET state='completed',error=NULL WHERE id=? AND user_id=? AND state='idle' AND document=?").bind(row.id,row.user_id,row.document).run();
   }
   // 正在执行的任务覆盖的实例不再派发新任务：其结果保存后若仍需重做，下一轮再安排。
+  const pendingImages=new Set<string>();
+  const drawingInput=(item:Work)=>item.call==='draw'&&!story.dag.frames[item.instances[0].key]?.redrawRequested?
+   fingerprint(item.instances[0].hard):null;
   const running=new Set((await this.deps.database.prepare(`SELECT payload FROM production_jobs WHERE session_id=? AND owner_id=? AND kind IN ('${dagTextKind}','${dagDrawKind}') AND state='running'`).bind(row.id,row.user_id).all<{payload:string}>()).results
    .flatMap(j=>{
     const {work:item,landscapeAttempt}=JSON.parse(j.payload) as {work:Work;landscapeAttempt?:number};
+    const input=drawingInput(item);
+    if(input)pendingImages.add(input);
     return item.instances.filter(i=>item.call!=='drawLandscape'||story.dag.frames[i.key]?.landscapeAttempt===landscapeAttempt).map(i=>i.id);
    }));
   const retained=new Set<string>();
@@ -319,9 +324,19 @@ export class DagProduction{
    const {work:item,paid}=JSON.parse(job.payload) as {work:Work;paid?:Paid};
    if(!paid||!this.currentDrawingReceipt(story,item)||item.instances.some(instance=>running.has(instance.id)))continue;
    retained.add(job.id);
+   const input=drawingInput(item);
+   if(input)pendingImages.add(input);
    for(const instance of item.instances)running.add(instance.id);
   }
-  const specs=this.specs(row,story,items.filter(item=>!item.instances.some(i=>running.has(i.id))),opened);
+  const candidates=items.filter(item=>{
+   if(item.instances.some(instance=>running.has(instance.id)))return false;
+   const input=drawingInput(item);
+   if(!input)return true;
+   if(pendingImages.has(input))return false;
+   pendingImages.add(input);
+   return true;
+  });
+  const specs=this.specs(row,story,candidates,opened);
   for(const spec of specs)await this.deps.queue.enqueue(spec);
   // 当前需要的工作与已完成的任务同身份（例如内容改回之前的输入）：重新排队；执行前的当前性核对避免重复付费。
   for(const spec of specs){
@@ -426,6 +441,32 @@ export class DagProduction{
   return origin?this.copyCarriedDrawing(row,story,origin.id,target.key,inputHash):null;
  }
 
+ /** 普通补绘先采用同一修订链已付费的结果。在途匹配任务结算后再决定是否发送。 */
+ private async revisionDrawingReceipt(row:SessionRow,story:DagStory,item:Work){
+  if(item.call!=='draw'||!story.doc.revision||!this.currentDrawingReceipt(story,item))return null;
+  const target=item.instances[0];
+  if(story.dag.frames[target.key]?.redrawRequested)return null;
+  const hash=fingerprint(target.hard),now=this.deps.clock();
+  const previous=(await this.deps.database.prepare(`${drawingAncestors}
+   SELECT session_id,payload,state,lease_until FROM production_jobs
+   WHERE session_id IN (SELECT id FROM ancestors) AND owner_id=? AND kind=?
+   AND CASE WHEN json_valid(payload) THEN json_extract(payload,'$.work.call')='draw'
+    AND (json_type(payload,'$.paid.value')='text' OR (state='running' AND lease_until>?)) ELSE 0 END
+   ORDER BY updated_at DESC,id`).bind(row.id,row.user_id,row.user_id,row.user_id,dagDrawKind,now)
+   .all<DrawingRow&Pick<ProductionJob,'state'|'lease_until'>>()).results;
+  let waiting=false;
+  for(const job of previous){
+   const {work:prior}=JSON.parse(job.payload) as {work:Work};
+   if(fingerprint(prior.instances?.[0]?.hard??null)!==hash)continue;
+   const source=boundDrawingReceipt(job,'draw',target.key,hash);
+   const readable=source&&await this.readableDrawingReceipt(row,story,source);
+   if(readable)return readable;
+   waiting||=job.state==='running'&&job.lease_until>this.deps.clock();
+  }
+  if(waiting)throw new JobYield('image-availability');
+  return null;
+ }
+
  /** 横图重试保留旧任务，在新尝试派发前重新核对相同画幅的已付费回执。 */
  private async landscapeReceipts(row:SessionRow,key:string,hash:string){
   const rows=(await this.deps.database.prepare(`${drawingAncestors}
@@ -485,7 +526,7 @@ export class DagProduction{
   if(!job.recovery_id&&!readablePaid&&!this.specs(initial,story).some(spec=>spec.id===job.id))return {obsolete:true};
   let generated:Awaited<ReturnType<typeof executeWork>>|undefined,usage:Document['usage'][number]|undefined;
   const reused=!readablePaid?(item.call==='drawLandscape'?await this.landscapeRetryReceipt(initial,story,item,landscapeAttempt):
-   await this.authorizedCarriedDrawing(initial,story,item)):null;
+   await this.authorizedCarriedDrawing(initial,story,item)??await this.revisionDrawingReceipt(initial,story,item)):null;
   const receipt=reused?.receipt??(paid&&(!drawing(item.call)||readablePaid)?paid:undefined);
   if(reused)await this.storePaid(job,reused.receipt);
   if(receipt){

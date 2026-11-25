@@ -38,6 +38,8 @@ export function StoryRevisionActions({editor,resuming=false}:{editor:StoryRevisi
  const {impact,base,changes,busy}=editor;
  if(!impact||!base)return null;
  const droppedRedrawNotePages=editor.preview?.droppedRedrawNotePages??[];
+ const lostImagePages=editor.preview?.lostImagePages??[];
+ const redrawPages=editor.preview?.redrawPages.filter(page=>!lostImagePages.includes(page))??[];
  const style=artStyleSettings(base.selection,changes);
  const restyle=!impact.review&&!sameArtDirection(base.selection,style);
  const summaryOnly=!impact.review&&!restyle&&revisionStorySummaryChanged(base,changes);
@@ -58,6 +60,8 @@ export function StoryRevisionActions({editor,resuming=false}:{editor:StoryRevisi
  return <section className="yu-revision-impact" aria-label="本次修改影响">
   {detail&&<p role="status">{detail}</p>}
   {droppedRedrawNotePages.length>0&&<p role="status">将丢弃原第 {droppedRedrawNotePages.join('、')} 幅的重绘说明。</p>}
+  {lostImagePages.length>0&&<p role="status">第 {lostImagePages.join('、')} 幅已确认丢失，继续后重绘。</p>}
+  {redrawPages.length>0&&<p role="status">继续后将重绘第 {redrawPages.join('、')} 幅。</p>}
   <RevisionConflicts editor={editor}/>
   {editor.error&&<p role="alert">{editor.error}</p>}
   <div className="production-stage-actions"><button type="button" className="yu-primary" disabled={busy||editor.loading||!impact.changed||impact.conflict||editor.conflict} aria-busy={busy} onClick={()=>void editor.submit()}>{busy?'正在提交…':action}</button></div>
@@ -107,7 +111,7 @@ export default function StoryRevisionEditor({editor,resuming=false,reviewIssues=
      {issues.map((issue,index)=><dl key={index}><dt>审核问题</dt><dd>{issue.problem}</dd><dt>修订建议</dt><dd>{issue.instruction}</dd></dl>)}
     </details>}
     {target>0&&<><section aria-label={`修改第 ${page+1} 幅`}><h3>第 {page+1} 幅</h3><label className="yu-revision-field">旁白<textarea rows={3} minLength={8} maxLength={90} value={plan.pages[page].caption} onChange={e=>updatePlan(p=>{p.pages[page].caption=e.target.value;},true)}/></label><label className="yu-revision-field">画面提示词<textarea rows={5} minLength={20} maxLength={1800} value={plan.pages[page].prompt} onChange={e=>updatePlan(p=>{p.pages[page].prompt=e.target.value;},true)}/></label></section>
-    <details><summary>人物设定（修改后重绘全篇）</summary><label className="yu-revision-field">人物设定<textarea rows={4} minLength={20} maxLength={2500} value={plan.characters} onChange={e=>updatePlan(p=>{p.characters=e.target.value;})}/></label></details></>}
+    <details><summary>人物设定（修改后重绘受影响画幅）</summary><label className="yu-revision-field">人物设定<textarea rows={4} minLength={20} maxLength={2500} value={plan.characters} onChange={e=>updatePlan(p=>{p.characters=e.target.value;})}/></label></details></>}
     <label className="yu-revision-field">余味<textarea rows={3} minLength={1} maxLength={100} value={plan.reflection} onChange={e=>updatePlan(p=>{p.reflection=e.target.value;})}/></label>
    </section>}
 

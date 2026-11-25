@@ -94,13 +94,13 @@ test('each reader-facing waiting state exposes the same action on every surface,
 });
 
 const revisionCases=[
- {call:'visual',requirements:['第一条要求。','第二条要求。'],changes:{acceptancePrompt:'另一条要求。'},retained:4},
- {call:'registerItems',requirements:['第一条要求。','第二条要求。'],changes:{artStyle:'watercolor'},retained:2},
- {call:'registerItems',requirements:['第一条要求。','第二条要求。','第三条要求。'],changes:{acceptancePrompt:'第一条要求。\n改写后的要求。'},retained:1,newItems:['改写后的要求。']},
+ {call:'visual',requirements:['第一条要求。','第二条要求。'],changes:{acceptancePrompt:'另一条要求。'},expected:[1,2,3,4]},
+ {call:'registerItems',requirements:['第一条要求。','第二条要求。'],changes:{artStyle:'watercolor'},expected:['第一条要求。','第二条要求。']},
+ {call:'registerItems',requirements:['第一条要求。','第二条要求。','第三条要求。'],changes:{acceptancePrompt:'第一条要求。\n改写后的要求。'},expected:['第一条要求。','改写后的要求。']},
 ];
 
-for(const {call,requirements,changes,retained,newItems} of revisionCases){
- test(`a revision blocks ${retained} surviving ${call} targets until one explicit recovery`,async t=>{
+for(const {call,requirements,changes,expected} of revisionCases){
+ test(`a revision commissions new ${call} work on continuation after a prior batch failure`,async t=>{
   const f=await productionFixture(t);
   f.control.hold=false;
   f.control.beforeText=async name=>{if(name===call)throw Error('受控步骤故障');};
@@ -108,36 +108,16 @@ for(const {call,requirements,changes,retained,newItems} of revisionCases){
   f.app.services.production.wake();
   await until(async()=>(await f.read(id)).state==='failed');
   const [failed]=(await f.read(id)).lifecycle.faults;
-  assert.equal(failed.targets.length,call==='visual'?4:requirements.length);
-  await f.json(`sessions/${id}/production-control`,'POST',{action:'pause'});
-  const {token}=await f.json(`sessions/${id}/revisions`);
-  const preview=await f.json(`sessions/${id}/revisions/preview`,'POST',{token,changes});
-  assert.equal(preview.carriedFaults,retained);
-  const child=crypto.randomUUID(),route=`sessions/${child}`;
-  await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token,changes});
-  const [carried]=(await f.read(child)).lifecycle.faults;
-  assert.deepEqual(carried.targets.map(target=>target.key).sort(),failed.targets.slice(0,retained).map(target=>target.key).sort());
-  assert.ok(carried.targets.every(target=>target.node===failed.targets[0].node));
+  await control(f,id,'pause');
+  const child=await fork(f,id,changes),route=`sessions/${child}`;
+  assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
   const batches=[];
   f.control.beforeText=async(name,payload)=>{if(name===call)batches.push(payload.items?.map(item=>item.text)??payload.frames.map(frame=>frame.number));};
   await f.json(route+'/production-control','POST',{action:'continue'});
-  await f.restart();
-  for(let n=0;n<8;n++){
-   await f.app.services.production.tick();
-   await f.app.services.production.queue.settle();
-  }
-  assert.deepEqual(batches,newItems?[newItems]:[]);
-  const blocked=await f.read(child);
-  assert.equal(blocked.state,'failed');
-  assert.equal(blocked.lifecycle.activity.state,'idle');
-  assert.deepEqual(blocked.lifecycle.faults,[carried]);
-  assert.deepEqual(blocked.lifecycle.actions.filter(action=>action.event==='retry'),[{event:'retry',faultId:carried.id}]);
-  const recovery={requestId:crypto.randomUUID(),faultId:carried.id};
-  await f.json(route+'/recover','POST',recovery);
-  await f.json(route+'/recover','POST',recovery);
   await until(async()=>(await f.read(child)).state==='completed');
-  assert.deepEqual(batches.at(-1),call==='visual'?[1,2,3,4]:requirements.slice(0,retained));
-  assert.equal(batches.length,newItems?2:1);
+  await f.restart();
+  assert.deepEqual(batches,[expected]);
+  assert.equal((await f.read(id)).lifecycle.faults[0].id,failed.id);
   for(const session of [await f.read(child),(await f.json('library/shelf')).find(session=>session.id===child)]){
    assert.equal(session.state,'completed');
    assert.equal(session.ready,4);
@@ -312,39 +292,26 @@ test('deleting a historical revision leaves the current print running',async t=>
  assert.deepEqual(f.control.calls.filter(call=>call.landscape).map(call=>call.page+1),[1,2,3,4]);
 });
 
-for(const changedStyle of [false,true])test(`replanning ${changedStyle?'releases changed':'blocks matching'} drawing inputs`,async t=>{
+for(const changedStyle of [false,true])test(`replanning retries ${changedStyle?'changed':'matching'} drawing inputs on continuation`,async t=>{
  const f=await productionFixture(t);
  f.control.hold=false;
  f.control.beforeImage=call=>{if(call.page===0)throw Error('受控绘图失败');};
  const id=await confirmedStory(f);
  f.app.services.production.wake();
  await until(async()=>(await f.read(id)).state==='failed');
- const original=(await f.read(id)).lifecycle.faults[0].targets[0];
+ const [original]=(await f.read(id)).lifecycle.faults;
  await control(f,id,'pause');
  const child=await fork(f,id,{narrativeDetail:'detailed',...(changedStyle?{artStyle:'watercolor'}:{})});
- const unresolved=(await f.read(child)).lifecycle.faults[0];
- assert.equal(unresolved.state,'awaiting-match');
- assert.deepEqual(unresolved.targets,[original]);
+ assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
  f.control.beforeImage=null;
  await control(f,child,'continue');
- await f.restart();
- await drain(f);
- if(changedStyle){
-  assert.equal((await f.read(child)).state,'completed');
-  assert.equal(f.control.calls.filter(call=>call.page===0).length,2);
- }else{
-  const [blocked]=(await f.read(child)).lifecycle.faults;
-  assert.equal(blocked.state,'pending');
-  assert.deepEqual(blocked.targets,[original]);
-  assert.equal(f.control.calls.length,1);
-  await f.json(`sessions/${child}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:blocked.id});
-  await until(async()=>(await f.read(child)).state==='completed');
-  assert.equal(f.control.calls.filter(call=>call.page===0).length,2);
- }
+ await until(async()=>(await f.read(child)).state==='completed');
+ assert.equal(f.control.calls.filter(call=>call.page===0).length,2);
  assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
+ assert.equal((await f.read(id)).lifecycle.faults[0].id,original.id);
 });
 
-for(const [targetPages,paid] of [[[0],false],[[1],false],[[1,2],true]])test(`changing length from four to five preserves drawing faults at new pages ${targetPages.map(page=>page+1).join(', ')}`,async t=>{
+for(const [targetPages,paid] of [[[0],false],[[1],false],[[1,2],true]])test(`changing length from four to five fills frames with prior inputs at pages ${targetPages.map(page=>page+1).join(', ')}`,async t=>{
  const f=await productionFixture(t);
  f.control.hold=false;
  const id=await confirmedStory(f);
@@ -363,31 +330,19 @@ for(const [targetPages,paid] of [[[0],false],[[1],false],[[1,2],true]])test(`cha
  assert.equal(Object.keys(original).length,5);
  await control(f,id,'pause');
  const child=await fork(f,id,{length:5});
- const savedFault=(await f.read(child)).lifecycle.faults[0];
- assert.equal(savedFault.state,'awaiting-match');
+ assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
+ if(paid)media.get=get;
  f.control.beforeImage=null;
  if(!targetPages.includes(0))f.control.beforeText=(call,payload)=>call==='visual'?{frames:payload.frames.map(({number})=>({number,
   prompt:`第 ${targetPages.includes(number-1)?1:number===1?2:number} 幅：成年的庄周身着布衣，坐在柳树下沉思，中景，晨光柔和。`,drawn:['庄周']}))}:undefined;
  await control(f,child,'continue');
- await f.restart();
- await drain(f);
- const doc=await saved(f,child),snapshot=await f.read(child),[fault]=snapshot.lifecycle.faults;
+ await until(async()=>(await f.read(child)).state==='completed');
+ const doc=await saved(f,child),snapshot=await f.read(child);
  assert.equal(doc.dag.order.length,5);
  assert.ok(!doc.dag.order.includes(first));
  for(const page of targetPages)assert.deepEqual(await hard(child,page),original);
- assert.equal(fault.id,savedFault.id);
- assert.equal(fault.state,'pending');
- assert.deepEqual(fault.targets,targetPages.map(page=>({node:'frameImage',key:doc.dag.order[page],page})));
- const count=targetPages.includes(0)?1:0;
- assert.equal(f.control.calls.filter(call=>targetPages.includes(call.page)).length,count);
- if(paid){
-  f.options.production={autoStart:false,snapshots:{current:()=>undefined,provider:()=>null}};
-  await f.restart();
-  f.generation.status=async()=>({configured:false,message:'受控未配置'});
- }
- const recovered=await f.json(`sessions/${child}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
- if(paid)assert.equal(recovered.state,'completed');
- await until(async()=>(await f.read(child)).state==='completed');
+ assert.deepEqual(snapshot.lifecycle.faults,[]);
+ const count=Number(targetPages.includes(0));
  assert.equal(f.control.calls.filter(call=>targetPages.includes(call.page)).length,paid?count:count+1);
  if(paid){
   const complete=await saved(f,child);
@@ -757,7 +712,7 @@ test('landscape retry only dispatches the pages authorized by its token',async t
  assert.equal((await f.json(route)).state,'completed');
 });
 
-for(const inherited of [false,true])test(`settings and shelf offer local retry for ${inherited?'an inherited':'an original'} paid portrait without a model`,async t=>{
+test('settings and shelf offer local retry for a paid portrait without a model',async t=>{
  const f=await productionFixture(t),id=await f.create(2);
  await until(()=>f.control.calls.length===1);
  const media=f.app.services.media,get=media.get.bind(media);
@@ -767,34 +722,28 @@ for(const inherited of [false,true])test(`settings and shelf offer local retry f
  f.control.calls[0].resolve();
  await until(async()=>(await f.read(id)).state==='failed');
  hidden=false;
- let child=id;
- if(inherited){
-  await control(f,id,'pause');
-  child=await fork(f,id,{acceptancePrompt:'核对画面动作。'});
-  await control(f,child,'continue');
- }
  await drain(f);
  f.options.production={autoStart:false,snapshots:{current:()=>undefined,provider:()=>null}};
  await f.restart();
  f.generation.status=async()=>({configured:false,message:'受控未配置'});
- const current=await f.read(child),[fault]=current.lifecycle.faults;
+ const current=await f.read(id),[fault]=current.lifecycle.faults;
  assert.deepEqual([current.lifecycle.service,current.state,current.ready],['unconfigured','failed',1]);
  assert.ok(current.lifecycle.actions.some(action=>action.event==='retry'&&action.faultId===fault.id));
  const offlineMedia=f.app.services.media,offlineGet=offlineMedia.get.bind(offlineMedia);
  offlineMedia.get=async key=>key.startsWith(`reader/${id}/artifacts/1-`)?null:offlineGet(key);
  const before=f.control.calls.length;
- const unavailable=await f.request(`sessions/${child}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
+ const unavailable=await f.request(`sessions/${id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
  assert.equal(unavailable.status,503);
- assert.equal((await f.read(child)).lifecycle.faults[0].id,fault.id);
+ assert.equal((await f.read(id)).lifecycle.faults[0].id,fault.id);
  offlineMedia.get=offlineGet;
- const receipt=await exitBoth(f,child,/^重试生成$/);
+ const receipt=await exitBoth(f,id,/^重试生成$/);
  assert.deepEqual([receipt.state,receipt.ready,receipt.recoveryReceipt.status],['completed',2,'succeeded']);
- const after=await f.read(child);
+ const after=await f.read(id);
  assert.deepEqual([after.state,after.ready,after.lifecycle.faults],['completed',2,[]]);
  assert.equal(f.control.calls.length,before);
 });
 
-for(const restoredAtDispatch of [false,true])test(`a revision adopts the paid artifact when readable at ${restoredAtDispatch?'dispatch':'authorization'}`,async t=>{
+for(const temporarilyUnavailable of [false,true])test(`a continued revision adopts a paid parent artifact ${temporarilyUnavailable?'after a temporary read interruption':'before drawing'}`,async t=>{
  const f=await productionFixture(t),id=await f.create(2);
  await until(()=>f.control.calls.length===1);
  const store=f.app.services.media,get=store.get.bind(store);
@@ -803,29 +752,18 @@ for(const restoredAtDispatch of [false,true])test(`a revision adopts the paid ar
   if(key.startsWith(`reader/${id}/artifacts/0-`)){
    originKey=key;
    if(unavailable==='missing')return null;
-   if(unavailable==='once'){unavailable=null;return null;}
-   if(unavailable==='temporary')throw Error('受控图片读取中断');
+   if(unavailable==='temporary'){unavailable=null;throw Error('受控图片读取中断');}
   }
   return get(key);
  };
  f.control.hold=false;
  f.control.calls[0].resolve();
  await until(async()=>(await f.read(id)).state==='failed');
- unavailable=null;
+ unavailable=temporarilyUnavailable?'temporary':null;
  await control(f,id,'pause');
  const child=await fork(f,id,{acceptancePrompt:'请核对画面动作。'});
+ assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
  await control(f,child,'continue');
- await drain(f);
- assert.equal(f.control.calls.length,1,'普通继续不采用故障的付费图片，也不重新绘图');
- const fault=(await f.read(child)).lifecycle.faults[0],route=`sessions/${child}/recover`;
- const recovery={requestId:crypto.randomUUID(),faultId:fault.id};
- unavailable='temporary';
- assert.equal((await f.request(route,'POST',recovery)).status,503);
- assert.equal((await f.read(child)).lifecycle.faults[0].id,fault.id);
- unavailable=restoredAtDispatch?'once':null;
- const result=await f.json(route,'POST',recovery);
- assert.equal(result.recoveryReceipt.status,'succeeded');
- await f.json(route,'POST',recovery);
  await until(async()=>(await f.read(child)).state==='completed');
  assert.equal(f.control.calls.filter(call=>call.page===0).length,1);
  const row=await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(child).first();
@@ -836,7 +774,7 @@ for(const restoredAtDispatch of [false,true])test(`a revision adopts the paid ar
  assert.equal((await f.read(id)).lifecycle.faults.length,1,'祖先版本的任务和故障不被改写');
 });
 
-test('an inherited review failure still offers and authorizes Skip Review on the complete paused draft',async t=>{
+test('a new review failure offers Skip Review independently of the parent',async t=>{
  const f=await productionFixture(t);
  f.control.hold=false;
  f.control.beforeText=async name=>{if(name==='review')throw Error('受控审核失败');};
@@ -846,12 +784,12 @@ test('an inherited review failure still offers and authorizes Skip Review on the
  const parent=await control(f,id,'pause');
  assert.ok(parent.reviewSkip);
  const child=await fork(f,id,{storySummary:'庄周醒后细想梦蝶的经历。'});
+ assert.deepEqual((await f.read(child)).lifecycle.faults,[]);
  await control(f,child,'continue');
- f.control.beforeText=null;
- await drain(f);
+ await until(async()=>(await f.read(child)).faults?.some(fault=>fault.retryReview));
  const active=await f.read(child),route=`sessions/${child}/review-override`;
  const failure=active.lifecycle.faults[0],command={requestId:crypto.randomUUID(),faultId:failure.id,ending:'default'};
- assert.equal(failure.stage,'review');assert.equal(failure.targets.length,4);
+ assert.equal(failure.stage,'review');assert.equal(failure.targets.filter(target=>target.node==='frameVerdict').length,4);
  assert.equal(active.generationProgress.storyboardFrames,4);
  assert.equal((await f.request(route,'POST',command)).status,409);
  const paused=await control(f,child,'pause');
@@ -866,6 +804,30 @@ test('an inherited review failure still offers and authorizes Skip Review on the
  await until(async()=>(await f.read(child)).state==='completed');
  assert.equal(f.control.calls.length,4);
 });
+
+test('a continued revision waits for a matching parent drawing in flight',async t=>{
+ const f=await productionFixture(t),id=await f.create(2);
+ await until(()=>f.control.calls.length===1);
+ const child=await fork(f,id,{acceptancePrompt:'请核对画面动作。'});
+ await control(f,child,'continue');
+ await until(async()=>!!(await f.app.services.database.prepare(`SELECT 1 FROM production_jobs
+  WHERE session_id=? AND state='queued' AND json_extract(payload,'$.waitingFor')='image-availability'`).bind(child).first()));
+ assert.equal(f.control.calls.length,1);
+ f.control.hold=false;
+ f.control.calls[0].resolve();
+ await until(async()=>(await f.read(child)).state==='completed');
+ assert.deepEqual(f.control.calls.map(call=>call.page),[0,1]);
+ assert.equal((await saved(f,child)).usage.filter(entry=>entry.step==='dag:draw'&&entry.originId===id).length,1);
+});
+
+// 填入旧应用保存的空键故障，避免用当前修订流程来生成历史测试资料。
+async function legacyRevisionFault(database,parent,child,faultId){
+ const id=crypto.randomUUID(),row=await database.prepare('SELECT created_at FROM stories WHERE id=?').bind(child).first();
+ await database.prepare(`INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at)
+  SELECT ?,?,owner_id,kind,node,node_key,version,message,?,? FROM reader_faults WHERE session_id=? AND id=?`)
+  .bind(id,child,Date.parse(row.created_at),Date.parse(row.created_at),parent,faultId).run();
+ return id;
+}
 
 test('library update repairs old fault rows across revisions and preserves saved results and recoveries',async t=>{
  const f=await productionFixture(t);
@@ -889,28 +851,31 @@ test('library update repairs old fault rows across revisions and preserves saved
  const grandchild=await fork(f,draft,{artStyle:'paper-cut'});
  const recoveredParent=await failedParent('visual');
  const recovered=await fork(f,recoveredParent,{acceptancePrompt:'另一条。'});
+ f.control.beforeText=async name=>{if(name==='visual')throw Error('受控批量故障');};
  await control(f,recovered,'continue');
+ await until(async()=>(await f.read(recovered)).state==='failed');
  const recoveredFault=(await f.read(recovered)).lifecycle.faults[0];
+ f.control.beforeText=null;
  await recovery(recovered,recoveredFault.id);
  await until(async()=>(await f.read(recovered)).state==='completed');
  const exported=(await f.read(recovered)).story;
  const ghostParent=await failedParent('visual'),ghost=await fork(f,ghostParent,{acceptancePrompt:'另一条。'});
+ f.control.beforeText=async name=>{if(name==='visual')throw Error('受控批量故障');};
  await control(f,ghost,'continue');
+ await until(async()=>(await f.read(ghost)).state==='failed');
  const ghostFault=(await f.read(ghost)).lifecycle.faults[0];
+ f.control.beforeText=null;
  await recovery(ghost,ghostFault.id);
  await until(async()=>(await f.read(ghost)).state==='completed');
  const ghostImages=(await f.read(ghost)).story.pages.map(page=>page.image);
  const database=f.app.services.database;
  // 模拟迁移前的格式 3 行。空键故障仅保留一行，登记故障完全遗漏，已获授权的故障保留原回执。
- const legacyId=(await faultsFor(visualChild)).results[0].id;
- await database.prepare('DELETE FROM reader_faults WHERE session_id=? AND id!=?').bind(visualChild,legacyId).run();
- await database.prepare("UPDATE reader_faults SET node_key='',input_hash=NULL,origin_fault_id=NULL,created_at=created_at+2000 WHERE id=?").bind(legacyId).run();
- for(const id of [draft,grandchild])await database.prepare('DELETE FROM reader_faults WHERE session_id=?').bind(id).run();
+ const legacyId=await legacyRevisionFault(database,visual,visualChild,(await f.read(visual)).lifecycle.faults[0].id);
  await database.prepare('DELETE FROM reader_faults WHERE session_id=? AND id!=?').bind(recovered,recoveredFault.id).run();
- await database.prepare("UPDATE reader_faults SET node_key='',input_hash=NULL,origin_fault_id=NULL WHERE id=?").bind(recoveredFault.id).run();
+ await database.prepare("UPDATE reader_faults SET node_key='',input_hash=NULL,origin_fault_id=NULL,job_id=NULL WHERE id=?").bind(recoveredFault.id).run();
  // 模拟旧版已重复生成且留有空键故障的作品，保留全部已生成结果。
  await database.prepare('DELETE FROM reader_faults WHERE session_id=? AND id!=?').bind(ghost,ghostFault.id).run();
- await database.prepare("UPDATE reader_faults SET node_key='',input_hash=NULL,origin_fault_id=NULL,command_id=NULL,state='pending' WHERE id=?").bind(ghostFault.id).run();
+ await database.prepare("UPDATE reader_faults SET node_key='',input_hash=NULL,origin_fault_id=NULL,job_id=NULL,command_id=NULL,state='pending' WHERE id=?").bind(ghostFault.id).run();
  await database.prepare("DELETE FROM reader_commands WHERE session_id=? AND action='recover' AND fault_id=?").bind(ghost,ghostFault.id).run();
  await database.prepare("UPDATE stories SET state='idle',generation_control='paused' WHERE id=?").bind(ghost).run();
  assert.equal((await f.read(ghost)).state,'failed');
@@ -975,13 +940,7 @@ test('migration keeps distinct legacy batches with the same failure message inde
  await control(f,id,'pause');
  const child=await fork(f,id,{acceptancePrompt:'另一条。'});
  const database=f.app.services.database,legacyIds=[];
- for(const fault of parent){
-  const rows=await database.prepare('SELECT id FROM reader_faults WHERE session_id=? AND origin_fault_id=? ORDER BY rowid').bind(child,fault.id).all();
-  const legacy=rows.results[0].id;
-  legacyIds.push(legacy);
-  await database.prepare('DELETE FROM reader_faults WHERE session_id=? AND origin_fault_id=? AND id!=?').bind(child,fault.id,legacy).run();
-  await database.prepare("UPDATE reader_faults SET node_key='',input_hash=NULL,origin_fault_id=NULL WHERE id=?").bind(legacy).run();
- }
+ for(const fault of parent)legacyIds.push(await legacyRevisionFault(database,id,child,fault.id));
  await database.prepare('DROP INDEX reader_faults_origin_job').run();
  await database.prepare("DELETE FROM app_migrations WHERE name='0027_revision_fault_targets.sql'").run();
  await f.restart();

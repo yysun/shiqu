@@ -1166,28 +1166,28 @@ test('continue is idempotent for its own request and refuses a request ID used f
  await f.json(`sessions/${child}/production-control`,'POST',{requestId,action:'continue'});
 });
 
-test('an image lost while saving a revision blocks completion until the reader asks for a redraw',async t=>{
+test('confirmed loss and a changed frame are listed and redrawn only on continuation',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
- const {id,dag:before}=await completedStory(f);
- const {rm}=await import('node:fs/promises');const path=await import('node:path');
- await rm(path.join(f.dataDirectory,'media','reader',id,'4.png'));
- const snapshot=await f.json(`sessions/${id}/revisions`);
- const plan=structuredClone(snapshot.plan);plan.pages[0].caption='庄周在柳树下打盹，梦里化作蝴蝶。';
- const child=crypto.randomUUID();
- await f.json(`sessions/${id}/revisions`,'POST',{requestId:child,token:snapshot.token,changes:{plan}});
- await f.json(`sessions/${child}/production-control`,'POST',{action:'continue'});
- await until(()=>f.control.reviews.length===1,20000);
- for(let i=0;i<30;i++){f.app.services.production.wake();await turn();}
- const blocked=await f.read(child);
- assert.notEqual(blocked.state,'completed');
- assert.equal(f.control.calls.length,0,'nothing is redrawn without the reader');
- const fault=blocked.faults.find(x=>x.stage==='redraw');
- assert.ok(fault);
- await f.json(`sessions/${child}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:fault.id});
- await until(async()=>(await f.read(child)).state==='completed',20000);
- assert.deepEqual(f.control.calls.map(c=>c.page),[4]);
- assert.ok(before.order[4]);
+ const {id}=await completedStory(f),route=`sessions/${id}`;
+ const parent=await f.read(id),image=parent.story.pages[1].image;
+ await f.media.remove(referenceImageKey(id,image));
+ const checked=await f.json(route+'/image-health','POST',{page:1,image});
+ const [fault]=checked.lifecycle.faults;
+ const snapshot=await f.json(route+'/revisions'),plan=structuredClone(snapshot.plan);
+ plan.pages[4].prompt+=' 第五幅改用雨夜，室内点灯。';
+ const changes={plan};
+ const preview=await f.json(route+'/revisions/preview','POST',{token:snapshot.token,changes});
+ assert.deepEqual(preview.redrawPages,[2,5]);
+ assert.deepEqual(preview.lostImagePages,[2]);
+ const child=await f.json(route+'/revisions','POST',{requestId:crypto.randomUUID(),token:snapshot.token,changes});
+ assert.deepEqual(child.lifecycle.faults,[]);
+ assert.ok(child.awaitingContinue);
+ assert.equal(f.control.calls.length,0);
+ await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
+ await until(async()=>(await f.read(child.id)).state==='completed');
+ assert.deepEqual(f.control.calls.map(call=>call.page).sort(),[1,4]);
+ assert.equal((await f.read(id)).lifecycle.faults[0].id,fault.id);
 });
 
 // ——— 审查意见第 3 轮 ———
@@ -1436,9 +1436,9 @@ test('the copy command requires passed review unless the reader explicitly copie
  assert.equal(target.control.calls.length,0);
 });
 
-// ——— 审查：修订不得绕过明确恢复 ———
+// ——— 修订接续与原版故障 ———
 
-test('a revision keeps an unresolved drawing fault whose inputs did not change; a general continue does not redraw that frame',async t=>{
+test('a revision redraws an unchanged missing frame without inheriting its drawing fault',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  const {id,dag}=await completedStory(f);
@@ -1450,14 +1450,14 @@ test('a revision keeps an unresolved drawing fault whose inputs did not change; 
  await f.app.services.database.prepare("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,message,created_at,updated_at) VALUES('drawfault',?,?,'job','frameImage',?,'dag','绘图失败',?,?)").bind(id,owner,key,now,now).run();
  const snapshot=await f.json(`sessions/${id}/revisions`),childId=crypto.randomUUID();
  await f.json(`sessions/${id}/revisions`,'POST',{requestId:childId,token:snapshot.token,changes:{storySummary:'一段与绘图无关的新梗概，只改变梗概文字。'}});
- const faults=(await f.app.services.database.prepare("SELECT node,node_key,state FROM reader_faults WHERE session_id=?").bind(childId).all()).results;
- assert.deepEqual(faults.map(x=>[x.node,x.node_key,x.state]),[['frameImage',key,'pending']],'the unchanged fault is carried to the new version');
- await f.json(`sessions/${childId}/production-control`,'POST',{action:'continue'}).catch(()=>{});
- for(let i=0;i<20;i++){f.app.services.production.wake();await turn();}
- assert.equal(f.control.calls.length,0,'nothing is drawn without an explicit recovery');
+ assert.deepEqual((await f.read(childId)).lifecycle.faults,[]);
+ await f.json(`sessions/${childId}/production-control`,'POST',{action:'continue'});
+ await until(async()=>(await f.read(childId)).state==='completed');
+ assert.deepEqual(f.control.calls.map(call=>call.page),[1]);
+ assert.equal((await f.read(id)).lifecycle.faults[0].id,'drawfault');
 });
 
-for(const changed of [false,true])test(`replanning ${changed?'releases':'matches'} a lost-image fault by drawing inputs before dispatching a new frame`,async t=>{
+for(const changed of [false,true])test(`replanning draws a missing frame with ${changed?'changed':'matching'} inputs without its old fault`,async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  const id=await f.create(3),route=`sessions/${id}`;
@@ -1494,16 +1494,12 @@ for(const changed of [false,true])test(`replanning ${changed?'releases':'matches
  const evaluation=evaluate(stateOf({id:child.id,doc:next,dag:next.dag,selection:current.selection,confirmed:true,faults:[]}));
  const inputs=evaluation.instance('frameImage',newKey).hard,priorInputs=prior.dag.products[`frameImage:${oldKey}`].inputs;
  const result={state:current.state,lostFrames:current.faults?.filter(fault=>fault.stage==='redraw').map(fault=>fault.page)??[],drawn:f.control.calls.slice(before).map(call=>call.page)};
- if(changed){
-  assert.notDeepEqual(inputs,priorInputs);
-  assert.deepEqual(result,{state:'completed',lostFrames:[],drawn:[1]});
- }else{
-  assert.deepEqual(inputs,priorInputs);
-  assert.deepEqual(result,{state:'failed',lostFrames:[1],drawn:[]});
- }
+ (changed?assert.notDeepEqual:assert.deepEqual)(inputs,priorInputs);
+ assert.deepEqual(result,{state:'completed',lostFrames:[],drawn:[1]});
+ assert.equal((await f.read(id)).lifecycle.faults[0].stage,'redraw');
 });
 
-test('one lost drawing binds two new frames, and recovering one supplies the other for free after restart',async t=>{
+test('two new frames sharing a missing drawing pay for it once after continuation',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  const id=await f.create(3),route=`sessions/${id}`;
@@ -1519,27 +1515,14 @@ test('one lost drawing binds two new frames, and recovering one supplies the oth
  const {token}=await f.json(`${route}/revisions`),before=f.control.calls.length;
  const child=await f.json(`${route}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{productionPrompt:'采用新的主线编排方式。'}});
  await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
- let blocked;
- await until(async()=>{blocked=await f.read(child.id);return blocked.faults?.filter(fault=>fault.stage==='redraw').length===2;});
- const faults=blocked.faults.filter(fault=>fault.stage==='redraw').sort((a,b)=>a.page-b.page);
- assert.deepEqual(faults.map(fault=>fault.page),[1,2]);
- assert.equal(f.control.calls.length,before);
- f.control.hold=true;
- await f.json(`sessions/${child.id}/recover`,'POST',{requestId:crypto.randomUUID(),faultId:faults[0].id});
- await until(()=>f.control.calls.length===before+1);
- assert.equal(f.control.calls.at(-1).page,1);
- assert.ok((await f.read(child.id)).faults.some(fault=>fault.id===faults[1].id));
- f.control.calls.at(-1).resolve();
  await until(async()=>(await f.read(child.id)).state==='completed');
  await f.restart();
  f.app.services.production.wake();
  await until(async()=>(await f.read(child.id)).state==='completed');
- const rows=(await f.app.services.database.prepare("SELECT node_key,input_hash,origin_fault_id,state FROM reader_faults WHERE session_id=? ORDER BY node_key").bind(child.id).all()).results;
- assert.equal(rows.length,3);
- assert.ok(rows.every(row=>row.state==='resolved'));
- assert.equal(rows[1].origin_fault_id,rows[2].origin_fault_id);
- assert.equal(rows[1].input_hash,rows[2].input_hash);
- assert.equal(f.control.calls.length,before+1);
+ assert.deepEqual((await f.read(child.id)).lifecycle.faults,[]);
+ const doc=await saved(f,child.id);
+ assert.equal(doc.images[1],doc.images[2]);
+ assert.deepEqual(f.control.calls.slice(before).map(call=>call.page),[1]);
 });
 
 test('a paid drawing is kept on its job before it is saved: a failed save and its retry do not pay twice',async t=>{
@@ -1859,7 +1842,7 @@ test('the revision preview uses the same engine rules as saving and writes nothi
  assert.equal((await f.read(child)).awaitingContinue,true);
 });
 
-test('a revision drops a fault whose inputs changed and keeps one whose inputs did not',async t=>{
+test('a revision with changed requirements starts a new outline attempt',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  // 提纲失败：读者改了制作要求后，旧故障不再适用，新提纲在「继续制作」后运行。

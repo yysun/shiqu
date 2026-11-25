@@ -7,7 +7,7 @@ import {ReaderError,selectionSchema,type Document,type SessionRow,type Selection
 import type {ReaderRepository,ReadStatements} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
 import type {RevisionChanges} from '../lib/reader-revision.ts';
-import {lostImageMessage,readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
+import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
 import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
@@ -25,7 +25,7 @@ import {portraitDocument} from '../lib/production-dag/copy.ts';
 import {dagProgress} from '../lib/production-dag/progress.ts';
 import {transact} from './production-records.ts';
 import {authorizeProductionCommand} from '../lib/production-lifecycle.ts';
-import {carryFaults,carriedFaultRows,insertCarriedJobFault,unexecutedLandscapeRecovery,type FaultToCarry} from './dag-revision-faults.ts';
+import {unexecutedLandscapeRecovery} from './dag-revision-faults.ts';
 
 type SaveImage=(index:number,bytes:Uint8Array,type:keyof typeof imageTypes)=>Promise<string>;
 const frameNodes=['scene','visual','frameImage','landscape',...verdictNodes];
@@ -165,7 +165,7 @@ function addDrawnFrom(frame:DagDocument['frames'][string],prompt:string,characte
 
 /**
  * 新版的图片复制到新版目录；产物记录不变（同一份图片内容）。原图已丢失或无法辨认时，
- * 成图产物标为不可读并返回其幅号，由调用方记录图片丢失故障，须读者明确重绘；横图丢失则视为未请求。
+ * 丢失的成图标为不可读，新版继续后按缺幅补绘。横图丢失视为未请求。
  */
 async function copyImages(media:MediaStore,parentId:string,dag:DagDocument,saveImage:SaveImage):Promise<number[]>{
  const lost:number[]=[];
@@ -274,8 +274,8 @@ export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:n
  conflicts:{id:string;message:string}[];
  /** 失去画幅身份时会丢弃重绘说明的原幅号。 */
  droppedRedrawNotePages:number[];
- /** 已有未结故障中，保存后继续阻断的目标数量。 */
- carriedFaults:number};
+ /** 需要重绘的新幅号及其中确认丢图的幅号。 */
+ redrawPages:number[];lostImagePages:number[]};
 
 /**
  * 保存前的预估：与保存使用同一套引擎推导（手改失效、设置合入、失效范围），只计算不写入。
@@ -295,18 +295,18 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
  }
  const derive=(db:ReadStatements)=>deriveRevision(db,doc,row,changes,row.id,false);
  const {parent,child,changed,choices,conflicts}=repo.db.readTransaction?.(derive)??transact(repo.db,derive);
- if(!changed)return {changed:false,total:child.dag.order.length,redraw:0,reused:doc.images.filter(Boolean).length,textWork:{},continues:false,handEdits:[],conflicts:[],droppedRedrawNotePages:[],carriedFaults:0};
+ if(!changed)return {changed:false,total:child.dag.order.length,redraw:0,reused:doc.images.filter(Boolean).length,textWork:{},continues:false,handEdits:[],conflicts:[],droppedRedrawNotePages:[],redrawPages:[],lostImagePages:[]};
  child.dag=settle(child);
  const {evaluation:ev,work:items}=deriveProduction(child),order=child.dag.order;
- const redraw=order.filter(id=>ev.instance('frameImage',id).status!=='valid').length;
+ const redrawPages=order.flatMap((id,index)=>ev.instance('frameImage',id).status==='valid'?[]:[index+1]);
+ const redraw=redrawPages.length;
  const textWork:Record<string,number>={};
  for(const item of items)if(item.call!=='draw'&&item.call!=='drawLandscape')textWork[item.call]=(textWork[item.call]??0)+item.instances.length;
- const rows=(await repo.db.prepare(carriedFaultRows).bind(row.id,row.user_id).all<FaultToCarry>()).results;
- const carried=carryFaults(rows,parent,child);
+ const lostImagePages=redrawPages.filter(page=>parent.dag.products[instanceId('frameImage',order[page-1])]?.readable===false);
  const keepsOutline=ev.instance('outline').status==='valid',remaining=new Set(order);
  const droppedRedrawNotePages=parent.dag.order.flatMap((key,index)=>
   parent.dag.frames[key]?.redrawNote&&(!keepsOutline||!remaining.has(key))?[index+1]:[]);
- return {changed,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices,conflicts:conflicts.map(id=>({id,message:`重新编排会丢弃${handEditLabel(id,doc.dag!.order)}的手改`})),droppedRedrawNotePages,carriedFaults:carried.length};
+ return {changed,total:order.length,redraw,reused:order.length-redraw,textWork,continues:items.length>0||redraw>0,handEdits:choices,conflicts:conflicts.map(id=>({id,message:`重新编排会丢弃${handEditLabel(id,doc.dag!.order)}的手改`})),droppedRedrawNotePages,redrawPages,lostImagePages};
 }
 
 export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string,cover?:Uint8Array,startRedraw=false):Promise<SessionRow>{
@@ -396,9 +396,8 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
    revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,...(cover||redrawAll||!sameArtDirection(parent.selection,selection)||usesStoryImageReference(doc.revision,parent.selection.artStyle)?{storyImageReference:true}:{}),base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
   delete document.visualReview;delete document.reselection;
   const now=new Date().toISOString(),completed=!pending&&row.state==='completed';
-  // 故障延续：上一版仍待处理的故障，其节点的输入在新版里没有改变时继续阻断，须读者明确恢复；输入已变的故障不带入（新内容重新开始）。
+  // 旧版故障留在原版本。新版继续后按当前稿件的缺幅及失效产物接续。
   // 普通修订在同一事务设置等待并保留读者控制；已确认的立即重绘在同一事务启用绘图。
-  // 新版与其图片丢失故障在同一事务中写入：中断不会留下未经读者恢复就可重绘的新版。
   const transaction=repo.db.transaction;
   if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
   transaction.call(repo.db,db=>{
@@ -414,26 +413,6 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
    WHERE p.id=? AND p.user_id=? AND json_remove(p.selection,'$.displayTitle')=json_remove(?,'$.displayTitle') AND ${currentFamilyVersion('p')} AND (${familyEpoch.replace(' AS epoch','')})=?
    ON CONFLICT(id) DO NOTHING`,requestId,ownerId,JSON.stringify(selection),JSON.stringify(document),startRedraw?1:0,paused?1:0,completed?'completed':'idle',Math.max(0,dag.order.length-1),now,now,row.id,ownerId,row.selection,ownerId,rootId,rootId,epoch);
    if(!inserted.changes)throw new ReaderError(409,'故事或版本已更新，请重新载入后再修改。');
-   const carried=carryFaults(db.all<FaultToCarry>(carriedFaultRows,row.id,ownerId),parent,{...child,dag});
-   for(const fault of carried){
-    if((fault.kind!=='image-loss'||!fault.input_hash)&&fault.node==='frameImage'&&lost.some(page=>dag.order[page]===fault.node_key))continue;
-    const at=Date.now();
-    if(fault.kind==='image-loss'&&fault.input_hash){
-     db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,input_hash,origin_fault_id,version,state,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage','',?,?,'dag','awaiting-match',?,?,?)",
-      randomUUID(),requestId,ownerId,fault.input_hash,fault.id,'待核对旧版丢图是否影响新版画幅。',at,at);
-     continue;
-    }
-    if(fault.kind==='job'||fault.kind==='interrupted')insertCarriedJobFault(db,requestId,ownerId,fault,at);
-    else db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,version,image,message,created_at,updated_at) VALUES(?,?,?,?,?,?,'dag',?,?,?,?)",
-     randomUUID(),requestId,ownerId,fault.kind,fault.node,fault.node_key,fault.image,fault.message,at,at);
-   }
-   // 丢失的成图记为待处理的图片丢失故障：阻断该幅及依赖它的工作与整篇完成，读者明确恢复后才重绘。
-   for(const page of lost){
-    const at=Date.now();
-    const key=dag.order[page],product=dag.products[instanceId('frameImage',key)];
-    if(product&&carried.some(fault=>fault.kind==='image-loss'&&fault.input_hash===fingerprint(product.inputs)))continue;
-    db.run("INSERT INTO reader_faults(id,session_id,owner_id,kind,node,node_key,input_hash,version,message,created_at,updated_at) VALUES(?,?,?,'image-loss','frameImage',?,?,'dag',?,?,?)",randomUUID(),requestId,ownerId,key,product?fingerprint(product.inputs):null,lostImageMessage(page),at,at);
-   }
   });
  }catch(error){
   await Promise.all(staged.map(key=>media.remove(key)));
