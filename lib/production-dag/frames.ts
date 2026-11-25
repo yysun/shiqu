@@ -1,4 +1,4 @@
-// 按人物设定的名字与别名匹配候选人物和入画人物。
+// 按人物设定的名字与别名匹配入画人物。
 
 export type CharacterEntry={id:string;name:string;aliases?:string[]};
 

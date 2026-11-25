@@ -16,7 +16,7 @@ import {nodeSpec} from './registry.ts';
 import {withReviewSkip} from './review-skip.ts';
 import {fingerprint} from './fingerprint.ts';
 import {callGroups,type CallGroup} from './schedule.ts';
-import {acknowledgedChecks,reviewStage,newRepairBudget,canRepair,verdictNodes} from './review.ts';
+import {reviewStage,newRepairBudget,canRepair,verdictNodes} from './review.ts';
 import {structuralLoss} from './hand-edits.ts';
 import {acceptanceItems,type Outline,type Scene,type Visual,type Character,type ReviewOutcome} from './calls.ts';
 import {rootProducts,versionState,endingChoice,type DagDocument,type DagIssue,type DagFrame} from './document.ts';
@@ -73,7 +73,7 @@ const clone=(dag:DagDocument):DagDocument=>structuredClone(dag);
 const sameInputs=(a:Record<string,string>|undefined,b:Record<string,string>|undefined)=>
  !!a&&!!b&&Object.keys(a).length===Object.keys(b).length&&Object.keys(b).every(k=>a[k]===b[k]);
 function record(dag:DagDocument,inst:Pick<Instance,'id'|'hard'|'check'>,content:unknown,extra:Partial<Product>={}){
- dag.products[inst.id]={hash:fingerprint(content),inputs:inst.hard!,...(inst.check&&Object.keys(inst.check).length?{checks:inst.check}:{}),...extra};
+ dag.products[inst.id]={hash:fingerprint(content),inputs:inst.hard!,...(inst.id==='narrativeVerdict:'?{checks:inst.check}:{}),...extra};
 }
 const frame=(dag:DagDocument,id:string):DagFrame=>dag.frames[id]??(dag.frames[id]={scene:'',visual:''});
 const framePosition=(dag:DagDocument,id:string)=>dag.order.indexOf(id);
@@ -124,7 +124,7 @@ export function settle(story:DagStory):DagDocument{
   const state=stateOf({...story,dag,faults:story.faults.filter(fault=>!fault.imageLoss)});
   const pool=Object.entries(dag.products).filter(([id,p])=>id.startsWith(node+':')&&p.readable!==false);
   for(const inst of evaluate(state).all().filter(i=>i.node===node&&i.ready&&i.hard)){
-   if(node==='frameImage'&&inst.key===dag.cover?.frame)continue;
+   if(node==='frameImage'&&(inst.key===dag.cover?.frame||dag.frames[inst.key]?.redrawRequested))continue;
    const match=reusable(pool.map(([,p])=>p),inst.hard!);
    if(!match)continue;
    const [sourceId]=pool.find(([,p])=>p===match)!;
@@ -132,7 +132,8 @@ export function settle(story:DagStory):DagDocument{
    if(!url)continue;
    dag=dag===story.dag?clone(dag):dag;
    frame(dag,inst.key)[node==='frameImage'?'image':'landscape']=url;
-   dag.products[inst.id]={...match,inputs:inst.hard!,...(inst.check&&Object.keys(inst.check).length?{checks:inst.check}:{})};
+   dag.products[inst.id]={...match,inputs:inst.hard!};
+   delete dag.products[inst.id].checks;
   }
  }
  // 读者指定的首幅原图：该幅的输入就绪时记为成图产物（输入指纹按当前画风与画面描述），之后其余画幅以它为参考。
@@ -287,7 +288,7 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
   case 'sceneBatch':case 'sceneRepair':{
    const scenes=value as Scene[];
    if(item.call==='sceneRepair'&&unchanged(dag,item,scenes.map(s=>s.caption),id=>dag.frames[id].scene))return markStalled(dag,item);
-   item.instances.forEach((inst,i)=>{const f=frame(dag,inst.key);f.scene=scenes[i].caption;f.people=scenes[i].people;cast(dag,f);record(dag,inst,scenes[i].caption);});
+   item.instances.forEach((inst,i)=>{frame(dag,inst.key).scene=scenes[i].caption;record(dag,inst,scenes[i].caption);});
    if(item.call==='sceneRepair')spendRepair(dag,item);
    break;
   }
@@ -326,7 +327,7 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
    }
    break;
   }
-  case 'review':applyReview(story,dag,item,value as ReviewOutcome);break;
+  case 'review':applyReview(dag,item,value as ReviewOutcome);break;
   case 'structureRepair':{
    const result=applyStructureRepair(story,dag,item,value as {from:number;to:number;scenes:Scene[]}[],options.newId);
    if(result!=='applied')return markStalled(dag,item,result==='hand-edited'?'hand-edited':true);
@@ -334,7 +335,8 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
   }
   case 'draw':case 'drawLandscape':{
    const url=value as string,f=frame(dag,one.key);
-   if(item.call==='draw')f.image=url;else{f.landscape=url;delete f.landscapeError;delete f.landscapeInputHash;}
+   if(item.call==='draw'){f.image=url;delete f.redrawRequested;}
+   else{f.landscape=url;delete f.landscapeError;delete f.landscapeInputHash;}
    record(dag,one,url);break;
   }
   default:throw Error(`DAG_CALL_UNKNOWN: ${item.call}`);
@@ -343,11 +345,9 @@ export function apply(story:DagStory,item:Work,value:unknown,options:ApplyOption
 }
 
 /**
- * 候选人物与入画人物：模型返回名字，按人物设定的名字与别名匹配为条目。人物设定在叙事分镜之后才生成时，
- * 保存人物设定时按已存的名字重新匹配；没有名字记录的旧画幅保持原样（视为全部人物）。
+ * 画面描述返回名字，按人物设定的名字与别名匹配为入画条目。
  */
 function cast(dag:DagDocument,f:DagFrame){
- if(f.people)f.candidates=castFrom([f.scene,...f.people].join(' '),dag.characters);
  if(f.drawnNames)f.drawn=castFrom(f.drawnNames.join(' '),dag.characters);
 }
 
@@ -385,7 +385,7 @@ function spendRepair(dag:DagDocument,item:Work){
  dag.issues=(dag.issues??[]).filter(i=>!done.has(JSON.stringify([i.target,i.page,i.problem])));
 }
 
-function applyReview(story:DagStory,dag:DagDocument,item:Work,outcome:ReviewOutcome){
+function applyReview(dag:DagDocument,item:Work,outcome:ReviewOutcome){
  const allowed=new Map(item.instances.map(i=>[i.id,i]));
  const verdicts={...dag.verdicts};
  const failedItems=outcome.judgements.filter(j=>allowed.has(j.id)&&j.outcome==='fail'&&j.id.startsWith('itemVerdict:')).map(j=>j.id);
@@ -407,9 +407,6 @@ function applyReview(story:DagStory,dag:DagDocument,item:Work,outcome:ReviewOutc
  const fresh=outcome.issues.flatMap(issue=>{const target=targetOf(issue);return target&&verdicts[target]?.outcome==='fail'?[{...issue,target}]:[];});
  dag.issues=[...kept,...fresh];
  delete dag.suggestions;
- const state=stateOf({...story,dag});
- const passed=outcome.judgements.filter(j=>j.outcome==='pass'&&allowed.has(j.id)).map(j=>j.id);
- for(const {id,checks} of acknowledgedChecks(state,passed))dag.products[id]={...dag.products[id],checks};
 }
 
 /** 合并或拆分的整段使用新身份。幅数相同的替换只保留内容原样保留的画幅。 */
@@ -425,7 +422,7 @@ function applyStructureRepair(story:DagStory,dag:DagDocument,item:Work,edits:{fr
   edit.scenes.forEach((scene,i)=>{
    const original=range.length===edit.scenes.length?range[i]:undefined;
    const before=original?dag.frames[original]:undefined;
-   if(original&&before?.scene===scene.caption&&fingerprint(before.people??[])===fingerprint(scene.people)){
+   if(original&&before?.scene===scene.caption){
     kept.add(original);next.push(original);return;
    }
    const id=newId();content.set(id,scene);next.push(id);
@@ -442,7 +439,7 @@ function applyStructureRepair(story:DagStory,dag:DagDocument,item:Work,edits:{fr
  retireFrames(dag,retired);
  const state=stateOf({...story,dag});
  for(const [id,scene] of content){
-  const f=frame(dag,id);f.scene=scene.caption;f.people=scene.people;cast(dag,f);
+  frame(dag,id).scene=scene.caption;
   const inst=evaluate(state).instance('scene',id);
   record(dag,{id:inst.id,hard:inst.hard,check:inst.check},scene.caption);
  }

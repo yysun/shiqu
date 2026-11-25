@@ -30,6 +30,7 @@ export function textOnlyDag(dag:DagDocument):DagDocument{
   const frame=copy.frames[id];
   if(!frame)continue;
   delete frame.image;delete frame.landscapeAttempt;delete frame.landscape;delete frame.landscapeError;delete frame.landscapeInputHash;
+  delete frame.redrawRequested;
   delete copy.products[`frameImage:${id}`];delete copy.products[`landscape:${id}`];
  }
  return copy;

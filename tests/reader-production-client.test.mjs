@@ -123,16 +123,16 @@ function focusCalls(session){
  return {calls,set page(value){page=value;},run:rounds=>observeStoryGeneration({sessionId:'story',focus:{viewerId:'viewer',page:()=>page},now:()=>time,isActive:()=>active,onSession:()=>{},sleep:async()=>{time+=1000;if(polls>=rounds)active=false;},
   request:async(path,method,data)=>{calls.push([method||'GET',data]);if(!method)polls++;return typeof session==='function'?session(polls):session;}})};
 }
-test('an open active story reports its page for priority, follows page changes and leaves on exit',async()=>{
+test('an open active story renews priority and leaves on exit',async()=>{
  const observer=focusCalls(open);await observer.run(3);
  const posts=observer.calls.filter(([method])=>method==='POST');
- assert.deepEqual(posts,[['POST',{viewerId:'viewer',page:4,retry:false}]],'One report until the page or heartbeat changes');
+ assert.deepEqual(posts,[['POST',{viewerId:'viewer',page:4,retry:false}]],'One report until the heartbeat');
  assert.deepEqual(observer.calls.at(-1),['DELETE',{viewerId:'viewer'}]);
  const heartbeat=focusCalls(open);await heartbeat.run(12);
  assert.equal(heartbeat.calls.filter(([method])=>method==='POST').length,2,'The report renews every ten seconds');
  let page=2;const moved=[];let polls=0,active=true;
  await observeStoryGeneration({sessionId:'story',focus:{viewerId:'viewer',page:()=>page},isActive:()=>active,onSession:()=>{},sleep:async()=>{if(polls===1)page=7;if(polls>=2)active=false;},request:async(path,method,data)=>{if(method==='POST')moved.push(data.page);if(!method)polls++;return open;}});
- assert.deepEqual(moved,[2,7]);
+ assert.deepEqual(moved,[2],'Page changes do not renew viewing priority');
 });
 test('priority reports clamp a stale page and use page 0 before the first image exists',async()=>{
  const clamped=focusCalls(open);clamped.page=99;await clamped.run(1);

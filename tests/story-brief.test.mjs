@@ -43,8 +43,8 @@ for(const provider of ['codex','gemini','openai'])test(`${provider}: brief verif
   if(schema.properties.reflection)return {reflection:plan.reflection};
   if(schema.properties.characters)return {characters:[{name:'勇士',aliases:[],text:'面对猛虎仍向前行的勇士。'}]};
   if(schema.properties.summary)return {summary};
-  if(schema.properties.pages)return {pages:Array.from({length:payload.batch.last-payload.batch.first+1},(_,i)=>({caption:plan.pages[i].caption,people:['勇士']}))};
-  if(schema.properties.frames)return {frames:payload.frames.map(f=>({number:f.number,caption:plan.pages[0].caption,people:['勇士']}))};
+  if(schema.properties.pages)return {pages:Array.from({length:payload.batch.last-payload.batch.first+1},(_,i)=>({caption:plan.pages[i].caption}))};
+  if(schema.properties.frames)return {frames:payload.frames.map(f=>({number:f.number,caption:plan.pages[0].caption}))};
   throw Error('unexpected call');
  };
  const runner={status:async()=>({configured:true}),run:async job=>({text:JSON.stringify(respond(job.instructions,JSON.parse(job.prompt),job.schema)),model:'mock',requestId:'mock',usage:null})};

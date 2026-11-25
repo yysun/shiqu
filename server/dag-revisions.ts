@@ -98,7 +98,6 @@ function editCharacters(dag:DagDocument,text:string,handEdit:(node:string,key:st
  const changedIds=next.filter((c,i)=>c.text!==dag.characters[i].text).map(c=>c.id);
  if(!changedIds.length)return;
  dag.characters=next;
- for(const id of dag.order){const f=dag.frames[id];f.candidates=castFrom([f.scene,...(f.people??[])].join(' '),dag.characters);}
  const content=next.map(c=>({id:c.id,name:c.name,aliases:c.aliases,text:c.text}));
  handEdit('characters','',content);
  const product=dag.products[instanceId('characters')];
@@ -118,7 +117,7 @@ function applyEdits(story:DagStory,changes:RevisionChanges):DagDocument{
  const handEdit=(node:string,key:string,content:unknown)=>{
   const inst=evaluate(stateOf({...story,dag})).instance(node,key);
   if(!inst.hard)throw new ReaderError(409,'这篇故事的上游内容尚未完成，暂不能修改此处。');
-  dag.products[instanceId(node,key)]={hash:fingerprint(content),inputs:inst.hard,...(inst.check&&Object.keys(inst.check).length?{checks:inst.check}:{}),handEdited:true};
+  dag.products[instanceId(node,key)]={hash:fingerprint(content),inputs:inst.hard,handEdited:true};
  };
  // 删除画幅：按原幅号移除，其产物一并删除；其余画幅保留身份。
  if(changes.removedFrames){
@@ -133,7 +132,7 @@ function applyEdits(story:DagStory,changes:RevisionChanges):DagDocument{
   changes.plan.pages.forEach((page,i)=>{
    const id=dag.order[i],frame=dag.frames[id];
    if(page.caption.trim()!==frame.scene.trim()){
-    frame.scene=page.caption;frame.candidates=castFrom([page.caption,...(frame.people??[])].join(' '),dag.characters);
+    frame.scene=page.caption;
     handEdit('scene',id,page.caption);
    }
    if(page.prompt.trim()!==frame.visual.trim()){
@@ -197,6 +196,7 @@ function applyRedraw(dag:DagDocument,changes:RevisionChanges){
   const id=dag.order[page-1];if(!id)throw new ReaderError(400,'重绘页码必须属于已保存的完整分镜。');
   const frame=dag.frames[id],note=changes.redrawNotes?.[String(page)];
   if(note)frame.redrawNote=note;else delete frame.redrawNote;
+  frame.redrawRequested=true;
   delete frame.image;delete dag.products[instanceId('frameImage',id)];
  }
 }
@@ -311,8 +311,10 @@ export async function previewDagRevision(repo:ReaderRepository,row:SessionRow,to
 
 export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,ownerId:string,row:SessionRow,requestId:string,token:string,changes:RevisionChanges,paused:boolean,requestHash:string,cover?:Uint8Array,startRedraw=false):Promise<SessionRow>{
  if(!Object.keys(changes).length)throw new ReaderError(400,'没有需要保存的修改。');
- if(startRedraw&&(paused||changes.redrawPages?.length!==1))throw new ReaderError(400,'直接重绘只支持立即生成一幅画。');
  const {doc,rootId,epoch,token:current}=await revisionBasis(repo,row);
+ const redrawPages=changes.redrawPages??[];
+ const redrawAll=redrawPages.length>1&&redrawPages.length===doc.dag?.order.length&&redrawPages.includes(1);
+ if(startRedraw&&(paused||redrawPages.length!==1&&!redrawAll))throw new ReaderError(400,'请确认立即重绘一幅画，或从首幅开始重绘整篇。');
  const state={version:'current' as const,control:row.generation_control??'active',continuation:!!doc.dag?.continuation,stopping:false};
  const authorization=authorizeProductionCommand('save-revision',{...state,targetCurrent:current===token,targetReady:!!doc.dag});
  if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
@@ -359,7 +361,7 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   });
   return repo.get(row.id,ownerId);
  }
- const redrawFrame=startRedraw?child.dag.order[changes.redrawPages![0]-1]:undefined;
+ const requestedFrames=new Set(redrawPages.map(page=>child.dag.order[page-1]));
  // 并发重放同一编号时，每次保存仅清理自己写入的图片。
  const attempt=randomUUID(),staged:string[]=[];
  const saveImage:SaveImage=async(index,bytes,type)=>{
@@ -380,9 +382,9 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   }
   child.dag=settle(child);
   const items=work(child),pending=items.length>0;
-  if(redrawFrame){
+  if(startRedraw){
    const redraw=authorizeProductionCommand('redraw',{...state,targetCurrent:true,targetReady:lost.length===0&&items.some(item=>item.call==='draw')&&
-    items.every(item=>['draw','drawLandscape'].includes(item.call)&&item.instances.every(instance=>instance.key===redrawFrame))});
+    items.every(item=>['draw','drawLandscape'].includes(item.call)&&item.instances.every(instance=>requestedFrames.has(instance.key)))});
    if(!redraw.allowed)throw new ReaderError(redraw.status,redraw.message);
   }
   const waiting=pending&&!startRedraw;
@@ -391,11 +393,11 @@ export async function forkDagRevision(repo:ReaderRepository,media:MediaStore,own
   const {plan,images}=projectDocument(dag,doc.plan);
   const portrait=portraitDocument(doc);
   const document:Document={...portrait,dag,plan,images,reviewNotes,usage:portrait.usage.map(item=>({...item,originId:item.originId||row.id})),
-   revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,...(cover||!sameArtDirection(parent.selection,selection)||usesStoryImageReference(doc.revision,parent.selection.artStyle)?{storyImageReference:true}:{}),base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
+   revision:{parentId:row.id,rootId,number:epoch+1,baseToken:token,requestHash,...(cover||redrawAll||!sameArtDirection(parent.selection,selection)||usesStoryImageReference(doc.revision,parent.selection.artStyle)?{storyImageReference:true}:{}),base:{selection:parent.selection,plan:doc.plan,images:doc.images}}};
   delete document.visualReview;delete document.reselection;
   const now=new Date().toISOString(),completed=!pending&&row.state==='completed';
   // 故障延续：上一版仍待处理的故障，其节点的输入在新版里没有改变时继续阻断，须读者明确恢复；输入已变的故障不带入（新内容重新开始）。
-  // 普通修订在同一事务设置等待并保留读者控制；已确认的单幅重绘在同一事务启用绘图。
+  // 普通修订在同一事务设置等待并保留读者控制；已确认的立即重绘在同一事务启用绘图。
   // 新版与其图片丢失故障在同一事务中写入：中断不会留下未经读者恢复就可重绘的新版。
   const transaction=repo.db.transaction;
   if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');

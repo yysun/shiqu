@@ -3,7 +3,6 @@
 import {evaluate,instanceId} from '../../lib/production-dag/engine.ts';
 import {callGroups} from '../../lib/production-dag/schedule.ts';
 import {fingerprint} from '../../lib/production-dag/fingerprint.ts';
-import {acknowledgedChecks} from '../../lib/production-dag/review.ts';
 
 let counter=0;
 export const root=(value,parts)=>({hash:fingerprint(value),inputs:{},...(parts?{parts}:{})});
@@ -14,7 +13,7 @@ export function story({frames=8,items=[],cast={}}={}){
  const itemParts=Object.fromEntries(items.map(i=>[i.id,fingerprint(i.text||i.id)]));
  return {
   confirmed:true,order,items:items.map(i=>i.id),
-  frames:Object.fromEntries(order.map(id=>[id,{candidates:cast[id]||['c1'],drawn:cast[id]||['c1']}])),
+  frames:Object.fromEntries(order.map(id=>[id,{drawn:cast[id]||['c1']}])),
   products:{
    'selection:':root('管鲍之交'),'productionReq:':root('写清选择与后果'),'acceptanceReq:':root(items.map(i=>i.text),itemParts),
    'settings:':root('balanced'),'style:':root('ink'),'modelSnapshot:':root('m1'),'renderer:':root('9:16'),'refSource:':root(null),
@@ -39,10 +38,6 @@ export function run(state,options={}){
    const name=stage?`${call}#${stage}`:call;
    log.push({call:name,ids:instances.map(x=>x.id)});
    for(const inst of instances)state.products[inst.id]=produce(state,inst,options);
-   if(stage){
-    const passed=instances.map(x=>x.id).filter(id=>state.products[id].outcome==='pass');
-    for(const {id,checks} of acknowledgedChecks(state,passed))state.products[id]={...state.products[id],checks};
-   }
   }
  }
  throw Error('DAG_SIMULATION_DID_NOT_SETTLE');
@@ -50,7 +45,7 @@ export function run(state,options={}){
 
 function produce(state,inst,options){
  const previous=state.products[inst.id];
- const product={hash:fingerprint([inst.id,++counter]),inputs:inst.hard,checks:inst.check};
+ const product={hash:fingerprint([inst.id,++counter]),inputs:inst.hard,...(inst.node==='narrativeVerdict'?{checks:inst.check}:{})};
  if(inst.node==='characters')product.parts={c1:fingerprint('c1'),c2:fingerprint('c2'),c3:fingerprint('c3')};
  if(inst.node==='frameCheck')product.outcome='pass';
  if(['frameVerdict','narrativeVerdict','itemVerdict'].includes(inst.node))product.outcome=options.review?.(inst.id)??'pass';

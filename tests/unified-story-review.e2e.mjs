@@ -92,7 +92,7 @@ test('same-length structure repair returns to count while caption repair stays i
   if(['frames','review','structure','sceneRepair'].includes(kind))sequence.push(kind);
   if(kind==='review'&&f.control.reviews.length===1)return {issues:[structureIssue]};
   if(kind==='review'&&f.control.reviews.length===2)return {issues:[captionIssue]};
-  if(kind==='structure')return {edits:[{from:2,to:2,pages:[{caption:'乙明确拒绝了赠物，甲放下礼物。',people:[]}]}]};
+  if(kind==='structure')return {edits:[{from:2,to:2,pages:[{caption:'乙明确拒绝了赠物，甲放下礼物。'}]}]};
   if(kind==='sceneRepair')assert.equal(payload.frames[0].number,2);
  };
  await s.resume();await until(()=>f.control.calls.length===1,15000);
@@ -102,7 +102,7 @@ test('same-length structure repair returns to count while caption repair stays i
 
 test('explicit draw-anyway remains marked, paused and idempotent at the count gate',async t=>{
  const f=await productionFixture(t),s=await seed(f);
- f.control.beforeText=async kind=>kind==='frames'?reduction:kind==='structure'?{edits:[{from:2,to:2,pages:[{caption:s.plan.pages[1].caption,people:[]}]}]}:undefined;
+ f.control.beforeText=async kind=>kind==='frames'?reduction:kind==='structure'?{edits:[{from:2,to:2,pages:[{caption:s.plan.pages[1].caption}]}]}:undefined;
  await s.resume();await until(async()=>(await f.read(s.id)).generationProgress.reviewStopReason==='unchanged',15000);await s.pause();
  const skip=()=>f.json(`sessions/${s.id}/review-override`,'POST',{});
  await skip();await skip();await f.app.services.production.tick();

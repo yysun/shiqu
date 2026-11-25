@@ -10,7 +10,7 @@ export type Product={
  hash:string;
  /** 生成时读取的硬输入指纹。 */
  inputs:Record<InputRef,string>;
- /** 生成时读取的核对输入指纹，变化只产生「基于旧输入」标记。 */
+ /** 格式 3 的全篇审片还使用核对输入指纹绑定配文。 */
  checks?:Record<InputRef,string>;
  /** 可分条引用的部分，例如人物设定按人物、验收要求按条目、叙事结论的选定结语。 */
  parts?:Record<string,string>;
@@ -34,7 +34,7 @@ export type VersionState={
  order:string[];
  /** 全篇验收条目身份，按验收要求的条目顺序。 */
  items:string[];
- frames:Record<string,{candidates?:string[];drawn?:string[]}>;
+ frames:Record<string,{drawn?:string[]}>;
  /** 已请求横图的画幅。 */
  landscapes?:string[];
  products:Record<string,Product>;
@@ -50,8 +50,6 @@ export type Status='valid'|'missing'|'invalid'|'waiting';
 export type Instance={
  node:string;key:string;id:string;
  status:Status;
- /** 核对输入已变化：文字产物待审片确认，图片表示使用旧参考。 */
- basedOnOld:boolean;
  /** 本实例或其硬输入上游存在未解除的故障。 */
  blocked:boolean;
  /** 当前硬输入指纹；未就绪时为 undefined。 */
@@ -81,13 +79,13 @@ export class Evaluation{
   const id=instanceId(node,key),cached=this.memo.get(id);
   if(cached)return cached;
   if(node==='frameCheck'&&this.state.skipFrameCheck){
-   const skipped:Instance={node,key,id,status:'valid',basedOnOld:false,blocked:false,ready:false};
+   const skipped:Instance={node,key,id,status:'valid',blocked:false,ready:false};
    this.memo.set(id,skipped);return skipped;
   }
   const spec=nodeSpec(node),product=this.state.products[id];
   const faulted=this.state.faults.some(f=>(f.state==='pending'||f.state==='recovering')&&f.node===node&&f.key===key);
   if(spec.kind!=='model'){
-   const result:Instance={node,key,id,status:'valid',basedOnOld:false,blocked:false,ready:false};
+   const result:Instance={node,key,id,status:'valid',blocked:false,ready:false};
    this.memo.set(id,result);return result;
   }
   const hardRefs=[...spec.hard,...(spec.evidence?this.evidenceRefs(key):[])];
@@ -98,16 +96,13 @@ export class Evaluation{
   const hard=hardResolved.every(([,r])=>r.hash!==undefined)?Object.fromEntries(hardResolved.map(([ref,r])=>[ref,r.hash!])):undefined;
   const check=checkResolved.every(([,r])=>r.hash!==undefined)?Object.fromEntries(checkResolved.map(([ref,r])=>[ref,r.hash!])):undefined;
   const blocked=faulted||hardResolved.some(([,r])=>r.blocked);
-  let status:Status;let basedOnOld=false;
+  let status:Status;
   if(!product||product.readable===false)status='missing';
   else if(!hard)status='waiting';
   else if(!sameInputs(product.inputs,hard))status='invalid';
-  else{
-   status='valid';
-   basedOnOld=checkResolved.some(([ref,r])=>r.hash!==undefined&&product.checks?.[ref]!==undefined&&product.checks[ref]!==r.hash);
-   if(basedOnOld&&verdictNodes.has(node))status='invalid';
-  }
-  const result:Instance={node,key,id,status,basedOnOld,blocked,hard,check,ready:false};
+  else if(node==='narrativeVerdict'&&checkResolved.some(([ref,r])=>r.hash!==undefined&&product.checks?.[ref]!==undefined&&product.checks[ref]!==r.hash))status='invalid';
+  else status='valid';
+  const result:Instance={node,key,id,status,blocked,hard,check,ready:false};
   this.memo.set(id,result);
   // 首次生成须硬输入与核对输入都就绪；失效重做只看硬输入。
   // 失效重做一般只需硬输入；登记为 rerunWaitsForCheck 的节点（画幅图片）还须核对输入就绪，即等新首幅完成。
@@ -139,8 +134,8 @@ export class Evaluation{
    if(key===first||bookReference.hash!==nullHash)return bookReference;
    return this.one('frameImage',first);
   }
-  if(name==='characters'&&selector){
-   const list=this.state.frames[key]?.[selector==='drawn'?'drawn':'candidates'];
+  if(name==='characters'&&selector==='drawn'){
+   const list=this.state.frames[key]?.drawn;
    const base=this.one('characters','');
    if(base.hash===undefined)return base;
    const parts=this.state.products[instanceId('characters')]?.parts||{};
@@ -175,6 +170,7 @@ export class Evaluation{
   if(!this.state.confirmed)return false;
   if(gate==='confirmed')return true;
   if(gate==='brief')return this.instance('brief').status==='valid';
+  if(gate==='characters')return this.instance('characters').status==='valid';
   // 定长故事没有幅数核对：审片仍等结语就绪（核对原本与结语同一轮完成），保持一次审片调用。
   if(gate==='frameCheck')return this.state.skipFrameCheck?this.instance('ending').status==='valid':this.passed('frameCheck','');
   return this.approved(false);
@@ -244,16 +240,15 @@ export function reusable(pool:Product[],hard:Record<string,string>):Product|unde
  return pool.find(p=>p.readable!==false&&sameInputs(p.inputs,hard));
 }
 
-export type Preview={resumeAt?:string;invalidatedImages:number;oldReference:number;pending:number};
+export type Preview={resumeAt?:string;invalidatedImages:number;pending:number};
 
-/** 保存前预估：接续点、将失效的图片数与使用旧参考的画幅数。 */
+/** 保存前预估接续点及将失效的图片数。 */
 export function preview(base:VersionState,next:VersionState):Preview{
  const before=evaluate(base),after=evaluate(next).all();
  const images=after.filter(i=>i.node==='frameImage');
  const invalidatedImages=images.filter(i=>i.status!=='valid'&&before.instance('frameImage',i.key).status==='valid').length;
- const oldReference=images.filter(i=>i.status==='valid'&&i.basedOnOld).length;
  const pendingList=after.filter(i=>i.status!=='valid'&&nodeSpec(i.node).required);
- return {resumeAt:pendingList[0]?nodeSpec(pendingList[0].node).label:undefined,invalidatedImages,oldReference,pending:pendingList.length};
+ return {resumeAt:pendingList[0]?nodeSpec(pendingList[0].node).label:undefined,invalidatedImages,pending:pendingList.length};
 }
 
 export type {NodeSpec};

@@ -125,7 +125,7 @@ function productionActionOffers(input:ActivityInput,control:GenerationControl):P
  const allowed=(event:ProductionCommand,ready=true)=>authorizeProductionCommand(event,{...state,targetReady:ready}).allowed;
  for(const event of productionControlEvents){
   if(event==='resume'&&state.control==='active')continue;
-  if((event!=='resume'&&event!=='background'||configured)&&allowed(event,input.state!=='completed'||event!=='background'&&(input.optionalWork||input.repreparing)))actions.push({event});
+  if((event!=='resume'||configured)&&allowed(event,input.state!=='completed'||input.optionalWork||input.repreparing))actions.push({event});
  }
  if(configured&&allowed('continue'))actions.push({event:'continue'});
  if(input.modelApplicable&&allowed('apply-model'))actions.push({event:'apply-model'});
@@ -206,7 +206,7 @@ export function authorizeDispatch(state:DispatchState):DispatchDecision{
  return dispatchRules.find(rule=>rule.matches(state))!.decision;
 }
 
-export const productionControlEvents=['background','pause','stop','resume'] as const;
+export const productionControlEvents=['pause','stop','resume'] as const;
 export type ProductionControlEvent=(typeof productionControlEvents)[number];
 export type ProductionCommand='continue'|'retry'|'continue-repair'|'skip-review'|'override-review'|'apply-model'|'reprepare'|'image-health'|'start-landscape'|'retry-landscape'|'open-reselection'|'edit-revision'|'save-revision'|'edit-review-notes'|'redraw'|'cover'|'copy'|'copy-draft'|ProductionControlEvent;
 type SetupEvent=IntakeAction['action'];
@@ -216,17 +216,16 @@ type CommandState={
  targetCurrent:boolean;targetReady:boolean;stopping:boolean;
 };
 const commandEffects={
- background:{kind:'control',mode:'background',control:null},
- pause:{kind:'control',mode:null,control:'paused'},
- stop:{kind:'control',mode:null,control:'stopped'},
- resume:{kind:'control',mode:'background',control:'active'},
+ pause:{kind:'control',control:'paused'},
+ stop:{kind:'control',control:'stopped'},
+ resume:{kind:'control',control:'active'},
  continue:{kind:'continue-revision'},retry:{kind:'recover-fault'},
  'continue-repair':{kind:'grant-repair-budget'},'skip-review':{kind:'save-skipped-review'},'override-review':{kind:'release-review-target'},
  'apply-model':{kind:'replace-model-snapshot'},reprepare:{kind:'refresh-preparation'},'image-health':{kind:'probe-image'},
  'start-landscape':{kind:'queue-landscape'},'retry-landscape':{kind:'recover-landscape'},'open-reselection':{kind:'create-selection-draft'},
  'edit-revision':{kind:'read-edit-basis'},'save-revision':{kind:'publish-revision'},'edit-review-notes':{kind:'save-review-notes'},
  redraw:{kind:'queue-redraw'},cover:{kind:'save-cover'},copy:{kind:'copy-reviewed'},'copy-draft':{kind:'copy-text-draft'},
-} as const satisfies Record<ProductionCommand,{kind:string;mode?:'background'|null;control?:GenerationControl|null}>;
+} as const satisfies Record<ProductionCommand,{kind:string;control?:GenerationControl}>;
 type CommandEffect=(typeof commandEffects)[ProductionCommand];
 type CommandDecision={allowed:true;effect:CommandEffect}|{allowed:false;status:409|503;message:string};
 
@@ -236,7 +235,6 @@ const landscapeCommand={allows:(state:CommandState)=>state.targetCurrent&&state.
 const commands={
  reprepare:{allows:(state:CommandState)=>state.targetCurrent&&state.targetReady&&!state.continuation,
   denial:'请先确认制作并保存原文。已有准备任务时，请等待或重试该任务。'},
- background:controlCommand,
  pause:controlCommand,
  stop:controlCommand,
  resume:{allows:(state:CommandState)=>(state.control!=='active'||state.continuation)&&state.targetReady,denial:'当前制作没有暂停，或版本已更新。'},

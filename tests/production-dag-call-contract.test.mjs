@@ -12,7 +12,7 @@ const people=[{id:'c1',name:'管仲',aliases:['夷吾'],text:'齐国人，青年
 
 function recorder(reply){
  const calls=[];
- const call=async(task,instructions,payload,schema)=>{calls.push({task,text:instructions+'\n'+JSON.stringify(payload)});return {value:reply(schema,payload),model:'fake',requestId:null,usage:null};};
+ const call=async(task,instructions,payload,schema)=>{calls.push({task,payload,schema,text:instructions+'\n'+JSON.stringify(payload)});return {value:reply(schema,payload),model:'fake',requestId:null,usage:null};};
  return {calls,gen:dagGenerator(call)};
 }
 const without=(text,...sentinels)=>{for(const s of sentinels)assert.ok(!text.includes(s),`unexpected ${s}`);};
@@ -22,16 +22,18 @@ test('outline, characters and storyboard text never see the style; image descrip
  const {calls,gen}=recorder((schema,payload)=>{
   if(schema.properties.beats)return {title:'管鲍之交',summary:'梗概',sourceReference:'史记',adaptationNote:'按原文',beats:['少时同游','鲍叔知贤']};
   if(schema.properties.characters)return {characters:[{name:'管仲',aliases:['夷吾'],text:'齐国人，青年时清贫。'}]};
-  if(schema.properties.pages)return {pages:payload.batch?[{caption:'管仲与鲍叔牙少时同游。',people:['管仲','鲍叔']},{caption:'鲍叔深知管仲之贤。',people:['鲍叔']}]:[]};
+  if(schema.properties.pages)return {pages:payload.batch?[{caption:'管仲与鲍叔牙少时同游。'},{caption:'鲍叔深知管仲之贤。'}]:[]};
   return {frames:payload.frames.map(f=>({number:f.number,prompt:'两位少年并肩走在乡间小路上，中景，晨光从左侧照来，远处是低矮的土墙与柳树。',drawn:['管仲','鲍叔牙']}))};
  });
  await gen.outline({source,productionPrompt:REQ,settings:{narrativeDetail:'balanced',length:2}});
  await gen.characters({source,productionPrompt:REQ});
  const scenes=await gen.sceneBatch({source,outline,productionPrompt:REQ,first:1,previous:[]});
- // 调用返回模型给出的人物名字；名字到人物条目的匹配在保存时进行（见执行层测试）。
- assert.deepEqual(scenes.value.map(s=>s.people),[['管仲','鲍叔'],['鲍叔']]);
- const visual=await gen.visual({outline,productionPrompt:REQ,style,frames:[{index:0,caption:'管仲与鲍叔牙少时同游。',candidates:people}]});
+ assert.deepEqual(scenes.value,[{caption:'管仲与鲍叔牙少时同游。'},{caption:'鲍叔深知管仲之贤。'}]);
+ assert.deepEqual(calls[2].schema.properties.pages.items.required,['caption']);
+ const visual=await gen.visual({outline,productionPrompt:REQ,style,characters:people,frames:[{index:0,caption:'管仲与鲍叔牙少时同游。'}]});
  assert.deepEqual(visual.value[0].drawn,['管仲','鲍叔牙']);
+ assert.deepEqual(calls[3].payload.characters.map(c=>c.name),people.map(c=>c.name));
+ assert.ok(!Object.hasOwn(calls[3].payload.frames[0],'candidates'));
  for(const c of calls.slice(0,3)){without(c.text,STYLE);contains(c.text,REQ);}
  contains(calls[3].text,STYLE,REQ,'artDirection 只用于画面表现。');
  contains(calls[0].text,'建立或更新空间认识','同一场所先交代必要布局');
@@ -43,15 +45,15 @@ test('outline, characters and storyboard text never see the style; image descrip
 
 test('batched frame calls return one result per frame, matched by frame number; a missing frame fails the batch',async()=>{
  const reply=(schema,payload)=>schema.properties.frames.items.properties.caption
-  ?{frames:[...payload.frames].reverse().map(f=>({number:f.number,caption:`第${f.number}幅修订后的配文。`,people:['鲍叔']}))}
+  ?{frames:[...payload.frames].reverse().map(f=>({number:f.number,caption:`第${f.number}幅修订后的配文。`}))}
   :{frames:[...payload.frames].reverse().map(f=>({number:f.number,prompt:`第${f.number}幅：两位少年并肩走在乡间小路上，中景，晨光从左侧照来。`,drawn:f.number===1?['管仲','鲍叔牙']:['鲍叔']}))};
  const {calls,gen}=recorder(reply);
- const frames=[{index:0,caption:'管仲与鲍叔牙少时同游。',candidates:people},{index:1,caption:'鲍叔深知管仲之贤。',candidates:[people[1]]}];
- const visual=await gen.visual({outline,productionPrompt:REQ,style,frames});
+ const frames=[{index:0,caption:'管仲与鲍叔牙少时同游。'},{index:1,caption:'鲍叔深知管仲之贤。'}];
+ const visual=await gen.visual({outline,productionPrompt:REQ,style,characters:people,frames});
  assert.deepEqual(visual.value.map(v=>v.drawn),[['管仲','鲍叔牙'],['鲍叔']]);
  assert.ok(visual.value[0].prompt.startsWith('第1幅'));
  const issues=[{page:1,category:'progression',problem:'动作不清',instruction:'补足动作',requiresReplan:false}];
- const repaired=await gen.visualRepair({outline,productionPrompt:REQ,style,frames:frames.map(f=>({...f,prompt:VISUAL,drawn:f.candidates,issues})),notes:NOTES});
+ const repaired=await gen.visualRepair({outline,productionPrompt:REQ,style,characters:people,frames:frames.map(f=>({...f,prompt:VISUAL,drawn:f.index===0?people:[people[1]],issues})),notes:NOTES});
  assert.deepEqual(repaired.value.map(v=>v.prompt.slice(0,3)),['第1幅','第2幅']);
  const scenes=await gen.sceneRepair({source,outline,productionPrompt:REQ,frames:frames.map(f=>({index:f.index,caption:f.caption,neighbors:{},issues}))});
  assert.deepEqual(scenes.value.map(s=>s.caption),['第1幅修订后的配文。','第2幅修订后的配文。']);
@@ -59,14 +61,14 @@ test('batched frame calls return one result per frame, matched by frame number; 
  contains(calls[0].text,STYLE,REQ);contains(calls[1].text,STYLE,VISUAL,NOTES);
  contains(calls[1].text,'具体可见的地标、物件或空间边界');
  without(calls[2].text,STYLE,VISUAL,'具体可见的地标、物件或空间边界');
- await assert.rejects(gen.visual({outline,productionPrompt:REQ,style,frames:[]}),/PLAN_LENGTH/);
+ await assert.rejects(gen.visual({outline,productionPrompt:REQ,style,characters:people,frames:[]}),/PLAN_LENGTH/);
  const short=recorder(()=>({frames:[{number:1,prompt:'两位少年并肩走在乡间小路上，中景，晨光从左侧照来。',drawn:[]},{number:1,prompt:'两位少年并肩走在乡间小路上，中景，晨光从左侧照来。',drawn:[]}]}));
- await assert.rejects(short.gen.visual({outline,productionPrompt:REQ,style,frames}),/INVALID_OUTPUT/);
+ await assert.rejects(short.gen.visual({outline,productionPrompt:REQ,style,characters:people,frames}),/INVALID_OUTPUT/);
 });
 
 test('restyle retains the post-release art and story constraints with one output shape',async()=>{
  const {calls,gen}=recorder(()=>({frames:[{number:1,prompt:'清晨两位少年并肩走在乡间小路上，中景，远处可见低矮的土墙。',drawn:['管仲']}]}));
- await gen.restyle({outline,productionPrompt:REQ,style,previousStyle:{artStyle:'ink-pencil',artStylePrompt:'旧画风'},frames:[{index:0,caption:CAPTION,candidates:people,previousPrompt:VISUAL}]});
+ await gen.restyle({outline,productionPrompt:REQ,style,characters:people,previousStyle:{artStyle:'ink-pencil',artStylePrompt:'旧画风'},frames:[{index:0,caption:CAPTION,previousPrompt:VISUAL}]});
  contains(calls[0].text,'不要把新画风附加在旧画风指令后面','保留原有可见细节','只返回 {frames:[{number,prompt,drawn}]}',STYLE,'旧画风',VISUAL);
  contains(calls[0].text,'保留相应地标、路径、边界、人物站位和遮挡');
  without(calls[0].text,'只返回 scenePrompts');
@@ -187,7 +189,7 @@ test('a scoped review keeps an out-of-scope frame finding out of the verdicts of
 });
 
 test('structural repairs reject overlaps, out-of-range edits and invalid frame counts',async()=>{
- const page={caption:'甲放下礼物，留下足够空间让乙回应。',people:[]};
+ const page={caption:'甲放下礼物，留下足够空间让乙回应。'};
  const input={source,outline,productionPrompt:REQ,settings:{length:'auto',narrativeDetail:'balanced'},captions:['第一幅的正文','第二幅的正文'],issues:[]};
  for(const edits of [
   [{from:1,to:2,pages:[page]},{from:2,to:2,pages:[page]}],

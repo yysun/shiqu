@@ -12,13 +12,13 @@ export type Granularity='story'|'frame'|'item';
 
 /**
  * 输入引用。`节点` 读同一版本的故事级产物；`节点@self` 读同一画幅或条目；
- * `@window` 读本幅与相邻两幅；`@all` 按顺序读全部画幅；`characters@drawn` / `@candidates`
- * 只读本幅入画或候选人物的条目；`order` 是画幅身份序列；`reference` 是本幅实际参考图。
+ * `@window` 读本幅与相邻两幅；`@all` 按顺序读全部画幅；`characters@drawn` 只读本幅入画人物；
+ * `order` 是画幅身份序列；`reference` 是本幅实际参考图。
  */
 export type InputRef=string;
 
-/** 执行门槛：preparing 为确认前或读者明确「重新准备」，confirmed 为制作已确认，brief 为制作确认且事实梗概就绪，frameCheck 为幅数与结构核对通过，approved 为可绘图。 */
-export type Gate='preparing'|'confirmed'|'brief'|'frameCheck'|'approved';
+/** 执行门槛：制作确认后可按任务要求等待梗概、人物设定、幅数核对或审片。 */
+export type Gate='preparing'|'confirmed'|'brief'|'characters'|'frameCheck'|'approved';
 
 export type NodeSpec={
  label:string;
@@ -56,7 +56,7 @@ export const nodes={
  outline:{label:'全篇提纲',specRow:'全篇提纲',per:'story',kind:'model',hard:['source','productionReq','settings'],call:'outline',gate:'brief',required:true},
  characters:{label:'人物设定',specRow:'人物设定',per:'story',kind:'model',hard:['source','productionReq'],call:'characters',gate:'confirmed',required:true,editable:true},
  scene:{label:'叙事分镜',specRow:'叙事分镜',per:'frame',kind:'model',hard:['outline','source','productionReq'],call:'sceneBatch',gate:'brief',required:true,editable:true},
- visual:{label:'画面描述',specRow:'画面描述',per:'frame',kind:'model',hard:['outline','productionReq','style'],check:['scene@self','characters@candidates'],call:'visual',gate:'confirmed',required:true,editable:true},
+ visual:{label:'画面描述',specRow:'画面描述',per:'frame',kind:'model',hard:['outline','productionReq','style'],check:['scene@self'],call:'visual',gate:'characters',required:true,editable:true,rerunWaitsForCheck:true},
  ending:{label:'标题与结语候选',specRow:'标题与结语候选',per:'story',kind:'model',hard:['source','outline','order'],check:['scene@all'],call:'ending',gate:'confirmed',required:true,editable:true},
  frameCheck:{label:'幅数与结构核对',specRow:'幅数与结构核对',per:'story',kind:'model',hard:['source','outline','order','productionReq','settings','notes'],check:['scene@all'],call:'frameCheck',gate:'confirmed',required:true},
  notes:{label:'审核意见',specRow:'审核意见',per:'story',kind:'root',hard:[],required:false,editable:true},
@@ -117,10 +117,10 @@ export const calls={
  characters:{label:'人物设定',specRow:'人物设定',produces:['characters'],bound:['source','productionReq']},
  outline:{label:'编排提纲',specRow:'编排提纲',produces:['outline'],bound:['source','productionReq','settings']},
  sceneBatch:{label:'编排叙事分镜批次',specRow:'编排叙事分镜批次',produces:['scene'],bound:['outline','source','productionReq'],sources:['scene@batchDone'],batch:frameBatch},
- visual:{label:'生成画面描述',specRow:'生成画面描述',produces:['visual'],bound:['outline','productionReq','style'],check:['scene@self','characters@candidates'],sources:['scene@batch','characters@batch'],batch:frameBatch},
- restyle:{label:'换画风转换',specRow:'换画风转换',produces:['visual'],bound:['outline','productionReq','style'],check:['scene@self','characters@candidates'],sources:['visual@previous','style@previous','scene@batch','characters@batch'],batch:readerRestyleBatchSize},
+ visual:{label:'生成画面描述',specRow:'生成画面描述',produces:['visual'],bound:['outline','productionReq','style'],check:['scene@self'],sources:['scene@batch','characters'],batch:frameBatch},
+ restyle:{label:'换画风转换',specRow:'换画风转换',produces:['visual'],bound:['outline','productionReq','style'],check:['scene@self'],sources:['visual@previous','style@previous','scene@batch','characters'],batch:readerRestyleBatchSize},
  sceneRepair:{label:'叙事修订',specRow:'叙事修订',produces:['scene'],bound:['outline','source','productionReq'],sources:['scene@self','scene@neighbors','issues','notes','scene@batch'],batch:frameBatch},
- visualRepair:{label:'画面修订',specRow:'画面修订',produces:['visual'],bound:['outline','productionReq','style'],check:['scene@self','characters@candidates'],sources:['visual@self','characters@drawn','issues','notes','scene@batch','characters@batch'],batch:frameBatch},
+ visualRepair:{label:'画面修订',specRow:'画面修订',produces:['visual'],bound:['outline','productionReq','style'],check:['scene@self'],sources:['visual@self','characters@drawn','issues','notes','scene@batch','characters'],batch:frameBatch},
  structureRepair:{label:'结构修订',specRow:'结构修订',produces:['scene'],bound:['outline','source','productionReq','settings'],sources:['scene@all','issues','notes','frameCheck']},
  ending:{label:'拟定标题与结语',specRow:'拟定标题与结语',produces:['ending'],bound:['source','outline','order'],check:['scene@all']},
  endingRepair:{label:'结语修订',specRow:'结语修订',produces:['ending'],bound:['source','outline','order'],check:['scene@all'],sources:['ending','endingChoice','issues','notes']},

@@ -47,7 +47,6 @@ test('scenario 4: replacing one frame redraws only it; reordering redraws nothin
  redraw(s,'f1');
  const e=evaluate(s);
  assert.ok(s.order.slice(1).every(id=>e.instance('frameImage',id).status==='valid'));
- assert.equal(s.order.slice(1).filter(id=>e.instance('frameImage',id).basedOnOld).length,7);
  assert.equal(count(run(s),'draw'),0);
 });
 
@@ -112,17 +111,17 @@ test('scenario 40: restyled image descriptions are valid immediately with the ne
  assert.ok(complete(s));
 });
 
-test('scenario 49: an image description waits for its storyboard text and candidates',()=>{
- const s=story();
+test('scenario 49: an image description waits for its storyboard text and the story cast',()=>{
+ const s=done();
  const r=()=>runnable(s).map(i=>i.id);
- for(let i=0;i<4;i++){
-  const ready=r();
-  assert.ok(!ready.includes('visual:f7')||s.products['scene:f7']);
-  run(s);break;
- }
- delete s.products['scene:f7'];delete s.products['visual:f7'];
+ s.products['style:']=root('watercolor');
+ assert.ok(r().includes('visual:f7'));
+ delete s.products['scene:f7'];
  assert.ok(!r().includes('visual:f7'));
  assert.ok(r().includes('scene:f7'));
+ delete s.products['characters:'];
+ assert.ok(!r().includes('visual:f6'));
+ assert.ok(r().includes('characters:'));
 });
 
 test('scenario 6: new production requirements refresh the scope-bound summary and replan the outline',()=>{
@@ -132,14 +131,14 @@ test('scenario 6: new production requirements refresh the scope-bound summary an
  assert.equal(count(log,'outline'),1);
 });
 
-test('the save preview reports resume point, invalidated images and old references',()=>{
+test('the save preview reports resume point and invalidated images',()=>{
  const base=done();
  const next=clone(base);handEdit(next,'scene','f4');
  const p=preview(base,next);
  assert.equal(p.invalidatedImages,0);
  assert.equal(p.resumeAt,'逐幅审片结论');
- const redrawn=clone(base);redraw(redrawn,'f1');
- assert.equal(preview(base,redrawn).oldReference,7);
+ const redrawn=clone(base);delete redrawn.products['frameImage:f1'];
+ assert.equal(preview(base,redrawn).invalidatedImages,1);
 });
 
 test('a fault blocks only its own node and dependants; optional faults never block completion',()=>{

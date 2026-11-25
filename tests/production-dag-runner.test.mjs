@@ -91,12 +91,12 @@ test('scenario 34: production structure repair keeps untouched identities and re
  for(const key of [before[0],before[2],before[3],before[6]])s.dag.frames[key].redrawNote=`保留画幅 ${key} 的光线。`;
  const hand=`visual:${before[9]}`;
  s.dag.products[hand].handEdited=true;
- const scene=key=>({caption:s.dag.frames[key].scene,people:s.dag.frames[key].people});
+ const scene=key=>({caption:s.dag.frames[key].scene});
  const instance=evaluate(stateOf(s)).instance('narrativeVerdict');
  s.dag=apply(s,{call:'structureRepair',instances:[instance]},[
   {from:3,to:4,scenes:[scene(before[2])]},
-  {from:7,to:7,scenes:[scene(before[6]),{caption:'拆分后独立的配文。',people:[]}]},
-  {from:9,to:10,scenes:[{caption:'第九幅明确改写后的配文。',people:[]},scene(before[9])]},
+  {from:7,to:7,scenes:[scene(before[6]),{caption:'拆分后独立的配文。'}]},
+  {from:9,to:10,scenes:[{caption:'第九幅明确改写后的配文。'},scene(before[9])]},
  ],{newId});
  assert.deepEqual(s.dag.order.filter(key=>before.includes(key)),before.filter(key=>!retired.includes(key)));
  assert.equal(s.dag.order.length,before.length);
@@ -121,7 +121,7 @@ test('production structure repair reports reader attention and leaves protected 
  s.dag.products[instance.id].outcome='fail';
  s.dag.issues=[{target:instance.id,page:1,category:'progression',problem:'叙事重复',instruction:'合并首两幅',requiresReplan:true}];
  const repair=work(s).find(item=>item.call==='structureRepair');
- s.dag=apply(s,repair,[{from:1,to:2,scenes:[{caption:before.scene,people:before.people}]}],{newId});
+ s.dag=apply(s,repair,[{from:1,to:2,scenes:[{caption:before.scene}]}],{newId});
  assert.deepEqual(s.dag.order.slice(0,2),[first,second]);
  assert.deepEqual(s.dag.frames[first],before);
  assert.deepEqual(attention(s),[{target:instance.id,reason:'hand-edited'}]);

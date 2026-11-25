@@ -163,13 +163,11 @@ export class ReaderRepository{
  }
  async control(id:string,uid:string,action:ProductionAction){
   const row=await this.get(id,uid);
-  const startsGeneration=action==='resume'||action==='background';
+  const startsGeneration=action==='resume';
   if(startsGeneration&&await this.superseded(id,uid))throw new ReaderError(409,latestVersionMessage);
-  if(row.state==='completed')throw new ReaderError(409,'故事已完整生成，无需更改生成方式。');
-  // Resume always continues the whole story; other legacy actions change only their own field.
-  const field=action==='background'?'generation_mode':'generation_control';
+  if(row.state==='completed')throw new ReaderError(409,'故事已完整生成。');
   const value=action==='pause'?'paused':action==='stop'?'stopped':action==='resume'?'active':action;
-  const assignment=action==='resume'?"generation_mode='background',generation_control=?":`${field}=?`;
+  const assignment=action==='resume'?"generation_mode='background',generation_control=?":"generation_control=?";
   const result=await this.db.prepare(`UPDATE stories SET ${assignment} WHERE id=? AND user_id=? AND state!='completed' AND ${visible}${startsGeneration?` AND NOT ${supersededSql()}`:''}`)
    .bind(value,id,uid).run();
   if(startsGeneration&&!result.meta.changes&&await this.superseded(id,uid))throw new ReaderError(409,latestVersionMessage);

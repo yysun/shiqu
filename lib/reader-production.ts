@@ -5,7 +5,6 @@ import type {RecoveryRequest,ReviewOverride} from './reader-recovery.ts';
 import type {Story} from './content';
 import type {Plan} from './reader-model.ts';
 import type {ModelSnapshot} from './production-dag/document.ts';
-export const productionReadAhead=6;
 export const productionViewerLeaseMs=30000;
 export type LandscapeStatus={matchesSavedPages?:boolean;referenceError?:string;readUnavailable?:boolean;state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;retryToken?:string;modelToken?:string;error?:string;service?:ProductionService;control?:GenerationControl;controlAction?:'pause'|'resume';printId?:string;earlier?:EarlierLandscapeWork[]};
 export type EarlierLandscapeWork=Pick<LandscapeStatus,'referenceError'|'readUnavailable'|'state'|'ready'|'total'|'control'|'controlAction'|'startToken'|'retryToken'|'failed'|'error'|'printId'|'modelToken'|'service'>&{storyId:string;revision:number};
@@ -21,7 +20,6 @@ export interface ReaderProduction{
  request(ownerId:string,id:string,viewerId:string,page:number,retry?:boolean):Promise<SessionView>;
  leave(ownerId:string,id:string,viewerId:string):Promise<void>;
  managed(ownerId:string,id:string):Promise<boolean>;
- advance(ownerId:string,id:string,throughPage:number,retry:boolean):Promise<SessionView>;
  shelfSnapshots(ownerId:string,includeTimings?:boolean):Promise<SessionView[]>;
  deletedLifecycles?(ownerId:string):Map<string,ProductionLifecycle>;
  snapshot(ownerId:string,id:string):Promise<SessionView>;

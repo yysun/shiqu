@@ -1,6 +1,6 @@
 'use client';
 // Separate status inspection from viewer demand and publish saved artwork as it arrives.
-// An open story reports its page so that page is drawn first; that never starts or retries work.
+// 打开故事提升整篇的绘图优先级，读者恢复仍使用明确命令。
 // Polls reuse unchanged session rows and the active snapshot, so idle polling does not re-render the reader.
 // 写入 /read?id= 时保留当前历史条目的状态（返回键步骤登记的标记）。
 import type {StoryPublication} from '@/lib/story-publication';
@@ -142,7 +142,7 @@ export function useStoryGeneration(page:number,callbacks:Callbacks,watchShelf=fa
     generationMode.current=observeOnlyGeneration(s)?'observe':'generate';
     retryRequested.current=false;setActive(s);setError(s.state==='failed'?s.error||'生成失败，请重试继续。':'');setWake(v=>v+1);
    }
-  }catch(error){if((error as {status?:number}).status!==undefined)controlRequest.current=null;setControlError(error instanceof Error?error.message:'生成方式暂未保存，请重试。');}
+  }catch(error){if((error as {status?:number}).status!==undefined)controlRequest.current=null;setControlError(error instanceof Error?error.message:'制作控制暂未保存，请重试。');}
   finally{controlLock.current=false;setControlBusy('');}
  }
  async function drawAnyway(sessionId:string,skipFaultId?:string){

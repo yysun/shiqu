@@ -173,6 +173,8 @@ test('edit a caption, save, restart and continue: only the affected review runs 
  let doc=await saved(f,child);
  assert.equal(doc.dag.continuation?.reason,'revision-saved');
  assert.equal(doc.dag.frames[doc.dag.order[2]].scene,plan.pages[2].caption);
+ assert.deepEqual(doc.dag.frames[doc.dag.order[2]].drawn,before.frames[before.order[2]].drawn);
+ assert.ok(!Object.hasOwn(doc.dag.frames[doc.dag.order[2]],'candidates'));
  // 桌面端据此显示「已保存，等待继续」与「继续制作」。
  assert.equal((await f.read(child)).awaitingContinue,true);
  const waiting=await f.read(child);
@@ -467,8 +469,7 @@ test('production command guards choose one rule for every combination of persist
 
 test('each production command has its own effect and refuses an invalid target or gate',()=>{
  const expected={
-  background:{kind:'control',mode:'background',control:null},pause:{kind:'control',mode:null,control:'paused'},
-  stop:{kind:'control',mode:null,control:'stopped'},resume:{kind:'control',mode:'background',control:'active'},
+  pause:{kind:'control',control:'paused'},stop:{kind:'control',control:'stopped'},resume:{kind:'control',control:'active'},
   continue:'continue-revision',retry:'recover-fault','continue-repair':'grant-repair-budget','skip-review':'save-skipped-review',
   'override-review':'release-review-target','apply-model':'replace-model-snapshot',reprepare:'refresh-preparation','image-health':'probe-image',
   'start-landscape':'queue-landscape','retry-landscape':'recover-landscape','open-reselection':'create-selection-draft','edit-revision':'read-edit-basis',
@@ -563,7 +564,7 @@ test('production control routes accept current work and reject a finished or sup
  plan.pages[0].caption='庄周从梦中醒来。';
  await f.json(`${route}/revisions`,'POST',{requestId:child,token,changes:{plan}});
  const childRoute=`sessions/${child}/production-control`;
- for(const [action,expected] of [['pause','paused'],['background','paused'],['stop','stopped'],['resume','active']]){
+ for(const [action,expected] of [['pause','paused'],['stop','stopped'],['resume','active']]){
   const command={requestId:crypto.randomUUID(),action};
   const changed=await f.json(childRoute,'POST',command);
   assert.equal(changed.lifecycle.control,expected,action);
@@ -571,6 +572,7 @@ test('production control routes accept current work and reject a finished or sup
   assert.equal((await f.json(childRoute,'POST',command)).lifecycle.control,expected,`重放 ${action}`);
   assert.equal((await f.request(`${route}/production-control`,'POST',{...command,requestId:crypto.randomUUID()})).status,409,action);
  }
+ assert.equal((await f.request(childRoute,'POST',{action:'background'})).status,400);
 });
 
 test('preparation only offers and accepts resume after an explicit pause',async t=>{
@@ -800,6 +802,25 @@ test('confirming a portrait redraw leaves the earlier landscape set available wi
  assert.equal(original.story.id,id);
  assert.deepEqual(original.images,old);
  assert.equal((await f.json(`sessions/${child.id}/landscape`)).state,'idle');
+});
+
+test('confirming a whole-story redraw waits for the new first image and uses it for every other frame',async t=>{
+ const f=await productionFixture(t,'codex');
+ const {id,dag}=await completedStory(f);
+ const {token}=await f.json(`sessions/${id}/revisions`);
+ const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token,
+  changes:{redrawPages:dag.order.map((_,index)=>index+1)},startRedraw:true});
+ await until(()=>f.control.calls.length===1);
+ for(let i=0;i<3;i++)await f.app.services.production.tick();
+ assert.deepEqual(f.control.calls.map(call=>call.page),[0]);
+ assert.ok(!child.awaitingContinue);
+ const first=f.control.calls[0];
+ f.control.hold=false;
+ first.resolve();
+ await until(async()=>(await f.read(child.id)).state==='completed',15000);
+ assert.deepEqual(f.control.calls.map(call=>call.page).sort((a,b)=>a-b),dag.order.map((_,index)=>index));
+ assert.ok(f.control.calls.slice(1).every(call=>call.reference===first.bytes));
+ assert.equal(f.control.reviews.length+textCalls(f.control),0);
 });
 
 test('a style change converts image descriptions in one batch, re-reviews frames and redraws every image',async t=>{
@@ -1389,14 +1410,11 @@ for(const duplicate of [true,false])test(`a revision media copy rechecks ${dupli
  assert.equal(current.id,duplicate?requestId:id);
 });
 
-test('viewed pages and the first image go ahead of unread drawings; leaving restores page order',async()=>{
+test('all frames in an open story take priority in frame order',async()=>{
  const {viewedPriority}=await import('../server/dag-production.ts');
- const viewing=[{page:3,through:9}];
- assert.ok(viewedPriority(3,viewing)<viewedPriority(0,[]),'the current page goes ahead of any unread story');
- assert.ok(viewedPriority(9,viewing)<viewedPriority(0,[]),'read-ahead pages go ahead too');
- assert.ok(viewedPriority(0,viewing)<viewedPriority(1,[]),'the first image is the reference for every page');
- assert.equal(viewedPriority(10,viewing),10,'pages beyond the read-ahead keep page order');
- assert.equal(viewedPriority(5,[]),5,'without a reader every page keeps page order');
+ assert.ok(viewedPriority(79,true)<viewedPriority(0,false));
+ assert.ok(viewedPriority(0,true)<viewedPriority(1,true));
+ assert.equal(viewedPriority(5,false),5);
 });
 
 test('the copy command requires passed review unless the reader explicitly copies a draft',async t=>{

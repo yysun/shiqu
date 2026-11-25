@@ -6,9 +6,7 @@ import path from 'node:path';
 import {readFileSync,readdirSync} from 'node:fs';
 import {migrate} from '../server/database.ts';
 import {productionFixture,until} from './fixtures/production.mjs';
-import {ReaderRepository} from '../lib/reader-repository.ts';
 import {flowProviders} from './fixtures/test-tier.mjs';
-const owner='docker-local-owner';
 const outlines=f=>f.control.dagCalls.filter(name=>name==='outline').length;
 const control=(f,id,action)=>f.json(`sessions/${id}/production-control`,'POST',{action});
 
@@ -23,7 +21,7 @@ for(const provider of flowProviders(['codex','gemini']))test(`${provider}: new s
 });
 
 for(const action of ['pause','stop'])test(`${action} overrides viewers and legacy calls, survives restart and resumes in the saved mode`,async t=>{
- const f=await productionFixture(t),id=await f.create(10),viewer=crypto.randomUUID();await control(f,id,'background');await f.demand(id,viewer);
+ const f=await productionFixture(t),id=await f.create(10),viewer=crypto.randomUUID();await f.demand(id,viewer);
  await until(()=>f.control.calls.length===1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
  await control(f,id,action);for(const call of f.control.calls)call.resolve();await until(async()=>(await f.read(id)).ready===4&&(await f.read(id)).state!=='running');
  const expected=action==='pause'?'paused':'stopped';
@@ -31,7 +29,7 @@ for(const action of ['pause','stop'])test(`${action} overrides viewers and legac
  await f.app.services.production.tick();assert.equal(f.control.calls.length,4);
  assert.equal((await f.read(id)).generationControl,expected);
  await f.restart();await f.app.services.production.tick();assert.equal(f.control.calls.length,4);
- await control(f,id,'background');assert.equal((await f.read(id)).generationControl,expected);
+ assert.equal((await f.read(id)).generationControl,expected);
  await control(f,id,'resume');await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.calls.length,10);
  assert.equal((await f.read(id)).generationMode,'background');
 });
@@ -54,7 +52,7 @@ test('leaving a new story keeps it generating; a manual pause still survives res
 });
 
 for(const provider of flowProviders(['codex','gemini']))test(`${provider}: shutdown drains saved images; startup resumes only the missing background pages`,async t=>{
- const f=await productionFixture(t,provider),id=await f.create(10);await control(f,id,'background');
+ const f=await productionFixture(t,provider),id=await f.create(10);
  await until(()=>f.control.calls.length===1);f.control.calls[0].resolve();await until(()=>f.control.calls.length===4);
  f.app.stopGeneration();for(const call of f.control.calls)call.resolve();await until(async()=>(await f.read(id)).ready===4&&(await f.app.services.database.prepare('SELECT state FROM stories WHERE id=?').bind(id).first()).state!=='running');
  const before=await f.read(id);assert.equal(before.ready,4);
@@ -71,7 +69,7 @@ test('expired background script locks restart planning without viewers',async t=
 });
 
 test('background provider failures stay failed after restart until explicit retry',async t=>{
- const f=await productionFixture(t),id=await f.create(10);await control(f,id,'background');await until(()=>f.control.calls.length===1);f.control.calls[0].reject(Error('controlled failure'));
+ const f=await productionFixture(t),id=await f.create(10);await until(()=>f.control.calls.length===1);f.control.calls[0].reject(Error('controlled failure'));
  await until(async()=>(await f.read(id)).state==='failed');await f.restart();await f.app.services.production.tick();
  assert.equal((await f.read(id)).state,'failed');assert.equal(f.control.calls.length,1);
  await control(f,id,'pause');await control(f,id,'resume');await f.app.services.production.tick();
@@ -80,7 +78,7 @@ test('background provider failures stay failed after restart until explicit retr
 });
 
 test('reader deletion disarms background work; restore cannot restart it',async t=>{
- const f=await productionFixture(t),id=await f.create(10);await control(f,id,'background');await until(()=>f.control.calls.length===1);
+ const f=await productionFixture(t),id=await f.create(10);await until(()=>f.control.calls.length===1);
  await f.json(`library/${id}`,'DELETE');
  // 删除后正在进行的绘图结束：不再派发新的绘图。（已付费的成图是否保留见报告：DAG 保存要求故事可见。）
  f.control.calls[0].resolve();await f.app.services.production.queue.settle();
@@ -91,11 +89,11 @@ test('reader deletion disarms background work; restore cannot restart it',async 
 test('controls validate owner, origin, body and completed sessions; pause does not require provider access',async t=>{
  const f=await productionFixture(t),id=await f.create();
  for(const body of [{action:'invalid'},{action:'resume',ownerId:'foreign'},{}])assert.equal((await f.request(`sessions/${id}/production-control`,'POST',body)).status,400);
- assert.equal((await f.request(`sessions/${id}/production-control`,'POST',{action:'background'},{Origin:'https://evil.example'})).status,403);
- await assert.rejects(f.app.services.production.control('foreign',id,'background'),error=>error.status===404);
+ assert.equal((await f.request(`sessions/${id}/production-control`,'POST',{action:'pause'},{Origin:'https://evil.example'})).status,403);
+ await assert.rejects(f.app.services.production.control('foreign',id,'pause'),error=>error.status===404);
  await f.json(`library/${id}`,'DELETE');assert.equal((await f.request(`sessions/${id}/production-control`,'POST',{action:'resume'})).status,404);
- const done=await f.create();f.control.hold=false;await control(f,done,'background');await until(async()=>(await f.read(done)).state==='completed');
- assert.equal((await f.request(`sessions/${done}/production-control`,'POST',{action:'background'})).status,409);
+ const done=await f.create();f.control.hold=false;await until(async()=>(await f.read(done)).state==='completed');
+ assert.equal((await f.request(`sessions/${done}/production-control`,'POST',{action:'background'})).status,400);
  const paused=await f.create();f.generation.status=async()=>({configured:false});assert.equal((await f.request(`sessions/${paused}/production-control`,'POST',{action:'pause'})).status,200);
 });
 
@@ -114,19 +112,10 @@ for(const provider of flowProviders(['codex','gemini']))test(`${provider}: an ex
 });
 
 test('startup reconciles a fully published background story whose final session save was interrupted',async t=>{
- const f=await productionFixture(t),id=await f.create();f.control.hold=false;await control(f,id,'background');await until(async()=>(await f.read(id)).state==='completed');await f.stop();
+ const f=await productionFixture(t),id=await f.create();f.control.hold=false;await until(async()=>(await f.read(id)).state==='completed');await f.stop();
  const db=new DatabaseSync(path.join(f.dataDirectory,'shiqu.sqlite'));
  db.prepare("UPDATE stories SET state='running',lock_token='dead-finalizer',lock_until=1 WHERE id=?").run(id);db.close();
  await f.restart();await until(async()=>(await f.read(id)).state==='completed');assert.equal(f.control.calls.length,8);assert.equal(outlines(f),1);
-});
-
-test('a concurrent mode change cannot overwrite another window’s manual pause',async t=>{
- const f=await productionFixture(t),id=await f.create(),repo=new ReaderRepository(f.app.services.database),get=repo.get.bind(repo);
- let release,observed;const gate=new Promise(resolve=>release=resolve),read=new Promise(resolve=>observed=resolve);let first=true;
- repo.get=async(...args)=>{const row=await get(...args);if(first){first=false;observed();await gate;}return row;};
- const toggle=repo.control(id,owner,'background');await read;await control(f,id,'pause');release();await toggle;
- const s=await f.read(id);assert.equal(s.generationMode,'background');assert.equal(s.generationControl,'paused');
- await f.app.services.production.tick();assert.equal(f.control.calls.length,0);assert.equal(f.control.dagCalls.length,0);
 });
 
 test('upgrading a pre-background library preserves checkpoints and pauses old stories',t=>{

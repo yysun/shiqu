@@ -39,7 +39,7 @@ const candidate={title:plan.title,description:'人物经历梦与醒。',summary
 const dagSource={original,book:'庄子',chosenStory:'庄周梦蝶',variationSeed:'story-1'},style={artStyle:'ink-pencil',artStylePrompt:null};
 const dagOutline={title:plan.title,summary:plan.summary,sourceReference:'《庄子》',adaptationNote:'按原文改编',beats:Array.from({length:21},(_,i)=>`第${i+1}幅的动作与回应。`)};
 const people=[{id:'c1',name:'庄周',aliases:[],text:'梦为胡蝶的人，布衣。'}],captions=plan.pages.slice(0,3).map(page=>page.caption);
-const frames=[{index:0,caption:captions[0],candidates:people}],settings={narrativeDetail:'balanced',length:'auto'};
+const frames=[{index:0,caption:captions[0]}],settings={narrativeDetail:'balanced',length:'auto'};
 const visualText='庄周伏在案上入睡，梦中化为蝴蝶，中景，晨光从窗外照来。';
 function responseFor(payload,schema){
  if(schema.properties.matches)return {matches:payload.stories.map(story=>({id:story.id,verdict:'yes',reason:'原文事件与结果支持本次选题。'}))};
@@ -50,8 +50,8 @@ function responseFor(payload,schema){
  if(schema.properties.beats)return {...dagOutline,beats:dagOutline.beats.slice(0,payload.exactPageCount==='auto'||!payload.exactPageCount?8:payload.exactPageCount)};
  if(schema.properties.summary)return {summary:plan.summary};
  if(schema.properties.characters)return {characters:[{name:'庄周',aliases:[],text:people[0].text}]};
- if(schema.properties.pages)return {pages:Array.from({length:payload.batch.last-payload.batch.first+1},(_,i)=>({caption:plan.pages[i%8].caption,people:['庄周']}))};
- if(schema.properties.frames?.items?.properties.caption)return {frames:payload.frames.map(f=>({number:f.number,caption:plan.pages[0].caption,people:['庄周']}))};
+ if(schema.properties.pages)return {pages:Array.from({length:payload.batch.last-payload.batch.first+1},(_,i)=>({caption:plan.pages[i%8].caption}))};
+ if(schema.properties.frames?.items?.properties.caption)return {frames:payload.frames.map(f=>({number:f.number,caption:plan.pages[0].caption}))};
  if(schema.properties.frames)return {frames:payload.frames.map(f=>({number:f.number,prompt:visualText,drawn:['庄周']}))};
  if(schema.properties.edits)return {edits:[]};
  if(schema.properties.items)return {items:payload.items.map(item=>({index:item.index,scope:'story',evidence:['scenes']}))};
@@ -108,10 +108,10 @@ async function requestsFor(provider,acceptancePrompt){
  await call('outline',()=>dag.outline({source:dagSource,productionPrompt:inputSelection.productionPrompt,settings:{narrativeDetail:'balanced',length:8}}));
  await call('batch',()=>dag.sceneBatch({source:dagSource,outline:dagOutline,productionPrompt:inputSelection.productionPrompt,first:1,previous:[]}));
  await call('batch-later',()=>dag.sceneBatch({source:dagSource,outline:dagOutline,productionPrompt:inputSelection.productionPrompt,first:21,previous:captions}));
- await call('visual',()=>dag.visual({outline:dagOutline,productionPrompt:inputSelection.productionPrompt,style,frames}));
- await call('restyle',()=>dag.restyle({outline:dagOutline,productionPrompt:inputSelection.productionPrompt,style,previousStyle:style,frames:frames.map(f=>({...f,previousPrompt:visualText}))}));
+ await call('visual',()=>dag.visual({outline:dagOutline,productionPrompt:inputSelection.productionPrompt,style,characters:people,frames}));
+ await call('restyle',()=>dag.restyle({outline:dagOutline,productionPrompt:inputSelection.productionPrompt,style,characters:people,previousStyle:style,frames:frames.map(f=>({...f,previousPrompt:visualText}))}));
  await call('scene-repair',()=>dag.sceneRepair({source:dagSource,outline:dagOutline,productionPrompt:inputSelection.productionPrompt,frames:[{index:0,caption:captions[0],neighbors:{},issues:[issue]}]}));
- await call('visual-repair',()=>dag.visualRepair({outline:dagOutline,productionPrompt:inputSelection.productionPrompt,style,frames:frames.map(f=>({...f,prompt:visualText,drawn:people,issues:[issue]}))}));
+ await call('visual-repair',()=>dag.visualRepair({outline:dagOutline,productionPrompt:inputSelection.productionPrompt,style,characters:people,frames:frames.map(f=>({...f,prompt:visualText,drawn:people,issues:[issue]}))}));
  await call('structure-repair',()=>dag.structureRepair({source:dagSource,outline:dagOutline,productionPrompt:inputSelection.productionPrompt,settings,captions,issues:[{...issue,requiresReplan:true}]}));
  await call('candidates',()=>dag.ending({source:dagSource,outline:dagOutline,captions}));
  await call('reflection-repair',()=>dag.endingRepair({source:dagSource,outline:dagOutline,captions,reflection:plan.reflection,issues:[{...issue,page:0,category:'reflection'}]}));

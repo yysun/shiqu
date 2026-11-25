@@ -22,13 +22,13 @@ export type DagFrame={
  scene:string;
  /** 画面描述。 */
  visual:string;
- candidates?:string[];
  /** 入画人物；未记录时按全部人物计算。 */
  drawn?:string[];
- /** 模型返回的涉及人物与入画人物名字；保存人物设定时据此重新匹配条目。 */
- people?:string[];
+ /** 模型返回的入画人物名字。 */
  drawnNames?:string[];
  redrawNote?:string;
+ /** 本版读者已明确要求重新绘制此幅。 */
+ redrawRequested?:true;
  image?:string;
  /** 横图：空字符串表示读者已请求、尚未生成。 */
  landscape?:string;
@@ -136,7 +136,7 @@ export function versionState(dag:DagDocument,roots:Record<string,Product>,option
   confirmed:options.confirmed,
   order:dag.order,
   items:dag.items.filter(i=>i.scope!=='frame').map(i=>i.id),
-  frames:Object.fromEntries(dag.order.map(id=>[id,{candidates:dag.frames[id]?.candidates,drawn:dag.frames[id]?.drawn}])),
+  frames:Object.fromEntries(dag.order.map(id=>[id,{drawn:dag.frames[id]?.drawn}])),
   landscapes:dag.order.filter(id=>dag.frames[id]?.landscape===''),
   products:{...dag.products,...roots},
   faults:options.faults||[],

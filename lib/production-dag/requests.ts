@@ -42,7 +42,6 @@ function value(story:DagStory,item:RequestInputs,ref:string,key:string):unknown{
   case 'order':return dag.order;
   case 'renderer':return dag.renderer;
   case 'characters':return characters(dag);
-  case 'characters@candidates':return pick(dag,frame?.candidates);
   case 'characters@drawn':return pick(dag,frame?.drawn);
   case 'scene@self':return frame?.scene??'';
   case 'scene@all':return dag.order.map(id=>dag.frames[id]?.scene??'');
@@ -85,7 +84,7 @@ export function declaredInputs(story:DagStory,item:RequestInputs):Set<string>{
 export type Reader={has(ref:string):boolean;get<T=unknown>(ref:string,key?:string):T};
 
 /**
- * 读取器：只交出声明的输入。按画幅或条目的引用（@self、@candidates 等）只能读本次工作的实例；
+ * 读取器：只交出声明的输入。按画幅或条目的引用（@self、@drawn 等）只能读本次工作的实例；
  * @window 与 @all 的声明允许读对应画幅；同批其他实例按 @batch 声明作为来源可读。
  */
 export function reader(story:DagStory,item:RequestInputs):Reader{
@@ -104,7 +103,7 @@ export function reader(story:DagStory,item:RequestInputs):Reader{
   get<T>(ref:string,key=''):T{
    if(!allowed(ref))throw Error(`DAG_UNDECLARED_INPUT: ${item.call} reads ${ref}`);
    const selector=ref.split('@')[1];
-   if(['self','candidates','drawn','neighbors','batchDone','previous'].includes(selector??'')||ref==='reference'||ref==='item@self'){
+   if(['self','drawn','neighbors','batchDone','previous'].includes(selector??'')||ref==='reference'||ref==='item@self'){
     const inScope=keys.has(key)||declared.has(`${ref.split('@')[0]}@window`)&&window.has(key)||declared.has(`${ref.split('@')[0]}@all`);
     if(!inScope)throw Error(`DAG_UNDECLARED_INPUT: ${item.call} reads ${ref} of ${key}`);
    }
@@ -117,7 +116,7 @@ export type CallInput={method:string;args:unknown};
 type Builder=(read:Reader,story:DagStory,item:Work)=>unknown;
 
 const keysOf=(item:Work)=>item.instances.map(i=>i.key);
-const visualFrame=(read:Reader,story:DagStory,key:string)=>({index:at(story.dag,key),caption:read.get<string>('scene@self',key),candidates:read.get<Character[]>('characters@candidates',key)});
+const visualFrame=(read:Reader,story:DagStory,key:string)=>({index:at(story.dag,key),caption:read.get<string>('scene@self',key)});
 
 const builders:Record<string,Builder>={
  prepareBrief:read=>({source:read.get('source'),productionPrompt:read.get('productionReq')}),
@@ -127,12 +126,12 @@ const builders:Record<string,Builder>={
   const first=keysOf(item)[0];
   return {source:read.get('source'),outline:read.get('outline'),productionPrompt:read.get('productionReq'),first:at(story.dag,first)+1,count:item.instances.length,previous:read.get('scene@batchDone',first)};
  },
- visual:(read,story,item)=>({outline:read.get('outline'),productionPrompt:read.get('productionReq'),style:read.get('style'),frames:keysOf(item).map(k=>visualFrame(read,story,k))}),
- restyle:(read,story,item)=>({outline:read.get('outline'),productionPrompt:read.get('productionReq'),style:read.get('style'),previousStyle:read.get('style@previous',keysOf(item)[0]),
+ visual:(read,story,item)=>({outline:read.get('outline'),productionPrompt:read.get('productionReq'),style:read.get('style'),characters:read.get('characters'),frames:keysOf(item).map(k=>visualFrame(read,story,k))}),
+ restyle:(read,story,item)=>({outline:read.get('outline'),productionPrompt:read.get('productionReq'),style:read.get('style'),characters:read.get('characters'),previousStyle:read.get('style@previous',keysOf(item)[0]),
   frames:keysOf(item).map(k=>({...visualFrame(read,story,k),previousPrompt:read.get<string>('visual@previous',k)}))}),
  sceneRepair:(read,story,item)=>({source:read.get('source'),outline:read.get('outline'),productionPrompt:read.get('productionReq'),notes:read.get('notes'),
   frames:keysOf(item).map(k=>({index:at(story.dag,k),caption:read.get<string>('scene@self',k),neighbors:read.get('scene@neighbors',k),issues:read.get('issues',k)}))}),
- visualRepair:(read,story,item)=>({outline:read.get('outline'),productionPrompt:read.get('productionReq'),style:read.get('style'),notes:read.get('notes'),
+ visualRepair:(read,story,item)=>({outline:read.get('outline'),productionPrompt:read.get('productionReq'),style:read.get('style'),characters:read.get('characters'),notes:read.get('notes'),
   frames:keysOf(item).map(k=>({...visualFrame(read,story,k),prompt:read.get<string>('visual@self',k),drawn:read.get<Character[]>('characters@drawn',k),issues:read.get('issues',k)}))}),
  structureRepair:(read,_story,item)=>{
   const report=item.instances[0].node==='frameCheck'?read.get<import('../reader-review.ts').FrameCountReport>('frameCheck'):undefined;

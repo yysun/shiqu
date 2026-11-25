@@ -14,7 +14,7 @@ const issue={page:2,category:'progression',problem:'回应缺失',instruction:'�
 const local=(purpose,maxStories=32)=>({title:'聊斋志异',edition:'a'.repeat(64),text:'[u]甲赠物，乙未接，后来二人相知相爱。',purpose,scan:{maxStories,excludedSources:[],pendingEvents:[],contextText:''}});
 const source={original,book:'聊斋志异',chosenStory:'赠物',variationSeed:'story-1'},style={artStyle:'ink-pencil',artStylePrompt:null};
 const outline={title:'赠物',summary:'梗概',sourceReference:'聊斋志异',adaptationNote:'按原文',beats:['甲赠物','乙未接']};
-const people=[{id:'c1',name:'甲',aliases:[],text:'赠物者。'}],visualFrames=[{index:0,caption:'甲向乙赠物，乙未接。',candidates:people}];
+const people=[{id:'c1',name:'甲',aliases:[],text:'赠物者。'}],visualFrames=[{index:0,caption:'甲向乙赠物，乙未接。'}];
 const frameIssue={...issue,requiresReplan:false};
 
 // 提供方的发现、画风、幅数建议与生图入口，以及制作 DAG 经 textCall 发出的各调用，逐一检查线上请求契约。
@@ -27,10 +27,10 @@ function stages(provider,length='auto'){
   ['match',()=>provider.matchStories('爱情',[{id:'a'.repeat(64),title:'赠物',text:original.text}])],['art',()=>provider.recommendArt(selection,original)],
   ['recommend',()=>gen.recommend(selection,'fixture',original,true)],
   ['brief',()=>dag.prepareBrief({source})],['characters',()=>dag.characters({source,productionPrompt:''})],['outline',()=>dag.outline({source,productionPrompt:'',settings})],
-  ['scenes',()=>dag.sceneBatch({source,outline,productionPrompt:'',first:1,previous:[]})],['visual',()=>dag.visual({outline,productionPrompt:'',style,frames:visualFrames})],
-  ['restyle',()=>dag.restyle({outline,productionPrompt:'',style,previousStyle:style,frames:visualFrames.map(f=>({...f,previousPrompt:'旧画面描述，人物站在庭院中央。'}))})],
+  ['scenes',()=>dag.sceneBatch({source,outline,productionPrompt:'',first:1,previous:[]})],['visual',()=>dag.visual({outline,productionPrompt:'',style,characters:people,frames:visualFrames})],
+  ['restyle',()=>dag.restyle({outline,productionPrompt:'',style,characters:people,previousStyle:style,frames:visualFrames.map(f=>({...f,previousPrompt:'旧画面描述，人物站在庭院中央。'}))})],
   ['scene-repair',()=>dag.sceneRepair({source,outline,productionPrompt:'',frames:[{index:0,caption:captions[0],neighbors:{},issues:[frameIssue]}]})],
-  ['visual-repair',()=>dag.visualRepair({outline,productionPrompt:'',style,frames:visualFrames.map(f=>({...f,prompt:'旧画面描述，人物站在庭院中央。',drawn:people,issues:[frameIssue]}))})],
+  ['visual-repair',()=>dag.visualRepair({outline,productionPrompt:'',style,characters:people,frames:visualFrames.map(f=>({...f,prompt:'旧画面描述，人物站在庭院中央。',drawn:people,issues:[frameIssue]}))})],
   ['structure-repair',()=>dag.structureRepair({source,outline,productionPrompt:'',settings,captions,issues:[issue]})],
   ['ending',()=>dag.ending({source,outline,captions})],['ending-repair',()=>dag.endingRepair({source,outline,captions,reflection:plan.reflection,issues:[]})],
   ['frame-check',()=>dag.frameCheck({source,outline,productionPrompt:'',settings,captions})],['register',()=>dag.registerItems({items:[{id:'i1',text:'保留原文结局。'}]})],

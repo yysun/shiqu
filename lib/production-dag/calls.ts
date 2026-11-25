@@ -29,8 +29,8 @@ export type StyleInput={artStyle:ArtStyleId;artStylePrompt?:string|null};
 export type SettingsInput={narrativeDetail:string;length:number|'auto'};
 export type Character=CharacterEntry&{text:string};
 export type Outline={title:string;summary:string;sourceReference:string;adaptationNote:string;beats:string[]};
-/** 叙事分镜：配文与涉及人物名字；名字到人物条目的匹配在保存时进行。 */
-export type Scene={caption:string;people:string[]};
+/** 叙事分镜保存本幅配文。 */
+export type Scene={caption:string};
 /** 画面描述与实际入画人物名字。 */
 export type Visual={prompt:string;drawn:string[]};
 
@@ -52,17 +52,11 @@ const captionSchema=z.string().min(8).max(90);
 const promptSchema=z.string().min(20).max(1800);
 /** 逐幅调用每批最多幅数，与叙事分镜批次一致；登记表 calls 的 batch 引用同一上限。 */
 export const frameBatchSize=readerStoryboardBatchSize;
-type VisualFrame={index:number;caption:string;candidates:Character[]};
-const cardDirection='characters 是可能入画人物的设定，只用于辨认身份与外貌；每幅 candidates 列出该幅可能入画的人物名字；drawn 列出该幅画面中实际出现的人物名字。';
+type VisualFrame={index:number;caption:string};
+const cardDirection='characters 是全篇人物设定，用于辨认身份与外貌；drawn 只列出该幅画面中实际出现的人物名字。';
 const frameBatchDirection='frames 每幅返回一条，number 与输入一致。每幅只依据该幅的输入，不写「同上」「承前幅」等依赖其他幅的说法；同批其他幅只作衔接参考。';
 function checkBatch(frames:unknown[],limit=frameBatchSize){if(frames.length<1||frames.length>limit)throw Error('PLAN_LENGTH');}
 const frameRef=(outline:Outline,f:{index:number})=>({number:f.index+1,beat:outline.beats[f.index]});
-/** 同批各幅候选人物设定去重后列一次。 */
-function cardsOf(frames:{candidates:Character[]}[]){
- const cards=new Map<string,Character>();
- for(const f of frames)for(const c of f.candidates)cards.set(c.id,c);
- return [...cards.values()].map(characterCard);
-}
 /** 按幅号取回批次结果：每幅恰好一条，顺序不限。 */
 function byFrame<T extends {number:number}>(rows:T[],frames:{index:number}[]):T[]{
  const map=new Map(rows.map(r=>[r.number,r]));
@@ -109,34 +103,33 @@ export function dagGenerator(call:Call){
    return {...result,value};
   },
 
-  /** 叙事分镜批次：读提纲、原文、制作要求及同批已完成的配文；不读画风。返回配文与涉及人物名字。 */
+  /** 叙事分镜批次：依据提纲、原文、制作要求与之前批次撰写配文。 */
   async sceneBatch(input:{source:SourceInput;outline:Outline;productionPrompt:string;first:number;count?:number;previous:string[]}):Promise<Generated<Scene[]>>{
    const total=input.outline.beats.length,first=input.first,last=Math.min(first+(input.count??readerStoryboardBatchSize)-1,total),count=last-first+1;
    if(count<1)throw Error('PLAN_LENGTH');
-   const schema=obj({pages:{type:'array',minItems:count,maxItems:count,items:obj({caption:str(8,90),people:names})}});
-   const instructions=promptSections(['任务','你是古典连环画分镜导演，本次只为指定批次撰写配文。'],['共同标准',storySceneDirection],['首幅要求',first===1?storyOpeningDirection:''],['配文',storyCaptionDirection],['人物','people 列出本幅叙事涉及的人物名字，包括配文未点名但在本幅出场或被指代的人物，用原文称谓。'],['本地原文',local(input.source)],['批次边界',batchDirection+'\n本次只返回配文与涉及人物，画面指令另行生成。'],['输入与输出',inputBoundaryDirection]);
+   const schema=obj({pages:{type:'array',minItems:count,maxItems:count,items:obj({caption:str(8,90)})}});
+   const instructions=promptSections(['任务','你是古典连环画分镜导演，本次只为指定批次撰写配文。'],['共同标准',storySceneDirection],['首幅要求',first===1?storyOpeningDirection:''],['配文',storyCaptionDirection],['本地原文',local(input.source)],['批次边界',batchDirection+'\n本次只返回配文，画面指令另行生成。'],['输入与输出',inputBoundaryDirection]);
    const result=await call('plan',instructions,{...sourcePayload(input.source,{seed:true}),productionPrompt:input.productionPrompt,exactPageCount:total,outline:withoutSummary(input.outline),batch:{first,last},previousCaptions:input.previous},schema,Math.max(4096,count*300),input.source.original);
-   const pages=z.object({pages:z.array(z.object({caption:captionSchema,people:z.array(z.string().max(40)).max(16)}).strict()).length(count)}).strict().parse(result.value).pages;
-   return {...result,value:pages.map(p=>({caption:p.caption,people:p.people}))};
+   const pages=z.object({pages:z.array(z.object({caption:captionSchema}).strict()).length(count)}).strict().parse(result.value).pages;
+   return {...result,value:pages};
   },
 
   /**
-   * 画面描述：按批调用，每批最多 frameBatchSize 幅，读提纲、制作要求、画风及各幅配文与候选人物设定。
-   * 每幅结果只按本幅输入记录有效性；同批其他幅的配文与人物设定只作衔接参考，改动它们不使本幅失效。
+   * 画面描述按批生成。全篇人物设定只作为生成时可以参考的来源。
    */
-  async visual(input:{outline:Outline;productionPrompt:string;style:StyleInput;frames:VisualFrame[]}):Promise<Generated<Visual[]>>{
+  async visual(input:{outline:Outline;productionPrompt:string;style:StyleInput;characters:Character[];frames:VisualFrame[]}):Promise<Generated<Visual[]>>{
    const {frames,outline}=input;checkBatch(frames);
    const instructions=promptSections(['任务','你是古典连环画分镜导演，本次为 frames 中列出的各幅分别撰写画面指令。'],['静态画面与衔接',storyboardDirection],['画面指令',storyVisualDirection],['画风',storyStyleBoundaryDirection],['人物',cardDirection],['批次边界',frameBatchDirection],['输入与输出',inputBoundaryDirection+'只返回 {frames:[{number,prompt,drawn}]}。']);
-   const payload={outline:withoutSummary(outline),total:outline.beats.length,frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,candidates:f.candidates.map(c=>c.name)})),productionPrompt:input.productionPrompt,artDirection:getArtDirection(input.style),characters:cardsOf(frames)};
+   const payload={outline:withoutSummary(outline),total:outline.beats.length,frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption})),productionPrompt:input.productionPrompt,artDirection:getArtDirection(input.style),characters:input.characters.map(characterCard)};
    const result=await call('plan',instructions,payload,visualRows(frames.length,outline),visualTokens(frames));
    return {...result,value:parseVisuals(result.value,frames)};
   },
 
   /** 换画风转换：按批调用；在画面描述的输入之外，以各幅旧画面描述与旧画风为来源。 */
-  async restyle(input:{outline:Outline;productionPrompt:string;style:StyleInput;previousStyle:StyleInput;frames:(VisualFrame&{previousPrompt:string})[]}):Promise<Generated<Visual[]>>{
+  async restyle(input:{outline:Outline;productionPrompt:string;style:StyleInput;characters:Character[];previousStyle:StyleInput;frames:(VisualFrame&{previousPrompt:string})[]}):Promise<Generated<Visual[]>>{
    const {frames,outline}=input;checkBatch(frames,readerRestyleBatchSize);
-   const instructions=restyleInstructions+'\n\n'+promptSections(['本次范围','逐幅转换 frames 中列出的各幅：scenePrompt 是该幅旧画面指令；caption、candidates 与 characters 只用于核对人物与情节。drawn 列出该幅画面中实际出现的人物名字。'],['批次边界',frameBatchDirection],['输入与输出','只返回 {frames:[{number,prompt,drawn}]}。']);
-   const payload={outline:withoutSummary(outline),frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,candidates:f.candidates.map(c=>c.name),scenePrompt:f.previousPrompt})),productionPrompt:input.productionPrompt,previousArtDirection:{...getArtStyle(input.previousStyle.artStyle),prompt:getArtDirection(input.previousStyle)},artDirection:{...getArtStyle(input.style.artStyle),prompt:getArtDirection(input.style)},characters:cardsOf(frames)};
+   const instructions=restyleInstructions+'\n\n'+promptSections(['本次范围','逐幅转换 frames 中列出的各幅：scenePrompt 是该幅旧画面指令；caption 与 characters 只用于核对人物与情节。drawn 列出该幅画面中实际出现的人物名字。'],['批次边界',frameBatchDirection],['输入与输出','只返回 {frames:[{number,prompt,drawn}]}。']);
+   const payload={outline:withoutSummary(outline),frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,scenePrompt:f.previousPrompt})),productionPrompt:input.productionPrompt,previousArtDirection:{...getArtStyle(input.previousStyle.artStyle),prompt:getArtDirection(input.previousStyle)},artDirection:{...getArtStyle(input.style.artStyle),prompt:getArtDirection(input.style)},characters:input.characters.map(characterCard)};
    const result=await call('repair',instructions,payload,visualRows(frames.length,outline),visualTokens(frames));
    return {...result,value:parseVisuals(result.value,frames)};
   },
@@ -144,19 +137,19 @@ export function dagGenerator(call:Call){
   /** 叙事修订：按批调用，只改列出各幅的配文；各幅当前配文、相邻配文、问题与审核意见是来源。 */
   async sceneRepair(input:{source:SourceInput;outline:Outline;productionPrompt:string;frames:{index:number;caption:string;neighbors:{before?:string;after?:string};issues:ReviewIssue[]}[];notes?:string}):Promise<Generated<Scene[]>>{
    const {frames,outline}=input;checkBatch(frames);
-   const instructions=promptSections(['任务','你是静态连环画修订编辑，只修订 frames 中列出各幅的配文，不重新编排全篇。'],['共同标准',storySceneDirection],['配文',storyCaptionDirection],['修订','按各幅 issues 回查原文逐项解决；只改需要改的部分。people 列出该幅叙事涉及的人物名字。'],['审核意见',input.notes?reviewNotesDirection:''],['本地原文',local(input.source)],['批次边界',frameBatchDirection],['输入与输出',inputBoundaryDirection+'只返回 {frames:[{number,caption,people}]}。']);
+   const instructions=promptSections(['任务','你是静态连环画修订编辑，只修订 frames 中列出各幅的配文，不重新编排全篇。'],['共同标准',storySceneDirection],['配文',storyCaptionDirection],['修订','按各幅 issues 回查原文逐项解决；只改需要改的部分。'],['审核意见',input.notes?reviewNotesDirection:''],['本地原文',local(input.source)],['批次边界',frameBatchDirection],['输入与输出',inputBoundaryDirection+'只返回 {frames:[{number,caption}]}。']);
    const payload={...sourcePayload(input.source),productionPrompt:input.productionPrompt,outline:withoutSummary(outline),frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,neighbors:f.neighbors,issues:f.issues})),...(input.notes?{reviewNotes:input.notes}:{})};
-   const schema=obj({frames:{type:'array',minItems:frames.length,maxItems:frames.length,items:obj({number:{type:'integer',minimum:1,maximum:outline.beats.length},caption:str(8,90),people:names})}});
+   const schema=obj({frames:{type:'array',minItems:frames.length,maxItems:frames.length,items:obj({number:{type:'integer',minimum:1,maximum:outline.beats.length},caption:str(8,90)})}});
    const result=await call('repair',instructions,payload,schema,Math.max(4096,frames.length*400),input.source.original);
-   const rows=z.object({frames:z.array(z.object({number:z.number().int(),caption:captionSchema,people:z.array(z.string().max(40)).max(16)}).strict()).length(frames.length)}).strict().parse(result.value).frames;
-   return {...result,value:byFrame(rows,frames).map(r=>({caption:r.caption,people:r.people}))};
+   const rows=z.object({frames:z.array(z.object({number:z.number().int(),caption:captionSchema}).strict()).length(frames.length)}).strict().parse(result.value).frames;
+   return {...result,value:byFrame(rows,frames).map(r=>({caption:r.caption}))};
   },
 
   /** 画面修订：按批调用，只改列出各幅的画面描述；各幅当前画面描述与入画人物、问题与审核意见是来源。 */
-  async visualRepair(input:{outline:Outline;productionPrompt:string;style:StyleInput;frames:(VisualFrame&{prompt:string;drawn:Character[];issues:ReviewIssue[]})[];notes?:string}):Promise<Generated<Visual[]>>{
+  async visualRepair(input:{outline:Outline;productionPrompt:string;style:StyleInput;characters:Character[];frames:(VisualFrame&{prompt:string;drawn:Character[];issues:ReviewIssue[]})[];notes?:string}):Promise<Generated<Visual[]>>{
    const {frames,outline}=input;checkBatch(frames);
    const instructions=promptSections(['任务','你是静态连环画修订编辑，只修订 frames 中列出各幅的画面指令。'],['静态画面与衔接',storyboardDirection],['画面指令',storyVisualDirection],['画风',storyStyleBoundaryDirection],['人物',cardDirection],['修订','按各幅 issues 逐项解决，保留无问题的可见细节。'],['审核意见',input.notes?reviewNotesDirection:''],['批次边界',frameBatchDirection],['输入与输出',inputBoundaryDirection+'只返回 {frames:[{number,prompt,drawn}]}。']);
-   const payload={outline:withoutSummary(outline),frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,candidates:f.candidates.map(c=>c.name),current:{prompt:f.prompt,drawn:f.drawn.map(c=>c.name)},issues:f.issues})),productionPrompt:input.productionPrompt,artDirection:getArtDirection(input.style),characters:cardsOf(frames.map(f=>({...f,candidates:[...f.candidates,...f.drawn]}))),...(input.notes?{reviewNotes:input.notes}:{})};
+   const payload={outline:withoutSummary(outline),frames:frames.map(f=>({...frameRef(outline,f),caption:f.caption,current:{prompt:f.prompt,drawn:f.drawn.map(c=>c.name)},issues:f.issues})),productionPrompt:input.productionPrompt,artDirection:getArtDirection(input.style),characters:input.characters.map(characterCard),...(input.notes?{reviewNotes:input.notes}:{})};
    const result=await call('repair',instructions,payload,visualRows(frames.length,outline),visualTokens(frames));
    return {...result,value:parseVisuals(result.value,frames)};
   },
@@ -164,11 +157,11 @@ export function dagGenerator(call:Call){
   /** 结构修订：返回按幅号替换的配文段落；新画幅的画面描述随后按批生成。 */
   async structureRepair(input:{source:SourceInput;outline:Outline;productionPrompt:string;settings:SettingsInput;captions:string[];issues:ReviewIssue[];notes?:string;frameCountContext?:FrameCountContext}):Promise<Generated<{from:number;to:number;scenes:Scene[]}[]>>{
    const count=input.captions.length;
-   const direction=`按原文及 issues 返回 {edits:[{from,to,pages:[{caption,people}]}]}。from/to 指修改前 1 起始的幅号，按 from 递增且范围不重叠；替换 from 至 to，from=k,to=k-1 表示在原第 k 幅前插入，from=原幅数+1 表示末尾追加，pages 为空表示删除。只改需协同的连续段落，一次合计最多 ${readerStoryboardBatchSize} 个新或替换画幅，总数 ${readerMinFrames}–${readerMaxFrames}。只返回配文与涉及人物，画面指令另行生成。`;
+   const direction=`按原文及 issues 返回 {edits:[{from,to,pages:[{caption}]}]}。from/to 指修改前 1 起始的幅号，按 from 递增且范围不重叠；替换 from 至 to，from=k,to=k-1 表示在原第 k 幅前插入，from=原幅数+1 表示末尾追加，pages 为空表示删除。只改需协同的连续段落，一次合计最多 ${readerStoryboardBatchSize} 个新或替换画幅，总数 ${readerMinFrames}–${readerMaxFrames}。只返回配文，画面指令另行生成。`;
    const instructions=promptSections(['任务','你是古典静态连环画结构修订编辑。'],['共同标准',storySceneDirection],['配文',storyCaptionDirection],['结构输出',direction],['幅数核对要求',input.frameCountContext?'逐项落实 frameCountContext 的完整 requirements。建议幅数不是硬锁，先补足叙事任务再计数。':''],['审核意见',input.notes?reviewNotesDirection:''],['本地原文',local(input.source)],['输入边界',inputBoundaryDirection]);
-   const schema=obj({edits:{type:'array',maxItems:readerStoryboardBatchSize,items:obj({from:{type:'integer',minimum:1,maximum:count+1},to:{type:'integer',minimum:0,maximum:count},pages:{type:'array',maxItems:readerStoryboardBatchSize,items:obj({caption:str(8,90),people:names})}})}});
+   const schema=obj({edits:{type:'array',maxItems:readerStoryboardBatchSize,items:obj({from:{type:'integer',minimum:1,maximum:count+1},to:{type:'integer',minimum:0,maximum:count},pages:{type:'array',maxItems:readerStoryboardBatchSize,items:obj({caption:str(8,90)})}})}});
    const result=await call('repair',instructions,{...sourcePayload(input.source),productionPrompt:input.productionPrompt,narrativeDetail:input.settings.narrativeDetail,countPolicy:input.settings.length==='auto'?'adaptive':'fixed',outline:withoutSummary(input.outline),captions:input.captions,issues:input.issues,...(input.frameCountContext?{frameCountContext:input.frameCountContext}:{}),...(input.notes?{reviewNotes:input.notes}:{})},schema,16000,input.source.original);
-   const editedPage=z.object({caption:captionSchema,people:z.array(z.string().max(40)).max(16)}).strict();
+   const editedPage=z.object({caption:captionSchema}).strict();
    const edits=z.object({edits:z.array(z.object({
     from:z.number().int().min(1).max(count+1),to:z.number().int().min(0).max(count),
     pages:z.array(editedPage).max(readerStoryboardBatchSize),
@@ -181,7 +174,7 @@ export function dagGenerator(call:Call){
     previousFrom=from;cursor=to+1;
    }
    if(next<readerMinFrames||next>readerMaxFrames)throw Error('STRUCTURAL_FRAME_LIMIT');
-   return {...result,value:edits.map(e=>({from:e.from,to:e.to,scenes:e.pages.map(p=>({caption:p.caption,people:p.people}))}))};
+   return {...result,value:edits.map(e=>({from:e.from,to:e.to,scenes:e.pages}))};
   },
 
   /** 标题与结语候选：读原文、提纲与配文；不读制作要求与画面描述。 */

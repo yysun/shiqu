@@ -103,7 +103,7 @@ export async function authorizeRecovery(db:Database,input:{ownerId:string;sessio
  return (await commandReceipt(db,ownerId,requestId,fingerprint))!;
 }
 
-/** 生成方式与暂停控制：回执与控制字段在一个事务中写入，修订等待仅由继续制作解除。 */
+/** 制作控制与回执在一个事务中写入。修订等待仅由继续制作解除。 */
 export async function authorizeControl(db:Database,ownerId:string,sessionId:string,requestId:string,action:ProductionControlEvent,now=Date.now(),stopping=false){
  const fingerprint=commandFingerprint(['control',sessionId,action]),replay=await commandReceipt(db,ownerId,requestId,fingerprint);if(replay)return replay;
  transact(db,tx=>{
@@ -119,7 +119,7 @@ export async function authorizeControl(db:Database,ownerId:string,sessionId:stri
   if(!row)throw new ReaderError(404,'这篇故事不在你的书架里');
   const decision=authorizeProductionCommand(action,{
    version:row.deleted?'deleted':row.superseded?'superseded':'current',stopping,control:row.generation_control,
-   continuation:!!row.continuation,targetCurrent:true,targetReady:row.state!=='completed'||action!=='background'&&!!row.repreparing,
+   continuation:!!row.continuation,targetCurrent:true,targetReady:row.state!=='completed'||!!row.repreparing,
   });
   if(!decision.allowed)throw new ReaderError(decision.status,decision.message);
   const inserted=tx.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,created_at,updated_at)
@@ -127,9 +127,9 @@ export async function authorizeControl(db:Database,ownerId:string,sessionId:stri
    requestId,ownerId,sessionId,fingerprint,JSON.stringify({action}),now,now).changes;
   if(!inserted)return;
   if(decision.effect.kind!=='control')throw Error('INVALID_PRODUCTION_CONTROL_EFFECT');
-  if(decision.effect.control&&decision.effect.control!==row.generation_control)preserveLegacyLandscapeControl(tx,sessionId,ownerId);
-  tx.run(`UPDATE stories SET generation_control=COALESCE(?,generation_control),generation_mode=COALESCE(?,generation_mode) WHERE id=? AND user_id=?`,
-   decision.effect.control,decision.effect.mode,sessionId,ownerId);
+  if(decision.effect.control!==row.generation_control)preserveLegacyLandscapeControl(tx,sessionId,ownerId);
+  tx.run(`UPDATE stories SET generation_control=?${action==='resume'?",generation_mode='background'":''} WHERE id=? AND user_id=?`,
+   decision.effect.control,sessionId,ownerId);
  });
  const receipt=await commandReceipt(db,ownerId,requestId,fingerprint);if(!receipt)throw new ReaderError(409,'故事已完成或版本已更新，请刷新后再操作。');return receipt;
 }

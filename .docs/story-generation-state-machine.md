@@ -29,7 +29,6 @@
 | 下一步 | `generationProgress.phase`：如 `recommend / plan / reflection / review / repair / image` | 已保存结果还缺什么？ |
 | 审核检查点 | `visualReview.status`：`pending / repair / passed / blocked`；`phase`：`frames / full` | 正在审核什么，能否开始绘图？ |
 | 用户控制 | `generationControl`：`active / paused / stopped` | 是否允许启动后续生成任务？ |
-| 调度方式 | `generationMode`：`background / reader` | 整篇后台生成，还是依赖阅读需求？ |
 | 队列执行 | 任务 `state`：`queued / running / succeeded / failed` | 某次具体工作是否取得执行资格、完成并保存回执？ |
 | 界面投影 | `productionState`：`running / queued / paused` | 此刻队列实际在做、在等，还是没有可运行工作？ |
 | 图片可用性 | 已核对可读、待核对、确认失效；与会话状态分开记录 | 已保存地址对应的文件是否仍然可读，是否获准重绘？ |

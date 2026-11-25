@@ -16,7 +16,7 @@ function generator(){
   if(p.summary&&!p.beats)return {summary:'管仲与鲍叔牙少时相知。'};
   if(p.characters)return {characters:[{name:'管仲',aliases:['夷吾'],text:'齐国人，青年时清贫。'}]};
   if(p.beats)return {title:'管鲍之交',summary:'梗概',sourceReference:'史记',adaptationNote:'按原文',beats:['少时同游','鲍叔知贤']};
-  if(p.pages)return {pages:[{caption:'管仲与鲍叔牙少时同游。',people:['管仲']},{caption:'鲍叔深知管仲之贤。',people:['管仲']}]};
+  if(p.pages)return {pages:[{caption:'管仲与鲍叔牙少时同游。'},{caption:'鲍叔深知管仲之贤。'}]};
   if(p.frames)return {frames:payload.frames.map(f=>({number:f.number,prompt:`第${f.number}幅：两位少年并肩走在乡间小路上，中景。`,drawn:['管仲']}))};
   throw Error('unexpected schema');
  };

@@ -16,7 +16,7 @@ test('a structural omission gets one structure repair that adds the missing fram
    assert.ok(schema.properties.issues.items.required.includes('requiresReplan'));
    return {issues:f.control.reviews.length===1?[{...omission,page:4}]:[]};
   }
-  if(kind==='structure'){structures++;return {edits:[{from:5,to:4,pages:[{caption:'王允说服吕布，二人定下诛董之计。',people:['庄周']}]}]};}
+  if(kind==='structure'){structures++;return {edits:[{from:5,to:4,pages:[{caption:'王允说服吕布，二人定下诛董之计。'}]}]};}
   if(kind==='sceneRepair'||kind==='visualRepair')localRepairs++;
  };
  const id=await confirmedStory(f,6);f.app.services.production.wake();
@@ -32,7 +32,7 @@ test('a missing opening introduction is repaired in frame one without replanning
  const opening='庄周在梦中化作一只蝴蝶，正自在地飞舞，忘了自己原来的身份。';let requested;
  f.control.beforeText=async(kind,payload)=>{
   if(kind==='review')return {issues:f.control.reviews.length===1?[{page:1,category:'caption',requiresReplan:false,problem:'首幅没有介绍庄周或梦中处境，直接使用“他”，读者无法定位人物。',instruction:'首幅简短介绍庄周梦为蝴蝶的处境，保持后续编排与原有画面。'}]:[]};
-  if(kind==='sceneRepair'){requested=payload.frames.map(frame=>frame.number);return {frames:payload.frames.map(frame=>({number:frame.number,caption:opening,people:['庄周']}))};}
+  if(kind==='sceneRepair'){requested=payload.frames.map(frame=>frame.number);return {frames:payload.frames.map(frame=>({number:frame.number,caption:opening}))};}
  };
  const id=await confirmedStory(f,3);f.app.services.production.wake();
  await until(async()=>(await f.read(id)).state==='completed',20000);

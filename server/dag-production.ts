@@ -46,14 +46,9 @@ import {PaidDispatchDenied} from './paid-dispatch.ts';
 
 export const dagTextKind='dag',dagDrawKind='dag-draw';
 type Deps={portraitOnly?:boolean;database:Database;media:MediaStore;queue:ProductionQueue;clock:()=>number;wake:()=>void;snapshot?:()=>ModelSnapshot|undefined;fileLost:(key:string,strict?:boolean,landscape?:boolean)=>Promise<boolean>};
-/** 正在阅读的读者：当前页到预读范围内的画幅优先于其他故事的绘图（决策：恢复旧版的阅读优先）。 */
-type Paid={value:unknown;model:string;requestId:string|null;usage:unknown;entry?:Document['usage'][number];drawingChecks?:Record<string,string>;usageRecorded?:boolean};
-export type Viewing={page:number;through:number};
-export const viewedPriority=(page:number,viewers:Viewing[])=>{
- // 首幅是其余各幅的参考，只要有人在读这篇故事就一并提前；范围内的画幅按页序先于所有未被阅读的绘图。
- const viewed=viewers.some(v=>page>=v.page&&page<=v.through)||page===0&&viewers.length>0;
- return viewed?page-100:page;
-};
+type Paid={value:unknown;model:string;requestId:string|null;usage:unknown;entry?:Document['usage'][number];usageRecorded?:boolean};
+/** 阅读中的故事优先。每篇仍按幅序绘图。 */
+export const viewedPriority=(page:number,opened:boolean)=>opened?page-100:page;
 type FaultTarget={id:string;node:string|null;node_key:string;optional:number;kind:string|null;faultKind:string;state:string;payload:string|null};
 const pendingFaultTargets=`SELECT f.id,f.node,f.node_key,f.optional,f.kind AS faultKind,f.state,j.kind,j.payload FROM reader_faults f
  LEFT JOIN production_jobs j ON j.id=f.job_id AND j.session_id=f.session_id AND j.owner_id=f.owner_id
@@ -270,7 +265,7 @@ export class DagProduction{
   return saved.meta.changes>0;
  }
 
- private spec(row:SessionRow,story:DagStory,item:Work,priority:number,viewers:Viewing[]=[]):JobSpec{
+ private spec(row:SessionRow,story:DagStory,item:Work,priority:number,opened=false):JobSpec{
   // 任务身份覆盖本次请求实际读取的全部输入（含来源与核对输入，如修订读取的当前配文与问题），
   // 因此同一产物在来源变化后再次修订会得到新任务；产物有效性仍只按硬输入判断。
   const preparation=(!story.confirmed||story.dag.repreparing)&&(item.call==='verifySource'||preparingCall(item.call));
@@ -284,11 +279,11 @@ export class DagProduction{
   const page=drawing(item.call)?story.dag.order.indexOf(item.instances[0].key):undefined;
   return {id,sessionId:row.id,ownerId:row.user_id,kind:drawing(item.call)?dagDrawKind:dagTextKind,pool:drawing(item.call)?'image':'text',version:'dag',dependencies:[],
    // 准备流程的世代与旧任务相同：选题或确认改变世代后，上一世代的任务不再算作当前任务。
-   payload:{work:item,...attempt,...(preparationGeneration===undefined?{}:{preparationGeneration}),...(page!==undefined?{page}:{}),...(story.doc.intake?{setupGeneration:story.doc.intake.generation}:{}),timingStage:preparation?'count':drawing(item.call)?'image':item.call,...(preparation?{timingScope:productionTimingScope(story.selection,false)}:{})},priority:page===undefined?priority:viewedPriority(page,viewers)};
+   payload:{work:item,...attempt,...(preparationGeneration===undefined?{}:{preparationGeneration}),...(page!==undefined?{page}:{}),...(story.doc.intake?{setupGeneration:story.doc.intake.generation}:{}),timingStage:preparation?'count':drawing(item.call)?'image':item.call,...(preparation?{timingScope:productionTimingScope(story.selection,false)}:{})},priority:page===undefined?priority:viewedPriority(page,opened)};
  }
 
  /** 为一篇故事安排工作；返回 true 表示已由 DAG 路径处理。 */
- async schedule(row:SessionRow,viewers:Viewing[]=[]):Promise<boolean>{
+ async schedule(row:SessionRow,opened=false):Promise<boolean>{
   const story=await this.story(row);if(!story)return false;
   const queued=(await this.deps.database.prepare(`SELECT id,payload FROM production_jobs WHERE session_id=? AND owner_id=? AND kind IN ('${dagTextKind}','${dagDrawKind}') AND state='queued'${this.deps.portraitOnly?" AND json_extract(payload,'$.work.call') IS NOT 'drawLandscape'":''}`).bind(row.id,row.user_id).all<{id:string;payload:string}>()).results;
   if(story.dag.continuation){await this.drop(queued.filter(job=>JSON.parse(job.payload).work?.call!=='drawLandscape').map(job=>job.id));return true;}
@@ -326,7 +321,7 @@ export class DagProduction{
    retained.add(job.id);
    for(const instance of item.instances)running.add(instance.id);
   }
-  const specs=this.specs(row,story,items.filter(item=>!item.instances.some(i=>running.has(i.id))),viewers);
+  const specs=this.specs(row,story,items.filter(item=>!item.instances.some(i=>running.has(i.id))),opened);
   for(const spec of specs)await this.deps.queue.enqueue(spec);
   // 当前需要的工作与已完成的任务同身份（例如内容改回之前的输入）：重新排队；执行前的当前性核对避免重复付费。
   for(const spec of specs){
@@ -337,7 +332,7 @@ export class DagProduction{
   await this.drop(supersededQueue.map(j=>j.id).filter(id=>!retained.has(id)&&!specs.some(s=>s.id===id)));
   return true;
  }
- private specs(row:SessionRow,story:DagStory,items=work(story),viewers:Viewing[]=[]){return items.map((item,i)=>this.spec(row,story,item,-10+i,viewers));}
+ private specs(row:SessionRow,story:DagStory,items=work(story),opened=false){return items.map((item,i)=>this.spec(row,story,item,-10+i,opened));}
  private async drop(ids:string[]){const now=this.deps.clock();transact(this.deps.database,db=>{for(const id of ids)deleteJobs(db,"id=? AND state='queued'",[id],now);});}
 
  /** 已付费成图绑定硬输入。星标等核对输入变化时，仍须保存原已付费成果。 */
@@ -368,7 +363,7 @@ export class DagProduction{
   const value=await verify().catch(()=>{throw new JobYield('image-availability');});
   if(!value)return null;
   const entry=paid.entry&&sessionId!==row.id?{...paid.entry,originId:paid.entry.originId??sessionId}:paid.entry;
-  return {receipt:{...paid,value,entry,drawingChecks:paid.drawingChecks??target.check},item};
+  return {receipt:{...paid,value,entry},item};
  }
 
  private async copyCarriedDrawing(row:SessionRow,story:DagStory,origin:string,frame:string,inputHash:string){
@@ -398,7 +393,7 @@ export class DagProduction{
   const {receipt,item}=restored;
   let dag=story.dag;
   for(const {node_key:key} of targets){
-   const target=item.instances[0],appliedWork={...item,instances:[{...target,key,id:instanceId(target.node,key),check:receipt.drawingChecks}]};
+   const target=item.instances[0],appliedWork={...item,instances:[{...target,key,id:instanceId(target.node,key)}]};
    const next=apply({...working,dag},appliedWork,receipt.value,{newId:randomUUID});
    if(!next)return null;
    dag=next;
@@ -496,8 +491,6 @@ export class DagProduction{
   if(receipt){
    generated={value:receipt.value,model:receipt.model,requestId:receipt.requestId,usage:receipt.usage};usage=receipt.entry;
   }
-  const appliedWork=receipt?.drawingChecks?
-   {...item,instances:[{...item.instances[0],check:receipt.drawingChecks}]}:item;
   if(!generated){
    if(item.call==='draw'&&!story.refSource){
     // 调度可先建立任务；付费绘制前若星标参考图不可读，将错误记录到该任务。
@@ -531,7 +524,7 @@ export class DagProduction{
    if(!row||!current||current.doc.intake?.generation!==setupGeneration||
     preparationGeneration!==undefined&&current.dag.preparationGeneration!==preparationGeneration||current.dag.continuation&&item.call!=='drawLandscape')return {obsolete:true};
    if(item.call==='drawLandscape'&&current.dag.frames[item.instances[0].key]?.landscapeAttempt!==landscapeAttempt)return {obsolete:true};
-   const next=apply(current,appliedWork,generated!.value,{newId:()=>`f-${randomUUID().slice(0,12)}`});
+   const next=apply(current,item,generated!.value,{newId:()=>`f-${randomUUID().slice(0,12)}`});
    if(!next)return {obsolete:true};
    // 已付费的结果即使故事已被删除也保存，恢复后不再重复付费。
    let selection:Selection|undefined;

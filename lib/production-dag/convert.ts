@@ -89,7 +89,7 @@ export function convertDocument(doc:Document,selection:Selection,options:{confir
    if(!found)continue;
    const inst=evaluate(versionState(dag,roots,{confirmed:options.confirmed})).instance(node,key);
    if(!inst.hard)continue;
-   dag.products[instanceId(node,key)]={hash:fingerprint(found[0]),inputs:inst.hard,...(inst.check&&Object.keys(inst.check).length?{checks:inst.check}:{}),legacy:true,...found[1]};
+   dag.products[instanceId(node,key)]={hash:fingerprint(found[0]),inputs:inst.hard,...(node==='narrativeVerdict'?{checks:inst.check}:{}),legacy:true,...found[1]};
   }
  }
  return dag;

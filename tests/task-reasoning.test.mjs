@@ -21,7 +21,7 @@ const original={title:'已核原文',text:'庄周梦为胡蝶。',url:'https://e
 
 const source={original,book:'庄子',chosenStory:'庄周梦蝶',variationSeed:'s'},style={artStyle:'ink-pencil',artStylePrompt:null},settings={narrativeDetail:'balanced',length:8};
 const outline={title:'庄周梦蝶',summary:'梗概',sourceReference:'庄子',adaptationNote:'按原文',beats:['庄周梦蝶','醒来']},people=[{id:'c1',name:'庄周',aliases:[],text:'梦者。'}];
-const captions=['庄周梦为蝴蝶。','庄周醒来，仍是庄周。'],frames=[{index:0,caption:captions[0],candidates:people}],issue={page:1,category:'caption',problem:'机械重复转述。',instruction:'只修配文。',requiresReplan:false};
+const captions=['庄周梦为蝴蝶。','庄周醒来，仍是庄周。'],frames=[{index:0,caption:captions[0]}],issue={page:1,category:'caption',problem:'机械重复转述。',instruction:'只修配文。',requiresReplan:false};
 
 const override={suggest:'high',art:'medium',frames:'low',outline:'medium',plan:'low',review:'medium',repair:'low'};
 
@@ -38,10 +38,10 @@ function output(payload,schema){
 const dagTasks=['frames','outline','outline','plan','plan','repair','repair','repair','repair','plan','repair','review','review','review'];
 const dagCalls=dag=>[
  ()=>dag.prepareBrief({source}),()=>dag.characters({source,productionPrompt:''}),()=>dag.outline({source,productionPrompt:'',settings}),
- ()=>dag.sceneBatch({source,outline,productionPrompt:'',first:1,previous:[]}),()=>dag.visual({outline,productionPrompt:'',style,frames}),
- ()=>dag.restyle({outline,productionPrompt:'',style,previousStyle:style,frames:frames.map(f=>({...f,previousPrompt:'旧画面描述，人物站在庭院中央。'}))}),
+ ()=>dag.sceneBatch({source,outline,productionPrompt:'',first:1,previous:[]}),()=>dag.visual({outline,productionPrompt:'',style,characters:people,frames}),
+ ()=>dag.restyle({outline,productionPrompt:'',style,characters:people,previousStyle:style,frames:frames.map(f=>({...f,previousPrompt:'旧画面描述，人物站在庭院中央。'}))}),
  ()=>dag.sceneRepair({source,outline,productionPrompt:'',frames:[{index:0,caption:captions[0],neighbors:{},issues:[issue]}]}),
- ()=>dag.visualRepair({outline,productionPrompt:'',style,frames:frames.map(f=>({...f,prompt:'旧画面描述，人物站在庭院中央。',drawn:people,issues:[issue]}))}),
+ ()=>dag.visualRepair({outline,productionPrompt:'',style,characters:people,frames:frames.map(f=>({...f,prompt:'旧画面描述，人物站在庭院中央。',drawn:people,issues:[issue]}))}),
  ()=>dag.structureRepair({source,outline,productionPrompt:'',settings,captions,issues:[{...issue,requiresReplan:true}]}),
  ()=>dag.ending({source,outline,captions}),()=>dag.endingRepair({source,outline,captions,reflection:plan.reflection,issues:[]}),
  ()=>dag.frameCheck({source,outline,productionPrompt:'',settings,captions}),()=>dag.registerItems({items:[{id:'i1',text:'保留原文结局。'}]}),

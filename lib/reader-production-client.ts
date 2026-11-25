@@ -1,8 +1,4 @@
-// Renew one viewer's demand while polling individual checkpoints; page changes never cancel
-// server work. Manual control ends demand; durable background work is observed without retries,
-// and tells the server which page is open only so that page is drawn first.
-// An explicitly started picker owns discovery demand and requests the next story after each receipt.
-// Opening an idle, empty picker only reads saved conditions; it cannot authorize extraction.
+// 阅读器续期打开状态以提升本篇绘图优先级。候选查找仍由打开的选择界面授权。
 import type {SessionView} from './reader-model.ts';
 import type {RecoveryRequest} from './reader-recovery.ts';
 import {maxSuggestionBatches} from './reader-suggestions.ts';
@@ -16,7 +12,7 @@ type Observation={sessionId:string;request:(path:string,method?:string,data?:unk
 // Inspecting a saved failure or paused story never renews demand or retries paid work.
 export async function observeStoryGeneration({sessionId,request,isActive,onSession,focus,watchChoices=false,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),now=Date.now}:Observation){
  const path='reader/sessions/'+sessionId;
- let failures=0,focusPage=-1,focusAt=-Infinity,focused=false,posting:Promise<unknown>|null=null,waiting=false;
+ let failures=0,focusAt=-Infinity,focused=false,posting:Promise<unknown>|null=null,waiting=false;
  try{
   while(isActive()){
    try{
@@ -31,8 +27,8 @@ export async function observeStoryGeneration({sessionId,request,isActive,onSessi
     if(focus&&!refreshing&&(canDiscover||!choosing&&session.generationMode==='background')&&session.generationControl==='active'&&session.state!=='failed'){
      // The reader's page can be left over from another story until this one has a first image.
      const pages=session.story?.pages,page=pages?.[0]?.image?Math.min(focus.page(),pages.length-1):0;
-     if(!posting&&(page!==focusPage||now()-focusAt>=10000)){
-      focusPage=page;focusAt=now();focused=true;
+     if(!posting&&now()-focusAt>=10000){
+      focusAt=now();focused=true;
       // Priority is best effort, so a slow or failed request must never hold up status updates.
       posting=request(path+'/production','POST',{viewerId:focus.viewerId,page,retry:false}).catch(()=>{}).finally(()=>{posting=null;});
      }

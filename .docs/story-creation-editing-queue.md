@@ -239,12 +239,11 @@ flowchart LR
 1. 只考虑依赖全部 `succeeded` 的 `queued` 任务；再检查执行池名额、故事控制、输入版本、删除标记和失败状态。
 2. 就绪任务按 **`priority` 升序 → `created_at` 升序 → `id`** 排序；数字越小越优先，不是所有故事严格轮流。
 3. 文本任务优先级为 **-10**，本地发布为 **-5**；它们属于独立池，不与图片争抢同一个名额。
-4. 阅读中的故事优先首幅、当前幅及其后 **6 幅**。多窗口需求合并，取更有利的优先级；没有阅读位置优先的后台图片按页顺序继续。
-5. 同一故事正在本地发布时，暂不补充新的绘图任务。阅读故事有近期待发布图片及高优先级后续幅时，其他低优先级绘图会短暂让位；让位判断有 **15 秒**年龄限制，并非永久饿死其他故事。
+4. 打开阅读器的故事优先绘图。无论当前读到哪一幅，篇内都按幅序派发。多个窗口打开同一故事时共用该优先级。
 
-新故事默认 `background + active`，确认后即使离开页面也继续整篇。旧 `reader` 模式才依赖活跃浏览器需求；需求每约 **10 秒**续期，**30 秒**失效，并带本次服务 `runtime_id`，重启不能凭旧浏览器需求擅自启动生成。
+故事确认后按读者控制在后台推进，离开页面仍继续。打开状态约 **10 秒**续期，**30 秒**失效。候选查找要求本次服务的选择界面仍有有效续期。
 
-**实现依据**：[执行池、图构建、最新版本资格与让位](../server/reader-production.ts)、[通用队列与候选过滤](../server/production-queue.ts)、[阅读续期](../lib/reader-production-client.ts)、[预读与需求期限](../lib/reader-production.ts)。
+**实现依据**：[制作调度](../server/reader-production.ts)、[队列](../server/production-queue.ts)、[阅读续期](../lib/reader-production-client.ts)。
 
 ## 6. 暂停、失败、重启与迟到结果怎么处理？
 
@@ -328,9 +327,9 @@ stateDiagram-v2
 | `POST /sessions/{id}/title` | 独立修改故事名，不触发制作修订 |
 | `GET /sessions/{id}/revisions` | 读取修订基线与冲突 token |
 | `POST /sessions/{id}/revisions` | 提交独立新版，可指定 `paused:true` |
-| `POST /sessions/{id}/production-control` | 暂停/恢复；兼容旧模式动作 |
-| `POST /sessions/{id}/production` | 提交阅读位置；`retry:true` 表示明确重试 |
-| `DELETE /sessions/{id}/production` | 结束某窗口的阅读需求 |
+| `POST /sessions/{id}/production-control` | 暂停、停止、恢复或继续制作 |
+| `POST /sessions/{id}/production` | 续期本窗口的阅读优先级或候选查找 |
+| `DELETE /sessions/{id}/production` | 结束本窗口的续期 |
 | `POST /sessions/{id}/review-override` | 明确跳过待处理审核问题 |
 
 **当前代码入口**：[阅读 API](../lib/reader-api.ts#L65)。可继续参考以下文档，但它们记录的是各次交付时的行为，不能用历史“3 轮审片”等数值代替当前代码：
