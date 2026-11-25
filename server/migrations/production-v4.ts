@@ -225,7 +225,8 @@ export function migrateProductionSpec(db:DatabaseSync,sql:string,directory?:stri
      'paid',CASE WHEN json_valid(payload) THEN json_extract(payload,'$.paid') END,
      'recoveryId',recovery_id)
    FROM production_jobs WHERE attempts>0 OR state!='queued';
-  INSERT INTO production_faults SELECT * FROM reader_faults;
+  INSERT INTO production_faults(id,session_id,owner_id,job_id,kind,node,node_key,input_hash,origin_fault_id,optional,version,image,message,state,command_id,created_at,updated_at)
+   SELECT id,session_id,owner_id,job_id,kind,node,node_key,input_hash,origin_fault_id,optional,version,image,message,state,command_id,created_at,updated_at FROM reader_faults;
   DROP TABLE reader_faults;
   ALTER TABLE production_jobs DROP COLUMN dependencies;
   DROP INDEX stories_lock_scan;
