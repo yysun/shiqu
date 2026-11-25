@@ -4434,7 +4434,8 @@
       "covers": [
         "lib/production-dag/registry.ts",
         ".docs/story-production-dag.md",
-        ".docs/tests/test-data-driven-production-dag.md"
+        ".tests/story-lifecycle/SUITE.md",
+        ".tests/story-lifecycle/CASES.md"
       ]
     },
     {

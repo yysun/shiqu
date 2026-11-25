@@ -1,4 +1,4 @@
-// 配置与规范双向核对：节点目录与调用契约的每一行都在配置中出现，配置不引用规范之外的行。
+// 核对制作规范与节点、调用配置，并验证每个历史验收编号在 Test Manager 中仍有可寻址的归宿。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -57,12 +57,50 @@ test('input references only name known nodes or selectors',()=>{
  }
 });
 
-test('every numbered specification scenario has exactly one individual acceptance case',()=>{
- const scenarios=spec.slice(spec.indexOf('## 实现后的验收场景'));
- const expected=[...scenarios.matchAll(/^(\d+)\. /gm)].map(([,number])=>number);
- const audit=readFileSync(new URL('../.docs/tests/test-data-driven-production-dag.md',import.meta.url),'utf8');
- assert.ok(expected.length>0);
- assert.deepEqual(firstColumn('## 逐场景路径与验收',audit),expected);
+test('all 59 DAG scenarios resolve to managed cases or an explicit historical decision', () => {
+ const suite = readFileSync(new URL('../.tests/story-lifecycle/SUITE.md', import.meta.url), 'utf8');
+ const cases = readFileSync(new URL('../.tests/story-lifecycle/CASES.md', import.meta.url), 'utf8');
+ const managed = new Map();
+ for (const section of cases.split(/^## STORY-LIFECYCLE-C/m).slice(1)) {
+  const id = section.match(/^(\d{3}) — /)?.[1];
+  const anchor = section.match(/^<a id="case-c(\d{3})"><\/a>$/m)?.[1];
+  if (!anchor) continue;
+  assert.equal(anchor, id, 'case anchor must belong to its heading');
+  assert.ok(!managed.has(id), `duplicate case anchor C${id}`);
+  managed.set(id, section);
+ }
+ assert.ok(spec.includes('](../.tests/story-lifecycle/SUITE.md#制作-dag-验收索引)'), 'spec must route to the managed catalog');
+ const table = suite.split(/^## 制作 DAG 验收索引$/m)[1]?.split(/^## /m)[0];
+ assert.ok(table, 'missing DAG acceptance index');
+ const numbers = [];
+ const retired = new Set([32, 39, 44, 45, 46, 51, 53, 54]);
+ for (const row of table.split('\n').filter(line => line.startsWith('| ')).slice(2)) {
+  const [, number, title, status, refs] = row.split('|').map(cell => cell.trim());
+  const target = number.match(/^<a id="dag-(\d+)"><\/a>(\d+)$/);
+  assert.ok(target && target[1] === target[2], `bad scenario anchor: ${number}`);
+  const id = Number(target[1]);
+  numbers.push(id);
+  assert.ok(title, `missing title for DAG ${id}`);
+  if (retired.has(id) || id === 27) {
+   assert.equal(status, retired.has(id) ? '已删除' : '不提供');
+   assert.ok(refs.includes('[旧核查](') && refs.includes(status === '已删除' ? '[取消依据](' : '[现行场景矩阵]('), `missing disposition for DAG ${id}`);
+   continue;
+  }
+  assert.ok(['现行', '部分入口待核', '待复验'].includes(status), `unknown disposition for DAG ${id}`);
+  const links = [...refs.matchAll(/\[C(\d{3})\]\(([^)]+)\)/g)];
+  assert.ok(links.length, `missing managed case for DAG ${id}`);
+  for (const [index, [, caseId, href]] of links.entries()) {
+   assert.equal(href, `CASES.md#case-c${caseId}`);
+   const section = managed.get(caseId);
+   assert.ok(section, `unknown managed case C${caseId} for DAG ${id}`);
+   assert.doesNotMatch(section, /^- State: RETIRED$/m, `retired case referenced by DAG ${id}`);
+   if (index === 0) {
+    const risk = section.match(/^- Requirement \/ Risk: .*?DAG(?: 场景)? ([\d、, ]+)/m)?.[1] ?? '';
+    assert.ok(risk.split(/[^\d]+/).includes(String(id)), `primary case C${caseId} does not cover DAG ${id}`);
+   }
+  }
+ }
+ assert.deepEqual(numbers, Array.from({length: 59}, (_, index) => index + 1), 'expected each legacy DAG number once in order');
 });
 
 test('declared dependencies and gates have no cycle outside specific frame references',()=>{
