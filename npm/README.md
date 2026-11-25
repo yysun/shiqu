@@ -66,6 +66,8 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 | `stories create --input FILE` | 保存新故事的选题条件 |
 | `stories setup`, `stories search`, `stories choose`, `stories confirm` | 设置要求、查找候选、选择故事与确认制作 |
 | `books index-import BOOK_ID FILE --data-dir DIRECTORY` | 导入自制离线 SQLite 索引到指定书库。匹配版次的手动索引优先，并随该书库备份 |
+| `books import FILE --title TITLE --accept-rights` | 将 TXT、HTML、无 DRM 的 EPUB 或公开网页导入草稿。用 `books structure DRAFT_ID` 核对章节，再用 `books confirm DRAFT_ID` 加入本地书库 |
+| `books cards BOOK_ID --estimate` | 查看导入书的故事卡生成预估。去掉 `--estimate` 开始生成，可暂停后续跑 |
 | `run ID`, `stories run ID` | 制作指定故事；`--until` 可选 candidates、prepared、reviewed 或 completed。该书有索引时，提取会先核对候选原文。没有可用候选时逐章阅读选定范围。自动选题的双词预设须在同一篇原文中找到两侧及其联系，例如「善意与误解」须有善举及由此产生的误解。新复核的候选可带 `matchScore`（0 到 100），表示该篇故事的主题贴合度 |
 | `stories edit ID --input FILE` | 使用 `stories revisions ID` 返回的 token 保存修改版本。用 `changes.redrawPages` 指定换图幅号，并可用 `changes.redrawNotes` 提供逐幅说明 |
 | `stories continue NEW_ID --request-id UUID` | 解除新版的「已保存，等待继续」，再对该版本执行 `run`。等待期间 `run` 返回 `continue_required` |

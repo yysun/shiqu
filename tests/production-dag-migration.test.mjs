@@ -718,4 +718,3 @@ for(const mode of ['active','reader-paused','recovery'])test(`an upgraded draft 
  assert.notEqual(saved.dag.outline.title,paidTitle);
  assert.equal(saved.usage.filter(call=>call.requestId==='original-paid-request').length,0);
 });
-
