@@ -1,84 +1,66 @@
-# Project Instructions
+# 项目规则
 
-## Package Manager
+本文件只列代理必须遵守的规则。工具如何工作、产品约定和历史见 `.docs/`。
 
-- 源码项目的依赖管理、开发脚本及相关文档示例使用 pnpm。面向发布包和已安装技能的使用说明默认采用 npx，不要求用户安装 pnpm；用户明确指定启动器时沿用其选择。
-- Follow the pnpm version pinned in `package.json` (`packageManager`) and the Node version in `.nvmrc`.
-- Use `pnpm install --frozen-lockfile` for reproducible installs, and `pnpm add` / `pnpm remove` to change dependencies.
-- Run scripts with `pnpm run <script>` (for example, `pnpm run codex:login`) or shorthand such as `pnpm dev` and `pnpm test`.
-- 源码开发中已安装的命令行工具使用 `pnpm exec`；发布包和已安装技能的调用遵循上述 npx 默认入口。
-- Keep `pnpm-lock.yaml` in sync with dependency changes. Do not introduce npm or Yarn lockfiles.
+## 依赖与命令
 
-## Agent Test Selection
+- 源码开发、脚本和文档示例用 pnpm；面向发布包和已安装技能的说明默认用 npx。用户指定启动器时沿用其选择。
+- 先运行 `nvm use`。pnpm 版本以 `package.json` 的 `packageManager` 为准。安装用 `pnpm install --frozen-lockfile`，增删依赖用 `pnpm add` / `pnpm remove`，`pnpm-lock.yaml` 随之更新，不引入 npm 或 Yarn 锁文件。
+- 源码中调用已安装的命令行工具用 `pnpm exec`。
 
-- Run `nvm use` first; test entry points warn when the Node major version differs from `engines`.
-- 仅调整离线建库实验脚本时（例如 `scripts/experiment-soushen-search.mjs`），本地验证以改动的脚本为范围，用临时 SQLite 或隔离数据副本执行受影响的命令。本条优先于下文的仓库级检查要求。涉及正式运行流程、共享模块或数据库迁移的改动，以及 CI 和发布验证，仍按常规规则执行。
-- While iterating, run `pnpm test:related` (or `--files <paths...>`, `--plan`) or a single file directly with `node --test tests/<file>`. It runs changed registered non-browser test files plus direct importers (the test, its `tests/` fixtures or the client/desktop components they import), path-literal references and declared `covers` consumers with `cost: fast`; standard and heavy consumers are listed as deferred, and browser E2E is always deferred. A changed non-browser test file runs directly, with its full tier only when its declared cost is standard or heavy. It does not walk through `lib/`/`server/`, so it is not an impact check; an empty selection runs nothing and proves nothing.
-- Before handing off or committing, run `pnpm test:changed` once for working-tree impact checks. Preview with `pnpm test:changed --plan` (or `--json`). It includes staged, unstaged and untracked paths. Production changes run suites from directly mapped domains plus exact `covers` consumers with full provider flags. Safety and startup assurance suites, including the integrity smoke, are manual-only: use `pnpm test:safety` and `pnpm test:startup`. Tests that bind or connect to a real local loopback listener are also manual-only: use `pnpm test:loopback`. Provider contracts and model-backed generation, review and storyboard flows are manual-only; use `pnpm test:models` (also available as `pnpm test:providers`). `pnpm test:assurance` runs the safety, startup and loopback groups plus native desktop tests. Book corpus checks are manual-only; run them with `pnpm test:books`. Map new source or script files to a domain in `scripts/test-plan.mjs`, since unmapped files retain the safety, startup and tooling fallback scope but manual-only tests are excluded from automatic execution.
-- Keep Playwright E2E out of routine change checks and CI. Run selected service suites with `pnpm test:e2e --files <registered paths...>`; `pnpm test:e2e:extended` is an explicit on-demand runner for the three extended model flows. Book corpus checks are manual-only: `pnpm test:books`. Change plans, pre-push, CI, release gates and `pnpm test:full` exclude manual-only suites. The desktop responsive width, phone navigation, phone readability and remaining component/browser UI suites have been retired; the registry currently has no browser E2E suites. Loopback suites are excluded from automatic tag/CI gates and run with `pnpm test:loopback`. The local `v*` tag pre-push hook runs the focused non-loopback release gate. `pnpm test:full` runs all registered non-native automatic JavaScript tests.
-- In a shared checkout, inspect the preview first. Use `pnpm test:pr --files <your changed paths...>` to scope verification to your own work; do not modify or include concurrent work merely to make a check pass.
-- Register new test files and their covered sources (`covers`) in `tests/manifest.json`, including every `tests/fixtures/*` file reached from the test; the registry contract checks fixture ownership through `tests/` import edges. Declare all direct consumers before scoping a shared test fixture or stylesheet to specific tests. Tests that use a source path only as planner sample data may set `relatedPathLiterals: false`; keep their actual planner sources in `covers`. Shared schemas use their affected domains. Unknown paths, dependency or toolchain changes, and failed or empty change detection retain the conservative safety/startup/tooling scope and request native coverage; safety/startup tests remain on demand.
-- Run `pnpm typecheck` and `pnpm lint` for code changes. Run applicable native source checks when the plan reports `native: true`; JS runner results alone do not prove native coverage. PR, main, and manual CI run affected JS suites. Tag CI verifies native installers.
-- 仅调整提示词正文时（包括 `lib/reader-prompts.ts`、`lib/reader-legacy-prompts.ts` 和 `lib/reader-styles.ts` 的画风提示词），本地验证只跑 `tests/manifest.json` 登记的直接消费者及完整性冒烟。本条优先于仓库级影响检查要求。若同时改动提示词拼装、模型调用或其他代码，按这些改动的影响计划取并集。
+## 检查
 
-## CLI 与技能同步
+- 迭代时运行 `pnpm test:related` 或 `node --test tests/<file>`。它不是影响检查，选中为空时什么也没证明。
+- 交付或提交前运行一次 `pnpm test:changed`，先用 `--plan` 预览。共享 checkout 中用 `pnpm test:pr --files <本任务的路径...>`，不为了让检查通过而修改或纳入他人的改动。
+- 代码改动运行 `pnpm typecheck` 和 `pnpm lint`。计划报告 `native: true` 时运行对应的原生检查。
+- 安全、启动、loopback、模型、书籍和服务 E2E 测试不在自动检查中，需要时按需运行：`pnpm test:safety`、`pnpm test:startup`、`pnpm test:loopback`、`pnpm test:models`、`pnpm test:books`、`pnpm test:e2e --files <路径...>`。
+- 新测试登记到 `tests/manifest.json` 并写明 `covers`；新源码或脚本文件在 `scripts/test-plan.mjs` 中映射到责任域。细则见 `.docs/testing-triggers.md`。
+- 只改离线建库实验脚本（如 `scripts/experiment-soushen-search.mjs`）时，只验证改动的脚本，使用临时 SQLite 或隔离数据副本。只改提示词正文（`lib/reader-prompts.ts`、`lib/reader-legacy-prompts.ts` 及 `lib/reader-styles.ts` 的画风提示词）时，只运行 manifest 登记的直接消费者和完整性冒烟。两种情况若同时改动了正式流程、共享模块、迁移、提示词拼装或模型调用，按常规规则合并检查范围。
 
-- 修改 CLI 命令、输入、行为或流程规则时，必须在同一次变更中同步更新内置的 `skills/shiqu/SKILL.md` 及受影响的使用示例，确保技能与 CLI 的实际帮助和生产行为一致。
+## 代码与界面
 
-## 代码注释
+- 新增或修改的代码注释用中文。
+- 修改 CLI 的命令、输入、行为或流程规则时，在同一变更中同步更新 `skills/shiqu/SKILL.md` 和受影响的使用示例。
+- 生成、审核和修订的改进必须经正式制作流程上线。测试和评估工具调用与生产相同的实现，使用隔离数据，不另建功能流水线。
+- 桌面 UI 用 `pnpm desktop:preview` 在应用内浏览器中开发和验证，复用已有标签页。
+- 只有用户明确要求时才打包或构建桌面应用，日常验证不运行桌面准备或构建命令。
+- 遇到 `.DS_Store`（含大小写变体）直接删除，不移走也不备份。
 
-- 今后新增或修改的代码注释使用中文。
+## 界面
 
-## Desktop Development
+- 流程中的操作放在所属流程框或步骤内，靠右对齐。修改后的确认、重试和错误提示紧跟所属步骤，不放到页面别处。
+- 流程与任务清单里的操作（如「开始制作」「继续制作」「重试」、查看、编辑）用文字链接：复用 `StoryFlowAction`（`story-flow-link`），深色画面加 `tone="dark"`，不另写链接样式，也不用大按钮（`yu-primary`）。页面主操作（如「新建故事」「准备故事」）、对话框中的确认与取消、切换类控件、图标按钮，以及设置表单自身的保存和测试仍用按钮。桌面控制台沿用自身样式。
+- 已有共用组件的界面复用该组件，不另写布局，例如制作步骤用 `ProductionTimelineRow`。具体屏幕的布局见 `.docs/development.md` 的「制作流程界面约定」。
+- 空间不足时操作整组靠右换行；缺少内容的行或字段不占位。窄屏可缩短可见标签，无障碍名称保留完整名称和当前值。
 
-- Develop and verify the desktop UI in the in-app browser using `pnpm desktop:preview` (Vite). Reuse the relevant existing tab.
-- 制作流程的操作按钮和链接统一放在所属流程框内，靠右对齐。修改制作内容后的确认放在对应的流程步骤内。
-- 故事设置内的制作步骤共用 `ProductionTimelineRow`。首行左侧放简短的步骤标题，右侧放状态和查看、编辑链接。下一行左侧放完整说明，右侧放耗时。空间不足时链接整组靠右换行。缺少内容的行不占位。确认、重试及错误提示紧跟本步骤内容。
-- 「制作确认」的四个设置及其当前值保持同一行。窄屏可缩短可见字段名，链接的无障碍名称保留完整字段名与当前值。
-- 「制作确认」里的「开始制作」和次要操作（重试、重新加载、查看、编辑、取消替换、恢复/暂停生成等）使用文字链接：复用 `StoryFlowAction`（`story-flow-link` 样式），深色画面加 `tone="dark"`，不另写链接样式。其他主操作（如「准备故事」）、对话框里与确认并列的取消、切换类控件、图标按钮，以及设置表单自身的保存和测试控件仍用按钮。桌面控制台沿用自身样式。
-- 任务清单（制作时间线的各步骤与书架的制作任务行）里的主要操作，如「继续制作」「开始制作」「重试」，一律用文字链接（`StoryFlowAction`，`story-flow-link`），不用大按钮（`yu-primary`）；页面主操作（如「新建故事」「准备故事」）、对话框里的确认与取消、切换类控件、图标按钮不受此限。
-- Bundle or package the desktop application only when the user explicitly requests it. Do not run desktop preparation or build commands as routine verification; use local checks and browser verification instead.
+## 书库与数据
 
-## 发布签核
+- 绝不对用户书库运行迁移测试或破坏性探测，也不把旧备份直接恢复到使用中的目录。
+- 访问书库前经正式数据库初始化调用 `ensureLibraryReady()`。历史表名只用于迁移、导入边界和显式的旧结构夹具。升级必须先有已校验的整库备份，保留其报告路径。
+- 新的结构变化写成 `drizzle/` 迁移，同时更新 `db/library-format.json` 的 `latestMigration`。只有支持上一格式的应用必须拒绝新结果时才提高 `schemaVersion`。格式历史见 `.docs/development.md` 的「书库存储与格式兼容」。
+- 阅读器 API 路径、Session 类型与模块以及 `session_id` 列保持不变。现行 `liaozhai` 种子行的来源地址和摘录保持为空。
+- 用户授权修正书库中单篇已完成作品的标题、梗概等元数据时，若能安全直接改库，在一个事务中只改指定版本的必要字段：写入前核对当前版本、书库就绪状态和任务状态，保留可验证的回滚快照，不改动制作流程、版本、成图和任务完成记录；字段参与任务标识计算时在同一事务中同步关联，提交后读回确认。
 
-- 发布由维护者决定。签核记录在 `.tests/release-<版本>/SUITE.md`，规则见 `.tests/TESTING.md`。代理执行用例、登记运行并准备签核请求，但不得填写结论、放行或批准。
-- 用户要求发布、打 `v*` 标签或准备签核时，代理担任守门人：
-  1. 确认候选提交干净且版本号正确，按 `.tests/changes/SUITE.md` 的「整理改动清单」补齐改动用例，再核对签核记录中的范围。
-  2. 用签核记录里的命令计算候选构建（8 位短哈希）的结果。范围内还有未运行、INVALID 或构建带后缀的用例时，继续测试，不请求签核。
-  3. 全部用例都有结果后，向维护者提交签核请求，按以下顺序列出：失败与阻塞、需要放行的项、未执行的分支与残余风险；一条随机选取、已由代理通过、请维护者亲自复核的 P0 用例；最后是通过项及证据链接。
-  4. 签核记录中没有维护者针对这个提交写下的发布结论之前，不打也不推送 `v*` 标签。记录里的候选提交与要打标签的提交不一致时，视为未签核。
-- 执行签核用例的代理会话不得是实现该改动的会话，只依据用例、需求和用户指南判断结果。
-- 需要真实生成（例如 SMOKE-C003）或手动运行 `desktop-release` 工作流时，每次先征得维护者同意。
-- 维护者明确要求跳过签核（例如紧急修复）时，在签核记录中写明理由和要求人，再打标签。
+## 导出作品
 
-## Repository Hygiene
+- 用户要求导出故事时，对运行中的应用执行 `pnpm export:story '<故事名或已下载的 ZIP>'`（默认 `http://localhost:3000`，用 `--url` 覆盖），默认保存到 `../awesome-shiqu/works/yysun`。不手工重建故事，不另写渲染器。
+- 每篇只保留一个 ZIP。更新的作品替换原路径并保留文件名，即使标题已改；ZIP 输入的故事 ID 变化时，用 `--output` 指定原 ZIP。校验后删除临时文件和替换备份。
+- 公开 ZIP 的结构以 `官渡之战.zip` 为准：保留原文和来源、作者及 AI 披露，不含提示词；生产导出的 WebP 保持原样，ZIP 输入不重新编码。
+- 有画幅缺图时报告缺失，不省略画幅，也不改导旧版本。核对幅数、图片可读、ZIP 完整以及目标仓库解析器的兼容，并按该仓库的说明校验内容。
+- 修改导出脚本时复用生产导出器的运行时，以及 ZIP、文件名、署名、WebP 哈希和 XMP 工具，不在脚本中另写一套。
+- 保存导出不代表可以提交、推送或发布。
 
-- Delete `.DS_Store` files whenever encountered, including capitalization variants such as `.DS_store`. Do not move them aside or keep backups.
+## 发布
 
-## Production Workflow
-
-- Improvements to generation, review, or revision must ship through the production workflow; do not stop at an implementation that only works in an evaluation tool.
-- Tests and evaluation tools must call the same workflow implementation as production. Use isolated data for verification, without maintaining a separate functional pipeline.
-
-## Story Export
-
-- When the user asks to output/export stories, default to ZIP archives saved in `../awesome-shiqu/works/yysun`.
-- When the user names a story to export, run `pnpm export:story '<story name>'` against the running app (default `http://localhost:3000`, override with `--url`). The script reads the latest complete bookshelf revision through the app API, calls the production Node exporter, then verifies and saves the public archive in awesome-shiqu. No browser or Playwright is required. It also accepts an already downloaded ZIP. Do not manually reconstruct the story or create a separate renderer.
-- Match the public structure of `官渡之战.zip`: `故事.json`, `分镜.md`, `署名与转载.txt`, and numbered WebP files under `图片/`, with no production/acceptance prompts, per-frame prompts, or internal prompt-history files. Preserve the production exporter's WebPs byte for byte during public conversion, including their visible signature/watermark and XMP metadata; the script verifies image hashes and metadata. ZIP-input mode must not re-encode images. Node and browser encoding need not produce identical bytes.
-- Reuse the app's production Node export runtime and shared ZIP serialization, filename, credit, WebP hash and XMP helpers in export scripts. Image encoding and watermarking stay in the shared production exporters; do not maintain a second implementation of those rules in a script.
-- Export the latest selected bookshelf revisions using the reader ZIP layout: `故事.json`, `分镜.md`, and all numbered WebP images under `图片/`. Include the saved original text and retain source, author, and AI disclosures.
-- Require every selected frame to have an image for a complete export. Report missing frames instead of silently omitting them or exporting an older revision.
-- Keep one ZIP per story in the output directory. For an updated work, replace its existing ZIP path and keep the filename to preserve sharing links, even if the story title changed. Use temporary backups during replacement, then remove temporary ZIPs and backups after verification; do not retain duplicate story exports elsewhere.
-- Verify frame counts, image readability, ZIP integrity, and compatibility with the destination collection's archive parser. Follow that repository's instructions for content validation.
-- Remove temporary exports/downloads and replacement backups after verification, retaining only the canonical story ZIP in the output directory. Story-name mode resolves existing archive IDs through the app's current-version API to preserve filenames across revisions and title changes. For ZIP-input mode with a changed story ID, use `--output` with the existing ZIP path.
-- Saving exports does not authorize Git commits, pushes, or publication.
-
-## Canonical Story Storage
-
-- `stories` stores the current production model and every revision for every owner. `production_jobs`, `books` and the other support tables retain their separate responsibilities. Keep reader API paths, Session types/modules and `session_id` columns stable.
-- 用户授权修正本地书库中单篇已完成作品的标题、梗概等元数据时，如果能安全地直接改库，优先在数据库事务中修改指定版本的必要字段。写入前核对当前版本、书库就绪状态和任务状态，保留可验证的回滚快照。保留原有制作流程、版本、成图和任务完成记录；如果字段参与任务标识计算，在同一事务中同步关联，提交后重新读回确认。
-- Use `ensureLibraryReady()` through the production database initializer before accessing a library. Version checks precede ownership/diagnostic writes; desktop reads and mutations use the shared brief upgrade gate. Historical table names belong only to migration/import boundaries and explicit old-schema fixtures.
-- Upgrades require a verified whole-library safety backup. Keep its reported path; pending-journal recovery finishes before access. Never run migration tests or destructive probes against the user's library, and never restore an old backup directly into an active directory.
-- Later schema changes are ordinary `drizzle/` migrations that `ensureLibraryReady()` applies in place after a verified backup. Update `latestMigration` in `db/library-format.json` with each new migration so native reads wait for it, and bump `schemaVersion` only when apps that support the previous version must refuse the result.
-- Consolidated libraries require desktop and CLI 0.8.0 or later. The `books_refuse_pre_consolidation_seed` trigger makes released 0.2–0.7 seeds abort with `BACKUP_APP_TOO_OLD`; keep the current `liaozhai` seed row's source URL and excerpt empty. Older binaries are incompatible; rollback requires the pre-upgrade backup and its matching application.
-- 书库格式 2（迁移 `0025`，制作 DAG）需要 0.15.0 及以上。书库格式 3（迁移 `0026`，制作生命周期）需要 0.16.0 及以上。书库格式 4（迁移 `0028`，共享制作产物与执行尝试）需要 0.17.0 及以上，可从格式 1、2、3 一次升级。格式 4 只有 `0028` 一个最终结构，同一迁移在事务内把可继续采用的已付费文字回执接到现行任务身份；任何更早的书库都一次升级到最新迁移，不要求先经其他版本。应用打开书库时自动校验整库备份并应用迁移。回退使用升级前的整库备份与配套应用，恢复到另一目录。旧应用会拒绝打开较新格式，备份不得直接恢复到使用中的目录。
+- 发布由维护者决定。代理执行测试、准备签核请求，不填写签核结论、放行或批准。签核记录在 `.tests/release-<版本>/SUITE.md`，规则见 `.tests/TESTING.md`。
+- 发布顺序：
+  1. 在 `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 和 `src-tauri/Cargo.lock` 的 `shiqu-desktop` 中设置同一版本，更新 `CHANGELOG.md`；书库格式变化时补充用户指南的升级说明。提交到 `main` 并推送。
+  2. 等 Main CI 通过；失败就修复、提交、再等。通过的提交即候选。
+  3. 经维护者同意后，对候选手动运行 `desktop-release` 工作流取得安装包，并运行 `pnpm release:check`、`pnpm test:full`、`pnpm test:assurance`。
+  4. 按 `.tests/changes/SUITE.md` 的「整理改动清单」补齐改动用例，执行签核范围内的用例并登记运行。执行者不得是实现该改动的会话；真实生成先征得维护者同意。
+  5. 仍有未运行、INVALID 或构建带后缀的用例时继续测试。全部有结果后提交签核请求：先列失败、阻塞、待放行项、未执行分支和残余风险，再给一条随机选取、请维护者复核的已通过 P0 用例，最后列通过项和证据链接。
+  6. 维护者在签核记录中为该候选提交写下发布结论后，执行 `git tag vX.Y.Z <候选>` 并推送标签（pre-push 会再跑 `release:check`）。
+  7. 确认 `desktop-release` 与 `publish-npm` 都成功，核对发布页的安装包与 `SHA256SUMS.txt`，在签核记录中填写标签。
+- 候选之后只允许 `.tests/` 的提交；其他改动产生新候选，签核范围内的用例重跑。
+- 标签一经推送不得删除或重推。标签后的工作流失败时，修复后发布下一个补丁版本。
+- 维护者明确要求跳过签核时，在签核记录中写明理由和要求人。

@@ -20,6 +20,13 @@ Plan output lists files, execution levels, `fast`/`full` modes, deferred browser
 
 Within each mode, source tests run first with at most two files in parallel. If browser suites are registered again, they run one at a time in a separate Node process. Every selected file still runs once with its original provider/heavy flags and assertions; a failed batch stops the run. Evidence records each batch's runtime class and concurrency.
 
+## Registering tests
+
+- `test:related` runs `covers` consumers whose declared `cost` is `fast`; `standard` and `heavy` consumers are listed as deferred, and browser E2E is always deferred. A changed non-browser test file runs directly, with its full tier only when its declared cost is `standard` or `heavy`. An empty selection runs nothing and proves nothing.
+- Register every new test file in `tests/manifest.json` with its `covers` sources, including every `tests/fixtures/*` file it reaches. Declare all direct consumers before scoping a shared fixture or stylesheet to specific tests.
+- Tests that use a source path only as planner sample data may set `relatedPathLiterals: false`; their real planner sources stay in `covers`.
+- Shared schemas map to their affected domains. Map each new source or script file to a domain in `scripts/test-plan.mjs`: unmapped files keep the conservative safety, startup and tooling fallback scope, but manual-only tests are still excluded from automatic execution.
+
 ## Trigger table
 
 Safety and startup assurance suites, including the integrity smoke, tests that bind or connect to real local loopback listeners, and all model/provider-backed contracts and generation flows run on demand only. Use `pnpm test:safety`, `pnpm test:startup`, `pnpm test:loopback` or `pnpm test:models`; `pnpm test:assurance` runs the first three groups and native desktop tests. Model flows are also available through `pnpm test:e2e:extended` for its six service E2Es. Manual-only suites are excluded from change plans, pre-push, CI, release gates and `pnpm test:full`. Other registered JS tests select themselves. Stylesheets, test fixtures and test selection inputs with declared consumers select those tests. Direct selections join any domain coverage required by the same change. Selected tests run once with the full flags for affected files; native consumers request native checks.
