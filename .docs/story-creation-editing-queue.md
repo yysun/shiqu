@@ -1,5 +1,7 @@
 # 故事创建、编辑与队列管理
 
+> 已被取代：确认后的制作、修订与队列以[故事制作生命周期](story-production-lifecycle.md)、[制作 DAG](story-production-dag.md)和[故事生成状态机](story-generation-state-machine.md)为准。本文按 0.13.4 写成，仅作概览与历史参考。见[文档索引](README.md)。
+
 [开发指南](development.md) · [使用指南](user-guide.md#制作与阅读故事)
 
 本文按 **2026-11-15 / 0.13.4** 的代码说明当前阅读端流程，包括增量故事库、独立主题匹配、详略驱动编排和逐条验收；历史管理端不在本文范围内。图表使用 Mermaid，可在支持 Mermaid 的 Markdown 预览器中查看。

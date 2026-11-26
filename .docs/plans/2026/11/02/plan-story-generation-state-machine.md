@@ -1,5 +1,7 @@
 # 故事生成状态机落地
 
+> 已被取代：见[制作 DAG 需求](../../../../reqs/2026/11/21/req-data-driven-production-dag.md)。涉及原约定「确认后的修订提交即恢复、原有引擎继续编排」。普通修订有待做工作时等待读者继续。确认后的编排、审片和绘图由制作 DAG 调度。 [保存、暂停与继续](../../../../story-production-dag.md#保存暂停与继续)
+
 Git基线：`e3220562818ff64952e38ec3f33ad0ebfbd30fbf`。
 进入时已有`.docs/development.md`、`.docs/story-creation-editing-queue.md`及未跟踪的`.docs/story-generation-state-machine.md`，均是本任务前序文档，纳入本任务范围。其他代码干净。
 

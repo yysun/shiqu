@@ -1,5 +1,7 @@
 # 计划：数据驱动的制作 DAG
 
+> 已被取代：见[制作规范精简 1-2、1-4、2-1、2-6](../../../../reqs/2026/11/24/req-production-spec-simplification.md)。涉及原约定「跨版本延续故障、验收条目单独登记、文字模型随版固定、事后提示重绘其余画幅」。故障留在原版，验收要求纳入全篇结论，文字使用派发时的全局设置。是否按新首幅重绘其余画幅在确认窗口选择。 [现行制作 DAG](../../../../story-production-dag.md)
+
 需求：[req-data-driven-production-dag](../../../../reqs/2026/11/21/req-data-driven-production-dag.md) · 规范：[故事制作与编辑 DAG](../../../../story-production-dag.md) · 端到端验证与场景映射：[test-data-driven-production-dag](../../../../tests/test-data-driven-production-dag.md)
 
 Git 基线：`52ddf58b810ff80c19f40f618ef52134ca658094`（SS 开始时的 HEAD）。工作区中已有的无关改动（其他计划与完成文档、用户指南）不属于本故事。

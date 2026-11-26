@@ -1,5 +1,7 @@
 # Background story generation
 
+> 已被取代：见[制作规范精简 1-3](../../../../reqs/2026/11/24/req-production-spec-simplification.md)。涉及原约定「读者选择前台或后台模式」。确认后的故事依读者控制在后台推进，候选查找仍需有人查看。 [后台制作与授权](../../../../story-production-dag.md#保存暂停与继续)
+
 Risk: non-low — persistent paid-work intent, restart recovery, concurrency and reader controls.
 Story base: e404837 (current parent of preserved implementation milestone 453f923). Original base e05c7a8091c28feafe4579cf822d2360a0fbcb28 and milestone 025da5c were rewritten by concurrent repository history work; scoped implementation contents were preserved and re-reviewed. Preserve unrelated dongguo/empty-library documentation and CHANGELOG changes.
 

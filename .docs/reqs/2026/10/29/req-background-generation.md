@@ -1,5 +1,7 @@
 # Background story generation
 
+> 已被取代：见[制作规范精简 1-3](../../11/24/req-production-spec-simplification.md)。涉及原约定「读者选择前台或后台模式」。确认后的故事依读者控制在后台推进，候选查找仍需有人查看。 [后台制作与授权](../../../../story-production-dag.md#保存暂停与继续)
+
 Service restarts should continue work the reader explicitly asked to finish in the background. A restart must never undo a manual pause or stop.
 
 - [x] Readers can opt an unfinished story into “后台生成整篇” from the shelf and reader; the saved mode survives reloads and service restarts.

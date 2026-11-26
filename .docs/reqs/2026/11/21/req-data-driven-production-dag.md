@@ -1,5 +1,9 @@
 # 需求：数据驱动的制作 DAG
 
+> 已被取代：见[制作规范精简 1-2、1-4、2-1、2-6](../24/req-production-spec-simplification.md)。涉及原约定「跨版本延续故障、验收条目单独登记、文字模型随版固定、事后提示重绘其余画幅」。故障留在原版，验收要求纳入全篇结论，文字使用派发时的全局设置。是否按新首幅重绘其余画幅在确认窗口选择。 [现行制作 DAG](../../../../story-production-dag.md)
+
+> 本需求调整的先前决定：[制作编辑一步提交](req-direct-production-actions.md)和[早期状态机 AC10](../02/req-story-generation-state-machine.md)将普通修订的提交与执行合在一起，本文将保存与继续授权分开。
+
 ## 问题
 
 [故事制作与编辑 DAG](../../../../story-production-dag.md) 已定为新的制作规范，现有实现与它不一致：

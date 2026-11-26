@@ -1,6 +1,6 @@
 # 故事生成状态机验收
 
-行为基准：[目标状态机](../story-generation-state-machine.md)第9节全部场景，逐项覆盖，不用本文件缩小范围。
+本次验收以[当时的状态机第 9 节](https://github.com/yysun/shiqu/blob/80787e0df86ea90628c6a2bab0297d1aaefcbea8/.docs/story-generation-state-machine.md#9-必须成立的验收场景)为基准。现行选题规则见[故事生成状态机](../story-generation-state-machine.md)，确认后的规则见[制作生命周期](../story-production-lifecycle.md)。
 
 所有执行使用临时SQLite/FileMedia、正式readerApi/ReaderProductionCoordinator/advanceStory与受控provider；禁止写真实书架或调用真实模型。现有`tests/fixtures/production.mjs`为基础夹具。新增可执行场景集中`tests/story-generation-state-machine*.test.mjs`，必要时增强既有title/revision/queue/client/UI用例。
 

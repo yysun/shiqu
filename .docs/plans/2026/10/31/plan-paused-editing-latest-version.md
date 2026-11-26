@@ -1,5 +1,7 @@
 # paused-editing-latest-version
 
+> 已被取代：见[替换选题需求](../../../../reqs/2026/11/02/req-story-generation-state-machine.md)。涉及原约定「确认后重选另建独立故事」。提交另一选题会切换同一家族的当前版本，旧作保留为历史。 [替换当前选题](../../../../story-generation-state-machine.md#替换当前选题)
+
 Git base: `3e3f2f0d7d37d9557835f2234a6f626444f2bf4b`
 
 风险：non-low。涉及生成调度、修订持久化、并发提交、阅读端与桌面书架的一致行为。沿用现有记录和版本族，不扩大为独立版本管理系统。
