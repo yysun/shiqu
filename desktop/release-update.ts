@@ -26,9 +26,10 @@ export async function newerDesktopRelease(current:string,transport:typeof fetch=
 }
 
 export function useReleaseUpdate(native:boolean){
- const [current,setCurrent]=useState(''),[latest,setLatest]=useState<string|null>(null);
+ const [current,setCurrent]=useState(''),[notice,setNotice]=useState<{version:string;manual:boolean}|null>(null);
  const [checking,setChecking]=useState(false),[feedback,setFeedback]=useState(''),[openError,setOpenError]=useState('');
  const inFlight=useRef(false);
+ const downloadButton=useRef<HTMLButtonElement>(null);
  async function check(manual=false){
   if(!native||inFlight.current)return;
   inFlight.current=true;
@@ -38,7 +39,7 @@ export function useReleaseUpdate(native:boolean){
    const version=await getVersion();
    setCurrent(version);
    const next=await newerDesktopRelease(version);
-   setLatest(next);
+   setNotice(next?{version:next,manual}:null);
    if(!next&&manual)setFeedback('已是最新版本。');
   }catch{
    if(manual)setFeedback('暂时无法检查更新，请稍后重试。');
@@ -48,10 +49,13 @@ export function useReleaseUpdate(native:boolean){
   }
  }
  useEffect(()=>{void check();},[native]);
+ useEffect(()=>{
+  if(notice?.manual)downloadButton.current?.focus();
+ },[notice]);
  async function openDownload(){
   setOpenError('');
   try{await invoke('open_release_download');}
   catch{setOpenError('无法打开默认浏览器，请稍后重试。');}
  }
- return {current,latest,checking,feedback,openError,check,openDownload};
+ return {current,latest:notice?.version,checking,feedback,openError,downloadButton,check,openDownload};
 }

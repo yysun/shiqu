@@ -356,6 +356,8 @@ macOS 要求 **13.5 或更新版本**。Windows 安装包要求 **Windows 10/11 
 
 Windows：[下载安装程序](https://github.com/yysun/shiqu/releases/latest/download/shiqu-standard-windows-x64-setup.exe)。运行 `-setup.exe`，按提示安装到当前用户。安装包未签名，SmartScreen 可能提示风险；仅对确认可信的下载选择「更多信息 → 仍要运行」。Windows 的默认设置目录为 `%APPDATA%\com.shiqu.desktop\`，默认故事目录为其中的 `library`。
 
+页脚的「检查更新」会查询最新正式版。发现新版后，控制台会定位「打开官方下载页」。从发布页下载对应的安装包，再退出拾趣并安装。
+
 ### 第一次打开
 
 1. 打开拾趣控制台，点击「启动服务」。首次使用无需先配置生成服务。
