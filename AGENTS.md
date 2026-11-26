@@ -39,6 +39,18 @@
 - 任务清单（制作时间线的各步骤与书架的制作任务行）里的主要操作，如「继续制作」「开始制作」「重试」，一律用文字链接（`StoryFlowAction`，`story-flow-link`），不用大按钮（`yu-primary`）；页面主操作（如「新建故事」「准备故事」）、对话框里的确认与取消、切换类控件、图标按钮不受此限。
 - Bundle or package the desktop application only when the user explicitly requests it. Do not run desktop preparation or build commands as routine verification; use local checks and browser verification instead.
 
+## 发布签核
+
+- 发布由维护者决定。签核记录在 `.tests/release-<版本>/SUITE.md`，规则见 `.tests/TESTING.md`。代理执行用例、登记运行并准备签核请求，但不得填写结论、放行或批准。
+- 用户要求发布、打 `v*` 标签或准备签核时，代理担任守门人：
+  1. 确认候选提交干净且版本号正确，按 `.tests/changes/SUITE.md` 的「整理改动清单」补齐改动用例，再核对签核记录中的范围。
+  2. 用签核记录里的命令计算候选构建（8 位短哈希）的结果。范围内还有未运行、INVALID 或构建带后缀的用例时，继续测试，不请求签核。
+  3. 全部用例都有结果后，向维护者提交签核请求，按以下顺序列出：失败与阻塞、需要放行的项、未执行的分支与残余风险；一条随机选取、已由代理通过、请维护者亲自复核的 P0 用例；最后是通过项及证据链接。
+  4. 签核记录中没有维护者针对这个提交写下的发布结论之前，不打也不推送 `v*` 标签。记录里的候选提交与要打标签的提交不一致时，视为未签核。
+- 执行签核用例的代理会话不得是实现该改动的会话，只依据用例、需求和用户指南判断结果。
+- 需要真实生成（例如 SMOKE-C003）或手动运行 `desktop-release` 工作流时，每次先征得维护者同意。
+- 维护者明确要求跳过签核（例如紧急修复）时，在签核记录中写明理由和要求人，再打标签。
+
 ## Repository Hygiene
 
 - Delete `.DS_Store` files whenever encountered, including capitalization variants such as `.DS_store`. Do not move them aside or keep backups.
