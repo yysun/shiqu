@@ -1,6 +1,6 @@
 # UI/UX audit: 拾趣修订流程-按钮与实测截图.pdf
 
-Audited 2026-11-27 with `audit-ui-design` 1.2.0. The baseline PDF was the version at `7d60bd5e`. Start with the [verified captures](#retaken-screenshot-set) or the [rebuilt guide](拾趣修订流程-按钮与实测截图.pdf). The [original standalone screenshots](#screenshot-evidence) are available for comparison.
+Audited 2026-11-27 with `audit-ui-design` 1.2.0. The baseline PDF was the version at `7d60bd5e`. The rebuilt guide’s [change index on page 18](拾趣修订流程-按钮与实测截图.pdf#page=18) maps all eight findings and the acceptance checks to their evidence. Pages 9–16 cover the app and guide comparisons. Page 17 records the post-fix narrow layout check. Pages 19–26 embed all 23 matched desktop screenshot pairs from [screenshots-retaken](screenshots-retaken/) and [screenshots-verified](screenshots-verified/) at the same scale. The [original standalone screenshots](#screenshot-evidence) document the original guide’s crops and visible boxes.
 
 This is a dated review record. The [fix requirements](../../../../reqs/2026/11/27/req-revision-ui-review-fixes.md) govern the changes and the next capture.
 
@@ -33,7 +33,7 @@ The 23 views below show the fixed app at `e4fbed88`. They were captured in the C
 | Waiting and pause · IC06 | The waiting review shows an arrow, the paused review shows the pause glyph, and Resume restarts the same review. The distinct actions stay in the active row. |
 | Impact text · SI01, TY05 | The six-frame watercolor edit shows the selected card and one redraw total. The automated service-backed preview check retains the frame number for partial redraw. The detail editor distinguishes existing image loss from the future frame count without stranding 「准。」. |
 | App layout · PX01, AL01, AL03, WS01–WS03, IC09 | Desktop controls remain inside their related editor or step. At 320 × 900, the review navigation group wraps together below the heading, its two links share a baseline, and all row actions end at x=287. The editor footer fits within the viewport. The document width stays 320 CSS px. [Narrow timeline](screenshots-verified/narrow-timeline.jpg) · [Narrow editor](screenshots-verified/narrow-editor.jpg) |
-| PDF layout and accuracy · PX01, AL03, WS01, WS03, LY02, CS03 | Eight rendered pages were inspected. Screenshot tops match within each row and every timeline image is 234.33 pt wide. On page 1 the heading gaps above and below are 20.9 / 9.1 pt and 18.9 / 11.1 pt. The table note starts 12.5 pt below the table. Each current caption extracts once. The PDF contains 23 image objects from the verified captures. [Rebuilt guide](拾趣修订流程-按钮与实测截图.pdf) |
+| PDF layout and accuracy · PX01, AL03, WS01, WS03, LY02, CS03 | On the eight guide pages, screenshot tops match within each row and every timeline image is 234.33 pt wide. On page 1 the heading gaps above and below are 20.9 / 9.1 pt and 18.9 / 11.1 pt. The table note starts 12.5 pt below the table. Each current caption extracts once. The guide pages contain 23 image objects from the verified captures. Pages 11–13 compare visible gaps, screenshot top edges, scale and crop detail with the baseline. [Layout comparison](拾趣修订流程-按钮与实测截图.pdf#page=11) |
 
 ## Retaken hierarchy screenshots
 
