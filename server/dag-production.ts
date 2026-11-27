@@ -86,8 +86,15 @@ export const reviewCall=(call:string|undefined)=>call==='review'||call==='frameC
 const visible="NOT EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=stories.id AND d.user_id=stories.user_id)";
 
 export const hasDag=(row:SessionRow)=>{try{return !!(decodeDocument(row)).dag;}catch{return false;}};
-export const canReprepare=(doc:Document)=>!!doc.dag&&!!doc.original&&!doc.reselection&&
- (!doc.intake||doc.intake.phase==='confirmed')&&!doc.dag.repreparing;
+function canReprepare(doc:Document,evaluation:Evaluation,complete:boolean){
+ if(!doc.dag||!doc.original||doc.reselection||doc.dag.repreparing||
+   doc.intake&&doc.intake.phase!=='confirmed')return false;
+ // 重编时可能仍带有旧分镜，只有当前输入下有效的完整分镜才进入保护区间。
+ const {order}=evaluation.state;
+ const storyboardSaved=order.length>0&&evaluation.instance('outline').status==='valid'&&
+  order.every(key=>evaluation.instance('scene',key).status==='valid');
+ return complete||!storyboardSaved;
+}
 
 type DrawingRow=Pick<ProductionJob,'session_id'|'payload'>;
 
@@ -147,7 +154,7 @@ export class DagProduction{
  /** 从快照推导完成和审片阻断，避免分别读取故障或访问图片文件。 */
  lifecycleFrom(row:SessionRow,faults:ReaderFault[],jobs:ProductionJob[]){
   const doc=decodeDocument(row),dag=doc.dag;
-  if(!dag)return {complete:undefined,blocking:null,release:null,review:null};
+  if(!dag)return {complete:undefined,blocking:null,release:null,review:null,canReprepare:false};
   const byId=new Map(jobs.map(job=>[job.id,job]));
   const targets=faults.filter(fault=>fault.state==='pending'||fault.state==='recovering').map(fault=>{
    const job=fault.job_id?byId.get(fault.job_id):undefined;
@@ -161,7 +168,7 @@ export class DagProduction{
   const blocking=complete||derived.work.some(item=>!drawing(item.call))?null:this.reviewBlock(reviewing,derived.attention);
   const review=derived.evaluation.approved()?'approved':blocking?.reasons.length?'attention':'pending';
   const release=complete?null:this.reviewRelease(reviewing,blocking?.id,faults,jobs);
-  return {complete,blocking,release,review} as const;
+  return {complete,blocking,release,review,canReprepare:canReprepare(doc,derived.evaluation,complete)} as const;
  }
 
  /** 在领取事务中按当前硬输入和故障复核；参考图的文件可用性在发送前核对。 */
@@ -697,8 +704,12 @@ export class DagProduction{
    if(db.get('SELECT id FROM stories WHERE id=? AND user_id=?',requestId,ownerId))throw new ReaderError(409,'这个操作编号已用于创建或提交故事。');
    const row=db.get<SessionRow>(`SELECT * FROM story_rows stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,id,ownerId);
    const doc=row?decodeDocument(row):undefined;
+   const evaluation=row&&doc?.dag?evaluate(stateOf({id,doc,dag:doc.dag,
+    selection:selectionSchema.parse(JSON.parse(row.selection)),
+    confirmed:!doc.intake||doc.intake.phase==='confirmed',
+    faults:dagFaultTargets(db.all<FaultTarget>(pendingFaultTargets,id,ownerId))})):null;
    const decision=authorizeProductionCommand('reprepare',{version:row?'current':'superseded',control:row?.generation_control??'active',
-    continuation:!!doc?.dag?.continuation,stopping,targetCurrent:true,targetReady:!!doc&&canReprepare(doc)});
+    continuation:!!doc?.dag?.continuation,stopping,targetCurrent:true,targetReady:!!doc&&!!evaluation&&canReprepare(doc,evaluation,evaluation.complete())});
    if(!decision.allowed)throw new ReaderError(decision.status,decision.message);
    const dag=doc!.dag!;
    dag.repreparing=true;dag.preparationGeneration=(dag.preparationGeneration??0)+1;

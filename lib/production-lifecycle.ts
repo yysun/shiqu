@@ -248,7 +248,7 @@ const landscapeCommand={allows:(state:CommandState)=>state.targetCurrent&&state.
  denial:(state:CommandState)=>state.targetReady?'横图状态已更新，请刷新后再操作。':'请先完成当前版本的竖版插图。'};
 const commands={
  reprepare:{allows:(state:CommandState)=>state.targetCurrent&&state.targetReady&&!state.continuation,
-  denial:'请先确认制作并保存原文。已有准备任务时，请等待或重试该任务。'},
+  denial:'画幅建议可在确认制作后、完整分镜保存前更新，或等本版制作完成后再更新。已有更新任务时请等待或重试。'},
  pause:controlCommand,
  stop:controlCommand,
  resume:{allows:(state:CommandState)=>(state.control!=='active'||state.continuation)&&state.targetReady,denial:'当前制作没有暂停，或版本已更新。'},

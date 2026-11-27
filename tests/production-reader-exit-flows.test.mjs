@@ -14,12 +14,13 @@ import {copySavedStory} from '../server/reader-copy.ts';
 import {emptyPublication} from '../lib/story-publication.ts';
 import {nativeExportRuntime} from '../server/story-export.ts';
 
+const legacyFrameSuggestion=/画幅建议|上次估算|初步估计/;
+
 /** 按界面操作名称调用正式接口；返回 HTTP 响应。 */
 function click(f,session,label){
  const control=action=>f.request(`sessions/${session.id}/production-control`,'POST',{requestId:crypto.randomUUID(),action});
  if(label==='继续制作'||/^重绘第 \d+ 幅$/.test(label))return control('continue');
  if(label==='暂停生成')return control('pause');
- if(label==='更新画幅建议')return control('reprepare');
  if(label==='恢复生成'||label==='恢复准备')return control('resume');
  if(label==='应用当前模型设置')return control('apply-model');
  if(/^(重试|重绘)/.test(label)){
@@ -94,12 +95,12 @@ test('each reader-facing waiting state exposes the same action on every surface,
  await f.json(`sessions/${refreshed}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'pause'});
  f.control.beforeText=null;release();
  await until(async()=>(await f.read(refreshed)).lifecycle.activity.state!=='running',20000);
- assert.match((await surfaces()).settings(await f.read(refreshed),false),/画幅建议更新已暂停/);
+ assert.match((await surfaces()).settings(await f.read(refreshed),false),/准备建议更新已暂停/);
  await exitBoth(f,refreshed,/^恢复生成$/);
  await until(async()=>(await f.read(refreshed)).lifecycle.preparationRefresh==='none',20000);
 });
 
-test('replanning continues in the storyboard row and keeps the optional recommendation in a disclosure',async t=>{
+test('replanning continues in the storyboard row while a preparation refresh requested via API can finish',async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;
  const {id}=await completedStory(f),{token}=await f.json(`sessions/${id}/revisions`);
@@ -110,7 +111,7 @@ test('replanning continues in the storyboard row and keeps the optional recommen
  const waiting=render.settings(child,false);
  assert.match(row(waiting,'plan'),/继续后编排新版分镜 · 新版幅数待编排，预计复用 0 幅旧图/);
  assert.ok(enabledActions(row(waiting,'plan')).includes('继续制作'));
- assert.doesNotMatch(row(waiting,'count'),/更新画幅建议/);
+ assert.doesNotMatch(waiting,legacyFrameSuggestion);
 
  const storyboard=Promise.withResolvers();
  f.control.beforeText=name=>name==='storyboard'?storyboard.promise:undefined;
@@ -121,24 +122,80 @@ test('replanning continues in the storyboard row and keeps the optional recommen
    active=await f.read(child.id);
    return active.lifecycle.activity.state==='running'&&active.lifecycle.activity.jobs.some(job=>job.call==='storyboard');
   },15000);
-  const producing=render.settings(active,false),plan=row(producing,'plan'),count=row(producing,'count');
+  const producing=render.settings(active,false),plan=row(producing,'plan');
   assert.match(plan,/正在编排新版分镜/);
   assert.ok(enabledActions(plan).includes('暂停生成'));
   assert.doesNotMatch(producing,/继续制作|按当前要求重新准备/);
-  const disclosure=count.match(/<details[^>]*>[\s\S]*?<\/details>/)?.[0]??'';
-  assert.doesNotMatch(disclosure,/^<details[^>]*\bopen\b/);
-  assert.match(disclosure,/<summary[^>]*>画幅建议（可选）<\/summary>/);
-  assert.ok(enabledActions(disclosure).includes('更新画幅建议'));
-
-  const refresh=await click(f,active,'更新画幅建议');
-  assert.ok(refresh.ok);
-  const refreshing=await refresh.json();
+  assert.doesNotMatch(producing,legacyFrameSuggestion);
+  const refreshing=await f.json(`sessions/${active.id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'reprepare'});
   assert.equal(refreshing.lifecycle.preparationRefresh,'pending');
-  const refreshRow=row(render.settings(refreshing,false),'count');
-  assert.match(refreshRow,/等待更新画幅建议/);
-  assert.ok(!enabledActions(refreshRow).includes('更新画幅建议'));
+  const refreshMarkup=render.settings(refreshing,false),refreshRow=row(refreshMarkup,'count');
+  assert.match(refreshRow,/等待更新准备建议/);
+  assert.doesNotMatch(refreshMarkup,legacyFrameSuggestion);
  }finally{storyboard.resolve();}
  await until(async()=>{const current=await f.read(child.id);return current.state==='completed'&&current.lifecycle.preparationRefresh==='none';},20000);
+});
+
+test('preparation refresh requests are rejected until review, repair and portrait drawing settle',async t=>{
+ const f=await productionFixture(t,'codex'),render=await surfaces();
+ const recommendation={count:6,reason:'供制作确认时参考的幅数。'};
+ const id=await confirmedStory(f,4,{frameRecommendation:recommendation});
+ const firstReview=Promise.withResolvers(),repair=Promise.withResolvers(),recheck=Promise.withResolvers();
+ let reviews=0;
+ f.control.beforeText=async(call,payload)=>{
+  if(call==='review'){
+   if(++reviews===1){
+    await firstReview.promise;
+    return {issues:[{page:2,category:'composition',repairField:'prompt',problem:'画面中的动作不清楚。',instruction:'写清楚人物醒来的动作。',requiresReplan:false}]};
+   }
+   await recheck.promise;
+  }
+  if(call==='visualRepair'){
+   await repair.promise;
+   return {frames:payload.frames.map(({number,current})=>({number,drawn:current.drawn,prompt:'庄周从席上撑起身子，抬眼望着窗外的庭院。'}))};
+  }
+ };
+ async function verifyRejected(call){
+  let session;
+  await until(async()=>{
+   session=await f.read(id);
+   return session.lifecycle.activity.jobs?.some(job=>job.call===call);
+  },15000);
+  const settings=render.settings(session,false);
+  const shelf=shelfEntry(render.shelf(await f.json('library/shelf')),id);
+  assert.ok(shelf,call+' 阶段的故事出现在书架');
+  assert.doesNotMatch(settings,legacyFrameSuggestion,call+' 阶段的故事设置');
+  assert.doesNotMatch(shelf,legacyFrameSuggestion,call+' 阶段的书架');
+  const response=await f.request(`sessions/${id}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'reprepare'});
+  assert.equal(response.status,409,`${call} 拒绝旧页面发出的更新请求`);
+  assert.match((await response.json()).error,/分镜.*制作完成/);
+  assert.equal(session.story.pages.length,4);
+  assert.ok(!session.lifecycle.actions.some(action=>action.event==='reprepare'));
+  const after=await f.read(id);
+  assert.deepEqual(after.lifecycle.activity,session.lifecycle.activity);
+  assert.equal(after.lifecycle.preparationRefresh,'none');
+  assert.deepEqual(after.frameRecommendation,session.frameRecommendation);
+  assert.equal(f.control.recommendations.length,0);
+ }
+ f.app.services.production.wake();
+ try{
+  await verifyRejected('review');
+  firstReview.resolve();
+  await verifyRejected('visualRepair');
+  repair.resolve();
+  await verifyRejected('review');
+  recheck.resolve();
+  await verifyRejected('draw');
+ }finally{
+  firstReview.resolve();repair.resolve();recheck.resolve();
+  f.control.hold=false;for(const call of f.control.calls)call.resolve();
+ }
+ await until(async()=>(await f.read(id)).state==='completed',15000);
+ const done=await f.read(id);
+ assert.ok(done.lifecycle.actions.some(action=>action.event==='reprepare'));
+ assert.equal(done.story.pages.length,4);
+ assert.equal(f.control.calls.length,4);
+ assert.equal(f.control.recommendations.length,0);
 });
 
 const revisionCases=[
@@ -175,9 +232,7 @@ for(const {call,requirements,changes,expected} of revisionCases){
  });
 }
 
-test('a saved recommendation with a lost receipt settles on restart without another model call',async t=>{
- const f=await productionFixture(t);
- f.control.hold=false;
+async function preparedIntake(f){
  f.generation.suggestions=async()=>({stories:[{title:'庄周梦蝶',description:'梦醒后的庄周思考自己的经历。'}],note:''});
  const {id}=await f.json('sessions','POST',{requestId:crypto.randomUUID(),intake:true,selection:{...selection,storyTitle:undefined,length:'auto'}});
  const route=`sessions/${id}`;
@@ -187,6 +242,58 @@ test('a saved recommendation with a lost receipt settles on restart without anot
  const {generation}=(await f.read(id)).intake;
  await f.json(route+'/setup','POST',{action:'choose',generation,batch:0,index:0,requestId:crypto.randomUUID()});
  await until(async()=>(await f.read(id)).intake.phase==='confirming');
+ return id;
+}
+
+test('C069: readers see one frame estimate before confirming and actual counts after storyboarding',async t=>{
+ const f=await productionFixture(t),render=await surfaces();
+ f.control.hold=false;
+ const id=await preparedIntake(f),prepared=await f.read(id);
+ assert.equal(prepared.frameRecommendation.count,7);
+ const setup=render.setup(prepared),editing=render.setup(prepared,'count');
+ const detail=editing.match(/<dialog\b[^>]*aria-label="修改故事"[^>]*>[\s\S]*?<\/dialog>/)?.[0];
+ assert.ok(detail,'叙事详略在修改故事对话框中');
+ const estimate=/预计\s*\d+\s*幅/;
+ assert.match(setup,/修改叙事详略/);
+ assert.ok(enabledActions(setup).includes('开始制作'));
+ for(const label of ['简短','适中','详细'])assert.ok(enabledActions(detail).some(action=>action.startsWith(label)));
+ assert.deepEqual(setup.match(new RegExp(estimate.source,'g')),['预计 7 幅']);
+ assert.match(setup,/最终幅数由编排与审核确定/);
+ assert.doesNotMatch(setup,legacyFrameSuggestion);
+ assert.doesNotMatch(detail,legacyFrameSuggestion);
+ assert.doesNotMatch(detail,estimate);
+ assert.ok(!enabledActions(detail).includes('按当前要求重新准备'));
+ assert.ok(enabledActions(render.setup(prepared,'requirements')).includes('按当前要求重新准备'));
+
+ const review=Promise.withResolvers();
+ f.control.beforeText=call=>call==='review'?review.promise:undefined;
+ try{
+  await f.json(`sessions/${id}/setup`,'POST',{action:'confirm',generation:prepared.intake.generation,draftToken:prepared.intake.draftToken,
+   requestId:crypto.randomUUID(),settings:{...prepared.intake.draft,narrativeDetail:'brief'}});
+  let auditing;
+  await until(async()=>{
+   auditing=await f.read(id);
+   return auditing.lifecycle.activity.jobs?.some(job=>job.call==='review');
+  },15000);
+  assert.equal(auditing.selection.narrativeDetail,'brief');
+  assert.equal(auditing.story.pages.length,8);
+  const progress=render.settings(auditing,false);
+  assert.match(progress,/8 幅分镜已保存/);
+  assert.doesNotMatch(progress,estimate,'审核中显示实际分镜数');
+  assert.doesNotMatch(progress,legacyFrameSuggestion);
+ }finally{review.resolve();}
+ await until(async()=>(await f.read(id)).state==='completed',15000);
+ const completed=await f.read(id),completion=render.settings(completed,false);
+ assert.match(completion,/8 幅分镜已保存/);
+ assert.doesNotMatch(completion,estimate,'完成后显示实际分镜数');
+ assert.doesNotMatch(completion,legacyFrameSuggestion);
+ assert.equal(f.control.recommendations.length,1);
+});
+
+test('a saved recommendation with a lost receipt settles on restart without another model call',async t=>{
+ const f=await productionFixture(t);
+ f.control.hold=false;
+ const id=await preparedIntake(f),route=`sessions/${id}`;
  await f.app.services.production.queue.settle();
  const before=await f.read(id);
  const savedUsage=async()=>JSON.parse((await f.app.services.database.prepare('SELECT document FROM stories WHERE id=?').bind(id).first()).document).usage;

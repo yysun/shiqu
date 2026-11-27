@@ -118,6 +118,28 @@ function StoryReviewNotesEditor({editor,base,onCancel}:{editor:StoryRevisionEdit
  </div>;
 }
 
+function ReviewSuggestion({editor,issue,page}:{editor:StoryRevisionEditorState;issue:ReviewIssue;page:number}){
+ const [pending,setPending]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState('');
+ async function apply(){
+  setPending(true);setMessage('');setError('');
+  try{
+   const result=await editor.applySuggestion(issue,page);
+   if(result)setMessage(result==='updated'?'建议已填入草稿，请核对后保存。':'建议没有产生实际变化，可继续手动修改。');
+  }catch(e){setError(e instanceof Error?e.message:'暂时无法应用建议，请重试。');}
+  finally{setPending(false);}
+ }
+ return <>
+  <dl><dt>审核问题</dt><dd>{issue.problem}</dd><dt>修订建议</dt><dd>{issue.instruction}</dd></dl>
+  {!issue.requiresReplan&&<div className="production-stage-actions">
+   <StoryFlowAction onClick={apply} disabled={editor.busy||editor.loading||editor.conflict||editor.impact?.replan} aria-busy={pending}>
+    {pending?'正在应用…':'应用修订建议'}
+   </StoryFlowAction>
+  </div>}
+  {message&&<p role="status">{message}</p>}
+  {error&&<p role="alert">{error}</p>}
+ </>;
+}
+
 export default function StoryRevisionEditor({editor,onCancel,reviewIssues=[]}:{editor:StoryRevisionEditorState;onCancel:()=>void;reviewIssues?:ReviewIssue[]}){
  const {base,changes,busy,loading}=editor;
  if(loading&&!base)return <p role="status">正在载入已保存的制作内容…</p>;
@@ -130,13 +152,13 @@ export default function StoryRevisionEditor({editor,onCancel,reviewIssues=[]}:{e
  const updatePlan=(update:(plan:Plan)=>void,changesFrame=false)=>editor.setChanges(c=>{const next=structuredClone(c.plan||base.plan);if(!next)return c;update(next);return {...c,plan:next,...(changesFrame?{storySummary:undefined}:{})};});
  return <div className="yu-revision-editor" data-dirty={editor.impact?.changed?'true':undefined}>
   {editor.tab&&<StoryEditorTabs tab={editor.tab} onChange={editor.setTab} script={!!plan} disabled={busy}/>}
-  {editor.tab&&editor.tab!=='script'&&<StoryProductionEditor sessionId={editor.sessionId} tab={editor.tab} settings={{...artStyleSettings(base.selection,changes),productionPrompt:changes.productionPrompt??normalizeProductionPrompt(base.selection.productionPrompt,base.selection.theme),acceptancePrompt:changes.acceptancePrompt??base.selection.acceptancePrompt,length:changes.length??base.selection.length,narrativeDetail:changes.narrativeDetail??base.selection.narrativeDetail??'balanced'}} recommendation={base.frameRecommendation} disabled={busy} onChange={patch=>editor.setChanges(c=>({...c,...patch}))}/>}
+  {editor.tab&&editor.tab!=='script'&&<StoryProductionEditor sessionId={editor.sessionId} tab={editor.tab} settings={{...artStyleSettings(base.selection,changes),productionPrompt:changes.productionPrompt??normalizeProductionPrompt(base.selection.productionPrompt,base.selection.theme),acceptancePrompt:changes.acceptancePrompt??base.selection.acceptancePrompt,length:changes.length??base.selection.length,narrativeDetail:changes.narrativeDetail??base.selection.narrativeDetail??'balanced'}} disabled={busy} onChange={patch=>editor.setChanges(c=>({...c,...patch}))}/>}
   <fieldset disabled={busy} className="yu-revision-fields">
    {editor.tab==='script'&&plan&&<section className="yu-revision-script">
     <label className="yu-revision-field">选择分镜<select value={target} onChange={e=>editor.setScriptPage(Number(e.target.value))}>{plan.pages.map((_,index)=><option key={index} value={index+1}>第 {index+1} 幅</option>)}<option value={0}>结语</option></select></label>
     {issues.length>0&&<details key={target} open className="yu-revision-review" aria-label={target===0?'结语审核意见':`第 ${target} 幅审核意见`}>
      <summary>{target===0?'结语':`第 ${target} 幅`} · 上次审核意见</summary>
-     {issues.map((issue,index)=><dl key={index}><dt>审核问题</dt><dd>{issue.problem}</dd><dt>修订建议</dt><dd>{issue.instruction}</dd></dl>)}
+     {issues.map((issue,index)=><ReviewSuggestion key={JSON.stringify([issue.problem,issue.instruction,index])} editor={editor} issue={issue} page={target}/>)}
     </details>}
     {target>0&&<><section aria-label={`修改第 ${page+1} 幅`}><h3>第 {page+1} 幅</h3><label className="yu-revision-field">旁白<textarea rows={3} minLength={8} maxLength={90} value={plan.pages[page].caption} onChange={e=>updatePlan(p=>{p.pages[page].caption=e.target.value;},true)}/></label><label className="yu-revision-field">画面提示词<textarea rows={5} minLength={20} maxLength={1800} value={plan.pages[page].prompt} onChange={e=>updatePlan(p=>{p.pages[page].prompt=e.target.value;},true)}/></label></section>
     <details><summary>人物设定（修改后重绘受影响画幅）</summary><label className="yu-revision-field">人物设定<textarea rows={4} minLength={20} maxLength={2500} value={plan.characters} onChange={e=>updatePlan(p=>{p.characters=e.target.value;})}/></label></details></>}

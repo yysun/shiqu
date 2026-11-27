@@ -58,7 +58,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
  const editable=ready||intake.phase==='preparing';
  const editingRequirements=editing==='requirements'||editing==='acceptance';
  const editLocked=editingRequirements?busy:locked;
- const canRecommend=ready&&!remote&&session.state!=='running'&&offersProductionAction(session,'recommend')&&(editing==='requirements'||editing==='count');
+ const canRecommend=editing==='requirements'&&ready&&!remote&&session.state!=='running'&&offersProductionAction(session,'recommend');
  const selected=intake.selected?intake.batches[intake.selected.batch]?.stories[intake.selected.index]:null;
  const preparable=!!selected&&intake.phase==='choosing'&&session.state!=='failed';
  const preferences={artStyle:settings.artStyle,artStylePrompt:settings.artStylePrompt,productionPrompt:settings.productionPrompt,...(settings.acceptancePrompt!==undefined?{acceptancePrompt:settings.acceptancePrompt}:{}),narrativeDetail:settings.narrativeDetail};
@@ -135,7 +135,7 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   {editing&&<Sheet title="修改故事" busy={busy} onClose={closeEditor}>
    {remoteChoice}
    <StoryEditorTabs tab={editing} disabled={busy} onChange={tab=>{if(tab!=='script')setEditing(tab);}}/>
-   <StoryProductionEditor sessionId={session.id} tab={editing} settings={settings} creation disabled={editLocked} requirementsEdited={settings.requirementsEdited} preparationPaused={paused} recommendation={session.frameRecommendation} artRecommendation={selected?.artRecommendation} onChange={patch=>setSettings(s=>{
+   <StoryProductionEditor sessionId={session.id} tab={editing} settings={settings} creation disabled={editLocked} requirementsEdited={settings.requirementsEdited} preparationPaused={paused} artRecommendation={selected?.artRecommendation} onChange={patch=>setSettings(s=>{
     const requirementsEdited={...s.requirementsEdited};
     for(const key of requirementKeys)if(key in patch)requirementsEdited[key]=true;
     return {...s,...patch,length:'auto',requirementsEdited};

@@ -1,8 +1,21 @@
 // 审片结论的种类与自动修订额度。
 import type {Evaluation,Product} from './engine.ts';
+import type {ReviewIssue} from '../reader-review.ts';
 
 export const verdictNodes=['frameVerdict','narrativeVerdict'] as const;
 export const repairsPerGrant=20;
+const visualCategories=new Set(['composition','style','action']);
+
+/** 旧审片没有字段时，优先采用事实与衔接意见中明确指出的出错字段。 */
+export function reviewRepairField(issue:ReviewIssue):'caption'|'prompt'{
+ if(issue.repairField==='caption'||issue.repairField==='prompt')return issue.repairField;
+ if(issue.category==='source'||issue.category==='continuity'){
+  const prompt=/\bprompt\b|画面(?:提示词|描述)/i.test(issue.problem);
+  const caption=/\bcaption\b|旁白|配文/i.test(issue.problem);
+  if(prompt!==caption)return prompt?'prompt':'caption';
+ }
+ return visualCategories.has(issue.category)?'prompt':'caption';
+}
 
 /** 只返回仍绑定当前输入的审核产物；固定幅数时不采用旧的幅数核对。 */
 export function currentReviewTargets(evaluation:Evaluation){

@@ -62,7 +62,7 @@ export function productionSteps(input:Input):ProductionStage[]{
    :selected||intake!=='discovering'?`已保存 ${input.candidateBatches||0} 批候选`:'正在寻找并保存候选故事'
    :sourceReady?input.selectedSourceLabel||'已保存原文':combined?'将所选原文整理为一篇故事':'等待保存原文';
   const preparationDetail=input.preparedSummary?'原文与梗概已核对':'原文与制作建议已保存';
-  const confirmationDetail=input.estimatedFrames?`预计 ${input.estimatedFrames} 幅 · 最终幅数由编排与审核确定`:'确认画风、叙事详略、制作要求和验收要求';
+  const confirmationDetail=input.estimatedFrames?`预计 ${input.estimatedFrames} 幅 · 最终幅数由编排与审核确定`:preparationDetail;
   const setupDetail=confirmed?`${preparationDetail} · 制作内容已确认`
    :prepared?confirmationDetail
    :intake==='preparing'?'保存原文，核对梗概与制作建议':selected?'待准备这篇故事':'等待选材完成';

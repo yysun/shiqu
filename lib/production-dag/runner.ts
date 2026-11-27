@@ -3,7 +3,7 @@
 // 再用 apply() 在会话锁下保存；apply 先核对派发时的硬输入，输入已变的迟到结果直接丢弃。
 // 无需调用的步骤（采用已有原文、已核对的梗概与准备建议，按绘图输入复用旧图，同步验收条目）由 settle() 完成。
 // 提纲重新生成时画幅取得新身份；结构修订只沿用内容原样保留的画幅身份。
-// 自动修订由审片问题驱动：问题按画幅归属，画面类问题做画面修订，其余做叙事修订，需要重排的做结构修订；
+// 自动修订由审片问题驱动：局部问题按画幅和字段修订，需要重排的做结构修订；
 // 手改、额度用尽、修订无变化或要求无法判断时不再派发，由 attention() 报告「需读者处理」。
 import type {Document,Selection} from '../reader-model.ts';
 import {productionRequirement,styleOf} from './requests.ts';
@@ -15,7 +15,7 @@ import {evaluate,instanceId,instanceKeys,reusable,complete,type Evaluation,type 
 import {nodeSpec} from './registry.ts';
 import {fingerprint} from './fingerprint.ts';
 import {callGroups,type CallGroup} from './schedule.ts';
-import {newRepairBudget,canRepair,verdictNodes} from './review.ts';
+import {newRepairBudget,canRepair,verdictNodes,reviewRepairField} from './review.ts';
 import type {ReviewOverride} from '../reader-recovery.ts';
 import {structuralLoss} from './hand-edits.ts';
 import {type Outline,type Scene,type Visual,type Character,type ReviewOutcome,type StoryboardValue} from './calls.ts';
@@ -35,7 +35,6 @@ export type DagStory={
 /** 一项待派发的工作：一次调用及其产出的实例（派发时的硬输入随实例记录）。 */
 export type Work=CallGroup&{issues?:DagIssue[];requestHash?:string};
 
-const visualCategories=new Set(['composition','style','action']);
 const frameNodes=new Set(['scene','visual','frameImage','redrawNote']);
 
 export function stateOf(story:DagStory):VersionState{
@@ -223,7 +222,7 @@ function repairPlan(story:DagStory,ev:Evaluation):{work:Work[];attention:Attenti
  for(const issue of open){
   if(issue.page===0){ending.push(issue);continue;}
   const id=dag.order[issue.page-1];if(!id){attention.push({target:issue.target,reason:'unrepairable'});continue;}
-  const into=visualCategories.has(issue.category)?visuals:scenes;
+  const into=reviewRepairField(issue)==='prompt'?visuals:scenes;
   into.set(id,[...(into.get(id)??[]),issue]);
  }
  const take=(node:'scene'|'visual',call:string,map:Map<string,DagIssue[]>)=>{

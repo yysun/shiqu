@@ -4,12 +4,29 @@
 import {useEffect,useRef,useState} from 'react';
 import {randomId,request} from './shared';
 import {checkedRevision,revisionImpact} from '@/lib/reader-revision';
-import type {LostHandEdit,RevisionChanges,RevisionSnapshot} from '@/lib/reader-revision';
+import type {LostHandEdit,RevisionChanges,RevisionSnapshot,ReviewSuggestionDraft,ReviewSuggestionRequest} from '@/lib/reader-revision';
 import type {SessionView} from '@/lib/reader-model';
+import type {Plan} from '@/lib/reader-model';
+import type {ReviewIssue} from '@/lib/reader-review';
 import type {StoryEditorTab} from './StoryProductionEditor';
 export type RevisionTab=StoryEditorTab|'review';
 /** 服务端按引擎推导的保存前预估（server/dag-revisions.ts previewDagRevision）。 */
 export type RevisionPreview={changed:boolean;total:number;redraw:number;reused:number;textWork:Record<string,number>;continues:boolean;lostHandEdits:LostHandEdit[];droppedRedrawNotePages:number[];redrawPages:number[];lostImagePages:number[]};
+
+function requestSuggestion(id:string,token:string,issue:ReviewIssue,draft?:ReviewSuggestionRequest['draft']):Promise<ReviewSuggestionDraft>{
+ return request(`reader/sessions/${id}/revisions/suggestion`,'POST',{token,
+  issue:{page:issue.page,problem:issue.problem,instruction:issue.instruction},draft} satisfies ReviewSuggestionRequest);
+}
+
+function applyToPlan(plan:Plan,page:number,{field,text}:ReviewSuggestionDraft){
+ const current=field==='reflection'?plan.reflection:plan.pages[page-1]?.[field];
+ if(current===undefined||current===text)return null;
+ const next=structuredClone(plan);
+ if(field==='reflection')next.reflection=text;
+ else next.pages[page-1][field]=text;
+ return next;
+}
+
 export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:SessionView,changes:RevisionChanges)=>Promise<void>,onOpenLatest?:(storyId:string)=>Promise<void>){
  const [tab,setTab]=useState<RevisionTab|null>(null),[base,setBase]=useState<RevisionSnapshot|null>(null),[changes,setChanges]=useState<RevisionChanges>({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[conflict,setConflict]=useState(false);
  const [scriptPage,setScriptPage]=useState(1),[summarizing,setSummarizing]=useState(false);
@@ -100,6 +117,47 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
    return false;
   }finally{lock.current=false;setBusy(false);setSummarizing(false);}
  }
+ async function applySuggestion(issue:ReviewIssue,page:number){
+  if(!base?.plan||!storyId||lock.current||conflict)return;
+  const {plan,removedFrames,mergeTargets}=changes;
+  const id=storyId,serial=read.current,currentPlan=plan||base.plan;
+  const isCurrent=()=>latest.current===id&&read.current===serial&&currentChanges.current===changes;
+  lock.current=true;setBusy(true);setError('');
+  try{
+   const result=await requestSuggestion(id,base.token,issue,{plan,removedFrames,mergeTargets});
+   if(!isCurrent())return;
+   const next=applyToPlan(currentPlan,page,result);
+   if(!next)return 'unchanged';
+   setChanges(value=>value===changes?{...value,plan:next}:value);
+   return 'updated';
+  }catch(e){
+   if(isCurrent()){
+    if((e as {status?:number}).status===409)await refresh();
+    throw e;
+   }
+  }finally{lock.current=false;setBusy(false);}
+ }
+ async function autoSaveSuggestion(issue:ReviewIssue){
+  if(!storyId||lock.current||tab)return;
+  const id=storyId,route=`reader/sessions/${id}/revisions`;
+  lock.current=true;setBusy(true);setError('');
+  try{
+   const snapshot:RevisionSnapshot=await request(route);
+   if(!snapshot.plan||latest.current!==id)return;
+   const result=await requestSuggestion(id,snapshot.token,issue);
+   if(latest.current!==id)return;
+   const plan=applyToPlan(snapshot.plan,issue.page,result);
+   if(!plan)return 'unchanged';
+   const nextChanges={plan};
+   checkedRevision(snapshot,nextChanges);
+   const next:SessionView=await request(route,'POST',{requestId:randomId(),token:snapshot.token,changes:nextChanges});
+   if(latest.current!==id)return;
+   read.current++;
+   setBase(null);setChanges({});
+   await callback.current(next,nextChanges);
+   return 'saved';
+  }finally{lock.current=false;setBusy(false);}
+ }
  async function submit(submittedChanges=changes,startRedraw=false,cover?:File){
   if(!base||!storyId||lock.current)return;
   try{checkedRevision(base,submittedChanges);}catch(e){setError(e instanceof Error?e.message:'请检查修改内容。');return;}
@@ -124,7 +182,7 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
   }catch(e){setError(e instanceof Error?e.message:'新版暂未提交，请重试。');if((e as {status?:number}).status===409)await refresh(submittedChanges);}
   finally{lock.current=false;setBusy(false);}
  }
- return {sessionId:storyId,tab,setTab,scriptPage,setScriptPage,base,changes,setChanges,loading,busy,error,conflict,load,loadLatest,prepare,open,discard,reset,summarize,summarizing,submit,preview,impact:base?withPreview(revisionImpact(base,changes),preview):null};
+ return {sessionId:storyId,tab,setTab,scriptPage,setScriptPage,base,changes,setChanges,loading,busy,error,conflict,load,loadLatest,prepare,open,discard,reset,summarize,summarizing,applySuggestion,autoSaveSuggestion,submit,preview,impact:base?withPreview(revisionImpact(base,changes),preview):null};
 }
 /** 本地估算只给出是否有改动与冲突；复用与重绘的幅数只以服务端预估为准，预估未就绪时 estimated 为 false，界面显示「预估暂不可用」。 */
 function withPreview<T extends {reused:number;redraw:number}>(impact:T,preview:RevisionPreview|null):T&{estimated:boolean}{return preview?{...impact,reused:preview.reused,redraw:preview.redraw,estimated:true}:{...impact,estimated:false};}

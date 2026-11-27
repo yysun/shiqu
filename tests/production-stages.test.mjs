@@ -17,7 +17,8 @@ test('preparation and confirmation share one step while preserving source and wo
   assert.equal(steps('preparing','paused')[1].state,'paused');
   assert.equal(steps('preparing','failed')[1].state,'failed');
   assert.equal(before[1].state,'current');
-  assert.match(before[1].detail,/预计 34 幅/);
+  assert.equal(before[1].detail,'预计 34 幅 · 最终幅数由编排与审核确定');
+  assert.equal(productionSteps({...source,intakePhase:'confirming',estimatedFrames:undefined})[1].detail,'原文与梗概已核对');
   assert.equal(after[1].state,'done');
   assert.equal(after[1].detail,'原文与梗概已核对 · 制作内容已确认');
   assert.equal(after[1].durationLabel,'准备耗时');

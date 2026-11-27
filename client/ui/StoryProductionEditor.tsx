@@ -9,7 +9,6 @@ import type {IntakeDraft} from '@/lib/reader-intake';
 import {StoryArtRecommendation} from './StoryArtRecommendation';
 import {artStylePromptMaxLength,getArtStyle} from '@/lib/reader-styles';
 import type {ArtStyleId} from '@/lib/reader-styles';
-import type {FrameRecommendation} from '@/lib/reader-frame-recommendation';
 import type {ArtRecommendation} from '@/lib/reader-art-recommendation';
 import type {RequirementEdits} from '@/lib/reader-requirements';
 import StoryFlowAction from './StoryFlowAction';
@@ -19,7 +18,7 @@ const tabs:{id:StoryEditorTab;label:string}[]=[{id:'requirements',label:'制作�
 export function StoryEditorTabs({tab,onChange,script=false,disabled=false}:{tab:StoryEditorTab;onChange:(tab:StoryEditorTab)=>void;script?:boolean;disabled?:boolean}){
  return <nav className="yu-revision-tabs" aria-label="修改内容">{tabs.filter(t=>script||t.id!=='script').map(t=><button type="button" key={t.id} disabled={disabled} aria-pressed={tab===t.id} onClick={()=>onChange(t.id)}>{t.label}</button>)}</nav>;
 }
-export default function StoryProductionEditor({tab,settings,disabled,onChange,sessionId,creation=false,requirementsEdited,preparationPaused=false,recommendation,artRecommendation}:{tab:Exclude<StoryEditorTab,'script'>;settings:ProductionSettings;sessionId?:string;disabled:boolean;onChange:(patch:Partial<ProductionSettings>)=>void;creation?:boolean;requirementsEdited?:RequirementEdits;preparationPaused?:boolean;recommendation?:FrameRecommendation|null;artRecommendation?:ArtRecommendation}){
+export default function StoryProductionEditor({tab,settings,disabled,onChange,sessionId,creation=false,requirementsEdited,preparationPaused=false,artRecommendation}:{tab:Exclude<StoryEditorTab,'script'>;settings:ProductionSettings;sessionId?:string;disabled:boolean;onChange:(patch:Partial<ProductionSettings>)=>void;creation?:boolean;requirementsEdited?:RequirementEdits;preparationPaused?:boolean;artRecommendation?:ArtRecommendation}){
  const fieldId=useId(),promptField=useRef<HTMLTextAreaElement>(null);
  const defaultPrompt=getArtStyle(settings.artStyle).prompt;
  const customPrompt=!!settings.artStylePrompt?.trim()&&settings.artStylePrompt.trim()!==defaultPrompt;
@@ -69,7 +68,6 @@ export default function StoryProductionEditor({tab,settings,disabled,onChange,se
     </button>;
    })}</div>
    <p className="yu-count-help">画幅数由模型按原文和详略编排，审核时可增减；文字稿稳定后再生成图片。</p>
-   {recommendation&&<p className="yu-count-help">初步估计 {recommendation.count} 幅，最终数量以编排和审核结果为准。</p>}
   </section>}
  </fieldset>;
 }

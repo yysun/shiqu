@@ -544,6 +544,46 @@ Run ID、构建、数据库位置、实际状态序列及断言；UI例含截图
 
 审核问题、故障标识、修订额度、授权响应和实际模型调用。
 
+## STORY-LIFECYCLE-C066 — 局部事实问题修订实际出错的字段
+
+<a id="case-c066"></a>
+
+- State: READY
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: R3；审片修错字段或把局部停机误报为结构问题
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+回归《李后诉冤与还宫》的第 23、24 幅。自动修订画面里无原文依据的脚伤。修订无变化时，读者能看到实际受影响的画幅和原因。
+
+### Preconditions
+
+使用隔离书库、正式制作协调器和受控模型回执。结构核对和验收条目通过。
+
+### Test Data
+
+28 幅合成分镜，仅第 23、24 幅的画面提示词加入无据脚伤。审片将它列为原文事实问题，指向画面提示词。
+
+### Runner Instructions
+
+运行 [生产场景测试](../../tests/production-dag-scenarios.test.mjs) 和 [修订停机投影测试](../../tests/production-dag-runner.test.mjs) 中的 C066。分别返回修正后的画面提示词和原样回执。停机投影另复现局部失败结论缺少独立修订意见、但全篇结论仍保存两条局部意见的状态。
+
+### Expected Outcome
+
+- 修订成功时只修改第 23、24 幅的画面提示词，旁白、画幅身份和 28 幅总数保持，复审通过后才进入绘图。
+- 修订无变化时，保留两条分幅问题、显示无变化原因，等待读者处理。
+
+### Negative Assertions
+
+不得改旁白或重编结构。复审通过前不得绘图。局部失败不得报为需要重新编排。
+
+### Evidence Required
+
+正式调用顺序、前后画幅快照、复审结论、停机原因与制作时间线。
+
 ## STORY-LIFECYCLE-C015 — 重编时按照新绘图输入匹配故障
 
 <a id="case-c015"></a>
@@ -2068,36 +2108,39 @@ PDF 不选用旧画风的失效横图。
 
 保存实际横图输入、两版图片哈希、打印/导出文件及竖图重绘伴随的横图调用数。记录构建和实际执行的原编号；缺一个分支时注明缺口。
 
-## STORY-LIFECYCLE-C054 — 确认后修改改编重点或重新准备建议
+## STORY-LIFECYCLE-C054 — 确认后修改改编重点与可更新建议的时机
 
 <a id="case-c054"></a>
 
-- State: READY
+- State: RETIRED
 - Priority: P1
 - Type: INTEGRATION
 - Requirement / Risk: 制作 DAG 25
 - Automation: HYBRID
 - Owner: UNASSIGNED
 
+读者界面已移除画幅建议入口，现行覆盖见 [C069](#case-c069)。保留原验收条款及历史执行记录。
+
 ### Objective
 
-确认后修改改编重点或重新准备建议。各分支按原编号分别取证。
+验证确认后修改改编重点的行为，以及画幅建议仍可更新的时机。
 
 ### Preconditions
 
-使用隔离书库与受控提供方。已确认并有分镜和图片的稿件，准备建议可被再次请求。
+使用隔离书库与受控提供方。准备已完成的作品，以及从该作品另存的待重编新版。
 
 ### Test Data
 
-确认后改重点或更新建议。数量、位置与对照输入见下列原编号。
+确认后改重点、尚未保存完整分镜的重编新版、已完成作品。
 
 ### Runner Instructions
 
-分别只改改编重点、从正式入口请求刷新建议；等准备完成再打开原稿。可复用的自动化见[production-dag-scenarios](../../tests/production-dag-scenarios.test.mjs)、[production-dag-engine](../../tests/production-dag-engine.test.mjs)。
+分别修改改编重点、在重编分镜时更新画幅建议、在已完成作品上更新建议。使用 [DAG 25 引擎测试](../../tests/production-dag-engine.test.mjs)、[分镜与更新入口测试](../../tests/production-reader-exit-flows.test.mjs)、[已完成作品刷新测试](../../tests/production-dag-scenarios.test.mjs)。完整分镜保存后到绘图完成前的限制见 [C067](#case-c067)。
 
 ### Expected Outcome
 
-- DAG 25 · 确认制作后修改改编重点，或让建议重新生成。已确认的设置、分镜和图片保持有效，制作调用数为零。
+- DAG 25 · 已确认稿件不会因改编重点的建议变化自动重做。已完成作品更新建议只调用一次文字生成，沿用已确认设置、分镜和成图。
+- 重编新版等待「继续制作」时无更新入口。继续后，在完整分镜尚未保存时可请求更新；请求受理后显示等待更新状态，已发出的编排任务可完成。
 
 ### Negative Assertions
 
@@ -2106,6 +2149,132 @@ PDF 不选用旧画风的失效横图。
 ### Evidence Required
 
 核对确认设置、原分镜与图片、建议调用与正式制作调用的各自计数。记录构建和实际执行的原编号；缺一个分支时注明缺口。
+
+## STORY-LIFECYCLE-C067 — 完整分镜进入审核后画幅估算仅供查看
+
+<a id="case-c067"></a>
+
+- State: RETIRED
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: 审片、修订或竖图期间，画幅建议刷新请求可占用制作队列
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+读者界面已移除画幅建议入口，现行覆盖见 [C069](#case-c069)。保留原验收条款及历史执行记录。
+
+### Objective
+
+复现已保存完整分镜并进入审片的故事。制作确认处可以查看上次画幅估算，当前制作按原队列继续。
+
+### Preconditions
+
+使用正式制作协调器、隔离书库和受控模型回执。故事已确认并保留一份旧估算，审片、定向修订、复核和绘图可分别保持在途。
+
+### Test Data
+
+完整分镜与不同的上次估算；首轮审片返回一条可局部修订的画面问题；模拟旧页面提交的画幅建议刷新命令。
+
+### Runner Instructions
+
+运行 [画幅建议刷新边界测试](../../tests/production-reader-exit-flows.test.mjs) 的 C067。逐阶段核对故事设置的实际渲染和正式服务的响应，再释放该阶段的受控回执。
+
+### Expected Outcome
+
+- 审片、定向修订、复核和竖版绘图期间可查看上次估算，刷新入口不出现。
+- 已保存完整分镜的制作未完成时，服务端拒绝旧页面的刷新命令，返回 409，说明何时可以更新。
+- 原审片、修订和绘图任务依次完成。制作完成后恢复更新入口。
+
+### Negative Assertions
+
+拒绝的请求不得登记准备任务、调用建议生成服务、改动估算或改变已保存的画幅数。
+
+### Evidence Required
+
+各阶段的实际界面标记、服务端拒绝响应、准备调用数、原任务与最终画幅数。
+
+## STORY-LIFECYCLE-C068 — 读者用叙事详略控制篇幅
+
+<a id="case-c068"></a>
+
+- State: RETIRED
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: 制作确认把估算幅数重复呈现为篇幅设置，并提供与制作进度无关的刷新入口
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+制作确认保留一条只读预计幅数。此变更由 [C069](#case-c069) 验收。
+
+### Objective
+
+核对首次确认、审核和完成稿的读者界面。读者通过叙事详略设置篇幅，并可查看实际保存的幅数。
+
+### Preconditions
+
+使用隔离书库、正式制作协调器和受控模型回执。准备任务返回了旧格式仍包含的估算，审核可暂停在途。
+
+### Test Data
+
+新选的故事及其准备快照、确认时提交的「简短」、审核前保存的实际分镜和完成稿。
+
+### Runner Instructions
+
+运行 [读者端到端测试](../../tests/production-reader-exit-flows.test.mjs) 的 C068。渲染首次确认和叙事详略编辑器，提交制作设置，分别核对审核和完成稿。DAG 25 的兼容行为继续通过同文件的编排与刷新边界测试，以及 [改编重点引擎测试](../../tests/production-dag-engine.test.mjs) 和 [已完成作品刷新测试](../../tests/production-dag-scenarios.test.mjs) 核对。
+
+### Expected Outcome
+
+- 首次确认可打开叙事详略并开始制作。编辑器提供「简短」「适中」「详细」，提交后生效。
+- 审核和完成稿显示实际保存的分镜幅数。
+
+### Negative Assertions
+
+各阶段的读者界面均无幅数估算或画幅建议入口。确认篇幅及后续制作不额外调用准备服务。
+
+### Evidence Required
+
+首次确认、详略选项、审核和完成稿的界面断言，以及保存的详略值和准备调用次数。
+
+## STORY-LIFECYCLE-C069 — 确认前展示预计幅数，审片中展示实际幅数
+
+<a id="case-c069"></a>
+
+- State: READY
+- Priority: P1
+- Type: INTEGRATION
+- Requirement / Risk: 制作 DAG 25；预计幅数重复展示，刷新入口被误当成篇幅设置
+- Automation: AUTOMATED
+- Owner: UNASSIGNED
+
+### Objective
+
+读者在首次确认时能预知大致幅数，通过叙事详略选择展开程度，并在审核和完成稿查看实际保存的分镜幅数。
+
+### Preconditions
+
+使用隔离书库、正式制作协调器和受控模型回执。估算幅数与制作所得幅数不同，审片可保持在途。
+
+### Test Data
+
+预计 7 幅的新故事、确认时提交的「简短」、实际 8 幅的审片中稿和完成稿。
+
+### Runner Instructions
+
+运行 [读者制作回归测试](../../tests/production-reader-exit-flows.test.mjs) 的 C069，以及其中的重编和制作阶段边界验证。核对首次制作确认、叙事详略编辑器、重编、审片、定向修订、复核、绘图和完成稿。制作期间同时核对故事设置和书架。
+
+### Expected Outcome
+
+- 首次制作确认显示一条只读的「预计 7 幅」，并说明最终幅数由编排与审核确定。
+- 叙事详略可选「简短」「适中」「详细」，提交的「简短」生效。
+- 审核和完成稿显示实际保存的 8 幅分镜。
+
+### Negative Assertions
+
+各阶段均无画幅建议折叠项和画幅建议刷新入口。详略编辑器、审核及完成稿均无重复估算。确认篇幅及后续制作不额外调用准备服务。
+
+### Evidence Required
+
+首次确认、详略选项、审核和完成稿的实际界面断言，确认后的详略值及准备调用数。
 
 ## STORY-LIFECYCLE-C055 — 换画风时转换并保留手改描述
 

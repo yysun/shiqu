@@ -26,12 +26,14 @@ import {sourceSearchUrl} from './reader-source.ts';
 import {readerMaxFrames} from './reader-limits.ts';
 import type {Document,SessionRow,SessionView} from './reader-model.ts';
 import {artRecommendationSchema} from './reader-art-recommendation.ts';
-import {checkedRevision,revisionChangesSchema} from './reader-revision.ts';
+import {checkedRevision,revisionChangesSchema,reviewSuggestionSchema,type ReviewSuggestionDraft} from './reader-revision.ts';
 import {intakeActionSchema} from './reader-intake.ts';
 import {recoveryRequestSchema,reviewOverrideSchema} from './reader-recovery.ts';
 import {bookContents} from '../server/local-book-contents.ts';
 import {createIntake,changeIntake} from '../server/reader-intake.ts';
 import {forkRevision,previewDagRevision,revisionCoverMaxBytes,revisionSnapshot} from '../server/reader-revisions.ts';
+import {prepareReviewSuggestion} from '../server/dag-revisions.ts';
+import {executeWork} from '../server/dag-executor.ts';
 import {openReselection,commitReselection,cancelReselection} from '../server/reader-reselection.ts';
 import {replacementChoiceSchema} from './reader-reselection.ts';
 import {summarizeShelfSession,type ShelfChanges} from './reader-shelf.ts';
@@ -430,6 +432,23 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     // 保存前的预估由引擎推导，与保存使用同一套规则，不写入也不调用模型。
     const b=z.object({token:z.string().regex(/^[a-f0-9]{64}$/),changes:revisionChangesSchema}).strict().parse(await body(req,262144));
     return json(await previewDagRevision(repo,await repo.get(id,uid),b.token,b.changes));
+   }
+   if(path[2]==='revisions'&&path[3]==='suggestion'&&path.length===4&&req.method==='POST'){
+    if(services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中应用审核建议。');
+    const input=reviewSuggestionSchema.parse(await body(req,262144));
+    const prepare=async()=>prepareReviewSuggestion(repo,await repo.get(id,uid),input);
+    const {story,item,field}=await prepare();
+    await requireProvider();
+    const result=await executeWork(provider.generator(),story,item,id).catch(error=>{
+     if(error instanceof ReaderError)throw error;
+     throw new ReaderError(502,provider.safeError(error));
+    });
+    // 提示词生成期间可能在另一个窗口保存了新版或重新审片。
+    const current=await prepare();
+    if(current.field!==field)throw new ReaderError(409,'这条审核意见已更新，请返回制作流程查看。');
+    const text=field==='reflection'?result.value:(result.value as Array<{caption?:string;prompt?:string}>)[0]?.[field];
+    if(typeof text!=='string')throw new ReaderError(502,'文字服务未返回可用的修订，请重试。');
+    return json({field,text} satisfies ReviewSuggestionDraft);
    }
    if(path[2]==='revisions'&&path.length===3){
     if(req.method==='GET')return json(await revisionSnapshot(repo,id,uid));

@@ -8,7 +8,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {ReaderError,selectionSchema,type Document,type SessionRow,type Selection} from '../lib/reader-model.ts';
 import type {ReaderRepository,ReadStatements} from '../lib/reader-repository.ts';
 import type {MediaStore} from '../lib/services.ts';
-import type {LostHandEdit,RevisionChanges} from '../lib/reader-revision.ts';
+import type {LostHandEdit,RevisionChanges,ReviewSuggestionDraft,ReviewSuggestionRequest} from '../lib/reader-revision.ts';
 import {readerMinFrames,readerMaxFrames} from '../lib/reader-limits.ts';
 import {readerImageAsset,referenceImageKey} from '../lib/reader-image-assets.ts';
 import {mediaType,imageTypes} from '../lib/reader-generation-contract.ts';
@@ -16,16 +16,16 @@ import {evaluate,instanceId} from '../lib/production-dag/engine.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
 import {castFrom} from '../lib/production-dag/frames.ts';
 import {projectDocument,rootProducts,type DagDocument} from '../lib/production-dag/document.ts';
-import {settle,stateOf,work,deriveProduction,applyStructureEdits,structureEditPlan,type DagStory} from '../lib/production-dag/runner.ts';
+import {settle,stateOf,work,deriveProduction,applyStructureEdits,structureEditPlan,type DagStory,type Work} from '../lib/production-dag/runner.ts';
 import {structuralLoss} from '../lib/production-dag/hand-edits.ts';
-import {verdictNodes} from '../lib/production-dag/review.ts';
-import {survivingRevisionFrames,usesStoryImageReference} from '../lib/reader-revision.ts';
+import {reviewRepairField,verdictNodes} from '../lib/production-dag/review.ts';
+import {checkedRevision,survivingRevisionFrames,usesStoryImageReference} from '../lib/reader-revision.ts';
 import {revisionBasis,familyEpoch,currentFamilyVersion,revisionCoverMaxBytes,revisionToken} from './reader-revisions.ts';
 import {readableImage} from './reader-image-health.ts';
 import {imageDimensions} from '../lib/reader-image-dimensions.ts';
 import {sameArtDirection} from '../lib/reader-styles.ts';
 import {portraitDocument} from '../lib/production-dag/copy.ts';
-import {dagProgress} from '../lib/production-dag/progress.ts';
+import {dagProgress,reviewAttention} from '../lib/production-dag/progress.ts';
 import {transact} from './production-records.ts';
 import {authorizeProductionCommand} from '../lib/production-lifecycle.ts';
 import {editRequirements} from '../lib/reader-requirements.ts';
@@ -155,6 +155,33 @@ function applyEdits(story:DagStory,changes:RevisionChanges,childId:string):DagDo
   else{resetHandEdit(dag,'brief');delete dag.brief;}
  }
  return dag;
+}
+
+/** 用正式修订调用处理一条仍有效的审核意见，只返回编辑器草稿。 */
+export async function prepareReviewSuggestion(repo:ReaderRepository,row:SessionRow,request:ReviewSuggestionRequest){
+ const {doc,token}=await revisionBasis(repo,row);
+ if(token!==request.token||!doc.plan||!doc.dag)
+  throw new ReaderError(409,'分镜已更新，请重新载入后再应用建议。');
+ const selection=selectionSchema.parse(JSON.parse(row.selection));
+ const parent:DagStory={id:row.id,doc,selection,dag:doc.dag,confirmed:true,faults:[]};
+ const issue=reviewAttention(parent).issues.find(item=>!item.requiresReplan&&
+  item.page===request.issue.page&&item.problem===request.issue.problem&&item.instruction===request.issue.instruction);
+ if(!issue)throw new ReaderError(409,'这条审核意见已更新，请返回制作流程查看。');
+ const draft=request.draft;
+ if(draft&&(draft.removedFrames||draft.mergeTargets||draft.plan&&JSON.stringify(draft.plan)!==JSON.stringify(doc.plan)))
+  checkedRevision({selection,plan:doc.plan,images:doc.images},draft);
+ const dag=draft?.plan?applyEdits(parent,draft,row.id):doc.dag;
+ const frame=issue.page===0?'':doc.dag.order[issue.page-1];
+ const page=frame?dag.order.indexOf(frame)+1:0;
+ if(issue.page>0&&!page)throw new ReaderError(400,'这幅已从草稿移除，无法应用原幅的建议。');
+ const story={...parent,dag};
+ const field:ReviewSuggestionDraft['field']=page===0?'reflection':reviewRepairField(issue);
+ const node=field==='reflection'?'ending':field==='prompt'?'visual':'scene';
+ const call=field==='reflection'?'endingRepair':field==='prompt'?'visualRepair':'sceneRepair';
+ const instance=evaluate(stateOf(story)).instance(node,frame);
+ if(!instance.hard)throw new ReaderError(400,'请先补全本幅编辑所需的文字，再应用建议。');
+ const item:Work={call,instances:[instance],issues:[{...issue,page}]};
+ return {story,item,field};
 }
 
 /**

@@ -2442,6 +2442,8 @@
       "covers": [
         "client/ui/ProductionTimeline.tsx",
         "client/ui/StoryGenerationStatus.tsx",
+        "client/ui/StoryCreationSetup.tsx",
+        "client/ui/StoryProductionEditor.tsx",
         "client/ui/StoryLandscapeStep.tsx",
         "client/ui/ReaderShelf.tsx",
         "client/ui/StoryGenerationControl.tsx",
@@ -4528,6 +4530,7 @@
         "lib/production-dag/document.ts",
         "lib/production-dag/calls.ts",
         "lib/production-dag/requests.ts",
+        "lib/production-dag/progress.ts",
         "tests/fixtures/production-dag-runner.mjs"
       ]
     },

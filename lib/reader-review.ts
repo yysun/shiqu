@@ -14,7 +14,8 @@ import {narrativeDetailInstructions} from './reader-frame-recommendation.ts';
 
 // Zero identifies the separate ending, never a frame. Positive saved frame IDs stay unchanged.
 const categories=['caption','action','composition','progression','continuity','source','style','reflection'] as const;
-const issueSchema=z.object({page:z.number().int().min(0),category:z.enum(categories),problem:z.string().trim().min(1).max(180),instruction:z.string().trim().min(1).max(400),requiresReplan:z.boolean().optional()});
+const repairFields=['caption','prompt','none'] as const;
+const issueSchema=z.object({page:z.number().int().min(0),category:z.enum(categories),repairField:z.enum(repairFields).optional(),problem:z.string().trim().min(1).max(180),instruction:z.string().trim().min(1).max(400),requiresReplan:z.boolean().optional()});
 export type ReviewIssue=z.infer<typeof issueSchema>;
 export type ReflectionChoice={index:number;reason:string};
 export type TitleReview={title:string;reason:string};
@@ -93,6 +94,7 @@ export const reviewSystemPrompt=promptSections(
  ['本篇验收要求',acceptanceReviewDirection],
  ['制作与验收职责','productionPrompt仅用于理解本篇改编意图，不将其中每项偏好自动升级为额外验收门槛。自定义验收按acceptanceCriteria逐条判定；默认质量仍按上述系统审核标准检查。'],
  ['报告契约','优先报告事实与因果错误、关键结果缺失，再报告有据的连续性与表达损失。issues只列需修问题，不评分或另列建议；为空且全部验收条目passed才通过。幅号从1开始，结语用page=0、category=reflection；同幅全部问题合一条，每条返回requiresReplan。problem引用原文、配文或prompt并说明损失；instruction写最小可执行修法及须保留的有效对白、性格与画面。跨幅协同时逐幅列不同任务，只改后幅即可时只报后幅；不以“更深刻、加强冲突、更有感染力”代替证据。纯caption问题保留无问题的prompt。'],
+ ['修订字段','每条审核意见的 repairField 指向实际需要修改的字段。旁白用 caption，画面提示词用 prompt。category 表示问题性质，原文事实或跨幅连续性错误可能落在任一字段。例如原文没有足伤、旁白也没有足伤、只有画面提示词加了足伤，使用 category=source、repairField=prompt。两个字段都需要修订时先指定应先修的字段，余下问题由复审核对。结构修订或结语用 none。'],
  ['输入与输出',inputBoundaryDirection]);
 const repairDirection=`只修issues指出且在requestedPages内的画幅，返回{pages:[{page,caption,prompt}]}，原编号一一对应，不增删幅、不改未指定页或任何元数据。
 逐项解决同幅全部问题，保留有效的对白口气、条件、反差、回应及停顿。修复人名或称呼问题时，按审核指出的人物关系和已核原文统一旁白，或在指定幅简短交代异名所指，保留有意义的对白称呼。默认沿用提纲事件，只有问题明确要求时才在本批指定幅内协同调整原有事件，不转移问题或新增动机。画面重复须在动作、接触、状态或第一焦点上有可见区别，不能只换近义词或景别。
@@ -107,7 +109,7 @@ export function frameCountReviewRequest(count:number){
  return {schema,instructions};
 }
 export function fullReviewRequest(count:number,adaptive:boolean,candidates:ReflectionCandidates|undefined,acceptancePrompt:string|undefined){
- const schema={type:'object',properties:{...(acceptanceCriteria(acceptancePrompt).length?{acceptanceResults:acceptanceResultsJson}:{}),coverage:editorialCoverageJson(count),titleReview:{type:'object',properties:{title:string(40),reason:string(400)},required:['title','reason'],additionalProperties:false},issues:{type:'array',maxItems:count+1,items:{type:'object',properties:{page:{type:'integer',minimum:0,maximum:count},category:{type:'string',enum:categories},problem:string(180),instruction:string(400),requiresReplan:{type:'boolean'}},required:['page','category','problem','instruction','requiresReplan'],additionalProperties:false}},...(candidates?{reflectionChoice:{type:'object',properties:{index:{type:'integer',enum:[1,2,3]},reason:string(400)},required:['index','reason'],additionalProperties:false}}:{})},required:['issues','titleReview','coverage',...(acceptanceCriteria(acceptancePrompt).length?['acceptanceResults']:[]),...(candidates?['reflectionChoice']:[])],additionalProperties:false};
+ const schema={type:'object',properties:{...(acceptanceCriteria(acceptancePrompt).length?{acceptanceResults:acceptanceResultsJson}:{}),coverage:editorialCoverageJson(count),titleReview:{type:'object',properties:{title:string(40),reason:string(400)},required:['title','reason'],additionalProperties:false},issues:{type:'array',maxItems:count+1,items:{type:'object',properties:{page:{type:'integer',minimum:0,maximum:count},category:{type:'string',enum:categories},repairField:{type:'string',enum:repairFields},problem:string(180),instruction:string(400),requiresReplan:{type:'boolean'}},required:['page','category','repairField','problem','instruction','requiresReplan'],additionalProperties:false}},...(candidates?{reflectionChoice:{type:'object',properties:{index:{type:'integer',enum:[1,2,3]},reason:string(400)},required:['index','reason'],additionalProperties:false}}:{})},required:['issues','titleReview','coverage',...(acceptanceCriteria(acceptancePrompt).length?['acceptanceResults']:[]),...(candidates?['reflectionChoice']:[])],additionalProperties:false};
  const instructions=reviewSystemPrompt+'\n\n'+promptSections(
   ['本次数量约束',adaptive?'countPolicy=adaptive：exactPageCount是当前数，不是目标；有据的增删或重分配标requiresReplan=true，由结构修订处理。':'countPolicy=fixed：旧数值稿确需改变结构时仍标requiresReplan=true，不伪造局部修法。'],
   ['本次结语对象',candidates?reflectionChoiceDirection:'审核plan.reflection，不输出reflectionChoice。']);

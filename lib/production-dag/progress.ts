@@ -45,14 +45,19 @@ export function dagProgress(doc:Document,selection:Selection):DagProgress|null{
  const redrawPage=step?.kind==='image'&&items.length===1&&(doc.revision?.base?.readyFrames?.includes(step.page)||doc.revision?.base?.images?.[step.page])&&!doc.images[step.page]&&doc.images.filter(Boolean).length===story.dag.order.length-1?step.page+1:undefined;
  const reviewWork=items.some(item=>item.call==='frameCheck'||item.call==='review');
  const repairing=items.some(item=>repairCalls.has(item.call));
- const stop=waiting[0]?.reason;
+ const reasons=waiting.map(item=>item.reason);
+ // 缺少单幅修订意见也会产生 unrepairable，须有结构核对或结构意见才提示重新编排。
+ const needsReplan=waiting.some(({target,reason})=>(reason==='unrepairable'||reason==='unchanged')&&
+  (target==='frameCheck:'||story.dag.issues?.some(issue=>issue.target===target&&issue.requiresReplan)));
+ const stop=reasons.includes('requirements')?'requirements':needsReplan?'replan':
+  reasons.includes('unchanged')?'unchanged':reasons.includes('limit')?'limit':undefined;
  const frameCheck=story.dag.products['frameCheck:'];
  const frameCheckPassed=evaluation.instance('frameCheck').status==='valid'&&(frameCheck?.outcome==='pass'||frameCheck?.overridden);
  const review:DagReviewProgress={
   reviewStatus:complete||(!text&&!!drawing&&!waiting.length)?'passed':waiting.length&&!text?'blocked':repairing?'repair':'pending',
   reviewPhase:typeof selection.length==='number'||frameCheckPassed?'full':'frames',
   reviewRound:used+1,repairCompleted:0,repairTotal:story.dag.issues?.length??0,reviewAudits:used+(reviewWork?0:1),repairPasses:used,
-  ...(stop==='limit'||stop==='unchanged'||stop==='requirements'?{reviewStopReason:stop}:stop==='unrepairable'?{reviewStopReason:'replan' as const}:{}),
+  ...(stop?{reviewStopReason:stop}:{}),
   reviewOverridden:evaluation.approved()&&[...currentReviewTargets(evaluation)].some(id=>story.dag.products[id]?.overridden),
  };
  return {step,review,complete,frameCount,storyboardFrames,drawingFrames,activity,...(redrawPage?{redrawPage}:{})};

@@ -30,6 +30,13 @@ export const revisionChangesSchema=z.object({artStylePrompt:artStylePromptSchema
  /** 确认放弃本次保存会移除的全部手改画幅内容。 */
  confirmHandEditLoss:z.boolean().optional()}).strict();
 export type RevisionChanges=z.infer<typeof revisionChangesSchema>;
+export const reviewSuggestionSchema=z.object({
+ token:z.string().regex(/^[a-f0-9]{64}$/),
+ issue:z.object({page:z.number().int().min(0).max(readerMaxFrames),problem:z.string().max(180),instruction:z.string().max(400)}).strict(),
+ draft:revisionChangesSchema.pick({plan:true,removedFrames:true,mergeTargets:true}).optional(),
+}).strict();
+export type ReviewSuggestionRequest=z.infer<typeof reviewSuggestionSchema>;
+export type ReviewSuggestionDraft={field:'caption'|'prompt'|'reflection';text:string};
 export type LostHandEdit={page:number;caption?:string;prompt?:string};
 export type RevisionInfo={parentId:string;rootId:string;number:number};
 export type RevisionView=RevisionInfo&{redraw?:RevisionRedraw};

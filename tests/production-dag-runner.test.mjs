@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {apply,attention,finished,stateOf,work} from '../lib/production-dag/runner.ts';
 import {story,replies,drive,calls,newId} from './fixtures/production-dag-runner.mjs';
 import {evaluate} from '../lib/production-dag/engine.ts';
+import {dagProgress} from '../lib/production-dag/progress.ts';
 
 test('a confirmed 12-frame story runs to completion with batched text calls',()=>{
  const s=story({acceptancePrompt:'每幅都有动作'});
@@ -62,6 +63,20 @@ test('a repair that changes nothing stops for the reader instead of looping',()=
  assert.ok(!finished(s));
  assert.equal(calls(log,'draw'),0);
  assert.deepEqual(attention(s).map(a=>a.reason),['unchanged']);
+});
+
+test('C066: a missing local repair instruction does not mask the stalled frame-specific issues',()=>{
+ const s=story({length:28});
+ drive(s,replies());
+ const affected=[23,24],whole='narrativeVerdict:';
+ s.dag.products[whole].outcome='fail';
+ for(const page of affected)s.dag.products[`frameVerdict:${s.dag.order[page-1]}`].outcome='fail';
+ s.dag.issues=affected.map(page=>({target:whole,page,category:'source',
+  problem:'画面新增无据脚伤。',instruction:'删除画面里的脚伤。',requiresReplan:false,stalled:true}));
+ assert.equal(dagProgress({...s.doc,dag:s.dag},s.selection).review.reviewStopReason,'unchanged');
+ assert.equal(work(s).length,0);
+ s.dag.issues=[{...s.dag.issues[0],category:'progression',requiresReplan:true}];
+ assert.equal(dagProgress({...s.doc,dag:s.dag},s.selection).review.reviewStopReason,'replan');
 });
 
 test('a hand-edited image description is never repaired automatically',()=>{

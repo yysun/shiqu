@@ -37,7 +37,7 @@ import type {ProductionJob,JobSpec} from './production-queue.ts';
 import {authorizeRecovery,authorizeControl,commandReceipt,sessionFaults} from './reader-commands.ts';
 import type {ReaderFault} from './reader-commands.ts';
 import type {FaultView,RecoveryRequest,ReviewOverride} from '../lib/reader-recovery.ts';
-import {canReprepare,DagProduction,dagTextKind,dagDrawKind,reviewCall,portraitRecoveryReceipt} from './dag-production.ts';
+import {DagProduction,dagTextKind,dagDrawKind,reviewCall,portraitRecoveryReceipt} from './dag-production.ts';
 import {transact,deleteJobs,recordJobSucceeded} from './production-records.ts';
 import {errorCode,serviceLevel} from '../lib/production-dag/errors.ts';
 import {fingerprint} from '../lib/production-dag/fingerprint.ts';
@@ -558,7 +558,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }:undefined;
   const lifecycleKey=[...Object.values(row),...faults.flatMap(fault=>[...Object.values(fault),'\0']),
    ...allJobs.flatMap(job=>[job.id,job.kind,job.state,job.updated_at,job.payload])];
-  const {blocking,complete,review,release}=reuseUnchanged(this.lifecycles,id,lifecycleKey,()=>this.dag.lifecycleFrom(row,faults,allJobs));
+  const {blocking,complete,review,release,canReprepare}=reuseUnchanged(this.lifecycles,id,lifecycleKey,()=>this.dag.lifecycleFrom(row,faults,allJobs));
   const reviewAttention:NonNullable<SessionView['lifecycle']>['reviewAttention']=[...(blocking?.reasons??[])];
   const blockedTargets=new Set(reviewAttention.map(reason=>reason.target));
   for(const target of new Set(dag?.issues?.filter(issue=>issue.requiresReplan&&blockedTargets.has(issue.target)).map(issue=>issue.target))){
@@ -591,7 +591,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    ...(input.replacementBasis??{basisCurrent:false,requirementsCurrent:false})}}:undefined;
   const lifecycle=productionLifecycle({...saved,complete:savedComplete,generationControl:row.generation_control,superseded,deleted:input.deleted,replacementOpen:!!parsed.doc.reselection||replacementOpen,
    faults:[...projectedFaults,...(searchFault?[searchFault]:[])],reviewAttention,review,service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
-   now,order:dag?.order??[],pendingImageChecks,optionalWork:false,stopping:this.stopping,canReprepare:canReprepare(doc),
+   now,order:dag?.order??[],pendingImageChecks,optionalWork:false,stopping:this.stopping,canReprepare,
    reprepareService:this.serviceAvailability(undefined,'text'),repreparing:!!dag?.repreparing,
    setup,replacement,owned:true,imagePages:dag?.order.flatMap((key,page)=>referenceImageKey(id,dag.frames[key]?.image??'')?[page+1]:[]),
    storyActions:[{event:'open-reselection',ready:revisionOptions.open&&configured},

@@ -58,7 +58,7 @@ planned_end: UNPLANNED
 | <a id="dag-22"></a>22 | 模型快照与全局设置 | 现行 | [C052](CASES.md#case-c052) |
 | <a id="dag-23"></a>23 | 提示词模板升级 | 现行 | [C052](CASES.md#case-c052) |
 | <a id="dag-24"></a>24 | 竖图重绘与横图套图 | 现行 | [C053](CASES.md#case-c053) · 旧表与 C008 曾要求连带重绘；独立套图归原版。[C029/C032 · cd412ed6 原套图打印与零横图调用](evidence/2026-11-24-independent-print-review/review.md)。 |
-| <a id="dag-25"></a>25 | 确认后改重点或更新建议 | 现行 | [C054](CASES.md#case-c054) |
+| <a id="dag-25"></a>25 | 叙事详略、预计幅数与实际幅数 | 现行 | [C069](CASES.md#case-c069) 覆盖各阶段的读者界面。原有改编重点行为由[引擎测试](../../tests/production-dag-engine.test.mjs)核对。 |
 | <a id="dag-26"></a>26 | 同输入的新幅复用旧图 | 现行 | [C041](CASES.md#case-c041) |
 | <a id="dag-27"></a>27 | 把历史版设为当前 | 不提供 | 历史版保持可读，不能设为当前；[现行场景矩阵](../../.docs/story-production-dag.md#完整场景矩阵) · [旧核查](../../.docs/tests/test-data-driven-production-dag.md#逐场景路径与验收) |
 | <a id="dag-28"></a>28 | 换画风时保留手改 | 现行 | [C055](CASES.md#case-c055) |

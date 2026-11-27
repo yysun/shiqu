@@ -259,6 +259,118 @@ async function confirmedStory(f,length=4,prepared={},settings={}){
 }
 const count=(list,name)=>list.filter(n=>n===name).length;
 
+for(const field of ['prompt','caption','reflection'])test(`an audit suggestion drafts only the ${field} through the production repair call`,async t=>{
+ const f=await productionFixture(t,'codex');
+ const page=field==='reflection'?0:2;
+ const issue={page,category:field==='reflection'?'reflection':'source',
+  ...(field==='caption'?{repairField:field}:{}),
+  problem:field==='prompt'?'prompt 写入了原文没有的足伤。':field==='caption'?'旁白超出了原文。':'结语只复述情节。',
+  instruction:'依据已核原文修订此处，保留其余分镜。',requiresReplan:false};
+ const expected=field==='prompt'?'庄周倚坐在椅旁，身体前倾，双脚自然搁置。':
+  field==='caption'?'庄周醒过来，回想刚才化蝶的梦。':'梦醒后，庄周仍记得蝶的自在。';
+ const repairCall={prompt:'visualRepair',caption:'sceneRepair',reflection:'reflection-repair'}[field];
+ let requested=false,replacementCalls=0;
+ f.control.beforeText=(kind,payload)=>{
+  if(kind==='review')return {issues:[issue]};
+  if(kind!==repairCall)return;
+  if(requested){
+   replacementCalls++;
+   const input=field==='reflection'?payload.revision:payload.frames[0];
+   assert.equal(input.issues.length,1);
+   assert.deepEqual(input.issues[0],issue);
+   if(field==='prompt')assert.match(input.caption,/手写/);
+   if(field==='caption')assert.match(input.caption,/手写/);
+  }
+  if(field==='reflection')return {reflection:requested?expected:payload.revision.reflection};
+  if(field==='prompt')return {frames:payload.frames.map(({number,current})=>({number,drawn:current.drawn,prompt:requested?expected:current.prompt}))};
+  return {frames:payload.frames.map(({number,caption})=>({number,caption:requested?expected:caption}))};
+ };
+ const id=await confirmedStory(f,4),route=`sessions/${id}/revisions`;
+ f.app.services.production.wake();
+ await until(async()=>(await f.read(id)).lifecycle.review==='attention');
+ const before=await f.json(route);
+ const input={token:before.token,issue:{page,problem:issue.problem,instruction:issue.instruction}};
+ const draft=structuredClone(before.plan);
+ if(page)draft.pages[page-1].caption='这幅包含一处尚未保存的手写修改。';
+ assert.equal((await f.request(route+'/suggestion','POST',{...input,token:'0'.repeat(64)})).status,409);
+ assert.equal((await f.request(route+'/suggestion','POST',{...input,issue:{...input.issue,instruction:'失效的建议'}})).status,409);
+ assert.equal(replacementCalls,0);
+ requested=true;
+ assert.deepEqual(await f.json(route+'/suggestion','POST',{...input,draft:{plan:draft}}),{field,text:expected});
+ assert.equal(replacementCalls,1);
+ assert.deepEqual(await f.json(route),before,'应用建议不会保存草稿');
+ assert.equal(f.control.reviews.length,1);
+ assert.equal(f.control.calls.length,0);
+ if(field==='reflection')draft.reflection=expected;
+ else draft.pages[page-1][field]=expected;
+ const next=await f.json(route,'POST',{requestId:crypto.randomUUID(),token:before.token,changes:{plan:draft}});
+ assert.equal(next.awaitingContinue,true);
+ assert.equal(next.lifecycle.review,'pending');
+ assert.equal(f.control.reviews.length,1);
+ assert.equal(f.control.calls.length,0);
+});
+
+for(const changesPrompt of [true,false])test(`C066: a visual source issue ${changesPrompt?'repairs the affected prompts and re-reviews':'reports unchanged and waits'}`,async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.autoLength=28;
+ f.control.hold=false;
+ const affected=[23,24],wrong='双足带伤',correct='双脚自然搁置',criterion='末幅收束';
+ let initial,initialOrder,issueContract,repairedPages=[];
+ const id=await confirmedStory(f,'auto',{}, {acceptancePrompt:criterion});
+ f.control.beforeText=async(kind,payload,schema,result)=>{
+  if(kind==='storyboard'){
+   return {...result,frames:result.frames.map(frame=>affected.includes(frame.number)?
+    {...frame,prompt:frame.prompt+wrong+'。'}:frame)};
+  }
+  if(kind==='review'){
+   issueContract??=schema.properties.issues.items;
+   initial??=structuredClone(payload.plan.pages);
+   initialOrder??=(await saved(f,id)).dag.order;
+   const issues=affected.filter(page=>payload.plan.pages[page-1].prompt.includes(wrong)).map(page=>({
+    page,category:'source',repairField:'prompt',problem:'画面提示词添加了无原文依据的脚伤。',
+    instruction:'删除脚伤，保留旁白。',requiresReplan:false,
+   }));
+   return {issues,storyIssues:[],acceptanceResults:[{criterion:1,status:'passed',pages:[28],evidence:'末幅已收束。'}]};
+  }
+  if(kind==='sceneRepair')return {frames:payload.frames.map(frame=>({number:frame.number,caption:frame.caption}))};
+  if(kind==='visualRepair'){
+   repairedPages=payload.frames.map(frame=>frame.number);
+   assert.deepEqual(repairedPages,affected);
+   assert.ok(payload.frames.every(frame=>frame.issues[0].repairField==='prompt'));
+   return {frames:payload.frames.map(({number,current})=>({number,drawn:current.drawn,
+    prompt:changesPrompt?current.prompt.replace(wrong,correct):current.prompt}))};
+  }
+ };
+ f.control.beforeImage=()=>assert.equal(f.control.reviews.length,2,'先完成复审，再绘图');
+ f.app.services.production.wake();
+ await until(async()=>{
+  const session=await f.read(id);
+  return session.state==='completed'||session.lifecycle.review==='attention';
+ },20000);
+ const session=await f.read(id),stored=await saved(f,id);
+ assert.deepEqual(repairedPages,affected);
+ assert.ok(issueContract.required.includes('repairField'));
+ assert.equal(count(f.control.dagCalls,'visualRepair'),1);
+ assert.equal(count(f.control.dagCalls,'sceneRepair')+count(f.control.dagCalls,'structure'),0);
+ assert.equal(stored.plan.pages.length,28);
+ assert.deepEqual(stored.dag.order,initialOrder);
+ assert.deepEqual(stored.plan.pages,initial.map((frame,index)=>changesPrompt&&affected.includes(index+1)?
+  {...frame,prompt:frame.prompt.replace(wrong,correct)}:frame));
+ assert.equal(f.control.frameReviews.length,1);
+ assert.equal(stored.dag.verdicts['narrativeVerdict:'].acceptance[0].status,'passed');
+ if(changesPrompt){
+  assert.equal(session.state,'completed');
+  assert.equal(f.control.reviews.length,2);
+  assert.equal(f.control.calls.length,28);
+ }else{
+  assert.equal(session.generationProgress.reviewStopReason,'unchanged');
+  assert.deepEqual(session.reviewIssues.map(issue=>issue.page),affected);
+  assert.equal(timelineStep(session,'repair').state,'failed');
+  assert.equal(f.control.reviews.length,1);
+  assert.equal(f.control.calls.length,0);
+ }
+});
+
 for(const [length,prepared] of [[10,false],[10,true],[25,false]])test(`combined storyboard completes ${length} frames with ${prepared?'a prepared synopsis':'a new synopsis'}`,async t=>{
  const f=await productionFixture(t,'codex');
  f.control.hold=false;

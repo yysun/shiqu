@@ -642,7 +642,7 @@ export default function Reader(){
      actions:{count:{label:'修改叙事详略',disabled:!offersProductionAction(workflowSession,'edit-revision'),onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:workflowSession.generationProgress?.phase==='plan'?'查看已有分镜':'查看分镜',onClick:openScript}}:{})}
     }}
     editor={revision} onReselect={()=>void reselectStory()}
-    reviewTools={<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy} error={gen.controlError} onEdit={page=>editScript(page)} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review'&&!f.retryReview)?.id)} onDrawAnyway={(faultId,ending)=>void gen.drawAnyway(workflowSession.id,faultId,ending)}/>}
+    reviewTools={<StoryReviewTools onReplan={()=>revision.open('requirements')} session={workflowSession} busy={gen.busy||!!gen.controlBusy||revision.busy} error={gen.controlError} onEdit={page=>editScript(page)} onAutoEdit={revision.sessionId===workflowSession.id?revision.autoSaveSuggestion:undefined} onRetry={()=>void retryWorkflow(workflowSession.faults?.find(f=>f.stage==='review'&&!f.retryReview)?.id)} onDrawAnyway={(faultId,ending)=>void gen.drawAnyway(workflowSession.id,faultId,ending)}/>}
    />}
   </>:<div role="status">{workflowError?<><p role="alert">{workflowError}</p><StoryFlowAction onClick={()=>openWorkflow(workflowTarget!,workflowDocked,workflowOrigin.current==='shelf')}>重新加载制作流程</StoryFlowAction></>:<p>正在打开制作流程…</p>}</div>);
 

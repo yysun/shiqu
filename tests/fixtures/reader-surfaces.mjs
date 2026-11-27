@@ -9,11 +9,19 @@ const compiled=build({stdin:{contents:`
  import {createElement} from 'react';import {renderToStaticMarkup} from 'react-dom/server';
  import StoryGenerationControl from './client/ui/StoryGenerationControl.tsx';import StoryRetry from './client/ui/StoryRetry.tsx';
  import StoryGenerationStatus from './client/ui/StoryGenerationStatus.tsx';import ReaderShelf from './client/ui/ReaderShelf.tsx';
+ import StoryCreationSetup from './client/ui/StoryCreationSetup.tsx';import {retain,clearRetained} from './client/ui/useRetainedState.ts';
  const noop=()=>{},async=async()=>{};
+ const progress={busy:false,controlBusy:false,error:'',onControl:async,onRetry:noop,onBack:noop,hideBack:true,showSummary:false};
  export const controls=session=>renderToStaticMarkup(createElement('div',null,
   createElement(StoryGenerationControl,{session,busy:false,onControl:async,link:true}),
   createElement(StoryRetry,{session,busy:false,onRetry:noop,display:'actions',link:true})));
- export const settings=(session,showLandscape)=>renderToStaticMarkup(createElement(StoryGenerationStatus,{session,busy:false,controlBusy:false,error:'',onControl:async,onRetry:noop,onBack:noop,hideBack:true,showSummary:false,showLandscape}));
+ export const settings=(session,showLandscape)=>renderToStaticMarkup(createElement(StoryGenerationStatus,{session,...progress,showLandscape}));
+ export const setup=(session,editing)=>{
+  const retainKey='test-setup:'+session.id;
+  if(editing)retain(retainKey+':editing',editing);
+  try{return renderToStaticMarkup(createElement(StoryCreationSetup,{session,book:'庄子',busy:false,onAction:async,onReselect:noop,progress,retainKey}));}
+  finally{clearRetained(retainKey+':');}
+ };
  export const shelf=sessions=>{
   const stories=sessions.filter(s=>s.story?.cover).map(s=>({id:s.id,title:s.story.title||'',bookId:s.selection?.bookId||'',theme:s.selection?.theme||'',artStyleLabel:'',revision:s.story.revision,cover:s.story.cover,resumeImage:'',resumePage:0,frameCount:s.story.frameCount||0}));
   return renderToStaticMarkup(createElement(ReaderShelf,{onControl:async,onLandscapeControl:noop,controlBusy:'',stories,pending:sessions.filter(s=>!s.story?.cover),sessions,progress:[],loading:false,refreshing:false,onRefresh:noop,error:'',

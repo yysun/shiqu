@@ -15,7 +15,6 @@ import type {ProductionTimelineNavigation} from './ProductionTimeline';
 import type {ProductionStage} from '@/lib/production-stages';
 import StoryGenerationControl from './StoryGenerationControl';
 import StoryFlowHeader from './StoryFlowHeader';
-import StoryFlowAction from './StoryFlowAction';
 import type {StoryFlowNavigation} from './StoryFlowHeader';
 import {getArtStyle} from '@/lib/reader-styles';
 import {narrativeDetails} from '@/lib/reader-frame-recommendation';
@@ -64,19 +63,10 @@ export default function StoryGenerationStatus({session,busy,controlBusy,error,on
  const narrativeLabel=(narrativeDetails.find(detail=>detail.id===session.selection.narrativeDetail)??narrativeDetails[1]).label;
  const styleLabel=getArtStyle(session.selection.artStyle).label;
  const refreshing=session.lifecycle?.preparationRefresh==='pending';
- const canRefresh=offersProductionAction(session,'reprepare',false);
- const recommendation=session.frameRecommendation;
  const activity=session.lifecycle?.activity;
  const updating=activity?.state==='running'&&activity.jobs.some(job=>job.call==='prepareSuggestions');
- const refreshStatus=paused?'画幅建议更新已暂停':preparationRefreshFault(session)?'画幅建议更新待处理':updating?'正在更新画幅建议':'等待更新画幅建议';
- const countContent=(canRefresh||refreshing)?<><div className="production-stage-actions">
-  <details key={session.id} className="production-stage-details">
-   <summary className="story-flow-link">画幅建议（可选）</summary>
-   <p>{recommendation?`上次估算 ${recommendation.count} 幅。`:'这里可以按制作要求估算幅数。'}最终幅数由分镜编排和审核确定。</p>
-   <p>更新期间，新任务会等待建议保存。</p>
-   <div className="production-stage-actions"><StoryFlowAction disabled={controlBusy||!canRefresh} onClick={()=>void onControl(session.id,'reprepare')}>更新画幅建议</StoryFlowAction></div>
-  </details>
- </div>{refreshing&&<div className="production-stage-footer"><small role="status">{refreshStatus}</small>{generationControl}</div>}</>:null;
+ const refreshStatus=paused?'准备建议更新已暂停':preparationRefreshFault(session)?'准备建议更新待处理':updating?'正在更新准备建议':'等待更新准备建议';
+ const countContent=refreshing?<div className="production-stage-footer"><small role="status">{refreshStatus}</small>{generationControl}</div>:null;
  const links=onEditStyle?{...timelineLinks,count:[
   ...(countAction?[{...countAction,label:`详略：${narrativeLabel}`,ariaLabel:`修改叙事详略，当前${narrativeLabel}`}]:[]),
   {label:`画风：${styleLabel}`,ariaLabel:`修改画风，当前${styleLabel}`,disabled:paused&&controlBusy||!offersProductionAction(session,'edit-revision'),onClick:onEditStyle},
