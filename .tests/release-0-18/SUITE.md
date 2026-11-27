@@ -95,13 +95,13 @@ node ~/.agents/skills/test-manager/scripts/test-manager.mjs status --release 0.1
 
 ### 结果快照
 
-2026-11-27 22:24 UTC。Test Manager 对当前候选 `676a5335` 的 30 项用例计算结果为 29 项 PASS、1 项 BLOCKED，未运行 0 项，INVALID 0 项，关卡 `REVIEW`。各用例的运行号和证据可用上方命令查询。
+2026-11-27 22:33 UTC。Test Manager 对当前候选 `676a5335` 的 30 项用例计算结果为 29 项 PASS、1 项 FAIL，未运行 0 项，INVALID 0 项，关卡 `REVIEW`。各用例的运行号和证据可用上方命令查询。
 
 ### 失败与待放行
 
 | 用例 | 结果 | 处理 | 影响 | 到期版本 | 决定人 |
 | --- | --- | --- | --- | --- | --- |
-| [CHANGES-C001](../changes/evidence/20261127-676a5335/update-check.md) | BLOCKED | 候选安装包联网分支已通过；同一源码的隔离 Chromium 断网验证已通过；待安装包原生 WebView 断网复核 | 原生控制台离线提示缺安装包运行证据 | — | Yiyi Sun |
+| [CHANGES-C001](../changes/evidence/20261127-676a5335/update-check-offline.md) | FAIL | 维护者断网复核显示「已是最新版本」。受控实验复现默认 HTTP 缓存可导致误报。修复后用新候选先联网检查，再断网复核 | 用户会把缓存评估当成刚完成的更新检查 | — | Yiyi Sun |
 
 上一候选 `41f60106` 的原生目录锁和模型结构审查断言各失败一次。当前候选已重跑通过，见 [回归运行记录](../regression/RUNS.md)。
 
