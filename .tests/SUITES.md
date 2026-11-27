@@ -7,7 +7,7 @@ This registry is derived from suite state. Regenerate it with `test-manager.mjs 
 | Suite | Title | Risk | State | Owner | Cases | Current result |
 | ----- | ----- | ---- | ----- | ----- | ----: | -------------- |
 | changes | 版本改动 | MEDIUM | ACTIVE | Yiyi Sun | 7 | NOT_RUN |
-| regression | 自动回归关卡 | HIGH | ACTIVE | Yiyi Sun | 5 | NOT_RUN |
+| regression | 自动回归关卡 | HIGH | ACTIVE | Yiyi Sun | 5 | FAIL |
 | release-0-18 | 0.18 签核 | MEDIUM | ACTIVE | Yiyi Sun | 0 | NOT_RUN |
 | smoke | 候选版本冒烟 | HIGH | ACTIVE | Yiyi Sun | 10 | NOT_RUN |
 | story-lifecycle | 故事新建、编辑与状态机 | HIGH | ACTIVE | UNASSIGNED | 69 | PARTIAL |

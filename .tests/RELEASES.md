@@ -17,6 +17,7 @@ schema: test-manager/releases/v1
 | Target | Scope | Reason |
 | --- | --- | --- |
 | smoke | IN | 候选安装包与核心使用路径 |
+| SMOKE-C010 | OUT | 维护者指定在 GitHub Actions 验证 Windows x64 安装和运行时，由 REGRESSION-C005 记录 |
 | regression | IN | 提示词、模型调用和制作流程均有改动，纳入模型回归 |
 | UPGRADE-C001 | IN | 验证 0.17.0 的格式 4 书库能打开并保持已有作品和进度 |
 | UPGRADE-C002 | OUT | 书库格式和迁移未变 |

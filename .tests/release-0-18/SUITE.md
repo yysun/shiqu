@@ -79,7 +79,7 @@ planned_end: UNPLANNED
 
 | 套件 | 用例 | 理由 |
 | --- | --- | --- |
-| smoke | SMOKE-C001 – SMOKE-C010 | macOS 安装包和核心路径每版必跑。SMOKE-C010（Windows）暂列入，等待决定人确认 |
+| smoke | SMOKE-C001 – SMOKE-C009 | macOS 安装包和核心路径每版必跑。维护者指定 Windows x64 在 GitHub Actions 验证，由 REGRESSION-C005 记录 |
 | regression | REGRESSION-C001 – REGRESSION-C005 | 本版改动提示词、模型调用和制作流程，纳入模型回归 |
 | upgrade | UPGRADE-C001 | 每版必跑 |
 | upgrade | UPGRADE-C002、C003 不列入 | 截至目前，`db/library-format.json` 与 `drizzle/` 未改动（格式 4，最新迁移 `0028`） |
@@ -109,10 +109,11 @@ node ~/.agents/skills/test-manager/scripts/test-manager.mjs status --release 0.1
 
 - smoke 只做一篇简短故事，长篇和故障恢复依赖 story-lifecycle 与自动测试。
 - 候选比当前正式版新，签核期间无法在正式渠道观察发现新版后定位下载入口的分支。
+- Windows GitHub Actions 验证安装与运行时。Windows 控制台与书架的人工交互不在本版签核范围内。
 
 ### 待决定事项
 
-- Windows 安装包（SMOKE-C010）是否为必须：未定。
+- Windows 安装包按维护者指定在 GitHub Actions 验证，SMOKE-C010 人工用例本版不列入。
 
 ### 结论
 

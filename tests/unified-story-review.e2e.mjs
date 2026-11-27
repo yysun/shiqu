@@ -109,7 +109,10 @@ test('same-length structure repair returns to count while caption repair stays i
 test('explicit draw-anyway remains marked, paused and idempotent at the count gate',async t=>{
  const f=await productionFixture(t),s=await seed(f);
  f.control.beforeText=async kind=>kind==='frames'?reduction:kind==='structure'?{edits:[{from:2,to:2,pages:[{caption:s.plan.pages[1].caption}]}]}:undefined;
- await s.resume();await until(async()=>(await f.read(s.id)).generationProgress.reviewStopReason==='unchanged',15000);await s.pause();
+ await s.resume();
+ await until(async()=>(await f.read(s.id)).generationProgress.reviewStopReason==='replan',15000);
+ assert.ok((await s.read()).dag.issues.some(issue=>issue.target==='frameCheck:'&&issue.stalled));
+ await s.pause();
  const skip=()=>f.json(`sessions/${s.id}/review-override`,'POST',{});
  await skip();await skip();await f.app.services.production.tick();
  assert.equal(f.control.calls.length,0);assert.equal(f.control.reviews.length,0);
