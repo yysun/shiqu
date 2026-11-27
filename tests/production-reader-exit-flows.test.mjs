@@ -19,6 +19,7 @@ function click(f,session,label){
  const control=action=>f.request(`sessions/${session.id}/production-control`,'POST',{requestId:crypto.randomUUID(),action});
  if(label==='继续制作'||/^重绘第 \d+ 幅$/.test(label))return control('continue');
  if(label==='暂停生成')return control('pause');
+ if(label==='更新画幅建议')return control('reprepare');
  if(label==='恢复生成'||label==='恢复准备')return control('resume');
  if(label==='应用当前模型设置')return control('apply-model');
  if(/^(重试|重绘)/.test(label)){
@@ -90,8 +91,51 @@ test('each reader-facing waiting state exposes the same action on every surface,
  await f.json(`sessions/${refreshed}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'pause'});
  f.control.beforeText=null;release();
  await until(async()=>(await f.read(refreshed)).lifecycle.activity.state!=='running',20000);
+ assert.match((await surfaces()).settings(await f.read(refreshed),false),/画幅建议更新已暂停/);
  await exitBoth(f,refreshed,/^恢复生成$/);
  await until(async()=>(await f.read(refreshed)).lifecycle.preparationRefresh==='none',20000);
+});
+
+test('replanning continues in the storyboard row and keeps the optional recommendation in a disclosure',async t=>{
+ const f=await productionFixture(t,'codex');
+ f.control.hold=false;
+ const {id}=await completedStory(f),{token}=await f.json(`sessions/${id}/revisions`);
+ const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token,
+  changes:{length:'auto',productionPrompt:'以庄周梦醒时的疑惑为主线。'}});
+ const render=await surfaces();
+ const row=(markup,stage)=>markup.match(new RegExp(`<li data-stage="${stage}"[^>]*>[\\s\\S]*?</li>`))?.[0]??'';
+ const waiting=render.settings(child,false);
+ assert.match(row(waiting,'plan'),/继续后编排新版分镜 · 新版幅数待编排，预计复用 0 幅旧图/);
+ assert.ok(enabledActions(row(waiting,'plan')).includes('继续制作'));
+ assert.doesNotMatch(row(waiting,'count'),/更新画幅建议/);
+
+ const storyboard=Promise.withResolvers();
+ f.control.beforeText=name=>name==='storyboard'?storyboard.promise:undefined;
+ try{
+  assert.ok((await click(f,child,'继续制作')).ok);
+  let active;
+  await until(async()=>{
+   active=await f.read(child.id);
+   return active.lifecycle.activity.state==='running'&&active.lifecycle.activity.jobs.some(job=>job.call==='storyboard');
+  },15000);
+  const producing=render.settings(active,false),plan=row(producing,'plan'),count=row(producing,'count');
+  assert.match(plan,/正在编排新版分镜/);
+  assert.ok(enabledActions(plan).includes('暂停生成'));
+  assert.doesNotMatch(producing,/继续制作|按当前要求重新准备/);
+  const disclosure=count.match(/<details[^>]*>[\s\S]*?<\/details>/)?.[0]??'';
+  assert.doesNotMatch(disclosure,/^<details[^>]*\bopen\b/);
+  assert.match(disclosure,/<summary[^>]*>画幅建议（可选）<\/summary>/);
+  assert.ok(enabledActions(disclosure).includes('更新画幅建议'));
+
+  const refresh=await click(f,active,'更新画幅建议');
+  assert.ok(refresh.ok);
+  const refreshing=await refresh.json();
+  assert.equal(refreshing.lifecycle.preparationRefresh,'pending');
+  const refreshRow=row(render.settings(refreshing,false),'count');
+  assert.match(refreshRow,/等待更新画幅建议/);
+  assert.ok(!enabledActions(refreshRow).includes('更新画幅建议'));
+ }finally{storyboard.resolve();}
+ await until(async()=>{const current=await f.read(child.id);return current.state==='completed'&&current.lifecycle.preparationRefresh==='none';},20000);
 });
 
 const revisionCases=[

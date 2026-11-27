@@ -64,3 +64,9 @@ test('acceptance blockers mark the audit that produced them without erasing comp
  assert.deepEqual(recheck.slice(3).map(s=>s.state),['done','done','failed','pending']);assert.match(recheck[4].detail,/已完成 1 批/);assert.match(recheck[5].detail,/验收要求存在冲突或无法判断/);
  const noRepair=productionSteps({...blocked,reviewRound:2,reviewAudits:2,repairPasses:0});assert.equal(noRepair[4].state,'skipped');assert.match(noRepair[4].detail,/未执行自动修订/);
 });
+
+test('a pending review names the style conversion it depends on',()=>{
+ const steps=productionSteps({...base,phase:'restyle',activity:'按新画风转换画面描述'});
+ assert.equal(steps.find(step=>step.id==='review').detail,'等待画风转换完成');
+ assert.equal(steps.find(step=>step.id==='image').label,'画风转换');
+});

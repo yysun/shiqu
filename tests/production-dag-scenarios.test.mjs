@@ -2382,6 +2382,7 @@ test('CLI reviewed boundary succeeds when a saved drawing provider is unavailabl
  await f.app.services.database.prepare('UPDATE stories SET document=?,production_complete=0 WHERE id=?').bind(JSON.stringify(doc),id).run();
  await f.stop();
  const reviewed=await executeHeadless(process.cwd(),['run',id,'--until','reviewed','--data-dir',f.dataDirectory],{
+  home:f.root,
   variables:{SHIQU_AI_PROVIDER:'openai',OPENAI_API_KEY:'',GEMINI_API_KEY:''},
  });
  assert.equal(reviewed.reason,'reviewed');

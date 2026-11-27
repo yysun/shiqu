@@ -69,7 +69,6 @@ import StorySettingsPanel,{StorySettingsContent,storyWorkflowHeading} from './St
 import {narrativeDetailSchema} from '@/lib/reader-frame-recommendation';
 import StoryRetry from './StoryRetry';
 import StoryGenerationControl from './StoryGenerationControl';
-import StoryGenerationStatus from './StoryGenerationStatus';
 import StoryEndingSurface from './StoryEndingSurface';
 import StoryFilmstrip from './StoryFilmstrip';
 import {createDragOffset} from './useDragOffset';
@@ -502,6 +501,7 @@ export default function Reader(){
  // 修改分镜：先关闭分镜剧本再打开修改故事（同一次提交，沿用分镜剧本的历史条目），手机上面板不超过两层
  function editScript(page?:number){setScript(false);revision.open('script',page);}
  function openScript(){setScript(true);revision.prepare();}
+ function cancelRevision(){if(!revision.busy){setScript(false);revision.discard();}}
  function reselectStory(originId=story&&isGenerated(story)?story.id:gen.active?.id){
   if(!originId||reselectLock.current||creating||revision.busy||gen.setupBusy||gen.controlBusy||gen.active?.superseded)return;
   if(gen.active?.id===originId&&!offersProductionAction(gen.active,'open-reselection'))return;
@@ -621,7 +621,6 @@ export default function Reader(){
  const scriptStory=story||gen.active?.story||null;
  const revisionSession=readingSession||(!story?gen.active:null);
  const revisionResuming=!!revisionSession&&revisionSession.state!=='completed'&&!!revisionSession.generationControl&&revisionSession.generationControl!=='active';
- const GenerationSurface=revisionResuming?StoryPausedEditing:StoryGenerationStatus;
  // 会话离开选题阶段后，其设置与标题输入草稿不再需要。
  useEffect(()=>{if(workflowSession&&(!workflowSession.intake||workflowSession.intake.phase==='confirmed')){clearRetained('setup:'+workflowSession.id);clearRetained('search:'+workflowSession.id);}},[workflowSession?.id,workflowSession?.intake?.phase]);
 
@@ -633,16 +632,13 @@ export default function Reader(){
     onReselect={()=>reselectStory(workflowSession.id)}
     onBackToDiscovery={()=>{clearRetained('discovery');forgetSetup();setAutoSearch(false);setBookChosen(true);setDiscoveryTarget(workflowSession.id);setSelection(workflowSession.selection);setUnavailable('');setConfigure(true);}}
     progress={{busy:gen.busy,controlBusy:!!gen.controlBusy,onControl:gen.control,error:workflowError||gen.error,onRetry:retryWorkflow,onBack:backToShelf,hideBack:true,showSummary:false}}
-   />:<GenerationSurface
-    session={workflowSession} busy={gen.busy} controlBusy={!!gen.controlBusy||creating} onControl={gen.control} error={workflowError||gen.error} onRetry={retryWorkflow} onBack={backToShelf} hideBack showSummary={false}
+   />:<StoryPausedEditing pausedEditing={revisionResuming}
+    session={workflowSession} busy={gen.busy} controlBusy={!!gen.controlBusy||creating||revision.busy} onControl={gen.control} error={workflowError||gen.error} onRetry={retryWorkflow} onBack={backToShelf} hideBack showSummary={false}
     onLandscapeActivityChange={()=>void gen.refreshLibrary().catch(()=>{})}
     navigation={{source:{onClick:()=>setSource(true),disabled:!workflowSession.generationProgress?.sourceReady},reselect:{label:'替换选题',onClick:()=>void reselectStory(),disabled:creating||revision.busy||!!gen.controlBusy||!offersProductionAction(workflowSession,'open-reselection'),title:'替换当前选题，书架保留一张卡片，旧结果保留历史'},reselecting:creating}}
     onAcceptance={()=>revision.open('acceptance')} onHistory={()=>setReviewHistoryId(workflowSession.id)} onEditStyle={()=>revision.open('style')}
     timeline={{
-     links:{source:[{label:'制作要求',disabled:!offersProductionAction(workflowSession,'edit-revision'),onClick:()=>revision.open('requirements')},{label:'验收要求',disabled:!offersProductionAction(workflowSession,'edit-revision'),onClick:()=>revision.open('acceptance')}],
-      ...(workflowSession.lifecycle?.actions.some(action=>action.event==='reprepare')?{count:[{
-       label:'按当前要求重新准备',disabled:!!gen.controlBusy||revision.busy,onClick:()=>void gen.control(workflowSession.id,'reprepare'),
-      }]}:{})},
+     links:{source:[{label:'制作要求',disabled:!offersProductionAction(workflowSession,'edit-revision'),onClick:()=>revision.open('requirements')},{label:'验收要求',disabled:!offersProductionAction(workflowSession,'edit-revision'),onClick:()=>revision.open('acceptance')}]},
      actions:{count:{label:'修改叙事详略',disabled:!offersProductionAction(workflowSession,'edit-revision'),onClick:()=>revision.open('count')},...(workflowSession.story?{plan:{label:workflowSession.generationProgress?.phase==='plan'?'查看已有分镜':'查看分镜',onClick:openScript}}:{})}
     }}
     editor={revision} onReselect={()=>void reselectStory()}
@@ -781,8 +777,8 @@ export default function Reader(){
  const storySheets=<>
  {reviewHistoryId&&<Sheet title="审核记录" onClose={()=>setReviewHistoryId(null)}><StoryReviewHistory key={reviewHistoryId} sessionId={reviewHistoryId}/></Sheet>}
  {(!desktop||panelOpen)&&sourceSheet}
- {script&&scriptStory&&<Sheet title="分镜剧本" busy={revision.busy} onClose={()=>setScript(false)}><StoryScript key={scriptStory.id} story={scriptStory} editor={isGenerated(scriptStory)&&scriptStory.id===revision.sessionId&&!revisionSession?.superseded?revision:undefined} onEdit={editScript} resuming={revisionResuming}/></Sheet>}
- {revision.tab&&<Sheet title={revision.tab==='review'?'修改审核意见':'修改故事'} busy={revision.busy} onClose={()=>{if(!revision.busy)revision.setTab(null);}}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} resuming={revisionResuming}/></Sheet>}
+ {script&&scriptStory&&<Sheet title="分镜剧本" busy={revision.busy} onClose={cancelRevision}><StoryScript key={scriptStory.id} story={scriptStory} editor={isGenerated(scriptStory)&&scriptStory.id===revision.sessionId&&!revisionSession?.superseded?revision:undefined} onEdit={editScript} onCancel={cancelRevision}/></Sheet>}
+ {revision.tab&&<Sheet title={revision.tab==='review'?'修改审核意见':'修改故事'} busy={revision.busy} onClose={cancelRevision}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} onCancel={cancelRevision}/></Sheet>}
  </>;
  const embeddingSheet=embeddingOpen&&<Sheet title="嵌入模型与故事卡索引" onClose={()=>setEmbeddingOpen(false)}><StoryEmbeddingSettings/></Sheet>;
  const importSheet=importOpen&&<Sheet title="导入自备书" onClose={()=>setImportOpen(false)}><BookImport onClose={()=>setImportOpen(false)} onComplete={id=>{setImportOpen(false);request('reader/books/imported').then(({books})=>{if(Array.isArray(books))setImportedBooks(books);}).catch(()=>{}).finally(()=>choose(id));}}/></Sheet>;

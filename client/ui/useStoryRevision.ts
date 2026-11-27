@@ -79,7 +79,7 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
   if(loading)return;
   if(!base)void load();else void refresh(undefined,value==='review');
  }
- function discard(){setBase(null);setChanges({});setTab(null);setError('');setConflict(false);submission.current=null;}
+ function discard(){read.current++;setBase(null);setChanges({});setTab(null);setLoading(false);setError('');setConflict(false);submission.current=null;}
  async function summarize(){
   if(!base?.plan||!storyId||lock.current||conflict)return false;
   const id=storyId,{plan,removedFrames}=changes;

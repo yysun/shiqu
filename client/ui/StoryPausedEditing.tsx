@@ -1,4 +1,4 @@
-// 暂停时保留当前制作进度，各个编辑面板直接提交修改。
+// 保持同一个进度面板，暂停时在原步骤增加编辑入口。
 import type {ComponentProps} from 'react';
 import StoryGenerationStatus from './StoryGenerationStatus';
 import {reviewEditingStage} from './StoryRevisionEditor';
@@ -6,10 +6,10 @@ import type {StoryRevisionEditorState} from './useStoryRevision';
 import {generationProgress} from '@/lib/generation-progress';
 import {offersProductionAction} from '@/lib/production-lifecycle';
 
-type Props=Omit<ComponentProps<typeof StoryGenerationStatus>,'stages'|'control'|'onEditStyle'>&{editor:StoryRevisionEditorState;onReselect:()=>void};
-export default function StoryPausedEditing({editor,onReselect,timeline,...props}:Props){
+type Props=Omit<ComponentProps<typeof StoryGenerationStatus>,'stages'|'control'>&{pausedEditing:boolean;editor:StoryRevisionEditorState;onReselect:()=>void};
+export default function StoryPausedEditing({pausedEditing,editor,onReselect,timeline,...props}:Props){
  const {session,busy,controlBusy}=props;
- if(!session.generationControl||session.generationControl==='active')return null;
+ if(!pausedEditing||!session.generationControl||session.generationControl==='active')return <StoryGenerationStatus {...props} timeline={timeline}/>;
  const locked=busy||controlBusy||editor.busy;
  const editingLocked=locked||!offersProductionAction(session,'edit-revision');
  const edit=(tab:Parameters<typeof editor.open>[0])=>{if(!editingLocked)editor.open(tab);};

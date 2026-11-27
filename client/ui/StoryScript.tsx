@@ -67,7 +67,7 @@ function ScriptFrameRow({frame,number,editable,selecting,selected,open,onlyFrame
  </section>;
 }
 
-export default function StoryScript({story,editor,onEdit,resuming=false}:{story:Story;editor?:StoryRevisionEditorState;onEdit:(page?:number)=>void;resuming?:boolean}){
+export default function StoryScript({story,editor,onEdit,onCancel}:{story:Story;editor?:StoryRevisionEditorState;onEdit:(page?:number)=>void;onCancel:()=>void}){
  const base=editor?.base?.plan,plan=editor?.changes.plan||base;
  const frames=plan?.pages??story.pages;
  const originalIds=survivingRevisionFrames(base?.pages.length??frames.length,editor?.changes.removedFrames).map(index=>index+1);
@@ -106,7 +106,7 @@ export default function StoryScript({story,editor,onEdit,resuming=false}:{story:
     mergeTargets:mergeTargets.length?[...new Set(mergeTargets)]:undefined};
   });
   setOpen(null);setSelected(new Set());setMerge(null);setSelecting(false);
-  setNotice(replacement?`已合并 ${ids.length} 幅，修改已加入草稿。`:`已删除 ${ids.length} 幅，修改已加入草稿。`);
+  setNotice(replacement?`已合并 ${ids.length} 幅，待保存。`:`已删除 ${ids.length} 幅，待保存。`);
   toolbar.current?.focus({preventScroll:true});
  }
  const replacement=merge&&planSchema.shape.pages.element.safeParse({caption:merge.caption.trim(),prompt:merge.prompt.trim()});
@@ -132,7 +132,7 @@ export default function StoryScript({story,editor,onEdit,resuming=false}:{story:
      <StoryFlowAction disabled={!editable||frames.length<2} onClick={toggleSelection}>选择</StoryFlowAction>
     </div>
    </div>}
-   {showActions&&<StoryRevisionActions editor={editor} resuming={resuming}/>}
+   {showActions&&<StoryRevisionActions editor={editor} onCancel={onCancel}/>}
    {editor.loading?<p role="status">正在载入分镜…</p>:!showActions&&editor.error?<div role="alert"><p>{editor.error}</p>{!base&&<StoryFlowAction onClick={editor.conflict?editor.loadLatest:editor.load}>{editor.conflict?'载入最新版本':'重试载入'}</StoryFlowAction>}</div>:null}
    {notice&&<p role="status">{notice}</p>}
   </div>}

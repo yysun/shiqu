@@ -34,7 +34,16 @@ function RevisionConflicts({editor}:{editor:StoryRevisionEditorState}){
  </>;
 }
 
-export function StoryRevisionActions({editor,resuming=false}:{editor:StoryRevisionEditorState;resuming?:boolean}){
+function RevisionSaveActions({busy,disabled,onSave,onCancel,cancelLabel='取消',saveLabel='保存修改'}:{
+ busy:boolean;disabled:boolean;onSave:()=>void;onCancel:()=>void;cancelLabel?:string;saveLabel?:string;
+}){
+ return <div className="production-stage-actions yu-revision-footer">
+  <button type="button" disabled={busy} onClick={onCancel}>{cancelLabel}</button>
+  <button type="button" className="yu-primary" disabled={disabled} aria-busy={busy} onClick={onSave}>{busy?'正在保存…':saveLabel}</button>
+ </div>;
+}
+
+export function StoryRevisionActions({editor,onCancel}:{editor:StoryRevisionEditorState;onCancel:()=>void}){
  const {impact,base,changes,busy}=editor;
  const [confirming,setConfirming]=useState<typeof changes>();
  if(!impact||!base)return null;
@@ -46,19 +55,15 @@ export function StoryRevisionActions({editor,resuming=false}:{editor:StoryRevisi
  const style=artStyleSettings(base.selection,changes);
  const restyle=!impact.review&&!sameArtDirection(base.selection,style);
  const summaryOnly=!impact.review&&!restyle&&revisionStorySummaryChanged(base,changes);
- const action=impact.replan?(impact.preserveScript?'继续编排':'重新编排'):
-  impact.review?'重新审核':
-  restyle?(resuming?'应用画风并继续':'应用新画风'):
-  summaryOnly?(resuming?'保存梗概并恢复':'保存梗概'):'应用修改';
  const artwork=impact.estimated?`预计复用 ${impact.reused} 幅，需绘制 ${impact.redraw} 幅。`:'预估暂不可用。';
  let detail='';
  if(impact.changed){
   if(impact.replan){
-   detail=impact.preserveScript?'沿用已保存的分镜，完成编排后审核。':
-    changes.productionPrompt!==undefined&&changes.productionPrompt!==base.selection.productionPrompt?'按新制作要求生成梗概并重新编排。':'按所选叙事详略重新编排并审核。';
+   detail=impact.preserveScript?'继续制作后，沿用已保存的分镜完成编排，再进入审核。':
+    changes.productionPrompt!==undefined&&changes.productionPrompt!==base.selection.productionPrompt?'继续制作后，将按新要求生成梗概并重新编排分镜。':'继续制作后，将按所选叙事详略重新编排并审核。';
   }else if(summaryOnly)detail='保存新梗概，沿用现有分镜和审核进度。';
-  else if(restyle)detail=`按${getArtStyle(style.artStyle).label}应用画风，沿用分镜编排和审核进度。${artwork}`;
-  else if(impact.review)detail=`审核通过后继续绘图。${artwork}`;
+  else if(restyle)detail=`继续制作后，先按${getArtStyle(style.artStyle).label}转换画面描述，再审核。${artwork}`;
+  else if(impact.review)detail=(editor.preview?.textWork.ending?'继续制作后，先更新标题与结语，再审核。':'继续制作后重新审核。')+artwork;
  }
  return <section className="yu-revision-impact" aria-label="本次修改影响">
   {detail&&<p role="status">{detail}</p>}
@@ -74,19 +79,17 @@ export function StoryRevisionActions({editor,resuming=false}:{editor:StoryRevisi
   </section>}
   <RevisionConflicts editor={editor}/>
   {editor.error&&<p role="alert">{editor.error}</p>}
-  <div className="production-stage-actions">
-   {confirmLoss&&<button type="button" disabled={busy} onClick={()=>setConfirming(undefined)}>取消保存</button>}
-   <StoryFlowAction disabled={busy||editor.loading||!impact.changed||impact.conflict||editor.conflict} onClick={()=>{
+  <RevisionSaveActions busy={busy} disabled={busy||editor.loading||!impact.changed||impact.conflict||editor.conflict}
+   onCancel={confirmLoss?()=>setConfirming(undefined):onCancel} cancelLabel={confirmLoss?'取消保存':undefined}
+   saveLabel={confirmLoss?'放弃手改并保存':undefined} onSave={()=>{
     if(confirmLoss)void editor.submit({...changes,confirmHandEditLoss:true});
     else if(lostHandEdits.length)setConfirming(changes);
     else void editor.submit();
-   }}>{busy?'正在提交…':confirmLoss?'确认放弃手改并保存':action}</StoryFlowAction>
-  </div>
+   }}/>
  </section>;
 }
 
-function StoryReviewNotesEditor({editor,base}:{editor:StoryRevisionEditorState;base:RevisionSnapshot}){
- // 审核意见在点击开始审核时提交，关闭本面板不会把意见带回制作流程。
+function StoryReviewNotesEditor({editor,base,onCancel}:{editor:StoryRevisionEditorState;base:RevisionSnapshot;onCancel:()=>void}){
  const [reviewNotes,setReviewNotes]=useState(base.reviewNotes??'');
  const changes={...editor.changes,reviewNotes};
  const blocked=editor.conflict||editor.impact?.conflict;
@@ -98,20 +101,20 @@ function StoryReviewNotesEditor({editor,base}:{editor:StoryRevisionEditorState;b
    {!!base.priorReviewIssues?.length&&<details className="yu-revision-review"><summary>上轮审核意见</summary>
     {base.priorReviewIssues.map(issue=><dl key={issue.page}><dt>{issue.page===0?'结语':`第 ${issue.page} 幅`}</dt><dd>{issue.problem}</dd><dd>{issue.instruction}</dd></dl>)}
    </details>}
-   <label className="yu-revision-field">审核意见<textarea rows={6} maxLength={reviewNotesMaxLength} value={reviewNotes} disabled={!base.canEditReviewNotes} onChange={event=>setReviewNotes(event.target.value)}/><small>{base.canEditReviewNotes?'补充或更正上轮意见，然后开始审核。':'请先暂停审核，再修改意见。'}</small></label>
+   <label className="yu-revision-field">审核意见<textarea rows={6} maxLength={reviewNotesMaxLength} value={reviewNotes} disabled={!base.canEditReviewNotes} onChange={event=>setReviewNotes(event.target.value)}/><small>{base.canEditReviewNotes?'保存后，点「继续制作」按新意见审核。':'请先暂停审核，再修改意见。'}</small></label>
    <RevisionConflicts editor={editor}/>
-   {!blocked&&editor.impact?.changed&&<p>{editor.impact.replan?'会一并应用已有草稿，重新编排后开始审核。':'已有制作草稿也会一并应用。'}</p>}
+   {!blocked&&editor.impact?.changed&&<p>本次编辑中的其他修改也会一并保存。</p>}
    {editor.error&&<p role="alert">{editor.error}</p>}
-   <div className="production-stage-actions"><button type="button" className="yu-primary" disabled={disabled} aria-busy={editor.busy} onClick={()=>void editor.submit(changes)}>{editor.busy?'正在提交…':'开始审核'}</button></div>
   </fieldset>
+  <RevisionSaveActions busy={editor.busy} disabled={disabled} onSave={()=>void editor.submit(changes)} onCancel={onCancel}/>
  </div>;
 }
 
-export default function StoryRevisionEditor({editor,resuming=false,reviewIssues=[]}:{editor:StoryRevisionEditorState;resuming?:boolean;reviewIssues?:ReviewIssue[]}){
+export default function StoryRevisionEditor({editor,onCancel,reviewIssues=[]}:{editor:StoryRevisionEditorState;onCancel:()=>void;reviewIssues?:ReviewIssue[]}){
  const {base,changes,busy,loading}=editor;
  if(loading&&!base)return <p role="status">正在载入已保存的制作内容…</p>;
  if(!base)return <div><p role="alert">{editor.error||'制作内容尚未载入。'}</p><div className="production-stage-actions"><StoryFlowAction onClick={editor.conflict?editor.loadLatest:editor.load}>{editor.conflict?'载入最新版本':'重新载入'}</StoryFlowAction></div></div>;
- if(editor.tab==='review')return <StoryReviewNotesEditor key={base.token} editor={editor} base={base}/>;
+ if(editor.tab==='review')return <StoryReviewNotesEditor key={base.token} editor={editor} base={base} onCancel={onCancel}/>;
  const plan=changes.plan||base.plan;
  const target=Math.max(0,Math.min(editor.scriptPage??1,plan?.pages.length??1)),page=Math.max(0,target-1);
  const originalPage=!changes.removedFrames||target===0?target:survivingRevisionFrames(base.plan?.pages.length??0,changes.removedFrames)[page]+1;
@@ -135,7 +138,6 @@ export default function StoryRevisionEditor({editor,resuming=false,reviewIssues=
    </section>}
 
   </fieldset>
-  <StoryRevisionActions editor={editor} resuming={resuming}/>
-  <p className="yu-revision-note">关闭弹窗保留本次草稿；离开这篇故事后草稿会清除。</p>
+  <StoryRevisionActions editor={editor} onCancel={onCancel}/>
  </div>;
 }
