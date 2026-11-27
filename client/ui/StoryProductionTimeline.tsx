@@ -15,7 +15,7 @@ export default function StoryProductionTimeline({session,busy=false,error='',onR
  const meta=session.generationProgress;
  const focused=stages.find(step=>step.state==='failed')||stages.find(step=>step.state==='current'||step.state==='paused');
  const phase=meta?.phase;
- const current=focused?.id||(phase==='image'||phase==='restyle'?'image':phase==='source'||phase==='discover'?'source':phase==='recommend'||phase==='production-confirmation'?'count':phase==='repair'?'repair':phase==='review'?'review':'plan');
+ const current=focused?.id||(phase==='image'?'image':phase==='restyle'?'restyle':phase==='source'||phase==='discover'?'source':phase==='recommend'||phase==='production-confirmation'?'count':phase==='repair'?'repair':phase==='review'?'review':'plan');
  const review=stages.find(step=>['review','repair','recheck'].includes(step.id)&&step.state==='failed')?.id||stages.find(step=>['review','repair','recheck'].includes(step.id)&&step.state==='current')?.id||'review';
  const reviewBlocked=!!session.reviewOverride||!!session.reviewIssues?.length||meta?.reviewStopReason==='requirements';
  const ownsReview=reviewBlocked&&!!reviewTools,intakePhase=session.intake?.phase;

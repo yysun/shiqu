@@ -777,7 +777,7 @@ export default function Reader(){
  const storySheets=<>
  {reviewHistoryId&&<Sheet title="审核记录" onClose={()=>setReviewHistoryId(null)}><StoryReviewHistory key={reviewHistoryId} sessionId={reviewHistoryId}/></Sheet>}
  {(!desktop||panelOpen)&&sourceSheet}
- {script&&scriptStory&&<Sheet title="分镜剧本" busy={revision.busy} onClose={cancelRevision}><StoryScript key={scriptStory.id} story={scriptStory} editor={isGenerated(scriptStory)&&scriptStory.id===revision.sessionId&&!revisionSession?.superseded?revision:undefined} onEdit={editScript} onCancel={cancelRevision}/></Sheet>}
+ {script&&scriptStory&&<Sheet title="分镜剧本" busy={revision.busy} onClose={cancelRevision}><StoryScript key={scriptStory.id} story={scriptStory} editor={isGenerated(scriptStory)&&scriptStory.id===revision.sessionId&&!revisionSession?.superseded?revision:undefined} onEdit={editScript} onCancel={()=>{if(!revision.busy)revision.reset();}}/></Sheet>}
  {revision.tab&&<Sheet title={revision.tab==='review'?'修改审核意见':'修改故事'} busy={revision.busy} onClose={cancelRevision}><StoryRevisionEditor editor={revision} reviewIssues={revisionSession?.reviewIssues} onCancel={cancelRevision}/></Sheet>}
  </>;
  const embeddingSheet=embeddingOpen&&<Sheet title="嵌入模型与故事卡索引" onClose={()=>setEmbeddingOpen(false)}><StoryEmbeddingSettings/></Sheet>;

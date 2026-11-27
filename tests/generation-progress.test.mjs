@@ -69,15 +69,17 @@ test('step clocks survive reopening and count down to the saved deadline',()=>{
  assert.equal(generationProgress(next,77000).elapsed,1);assert.equal(generationProgress(next,77000).remaining,299);
 });
 
-test('restyling keeps the saved storyboard complete and puts conversion under drawing',()=>{
+test('restyling keeps the saved storyboard complete and shows conversion before drawing',()=>{
  const session={...planning,story:{pages:Array(4).fill({})},generationProgress:{...planning.generationProgress,phase:'restyle',reviewStatus:'passed',frameCount:4}};
  const progress=generationProgress(session,20000);
- assert.deepEqual(progress.steps.map(step=>step.state),['done','done','done','done','skipped','skipped','current']);
+ const restyle=steps=>steps.find(step=>step.id==='restyle');
+ assert.deepEqual(progress.steps.map(step=>step.state),['done','done','done','done','skipped','skipped','current','pending']);
  assert.equal(progress.steps[2].detail,'4 幅分镜已保存');
- assert.match(progress.steps[6].detail,/转换画面提示词.*开始出图/);
+ assert.match(restyle(progress.steps).detail,/转换画面提示词.*开始出图/);
+ assert.equal(progress.steps[7].label,'绘图');
  assert.equal(progress.measured,false);
- assert.equal(generationProgress({...session,state:'failed',error:'超时'},20000).steps[6].state,'failed');
- assert.equal(generationProgress({...session,generationControl:'paused'},20000).steps[6].state,'paused');
+ assert.equal(restyle(generationProgress({...session,state:'failed',error:'超时'},20000).steps).state,'failed');
+ assert.equal(restyle(generationProgress({...session,generationControl:'paused'},20000).steps).state,'paused');
  const drawing=generationProgress({...session,ready:1,generationProgress:{...session.generationProgress,phase:'image'}},20000);
  assert.equal(drawing.steps[6].detail,'1 / 4 幅画面已保存');
 });

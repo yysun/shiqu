@@ -110,7 +110,9 @@ export default function StoryScript({story,editor,onEdit,onCancel}:{story:Story;
   toolbar.current?.focus({preventScroll:true});
  }
  const replacement=merge&&planSchema.shape.pages.element.safeParse({caption:merge.caption.trim(),prompt:merge.prompt.trim()});
- return <div className="yu-script-content">
+ // 「取消」只放弃未保存的分镜修改，分镜剧本保持打开。
+ function cancel(){setOpen(null);setSelected(new Set());setMerge(null);setSelecting(false);setNotice('');onCancel();}
+ return <div className="yu-script-content" data-dirty={editor?.impact?.changed?'true':undefined}>
   <h3>{story.title}</h3>
   {(editor?.changes.storySummary||story.summary)&&<p className="yu-script-intro">{editor?.changes.storySummary||story.summary}</p>}
   {editor&&<div className="yu-script-toolbar" ref={toolbar} tabIndex={-1} role="group" aria-label="分镜编辑">
@@ -132,9 +134,9 @@ export default function StoryScript({story,editor,onEdit,onCancel}:{story:Story;
      <StoryFlowAction disabled={!editable||frames.length<2} onClick={toggleSelection}>选择</StoryFlowAction>
     </div>
    </div>}
-   {showActions&&<StoryRevisionActions editor={editor} onCancel={onCancel}/>}
-   {editor.loading?<p role="status">正在载入分镜…</p>:!showActions&&editor.error?<div role="alert"><p>{editor.error}</p>{!base&&<StoryFlowAction onClick={editor.conflict?editor.loadLatest:editor.load}>{editor.conflict?'载入最新版本':'重试载入'}</StoryFlowAction>}</div>:null}
    {notice&&<p role="status">{notice}</p>}
+   {showActions&&<StoryRevisionActions editor={editor} onCancel={cancel}/>}
+   {editor.loading?<p role="status">正在载入分镜…</p>:!showActions&&editor.error?<div role="alert"><p>{editor.error}</p>{!base&&<StoryFlowAction onClick={editor.conflict?editor.loadLatest:editor.load}>{editor.conflict?'载入最新版本':'重试载入'}</StoryFlowAction>}</div>:null}
   </div>}
   {merge&&<section className="yu-script-merge" aria-label="合并分镜">
    <h3>合并为第 {originalIds.indexOf(chosen[0])+1} 幅</h3>

@@ -1082,8 +1082,10 @@ test('a style change converts image descriptions in one batch, re-reviews frames
  const child=await f.json(`sessions/${id}/revisions`,'POST',{requestId:crypto.randomUUID(),token,changes:{artStyle:'watercolor'}});
  assert.equal(child.story.pages.length,6);
  assert.equal(timelineStep(child,'plan').state,'done');
- assert.equal(timelineStep(child,'image').state,'paused');
- assert.match(timelineStep(child,'image').detail,/按新画风转换画面描述（第 1–6 幅），完成后重新审片/);
+ assert.equal(timelineStep(child,'restyle').state,'paused');
+ assert.match(timelineStep(child,'restyle').detail,/按新画风转换画面描述（第 1–6 幅），完成后重新审片/);
+ assert.deepEqual(generationProgress(child,Date.now()).steps.map(step=>step.id).slice(-5),['restyle','review','repair','recheck','image'],'conversion is listed where it runs, before review');
+ assert.equal(timelineStep(child,'image').state,'pending');
  assert.equal(generationProgress(child,Date.now()).ready,0,'prior images remain readable but do not count toward the new style');
  await f.json(`sessions/${child.id}/production-control`,'POST',{action:'continue'});
  await until(async()=>(await f.read(child.id)).state==='completed',15000);

@@ -16,6 +16,8 @@ export function productionStages(input:Input):ProductionStage[]{
  const repaired=reviewStatus==='repair'||blocked||rechecking||!!input.repairPasses||passed&&reviewRound>1||!!input.reviewOverridden;
  const active=(at:boolean):ProductionStageState=>at?activeState:'pending';
  const restyling=phase==='restyle',canDraw=planReady&&(legacy||passed);
+ // 转换后仍待审片时，画风转换排在审片之前。
+ const restyleReview=restyling&&!!reviewStatus&&!passed;
  const drawingDone=!restyling&&canDraw&&total!==null&&total>0&&ready>=total;
  const reviewState:ProductionStageState=stoppedBeforeRepair?'failed':legacy?'unavailable':passed||repaired?'done':active(phase==='review');
  const repairState:ProductionStageState=requirementsBlocked?(input.repairPasses?'done':'skipped'):stoppedBeforeRepair?'skipped':blocked&&input.reviewStopReason==='unchanged'?'failed':legacy?'unavailable':passed&&!repaired?'skipped':blocked||rechecking||passed&&repaired?'done':active(phase==='repair');
@@ -29,13 +31,18 @@ export function productionStages(input:Input):ProductionStage[]{
  const repairProgress=`已修订 ${repairCompleted} / ${repairTotal} 项`;
  const repairDetail=input.reviewPhase==='frames'?`按画幅数审核修订 · ${repairProgress}`:audits?`按第 ${audits} 次全篇审核修订 · ${repairProgress}`:repairProgress;
  const recheckDetail=input.reviewPhase==='frames'?'正在复核画幅数与叙事任务':audits===undefined?'正在全篇复核':`正在第 ${audits+1} 次全篇审核`;
- return [
+ const stages:ProductionStage[]=[
   {id:'plan',label:'分批分镜',state:planReady?'done':active(planning),detail:planningDetail??(phase==='reflection'?'完整分镜已保存，正在撰写结语':planReady?`${total===null?'全篇':total+' 幅'}分镜已保存`:batch?`已保存 ${input.storyboardFrames||0}${count} 幅分镜 · 当前第 ${batch.first}–${batch.last} 幅`:input.storyboardFrames!=null?`已保存 ${input.storyboardFrames}${count} 幅分镜`:'等待完整分镜返回')},
   {id:'review',label:input.reviewPhase==='frames'?'画幅数审核':'全篇审片',state:reviewState,detail:input.reviewOverridden?'未完成的审核由你确认跳过':restyling&&reviewState==='pending'?'等待画风转换完成':input.reviewPhase==='frames'?'按原文任务核对缺失、重复与画幅分配':requirementsBlocked&&!requirementsRecheck?'验收要求存在冲突或无法判断':needsReplan?'主事件未完整收束，需要重新编排':legacy?'旧故事未启用审片':reviewState==='done'?(passed&&!repaired?'初审通过':'全篇审片已完成'):phase==='review'&&!rechecking?'检查分镜、跨批衔接与结语':'等待分镜与结语完成'},
   {id:'repair',label:'定向修订',state:repairState,detail:requirementsBlocked&&!input.repairPasses?(requirementsRecheck?'本次重新审核前未执行自动修订':'等待调整验收要求，未执行自动修订'):needsReplan?'整篇结构需重编，未执行局部修补':legacy?'旧故事未启用审片':repairState==='skipped'?'初审通过，无需修订':phase==='repair'?repairDetail:repairState==='done'?typeof input.repairBatches==='number'?`已完成 ${input.repairBatches} 批定向修订`:'问题幅号已定向修订':'仅在审片发现问题时执行'},
   {id:'recheck',label:'复核',state:recheckState,detail:requirementsBlocked?(requirementsRecheck?'验收要求存在冲突或无法判断':'调整验收要求后重新审核'):needsReplan?'重新编排后再审核':legacy?'旧故事未启用审片':blocked?`仍有 ${repairTotal} 项待修订，绘图已阻止`:input.reviewOverridden?'未解决的问题由你确认放行':recheckState==='skipped'?'初审通过，无需复核':passed?(audits?`复核通过 · 全篇审核 ${audits} 次`:'复核通过'):rechecking?recheckDetail:'修订后重新审片'},
-  {id:'image',label:restyling&&input.activity?'画风转换':'绘图',state:drawingDone?'done':active(restyling||canDraw&&phase==='image'),detail:restyling?(input.activity?`${input.activity}，完成后重新审片`:'按新画风转换画面提示词，完成后开始出图'):requirementsBlocked?'等待调整验收要求，绘图已阻止':needsReplan?'等待重新编排，绘图已阻止':blocked?'待继续修订，绘图已阻止':reviewStatus&&!passed?'等待审片通过':total===null?`已保存 ${ready} 幅`:`${ready} / ${total} 幅画面已保存`},
+  {id:'image',label:'绘图',state:drawingDone?'done':active(canDraw&&phase==='image'),detail:restyling?(restyleReview?'等待审片通过':'等待画风转换完成'):requirementsBlocked?'等待调整验收要求，绘图已阻止':needsReplan?'等待重新编排，绘图已阻止':blocked?'待继续修订，绘图已阻止':reviewStatus&&!passed?'等待审片通过':total===null?`已保存 ${ready} 幅`:`${ready} / ${total} 幅画面已保存`},
  ];
+ if(!restyling)return stages;
+ // 画风转换单列一行，放在它实际执行的位置：需要重审时排在审片之前，否则排在绘图之前。
+ const restyle:ProductionStage={id:'restyle',label:'画风转换',state:active(true),detail:`${input.activity||(restyleReview?'按新画风转换画面描述':'按新画风转换画面提示词')}，完成后${restyleReview?'重新审片':'开始出图'}`};
+ stages.splice(stages.findIndex(stage=>stage.id===(restyleReview?'review':'image')),0,restyle);
+ return stages;
 }
 
 export function productionSteps(input:Input):ProductionStage[]{

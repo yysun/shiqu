@@ -79,6 +79,8 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
   if(loading)return;
   if(!base)void load();else void refresh(undefined,value==='review');
  }
+ // 只放弃本次未保存的修改，保留已载入的快照，编辑窗口保持打开。
+ function reset(){setChanges({});setError('');submission.current=null;}
  function discard(){read.current++;setBase(null);setChanges({});setTab(null);setLoading(false);setError('');setConflict(false);submission.current=null;}
  async function summarize(){
   if(!base?.plan||!storyId||lock.current||conflict)return false;
@@ -122,7 +124,7 @@ export function useStoryRevision(storyId:string|undefined,onSubmitted:(session:S
   }catch(e){setError(e instanceof Error?e.message:'新版暂未提交，请重试。');if((e as {status?:number}).status===409)await refresh(submittedChanges);}
   finally{lock.current=false;setBusy(false);}
  }
- return {sessionId:storyId,tab,setTab,scriptPage,setScriptPage,base,changes,setChanges,loading,busy,error,conflict,load,loadLatest,prepare,open,discard,summarize,summarizing,submit,preview,impact:base?withPreview(revisionImpact(base,changes),preview):null};
+ return {sessionId:storyId,tab,setTab,scriptPage,setScriptPage,base,changes,setChanges,loading,busy,error,conflict,load,loadLatest,prepare,open,discard,reset,summarize,summarizing,submit,preview,impact:base?withPreview(revisionImpact(base,changes),preview):null};
 }
 /** 本地估算只给出是否有改动与冲突；复用与重绘的幅数只以服务端预估为准，预估未就绪时 estimated 为 false，界面显示「预估暂不可用」。 */
 function withPreview<T extends {reused:number;redraw:number}>(impact:T,preview:RevisionPreview|null):T&{estimated:boolean}{return preview?{...impact,reused:preview.reused,redraw:preview.redraw,estimated:true}:{...impact,estimated:false};}

@@ -68,5 +68,24 @@ test('acceptance blockers mark the audit that produced them without erasing comp
 test('a pending review names the style conversion it depends on',()=>{
  const steps=productionSteps({...base,phase:'restyle',activity:'按新画风转换画面描述'});
  assert.equal(steps.find(step=>step.id==='review').detail,'等待画风转换完成');
- assert.equal(steps.find(step=>step.id==='image').label,'画风转换');
+ assert.equal(steps.find(step=>step.id==='image').label,'绘图');
+});
+
+test('style conversion gets its own row where it runs',()=>{
+ const ids=steps=>steps.map(step=>step.id);
+ // 转换后需要重审：画风转换排在审片之前，绘图行保留并等待审片。
+ const rereview=productionSteps({...base,phase:'restyle',reviewStatus:'pending',activity:'按新画风转换画面描述（第 1–6 幅）',activeState:'paused'});
+ assert.deepEqual(ids(rereview),['source','count','plan','restyle','review','repair','recheck','image']);
+ const restyle=rereview.find(step=>step.id==='restyle');
+ assert.equal(restyle.label,'画风转换');assert.equal(restyle.state,'paused');
+ assert.equal(restyle.detail,'按新画风转换画面描述（第 1–6 幅），完成后重新审片');
+ const drawing=rereview.find(step=>step.id==='image');
+ assert.equal(drawing.label,'绘图');assert.equal(drawing.state,'pending');assert.equal(drawing.detail,'等待审片通过');
+ // 审片已通过时直接转换后绘图：画风转换排在绘图之前。
+ const direct=productionSteps({...base,phase:'restyle',reviewStatus:'passed'});
+ assert.deepEqual(ids(direct),['source','count','plan','review','repair','recheck','restyle','image']);
+ assert.match(direct.find(step=>step.id==='restyle').detail,/完成后开始出图/);
+ assert.equal(direct.find(step=>step.id==='image').detail,'等待画风转换完成');
+ // 不在转换时不出现画风转换行。
+ assert.ok(!ids(productionSteps({...base,phase:'image',reviewStatus:'passed'})).includes('restyle'));
 });

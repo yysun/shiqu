@@ -1,8 +1,8 @@
 // Share native dialog focus and scroll locks across reading, creation and nested editing.
 // 父面板晚于子面板打开时（例如跨档切换在同一次提交里重新挂载嵌套面板），把已打开的子面板重新置顶，保证子面板在上。
 // 每个面板在挂载效果里登记为返回键的一步（historySteps），每次 showModal 都记录置顶顺序。
-// 关闭守卫：忙碌时不关；有未保存的输入（[data-dirty="true"]）时先询问。Escape 与 Chrome Android 的返回
-// 都以 cancel 到达，走同一个守卫；浏览器强制关闭（close watcher）时重新打开忙碌或有输入的面板，绝不静默丢弃输入。
+// 关闭守卫：忙碌时不关；有未保存的输入（[data-dirty="true"]）时先询问。关闭按钮、点击遮罩、Escape 与
+// Chrome Android 的返回（以 cancel 到达）都走同一个守卫；面板内的「取消」是明确放弃，不经此守卫；浏览器强制关闭（close watcher）时重新打开忙碌或有输入的面板，绝不静默丢弃输入。
 // 叠在另一个面板上打开时，标题上方显示关闭后回到哪里（返回「下层面板」）：嵌套的取所在面板，否则取当前顺序里的下一层。
 import {useEffect,useRef,useState} from 'react';
 import {X} from 'lucide-react';
@@ -50,5 +50,5 @@ export default function Sheet({title,onClose,children,busy=false,fixedHeight=fal
    if(prior?.isConnected)prior.focus({preventScroll:true});
   };
  },[]);
- return <dialog className="yu-backdrop" ref={dialogRef} aria-label={title} aria-modal="true" onCancel={e=>{e.preventDefault();requestClose();}} onClick={e=>{if(!busy&&e.target===e.currentTarget)onClose();}}><section className={fixedHeight?'yu-sheet yu-sheet-fixed-height':'yu-sheet'} tabIndex={-1} ref={contentRef} aria-busy={busy}><div className="yu-handle"/><header>{under?<div className="yu-sheet-title"><span className="yu-sheet-return">返回「{under}」</span><h2>{title}</h2></div>:<h2>{title}</h2>}<button className="yu-icon" disabled={busy} aria-label="关闭" onClick={onClose}><X size={21}/></button></header>{children}</section></dialog>;
+ return <dialog className="yu-backdrop" ref={dialogRef} aria-label={title} aria-modal="true" onCancel={e=>{e.preventDefault();requestClose();}} onClick={e=>{if(e.target===e.currentTarget)requestClose();}}><section className={fixedHeight?'yu-sheet yu-sheet-fixed-height':'yu-sheet'} tabIndex={-1} ref={contentRef} aria-busy={busy}><div className="yu-handle"/><header>{under?<div className="yu-sheet-title"><span className="yu-sheet-return">返回「{under}」</span><h2>{title}</h2></div>:<h2>{title}</h2>}<button className="yu-icon" disabled={busy} aria-label="关闭" onClick={requestClose}><X size={21}/></button></header>{children}</section></dialog>;
 }

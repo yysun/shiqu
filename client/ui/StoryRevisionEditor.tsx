@@ -69,7 +69,10 @@ export function StoryRevisionActions({editor,onCancel}:{editor:StoryRevisionEdit
   {detail&&<p role="status">{detail}</p>}
   {droppedRedrawNotePages.length>0&&<p role="status">将丢弃原第 {droppedRedrawNotePages.join('、')} 幅的重绘说明。</p>}
   {lostImagePages.length>0&&<p role="status">第 {lostImagePages.join('、')} 幅已确认丢失，继续后重绘。</p>}
-  {redrawPages.length>0&&<p role="status">继续后将重绘第 {redrawPages.join('、')} 幅。</p>}
+  {redrawPages.length>0&&<p role="status">{impact.replan
+   // 重新编排时幅号指旧版画幅，新版幅数要等编排后才确定，不能写成「重绘第 N 幅」。
+   ?`${redrawPages.length===editor.preview?.total?`原有 ${redrawPages.length} 幅图`:`原第 ${redrawPages.join('、')} 幅的图`}将失效。${typeof (changes.length??base.selection.length)==='number'?'继续后按新分镜重绘。':'新版幅数待编排，最终绘制幅数以编排和审核结果为准。'}`
+   :`继续后将重绘第 ${redrawPages.join('、')} 幅。`}</p>}
   {lostHandEdits.length>0&&<section aria-label="将移除的手改">
    <p>保存会移除以下画幅里的手改内容。</p>
    <ul>{lostHandEdits.map(({page,caption,prompt})=><li key={page}>原第 {page} 幅
@@ -95,7 +98,8 @@ function StoryReviewNotesEditor({editor,base,onCancel}:{editor:StoryRevisionEdit
  const blocked=editor.conflict||editor.impact?.conflict;
  const waiting=editor.busy||editor.loading;
  const disabled=waiting||!base.canEditReviewNotes||blocked||!revisionReviewNotesChanged(base,changes);
- return <div className="yu-revision-editor">
+ // 有未保存的修改时标记 data-dirty，关闭按钮、遮罩、Escape 与返回会先询问。
+ return <div className="yu-revision-editor" data-dirty={revisionReviewNotesChanged(base,changes)||editor.impact?.changed?'true':undefined}>
   {editor.loading&&!editor.busy&&<p role="status">正在同步审核意见…</p>}
   <fieldset disabled={waiting} className="yu-revision-fields">
    {!!base.priorReviewIssues?.length&&<details className="yu-revision-review"><summary>上轮审核意见</summary>
@@ -120,7 +124,7 @@ export default function StoryRevisionEditor({editor,onCancel,reviewIssues=[]}:{e
  const originalPage=!changes.removedFrames||target===0?target:survivingRevisionFrames(base.plan?.pages.length??0,changes.removedFrames)[page]+1;
  const issues=reviewIssues.filter(issue=>issue.page===originalPage);
  const updatePlan=(update:(plan:Plan)=>void,changesFrame=false)=>editor.setChanges(c=>{const next=structuredClone(c.plan||base.plan);if(!next)return c;update(next);return {...c,plan:next,...(changesFrame?{storySummary:undefined}:{})};});
- return <div className="yu-revision-editor">
+ return <div className="yu-revision-editor" data-dirty={editor.impact?.changed?'true':undefined}>
   {editor.tab&&<StoryEditorTabs tab={editor.tab} onChange={editor.setTab} script={!!plan} disabled={busy}/>}
   {editor.tab&&editor.tab!=='script'&&<StoryProductionEditor sessionId={editor.sessionId} tab={editor.tab} settings={{...artStyleSettings(base.selection,changes),productionPrompt:changes.productionPrompt??normalizeProductionPrompt(base.selection.productionPrompt,base.selection.theme),acceptancePrompt:changes.acceptancePrompt??base.selection.acceptancePrompt,length:changes.length??base.selection.length,narrativeDetail:changes.narrativeDetail??base.selection.narrativeDetail??'balanced'}} recommendation={base.frameRecommendation} disabled={busy} onChange={patch=>editor.setChanges(c=>({...c,...patch}))}/>}
   <fieldset disabled={busy} className="yu-revision-fields">
