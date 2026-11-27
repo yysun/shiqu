@@ -10,6 +10,7 @@ test('only a numerically newer stable GitHub release is announced',async()=>{
  ]){
   const result=await newerDesktopRelease('0.9.9',async(url,options)=>{
    assert.equal(url,'https://api.github.com/repos/yysun/shiqu/releases/latest');
+   assert.equal(options.cache,'no-store');
    assert.equal(options.credentials,'omit');
    assert.equal(options.redirect,'error');
    assert.ok(options.signal instanceof AbortSignal);

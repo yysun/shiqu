@@ -10,6 +10,7 @@ export async function newerDesktopRelease(current:string,transport:typeof fetch=
  if(!stableVersion.test(current))throw Error('Invalid installed version');
  const response=await transport(latestReleaseApi,{
   signal:AbortSignal.timeout(5000),credentials:'omit',redirect:'error',
+  cache:'no-store',
   headers:{Accept:'application/vnd.github+json'},
  });
  if(!response.ok)throw Error('GitHub release unavailable');
