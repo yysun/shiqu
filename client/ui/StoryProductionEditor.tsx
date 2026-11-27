@@ -20,7 +20,7 @@ export function StoryEditorTabs({tab,onChange,script=false,disabled=false}:{tab:
  return <nav className="yu-revision-tabs" aria-label="修改内容">{tabs.filter(t=>script||t.id!=='script').map(t=><button type="button" key={t.id} disabled={disabled} aria-pressed={tab===t.id} onClick={()=>onChange(t.id)}>{t.label}</button>)}</nav>;
 }
 export default function StoryProductionEditor({tab,settings,disabled,onChange,sessionId,creation=false,requirementsEdited,preparationPaused=false,recommendation,artRecommendation}:{tab:Exclude<StoryEditorTab,'script'>;settings:ProductionSettings;sessionId?:string;disabled:boolean;onChange:(patch:Partial<ProductionSettings>)=>void;creation?:boolean;requirementsEdited?:RequirementEdits;preparationPaused?:boolean;recommendation?:FrameRecommendation|null;artRecommendation?:ArtRecommendation}){
- const promptId=useId(),promptField=useRef<HTMLTextAreaElement>(null);
+ const fieldId=useId(),promptField=useRef<HTMLTextAreaElement>(null);
  const defaultPrompt=getArtStyle(settings.artStyle).prompt;
  const customPrompt=!!settings.artStylePrompt?.trim()&&settings.artStylePrompt.trim()!==defaultPrompt;
  const missingProduction=!settings.productionPrompt.trim(),missingAcceptance=!settings.acceptancePrompt?.trim();
@@ -28,7 +28,15 @@ export default function StoryProductionEditor({tab,settings,disabled,onChange,se
  const chooseStyle=(artStyle:ArtStyleId)=>onChange({artStyle,artStylePrompt:null});
  return <fieldset className="yu-revision-fields" disabled={disabled}>
   {tab==='requirements'&&<label className="yu-revision-field">制作要求<textarea rows={7} maxLength={1200} value={settings.productionPrompt} onChange={e=>onChange({productionPrompt:e.target.value})}/><small>调整制作要求后，按已核原文重新生成梗概，再编排分镜。</small></label>}
-  {tab==='acceptance'&&<label className="yu-revision-field">验收要求<textarea rows={7} maxLength={1200} value={settings.acceptancePrompt||''} placeholder="每行一条，例如：关键反应必须落实到可见画面。" onChange={e=>onChange({acceptancePrompt:e.target.value})}/><small>{creation?'根据本篇改编重点提供验收建议，可修改或清空；仅用于审核，不参与分镜生成。':''}每行一条，最多20条。审核逐条给出结论和依据；只改验收要求会保留分镜与可复用图片，重新审核。与原文或制作要求冲突、无法从文字分镜判断时会停下说明。</small></label>}
+  {tab==='acceptance'&&<div className="yu-revision-field">
+   <label htmlFor={fieldId}>验收要求</label>
+   <textarea id={fieldId} aria-describedby={fieldId+'-help'} rows={7} maxLength={1200} value={settings.acceptancePrompt||''} placeholder="每行一条，例如：关键反应必须落实到可见画面。" onChange={e=>onChange({acceptancePrompt:e.target.value})}/>
+   <small id={fieldId+'-help'} className="yu-acceptance-help">
+    <span>{creation?'本篇的验收建议可修改或清空。':''}每行一条，最多 20 条。</span>
+    <span>要求仅用于审核，逐条给出结论和依据。只改验收要求时，保留分镜和可复用图片并重新审核。</span>
+    <span>遇到要求与原文或制作要求冲突，或无法从文字分镜判断时，审核会停下并说明原因。</span>
+   </small>
+  </div>}
   {creation&&emptyField&&<div className="production-stage-actions">
    <small role="status">{requirementsEdited?.[emptyField]?'已留空':preparationPaused?'准备已暂停':'等待准备建议'}</small>
    {!requirementsEdited?.[emptyField]&&<StoryFlowAction disabled={disabled} onClick={()=>onChange({[emptyField]:''})}>留空</StoryFlowAction>}
@@ -42,9 +50,9 @@ export default function StoryProductionEditor({tab,settings,disabled,onChange,se
    {artRecommendation&&<StoryArtRecommendation recommendation={artRecommendation} selected={settings.artStyle} disabled={disabled} onApply={()=>chooseStyle(artRecommendation.artStyle)}/>}
    <StoryArtStylePicker value={settings.artStyle} disabled={disabled} onChange={chooseStyle} onEditPrompt={()=>promptField.current?.focus()}/>
    <div className="yu-revision-field">
-    <label htmlFor={promptId}>画风提示词</label>
-    <textarea ref={promptField} id={promptId} aria-describedby={promptId+'-help'} rows={7} maxLength={artStylePromptMaxLength} value={settings.artStylePrompt??defaultPrompt} placeholder={defaultPrompt} onChange={event=>onChange({artStylePrompt:event.target.value})} onBlur={event=>{const value=event.target.value;if(!value.trim()||value!==value.trim())onChange({artStylePrompt:value.trim()||null});}}/>
-    <small id={promptId+'-help'}>{customPrompt?'当前使用本篇修改。':'当前使用系统默认。'}编辑后应用于本篇的全部画幅。</small>
+    <label htmlFor={fieldId}>画风提示词</label>
+    <textarea ref={promptField} id={fieldId} aria-describedby={fieldId+'-help'} rows={7} maxLength={artStylePromptMaxLength} value={settings.artStylePrompt??defaultPrompt} placeholder={defaultPrompt} onChange={event=>onChange({artStylePrompt:event.target.value})} onBlur={event=>{const value=event.target.value;if(!value.trim()||value!==value.trim())onChange({artStylePrompt:value.trim()||null});}}/>
+    <small id={fieldId+'-help'}>{customPrompt?'当前使用本篇修改。':'当前使用系统默认。'}编辑后应用于本篇的全部画幅。</small>
    </div>
    {customPrompt&&<>
     <details className="yu-style-default"><summary>查看系统默认提示词</summary><p>{defaultPrompt}</p></details>

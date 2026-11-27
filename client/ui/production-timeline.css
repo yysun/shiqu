@@ -52,9 +52,10 @@ ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr))
 .production-stage-actions>.yu-primary{width:auto;min-width:132px;min-height:48px;padding:10px 18px;font-size:14px;cursor:pointer}
 .production-stage-actions>.yu-primary:disabled{opacity:.5;cursor:default}
 .production-stage-actions>.yu-primary:focus-visible{outline:2px solid #648354;outline-offset:3px}
-.production-stage-actions--settings{container:production-settings / inline-size;flex-wrap:nowrap;column-gap:clamp(2px,calc((100% - 208px)/12),12px)}
-.production-stage-actions--settings>.story-flow-link{min-width:max(44px,4em);white-space:nowrap}
-/* 窄窗口缩短字段名，四个选项和完整当前值共用一行。 */
+.production-stage-actions--settings{container:production-settings / inline-size;column-gap:8px}
+.production-settings-pair{display:flex;flex:none;align-items:baseline;gap:8px}
+.production-settings-pair>.story-flow-link{min-width:max(44px,4em);white-space:nowrap}
+/* 窄窗口缩短字段名，保留完整当前值，空间不足时成组靠右换行。 */
 @container production-settings (width < 276px){
  .production-setting-narrative-prefix{display:none}
 }

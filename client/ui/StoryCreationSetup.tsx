@@ -92,7 +92,9 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
   if(paused)return progress.onControl(session.id,'resume');
   void act({action:'more'});
  }}>{paused?'恢复整理':'重试整理'}</StoryFlowAction>;
- const startProduction=<StoryFlowAction disabled={busy||remote||session.state==='running'||!offersProductionAction(session,'confirm')} aria-busy={busy} onClick={()=>void act({action:'confirm',settings,draftToken:baselineToken.current})}>{busy?'正在提交…':'开始制作'}</StoryFlowAction>;
+ const startDisabled=busy||remote||session.state==='running'||!offersProductionAction(session,'confirm');
+ const startLabel=busy?'正在提交…':'开始制作';
+ function confirmProduction(){void act({action:'confirm',settings,draftToken:baselineToken.current});}
  const artStyleLabel=getArtStyle(settings.artStyle).label;
  const narrativeLabel=settings.narrativeDetail==='brief'?'简短':settings.narrativeDetail==='detailed'?'详细':'适中';
  if(combining&&!selected)return <section className="yu-creation-setup" aria-label="准备故事">
@@ -117,13 +119,17 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
    {!editing&&remoteChoice}
    {!editing&&error&&<p className="yu-batch-error" role="alert">{error}</p>}
    {editable&&<div className="production-stage-actions production-stage-actions--settings" role="group" aria-label="制作设置">
-    <StoryFlowAction disabled={busy} onClick={()=>setEditing('requirements')}>制作要求</StoryFlowAction>
-    <StoryFlowAction disabled={busy} onClick={()=>setEditing('acceptance')}>验收要求</StoryFlowAction>
-    <StoryFlowAction disabled={locked} aria-label={`修改画风，当前${artStyleLabel}`} onClick={()=>setEditing('style')}><span><span className="production-setting-style-prefix">画风·</span>{artStyleLabel}</span></StoryFlowAction>
-    <StoryFlowAction disabled={locked} aria-label={`修改叙事详略，当前${narrativeLabel}`} onClick={()=>setEditing('count')}><span><span className="production-setting-narrative-prefix">叙事</span>详略·{narrativeLabel}</span></StoryFlowAction>
+    <div className="production-settings-pair">
+     <StoryFlowAction disabled={busy} onClick={()=>setEditing('requirements')}>制作要求</StoryFlowAction>
+     <StoryFlowAction disabled={busy} onClick={()=>setEditing('acceptance')}>验收要求</StoryFlowAction>
+    </div>
+    <div className="production-settings-pair">
+     <StoryFlowAction disabled={locked} aria-label={`修改画风，当前${artStyleLabel}`} onClick={()=>setEditing('style')}><span><span className="production-setting-style-prefix">画风·</span>{artStyleLabel}</span></StoryFlowAction>
+     <StoryFlowAction disabled={locked} aria-label={`修改叙事详略，当前${narrativeLabel}`} onClick={()=>setEditing('count')}><span><span className="production-setting-narrative-prefix">叙事</span>详略·{narrativeLabel}</span></StoryFlowAction>
+    </div>
    </div>}
    {preparable&&<button type="button" className="yu-primary" disabled={busy||session.state==='running'} onClick={()=>void act({action:'choose',batch:intake.selected!.batch,index:intake.selected!.index,settings:preferences})}>准备这篇</button>}
-   {ready&&!editing&&startProduction}
+   {ready&&!editing&&<StoryFlowAction disabled={startDisabled} aria-busy={busy} onClick={confirmProduction}>{startLabel}</StoryFlowAction>}
   </>}}/>
   {sourceOpen&&<Sheet title="故事原文" onClose={()=>setSourceOpen(false)}><StorySource sessionId={session.id} book={book}/></Sheet>}
   {editing&&<Sheet title="修改故事" busy={busy} onClose={closeEditor}>
@@ -136,9 +142,11 @@ export default function StoryCreationSetup({session,book,busy,onAction,onBackToD
    })}/>
    {canRecommend&&<p className="yu-count-help">重新准备会保存设置并核对原文；审核通过前不会绘图。</p>}
    {error&&<p className="yu-batch-error" role="alert">{error}</p>}
-   <div className="production-stage-actions">
+   <div className="production-stage-actions yu-creation-editor-footer">
     {canRecommend&&<StoryFlowAction disabled={locked} onClick={()=>void act({action:'recommend',settings:preferences,draftToken:baselineToken.current})}>按当前要求重新准备</StoryFlowAction>}
-    {ready?startProduction:<button type="button" className="yu-primary" disabled={busy||remote} aria-busy={busy} onClick={()=>void saveSettings()}>{busy?'正在保存…':'保存设置'}</button>}
+    <button type="button" className="yu-primary" disabled={ready?startDisabled:busy||remote} aria-busy={busy} onClick={ready?confirmProduction:()=>void saveSettings()}>
+     {ready?startLabel:busy?'正在保存…':'保存设置'}
+    </button>
    </div>
   </Sheet>}
  </section>;
