@@ -2440,6 +2440,7 @@
       "pr": "affected",
       "gates": [],
       "covers": [
+        "client/ui/ProductionTimeline.tsx",
         "client/ui/StoryGenerationStatus.tsx",
         "client/ui/StoryLandscapeStep.tsx",
         "client/ui/ReaderShelf.tsx",

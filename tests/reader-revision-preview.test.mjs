@@ -100,6 +100,26 @@ test('replanning a partially drawn story warns about saved drawings and leaves t
 
  const editor={base,changes,preview,impact:{...revisionImpact(base,changes),estimated:true}};
  const markup=renderToStaticMarkup(createElement(StoryRevisionActions,{editor}));
- assert.match(markup,/原有 4 幅图将失效。新版幅数待编排，最终绘制幅数以编排和审核结果为准。/);
+ assert.match(markup,/原有 4 幅图将失效。新版幅数待定，由编排和审核确定。/);
  assert.doesNotMatch(markup,/原有 6 幅图|继续后将重绘第/);
+});
+
+test('revision preview gives one total for a full redraw and keeps frame numbers for a partial redraw',async t=>{
+ const {StoryRevisionActions}=await components();
+ const f=await productionFixture(t),{id}=await completedStory(f);
+ const route=`sessions/${id}/revisions`,base=await f.json(route);
+ async function render(changes){
+  const preview=await f.json(route+'/preview','POST',{token:base.token,changes});
+  const impact={...revisionImpact(base,changes),estimated:true,reused:preview.reused,redraw:preview.redraw};
+  return renderToStaticMarkup(createElement(StoryRevisionActions,{editor:{base,changes,preview,impact}}));
+ }
+ const full=await render({artStyle:'watercolor'});
+ assert.match(full,/预计重绘全部 6 幅。/);
+ assert.doesNotMatch(full,/需绘制|继续后将重绘第/);
+
+ const plan=structuredClone(base.plan);
+ plan.pages[2].prompt+=' 人物身后有一扇半开的木窗。';
+ const partial=await render({plan});
+ assert.match(partial,/预计复用 5 幅，需绘制 1 幅。/);
+ assert.match(partial,/继续后将重绘第 3 幅。/);
 });

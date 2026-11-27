@@ -52,6 +52,8 @@ test('each reader-facing waiting state exposes the same action on every surface,
  const plan=structuredClone(snapshot.plan);plan.pages[1].caption='核对用修改：第二幅配文。';
  const revision=crypto.randomUUID();
  await f.json(`sessions/${original}/revisions`,'POST',{requestId:revision,token:snapshot.token,changes:{plan}});
+ const render=await surfaces();
+ assert.match(render.settings(await f.read(revision),false),/lucide-arrow-right[^]*?待继续/);
  await exitBoth(f,revision,/^继续制作$/);
  await until(async()=>(await f.read(revision)).state==='completed',20000);
 
@@ -70,6 +72,7 @@ test('each reader-facing waiting state exposes the same action on every surface,
  await f.json(`sessions/${paused}/production-control`,'POST',{requestId:crypto.randomUUID(),action:'pause'});
  f.control.hold=false;for(const call of f.control.calls)call.resolve();
  await until(async()=>(await f.read(paused)).lifecycle.activity.state!=='running',20000);
+ assert.match(render.settings(await f.read(paused),false),/lucide-pause[^]*?已暂停/);
  await exitBoth(f,paused,/^恢复生成$/);
  await until(async()=>(await f.read(paused)).state==='completed',20000);
 

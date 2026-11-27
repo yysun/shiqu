@@ -56,7 +56,9 @@ export function StoryRevisionActions({editor,onCancel}:{editor:StoryRevisionEdit
  const style=artStyleSettings(base.selection,changes);
  const restyle=!impact.review&&!sameArtDirection(base.selection,style);
  const summaryOnly=!impact.review&&!restyle&&revisionStorySummaryChanged(base,changes);
- const artwork=impact.estimated?`预计复用 ${impact.reused} 幅，需绘制 ${impact.redraw} 幅。`:'预估暂不可用。';
+ const allRedrawInDetail=impact.changed&&(restyle||impact.review)&&impact.estimated&&impact.redraw>0&&impact.redraw===editor.preview?.total;
+ const artwork=allRedrawInDetail?`预计重绘全部 ${impact.redraw} 幅。`:
+  impact.estimated?`预计复用 ${impact.reused} 幅，需绘制 ${impact.redraw} 幅。`:'预估暂不可用。';
  let detail='';
  if(impact.changed){
   if(impact.replan){
@@ -73,8 +75,8 @@ export function StoryRevisionActions({editor,onCancel}:{editor:StoryRevisionEdit
   {impact.replan?editor.preview?.changed&&<p role="status">
    {invalidatedDrawings.length>0&&(invalidatedDrawings.length===base.images.filter(Boolean).length
     ?`原有 ${invalidatedDrawings.length} 幅图将失效。`:`原第 ${invalidatedDrawings.join('、')} 幅的图将失效。`)}
-   {typeof (changes.length??base.selection.length)==='number'?'继续后按新分镜绘制。':'新版幅数待编排，最终绘制幅数以编排和审核结果为准。'}
-  </p>:redrawPages.length>0&&<p role="status">继续后将重绘第 {redrawPages.join('、')} 幅。</p>}
+   {typeof (changes.length??base.selection.length)==='number'?'继续后按新分镜绘制。':'新版幅数待定，由编排和审核确定。'}
+  </p>:!allRedrawInDetail&&redrawPages.length>0&&<p role="status">继续后将重绘第 {redrawPages.join('、')} 幅。</p>}
   {lostHandEdits.length>0&&<section aria-label="将移除的手改">
    <p>保存会移除以下画幅里的手改内容。</p>
    <ul>{lostHandEdits.map(({page,caption,prompt})=><li key={page}>原第 {page} 幅
