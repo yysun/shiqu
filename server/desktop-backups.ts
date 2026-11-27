@@ -22,7 +22,15 @@ function failureCode(error:unknown){
  if(failure?.errcode!==undefined&&[11,26].includes(failure.errcode&255))return 'BACKUP_DATABASE_CORRUPT';
  return failure?.code||failure?.message?.match(/^[A-Z][A-Z_]+\b/)?.[0]||'BACKUP_INVALID';
 }
+class BackupCleanupIncomplete extends Error{
+ readonly remaining:string;
+ constructor(remaining:string,cause?:unknown){
+  super('BACKUP_CLEANUP_INCOMPLETE',{cause});
+  this.remaining=remaining;
+ }
+}
 export function desktopBackupError(error:unknown){
+ if(error instanceof BackupCleanupIncomplete)return '备份已移出列表，但仍有残留。请检查默认备份目录中的 '+error.remaining+'。';
  let code=failureCode(error);
  if(code==='LIBRARY_RESTORE_FAILED')for(let cause=(error as Error).cause;cause instanceof Error;cause=cause.cause){
   if(failureCode(cause)==='ENOSPC'){code='ENOSPC';break;}
@@ -198,24 +206,35 @@ export function runDesktopBackup(root:string,version:string,input:unknown){
  }
  return withBackupAccess(backup,()=>{
   if(!optionalStat(library))throw Error('BACKUP_DELETE_UNCERTAIN');
-  let retired:string|undefined;
+  let retired:string;
   try{
-   withLibraryGate(library,()=>{
+   retired=withLibraryGate(library,()=>{
     const protection=protectDeletion(library,backup,root);
     if(protection==='protected')throw Error('BACKUP_PROTECTED');
     if(protection==='uncertain')throw Error('BACKUP_DELETE_UNCERTAIN');
     if(protection==='unattributed'&&!request.confirmUnattributed)throw Error('BACKUP_UNATTRIBUTED_CONFIRMATION');
     const token=snapshotDeleteToken(library,backup,protection);
     if(!token||token!==request.deleteToken)throw Error('BACKUP_CHANGED');
-    retired=path.join(path.dirname(backup),'.deleted-'+randomUUID());
-    renameSync(backup,retired);
-    if(snapshotKind(backup)==='upgrade')rmSync(backupOriginFile(backup),{force:true});
+    const target=path.join(path.dirname(backup),'.deleted-'+randomUUID());
+    renameSync(backup,target);
+    return target;
    },'existing');
   }catch(error){
    if(failureCode(error)==='DATA_BUSY')throw Error('BACKUP_IN_USE',{cause:error});
    throw error;
   }
-  if(retired)rmSync(retired,{recursive:true});
+  try{
+   // 大目录可能短暂无法清空；等待后重试，并确认移出的目录确已清理。
+   const options={recursive:true,force:true,maxRetries:2,retryDelay:1000};
+   rmSync(retired,options);
+   if(optionalStat(retired))rmSync(retired,options);
+   if(optionalStat(retired))throw Error('BACKUP_RETIRED_DIRECTORY_REMAINS');
+  }catch(error){throw new BackupCleanupIncomplete(path.basename(retired),error);}
+  if(snapshotKind(backup)==='upgrade'){
+   const origin=backupOriginFile(backup);
+   try{rmSync(origin,{force:true});}
+   catch(error){throw new BackupCleanupIncomplete(path.basename(origin),error);}
+  }
   return {path:backup};
  });
 }

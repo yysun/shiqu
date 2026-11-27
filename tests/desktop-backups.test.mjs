@@ -3,6 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import fs from 'node:fs';
+import {syncBuiltinESMExports} from 'node:module';
 import {DatabaseSync} from 'node:sqlite';
 import {chmodSync,existsSync,mkdirSync,readFileSync,renameSync,rmSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
 import path from 'node:path';
@@ -13,6 +15,7 @@ import {makePlan,selection} from './fixtures/production-data.mjs';
 import {png} from './fixtures/images.mjs';
 import {decodeDocument} from '../lib/production-dag/document.ts';
 import {ownDesktopDataSync} from '../server/desktop-owner.ts';
+import {desktopBackupError,runDesktopBackup} from '../server/desktop-backups.ts';
 import {canonicalPath,verifyLibraryBackup,withBackupAccess} from '../server/library-backup.ts';
 
 const entry=fileURLToPath(new URL('../server/desktop.ts',import.meta.url));
@@ -351,4 +354,95 @@ test('legacy confirmation protects rollback, shared roots, operation locks and o
  assert.match(f.invoke('delete',request).error,/备份已变更/);
  assert.ok(verifyLibraryBackup(renamed));
  assert.ok(verifyLibraryBackup(backup));
+});
+
+
+test('interrupted cleanup reports the actual retired directory and releases its backup lock',async t=>{
+ const f=await fixture(t);
+ f.sqlite.close();
+ const selected=f.run('create').path;
+ const other=f.run('create').path;
+ const listed=f.run('list').entries.find(entry=>entry.path===selected);
+ let retired;
+ const mock=t.mock.method(fs,'rmSync',(target,options)=>{
+  retired=target;
+  assert.equal(options.recursive,true);
+  assert.ok(options.maxRetries>0);
+  // 模拟清理开始后中断，同时验证另一进程仍不能取得备份锁。
+  assert.match(f.invoke('verify',{backup:other}).error,/备份正在使用/);
+  unlinkSync(path.join(retired,'shiqu-backup.json'));
+  throw Object.assign(Error('synthetic cleanup interruption'),{code:'ENOTEMPTY'});
+ });
+ syncBuiltinESMExports();
+ try{
+  assert.throws(()=>runDesktopBackup(f.root,'0.18.0',{
+   operation:'delete',library:f.library,backup:selected,deleteToken:listed.deleteToken,
+  }),error=>{
+   assert.ok(retired);
+   const message=desktopBackupError(error);
+   assert.match(message,/备份已移出列表，但仍有残留/);
+   assert.ok(message.includes(path.basename(retired)));
+   return true;
+  });
+ }finally{
+  mock.mock.restore();syncBuiltinESMExports();
+ }
+ assert.equal(existsSync(selected),false);
+ assert.ok(existsSync(path.join(retired,'shiqu.sqlite')));
+ assert.ok(f.run('verify',{backup:other}).verifiedAt);
+ assert.ok(existsSync(path.join(f.library,'shiqu.sqlite')));
+});
+
+
+test('cleanup checks the retired directory again when recursive removal returns too early',async t=>{
+ const f=await fixture(t);
+ f.sqlite.close();
+ const selected=f.run('create').path;
+ const [entry]=f.run('list').entries;
+ const remove=fs.rmSync;
+ let firstTarget;
+ let attempts=0;
+ const mock=t.mock.method(fs,'rmSync',(target,options)=>{
+  attempts++;
+  assert.ok(options.retryDelay>=1000);
+  if(attempts===1){firstTarget=target;return;}
+  assert.equal(target,firstTarget);
+  remove(target,options);
+ });
+ syncBuiltinESMExports();
+ try{
+  assert.deepEqual(runDesktopBackup(f.root,'0.18.0',{
+   operation:'delete',library:f.library,backup:selected,deleteToken:entry.deleteToken,
+  }),{path:selected});
+ }finally{
+  mock.mock.restore();syncBuiltinESMExports();
+ }
+ assert.equal(attempts,2);
+ assert.equal(existsSync(firstTarget),false);
+});
+
+test('an origin sidecar error is reported after the snapshot directory has been removed',async t=>{
+ const f=await fixture(t);
+ f.sqlite.close();
+ const backup=path.join(f.library+'-backups','pre-upgrade-2026-11-25T07-09-04-411Z-992b65fe');
+ const origin=path.join(path.dirname(backup),'.'+path.basename(backup)+'.origin.json');
+ f.run('create',{target:backup});
+ writeFileSync(origin,JSON.stringify({library:canonicalPath(f.library)}));
+ const [entry]=f.run('list').entries;
+ const remove=fs.rmSync;
+ const mock=t.mock.method(fs,'rmSync',(target,options)=>{
+  if(target===origin)throw Object.assign(Error('synthetic origin failure'),{code:'EACCES'});
+  remove(target,options);
+ });
+ syncBuiltinESMExports();
+ try{
+  assert.throws(()=>runDesktopBackup(f.root,'0.18.0',{
+   operation:'delete',library:f.library,backup,deleteToken:entry.deleteToken,
+  }),error=>desktopBackupError(error).includes(path.basename(origin)));
+ }finally{
+  mock.mock.restore();syncBuiltinESMExports();
+ }
+ assert.ok(existsSync(origin));
+ assert.equal(existsSync(backup),false);
+ assert.equal(fs.readdirSync(path.dirname(backup)).some(name=>name.startsWith('.deleted-')),false);
 });
