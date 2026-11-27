@@ -6,7 +6,7 @@ schema: test-manager/releases/v1
 
 ## 0.18.0
 
-- Candidate: UNDEFINED
+- Candidate: 676a53359673a66f33b7401d2a4cb82228bd8f23
 - Decision owner: Yiyi Sun
 - Decision: UNDECIDED
 - Decided at: —
@@ -31,7 +31,7 @@ schema: test-manager/releases/v1
 | CHANGES-C007 | IN | 局部事实问题按出错字段修订 |
 | STORY-LIFECYCLE-C044 | IN | 保存修订的窗口并发与重放 |
 | STORY-LIFECYCLE-C045 | IN | 各入口统一保存新版后等待继续 |
-| STORY-LIFECYCLE-C046 | IN | 手改配文后复核与成图决策 |
+| STORY-LIFECYCLE-C046 | OUT | 草案中的配文联动画面选项没有现行入口，配文单改与成图复用由 SMOKE-C006 覆盖 |
 | STORY-LIFECYCLE-C049 | IN | 自动修复仍保护手改内容 |
 | STORY-LIFECYCLE-C055 | IN | 换画风时转换并保留手改描述 |
 | STORY-LIFECYCLE-C057 | IN | 结构重编披露影响并正确复用 |
@@ -48,3 +48,4 @@ schema: test-manager/releases/v1
 
 - 候选比最新正式版新，桌面检查发现更新后自动定位下载入口的分支要等更新的正式版可用才可直接观察。
 - 安装包冒烟覆盖一篇简短故事。长篇、多批次与故障恢复由受控模型测试覆盖。
+- Windows GitHub Actions 验证安装与运行时。Windows 控制台与书架的人工交互不在本版签核范围内。
