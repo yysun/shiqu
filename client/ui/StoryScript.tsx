@@ -70,7 +70,8 @@ function ScriptFrameRow({frame,number,editable,selecting,selected,open,onlyFrame
 export default function StoryScript({story,editor,onEdit,onCancel}:{story:Story;editor?:StoryRevisionEditorState;onEdit:(page?:number)=>void;onCancel:()=>void}){
  const base=editor?.base?.plan,plan=editor?.changes.plan||base;
  const frames=plan?.pages??story.pages;
- const originalIds=survivingRevisionFrames(base?.pages.length??frames.length,editor?.changes.removedFrames).map(index=>index+1);
+ const removedFrames=editor?.changes.removedFrames;
+ const originalIds=survivingRevisionFrames(base?.pages.length??frames.length,removedFrames).map(index=>index+1);
  const editable=!!base&&!editor?.loading&&!editor?.busy&&!editor?.conflict;
  const [open,setOpen]=useState<number|null>(null);
  const [selecting,setSelecting]=useState(false),[selected,setSelected]=useState<Set<number>>(new Set());
@@ -107,7 +108,7 @@ export default function StoryScript({story,editor,onEdit,onCancel}:{story:Story;
     mergeTargets:mergeTargets.length?[...new Set(mergeTargets)]:undefined};
   });
   setOpen(null);setSelected(new Set());setMerge(null);setSelecting(false);
-  setNotice(replacement?`已合并 ${ids.length} 幅，待保存。`:`已删除 ${ids.length} 幅，待保存。`);
+  setNotice(replacement?`已合并 ${ids.length} 幅，待保存。`:'');
   toolbar.current?.focus({preventScroll:true});
  }
  const replacement=merge&&planSchema.shape.pages.element.safeParse({caption:merge.caption.trim(),prompt:merge.prompt.trim()});
@@ -136,6 +137,7 @@ export default function StoryScript({story,editor,onEdit,onCancel}:{story:Story;
     </div>
    </div>}
    {notice&&<p role="status">{notice}</p>}
+   {!!removedFrames?.length&&<p role="status">原第 {removedFrames.join('、')} 幅将移除{removedFrames.length>1?`（共 ${removedFrames.length} 幅）`:''}，保存后生效。</p>}
    {showActions&&<StoryRevisionActions editor={editor} onCancel={cancel}/>}
    {editor.loading?<p role="status">正在载入分镜…</p>:!showActions&&editor.error?<div role="alert"><p>{editor.error}</p>{!base&&<StoryFlowAction onClick={editor.conflict?editor.loadLatest:editor.load}>{editor.conflict?'载入最新版本':'重试载入'}</StoryFlowAction>}</div>:null}
   </div>}

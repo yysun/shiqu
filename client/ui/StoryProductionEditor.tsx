@@ -1,6 +1,7 @@
 // Share production fields across creation drafts and immutable story revisions.
 // Callbacks only update their owner's local draft; recommending and submitting stay explicit.
 import {useId,useRef} from 'react';
+import {Check} from 'lucide-react';
 import StoryPromptDetails from './StoryPromptDetails';
 import StoryArtStylePicker from './StoryArtStylePicker';
 import {narrativeDetails} from '@/lib/reader-frame-recommendation';
@@ -50,6 +51,17 @@ export default function StoryProductionEditor({tab,settings,disabled,onChange,se
     <div className="production-stage-actions"><StoryFlowAction onClick={()=>onChange({artStylePrompt:null})}>恢复系统默认</StoryFlowAction></div>
    </>}
   </>}
-  {tab==='count'&&<section><h3>叙事详略</h3><div className="yu-narrative-details" role="group" aria-label="叙事详略">{narrativeDetails.map(detail=><button type="button" key={detail.id} aria-pressed={settings.narrativeDetail===detail.id} className={settings.narrativeDetail===detail.id?'selected':''} disabled={disabled} onClick={()=>onChange({narrativeDetail:detail.id,length:'auto'})}><strong>{detail.label}</strong><span>{detail.description.split(/(?<=[，、])/).map((part,index)=><span key={index}>{part}</span>)}</span></button>)}</div><p className="yu-count-help">画幅数由模型按原文和详略编排，审核时可增减；文字稿稳定后再生成图片。</p>{recommendation&&<p className="yu-count-help">初步估计 {recommendation.count} 幅，最终数量以编排和审核结果为准。</p>}</section>}
+  {tab==='count'&&<section>
+   <h3>叙事详略</h3>
+   <div className="yu-narrative-details" role="group" aria-label="叙事详略">{narrativeDetails.map(detail=>{
+    const selected=settings.narrativeDetail===detail.id;
+    return <button type="button" key={detail.id} aria-pressed={selected} disabled={disabled} onClick={()=>onChange({narrativeDetail:detail.id,length:'auto'})}>
+     <strong>{detail.label}{selected&&<Check size={14} aria-hidden="true"/>}</strong>
+     <span>{detail.description.split(/(?<=[，、])/).map((part,index)=><span key={index}>{part}</span>)}</span>
+    </button>;
+   })}</div>
+   <p className="yu-count-help">画幅数由模型按原文和详略编排，审核时可增减；文字稿稳定后再生成图片。</p>
+   {recommendation&&<p className="yu-count-help">初步估计 {recommendation.count} 幅，最终数量以编排和审核结果为准。</p>}
+  </section>}
  </fieldset>;
 }

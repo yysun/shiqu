@@ -1,7 +1,7 @@
 /* 手机阅读与桌面队列共享制作阶段语义；故事设置里的文字和链接共用紧凑行高。 */
 /* 操作留在所属步骤，成组右对齐。 */
 ol.production-timeline{list-style:none;padding:0;margin:0;display:grid;gap:5px;text-align:left}
-.production-timeline>li{display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:0;min-height:52px;padding:8px;border:1px solid transparent;border-radius:9px;font-size:12px;line-height:1.6;color:#718064}
+.production-timeline>li{display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:0;min-height:52px;padding:8px;border:1px solid transparent;border-radius:9px;font-size:12px;line-height:1.6;color:var(--yu-meta)}
 .production-stage-icon{display:grid;place-items:center;flex:none;width:24px;height:24px;border:1px solid #d3ddc7;border-radius:50%;font-family:system-ui,sans-serif;font-size:var(--yu-meta-size)}
 .production-stage-copy{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
 .production-stage-heading,.production-stage-summary{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:baseline;align-content:center;gap:0 var(--production-stage-column-gap,8px);min-width:0}
@@ -16,7 +16,6 @@ ol.production-timeline{list-style:none;padding:0;margin:0;display:grid;gap:5px;t
 .production-timeline>li[data-state=current] .production-stage-icon{background:#f6f9f0;border-color:#a6bc92}
 .production-timeline>li[data-state=failed]{color:#855e43;background:#f8f1e6;border-color:#e4d7c2}
 .production-timeline>li[data-state=paused]{background:#ecefe3;border-color:#d9dfce}
-.production-timeline>li[data-state=skipped],.production-timeline>li[data-state=unavailable]{color:#73806a}
 .production-stage-spin{animation:production-stage-turn 1.2s linear infinite}
 @keyframes production-stage-turn{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.production-stage-spin{animation:none}}
