@@ -44,7 +44,13 @@ planned_end: UNPLANNED
 
 | Case ID | 改动 | Target Release |
 | --- | --- | --- |
-| CHANGES-C001 | `76106876` 手动检查更新后的结果提示 | UNPLANNED |
+| CHANGES-C001 | 手动检查更新后的结果提示 | 0.18.0 |
+| CHANGES-C002 | 保存为新版后从所属步骤继续 | 0.18.0 |
+| CHANGES-C003 | 成图影响预览与画风转换 | 0.18.0 |
+| CHANGES-C004 | 未保存分镜与合并草稿保护 | 0.18.0 |
+| CHANGES-C005 | 首次预计幅数、实际幅数与刷新边界 | 0.18.0 |
+| CHANGES-C006 | 按条自动修改和向草稿应用建议 | 0.18.0 |
+| CHANGES-C007 | 局部事实问题按出错字段修订 | 0.18.0 |
 
 ## Risks and traceability
 

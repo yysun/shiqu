@@ -3,7 +3,7 @@ schema: test-manager/suite/v1
 suite: release-0-18
 title: 0.18 签核
 risk: MEDIUM
-state: PLANNED
+state: ACTIVE
 owner: Yiyi Sun
 planned_start: UNPLANNED
 planned_end: UNPLANNED
@@ -13,7 +13,7 @@ planned_end: UNPLANNED
 
 ## Purpose and decision
 
-- Purpose: 0.18 尚未开发完成。本套件只放 0.18 的签核记录，不放用例；改动用例在 [changes](../changes/SUITE.md) 中登记。候选冻结时填写签核记录，汇总签核范围、结果、放行与结论。
+- Purpose: 汇总 0.18.0 候选构建、结果、放行与结论。Test Manager 发布范围见 [RELEASES.md](../RELEASES.md#0180)，读者可见改动用例见 [changes](../changes/SUITE.md)。
 - Quality decision supported: 0.18.0 能否打标签发布。
 
 ## Scope
@@ -63,7 +63,7 @@ planned_end: UNPLANNED
 
 ## 签核记录
 
-> 状态：计划中。候选提交冻结后才填写本节；在此之前，下面的范围只是按已合入改动给出的草案。本节由决定人确认，gate 指示和通过数都不是批准，结论一栏才是。
+候选准备中。下方结论由决定人填写。
 
 ### 候选构建
 
@@ -79,24 +79,17 @@ planned_end: UNPLANNED
 
 | 套件 | 用例 | 理由 |
 | --- | --- | --- |
-| smoke | SMOKE-C001 – SMOKE-C010 | 每版必跑。SMOKE-C010（Windows）是否必须，由决定人在下方「待决定事项」中确定 |
-| regression | REGRESSION-C001、C002、C003、C005 | 每版必跑 |
-| regression | REGRESSION-C004 不列入 | 截至目前，v0.17.0 之后没有改动提示词、模型调用或制作流程 |
+| smoke | SMOKE-C001 – SMOKE-C010 | macOS 安装包和核心路径每版必跑。SMOKE-C010（Windows）暂列入，等待决定人确认 |
+| regression | REGRESSION-C001 – REGRESSION-C005 | 本版改动提示词、模型调用和制作流程，纳入模型回归 |
 | upgrade | UPGRADE-C001 | 每版必跑 |
 | upgrade | UPGRADE-C002、C003 不列入 | 截至目前，`db/library-format.json` 与 `drizzle/` 未改动（格式 4，最新迁移 `0028`） |
-| changes | 暂无 | `Target Release` 为 `0.18.0` 的用例。CHANGES-C001（`76106876`）目前为 `UNPLANNED`，尚未决定随 0.17.1 还是 0.18.0 发布 |
-| story-lifecycle | 不列入 | 截至目前，本版改动未涉及制作、修订、恢复或阅读 |
+| changes | CHANGES-C001 – CHANGES-C007 | 桌面更新、修订保存、成图预览、草稿保护、制作确认、按条修订和自动修订派发 |
+| story-lifecycle | STORY-LIFECYCLE-C044、C045、C046、C049、C055、C057、C061、C066、C069 | 并发保存、继续授权、手改保护、成图复用、定向修订与制作确认 |
 
-准备签核时，按 [changes 的整理步骤](../changes/SUITE.md#整理改动清单) 补齐本版的改动用例；决定随 0.18 发布的用例，把 `Target Release` 改为 `0.18.0` 并加进上表和下面的命令。候选冻结时最后核对一次各行理由。
-
-计算候选构建的结果（只读，`<build>` 换成候选提交的 8 位短哈希）：
+计算候选结果时使用 Test Manager 的发布范围。
 
 ```bash
-node ~/.agents/skills/test-manager/scripts/test-manager.mjs status --build <build> \
-  --case SMOKE-C001 --case SMOKE-C002 --case SMOKE-C003 --case SMOKE-C004 --case SMOKE-C005 \
-  --case SMOKE-C006 --case SMOKE-C007 --case SMOKE-C008 --case SMOKE-C009 --case SMOKE-C010 \
-  --case REGRESSION-C001 --case REGRESSION-C002 --case REGRESSION-C003 --case REGRESSION-C005 \
-  --case UPGRADE-C001
+node ~/.agents/skills/test-manager/scripts/test-manager.mjs status --release 0.18.0
 ```
 
 ### 结果快照
@@ -115,6 +108,7 @@ node ~/.agents/skills/test-manager/scripts/test-manager.mjs status --build <buil
 ### 残余风险
 
 - smoke 只做一篇简短故事，长篇和故障恢复依赖 story-lifecycle 与自动测试。
+- 候选比当前正式版新，签核期间无法在正式渠道观察发现新版后定位下载入口的分支。
 
 ### 待决定事项
 
