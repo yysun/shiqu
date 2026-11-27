@@ -22,3 +22,7 @@
 .backup-panel{margin-top:.85rem}
 .backup-panel h3{margin:0}
 .backup-panel label{display:grid;gap:.35rem}
+
+.backup-delete-dialog{width:min(32rem,calc(100% - 2rem));color:inherit}
+.backup-delete-dialog::backdrop{background:#17322466}
+.backup-delete-dialog .error{color:#a14432}

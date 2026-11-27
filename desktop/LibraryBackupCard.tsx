@@ -3,7 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 
 type Compatibility={version:number;state:'current'|'migration'|'unsupported'|'unknown';migrations:string[]};
-type Snapshot={path:string;kind:'manual'|'upgrade'|'unknown';createdAt?:string;bytes?:number;appVersion?:string;error?:string;deletion?:'protected'|'uncertain'|null;deleteToken?:string;verifiedAt?:string;compatibility?:Compatibility};
+type Snapshot={path:string;kind:'manual'|'upgrade'|'unknown';createdAt?:string;bytes?:number;appVersion?:string;error?:string;deletion?:'protected'|'uncertain'|'unattributed'|null;deleteToken?:string;verifiedAt?:string;compatibility?:Compatibility};
 type BackupList={directory:string;available:boolean;entries:Snapshot[]};
 type Operation='list'|'create'|'inspect'|'verify'|'restore'|'delete'|'reveal';
 type Props={native:boolean;library:string;busy:string;running:boolean;starting:boolean;canSwitch:boolean;untouched:boolean;onSwitch:(directory:string)=>Promise<void>;action:(label:string,work:()=>Promise<void>)=>Promise<void>};
@@ -30,8 +30,8 @@ function compatibilityText(compatibility:Compatibility){
 export function LibraryBackupCard({native,library,busy,running,starting,canSwitch,untouched,onSwitch,action}:Props){
  const [list,setList]=useState<BackupList>(),[loading,setLoading]=useState(false),[listError,setListError]=useState(''),[operationError,setOperationError]=useState('');
  const [selection,setSelection]=useState<Snapshot>(),[checks,setChecks]=useState<Record<string,Snapshot>>({});
- const [creation,setCreation]=useState(''),[destination,setDestination]=useState(''),[completed,setCompleted]=useState(''),[restored,setRestored]=useState('');
- const listRequest=useRef(0);
+ const [deleteTarget,setDeleteTarget]=useState<Snapshot>(),[creation,setCreation]=useState(''),[destination,setDestination]=useState(''),[completed,setCompleted]=useState(''),[restored,setRestored]=useState('');
+ const listRequest=useRef(0),deleteDialog=useRef<HTMLDialogElement>(null);
  const disabled=!native||!!busy||loading;
  const fetchBackup=<T,>(operation:Operation,input:object={})=>invoke<T>('library_backup',{request:{operation,library,...input}});
  function perform(label:string,work:()=>Promise<void>){
@@ -48,6 +48,7 @@ export function LibraryBackupCard({native,library,busy,running,starting,canSwitc
   finally{if(request===listRequest.current)setLoading(false);}
  }
  useEffect(()=>{
+  deleteDialog.current?.close();setDeleteTarget(undefined);
   setList(undefined);setSelection(undefined);setChecks({});setCreation('');setDestination('');setCompleted('');setRestored('');setOperationError('');
   if(native)void refresh();
   return ()=>{listRequest.current++;};
@@ -67,12 +68,16 @@ export function LibraryBackupCard({native,library,busy,running,starting,canSwitc
   const verified=await fetchBackup<Snapshot>('verify',{backup});
   setChecks(current=>({...current,[backup]:verified}));
  }
+ function confirmDelete(entry:Snapshot){
+  if(!entry.deleteToken)return;
+  setDeleteTarget(entry);deleteDialog.current?.showModal();
+ }
  function deleteBackup(entry:Snapshot){
   if(!entry.deleteToken)return;
-  const details=entry.createdAt&&entry.bytes!==undefined?formatDate(entry.createdAt)+' · '+size(entry.bytes):'备份信息不可用';
-  if(!window.confirm('永久删除此备份目录及其中所有文件？\n'+details+'\n'+entry.path))return;
+  const confirmUnattributed=entry.deletion==='unattributed'?true:undefined;
+  deleteDialog.current?.close();
   void perform('正在删除备份',async()=>{
-   try{await fetchBackup('delete',{backup:entry.path,deleteToken:entry.deleteToken});if(selection?.path===entry.path)setSelection(undefined);}
+   try{await fetchBackup('delete',{backup:entry.path,deleteToken:entry.deleteToken,confirmUnattributed});if(selection?.path===entry.path)setSelection(undefined);}
    finally{await refresh();}
   });
  }
@@ -115,16 +120,28 @@ export function LibraryBackupCard({native,library,busy,running,starting,canSwitc
     <span>{kinds[entry.kind]}{entry.bytes!==undefined?' · '+size(entry.bytes):''}</span>
     <p className="backup-location">{entry.path}</p>
     {entry.error&&<p className="error">{entry.error}</p>}
-    {entry.deletion&&<p className="help">{entry.deletion==='protected'?'恢复或升级仍需要此备份。':'暂无法确认此备份可安全删除。'}</p>}
+    {entry.deletion&&<p className="help">{entry.deletion==='protected'?'恢复或升级仍需要此备份。':entry.deletion==='unattributed'?'此旧备份缺少归属记录。':'暂无法确认此备份可安全删除。'}</p>}
     <p className="help">{checkedAt(entry)?'本次校验通过 · '+formatDate(checkedAt(entry)!):entry.createdAt?'创建时校验 · 尚未在本次打开后校验':''}</p>
     <div className="backup-actions">
      <button className="secondary" disabled={disabled||!!entry.error} onClick={()=>void perform('正在校验备份',()=>verify(entry.path))}>校验</button>
      <button className="secondary" disabled={disabled||!!entry.error} onClick={()=>void perform('正在检查恢复兼容性',()=>inspect(entry.path))}>恢复…</button>
      <button className="secondary" disabled={disabled} onClick={()=>void perform('正在定位备份',async()=>{await fetchBackup('reveal',{backup:entry.path});})}>在文件管理器中显示</button>
-     <button className="secondary" disabled={disabled||!entry.deleteToken} onClick={()=>deleteBackup(entry)}>删除备份…</button>
+     <button className="secondary" disabled={disabled||!entry.deleteToken} onClick={()=>confirmDelete(entry)}>删除备份…</button>
     </div>
    </li>)}
   </ul>}
+  <dialog ref={deleteDialog} className="card backup-delete-dialog" aria-labelledby="backup-delete-title" aria-describedby="backup-delete-warning" onClose={()=>setDeleteTarget(undefined)}>
+   <h2 id="backup-delete-title">删除备份</h2>
+   {deleteTarget&&<>
+    <p id="backup-delete-warning">将永久删除这份备份及其中所有文件。{deleteTarget.deletion==='unattributed'?'缺少归属记录，请确认任何书库都不再依赖它回退。':''}</p>
+    {deleteTarget.createdAt&&deleteTarget.bytes!==undefined&&<p>{formatDate(deleteTarget.createdAt)} · {size(deleteTarget.bytes)}</p>}
+    <p className="backup-location">{deleteTarget.path}</p>
+   </>}
+   <div className="backup-actions">
+    <button className="secondary" onClick={()=>deleteDialog.current?.close()}>取消</button>
+    <button className="secondary error" disabled={disabled||!deleteTarget} onClick={()=>{if(deleteTarget)deleteBackup(deleteTarget);}}>永久删除</button>
+   </div>
+  </dialog>
   {selection&&<div className="backup-panel">
    <div className="section-heading"><h3>恢复到新目录</h3><p className="backup-location">来源备份 {selection.path}</p></div>
    {inspected&&<p>{compatibilityText(inspected)}</p>}

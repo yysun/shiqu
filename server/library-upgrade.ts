@@ -311,9 +311,13 @@ export function restoreAndUpgradeLibrary(source:string,target:string,root:string
  },true);
 }
 
-export function libraryUpgradeBackup(directory:string):string|undefined{
+export function libraryUpgradeBackup(directory:string,strict=false):string|undefined{
  if(inspectLibrary(directory)!=='current')return;
  const filename=path.join(directory,'.desktop-upgrade-result.json');
- if(!existsSync(filename))return;
- try{const value=JSON.parse(readFileSync(filename,'utf8'));return typeof value.backup==='string'?value.backup:undefined;}catch{return;}
+ try{
+  if(strict&&!lstatSync(filename).isFile())throw Error('LIBRARY_INVALID_UPGRADE_RESULT');
+  const {backup}=JSON.parse(readFileSync(filename,'utf8'));
+  if(typeof backup==='string'&&(!strict||path.isAbsolute(backup)))return backup;
+  if(strict)throw Error('LIBRARY_INVALID_UPGRADE_RESULT');
+ }catch(error){if(strict&&(error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
 }

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
-import {chmodSync,existsSync,mkdirSync,readFileSync,renameSync,rmSync,writeFileSync} from 'node:fs';
+import {chmodSync,existsSync,mkdirSync,readFileSync,renameSync,rmSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {startupFixture,startFixtureCli} from './fixtures/startup.mjs';
@@ -13,7 +13,7 @@ import {makePlan,selection} from './fixtures/production-data.mjs';
 import {png} from './fixtures/images.mjs';
 import {decodeDocument} from '../lib/production-dag/document.ts';
 import {ownDesktopDataSync} from '../server/desktop-owner.ts';
-import {verifyLibraryBackup,withBackupAccess} from '../server/library-backup.ts';
+import {canonicalPath,verifyLibraryBackup,withBackupAccess} from '../server/library-backup.ts';
 
 const entry=fileURLToPath(new URL('../server/desktop.ts',import.meta.url));
 
@@ -268,4 +268,87 @@ test('unattributed old upgrade backups are kept even when listed under another l
  assert.equal(old.deleteToken,undefined);
  assert.match(f.invoke('delete',{backup:oldPath}).error,/无法确认/);
  assert.ok(verifyLibraryBackup(oldPath));
+});
+
+
+test('recognizable legacy backups without origin can be deleted with explicit confirmation even if damaged',async t=>{
+ const f=await fixture(t);
+ f.sqlite.close();
+ const name='pre-upgrade-2026-11-25T07-09-04-411Z-992b65fe';
+ const backup=path.join(f.library+'-backups',name);
+ f.run('create',{target:backup});
+ const [listed]=f.run('list').entries;
+ assert.equal(listed.deletion,'unattributed');
+ assert.ok(listed.deleteToken);
+ assert.match(f.invoke('delete',{backup,deleteToken:listed.deleteToken}).error,/重新确认/);
+ assert.ok(existsSync(backup));
+
+ const manifest=path.join(backup,'shiqu-backup.json');
+ writeFileSync(manifest,'corrupt manifest');
+ assert.match(f.invoke('delete',{backup,deleteToken:listed.deleteToken,confirmUnattributed:true}).error,/备份已变更/);
+ const [damaged]=f.run('list').entries;
+ assert.equal(damaged.deletion,'unattributed');
+ assert.match(damaged.error,/备份清单损坏/);
+ assert.ok(damaged.deleteToken);
+ const {path:deleted}=f.run('delete',{backup,deleteToken:damaged.deleteToken,confirmUnattributed:true});
+ assert.equal(deleted,backup);
+ assert.equal(existsSync(backup),false);
+ assert.ok(existsSync(path.join(f.library,'shiqu.sqlite')));
+});
+
+test('legacy confirmation protects rollback, shared roots, operation locks and origin changes',async t=>{
+ const f=await fixture(t);
+ f.sqlite.close();
+ const name='pre-upgrade-2026-11-25T07-09-04-411Z-992b65fe';
+ const root=f.library+'-backups',backup=path.join(root,name),origin=path.join(root,'.'+name+'.origin.json');
+ f.run('create',{target:backup});
+ const [missing]=f.run('list').entries;
+ const request={backup,deleteToken:missing.deleteToken,confirmUnattributed:true};
+ withBackupAccess(backup,()=>assert.match(f.invoke('delete',request).error,/备份正在使用/),true);
+
+ const journal=path.join(f.library,'.desktop-upgrade.json');
+ writeFileSync(journal,JSON.stringify({version:4,work:'.desktop-upgrade-12345678-1234-1234-1234-123456789012',backup}));
+ assert.equal(f.run('list').entries[0].deletion,'protected');
+ assert.match(f.invoke('delete',request).error,/仍需要此备份/);
+ unlinkSync(journal);
+
+ const migration=path.join(f.library,'.desktop-migration-backup.json');
+ writeFileSync(migration,JSON.stringify({backup,migrations:['0028_production_spec.sql']}));
+ assert.equal(f.run('list').entries[0].deletion,'protected');
+ assert.match(f.invoke('delete',request).error,/仍需要此备份/);
+ unlinkSync(migration);
+
+ const report=path.join(f.library,'.desktop-upgrade-result.json');
+ writeFileSync(report,JSON.stringify({backup}));
+ assert.equal(f.run('list').entries[0].deletion,'protected');
+ assert.match(f.invoke('delete',request).error,/仍需要此备份/);
+ writeFileSync(report,'invalid JSON');
+ assert.equal(f.run('list').entries[0].deletion,'uncertain');
+ assert.match(f.invoke('delete',request).error,/无法确认/);
+ unlinkSync(report);
+
+ const alias=path.join(f.root,'another-library-backups');
+ symlinkSync(root,alias,process.platform==='win32'?'junction':'dir');
+ assert.equal(f.run('list').entries[0].deletion,'uncertain');
+ assert.match(f.invoke('delete',request).error,/无法确认/);
+ unlinkSync(alias);
+
+ writeFileSync(origin,JSON.stringify({library:path.join(f.root,'another-library')}));
+ assert.equal(f.run('list').entries[0].deletion,'uncertain');
+ assert.match(f.invoke('delete',request).error,/无法确认/);
+ writeFileSync(origin,JSON.stringify({library:canonicalPath(f.library)}));
+ const [matched]=f.run('list').entries;
+ assert.equal(matched.deletion,null);
+ assert.notEqual(matched.deleteToken,missing.deleteToken);
+ assert.match(f.invoke('delete',request).error,/备份已变更/);
+ unlinkSync(origin);
+ assert.match(f.invoke('delete',{...request,deleteToken:matched.deleteToken}).error,/备份已变更/);
+ assert.ok(verifyLibraryBackup(backup));
+
+ const renamed=path.join(root,'retained-fixture');
+ renameSync(backup,renamed);
+ f.run('create',{target:backup});
+ assert.match(f.invoke('delete',request).error,/备份已变更/);
+ assert.ok(verifyLibraryBackup(renamed));
+ assert.ok(verifyLibraryBackup(backup));
 });
