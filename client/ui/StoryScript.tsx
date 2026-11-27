@@ -74,7 +74,7 @@ export default function StoryScript({story,editor,onEdit,onCancel}:{story:Story;
  const editable=!!base&&!editor?.loading&&!editor?.busy&&!editor?.conflict;
  const [open,setOpen]=useState<number|null>(null);
  const [selecting,setSelecting]=useState(false),[selected,setSelected]=useState<Set<number>>(new Set());
- const [merge,setMerge]=useState<Frame|null>(null),[notice,setNotice]=useState('');
+ const [merge,setMerge]=useState<(Frame&{initial:Frame})|null>(null),[notice,setNotice]=useState('');
  const toolbar=useRef<HTMLDivElement>(null),caption=useRef<HTMLTextAreaElement>(null);
  const chosen=originalIds.filter(id=>selected.has(id)),merging=merge!==null;
  const showActions=!!editor?.base&&!editor.loading&&!merging&&(editor.impact?.changed||editor.conflict);
@@ -89,7 +89,8 @@ export default function StoryScript({story,editor,onEdit,onCancel}:{story:Story;
  function startMerge(){
   const group=frames.filter((_,index)=>selected.has(originalIds[index]));
   if(group.length<2)return;
-  setMerge({caption:group.map(frame=>frame.caption.trim()).join('\n'),prompt:group[0].prompt});
+  const initial={caption:group.map(frame=>frame.caption.trim()).join('\n'),prompt:group[0].prompt};
+  setMerge({...initial,initial});
  }
  function apply(ids:number[],replacement?:Frame){
   if(!editor||!base||!editable||!ids.length||frames.length-ids.length+(replacement?1:0)<1)return;
@@ -138,7 +139,8 @@ export default function StoryScript({story,editor,onEdit,onCancel}:{story:Story;
    {showActions&&<StoryRevisionActions editor={editor} onCancel={cancel}/>}
    {editor.loading?<p role="status">正在载入分镜…</p>:!showActions&&editor.error?<div role="alert"><p>{editor.error}</p>{!base&&<StoryFlowAction onClick={editor.conflict?editor.loadLatest:editor.load}>{editor.conflict?'载入最新版本':'重试载入'}</StoryFlowAction>}</div>:null}
   </div>}
-  {merge&&<section className="yu-script-merge" aria-label="合并分镜">
+  {merge&&<section className="yu-script-merge" aria-label="合并分镜"
+   data-dirty={merge.caption!==merge.initial.caption||merge.prompt!==merge.initial.prompt?'true':undefined}>
    <h3>合并为第 {originalIds.indexOf(chosen[0])+1} 幅</h3>
    <label className="yu-revision-field">合并后的旁白<textarea ref={caption} rows={4} value={merge.caption} onChange={event=>setMerge({...merge,caption:event.target.value})}/><small>8–90 字 · 当前 {merge.caption.trim().length} 字</small></label>
    <label className="yu-revision-field">合并后的画面提示词<textarea rows={5} maxLength={1800} value={merge.prompt} onChange={event=>setMerge({...merge,prompt:event.target.value})}/><small>保留一个可画的瞬间 · 20–1800 字</small></label>

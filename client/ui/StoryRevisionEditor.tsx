@@ -52,6 +52,7 @@ export function StoryRevisionActions({editor,onCancel}:{editor:StoryRevisionEdit
  const droppedRedrawNotePages=editor.preview?.droppedRedrawNotePages??[];
  const lostImagePages=editor.preview?.lostImagePages??[];
  const redrawPages=editor.preview?.redrawPages.filter(page=>!lostImagePages.includes(page))??[];
+ const invalidatedDrawings=impact.replan?redrawPages.filter(page=>base.images[page-1]):[];
  const style=artStyleSettings(base.selection,changes);
  const restyle=!impact.review&&!sameArtDirection(base.selection,style);
  const summaryOnly=!impact.review&&!restyle&&revisionStorySummaryChanged(base,changes);
@@ -69,10 +70,11 @@ export function StoryRevisionActions({editor,onCancel}:{editor:StoryRevisionEdit
   {detail&&<p role="status">{detail}</p>}
   {droppedRedrawNotePages.length>0&&<p role="status">将丢弃原第 {droppedRedrawNotePages.join('、')} 幅的重绘说明。</p>}
   {lostImagePages.length>0&&<p role="status">第 {lostImagePages.join('、')} 幅已确认丢失，继续后重绘。</p>}
-  {redrawPages.length>0&&<p role="status">{impact.replan
-   // 重新编排时幅号指旧版画幅，新版幅数要等编排后才确定，不能写成「重绘第 N 幅」。
-   ?`${redrawPages.length===editor.preview?.total?`原有 ${redrawPages.length} 幅图`:`原第 ${redrawPages.join('、')} 幅的图`}将失效。${typeof (changes.length??base.selection.length)==='number'?'继续后按新分镜重绘。':'新版幅数待编排，最终绘制幅数以编排和审核结果为准。'}`
-   :`继续后将重绘第 ${redrawPages.join('、')} 幅。`}</p>}
+  {impact.replan?editor.preview?.changed&&<p role="status">
+   {invalidatedDrawings.length>0&&(invalidatedDrawings.length===base.images.filter(Boolean).length
+    ?`原有 ${invalidatedDrawings.length} 幅图将失效。`:`原第 ${invalidatedDrawings.join('、')} 幅的图将失效。`)}
+   {typeof (changes.length??base.selection.length)==='number'?'继续后按新分镜绘制。':'新版幅数待编排，最终绘制幅数以编排和审核结果为准。'}
+  </p>:redrawPages.length>0&&<p role="status">继续后将重绘第 {redrawPages.join('、')} 幅。</p>}
   {lostHandEdits.length>0&&<section aria-label="将移除的手改">
    <p>保存会移除以下画幅里的手改内容。</p>
    <ul>{lostHandEdits.map(({page,caption,prompt})=><li key={page}>原第 {page} 幅

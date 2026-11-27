@@ -2849,6 +2849,38 @@
       ]
     },
     {
+      "file": "tests/reader-revision-preview.test.mjs",
+      "groups": [
+        "reader"
+      ],
+      "level": "contract",
+      "cost": "fast",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "unit",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "client/ui/StoryRevisionEditor.tsx",
+        "client/ui/StoryScript.tsx",
+        "client/ui/StorySheet.tsx",
+        "client/ui/historySteps.ts",
+        "lib/reader-revision.ts",
+        "server/dag-revisions.ts",
+        "server/reader-revisions.ts",
+        "tests/fixtures/book-reference.mjs",
+        "tests/fixtures/gemini-evidence.mjs",
+        "tests/fixtures/images.mjs",
+        "tests/fixtures/production-data.mjs",
+        "tests/fixtures/production-dag-runner.mjs",
+        "tests/fixtures/production-dag-story.mjs",
+        "tests/fixtures/production.mjs"
+      ]
+    },
+    {
       "file": "tests/reader-revisions.test.mjs",
       "groups": [
         "production"
