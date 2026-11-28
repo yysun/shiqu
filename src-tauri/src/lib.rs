@@ -361,9 +361,15 @@ fn force_stop_control(state: &DesktopState) {
     }
 }
 /// 退出应用：空闲时立即退出；有进行中的工作时显示控制台，等子进程自行退出后再退出。
+/// 启动或书库维护期间沿用原行为：等启动或维护结束后释放子进程再退出，Windows 只能从托盘退出。
 fn quit(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
     let state = app.state::<DesktopState>().inner().clone();
-    if force {
+    let busy = state
+        .0
+        .lock()
+        .map(|control| control.starting || control.maintaining_library)
+        .unwrap_or(false);
+    if force || busy {
         force_stop_control(&state);
         app.exit(0);
         return Ok(());

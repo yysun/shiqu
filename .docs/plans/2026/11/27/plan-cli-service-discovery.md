@@ -12,22 +12,22 @@ Git base: `4e1d1af286d5e9f3d06a5c2a316a44913fa6ecd7`
 - [x] 跨库复制用已就绪来源库的只读 SQLite 快照及稳定媒体引用。在同一快照核对原来要求的来源版本、完成/审核状态和竖版运行租约。需要升级的旧来源仍走既有独占升级路径；源图缺失时沿用已保存副本的重试结果。
 - [x] （已由下方「等候停服」取代拒绝部分）常规停服先暂停新派发，再由当前拥有者即时判定；停服确认前同步关闭 CLI 请求、浏览器请求与流的纳入，拒绝时恢复，已允许停服则保留暂停到退出。桌面私有 stdin 采用关联请求编号与独立结果帧，拒绝帧不污染运行状态，接受后才由 Rust 关闭子进程；普通浏览器服务交互 Ctrl-C 同样检查活跃工作。系统 SIGTERM、父进程断线和强制退出继续走既有清理。按测试计划运行原生检查。
 - [x] 同步技能、使用指南、示例和测试映射。登记聚焦于跨进程竞态、身份、隔离调用环境、刚完成查询的备份、取消及 DAG 停点的测试。
-- [ ] TT 运行受影响的自动检查和 lint/typecheck，按检查计划跑原生检查。
-- [ ] ET 按场景验证真 CLI 与回环服务、旧记录和审片停点。
+- [x] TT 运行受影响的自动检查和 lint/typecheck，按检查计划跑原生检查。
+- [x] ET 按场景验证真 CLI 与回环服务、旧记录和审片停点。
 
 ### 修正：等待可见与等候停服
 
 审阅发现两处读者可见的缺口：CLI 留下的等待在阅读器中只显示为空闲的进行中故事，只能先暂停再恢复；有进行中任务时停止和退出直接被拒绝。修正沿用现有状态与通道，不加书库表或公开路由。
 
-- [ ] `server/reader-production.ts` 快照与书架快照增加 `cli` 参数，默认面向阅读器。只在阅读器视图中投影等待：该故事有非执行中的 CLI 等待、未完成、控制为 active、没有待处理的必需故障或审片阻断，且有排队的人像任务仅因该等待不能派发（discover 仍需观看者）。投影设置 `awaitingContinue` 与生命周期 `continuation`，复用「已保存，等待继续」和 `continue` 提供，并带 `cliHold` 标记。CLI 请求（`readerApi(...,cli=true)`）的读取和保存回执不投影，CLI 仍只看到原状态，`run` 直接推进。有故障时保留「生成失败」与重试，暂停时保留恢复；这两个浏览器操作已经解除等待。
-- [ ] `lib/shelf-generation.ts`：`cliHold` 使用专门说明「已由命令行保存，点击“继续制作”后在此继续，已有结果会保留。」；`lib/reader-model.ts` 与 `lib/reader-shelf.ts` 传递该标记。
-- [ ] `server/dag-production.ts` 的 `continue` 接受非执行中的 CLI 等待：无修订等待时写入同格式回执，指纹为 `continue:` 加 `['continue',id,'cli-hold']` 的摘要，payload 为 `{action:'continue',hold:'cli'}`。重放同一编号直接返回。`ReaderProductionCoordinator.control` 传入等待状态，浏览器 `saveStory` 的既有回调随回执解除等待。回执与解除等待分属两个事务：其间崩溃时故事仍保持等待，读者再次继续即可。
-- [ ] 停服等候（`server/app.ts`、`server/cli-service.ts`）：开始等候时保持维护暂停并停收新的 API 与 CLI 请求；中断执行中的 CLI 命令（`run`、`books cards`、`books index` 等按既有 `interrupt()` 留下等待并返回 `INTERRUPTED`）；取消已登记的流式任务（故事卡按既有取消保存进度、建库与检索按各自中止信号）。只等待已领取的制作任务、图片核对和普通 API 请求结束。`trackWork` 接受可选取消回调。`startCliService.drain()` 返回 `{idle,settled}`，空闲时同步结算。
-- [ ] 桌面 stdin 的 `stop` 回复 `{stopReply,accepted:true,draining}`；等候期间状态为 `stopping`，结束后自行退出；`shutdown` 与 stdin 关闭立即停止。浏览器服务第一次 Ctrl-C 等候并提示，再次 Ctrl-C 或 SIGTERM 立即停止；npm/npx 会把同一次 Ctrl-C 再转发一次，1.5 秒内的重复 SIGINT 不算第二次。
-- [ ] Rust：`request_stop` 区分立即停止与等候；等候时保留 `Runtime` 与 stdin，`Control` 记录 `draining` 与 `quit_pending`。`server_status` 把等候后的自行退出记为已停止而非失败；等候期间 `start_server` 返回「服务正在停止」；新增 `force_stop`；`quit_app(force)` 与托盘退出在等候时显示控制台，由不持有 `DesktopState` 锁的监视线程在子进程退出后退出应用。macOS 以默认菜单为基础，只把系统退出项换成同名「退出拾趣」（⌘Q）；Dock 的退出、系统注销与关机仍走 `RunEvent::Exit` 立即释放。
-- [ ] 控制台：`stopping` 状态显示「正在等待当前步骤保存后停止/退出」与「立即停止」或「立即退出」；重启等待停止完成后再启动。
-- [ ] `CHANGELOG.md` 0.18.0 补记 CLI 与在线服务共用书库、在线备份、等待可见与等候停服；更新 `.docs/user-guide.md` 停服说明（含 Dock 退出仍立即停止）、`.docs/story-production-lifecycle.md` 的等待继续来源、`skills/shiqu/SKILL.md` 中 CLI 保存后的阅读器等待与 `run` 直接推进。
-- [ ] 测试：`tests/cli-service.test.mjs` 覆盖阅读器投影与继续解除、CLI 读取不投影及 `run` 直接推进、故障加等待仍显示重试、选题阶段无排队任务时不投影、CLI 执行中继续返回冲突、等候停服中断 CLI `run` 并等待已领取任务、强制停止；Rust 单元测试覆盖停止回复与等候后退出状态。
+- [x] `server/reader-production.ts` 快照与书架快照增加 `cli` 参数，默认面向阅读器。只在阅读器视图中投影等待：该故事有非执行中的 CLI 等待、未完成、控制为 active、没有待处理的必需故障或审片阻断，且有排队的人像任务仅因该等待不能派发（discover 仍需观看者）。投影设置 `awaitingContinue` 与生命周期 `continuation`，复用「已保存，等待继续」和 `continue` 提供，并带 `cliHold` 标记。CLI 请求（`readerApi(...,cli=true)`）的读取和保存回执不投影，CLI 仍只看到原状态，`run` 直接推进。有故障时保留「生成失败」与重试，暂停时保留恢复；这两个浏览器操作已经解除等待。
+- [x] `lib/shelf-generation.ts`：`cliHold` 使用专门说明「已由命令行保存，点击“继续制作”后在此继续，已有结果会保留。」；`lib/reader-model.ts` 与 `lib/reader-shelf.ts` 传递该标记。
+- [x] `server/dag-production.ts` 的 `continue` 接受非执行中的 CLI 等待：无修订等待时写入同格式回执，指纹为 `continue:` 加 `['continue',id,'cli-hold']` 的摘要，payload 为 `{action:'continue',hold:'cli'}`。重放同一编号直接返回。`ReaderProductionCoordinator.control` 传入等待状态，浏览器 `saveStory` 的既有回调随回执解除等待。回执与解除等待分属两个事务：其间崩溃时故事仍保持等待，读者再次继续即可。
+- [x] 停服等候（`server/app.ts`、`server/cli-service.ts`）：开始等候时保持维护暂停并停收新的 API 与 CLI 请求；中断执行中的 CLI 命令（`run`、`books cards`、`books index` 等按既有 `interrupt()` 留下等待并返回 `INTERRUPTED`）；取消已登记的流式任务（故事卡按既有取消保存进度、建库与检索按各自中止信号）。只等待已领取的制作任务、图片核对和普通 API 请求结束。`trackWork` 接受可选取消回调。`startCliService.drain()` 返回 `{idle,settled}`，空闲时同步结算。
+- [x] 桌面 stdin 的 `stop` 回复 `{stopReply,accepted:true,draining}`；等候期间状态为 `stopping`，结束后自行退出；`shutdown` 与 stdin 关闭立即停止。浏览器服务第一次 Ctrl-C 等候并提示，再次 Ctrl-C 或 SIGTERM 立即停止；npm/npx 会把同一次 Ctrl-C 再转发一次，1.5 秒内的重复 SIGINT 不算第二次。
+- [x] Rust：`request_stop` 区分立即停止与等候；等候时保留 `Runtime` 与 stdin，`Control` 记录 `draining` 与 `quit_pending`。`server_status` 把等候后的自行退出记为已停止而非失败；等候期间 `start_server` 返回「服务正在停止」；新增 `force_stop`；`quit_app(force)` 与托盘退出在等候时显示控制台，由不持有 `DesktopState` 锁的监视线程在子进程退出后退出应用。macOS 以默认菜单为基础，只把系统退出项换成同名「退出拾趣」（⌘Q）；Dock 的退出、系统注销与关机仍走 `RunEvent::Exit` 立即释放。
+- [x] 控制台：`stopping` 状态显示「正在等待当前步骤保存后停止/退出」与「立即停止」或「立即退出」；重启等待停止完成后再启动。
+- [x] `CHANGELOG.md` 0.18.0 补记 CLI 与在线服务共用书库、在线备份、等待可见与等候停服；更新 `.docs/user-guide.md` 停服说明（含 Dock 退出仍立即停止）、`.docs/story-production-lifecycle.md` 的等待继续来源、`skills/shiqu/SKILL.md` 中 CLI 保存后的阅读器等待与 `run` 直接推进。
+- [x] 测试：`tests/cli-service.test.mjs` 覆盖阅读器投影与继续解除、CLI 读取不投影及 `run` 直接推进、故障加等待仍显示重试、选题阶段无排队任务时不投影、CLI 执行中继续返回冲突、等候停服中断 CLI `run` 并等待已领取任务、强制停止；Rust 单元测试覆盖停止回复与等候后退出状态。
 
 无主机的 `executeHeadless` 制作路径只用于测试与冒烟，不调用 `beginCliRun`；该路径不读取投影，判定不变。
 
@@ -40,3 +40,6 @@ Git base: `4e1d1af286d5e9f3d06a5c2a316a44913fa6ecd7`
 - `4a4ca00a` 修复不同环境的 CLI 延长旧自动服务寿命。完整启动与 CLI 回归 71/71。
 - `038f1a47` 保留更换模型前后的审片停点，稳定 macOS 的环境比较。最新端到端用例 9/9，npm 隔离安装冒烟、类型检查、lint 和格式检查通过。
 - `1c0d13d6` 与 `2fe83e3c` 关闭启动取消的 IPC 等待。启动者断开后由服务自己确认是否已就绪，避免打断其他 CLI。最终 10 项专门场景及隔离 npm 冒烟通过。
+- `18241edc` 阅读器显示 CLI 等待并可「继续制作」，停止、重启和退出等已领取的步骤保存后再停，控制台提供立即停止或退出，macOS ⌘Q 与托盘退出同流程。服务用例 11/11。
+- `0e12310f` 更新 0.18.0 变更记录、使用指南、生命周期文档和技能说明。
+- `7b3866f5` CR 发现 npm/npx 会把同一次 Ctrl-C 转发两次，1.5 秒内的重复信号不再视为第二次；补浏览器服务信号用例和 Rust 停止状态用例。影响计划 749 通过、3 项跳过；loopback 174/174；startup 206/206；原生 16/16。
