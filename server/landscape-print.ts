@@ -90,17 +90,20 @@ async function readableSet(media:MediaStore,row:SessionRow,print:LandscapePrint,
 
 function canDiscardPrint(print:LandscapePrint,jobs:ProductionJob[]){
  const queued=jobs.some(job=>job.state==='queued');
- return !jobs.some(job=>job.state==='running')&&
-  (queued?print.control==='paused':jobs.some(job=>job.state==='failed'));
+ const incomplete=jobs.filter(job=>job.state==='succeeded').length<print.story.pages.length;
+ return incomplete&&!jobs.some(job=>job.state==='running')&&
+  (print.control==='paused'||!queued&&jobs.some(job=>job.state==='failed'));
 }
 
 function setInfo(print:LandscapePrint,doc:Document,jobs:ProductionJob[],images:string[],createdAt:string):LandscapePrintSetInfo{
  const ready=images.filter(Boolean).length,total=images.length;
  const running=jobs.some(job=>job.state==='queued'||job.state==='running');
+ const discardable=canDiscardPrint(print,jobs);
+ const paused=print.control==='paused'&&(running||discardable);
  const artStyle=jobs.length?(JSON.parse(jobs[0].payload) as Payload).input.style?.artStyle:undefined;
  return {id:print.id,storyId:print.story.id,artStyle,createdAt,revision:print.story.revision,ready,total,matchesSavedPages:!!landscapePageOrder(doc,print),
-  discardable:canDiscardPrint(print,jobs),...(print.control==='paused'&&jobs.some(job=>job.state==='running')?{awaitingSettle:true as const}:{}),
-  state:ready===total?'completed':running?(print.control==='paused'?'paused':'running'):'partial'};
+  discardable,...(paused&&jobs.some(job=>job.state==='running')?{awaitingSettle:true as const}:{}),
+  state:ready===total?'completed':paused?'paused':running?'running':'partial'};
 }
 
 // 按明确选择的套图读取可用图片。旧分镜使用该套图保存的稿件。

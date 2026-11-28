@@ -836,6 +836,28 @@ test('discarding a paused landscape edition after it drains preserves the earlie
  assert.deepEqual((await f.read(id)).story.pages.map(page=>page.image),portraits);
 });
 
+test('discard recognizes a legacy paused set without queued jobs and protects a completed set with an unreadable file',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
+ f.control.hold=false;
+ const first=await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ const complete=(await f.json(route)).images;
+ await f.media.remove(referenceImageKey(id,complete[0]));
+ const [damaged]=await f.json(route+'/sets?summary=1');
+ assert.deepEqual([damaged.state,damaged.ready,damaged.discardable],['partial',3,false]);
+ assert.equal((await f.request(route,'POST',{discardPrintId:first.printId})).status,409);
+
+ // 历史迁移只为请求过的画幅保留任务，未请求的画幅没有排队记录。
+ const db=f.app.services.database;
+ await db.prepare("UPDATE stories SET document=json_set(document,'$.landscapePrints[#-1].control','paused') WHERE id=?").bind(id).run();
+ await db.prepare("DELETE FROM production_jobs WHERE session_id=? AND version=? AND json_extract(payload,'$.input.index')<3").bind(id,first.printId).run();
+ const [legacy]=await f.json(route+'/sets?summary=1');
+ assert.deepEqual([legacy.state,legacy.ready,legacy.discardable],['paused',1,true]);
+ await f.json(route,'POST',{discardPrintId:first.printId});
+ assert.deepEqual(await f.json(route+'/sets?summary=1'),[]);
+ assert.equal(f.control.calls.length,4);
+});
+
 test('a queued retry keeps its print set when a competing start finishes authorization',async t=>{
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
  f.control.hold=false;f.control.beforeImage=call=>{if(call.landscape&&call.page===2)throw Error('受控横图失败');};
@@ -1258,7 +1280,11 @@ test('landscape PDF and Letter require a complete set for the latest saved pages
  f.control.hold=false;
  await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
  await until(async()=>(await f.json(route)).state==='completed');
- assert.equal((await f.json(route)).images.length,4);
+ const completed=await f.json(route);
+ assert.equal(completed.images.length,4);
+ const exact=layout=>base+`/export?layout=${layout}&setId=${completed.printId}`;
+ const beforeRevision=await f.json(exact('landscape'));
+ assert.equal(beforeRevision.mark.revision,undefined);
  await control(f,child,'continue');
  await until(async()=>(await f.read(child)).state==='completed');
  const latest=await f.read(child),db=f.app.services.database;
@@ -1270,6 +1296,11 @@ test('landscape PDF and Letter require a complete set for the latest saved pages
   assert.equal(refused.status,409);
   const result=await refused.json();
   assert.equal(result.id,child);assert.deepEqual(result.missingPages,[1,2,3]);
+  const historical=await f.json(exact(layout));
+  assert.equal(historical.story.id,beforeRevision.story.id);
+  assert.equal(historical.mark.revision,beforeRevision.story.revision);
+  assert.deepEqual(historical.images,beforeRevision.images);
+  assert.deepEqual(historical.story.pages,beforeRevision.story.pages);
  }
  const source=await f.json('sessions/'+id+'/export');
  assert.equal(source.id,child);assert.deepEqual(source.story.pages,latest.story.pages);

@@ -937,14 +937,15 @@ export default function Reader(){
       setPrintExportError(failure);setLandscapeCover(null);return null;
      });
      if(!latest)return null;
-     if(latest.id!==landscapeCover.sourceId||latest.story.id!==landscapeCover.story.id||JSON.stringify(landscapeCover.cover.images)!==JSON.stringify(latest.images)){
+     if(latest.id!==landscapeCover.sourceId||latest.story.id!==landscapeCover.story.id||
+      JSON.stringify(landscapeCover.cover.images)!==JSON.stringify(latest.images)||JSON.stringify(landscapeCover.cover.mark)!==JSON.stringify(latest.mark)){
       const index=landscapeCover.cover.index;
       const {mark,images}=latest;
       setLandscapeCover({...landscapeCover,sourceId:latest.id,story:latest.story,
        cover:{index:index!==null&&images[index]?index:firstAvailableCover(images),images,mark},
        sets:landscapeCover.sets.map(set=>set.id===mark?.setId?{...set,total:images.length,ready:images.filter(Boolean).length,
         matchesSavedPages:mark.revision===undefined,state:mark.draft?(set.state==='completed'?'partial':set.state):'completed'}:set)});
-      throw Error('这套横图的可用画幅已更新，请核对后再次导出。');
+      throw Error('这套横图的打印内容已更新，请核对后再次导出。');
      }
      return latest.story;
     }} format="pdf" className="yu-primary" busy={exporting===landscapeCover.format} disabled={!!exporting||switchingPrintSet} onEdit={isGenerated(landscapeCover.target)?target=>{
