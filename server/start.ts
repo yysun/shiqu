@@ -56,7 +56,8 @@ export async function startServer({root,variables=process.env,localAccess=false,
    }
   }
   stopping=true;
-  app.stopGeneration();
+  // 停止时中止进行中的模型请求；正常等候结束时已没有进行中的请求。
+  app.interruptWork();
   const closed=new Promise<void>(resolve=>server.close(()=>resolve()));
   server.closeAllConnections();
   // Cancel provider requests before waiting for their HTTP connections to drain.

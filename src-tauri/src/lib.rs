@@ -220,11 +220,8 @@ async fn library_backup(
         let operation = request["operation"].as_str().unwrap_or_default().to_owned();
         let root = resource_root(&app)?;
         let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
-        if control.maintaining_library {
-            return Err("书库维护正在进行，请稍候。".into());
-        }
-        if operation == "create" && control.starting {
-            return Err("书库升级或启动尚未完成，请等待。".into());
+        if let Some(error) = maintenance_refusal(&control, &operation) {
+            return Err(error.into());
         }
         let store = open_store(&app, &mut control)?;
         let settings = store.settings()?;
@@ -338,6 +335,20 @@ fn start_refusal(control: &Control) -> Option<&'static str> {
         .draining
         .then_some("服务正在停止，请等待完成后再启动。")
 }
+/// 书库维护入口的拒绝原因；退出等候期间不开始新的维护，只允许查看列表、读取备份信息和打开位置。
+fn maintenance_refusal(control: &Control, operation: &str) -> Option<&'static str> {
+    if control.quit_pending && !matches!(operation, "list" | "inspect" | "reveal") {
+        return Some("拾趣正在退出，请稍候。");
+    }
+    if control.maintaining_library {
+        return Some("书库维护正在进行，请稍候。");
+    }
+    (operation == "create" && control.starting).then_some("书库升级或启动尚未完成，请等待。")
+}
+/// 停止后的状态；退出等候中保留退出标记，控制台据此放弃重启。
+fn stopped_status(control: &Control) -> Value {
+    json!({"running":false,"state":if control.last_error.is_some(){"failed"}else{"stopped"},"phoneUrls":[],"error":control.last_error,"quitting":control.quit_pending})
+}
 /// 不持锁等待启动或书库维护结束，期间状态查询和立即退出仍可使用。
 fn wait_until_ready(state: &DesktopState) {
     while state
@@ -394,18 +405,27 @@ fn quit(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
         control.quit_pending = true;
     }
     show(app);
-    wait_until_ready(&state);
-    match request_stop_control(&state) {
-        Ok(true) => {
-            app.exit(0);
-            return Ok(());
-        }
-        Ok(false) => {}
-        Err(error) => {
-            if let Ok(mut control) = state.0.lock() {
-                control.quit_pending = false;
+    loop {
+        wait_until_ready(&state);
+        match request_stop_control(&state) {
+            Ok(true) => {
+                app.exit(0);
+                return Ok(());
             }
-            return Err(error);
+            Ok(false) => break,
+            // 等待结束与停止请求之间又进入启动或维护时，继续等待。
+            Err(_)
+                if state
+                    .0
+                    .lock()
+                    .map(|control| control.starting || control.maintaining_library)
+                    .unwrap_or(false) => {}
+            Err(error) => {
+                if let Ok(mut control) = state.0.lock() {
+                    control.quit_pending = false;
+                }
+                return Err(error);
+            }
         }
     }
     let app = app.clone();
@@ -466,7 +486,13 @@ async fn server_status(state: tauri::State<'_, DesktopState>) -> Result<Value, S
     let shared = state.0.clone();
     blocking(move || {
         let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
-        if control.starting { return Ok(control.progress.lock().map_err(|_| "服务状态不可用。")?.clone()); }
+        if control.starting {
+            return Ok(control
+                .progress
+                .lock()
+                .map_err(|_| "服务状态不可用。")?
+                .clone());
+        }
         let draining = control.draining;
         let quitting = control.quit_pending;
         if let Some(runtime) = &mut control.runtime {
@@ -483,7 +509,7 @@ async fn server_status(state: tauri::State<'_, DesktopState>) -> Result<Value, S
                 Err(_) => settle_exit(&mut control, false),
             }
         }
-        Ok(json!({"running":false,"state":if control.last_error.is_some(){"failed"}else{"stopped"},"phoneUrls":[],"error":control.last_error}))
+        Ok(stopped_status(&control))
     })
     .await
 }
@@ -664,9 +690,16 @@ mod tests {
         control.draining = true;
         settle_exit(&mut control, false);
         assert!(control.last_error.is_some());
-        // 退出中不接受重启。
+        // 退出中不接受重启，也不开始新的书库维护；最终状态保留退出标记。
         control.quit_pending = true;
         assert!(start_refusal(&control).is_some());
+        assert!(maintenance_refusal(&control, "create").is_some());
+        assert!(maintenance_refusal(&control, "restore").is_some());
+        assert!(maintenance_refusal(&control, "list").is_none());
+        assert_eq!(stopped_status(&control)["quitting"], true);
+        control.quit_pending = false;
+        assert!(maintenance_refusal(&control, "create").is_none());
+        assert_eq!(stopped_status(&control)["quitting"], false);
     }
     #[test]
     fn quit_waits_for_startup_or_maintenance_without_holding_the_lock() {

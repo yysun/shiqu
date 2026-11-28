@@ -57,7 +57,7 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
  let stopped:Promise<void>|undefined,monitor:ReturnType<typeof setInterval>|undefined;
  const remote=desktopRemote(request=>app!.handle(request));
  async function close(listener:typeof server){if(!listener)return;await new Promise<void>(resolve=>{listener.close(()=>resolve());listener.closeAllConnections();});}
- function stop(){return stopped??=(async()=>{try{clearInterval(monitor);remote.revoke();await tunnel?.stop();app?.stopGeneration();await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);await Promise.all([cli?.close(),close(remoteServer),close(server)]);await app?.close();}finally{recordDiagnostic(settings.dataDirectory,'service_stopped');removeDiagnostics();await release();}})();}
+ function stop(){return stopped??=(async()=>{try{clearInterval(monitor);remote.revoke();await tunnel?.stop();app?.interruptWork();await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);await Promise.all([cli?.close(),close(remoteServer),close(server)]);await app?.close();}finally{recordDiagnostic(settings.dataDirectory,'service_stopped');removeDiagnostics();await release();}})();}
  try{
   options.signal?.throwIfAborted();
   const providerSettings=configuration.locations?browserProviderSettings({variables:configuration.variables,overrides:options.overrides||{},live:true,ports:[settings.port],locations:configuration.locations,existingOnly:true,transport:options.transport}):undefined;

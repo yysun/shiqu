@@ -44,10 +44,13 @@ export function liveReaderProvider(initial:Variables,read:()=>Variables,create:(
 const types:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.woff':'font/woff','.woff2':'font/woff2','.ico':'image/x-icon'};
 export function createApplication(options:{root:string;dataDirectory:string;variables?:Variables;providerVariables?:()=>Variables;snapshotVariables?:(snapshot:ModelSnapshot)=>Variables;transport?:typeof fetch;generation?:ReaderProvider;production?:ProductionOptions;commandOnly?:boolean;exportOnly?:boolean}){
  const local=openDatabase(options.dataDirectory,options.root,options.exportOnly);
+ // 模型与检索请求共用的停服信号：强停时中止进行中的请求，不等其返回。
+ const shutdown=new AbortController(),baseTransport=options.transport||fetch;
+ const transport:typeof fetch=(input,init)=>baseTransport(input,{...init,signal:init?.signal?AbortSignal.any([init.signal,shutdown.signal]):shutdown.signal});
  const media=new LibraryMedia(path.join(options.dataDirectory,'media'),local.database);
- const storySearch=applicationStorySearch(options.root,options.dataDirectory,()=>localBooks,options.transport||fetch);
+ const storySearch=applicationStorySearch(options.root,options.dataDirectory,()=>localBooks,transport);
  const localBooks:LocalBooks=new LocalBooks(options.root,storySearch,options.dataDirectory);
- const cache=new StoryDiscoveryCache(media),create=(variables:Variables)=>withLocalBooks(createReaderProvider(variables,media,options.transport||fetch),localBooks,media,cache,storySearch);
+ const cache=new StoryDiscoveryCache(media),create=(variables:Variables)=>withLocalBooks(createReaderProvider(variables,media,transport),localBooks,media,cache,storySearch);
  const generation=options.generation||(options.providerVariables?liveReaderProvider(options.variables||{},options.providerVariables,create):create(options.variables||{}));
  const imageWorkers=configuredImageWorkers(options.variables?.SHIQU_IMAGE_WORKERS);
  let retainedLegacyArt:Set<string>|undefined;
@@ -57,7 +60,7 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
  const textProvider=options.generation?undefined:liveReaderProvider(textVariables(),textVariables,create);
  const snapshots:SnapshotService|undefined=options.generation?undefined:{
   current:()=>{const variables=liveVariables();return variables.SHIQU_AI_PROVIDER==='readonly'?undefined:currentSnapshot(variables);},
-  provider:snapshot=>{const result=providerForSnapshot(snapshot,options.snapshotVariables?options.snapshotVariables(snapshot):liveVariables(),media,options.transport||fetch);return result.available?withLocalBooks(result.provider,localBooks,media,cache,storySearch):null;},
+  provider:snapshot=>{const result=providerForSnapshot(snapshot,options.snapshotVariables?options.snapshotVariables(snapshot):liveVariables(),media,transport);return result.available?withLocalBooks(result.provider,localBooks,media,cache,storySearch):null;},
  };
  const production=options.exportOnly?undefined:new ReaderProductionCoordinator(local.database,generation,media,{imageWorkers,textProvider,...(snapshots?{snapshots}:{}),...options.production});
  if(!options.providerVariables&&options.variables?.SHIQU_AI_PROVIDER==='readonly'&&options.production?.autoStart!==false)production?.stop();
@@ -69,7 +72,7 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
   if(cancel){cancels.add(cancel);if(draining)queueMicrotask(cancel);}
   return work.finally(()=>{active--;if(cancel)cancels.delete(cancel);});
  }
- const services:Services={trackWork,db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,localBooks,transport:options.transport||fetch,generation,production,commandOnly:options.commandOnly};
+ const services:Services={trackWork,db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,localBooks,transport:transport,generation,production,commandOnly:options.commandOnly};
  const api=createApi(services),publicDirectory=path.resolve(options.root,'dist/client');
  let closed=false,closing:Promise<void>|undefined;
  function pauseMaintenance(otherWork:()=>boolean){
@@ -88,7 +91,9 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
   const idle=()=>!active&&!production?.activeWork&&!otherWork();
   return {idle:idle(),settled:(async()=>{while(!idle())await delay(100);})()};
  }
- return {services,pauseMaintenance,drainForStop,get generating(){return production?.busy??false;},startGeneration:()=>production?.start(),stopGeneration:()=>production?.stop(),close(){
+ // 立即停止：先停止调度，使中止的任务按停服中断处理、下次启动重新执行，再中止进行中的模型请求。
+ function interruptWork(){production?.stop();shutdown.abort();}
+ return {services,pauseMaintenance,drainForStop,interruptWork,get generating(){return production?.busy??false;},startGeneration:()=>production?.start(),stopGeneration:()=>production?.stop(),close(){
   if(closed)return closing;
   production?.stop();closed=true;
   if(!production?.busy){void production?.close();local.close();return;}

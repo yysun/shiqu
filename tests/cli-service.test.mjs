@@ -493,7 +493,9 @@ test('Skill completes selection, confirmation and export without stopping the on
  await app.services.production.tick();
  assert.equal(f.control.dagCalls.length,count);
  // 确认后：阅读器显示「已保存，等待继续」并提供继续，CLI 读取原状态。
- const held=await reader(session.id);
+ // 排队任务由调度节拍建立，阅读器在其被等待阻止后显示。
+ const held=await until(async()=>{await app.services.production.tick();const view=await reader(session.id);return view.cliHold&&view;},5000);
+ assert.equal(f.control.dagCalls.length,count);
  assert.equal(held.awaitingContinue,true);assert.equal(held.cliHold,true);
  assert.ok(held.lifecycle.actions.some(action=>action.event==='continue'));
  assert.ok((await (await app.handle(new Request('http://localhost/api/reader/sessions'))).json()).find(item=>item.id===session.id).cliHold);
@@ -542,21 +544,38 @@ test('reader keeps retry for faulted CLI holds; stopping resumes full CLI runs a
  const view=await reader(faulted);
  assert.equal(view.cliHold,undefined);
  assert.ok(view.lifecycle.actions.some(action=>action.event==='retry'));
+ // 已停在审片的故事：全量运行在校验读取中被停服中断，不得释放等待。
+ f.control.beforeText=null;
+ const validating=(await command(['stories','create','--no-intake'],source)).session.id;
+ assert.equal((await command(['run',validating,'--until','reviewed','--timeout','12'])).reason,'reviewed');
+ const snapshot=app.services.production.snapshot.bind(app.services.production);
+ let blockValidation=true,validationEntered,releaseValidation;
+ const inValidation=new Promise(resolve=>{validationEntered=resolve;}),validationGate=new Promise(resolve=>{releaseValidation=resolve;});
+ app.services.production.snapshot=async(uid,id,audience)=>{
+  if(id===validating&&blockValidation){blockValidation=false;validationEntered();await validationGate;}
+  return snapshot(uid,id,audience);
+ };
+ const validationRun=command(['run',validating,'--until','completed','--timeout','20']),validationSettled=validationRun.then(()=>null,error=>error);
+ await inValidation;
  // CLI 正在处理该故事时，浏览器继续返回冲突。
  const running=(await command(['stories','create','--no-intake'],source)).session.id;
  let entered;const gated=new Promise(resolve=>{entered=resolve;}),gate=new Promise(resolve=>{unblock=resolve;});
  f.control.beforeText=async()=>{entered();await gate;};
- const run=command(['run',running,'--until','completed','--timeout','20']);
+ const run=command(['run',running,'--until','completed','--timeout','20']),runSettled=run.then(()=>null,error=>error);
  await gated;
  assert.equal((await control(running,'continue')).status,409);
  const limited=(await command(['stories','create','--no-intake'],source)).session.id;
- const limitedRun=command(['run',limited,'--until','reviewed','--timeout','20']);
+ const limitedRun=command(['run',limited,'--until','reviewed','--timeout','20']),limitedSettled=limitedRun.then(()=>null,error=>error);
  await delay(150);
  // 停服等候：中断两条 CLI run，停收新请求，等已领取的文字任务结束。
  const drain=service.drain();
  assert.equal(drain.idle,false);
- await assert.rejects(run,error=>error.code==='INTERRUPTED'&&error.details.resumesAfterRestart===true);
- await assert.rejects(limitedRun,error=>error.code==='INTERRUPTED'&&error.details.resumesAfterRestart===false);
+ releaseValidation();
+ const outcome=async settled=>{const error=await settled;assert.equal(error?.code,'INTERRUPTED');return error.details.resumesAfterRestart;};
+ assert.equal(await outcome(validationSettled),false);
+ app.services.production.snapshot=snapshot;
+ assert.equal(await outcome(runSettled),true);
+ assert.equal(await outcome(limitedSettled),false);
  await assert.rejects(command(['stories','list']),{code:'SERVICE_BUSY'});
  assert.equal((await app.handle(new Request('http://localhost/api/reader/sessions'))).status,503);
  // 等候开始后才登记的可取消任务立即取消。
@@ -572,6 +591,7 @@ test('reader keeps retry for faulted CLI holds; stopping resumes full CLI runs a
  const holds=async id=>!!await app.services.database.prepare("SELECT 1 FROM reader_commands WHERE action='cli-hold' AND session_id=?").bind(id).first();
  assert.equal(await holds(running),false);
  assert.equal(await holds(limited),true);
+ assert.equal(await holds(validating),true);
  // 重开同一书库：全量运行不经人工操作完成，有限运行仍在审片停点等待继续。
  await service.close();await app.close();
  await start();
@@ -579,6 +599,24 @@ test('reader keeps retry for faulted CLI holds; stopping resumes full CLI runs a
  await app.services.production.tick();
  assert.equal(await holds(limited),true);
  assert.notEqual((await command(['stories','get',limited])).state,'completed');
+ // 校验前被中断的故事重开后不发图，仍等待继续。
+ assert.equal(await holds(validating),true);
+ const drawn=await app.services.database.prepare("SELECT COUNT(*) AS n FROM production_jobs WHERE session_id=? AND pool='image' AND state!='queued'").bind(validating).first();
+ assert.equal(drawn.n,0);
+ assert.equal((await reader(validating)).cliHold,true);
+});
+
+test('stopping at once aborts in-flight provider requests through the application transport', {timeout:10000},async t=>{
+ const f=await startupFixture(t),directory=path.join(f.root,'abort library');
+ let started;const sent=new Promise(resolve=>{started=resolve;});
+ const transport=(url,init)=>new Promise((resolve,reject)=>{started();init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true});});
+ const release=ownDesktopDataSync(directory);
+ const app=createApplication({root:process.cwd(),dataDirectory:directory,variables:{SHIQU_AI_PROVIDER:'readonly'},transport,production:{autoStart:false}});
+ t.after(async()=>{await app.close();release();});
+ const request=app.services.transport('https://provider.invalid/v1/generate',{method:'POST'});
+ await sent;
+ app.interruptWork();
+ await assert.rejects(request,error=>error.name==='AbortError');
 });
 
 test('interrupting a CLI with a stuck startup releases its pending child channel', {timeout:10000},async t=>{

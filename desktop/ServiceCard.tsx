@@ -19,7 +19,7 @@ export function ServiceCard({state,status,native,busy,provider,nodeVersion,nodeE
   </div>
   {native?<button className="browser-link" disabled={locked||!status.running} onClick={onOpen}>在浏览器打开 ↗</button>:previewUrl?<a className="browser-link" href={previewUrl} target="_blank" rel="noopener noreferrer">在浏览器打开 ↗</a>:<p>阅读端尚未连接，请先启动拾趣服务。</p>}
   {status.running&&status.url&&<p className="service-address">{status.url}</p>}
-  {stopping&&<div className="service-stopping"><p role="status">{status.quitting?'正在等待当前步骤保存后退出拾趣。':'正在等待当前步骤保存后停止服务。'}不会领取新的任务。</p><button className="secondary" disabled={!native||!!busy} onClick={onForceStop}>{status.quitting?'立即退出':'立即停止'}</button><p className="help">立即停止会中断进行中的步骤，下次启动后重新执行。</p></div>}
+  {stopping&&<div className="service-stopping"><p role="status">{status.quitting?'正在等待当前步骤保存后退出拾趣。':'正在等待当前步骤保存后停止服务。'}不会领取新的任务。</p><button className="secondary" disabled={!native||!!busy} onClick={onForceStop}>{status.quitting?'立即退出':'立即停止'}</button><p className="help">立即停止会中断进行中的步骤，下次启动后重新执行，已发出的模型请求可能再次计费。</p></div>}
   {pending&&<p role="status">{state==='upgrading'?'升级与恢复完成后会继续启动，请保持应用打开。':'正在启动本机服务，请稍候。'}</p>}
   {status.backup&&<p className="backup-path">已校验的升级备份：{status.backup}</p>}
   <div className="provider-summary" aria-label={status.running?'当前运行配置':'已保存配置'}><div><strong>{status.running?'当前运行':'已保存配置'} · {provider.provider==='readonly'?'只读':provider.configured===false?'未配置生成服务':labels[provider.provider]||provider.provider}</strong>{status.restartRequired&&<span>待重启生效</span>}</div>

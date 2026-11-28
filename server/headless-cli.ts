@@ -270,13 +270,14 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  const until=value('until')||'completed',timeout=Number(value('timeout')||900);let timer:ReturnType<typeof setTimeout>|undefined;
  const abort=new AbortController(),shared=context.host?.application;
  let timedOut=false,runScope:CliStoryScope|undefined;
- let runOutcome:'restore'|'release'|'hold'='restore',resumesAfterRestart=false;
+ let runOutcome:'restore'|'release'|'hold'='restore',resumesAfterRestart=false,dispatchGranted=false;
  const progress=context.progress||((line:string)=>{process.stderr.write(line);});
  // 用户中断或超时保留等待；服务停止中断的全量运行释放等待，重启后由调度器按原授权续跑。
  const interrupt=()=>{
   if(runScope){
    runScope.setPermission('none');
-   resumesAfterRestart=!timedOut&&until==='completed'&&context.signal?.reason===serviceStopReason;
+   // 只有已通过校验、获准派发的全量运行释放等待；校验前被停服中断时保留原等待。
+   resumesAfterRestart=dispatchGranted&&!timedOut&&until==='completed'&&context.signal?.reason===serviceStopReason;
    runOutcome=resumesAfterRestart?'release':'hold';
   }
   if(!shared){app?.stopGeneration();void Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);}
@@ -373,6 +374,8 @@ export async function executeHeadless(root:string,args:string[],context:Context=
     if(abort.signal.aborted){interrupt();throw new CliCommandError('INTERRUPTED',resumesAfterRestart?'Run interrupted because the library service stopped; production resumes when it restarts.':'Run interrupted before dispatch.',130,{resumesAfterRestart});}
    }
    const current=await api(app,'GET',`sessions/${target}/current`);const initial=await api(app,'GET',`sessions/${target}`);need(current.id===target&&!initial.superseded,'SUPERSEDED_VERSION','Use the current family version.');
+    // 校验读取期间被中断：按中断返回并保留原等待，不再继续后续判定。
+    if(abort.signal.aborted)throw new CliCommandError('INTERRUPTED','Run interrupted before dispatch.',130,{resumesAfterRestart:false});
    // 已保存的修订等待明确的「继续制作」：run 不会隐式继续。
    if(initial.lifecycle?.continuation??initial.awaitingContinue)return {reason:'continue_required',session:initial};
    if((initial.lifecycle?.control??initial.generationControl)!=='active')return {reason:'paused',session:initial};
@@ -400,7 +403,8 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    if(reached){runOutcome='hold';return {reason:reached,session:initial};}
    if(until==='candidates')need(initial.intake,'BOUNDARY_UNAVAILABLE','Candidates require an intake story.');
    if(until==='prepared'&&!initial.intake&&initial.lifecycle?.preparationRefresh!=='pending')need(initial.selection.narrativeDetail&&initial.selection.length!=='auto','BOUNDARY_UNAVAILABLE','This legacy story has no preparation gate; use --until reviewed or completed.');
-   runScope?.setPermission(until==='completed'?'all':'text');
+   if(abort.signal.aborted)throw new CliCommandError('INTERRUPTED','Run interrupted before dispatch.',130,{resumesAfterRestart:false});
+   runScope?.setPermission(until==='completed'?'all':'text');dispatchGranted=true;
    timer=setTimeout(()=>{timedOut=true;interrupt();},timeout*1000);
    const viewerId=randomUUID();app.startGeneration();let snapshot=initial;
    try{
@@ -480,6 +484,11 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    return {requestId,session:await api(app,'POST',route+'/setup',{...change,requestId,generation})};
   }
   throw new CliCommandError('UNKNOWN_COMMAND','Use help --json for available commands.');
+ }catch(error){
+  // 运行被中断后，后续读取因停服被拒等错误按中断返回，回执说明是否在重启后续跑。
+  const settled=error instanceof CliCommandError&&['INTERRUPTED','TIMEOUT'].includes(error.code);
+  if(running&&abort.signal.aborted&&!settled)throw new CliCommandError(timedOut?'TIMEOUT':'INTERRUPTED',timedOut?'Run timed out; saved checkpoints are retained.':'Run interrupted; saved checkpoints are retained.',timedOut?5:130,{resumesAfterRestart});
+  throw error;
  }finally{
   runScope?.finish(runOutcome);
   if(timer)clearTimeout(timer);process.off('SIGINT',interrupt);process.off('SIGTERM',interrupt);context.signal?.removeEventListener('abort',interrupt);
