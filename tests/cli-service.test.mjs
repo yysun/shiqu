@@ -7,6 +7,7 @@ import {createServer} from 'node:http';
 import {access,mkdir,readFile,symlink,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
+import {pathToFileURL} from 'node:url';
 import {callCliService,startCliService} from '../server/cli-service.ts';
 import {desktopOwner,ownDesktopDataSync,publishDesktopOwner} from '../server/desktop-owner.ts';
 import {startupFixture,startFixtureCli,freeStartupPort} from './fixtures/startup.mjs';
@@ -409,4 +410,23 @@ test('Skill completes selection, confirmation and export without stopping the on
  const result=await executeHeadless(root,['export',session.id,'--data-dir',directory,'--format','zip','--allow-unsigned','--output',output]);
  assert.ok(result.pages>=3);
  assert.equal(desktopOwner(directory).service.url,service.url);
+});
+
+test('interrupting a CLI with a stuck startup releases its pending child channel', {timeout:10000},async t=>{
+ if(process.platform==='win32')return t.skip('POSIX terminal interruption');
+ const f=await startupFixture(t),directory=path.join(f.root,'stuck shelf'),flag=path.join(f.root,'worker-ready');
+ const preload=path.join(f.root,'wait-for-worker.mjs');
+ await writeFile(preload,`import {writeFileSync} from 'node:fs';
+  if(process.argv[1]?.endsWith('/cli-service.ts')){
+   writeFileSync(${JSON.stringify(flag)},String(process.pid));
+   await new Promise(()=>setInterval(()=>{},1000));
+  }`);
+ const request=command(f,directory,['stories','list'],{environment:{NODE_OPTIONS:'--import='+pathToFileURL(preload).href}});
+ const pid=Number(await until(()=>readFile(flag,'utf8').catch(()=>null)));
+ f.defer(()=>{try{process.kill(pid,'SIGKILL');}catch{/* 启动进程已退出。 */}});
+ request.child.kill('SIGINT');
+ const result=await request.result;
+ assert.equal(result.code,130);
+ assert.equal(result.body.error.code,'INTERRUPTED');
+ assert.equal(desktopOwner(directory),undefined);
 });

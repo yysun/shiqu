@@ -163,8 +163,17 @@ function launch(root:string,directory:string,environment:NodeJS.ProcessEnv){
   finished=true;
   if(child.connected)child.disconnect();
  });
- child.unref();
- return {get failure(){return failure;},get pending(){return !finished;}};
+ child.unref();child.channel?.unref();
+ return {
+  get failure(){return failure;},get pending(){return !finished;},
+  abandon(){
+   if(!finished){
+    const owner=desktopOwner(directory);
+    if(owner?.pid!==child.pid||!owner?.service)child.kill();
+   }
+   if(child.connected)child.disconnect();
+  },
+ };
 }
 
 function serviceUrl(owner:Owner){
@@ -280,5 +289,5 @@ export async function callCliService(root:string,directory:string,args:string[],
   }
   if(controller.signal.aborted)throw interrupted();
   throw new CliCommandError('LIBRARY_BUSY','The local library service did not become available. Check the service and retry.',1);
- }finally{process.off('SIGINT',stop);process.off('SIGTERM',stop);signal?.removeEventListener('abort',stop);}
+ }finally{child?.abandon();process.off('SIGINT',stop);process.off('SIGTERM',stop);signal?.removeEventListener('abort',stop);}
 }
