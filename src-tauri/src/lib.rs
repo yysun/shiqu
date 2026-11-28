@@ -303,20 +303,25 @@ async fn start_server(
     .await
 }
 
-fn stop_control(state: &DesktopState) {
+fn stop_control(state: &DesktopState) -> Result<(), String> {
     // 系统退出必须释放子进程；升级期间释放互斥锁等待，不中断升级。
     loop {
-        let Ok(mut control) = state.0.lock() else {
-            return;
-        };
+        let mut control = state.0.lock().map_err(|_| "服务控制器不可用。")?;
         if control.starting || control.maintaining_library {
             drop(control);
             std::thread::sleep(std::time::Duration::from_millis(100));
             continue;
         }
-        drop(control.runtime.take());
-        control.last_error = None;
-        return;
+        let result = control
+            .runtime
+            .take()
+            .map_or(Ok(()), |mut runtime| runtime.stop());
+        control.draining = false;
+        control.last_error = result.as_ref().err().cloned();
+        if result.is_err() {
+            control.quit_pending = false;
+        }
+        return result;
     }
 }
 /// 子进程已退出：等候停止后以退出码 0 自行退出是正常停止；其他退出（含等候中的异常退出）记为失败。
@@ -375,19 +380,12 @@ fn request_stop_control(state: &DesktopState, wait_until_ready: bool) -> Result<
     control.last_error = None;
     Ok(true)
 }
-/// 立即停止：不再等候，按既有清理管道释放子进程。
-fn force_stop_control(state: &DesktopState) {
-    stop_control(state);
-    if let Ok(mut control) = state.0.lock() {
-        control.draining = false;
-    }
-}
 /// 退出应用：空闲时立即退出；有进行中的工作时显示控制台，等已领取的步骤保存、子进程自行退出后再退出。
 /// 启动或书库维护期间先等其结束，再进入同一等候流程；只有「立即退出」强停。
 fn quit(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
     let state = app.state::<DesktopState>().inner().clone();
     if force {
-        force_stop_control(&state);
+        stop_control(&state)?;
         app.exit(0);
         return Ok(());
     }
@@ -467,7 +465,7 @@ async fn stop_server(state: tauri::State<'_, DesktopState>) -> Result<Value, Str
 async fn force_stop(state: tauri::State<'_, DesktopState>) -> Result<Value, String> {
     let state = state.inner().clone();
     blocking(move || {
-        force_stop_control(&state);
+        stop_control(&state)?;
         Ok(json!({"running":false,"phoneUrls":[]}))
     })
     .await
@@ -646,7 +644,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("Desktop startup failed");
     app.run(|app, event| match event {
-        tauri::RunEvent::Exit => stop_control(app.state::<DesktopState>().inner()),
+        tauri::RunEvent::Exit => {
+            let _ = stop_control(app.state::<DesktopState>().inner());
+        }
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Reopen { .. } => show(app),
         _ => {}
@@ -725,7 +725,7 @@ mod tests {
         let stopping = state.clone();
         let (send, receive) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            stop_control(&stopping);
+            stop_control(&stopping).unwrap();
             send.send(()).unwrap();
         });
         assert!(receive

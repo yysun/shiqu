@@ -14,7 +14,7 @@ import {createApplication} from './app.ts';
 import {createHttpServer} from './http.ts';
 import {desktopAccess} from './desktop-access.ts';
 import {ensureLibraryReady,libraryUpgradeBackup} from './library-upgrade.ts';
-import {desktopOwner,ownerProcessExists,ownDesktopData} from './desktop-owner.ts';
+import {desktopOwner,desktopStopSucceeded,ownerProcessExists,ownDesktopData,recordDesktopStop} from './desktop-owner.ts';
 import {desktopServiceControl,requestDesktopService,serviceVersion,startCliService} from './cli-service.ts';
 import {canonicalPath} from './library-backup.ts';
 export {runCliServiceProcess} from './cli-service.ts';
@@ -59,17 +59,20 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
  const removeDiagnostics=installDiagnostics(settings.dataDirectory);
  let app:ReturnType<typeof createApplication>|undefined,server:ReturnType<typeof createHttpServer>|undefined,remoteServer:ReturnType<typeof createHttpServer>|undefined,tunnel:Awaited<ReturnType<typeof startDesktopTunnel>>|undefined;
  let cli=options.existingCli;
- let stopped:Promise<void>|undefined,monitor:ReturnType<typeof setInterval>|undefined;
- const remote=desktopRemote(request=>app!.handle(request));
+ let stopped:Promise<void>|undefined,monitor:ReturnType<typeof setInterval>|undefined,activated=false;
+ const notReady=()=>Response.json({error:'书库服务尚未就绪。'},{status:503});
+ const remote=desktopRemote(request=>activated?app!.handle(request):Promise.resolve(notReady()));
  async function close(listener:typeof server){if(!listener)return;await new Promise<void>(resolve=>{listener.close(()=>resolve());listener.closeAllConnections();});}
- function stop(closeCli=!options.existingCli){return stopped??=(async()=>{try{clearInterval(monitor);remote.revoke();app?.interruptWork();await Promise.all([tunnel?.stop(),stopCodexProcesses(),stopClaudeProcesses()]);await Promise.all([closeCli?cli?.close():undefined,close(remoteServer),close(server)]);await app?.close();}finally{recordDiagnostic(settings.dataDirectory,'service_stopped');removeDiagnostics();await release();}})();}
+ function stop(closeCli=!options.existingCli){return stopped??=(async()=>{try{clearInterval(monitor);remote.revoke();app?.interruptWork();await Promise.all([tunnel?.stop(),stopCodexProcesses(),stopClaudeProcesses()]);await Promise.all([closeCli?cli?.close():undefined,close(remoteServer),close(server)]);await app?.close();if(!options.existingCli&&activated&&!process.exitCode)recordDesktopStop(settings.dataDirectory);}finally{recordDiagnostic(settings.dataDirectory,'service_stopped');removeDiagnostics();await release();}})();}
  try{
   options.signal?.throwIfAborted();
   const providerSettings=configuration.locations?browserProviderSettings({variables:configuration.variables,overrides:options.overrides||{},live:true,ports:[settings.port],locations:configuration.locations,existingOnly:true,transport:options.transport}):undefined;
-  app=createApplication({root,dataDirectory:settings.dataDirectory,variables:configuration.variables,providerVariables:providerSettings?()=>providerSettings.variables():undefined,snapshotVariables:providerSettings?snapshot=>providerSettings.variablesForSnapshot(snapshot):undefined,production:{autoStart:!!providerSettings||providerReady(configuration.variables)},transport:options.transport});
+  const generationReady=!!providerSettings||providerReady(configuration.variables);
+  app=createApplication({root,dataDirectory:settings.dataDirectory,variables:configuration.variables,providerVariables:providerSettings?()=>providerSettings.variables():undefined,snapshotVariables:providerSettings?snapshot=>providerSettings.variablesForSnapshot(snapshot):undefined,production:{autoStart:false},transport:options.transport});
+  const activate=()=>{activated=true;if(generationReady)app!.startGeneration();};
   const local=`http://127.0.0.1:${settings.port}`,phones=phoneUrls('0.0.0.0',settings.port);
   const access=desktopAccess(app.handle,{hosts:[new URL(local).host,`localhost:${settings.port}`,...phones.map(url=>new URL(url).host)]});
-  const localHandle:Parameters<typeof createHttpServer>[0]=(request,peer)=>new URL(request.url).pathname===providerSettingsPath&&providerSettings?providerSettings(request,peer):access.handle(request);
+  const localHandle:Parameters<typeof createHttpServer>[0]=(request,peer)=>!activated?Promise.resolve(notReady()):new URL(request.url).pathname===providerSettingsPath&&providerSettings?providerSettings(request,peer):access.handle(request);
   // macOS 允许通配绑定与已占用回环端口共存，先探测本机地址，防止打开其他服务。
   server=createHttpServer(localHandle);server.listen(settings.port,'127.0.0.1');await once(server,'listening');await close(server);
   server=createHttpServer(localHandle);server.listen(settings.port,'0.0.0.0');await once(server,'listening');
@@ -80,7 +83,6 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
   }
   // 停止请求：空闲时立即停止；有进行中的工作时进入等候，状态为 stopping。
   const prepareStop=()=>{const drain=cli!.drain();if(!drain.idle)status.state='stopping';return drain;};
-  if(!cli)cli=await startCliService(root,settings.dataDirectory,{application:app,desktop:desktopServiceControl(root,snapshot,prepareStop,()=>{void stop();})});
   if(settings.internetEnabled){
    try{
     remoteServer=createHttpServer(remote.handle);remoteServer.listen(0,'127.0.0.1');await once(remoteServer,'listening');
@@ -99,10 +101,14 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
     status.internetError=(error instanceof TunnelError?error.message:'公网隧道启动失败。')+' 本机和局域网仍可使用，无需配对 ID。';
    }
   }
-  options.signal?.throwIfAborted();recordDiagnostic(settings.dataDirectory,'service_started');
+  options.signal?.throwIfAborted();
   if(options.installAgentSkill)status.agentSkill=await ensureAgentSkill(root,{runtime:{node:process.execPath,cli:path.join(root,'dist/server/agent-cli.js')}});
+  options.signal?.throwIfAborted();
+  if(!cli)cli=await startCliService(root,settings.dataDirectory,{application:app,desktop:desktopServiceControl(root,snapshot,prepareStop,()=>{void stop();})});
+  if(!options.existingCli)activate();
+  recordDiagnostic(settings.dataDirectory,'service_started');
   monitor=setInterval(()=>options.onStatus?.(snapshot()),1000);monitor.unref();
-  return {server,application:app,get status(){return snapshot();},stop,prepareStop};
+  return {server,application:app,activate,get status(){return snapshot();},stop,prepareStop};
  }catch(error){recordDiagnostic(settings.dataDirectory,'service_start_failed',{code:safeErrorCode(error)});await stop();throw error;}
 }
 export function desktopFailure(error:unknown){
@@ -173,7 +179,7 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
   try{
    const owner=desktopOwner(attached.directory);
    if(!owner||owner.id!==attached.owner.id||!ownerProcessExists(owner.pid)){
-    if(stopAccepted&&!owner){await stop();return;}
+    if(stopAccepted&&desktopStopSucceeded(attached.directory,attached.owner.id)){await stop();return;}
     send({error:'书库服务已断开，请重新启动。'});await stop(1);return;
    }
    const status=await attached.request('status').catch(()=>undefined);
@@ -232,7 +238,7 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
    }catch(error){send({running:false,state:'failed',phoneUrls:[],error:desktopFailure(error)});starting=false;await stop();}
   })();
  });
- const timer=setTimeout(()=>{if(!runtime&&!starting)void stop();},10000);timer.unref();
+ const timer=setTimeout(()=>{if(!runtime&&!attached&&!starting)void stop();},10000);timer.unref();
 }
 async function backupMain(){
  const lines=createInterface({input:process.stdin,crlfDelay:Infinity});

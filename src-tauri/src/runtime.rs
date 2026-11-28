@@ -316,8 +316,12 @@ impl Runtime {
     /// 请求常规停止。返回 true 表示已停止；false 表示服务在等已领取的步骤保存，之后自行退出。
     /// 等候期间保留 stdin：关闭 stdin 会让服务立即停止。
     pub fn request_stop(&mut self) -> Result<bool, String> {
-        if let Ok(Some(_)) = self.child.try_wait() {
-            return Ok(true);
+        if let Ok(Some(exit)) = self.child.try_wait() {
+            return if exit.success() {
+                Ok(true)
+            } else {
+                Err("服务异常退出，请检查状态后重新启动。".into())
+            };
         }
         self.stop_request += 1;
         let request = self.stop_request;
@@ -348,17 +352,22 @@ impl Runtime {
             }
         }
     }
-    pub fn stop(&mut self) {
-        if let Some(mut input) = self.child.stdin.take() {
-            let _ = input.write_all(b"{\"action\":\"shutdown\"}\n");
+    pub fn stop(&mut self) -> Result<(), String> {
+        let sent = self.child.stdin.take().map_or(true, |mut input| {
+            input.write_all(b"{\"action\":\"shutdown\"}\n").is_ok()
+        });
+        // 私有控制进程以退出码报告实际停止结果；接入时 EOF 本身只断开连接。
+        let stopped = wait(&mut self.child, Duration::from_secs(8));
+        if sent && stopped.is_ok() {
+            Ok(())
+        } else {
+            Err("没有确认书库服务已停止，请重新连接并检查状态。".into())
         }
-        // EOF is also the crash watchdog. Node kills its detached Codex groups before closing.
-        let _ = wait(&mut self.child, Duration::from_secs(8));
     }
 }
 impl Drop for Runtime {
     fn drop(&mut self) {
-        self.stop();
+        let _ = self.stop();
     }
 }
 

@@ -7,7 +7,7 @@ import {developmentAccess} from './development-access.ts';
 import {desktopAccess} from './desktop-access.ts';
 import {stopCodexProcesses} from './codex-runner.ts';
 import {stopClaudeProcesses} from './claude-runner.ts';
-import {ownDesktopData} from './desktop-owner.ts';
+import {ownDesktopData,recordDesktopStop} from './desktop-owner.ts';
 import {desktopServiceControl,startCliService} from './cli-service.ts';
 import {installDiagnostics,recordDiagnostic,safeErrorCode} from './diagnostics.ts';
 import {browserProviderSettings} from './browser-provider-settings.ts';
@@ -28,12 +28,12 @@ export async function startServer({root,variables=process.env,localAccess=false,
  let handle=localAccess?desktopAccess(app.handle,{hosts:accessHosts}).handle:developmentAccess(app.handle,variables,config.port);
  const server=createHttpServer((request,peer)=>providerSettings&&new URL(request.url).pathname===providerSettingsPath?providerSettings(request,peer):handle(request));
  let cli:Awaited<ReturnType<typeof startCliService>>|undefined;
- let closing:Promise<void>|undefined,stopping=false;
+ let closing:Promise<void>|undefined,stopping=false,failed=false;
  let desktopDraining=false;
  function closeApplication(){
   return closing??=(async()=>{
    app.stopGeneration();
-   try{await cli?.close();await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);await app.close();}
+   try{await cli?.close();await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);await app.close();if(stopping&&!failed)recordDesktopStop(config.dataDirectory);}
    finally{recordDiagnostic(config.dataDirectory,'service_stopped');removeDiagnostics();await release();}
   })();
  }
@@ -64,7 +64,7 @@ export async function startServer({root,variables=process.env,localAccess=false,
   const closed=new Promise<void>(resolve=>server.close(()=>resolve()));
   server.closeAllConnections();
   // Cancel provider requests before waiting for their HTTP connections to drain.
-  void Promise.all([closed,stopCodexProcesses(),stopClaudeProcesses()]).then(closeApplication).then(()=>process.exit(0));
+  void Promise.all([closed,stopCodexProcesses(),stopClaudeProcesses()]).then(closeApplication).then(()=>process.exit(failed?1:0),()=>process.exit(1));
  }
  try{
   // macOS permits wildcard and loopback binds to coexist; keep the printed local URL on this service.
@@ -89,6 +89,8 @@ export async function startServer({root,variables=process.env,localAccess=false,
  const onInterrupt=()=>stop(false),onTerminate=()=>stop(true);
  process.on('SIGINT',onInterrupt);process.on('SIGTERM',onTerminate);
  server.on('error',error=>{
+  failed=true;
+  app.interruptWork();
   console.error('Server failed:',error.message);
   process.off('SIGINT',onInterrupt);process.off('SIGTERM',onTerminate);
   void closeApplication().then(()=>{process.exitCode=1;server.close();});

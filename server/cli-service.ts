@@ -11,7 +11,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {z} from 'zod';
 import {createHttpServer} from './http.ts';
 import type {HttpPeer} from './http.ts';
-import {desktopOwner,ownerProcessExists,ownDesktopDataSync,publishDesktopOwner} from './desktop-owner.ts';
+import {desktopOwner,ownerProcessExists,ownDesktopDataSync,publishDesktopOwner,recordDesktopStop} from './desktop-owner.ts';
 import {canonicalPath} from './library-backup.ts';
 import {canDispatchCliCommand,cliFailure,CliCommandError,executeHeadless,serviceStopReason} from './headless-cli.ts';
 import type {createApplication} from './app.ts';
@@ -162,7 +162,7 @@ export async function startCliService(root:string,directory:string,runtime:Runti
   await ended;
  })();
  // 启用阅读器前等自动服务已接收的命令收尾；失败恢复原进程及空闲计时。
- async function promote(start:(signal:AbortSignal)=>Promise<{application:Application}>,signal?:AbortSignal){
+ async function promote(start:(signal:AbortSignal)=>Promise<{application:Application;activate:()=>void}>,signal?:AbortSignal){
   if(!runtime.managed||!accepting||closing)throw Error('DATA_BUSY');
   promoting=true;accepting=false;refreshIdle();
   const cancel=signal??new AbortController().signal;
@@ -173,6 +173,7 @@ export async function startCliService(root:string,directory:string,runtime:Runti
    cancel.throwIfAborted();
    publishDesktopOwner(directory,{protocol,url},true);
    runtime.application=handoff.application;runtime.managed=undefined;
+   handoff.activate();
   }finally{promoting=false;accepting=!closing;refreshIdle();}
  }
  try{
@@ -199,13 +200,13 @@ export async function runCliServiceProcess(root:string,directory:string){
  let service:Awaited<ReturnType<typeof startCliService>>|undefined,stopping:Promise<void>|undefined;
  type Desktop=Awaited<ReturnType<typeof import('./desktop.ts').startDesktop>>;
  let desktop:Desktop|undefined;
+ let promotion:Promise<object>|undefined;
  const shutdown=new AbortController();
  const stop=()=>stopping??=(async()=>{
   shutdown.abort();
-  try{await desktop?.stop(true);await service?.close();}finally{release();process.off('SIGINT',onSignal);process.off('SIGTERM',onSignal);if(process.connected)process.disconnect?.();}
+  try{await promotion;await desktop?.stop(true);await service?.close();if(desktop)recordDesktopStop(directory);}finally{release();process.off('SIGINT',onSignal);process.off('SIGTERM',onSignal);if(process.connected)process.disconnect?.();}
  })();
- try{
-  const control=desktopServiceControl(root,()=>desktop?.status,()=>desktop!.prepareStop(),onSignal,async(input,signal)=>{
+ async function enableReader(input:unknown,signal?:AbortSignal){
    let next:Desktop|undefined;
    try{
     await service!.promote(async cancel=>{
@@ -218,6 +219,12 @@ export async function runCliServiceProcess(root:string,directory:string){
     desktop=next!;
     return desktop.status;
    }catch(error){await next?.stop();const {desktopFailure}=await import('./desktop.ts');return {error:desktopFailure(error)};}
+ }
+ try{
+  const control=desktopServiceControl(root,()=>desktop?.status,()=>desktop!.prepareStop(),onSignal,async(input,signal)=>{
+   if(promotion)return {error:'书库服务正在接入桌面，请稍候。'};
+   promotion=enableReader(input,signal);
+   try{return await promotion;}finally{promotion=undefined;}
   });
   service=await startCliService(root,directory,{managed:{onIdle:onSignal},desktop:control});
   process.off('disconnect',disconnected);

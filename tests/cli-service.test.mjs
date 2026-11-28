@@ -57,7 +57,7 @@ function desktopBridge(f,directory,port){
  return {child,exit,send,wait};
 }
 
-test('desktop attaches to the same browser CLI service and detaches or stops it through stdin', {timeout:25000},async t=>{
+test('desktop attaches to the same browser CLI service and detaches or stops it through stdin', {timeout:40000},async t=>{
  const f=await startupFixture(t),directory=path.join(f.root,'shared-browser'),port=await freeStartupPort();
  const browser=startFixtureCli(f,['--port',String(port),'--host','127.0.0.1','--data-dir',directory],{SHIQU_AI_PROVIDER:'readonly'});
  const url='http://127.0.0.1:'+port;
@@ -73,6 +73,9 @@ test('desktop attaches to the same browser CLI service and detaches or stops it 
  assert.equal(first.error,undefined);
  assert.equal(first.pid,browser.child.pid);assert.equal(first.url,url);assert.equal(first.attached,true);
  assert.equal(desktopOwner(directory).id,owner.id);
+ // 已接入的控制通道在初始启动期限后仍可管理原服务。
+ await delay(10200);
+ assert.equal(bridge.child.exitCode,null);
  bridge.child.stdin.end();
  assert.equal((await bridge.exit)[0],0);
  assert.equal((await fetch(url+'/api/reader/sessions')).status,200);
@@ -114,7 +117,8 @@ test('desktop attachment opens an existing IPv6 loopback reader', {timeout:16000
  assert.equal((await browser.exit)[0],0);
 });
 
-test('attached desktop drains an active model request and can then cancel it immediately', {timeout:25000},async t=>{
+test('attached desktop drains an active model request and distinguishes force stop from failure', {timeout:35000},async t=>{
+ for(const crash of [false,true]){
  const f=await startupFixture(t),directory=path.join(f.root,'active-browser'),port=await freeStartupPort();
  const source=name=>JSON.stringify(new URL('../'+name,import.meta.url).href);
  const program=`
@@ -126,10 +130,11 @@ test('attached desktop drains an active model request and can then cancel it imm
    process.send('model-active');
    init.signal.addEventListener('abort',()=>{process.send('model-cancelled');reject(init.signal.reason);},{once:true});
   });
-  const [root,directory,port]=process.argv.slice(1);
-  await startServer({root,localAccess:true,variables:{PORT:port,SHIQU_BIND_IP:'127.0.0.1',SHIQU_DATA_DIR:directory,SHIQU_AI_PROVIDER:'gemini',GEMINI_API_KEY:'controlled-test'}});
+  const [root,directory,port,crash]=process.argv.slice(1);
+  const server=await startServer({root,localAccess:true,variables:{PORT:port,SHIQU_BIND_IP:'127.0.0.1',SHIQU_DATA_DIR:directory,SHIQU_AI_PROVIDER:'gemini',GEMINI_API_KEY:'controlled-test'}});
+  if(crash==='true')process.once('message',()=>server.emit('error',Error('controlled failure')));
  `;
- const browser=spawn(process.execPath,['--input-type=module','-e',program,f.root,directory,String(port)],{cwd:f.root,env:f.env,stdio:['ignore','ignore','pipe','ipc']});
+ const browser=spawn(process.execPath,['--input-type=module','-e',program,f.root,directory,String(port),String(crash)],{cwd:f.root,env:f.env,stdio:['ignore','ignore','pipe','ipc']});
  const browserExit=once(browser,'exit'),events=[];
  browser.on('message',message=>events.push(message));
  f.defer(async()=>{if(browser.exitCode===null&&browser.signalCode===null)browser.kill('SIGKILL');await browserExit;});
@@ -145,11 +150,13 @@ test('attached desktop drains an active model request and can then cancel it imm
  assert.equal((await run).body.error.details.resumesAfterRestart,true);
  assert.equal(browser.exitCode,null);
  assert.equal(events.includes('model-cancelled'),false);
- bridge.send({action:'shutdown'});
- assert.equal((await bridge.exit)[0],0);
- assert.equal((await browserExit)[0],0);
- assert.equal(events.includes('model-cancelled'),true);
+ if(crash)browser.send('fail');else bridge.send({action:'shutdown'});
+ assert.equal((await bridge.exit)[0],crash?1:0);
+ assert.equal((await browserExit)[0],crash?1:0);
+ if(crash)assert.match((await bridge.wait(frame=>frame.error)).error,/断开/);
+ else assert.equal(events.includes('model-cancelled'),true);
  assert.equal(desktopOwner(directory),undefined);
+ }
 });
 
 async function gatedWorker(f,directory){
