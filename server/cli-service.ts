@@ -11,7 +11,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {z} from 'zod';
 import {createHttpServer} from './http.ts';
 import type {HttpPeer} from './http.ts';
-import {desktopOwner,ownerProcessExists,ownDesktopDataSync,publishDesktopOwner,recordDesktopStop} from './desktop-owner.ts';
+import {desktopOwner,expectDesktopStop,ownerProcessExists,ownDesktopDataSync,publishDesktopOwner,recordDesktopStop} from './desktop-owner.ts';
 import {canonicalPath} from './library-backup.ts';
 import {canDispatchCliCommand,cliFailure,CliCommandError,executeHeadless,serviceStopReason} from './headless-cli.ts';
 import type {createApplication} from './app.ts';
@@ -41,7 +41,7 @@ export function serviceVersion(root:string):string{
 const desktopRequest=z.object({action:z.enum(['attach','promote','status','stop','force']),version:z.string().max(64),start:z.unknown().optional()}).strict();
 
 // 桌面控制同样经持锁实例认证；确认已发出之后才允许关闭控制连接。
-export function desktopServiceControl(root:string,status:()=>object|undefined,drain:()=>Drain,stop:()=>void,promote?:(input:unknown,signal?:AbortSignal)=>Promise<object>):DesktopControl{
+export function desktopServiceControl(root:string,directory:string,status:()=>object|undefined,drain:()=>Drain,stop:()=>void,promote?:(input:unknown,signal?:AbortSignal)=>Promise<object>):DesktopControl{
  const version=serviceVersion(root);
  return async(request,peer)=>{
   if(!version||request.version!==version)return {error:'书库服务版本不同，请先通过原入口停止服务。'};
@@ -50,6 +50,7 @@ export function desktopServiceControl(root:string,status:()=>object|undefined,dr
   if(request.action==='promote')return !snapshot&&promote?await promote(request.start,peer.signal):{error:'此服务无需启用桌面阅读器。'};
   if(!snapshot)return {error:'书库服务尚未就绪。'};
   if(request.action==='status')return snapshot;
+  expectDesktopStop(directory);
   if(request.action==='force'){peer.afterReply?.(stop);return {accepted:true,draining:false};}
   const waiting=drain();
   peer.afterReply?.(()=>{void waiting.settled.then(stop);});
@@ -221,7 +222,7 @@ export async function runCliServiceProcess(root:string,directory:string){
    }catch(error){await next?.stop();const {desktopFailure}=await import('./desktop.ts');return {error:desktopFailure(error)};}
  }
  try{
-  const control=desktopServiceControl(root,()=>desktop?.status,()=>desktop!.prepareStop(),onSignal,async(input,signal)=>{
+  const control=desktopServiceControl(root,directory,()=>desktop?.status,()=>desktop!.prepareStop(),onSignal,async(input,signal)=>{
    if(promotion)return {error:'书库服务正在接入桌面，请稍候。'};
    promotion=enableReader(input,signal);
    try{return await promotion;}finally{promotion=undefined;}

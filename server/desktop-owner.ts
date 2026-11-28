@@ -10,6 +10,7 @@ type Owner={pid:number;id:string;managed?:true;service?:ServiceAddress};
 const ownerPath=(directory:string)=>path.join(directory,'.desktop-owner.json');
 const stopPath=(directory:string)=>path.join(directory,'.desktop-stopped.json');
 const owned=new Map<string,Owner>();
+const stopRequested=new Set<string>();
 export function ownsDesktopData(directory:string){return owned.has(path.resolve(directory));}
 export function desktopOwner(directory:string):Owner|undefined{
  try{
@@ -23,10 +24,14 @@ export function ownerProcessExists(pid:number){
 export function desktopStopSucceeded(directory:string,id:string){
  try{return readFileSync(stopPath(directory),'utf8')===id;}catch{return false;}
 }
+export function expectDesktopStop(directory:string){
+ const owner=owned.get(path.resolve(directory));
+ if(owner)stopRequested.add(owner.id);
+}
 // 持锁者只在清理成功后写回执。接入控制台按实例核对，避免把清理中的崩溃当成正常停止。
 export function recordDesktopStop(directory:string){
  const owner=owned.get(path.resolve(directory));
- if(!owner)throw Error('DATA_BUSY');
+ if(!owner||!stopRequested.has(owner.id))return;
  const marker=stopPath(directory),draft=marker+'-'+owner.id;
  try{writeFileSync(draft,owner.id,{flag:'wx',mode:0o600});renameSync(draft,marker);}
  finally{try{unlinkSync(draft);}catch{/* 已发布的回执无需清理。 */}}
@@ -65,7 +70,7 @@ export function ownDesktopDataSync(directory:string,managed=false){
    }
    try{writeFileSync(file,JSON.stringify(owner));}finally{closeSync(file);}
    owned.set(directory,owner);let released=false;
-   return ()=>{if(released)return;released=true;owned.delete(directory);try{if(JSON.parse(readFileSync(filename,'utf8')).id===id)unlinkSync(filename);}catch{/* Already removed. */}finally{lock.close();}};
+   return ()=>{if(released)return;released=true;owned.delete(directory);stopRequested.delete(id);try{if(JSON.parse(readFileSync(filename,'utf8')).id===id)unlinkSync(filename);}catch{/* Already removed. */}finally{lock.close();}};
   }
   throw Error('DATA_BUSY');
  }catch(error){lock.close();throw error;}

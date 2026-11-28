@@ -104,7 +104,7 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
   options.signal?.throwIfAborted();
   if(options.installAgentSkill)status.agentSkill=await ensureAgentSkill(root,{runtime:{node:process.execPath,cli:path.join(root,'dist/server/agent-cli.js')}});
   options.signal?.throwIfAborted();
-  if(!cli)cli=await startCliService(root,settings.dataDirectory,{application:app,desktop:desktopServiceControl(root,snapshot,prepareStop,()=>{void stop();})});
+  if(!cli)cli=await startCliService(root,settings.dataDirectory,{application:app,desktop:desktopServiceControl(root,settings.dataDirectory,snapshot,prepareStop,()=>{void stop();})});
   if(!options.existingCli)activate();
   recordDiagnostic(settings.dataDirectory,'service_started');
   monitor=setInterval(()=>options.onStatus?.(snapshot()),1000);monitor.unref();

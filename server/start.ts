@@ -84,7 +84,7 @@ export async function startServer({root,variables=process.env,localAccess=false,
    try{const saved=providerSettings?.snapshot();return saved?{...result,provider:saved.runtime,restartRequired:saved.restartRequired}:result;}
    catch{return {...result,settingsError:'无法读取共享生成设置，请检查本机配置后重试。'};}
   };
-  cli=await startCliService(root,config.dataDirectory,{application:app,...(localAccess?{desktop:desktopServiceControl(root,status,()=>{desktopDraining=true;return cli!.drain();},()=>stop(true))}:{})});
+  cli=await startCliService(root,config.dataDirectory,{application:app,...(localAccess?{desktop:desktopServiceControl(root,config.dataDirectory,status,()=>{desktopDraining=true;return cli!.drain();},()=>stop(true))}:{})});
  }catch(error){if(server.listening)server.close();recordDiagnostic(config.dataDirectory,'service_start_failed',{code:safeErrorCode(error)});await closeApplication();throw error;}
  const onInterrupt=()=>stop(false),onTerminate=()=>stop(true);
  process.on('SIGINT',onInterrupt);process.on('SIGTERM',onTerminate);
