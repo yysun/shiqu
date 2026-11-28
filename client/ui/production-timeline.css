@@ -74,26 +74,34 @@ ol.production-timeline--horizontal{grid-template-columns:repeat(7,minmax(0,1fr))
 .yu-recovery-status{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;color:#617254}
 .yu-recovery-detail{font-size:var(--yu-meta-size);color:#718064}.yu-recovery-detail>summary{cursor:pointer;text-decoration:underline;text-underline-offset:3px}.yu-recovery-detail[open]{flex-basis:100%}.yu-recovery-detail>p{margin:6px 0 0;overflow-wrap:anywhere}
 
-/* 横图套图的状态和操作共享一行组，时间独立排版。 */
-.landscape-sets>h4{margin:0;font-size:inherit;font-weight:600;color:#36543c}
-.landscape-set-list{display:grid;gap:8px;list-style:none;margin:4px 0 0;padding:0;color:#59694f}
+/* 套图操作同行靠右，空间不足时整组靠右换行。 */
+.landscape-set-list{display:grid;gap:2px;list-style:none;margin:0;padding:2px 0 0;color:#59694f}
 .landscape-set-list>li{display:grid;gap:2px;min-width:0}
-.landscape-set-list>li+li{padding-block-start:8px;border-block-start:1px solid #d3ddc7}
 .landscape-set-list p{margin:0}
+.landscape-set-heading{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px}
+.landscape-set-heading>.production-stage-actions{max-inline-size:100%;margin-inline-start:auto}
 .landscape-set-title,.landscape-set-meta{display:flex;flex-wrap:wrap;gap:0 8px}
-.landscape-set-title strong{color:#36543c;font-weight:600;font-variant-numeric:tabular-nums}
-.landscape-set-meta time{font-variant-numeric:tabular-nums}
+.landscape-set-title strong{color:#36543c;font-weight:600}
+.landscape-set-title span{font-variant-numeric:tabular-nums}
 [data-stage=landscape] .production-stage-actions:empty{display:none}
-.landscape-style-setup{flex-basis:100%;min-width:0;scroll-margin-block:8px}
-.landscape-style-setup .yu-style-selection{margin-block-end:8px}
-.landscape-style-setup .yu-style-groups{max-block-size:min(32dvh,244px);overflow:auto;padding:3px 4px 4px 3px}
-.landscape-style-setup .yu-style-groups::-webkit-scrollbar{width:6px}
-.landscape-style-setup .yu-style-groups::-webkit-scrollbar-thumb{background:#a8b49b;border-radius:4px}
-.landscape-style-setup .yu-style-card{padding-inline:6px}
-.landscape-style-setup .yu-style-name{white-space:normal}
-.landscape-style-setup .yu-style-check{position:absolute;inset-block-start:3px;inset-inline-end:4px;width:10px;height:10px}
-.landscape-style-setup[data-tone=dark] :is(.yu-style-selection>span:first-child,.yu-style-selection strong,.yu-style-group h4,.yu-style-note){color:var(--download-meta)}
-.landscape-style-setup>.production-stage-actions{margin-block-start:4px}
+/* 画风选项在弹窗内滚动，当前选择和确认留在底部。 */
+.yu-sheet:has(>.landscape-style-dialog){display:flex;flex-direction:column;overflow:hidden}
+.yu-sheet:has(>.landscape-style-dialog)>:is(header,.yu-handle){flex:none}
+.landscape-style-dialog{display:flex;flex-direction:column;min-block-size:0;min-inline-size:0}
+.landscape-style-options{min-block-size:0;overflow:auto;overscroll-behavior:contain;margin-block-start:12px;padding:3px;scrollbar-width:thin;scrollbar-color:#b8c2ac transparent}
+.landscape-style-options .yu-choice-label{position:absolute;inline-size:1px;block-size:1px;clip-path:inset(50%);overflow:hidden}
+.landscape-style-options :is(.yu-style-selection,.yu-style-note){display:none}
+.landscape-style-options .yu-style-card{padding-inline:6px}
+.landscape-style-options .yu-style-name{white-space:normal}
+.landscape-style-options .yu-style-check{position:absolute;inset-block-start:3px;inset-inline-end:4px;width:10px;height:10px}
+.landscape-style-footer{flex:none;margin-block-start:12px;padding-block-start:10px;border-block-start:1px solid #d3ddc7}
+.landscape-style-footer>p{margin:0;font-size:13px;color:#59694f}
+.landscape-style-footer>p[role=alert]{margin-block-start:8px;color:#803f2c}
+.landscape-style-footer strong{color:#36543c}
+.landscape-style-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px 14px;margin-block-start:8px}
+.landscape-style-actions>button{min-height:44px}
+.landscape-style-actions>.yu-primary{width:auto;min-height:44px;padding:8px 14px}
+.landscape-style-actions>button:disabled{opacity:.55}
 .production-stage-notice .yu-retry-control>button{margin-top:8px}
 
 .production-stage-notice:empty{display:none}

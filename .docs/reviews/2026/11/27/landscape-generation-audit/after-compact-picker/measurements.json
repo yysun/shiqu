@@ -1,0 +1,156 @@
+{
+  "desktop": {
+    "confirm": {
+      "bottom": 526.1,
+      "height": 26,
+      "top": 500.1
+    },
+    "description": "白纸墨线，疏密传神",
+    "focus": true,
+    "groups": [
+      {
+        "count": 6,
+        "label": "卡通与简笔"
+      },
+      {
+        "count": 3,
+        "label": "立体与写实"
+      },
+      {
+        "count": 6,
+        "label": "古典与民艺"
+      }
+    ],
+    "panel": {
+      "bottom": 526.1,
+      "height": 103.8,
+      "top": 422.3
+    },
+    "select": {
+      "bottom": 470.3,
+      "height": 44,
+      "top": 426.3
+    },
+    "selected": "白描连环画",
+    "viewport": [
+      1280,
+      800
+    ]
+  },
+  "mobilePrint": {
+    "confirm": {
+      "bottom": 634,
+      "height": 44,
+      "top": 590
+    },
+    "description": "白纸墨线，疏密传神",
+    "focus": true,
+    "groups": [
+      {
+        "count": 6,
+        "label": "卡通与简笔"
+      },
+      {
+        "count": 3,
+        "label": "立体与写实"
+      },
+      {
+        "count": 6,
+        "label": "古典与民艺"
+      }
+    ],
+    "panel": {
+      "bottom": 634,
+      "height": 121.8,
+      "top": 512.2
+    },
+    "select": {
+      "bottom": 560.2,
+      "height": 44,
+      "top": 516.2
+    },
+    "selected": "白描连环画",
+    "viewport": [
+      390,
+      844
+    ]
+  },
+  "mobileRedraw": {
+    "confirm": {
+      "bottom": 634.1,
+      "height": 26,
+      "top": 608.1
+    },
+    "description": "白纸墨线，疏密传神",
+    "focus": true,
+    "groups": [
+      {
+        "count": 6,
+        "label": "卡通与简笔"
+      },
+      {
+        "count": 3,
+        "label": "立体与写实"
+      },
+      {
+        "count": 6,
+        "label": "古典与民艺"
+      }
+    ],
+    "panel": {
+      "bottom": 634.1,
+      "height": 103.8,
+      "top": 530.3
+    },
+    "select": {
+      "bottom": 578.3,
+      "height": 44,
+      "top": 534.3
+    },
+    "selected": "白描连环画",
+    "viewport": [
+      390,
+      844
+    ]
+  },
+  "paperCut": {
+    "confirm": {
+      "bottom": 634.1,
+      "height": 26,
+      "top": 608.1
+    },
+    "description": "层叠纸影，灵动剪刻",
+    "focus": true,
+    "groups": [
+      {
+        "count": 6,
+        "label": "卡通与简笔"
+      },
+      {
+        "count": 3,
+        "label": "立体与写实"
+      },
+      {
+        "count": 6,
+        "label": "古典与民艺"
+      }
+    ],
+    "panel": {
+      "bottom": 634.1,
+      "height": 103.8,
+      "top": 530.3
+    },
+    "select": {
+      "bottom": 578.3,
+      "height": 44,
+      "top": 534.3
+    },
+    "selected": "剪纸艺术",
+    "viewport": [
+      390,
+      844
+    ]
+  },
+  "printOutcome": "沿用白描连环画直接确认，制作区显示暂停生成",
+  "redrawOutcome": "选择期间只有白描完成套图。确认后另有剪纸艺术 0/4 生成中，原白描 4/4 幅仍在。"
+}

@@ -1,0 +1,50 @@
+{
+  "pairedUiRows": [
+    {
+      "actions": [
+        "恢复生成",
+        "删除未完成套图"
+      ],
+      "line": "0px",
+      "times": 0,
+      "title": "水彩绘本 第 2 套\n已暂停 0/4 幅"
+    },
+    {
+      "actions": [
+        "删除套图"
+      ],
+      "line": "0px",
+      "times": 0,
+      "title": "水彩绘本 第 1 套\n已完成 4/4 幅"
+    }
+  ],
+  "checkedExports": [
+    {
+      "name": "导出横版 PDF",
+      "default": "水彩绘本 · 第 1 套 · 已完成 4/4 幅",
+      "selected": "水彩绘本 · 第 2 套 · 已暂停 0/4 幅"
+    },
+    {
+      "name": "导出Letter 双面 PDF",
+      "default": "水彩绘本 · 第 1 套 · 已完成 4/4 幅",
+      "selected": "水彩绘本 · 第 2 套 · 已暂停 0/4 幅"
+    }
+  ],
+  "deliveryStyleCount": 15,
+  "checkedDefault": true,
+  "stylePositions": {
+    "checked": "paper-cut",
+    "context": "返回「作品与导出」",
+    "footerBottom": 452,
+    "outer": [
+      320,
+      480
+    ],
+    "scroll": [
+      233,
+      348,
+      115
+    ]
+  },
+  "returnedFocus": "开始制作横图"
+}

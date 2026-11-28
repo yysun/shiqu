@@ -1,0 +1,112 @@
+{
+  "rows": [
+    {
+      "links": [
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(82, 107, 67)",
+          "height": 26,
+          "name": "恢复生成",
+          "weight": "400",
+          "width": 48,
+          "x": 199,
+          "y": 537.8
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(82, 107, 67)",
+          "height": 26,
+          "name": "删除未完成套图",
+          "weight": "400",
+          "width": 84,
+          "x": 259,
+          "y": 537.8
+        }
+      ],
+      "meta": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "rgb(89, 105, 79)",
+        "height": 22.8,
+        "weight": "400",
+        "width": 254,
+        "x": 89,
+        "y": 513
+      },
+      "progress": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "rgb(54, 84, 60)",
+        "height": 22.8,
+        "weight": "600",
+        "width": 82,
+        "x": 89,
+        "y": 488.2
+      },
+      "row": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "rgb(89, 105, 79)",
+        "height": 75.6,
+        "weight": "400",
+        "width": 254,
+        "x": 89,
+        "y": 488.2
+      },
+      "title": "已暂停 1/22 幅白描连环画"
+    },
+    {
+      "links": [
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(82, 107, 67)",
+          "height": 26,
+          "name": "删除套图",
+          "weight": "400",
+          "width": 48,
+          "x": 295,
+          "y": 630.4
+        }
+      ],
+      "meta": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "rgb(89, 105, 79)",
+        "height": 22.8,
+        "weight": "400",
+        "width": 254,
+        "x": 89,
+        "y": 605.6
+      },
+      "progress": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "rgb(54, 84, 60)",
+        "height": 22.8,
+        "weight": "600",
+        "width": 89.8,
+        "x": 89,
+        "y": 580.8
+      },
+      "row": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "rgb(89, 105, 79)",
+        "height": 84.6,
+        "weight": "400",
+        "width": 254,
+        "x": 89,
+        "y": 571.8
+      },
+      "title": "已完成 22/22 幅白描连环画"
+    }
+  ],
+  "step": {
+    "background": "rgb(236, 239, 227)",
+    "color": "rgb(89, 105, 79)",
+    "height": 254.6,
+    "weight": "400",
+    "width": 306,
+    "x": 46,
+    "y": 406.8
+  },
+  "stray": [],
+  "viewport": [
+    390,
+    844
+  ]
+}

@@ -1,0 +1,220 @@
+{
+  "desktop": {
+    "afterCloseLabel": null,
+    "footer": {
+      "bottom": 643.9,
+      "height": 87.7,
+      "left": 369,
+      "right": 911,
+      "top": 556.3
+    },
+    "options": {
+      "bottom": 544.3,
+      "height": 348.2,
+      "left": 369,
+      "right": 911,
+      "top": 196.1
+    },
+    "optionsCount": 15,
+    "optionsScroll": [
+      348,
+      348,
+      0
+    ],
+    "selected": "白描连环画",
+    "sheet": {
+      "bottom": 672.9,
+      "height": 545.9,
+      "left": 340,
+      "right": 940,
+      "top": 127.1
+    },
+    "sheetScroll": [
+      544,
+      544
+    ],
+    "viewport": [
+      1280,
+      800
+    ]
+  },
+  "desktopCancelFocus": "另绘一套横版插图",
+  "shortBeforeScroll": {
+    "afterCloseLabel": "返回「故事设置」",
+    "footer": {
+      "bottom": 474.2,
+      "height": 87.7,
+      "left": 21,
+      "right": 299,
+      "top": 386.5
+    },
+    "options": {
+      "bottom": 374.5,
+      "height": 232.9,
+      "left": 21,
+      "right": 299,
+      "top": 141.6
+    },
+    "optionsCount": 15,
+    "optionsScroll": [
+      348,
+      233,
+      0
+    ],
+    "selected": "白描连环画",
+    "sheet": {
+      "bottom": 502.2,
+      "height": 464,
+      "left": 0,
+      "right": 320,
+      "top": 38.2
+    },
+    "sheetScroll": [
+      463,
+      463
+    ],
+    "viewport": [
+      320,
+      480
+    ]
+  },
+  "shortAfterSelection": {
+    "afterCloseLabel": "返回「故事设置」",
+    "footer": {
+      "bottom": 452,
+      "height": 87.7,
+      "left": 21,
+      "right": 299,
+      "top": 364.3
+    },
+    "options": {
+      "bottom": 352.3,
+      "height": 232.9,
+      "left": 21,
+      "right": 299,
+      "top": 119.4
+    },
+    "optionsCount": 15,
+    "optionsScroll": [
+      348,
+      233,
+      115
+    ],
+    "selected": "剪纸艺术",
+    "sheet": {
+      "bottom": 480,
+      "height": 464,
+      "left": 0,
+      "right": 320,
+      "top": 16
+    },
+    "sheetScroll": [
+      463,
+      463
+    ],
+    "viewport": [
+      320,
+      480
+    ]
+  },
+  "mobileRedraw": {
+    "afterCloseLabel": "返回「故事设置」",
+    "footer": {
+      "bottom": 816,
+      "height": 87.7,
+      "left": 29,
+      "right": 361,
+      "top": 728.3
+    },
+    "options": {
+      "bottom": 716.3,
+      "height": 348.2,
+      "left": 29,
+      "right": 361,
+      "top": 368.1
+    },
+    "optionsCount": 15,
+    "optionsScroll": [
+      348,
+      348,
+      0
+    ],
+    "selected": "白描连环画",
+    "sheet": {
+      "bottom": 844,
+      "height": 579.3,
+      "left": 0,
+      "right": 390,
+      "top": 264.7
+    },
+    "sheetScroll": [
+      578,
+      578
+    ],
+    "viewport": [
+      390,
+      844
+    ]
+  },
+  "mobilePrint": {
+    "afterCloseLabel": "返回「作品与导出」",
+    "footer": {
+      "bottom": 816,
+      "height": 87.7,
+      "left": 29,
+      "right": 361,
+      "top": 728.3
+    },
+    "options": {
+      "bottom": 716.3,
+      "height": 348.2,
+      "left": 29,
+      "right": 361,
+      "top": 368.1
+    },
+    "optionsCount": 15,
+    "optionsScroll": [
+      348,
+      348,
+      0
+    ],
+    "selected": "白描连环画",
+    "sheet": {
+      "bottom": 844,
+      "height": 579.3,
+      "left": 0,
+      "right": 390,
+      "top": 264.7
+    },
+    "sheetScroll": [
+      578,
+      578
+    ],
+    "viewport": [
+      390,
+      844
+    ]
+  },
+  "afterNestedEscape": {
+    "focus": "另绘一套横版插图",
+    "openDialogs": [
+      "故事设置"
+    ]
+  },
+  "afterPrintEscape": {
+    "focus": "开始制作横图",
+    "openDialogs": [
+      "作品与导出"
+    ]
+  },
+  "redrawRows": [
+    "生成中 0/4 幅剪纸艺术2026/11/27 22:31:39暂停生成",
+    "已完成 4/4 幅白描连环画2026/11/27 22:29:12删除套图"
+  ],
+  "printSubmitted": [
+    "    - generic: 友情 · 白描连环画",
+    "    - generic: 友情 · 白描连环画",
+    "- dialog \"作品与导出\":",
+    "      - link \"暂停生成\":"
+  ]
+}

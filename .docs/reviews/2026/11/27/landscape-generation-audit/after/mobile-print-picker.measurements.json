@@ -1,0 +1,19 @@
+{
+  "confirm": {
+    "bottom": 807.9,
+    "top": 763.9
+  },
+  "focus": "横图画风设置",
+  "fullOptionsHeight": 349,
+  "optionCount": 15,
+  "selected": "白描连环画",
+  "summary": {
+    "bottom": 476.3,
+    "top": 455.9
+  },
+  "viewport": [
+    390,
+    844
+  ],
+  "visibleOptionsHeight": 244
+}

@@ -50,5 +50,8 @@ export default function Sheet({title,onClose,children,busy=false,fixedHeight=fal
    if(prior?.isConnected)prior.focus({preventScroll:true});
   };
  },[]);
- return <dialog className="yu-backdrop" ref={dialogRef} aria-label={title} aria-modal="true" onCancel={e=>{e.preventDefault();requestClose();}} onClick={e=>{if(e.target===e.currentTarget)requestClose();}}><section className={fixedHeight?'yu-sheet yu-sheet-fixed-height':'yu-sheet'} tabIndex={-1} ref={contentRef} aria-busy={busy}><div className="yu-handle"/><header>{under?<div className="yu-sheet-title"><span className="yu-sheet-return">返回「{under}」</span><h2>{title}</h2></div>:<h2>{title}</h2>}<button className="yu-icon" disabled={busy} aria-label="关闭" onClick={requestClose}><X size={21}/></button></header>{children}</section></dialog>;
+ return <dialog className="yu-backdrop" ref={dialogRef} aria-label={title} aria-modal="true" onCancel={e=>{
+  if(e.target!==e.currentTarget)return;
+  e.preventDefault();requestClose();
+ }} onClick={e=>{if(e.target===e.currentTarget)requestClose();}}><section className={fixedHeight?'yu-sheet yu-sheet-fixed-height':'yu-sheet'} tabIndex={-1} ref={contentRef} aria-busy={busy}><div className="yu-handle"/><header>{under?<div className="yu-sheet-title"><span className="yu-sheet-return">返回「{under}」</span><h2>{title}</h2></div>:<h2>{title}</h2>}<button className="yu-icon" disabled={busy} aria-label="关闭" onClick={requestClose}><X size={21}/></button></header>{children}</section></dialog>;
 }

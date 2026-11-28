@@ -25,7 +25,7 @@ import {offersProductionAction} from '@/lib/production-lifecycle';
 
 import {pruneReadingCaches,type LibraryInventory} from '../reading-cache.ts';
 import StoryExportControl from './StoryExportControl';
-import StoryLandscapeStep,{landscapeSetLabel,landscapeSetList,storyLandscapeRoute} from './StoryLandscapeStep';
+import StoryLandscapeStep,{landscapeSetList,landscapeSetOptions,storyLandscapeRoute} from './StoryLandscapeStep';
 import type {LandscapePdfMark,LandscapePrintSetInfo} from '@/lib/reader-production';
 import StoryPublicationEditor,{StoryDownloadFormats,StoryDownloads,StoryPublicationDetails,StoryPublicationDefaults} from './StoryPublication';
 import {generationImageModelForPage,generationModelNames} from '@/lib/story-publication';
@@ -917,7 +917,7 @@ export default function Reader(){
    {landscapeCover.format==='pdf-letter'&&<p>打印时选 Letter 纵向、实际大小（100%）、每张一页、双面长边翻转。</p>}
    {landscapeCover.sets.length>0&&<label className="yu-revision-field">横图套图
     <select value={landscapeCover.cover.mark?.setId??''} disabled={switchingPrintSet||!!exporting} onChange={event=>void switchPrintSet(landscapeCover,event.target.value)}>
-     {landscapeCover.sets.map(set=><option key={set.id} value={set.id}>{landscapeSetLabel(set)}</option>)}
+     {landscapeSetOptions(landscapeCover.sets).map(({id,label})=><option key={id} value={id}>{label}</option>)}
     </select>
    </label>}
    {landscapeCover.cover.mark?.draft&&<p>试印稿保留缺图画幅的位置、配文和页码。</p>}

@@ -1,0 +1,50 @@
+{
+  "desktopDirectList": "两套均直接显示，完成套图有删除入口",
+  "mobilePausedResumeAndPause": "恢复及暂停只在活跃套图内，完整套图有独立删除",
+  "olderDeletion": "移除完整套图，另一暂停套图仍显示",
+  "lastDeletion": "单套直接显示，确认删除后列表清空，打印提示缺 4 幅",
+  "selection": {
+    "confirm": {
+      "bottom": 556.2,
+      "top": 530.2
+    },
+    "focus": "剪纸艺术",
+    "fullOptionsHeight": 349,
+    "optionCount": 15,
+    "selected": "剪纸艺术",
+    "summary": {
+      "bottom": 242.6,
+      "top": 222.2
+    },
+    "viewport": [
+      390,
+      844
+    ],
+    "visibleOptionsHeight": 244
+  },
+  "printPicker": {
+    "confirm": {
+      "bottom": 807.9,
+      "top": 763.9
+    },
+    "focus": "横图画风设置",
+    "fullOptionsHeight": 349,
+    "optionCount": 15,
+    "selected": "白描连环画",
+    "summary": {
+      "bottom": 476.3,
+      "top": 455.9
+    },
+    "viewport": [
+      390,
+      844
+    ],
+    "visibleOptionsHeight": 244
+  },
+  "referenceRecovery": {
+    "inRow": false,
+    "inStage": true
+  },
+  "styleConfirmOutcome": "生成中 0/4 幅\n剪纸艺术\n\n2026/11/27 22:08:25\n\n暂停生成",
+  "deleteCancel": "最终版在桌面和窄屏点取消。窄屏可在原暂停套图行继续点击恢复并进入生成中；完整套图仍显示。"
+}

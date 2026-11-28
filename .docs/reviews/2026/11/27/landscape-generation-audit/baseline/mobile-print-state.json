@@ -1,0 +1,28 @@
+{
+  "viewport": [
+    390,
+    844
+  ],
+  "fullSelection": [
+    {
+      "selected": false,
+      "text": "水墨写意 · 已暂停 1/4 幅 · 2026/11/27 21:55:54"
+    },
+    {
+      "selected": true,
+      "text": "水彩绘本 · 已完成 4/4 幅 · 2026/11/27 21:55:54"
+    }
+  ],
+  "letterDefault": "水彩绘本 · 已完成 4/4 幅 · 2026/11/27 21:55:54",
+  "letterContents": [
+    "    - text: 横图已暂停 ·",
+    "    - generic: 可导出试印稿",
+    "  - text: 横图套图",
+    "  - combobox \"横图套图\":",
+    "    - option \"水墨写意 · 已暂停 1/4 幅 · 2026/11/27 21:55:54\" [selected]",
+    "  - paragraph: 试印稿保留缺图画幅的位置、配文和页码。",
+    "    - radio \"第 1 幅\" [checked]",
+    "    - text: 第 1 幅",
+    "  - button \"导出试印稿\""
+  ]
+}
