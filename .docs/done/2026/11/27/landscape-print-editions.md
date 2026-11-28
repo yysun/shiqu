@@ -15,10 +15,10 @@
 
 ## 独立复核
 
-CR fixed: both findings resolved; rerun result passed.  
-CR risk: non-low — historical print accuracy and discard concurrency.  
+CR fixed: both findings resolved; rerun result passed.
+CR risk: non-low — historical print accuracy and discard concurrency.
 CR review round: 2; reviewer: reused.
 
-VR passed: all acceptance criteria complete.  
-VR risk: non-low — suite persistence and exact printing across revisions.  
+VR passed: all acceptance criteria complete.
+VR risk: non-low — suite persistence and exact printing across revisions.
 VR review round: 1; reviewer: reused.
