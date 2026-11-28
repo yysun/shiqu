@@ -89,17 +89,15 @@ async function readableSet(media:MediaStore,row:SessionRow,print:LandscapePrint,
 }
 
 function canDiscardPrint(print:LandscapePrint,jobs:ProductionJob[]){
- const queued=jobs.some(job=>job.state==='queued');
- const incomplete=jobs.filter(job=>job.state==='succeeded').length<print.story.pages.length;
- return incomplete&&!jobs.some(job=>job.state==='running')&&
-  (print.control==='paused'||!queued&&jobs.some(job=>job.state==='failed'));
+ return !jobs.some(job=>job.state==='running')&&
+  (print.control==='paused'||!jobs.some(job=>job.state==='queued'));
 }
 
 function setInfo(print:LandscapePrint,doc:Document,jobs:ProductionJob[],images:string[],createdAt:string):LandscapePrintSetInfo{
  const ready=images.filter(Boolean).length,total=images.length;
  const running=jobs.some(job=>job.state==='queued'||job.state==='running');
  const discardable=canDiscardPrint(print,jobs);
- const paused=print.control==='paused'&&(running||discardable);
+ const paused=print.control==='paused'&&(running||jobs.filter(job=>job.state==='succeeded').length<total);
  const artStyle=jobs.length?(JSON.parse(jobs[0].payload) as Payload).input.style?.artStyle:undefined;
  return {id:print.id,storyId:print.story.id,artStyle,createdAt,revision:print.story.revision,ready,total,matchesSavedPages:!!landscapePageOrder(doc,print),
   discardable,...(paused&&jobs.some(job=>job.state==='running')?{awaitingSettle:true as const}:{}),
@@ -306,7 +304,7 @@ export class LandscapePrints{
    const jobs=db.all<ProductionJob>(`SELECT * ${printJobFilter} ${printJobOrder}`,...scope);
    if(jobs.some(job=>job.state==='running'))throw new ReaderError(409,'正在保存已开始的横图。收尾后才能删除这套图。');
    const latest=latestByPage(jobs,job=>(JSON.parse(job.payload) as Payload).input.index);
-   if(!canDiscardPrint(sets[index],latest))throw new ReaderError(409,'请先暂停，或选择一套以失败结束的横图。');
+   if(!canDiscardPrint(sets[index],latest))throw new ReaderError(409,'请先暂停这套横图，再删除。');
    // 保留已付费的回执和媒体引用，将其余任务标记为过期，并使先前的开画令牌失效。
    db.run(`UPDATE production_jobs SET state='succeeded',result=json_object('obsolete',1),lease_token=NULL,lease_until=0,updated_at=?
     WHERE session_id=? AND owner_id=? AND kind=? AND version=? AND state='queued'`,this.now(),...scope);

@@ -757,7 +757,7 @@ test('landscape editions select and retry an independent style, including empty 
  assert.deepEqual(sets.map(set=>[set.id,set.artStyle,set.state,set.ready,set.total]),[
   [ink.printId,'ink-wash','partial',2,4],[water.printId,'watercolor','completed',4,4],
  ]);
- assert.deepEqual(sets.map(set=>set.discardable),[true,false]);
+ assert.deepEqual(sets.map(set=>set.discardable),[true,true]);
  const count=f.control.calls.length;
  for(const layout of ['landscape','letter']){
   const full=await f.json(exportRoute+`?layout=${layout}&setId=${water.printId}`);
@@ -803,7 +803,7 @@ test('discarding a paused landscape edition after it drains preserves the earlie
  await f.json(route,'POST',{control:'pause',printId:paused.printId});
  const setsWhileDraining=await f.json(route+'/sets?summary=1');
  assert.deepEqual(setsWhileDraining.map(set=>[set.id,set.state,set.discardable]),[
-  [paused.printId,'paused',false],[first.printId,'completed',false],
+  [paused.printId,'paused',false],[first.printId,'completed',true],
  ]);
  assert.equal(setsWhileDraining[0].awaitingSettle,true);
  assert.equal((await f.request(route,'POST',{discardPrintId:paused.printId})).status,409);
@@ -817,7 +817,6 @@ test('discarding a paused landscape edition after it drains preserves the earlie
  assert.notEqual(after.startToken,startToken);
  assert.equal((await f.request(route,'POST',{startToken,artStyle:'ink-wash'})).status,409);
  assert.equal((await f.request(route,'POST',{control:'resume',printId:paused.printId})).status,409);
- assert.equal((await f.request(route,'POST',{discardPrintId:first.printId})).status,409);
  assert.equal((await f.request(source+`&setId=${paused.printId}`)).status,404);
  const receipts=await f.app.services.database.prepare('SELECT result FROM production_jobs WHERE session_id=? AND version=? ORDER BY priority').bind(id,paused.printId).all();
  assert.equal(JSON.parse(receipts.results[0].result).image,retained);
@@ -836,7 +835,7 @@ test('discarding a paused landscape edition after it drains preserves the earlie
  assert.deepEqual((await f.read(id)).story.pages.map(page=>page.image),portraits);
 });
 
-test('discard recognizes a legacy paused set without queued jobs and protects a completed set with an unreadable file',async t=>{
+test('discard is available for drained sets without changing damaged or legacy paused status',async t=>{
  const f=await productionFixture(t),{id}=await completedStory(f,{length:4}),route=`sessions/${id}/landscape`;
  f.control.hold=false;
  const first=await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
@@ -844,8 +843,7 @@ test('discard recognizes a legacy paused set without queued jobs and protects a 
  const complete=(await f.json(route)).images;
  await f.media.remove(referenceImageKey(id,complete[0]));
  const [damaged]=await f.json(route+'/sets?summary=1');
- assert.deepEqual([damaged.state,damaged.ready,damaged.discardable],['partial',3,false]);
- assert.equal((await f.request(route,'POST',{discardPrintId:first.printId})).status,409);
+ assert.deepEqual([damaged.state,damaged.ready,damaged.discardable],['partial',3,true]);
 
  // 历史迁移只为请求过的画幅保留任务，未请求的画幅没有排队记录。
  const db=f.app.services.database;
@@ -856,6 +854,46 @@ test('discard recognizes a legacy paused set without queued jobs and protects a 
  await f.json(route,'POST',{discardPrintId:first.printId});
  assert.deepEqual(await f.json(route+'/sets?summary=1'),[]);
  assert.equal(f.control.calls.length,4);
+});
+
+test('completed sets can be deleted individually, including the last one, while active queued work is protected',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4});
+ const route=`sessions/${id}/landscape`,source=`sessions/${id}/export?layout=landscape`;
+ const portraits=(await f.read(id)).story.pages.map(page=>page.image);
+ f.control.hold=false;
+ async function start(){
+  return f.json(route,'POST',{startToken:(await f.json(route)).startToken});
+ }
+ const first=await start();
+ await until(async()=>(await f.json(route)).state==='completed');
+ const olderImages=(await f.json(route)).images;
+ const last=await start();
+ await until(async()=>(await f.json(route)).state==='completed');
+ const survivingImages=(await f.json(route)).images;
+ assert.notDeepEqual(olderImages,survivingImages);
+ assert.deepEqual((await f.json(route+'/sets?summary=1')).map(set=>[set.id,set.state,set.discardable]),[
+  [last.printId,'completed',true],[first.printId,'completed',true],
+ ]);
+ const differentStory=await completedStory(f,{length:4});
+ assert.equal((await f.request(`sessions/${differentStory.id}/landscape`,'POST',{discardPrintId:first.printId})).status,409);
+ f.options.production={autoStart:false};await f.restart();
+ await f.json(route,'POST',{discardPrintId:first.printId});
+ assert.equal((await f.request(source+`&setId=${first.printId}`)).status,404);
+ assert.equal((await f.request(route,'POST',{discardPrintId:first.printId})).status,409);
+ assert.deepEqual((await f.json(source+`&setId=${last.printId}`)).images,survivingImages);
+ const idle=await f.json(route,'POST',{discardPrintId:last.printId});
+ assert.equal(idle.state,'idle');assert.ok(idle.startToken);
+ const missing=await f.request(source);assert.equal(missing.status,409);
+ assert.deepEqual((await missing.json()).missingPages,[1,2,3,4]);
+ assert.deepEqual(await f.json(route+'/sets?summary=1'),[]);
+ assert.deepEqual((await f.read(id)).story.pages.map(page=>page.image),portraits);
+
+ const next=await start();
+ assert.equal((await f.json(route+'/sets?summary=1'))[0].discardable,false);
+ assert.equal((await f.request(route,'POST',{discardPrintId:next.printId})).status,409);
+ await f.json(route,'POST',{control:'pause',printId:next.printId});
+ await f.json(route,'POST',{discardPrintId:next.printId});
+ assert.equal(f.control.calls.length,8);
 });
 
 test('a queued retry keeps its print set when a competing start finishes authorization',async t=>{
