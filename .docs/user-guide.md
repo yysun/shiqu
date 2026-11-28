@@ -119,9 +119,11 @@ flowchart TB
 
 - **制作与阅读：** 桌面版和 CLI 服务模式提供相同的浏览器制作与阅读界面，桌面窗口另提供书架、队列、设置和服务控制。Codex 技能通过 CLI 子命令完成选题、制作、编辑、书架整理与导出，预览输出为可直接打开的离线 HTML。
 - **生成服务：** 两种入口都支持 OpenAI API、Gemini 与只读；Codex 生成在 macOS / Linux 可用，需另行安装并登录 Codex CLI，Windows 使用 API 服务或只读。这里的拾趣 CLI 与 Codex CLI 是两个不同工具。
-- **本地数据：** 同一本机用户下共用已保存的服务配置和 API 密钥；使用同一书库目录时，共享故事、图片与阅读进度。各入口可独立使用；CLI 写入或制作前先停止占用同一书库的服务。preview 和 export 可以在服务运行时读取已升级的书库。
+- **本地数据：** 同一本机用户下共用已保存的服务配置和 API 密钥；使用同一书库目录时，共享故事、图片与阅读进度。普通 CLI 子命令接入同库的运行服务，空闲时自动启动短时本机服务。preview 和 export 可在服务运行时读取已升级的书库。
 
 ### 在 CLI 与桌面版之间切换
+
+以下步骤用于切换常驻服务。Skill 调用 CLI 子命令时可以沿用已运行的服务。
 
 1. **先停止当前服务。** CLI 按 Ctrl+C；桌面版点击「停止服务」或选择「退出拾趣」。仅关闭桌面窗口不会停服。
 2. **使用相同版本，确认书库目录一致。** CLI 默认复用共享设置中的目录；显式 `--data-dir` / `SHIQU_DATA_DIR` 只覆盖本次运行，不更改已保存目录。CLI 可用 `--version` 查看版本，也可用 `npx @apprun/shiqu@<版本号>` 指定与桌面版一致的已发布版本。
@@ -160,7 +162,7 @@ npx @apprun/shiqu --data-dir /absolute/path/to/library
 npx @apprun/shiqu --port 3100 --host 127.0.0.1
 ```
 
-CLI 与桌面版使用相同的数据库、图片和阅读进度格式；切换前先停止另一入口，使用相同版本。同一书库已被占用时启动会失败。选择不同目录只会切换书架，不会搬移或合并数据。
+CLI 与桌面版使用相同的数据库、图片和阅读进度格式。若要从一个常驻服务切换到另一个，先停止当前服务并使用相同版本。普通 CLI 子命令可直接接入运行中的服务。选择不同目录只会切换书架，不会搬移或合并数据。
 
 旧 CLI 版本的独立书库不会删除或自动合并，继续使用时显式指定原目录。macOS 旧目录为 `~/Library/Application Support/shiqu/library`，Linux 为 `${XDG_DATA_HOME:-~/.local/share}/shiqu/library`，Windows 为 `%LOCALAPPDATA%\shiqu\library`（旧环境可能使用 `%APPDATA%`）。
 
