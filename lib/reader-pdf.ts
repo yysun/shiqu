@@ -4,6 +4,7 @@ import type {Story} from './content';
 import {browserExportRuntime,type ExportRuntime} from './story-export-runtime.ts';
 import {matchesLandscapeImageRatio} from './reader-image-dimensions.ts';
 import {aiDisclosure,publicationCredit,publicationText} from './story-publication.ts';
+import type {LandscapePdfMark} from './reader-production.ts';
 
 export type StoryPdfLayout='portrait'|'landscape'|'letter';
 const pdfSuffixes:Record<StoryPdfLayout,string>={portrait:'-拾趣.pdf',landscape:'-拾趣-横版7x5.pdf',letter:'-拾趣-Letter双面.pdf'};
@@ -13,7 +14,11 @@ export function storySourceReference(story:Story){
  if('sourceReference'in story&&typeof story.sourceReference==='string')return story.sourceReference;
  return '原典见出处链接';
 }
-export function pdfFilename(title:string,layout:StoryPdfLayout='portrait'){return (title.replace(/[<>:"/\\|?*\u0000-\u001f]/g,'').trim().slice(0,60)||'拾趣故事')+pdfSuffixes[layout];}
+export function pdfFilename(title:string,layout:StoryPdfLayout='portrait',mark?:LandscapePdfMark){
+ const name=title.replace(/[<>:"/\\|?*\u0000-\u001f]/g,'').trim().slice(0,60)||'拾趣故事';
+ const edition=mark?`-${mark.label}-${mark.setId.slice(0,8)}${mark.draft?'-试印稿':''}`:'';
+ return name+edition+pdfSuffixes[layout];
+}
 export function assertPdfReady(story:Story){if(!story.pages.length||story.pages.some(page=>!page.image))throw Error('等所有画面生成完成后，就能导出完整 PDF。');}
 export function landscapeIncompleteMessage(total:number,missingPages:readonly number[]){
  if(!total)return '横版插图未完成，当前版本尚未保存分镜。';
@@ -81,12 +86,14 @@ export async function imposeStoryLetterPdf(source:StoryPdfDocument,scenePageIndi
  return pdf.save();
 }
 
-export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime(),layout:StoryPdfLayout='portrait',landscapeImages?:readonly string[],coverIndex=0){
+export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=()=>{},runtime:ExportRuntime=browserExportRuntime(),layout:StoryPdfLayout='portrait',landscapeImages?:readonly string[],coverIndex:number|null=0,mark?:LandscapePdfMark){
  const landscape=layout!=='portrait';
  let images:readonly string[];
  if(landscape){
-  assertLandscapePdfReady(story.pages.length,landscapeImages);
-  if(!Number.isInteger(coverIndex)||!story.pages[coverIndex])throw Error('请选择有效的封面画幅。');
+  if(mark?.draft){
+   if(!story.pages.length||landscapeImages?.length!==story.pages.length)throw Error('横版插图与分镜的幅数不一致。');
+  }else assertLandscapePdfReady(story.pages.length,landscapeImages);
+  if(coverIndex===null?landscapeImages.some(Boolean):!Number.isInteger(coverIndex)||!landscapeImages[coverIndex])throw Error('请选择有效的封面画幅。');
   images=landscapeImages;
  }else{
   assertPdfReady(story);
@@ -123,21 +130,24 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
  function whitePaper(){
   ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
  }
- async function addLandscapeFront(cover:Blob){
+ async function addLandscapeFront(cover:Blob|null){
   whitePaper();
   const width=W-2*M,inset=M*2,titleWidth=W-2*inset;
-  const bottom=await runtime.image(cover,image=>{
-   if(!matchesLandscapeImageRatio(image))throw Error(`第 ${coverIndex+1} 幅横图的尺寸不是 3∶2，无法打印这套图稿。`);
+  const bottom=cover?await runtime.image(cover,image=>{
+   if(!matchesLandscapeImageRatio(image))throw Error('封面横图的尺寸不是 3∶2，无法打印这套图稿。');
    const height=width*image.height/image.width,top=(H-height)/2;
    ctx.drawImage(image.value,M,top,width,height);
    return top+height;
-  });
+  }):H*0.7;
   const title=fitText(story.title,titleWidth,322,166,1.18);
   const titleTop=bottom-138-title.lines.length*title.lineHeight;
-  const shadeTop=titleTop-170,shade=ctx.createLinearGradient(0,shadeTop,0,bottom);
-  shade.addColorStop(0,'rgba(24,27,32,0)');shade.addColorStop(.62,'rgba(24,27,32,.68)');shade.addColorStop(1,'rgba(24,27,32,.86)');
-  ctx.fillStyle=shade;ctx.fillRect(M,shadeTop,width,bottom-shadeTop);
-  font(34,sans);ctx.fillStyle='#fffaf2';ctx.fillText('拾趣连环画',inset,titleTop-56,titleWidth);
+  if(cover){
+   const shadeTop=titleTop-170,shade=ctx.createLinearGradient(0,shadeTop,0,bottom);
+   shade.addColorStop(0,'rgba(24,27,32,0)');shade.addColorStop(.62,'rgba(24,27,32,.68)');shade.addColorStop(1,'rgba(24,27,32,.86)');
+   ctx.fillStyle=shade;ctx.fillRect(M,shadeTop,width,bottom-shadeTop);
+  }
+  const edition=mark?[mark.draft?'试印稿':'',mark.label,mark.revision===undefined?'':`原分镜第 ${mark.revision} 版`].filter(Boolean).join(' · '):'拾趣连环画';
+  font(34,sans);ctx.fillStyle=cover?'#fffaf2':'#292723';ctx.fillText(edition,inset,titleTop-56,titleWidth);
   font(title.size);
   title.lines.forEach((line,i)=>ctx.fillText(line,inset,titleTop+i*title.lineHeight,titleWidth));
   font(35,sans);ctx.fillText(storySourceReference(story),inset,bottom-99,titleWidth);
@@ -193,17 +203,15 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   font(48);ctx.fillStyle='#292723';ctx.fillText(story.title,x,titleY,width);
   await addCanvas();
  }
- async function addLandscapeScene(scene:Story['pages'][number],i:number,blob:Blob){
+ async function addLandscapeScene(scene:Story['pages'][number],i:number,blob:Blob|null){
   const captionSize=40,lineHeight=57,gap=28,footerSize=29,footerLineHeight=40;
   const footerY=H-M-footerLineHeight;
   const availableHeight=footerY-2*M-gap,maxWidth=W-2*M;
   const maxLines=Math.floor((availableHeight-H/2)/lineHeight);
   const numberedCaption=`${i+1}. ${scene.caption}`;
   whitePaper();
-  const {caption,firstLines,x,width,height}=await runtime.image(blob,image=>{
-   if(!matchesLandscapeImageRatio(image))throw Error(`第 ${i+1} 幅横图的尺寸不是 3∶2，无法打印这套图稿。`);
+  function captionLayout(ratio:number){
    font(captionSize);
-   const ratio=image.width/image.height;
    let firstLines=0,caption:string[],width:number,height:number;
    // 配文按实际成图宽度折行，行数再决定本页留给图片的高度。
    do{
@@ -214,9 +222,20 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
    }while(caption.length>firstLines&&firstLines<maxLines);
    const x=(W-width)/2;
    height=width/ratio;
-   ctx.drawImage(image.value,x,M,width,height);
    return {caption,firstLines,x,width,height};
-  });
+  }
+  const {caption,firstLines,x,width,height}=blob?await runtime.image(blob,image=>{
+   if(!matchesLandscapeImageRatio(image))throw Error(`第 ${i+1} 幅横图的尺寸不是 3∶2，无法打印这套图稿。`);
+   const layout=captionLayout(image.width/image.height);
+   ctx.drawImage(image.value,layout.x,M,layout.width,layout.height);
+   return layout;
+  }):captionLayout(3/2);
+  if(!blob){
+   ctx.fillStyle='#f0eee9';ctx.fillRect(x,M,width,height);
+   font(45,sans);ctx.fillStyle='#4b4b4b';ctx.textAlign='center';
+   ctx.fillText('横图待生成',W/2,M+height/2);
+   ctx.textAlign='left';
+  }
   const drawFooter=()=>{
    font(footerSize,sans);ctx.fillStyle='#4b4b4b';
    ctx.fillText(publicationCredit(story),x,footerY,width-200);
@@ -239,15 +258,17 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   }
  }
  try{
-  const cover=landscape?await runtime.read(images[coverIndex],coverIndex):null;
-  if(cover){onProgress('正在制作封面和扉页');await addLandscapeFront(cover);}
+  const cover=landscape&&coverIndex!==null?await runtime.read(images[coverIndex],coverIndex):null;
+  if(landscape){onProgress('正在制作封面和扉页');await addLandscapeFront(cover);}
   for(let i=0;i<story.pages.length;i++){
    onProgress(`正在整理第 ${i+1} / ${story.pages.length} 幅`);
-   const scene=story.pages[i],blob=i===coverIndex&&cover?cover:await runtime.read(images[i],i);
+   const scene=story.pages[i];
    if(landscape){
+    const blob=i===coverIndex?cover:images[i]?await runtime.read(images[i],i):null;
     if(layout==='letter')scenePageIndices.push(pdf.getPageCount());
     await addLandscapeScene(scene,i,blob);continue;
    }
+   const blob=await runtime.read(images[i],i);
    await runtime.image(blob,image=>{
     const scale=Math.max(W/image.width,H/image.height),width=image.width*scale,height=image.height*scale;
     ctx.clearRect(0,0,W,H);ctx.drawImage(image.value,(W-width)/2,(H-height)/2,width,height);
@@ -295,9 +316,9 @@ export async function createStoryPdf(story:Story,onProgress:(text:string)=>void=
   return await pdf.save();
  }finally{canvas.width=0;canvas.height=0;}
 }
-export async function downloadStoryPdf(story:Story,onProgress:(text:string)=>void,layout:StoryPdfLayout='portrait',landscapeImages?:readonly string[],coverIndex=0){
- const bytes=await createStoryPdf(story,onProgress,browserExportRuntime(),layout,landscapeImages,coverIndex);
+export async function downloadStoryPdf(story:Story,onProgress:(text:string)=>void,layout:StoryPdfLayout='portrait',landscapeImages?:readonly string[],coverIndex:number|null=0,mark?:LandscapePdfMark){
+ const bytes=await createStoryPdf(story,onProgress,browserExportRuntime(),layout,landscapeImages,coverIndex,mark);
  const blob=new Blob([bytes as BlobPart],{type:'application/pdf'}),url=URL.createObjectURL(blob),link=document.createElement('a');
- link.href=url;link.download=pdfFilename(story.title,layout);(document.querySelector('dialog[open]')||document.body).appendChild(link);link.click();link.remove();
+ link.href=url;link.download=pdfFilename(story.title,layout,mark);(document.querySelector('dialog[open]')||document.body).appendChild(link);link.click();link.remove();
  return {url,filename:link.download};
 }

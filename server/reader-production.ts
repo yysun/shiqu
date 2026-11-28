@@ -31,7 +31,7 @@ import type {SuggestionBatch,SuggestionProgress} from '../lib/reader-suggestions
 import {readerMaxFrames} from '../lib/reader-limits.ts';
 import {productionViewerLeaseMs} from '../lib/reader-production.ts';
 import type {EarlierLandscapeWork,LandscapeCommand,LandscapePrintSet,LandscapeStatus,ReaderProduction} from '../lib/reader-production.ts';
-import {LandscapePrints,currentLandscapePrint,landscapePrintKind} from './landscape-print.ts';
+import {LandscapePrints,currentLandscapePrint,landscapePrintKind,landscapeVersions} from './landscape-print.ts';
 import {JobYield,ProductionQueue,productionJobId} from './production-queue.ts';
 import type {ProductionJob,JobSpec} from './production-queue.ts';
 import {authorizeRecovery,authorizeControl,commandReceipt,sessionFaults} from './reader-commands.ts';
@@ -193,7 +193,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private async landscapeStatusFor(row:SessionRow):Promise<LandscapeStatus>{
   const doc=this.parsed(row)?.doc;
   const earlier:EarlierLandscapeWork[]=[];
-  for await(const source of this.landscapeVersions(row)){
+  for await(const source of landscapeVersions(this.database,row)){
    if(source.id===row.id)continue;
    const work=await this.prints.unfinished(source);
    if(work){
@@ -238,21 +238,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   return this.landscapeStatus(ownerId,id);
  }
  async landscapePrintSets(ownerId:string,id:string):Promise<LandscapePrintSet[]>{
-  const row=await this.repository.get(id,ownerId),sets:LandscapePrintSet[]=[];
-  for await(const source of this.landscapeVersions(row)){
-   sets.push(...await this.prints.sets(source));
+  const row=await this.landscapeSource(id,ownerId),sets:LandscapePrintSet[]=[];
+  const parsed=this.parsed(row);
+  if(!parsed)throw new ReaderError(409,'暂时无法读取故事分镜。');
+  const {doc}=parsed,story=view(row).story;
+  for await(const source of landscapeVersions(this.database,row)){
+   sets.push(...await this.prints.sets(source,doc,story));
   }
-  return sets;
- }
- private async *landscapeVersions(initial:SessionRow){
-  let row:SessionRow|null=initial;
-  const seen=new Set<string>(),ownerId=initial.user_id;
-  while(row&&!seen.has(row.id)){
-   const current:SessionRow=row,parsed=this.parsed(current);
-   seen.add(current.id);
-   if(parsed&&!await this.database.prepare('SELECT 1 FROM library_deletions WHERE story_id=? AND user_id=?').bind(current.id,ownerId).first())yield current;
-   row=parsed?.doc.revision?await this.find(parsed.doc.revision.parentId,ownerId):null;
-  }
+  return sets.sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
  }
  private searchCurrent(row:SessionRow,round:number|undefined){
   const doc=decodeDocument(row);

@@ -7,6 +7,7 @@ import type {DagDocument} from './document.ts';
 export function portraitDocument(doc:Document){
  const copy={...doc};
  delete copy.landscapePrints;
+ delete copy.lastLandscapeDiscard;
  copy.usage=(doc.usage??[]).filter(call=>call.step!=='dag:drawLandscape');
  return copy;
 }

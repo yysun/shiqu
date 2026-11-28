@@ -4,8 +4,10 @@ import type {MediaStore} from '../lib/services.ts';
 import {readableSavedPortrait,readableLandscapeImage} from './reader-image-health.ts';
 import {mediaType} from '../lib/reader-generation-contract.ts';
 import {randomUUID} from 'node:crypto';
-import {ReaderError,selectionSchema,view,type Document,type SessionRow} from '../lib/reader-model.ts';
-import type {LandscapeCommand,LandscapePrint,LandscapePrintSet,LandscapeStatus} from '../lib/reader-production.ts';
+import {ReaderError,readableStory,selectionSchema,view,type Document,type SessionRow} from '../lib/reader-model.ts';
+import type {LandscapeCommand,LandscapePrint,LandscapePrintSet,LandscapePrintSetInfo,LandscapeStatus} from '../lib/reader-production.ts';
+import type {Story} from '../lib/content.ts';
+import {artStyleSettings,getArtStyle,type ArtStyleId} from '../lib/reader-styles.ts';
 import type {Database,ReadStatements} from '../lib/reader-repository.ts';
 import {landscapePrintHiddenSql,supersededSql} from '../lib/reader-repository.ts';
 import type {StoryGenerator} from '../lib/reader-engine.ts';
@@ -31,48 +33,104 @@ function latestByPage<T>(jobs:T[],page:(job:T)=>number){
 }
 async function latestPrintJobs(db:Database,row:SessionRow,print:LandscapePrint){
  const {results}=await db.prepare(`SELECT * ${printJobFilter} ${printJobOrder}`).bind(row.id,row.user_id,landscapePrintKind,print.id).all<ProductionJob>();
- return latestByPage(results,job=>(JSON.parse(job.payload) as Payload).input.index);
+ const earliest=results.reduce((time,job)=>Math.min(time,job.created_at),Infinity);
+ return {
+  jobs:latestByPage(results,job=>(JSON.parse(job.payload) as Payload).input.index),
+  createdAt:earliest<Infinity?new Date(earliest).toISOString():row.created_at,
+ };
 }
 
 function landscapePageOrder(doc:Document,print:LandscapePrint){
  const pages=doc.plan?.pages,count=pages?.length;
- if(!count||print.story.pages.length!==count||print.frameKeys&&print.frameKeys.length!==count)return;
- // 旧套图未存画幅身份，用保存的竖图和画面描述匹配；有歧义时改用下一套。
- const binding=(key:string|undefined,image:string,prompt:string)=>JSON.stringify([key,image,prompt]);
- const positions=new Map(print.story.pages.map((page,index)=>[binding(print.frameKeys?.[index],page.image,page.prompt),index]));
+ if(!count||print.story.pages.length!==count||print.frameKeys&&print.frameKeys.length!==count||print.plan.characters!==doc.plan?.characters)return;
+ // 改换参考竖图不改变已完成横图。没有画幅身份的旧套图只接受无歧义的分镜匹配。
+ const binding=(key:string|undefined,page:Pick<Story['pages'][number],'caption'|'prompt'>)=>JSON.stringify([key,page.caption,page.prompt]);
+ const positions=new Map(print.story.pages.map((page,index)=>[binding(print.frameKeys?.[index],page),index]));
  if(positions.size!==count)return;
  const order:number[]=[];
  for(const [index,page] of pages.entries()){
-  const position=positions.get(binding(print.frameKeys?doc.dag?.order[index]:undefined,doc.images[index],page.prompt));
+  const position=positions.get(binding(print.frameKeys?doc.dag?.order[index]:undefined,page));
   if(position===undefined)return;
   order.push(position);
  }
  return new Set(order).size===count?order:undefined;
 }
 
-// 选取本版最近一套完整可读的横图。缺少整套时，按当前页序报告最近匹配套图的未就绪画幅。
+/** 按版本链读取同一作品的套图，跳过已删除或无法读取的版本。 */
+export async function* landscapeVersions(db:Database,initial:SessionRow){
+ let row:SessionRow|null=initial;
+ const seen=new Set<string>();
+ const root=documentOf(initial).revision?.rootId??initial.id;
+ while(row&&!seen.has(row.id)){
+  const current:SessionRow=row;
+  if(!readableStory(current))break;
+  const {revision}=documentOf(current);
+  if((revision?.rootId??current.id)!==root)break;
+  seen.add(current.id);
+  if(!await db.prepare('SELECT 1 FROM library_deletions WHERE story_id=? AND user_id=?').bind(current.id,current.user_id).first())yield current;
+  const parentId=revision?.parentId;
+  row=parentId?await db.prepare('SELECT * FROM story_rows stories WHERE id=? AND user_id=?').bind(parentId,initial.user_id).first<SessionRow>():null;
+ }
+}
+
+async function readableSet(media:MediaStore,row:SessionRow,print:LandscapePrint,jobs:ProductionJob[]){
+ const images=Array<string>(print.story.pages.length).fill('');
+ for(const job of jobs){
+  if(job.state!=='succeeded')continue;
+  const {input}=JSON.parse(job.payload) as Payload;
+  if(input.index<0||input.index>=images.length)continue;
+  const image=(JSON.parse(job.result||'{}') as Partial<Receipt>).image??'';
+  try{
+   const key=image&&referenceImageKey(row.id,image),asset=key&&await media.get(key);
+   if(asset&&mediaType(asset.body)===asset.contentType&&await readableLandscapeImage(asset.body))images[input.index]=image;
+  }catch{/* 读取失败的画幅仍保留原来的印刷位置。 */}
+ }
+ return images;
+}
+
+function canDiscardPrint(print:LandscapePrint,jobs:ProductionJob[]){
+ const queued=jobs.some(job=>job.state==='queued');
+ return !jobs.some(job=>job.state==='running')&&
+  (queued?print.control==='paused':jobs.some(job=>job.state==='failed'));
+}
+
+function setInfo(print:LandscapePrint,doc:Document,jobs:ProductionJob[],images:string[],createdAt:string):LandscapePrintSetInfo{
+ const ready=images.filter(Boolean).length,total=images.length;
+ const running=jobs.some(job=>job.state==='queued'||job.state==='running');
+ const artStyle=jobs.length?(JSON.parse(jobs[0].payload) as Payload).input.style?.artStyle:undefined;
+ return {id:print.id,storyId:print.story.id,artStyle,createdAt,revision:print.story.revision,ready,total,matchesSavedPages:!!landscapePageOrder(doc,print),
+  discardable:canDiscardPrint(print,jobs),...(print.control==='paused'&&jobs.some(job=>job.state==='running')?{awaitingSettle:true as const}:{}),
+  state:ready===total?'completed':running?(print.control==='paused'?'paused':'running'):'partial'};
+}
+
+// 按明确选择的套图读取可用图片。旧分镜使用该套图保存的稿件。
+export async function selectedLandscapeExportSource(db:Database,media:MediaStore,row:SessionRow,doc:Document,story:Story|null,setId:string){
+ for await(const origin of landscapeVersions(db,row)){
+  const print=documentOf(origin).landscapePrints?.find(set=>set.id===setId);
+  if(!print)continue;
+  const {jobs,createdAt}=await latestPrintJobs(db,origin,print),images=await readableSet(media,origin,print,jobs);
+  const order=landscapePageOrder(doc,print),info=setInfo(print,doc,jobs,images,createdAt);
+  const label=info.artStyle?getArtStyle(info.artStyle).label:'画风未记录';
+  return {story:order&&story?story:{...print.story,title:story?.title??print.story.title,publication:story?.publication},
+   images:order?order.map(index=>images[index]):images,
+   mark:{setId,label,draft:info.ready<info.total,...(!order?{revision:info.revision}:{})}};
+ }
+ throw new ReaderError(404,'找不到这套横版插图。');
+}
+
+// 默认打印选择与当前分镜匹配的完整套图，按从新到旧的故事版本查找。
 export async function landscapeExportSource(db:Database,media:MediaStore,row:SessionRow,doc:Document){
  const total=doc.plan?.pages.length??0;
  let missingPages:number[]|undefined;
- async function readable(image:string){
-  const key=image&&referenceImageKey(row.id,image);
-  try{
-   const asset=key&&await media.get(key);
-   return !!asset&&mediaType(asset.body)===asset.contentType&&await readableLandscapeImage(asset.body);
-  }catch{return false;}
- }
- for(const print of [...(doc.landscapePrints??[])].reverse()){
-  const order=landscapePageOrder(doc,print);
-  if(!order)continue;
-  const images=Array<string>(total).fill('');
-  for(const job of await latestPrintJobs(db,row,print)){
-   const {input}=JSON.parse(job.payload) as Payload;
-   if(job.state==='succeeded'&&input.index>=0&&input.index<total)images[input.index]=(JSON.parse(job.result||'{}') as Partial<Receipt>).image??'';
+ for await(const origin of landscapeVersions(db,row)){
+  for(const print of [...(documentOf(origin).landscapePrints??[])].reverse()){
+   const order=landscapePageOrder(doc,print);
+   if(!order)continue;
+   const {jobs}=await latestPrintJobs(db,origin,print),images=await readableSet(media,origin,print,jobs);
+   const ordered=order.map(index=>images[index]),missing=ordered.flatMap((image,index)=>image?[]:[index+1]);
+   if(!missing.length)return {images:ordered};
+   missingPages??=missing;
   }
-  const ordered=order.map(index=>images[index]),missing:number[]=[];
-  for(const [index,image] of ordered.entries())if(!await readable(image))missing.push(index+1);
-  if(!missing.length)return {images:ordered};
-  missingPages??=missing;
  }
  return {total,missingPages:missingPages??Array.from({length:total},(_,index)=>index+1)};
 }
@@ -113,7 +171,8 @@ export class LandscapePrints{
   const issue=await this.referenceIssue(row.id,images.map((reference,index)=>({reference,index})));
   if(issue)this.missingReferences.set(row.id,JSON.stringify(images));
   else this.missingReferences.delete(row.id);
-  return issue?{...status,startToken:undefined,referenceError:issue.message}:status;
+  return issue?{...status,startToken:undefined,referenceError:issue.message}
+   :{...status,defaultArtStyle:selectionSchema.parse(JSON.parse(row.selection)).artStyle};
  }
 
  private async readableReceipt(job:ProductionJob){
@@ -163,7 +222,7 @@ export class LandscapePrints{
  }
 
  private async project(row:SessionRow,print:LandscapePrint){
-  const jobs=await latestPrintJobs(this.database,row,print),images=Array.from({length:print.story.pages.length},()=>''),failed:ProductionJob[]=[];
+  const {jobs,createdAt}=await latestPrintJobs(this.database,row,print),images=Array.from({length:print.story.pages.length},()=>''),failed:ProductionJob[]=[];
   let unavailable=false;
   for(const job of jobs){
    const {input}=JSON.parse(job.payload) as Payload;
@@ -175,18 +234,19 @@ export class LandscapePrints{
     else{failed.push(job);this.readIssues.set(job.id,'lost');}
    }catch{unavailable=true;this.readIssues.set(job.id,'unavailable');}
   }
-  return {jobs,images,failed,unavailable,running:jobs.some(job=>job.state==='queued'||job.state==='running')};
+  return {jobs,createdAt,images,failed,unavailable,running:jobs.some(job=>job.state==='queued'||job.state==='running')};
  }
 
- private drawingInputs(row:SessionRow){
+ private drawingInputs(row:SessionRow,artStyle?:ArtStyleId){
   const doc=documentOf(row),dag=doc.dag!;
-  const story={id:row.id,doc,dag,selection:selectionSchema.parse(JSON.parse(row.selection)),confirmed:true,faults:[]};
+  const selection=selectionSchema.parse(JSON.parse(row.selection));
+  const story={id:row.id,doc,dag,selection:{...selection,...artStyleSettings(selection,{artStyle})},confirmed:true,faults:[]};
   return dag.order.map(key=>drawInput(story,{call:'drawLandscape',instances:[{node:'landscape',key}]}));
  }
 
  startToken(row:SessionRow){
   const doc=documentOf(row);
-  return inputVersion(['landscape-print',row.id,currentLandscapePrint(doc)?.id,doc.dag!.order,this.drawingInputs(row)]);
+  return inputVersion(['landscape-print',row.id,currentLandscapePrint(doc)?.id,doc.lastLandscapeDiscard,doc.dag!.order,this.drawingInputs(row)]);
  }
 
  async status(row:SessionRow,canStart:boolean):Promise<LandscapeStatus|undefined>{
@@ -210,11 +270,11 @@ export class LandscapePrints{
    ...(running?{controlAction:print.control==='active'?'pause' as const:'resume' as const}:{})};
  }
 
- async sets(row:SessionRow):Promise<LandscapePrintSet[]>{
-  const sets:LandscapePrintSet[]=[],story=view(row).story;
+ async sets(row:SessionRow,target:Document,story:Story|null):Promise<LandscapePrintSet[]>{
+  const sets:LandscapePrintSet[]=[];
   for(const print of [...(documentOf(row).landscapePrints??[])].reverse()){
-   const {images}=await this.project(row,print);
-   if(images.length&&images.every(Boolean))sets.push({id:print.id,story:{...print.story,title:story?.title??print.story.title,publication:story?.publication},images});
+   const {jobs,images,createdAt}=await this.project(row,print);
+   sets.push({...setInfo(print,target,jobs,images,createdAt),story:{...print.story,title:story?.title??print.story.title,publication:story?.publication},images});
   }
   return sets;
  }
@@ -233,14 +293,34 @@ export class LandscapePrints{
   if(!updated.meta.changes)throw new ReaderError(409,'横图已更新，请刷新后再试。');
  }
 
+ private discard(row:SessionRow,printId:string){
+  transact(this.database,db=>{
+   const current=db.get<SessionRow>(`SELECT * FROM story_rows stories WHERE id=? AND user_id=? AND NOT ${landscapePrintHiddenSql()}`,row.id,row.user_id);
+   if(!current)throw new ReaderError(404,'这篇故事不在你的书架里。');
+   const sets=documentOf(current).landscapePrints??[],index=sets.findIndex(set=>set.id===printId);
+   if(index<0)throw new ReaderError(409,'横图套图已更新，请刷新后再试。');
+   const scope=[row.id,row.user_id,landscapePrintKind,printId];
+   const jobs=db.all<ProductionJob>(`SELECT * ${printJobFilter} ${printJobOrder}`,...scope);
+   if(jobs.some(job=>job.state==='running'))throw new ReaderError(409,'正在保存已开始的横图。收尾后才能删除这套图。');
+   const latest=latestByPage(jobs,job=>(JSON.parse(job.payload) as Payload).input.index);
+   if(!canDiscardPrint(sets[index],latest))throw new ReaderError(409,'请先暂停，或选择一套以失败结束的横图。');
+   // 保留已付费的回执和媒体引用，将其余任务标记为过期，并使先前的开画令牌失效。
+   db.run(`UPDATE production_jobs SET state='succeeded',result=json_object('obsolete',1),lease_token=NULL,lease_until=0,updated_at=?
+    WHERE session_id=? AND owner_id=? AND kind=? AND version=? AND state='queued'`,this.now(),...scope);
+   db.run("UPDATE stories SET document=json_set(json_remove(document,?), '$.lastLandscapeDiscard', ?) WHERE id=? AND user_id=?",
+    `$.landscapePrints[${index}]`,printId,row.id,row.user_id);
+  });
+ }
+
  async command(row:SessionRow,command:Exclude<LandscapeCommand,{modelToken:string}>,canStart:boolean,requireProvider?:()=>Promise<unknown>,modelSnapshot?:ModelSnapshot){
+  if('discardPrintId'in command){this.discard(row,command.discardPrintId);return;}
   const doc=documentOf(row),print=currentLandscapePrint(doc);
   if('startToken'in command){
-   if(!canStart||command.startToken!==this.startToken(row)||print&&(await latestPrintJobs(this.database,row,print)).some(job=>job.state==='queued'||job.state==='running'))
+   if(!canStart||command.startToken!==this.startToken(row)||print&&(await latestPrintJobs(this.database,row,print)).jobs.some(job=>job.state==='queued'||job.state==='running'))
     throw new ReaderError(409,'作品或横图状态已更新，请刷新后再试。');
    const story=view(row).story,dag=doc.dag;
    if(!story||!doc.plan||!dag||!story.pages.length||story.pages.some(page=>!page.image))throw new ReaderError(409,'请先完成竖图再绘制横图。');
-   const inputs=this.drawingInputs(row);
+   const inputs=this.drawingInputs(row,command.artStyle);
    await requireProvider?.();
    const issue=await this.referenceIssue(row.id,inputs);
    if(issue)throw issue;

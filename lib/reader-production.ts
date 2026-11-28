@@ -5,13 +5,16 @@ import type {RecoveryRequest,ReviewOverride} from './reader-recovery.ts';
 import type {Story} from './content';
 import type {Plan} from './reader-model.ts';
 import type {ModelSnapshot} from './production-dag/document.ts';
+import type {ArtStyleId} from './reader-styles.ts';
 export const productionViewerLeaseMs=30000;
-export type LandscapeStatus={matchesSavedPages?:boolean;referenceError?:string;readUnavailable?:boolean;state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;retryToken?:string;modelToken?:string;error?:string;service?:ProductionService;control?:GenerationControl;controlAction?:'pause'|'resume';printId?:string;earlier?:EarlierLandscapeWork[]};
+export type LandscapeStatus={matchesSavedPages?:boolean;referenceError?:string;readUnavailable?:boolean;state:'idle'|'running'|'partial'|'completed';available:boolean;total:number;ready:number;images:string[];failed:number[];startToken?:string;defaultArtStyle?:ArtStyleId;retryToken?:string;modelToken?:string;error?:string;service?:ProductionService;control?:GenerationControl;controlAction?:'pause'|'resume';printId?:string;earlier?:EarlierLandscapeWork[]};
 export type EarlierLandscapeWork=Pick<LandscapeStatus,'referenceError'|'readUnavailable'|'state'|'ready'|'total'|'control'|'controlAction'|'startToken'|'retryToken'|'failed'|'error'|'printId'|'modelToken'|'service'>&{storyId:string;revision:number};
-export type LandscapePrintSet={id:string;story:Story;images:string[]};
+export type LandscapePrintSetInfo={id:string;storyId:string;artStyle?:ArtStyleId;createdAt:string;revision:number;ready:number;total:number;state:'running'|'paused'|'partial'|'completed';matchesSavedPages:boolean;discardable:boolean;awaitingSettle?:true};
+export type LandscapePrintSet=LandscapePrintSetInfo&{story:Story;images:string[]};
+export type LandscapePdfMark={setId:string;label:string;revision?:number;draft:boolean};
 /** 横图套图留在发起版本，故事与分镜是印刷时使用的快照。 */
 export type LandscapePrint={id:string;story:Story;plan:Plan;frameKeys?:string[];control:'active'|'paused';modelSnapshot?:ModelSnapshot};
-export type LandscapeCommand={startToken:string}|{retryToken:string}|{modelToken:string}|{control:'pause'|'resume';printId?:string};
+export type LandscapeCommand={startToken:string;artStyle?:ArtStyleId}|{retryToken:string}|{modelToken:string}|{control:'pause'|'resume';printId?:string}|{discardPrintId:string};
 export interface ReaderProduction{
  referencesChanged?():void;
  wake():void;

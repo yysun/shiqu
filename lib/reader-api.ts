@@ -1,5 +1,5 @@
 import {decodeDocument} from './production-dag/document.ts';
-import {landscapeExportSource} from '../server/landscape-print.ts';
+import {landscapeExportSource,selectedLandscapeExportSource} from '../server/landscape-print.ts';
 import {landscapeIncompleteMessage} from './reader-pdf.ts';
 import {createHash} from 'node:crypto';
 // Route reading, recovery and generation through the single local library.
@@ -9,7 +9,7 @@ import {draftInstructions} from './reader-generation-contract.ts';
 import {outlineDirection,batchDirection} from './reader-storyboard.ts';
 import {reviewSystemPrompt,repairSystemPrompt} from './reader-review.ts';
 import {acceptanceInput,acceptanceDirection,acceptanceCriteria} from './reader-acceptance.ts';
-import {getArtDirection} from './reader-styles.ts';
+import {artStyleIds,getArtDirection} from './reader-styles.ts';
 import {promptRecord} from './reader-prompt-records.ts';
 import type {StoryPromptHistory} from './reader-prompt-records.ts';
 import {storyRequirementsSchema} from './reader-requirements.ts';
@@ -334,6 +334,8 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     const story=savedStory(row,selectionSchema.parse(JSON.parse(row.selection)),doc);
     const layout=url.searchParams.get('layout');
     if(layout==='landscape'||layout==='letter'){
+     const setId=url.searchParams.get('setId');
+     if(setId!==null)return json({id:row.id,...await selectedLandscapeExportSource(repo.db,services.media,row,doc,story,uuid.parse(setId))});
      const source=await landscapeExportSource(repo.db,services.media,row,doc);
      if(source.missingPages){
       const {total,missingPages}=source;
@@ -403,7 +405,9 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
    if(path[2]==='landscape'&&path[3]==='sets'&&path.length===4&&req.method==='GET'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
-    return json(await services.production.landscapePrintSets(uid,id));
+    const sets=await services.production.landscapePrintSets(uid,id);
+    if(url.searchParams.get('summary')==='1')return json(sets.map(({story:_story,images:_images,...info})=>{void _story;void _images;return info;}));
+    return json(sets);
    }
    if(path[2]==='landscape'&&path.length===3&&['GET','POST'].includes(req.method)){
     const production=services.production;
@@ -411,7 +415,9 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     if(req.method==='GET')return json(await production.landscapeStatus(uid,id));
     if(services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中启动横版绘图。');
     const token=z.string().regex(/^[a-f0-9]{64}$/);
-    const command=z.union([z.object({startToken:token}).strict(),z.object({retryToken:token}).strict(),z.object({modelToken:token}).strict(),z.object({control:z.enum(['pause','resume']),printId:uuid.optional()}).strict()]).parse(await body(req));
+    const command=z.union([z.object({startToken:token,artStyle:z.enum(artStyleIds).optional()}).strict(),z.object({retryToken:token}).strict(),
+     z.object({modelToken:token}).strict(),z.object({control:z.enum(['pause','resume']),printId:uuid.optional()}).strict(),
+     z.object({discardPrintId:uuid}).strict()]).parse(await body(req));
     return json(await production.startLandscape(uid,id,command),202);
    }
    if(path[2]==='storyboard-summary'&&path.length===3&&req.method==='POST'){

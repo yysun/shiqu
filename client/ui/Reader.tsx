@@ -25,7 +25,8 @@ import {offersProductionAction} from '@/lib/production-lifecycle';
 
 import {pruneReadingCaches,type LibraryInventory} from '../reading-cache.ts';
 import StoryExportControl from './StoryExportControl';
-import StoryLandscapeStep,{storyLandscapeRoute} from './StoryLandscapeStep';
+import StoryLandscapeStep,{landscapeSetLabel,landscapeSetList,storyLandscapeRoute} from './StoryLandscapeStep';
+import type {LandscapePdfMark,LandscapePrintSetInfo} from '@/lib/reader-production';
 import StoryPublicationEditor,{StoryDownloadFormats,StoryDownloads,StoryPublicationDetails,StoryPublicationDefaults} from './StoryPublication';
 import {generationImageModelForPage,generationModelNames} from '@/lib/story-publication';
 import ProviderSettings,{ProviderRuntimeSummary} from './ProviderSettings';
@@ -106,8 +107,9 @@ const readingExports=['pdf','png','zip'] as const;
 const printExports=['pdf-landscape','pdf-letter'] as const;
 const missingLandscapeSchema=z.object({id:z.string().uuid(),ready:z.number().int().nonnegative(),total:z.number().int().positive(),missingPages:z.array(z.number().int().positive()).min(1)});
 type PrintExportError={storyId:string;message:string;missing?:z.infer<typeof missingLandscapeSchema>};
-type LandscapeCover={index:number;images:readonly string[]};
-type ExportSource={id:string;story:Story|null;images?:string[]};
+type LandscapeCover={index:number|null;images:readonly string[];mark?:LandscapePdfMark};
+type PrintSelection={format:PrintPdfFormat;target:Story;sourceId:string;story:Story;sets:LandscapePrintSetInfo[];cover:LandscapeCover};
+type ExportSource={id:string;story:Story|null;images?:string[];mark?:LandscapePdfMark};
 function printExportFailure(storyId:string,error:unknown):PrintExportError{
  const missing=error instanceof ResponseError&&error.status===409?missingLandscapeSchema.safeParse(error.body).data:undefined;
  return {storyId,message:error instanceof Error?error.message:'导出失败，请保持联网后重试。',missing};
@@ -119,13 +121,17 @@ async function readExportSource(target:Story){
  if(missing.length)throw Error('当前版本缺少第 '+missing.join('、')+' 幅图片。');
  return {story};
 }
-async function readPrintExportSource(target:Story,format:PrintPdfFormat){
+async function readPrintExportSource(target:Story,format:PrintPdfFormat,setId?:string){
  const layout=format==='pdf-letter'?'letter':'landscape';
- const {story,images}:ExportSource=isGenerated(target)?await request('reader/sessions/'+target.id+'/export?layout='+layout):{id:target.id,story:target};
+ const query=new URLSearchParams({layout,...(setId?{setId}:{})});
+ const {id,story,images,mark}:ExportSource=isGenerated(target)?await request('reader/sessions/'+target.id+'/export?'+query):{id:target.id,story:target};
  if(!story)throw Error('当前版本尚未保存分镜。');
- assertLandscapePdfReady(story.pages.length,images);
- return {story,images};
+ if(setId&&mark?.setId!==setId)throw Error('未能读取所选的横图套图。');
+ if(!mark?.draft)assertLandscapePdfReady(story.pages.length,images);
+ if(!images||images.length!==story.pages.length)throw Error('横版插图与分镜的幅数不一致。');
+ return {id,story,images,mark};
 }
+function firstAvailableCover(images:readonly string[]){const index=images.findIndex(Boolean);return index<0?null:index;}
 const otherBook:Book={id:'other',title:'其他',author:'书名或 URL',era:'自选',genre:'自选',note:'带上你自己的那本书'};
 const moods=discoveryThemes;
 
@@ -215,7 +221,9 @@ export default function Reader(){
  const favoriteLock=useRef(false);
  const deleted=useRef(new Set<string>());
  const [exporting,setExporting]=useState<ExportFormat|null>(null),[exportProgress,setExportProgress]=useState(''),[downloadUrl,setDownloadUrl]=useState('');
- const [landscapeCover,setLandscapeCover]=useState<{format:PrintPdfFormat;story:Story;cover:LandscapeCover;targetId:string}|null>(null);
+ const [landscapeCover,setLandscapeCover]=useState<PrintSelection|null>(null);
+ const [switchingPrintSet,setSwitchingPrintSet]=useState(false);
+ const [printSetError,setPrintSetError]=useState('');
  const [printExportError,setPrintExportError]=useState<PrintExportError|null>(null);
  useEffect(()=>()=>{if(downloadUrl)URL.revokeObjectURL(downloadUrl);},[downloadUrl]);
  const exportLock=useRef(false),reselectLock=useRef(false);
@@ -452,9 +460,12 @@ export default function Reader(){
   const print=format==='pdf-landscape'||format==='pdf-letter';
   try{
    if(print&&!cover){
-    const {story,images}=await readPrintExportSource(output,format);
+    const sets=isGenerated(output)?await landscapeSetList(output.id):[];
+    const selected=sets.find(set=>set.state==='completed')??sets[0];
+    const {id,story,images,mark}=await readPrintExportSource(output,format,selected?.id);
     setPrintExportError(error=>error?.storyId===output.id?null:error);
-    setLandscapeCover({format,story,cover:{index:0,images},targetId:output.id});return;
+    setPrintSetError('');
+    setLandscapeCover({format,target:output,sourceId:id,story,sets,cover:{index:firstAvailableCover(images),images,mark}});return;
    }
    if(format==='zip'){
     const {downloadStoryZip}=await import('@/lib/reader-zip');
@@ -467,7 +478,7 @@ export default function Reader(){
    }else{
     const {downloadStoryPdf}=await import('@/lib/reader-pdf');
     const layout=format==='pdf-letter'?'letter':format==='pdf-landscape'?'landscape':'portrait';
-    const result=await downloadStoryPdf(output,setExportProgress,layout,cover?.images,cover?.index);setDownloadUrl(result.url);
+    const result=await downloadStoryPdf(output,setExportProgress,layout,cover?.images,cover?.index,cover?.mark);setDownloadUrl(result.url);
     notify('PDF 已准备好，可再次下载。');
    }
   }catch(e){
@@ -476,6 +487,15 @@ export default function Reader(){
    else notify(message);
   }
   finally{exportLock.current=false;setExporting(null);setExportProgress('');}
+ }
+ async function switchPrintSet(current:PrintSelection,setId:string){
+  if(switchingPrintSet||current.cover.mark?.setId===setId)return;
+  setSwitchingPrintSet(true);setPrintSetError('');
+  try{
+   const {id,story,images,mark}=await readPrintExportSource(current.target,current.format,setId);
+   setLandscapeCover(value=>value===current?{...current,sourceId:id,story,cover:{index:firstAvailableCover(images),images,mark}}:value);
+  }catch(error){setPrintSetError(error instanceof Error?error.message:'暂时无法读取这套横图。');}
+  finally{setSwitchingPrintSet(false);}
  }
  async function chooseSavedStory(batch:number,index:number){
   if(!discoveryTarget||gen.active?.id!==discoveryTarget||creating)return;
@@ -891,34 +911,47 @@ export default function Reader(){
   setPresentation(item=>item?.session?.id===session.id?{...item,session}:item);
   notify('署名与转载说明已保存。');
  }}/>}
- {landscapeCover&&<Sheet title={'选择'+exportOptions[landscapeCover.format].label+'封面'} onClose={()=>setLandscapeCover(null)}>
+ {landscapeCover&&<Sheet title={'导出'+exportOptions[landscapeCover.format].label} onClose={()=>setLandscapeCover(null)}>
   <div className="yu-export-confirmation">
    <p className="yu-publication-work">{landscapeCover.story.title}</p>
    {landscapeCover.format==='pdf-letter'&&<p>打印时选 Letter 纵向、实际大小（100%）、每张一页、双面长边翻转。</p>}
-   <fieldset className="yu-cover-options" aria-label="封面画幅">
-    {landscapeCover.cover.images.map((image,index)=><label key={index}>
+   {landscapeCover.sets.length>0&&<label className="yu-revision-field">横图套图
+    <select value={landscapeCover.cover.mark?.setId??''} disabled={switchingPrintSet||!!exporting} onChange={event=>void switchPrintSet(landscapeCover,event.target.value)}>
+     {landscapeCover.sets.map(set=><option key={set.id} value={set.id}>{landscapeSetLabel(set)}</option>)}
+    </select>
+   </label>}
+   {landscapeCover.cover.mark?.draft&&<p>试印稿保留缺图画幅的位置、配文和页码。</p>}
+   {landscapeCover.cover.index===null?<p>封面将使用故事标题。</p>:<fieldset className="yu-cover-options" aria-label="封面画幅" disabled={switchingPrintSet}>
+    {landscapeCover.cover.images.map((image,index)=>image&&<label key={index}>
      <img src={image} alt="" loading="lazy" decoding="async"/>
      <span><input type="radio" name="landscape-pdf-cover" checked={landscapeCover.cover.index===index} onChange={()=>setLandscapeCover({...landscapeCover,cover:{...landscapeCover.cover,index}})}/>第 {index+1} 幅</span>
     </label>)}
-   </fieldset>
+   </fieldset>}
+   {switchingPrintSet&&<p role="status">正在读取横图套图…</p>}
+   {printSetError&&<p role="alert">{printSetError}</p>}
    <div className="yu-export-confirmation-actions">
-    <StoryExportControl key={landscapeCover.story.id} loadStory={async()=>{
-     const latest=await readPrintExportSource(landscapeCover.story,landscapeCover.format).catch(error=>{
-      const failure=printExportFailure(landscapeCover.targetId,error);
+    <StoryExportControl key={landscapeCover.cover.mark?.setId??landscapeCover.story.id} loadStory={async()=>{
+     const latest=await readPrintExportSource(landscapeCover.target,landscapeCover.format,landscapeCover.cover.mark?.setId).catch(error=>{
+      const failure=printExportFailure(landscapeCover.target.id,error);
       if(!failure.missing)throw error;
       setPrintExportError(failure);setLandscapeCover(null);return null;
      });
      if(!latest)return null;
-     if(latest.story.id!==landscapeCover.story.id||JSON.stringify(landscapeCover.cover.images)!==JSON.stringify(latest.images)){
-      setLandscapeCover({...landscapeCover,story:latest.story,cover:{index:0,images:latest.images}});
-      notify('打印图稿已更新，请重新选择封面。');return null;
+     if(latest.id!==landscapeCover.sourceId||latest.story.id!==landscapeCover.story.id||JSON.stringify(landscapeCover.cover.images)!==JSON.stringify(latest.images)){
+      const index=landscapeCover.cover.index;
+      const {mark,images}=latest;
+      setLandscapeCover({...landscapeCover,sourceId:latest.id,story:latest.story,
+       cover:{index:index!==null&&images[index]?index:firstAvailableCover(images),images,mark},
+       sets:landscapeCover.sets.map(set=>set.id===mark?.setId?{...set,total:images.length,ready:images.filter(Boolean).length,
+        matchesSavedPages:mark.revision===undefined,state:mark.draft?(set.state==='completed'?'partial':set.state):'completed'}:set)});
+      throw Error('这套横图的可用画幅已更新，请核对后再次导出。');
      }
      return latest.story;
-    }} format="pdf" className="yu-primary" busy={exporting===landscapeCover.format} disabled={!!exporting} onEdit={isGenerated(landscapeCover.story)?target=>{
-     setPublicationTarget(target);setLandscapeCover(null);
+    }} format="pdf" className="yu-primary" busy={exporting===landscapeCover.format} disabled={!!exporting||switchingPrintSet} onEdit={isGenerated(landscapeCover.target)?target=>{
+     setPublicationTarget({...target,id:landscapeCover.sourceId});setLandscapeCover(null);
     }:undefined} onExport={output=>{
      setLandscapeCover(null);return exportStory(landscapeCover.format,output,landscapeCover.cover);
-    }}>导出{exportOptions[landscapeCover.format].label}</StoryExportControl>
+    }}>{landscapeCover.cover.mark?.draft?'导出试印稿':'导出'+exportOptions[landscapeCover.format].label}</StoryExportControl>
     <button type="button" className="yu-revision-open" onClick={()=>setLandscapeCover(null)}>取消</button>
    </div>
   </div>

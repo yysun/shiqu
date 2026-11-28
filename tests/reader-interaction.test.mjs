@@ -187,14 +187,14 @@ test('print PDF requires complete landscape artwork and prints without cropping'
  story.sourceUrl='https://a.test/'+encodeURIComponent('子不语')+'%2F';
  story.publication={...story.publication,workUrl:'https://b.test/'+encodeURIComponent('待尤郎')+'/%E9'};
  const jpeg=new Blob([await createCanvas(2,2).encode('jpeg')],{type:'image/jpeg'});
- async function render(layout,images,coverIndex){
+ async function render(layout,images,coverIndex,mark){
   const reads=[],draws=[],textDraws=[];
   const context={fillRect(){},fillText:(text,x,y,width)=>textDraws.push({text,x,y,width,imagesDrawn:draws.length}),clearRect(){},measureText:text=>({width:text.length*32}),
    drawImage:(...args)=>draws.push(args),createLinearGradient:()=>({addColorStop(){}})};
   const runtime={ready:async()=>{},canvas:()=>({getContext:()=>context,toBlob:done=>done(jpeg)}),
    read:async (url,index)=>{reads.push([url,index]);return url;},
    image:async(url,draw)=>{const wide=landscape.includes(url);return draw({value:url,width:wide?30:20,height:wide?20:30});}};
-  return {reads,draws,textDraws,pdf:await PDFDocument.load(await createStoryPdf(story,undefined,runtime,layout,images,coverIndex))};
+  return {reads,draws,textDraws,pdf:await PDFDocument.load(await createStoryPdf(story,undefined,runtime,layout,images,coverIndex,mark))};
  }
  await assert.rejects(render('landscape',[landscape[0],portrait[1]]),/第 2 幅横图/);
  const complete=await render('landscape',landscape);
@@ -242,6 +242,18 @@ test('print PDF requires complete landscape artwork and prints without cropping'
  assert.deepEqual(letter.draws,selectedLandscape.draws);
  assert.equal(letter.pdf.getPageCount(),4);
  assert.equal(pdfFilename(story.title,'letter'),`${story.title}-拾趣-Letter双面.pdf`);
+ const mark={label:'水彩绘本',draft:true,setId:'12345678-test',revision:2};
+ const draft=await render('landscape',['',landscape[1]],1,mark);
+ assert.equal(draft.pdf.getPageCount(),complete.pdf.getPageCount());
+ assert.deepEqual(draft.reads,[[landscape[1],1]]);
+ assert.equal(draft.textDraws.filter(draw=>draw.text==='横图待生成').length,1);
+ assert.ok(draft.textDraws.some(draw=>draw.text==='试印稿 · 水彩绘本 · 原分镜第 2 版'));
+ assert.deepEqual(draft.textDraws.map(draw=>draw.text).filter(text=>/^\d+\. /.test(text)),story.pages.map((scene,index)=>`${index+1}. ${scene.caption}`));
+ const empty=await render('letter',['',''],null,mark);
+ assert.equal(empty.pdf.getPageCount(),letter.pdf.getPageCount());
+ assert.deepEqual(empty.reads,[]);
+ assert.equal(empty.textDraws.filter(draw=>draw.text==='横图待生成').length,2);
+ assert.equal(pdfFilename(story.title,'letter',mark),`${story.title}-水彩绘本-12345678-试印稿-拾趣-Letter双面.pdf`);
 });
 
 test('Letter PDF preserves duplex pairing and omits the trailing blank reverse',async()=>{

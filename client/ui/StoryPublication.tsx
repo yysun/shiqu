@@ -19,7 +19,7 @@ export function StoryDownloadFormats({downloads,printDownloads,printStatus,revea
  return <div className="yu-download-formats">
   <section aria-label="阅读与存档"><h3>阅读与存档</h3><div className="yu-download-list">{downloads}</div></section>
   <section aria-label="打印">
-   <div className="yu-download-heading"><h3>打印</h3>{!revealPrintRecovery&&<span>需完整横图</span>}</div>
+   <div className="yu-download-heading"><h3>打印</h3>{!revealPrintRecovery&&<span>可导出试印稿</span>}</div>
    {printStatus&&<div className="yu-download-print-feedback" ref={printFeedback}>{printStatus}</div>}
    <div className="yu-download-list">{printDownloads}</div>
   </section>

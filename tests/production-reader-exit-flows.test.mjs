@@ -572,6 +572,11 @@ test('a completed landscape set is printable from a revised story in the origina
  assert.equal(latest.id,child);assert.deepEqual(latest.missingPages,[1,2,3,4]);
  assert.equal(print.story.id,id);
  assert.deepEqual(print.images,original);
+ const selected=await f.json(`sessions/${child}/export?layout=letter&setId=${print.id}`);
+ assert.equal(selected.id,child);
+ assert.equal(selected.mark.revision,1);
+ assert.deepEqual(selected.story.pages,print.story.pages);
+ assert.deepEqual(selected.images,original);
  assert.equal((await f.json(`sessions/${child}/landscape`)).ready,0);
  assert.equal(f.control.calls.filter(call=>call.landscape).length,4);
 });
@@ -660,7 +665,7 @@ test('a new print set preserves its predecessor and rejects controls for the pre
  const exportRoute=`sessions/${id}/export?layout=landscape`,firstImages=(await f.json(route)).images;
  f.control.hold=true;
  const next=await f.json(route,'POST',{startToken:(await f.json(route)).startToken});
- assert.deepEqual((await f.json(route+'/sets')).map(set=>set.id),[first.printId]);
+ assert.deepEqual((await f.json(route+'/sets')).map(set=>set.id),[next.printId,first.printId]);
  assert.deepEqual((await f.json(exportRoute)).images,firstImages);
  const stale=await f.request(route,'POST',{control:'pause',printId:first.printId});
  assert.equal(stale.status,409);
@@ -720,6 +725,115 @@ test('a new print set preserves its predecessor and rejects controls for the pre
   assert.equal((await f.json(`sessions/${id}/export`)).images,undefined);
  }finally{f.app.services.production=worker;}
  assert.deepEqual(await capture(),before);assert.equal(f.control.calls.length,calls);
+});
+
+test('landscape editions select and retry an independent style, including empty and partial print drafts',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4,selection:{artStyle:'gongbi'}});
+ const route=`sessions/${id}/landscape`,exportRoute=`sessions/${id}/export`;
+ const portrait=(await f.read(id)).story.pages.map(page=>page.image);
+ f.control.hold=false;
+ const offer=await f.json(route);
+ assert.equal(offer.defaultArtStyle,'gongbi');
+ const invalid=await f.request(route,'POST',{startToken:offer.startToken,artStyle:'unknown'});
+ assert.equal(invalid.status,400);
+ const water=await f.json(route,'POST',{startToken:offer.startToken,artStyle:'watercolor'});
+ await until(async()=>(await f.json(route)).state==='completed');
+ const original=(await f.json(route)).images;
+ assert.equal(f.control.calls.length,4);
+ assert.ok(f.control.calls.every(call=>call.landscape&&call.prompt.includes('Hand-painted watercolor')));
+
+ f.control.hold=true;
+ f.control.beforeImage=call=>{if(call.page%2)throw Error('受控横图未生成');};
+ const ink=await f.json(route,'POST',{startToken:(await f.json(route)).startToken,artStyle:'ink-wash'});
+ const empty=await f.json(exportRoute+`?layout=landscape&setId=${ink.printId}`);
+ assert.deepEqual(empty.images,['','','','']);
+ assert.equal(empty.mark.draft,true);
+ const emptyPDF=await createStoryPdf(empty.story,undefined,nativeExportRuntime(process.cwd(),f.app),'landscape',empty.images,null,empty.mark);
+ assert.equal(Buffer.from(emptyPDF).subarray(0,5).toString(),'%PDF-');
+ f.control.hold=false;
+ for(const call of f.control.calls)call.resolve();
+ await until(async()=>!!(await f.json(route)).retryToken);
+ const sets=await f.json(route+'/sets');
+ assert.deepEqual(sets.map(set=>[set.id,set.artStyle,set.state,set.ready,set.total]),[
+  [ink.printId,'ink-wash','partial',2,4],[water.printId,'watercolor','completed',4,4],
+ ]);
+ assert.deepEqual(sets.map(set=>set.discardable),[true,false]);
+ const count=f.control.calls.length;
+ for(const layout of ['landscape','letter']){
+  const full=await f.json(exportRoute+`?layout=${layout}&setId=${water.printId}`);
+  assert.deepEqual(full.images,original);
+  assert.equal(full.mark.draft,false);
+  const draft=await f.json(exportRoute+`?layout=${layout}&setId=${ink.printId}`);
+  assert.equal(draft.mark.draft,true);
+  assert.deepEqual(draft.images.map(Boolean),[true,false,true,false]);
+  assert.ok(draft.images.filter(Boolean).every(image=>!original.includes(image)));
+  assert.deepEqual(draft.story.pages.map(page=>page.image),portrait);
+  const runtime=nativeExportRuntime(process.cwd(),f.app),read=runtime.read,sources=[];
+  runtime.read=(url,page)=>{sources.push([page,url]);return read(url,page);};
+  const pdf=await createStoryPdf(draft.story,undefined,runtime,layout,draft.images,2,draft.mark);
+  assert.equal(Buffer.from(pdf).subarray(0,5).toString(),'%PDF-');
+  assert.deepEqual(sources,[[2,draft.images[2]],[0,draft.images[0]]]);
+ }
+ const another=await completedStory(f,{length:4});
+ assert.equal((await f.request(`sessions/${another.id}/export?layout=letter&setId=${ink.printId}`)).status,404);
+ assert.equal(f.control.calls.length,count);
+ f.control.beforeImage=null;
+ await f.json(route,'POST',{retryToken:(await f.json(route)).retryToken});
+ await until(async()=>(await f.json(route)).state==='completed');
+ assert.deepEqual(f.control.calls.slice(count).map(call=>call.page).sort(),[1,3]);
+ assert.ok(f.control.calls.slice(4).every(call=>call.landscape&&call.prompt.includes('Traditional Chinese ink-wash')));
+ assert.deepEqual((await f.read(id)).story.pages.map(page=>page.image),portrait);
+ assert.equal((await savedSelection(f,id)).artStyle,'gongbi');
+ assert.equal((await f.json(route+'/sets'))[0].createdAt,sets[0].createdAt);
+});
+
+test('discarding a paused landscape edition after it drains preserves the earlier set and fences stale commands',async t=>{
+ const f=await productionFixture(t),{id}=await completedStory(f,{length:4,selection:{artStyle:'gongbi'}});
+ const route=`sessions/${id}/landscape`,source=`sessions/${id}/export?layout=letter`;
+ const portraits=(await f.read(id)).story.pages.map(page=>page.image);
+ f.control.hold=false;
+ const first=await f.json(route,'POST',{startToken:(await f.json(route)).startToken,artStyle:'watercolor'});
+ await until(async()=>(await f.json(route)).state==='completed');
+ const original=(await f.json(route)).images;
+ const {startToken}=await f.json(route);
+ f.control.hold=true;
+ const paused=await f.json(route,'POST',{startToken,artStyle:'ink-wash'});
+ await until(()=>f.control.calls.length===5);
+ assert.equal((await f.request(route,'POST',{discardPrintId:paused.printId})).status,409);
+ await f.json(route,'POST',{control:'pause',printId:paused.printId});
+ const setsWhileDraining=await f.json(route+'/sets?summary=1');
+ assert.deepEqual(setsWhileDraining.map(set=>[set.id,set.state,set.discardable]),[
+  [paused.printId,'paused',false],[first.printId,'completed',false],
+ ]);
+ assert.equal(setsWhileDraining[0].awaitingSettle,true);
+ assert.equal((await f.request(route,'POST',{discardPrintId:paused.printId})).status,409);
+ f.control.hold=false;f.control.calls[4].resolve();
+ await until(async()=>(await f.json(route+'/sets?summary=1'))[0]?.discardable);
+ assert.equal((await f.json(route+'/sets?summary=1'))[0].ready,1);
+ const retained=(await f.json(source+`&setId=${paused.printId}`)).images[0];
+ assert.ok(retained);
+ const after=await f.json(route,'POST',{discardPrintId:paused.printId});
+ assert.equal(after.printId,first.printId);
+ assert.notEqual(after.startToken,startToken);
+ assert.equal((await f.request(route,'POST',{startToken,artStyle:'ink-wash'})).status,409);
+ assert.equal((await f.request(route,'POST',{control:'resume',printId:paused.printId})).status,409);
+ assert.equal((await f.request(route,'POST',{discardPrintId:first.printId})).status,409);
+ assert.equal((await f.request(source+`&setId=${paused.printId}`)).status,404);
+ const receipts=await f.app.services.database.prepare('SELECT result FROM production_jobs WHERE session_id=? AND version=? ORDER BY priority').bind(id,paused.printId).all();
+ assert.equal(JSON.parse(receipts.results[0].result).image,retained);
+ assert.deepEqual(receipts.results.slice(1).map(job=>JSON.parse(job.result)),Array.from({length:3},()=>({obsolete:1})));
+ await f.restart();
+ const remaining=await f.json(route+'/sets?summary=1');
+ assert.deepEqual(remaining.map(set=>set.id),[first.printId]);
+ assert.deepEqual((await f.json(source)).images,original);
+ assert.equal(f.control.calls.length,5);
+ const redrawn=await f.json(route,'POST',{startToken:(await f.json(route)).startToken,artStyle:'paper-cut'});
+ await until(async()=>(await f.json(route)).state==='completed');
+ assert.ok(f.control.calls.slice(5).every(call=>call.landscape&&call.prompt.includes('Layered Chinese paper-cut')));
+ assert.equal(f.control.calls.length,9);
+ assert.deepEqual((await f.json(route+'/sets?summary=1')).map(set=>set.id),[redrawn.printId,first.printId]);
+ assert.deepEqual((await f.json(source+`&setId=${first.printId}`)).images,original);
+ assert.deepEqual((await f.read(id)).story.pages.map(page=>page.image),portraits);
 });
 
 test('a queued retry keeps its print set when a competing start finishes authorization',async t=>{

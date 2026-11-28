@@ -1164,6 +1164,13 @@ test('confirming a portrait redraw leaves the earlier landscape set available wi
  const [original]=await f.json(`sessions/${child.id}/landscape/sets`);
  assert.equal(original.story.id,id);
  assert.deepEqual(original.images,old);
+ assert.equal(original.matchesSavedPages,true);
+ const exported=await f.json(`sessions/${child.id}/export?layout=landscape&setId=${original.id}`);
+ assert.equal(exported.story.id,child.id);
+ assert.equal(exported.mark.revision,undefined);
+ assert.deepEqual(exported.images,old);
+ assert.deepEqual((await f.json(`sessions/${child.id}/export?layout=landscape`)).images,old);
+ assert.equal(f.control.calls.length,before+1);
  assert.equal((await f.json(`sessions/${child.id}/landscape`)).state,'idle');
 });
 
