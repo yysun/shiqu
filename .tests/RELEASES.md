@@ -8,8 +8,8 @@ schema: test-manager/releases/v1
 
 - Candidate: 73d6a18149c351155945d302c2aad2e981de7117
 - Decision owner: Yiyi Sun
-- Decision: UNDECIDED
-- Decided at: —
+- Decision: GO
+- Decided at: 2026-11-28T04:38:51Z
 - Sign-off record: [0.18.0 签核记录](release-0-18/SUITE.md#签核记录)
 
 ### Scope
