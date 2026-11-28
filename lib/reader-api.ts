@@ -513,7 +513,7 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
     const b=z.object({requestId:uuid,action:z.enum(['pause','stop','resume','continue','apply-model','reprepare'])}).strict().parse(await body(req));
     const control=(accepted?:()=>void)=>services.production!.control(uid,id,b.action,b.requestId,!commandOnly,accepted);
     if(b.action==='pause'||b.action==='stop')return json(await control());
-    return json(await saveStory(id,b.requestId,control,{authorize:true}));
+    return json(await saveStory(id,b.requestId,control,{authorize:b.action!=='apply-model'}));
    }
    if(path[2]==='production'&&path.length===3){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');

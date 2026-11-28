@@ -35,7 +35,9 @@ function matches(a:string,b:string){
  return lhs.length===rhs.length&&timingSafeEqual(lhs,rhs);
 }
 function affinity(root:string,environment:NodeJS.ProcessEnv){
- return createHash('sha256').update(JSON.stringify([root,Object.entries(environment).sort(([a],[b])=>a.localeCompare(b))])).digest('hex');
+ // macOS 可以向子进程补上此系统编码变量，它与 CLI 的模型及书库设置无关。
+ const entries=Object.entries(environment).filter(([name])=>name!=='__CF_USER_TEXT_ENCODING').sort();
+ return createHash('sha256').update(JSON.stringify([root,entries])).digest('hex');
 }
 
 export async function startCliService(root:string,directory:string,runtime:Runtime){

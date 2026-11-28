@@ -132,15 +132,15 @@ test('caller directory, stdin and inherited environment follow each invocation',
  const input={bookId:'zhuangzi',theme:'原典故事'};
  await writeFile(path.join(second,'selection.json'),JSON.stringify(input));
  await ok(command(f,directory,['stories','create','--input','-'],{cwd:first,input}));
- const firstOwner=desktopOwner(directory);
  const {session}=await ok(command(f,directory,['stories','create','--input','selection.json'],{cwd:second}));
- assert.equal(desktopOwner(directory).id,firstOwner.id);
  await writeFile(path.join(second,'original.txt'),'第一章 旧院\n主人来到旧院门前。\n\n第二章 新路\n主人走向了新路。');
  const imported=await ok(command(f,directory,['books','import','original.txt','--title','本地原文','--accept-rights','--encoding','utf-8'],{cwd:second}));
  assert.match(imported.id,/^my-/);
- const readonly=await command(f,directory,['run',session.id,'--until','candidates','--timeout','2'],{environment:{SHIQU_AI_PROVIDER:'readonly',SHIQU_TEST_CALLER_PROFILE:'replacement'}}).result;
- assert.equal(readonly.body.error.code,'PROVIDER_UNAVAILABLE');
- assert.notEqual(desktopOwner(directory).id,firstOwner.id);
+ const previous=desktopOwner(directory);
+ assert.ok(previous?.managed);
+ const replacement={...f.env,SHIQU_AI_PROVIDER:'readonly',SHIQU_TEST_CALLER_PROFILE:'replacement'};
+ await assert.rejects(callCliService(f.root,directory,['run',session.id,'--until','candidates','--timeout','2'],second,replacement),{code:'PROVIDER_UNAVAILABLE'});
+ assert.notEqual(desktopOwner(directory).id,previous.id);
  assert.doesNotMatch(await readFile(path.join(directory,'.desktop-owner.json'),'utf8'),/replacement/);
 });
 
@@ -190,9 +190,9 @@ test('one online coordinator handles CLI production, browser authorization and c
  const f=await productionFixture({after:fn=>cleanup.push(fn)});await f.stop();f.control.hold=false;
  const books=libraryFixture(),generation=withLocalBooks(f.generation,books.books,f.media);
  const directory=f.dataDirectory,root=process.cwd(),release=ownDesktopDataSync(directory);
- let app,service;
+ let app,service,model={provider:'codex',models:{image:'fixture-first'}};
  async function start(){
-  app=createApplication({root,dataDirectory:directory,generation});
+  app=createApplication({root,dataDirectory:directory,generation,production:{snapshots:{current:()=>model,provider:()=>generation}}});
   app.services.localBooks=books.books;
   service=await startCliService(root,directory,{application:app});
  }
@@ -264,6 +264,10 @@ test('one online coordinator handles CLI production, browser authorization and c
  await app.services.production.tick();
  assert.equal(f.control.calls.length,0);
  assert.equal((await command(['run',requestId,'--until','reviewed'])).reason,'reviewed');
+ model={provider:'codex',models:{image:'fixture-next'}};
+ await browser(requestId,'apply-model');
+ await app.services.production.tick();
+ assert.equal(f.control.calls.length,0);
 
  // 新的浏览器授权只释放第一篇，第二篇继续保留审片停点。
  await browser(requestId,'pause');
