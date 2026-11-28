@@ -156,7 +156,7 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
  const lines=createInterface({input:process.stdin,crlfDelay:Infinity});
  const abort=new AbortController();
  type Attached=Exclude<Awaited<ReturnType<typeof attachDesktop>>,undefined|{error:string}>;
- let runtime:Awaited<ReturnType<typeof startDesktop>>|undefined,attached:Attached|undefined,starting=false,closing=false,inputClosed=false;
+ let runtime:Awaited<ReturnType<typeof startDesktop>>|undefined,attached:Attached|undefined,starting=false,closing=false,detaching=false;
  let monitor:ReturnType<typeof setInterval>|undefined,polling=false,stopRequests=0,stopAccepted=false,missed=0;
  let attachedSkill:AgentSkillStatus|undefined;
  const send=(value:unknown)=>process.stdout.write(JSON.stringify(value)+'\n');
@@ -168,8 +168,9 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
   try{if(runtime)await runtime.stop();else await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);}catch{process.exitCode=1;}
   process.exit(Number(process.exitCode??0));
  }
- lines.on('close',()=>{inputClosed=true;abort.abort();if(!starting&&!stopRequests&&!stopAccepted)void stop();});
- for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{abort.abort();if(!starting&&!stopRequests&&!stopAccepted)void stop();});
+ const detach=()=>{detaching=true;abort.abort();if(!starting&&!stopRequests&&!stopAccepted)void stop();};
+ lines.on('close',detach);
+ for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,detach);
  process.on('exit',()=>{void stopCodexProcesses();void stopClaudeProcesses();});
  // 丢弃原始异常及提供方输出，父进程只接收安全状态。
  process.on('uncaughtException',()=>{send({error:'服务意外退出，请重新启动。'});void stop(1);});
@@ -198,7 +199,7 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
     stopAccepted||=accepted;stopRequests--;
     if(command.action==='stop')send({stopReply:command.requestId,accepted,draining:reply?.draining===true});
     if(stopAccepted)void pollAttached();
-    else if(inputClosed||command.action==='shutdown'){send({error:'无法确认书库服务已停止。'});void stop(1);}
+    else if(detaching||command.action==='shutdown'){send({error:'无法确认书库服务已停止。'});void stop(1);}
    });
    return;
   }
@@ -227,13 +228,13 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
      attached=existing;
      attachedSkill=await ensureAgentSkill(root,{runtime:{node:process.execPath,cli:path.join(root,'dist/server/agent-cli.js')}});
      starting=false;
-     if(inputClosed){await stop();return;}
+     if(detaching){await stop();return;}
      send({...attached.status,agentSkill:attachedSkill});
      monitor=setInterval(()=>void pollAttached(),300);
      return;
     }
     runtime=await startDesktop(input.settings,input.key,root,{signal:abort.signal,onStatus:send,imageKey:input.imageKey,settingsFile:input.settingsFile,overrides:input.overrides,installAgentSkill:true});starting=false;
-    if(inputClosed){await stop();return;}
+    if(detaching){await stop();return;}
     send(runtime.status);
    }catch(error){send({running:false,state:'failed',phoneUrls:[],error:desktopFailure(error)});starting=false;await stop();}
   })();
