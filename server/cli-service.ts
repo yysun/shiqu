@@ -249,13 +249,15 @@ export async function callCliService(root:string,directory:string,args:string[],
   while(Date.now()<deadline&&!controller.signal.aborted){
    const owner=desktopOwner(directory);
    const alive=owner&&ownerProcessExists(owner.pid);
-   let unavailable=false;
-   if(alive&&owner.service?.protocol===protocol){
+   // 不兼容的自动服务可以自然空闲退出；探测它的身份会延长寿命。
+   const compatible=!owner?.managed||owner.service?.affinity===key;
+   let unavailable=Boolean(alive&&owner.service?.protocol===protocol&&!compatible);
+   if(alive&&owner.service?.protocol===protocol&&compatible){
     const agent=new Agent({keepAlive:true,maxSockets:1});
     try{
      const service=await identify(owner,agent,controller.signal).catch(()=>undefined);
      unavailable=!service;
-     if(service&&(!owner.managed||owner.service.affinity===key)){
+     if(service){
       const response=await sendHttp(service.url,'/command','POST',agent,controller.signal,{socket:service.socket,key:owner.id,body:JSON.stringify(command)});
       activeOwner=owner;
       return await collect(response);
