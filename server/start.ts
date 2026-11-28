@@ -8,6 +8,7 @@ import {desktopAccess} from './desktop-access.ts';
 import {stopCodexProcesses} from './codex-runner.ts';
 import {stopClaudeProcesses} from './claude-runner.ts';
 import {ownDesktopData} from './desktop-owner.ts';
+import {startCliService} from './cli-service.ts';
 import {installDiagnostics,recordDiagnostic,safeErrorCode} from './diagnostics.ts';
 import {browserProviderSettings} from './browser-provider-settings.ts';
 import {providerSettingsPath} from '../lib/provider-settings.ts';
@@ -24,11 +25,12 @@ export async function startServer({root,variables=process.env,localAccess=false,
  const urls=phoneUrls(config.host,config.port);
  const handle=localAccess?desktopAccess(app.handle,{hosts:[`localhost:${config.port}`,`127.0.0.1:${config.port}`,`[::1]:${config.port}`,...urls.map(url=>new URL(url).host)]}).handle:developmentAccess(app.handle,variables,config.port);
  const server=createHttpServer((request,peer)=>providerSettings&&new URL(request.url).pathname===providerSettingsPath?providerSettings(request,peer):handle(request));
+ let cli:Awaited<ReturnType<typeof startCliService>>|undefined;
  let closing:Promise<void>|undefined,stopping=false;
  function closeApplication(){
   return closing??=(async()=>{
    app.stopGeneration();
-   try{await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);await app.close();}
+   try{await cli?.close();await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);await app.close();}
    finally{recordDiagnostic(config.dataDirectory,'service_stopped');removeDiagnostics();await release();}
   })();
  }
@@ -38,8 +40,13 @@ export async function startServer({root,variables=process.env,localAccess=false,
    server.listen(config.port,host,()=>{server.off('error',reject);resolve();});
   });
  }
- function stop(){
-  if(stopping)return;stopping=true;
+ function stop(force:boolean){
+  if(stopping)return;
+  if(!force&&!cli?.pause()){
+   console.error('书库有正在进行的任务，请等当前步骤保存后再停止服务。');
+   return;
+  }
+  stopping=true;
   app.stopGeneration();
   const closed=new Promise<void>(resolve=>server.close(()=>resolve()));
   server.closeAllConnections();
@@ -53,11 +60,13 @@ export async function startServer({root,variables=process.env,localAccess=false,
    await new Promise<void>(resolve=>server.close(()=>resolve()));
   }
   await listen(config.host);
- }catch(error){recordDiagnostic(config.dataDirectory,'service_start_failed',{code:safeErrorCode(error)});await closeApplication();throw error;}
- for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,stop);
+  cli=await startCliService(root,config.dataDirectory,{application:app});
+ }catch(error){if(server.listening)server.close();recordDiagnostic(config.dataDirectory,'service_start_failed',{code:safeErrorCode(error)});await closeApplication();throw error;}
+ const onInterrupt=()=>stop(false),onTerminate=()=>stop(true);
+ process.on('SIGINT',onInterrupt);process.on('SIGTERM',onTerminate);
  server.on('error',error=>{
   console.error('Server failed:',error.message);
-  process.off('SIGINT',stop);process.off('SIGTERM',stop);
+  process.off('SIGINT',onInterrupt);process.off('SIGTERM',onTerminate);
   void closeApplication().then(()=>{process.exitCode=1;server.close();});
  });
  const browserHost=config.host==='0.0.0.0'?'127.0.0.1':config.host==='::'?'::1':config.host;

@@ -18,7 +18,7 @@ const rules=[
  [/^skills\//,['tooling','startup']],
  [/^server\/(?:system-settings|cli-options|cli-setup|config|browser-provider-settings)\.ts$/,['startup','providers','desktop'],true],
  [/^lib\/(?:system-settings|provider-settings)\.ts$/,['startup','providers','desktop'],true],
- [/^server\/(?:cli|start|index|headless-cli)\.ts$/,['startup','production','tooling']],
+ [/^server\/(?:cli|cli-service|start|index|headless-cli)\.ts$/,['startup','production','tooling']],
  [/^server\/(?:desktop|desktop-access|desktop-owner|desktop-remote|desktop-tunnel|phone-access)\.ts$/,['desktop']],
  [/^server\/(?:development|development-access|cli-skill)\.ts$/,['tooling','startup']],
  [/^server\/(?:database|database-migrations|library-schema)\.ts$/,['storage','books','startup'],true],

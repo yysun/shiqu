@@ -47,13 +47,13 @@ $shiqu 从《庄子》中找一个关于善意与误解的故事，用水墨写�
 先给我候选和制作方案，确认后再生成插图，完成后导出离线预览和公开 ZIP。
 ```
 
-独立 CLI 无需服务；操作同一书库前先安全停止占用它的服务。[提示词示例](https://github.com/yysun/shiqu/blob/main/.docs/use-as-skill.md) · [技能安装与配置](https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md#无服务-cli-与-codex-技能)
+CLI 会发现或自动启动本机服务。桌面或浏览器服务在线时，CLI 经同一服务查询、制作和编辑。[提示词示例](https://github.com/yysun/shiqu/blob/main/.docs/use-as-skill.md) · [技能安装与配置](https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md#cli-与-codex-技能)
 
 生成服务可选 Codex、OpenAI API 或 Gemini，也可选择只读。Codex 需 macOS / Linux，并另行安装和登录 Codex CLI；OpenAI API 与 Gemini 使用各自 API 密钥并单独计费。[如何选择后端](https://github.com/yysun/shiqu/blob/main/.docs/user-guide.md#如何选择后端)
 
 ## CLI 命令
 
-以下命令均加上前缀 `npx @apprun/shiqu`。不带子命令时启动浏览器服务；带子命令时直接操作本地书库。执行书库命令前，先停止占用同一书库的服务。
+以下命令均加上前缀 `npx @apprun/shiqu`。不带子命令时启动浏览器服务。普通书库子命令会复用同库的运行实例或自动启动短时本机服务。浏览器或桌面在线时，CLI 经同一实例查阅和制作。空闲可在线备份，有在途任务时等待收尾。
 
 | 命令 | 用途 |
 | --- | --- |

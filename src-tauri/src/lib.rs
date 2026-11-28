@@ -219,8 +219,8 @@ async fn library_backup(
         if control.maintaining_library {
             return Err("书库维护正在进行，请稍候。".into());
         }
-        if operation == "create" && (control.starting || control.runtime.is_some()) {
-            return Err("请先停止服务，再创建书库备份。".into());
+        if operation == "create" && control.starting {
+            return Err("书库升级或启动尚未完成，请等待。".into());
         }
         let store = open_store(&app, &mut control)?;
         let settings = store.settings()?;
@@ -300,7 +300,7 @@ async fn start_server(
 }
 
 fn stop_control(state: &DesktopState) {
-    // 托盘、窗口退出与原生命令共用此边界；升级期间释放互斥锁等待，不中断子进程。
+    // 系统退出必须释放子进程；升级期间释放互斥锁等待，不中断升级。
     loop {
         let Ok(mut control) = state.0.lock() else {
             return;
@@ -315,14 +315,23 @@ fn stop_control(state: &DesktopState) {
         return;
     }
 }
+fn request_stop_control(state: &DesktopState) -> Result<(), String> {
+    let mut control = state.0.lock().map_err(|_| "服务控制器不可用。")?;
+    if control.starting || control.maintaining_library {
+        return Err("书库启动或维护尚未完成，请等待。".into());
+    }
+    if let Some(runtime) = &mut control.runtime {
+        runtime.request_stop()?;
+    }
+    drop(control.runtime.take());
+    control.last_error = None;
+    Ok(())
+}
 #[tauri::command]
 async fn stop_server(state: tauri::State<'_, DesktopState>) -> Result<Value, String> {
     let state = state.inner().clone();
     blocking(move || {
-        if state.0.lock().map_err(|_| "服务控制器不可用。")?.starting {
-            return Err("书库升级或启动尚未完成，请等待。".into());
-        }
-        stop_control(&state);
+        request_stop_control(&state)?;
         Ok(json!({"running":false,"phoneUrls":[]}))
     })
     .await
@@ -399,7 +408,7 @@ async fn quit_app(
 ) -> Result<(), String> {
     let state = state.inner().clone();
     blocking(move || {
-        stop_control(&state);
+        request_stop_control(&state)?;
         app.exit(0);
         Ok(())
     })
@@ -471,12 +480,13 @@ pub fn run() {
     });
 }
 fn thread_stop(app: tauri::AppHandle, quit: bool) {
-    std::thread::spawn(move || {
-        stop_control(app.state::<DesktopState>().inner());
-        if quit {
-            app.exit(0);
-        }
-    });
+    std::thread::spawn(
+        move || match request_stop_control(app.state::<DesktopState>().inner()) {
+            Ok(()) if quit => app.exit(0),
+            Ok(()) => {}
+            Err(error) => app.dialog().message(error).show(|_| {}),
+        },
+    );
 }
 
 #[cfg(test)]

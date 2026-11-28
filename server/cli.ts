@@ -12,11 +12,14 @@ import {routeHeadless} from './headless-cli.ts';
 import {ensureAgentSkill,agentSkillMessage} from './agent-skill.ts';
 import type {StartupSkillRuntime} from './cli-skill.ts';
 
+export {runCliServiceProcess} from './cli-service.ts';
+
 const help = `Usage: shiqu [options]
 
 Start 拾趣 and open the printed URL in your browser. Requires Node 24.
 
-No subcommand starts the browser service. For serverless agent commands and JSON input examples:
+No subcommand starts the browser service. Library commands find or start a local service as needed.
+For agent commands and JSON input examples:
   shiqu help --json
   shiqu init --data-dir <directory>
   shiqu stories list --data-dir <directory>
@@ -30,7 +33,7 @@ No subcommand starts the browser service. For serverless agent commands and JSON
   --config <env-file>   Load this env file; existing environment variables take precedence
   --configure          Select/edit the shared saved provider, then exit
   --reset-providers    Clear saved provider profiles/keys, reopen setup in a terminal
-  --backup <new-dir>    Back up a stopped library with verified file hashes
+  --backup <new-dir>    Back up an idle library with verified file hashes
   --verify-backup <dir> Verify a backup without starting or migrating it
   --restore <dir>       Restore backup to a new, explicit --data-dir; never start it
   --diagnostics <file>  Export bounded, redacted diagnostic metadata to a new JSON file

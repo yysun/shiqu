@@ -55,11 +55,13 @@ export function shelfView(session:SessionView):SessionView{
 async function body(req:Request,maxLength=4096){const s=await req.text();if(s.length>maxLength)throw new ReaderError(413,'请求太长了');try{return JSON.parse(s);}catch{throw new ReaderError(400,'请求格式不正确');}}
 export function createReaderApi(services:Services){
 const cardCache=new StoryDiscoveryCache(services.media),cardJobs=services.localBooks?new ImportedBookCards(services.localBooks,services.generation,cardCache):null;
-return async function readerApi(req:Request,path:string[]):Promise<Response>{
+return async function readerApi(req:Request,path:string[],cli=false):Promise<Response>{
+ const commandOnly=services.commandOnly||cli;
+ const track=<T>(work:Promise<T>)=>services.trackWork?.(work)??work;
  let provider=services.generation;
  // 只在需要提供方的请求边界取快照，普通书架读取不依赖设置库是否可用。
  async function requireProvider(){
-  if(services.commandOnly)return;
+  if(commandOnly)return;
   if(provider.capture){const captured=provider.capture();if(!captured)throw new ReaderError(503,'请先配置生成服务：使用本机或可信局域网地址打开「设置 → 生成服务与模型」。');provider=captured;}
   const status=await provider.status();if(!status.configured)throw new ReaderError(503,status.message||'请先配置生成服务：使用本机或可信局域网地址打开「设置 → 生成服务与模型」。');
   return status;
@@ -73,6 +75,27 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
   const sessionView=(row:SessionRow)=>services.production?services.production.snapshot(uid,row.id):view(row);
   const requestRecorded=async(id:string)=>!!await repo.db.prepare(`SELECT request_id FROM reader_commands WHERE owner_id=? AND request_id=?
    UNION ALL SELECT id FROM stories WHERE user_id=? AND id=? LIMIT 1`).bind(uid,id,uid,id).first();
+  // 可信 CLI 请求只保存。按提交结果结算范围，响应生成失败不能重新打开派发。
+  async function saveStory<T>(id:string,requestId:string,write:()=>Promise<T>,opts:{also?:string;authorize?:boolean;select?:(result:T)=>string}={}){
+   const production=services.production;
+   if(!production||!cli&&!opts.authorize||commandOnly&&!cli)return write();
+   if(await requestRecorded(requestId))return write();
+   if(!cli){
+    const release=production.continueCliStory?.(uid,id);
+    const result=await write();release?.();return result;
+   }
+   const scope=production.reserveCliStories?.(uid,opts.also?[id,opts.also]:[id]);
+   try{
+    const result=await write(),selected=opts.select?.(result)??id;
+    scope?.finish(selected===id?'hold':'restore',id);
+    return result;
+   }catch(error){
+    const committed=await requestRecorded(requestId).catch(()=>true);
+    scope?.finish(committed?'hold':'restore',id);
+    throw error;
+   }
+  }
+
   if(path.join('/')==='publication-defaults'){
    if(req.method==='GET')return json({publication:await repo.publicationDefaults(uid)});
    if(req.method==='POST'){
@@ -158,7 +181,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     req.signal.addEventListener('abort',abort,{once:true});
     const stream=new ReadableStream<Uint8Array>({start(controller){
      const send=(event:unknown)=>{if(!req.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
-     void cardJobs.run(id,input.retryFailed,event=>send(event)).then(progress=>send({type:'complete',progress})).catch(error=>{if(!req.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'故事卡生成失败，请重试。'});}).finally(()=>{req.signal.removeEventListener('abort',abort);if(!req.signal.aborted)controller.close();});
+     void track(cardJobs.run(id,input.retryFailed,event=>send(event))).then(progress=>send({type:'complete',progress})).catch(error=>{if(!req.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'故事卡生成失败，请重试。'});}).finally(()=>{req.signal.removeEventListener('abort',abort);if(!req.signal.aborted)controller.close();});
     },cancel(){void cardJobs.cancel(id);}});
     return new Response(stream,{headers:{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'private, no-store','X-Accel-Buffering':'no'}});
    }
@@ -211,7 +234,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     start(controller){
      const send=(event:unknown)=>{if(!abort.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
      send({type:'start',total:cards.length});
-     void store.build(book,cards,abort.signal,value=>send({type:'progress',...value}))
+     void track(store.build(book,cards,abort.signal,value=>send({type:'progress',...value})))
       .then(result=>send({type:'complete',...result}))
       .catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'建库失败，请重试。'});})
       .finally(()=>{req.signal.removeEventListener('abort',cancel);if(!abort.signal.aborted)controller.close();});
@@ -277,7 +300,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    const encoder=new TextEncoder(),stream=new ReadableStream<Uint8Array>({start(controller){
     const send=(event:unknown)=>{if(!abort.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
     send({type:'progress',stage:'retrieving'});
-    void execute(value=>send({type:'progress',stage:'verifying',progress:value})).then(result=>send({type:'result',...result})).catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'主题检索暂时失败，请重试。'});}).finally(()=>{req.signal.removeEventListener('abort',cancel);if(!abort.signal.aborted)controller.close();});
+    void track(execute(value=>send({type:'progress',stage:'verifying',progress:value}))).then(result=>send({type:'result',...result})).catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'主题检索暂时失败，请重试。'});}).finally(()=>{req.signal.removeEventListener('abort',cancel);if(!abort.signal.aborted)controller.close();});
    },cancel});
    return new Response(stream,{headers:{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'private, no-store','X-Accel-Buffering':'no'}});
   }
@@ -291,7 +314,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
      start(controller){
       const send=(event:unknown)=>{if(!abort.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
       send({type:'progress',progress:{completed:0,total:1,completedChars:0,totalChars:0,stage:'reading'}});
-      void provider.suggestions(selection,excludeTitles,undefined,{signal:abort.signal,onProgress:progress=>send({type:'progress',progress})},excludeSources)
+      void track(provider.suggestions(selection,excludeTitles,undefined,{signal:abort.signal,onProgress:progress=>send({type:'progress',progress})},excludeSources))
        .then(batch=>send({type:'result',batch}))
        .catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof ReaderError?error.message:provider.safeError(error)});})
        .finally(()=>{req.signal.removeEventListener('abort',cancel);if(!abort.signal.aborted)controller.close();});
@@ -325,7 +348,13 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     const sessions=services.production?await services.production.shelfSnapshots(uid,true):(await repo.list(uid)).filter(readableStory).map(view);
     return json(sessions.map(shelfView));
    }
-   if(req.method==='POST'){const b=z.object({requestId:uuid,selection:selectionSchema.omit({displayTitle:true}),intake:z.boolean().optional()}).parse(await body(req,32768));if((b.selection.discoverySources||b.selection.discovery?.mode==='title')&&b.intake!==true)throw new ReaderError(400,'章节或标题提取必须通过选题流程创建。');if(!await requestRecorded(b.requestId))await requireProvider();return json(await sessionView(b.intake?await createIntake(repo,b.requestId,uid,b.selection,services.localBooks):await repo.create(b.requestId,uid,b.selection)),201);}
+   if(req.method==='POST'){
+    const b=z.object({requestId:uuid,selection:selectionSchema.omit({displayTitle:true}),intake:z.boolean().optional()}).parse(await body(req,32768));
+    if((b.selection.discoverySources||b.selection.discovery?.mode==='title')&&b.intake!==true)throw new ReaderError(400,'章节或标题提取必须通过选题流程创建。');
+    if(!await requestRecorded(b.requestId))await requireProvider();
+    const row=await saveStory(b.requestId,b.requestId,()=>b.intake?createIntake(repo,b.requestId,uid,b.selection,services.localBooks):repo.create(b.requestId,uid,b.selection));
+    return json(await sessionView(row),201);
+   }
   }
   if(path[0]==='sessions'&&path[1]){
    const id=uuid.parse(path[1]);
@@ -374,13 +403,15 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
    if(path[2]==='reselection'&&path.length===3&&req.method==='POST'){
     const b=z.object({requestId:uuid}).strict().parse(await body(req));if(!await requestRecorded(b.requestId))await requireProvider();
-    return json(await sessionView(await openReselection(repo,id,uid,b.requestId,services.localBooks)),201);
+    const row=await saveStory(b.requestId,b.requestId,()=>openReselection(repo,id,uid,b.requestId,services.localBooks),{also:id});
+    return json(await sessionView(row),201);
    }
    if(path[2]==='reselection'&&path[3]&&path.length===4){
     const draftId=uuid.parse(path[3]);
     if(req.method==='POST'){
      const command=replacementChoiceSchema.parse(await body(req,32768));if(!await requestRecorded(command.requestId))await requireProvider();
-     const row=await commitReselection(repo,id,draftId,uid,command);services.production?.wake();
+     const row=await saveStory(draftId,command.requestId,()=>commitReselection(repo,id,draftId,uid,command),{also:id,authorize:true,select:row=>row.id});
+     services.production?.wake();
      return json(services.production?await services.production.snapshot(uid,row.id):view(row));
     }
     if(req.method==='DELETE'){
@@ -390,7 +421,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(path[2]==='recover'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const command=recoveryRequestSchema.parse(await body(req));
-    return json(await services.production.recover(uid,id,command,!services.commandOnly),202);
+    return json(await saveStory(id,command.requestId,()=>services.production!.recover(uid,id,command,!commandOnly),{authorize:true}),202);
    }
    if(path[2]==='image-health'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
@@ -399,7 +430,8 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    }
    if(path[2]==='setup'&&path.length===3&&req.method==='POST'){
     const action=intakeActionSchema.parse(await body(req,32768));if(!await requestRecorded(action.requestId))await requireProvider();
-    return json(await sessionView(await changeIntake(repo,id,uid,action,services.localBooks)));
+    const row=await saveStory(id,action.requestId,()=>changeIntake(repo,id,uid,action,services.localBooks),{authorize:['search','more','choose','recommend','confirm'].includes(action.action)});
+    return json(await sessionView(row));
    }
    if(path[2]==='landscape'&&path[3]==='sets'&&path.length===4&&req.method==='GET'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
@@ -409,13 +441,13 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     const production=services.production;
     if(!production)throw new ReaderError(503,'制作队列暂不可用');
     if(req.method==='GET')return json(await production.landscapeStatus(uid,id));
-    if(services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中启动横版绘图。');
+    if(commandOnly)throw new ReaderError(409,'请在拾趣阅读器中启动横版绘图。');
     const token=z.string().regex(/^[a-f0-9]{64}$/);
     const command=z.union([z.object({startToken:token}).strict(),z.object({retryToken:token}).strict(),z.object({modelToken:token}).strict(),z.object({control:z.enum(['pause','resume']),printId:uuid.optional()}).strict()]).parse(await body(req));
     return json(await production.startLandscape(uid,id,command),202);
    }
    if(path[2]==='storyboard-summary'&&path.length===3&&req.method==='POST'){
-    if(services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中生成分镜梗概。');
+    if(commandOnly)throw new ReaderError(409,'请在拾趣阅读器中生成分镜梗概。');
     const {token,plan,removedFrames}=z.object({token:z.string().regex(/^[a-f0-9]{64}$/),plan:planSchema.optional(),removedFrames:revisionChangesSchema.shape.removedFrames}).strict().parse(await body(req,262144));
     const snapshot=await revisionSnapshot(repo,id,uid);
     if(snapshot.token!==token)throw new ReaderError(409,'分镜已更新，请重新载入后再生成梗概。');
@@ -434,7 +466,7 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
     return json(await previewDagRevision(repo,await repo.get(id,uid),b.token,b.changes));
    }
    if(path[2]==='revisions'&&path[3]==='suggestion'&&path.length===4&&req.method==='POST'){
-    if(services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中应用审核建议。');
+    if(commandOnly)throw new ReaderError(409,'请在拾趣阅读器中应用审核建议。');
     const input=reviewSuggestionSchema.parse(await body(req,262144));
     const prepare=async()=>prepareReviewSuggestion(repo,await repo.get(id,uid),input);
     const {story,item,field}=await prepare();
@@ -465,8 +497,8 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
      }else metadata=await body(req,262144);
      const b=z.object({requestId:uuid,token:z.string().regex(/^[a-f0-9]{64}$/),changes:revisionChangesSchema,paused:z.boolean().default(false),startRedraw:z.literal(true).optional()}).strict().parse(metadata);
      if(!await requestRecorded(b.requestId))await requireProvider();
-     if(b.startRedraw&&services.commandOnly)throw new ReaderError(409,'请在拾趣阅读器中直接重绘，或使用命令行的继续与运行命令。');
-     const row=await forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes,b.paused,cover,b.startRedraw);
+     if(b.startRedraw&&commandOnly)throw new ReaderError(409,'请在拾趣阅读器中直接重绘，或使用命令行的继续与运行命令。');
+     const row=await saveStory(b.requestId,b.requestId,()=>forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes,b.paused,cover,b.startRedraw),{also:id,select:row=>row.id});
      if(!b.paused)production.wake();
      return json(await production.snapshot(uid,row.id),201);
     }
@@ -474,12 +506,14 @@ return async function readerApi(req:Request,path:string[]):Promise<Response>{
    if(path[2]==='review-override'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const command=reviewOverrideSchema.parse(await body(req));
-    return json(await services.production.overrideReview(uid,id,command));
+    return json(await saveStory(id,command.requestId,()=>services.production!.overrideReview(uid,id,command),{authorize:true}));
    }
    if(path[2]==='production-control'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const b=z.object({requestId:uuid,action:z.enum(['pause','stop','resume','continue','apply-model','reprepare'])}).strict().parse(await body(req));
-    return json(await services.production.control(uid,id,b.action,b.requestId,!services.commandOnly));
+    const control=()=>services.production!.control(uid,id,b.action,b.requestId,!commandOnly);
+    if(b.action==='pause'||b.action==='stop')return json(await control());
+    return json(await saveStory(id,b.requestId,control,{authorize:true}));
    }
    if(path[2]==='production'&&path.length===3){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');

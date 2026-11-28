@@ -51,7 +51,7 @@ function Desktop(){
  }
  async function start(){if(dirty)await save();accept({running:false,phoneUrls:[],state:'starting'});try{const next=await invoke<Status>('start_server');accept(next);if(!next.running)throw Error(next.error||'服务尚未启动。');}catch(e){accept({running:false,phoneUrls:[],state:'failed',error:String(e)});throw e;}}
  async function stop(){accept(await invoke<Status>('stop_server'));await reload();}
- async function restart(){if(!window.confirm(status.generating?'正在生成故事。重启会停止当前生成，之后可从浏览器继续。是否重启？':'重启会停止正在生成的工作，之后可从浏览器继续。是否重启？'))return;await stop();await start();}
+ async function restart(){if(!window.confirm('重启会暂时断开阅读器连接。正在处理任务时，服务会保持运行。是否重启？'))return;await stop();await start();}
  async function copy(value:string){await navigator.clipboard.writeText(value);setMessage('访问链接已复制。');}
  const state:ServiceState=!native?'preview':!known?statusError?'unavailable':'loading':status.state==='upgrading'||status.state==='starting'?status.state:status.running?'running':status.error?'failed':'stopped';
  const locked=!native||!!busy||!known||status.running||state==='starting'||state==='upgrading';

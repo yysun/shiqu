@@ -1,5 +1,4 @@
-// Copy saved checkpoints without inference; unreviewed drafts require an explicit text-only choice. Both libraries use
-// production initialization and exclusive ownership; the new independent story starts paused.
+// Copy saved checkpoints without inference; unreviewed drafts require an explicit text-only choice. 来源在已就绪库的只读快照中核对，目标由持锁方写入。独立副本从暂停开始。
 // An optional rendering style changes only new image inputs, retaining the exact saved script/review.
 // The Skill controls the text/image checkpoints; this service executes only explicit image choices.
 // 提示词记录随副本写入目标库自己的记录表。
@@ -30,16 +29,22 @@ export async function copySavedStory(target:ReturnType<typeof createApplication>
  if(options.draft&&(options.images||options.existing))throw new ReaderError(400,'草稿仅复制文字，不能复制图片。');
  if(!existsSync(path.join(sourceDirectory,'shiqu.sqlite')))throw new ReaderError(404,'来源书库不存在。');
  if(realpathSync(sourceDirectory)===realpathSync(targetDirectory))throw new ReaderError(400,'请选择另一个来源书库。');
- const release=await ownDesktopData(sourceDirectory);let source:ReturnType<typeof createApplication>|undefined;
+ let release=()=>{},source:ReturnType<typeof createApplication>|undefined;
  try{
-  source=createApplication({root,dataDirectory:sourceDirectory,variables:{SHIQU_AI_PROVIDER:'readonly'},commandOnly:true,production:{autoStart:false}});
+  const sourceConfig={root,dataDirectory:sourceDirectory,variables:{SHIQU_AI_PROVIDER:'readonly'},commandOnly:true,production:{autoStart:false}};
+  try{source=createApplication({...sourceConfig,exportOnly:true});}
+  catch(error){
+   if(!(error as Error).message.startsWith('LIBRARY_UPGRADE_REQUIRED'))throw error;
+   release=await ownDesktopData(sourceDirectory);
+   source=createApplication(sourceConfig);
+  }
   const repo=new ReaderRepository(source.services.database),row=await repo.current(sourceId,source.services.ownerId);
   // 提示词记录只在来源库中：先原位还原为内嵌，目标库写入时再存入自己的记录表。
   const sourceDoc=await resolvePromptRecords(repo.db,decodeDocument(row));
   const saved=portraitDocument(sourceDoc);
   const sourceSelection=selectionSchema.parse(JSON.parse(row.selection));
-  const status=await source.services.production?.snapshot(row.user_id,row.id);
-  const availability=copyAvailability(saved,sourceSelection,status?.lifecycle?.activity.state==='running');
+  const running=await repo.db.prepare("SELECT 1 FROM production_jobs WHERE owner_id=? AND session_id=? AND kind!='landscape-print' AND state='running' AND lease_until>?").bind(row.user_id,row.id,Date.now()).first();
+  const availability=copyAvailability(saved,sourceSelection,!!running);
   const authorization=authorizeProductionCommand(options.draft?'copy-draft':'copy',{
    version:row.id===sourceId?'current':'superseded',control:row.generation_control??'active',continuation:!!saved.dag?.continuation,stopping:false,
    targetCurrent:availability.current,targetReady:options.draft?availability.draft:availability.reviewed,

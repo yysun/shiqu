@@ -15,6 +15,7 @@ export interface MediaStore {
 }
 export interface Services {
  commandOnly?:boolean;
+ trackWork?<T>(work:Promise<T>):Promise<T>;
  db:SqliteRemoteDatabase<typeof schema>;
  database:Database;
  media:MediaStore;

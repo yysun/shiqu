@@ -92,10 +92,10 @@ export function LibraryBackupCard({native,library,busy,running,starting,canSwitc
   {list&&<p className="backup-location"><strong>默认备份目录</strong> {list.directory}</p>}
   <p className="help">同盘的升级备份用于回退。外置磁盘上的副本也可用于硬盘故障后的恢复。</p>
   {!native&&<p className="help">请在桌面应用中管理备份。</p>}
-  {native&&(running||starting)&&<p className="help">请先停止服务，再创建备份。</p>}
+  {native&&running&&<p className="help">服务空闲时可以在线备份。正在处理的任务会保留，保存后即可重试。</p>}
   <div className="backup-actions">
-   <button className="secondary" disabled={disabled||running||starting||!list} onClick={()=>{if(list){setSelection(undefined);createHere(list.directory);}}}>备份到默认目录</button>
-   <button className="secondary" disabled={disabled||running||starting} onClick={()=>void perform('正在选择备份位置',async()=>{const parent=await chooseFolder();if(parent){setSelection(undefined);createHere(parent);}})}>备份到其他位置</button>
+   <button className="secondary" disabled={disabled||starting||!list} onClick={()=>{if(list){setSelection(undefined);createHere(list.directory);}}}>备份到默认目录</button>
+   <button className="secondary" disabled={disabled||starting} onClick={()=>void perform('正在选择备份位置',async()=>{const parent=await chooseFolder();if(parent){setSelection(undefined);createHere(parent);}})}>备份到其他位置</button>
    <button className="secondary" disabled={disabled} onClick={()=>void perform('正在打开备份',async()=>{const backup=await chooseFolder();if(backup)await inspect(backup);})}>打开其他备份</button>
    <button className="secondary" disabled={disabled} onClick={()=>void refresh()}>刷新备份列表</button>
   </div>
@@ -107,7 +107,7 @@ export function LibraryBackupCard({native,library,busy,running,starting,canSwitc
   {creation&&<div className="backup-panel">
    <p className="backup-location"><strong>备份位置</strong> {creation}</p>
    <div className="backup-actions">
-    <button className="secondary" disabled={disabled||running||starting} onClick={()=>void perform('正在备份并校验',async()=>{
+    <button className="secondary" disabled={disabled||starting} onClick={()=>void perform('正在备份并校验',async()=>{
      const result=await fetchBackup<Snapshot>('create',{target:creation});
      setCreation('');setCompleted('备份已校验 · '+formatDate(result.createdAt!)+' · '+result.path);await refresh();
     })}>确认备份</button>

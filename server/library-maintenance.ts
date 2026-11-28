@@ -2,9 +2,9 @@
 import {restoreAndUpgradeLibrary} from './library-upgrade.ts';
 import path from 'node:path';
 import {readFileSync,writeFileSync,existsSync,lstatSync} from 'node:fs';
-import {createLibraryBackup,verifyBackupForMaintenance,containsPath} from './library-backup.ts';
+import {verifyBackupForMaintenance,containsPath} from './library-backup.ts';
 import {diagnosticReport} from './diagnostics.ts';
-import {ownDesktopData} from './desktop-owner.ts';
+import {callCliService} from './cli-service.ts';
 import {savedDesktopLibraryDirectory,desktopLibraryPaths} from './library-directory.ts';
 import type {CliOptions} from './cli-options.ts';
 
@@ -26,7 +26,8 @@ export async function maintainLibrary(root:string,options:CliOptions){
   writeFileSync(target,JSON.stringify(diagnosticReport(directory,version),null,2)+'\n',{flag:'wx',mode:0o600});console.log('脱敏诊断已保存：'+target);return true;
  }
  if(!existsSync(directory)||!lstatSync(directory).isDirectory())throw Error('书库不存在，未创建空书库。');
- const release=await ownDesktopData(directory);
- try{const manifest=createLibraryBackup(directory,path.resolve(options.backup!),version,root);console.log(`书库备份已校验：${path.resolve(options.backup!)}（${manifest.files.length} 个文件）。`);}finally{await release();}
+ const target=path.resolve(options.backup!);
+ const result=await callCliService(root,directory,['backup',target],process.cwd(),process.env) as {files:number};
+ console.log(`书库备份已校验：${target}（${result.files} 个文件）。`);
  return true;
 }

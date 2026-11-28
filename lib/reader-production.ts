@@ -12,7 +12,14 @@ export type LandscapePrintSet={id:string;story:Story;images:string[]};
 /** 横图套图留在发起版本，故事与分镜是印刷时使用的快照。 */
 export type LandscapePrint={id:string;story:Story;plan:Plan;frameKeys?:string[];control:'active'|'paused';modelSnapshot?:ModelSnapshot};
 export type LandscapeCommand={startToken:string}|{retryToken:string}|{modelToken:string}|{control:'pause'|'resume';printId?:string};
+export type CliStoryScope={
+ restrict():void;
+ finish(result:'restore'|'release'|'hold',storyId?:string):void;
+};
 export interface ReaderProduction{
+ reserveCliStories?(ownerId:string,ids:string[],permission?:'text'|'all'):CliStoryScope;
+ beginCliRun?(ownerId:string,id:string,draw:boolean):Promise<CliStoryScope>;
+ continueCliStory?(ownerId:string,id:string):()=>void;
  referencesChanged?():void;
  wake():void;
  control(ownerId:string,id:string,action:ProductionAction,requestId?:string,checkService?:boolean):Promise<SessionView>;

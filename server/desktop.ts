@@ -13,6 +13,8 @@ import {createHttpServer} from './http.ts';
 import {desktopAccess} from './desktop-access.ts';
 import {ensureLibraryReady,libraryUpgradeBackup} from './library-upgrade.ts';
 import {ownDesktopData} from './desktop-owner.ts';
+import {startCliService} from './cli-service.ts';
+export {runCliServiceProcess} from './cli-service.ts';
 import {phoneUrls} from './phone-access.ts';
 import {desktopRemote} from './desktop-remote.ts';
 import {startDesktopTunnel,TunnelError} from './desktop-tunnel.ts';
@@ -27,7 +29,7 @@ import {browserProviderSettings} from './browser-provider-settings.ts';
 import {providerSettingsPath} from '../lib/provider-settings.ts';
 import {checkProviderVariables,runtimeConfiguration} from './provider-runtime.ts';
 import {installDiagnostics,recordDiagnostic,safeErrorCode} from './diagnostics.ts';
-import {desktopBackupError,runDesktopBackup} from './desktop-backups.ts';
+import {desktopBackupError,runDesktopBackupCommand} from './desktop-backups.ts';
 
 export const desktopSettings=systemSettingsSchema;
 export type DesktopSettings=z.infer<typeof desktopSettings>;
@@ -51,10 +53,11 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
  const release=await ownDesktopData(settings.dataDirectory);
  const removeDiagnostics=installDiagnostics(settings.dataDirectory);
  let app:ReturnType<typeof createApplication>|undefined,server:ReturnType<typeof createHttpServer>|undefined,remoteServer:ReturnType<typeof createHttpServer>|undefined,tunnel:Awaited<ReturnType<typeof startDesktopTunnel>>|undefined;
+ let cli:Awaited<ReturnType<typeof startCliService>>|undefined;
  let stopped:Promise<void>|undefined,monitor:ReturnType<typeof setInterval>|undefined;
  const remote=desktopRemote(request=>app!.handle(request));
  async function close(listener:typeof server){if(!listener)return;await new Promise<void>(resolve=>{listener.close(()=>resolve());listener.closeAllConnections();});}
- function stop(){return stopped??=(async()=>{try{clearInterval(monitor);remote.revoke();await tunnel?.stop();app?.stopGeneration();await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);await Promise.all([close(remoteServer),close(server)]);await app?.close();}finally{recordDiagnostic(settings.dataDirectory,'service_stopped');removeDiagnostics();await release();}})();}
+ function stop(){return stopped??=(async()=>{try{clearInterval(monitor);remote.revoke();await tunnel?.stop();app?.stopGeneration();await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);await Promise.all([cli?.close(),close(remoteServer),close(server)]);await app?.close();}finally{recordDiagnostic(settings.dataDirectory,'service_stopped');removeDiagnostics();await release();}})();}
  try{
   options.signal?.throwIfAborted();
   const providerSettings=configuration.locations?browserProviderSettings({variables:configuration.variables,overrides:options.overrides||{},live:true,ports:[settings.port],locations:configuration.locations,existingOnly:true,transport:options.transport}):undefined;
@@ -65,6 +68,7 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
   // macOS 允许通配绑定与已占用回环端口共存，先探测本机地址，防止打开其他服务。
   server=createHttpServer(localHandle);server.listen(settings.port,'127.0.0.1');await once(server,'listening');await close(server);
   server=createHttpServer(localHandle);server.listen(settings.port,'0.0.0.0');await once(server,'listening');
+  cli=await startCliService(root,settings.dataDirectory,{application:app});
   const status:{running:boolean;state:string;pid:number;url:string;phoneUrls:string[];publicUrl:string;internetError:string;backup:typeof backup;agentSkill?:AgentSkillStatus}={running:true,state:'running',pid:process.pid,url:local,phoneUrls:phones,publicUrl:'',internetError:'',backup};
   function snapshot(){
    let provider;try{provider=providerSettings?.snapshot();}catch{return {...status,provider:runtimeConfiguration(configuration.variables),generating:app!.generating,settingsError:'无法读取共享生成设置，请检查本机配置后重试。'};}
@@ -91,7 +95,7 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
   options.signal?.throwIfAborted();recordDiagnostic(settings.dataDirectory,'service_started');
   if(options.installAgentSkill)status.agentSkill=await ensureAgentSkill(root,{runtime:{node:process.execPath,cli:path.join(root,'dist/server/agent-cli.js')}});
   monitor=setInterval(()=>options.onStatus?.(snapshot()),1000);monitor.unref();
-  return {server,get status(){return snapshot();},stop};
+  return {server,get status(){return snapshot();},stop,prepareStop:()=>!!cli?.pause()};
  }catch(error){recordDiagnostic(settings.dataDirectory,'service_start_failed',{code:safeErrorCode(error)});await stop();throw error;}
 }
 export function desktopFailure(error:unknown){
@@ -115,7 +119,7 @@ export function desktopFailure(error:unknown){
  }
  return '服务启动失败。请确认 Node 24、应用资源和数据目录可用。';
 }
-async function main(){
+export async function runDesktopControl(root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..')){
  const lines=createInterface({input:process.stdin,crlfDelay:Infinity});
  const abort=new AbortController();
  let runtime:Awaited<ReturnType<typeof startDesktop>>|undefined,starting=false,closing=false,inputClosed=false;
@@ -128,12 +132,21 @@ async function main(){
  process.on('uncaughtException',()=>{send({error:'服务意外退出，请重新启动。'});void stop();});
  lines.on('line',line=>{
   if(line.length>20000){void stop();return;}
-  if(runtime){try{if(JSON.parse(line).action==='stop')void stop();}catch{void stop();}return;}
+  if(runtime){
+   try{
+    const command=JSON.parse(line);
+    if(command.action==='stop'&&Number.isSafeInteger(command.requestId)&&command.requestId>0){
+     const accepted=runtime.prepareStop();
+     send({stopReply:command.requestId,accepted});
+     if(accepted)void stop();
+    }else if(command.action==='shutdown')void stop();
+   }catch{void stop();}
+   return;
+  }
   if(starting||closing)return;starting=true;
   void(async()=>{
    try{
     const input=z.object({action:z.enum(['start','test','upgrade']),settings:desktopSettings,key:z.string().max(4096).default(''),imageKey:z.string().max(4096).default(''),settingsFile:z.string().optional(),overrides:z.record(z.string()).default({})}).strict().parse(JSON.parse(line));
-    const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
     if(input.action==='upgrade'){ensureLibraryReady(input.settings.dataDirectory,root);send({upgraded:true,started:false,backup:libraryUpgradeBackup(input.settings.dataDirectory)});await stop();return;}
     if(input.action==='test'){send(await testDesktopProvider(input.settings,input.key,root,fetch,input.imageKey));await stop();return;}
     runtime=await startDesktop(input.settings,input.key,root,{signal:abort.signal,onStatus:send,imageKey:input.imageKey,settingsFile:input.settingsFile,overrides:input.overrides,installAgentSkill:true});starting=false;
@@ -151,7 +164,7 @@ async function backupMain(){
    if(line.length>40000)throw Error('BACKUP_INVALID');
    const root=process.cwd();
    const version=JSON.parse(readFileSync(path.join(root,'package.json'),'utf8')).version;
-   const result=runDesktopBackup(root,version,JSON.parse(line));
+   const result=await runDesktopBackupCommand(root,version,JSON.parse(line));
    process.stdout.write(JSON.stringify({result})+'\n');
   }catch(error){process.stdout.write(JSON.stringify({error:desktopBackupError(error)})+'\n');}
   finally{lines.close();}
@@ -159,5 +172,5 @@ async function backupMain(){
  }
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1])).href){
- if(process.argv[2]==='--library-maintenance')void backupMain();else void main();
+ if(process.argv[2]==='--library-maintenance')void backupMain();else void runDesktopControl();
 }

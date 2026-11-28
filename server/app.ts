@@ -60,20 +60,31 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
  };
  const production=options.exportOnly?undefined:new ReaderProductionCoordinator(local.database,generation,media,{imageWorkers,textProvider,...(snapshots?{snapshots}:{}),...options.production});
  if(!options.providerVariables&&options.variables?.SHIQU_AI_PROVIDER==='readonly'&&options.production?.autoStart!==false)production?.stop();
- const services:Services={db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,localBooks,transport:options.transport||fetch,generation,production,commandOnly:options.commandOnly};
+ let active=0,maintenance=false;
+ function trackWork<T>(work:Promise<T>){active++;return work.finally(()=>{active--;});}
+ const services:Services={trackWork,db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,localBooks,transport:options.transport||fetch,generation,production,commandOnly:options.commandOnly};
  const api=createApi(services),publicDirectory=path.resolve(options.root,'dist/client');
  let closed=false,closing:Promise<void>|undefined;
- return {services,get generating(){return production?.busy??false;},startGeneration:()=>production?.start(),stopGeneration:()=>production?.stop(),close(){
+ function pauseMaintenance(otherWork:()=>boolean){
+  if(maintenance)return;
+  maintenance=true;
+  const resume=production?.suspendDispatch();
+  const release=()=>{maintenance=false;resume?.();};
+  if(active||production?.activeWork||otherWork()){release();return;}
+  return release;
+ }
+ return {services,pauseMaintenance,get generating(){return production?.busy??false;},startGeneration:()=>production?.start(),stopGeneration:()=>production?.stop(),close(){
   if(closed)return closing;
   production?.stop();closed=true;
   if(!production?.busy){void production?.close();local.close();return;}
   return closing=production.close().then(()=>local.close());
- },async handle(request:Request){
+ },async handle(request:Request,cli=false){
   const url=new URL(request.url);
   try{
    if(url.pathname==='/api'||url.pathname.startsWith('/api/')){
     const segments=url.pathname.slice(5).split('/').filter(Boolean).map(decodeURIComponent);
-    return await api(request,segments);
+    if(maintenance)return Response.json({error:'正在处理书库维护，请稍候。'},{status:503});
+    return await trackWork(api(request,segments,cli));
    }
    if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405});
    const pathname=decodeURIComponent(url.pathname);

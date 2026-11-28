@@ -640,6 +640,41 @@
       "requiresLoopback": true
     },
     {
+      "file": "tests/cli-service.test.mjs",
+      "groups": [
+        "startup",
+        "production"
+      ],
+      "level": "integration",
+      "cost": "standard",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "suite": "flows",
+      "pr": "affected",
+      "gates": [],
+      "covers": [
+        "lib/reader-api.ts",
+        "server/cli.ts",
+        "server/cli-service.ts",
+        "server/desktop.ts",
+        "server/desktop-backups.ts",
+        "server/desktop-owner.ts",
+        "server/library-maintenance.ts",
+        "server/headless-cli.ts",
+        "server/reader-copy.ts",
+        "server/reader-production.ts",
+        "server/start.ts",
+        "tests/fixtures/production.mjs",
+        "tests/fixtures/startup.mjs",
+        "tests/fixtures/story-library.mjs"
+      ],
+      "manualOnly": true,
+      "requiresLoopback": true
+    },
+    {
       "file": "tests/cli-skill.test.mjs",
       "groups": [
         "tooling"

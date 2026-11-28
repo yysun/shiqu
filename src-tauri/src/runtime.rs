@@ -290,18 +290,51 @@ pub struct Runtime {
     pub child: Child,
     pub status: Value,
     updates: mpsc::Receiver<Value>,
+    stop_request: u64,
     _ownership: File,
 }
 impl Runtime {
     pub fn snapshot(&mut self) -> Value {
         for status in self.updates.try_iter() {
-            self.status = status;
+            if status.get("stopReply").is_none() {
+                self.status = status;
+            }
         }
         self.status.clone()
     }
+    pub fn request_stop(&mut self) -> Result<(), String> {
+        if let Ok(Some(_)) = self.child.try_wait() {
+            return Ok(());
+        }
+        self.stop_request += 1;
+        let request = self.stop_request;
+        let input = self.child.stdin.as_mut().ok_or("无法请求服务停止。")?;
+        writeln!(input, "{}", json!({"action":"stop","requestId":request}))
+            .map_err(|_| "无法请求服务停止。")?;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err("没有收到停止确认，请检查服务状态后重试。".into());
+            }
+            let value = self
+                .updates
+                .recv_timeout(remaining)
+                .map_err(|_| "没有收到停止确认，请检查服务状态后重试。")?;
+            if value.get("stopReply").is_none() {
+                self.status = value;
+            } else if value["stopReply"].as_u64() == Some(request) {
+                if value["accepted"] != true {
+                    return Err("书库有正在进行的任务，请等当前步骤保存后再停止服务。".into());
+                }
+                drop(self.child.stdin.take());
+                return wait(&mut self.child, Duration::from_secs(8));
+            }
+        }
+    }
     pub fn stop(&mut self) {
         if let Some(mut input) = self.child.stdin.take() {
-            let _ = input.write_all(b"{\"action\":\"stop\"}\n");
+            let _ = input.write_all(b"{\"action\":\"shutdown\"}\n");
         }
         // EOF is also the crash watchdog. Node kills its detached Codex groups before closing.
         let _ = wait(&mut self.child, Duration::from_secs(8));
@@ -425,6 +458,7 @@ pub fn start(
         child,
         status,
         updates,
+        stop_request: 0,
         _ownership: ownership,
     })
 }

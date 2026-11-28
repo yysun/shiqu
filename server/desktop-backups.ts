@@ -7,7 +7,7 @@ import {z} from 'zod';
 import {assertBackupDestination,backupDirectory,canonicalPath,checkBackupDirectory,containsPath,createLibraryBackup,readBackupManifest,verifyLibraryBackup,withBackupAccess} from './library-backup.ts';
 import {inspectLibrary,libraryFormat,pendingUpgrade,withLibraryGate} from './library-schema.ts';
 import {backupOriginFile,libraryUpgradeBackup,migrationBackupDependency,pendingMigrations,restoreAndUpgradeLibrary} from './library-upgrade.ts';
-import {ownDesktopDataSync} from './desktop-owner.ts';
+import {desktopOwner,ownDesktopDataSync} from './desktop-owner.ts';
 
 const absolute=z.string().max(8192).refine(value=>path.isAbsolute(value)&&!value.includes('\0'));
 const requestSchema=z.object({
@@ -43,6 +43,7 @@ export function desktopBackupError(error:unknown){
   EROFS:'所选位置为只读，请选择可写目录。',
   DATA_BUSY:'书库正在使用，请先停止桌面、CLI 或开发服务后重试。',
   BACKUP_IN_USE:'备份正在使用，请等待校验或恢复完成后重试。',
+  BACKUP_ACTIVE_TASKS:'书库有正在进行的任务，请等当前步骤保存后再备份。',
   BACKUP_TARGET_EXISTS:'目标目录已存在，请选择尚未创建的目录。',
   BACKUP_OVERLAPPING_PATHS:'所选目录和书库或备份重叠，请选择其他位置。',
   BACKUP_PUBLIC_PATH:'请选择应用公开目录之外的私有位置。',
@@ -163,16 +164,30 @@ function managedBackup(library:string,backup:string){
  const info=lstatSync(directory);
  if(!info.isDirectory()||info.isSymbolicLink()||path.dirname(backup)!==directory||path.basename(backup).startsWith('.'))throw Error('BACKUP_DELETE_UNCERTAIN');
 }
+function manualTarget(root:string,library:string,requested?:string){
+ const defaultDirectory=backupDirectory(library);
+ const target=path.resolve(requested||path.join(defaultDirectory,'manual-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+randomUUID().slice(0,8)));
+ if(path.dirname(target)===defaultDirectory)checkBackupDirectory(library);
+ privateDestination(root,target);
+ if(!optionalStat(path.join(library,'shiqu.sqlite')))throw Error('ENOENT');
+ return target;
+}
+export async function runDesktopBackupCommand(root:string,version:string,input:unknown){
+ const request=requestSchema.parse(input);
+ if(request.operation==='create'&&desktopOwner(request.library)?.service){
+  const target=manualTarget(root,request.library,request.target);
+  const {callCliService}=await import('./cli-service.ts');
+  await callCliService(root,request.library,['backup',target],process.cwd(),process.env);
+  return snapshotInfo(target);
+ }
+ return runDesktopBackup(root,version,request);
+}
 export function runDesktopBackup(root:string,version:string,input:unknown){
  const request=requestSchema.parse(input);
  const library=path.resolve(request.library);
  if(request.operation==='list')return listBackups(library,root);
  if(request.operation==='create'){
-  const defaultDirectory=backupDirectory(library);
-  const target=path.resolve(request.target||path.join(defaultDirectory,'manual-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+randomUUID().slice(0,8)));
-  if(path.dirname(target)===defaultDirectory)checkBackupDirectory(library);
-  privateDestination(root,target);
-  if(!optionalStat(path.join(library,'shiqu.sqlite')))throw Error('ENOENT');
+  const target=manualTarget(root,library,request.target);
   const release=ownDesktopDataSync(library);
   try{
    if(pendingUpgrade(library)||migrationBackupDependency(library))throw Error('BACKUP_PROTECTED');
