@@ -13,6 +13,8 @@ CLI 通过书库锁关联的本机 URL 连接已有实例。书库空闲时自�
 - 停服交接轮（`3fe1f3c2`）：`pnpm test:pr --files <故事文件>` 750 通过、3 跳过、0 失败；`pnpm test:loopback` 173/174，唯一失败为 `tests/diagnostics.test.mjs` 在夹具选定端口上 `EADDRINUSE`，与本改动无关，单独重跑 5/5 通过；`pnpm test:startup` 206/206；Rust 原生 17/17，连续 5 次无失败；`tests/cli-service.test.mjs` 12/12 覆盖全量运行重启续跑、有限运行保留等待、迟到取消与等候中崩溃；`tests/desktop-console.test.mjs` 覆盖重启判定。
 - 未执行：Windows 与 Linux 上的 JS 和原生运行、真实终端中的 npx 启动、已构建应用里的 ⌘Q 与退出监视线程、控制台「正在停止」界面的目视检查、经桌面重启（而非进程内重开）的续跑、真实付费生成。CI 的 Windows 原生作业只在 pull request 上运行 `cargo test --lib`，JS 用例只在 macOS 运行。
 
+- 第三轮（`134de730`）：已通过校验并获准派发的全量运行才在停服后释放等待，校验前中断保留审片等待并返回 `INTERRUPTED`；立即停止、立即退出与第二次 Ctrl-C 中止进行中的模型请求；退出等候期间拒绝新维护，最终状态保留退出标记。`pnpm test:pr` 750 通过、3 跳过；`pnpm test:loopback` 175/175；`pnpm test:startup` 207/207；原生 17/17。CR 第 5 轮通过；这一轮的 VR 尚未运行，下方为上一轮的验收结果。
+
 ## 独立验收
 
 AR passed: no blocking architecture flaws（停服交接 round 4, reused reviewer）。CR passed: no major findings（round 4, reused reviewer）。CR risk: non-low — the change alters process lifecycle across Node and Rust and changes when a CLI hold is released; the quit watcher and native Windows/Linux behaviour are verified only by reasoning.
