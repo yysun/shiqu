@@ -51,12 +51,20 @@ planned_end: UNPLANNED
 | CHANGES-C005 | 首次预计幅数、实际幅数与刷新边界 | 0.18.0 |
 | CHANGES-C006 | 按条自动修改和向草稿应用建议 | 0.18.0 |
 | CHANGES-C007 | 局部事实问题按出错字段修订 | 0.18.0 |
+| CHANGES-C008 | 手动清理无法使用的旧备份并保护回退备份 | 0.18.0 |
+| CHANGES-C009 | CLI 共享书库服务与继续制作授权 | 0.18.0 |
+| CHANGES-C010 | 桌面接入与共享服务停服 | 0.18.0 |
+| CHANGES-C011 | 横图套图与横版、Letter PDF 试印 | 0.18.0 |
+| CHANGES-C012 | 服务在线时创建一致的书库快照 | 0.18.0 |
 
 ## Risks and traceability
 
 | Risk / Requirement | Impact | Required evidence | Case IDs |
 | ------------------ | ------ | ----------------- | -------- |
 | RS5 · `76106876` 手动检查更新后的结果提示 | 读者不知道是否已是最新 | 控制台截图 | CHANGES-C001 |
+| `1fb7a75a`、`9f0e9383` 旧备份清理 | 残留占用空间，或误删仍用于回退的备份 | 隔离样本的确认、回退保护与清理结果 | CHANGES-C008 |
+| `2be95ef3`、`dedc1aaf`、`6a3cdc21` 共享书库服务 | 重复启动、丢失已领取步骤、重复调用或空闲书库无法备份 | 独立运行的 CLI、桌面控制、原生及备份证据 | CHANGES-C009、CHANGES-C010、CHANGES-C012 |
+| `b8337d5d` 至 `ff3f9a9a` 横图交付 | 误删成图、串用画风、打印错套图或配文 | 正式制作和导出路径，既有隔离浏览器及试印证据 | CHANGES-C011 |
 
 ## Dependencies
 

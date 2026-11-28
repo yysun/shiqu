@@ -7,7 +7,7 @@ Case IDs use `CHANGES-C001`, `CHANGES-C002`, and so on. Keep retired IDs; never 
 - State: READY
 - Priority: P1
 - Type: BUSINESS_E2E
-- Requirement / Risk: RS5, `76106876`
+- Requirement / Risk: RS5, `76106876`、`2ca9d691`
 - Automation: HYBRID
 - Owner: Yiyi Sun
 - Target Release: 0.18.0
@@ -27,7 +27,7 @@ Case IDs use `CHANGES-C001`, `CHANGES-C002`, and so on. Keep retired IDs; never 
 ### Runner Instructions
 
 - 联网时在候选安装包的控制台点页脚「检查更新」。
-- 关闭网络后再点一次，记录提示后恢复网络。
+- 保持同一控制台，在联网检查后关闭网络并立即再点一次。记录提示和网络不可达的证据，再恢复网络。
 
 ### Expected Outcome
 
@@ -269,3 +269,193 @@ Case IDs use `CHANGES-C001`, `CHANGES-C002`, and so on. Keep retired IDs; never 
 ### Evidence Required
 
 审核问题、修订调用类型及目标幅、复核或停机结果、绘图调用顺序。
+
+## CHANGES-C008 — 确认后可清理无法使用的旧备份
+
+- State: READY
+- Priority: P0
+- Type: INTEGRATION
+- Requirement / Risk: `1fb7a75a`、`9f0e9383`，[旧备份清理](../../.docs/reqs/2026/11/27/req-legacy-backup-cleanup.md)
+- Automation: AUTOMATED
+- Owner: Yiyi Sun
+- Target Release: 0.18.0
+
+### Objective
+
+确认后可清理缺少归属记录的旧升级备份。仍被回退记录引用的快照受到保护。清理短暂中断后能重试，仍有残留时给出明确结果。
+
+### Preconditions
+
+通过正式桌面维护入口执行，仅使用临时书库和备份目录。
+
+### Test Data
+
+缺少 `.origin.json` 的可识别旧快照、仍被回退引用的保护快照、模拟短暂清理错误和仍有残留的样本。
+
+### Runner Instructions
+
+在隔离目录列出快照并分别尝试未确认、已确认及受保护删除。用故障注入核对删除重试和残留报告，并检查目标目录及原书库。
+
+### Expected Outcome
+
+已确认且未受保护的旧快照完全清除。短暂文件错误触发有限重试。仍有残留时报告对应目录或文件。
+
+### Negative Assertions
+
+未确认删除、受保护快照的删除均被拒绝。隔离书库保持原样，残留目录存在时不会报告成功。
+
+### Evidence Required
+
+各类样本的维护入口结果、删除后的目录状态和异常分支的测试记录。
+
+## CHANGES-C009 — CLI 共享书库服务与继续制作授权
+
+- State: READY
+- Priority: P0
+- Type: INTEGRATION
+- Requirement / Risk: RS1, RS2, `2be95ef3`、`6a3cdc21`
+- Automation: AUTOMATED
+- Owner: Yiyi Sun
+- Target Release: 0.18.0
+
+### Objective
+
+书库空闲时 CLI 能启动一次服务并在并发调用间共享。已有服务在线时查询、修改和制作共用同一实例，等待授权和故障停点准确显示。
+
+### Preconditions
+
+通过正式命令启动，使用隔离书库、临时本机端口与受控推理回执。
+
+### Test Data
+
+并发冷启动、同库在线工作进程，以及已保存、等待审片和故障故事。
+
+### Runner Instructions
+
+核对 `tests/cli-service.test.mjs` 中的并发冷启动、共享制作、浏览器继续、终止并重启等场景。
+
+### Expected Outcome
+
+同一书库只有一个持锁实例。CLI 保存和有限运行保留停点，浏览器明确继续后才获得生产授权。停服中断的已授权全量制作重启后继续。
+
+### Negative Assertions
+
+无授权时无绘图，不重复派发同一请求。错误端点不接收业务请求。
+
+### Evidence Required
+
+服务实例与任务回执，受控调用记录，停止与恢复结果。
+
+## CHANGES-C010 — 桌面接入与共享服务停服
+
+- State: READY
+- Priority: P0
+- Type: INTEGRATION
+- Requirement / Risk: RS1, RS2, `dedc1aaf`、`6a3cdc21`
+- Automation: AUTOMATED
+- Owner: Yiyi Sun
+- Target Release: 0.18.0
+
+### Objective
+
+桌面接入同库同版服务并保留进程和地址。常规停服等待已领取步骤保存，立即停止取消在途请求，桌面准确区分正常停止和连接故障。
+
+### Preconditions
+
+使用正式 CLI、桌面控制通道、原生控制器测试及隔离书库。
+
+### Test Data
+
+常驻和短时服务，受控在途任务，外部终端停止及异常断开。
+
+### Runner Instructions
+
+执行共享服务接入、停服、收尾和强停测试，结合原生控制器检查重启和退出状态。
+
+### Expected Outcome
+
+接入保留持锁进程、阅读地址与服务设置。常规停止停止领取新任务并等待保存。立即停止能取消在途任务。正常停止后可重启同一书库。
+
+### Negative Assertions
+
+不中断不兼容或接入失败的已有服务。不把异常断开当作正常停止。
+
+### Evidence Required
+
+接入前后实例与地址，停止应答和状态投影，原生测试结果。
+
+## CHANGES-C011 — 横图套图与横版、Letter PDF 试印
+
+- State: READY
+- Priority: P0
+- Type: INTEGRATION
+- Requirement / Risk: RS2, RS5, `b8337d5d`、`4c3776fc`、`014b48b5`、`ff3f9a9a`
+- Automation: HYBRID
+- Owner: Yiyi Sun
+- Target Release: 0.18.0
+
+### Objective
+
+每套横图保留自己的画风与稿件；读者按套重试或删除，按指定套图导出历史稿件或保留缺图位置的试印稿。
+
+### Preconditions
+
+使用隔离书库、受控绘图和生产导出接口；沿用已完成的窄屏与桌面浏览器证据。
+
+### Test Data
+
+历史完整套图、暂停或未完成套图、横图丢失的作品、可另绘的当前版本。
+
+### Runner Instructions
+
+核对候选上横图丢失恢复、历史套和试印选择、独立画风、删除及在途保护的自动回归。核对既有浏览器画风确认及横版、Letter 导出证据的构建来源。
+
+### Expected Outcome
+
+两种 PDF 使用选中套图及对应分镜。未完成套图保留配文和缺图位置。可安全确认删除当前或历史套图。
+
+### Negative Assertions
+
+删除不改其他套图或竖图，不接受仍在途或过期操作。导出不启动绘图。
+
+### Evidence Required
+
+候选测试摘要及此前正式导出、控件和隔离场景证据。
+
+## CHANGES-C012 — 服务在线时创建一致的书库快照
+
+- State: READY
+- Priority: P0
+- Type: INTEGRATION
+- Requirement / Risk: RS3, `6a3cdc21`
+- Automation: AUTOMATED
+- Owner: Yiyi Sun
+- Target Release: 0.18.0
+
+### Objective
+
+CLI 和桌面能在服务在线且无在途任务时创建并校验快照。正在写入时反馈任务尚未收尾。
+
+### Preconditions
+
+使用由正式服务持锁的隔离书库和独立快照目录。
+
+### Test Data
+
+空闲的共享服务和持有未完成步骤的共享服务。
+
+### Runner Instructions
+
+在在线制作结束前后通过命令及桌面维护入口取备份，验证快照完整性和目录状态。
+
+### Expected Outcome
+
+空闲时的桌面、CLI 快照均可校验。忙碌时明确拒绝，待任务保存可重新发起。
+
+### Negative Assertions
+
+拒绝分支不创建备份目录。快照不含服务的私有状态。
+
+### Evidence Required
+
+两种入口的结果，拒绝后的目录检查和快照校验记录。
