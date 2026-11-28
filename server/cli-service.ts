@@ -12,7 +12,7 @@ import {z} from 'zod';
 import {createHttpServer} from './http.ts';
 import {desktopOwner,ownerProcessExists,ownDesktopDataSync,publishDesktopOwner} from './desktop-owner.ts';
 import {canonicalPath} from './library-backup.ts';
-import {canDispatchCliCommand,cliFailure,CliCommandError,executeHeadless} from './headless-cli.ts';
+import {canDispatchCliCommand,cliFailure,CliCommandError,executeHeadless,serviceStopReason} from './headless-cli.ts';
 import type {createApplication} from './app.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
 import type {LocalBooks} from './local-books.ts';
@@ -59,7 +59,7 @@ export async function startCliService(root:string,directory:string,runtime:Runti
  const drain=()=>{
   if(drained)return {idle:false,settled:drained.settled};
   accepting=false;
-  for(const {controller} of active.values())controller.abort();
+  for(const {controller} of active.values())controller.abort(serviceStopReason);
   const hasCommands=()=>active.size>0;
   drained=runtime.application?runtime.application.drainForStop(hasCommands)
    :{idle:!hasCommands(),settled:(async()=>{while(hasCommands())await delay(100);})()};
@@ -124,7 +124,7 @@ export async function startCliService(root:string,directory:string,runtime:Runti
   accepting=false;
   if(idle)clearTimeout(idle);
   const ended=new Promise<void>(resolve=>server.close(()=>resolve()));
-  for(const {controller} of active.values())controller.abort();
+  for(const {controller} of active.values())controller.abort(serviceStopReason);
   server.closeAllConnections();
   await Promise.allSettled([...active.values()].map(item=>item.finished));
   await ended;

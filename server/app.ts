@@ -61,10 +61,12 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
  };
  const production=options.exportOnly?undefined:new ReaderProductionCoordinator(local.database,generation,media,{imageWorkers,textProvider,...(snapshots?{snapshots}:{}),...options.production});
  if(!options.providerVariables&&options.variables?.SHIQU_AI_PROVIDER==='readonly'&&options.production?.autoStart!==false)production?.stop();
- let active=0,maintenance=false;
+ let active=0,maintenance=false,draining=false;
  const cancels=new Set<()=>void>();
  function trackWork<T>(work:Promise<T>,cancel?:()=>void){
-  active++;if(cancel)cancels.add(cancel);
+  active++;
+  // 停服等候开始后才登记的流式任务也立即取消，服务不必等它跑完。
+  if(cancel){cancels.add(cancel);if(draining)queueMicrotask(cancel);}
   return work.finally(()=>{active--;if(cancel)cancels.delete(cancel);});
  }
  const services:Services={trackWork,db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,localBooks,transport:options.transport||fetch,generation,production,commandOnly:options.commandOnly};
@@ -80,6 +82,7 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
  }
  // 停服等候：停收新请求与新派发，取消可续跑的流式任务，等已接收的请求和已领取的制作任务结束。暂停保持到退出。
  function drainForStop(otherWork:()=>boolean){
+  draining=true;
   if(!maintenance){maintenance=true;production?.suspendDispatch();}
   for(const cancel of [...cancels])cancel();
   const idle=()=>!active&&!production?.activeWork&&!otherWork();

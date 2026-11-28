@@ -126,12 +126,18 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
  const abort=new AbortController();
  let runtime:Awaited<ReturnType<typeof startDesktop>>|undefined,starting=false,closing=false,inputClosed=false;
  const send=(value:unknown)=>process.stdout.write(JSON.stringify(value)+'\n');
- async function stop(){if(closing)return;closing=true;if(runtime)await runtime.stop();else await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);process.exit(0);}
+ // 正常停止以 0 退出；异常或停止失败以非零码退出，桌面据此区分等候中的崩溃。
+ async function stop(code=0){
+  if(code)process.exitCode=code;
+  if(closing)return;closing=true;
+  try{if(runtime)await runtime.stop();else await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);}catch{process.exitCode=1;}
+  process.exit(Number(process.exitCode??0));
+ }
  lines.on('close',()=>{inputClosed=true;abort.abort();if(!starting)void stop();});
  for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{abort.abort();if(!starting)void stop();});
  process.on('exit',()=>{void stopCodexProcesses();void stopClaudeProcesses();});
  // 丢弃原始异常及提供方输出，父进程只接收安全状态。
- process.on('uncaughtException',()=>{send({error:'服务意外退出，请重新启动。'});void stop();});
+ process.on('uncaughtException',()=>{send({error:'服务意外退出，请重新启动。'});void stop(1);});
  lines.on('line',line=>{
   if(line.length>20000){void stop();return;}
   if(runtime){

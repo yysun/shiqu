@@ -8,7 +8,7 @@ import {LibraryBackupCard} from './LibraryBackupCard';
 import {PhoneAccessCard} from './PhoneAccessCard';
 import {localReaderUrl} from './reader-url';
 import {useReleaseUpdate} from './release-update';
-import {savedProvider} from './console-state';
+import {restartStep,savedProvider} from './console-state';
 import type {Status,ServiceState} from './console-state';
 import {defaultSystemSettings} from '../lib/system-settings';
 import type {SystemSettings} from '../lib/system-settings';
@@ -54,7 +54,13 @@ function Desktop(){
  // 有进行中的任务时停止进入等候；重启在停止完成后再启动。
  const restartPending=useRef(false);
  async function restart(){if(!window.confirm('重启会暂时断开阅读器连接。正在处理的步骤会先保存，再重新启动。是否重启？'))return;const next=await invoke<Status>('stop_server');accept(next);if(next.running){restartPending.current=true;return;}await reload();await start();}
- useEffect(()=>{if(restartPending.current&&known&&!status.running&&status.state!=='stopping'){restartPending.current=false;void action('重启服务',async()=>{await reload();await start();});}},[status.running,status.state,known]);
+ useEffect(()=>{
+  if(!restartPending.current||!known)return;
+  const step=restartStep(status,!!busy||inFlight.current);
+  if(step==='wait')return;
+  restartPending.current=false;
+  if(step==='start')void action('重启服务',async()=>{await reload();await start();});
+ },[status.running,status.state,status.quitting,status.error,known,busy]);
  async function forceStop(){restartPending.current=false;if(status.quitting)await invoke('quit_app',{force:true});else{accept(await invoke<Status>('force_stop'));await reload();}}
  async function copy(value:string){await navigator.clipboard.writeText(value);setMessage('访问链接已复制。');}
  const state:ServiceState=!native?'preview':!known?statusError?'unavailable':'loading':status.state==='upgrading'||status.state==='starting'||status.state==='stopping'?status.state:status.running?'running':status.error?'failed':'stopped';

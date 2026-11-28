@@ -70,6 +70,8 @@ const commands=[
  ['config get|set|reset','Shared saved settings; secret replacement only in JSON input, never argv or output.','config set --input settings.json'],
  ['api METHOD reader/ROUTE','Allowlisted reader persistence/inspection. Direct inference is rejected; run advances production.','api GET reader/sessions'],
 ].map(([name,description,example])=>({name,description,example}));
+/** 书库服务停止时中止 CLI 命令的原因；全量运行据此在服务重启后续跑。 */
+export const serviceStopReason='service-stop';
 export class CliCommandError extends Error{
  readonly code:string;readonly exitCode:number;readonly details?:unknown;
  constructor(code:string,message:string,exitCode=2,details?:unknown){super(message);this.code=code;this.exitCode=exitCode;this.details=details;}
@@ -268,10 +270,15 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  const until=value('until')||'completed',timeout=Number(value('timeout')||900);let timer:ReturnType<typeof setTimeout>|undefined;
  const abort=new AbortController(),shared=context.host?.application;
  let timedOut=false,runScope:CliStoryScope|undefined;
- let runOutcome:'restore'|'release'|'hold'='restore';
+ let runOutcome:'restore'|'release'|'hold'='restore',resumesAfterRestart=false;
  const progress=context.progress||((line:string)=>{process.stderr.write(line);});
+ // 用户中断或超时保留等待；服务停止中断的全量运行释放等待，重启后由调度器按原授权续跑。
  const interrupt=()=>{
-  if(runScope){runScope.setPermission('none');runOutcome='hold';}
+  if(runScope){
+   runScope.setPermission('none');
+   resumesAfterRestart=!timedOut&&until==='completed'&&context.signal?.reason===serviceStopReason;
+   runOutcome=resumesAfterRestart?'release':'hold';
+  }
   if(!shared){app?.stopGeneration();void Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);}
   abort.abort();
  };
@@ -363,7 +370,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    if(context.host){
     try{runScope=await app.services.production?.beginCliRun?.(app.services.ownerId,target!,until==='completed');}
     catch(error){if(error instanceof ReaderError)throw new CliCommandError('CONFLICT',error.message);throw error;}
-    if(abort.signal.aborted){interrupt();throw new CliCommandError('INTERRUPTED','Run interrupted before dispatch.',130);}
+    if(abort.signal.aborted){interrupt();throw new CliCommandError('INTERRUPTED',resumesAfterRestart?'Run interrupted because the library service stopped; production resumes when it restarts.':'Run interrupted before dispatch.',130,{resumesAfterRestart});}
    }
    const current=await api(app,'GET',`sessions/${target}/current`);const initial=await api(app,'GET',`sessions/${target}`);need(current.id===target&&!initial.superseded,'SUPERSEDED_VERSION','Use the current family version.');
    // 已保存的修订等待明确的「继续制作」：run 不会隐式继续。
@@ -412,7 +419,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
        :intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':dagReview==='attention'?'blocked':null);
      if(reason){runOutcome=reason==='completed'?'release':'hold';return {reason,session:snapshot};}await delay(80,undefined,{signal:abort.signal}).catch(()=>{});
     }
-    throw new CliCommandError(timedOut?'TIMEOUT':'INTERRUPTED',timedOut?'Run timed out; saved checkpoints are retained.':'Run interrupted; saved checkpoints are retained.',timedOut?5:130,{session:snapshot});
+    throw new CliCommandError(timedOut?'TIMEOUT':'INTERRUPTED',timedOut?'Run timed out; saved checkpoints are retained.':resumesAfterRestart?'Run interrupted because the library service stopped; production resumes when it restarts.':'Run interrupted; saved checkpoints are retained.',timedOut?5:130,{session:snapshot,resumesAfterRestart});
    }finally{runScope?.finish(runOutcome);await app.services.production!.leave(app.services.ownerId,target!,viewerId);}
   }
   need(command==='stories','UNKNOWN_COMMAND','Use help --json for available commands.');

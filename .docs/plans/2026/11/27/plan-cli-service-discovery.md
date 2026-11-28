@@ -31,6 +31,18 @@ Git base: `4e1d1af286d5e9f3d06a5c2a316a44913fa6ecd7`
 
 无主机的 `executeHeadless` 制作路径只用于测试与冒烟，不调用 `beginCliRun`；该路径不读取投影，判定不变。
 
+### 修正二：停服交接
+
+维护者审查发现停服交接的四处缺口：维护期间普通退出直接强停；停服中断的全量 `run` 重启后要人工继续；停服开始后才登记的可取消任务收不到取消；桌面会丢失重启意图并把等候中的崩溃记为正常停止。维护者选择全量制作在正常重启后续跑，有限运行保留停点。
+
+- [ ] `src-tauri/src/lib.rs`：普通退出在启动或书库维护期间先不持锁等待其结束，再进入 `request_stop_control` 等候流程；只有「立即退出」走强停。
+- [ ] `server/cli-service.ts` 停服（等候与关闭）以 `service-stop` 原因中止 CLI 命令；`server/headless-cli.ts` 收到该原因时，`--until completed` 的运行释放 CLI 等待（重启后按原授权由调度器续跑），其余有限运行和客户端中断、超时保留等待。中断回执说明服务重启后继续。中断回执的 `details.resumesAfterRestart` 标明结果。停服中断后又遇超时等其他中断时保留等待（保守）；排队中尚未执行的自动服务 `run` 保留原有等待。
+- [ ] `server/desktop.ts`：`uncaughtException` 和停止失败时以非零码退出，等候结束的正常停止仍为 0，供桌面区分异常退出。
+- [ ] `server/app.ts`：等候开始后 `trackWork` 新登记的取消回调立即执行。
+- [ ] 桌面：`desktop/console-state.ts` 提供重启判定，控制台忙时保留重启意图，退出中放弃重启；`start_refusal` 在 `quit_pending` 时拒绝启动；`settle_exit` 依据子进程退出码，等候中异常退出记为失败。
+- [ ] 文档：`.docs/user-guide.md`、`skills/shiqu/SKILL.md` 与 `CHANGELOG.md` 改为全量运行停服后续跑、有限运行保留停点。
+- [ ] 测试：`tests/cli-service.test.mjs` 覆盖停服中断全量运行后重启续跑完成与有限运行保留等待；等候后登记的取消立即执行；`tests/desktop-console.test.mjs` 覆盖重启判定；Rust 覆盖等候中异常退出与退出中拒绝启动、维护结束前退出等待。
+
 现有程序的 `executeHeadless` 在同一持锁进程按命令打开并关闭应用。自动服务在本机持锁并复用这个执行器，以维持每条 CLI 命令对制作范围的授权。在线桌面和浏览器共用既有应用与调度器，打开的协调器承接 CLI 写入和显式 `run`，每个故事独立限制派发。配置、输出和书库不做格式迁移。旧版本不会理解释放范围所需的新原始意图，应使用同版本工具打开。协议是内部运行时信息，可以随同版本发布和回滚。
 
 ## 实现提交

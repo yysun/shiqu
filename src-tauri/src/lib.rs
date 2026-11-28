@@ -322,17 +322,32 @@ fn stop_control(state: &DesktopState) {
         return;
     }
 }
-/// 子进程已退出：等候停止后的自行退出是正常停止，其他退出记为失败。
-fn settle_exit(control: &mut Control) {
+/// 子进程已退出：等候停止后以退出码 0 自行退出是正常停止；其他退出（含等候中的异常退出）记为失败。
+fn settle_exit(control: &mut Control, success: bool) {
     drop(control.runtime.take());
-    control.last_error = (!control.draining).then(|| "服务已退出，请检查设置后重新启动。".into());
+    control.last_error =
+        (!(control.draining && success)).then(|| "服务已退出，请检查设置后重新启动。".into());
     control.draining = false;
 }
-/// 等候停止期间不接受启动，避免把仍在收尾的实例当作已启动。
+/// 等候停止或正在退出时不接受启动，避免把仍在收尾的实例当作已启动，也避免重启与退出竞争。
 fn start_refusal(control: &Control) -> Option<&'static str> {
+    if control.quit_pending {
+        return Some("拾趣正在退出。");
+    }
     control
         .draining
         .then_some("服务正在停止，请等待完成后再启动。")
+}
+/// 不持锁等待启动或书库维护结束，期间状态查询和立即退出仍可使用。
+fn wait_until_ready(state: &DesktopState) {
+    while state
+        .0
+        .lock()
+        .map(|control| control.starting || control.maintaining_library)
+        .unwrap_or(false)
+    {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 /// 常规停止：返回 true 表示已停止；false 表示服务在等已领取的步骤保存，保留子进程直到它自行退出。
 fn request_stop_control(state: &DesktopState) -> Result<bool, String> {
@@ -360,33 +375,39 @@ fn force_stop_control(state: &DesktopState) {
         control.draining = false;
     }
 }
-/// 退出应用：空闲时立即退出；有进行中的工作时显示控制台，等子进程自行退出后再退出。
-/// 启动或书库维护期间沿用原行为：等启动或维护结束后释放子进程再退出，Windows 只能从托盘退出。
+/// 退出应用：空闲时立即退出；有进行中的工作时显示控制台，等已领取的步骤保存、子进程自行退出后再退出。
+/// 启动或书库维护期间先等其结束，再进入同一等候流程；只有「立即退出」强停。
 fn quit(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
     let state = app.state::<DesktopState>().inner().clone();
-    let busy = state
-        .0
-        .lock()
-        .map(|control| control.starting || control.maintaining_library)
-        .unwrap_or(false);
-    if force || busy {
+    if force {
         force_stop_control(&state);
-        app.exit(0);
-        return Ok(());
-    }
-    if request_stop_control(&state)? {
         app.exit(0);
         return Ok(());
     }
     {
         let mut control = state.0.lock().map_err(|_| "服务控制器不可用。")?;
         if control.quit_pending {
+            drop(control);
             show(app);
             return Ok(());
         }
         control.quit_pending = true;
     }
     show(app);
+    wait_until_ready(&state);
+    match request_stop_control(&state) {
+        Ok(true) => {
+            app.exit(0);
+            return Ok(());
+        }
+        Ok(false) => {}
+        Err(error) => {
+            if let Ok(mut control) = state.0.lock() {
+                control.quit_pending = false;
+            }
+            return Err(error);
+        }
+    }
     let app = app.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_millis(200));
@@ -458,7 +479,8 @@ async fn server_status(state: tauri::State<'_, DesktopState>) -> Result<Value, S
                     }
                     return Ok(status);
                 }
-                _ => settle_exit(&mut control),
+                Ok(Some(exit)) => settle_exit(&mut control, exit.success()),
+                Err(_) => settle_exit(&mut control, false),
             }
         }
         Ok(json!({"running":false,"state":if control.last_error.is_some(){"failed"}else{"stopped"},"phoneUrls":[],"error":control.last_error}))
@@ -632,12 +654,39 @@ mod tests {
         let mut control = Control::default();
         control.draining = true;
         assert!(start_refusal(&control).is_some());
-        settle_exit(&mut control);
+        settle_exit(&mut control, true);
         assert_eq!(control.last_error, None);
         assert!(!control.draining);
         assert!(start_refusal(&control).is_none());
-        settle_exit(&mut control);
+        // 非等候中的退出、等候中以非零码退出均记为失败。
+        settle_exit(&mut control, true);
         assert!(control.last_error.is_some());
+        control.draining = true;
+        settle_exit(&mut control, false);
+        assert!(control.last_error.is_some());
+        // 退出中不接受重启。
+        control.quit_pending = true;
+        assert!(start_refusal(&control).is_some());
+    }
+    #[test]
+    fn quit_waits_for_startup_or_maintenance_without_holding_the_lock() {
+        let state = DesktopState::default();
+        state.0.lock().unwrap().maintaining_library = true;
+        let waiting = state.clone();
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            wait_until_ready(&waiting);
+            send.send(()).unwrap();
+        });
+        assert!(receive
+            .recv_timeout(std::time::Duration::from_millis(250))
+            .is_err());
+        // 等待期间状态查询仍可取得锁。
+        drop(state.0.lock().unwrap());
+        state.0.lock().unwrap().maintaining_library = false;
+        receive
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
     }
     #[test]
     fn stop_and_exit_wait_for_startup_without_holding_the_controller_lock() {

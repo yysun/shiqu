@@ -342,7 +342,7 @@ test('the desktop control channel waits for active work, then stops itself or st
   const [{LocalBooks},{LocalStorySearch},{StoryCardEmbeddingStore}]=await Promise.all(${JSON.stringify(modules)}.map(path=>import(path)));
   LocalBooks.prototype.book=async()=>({id:'zhuangzi',edition:'controlled'});
   LocalStorySearch.prototype.indexableCards=async()=>[];
-  StoryCardEmbeddingStore.prototype.build=async()=>{process.send('embedding-active');await new Promise(resolve=>process.once('message',resolve));return {completed:1,total:1};};
+  StoryCardEmbeddingStore.prototype.build=async()=>{process.send('embedding-active');await new Promise(resolve=>process.once('message',message=>{if(message==='crash')setTimeout(()=>{throw Error('controlled crash');});else resolve();}));return {completed:1,total:1};};
   await runDesktopControl(process.argv[1]);
  `;
  const child=spawn(process.execPath,['--input-type=module','-e',program,f.root],{cwd:f.root,env:f.env,stdio:['pipe','pipe','pipe','ipc']});
@@ -397,6 +397,24 @@ test('the desktop control channel waits for active work, then stops itself or st
  second.stdin.write(JSON.stringify({action:'shutdown'})+'\n');
  assert.equal((await secondExit)[0],0);
  assert.equal(desktopOwner(directory),undefined);
+
+ // 等候中服务异常退出：以非零码退出，桌面据此显示失败而不是正常停止。
+ const third=spawn(process.execPath,['--input-type=module','-e',program,f.root],{cwd:f.root,env:f.env,stdio:['pipe','pipe','pipe','ipc']});
+ const thirdExit=once(third,'exit');
+ let thirdOutput='';
+ third.stdout.on('data',chunk=>{thirdOutput+=chunk;});
+ f.defer(async()=>{if(third.exitCode===null&&third.signalCode===null)third.kill('SIGKILL');await thirdExit;});
+ const thirdFrames=()=>thirdOutput.trimEnd().split('\n').map(line=>{try{return JSON.parse(line);}catch{return {};}});
+ third.stdin.write(JSON.stringify({action:'start',settings:{nodePath:process.execPath,dataDirectory:directory,port,internetEnabled:false,cloudflaredPath:'',provider:'readonly',textModel:'test-text',imageModel:'test-image',codexPath:'',codexModel:'',codexHome:''}})+'\n');
+ const crashing=await until(()=>thirdFrames().find(frame=>frame.running===true));
+ const crashBusy=once(third,'message');
+ const crashPending=await fetch(crashing.url+'/api/reader/books/zhuangzi/embedding-index',{method:'POST',headers:{Origin:crashing.url}});
+ void crashPending.text().catch(()=>'');
+ await crashBusy;
+ third.stdin.write(JSON.stringify({action:'stop',requestId:9})+'\n');
+ await until(()=>thirdFrames().find(frame=>frame.stopReply===9&&frame.draining===true));
+ third.send('crash');
+ assert.notEqual((await thirdExit)[0],0);
 });
 
 test('the browser service waits on Ctrl-C, ignores npm forwarding the same signal, and stops at a later second Ctrl-C', {timeout:40000},async t=>{
@@ -499,14 +517,18 @@ test('Skill completes selection, confirmation and export without stopping the on
  assert.equal(desktopOwner(directory).service.url,service.url);
 });
 
-test('reader keeps retry for faulted CLI holds and stopping interrupts a CLI run', {timeout:30000},async t=>{
+test('reader keeps retry for faulted CLI holds; stopping resumes full CLI runs after restart and keeps limited stops', {timeout:40000},async t=>{
  const cleanup=[];
  const f=await productionFixture({after:fn=>cleanup.push(fn)});await f.stop();f.control.hold=false;
  const books=libraryFixture(),generation=withLocalBooks(f.generation,books.books,f.media);
  const directory=f.dataDirectory,root=process.cwd(),release=ownDesktopDataSync(directory);
- const app=createApplication({root,dataDirectory:directory,generation});
- app.services.localBooks=books.books;
- const service=await startCliService(root,directory,{application:app});
+ let app,service;
+ async function start(){
+  app=createApplication({root,dataDirectory:directory,generation});
+  app.services.localBooks=books.books;
+  service=await startCliService(root,directory,{application:app});
+ }
+ await start();
  let unblock=()=>{};
  t.after(async()=>{unblock();await service.close();await app.close();release();for(const close of cleanup.reverse())await close();});
  const command=(args,input)=>callCliService(root,directory,args,root,process.env,input);
@@ -527,19 +549,36 @@ test('reader keeps retry for faulted CLI holds and stopping interrupts a CLI run
  const run=command(['run',running,'--until','completed','--timeout','20']);
  await gated;
  assert.equal((await control(running,'continue')).status,409);
- // 停服等候：中断 CLI run 并留下等待，停收新请求，等已领取的文字任务结束。
+ const limited=(await command(['stories','create','--no-intake'],source)).session.id;
+ const limitedRun=command(['run',limited,'--until','reviewed','--timeout','20']);
+ await delay(150);
+ // 停服等候：中断两条 CLI run，停收新请求，等已领取的文字任务结束。
  const drain=service.drain();
  assert.equal(drain.idle,false);
- await assert.rejects(run,{code:'INTERRUPTED'});
+ await assert.rejects(run,error=>error.code==='INTERRUPTED'&&error.details.resumesAfterRestart===true);
+ await assert.rejects(limitedRun,error=>error.code==='INTERRUPTED'&&error.details.resumesAfterRestart===false);
  await assert.rejects(command(['stories','list']),{code:'SERVICE_BUSY'});
  assert.equal((await app.handle(new Request('http://localhost/api/reader/sessions'))).status,503);
+ // 等候开始后才登记的可取消任务立即取消。
+ let cancelled=false,finishLate=()=>{};
+ void app.services.trackWork(new Promise(resolve=>{finishLate=resolve;}),()=>{cancelled=true;finishLate();});
+ await delay(20);
+ assert.equal(cancelled,true);
  let settled=false;void drain.settled.then(()=>{settled=true;});
  await delay(250);
  assert.equal(settled,false);
  f.control.beforeText=null;unblock();
  await drain.settled;
- const held=await app.services.database.prepare("SELECT session_id FROM reader_commands WHERE action='cli-hold' AND session_id=?").bind(running).first();
- assert.equal(held?.session_id,running);
+ const holds=async id=>!!await app.services.database.prepare("SELECT 1 FROM reader_commands WHERE action='cli-hold' AND session_id=?").bind(id).first();
+ assert.equal(await holds(running),false);
+ assert.equal(await holds(limited),true);
+ // 重开同一书库：全量运行不经人工操作完成，有限运行仍在审片停点等待继续。
+ await service.close();await app.close();
+ await start();
+ await until(async()=>{await app.services.production.tick();return (await command(['stories','get',running])).state==='completed';},15000);
+ await app.services.production.tick();
+ assert.equal(await holds(limited),true);
+ assert.notEqual((await command(['stories','get',limited])).state,'completed');
 });
 
 test('interrupting a CLI with a stuck startup releases its pending child channel', {timeout:10000},async t=>{
