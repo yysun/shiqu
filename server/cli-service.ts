@@ -2,7 +2,7 @@
 import {spawn} from 'node:child_process';
 import {createHash,createHmac,randomUUID,timingSafeEqual} from 'node:crypto';
 import {once} from 'node:events';
-import {lstatSync} from 'node:fs';
+import {lstatSync,readFileSync} from 'node:fs';
 import {Agent,request as httpRequest} from 'node:http';
 import type {IncomingMessage} from 'node:http';
 import type {Socket} from 'node:net';
@@ -10,6 +10,7 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {z} from 'zod';
 import {createHttpServer} from './http.ts';
+import type {HttpPeer} from './http.ts';
 import {desktopOwner,ownerProcessExists,ownDesktopDataSync,publishDesktopOwner} from './desktop-owner.ts';
 import {canonicalPath} from './library-backup.ts';
 import {canDispatchCliCommand,cliFailure,CliCommandError,executeHeadless,serviceStopReason} from './headless-cli.ts';
@@ -23,13 +24,38 @@ const commandRequest=z.object({id:instanceId,args:z.array(z.string()).min(1).max
 type Command=z.infer<typeof commandRequest>;
 type Owner=NonNullable<ReturnType<typeof desktopOwner>>;
 type Application=ReturnType<typeof createApplication>;
-type Runtime={application?:Application;managed?:{onIdle:()=>void};generation?:ReaderProvider;localBooks?:LocalBooks};
+type Drain={idle:boolean;settled:Promise<void>};
+type DesktopRequest={action:'attach'|'promote'|'status'|'stop'|'force';version:string;start?:unknown};
+type DesktopControl=(request:DesktopRequest,peer:HttpPeer)=>Promise<object>|object;
+type Runtime={application?:Application;managed?:{onIdle:()=>void};desktop?:DesktopControl;generation?:ReaderProvider;localBooks?:LocalBooks};
 type Failure=ReturnType<typeof cliFailure>;
 type Event={progress:string}|{data:unknown}|{failure:Failure};
 const headers={'Cache-Control':'no-store','Content-Type':'application/x-ndjson'};
 const encoder=new TextEncoder();
 const encode=(value:Event)=>encoder.encode(JSON.stringify(value)+'\n');
 const signature=(key:string,challenge:string)=>createHmac('sha256',key).update(challenge).digest('hex');
+export function serviceVersion(root:string):string{
+ try{return JSON.parse(readFileSync(path.join(root,'package.json'),'utf8')).version||'';}
+ catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return '';throw error;}
+}
+const desktopRequest=z.object({action:z.enum(['attach','promote','status','stop','force']),version:z.string().max(64),start:z.unknown().optional()}).strict();
+
+// 桌面控制同样经持锁实例认证；确认已发出之后才允许关闭控制连接。
+export function desktopServiceControl(root:string,status:()=>object|undefined,drain:()=>Drain,stop:()=>void,promote?:(input:unknown,signal?:AbortSignal)=>Promise<object>):DesktopControl{
+ const version=serviceVersion(root);
+ return async(request,peer)=>{
+  if(!version||request.version!==version)return {error:'书库服务版本不同，请先通过原入口停止服务。'};
+  const snapshot=status();
+  if(request.action==='attach')return snapshot??(promote?{promote:true}:{error:'书库服务尚未就绪。'});
+  if(request.action==='promote')return !snapshot&&promote?await promote(request.start,peer.signal):{error:'此服务无需启用桌面阅读器。'};
+  if(!snapshot)return {error:'书库服务尚未就绪。'};
+  if(request.action==='status')return snapshot;
+  if(request.action==='force'){peer.afterReply?.(stop);return {accepted:true,draining:false};}
+  const waiting=drain();
+  peer.afterReply?.(()=>{void waiting.settled.then(stop);});
+  return {accepted:true,draining:!waiting.idle};
+ };
+}
 function matches(a:string,b:string){
  const lhs=Buffer.from(a),rhs=Buffer.from(b);
  return lhs.length===rhs.length&&timingSafeEqual(lhs,rhs);
@@ -44,7 +70,7 @@ export async function startCliService(root:string,directory:string,runtime:Runti
  const owner=desktopOwner(directory);
  if(!owner||owner.pid!==process.pid)throw Error('DATA_BUSY');
  const active=new Map<string,{controller:AbortController;finished:Promise<void>}>();
- let queue=Promise.resolve(),idle:ReturnType<typeof setTimeout>|undefined,closing:Promise<void>|undefined,url='',accepting=true;
+ let queue=Promise.resolve(),idle:ReturnType<typeof setTimeout>|undefined,closing:Promise<void>|undefined,url='',accepting=true,promoting=false;
  const busyBackup=()=>new CliCommandError('BACKUP_ACTIVE_TASKS','书库有正在进行的任务，请等当前步骤保存后再备份。');
  const pause=(except?:string)=>{
   if(!accepting)return;
@@ -67,7 +93,7 @@ export async function startCliService(root:string,directory:string,runtime:Runti
  };
  const refreshIdle=()=>{
   if(idle)clearTimeout(idle);
-  if(runtime.managed&&!closing&&!active.size)idle=setTimeout(runtime.managed.onIdle,idleMs);
+  if(runtime.managed&&!closing&&!promoting&&!active.size)idle=setTimeout(runtime.managed.onIdle,idleMs);
  };
  const server=createHttpServer(async(req,peer)=>{
   const address=new URL(req.url);
@@ -78,7 +104,13 @@ export async function startCliService(root:string,directory:string,runtime:Runti
    refreshIdle();
    return new Response(signature(owner.id,'server:'+challenge.data),{headers:{'Cache-Control':'no-store'}});
   }
-  if(peer.rawPath!=='/command'||!matches(req.headers.get('authorization')||'','Bearer '+owner.id))return new Response(null,{status:404});
+  if(!matches(req.headers.get('authorization')||'','Bearer '+owner.id))return new Response(null,{status:404});
+  if(peer.rawPath==='/desktop'&&req.method==='POST'&&runtime.desktop){
+   const raw=await req.text(),parsed=desktopRequest.safeParse(raw.length<=20000?JSON.parse(raw):null);
+   if(!parsed.success)return new Response(null,{status:400});
+   return Response.json(await runtime.desktop(parsed.data,peer),{headers:{'Cache-Control':'no-store'}});
+  }
+  if(peer.rawPath!=='/command')return new Response(null,{status:404});
   if(req.method==='DELETE'){
    active.get(address.searchParams.get('id')||'')?.controller.abort();
    return new Response(null,{status:204});
@@ -129,6 +161,20 @@ export async function startCliService(root:string,directory:string,runtime:Runti
   await Promise.allSettled([...active.values()].map(item=>item.finished));
   await ended;
  })();
+ // 启用阅读器前等自动服务已接收的命令收尾；失败恢复原进程及空闲计时。
+ async function promote(start:(signal:AbortSignal)=>Promise<{application:Application}>,signal?:AbortSignal){
+  if(!runtime.managed||!accepting||closing)throw Error('DATA_BUSY');
+  promoting=true;accepting=false;refreshIdle();
+  const cancel=signal??new AbortController().signal;
+  try{
+   while(active.size)await delay(50,undefined,{signal:cancel});
+   cancel.throwIfAborted();
+   const handoff=await start(cancel);
+   cancel.throwIfAborted();
+   publishDesktopOwner(directory,{protocol,url},true);
+   runtime.application=handoff.application;runtime.managed=undefined;
+  }finally{promoting=false;accepting=!closing;refreshIdle();}
+ }
  try{
   server.listen(0,localHost);await once(server,'listening');
   const address=server.address();
@@ -136,7 +182,7 @@ export async function startCliService(root:string,directory:string,runtime:Runti
   url='http://'+localHost+':'+address.port;
   publishDesktopOwner(directory,{protocol,url,...(runtime.managed?{affinity:affinity(root,process.env)}:{})});
   refreshIdle();
-  return {close,url,pause,drain};
+  return {close,url,pause,drain,promote};
  }catch(error){await close();throw error;}
 }
 
@@ -151,11 +197,29 @@ export async function runCliServiceProcess(root:string,directory:string){
  process.once('disconnect',disconnected);
  const onSignal=()=>{void stop();};
  let service:Awaited<ReturnType<typeof startCliService>>|undefined,stopping:Promise<void>|undefined;
+ type Desktop=Awaited<ReturnType<typeof import('./desktop.ts').startDesktop>>;
+ let desktop:Desktop|undefined;
+ const shutdown=new AbortController();
  const stop=()=>stopping??=(async()=>{
-  try{await service?.close();}finally{release();process.off('SIGINT',onSignal);process.off('SIGTERM',onSignal);if(process.connected)process.disconnect?.();}
+  shutdown.abort();
+  try{await desktop?.stop(true);await service?.close();}finally{release();process.off('SIGINT',onSignal);process.off('SIGTERM',onSignal);if(process.connected)process.disconnect?.();}
  })();
  try{
-  service=await startCliService(root,directory,{managed:{onIdle:onSignal}});
+  const control=desktopServiceControl(root,()=>desktop?.status,()=>desktop!.prepareStop(),onSignal,async(input,signal)=>{
+   let next:Desktop|undefined;
+   try{
+    await service!.promote(async cancel=>{
+     const {startDesktop,desktopStartRequest}=await import('./desktop.ts');
+     const request=desktopStartRequest.parse(input);
+     if(request.action!=='start'||canonicalPath(request.settings.dataDirectory)!==canonicalPath(directory))throw Error('DATA_BUSY');
+     next=await startDesktop({...request.settings,dataDirectory:directory},request.key,root,{signal:cancel,imageKey:request.imageKey,settingsFile:request.settingsFile,overrides:request.overrides,existingCli:service});
+     return next;
+    },signal?AbortSignal.any([signal,shutdown.signal]):shutdown.signal);
+    desktop=next!;
+    return desktop.status;
+   }catch(error){await next?.stop();const {desktopFailure}=await import('./desktop.ts');return {error:desktopFailure(error)};}
+  });
+  service=await startCliService(root,directory,{managed:{onIdle:onSignal},desktop:control});
   process.off('disconnect',disconnected);
   if(abandoned){await stop();return;}
   process.once('SIGINT',onSignal);process.once('SIGTERM',onSignal);
@@ -220,6 +284,21 @@ async function identify(owner:Owner,agent:Agent,signal:AbortSignal){
  const socket=response.socket;
  if(response.statusCode===200&&matches(await readText(response),signature(owner.id,'server:'+challenge)))return {url,socket};
  response.destroy();
+}
+export async function requestDesktopService(owner:Owner,request:DesktopRequest,signal:AbortSignal){
+ const agent=new Agent({keepAlive:true,maxSockets:1});
+ try{
+  const service=await identify(owner,agent,signal);
+  if(!service)return;
+  const response=await sendHttp(service.url,'/desktop','POST',agent,signal,{key:owner.id,socket:service.socket,body:JSON.stringify(request)});
+  if(response.statusCode!==200){response.destroy();return;}
+  let value='';
+  response.setEncoding('utf8');
+  for await(const chunk of response){
+   value+=chunk;if(value.length>16384)throw Error('CLI_SERVICE_RESPONSE');
+  }
+  return JSON.parse(value) as Record<string,unknown>;
+ }finally{agent.destroy();}
 }
 function asError({code,message,exitCode,details}:Failure){return new CliCommandError(code,message,exitCode,details);}
 function interrupted(){return new CliCommandError('INTERRUPTED','Command interrupted; reopen the story to check saved progress.',130);}

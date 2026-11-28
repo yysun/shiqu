@@ -19,13 +19,15 @@ export function desktopOwner(directory:string):Owner|undefined{
 export function ownerProcessExists(pid:number){
  try{process.kill(pid,0);return true;}catch(error){return (error as NodeJS.ErrnoException).code!=='ESRCH';}
 }
-export function publishDesktopOwner(directory:string,service:ServiceAddress){
- const owner=owned.get(path.resolve(directory));
- if(!owner)throw Error('DATA_BUSY');
+export function publishDesktopOwner(directory:string,service:ServiceAddress,persistent=false){
+ const key=path.resolve(directory),previous=owned.get(key);
+ if(!previous)throw Error('DATA_BUSY');
+ const owner=persistent?{pid:previous.pid,id:previous.id}:previous;
  const filename=ownerPath(directory),draft=filename+'-'+owner.id;
  try{
   writeFileSync(draft,JSON.stringify({...owner,service}),{flag:'wx',mode:0o600});
   renameSync(draft,filename);
+  if(persistent)owned.set(key,owner);
  }catch(error){
   try{unlinkSync(draft);}catch{/* 保留原始发布错误。 */}
   throw error;

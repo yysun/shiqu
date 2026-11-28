@@ -662,6 +662,7 @@
         "server/desktop.ts",
         "server/desktop-backups.ts",
         "server/desktop-owner.ts",
+        "server/http.ts",
         "server/library-maintenance.ts",
         "server/headless-cli.ts",
         "server/reader-copy.ts",

@@ -8,10 +8,11 @@ import {desktopAccess} from './desktop-access.ts';
 import {stopCodexProcesses} from './codex-runner.ts';
 import {stopClaudeProcesses} from './claude-runner.ts';
 import {ownDesktopData} from './desktop-owner.ts';
-import {startCliService} from './cli-service.ts';
+import {desktopServiceControl,startCliService} from './cli-service.ts';
 import {installDiagnostics,recordDiagnostic,safeErrorCode} from './diagnostics.ts';
 import {browserProviderSettings} from './browser-provider-settings.ts';
 import {providerSettingsPath} from '../lib/provider-settings.ts';
+import {runtimeConfiguration} from './provider-runtime.ts';
 
 export async function startServer({root,variables=process.env,localAccess=false,settingsOverrides,settingsProxyToken,explicitSettingsBypass=false}:{root:string;variables?:NodeJS.ProcessEnv;localAccess?:boolean;settingsOverrides?:Record<string,string|undefined>;settingsProxyToken?:string;explicitSettingsBypass?:boolean}){
  const config=serverConfig(variables);
@@ -23,10 +24,12 @@ export async function startServer({root,variables=process.env,localAccess=false,
  try{app=createApplication({root,dataDirectory:config.dataDirectory,variables,providerVariables,snapshotVariables:providerSettings?snapshot=>{try{return providerSettings.variablesForSnapshot(snapshot);}catch(error){if(explicitSettingsBypass)return variables;throw error;}}:undefined});}
  catch(error){recordDiagnostic(config.dataDirectory,'service_start_failed',{code:safeErrorCode(error)});removeDiagnostics();await release();throw error;}
  const urls=phoneUrls(config.host,config.port);
- const handle=localAccess?desktopAccess(app.handle,{hosts:[`localhost:${config.port}`,`127.0.0.1:${config.port}`,`[::1]:${config.port}`,...urls.map(url=>new URL(url).host)]}).handle:developmentAccess(app.handle,variables,config.port);
+ const accessHosts=[`localhost:${config.port}`,`127.0.0.1:${config.port}`,`[::1]:${config.port}`,...urls.map(url=>new URL(url).host)];
+ let handle=localAccess?desktopAccess(app.handle,{hosts:accessHosts}).handle:developmentAccess(app.handle,variables,config.port);
  const server=createHttpServer((request,peer)=>providerSettings&&new URL(request.url).pathname===providerSettingsPath?providerSettings(request,peer):handle(request));
  let cli:Awaited<ReturnType<typeof startCliService>>|undefined;
  let closing:Promise<void>|undefined,stopping=false;
+ let desktopDraining=false;
  function closeApplication(){
   return closing??=(async()=>{
    app.stopGeneration();
@@ -70,7 +73,18 @@ export async function startServer({root,variables=process.env,localAccess=false,
    await new Promise<void>(resolve=>server.close(()=>resolve()));
   }
   await listen(config.host);
-  cli=await startCliService(root,config.dataDirectory,{application:app});
+  const bound=server.address();
+  if(!bound||typeof bound==='string')throw Error('CLI_SERVICE_LISTENER');
+  const address=bound.address==='0.0.0.0'?'127.0.0.1':bound.address==='::'?'::1':bound.address;
+  const readerUrl='http://'+(address.includes(':')?'['+address+']':address)+':'+bound.port;
+  if(localAccess)handle=desktopAccess(app.handle,{hosts:[...accessHosts,new URL(readerUrl).host]}).handle;
+  const status=()=>{
+   const state=desktopDraining||drainingSince||stopping?'stopping':'running';
+   const result={running:true,state,pid:process.pid,url:readerUrl,phoneUrls:urls,generating:app.generating,provider:runtimeConfiguration(variables)};
+   try{const saved=providerSettings?.snapshot();return saved?{...result,provider:saved.runtime,restartRequired:saved.restartRequired}:result;}
+   catch{return {...result,settingsError:'无法读取共享生成设置，请检查本机配置后重试。'};}
+  };
+  cli=await startCliService(root,config.dataDirectory,{application:app,...(localAccess?{desktop:desktopServiceControl(root,status,()=>{desktopDraining=true;return cli!.drain();},()=>stop(true))}:{})});
  }catch(error){if(server.listening)server.close();recordDiagnostic(config.dataDirectory,'service_start_failed',{code:safeErrorCode(error)});await closeApplication();throw error;}
  const onInterrupt=()=>stop(false),onTerminate=()=>stop(true);
  process.on('SIGINT',onInterrupt);process.on('SIGTERM',onTerminate);

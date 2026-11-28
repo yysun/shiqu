@@ -42,6 +42,189 @@ async function until(check,ms=6000){
  while(Date.now()<deadline){const value=await check();if(value)return value;await delay(15);}
  throw Error('condition timed out');
 }
+function desktopBridge(f,directory,port){
+ const desktop=new URL('../server/desktop.ts',import.meta.url).href;
+ const program=`const {runDesktopControl}=await import(${JSON.stringify(desktop)});await runDesktopControl(process.argv[1]);`;
+ const child=spawn(process.execPath,['--input-type=module','-e',program,f.root],{cwd:f.root,env:f.env,stdio:['pipe','pipe','pipe']});
+ const exit=once(child,'exit');
+ let output='',errors='';
+ child.stdout.on('data',chunk=>{output+=chunk;});child.stderr.on('data',chunk=>{errors+=chunk;});
+ f.defer(async()=>{if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');await exit;});
+ const send=value=>child.stdin.write(JSON.stringify(value)+'\n');
+ send({action:'start',settings:{nodePath:process.execPath,dataDirectory:directory,port,internetEnabled:false,cloudflaredPath:'',provider:'readonly',textModel:'test-text',imageModel:'test-image',codexPath:'',codexModel:'',codexHome:''}});
+ const frames=()=>output.trimEnd().split('\n').map(line=>{try{return JSON.parse(line);}catch{return {};}});
+ const wait=async predicate=>{try{return await until(()=>frames().find(predicate));}catch(error){throw Error(output+errors,{cause:error});}};
+ return {child,exit,send,wait};
+}
+
+test('desktop attaches to the same browser CLI service and detaches or stops it through stdin', {timeout:25000},async t=>{
+ const f=await startupFixture(t),directory=path.join(f.root,'shared-browser'),port=await freeStartupPort();
+ const browser=startFixtureCli(f,['--port',String(port),'--host','127.0.0.1','--data-dir',directory],{SHIQU_AI_PROVIDER:'readonly'});
+ const url='http://127.0.0.1:'+port;
+ await until(()=>browser.output().includes('拾趣: '+url));
+ const owner=desktopOwner(directory);
+ const mismatched=await startupFixture(t);
+ await writeFile(path.join(mismatched.root,'package.json'),JSON.stringify({version:'wrong-version'}));
+ const rejected=desktopBridge(mismatched,directory,await freeStartupPort());
+ assert.match((await rejected.wait(frame=>frame.error)).error,/版本不同/);
+ assert.equal(desktopOwner(directory).id,owner.id);
+ const bridge=desktopBridge(f,directory,await freeStartupPort());
+ const first=await bridge.wait(frame=>frame.running||frame.error);
+ assert.equal(first.error,undefined);
+ assert.equal(first.pid,browser.child.pid);assert.equal(first.url,url);assert.equal(first.attached,true);
+ assert.equal(desktopOwner(directory).id,owner.id);
+ bridge.child.stdin.end();
+ assert.equal((await bridge.exit)[0],0);
+ assert.equal((await fetch(url+'/api/reader/sessions')).status,200);
+ assert.deepEqual(await ok(command(f,directory,['stories','list'])),[]);
+ const {session}=await ok(command(f,directory,['stories','create','--no-intake','--input','-'],{input:selection}));
+ const shelf=await (await fetch(url+'/api/reader/sessions')).json();
+ assert.equal(shelf[0].id,session.id);
+ const next=desktopBridge(f,directory,await freeStartupPort());
+ assert.equal((await next.wait(frame=>frame.running)).pid,owner.pid);
+ next.send({action:'stop',requestId:23});
+ assert.deepEqual(await next.wait(frame=>frame.stopReply===23),{stopReply:23,accepted:true,draining:false});
+ next.child.stdin.end();
+ assert.equal((await next.exit)[0],0);
+ assert.equal(desktopOwner(directory),undefined);
+ const restarted=desktopBridge(f,directory,await freeStartupPort());
+ const live=await restarted.wait(frame=>frame.running);
+ assert.notEqual(live.pid,owner.pid);
+ assert.equal((await fetch(live.url+'/api/reader/sessions')).status,200);
+ restarted.send({action:'shutdown'});
+ assert.equal((await restarted.exit)[0],0);
+});
+
+test('desktop attachment opens an existing IPv6 loopback reader', {timeout:16000},async t=>{
+ const socket=createServer();
+ try{socket.listen(0,'::1');await once(socket,'listening');}
+ catch(error){if(['EADDRNOTAVAIL','EAFNOSUPPORT'].includes(error.code))return t.skip('IPv6 loopback unavailable');throw error;}
+ const port=socket.address().port;
+ await new Promise(resolve=>socket.close(resolve));
+ const f=await startupFixture(t),directory=path.join(f.root,'ipv6');
+ const browser=startFixtureCli(f,['--port',String(port),'--host','::1','--data-dir',directory],{SHIQU_AI_PROVIDER:'readonly'});
+ await browser.ready();
+ const bridge=desktopBridge(f,directory,await freeStartupPort());
+ const status=await bridge.wait(frame=>frame.running||frame.error);
+ assert.equal(status.error,undefined);
+ assert.equal(status.url,'http://[::1]:'+port);
+ assert.equal((await fetch(status.url+'/api/reader/sessions')).status,200);
+ bridge.send({action:'shutdown'});
+ assert.equal((await bridge.exit)[0],0);
+ assert.equal((await browser.exit)[0],0);
+});
+
+test('attached desktop drains an active model request and can then cancel it immediately', {timeout:25000},async t=>{
+ const f=await startupFixture(t),directory=path.join(f.root,'active-browser'),port=await freeStartupPort();
+ const source=name=>JSON.stringify(new URL('../'+name,import.meta.url).href);
+ const program=`
+  const {LocalBooks}=await import(${source('server/local-books.ts')});
+  const {libraryFixture}=await import(${source('tests/fixtures/story-library.mjs')});
+  const {startServer}=await import(${source('server/start.ts')});
+  LocalBooks.prototype.book=async()=>libraryFixture().book;
+  globalThis.fetch=async (url,init)=>new Promise((resolve,reject)=>{
+   process.send('model-active');
+   init.signal.addEventListener('abort',()=>{process.send('model-cancelled');reject(init.signal.reason);},{once:true});
+  });
+  const [root,directory,port]=process.argv.slice(1);
+  await startServer({root,localAccess:true,variables:{PORT:port,SHIQU_BIND_IP:'127.0.0.1',SHIQU_DATA_DIR:directory,SHIQU_AI_PROVIDER:'gemini',GEMINI_API_KEY:'controlled-test'}});
+ `;
+ const browser=spawn(process.execPath,['--input-type=module','-e',program,f.root,directory,String(port)],{cwd:f.root,env:f.env,stdio:['ignore','ignore','pipe','ipc']});
+ const browserExit=once(browser,'exit'),events=[];
+ browser.on('message',message=>events.push(message));
+ f.defer(async()=>{if(browser.exitCode===null&&browser.signalCode===null)browser.kill('SIGKILL');await browserExit;});
+ await until(()=>desktopOwner(directory)?.service);
+ const bridge=desktopBridge(f,directory,await freeStartupPort());
+ assert.equal((await bridge.wait(frame=>frame.running)).pid,browser.pid);
+ const story=libraryFixture().stories[0];
+ const {session}=await ok(command(f,directory,['stories','create','--no-intake','--input','-'],{input:{...selection,length:3,source:story.source,storyTitle:story.title}}));
+ const run=command(f,directory,['run',session.id,'--until','completed','--timeout','20']).result;
+ await until(()=>events.includes('model-active'));
+ bridge.send({action:'stop',requestId:41});
+ assert.deepEqual(await bridge.wait(frame=>frame.stopReply===41),{stopReply:41,accepted:true,draining:true});
+ assert.equal((await run).body.error.details.resumesAfterRestart,true);
+ assert.equal(browser.exitCode,null);
+ assert.equal(events.includes('model-cancelled'),false);
+ bridge.send({action:'shutdown'});
+ assert.equal((await bridge.exit)[0],0);
+ assert.equal((await browserExit)[0],0);
+ assert.equal(events.includes('model-cancelled'),true);
+ assert.equal(desktopOwner(directory),undefined);
+});
+
+async function gatedWorker(f,directory){
+ const module=name=>new URL('../'+name,import.meta.url).href;
+ const root=f.root,environment={...f.env,SHIQU_AI_PROVIDER:'readonly'};
+ const gate=path.join(root,'release-worker'),entered=path.join(root,'worker-active');
+ const program=`
+  import {access,writeFile} from 'node:fs/promises';
+  import {setTimeout as delay} from 'node:timers/promises';
+  const {LocalBooks}=await import(${JSON.stringify(module('server/local-books.ts'))});
+  const {libraryFixture}=await import(${JSON.stringify(module('tests/fixtures/story-library.mjs'))});
+  const {runCliServiceProcess}=await import(${JSON.stringify(module('server/cli-service.ts'))});
+  const [root,directory,entered,gate]=process.argv.slice(1),{book}=libraryFixture();
+  LocalBooks.prototype.book=async()=>{await writeFile(entered,'');while(!await access(gate).then(()=>true,()=>false))await delay(20);return book;};
+  await runCliServiceProcess(root,directory);
+ `;
+ const worker=spawn(process.execPath,['--input-type=module','-e',program,root,directory,entered,gate],{cwd:root,env:environment,stdio:['ignore','ignore','pipe']});
+ const workerExit=once(worker,'exit');
+ f.defer(async()=>{if(worker.exitCode===null&&worker.signalCode===null)worker.kill('SIGKILL');await workerExit;});
+ const owner=await until(()=>{const record=desktopOwner(directory);return record?.service&&record;});
+ const call=args=>callCliService(root,directory,args,root,environment);
+ const accepted=call(['books','contents','zhuangzi']);void accepted.catch(()=>{});
+ await until(()=>access(entered).then(()=>true,()=>false));
+ async function waitForFence(){
+  let busy=false;
+  const competing=setInterval(()=>{void call(['stories','list']).catch(error=>{busy||=error.code==='SERVICE_BUSY';});},100);
+  try{await until(()=>busy);}finally{clearInterval(competing);}
+ }
+ return {owner,worker,workerExit,accepted,call,waitForFence,release:()=>writeFile(gate,'')};
+}
+
+test('desktop enables the reader in the same CLI worker after accepted work finishes', {timeout:25000},async t=>{
+ const f=await startupFixture(t),directory=path.join(f.root,'shared-worker'),port=await freeStartupPort();
+ const {owner,worker,workerExit,accepted,waitForFence,release}=await gatedWorker(f,directory);
+ const bridge=desktopBridge(f,directory,port);
+ try{await waitForFence();}finally{await release();}
+ assert.ok(await accepted);
+ const live=await bridge.wait(frame=>frame.running||frame.error);
+ assert.equal(live.error,undefined);
+ assert.equal(live.pid,worker.pid);assert.equal(live.attached,true);
+ assert.equal(desktopOwner(directory).id,owner.id);
+ assert.equal(desktopOwner(directory).service.url,owner.service.url);
+ assert.equal(desktopOwner(directory).service.affinity,undefined);
+ assert.equal(desktopOwner(directory).managed,undefined);
+ await delay(820);
+ assert.equal((await fetch(live.url+'/api/reader/sessions')).status,200);
+ assert.deepEqual(await ok(command(f,directory,['stories','list'],{environment:{TEST_OTHER_CALLER:'different'}})),[]);
+ bridge.send({action:'shutdown'});
+ assert.equal((await bridge.exit)[0],0);
+ assert.equal((await workerExit)[0],0);
+ assert.equal(desktopOwner(directory),undefined);
+});
+
+test('cancelled or failed desktop attachment restores the original worker', {timeout:25000},async t=>{
+ for(const abort of [true,false]){
+  const f=await startupFixture(t),directory=path.join(f.root,'shared-worker');
+  const occupied=createServer();
+  occupied.listen(0,'127.0.0.1');await once(occupied,'listening');
+  try{
+   const {owner,workerExit,accepted,waitForFence,release,call}=await gatedWorker(f,directory);
+   const bridge=desktopBridge(f,directory,occupied.address().port);
+   try{
+    await waitForFence();
+    if(abort){bridge.child.stdin.end();assert.equal((await bridge.exit)[0],0);}
+   }finally{await release();}
+   assert.ok(await accepted);
+   if(!abort)assert.match((await bridge.wait(frame=>frame.error)).error,/端口已被占用/);
+   assert.deepEqual(await until(()=>call(['stories','list']).catch(error=>error.code==='SERVICE_BUSY'?false:Promise.reject(error))),[]);
+   assert.equal(desktopOwner(directory).id,owner.id);
+   assert.deepEqual(desktopOwner(directory).service,owner.service);
+   assert.equal((await workerExit)[0],0);
+   assert.equal(desktopOwner(directory),undefined);
+  }finally{await new Promise(resolve=>occupied.close(resolve));}
+ }
+});
 async function fakeService(t){
  const paths=[];
  const server=createServer((req,res)=>{paths.push([req.method,req.url,req.headers.authorization]);res.end('someone else');});
@@ -103,6 +286,8 @@ test('a stranger at the recorded port cannot receive a command or the owner toke
  current.child.kill('SIGINT');
  const {body}=await current.result;
  assert.equal(body.error.code,'INTERRUPTED');
+ const bridge=desktopBridge(f,directory,await freeStartupPort());
+ assert.match((await bridge.wait(frame=>frame.error)).error,/另一个 CLI 或桌面服务/);
  assert.ok(fake.paths.every(([method,url,authorization])=>method==='GET'&&url.startsWith('/identity?')&&!authorization));
  release();
  const dead=spawn(process.execPath,['-e',''],{stdio:'ignore'});await once(dead,'exit');
@@ -564,6 +749,15 @@ test('reader keeps retry for faulted CLI holds; stopping resumes full CLI runs a
  const run=command(['run',running,'--until','completed','--timeout','20']),runSettled=run.then(()=>null,error=>error);
  await gated;
  assert.equal((await control(running,'continue')).status,409);
+ // 浏览器已授权的故事在校验中被停服中断后，仍能按原授权继续。
+ const browserStory=await (await app.handle(new Request('http://localhost/api/reader/sessions',{method:'POST',body:JSON.stringify({requestId:crypto.randomUUID(),intake:false,selection:source})}))).json();
+ const browserValidation=Promise.withResolvers();
+ app.services.production.snapshot=async(uid,id,audience)=>{
+  if(id===browserStory.id&&audience==='cli'){browserValidation.resolve();await validationGate;}
+  return snapshot(uid,id,audience);
+ };
+ const browserRun=command(['run',browserStory.id,'--until','completed','--timeout','20']).then(()=>null,error=>error);
+ await browserValidation.promise;
  const limited=(await command(['stories','create','--no-intake'],source)).session.id;
  const limitedRun=command(['run',limited,'--until','reviewed','--timeout','20']),limitedSettled=limitedRun.then(()=>null,error=>error);
  await delay(150);
@@ -573,6 +767,7 @@ test('reader keeps retry for faulted CLI holds; stopping resumes full CLI runs a
  releaseValidation();
  const outcome=async settled=>{const error=await settled;assert.equal(error?.code,'INTERRUPTED');return error.details.resumesAfterRestart;};
  assert.equal(await outcome(validationSettled),false);
+ assert.equal(await outcome(browserRun),false);
  app.services.production.snapshot=snapshot;
  assert.equal(await outcome(runSettled),true);
  assert.equal(await outcome(limitedSettled),false);
@@ -592,10 +787,12 @@ test('reader keeps retry for faulted CLI holds; stopping resumes full CLI runs a
  assert.equal(await holds(running),false);
  assert.equal(await holds(limited),true);
  assert.equal(await holds(validating),true);
+ assert.equal(await holds(browserStory.id),false);
  // 重开同一书库：全量运行不经人工操作完成，有限运行仍在审片停点等待继续。
  await service.close();await app.close();
  await start();
  await until(async()=>{await app.services.production.tick();return (await command(['stories','get',running])).state==='completed';},15000);
+ await until(async()=>{await app.services.production.tick();return (await reader(browserStory.id)).state==='completed';},15000);
  await app.services.production.tick();
  assert.equal(await holds(limited),true);
  assert.notEqual((await command(['stories','get',limited])).state,'completed');

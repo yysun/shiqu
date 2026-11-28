@@ -277,8 +277,9 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   if(runScope){
    runScope.setPermission('none');
    // 只有已通过校验、获准派发的全量运行释放等待；校验前被停服中断时保留原等待。
-   resumesAfterRestart=dispatchGranted&&!timedOut&&until==='completed'&&context.signal?.reason===serviceStopReason;
-   runOutcome=resumesAfterRestart?'release':'hold';
+   const stopping=context.signal?.reason===serviceStopReason;
+   resumesAfterRestart=dispatchGranted&&!timedOut&&until==='completed'&&stopping;
+   runOutcome=stopping&&!dispatchGranted?'restore':resumesAfterRestart?'release':'hold';
   }
   if(!shared){app?.stopGeneration();void Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);}
   abort.abort();

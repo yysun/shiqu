@@ -349,23 +349,19 @@ fn maintenance_refusal(control: &Control, operation: &str) -> Option<&'static st
 fn stopped_status(control: &Control) -> Value {
     json!({"running":false,"state":if control.last_error.is_some(){"failed"}else{"stopped"},"phoneUrls":[],"error":control.last_error,"quitting":control.quit_pending})
 }
-/// 不持锁等待启动或书库维护结束，期间状态查询和立即退出仍可使用。
-fn wait_until_ready(state: &DesktopState) {
-    while state
-        .0
-        .lock()
-        .map(|control| control.starting || control.maintaining_library)
-        .unwrap_or(false)
-    {
+/// 等候结束后在同一把锁下提交停服，避免备份查询插入两个步骤之间。
+fn request_stop_control(state: &DesktopState, wait_until_ready: bool) -> Result<bool, String> {
+    let mut control = loop {
+        let control = state.0.lock().map_err(|_| "服务控制器不可用。")?;
+        if !control.starting && !control.maintaining_library {
+            break control;
+        }
+        if !wait_until_ready {
+            return Err("书库启动或维护尚未完成，请等待。".into());
+        }
+        drop(control);
         std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-}
-/// 常规停止：返回 true 表示已停止；false 表示服务在等已领取的步骤保存，保留子进程直到它自行退出。
-fn request_stop_control(state: &DesktopState) -> Result<bool, String> {
-    let mut control = state.0.lock().map_err(|_| "服务控制器不可用。")?;
-    if control.starting || control.maintaining_library {
-        return Err("书库启动或维护尚未完成，请等待。".into());
-    }
+    };
     if control.draining {
         return Ok(false);
     }
@@ -405,27 +401,17 @@ fn quit(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
         control.quit_pending = true;
     }
     show(app);
-    loop {
-        wait_until_ready(&state);
-        match request_stop_control(&state) {
-            Ok(true) => {
-                app.exit(0);
-                return Ok(());
+    match request_stop_control(&state, true) {
+        Ok(true) => {
+            app.exit(0);
+            return Ok(());
+        }
+        Ok(false) => {}
+        Err(error) => {
+            if let Ok(mut control) = state.0.lock() {
+                control.quit_pending = false;
             }
-            Ok(false) => break,
-            // 等待结束与停止请求之间又进入启动或维护时，继续等待。
-            Err(_)
-                if state
-                    .0
-                    .lock()
-                    .map(|control| control.starting || control.maintaining_library)
-                    .unwrap_or(false) => {}
-            Err(error) => {
-                if let Ok(mut control) = state.0.lock() {
-                    control.quit_pending = false;
-                }
-                return Err(error);
-            }
+            return Err(error);
         }
     }
     let app = app.clone();
@@ -437,17 +423,22 @@ fn quit(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
         if !control.quit_pending {
             return;
         }
-        let exited = match &mut control.runtime {
-            None => true,
-            Some(runtime) => !matches!(runtime.child.try_wait(), Ok(None)),
-        };
-        if exited {
-            drop(control.runtime.take());
-            control.draining = false;
+        if let Some(runtime) = &mut control.runtime {
+            match runtime.child.try_wait() {
+                Ok(None) => continue,
+                Ok(Some(exit)) => settle_exit(&mut control, exit.success()),
+                Err(_) => settle_exit(&mut control, false),
+            }
+        }
+        if control.last_error.is_some() {
+            control.quit_pending = false;
             drop(control);
-            app.exit(0);
+            show(&app);
             return;
         }
+        drop(control);
+        app.exit(0);
+        return;
     });
     Ok(())
 }
@@ -455,7 +446,7 @@ fn quit(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
 async fn stop_server(state: tauri::State<'_, DesktopState>) -> Result<Value, String> {
     let state = state.inner().clone();
     blocking(move || {
-        if request_stop_control(&state)? {
+        if request_stop_control(&state, false)? {
             return Ok(json!({"running":false,"phoneUrls":[]}));
         }
         let mut control = state.0.lock().map_err(|_| "服务控制器不可用。")?;
@@ -515,10 +506,15 @@ async fn server_status(state: tauri::State<'_, DesktopState>) -> Result<Value, S
 }
 
 // 只允许服务根页及一个固定生成设置深链，不接收任意路径、查询或片段。
-fn reader_url(url: &str, generation_settings: bool) -> Result<tauri::Url, String> {
+fn reader_url(url: &str, generation_settings: bool, attached: bool) -> Result<tauri::Url, String> {
     let mut parsed = tauri::Url::parse(url).map_err(|_| "服务地址无效。")?;
+    let ip = parsed.host_str().and_then(|host| {
+        host.trim_matches(&['[', ']'][..])
+            .parse::<std::net::IpAddr>()
+            .ok()
+    });
     if parsed.scheme() != "http"
-        || parsed.host_str() != Some("127.0.0.1")
+        || !(parsed.host_str() == Some("127.0.0.1") || attached && ip.is_some())
         || parsed.as_str() != format!("{}/", parsed.origin().ascii_serialization())
         || (url != parsed.origin().ascii_serialization()
             && url != format!("{}/", parsed.origin().ascii_serialization()))
@@ -544,6 +540,7 @@ fn open_reader(
     let parsed = reader_url(
         status["url"].as_str().ok_or("服务地址无效。")?,
         generation_settings.unwrap_or(false),
+        status["attached"] == true,
     )?;
     app.opener()
         .open_url(parsed.as_str(), None::<&str>)
@@ -660,7 +657,7 @@ fn thread_stop(app: tauri::AppHandle, quitting: bool) {
         let result = if quitting {
             quit(&app, false)
         } else {
-            request_stop_control(app.state::<DesktopState>().inner()).map(|stopped| {
+            request_stop_control(app.state::<DesktopState>().inner(), false).map(|stopped| {
                 if !stopped {
                     show(&app);
                 }
@@ -708,7 +705,7 @@ mod tests {
         let waiting = state.clone();
         let (send, receive) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            wait_until_ready(&waiting);
+            assert!(request_stop_control(&waiting, true).unwrap());
             send.send(()).unwrap();
         });
         assert!(receive
@@ -742,11 +739,22 @@ mod tests {
     #[test]
     fn browser_opener_accepts_only_root_and_fixed_settings_fragment() {
         assert_eq!(
-            reader_url("http://127.0.0.1:3000", false).unwrap().as_str(),
+            reader_url("http://[::1]:3000", false, true)
+                .unwrap()
+                .as_str(),
+            "http://[::1]:3000/"
+        );
+        assert!(reader_url("http://example.org:3000", false, true).is_err());
+        assert_eq!(
+            reader_url("http://127.0.0.1:3000", false, false)
+                .unwrap()
+                .as_str(),
             "http://127.0.0.1:3000/"
         );
         assert_eq!(
-            reader_url("http://127.0.0.1:3000/", true).unwrap().as_str(),
+            reader_url("http://127.0.0.1:3000/", true, false)
+                .unwrap()
+                .as_str(),
             "http://127.0.0.1:3000/#provider-settings"
         );
         for url in [
@@ -761,7 +769,7 @@ mod tests {
             "http://127.0.0.1:3000/%2e",
             "http://127.1:3000/",
         ] {
-            assert!(reader_url(url, true).is_err(), "{}", url);
+            assert!(reader_url(url, true, false).is_err(), "{}", url);
         }
     }
     #[test]
