@@ -184,16 +184,16 @@ export class ReaderProductionCoordinator implements ReaderProduction{
     VALUES(?,?,?,'cli-hold','cli-hold','{}',?,?) ON CONFLICT(owner_id,request_id) DO NOTHING`,request,ownerId,id,now,now);
   }else db.run("DELETE FROM reader_commands WHERE request_id=? AND owner_id=? AND action='cli-hold'",request,ownerId);
  }
- reserveCliStories(ownerId:string,ids:string[],permission:CliScope['permission']='none'){
+ reserveCliStories(ownerId:string,ids:string[]){
   const previous=new Map([...new Set(ids)].map(id=>[id,this.cliScopes.get(id)]));
   if([...previous.values()].some(scope=>scope?.active))throw new ReaderError(409,'此故事有正在执行的 CLI 制作或保存。');
   transact(this.database,db=>{for(const id of previous.keys())this.persistCliScope(db,ownerId,id,true);});
   const scopes=new Map<string,CliScope>();
   for(const id of previous.keys()){
-   const scope={active:true,permission};scopes.set(id,scope);this.cliScopes.set(id,scope);
+   const scope:CliScope={active:true,permission:'none'};scopes.set(id,scope);this.cliScopes.set(id,scope);
   }
   return {
-   restrict:()=>{for(const scope of scopes.values())scope.permission='none';},
+   setPermission:(permission:CliScope['permission'])=>{for(const scope of scopes.values())scope.permission=permission;},
    finish:(result:'restore'|'release'|'hold',storyId?:string)=>{
     const settle=[...scopes].filter(([id,scope])=>this.cliScopes.get(id)===scope&&scope.active);
     if(!settle.length)return;
@@ -210,10 +210,14 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   };
  }
  async beginCliRun(ownerId:string,id:string,draw:boolean){
-  const scope=this.reserveCliStories(ownerId,[id],draw?'all':'text');
+  const scope=this.reserveCliStories(ownerId,[id]);
   try{
-   if(!draw&&await this.database.prepare("SELECT 1 FROM production_jobs WHERE session_id=? AND owner_id=? AND pool='image' AND state='running' LIMIT 1").bind(id,ownerId).first())
-    throw new ReaderError(409,'已有绘图正在执行。请等当前任务完成后再要求停在审片。');
+   if(!draw){
+    const claimed=(await this.database.prepare("SELECT id,lease_until FROM production_jobs WHERE session_id=? AND owner_id=? AND pool='image' AND state='running'")
+     .bind(id,ownerId).all<{id:string;lease_until:number}>()).results;
+    if(claimed.some(job=>this.queue.tasks.has(job.id)||job.lease_until>this.clock()))
+     throw new ReaderError(409,'已有绘图正在执行。请等当前任务完成后再要求停在审片。');
+   }
    return scope;
   }catch(error){scope.finish('restore');throw error;}
  }
@@ -384,34 +388,35 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(await this.repository.superseded(row.id,row.user_id))return false;
   return row.generation_control==='active'&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
- async control(ownerId:string,id:string,action:ProductionAction,requestId?:string,checkService=false){
+ async control(ownerId:string,id:string,action:ProductionAction,requestId?:string,checkService=false,accepted?:()=>void){
   await this.repository.get(id,ownerId);
   // 控制只登记本次工作。恢复和继续看当前阶段，重新准备只需要文字模型；实际发送仍由队列核对。
   if(checkService&&['resume','continue','reprepare'].includes(action)&&!(requestId&&await commandReceipt(this.database,ownerId,requestId))){
    const service=action==='reprepare'?this.serviceAvailability(undefined,'text'):(await this.snapshot(ownerId,id)).lifecycle?.service;
    if(service==='unconfigured')throw new ReaderError(503,'请先配置此步骤的生成服务：使用本机或可信局域网地址打开「设置 → 生成服务与模型」。');
   }
+  const result=()=>{accepted?.();return this.snapshot(ownerId,id);};
   if(action==='reprepare'){
    if(!requestId)throw new ReaderError(400,'重新准备需要提交操作编号。');
    this.dag.reprepare(ownerId,id,requestId,this.stopping);
-   return this.snapshot(ownerId,id);
+   return result();
   }
   // 「继续制作」的已接受编号先于其他核对重放。
   if(action==='apply-model'){
    if(!requestId)throw new ReaderError(400,'应用模型设置需要提交操作编号。');
-   await this.dag.applyCurrentModel(ownerId,id,requestId,this.stopping);return this.snapshot(ownerId,id);
+   await this.dag.applyCurrentModel(ownerId,id,requestId,this.stopping);return result();
   }
   if(action==='continue'){
    if(!requestId)throw new ReaderError(400,'继续制作需要提交操作编号。');
    this.dag.continue(ownerId,id,requestId,this.stopping);
-   return this.snapshot(ownerId,id);
+   return result();
   }
   if(requestId)await authorizeControl(this.database,ownerId,id,requestId,action,this.clock(),this.stopping);
   else{
    if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
    await this.repository.control(id,ownerId,action);
   }
-  this.wake();return this.snapshot(ownerId,id);
+  this.wake();return result();
  }
  async managed(ownerId:string,id:string){const saved=await this.database.prepare('SELECT document FROM stories WHERE id=? AND user_id=?').bind(id,ownerId).first<{document:string}>();if(saved&&(decodeDocument(saved)).intake)return true;return !!await this.database.prepare("SELECT id FROM production_jobs WHERE owner_id=? AND session_id=? AND kind NOT IN ('landscape-image','landscape-print') LIMIT 1").bind(ownerId,id).first();}
  async request(ownerId:string,id:string,viewerId:string,page:number,retry=false){
@@ -427,7 +432,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   this.wake();return this.snapshot(ownerId,id);
  }
  /** 放行：只更新当前需读者处理的审片结论，可绘图仍由全部结论推导。 */
- async overrideReview(ownerId:string,id:string,command?:ReviewOverride){
+ async overrideReview(ownerId:string,id:string,command?:ReviewOverride,accepted?:()=>void){
   if(!command)throw new ReaderError(400,'放行需要提交操作编号。');
   const row=await this.repository.get(id,ownerId);
   const receipt=await commandReceipt(this.database,ownerId,command.requestId);
@@ -435,6 +440,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(!receipt&&await this.repository.superseded(id,ownerId))throw new ReaderError(409,latestVersionMessage);
   if(!this.parsed(row)?.doc.dag)throw new ReaderError(409,'这篇故事没有待处理的审片问题。');
   await this.dag.override(ownerId,id,command);
+  if(!receipt)accepted?.();
   this.wake();return this.snapshot(ownerId,id);
  }
  async leave(ownerId:string,id:string,viewerId:string){
@@ -470,7 +476,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   * 恢复：有任务的故障以本授权重新执行该任务（任务的工作已过时则不付费，由调度重新安排）；
   * 没有任务的故障（图片丢失、转换的旧故障）直接解除，引擎随后重做对应节点。
   */
- async recover(ownerId:string,id:string,command:RecoveryRequest,checkService=false):Promise<SessionView>{
+ async recover(ownerId:string,id:string,command:RecoveryRequest,checkService=false,accepted?:()=>void):Promise<SessionView>{
   const row=await this.repository.get(id,ownerId);
   const replay=await commandReceipt(this.database,ownerId,command.requestId);
   if(replay){
@@ -488,7 +494,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(repair){
    if(checkService)await this.requireWorkService('text');
    this.dag.grantRepairBudget(row,command.requestId,command.faultId);
-   this.wake();
+   accepted?.();this.wake();
    return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:command.requestId,status:'succeeded',error:null}};
   }
   const target=fault!,doc=decodeDocument(row);
@@ -496,6 +502,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // 图片丢失的恢复：文件在点击前已被恢复时，核对后免费解除，不重新绘制、不付费。
   if(probe&&await this.dag.checkImage(row,probe.page,probe.image,{recovery:command})){
     const receipt=(await commandReceipt(this.database,ownerId,command.requestId))!;
+    accepted?.();
     return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
   }
   const restored=await this.dag.restorePortraitDrawing(row,target,command);
@@ -507,6 +514,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const receipt=restored??(job
    ?await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[job.id],resolutionJob:job.id,basis:row},this.clock())
    :await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[],resolutionJob:'',resolved:true,basis:row},this.clock()));
+  accepted?.();
   if(!job)await this.dag.settleState(id,ownerId);
   // 故障表的变化不改变故事的内容修订号：清除本篇的重建记录，下一轮重新安排工作。
   this.rebuildKeys.delete(id);

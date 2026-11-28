@@ -43,9 +43,10 @@ export function ownDesktopDataSync(directory:string,managed=false){
    let file:number;
    try{file=openSync(filename,'wx',0o600);}catch(error){
     if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;
-    let previous:{pid:number};try{previous=JSON.parse(readFileSync(filename,'utf8'));}catch{throw Error('DATA_BUSY');}
+    let previous:Owner;try{previous=JSON.parse(readFileSync(filename,'utf8'));}catch{throw Error('DATA_BUSY');}
     if(!Number.isSafeInteger(previous.pid)||previous.pid<1)throw Error('DATA_BUSY');
-    try{process.kill(previous.pid,0);throw Error('DATA_BUSY');}catch(check){if((check as NodeJS.ErrnoException).code!=='ESRCH')throw Error('DATA_BUSY');}
+    // 已取得操作系统的独占锁。发布过地址的实例即使 PID 被复用，旧记录也可回收。
+    if(previous.service?.protocol!==1&&!previous.managed&&ownerProcessExists(previous.pid))throw Error('DATA_BUSY');
     unlinkSync(filename);continue;
    }
    try{writeFileSync(file,JSON.stringify(owner));}finally{closeSync(file);}

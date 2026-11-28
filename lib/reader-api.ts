@@ -76,13 +76,13 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
   const requestRecorded=async(id:string)=>!!await repo.db.prepare(`SELECT request_id FROM reader_commands WHERE owner_id=? AND request_id=?
    UNION ALL SELECT id FROM stories WHERE user_id=? AND id=? LIMIT 1`).bind(uid,id,uid,id).first();
   // 可信 CLI 请求只保存。按提交结果结算范围，响应生成失败不能重新打开派发。
-  async function saveStory<T>(id:string,requestId:string,write:()=>Promise<T>,opts:{also?:string;authorize?:boolean;select?:(result:T)=>string}={}){
+  async function saveStory<T>(id:string,requestId:string,write:(accepted?:()=>void)=>Promise<T>,opts:{also?:string;authorize?:boolean;select?:(result:T)=>string}={}){
    const production=services.production;
    if(!production||!cli&&!opts.authorize||commandOnly&&!cli)return write();
    if(await requestRecorded(requestId))return write();
    if(!cli){
     const release=production.continueCliStory?.(uid,id);
-    const result=await write();release?.();return result;
+    const result=await write(release);release?.();return result;
    }
    const scope=production.reserveCliStories?.(uid,opts.also?[id,opts.also]:[id]);
    try{
@@ -421,7 +421,7 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
    if(path[2]==='recover'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const command=recoveryRequestSchema.parse(await body(req));
-    return json(await saveStory(id,command.requestId,()=>services.production!.recover(uid,id,command,!commandOnly),{authorize:true}),202);
+    return json(await saveStory(id,command.requestId,accepted=>services.production!.recover(uid,id,command,!commandOnly,accepted),{authorize:true}),202);
    }
    if(path[2]==='image-health'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
@@ -506,12 +506,12 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
    if(path[2]==='review-override'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const command=reviewOverrideSchema.parse(await body(req));
-    return json(await saveStory(id,command.requestId,()=>services.production!.overrideReview(uid,id,command),{authorize:true}));
+    return json(await saveStory(id,command.requestId,accepted=>services.production!.overrideReview(uid,id,command,accepted),{authorize:true}));
    }
    if(path[2]==='production-control'&&path.length===3&&req.method==='POST'){
     if(!services.production)throw new ReaderError(503,'制作队列暂不可用');
     const b=z.object({requestId:uuid,action:z.enum(['pause','stop','resume','continue','apply-model','reprepare'])}).strict().parse(await body(req));
-    const control=()=>services.production!.control(uid,id,b.action,b.requestId,!commandOnly);
+    const control=(accepted?:()=>void)=>services.production!.control(uid,id,b.action,b.requestId,!commandOnly,accepted);
     if(b.action==='pause'||b.action==='stop')return json(await control());
     return json(await saveStory(id,b.requestId,control,{authorize:true}));
    }

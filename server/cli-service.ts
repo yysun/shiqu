@@ -2,6 +2,7 @@
 import {spawn} from 'node:child_process';
 import {createHash,createHmac,randomUUID,timingSafeEqual} from 'node:crypto';
 import {once} from 'node:events';
+import {lstatSync} from 'node:fs';
 import {Agent,request as httpRequest} from 'node:http';
 import type {IncomingMessage} from 'node:http';
 import type {Socket} from 'node:net';
@@ -230,6 +231,9 @@ async function cancel(owner:Owner,id:string){
 }
 
 export async function callCliService(root:string,directory:string,args:string[],cwd:string,environment:NodeJS.ProcessEnv,input?:unknown,signal?:AbortSignal){
+ // 先保留原本拒绝书库目录符号链接的规则，再归一化父目录用于查找服务。
+ try{if(lstatSync(directory).isSymbolicLink())throw Error('LIBRARY_UNSAFE_DIRECTORY');}
+ catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
  directory=canonicalPath(directory);
  const deadline=Date.now()+startupMs,controller=new AbortController();
  const command:Command={id:randomUUID(),args,cwd,input};
@@ -245,11 +249,13 @@ export async function callCliService(root:string,directory:string,args:string[],
   while(Date.now()<deadline&&!controller.signal.aborted){
    const owner=desktopOwner(directory);
    const alive=owner&&ownerProcessExists(owner.pid);
-   if(alive&&owner.service&&(!owner.managed||owner.service.affinity===key)){
+   let unavailable=false;
+   if(alive&&owner.service?.protocol===protocol){
     const agent=new Agent({keepAlive:true,maxSockets:1});
     try{
      const service=await identify(owner,agent,controller.signal).catch(()=>undefined);
-     if(service){
+     unavailable=!service;
+     if(service&&(!owner.managed||owner.service.affinity===key)){
       const response=await sendHttp(service.url,'/command','POST',agent,controller.signal,{socket:service.socket,key:owner.id,body:JSON.stringify(command)});
       activeOwner=owner;
       return await collect(response);
@@ -262,8 +268,8 @@ export async function callCliService(root:string,directory:string,args:string[],
     }finally{agent.destroy();}
    }
    if(child?.failure&&child.failure.code!=='LIBRARY_BUSY')throw asError(child.failure);
-   if(!alive&&!child?.pending&&Date.now()>=nextLaunch){
-    child=launch(root,directory,environment);nextLaunch=Date.now()+250;
+   if((!alive||unavailable)&&!child?.pending&&Date.now()>=nextLaunch){
+    child=launch(root,directory,environment);nextLaunch=Date.now()+750;
    }
    if(alive&&!owner.managed&&!owner.service&&Date.now()>deadline-startupMs+2000)throw asError(cliFailure(Error('DATA_BUSY')));
    await delay(40,undefined,{signal:controller.signal}).catch(()=>{});

@@ -176,7 +176,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   return {appVersion,scope,...await installSkill(root,scope==='global'?context.home||os.homedir():context.cwd)};
  }
  const cwd=context.cwd||process.cwd(),resolve=(filename:string)=>path.resolve(cwd,filename);
- const input=context.input??await readInput(value('input'),cwd);need(input&&typeof input==='object'&&!Array.isArray(input),'INVALID_INPUT','JSON input must be an object.');
+ const input=context.input!==undefined?context.input:await readInput(value('input'),cwd);need(input&&typeof input==='object'&&!Array.isArray(input),'INVALID_INPUT','JSON input must be an object.');
  const supplied=(input as any).requestId||value('request-id'),requestId=supplied||randomUUID();need(uuid(requestId),'INVALID_REQUEST_ID','requestId must be a UUID.');
  const variables=context.variables||process.env,locations=desktopLibraryPaths({variables,home:context.home});
  if(command==='config'){
@@ -258,7 +258,8 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  if(command==='backup')need(existsSync(path.join(directory,'shiqu.sqlite')),'LIBRARY_NOT_FOUND','Cannot back up a library without an existing database.');
  if(context.serviceClient){
   const {callCliService}=await import('./cli-service.ts');
-  return callCliService(root,directory,args,cwd,variables,value('input')!==undefined?input:undefined);
+  const result=await callCliService(root,directory,args,cwd,variables,value('input')!==undefined?input:undefined);
+  return command==='init'?{...(result as object),path:directory}:result;
  }
  const release=context.host?()=>{}:await ownDesktopData(directory);
  let removeDiagnostics=()=>{},app:Application|undefined;
@@ -270,7 +271,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  let runOutcome:'restore'|'release'|'hold'='restore';
  const progress=context.progress||((line:string)=>{process.stderr.write(line);});
  const interrupt=()=>{
-  if(runScope){runScope.restrict();runOutcome='hold';}
+  if(runScope){runScope.setPermission('none');runOutcome='hold';}
   if(!shared){app?.stopGeneration();void Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);}
   abort.abort();
  };
@@ -392,6 +393,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    if(reached){runOutcome='hold';return {reason:reached,session:initial};}
    if(until==='candidates')need(initial.intake,'BOUNDARY_UNAVAILABLE','Candidates require an intake story.');
    if(until==='prepared'&&!initial.intake&&initial.lifecycle?.preparationRefresh!=='pending')need(initial.selection.narrativeDetail&&initial.selection.length!=='auto','BOUNDARY_UNAVAILABLE','This legacy story has no preparation gate; use --until reviewed or completed.');
+   runScope?.setPermission(until==='completed'?'all':'text');
    timer=setTimeout(()=>{timedOut=true;interrupt();},timeout*1000);
    const viewerId=randomUUID();app.startGeneration();let snapshot=initial;
    try{

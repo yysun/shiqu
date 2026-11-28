@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {createServer} from 'node:http';
-import {access,mkdir,readFile,writeFile} from 'node:fs/promises';
+import {access,mkdir,readFile,symlink,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {callCliService,startCliService} from '../server/cli-service.ts';
@@ -110,6 +110,19 @@ test('a stranger at the recorded port cannot receive a command or the owner toke
  await ok(command(f,directory,['stories','list']));
  assert.notEqual(desktopOwner(directory).id,stale.id);
  assert.equal(fake.paths.length,seen);
+ await until(()=>!desktopOwner(directory));
+ await writeFile(path.join(directory,'.desktop-owner.json'),JSON.stringify({...stale,pid:process.pid}),{mode:0o600});
+ await ok(command(f,directory,['stories','list']));
+ assert.notEqual(desktopOwner(directory).id,stale.id);
+ assert.ok(fake.paths.slice(seen).every(([method])=>method==='GET'));
+});
+
+test('CLI preserves the library-directory symlink refusal before service discovery',async t=>{
+ const f=await startupFixture(t),target=path.join(f.root,'real library'),alias=path.join(f.root,'alias');
+ await mkdir(target);await symlink(target,alias,'junction');
+ const result=await command(f,alias,['stories','list']).result;
+ assert.equal(result.code,1);
+ await assert.rejects(access(path.join(target,'shiqu.sqlite')),{code:'ENOENT'});
 });
 
 test('caller directory, stdin and inherited environment follow each invocation', {timeout:21000},async t=>{
@@ -187,10 +200,10 @@ test('one online coordinator handles CLI production, browser authorization and c
  let unblock=()=>{};
  t.after(async()=>{unblock();await service.close();await app.close();release();for(const close of cleanup.reverse())await close();});
  const command=(args,input,signal)=>callCliService(root,directory,args,root,process.env,input,signal);
- const browser=async(id,action,requestId=crypto.randomUUID())=>{
+ const browser=async(id,action,requestId=crypto.randomUUID(),status=200)=>{
   const response=await app.handle(new Request('http://localhost/api/reader/sessions/'+id+'/production-control',{
    method:'POST',body:JSON.stringify({requestId,action})}));
-  assert.equal(response.status,200,await response.clone().text());
+  assert.equal(response.status,status,await response.clone().text());
   return requestId;
  };
  const story=books.stories[0],source={...selection,length:3,source:story.source,storyTitle:story.title};
@@ -226,6 +239,23 @@ test('one online coordinator handles CLI production, browser authorization and c
  assert.equal((await command(['run',requestId,'--until','reviewed'])).reason,'reviewed');
  await app.services.production.tick();
  assert.equal(f.control.calls.length,0);
+ let preflightStarted;
+ const originalSnapshot=app.services.production.snapshot.bind(app.services.production);
+ const checking=new Promise(resolve=>{preflightStarted=resolve;}),waitForCheck=new Promise(resolve=>{unblock=resolve;});
+ app.services.production.snapshot=async(uid,id)=>{if(id===requestId){preflightStarted();await waitForCheck;}return originalSnapshot(uid,id);};
+ const invalid=assert.rejects(command(['run',requestId,'--until','candidates']),{code:'BOUNDARY_UNAVAILABLE'});
+ await checking;
+ await app.services.production.tick();assert.equal(f.control.calls.length,0);
+ unblock();await invalid;
+ app.services.production.snapshot=originalSnapshot;
+
+
+ // 上次服务中断留下的过期绘图租约不会阻止查看已通过的审片。
+ const sqlite=app.services.database;
+ await sqlite.prepare(`UPDATE production_jobs SET state='running',lease_until=0 WHERE id=(
+  SELECT id FROM production_jobs WHERE session_id=? AND pool='image' AND state='queued' LIMIT 1)`).bind(requestId).run();
+ assert.equal((await command(['run',requestId,'--until','reviewed'])).reason,'reviewed');
+ assert.equal(f.control.calls.length,0);
  const quiet=service.pause();assert.equal(typeof quiet,'function');
  assert.equal((await app.handle(new Request('http://localhost/api/reader/sessions'))).status,503);
  await assert.rejects(command(['stories','list']),{code:'SERVICE_BUSY'});
@@ -237,7 +267,18 @@ test('one online coordinator handles CLI production, browser authorization and c
 
  // 新的浏览器授权只释放第一篇，第二篇继续保留审片停点。
  await browser(requestId,'pause');
- const resumed=await browser(requestId,'resume');
+ const currentSnapshot=app.services.production.snapshot.bind(app.services.production);
+ let projections=0;
+ app.services.production.snapshot=(uid,id)=>{
+  if(id===requestId&&++projections===2)throw Error('controlled browser projection failure');
+  return currentSnapshot(uid,id);
+ };
+ f.control.hold=true;
+ const resumed=await browser(requestId,'resume',crypto.randomUUID(),500);
+ app.services.production.snapshot=currentSnapshot;
+ await until(()=>f.control.calls.some(call=>!call.done));
+ await assert.rejects(command(['run',requestId,'--until','reviewed']),{code:'CONFLICT'});
+ f.control.hold=false;for(const call of f.control.calls)call.resolve();
  await until(async()=>(await command(['stories','get',requestId])).state==='completed');
  assert.equal(f.control.calls.length,3);
  await assert.rejects(command(['stories','edit',secondId],{token:'0'.repeat(64),changes:{productionPrompt:'无效令牌'}}),{code:'CONFLICT'});
