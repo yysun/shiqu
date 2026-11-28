@@ -63,6 +63,8 @@ export type SessionView={
  landscapeWork?:{printId?:string;action:'pause'|'resume';ready:number;total:number;activePage?:number;modelToken?:string;service?:ProductionService};
  /** @deprecated 使用 lifecycle.continuation。 */
  awaitingContinue?:true;
+ /** 等待来自 CLI 的保存或有限运行（仅阅读器视图）：读者「继续制作」后解除。 */
+ cliHold?:true;
  /** 仅换图的画幅号，从 1 开始。 */
  redrawPage?:number;
  /** @deprecated 使用 lifecycle.service。 */

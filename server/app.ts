@@ -19,6 +19,7 @@ import {providerSignature} from './provider-runtime.ts';
 import {providerReady} from './cli-setup.ts';
 import {StoryDiscoveryCache} from './story-discovery-cache.ts';
 import {ReaderError} from '../lib/reader-model.ts';
+import {setTimeout as delay} from 'node:timers/promises';
 
 type Variables=Record<string,string|undefined>;
 // 属性读取绑定当前实例，生产 capture 则返回固定代际；退出和错误处理不再访问设置库。
@@ -61,7 +62,11 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
  const production=options.exportOnly?undefined:new ReaderProductionCoordinator(local.database,generation,media,{imageWorkers,textProvider,...(snapshots?{snapshots}:{}),...options.production});
  if(!options.providerVariables&&options.variables?.SHIQU_AI_PROVIDER==='readonly'&&options.production?.autoStart!==false)production?.stop();
  let active=0,maintenance=false;
- function trackWork<T>(work:Promise<T>){active++;return work.finally(()=>{active--;});}
+ const cancels=new Set<()=>void>();
+ function trackWork<T>(work:Promise<T>,cancel?:()=>void){
+  active++;if(cancel)cancels.add(cancel);
+  return work.finally(()=>{active--;if(cancel)cancels.delete(cancel);});
+ }
  const services:Services={trackWork,db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,localBooks,transport:options.transport||fetch,generation,production,commandOnly:options.commandOnly};
  const api=createApi(services),publicDirectory=path.resolve(options.root,'dist/client');
  let closed=false,closing:Promise<void>|undefined;
@@ -73,7 +78,14 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
   if(active||production?.activeWork||otherWork()){release();return;}
   return release;
  }
- return {services,pauseMaintenance,get generating(){return production?.busy??false;},startGeneration:()=>production?.start(),stopGeneration:()=>production?.stop(),close(){
+ // 停服等候：停收新请求与新派发，取消可续跑的流式任务，等已接收的请求和已领取的制作任务结束。暂停保持到退出。
+ function drainForStop(otherWork:()=>boolean){
+  if(!maintenance){maintenance=true;production?.suspendDispatch();}
+  for(const cancel of [...cancels])cancel();
+  const idle=()=>!active&&!production?.activeWork&&!otherWork();
+  return {idle:idle(),settled:(async()=>{while(!idle())await delay(100);})()};
+ }
+ return {services,pauseMaintenance,drainForStop,get generating(){return production?.busy??false;},startGeneration:()=>production?.start(),stopGeneration:()=>production?.stop(),close(){
   if(closed)return closing;
   production?.stop();closed=true;
   if(!production?.busy){void production?.close();local.close();return;}

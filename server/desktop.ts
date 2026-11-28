@@ -95,7 +95,9 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
   options.signal?.throwIfAborted();recordDiagnostic(settings.dataDirectory,'service_started');
   if(options.installAgentSkill)status.agentSkill=await ensureAgentSkill(root,{runtime:{node:process.execPath,cli:path.join(root,'dist/server/agent-cli.js')}});
   monitor=setInterval(()=>options.onStatus?.(snapshot()),1000);monitor.unref();
-  return {server,get status(){return snapshot();},stop,prepareStop:()=>!!cli?.pause()};
+  // 停止请求：空闲时立即停止；有进行中的工作时进入等候，状态为 stopping。
+  const prepareStop=()=>{const drain=cli!.drain();if(!drain.idle)status.state='stopping';return drain;};
+  return {server,get status(){return snapshot();},stop,prepareStop};
  }catch(error){recordDiagnostic(settings.dataDirectory,'service_start_failed',{code:safeErrorCode(error)});await stop();throw error;}
 }
 export function desktopFailure(error:unknown){
@@ -136,9 +138,9 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
    try{
     const command=JSON.parse(line);
     if(command.action==='stop'&&Number.isSafeInteger(command.requestId)&&command.requestId>0){
-     const accepted=runtime.prepareStop();
-     send({stopReply:command.requestId,accepted});
-     if(accepted)void stop();
+     const {idle,settled}=runtime.prepareStop();
+     send({stopReply:command.requestId,accepted:true,draining:!idle});
+     if(idle)void stop();else void settled.then(()=>stop());
     }else if(command.action==='shutdown')void stop();
    }catch{void stop();}
    return;

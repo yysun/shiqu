@@ -57,7 +57,9 @@ export function createReaderApi(services:Services){
 const cardCache=new StoryDiscoveryCache(services.media),cardJobs=services.localBooks?new ImportedBookCards(services.localBooks,services.generation,cardCache):null;
 return async function readerApi(req:Request,path:string[],cli=false):Promise<Response>{
  const commandOnly=services.commandOnly||cli;
- const track=<T>(work:Promise<T>)=>services.trackWork?.(work)??work;
+ // CLI 读取原状态；阅读器把 CLI 留下的等待显示为可继续。
+ const audience=cli?'cli' as const:'reader' as const;
+ const track=<T>(work:Promise<T>,cancel?:()=>void)=>services.trackWork?.(work,cancel)??work;
  let provider=services.generation;
  // 只在需要提供方的请求边界取快照，普通书架读取不依赖设置库是否可用。
  async function requireProvider(){
@@ -72,7 +74,7 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
   const url=new URL(req.url);if(req.method!=='GET'){const origin=req.headers.get('origin');if(origin&&origin!==url.origin)throw new ReaderError(403,'不允许跨站请求');}
   if(!services.database)throw new ReaderError(503,'书架暂时不可用');
   const repo=new ReaderRepository(services.database);
-  const sessionView=(row:SessionRow)=>services.production?services.production.snapshot(uid,row.id):view(row);
+  const sessionView=(row:SessionRow)=>services.production?services.production.snapshot(uid,row.id,audience):view(row);
   const requestRecorded=async(id:string)=>!!await repo.db.prepare(`SELECT request_id FROM reader_commands WHERE owner_id=? AND request_id=?
    UNION ALL SELECT id FROM stories WHERE user_id=? AND id=? LIMIT 1`).bind(uid,id,uid,id).first();
   // 可信 CLI 请求只保存。按提交结果结算范围，响应生成失败不能重新打开派发。
@@ -114,7 +116,7 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
   }
   if(path.join('/')==='library/shelf'&&['GET','POST'].includes(req.method)){
    const known=req.method==='POST'?new Map(z.array(z.tuple([uuid,z.string().max(64)])).parse(await body(req,12*1024*1024))):null;
-   const sessions=services.production?await services.production.shelfSnapshots(uid):(await repo.listShelf(uid)).filter(readableStory).map(view);
+   const sessions=services.production?await services.production.shelfSnapshots(uid,false,audience):(await repo.listShelf(uid)).filter(readableStory).map(view);
    const cards=sessions.flatMap(session=>{
     const card=summarizeShelfSession(session);
     const version=createHash('sha256').update(JSON.stringify(card)).digest('hex').slice(0,24);
@@ -181,7 +183,7 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
     req.signal.addEventListener('abort',abort,{once:true});
     const stream=new ReadableStream<Uint8Array>({start(controller){
      const send=(event:unknown)=>{if(!req.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
-     void track(cardJobs.run(id,input.retryFailed,event=>send(event))).then(progress=>send({type:'complete',progress})).catch(error=>{if(!req.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'故事卡生成失败，请重试。'});}).finally(()=>{req.signal.removeEventListener('abort',abort);if(!req.signal.aborted)controller.close();});
+     void track(cardJobs.run(id,input.retryFailed,event=>send(event)),()=>void cardJobs.cancel(id)).then(progress=>send({type:'complete',progress})).catch(error=>{if(!req.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'故事卡生成失败，请重试。'});}).finally(()=>{req.signal.removeEventListener('abort',abort);if(!req.signal.aborted)controller.close();});
     },cancel(){void cardJobs.cancel(id);}});
     return new Response(stream,{headers:{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'private, no-store','X-Accel-Buffering':'no'}});
    }
@@ -234,7 +236,7 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
     start(controller){
      const send=(event:unknown)=>{if(!abort.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
      send({type:'start',total:cards.length});
-     void track(store.build(book,cards,abort.signal,value=>send({type:'progress',...value})))
+     void track(store.build(book,cards,abort.signal,value=>send({type:'progress',...value})),cancel)
       .then(result=>send({type:'complete',...result}))
       .catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'建库失败，请重试。'});})
       .finally(()=>{req.signal.removeEventListener('abort',cancel);if(!abort.signal.aborted)controller.close();});
@@ -300,7 +302,7 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
    const encoder=new TextEncoder(),stream=new ReadableStream<Uint8Array>({start(controller){
     const send=(event:unknown)=>{if(!abort.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
     send({type:'progress',stage:'retrieving'});
-    void track(execute(value=>send({type:'progress',stage:'verifying',progress:value}))).then(result=>send({type:'result',...result})).catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'主题检索暂时失败，请重试。'});}).finally(()=>{req.signal.removeEventListener('abort',cancel);if(!abort.signal.aborted)controller.close();});
+    void track(execute(value=>send({type:'progress',stage:'verifying',progress:value})),cancel).then(result=>send({type:'result',...result})).catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof Error?error.message:'主题检索暂时失败，请重试。'});}).finally(()=>{req.signal.removeEventListener('abort',cancel);if(!abort.signal.aborted)controller.close();});
    },cancel});
    return new Response(stream,{headers:{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'private, no-store','X-Accel-Buffering':'no'}});
   }
@@ -314,7 +316,7 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
      start(controller){
       const send=(event:unknown)=>{if(!abort.signal.aborted)controller.enqueue(encoder.encode(JSON.stringify(event)+'\n'));};
       send({type:'progress',progress:{completed:0,total:1,completedChars:0,totalChars:0,stage:'reading'}});
-      void track(provider.suggestions(selection,excludeTitles,undefined,{signal:abort.signal,onProgress:progress=>send({type:'progress',progress})},excludeSources))
+      void track(provider.suggestions(selection,excludeTitles,undefined,{signal:abort.signal,onProgress:progress=>send({type:'progress',progress})},excludeSources),cancel)
        .then(batch=>send({type:'result',batch}))
        .catch(error=>{if(!abort.signal.aborted)send({type:'error',error:error instanceof ReaderError?error.message:provider.safeError(error)});})
        .finally(()=>{req.signal.removeEventListener('abort',cancel);if(!abort.signal.aborted)controller.close();});
@@ -345,7 +347,7 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
    }
    // One unreadable saved story must not take the whole shelf down with it.
    if(req.method==='GET'){
-    const sessions=services.production?await services.production.shelfSnapshots(uid,true):(await repo.list(uid)).filter(readableStory).map(view);
+    const sessions=services.production?await services.production.shelfSnapshots(uid,true,audience):(await repo.list(uid)).filter(readableStory).map(view);
     return json(sessions.map(shelfView));
    }
    if(req.method==='POST'){
@@ -397,9 +399,9 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
     if(!parsed.success)throw new ReaderError(400,parsed.error.issues[0].message);
     return json(await sessionView(await repo.rename(id,uid,parsed.data.title)));
    }
-   if(path.length===2&&req.method==='GET')return json(services.production?await services.production.snapshot(uid,id):view(await repo.get(id,uid)));
+   if(path.length===2&&req.method==='GET')return json(services.production?await services.production.snapshot(uid,id,audience):view(await repo.get(id,uid)));
    if(path[2]==='current'&&path.length===3&&req.method==='GET'){
-    const row=await repo.current(id,uid);return json(services.production?await services.production.snapshot(uid,row.id):view(row));
+    const row=await repo.current(id,uid);return json(services.production?await services.production.snapshot(uid,row.id,audience):view(row));
    }
    if(path[2]==='reselection'&&path.length===3&&req.method==='POST'){
     const b=z.object({requestId:uuid}).strict().parse(await body(req));if(!await requestRecorded(b.requestId))await requireProvider();
@@ -412,7 +414,7 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
      const command=replacementChoiceSchema.parse(await body(req,32768));if(!await requestRecorded(command.requestId))await requireProvider();
      const row=await saveStory(draftId,command.requestId,()=>commitReselection(repo,id,draftId,uid,command),{also:id,authorize:true,select:row=>row.id});
      services.production?.wake();
-     return json(services.production?await services.production.snapshot(uid,row.id):view(row));
+     return json(services.production?await services.production.snapshot(uid,row.id,audience):view(row));
     }
     if(req.method==='DELETE'){
      const row=await cancelReselection(repo,id,draftId,uid);return json(await sessionView(row));
@@ -500,7 +502,7 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
      if(b.startRedraw&&commandOnly)throw new ReaderError(409,'请在拾趣阅读器中直接重绘，或使用命令行的继续与运行命令。');
      const row=await saveStory(b.requestId,b.requestId,()=>forkRevision(repo,services.media,uid,id,b.requestId,b.token,b.changes,b.paused,cover,b.startRedraw),{also:id,select:row=>row.id});
      if(!b.paused)production.wake();
-     return json(await production.snapshot(uid,row.id),201);
+     return json(await production.snapshot(uid,row.id,audience),201);
     }
    }
    if(path[2]==='review-override'&&path.length===3&&req.method==='POST'){
@@ -541,7 +543,7 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
    }
    if(path[2]==='events'&&req.method==='POST'){const row=await repo.get(id,uid);const b=z.object({id:z.string().max(200),visitor:uuid,session:uuid,storyId:uuid,kind:z.enum(['start','page','complete','next','save','audio','feedback_positive','feedback_negative']),page:z.number().int().min(0).max(readerMaxFrames-1).nullable(),mode:z.enum(['manual','audio']),cohort:z.enum(['internal','pilot'])}).parse(await body(req));const current=view(row);if(b.storyId!==id||(b.page!==null&&!current.story?.pages[b.page]?.image))throw new ReaderError(400,'这幅画面还没有展开');await services.db.insert(events).values({...b,createdAt:new Date().toISOString()}).onConflictDoNothing();return json({ok:true});}
    if(path[2]==='progress'&&req.method==='POST'){const b=z.object({page:z.number().int().min(0).max(readerMaxFrames-1),saved:z.boolean()}).parse(await body(req));return json(await sessionView(await repo.progress(id,uid,b.page,b.saved)));}
-   if(path[2]==='advance'&&req.method==='POST'){const b=z.object({throughPage:z.number().int().min(0).max(readerMaxFrames-1),retry:z.boolean().default(false)}).parse(await body(req));if(b.retry)throw new ReaderError(400,'重试必须提交当前故障实例与操作编号，请使用恢复入口。');if(!services.production)throw new ReaderError(503,'制作队列暂不可用');const result=await services.production.snapshot(uid,id);return json(result,result.state==='running'?202:200);}
+   if(path[2]==='advance'&&req.method==='POST'){const b=z.object({throughPage:z.number().int().min(0).max(readerMaxFrames-1),retry:z.boolean().default(false)}).parse(await body(req));if(b.retry)throw new ReaderError(400,'重试必须提交当前故障实例与操作编号，请使用恢复入口。');if(!services.production)throw new ReaderError(503,'制作队列暂不可用');const result=await services.production.snapshot(uid,id,audience);return json(result,result.state==='running'?202:200);}
   }
   if(path[0]==='media'&&path[1]&&path[2]&&path.length===3&&req.method==='GET'){
    const id=uuid.parse(path[1]);await repo.get(id,uid);const file=/^(0|[1-9][0-9]?)\.(png|jpg|webp|wav)$/.exec(path[2]);if(!file||Number(file[1])>=readerMaxFrames)throw new ReaderError(404,'画面不存在');const object=await services.media?.get(`reader/${id}/${path[2]}`);if(!object)throw new ReaderError(404,'这幅还没有生成');const headers=new Headers({'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'});headers.set('Content-Type',object.contentType);return new Response(object.body,{headers});
@@ -565,11 +567,11 @@ return async function readerApi(req:Request,path:string[],cli=false):Promise<Res
     const session=await (async()=>{
      const origin=await repo.get(path[1],ownerId);
      if((decodeDocument(origin)).reselection){
-      return services.production?await services.production.snapshot(ownerId,origin.id):view(origin);
+      return services.production?await services.production.snapshot(ownerId,origin.id,audience):view(origin);
      }
      for(let attempt=0;attempt<2;attempt++){
       const current=await repo.current(origin.id,ownerId);
-      const snapshot=services.production?await services.production.snapshot(ownerId,current.id):view(current);
+      const snapshot=services.production?await services.production.snapshot(ownerId,current.id,audience):view(current);
       if(!snapshot.superseded)return snapshot;
      }
     })().catch(()=>undefined);

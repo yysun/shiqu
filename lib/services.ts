@@ -15,7 +15,8 @@ export interface MediaStore {
 }
 export interface Services {
  commandOnly?:boolean;
- trackWork?<T>(work:Promise<T>):Promise<T>;
+ /** 登记进行中的请求或流式任务；cancel 在停服等候时取消可续跑的流式任务。 */
+ trackWork?<T>(work:Promise<T>,cancel?:()=>void):Promise<T>;
  db:SqliteRemoteDatabase<typeof schema>;
  database:Database;
  media:MediaStore;

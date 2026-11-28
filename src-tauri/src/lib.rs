@@ -23,6 +23,10 @@ struct Control {
     last_error: Option<String>,
     starting: bool,
     maintaining_library: bool,
+    // 常规停止在等已领取的步骤保存；子进程随后自行退出。
+    draining: bool,
+    // 等候结束后退出应用。
+    quit_pending: bool,
     progress: Arc<Mutex<Value>>,
 }
 #[derive(Clone, Default)]
@@ -257,6 +261,9 @@ async fn start_server(
     let shared = state.0.clone();
     blocking(move || {
         let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
+        if control.draining {
+            return Err("服务正在停止，请等待完成后再启动。".into());
+        }
         if let Some(runtime) = &mut control.runtime {
             return Ok(runtime.snapshot());
         }
@@ -315,23 +322,102 @@ fn stop_control(state: &DesktopState) {
         return;
     }
 }
-fn request_stop_control(state: &DesktopState) -> Result<(), String> {
+/// 常规停止：返回 true 表示已停止；false 表示服务在等已领取的步骤保存，保留子进程直到它自行退出。
+fn request_stop_control(state: &DesktopState) -> Result<bool, String> {
     let mut control = state.0.lock().map_err(|_| "服务控制器不可用。")?;
     if control.starting || control.maintaining_library {
         return Err("书库启动或维护尚未完成，请等待。".into());
     }
+    if control.draining {
+        return Ok(false);
+    }
     if let Some(runtime) = &mut control.runtime {
-        runtime.request_stop()?;
+        if !runtime.request_stop()? {
+            control.draining = true;
+            return Ok(false);
+        }
     }
     drop(control.runtime.take());
     control.last_error = None;
+    Ok(true)
+}
+/// 立即停止：不再等候，按既有清理管道释放子进程。
+fn force_stop_control(state: &DesktopState) {
+    stop_control(state);
+    if let Ok(mut control) = state.0.lock() {
+        control.draining = false;
+    }
+}
+/// 退出应用：空闲时立即退出；有进行中的工作时显示控制台，等子进程自行退出后再退出。
+fn quit(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
+    let state = app.state::<DesktopState>().inner().clone();
+    if force {
+        force_stop_control(&state);
+        app.exit(0);
+        return Ok(());
+    }
+    if request_stop_control(&state)? {
+        app.exit(0);
+        return Ok(());
+    }
+    {
+        let mut control = state.0.lock().map_err(|_| "服务控制器不可用。")?;
+        if control.quit_pending {
+            show(app);
+            return Ok(());
+        }
+        control.quit_pending = true;
+    }
+    show(app);
+    let app = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let Ok(mut control) = state.0.lock() else {
+            return;
+        };
+        if !control.quit_pending {
+            return;
+        }
+        let exited = match &mut control.runtime {
+            None => true,
+            Some(runtime) => !matches!(runtime.child.try_wait(), Ok(None)),
+        };
+        if exited {
+            drop(control.runtime.take());
+            control.draining = false;
+            drop(control);
+            app.exit(0);
+            return;
+        }
+    });
     Ok(())
 }
 #[tauri::command]
 async fn stop_server(state: tauri::State<'_, DesktopState>) -> Result<Value, String> {
     let state = state.inner().clone();
     blocking(move || {
-        request_stop_control(&state)?;
+        if request_stop_control(&state)? {
+            return Ok(json!({"running":false,"phoneUrls":[]}));
+        }
+        let mut control = state.0.lock().map_err(|_| "服务控制器不可用。")?;
+        let quitting = control.quit_pending;
+        Ok(match control.runtime.as_mut() {
+            Some(runtime) => {
+                let mut status = runtime.snapshot();
+                status["state"] = json!("stopping");
+                status["quitting"] = json!(quitting);
+                status
+            }
+            None => json!({"running":false,"phoneUrls":[]}),
+        })
+    })
+    .await
+}
+#[tauri::command]
+async fn force_stop(state: tauri::State<'_, DesktopState>) -> Result<Value, String> {
+    let state = state.inner().clone();
+    blocking(move || {
+        force_stop_control(&state);
         Ok(json!({"running":false,"phoneUrls":[]}))
     })
     .await
@@ -342,12 +428,23 @@ async fn server_status(state: tauri::State<'_, DesktopState>) -> Result<Value, S
     blocking(move || {
         let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
         if control.starting { return Ok(control.progress.lock().map_err(|_| "服务状态不可用。")?.clone()); }
+        let draining = control.draining;
+        let quitting = control.quit_pending;
         if let Some(runtime) = &mut control.runtime {
             match runtime.child.try_wait() {
-                Ok(None) => return Ok(runtime.snapshot()),
+                Ok(None) => {
+                    let mut status = runtime.snapshot();
+                    if draining {
+                        status["state"] = json!("stopping");
+                        status["quitting"] = json!(quitting);
+                    }
+                    return Ok(status);
+                }
                 _ => {
                     drop(control.runtime.take());
-                    control.last_error = Some("服务已退出，请检查设置后重新启动。".into());
+                    // 等候停止后的自行退出是正常停止。
+                    control.last_error = (!draining).then(|| "服务已退出，请检查设置后重新启动。".into());
+                    control.draining = false;
                 }
             }
         }
@@ -402,17 +499,8 @@ fn open_release_download(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|_| "无法打开默认浏览器。".into())
 }
 #[tauri::command]
-async fn quit_app(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, DesktopState>,
-) -> Result<(), String> {
-    let state = state.inner().clone();
-    blocking(move || {
-        request_stop_control(&state)?;
-        app.exit(0);
-        Ok(())
-    })
-    .await
+async fn quit_app(app: tauri::AppHandle, force: Option<bool>) -> Result<(), String> {
+    blocking(move || quit(&app, force.unwrap_or(false))).await
 }
 fn show(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -439,9 +527,36 @@ pub fn run() {
             server_status,
             open_reader,
             open_release_download,
+            force_stop,
             quit_app
         ])
         .setup(|app| {
+            // macOS 菜单的系统退出项直接终止进程；换成同名项，⌘Q 与托盘退出一样先等当前步骤保存。
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::menu::MenuItemKind;
+                let handle = app.handle();
+                let menu = Menu::default(handle)?;
+                if let Some(MenuItemKind::Submenu(application)) = menu.items()?.into_iter().next() {
+                    let last = application.items()?.len();
+                    if last > 0 {
+                        application.remove_at(last - 1)?;
+                    }
+                    application.append(&MenuItem::with_id(
+                        handle,
+                        "app-quit",
+                        "退出拾趣",
+                        true,
+                        Some("CmdOrCtrl+Q"),
+                    )?)?;
+                }
+                app.set_menu(menu)?;
+                app.on_menu_event(|app, event| {
+                    if event.id().as_ref() == "app-quit" {
+                        thread_stop(app.clone(), true);
+                    }
+                });
+            }
             let show_item = MenuItem::with_id(app, "show", "打开拾趣控制台", true, None::<&str>)?;
             let stop_item = MenuItem::with_id(app, "stop", "停止服务", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出拾趣", true, None::<&str>)?;
@@ -479,14 +594,21 @@ pub fn run() {
         _ => {}
     });
 }
-fn thread_stop(app: tauri::AppHandle, quit: bool) {
-    std::thread::spawn(
-        move || match request_stop_control(app.state::<DesktopState>().inner()) {
-            Ok(()) if quit => app.exit(0),
-            Ok(()) => {}
-            Err(error) => app.dialog().message(error).show(|_| {}),
-        },
-    );
+fn thread_stop(app: tauri::AppHandle, quitting: bool) {
+    std::thread::spawn(move || {
+        let result = if quitting {
+            quit(&app, false)
+        } else {
+            request_stop_control(app.state::<DesktopState>().inner()).map(|stopped| {
+                if !stopped {
+                    show(&app);
+                }
+            })
+        };
+        if let Err(error) = result {
+            app.dialog().message(error).show(|_| {});
+        }
+    });
 }
 
 #[cfg(test)]

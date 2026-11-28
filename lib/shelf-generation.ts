@@ -31,6 +31,7 @@ function savedStatus(session:SessionView|ShelfSession):Status{
  const completedWork=complete&&(refreshing||lifecycle?.activity.state==='running'||lifecycle?.activity.state==='queued'||resumable);
  const redraw=session.redrawPage?`重绘第 ${session.redrawPage} 幅`:null;
  if(redraw&&session.awaitingContinue)return {group:'生成已暂停',message:`等待${redraw}`,detail:'分镜、审片结果和其他画幅已保留。',action:redraw,expects:'continue'};
+ if(session.cliHold&&session.state!=='completed')return {group:'生成已暂停',message:'已保存，等待继续',detail:'已由命令行保存，点击“继续制作”后在此继续，已有的结果会保留。',action:'继续制作',expects:'continue'};
  if(session.awaitingContinue&&session.state!=='completed')return {group:'生成已暂停',message:'已保存，等待继续',detail:'修改已保存为新版本，点击“继续制作”后才开始重新制作，已有的结果会保留。',action:'继续制作',expects:'continue'};
  const phase=session.intake?.phase,preparing=phase==='preparing'||phase==='discovering';
  const pausedStage=session.stage?.replace(/^正在/,'');

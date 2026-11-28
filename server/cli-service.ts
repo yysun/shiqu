@@ -54,6 +54,17 @@ export async function startCliService(root:string,directory:string,runtime:Runti
   if(!resume){accepting=true;return;}
   return ()=>{resume();accepting=true;};
  };
+ // 停服等候：停收命令并中断执行中的 CLI 命令（run 留下等待并返回中断），再等应用里已接收的工作结束。
+ let drained:{idle:boolean;settled:Promise<void>}|undefined;
+ const drain=()=>{
+  if(drained)return {idle:false,settled:drained.settled};
+  accepting=false;
+  for(const {controller} of active.values())controller.abort();
+  const hasCommands=()=>active.size>0;
+  drained=runtime.application?runtime.application.drainForStop(hasCommands)
+   :{idle:!hasCommands(),settled:(async()=>{while(hasCommands())await delay(100);})()};
+  return drained;
+ };
  const refreshIdle=()=>{
   if(idle)clearTimeout(idle);
   if(runtime.managed&&!closing&&!active.size)idle=setTimeout(runtime.managed.onIdle,idleMs);
@@ -125,7 +136,7 @@ export async function startCliService(root:string,directory:string,runtime:Runti
   url='http://'+localHost+':'+address.port;
   publishDesktopOwner(directory,{protocol,url,...(runtime.managed?{affinity:affinity(root,process.env)}:{})});
   refreshIdle();
-  return {close,url,pause};
+  return {close,url,pause,drain};
  }catch(error){await close();throw error;}
 }
 

@@ -16,6 +16,8 @@ export type CliStoryScope={
  setPermission(permission:'none'|'text'|'all'):void;
  finish(result:'restore'|'release'|'hold',storyId?:string):void;
 };
+/** 快照读者：阅读器把 CLI 留下的等待投影为「已保存，等待继续」，CLI 读取原状态。 */
+export type SnapshotAudience='reader'|'cli';
 export interface ReaderProduction{
  reserveCliStories?(ownerId:string,ids:string[]):CliStoryScope;
  beginCliRun?(ownerId:string,id:string,draw:boolean):Promise<CliStoryScope>;
@@ -27,9 +29,9 @@ export interface ReaderProduction{
  request(ownerId:string,id:string,viewerId:string,page:number,retry?:boolean):Promise<SessionView>;
  leave(ownerId:string,id:string,viewerId:string):Promise<void>;
  managed(ownerId:string,id:string):Promise<boolean>;
- shelfSnapshots(ownerId:string,includeTimings?:boolean):Promise<SessionView[]>;
+ shelfSnapshots(ownerId:string,includeTimings?:boolean,audience?:SnapshotAudience):Promise<SessionView[]>;
  deletedLifecycles?(ownerId:string):Map<string,ProductionLifecycle>;
- snapshot(ownerId:string,id:string):Promise<SessionView>;
+ snapshot(ownerId:string,id:string,audience?:SnapshotAudience):Promise<SessionView>;
  recover(ownerId:string,id:string,command:RecoveryRequest,checkService?:boolean,accepted?:()=>void):Promise<SessionView>;
  checkImage(ownerId:string,id:string,page:number,image:string):Promise<SessionView>;
  landscapeStatus(ownerId:string,id:string):Promise<LandscapeStatus>;

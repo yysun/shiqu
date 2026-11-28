@@ -30,7 +30,7 @@ import {suggestionBatchSchema,freshSuggestions,maxSuggestionBatches} from '../li
 import type {SuggestionBatch,SuggestionProgress} from '../lib/reader-suggestions.ts';
 import {readerMaxFrames} from '../lib/reader-limits.ts';
 import {productionViewerLeaseMs} from '../lib/reader-production.ts';
-import type {EarlierLandscapeWork,LandscapeCommand,LandscapePrintSet,LandscapeStatus,ReaderProduction} from '../lib/reader-production.ts';
+import type {EarlierLandscapeWork,LandscapeCommand,LandscapePrintSet,LandscapeStatus,ReaderProduction,SnapshotAudience} from '../lib/reader-production.ts';
 import {LandscapePrints,currentLandscapePrint,landscapePrintKind} from './landscape-print.ts';
 import {JobYield,ProductionQueue,productionJobId} from './production-queue.ts';
 import type {ProductionJob,JobSpec} from './production-queue.ts';
@@ -408,7 +408,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   }
   if(action==='continue'){
    if(!requestId)throw new ReaderError(400,'继续制作需要提交操作编号。');
-   this.dag.continue(ownerId,id,requestId,this.stopping);
+   const hold=this.cliScopes.get(id);
+   this.dag.continue(ownerId,id,requestId,this.stopping,!!hold&&!hold.active);
    return result();
   }
   if(requestId)await authorizeControl(this.database,ownerId,id,requestId,action,this.clock(),this.stopping);
@@ -520,17 +521,17 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   this.rebuildKeys.delete(id);
   this.wake();return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
  }
- async snapshot(ownerId:string,id:string):Promise<SessionView>{
+ async snapshot(ownerId:string,id:string,audience:SnapshotAudience='reader'):Promise<SessionView>{
   const [input]=this.snapshotInputs(ownerId,id);
   if(!input)throw new ReaderError(404,'这篇故事不在你的书架里');
-  return this.liveSnapshotView(input,this.savedView(input.row),true);
+  return this.liveSnapshotView(input,this.savedView(input.row),true,audience);
  }
- async shelfSnapshots(ownerId:string,includeTimings=false):Promise<SessionView[]>{
+ async shelfSnapshots(ownerId:string,includeTimings=false,audience:SnapshotAudience='reader'):Promise<SessionView[]>{
   const inputs=this.snapshotInputs(ownerId);
   const snapshots=await Promise.all(inputs.flatMap(input=>{
    let saved:SessionView;
    try{saved=this.savedView(input.row);}catch{return [];}
-   return [this.liveSnapshotView(input,saved,includeTimings)];
+   return [this.liveSnapshotView(input,saved,includeTimings,audience)];
   }));
   // 整张书架读取后清掉已不在书架上的缓存，缓存规模随书架而定。
   const shown=new Set(inputs.map(input=>input.row.id));
@@ -547,9 +548,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  /** 保存视图只取决于故事行本身。 */
  private savedView(row:SessionRow){return reuseUnchanged(this.savedViews,row.id,Object.values(row),()=>view(row));}
- private async liveSnapshotView(input:SnapshotInputs,saved:SessionView,includeTimings:boolean){
-
-  return this.snapshotView(input,saved,includeTimings);
+ private async liveSnapshotView(input:SnapshotInputs,saved:SessionView,includeTimings:boolean,audience:SnapshotAudience){
+  return this.snapshotView(input,saved,includeTimings,audience);
  }
  deletedLifecycles(ownerId:string){
   const lifecycles=new Map<string,NonNullable<SessionView['lifecycle']>>();
@@ -612,7 +612,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   };
   return this.database.readTransaction?.(read)??transact(this.database,read);
  }
- private snapshotView(input:SnapshotInputs,saved:SessionView,includeTimings:boolean):SessionView{
+ private snapshotView(input:SnapshotInputs,saved:SessionView,includeTimings:boolean,audience:SnapshotAudience='reader'):SessionView{
   const {row,now,allJobs,superseded,replacementOpen,hasViewer}=input;
   const id=row.id,parsed=this.parsed(row)!;
   const background=row.generation_control==='active'&&!superseded&&(!this.options.targetSessionId||id===this.options.targetSessionId);
@@ -637,6 +637,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   for(const target of new Set(dag?.issues?.filter(issue=>issue.requiresReplan&&blockedTargets.has(issue.target)).map(issue=>issue.target))){
    reviewAttention.push({target,reason:'replan'});
   }
+  // 阅读器视图：CLI 留下的等待正阻止排队工作时，显示为「已保存，等待继续」。有故障、审片阻断或暂停时保留各自的处理入口。
+  const hold=this.cliScopes.get(id);
+  const cliHold=audience==='reader'&&!!hold&&!hold.active&&background&&!saved.awaitingContinue&&complete!==true&&!blocking?.id
+   &&!views.some(fault=>fault.state==='pending')&&!searchFault&&portraitJobs.some(job=>this.cliBlocks(job)&&job.state==='queued'&&(job.kind!=='discover'||hasViewer));
   const preparing=!!dag?.repreparing||!!parsed.doc.intake&&parsed.doc.intake.phase!=='confirmed';
   const service=review==='approved'&&!preparing?this.serviceAvailability(dag?.modelSnapshot):this.serviceAvailability(undefined,'text');
   const currentImage=this.snapshotNow();
@@ -662,7 +666,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const replacement=reselection&&intake?{parentId:reselection.parentId,generation:intake.generation,commit:{draftCurrent:!superseded,
    generationCurrent:true,candidateExists:configured&&intake.batches.some(batch=>batch.stories.length>0),
    ...(input.replacementBasis??{basisCurrent:false,requirementsCurrent:false})}}:undefined;
-  const lifecycle=productionLifecycle({...saved,complete:savedComplete,generationControl:row.generation_control,superseded,deleted:input.deleted,replacementOpen:!!parsed.doc.reselection||replacementOpen,
+  const lifecycle=productionLifecycle({...saved,...(cliHold?{awaitingContinue:true as const}:{}),complete:savedComplete,generationControl:row.generation_control,superseded,deleted:input.deleted,replacementOpen:!!parsed.doc.reselection||replacementOpen,
    faults:[...projectedFaults,...(searchFault?[searchFault]:[])],reviewAttention,review,service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
    now,order:dag?.order??[],pendingImageChecks,optionalWork:false,stopping:this.stopping,canReprepare,
    reprepareService:this.serviceAvailability(undefined,'text'),repreparing:!!dag?.repreparing,
@@ -695,7 +699,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const landscapeWork=work&&{...work,...(model?.service!=='available'?model:{})};
   const hasLandscape=!!print;
   const state=savedComplete?'completed':active.length?'running':'idle';
-  const session:SessionView={...saved,state,error:null,lifecycle,...(hasLandscape?{hasLandscape:true as const}:{}),...(landscapeWork?{landscapeWork}:{}),...(release&&lifecycle.actions.some(action=>action.event==='override-review')?{reviewOverride:{faultId:release.faultId,title:release.title,reflection:release.reflection,needsEnding:release.needsEnding}}:{}),...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
+  const session:SessionView={...saved,...(cliHold?{awaitingContinue:true as const,cliHold:true as const}:{}),state,error:null,lifecycle,...(hasLandscape?{hasLandscape:true as const}:{}),...(landscapeWork?{landscapeWork}:{}),...(release&&lifecycle.actions.some(action=>action.event==='override-review')?{reviewOverride:{faultId:release.faultId,title:release.title,reflection:release.reflection,needsEnding:release.needsEnding}}:{}),...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
    ...(description?.label?{stage:`正在${description.label}`}:{}),
    ...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),
    generationProgress:{...progress,phase,activity:current?description?.label:progress.activity,startedAt,timeoutAt,
