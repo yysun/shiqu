@@ -53,7 +53,12 @@ function Desktop(){
  async function stop(){accept(await invoke<Status>('stop_server'));await reload();}
  // 有进行中的任务时停止进入等候；重启在停止完成后再启动。
  const restartPending=useRef(false);
- async function restart(){if(!window.confirm('重启会暂时断开阅读器连接。正在处理的步骤会先保存，再重新启动。是否重启？'))return;const next=await invoke<Status>('stop_server');accept(next);if(next.running){restartPending.current=true;return;}await reload();await start();}
+ async function restart(){
+  if(!window.confirm('重启会暂时断开阅读器连接。正在处理的步骤会先保存，再重新启动。是否重启？'))return;
+  const next=await invoke<Status>('stop_server');
+  restartPending.current=true;
+  accept(next);
+ }
  useEffect(()=>{
   if(!restartPending.current||!known)return;
   const step=restartStep(status,!!busy||inFlight.current);

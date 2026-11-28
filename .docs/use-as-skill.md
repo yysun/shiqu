@@ -161,7 +161,7 @@ pnpm cli books structure REPLACEMENT_DRAFT_ID
 pnpm cli books reimport BOOK_ID --draft-id REPLACEMENT_DRAFT_ID --input reviewed-structure.json
 ```
 
-生成过程中按 Ctrl-C 会等待当前请求退出并保存暂停状态；之后再次运行 `books cards` 会从未完成的窗口续跑，失败章节通过 `--retry-failed` 单独重试。替换书籍时先导入新来源并检查返回的草稿，再把检查过的 `{chapters:[...]}` 结构交给 `--draft-id` 完成替换；也可以在创建替换草稿时直接传 `--input`。只有内容完全一致且唯一的章节会保留卡片。删除需要 `books remove BOOK_ID --yes`，会同时删除原文、故事卡、向量和生成中间结果。已制作故事保留已保存的原文和授权说明。
+生成过程中按 Ctrl-C 会等待当前请求退出并保存暂停状态；之后再次运行 `books cards` 会从未完成的窗口续跑，失败章节通过 `--retry-failed` 单独重试。停服中断故事卡或向量索引命令时，CLI 返回 `INTERRUPTED`，服务保留已经保存的内容。替换书籍时先导入新来源并检查返回的草稿，再把检查过的 `{chapters:[...]}` 结构交给 `--draft-id` 完成替换；也可以在创建替换草稿时直接传 `--input`。只有内容完全一致且唯一的章节会保留卡片。删除需要 `books remove BOOK_ID --yes`，会同时删除原文、故事卡、向量和生成中间结果。已制作故事保留已保存的原文和授权说明。
 
 ## 从零开始制作故事
 

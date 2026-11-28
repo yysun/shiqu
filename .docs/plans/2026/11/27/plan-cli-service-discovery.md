@@ -23,7 +23,7 @@ Git base: `4e1d1af286d5e9f3d06a5c2a316a44913fa6ecd7`
 - [x] `lib/shelf-generation.ts`：`cliHold` 使用专门说明「已由命令行保存，点击“继续制作”后在此继续，已有结果会保留。」；`lib/reader-model.ts` 与 `lib/reader-shelf.ts` 传递该标记。
 - [x] `server/dag-production.ts` 的 `continue` 接受非执行中的 CLI 等待：无修订等待时写入同格式回执，指纹为 `continue:` 加 `['continue',id,'cli-hold']` 的摘要，payload 为 `{action:'continue',hold:'cli'}`。重放同一编号直接返回。`ReaderProductionCoordinator.control` 传入等待状态，浏览器 `saveStory` 的既有回调随回执解除等待。回执与解除等待分属两个事务：其间崩溃时故事仍保持等待，读者再次继续即可。
 - [x] 停服等候（`server/app.ts`、`server/cli-service.ts`）：开始等候时保持维护暂停并停收新的 API 与 CLI 请求；中断执行中的 CLI 命令（`run`、`books cards`、`books index` 等按既有 `interrupt()` 留下等待并返回 `INTERRUPTED`）；取消已登记的流式任务（故事卡按既有取消保存进度、建库与检索按各自中止信号）。只等待已领取的制作任务、图片核对和普通 API 请求结束。`trackWork` 接受可选取消回调。`startCliService.drain()` 返回 `{idle,settled}`，空闲时同步结算。
-- [x] 桌面 stdin 的 `stop` 回复 `{stopReply,accepted:true,draining}`；等候期间状态为 `stopping`，结束后自行退出；`shutdown` 与 stdin 关闭立即停止。浏览器服务第一次 Ctrl-C 等候并提示，再次 Ctrl-C 或 SIGTERM 立即停止；npm/npx 会把同一次 Ctrl-C 再转发一次，1.5 秒内的重复 SIGINT 不算第二次。
+- [x] 桌面 stdin 的 `stop` 回复 `{stopReply,accepted:true,draining}`；等候期间状态为 `stopping`，结束后自行退出；`shutdown` 与 stdin 关闭立即停止。浏览器服务第一次 Ctrl-C 等候并提示，再次 Ctrl-C 或 SIGTERM 立即停止。原 1.5 秒信号窗口由「修正四」取代。
 - [x] Rust：`request_stop` 区分立即停止与等候；等候时保留 `Runtime` 与 stdin，`Control` 记录 `draining` 与 `quit_pending`。`server_status` 把等候后的自行退出记为已停止而非失败；等候期间 `start_server` 返回「服务正在停止」；新增 `force_stop`；`quit_app(force)` 与托盘退出在等候时显示控制台，由不持有 `DesktopState` 锁的监视线程在子进程退出后退出应用。macOS 以默认菜单为基础，只把系统退出项换成同名「退出拾趣」（⌘Q）；Dock 的退出、系统注销与关机仍走 `RunEvent::Exit` 立即释放。
 - [x] 控制台：`stopping` 状态显示「正在等待当前步骤保存后停止/退出」与「立即停止」或「立即退出」；重启等待停止完成后再启动。
 - [x] `CHANGELOG.md` 0.18.0 补记 CLI 与在线服务共用书库、在线备份、等待可见与等候停服；更新 `.docs/user-guide.md` 停服说明（含 Dock 退出仍立即停止）、`.docs/story-production-lifecycle.md` 的等待继续来源、`skills/shiqu/SKILL.md` 中 CLI 保存后的阅读器等待与 `run` 直接推进。
@@ -51,6 +51,14 @@ Git base: `4e1d1af286d5e9f3d06a5c2a316a44913fa6ecd7`
 - [x] `server/app.ts`：应用以停服信号包装模型与检索请求的 transport，`interruptWork()` 先停止调度再中止进行中的请求；`server/start.ts` 与 `server/desktop.ts` 的停止调用它。正常等候结束时没有进行中的请求，强停时请求被中止，任务按停服中断处理，下次启动重新执行。
 - [x] `src-tauri/src/lib.rs`：退出等候期间书库维护入口拒绝新操作；退出在维护结束后若仍遇到启动或维护则继续等待；停止后的最终状态包含 `quitting`。
 - [x] 测试：`tests/cli-service.test.mjs` 覆盖校验前停服后重启不发图；包装 transport 被 `interruptWork()` 中止；Rust 覆盖退出期间拒绝维护与最终状态的退出标记。
+
+### 修正四：停服入口与命令收尾
+
+- [ ] CLI 消费故事卡和索引进度时，取消信号结束等待中的读取。停服时返回中断回执，后台任务仍由应用跟踪，等候停服等它完成清理，强停保留已有取消边界。短时服务的单命令应用先收尾，再关闭书库及交接给下一命令或桌面。
+- [ ] 浏览器与桌面设置接口复用应用的请求接收、跟踪与强停中止。停服开始后拒绝新读写，已接收的连接检查纳入等候。
+- [ ] 直接启动时第二次 SIGINT 立即强停。npm 启动时只在显示第二次按键提示前合并短时间内的转发信号。验证两种启动条件。
+- [ ] 停止应答与轮询共用原生状态判定，保留并发退出的失败和退出标记。控制台在两处共用重启判定。
+- [ ] 经真实 CLI 和控制通道重跑取消、等候、强停及设置拒绝，运行受影响检查并记录验收。
 
 现有程序的 `executeHeadless` 在同一持锁进程按命令打开并关闭应用。自动服务在本机持锁并复用这个执行器，以维持每条 CLI 命令对制作范围的授权。在线桌面和浏览器共用既有应用与调度器，打开的协调器承接 CLI 写入和显式 `run`，每个故事独立限制派发。配置、输出和书库不做格式迁移。旧版本不会理解释放范围所需的新原始意图，应使用同版本工具打开。协议是内部运行时信息，可以随同版本发布和回滚。
 

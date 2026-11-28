@@ -300,6 +300,7 @@ fn stop_reply(value: &Value, request: u64) -> Option<Result<bool, String>> {
 pub struct Runtime {
     pub child: Child,
     pub status: Value,
+    pub attached: bool,
     updates: mpsc::Receiver<Value>,
     stop_request: u64,
     _ownership: File,
@@ -481,6 +482,7 @@ pub fn start(
     let (child, status, updates) = launch(settings, settings_file, root, on_status)?;
     Ok(Runtime {
         child,
+        attached: status["attached"] == true,
         status,
         updates,
         stop_request: 0,

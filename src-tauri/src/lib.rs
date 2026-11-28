@@ -325,12 +325,15 @@ fn stop_control(state: &DesktopState) -> Result<(), String> {
         return result;
     }
 }
-/// 子进程已退出：等候停止后以退出码 0 自行退出是正常停止；其他退出（含等候中的异常退出）记为失败。
+/// 子进程已退出：等候停止或接入端确认原服务停止后，退出码 0 表示正常停止。
 fn settle_exit(control: &mut Control, success: bool) {
+    let attached = control.runtime.as_ref().is_some_and(|r| r.attached);
     drop(control.runtime.take());
-    control.last_error =
-        (!(control.draining && success)).then(|| "服务已退出，请检查设置后重新启动。".into());
+    control.last_error = service_exit_error(success, control.draining, attached);
     control.draining = false;
+}
+fn service_exit_error(success: bool, draining: bool, attached: bool) -> Option<String> {
+    (!(success && (draining || attached))).then(|| "服务已退出，请检查设置后重新启动。".into())
 }
 /// 等候停止或正在退出时不接受启动，避免把仍在收尾的实例当作已启动，也避免重启与退出竞争。
 fn start_refusal(control: &Control) -> Option<&'static str> {
@@ -376,9 +379,9 @@ fn request_stop_control(state: &DesktopState, wait_until_ready: bool) -> Result<
             control.draining = true;
             return Ok(false);
         }
+        drop(control.runtime.take());
+        control.last_error = None;
     }
-    drop(control.runtime.take());
-    control.last_error = None;
     Ok(true)
 }
 /// 退出应用：空闲时立即退出；有进行中的工作时显示控制台，等已领取的步骤保存、子进程自行退出后再退出。
@@ -445,20 +448,9 @@ fn quit(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
 async fn stop_server(state: tauri::State<'_, DesktopState>) -> Result<Value, String> {
     let state = state.inner().clone();
     blocking(move || {
-        if request_stop_control(&state, false)? {
-            return Ok(json!({"running":false,"phoneUrls":[]}));
-        }
+        request_stop_control(&state, false)?;
         let mut control = state.0.lock().map_err(|_| "服务控制器不可用。")?;
-        let quitting = control.quit_pending;
-        Ok(match control.runtime.as_mut() {
-            Some(runtime) => {
-                let mut status = runtime.snapshot();
-                status["state"] = json!("stopping");
-                status["quitting"] = json!(quitting);
-                status
-            }
-            None => json!({"running":false,"phoneUrls":[]}),
-        })
+        control_status(&mut control)
     })
     .await
 }
@@ -476,32 +468,34 @@ async fn server_status(state: tauri::State<'_, DesktopState>) -> Result<Value, S
     let shared = state.0.clone();
     blocking(move || {
         let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
-        if control.starting {
-            return Ok(control
-                .progress
-                .lock()
-                .map_err(|_| "服务状态不可用。")?
-                .clone());
-        }
-        let draining = control.draining;
-        let quitting = control.quit_pending;
-        if let Some(runtime) = &mut control.runtime {
-            match runtime.child.try_wait() {
-                Ok(None) => {
-                    let mut status = runtime.snapshot();
-                    if draining {
-                        status["state"] = json!("stopping");
-                        status["quitting"] = json!(quitting);
-                    }
-                    return Ok(status);
-                }
-                Ok(Some(exit)) => settle_exit(&mut control, exit.success()),
-                Err(_) => settle_exit(&mut control, false),
-            }
-        }
-        Ok(stopped_status(&control))
+        control_status(&mut control)
     })
     .await
+}
+// 停止应答与轮询共用同一状态。轮询先收尾时仍保留停止失败和退出标记。
+fn control_status(control: &mut Control) -> Result<Value, String> {
+    if control.starting {
+        return Ok(control
+            .progress
+            .lock()
+            .map_err(|_| "服务状态不可用。")?
+            .clone());
+    }
+    if let Some(runtime) = &mut control.runtime {
+        match runtime.child.try_wait() {
+            Ok(None) => {
+                let mut status = runtime.snapshot();
+                if control.draining {
+                    status["state"] = json!("stopping");
+                    status["quitting"] = json!(control.quit_pending);
+                }
+                return Ok(status);
+            }
+            Ok(Some(exit)) => settle_exit(control, exit.success()),
+            Err(_) => settle_exit(control, false),
+        }
+    }
+    Ok(stopped_status(control))
 }
 
 // 只允许服务根页及一个固定生成设置深链，不接收任意路径、查询或片段。
@@ -688,6 +682,9 @@ mod tests {
         control.draining = true;
         settle_exit(&mut control, false);
         assert!(control.last_error.is_some());
+        // 接入服务由原终端停止时，桥接验证回执后以 0 退出，无需本地等候标记。
+        assert!(service_exit_error(true, false, true).is_none());
+        assert!(service_exit_error(false, false, true).is_some());
         // 退出中不接受重启，也不开始新的书库维护；最终状态保留退出标记。
         control.quit_pending = true;
         assert!(start_refusal(&control).is_some());
@@ -718,6 +715,21 @@ mod tests {
         receive
             .recv_timeout(std::time::Duration::from_secs(2))
             .unwrap();
+    }
+    #[test]
+    fn stop_preserves_failure_already_settled_by_status_poll() {
+        let state = DesktopState::default();
+        {
+            let mut control = state.0.lock().unwrap();
+            control.draining = true;
+            control.quit_pending = true;
+            settle_exit(&mut control, false);
+        }
+        assert!(request_stop_control(&state, false).unwrap());
+        let status = control_status(&mut state.0.lock().unwrap()).unwrap();
+        assert_eq!(status["state"], "failed");
+        assert!(status["error"].is_string());
+        assert_eq!(status["quitting"], true);
     }
     #[test]
     fn stop_and_exit_wait_for_startup_without_holding_the_controller_lock() {

@@ -128,9 +128,22 @@ async function streamApi(app:ReturnType<typeof createApplication>,route:string,i
  const response=await app.handle(new Request('http://shiqu.local/api/reader/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input),signal}));
  if(!response.ok){const data=await response.json().catch(()=>({}));throw new CliCommandError(response.status===409?'CONFLICT':response.status===404?'NOT_FOUND':response.status===503?'PROVIDER_UNAVAILABLE':'INVALID_REQUEST',data.error||'The production action failed.',response.status>=500?4:2,{status:response.status});}
  const reader=response.body?.getReader();if(!reader)throw new CliCommandError('EMPTY_STREAM','The local task returned no progress stream.');
+ // 同进程读取响应；请求中止时主动结束读取，后台任务仍由应用等候清理。
+ const cancel=()=>{void reader.cancel().catch(()=>{});};
+ signal.addEventListener('abort',cancel,{once:true});if(signal.aborted)cancel();
  const decoder=new TextDecoder(),last:any={};let pending='';
  const accept=(line:string)=>{if(!line.trim())return;const event=JSON.parse(line);onEvent(event);Object.assign(last,event);if(event.type==='error')throw new CliCommandError('TASK_FAILED',event.error||'The local task failed.',4);if(event.type==='complete')last.progress=event.progress;};
- try{while(true){const {done,value}=await reader.read();pending+=decoder.decode(value,{stream:!done});const lines=pending.split('\n');pending=lines.pop()||'';for(const line of lines)accept(line);if(done){accept(pending);break;}}}finally{reader.releaseLock();}
+ try{
+  while(true){
+   const {done,value}=await reader.read();
+   signal.throwIfAborted();
+   pending+=decoder.decode(value,{stream:!done});
+   const lines=pending.split('\n');
+   pending=lines.pop()||'';
+   for(const line of lines)accept(line);
+   if(done){accept(pending);break;}
+  }
+ }finally{signal.removeEventListener('abort',cancel);reader.releaseLock();}
  return last.progress||last;
 }
 async function uploadImportFile(app:ReturnType<typeof createApplication>,draftId:string,filename:string,encoding?:string){
@@ -272,6 +285,10 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  let timedOut=false,runScope:CliStoryScope|undefined;
  let runOutcome:'restore'|'release'|'hold'='restore',resumesAfterRestart=false,dispatchGranted=false;
  const progress=context.progress||((line:string)=>{process.stderr.write(line);});
+ const checkTaskCancellation=(error:unknown)=>{
+  if(!abort.signal.aborted)throw error;
+  if(context.signal?.reason===serviceStopReason)throw new CliCommandError('INTERRUPTED','The library service stopped; saved book work is retained.',130);
+ };
  // 用户中断或超时保留等待；服务停止中断的全量运行释放等待，重启后由调度器按原授权续跑。
  const interrupt=()=>{
   if(runScope){
@@ -339,12 +356,12 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    if(v.estimate){need(!v['retry-failed'],'INVALID_INPUT','--retry-failed applies only when running cards.');return await api(app,'GET',`books/imported/${encodeURIComponent(id)}/cards/estimate`);}
    need(value('encoding')===undefined,'INVALID_INPUT','--encoding applies only to books import.');
    try{const result=await streamApi(app,`books/imported/${encodeURIComponent(id)}/cards`,{retryFailed:!!v['retry-failed']},abort.signal,event=>{if(event.type==='progress')progress(`\r故事卡 ${event.progress?.status||''} · ${event.progress?.chapters?.filter((chapter:any)=>chapter.status==='done').length||0}/${event.progress?.chapters?.length||0} 章`);});progress('\n');return result;}
-   catch(error){if(!abort.signal.aborted)throw error;await api(app,'POST',`books/imported/${encodeURIComponent(id)}/cards/cancel`,{});const current=await api(app,'GET',`books/imported/${encodeURIComponent(id)}/cards`);progress('\n');return {cancelled:true,progress:current.progress};}
+   catch(error){checkTaskCancellation(error);await api(app,'POST',`books/imported/${encodeURIComponent(id)}/cards/cancel`,{});const current=await api(app,'GET',`books/imported/${encodeURIComponent(id)}/cards`);progress('\n');return {cancelled:true,progress:current.progress};}
   }
   if(command==='books'&&action==='index'){
    need(id&&/^my-[a-f0-9]{16}$/.test(id),'BOOK_ID_REQUIRED','Specify an imported book ID.');
    try{const result=await streamApi(app,`books/${encodeURIComponent(id)}/embedding-index`,{},abort.signal,event=>{if(event.type==='progress')progress(`\r向量索引 ${event.completed||0}/${event.total||0}`);});progress('\n');return result;}
-   catch(error){if(!abort.signal.aborted)throw error;progress('\n');return {cancelled:true};}
+   catch(error){checkTaskCancellation(error);progress('\n');return {cancelled:true};}
   }
   if(command==='books'&&action==='remove'){
    need(id&&/^my-[a-f0-9]{16}$/.test(id),'BOOK_ID_REQUIRED','Specify an imported book ID.');need(v.yes,'CONFIRMATION_REQUIRED','Deleting the original, cards, vectors and generation cache requires --yes.');return await api(app,'DELETE',`books/imported/${encodeURIComponent(id)}`);
@@ -493,7 +510,13 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  }finally{
   runScope?.finish(runOutcome);
   if(timer)clearTimeout(timer);process.off('SIGINT',interrupt);process.off('SIGTERM',interrupt);context.signal?.removeEventListener('abort',interrupt);
-  try{if(app&&!context.host?.application){app.stopGeneration();abort.abort();if(running)await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);await app.close();}}finally{removeDiagnostics();await release();}
+  try{if(app&&!shared){
+   app.stopGeneration();abort.abort();
+   // 短时服务按命令打开应用。等待故事卡或索引取消后完成清理，再允许下一条命令或桌面接入。
+   if(taskSignal)await app.drainForStop(()=>false).settled;
+   if(running)await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);
+   await app.close();
+  }}finally{removeDiagnostics();await release();}
  }
 }
 export function cliFailure(error:unknown){

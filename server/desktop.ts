@@ -28,8 +28,7 @@ import {FileMedia} from './media.ts';
 import {systemSettingsSchema,settingsVariables} from '../lib/system-settings.ts';
 import {SystemSettingsStore} from './system-settings.ts';
 import {effectiveProviderVariables,providerReady} from './cli-setup.ts';
-import {browserProviderSettings} from './browser-provider-settings.ts';
-import {providerSettingsPath} from '../lib/provider-settings.ts';
+import {browserProviderSettings,withBrowserProviderSettings} from './browser-provider-settings.ts';
 import {checkProviderVariables,runtimeConfiguration} from './provider-runtime.ts';
 import {installDiagnostics,recordDiagnostic,safeErrorCode} from './diagnostics.ts';
 import {desktopBackupError,runDesktopBackupCommand} from './desktop-backups.ts';
@@ -66,13 +65,14 @@ export async function startDesktop(settings:DesktopSettings,key:string,root:stri
  function stop(closeCli=!options.existingCli){return stopped??=(async()=>{try{clearInterval(monitor);remote.revoke();app?.interruptWork();await Promise.all([tunnel?.stop(),stopCodexProcesses(),stopClaudeProcesses()]);await Promise.all([closeCli?cli?.close():undefined,close(remoteServer),close(server)]);await app?.close();if(!options.existingCli&&activated&&!process.exitCode)recordDesktopStop(settings.dataDirectory);}finally{recordDiagnostic(settings.dataDirectory,'service_stopped');removeDiagnostics();await release();}})();}
  try{
   options.signal?.throwIfAborted();
-  const providerSettings=configuration.locations?browserProviderSettings({variables:configuration.variables,overrides:options.overrides||{},live:true,ports:[settings.port],locations:configuration.locations,existingOnly:true,transport:options.transport}):undefined;
+  const providerSettings=configuration.locations?browserProviderSettings({variables:configuration.variables,overrides:options.overrides||{},live:true,ports:[settings.port],locations:configuration.locations,existingOnly:true}):undefined;
   const generationReady=!!providerSettings||providerReady(configuration.variables);
   app=createApplication({root,dataDirectory:settings.dataDirectory,variables:configuration.variables,providerVariables:providerSettings?()=>providerSettings.variables():undefined,snapshotVariables:providerSettings?snapshot=>providerSettings.variablesForSnapshot(snapshot):undefined,production:{autoStart:false},transport:options.transport});
   const activate=()=>{activated=true;if(generationReady)app!.startGeneration();};
   const local=`http://127.0.0.1:${settings.port}`,phones=phoneUrls('0.0.0.0',settings.port);
   const access=desktopAccess(app.handle,{hosts:[new URL(local).host,`localhost:${settings.port}`,...phones.map(url=>new URL(url).host)]});
-  const localHandle:Parameters<typeof createHttpServer>[0]=(request,peer)=>!activated?Promise.resolve(notReady()):new URL(request.url).pathname===providerSettingsPath&&providerSettings?providerSettings(request,peer):access.handle(request);
+  const settingsAccess=withBrowserProviderSettings(app,providerSettings,access.handle);
+  const localHandle:Parameters<typeof createHttpServer>[0]=(request,peer)=>activated?settingsAccess(request,peer):Promise.resolve(notReady());
   // macOS 允许通配绑定与已占用回环端口共存，先探测本机地址，防止打开其他服务。
   server=createHttpServer(localHandle);server.listen(settings.port,'127.0.0.1');await once(server,'listening');await close(server);
   server=createHttpServer(localHandle);server.listen(settings.port,'0.0.0.0');await once(server,'listening');
@@ -156,7 +156,7 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
  const lines=createInterface({input:process.stdin,crlfDelay:Infinity});
  const abort=new AbortController();
  type Attached=Exclude<Awaited<ReturnType<typeof attachDesktop>>,undefined|{error:string}>;
- let runtime:Awaited<ReturnType<typeof startDesktop>>|undefined,attached:Attached|undefined,starting=false,closing=false,detaching=false;
+ let runtime:Awaited<ReturnType<typeof startDesktop>>|undefined,attached:Attached|undefined,starting=false,closing=false,detaching=false,signalled=false;
  let monitor:ReturnType<typeof setInterval>|undefined,polling=false,stopRequests=0,stopAccepted=false,missed=0;
  let attachedSkill:AgentSkillStatus|undefined;
  const send=(value:unknown)=>process.stdout.write(JSON.stringify(value)+'\n');
@@ -168,19 +168,20 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
   try{if(runtime)await runtime.stop();else await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);}catch{process.exitCode=1;}
   process.exit(Number(process.exitCode??0));
  }
- const detach=()=>{detaching=true;abort.abort();if(!starting&&!stopRequests&&!stopAccepted)void stop();};
+ const detach=()=>{detaching=true;abort.abort();if(!starting&&!stopRequests&&!stopAccepted)void stop(attached&&signalled?1:0);};
  lines.on('close',detach);
- for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,detach);
+ for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{signalled=true;detach();});
  process.on('exit',()=>{void stopCodexProcesses();void stopClaudeProcesses();});
  // 丢弃原始异常及提供方输出，父进程只接收安全状态。
  process.on('uncaughtException',()=>{send({error:'服务意外退出，请重新启动。'});void stop(1);});
+ const ownerStopped=()=>!!attached&&desktopStopSucceeded(attached.directory,attached.owner.id);
  async function pollAttached(){
   if(!attached||closing||polling||stopRequests)return;
   polling=true;
   try{
    const owner=desktopOwner(attached.directory);
    if(!owner||owner.id!==attached.owner.id||!ownerProcessExists(owner.pid)){
-    if(stopAccepted&&desktopStopSucceeded(attached.directory,attached.owner.id)){await stop();return;}
+    if(ownerStopped()){await stop();return;}
     send({error:'书库服务已断开，请重新启动。'});await stop(1);return;
    }
    const status=await attached.request('status').catch(()=>undefined);
@@ -189,13 +190,13 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
   }finally{polling=false;}
  }
  lines.on('line',line=>{
-  if(line.length>20000){void stop();return;}
+  if(line.length>20000){void stop(attached?1:0);return;}
   if(attached){
    let command;try{command=JSON.parse(line);}catch{void stop(1);return;}
    if(command.action!=='stop'&&command.action!=='shutdown')return;
    stopRequests++;
    void attached.request(command.action==='shutdown'?'force':'stop').catch(()=>undefined).then(reply=>{
-    const accepted=reply?.accepted===true;
+    const accepted=reply?.accepted===true||ownerStopped();
     stopAccepted||=accepted;stopRequests--;
     if(command.action==='stop')send({stopReply:command.requestId,accepted,draining:reply?.draining===true});
     if(stopAccepted)void pollAttached();
@@ -228,7 +229,7 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
      attached=existing;
      attachedSkill=await ensureAgentSkill(root,{runtime:{node:process.execPath,cli:path.join(root,'dist/server/agent-cli.js')}});
      starting=false;
-     if(detaching){await stop();return;}
+     if(detaching){await stop(signalled?1:0);return;}
      send({...attached.status,agentSkill:attachedSkill});
      monitor=setInterval(()=>void pollAttached(),300);
      return;

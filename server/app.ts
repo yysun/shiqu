@@ -93,7 +93,11 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
  }
  // 立即停止：先停止调度，使中止的任务按停服中断处理、下次启动重新执行，再中止进行中的模型请求。
  function interruptWork(){production?.stop();shutdown.abort();}
- return {services,pauseMaintenance,drainForStop,interruptWork,get generating(){return production?.busy??false;},startGeneration:()=>production?.start(),stopGeneration:()=>production?.stop(),close(){
+ function handleApi(work:()=>Promise<Response>){
+  if(maintenance||shutdown.signal.aborted)return Promise.resolve(Response.json({error:'正在处理书库维护，请稍候。'},{status:503}));
+  return trackWork(work());
+ }
+ return {services,pauseMaintenance,drainForStop,interruptWork,handleApi,get generating(){return production?.busy??false;},startGeneration:()=>production?.start(),stopGeneration:()=>production?.stop(),close(){
   if(closed)return closing;
   production?.stop();closed=true;
   if(!production?.busy){void production?.close();local.close();return;}
@@ -103,8 +107,7 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
   try{
    if(url.pathname==='/api'||url.pathname.startsWith('/api/')){
     const segments=url.pathname.slice(5).split('/').filter(Boolean).map(decodeURIComponent);
-    if(maintenance)return Response.json({error:'正在处理书库维护，请稍候。'},{status:503});
-    return await trackWork(api(request,segments,cli));
+    return await handleApi(()=>api(request,segments,cli));
    }
    if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405});
    const pathname=decodeURIComponent(url.pathname);

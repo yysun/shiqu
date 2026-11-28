@@ -14,6 +14,7 @@ import {startupFixture,startFixtureCli,freeStartupPort} from './fixtures/startup
 import {productionFixture,selection} from './fixtures/production.mjs';
 import {libraryFixture} from './fixtures/story-library.mjs';
 import {withLocalBooks} from '../server/local-generation.ts';
+import {providerSettingsPath} from '../lib/provider-settings.ts';
 import {emptyPublication} from '../lib/story-publication.ts';
 import {createApplication} from '../server/app.ts';
 import {runDesktopBackupCommand} from '../server/desktop-backups.ts';
@@ -527,14 +528,17 @@ test('one online coordinator handles CLI production, browser authorization and c
 
 test('the desktop control channel waits for active work, then stops itself or stops at once', {timeout:30000},async t=>{
  const f=await startupFixture(t),directory=path.join(f.root,'desktop shelf'),port=await freeStartupPort();
+ f.store().close();
  const source=new URL('../server/desktop.ts',import.meta.url).href;
- const modules=['local-books','local-story-search','story-card-embeddings'].map(name=>new URL('../server/'+name+'.ts',import.meta.url).href);
+ const modules=['local-books','local-story-search','story-card-embeddings','imported-book-cards'].map(name=>new URL('../server/'+name+'.ts',import.meta.url).href);
  const program=`
   const {runDesktopControl}=await import(${JSON.stringify(source)});
-  const [{LocalBooks},{LocalStorySearch},{StoryCardEmbeddingStore}]=await Promise.all(${JSON.stringify(modules)}.map(path=>import(path)));
+  const [{LocalBooks},{LocalStorySearch},{StoryCardEmbeddingStore},{ImportedBookCards}]=await Promise.all(${JSON.stringify(modules)}.map(path=>import(path)));
   LocalBooks.prototype.book=async()=>({id:'zhuangzi',edition:'controlled'});
   LocalStorySearch.prototype.indexableCards=async()=>[];
   StoryCardEmbeddingStore.prototype.build=async()=>{process.send('embedding-active');await new Promise(resolve=>process.once('message',message=>{if(message==='crash')setTimeout(()=>{throw Error('controlled crash');});else resolve();}));return {completed:1,total:1};};
+  ImportedBookCards.prototype.run=async()=>{process.send('cards-active');return new Promise(()=>{});};
+  ImportedBookCards.prototype.cancel=async()=>({cancelled:true});
   await runDesktopControl(process.argv[1]);
  `;
  const child=spawn(process.execPath,['--input-type=module','-e',program,f.root],{cwd:f.root,env:f.env,stdio:['pipe','pipe','pipe','ipc']});
@@ -545,30 +549,36 @@ test('the desktop control channel waits for active work, then stops itself or st
  const send=value=>child.stdin.write(JSON.stringify(value)+'\n');
  const frames=()=>output.trimEnd().split('\n').map(line=>{try{return JSON.parse(line);}catch{return {};}});
  const start=async()=>{
-  send({action:'start',settings:{nodePath:process.execPath,dataDirectory:directory,port,internetEnabled:false,cloudflaredPath:'',provider:'readonly',textModel:'test-text',imageModel:'test-image',codexPath:'',codexModel:'',codexHome:''}});
+  send({action:'start',settingsFile:f.locations.settings,overrides:{SHIQU_AI_PROVIDER:'readonly'},settings:{nodePath:process.execPath,dataDirectory:directory,port,internetEnabled:false,cloudflaredPath:'',provider:'readonly',textModel:'test-text',imageModel:'test-image',codexPath:'',codexModel:'',codexHome:''}});
   return until(()=>frames().find(frame=>frame.running===true));
  };
  const live=await start();
  assert.equal(errors,'');
+ const settingsUrl=live.url+providerSettingsPath;
+ const {revision}=await (await fetch(settingsUrl)).json();
+ assert.equal(typeof revision,'number');
  const active=once(child,'message');
- const response=await fetch(live.url+'/api/reader/books/zhuangzi/embedding-index',{method:'POST',headers:{Origin:live.url}});
- assert.equal(response.status,200);
- const body=response.text().catch(()=>'');
+ const index=command(f,directory,['books','index','my-0123456789abcdef']);
  assert.equal((await active)[0],'embedding-active');
  // 有进行中的工作：回复等候，状态为 stopping，不再接收新请求，书库仍由该服务持有。
  send({action:'stop',requestId:41});
  assert.deepEqual(await until(()=>frames().find(frame=>frame.stopReply===41)),{stopReply:41,accepted:true,draining:true});
  await until(()=>frames().find(frame=>frame.state==='stopping'),4000);
+ const result=await index.result;
+ assert.equal(result.code,130);
+ assert.equal(result.body.error.code,'INTERRUPTED');
  const refused=await command(f,directory,['--backup',path.join(f.root,'busy backup')]).result;
  assert.equal(refused.code,1);
  assert.match(refused.stderr,/维护/);
  await assert.rejects(access(path.join(f.root,'busy backup')),{code:'ENOENT'});
  assert.equal((await fetch(live.url+'/api/reader/sessions')).status,503);
+ assert.equal((await fetch(settingsUrl)).status,503);
+ assert.equal((await fetch(settingsUrl,{method:'POST',headers:{Origin:live.url,'Content-Type':'application/json'},body:JSON.stringify({action:'reset',expectedRevision:revision})})).status,503);
+ const store=f.store();assert.equal(store.revision(),revision);store.close();
  assert.equal(child.exitCode,null);
  // 工作结束后自行退出并释放书库。
  child.send('finish');
  assert.equal((await exit)[0],0);
- await body;
  assert.equal(desktopOwner(directory),undefined);
 
  // 等候中发送 shutdown：立即停止，不等进行中的工作。
@@ -579,13 +589,15 @@ test('the desktop control channel waits for active work, then stops itself or st
  f.defer(async()=>{if(second.exitCode===null&&second.signalCode===null)second.kill('SIGKILL');await secondExit;});
  const secondFrames=()=>secondOutput.trimEnd().split('\n').map(line=>{try{return JSON.parse(line);}catch{return {};}});
  second.stdin.write(JSON.stringify({action:'start',settings:{nodePath:process.execPath,dataDirectory:directory,port,internetEnabled:false,cloudflaredPath:'',provider:'readonly',textModel:'test-text',imageModel:'test-image',codexPath:'',codexModel:'',codexHome:''}})+'\n');
- const relaunched=await until(()=>secondFrames().find(frame=>frame.running===true));
+ await until(()=>secondFrames().find(frame=>frame.running===true));
  const busy=once(second,'message');
- const pending=await fetch(relaunched.url+'/api/reader/books/zhuangzi/embedding-index',{method:'POST',headers:{Origin:relaunched.url}});
- void pending.text().catch(()=>'');
- await busy;
+ const cards=command(f,directory,['books','cards','my-0123456789abcdef']);
+ assert.equal((await busy)[0],'cards-active');
  second.stdin.write(JSON.stringify({action:'stop',requestId:7})+'\n');
  assert.deepEqual(await until(()=>secondFrames().find(frame=>frame.stopReply===7)),{stopReply:7,accepted:true,draining:true});
+ const cardsResult=await cards.result;
+ assert.equal(cardsResult.code,130);
+ assert.equal(cardsResult.body.error.code,'INTERRUPTED');
  second.stdin.write(JSON.stringify({action:'shutdown'})+'\n');
  assert.equal((await secondExit)[0],0);
  assert.equal(desktopOwner(directory),undefined);
@@ -609,20 +621,21 @@ test('the desktop control channel waits for active work, then stops itself or st
  assert.notEqual((await thirdExit)[0],0);
 });
 
-test('the browser service waits on Ctrl-C, ignores npm forwarding the same signal, and stops at a later second Ctrl-C', {timeout:40000},async t=>{
+test('terminal stop is visible to an attached desktop and the next Ctrl-C after the prompt force-stops', {timeout:40000},async t=>{
  if(process.platform==='win32')return t.skip('POSIX signals');
  const cliSource=new URL('../server/cli.ts',import.meta.url).href;
  const modules=['local-books','local-story-search','story-card-embeddings'].map(name=>new URL('../server/'+name+'.ts',import.meta.url).href);
  const program=`const [{LocalBooks},{LocalStorySearch},{StoryCardEmbeddingStore}]=await Promise.all(${JSON.stringify(modules)}.map(path=>import(path)));
   LocalBooks.prototype.book=async()=>({id:'zhuangzi',edition:'controlled'});
   LocalStorySearch.prototype.indexableCards=async()=>[];
-  StoryCardEmbeddingStore.prototype.build=async()=>{console.error('index-active');await new Promise(resolve=>setTimeout(resolve,Number(process.env.HOLD_MS)));return {completed:1,total:1};};
+  StoryCardEmbeddingStore.prototype.build=async()=>{console.error('index-active');await new Promise(resolve=>process.once('message',resolve));return {completed:1,total:1};};
+  if(process.env.npm_execpath)process.once('SIGINT',()=>setTimeout(()=>process.kill(process.pid,'SIGINT'),20));
   const {runCli}=await import(${JSON.stringify(cliSource)});await runCli(process.argv[1],process.argv.slice(2));`;
  const f=await startupFixture(t);
- async function launch(hold){
+ async function launch(npm=false){
   const port=await freeStartupPort(),directory=path.join(f.root,'browser library '+port);
   const child=spawn(process.execPath,['--input-type=module','-e',program,f.root,'--port',String(port),'--data-dir',directory],
-   {cwd:f.root,env:{...f.env,SHIQU_AI_PROVIDER:'readonly',HOLD_MS:String(hold)},stdio:['ignore','pipe','pipe']});
+   {cwd:f.root,env:{...f.env,SHIQU_AI_PROVIDER:'readonly',...(npm?{npm_execpath:'/test/npm-cli.js'}:{})},stdio:['ignore','pipe','pipe','ipc']});
   let output='';child.stdout.on('data',chunk=>{output+=chunk;});child.stderr.on('data',chunk=>{output+=chunk;});
   const exit=once(child,'exit');
   f.defer(async()=>{if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');await exit;});
@@ -630,26 +643,83 @@ test('the browser service waits on Ctrl-C, ignores npm forwarding the same signa
   const response=await fetch(url+'/api/reader/books/zhuangzi/embedding-index',{method:'POST',headers:{Origin:url}});
   void response.text().catch(()=>'');
   await until(()=>output.includes('index-active'));
-  return {child,exit,url,output:()=>output};
+  return {child,exit,url,directory,output:()=>output};
  }
  // 第一次 Ctrl-C：等进行中的工作结束后自行退出，期间拒绝新请求。npm 紧接着转发的同一信号不算第二次。
- const waiting=await launch(2500),started=Date.now();
- waiting.child.kill('SIGINT');waiting.child.kill('SIGINT');
+ const waiting=await launch(true);
+ const detached=desktopBridge(f,waiting.directory,await freeStartupPort());
+ assert.equal((await detached.wait(frame=>frame.running)).pid,waiting.child.pid);
+ detached.child.kill('SIGTERM');
+ assert.equal((await detached.exit)[0],1);
+ const bridge=desktopBridge(f,waiting.directory,await freeStartupPort());
+ assert.equal((await bridge.wait(frame=>frame.running)).pid,waiting.child.pid);
+ waiting.child.kill('SIGINT');
  await until(()=>waiting.output().includes('正在等待当前步骤保存后停止服务'));
  await delay(300);
  assert.equal(waiting.child.exitCode,null);
  assert.equal((await fetch(waiting.url+'/api/reader/sessions')).status,503);
+ assert.equal((await fetch(waiting.url+providerSettingsPath)).status,503);
+ await bridge.wait(frame=>frame.state==='stopping');
+ waiting.child.send('finish');
  assert.equal((await waiting.exit)[0],0);
- assert.ok(Date.now()-started>=2000);
- // 等候中稍后再按一次 Ctrl-C：立即停止。
- const forced=await launch(60000),begun=Date.now();
- forced.child.kill('SIGINT');
- await until(()=>forced.output().includes('正在等待当前步骤保存后停止服务'));
- await delay(1700);
- assert.equal(forced.child.exitCode,null);
- forced.child.kill('SIGINT');
- assert.equal((await forced.exit)[0],0);
- assert.ok(Date.now()-begun<15000);
+ assert.equal((await bridge.exit)[0],0);
+ assert.equal(desktopOwner(waiting.directory),undefined);
+ const restarted=desktopBridge(f,waiting.directory,await freeStartupPort());
+ assert.notEqual((await restarted.wait(frame=>frame.running)).pid,waiting.child.pid);
+ restarted.send({action:'shutdown'});
+ assert.equal((await restarted.exit)[0],0);
+ // 直接启动和 npm 启动均可在提示出现后立即再次中断。
+ for(const npm of [false,true]){
+  const forced=await launch(npm);
+  forced.child.kill('SIGINT');
+  await until(()=>forced.output().includes('正在等待当前步骤保存后停止服务'));
+  assert.equal(forced.child.exitCode,null);
+  forced.child.kill('SIGINT');
+  await until(()=>forced.child.exitCode!==null,2500);
+  assert.equal((await forced.exit)[0],0);
+  assert.equal(desktopOwner(forced.directory),undefined);
+ }
+});
+
+test('a cancelled index in an automatic worker finishes cleanup before accepting the next command', {timeout:16000},async t=>{
+ const f=await startupFixture(t),directory=path.join(f.root,'index shelf');
+ const modules=['local-books','local-story-search','story-card-embeddings','cli-service'].map(name=>new URL('../server/'+name+'.ts',import.meta.url).href);
+ const program=`
+  const [{LocalBooks},{LocalStorySearch},{StoryCardEmbeddingStore},{runCliServiceProcess}]=await Promise.all(${JSON.stringify(modules)}.map(path=>import(path)));
+  LocalBooks.prototype.book=async()=>({id:'my-0123456789abcdef',edition:'controlled'});
+  LocalStorySearch.prototype.indexableCards=async()=>[];
+  StoryCardEmbeddingStore.prototype.build=async(_book,_cards,signal)=>{
+   process.send('index-active');
+   await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));
+   process.send('index-aborted');
+   await new Promise(resolve=>process.once('message',resolve));
+   signal.throwIfAborted();
+  };
+  await runCliServiceProcess(process.argv[1],process.argv[2]);
+ `;
+ const environment={...f.env,SHIQU_AI_PROVIDER:'readonly'};
+ const worker=spawn(process.execPath,['--input-type=module','-e',program,f.root,directory],{cwd:f.root,env:environment,stdio:['ignore','pipe','pipe','ipc']});
+ const exit=once(worker,'exit'),events=[];
+ worker.on('message',event=>events.push(event));
+ f.defer(async()=>{if(worker.exitCode===null&&worker.signalCode===null)worker.kill('SIGKILL');await exit;});
+ const owner=await until(()=>{const record=desktopOwner(directory);return record?.service&&record;});
+ const controller=new AbortController();
+ const index=callCliService(f.root,directory,['books','index','my-0123456789abcdef'],f.root,environment,undefined,controller.signal);
+ void index.catch(()=>{});
+ await until(()=>events.includes('index-active'));
+ controller.abort();
+ await until(()=>events.includes('index-aborted'));
+ let returned=false;
+ const next=callCliService(f.root,directory,['stories','list'],f.root,environment).finally(()=>{returned=true;});
+ void next.catch(()=>{});
+ await delay(850);
+ assert.equal(returned,false);
+ assert.equal(desktopOwner(directory)?.id,owner.id);
+ worker.send('finish');
+ assert.deepEqual(await index,{cancelled:true});
+ assert.deepEqual(await next,[]);
+ await until(()=>desktopOwner(directory)===undefined);
+ assert.equal((await exit)[0],0);
 });
 
 test('Skill completes selection, confirmation and export without stopping the online service', {timeout:25000},async t=>{

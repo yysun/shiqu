@@ -18,14 +18,32 @@ import {checkProviderVariables} from '../server/provider-runtime.ts';
 import {providerSettingsPath as route} from '../lib/provider-settings.ts';
 import {privateNetworkAddress} from '../server/provider-settings-access.ts';
 const failNetwork=async()=>{throw Error('禁止测试外网请求');};
-async function fixture(t,patch={},overrides={}){
+async function fixture(t,patch={},overrides={},transport=failNetwork){
  const f=await startupFixture(t),file=path.join(f.root,'native-config','desktop.sqlite'),library=path.join(f.root,'console-library');
  const store=new SystemSettingsStore(file,library),settings=store.save({port:await freeStartupPort(),...patch});store.close();
- const events=[],runtime=await startDesktop(settings,'',f.root,{settingsFile:file,overrides,onStatus:value=>events.push(value),transport:failNetwork});f.defer(()=>runtime.stop());
+ const events=[],runtime=await startDesktop(settings,'',f.root,{settingsFile:file,overrides,onStatus:value=>events.push(value),transport});f.defer(()=>runtime.stop());
  const base=runtime.status.url,read=()=>fetch(base+route),save=body=>fetch(base+route,{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify(body)});
  return {...f,file,library,settings,events,runtime,base,read,save,store:()=>new SystemSettingsStore(file,library,{existingOnly:true})};
 }
 const edit=(view,settings,extra={})=>({settings,expectedRevision:view.revision,keyAction:'keep',...extra});
+test('desktop stop tracks a provider settings check and force-stop aborts it', {timeout:8000},async t=>{
+ const started=Promise.withResolvers(),cancelled=Promise.withResolvers();
+ const transport=(_url,{signal})=>new Promise((_,reject)=>{
+  started.resolve();
+  signal.addEventListener('abort',()=>{cancelled.resolve();reject(signal.reason);},{once:true});
+ });
+ const f=await fixture(t,{provider:'gemini',providerConfigured:true},{GEMINI_API_KEY:'controlled'},transport);
+ const {revision}=await (await f.read()).json();
+ const pending=f.save({action:'check',expectedRevision:revision}).catch(()=>undefined);
+ await started.promise;
+ const drain=f.runtime.prepareStop();
+ assert.equal(drain.idle,false);
+ assert.equal((await f.read()).status,503);
+ await f.runtime.stop();
+ await cancelled.promise;
+ await drain.settled;
+ await pending;
+});
 test('fresh desktop starts without generation setup; reader works and generation cannot create a partial production',async t=>{
  const f=await fixture(t),view=await(await f.read()).json();
  assert.equal(f.runtime.status.running,true);assert.deepEqual(f.events.slice(0,2).map(s=>s.state),['upgrading','starting']);assert.equal(view.runtime.configured,false);assert.equal(f.runtime.status.provider.configured,false);
