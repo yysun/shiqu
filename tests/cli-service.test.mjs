@@ -399,6 +399,49 @@ test('the desktop control channel waits for active work, then stops itself or st
  assert.equal(desktopOwner(directory),undefined);
 });
 
+test('the browser service waits on Ctrl-C, ignores npm forwarding the same signal, and stops at a later second Ctrl-C', {timeout:40000},async t=>{
+ if(process.platform==='win32')return t.skip('POSIX signals');
+ const cliSource=new URL('../server/cli.ts',import.meta.url).href;
+ const modules=['local-books','local-story-search','story-card-embeddings'].map(name=>new URL('../server/'+name+'.ts',import.meta.url).href);
+ const program=`const [{LocalBooks},{LocalStorySearch},{StoryCardEmbeddingStore}]=await Promise.all(${JSON.stringify(modules)}.map(path=>import(path)));
+  LocalBooks.prototype.book=async()=>({id:'zhuangzi',edition:'controlled'});
+  LocalStorySearch.prototype.indexableCards=async()=>[];
+  StoryCardEmbeddingStore.prototype.build=async()=>{console.error('index-active');await new Promise(resolve=>setTimeout(resolve,Number(process.env.HOLD_MS)));return {completed:1,total:1};};
+  const {runCli}=await import(${JSON.stringify(cliSource)});await runCli(process.argv[1],process.argv.slice(2));`;
+ const f=await startupFixture(t);
+ async function launch(hold){
+  const port=await freeStartupPort(),directory=path.join(f.root,'browser library '+port);
+  const child=spawn(process.execPath,['--input-type=module','-e',program,f.root,'--port',String(port),'--data-dir',directory],
+   {cwd:f.root,env:{...f.env,SHIQU_AI_PROVIDER:'readonly',HOLD_MS:String(hold)},stdio:['ignore','pipe','pipe']});
+  let output='';child.stdout.on('data',chunk=>{output+=chunk;});child.stderr.on('data',chunk=>{output+=chunk;});
+  const exit=once(child,'exit');
+  f.defer(async()=>{if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');await exit;});
+  const url=(await until(()=>output.match(/拾趣: (http:\/\/[^\s/]+)/),15000))[1];
+  const response=await fetch(url+'/api/reader/books/zhuangzi/embedding-index',{method:'POST',headers:{Origin:url}});
+  void response.text().catch(()=>'');
+  await until(()=>output.includes('index-active'));
+  return {child,exit,url,output:()=>output};
+ }
+ // 第一次 Ctrl-C：等进行中的工作结束后自行退出，期间拒绝新请求。npm 紧接着转发的同一信号不算第二次。
+ const waiting=await launch(2500),started=Date.now();
+ waiting.child.kill('SIGINT');waiting.child.kill('SIGINT');
+ await until(()=>waiting.output().includes('正在等待当前步骤保存后停止服务'));
+ await delay(300);
+ assert.equal(waiting.child.exitCode,null);
+ assert.equal((await fetch(waiting.url+'/api/reader/sessions')).status,503);
+ assert.equal((await waiting.exit)[0],0);
+ assert.ok(Date.now()-started>=2000);
+ // 等候中稍后再按一次 Ctrl-C：立即停止。
+ const forced=await launch(60000),begun=Date.now();
+ forced.child.kill('SIGINT');
+ await until(()=>forced.output().includes('正在等待当前步骤保存后停止服务'));
+ await delay(1700);
+ assert.equal(forced.child.exitCode,null);
+ forced.child.kill('SIGINT');
+ assert.equal((await forced.exit)[0],0);
+ assert.ok(Date.now()-begun<15000);
+});
+
 test('Skill completes selection, confirmation and export without stopping the online service', {timeout:25000},async t=>{
  const cleanup=[];
  const f=await productionFixture({after:fn=>cleanup.push(fn)});await f.stop();f.control.autoLength=3;f.control.hold=false;

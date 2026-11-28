@@ -41,13 +41,15 @@ export async function startServer({root,variables=process.env,localAccess=false,
   });
  }
  // 第一次 Ctrl-C 等已领取的步骤保存后停止；等候中再次 Ctrl-C 或 SIGTERM 立即停止。
- let draining=false;
+ // npm/npx 会把同一次 Ctrl-C 再转发一次 SIGINT，短时间内的重复信号不算第二次。
+ let drainingSince=0;
  function stop(force:boolean){
   if(stopping)return;
-  if(!force&&!draining&&cli){
+  if(!force&&drainingSince&&Date.now()-drainingSince<1500)return;
+  if(!force&&!drainingSince&&cli){
    const {idle,settled}=cli.drain();
    if(!idle){
-    draining=true;
+    drainingSince=Date.now();
     console.error('正在等待当前步骤保存后停止服务；再按一次 Ctrl-C 立即停止。');
     void settled.then(()=>stop(true));
     return;

@@ -261,8 +261,8 @@ async fn start_server(
     let shared = state.0.clone();
     blocking(move || {
         let mut control = shared.lock().map_err(|_| "服务控制器不可用。")?;
-        if control.draining {
-            return Err("服务正在停止，请等待完成后再启动。".into());
+        if let Some(error) = start_refusal(&control) {
+            return Err(error.into());
         }
         if let Some(runtime) = &mut control.runtime {
             return Ok(runtime.snapshot());
@@ -321,6 +321,18 @@ fn stop_control(state: &DesktopState) {
         control.last_error = None;
         return;
     }
+}
+/// 子进程已退出：等候停止后的自行退出是正常停止，其他退出记为失败。
+fn settle_exit(control: &mut Control) {
+    drop(control.runtime.take());
+    control.last_error = (!control.draining).then(|| "服务已退出，请检查设置后重新启动。".into());
+    control.draining = false;
+}
+/// 等候停止期间不接受启动，避免把仍在收尾的实例当作已启动。
+fn start_refusal(control: &Control) -> Option<&'static str> {
+    control
+        .draining
+        .then_some("服务正在停止，请等待完成后再启动。")
 }
 /// 常规停止：返回 true 表示已停止；false 表示服务在等已领取的步骤保存，保留子进程直到它自行退出。
 fn request_stop_control(state: &DesktopState) -> Result<bool, String> {
@@ -440,12 +452,7 @@ async fn server_status(state: tauri::State<'_, DesktopState>) -> Result<Value, S
                     }
                     return Ok(status);
                 }
-                _ => {
-                    drop(control.runtime.take());
-                    // 等候停止后的自行退出是正常停止。
-                    control.last_error = (!draining).then(|| "服务已退出，请检查设置后重新启动。".into());
-                    control.draining = false;
-                }
+                _ => settle_exit(&mut control),
             }
         }
         Ok(json!({"running":false,"state":if control.last_error.is_some(){"failed"}else{"stopped"},"phoneUrls":[],"error":control.last_error}))
@@ -614,6 +621,18 @@ fn thread_stop(app: tauri::AppHandle, quitting: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn drained_exit_counts_as_stopped_and_blocks_restart_until_then() {
+        let mut control = Control::default();
+        control.draining = true;
+        assert!(start_refusal(&control).is_some());
+        settle_exit(&mut control);
+        assert_eq!(control.last_error, None);
+        assert!(!control.draining);
+        assert!(start_refusal(&control).is_none());
+        settle_exit(&mut control);
+        assert!(control.last_error.is_some());
+    }
     #[test]
     fn stop_and_exit_wait_for_startup_without_holding_the_controller_lock() {
         let state = DesktopState::default();
