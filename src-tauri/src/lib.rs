@@ -312,10 +312,11 @@ fn stop_control(state: &DesktopState) -> Result<(), String> {
             std::thread::sleep(std::time::Duration::from_millis(100));
             continue;
         }
+        let draining = control.draining;
         let result = control
             .runtime
             .take()
-            .map_or(Ok(()), |mut runtime| runtime.stop());
+            .map_or(Ok(()), |mut runtime| runtime.stop(draining));
         control.draining = false;
         control.last_error = result.as_ref().err().cloned();
         if result.is_err() {

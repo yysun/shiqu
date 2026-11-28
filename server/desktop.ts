@@ -169,7 +169,7 @@ export async function runDesktopControl(root=path.resolve(path.dirname(fileURLTo
   process.exit(Number(process.exitCode??0));
  }
  lines.on('close',()=>{inputClosed=true;abort.abort();if(!starting&&!stopRequests&&!stopAccepted)void stop();});
- for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{abort.abort();if(!starting)void stop();});
+ for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{abort.abort();if(!starting&&!stopRequests&&!stopAccepted)void stop();});
  process.on('exit',()=>{void stopCodexProcesses();void stopClaudeProcesses();});
  // 丢弃原始异常及提供方输出，父进程只接收安全状态。
  process.on('uncaughtException',()=>{send({error:'服务意外退出，请重新启动。'});void stop(1);});

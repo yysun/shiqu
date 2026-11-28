@@ -352,13 +352,13 @@ impl Runtime {
             }
         }
     }
-    pub fn stop(&mut self) -> Result<(), String> {
+    pub fn stop(&mut self, drain_acknowledged: bool) -> Result<(), String> {
         let sent = self.child.stdin.take().map_or(true, |mut input| {
             input.write_all(b"{\"action\":\"shutdown\"}\n").is_ok()
         });
         // 私有控制进程以退出码报告实际停止结果；接入时 EOF 本身只断开连接。
         let stopped = wait(&mut self.child, Duration::from_secs(8));
-        if sent && stopped.is_ok() {
+        if (sent || drain_acknowledged) && stopped.is_ok() {
             Ok(())
         } else {
             Err("没有确认书库服务已停止，请重新连接并检查状态。".into())
@@ -367,7 +367,7 @@ impl Runtime {
 }
 impl Drop for Runtime {
     fn drop(&mut self) {
-        let _ = self.stop();
+        let _ = self.stop(false);
     }
 }
 
