@@ -130,9 +130,14 @@ export async function startCliService(root:string,directory:string,runtime:Runti
 }
 
 export async function runCliServiceProcess(root:string,directory:string){
+ if(process.send&&!process.connected)return;
+ const reply=(message:string|Failure)=>{if(process.connected)process.send?.(message,()=>{});};
  let release:()=>void;
  try{release=ownDesktopDataSync(directory,true);}
- catch(error){process.send?.(cliFailure(error));return;}
+ catch(error){reply(cliFailure(error));return;}
+ let abandoned=false;
+ const disconnected=()=>{abandoned=true;};
+ process.once('disconnect',disconnected);
  const onSignal=()=>{void stop();};
  let service:Awaited<ReturnType<typeof startCliService>>|undefined,stopping:Promise<void>|undefined;
  const stop=()=>stopping??=(async()=>{
@@ -140,10 +145,12 @@ export async function runCliServiceProcess(root:string,directory:string){
  })();
  try{
   service=await startCliService(root,directory,{managed:{onIdle:onSignal}});
+  process.off('disconnect',disconnected);
+  if(abandoned){await stop();return;}
   process.once('SIGINT',onSignal);process.once('SIGTERM',onSignal);
-  process.send?.('ready');
+  reply('ready');
  }catch(error){
-  process.send?.(cliFailure(error));
+  process.off('disconnect',disconnected);reply(cliFailure(error));
   await stop();
  }
 }
@@ -166,13 +173,7 @@ function launch(root:string,directory:string,environment:NodeJS.ProcessEnv){
  child.unref();child.channel?.unref();
  return {
   get failure(){return failure;},get pending(){return !finished;},
-  abandon(){
-   if(!finished){
-    const owner=desktopOwner(directory);
-    if(owner?.pid!==child.pid||!owner?.service)child.kill();
-   }
-   if(child.connected)child.disconnect();
-  },
+  disconnect(){if(child.connected)child.disconnect();},
  };
 }
 
@@ -289,5 +290,5 @@ export async function callCliService(root:string,directory:string,args:string[],
   }
   if(controller.signal.aborted)throw interrupted();
   throw new CliCommandError('LIBRARY_BUSY','The local library service did not become available. Check the service and retry.',1);
- }finally{child?.abandon();process.off('SIGINT',stop);process.off('SIGTERM',stop);signal?.removeEventListener('abort',stop);}
+ }finally{child?.disconnect();process.off('SIGINT',stop);process.off('SIGTERM',stop);signal?.removeEventListener('abort',stop);}
 }
